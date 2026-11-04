@@ -7,6 +7,7 @@ import { PairForm } from "./components/PairForm"
 import { ServersPanel } from "./components/ServersPanel"
 import { TitleBar } from "./components/TitleBar"
 import { TrustScreen } from "./components/TrustScreen"
+import { useUpdates } from "./components/Updates"
 
 type Panel = null | { kind: "manage"; pairing: boolean }
 type Sheet = null | { server: Server; approval: Approval }
@@ -23,6 +24,7 @@ export function App() {
   const [active, setActive] = useState<string | undefined>(remembered)
   const [panel, setPanel] = useState<Panel>(null)
   const [sheet, setSheet] = useState<Sheet>(null)
+  const updates = useUpdates()
   // Whether each server's page will load here (see api.pageTrusted).
   const [pages, setPages] = useState<Record<string, "trusted" | "untrusted">>({})
 
@@ -96,6 +98,7 @@ export function App() {
         server={panel ? undefined : current}
         status={current ? statuses[current.id] : undefined}
         waiting={waiting.length}
+        updates={updates}
         onApprovals={() => waiting[0] && setSheet(waiting[0])}
         onReload={() => current && api.reloadServer(current.id)}
       />
@@ -114,6 +117,7 @@ export function App() {
             servers={servers}
             statuses={statuses}
             startPairing={panel.pairing}
+            updates={updates}
             onChanged={loadServers}
             onClose={() => setPanel(null)}
           />

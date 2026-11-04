@@ -169,8 +169,9 @@ jobs:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: gh release upload "$VERSION" dist/legato-desktop-x86_64.AppImage dist/legato-desktop-SHA256SUMS
 
-  # The desktop app for Apple Silicon Macs, as a disk image: ad hoc signed,
-  # not notarized, and not yet self-updating.
+  # The desktop app for Apple Silicon Macs: a disk image to install from, and
+  # Legato.app as a gzipped tar, which an installed copy updates itself from
+  # (desktop/src-tauri/src/updates.rs). Ad hoc signed, not notarized.
   desktop-macos:
     needs: release
     if: needs.release.outputs.desktop == 'true'
@@ -203,22 +204,42 @@ jobs:
         working-directory: desktop
         run: pnpm install --frozen-lockfile
 
+      # The runner's malware scanner, XProtect, can hold a new disk image
+      # open, and hdiutil then fails with "Resource busy". Stop it first, and
+      # try the build three times (a retry is quick: the compile is cached).
+      - name: Stop XProtect
+        run: |
+          sudo pkill -9 XProtect || true
+          for _ in $(seq 10); do pgrep XProtect >/dev/null || break; sleep 3; done
+
       - name: Build
         working-directory: desktop
         env:
           LEGATO_DESKTOP_VERSION: ${{ needs.release.outputs.version }}
-        run: pnpm tauri build --bundles dmg --config "{\"version\":\"${VERSION#v}\"}"
+        run: |
+          for attempt in 1 2 3; do
+            pnpm tauri build --bundles app,dmg --config "{\"version\":\"${VERSION#v}\"}" && exit 0
+            echo "::warning::build attempt $attempt failed; trying again"
+            sleep 20
+          done
+          exit 1
 
+      # COPYFILE_DISABLE keeps macOS's tar from adding ._ files for extended
+      # attributes; the code signature is in the bundle's own files.
       - name: Name it
         run: |
           mkdir -p dist
           cp desktop/src-tauri/target/release/bundle/dmg/*.dmg dist/legato-desktop-macos-arm64.dmg
+          COPYFILE_DISABLE=1 tar -czf dist/legato-desktop-macos-arm64.app.tar.gz -C desktop/src-tauri/target/release/bundle/macos Legato.app
+          (cd dist && shasum -a 256 legato-desktop-macos-arm64.dmg legato-desktop-macos-arm64.app.tar.gz > legato-desktop-macos-SHA256SUMS)
 
       - uses: actions/attest-build-provenance@v2
         with:
-          subject-path: dist/legato-desktop-macos-arm64.dmg
+          subject-path: |
+            dist/legato-desktop-macos-arm64.dmg
+            dist/legato-desktop-macos-arm64.app.tar.gz
 
       - name: Attach to the release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: gh release upload "$VERSION" dist/legato-desktop-macos-arm64.dmg
+        run: gh release upload "$VERSION" dist/legato-desktop-macos-arm64.dmg dist/legato-desktop-macos-arm64.app.tar.gz dist/legato-desktop-macos-SHA256SUMS

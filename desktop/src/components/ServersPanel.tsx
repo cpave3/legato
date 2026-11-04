@@ -2,11 +2,13 @@ import { useCallback, useEffect, useState } from "react"
 import { api, errorText, initials, tintColor, type Key, type Server, type Status, type TouchId } from "../api"
 import { PairForm } from "./PairForm"
 import { Fingerprint, KeyIcon, Lock, Plus, Servers } from "./Icons"
+import { UpdatesSection, type Updates } from "./Updates"
 
 type Props = {
   servers: Server[]
   statuses: Record<string, Status>
   startPairing: boolean
+  updates: Updates
   onChanged: () => void
   onClose: () => void
 }
@@ -14,7 +16,7 @@ type Props = {
 // Servers and keys. A key is added once (a touch, and its PIN if it insists;
 // on a Mac, Touch ID can be one) and enrolled on every server; revoking it
 // here asks every server to drop it.
-export function ServersPanel({ servers, statuses, startPairing, onChanged, onClose }: Props) {
+export function ServersPanel({ servers, statuses, startPairing, updates, onChanged, onClose }: Props) {
   const [pairing, setPairing] = useState(startPairing)
   const [keys, setKeys] = useState<Key[] | null>(null)
   const [error, setError] = useState("")
@@ -77,6 +79,8 @@ export function ServersPanel({ servers, statuses, startPairing, onChanged, onClo
         </div>
         {touchId?.mac && !touchId.available && <p className="dim small">Touch ID can't sign here: {touchId.reason}</p>}
       </div>
+
+      <UpdatesSection updates={updates} />
 
       {note && <p className="note">{note}</p>}
       {error && <p className="error">{error}</p>}

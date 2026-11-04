@@ -40,6 +40,9 @@ base64 = "0.22"
 hex = "0.4"
 dirs = "5"
 mdns-sd = "0.21"
+# Unpacking a Mac update: Legato.app as a gzipped tar.
+tar = "0.4"
+flate2 = "1"
 keyring = { version = "3", features = ["apple-native", "windows-native", "sync-secret-service", "crypto-rust"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]

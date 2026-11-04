@@ -65,16 +65,17 @@ When a server knows Touch ID, the sheet asks for your fingerprint instead of a t
 
 ## Updates
 
-The AppImage keeps itself current. It checks GitHub for a newer release with a desktop build when it starts and every six hours. When there is one, the title bar shows **Update to vX.Y.Z**: click it, and the app downloads the new AppImage, checks it against the release's checksums, and puts it in place of the old one, which it keeps beside it as `.prev`. Then click **Restart to update**.
+The app keeps itself current. It checks GitHub for a newer release with a desktop build when it starts and every six hours, and when you click **Check for updates** under **This app** in **Servers & keys**. When there is one, the title bar shows **Update to vX.Y.Z**: click it, and the app downloads the new version, checks it against the release's checksums, and puts it in place of the old one, which it keeps beside it (the AppImage as `.prev`; on a Mac, a hidden `.Legato.app.prev`). Then click **Restart to update**.
 
 A copy built from source says it is `dev` and never updates itself.
 
 ## On a Mac
 
-There is a disk image for Apple Silicon Macs, `legato-desktop-macos-arm64.dmg`. It is not notarized: the first time, right-click the app and choose **Open**. For now it has limits the Linux build does not:
+There is a disk image for Apple Silicon Macs, `legato-desktop-macos-arm64.dmg`. Drag Legato to Applications. It is not notarized, so the first time macOS refuses to open it: open System Settings › Privacy & Security and click **Open Anyway** (on macOS 14 and earlier, right-click the app and choose **Open**). For now it has limits the Linux build does not:
 
 - A server's page loads only when the Mac trusts the server's certificate: a certificate from a public authority, or Legato's own CA. When it does not, the app says so in place of the blank page and offers the CA it pinned when it paired. **Trust it on this Mac** asks for your password and trusts that CA for that server's address only. **Save the certificate** puts it in Downloads, with the steps to trust it in Keychain Access yourself, which trusts it for every site. Pairing, keys and approvals work either way.
-- It does not update itself; download the new disk image.
+- It updates itself only from the Applications folder. Opened from the disk image or from Downloads, macOS runs it from a read-only copy, and the app says to move it.
+- The first update may be stopped by macOS: if it says Legato was prevented from modifying apps, allow Legato in System Settings › Privacy & Security › App Management, and update again.
 - Touch ID is new and has had little use on a Mac.
 
 ## Build it yourself

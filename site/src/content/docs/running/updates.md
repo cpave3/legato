@@ -82,7 +82,7 @@ Legato also keeps [Staccato](/legato/integrations/staccato/)'s `st` up to date, 
 
 ## The desktop app
 
-The desktop app's AppImage updates itself from the same releases, when a release carries a new desktop build. See [The desktop app](/legato/running/desktop-app/#updates).
+The desktop app updates itself from the same releases, when a release carries a new desktop build. See [The desktop app](/legato/running/desktop-app/#updates).
 
 ## Limits
 

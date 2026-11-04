@@ -22,6 +22,13 @@ LEGATO_DESKTOP_STATE=/tmp/desktop-state.json task desktop:dev
 
 Tokens still go to your keyring under `dev.legato.desktop`; removing a server in the app deletes its token.
 
+To try updating on a Mac, build an older version, put it in Applications, and let it update to the newest release that carries a Mac build:
+
+```bash
+LEGATO_DESKTOP_VERSION=v0.0.1 pnpm tauri build --bundles app
+cp -R src-tauri/target/release/bundle/macos/Legato.app /Applications/
+```
+
 ## Layout
 
 | File | What it is |
@@ -37,7 +44,7 @@ Tokens still go to your keyring under `dev.legato.desktop`; removing a server in
 | `src-tauri/touchid/` | The Swift that reaches the Secure Enclave, linked on a Mac only |
 | `src-tauri/src/store.rs` | The state file and the keyring |
 | `src-tauri/src/discovery.rs` | Servers on the network over mDNS |
-| `src-tauri/src/updates.rs` | The AppImage updating itself from GitHub releases |
+| `src-tauri/src/updates.rs` | The AppImage, and Legato.app on a Mac, updating themselves from GitHub releases |
 | `src/` | The shell: title bar, dock, panels, the approval sheet |
 
 `tests/fixtures/pairing-exchange.json` is a copy of the server's recorded exchange: `go test ./internal/engine/pairing` fails when it differs, and `-update` rewrites it. `resources/pairing-words.txt` is the server's word list; a test here checks its digest against the one the Go test holds. `tests/fixtures/touch-id-key.json` is what the app builds for a known Touch ID key: `LEGATO_UPDATE_FIXTURES=1 cargo test --lib` rewrites it, and `go test ./internal/service` enrolls and signs with it.

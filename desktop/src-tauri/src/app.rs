@@ -19,7 +19,7 @@ use crate::store::{Keyring, Server, Store};
 use crate::updates;
 use crate::webauthn::{self, Attachment, ORIGIN, RP_ID};
 use crate::discovery::{Browser, Found};
-use crate::{fido, pin::Pin, systrust, touchid};
+use crate::{fido, systrust, touchid};
 
 // The shell's chrome, in logical pixels: the title bar across the top and
 // the dock down the left. Server pages fill the rest.
@@ -180,7 +180,7 @@ fn make_server_view(app: &AppHandle, server: &Server, token: Option<String>) -> 
 
     #[cfg(target_os = "linux")]
     {
-        let pin = server.ca_pem.as_deref().map(Pin::from_pem).transpose()?;
+        let pin = server.ca_pem.as_deref().map(crate::pin::Pin::from_pem).transpose()?;
         let target = server.url.clone();
         view.with_webview(move |platform| {
             use webkit2gtk::gio::prelude::TlsCertificateExt;
@@ -761,13 +761,31 @@ fn appimage() -> Option<std::path::PathBuf> {
     std::env::var_os("APPIMAGE").map(Into::into).filter(|p: &std::path::PathBuf| p.is_file())
 }
 
-/// This build's version, and the newest release with a desktop build.
+/// What this copy replaces to update: the AppImage on Linux, the app bundle
+/// on a Mac; or why it cannot update itself.
+enum Installed {
+    AppImage(std::path::PathBuf),
+    Bundle(std::path::PathBuf),
+}
+
+fn installed() -> Result<Installed, String> {
+    if cfg!(target_os = "macos") {
+        let exe = std::env::current_exe().map_err(|e| e.to_string())?;
+        updates::app_bundle(&exe).map(Installed::Bundle)
+    } else {
+        appimage().map(Installed::AppImage).ok_or_else(|| "Only the AppImage updates itself; this copy was not started as one.".into())
+    }
+}
+
+/// Whether a newer release has this platform's build, and whether this copy
+/// can install it (if not, why: `reason`).
 #[tauri::command]
 async fn check_update() -> Result<Value, String> {
     let current = updates::version();
-    if updates::parse(current).is_none() {
+    let platform = updates::this_platform();
+    let (Some(platform), Some(_)) = (platform, updates::parse(current)) else {
         return Ok(json!({ "version": current, "latest": null, "available": false, "can_install": false }));
-    }
+    };
     let releases: Vec<Value> = github()
         .get(format!("https://api.github.com/repos/{}/releases?per_page=30", updates::REPOSITORY))
         .header("Accept", "application/vnd.github+json")
@@ -779,16 +797,19 @@ async fn check_update() -> Result<Value, String> {
         .json()
         .await
         .map_err(|e| e.to_string())?;
-    let latest = updates::newest_with(&releases, updates::APPIMAGE);
+    let latest = updates::newest_with(&releases, &platform);
     let available = latest.as_ref().is_some_and(|c| updates::newer(&c.version, current));
-    Ok(json!({ "version": current, "latest": latest, "available": available, "can_install": appimage().is_some() }))
+    let reason = installed().err();
+    Ok(json!({ "version": current, "latest": latest, "available": available, "can_install": reason.is_none(), "reason": reason }))
 }
 
-/// Downloads the newest AppImage, checks it, and puts it in place of this
-/// one, which is kept as `.prev`. It runs at the next start.
+/// Downloads the newest release's build for this platform, checks it
+/// against the release's checksums, and puts it in place of this copy, the
+/// old one kept beside it. Says the version installed; restart_app starts it.
 #[tauri::command]
 async fn apply_update() -> Result<String, String> {
-    let target = appimage().ok_or("Only the AppImage updates itself; this copy was not started as one.")?;
+    let target = installed()?;
+    let platform = updates::this_platform().ok_or("No build of the app is made for this computer.")?;
     let status = check_update().await?;
     if status["available"] != true {
         return Err("Nothing newer to install.".into());
@@ -803,17 +824,29 @@ async fn apply_update() -> Result<String, String> {
         }
     };
     let sums = String::from_utf8(fetch(latest.sums_url.clone()).await?.to_vec()).map_err(|e| e.to_string())?;
-    let bytes = fetch(latest.appimage_url.clone()).await?;
-    updates::check_sum(&bytes, &sums, updates::APPIMAGE)?;
-    tauri::async_runtime::spawn_blocking(move || updates::install(&target, &bytes)).await.map_err(|e| e.to_string())??;
+    let bytes = fetch(latest.asset_url.clone()).await?;
+    updates::check_sum(&bytes, &sums, platform.asset)?;
+    tauri::async_runtime::spawn_blocking(move || match target {
+        Installed::AppImage(path) => updates::install(&path, &bytes),
+        Installed::Bundle(path) => updates::install_bundle(&path, &bytes),
+    })
+    .await
+    .map_err(|e| e.to_string())??;
     Ok(latest.version)
 }
 
-/// Starts the AppImage again, which is the new version once installed.
+/// Starts the copy now in place, and quits this one.
 #[tauri::command]
 fn restart_app(app: AppHandle) -> Result<(), String> {
-    let target = appimage().ok_or("not running as an AppImage")?;
-    std::process::Command::new(target).spawn().map_err(|e| e.to_string())?;
+    match installed()? {
+        Installed::AppImage(path) => {
+            std::process::Command::new(path).spawn().map_err(|e| e.to_string())?;
+        }
+        // A new instance, as this one is still running.
+        Installed::Bundle(path) => {
+            std::process::Command::new("/usr/bin/open").arg("-n").arg(path).spawn().map_err(|e| e.to_string())?;
+        }
+    }
     app.exit(0);
     Ok(())
 }

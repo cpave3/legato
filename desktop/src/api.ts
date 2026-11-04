@@ -58,6 +58,8 @@ export type UpdateStatus = {
   latest?: { version: string; page: string } | null
   available: boolean
   can_install: boolean
+  // Why this copy cannot install it, such as a Mac copy not in Applications.
+  reason?: string | null
 }
 
 export const api = {

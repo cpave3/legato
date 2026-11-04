@@ -41,7 +41,7 @@ The asset names have no version in them, so `https://github.com/cpave3/legato/re
 
 ## The desktop app
 
-When `desktop/` changed since the last release that has one (or `-f desktop=always`), the workflow's `desktop-linux` and `desktop-macos` jobs build the desktop app at the release's tag and attach `legato-desktop-x86_64.AppImage`, `legato-desktop-SHA256SUMS` and `legato-desktop-macos-arm64.dmg` to the release (`scripts/desktop-changed.sh` decides). Legato's own updater only takes `legato-*` binaries named for an OS and CPU, so it is unaffected. The AppImage updates itself from the newest release that carries one; see [Desktop app](desktop.md) § Releases and updates.
+When `desktop/` changed since the last release that has one (or `-f desktop=always`), the workflow's `desktop-linux` and `desktop-macos` jobs build the desktop app at the release's tag and attach `legato-desktop-x86_64.AppImage`, `legato-desktop-SHA256SUMS`, `legato-desktop-macos-arm64.dmg`, `legato-desktop-macos-arm64.app.tar.gz` and `legato-desktop-macos-SHA256SUMS` to the release (`scripts/desktop-changed.sh` decides). Legato's own updater only takes `legato-*` binaries named for an OS and CPU, so it is unaffected. The AppImage, and Legato.app on a Mac, update themselves from the newest release that carries their build; see [Desktop app](desktop.md) § Releases and updates.
 
 ## Known limits
 
