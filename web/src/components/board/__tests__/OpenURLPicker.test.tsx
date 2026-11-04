@@ -26,4 +26,11 @@ describe("OpenURLPicker", () => {
     fireEvent.keyDown(window, { key: "Escape" })
     expect(onClose).toHaveBeenCalled()
   })
+
+  it("names the task's provider", () => {
+    const { getByText } = render(
+      <OpenURLPicker open providerURL="https://burnlite.example/EST-42" provider="burnlite" prURL="https://github.com/org/repo/pull/1" onSelect={() => {}} onClose={() => {}} />
+    )
+    expect(getByText("Burnlite task")).toBeTruthy()
+  })
 })

@@ -1,15 +1,18 @@
 import { useEffect } from "react"
 import { X } from "lucide-react"
+import { providerItem, providerLabel } from "../../lib/providers"
 
 interface OpenURLPickerProps {
   open: boolean
   providerURL: string
+  // The task's provider ("jira", "burnlite", ...), which names its link.
+  provider?: string
   prURL: string
   onSelect: (url: string) => void
   onClose: () => void
 }
 
-export function OpenURLPicker({ open, providerURL, prURL, onSelect, onClose }: OpenURLPickerProps) {
+export function OpenURLPicker({ open, providerURL, provider = "", prURL, onSelect, onClose }: OpenURLPickerProps) {
   useEffect(() => {
     if (!open) return
     const handler = (e: KeyboardEvent) => {
@@ -46,7 +49,7 @@ export function OpenURLPicker({ open, providerURL, prURL, onSelect, onClose }: O
               className="w-full rounded border border-zinc-700 px-3 py-2 text-left text-xs text-zinc-300 transition-colors hover:bg-zinc-800 hover:text-zinc-100"
             >
               <kbd className="mr-2 rounded bg-zinc-800 px-1.5 py-0.5 text-[10px] font-bold text-[#AFA9EC]">j</kbd>
-              Jira / Provider URL
+              {provider ? `${providerLabel(provider)} ${providerItem(provider)}` : "Provider URL"}
               <div className="mt-1 truncate text-[10px] text-zinc-600">{providerURL}</div>
             </button>
           )}

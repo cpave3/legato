@@ -681,3 +681,102 @@ func longDescription() string {
 	}
 	return s
 }
+
+func metaText(rows []metaRow) []string {
+	out := make([]string, 0, len(rows))
+	for _, r := range rows {
+		out = append(out, r.Label+": "+r.Value)
+	}
+	return out
+}
+
+func assertRows(t *testing.T, got []metaRow, want []string) {
+	t.Helper()
+	text := metaText(got)
+	if len(text) != len(want) {
+		t.Fatalf("rows = %q, want %q", text, want)
+	}
+	for i := range want {
+		if text[i] != want[i] {
+			t.Errorf("row %d = %q, want %q (all: %q)", i, text[i], want[i], text)
+		}
+	}
+}
+
+func TestJiraMetaRowsAreUnchanged(t *testing.T) {
+	card := testCard()
+	assertRows(t, remoteMetaRows(card.Provider, card.RemoteMeta), []string{
+		"Type: Story",
+		"Epic: User Service Overhaul",
+		"Labels: backend,refactor",
+		"URL: https://jira.example.com/browse/REX-1238",
+	})
+}
+
+func TestBurnliteMetaRowsNameMilestoneAndClaim(t *testing.T) {
+	meta := map[string]string{
+		"remote_status": "Blocked",
+		"issue_type":    "Work",
+		"assignee":      "agent-7",
+		"labels":        "ui",
+		"epic_key":      "EST-10",
+		"epic_name":     "Launch",
+		"url":           "https://burnlite.example/EST-42",
+		"size":          "Large",
+		"uncertainty":   "High",
+		"blocked_by":    "EST-3,EST-4",
+	}
+	assertRows(t, remoteMetaRows("burnlite", meta), []string{
+		"Type: Work",
+		"Milestone: EST-10 · Launch",
+		"Claimed by: agent-7",
+		"Size: Large · High uncertainty",
+		"Blocked by: EST-3, EST-4",
+		"Labels: ui",
+		"URL: https://burnlite.example/EST-42",
+	})
+}
+
+func TestMetaRowsShowEstimateBlockersAndResolutionForAnyProvider(t *testing.T) {
+	meta := map[string]string{
+		"issue_type":  "Story",
+		"epic_key":    "REX-100",
+		"size":        "Medium",
+		"blocked_by":  "REX-2",
+		"resolution":  "Shipped in 1.4",
+		"uncertainty": "",
+	}
+	assertRows(t, remoteMetaRows("jira", meta), []string{
+		"Type: Story",
+		"Epic: REX-100",
+		"Size: Medium",
+		"Blocked by: REX-2",
+		"Resolution: Shipped in 1.4",
+	})
+
+	onlyUncertainty := remoteMetaRows("burnlite", map[string]string{"uncertainty": "Low", "epic_name": "Beta"})
+	assertRows(t, onlyUncertainty, []string{"Milestone: Beta", "Uncertainty: Low"})
+}
+
+func TestOpenURLPickerSaysWhichProviderTheTaskIsFrom(t *testing.T) {
+	card := &service.CardDetail{
+		ID:         "EST-42",
+		Title:      "Has both URLs",
+		Provider:   "burnlite",
+		RemoteMeta: map[string]string{"url": "https://burnlite.example/EST-42"},
+		PRMeta:     &service.PRMetaView{PRURL: "https://github.com/o/r/pull/42"},
+	}
+	m := New(card, nil, nil, "")
+	m.width = 120
+	m.height = 40
+	m.renderContent()
+
+	_, cmd := m.Update(keyMsg('o'))
+	if cmd == nil {
+		t.Fatal("expected cmd from o when both URLs exist")
+	}
+	picker, ok := cmd().(OpenURLPickerMsg)
+	if !ok || picker.Provider != "burnlite" {
+		t.Fatalf("got %#v", picker)
+	}
+}

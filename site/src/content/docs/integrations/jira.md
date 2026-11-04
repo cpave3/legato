@@ -7,7 +7,7 @@ sidebar:
 
 Legato can track Jira tickets as cards on its board. You import the tickets you want to work on, and Legato keeps their title, description, priority and status up to date. When you move a card, Legato moves the ticket in Jira too. Everything stays in Legato's local database, so the board keeps working when Jira can't be reached.
 
-Without Jira settings, Legato is a local board, and nothing on this page applies.
+Without Jira settings, Legato is a local board, and nothing on this page applies. Legato can also track tasks from [Burnlite](/legato/integrations/burnlite/), on the same board.
 
 ## Set it up
 

@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"io"
+	"net/url"
 	"strings"
 	"time"
 
@@ -65,13 +66,29 @@ type jiraSource struct {
 	projectKeys []string
 	interval    time.Duration
 	statusSync  bool
+	site        string
 	store       *store.Store
 }
 
 // NewJiraSource is the Jira source over a provider. jql narrows the tracked
 // tickets; projectKeys narrow searches.
 func NewJiraSource(provider TicketProvider, jql string, projectKeys []string, interval time.Duration, statusSync bool) TicketSource {
-	return &jiraSource{provider: provider, jql: jql, projectKeys: projectKeys, interval: interval, statusSync: statusSync}
+	return NewJiraSourceWith(provider, JiraSourceOptions{JQL: jql, ProjectKeys: projectKeys, Interval: interval, StatusSync: statusSync})
+}
+
+// JiraSourceOptions configure the Jira source.
+type JiraSourceOptions struct {
+	JQL         string
+	ProjectKeys []string
+	Interval    time.Duration
+	StatusSync  bool
+	// Site is the Jira site (jira.base_url), where its tickets are seen.
+	Site string
+}
+
+// NewJiraSourceWith is the Jira source over a provider.
+func NewJiraSourceWith(provider TicketProvider, o JiraSourceOptions) TicketSource {
+	return &jiraSource{provider: provider, jql: o.JQL, projectKeys: o.ProjectKeys, interval: o.Interval, statusSync: o.StatusSync, site: o.Site}
 }
 
 func (j *jiraSource) bindStore(s *store.Store)     { j.store = s }
@@ -133,6 +150,45 @@ func (j *jiraSource) Column(ctx context.Context, t RemoteTicket) (string, error)
 		return "", err
 	}
 	return resolveColumn(t.Status, mappings), nil
+}
+
+// Key patterns: what a ticket key of each provider looks like, as a regular
+// expression a browser extension can use.
+const (
+	JiraKeyPattern     = `^[A-Z][A-Z0-9_]*-[0-9]+$`
+	BurnliteKeyPattern = `^[A-Z]{2,6}[0-9]{0,4}-[1-9][0-9]*$`
+)
+
+// TicketProviderInfo is a connected provider as a browser extension needs
+// it: where its tickets are seen, and what their keys look like.
+type TicketProviderInfo struct {
+	Name       string `json:"name"`
+	Label      string `json:"label"`
+	WebOrigin  string `json:"web_origin"`
+	KeyPattern string `json:"key_pattern"`
+}
+
+// TicketProviderLister lists the connected providers that have a site.
+type TicketProviderLister interface {
+	TicketProviders(ctx context.Context) []TicketProviderInfo
+}
+
+// webSite is a source whose tickets are seen at an address.
+type webSite interface {
+	WebSite(ctx context.Context) string
+	KeyPattern() string
+}
+
+func (j *jiraSource) WebSite(context.Context) string { return j.site }
+func (j *jiraSource) KeyPattern() string             { return JiraKeyPattern }
+
+// origin is an address's scheme and host, "" for one that is not.
+func origin(address string) string {
+	u, err := url.Parse(address)
+	if err != nil || u.Scheme == "" || u.Host == "" {
+		return ""
+	}
+	return u.Scheme + "://" + u.Host
 }
 
 // downloader is the source's attachment downloader, if it has one.

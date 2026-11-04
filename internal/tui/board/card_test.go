@@ -467,3 +467,12 @@ func TestCardWithAgentWaitingOnBackgroundWork(t *testing.T) {
 		}
 	}
 }
+
+func TestCardSaysATaskComesFromBurnlite(t *testing.T) {
+	for _, icons := range []theme.Icons{theme.NewIcons("unicode"), theme.NewIcons("nerdfonts")} {
+		out := RenderCard(CardData{Key: "EST-42", Title: "Burnlite task", Provider: "burnlite"}, 34, false, "Ready", icons)
+		if !strings.Contains(out, icons.Burnlite+" burnlite") {
+			t.Errorf("a Burnlite task should name its source with its icon: %q", out)
+		}
+	}
+}

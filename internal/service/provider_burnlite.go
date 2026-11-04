@@ -77,6 +77,17 @@ func (b *burnliteSource) Label() string           { return "Burnlite" }
 func (b *burnliteSource) Interval() time.Duration { return b.opts.Interval }
 func (b *burnliteSource) MovesCards() bool        { return b.opts.MovesCards }
 
+// WebSite is the connected Burnlite's address.
+func (b *burnliteSource) WebSite(ctx context.Context) string {
+	_, base, err := b.open(ctx)
+	if err != nil {
+		return ""
+	}
+	return base
+}
+
+func (b *burnliteSource) KeyPattern() string { return BurnliteKeyPattern }
+
 func (b *burnliteSource) Enabled(ctx context.Context) bool {
 	_, _, err := b.open(ctx)
 	return err == nil

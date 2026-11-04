@@ -94,6 +94,7 @@ type Server struct {
 	delegations              Delegations
 	caseAttention            CaseAttention
 	integrationOverview      IntegrationOverview
+	burnliteSettings         BurnliteSettings
 }
 
 // New creates a new server. agents and tmux may be nil (agent endpoints will return empty results).
@@ -307,6 +308,7 @@ func NewWithSwarm(board service.BoardService, agents service.AgentService, tmux 
 	mux.HandleFunc("/api/agents/{task_id}/chimera/models", s.chimeraModelsHandler())
 	mux.HandleFunc("/ws", s.wsHandler())
 	s.registerIntegrationRoutes(mux)
+	s.registerBurnliteRoutes(mux)
 
 	// SPA fallback — serve embedded frontend for all non-API paths.
 	if fsys := static.DistFS(); fsys != nil {

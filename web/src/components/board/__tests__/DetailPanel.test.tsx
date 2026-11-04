@@ -179,4 +179,36 @@ describe("DetailPanel", () => {
     render(<DetailPanel card={makeCard()} onClose={() => {}} onEditTitle={() => {}} onEditDescription={() => {}} onMove={() => {}} onDelete={() => {}} onLinkPR={() => {}} onCopyDescription={() => {}} onCopyFull={() => {}} onOpenURL={() => {}} onCancelSwarm={() => {}} />)
     expect(screen.queryByText(/Cancel swarm/)).toBeNull()
   })
+
+  it("names a Burnlite task's milestone and claim holder in Burnlite's words, with its estimate and blockers", () => {
+    renderPanel(makeCard({
+      provider: "burnlite",
+      priority: "",
+      remote_meta: {
+        issue_type: "Work", epic_key: "EST-1", epic_name: "Launch", assignee: "claude-7", labels: "web, api",
+        size: "Medium", uncertainty: "High", blocked_by: "EST-40, EST-41", url: "https://burnlite.example/EST-42",
+      },
+    }))
+    const properties = screen.getByRole("complementary", { name: "Task properties and actions" })
+    const value = (label: string) => within(properties).getByText(label, { selector: "dt" }).nextElementSibling?.textContent
+    expect(value("Milestone")).toBe("Launch")
+    expect(value("Claimed by")).toBe("claude-7")
+    expect(value("Size")).toBe("Medium")
+    expect(value("Uncertainty")).toBe("High")
+    expect(value("Blocked by")).toBe("EST-40, EST-41")
+    expect(value("Labels")).toBe("web, api")
+    expect(within(properties).queryByText("Epic", { selector: "dt" })).toBeNull()
+    expect(within(properties).getByRole("link", { name: "Open in Burnlite" }).getAttribute("href")).toBe("https://burnlite.example/EST-42")
+    expect(screen.queryByText(/priority/)).toBeNull()
+  })
+
+  it("says how a closed task was resolved, whatever its provider", () => {
+    renderPanel(makeCard({ provider: "jira", remote_meta: { resolution: "Shipped in v1.2", epic_name: "Platform", assignee: "Ada" } }))
+    const properties = screen.getByRole("complementary", { name: "Task properties and actions" })
+    const value = (label: string) => within(properties).getByText(label, { selector: "dt" }).nextElementSibling?.textContent
+    expect(value("Resolution")).toBe("Shipped in v1.2")
+    expect(value("Epic")).toBe("Platform")
+    expect(value("Assignee")).toBe("Ada")
+    expect(within(properties).queryByText("Milestone", { selector: "dt" })).toBeNull()
+  })
 })

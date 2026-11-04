@@ -7,7 +7,7 @@ import (
 )
 
 func TestOpenURLOverlayGitHubKey(t *testing.T) {
-	m := NewOpenURL("https://jira.example.com/TEST-1", "https://github.com/o/r/pull/42", 100, 30)
+	m := NewOpenURL("jira", "https://jira.example.com/TEST-1", "https://github.com/o/r/pull/42", 100, 30)
 	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'g'}})
 	if cmd == nil {
 		t.Fatal("expected cmd from g key")
@@ -23,7 +23,7 @@ func TestOpenURLOverlayGitHubKey(t *testing.T) {
 }
 
 func TestOpenURLOverlayJiraKey(t *testing.T) {
-	m := NewOpenURL("https://jira.example.com/TEST-1", "https://github.com/o/r/pull/42", 100, 30)
+	m := NewOpenURL("jira", "https://jira.example.com/TEST-1", "https://github.com/o/r/pull/42", 100, 30)
 	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'j'}})
 	if cmd == nil {
 		t.Fatal("expected cmd from j key")
@@ -39,7 +39,7 @@ func TestOpenURLOverlayJiraKey(t *testing.T) {
 }
 
 func TestOpenURLOverlayEscCancels(t *testing.T) {
-	m := NewOpenURL("https://jira.example.com/TEST-1", "https://github.com/o/r/pull/42", 100, 30)
+	m := NewOpenURL("jira", "https://jira.example.com/TEST-1", "https://github.com/o/r/pull/42", 100, 30)
 	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEsc})
 	if cmd == nil {
 		t.Fatal("expected cmd from esc")
@@ -47,5 +47,13 @@ func TestOpenURLOverlayEscCancels(t *testing.T) {
 	msg := cmd()
 	if _, ok := msg.(OpenURLCancelledMsg); !ok {
 		t.Fatalf("expected OpenURLCancelledMsg, got %T", msg)
+	}
+}
+
+func TestOpenURLOverlayNamesTheTasksProvider(t *testing.T) {
+	cases := map[string]string{"jira": "j = Jira", "burnlite": "j = Burnlite"}
+	for provider, want := range cases {
+		m := NewOpenURL(provider, "https://example.com/X-1", "https://github.com/o/r/pull/42", 100, 30)
+		mustContain(t, m.View(), want)
 	}
 }

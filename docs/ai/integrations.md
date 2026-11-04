@@ -182,7 +182,14 @@ The Integrations group of Settings (`/settings#integrations`, where the `integra
 - `tokens`: name, scopes, created, last used and revoked, never a token or its hash;
 - `argus`: `configured`, `url`, `delivery`, `agent`, the connection (`state` none, connected or disconnected, `connected_at`, replies by state) and `open_cases`.
 
-It only shows: tokens are made and revoked with `legato integration token`, and the connection with `legato integration connect argus`.
+It only shows Argus: tokens are made and revoked with `legato integration token`, and the connection with `legato integration connect argus`.
+
+Burnlite (a ticket provider; see [Sync](sync.md) § Burnlite) is connected from here too. `burnlite` in the overview (`service.BurnliteSettings`, wired for both web servers in `wireIntegrations`) is `configured_url` (`burnlite.url`), `projects` (searched for import; empty is every one), `projects_from_config` and the `connection` (`state`, `url`, `connected_at`).
+
+- `POST /api/settings/integrations/burnlite/connect` `{url}` begins a connection whose browser comes back to this server, `<scheme>://<host it was reached at>/oauth/callback`, and answers `{authorize_url}`, which the page opens. `400` for an address that is not one or where discovery fails, `409` when the secret store is unlocked by a passphrase.
+- `GET /oauth/callback` takes no token: it finds the attempt by its `state` (kept in memory for 10 minutes, once), exchanges the code and redirects to `/settings?integration=burnlite&result=connected#integrations`, or `result=failed&error=<message>`.
+- `PUT /api/settings/integrations/burnlite` `{projects}` saves the project keys (`409` when `burnlite.projects` is set, `400` for a key that is not one); `DELETE` disconnects.
+- `GET /api/ticket-providers` lists the connected providers that have a site (`name`, `label`, `web_origin`, `key_pattern`), which the browser extension registers its import button on.
 
 ## Configuration
 

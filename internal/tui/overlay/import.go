@@ -6,6 +6,7 @@ import (
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
+	"github.com/charmbracelet/x/ansi"
 	"github.com/cpave3/legato/internal/service"
 	"github.com/cpave3/legato/internal/tui/theme"
 )
@@ -15,7 +16,7 @@ const importVisibleRows = 10
 // ImportSelectedMsg is sent when the user selects a remote ticket to import.
 type ImportSelectedMsg struct {
 	TicketID string
-	// Provider is the source the ticket is from ("jira").
+	// Provider is the source the ticket is from ("jira", "burnlite").
 	Provider    string
 	WorkspaceID *int
 }
@@ -157,6 +158,38 @@ func (m *ImportOverlay) ensureVisible() {
 	}
 }
 
+// renderResult is one result row: the key, the provider it is from, the
+// summary and the status, cut to width so that a long summary never wraps
+// and moves the rows below it.
+func (m ImportOverlay) renderResult(r service.RemoteSearchResult, selected bool, width int) string {
+	prefix := "  "
+	style := lipgloss.NewStyle().Foreground(theme.TextSecondary)
+	if selected {
+		prefix = "> "
+		style = lipgloss.NewStyle().Foreground(theme.TextPrimary).Bold(true)
+	}
+	faint := lipgloss.NewStyle().Foreground(theme.TextTertiary)
+
+	lead := prefix + r.ID + "  "
+	provider := ""
+	if r.Provider != "" {
+		provider = r.Provider + "  "
+	}
+	status := ""
+	if r.Status != "" {
+		status = "  " + r.Status
+	}
+	summary := strings.TrimSpace(r.Summary)
+	room := width - lipgloss.Width(lead) - lipgloss.Width(provider) - lipgloss.Width(status)
+	if room < 1 {
+		summary = ""
+	} else {
+		summary = ansi.Truncate(summary, room, "…")
+	}
+	line := style.Render(lead) + faint.Render(provider) + style.Render(summary) + faint.Render(status)
+	return ansi.Truncate(line, width, "")
+}
+
 // View renders the import overlay.
 func (m ImportOverlay) View() string {
 	titleStyle := lipgloss.NewStyle().
@@ -176,6 +209,17 @@ func (m ImportOverlay) View() string {
 	var lines []string
 	workspace := promptStyle.Render("Workspace: ") + inputStyle.Render(m.workspaces[m.workspaceIndex].Name) + promptStyle.Render("  ctrl+w to change")
 	lines = append(lines, title, input, workspace, "")
+
+	// Fixed panel width (60% of terminal, min 50)
+	panelWidth := m.width * 60 / 100
+	if panelWidth < 50 {
+		panelWidth = 50
+	}
+	// Account for panel border + padding (2 border + 4 padding = 6)
+	contentWidth := panelWidth - 6
+	if contentWidth < 20 {
+		contentWidth = 20
+	}
 
 	// Fixed-height result area
 	resultLines := make([]string, importVisibleRows)
@@ -197,18 +241,8 @@ func (m ImportOverlay) View() string {
 			end = len(m.results)
 		}
 		for i, idx := 0, m.scrollOff; idx < end; i, idx = i+1, idx+1 {
-			r := m.results[idx]
-			prefix := "  "
-			style := lipgloss.NewStyle().Foreground(theme.TextSecondary)
-			if idx == m.cursor {
-				prefix = "> "
-				style = lipgloss.NewStyle().Foreground(theme.TextPrimary).Bold(true)
-			}
-			statusStyle := lipgloss.NewStyle().Foreground(theme.TextTertiary)
-			line := fmt.Sprintf("%s%s  %s", prefix, r.ID, strings.TrimSpace(r.Summary))
-			resultLines[i] = style.Render(line) + "  " + statusStyle.Render(r.Status)
+			resultLines[i] = m.renderResult(m.results[idx], idx == m.cursor, contentWidth)
 		}
-
 	}
 
 	lines = append(lines, resultLines...)
@@ -222,17 +256,6 @@ func (m ImportOverlay) View() string {
 		lines = append(lines, promptStyle.Render(fmt.Sprintf("  %d-%d of %d", m.scrollOff+1, end, len(m.results))))
 	} else {
 		lines = append(lines, "") // blank line to keep height consistent
-	}
-
-	// Fixed panel width (60% of terminal, min 50)
-	panelWidth := m.width * 60 / 100
-	if panelWidth < 50 {
-		panelWidth = 50
-	}
-	// Account for panel border + padding (2 border + 4 padding = 6)
-	contentWidth := panelWidth - 6
-	if contentWidth < 20 {
-		contentWidth = 20
 	}
 
 	content := lipgloss.NewStyle().Width(contentWidth).Render(

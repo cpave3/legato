@@ -67,6 +67,56 @@ describe("ImportRemoteModal", () => {
     expect(JSON.parse(String(request.body))).toEqual({ ticket_id: "TICK-1", workspace_id: null })
   })
 
+  it("names each result's provider and imports from that provider", async () => {
+    mockFetch
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => [
+          { id: "EST-42", summary: "Burnlite task", status: "Ready", priority: "", issue_type: "Work", provider: "burnlite" },
+          { id: "TICK-1", summary: "Jira ticket", status: "Open", priority: "High", issue_type: "Bug", provider: "jira" },
+        ],
+      })
+      .mockResolvedValueOnce({ ok: true, json: async () => ({ id: "EST-42" }) })
+
+    render(<ImportRemoteModal open onClose={() => {}} onImported={() => {}} />)
+    fireEvent.change(screen.getByPlaceholderText("Type to search..."), { target: { value: "task" } })
+    await waitFor(() => expect(screen.getByText("Burnlite task")).toBeTruthy(), { timeout: 2000 })
+    const burnliteRow = screen.getByText("Burnlite task").closest("[data-remote-result]") as HTMLElement
+    expect(burnliteRow.querySelector("[data-provider]")?.textContent).toBe("burnlite")
+    const jiraRow = screen.getByText("Jira ticket").closest("[data-remote-result]") as HTMLElement
+    expect(jiraRow.querySelector("[data-provider]")?.textContent).toBe("jira")
+
+    fireEvent.click(screen.getByText("Burnlite task"))
+    await waitFor(() => expect(mockFetch).toHaveBeenCalledTimes(2))
+    const request = mockFetch.mock.calls[1][1] as RequestInit
+    expect(JSON.parse(String(request.body))).toEqual({ ticket_id: "EST-42", provider: "burnlite", workspace_id: null })
+  })
+
+  it("shows the server's reason when no provider can search", async () => {
+    mockFetch.mockResolvedValue({ ok: false, status: 503, json: async () => ({ error: "No ticket provider is connected" }), text: async () => "" })
+
+    render(<ImportRemoteModal open onClose={() => {}} onImported={() => {}} />)
+    fireEvent.change(screen.getByPlaceholderText("Type to search..."), { target: { value: "task" } })
+    await waitFor(() => expect(screen.getByRole("alert").textContent).toContain("No ticket provider is connected"), { timeout: 2000 })
+  })
+
+  it("shows the server's reason when the key is already a task from another source", async () => {
+    const onClose = vi.fn()
+    mockFetch
+      .mockResolvedValueOnce({
+        ok: true,
+        json: async () => [{ id: "EST-42", summary: "Burnlite task", status: "Ready", priority: "", issue_type: "Work", provider: "burnlite" }],
+      })
+      .mockResolvedValueOnce({ ok: false, status: 409, json: async () => ({ error: "EST-42 is already a task from jira" }) })
+
+    render(<ImportRemoteModal open onClose={onClose} onImported={() => {}} />)
+    fireEvent.change(screen.getByPlaceholderText("Type to search..."), { target: { value: "task" } })
+    await waitFor(() => expect(screen.getByText("Burnlite task")).toBeTruthy(), { timeout: 2000 })
+    fireEvent.click(screen.getByText("Burnlite task"))
+    await waitFor(() => expect(screen.getByRole("alert").textContent).toContain("already a task from jira"))
+    expect(onClose).not.toHaveBeenCalled()
+  })
+
   it("surfaces an error message after a failed search", async () => {
     mockFetch.mockResolvedValue({ ok: false, status: 500 })
 

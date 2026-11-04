@@ -117,6 +117,8 @@ export interface RemoteSearchResult {
   status: string
   priority: string
   issue_type: string
+  // Where the ticket is: "jira", "burnlite", ... Absent from older servers.
+  provider?: string
 }
 
 export interface RepoDetectResponse {

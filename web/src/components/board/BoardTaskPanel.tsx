@@ -4,6 +4,7 @@ import type { BoardCard, CardDetail } from "../../lib/board-types"
 import { MarkdownBody } from "../MarkdownBody"
 import { agentStripLook, formatDuration, priorityTone } from "../../lib/boardCard"
 import { TaskAgentAction } from "./TaskAgentAction"
+import { providerLabel } from "../../lib/providers"
 
 interface BoardTaskPanelProps {
   card: BoardCard
@@ -15,8 +16,6 @@ interface BoardTaskPanelProps {
   onMove: () => void
   onOpenURL: (url: string) => void
 }
-
-const providerNames: Record<string, string> = { jira: "Jira", github: "GitHub" }
 
 function Property({ label, children }: { label: string; children: ReactNode }) {
   return <>
@@ -76,7 +75,7 @@ export function BoardTaskPanel({ card, column, detail, onClose, onOpenDetails, o
           <button type="button" onClick={onOpenDetails} className={secondaryButton}>Open details</button>
           <button type="button" onClick={onMove} className={secondaryButton}>Move</button>
           {providerURL
-            ? <button type="button" onClick={() => onOpenURL(providerURL)} className={secondaryButton}>Open in {providerNames[card.provider] ?? "browser"}</button>
+            ? <button type="button" onClick={() => onOpenURL(providerURL)} className={secondaryButton}>Open in {providerLabel(card.provider) || "browser"}</button>
             : prURL && <button type="button" onClick={() => onOpenURL(prURL)} className={secondaryButton}>Open PR</button>}
         </div>
       </div>

@@ -1033,7 +1033,7 @@ func (a App) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return a, nil
 
 	case detail.OpenURLPickerMsg:
-		urlOverlay := overlay.NewOpenURL(msg.ProviderURL, msg.PRURL, a.width, a.height)
+		urlOverlay := overlay.NewOpenURL(msg.Provider, msg.ProviderURL, msg.PRURL, a.width, a.height)
 		a.activeOverlay = urlOverlay
 		a.overlayType = overlayOpenURL
 		return a, nil

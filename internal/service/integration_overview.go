@@ -16,6 +16,8 @@ type ArgusSettings struct {
 type IntegrationsOverview struct {
 	Tokens []store.IntegrationToken `json:"tokens"`
 	Argus  ArgusOverview            `json:"argus"`
+	// Burnlite is there when this server offers Burnlite's settings.
+	Burnlite *BurnliteOverview `json:"burnlite,omitempty"`
 }
 
 // ArgusOverview is Argus's configuration, Legato's connection to it, the
@@ -31,9 +33,13 @@ type ArgusOverview struct {
 
 // IntegrationOverview reads the overview from the database.
 type IntegrationOverview struct {
-	db    *store.Store
-	argus *ArgusSettings
+	db       *store.Store
+	argus    *ArgusSettings
+	burnlite *BurnliteSettings
 }
+
+// SetBurnlite adds Burnlite's settings to the overview.
+func (o *IntegrationOverview) SetBurnlite(b *BurnliteSettings) { o.burnlite = b }
 
 // NewIntegrationOverview makes the overview; argus is nil when
 // integrations.argus is not configured.
@@ -61,5 +67,13 @@ func (o *IntegrationOverview) Overview(ctx context.Context) (IntegrationsOvervie
 	if o.argus != nil {
 		argus.Configured, argus.URL, argus.Delivery, argus.Agent = true, o.argus.URL, o.argus.Delivery, o.argus.Agent
 	}
-	return IntegrationsOverview{Tokens: tokens, Argus: argus}, nil
+	out := IntegrationsOverview{Tokens: tokens, Argus: argus}
+	if o.burnlite != nil {
+		b, err := o.burnlite.Overview(ctx)
+		if err != nil {
+			return IntegrationsOverview{}, err
+		}
+		out.Burnlite = &b
+	}
+	return out, nil
 }

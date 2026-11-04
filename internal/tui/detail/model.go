@@ -72,6 +72,8 @@ type SwarmNextStepMsg struct {
 
 // OpenURLPickerMsg signals the app to show a URL picker overlay.
 type OpenURLPickerMsg struct {
+	// Provider is the provider ProviderURL belongs to ("jira", "burnlite").
+	Provider    string
 	ProviderURL string
 	PRURL       string
 }
@@ -403,9 +405,9 @@ func (m Model) openURL() (tea.Model, tea.Cmd) {
 
 	// Both URLs exist — let user pick
 	if prURL != "" && providerURL != "" {
-		pURL, gURL := providerURL, prURL
+		pURL, gURL, provider := providerURL, prURL, m.card.Provider
 		return m, func() tea.Msg {
-			return OpenURLPickerMsg{ProviderURL: pURL, PRURL: gURL}
+			return OpenURLPickerMsg{Provider: provider, ProviderURL: pURL, PRURL: gURL}
 		}
 	}
 
@@ -655,15 +657,8 @@ func (m Model) renderHeader() string {
 
 	addMeta("Status", m.card.Status)
 	addMeta("Priority", m.card.Priority)
-	if m.card.RemoteMeta != nil {
-		addMeta("Type", m.card.RemoteMeta["issue_type"])
-		if epicName := m.card.RemoteMeta["epic_name"]; epicName != "" {
-			addMeta("Epic", epicName)
-		} else {
-			addMeta("Epic", m.card.RemoteMeta["epic_key"])
-		}
-		addMeta("Labels", m.card.RemoteMeta["labels"])
-		addMeta("URL", m.card.RemoteMeta["url"])
+	for _, row := range remoteMetaRows(m.card.Provider, m.card.RemoteMeta) {
+		addMeta(row.Label, row.Value)
 	}
 
 	// Repository context and PR status section.
@@ -717,6 +712,62 @@ func (m Model) renderHeader() string {
 		Render(strings.Repeat("─", contentWidth-2))
 
 	return lipgloss.JoinVertical(lipgloss.Left, title, metaLine, separator)
+}
+
+// metaRow is one label and value of the metadata grid.
+type metaRow struct {
+	Label string
+	Value string
+}
+
+// remoteMetaRows are the rows a tracked task's provider fields give, in the
+// grid's order, leaving out the empty ones. A Burnlite task's epic is its
+// milestone, given by key and name, and its assignee holds its claim.
+func remoteMetaRows(provider string, meta map[string]string) []metaRow {
+	if meta == nil {
+		return nil
+	}
+	var rows []metaRow
+	add := func(label, value string) {
+		if value != "" {
+			rows = append(rows, metaRow{Label: label, Value: value})
+		}
+	}
+	burnlite := provider == "burnlite"
+
+	add("Type", meta["issue_type"])
+	if burnlite {
+		add("Milestone", joinNonEmpty(" · ", meta["epic_key"], meta["epic_name"]))
+		add("Claimed by", meta["assignee"])
+	} else if epicName := meta["epic_name"]; epicName != "" {
+		add("Epic", epicName)
+	} else {
+		add("Epic", meta["epic_key"])
+	}
+	size, uncertainty := meta["size"], meta["uncertainty"]
+	switch {
+	case size != "" && uncertainty != "":
+		add("Size", size+" · "+uncertainty+" uncertainty")
+	case size != "":
+		add("Size", size)
+	default:
+		add("Uncertainty", uncertainty)
+	}
+	add("Blocked by", strings.ReplaceAll(meta["blocked_by"], ",", ", "))
+	add("Labels", meta["labels"])
+	add("Resolution", meta["resolution"])
+	add("URL", meta["url"])
+	return rows
+}
+
+func joinNonEmpty(sep string, parts ...string) string {
+	var kept []string
+	for _, p := range parts {
+		if p != "" {
+			kept = append(kept, p)
+		}
+	}
+	return strings.Join(kept, sep)
 }
 
 // View renders the detail view.

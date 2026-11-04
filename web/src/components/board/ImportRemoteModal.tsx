@@ -3,6 +3,7 @@ import { useServer } from "../../hooks/useServer"
 import { remoteSearch, remoteImport } from "../../lib/board"
 import type { RemoteSearchResult } from "../../lib/board-types"
 import { cn } from "../../lib/utils"
+import { providerLabel } from "../../lib/providers"
 import { X } from "lucide-react"
 
 interface ImportRemoteModalProps {
@@ -91,7 +92,7 @@ export function ImportRemoteModal({ open, workspaces = [], defaultWorkspaceId = 
     setImportingID(r.id)
     setError("")
     try {
-      await remoteImport(baseUrl, { ticket_id: r.id, workspace_id: workspaceId })
+      await remoteImport(baseUrl, { ticket_id: r.id, ...(r.provider ? { provider: r.provider } : {}), workspace_id: workspaceId })
       onImported()
       onClose()
     } catch (e) {
@@ -144,7 +145,8 @@ export function ImportRemoteModal({ open, workspaces = [], defaultWorkspaceId = 
           {!loading &&
             results.map((r, i) => (
               <div
-                key={r.id}
+                key={`${r.provider ?? ""}:${r.id}`}
+                data-remote-result
                 onClick={() => !importingID && handleImport(r)}
                 aria-disabled={Boolean(importingID)}
                 className={cn(
@@ -156,7 +158,10 @@ export function ImportRemoteModal({ open, workspaces = [], defaultWorkspaceId = 
                 )}
               >
                 <div className="flex items-center gap-2">
-                  <span className="font-mono text-[10px] text-zinc-600">{r.id}</span>
+                  {r.provider && (
+                    <span data-provider title={providerLabel(r.provider)} className="shrink-0 rounded bg-zinc-800 px-1.5 py-0.5 font-mono text-[10px] text-zinc-400">{r.provider}</span>
+                  )}
+                  <span className="shrink-0 font-mono text-[10px] text-zinc-600">{r.id}</span>
                   <span className="truncate">{importingID === r.id ? "Importing…" : r.summary}</span>
                   <span className="ml-auto text-[10px] text-zinc-600">{r.status}</span>
                 </div>

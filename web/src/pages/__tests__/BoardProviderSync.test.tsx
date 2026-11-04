@@ -51,4 +51,33 @@ describe("Board provider sync", () => {
     await waitFor(() => expect(addToast).toHaveBeenCalledWith(expect.stringContaining("GitHub: rate limited"), "error"))
     expect(refresh).toHaveBeenCalledTimes(1)
   })
+
+  it("names every provider the server synced, Burnlite and ones it does not know", async () => {
+    mockFetch.mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({
+        github: { status: "completed" },
+        linear: { status: "completed" },
+        burnlite: { status: "completed" },
+        jira: { status: "unavailable" },
+      }),
+    })
+    render(<MemoryRouter><AgentSelectionProvider><BoardPage /></AgentSelectionProvider></MemoryRouter>)
+    fireEvent.click(screen.getByRole("button", { name: "Sync providers" }))
+
+    await waitFor(() => expect(addToast).toHaveBeenCalledWith("Burnlite + GitHub + linear sync completed", "success"))
+  })
+
+  it("names Burnlite when its sync fails", async () => {
+    mockFetch.mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ jira: { status: "unavailable" }, github: { status: "unavailable" }, burnlite: { status: "failed", error: "Burnlite refused Legato's tokens" } }),
+    })
+    render(<MemoryRouter><AgentSelectionProvider><BoardPage /></AgentSelectionProvider></MemoryRouter>)
+    fireEvent.click(screen.getByRole("button", { name: "Sync providers" }))
+
+    await waitFor(() => expect(addToast).toHaveBeenCalledWith("Provider sync failed — Burnlite: Burnlite refused Legato's tokens", "error"))
+  })
 })

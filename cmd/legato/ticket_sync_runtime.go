@@ -20,7 +20,8 @@ func ticketSources(cfg *config.Config, db *store.Store) []service.TicketSource {
 	if cfg.Jira.BaseURL != "" && cfg.Jira.Email != "" && cfg.Jira.APIToken != "" {
 		provider := service.NewJiraProvider(jira.NewProvider(cfg.Jira.BaseURL, cfg.Jira.Email, cfg.Jira.APIToken, 30*time.Second))
 		interval := time.Duration(cfg.Jira.SyncIntervalSeconds) * time.Second
-		sources = append(sources, service.NewJiraSource(provider, cfg.Jira.JQLFilter, cfg.Jira.ProjectKeys, interval, cfg.Jira.StatusSyncEnabled))
+		sources = append(sources, service.NewJiraSourceWith(provider, service.JiraSourceOptions{JQL: cfg.Jira.JQLFilter, ProjectKeys: cfg.Jira.ProjectKeys,
+			Interval: interval, StatusSync: cfg.Jira.StatusSyncEnabled, Site: cfg.Jira.BaseURL}))
 	}
 	secrets := service.SealedIntegrationSecrets{Store: configuredSecretStore(cfg, db)}
 	b := cfg.Burnlite

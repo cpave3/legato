@@ -6,6 +6,7 @@ import { MarkdownBody } from "../MarkdownBody"
 import { Button } from "../ui/Button"
 import { TaskActivityTabs } from "./TaskActivityTabs"
 import { TaskAgentAction } from "./TaskAgentAction"
+import { providerLabel } from "../../lib/providers"
 
 interface DetailPanelProps {
   card: CardDetail
@@ -30,6 +31,23 @@ function Property({ label, children, wide = false }: { label: string; children: 
     <dt className="text-[10px] font-medium uppercase tracking-wide text-zinc-600">{label}</dt>
     <dd className="mt-0.5 break-words text-xs text-zinc-300">{children}</dd>
   </div>
+}
+
+// What the provider says of a task, in its own words: Burnlite's epic is a
+// Milestone and its assignee holds the task's claim.
+function RemoteProperties({ provider, meta }: { provider: string; meta: Record<string, string> }) {
+  const burnlite = provider === "burnlite"
+  return <>
+    {meta.issue_type && <Property label="Type">{meta.issue_type}</Property>}
+    {meta.epic_name && <Property label={burnlite ? "Milestone" : "Epic"}>{meta.epic_name}</Property>}
+    {meta.assignee && <Property label={burnlite ? "Claimed by" : "Assignee"}>{meta.assignee}</Property>}
+    {meta.size && <Property label="Size">{meta.size}</Property>}
+    {meta.uncertainty && <Property label="Uncertainty">{meta.uncertainty}</Property>}
+    {meta.blocked_by && <Property label="Blocked by">{meta.blocked_by}</Property>}
+    {meta.labels && <Property label="Labels">{meta.labels}</Property>}
+    {meta.resolution && <Property label="Resolution" wide>{meta.resolution}</Property>}
+    {meta.url && <Property label="Provider" wide><a href={meta.url} target="_blank" rel="noreferrer" className="text-indigo-400 hover:underline">{provider ? `Open in ${providerLabel(provider)}` : "Open issue"}</a></Property>}
+  </>
 }
 
 const sectionHeadingClass = "text-[10px] font-semibold uppercase tracking-wider text-zinc-500"
@@ -124,10 +142,7 @@ export function DetailPanel({
             <section aria-labelledby="task-properties-heading">
               <h3 id="task-properties-heading" className={sectionHeadingClass}>Properties</h3>
               <dl className="mt-3 grid grid-cols-2 gap-x-4 gap-y-3 lg:grid-cols-1">
-                {card.remote_meta?.issue_type && <Property label="Type">{card.remote_meta.issue_type}</Property>}
-                {card.remote_meta?.epic_name && <Property label="Epic">{card.remote_meta.epic_name}</Property>}
-                {card.remote_meta && (card.remote_meta.labels ?? "") && <Property label="Labels">{card.remote_meta.labels}</Property>}
-                {card.remote_meta?.url && <Property label="Provider" wide><a href={card.remote_meta.url} target="_blank" rel="noreferrer" className="text-indigo-400 hover:underline">Open issue</a></Property>}
+                <RemoteProperties provider={card.provider} meta={card.remote_meta ?? {}} />
                 {card.worktree && <><Property label="Worktree" wide>{card.worktree.path}</Property><Property label="Branch">{card.worktree.branch}</Property></>}
                 {card.code_context && <><Property label="Repository">{card.code_context.repo}</Property>{card.code_context.branch && <Property label="Code branch">{card.code_context.branch}</Property>}</>}
                 {card.pr_meta && card.pr_meta.pr_number > 0 && <Property label="Pull request" wide>

@@ -36,3 +36,36 @@ func TestDefaultIconsAreUnicode(t *testing.T) {
 		t.Error("empty mode should default to unicode")
 	}
 }
+
+func TestBurnliteIconInBothModes(t *testing.T) {
+	for _, mode := range []string{"unicode", "nerdfonts"} {
+		icons := NewIcons(mode)
+		if icons.Burnlite == "" {
+			t.Errorf("%s: Burnlite icon should not be empty", mode)
+		}
+		for name, other := range map[string]string{"Jira": icons.Jira, "GitHub": icons.GitHub, "Local": icons.Local} {
+			if icons.Burnlite == other {
+				t.Errorf("%s: Burnlite icon should differ from %s", mode, name)
+			}
+		}
+	}
+}
+
+func TestProviderIcon(t *testing.T) {
+	icons := NewIcons("unicode")
+	cases := map[string]string{"jira": icons.Jira, "github": icons.GitHub, "burnlite": icons.Burnlite, "linear": "", "": ""}
+	for provider, want := range cases {
+		if got := icons.Provider(provider); got != want {
+			t.Errorf("Provider(%q) = %q, want %q", provider, got, want)
+		}
+	}
+}
+
+func TestProviderName(t *testing.T) {
+	cases := map[string]string{"jira": "Jira", "github": "GitHub", "burnlite": "Burnlite", "linear": "linear", "": ""}
+	for provider, want := range cases {
+		if got := ProviderName(provider); got != want {
+			t.Errorf("ProviderName(%q) = %q, want %q", provider, got, want)
+		}
+	}
+}

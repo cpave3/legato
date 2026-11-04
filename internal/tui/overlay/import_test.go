@@ -154,3 +154,33 @@ func TestImportOverlayPasteMultiRune(t *testing.T) {
 		t.Errorf("expected ImportQueryChangedMsg with query 'LEGATO-123', got %T", msg)
 	}
 }
+
+func TestImportOverlayRowsSayWhichProviderEachResultIsFrom(t *testing.T) {
+	m := NewImport(100, 30, nil)
+	m = m.SetResults([]service.RemoteSearchResult{
+		{ID: "REX-1", Summary: "Jira ticket", Status: "To Do", Provider: "jira"},
+		{ID: "EST-7", Summary: "Burnlite task", Status: "Ready", Provider: "burnlite"},
+	})
+	view := m.View()
+	for _, line := range strings.Split(view, "\n") {
+		if strings.Contains(line, "REX-1") && !strings.Contains(line, "jira") {
+			t.Errorf("Jira row does not name its provider: %q", line)
+		}
+		if strings.Contains(line, "EST-7") && !strings.Contains(line, "burnlite") {
+			t.Errorf("Burnlite row does not name its provider: %q", line)
+		}
+	}
+	mustContain(t, view, "EST-7")
+}
+
+func TestImportOverlayLongSummaryKeepsTheResultAreaHeight(t *testing.T) {
+	short := NewImport(80, 30, nil).SetResults([]service.RemoteSearchResult{
+		{ID: "EST-7", Summary: "Short", Status: "Ready", Provider: "burnlite"},
+	})
+	long := NewImport(80, 30, nil).SetResults([]service.RemoteSearchResult{
+		{ID: "EST-7", Summary: strings.Repeat("a very long summary ", 12), Status: "Ready", Provider: "burnlite"},
+	})
+	if got, want := strings.Count(long.View(), "\n"), strings.Count(short.View(), "\n"); got != want {
+		t.Errorf("a long summary changed the overlay's height: %d lines, want %d", got, want)
+	}
+}

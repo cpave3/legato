@@ -34,6 +34,7 @@ import { EditTitleModal } from "../components/board/EditTitleModal"
 import { EditDescriptionModal } from "../components/board/EditDescriptionModal"
 import { HelpModal } from "../components/board/HelpModal"
 import { OpenURLPicker } from "../components/board/OpenURLPicker"
+import { providerLabel, sortProviders } from "../lib/providers"
 import { CancelSwarmModal } from "../components/board/CancelSwarmModal"
 import { WorktreeModal } from "../components/board/WorktreeModal"
 import { CardContextMenu, type CardContextAction } from "../components/board/CardContextMenu"
@@ -64,7 +65,7 @@ type Overlay =
   | { kind: "editTitle"; card: BoardCard }
   | { kind: "editDescription"; card: BoardCard }
   | { kind: "help" }
-  | { kind: "openURL"; providerURL: string; prURL: string }
+  | { kind: "openURL"; providerURL: string; provider: string; prURL: string }
   | { kind: "cancelSwarm"; card: BoardCard }
   | { kind: "worktree" }
   | { kind: "workflowInput"; request: WorkflowTriggerRequest }
@@ -75,7 +76,7 @@ function errorMessage(error: unknown, fallback: string): string {
 }
 
 function providerSyncMessage(result: ProviderSyncResult): { message: string; type: "success" | "error" | "info" } {
-  const sources = [["Jira", result.jira], ["GitHub", result.github]] as const
+  const sources = sortProviders(Object.keys(result)).map((name) => [providerLabel(name), result[name]] as const)
   const failed = sources.filter(([, source]) => source.status === "failed")
   const completed = sources.filter(([, source]) => source.status === "completed")
   if (failed.length > 0) {
@@ -368,7 +369,7 @@ export function BoardPage() {
           const providerURL = detailCard.remote_meta?.url || ""
           const prURL = detailCard.pr_meta?.pr_url || ""
           if (providerURL && prURL) {
-            setOverlay({ kind: "openURL", providerURL, prURL })
+            setOverlay({ kind: "openURL", providerURL, provider: detailCard.provider, prURL })
           } else if (providerURL || prURL) {
             window.open(providerURL || prURL, "_blank")
           }
@@ -1075,6 +1076,7 @@ export function BoardPage() {
       <OpenURLPicker
         open={overlay.kind === "openURL"}
         providerURL={overlay.kind === "openURL" ? overlay.providerURL : ""}
+        provider={overlay.kind === "openURL" ? overlay.provider : ""}
         prURL={overlay.kind === "openURL" ? overlay.prURL : ""}
         onSelect={handleOpenURL}
         onClose={() => setOverlay({ kind: "none" })}
@@ -1155,7 +1157,7 @@ export function BoardPage() {
             const providerURL = detailCard.remote_meta?.url || ""
             const prURL = detailCard.pr_meta?.pr_url || ""
             if (providerURL && prURL) {
-              setOverlay({ kind: "openURL", providerURL, prURL })
+              setOverlay({ kind: "openURL", providerURL, provider: detailCard.provider, prURL })
             } else if (providerURL || prURL) {
               window.open(providerURL || prURL, "_blank")
             }

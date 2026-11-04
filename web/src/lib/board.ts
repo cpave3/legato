@@ -17,10 +17,9 @@ export type ProviderSyncSourceResult = {
   tasks_synced?: number
 }
 
-export type ProviderSyncResult = {
-  jira: ProviderSyncSourceResult
-  github: ProviderSyncSourceResult
-}
+// Each provider's outcome by its name: jira and github always, burnlite
+// when it is registered, and any other the server adds.
+export type ProviderSyncResult = Record<string, ProviderSyncSourceResult>
 
 export class ProviderSyncConflictError extends Error {}
 
@@ -185,22 +184,35 @@ export async function unlinkPR(baseUrl: string, taskId: string): Promise<void> {
   if (!res.ok) throw new Error(`unlinkPR failed: ${res.status}`)
 }
 
+// The server's own words for a refusal ({error}), else the fallback.
+async function serverError(res: Response, fallback: string): Promise<Error> {
+  try {
+    const body = await res.json()
+    if (body && typeof body.error === "string" && body.error) return new Error(body.error)
+  } catch {
+    // Not JSON: the fallback says enough.
+  }
+  return new Error(fallback)
+}
+
 export async function remoteSearch(baseUrl: string, query: string): Promise<RemoteSearchResult[]> {
   const res = await apiFetch(baseUrl, `/api/remote/search?q=${encodeURIComponent(query)}`)
-  if (!res.ok) throw new Error(`remoteSearch failed: ${res.status}`)
+  if (!res.ok) throw await serverError(res, `remoteSearch failed: ${res.status}`)
   return res.json() as Promise<RemoteSearchResult[]>
 }
 
+// Imports a ticket; provider names the source a search result came from, so
+// the server need not guess when several are connected.
 export async function remoteImport(
   baseUrl: string,
-  body: { ticket_id: string; workspace_id?: number | null }
+  body: { ticket_id: string; provider?: string; workspace_id?: number | null }
 ): Promise<{ id: string }> {
   const res = await apiFetch(baseUrl, "/api/remote/import", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   })
-  if (!res.ok) throw new Error(`remoteImport failed: ${res.status}`)
+  if (!res.ok) throw await serverError(res, `remoteImport failed: ${res.status}`)
   return res.json() as Promise<{ id: string }>
 }
 

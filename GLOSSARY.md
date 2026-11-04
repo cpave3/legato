@@ -42,4 +42,4 @@ _Avoid_: force recall, abandon
 A request from Argus that a Legato fix or find out something about a case. Not a handoff.
 
 **Remote ticket**:
-A task that comes from a ticket provider such as Jira. Not a task on a worker instance.
+A task that comes from a ticket provider such as Jira or Burnlite. Not a task on a worker instance.

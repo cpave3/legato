@@ -16,7 +16,7 @@ type CardData struct {
 	Title            string
 	Priority         string
 	IssueType        string
-	Provider         string // "jira", "github", or "" for local
+	Provider         string // "jira", "github", "burnlite", or "" for local
 	Warning          bool
 	AgentActive      bool          // true if any agent session is running for this task
 	AgentState       string        // "working", "waiting", "error", or "" (idle/no agent)
@@ -190,16 +190,13 @@ func taskParts(card CardData) []string {
 
 // sourceLabel says where a task comes from.
 func sourceLabel(card CardData, icons theme.Icons) string {
-	switch card.Provider {
-	case "jira":
-		return colored(theme.TextSecondary, icons.Jira+" jira")
-	case "github":
-		return colored(theme.TextSecondary, icons.GitHub+" github")
-	case "":
+	if card.Provider == "" {
 		return colored(theme.TextFaint, "local")
-	default:
-		return colored(theme.TextSecondary, card.Provider)
 	}
+	if icon := icons.Provider(card.Provider); icon != "" {
+		return colored(theme.TextSecondary, icon+" "+card.Provider)
+	}
+	return colored(theme.TextSecondary, card.Provider)
 }
 
 // priorityMark is the sign a card opens with: an arrow in the priority's

@@ -35,7 +35,15 @@ func wireIntegrations(srv *server.Server, deps integrationDeps) (stop func()) {
 	if a := deps.cfg.Integrations.Argus; a != nil {
 		argus = &service.ArgusSettings{URL: a.URL, Delivery: a.Delivery, Agent: a.Agent}
 	}
-	srv.SetIntegrationOverview(service.NewIntegrationOverview(deps.db, argus))
+	overview := service.NewIntegrationOverview(deps.db, argus)
+	// Burnlite is connected from Settings as well as from the CLI: the
+	// browser comes back to this server's /oauth/callback.
+	secretStore := configuredSecretStore(deps.cfg, deps.db)
+	burnlite := service.NewBurnliteSettings(deps.db, service.NewIntegrationConnector(deps.db, service.SealedIntegrationSecrets{Store: secretStore}, nil),
+		service.BurnliteSettingsOptions{ConfiguredURL: deps.cfg.Burnlite.URL, ConfiguredProjects: deps.cfg.Burnlite.Projects, SecretSource: secretStore.Source})
+	overview.SetBurnlite(burnlite)
+	srv.SetBurnliteSettings(burnlite)
+	srv.SetIntegrationOverview(overview)
 	ctx, cancel := context.WithCancel(context.Background())
 	if deps.cfg.Integrations.Argus != nil && deps.approvals != nil && deps.approvals.caseAttention != nil {
 		srv.SetCaseAttention(deps.approvals.caseAttention)

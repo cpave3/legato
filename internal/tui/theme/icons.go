@@ -4,6 +4,7 @@ package theme
 type Icons struct {
 	Jira     string
 	GitHub   string
+	Burnlite string
 	Local    string
 	Terminal string
 	Worktree string
@@ -37,6 +38,7 @@ func NewIcons(mode string) Icons {
 		return Icons{
 			Jira:            "\ue75c", // nf-dev-jira
 			GitHub:          "\uf408", // nf-oct-mark_github
+			Burnlite:        "\uf06d", // nf-fa-fire
 			Local:           "\uf444", // nf-oct-note
 			Terminal:        "\uf489", // nf-cod-terminal
 			Worktree:        "\uf1bb", // nf-fa-tree
@@ -62,6 +64,7 @@ func NewIcons(mode string) Icons {
 	return Icons{
 		Jira:            "◈",
 		GitHub:          "◉",
+		Burnlite:        "◎",
 		Local:           "●",
 		Terminal:        "▶",
 		Worktree:        "⑂",
@@ -82,4 +85,32 @@ func NewIcons(mode string) Icons {
 		PRComments:      "▪",
 		PRDraft:         "~",
 	}
+}
+
+// Provider is the icon of a ticket provider ("jira", "github", "burnlite"),
+// or "" for one without an icon.
+func (i Icons) Provider(provider string) string {
+	switch provider {
+	case "jira":
+		return i.Jira
+	case "github":
+		return i.GitHub
+	case "burnlite":
+		return i.Burnlite
+	}
+	return ""
+}
+
+// ProviderName is a ticket provider's name for people ("Jira" for "jira");
+// a provider it does not know keeps its own name.
+func ProviderName(provider string) string {
+	switch provider {
+	case "jira":
+		return "Jira"
+	case "github":
+		return "GitHub"
+	case "burnlite":
+		return "Burnlite"
+	}
+	return provider
 }

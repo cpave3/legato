@@ -303,3 +303,24 @@ func TestWithNoProviderConnectedSearchAndImportSaySo(t *testing.T) {
 		t.Errorf("import from a named provider err = %v", err)
 	}
 }
+
+func TestConnectedProvidersSayWhereTheirSitesAre(t *testing.T) {
+	jira := NewJiraSourceWith(&mockProvider{}, JiraSourceOptions{Site: "https://example.atlassian.net/", Interval: time.Minute})
+	burnlite := newBurnliteSource(BurnliteSourceOptions{Interval: time.Minute}, func(context.Context) (burnliteReader, string, error) {
+		return &fakeBurnliteReader{}, "https://burnlite.example.com/base/", nil
+	})
+	off := newBurnliteSource(BurnliteSourceOptions{}, func(context.Context) (burnliteReader, string, error) { return nil, "", ErrNotConnected })
+	svc, _ := newSourcesTest(t, jira, burnlite, &fakeSource{name: "nosite"})
+	got := svc.(TicketProviderLister).TicketProviders(context.Background())
+	want := []TicketProviderInfo{
+		{Name: "jira", Label: "Jira", WebOrigin: "https://example.atlassian.net", KeyPattern: JiraKeyPattern},
+		{Name: "burnlite", Label: "Burnlite", WebOrigin: "https://burnlite.example.com", KeyPattern: BurnliteKeyPattern},
+	}
+	if len(got) != len(want) || got[0] != want[0] || got[1] != want[1] {
+		t.Fatalf("providers = %+v", got)
+	}
+	svc, _ = newSourcesTest(t, off)
+	if got := svc.(TicketProviderLister).TicketProviders(context.Background()); len(got) != 0 {
+		t.Errorf("a provider that is not connected was listed: %+v", got)
+	}
+}

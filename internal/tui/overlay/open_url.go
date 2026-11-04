@@ -16,15 +16,18 @@ type OpenURLCancelledMsg struct{}
 
 // OpenURLOverlay lets the user choose between provider and PR URLs.
 type OpenURLOverlay struct {
+	provider    string
 	providerURL string
 	prURL       string
 	width       int
 	height      int
 }
 
-// NewOpenURL creates a URL picker overlay.
-func NewOpenURL(providerURL, prURL string, width, height int) OpenURLOverlay {
+// NewOpenURL creates a URL picker overlay. provider names the ticket provider
+// providerURL belongs to ("jira", "burnlite").
+func NewOpenURL(provider, providerURL, prURL string, width, height int) OpenURLOverlay {
 	return OpenURLOverlay{
+		provider:    provider,
 		providerURL: providerURL,
 		prURL:       prURL,
 		width:       width,
@@ -76,7 +79,7 @@ func (m OpenURLOverlay) View() string {
 	lines := []string{
 		titleStyle.Render("Open Link"),
 		"",
-		hintStyle.Render("j = Jira"),
+		hintStyle.Render("j = " + m.providerName()),
 		hintStyle.Render("g = GitHub PR"),
 		"",
 		footerStyle.Render("esc = cancel"),
@@ -84,4 +87,11 @@ func (m OpenURLOverlay) View() string {
 
 	content := lipgloss.JoinVertical(lipgloss.Left, lines...)
 	return RenderPanel(content, m.width, m.height)
+}
+
+func (m OpenURLOverlay) providerName() string {
+	if name := theme.ProviderName(m.provider); name != "" {
+		return name
+	}
+	return "Remote task"
 }

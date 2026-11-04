@@ -504,6 +504,21 @@ func (s *syncService) StartScheduler(ctx context.Context) func() {
 	return cancel
 }
 
+// TicketProviders lists the enabled sources that have a site.
+func (s *syncService) TicketProviders(ctx context.Context) []TicketProviderInfo {
+	var out []TicketProviderInfo
+	for _, source := range s.sources {
+		site, ok := source.(webSite)
+		if !ok || !source.Enabled(ctx) {
+			continue
+		}
+		if o := origin(site.WebSite(ctx)); o != "" {
+			out = append(out, TicketProviderInfo{Name: source.Name(), Label: source.Label(), WebOrigin: o, KeyPattern: site.KeyPattern()})
+		}
+	}
+	return out
+}
+
 // tick is how often the scheduler looks for a source that is due: the
 // shortest interval.
 func (s *syncService) tick() time.Duration {

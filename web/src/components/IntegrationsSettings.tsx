@@ -1,6 +1,7 @@
-import { useEffect, useRef, useState } from "react"
+import { useCallback, useEffect, useRef, useState } from "react"
 import { KeySquare, Radar } from "lucide-react"
 import { SettingsCard } from "./settings/SettingsUI"
+import { BurnliteSettings, type ConnectOutcome } from "./BurnliteSettings"
 import { fetchIntegrations, type IntegrationsOverview } from "../lib/integrations"
 
 const code = "rounded bg-lw-raised px-1 font-lw-mono text-lw-text-2"
@@ -18,22 +19,47 @@ function Row({ label, children }: { label: string; children: React.ReactNode }) 
   )
 }
 
+// The outcome of connecting to an integration, which the server's OAuth
+// callback puts in the address: ?integration=burnlite&result=connected, or
+// result=failed&error=<why>.
+function readOutcome(integration: string): ConnectOutcome | null {
+  const params = new URLSearchParams(window.location.search)
+  const result = params.get("result")
+  if (params.get("integration") !== integration || (result !== "connected" && result !== "failed")) return null
+  return { result, error: params.get("error") ?? undefined }
+}
+
+// Drops the callback's outcome from the address, so a reload does not show it again.
+function forgetOutcome() {
+  const params = new URLSearchParams(window.location.search)
+  if (!params.has("integration")) return
+  for (const name of ["integration", "result", "error"]) params.delete(name)
+  const search = params.toString()
+  const { pathname, hash } = window.location
+  window.history.replaceState(window.history.state, "", `${pathname}${search ? `?${search}` : ""}${hash}`)
+}
+
 // IntegrationsSettings shows services outside Legato that act on it: Argus
 // (its settings, Legato's connection to it, the replies waiting for it and
-// its cases in Attention), and the scoped tokens integrations use. It only
-// shows them; tokens are made and revoked with `legato integration token`.
+// its cases in Attention), Burnlite (connected and set up here), and the
+// scoped tokens integrations use. Tokens are made and revoked with
+// `legato integration token`.
 export function IntegrationsSettings({ baseUrl }: { baseUrl: string }) {
   const [overview, setOverview] = useState<IntegrationsOverview | null>(null)
   const [error, setError] = useState<string | null>(null)
+  const [burnliteOutcome] = useState(() => readOutcome("burnlite"))
   const root = useRef<HTMLDivElement>(null)
 
-  useEffect(() => {
+  const load = useCallback(() => {
     let live = true
     fetchIntegrations(baseUrl)
       .then((o) => { if (live) setOverview(o) })
       .catch((reason) => { if (live) setError(reason instanceof Error ? reason.message : String(reason)) })
     return () => { live = false }
   }, [baseUrl])
+
+  useEffect(load, [load])
+  useEffect(forgetOutcome, [])
 
   // Attention's "connect again" item links here; come into view once shown.
   useEffect(() => {
@@ -83,6 +109,16 @@ export function IntegrationsSettings({ baseUrl }: { baseUrl: string }) {
           </dl>
         )}
       </SettingsCard>
+
+      {overview.burnlite && (
+        <BurnliteSettings
+          baseUrl={baseUrl}
+          burnlite={overview.burnlite}
+          outcome={burnliteOutcome}
+          onChanged={(burnlite) => setOverview((o) => (o ? { ...o, burnlite } : o))}
+          onDisconnected={() => { load() }}
+        />
+      )}
 
       <SettingsCard
         label="Integration tokens"
