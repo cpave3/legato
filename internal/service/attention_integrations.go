@@ -83,5 +83,20 @@ func (a *IntegrationAttentionAdapter) Snapshot(ctx context.Context) ([]Attention
 			Actions:    []AttentionAction{{ID: "open", Label: "Open settings", Kind: "navigate"}},
 		})
 	}
+	burnlite, err := a.db.GetIntegration(ctx, BurnliteIntegration)
+	if err != nil && !errors.Is(err, store.ErrNotFound) {
+		return nil, err
+	}
+	if burnlite != nil && burnlite.State == store.IntegrationDisconnected {
+		items = append(items, AttentionInput{
+			SignalKind: AttentionSignalIntegrationDisconnected, SourceKey: burnlite.Name, SourceRevision: burnlite.ConnectedAt,
+			Title:    "Legato lost its connection to Burnlite",
+			Reason:   "Burnlite refused Legato's tokens, so its tasks no longer sync.",
+			Detail:   "Connect again in Settings › Integrations, or run legato integration connect burnlite at the host.",
+			Category: "integration", Urgency: "high",
+			Navigation: AttentionNavigation{Kind: "settings", Target: "integrations"},
+			Actions:    []AttentionAction{{ID: "open", Label: "Open settings", Kind: "navigate"}},
+		})
+	}
 	return items, nil
 }

@@ -37,6 +37,13 @@ type RemoteTicket struct {
 	URL           string
 	UpdatedAt     time.Time
 	Attachments   []RemoteAttachment
+	// Size and Uncertainty are the ticket's estimate, where it has one.
+	Size        string
+	Uncertainty string
+	// BlockedBy are the keys of the open tickets it waits on.
+	BlockedBy []string
+	// Resolution is the one line on how a closed ticket was resolved.
+	Resolution string
 }
 
 // RemoteAttachment is provider-neutral attachment metadata.

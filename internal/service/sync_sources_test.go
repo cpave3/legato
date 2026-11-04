@@ -289,3 +289,17 @@ func TestMovingAReadOnlyProvidersCardStaysLocal(t *testing.T) {
 	case <-time.After(100 * time.Millisecond):
 	}
 }
+
+func TestWithNoProviderConnectedSearchAndImportSaySo(t *testing.T) {
+	svc, _ := newSourcesTest(t, &fakeSource{name: "burnlite", disabled: true})
+	ctx := context.Background()
+	if _, err := svc.SearchRemote(ctx, "login"); !errors.Is(err, ErrNoTicketProvider) {
+		t.Errorf("search err = %v", err)
+	}
+	if _, err := svc.ImportRemoteTask(ctx, "", "EST-1", nil); !errors.Is(err, ErrNoTicketProvider) {
+		t.Errorf("import err = %v", err)
+	}
+	if _, err := svc.ImportRemoteTask(ctx, "burnlite", "EST-1", nil); !errors.Is(err, ErrNoTicketProvider) {
+		t.Errorf("import from a named provider err = %v", err)
+	}
+}

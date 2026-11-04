@@ -44,6 +44,9 @@ type PullBatch struct {
 	Missing []string
 }
 
+// ErrNoTicketProvider: no ticket provider is connected, or not the one named.
+var ErrNoTicketProvider = errors.New("no ticket provider is connected to Legato")
+
 // ErrTicketKeyTaken: a task with the ticket's key exists, from another
 // provider or made in Legato.
 var ErrTicketKeyTaken = errors.New("a task with this key already exists from another source")

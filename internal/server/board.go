@@ -753,7 +753,7 @@ func (s *Server) remoteSearchHandler() http.HandlerFunc {
 		ctx := context.Background()
 		results, err := s.sync.SearchRemote(ctx, q)
 		if err != nil {
-			s.writeError(w, http.StatusInternalServerError, err.Error())
+			s.writeError(w, remoteErrorStatus(err), err.Error())
 			return
 		}
 		resp := make([]RemoteSearchResultResponse, len(results))
@@ -769,6 +769,19 @@ func (s *Server) remoteSearchHandler() http.HandlerFunc {
 		}
 		s.writeJSON(w, http.StatusOK, resp)
 	}
+}
+
+// remoteErrorStatus is the status of a search or import that failed: 503
+// when no provider (or not the one named) is connected, 409 for a key
+// another provider owns.
+func remoteErrorStatus(err error) int {
+	switch {
+	case errors.Is(err, service.ErrNoTicketProvider):
+		return http.StatusServiceUnavailable
+	case errors.Is(err, service.ErrTicketKeyTaken):
+		return http.StatusConflict
+	}
+	return http.StatusInternalServerError
 }
 
 // ---------- POST /api/remote/import ----------
@@ -810,7 +823,7 @@ func (s *Server) remoteImportHandler() http.HandlerFunc {
 		ctx := context.Background()
 		card, err := s.sync.ImportRemoteTask(ctx, req.Provider, req.TicketID, req.WorkspaceID)
 		if err != nil {
-			s.writeError(w, http.StatusInternalServerError, err.Error())
+			s.writeError(w, remoteErrorStatus(err), err.Error())
 			return
 		}
 		resp := CardResponse{

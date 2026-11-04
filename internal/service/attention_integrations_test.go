@@ -47,3 +47,23 @@ func TestIntegrationProblemsReachAttention(t *testing.T) {
 		}
 	}
 }
+
+func TestALostBurnliteConnectionReachesAttention(t *testing.T) {
+	db := newIntegrationStore(t)
+	ctx := context.Background()
+	_ = db.SaveIntegration(ctx, store.Integration{Name: "burnlite", URL: "https://burnlite.example.com", TokenEndpoint: "https://burnlite.example.com/api/oauth/token", ClientID: "c"})
+	items, _ := NewIntegrationAttentionAdapter(db).Snapshot(ctx)
+	if len(items) != 0 {
+		t.Fatalf("a connected Burnlite raised %+v", items)
+	}
+	_ = db.SetIntegrationState(ctx, "burnlite", store.IntegrationDisconnected)
+	items, err := NewIntegrationAttentionAdapter(db).Snapshot(ctx)
+	if err != nil || len(items) != 1 {
+		t.Fatalf("items = %+v, %v", items, err)
+	}
+	item := items[0]
+	if item.SignalKind != AttentionSignalIntegrationDisconnected || item.SourceKey != "burnlite" || item.Urgency != "high" ||
+		item.Navigation.Target != "integrations" || item.Title != "Legato lost its connection to Burnlite" {
+		t.Fatalf("item = %+v", item)
+	}
+}

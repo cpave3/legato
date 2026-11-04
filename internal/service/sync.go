@@ -44,6 +44,26 @@ type remoteMeta struct {
 	StaleAt          string `json:"stale_at,omitempty"`
 	LocalMoveAt      string `json:"local_move_at,omitempty"`
 	RemoteTransition string `json:"remote_transition,omitempty"`
+	Size             string `json:"size,omitempty"`
+	Uncertainty      string `json:"uncertainty,omitempty"`
+	BlockedBy        string `json:"blocked_by,omitempty"`
+	Resolution       string `json:"resolution,omitempty"`
+}
+
+// setTicketFields copies what a ticket says about itself into the meta.
+func (m *remoteMeta) setTicketFields(rt RemoteTicket) {
+	m.RemoteStatus = rt.Status
+	m.RemoteUpdatedAt = rt.UpdatedAt.UTC().Format(time.RFC3339Nano)
+	m.IssueType = rt.IssueType
+	m.Assignee = rt.Assignee
+	m.Labels = strings.Join(rt.Labels, ",")
+	m.EpicKey = rt.EpicKey
+	m.EpicName = rt.EpicName
+	m.URL = rt.URL
+	m.Size = rt.Size
+	m.Uncertainty = rt.Uncertainty
+	m.BlockedBy = strings.Join(rt.BlockedBy, ",")
+	m.Resolution = rt.Resolution
 }
 
 func parseRemoteMeta(raw *string) remoteMeta {
@@ -243,14 +263,7 @@ func (s *syncService) pullSource(ctx context.Context, source TicketSource) (int,
 		existing.Priority = rt.Priority
 		existing.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
 
-		existingMeta.RemoteStatus = rt.Status
-		existingMeta.RemoteUpdatedAt = rt.UpdatedAt.UTC().Format(time.RFC3339Nano)
-		existingMeta.IssueType = rt.IssueType
-		existingMeta.Assignee = rt.Assignee
-		existingMeta.Labels = strings.Join(rt.Labels, ",")
-		existingMeta.EpicKey = rt.EpicKey
-		existingMeta.EpicName = rt.EpicName
-		existingMeta.URL = rt.URL
+		existingMeta.setTicketFields(rt)
 		existingMeta.StaleAt = "" // clear stale marker
 
 		// Check if status/column changed
@@ -588,6 +601,9 @@ func (s *syncService) SearchRemote(ctx context.Context, query string) ([]RemoteS
 			})
 		}
 	}
+	if searched == 0 {
+		return nil, ErrNoTicketProvider
+	}
 	// Results from the providers that answered, unless none did.
 	if len(results) == 0 && firstErr != nil {
 		if searched == 1 {
@@ -603,7 +619,7 @@ func (s *syncService) importSource(ctx context.Context, name string) (TicketSour
 	if name != "" {
 		source := s.source(name)
 		if source == nil || !source.Enabled(ctx) {
-			return nil, fmt.Errorf("%s is not connected to Legato", name)
+			return nil, fmt.Errorf("%s is not connected: %w", name, ErrNoTicketProvider)
 		}
 		return source, nil
 	}
@@ -617,7 +633,7 @@ func (s *syncService) importSource(ctx context.Context, name string) (TicketSour
 	}
 	switch len(enabled) {
 	case 0:
-		return nil, errors.New("no ticket provider is connected to Legato")
+		return nil, ErrNoTicketProvider
 	case 1:
 		return enabled[0], nil
 	}
@@ -672,17 +688,8 @@ func (s *syncService) ImportRemoteTask(ctx context.Context, providerName, ticket
 	now := time.Now().UTC().Format(time.RFC3339)
 	provider := source.Name()
 	remoteID := rt.ID
-	labels := strings.Join(rt.Labels, ",")
-	meta := remoteMeta{
-		RemoteStatus:    rt.Status,
-		RemoteUpdatedAt: rt.UpdatedAt.UTC().Format(time.RFC3339Nano),
-		IssueType:       rt.IssueType,
-		Assignee:        rt.Assignee,
-		Labels:          labels,
-		EpicKey:         rt.EpicKey,
-		EpicName:        rt.EpicName,
-		URL:             rt.URL,
-	}
+	var meta remoteMeta
+	meta.setTicketFields(*rt)
 	task := store.Task{
 		ID:                  rt.ID,
 		Title:               rt.Summary,

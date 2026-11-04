@@ -303,6 +303,8 @@ func TestArchivedTasksEndpointUsesBoardCardJSONShape(t *testing.T) {
 }
 
 type mockSyncService struct {
+	searchErr         error
+	importErr         error
 	searchResults     []service.RemoteSearchResult
 	importedCard      *service.Card
 	importedWorkspace *int
@@ -439,11 +441,14 @@ func (p *promptAgentService) GetAgentSession(context.Context, string) (*store.Ag
 func (m *mockSyncService) Subscribe() <-chan service.SyncEvent     { return nil }
 func (m *mockSyncService) StartScheduler(_ context.Context) func() { return func() {} }
 func (m *mockSyncService) SearchRemote(_ context.Context, _ string) ([]service.RemoteSearchResult, error) {
-	return m.searchResults, nil
+	return m.searchResults, m.searchErr
 }
 func (m *mockSyncService) ImportRemoteTask(_ context.Context, provider, ticketID string, workspaceID *int) (*service.Card, error) {
 	m.importedProvider, m.importedTicket = provider, ticketID
 	m.importedWorkspace = workspaceID
+	if m.importErr != nil {
+		return nil, m.importErr
+	}
 	return m.importedCard, nil
 }
 func (m *mockSyncService) PushMove(_ context.Context, taskID, targetColumn string) error {
@@ -1738,6 +1743,33 @@ func TestRemoteImportAndSearchSayWhichProviderATicketIsFrom(t *testing.T) {
 	var results []RemoteSearchResultResponse
 	if err := json.Unmarshal(w.Body.Bytes(), &results); err != nil || len(results) != 1 || results[0].Provider != "burnlite" {
 		t.Fatalf("results = %s", w.Body.String())
+	}
+}
+
+func TestRemoteImportAndSearchStatusesSayWhatWentWrong(t *testing.T) {
+	svc := &mockBoardService{columns: []service.Column{}, cards: map[string][]service.Card{}}
+	for _, tt := range []struct {
+		name string
+		err  error
+		want int
+	}{
+		{"no provider connected", fmt.Errorf("Legato is not connected to Burnlite: %w", service.ErrNoTicketProvider), http.StatusServiceUnavailable},
+		{"key taken", fmt.Errorf("EST-7: %w", service.ErrTicketKeyTaken), http.StatusConflict},
+	} {
+		srv := New(svc, nil, nil, ":0")
+		srv.SetSyncService(&mockSyncService{importErr: tt.err, searchErr: tt.err})
+		w := httptest.NewRecorder()
+		srv.Handler().ServeHTTP(w, httptest.NewRequest("POST", "/api/remote/import", strings.NewReader(`{"ticket_id":"EST-7"}`)))
+		if w.Code != tt.want || !strings.Contains(w.Body.String(), "EST-7") && tt.want == http.StatusConflict {
+			t.Errorf("%s: import status %d, body %s", tt.name, w.Code, w.Body.String())
+		}
+		if tt.want == http.StatusServiceUnavailable {
+			w = httptest.NewRecorder()
+			srv.Handler().ServeHTTP(w, httptest.NewRequest("GET", "/api/remote/search?q=login", nil))
+			if w.Code != tt.want || !strings.Contains(w.Body.String(), "not connected") {
+				t.Errorf("%s: search status %d, body %s", tt.name, w.Code, w.Body.String())
+			}
+		}
 	}
 }
 
