@@ -75,6 +75,15 @@ code, .mono { font-family: var(--mono); font-size: 12px; }
 .dock-foot { margin-top: auto; padding-top: 10px; }
 .dock-manage { border-style: solid; border-color: transparent; }
 .dock-manage.active { color: var(--link); background: var(--raised); border-color: var(--line); }
+.dock-foot { display: flex; flex-direction: column; gap: 8px; }
+.dock-foot .dock-manage { position: relative; }
+.approval-row { display: flex; align-items: center; gap: 12px; width: 100%; text-align: left; padding: 11px 14px; border: 1px solid var(--line); border-radius: 12px; background: var(--raised); margin-bottom: 8px; color: var(--text); cursor: pointer; font: inherit; }
+.approval-row:hover { border-color: var(--line-strong); }
+.approval-mark { width: 8px; height: 8px; border-radius: 2px; flex: none; background: var(--amber); }
+.approval-row.signed .approval-mark { background: var(--link); }
+.approval-title { display: block; font-weight: 600; font-size: 14px; }
+.approval-meta { display: block; font-size: 12px; color: var(--text2); margin-top: 2px; }
+.chip.sign { color: var(--link); border-color: color-mix(in srgb, var(--link) 45%, transparent); display: inline-flex; align-items: center; gap: 4px; }
 
 /* Panels */
 .panel, .welcome { padding: 22px 28px 28px; max-width: 860px; }
@@ -175,6 +184,9 @@ button.big:disabled { opacity: 0.5; cursor: default; }
 .key-body { fill: #1B1A24; stroke: var(--line-strong); stroke-width: 2; }
 .key-plug { fill: #2A2933; }
 .key-pad { fill: var(--amber); opacity: 0.85; animation: blink 1s ease-in-out infinite; }
+.key-pad.idle { fill: var(--line-strong); animation: none; }
+.key.plugging { animation: plug 1.6s ease-in-out infinite; }
+@keyframes plug { 0%, 100% { transform: translateX(0); } 50% { transform: translateX(8px); } }
 .key-ring { fill: none; stroke: var(--amber); stroke-width: 2; transform-origin: 38px 32px; animation: ring 1.2s ease-out infinite; }
 .fingerprint { width: 64px; }
 .fp-lines { fill: none; stroke: var(--amber); stroke-width: 2.5; stroke-linecap: round; animation: blink 1s ease-in-out infinite; }

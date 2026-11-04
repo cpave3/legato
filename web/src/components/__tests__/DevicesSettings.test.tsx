@@ -36,7 +36,7 @@ describe("DevicesSettings", () => {
     render(<DevicesSettings baseUrl="http://legato" />)
     await waitFor(() => expect(screen.getByText(/No phone signs approvals yet/)).toBeTruthy())
     expect(screen.getByText(/open this server in the Legato app/)).toBeTruthy()
-    expect(screen.queryByRole("button", { name: /Sign approvals with this phone/ })).toBeNull()
+    expect(screen.queryByRole("button", { name: /Sign approvals with this device/ })).toBeNull()
   })
 
   it("comes into view when the address names it, as Attention's link to it does", async () => {
@@ -84,7 +84,7 @@ describe("DevicesSettings", () => {
     ;(window as { ReactNativeWebView?: unknown }).ReactNativeWebView = { postMessage: (m: string) => posted.push(m) }
     mockList.mockResolvedValue({ devices: [], enrolled: false, server_id: "srv-1" })
     render(<DevicesSettings baseUrl="http://legato" />)
-    fireEvent.click(await screen.findByRole("button", { name: "Sign approvals with this phone" }))
+    fireEvent.click(await screen.findByRole("button", { name: "Sign approvals with this device" }))
     expect(JSON.parse(posted[0])).toEqual({ legatoShell: "enroll", key: "k1" })
   })
 })

@@ -106,6 +106,17 @@ pub fn assertion(credential_id: &[u8], auth_data: &[u8], signature: &[u8], clien
     .to_string()
 }
 
+/// What Legato said when it refused a signature, and what it most likely
+/// means when the key signed with a touch alone: Legato reports a missing
+/// PIN or fingerprint only as "Error validating the authenticator
+/// response", and a Legato from before touch-only signing requires one.
+pub fn explain_refusal(said: &str, verified: bool) -> String {
+    if verified || !said.contains("Error validating the authenticator response") {
+        return said.to_string();
+    }
+    format!("{said}. The key signed with a touch alone: this server may run a Legato that also wants a PIN or fingerprint. Restart it on a newer build (update it) to sign with a touch.")
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -163,6 +174,18 @@ mod tests {
         let touch = registration("Touch ID", &[1], &[9; 40], "{}", Attachment::TouchId);
         assert_eq!(touch["credential"]["authenticatorAttachment"], "platform");
         assert_eq!(touch["credential"]["response"]["transports"], json!(["internal"]));
+    }
+
+    // go-webauthn reports a missing user verification only as its
+    // verification error; a Legato from before touch-only signing requires it.
+    #[test]
+    fn a_touch_alone_refused_by_a_server_says_the_server_may_want_more() {
+        let said = "the decision's signature does not hold: the passkey's signature is not over this request, option and challenge, from its page: Error validating the authenticator response";
+        let explained = explain_refusal(said, false);
+        assert!(explained.starts_with(said), "keeps what the server said");
+        assert!(explained.contains("update it"), "{explained}");
+        assert_eq!(explain_refusal(said, true), said, "a verified signature was refused for another reason");
+        assert_eq!(explain_refusal("the server does not answer", false), "the server does not answer");
     }
 
     #[test]

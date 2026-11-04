@@ -12,13 +12,14 @@ use base64::Engine;
 use rand::RngCore;
 use serde::Serialize;
 use serde_json::{json, Value};
-use tauri::{AppHandle, LogicalPosition, LogicalSize, Manager, State, WebviewBuilder, WebviewUrl, WindowBuilder, WindowEvent};
+use tauri::{AppHandle, Emitter, LogicalPosition, LogicalSize, Manager, State, WebviewBuilder, WebviewUrl, WindowBuilder, WindowEvent};
 
 use crate::legato::{self, Client};
 use crate::store::{Keyring, Server, Store};
 use crate::updates;
 use crate::webauthn::{self, Attachment, ORIGIN, RP_ID};
 use crate::discovery::{Browser, Found};
+use crate::bridge::{self, PageMessage};
 use crate::{fido, systrust, touchid};
 
 // The shell's chrome, in logical pixels: the title bar across the top and
@@ -149,9 +150,10 @@ fn show_only_active(app: &AppHandle, desktop: &Desktop) {
     }
 }
 
-/// Makes a server's webview: the web UI's token seeded before its scripts
-/// run, and its certificate checked against the pin on each TLS error.
-fn make_server_view(app: &AppHandle, server: &Server, token: Option<String>) -> Result<(), String> {
+/// Makes a server's webview at path: the web UI's token seeded before its
+/// scripts run, the bridge to the shell (see `bridge`), and its certificate
+/// checked against the pin on each TLS error.
+fn make_server_view(app: &AppHandle, server: &Server, token: Option<String>, path: &str) -> Result<(), String> {
     let window = app.get_window("main").ok_or("no window")?;
     let (pos, size) = content_rect(app).ok_or("no window size")?;
     let origin = reqwest::Url::parse(&server.url).map_err(|e| e.to_string())?.origin().ascii_serialization();
@@ -174,14 +176,39 @@ fn make_server_view(app: &AppHandle, server: &Server, token: Option<String>) -> 
 }})();"#,
         token = token.unwrap_or_default()
     );
-    let builder = WebviewBuilder::new(webview_label(&server.id), WebviewUrl::External("about:blank".parse().unwrap())).initialization_script(&seed);
+    // What the page asks of the shell: read, handed to the shell, and the
+    // navigation cancelled. Every other navigation goes ahead.
+    let key = {
+        let mut b = [0u8; 16];
+        rand::rngs::OsRng.fill_bytes(&mut b);
+        hex::encode(b)
+    };
+    let shell_bridge = format!("if (location.origin === {origin:?}) {}", bridge::script(&key));
+    let (handle, server_id) = (app.clone(), server.id.clone());
+    let builder = WebviewBuilder::new(webview_label(&server.id), WebviewUrl::External("about:blank".parse().unwrap()))
+        .initialization_script(&seed)
+        .initialization_script(&shell_bridge)
+        .on_navigation(move |url| {
+            if url.scheme() != bridge::SCHEME {
+                return true;
+            }
+            let payload = match bridge::read(url.as_str(), &key) {
+                Some(PageMessage::Approval(id)) => Some(json!({ "server": server_id, "kind": "approval", "id": id })),
+                Some(PageMessage::Enroll) => Some(json!({ "server": server_id, "kind": "enroll" })),
+                None => None,
+            };
+            if let Some(p) = payload {
+                let _ = handle.emit_to("shell", "page-message", p);
+            }
+            false
+        });
     let view = window.add_child(builder, pos, size).map_err(|e| e.to_string())?;
-    let url = server.url.parse::<tauri::Url>().map_err(|e| e.to_string())?;
+    let url = format!("{}{path}", server.url).parse::<tauri::Url>().map_err(|e| e.to_string())?;
 
     #[cfg(target_os = "linux")]
     {
         let pin = server.ca_pem.as_deref().map(crate::pin::Pin::from_pem).transpose()?;
-        let target = server.url.clone();
+        let target = url.to_string();
         view.with_webview(move |platform| {
             use webkit2gtk::gio::prelude::TlsCertificateExt;
             use webkit2gtk::{WebContextExt, WebViewExt};
@@ -240,7 +267,7 @@ fn show_server(app: AppHandle, desktop: State<'_, Desktop>, id: String) -> Resul
             let store = desktop.store.lock().unwrap();
             (store.server(&id).cloned().ok_or("no such server")?, store.token(&id))
         };
-        make_server_view(&app, &server, token)?;
+        make_server_view(&app, &server, token, "")?;
     }
     *desktop.active.lock().unwrap() = Some(id);
     show_only_active(&app, &desktop);
@@ -249,6 +276,43 @@ fn show_server(app: AppHandle, desktop: State<'_, Desktop>, id: String) -> Resul
 
 /// Whether the content area shows the server's page (false while the shell
 /// draws a panel or a sheet over it).
+// ---- The page's approvals ----
+
+/// Tells a server's page how the sheet on one of its approvals came out
+/// (`bridge::result_script`), so its tray stops waiting and shows it.
+#[tauri::command]
+fn page_approval_done(app: AppHandle, server: String, detail: Value) -> Result<(), String> {
+    if let Some(view) = app.get_webview(&webview_label(&server)) {
+        view.eval(bridge::result_script(&detail)).map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
+/// Opens a server's page on an approval, where its tray shows it: an
+/// approval the shell does not decide (it needs no signature: an answer, a
+/// plan, a note for the agent).
+#[tauri::command]
+fn open_approval_in_page(app: AppHandle, desktop: State<'_, Desktop>, server: String, approval: String) -> Result<(), String> {
+    let base = desktop.store.lock().unwrap().server(&server).map(|s| s.url.clone()).ok_or("no such server")?;
+    let mut url = tauri::Url::parse(&base).map_err(|e| e.to_string())?;
+    url.set_path("/");
+    url.query_pairs_mut().clear().append_pair("approval", &approval);
+    match app.get_webview(&webview_label(&server)) {
+        Some(view) => view.navigate(url).map_err(|e| e.to_string())?,
+        None => {
+            let path = format!("/?{}", url.query().unwrap_or_default());
+            let (s, token) = {
+                let store = desktop.store.lock().unwrap();
+                (store.server(&server).cloned().ok_or("no such server")?, store.token(&server))
+            };
+            make_server_view(&app, &s, token, &path)?;
+        }
+    }
+    *desktop.active.lock().unwrap() = Some(server);
+    show_only_active(&app, &desktop);
+    Ok(())
+}
+
 // ---- A page the system must trust (macOS) ----
 
 /// Whether the web view will load a server's page. On a Mac it checks the
@@ -409,7 +473,7 @@ async fn poll(desktop: State<'_, Desktop>) -> Result<Vec<Status>, String> {
                         error: None,
                         version: meta["version"].as_str().map(String::from),
                         tint: meta["tint"].as_str().filter(|t| !t.is_empty()).map(String::from),
-                        approvals: approvals.into_iter().filter(|a| a["signed"] == true).collect(),
+                        approvals,
                     }
                 }
             },
@@ -643,6 +707,10 @@ fn signing_key(desktop: &Desktop, server_id: &str, plugged: &[Vec<u8>], touch_id
     keys.into_iter().find_map(|k| server.devices.get(&k.id).map(|d| (k.clone(), d.clone())))
 }
 
+/// prepare's answer when the server knows a key and none is plugged in;
+/// the shell's sheet (ApprovalSheet.tsx) waits on these words.
+const NO_KEY_PLUGGED: &str = "Plug in a key this server knows.";
+
 /// Fetches the request a key would sign for an approval, and keeps it. The
 /// sheet is drawn from what this returns.
 #[tauri::command]
@@ -657,10 +725,12 @@ async fn prepare(desktop: State<'_, Desktop>, server: String, approval: String) 
     let credentials = security_key_credentials(&keys);
     let plugged = tauri::async_runtime::spawn_blocking(move || fido::held(RP_ID, &credentials)).await.map_err(|e| e.to_string())?;
     let touch_id = touchid::this_mac().is_ok();
-    let (key, device) = signing_key(&desktop, &server, &plugged, touch_id).ok_or(if touch_id {
-        "This server knows neither Touch ID nor a plugged-in key. Enrol one in Servers & keys."
+    let knows_any = desktop.store.lock().unwrap().server(&server).is_some_and(|s| keys.iter().any(|k| s.devices.contains_key(&k.id)));
+    let (key, device) = signing_key(&desktop, &server, &plugged, touch_id).ok_or(if !knows_any {
+        "This server knows none of your keys. Enrol one in Servers & keys, at the foot of the dock."
     } else {
-        "Plug in a key this server knows."
+        // The sheet waits on this one, and asks again until a key is plugged in.
+        NO_KEY_PLUGGED
     })?;
     let enclave = match &key.enclave {
         Some(blob) => Some(URL_SAFE_NO_PAD.decode(blob).map_err(|e| e.to_string())?),
@@ -723,7 +793,8 @@ async fn sign(desktop: State<'_, Desktop>, server: String, approval: String, opt
         &format!("/api/approvals/{approval}/decision"),
         json!({ "decision": "allow", "option": option, "by": "desktop", "signature": { "device": p.device, "challenge": p.challenge, "value": value } }),
     )
-    .await?;
+    .await
+    .map_err(|e| webauthn::explain_refusal(&e, signed.verified))?;
     use sha2::Digest;
     Ok(json!({
         "device": p.device,
@@ -900,6 +971,8 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             servers,
             show_server,
+            page_approval_done,
+            open_approval_in_page,
             page_trusted,
             trust_server_certificate,
             save_server_certificate,

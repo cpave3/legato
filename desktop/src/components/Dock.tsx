@@ -1,20 +1,23 @@
 import { initials, tintColor, type Server, type Status } from "../api"
-import { KeyIcon, Plus } from "./Icons"
+import { Inbox, KeyIcon, Plus } from "./Icons"
 
 type Props = {
   servers: Server[]
   statuses: Record<string, Status>
   active?: string
-  panelOpen: boolean
+  panel: "manage" | "approvals" | null
   onSelect: (id: string) => void
   onAdd: () => void
+  onApprovals: () => void
   onManage: () => void
 }
 
 // The dock: each server as a tile in its tint, with a dot for whether it
-// answers and a count of what waits to be signed. At its foot, adding a
-// server, and the servers and keys.
-export function Dock({ servers, statuses, active, panelOpen, onSelect, onAdd, onManage }: Props) {
+// answers and a count of the approvals waiting there. At its foot, every
+// server's approvals, and the servers and keys.
+export function Dock({ servers, statuses, active, panel, onSelect, onAdd, onApprovals, onManage }: Props) {
+  const panelOpen = panel !== null
+  const waiting = servers.reduce((n, s) => n + (statuses[s.id]?.approvals.length ?? 0), 0)
   return (
     <nav className="dock" aria-label="Servers">
       <div className="dock-servers">
@@ -39,7 +42,11 @@ export function Dock({ servers, statuses, active, panelOpen, onSelect, onAdd, on
         <button className="dock-add" title="Pair a server" onClick={onAdd}><Plus size={18} /></button>
       </div>
       <div className="dock-foot">
-        <button className={"dock-manage" + (panelOpen ? " active" : "")} title="Servers and keys" onClick={onManage}>
+        <button className={"dock-manage" + (panel === "approvals" ? " active" : "")} title="Approvals on every server" onClick={onApprovals}>
+          <Inbox size={18} />
+          {waiting > 0 && <span className="dock-badge">{waiting}</span>}
+        </button>
+        <button className={"dock-manage" + (panel === "manage" ? " active" : "")} title="Servers and keys" onClick={onManage}>
           <KeyIcon size={18} />
         </button>
       </div>

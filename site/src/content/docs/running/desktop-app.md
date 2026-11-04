@@ -43,7 +43,13 @@ A [signed approval](/legato/security/credential-broker/#signed-approvals) needs 
 
 The app enrolls each key on every server it has paired with, and on each server you pair later. A server that already has an enrolled device asks for the new key to be approved with a signature from one it knows, as it does for any new device.
 
-When an approval waits for a signature, its server's tile shows a count, and the title bar shows **to sign**. Click it: a sheet shows what you are about to sign, drawn from the exact request the key signs. Choose an option and touch the key. Each decision records whether it was signed by a touch alone or with a PIN or fingerprint.
+When an approval waits for a signature, the title bar shows **to sign**. Click it: a sheet shows what you are about to sign, drawn from the exact request the key signs. Choose an option and touch the key. If no key the server knows is plugged in, the sheet waits for one and carries on when you plug it in. Each decision records whether it was signed by a touch alone or with a PIN or fingerprint. A Legato older than touch-only signing refuses a touch alone; the app says so, and updating the server fixes it.
+
+A server's own page hands such an approval to the app too: in its approvals tray, **◈ Approve and sign** opens the same sheet (an older server says **Approve on this phone**). The page only names the approval; the app fetches what it shows and signs itself, so the page cannot change it.
+
+### Every server's approvals
+
+The button above the key icon, at the foot of the dock, counts the approvals waiting on every server, and each server's tile counts its own. Click it for the list. An approval that needs a signature opens the sheet; any other opens its server's page on it, where you answer it as in the web UI: a question, a plan, or a deny with a note for the agent.
 
 To revoke a key, click **Revoke** beside it. Every server is asked to remove it; each removal is itself a signed approval, which you sign with another key (or that one, while you still have it).
 

@@ -4,6 +4,7 @@ import { invoke } from "@tauri-apps/api/core"
 
 export type Server = { id: string; name: string; url: string; tint?: string | null; pinned: boolean; keys: string[] }
 
+// An open approval, as the server lists it.
 export type Approval = {
   id: string
   title: string
@@ -11,7 +12,15 @@ export type Approval = {
   source: string
   signed: boolean
   created_at?: string
+  task_id?: string
+  details?: { task_title?: string; agent_kind?: string }
 }
+
+// How the sheet on an approval came out, as a server's page hears it.
+export type SheetOutcome = { status: "decided" | "cancelled" | "error"; option?: string; error?: string }
+
+// What a server's page asked of the app (src-tauri/src/bridge.rs).
+export type PageMessage = { server: string; kind: "approval"; id: string } | { server: string; kind: "enroll" }
 
 export type Status = {
   id: string
@@ -65,6 +74,8 @@ export type UpdateStatus = {
 export const api = {
   servers: () => invoke<Server[]>("servers"),
   showServer: (id: string) => invoke<void>("show_server", { id }),
+  pageApprovalDone: (server: string, id: string, outcome: SheetOutcome) => invoke<void>("page_approval_done", { server, detail: { id, ...outcome } }),
+  openApprovalInPage: (server: string, approval: string) => invoke<void>("open_approval_in_page", { server, approval }),
   // Whether this computer's web view will load the server's page: on a Mac,
   // whether the system trusts its certificate. Always true on Linux.
   pageTrusted: (id: string) => invoke<boolean>("page_trusted", { id }),

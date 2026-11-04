@@ -219,7 +219,7 @@ describe("ApprovalTray", () => {
       mockData = [signed()]
       mockRefresh.mockClear()
       renderTray()
-      fireEvent.click(screen.getByRole("button", { name: /Approve on this phone/ }))
+      fireEvent.click(screen.getByRole("button", { name: /Approve and sign/ }))
       expect(JSON.parse(posted[0])).toEqual({ legatoShell: "approval", key: "k1", id: "ap-33333333" })
       window.dispatchEvent(new CustomEvent("legato:shell-approval", { detail: { id: "ap-33333333", status: "decided", option: "once" } }))
       await waitFor(() => expect(mockRefresh).toHaveBeenCalled())

@@ -1,7 +1,9 @@
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { listen } from "@tauri-apps/api/event"
 import { getCurrentWindow } from "@tauri-apps/api/window"
-import { api, tintColor, type Approval, type Server, type Status } from "./api"
+import { api, tintColor, type PageMessage, type Server, type SheetOutcome, type Status } from "./api"
 import { ApprovalSheet } from "./components/ApprovalSheet"
+import { ApprovalsPanel } from "./components/ApprovalsPanel"
 import { Dock } from "./components/Dock"
 import { PairForm } from "./components/PairForm"
 import { ServersPanel } from "./components/ServersPanel"
@@ -9,8 +11,8 @@ import { TitleBar } from "./components/TitleBar"
 import { TrustScreen } from "./components/TrustScreen"
 import { useUpdates } from "./components/Updates"
 
-type Panel = null | { kind: "manage"; pairing: boolean }
-type Sheet = null | { server: Server; approval: Approval }
+type Panel = null | { kind: "manage"; pairing: boolean } | { kind: "approvals" }
+type Sheet = null | { server: Server; id: string }
 
 const ACTIVE = "legato-desktop:active"
 
@@ -30,6 +32,32 @@ export function App() {
 
   const loadServers = useCallback(async () => setServers(await api.servers()), [])
   useEffect(() => { loadServers() }, [loadServers])
+
+  // What a server's page asks of the app (src-tauri/src/bridge.rs): its
+  // tray hands a signed approval to the sheet, and Settings › Devices asks
+  // to enrol this computer, which is the app's keys.
+  const known = useRef<Server[]>([])
+  known.current = servers ?? []
+  useEffect(() => {
+    const off = listen<PageMessage>("page-message", ({ payload }) => {
+      const server = known.current.find((s) => s.id === payload.server)
+      if (!server) return
+      if (payload.kind === "approval") {
+        setPanel(null)
+        setSheet({ server, id: payload.id })
+      } else {
+        setPanel({ kind: "manage", pairing: false })
+      }
+    })
+    return () => { off.then((f) => f()) }
+  }, [])
+
+  // The sheet closed: its server's page is told how it came out, so its
+  // tray stops waiting on it.
+  const closeSheet = (outcome: SheetOutcome) => {
+    if (sheet) api.pageApprovalDone(sheet.server.id, sheet.id, outcome).catch(() => {})
+    setSheet(null)
+  }
 
   // Each server's state and open approvals, every few seconds.
   useEffect(() => {
@@ -77,10 +105,10 @@ export function App() {
     try { localStorage.setItem(ACTIVE, id) } catch { /* only a convenience */ }
   }
 
+  // The signed approvals, which the sheet decides: the server in front first.
   const waiting = useMemo(() => {
-    const out: { server: Server; approval: Approval }[] = []
-    for (const s of servers ?? []) for (const a of statuses[s.id]?.approvals ?? []) out.push({ server: s, approval: a })
-    // The server in front first.
+    const out: { server: Server; id: string }[] = []
+    for (const s of servers ?? []) for (const a of statuses[s.id]?.approvals ?? []) if (a.signed) out.push({ server: s, id: a.id })
     return out.sort((a, b) => Number(b.server.id === current?.id) - Number(a.server.id === current?.id))
   }, [servers, statuses, current])
 
@@ -106,13 +134,25 @@ export function App() {
         servers={servers}
         statuses={statuses}
         active={current?.id}
-        panelOpen={!!panel}
+        panel={panel?.kind ?? null}
         onSelect={select}
         onAdd={() => setPanel({ kind: "manage", pairing: true })}
-        onManage={() => setPanel(panel ? null : { kind: "manage", pairing: false })}
+        onApprovals={() => setPanel(panel?.kind === "approvals" ? null : { kind: "approvals" })}
+        onManage={() => setPanel(panel?.kind === "manage" ? null : { kind: "manage", pairing: false })}
       />
       <main className="content">
-        {panel ? (
+        {panel?.kind === "approvals" ? (
+          <ApprovalsPanel
+            servers={servers}
+            statuses={statuses}
+            onSign={(server, id) => setSheet({ server, id })}
+            onOpen={(server, id) => {
+              select(server.id)
+              api.openApprovalInPage(server.id, id).catch(() => {})
+            }}
+            onClose={() => setPanel(null)}
+          />
+        ) : panel ? (
           <ServersPanel
             servers={servers}
             statuses={statuses}
@@ -137,7 +177,7 @@ export function App() {
           </div>
         )}
       </main>
-      {sheet && <ApprovalSheet server={sheet.server} approval={sheet.approval} onClose={() => setSheet(null)} />}
+      {sheet && <ApprovalSheet key={`${sheet.server.id}/${sheet.id}`} server={sheet.server} approvalId={sheet.id} onClose={closeSheet} />}
     </div>
   )
 }

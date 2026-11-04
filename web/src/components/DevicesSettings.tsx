@@ -106,7 +106,7 @@ export function DevicesSettings({ baseUrl }: { baseUrl: string }) {
         )}
         {app && (
           <button onClick={() => { setError(null); setNotice(null); app.enroll() }} className="min-h-11 rounded-lg bg-indigo-600 px-4 text-sm font-medium text-white hover:bg-indigo-500">
-            Sign approvals with this phone
+            Sign approvals with this device
           </button>
         )}
       </div>

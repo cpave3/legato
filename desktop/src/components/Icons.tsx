@@ -22,3 +22,4 @@ export const Seal = (p: Props) => <Svg {...p}><path d="M12 3l7.8 4.5v9L12 21l-7.
 export const Lock = (p: Props) => <Svg {...p}><rect x="5" y="11" width="14" height="9" rx="2" /><path d="M8 11V8a4 4 0 0 1 8 0v3" /></Svg>
 export const Fingerprint = (p: Props) => <Svg {...p}><path d="M6 13c0-3.9 2.7-7 6-7s6 3.1 6 7" /><path d="M9 18c-.6-1.4-.9-3-.9-5 0-2.3 1.7-4 3.9-4s3.9 1.7 3.9 4c0 1.8-.3 3.6-.9 5.2" /><path d="M12 13c0 2.6-.4 5-1.2 7" /></Svg>
 export const Download = (p: Props) => <Svg {...p}><path d="M12 4v11M7 10l5 5 5-5" /><path d="M5 19h14" /></Svg>
+export const Inbox = (p: Props) => <Svg {...p}><path d="M4 13l2.5-7h11L20 13v5a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1z" /><path d="M4 13h4.5l1.5 2.5h4l1.5-2.5H20" /></Svg>

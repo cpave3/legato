@@ -1,10 +1,17 @@
-import { useEffect, useState } from "react"
-import { api, errorText, tintColor, type Approval, type Option, type Request, type Server, type Signed } from "../api"
+import { useEffect, useRef, useState } from "react"
+import { api, errorText, tintColor, type Option, type Request, type Server, type SheetOutcome, type Signed } from "../api"
 
-type Props = { server: Server; approval: Approval; onClose: () => void }
+// approvalId: the shell reads only the ID, and fetches the request itself.
+// onClose says how it came out, which the server's page is told.
+type Props = { server: Server; approvalId: string; onClose: (outcome: SheetOutcome) => void }
+
+// What prepare says when the server knows a key and none is plugged in
+// (NO_KEY_PLUGGED in src-tauri/src/app.rs): the sheet waits for one.
+const NO_KEY_PLUGGED = "Plug in a key this server knows."
 
 type SheetState =
   | { kind: "loading" }
+  | { kind: "plug-in" }
   | { kind: "ready"; request: Request; touchId: boolean; busy?: boolean }
   | { kind: "signed"; request: Request; touchId: boolean; option: Option; out: Signed }
   | { kind: "denied" }
@@ -12,14 +19,38 @@ type SheetState =
 
 // The approval sheet, as the phone draws it: what is signed, from the request
 // the app fetched and will sign (the page cannot change it), then the seal.
-export function ApprovalSheet({ server, approval, onClose }: Props) {
+export function ApprovalSheet({ server, approvalId, onClose: closed }: Props) {
   const [state, setState] = useState<SheetState>({ kind: "loading" })
+  const outcome = useRef<SheetOutcome>({ status: "cancelled" })
+  const onClose = () => closed(outcome.current)
 
+  // Fetches the request; while no key the server knows is plugged in, asks
+  // again every second and a half, so plugging one in carries on.
   useEffect(() => {
-    api.prepare(server.id, approval.id)
-      .then((p) => setState({ kind: "ready", request: p.request, touchId: p.with === "touch-id" }))
-      .catch((e) => setState({ kind: "failed", message: errorText(e) }))
-  }, [server.id, approval.id])
+    let stop = false
+    let timer: number | undefined
+    const attempt = () => {
+      api.prepare(server.id, approvalId)
+        .then((p) => { if (!stop) setState({ kind: "ready", request: p.request, touchId: p.with === "touch-id" }) })
+        .catch((e) => {
+          if (stop) return
+          const message = errorText(e)
+          if (message.startsWith(NO_KEY_PLUGGED)) {
+            setState({ kind: "plug-in" })
+            timer = window.setTimeout(attempt, 1500)
+          } else {
+            fail(message)
+          }
+        })
+    }
+    attempt()
+    return () => { stop = true; window.clearTimeout(timer) }
+  }, [server.id, approvalId])
+
+  const fail = (message: string) => {
+    outcome.current = { status: "error", error: message }
+    setState({ kind: "failed", message })
+  }
 
   const busy = state.kind === "ready" && state.busy
   const sign = async (option: Option) => {
@@ -27,14 +58,19 @@ export function ApprovalSheet({ server, approval, onClose }: Props) {
     const { request, touchId } = state
     setState({ kind: "ready", request, touchId, busy: true })
     try {
-      setState({ kind: "signed", request, touchId, option, out: await api.sign(server.id, approval.id, option.id) })
+      const out = await api.sign(server.id, approvalId, option.id)
+      outcome.current = { status: "decided", option: option.id }
+      setState({ kind: "signed", request, touchId, option, out })
     } catch (e) {
-      setState({ kind: "failed", message: errorText(e) })
+      fail(errorText(e))
     }
   }
   const deny = async () => {
-    try { await api.deny(server.id, approval.id); setState({ kind: "denied" }) }
-    catch (e) { setState({ kind: "failed", message: errorText(e) }) }
+    try {
+      await api.deny(server.id, approvalId)
+      outcome.current = { status: "decided" }
+      setState({ kind: "denied" })
+    } catch (e) { fail(errorText(e)) }
   }
 
   return (
@@ -47,6 +83,7 @@ export function ApprovalSheet({ server, approval, onClose }: Props) {
           <span className="mono dim">{server.name}</span>
         </header>
         {state.kind === "loading" && <div className="center"><div className="spinner" /></div>}
+        {state.kind === "plug-in" && <PlugIn onClose={onClose} />}
         {state.kind === "ready" && <RequestView request={state.request} touchId={state.touchId} busy={!!state.busy} onSign={sign} onDeny={deny} />}
         {state.kind === "signed" && <SealView request={state.request} touchId={state.touchId} option={state.option} out={state.out} onClose={onClose} />}
         {state.kind === "denied" && <Ended title="Denied" message="The agent is told you said no." onClose={onClose} />}
@@ -90,6 +127,25 @@ function RequestView({ request, touchId, busy, onSign, onDeny }: { request: Requ
           {touchId ? "Signs with Touch ID · the key never leaves this Mac's Secure Enclave" : "Signs with a touch of your security key · the key never leaves it"}
         </p>
       )}
+    </>
+  )
+}
+
+// Waiting for a key: the sheet carries on by itself when one is plugged in.
+function PlugIn({ onClose }: { onClose: () => void }) {
+  return (
+    <>
+      <h2 className="sheet-title dim">Plug in your key</h2>
+      <p className="asker">This server knows a key that is not plugged in. Plug it in, and the request shows here.</p>
+      <div className="touch">
+        <svg viewBox="0 0 120 64" className="key plugging" aria-hidden="true">
+          <rect x="6" y="14" width="78" height="36" rx="9" className="key-body" />
+          <rect x="84" y="22" width="22" height="20" rx="4" className="key-plug" />
+          <circle cx="38" cy="32" r="11" className="key-pad idle" />
+        </svg>
+        <span>Waiting for a key…</span>
+      </div>
+      <button className="big" onClick={onClose}>Close</button>
     </>
   )
 }

@@ -187,7 +187,7 @@ function ApprovalCard({ approval, focused, onDone }: { approval: Approval; focus
                   onClick={() => { setError(null); setBusy(true); phone.open(approval.id) }}
                   className={`${choiceSize} gap-2 bg-lw-accent font-semibold text-white hover:brightness-110 disabled:opacity-50`}
                 >
-                  <span aria-hidden>◈</span> Approve on this phone
+                  <span aria-hidden>◈</span> Approve and sign
                 </button>
               )}
               {approval.signed && !phone && passkey && allows.map((option, index) => (
