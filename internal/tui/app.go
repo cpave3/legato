@@ -2002,7 +2002,7 @@ func (a App) manualRefresh() (tea.Model, tea.Cmd) {
 
 // providerLabels are the providers' names for people, in the order the
 // summary gives them; another provider follows by its own name.
-var providerLabels = []struct{ name, label string }{{"jira", "Jira"}, {"burnlite", "Burnlite"}, {"github", "GitHub"}}
+var providerLabels = []struct{ name, label string }{{"jira", "Jira"}, {"burnlite", "Burnlite"}, {"github", "GitHub"}, {"workers", "Workers"}}
 
 type providerSyncSource struct {
 	name   string
