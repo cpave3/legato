@@ -55,7 +55,7 @@ Branches come from (`store.TaskBranch.Source`):
 
 - `code_context`: the code context's branch, unless it is a default branch. A context whose repository or branch changes stops tracking the old branch when this was why it was tracked (`ForgetContextBranch`).
 - `stack`: the Staccato stacks `TaskStackService` recorded in `clone_stacks` for the task's job clones, branches `pushed` or `unpushed`, in the stack's depth-first order.
-- `api`: `AddTaskBranches` (below), for handoff.
+- `api`: `AddTaskBranches` (below), for handoff: the branches a worker reports for an away task (§ Away tasks), and those Return brings back.
 - `manual`: the head branch of a PR linked by number (`LinkPR`, pinned).
 - `discovered`: found by commit or ticket key when no branch had a PR. Rediscovery drops them.
 
@@ -80,6 +80,21 @@ Context precedence is `manual > worktree > agent directory > repository mapping 
 5. Once a repository is known, synchronization may infer a branch from one unambiguous task/ticket-key token match.
 
 Tasks without repository context remain fully usable. GitHub discovery skips them and reports missing context rather than scanning arbitrary repositories or matching titles.
+
+### Away tasks
+
+A main tracks the PRs of a task away on a worker itself, with its own read token, as for any task; the worker does no PR tracking for handoff (decision LEG-13). Each summary row the worker sends lists the branches pushed for the task, in stack order (Staccato's stack in the job clone, or the handoff branch; see [Integrations](integrations.md) § Live away state). `WorkerConnections.applyRow` hands them to `awayPRs.track` (`internal/service/away_prs.go`) before it keeps the row:
+
+- The branches are added to the task's tracked branches in the row's order with the away task's repository, source `api` (`PRBranchActions.AddTaskBranches`). No separate `away` source: an away task's branches and those Return adds are the same branches, and `api` survives rediscovery and code-context changes.
+- When any branch is new, `DiscoverPRs` runs for the task at once, not at the next poll. It runs in its own goroutine, never on the connection's read loop, so a slow GitHub does not hold up the worker's rows. One discovery runs per task at a time: a branch that arrives while one runs makes it run once more when it ends (`inFlight`/`again`), not a second one beside it. A discovery under way finishes after its connection drops; stopping the connections waits for it.
+- After that the PRs follow normal polling. An away task is an ordinary, non-ephemeral task on the main, so `ListPRSyncCandidates` lists it, and its tracked branches bring it into `syncTask` even without a code context.
+- Without PR tracking (no GitHub credential) the branches are still recorded (`service.AddTaskBranches`), and nothing is looked for.
+
+The runtime gives the connections the PR service after it starts them (`mainHandoffs.trackAwayPRs`, `WorkerConnections.SetPRTracking`); the handoff test harness passes it as `WorkerConnectionsOptions.PRs` (`MainOptions.GitHub`, a `FakeGitHub`). Rows are applied again at every pull, so a row heard before the PR service was set is tracked at the next connect.
+
+Attention's policy is the same as for any task: drafts raise nothing, a ready PR with a blocker raises a Merge blocker whose **Open task** link (`/board?highlight_task=<id>`) selects the task's row in the web board's Away lane. At Return the main already tracks the PRs: Return's `AddTaskBranches` call with the returned branches adds nothing new and keeps every PR.
+
+The web board's away row sums the PRs up in one line (`awayPRSummary` in `web/src/lib/awayPullRequests.ts`: "PR #12 · draft", "3 PRs · 2 draft · 1 ready · #14 CI failed", red when a ready PR has a blocker), and the away task panel lists each one (`AwayPullRequests`: number, draft or ready, checks, review), then each reported branch without a PR as "no PR yet".
 
 ### GitHub client and synchronization
 

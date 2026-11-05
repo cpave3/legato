@@ -363,6 +363,9 @@ type MainOptions struct {
 	// connections, which start fast (backoff from 20ms, a check every
 	// 20ms) for tests.
 	Connections func(*service.WorkerConnectionsOptions)
+	// GitHub, when set, gives the main PR tracking with a read token for
+	// this fake GitHub, as a main with github.token has.
+	GitHub *FakeGitHub
 }
 
 // Main is a main instance: its database and services. It has no web
@@ -384,6 +387,9 @@ type Main struct {
 	// Connections keeps the live connection to each worker holding away
 	// tasks; StartConnections starts it.
 	Connections *service.WorkerConnections
+	// PRs is the main's PR tracking, when MainOptions.GitHub is set; it
+	// does not poll by itself.
+	PRs service.PRTrackingService
 }
 
 // NewMain makes a main instance; t's cleanup closes it.
@@ -410,6 +416,10 @@ func NewMain(t testing.TB, opts MainOptions) *Main {
 	m.Handoffs = service.NewTaskHandoffService(db, service.TaskHandoffOptions{Workers: m.Workers, Bus: m.Bus, Now: opts.Clock.Now})
 	connections := service.WorkerConnectionsOptions{Workers: m.Workers, Bus: m.Bus, Now: opts.Clock.Now,
 		MinBackoff: 20 * time.Millisecond, MaxBackoff: 200 * time.Millisecond, CheckEvery: 20 * time.Millisecond}
+	if opts.GitHub != nil {
+		m.PRs = service.NewPRTrackingService(db, m.Bus, opts.GitHub.Client(), time.Minute, time.Minute)
+		connections.PRs = m.PRs.(service.PRBranchActions)
+	}
 	if opts.Connections != nil {
 		opts.Connections(&connections)
 	}

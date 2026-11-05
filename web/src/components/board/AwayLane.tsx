@@ -3,6 +3,7 @@ import { ExternalLink } from "lucide-react"
 
 import { cn } from "../../lib/utils"
 import { awayDetail, awayGroups, awayLaneName, awayLook, awayTime, workerReach } from "../../lib/away"
+import { awayPRSummary } from "../../lib/awayPullRequests"
 import type { BoardCard, BoardWorker } from "../../lib/board-types"
 
 // The Away lane at the end of a main's web board: the tasks away on workers,
@@ -30,6 +31,7 @@ function AwayRow({ card, selected, highlighted, onClick, actions }: { card: Boar
   const ref = useRef<HTMLDivElement>(null)
   const away = card.away!
   const look = awayLook(away)
+  const prs = awayPRSummary(card.pull_requests)
   useEffect(() => {
     if (selected || highlighted) ref.current?.scrollIntoView?.({ block: "nearest" })
   }, [selected, highlighted])
@@ -54,6 +56,7 @@ function AwayRow({ card, selected, highlighted, onClick, actions }: { card: Boar
           <span aria-hidden="true" className="text-lw-faint">·</span>
           <time dateTime={away.handed_off_at} title="Handed off" className="font-lw-mono">{awayTime(away.handed_off_at)}</time>
         </span>
+        {prs && <span data-testid="away-prs" className={cn("text-xs", prs.blocked ? "text-lw-error" : "text-lw-text-2")}>{prs.text}</span>}
       </button>
       {actions && <div className="flex shrink-0 items-center gap-1 py-2 pr-2">{actions}</div>}
     </div>

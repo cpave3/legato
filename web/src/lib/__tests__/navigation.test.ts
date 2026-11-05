@@ -18,8 +18,9 @@ describe("legatoHref", () => {
     expect(legatoHref({ kind: "workflow_run", target: "wr-1" })).toBe("/workflows/runs/wr-1")
   })
 
-  it("maps task navigation to the board", () => {
-    expect(legatoHref({ kind: "task", target: "T-1" })).toBe("/board")
+  it("maps task navigation to the board, with the task picked out", () => {
+    expect(legatoHref({ kind: "task", target: "T-1" })).toBe("/board?highlight_task=T-1")
+    expect(legatoHref({ kind: "task", target: "a b" })).toBe("/board?highlight_task=a%20b")
   })
 
   it("maps settings navigation to that section of Settings", () => {

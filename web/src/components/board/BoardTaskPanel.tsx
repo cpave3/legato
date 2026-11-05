@@ -6,6 +6,7 @@ import { agentStripLook, formatDuration, priorityTone } from "../../lib/boardCar
 import { TaskAgentAction } from "./TaskAgentAction"
 import { providerLabel } from "../../lib/providers"
 import { awayLook, awayTime, kindLabel, purposeLabel } from "../../lib/away"
+import { AwayPullRequests } from "./AwayPullRequests"
 import { cn } from "../../lib/utils"
 
 interface BoardTaskPanelProps {
@@ -51,6 +52,10 @@ function AwayProperties({ card }: { card: BoardCard }) {
         <Property label="Left">{away.left_column}</Property>
         <Property label="Handed off"><time dateTime={away.handed_off_at} className="text-lw-text-2">{awayTime(away.handed_off_at)}</time></Property>
       </dl>
+      <div className="flex flex-col gap-1.5">
+        <p className="m-0 text-[11px] font-semibold uppercase tracking-[1px] text-lw-faint">Pull requests</p>
+        <AwayPullRequests prs={card.pull_requests ?? []} branches={away.branches ?? []} />
+      </div>
       {away.url && <a href={away.url} target="_blank" rel="noreferrer" className="w-fit text-[13px] text-lw-link hover:underline">Open on {away.worker}</a>}
     </section>
   )
@@ -83,7 +88,7 @@ export function BoardTaskPanel({ card, column, detail, onClose, onOpenDetails, o
         <Property label="Workspace">{card.workspace_name || <span className="text-lw-text-2">Unassigned</span>}</Property>
         {!card.away && <Property label="Agent">{look ? <span className={look.tone}>{look.label}</span> : <span className="text-lw-text-2">None yet</span>}</Property>}
         {!card.agent_active && spent && <Property label="Agent time"><span className="text-lw-text-2">{spent}</span></Property>}
-        {pullRequests.length > 0 && <Property label={pullRequests.length === 1 ? "Pull request" : "Pull requests"}>
+        {!card.away && pullRequests.length > 0 && <Property label={pullRequests.length === 1 ? "Pull request" : "Pull requests"}>
           <ul aria-label="Pull requests" className="m-0 flex list-none flex-col gap-0.5 p-0">
             {pullRequests.map(pr => <li key={`${pr.repo}#${pr.pr_number}`} className="flex flex-wrap items-baseline gap-x-1.5">
               {pr.pr_url ? <a href={pr.pr_url} target="_blank" rel="noreferrer" className="font-lw-mono text-lw-link hover:underline">#{pr.pr_number}</a> : <span className="font-lw-mono">#{pr.pr_number}</span>}

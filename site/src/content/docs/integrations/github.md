@@ -67,7 +67,7 @@ A task's branches come from:
 
 - the branch of its code context;
 - the Staccato stack Legato recorded for each of the task's job clones, in stack order;
-- branches a handoff reports for the task.
+- the branches a worker reports for a task you [handed off](/legato/using/handoff/#pull-requests-while-away), in stack order. Legato looks for a new branch's pull request at once, without waiting for the next poll.
 
 On each poll, Legato fetches each repository's recent pull requests once. It gives each of the task's branches the pull request whose head is that branch in that repository. When none of the task's branches has a pull request, Legato looks for one by:
 

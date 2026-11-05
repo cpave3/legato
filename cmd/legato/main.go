@@ -1486,6 +1486,7 @@ func runServeCmd(args []string) int {
 	// one holding away tasks; a manual sync pulls them too.
 	mainSide := startMainHandoffs(cfg, db, bus)
 	defer mainSide.stop()
+	mainSide.trackAwayPRs(prSvc)
 	providerSync := service.NewProviderSyncService(syncSvc, prSvc, service.SyncWorkersToo(mainSide.connections))
 
 	// Set up agent service (tmux may not be installed).
@@ -1756,6 +1757,7 @@ func runTUI() int {
 	// one holding away tasks; a manual sync pulls them too.
 	mainSide := startMainHandoffs(cfg, db, bus)
 	defer mainSide.stop()
+	mainSide.trackAwayPRs(prSvc)
 	providerSync := service.NewProviderSyncService(syncSvc, prSvc, service.SyncWorkersToo(mainSide.connections))
 
 	// Set up agent service (tmux may not be installed — that's OK, agent features just won't work)

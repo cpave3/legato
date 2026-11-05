@@ -23,7 +23,8 @@ export function legatoHref(navigation: { kind: string; target: string }): string
     case "workflow_run":
       return `/workflows/runs/${encodeURIComponent(navigation.target)}`
     case "task":
-      return "/board"
+      // The board picks the task out wherever it is, the Away lane too.
+      return `/board?highlight_task=${encodeURIComponent(navigation.target)}`
     case "approval":
       return `/attention?approval=${encodeURIComponent(navigation.target)}`
     case "settings":

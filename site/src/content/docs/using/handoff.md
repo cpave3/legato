@@ -59,9 +59,20 @@ Each row in a group shows:
 - the task's title and ID;
 - "from Doing": the column the task left;
 - its state, which changes as the worker works: **Starting** while the worker clones the repository and starts the agent; then what its agent is doing, **Working**, **Needs you** (it asks you something on the worker), **Idle** or **Agent ended**; **Done** once the card is in the worker's Done column; or **Failed** with the reason. Your main shows **Unreachable** while the worker is down, **Lost on worker** when the worker no longer has the task, and **Not accepted** when it no longer accepts your main. Hover the pill for why;
-- when you handed it off.
+- when you handed it off;
+- its pull requests, once it has any: "PR #12 · draft", or "3 PRs · 2 draft · 1 ready". The line is red, and says what blocks it, when a pull request that is ready for review failed CI or has changes requested.
 
-Select a row, as you select a card, to see the task in the panel beside the board. The panel shows the state, the worker, the purpose, where the work started, the branch, the repository, the column it left, and **Open on <worker>**, which opens the task on the worker's board. The description is marked read-only while away.
+Select a row, as you select a card, to see the task in the panel beside the board. The panel shows the state, the worker, the purpose, where the work started, the branch, the repository, the column it left, its pull requests, and **Open on <worker>**, which opens the task on the worker's board. The description is marked read-only while away.
+
+## Pull requests while away
+
+Your main follows an away task's pull requests itself, with its own GitHub access, as it does for every task (see [GitHub](/legato/integrations/github/)). The worker tells your main which branches its agent pushed, in stack order. When a new branch shows up, your main looks for its pull request at once; after that, the pull request is refreshed with the others on every poll.
+
+The task panel lists each pull request in stack order: its number (which opens it on GitHub), whether it is a draft or ready for review, its checks and its review. A branch whose pull request your main has not found yet says "no PR yet".
+
+Attention treats them as it treats any pull request: a draft raises nothing, and a pull request marked ready that failed CI or has changes requested is a merge blocker. Its **Open task** selects the task in the Away lane.
+
+When the task comes back, its pull requests stay as they are: your main already tracks them.
 
 ## Staying up to date
 

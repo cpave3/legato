@@ -29,7 +29,7 @@ Some things never raise Attention: a draft, closed or merged pull request; CI th
 
 ### Acting on an item
 
-Most items have a main action, such as approving a plan, allowing an agent's request, or opening the review. Others take you to the page where you act.
+Most items have a main action, such as approving a plan, allowing an agent's request, or opening the review. Others take you to the page where you act. An item about a task, such as a pull request that cannot merge, opens the board with that task selected, in the Away lane when the task is [away on a worker](/legato/using/handoff/#pull-requests-while-away).
 
 You can also dismiss an item. Dismissing hides that item as it is now. If its source changes (the pull request fails CI again, the agent asks something new), the item comes back.
 

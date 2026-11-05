@@ -151,6 +151,9 @@ type WorkerConnectionsOptions struct {
 	CheckEvery time.Duration
 	// Owed are the calls owed to workers; nil for none.
 	Owed WorkerOwedCalls
+	// PRs is the main's PR tracking, which finds the PRs of the branches
+	// rows bring; nil records the branches only. See away_prs.go.
+	PRs PRBranchActions
 }
 
 // WorkerConnections keeps a main's live connection to each worker that
@@ -164,6 +167,8 @@ type WorkerConnections struct {
 	conns map[string]*workerConn
 	kick  chan struct{}
 	wg    sync.WaitGroup
+	// prs tracks the branches rows bring and finds their PRs.
+	prs *awayPRs
 }
 
 // workerConn is one worker's connection loop.
@@ -213,7 +218,7 @@ func NewWorkerConnections(db *store.Store, opts WorkerConnectionsOptions) *Worke
 	if opts.CheckEvery <= 0 {
 		opts.CheckEvery = time.Second
 	}
-	return &WorkerConnections{db: db, opts: opts, conns: map[string]*workerConn{}, kick: make(chan struct{}, 1)}
+	return &WorkerConnections{db: db, opts: opts, conns: map[string]*workerConn{}, kick: make(chan struct{}, 1), prs: newAwayPRs(db, opts.PRs)}
 }
 
 // SetOwedCalls gives the connections the calls a main owes its workers.
@@ -278,6 +283,7 @@ func (c *WorkerConnections) Start(ctx context.Context) (stop func()) {
 		cancel()
 		<-done
 		c.wg.Wait()
+		c.prs.wait()
 		if c.opts.Bus != nil && refreshed != nil {
 			c.opts.Bus.Unsubscribe(refreshed)
 		}
@@ -602,6 +608,8 @@ func (c *WorkerConnections) applyRow(ctx context.Context, worker Worker, row Han
 	if err != nil || a.ClosedAt != nil || a.WorkerInstanceID != worker.InstanceID {
 		return
 	}
+	// The branches it pushed: tracked here, their PRs found off this loop.
+	c.prs.track(ctx, *a, row.Branches)
 	data, err := json.Marshal(row)
 	if err != nil {
 		return
