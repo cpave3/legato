@@ -22,6 +22,14 @@ _Avoid_: instance name, server name
 A main instance sending one of its tasks to a worker instance to be worked on there.
 _Avoid_: delegation, push, offload
 
+**Make-a-change handoff**:
+A handoff whose agent changes the code and ends in pull requests.
+_Avoid_: fix handoff
+
+**Find-out handoff**:
+A handoff whose agent answers a question in notes and pushes nothing.
+_Avoid_: investigation, read-only handoff
+
 **Away**:
 The state of a task on its main instance while a worker instance holds it.
 _Avoid_: delegated, remote

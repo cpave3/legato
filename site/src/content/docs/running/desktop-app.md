@@ -68,6 +68,7 @@ When a server knows Touch ID, the sheet asks for your fingerprint instead of a t
 - When the server in front has a [tint](/legato/using/web-ui/), the title bar, the dock and the window's edges take its colour.
 - The dock's dot on each tile is green while the server answers and red while it does not.
 - The app keeps no offline copy of a server's web UI.
+- Dictation works in every server's page, over HTTP too: the app records for the page with `parecord` (or `arecord` when there is no `parecord`), and the server transcribes it as usual. Linux only for now.
 
 ## Updates
 
@@ -83,6 +84,7 @@ There is a disk image for Apple Silicon Macs, `legato-desktop-macos-arm64.dmg`. 
 - It updates itself only from the Applications folder. Opened from the disk image or from Downloads, macOS runs it from a read-only copy, and the app says to move it.
 - The first update may be stopped by macOS: if it says Legato was prevented from modifying apps, allow Legato in System Settings › Privacy & Security › App Management, and update again.
 - Touch ID is new and has had little use on a Mac.
+- The app does not record for dictation; a server's page has a microphone only over HTTPS.
 
 ## Build it yourself
 

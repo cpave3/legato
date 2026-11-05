@@ -14,3 +14,4 @@ pub mod updates;
 pub mod touchid;
 pub mod systrust;
 pub mod bridge;
+pub mod voice;

@@ -19,8 +19,8 @@ use crate::store::{Keyring, Server, Store};
 use crate::updates;
 use crate::webauthn::{self, Attachment, ORIGIN, RP_ID};
 use crate::discovery::{Browser, Found};
-use crate::bridge::{self, PageMessage};
-use crate::{fido, systrust, touchid};
+use crate::bridge::{self, PageMessage, VoiceAction, VoiceEvent};
+use crate::{fido, systrust, touchid, voice};
 
 // The shell's chrome, in logical pixels: the title bar across the top and
 // the dock down the left. Server pages fill the rest.
@@ -51,6 +51,9 @@ pub struct Desktop {
     browser: Browser,
     /// Servers whose page this computer's web view is known to trust.
     page_trusted: Mutex<HashSet<String>>,
+    /// The recording made for a page's dictation, if one is.
+    recording: Mutex<Option<Recording>>,
+    recordings: std::sync::atomic::AtomicU64,
 }
 
 fn webview_label(id: &str) -> String {
@@ -183,7 +186,7 @@ fn make_server_view(app: &AppHandle, server: &Server, token: Option<String>, pat
         rand::rngs::OsRng.fill_bytes(&mut b);
         hex::encode(b)
     };
-    let shell_bridge = format!("if (location.origin === {origin:?}) {}", bridge::script(&key));
+    let shell_bridge = format!("if (location.origin === {origin:?}) {}", bridge::script(&key, voice::system_recorder().is_some()));
     let (handle, server_id) = (app.clone(), server.id.clone());
     let builder = WebviewBuilder::new(webview_label(&server.id), WebviewUrl::External("about:blank".parse().unwrap()))
         .initialization_script(&seed)
@@ -195,6 +198,10 @@ fn make_server_view(app: &AppHandle, server: &Server, token: Option<String>, pat
             let payload = match bridge::read(url.as_str(), &key) {
                 Some(PageMessage::Approval(id)) => Some(json!({ "server": server_id, "kind": "approval", "id": id })),
                 Some(PageMessage::Enroll) => Some(json!({ "server": server_id, "kind": "enroll" })),
+                Some(PageMessage::Voice(action)) => {
+                    record_for_page(&handle, &server_id, action);
+                    None
+                }
                 None => None,
             };
             if let Some(p) = payload {
@@ -236,6 +243,100 @@ fn make_server_view(app: &AppHandle, server: &Server, token: Option<String>, pat
     view.navigate(url.clone()).map_err(|e| e.to_string())?;
     let _ = url;
     Ok(())
+}
+
+// ---- Recording for a page ----
+
+/// How often the page is told how loud it is.
+const LEVEL_EVERY: std::time::Duration = std::time::Duration::from_millis(150);
+/// A recording no page has stopped (it was reloaded or closed) ends by itself.
+const LONGEST_RECORDING: std::time::Duration = std::time::Duration::from_secs(10 * 60);
+
+/// The one recording the app makes at a time, for a server's page.
+struct Recording {
+    server: String,
+    /// Tells this recording from a later one for the same server.
+    number: u64,
+    recorder: voice::Recorder,
+}
+
+fn tell_page(app: &AppHandle, server: &str, event: VoiceEvent) {
+    if let Some(view) = app.get_webview(&webview_label(server)) {
+        let _ = view.eval(bridge::voice_script(&event));
+    }
+}
+
+/// Starts, stops or cancels a recording for a server's page, which hears how
+/// it goes as `legato:shell-voice` events (see `voice`). Starting one stops
+/// another page's.
+fn record_for_page(app: &AppHandle, server: &str, action: VoiceAction) {
+    let desktop = app.state::<Desktop>();
+    let mut slot = desktop.recording.lock().unwrap();
+    match action {
+        VoiceAction::Start => {
+            if let Some(other) = slot.take() {
+                other.recorder.cancel();
+                tell_page(app, &other.server, VoiceEvent::Cancelled);
+            }
+            let Some((program, args)) = voice::system_recorder() else {
+                tell_page(app, server, VoiceEvent::Error("Recording needs parecord or arecord, and neither is installed.".into()));
+                return;
+            };
+            let recorder = match voice::Recorder::start(program, args) {
+                Ok(recorder) => recorder,
+                Err(e) => return tell_page(app, server, VoiceEvent::Error(e)),
+            };
+            let number = desktop.recordings.fetch_add(1, std::sync::atomic::Ordering::Relaxed);
+            *slot = Some(Recording { server: server.into(), number, recorder });
+            tell_page(app, server, VoiceEvent::Started);
+            let (app, server) = (app.clone(), server.to_string());
+            std::thread::spawn(move || {
+                let started = std::time::Instant::now();
+                loop {
+                    std::thread::sleep(LEVEL_EVERY);
+                    // The page is told with the recording let go of.
+                    let event = {
+                        let desktop = app.state::<Desktop>();
+                        let mut slot = desktop.recording.lock().unwrap();
+                        let Some(recording) = slot.as_mut().filter(|r| r.number == number) else { return };
+                        match recording.recorder.level() {
+                            Ok(_) if started.elapsed() > LONGEST_RECORDING => {
+                                slot.take();
+                                Err("The recording was stopped after ten minutes.".to_string())
+                            }
+                            Ok(level) => Ok(level),
+                            Err(e) => {
+                                slot.take();
+                                Err(e)
+                            }
+                        }
+                    };
+                    match event {
+                        Ok(level) => tell_page(&app, &server, VoiceEvent::Level(level)),
+                        Err(e) => return tell_page(&app, &server, VoiceEvent::Error(e)),
+                    }
+                }
+            });
+        }
+        VoiceAction::Stop => {
+            let Some(recording) = slot.take_if(|r| r.server == server) else { return };
+            let (app, server) = (app.clone(), server.to_string());
+            // Stopping waits for the recorder to finish writing.
+            std::thread::spawn(move || {
+                let event = match recording.recorder.stop() {
+                    Ok(wav) => VoiceEvent::Audio(wav),
+                    Err(e) => VoiceEvent::Error(e),
+                };
+                tell_page(&app, &server, event);
+            });
+        }
+        VoiceAction::Cancel => {
+            if let Some(recording) = slot.take_if(|r| r.server == server) {
+                recording.recorder.cancel();
+                tell_page(app, server, VoiceEvent::Cancelled);
+            }
+        }
+    }
 }
 
 // ---- Servers ----
@@ -433,6 +534,7 @@ fn rename_server(desktop: State<'_, Desktop>, id: String, name: String) -> Resul
 
 #[tauri::command]
 fn remove_server(app: AppHandle, desktop: State<'_, Desktop>, id: String) -> Result<(), String> {
+    desktop.recording.lock().unwrap().take_if(|r| r.server == id);
     if let Some(view) = app.get_webview(&webview_label(&id)) {
         let _ = view.close();
     }
@@ -941,6 +1043,8 @@ pub fn run() {
             content_visible: Mutex::new(true),
             browser: Browser::default(),
             page_trusted: Mutex::default(),
+            recording: Mutex::default(),
+            recordings: Default::default(),
         })
         .setup(|app| {
             // Servers take a few seconds to answer on the network; listening
