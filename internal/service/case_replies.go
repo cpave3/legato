@@ -316,11 +316,12 @@ func (s *CaseReplyService) accessToken(ctx context.Context, force bool) (string,
 	if err != nil {
 		return "", fmt.Errorf("reading Argus's refresh token: %w", err)
 	}
-	token, err := oauthclient.Refresh(ctx, s.opts.HTTP, md, in.ClientID, refresh)
+	withSecret := oauthclient.WithClientSecret(clientSecret(ctx, s.opts.Secrets, s.opts.Integration))
+	token, err := oauthclient.Refresh(ctx, s.opts.HTTP, md, in.ClientID, refresh, withSecret)
 	if errors.Is(err, oauthclient.ErrInvalidGrant) {
 		// Another process may have rotated it since it was read.
 		if again, readErr := s.opts.Secrets.Read(ctx, ArgusRefreshSecret); readErr == nil && again != refresh {
-			token, err = oauthclient.Refresh(ctx, s.opts.HTTP, md, in.ClientID, again)
+			token, err = oauthclient.Refresh(ctx, s.opts.HTTP, md, in.ClientID, again, withSecret)
 		}
 	}
 	if errors.Is(err, oauthclient.ErrInvalidGrant) {

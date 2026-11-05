@@ -4,6 +4,7 @@ import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 import { VitePWA } from 'vite-plugin-pwa'
 import path from 'path'
+import { SERVER_PAGES } from './src/lib/serverPages'
 import { randomUUID } from 'crypto'
 import type { Plugin } from 'vite'
 
@@ -60,9 +61,9 @@ export default defineConfig({
       workbox: {
         globPatterns: ['**/*.{js,css,html,svg,png,woff2}'],
         navigateFallback: 'index.html',
-        // An image an agent showed, opened in a tab of its own, is the image
-        // and not the app.
-        navigateFallbackDenylist: [/^\/agent-ui-images\//, /^\/plan-images\//, /^\/review-images\//],
+        // Addresses the server answers itself: images opened in a tab of
+        // their own, and the OAuth callback (see src/lib/serverPages.ts).
+        navigateFallbackDenylist: SERVER_PAGES,
         skipWaiting: true,
         clientsClaim: true,
         runtimeCaching: [

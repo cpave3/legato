@@ -36,7 +36,9 @@ type PendingConnection struct {
 	url      string
 	md       *oauthclient.Metadata
 	clientID string
-	auth     *oauthclient.Authorization
+	// secret is set when the server made Legato a confidential client.
+	secret string
+	auth   *oauthclient.Authorization
 }
 
 // ConnectRequest is a connection to make.
@@ -60,6 +62,24 @@ const BurnliteScope = "read:tasks"
 // IntegrationRefreshSecret is the name, in Legato's sealed store, of an
 // integration's refresh token.
 func IntegrationRefreshSecret(name string) string { return "integration-" + name + "-refresh" }
+
+// IntegrationClientSecret is the name, in Legato's sealed store, of the
+// client secret an integration gave at registration. Legato registers as a
+// public client, but some servers (Burnlite) give every client a secret and
+// want it on each token request.
+func IntegrationClientSecret(name string) string { return "integration-" + name + "-client-secret" }
+
+// clientSecret reads an integration's client secret; "" when it gave none.
+func clientSecret(ctx context.Context, secrets IntegrationSecrets, name string) string {
+	if secrets == nil {
+		return ""
+	}
+	v, err := secrets.Read(ctx, IntegrationClientSecret(name))
+	if err != nil {
+		return ""
+	}
+	return v
+}
 
 // Begin discovers Argus's authorization server, registers Legato with it,
 // and prepares the address the person opens to consent.
@@ -93,7 +113,7 @@ func (c *IntegrationConnector) BeginWith(ctx context.Context, r ConnectRequest) 
 	if err != nil {
 		return nil, err
 	}
-	return &PendingConnection{c: c, name: r.Name, url: r.URL, md: md, clientID: reg.ClientID, auth: auth}, nil
+	return &PendingConnection{c: c, name: r.Name, url: r.URL, md: md, clientID: reg.ClientID, secret: reg.ClientSecret, auth: auth}, nil
 }
 
 // Name is the integration being connected.
@@ -120,7 +140,7 @@ func (p *PendingConnection) Finish(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
-	token, err := oauthclient.Exchange(ctx, p.c.http, p.md, p.clientID, code, p.auth.Verifier(), p.auth.RedirectURI())
+	token, err := oauthclient.Exchange(ctx, p.c.http, p.md, p.clientID, code, p.auth.Verifier(), p.auth.RedirectURI(), oauthclient.WithClientSecret(p.secret))
 	if err != nil {
 		return fmt.Errorf("getting tokens from %s: %w", p.name, err)
 	}
@@ -129,6 +149,14 @@ func (p *PendingConnection) Finish(ctx context.Context) error {
 	}
 	if err := p.c.secrets.Write(ctx, IntegrationRefreshSecret(p.name), token.RefreshToken); err != nil {
 		return fmt.Errorf("keeping the refresh token: %w", err)
+	}
+	if p.secret != "" {
+		if err := p.c.secrets.Write(ctx, IntegrationClientSecret(p.name), p.secret); err != nil {
+			return fmt.Errorf("keeping the client secret: %w", err)
+		}
+	} else if remover, ok := p.c.secrets.(SecretRemover); ok {
+		// One kept from an earlier registration is not this client's.
+		_ = remover.Remove(ctx, IntegrationClientSecret(p.name))
 	}
 	return p.c.db.SaveIntegration(ctx, store.Integration{Name: p.name, URL: p.url, Issuer: p.md.Issuer,
 		TokenEndpoint: p.md.TokenEndpoint, Resource: p.md.Resource, ClientID: p.clientID})
@@ -170,6 +198,7 @@ type SecretRemover interface {
 func (c *IntegrationConnector) Disconnect(ctx context.Context, name string) error {
 	if remover, ok := c.secrets.(SecretRemover); ok {
 		_ = remover.Remove(ctx, IntegrationRefreshSecret(name))
+		_ = remover.Remove(ctx, IntegrationClientSecret(name))
 	}
 	if err := c.db.DeleteIntegration(ctx, name); err != nil && !errors.Is(err, store.ErrNotFound) {
 		return err

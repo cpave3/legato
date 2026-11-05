@@ -89,3 +89,16 @@ func TestRegisterNeedsAClientID(t *testing.T) {
 		t.Fatal("Register succeeded without a client id")
 	}
 }
+
+// Some servers (Burnlite) ignore token_endpoint_auth_method "none" and give
+// every registered client a secret, which their token endpoint then needs.
+func TestRegisterKeepsASecretTheServerGives(t *testing.T) {
+	f := newFakeServer(t)
+	f.mux.HandleFunc("POST /register", func(w http.ResponseWriter, r *http.Request) {
+		writeJSON(w, http.StatusCreated, map[string]any{"client_id": "client-1", "client_secret": "secret-1"})
+	})
+	reg, err := oauthclient.Register(context.Background(), f.Client(), f.metadata(t), oauthclient.RegistrationRequest{ClientName: "Legato", RedirectURI: "http://127.0.0.1/callback"})
+	if err != nil || reg.ClientID != "client-1" || reg.ClientSecret != "secret-1" {
+		t.Fatalf("reg = %+v, %v", reg, err)
+	}
+}

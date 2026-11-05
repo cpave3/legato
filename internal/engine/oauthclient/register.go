@@ -20,6 +20,10 @@ type RegistrationRequest struct {
 // Registration is what the server gave the client.
 type Registration struct {
 	ClientID string
+	// ClientSecret is set when the server made the client confidential
+	// although it asked to be public; token requests must then send it
+	// (WithClientSecret).
+	ClientSecret string
 }
 
 // Register registers a public client (RFC 7591) that uses the authorization
@@ -57,7 +61,8 @@ func Register(ctx context.Context, client *http.Client, md *Metadata, r Registra
 		return Registration{}, errorFromResponse("registration", resp.StatusCode, data)
 	}
 	var out struct {
-		ClientID string `json:"client_id"`
+		ClientID     string `json:"client_id"`
+		ClientSecret string `json:"client_secret"`
 	}
 	if err := json.Unmarshal(data, &out); err != nil {
 		return Registration{}, fmt.Errorf("oauth: registration: %w", err)
@@ -65,5 +70,5 @@ func Register(ctx context.Context, client *http.Client, md *Metadata, r Registra
 	if out.ClientID == "" {
 		return Registration{}, fmt.Errorf("oauth: registration answered no client_id")
 	}
-	return Registration{ClientID: out.ClientID}, nil
+	return Registration{ClientID: out.ClientID, ClientSecret: out.ClientSecret}, nil
 }

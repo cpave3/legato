@@ -22,30 +22,52 @@ type Token struct {
 	Scope     string
 }
 
+// TokenOption changes a token request.
+type TokenOption func(url.Values)
+
+// WithClientSecret sends the client's secret in the request body
+// (client_secret_post), for a server that gave one at registration. An
+// empty secret sends nothing.
+func WithClientSecret(secret string) TokenOption {
+	return func(form url.Values) {
+		if secret != "" {
+			form.Set("client_secret", secret)
+		}
+	}
+}
+
 // Exchange trades an authorization code for tokens. redirectURI and
 // verifier must be the ones the authorization used.
-func Exchange(ctx context.Context, client *http.Client, md *Metadata, clientID, code, verifier, redirectURI string) (*Token, error) {
-	return requestToken(ctx, client, md, "code exchange", url.Values{
+func Exchange(ctx context.Context, client *http.Client, md *Metadata, clientID, code, verifier, redirectURI string, opts ...TokenOption) (*Token, error) {
+	form := url.Values{
 		"grant_type":    {"authorization_code"},
 		"code":          {code},
 		"redirect_uri":  {redirectURI},
 		"client_id":     {clientID},
 		"code_verifier": {verifier},
 		"resource":      {md.Resource},
-	})
+	}
+	for _, opt := range opts {
+		opt(form)
+	}
+	return requestToken(ctx, client, md, "code exchange", form)
 }
 
 // Refresh gets a new access token. When the server rotates the refresh
 // token, the new one is in the answer; otherwise the answer keeps
 // refreshToken. A dead refresh token gives an error that matches
 // ErrInvalidGrant.
-func Refresh(ctx context.Context, client *http.Client, md *Metadata, clientID, refreshToken string) (*Token, error) {
-	tok, err := requestToken(ctx, client, md, "refresh", url.Values{
+func Refresh(ctx context.Context, client *http.Client, md *Metadata, clientID, refreshToken string, opts ...TokenOption) (*Token, error) {
+	form := url.Values{
 		"grant_type":    {"refresh_token"},
 		"refresh_token": {refreshToken},
 		"client_id":     {clientID},
 		"resource":      {md.Resource},
-	})
+	}
+	for _, opt := range opts {
+		opt(form)
+	}
+	tok, err := requestToken(ctx, client, md, "refresh", form)
 	if err != nil {
 		return nil, err
 	}

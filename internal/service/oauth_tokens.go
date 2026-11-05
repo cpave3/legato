@@ -68,12 +68,13 @@ func (t *OAuthTokens) Token(ctx context.Context, force bool) (string, error) {
 	if err != nil {
 		return "", fmt.Errorf("reading %s's refresh token: %w", t.name, err)
 	}
-	token, err := oauthclient.Refresh(ctx, t.http, md, in.ClientID, refresh)
+	withSecret := oauthclient.WithClientSecret(clientSecret(ctx, t.secrets, t.name))
+	token, err := oauthclient.Refresh(ctx, t.http, md, in.ClientID, refresh, withSecret)
 	if errors.Is(err, oauthclient.ErrInvalidGrant) {
 		// Another process may have rotated it since it was read.
 		if again, readErr := t.secrets.Read(ctx, secret); readErr == nil && again != refresh {
 			refresh = again
-			token, err = oauthclient.Refresh(ctx, t.http, md, in.ClientID, again)
+			token, err = oauthclient.Refresh(ctx, t.http, md, in.ClientID, again, withSecret)
 		}
 	}
 	if errors.Is(err, oauthclient.ErrInvalidGrant) {

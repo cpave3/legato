@@ -27,6 +27,10 @@ type fakeOAuth struct {
 	refreshes  int
 	refuseAll  bool
 	issued     int
+	// confidential: like Burnlite, every registered client gets a secret,
+	// which the token endpoint needs.
+	confidential bool
+	secretsSeen  []string
 }
 
 func newFakeOAuth(t *testing.T) *fakeOAuth {
@@ -55,8 +59,13 @@ func newFakeOAuth(t *testing.T) *fakeOAuth {
 		_ = json.NewDecoder(r.Body).Decode(&body)
 		f.mu.Lock()
 		f.registered = body.RedirectURIs
+		confidential := f.confidential
 		f.mu.Unlock()
-		writeJSON(w, 201, map[string]any{"client_id": "legato-client"})
+		reg := map[string]any{"client_id": "legato-client"}
+		if confidential {
+			reg["client_secret"] = "client-secret-1"
+		}
+		writeJSON(w, 201, reg)
 	})
 	mux.HandleFunc("GET /authorize", func(w http.ResponseWriter, r *http.Request) {
 		q := r.URL.Query()
@@ -71,6 +80,11 @@ func newFakeOAuth(t *testing.T) *fakeOAuth {
 		_ = r.ParseForm()
 		f.mu.Lock()
 		defer f.mu.Unlock()
+		f.secretsSeen = append(f.secretsSeen, r.PostForm.Get("client_secret"))
+		if f.confidential && r.PostForm.Get("client_secret") != "client-secret-1" {
+			writeJSON(w, 401, map[string]any{"error": "invalid_client", "error_description": "Invalid client credentials"})
+			return
+		}
 		if r.PostForm.Get("grant_type") == "refresh_token" {
 			f.refreshes++
 			if f.refuseAll || r.PostForm.Get("refresh_token") != f.refresh {
@@ -180,5 +194,44 @@ func TestARefusedRefreshTokenEndsTheConnection(t *testing.T) {
 	// Not connected at all.
 	if _, err := NewOAuthTokens(db, secrets, f.srv.Client(), "nothing").Token(ctx, false); !errors.Is(err, ErrNotConnected) {
 		t.Errorf("err = %v", err)
+	}
+}
+
+func TestAServerThatGivesASecretGetsItBackOnEveryTokenRequest(t *testing.T) {
+	f := newFakeOAuth(t)
+	f.confidential = true
+	db := newIntegrationStore(t)
+	secrets := &memorySecrets{values: map[string]string{}}
+	connectBurnlite(t, f, db, secrets)
+	ctx := context.Background()
+
+	if v, _ := secrets.Read(ctx, IntegrationClientSecret("burnlite")); v != "client-secret-1" {
+		t.Errorf("kept client secret = %q", v)
+	}
+	if token, err := NewOAuthTokens(db, secrets, f.srv.Client(), "burnlite").Token(ctx, false); err != nil || token != "access-2" {
+		t.Fatalf("token = %q, %v", token, err)
+	}
+	for i, sent := range f.secretsSeen {
+		if sent != "client-secret-1" {
+			t.Errorf("token request %d sent secret %q", i, sent)
+		}
+	}
+}
+
+func TestAPublicClientSendsNoSecret(t *testing.T) {
+	f := newFakeOAuth(t)
+	db := newIntegrationStore(t)
+	secrets := &memorySecrets{values: map[string]string{}}
+	connectBurnlite(t, f, db, secrets)
+	if _, err := NewOAuthTokens(db, secrets, f.srv.Client(), "burnlite").Token(context.Background(), false); err != nil {
+		t.Fatal(err)
+	}
+	if _, kept := secrets.values[IntegrationClientSecret("burnlite")]; kept {
+		t.Error("a client secret was kept for a public client")
+	}
+	for i, sent := range f.secretsSeen {
+		if sent != "" {
+			t.Errorf("token request %d sent secret %q", i, sent)
+		}
 	}
 }

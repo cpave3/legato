@@ -189,3 +189,30 @@ func TestRefreshTellsADeadTokenFromAFailingServer(t *testing.T) {
 		}
 	})
 }
+
+func TestATokenRequestCarriesTheClientSecretWhenThereIsOne(t *testing.T) {
+	f := newFakeServer(t)
+	md := f.metadata(t)
+	form := tokenEndpoint(t, f, http.StatusOK, map[string]any{"access_token": "a", "refresh_token": "r", "token_type": "Bearer"})
+	ctx := context.Background()
+
+	if _, err := oauthclient.Exchange(ctx, f.Client(), md, "client-1", "code-1", "verifier-1", "http://127.0.0.1/callback", oauthclient.WithClientSecret("secret-1")); err != nil {
+		t.Fatal(err)
+	}
+	if form.Get("client_secret") != "secret-1" || form.Get("client_id") != "client-1" {
+		t.Errorf("exchange form = %v", *form)
+	}
+	if _, err := oauthclient.Refresh(ctx, f.Client(), md, "client-1", "r", oauthclient.WithClientSecret("secret-1")); err != nil {
+		t.Fatal(err)
+	}
+	if form.Get("client_secret") != "secret-1" {
+		t.Errorf("refresh form = %v", *form)
+	}
+	// An empty secret is not sent: the client is public.
+	if _, err := oauthclient.Refresh(ctx, f.Client(), md, "client-1", "r", oauthclient.WithClientSecret("")); err != nil {
+		t.Fatal(err)
+	}
+	if form.Has("client_secret") {
+		t.Errorf("refresh form = %v", *form)
+	}
+}
