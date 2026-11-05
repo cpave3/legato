@@ -23,6 +23,7 @@ function dependencies() {
     getTabUrl: vi.fn().mockResolvedValue("https://github.com/cpave3/legato/pull/7"),
     saveReviewContext: vi.fn().mockResolvedValue(undefined),
     listRuns: vi.fn().mockResolvedValue([]),
+    syncTicketSites: vi.fn().mockResolvedValue({ sites: [] }),
   }
 }
 
@@ -166,25 +167,28 @@ describe("GitHub workflow messages", () => {
     expect(deps.start).toHaveBeenCalledOnce()
   })
 
-  it("imports a Jira ticket once and opens the returned local task", async () => {
+  it("imports a ticket once per provider and key and opens the returned local task", async () => {
     const deps = dependencies()
     const handler = createMessageHandler(deps)
-    const message = { type: "importJiraTicket", context: { ticketId: "AG-9804" } }
+    const message = { type: "importTicket", context: { provider: "burnlite", ticketId: "EST-42" } }
     const first = handler(message, { tab: { id: 8 } })
     const duplicate = handler(message, { tab: { id: 9 } })
+    const otherProvider = handler({ type: "importTicket", context: { provider: "jira", ticketId: "EST-42" } }, { tab: { id: 9 } })
 
     await expect(first).resolves.toEqual({ ok: true, taskUrl: "http://localhost:3080/board?highlight_task=task-1" })
-    await expect(duplicate).resolves.toEqual({ ok: false, error: "This Jira ticket is already being imported" })
-    expect(deps.importTicket).toHaveBeenCalledWith(DEFAULT_CONFIG, "AG-9804")
-    expect(deps.importTicket).toHaveBeenCalledOnce()
+    await expect(duplicate).resolves.toEqual({ ok: false, error: "This ticket is already being imported" })
+    await expect(otherProvider).resolves.toMatchObject({ ok: true })
+    expect(deps.importTicket).toHaveBeenCalledWith(DEFAULT_CONFIG, "burnlite", "EST-42")
+    expect(deps.importTicket).toHaveBeenCalledWith(DEFAULT_CONFIG, "jira", "EST-42")
+    expect(deps.importTicket).toHaveBeenCalledTimes(2)
     expect(deps.openTask).toHaveBeenCalledWith("http://localhost:3080/board?highlight_task=task-1")
   })
 
-  it("reports Jira import success when task navigation fails", async () => {
+  it("reports ticket import success when task navigation fails", async () => {
     const deps = dependencies()
     deps.openTask.mockRejectedValue(new Error("tabs unavailable"))
     const response = await createMessageHandler(deps)(
-      { type: "importJiraTicket", context: { ticketId: "AG-9804" } },
+      { type: "importTicket", context: { provider: "jira", ticketId: "AG-9804" } },
       { tab: { id: 8 } },
     )
     expect(response).toEqual({
@@ -194,14 +198,46 @@ describe("GitHub workflow messages", () => {
     })
   })
 
-  it("rejects invalid Jira ticket context before calling Legato", async () => {
+  it("passes Legato's refusal on", async () => {
     const deps = dependencies()
+    deps.importTicket.mockRejectedValue(new Error("burnlite is not connected"))
     const response = await createMessageHandler(deps)(
-      { type: "importJiraTicket", context: { ticketId: "not valid" } },
+      { type: "importTicket", context: { provider: "burnlite", ticketId: "EST-42" } },
       { tab: { id: 8 } },
     )
-    expect(response).toEqual({ ok: false, error: "Invalid Jira ticket context" })
+    expect(response).toEqual({ ok: false, error: "burnlite is not connected" })
+  })
+
+  it.each([
+    { provider: "burnlite", ticketId: "not valid" },
+    { provider: "burnlite", ticketId: "est-42" },
+    { provider: "Burn lite", ticketId: "EST-42" },
+    { provider: "", ticketId: "EST-42" },
+    { ticketId: "EST-42" },
+    { provider: "burnlite" },
+  ])("rejects invalid ticket context %o before calling Legato", async (context) => {
+    const deps = dependencies()
+    const response = await createMessageHandler(deps)({ type: "importTicket", context }, { tab: { id: 8 } })
+    expect(response).toEqual({ ok: false, error: "Invalid ticket context" })
     expect(deps.importTicket).not.toHaveBeenCalled()
+  })
+
+  it("no longer answers the old Jira-only message", async () => {
+    const deps = dependencies()
+    const response = await createMessageHandler(deps)(
+      { type: "importJiraTicket", context: { ticketId: "AG-9804" } },
+      { tab: { id: 8 } },
+    )
+    expect(response).toEqual({ ok: false, error: "Unsupported extension message" })
+  })
+
+  it("syncs the ticket sites when an extension page asks, with no tab", async () => {
+    const deps = dependencies()
+    const sites = [{ name: "burnlite", label: "Burnlite", web_origin: "https://burnlite.test", key_pattern: "^x$", allowed: false }]
+    deps.syncTicketSites.mockResolvedValue({ sites, error: "Legato could not be reached" })
+    const response = await createMessageHandler(deps)({ type: "syncTicketSites" }, {})
+    expect(response).toEqual({ ok: true, sites, error: "Legato could not be reached" })
+    expect(deps.syncTicketSites).toHaveBeenCalledOnce()
   })
 
   it("surfaces missing permission as a fixable error", async () => {

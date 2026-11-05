@@ -2,7 +2,7 @@ import { defineConfig } from "vite"
 import { resolve } from "node:path"
 
 const entry = process.env.CONTENT_SCRIPT
-if (entry !== "github" && entry !== "jira") throw new Error("CONTENT_SCRIPT must be github or jira")
+if (entry !== "github" && entry !== "tickets") throw new Error("CONTENT_SCRIPT must be github or tickets")
 
 export default defineConfig({
   publicDir: false,

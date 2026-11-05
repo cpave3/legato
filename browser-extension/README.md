@@ -3,7 +3,7 @@
 A local Manifest V3 extension that:
 
 - adds **Prepare Legato review**, **View review** and **Discuss PR** actions to GitHub pull-request pages;
-- adds an **Import to Legato** action to `urbanx-development.atlassian.net` Jira ticket pages;
+- adds an **Import to Legato** action to the ticket pages of the providers Legato syncs (Jira and Burnlite), on the sites Legato reports;
 - resolves a configured user workflow and local repository preset;
 - displays the resolved details for confirmation before starting the run; and
 - reuses Chrome's last active Legato tab for marked Stream Deck navigation when it is in the same Chrome window.
@@ -37,6 +37,8 @@ Open the extension's **Options** page and enter:
 - **Review artifact output key**: defaults to `review`.
 
 Saving requests access to that exact Legato origin and tests authenticated workflow discovery. Chrome displays broad HTTP/HTTPS capability because Manifest V3 optional host permissions must declare the origins that may later be requested; the extension requests and retains only the configured origin at runtime.
+
+Below the form, **Ticket sites** lists the ticket providers Legato reports and whether the extension may use each one's site; see Ticket import.
 
 The token is stored in `chrome.storage.local`, not sync storage. Only extension-owned contexts—the options page for connection testing and the service worker for actions—read it. GitHub content scripts and page code cannot access it. It is never sent to GitHub, inserted into the page, included in navigation URLs, or logged. Use **Clear token** to remove it.
 
@@ -102,13 +104,26 @@ The extension requires Chrome 116+ for user-gesture `sidePanel.open()`. After up
 
 The two widgets and the side panel follow the web app's new look: its `lw-` colours (a solid surface, one violet accent, green and red for success and failure) and Geist. The extension carries its own copy of Geist (`public/fonts`, SIL Open Font License) and adds it to the page under its own names (`Legato Geist`), so a site's own type is never changed; where a page refuses the fonts, the widgets fall back to the system's. The action waiting for confirmation carries the accent; the others are outlined.
 
-## Jira ticket import
+## Ticket import (Jira and Burnlite)
 
-On `https://urbanx-development.atlassian.net/browse/<ISSUE-KEY>`, a bottom-right action imports the issue through Legato's existing `POST /api/remote/import` API. The request omits `workspace_id`, so the Legato server's configured default import workspace applies. After import, the extension opens `/board?highlight_task=<local-task-id>`.
+The extension has no ticket site of its own. It asks Legato (`GET /api/ticket-providers`) for the connected providers that have a site: each one's `name`, `label`, `web_origin` and `key_pattern`. It stores the list in `chrome.storage.local` (`ticketProviders`) and, for each provider whose origin the person has allowed, registers the content script `tickets.js` there with `chrome.scripting.registerContentScripts` (id `legato-tickets-<name>`, `persistAcrossSessions`). A script whose provider moved is updated; one whose provider is gone or no longer allowed is unregistered. The service worker does this when it is installed or Chrome starts, when a host permission is added or removed (from the stored list, without asking Legato), and when the options page asks: on load, after a save, and from **Ask Legato again**. `src/ticket-sites.ts` holds the logic.
 
-The board selects the imported task wherever its Jira state placed it, scrolls it into view, and gives it a distinct cyan highlight. After eight seconds, the board removes both the highlight and the `highlight_task` parameter with a history replacement; unrelated query parameters are preserved.
+The options page lists the sites under **Ticket sites** with **Allowed** or **Not allowed**. **Allow** asks Chrome for that one origin (`chrome.permissions.request`, from the click) and then re-registers. `optional_host_permissions` already covers any http(s) origin.
 
-The Jira content script sends only the parsed issue key to the service worker. The service worker owns the authenticated Legato request. Duplicate clicks are suppressed while an import is active, and a Chrome navigation failure is reported as an imported ticket rather than inviting another import.
+On a page, `tickets.js` finds the provider whose `web_origin` is the page's origin and reads the key:
+
+- **Jira**: `/browse/<KEY>`, uppercased.
+- **Burnlite**: a key link `/<KEY>`; a project page's `/project/<uuid>?item=<KEY>`, which Burnlite keeps current with `history.replaceState` as task drawers open and close; or, when the address has no key, the open drawer's `[data-testid="task-drawer"] [data-testid="item-key"]`. A content script cannot see `replaceState`, so the script looks again whenever the page changes, which the drawer opening does.
+
+A key counts only when it matches the provider's `key_pattern`. Other provider names get no button.
+
+The bottom-right action imports the ticket through `POST /api/remote/import` with `{ticket_id, provider}`. The request omits `workspace_id`, so the Legato server's configured default import workspace applies. After import, the extension opens `/board?highlight_task=<local-task-id>`. Legato answers `503` when that provider is not connected and `409` when the key is already a task from another provider; the action shows Legato's message and offers a retry.
+
+The board selects the imported task wherever its state placed it, scrolls it into view, and gives it a distinct cyan highlight. After eight seconds, the board removes both the highlight and the `highlight_task` parameter with a history replacement; unrelated query parameters are preserved.
+
+The content script sends only the provider and the parsed key to the service worker (`importTicket`). The service worker checks both, owns the authenticated Legato request, and suppresses duplicate clicks per provider and key while an import is active. A Chrome navigation failure is reported as an imported ticket rather than inviting another import.
+
+The widgets' fonts are web-accessible from any site (`use_dynamic_url`), since a provider's site is not known when the extension is built.
 
 ## Stream Deck integration
 
@@ -131,7 +146,8 @@ Without the extension, Stream Deck links remain valid ordinary Legato URLs; Lega
 - **Multiple Markdown artifacts**: set **Review artifact output key** to the intended artifact's workflow output key.
 - **No repository preset**: configure one whose `repo` is canonical `owner/repo` and whose `primary_dir` is the local primary checkout.
 - **Multiple presets match**: remove the ambiguity; the extension never guesses a checkout.
-- **Button missing**: confirm the URL is either `https://github.com/<owner>/<repo>/pull/<positive-number>` or `https://urbanx-development.atlassian.net/browse/<ISSUE-KEY>`, then rebuild and reload the extension.
+- **Button missing on GitHub**: confirm the URL is `https://github.com/<owner>/<repo>/pull/<positive-number>`, then rebuild and reload the extension.
+- **Button missing on a ticket**: open the options and check that **Ticket sites** lists the provider as **Allowed**. When it is missing, check that Legato is connected to Burnlite or configured with Jira (`GET /api/ticket-providers` lists only those with a site), then click **Ask Legato again**. Reload the ticket's page. The script is registered only for the exact origin Legato reports.
 - **Stream Deck leaves a new tab**: confirm the extension URL matches the Stream Deck server origin exactly and that the prior Legato tab was active in the same Chrome window.
 
 ## Manual acceptance checklist
@@ -144,7 +160,9 @@ Without the extension, Stream Deck links remain valid ordinary Legato URLs; Lega
 6. Click **View review** on PRs with no run, active runs, failed runs, `waiting_manual` reviews, and multiple historical runs; verify the panel state and selection.
 7. Verify a malicious Markdown artifact cannot create scripts, forms, frames, remote images, or unsafe links.
 8. Verify invalid token, missing workflow, missing/ambiguous presets, and ambiguous Markdown artifacts show actionable errors.
-9. Import a Jira ticket and verify the board scrolls to its cyan-highlighted card, then removes the highlight and query parameter after eight seconds.
-10. Make a Legato tab active, switch to another desktop application if desired, press each Stream Deck navigation type, and verify the prior tab is reused without a duplicate.
-11. Make a non-Legato tab active and verify Stream Deck leaves the new Legato tab.
-12. Disable the extension and verify Stream Deck destinations still open normally.
+9. In the options, check **Ticket sites** lists Jira and Burnlite as Legato has them, **Allow** each, and check each turns to **Allowed**.
+10. Import a Jira ticket and verify the board scrolls to its cyan-highlighted card, then removes the highlight and query parameter after eight seconds.
+11. Import a Burnlite task from its key link, from a project page with its drawer open (the button follows the drawer as you open another task or close it), and check a task already imported from Jira under the same key shows Legato's refusal.
+12. Make a Legato tab active, switch to another desktop application if desired, press each Stream Deck navigation type, and verify the prior tab is reused without a duplicate.
+13. Make a non-Legato tab active and verify Stream Deck leaves the new Legato tab.
+14. Disable the extension and verify Stream Deck destinations still open normally.

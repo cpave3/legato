@@ -6,11 +6,15 @@ if (!manifest.permissions?.includes("sidePanel") || manifest.side_panel?.default
 }
 await readFile(new URL("../dist/sidepanel.html", import.meta.url), "utf8")
 
+// tickets.js is not in the manifest: the service worker registers it at run
+// time for each ticket provider's site (src/ticket-sites.ts).
+const contentScripts = new Set(["tickets.js"])
 for (const declaration of manifest.content_scripts ?? []) {
-  for (const script of declaration.js ?? []) {
-    const source = await readFile(new URL(`../dist/${script}`, import.meta.url), "utf8")
-    if (/^\s*(?:import|export)\s/m.test(source)) {
-      throw new Error(`${script} contains ES module syntax, but Manifest V3 content scripts execute as classic scripts`)
-    }
+  for (const script of declaration.js ?? []) contentScripts.add(script)
+}
+for (const script of contentScripts) {
+  const source = await readFile(new URL(`../dist/${script}`, import.meta.url), "utf8")
+  if (/^\s*(?:import|export)\s/m.test(source)) {
+    throw new Error(`${script} contains ES module syntax, but Manifest V3 content scripts execute as classic scripts`)
   }
 }

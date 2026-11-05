@@ -9,3 +9,12 @@ input { padding: .55rem; font: inherit; }
 button { padding: .6rem .9rem; font: inherit; cursor: pointer; }
 #status[data-kind="error"] { color: #d1242f; }
 #status[data-kind="success"] { color: #1a7f37; }
+section { margin-top: 2rem; }
+h2 { font-size: 1.1rem; margin: 0 0 .5rem; }
+.hint { margin: 0 0 1rem; opacity: .8; }
+.ticket-sites { list-style: none; margin: 0 0 1rem; padding: 0; display: grid; gap: .5rem; }
+.ticket-sites li { display: flex; flex-wrap: wrap; align-items: center; gap: .75rem; }
+.ticket-sites code { overflow-wrap: anywhere; }
+.ticket-site-state[data-allowed="true"] { color: #1a7f37; }
+.ticket-site-state[data-allowed="false"] { color: #9a6700; }
+.ticket-sites-error { color: #d1242f; white-space: pre-line; }

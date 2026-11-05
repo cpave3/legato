@@ -1,12 +1,12 @@
 ---
 title: Browser extension
-description: Start a Legato review or discussion from a GitHub pull request, and talk to the agent in Chrome's side panel.
+description: Start a Legato review or discussion from a GitHub pull request, import tickets from Jira and Burnlite, and talk to the agent in Chrome's side panel.
 sidebar:
   order: 100
 ---
 
 :::caution
-The browser extension is experimental. It runs in Chrome only, you build it from source and load it unpacked, and its Jira button works on one hard-coded Jira site.
+The browser extension is experimental. It runs in Chrome only, and you build it from source and load it unpacked.
 :::
 
 The Legato extension for Chrome adds Legato's actions to the pages you already read. On a GitHub pull request you can start a review or a discussion with an agent and read the result in Chrome's side panel, without going to Legato. The extension is a client of Legato's API: it starts Legato [workflows](/legato/using/workflows/) and makes no changes on GitHub.
@@ -21,6 +21,8 @@ On a GitHub pull request page:
 - **Ask Legato**, beside **Cancel** in each inline comment form of the diff, puts the file and the lines you selected into the discussion's message box.
 
 In the side panel, a file and line that the agent names are buttons. A click scrolls the pull request page to that line in **Files changed**.
+
+On a Jira ticket or a Burnlite task, a button imports the ticket into Legato and opens the board with its card picked out. See [Import tickets](#import-tickets).
 
 Before it starts a run, the extension shows the workflow, the repository, the PR number and your local checkout, and waits for **Confirm and start**.
 
@@ -60,6 +62,24 @@ Saving asks Chrome for access to that one Legato origin and tests the connection
 
 The extension keeps the token in Chrome's local storage. Only the extension's own pages read it. It never sends the token to GitHub or puts it in a page or an address. **Clear token** removes it.
 
+## Import tickets
+
+The extension adds an import button to the pages of the ticket providers Legato uses. It works for:
+
+- **Jira**, when Legato is set up with your Jira site; see [Jira](/legato/integrations/jira/). The button shows on a ticket page, `/browse/<KEY>`.
+- **Burnlite**, when Legato is connected to it; see [Burnlite](/legato/integrations/burnlite/). The button shows on a task's own page and when you open a task on a project page.
+
+The extension learns each provider's site from Legato, so it has no site of its own. You choose which sites it may use:
+
+1. Open the extension's **Options** page.
+2. Under **Ticket sites**, find the provider. Each line shows its site and **Allowed** or **Not allowed**.
+3. Click **Allow** and accept Chrome's prompt.
+4. Reload the provider's page. The button shows at the bottom right.
+
+The extension asks Legato for its providers when Chrome starts, when you save the options, and when you click **Ask Legato again**. When Legato moves a provider to a new site, allow the new site.
+
+The button imports the ticket into the workspace Legato imports to by default, then opens the board with the new card picked out. When Legato is not connected to that provider, or the ticket is already a card from another provider, the button shows Legato's message.
+
 ## What Legato needs
 
 The extension needs two things in Legato.
@@ -94,4 +114,5 @@ The extension never guesses a checkout. When no preset or more than one matches,
 - **Workflow was not found** or **input has wrong type**: make the workflow and input names in the options match your workflow.
 - **No repository preset** or **Multiple presets match**: fix your `repositories` list as above.
 - **Multiple Markdown artifacts**: set **Review artifact output key** to the output that holds the review.
-- **Button missing**: check that the address is a pull request (`https://github.com/<owner>/<repo>/pull/<number>`), then build and reload the extension.
+- **Button missing on GitHub**: check that the address is a pull request (`https://github.com/<owner>/<repo>/pull/<number>`), then build and reload the extension.
+- **Button missing on a ticket**: open the options and check that **Ticket sites** lists the provider as **Allowed**. When it is not listed, check that Legato is connected to Burnlite or set up with Jira, then click **Ask Legato again**. Reload the ticket's page.

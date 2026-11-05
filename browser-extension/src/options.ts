@@ -2,9 +2,12 @@ import { DEFAULT_CONFIG, normalizeConfig, type ExtensionConfig } from "./config"
 import { LegatoClient } from "./legato"
 import { replaceOriginPermission } from "./permissions"
 import { clearToken, loadConfig, saveConfig } from "./storage"
+import type { TicketSite, TicketSitesResult } from "./ticket-sites"
+import { allowTicketSite, renderTicketSites } from "./ticket-sites-view"
 
 const form = document.querySelector<HTMLFormElement>("#settings-form")!
 const status = document.querySelector<HTMLParagraphElement>("#status")!
+const ticketSites = document.querySelector<HTMLDivElement>("#ticket-sites")!
 const fields = {
   baseUrl: document.querySelector<HTMLInputElement>("#base-url")!,
   token: document.querySelector<HTMLInputElement>("#token")!,
@@ -29,6 +32,29 @@ function fill(config: ExtensionConfig): void {
   for (const [key, input] of Object.entries(fields)) input.value = config[key as keyof ExtensionConfig]
 }
 
+// The service worker owns the content script registrations; it asks Legato for
+// the providers, stores them and registers the script on each allowed site.
+async function syncTicketSites(): Promise<TicketSitesResult> {
+  try {
+    const response = await chrome.runtime.sendMessage({ type: "syncTicketSites" }) as ({ ok: true } & TicketSitesResult) | { ok: false; error: string }
+    if (!response.ok) return { sites: [], error: response.error }
+    return { sites: response.sites, error: response.error }
+  } catch (error) {
+    return { sites: [], error: error instanceof Error ? error.message : String(error) }
+  }
+}
+
+function showTicketSites(result: TicketSitesResult): void {
+  renderTicketSites(ticketSites, result, onAllow)
+}
+
+function onAllow(site: TicketSite): void {
+  void allowTicketSite(site, {
+    request: (origins) => chrome.permissions.request({ origins }),
+    sync: syncTicketSites,
+  }).then(showTicketSites)
+}
+
 async function initialize(): Promise<void> {
   try {
     fill(await loadConfig())
@@ -49,6 +75,7 @@ form.addEventListener("submit", (event) => {
       const config = await saveConfig(requested)
       const discovery = await new LegatoClient(config.baseUrl, config.token).discover()
       show(`Connected. Found ${discovery.definitions?.length ?? 0} workflow(s).`, "success")
+      showTicketSites(await syncTicketSites())
     } catch (error) {
       show(error instanceof Error ? error.message : String(error), "error")
     }
@@ -62,4 +89,9 @@ document.querySelector<HTMLButtonElement>("#clear-token")!.addEventListener("cli
   }).catch((error: unknown) => show(error instanceof Error ? error.message : String(error), "error"))
 })
 
+document.querySelector<HTMLButtonElement>("#refresh-ticket-sites")!.addEventListener("click", () => {
+  void syncTicketSites().then(showTicketSites)
+})
+
 void initialize()
+void syncTicketSites().then(showTicketSites)

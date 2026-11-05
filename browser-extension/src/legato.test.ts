@@ -67,16 +67,37 @@ describe("LegatoClient", () => {
     ])
   })
 
-  it("imports a remote ticket with the configured default workspace", async () => {
+  it("imports a remote ticket from the named provider with the configured default workspace", async () => {
     const fetcher = vi.fn<typeof fetch>().mockResolvedValue(new Response(JSON.stringify({ id: "task-1" }), { status: 201 }))
     const client = new LegatoClient("http://localhost:3080", "top-secret", fetcher)
 
-    await expect(client.importRemoteTicket("AG-9804")).resolves.toEqual({ id: "task-1" })
+    await expect(client.importRemoteTicket("EST-42", "burnlite")).resolves.toEqual({ id: "task-1" })
     expect(fetcher).toHaveBeenCalledWith("http://localhost:3080/api/remote/import", {
       method: "POST",
       headers: { authorization: "Bearer top-secret", "content-type": "application/json" },
-      body: JSON.stringify({ ticket_id: "AG-9804" }),
+      body: JSON.stringify({ ticket_id: "EST-42", provider: "burnlite" }),
     })
+  })
+
+  it("lists the ticket providers Legato is connected to", async () => {
+    const providers = [{ name: "burnlite", label: "Burnlite", web_origin: "https://burnlite.test", key_pattern: "^[A-Z]+-[0-9]+$" }]
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(new Response(JSON.stringify({ providers }), { status: 200 }))
+    const client = new LegatoClient("http://localhost:3080", "top-secret", fetcher)
+
+    await expect(client.listTicketProviders()).resolves.toEqual(providers)
+    expect(fetcher).toHaveBeenCalledWith("http://localhost:3080/api/ticket-providers", { headers: { authorization: "Bearer top-secret" } })
+  })
+
+  it("treats a null provider list as none", async () => {
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(new Response(JSON.stringify({ providers: null }), { status: 200 }))
+    await expect(new LegatoClient("http://localhost:3080", "", fetcher).listTicketProviders()).resolves.toEqual([])
+  })
+
+  it("shows the message of a JSON error rather than the JSON", async () => {
+    const fetcher = vi.fn<typeof fetch>().mockResolvedValue(new Response(JSON.stringify({ error: "EST-42 is already a task from jira" }), { status: 409 }))
+    const client = new LegatoClient("http://localhost:3080", "top-secret", fetcher)
+
+    await expect(client.importRemoteTicket("EST-42", "burnlite")).rejects.toThrow(/^EST-42 is already a task from jira$/)
   })
 
   it("preserves a user-fixable server error without including credentials", async () => {

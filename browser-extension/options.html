@@ -27,6 +27,12 @@
         </div>
       </form>
       <p id="status" role="status" aria-live="polite"></p>
+      <section aria-labelledby="ticket-sites-heading">
+        <h2 id="ticket-sites-heading">Ticket sites</h2>
+        <p class="hint">The ticket providers Legato is connected to. On a site you allow, the extension adds a button that imports the ticket you are looking at into Legato.</p>
+        <div id="ticket-sites" aria-live="polite"><p>Asking Legato…</p></div>
+        <div class="actions"><button id="refresh-ticket-sites" type="button">Ask Legato again</button></div>
+      </section>
     </main>
     <script type="module" src="/src/options.ts"></script>
   </body>

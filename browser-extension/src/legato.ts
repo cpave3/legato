@@ -1,3 +1,5 @@
+import type { TicketProvider } from "./ticket-providers"
+
 export type WorkflowInput = { type: string; required?: boolean; default?: unknown }
 export type WorkflowDefinition = { name: string; inputs?: Record<string, WorkflowInput> }
 export type RepositoryPreset = { name: string; repo: string; primary_dir: string }
@@ -59,6 +61,18 @@ export function unreachableMessage(baseUrl: string): string {
   ].join("\n")
 }
 
+// Legato's API answers most refusals as {"error": "..."}; the message is what
+// the person should read.
+function errorMessage(body: string): string {
+  if (!body.startsWith("{")) return body
+  try {
+    const parsed = JSON.parse(body) as { error?: unknown }
+    return typeof parsed.error === "string" && parsed.error ? parsed.error : body
+  } catch {
+    return body
+  }
+}
+
 export class LegatoClient {
   constructor(
     private readonly baseUrl: string,
@@ -92,12 +106,18 @@ export class LegatoClient {
     return this.requestText(`/api/workflow-artifacts/${encodeURIComponent(id)}`)
   }
 
-  importRemoteTicket(ticketId: string): Promise<ImportedTask> {
+  importRemoteTicket(ticketId: string, provider: string): Promise<ImportedTask> {
     return this.request<ImportedTask>("/api/remote/import", {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ ticket_id: ticketId }),
+      body: JSON.stringify({ ticket_id: ticketId, provider }),
     })
+  }
+
+  // The connected ticket providers that have a site the extension can add
+  // its import button to.
+  async listTicketProviders(): Promise<TicketProvider[]> {
+    return (await this.request<{ providers: TicketProvider[] | null }>("/api/ticket-providers")).providers ?? []
   }
 
   private async fetch(path: string, init: RequestInit = {}): Promise<Response> {
@@ -110,7 +130,7 @@ export class LegatoClient {
       throw new Error(unreachableMessage(this.baseUrl))
     }
     if (!response.ok) {
-      const detail = (await response.text()).trim()
+      const detail = errorMessage((await response.text()).trim())
       throw new Error(detail || `Legato request failed (${response.status})`)
     }
     return response

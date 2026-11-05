@@ -6,6 +6,7 @@ import { cacheReviewContext, clearReviewContext, loadReviewContext, parseGitHubP
 import type { DiscussionRef } from "./discussion-panel"
 import { loadReviewModel, type ReviewPanelModel } from "./review-model"
 import { loadConfig } from "./storage"
+import { syncTicketSites, type TicketSitesResult } from "./ticket-sites"
 import { consumeTabCreated, loadWindowHistory, predecessorFor, queueActivation, recordTabCreated } from "./tab-history"
 import { handleMarkedTab, stripStreamDeckMarker } from "./tab-reuse"
 
@@ -13,7 +14,7 @@ type MessageSender = { tab?: { id?: number } }
 type MessageResponse = {
   ok: true; prepared?: PreparedWorkflow; runUrl?: string; agentUrl?: string; taskUrl?: string
   navigationWarning?: string; review?: ReviewPanelModel; discussion?: DiscussionRef | null
-} | { ok: false; error: string }
+} | ({ ok: true } & TicketSitesResult) | { ok: false; error: string }
 
 type Dependencies = {
   loadConfig: () => Promise<ExtensionConfig>
@@ -21,12 +22,13 @@ type Dependencies = {
   discover: (config: ExtensionConfig) => Promise<WorkflowDiscovery>
   start: (config: ExtensionConfig, prepared: PreparedWorkflow) => Promise<WorkflowRunView>
   openRun: (url: string) => Promise<void>
-  importTicket: (config: ExtensionConfig, ticketId: string) => Promise<{ id: string }>
+  importTicket: (config: ExtensionConfig, provider: string, ticketId: string) => Promise<{ id: string }>
   openTask: (url: string) => Promise<void>
   loadReviewModel: (tabId: number, selectedRunId?: string) => Promise<ReviewPanelModel>
   getTabUrl: (tabId: number) => Promise<string | undefined>
   saveReviewContext: (tabId: number, context: GitHubPullRequestContext) => Promise<void>
   listRuns: (config: ExtensionConfig, workflow: string, inputs: Record<string, string>) => Promise<WorkflowRun[]>
+  syncTicketSites: () => Promise<TicketSitesResult>
 }
 
 const defaultDependencies: Dependencies = {
@@ -35,12 +37,13 @@ const defaultDependencies: Dependencies = {
   discover: (config) => new LegatoClient(config.baseUrl, config.token).discover(),
   start: (config, prepared) => new LegatoClient(config.baseUrl, config.token).startWorkflow(prepared.workflowName, prepared.inputs),
   openRun: openLegatoUrl,
-  importTicket: (config, ticketId) => new LegatoClient(config.baseUrl, config.token).importRemoteTicket(ticketId),
+  importTicket: (config, provider, ticketId) => new LegatoClient(config.baseUrl, config.token).importRemoteTicket(ticketId, provider),
   openTask: openLegatoUrl,
   loadReviewModel,
   getTabUrl: async (tabId) => (await chrome.tabs.get(tabId)).url,
   saveReviewContext,
   listRuns: (config, workflow, inputs) => new LegatoClient(config.baseUrl, config.token).listWorkflowRuns(workflow, inputs),
+  syncTicketSites: () => syncTicketSites(),
 }
 
 async function openLegatoUrl(url: string): Promise<void> {
@@ -63,10 +66,13 @@ function validGitHubContext(value: unknown): value is GitHubPullRequestContext {
     && (candidate.pullRequestNumber ?? 0) > 0
 }
 
-function validJiraContext(value: unknown): value is { ticketId: string } {
+type TicketContext = { provider: string; ticketId: string }
+
+function validTicketContext(value: unknown): value is TicketContext {
   if (!value || typeof value !== "object") return false
-  return typeof (value as { ticketId?: unknown }).ticketId === "string"
-    && /^[A-Z][A-Z0-9_]*-\d+$/.test((value as { ticketId: string }).ticketId)
+  const candidate = value as { provider?: unknown; ticketId?: unknown }
+  return typeof candidate.provider === "string" && /^[a-z][a-z0-9-]*$/.test(candidate.provider)
+    && typeof candidate.ticketId === "string" && /^[A-Z][A-Z0-9_]*-\d+$/.test(candidate.ticketId)
 }
 
 const pullRequestMessages = new Set([
@@ -139,11 +145,12 @@ export function createMessageHandler(deps: Dependencies = defaultDependencies) {
         if (!(await deps.hasPermission(config.baseUrl))) throw new Error("Open extension options and grant access to the configured Legato origin")
         return { ok: true, discussion: await findDiscussion(deps, config, context) }
       }
-      const jira = request.type === "importJiraTicket"
+      if (request.type === "syncTicketSites") return { ok: true, ...(await deps.syncTicketSites()) }
+      const ticket = request.type === "importTicket"
       const github = pullRequestMessages.has(request.type ?? "")
-      if (jira && !validJiraContext(request.context)) throw new Error("Invalid Jira ticket context")
+      if (ticket && !validTicketContext(request.context)) throw new Error("Invalid ticket context")
       if (github && !validGitHubContext(request.context)) throw new Error("Invalid GitHub pull request context")
-      if (!jira && !github) throw new Error("Unsupported extension message")
+      if (!ticket && !github) throw new Error("Unsupported extension message")
       const purpose = purposeOf(request.purpose)
 
       const tabId = sender.tab?.id
@@ -153,18 +160,18 @@ export function createMessageHandler(deps: Dependencies = defaultDependencies) {
         await deps.saveReviewContext(tabId, context)
         return { ok: true, review: await deps.loadReviewModel(tabId) }
       }
-      const mutates = request.type === "startPreparedWorkflow" || jira
-      const actionKey = jira ? `jira:${(request.context as { ticketId: string }).ticketId}` : `tab:${tabId}`
-      if (mutates && active.has(actionKey)) return { ok: false, error: jira ? "This Jira ticket is already being imported" : "A Legato action is already running for this tab" }
+      const mutates = request.type === "startPreparedWorkflow" || ticket
+      const ticketContext = request.context as TicketContext
+      const actionKey = ticket ? `ticket:${ticketContext.provider}:${ticketContext.ticketId}` : `tab:${tabId}`
+      if (mutates && active.has(actionKey)) return { ok: false, error: ticket ? "This ticket is already being imported" : "A Legato action is already running for this tab" }
       if (mutates) active.add(actionKey)
       try {
         const config = await deps.loadConfig()
         if (!(await deps.hasPermission(config.baseUrl))) {
           throw new Error("Open extension options and grant access to the configured Legato origin")
         }
-        if (jira) {
-          const context = request.context as { ticketId: string }
-          const task = await deps.importTicket(config, context.ticketId)
+        if (ticket) {
+          const task = await deps.importTicket(config, ticketContext.provider, ticketContext.ticketId)
           const taskUrl = `${config.baseUrl}/board?highlight_task=${encodeURIComponent(task.id)}`
           try {
             await deps.openTask(taskUrl)
@@ -278,6 +285,18 @@ if (typeof chrome !== "undefined" && chrome.runtime?.onMessage) {
     void handleMessage(message, sender).then(sendResponse)
     return true
   })
+
+  // The ticket content script is registered at run time, one per provider
+  // site Legato reports (see ticket-sites.ts).
+  const syncSites = (refresh: boolean) => {
+    void syncTicketSites({ refresh }).then((result) => {
+      if (result.error) console.warn("Legato ticket sites:", result.error)
+    })
+  }
+  chrome.runtime.onInstalled.addListener(() => syncSites(true))
+  chrome.runtime.onStartup.addListener(() => syncSites(true))
+  chrome.permissions.onAdded.addListener(() => syncSites(false))
+  chrome.permissions.onRemoved.addListener(() => syncSites(false))
 
   chrome.tabs.onCreated.addListener((tab) => {
     if (tab.id !== undefined) void recordTabCreated(tab.id, Date.now())
