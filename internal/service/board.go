@@ -133,7 +133,7 @@ func (b *boardService) RefuseAway(ctx context.Context, taskID string) error {
 
 // handoffMarks are the handoffs a card shows: on a worker, the main each
 // handed-off card came from; on a main, the worker each away task is on.
-func (b *boardService) handoffMarks(ctx context.Context) (map[string]*HandoffOrigin, map[string]*AwayOn, error) {
+func (b *boardService) handoffMarks(ctx context.Context) (map[string]*HandoffOrigin, map[string]*AwayTask, error) {
 	handoffs, err := b.store.ListOpenHandoffs(ctx)
 	if err != nil {
 		return nil, nil, err
@@ -146,9 +146,10 @@ func (b *boardService) handoffMarks(ctx context.Context) (map[string]*HandoffOri
 	if err != nil {
 		return nil, nil, err
 	}
-	away := make(map[string]*AwayOn, len(awayTasks))
+	away := make(map[string]*AwayTask, len(awayTasks))
 	for _, a := range awayTasks {
-		away[a.TaskID] = &AwayOn{WorkerInstanceID: a.WorkerInstanceID, WorkerName: a.WorkerName, HandoffID: a.HandoffID}
+		task := awayTaskFromRow(a)
+		away[a.TaskID] = &task
 	}
 	return origins, away, nil
 }

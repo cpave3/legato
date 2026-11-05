@@ -65,11 +65,35 @@ type HandoffFromResponse struct {
 	MainTaskID string `json:"main_task_id"`
 }
 
-// AwayResponse is the worker an away task is on.
+// AwayResponse is an away task as the web board shows it: the worker it is
+// on, how it was handed off, the column it left, the worker's state of it as
+// last heard (state, failure, state_at; absent when nothing was) and the
+// address that opens it on the worker (url).
 type AwayResponse struct {
 	WorkerInstanceID string `json:"worker_instance_id"`
 	Worker           string `json:"worker"`
 	HandoffID        string `json:"handoff_id"`
+	WorkerTaskID     string `json:"worker_task_id"`
+	Purpose          string `json:"purpose"`
+	Kind             string `json:"kind"`
+	Repo             string `json:"repo"`
+	Branch           string `json:"branch"`
+	AgentKind        string `json:"agent_kind,omitempty"`
+	LeftColumn       string `json:"left_column"`
+	HandedOffAt      string `json:"handed_off_at"`
+	State            string `json:"state,omitempty"`
+	Failure          string `json:"failure,omitempty"`
+	StateAt          string `json:"state_at,omitempty"`
+	URL              string `json:"url,omitempty"`
+}
+
+// BoardWorkerResponse is a worker this main is paired with, for the board's
+// Away lane: one group per worker, shown once one is paired.
+type BoardWorkerResponse struct {
+	InstanceID string  `json:"instance_id"`
+	Name       string  `json:"name"`
+	Address    string  `json:"address"`
+	LastPullAt *string `json:"last_pull_at,omitempty"`
 }
 
 // SwarmStatsResponse is the JSON representation of aggregate sub-task counts.
@@ -89,6 +113,8 @@ type TasksResponse map[string][]CardResponse
 type BoardResponse struct {
 	Columns    []ColumnResponse    `json:"columns"`
 	Workspaces []WorkspaceResponse `json:"workspaces"`
+	// Workers are the workers this main is paired with; empty when none.
+	Workers []BoardWorkerResponse `json:"workers"`
 }
 
 // WorkspaceResponse represents a workspace in the JSON response.

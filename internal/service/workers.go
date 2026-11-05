@@ -342,6 +342,15 @@ func (c *WorkerClient) Call(ctx context.Context, method, path string, body, into
 	return workerCall(ctx, c.http, method, c.base+path, c.token, body, into)
 }
 
+// WorkerRefusal is a worker that answered a call with a refusal: Message
+// is the worker's own words. errors.Is matches ErrWorkerRefused.
+type WorkerRefusal struct {
+	Message string
+}
+
+func (e *WorkerRefusal) Error() string        { return ErrWorkerRefused.Error() + ": " + e.Message }
+func (e *WorkerRefusal) Is(target error) bool { return target == ErrWorkerRefused }
+
 // WorkerMeta is what a worker's /api/meta says of it: its version, whether
 // it pairs mains, the handoff protocol it speaks and whether its agents can
 // run in Legato's sandbox.
@@ -418,7 +427,7 @@ func workerCall(ctx context.Context, client *http.Client, method, address, token
 		if resp.StatusCode == http.StatusNotFound && strings.HasSuffix(address, "/api/pair/exchange") {
 			return fmt.Errorf("%w: it does not pair by phrase", ErrWorkerTooOld)
 		}
-		return fmt.Errorf("%w: %s", ErrWorkerRefused, message)
+		return &WorkerRefusal{Message: message}
 	}
 	if into == nil {
 		return nil

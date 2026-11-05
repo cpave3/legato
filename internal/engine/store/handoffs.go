@@ -191,13 +191,15 @@ const (
 	AwayAway    = "away"
 )
 
-// AwayTask is a handoff of one of a main's tasks. WorkerName is read from
-// workers ("" when the worker is no longer paired).
+// AwayTask is a handoff of one of a main's tasks. WorkerName and
+// WorkerAddress are read from workers ("" when the worker is no longer
+// paired).
 type AwayTask struct {
 	HandoffID        string  `db:"handoff_id"`
 	TaskID           string  `db:"task_id"`
 	WorkerInstanceID string  `db:"worker_instance_id"`
 	WorkerName       string  `db:"worker_name"`
+	WorkerAddress    string  `db:"worker_address"`
 	WorkerTaskID     string  `db:"worker_task_id"`
 	State            string  `db:"state"`
 	Purpose          string  `db:"purpose"`
@@ -213,7 +215,7 @@ type AwayTask struct {
 	ClosedAt         *string `db:"closed_at"`
 }
 
-const awayTaskSelect = `SELECT a.*, COALESCE(w.name, '') AS worker_name FROM away_tasks a LEFT JOIN workers w ON w.instance_id = a.worker_instance_id`
+const awayTaskSelect = `SELECT a.*, COALESCE(w.name, '') AS worker_name, COALESCE(w.address, '') AS worker_address FROM away_tasks a LEFT JOIN workers w ON w.instance_id = a.worker_instance_id`
 
 // InsertAwayTask records a handoff of a task as it is sent. A task with an
 // open handoff already is ErrConflict.
@@ -253,6 +255,14 @@ func (s *Store) ListAwayTasks(ctx context.Context) ([]AwayTask, error) {
 func (s *Store) SetAwayTaskAway(ctx context.Context, handoffID, workerTaskID, at string) error {
 	_, err := s.db.ExecContext(ctx, `UPDATE away_tasks SET state = 'away', worker_task_id = ?, updated_at = ? WHERE handoff_id = ? AND closed_at IS NULL`,
 		workerTaskID, at, handoffID)
+	return err
+}
+
+// SetAwayTaskSummary records the last thing the worker said of a handoff
+// (its summary, as JSON) and when it was heard.
+func (s *Store) SetAwayTaskSummary(ctx context.Context, handoffID, summary, at string) error {
+	_, err := s.db.ExecContext(ctx, `UPDATE away_tasks SET last_summary = ?, last_summary_at = ?, updated_at = ? WHERE handoff_id = ? AND closed_at IS NULL`,
+		summary, at, at, handoffID)
 	return err
 }
 

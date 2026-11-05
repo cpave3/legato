@@ -34,6 +34,8 @@ type instanceDeps struct {
 	instanceID func(context.Context) (string, error)
 	sandbox    func() bool
 	handoffs   TaskHandoffs
+	// mainHandoffs is this Legato as a main: handing its tasks off.
+	mainHandoffs MainHandoffs
 }
 
 // SetMainInstances serves Settings › Main instances (/api/settings/mains).
@@ -103,6 +105,7 @@ func (s *Server) registerInstanceRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/settings/mains", s.mainsListHandler())
 	mux.HandleFunc("DELETE /api/settings/mains/{instance_id}", s.mainsUnpairHandler())
 	mux.HandleFunc("GET /api/settings/workers", s.workersListHandler())
+	mux.HandleFunc("POST /api/tasks/{id}/handoff", s.taskHandOffHandler())
 	mux.HandleFunc("POST /api/settings/workers", s.workersPairHandler())
 }
 

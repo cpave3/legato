@@ -10,6 +10,7 @@ import (
 
 	"github.com/cpave3/legato/config"
 	"github.com/cpave3/legato/internal/engine/discovery"
+	"github.com/cpave3/legato/internal/engine/events"
 	"github.com/cpave3/legato/internal/engine/store"
 	"github.com/cpave3/legato/internal/server"
 	"github.com/cpave3/legato/internal/service"
@@ -20,9 +21,10 @@ import (
 // certificate to trust for HTTPS: the generated CA, or the configured
 // certificate. A main instance gets a token that can only hand off, and
 // this server's instance ID; srv then lists it in Settings › Main
-// instances. srv also gets Settings › Workers, for this Legato as a main.
-// See docs/ai/integrations.md § Main instances and workers.
-func wirePairing(srv *server.Server, cfg *config.Config, db *store.Store, caCertFile, port string) {
+// instances. srv also gets Settings › Workers, for this Legato as a main,
+// and the web board's Hand off (POST /api/tasks/{id}/handoff), which bus
+// hears of. See docs/ai/integrations.md § Main instances and workers.
+func wirePairing(srv *server.Server, cfg *config.Config, db *store.Store, bus *events.Bus, caCertFile, port string) {
 	scheme := "http"
 	if tlsEnabled(cfg) {
 		scheme = "https"
@@ -61,10 +63,12 @@ func wirePairing(srv *server.Server, cfg *config.Config, db *store.Store, caCert
 	// Asked at every /api/meta: the configuration and bwrap on PATH, not the
 	// whole sandbox plan.
 	srv.SetSandboxAvailable(func() bool { return sandboxAvailable(cfg) })
-	srv.SetWorkers(service.NewWorkerService(db, service.WorkerServiceOptions{
+	workers := service.NewWorkerService(db, service.WorkerServiceOptions{
 		Secrets:  configuredSecretStore(cfg, db),
 		MainName: pairingName(cfg),
-	}))
+	})
+	srv.SetWorkers(workers)
+	srv.SetMainHandoffs(service.NewTaskHandoffService(db, service.TaskHandoffOptions{Workers: workers, Bus: bus}))
 }
 
 // pairingName is how phones list this machine: its host name without the

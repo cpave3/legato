@@ -4,9 +4,11 @@ import (
 	"context"
 	"crypto/rand"
 	"encoding/hex"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
 	"strings"
 	"time"
 
@@ -34,7 +36,8 @@ type TaskHandoffRequest struct {
 	AgentKind string
 }
 
-// AwayTask is a task of this main away on a worker.
+// AwayTask is a task of this main away on a worker: where it went, how,
+// and what the worker last said of it.
 type AwayTask struct {
 	TaskID           string `json:"task_id"`
 	WorkerInstanceID string `json:"worker_instance_id"`
@@ -48,12 +51,44 @@ type AwayTask struct {
 	AgentKind        string `json:"agent_kind,omitempty"`
 	LeftColumn       string `json:"left_column"`
 	HandedOffAt      string `json:"handed_off_at"`
+	// State is the worker's state of the handoff as last heard (pending,
+	// in_progress, done, failed, returning), with Failure its reason when
+	// failed and StateAt when it was heard; empty when nothing was.
+	State   string `json:"state,omitempty"`
+	Failure string `json:"failure,omitempty"`
+	StateAt string `json:"state_at,omitempty"`
+	// WorkerURL opens the task on the worker's web UI: the address the
+	// worker gave, else its board with the card picked out.
+	WorkerURL string `json:"worker_url,omitempty"`
+}
+
+// HandoffSummary is what a worker last said of a handoff, kept as the away
+// task's last summary: first the state it accepted the handoff in, then
+// each summary row it sends.
+type HandoffSummary struct {
+	HandoffID    string `json:"handoff_id"`
+	WorkerTaskID string `json:"worker_task_id"`
+	State        string `json:"state"`
+	Failure      string `json:"failure,omitempty"`
+	// URL opens the task on the worker; empty for the main to make one.
+	URL string `json:"url,omitempty"`
 }
 
 func awayTaskFromRow(a store.AwayTask) AwayTask {
-	return AwayTask{TaskID: a.TaskID, WorkerInstanceID: a.WorkerInstanceID, WorkerName: a.WorkerName, HandoffID: a.HandoffID,
+	away := AwayTask{TaskID: a.TaskID, WorkerInstanceID: a.WorkerInstanceID, WorkerName: a.WorkerName, HandoffID: a.HandoffID,
 		WorkerTaskID: a.WorkerTaskID, Purpose: a.Purpose, Kind: a.Kind, Repo: a.Repo, Branch: a.Branch, AgentKind: a.AgentKind,
 		LeftColumn: a.LeftColumn, HandedOffAt: a.CreatedAt}
+	var summary HandoffSummary
+	if a.LastSummary != nil && json.Unmarshal([]byte(*a.LastSummary), &summary) == nil {
+		away.State, away.Failure, away.WorkerURL = summary.State, summary.Failure, summary.URL
+		if a.LastSummaryAt != nil {
+			away.StateAt = *a.LastSummaryAt
+		}
+	}
+	if away.WorkerURL == "" && a.WorkerAddress != "" && a.WorkerTaskID != "" {
+		away.WorkerURL = strings.TrimRight(a.WorkerAddress, "/") + "/board?highlight_task=" + url.QueryEscape(a.WorkerTaskID)
+	}
+	return away
 }
 
 // TaskHandoffOptions configure a main's handoffs.
@@ -133,15 +168,19 @@ func (s *TaskHandoffService) HandOff(ctx context.Context, req TaskHandoffRequest
 	if err != nil {
 		return AwayTask{}, err
 	}
+	name := client.Worker.Name
 	meta, err := client.Meta(ctx)
+	if errors.Is(err, ErrWorkerUnreachable) {
+		return AwayTask{}, &handoffWorkerError{ErrWorkerUnreachable, fmt.Sprintf("%s did not answer, so nothing was sent", name)}
+	}
 	if err != nil {
-		return AwayTask{}, err
+		return AwayTask{}, refusedBy(name, err)
 	}
 	if meta.Handoff < HandoffProtocolVersion {
-		return AwayTask{}, fmt.Errorf("%w: %s cannot take a handoff (it runs Legato %s)", ErrWorkerTooOld, client.Worker.Name, orUnknown(meta.Version))
+		return AwayTask{}, &handoffWorkerError{ErrWorkerTooOld, fmt.Sprintf("update the worker: %s runs Legato %s, which cannot take a handoff from this one", name, orUnknown(meta.Version))}
 	}
 	if meta.Sandbox == nil || !*meta.Sandbox {
-		return AwayTask{}, fmt.Errorf("%w: %s cannot run agents in Legato's sandbox, which a handed-off agent needs", ErrWorkerRefused, client.Worker.Name)
+		return AwayTask{}, &handoffWorkerError{ErrWorkerRefused, fmt.Sprintf("%s cannot run agents in Legato's sandbox, which a handed-off agent needs", name)}
 	}
 
 	notes, err := s.db.ListTaskNotes(ctx, task.ID)
@@ -184,17 +223,24 @@ func (s *TaskHandoffService) HandOff(ctx context.Context, req TaskHandoffRequest
 	}
 	var accepted HandoffAccepted
 	if err := client.Call(ctx, http.MethodPost, HandoffCallPath, call, &accepted); err != nil {
-		if !errors.Is(err, ErrWorkerUnreachable) {
-			// The worker answered and made nothing.
-			_ = s.db.DeleteAwayTask(ctx, row.HandoffID)
+		if errors.Is(err, ErrWorkerUnreachable) {
+			return AwayTask{}, &handoffWorkerError{ErrWorkerUnreachable, fmt.Sprintf("%s did not answer; handing the task to %s again is safe", name, name)}
 		}
-		return AwayTask{}, err
+		// The worker answered and made nothing.
+		_ = s.db.DeleteAwayTask(ctx, row.HandoffID)
+		return AwayTask{}, refusedBy(name, err)
 	}
 	if accepted.WorkerInstanceID != client.Worker.InstanceID || accepted.WorkerTaskID == "" {
 		_ = s.db.DeleteAwayTask(ctx, row.HandoffID)
-		return AwayTask{}, fmt.Errorf("%w: it answers as %s, not %s", ErrWorkerRefused, orUnknown(accepted.WorkerInstanceID), client.Worker.InstanceID)
+		return AwayTask{}, &handoffWorkerError{ErrWorkerRefused, fmt.Sprintf("%s answers as %s, not %s", name, orUnknown(accepted.WorkerInstanceID), client.Worker.InstanceID)}
 	}
-	if err := s.db.SetAwayTaskAway(ctx, row.HandoffID, accepted.WorkerTaskID, s.opts.Now().UTC().Format(time.RFC3339)); err != nil {
+	at := s.opts.Now().UTC().Format(time.RFC3339)
+	if err := s.db.SetAwayTaskAway(ctx, row.HandoffID, accepted.WorkerTaskID, at); err != nil {
+		return AwayTask{}, err
+	}
+	// The state it was accepted in is the first thing known of it.
+	summary, _ := json.Marshal(HandoffSummary{HandoffID: row.HandoffID, WorkerTaskID: accepted.WorkerTaskID, State: accepted.State, Failure: accepted.Failure})
+	if err := s.db.SetAwayTaskSummary(ctx, row.HandoffID, string(summary), at); err != nil {
 		return AwayTask{}, err
 	}
 	if s.opts.Bus != nil {
@@ -231,6 +277,26 @@ func (s *TaskHandoffService) ListAway(ctx context.Context) ([]AwayTask, error) {
 		out = append(out, awayTaskFromRow(r))
 	}
 	return out, nil
+}
+
+// handoffWorkerError is a handoff that failed at the worker, in words that
+// name it; errors.Is matches Kind (ErrWorkerUnreachable, ErrWorkerRefused,
+// ErrWorkerTooOld).
+type handoffWorkerError struct {
+	Kind    error
+	Message string
+}
+
+func (e *handoffWorkerError) Error() string { return e.Message }
+func (e *handoffWorkerError) Unwrap() error { return e.Kind }
+
+// refusedBy is a worker's refusal of a handoff, in its own words.
+func refusedBy(name string, err error) error {
+	var refusal *WorkerRefusal
+	if errors.As(err, &refusal) {
+		return &handoffWorkerError{ErrWorkerRefused, fmt.Sprintf("%s refused the handoff: %s", name, refusal.Message)}
+	}
+	return err
 }
 
 func newHandoffID() string {

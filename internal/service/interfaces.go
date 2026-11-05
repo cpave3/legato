@@ -77,7 +77,7 @@ type Card struct {
 	// to it, while the handoff is open.
 	HandedOffFrom *HandoffOrigin
 	// Away is set on a main for a task away on a worker.
-	Away *AwayOn
+	Away *AwayTask
 }
 
 // HandoffOrigin is where a handed-off card came from: the main instance's
@@ -85,13 +85,6 @@ type Card struct {
 type HandoffOrigin struct {
 	MainName   string
 	MainTaskID string
-}
-
-// AwayOn is the worker an away task is on.
-type AwayOn struct {
-	WorkerInstanceID string
-	WorkerName       string
-	HandoffID        string
 }
 
 // Workspace represents a workspace for grouping tasks.

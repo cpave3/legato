@@ -34,6 +34,7 @@ func (s *Server) boardHandler() http.HandlerFunc {
 
 		resp := BoardResponse{
 			Columns: make([]ColumnResponse, len(columns)),
+			Workers: s.boardWorkers(ctx),
 		}
 
 		allTaskIDs := make([]string, 0, 64)
@@ -64,9 +65,7 @@ func (s *Server) boardHandler() http.HandlerFunc {
 				if c.HandedOffFrom != nil {
 					cardResp[j].HandoffFrom = &HandoffFromResponse{Main: c.HandedOffFrom.MainName, MainTaskID: c.HandedOffFrom.MainTaskID}
 				}
-				if c.Away != nil {
-					cardResp[j].Away = &AwayResponse{WorkerInstanceID: c.Away.WorkerInstanceID, Worker: c.Away.WorkerName, HandoffID: c.Away.HandoffID}
-				}
+				cardResp[j].Away = awayResponse(c.Away)
 				allTaskIDs = append(allTaskIDs, c.ID)
 				cardRefs[c.ID] = ref{col: i, card: j}
 			}
