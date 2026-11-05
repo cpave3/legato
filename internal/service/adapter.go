@@ -114,6 +114,15 @@ type ToolsPromptAdapter interface {
 	ToolsPrompt() string
 }
 
+// BranchToolsPromptAdapter is a ToolsPromptAdapter whose guidance can name a
+// handed-off task's branches: base (legato/<main task id>) and new branches
+// base-<a few words>, which granted says the session may already push and
+// open draft pull requests from. The agent service uses it for a spawn with
+// AgentSpawnOptions.Branches.
+type BranchToolsPromptAdapter interface {
+	ToolsPromptFor(base string, granted bool) string
+}
+
 // PathGrantingAdapter is an adapter whose tool can be granted files and
 // folders on its command line, as Chimera can with --add-read-path and
 // --add-write-path. PathGrantFlags returns what to append to the launch

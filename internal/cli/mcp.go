@@ -108,6 +108,8 @@ func MCPServerOptions(opts MCPOptions) mcpserver.Options {
 		}),
 	}
 	server.Instructions = MCPGuidance
+	// A handed-off task's session names its branches after the main's task.
+	branches, _ := service.HandoffSessionBranches(context.Background(), opts.Store, opts.TaskID)
 	if opts.Credentials != nil {
 		var sources []service.CredentialSourceSummary
 		if s, ok := opts.Credentials.(interface {
@@ -115,10 +117,10 @@ func MCPServerOptions(opts MCPOptions) mcpserver.Options {
 		}); ok {
 			sources = s.Sources()
 		}
-		server.Instructions += credentialGuidance(opts.Credentials.Credentials(), sources, opts.Stacks)
+		server.Instructions += credentialGuidance(opts.Credentials.Credentials(), sources, opts.Stacks, branches)
 	}
 	if opts.Stacks {
-		server.Instructions += stackGuidance
+		server.Instructions += stackGuidanceFor(branches)
 	}
 	server.Tools = tools.all()
 	return server

@@ -104,3 +104,41 @@ func TestParseRoutesChecksEachRoute(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+// A route with when takes a request only when its JSON body has those
+// values: a draft pull request is classified apart from any other.
+func TestARouteWithWhenTakesOnlyRequestsWhoseBodyMatches(t *testing.T) {
+	r := RestInspector{Host: "api.github.com", Routes: []Route{
+		{Method: "POST", Path: "/repos/{owner}/{repo}/pulls", When: map[string]any{"$.draft": true}, Operation: "pr.create-draft", Resource: "github:{owner}/{repo}@refs/heads/{$.head}"},
+		{Method: "POST", Path: "/repos/{owner}/{repo}/pulls", Operation: "pr.create", Resource: "github:{owner}/{repo}@refs/heads/{$.head}"},
+	}}
+	for _, tc := range []struct{ body, operation string }{
+		{`{"head":"legato/x","draft":true}`, "pr.create-draft"},
+		{`{"head":"legato/x","draft":false}`, "pr.create"},
+		{`{"head":"legato/x","draft":"true"}`, "pr.create"},
+		{`{"head":"legato/x"}`, "pr.create"},
+	} {
+		got, err := classify(t, r, "POST", "/repos/cpave3/legato/pulls", tc.body)
+		if err != nil || got.Operation != tc.operation || got.Resource != "github:cpave3/legato@refs/heads/legato/x" {
+			t.Errorf("%s = %+v, %v; want %s", tc.body, got, err, tc.operation)
+		}
+	}
+	if route, _, ok := r.Match("POST", "/repos/cpave3/legato/pulls"); !ok || !route.needsBody() {
+		t.Fatal("a route with when must have its body read")
+	}
+}
+
+func TestWhenNamesJSONFieldsAndPlainValues(t *testing.T) {
+	for _, when := range []map[string]any{
+		{"draft": true},
+		{"$.draft": []any{true}},
+		{"$.draft": 1.5},
+	} {
+		if err := ValidateRoutes([]Route{{Method: "POST", Path: "/x", Operation: "x", When: when}}); err == nil {
+			t.Errorf("when %v: want an error", when)
+		}
+	}
+	if err := ValidateRoutes([]Route{{Method: "POST", Path: "/x", Operation: "x", When: map[string]any{"$.draft": true, "$.state": "open"}}}); err != nil {
+		t.Fatal(err)
+	}
+}

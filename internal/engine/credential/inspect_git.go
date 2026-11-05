@@ -21,6 +21,11 @@ const (
 	// OperationPRWrite is gh's pull request commands: a token that can write
 	// pull requests of one repository, and read its code.
 	OperationPRWrite = "pr.write"
+	// OperationPRCreateDraft is opening a draft pull request from one
+	// branch: gh pr create --draft, or the REST API with "draft": true. Its
+	// resource names the branch, so a grant can allow drafts from some
+	// branches and nothing else.
+	OperationPRCreateDraft = "pr.create-draft"
 	// OperationIssueWrite is gh's issue commands: a token that can write the
 	// issues of one repository.
 	OperationIssueWrite = "issue.write"

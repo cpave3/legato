@@ -84,6 +84,10 @@ type WorkerOptions struct {
 	// for a worker that answers differently (an old one, a dropped
 	// answer) without changing its services.
 	Handler func(http.Handler) http.Handler
+	// GitHubRepositories, when set, gives the worker a GitHub credential
+	// (named github) for these repositories. Nothing reaches GitHub: the
+	// broker only records and decides grants.
+	GitHubRepositories []string
 }
 
 // Worker is a worker instance: its database, services and web server.
@@ -107,6 +111,9 @@ type Worker struct {
 	Handoffs *service.HandoffWorkerService
 	// Repos is the worker's repository cache, faked: it outlives restarts.
 	Repos *FakeRepos
+	// Credentials is the worker's credential broker, with a GitHub
+	// credential when WorkerOptions.GitHubRepositories names repositories.
+	Credentials *service.CredentialBroker
 
 	// HTTP is the TLS server; URL its address (https://127.0.0.1:port),
 	// which stays the same across restarts.
@@ -181,9 +188,10 @@ func (w *Worker) start() {
 	srv.SetInstanceID(instanceID)
 	sandbox := !w.opts.NoSandbox
 	srv.SetSandboxAvailable(func() bool { return sandbox })
+	w.Credentials = w.credentialBroker(db)
 	w.Handoffs = service.NewHandoffWorkerService(db, service.HandoffWorkerOptions{
 		Agents: w.Agents.(service.HandoffAgents), Repositories: w.Repos, Sandbox: func() bool { return sandbox },
-		Bus: w.Bus, Run: w.run, Now: w.Clock.Now,
+		Grants: w.Credentials, Bus: w.Bus, Run: w.run, Now: w.Clock.Now,
 	})
 	srv.SetTaskHandoffs(w.Handoffs)
 	w.Server = srv
@@ -211,6 +219,23 @@ func (w *Worker) start() {
 	w.HTTP.StartTLS()
 	w.addr = w.HTTP.Listener.Addr().String()
 	w.URL = "https://" + w.addr
+}
+
+// credentialBroker is the worker's credential broker: a GitHub App
+// credential named github for WorkerOptions.GitHubRepositories, or none.
+func (w *Worker) credentialBroker(db *store.Store) *service.CredentialBroker {
+	w.t.Helper()
+	var credentials []config.CredentialConfig
+	if len(w.opts.GitHubRepositories) > 0 {
+		credentials = append(credentials, config.CredentialConfig{Name: "github", Secret: "env://LEGATO_HANDOFFTEST_GITHUB_KEY", Profile: "github", Type: "keypair",
+			Settings: config.CredentialSettings{ClientID: "Iv1.handofftest", Repositories: w.opts.GitHubRepositories}})
+	}
+	broker, err := service.NewCredentialBroker(db, service.NewApprovalService(db, service.ApprovalServiceOptions{Bus: w.Bus}),
+		service.CredentialBrokerOptions{Credentials: credentials, Now: w.Clock.Now})
+	if err != nil {
+		w.t.Fatalf("worker credential broker: %v", err)
+	}
+	return broker
 }
 
 // listenAgain listens on an address a stopped worker used, which the system

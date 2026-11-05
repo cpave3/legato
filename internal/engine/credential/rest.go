@@ -18,10 +18,14 @@ var ErrBodyTooLarge = errors.New("the request body is too large to meter (over 1
 
 // Route classifies requests by method and path. Path segments are literal,
 // {name} for one segment, or a last ** for the rest. Resource is a template
-// of the names; without one the resource is the request path.
+// of the names; without one the resource is the request path. When, if set,
+// makes the route take only requests whose JSON body has those values at
+// those fields ($.draft: true), so one request can be told from another
+// by what it asks for; a request it does not take goes to the next route.
 type Route struct {
 	Method    string            `yaml:"method" json:"method"`
 	Path      string            `yaml:"path" json:"path"`
+	When      map[string]any    `yaml:"when" json:"when,omitempty"`
 	Operation string            `yaml:"operation" json:"operation"`
 	Resource  string            `yaml:"resource" json:"resource,omitempty"`
 	Meter     map[string]string `yaml:"meter" json:"meter,omitempty"`
@@ -65,6 +69,16 @@ func ValidateRoutes(routes []Route) error {
 				return fmt.Errorf("routes[%d]: resource names {%s}, which the path does not", i, name)
 			}
 		}
+		for field, value := range r.When {
+			if !strings.HasPrefix(field, "$.") {
+				return fmt.Errorf("routes[%d]: when field %q must start with $.", i, field)
+			}
+			switch value.(type) {
+			case bool, string:
+			default:
+				return fmt.Errorf("routes[%d]: when %s must be true, false or a string", i, field)
+			}
+		}
 		for meter, path := range r.Meter {
 			if meter != "characters" {
 				return fmt.Errorf("routes[%d]: a route meters only characters (requests and bytes are always counted)", i)
@@ -94,10 +108,22 @@ func templateNames(template string) []string {
 }
 
 // needsBody reports whether classifying the route reads the request body:
-// to meter characters, or to take part of its resource from a JSON field.
+// to meter characters, to take part of its resource from a JSON field, or
+// to check its when.
 func (r *Route) needsBody() bool {
 	_, metered := r.Meter["characters"]
-	return metered || strings.Contains(r.Resource, "{$.")
+	return metered || len(r.When) > 0 || strings.Contains(r.Resource, "{$.")
+}
+
+// takes reports whether a request's decoded body has every value the
+// route's when names.
+func (r *Route) takes(body any) bool {
+	for field, want := range r.When {
+		if jsonAt(body, field) != want {
+			return false
+		}
+	}
+	return true
 }
 
 // absoluteResource reports whether a resource template names its own
@@ -150,21 +176,42 @@ func matchPath(pattern, path string) (map[string]string, bool) {
 }
 
 // Classify reads Fields["method"] and Fields["path"], and the body when the
-// route meters characters.
+// route meters characters, names a JSON field in its resource, or has a
+// when. The first route whose method, path and when match decides.
 func (r RestInspector) Classify(_ context.Context, call Call) (Classified, error) {
 	method, path := strings.ToUpper(call.Fields["method"]), call.Fields["path"]
-	route, names, ok := r.Match(method, path)
-	if !ok {
-		return Classified{}, &NoRouteError{Method: method, Path: path}
+	var (
+		route   *Route
+		names   map[string]string
+		body    any
+		decoded bool
+	)
+	for i := range r.Routes {
+		candidate := &r.Routes[i]
+		if candidate.Method != "*" && !strings.EqualFold(candidate.Method, method) {
+			continue
+		}
+		matched, ok := matchPath(candidate.Path, path)
+		if !ok {
+			continue
+		}
+		if candidate.needsBody() && !decoded {
+			if len(call.Body) > MaxMeteredBody {
+				return Classified{}, ErrBodyTooLarge
+			}
+			if err := json.Unmarshal(call.Body, &body); err != nil {
+				return Classified{}, fmt.Errorf("the request body is not JSON this route can read: %w", err)
+			}
+			decoded = true
+		}
+		if !candidate.takes(body) {
+			continue
+		}
+		route, names = candidate, matched
+		break
 	}
-	var body any
-	if route.needsBody() {
-		if len(call.Body) > MaxMeteredBody {
-			return Classified{}, ErrBodyTooLarge
-		}
-		if err := json.Unmarshal(call.Body, &body); err != nil {
-			return Classified{}, fmt.Errorf("the request body is not JSON this route can read: %w", err)
-		}
+	if route == nil {
+		return Classified{}, &NoRouteError{Method: method, Path: path}
 	}
 	resource := r.Host + path
 	if route.Resource != "" {

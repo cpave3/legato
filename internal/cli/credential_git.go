@@ -37,7 +37,17 @@ func (s GitHubSession) base() string { return strings.TrimSuffix(s.APIURL, "/api
 // Token asks Legato's proxy for a token for one repository and operation:
 // a read token, or one that writes pull requests (pr.write).
 func (s GitHubSession) Token(ctx context.Context, repo, operation string) (string, error) {
-	body, _ := json.Marshal(map[string]string{"repo": repo, "operation": operation})
+	return s.BranchToken(ctx, repo, operation, "")
+}
+
+// BranchToken asks for a token for an operation on one branch of a
+// repository: pr.create-draft, a draft pull request opened from branch.
+func (s GitHubSession) BranchToken(ctx context.Context, repo, operation, branch string) (string, error) {
+	fields := map[string]string{"repo": repo, "operation": operation}
+	if branch != "" {
+		fields["branch"] = branch
+	}
+	body, _ := json.Marshal(fields)
 	req, err := http.NewRequestWithContext(ctx, http.MethodPost, s.base()+"/token", bytes.NewReader(body))
 	if err != nil {
 		return "", err
@@ -156,8 +166,9 @@ var apiActionsPath = regexp.MustCompile(`^/?repos/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]
 // the comments of pull requests.
 var apiIssuePath = regexp.MustCompile(`^/?repos/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/issues(/|$)`)
 
-// GHOperation is the operation a gh command needs: pr.write for a command
-// that writes to a pull request; issue.write for one that writes to an
+// GHOperation is the operation a gh command needs: pr.create-draft for gh
+// pr create --draft, which opens a draft from one branch; pr.write for any
+// other command that writes to a pull request; issue.write for one that writes to an
 // issue, a gh api write under repos/<owner>/<repo>/issues included; pr.ready
 // for gh pr ready, which GitHub allows only a token that can also write
 // code, so Legato does it itself; actions.read and actions.write for the
@@ -202,10 +213,57 @@ func GHOperation(args []string) string {
 	if len(words) == 2 && words[0] == "pr" && words[1] == "ready" {
 		return "pr.ready"
 	}
+	if len(words) == 2 && words[0] == "pr" && words[1] == "create" && ghPRCreateDraft(args) {
+		return "pr.create-draft"
+	}
 	if len(words) == 2 && words[0] == "pr" && prWrites[words[1]] {
 		return "pr.write"
 	}
 	return "api.read"
+}
+
+// ghPRCreateValueFlags are gh pr create's flags that take a value.
+var ghPRCreateValueFlags = map[string]bool{"-t": true, "--title": true, "-b": true, "--body": true, "-F": true, "--body-file": true,
+	"-B": true, "--base": true, "-H": true, "--head": true, "-a": true, "--assignee": true, "-l": true, "--label": true,
+	"-m": true, "--milestone": true, "-p": true, "--project": true, "-r": true, "--reviewer": true, "-T": true, "--template": true,
+	"--recover": true, "-R": true, "--repo": true}
+
+// ghPRCreateFlags reads gh pr create's flags: whether it opens a draft, and
+// the branch --head names ("" when none). A flag's value is never read as
+// a flag, as gh reads it.
+func ghPRCreateFlags(args []string) (draft bool, head string) {
+	for i := 0; i < len(args); i++ {
+		name, value, inline := strings.Cut(args[i], "=")
+		switch {
+		case name == "--draft" || name == "-d":
+			draft = !inline || value == "true"
+		case ghPRCreateValueFlags[name]:
+			if !inline && i+1 < len(args) {
+				i++
+				value = args[i]
+			}
+			if name == "-H" || name == "--head" {
+				head = value
+			}
+		}
+	}
+	// --head may name the branch of a fork's owner: owner:branch.
+	if _, branch, ok := strings.Cut(head, ":"); ok {
+		head = branch
+	}
+	return draft, head
+}
+
+func ghPRCreateDraft(args []string) bool {
+	draft, _ := ghPRCreateFlags(args)
+	return draft
+}
+
+// GHPRCreateHead is the branch gh pr create --head names, "" when it names
+// none (gh then opens the pull request from the current branch).
+func GHPRCreateHead(args []string) string {
+	_, head := ghPRCreateFlags(args)
+	return head
 }
 
 // ghAPIValueFlags are gh api's flags that take a value.

@@ -158,7 +158,11 @@ type AgentSpawnOptions struct {
 	// find-out delegation): sandboxed whatever Unsandboxed says, with its
 	// working directory and git folder read-only, and its execution marked so
 	// the credential broker refuses its pushes and pull request writes.
-	ReadOnlyCheckout  bool
+	ReadOnlyCheckout bool
+	// Branches is what a handed-off task's session is told of its
+	// branches, in place of the ordinary legato/<task id>-… guidance; zero
+	// for any other session.
+	Branches          SessionBranches
 	WorkflowAttemptID string     // owning workflow attempt, when applicable
 	SwarmID           string     // owning swarm parent ID, when applicable
 	Resources         []Resource // files and folders the agent is given: granted to Chimera, listed in every launch prompt
@@ -701,7 +705,9 @@ func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, hei
 	}
 	// After the peer decision above, so that a session whose only launch
 	// prompt is this guidance still gets its peers as a message, as before.
-	if tp, ok := adapter.(ToolsPromptAdapter); ok {
+	if tp, ok := adapter.(BranchToolsPromptAdapter); ok && opt.Branches.Base != "" {
+		rolePrompt = joinPromptSections(rolePrompt, tp.ToolsPromptFor(opt.Branches.Base, opt.Branches.Granted))
+	} else if tp, ok := adapter.(ToolsPromptAdapter); ok {
 		rolePrompt = joinPromptSections(rolePrompt, tp.ToolsPrompt())
 	}
 	resources := usableResources(opt.Resources)

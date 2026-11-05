@@ -23,6 +23,12 @@ type HandoffAgents interface {
 	GetAgentSession(ctx context.Context, taskID string) (*store.AgentSession, error)
 }
 
+// HandoffGrants is what a worker asks of its credential broker for a
+// make-a-change handoff's session.
+type HandoffGrants interface {
+	GrantBranches(ctx context.Context, g BranchGrant) (int, error)
+}
+
 // HandoffWorkerOptions configure a worker's side of handoff.
 type HandoffWorkerOptions struct {
 	// Agents starts the agents.
@@ -33,6 +39,10 @@ type HandoffWorkerOptions struct {
 	// Sandbox says whether agents can run in Legato's sandbox here. A
 	// worker without it refuses every handoff.
 	Sandbox func() bool
+	// Grants allows a make-a-change handoff's session to push its
+	// branches and open draft pull requests without asking (the credential
+	// broker); nil grants nothing, and the session asks as any other.
+	Grants HandoffGrants
 	// Bus hears of new cards and changed handoffs; nil for none.
 	Bus *events.Bus
 	// Run runs an agent start; the default runs it in its own goroutine.
@@ -313,12 +323,39 @@ func (s *HandoffWorkerService) start(ctx context.Context, mainInstanceID, handof
 		return
 	}
 	brief := HandoffBrief(handoffBriefInput(h, task, notes))
-	opts := AgentSpawnOptions{AgentKind: h.AgentKind, Repo: h.Repo, Branch: h.Branch, Assignment: brief, Unattended: true}
+	opts := AgentSpawnOptions{AgentKind: h.AgentKind, Repo: h.Repo, Branch: h.Branch, Assignment: brief, Unattended: true,
+		Branches: handoffSessionBranches(h)}
 	if err := s.opts.Agents.SpawnAgent(ctx, h.TaskID, 0, 0, opts); err != nil {
 		move(store.HandoffFailed, err.Error())
 		return
 	}
+	s.grant(ctx, h)
 	move(store.HandoffInProgress, "")
+}
+
+// grant allows a make-a-change handoff's new session, without asking the
+// person, to push the given branch (when the work starts from one),
+// legato/<main task id> and legato/<main task id>-<a few words>, and to open
+// draft pull requests from them: handing off was the person's approval. A
+// find-out handoff gets nothing. A grant that fails is logged; the session
+// then asks as any other would.
+func (s *HandoffWorkerService) grant(ctx context.Context, h *store.Handoff) {
+	if s.opts.Grants == nil || h.Purpose != HandoffMakeChange {
+		return
+	}
+	session, err := s.opts.Agents.GetAgentSession(ctx, h.TaskID)
+	if err != nil || session == nil || session.ExecutionID == "" {
+		log.Printf("handoff %s: no session to grant pushes to: %v", h.HandoffID, err)
+		return
+	}
+	given := ""
+	if h.Kind == HandoffPushedBranch {
+		given = h.Branch
+	}
+	if _, err := s.opts.Grants.GrantBranches(ctx, BranchGrant{TaskID: h.TaskID, ExecutionID: session.ExecutionID, Repo: h.Repo,
+		Branches: HandoffGrantBranches(h.MainTaskID, given), By: "handoff " + h.HandoffID}); err != nil {
+		log.Printf("handoff %s: granting its pushes: %v", h.HandoffID, err)
+	}
 }
 
 // handoffBriefInput is what the brief says of a handoff: its task as the

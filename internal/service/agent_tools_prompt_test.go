@@ -86,3 +86,29 @@ func TestSpawnAgent_NoToolsPromptLeavesTheLaunchPromptAlone(t *testing.T) {
 		t.Fatalf("a launch prompt was written for an adapter with none: %q", prompt)
 	}
 }
+
+// branchToolsPromptAdapter says what its sessions are told for the branches
+// of a handed-off task.
+type branchToolsPromptAdapter struct{ toolsPromptAdapter }
+
+func (a branchToolsPromptAdapter) ToolsPromptFor(base string, granted bool) string {
+	if granted {
+		return a.tools + "\n\nWork on " + base + "; pushing it is already allowed."
+	}
+	return a.tools + "\n\nWork on " + base + "."
+}
+
+// A handed-off task's session is told about its own branches; any other
+// session of the same tool gets the ordinary text.
+func TestSpawnAgent_AHandedOffSessionIsToldItsBranches(t *testing.T) {
+	adapter := branchToolsPromptAdapter{toolsPromptAdapter{fakeAdapter: &fakeAdapter{name: "codex-like"}, tools: "## Legato tools"}}
+
+	prompt, _ := spawnAndReadPrompt(t, adapter, "task-1", AgentSpawnOptions{Branches: SessionBranches{Base: "legato/k7q2", Granted: true}})
+	if prompt != "## Legato tools\n\nWork on legato/k7q2; pushing it is already allowed." {
+		t.Fatalf("handed-off launch prompt = %q", prompt)
+	}
+	ordinary, _ := spawnAndReadPrompt(t, adapter, "task-2")
+	if ordinary != "## Legato tools" {
+		t.Fatalf("ordinary launch prompt = %q", ordinary)
+	}
+}

@@ -394,3 +394,37 @@ func TestLegatoMarksAPullRequestReadyItselfWhenTheBrokerAllowsIt(t *testing.T) {
 		t.Fatalf("pending: status %d body %v", status, got)
 	}
 }
+
+// gh pr create --draft gets a token for one branch: the broker decides
+// pr.create-draft on the branch the pull request is opened from.
+func TestGHGetsADraftPullRequestTokenForOneBranch(t *testing.T) {
+	github, _, _ := fakeGitHubGit(t)
+	backend := gitTestBackend()
+	proxy := gitProxy(t, backend, github)
+	ask := func(body string) (int, map[string]string) {
+		req, _ := http.NewRequest("POST", proxy.URL+"/c/github/token", strings.NewReader(body))
+		req.Header.Set("Authorization", "Bearer lgk_one")
+		resp, err := http.DefaultClient.Do(req)
+		if err != nil {
+			t.Fatal(err)
+		}
+		defer resp.Body.Close()
+		var got map[string]string
+		_ = json.NewDecoder(resp.Body).Decode(&got)
+		return resp.StatusCode, got
+	}
+	if status, got := ask(`{"repo":"cpave3/legato","operation":"pr.create-draft","branch":"legato/k7q2-fix"}`); status != 200 || got["token"] == "" {
+		t.Fatalf("status %d body %v", status, got)
+	}
+	if len(backend.uses) != 1 || backend.uses[0].Operation != "pr.create-draft" || backend.uses[0].Resource != "github:cpave3/legato@refs/heads/legato/k7q2-fix" {
+		t.Fatalf("uses = %+v", backend.uses)
+	}
+	for _, bad := range []string{
+		`{"repo":"cpave3/legato","operation":"pr.create-draft"}`,
+		`{"repo":"cpave3/legato","operation":"pr.create-draft","branch":"a..b"}`,
+	} {
+		if status, _ := ask(bad); status != 400 {
+			t.Errorf("%s: status %d, want 400", bad, status)
+		}
+	}
+}

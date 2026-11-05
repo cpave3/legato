@@ -40,6 +40,11 @@ func wireTaskHandoffs(srv *server.Server, deps integrationDeps) (stop func()) {
 	if deps.repos != nil {
 		opts.Repositories = deps.repos
 	}
+	// A make-a-change handoff's session may push its branches and open
+	// draft pull requests without asking.
+	if deps.approvals != nil && deps.approvals.credentials != nil {
+		opts.Grants = deps.approvals.credentials
+	}
 	handoffs := service.NewHandoffWorkerService(deps.db, opts)
 	srv.SetTaskHandoffs(handoffs)
 	ctx, cancel := context.WithCancel(context.Background())

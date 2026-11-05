@@ -39,6 +39,7 @@ With a `github` credential, Legato acts as a GitHub App you create:
 - `git` fetches with read tokens for the one repository it asks for.
 - `git push` goes through Legato's proxy. Legato reads which branches the push changes, checks each against your rules, and pushes with a token it makes for that push and then revokes. The agent never holds a token that can write code.
 - `gh` runs through a wrapper that asks Legato for a token for the command: a read token, or a token for pull requests or issues once you allow it.
+- Opening a draft pull request (`gh pr create --draft`, or the API with `"draft": true`) is its own operation, `pr.create-draft`, decided for the branch it is opened from. Any other pull request asks as before.
 - Pushes to the default branch, pushes of tags and branch deletions are refused by default.
 
 ### Secrets handed over
@@ -90,6 +91,17 @@ See the [configuration reference](/legato/reference/configuration/) for every cr
 When you allow a use, you choose how far it goes. The approval offers the rule's mode and every stricter one: a `session` rule offers **For this session**, **For 30 minutes** and **Once**.
 
 A grant covers what you approved, for that one agent session. It ends when its time runs out, after its one use, when the agent ends, or when you revoke it. The **Standing grants** list on the web UI's Audit page shows what agents may still do without asking, with **Revoke** on each.
+
+### Handed-off tasks
+
+Handing a task off to a worker to make a change counts as your approval to push its work. When the worker starts the task's agent, it grants that session, for its GitHub credential that lists the repository:
+
+- pushes to `legato/<task id>` and to `legato/<task id>-<a few words>`, where the task ID is the one on your main instance;
+- opening draft pull requests from those branches.
+
+Nothing wider. Merging, the default branch, tags, other branches and pull requests that are not drafts are refused or ask, as for any agent. A handoff to find something out is granted nothing. The grant shows in **Standing grants** on the worker, recorded in the audit log as decided by the handoff, and you can revoke it there. Your rules still come first: a rule that refuses a use refuses it whatever is granted, and a credential with its own `policy` needs a rule for `pr.create-draft` before drafts can be opened at all.
+
+The agent is told its branches are named after your main's task ID, not the worker's, and that these pushes and drafts are already allowed.
 
 ## The 60-second wait
 

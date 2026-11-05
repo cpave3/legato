@@ -142,6 +142,40 @@ func TestGHOperationSaysWhichCommandsWriteToAPullRequest(t *testing.T) {
 	}
 }
 
+// gh pr create --draft opens a draft pull request from one branch, which a
+// make-a-change handoff allows without asking; any other pull request is a
+// pr.write as before.
+func TestGHOperationTellsADraftPullRequestApart(t *testing.T) {
+	for args, want := range map[string]string{
+		"pr create --draft --fill":              "pr.create-draft",
+		"pr create -d -t Fix -b body":           "pr.create-draft",
+		"pr create --draft=true --fill":         "pr.create-draft",
+		"-R cpave3/legato pr create --draft":    "pr.create-draft",
+		"pr create --draft=false --fill":        "pr.write",
+		"pr create --fill":                      "pr.write",
+		"pr edit 3 --title draft":               "pr.write",
+		"pr create --title --draft --body text": "pr.write", // --draft is the title
+	} {
+		if got := cli.GHOperation(strings.Fields(args)); got != want {
+			t.Errorf("gh %s: %s, want %s", args, got, want)
+		}
+	}
+}
+
+func TestGHPRCreateHeadIsTheBranchNamedOrNone(t *testing.T) {
+	for args, want := range map[string]string{
+		"pr create --draft --head legato/k7q2-fix":     "legato/k7q2-fix",
+		"pr create --draft -H cpave3:legato/k7q2":      "legato/k7q2",
+		"pr create --draft --head=legato/k7q2 --fill":  "legato/k7q2",
+		"pr create --draft --fill":                     "",
+		"-R cpave3/legato pr create -d -B main -t Fix": "",
+	} {
+		if got := cli.GHPRCreateHead(strings.Fields(args)); got != want {
+			t.Errorf("gh %s: head %q, want %q", args, got, want)
+		}
+	}
+}
+
 func TestGHOperationSaysWhichCommandsWriteToAnIssue(t *testing.T) {
 	for args, want := range map[string]string{
 		"issue create --title t --body b":                   "issue.write",

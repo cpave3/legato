@@ -38,6 +38,9 @@ type CodexAdapter struct {
 	// toolsPrompt tells a session's agent about those tools. Codex does not
 	// pass an MCP server's own instructions to its model.
 	toolsPrompt string
+	// toolsPromptFor writes that guidance for a handed-off task's
+	// branches; nil gives the ordinary guidance.
+	toolsPromptFor func(base string, granted bool) string
 }
 
 // NewCodexAdapter creates a Codex adapter.
@@ -70,6 +73,22 @@ func (a *CodexAdapter) SetMCPTools(enabled bool) {
 // SetToolsPrompt sets what a session's agent is told about Legato's tools.
 func (a *CodexAdapter) SetToolsPrompt(prompt string) {
 	a.toolsPrompt = prompt
+}
+
+// SetToolsPromptFor sets how that guidance is written for a handed-off
+// task's session: branches named after base (legato/<main task id>), whose
+// pushes and draft pull requests granted says are already allowed.
+func (a *CodexAdapter) SetToolsPromptFor(write func(base string, granted bool) string) {
+	a.toolsPromptFor = write
+}
+
+// ToolsPromptFor implements service.BranchToolsPromptAdapter: ToolsPrompt
+// written for a handed-off task's branches.
+func (a *CodexAdapter) ToolsPromptFor(base string, granted bool) string {
+	if a.ToolsPrompt() == "" || a.toolsPromptFor == nil {
+		return a.ToolsPrompt()
+	}
+	return a.toolsPromptFor(base, granted)
 }
 
 // ToolsPrompt implements service.ToolsPromptAdapter: the guidance belongs in

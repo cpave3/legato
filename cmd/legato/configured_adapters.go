@@ -80,9 +80,16 @@ func configuredAdapters(cfg *config.Config, legatoBin string) (service.AIToolAda
 		// Claude Code gives its model the server's own instructions. Codex
 		// and Chimera do not, so the same guidance goes in their launch
 		// prompt, where it tells the agent to use the tools unasked.
-		toolsPrompt := "## Legato tools\n\n" + cli.MCPGuidance + credentialPromptGuidance(cfg, hostStackSupport())
+		toolsPrompt := "## Legato tools\n\n" + cli.MCPGuidance + credentialPromptGuidance(cfg, hostStackSupport(), service.SessionBranches{})
 		codex.SetToolsPrompt(toolsPrompt)
 		chimera.SetToolsPrompt(toolsPrompt)
+		// A handed-off task's session names its branches after the main's
+		// task (see docs/ai/credentials.md § Handed-off sessions).
+		toolsPromptFor := func(base string, granted bool) string {
+			return "## Legato tools\n\n" + cli.MCPGuidance + credentialPromptGuidance(cfg, hostStackSupport(), service.SessionBranches{Base: base, Granted: granted})
+		}
+		codex.SetToolsPromptFor(toolsPromptFor)
+		chimera.SetToolsPromptFor(toolsPromptFor)
 		if chimeraMCPConfigProbe != nil {
 			chimera.SetMCPConfigProbe(chimeraMCPConfigProbe)
 		}
@@ -119,14 +126,15 @@ func nativeBridgeEnabled(cfg *config.Config, adapter string) bool {
 // are left out; a host Legato logs why.
 //
 // With stacks (the host's st can move a stack between clones), it also says
-// how to build and push a stack with Staccato.
-func credentialPromptGuidance(cfg *config.Config, stacks bool) string {
+// how to build and push a stack with Staccato. branches is what a
+// handed-off task's session is told of its branches; zero for any other.
+func credentialPromptGuidance(cfg *config.Config, stacks bool, branches service.SessionBranches) string {
 	if len(cfg.Credentials) == 0 && len(cfg.CredentialSources) == 0 {
-		return cli.Guidance(nil, nil, stacks)
+		return cli.GuidanceFor(nil, nil, stacks, branches)
 	}
 	summaries, sources, err := service.DescribeCredentials(cfg.Credentials, cfg.CredentialSources, credentialProfileDirs())
 	if err != nil {
-		return cli.Guidance(nil, nil, stacks)
+		return cli.GuidanceFor(nil, nil, stacks, branches)
 	}
-	return cli.Guidance(summaries, sources, stacks)
+	return cli.GuidanceFor(summaries, sources, stacks, branches)
 }

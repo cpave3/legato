@@ -280,6 +280,9 @@ func (p *HTTPProxy) serveToken(w http.ResponseWriter, r *http.Request, c ProxyCr
 	var in struct {
 		Repo      string `json:"repo"`
 		Operation string `json:"operation"`
+		// Branch is the branch a draft pull request is opened from, for
+		// pr.create-draft.
+		Branch string `json:"branch"`
 	}
 	if err := json.NewDecoder(io.LimitReader(r.Body, 4096)).Decode(&in); err != nil {
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "want {repo, operation}"})
@@ -290,14 +293,21 @@ func (p *HTTPProxy) serveToken(w http.ResponseWriter, r *http.Request, c ProxyCr
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "repo: want owner/name"})
 		return
 	}
+	resource := "github:" + in.Repo
 	switch in.Operation {
 	case OperationGitRead, "api.read", OperationPRWrite, OperationIssueWrite, OperationActionsRead, OperationActionsWrite:
+	case OperationPRCreateDraft:
+		if !validBranchName(in.Branch) {
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "branch: a draft pull request token names the branch it is opened from"})
+			return
+		}
+		resource += "@refs/heads/" + in.Branch
 	default:
 		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "only read, pull request, issue and Actions tokens are given out; pushes go through Legato's proxy"})
 		return
 	}
 	use := ProxyUse{Execution: execution, Credential: c.Name, Method: "TOKEN", Path: in.Repo,
-		Classified: Classified{Operation: in.Operation, Resource: "github:" + in.Repo, Amounts: map[string]int64{"requests": 1}}}
+		Classified: Classified{Operation: in.Operation, Resource: resource, Amounts: map[string]int64{"requests": 1}}}
 	decision, err := p.Backend.Authorize(ctx, use)
 	if err != nil {
 		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Legato could not check this use: " + err.Error()})
@@ -394,4 +404,26 @@ func (p *HTTPProxy) servePRReady(w http.ResponseWriter, r *http.Request, c Proxy
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"number": strconv.Itoa(number)})
+}
+
+// validBranchName reports whether a branch name follows git's rules for a
+// branch, as far as a resource needs: nothing a pattern or a ref path could
+// hide in.
+func validBranchName(name string) bool {
+	if name == "" || len(name) > 255 || strings.HasPrefix(name, "-") || strings.HasPrefix(name, "/") || strings.HasSuffix(name, "/") ||
+		strings.HasSuffix(name, ".") || strings.HasSuffix(name, ".lock") || strings.Contains(name, "..") || strings.Contains(name, "//") ||
+		strings.Contains(name, "@{") || strings.HasPrefix(name, "refs/") {
+		return false
+	}
+	for _, r := range name {
+		if r < 0x20 || r == 0x7f || strings.ContainsRune(" ~^:?*[\\", r) {
+			return false
+		}
+	}
+	for _, part := range strings.Split(name, "/") {
+		if strings.HasPrefix(part, ".") {
+			return false
+		}
+	}
+	return true
 }

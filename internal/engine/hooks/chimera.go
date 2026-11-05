@@ -54,6 +54,9 @@ type ChimeraAdapter struct {
 	// toolsPrompt tells a session's agent about those tools. Chimera does
 	// not pass an MCP server's own instructions to its model.
 	toolsPrompt string
+	// toolsPromptFor writes that guidance for a handed-off task's
+	// branches; nil gives the ordinary guidance.
+	toolsPromptFor func(base string, granted bool) string
 	// mcpConfigProbe reports whether the installed Chimera accepts
 	// --mcp-config. It is asked once, at the first launch that needs it.
 	mcpConfigProbe  func() bool
@@ -78,6 +81,22 @@ func (a *ChimeraAdapter) SetMCPTools(enabled bool, trustedTools []string) {
 // SetToolsPrompt sets what a session's agent is told about Legato's tools.
 func (a *ChimeraAdapter) SetToolsPrompt(prompt string) {
 	a.toolsPrompt = prompt
+}
+
+// SetToolsPromptFor sets how that guidance is written for a handed-off
+// task's session: branches named after base (legato/<main task id>), whose
+// pushes and draft pull requests granted says are already allowed.
+func (a *ChimeraAdapter) SetToolsPromptFor(write func(base string, granted bool) string) {
+	a.toolsPromptFor = write
+}
+
+// ToolsPromptFor implements service.BranchToolsPromptAdapter: ToolsPrompt
+// written for a handed-off task's branches.
+func (a *ChimeraAdapter) ToolsPromptFor(base string, granted bool) string {
+	if a.ToolsPrompt() == "" || a.toolsPromptFor == nil {
+		return a.ToolsPrompt()
+	}
+	return a.toolsPromptFor(base, granted)
 }
 
 // ToolsPrompt implements service.ToolsPromptAdapter: the guidance belongs in
