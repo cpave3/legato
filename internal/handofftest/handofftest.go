@@ -191,9 +191,10 @@ func (w *Worker) start() {
 	w.Credentials = w.credentialBroker(db)
 	w.Handoffs = service.NewHandoffWorkerService(db, service.HandoffWorkerOptions{
 		Agents: w.Agents.(service.HandoffAgents), Repositories: w.Repos, Sandbox: func() bool { return sandbox },
-		Grants: w.Credentials, Bus: w.Bus, Run: w.run, Now: w.Clock.Now,
+		Grants: w.Credentials, Bus: w.Bus, Run: w.run, Now: w.Clock.Now, StreamRescan: 50 * time.Millisecond,
 	})
 	srv.SetTaskHandoffs(w.Handoffs)
+	srv.SetHandoffReauthEvery(50 * time.Millisecond)
 	w.Server = srv
 	if w.opts.Wire != nil {
 		w.opts.Wire(w)
@@ -269,6 +270,9 @@ func (w *Worker) Stop() {
 		w.stopLoops = nil
 	}
 	if w.HTTP != nil {
+		// As a worker's process ending does: its mains' Events
+		// connections close.
+		_ = w.Server.Stop(context.Background())
 		w.HTTP.Close()
 		w.HTTP = nil
 	}
@@ -355,6 +359,10 @@ type MainOptions struct {
 	Name string
 	// Clock is the main's clock; a new one at 2026-11-05 09:00 UTC when nil.
 	Clock *Clock
+	// Connections, when set, changes the options of the main's worker
+	// connections, which start fast (backoff from 20ms, a check every
+	// 20ms) for tests.
+	Connections func(*service.WorkerConnectionsOptions)
 }
 
 // Main is a main instance: its database and services. It has no web
@@ -373,6 +381,9 @@ type Main struct {
 	Workers *service.WorkerService
 	// Handoffs hands tasks to workers and keeps them away.
 	Handoffs *service.TaskHandoffService
+	// Connections keeps the live connection to each worker holding away
+	// tasks; StartConnections starts it.
+	Connections *service.WorkerConnections
 }
 
 // NewMain makes a main instance; t's cleanup closes it.
@@ -397,7 +408,20 @@ func NewMain(t testing.TB, opts MainOptions) *Main {
 	m.Secrets = service.NewSecretStoreService(db, credential.MasterKeyOptions{DataDir: dir, Source: "file"})
 	m.Workers = service.NewWorkerService(db, service.WorkerServiceOptions{Secrets: m.Secrets, MainName: opts.Name, Now: opts.Clock.Now})
 	m.Handoffs = service.NewTaskHandoffService(db, service.TaskHandoffOptions{Workers: m.Workers, Bus: m.Bus, Now: opts.Clock.Now})
+	connections := service.WorkerConnectionsOptions{Workers: m.Workers, Bus: m.Bus, Now: opts.Clock.Now,
+		MinBackoff: 20 * time.Millisecond, MaxBackoff: 200 * time.Millisecond, CheckEvery: 20 * time.Millisecond}
+	if opts.Connections != nil {
+		opts.Connections(&connections)
+	}
+	m.Connections = service.NewWorkerConnections(db, connections)
 	return m
+}
+
+// StartConnections starts the main's live connections to its workers, as a
+// running main does; t's cleanup stops them.
+func (m *Main) StartConnections() {
+	stop := m.Connections.Start(context.Background())
+	m.t.Cleanup(stop)
 }
 
 // InstanceID is the main's instance ID.

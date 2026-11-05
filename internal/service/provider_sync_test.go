@@ -166,3 +166,31 @@ func TestProviderSyncReportsEachTicketProviderByName(t *testing.T) {
 		}
 	}
 }
+
+type providerSyncWorkers struct {
+	err   error
+	calls int
+}
+
+func (s *providerSyncWorkers) SyncWorkers(context.Context) error {
+	s.calls++
+	return s.err
+}
+
+func TestAManualSyncAlsoReconnectsAndPullsTheWorkers(t *testing.T) {
+	workers := &providerSyncWorkers{}
+	result, err := NewProviderSyncService(nil, nil, SyncWorkersToo(workers)).Sync(context.Background())
+	if err != nil || workers.calls != 1 || result["workers"].Status != ProviderSyncCompleted {
+		t.Fatalf("result %+v, %v, %d calls", result, err, workers.calls)
+	}
+	workers.err = errors.New("vm-1: the worker did not answer")
+	result, _ = NewProviderSyncService(nil, nil, SyncWorkersToo(workers)).Sync(context.Background())
+	if r := result["workers"]; r.Status != ProviderSyncFailed || r.Error != "vm-1: the worker did not answer" {
+		t.Fatalf("workers %+v", r)
+	}
+	// Without workers, the result names none.
+	result, _ = NewProviderSyncService(nil, nil).Sync(context.Background())
+	if _, ok := result["workers"]; ok {
+		t.Fatalf("result %+v", result)
+	}
+}

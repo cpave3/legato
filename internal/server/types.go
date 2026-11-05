@@ -85,6 +85,19 @@ type AwayResponse struct {
 	Failure          string `json:"failure,omitempty"`
 	StateAt          string `json:"state_at,omitempty"`
 	URL              string `json:"url,omitempty"`
+	// What the worker's live connection says (service.AwayTask): the
+	// agent's activity, the card's column and title there, the branches
+	// pushed in stack order, why it is lost, since when the worker is
+	// unreachable or refuses this main, and the view the lane shows.
+	Activity               string   `json:"activity,omitempty"`
+	WorkerColumn           string   `json:"worker_column,omitempty"`
+	WorkerTitle            string   `json:"worker_title,omitempty"`
+	Branches               []string `json:"branches,omitempty"`
+	Lost                   string   `json:"lost,omitempty"`
+	LostAt                 string   `json:"lost_at,omitempty"`
+	WorkerUnreachableSince string   `json:"worker_unreachable_since,omitempty"`
+	WorkerRefusedAt        string   `json:"worker_refused_at,omitempty"`
+	View                   string   `json:"view,omitempty"`
 }
 
 // BoardWorkerResponse is a worker this main is paired with, for the board's
@@ -94,6 +107,10 @@ type BoardWorkerResponse struct {
 	Name       string  `json:"name"`
 	Address    string  `json:"address"`
 	LastPullAt *string `json:"last_pull_at,omitempty"`
+	// UnreachableSince is when the worker went down, once past the grace;
+	// RefusedAt when it stopped accepting this main (pair again).
+	UnreachableSince *string `json:"unreachable_since,omitempty"`
+	RefusedAt        *string `json:"refused_at,omitempty"`
 }
 
 // SwarmStatsResponse is the JSON representation of aggregate sub-task counts.

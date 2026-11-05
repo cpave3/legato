@@ -1482,7 +1482,11 @@ func runServeCmd(args []string) int {
 	if prSvc != nil {
 		defer stopPR()
 	}
-	providerSync := service.NewProviderSyncService(syncSvc, prSvc)
+	// This Legato as a main: its workers and the live connection to each
+	// one holding away tasks; a manual sync pulls them too.
+	mainSide := startMainHandoffs(cfg, db, bus)
+	defer mainSide.stop()
+	providerSync := service.NewProviderSyncService(syncSvc, prSvc, service.SyncWorkersToo(mainSide.connections))
 
 	// Set up agent service (tmux may not be installed).
 	var agentSvc service.AgentService
@@ -1612,7 +1616,7 @@ func runServeCmd(args []string) int {
 	} else {
 		srv.SetAuthToken(token)
 	}
-	wirePairing(srv, cfg, db, bus, caCertFile, port)
+	wirePairing(srv, cfg, db, caCertFile, port, mainSide)
 
 	// IPC server for receiving CLI→web updates.
 	socketPath := ipc.SocketPath()
@@ -1748,7 +1752,11 @@ func runTUI() int {
 		defer stopPR()
 	}
 
-	providerSync := service.NewProviderSyncService(syncSvc, prSvc)
+	// This Legato as a main: its workers and the live connection to each
+	// one holding away tasks; a manual sync pulls them too.
+	mainSide := startMainHandoffs(cfg, db, bus)
+	defer mainSide.stop()
+	providerSync := service.NewProviderSyncService(syncSvc, prSvc, service.SyncWorkersToo(mainSide.connections))
 
 	// Set up agent service (tmux may not be installed — that's OK, agent features just won't work)
 	var agentSvc service.AgentService
@@ -1907,7 +1915,7 @@ func runTUI() int {
 				webSrv.SetAuthToken(token)
 			}
 			if tcp, ok := ln.Addr().(*net.TCPAddr); ok {
-				wirePairing(webSrv, cfg, db, bus, caCertFile, strconv.Itoa(tcp.Port))
+				wirePairing(webSrv, cfg, db, caCertFile, strconv.Itoa(tcp.Port), mainSide)
 				scheme := "http"
 				if certFile != "" {
 					scheme = "https"

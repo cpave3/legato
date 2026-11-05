@@ -60,6 +60,11 @@ type HandoffWorkerOptions struct {
 	Run func(func())
 	// Now is the clock; time.Now when nil.
 	Now func() time.Time
+	// StreamRescan is how often an Events stream looks again at its
+	// main's handoffs, besides when this process publishes a change: an
+	// agent's activity set by another process may tell this one nothing.
+	// 5 seconds when zero.
+	StreamRescan time.Duration
 }
 
 // HandoffMain is the paired main instance a handoff call comes from.

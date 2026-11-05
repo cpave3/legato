@@ -227,9 +227,18 @@ type AwayTask struct {
 	CreatedAt        string  `db:"created_at"`
 	UpdatedAt        string  `db:"updated_at"`
 	ClosedAt         *string `db:"closed_at"`
+	// LostAt is when the main found the worker no longer has the task, and
+	// LostReason why; nil while it has it.
+	LostAt     *string `db:"lost_at"`
+	LostReason string  `db:"lost_reason"`
+	// WorkerUnreachableSince and WorkerRefusedAt are read from workers.
+	WorkerUnreachableSince *string `db:"worker_unreachable_since"`
+	WorkerRefusedAt        *string `db:"worker_refused_at"`
 }
 
-const awayTaskSelect = `SELECT a.*, COALESCE(w.name, '') AS worker_name, COALESCE(w.address, '') AS worker_address FROM away_tasks a LEFT JOIN workers w ON w.instance_id = a.worker_instance_id`
+const awayTaskSelect = `SELECT a.*, COALESCE(w.name, '') AS worker_name, COALESCE(w.address, '') AS worker_address,
+	w.unreachable_since AS worker_unreachable_since, w.refused_at AS worker_refused_at
+	FROM away_tasks a LEFT JOIN workers w ON w.instance_id = a.worker_instance_id`
 
 // InsertAwayTask records a handoff of a task as it is sent. A task with an
 // open handoff already is ErrConflict.
@@ -273,11 +282,47 @@ func (s *Store) SetAwayTaskAway(ctx context.Context, handoffID, workerTaskID, at
 }
 
 // SetAwayTaskSummary records the last thing the worker said of a handoff
-// (its summary, as JSON) and when it was heard.
+// (its summary, as JSON) and when it was heard. A task the worker speaks of
+// is not lost.
 func (s *Store) SetAwayTaskSummary(ctx context.Context, handoffID, summary, at string) error {
-	_, err := s.db.ExecContext(ctx, `UPDATE away_tasks SET last_summary = ?, last_summary_at = ?, updated_at = ? WHERE handoff_id = ? AND closed_at IS NULL`,
-		summary, at, at, handoffID)
+	_, err := s.db.ExecContext(ctx, `UPDATE away_tasks SET last_summary = ?, last_summary_at = ?, updated_at = ?, lost_at = NULL, lost_reason = ''
+		WHERE handoff_id = ? AND closed_at IS NULL`, summary, at, at, handoffID)
 	return err
+}
+
+// SetAwayTaskSummaryIfNone records the first thing a worker said of a
+// handoff, unless a summary row arrived already: a row heard on the
+// worker's connection is newer than the answer to the Handoff call.
+func (s *Store) SetAwayTaskSummaryIfNone(ctx context.Context, handoffID, summary, at string) error {
+	_, err := s.db.ExecContext(ctx, `UPDATE away_tasks SET last_summary = ?, last_summary_at = ?, updated_at = ?
+		WHERE handoff_id = ? AND closed_at IS NULL AND last_summary IS NULL`, summary, at, at, handoffID)
+	return err
+}
+
+// GetAwayTask is a handoff of one of this main's tasks by its ID, open or
+// closed, or ErrNotFound.
+func (s *Store) GetAwayTask(ctx context.Context, handoffID string) (*AwayTask, error) {
+	var a AwayTask
+	err := s.db.GetContext(ctx, &a, awayTaskSelect+` WHERE a.handoff_id = ?`, handoffID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &a, nil
+}
+
+// SetAwayTaskLost marks an open away task lost on its worker, with why,
+// unless it is marked already. It says whether the mark is new.
+func (s *Store) SetAwayTaskLost(ctx context.Context, handoffID, reason, at string) (bool, error) {
+	result, err := s.db.ExecContext(ctx, `UPDATE away_tasks SET lost_at = ?, lost_reason = ?, updated_at = ?
+		WHERE handoff_id = ? AND closed_at IS NULL AND state = 'away' AND lost_at IS NULL`, at, reason, at, handoffID)
+	if err != nil {
+		return false, err
+	}
+	n, err := result.RowsAffected()
+	return n == 1, err
 }
 
 // DeleteAwayTask forgets a handoff the worker refused.

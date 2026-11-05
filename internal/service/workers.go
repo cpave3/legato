@@ -19,6 +19,7 @@ import (
 	"time"
 
 	"github.com/cpave3/legato/internal/engine/credential"
+	"github.com/cpave3/legato/internal/engine/events"
 	"github.com/cpave3/legato/internal/engine/pairing"
 	"github.com/cpave3/legato/internal/engine/store"
 )
@@ -56,7 +57,14 @@ type Worker struct {
 	Sandbox        bool    `json:"sandbox"`
 	HandoffVersion int     `json:"handoff_version"`
 	PairedAt       string  `json:"paired_at"`
-	LastPullAt     *string `json:"last_pull_at,omitempty"`
+	// LastPullAt is when this main last heard from the worker: a pull, a
+	// summary row or a pong on its connection.
+	LastPullAt *string `json:"last_pull_at,omitempty"`
+	// UnreachableSince is when the worker went down, once it has been down
+	// longer than the grace; RefusedAt is when it stopped accepting this
+	// main's token (pair again).
+	UnreachableSince *string `json:"unreachable_since,omitempty"`
+	RefusedAt        *string `json:"refused_at,omitempty"`
 }
 
 // WorkerPairRequest is Add a worker: the worker's address (scheme optional,
@@ -92,6 +100,9 @@ type WorkerServiceOptions struct {
 	Now func() time.Time
 	// Timeout bounds each call to a worker; 10 seconds when zero.
 	Timeout time.Duration
+	// Bus hears that a worker was marked unreachable (MarkUnreachable);
+	// nil for none.
+	Bus *events.Bus
 }
 
 // WorkerService is a main instance's side of pairing with workers: Add a
@@ -139,7 +150,7 @@ func (s *WorkerService) List(ctx context.Context) ([]Worker, error) {
 
 func workerFromRow(w store.Worker) Worker {
 	return Worker{InstanceID: w.InstanceID, Address: w.Address, Name: w.Name, MainName: w.MainName, Sandbox: w.Sandbox,
-		HandoffVersion: w.HandoffVersion, PairedAt: w.PairedAt, LastPullAt: w.LastPullAt}
+		HandoffVersion: w.HandoffVersion, PairedAt: w.PairedAt, LastPullAt: w.LastPullAt, UnreachableSince: w.UnreachableSince, RefusedAt: w.RefusedAt}
 }
 
 // workerMeta is what a main reads of a worker's /api/meta.
@@ -346,6 +357,9 @@ func (c *WorkerClient) Call(ctx context.Context, method, path string, body, into
 // is the worker's own words. errors.Is matches ErrWorkerRefused.
 type WorkerRefusal struct {
 	Message string
+	// Status is the HTTP status it answered with: 401 when it no longer
+	// takes this main's token.
+	Status int
 }
 
 func (e *WorkerRefusal) Error() string        { return ErrWorkerRefused.Error() + ": " + e.Message }
@@ -427,7 +441,7 @@ func workerCall(ctx context.Context, client *http.Client, method, address, token
 		if resp.StatusCode == http.StatusNotFound && strings.HasSuffix(address, "/api/pair/exchange") {
 			return fmt.Errorf("%w: it does not pair by phrase", ErrWorkerTooOld)
 		}
-		return &WorkerRefusal{Message: message}
+		return &WorkerRefusal{Message: message, Status: resp.StatusCode}
 	}
 	if into == nil {
 		return nil

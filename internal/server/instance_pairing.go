@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"time"
 
 	"github.com/cpave3/legato/internal/service"
 )
@@ -36,6 +37,12 @@ type instanceDeps struct {
 	handoffs   TaskHandoffs
 	// mainHandoffs is this Legato as a main: handing its tasks off.
 	mainHandoffs MainHandoffs
+	// reauthEvery is how often an Events connection checks its main's
+	// token (SetHandoffReauthEvery).
+	reauthEvery time.Duration
+	// streams are the open Events connections, closed when the server
+	// shuts down (a hijacked connection outlives Shutdown otherwise).
+	streams handoffStreams
 }
 
 // SetMainInstances serves Settings › Main instances (/api/settings/mains).
@@ -102,6 +109,8 @@ func (s *Server) registerInstanceRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/integrations/handoff/pairing", s.handoffPairingHandler())
 	mux.HandleFunc("POST "+service.HandoffCallPath, s.taskHandoffHandler())
 	mux.HandleFunc("GET "+service.HandoffCallPath+"/{handoff_id}", s.taskHandoffGetHandler())
+	mux.HandleFunc("GET "+service.HandoffPullPath, s.handoffPullHandler())
+	mux.HandleFunc("GET "+service.HandoffEventsPath, s.handoffEventsHandler())
 	mux.HandleFunc("GET /api/settings/mains", s.mainsListHandler())
 	mux.HandleFunc("DELETE /api/settings/mains/{instance_id}", s.mainsUnpairHandler())
 	mux.HandleFunc("GET /api/settings/workers", s.workersListHandler())

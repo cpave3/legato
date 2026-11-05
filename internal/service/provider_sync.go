@@ -21,8 +21,9 @@ type ProviderSyncSourceResult struct {
 }
 
 // ProviderSyncResult is each provider's outcome by name: every ticket
-// provider ("jira", "burnlite") and "github" for pull requests. "jira" and
-// "github" are always there.
+// provider ("jira", "burnlite"), "github" for pull requests and "workers"
+// for a main's workers when it has them. "jira" and "github" are always
+// there.
 type ProviderSyncResult map[string]ProviderSyncSourceResult
 
 type ProviderSyncService interface {
@@ -32,12 +33,32 @@ type ProviderSyncService interface {
 type providerSyncCoordinator struct {
 	tickets SyncService
 	prs     PRTrackingService
+	workers WorkerSyncer
 	mu      sync.Mutex
 	running bool
 }
 
-func NewProviderSyncService(tickets SyncService, prs PRTrackingService) ProviderSyncService {
-	return &providerSyncCoordinator{tickets: tickets, prs: prs}
+// WorkerSyncer reconnects to a main's workers and pulls each one
+// (WorkerConnections.SyncWorkers).
+type WorkerSyncer interface {
+	SyncWorkers(ctx context.Context) error
+}
+
+// ProviderSyncOption adds to what a manual sync does.
+type ProviderSyncOption func(*providerSyncCoordinator)
+
+// SyncWorkersToo makes a manual sync also reconnect to and pull every
+// worker this main paired with; the result names them "workers".
+func SyncWorkersToo(w WorkerSyncer) ProviderSyncOption {
+	return func(c *providerSyncCoordinator) { c.workers = w }
+}
+
+func NewProviderSyncService(tickets SyncService, prs PRTrackingService, opts ...ProviderSyncOption) ProviderSyncService {
+	c := &providerSyncCoordinator{tickets: tickets, prs: prs}
+	for _, o := range opts {
+		o(c)
+	}
+	return c
 }
 
 func (s *providerSyncCoordinator) Sync(ctx context.Context) (ProviderSyncResult, error) {
@@ -80,6 +101,13 @@ func (s *providerSyncCoordinator) Sync(ctx context.Context) (ProviderSyncResult,
 				r.TasksSynced = syncResult.TasksSynced
 			}
 			result["jira"] = r
+		}
+	}
+	if s.workers != nil {
+		if err := s.workers.SyncWorkers(ctx); err != nil {
+			result["workers"] = ProviderSyncSourceResult{Status: ProviderSyncFailed, Error: err.Error()}
+		} else {
+			result["workers"] = ProviderSyncSourceResult{Status: ProviderSyncCompleted}
 		}
 	}
 	if s.prs != nil {

@@ -31,6 +31,15 @@ func handleServeIPCMessage(msg ipc.Message, bus *events.Bus, srv serveNotifier) 
 	switch msg.Type {
 	case "task_update", "task_note", "agent_state", "pr_linked":
 		srv.NotifyAgentChanged(msg.TaskID)
+		// A worker's handoffs follow their cards and agents: its Events
+		// connections send a main each change (docs/ai/integrations.md
+		// § Live away state).
+		switch msg.Type {
+		case "agent_state":
+			bus.Publish(events.Event{Type: events.EventAgentActivityChanged, At: time.Now(), Payload: events.AgentActivityChangedPayload{TaskID: msg.TaskID, Activity: msg.Status}})
+		case "task_update":
+			bus.Publish(events.Event{Type: events.EventCardUpdated, At: time.Now()})
+		}
 	case "review_changed", "plan_changed", "agent_ui_changed", "approval_changed":
 		handleIPCMessage(msg, bus, nil)
 	case "workflow_changed":

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"net/http"
 	"os"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -51,7 +52,7 @@ func TestAMainHandsALocalTaskToAWorker(t *testing.T) {
 		away.Repo != "acme/widget" || away.AgentKind != "claude-code" || away.LeftColumn != "Ready" {
 		t.Fatalf("away %+v", away)
 	}
-	if got, err := main.Handoffs.Away(ctx, taskID); err != nil || got == nil || *got != away {
+	if got, err := main.Handoffs.Away(ctx, taskID); err != nil || got == nil || !reflect.DeepEqual(*got, away) {
 		t.Fatalf("Away = %+v, %v", got, err)
 	}
 

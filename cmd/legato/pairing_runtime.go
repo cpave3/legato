@@ -10,7 +10,6 @@ import (
 
 	"github.com/cpave3/legato/config"
 	"github.com/cpave3/legato/internal/engine/discovery"
-	"github.com/cpave3/legato/internal/engine/events"
 	"github.com/cpave3/legato/internal/engine/store"
 	"github.com/cpave3/legato/internal/server"
 	"github.com/cpave3/legato/internal/service"
@@ -24,7 +23,7 @@ import (
 // instances. srv also gets Settings › Workers, for this Legato as a main,
 // and the web board's Hand off (POST /api/tasks/{id}/handoff), which bus
 // hears of. See docs/ai/integrations.md § Main instances and workers.
-func wirePairing(srv *server.Server, cfg *config.Config, db *store.Store, bus *events.Bus, caCertFile, port string) {
+func wirePairing(srv *server.Server, cfg *config.Config, db *store.Store, caCertFile, port string, main *mainHandoffs) {
 	scheme := "http"
 	if tlsEnabled(cfg) {
 		scheme = "https"
@@ -63,12 +62,8 @@ func wirePairing(srv *server.Server, cfg *config.Config, db *store.Store, bus *e
 	// Asked at every /api/meta: the configuration and bwrap on PATH, not the
 	// whole sandbox plan.
 	srv.SetSandboxAvailable(func() bool { return sandboxAvailable(cfg) })
-	workers := service.NewWorkerService(db, service.WorkerServiceOptions{
-		Secrets:  configuredSecretStore(cfg, db),
-		MainName: pairingName(cfg),
-	})
-	srv.SetWorkers(workers)
-	srv.SetMainHandoffs(service.NewTaskHandoffService(db, service.TaskHandoffOptions{Workers: workers, Bus: bus}))
+	srv.SetWorkers(main.workers)
+	srv.SetMainHandoffs(main.handoffs)
 }
 
 // pairingName is how phones list this machine: its host name without the

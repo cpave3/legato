@@ -88,7 +88,9 @@ func awayResponse(a *service.AwayTask) *AwayResponse {
 	}
 	return &AwayResponse{WorkerInstanceID: a.WorkerInstanceID, Worker: a.WorkerName, HandoffID: a.HandoffID, WorkerTaskID: a.WorkerTaskID,
 		Purpose: a.Purpose, Kind: a.Kind, Repo: a.Repo, Branch: a.Branch, AgentKind: a.AgentKind, LeftColumn: a.LeftColumn,
-		HandedOffAt: a.HandedOffAt, State: a.State, Failure: a.Failure, StateAt: a.StateAt, URL: a.WorkerURL}
+		HandedOffAt: a.HandedOffAt, State: a.State, Failure: a.Failure, StateAt: a.StateAt, URL: a.WorkerURL,
+		Activity: a.Activity, WorkerColumn: a.WorkerColumn, WorkerTitle: a.WorkerTitle, Branches: a.Branches, Lost: a.Lost, LostAt: a.LostAt,
+		WorkerUnreachableSince: a.WorkerUnreachableSince, WorkerRefusedAt: a.WorkerRefusedAt, View: a.View}
 }
 
 // boardWorkers are the workers this main is paired with, for the board's
@@ -103,7 +105,8 @@ func (s *Server) boardWorkers(ctx context.Context) []BoardWorkerResponse {
 		return out
 	}
 	for _, w := range workers {
-		out = append(out, BoardWorkerResponse{InstanceID: w.InstanceID, Name: w.Name, Address: w.Address, LastPullAt: w.LastPullAt})
+		out = append(out, BoardWorkerResponse{InstanceID: w.InstanceID, Name: w.Name, Address: w.Address, LastPullAt: w.LastPullAt,
+			UnreachableSince: w.UnreachableSince, RefusedAt: w.RefusedAt})
 	}
 	return out
 }

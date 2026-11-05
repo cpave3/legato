@@ -64,6 +64,26 @@ type AwayTask struct {
 	// WorkerURL opens the task on the worker's web UI: the address the
 	// worker gave, else its board with the card picked out.
 	WorkerURL string `json:"worker_url,omitempty"`
+	// Activity is the worker's agent as last heard (working, waiting,
+	// idle, ended); WorkerColumn, WorkerTitle and Branches are the card's
+	// column and title there and the branches pushed, in stack order.
+	Activity     string   `json:"activity,omitempty"`
+	WorkerColumn string   `json:"worker_column,omitempty"`
+	WorkerTitle  string   `json:"worker_title,omitempty"`
+	Branches     []string `json:"branches,omitempty"`
+	// Lost says why the worker no longer has the task, since LostAt; empty
+	// while it has it.
+	Lost   string `json:"lost,omitempty"`
+	LostAt string `json:"lost_at,omitempty"`
+	// WorkerUnreachableSince is when the worker went down, once it has been
+	// down for longer than the grace; WorkerRefusedAt is when it stopped
+	// accepting this main.
+	WorkerUnreachableSince string `json:"worker_unreachable_since,omitempty"`
+	WorkerRefusedAt        string `json:"worker_refused_at,omitempty"`
+	// View is what the main shows of the task: one of the AwayView
+	// constants, from the worker's state and activity and the main's own
+	// view of the worker.
+	View string `json:"view"`
 }
 
 // HandoffSummary is what a worker last said of a handoff, kept as the away
@@ -74,8 +94,18 @@ type HandoffSummary struct {
 	WorkerTaskID string `json:"worker_task_id"`
 	State        string `json:"state"`
 	Failure      string `json:"failure,omitempty"`
-	// URL opens the task on the worker; empty for the main to make one.
+	// URL opens the task on the worker: an address, or a path on the
+	// worker's web UI (/board?highlight_task=...) the main puts after the
+	// worker's address; empty for the main to make one.
 	URL string `json:"url,omitempty"`
+	// Activity is the agent's (HandoffActivityWorking, Waiting, Idle,
+	// Ended); empty while the handoff is pending.
+	Activity string `json:"activity,omitempty"`
+	// Column is the card's column on the worker, Title its title there.
+	Column string `json:"column,omitempty"`
+	Title  string `json:"title,omitempty"`
+	// Branches are the branches pushed for the task, in stack order.
+	Branches []string `json:"branches,omitempty"`
 }
 
 func awayTaskFromRow(a store.AwayTask) AwayTask {
@@ -85,13 +115,18 @@ func awayTaskFromRow(a store.AwayTask) AwayTask {
 	var summary HandoffSummary
 	if a.LastSummary != nil && json.Unmarshal([]byte(*a.LastSummary), &summary) == nil {
 		away.State, away.Failure, away.WorkerURL = summary.State, summary.Failure, summary.URL
+		away.Activity, away.WorkerColumn, away.WorkerTitle, away.Branches = summary.Activity, summary.Column, summary.Title, summary.Branches
 		if a.LastSummaryAt != nil {
 			away.StateAt = *a.LastSummaryAt
 		}
 	}
+	if strings.HasPrefix(away.WorkerURL, "/") && a.WorkerAddress != "" {
+		away.WorkerURL = strings.TrimRight(a.WorkerAddress, "/") + away.WorkerURL
+	}
 	if away.WorkerURL == "" && a.WorkerAddress != "" && a.WorkerTaskID != "" {
 		away.WorkerURL = strings.TrimRight(a.WorkerAddress, "/") + "/board?highlight_task=" + url.QueryEscape(a.WorkerTaskID)
 	}
+	awayReach(&away, a)
 	return away
 }
 
@@ -178,6 +213,7 @@ func (s *TaskHandoffService) HandOff(ctx context.Context, req TaskHandoffRequest
 	name := client.Worker.Name
 	meta, err := client.Meta(ctx)
 	if errors.Is(err, ErrWorkerUnreachable) {
+		s.opts.Workers.MarkUnreachable(ctx, client.Worker.InstanceID)
 		return AwayTask{}, &handoffWorkerError{ErrWorkerUnreachable, fmt.Sprintf("%s did not answer, so nothing was sent", name)}
 	}
 	if err != nil {
@@ -235,6 +271,7 @@ func (s *TaskHandoffService) HandOff(ctx context.Context, req TaskHandoffRequest
 	var accepted HandoffAccepted
 	if err := client.Call(ctx, http.MethodPost, HandoffCallPath, call, &accepted); err != nil {
 		if errors.Is(err, ErrWorkerUnreachable) {
+			s.opts.Workers.MarkUnreachable(ctx, client.Worker.InstanceID)
 			return AwayTask{}, &handoffWorkerError{ErrWorkerUnreachable, fmt.Sprintf("%s did not answer; handing the task to %s again is safe", name, name)}
 		}
 		// The worker answered and made nothing.
@@ -251,7 +288,8 @@ func (s *TaskHandoffService) HandOff(ctx context.Context, req TaskHandoffRequest
 	}
 	// The state it was accepted in is the first thing known of it.
 	summary, _ := json.Marshal(HandoffSummary{HandoffID: row.HandoffID, WorkerTaskID: accepted.WorkerTaskID, State: accepted.State, Failure: accepted.Failure})
-	if err := s.db.SetAwayTaskSummary(ctx, row.HandoffID, string(summary), at); err != nil {
+	// A row heard on the worker's connection meanwhile is newer.
+	if err := s.db.SetAwayTaskSummaryIfNone(ctx, row.HandoffID, string(summary), at); err != nil {
 		return AwayTask{}, err
 	}
 	if s.opts.Bus != nil {

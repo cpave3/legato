@@ -297,3 +297,19 @@ func TestApprovalChangedReachesTheBusInBothRuntimes(t *testing.T) {
 		})
 	}
 }
+
+// A worker run as `legato serve` tells its mains of a handed-off agent's
+// activity and card as they change: the CLI's messages must reach its bus.
+func TestServeIPCMessage_AgentStateAndTaskUpdatesReachTheBus(t *testing.T) {
+	bus := events.New()
+	activity := bus.Subscribe(events.EventAgentActivityChanged)
+	updated := bus.Subscribe(events.EventCardUpdated)
+
+	handleServeIPCMessage(ipc.Message{Type: "agent_state", TaskID: "task1", Status: "waiting"}, bus, &recordingServeNotifier{})
+	payload, ok := drainEvent(t, activity).Payload.(events.AgentActivityChangedPayload)
+	if !ok || payload.TaskID != "task1" || payload.Activity != "waiting" {
+		t.Fatalf("payload = %+v", payload)
+	}
+	handleServeIPCMessage(ipc.Message{Type: "task_update", TaskID: "task1"}, bus, &recordingServeNotifier{})
+	drainEvent(t, updated)
+}
