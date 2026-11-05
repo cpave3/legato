@@ -1,6 +1,7 @@
 import type { BoardColumn, BoardWorker } from "../../lib/board-types"
 import { BoardColumn as BoardColumnComponent } from "./BoardColumn"
 import { AwayLane, WorkerReach } from "./AwayLane"
+import { AwayRowActions, ReturnAllDoneButton } from "./AwayActions"
 import { isColumnCollapsed } from "../../lib/boardColumns"
 
 interface BoardGridProps {
@@ -20,9 +21,14 @@ interface BoardGridProps {
   // The workers this main is paired with: the groups of the Away lane, a
   // column marked away.
   workers?: BoardWorker[]
+  // The server the Away lane's Return, Recall and Return all done call;
+  // without it the lane offers none.
+  baseUrl?: string
+  // Told what those did: a task back home, or why one was refused.
+  onAwayNotice?: (text: string, error: boolean) => void
 }
 
-export function BoardGrid({ columns, cursorCol, cursorRow, showWorkspace, showEmpty = true, onToggleEmpty, highlightedTaskId, onCardClick, onCardDoubleClick, onCardContextMenu, onCardMove, workers = [] }: BoardGridProps) {
+export function BoardGrid({ columns, cursorCol, cursorRow, showWorkspace, showEmpty = true, onToggleEmpty, highlightedTaskId, onCardClick, onCardDoubleClick, onCardContextMenu, onCardMove, workers = [], baseUrl, onAwayNotice }: BoardGridProps) {
   return (
     <div className="flex h-full gap-2 overflow-x-auto overflow-y-hidden px-4 pt-3.5" style={{ scrollbarWidth: "thin" }}>
       {columns.map((col, i) => col.away ? (
@@ -34,7 +40,11 @@ export function BoardGrid({ columns, cursorCol, cursorRow, showWorkspace, showEm
           isActive={cursorCol === i}
           highlightedTaskId={highlightedTaskId}
           onRowClick={(row) => onCardClick(i, row)}
-          groupExtras={(worker) => <WorkerReach worker={worker} />}
+          groupExtras={(worker, groupCards) => <>
+            <WorkerReach worker={worker} />
+            {baseUrl !== undefined && <ReturnAllDoneButton baseUrl={baseUrl} worker={worker} cards={groupCards} onNotice={onAwayNotice} />}
+          </>}
+          rowActions={baseUrl === undefined ? undefined : (card) => <AwayRowActions baseUrl={baseUrl} card={card} onNotice={onAwayNotice} />}
         />
       ) : (
         <BoardColumnComponent

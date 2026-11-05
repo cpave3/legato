@@ -26,6 +26,13 @@ describe("TaskActivityTabs",()=>{
     expect(container.querySelector("script")).toBeNull()
   })
 
+  it("marks the notes that came from a worker or from the main",()=>{
+    render(<MemoryRouter><TaskActivityTabs taskId="T-1" notes={[{id:"n-1",body:"Chose the cookie fix.",source:"worker",created_at:"2026-11-05T09:00:00Z"},{id:"n-2",body:"Seen on CI.",source:"main",created_at:"2026-11-05T09:00:00Z"},{id:"n-3",body:"Mine.",source:"local",created_at:"2026-11-05T09:00:00Z"}]}/></MemoryRouter>)
+    expect(screen.getByText("Chose the cookie fix.").closest("article")?.textContent).toContain("From the worker")
+    expect(screen.getByText("Seen on CI.").closest("article")?.textContent).toContain("From the main")
+    expect(screen.getByText("Mine.").closest("article")?.textContent).not.toContain("From")
+  })
+
   it("renders Mermaid diagrams in task notes",async()=>{
     const source="graph TD\n  Raw --> Rendered"
     renderDiagram.mockResolvedValue({svg:"<svg><text>Rendered note diagram</text></svg>"})

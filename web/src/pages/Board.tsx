@@ -50,6 +50,7 @@ import type { WorkflowTriggerRequest } from "../lib/board"
 import type { RepositoryPreset } from "../components/RepositoryPresetSelect"
 import { LoadingState } from "../components/ui/LoadingState"
 import { HandOffModal } from "../components/board/HandOffModal"
+import { AwayRowActions } from "../components/board/AwayActions"
 import { withAwayLane } from "../lib/away"
 import type { BoardWorker } from "../lib/board-types"
 
@@ -230,6 +231,9 @@ export function BoardPage() {
     addToast(`${card?.title || card?.id} is away on ${away.worker}: it can change only there until it comes back`, "info")
     return true
   }, [awayOf, addToast])
+  // What the Away lane's Return, Recall and Return all done did; the board
+  // refreshes by itself once a task is home.
+  const awayNotice = useCallback((text: string, error: boolean) => addToast(text, error ? "error" : "success"), [addToast])
   const doneCount = doneColumn?.cards.length ?? 0
 
   useEffect(() => {
@@ -950,6 +954,8 @@ export function BoardPage() {
                   onCardContextMenu={handleCardContextMenu}
                   onCardMove={handleDragMove}
                   workers={workers}
+                  baseUrl={baseUrl}
+                  onAwayNotice={awayNotice}
                 />
               </div>
               <div className="h-full md:hidden">
@@ -974,6 +980,7 @@ export function BoardPage() {
             onMove={() => setOverlay({ kind: "move", card: panelCard })}
             onOpenURL={(url) => window.open(url, "_blank")}
             onHandOff={canHandOff ? () => setOverlay({ kind: "handoff", card: panelCard }) : undefined}
+            awayActions={panelCard.away && <AwayRowActions baseUrl={baseUrl} card={panelCard} onNotice={awayNotice} />}
           />
           </div>
         )}

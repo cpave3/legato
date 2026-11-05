@@ -6,7 +6,7 @@ sidebar:
 ---
 
 :::caution[Partly built]
-You can hand a task off from the web board and follow it while it is away, as below. Bringing it back (return, recall, take back), dragging a card onto the Away lane and the phone's Away section are planned: they do not work in a release yet, and the details can change.
+You can hand a task off from the web board, follow it while it is away, and return or recall it, as below. Taking a task back without its results, dragging a card onto the Away lane and the phone's Away section are planned: they do not work in a release yet, and the details can change.
 :::
 
 A handoff sends one of your tasks to a [worker instance](/legato/running/instances/): another Legato, such as an always-on VM, that works on it while your laptop sleeps or travels. The worker makes a card for the task and starts an agent on it at once. Your own board keeps the task, read-only, in an **Away** lane until it comes back.
@@ -73,6 +73,22 @@ The task panel lists each pull request in stack order: its number (which opens i
 Attention treats them as it treats any pull request: a draft raises nothing, and a pull request marked ready that failed CI or has changes requested is a merge blocker. Its **Open task** selects the task in the Away lane.
 
 When the task comes back, its pull requests stay as they are: your main already tracks them.
+
+## Bring a task home
+
+When the worker is done with a task, **return** it. Its row in the Away lane, and its panel, then offer **Return**; each worker's group offers **Return all done (N)**, which returns every task done there in one go. A task comes back with:
+
+- its title and description as they are on the worker, if they were edited there;
+- the notes written on the worker, headed "From the worker" (your own notes stay as they were, and none comes back twice);
+- the repository, and the branches its agent pushed, in the order of the Staccato stack it built, with their pull requests.
+
+It lands in your column with the same name as its column on the worker (usually Done), or else in the column it left. It is no longer away: you can edit it, move it and start an agent on it again. On the worker, its agent stops and its card is archived; the worker's copy of the repository is cleaned up later.
+
+To bring a task back before it is done, **recall** it. Recall is offered in any state, and is the only way back for a handoff that **Failed**: fix the cause, then hand the task off again. A recall brings back whatever exists so far and adds a note naming the worker and the state, for example "Recalled from vm-1, where its agent was working." When the task's agent may still be at work, the board asks you to confirm first, since recalling stops it.
+
+Return and recall are safe to repeat. If the connection drops halfway, your main finishes the return by itself the next time it hears from the worker, and nothing comes back twice. A return to a worker that does not answer fails on the spot and marks the worker unreachable; the task stays away, and trying again later is safe. A task the worker lost cannot be returned or recalled.
+
+A task you hand off again after it came back is a new handoff, with a new card on the worker.
 
 ## Staying up to date
 

@@ -20,6 +20,8 @@ interface BoardTaskPanelProps {
   onOpenURL: (url: string) => void
   // Hand the task off to a worker; absent when no worker is paired.
   onHandOff?: () => void
+  // An away task's Return and Recall.
+  awayActions?: ReactNode
 }
 
 function Property({ label, children }: { label: string; children: ReactNode }) {
@@ -35,7 +37,7 @@ const secondaryButton = "h-8 flex-1 basis-0 truncate rounded-md border border-lw
 // stands, the start of its description, and what can be done with it.
 // An away task's panel: where it went and how, the worker's state of it as
 // last heard, and a way to open it there. It changes only on the worker.
-function AwayProperties({ card }: { card: BoardCard }) {
+function AwayProperties({ card, actions }: { card: BoardCard; actions?: ReactNode }) {
   const away = card.away!
   const look = awayLook(away)
   return (
@@ -57,11 +59,12 @@ function AwayProperties({ card }: { card: BoardCard }) {
         <AwayPullRequests prs={card.pull_requests ?? []} branches={away.branches ?? []} />
       </div>
       {away.url && <a href={away.url} target="_blank" rel="noreferrer" className="w-fit text-[13px] text-lw-link hover:underline">Open on {away.worker}</a>}
+      {actions}
     </section>
   )
 }
 
-export function BoardTaskPanel({ card, column, detail, onClose, onOpenDetails, onMove, onOpenURL, onHandOff }: BoardTaskPanelProps) {
+export function BoardTaskPanel({ card, column, detail, onClose, onOpenDetails, onMove, onOpenURL, onHandOff, awayActions }: BoardTaskPanelProps) {
   const ready = detail?.id === card.id ? detail : null
   const look = card.agent_active ? agentStripLook(card) : null
   const spent = formatDuration(card.working_seconds + card.waiting_seconds + card.error_seconds)
@@ -79,7 +82,7 @@ export function BoardTaskPanel({ card, column, detail, onClose, onOpenDetails, o
         <h2 className="m-0 text-base font-semibold leading-[22px]">{card.title}</h2>
       </div>
 
-      {card.away && <AwayProperties card={card} />}
+      {card.away && <AwayProperties card={card} actions={awayActions} />}
 
       <dl className="m-0 grid grid-cols-[96px_minmax(0,1fr)] gap-y-2 border-b border-[#222228] px-[18px] py-3.5">
         {!card.away && <Property label="Column">{column}</Property>}

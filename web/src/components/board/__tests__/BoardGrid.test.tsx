@@ -1,5 +1,5 @@
 import { describe, expect, it, afterEach, vi } from "vitest"
-import { render, screen, cleanup, fireEvent } from "@testing-library/react"
+import { render, screen, cleanup, fireEvent, within } from "@testing-library/react"
 import { BoardGrid } from "../BoardGrid"
 import type { BoardCard, BoardColumn as BoardColumnType } from "../../../lib/board-types"
 
@@ -51,6 +51,15 @@ describe("BoardGrid", () => {
     fireEvent.click(screen.getByRole("button", { name: /Away task/ }))
     expect(onCardClick).toHaveBeenCalledWith(3, 0)
     expect(lane).toBeTruthy()
+  })
+
+  it("offers Return on a done away row and Return all done on its worker's group", () => {
+    const awayCard = { ...card("T-9", "Away task", "Doing"), away: { worker_instance_id: "srv-1", worker: "vm-1", handoff_id: "h", worker_task_id: "w", purpose: "make-change", kind: "new-branch", repo: "a/b", branch: "legato/t-9", left_column: "Doing", handed_off_at: "2026-11-05T09:00:00Z", state: "done", view: "done" } }
+    renderGrid({ baseUrl: "", workers: [{ instance_id: "srv-1", name: "vm-1", address: "https://vm-1" }], columns: [...columns, { name: "Away", away: true, cards: [awayCard] }] })
+    const group = screen.getByRole("group", { name: "vm-1" })
+    expect(within(group).getByRole("button", { name: "Return" })).toBeTruthy()
+    expect(within(group).getByRole("button", { name: "Return all done (1)" })).toBeTruthy()
+    expect(within(group).queryByRole("button", { name: "Recall" })).toBeNull()
   })
 
   it("keeps an empty Away lane open while empty columns fold", () => {

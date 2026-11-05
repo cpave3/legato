@@ -59,4 +59,18 @@ describe("BoardTaskPanel", () => {
     for (const name of ["Move", "Start agent", "Hand off…"]) expect(within(panel).queryByRole("button", { name })).toBeNull()
     expect(within(panel).getByRole("button", { name: "Open details" })).toBeTruthy()
   })
+
+  it("shows an away task's Return and Recall in its Away section", () => {
+    const away: BoardCard = {
+      ...card, pull_requests: [],
+      away: {
+        worker_instance_id: "srv-1", worker: "vm-1", handoff_id: "ho-1", worker_task_id: "w-1", purpose: "make-change", kind: "new-branch",
+        repo: "acme/widget", branch: "legato/t-1", left_column: "Doing", handed_off_at: "2026-11-05T09:00:00Z", state: "done", view: "done",
+      },
+    }
+    render(<BoardTaskPanel card={away} column="Away" detail={null} onClose={() => {}} onOpenDetails={() => {}} onMove={() => {}} onOpenURL={() => {}}
+      awayActions={<button type="button">Return</button>} />)
+    const section = screen.getByRole("region", { name: "Away" })
+    expect(within(section).getByRole("button", { name: "Return" })).toBeTruthy()
+  })
 })
