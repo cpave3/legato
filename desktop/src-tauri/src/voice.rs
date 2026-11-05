@@ -84,7 +84,8 @@ impl Recorder {
         Ok(Recorder { program: program.into(), child, samples, reader: Some(reader), errors })
     }
 
-    /// How loud the newest tenth of a second was, from 0 to 1; an error when
+    /// How loud the newest tenth of a second was, from 0 (-50 dB or quieter)
+    /// to 1 (full scale); an error when
     /// the recorder has ended by itself.
     pub fn level(&mut self) -> Result<f64, String> {
         self.still_running()?;
@@ -94,8 +95,13 @@ impl Recorder {
             return Ok(0.0);
         }
         let sum: f64 = newest.iter().map(|&s| (s as f64 / 32768.0).powi(2)).sum();
-        // Speech is quiet next to full scale; scaled up to be seen, as the web UI does.
-        Ok(((sum / newest.len() as f64).sqrt() * 6.0).min(1.0))
+        let rms = (sum / newest.len() as f64).sqrt();
+        if rms <= 0.0 {
+            return Ok(0.0);
+        }
+        // In decibels from -50 dB to full scale, as the Android app shows it:
+        // without a browser's automatic gain, speech sits around -30 dB.
+        Ok(((20.0 * rms.log10() + 50.0) / 50.0).clamp(0.0, 1.0))
     }
 
     /// Ends the recording and gives it back as a WAV file.
@@ -207,15 +213,25 @@ mod tests {
         assert_eq!(wav, want);
     }
 
+    /// The level is in decibels from -50 dB (0) to full scale (1), as the
+    /// Android app's is: a microphone without the browser's automatic gain
+    /// gives speech around -30 dB, which should fill about half the bars.
     #[test]
-    fn the_level_rises_with_a_louder_voice() {
-        let mut quiet = writes(&[40, -40].repeat(800));
-        let mut loud = writes(&[2000, -2000].repeat(800));
-        let (quiet_level, loud_level) = (settled_level(&mut quiet), settled_level(&mut loud));
-        assert!(quiet_level > 0.0 && quiet_level < 0.1, "quiet: {quiet_level}");
-        assert!(loud_level > 0.3 && loud_level <= 1.0, "loud: {loud_level}");
-        quiet.cancel();
-        loud.cancel();
+    fn the_level_is_in_decibels_so_ordinary_speech_fills_half_the_bars() {
+        let level_of = |amplitude: i16| {
+            let mut r = writes(&[amplitude, -amplitude].repeat(800));
+            let deadline = Instant::now() + Duration::from_secs(5);
+            while r.samples.lock().unwrap().len() < 1600 && Instant::now() < deadline {
+                std::thread::sleep(Duration::from_millis(5));
+            }
+            let level = r.level().expect("still recording");
+            r.cancel();
+            level
+        };
+        let (hiss, speech, shout) = (level_of(40), level_of(1000), level_of(30000));
+        assert!(hiss < 0.05, "hiss (-58 dB): {hiss}");
+        assert!((0.35..0.5).contains(&speech), "speech (-30 dB): {speech}");
+        assert!(shout > 0.95 && shout <= 1.0, "shout: {shout}");
     }
 
     #[test]

@@ -261,8 +261,17 @@ struct Recording {
 }
 
 fn tell_page(app: &AppHandle, server: &str, event: VoiceEvent) {
-    if let Some(view) = app.get_webview(&webview_label(server)) {
-        let _ = view.eval(bridge::voice_script(&event));
+    match &event {
+        VoiceEvent::Level(_) => {}
+        VoiceEvent::Audio(wav) => println!("[voice] {server}: sending {} bytes of WAV to the page", wav.len()),
+        other => println!("[voice] {server}: telling the page {other:?}"),
+    }
+    let Some(view) = app.get_webview(&webview_label(server)) else {
+        println!("[voice] {server}: no page to tell");
+        return;
+    };
+    if let Err(e) = view.eval(bridge::voice_script(&event)) {
+        println!("[voice] {server}: the page could not be told: {e}");
     }
 }
 
@@ -270,6 +279,7 @@ fn tell_page(app: &AppHandle, server: &str, event: VoiceEvent) {
 /// it goes as `legato:shell-voice` events (see `voice`). Starting one stops
 /// another page's.
 fn record_for_page(app: &AppHandle, server: &str, action: VoiceAction) {
+    println!("[voice] {server}: the page asks to {action:?}");
     let desktop = app.state::<Desktop>();
     let mut slot = desktop.recording.lock().unwrap();
     match action {
@@ -282,6 +292,7 @@ fn record_for_page(app: &AppHandle, server: &str, action: VoiceAction) {
                 tell_page(app, server, VoiceEvent::Error("Recording needs parecord or arecord, and neither is installed.".into()));
                 return;
             };
+            println!("[voice] {server}: recording with {program}");
             let recorder = match voice::Recorder::start(program, args) {
                 Ok(recorder) => recorder,
                 Err(e) => return tell_page(app, server, VoiceEvent::Error(e)),
@@ -319,7 +330,10 @@ fn record_for_page(app: &AppHandle, server: &str, action: VoiceAction) {
             });
         }
         VoiceAction::Stop => {
-            let Some(recording) = slot.take_if(|r| r.server == server) else { return };
+            let Some(recording) = slot.take_if(|r| r.server == server) else {
+                println!("[voice] {server}: nothing is recording for this page");
+                return;
+            };
             let (app, server) = (app.clone(), server.to_string());
             // Stopping waits for the recorder to finish writing.
             std::thread::spawn(move || {
