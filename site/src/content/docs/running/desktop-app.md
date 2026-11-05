@@ -20,7 +20,7 @@ chmod +x legato-desktop-x86_64.AppImage
 ./legato-desktop-x86_64.AppImage
 ```
 
-Not every Legato release carries a desktop build: one is made only when the app has changed.
+The AppImage needs a Linux with glibc 2.39 or later, such as Ubuntu 24.04, Fedora 40 or Debian 13. Not every Legato release carries a desktop build: one is made only when the app has changed.
 
 ## Pair a server
 

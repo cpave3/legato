@@ -102,12 +102,14 @@ jobs:
           gh release create "$VERSION" dist/legato-* dist/SHA256SUMS \
             --target "$GITHUB_SHA" --title "$VERSION" --generate-notes
 
-  # The desktop app for Linux: an AppImage, built on an older Ubuntu so its
-  # glibc suits more distributions. It finds its updates in these releases.
+  # The desktop app for Linux: an AppImage. It carries the build machine's
+  # WebKitGTK, and 22.04's crashed (a libstdc++ assertion in the page
+  # process) on pages a newer one shows, so it is built on 24.04, and needs
+  # glibc 2.39 or later. It finds its updates in these releases.
   desktop-linux:
     needs: release
     if: needs.release.outputs.desktop == 'true'
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     timeout-minutes: 45
     env:
       VERSION: ${{ needs.release.outputs.version }}
