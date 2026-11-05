@@ -130,7 +130,7 @@ func TestAJiraBackedTaskGoesToTheWorkerAsAReadOnlyCopyWithEditableDetails(t *tes
 		card.LocalDescriptionMD != "Start with the cart serializer." {
 		t.Fatalf("worker card %q: remote %q, local %q", card.Title, card.RemoteDescriptionMD, card.LocalDescriptionMD)
 	}
-	if card.Provider != service.HandoffJiraProvider || card.RemoteID != "ACME-12" || card.RemoteMeta["url"] != checkoutTicket.URL {
+	if card.Provider != service.HandoffCopyProvider("jira") || card.RemoteID != "ACME-12" || card.RemoteMeta["url"] != checkoutTicket.URL {
 		t.Fatalf("worker card from %q %q, meta %v", card.Provider, card.RemoteID, card.RemoteMeta)
 	}
 	if !strings.Contains(card.DescriptionMD, checkoutTicket.DescriptionMD) || !strings.Contains(card.DescriptionMD, "## Legato details\n\nStart with the cart serializer.") {
@@ -271,42 +271,25 @@ func TestOnlyTheLegatoDetailsOfAJiraBackedTaskComeBack(t *testing.T) {
 	}
 }
 
-// A task of another provider than Jira still cannot be handed off.
-func TestATaskOfAnotherProviderIsNotHandedOff(t *testing.T) {
-	ctx := context.Background()
-	worker := StartWorker(t, WorkerOptions{Name: "vm-1"})
-	main := NewMain(t, MainOptions{Name: "workstation", Clock: worker.Clock})
-	paired := Pair(t, main, worker)
-	provider, remote := "burnlite", "LEG-9"
-	now := time.Now().UTC().Format(time.RFC3339)
-	if err := main.Store.CreateTask(ctx, store.Task{ID: remote, Title: "A Burnlite task", Status: "Ready", Provider: &provider, RemoteID: &remote, CreatedAt: now, UpdatedAt: now}); err != nil {
-		t.Fatal(err)
-	}
-	if _, err := handOff(t, main, paired.InstanceID, remote); !errors.Is(err, service.ErrHandoffInput) {
-		t.Fatalf("handing off a Burnlite task: %v", err)
-	}
-	if cards := workerCards(t, worker); len(cards) != 0 {
-		t.Fatalf("the worker made %+v", cards)
-	}
-}
-
-// The worker refuses a Jira part it could not show safely, making nothing.
-func TestTheWorkerRefusesAMalformedJiraPart(t *testing.T) {
+// The worker refuses a ticket it could not show safely, making nothing.
+func TestTheWorkerRefusesAMalformedTicket(t *testing.T) {
 	worker := StartWorker(t, WorkerOptions{Name: "vm-1"})
 	main := NewMain(t, MainOptions{Name: "workstation", Clock: worker.Clock})
 	paired := Pair(t, main, worker)
 	token := mainToken(t, main, paired.InstanceID)
-	for name, jira := range map[string]service.HandoffJira{
-		"no key":           {Text: "Carts time out."},
-		"a script address": {Key: "ACME-12", URL: "javascript:alert(1)"},
+	for name, ticket := range map[string]service.HandoffTicket{
+		"no key":               {Provider: "jira", Text: "Carts time out."},
+		"a script address":     {Provider: "jira", Key: "ACME-12", URL: "javascript:alert(1)"},
+		"no provider":          {Key: "ACME-12", Text: "Carts time out."},
+		"a provider not named": {Provider: "Jira <b>", Key: "ACME-12"},
 	} {
 		body, _ := json.Marshal(service.HandoffCall{HandoffID: "ho-" + strings.ReplaceAll(name, " ", "-"), MainTaskID: "ACME-12", Title: "Checkout times out",
-			Jira: &jira, Notes: []service.HandoffCallNote{}, Repo: "acme/widget", Purpose: service.HandoffMakeChange,
+			Ticket: &ticket, Notes: []service.HandoffCallNote{}, Repo: "acme/widget", Purpose: service.HandoffMakeChange,
 			Kind: service.HandoffNewBranch, Branch: "legato/acme-12", AgentKind: "claude-code"})
 		resp := worker.Do(http.MethodPost, service.HandoffCallPath, token, string(body))
 		var refused struct{ Error, Message string }
 		_ = json.NewDecoder(resp.Body).Decode(&refused)
-		if resp.StatusCode != http.StatusBadRequest || refused.Error != "bad_request" || !strings.Contains(refused.Message, "jira") {
+		if resp.StatusCode != http.StatusBadRequest || refused.Error != "bad_request" || !strings.Contains(refused.Message, "ticket") {
 			t.Fatalf("%s: %d %+v", name, resp.StatusCode, refused)
 		}
 	}

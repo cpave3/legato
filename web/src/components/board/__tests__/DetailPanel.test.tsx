@@ -188,6 +188,20 @@ describe("DetailPanel", () => {
     expect(screen.getByRole("link", { name: "Open in Jira" })).toBeTruthy()
   })
 
+  it("shows a handed-off Burnlite task's text read only under its key", () => {
+    const { container } = renderPanel(makeCard({
+      provider: "burnlite-copy",
+      remote_id: "LEG-33",
+      remote_description_md: "A card should say how long its task is estimated to take.",
+      local_description_md: "Keep it to one line.",
+      remote_meta: { url: "https://burnlite.example/LEG-33" },
+    }))
+    const remote = container.querySelector("[data-description-section='remote']") as HTMLDetailsElement
+    expect(within(remote).getByText("From Burnlite LEG-33 (read only)")).toBeTruthy()
+    expect(screen.queryByText(/Edit title/)).toBeNull()
+    expect(screen.getByRole("link", { name: "Open in Burnlite" })).toBeTruthy()
+  })
+
   it("offers Legato detail editing but not title editing for a remote task", () => {
     const onEditDescription = vi.fn()
     render(<DetailPanel card={makeCard({ provider: "jira" })} onClose={() => {}} onEditTitle={() => {}} onEditDescription={onEditDescription} onMove={() => {}} onDelete={() => {}} onLinkPR={() => {}} onCopyDescription={() => {}} onCopyFull={() => {}} onOpenURL={() => {}} onCancelSwarm={() => {}} />)

@@ -5,20 +5,29 @@ const known: { id: string; label: string; item: string }[] = [
   { id: "jira", label: "Jira", item: "issue" },
   { id: "burnlite", label: "Burnlite", item: "task" },
   { id: "github", label: "GitHub", item: "PR" },
-  // A worker's copy of a Jira-backed task handed to it: its link is Jira's.
-  { id: "jira-copy", label: "Jira", item: "issue" },
   // A sync's result also names the workers a main pulled.
   { id: "workers", label: "Workers", item: "task" },
 ]
 
-/** A provider's name for people: Jira, Burnlite, GitHub; any other by its own id. */
+/**
+ * The provider a worker's copy of a handed-off task came from ("burnlite"
+ * for "burnlite-copy"), or "" for a provider that is not a copy. The copy's
+ * link is its provider's.
+ */
+export function handedOffFrom(provider: string): string {
+  return provider.endsWith("-copy") ? provider.slice(0, -"-copy".length) : ""
+}
+
+/** A provider's name for people: Jira, Burnlite, GitHub; a copy by its provider's; any other by its own id. */
 export function providerLabel(provider: string): string {
-  return known.find((p) => p.id === provider)?.label ?? provider
+  const id = handedOffFrom(provider) || provider
+  return known.find((p) => p.id === id)?.label ?? id
 }
 
 /** What one of a provider's items is called: a Jira issue, a Burnlite task. */
 export function providerItem(provider: string): string {
-  return known.find((p) => p.id === provider)?.item ?? "ticket"
+  const id = handedOffFrom(provider) || provider
+  return known.find((p) => p.id === id)?.item ?? "ticket"
 }
 
 /** The known providers first, in a fixed order, then the rest by id. */

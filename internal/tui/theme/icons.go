@@ -1,5 +1,7 @@
 package theme
 
+import "strings"
+
 // Icons holds the icon glyphs for different providers and indicators.
 type Icons struct {
 	Jira     string
@@ -88,11 +90,11 @@ func NewIcons(mode string) Icons {
 }
 
 // Provider is the icon of a ticket provider ("jira", "github", "burnlite"),
-// or "" for one without an icon.
+// or "" for one without an icon. A worker's copy of a task handed to it
+// ("burnlite-copy") has its provider's icon.
 func (i Icons) Provider(provider string) string {
-	switch provider {
-	// jira-copy: a worker's copy of a Jira-backed task handed to it.
-	case "jira", "jira-copy":
+	switch handedOffFrom(provider) {
+	case "jira":
 		return i.Jira
 	case "github":
 		return i.GitHub
@@ -102,16 +104,28 @@ func (i Icons) Provider(provider string) string {
 	return ""
 }
 
-// ProviderName is a ticket provider's name for people ("Jira" for "jira");
-// a provider it does not know keeps its own name.
+// ProviderName is a ticket provider's name for people ("Jira" for "jira",
+// and for a worker's copy "jira-copy"); a provider it does not know keeps
+// its own name.
 func ProviderName(provider string) string {
+	provider = handedOffFrom(provider)
 	switch provider {
-	case "jira", "jira-copy":
+	case "jira":
 		return "Jira"
 	case "github":
 		return "GitHub"
 	case "burnlite":
 		return "Burnlite"
+	}
+	return provider
+}
+
+// handedOffFrom is the provider a worker's copy of a handed-off task came
+// from ("burnlite" for "burnlite-copy"; service.HandoffCopyProvider makes
+// the name), else the provider itself.
+func handedOffFrom(provider string) string {
+	if from, ok := strings.CutSuffix(provider, "-copy"); ok && from != "" {
+		return from
 	}
 	return provider
 }

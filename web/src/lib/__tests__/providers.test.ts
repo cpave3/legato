@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { providerLabel, sortProviders } from "../providers"
+import { providerItem, providerLabel, sortProviders } from "../providers"
 
 describe("providerLabel", () => {
   it("names the providers Legato knows, and others by their own name", () => {
@@ -10,6 +10,14 @@ describe("providerLabel", () => {
     expect(providerLabel("workers")).toBe("Workers")
     expect(providerLabel("linear")).toBe("linear")
     expect(providerLabel("")).toBe("")
+  })
+
+  it("names a worker's copy of a handed-off task by the provider it came from", () => {
+    expect(providerLabel("jira-copy")).toBe("Jira")
+    expect(providerLabel("burnlite-copy")).toBe("Burnlite")
+    expect(providerLabel("linear-copy")).toBe("linear")
+    expect(providerItem("burnlite-copy")).toBe("task")
+    expect(providerItem("jira-copy")).toBe("issue")
   })
 })
 

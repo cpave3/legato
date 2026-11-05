@@ -93,6 +93,10 @@ Legato checks Burnlite every 60 seconds (`burnlite.sync_interval_seconds`). It g
 
 If Burnlite stops accepting Legato's tokens, Attention says that Legato lost its connection. Connect again from **Settings › Integrations** or with `legato integration connect burnlite`.
 
+## Hand off a Burnlite task
+
+A Burnlite task you [hand off to a worker](/legato/using/handoff/#hand-off-a-task-from-jira-or-burnlite) keeps its link and its sync here. The worker gets a read-only copy of the task's text (its description, plan and checklist) and your Legato details, never talks to Burnlite, and sends back only the Legato details.
+
 ## Settings
 
 | Setting | What it does | Default |

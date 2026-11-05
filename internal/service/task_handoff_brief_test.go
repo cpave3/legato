@@ -26,22 +26,37 @@ func TestTheHandoffBriefSaysWhatTheSpecSays(t *testing.T) {
 	jira, jiraPushed := task, pushed
 	for _, in := range []*HandoffBriefInput{&jira, &jiraPushed} {
 		in.MainTaskID, in.Title = "ACME-12", "Checkout times out on large carts"
-		in.JiraKey, in.JiraText = "ACME-12", "Carts over 50 items time out at checkout.\n\nAcceptance: checkout under 2s."
+		in.TicketProvider, in.TicketKey = "Jira", "ACME-12"
+		in.TicketText = "Carts over 50 items time out at checkout.\n\nAcceptance: checkout under 2s."
 		in.Details = "Start with the cart serializer."
 	}
 	jira.Branch = "legato/acme-12"
+	// A Burnlite-backed task: its Description, Plan and Checklist as the
+	// main last synced them, read only, then the Legato details.
+	burnlite, burnlitePushed := task, pushed
+	for _, in := range []*HandoffBriefInput{&burnlite, &burnlitePushed} {
+		in.MainTaskID, in.Title = "LEG-33", "Show a task's estimate on its card"
+		in.TicketProvider, in.TicketKey = "Burnlite", "LEG-33"
+		in.TicketText = "A card should say how long its task is estimated to take.\n\n## Plan\n\nRead the size and uncertainty from remote_meta.\n\n## Checklist\n\n- [x] Read the estimate\n- [ ] Show it on the card"
+		in.Details = "Keep it to one line on the card."
+	}
+	burnlite.Branch = "legato/leg-33"
 	for name, form := range map[string]struct {
 		in      HandoffBriefInput
 		purpose string
 	}{
-		"make-change-new-branch-local.md":    {task, HandoffMakeChange},
-		"find-out-new-branch-local.md":       {task, HandoffFindOut},
-		"make-change-pushed-branch-local.md": {pushed, HandoffMakeChange},
-		"find-out-pushed-branch-local.md":    {pushed, HandoffFindOut},
-		"make-change-new-branch-jira.md":     {jira, HandoffMakeChange},
-		"find-out-new-branch-jira.md":        {jira, HandoffFindOut},
-		"make-change-pushed-branch-jira.md":  {jiraPushed, HandoffMakeChange},
-		"find-out-pushed-branch-jira.md":     {jiraPushed, HandoffFindOut},
+		"make-change-new-branch-local.md":       {task, HandoffMakeChange},
+		"find-out-new-branch-local.md":          {task, HandoffFindOut},
+		"make-change-pushed-branch-local.md":    {pushed, HandoffMakeChange},
+		"find-out-pushed-branch-local.md":       {pushed, HandoffFindOut},
+		"make-change-new-branch-jira.md":        {jira, HandoffMakeChange},
+		"find-out-new-branch-jira.md":           {jira, HandoffFindOut},
+		"make-change-pushed-branch-jira.md":     {jiraPushed, HandoffMakeChange},
+		"find-out-pushed-branch-jira.md":        {jiraPushed, HandoffFindOut},
+		"make-change-new-branch-burnlite.md":    {burnlite, HandoffMakeChange},
+		"find-out-new-branch-burnlite.md":       {burnlite, HandoffFindOut},
+		"make-change-pushed-branch-burnlite.md": {burnlitePushed, HandoffMakeChange},
+		"find-out-pushed-branch-burnlite.md":    {burnlitePushed, HandoffFindOut},
 	} {
 		t.Run(name, func(t *testing.T) {
 			in := form.in

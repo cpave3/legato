@@ -1,6 +1,9 @@
 package service
 
-import "fmt"
+import (
+	"fmt"
+	"strings"
+)
 
 // A handoff's purpose and where its work starts. See GLOSSARY.md § Instances
 // and handoff and docs/ai/integrations.md § Handing off a task.
@@ -28,13 +31,14 @@ type HandoffCall struct {
 	MainTaskID string `json:"main_task_id"`
 	Title      string `json:"title"`
 	// Details are the task's Legato details: a local task's description,
-	// or what a Jira-backed task has besides Jira's text. They are the one
-	// part the worker can edit, and the part a return brings back.
+	// or what a provider-backed task has besides its ticket's text. They are
+	// the one part the worker can edit, and the part a return brings back.
 	Details string `json:"details"`
-	// Jira is set for a Jira-backed task, and only for one: Jira's text,
-	// read only on the worker, as is the title.
-	Jira  *HandoffJira      `json:"jira,omitempty"`
-	Notes []HandoffCallNote `json:"notes"`
+	// Ticket is set for a task from a ticket provider (Jira, Burnlite, ...),
+	// and only for one: the ticket's text, read only on the worker, as is
+	// the title.
+	Ticket *HandoffTicket    `json:"ticket,omitempty"`
+	Notes  []HandoffCallNote `json:"notes"`
 	// Repo is the GitHub repository (owner/name) the work is in.
 	Repo    string `json:"repo"`
 	Purpose string `json:"purpose"`
@@ -46,21 +50,55 @@ type HandoffCall struct {
 	AgentKind string `json:"agent_kind,omitempty"`
 }
 
-// HandoffJira is a Jira-backed task's ticket: its key, its text as the
-// main last synced it, and where the person sees it in Jira (empty when the
-// main has no address). The worker keeps it as a copy taken at handoff and
-// never talks to Jira.
-type HandoffJira struct {
-	Key  string `json:"key"`
-	Text string `json:"text"`
-	URL  string `json:"url,omitempty"`
+// HandoffTicket is a provider-backed task's ticket: the main's provider
+// ("jira", "burnlite"), the ticket's key, its text as the main last synced
+// it, and where the person sees it (empty when the main has no address).
+// The worker keeps it as a copy taken at handoff and never talks to the
+// provider.
+type HandoffTicket struct {
+	Provider string `json:"provider"`
+	Key      string `json:"key"`
+	Text     string `json:"text"`
+	URL      string `json:"url,omitempty"`
 }
 
-// HandoffJiraProvider is the provider of a worker's card for a Jira-backed
-// task: the card keeps Jira's text as a provider-backed task does
-// (remote_description_md, read only, with its title), but no ticket source
-// has this name, so nothing on the worker syncs it or moves a ticket.
-const HandoffJiraProvider = "jira-copy"
+// handoffCopySuffix ends the provider of a worker's copy of a ticket.
+const handoffCopySuffix = "-copy"
+
+// HandoffCopyProvider is the provider of a worker's card for a task from
+// provider ("jira-copy" for "jira"): the card keeps the ticket's text as a
+// provider-backed task does (remote_description_md, read only, with its
+// title), but no ticket source has this name, so nothing on the worker
+// syncs it or moves a ticket.
+func HandoffCopyProvider(provider string) string { return provider + handoffCopySuffix }
+
+// HandoffCopyOf is the provider a worker's copy of a ticket came from
+// ("burnlite" for "burnlite-copy"), or "" for a provider that is not a copy.
+func HandoffCopyOf(provider string) string {
+	if from, ok := strings.CutSuffix(provider, handoffCopySuffix); ok {
+		return from
+	}
+	return ""
+}
+
+// IsHandoffCopy says whether provider is a worker's copy of a ticket.
+func IsHandoffCopy(provider string) bool { return HandoffCopyOf(provider) != "" }
+
+// ticketProviderLabels name the ticket providers Legato knows for people.
+var ticketProviderLabels = map[string]string{"jira": "Jira", BurnliteIntegration: "Burnlite", "github": "GitHub"}
+
+// TicketProviderLabel is a ticket provider's name for people ("Jira" for
+// "jira"); a worker's copy is named by the provider it came from, and a
+// provider Legato does not know by its own name.
+func TicketProviderLabel(provider string) string {
+	if from := HandoffCopyOf(provider); from != "" {
+		provider = from
+	}
+	if label, ok := ticketProviderLabels[provider]; ok {
+		return label
+	}
+	return provider
+}
 
 // HandoffCallNote is one of the main's notes on a handed-off task.
 type HandoffCallNote struct {

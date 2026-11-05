@@ -53,8 +53,8 @@ func TestBurnliteIconInBothModes(t *testing.T) {
 
 func TestProviderIcon(t *testing.T) {
 	icons := NewIcons("unicode")
-	// A worker's copy of a handed-off Jira task shows as Jira's.
-	cases := map[string]string{"jira": icons.Jira, "jira-copy": icons.Jira, "github": icons.GitHub, "burnlite": icons.Burnlite, "linear": "", "": ""}
+	// A worker's copy of a handed-off task ("jira-copy") shows as its provider's.
+	cases := map[string]string{"jira": icons.Jira, "jira-copy": icons.Jira, "github": icons.GitHub, "burnlite": icons.Burnlite, "burnlite-copy": icons.Burnlite, "linear": "", "linear-copy": "", "": ""}
 	for provider, want := range cases {
 		if got := icons.Provider(provider); got != want {
 			t.Errorf("Provider(%q) = %q, want %q", provider, got, want)
@@ -63,7 +63,7 @@ func TestProviderIcon(t *testing.T) {
 }
 
 func TestProviderName(t *testing.T) {
-	cases := map[string]string{"jira": "Jira", "jira-copy": "Jira", "github": "GitHub", "burnlite": "Burnlite", "linear": "linear", "": ""}
+	cases := map[string]string{"jira": "Jira", "jira-copy": "Jira", "github": "GitHub", "burnlite": "Burnlite", "burnlite-copy": "Burnlite", "linear": "linear", "linear-copy": "linear", "": ""}
 	for provider, want := range cases {
 		if got := ProviderName(provider); got != want {
 			t.Errorf("ProviderName(%q) = %q, want %q", provider, got, want)

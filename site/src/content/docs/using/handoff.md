@@ -39,11 +39,11 @@ The worker fetches its copy of the repository before it starts, then looks for t
 
 The agent works on your branch. Its brief tells it that the branch already has commits: read them against the default branch first, then only add commits. It never rebases, amends or force-pushes the branch, and it reuses the branch's pull request if it has one. Any new branches it stacks on top of yours are named `legato/<task ID>-<a few words>`. To make a change, it may push your branch and its own, and open draft pull requests, without asking.
 
-### Hand off a Jira task
+### Hand off a task from Jira or Burnlite
 
-A task imported from Jira hands off like any other. Your main keeps its link to Jira and goes on syncing it while the task is away, and after it comes back. The worker never talks to Jira and needs no Jira access.
+A task imported from a ticket provider, such as [Jira](/legato/integrations/jira/) or [Burnlite](/legato/integrations/burnlite/), hands off like any other. Your main keeps its link to the provider and goes on syncing it while the task is away, and after it comes back. The worker never talks to the provider and needs no access to it.
 
-On the worker, the card shows the task in two parts: **From Jira ACME-12 (read only)**, a copy of the ticket's text taken when you handed it off, then **Legato details**, the part you wrote in Legato. Only the Legato details can be edited there; the title is read-only too. The agent's brief gives it the same two parts. When the task comes back, only its Legato details come back: its title and its text stay Jira's.
+On the worker, the card shows the task in two parts: **From Jira ACME-12 (read only)** (or **From Burnlite LEG-33 (read only)**), a copy of the ticket's text taken when you handed it off, then **Legato details**, the part you wrote in Legato. Only the Legato details can be edited there; the title is read-only too. The card names the provider it came from, and moving it changes nothing in the provider. The agent's brief gives it the same two parts. When the task comes back, only its Legato details come back: its title and its text stay the provider's.
 
 ### When a handoff is refused
 
@@ -55,6 +55,7 @@ The form says why, in the words of the main or the worker, and nothing is handed
 - **The worker cannot clone the repository**, for example because its GitHub credential cannot read it.
 - **Update the worker**: the worker runs a Legato too old to take a handoff. A worker that cannot yet start from a pushed branch says so.
 - **No branch name**: starting from a pushed branch needs the branch's name.
+- **No key**: a task from a ticket provider that has no ticket key cannot be handed off.
 
 ## The Away lane
 
@@ -86,7 +87,7 @@ When the task comes back, its pull requests stay as they are: your main already 
 
 When the worker is done with a task, **return** it. Its row in the Away lane, and its panel, then offer **Return**; each worker's group offers **Return all done (N)**, which returns every task done there in one go. A task comes back with:
 
-- its title and description as they are on the worker, if they were edited there (for a Jira task, its Legato details only);
+- its title and description as they are on the worker, if they were edited there (for a task from Jira or Burnlite, its Legato details only);
 - the notes written on the worker, headed "From the worker" (your own notes stay as they were, and none comes back twice);
 - the repository, and the branches its agent pushed, in the order of the Staccato stack it built, with their pull requests.
 

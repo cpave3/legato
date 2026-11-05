@@ -7,7 +7,7 @@ import { MarkdownBody } from "../MarkdownBody"
 import { Button } from "../ui/Button"
 import { TaskActivityTabs } from "./TaskActivityTabs"
 import { TaskAgentAction } from "./TaskAgentAction"
-import { providerLabel } from "../../lib/providers"
+import { handedOffFrom, providerLabel } from "../../lib/providers"
 
 interface DetailPanelProps {
   card: CardDetail
@@ -70,10 +70,11 @@ function DescriptionSection({ kind, title, markdown, emptyLabel }: { kind: "remo
   </details>
 }
 
-// A worker's card for a Jira-backed task keeps a copy of Jira's text taken
-// at handoff ("jira-copy"); it says so, by the ticket's key.
+// A worker's card for a provider-backed task keeps a copy of the ticket's
+// text taken at handoff ("jira-copy", "burnlite-copy"); it says so, by the
+// provider's name and the ticket's key.
 function remoteDetailsTitle(card: CardDetail): string {
-  if (card.provider === "jira-copy") return `From Jira ${card.remote_id} (read only)`
+  if (handedOffFrom(card.provider)) return `From ${providerLabel(card.provider)} ${card.remote_id} (read only)`
   return "Remote ticket details"
 }
 

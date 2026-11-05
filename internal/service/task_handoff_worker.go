@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"log"
 	"net/url"
+	"regexp"
 	"strings"
 	"time"
 
@@ -111,6 +112,10 @@ const (
 	maxHandoffNotes = 500
 )
 
+// ticketProviderName is a provider's name as a handoff's ticket names it
+// ("jira", "burnlite"); its card's provider is that name and "-copy".
+var ticketProviderName = regexp.MustCompile(`^[a-z][a-z0-9_-]{0,49}$`)
+
 func validateHandoffCall(call HandoffCall) error {
 	switch {
 	case len(call.HandoffID) == 0 || len(call.HandoffID) > maxHandoffField:
@@ -127,12 +132,14 @@ func validateHandoffCall(call HandoffCall) error {
 		return handoffErr("bad_request", "purpose must be %s or %s", HandoffMakeChange, HandoffFindOut)
 	case call.Kind != HandoffNewBranch && call.Kind != HandoffPushedBranch:
 		return handoffErr("bad_request", "kind must be %s or %s", HandoffNewBranch, HandoffPushedBranch)
-	case call.Jira != nil && (strings.TrimSpace(call.Jira.Key) == "" || len(call.Jira.Key) > maxHandoffField):
-		return handoffErr("bad_request", "jira.key must be 1 to 200 characters")
-	case call.Jira != nil && len(call.Jira.Text) > maxHandoffText:
-		return handoffErr("bad_request", "jira.text must be at most 256 KiB")
-	case call.Jira != nil && call.Jira.URL != "" && !webAddress(call.Jira.URL):
-		return handoffErr("bad_request", "jira.url must be an http or https address")
+	case call.Ticket != nil && !ticketProviderName.MatchString(call.Ticket.Provider):
+		return handoffErr("bad_request", "ticket.provider must name a provider: lowercase letters, digits, - and _, at most 50")
+	case call.Ticket != nil && (strings.TrimSpace(call.Ticket.Key) == "" || len(call.Ticket.Key) > maxHandoffField):
+		return handoffErr("bad_request", "ticket.key must be 1 to 200 characters")
+	case call.Ticket != nil && len(call.Ticket.Text) > maxHandoffText:
+		return handoffErr("bad_request", "ticket.text must be at most 256 KiB")
+	case call.Ticket != nil && call.Ticket.URL != "" && !webAddress(call.Ticket.URL):
+		return handoffErr("bad_request", "ticket.url must be an http or https address")
 	case validRepo(call.Repo) != nil:
 		return handoffErr("bad_request", "repo must be a GitHub repository, owner/name")
 	case !stackgraph.ValidBranchName(call.Branch):
@@ -193,8 +200,8 @@ func (s *HandoffWorkerService) Accept(ctx context.Context, main HandoffMain, cal
 	now := s.opts.Now().UTC().Format(time.RFC3339)
 	task := store.Task{ID: store.GenerateTaskID(), Title: call.Title, Description: call.Details, DescriptionMD: call.Details,
 		Status: column, WorkspaceID: &workspaceID, CreatedAt: now, UpdatedAt: now}
-	if call.Jira != nil {
-		jiraCopy(&task, *call.Jira)
+	if call.Ticket != nil {
+		ticketCopy(&task, *call.Ticket)
 	}
 	if existing, err := s.db.ListTasksByStatus(ctx, column); err == nil {
 		for _, t := range existing {
@@ -224,14 +231,15 @@ func (s *HandoffWorkerService) Accept(ctx context.Context, main HandoffMain, cal
 	return accepted, true, err
 }
 
-// jiraCopy makes a worker's card the copy of a Jira-backed task: Jira's
-// text kept as a provider's (read only, with the title), under a provider
-// no ticket source syncs. The Legato details stay the card's own.
-func jiraCopy(task *store.Task, jira HandoffJira) {
-	provider, key := HandoffJiraProvider, jira.Key
-	task.Provider, task.RemoteID, task.RemoteDescriptionMD = &provider, &key, jira.Text
-	if jira.URL != "" {
-		meta, _ := json.Marshal(map[string]string{"url": jira.URL})
+// ticketCopy makes a worker's card the copy of a provider-backed task: the
+// ticket's text kept as a provider's (read only, with the title), under a
+// provider no ticket source syncs ("burnlite-copy"). The Legato details
+// stay the card's own.
+func ticketCopy(task *store.Task, ticket HandoffTicket) {
+	provider, key := HandoffCopyProvider(ticket.Provider), ticket.Key
+	task.Provider, task.RemoteID, task.RemoteDescriptionMD = &provider, &key, ticket.Text
+	if ticket.URL != "" {
+		meta, _ := json.Marshal(map[string]string{"url": ticket.URL})
 		raw := string(meta)
 		task.RemoteMeta = &raw
 	}
@@ -467,13 +475,13 @@ func (s *HandoffWorkerService) grant(ctx context.Context, h *store.Handoff) {
 }
 
 // handoffBriefInput is what the brief says of a handoff: its task as the
-// worker's card has it now (with its copy of Jira's text, for a Jira-backed
-// task), and the main's notes.
+// worker's card has it now (with its copy of the ticket's text, for a
+// provider-backed task), and the main's notes.
 func handoffBriefInput(h *store.Handoff, task *store.Task, notes []store.TaskNote) HandoffBriefInput {
 	in := HandoffBriefInput{MainName: h.MainName, MainTaskID: h.MainTaskID, Title: task.Title, Details: task.DescriptionMD,
 		Purpose: h.Purpose, Kind: h.Kind, Branch: h.Branch}
-	if task.Provider != nil && *task.Provider == HandoffJiraProvider && task.RemoteID != nil {
-		in.JiraKey, in.JiraText = *task.RemoteID, task.RemoteDescriptionMD
+	if task.Provider != nil && IsHandoffCopy(*task.Provider) && task.RemoteID != nil {
+		in.TicketProvider, in.TicketKey, in.TicketText = TicketProviderLabel(*task.Provider), *task.RemoteID, task.RemoteDescriptionMD
 	}
 	for _, n := range notes {
 		if n.Source == NoteSourceMain {
