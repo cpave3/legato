@@ -98,6 +98,17 @@ describe("reconcileTicketAction", () => {
     expect(document.querySelector("#legato-ticket-action")).toBeNull()
   })
 
+  it("opens the desktop app's link from the bubble too", async () => {
+    const opened: string[] = []
+    const click = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(function (this: HTMLAnchorElement) { opened.push(this.href) })
+    const send = vi.fn().mockResolvedValue({ ok: true, desktopLink: "legato-desktop://import?provider=jira&key=AG-1" })
+    reconcileTicketAction(document, "https://example.atlassian.net/browse/AG-1", jira, send)
+    document.querySelector<HTMLButtonElement>("#legato-ticket-action button")!.click()
+    await vi.waitFor(() => expect(opened).toEqual(["legato-desktop://import?provider=jira&key=AG-1"]))
+    await vi.waitFor(() => expect(document.querySelector("#legato-ticket-action")?.textContent).toContain("Sent to the Legato desktop app"))
+    click.mockRestore()
+  })
+
   it("keeps the widget while its import runs, even when the page stops naming the ticket", async () => {
     let finish: (value: unknown) => void = () => undefined
     const send = vi.fn().mockReturnValue(new Promise((resolve) => { finish = resolve }))
@@ -174,6 +185,18 @@ describe("reconcileTicketAction on Burnlite", () => {
     inlineButton().click()
     await vi.waitFor(() => expect(inlineButton().textContent).toContain("Imported to Legato"))
     expect(send).toHaveBeenCalledTimes(2)
+  })
+
+  it("opens the desktop app's link when the import goes there", async () => {
+    const opened: string[] = []
+    const click = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(function (this: HTMLAnchorElement) { opened.push(this.href) })
+    const send = vi.fn().mockResolvedValue({ ok: true, desktopLink: "legato-desktop://import?provider=burnlite&key=EST-3" })
+    document.body.insertAdjacentHTML("beforeend", drawer("EST-3"))
+    reconcileTicketAction(document, href, burnlite, send)
+    inlineButton().click()
+    await vi.waitFor(() => expect(opened).toEqual(["legato-desktop://import?provider=burnlite&key=EST-3"]))
+    await vi.waitFor(() => expect(inline()!.textContent).toContain("Sent to the Legato desktop app"))
+    click.mockRestore()
   })
 
   it("shows the error a failed response carries", async () => {

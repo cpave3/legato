@@ -61,6 +61,19 @@ pub struct State {
     pub servers: Vec<Server>,
     #[serde(default)]
     pub keys: Vec<Key>,
+    /// Where a ticket the browser extension hands the app is imported.
+    #[serde(default)]
+    pub import_target: ImportTarget,
+}
+
+/// Where a ticket the browser extension hands the app is imported: the app
+/// asks which server, or uses the server in front.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, serde::Serialize, serde::Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ImportTarget {
+    #[default]
+    Ask,
+    Current,
 }
 
 /// Where tokens are kept: the desktop's keyring, or memory in tests.
@@ -215,6 +228,21 @@ pub(crate) mod tests {
         let again = open(&dir, &secrets);
         assert_eq!(again.state, store.state);
         assert_eq!(again.token(&s.id).as_deref(), Some("tok-1"));
+    }
+
+    #[test]
+    fn where_tickets_are_imported_is_asked_until_the_person_says_otherwise() {
+        let (dir, secrets) = (tempfile::tempdir().unwrap(), Memory::default());
+        // A file from before the setting existed.
+        std::fs::write(dir.path().join("legato-desktop.json"), r#"{"servers":[],"keys":[]}"#).unwrap();
+        let mut store = open(&dir, &secrets);
+        assert_eq!(store.state.import_target, ImportTarget::Ask);
+
+        store.state.import_target = ImportTarget::Current;
+        store.save().unwrap();
+        let text = std::fs::read_to_string(dir.path().join("legato-desktop.json")).unwrap();
+        assert!(text.contains(r#""import_target": "current""#), "{text}");
+        assert_eq!(open(&dir, &secrets).state.import_target, ImportTarget::Current);
     }
 
     #[test]

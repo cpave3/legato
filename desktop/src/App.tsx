@@ -1,10 +1,11 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { listen } from "@tauri-apps/api/event"
 import { getCurrentWindow } from "@tauri-apps/api/window"
-import { api, tintColor, type PageMessage, type Server, type SheetOutcome, type Status } from "./api"
+import { api, errorText, tintColor, type ImportRequest, type PageMessage, type Server, type SheetOutcome, type Status } from "./api"
 import { ApprovalSheet } from "./components/ApprovalSheet"
 import { ApprovalsPanel } from "./components/ApprovalsPanel"
 import { Dock } from "./components/Dock"
+import { ImportSheet } from "./components/ImportSheet"
 import { PairForm } from "./components/PairForm"
 import { ServersPanel } from "./components/ServersPanel"
 import { TitleBar } from "./components/TitleBar"
@@ -13,6 +14,7 @@ import { useUpdates } from "./components/Updates"
 
 type Panel = null | { kind: "manage"; pairing: boolean } | { kind: "approvals" }
 type Sheet = null | { server: Server; id: string }
+type Importing = null | { request: ImportRequest; failure?: string }
 
 const ACTIVE = "legato-desktop:active"
 
@@ -26,6 +28,7 @@ export function App() {
   const [active, setActive] = useState<string | undefined>(remembered)
   const [panel, setPanel] = useState<Panel>(null)
   const [sheet, setSheet] = useState<Sheet>(null)
+  const [importing, setImporting] = useState<Importing>(null)
   const updates = useUpdates()
   // Whether each server's page will load here (see api.pageTrusted).
   const [pages, setPages] = useState<Record<string, "trusted" | "untrusted">>({})
@@ -76,6 +79,42 @@ export function App() {
   // The server in front: the remembered one, else the first.
   const current = useMemo(() => servers?.find((s) => s.id === active) ?? servers?.[0], [servers, active])
 
+  // Tickets the browser extension hands the app (src-tauri/src/applink.rs):
+  // into the server in front when the person chose that, else a sheet asks
+  // which. One the server in front refuses opens the sheet with the reason.
+  const currentRef = useRef<Server | undefined>(undefined)
+  currentRef.current = current
+  const imported = (server: Server, task: string) => {
+    setImporting(null)
+    setPanel(null)
+    select(server.id)
+    api.openTaskInPage(server.id, task).catch(() => {})
+  }
+  useEffect(() => {
+    if (servers === null) return
+    const take = async () => {
+      const requests = await api.takeImportRequests().catch(() => [] as ImportRequest[])
+      const request = requests[requests.length - 1]
+      if (!request) return
+      const front = currentRef.current
+      const target = await api.importPreference().catch(() => "ask" as const)
+      if (target === "current" && front) {
+        try {
+          const task = await api.importTicket(front.id, request.provider, request.key)
+          imported(front, task.id)
+        } catch (e) {
+          setImporting({ request, failure: `${front.name}: ${errorText(e)}` })
+        }
+        return
+      }
+      setImporting({ request })
+    }
+    take()
+    const off = listen("import-request", () => { take() })
+    return () => { off.then((f) => f()) }
+    // Once the servers are known; take reads the server in front from a ref.
+  }, [servers === null])
+
   // A page the web view would not load (a Mac that does not trust the
   // server's certificate yet) is not shown: the shell explains instead. A
   // check that fails (the server is down) shows the page as before.
@@ -92,7 +131,7 @@ export function App() {
   const recheck = (id: string) => setPages((p) => { const { [id]: _, ...rest } = p; return rest })
 
   // The content area shows the server's page unless the shell draws over it.
-  const overlay = !!panel || !!sheet || !current || page !== "trusted"
+  const overlay = !!panel || !!sheet || !!importing || !current || page !== "trusted"
   useEffect(() => {
     if (!servers) return
     if (current && !panel && page === "trusted") api.showServer(current.id).catch(() => {})
@@ -178,6 +217,18 @@ export function App() {
         )}
       </main>
       {sheet && <ApprovalSheet key={`${sheet.server.id}/${sheet.id}`} server={sheet.server} approvalId={sheet.id} onClose={closeSheet} />}
+      {!sheet && importing && (
+        <ImportSheet
+          key={importing.request.provider + importing.request.key}
+          request={importing.request}
+          servers={servers}
+          statuses={statuses}
+          current={current}
+          failure={importing.failure}
+          onImported={imported}
+          onClose={() => setImporting(null)}
+        />
+      )}
     </div>
   )
 }

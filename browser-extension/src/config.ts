@@ -7,6 +7,9 @@ export type ExtensionConfig = {
   pullRequestInput: string
   primaryDirInput: string
   reviewArtifactKey: string
+  // Imports go to the Legato desktop app (a legato-desktop://import link),
+  // which asks which of its servers to import into.
+  openImportsInDesktop: boolean
 }
 
 export const DEFAULT_CONFIG: ExtensionConfig = {
@@ -18,6 +21,7 @@ export const DEFAULT_CONFIG: ExtensionConfig = {
   pullRequestInput: "pr_number",
   primaryDirInput: "primary_dir",
   reviewArtifactKey: "review",
+  openImportsInDesktop: false,
 }
 
 export function normalizeConfig(config: ExtensionConfig): ExtensionConfig {
@@ -33,7 +37,7 @@ export function normalizeConfig(config: ExtensionConfig): ExtensionConfig {
   if (url.pathname !== "/" || url.search || url.hash) {
     throw new Error("Legato URL must contain only an origin")
   }
-  const names: Array<[keyof ExtensionConfig, string]> = [
+  const names: Array<[Exclude<keyof ExtensionConfig, "openImportsInDesktop">, string]> = [
     ["workflowName", "Review workflow name"],
     ["discussWorkflowName", "Discussion workflow name"],
     ["repoInput", "Repository input name"],
@@ -41,7 +45,7 @@ export function normalizeConfig(config: ExtensionConfig): ExtensionConfig {
     ["primaryDirInput", "Primary directory input name"],
     ["reviewArtifactKey", "Review artifact output key"],
   ]
-  const normalized = { ...config, baseUrl: url.origin, token: config.token.trim() }
+  const normalized = { ...config, baseUrl: url.origin, token: config.token.trim(), openImportsInDesktop: config.openImportsInDesktop === true }
   for (const [key, label] of names) {
     normalized[key] = normalized[key].trim()
     if (!normalized[key]) throw new Error(`${label} is required`)

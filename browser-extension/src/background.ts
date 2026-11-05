@@ -12,7 +12,7 @@ import { handleMarkedTab, stripStreamDeckMarker } from "./tab-reuse"
 
 type MessageSender = { tab?: { id?: number } }
 type MessageResponse = {
-  ok: true; prepared?: PreparedWorkflow; runUrl?: string; agentUrl?: string; taskUrl?: string
+  ok: true; prepared?: PreparedWorkflow; runUrl?: string; agentUrl?: string; taskUrl?: string; desktopLink?: string
   navigationWarning?: string; review?: ReviewPanelModel; discussion?: DiscussionRef | null
 } | ({ ok: true } & TicketSitesResult) | { ok: false; error: string }
 
@@ -167,6 +167,12 @@ export function createMessageHandler(deps: Dependencies = defaultDependencies) {
       if (mutates) active.add(actionKey)
       try {
         const config = await deps.loadConfig()
+        // The desktop app imports it, into the server the person picks there;
+        // the page opens the link, as only a page can.
+        if (ticket && config.openImportsInDesktop) {
+          const query = new URLSearchParams({ provider: ticketContext.provider, key: ticketContext.ticketId })
+          return { ok: true, desktopLink: `legato-desktop://import?${query}` }
+        }
         if (!(await deps.hasPermission(config.baseUrl))) {
           throw new Error("Open extension options and grant access to the configured Legato origin")
         }

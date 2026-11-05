@@ -31,3 +31,11 @@ describe("hostPermissionFor", () => {
     expect(hostPermissionFor("https://legato.example:3443")).toBe("https://legato.example:3443/*")
   })
 })
+
+describe("openImportsInDesktop", () => {
+  it("is off unless chosen, and survives normalizing", () => {
+    expect(DEFAULT_CONFIG.openImportsInDesktop).toBe(false)
+    expect(normalizeConfig({ ...DEFAULT_CONFIG, openImportsInDesktop: true }).openImportsInDesktop).toBe(true)
+    expect(normalizeConfig({ ...DEFAULT_CONFIG, openImportsInDesktop: "yes" as unknown as boolean }).openImportsInDesktop).toBe(false)
+  })
+})

@@ -125,6 +125,8 @@ The content script sends only the provider and the parsed key to the service wor
 
 The widgets' fonts are web-accessible from any site (`use_dynamic_url`), since a provider's site is not known when the extension is built.
 
+With **Open ticket imports in the Legato desktop app** (`openImportsInDesktop`, off unless chosen), the service worker does not call Legato: it answers `importTicket` with `desktopLink`, `legato-desktop://import?provider=<provider>&key=<KEY>`, and the content script opens it with a link click, which needs the page's user gesture. The desktop app reads it, asks which server, and imports there (see `docs/ai/desktop.md` § Links from the system).
+
 ## Stream Deck integration
 
 Current Stream Deck builds append `legato_source=streamdeck` immediately before opening browser destinations. When Chrome sees that marker, the extension reuses the immediately preceding active tab only if:

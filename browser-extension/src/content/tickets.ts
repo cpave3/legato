@@ -3,7 +3,17 @@ import { createLegatoFab } from "./legato-fab"
 
 export type TicketContext = { provider: string; ticketId: string }
 
-type MessageResponse = { ok: true; taskUrl: string; navigationWarning?: string } | { ok: false; error: string }
+type MessageResponse = { ok: true; taskUrl?: string; navigationWarning?: string; desktopLink?: string } | { ok: false; error: string }
+
+// Opens a legato-desktop:// link, which the system hands to the desktop app.
+// Chrome may ask the first time whether to open it.
+function openDesktopLink(doc: Document, link: string): void {
+  const a = doc.createElement("a")
+  a.href = link
+  a.click()
+}
+
+const SENT_TO_DESKTOP = "Sent to the Legato desktop app."
 type SendMessage = (message: unknown) => Promise<MessageResponse>
 
 const ACTION_ID = "legato-ticket-action"
@@ -90,6 +100,12 @@ export function reconcileTicketAction(doc: Document, href: string, provider: Tic
     setState("loading", "Importing ticket…")
     void sendMessage({ type: "importTicket", context }).then((response) => {
       if (!response.ok) throw new Error(response.error)
+      if (response.desktopLink) {
+        openDesktopLink(doc, response.desktopLink)
+        button.textContent = `Import ${ticketId} to Legato`
+        setState("success", SENT_TO_DESKTOP)
+        return
+      }
       button.textContent = "Imported to Legato"
       setState("success", response.navigationWarning ?? "Ticket imported and opened in Legato.")
     }).catch((error: unknown) => {
@@ -158,6 +174,12 @@ function reconcileDrawerButton(doc: Document, provider: TicketProvider, sendMess
     const context: TicketContext = { provider: provider.name, ticketId }
     void sendMessage({ type: "importTicket", context }).then((response) => {
       if (!response.ok) throw new Error(response.error)
+      if (response.desktopLink) {
+        openDesktopLink(doc, response.desktopLink)
+        label("Import to Legato")
+        say(SENT_TO_DESKTOP)
+        return
+      }
       label("Imported to Legato")
       say(response.navigationWarning ?? "")
     }).catch((error: unknown) => {

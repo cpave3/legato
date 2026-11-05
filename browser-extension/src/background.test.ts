@@ -167,6 +167,19 @@ describe("GitHub workflow messages", () => {
     expect(deps.start).toHaveBeenCalledOnce()
   })
 
+  it("hands the import to the desktop app when the options say so, without asking Legato", async () => {
+    const deps = dependencies()
+    deps.loadConfig.mockResolvedValue({ ...DEFAULT_CONFIG, openImportsInDesktop: true })
+    deps.hasPermission.mockResolvedValue(false)
+    const response = await createMessageHandler(deps)(
+      { type: "importTicket", context: { provider: "burnlite", ticketId: "EST-42" } },
+      { tab: { id: 8 } },
+    )
+    expect(response).toEqual({ ok: true, desktopLink: "legato-desktop://import?provider=burnlite&key=EST-42" })
+    expect(deps.importTicket).not.toHaveBeenCalled()
+    expect(deps.openTask).not.toHaveBeenCalled()
+  })
+
   it("imports a ticket once per provider and key and opens the returned local task", async () => {
     const deps = dependencies()
     const handler = createMessageHandler(deps)

@@ -80,6 +80,15 @@ The extension asks Legato for its providers when Chrome starts, when you save th
 
 The button imports the ticket into the workspace Legato imports to by default, then opens the board with the new card picked out. When Legato is not connected to that provider, or the ticket is already a card from another provider, the button shows Legato's message.
 
+### Import into the desktop app
+
+If you use the [desktop app](/legato/running/desktop-app/) with several servers, the desktop app can do the import instead, into the server you choose:
+
+1. Open the extension's **Options** page.
+2. Select **Open ticket imports in the Legato desktop app**, then **Save and test connection**.
+
+The button then opens the desktop app, which asks which of its servers to import the ticket into. The first time, Chrome asks whether to open the Legato desktop app. The app must be installed and opened once, so that your system knows it opens these links.
+
 ## What Legato needs
 
 The extension needs two things in Legato.

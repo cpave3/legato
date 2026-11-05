@@ -15,7 +15,8 @@ use serde_json::{json, Value};
 use tauri::{AppHandle, Emitter, LogicalPosition, LogicalSize, Manager, State, WebviewBuilder, WebviewUrl, WindowBuilder, WindowEvent};
 
 use crate::legato::{self, Client};
-use crate::store::{Keyring, Server, Store};
+use crate::applink::{self, ImportLink};
+use crate::store::{ImportTarget, Keyring, Server, Store};
 use crate::updates;
 use crate::webauthn::{self, Attachment, ORIGIN, RP_ID};
 use crate::discovery::{Browser, Found};
@@ -54,6 +55,8 @@ pub struct Desktop {
     /// The recording made for a page's dictation, if one is.
     recording: Mutex<Option<Recording>>,
     recordings: std::sync::atomic::AtomicU64,
+    /// Tickets the browser extension handed the app, for the shell to take.
+    imports: Mutex<Vec<ImportLink>>,
 }
 
 fn webview_label(id: &str) -> String {
@@ -408,14 +411,21 @@ fn page_approval_done(app: AppHandle, server: String, detail: Value) -> Result<(
 /// plan, a note for the agent).
 #[tauri::command]
 fn open_approval_in_page(app: AppHandle, desktop: State<'_, Desktop>, server: String, approval: String) -> Result<(), String> {
+    open_in_page(&app, &desktop, server, "/", ("approval", &approval))
+}
+
+/// Opens a server's page at path?name=value, making its page when it has none,
+/// and puts the server in front.
+fn open_in_page(app: &AppHandle, desktop: &Desktop, server: String, path: &str, (name, value): (&str, &str)) -> Result<(), String> {
+    let app = app.clone();
     let base = desktop.store.lock().unwrap().server(&server).map(|s| s.url.clone()).ok_or("no such server")?;
     let mut url = tauri::Url::parse(&base).map_err(|e| e.to_string())?;
-    url.set_path("/");
-    url.query_pairs_mut().clear().append_pair("approval", &approval);
+    url.set_path(path);
+    url.query_pairs_mut().clear().append_pair(name, value);
     match app.get_webview(&webview_label(&server)) {
         Some(view) => view.navigate(url).map_err(|e| e.to_string())?,
         None => {
-            let path = format!("/?{}", url.query().unwrap_or_default());
+            let path = format!("{}?{}", url.path(), url.query().unwrap_or_default());
             let (s, token) = {
                 let store = desktop.store.lock().unwrap();
                 (store.server(&server).cloned().ok_or("no such server")?, store.token(&server))
@@ -424,8 +434,67 @@ fn open_approval_in_page(app: AppHandle, desktop: State<'_, Desktop>, server: St
         }
     }
     *desktop.active.lock().unwrap() = Some(server);
-    show_only_active(&app, &desktop);
+    show_only_active(&app, desktop);
     Ok(())
+}
+
+// ---- Tickets the browser extension hands the app ----
+
+/// Takes a link the system handed the app: an import is kept for the shell,
+/// which is told, and the window comes to the front. Other links are ignored.
+fn handle_link(app: &AppHandle, url: &str) {
+    let Some(link) = applink::read(url) else {
+        println!("[link] ignored a link the app does not read");
+        return;
+    };
+    println!("[link] import {} from {}", link.key, link.provider);
+    app.state::<Desktop>().imports.lock().unwrap().push(link);
+    let _ = app.emit_to("shell", "import-request", ());
+    bring_to_front(app);
+}
+
+fn bring_to_front(app: &AppHandle) {
+    if let Some(window) = app.get_window("main") {
+        let _ = window.unminimize();
+        let _ = window.show();
+        let _ = window.set_focus();
+    }
+}
+
+/// The imports waiting for the shell, which takes them.
+#[tauri::command]
+fn take_import_requests(desktop: State<'_, Desktop>) -> Vec<ImportLink> {
+    std::mem::take(&mut *desktop.imports.lock().unwrap())
+}
+
+#[tauri::command]
+fn import_preference(desktop: State<'_, Desktop>) -> ImportTarget {
+    desktop.store.lock().unwrap().state.import_target
+}
+
+#[tauri::command]
+fn set_import_preference(desktop: State<'_, Desktop>, target: ImportTarget) -> Result<(), String> {
+    let mut store = desktop.store.lock().unwrap();
+    store.state.import_target = target;
+    store.save()
+}
+
+/// Imports a ticket into a server (POST /api/remote/import), and gives the
+/// task it made, or the one it already had.
+#[tauri::command]
+async fn import_ticket(desktop: State<'_, Desktop>, server: String, provider: String, key: String) -> Result<Value, String> {
+    let c = {
+        let store = desktop.store.lock().unwrap();
+        client(&store, &server)?
+    };
+    let card = c.post("/api/remote/import", json!({ "ticket_id": key, "provider": provider })).await?;
+    Ok(json!({ "id": card.get("id").cloned().unwrap_or(Value::Null), "title": card.get("title").cloned().unwrap_or(Value::Null) }))
+}
+
+/// Opens a server's board with a task picked out.
+#[tauri::command]
+fn open_task_in_page(app: AppHandle, desktop: State<'_, Desktop>, server: String, task: String) -> Result<(), String> {
+    open_in_page(&app, &desktop, server, "/board", ("highlight_task", &task))
 }
 
 // ---- A page the system must trust (macOS) ----
@@ -1050,6 +1119,10 @@ fn state_path() -> std::path::PathBuf {
 pub fn run() {
     let store = Store::open(state_path(), Box::new(Keyring)).expect("the app's saved state does not read");
     tauri::Builder::default()
+        // A second start (the system opening a link) hands its link to the
+        // app that runs and ends; the deep-link plugin reads the link.
+        .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| bring_to_front(app)))
+        .plugin(tauri_plugin_deep_link::init())
         .manage(Desktop {
             store: Mutex::new(store),
             prepared: Mutex::default(),
@@ -1059,11 +1132,33 @@ pub fn run() {
             page_trusted: Mutex::default(),
             recording: Mutex::default(),
             recordings: Default::default(),
+            imports: Mutex::default(),
         })
         .setup(|app| {
             // Servers take a few seconds to answer on the network; listening
             // from the start has the pair form's list ready when it opens.
             app.state::<Desktop>().browser.start();
+            // Links the browser extension opens: legato-desktop://import?…
+            {
+                use tauri_plugin_deep_link::DeepLinkExt;
+                // An AppImage is not installed, so it says it handles the
+                // links itself, each start, pointing at where it is now.
+                #[cfg(target_os = "linux")]
+                if let Err(e) = app.deep_link().register_all() {
+                    println!("[link] could not register legato-desktop links: {e}");
+                }
+                let handle = app.handle().clone();
+                app.deep_link().on_open_url(move |event| {
+                    for url in event.urls() {
+                        handle_link(&handle, url.as_str());
+                    }
+                });
+                if let Ok(Some(urls)) = app.deep_link().get_current() {
+                    for url in urls {
+                        handle_link(app.handle(), url.as_str());
+                    }
+                }
+            }
             let window = WindowBuilder::new(app, "main")
                 .title("Legato")
                 .inner_size(1360.0, 880.0)
@@ -1113,7 +1208,12 @@ pub fn run() {
             deny,
             check_update,
             apply_update,
-            restart_app
+            restart_app,
+            take_import_requests,
+            import_preference,
+            set_import_preference,
+            import_ticket,
+            open_task_in_page
         ])
         .run(tauri::generate_context!())
         .expect("the app did not start");

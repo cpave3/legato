@@ -15,3 +15,4 @@ pub mod touchid;
 pub mod systrust;
 pub mod bridge;
 pub mod voice;
+pub mod applink;

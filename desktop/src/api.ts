@@ -71,8 +71,19 @@ export type UpdateStatus = {
   reason?: string | null
 }
 
+// A ticket the browser extension handed the app (src-tauri/src/applink.rs).
+export type ImportRequest = { provider: string; key: string }
+
+// Where such a ticket goes: the app asks which server, or uses the one in front.
+export type ImportTarget = "ask" | "current"
+
 export const api = {
   servers: () => invoke<Server[]>("servers"),
+  takeImportRequests: () => invoke<ImportRequest[]>("take_import_requests"),
+  importPreference: () => invoke<ImportTarget>("import_preference"),
+  setImportPreference: (target: ImportTarget) => invoke<void>("set_import_preference", { target }),
+  importTicket: (server: string, provider: string, key: string) => invoke<{ id: string; title?: string }>("import_ticket", { server, provider, key }),
+  openTaskInPage: (server: string, task: string) => invoke<void>("open_task_in_page", { server, task }),
   showServer: (id: string) => invoke<void>("show_server", { id }),
   pageApprovalDone: (server: string, id: string, outcome: SheetOutcome) => invoke<void>("page_approval_done", { server, detail: { id, ...outcome } }),
   openApprovalInPage: (server: string, approval: string) => invoke<void>("open_approval_in_page", { server, approval }),

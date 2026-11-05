@@ -24,12 +24,17 @@ function show(message: string, kind: "success" | "error"): void {
   status.dataset.kind = kind
 }
 
+// Imports go to the desktop app, which asks which server; else to Legato here.
+const openImportsInDesktop = document.querySelector<HTMLInputElement>("#open-imports-in-desktop")!
+
 function readForm(): ExtensionConfig {
-  return Object.fromEntries(Object.entries(fields).map(([key, input]) => [key, input.value])) as ExtensionConfig
+  const values = Object.fromEntries(Object.entries(fields).map(([key, input]) => [key, input.value]))
+  return { ...values, openImportsInDesktop: openImportsInDesktop.checked } as ExtensionConfig
 }
 
 function fill(config: ExtensionConfig): void {
-  for (const [key, input] of Object.entries(fields)) input.value = config[key as keyof ExtensionConfig]
+  for (const [key, input] of Object.entries(fields)) input.value = config[key as keyof typeof fields]
+  openImportsInDesktop.checked = config.openImportsInDesktop
 }
 
 // The service worker owns the content script registrations; it asks Legato for

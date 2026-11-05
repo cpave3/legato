@@ -70,6 +70,14 @@ When a server knows Touch ID, the sheet asks for your fingerprint instead of a t
 - The app keeps no offline copy of a server's web UI.
 - Dictation works in every server's page, over HTTP too: the app records for the page with `parecord` (or `arecord` when there is no `parecord`), and the server transcribes it as usual. Linux only for now.
 
+## Import tickets from the browser
+
+The [browser extension](/legato/integrations/browser-extension/#import-into-the-desktop-app) can hand the tickets you import from Jira or Burnlite to the app. Select **Open ticket imports in the Legato desktop app** in the extension's options. When you import a ticket, the app comes to the front and asks which server to import it into. It then shows that server's board with the new card picked out.
+
+Select **Don't ask again** to always import into the server in front. To be asked again, open **Servers & keys** and select **Ask which server to import a ticket into**.
+
+The app tells your system that it opens `legato-desktop://` links each time it starts. An AppImage can move, so open the app once after you move it.
+
 ## Updates
 
 The app keeps itself current. It checks GitHub for a newer release with a desktop build when it starts and every six hours, and when you click **Check for updates** under **This app** in **Servers & keys**. When there is one, the title bar shows **Update to vX.Y.Z**: click it, and the app downloads the new version, checks it against the release's checksums, and puts it in place of the old one, which it keeps beside it (the AppImage as `.prev`; on a Mac, a hidden `.Legato.app.prev`). Then click **Restart to update**.

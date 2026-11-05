@@ -9,6 +9,13 @@
     "beforeDevCommand": "pnpm dev",
     "beforeBuildCommand": "pnpm build"
   },
+  "plugins": {
+    "deep-link": {
+      "desktop": {
+        "schemes": ["legato-desktop"]
+      }
+    }
+  },
   "app": {
     "windows": [],
     "security": {
