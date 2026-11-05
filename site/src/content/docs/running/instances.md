@@ -33,6 +33,13 @@ You pair a main instance with a worker once, by four words, as you pair a phone.
 3. Enter the worker's address, the four words, and this main's name on the worker. The name starts as the main's host name; the worker keeps it in lowercase letters, digits and dashes.
 4. Choose **Pair**.
 
+If the app or browser you use the main from already knows the worker, there is a shorter way:
+
+- **From the Legato desktop or Android app**: under **Add a worker**, **From this app** lists the app's other servers. Choose the worker and agree in the app's own dialog ("Make vm-1 a worker of workstation?"). The app opens the worker's pairing request with the token it holds for it and hands the main the address and words, so you type neither. The page in front never sees the worker's token.
+- **From a browser** where you added the worker as a server: **From this browser** lists those servers. Choose the worker and confirm; the page opens the request with the token this browser holds for it.
+
+The server in front is never offered. If the worker cannot be reached, is too old to pair a main, or the main cannot reach it at that address, the reason shows above the form and the worker's address is filled in, so you can pair it by hand.
+
 Both sides then list each other. The worker lists the main under Main instances, with its instance ID, when it paired, when it last pulled and its open handoffs. The main lists the worker under Workers, with its address, its instance ID, when it last pulled and whether its sandbox is on. A worker without the sandbox refuses handoffs.
 
 The words work once, for five minutes and five tries, like a phone's. A phone cannot use a main's words, and a main cannot use a phone's.

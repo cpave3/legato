@@ -11,7 +11,7 @@ Handoff is built but not yet in a release: it works in Legato built from its mai
 
 A handoff sends one of your tasks to a [worker instance](/legato/running/instances/): another Legato, such as an always-on VM, that works on it while your laptop sleeps or travels. The worker makes a card for the task and starts an agent on it at once. Your own board keeps the task, read-only, in an **Away** lane until it comes back.
 
-Before you can hand anything off, pair a worker with this Legato. See [Main and worker instances](/legato/running/instances/#pair-a-main-instance-with-a-worker). Until a worker is paired, Settings › Handoff › Workers explains handoff and the board has no Away lane.
+Before you can hand anything off, pair a worker with this Legato. See [Main and worker instances](/legato/running/instances/#pair-a-main-instance-with-a-worker). When the desktop or Android app (or your browser) already knows the worker, choose it under **From this app** in Add a worker and agree; you type no address or words. Until a worker is paired, Settings › Handoff › Workers explains handoff and the board has no Away lane.
 
 ## Hand off a task
 

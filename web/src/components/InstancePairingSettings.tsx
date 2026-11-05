@@ -1,8 +1,8 @@
-import { useCallback, useEffect, useState } from "react"
+import { useCallback, useEffect, useMemo, useState } from "react"
 import { Laptop, Plus, ServerCog } from "lucide-react"
 import { SettingsCard, primaryButton, quietButton } from "./settings/SettingsUI"
 import { PairDeviceDialog } from "./PairDeviceDialog"
-import { listMains, listWorkers, pairWorker, removeWarning, removeWorker, removedText, unpairMain, type PairedMain, type Worker, type WorkerList } from "../lib/workers"
+import { listMains, listWorkers, pairWorker, removeWarning, removeWorker, removedText, unpairMain, workerCandidates, type PairedMain, type Worker, type WorkerCandidate, type WorkerList } from "../lib/workers"
 
 // Handoff: a main instance hands tasks to a worker instance it paired with
 // by phrase. Settings › Workers is the main's side; Settings › Main
@@ -20,7 +20,10 @@ const metaClass = "flex min-w-0 flex-wrap items-baseline gap-x-3 gap-y-0.5 text-
 
 // WorkersSettings is the main's side: the workers it hands tasks to, Add a
 // worker (the worker's address, the phrase it shows, this main's name on
-// it), and Remove, which warns how many away tasks the worker holds.
+// it), and Remove, which warns how many away tasks the worker holds. Add a
+// worker also offers the servers this app (or browser) already knows: one
+// chosen opens its own pairing request, after a confirm, and is paired as if
+// its address and phrase had been typed.
 export function WorkersSettings({ baseUrl }: { baseUrl: string }) {
   const [list, setList] = useState<WorkerList | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -29,6 +32,9 @@ export function WorkersSettings({ baseUrl }: { baseUrl: string }) {
   const [pairing, setPairing] = useState(false)
   const [removing, setRemoving] = useState<Worker | null>(null)
   const [busy, setBusy] = useState(false)
+  const source = useMemo(() => workerCandidates(baseUrl), [baseUrl])
+  const [candidates, setCandidates] = useState<WorkerCandidate[]>([])
+  const adding = draft !== null
 
   const load = useCallback(async () => {
     try {
@@ -38,6 +44,13 @@ export function WorkersSettings({ baseUrl }: { baseUrl: string }) {
     }
   }, [baseUrl])
   useEffect(() => { void load() }, [load])
+
+  useEffect(() => {
+    if (!adding) return
+    let live = true
+    source.list().then((list) => { if (live) setCandidates(list) }, () => { if (live) setCandidates([]) })
+    return () => { live = false }
+  }, [adding, source])
 
   const pair = async () => {
     if (!draft) return
@@ -51,6 +64,30 @@ export function WorkersSettings({ baseUrl }: { baseUrl: string }) {
       await load()
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : String(reason))
+    } finally {
+      setPairing(false)
+    }
+  }
+
+  // pairKnown pairs a server this app knows: it opens the request there
+  // (after the app's or the browser's confirm), and this main pairs with
+  // the address and phrase it gives. On failure the form keeps the address.
+  const pairKnown = async (candidate: WorkerCandidate) => {
+    if (!draft) return
+    const name = draft.name.trim() || list?.main_name || ""
+    setPairing(true)
+    setError(null)
+    setNotice(null)
+    try {
+      const opened = await source.open(candidate, name)
+      if (!opened) return
+      const worker = await pairWorker(baseUrl, { address: opened.address, phrase: opened.phrase, name })
+      setDraft(null)
+      setNotice(`Paired with ${worker.name}. Tasks can now be handed off to it.`)
+      await load()
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : String(reason))
+      setDraft((d) => (d ? { ...d, address: candidate.url } : d))
     } finally {
       setPairing(false)
     }
@@ -139,6 +176,27 @@ export function WorkersSettings({ baseUrl }: { baseUrl: string }) {
             onSubmit={(e) => { e.preventDefault(); void pair() }}
             className="flex flex-col gap-3 rounded-lg border border-lw-line-strong p-3"
           >
+            {candidates.length > 0 && (
+              <div className="flex flex-col gap-1.5">
+                <p id="worker-candidates" className="text-xs font-medium text-lw-text-2">{source.from === "app" ? "From this app" : "From this browser"}</p>
+                <ul aria-labelledby="worker-candidates" className={listClass}>
+                  {candidates.map((c) => (
+                    <li key={c.key}>
+                      <button
+                        type="button"
+                        onClick={() => void pairKnown(c)}
+                        disabled={pairing}
+                        className="flex min-h-10 w-full flex-wrap items-baseline gap-x-2 px-3 py-2 text-left hover:bg-lw-raised disabled:opacity-60"
+                      >
+                        <span className="text-sm font-medium text-lw-text">{c.name}</span>
+                        <span className="truncate font-lw-mono text-xs text-lw-faint">{c.url}</span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+                <p className="text-xs text-lw-faint">Or enter another worker's address and phrase.</p>
+              </div>
+            )}
             <p className="text-xs text-lw-text-2">
               On the worker, open Settings › Main instances › Pair a main instance (or run{" "}
               <code className="rounded bg-lw-raised px-1 font-lw-mono">legato pair --main</code>). It shows its address and a phrase. Enter them here.
