@@ -239,6 +239,11 @@ type AwayTask struct {
 	RecalledFrom  string  `db:"recalled_from"`
 	ReturnedStack *string `db:"returned_stack"`
 	ArchiveOwed   bool    `db:"archive_owed"`
+	// TakenBackAt is when the person took the task back without its
+	// results; DropOwed is set from then until the worker confirms it
+	// dropped the task.
+	TakenBackAt *string `db:"taken_back_at"`
+	DropOwed    bool    `db:"drop_owed"`
 	// WorkerUnreachableSince and WorkerRefusedAt are read from workers.
 	WorkerUnreachableSince *string `db:"worker_unreachable_since"`
 	WorkerRefusedAt        *string `db:"worker_refused_at"`

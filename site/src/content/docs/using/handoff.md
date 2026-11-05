@@ -6,7 +6,7 @@ sidebar:
 ---
 
 :::caution[Partly built]
-You can hand a task off from the web board, follow it while it is away, and return or recall it, as below. Taking a task back without its results is planned: it does not work in a release yet, and the details can change.
+You can hand a task off from the web board, follow it while it is away, bring it back, and remove a worker, as below. Attention items and phone notifications for away tasks are planned: they do not work in a release yet, and the details can change.
 :::
 
 A handoff sends one of your tasks to a [worker instance](/legato/running/instances/): another Legato, such as an always-on VM, that works on it while your laptop sleeps or travels. The worker makes a card for the task and starts an agent on it at once. Your own board keeps the task, read-only, in an **Away** lane until it comes back.
@@ -56,7 +56,7 @@ The form says why, in the words of the main or the worker, and nothing is handed
 
 ## The Away lane
 
-Once a worker is paired, the web board has an **Away** lane after its columns. A task you hand off leaves its column for the lane. While nothing is away, the lane is folded to a narrow rail, as an empty column is; a card dropped on the rail still opens the Hand off form, and the lane opens again as soon as a task is away. Click the rail, or press `z`, to open the empty columns and the lane. The lane has a group for each worker, with the worker's name, whether your main can reach it, and **Open**, which opens the worker's own web UI. A worker with nothing away says so.
+Once a worker is paired, the web board has an **Away** lane after its columns. A task you hand off leaves its column for the lane. While nothing is away, the lane is folded to a narrow rail, as an empty column is; a card dropped on the rail still opens the Hand off form, and the lane opens again as soon as a task is away. Click the rail, or press `z`, to open the empty columns and the lane. The lane has a group for each worker, with the worker's name, whether your main can reach it, **Open**, which opens the worker's own web UI, and a `⋯` menu with **Open on worker** and **Remove…**. A worker with nothing away says so.
 
 The group's header says "pulled 2 min ago" while your main hears from the worker, "unreachable since 21:40" once it has been down for 30 seconds, or "no longer accepts this main; pair again" when the worker unpaired your main (pair it again from Settings › Handoff › Workers).
 
@@ -92,9 +92,32 @@ It lands in your column with the same name as its column on the worker (usually 
 
 To bring a task back before it is done, **recall** it. Recall is offered in any state, and is the only way back for a handoff that **Failed**: fix the cause, then hand the task off again. A recall brings back whatever exists so far and adds a note naming the worker and the state, for example "Recalled from vm-1, where its agent was working." When the task's agent may still be at work, the board asks you to confirm first, since recalling stops it.
 
-Return and recall are safe to repeat. If the connection drops halfway, your main finishes the return by itself the next time it hears from the worker, and nothing comes back twice. A return to a worker that does not answer fails on the spot and marks the worker unreachable; the task stays away, and trying again later is safe. A task the worker lost cannot be returned or recalled.
+Return and recall are safe to repeat. If the connection drops halfway, your main finishes the return by itself the next time it hears from the worker, and nothing comes back twice. A return to a worker that does not answer fails on the spot and marks the worker unreachable; the task stays away, and trying again later is safe. A task the worker lost cannot be returned or recalled: take it back.
 
 A task you hand off again after it came back is a new handoff, with a new card on the worker.
+
+### Take a task back
+
+When the worker cannot bring a task back, **take it back** without its results. **Take back** is offered on a row, and in its panel, when the task is **Unreachable**, **Lost on worker** or **Not accepted**, and never while the worker can still return or recall it. The board asks you to confirm first, and your main never does it by itself.
+
+The task leaves the Away lane for the column it left, with a note saying it was taken back from the worker without its results, and why. The notes, branches and edits made on the worker stay there. Pull requests your main already follows stay on the task.
+
+Your main then tells the worker to **drop** the task the next time it reaches it, for as long as the worker stays paired: the worker stops the task's agent and archives its card with a note that your main took it back.
+
+## Remove a worker
+
+To stop using a worker, choose **Remove** under Settings › Handoff › Workers, or **Remove…** in its group's `⋯` menu on the board. It first says how many of your tasks are away there ("vm-1 holds 2 away tasks"). Removing it then:
+
+1. recalls each task it can, with its results so far;
+2. takes back the rest without results: those the worker lost, and all of them once the worker does not answer;
+3. forgets the worker: it leaves Settings and the Away lane, and nothing more can be handed to it;
+4. tells the worker to unpair your main, which ends your main's access there.
+
+If the worker cannot be reached, your main keeps its address and token, hidden, for up to 30 days, only to tell it to drop the tasks taken back and to unpair your main when it comes back. After 30 days your main forgets it entirely; unpair your main on the worker yourself if it ever comes back.
+
+## Unpair a main on the worker
+
+On the worker, **Unpair** under Settings › Handoff › Main instances first says how many handoffs that main has open there ("workstation has 2 open handoffs here"). Unpairing revokes the main's token at once and closes its handoffs. Their cards stay on the worker as ordinary cards, their agents still running, each with a note that the main was unpaired: you can archive or delete them there like any other card. The main shows its tasks as **Not accepted**, and you can take them back there.
 
 ## Staying up to date
 
@@ -102,7 +125,7 @@ Your main keeps a connection open to each worker that holds tasks of yours, and 
 
 **Sync providers** on the web board (or `r` in the TUI) also reconnects to every worker and pulls its tasks.
 
-Your main never takes a task back by itself. A task the worker lost, or one on a worker that is unreachable or no longer accepts your main, stays in the lane until you act on it.
+Your main never takes a task back by itself. A task the worker lost, or one on a worker that is unreachable or no longer accepts your main, stays in the lane until you take it back.
 
 Settings › Handoff › Workers shows when each worker was last pulled. On the worker, Settings › Handoff › Main instances shows when each main last pulled and how many of its handoffs are open there.
 
@@ -116,4 +139,4 @@ The TUI shows away tasks in their columns.
 
 ## On a phone
 
-On a phone, the board has an **Away** section above its columns while any task is away. Each worker that holds away tasks has one line, such as "vm-1 · 6 away · 2 done", with **Return all done (N)** when some are done. Tap the line to see its tasks: each row shows what it shows in the Away lane, with the same **Return** and **Recall**. Tap a row to open the task's details. Tap the line again to fold it.
+On a phone, the board has an **Away** section above its columns while any task is away. Each worker that holds away tasks has one line, such as "vm-1 · 6 away · 2 done", with **Return all done (N)** when some are done. Tap the line to see its tasks: each row shows what it shows in the Away lane, with the same **Return**, **Recall** and **Take back**. Tap a row to open the task's details. Tap the line again to fold it.

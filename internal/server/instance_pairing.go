@@ -121,6 +121,10 @@ func (s *Server) registerInstanceRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/tasks/{id}/recall", s.taskReturnHandler(true))
 	mux.HandleFunc("POST /api/workers/{instance_id}/return-done", s.workerReturnDoneHandler())
 	mux.HandleFunc("POST /api/settings/workers", s.workersPairHandler())
+	mux.HandleFunc("POST "+service.HandoffCallPath+"/{handoff_id}/drop", s.taskHandoffDropHandler())
+	mux.HandleFunc("POST "+service.HandoffLeavePath, s.handoffLeaveHandler())
+	mux.HandleFunc("POST /api/tasks/{id}/take-back", s.taskTakeBackHandler())
+	mux.HandleFunc("DELETE /api/settings/workers/{instance_id}", s.workerRemoveHandler())
 }
 
 // handoffPairingHandler answers a main with the pairing as this worker sees
@@ -174,7 +178,14 @@ func (s *Server) mainsUnpairHandler() http.HandlerFunc {
 			writeJSONError(w, http.StatusServiceUnavailable, "this server does not pair main instances")
 			return
 		}
-		err := s.instances.mains.RevokeMain(r.Context(), r.PathValue("instance_id"))
+		// A worker that takes handoffs also closes the main's handoffs,
+		// leaving their cards here.
+		var err error
+		if drops, ok := s.instances.handoffs.(HandoffDrops); ok {
+			_, err = drops.UnpairMain(r.Context(), r.PathValue("instance_id"))
+		} else {
+			err = s.instances.mains.RevokeMain(r.Context(), r.PathValue("instance_id"))
+		}
 		if errors.Is(err, service.ErrMainNotPaired) {
 			writeJSONError(w, http.StatusNotFound, err.Error())
 			return

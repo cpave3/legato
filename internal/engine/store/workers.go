@@ -9,15 +9,15 @@ import (
 // Worker is a worker instance a main paired with, by the worker's instance
 // ID. The token is not here: TokenSecret names it in the sealed secret store.
 type Worker struct {
-	InstanceID     string  `db:"instance_id"`
-	Address        string  `db:"address"`
-	Name           string  `db:"name"`
-	MainName       string  `db:"main_name"`
-	CACertificate  string  `db:"ca_certificate"`
-	TokenSecret    string  `db:"token_secret"`
-	Sandbox        bool    `db:"sandbox"`
-	HandoffVersion int     `db:"handoff_version"`
-	PairedAt       string  `db:"paired_at"`
+	InstanceID     string `db:"instance_id"`
+	Address        string `db:"address"`
+	Name           string `db:"name"`
+	MainName       string `db:"main_name"`
+	CACertificate  string `db:"ca_certificate"`
+	TokenSecret    string `db:"token_secret"`
+	Sandbox        bool   `db:"sandbox"`
+	HandoffVersion int    `db:"handoff_version"`
+	PairedAt       string `db:"paired_at"`
 	// LastPullAt is when the main last heard from the worker on its
 	// connection: a pull, a summary row or a pong.
 	LastPullAt *string `db:"last_pull_at"`
@@ -28,6 +28,9 @@ type Worker struct {
 	// RefusedAt is when the worker refused this main's token: it no longer
 	// accepts this main. Pairing again clears it.
 	RefusedAt *string `db:"refused_at"`
+	// LeavingUntil is set once the person removed the worker: it is kept,
+	// hidden, only to send the calls owed it (Drop, Leave) until then.
+	LeavingUntil *string `db:"leaving_until"`
 }
 
 // SaveWorker stores a worker, replacing the one of its instance ID: pairing
@@ -37,13 +40,22 @@ func (s *Store) SaveWorker(ctx context.Context, w Worker) error {
 		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT(instance_id) DO UPDATE SET address = excluded.address, name = excluded.name, main_name = excluded.main_name,
 			ca_certificate = excluded.ca_certificate, token_secret = excluded.token_secret, sandbox = excluded.sandbox,
-			handoff_version = excluded.handoff_version, paired_at = excluded.paired_at, refused_at = NULL`,
+			handoff_version = excluded.handoff_version, paired_at = excluded.paired_at, refused_at = NULL, leaving_until = NULL`,
 		w.InstanceID, w.Address, w.Name, w.MainName, w.CACertificate, w.TokenSecret, w.Sandbox, w.HandoffVersion, w.PairedAt)
 	return err
 }
 
-// ListWorkers lists the paired workers, in the order they were paired.
+// ListWorkers lists the paired workers, in the order they were paired. A
+// removed worker kept only to be told to leave is not one.
 func (s *Store) ListWorkers(ctx context.Context) ([]Worker, error) {
+	var out []Worker
+	err := s.db.SelectContext(ctx, &out, `SELECT * FROM workers WHERE leaving_until IS NULL ORDER BY paired_at, rowid`)
+	return out, err
+}
+
+// ListAllWorkers lists the paired workers and the removed ones still owed
+// a Leave, in the order they were paired.
+func (s *Store) ListAllWorkers(ctx context.Context) ([]Worker, error) {
 	var out []Worker
 	err := s.db.SelectContext(ctx, &out, `SELECT * FROM workers ORDER BY paired_at, rowid`)
 	return out, err

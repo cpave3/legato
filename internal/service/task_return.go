@@ -35,13 +35,14 @@ var ErrReturnRefused = errors.New("cannot bring the task back that way")
 const NoteSourceWorker = "worker"
 
 // ReturnedTask is an away task brought home: the column it landed in,
-// whether it was recalled, and the branches it came back with, in stack
-// order.
+// whether it was recalled, or taken back without its results, and the
+// branches it came back with, in stack order.
 type ReturnedTask struct {
-	TaskID   string   `json:"task_id"`
-	Column   string   `json:"column"`
-	Recalled bool     `json:"recalled"`
-	Branches []string `json:"branches"`
+	TaskID    string   `json:"task_id"`
+	Column    string   `json:"column"`
+	Recalled  bool     `json:"recalled"`
+	TakenBack bool     `json:"taken_back,omitempty"`
+	Branches  []string `json:"branches"`
 }
 
 // Return brings home a task its worker finished.
@@ -304,16 +305,46 @@ func (s *TaskHandoffService) archive(ctx context.Context, client *WorkerClient, 
 	return nil
 }
 
-// Owes says whether the main owes a worker step 2 of a return: the
-// connection to it stays wanted until it is made (WorkerOwedCalls).
+// Owes says whether the main owes a worker a call: step 2 of a return, the
+// Drop of a task taken back, or, for a removed worker, Leave. The
+// connection to it stays wanted until they are made (WorkerOwedCalls). A
+// removed worker whose time to be told ran out is forgotten here.
 func (s *TaskHandoffService) Owes(ctx context.Context, workerInstanceID string) (bool, error) {
+	if w, err := s.db.GetWorker(ctx, workerInstanceID); err == nil && w.LeavingUntil != nil {
+		if s.leaveLapsed(ctx, w) {
+			s.publish(events.EventCardsRefreshed)
+			return false, nil
+		}
+		return true, nil
+	}
 	owed, err := s.db.ListArchiveOwed(ctx, workerInstanceID)
-	return len(owed) > 0, err
+	if err != nil || len(owed) > 0 {
+		return len(owed) > 0, err
+	}
+	drops, err := s.db.ListDropOwed(ctx, workerInstanceID)
+	return len(drops) > 0, err
 }
 
-// SendOwed sends a worker every step 2 the main owes it, on connect, before
-// the pull. A worker that does not answer ends the connection.
+// SendOwed sends a worker every call the main owes it, on connect, before
+// the pull: each step 2, then each Drop, then, for a removed worker, Leave,
+// after which the worker is forgotten. A worker that does not answer ends
+// the connection.
 func (s *TaskHandoffService) SendOwed(ctx context.Context, client *WorkerClient) error {
+	err := s.sendOwedArchives(ctx, client)
+	if err == nil {
+		err = s.sendOwedDrops(ctx, client)
+	}
+	if !client.Worker.Leaving() {
+		return err
+	}
+	if err := s.leave(ctx, client, err); err != nil {
+		return err
+	}
+	s.publish(events.EventCardsRefreshed)
+	return nil
+}
+
+func (s *TaskHandoffService) sendOwedArchives(ctx context.Context, client *WorkerClient) error {
 	owed, err := s.db.ListArchiveOwed(ctx, client.Worker.InstanceID)
 	if err != nil {
 		return err
@@ -379,7 +410,7 @@ func (s *TaskHandoffService) SendOwedArchives(ctx context.Context) {
 // StartReturnLoop finishes returns under way whenever the board hears of a
 // summary row or a worker (EventCardUpdated, EventCardsRefreshed), at
 // start, and every interval besides, when it also sends again the step 2
-// calls owed. stop ends it.
+// calls and the Drops owed. stop ends it.
 func (s *TaskHandoffService) StartReturnLoop(ctx context.Context, interval time.Duration) (stop func()) {
 	ctx, cancel := context.WithCancel(ctx)
 	var updated, refreshed <-chan events.Event
@@ -400,6 +431,7 @@ func (s *TaskHandoffService) StartReturnLoop(ctx context.Context, interval time.
 			defer ticker.Stop()
 		}
 		s.SendOwedArchives(ctx)
+		s.SendOwedDrops(ctx)
 		for {
 			s.FinishReturning(ctx)
 			select {
@@ -409,6 +441,7 @@ func (s *TaskHandoffService) StartReturnLoop(ctx context.Context, interval time.
 			case <-refreshed:
 			case <-tick:
 				s.SendOwedArchives(ctx)
+				s.SendOwedDrops(ctx)
 			}
 		}
 	}()

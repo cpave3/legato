@@ -1859,8 +1859,19 @@ func (a App) openArchivedOverlay() (tea.Model, tea.Cmd) {
 func (a App) handleArchiveConfirmed() (tea.Model, tea.Cmd) {
 	a.overlayType = overlayNone
 	a.activeOverlay = nil
-	_, _ = a.svc.ArchiveDoneCards(context.Background())
+	before, _ := a.svc.CountDoneCards(context.Background())
+	archived, err := a.svc.ArchiveDoneCards(context.Background())
 	cmd := a.board.Init()
+	if err != nil {
+		var bar tea.Cmd
+		a.statusBar, bar = a.statusBar.Update(statusbar.ErrorMsg{Text: "archive: " + err.Error()})
+		return a, tea.Batch(cmd, bar)
+	}
+	if kept := before - archived; kept > 0 {
+		var bar tea.Cmd
+		a.statusBar, bar = a.statusBar.Update(statusbar.WarningMsg{Text: keptDoneText(kept)})
+		return a, tea.Batch(cmd, bar)
+	}
 	return a, cmd
 }
 
@@ -2138,6 +2149,9 @@ func (a App) runTargetedPRAction(taskID string, rediscover bool) (tea.Model, tea
 func (a App) openLinkPROverlay(taskID string) (tea.Model, tea.Cmd) {
 	if a.prSvc == nil {
 		return a, nil
+	}
+	if a, cmd, away := a.refuseAway(taskID); away {
+		return a, cmd
 	}
 	// Try to detect repo for pre-fill
 	defaultRepo := ""

@@ -40,7 +40,8 @@ The words work once, for five minutes and five tries, like a phone's. A phone ca
 - **Pairing again** with the same main replaces its token. Renaming the main this way keeps it the same main: the worker knows it by its instance ID.
 - **Another main under the same name** is refused. Unpair the first one, or choose another name.
 - **An old worker** that cannot pair a main makes the main say "update the worker" before anything is sent.
-- **Unpair** under Main instances on the worker revokes the main's token at once.
+- **Unpair** under Main instances on the worker revokes the main's token at once. It first says how many handoffs the main has open there. Their cards stay on the worker as ordinary cards, their agents still running, each with a note that the main was unpaired; the main shows them as no longer accepted. See [Hand off tasks to a worker](/legato/using/handoff/#unpair-a-main-on-the-worker).
+- **Remove** under Workers on the main forgets a worker. It first says how many of your tasks are away there, brings back what it can and takes back the rest. See [Hand off tasks to a worker](/legato/using/handoff/#remove-a-worker).
 
 ## The life of a handed-off task
 

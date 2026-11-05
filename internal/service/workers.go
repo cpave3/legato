@@ -50,13 +50,13 @@ var (
 // Worker is a worker instance this main paired with, as Settings › Workers
 // lists it. MainName is this main's name on the worker.
 type Worker struct {
-	InstanceID     string  `json:"instance_id"`
-	Address        string  `json:"address"`
-	Name           string  `json:"name"`
-	MainName       string  `json:"main_name"`
-	Sandbox        bool    `json:"sandbox"`
-	HandoffVersion int     `json:"handoff_version"`
-	PairedAt       string  `json:"paired_at"`
+	InstanceID     string `json:"instance_id"`
+	Address        string `json:"address"`
+	Name           string `json:"name"`
+	MainName       string `json:"main_name"`
+	Sandbox        bool   `json:"sandbox"`
+	HandoffVersion int    `json:"handoff_version"`
+	PairedAt       string `json:"paired_at"`
 	// LastPullAt is when this main last heard from the worker: a pull, a
 	// summary row or a pong on its connection.
 	LastPullAt *string `json:"last_pull_at,omitempty"`
@@ -65,6 +65,12 @@ type Worker struct {
 	// main's token (pair again).
 	UnreachableSince *string `json:"unreachable_since,omitempty"`
 	RefusedAt        *string `json:"refused_at,omitempty"`
+	// Away is how many of this main's tasks the worker holds, which
+	// Remove warns of.
+	Away int `json:"away"`
+	// leavingUntil is set once the worker was removed: it is kept, hidden,
+	// only to send the calls owed it until then.
+	leavingUntil string
 }
 
 // WorkerPairRequest is Add a worker: the worker's address (scheme optional,
@@ -87,6 +93,7 @@ type WorkerDefaults struct {
 type WorkerSecrets interface {
 	Add(ctx context.Context, name, secretType string, value []byte) error
 	Get(ctx context.Context, ref credential.Ref) (credential.Secret, error)
+	Remove(ctx context.Context, name string) error
 }
 
 // WorkerServiceOptions configure a main instance's workers.
@@ -141,17 +148,35 @@ func (s *WorkerService) List(ctx context.Context) ([]Worker, error) {
 	if err != nil {
 		return nil, err
 	}
+	away, err := s.db.ListAwayTasks(ctx)
+	if err != nil {
+		return nil, err
+	}
+	holds := map[string]int{}
+	for _, a := range away {
+		holds[a.WorkerInstanceID]++
+	}
 	out := make([]Worker, 0, len(rows))
 	for _, w := range rows {
-		out = append(out, workerFromRow(w))
+		worker := workerFromRow(w)
+		worker.Away = holds[w.InstanceID]
+		out = append(out, worker)
 	}
 	return out, nil
 }
 
 func workerFromRow(w store.Worker) Worker {
-	return Worker{InstanceID: w.InstanceID, Address: w.Address, Name: w.Name, MainName: w.MainName, Sandbox: w.Sandbox,
+	worker := Worker{InstanceID: w.InstanceID, Address: w.Address, Name: w.Name, MainName: w.MainName, Sandbox: w.Sandbox,
 		HandoffVersion: w.HandoffVersion, PairedAt: w.PairedAt, LastPullAt: w.LastPullAt, UnreachableSince: w.UnreachableSince, RefusedAt: w.RefusedAt}
+	if w.LeavingUntil != nil {
+		worker.leavingUntil = *w.LeavingUntil
+	}
+	return worker
 }
+
+// Leaving says whether the worker was removed and is kept only to send the
+// calls owed it.
+func (w Worker) Leaving() bool { return w.leavingUntil != "" }
 
 // workerMeta is what a main reads of a worker's /api/meta.
 type workerMeta struct {
@@ -308,10 +333,22 @@ type WorkerClient struct {
 	http   *http.Client
 }
 
-// Client is the client of a paired worker, or ErrWorkerNotPaired.
+// Client is the client of a paired worker, or ErrWorkerNotPaired: a
+// removed worker is not paired, though it is kept to send it the calls it
+// is owed.
 func (s *WorkerService) Client(ctx context.Context, instanceID string) (*WorkerClient, error) {
+	return s.client(ctx, instanceID, false)
+}
+
+// owedClient is the client of a worker the main owes calls: a paired one,
+// or a removed one not yet told to leave.
+func (s *WorkerService) owedClient(ctx context.Context, instanceID string) (*WorkerClient, error) {
+	return s.client(ctx, instanceID, true)
+}
+
+func (s *WorkerService) client(ctx context.Context, instanceID string, leaving bool) (*WorkerClient, error) {
 	row, err := s.db.GetWorker(ctx, instanceID)
-	if errors.Is(err, store.ErrNotFound) {
+	if errors.Is(err, store.ErrNotFound) || (err == nil && row.LeavingUntil != nil && !leaving) {
 		return nil, fmt.Errorf("%w: %s", ErrWorkerNotPaired, instanceID)
 	}
 	if err != nil {

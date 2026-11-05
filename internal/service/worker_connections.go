@@ -313,9 +313,10 @@ func (c *WorkerConnections) Connected(workerInstanceID string) bool {
 	return wc.connected
 }
 
-// needed lists the workers that hold away tasks or are owed a call.
+// needed lists the workers that hold away tasks or are owed a call, a
+// removed worker not yet told to leave among them.
 func (c *WorkerConnections) needed(ctx context.Context) (map[string]bool, error) {
-	workers, err := c.db.ListWorkers(ctx)
+	workers, err := c.db.ListAllWorkers(ctx)
 	if err != nil {
 		return nil, err
 	}
@@ -457,9 +458,19 @@ func (c *WorkerConnections) session(ctx context.Context, id string, wc *workerCo
 	wc.closeNow = cancel
 	wc.mu.Unlock()
 
-	client, err := c.opts.Workers.Client(ctx, id)
+	client, err := c.opts.Workers.owedClient(ctx, id)
 	if err != nil {
 		return false, err
+	}
+	if client.Worker.Leaving() {
+		// A removed worker holds nothing of this main's to follow: it is
+		// only sent the calls owed it, the last of which is Leave.
+		if owed := c.owed(); owed != nil {
+			if err := owed.SendOwed(ctx, client); err != nil {
+				return false, err
+			}
+		}
+		return false, fmt.Errorf("%w: %s was removed", ErrWorkerNotPaired, client.Worker.Name)
 	}
 	conn, err := client.dialEvents(ctx)
 	if err != nil {

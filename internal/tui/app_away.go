@@ -2,6 +2,7 @@ package tui
 
 import (
 	"errors"
+	"fmt"
 
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/cpave3/legato/internal/service"
@@ -38,13 +39,28 @@ func (a App) showRefusal(text string) (App, tea.Cmd) {
 }
 
 // awayErrorText words the service's refusal of a change to an away task as
-// the TUI's own refusal; false for any other error.
+// the TUI's own refusal, and on a worker its refusal to delete or archive
+// a card a main handed to it; false for any other error.
 func awayErrorText(err error) (string, bool) {
 	var away *service.TaskAwayError
 	if errors.As(err, &away) {
 		return board.AwayRefusal(away.TaskID, away.Worker), true
 	}
+	var handedOff *service.TaskHandedOffError
+	if errors.As(err, &handedOff) {
+		return handedOff.Error(), true
+	}
 	return "", false
+}
+
+// keptDoneText says why archiving the done cards kept some: each is away on
+// a worker, or a card a main handed to this worker, and goes home first.
+func keptDoneText(kept int) string {
+	cards := "cards"
+	if kept == 1 {
+		cards = "card"
+	}
+	return fmt.Sprintf("%d done %s kept: away on a worker, or handed here by a main; return or recall it from its main first", kept, cards)
 }
 
 // showAwayError shows the service's refusal of a change to an away task,

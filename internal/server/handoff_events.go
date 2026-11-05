@@ -157,6 +157,12 @@ func (s *Server) handoffEventsHandler() http.HandlerFunc {
 		}()
 
 		send := func(m service.HandoffStreamMessage) error {
+			// A main unpaired here hears nothing more: not the handoffs
+			// that unpairing closed, which would read as lost to it.
+			if !stillPaired() {
+				conn.Close(service.HandoffStreamRefused, "this worker no longer accepts this main; pair again")
+				return errors.New("the main is no longer paired")
+			}
 			writeCtx, done := context.WithTimeout(ctx, 10*time.Second)
 			defer done()
 			return wsjson.Write(writeCtx, conn, m)
