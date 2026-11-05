@@ -1,6 +1,7 @@
-// Package pairing pairs a phone with Legato by a short phrase: SPAKE2 (RFC 9382,
-// SPAKE2-P256-SHA256-HKDF-HMAC) lets both sides prove they know the phrase
-// without sending it, and gives them a key to send the token under.
+// Package pairing pairs a phone, or a main instance, with Legato by a short
+// phrase: SPAKE2 (RFC 9382, SPAKE2-P256-SHA256-HKDF-HMAC) lets both sides
+// prove they know the phrase without sending it, and gives them a key to
+// send the token under.
 package pairing
 
 import (

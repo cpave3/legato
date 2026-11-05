@@ -4,6 +4,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
+	"io"
 	"net"
 	"net/http"
 	"net/url"
@@ -17,7 +18,9 @@ const MsgPairingChanged = "pairing_changed"
 
 // Pairing by phrase. The person opens a request (POST /api/pairing, with the
 // token) and reads its phrase; the phone pairs through /api/pair/exchange and
-// /api/pair/confirm, which take no token: the phrase is what they check.
+// /api/pair/confirm, which take no token: the phrase is what they check. A
+// request is a phone's unless its body says {"purpose":"main"}: then a main
+// instance pairs with this server as its worker.
 
 // SetPairingService enables pairing by phrase.
 func (s *Server) SetPairingService(svc *service.PairingService) {
@@ -35,10 +38,12 @@ func (s *Server) SetPairingAddresses(addresses func() []string) {
 }
 
 // pairingView is a request as a browser or legato pair is shown it: with
-// pair_uri, the QR code that pairs a phone with this request's phrase.
+// pair_uri, the QR code that pairs a phone with this request's phrase. A
+// main's request has no QR code; address is what to type on the main.
 type pairingView struct {
 	service.PairingStatus
 	PairURI string `json:"pair_uri,omitempty"`
+	Address string `json:"address,omitempty"`
 }
 
 func (s *Server) viewPairing(r *http.Request, st service.PairingStatus) pairingView {
@@ -46,6 +51,21 @@ func (s *Server) viewPairing(r *http.Request, st service.PairingStatus) pairingV
 	if st.State != service.PairingOpen || len(st.Phrase) == 0 {
 		return view
 	}
+	address := s.pairingAddress(r)
+	if address == "" {
+		return view
+	}
+	if st.Purpose == service.PairingMain {
+		view.Address = address
+		return view
+	}
+	view.PairURI = "legato://pair?" + url.Values{"url": {address}, "phrase": {strings.Join(st.Phrase, "-")}}.Encode()
+	return view
+}
+
+// pairingAddress is the address another device can reach this server at:
+// the one the browser used, unless that is this machine's loopback.
+func (s *Server) pairingAddress(r *http.Request) string {
 	address := ""
 	if host := r.Host; host != "" && !isLoopbackHost(host) {
 		scheme := "http"
@@ -58,11 +78,7 @@ func (s *Server) viewPairing(r *http.Request, st service.PairingStatus) pairingV
 			address = found[0]
 		}
 	}
-	if address == "" {
-		return view
-	}
-	view.PairURI = "legato://pair?" + url.Values{"url": {address}, "phrase": {strings.Join(st.Phrase, "-")}}.Encode()
-	return view
+	return address
 }
 
 func isLoopbackHost(hostport string) bool {
@@ -93,7 +109,20 @@ func (s *Server) pairingHandler() http.HandlerFunc {
 		case http.MethodGet:
 			writeJSONValue(w, http.StatusOK, s.viewPairing(r, s.pairing.Status()))
 		case http.MethodPost:
-			st, err := s.pairing.Open()
+			// No body, or one without a purpose, opens a phone's request.
+			var body struct {
+				Purpose service.PairingPurpose `json:"purpose"`
+			}
+			r.Body = http.MaxBytesReader(w, r.Body, 1<<10)
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil && !errors.Is(err, io.EOF) {
+				writeJSONError(w, http.StatusBadRequest, "the pairing request is not valid JSON")
+				return
+			}
+			st, err := s.pairing.OpenFor(body.Purpose)
+			if errors.Is(err, service.ErrPairingPurpose) {
+				writeJSONError(w, http.StatusBadRequest, err.Error())
+				return
+			}
 			if err != nil {
 				writeJSONError(w, http.StatusInternalServerError, err.Error())
 				return
@@ -186,7 +215,7 @@ func (s *Server) pairConfirmHandler() http.HandlerFunc {
 			writeJSONError(w, http.StatusBadRequest, "the pairing message is not valid")
 			return
 		}
-		confirmation, sealed, err := s.pairing.Confirm(body.Session, decoded[0], decoded[1])
+		confirmation, sealed, err := s.pairing.Confirm(r.Context(), body.Session, decoded[0], decoded[1])
 		if err != nil {
 			writePairingError(w, err)
 			return
@@ -206,6 +235,10 @@ func writePairingError(w http.ResponseWriter, err error) {
 		writeJSONError(w, http.StatusForbidden, "The phrase does not match.")
 	case errors.Is(err, service.ErrPairingBadShare):
 		writeJSONError(w, http.StatusBadRequest, "the pairing message is not valid")
+	case errors.Is(err, service.ErrPairingClient):
+		writeJSONError(w, http.StatusBadRequest, err.Error())
+	case errors.Is(err, service.ErrMainNameTaken):
+		writeJSONError(w, http.StatusConflict, err.Error())
 	default:
 		writeJSONError(w, http.StatusInternalServerError, err.Error())
 	}

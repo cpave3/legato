@@ -88,7 +88,14 @@ func NewDeviceService(db *store.Store, approvals *ApprovalService, opts DeviceSe
 // ServerID is this Legato's ID, made once and kept: what devices sign, so
 // a signature for one server is no use to another.
 func (d *DeviceService) ServerID(ctx context.Context) (string, error) {
-	return d.db.InstanceValue(ctx, "server_id", func() string { return "srv-" + randomHex(8) })
+	return InstanceID(ctx, d.db)
+}
+
+// InstanceID is this Legato's instance ID ("srv-" and 16 hexadecimal
+// digits), made once and kept in instance_values as server_id. A main and
+// its workers know each other by it.
+func InstanceID(ctx context.Context, db *store.Store) (string, error) {
+	return db.InstanceValue(ctx, "server_id", func() string { return "srv-" + randomHex(8) })
 }
 
 func randomHex(n int) string {

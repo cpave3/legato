@@ -36,6 +36,7 @@ func (s *Server) mobileMetaHandler() http.HandlerFunc {
 		if s.pairing != nil {
 			meta.PhrasePairing = 1
 		}
+		s.handoffMeta(&meta)
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(meta)
 	}

@@ -2,6 +2,7 @@ package server
 
 import (
 	"bytes"
+	"context"
 	"crypto/rand"
 	"encoding/base64"
 	"encoding/json"
@@ -17,9 +18,14 @@ import (
 func pairingServer() *Server {
 	srv := New(nil, nil, nil, ":0")
 	srv.SetAuthToken("the-token")
-	srv.SetPairingService(service.NewPairingService(func() (service.PairingSecret, error) {
+	pairing := service.NewPairingService(func(_ context.Context, client service.PairingClient) (service.PairingSecret, error) {
+		if client.Purpose == service.PairingMain {
+			return service.PairingSecret{Token: "lgi_main-" + client.Name, Name: "desktop", InstanceID: "srv-feedfacefeedface"}, nil
+		}
 		return service.PairingSecret{Token: "the-token", Name: "desktop"}, nil
-	}))
+	})
+	pairing.AllowMains()
+	srv.SetPairingService(pairing)
 	return srv
 }
 

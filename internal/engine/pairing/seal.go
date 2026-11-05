@@ -9,15 +9,28 @@ import (
 	"io"
 )
 
-// What each side seals is sealed under a key of its own direction.
+// What each side seals is sealed under a key of its own direction. A main
+// instance seals its description under LabelMain; the server's secret is
+// sealed under LabelServer whoever pairs.
 const (
 	LabelPhone  = "legato pair phone"
 	LabelServer = "legato pair server"
+	LabelMain   = "legato pair main"
 )
 
 // Protocol is the SPAKE2 configuration of Legato's pairing: the phone is A.
+// The phone apps hold these values; they never change.
 var Protocol = Config{
 	IdentityA: []byte("legato-mobile"),
+	IdentityB: []byte("legato-server"),
+	AAD:       []byte("legato-pair-v1"),
+}
+
+// MainProtocol is the configuration when a main instance pairs with a
+// worker: the main is A. Its own identity puts it in the transcript, so a
+// phone cannot complete a main's request, nor a main a phone's.
+var MainProtocol = Config{
+	IdentityA: []byte("legato-main"),
 	IdentityB: []byte("legato-server"),
 	AAD:       []byte("legato-pair-v1"),
 }

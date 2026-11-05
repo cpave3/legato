@@ -3,6 +3,7 @@ package main
 import (
 	"context"
 	"net/http/httptest"
+	"strings"
 	"testing"
 	"time"
 
@@ -14,9 +15,10 @@ func phraseServer(t *testing.T) (*phrasePairing, *service.PairingService) {
 	t.Helper()
 	srv := server.New(nil, nil, nil, ":0")
 	srv.SetAuthToken("tok")
-	svc := service.NewPairingService(func() (service.PairingSecret, error) {
+	svc := service.NewPairingService(func(context.Context, service.PairingClient) (service.PairingSecret, error) {
 		return service.PairingSecret{Token: "tok"}, nil
 	})
+	svc.AllowMains()
 	srv.SetPairingService(svc)
 	web := httptest.NewServer(srv.Handler())
 	t.Cleanup(web.Close)
@@ -93,5 +95,32 @@ func TestPairsQRCodeCarriesThePhraseNotTheToken(t *testing.T) {
 	opened.PairURI = ""
 	if got := phraseQR(opened, "", "http://erebus:3080"); got != "legato://pair?phrase=acid-acorn-acre-acts&url=http%3A%2F%2Ferebus%3A3080" {
 		t.Fatalf("with no address from the server: %q", got)
+	}
+}
+
+func TestPairMainOpensARequestForAMainInstance(t *testing.T) {
+	p, svc := phraseServer(t)
+	st, err := p.openFor(context.Background(), service.PairingMain)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if st.Purpose != service.PairingMain || svc.Status().Purpose != service.PairingMain || st.PairURI != "" {
+		t.Fatalf("opened %+v", st)
+	}
+}
+
+func TestPairsOutcomeNamesAPairedMain(t *testing.T) {
+	message, paired := pairingOutcome(service.PairingStatus{State: service.PairingPaired, Purpose: service.PairingMain, Device: "workstation"})
+	if !paired || message != "Paired with main instance workstation. It can now hand tasks to this Legato." {
+		t.Fatalf("%q %v", message, paired)
+	}
+}
+
+func TestPairMainTellsWhatToEnterOnTheMain(t *testing.T) {
+	got := mainPairingInstructions("https://vm-1.lan:3080", []string{"acid", "acorn", "acre", "acts"})
+	for _, want := range []string{"Settings › Workers › Add a worker", "https://vm-1.lan:3080", "acid acorn acre acts"} {
+		if !strings.Contains(got, want) {
+			t.Fatalf("%q lacks %q", got, want)
+		}
 	}
 }

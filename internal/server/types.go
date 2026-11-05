@@ -17,6 +17,7 @@ type MobileMetaResponse struct {
 	// Tint is this Legato's colour, so a switcher shows it before it has
 	// a token for the server.
 	Tint string `json:"tint,omitempty"`
+	HandoffMeta
 }
 
 // ColumnResponse represents a column with its cards in the board response.

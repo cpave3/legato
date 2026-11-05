@@ -375,7 +375,7 @@ func commandTree() *commandDef {
 		leaf("serve", "Run the Legato web server", runServeCmd, nil, []commandFlag{valueFlag("port", "port", "Listening port"), boolFlag("hot-reload", "Supervise this foreground server and restart after binary replacement")}, "legato serve --port 3080", "legato --hot-reload serve --port 3080"),
 		authGroup,
 		leaf("version", "Print the version of this Legato", runVersionCmd, nil, []commandFlag{jsonFlag}, "legato version", "legato version --json"),
-		leaf("pair", "Pair a device with the Legato web UI", runPairContract, nil, []commandFlag{valueFlag("host", "host|ip", "Address this device uses to reach this specific Legato instance"), valueFlag("port", "port", "Server port"), jsonFlag}, "legato pair --host 192.168.1.20"),
+		leaf("pair", "Pair a device, or a main instance, with the Legato web UI", runPairContract, nil, []commandFlag{valueFlag("host", "host|ip", "Address this device uses to reach this specific Legato instance"), valueFlag("port", "port", "Server port"), boolFlag("main", "Pair a main instance that hands tasks to this Legato, instead of a phone"), jsonFlag}, "legato pair --host 192.168.1.20", "legato pair --main"),
 	)
 	root.Flags = []commandFlag{boolFlag("hot-reload", "Supervise the default TUI or serve process and restart after binary replacement")}
 	root.Examples = []string{"legato task list", "legato workflow list --json", "legato --hot-reload serve --port 3080"}

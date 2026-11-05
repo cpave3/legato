@@ -1,7 +1,7 @@
 package main
 
 import (
-	"errors"
+	"context"
 	"log"
 	"net"
 	"os"
@@ -10,14 +10,20 @@ import (
 
 	"github.com/cpave3/legato/config"
 	"github.com/cpave3/legato/internal/engine/discovery"
+	"github.com/cpave3/legato/internal/engine/sandbox"
+	"github.com/cpave3/legato/internal/engine/store"
 	"github.com/cpave3/legato/internal/server"
 	"github.com/cpave3/legato/internal/service"
 )
 
-// wirePairing lets phones pair with srv by phrase. A paired phone gets the
-// token srv checks, this machine's name, and the certificate to
-// trust for HTTPS: the generated CA, or the configured certificate.
-func wirePairing(srv *server.Server, cfg *config.Config, caCertFile, port string) {
+// wirePairing lets phones and main instances pair with srv by phrase. A
+// paired phone gets the token srv checks, this machine's name, and the
+// certificate to trust for HTTPS: the generated CA, or the configured
+// certificate. A main instance gets a token that can only hand off, and
+// this server's instance ID; srv then lists it in Settings › Main
+// instances. srv also gets Settings › Workers, for this Legato as a main.
+// See docs/ai/integrations.md § Main instances and workers.
+func wirePairing(srv *server.Server, cfg *config.Config, db *store.Store, caCertFile, port string) {
 	scheme := "http"
 	if tlsEnabled(cfg) {
 		scheme = "https"
@@ -33,20 +39,34 @@ func wirePairing(srv *server.Server, cfg *config.Config, caCertFile, port string
 	if certFile == "" && cfg.Web.TLS.Cert != "" && cfg.Web.TLS.Key != "" {
 		certFile = cfg.Web.TLS.Cert
 	}
-	srv.SetPairingService(service.NewPairingService(func() (service.PairingSecret, error) {
-		token := srv.AuthToken()
-		if token == "" {
-			return service.PairingSecret{}, errors.New("this server has no token")
-		}
-		secret := service.PairingSecret{Token: token, Name: pairingName(cfg)}
-		if certFile != "" {
-			pem, err := os.ReadFile(certFile)
-			if err != nil {
-				return service.PairingSecret{}, err
+	tokens := service.NewIntegrationTokenService(db)
+	instanceID := func(ctx context.Context) (string, error) { return service.InstanceID(ctx, db) }
+	secrets := service.PairingSecrets{
+		WebToken: srv.AuthToken,
+		Name:     pairingName(cfg),
+		CACertificate: func() (string, error) {
+			if certFile == "" {
+				return "", nil
 			}
-			secret.CACertificate = string(pem)
-		}
-		return secret, nil
+			pem, err := os.ReadFile(certFile)
+			return string(pem), err
+		},
+		Mains:      tokens,
+		InstanceID: instanceID,
+	}
+	pairing := service.NewPairingService(secrets.Secret)
+	pairing.AllowMains()
+	srv.SetPairingService(pairing)
+	srv.SetMainInstances(tokens)
+	srv.SetInstanceID(instanceID)
+	// Asked at every /api/meta: the configuration and bwrap on PATH, not the
+	// whole sandbox plan.
+	srv.SetSandboxAvailable(func() bool {
+		return cfg.Agents.Sandbox.Enabled && (sandbox.Bwrap{}).Available() == nil
+	})
+	srv.SetWorkers(service.NewWorkerService(db, service.WorkerServiceOptions{
+		Secrets:  configuredSecretStore(cfg, db),
+		MainName: pairingName(cfg),
 	}))
 }
 

@@ -207,6 +207,7 @@ Commands in an agent's session (`legato credential get`, `legato mcp serve`) ask
 - Each value is sealed with AES-256-GCM under a key derived with HKDF-SHA256 from the master key for its name and type, which are also its additional data: a value moved to another name, or read as another type, does not open.
 - The master key is 32 random bytes made on first use. `auto` takes the first source that works: `systemd-creds` (sealed to `<data_dir>/secrets.key.cred`, Linux), the Secret Service (`secret-tool`, attributes `service legato key master`), the Keychain (macOS, service `legato`, account `master-key`), a passphrase in `LEGATO_SECRETS_PASSPHRASE` (PBKDF2-SHA256, 600,000 rounds, salt in `<data_dir>/secrets.salt`), and a key file `<data_dir>/secrets.key` (mode 0600).
 - `<data_dir>/secrets.source` records the source and a value sealed under the key. Later starts use that source and no other, and refuse a key that does not open the value (a wrong passphrase).
+- Legato keeps some values there itself: an integration's OAuth refresh token, and on a main instance each paired worker's handoff token as `handoff-worker-<worker instance ID>` (see [Integrations](integrations.md) § Main instances and workers). They are listed with the rest.
 
 ## Profiles
 

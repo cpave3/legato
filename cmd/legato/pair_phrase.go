@@ -65,9 +65,16 @@ func phraseQR(opened pairingState, hostFlag, serverURL string) string {
 }
 
 func (p *phrasePairing) request(ctx context.Context, method string) (pairingState, error) {
-	req, err := http.NewRequestWithContext(ctx, method, p.base+"/api/pairing", bytes.NewReader(nil))
+	return p.requestWith(ctx, method, nil)
+}
+
+func (p *phrasePairing) requestWith(ctx context.Context, method string, body []byte) (pairingState, error) {
+	req, err := http.NewRequestWithContext(ctx, method, p.base+"/api/pairing", bytes.NewReader(body))
 	if err != nil {
 		return pairingState{}, err
+	}
+	if body != nil {
+		req.Header.Set("Content-Type", "application/json")
 	}
 	req.Header.Set("Authorization", "Bearer "+p.token)
 	resp, err := p.client.Do(req)
@@ -90,9 +97,24 @@ func (p *phrasePairing) request(ctx context.Context, method string) (pairingStat
 	return st, nil
 }
 
-// open starts a pairing request and returns its phrase.
+// open starts a pairing request for a phone and returns its phrase.
 func (p *phrasePairing) open(ctx context.Context) (pairingState, error) {
 	return p.request(ctx, http.MethodPost)
+}
+
+// openFor starts a pairing request for a phone or a main instance.
+func (p *phrasePairing) openFor(ctx context.Context, purpose service.PairingPurpose) (pairingState, error) {
+	body, err := json.Marshal(map[string]service.PairingPurpose{"purpose": purpose})
+	if err != nil {
+		return pairingState{}, err
+	}
+	return p.requestWith(ctx, http.MethodPost, body)
+}
+
+// mainPairingInstructions is what legato pair --main tells the person to
+// enter on the main instance.
+func mainPairingInstructions(address string, phrase []string) string {
+	return fmt.Sprintf("On the main instance, open Settings › Workers › Add a worker and enter\n\n    Address:  %s\n    Phrase:   %s\n\n", address, strings.Join(phrase, " "))
 }
 
 // wait follows the request until it is no longer open.
@@ -129,6 +151,9 @@ func (p *phrasePairing) cancel() {
 func pairingOutcome(st service.PairingStatus) (string, bool) {
 	switch st.State {
 	case service.PairingPaired:
+		if st.Purpose == service.PairingMain {
+			return "Paired with main instance " + st.Device + ". It can now hand tasks to this Legato.", true
+		}
 		if st.Device != "" {
 			return "Paired: " + st.Device, true
 		}

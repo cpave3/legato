@@ -13,7 +13,7 @@ Argus ──(lgi_ token)──► /api/integrations/owner              who owns 
 
 ## Scoped tokens
 
-`legato integration token create argus --scope owner:read,delegate,attention` prints a token once (`lgi_` and 52 base32 characters). The database keeps only its SHA-256 (`integration_tokens`). `token list` shows names, scopes and dates; `token revoke <name>` stops it at once. A name is unique among tokens that are not revoked.
+`legato integration token create argus --scope owner:read,delegate,attention` prints a token once (`lgi_` and 52 base32 characters). The database keeps only its SHA-256 (`integration_tokens`). `token list` shows names, scopes and dates; `token revoke <name>` stops it at once. A token has a kind (migration 083): `argus` for the tokens the CLI makes, `main` for a paired main instance's (see [Main instances and workers](#main-instances-and-workers)). A name is unique among live tokens of its kind, so a main named `argus` does not collide with Argus's token; `token list`, `token revoke` and Settings › Integrations deal with `argus` tokens only.
 
 The auth middleware (`internal/server/integrations.go`) lets a bearer token starting `lgi_` reach `/api/integrations/*` only:
 
@@ -23,9 +23,36 @@ The auth middleware (`internal/server/integrations.go`) lets a bearer token star
 
 The scope a route needs comes from the first segment of its path after `/api/integrations/` (`integrationScopes`): `owner` needs `owner:read`, `delegations` needs `delegate`, `attention` needs `attention`, and `handoff` needs `handoff`. A path in no group, such as `/api/integrations/ownership` or a new route nobody mapped, gets 403 `forbidden` whatever scopes the token holds: a new group must be given a scope before a scoped token can reach it.
 
-`handoff` (`service.ScopeHandoff`) is reserved for the routes a main instance uses to hand tasks to a worker instance. No token can hold it yet: `token create` refuses it, and the CLI does not offer it. Pairing a main will mint a token holding it alone. The WebSocket never takes one. The full web token works on the integration routes too, and acts as Argus there. A request made with a scoped token carries its integration's name in its context (`integrationFrom`).
+`handoff` (`service.ScopeHandoff`) is for the routes a main instance uses to hand tasks to a worker instance. Only pairing a main gives it, alone (`IntegrationTokenService.CreateMain`): `token create` refuses it, and the CLI does not offer it. The WebSocket never takes a scoped token. The full web token works on the integration routes too, and acts as Argus there, but it is no main: handoff handlers refuse it (below). A request made with a scoped token carries its identity in its context (`integrationFrom`): kind, name, instance ID and scopes.
 
 Integration routes answer errors as `{"error": "<code>", "message": "<text>"}`. The other routes keep `{"error": "<message>"}`.
+
+## Main instances and workers
+
+A main instance pairs with a worker instance by phrase, as a phone does, and gets a token that can only hand off ([GLOSSARY](../../GLOSSARY.md) § Instances and handoff). The spec is Burnlite LEG-15; this section covers pairing (LEG-18). Every Legato can be both.
+
+**On the worker.** The person opens a pairing request for a main: Settings › Handoff › Main instances › **Pair a main instance**, `legato pair --main`, or `POST /api/pairing {"purpose":"main"}`. It differs from a phone's request (see [Web UI](web-ui.md) § Pairing by phrase) in four ways:
+
+- **Its own SPAKE2 identity.** The main is party A as `legato-main` (`pairing.MainProtocol`), so a phone cannot complete a main's request, nor a main a phone's: each gets 403 and uses an attempt. The phone's identities, labels, AAD and `testdata/exchange.json` are unchanged.
+- **The main must say who it is.** Its sealed field (the `phone` field of `/api/pair/confirm`, sealed under `pairing.LabelMain`) is `{"name", "instance_id"}`. A field that is missing or does not open, a name with nothing left after normalising, or an instance ID that is not `srv-` and 16 hex digits fails the confirm with 400 (`ErrPairingClient`). The name is lowercased and every run of other characters becomes one dash, at most 40 (`service.NormaliseMainName`).
+- **It mints a token.** `service.PairingSecrets.Secret` is the pairing service's secret callback in both runtimes; for a main it calls `CreateMain(name, instanceID)`: an `lgi_` token of kind `main` holding `handoff` alone, carrying the main's instance ID. Re-pairing the same instance ID revokes its old token and stores the new one in one transaction (`store.ReplaceMainIntegrationToken`), so a lost confirmation or a renamed main just pairs again. Another live main with the same name is 409 (`ErrMainNameTaken`): unpair it first. The sealed secret is `{token, name, ca_certificate, instance_id}`, the last being the worker's instance ID (a phone's secret never has one).
+- **No QR code.** The request's view has `purpose: "main"`, no `pair_uri`, and `address`: the address the browser used, else the first LAN address, for the person to type on the main.
+
+A main is known by its instance ID, never its name. Settings › Main instances lists the live `main` tokens (`GET /api/settings/mains` → `{mains: [{name, instance_id, paired_at, last_pull_at?, open_handoffs}]}`, `last_pull_at` being the token's `last_used_at`; `open_handoffs` is 0 until the handoff service counts them), and **Unpair** revokes one (`DELETE /api/settings/mains/{instance_id}`, 404 when not paired). `/api/meta` advertises `handoff_pairing: 1`, `handoff` (the protocol version, `service.HandoffProtocolVersion`, 1) and `sandbox` (whether agents can run in the sandbox here) when the server pairs mains.
+
+**Handoff routes.** They live under `/api/integrations/handoff/` and act only for a paired main: a handler calls `requireHandoffMain(w, r)` (`internal/server/instance_pairing.go`), which returns the scoped identity (kind `main`, scope `handoff`, its `InstanceID`) or answers 403 `not_a_main` itself, for the full web token too. Handlers then act only on that main's records and answer `not_found` for another's. The first route is `GET /api/integrations/handoff/pairing` → `{worker_instance_id, main_instance_id, main_name, handoff}`: how the worker sees the pairing.
+
+**On the main.** Settings › Handoff › Workers › **Add a worker** takes the worker's address (https assumed without a scheme), the four words and this main's name on the worker (`POST /api/settings/workers {address, phrase, name}`; `GET` lists `{workers, instance_id, main_name}`, the last being the suggested name). `service.WorkerService.Pair`:
+
+1. reads the worker's `/api/meta` and refuses one without `handoff_pairing` or with an older `handoff` (`ErrWorkerTooOld`, "update the worker", 409);
+2. runs SPAKE2 as `legato-main` with its normalised name and instance ID sealed; until then it does not check the worker's certificate, since the phrase authenticates the exchange and the certificate to trust arrives sealed;
+3. refuses a secret whose token is not `lgi_` (an old or wrong worker sending its full web token) or that has no instance ID (`ErrWorkerRefused`, 409);
+4. calls the pairing route with the new token over the worker's certificate and checks the worker's instance ID;
+5. keeps the token sealed in Legato's own secret store as `legato://handoff-worker-<worker instance ID>` (see [Credentials](credentials.md)), and the worker in `workers` (instance ID, address, name, this main's name there, CA, the secret's name, sandbox, protocol version, paired at, last pull). Pairing the same worker again replaces its record.
+
+A wrong phrase or a closed request is `ErrWorkerRefused` with the worker's words; no answer is `ErrWorkerUnreachable` (502). `WorkerService.Client(ctx, instanceID)` is the client of a paired worker for later calls: `Call(ctx, method, path, body, into)` sends the main's token over the pinned certificate, and `CheckPairing` checks the worker still accepts this main and is the same instance.
+
+**Testing.** `internal/handofftest` runs a main and a worker in one Go test: each its own SQLite and real services, the worker's web server on an `httptest` TLS server (its certificate is the CA the main pins, the same at each restart), agents started in a `FakeTmux`, one injectable `Clock`. `StartWorker`, `NewMain`, `Pair(t, main, worker)`; `worker.Stop()` and `worker.Restart()` (same database, address and certificate); `WorkerOptions.Wire` gives the worker's server more routes before it serves. Its package comment shows how to use it.
 
 ## Owner lookup
 
@@ -219,3 +246,7 @@ Argus trusts Legato's self-signed CA through `NODE_EXTRA_CA_CERTS=<data_dir>/cer
 | `internal/service/integration_overview.go`, `web/src/components/IntegrationsSettings.tsx` | What Settings shows of integrations |
 | `internal/cli/mcp_reply.go` | `reply_case` |
 | `cmd/legato/integration_runtime.go`, `integration_contract.go` | Wiring in both runtimes, the commands |
+| `internal/engine/pairing` (`MainProtocol`, `LabelMain`), `internal/service/pairing.go`, `workers.go`, `internal/engine/store/workers.go`, migration `083_handoff_pairing.sql` | Pairing a main with a worker: the main's identity, minting its token, the main's workers |
+| `internal/server/instance_pairing.go`, `web/src/components/InstancePairingSettings.tsx`, `web/src/lib/workers.ts` | Settings › Handoff (Workers, Main instances), `requireHandoffMain`, the pairing route, `/api/meta`'s handoff fields |
+| `cmd/legato/pairing_runtime.go`, `pair_phrase.go` | Wiring in both runtimes, `legato pair --main` |
+| `internal/handofftest` | The two-instance test harness |

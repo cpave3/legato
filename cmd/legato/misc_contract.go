@@ -183,6 +183,9 @@ func runPairContract(args []string) int {
 	}
 	pairURI := "legato://pair?" + values.Encode()
 	phrase := localPhrasePairing(scheme, port, token, filepath.Join(resolveDataDir(cfg), "certs", "ca.pem"))
+	if parsed.Present["main"] {
+		return runPairMain(phrase, serverURL, jsonMode)
+	}
 	opened, phraseErr := phrase.open(context.Background())
 	if jsonMode {
 		data := map[string]any{"url": serverURL, "token": token, "pair_uri": pairURI}
@@ -203,6 +206,37 @@ func runPairContract(args []string) int {
 	qrterminal.GenerateWithConfig(phraseQR(opened, parsed.Values["host"], serverURL), qrterminal.Config{Level: qrterminal.L, Writer: os.Stdout, QuietZone: 1})
 	fmt.Fprintf(os.Stdout, "\nScan this in the Legato app, or add a server there and type\n\n    %s\n\n", formatPhrase(opened.Phrase))
 	fmt.Fprintf(os.Stdout, "Valid for %d minutes. Waiting for a phone… (Ctrl-C to stop)\n", int(service.PairingLifetime/time.Minute))
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+	ended, err := phrase.wait(ctx)
+	if err != nil {
+		phrase.cancel()
+		fmt.Fprintln(os.Stdout, "\nPairing cancelled.")
+		return exitOK
+	}
+	message, paired := pairingOutcome(ended.PairingStatus)
+	fmt.Fprintln(os.Stdout, message)
+	if !paired {
+		return exitForbidden
+	}
+	return exitOK
+}
+
+// runPairMain is legato pair --main: a pairing request on this worker for a
+// main instance, which gets a token that can only hand off. Unlike a
+// phone's, it has no fallback that prints the token: the web server must
+// be running to hold the request.
+func runPairMain(phrase *phrasePairing, serverURL string, jsonMode bool) int {
+	const command = "pair"
+	opened, err := phrase.openFor(context.Background(), service.PairingMain)
+	if err != nil {
+		return renderCommandError(command, &commandError{Code: "pairing_unavailable", Message: "Start Legato's web server (legato serve, or web.enabled) and run legato pair --main again: " + err.Error(), Exit: exitEnvironment}, jsonMode)
+	}
+	if jsonMode {
+		return writeCommandSuccess(command, map[string]any{"purpose": "main", "url": serverURL, "phrase": strings.Join(opened.Phrase, " "), "expires_at": opened.ExpiresAt}, "", true)
+	}
+	fmt.Fprint(os.Stdout, mainPairingInstructions(serverURL, opened.Phrase))
+	fmt.Fprintf(os.Stdout, "Valid for %d minutes. Waiting for a main instance… (Ctrl-C to stop)\n", int(service.PairingLifetime/time.Minute))
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 	ended, err := phrase.wait(ctx)
