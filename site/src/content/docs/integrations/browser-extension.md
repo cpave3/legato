@@ -67,7 +67,7 @@ The extension keeps the token in Chrome's local storage. Only the extension's ow
 The extension adds an import button to the pages of the ticket providers Legato uses. It works for:
 
 - **Jira**, when Legato is set up with your Jira site; see [Jira](/legato/integrations/jira/). The button shows on a ticket page, `/browse/<KEY>`.
-- **Burnlite**, when Legato is connected to it; see [Burnlite](/legato/integrations/burnlite/). The button shows on a task's own page and when you open a task on a project page.
+- **Burnlite**, when Legato is connected to it; see [Burnlite](/legato/integrations/burnlite/). The button is **♩ Import to Legato** in the header of the task's drawer, next to **Copy reference**, so it shows whenever a task is open. It sits in the drawer because the drawer closes when you click outside it.
 
 The extension learns each provider's site from Legato, so it has no site of its own. You choose which sites it may use:
 

@@ -7,6 +7,9 @@ const providers = [
   { name: "burnlite", label: "Burnlite", web_origin: "https://burnlite.test", key_pattern: "^[A-Z][A-Z0-9_]*-[0-9]+$" },
 ]
 
+const drawer = (key: string) => `<div data-testid="task-drawer"><div><span data-testid="item-key">${key}</span>` +
+  `<button data-testid="copy-task-reference">Copy reference</button></div></div>`
+
 afterEach(() => {
   document.body.replaceChildren()
   vi.unstubAllGlobals()
@@ -22,14 +25,14 @@ function stubChrome(stored: Record<string, unknown>) {
 
 it("boots on a provider's page from the stored providers and sends the import through Chrome messaging", async () => {
   const { sendMessage, get } = stubChrome({ ticketProviders: providers })
-  document.body.innerHTML = "<main>EST-42</main>"
+  document.body.innerHTML = drawer("EST-42")
 
   const module = await import("./tickets")
   const cleanup = await module.initializeTicketContentScript()
   expect(get).toHaveBeenCalledWith("ticketProviders")
   await vi.waitFor(() => {
-    const button = document.querySelector<HTMLButtonElement>("#legato-ticket-action button")
-    expect(button?.textContent).toBe("Import EST-42 to Legato")
+    const button = document.querySelector<HTMLButtonElement>("#legato-ticket-inline button")
+    expect(button?.title).toBe("Import EST-42 to Legato")
     button?.click()
   })
 
@@ -37,21 +40,19 @@ it("boots on a provider's page from the stored providers and sends the import th
     type: "importTicket",
     context: { provider: "burnlite", ticketId: "EST-42" },
   }))
-  await vi.waitFor(() => expect(document.querySelector("#legato-ticket-action button")?.textContent).toBe("Imported to Legato"))
+  await vi.waitFor(() => expect(document.querySelector("#legato-ticket-inline button")?.textContent).toContain("Imported to Legato"))
   cleanup()
 })
 
-it("re-checks the page when the drawer changes the address without a navigation event", async () => {
+it("follows the drawer as it moves to another task", async () => {
   stubChrome({ ticketProviders: providers })
+  document.body.innerHTML = drawer("EST-42")
   const module = await import("./tickets")
   const cleanup = await module.initializeTicketContentScript()
-  await vi.waitFor(() => expect(document.querySelector("#legato-ticket-action button")?.textContent).toBe("Import EST-42 to Legato"))
+  await vi.waitFor(() => expect(document.querySelector<HTMLButtonElement>("#legato-ticket-inline button")?.title).toBe("Import EST-42 to Legato"))
 
-  history.replaceState(null, "", "/project/0b7c6c1e?item=EST-43")
-  document.body.append(document.createElement("aside"))
-  await vi.waitFor(() => expect(document.querySelector("#legato-ticket-action button")?.textContent).toBe("Import EST-43 to Legato"))
-
-  history.replaceState(null, "", "/project/0b7c6c1e?item=EST-42")
+  document.querySelector("[data-testid=item-key]")!.textContent = "EST-43"
+  await vi.waitFor(() => expect(document.querySelector<HTMLButtonElement>("#legato-ticket-inline button")?.title).toBe("Import EST-43 to Legato"))
   cleanup()
 })
 
@@ -62,6 +63,7 @@ it("adds nothing on a site no stored provider names", async () => {
   const cleanup = await module.initializeTicketContentScript()
   await new Promise((resolve) => setTimeout(resolve, 0))
   expect(document.querySelector("#legato-ticket-action")).toBeNull()
+  expect(document.querySelector("#legato-ticket-inline")).toBeNull()
   cleanup()
 })
 
@@ -71,5 +73,6 @@ it("adds nothing when nothing is stored", async () => {
   const cleanup = await module.initializeTicketContentScript()
   await new Promise((resolve) => setTimeout(resolve, 0))
   expect(document.querySelector("#legato-ticket-action")).toBeNull()
+  expect(document.querySelector("#legato-ticket-inline")).toBeNull()
   cleanup()
 })

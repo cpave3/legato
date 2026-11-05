@@ -113,7 +113,7 @@ The options page lists the sites under **Ticket sites** with **Allowed** or **No
 On a page, `tickets.js` finds the provider whose `web_origin` is the page's origin and reads the key:
 
 - **Jira**: `/browse/<KEY>`, uppercased.
-- **Burnlite**: a key link `/<KEY>`; a project page's `/project/<uuid>?item=<KEY>`, which Burnlite keeps current with `history.replaceState` as task drawers open and close; or, when the address has no key, the open drawer's `[data-testid="task-drawer"] [data-testid="item-key"]`. A content script cannot see `replaceState`, so the script looks again whenever the page changes, which the drawer opening does.
+- **Burnlite**: the open task drawer's `[data-testid="task-drawer"] [data-testid="item-key"]` (a key link `/<KEY>` redirects to a project page with the drawer open). The drawer is a Radix modal that closes on a press or focus outside it, so on Burnlite there is no bubble: the script puts a **♩ Import to Legato** button (`#legato-ticket-inline`) in the drawer's header, before **Copy reference** and with its classes, and follows the drawer as it opens another task or closes. The bubble used elsewhere keeps its own `pointerdown`, `mousedown`, `touchstart` and `focusin` from the page, and is not removed while its import runs.
 
 A key counts only when it matches the provider's `key_pattern`. Other provider names get no button.
 
@@ -162,7 +162,7 @@ Without the extension, Stream Deck links remain valid ordinary Legato URLs; Lega
 8. Verify invalid token, missing workflow, missing/ambiguous presets, and ambiguous Markdown artifacts show actionable errors.
 9. In the options, check **Ticket sites** lists Jira and Burnlite as Legato has them, **Allow** each, and check each turns to **Allowed**.
 10. Import a Jira ticket and verify the board scrolls to its cyan-highlighted card, then removes the highlight and query parameter after eight seconds.
-11. Import a Burnlite task from its key link, from a project page with its drawer open (the button follows the drawer as you open another task or close it), and check a task already imported from Jira under the same key shows Legato's refusal.
+11. Import a Burnlite task with the **Import to Legato** button in its open drawer (the button follows the drawer as you open another task or close it, and the drawer stays open when you press it), and check a task already imported from Jira under the same key shows Legato's refusal.
 12. Make a Legato tab active, switch to another desktop application if desired, press each Stream Deck navigation type, and verify the prior tab is reused without a duplicate.
 13. Make a non-Legato tab active and verify Stream Deck leaves the new Legato tab.
 14. Disable the extension and verify Stream Deck destinations still open normally.

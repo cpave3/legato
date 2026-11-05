@@ -134,4 +134,21 @@ describe("createLegatoFab", () => {
     expect(fab.button.style.backgroundColor).toBe("rgb(109, 94, 246)")
     expect(discuss.style.backgroundColor).toBe("transparent")
   })
+
+  // A modal on the host page (Burnlite's task drawer) closes on a press or a
+  // focus outside it, which it hears on the document. The widget's own input
+  // must not reach the page, or pressing Import closes the drawer.
+  it("keeps its presses and focus from the host page", () => {
+    const fab = createLegatoFab(document, { id: "test-legato-fab", title: "t", subtitle: "s", actionLabel: "Import" })
+    document.body.append(fab.root)
+    const heard: string[] = []
+    for (const type of ["pointerdown", "mousedown", "touchstart", "focusin"]) {
+      document.addEventListener(type, () => heard.push(type))
+    }
+    for (const type of ["pointerdown", "mousedown", "touchstart"]) {
+      fab.button.dispatchEvent(new Event(type, { bubbles: true }))
+    }
+    fab.button.dispatchEvent(new FocusEvent("focusin", { bubbles: true }))
+    expect(heard).toEqual([])
+  })
 })

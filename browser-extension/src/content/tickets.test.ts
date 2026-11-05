@@ -98,47 +98,95 @@ describe("reconcileTicketAction", () => {
     expect(document.querySelector("#legato-ticket-action")).toBeNull()
   })
 
-  it("names a Burnlite task and follows the drawer as it opens and closes", () => {
-    const send = vi.fn()
-    const href = "https://burnlite.test:8443/project/0b7c6c1e"
-    reconcileTicketAction(document, href, burnlite, send)
-    expect(document.querySelector("#legato-ticket-action")).toBeNull()
+  it("keeps the widget while its import runs, even when the page stops naming the ticket", async () => {
+    let finish: (value: unknown) => void = () => undefined
+    const send = vi.fn().mockReturnValue(new Promise((resolve) => { finish = resolve }))
+    reconcileTicketAction(document, "https://example.atlassian.net/browse/AG-1", jira, send)
+    document.querySelector<HTMLButtonElement>("#legato-ticket-action button")!.click()
+    expect(send).toHaveBeenCalledWith({ type: "importTicket", context: { provider: "jira", ticketId: "AG-1" } })
 
-    document.body.insertAdjacentHTML("beforeend", `<div data-testid="task-drawer"><span data-testid="item-key">EST-3</span></div>`)
-    reconcileTicketAction(document, href, burnlite, send)
-    const action = document.querySelector<HTMLElement>("#legato-ticket-action")!
-    expect(action.textContent).toContain("Burnlite task import")
-    expect(action.querySelector("button")?.textContent).toBe("Import EST-3 to Legato")
+    reconcileTicketAction(document, "https://example.atlassian.net/issues", jira, send)
+    expect(document.querySelector("#legato-ticket-action")).not.toBeNull()
 
-    document.querySelector("[data-testid=task-drawer]")!.remove()
-    reconcileTicketAction(document, href, burnlite, send)
+    finish({ ok: true, taskUrl: "http://localhost:3080/board?highlight_task=AG-1" })
+    await vi.waitFor(() => expect(document.querySelector("#legato-ticket-action button")?.textContent).toBe("Imported to Legato"))
+    // Then the widget follows the page again.
+    reconcileTicketAction(document, "https://example.atlassian.net/issues", jira, send)
     expect(document.querySelector("#legato-ticket-action")).toBeNull()
   })
+})
 
-  it("imports once, reports success, and permits retry after an error", async () => {
+// Burnlite's task drawer is a modal: a press outside it closes it. So on
+// Burnlite the import is a button in the drawer, beside Copy reference.
+describe("reconcileTicketAction on Burnlite", () => {
+  const href = "https://burnlite.test:8443/project/0b7c6c1e?item=EST-3"
+  const drawer = (key: string) => `<div data-testid="task-drawer"><div class="header"><span data-testid="item-key">${key}</span>` +
+    `<div class="flex-1"></div><button class="copy-classes" data-testid="copy-task-reference">Copy reference</button></div></div>`
+  const inline = () => document.querySelector<HTMLElement>("#legato-ticket-inline")
+  const inlineButton = () => document.querySelector<HTMLButtonElement>("#legato-ticket-inline button")!
+
+  beforeEach(() => { document.body.innerHTML = "<main>Board</main>" })
+
+  it("puts an Import button in the drawer, before Copy reference, styled as it, and no bubble", () => {
+    reconcileTicketAction(document, href, burnlite, vi.fn())
+    expect(inline()).toBeNull()
+
+    document.body.insertAdjacentHTML("beforeend", drawer("EST-3"))
+    reconcileTicketAction(document, href, burnlite, vi.fn())
+    const copy = document.querySelector("[data-testid=copy-task-reference]")!
+    expect(document.querySelector("[data-testid=task-drawer]")!.contains(inline())).toBe(true)
+    expect(inline()!.nextElementSibling).toBe(copy)
+    expect(inlineButton().className).toBe("copy-classes")
+    expect(inlineButton().textContent).toContain("Import to Legato")
+    expect(inlineButton().title).toBe("Import EST-3 to Legato")
+    expect(document.querySelector("#legato-ticket-action")).toBeNull()
+
+    reconcileTicketAction(document, href, burnlite, vi.fn())
+    expect(document.querySelectorAll("#legato-ticket-inline")).toHaveLength(1)
+  })
+
+  it("follows the drawer from task to task, and goes when it closes", () => {
+    document.body.insertAdjacentHTML("beforeend", drawer("EST-3"))
+    reconcileTicketAction(document, href, burnlite, vi.fn())
+    document.querySelector("[data-testid=item-key]")!.textContent = "EST-4"
+    reconcileTicketAction(document, href, burnlite, vi.fn())
+    expect(inlineButton().title).toBe("Import EST-4 to Legato")
+
+    document.querySelector("[data-testid=task-drawer]")!.remove()
+    reconcileTicketAction(document, href, burnlite, vi.fn())
+    expect(inline()).toBeNull()
+  })
+
+  it("imports the drawer's task, reports success, and permits retry after an error", async () => {
     const send = vi.fn()
       .mockRejectedValueOnce(new Error("Burnlite is not connected"))
-      .mockResolvedValueOnce({ ok: true, taskUrl: "http://localhost:3080/board?highlight_task=task-1" })
-    reconcileTicketAction(document, "https://burnlite.test:8443/EST-42", burnlite, send)
-    const button = document.querySelector<HTMLButtonElement>("#legato-ticket-action button")!
+      .mockResolvedValueOnce({ ok: true, taskUrl: "http://localhost:3080/board?highlight_task=EST-3" })
+    document.body.insertAdjacentHTML("beforeend", drawer("EST-3"))
+    reconcileTicketAction(document, href, burnlite, send)
 
-    button.click()
-    button.click()
+    inlineButton().click()
+    inlineButton().click()
     expect(send).toHaveBeenCalledTimes(1)
-    await vi.waitFor(() => expect(button.textContent).toBe("Retry import EST-42"))
-    expect(document.querySelector("#legato-ticket-action")?.textContent).toContain("Burnlite is not connected")
+    expect(send).toHaveBeenCalledWith({ type: "importTicket", context: { provider: "burnlite", ticketId: "EST-3" } })
+    await vi.waitFor(() => expect(inlineButton().textContent).toContain("Retry import"))
+    expect(inline()!.textContent).toContain("Burnlite is not connected")
 
-    button.click()
-    button.click()
-    await vi.waitFor(() => expect(send).toHaveBeenCalledTimes(2))
-    expect(send.mock.calls[1][0]).toEqual({ type: "importTicket", context: { provider: "burnlite", ticketId: "EST-42" } })
-    await vi.waitFor(() => expect(button.textContent).toBe("Imported to Legato"))
+    inlineButton().click()
+    await vi.waitFor(() => expect(inlineButton().textContent).toContain("Imported to Legato"))
+    expect(send).toHaveBeenCalledTimes(2)
   })
 
   it("shows the error a failed response carries", async () => {
-    const send = vi.fn().mockResolvedValue({ ok: false, error: "EST-42 is already a task from jira" })
-    reconcileTicketAction(document, "https://burnlite.test:8443/EST-42", burnlite, send)
-    document.querySelector<HTMLButtonElement>("#legato-ticket-action button")!.click()
-    await vi.waitFor(() => expect(document.querySelector("#legato-ticket-action")?.textContent).toContain("EST-42 is already a task from jira"))
+    const send = vi.fn().mockResolvedValue({ ok: false, error: "EST-3 is already a task from jira" })
+    document.body.insertAdjacentHTML("beforeend", drawer("EST-3"))
+    reconcileTicketAction(document, href, burnlite, send)
+    inlineButton().click()
+    await vi.waitFor(() => expect(inline()!.textContent).toContain("EST-3 is already a task from jira"))
+  })
+
+  it("adds nothing for a drawer key Burnlite would never give", () => {
+    document.body.insertAdjacentHTML("beforeend", drawer("not-a-key"))
+    reconcileTicketAction(document, href, burnlite, vi.fn())
+    expect(inline()).toBeNull()
   })
 })

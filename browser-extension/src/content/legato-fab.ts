@@ -195,5 +195,13 @@ export function createLegatoFab(doc: Document, options: LegatoFabOptions): Legat
   }
 
   root.append(identity, copy, actions, status)
+  // The widget's own presses and focus stay the widget's. A modal on the
+  // host page (Burnlite's task drawer, any Radix dialog) hears them on the
+  // document as a press outside it and closes, which can take the page's
+  // ticket, and so this widget, away before the click lands.
+  for (const type of ["pointerdown", "mousedown", "touchstart", "focusin"]) {
+    root.addEventListener(type, (event) => event.stopPropagation())
+  }
+
   return { root, title, subtitle, button, status, actions, addSecondaryAction, setEmphasis, setPrimaryVisible, setState }
 }

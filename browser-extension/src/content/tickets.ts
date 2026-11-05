@@ -7,6 +7,7 @@ type MessageResponse = { ok: true; taskUrl: string; navigationWarning?: string }
 type SendMessage = (message: unknown) => Promise<MessageResponse>
 
 const ACTION_ID = "legato-ticket-action"
+const INLINE_ID = "legato-ticket-inline"
 
 // How each provider's pages name a ticket, and what the widget calls one.
 type ProviderPages = { noun: string; keyIn: (url: URL, doc: Document) => string | null }
@@ -51,8 +52,18 @@ export function parseTicketKey(provider: TicketProvider, href: string, doc: Docu
 }
 
 export function reconcileTicketAction(doc: Document, href: string, provider: TicketProvider, sendMessage: SendMessage): void {
+  // Burnlite shows a task in a modal drawer that closes on a press outside
+  // it, so its import is a button inside the drawer instead of a bubble.
+  if (provider.name === "burnlite") {
+    doc.querySelector(`#${ACTION_ID}`)?.remove()
+    reconcileDrawerButton(doc, provider, sendMessage)
+    return
+  }
   const ticketId = parseTicketKey(provider, href, doc)
   const existing = doc.querySelector<HTMLElement>(`#${ACTION_ID}`)
+  // An import in flight keeps its widget, so its outcome is seen, whatever
+  // the page does meanwhile (a drawer that closes takes its key away).
+  if (existing?.dataset.importing === "true") return
   if (!ticketId) {
     existing?.remove()
     return
@@ -75,6 +86,7 @@ export function reconcileTicketAction(doc: Document, href: string, provider: Tic
   button.addEventListener("click", () => {
     if (busy) return
     busy = true
+    root.dataset.importing = "true"
     setState("loading", "Importing ticket…")
     void sendMessage({ type: "importTicket", context }).then((response) => {
       if (!response.ok) throw new Error(response.error)
@@ -85,11 +97,80 @@ export function reconcileTicketAction(doc: Document, href: string, provider: Tic
       setState("error", error instanceof Error ? error.message : String(error))
     }).finally(() => {
       busy = false
+      delete root.dataset.importing
       if (status.dataset.state === "loading") setState("idle", "")
     })
   })
 
   doc.body.append(root)
+}
+
+// The task the open Burnlite drawer shows, and where its header's buttons are.
+function burnliteDrawer(doc: Document, provider: TicketProvider): { drawer: Element; key: string } | null {
+  const drawer = doc.querySelector('[data-testid="task-drawer"]')
+  const key = drawer?.querySelector('[data-testid="item-key"]')?.textContent?.trim()
+  if (!drawer || !key || !matchesKeyPattern(provider, key)) return null
+  return { drawer, key }
+}
+
+function reconcileDrawerButton(doc: Document, provider: TicketProvider, sendMessage: SendMessage): void {
+  const found = burnliteDrawer(doc, provider)
+  const existing = doc.querySelector<HTMLElement>(`#${INLINE_ID}`)
+  if (existing?.dataset.importing === "true" && existing.isConnected) return
+  if (!found) {
+    existing?.remove()
+    return
+  }
+  if (existing && existing.dataset.ticketId === found.key && found.drawer.contains(existing)) return
+  existing?.remove()
+
+  const ticketId = found.key
+  const copy = found.drawer.querySelector<HTMLElement>('[data-testid="copy-task-reference"]')
+  const keyElement = found.drawer.querySelector('[data-testid="item-key"]')!
+
+  const wrap = doc.createElement("span")
+  wrap.id = INLINE_ID
+  wrap.dataset.ticketId = ticketId
+  wrap.style.cssText = "display:inline-flex;align-items:center;gap:6px"
+  const button = doc.createElement("button")
+  button.type = "button"
+  // Burnlite's own look, from the Copy reference button beside it.
+  if (copy) button.className = copy.className
+  else button.style.cssText = "font:inherit;font-size:12px;padding:4px 10px;border-radius:8px;cursor:pointer"
+  button.title = `Import ${ticketId} to Legato`
+  const label = (text: string) => { button.textContent = `♩ ${text}` }
+  label("Import to Legato")
+  const status = doc.createElement("span")
+  status.setAttribute("role", "status")
+  status.style.cssText = "font-size:12px;max-width:260px"
+  wrap.append(button, status)
+
+  const say = (text: string, error = false) => {
+    status.textContent = text
+    status.style.color = error ? "#e5484d" : ""
+  }
+  button.addEventListener("click", () => {
+    if (wrap.dataset.importing === "true") return
+    wrap.dataset.importing = "true"
+    button.disabled = true
+    label("Importing…")
+    say("")
+    const context: TicketContext = { provider: provider.name, ticketId }
+    void sendMessage({ type: "importTicket", context }).then((response) => {
+      if (!response.ok) throw new Error(response.error)
+      label("Imported to Legato")
+      say(response.navigationWarning ?? "")
+    }).catch((error: unknown) => {
+      label("Retry import")
+      say(error instanceof Error ? error.message : String(error), true)
+    }).finally(() => {
+      delete wrap.dataset.importing
+      button.disabled = false
+    })
+  })
+
+  if (copy?.parentElement) copy.parentElement.insertBefore(wrap, copy)
+  else keyElement.parentElement?.append(wrap)
 }
 
 function sendMessage(message: unknown): Promise<MessageResponse> {
