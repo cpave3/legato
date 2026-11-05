@@ -1,7 +1,8 @@
 import type { ReactNode } from "react"
 import { ChevronRight, X } from "lucide-react"
 
-import { taskPullRequests, type CardDetail } from "../../lib/board-types"
+import { taskPullRequests, type AwayOn, type CardDetail } from "../../lib/board-types"
+import { awayLook, kindLabel, purposeLabel } from "../../lib/away"
 import { MarkdownBody } from "../MarkdownBody"
 import { Button } from "../ui/Button"
 import { TaskActivityTabs } from "./TaskActivityTabs"
@@ -24,6 +25,8 @@ interface DetailPanelProps {
   onCancelSwarm: () => void
   onCreateWorktree?: () => void
   worktreesEnabled?: boolean
+  // Set while the task is away on a worker: it is shown read-only.
+  away?: AwayOn
 }
 
 function Property({ label, children, wide = false }: { label: string; children: ReactNode; wide?: boolean }) {
@@ -83,6 +86,7 @@ export function DetailPanel({
   onCancelSwarm,
   onCreateWorktree = () => {},
   worktreesEnabled = false,
+  away,
 }: DetailPanelProps) {
   const isLocal = !card.provider
   const pullRequests = taskPullRequests(card)
@@ -114,16 +118,26 @@ export function DetailPanel({
           <Button variant="ghost" size="icon-sm" aria-label="Close task details" onClick={onClose}><X size={16} /></Button>
         </header>
 
-        <div data-task-agent-action="mobile" className="shrink-0 border-b border-zinc-800 px-5 py-3 md:px-6 lg:hidden">
-          <TaskAgentAction {...agentActionProps}/>
-        </div>
+        {away ? (
+          <div data-task-away className="flex shrink-0 flex-wrap items-center gap-x-3 gap-y-1 border-b border-zinc-800 bg-zinc-950/40 px-5 py-3 text-xs text-zinc-400 md:px-6">
+            <span className="font-medium text-zinc-200">Away on {away.worker}</span>
+            <span>{awayLook(away).label}</span>
+            <span>{purposeLabel(away.purpose)} · from {kindLabel(away.kind).toLowerCase()} <span className="font-mono">{away.branch}</span></span>
+            <span>Changes come from {away.worker} when the task comes back.</span>
+            {away.url && <a href={away.url} target="_blank" rel="noreferrer" className="text-indigo-400 hover:underline">Open on {away.worker}</a>}
+          </div>
+        ) : (
+          <div data-task-agent-action="mobile" className="shrink-0 border-b border-zinc-800 px-5 py-3 md:px-6 lg:hidden">
+            <TaskAgentAction {...agentActionProps}/>
+          </div>
+        )}
 
         <div data-task-detail-layout className="grid min-h-0 flex-1 grid-cols-1 overflow-y-auto lg:grid-cols-[minmax(0,1fr)_18rem] lg:overflow-hidden">
           <main aria-label="Task content" className="px-5 py-5 md:px-6 lg:min-h-0 lg:overflow-y-auto">
             <section aria-labelledby="task-description-heading">
               <div className="flex items-center justify-between gap-3">
-                <h3 id="task-description-heading" className="text-sm font-semibold text-zinc-200">Description</h3>
-                <Button variant="ghost" size="sm" title="Shortcut: e" onClick={onEditDescription}>{isLocal ? "Edit" : "Edit Legato details"}</Button>
+                <h3 id="task-description-heading" className="text-sm font-semibold text-zinc-200">Description{away && <span className="ml-2 text-xs font-normal text-zinc-500">read-only while away</span>}</h3>
+                {!away && <Button variant="ghost" size="sm" title="Shortcut: e" onClick={onEditDescription}>{isLocal ? "Edit" : "Edit Legato details"}</Button>}
               </div>
               {isLocal
                 ? card.description_md
@@ -169,6 +183,7 @@ export function DetailPanel({
             </section>
 
             <div data-task-actions className="mt-6 space-y-5 border-t border-zinc-800 pt-5">
+              {!away && <>
               <section aria-labelledby="task-work-heading" className="space-y-2">
                 <h3 id="task-work-heading" className={sectionHeadingClass}>Work</h3>
                 <div data-task-agent-action="desktop" className="hidden lg:block">
@@ -183,17 +198,18 @@ export function DetailPanel({
                 {isLocal && <Button variant="outline" size="sm" className={sidebarButtonClass} title="Shortcut: t" onClick={onEditTitle}>Edit title</Button>}
                 <Button variant="outline" size="sm" className={sidebarButtonClass} title="Shortcut: e" onClick={onEditDescription}>{isLocal ? "Edit description" : "Edit Legato details"}</Button>
               </section>
+              </>}
 
               <section aria-labelledby="task-more-heading" className="space-y-1">
                 <h3 id="task-more-heading" className={sectionHeadingClass}>More actions</h3>
-                <Button variant="ghost" size="sm" className={sidebarButtonClass} title="Shortcut: p" onClick={onLinkPR}>Link pull request</Button>
+                {!away && <Button variant="ghost" size="sm" className={sidebarButtonClass} title="Shortcut: p" onClick={onLinkPR}>Link pull request</Button>}
                 {pullRequests.length > 0 && <Button variant="ghost" size="sm" className={sidebarButtonClass} onClick={onRefreshPR}>Refresh pull request</Button>}
                 {card.code_context?.repo && <Button variant="ghost" size="sm" className={sidebarButtonClass} onClick={onRediscoverPR}>Rediscover pull request</Button>}
                 <Button variant="ghost" size="sm" className={sidebarButtonClass} title="Shortcut: y" onClick={onCopyDescription}>Copy description</Button>
                 <Button variant="ghost" size="sm" className={sidebarButtonClass} title="Shortcut: Shift+y" onClick={onCopyFull}>Copy full task</Button>
                 {(card.remote_meta?.url || card.pr_meta?.pr_url) && <Button variant="ghost" size="sm" className={sidebarButtonClass} title="Shortcut: o" onClick={onOpenURL}>Open in browser</Button>}
-                {(card.swarm_stats || card.swarm_working_dir) && <Button variant="ghost" size="sm" className={`${sidebarButtonClass} text-red-400 hover:text-red-300`} onClick={onCancelSwarm}>Cancel swarm</Button>}
-                <Button variant="ghost" size="sm" className={`${sidebarButtonClass} text-red-400 hover:text-red-300`} title="Shortcut: Shift+d" onClick={onDelete}>Delete task</Button>
+                {!away && (card.swarm_stats || card.swarm_working_dir) && <Button variant="ghost" size="sm" className={`${sidebarButtonClass} text-red-400 hover:text-red-300`} onClick={onCancelSwarm}>Cancel swarm</Button>}
+                {!away && <Button variant="ghost" size="sm" className={`${sidebarButtonClass} text-red-400 hover:text-red-300`} title="Shortcut: Shift+d" onClick={onDelete}>Delete task</Button>}
               </section>
             </div>
           </aside>

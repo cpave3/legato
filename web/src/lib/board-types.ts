@@ -1,11 +1,24 @@
 export interface BoardResponse {
   columns: BoardColumn[]
   workspaces: Workspace[]
+  // The workers this main is paired with; absent from older servers.
+  workers?: BoardWorker[]
 }
 
 export interface BoardColumn {
   name: string
   cards: BoardCard[]
+  // Set on the Away lane the web board adds after the columns: the tasks
+  // away on workers, which the server leaves in the columns they left.
+  away?: boolean
+}
+
+// A worker this main is paired with: a group of the Away lane.
+export interface BoardWorker {
+  instance_id: string
+  name: string
+  address: string
+  last_pull_at?: string
 }
 
 export interface BoardCard {
@@ -43,10 +56,28 @@ export interface HandoffFrom {
   main_task_id: string
 }
 
+// A task away on a worker: where it went, how, the column it left, the
+// worker's state of it as last heard, and the address that opens it there.
 export interface AwayOn {
   worker_instance_id: string
   worker: string
   handoff_id: string
+  worker_task_id: string
+  // make-change or find-out
+  purpose: string
+  // new-branch or pushed-branch
+  kind: string
+  repo: string
+  branch: string
+  agent_kind?: string
+  left_column: string
+  handed_off_at: string
+  // pending, in_progress, done, failed or returning; absent when nothing
+  // was heard.
+  state?: string
+  failure?: string
+  state_at?: string
+  url?: string
 }
 
 export interface SwarmStats {

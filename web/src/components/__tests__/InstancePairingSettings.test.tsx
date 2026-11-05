@@ -65,6 +65,13 @@ describe("WorkersSettings", () => {
     expect(within(vm).getByText(/sandbox on/i)).toBeTruthy()
   })
 
+  it("explains handing off before any worker is paired", async () => {
+    workers = []
+    render(<WorkersSettings baseUrl="" />)
+    expect(await screen.findByText(/hand a task off to a worker/i)).toBeTruthy()
+    expect(screen.getByText(/the task stays here, read-only/i)).toBeTruthy()
+  })
+
   it("adds a worker by its address, its phrase and this main's name", async () => {
     render(<WorkersSettings baseUrl="" />)
     await screen.findByRole("listitem", { name: "vm-1" })

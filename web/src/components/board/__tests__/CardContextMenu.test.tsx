@@ -97,4 +97,22 @@ describe("CardContextMenu", () => {
     ] as never)
     expect(options.map(option => [option.definition.name, option.taskInput])).toEqual([["one", "subject"]])
   })
+
+  it("offers Hand off… once a worker is paired", () => {
+    const onAction = vi.fn()
+    const { rerender } = render(<CardContextMenu card={card} position={{ x: 10, y: 10 }} onAction={onAction} onClose={() => {}} />)
+    expect(screen.queryByRole("menuitem", { name: "Hand off…" })).toBeNull()
+    rerender(<CardContextMenu card={card} position={{ x: 10, y: 10 }} canHandOff onAction={onAction} onClose={() => {}} />)
+    fireEvent.click(screen.getByRole("menuitem", { name: "Hand off…" }))
+    expect(onAction).toHaveBeenCalledWith("handoff")
+  })
+
+  it("offers only what an away task allows", () => {
+    const onAction = vi.fn()
+    const away = { ...card, away: { worker: "vm-1", url: "https://vm-1.lan:3080/board?highlight_task=w-1" } } as BoardCard
+    render(<CardContextMenu card={away} position={{ x: 10, y: 10 }} canHandOff onAction={onAction} onClose={() => {}} />)
+    for (const name of ["Move", "Delete", "Hand off…"]) expect(screen.queryByRole("menuitem", { name })).toBeNull()
+    fireEvent.click(screen.getByRole("menuitem", { name: "Open on vm-1" }))
+    expect(onAction).toHaveBeenCalledWith("openOnWorker")
+  })
 })

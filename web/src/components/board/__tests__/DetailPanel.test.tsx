@@ -226,4 +226,20 @@ describe("DetailPanel", () => {
     expect(value("Assignee")).toBe("Ada")
     expect(within(properties).queryByText("Milestone", { selector: "dt" })).toBeNull()
   })
+
+  it("shows an away task read-only, naming the worker", () => {
+    const away = {
+      worker_instance_id: "srv-1", worker: "vm-1", handoff_id: "ho-1", worker_task_id: "w-1", purpose: "make-change", kind: "new-branch",
+      repo: "acme/widget", branch: "legato/t-1", left_column: "Doing", handed_off_at: "2026-11-05T09:00:00Z", url: "https://vm-1.lan:3080/board?highlight_task=w-1",
+    }
+    renderPanel(makeCard(), { away, worktreesEnabled: true })
+    const dialog = screen.getByRole("dialog", { name: "Test title" })
+    expect(within(dialog).getByText(/away on vm-1/i)).toBeTruthy()
+    expect(within(dialog).getByText(/read-only while away/i)).toBeTruthy()
+    expect(within(dialog).getByRole("link", { name: "Open on vm-1" })).toBeTruthy()
+    for (const name of [/^Edit/, "Move task", "Delete task", "Link pull request", "Open agent", "Create worktree"]) {
+      expect(within(dialog).queryByRole("button", { name })).toBeNull()
+    }
+    expect(within(dialog).getByRole("button", { name: "Copy description" })).toBeTruthy()
+  })
 })

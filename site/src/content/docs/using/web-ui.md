@@ -38,6 +38,8 @@ The board works as it does in the TUI, with the same keys: `h`/`j`/`k`/`l` to mo
 
 **Sync providers** in the header syncs Jira and GitHub now.
 
+Once this Legato is paired with a [worker instance](/legato/running/instances/), a card's menu and its panel offer **Hand off…**, and an **Away** lane after the columns lists the tasks away on each worker. See [Hand off tasks to a worker](/legato/using/handoff/).
+
 A card's detail has the task's notes, reviews, plans and workflow runs in tabs. When the task's agents built a stack of branches with Staccato, a **Stacks** tab shows it, with **Download stack** once every branch is pushed; see [Staccato](/legato/integrations/staccato/#taking-a-stack-home).
 
 On a phone, the board shows one column at a time. Swipe sideways, or tap a column's chip, to change column.
@@ -116,7 +118,7 @@ Requests from agents that wait for you (permissions, questions, credentials) app
 - **Agents**: repositories, a link to **Remote**, [resources](/legato/agent-tools/resources/), prompt detection and the agent switch key.
 - **Security**: browser notifications for approvals, the devices that can sign approvals, and credentials.
 - **Integrations**: [Argus](/legato/integrations/argus/) and integration tokens.
-- **Handoff**: **Workers**, the Legatos this one hands tasks to, with **Add a worker**; and **Main instances**, the Legatos that hand tasks to this one, with **Pair a main instance** and **Unpair**. See [Main and worker instances](/legato/running/instances/).
+- **Handoff**: **Workers**, the Legatos this one hands tasks to, with **Add a worker** (with none paired yet, it explains handing off); and **Main instances**, the Legatos that hand tasks to this one, with **Pair a main instance** and **Unpair**. See [Main and worker instances](/legato/running/instances/) and [Hand off tasks to a worker](/legato/using/handoff/).
 - **Connection**: servers, **Pair a phone**, and the TLS certificate.
 - **Appearance**: the tint, the glitch effect, and the moving light round a working agent.
 - **Updates**: this server's version, the latest release, and the update mode. See [Updates](/legato/running/updates/).

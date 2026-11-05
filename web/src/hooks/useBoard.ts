@@ -2,6 +2,9 @@ import { useQuery } from "@tanstack/react-query"
 import { useServer } from "./useServer"
 import { fetchBoard } from "../lib/board"
 import { queryKeys } from "../lib/query"
+import type { BoardWorker } from "../lib/board-types"
+
+const noWorkers: BoardWorker[] = []
 
 export function useBoard(workspace?: string) {
   const { baseUrl } = useServer()
@@ -12,6 +15,8 @@ export function useBoard(workspace?: string) {
   return {
     columns: query.data?.columns ?? [],
     workspaces: query.data?.workspaces ?? [],
+    // The workers this main is paired with: the Away lane's groups.
+    workers: query.data?.workers ?? noWorkers,
     loading: query.isPending,
     error: query.error instanceof Error ? query.error.message : null,
     refresh: async () => { await query.refetch() },

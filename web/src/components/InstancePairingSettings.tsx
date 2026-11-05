@@ -61,7 +61,20 @@ export function WorkersSettings({ baseUrl }: { baseUrl: string }) {
       <div className="flex flex-col gap-3">
         {error && <p role="alert" className={alertClass}>{error}</p>}
         {notice && <p role="status" className="text-sm text-lw-live">{notice}</p>}
-        {list && workers.length === 0 && <p className="text-xs text-lw-faint">No workers yet.</p>}
+        {list && workers.length === 0 && (
+          <div className="flex flex-col gap-1.5 rounded-lg border border-lw-line px-3 py-2.5 text-xs text-lw-text-2">
+            <p className="m-0 text-sm text-lw-text">No workers yet.</p>
+            <p className="m-0">
+              A worker is another Legato, such as an always-on VM, that works on tasks while this one sleeps or travels. Once one is
+              paired, you can hand a task off to a worker from its card's menu or its task panel: you choose the purpose (make a
+              change, or find out), the repository and the agent tool, and the worker starts a sandboxed agent on it at once.
+            </p>
+            <p className="m-0">
+              While it is away, the task stays here, read-only, in an Away lane at the end of the board, and you can talk to its
+              agent on the worker. To pair one, open Settings › Main instances on the worker, then choose Add a worker here.
+            </p>
+          </div>
+        )}
         {workers.length > 0 && (
           <ul className={listClass}>
             {workers.map((w) => (

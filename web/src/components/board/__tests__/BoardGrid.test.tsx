@@ -42,4 +42,20 @@ describe("BoardGrid", () => {
     expect(screen.getByRole("region", { name: "Backlog" })).toBeTruthy()
     expect(screen.getByRole("region", { name: "Done" })).toBeTruthy()
   })
+
+  it("draws the Away lane after the columns, grouped by worker", () => {
+    const awayCard = { ...card("T-9", "Away task", "Doing"), away: { worker_instance_id: "srv-1", worker: "vm-1", handoff_id: "h", worker_task_id: "w", purpose: "make-change", kind: "new-branch", repo: "a/b", branch: "legato/t-9", left_column: "Doing", handed_off_at: "2026-11-05T09:00:00Z" } }
+    const onCardClick = vi.fn()
+    renderGrid({ showEmpty: false, onCardClick, workers: [{ instance_id: "srv-1", name: "vm-1", address: "https://vm-1" }], columns: [...columns, { name: "Away", away: true, cards: [awayCard] }] })
+    const lane = screen.getByRole("region", { name: "Away" })
+    fireEvent.click(screen.getByRole("button", { name: /Away task/ }))
+    expect(onCardClick).toHaveBeenCalledWith(3, 0)
+    expect(lane).toBeTruthy()
+  })
+
+  it("keeps an empty Away lane open while empty columns fold", () => {
+    renderGrid({ showEmpty: false, workers: [{ instance_id: "srv-1", name: "vm-1", address: "https://vm-1" }], columns: [...columns, { name: "Away", away: true, cards: [] }] })
+    expect(screen.getByRole("region", { name: "Away" })).toBeTruthy()
+    expect(screen.getByRole("group", { name: "vm-1" })).toBeTruthy()
+  })
 })

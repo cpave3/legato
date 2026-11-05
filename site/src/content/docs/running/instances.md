@@ -6,7 +6,7 @@ sidebar:
 ---
 
 :::caution[Partly built]
-You can pair a main instance with a worker, as below, and a worker can take a task handed to it. Handing a task off from the main's web board is planned: it does not work in a release yet, and the details can change. Today, to run agents on another machine, use [a server of its own](/legato/running/agent-server/) as a second server in the web UI and the phone app.
+You can pair a main instance with a worker, as below, and [hand a task off](/legato/using/handoff/) from the main's web board. Bringing a task back (return, recall, take back) is planned: it does not work in a release yet, and the details can change. Until then, to run agents on another machine and keep their results, use [a server of its own](/legato/running/agent-server/) as a second server in the web UI and the phone app.
 :::
 
 A person can run more than one Legato. Main and worker instances let one Legato send a task to another, which works on it and sends the result back. With them, you can keep your board on your laptop and run the agents on an always-on machine, without moving the task by hand.
@@ -54,7 +54,7 @@ The words work once, for five minutes and five tries, like a phone's. A phone ca
    or: take back                             │  end it without the worker
 ```
 
-1. **Handoff.** The main instance sends one of its tasks to a worker instance.
+1. **Handoff.** The main instance sends one of its tasks to a worker instance. See [Hand off tasks to a worker](/legato/using/handoff/).
 2. **Away.** While the worker holds the task, the task is "away" on the main instance.
 3. The task then comes back in one of three ways:
    - **Return.** The worker finishes, and the task comes back with what the worker did.

@@ -5,6 +5,8 @@ import { MarkdownBody } from "../MarkdownBody"
 import { agentStripLook, formatDuration, priorityTone } from "../../lib/boardCard"
 import { TaskAgentAction } from "./TaskAgentAction"
 import { providerLabel } from "../../lib/providers"
+import { awayLook, awayTime, kindLabel, purposeLabel } from "../../lib/away"
+import { cn } from "../../lib/utils"
 
 interface BoardTaskPanelProps {
   card: BoardCard
@@ -15,6 +17,8 @@ interface BoardTaskPanelProps {
   onOpenDetails: () => void
   onMove: () => void
   onOpenURL: (url: string) => void
+  // Hand the task off to a worker; absent when no worker is paired.
+  onHandOff?: () => void
 }
 
 function Property({ label, children }: { label: string; children: ReactNode }) {
@@ -28,7 +32,31 @@ const secondaryButton = "h-8 flex-1 basis-0 truncate rounded-md border border-lw
 
 // The selected card beside the board, as the TUI's task panel: where it
 // stands, the start of its description, and what can be done with it.
-export function BoardTaskPanel({ card, column, detail, onClose, onOpenDetails, onMove, onOpenURL }: BoardTaskPanelProps) {
+// An away task's panel: where it went and how, the worker's state of it as
+// last heard, and a way to open it there. It changes only on the worker.
+function AwayProperties({ card }: { card: BoardCard }) {
+  const away = card.away!
+  const look = awayLook(away)
+  return (
+    <section aria-label="Away" className="flex flex-col gap-2.5 border-b border-[#222228] px-[18px] py-3.5">
+      <div className={cn("flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs", look.tint, look.tone)}>
+        <span aria-hidden="true">{look.glyph}</span><span className="min-w-0 truncate">{look.label}</span>
+      </div>
+      <dl className="m-0 grid grid-cols-[96px_minmax(0,1fr)] gap-y-2">
+        <Property label="Worker">{away.worker}</Property>
+        <Property label="Purpose">{purposeLabel(away.purpose)}</Property>
+        <Property label="Started from">{kindLabel(away.kind)}</Property>
+        <Property label="Branch"><span className="font-lw-mono text-xs">{away.branch}</span></Property>
+        <Property label="Repository"><span className="font-lw-mono text-xs">{away.repo}</span></Property>
+        <Property label="Left">{away.left_column}</Property>
+        <Property label="Handed off"><time dateTime={away.handed_off_at} className="text-lw-text-2">{awayTime(away.handed_off_at)}</time></Property>
+      </dl>
+      {away.url && <a href={away.url} target="_blank" rel="noreferrer" className="w-fit text-[13px] text-lw-link hover:underline">Open on {away.worker}</a>}
+    </section>
+  )
+}
+
+export function BoardTaskPanel({ card, column, detail, onClose, onOpenDetails, onMove, onOpenURL, onHandOff }: BoardTaskPanelProps) {
   const ready = detail?.id === card.id ? detail : null
   const look = card.agent_active ? agentStripLook(card) : null
   const spent = formatDuration(card.working_seconds + card.waiting_seconds + card.error_seconds)
@@ -46,12 +74,14 @@ export function BoardTaskPanel({ card, column, detail, onClose, onOpenDetails, o
         <h2 className="m-0 text-base font-semibold leading-[22px]">{card.title}</h2>
       </div>
 
+      {card.away && <AwayProperties card={card} />}
+
       <dl className="m-0 grid grid-cols-[96px_minmax(0,1fr)] gap-y-2 border-b border-[#222228] px-[18px] py-3.5">
-        <Property label="Column">{column}</Property>
+        {!card.away && <Property label="Column">{column}</Property>}
         {card.priority && <Property label="Priority"><span className={priorityTone(card.priority)}>{card.priority}</span></Property>}
         {card.issue_type && <Property label="Type">{card.issue_type}</Property>}
         <Property label="Workspace">{card.workspace_name || <span className="text-lw-text-2">Unassigned</span>}</Property>
-        <Property label="Agent">{look ? <span className={look.tone}>{look.label}</span> : <span className="text-lw-text-2">None yet</span>}</Property>
+        {!card.away && <Property label="Agent">{look ? <span className={look.tone}>{look.label}</span> : <span className="text-lw-text-2">None yet</span>}</Property>}
         {!card.agent_active && spent && <Property label="Agent time"><span className="text-lw-text-2">{spent}</span></Property>}
         {pullRequests.length > 0 && <Property label={pullRequests.length === 1 ? "Pull request" : "Pull requests"}>
           <ul aria-label="Pull requests" className="m-0 flex list-none flex-col gap-0.5 p-0">
@@ -68,6 +98,7 @@ export function BoardTaskPanel({ card, column, detail, onClose, onOpenDetails, o
       </dl>
 
       <div className="min-h-0 flex-1 overflow-y-auto px-[18px] py-3.5 text-lw-text-2">
+        {card.away && <p className="m-0 mb-2 text-[11px] font-semibold uppercase tracking-[1px] text-lw-faint">Description · read-only while away</p>}
         {!ready
           ? <p className="m-0 text-lw-faint">Reading the task…</p>
           : ready.description_md
@@ -76,15 +107,18 @@ export function BoardTaskPanel({ card, column, detail, onClose, onOpenDetails, o
       </div>
 
       <div className="flex flex-col gap-2 border-t border-[#222228] px-[18px] py-3.5">
-        <TaskAgentAction
-          taskId={card.id}
-          worktreePath={ready?.worktree?.path}
-          rememberedWorkingDir={ready?.code_context?.working_dir}
-          resumableAgentKinds={ready?.resumable_agent_kinds}
-        />
+        {card.away
+          ? <p className="m-0 text-xs text-lw-text-2">Changes come from {card.away.worker} when the task comes back. Talk to its agent there.</p>
+          : <TaskAgentAction
+            taskId={card.id}
+            worktreePath={ready?.worktree?.path}
+            rememberedWorkingDir={ready?.code_context?.working_dir}
+            resumableAgentKinds={ready?.resumable_agent_kinds}
+          />}
         <div className="flex gap-2">
           <button type="button" onClick={onOpenDetails} className={secondaryButton}>Open details</button>
-          <button type="button" onClick={onMove} className={secondaryButton}>Move</button>
+          {!card.away && <button type="button" onClick={onMove} className={secondaryButton}>Move</button>}
+          {!card.away && onHandOff && <button type="button" onClick={onHandOff} className={secondaryButton}>Hand off…</button>}
           {providerURL
             ? <button type="button" onClick={() => onOpenURL(providerURL)} className={secondaryButton}>Open in {providerLabel(card.provider) || "browser"}</button>
             : prURL && <button type="button" onClick={() => onOpenURL(prURL)} className={secondaryButton}>Open PR</button>}

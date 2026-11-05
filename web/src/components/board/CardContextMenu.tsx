@@ -1,13 +1,15 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react"
-import { ChevronRight, ExternalLink, Move, Trash2, Workflow } from "lucide-react"
+import { ChevronRight, ExternalLink, Move, Send, Trash2, Workflow } from "lucide-react"
 import type { BoardCard } from "../../lib/board-types"
 import type { CardWorkflowOption } from "../../lib/card-workflows"
 import { LoadingState } from "../ui/LoadingState"
 
-export type CardContextAction = "open" | "move" | "delete"
+export type CardContextAction = "open" | "move" | "delete" | "handoff" | "openOnWorker"
 
 const primaryWidth = 240
+// The menu's height with its usual three actions, and what each more adds.
 const primaryHeight = 196
+const itemHeight = 40
 const flyoutWidth = 280
 const viewportGap = 8
 const panelGap = 4
@@ -18,6 +20,7 @@ export function CardContextMenu({
   workflows = [],
   workflowLoading = false,
   workflowWarning = "",
+  canHandOff = false,
   onAction,
   onWorkflow,
   onClose,
@@ -27,6 +30,8 @@ export function CardContextMenu({
   workflows?: CardWorkflowOption[]
   workflowLoading?: boolean
   workflowWarning?: string
+  // Whether this main has a worker to hand the task off to.
+  canHandOff?: boolean
   onAction: (action: CardContextAction) => void
   onWorkflow?: (workflow: CardWorkflowOption) => void
   onClose: () => void
@@ -38,8 +43,22 @@ export function CardContextMenu({
   const focusFlyoutOnOpen = useRef(false)
   const suppressFocusOpen = useRef(false)
   const [flyoutAnchorTop, setFlyoutAnchorTop] = useState(position.y)
+  // An away task can change only on its worker: it offers its details and
+  // the worker. Another may be handed off once a worker is paired.
+  const items: { action: CardContextAction; label: string; icon: React.ReactNode }[] = card.away
+    ? [
+      { action: "open", label: "Open details", icon: <ExternalLink size={16} /> },
+      ...(card.away.url ? [{ action: "openOnWorker" as const, label: `Open on ${card.away.worker}`, icon: <ExternalLink size={16} /> }] : []),
+    ]
+    : [
+      { action: "open", label: "Open details", icon: <ExternalLink size={16} /> },
+      { action: "move", label: "Move", icon: <Move size={16} /> },
+      ...(canHandOff ? [{ action: "handoff" as const, label: "Hand off…", icon: <Send size={16} /> }] : []),
+      { action: "delete", label: "Delete", icon: <Trash2 size={16} /> },
+    ]
+  const height = primaryHeight + (items.length - 3) * itemHeight
   const left = Math.max(viewportGap, Math.min(position.x, window.innerWidth - primaryWidth - viewportGap))
-  const top = Math.max(viewportGap, Math.min(position.y, window.innerHeight - primaryHeight - viewportGap))
+  const top = Math.max(viewportGap, Math.min(position.y, window.innerHeight - height - viewportGap))
   const flyoutLeft = left + primaryWidth + panelGap + flyoutWidth <= window.innerWidth - viewportGap
     ? left + primaryWidth + panelGap
     : Math.max(viewportGap, left - flyoutWidth - panelGap)
@@ -48,10 +67,10 @@ export function CardContextMenu({
 
   const openFlyout = useCallback((focusFirst = false) => {
     const rect = workflowTriggerRef.current?.getBoundingClientRect()
-    setFlyoutAnchorTop(rect && rect.height > 0 ? rect.top : top + 156)
+    setFlyoutAnchorTop(rect && rect.height > 0 ? rect.top : top + height - itemHeight)
     focusFlyoutOnOpen.current = focusFirst
     setFlyoutOpen(true)
-  }, [top])
+  }, [top, height])
 
   const closeFlyout = useCallback(() => {
     setFlyoutOpen(false)
@@ -123,17 +142,11 @@ export function CardContextMenu({
     }
   }, [closeFlyout, flyoutOpen, onClose, onWorkflow, openFlyout, workflows])
 
-  const items: { action: CardContextAction; label: string; icon: React.ReactNode }[] = [
-    { action: "open", label: "Open details", icon: <ExternalLink size={16} /> },
-    { action: "move", label: "Move", icon: <Move size={16} /> },
-    { action: "delete", label: "Delete", icon: <Trash2 size={16} /> },
-  ]
-
   return <div className="fixed inset-0 z-40" onPointerDown={onClose} data-testid="card-context-backdrop">
     <div ref={menuRef} role="menu" aria-label={`Actions for ${card.title}`} onPointerDown={event => event.stopPropagation()} className="fixed w-60 rounded-lg border border-zinc-700 bg-zinc-900 p-1 shadow-2xl" style={{ left, top }}>
       <p className="truncate border-b border-zinc-800 px-3 py-2 text-xs text-zinc-500">{card.id} · {card.title}</p>
       {items.map(item => <button key={item.action} type="button" role="menuitem" onClick={() => onAction(item.action)} className={`flex min-h-10 w-full items-center gap-3 rounded px-3 text-left text-sm hover:bg-zinc-800 focus:bg-zinc-800 focus:outline-none ${item.action === "delete" ? "text-red-300" : "text-zinc-200"}`}>{item.icon}<span>{item.label}</span></button>)}
-      <button ref={workflowTriggerRef} type="button" role="menuitem" aria-haspopup="menu" aria-expanded={flyoutOpen} onMouseEnter={() => openFlyout()} onFocus={() => { if (!suppressFocusOpen.current) openFlyout() }} onClick={() => openFlyout(true)} className="mt-1 flex min-h-10 w-full items-center gap-3 border-t border-zinc-800 px-3 pt-1 text-left text-sm text-zinc-200 hover:bg-zinc-800 focus:bg-zinc-800 focus:outline-none"><Workflow size={16} /><span>Workflows</span><ChevronRight className="ml-auto" size={15} /></button>
+      {!card.away && <button ref={workflowTriggerRef} type="button" role="menuitem" aria-haspopup="menu" aria-expanded={flyoutOpen} onMouseEnter={() => openFlyout()} onFocus={() => { if (!suppressFocusOpen.current) openFlyout() }} onClick={() => openFlyout(true)} className="mt-1 flex min-h-10 w-full items-center gap-3 border-t border-zinc-800 px-3 pt-1 text-left text-sm text-zinc-200 hover:bg-zinc-800 focus:bg-zinc-800 focus:outline-none"><Workflow size={16} /><span>Workflows</span><ChevronRight className="ml-auto" size={15} /></button>}
     </div>
     {flyoutOpen && <div ref={flyoutRef} role="menu" aria-label={`Workflows for ${card.title}`} onPointerDown={event => event.stopPropagation()} className="fixed w-70 overflow-y-auto rounded-lg border border-zinc-700 bg-zinc-900 p-1 shadow-2xl" style={{ left: flyoutLeft, top: flyoutTop, width: flyoutWidth, maxHeight: flyoutMaxHeight }}>
       <p className="border-b border-zinc-800 px-3 py-2 text-xs font-medium uppercase tracking-wide text-zinc-500">Workflows</p>

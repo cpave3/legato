@@ -23,7 +23,7 @@ task docs:build   # build it into site/dist; fails on a broken link
 | --- | --- |
 | `start` | `what-is-legato`, `install`, `tour` |
 | `running` | `workstation`, `web-server`, `devices`, `desktop-app`, `agent-server`, `instances`, `updates` |
-| `using` | `board`, `agents`, `web-ui`, `attention`, `plans`, `reviews`, `review-handoff`, `workflows`, `swarms`, `reports`, `learn` |
+| `using` | `board`, `agents`, `web-ui`, `handoff`, `attention`, `plans`, `reviews`, `review-handoff`, `workflows`, `swarms`, `reports`, `learn` |
 | `agent-tools` | `claude-code`, `codex`, `chimera`, `model-settings`, `mcp-tools`, `resources` |
 | `integrations` | `jira`, `github`, `staccato`, `yggdrasil`, `argus`, `notifications`, `manticore`, `tmux-status`, `stream-deck`, `browser-extension` |
 | `security` | `credentials-setup`, `credential-broker`, `sandbox`, `web-auth` |

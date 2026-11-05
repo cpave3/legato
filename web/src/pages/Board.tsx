@@ -49,6 +49,11 @@ import { WorkflowTriggerInputModal } from "../components/WorkflowTriggerInputMod
 import type { WorkflowTriggerRequest } from "../lib/board"
 import type { RepositoryPreset } from "../components/RepositoryPresetSelect"
 import { LoadingState } from "../components/ui/LoadingState"
+import { HandOffModal } from "../components/board/HandOffModal"
+import { withAwayLane } from "../lib/away"
+import type { BoardWorker } from "../lib/board-types"
+
+const noWorkers: BoardWorker[] = []
 
 type MoveCard = Pick<BoardCard, "id" | "title" | "status" | "workspace_id">
 
@@ -69,6 +74,7 @@ type Overlay =
   | { kind: "cancelSwarm"; card: BoardCard }
   | { kind: "worktree" }
   | { kind: "workflowInput"; request: WorkflowTriggerRequest }
+  | { kind: "handoff"; card: BoardCard }
 
 function errorMessage(error: unknown, fallback: string): string {
   if (error instanceof Error && error.message.trim()) return error.message
@@ -174,7 +180,11 @@ export function BoardPage() {
   const voiceEnabled = useVoiceEnabled(baseUrl)
   const { addToast } = useToast()
   const [workspaceFilter, setWorkspaceFilter] = useState<string>("all")
-  const { columns: boardColumns, workspaces, loading, error, refresh } = useBoard(workspaceFilter)
+  const { columns: serverColumns, workspaces, workers = noWorkers, loading, error, refresh } = useBoard(workspaceFilter)
+  // Away tasks leave their columns for the Away lane at the board's end,
+  // which is there once a worker is paired.
+  const boardColumns = useMemo(() => withAwayLane(serverColumns, workers), [serverColumns, workers])
+  const canHandOff = workers.length > 0
   const [query, setQuery] = useState("")
   const [showEmpty, setShowEmpty] = useState(initialShowEmpty)
   const [mobileFilterOpen, setMobileFilterOpen] = useState(false)
@@ -204,14 +214,22 @@ export function BoardPage() {
   const panelRef = useRef<HTMLDivElement>(null)
   const movedCardIdRef = useRef<string | null>(null)
 
-  const columnNames = columns.map((c) => c.name)
-  const allCards = boardColumns.flatMap((c) => c.cards)
+  const columnNames = columns.filter((c) => !c.away).map((c) => c.name)
+  const allCards = useMemo(() => boardColumns.flatMap((c) => c.cards), [boardColumns])
   const shownCards = columns.flatMap((c) => c.cards)
   const currentCard = columns[cursorCol]?.cards?.[cursorRow] ?? null
   const activeColumn = columns[cursorCol]
   const panelCard = wide && !panelHidden ? currentCard : null
   const panelCardId = panelCard?.id ?? null
-  const doneColumn = boardColumns.find((c) => c.name.toLowerCase() === "done")
+  const doneColumn = boardColumns.find((c) => !c.away && c.name.toLowerCase() === "done")
+  // A task away on a worker changes only there: what refuses it here.
+  const awayOf = useCallback((id: string) => allCards.find((card) => card.id === id)?.away, [allCards])
+  const refuseAway = useCallback((card: { id: string; title?: string } | null): boolean => {
+    const away = card ? awayOf(card.id) : undefined
+    if (!away) return false
+    addToast(`${card?.title || card?.id} is away on ${away.worker}: it can change only there until it comes back`, "info")
+    return true
+  }, [awayOf, addToast])
   const doneCount = doneColumn?.cards.length ?? 0
 
   useEffect(() => {
@@ -344,6 +362,10 @@ export function BoardPage() {
           title: detailCard.title,
           provider: detailCard.provider,
         } as BoardCard
+        if (["t", "e", "m", "D"].includes(e.key) && refuseAway(detailCard)) {
+          e.preventDefault()
+          return
+        }
         if (e.key === "t" && !detailCard.provider) {
           e.preventDefault()
           setOverlay({ kind: "editTitle", card: detailAsCard })
@@ -438,6 +460,11 @@ export function BoardPage() {
       if (e.key === "n") {
         e.preventDefault()
         setOverlay({ kind: "create" })
+        return
+      }
+
+      if (["m", "M", "d", "p", "t"].includes(e.key) && currentCard && refuseAway(currentCard)) {
+        e.preventDefault()
         return
       }
 
@@ -566,7 +593,7 @@ export function BoardPage() {
     }
     window.addEventListener("keydown", handler)
     return () => window.removeEventListener("keydown", handler)
-  }, [columns, cursorCol, cursorRow, currentCard, overlay, detailCard, detailId, workspaceFilter, workspaces, doneCount, baseUrl, addToast, showEmpty, openDetail])
+  }, [columns, cursorCol, cursorRow, currentCard, overlay, detailCard, detailId, workspaceFilter, workspaces, doneCount, baseUrl, addToast, showEmpty, openDetail, refuseAway])
 
   const handleCardClick = useCallback(
     (col: number, row: number) => {
@@ -608,6 +635,12 @@ export function BoardPage() {
         break
       case "delete":
         setOverlay({ kind: "delete", card })
+        break
+      case "handoff":
+        setOverlay({ kind: "handoff", card })
+        break
+      case "openOnWorker":
+        if (card.away?.url) window.open(card.away.url, "_blank", "noopener")
         break
     }
   }, [contextMenu, openDetail])
@@ -674,6 +707,7 @@ export function BoardPage() {
   const handleDragMove = async (cardId: string, targetColumn: string) => {
     const card = allCards.find((candidate) => candidate.id === cardId)
     if (!card || card.status === targetColumn || pendingAction) return
+    if (refuseAway(card)) return
     setPendingAction("move")
     try {
       const result = await patchTask(baseUrl, card.id, { column: targetColumn })
@@ -915,6 +949,7 @@ export function BoardPage() {
                   onCardDoubleClick={handleCardDoubleClick}
                   onCardContextMenu={handleCardContextMenu}
                   onCardMove={handleDragMove}
+                  workers={workers}
                 />
               </div>
               <div className="h-full md:hidden">
@@ -938,6 +973,7 @@ export function BoardPage() {
             onOpenDetails={() => void openDetail(panelCard.id)}
             onMove={() => setOverlay({ kind: "move", card: panelCard })}
             onOpenURL={(url) => window.open(url, "_blank")}
+            onHandOff={canHandOff ? () => setOverlay({ kind: "handoff", card: panelCard }) : undefined}
           />
           </div>
         )}
@@ -955,6 +991,7 @@ export function BoardPage() {
         workflows={cardWorkflowOptions(workflowDiscovery.data?.definitions ?? [])}
         workflowLoading={workflowDiscovery.loading}
         workflowWarning={(workflowDiscovery.data?.errors ?? []).map(item => `${item.path}: ${item.error}`).join("; ") || (workflowDiscovery.error ?? "")}
+        canHandOff={canHandOff}
         onAction={handleContextAction}
         onWorkflow={workflow => { setCardWorkflow({ card: contextMenu.card, workflow }); setContextMenu(null) }}
         onClose={() => setContextMenu(null)}
@@ -1098,10 +1135,24 @@ export function BoardPage() {
 
       {overlay.kind === "workflowInput" && <WorkflowTriggerInputModal baseUrl={baseUrl} request={overlay.request} repositories={repositories} onClose={()=>setOverlay({kind:"none"})} onStarted={next=>{if(next.status==="waiting_confirmation"){setOverlay({kind:"workflowInput",request:next})}else{setOverlay({kind:"none"});addToast("Workflow started","success")}}}/>}
 
+      {overlay.kind === "handoff" && <HandOffModal
+        baseUrl={baseUrl}
+        open
+        card={overlay.card}
+        repositories={repositories}
+        onClose={() => setOverlay({ kind: "none" })}
+        onHandedOff={(away) => {
+          movedCardIdRef.current = overlay.card.id
+          addToast(`Handed ${overlay.card.title} off to ${away.worker}`, "success")
+          void refresh()
+        }}
+      />}
+
       {/* Detail panel */}
       {detailCard && (
         <DetailPanel
           card={detailCard}
+          away={awayOf(detailCard.id)}
           onClose={() => {
             setDetailCard(null)
             setDetailId(null)

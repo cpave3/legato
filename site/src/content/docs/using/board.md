@@ -84,6 +84,10 @@ With a ticket provider, moving a card also moves its ticket. If Legato cannot se
 
 Press `d` on the board, or `D` in the detail view, to delete a task. You confirm with `y`. Deleting a remote ticket removes only Legato's copy, not the ticket.
 
+## Handing a task off to a worker
+
+On a main instance paired with a [worker instance](/legato/running/instances/), the web board can send a task to the worker, which starts an agent on it. Choose **Hand off…** in the card's `⋯` or right-click menu, or in the panel beside the board. The task then leaves its column for the **Away** lane at the end of the web board, grouped by worker, and stays read-only on your main until it comes back. See [Hand off tasks to a worker](/legato/using/handoff/).
+
 ## Task detail
 
 Press `enter` to open a task. The detail view shows the description as Markdown, the ticket's fields, the pull request and the worktree. In the web UI it also lists the task's notes, review tours, plans and workflow runs.
