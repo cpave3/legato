@@ -4,6 +4,7 @@ import android.Manifest
 import android.content.ActivityNotFoundException
 import android.content.Intent
 import android.content.pm.PackageManager
+import androidx.core.content.ContextCompat
 import android.net.Uri
 import android.os.Bundle
 import android.os.Looper
@@ -17,9 +18,6 @@ import androidx.activity.compose.setContent
 import androidx.activity.enableEdgeToEdge
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.compose.runtime.mutableStateOf
-import com.google.mlkit.vision.barcode.common.Barcode
-import com.google.mlkit.vision.codescanner.GmsBarcodeScannerOptions
-import com.google.mlkit.vision.codescanner.GmsBarcodeScanning
 import java.io.IOException
 import java.time.Instant
 import java.util.UUID
@@ -39,6 +37,13 @@ class MainActivity : ComponentActivity() {
     private val micPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
         micAnswer?.invoke(granted)
         micAnswer = null
+    }
+    private val cameraPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (granted) {
+            state.scanning.value = true
+        } else {
+            state.error.value = "Legato may not use the camera. Allow it in the app's settings, or pair by phrase."
+        }
     }
     private var fileCallback: ValueCallback<Array<Uri>>? = null
     private val fileChooser = registerForActivityResult(ActivityResultContracts.StartActivityForResult()) { result ->
@@ -539,19 +544,29 @@ class MainActivity : ComponentActivity() {
         state.connections.value = store.load()
     }
 
+    // Scans a pairing QR code with the app's own camera (QrScanner), asking
+    // for the camera first: nothing goes through Google Play services.
     fun scanPairingCode() {
-        val options = GmsBarcodeScannerOptions.Builder().setBarcodeFormats(Barcode.FORMAT_QR_CODE).build()
-        GmsBarcodeScanning.getClient(this, options).startScan()
-            .addOnSuccessListener { barcode ->
-                try {
-                    followPairingLink(barcode.rawValue.orEmpty())
-                } catch (cause: IllegalArgumentException) {
-                    state.error.value = "Not a Legato pairing QR code"
-                }
-            }
-            .addOnFailureListener { cause ->
-                state.error.value = "The QR scanner could not start (${cause.message}). Enter the URL and token manually."
-            }
+        state.error.value = ""
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) == PackageManager.PERMISSION_GRANTED) {
+            state.scanning.value = true
+        } else {
+            cameraPermission.launch(Manifest.permission.CAMERA)
+        }
+    }
+
+    fun scanned(text: String) {
+        state.scanning.value = false
+        try {
+            followPairingLink(text)
+        } catch (cause: IllegalArgumentException) {
+            state.error.value = "Not a Legato pairing QR code"
+        }
+    }
+
+    fun stopScanning(error: String = "") {
+        state.scanning.value = false
+        if (error.isNotEmpty()) state.error.value = error
     }
 
     fun saveCertificate(connection: Connection) {
@@ -645,6 +660,8 @@ class AppState {
     val approvals = mutableStateOf<List<ServerApprovals>?>(null)
     // The app's confirm before a server becomes a worker of the page's.
     val workerConfirm = mutableStateOf<WorkerConfirm?>(null)
+    // The QR scanner is open over the screen.
+    val scanning = mutableStateOf(false)
 }
 
 class WorkerConfirm(val message: String, val answer: (Boolean) -> Unit)

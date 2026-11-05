@@ -48,6 +48,7 @@ All of it is in `app/src/main/java/dev/legato/mobile/`.
 | File | What it does |
 | --- | --- |
 | `ServerAddress.kt` | Server URLs and the `legato pair` QR code |
+| `QrScanner.kt`, `QrDecoder.kt` | Scanning a pairing QR code with the app's own camera (CameraX, ZXing) |
 | `Pairing.kt` | SPAKE2, the pairing word list, reading a typed phrase |
 | `PhrasePairing.kt` | The phone's side of pairing by phrase; trusting a pinned certificate |
 | `Discovery.kt`, `AndroidDiscovery.kt` | Servers announced on the local network |
@@ -117,8 +118,11 @@ certificate (the generated CA, or `web.tls.cert`) is pinned for that server:
   when the pinned certificate is that issuer (`ServerPage.trustedByPin`).
 
 **By QR code.** **Pair a device** and `legato pair` show a QR code of the same
-request: `legato://pair?url=…&phrase=…`. Scanned with Google's code scanner (no
-camera permission) or opened as a link, it fills in the address and the words
+request: `legato://pair?url=…&phrase=…`. Scanned with the app's own camera
+(`QrScanner.kt`: CameraX, and ZXing's decoder in `QrDecoder.kt`, which also
+reads a code drawn light on dark, as a terminal shows it; the camera permission
+is asked for when **Scan** is tapped; nothing depends on Google Play services)
+or opened as a link, it fills in the address and the words
 and pairs at once, exactly as typed words would. Without a web server running,
 `legato pair` falls back to a code that carries the token itself
 (`legato://pair?url=…&token=…[&ca=…]`); that fills in **Add by address and

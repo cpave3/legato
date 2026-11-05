@@ -58,7 +58,7 @@ To pair another Legato as a main instance rather than a phone, use `legato pair 
 
 The app is a native Android shell around the web UI, for Android 10 and later. On top of the page, it gives you:
 
-- A list of your Legato servers, each with its own name, and pairing by four words or a QR code.
+- A list of your Legato servers, each with its own name, and pairing by four words or a QR code. The app scans the code with its own camera, so it works without Google Play services, on GrapheneOS for example. It asks for the camera the first time you scan.
 - Tokens kept encrypted with a key in the Android Keystore.
 - Dictation: the app records for the page, over HTTP too, where a browser has no microphone.
 - The page kept alive when you switch apps, and brought back where it was when Android reclaims it.

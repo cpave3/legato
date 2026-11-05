@@ -129,6 +129,10 @@ fun LegatoApp(activity: MainActivity) {
                     ApprovalSheet(activity, sheet)
                 }
                 state.workerConfirm.value?.let { ask -> WorkerConfirmDialog(activity, ask) }
+                if (state.scanning.value) {
+                    BackHandler { activity.stopScanning() }
+                    QrScanner(onCode = { activity.scanned(it) }, onCancel = { activity.stopScanning() }, onError = { activity.stopScanning(it) })
+                }
             }
         }
     }

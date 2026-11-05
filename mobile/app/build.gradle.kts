@@ -91,9 +91,12 @@ dependencies {
     implementation("androidx.activity:activity-compose:1.10.1")
     implementation("androidx.webkit:webkit:1.14.0")
     implementation("androidx.profileinstaller:profileinstaller:1.4.1")
-    implementation("com.google.android.gms:play-services-code-scanner:16.1.0")
-    // Play Services brings Fragment 1.0, which mishandles activity results.
-    implementation("androidx.fragment:fragment:1.8.9")
+    // Scanning a pairing QR code: the app's own camera (CameraX) and ZXing's
+    // decoder, so nothing depends on Google Play services.
+    implementation("androidx.camera:camera-camera2:1.4.2")
+    implementation("androidx.camera:camera-lifecycle:1.4.2")
+    implementation("androidx.camera:camera-view:1.4.2")
+    implementation("com.google.zxing:core:3.5.3")
     // P-256 point arithmetic for pairing by phrase (SPAKE2).
     implementation("org.bouncycastle:bcprov-jdk18on:1.79")
 
