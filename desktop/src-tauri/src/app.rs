@@ -21,7 +21,7 @@ use crate::updates;
 use crate::webauthn::{self, Attachment, ORIGIN, RP_ID};
 use crate::discovery::{Browser, Found};
 use crate::bridge::{self, PageMessage, VoiceAction, VoiceEvent};
-use crate::{fido, systrust, touchid, voice};
+use crate::{fido, systrust, touchid, voice, workers};
 
 // The shell's chrome, in logical pixels: the title bar across the top and
 // the dock down the left. Server pages fill the rest.
@@ -205,6 +205,14 @@ fn make_server_view(app: &AppHandle, server: &Server, token: Option<String>, pat
                     record_for_page(&handle, &server_id, action);
                     None
                 }
+                Some(PageMessage::WorkerCandidates { id }) => {
+                    answer_worker_candidates(&handle, &server_id, &id);
+                    None
+                }
+                Some(PageMessage::OpenWorkerPairing { id, server, main }) => {
+                    pair_worker_for_page(&handle, &server_id, id, &server, &main);
+                    None
+                }
                 None => None,
             };
             if let Some(p) = payload {
@@ -246,6 +254,69 @@ fn make_server_view(app: &AppHandle, server: &Server, token: Option<String>, pat
     view.navigate(url.clone()).map_err(|e| e.to_string())?;
     let _ = url;
     Ok(())
+}
+
+// ---- Adding a worker from a page ----
+
+/// Answers a page's worker request with a `legato:shell-worker` event.
+fn tell_page_worker(app: &AppHandle, page: &str, detail: Value) {
+    let Some(view) = app.get_webview(&webview_label(page)) else { return };
+    if let Err(e) = view.eval(bridge::worker_script(&detail)) {
+        println!("[worker] {page}: the page could not be told: {e}");
+    }
+}
+
+/// Tells a page the app's other servers, which could be its workers.
+fn answer_worker_candidates(app: &AppHandle, page: &str, id: &Value) {
+    let list = workers::candidates(&app.state::<Desktop>().store.lock().unwrap().state.servers, page);
+    tell_page_worker(app, page, workers::answer(id, Ok(Some(list))));
+}
+
+/// Makes one of the app's servers (key) a worker of the page's server: asks
+/// the person in a dialog of the system's, outside the page, and on yes
+/// opens a main's pairing request on it with its token and pinned
+/// certificate, and gives the page the address and phrase (see `workers`).
+fn pair_worker_for_page(app: &AppHandle, page: &str, id: Value, key: &str, main: &str) {
+    use tauri_plugin_dialog::{DialogExt, MessageDialogButtons, MessageDialogKind};
+    let desktop = app.state::<Desktop>();
+    let prepared = {
+        let store = desktop.store.lock().unwrap();
+        let page_name = store.server(page).map(|s| s.name.clone()).unwrap_or_default();
+        workers::target(&store.state.servers, page, key).and_then(|s| {
+            let token = store.token(&s.id).ok_or_else(|| workers::no_token(&s.name))?;
+            let client = Client::new(&s.url, s.ca_pem.as_deref(), Some(token))?;
+            Ok((s.name.clone(), s.url.clone(), client, workers::main_name(main, &page_name)))
+        })
+    };
+    let (name, url, client, main) = match prepared {
+        Ok(prepared) => prepared,
+        Err(e) => return tell_page_worker(app, page, workers::answer(&id, Err(e))),
+    };
+    println!("[worker] {page}: asks to make {name} a worker of {main}");
+    let (handle, page) = (app.clone(), page.to_string());
+    let mut dialog = app
+        .dialog()
+        .message(workers::confirm_text(&name, &main))
+        .title("Add a worker")
+        .kind(MessageDialogKind::Info)
+        .buttons(MessageDialogButtons::OkCancelCustom("Make it a worker".into(), "Cancel".into()));
+    if let Some(window) = app.get_window("main") {
+        dialog = dialog.parent(&window);
+    }
+    dialog.show(move |yes| {
+        if !yes {
+            println!("[worker] {page}: the person said no");
+            return tell_page_worker(&handle, &page, workers::answer(&id, Ok(None)));
+        }
+        tauri::async_runtime::spawn(async move {
+            let outcome = workers::open_main_request(&client, &name, &url).await;
+            match &outcome {
+                Ok(_) => println!("[worker] {page}: opened a main's pairing request on {name}"),
+                Err(e) => println!("[worker] {page}: {name} did not open a request: {e}"),
+            }
+            tell_page_worker(&handle, &page, workers::answer(&id, outcome.map(Some)));
+        });
+    });
 }
 
 // ---- Recording for a page ----
@@ -1123,6 +1194,8 @@ pub fn run() {
         // app that runs and ends; the deep-link plugin reads the link.
         .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| bring_to_front(app)))
         .plugin(tauri_plugin_deep_link::init())
+        // The confirm before one of the app's servers becomes a worker.
+        .plugin(tauri_plugin_dialog::init())
         .manage(Desktop {
             store: Mutex::new(store),
             prepared: Mutex::default(),

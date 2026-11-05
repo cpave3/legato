@@ -93,6 +93,12 @@ impl Client {
     }
 
     pub async fn call(&self, method: reqwest::Method, path: &str, body: Option<Value>) -> Result<Value, String> {
+        self.reach(method, path, body).await?
+    }
+
+    /// call, telling a server that could not be reached (the outer error)
+    /// from one that answered with a refusal (the inner one).
+    pub async fn reach(&self, method: reqwest::Method, path: &str, body: Option<Value>) -> Result<Result<Value, String>, String> {
         let mut req = self.http.request(method, format!("{}{}", self.base, path)).header("Origin", ORIGIN);
         if let Some(t) = &self.token {
             req = req.bearer_auth(t);
@@ -101,7 +107,7 @@ impl Client {
             req = req.json(&b);
         }
         let resp = req.send().await.map_err(|e| describe(&e))?;
-        read(resp).await
+        Ok(read(resp).await)
     }
 
     pub async fn get(&self, path: &str) -> Result<Value, String> {

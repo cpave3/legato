@@ -70,6 +70,10 @@ When a server knows Touch ID, the sheet asks for your fingerprint instead of a t
 - The app keeps no offline copy of a server's web UI.
 - Dictation works in every server's page, over HTTP too: the app records for the page with `parecord` (or `arecord` when there is no `parecord`), and the server transcribes it as usual. Linux only for now.
 
+## Add a worker from another server
+
+When one of your servers should hand tasks to another ([handoff](/legato/using/handoff/)), open the main's Settings › Handoff › Workers › **Add a worker** in the app. **From this app** lists your other servers. Choose the worker, and the app asks in a dialog of its own, outside the page: "Make vm-1 a worker of workstation?" On **Make it a worker**, it opens the worker's pairing request with the token it holds for that server, and the main pairs with it. You type no address or words, and the main's page never sees the worker's token. See [Main and worker instances](/legato/running/instances/#pair-a-main-instance-with-a-worker).
+
 ## Import tickets from the browser
 
 The [browser extension](/legato/integrations/browser-extension/#import-into-the-desktop-app) can hand the tickets you import from Jira or Burnlite to the app. Select **Open ticket imports in the Legato desktop app** in the extension's options. When you import a ticket, the app comes to the front and asks which server to import it into. It then shows that server's board with the new card picked out.

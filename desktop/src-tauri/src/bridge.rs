@@ -13,6 +13,12 @@
 //! Where the app can record (see `voice`), the page is told so too, and its
 //! dictation asks the app to record in its place, as the Android app does: a
 //! page served over plain HTTP has no microphone of its own.
+//!
+//! The page is also told the app can pair its other servers as workers of
+//! the page's server (`workers: 1`, see `workers`): it asks for the list
+//! (`workerCandidates`) and to open a main's pairing request on one
+//! (`openWorkerPairing`), which the app does after its own confirm, with the
+//! token only it holds. The answers are `legato:shell-worker` events.
 
 /// The scheme of what the page asks of the app.
 pub const SCHEME: &str = "legato-desktop";
@@ -26,6 +32,12 @@ pub enum PageMessage {
     Enroll,
     /// Start, stop or cancel a recording for the page's dictation.
     Voice(VoiceAction),
+    /// The app's other servers, which could be workers of the page's. id is
+    /// the page's (a string or a number), given back as it came.
+    WorkerCandidates { id: serde_json::Value },
+    /// Open a main's pairing request on one of the app's servers (its ID),
+    /// after the person agrees. main is what the page calls its server.
+    OpenWorkerPairing { id: serde_json::Value, server: String, main: String },
 }
 
 /// What the page asks of a recording.
@@ -46,16 +58,22 @@ pub fn script(key: &str, voice: bool) -> String {
         r#"(() => {{
   if (window !== window.top) return;
   const key = {key};
-  window.legatoShell = {{ approval: 1, enroll: 1,{voice} key }};
+  window.legatoShell = {{ approval: 1, enroll: 1, workers: 1,{voice} key }};
   window.ReactNativeWebView = {{
     postMessage(text) {{
       let m;
       try {{ m = JSON.parse(text); }} catch (e) {{ return; }}
       if (!m || m.key !== key) return;
       const ask = (kind, rest) => {{ location.href = "{SCHEME}://" + kind + "?key=" + encodeURIComponent(key) + rest; }};
-      if (m.legatoShell === "approval" && typeof m.id === "string") ask("approval", "&id=" + encodeURIComponent(m.id));
-      else if (m.legatoShell === "enroll") ask("enroll", "");
-      else if (m.legatoShell === "voice" && typeof m.action === "string") ask("voice", "&action=" + encodeURIComponent(m.action));
+      const kind = m.legatoShell || m.type;
+      const id = typeof m.id === "string" ? "&id=" + encodeURIComponent(m.id) : null;
+      const wid = typeof m.id === "string" || typeof m.id === "number" ? "&id=" + encodeURIComponent(JSON.stringify(m.id)) : null;
+      if (kind === "approval" && id) ask("approval", id);
+      else if (kind === "enroll") ask("enroll", "");
+      else if (kind === "voice" && typeof m.action === "string") ask("voice", "&action=" + encodeURIComponent(m.action));
+      else if (kind === "workerCandidates" && wid) ask("workers", wid);
+      else if (kind === "openWorkerPairing" && wid && typeof m.server === "string")
+        ask("worker-pairing", wid + "&server=" + encodeURIComponent(m.server) + "&main=" + encodeURIComponent(typeof m.main === "string" ? m.main : ""));
     }},
   }};
 }})();"#
@@ -82,6 +100,22 @@ pub fn read(url: &str, key: &str) -> Option<PageMessage> {
             Some("cancel") => Some(PageMessage::Voice(VoiceAction::Cancel)),
             _ => None,
         },
+        "workers" => worker_id(param("id")?).map(|id| PageMessage::WorkerCandidates { id }),
+        "worker-pairing" => {
+            let id = worker_id(param("id")?)?;
+            let server = param("server").filter(|s| !s.is_empty())?;
+            Some(PageMessage::OpenWorkerPairing { id, server, main: param("main").unwrap_or_default() })
+        }
+        _ => None,
+    }
+}
+
+/// A worker request's id, as the page's script encodes it (JSON): a string
+/// that is not empty, or a number.
+fn worker_id(encoded: String) -> Option<serde_json::Value> {
+    match serde_json::from_str::<serde_json::Value>(&encoded).ok()? {
+        serde_json::Value::String(s) if s.is_empty() => None,
+        id @ (serde_json::Value::String(_) | serde_json::Value::Number(_)) => Some(id),
         _ => None,
     }
 }
@@ -90,6 +124,12 @@ pub fn read(url: &str, key: &str) -> Option<PageMessage> {
 /// listens for it: `legato:shell-approval` with {id, status, option?, error?}.
 pub fn result_script(detail: &serde_json::Value) -> String {
     format!(r#"(() => {{ try {{ window.dispatchEvent(new CustomEvent("legato:shell-approval", {{ detail: {detail} }})); }} catch (e) {{}} }})();"#)
+}
+
+/// Answers a worker request, as the web UI listens for it:
+/// `legato:shell-worker` with the request's id and what came of it.
+pub fn worker_script(detail: &serde_json::Value) -> String {
+    format!(r#"(() => {{ try {{ window.dispatchEvent(new CustomEvent("legato:shell-worker", {{ detail: {detail} }})); }} catch (e) {{}} }})();"#)
 }
 
 /// What the app tells the page about the recording it makes for it.
@@ -127,11 +167,17 @@ mod tests {
     /// Runs a script in Node with a stand-in window and gives the detail of
     /// each `legato:shell-voice` event it dispatched. None without Node.
     fn heard_in_node(script: &str) -> Option<Vec<serde_json::Value>> {
+        heard_event_in_node(script, "legato:shell-voice")
+    }
+
+    /// Runs a script in Node with a stand-in window and gives the detail of
+    /// each event of that name it dispatched. None without Node.
+    fn heard_event_in_node(script: &str, event: &str) -> Option<Vec<serde_json::Value>> {
         let program = format!(
             r#"
 class CustomEvent {{ constructor(type, init) {{ this.type = type; this.detail = init.detail; }} }}
 const heard = [];
-const window = {{ dispatchEvent(e) {{ if (e.type === "legato:shell-voice") heard.push(e.detail); }} }};
+const window = {{ dispatchEvent(e) {{ if (e.type === {event:?}) heard.push(e.detail); }} }};
 (function (window, CustomEvent) {{ {script} }})(window, CustomEvent);
 console.log(JSON.stringify(heard));
 "#
@@ -216,9 +262,9 @@ console.log(JSON.stringify({{ sent, shell: window.legatoShell || null }}));
         assert!(out.status.success(), "node: {}", String::from_utf8_lossy(&out.stderr));
         let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
         if top && voice {
-            assert_eq!(v["shell"], json!({ "approval": 1, "enroll": 1, "voice": 1, "key": key }));
+            assert_eq!(v["shell"], json!({ "approval": 1, "enroll": 1, "workers": 1, "voice": 1, "key": key }));
         } else if top {
-            assert_eq!(v["shell"], json!({ "approval": 1, "enroll": 1, "key": key }), "not told it can record");
+            assert_eq!(v["shell"], json!({ "approval": 1, "enroll": 1, "workers": 1, "key": key }), "not told it can record");
         } else {
             assert!(v["shell"].is_null(), "a frame is not told");
         }
@@ -260,5 +306,66 @@ console.log(JSON.stringify({{ sent, shell: window.legatoShell || null }}));
     fn a_frame_in_the_page_is_not_told_it_runs_in_the_app() {
         let Some(sent) = in_node("k1", true, false, &[r#"{"legatoShell":"approval","key":"k1","id":"ap-7"}"#]) else { return };
         assert!(sent.is_empty());
+    }
+
+    #[test]
+    fn the_page_asks_for_the_apps_servers_and_to_open_a_workers_pairing_with_its_key() {
+        assert_eq!(read("legato-desktop://workers?key=k1&id=%22w1%22", "k1"), Some(PageMessage::WorkerCandidates { id: json!("w1") }));
+        assert_eq!(read("legato-desktop://workers?key=k1&id=7", "k1"), Some(PageMessage::WorkerCandidates { id: json!(7) }), "a number");
+        assert_eq!(
+            read("legato-desktop://worker-pairing?key=k1&id=%22w2%22&server=srv-a&main=work%20station", "k1"),
+            Some(PageMessage::OpenWorkerPairing { id: json!("w2"), server: "srv-a".into(), main: "work station".into() })
+        );
+        assert_eq!(
+            read("legato-desktop://worker-pairing?key=k1&id=%22w2%22&server=srv-a", "k1"),
+            Some(PageMessage::OpenWorkerPairing { id: json!("w2"), server: "srv-a".into(), main: String::new() }),
+            "no name for the main"
+        );
+        assert_eq!(read("legato-desktop://workers?key=other&id=%22w1%22", "k1"), None, "another key");
+        assert_eq!(read("legato-desktop://workers?key=k1", "k1"), None, "no id");
+        assert_eq!(read("legato-desktop://workers?key=k1&id=%22%22", "k1"), None, "an empty id");
+        assert_eq!(read("legato-desktop://workers?key=k1&id=%7B%7D", "k1"), None, "an id that is neither a string nor a number");
+        assert_eq!(read("legato-desktop://worker-pairing?key=k1&id=%22w2%22", "k1"), None, "no server");
+        assert_eq!(read("legato-desktop://worker-pairing?key=k1&server=srv-a", "k1"), None, "no id");
+    }
+
+    // What web/src/lib/mobileShell.ts posts: the kind as legatoShell and as
+    // type (the bridge contract's name), with the page's key.
+    #[test]
+    fn the_pages_script_turns_the_web_uis_worker_requests_into_addresses_the_app_reads() {
+        let posts = [
+            r#"{"legatoShell":"workerCandidates","type":"workerCandidates","key":"k 1","id":"w1"}"#,
+            r#"{"type":"openWorkerPairing","key":"k 1","id":"w2","server":"srv-a","main":"work & station"}"#,
+            r#"{"type":"workerCandidates","key":"wrong","id":"w3"}"#,
+            r#"{"type":"openWorkerPairing","key":"k 1","id":"w4"}"#,
+            r#"{"type":"workerCandidates","key":"k 1"}"#,
+            r#"{"legatoShell":"workerCandidates","key":"k 1","id":5}"#,
+        ];
+        let Some(sent) = in_node("k 1", false, true, &posts) else { return };
+        let read: Vec<_> = sent.iter().map(|s| read(s, "k 1")).collect();
+        assert_eq!(
+            read,
+            [
+                Some(PageMessage::WorkerCandidates { id: json!("w1") }),
+                Some(PageMessage::OpenWorkerPairing { id: json!("w2"), server: "srv-a".into(), main: "work & station".into() }),
+                Some(PageMessage::WorkerCandidates { id: json!(5) }),
+            ],
+            "{sent:?}"
+        );
+    }
+
+    // What web/src/lib/mobileShell.ts listens for.
+    #[test]
+    fn the_page_hears_the_answer_to_a_worker_request_as_the_web_ui_expects() {
+        let details = [
+            json!({ "id": "w1", "servers": [{ "key": "srv-a", "name": "legato-1 </script>", "url": "https://legato-1.lan:3080" }] }),
+            json!({ "id": "w2", "address": "https://legato-1.lan:3080", "phrase": ["bucket", "ladle", "spree", "oyster"], "expires_at": "2026-11-05T09:05:00Z" }),
+            json!({ "id": "w3", "cancelled": true }),
+            json!({ "id": "w4", "error": "it said \"no\" \u{2028}" }),
+        ];
+        for detail in details {
+            let Some(heard) = heard_event_in_node(&worker_script(&detail), "legato:shell-worker") else { return };
+            assert_eq!(heard, [detail]);
+        }
     }
 }
