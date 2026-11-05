@@ -146,8 +146,8 @@ func TestAJiraBackedTaskGoesToTheWorkerAsAReadOnlyCopyWithEditableDetails(t *tes
 		t.Fatalf("spawned %+v", spawned)
 	}
 	brief := briefOf(t, spawned[0])
-	jiraAt := strings.Index(brief, "### From Jira ACME-12 (read only)\n\n"+checkoutTicket.DescriptionMD)
-	detailsAt := strings.Index(brief, "### Details\n\nStart with the cart serializer.")
+	jiraAt := strings.Index(brief, "### From Jira ACME-12 (read only)\n\n<ticket provider=\"Jira\" key=\"ACME-12\">\n"+checkoutTicket.DescriptionMD)
+	detailsAt := strings.Index(brief, "### Details\n\n<task-details>\nStart with the cart serializer.")
 	if jiraAt < 0 || detailsAt < jiraAt {
 		t.Fatalf("the brief:\n%s", brief)
 	}

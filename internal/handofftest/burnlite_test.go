@@ -161,8 +161,8 @@ func TestABurnliteBackedTaskGoesToTheWorkerAsAReadOnlyCopyWithEditableDetails(t 
 		t.Fatalf("spawned %+v", spawned)
 	}
 	brief := briefOf(t, spawned[0])
-	ticketAt := strings.Index(brief, "### From Burnlite LEG-33 (read only)\n\n"+estimateTicket.DescriptionMD)
-	detailsAt := strings.Index(brief, "### Details\n\nKeep it to one line on the card.")
+	ticketAt := strings.Index(brief, "### From Burnlite LEG-33 (read only)\n\n<ticket provider=\"Burnlite\" key=\"LEG-33\">\n"+estimateTicket.DescriptionMD)
+	detailsAt := strings.Index(brief, "### Details\n\n<task-details>\nKeep it to one line on the card.")
 	if ticketAt < 0 || detailsAt < ticketAt {
 		t.Fatalf("the brief:\n%s", brief)
 	}

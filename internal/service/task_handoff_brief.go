@@ -61,32 +61,39 @@ func HandoffBrief(in HandoffBriefInput) string {
 	line("## The task")
 	line("")
 	line(in.Title)
+	ticket := strings.TrimSpace(in.TicketText)
+	details := strings.TrimSpace(in.Details)
+	if in.TicketKey != "" || details != "" || len(in.Notes) > 0 {
+		line("")
+		line("The task's text, as people wrote it, is fenced in tags below: <ticket> (read only), <task-details> and <note>. Headings inside a tag belong to that text, not to this brief.")
+	}
 	if in.TicketKey != "" {
 		line("")
 		line("### From " + in.TicketProvider + " " + in.TicketKey + " (read only)")
 		line("")
-		if text := strings.TrimSpace(in.TicketText); text != "" {
-			line(text)
-		} else {
-			line("The ticket has no description.")
+		if ticket == "" {
+			ticket = "The ticket has no description."
 		}
+		line(`<ticket provider="` + attr(in.TicketProvider) + `" key="` + attr(in.TicketKey) + `">`)
+		line(fenced(ticket, "ticket"))
+		line("</ticket>")
 	}
-	if details := strings.TrimSpace(in.Details); details != "" {
+	if details != "" {
 		line("")
 		line("### Details")
 		line("")
-		line(details)
+		line("<task-details>")
+		line(fenced(details, "task-details"))
+		line("</task-details>")
 	}
 	if len(in.Notes) > 0 {
 		line("")
 		line("### Notes from " + in.MainName)
-		for i, note := range in.Notes {
-			if i > 0 {
-				line("")
-				line("---")
-			}
+		for _, note := range in.Notes {
 			line("")
-			line(strings.TrimSpace(note))
+			line("<note>")
+			line(fenced(strings.TrimSpace(note), "note"))
+			line("</note>")
 		}
 	}
 	line("")
@@ -119,4 +126,16 @@ func HandoffBrief(in HandoffBriefInput) string {
 	}
 	line("- Move the task to Done (`legato task update --status Done`) even if you stopped, then end your turn and stay: the person may talk to you here before taking the task back.")
 	return b.String()
+}
+
+// fenced is text people wrote, made safe to put inside the brief's <tag>
+// fence: a closing tag of that name in it is escaped, so the text cannot end
+// its fence early and pass what follows off as the brief's own words.
+func fenced(text, tag string) string {
+	return strings.ReplaceAll(text, "</"+tag, "<\\/"+tag)
+}
+
+// attr is a value for an attribute of a fence's opening tag.
+func attr(s string) string {
+	return strings.NewReplacer(`"`, "&quot;", "<", "&lt;", ">", "&gt;").Replace(s)
 }

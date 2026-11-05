@@ -7,24 +7,32 @@ Purpose: find out. Starts from: a new branch.
 
 Checkout times out on large carts
 
+The task's text, as people wrote it, is fenced in tags below: <ticket> (read only), <task-details> and <note>. Headings inside a tag belong to that text, not to this brief.
+
 ### From Jira ACME-12 (read only)
 
+<ticket provider="Jira" key="ACME-12">
 Carts over 50 items time out at checkout.
 
 Acceptance: checkout under 2s.
+</ticket>
 
 ### Details
 
+<task-details>
 Start with the cart serializer.
+</task-details>
 
 ### Notes from workstation
 
+<note>
 Seen on CI since Tuesday.
+</note>
 
----
-
+<note>
 Retrying the job usually passes.
 The failure is always a timeout.
+</note>
 
 ## How to work
 

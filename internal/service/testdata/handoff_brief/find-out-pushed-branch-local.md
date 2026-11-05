@@ -7,20 +7,26 @@ Purpose: find out. Starts from: the pushed branch fix/login-timeout.
 
 Fix the flaky login test
 
+The task's text, as people wrote it, is fenced in tags below: <ticket> (read only), <task-details> and <note>. Headings inside a tag belong to that text, not to this brief.
+
 ### Details
 
+<task-details>
 The login test fails about one run in ten on CI.
 
 It started after the session cookie change.
+</task-details>
 
 ### Notes from workstation
 
+<note>
 Seen on CI since Tuesday.
+</note>
 
----
-
+<note>
 Retrying the job usually passes.
 The failure is always a timeout.
+</note>
 
 ## How to work
 
