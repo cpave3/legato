@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
-import { awayActions, doneOnWorker, recallTask, returnAllDone, returnTask } from "../awayReturn"
+import { awayActions, doneOnWorker, recallTask, returnAllDone, returnTask, takeBackTask } from "../awayReturn"
 import type { AwayOn, BoardCard } from "../board-types"
 
 function card(id: string, away: Partial<AwayOn>): BoardCard {
@@ -15,22 +15,22 @@ afterEach(() => vi.unstubAllGlobals())
 describe("awayActions", () => {
   it("offers only what the away task's state allows", () => {
     const of = (away: Partial<AwayOn>) => awayActions(card("t", away).away!)
-    expect(of({ view: "done", state: "done" })).toEqual({ return: true, recall: false, confirmRecall: false })
-    expect(of({ view: "failed", state: "failed" })).toEqual({ return: false, recall: true, confirmRecall: false })
-    expect(of({ view: "working", state: "in_progress" })).toEqual({ return: false, recall: true, confirmRecall: true })
-    expect(of({ view: "needs_you", state: "in_progress" })).toEqual({ return: false, recall: true, confirmRecall: true })
-    expect(of({ view: "starting", state: "pending" })).toEqual({ return: false, recall: true, confirmRecall: true })
-    expect(of({ view: "ended", state: "in_progress" })).toEqual({ return: false, recall: true, confirmRecall: false })
+    expect(of({ view: "done", state: "done" })).toEqual({ return: true, recall: false, confirmRecall: false, takeBack: false })
+    expect(of({ view: "failed", state: "failed" })).toEqual({ return: false, recall: true, confirmRecall: false, takeBack: false })
+    expect(of({ view: "working", state: "in_progress" })).toEqual({ return: false, recall: true, confirmRecall: true, takeBack: false })
+    expect(of({ view: "needs_you", state: "in_progress" })).toEqual({ return: false, recall: true, confirmRecall: true, takeBack: false })
+    expect(of({ view: "starting", state: "pending" })).toEqual({ return: false, recall: true, confirmRecall: true, takeBack: false })
+    expect(of({ view: "ended", state: "in_progress" })).toEqual({ return: false, recall: true, confirmRecall: false, takeBack: false })
     // A return under way can be pushed on.
-    expect(of({ view: "coming_back", state: "returning" })).toEqual({ return: true, recall: false, confirmRecall: false })
+    expect(of({ view: "coming_back", state: "returning" })).toEqual({ return: true, recall: false, confirmRecall: false, takeBack: false })
     // A worker that cannot be reached, refuses this main or lost the task:
-    // neither (Take back is for those).
+    // only Take back, without the results.
     for (const view of ["unreachable", "not_accepted", "lost"]) {
-      expect(of({ view, state: "done" })).toEqual({ return: false, recall: false, confirmRecall: false })
+      expect(of({ view, state: "done" })).toEqual({ return: false, recall: false, confirmRecall: false, takeBack: true })
     }
     // An older server sends only the state.
     expect(of({ state: "done" }).return).toBe(true)
-    expect(of({ state: "in_progress" })).toEqual({ return: false, recall: true, confirmRecall: true })
+    expect(of({ state: "in_progress" })).toEqual({ return: false, recall: true, confirmRecall: true, takeBack: false })
   })
 })
 
@@ -60,5 +60,17 @@ describe("return calls", () => {
     expect(all.returned.map(r => r.task_id)).toEqual(["T-2"])
     expect(all.error).toBe("T-3: refused")
     expect(String(fetchMock.mock.calls[2][0])).toContain("/api/workers/srv-1/return-done")
+  })
+})
+
+describe("takeBackTask", () => {
+  it("posts to the take-back route and throws the server's words", async () => {
+    const fetchMock = vi.fn()
+      .mockResolvedValueOnce(new Response(JSON.stringify({ returned: { task_id: "T-1", column: "Ready", recalled: false, taken_back: true, branches: [] } }), { status: 200 }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ error: "vm-1 can still bring task T-2 back; recall it" }), { status: 409 }))
+    vi.stubGlobal("fetch", fetchMock)
+    expect((await takeBackTask("", "T-1")).taken_back).toBe(true)
+    expect(String(fetchMock.mock.calls[0][0])).toBe("/api/tasks/T-1/take-back")
+    await expect(takeBackTask("", "T-2")).rejects.toThrow("recall it")
   })
 })

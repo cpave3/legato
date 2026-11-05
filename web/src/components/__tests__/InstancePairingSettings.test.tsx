@@ -37,6 +37,10 @@ beforeEach(() => {
       }
       return json({ workers, instance_id: "srv-2f7d61c0ab493e85", main_name: "workstation" })
     }
+    if (String(url).includes("/api/settings/workers/") && method === "DELETE") {
+      workers = workers.filter((w) => !String(url).endsWith(String(w.instance_id)))
+      return json({ removed: { worker: "vm-1", recalled: [], taken_back: [{ task_id: "T-1" }], left: false } })
+    }
     if (String(url).endsWith("/api/settings/mains")) return json({ mains })
     if (String(url).includes("/api/settings/mains/") && method === "DELETE") {
       mains = mains.filter((m) => !String(url).endsWith(String(m.instance_id)))
@@ -75,6 +79,19 @@ describe("WorkersSettings", () => {
     expect(within(await screen.findByRole("listitem", { name: "vm-1" })).getByText(/^Pulled /)).toBeTruthy()
     expect(within(screen.getByRole("listitem", { name: "vm-2" })).getByText(/^Unreachable since /)).toBeTruthy()
     expect(within(screen.getByRole("listitem", { name: "vm-3" })).getByText(/no longer accepts this main; pair again/i)).toBeTruthy()
+  })
+
+  it("removes a worker after warning how many away tasks it holds", async () => {
+    workers = [{ ...workers[0], away: 2 }]
+    render(<WorkersSettings baseUrl="" />)
+    const vm = await screen.findByRole("listitem", { name: "vm-1" })
+    fireEvent.click(within(vm).getByRole("button", { name: "Remove vm-1" }))
+    expect(within(vm).getByText(/vm-1 holds 2 away tasks/)).toBeTruthy()
+    expect(requests.some((r) => r.method === "DELETE")).toBe(false)
+    fireEvent.click(within(vm).getByRole("button", { name: "Remove" }))
+    await waitFor(() => expect(requests.some((r) => r.method === "DELETE" && r.url === "/api/settings/workers/srv-0b8e2a91d4c7f356")).toBe(true))
+    expect((await screen.findByRole("status")).textContent).toContain("1 taken back")
+    await waitFor(() => expect(screen.queryByRole("listitem", { name: "vm-1" })).toBeNull())
   })
 
   it("explains handing off before any worker is paired", async () => {

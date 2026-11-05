@@ -2,7 +2,7 @@ import { useCallback, useEffect, useState } from "react"
 import { Laptop, Plus, ServerCog } from "lucide-react"
 import { SettingsCard, primaryButton, quietButton } from "./settings/SettingsUI"
 import { PairDeviceDialog } from "./PairDeviceDialog"
-import { listMains, listWorkers, pairWorker, unpairMain, type PairedMain, type WorkerList } from "../lib/workers"
+import { listMains, listWorkers, pairWorker, removeWarning, removeWorker, removedText, unpairMain, type PairedMain, type Worker, type WorkerList } from "../lib/workers"
 
 // Handoff: a main instance hands tasks to a worker instance it paired with
 // by phrase. Settings › Workers is the main's side; Settings › Main
@@ -18,15 +18,17 @@ const alertClass = "rounded-md border border-lw-danger-line bg-lw-error-soft px-
 const listClass = "overflow-hidden rounded-lg border border-lw-line divide-y divide-lw-line"
 const metaClass = "flex min-w-0 flex-wrap items-baseline gap-x-3 gap-y-0.5 text-xs text-lw-text-2"
 
-// WorkersSettings is the main's side: the workers it hands tasks to, and
-// Add a worker (the worker's address, the phrase it shows, this main's name
-// on it).
+// WorkersSettings is the main's side: the workers it hands tasks to, Add a
+// worker (the worker's address, the phrase it shows, this main's name on
+// it), and Remove, which warns how many away tasks the worker holds.
 export function WorkersSettings({ baseUrl }: { baseUrl: string }) {
   const [list, setList] = useState<WorkerList | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [notice, setNotice] = useState<string | null>(null)
   const [draft, setDraft] = useState<{ address: string; phrase: string; name: string } | null>(null)
   const [pairing, setPairing] = useState(false)
+  const [removing, setRemoving] = useState<Worker | null>(null)
+  const [busy, setBusy] = useState(false)
 
   const load = useCallback(async () => {
     try {
@@ -51,6 +53,21 @@ export function WorkersSettings({ baseUrl }: { baseUrl: string }) {
       setError(reason instanceof Error ? reason.message : String(reason))
     } finally {
       setPairing(false)
+    }
+  }
+
+  const remove = async (worker: Worker) => {
+    setBusy(true)
+    setError(null)
+    setNotice(null)
+    try {
+      setNotice(removedText(await removeWorker(baseUrl, worker.instance_id)))
+      setRemoving(null)
+      await load()
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : String(reason))
+    } finally {
+      setBusy(false)
     }
   }
 
@@ -79,9 +96,16 @@ export function WorkersSettings({ baseUrl }: { baseUrl: string }) {
           <ul className={listClass}>
             {workers.map((w) => (
               <li key={w.instance_id} aria-label={w.name} className="flex flex-col gap-1 px-3 py-2.5">
-                <div className="flex flex-wrap items-baseline gap-x-2">
-                  <span className="text-sm font-medium text-lw-text">{w.name}</span>
-                  <span className="truncate font-lw-mono text-xs text-lw-faint">{w.address}</span>
+                <div className="flex items-start gap-3">
+                  <div className="flex min-w-0 flex-1 flex-wrap items-baseline gap-x-2">
+                    <span className="text-sm font-medium text-lw-text">{w.name}</span>
+                    <span className="truncate font-lw-mono text-xs text-lw-faint">{w.address}</span>
+                  </div>
+                  {removing?.instance_id !== w.instance_id && (
+                    <button onClick={() => setRemoving(w)} aria-label={`Remove ${w.name}`} className="min-h-10 shrink-0 rounded-lg px-3 text-sm text-lw-danger hover:bg-lw-raised">
+                      Remove
+                    </button>
+                  )}
                 </div>
                 <div className={metaClass}>
                   <span className="font-lw-mono">{w.instance_id}</span>
@@ -93,7 +117,19 @@ export function WorkersSettings({ baseUrl }: { baseUrl: string }) {
                   ) : null}
                   <span className={w.sandbox ? "" : "text-lw-needs"}>{w.sandbox ? "Sandbox on" : "Sandbox off: it refuses handoffs"}</span>
                   <span>This main is <span className="font-lw-mono">{w.main_name}</span> there</span>
+                  <span>{w.away ?? 0} away</span>
                 </div>
+                {removing?.instance_id === w.instance_id && (
+                  <div className="mt-1 flex flex-col gap-2 rounded-lg border border-lw-danger-line p-3">
+                    <p className="text-xs text-lw-text-2">{removeWarning(w.name, w.away ?? 0)}</p>
+                    <div className="flex justify-end gap-2">
+                      <button onClick={() => setRemoving(null)} disabled={busy} className={quietButton}>Cancel</button>
+                      <button onClick={() => void remove(w)} disabled={busy} className="inline-flex min-h-10 items-center justify-center rounded-lg border border-lw-danger-line bg-lw-error-soft px-3.5 text-sm font-medium text-lw-danger hover:opacity-90">
+                        {busy ? "Removing…" : "Remove"}
+                      </button>
+                    </div>
+                  </div>
+                )}
               </li>
             ))}
           </ul>
@@ -193,7 +229,7 @@ export function MainInstancesSettings({ baseUrl }: { baseUrl: string }) {
                   <div className="flex flex-col gap-2 rounded-lg border border-lw-danger-line p-3">
                     <p className="text-xs text-lw-text-2">
                       {m.open_handoffs > 0
-                        ? `${m.name} has ${m.open_handoffs} open handoffs here. Unpairing revokes its token and closes them; their cards stay here as ordinary cards, agents still running.`
+                        ? `${m.name} has ${m.open_handoffs} open handoffs here. Unpairing revokes its token and closes them; their cards stay here as ordinary cards, agents still running, each with a note that ${m.name} was unpaired.`
                         : `${m.name} has no open handoffs here. Unpairing revokes its token: it can no longer hand tasks to this Legato until it pairs again.`}
                     </p>
                     <div className="flex justify-end gap-2">

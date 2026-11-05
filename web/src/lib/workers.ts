@@ -20,6 +20,18 @@ export interface Worker {
   // accepting this main (pair again).
   unreachable_since?: string
   refused_at?: string
+  // How many of this main's tasks it holds, which Remove warns of.
+  away?: number
+}
+
+// RemovedWorker is what removing a worker did: the tasks recalled with
+// their results, those taken back without them, and whether the worker
+// was told to unpair this main (else it is told when next reached).
+export interface RemovedWorker {
+  worker: string
+  recalled: { task_id: string }[]
+  taken_back: { task_id: string }[]
+  left: boolean
 }
 
 export interface WorkerList {
@@ -59,6 +71,24 @@ export async function pairWorker(baseUrl: string, request: { address: string; ph
   return res.json()
 }
 
+// removeWorker recalls what it can of the worker's away tasks, takes back
+// the rest, forgets the worker and tells it to unpair this main.
+export async function removeWorker(baseUrl: string, instanceId: string): Promise<RemovedWorker> {
+  const res = await apiFetch(baseUrl, `/api/settings/workers/${encodeURIComponent(instanceId)}`, { method: "DELETE" })
+  if (!res.ok) throw await failure(res)
+  return (await res.json()).removed
+}
+
+// removedText says what removing a worker did.
+export function removedText(removed: RemovedWorker): string {
+  const parts = []
+  if (removed.recalled.length > 0) parts.push(`${removed.recalled.length} recalled`)
+  if (removed.taken_back.length > 0) parts.push(`${removed.taken_back.length} taken back`)
+  let text = `Removed ${removed.worker}` + (parts.length > 0 ? `: ${parts.join(", ")}` : "")
+  if (!removed.left) text += `. It is told to unpair this main when it can be reached.`
+  return text
+}
+
 export async function listMains(baseUrl: string): Promise<PairedMain[]> {
   const res = await apiFetch(baseUrl, "/api/settings/mains")
   if (!res.ok) throw await failure(res)
@@ -68,4 +98,11 @@ export async function listMains(baseUrl: string): Promise<PairedMain[]> {
 export async function unpairMain(baseUrl: string, instanceId: string): Promise<void> {
   const res = await apiFetch(baseUrl, `/api/settings/mains/${encodeURIComponent(instanceId)}`, { method: "DELETE" })
   if (!res.ok) throw await failure(res)
+}
+
+// removeWarning says what removing a worker does to the tasks it holds.
+export function removeWarning(name: string, held: number): string {
+  const after = `${name} is told to unpair this main, now or when it can next be reached.`
+  if (held === 0) return `${name} holds no away tasks. Removing it forgets it here. ${after}`
+  return `${name} holds ${held} away ${held === 1 ? "task" : "tasks"}. Removing it recalls what it can, with its results, and takes back the rest without them. ${after}`
 }

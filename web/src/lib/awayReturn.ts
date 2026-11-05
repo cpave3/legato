@@ -2,8 +2,10 @@ import { apiFetch } from "./api"
 import type { AwayOn, BoardCard } from "./board-types"
 
 // Bringing away tasks home from the Away lane: Return a task done on its
-// worker, Recall one in any state (with whatever exists so far), and Return
-// all done on one worker. See docs/ai/web-ui.md § Returning and recalling.
+// worker, Recall one in any state (with whatever exists so far), Return all
+// done on one worker, and Take back, without its results, a task whose
+// worker cannot bring it back. See docs/ai/web-ui.md § Returning and
+// recalling.
 
 export interface AwayActions {
   // Return: the task is done on the worker, or a return is under way.
@@ -12,39 +14,43 @@ export interface AwayActions {
   recall: boolean
   // Recalling stops an agent that may still be at work: ask first.
   confirmRecall: boolean
+  // Take back, without the worker's results, always after asking: the
+  // worker cannot be reached, no longer accepts this main, or lost the
+  // task. The main never does it by itself.
+  takeBack: boolean
 }
 
-const none: AwayActions = { return: false, recall: false, confirmRecall: false }
+const only = (actions: Partial<AwayActions>): AwayActions => ({ return: false, recall: false, confirmRecall: false, takeBack: false, ...actions })
 
 // What an away row and its task panel offer: only what the task's state
 // allows. A worker that cannot be reached, no longer accepts this main or
-// lost the task offers neither (Take back is for those).
+// lost the task offers only Take back.
 export function awayActions(away: AwayOn): AwayActions {
   switch (away.view) {
     case "unreachable":
     case "not_accepted":
     case "lost":
-      return none
+      return only({ takeBack: true })
     case "done":
     case "coming_back":
-      return { return: true, recall: false, confirmRecall: false }
+      return only({ return: true })
     case "failed":
     case "ended":
-      return { return: false, recall: true, confirmRecall: false }
+      return only({ recall: true })
     case "starting":
     case "working":
     case "needs_you":
     case "idle":
-      return { return: false, recall: true, confirmRecall: true }
+      return only({ recall: true, confirmRecall: true })
   }
   switch (away.state) {
     case "done":
     case "returning":
-      return { return: true, recall: false, confirmRecall: false }
+      return only({ return: true })
     case "failed":
-      return { return: false, recall: true, confirmRecall: false }
+      return only({ recall: true })
     default:
-      return { return: false, recall: true, confirmRecall: true }
+      return only({ recall: true, confirmRecall: true })
   }
 }
 
@@ -58,6 +64,8 @@ export interface ReturnedTask {
   task_id: string
   column: string
   recalled: boolean
+  // Taken back without the worker's results.
+  taken_back?: boolean
   branches: string[]
 }
 
@@ -87,4 +95,10 @@ export async function recallTask(baseUrl: string, taskId: string): Promise<Retur
 export async function returnAllDone(baseUrl: string, workerId: string): Promise<{ returned: ReturnedTask[]; error?: string }> {
   const body = await post(baseUrl, `/api/workers/${encodeURIComponent(workerId)}/return-done`)
   return { returned: (body.returned as ReturnedTask[]) ?? [], error: body.error as string | undefined }
+}
+
+// takeBackTask ends a task's away state without its worker's results; the
+// worker is told to drop it when it is next reached.
+export async function takeBackTask(baseUrl: string, taskId: string): Promise<ReturnedTask> {
+  return (await post(baseUrl, `/api/tasks/${encodeURIComponent(taskId)}/take-back`)).returned as ReturnedTask
 }

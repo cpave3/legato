@@ -1,7 +1,7 @@
 import type { BoardColumn, BoardWorker } from "../../lib/board-types"
 import { BoardColumn as BoardColumnComponent } from "./BoardColumn"
 import { AwayLane, WorkerReach } from "./AwayLane"
-import { AwayRowActions, ReturnAllDoneButton } from "./AwayActions"
+import { AwayRowActions, ReturnAllDoneButton, WorkerGroupMenu } from "./AwayActions"
 import { isColumnCollapsed } from "../../lib/boardColumns"
 
 interface BoardGridProps {
@@ -62,6 +62,7 @@ export function BoardGrid({ columns, cursorCol, cursorRow, showWorkspace, showEm
           groupExtras={(worker, groupCards) => <>
             <WorkerReach worker={worker} />
             {baseUrl !== undefined && <ReturnAllDoneButton baseUrl={baseUrl} worker={worker} cards={groupCards} onNotice={onAwayNotice} />}
+            {baseUrl !== undefined && <WorkerGroupMenu baseUrl={baseUrl} worker={worker} cards={groupCards} onNotice={onAwayNotice} />}
           </>}
           rowActions={baseUrl === undefined ? undefined : (card) => <AwayRowActions baseUrl={baseUrl} card={card} onNotice={onAwayNotice} />}
           onCardDrop={onCardHandOff}
