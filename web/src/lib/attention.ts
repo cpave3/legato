@@ -1,6 +1,9 @@
 import { apiFetch } from "./api"
 
-export type AttentionAction = { id: string; label: string; kind: "navigate" | "execute"; intent?: string; requires_text?: boolean; requires_confirmation?: boolean }
+// An action may say what to ask before it runs (confirmation), and a
+// navigate action may go somewhere of its own (href): an http(s) address
+// outside Legato, such as a task on a worker, or a path of this web UI.
+export type AttentionAction = { id: string; label: string; kind: "navigate" | "execute"; intent?: string; requires_text?: boolean; requires_confirmation?: boolean; confirmation?: string; href?: string }
 export type AttentionNavigation = { kind: string; target: string }
 export type AttentionItem = {
   id: string

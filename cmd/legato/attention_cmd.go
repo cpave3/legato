@@ -45,6 +45,9 @@ func runAttentionCmd(args []string) int {
 	// Register producers so the CLI can reconcile without a running server.
 	planSvc := service.NewPlanService(db, nil, nil)
 	_ = attention.RegisterProducerWithEvents(service.NewPlanAttentionAdapter(planSvc))
+	// Away tasks and workers, read from the database (the 15 minutes of an
+	// unreachable worker too); the running Legato notifies the phone.
+	_ = attention.RegisterProducer(service.NewHandoffAttentionAdapter(db, service.HandoffAttentionOptions{}))
 	_ = attention.ReconcileAll(context.Background())
 	items, err := attention.List(context.Background(), service.AttentionFilter{
 		Producer: flags["producer"],

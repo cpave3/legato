@@ -149,3 +149,30 @@ func TestEnterOnAnArgusCaseOpensItInTheBrowser(t *testing.T) {
 		t.Fatalf("view = %q", m.View())
 	}
 }
+
+func TestTheTUIListsAnAwayTasksItemsButRefersTheirActionsToTheWebUI(t *testing.T) {
+	svc := &fakeService{items: []service.AttentionItem{{
+		ID: "att-1", Title: "Fix it is done on vm-1", Reason: "Return it", Producer: service.HandoffAttentionProducer,
+		SignalKind: service.AttentionSignalHandoffDone, SourceRevision: "done", Urgency: "normal",
+		Navigation: service.AttentionNavigation{Kind: "task", Target: "abc"},
+		Actions: []service.AttentionAction{
+			{ID: "return", Label: "Return", Kind: "execute"},
+			{ID: "open", Label: "Open task", Kind: "navigate"},
+		},
+	}}}
+	m := New(svc)
+	m, _ = m.Update(queueMsg{items: svc.items})
+	if !contains(m.View(), "Fix it is done on vm-1") {
+		t.Fatalf("view = %q", m.View())
+	}
+	m, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if cmd != nil {
+		m, _ = m.Update(cmd())
+	}
+	if svc.calls != 0 {
+		t.Fatalf("the TUI returned an away task: %d calls", svc.calls)
+	}
+	if !contains(m.View(), "Return, recall and take back from the web UI") {
+		t.Fatalf("view = %q", m.View())
+	}
+}

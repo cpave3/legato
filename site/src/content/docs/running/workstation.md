@@ -66,7 +66,7 @@ Each TUI listens on its own socket. When a `legato` command changes something, s
 
 Only one of them runs the web server: the first to take the port. The others skip it.
 
-Sending tasks from one Legato to another on a different machine is planned; see [Main and worker instances](/legato/running/instances/).
+To send tasks from one Legato to another on a different machine, see [Main and worker instances](/legato/running/instances/).
 
 ## Where Legato keeps its files
 

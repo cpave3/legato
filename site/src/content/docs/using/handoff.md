@@ -5,8 +5,8 @@ sidebar:
   order: 35
 ---
 
-:::caution[Partly built]
-You can hand a task off from the web board, follow it while it is away, bring it back, and remove a worker, as below. Attention items and phone notifications for away tasks are planned: they do not work in a release yet, and the details can change.
+:::caution[Not yet released]
+Handoff is built but not yet in a release: it works in Legato built from its main branch, and the details can change.
 :::
 
 A handoff sends one of your tasks to a [worker instance](/legato/running/instances/): another Legato, such as an always-on VM, that works on it while your laptop sleeps or travels. The worker makes a card for the task and starts an agent on it at once. Your own board keeps the task, read-only, in an **Away** lane until it comes back.
@@ -125,9 +125,26 @@ Your main keeps a connection open to each worker that holds tasks of yours, and 
 
 **Sync providers** on the web board (or `r` in the TUI) also reconnects to every worker and pulls its tasks.
 
-Your main never takes a task back by itself. A task the worker lost, or one on a worker that is unreachable or no longer accepts your main, stays in the lane until you take it back.
+Your main never takes a task back by itself. A task the worker lost, or one on a worker that is unreachable or no longer accepts your main, stays in the lane until you take it back. Once a worker has been unreachable for 15 minutes, or no longer accepts your main, Attention says so; see [Attention and notifications](#attention-and-notifications).
 
 Settings › Handoff › Workers shows when each worker was last pulled. On the worker, Settings › Handoff › Main instances shows when each main last pulled and how many of its handoffs are open there.
+
+## Attention and notifications
+
+Your main raises [Attention](/legato/using/attention/) only when a task needs something that only your main can do, and notifies your phone only about what the worker cannot tell you itself:
+
+| What happened | Attention item | Section | Actions | Phone |
+| --- | --- | --- | --- | --- |
+| A task is **Done** on the worker | "Fix it is done on vm-1", one per task | Ready for review | **Return**, **Open on vm-1** | No: the worker's own notification says its agent finished |
+| A handoff **Failed** | "Handing Fix it to vm-1 failed", with the reason | Needs intervention | **Recall**, **Open on vm-1** | Yes |
+| A task is **Lost on worker** | "Fix it is lost on vm-1" | Needs intervention | **Take back**, after you confirm | Yes |
+| A worker **no longer accepts this main** | "vm-1 no longer accepts this main", one per worker | Needs intervention | **Pair again**, which opens Settings › Handoff › Workers | Yes |
+| A worker has been **unreachable for 15 minutes** | "vm-1 unreachable since 21:40, 2 away tasks", one per worker | Needs intervention | **Open Settings › Workers** | Yes, once for each outage |
+| A task's agent **needs you** | None: the lane's pill only | | | No: the worker notifies you |
+
+Each item about a task also has **Open task**, which selects it in the Away lane. An item goes away by itself when its state is gone (the worker shows the task working again, or answers again) or when the task comes back: returned, recalled or taken back. Dismissing an item hides it in that state only; if the state changes and comes back, so does the item.
+
+The TUI lists these items under `I`, and `legato attention list` lists them too, but return, recall and take back are done in the web UI. The phone notifications go through ntfy (see [Notifications](/legato/integrations/notifications/#away-tasks)); tapping one opens the task, or Settings › Handoff › Workers, in your browser. To turn them off, set `notifications.handoff: false`. When the TUI and `legato serve` run on one database, your phone hears of each state once.
 
 ## While a task is away
 

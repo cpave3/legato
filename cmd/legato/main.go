@@ -1592,7 +1592,7 @@ func runServeCmd(args []string) int {
 	defer approvalsRT.stop()
 	approvalsRT.attach(srv)
 	updates := newUpdateService(db, bus, agentSvc, serveRestarter())
-	wireAttention(context.Background(), db, bus, srv, planSvc, reviewSvc, agentSvc, workflowSvc, approvalsRT, updates, triggerCoordinator)
+	wireAttention(context.Background(), db, bus, srv, planSvc, reviewSvc, agentSvc, workflowSvc, approvalsRT, updates, mainSide, triggerCoordinator)
 	wireUpdates(srv, updates)
 	srv.SetMacros(cfg.Macros)
 	srv.SetSandboxEnabled(cfg.Agents.Sandbox.Enabled)
@@ -1890,7 +1890,7 @@ func runTUI() int {
 			}
 			approvalsRT.attach(webSrv)
 			updates := newUpdateService(db, bus, agentSvc, tuiRestarter())
-			wireAttention(context.Background(), db, bus, webSrv, planSvc, reviewSvc, agentSvc, tuiWorkflowSvc, approvalsRT, updates, triggerCoordinator)
+			wireAttention(context.Background(), db, bus, webSrv, planSvc, reviewSvc, agentSvc, tuiWorkflowSvc, approvalsRT, updates, mainSide, triggerCoordinator)
 			wireUpdates(webSrv, updates)
 			webSrv.SetMacros(cfg.Macros)
 			webSrv.SetSandboxEnabled(cfg.Agents.Sandbox.Enabled)
@@ -1987,6 +1987,9 @@ func runTUI() int {
 		app.SetWorkflowTriggerCoordinator(triggerCoordinator, workflowRepositoryPresets(cfg))
 	}
 	registerApprovalAttention(attentionSvc, approvalsRT)
+	// Away tasks and workers that need this main; their actions are the
+	// web UI's.
+	mainSide.registerAttention(attentionSvc, cfg, approvalsRT.serverURL())
 	attentionSvc.StartEventReconciliation(context.Background())
 	if err := attentionSvc.ReconcileAll(context.Background()); err != nil {
 		log.Printf("attention: startup reconciliation: %v", err)

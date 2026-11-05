@@ -251,11 +251,21 @@ type NotificationsConfig struct {
 	// Approvals sends an ntfy notification for each new approval request.
 	// Default true.
 	Approvals *bool `yaml:"approvals"`
+	// Handoff sends an ntfy notification for an away task that failed or
+	// was lost on its worker, and a worker that no longer accepts this
+	// main or has been unreachable for 15 minutes. Default true.
+	Handoff *bool `yaml:"handoff"`
 }
 
 // ApprovalsEnabled reports whether new approvals send a notification.
 func (n NotificationsConfig) ApprovalsEnabled() bool {
 	return n.Approvals == nil || *n.Approvals
+}
+
+// HandoffEnabled reports whether a main notifies the phone about its away
+// tasks and workers.
+func (n NotificationsConfig) HandoffEnabled() bool {
+	return n.Handoff == nil || *n.Handoff
 }
 
 // OSNotificationsConfig holds OS-native desktop notification settings.

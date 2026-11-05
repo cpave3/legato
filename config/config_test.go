@@ -948,6 +948,24 @@ func TestAgentsMCPConfig(t *testing.T) {
 	}
 }
 
+func TestHandoffNotificationsAreOnByDefaultAndCanBeTurnedOff(t *testing.T) {
+	writeTestConfig(t, "")
+	cfg, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.Notifications.HandoffEnabled() {
+		t.Fatal("handoff notifications are off by default")
+	}
+	writeTestConfig(t, "notifications:\n  handoff: false\n")
+	if cfg, err = Load(); err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Notifications.HandoffEnabled() {
+		t.Fatal("notifications.handoff: false left them on")
+	}
+}
+
 func TestApprovalNotificationsAreOnByDefaultAndCanBeTurnedOff(t *testing.T) {
 	writeTestConfig(t, "")
 	cfg, err := Load()

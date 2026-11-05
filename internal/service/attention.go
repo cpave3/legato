@@ -24,6 +24,13 @@ type AttentionAction struct {
 	Intent          string `json:"intent,omitempty"`
 	RequiresText    bool   `json:"requires_text,omitempty"`
 	RequiresConfirm bool   `json:"requires_confirmation,omitempty"`
+	// Confirmation is what a client asks the person before an action that
+	// requires confirmation; empty when the click is confirmation enough.
+	Confirmation string `json:"confirmation,omitempty"`
+	// Href is where a navigate action goes when not to the item's own
+	// navigation: an http(s) address outside Legato (a task on a worker),
+	// or a path of the web UI.
+	Href string `json:"href,omitempty"`
 }
 
 const (
@@ -64,6 +71,11 @@ var defaultAttentionSignals = []string{
 	AttentionSignalArgusCase,
 	AttentionSignalArgusNeedsYou,
 	AttentionSignalUpdateAvailable,
+	AttentionSignalHandoffDone,
+	AttentionSignalHandoffFailed,
+	AttentionSignalHandoffLost,
+	AttentionSignalWorkerNotAccepting,
+	AttentionSignalWorkerUnreachable,
 }
 
 var knownAttentionSignals = map[string]bool{
@@ -88,6 +100,11 @@ var knownAttentionSignals = map[string]bool{
 	AttentionSignalArgusCase:                   true,
 	AttentionSignalArgusNeedsYou:               true,
 	AttentionSignalUpdateAvailable:             true,
+	AttentionSignalHandoffDone:                 true,
+	AttentionSignalHandoffFailed:               true,
+	AttentionSignalHandoffLost:                 true,
+	AttentionSignalWorkerNotAccepting:          true,
+	AttentionSignalWorkerUnreachable:           true,
 }
 
 type AttentionInput struct {

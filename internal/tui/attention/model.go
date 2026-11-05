@@ -113,6 +113,12 @@ func (m Model) HandleAction(action hotkey.ActionID) (Model, tea.Cmd) {
 	case hotkey.ActionAttentionExecute:
 		if len(m.items) > 0 {
 			item := m.items[m.cursor]
+			// An away task's Return, Recall and Take back are the web UI's,
+			// as on the board.
+			if item.Producer == service.HandoffAttentionProducer {
+				m.err, m.info = nil, "Return, recall and take back from the web UI"
+				return m, nil
+			}
 			for _, action := range item.Actions {
 				if action.Kind == "execute" {
 					return m, m.executeAction(item, action)

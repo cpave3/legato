@@ -3,7 +3,7 @@ import { AlertTriangle, Bell, CheckCircle, ChevronRight, ExternalLink, GitPullRe
 import { useState } from "react"
 import { useAttention } from "../hooks/useAttention"
 import { useServer } from "../hooks/useServer"
-import { executeAttentionAction, dismissAttentionItem, type AttentionItem } from "../lib/attention"
+import { executeAttentionAction, dismissAttentionItem, type AttentionAction, type AttentionItem } from "../lib/attention"
 import { externalHref, legatoHref } from "../lib/navigation"
 import { LoadingState } from "../components/ui/LoadingState"
 import { MarkdownBody } from "../components/MarkdownBody"
@@ -30,6 +30,19 @@ const mergeSignals = new Set(["pr_merge_blocked", "argus_case"])
 // An integration's name as the label of a link to its own page.
 function producerLabel(producer: string): string {
   return producer.charAt(0).toUpperCase() + producer.slice(1)
+}
+
+// The signals of work ready for the person to look at and bring home: a
+// review tour, and a task done on a worker.
+const reviewSignals = new Set(["review_ready", "handoff_done"])
+
+// Where a navigate action with an address of its own goes: outside Legato
+// (in a new tab), or a path of this web UI.
+function actionHref(action: AttentionAction): { external: string } | { path: string } | null {
+  if (!action.href) return null
+  if (action.href.startsWith("/")) return { path: action.href }
+  const external = externalHref({ kind: "external", target: action.href })
+  return external ? { external } : null
 }
 
 // A detail longer than this is folded until the person asks for more.
@@ -70,15 +83,15 @@ const sections: AttentionSection[] = [
     description: "Decisions, failed work, and agents waiting for you",
     emptyLabel: "No interventions needed",
     icon: AlertTriangle,
-    matches: (item) => item.signal_kind !== "review_ready" && !mergeSignals.has(item.signal_kind),
+    matches: (item) => !reviewSignals.has(item.signal_kind) && !mergeSignals.has(item.signal_kind),
   },
   {
     id: "review",
     title: "Ready for review",
-    description: "Agent work explicitly handed over for human review",
+    description: "Agent work handed over for review, and tasks done on a worker",
     emptyLabel: "No work is ready for review",
     icon: ScanEye,
-    matches: (item) => item.signal_kind === "review_ready",
+    matches: (item) => reviewSignals.has(item.signal_kind),
   },
   {
     id: "merge",
@@ -130,7 +143,10 @@ function AttentionCard({ item, pending, onAction, onDismiss }: AttentionCardProp
               key={action.id}
               type="button"
               disabled={pending}
-              onClick={() => onAction(item, action.id, action.requires_confirmation ?? false)}
+              onClick={() => {
+                if (action.confirmation && !window.confirm(action.confirmation)) return
+                onAction(item, action.id, action.requires_confirmation ?? false)
+              }}
               className="min-h-11 rounded-lg bg-indigo-500 px-3 text-sm font-medium text-white hover:bg-indigo-400 disabled:opacity-50"
             >
               {action.label}
@@ -144,11 +160,23 @@ function AttentionCard({ item, pending, onAction, onDismiss }: AttentionCardProp
           >
             Dismiss
           </button>
-          {navPath && (item.actions ?? []).filter((action) => action.kind === "navigate").map((action) => (
-            <Link key={action.id} to={navPath} className="flex min-h-11 items-center rounded-lg border border-zinc-700 px-3 text-sm text-zinc-200 hover:bg-zinc-800">
-              {action.label} <ChevronRight size={16} className="ml-1" />
-            </Link>
-          ))}
+          {(item.actions ?? []).filter((action) => action.kind === "navigate").map((action) => {
+            const own = actionHref(action)
+            if (own && "external" in own) {
+              return (
+                <a key={action.id} href={own.external} target="_blank" rel="noopener noreferrer" className="flex min-h-11 items-center rounded-lg border border-zinc-700 px-3 text-sm text-zinc-200 hover:bg-zinc-800">
+                  {action.label} <ExternalLink size={14} className="ml-1.5" />
+                </a>
+              )
+            }
+            const to = own ? own.path : navPath
+            if (!to) return null
+            return (
+              <Link key={action.id} to={to} className="flex min-h-11 items-center rounded-lg border border-zinc-700 px-3 text-sm text-zinc-200 hover:bg-zinc-800">
+                {action.label} <ChevronRight size={16} className="ml-1" />
+              </Link>
+            )
+          })}
           {external && item.task_id && (
             <Link to={`/board?highlight_task=${encodeURIComponent(item.task_id)}`} className="flex min-h-11 items-center rounded-lg border border-zinc-700 px-3 text-sm text-zinc-200 hover:bg-zinc-800">
               Open task <ChevronRight size={16} className="ml-1" />

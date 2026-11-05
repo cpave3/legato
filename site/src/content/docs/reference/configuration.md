@@ -330,6 +330,7 @@ Push notifications through ntfy, and desktop notifications. See [Notifications](
 | `notifications.ntfy.topic` | string | none | The topic to publish to. Without it, Legato sends no push notifications. Pick a name nobody could guess. |
 | `notifications.ntfy.token` | string | none | An access token for a protected topic. |
 | `notifications.approvals` | bool | `true` | Sends a notification for each new approval request. Tapping it opens the request in the Legato app. |
+| `notifications.handoff` | bool | `true` | On a main instance, sends a notification when an away task fails or is lost on its worker, and when a worker no longer accepts this main or has been unreachable for 15 minutes. See [Hand off tasks](/legato/using/handoff/#attention-and-notifications). |
 | `notifications.os.enabled` | bool | `false` | Shows desktop notifications too, through `notify-send` on Linux and `osascript` on macOS. |
 
 With a topic set, Legato notifies you when an agent finishes, when it needs you, and when every worker of a swarm is idle. Turn notifications off for one agent with `n` in the TUI or the bell in the web UI.

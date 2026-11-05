@@ -24,19 +24,20 @@ Attention lists only what you can act on. Each item comes from the part of Legat
 | Argus | [Argus](/legato/integrations/argus/) has an open case on one of your pull requests. |
 | Updates | A new release of Legato is ready to install, or an install failed. See [Updates](/legato/running/updates/). |
 | Integrations | In the last 7 days, a request from Argus did not reach an agent, a reply never reached Argus, or Argus refused the connection. |
+| Handoff | On a main instance: a task [away on a worker](/legato/using/handoff/) is done there (Ready for review, with **Return**), failed (with **Recall**) or was lost (with **Take back**); a worker no longer accepts your main (**Pair again**) or has been unreachable for 15 minutes. A task whose agent needs you raises nothing on your main: the worker tells you. See [Attention and notifications](/legato/using/handoff/#attention-and-notifications). |
 
 Some things never raise Attention: a draft, closed or merged pull request; CI that is still running; a comment count; an idle agent; a workflow that succeeded; and Learning's records.
 
 ### Acting on an item
 
-Most items have a main action, such as approving a plan, allowing an agent's request, or opening the review. Others take you to the page where you act. An item about a task, such as a pull request that cannot merge, opens the board with that task selected, in the Away lane when the task is [away on a worker](/legato/using/handoff/#pull-requests-while-away).
+Most items have a main action, such as approving a plan, allowing an agent's request, returning a task from a worker, or opening the review. An action that cannot be undone, such as taking a task back without its results, asks you to confirm first. Others take you to the page where you act. An item about a task, such as a pull request that cannot merge, opens the board with that task selected, in the Away lane when the task is [away on a worker](/legato/using/handoff/#pull-requests-while-away).
 
 You can also dismiss an item. Dismissing hides that item as it is now. If its source changes (the pull request fails CI again, the agent asks something new), the item comes back.
 
 ### Where you see it
 
 - **Web UI**: the **Attention** page, in three sections: **Needs intervention**, **Ready for review** and **Merge blockers**. Its count shows on **Attention** in the navigation.
-- **TUI**: press `I` on the board. `j` and `k` select an item, `enter` runs its main action, and `d` dismisses it.
+- **TUI**: press `I` on the board. `j` and `k` select an item, `enter` runs its main action, and `d` dismisses it. The TUI lists the items of away tasks and workers but does not run their actions: return, recall and take back from the web UI.
 - **Command line**:
 
   ```bash

@@ -53,6 +53,10 @@ Tapping the notification opens the approval in the Legato app on your phone. The
 
 Set `web.public_url` if your phone reaches Legato by another address. See [Devices](/legato/running/devices/).
 
+### Away tasks
+
+On a main instance that [hands tasks off](/legato/using/handoff/), Legato sends one ntfy notification when an away task fails or is lost on its worker, when a worker no longer accepts your main, and when a worker that holds your tasks has been unreachable for 15 minutes (once for each outage). Tapping it opens the task, or Settings › Handoff › Workers, in your browser. A task done on the worker, or one whose agent asks you something, sends nothing from your main: the worker's own notifications cover those. To turn them off, set `notifications.handoff: false`.
+
 ## Desktop notifications
 
 Set `notifications.os.enabled: true` to show a desktop notification each time any agent starts waiting, goes idle or has an error. Desktop notifications don't use the per-task switch. Legato uses `notify-send` on Linux and `osascript` on macOS, and shows nothing on other systems.

@@ -52,4 +52,4 @@ Agents can use your SSH keys and API keys **without holding them**: Legato signs
 | [On your workstation](/legato/running/workstation/) | The TUI in a terminal, with the web UI beside it. The usual setup. |
 | [Web server only](/legato/running/web-server/) | `legato serve` without the TUI. |
 | [On a server of its own](/legato/running/agent-server/) | An always-on machine where agents work while your laptop is closed. |
-| [Main and worker instances](/legato/running/instances/) | Planned: hand a task from your workstation to a worker. |
+| [Main and worker instances](/legato/running/instances/) | Hand a task from your workstation to a worker, and bring it back with its results. Not yet in a release. |

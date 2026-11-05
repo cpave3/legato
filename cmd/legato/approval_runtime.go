@@ -116,6 +116,24 @@ func (rt *approvalRuntime) url() string {
 	return approvalServerURL(rt.cfg, rt.port, discovery.ReachableIPv4)
 }
 
+// config is the configuration this process runs with; an empty one
+// without a runtime.
+func (rt *approvalRuntime) config() *config.Config {
+	if rt == nil || rt.cfg == nil {
+		return &config.Config{}
+	}
+	return rt.cfg
+}
+
+// serverURL gives this server's address for a phone, as the approval
+// notifications' links use it; nil without a runtime.
+func (rt *approvalRuntime) serverURL() func() string {
+	if rt == nil || rt.cfg == nil {
+		return nil
+	}
+	return rt.url
+}
+
 // approvalServerURL is the address a phone uses for this server, for the
 // link in an approval notification: web.public_url, else the TLS host name,
 // else the first local network address. port is the one the web server

@@ -175,6 +175,59 @@ describe("AttentionPage", () => {
     expect(within(unattached).queryByRole("link", { name: /Open task/ })).toBeNull()
   })
 
+  it("puts a task done on a worker in Ready for review, with Return, Open on worker and the away task", async () => {
+    mockData = [
+      item({
+        id: "att-done", producer: "handoff", signal_kind: "handoff_done", category: "handoff", urgency: "normal",
+        title: "Fix it is done on vm-1", reason: "Return it", task_id: "task-1", source_revision: "done",
+        navigation: { kind: "task", target: "task-1" },
+        actions: [
+          { id: "return", label: "Return", kind: "execute", intent: "primary" },
+          { id: "open_worker", label: "Open on vm-1", kind: "navigate", href: "https://vm-1.lan:3080/board?highlight_task=w-1" },
+          { id: "open", label: "Open task", kind: "navigate" },
+        ],
+      }),
+      item({
+        id: "att-down", producer: "handoff", signal_kind: "worker_unreachable", category: "handoff",
+        title: "vm-1 unreachable since 21:40, 2 away tasks", reason: "Legato keeps trying",
+        navigation: { kind: "settings", target: "workers" },
+        actions: [{ id: "open", label: "Open Settings › Workers", kind: "navigate", intent: "primary" }],
+      }),
+    ]
+    const { AttentionPage } = await import("../AttentionPage")
+    render(<MemoryRouter><AttentionPage /></MemoryRouter>)
+    const review = screen.getByRole("region", { name: /Ready for review/ })
+    const card = within(review).getByText("Fix it is done on vm-1").closest("li") as HTMLElement
+    const worker = within(card).getByRole("link", { name: /Open on vm-1/ })
+    expect(worker.getAttribute("href")).toBe("https://vm-1.lan:3080/board?highlight_task=w-1")
+    expect(worker.getAttribute("target")).toBe("_blank")
+    expect(within(card).getByRole("link", { name: /Open task/ }).getAttribute("href")).toBe("/board?highlight_task=task-1")
+    fireEvent.click(within(card).getByRole("button", { name: "Return" }))
+    await waitFor(() => expect(mockExecute).toHaveBeenCalledWith("", "att-done", "return", "done", { confirmed: false }))
+
+    const intervention = screen.getByRole("region", { name: /Needs intervention/ })
+    const down = within(intervention).getByText(/vm-1 unreachable since/).closest("li") as HTMLElement
+    expect(within(down).getByRole("link", { name: /Open Settings › Workers/ }).getAttribute("href")).toBe("/settings#workers")
+  })
+
+  it("asks before an action that says what it confirms, and does nothing when the person declines", async () => {
+    mockData = [item({
+      id: "att-lost", producer: "handoff", signal_kind: "handoff_lost", category: "handoff",
+      title: "Gone is lost on vm-1", reason: "vm-1 no longer has this task", task_id: "task-1", source_revision: "lost:1",
+      navigation: { kind: "task", target: "task-1" },
+      actions: [{ id: "take_back", label: "Take back", kind: "execute", requires_confirmation: true, confirmation: "Take back Gone without its results?" }],
+    })]
+    const confirm = vi.spyOn(window, "confirm").mockReturnValueOnce(false).mockReturnValueOnce(true)
+    const { AttentionPage } = await import("../AttentionPage")
+    render(<MemoryRouter><AttentionPage /></MemoryRouter>)
+    fireEvent.click(screen.getByRole("button", { name: "Take back" }))
+    expect(confirm).toHaveBeenCalledWith("Take back Gone without its results?")
+    expect(mockExecute).not.toHaveBeenCalled()
+    fireEvent.click(screen.getByRole("button", { name: "Take back" }))
+    await waitFor(() => expect(mockExecute).toHaveBeenCalledWith("", "att-lost", "take_back", "lost:1", { confirmed: true }))
+    confirm.mockRestore()
+  })
+
   it("shows an item's detail as Markdown without raw HTML, folded when long", async () => {
     const long = ["**Flaky** at 0.8.", "", "- rerun proposed", "- waiting on you", "", "Line five", "", "Line six", "<img src=x onerror=alert(1)>"].join("\n")
     mockData = [item({ detail: long })]
