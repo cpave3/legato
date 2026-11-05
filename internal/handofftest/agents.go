@@ -43,8 +43,8 @@ func (f *FakeRepos) Push(repo, branch string) {
 	f.pushed[repo+"@"+branch] = true
 }
 
-// Refreshes lists the repositories fetched to look for a pushed branch,
-// oldest first.
+// Refreshes lists the repositories fetched before a handoff's clone, oldest
+// first.
 func (f *FakeRepos) Refreshes() []string {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -64,6 +64,17 @@ func (f *FakeRepos) PushedBranch(_ context.Context, repo, branch string) (string
 		return "", fmt.Errorf("%w: %s has no branch %s", service.ErrBranchNotOnGitHub, repo, branch)
 	}
 	return "main", nil
+}
+
+// Refresh "fetches" repo, as service.RepositoryService.Refresh does.
+func (f *FakeRepos) Refresh(_ context.Context, repo string) (string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.refreshes = append(f.refreshes, repo)
+	if err, ok := f.failing[repo]; ok {
+		return "", err
+	}
+	return filepath.Join(f.dir, "cache", repo), nil
 }
 
 // Refuse makes the worker unable to clone repo, saying why.

@@ -27,6 +27,8 @@ Before you can hand anything off, pair a worker with this Legato. See [Main and 
 
 The task's title, description and notes travel to the worker, with the repository and the branch. Your agent's conversation never does.
 
+The worker fetches the repository from GitHub before it clones it, so the agent starts from what you last pushed, even when its copy was fetched only minutes ago. If the fetch fails, the handoff fails with git's reason.
+
 The worker starts the agent in its sandbox, with its tool's own permission prompts off, and a brief that tells it to work alone, record its decisions in notes, and move the card to Done when it is through. See [On the worker](/legato/running/instances/#on-the-worker).
 
 ### Start from a pushed branch

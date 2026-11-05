@@ -36,6 +36,8 @@ type HandoffRepositories interface {
 	// PushedBranch fetches the repository's cache and returns its default
 	// branch, or ErrBranchNotOnGitHub when GitHub has no such branch.
 	PushedBranch(ctx context.Context, repo, branch string) (base string, err error)
+	// Refresh fetches the repository's cache now, whatever its max age.
+	Refresh(ctx context.Context, repo string) (string, error)
 }
 
 // HandoffGrants is what a worker asks of its credential broker for a
@@ -380,6 +382,15 @@ func (s *HandoffWorkerService) start(ctx context.Context, mainInstanceID, handof
 			return
 		}
 		in.Base = base
+	} else if s.opts.Repositories != nil {
+		// A handoff can start long after the person last pushed: fetch now,
+		// whatever the cache's max age, so the new branch starts from
+		// GitHub's default branch as it is. The clone then finds the cache
+		// fresh and does not fetch again.
+		if _, err := s.opts.Repositories.Refresh(ctx, h.Repo); err != nil {
+			move(store.HandoffFailed, startFailure(err))
+			return
+		}
 	}
 	brief := HandoffBrief(in)
 	opts := AgentSpawnOptions{AgentKind: h.AgentKind, Repo: h.Repo, Branch: h.Branch, Assignment: brief, Unattended: true,
