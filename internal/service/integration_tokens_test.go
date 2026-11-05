@@ -67,6 +67,8 @@ func TestIntegrationTokensRefuseBadScopesAndNames(t *testing.T) {
 		scopes []string
 	}{
 		{"argus", []string{"tasks:write"}},
+		{"argus", []string{ScopeHandoff}},
+		{"argus", []string{ScopeDelegate, ScopeHandoff}},
 		{"argus", nil},
 		{"Argus!", []string{ScopeDelegate}},
 		{"", []string{ScopeDelegate}},

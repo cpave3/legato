@@ -28,6 +28,7 @@ func integrationTestServer(t *testing.T) http.Handler {
 		"lgi_both":      {Name: "argus", Scopes: []string{service.ScopeOwnerRead, service.ScopeDelegate}},
 		"lgi_owner":     {Name: "argus", Scopes: []string{service.ScopeOwnerRead}},
 		"lgi_attention": {Name: "argus", Scopes: []string{service.ScopeAttention}},
+		"lgi_all":       {Name: "argus", Scopes: []string{service.ScopeOwnerRead, service.ScopeDelegate, service.ScopeAttention}},
 	})
 	return srv.Handler()
 }
@@ -66,6 +67,11 @@ func TestAScopedTokenReachesOnlyIntegrationRoutes(t *testing.T) {
 		{"unknown scoped token", "GET", "/api/integrations/owner?repo=a/b&pr=1", "lgi_unknown", 401, "unauthorized"},
 		{"no token on an integration route", "GET", "/api/integrations/owner?repo=a/b&pr=1", "", 401, "unauthorized"},
 		{"full token on an integration route", "GET", "/api/integrations/owner?repo=a/b&pr=1", "full-token", 503, "unavailable"},
+		{"an unknown integration path is refused", "POST", "/api/integrations/new-thing", "lgi_all", 403, "forbidden"},
+		{"an unknown path under a known one's name is refused", "GET", "/api/integrations/ownership", "lgi_all", 403, "forbidden"},
+		{"the integration root is refused", "GET", "/api/integrations/", "lgi_all", 403, "forbidden"},
+		{"handoff routes need the handoff scope", "POST", "/api/integrations/handoff/handoffs", "lgi_all", 403, "missing_scope"},
+		{"the handoff root needs the handoff scope", "GET", "/api/integrations/handoff", "lgi_all", 403, "missing_scope"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			status, body := integrationRequest(t, h, tc.method, tc.path, tc.token)

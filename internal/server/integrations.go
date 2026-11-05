@@ -70,15 +70,21 @@ const integrationPrefix = "/api/integrations/"
 
 func isIntegrationPath(path string) bool { return strings.HasPrefix(path, integrationPrefix) }
 
-// integrationScope is the scope a route under /api/integrations/ needs.
+// integrationScopes is the scope each route group under /api/integrations/
+// needs, by the path's first segment. A path in no group has no scope, and
+// no scoped token reaches it.
+var integrationScopes = map[string]string{
+	"owner":       service.ScopeOwnerRead,
+	"delegations": service.ScopeDelegate,
+	"attention":   service.ScopeAttention,
+	"handoff":     service.ScopeHandoff,
+}
+
+// integrationScope is the scope a route under /api/integrations/ needs, or ""
+// for a path no scope reaches.
 func integrationScope(path string) string {
-	if strings.HasPrefix(path, integrationPrefix+"owner") {
-		return service.ScopeOwnerRead
-	}
-	if strings.HasPrefix(path, integrationPrefix+"attention") {
-		return service.ScopeAttention
-	}
-	return service.ScopeDelegate
+	group, _, _ := strings.Cut(strings.TrimPrefix(path, integrationPrefix), "/")
+	return integrationScopes[group]
 }
 
 // writeIntegrationError answers an integration route's error as
@@ -102,7 +108,12 @@ func (s *Server) serveScopedToken(w http.ResponseWriter, r *http.Request, next h
 		writeIntegrationError(w, http.StatusForbidden, "forbidden", "an integration token reaches only /api/integrations/")
 		return
 	}
-	if scope := integrationScope(r.URL.Path); !id.Has(scope) {
+	scope := integrationScope(r.URL.Path)
+	if scope == "" {
+		writeIntegrationError(w, http.StatusForbidden, "forbidden", "no integration route at "+r.URL.Path)
+		return
+	}
+	if !id.Has(scope) {
 		writeIntegrationError(w, http.StatusForbidden, "missing_scope", "this route needs the scope "+scope)
 		return
 	}

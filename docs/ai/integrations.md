@@ -21,7 +21,9 @@ The auth middleware (`internal/server/integrations.go`) lets a bearer token star
 - any other path gets 403 `forbidden`;
 - a route whose scope it lacks gets 403 `missing_scope`.
 
-The owner route needs `owner:read`, the attention routes `attention`, and everything else `delegate`. The WebSocket never takes one. The full web token works on the integration routes too, and acts as Argus there. A request made with a scoped token carries its integration's name in its context (`integrationFrom`).
+The scope a route needs comes from the first segment of its path after `/api/integrations/` (`integrationScopes`): `owner` needs `owner:read`, `delegations` needs `delegate`, `attention` needs `attention`, and `handoff` needs `handoff`. A path in no group, such as `/api/integrations/ownership` or a new route nobody mapped, gets 403 `forbidden` whatever scopes the token holds: a new group must be given a scope before a scoped token can reach it.
+
+`handoff` (`service.ScopeHandoff`) is reserved for the routes a main instance uses to hand tasks to a worker instance. No token can hold it yet: `token create` refuses it, and the CLI does not offer it. Pairing a main will mint a token holding it alone. The WebSocket never takes one. The full web token works on the integration routes too, and acts as Argus there. A request made with a scoped token carries its integration's name in its context (`integrationFrom`).
 
 Integration routes answer errors as `{"error": "<code>", "message": "<text>"}`. The other routes keep `{"error": "<message>"}`.
 

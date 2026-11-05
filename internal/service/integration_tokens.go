@@ -20,6 +20,10 @@ const (
 	ScopeOwnerRead = "owner:read"
 	ScopeDelegate  = "delegate"
 	ScopeAttention = "attention"
+	// ScopeHandoff reaches /api/integrations/handoff/, where a main instance
+	// hands tasks to this worker. Only pairing a main will give it, alone;
+	// Create refuses it, so no token holds it yet.
+	ScopeHandoff = "handoff"
 )
 
 // IntegrationTokenPrefix starts every integration token, so it can be told
