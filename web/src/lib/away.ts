@@ -58,9 +58,35 @@ export interface AwayLook {
   tint: string
 }
 
-// How an away task's state as last heard is shown: the pill on its row in
-// the Away lane and the strip in its task panel.
+// How an away task is shown: the pill on its row in the Away lane and the
+// strip in its task panel. The server's view comes first (the main's own
+// view of the worker, then the worker's state and its agent's activity);
+// an older server sends only the state.
 export function awayLook(away: AwayOn): AwayLook {
+  switch (away.view) {
+    case "starting":
+      return { glyph: "◌", label: "Starting", tone: "text-lw-text-2", tint: "bg-lw-idle-soft" }
+    case "working":
+      return { glyph: "●", label: "Working", tone: "text-lw-live", tint: "bg-lw-live-soft" }
+    case "needs_you":
+      return { glyph: "?", label: "Needs you", tone: "text-lw-needs", tint: "bg-lw-needs-soft" }
+    case "idle":
+      return { glyph: "○", label: "Idle", tone: "text-lw-text-2", tint: "bg-lw-idle-soft" }
+    case "ended":
+      return { glyph: "■", label: "Agent ended", tone: "text-lw-text-2", tint: "bg-lw-idle-soft" }
+    case "done":
+      return { glyph: "✓", label: "Done", tone: "text-lw-done", tint: "bg-lw-done-soft" }
+    case "failed":
+      return { glyph: "✕", label: away.failure ? `Failed: ${away.failure}` : "Failed", tone: "text-lw-error", tint: "bg-lw-error-soft" }
+    case "coming_back":
+      return { glyph: "↩", label: "Coming back", tone: "text-lw-text-2", tint: "bg-lw-idle-soft" }
+    case "unreachable":
+      return { glyph: "⚠", label: "Unreachable", tone: "text-lw-error", tint: "bg-lw-error-soft" }
+    case "lost":
+      return { glyph: "✕", label: "Lost on worker", tone: "text-lw-error", tint: "bg-lw-error-soft" }
+    case "not_accepted":
+      return { glyph: "⚠", label: "Not accepted", tone: "text-lw-error", tint: "bg-lw-error-soft" }
+  }
   switch (away.state) {
     case "pending":
       return { glyph: "◌", label: "Starting", tone: "text-lw-text-2", tint: "bg-lw-idle-soft" }
@@ -75,6 +101,49 @@ export function awayLook(away: AwayOn): AwayLook {
     default:
       return { glyph: "→", label: "Handed off", tone: "text-lw-text-2", tint: "bg-lw-idle-soft" }
   }
+}
+
+// Why an away task shows what it shows, for its pill's tooltip: why it
+// was lost, since when its worker is unreachable, that the worker no longer
+// accepts this main.
+export function awayDetail(away: AwayOn): string | undefined {
+  switch (away.view) {
+    case "lost":
+      return away.lost
+    case "unreachable":
+      return away.worker_unreachable_since ? `${away.worker} unreachable since ${awayTime(away.worker_unreachable_since)}` : undefined
+    case "not_accepted":
+      return `${away.worker} no longer accepts this main; pair again`
+    case "failed":
+      return away.failure
+  }
+  return undefined
+}
+
+export interface WorkerReachLook {
+  text: string
+  // ok: reachable; quiet: nothing heard yet; bad: unreachable or refusing.
+  tone: "ok" | "quiet" | "bad"
+}
+
+// How a worker group's header says whether the worker can be reached:
+// "pulled 2 min ago", "unreachable since 21:40", or that it no longer
+// accepts this main.
+export function workerReach(worker: BoardWorker, now = new Date()): WorkerReachLook {
+  if (worker.refused_at) return { text: "no longer accepts this main; pair again", tone: "bad" }
+  if (worker.unreachable_since) return { text: `unreachable since ${awayTime(worker.unreachable_since, now)}`, tone: "bad" }
+  if (!worker.last_pull_at) return { text: "not pulled yet", tone: "quiet" }
+  return { text: `pulled ${sinceText(worker.last_pull_at, now)}`, tone: "ok" }
+}
+
+function sinceText(iso: string, now: Date): string {
+  const seconds = Math.max(0, Math.round((now.getTime() - new Date(iso).getTime()) / 1000))
+  if (Number.isNaN(seconds) || seconds < 60) return "just now"
+  const minutes = Math.floor(seconds / 60)
+  if (minutes < 60) return `${minutes} min ago`
+  const hours = Math.floor(minutes / 60)
+  if (hours < 48) return `${hours} h ago`
+  return `${Math.floor(hours / 24)} days ago`
 }
 
 export function purposeLabel(purpose: string): string {

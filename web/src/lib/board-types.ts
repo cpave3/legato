@@ -18,7 +18,12 @@ export interface BoardWorker {
   instance_id: string
   name: string
   address: string
+  // When this main last heard from the worker on its connection.
   last_pull_at?: string
+  // When it went down, once down past the grace; when it stopped
+  // accepting this main (pair again).
+  unreachable_since?: string
+  refused_at?: string
 }
 
 export interface BoardCard {
@@ -78,6 +83,21 @@ export interface AwayOn {
   failure?: string
   state_at?: string
   url?: string
+  // What the worker's live connection says: its agent's activity
+  // (working, waiting, idle, ended), the card's column and title there, the
+  // branches pushed in stack order.
+  activity?: string
+  worker_column?: string
+  worker_title?: string
+  branches?: string[]
+  // Why the worker no longer has the task, since when.
+  lost?: string
+  lost_at?: string
+  worker_unreachable_since?: string
+  worker_refused_at?: string
+  // What the main shows: starting, working, needs_you, idle, ended, done,
+  // failed, coming_back, unreachable, lost or not_accepted.
+  view?: string
 }
 
 export interface SwarmStats {

@@ -72,7 +72,7 @@ A local task belongs to Legato alone. A remote ticket comes from a ticket provid
 
 - Press `n` to create a local task. You give it a title, a description, a column, a priority (`ctrl+p` cycles it) and a workspace.
 - Press `i` to search the ticket provider and import a ticket. Type at least two characters.
-- Press `r` to sync with the ticket provider now.
+- Press `r` to sync with the ticket provider now. It also pulls every [worker](/legato/using/handoff/#staying-up-to-date) holding tasks of yours.
 
 You can rename only a local task. For any task you can edit the details that belong to Legato with `e` in the detail view. On a remote ticket, the provider's own description stays read-only, and the detail view shows both together.
 

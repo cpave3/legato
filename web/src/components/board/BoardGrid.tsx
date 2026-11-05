@@ -1,6 +1,6 @@
 import type { BoardColumn, BoardWorker } from "../../lib/board-types"
 import { BoardColumn as BoardColumnComponent } from "./BoardColumn"
-import { AwayLane } from "./AwayLane"
+import { AwayLane, WorkerReach } from "./AwayLane"
 import { isColumnCollapsed } from "../../lib/boardColumns"
 
 interface BoardGridProps {
@@ -34,6 +34,7 @@ export function BoardGrid({ columns, cursorCol, cursorRow, showWorkspace, showEm
           isActive={cursorCol === i}
           highlightedTaskId={highlightedTaskId}
           onRowClick={(row) => onCardClick(i, row)}
+          groupExtras={(worker) => <WorkerReach worker={worker} />}
         />
       ) : (
         <BoardColumnComponent

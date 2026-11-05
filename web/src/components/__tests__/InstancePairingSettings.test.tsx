@@ -65,6 +65,18 @@ describe("WorkersSettings", () => {
     expect(within(vm).getByText(/sandbox on/i)).toBeTruthy()
   })
 
+  it("says when each worker was last pulled, and which one is down or refuses this main", async () => {
+    workers = [
+      { ...workers[0], last_pull_at: "2026-11-05T08:58:00Z" },
+      { ...workers[0], instance_id: "srv-2", name: "vm-2", last_pull_at: "2026-11-05T08:00:00Z", unreachable_since: "2026-11-05T08:01:00Z" },
+      { ...workers[0], instance_id: "srv-3", name: "vm-3", refused_at: "2026-11-05T08:30:00Z" },
+    ]
+    render(<WorkersSettings baseUrl="" />)
+    expect(within(await screen.findByRole("listitem", { name: "vm-1" })).getByText(/^Pulled /)).toBeTruthy()
+    expect(within(screen.getByRole("listitem", { name: "vm-2" })).getByText(/^Unreachable since /)).toBeTruthy()
+    expect(within(screen.getByRole("listitem", { name: "vm-3" })).getByText(/no longer accepts this main; pair again/i)).toBeTruthy()
+  })
+
   it("explains handing off before any worker is paired", async () => {
     workers = []
     render(<WorkersSettings baseUrl="" />)

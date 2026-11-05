@@ -6,6 +6,8 @@ describe("providerLabel", () => {
     expect(providerLabel("jira")).toBe("Jira")
     expect(providerLabel("burnlite")).toBe("Burnlite")
     expect(providerLabel("github")).toBe("GitHub")
+    // A manual sync on a main also pulls its workers.
+    expect(providerLabel("workers")).toBe("Workers")
     expect(providerLabel("linear")).toBe("linear")
     expect(providerLabel("")).toBe("")
   })

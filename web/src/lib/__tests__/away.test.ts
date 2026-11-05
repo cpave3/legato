@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { awayGroups, awayLook, withAwayLane } from "../away"
+import { awayGroups, awayLook, withAwayLane, workerReach } from "../away"
 import type { AwayOn, BoardCard, BoardColumn, BoardWorker } from "../board-types"
 
 function card(id: string, status: string, away?: Partial<AwayOn>): BoardCard {
@@ -56,5 +56,39 @@ describe("awayLook", () => {
     expect(awayLook({ ...away, state: "failed", failure: "the clone failed" }).label).toBe("Failed: the clone failed")
     expect(awayLook({ ...away, state: "returning" }).label).toBe("Coming back")
     expect(awayLook(away).label).toBe("Handed off")
+  })
+})
+
+describe("awayLook, live", () => {
+  const away = card("b", "Ready", {}).away!
+  it("shows the view the main has of the task, its own view of the worker first", () => {
+    const label = (more: Partial<AwayOn>) => awayLook({ ...away, ...more }).label
+    expect(label({ state: "pending", view: "starting" })).toBe("Starting")
+    expect(label({ state: "in_progress", activity: "working", view: "working" })).toBe("Working")
+    expect(label({ state: "in_progress", activity: "waiting", view: "needs_you" })).toBe("Needs you")
+    expect(label({ state: "in_progress", activity: "idle", view: "idle" })).toBe("Idle")
+    expect(label({ state: "in_progress", activity: "ended", view: "ended" })).toBe("Agent ended")
+    expect(label({ state: "done", view: "done" })).toBe("Done")
+    expect(label({ state: "failed", failure: "branch not on GitHub", view: "failed" })).toBe("Failed: branch not on GitHub")
+    expect(label({ state: "returning", view: "coming_back" })).toBe("Coming back")
+    expect(label({ state: "done", view: "unreachable", worker_unreachable_since: "2026-11-05T21:40:00Z" })).toBe("Unreachable")
+    expect(label({ state: "done", view: "lost", lost: "vm-1 no longer has this task" })).toBe("Lost on worker")
+    expect(label({ state: "done", view: "not_accepted" })).toBe("Not accepted")
+  })
+})
+
+describe("workerReach", () => {
+  const now = new Date("2026-11-05T22:00:00Z")
+  it("says when the main last pulled a reachable worker", () => {
+    expect(workerReach({ ...vm1, last_pull_at: "2026-11-05T21:58:00Z" }, now)).toEqual({ text: "pulled 2 min ago", tone: "ok" })
+    expect(workerReach({ ...vm1, last_pull_at: "2026-11-05T21:59:40Z" }, now).text).toBe("pulled just now")
+    expect(workerReach({ ...vm1, last_pull_at: "2026-11-05T19:00:00Z" }, now).text).toBe("pulled 3 h ago")
+    expect(workerReach(vm1, now)).toEqual({ text: "not pulled yet", tone: "quiet" })
+  })
+  it("says since when a worker is unreachable, and that one refusing this main needs pairing again", () => {
+    const since = "2026-11-05T21:40:00Z"
+    const time = new Date(since).toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" })
+    expect(workerReach({ ...vm1, last_pull_at: since, unreachable_since: since }, now)).toEqual({ text: `unreachable since ${time}`, tone: "bad" })
+    expect(workerReach({ ...vm1, refused_at: since }, now)).toEqual({ text: "no longer accepts this main; pair again", tone: "bad" })
   })
 })

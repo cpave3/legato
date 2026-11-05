@@ -5,6 +5,8 @@ const known: { id: string; label: string; item: string }[] = [
   { id: "jira", label: "Jira", item: "issue" },
   { id: "burnlite", label: "Burnlite", item: "task" },
   { id: "github", label: "GitHub", item: "PR" },
+  // A sync's result also names the workers a main pulled.
+  { id: "workers", label: "Workers", item: "task" },
 ]
 
 /** A provider's name for people: Jira, Burnlite, GitHub; any other by its own id. */

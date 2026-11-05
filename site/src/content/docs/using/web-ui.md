@@ -36,7 +36,7 @@ When the connection drops, the UI first says "Reconnecting…" and keeps the pag
 
 The board works as it does in the TUI, with the same keys: `h`/`j`/`k`/`l` to move, `n` to create, `m` to move, `/` to search, `?` for the key list. You can also drag a card to another column. Press `enter` or double-click a card to open its detail. From 1280 pixels of width, a panel beside the board describes the selected card, with buttons for its agent, its details and its ticket or pull request.
 
-**Sync providers** in the header syncs Jira and GitHub now.
+**Sync providers** in the header syncs Jira and GitHub now, and pulls every [worker](/legato/using/handoff/#staying-up-to-date) this Legato hands tasks to.
 
 Once this Legato is paired with a [worker instance](/legato/running/instances/), a card's menu and its panel offer **Hand off…**, and an **Away** lane after the columns lists the tasks away on each worker. See [Hand off tasks to a worker](/legato/using/handoff/).
 

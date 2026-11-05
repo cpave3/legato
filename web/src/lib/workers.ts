@@ -14,7 +14,12 @@ export interface Worker {
   sandbox: boolean
   handoff_version: number
   paired_at: string
+  // When this main last heard from the worker on its connection.
   last_pull_at?: string
+  // When it went down, once down past the grace; when it stopped
+  // accepting this main (pair again).
+  unreachable_since?: string
+  refused_at?: string
 }
 
 export interface WorkerList {

@@ -1,8 +1,8 @@
-import { useEffect, useRef, type ReactNode } from "react"
+import { useEffect, useRef, useState, type ReactNode } from "react"
 import { ExternalLink } from "lucide-react"
 
 import { cn } from "../../lib/utils"
-import { awayGroups, awayLaneName, awayLook, awayTime } from "../../lib/away"
+import { awayDetail, awayGroups, awayLaneName, awayLook, awayTime, workerReach } from "../../lib/away"
 import type { BoardCard, BoardWorker } from "../../lib/board-types"
 
 // The Away lane at the end of a main's web board: the tasks away on workers,
@@ -47,7 +47,7 @@ function AwayRow({ card, selected, highlighted, onClick, actions }: { card: Boar
           <span aria-hidden="true" className="text-lw-faint">·</span>
           <span>from {away.left_column}</span>
           <span aria-hidden="true" className="text-lw-faint">·</span>
-          <span data-testid="away-state" className={cn("inline-flex max-w-full items-center gap-1 rounded-full px-2 py-px", look.tint, look.tone)}>
+          <span data-testid="away-state" title={awayDetail(away)} className={cn("inline-flex max-w-full items-center gap-1 rounded-full px-2 py-px", look.tint, look.tone)}>
             <span aria-hidden="true">{look.glyph}</span>
             <span className="truncate">{look.label}</span>
           </span>
@@ -57,6 +57,26 @@ function AwayRow({ card, selected, highlighted, onClick, actions }: { card: Boar
       </button>
       {actions && <div className="flex shrink-0 items-center gap-1 py-2 pr-2">{actions}</div>}
     </div>
+  )
+}
+
+// WorkerReach is a worker group's header saying whether the worker can be
+// reached: when this main last pulled it, since when it is unreachable, or
+// that it no longer accepts this main.
+export function WorkerReach({ worker, now }: { worker: BoardWorker; now?: Date }) {
+  // "2 min ago" moves on by itself, between the board's refreshes.
+  const [tick, setTick] = useState(() => new Date())
+  useEffect(() => {
+    if (now) return
+    const timer = setInterval(() => setTick(new Date()), 30_000)
+    return () => clearInterval(timer)
+  }, [now])
+  const reach = workerReach(worker, now ?? tick)
+  return (
+    <span data-testid="worker-reach" title={worker.last_pull_at ? `Last pulled ${new Date(worker.last_pull_at).toLocaleString()}` : undefined}
+      className={cn("text-xs", reach.tone === "bad" ? "text-lw-error" : reach.tone === "quiet" ? "text-lw-faint" : "text-lw-text-2")}>
+      {reach.text}
+    </span>
   )
 }
 

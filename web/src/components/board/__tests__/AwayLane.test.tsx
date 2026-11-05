@@ -1,6 +1,6 @@
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react"
 import { afterEach, describe, expect, it, vi } from "vitest"
-import { AwayLane } from "../AwayLane"
+import { AwayLane, WorkerReach } from "../AwayLane"
 import type { AwayOn, BoardCard, BoardWorker } from "../../../lib/board-types"
 
 afterEach(cleanup)
@@ -52,5 +52,30 @@ describe("AwayLane", () => {
     expect(screen.getByRole("button", { name: /Find the leak/ }).getAttribute("data-selected")).toBe("true")
     fireEvent.click(screen.getByRole("button", { name: /Fix login/ }))
     expect(onRowClick).toHaveBeenCalledWith(0)
+  })
+
+  it("updates a row's pill and its group's reach as the worker's rows arrive", () => {
+    const now = new Date("2026-11-05T22:00:00Z")
+    const reach = (worker: BoardWorker) => <WorkerReach worker={worker} now={now} />
+    const working = [away("T-1", "Fix login", { state: "in_progress", activity: "working", view: "working" })]
+    const { rerender } = render(<AwayLane workers={[{ ...vm1, last_pull_at: "2026-11-05T21:58:00Z" }]} cards={working} selectedIndex={-1} isActive={false} onRowClick={() => {}} groupExtras={reach} />)
+    const group = screen.getByRole("group", { name: "vm-1" })
+    expect(within(group).getByTestId("worker-reach").textContent).toBe("pulled 2 min ago")
+    expect(within(group).getByTestId("away-state").textContent).toContain("Working")
+
+    const needsYou = [away("T-1", "Fix login", { state: "in_progress", activity: "waiting", view: "needs_you" })]
+    rerender(<AwayLane workers={[{ ...vm1, last_pull_at: "2026-11-05T21:59:00Z" }]} cards={needsYou} selectedIndex={-1} isActive={false} onRowClick={() => {}} groupExtras={reach} />)
+    expect(within(group).getByTestId("away-state").textContent).toContain("Needs you")
+
+    const down = [away("T-1", "Fix login", { state: "in_progress", view: "unreachable", worker_unreachable_since: "2026-11-05T21:40:00Z" })]
+    rerender(<AwayLane workers={[{ ...vm1, unreachable_since: "2026-11-05T21:40:00Z" }]} cards={down} selectedIndex={-1} isActive={false} onRowClick={() => {}} groupExtras={reach} />)
+    expect(within(group).getByTestId("worker-reach").textContent).toMatch(/^unreachable since /)
+    expect(within(group).getByTestId("away-state").textContent).toContain("Unreachable")
+
+    const lost = [away("T-1", "Fix login", { state: "in_progress", view: "lost", lost: "vm-1 no longer has this task" })]
+    rerender(<AwayLane workers={[vm1]} cards={lost} selectedIndex={-1} isActive={false} onRowClick={() => {}} groupExtras={reach} />)
+    const pill = within(group).getByTestId("away-state")
+    expect(pill.textContent).toContain("Lost on worker")
+    expect(pill.getAttribute("title")).toBe("vm-1 no longer has this task")
   })
 })

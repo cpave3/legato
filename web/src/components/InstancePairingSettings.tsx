@@ -86,6 +86,11 @@ export function WorkersSettings({ baseUrl }: { baseUrl: string }) {
                 <div className={metaClass}>
                   <span className="font-lw-mono">{w.instance_id}</span>
                   <span>{w.last_pull_at ? `Pulled ${when(w.last_pull_at)}` : "Not pulled yet"}</span>
+                  {w.refused_at ? (
+                    <span className="text-lw-error">No longer accepts this main; pair again</span>
+                  ) : w.unreachable_since ? (
+                    <span className="text-lw-error">Unreachable since {when(w.unreachable_since)}</span>
+                  ) : null}
                   <span className={w.sandbox ? "" : "text-lw-needs"}>{w.sandbox ? "Sandbox on" : "Sandbox off: it refuses handoffs"}</span>
                   <span>This main is <span className="font-lw-mono">{w.main_name}</span> there</span>
                 </div>
