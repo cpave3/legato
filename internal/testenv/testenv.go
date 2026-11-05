@@ -4,6 +4,7 @@ package testenv
 
 import (
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 )
@@ -16,7 +17,8 @@ func Run(run func() int) int {
 		fmt.Fprintf(os.Stderr, "create isolated test environment: %v\n", err)
 		return 1
 	}
-	defer os.RemoveAll(root)
+	defer removeAll(root)
+	keepGoCaches()
 
 	env := map[string]string{
 		"HOME":            filepath.Join(root, "home"),
@@ -43,6 +45,43 @@ func Run(run func() int) int {
 	}
 
 	return run()
+}
+
+// keepGoCaches pins Go's settings file and its module and build caches to
+// where they are before HOME and XDG_CONFIG_HOME move, so a suite that runs go
+// keeps using them instead of filling fresh caches in the test root on every
+// run.
+func keepGoCaches() {
+	if os.Getenv("GOENV") == "" {
+		if config, err := os.UserConfigDir(); err == nil {
+			os.Setenv("GOENV", filepath.Join(config, "go", "env"))
+		}
+	}
+	if os.Getenv("GOPATH") == "" {
+		if home, err := os.UserHomeDir(); err == nil {
+			os.Setenv("GOPATH", filepath.Join(home, "go"))
+		}
+	}
+	if os.Getenv("GOCACHE") == "" {
+		if cache, err := os.UserCacheDir(); err == nil {
+			os.Setenv("GOCACHE", filepath.Join(cache, "go-build"))
+		}
+	}
+}
+
+// removeAll removes the test root even where a suite left folders read-only,
+// as Go does with its module cache.
+func removeAll(root string) {
+	if os.RemoveAll(root) == nil {
+		return
+	}
+	filepath.WalkDir(root, func(path string, d fs.DirEntry, err error) error {
+		if err == nil && d.IsDir() {
+			os.Chmod(path, 0o700)
+		}
+		return nil
+	})
+	os.RemoveAll(root)
 }
 
 // sessionVars are what Legato gives an agent session that ties a process to
