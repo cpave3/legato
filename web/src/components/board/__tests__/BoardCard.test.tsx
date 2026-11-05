@@ -54,6 +54,11 @@ describe("BoardCard", () => {
     expect(screen.getByText("local · abc123")).toBeTruthy()
   })
 
+  it("says which main instance handed a card to this worker", () => {
+    renderCard(makeCard({ handoff_from: { main: "workstation", main_task_id: "K7Q2M9XA" } }))
+    expect(screen.getByText("from workstation · K7Q2M9XA")).toBeTruthy()
+  })
+
   it("shows a running agent's tool and how long it has worked", () => {
     renderCard(makeCard())
     expect(within(strip()).getByText("Running · Claude Code")).toBeTruthy()

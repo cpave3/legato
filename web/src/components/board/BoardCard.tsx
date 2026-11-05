@@ -114,6 +114,7 @@ export function BoardCard({ card, selected, highlighted = false, column, showWor
           {agentTime && <span title="Time agents spent on this task" className="shrink-0">{agentTime}</span>}
         </div>
         <div className="text-sm font-semibold leading-[19px]">{card.title}</div>
+        {card.handoff_from && <div data-testid="handoff-from" className="truncate text-xs text-lw-text-2">{`from ${card.handoff_from.main} · ${card.handoff_from.main_task_id}`}</div>}
         <MetaLine card={card} showWorkspace={showWorkspace} />
         {card.review_ready && !card.review_unreviewed && <Mark glyph="✓" tone="text-xs text-lw-done">Reviewed</Mark>}
         {(card.pull_requests ?? []).map(pr => <PullRequestLine key={`${pr.repo}#${pr.pr_number}`} pr={pr} />)}

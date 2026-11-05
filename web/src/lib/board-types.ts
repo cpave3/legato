@@ -32,6 +32,21 @@ export interface BoardCard {
   review_ready?: boolean
   review_unreviewed?: number
   swarm_stats?: SwarmStats
+  // On a worker: the main instance that handed this card to it.
+  handoff_from?: HandoffFrom
+  // On a main: the worker this task is away on.
+  away?: AwayOn
+}
+
+export interface HandoffFrom {
+  main: string
+  main_task_id: string
+}
+
+export interface AwayOn {
+  worker_instance_id: string
+  worker: string
+  handoff_id: string
 }
 
 export interface SwarmStats {
