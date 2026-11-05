@@ -18,6 +18,8 @@ interface BoardGridProps {
   onCardDoubleClick?: (colIndex: number, cardIndex: number) => void
   onCardContextMenu?: (card: BoardColumn["cards"][number], position: { x: number; y: number }) => void
   onCardMove?: (cardId: string, targetColumn: string) => void
+  // A card dropped on the Away lane or its rail, to hand off.
+  onCardHandOff?: (cardId: string) => void
   // The workers this main is paired with: the groups of the Away lane, a
   // column marked away.
   workers?: BoardWorker[]
@@ -28,10 +30,27 @@ interface BoardGridProps {
   onAwayNotice?: (text: string, error: boolean) => void
 }
 
-export function BoardGrid({ columns, cursorCol, cursorRow, showWorkspace, showEmpty = true, onToggleEmpty, highlightedTaskId, onCardClick, onCardDoubleClick, onCardContextMenu, onCardMove, workers = [], baseUrl, onAwayNotice }: BoardGridProps) {
+export function BoardGrid({ columns, cursorCol, cursorRow, showWorkspace, showEmpty = true, onToggleEmpty, highlightedTaskId, onCardClick, onCardDoubleClick, onCardContextMenu, onCardMove, onCardHandOff, workers = [], baseUrl, onAwayNotice }: BoardGridProps) {
   return (
     <div className="flex h-full gap-2 overflow-x-auto overflow-y-hidden px-4 pt-3.5" style={{ scrollbarWidth: "thin" }}>
-      {columns.map((col, i) => col.away ? (
+      {columns.map((col, i) => col.away && isColumnCollapsed(columns, i, showEmpty) ? (
+        // With nothing away, the lane is a rail like an empty column, and
+        // still takes a card to hand off.
+        <BoardColumnComponent
+          key={col.name}
+          name={col.name}
+          cards={col.cards}
+          selectedIndex={cursorRow}
+          isActive={cursorCol === i}
+          showWorkspace={showWorkspace}
+          collapsed
+          railTitle="Drop a card here to hand it off · show empty columns (z)"
+          onExpand={onToggleEmpty}
+          onCardClick={onCardClick}
+          colIndex={i}
+          onCardDrop={onCardHandOff && ((cardId) => onCardHandOff(cardId))}
+        />
+      ) : col.away ? (
         <AwayLane
           key={col.name}
           workers={workers}
@@ -45,6 +64,7 @@ export function BoardGrid({ columns, cursorCol, cursorRow, showWorkspace, showEm
             {baseUrl !== undefined && <ReturnAllDoneButton baseUrl={baseUrl} worker={worker} cards={groupCards} onNotice={onAwayNotice} />}
           </>}
           rowActions={baseUrl === undefined ? undefined : (card) => <AwayRowActions baseUrl={baseUrl} card={card} onNotice={onAwayNotice} />}
+          onCardDrop={onCardHandOff}
         />
       ) : (
         <BoardColumnComponent

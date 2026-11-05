@@ -2,7 +2,7 @@ import { cleanup, fireEvent, render, screen, within } from "@testing-library/rea
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { MemoryRouter } from "react-router-dom"
 import { MobileBoardList } from "../MobileBoardList"
-import type { BoardCard, BoardColumn } from "../../../lib/board-types"
+import type { AwayOn, BoardCard, BoardColumn, BoardWorker } from "../../../lib/board-types"
 
 function card(id: string, title: string, status: string): BoardCard {
   return { id, title, status, priority: "High", issue_type: "Task", provider: "", has_warning: false, agent_active: false, agent_state: "", working_seconds: 0, waiting_seconds: 0, error_seconds: 0, workspace_id: null, workspace_name: "", workspace_color: "" }
@@ -69,5 +69,73 @@ describe("MobileBoardList", () => {
     expect(onCardContextMenu).toHaveBeenCalledTimes(1)
     fireEvent.click(within(chips()).getByRole("tab", { name: "Backlog 0" }))
     expect(screen.getByText("Nothing in Backlog")).toBeTruthy()
+  })
+
+  describe("the Away section", () => {
+    function away(id: string, title: string, worker: BoardWorker, more: Partial<AwayOn> = {}): BoardCard {
+      return {
+        ...card(id, title, "Doing"),
+        away: {
+          worker_instance_id: worker.instance_id, worker: worker.name, handoff_id: "ho-" + id, worker_task_id: "w-" + id, purpose: "make-change", kind: "new-branch",
+          repo: "acme/widget", branch: "legato/" + id, left_column: "Doing", handed_off_at: "2026-11-05T09:00:00Z", state: "in_progress", view: "working", ...more,
+        },
+      }
+    }
+    const vm1: BoardWorker = { instance_id: "srv-1", name: "vm-1", address: "https://vm-1.lan:3080" }
+    const vm2: BoardWorker = { instance_id: "srv-2", name: "vm-2", address: "https://vm-2.lan:3080" }
+    const vm3: BoardWorker = { instance_id: "srv-3", name: "vm-3", address: "https://vm-3.lan:3080" }
+    // As the board orders the lane: by worker.
+    const awayCards = [
+      away("T-1", "Retry webhooks", vm1, { state: "done", view: "done" }),
+      away("T-2", "Find the leak", vm1),
+      away("T-3", "Bump deps", vm1, { state: "done", view: "done" }),
+      away("T-4", "Tidy logs", vm2),
+    ]
+    const withAway: BoardColumn[] = [...columns, { name: "Away", away: true, cards: awayCards }]
+
+    function section() {
+      return screen.getByRole("region", { name: "Away on workers" })
+    }
+
+    it("puts away tasks in a section above the columns, one collapsed line per worker", () => {
+      renderList({ columns: withAway, workers: [vm1, vm2, vm3], baseUrl: "" })
+      expect(within(chips()).getAllByRole("tab").map((tab) => tab.textContent)).toEqual(["Backlog 0", "Doing 1", "Review 1"])
+      const vm1Line = within(section()).getByRole("button", { name: "vm-1 · 3 away · 2 done" })
+      expect(vm1Line.getAttribute("aria-expanded")).toBe("false")
+      expect(within(section()).getByRole("button", { name: "vm-2 · 1 away" })).toBeTruthy()
+      // A worker with nothing away has no line.
+      expect(within(section()).queryByRole("button", { name: /vm-3/ })).toBeNull()
+      expect(within(section()).queryByText("Retry webhooks")).toBeNull()
+      expect(within(section()).getByRole("button", { name: "Return all done (2)" })).toBeTruthy()
+    })
+
+    it("expands a worker's line into its rows with their actions, and opens a tapped row", () => {
+      const onCardClick = vi.fn()
+      renderList({ columns: withAway, workers: [vm1, vm2], baseUrl: "", onCardClick })
+      fireEvent.click(within(section()).getByRole("button", { name: "vm-1 · 3 away · 2 done" }))
+      const group = within(section()).getByRole("group", { name: "vm-1" })
+      const done = within(group).getByRole("button", { name: /Retry webhooks/ })
+      expect(done.textContent).toContain("from Doing")
+      expect(within(group).getAllByRole("button", { name: "Return" })).toHaveLength(2)
+      expect(within(group).getByRole("button", { name: "Recall" })).toBeTruthy()
+      expect(within(section()).queryByText("Tidy logs")).toBeNull()
+      fireEvent.click(within(group).getByRole("button", { name: /Bump deps/ }))
+      expect(onCardClick).toHaveBeenCalledWith(3, 2)
+      fireEvent.click(within(section()).getByRole("button", { name: "vm-1 · 3 away · 2 done" }))
+      expect(within(section()).queryByText("Retry webhooks")).toBeNull()
+    })
+
+    it("opens the line of a highlighted away task", () => {
+      renderList({ columns: withAway, workers: [vm1, vm2], baseUrl: "", highlightedTaskId: "T-4" })
+      expect(within(section()).getByRole("button", { name: "vm-2 · 1 away" }).getAttribute("aria-expanded")).toBe("true")
+      expect(within(section()).getByText("Tidy logs")).toBeTruthy()
+      expect(screen.getByText("Mobile task")).toBeTruthy()
+    })
+
+    it("has no section while nothing is away", () => {
+      renderList({ columns: [...columns, { name: "Away", away: true, cards: [] }], workers: [vm1], baseUrl: "" })
+      expect(screen.queryByRole("region", { name: "Away on workers" })).toBeNull()
+      expect(within(chips()).getAllByRole("tab")).toHaveLength(3)
+    })
   })
 })

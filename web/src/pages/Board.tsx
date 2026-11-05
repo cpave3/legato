@@ -727,6 +727,15 @@ export function BoardPage() {
     }
   }
 
+  // A card dropped on the Away lane or its rail opens the Hand off form for
+  // it; nothing is handed off until the form is sent. A task already away
+  // stays where it is; the form itself says when an agent runs it here.
+  const handleDragHandOff = (cardId: string) => {
+    const card = allCards.find((candidate) => candidate.id === cardId)
+    if (!card || card.away || !canHandOff) return
+    setOverlay({ kind: "handoff", card })
+  }
+
   const handleDelete = async () => {
     if (!currentCard || pendingAction) return
     setPendingAction("delete")
@@ -953,13 +962,14 @@ export function BoardPage() {
                   onCardDoubleClick={handleCardDoubleClick}
                   onCardContextMenu={handleCardContextMenu}
                   onCardMove={handleDragMove}
+                  onCardHandOff={handleDragHandOff}
                   workers={workers}
                   baseUrl={baseUrl}
                   onAwayNotice={awayNotice}
                 />
               </div>
               <div className="h-full md:hidden">
-                <MobileBoardList columns={columns} showWorkspace={showWorkspace} highlightedTaskId={highlightedTaskId} onCardClick={handleCardClick} onCardContextMenu={handleCardContextMenu} />
+                <MobileBoardList columns={columns} showWorkspace={showWorkspace} highlightedTaskId={highlightedTaskId} onCardClick={handleCardClick} onCardContextMenu={handleCardContextMenu} workers={workers} baseUrl={baseUrl} onAwayNotice={awayNotice} />
               </div>
             </>
           )}

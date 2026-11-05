@@ -16,6 +16,7 @@ function card(id: string, title: string, status: string, more: Partial<BoardCard
 }
 
 const home = card("T-1", "Fix login", "Ready")
+const busy = card("T-3", "Tidy the logs", "Ready", { agent_active: true, agent_state: "working" })
 const away = card("T-2", "Find the leak", "Doing", {
   away: {
     worker_instance_id: "srv-1", worker: "vm-1", handoff_id: "ho-1", worker_task_id: "w-1", purpose: "find-out", kind: "new-branch",
@@ -29,7 +30,7 @@ vi.mock("../../hooks/useServer", () => ({ useServer: () => ({ baseUrl: "" }) }))
 vi.mock("../../hooks/useSettings", () => ({ useSettings: () => ({ data: { repositories: [{ name: "widget", repo: "acme/widget", primary_dir: "" }], working_dir: "", worktrees_enabled: false } }) }))
 vi.mock("../../hooks/useBoard", () => ({
   useBoard: () => ({
-    columns: [{ name: "Ready", cards: [home] }, { name: "Doing", cards: [away] }],
+    columns: [{ name: "Ready", cards: [home, busy] }, { name: "Doing", cards: [away] }],
     workspaces: [],
     workers: [{ instance_id: "srv-1", name: "vm-1", address: "https://vm-1.lan:3080" }],
     loading: false,
@@ -55,6 +56,13 @@ beforeEach(() => {
 })
 
 afterEach(cleanup)
+
+// A card dragged from its column and dropped on target.
+function drop(target: HTMLElement, cardId: string) {
+  const dataTransfer = { getData: () => cardId, setData: () => {}, dropEffect: "", effectAllowed: "" }
+  fireEvent.dragOver(target, { dataTransfer })
+  fireEvent.drop(target, { dataTransfer })
+}
 
 function renderBoard() {
   render(<MemoryRouter><AgentSelectionProvider><BoardPage /></AgentSelectionProvider></MemoryRouter>)
@@ -92,5 +100,37 @@ describe("Handing off from the board", () => {
     const panel = await screen.findByRole("complementary", { name: "Selected task" })
     await waitFor(() => expect(within(panel).getByText(/read-only while away/i)).toBeTruthy())
     expect(within(panel).queryByRole("button", { name: "Move" })).toBeNull()
+  })
+
+  it("opens the Hand off form for a card dropped on the Away lane, and hands nothing off by itself", async () => {
+    renderBoard()
+    drop(screen.getByRole("region", { name: "Away" }), "T-1")
+    const dialog = await screen.findByRole("dialog", { name: "Hand off “Fix login”" })
+    await waitFor(() => expect((within(dialog).getByRole("combobox", { name: "Worker" }) as HTMLSelectElement).value).toBe("srv-1"))
+    const calls = mockFetch.mock.calls.map(([input, init]) => `${init?.method ?? "GET"} ${String(input)}`)
+    expect(calls.filter((call) => !call.startsWith("GET "))).toEqual([])
+  })
+
+  it("does not hand off again a task already away", async () => {
+    renderBoard()
+    drop(screen.getByRole("region", { name: "Away" }), "T-2")
+    await new Promise((resolve) => setTimeout(resolve, 0))
+    expect(screen.queryByRole("dialog")).toBeNull()
+  })
+
+  it("shows the refusal for a dropped card whose agent runs here", async () => {
+    renderBoard()
+    drop(screen.getByRole("region", { name: "Away" }), "T-3")
+    const dialog = await screen.findByRole("dialog", { name: "Hand off “Tidy the logs”" })
+    expect(within(dialog).getByText(/Stop this task's agent before handing it off/)).toBeTruthy()
+    expect((within(dialog).getByRole("button", { name: "Hand off" }) as HTMLButtonElement).disabled).toBe(true)
+  })
+
+  it("shows the phone's Away section above the columns, not an Away column", () => {
+    renderBoard()
+    const phone = screen.getByRole("region", { name: "Away on workers" })
+    fireEvent.click(within(phone).getByRole("button", { name: "vm-1 · 1 away" }))
+    expect(within(phone).getByRole("button", { name: /Find the leak/ }).textContent).toContain("from Doing")
+    expect(within(screen.getByRole("tablist", { name: "Columns" })).queryByRole("tab", { name: /^Away/ })).toBeNull()
   })
 })

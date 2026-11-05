@@ -17,6 +17,13 @@ const columns: BoardColumnType[] = [
   { name: "Doing", cards: [card("T-2", "B", "Doing")] },
 ]
 
+// A card dragged from its column and dropped on target.
+function drop(target: HTMLElement, cardId: string) {
+  const dataTransfer = { getData: () => cardId, setData: () => {}, dropEffect: "", effectAllowed: "" }
+  fireEvent.dragOver(target, { dataTransfer })
+  fireEvent.drop(target, { dataTransfer })
+}
+
 function renderGrid(props: Partial<Parameters<typeof BoardGrid>[0]> = {}) {
   return render(<BoardGrid columns={columns} cursorCol={0} cursorRow={0} showWorkspace={false} onCardClick={() => {}} {...props} />)
 }
@@ -62,9 +69,33 @@ describe("BoardGrid", () => {
     expect(within(group).queryByRole("button", { name: "Recall" })).toBeNull()
   })
 
-  it("keeps an empty Away lane open while empty columns fold", () => {
-    renderGrid({ showEmpty: false, workers: [{ instance_id: "srv-1", name: "vm-1", address: "https://vm-1" }], columns: [...columns, { name: "Away", away: true, cards: [] }] })
-    expect(screen.getByRole("region", { name: "Away" })).toBeTruthy()
+  it("folds an empty Away lane to a rail like an empty column, which opens it again", () => {
+    const onToggleEmpty = vi.fn()
+    renderGrid({ showEmpty: false, onToggleEmpty, workers: [{ instance_id: "srv-1", name: "vm-1", address: "https://vm-1" }], columns: [...columns, { name: "Away", away: true, cards: [] }] })
+    expect(screen.queryByRole("region", { name: "Away" })).toBeNull()
+    fireEvent.click(screen.getByRole("button", { name: "Away, 0 cards" }))
+    expect(onToggleEmpty).toHaveBeenCalledTimes(1)
+  })
+
+  it("opens an empty Away lane with the empty columns", () => {
+    renderGrid({ showEmpty: true, workers: [{ instance_id: "srv-1", name: "vm-1", address: "https://vm-1" }], columns: [...columns, { name: "Away", away: true, cards: [] }] })
     expect(screen.getByRole("group", { name: "vm-1" })).toBeTruthy()
+  })
+
+  it("hands off a card dropped on the Away lane's rail, and does not move it", () => {
+    const onCardHandOff = vi.fn()
+    const onCardMove = vi.fn()
+    renderGrid({ showEmpty: false, onCardHandOff, onCardMove, workers: [{ instance_id: "srv-1", name: "vm-1", address: "https://vm-1" }], columns: [...columns, { name: "Away", away: true, cards: [] }] })
+    drop(screen.getByRole("button", { name: "Away, 0 cards" }), "T-1")
+    expect(onCardHandOff).toHaveBeenCalledWith("T-1")
+    expect(onCardMove).not.toHaveBeenCalled()
+  })
+
+  it("hands off a card dropped on the open Away lane", () => {
+    const awayCard = { ...card("T-9", "Away task", "Doing"), away: { worker_instance_id: "srv-1", worker: "vm-1", handoff_id: "h", worker_task_id: "w", purpose: "make-change", kind: "new-branch", repo: "a/b", branch: "legato/t-9", left_column: "Doing", handed_off_at: "2026-11-05T09:00:00Z" } }
+    const onCardHandOff = vi.fn()
+    renderGrid({ showEmpty: false, onCardHandOff, workers: [{ instance_id: "srv-1", name: "vm-1", address: "https://vm-1" }], columns: [...columns, { name: "Away", away: true, cards: [awayCard] }] })
+    drop(screen.getByRole("group", { name: "vm-1" }), "T-2")
+    expect(onCardHandOff).toHaveBeenCalledWith("T-2")
   })
 })

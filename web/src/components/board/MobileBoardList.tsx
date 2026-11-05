@@ -1,7 +1,8 @@
-import { useEffect, useRef, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
 import { cn } from "../../lib/utils"
-import type { BoardColumn } from "../../lib/board-types"
+import type { BoardColumn, BoardWorker } from "../../lib/board-types"
 import { BoardCard } from "./BoardCard"
+import { MobileAwaySection } from "./MobileAwaySection"
 
 const storageKey = "legato.mobile-board.column"
 const swipeDistance = 60
@@ -24,21 +25,36 @@ function initialColumn(columns: BoardColumn[], highlightedTaskId?: string | null
   return Math.max(0, columns.findIndex((column) => column.cards.length > 0))
 }
 
-// The board on a phone: a chip for each column, and the cards of one column
-// at a time. A sideways swipe moves to the next or previous column.
+// The board on a phone: the Away section at the top, then a chip for each
+// column and the cards of one column at a time. A sideways swipe moves to
+// the next or previous column. onCardClick is told the column's index among
+// all the columns given, the Away lane's included.
 export function MobileBoardList({
-  columns,
+  columns: allColumns,
   showWorkspace,
   highlightedTaskId,
   onCardClick,
   onCardContextMenu,
+  workers = [],
+  baseUrl,
+  onAwayNotice,
 }: {
   columns: BoardColumn[]
   showWorkspace: boolean
   highlightedTaskId?: string | null
   onCardClick: (column: number, row: number) => void
   onCardContextMenu?: (card: BoardColumn["cards"][number], position: { x: number; y: number }) => void
+  // The workers this main is paired with, and what the Away section's
+  // Return, Recall and Return all done call and say.
+  workers?: BoardWorker[]
+  baseUrl?: string
+  onAwayNotice?: (text: string, error: boolean) => void
 }) {
+  // The Away lane is the Away section here, not a column of its own.
+  const awayIndex = allColumns.findIndex((candidate) => candidate.away)
+  const awayColumn = awayIndex >= 0 ? allColumns[awayIndex] : undefined
+  const columns = useMemo(() => allColumns.filter((candidate) => !candidate.away), [allColumns])
+  const columnIndex = (index: number) => allColumns.indexOf(columns[index])
   const [shown, setShown] = useState(() => initialColumn(columns, highlightedTaskId))
   const touchStart = useRef<{ x: number; y: number } | null>(null)
   const chipRefs = useRef<(HTMLButtonElement | null)[]>([])
@@ -69,6 +85,16 @@ export function MobileBoardList({
 
   return (
     <div data-mobile-board className="flex h-full flex-col font-lw">
+      {awayColumn && (
+        <MobileAwaySection
+          workers={workers}
+          cards={awayColumn.cards}
+          highlightedTaskId={highlightedTaskId}
+          onRowClick={(row) => onCardClick(awayIndex, row)}
+          baseUrl={baseUrl}
+          onNotice={onAwayNotice}
+        />
+      )}
       <div role="tablist" aria-label="Columns" className="flex shrink-0 gap-1.5 overflow-x-auto px-4 pb-2.5" style={{ scrollbarWidth: "none" }}>
         {columns.map((candidate, candidateIndex) => {
           const selected = candidateIndex === index
@@ -120,7 +146,7 @@ export function MobileBoardList({
             selected={false}
             highlighted={card.id === highlightedTaskId}
             showWorkspace={showWorkspace}
-            onClick={() => onCardClick(index, rowIndex)}
+            onClick={() => onCardClick(columnIndex(index), rowIndex)}
             onContextMenu={(position) => onCardContextMenu?.(card, position)}
             onActionMenu={(position) => onCardContextMenu?.(card, position)}
           />

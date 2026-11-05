@@ -5,12 +5,14 @@ import { cn } from "../../lib/utils"
 import { awayDetail, awayGroups, awayLaneName, awayLook, awayTime, workerReach } from "../../lib/away"
 import { awayPRSummary } from "../../lib/awayPullRequests"
 import type { BoardCard, BoardWorker } from "../../lib/board-types"
+import { useDropTarget } from "./useDropTarget"
 
 // The Away lane at the end of a main's web board: the tasks away on workers,
 // grouped by worker. Each group's header names the worker and opens it; each
 // row shows the task's title and ID, the column it left, the worker's state
 // of it as last heard, and when it was handed off. A row is selected like a
-// card, which shows its task panel. See docs/ai/web-ui.md § The Away lane.
+// card, which shows its task panel. A card dragged from a column and dropped
+// on the lane is handed off. See docs/ai/web-ui.md § The Away lane.
 
 interface AwayLaneProps {
   workers: BoardWorker[]
@@ -25,9 +27,12 @@ interface AwayLaneProps {
   groupExtras?: (worker: BoardWorker, cards: BoardCard[]) => ReactNode
   // What a row offers beside it: Return, Recall, Take back.
   rowActions?: (card: BoardCard) => ReactNode
+  // A card dropped on the lane: its ID, to hand it off.
+  onCardDrop?: (cardId: string) => void
 }
 
-function AwayRow({ card, selected, highlighted, onClick, actions }: { card: BoardCard; selected: boolean; highlighted: boolean; onClick: () => void; actions?: ReactNode }) {
+// An away task's row: in the Away lane, and in the phone board's Away section.
+export function AwayRow({ card, selected, highlighted, onClick, actions }: { card: BoardCard; selected: boolean; highlighted: boolean; onClick: () => void; actions?: ReactNode }) {
   const ref = useRef<HTMLDivElement>(null)
   const away = card.away!
   const look = awayLook(away)
@@ -83,11 +88,12 @@ export function WorkerReach({ worker, now }: { worker: BoardWorker; now?: Date }
   )
 }
 
-export function AwayLane({ workers, cards, selectedIndex, isActive, highlightedTaskId, onRowClick, groupExtras, rowActions }: AwayLaneProps) {
+export function AwayLane({ workers, cards, selectedIndex, isActive, highlightedTaskId, onRowClick, groupExtras, rowActions, onCardDrop }: AwayLaneProps) {
   const groups = awayGroups(workers, cards)
+  const { dragOver, handlers } = useDropTarget(awayLaneName, onCardDrop && ((cardId) => onCardDrop(cardId)))
   let index = 0
   return (
-    <section aria-label={awayLaneName} className="flex h-full min-h-0 min-w-[300px] flex-1 basis-0 flex-col gap-2 font-lw">
+    <section aria-label={awayLaneName} {...handlers} className={cn("flex h-full min-h-0 min-w-[300px] flex-1 basis-0 flex-col gap-2 rounded-lg font-lw transition-colors", dragOver && "bg-lw-accent-soft ring-1 ring-inset ring-lw-accent-ring")}>
       <div data-column-header data-active={isActive || undefined} className="flex items-center justify-between border-b-2 border-lw-accent-ring px-1 pb-1.5 pt-0.5">
         <span className={cn("text-xs font-semibold uppercase tracking-[1px]", isActive ? "text-lw-text" : "text-lw-text-2")}>{awayLaneName}</span>
         <span className="font-lw-mono text-xs text-lw-text-2">{cards.length}</span>
@@ -105,7 +111,7 @@ export function AwayLane({ workers, cards, selectedIndex, isActive, highlightedT
               )}
             </div>
             {groupCards.length === 0 ? (
-              <p className="m-0 px-3 py-2.5 text-xs text-lw-faint">Nothing away on {worker.name}. Hand off a task from its menu or its panel.</p>
+              <p className="m-0 px-3 py-2.5 text-xs text-lw-faint">Nothing away on {worker.name}. Drag a card here, or hand it off from its menu or its panel.</p>
             ) : (
               groupCards.map((card) => {
                 const i = index++

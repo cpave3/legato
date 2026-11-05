@@ -59,11 +59,6 @@ describe("BoardCard", () => {
     expect(screen.getByText("from workstation · K7Q2M9XA")).toBeTruthy()
   })
 
-  it("says which worker an away task is on", () => {
-    renderCard(makeCard({ away: { worker: "vm-1" } as never }))
-    expect(screen.getByText("away on vm-1")).toBeTruthy()
-  })
-
   it("shows a running agent's tool and how long it has worked", () => {
     renderCard(makeCard())
     expect(within(strip()).getByText("Running · Claude Code")).toBeTruthy()

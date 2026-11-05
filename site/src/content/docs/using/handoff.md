@@ -6,7 +6,7 @@ sidebar:
 ---
 
 :::caution[Partly built]
-You can hand a task off from the web board, follow it while it is away, and return or recall it, as below. Taking a task back without its results, dragging a card onto the Away lane and the phone's Away section are planned: they do not work in a release yet, and the details can change.
+You can hand a task off from the web board, follow it while it is away, and return or recall it, as below. Taking a task back without its results is planned: it does not work in a release yet, and the details can change.
 :::
 
 A handoff sends one of your tasks to a [worker instance](/legato/running/instances/): another Legato, such as an always-on VM, that works on it while your laptop sleeps or travels. The worker makes a card for the task and starts an agent on it at once. Your own board keeps the task, read-only, in an **Away** lane until it comes back.
@@ -15,8 +15,8 @@ Before you can hand anything off, pair a worker with this Legato. See [Main and 
 
 ## Hand off a task
 
-1. On the web board, open the task's menu: choose `⋯` on its card, or right-click the card. You can also select the card and choose **Hand off…** in the panel beside the board.
-2. Choose **Hand off…**.
+1. On the web board, drag the task's card onto the **Away** lane, or onto its folded rail. You can also open the task's menu (choose `⋯` on its card, or right-click the card) and choose **Hand off…**, or select the card and choose **Hand off…** in the panel beside the board.
+2. The **Hand off** form opens for that task. Dropping a card only opens the form: nothing is handed off until you send it.
 3. Fill in the form:
    - **Worker**: the worker that takes the task. A worker without Legato's [sandbox](/legato/security/sandbox/) is listed but cannot be chosen: it refuses every handoff.
    - **Purpose**: **Make a change** (the agent pushes its branches and opens draft pull requests) or **Find out** (the agent answers in the task's notes and pushes nothing).
@@ -50,7 +50,7 @@ The form says why, in the words of the main or the worker, and nothing is handed
 
 ## The Away lane
 
-Once a worker is paired, the web board has an **Away** lane after its columns. A task you hand off leaves its column for the lane. The lane has a group for each worker, with the worker's name, whether your main can reach it, and **Open**, which opens the worker's own web UI. A worker with nothing away says so.
+Once a worker is paired, the web board has an **Away** lane after its columns. A task you hand off leaves its column for the lane. While nothing is away, the lane is folded to a narrow rail, as an empty column is; a card dropped on the rail still opens the Hand off form, and the lane opens again as soon as a task is away. Click the rail, or press `z`, to open the empty columns and the lane. The lane has a group for each worker, with the worker's name, whether your main can reach it, and **Open**, which opens the worker's own web UI. A worker with nothing away says so.
 
 The group's header says "pulled 2 min ago" while your main hears from the worker, "unreachable since 21:40" once it has been down for 30 seconds, or "no longer accepts this main; pair again" when the worker unpaired your main (pair it again from Settings › Handoff › Workers).
 
@@ -106,4 +106,8 @@ The task changes only on the worker until it comes back. On your main, you canno
 
 To talk to the task's agent, open the task on the worker with **Open on <worker>**, in its web UI or the phone app.
 
-The TUI shows away tasks in their columns. On a phone, the Away lane is one more column of the board, and each away card says "away on <worker>".
+The TUI shows away tasks in their columns.
+
+## On a phone
+
+On a phone, the board has an **Away** section above its columns while any task is away. Each worker that holds away tasks has one line, such as "vm-1 · 6 away · 2 done", with **Return all done (N)** when some are done. Tap the line to see its tasks: each row shows what it shows in the Away lane, with the same **Return** and **Recall**. Tap a row to open the task's details. Tap the line again to fold it.

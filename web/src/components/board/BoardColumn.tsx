@@ -1,7 +1,8 @@
-import { useEffect, useRef, useState, type DragEvent } from "react"
+import { useEffect, useRef } from "react"
 import { cn } from "../../lib/utils"
 import type { BoardCard as BoardCardType } from "../../lib/board-types"
 import { BoardCard } from "./BoardCard"
+import { useDropTarget } from "./useDropTarget"
 
 interface BoardColumnProps {
   name: string
@@ -14,6 +15,8 @@ interface BoardColumnProps {
   // folded away. onExpand opens them all again.
   collapsed?: boolean
   onExpand?: () => void
+  // The rail's tooltip, when it says more than how to open it.
+  railTitle?: string
   onCardClick: (colIndex: number, cardIndex: number) => void
   onCardDoubleClick?: (colIndex: number, cardIndex: number) => void
   onCardContextMenu?: (card: BoardCardType, position: { x: number; y: number }) => void
@@ -33,32 +36,10 @@ function columnRule(name: string): string {
       return "border-lw-live"
     case "unmapped":
       return "border-lw-line-strong"
+    case "away":
+      return "border-lw-accent-ring"
     default:
       return "border-[#4a4955]"
-  }
-}
-
-function useDropTarget(name: string, onCardDrop?: (cardId: string, column: string) => void) {
-  const [dragOver, setDragOver] = useState(false)
-  return {
-    dragOver,
-    handlers: {
-      onDragOver: (event: DragEvent<HTMLElement>) => {
-        if (!onCardDrop) return
-        event.preventDefault()
-        event.dataTransfer.dropEffect = "move"
-        setDragOver(true)
-      },
-      onDragLeave: (event: DragEvent<HTMLElement>) => {
-        if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDragOver(false)
-      },
-      onDrop: (event: DragEvent<HTMLElement>) => {
-        event.preventDefault()
-        setDragOver(false)
-        const cardId = event.dataTransfer.getData("text/plain")
-        if (cardId) onCardDrop?.(cardId, name)
-      },
-    },
   }
 }
 
@@ -71,6 +52,7 @@ export function BoardColumn({
   highlightedTaskId,
   collapsed = false,
   onExpand,
+  railTitle,
   onCardClick,
   onCardDoubleClick,
   onCardContextMenu,
@@ -90,7 +72,7 @@ export function BoardColumn({
       <button
         type="button"
         aria-label={`${name}, ${cards.length} cards`}
-        title="Show empty columns (z)"
+        title={railTitle ?? "Show empty columns (z)"}
         onClick={onExpand}
         {...handlers}
         className={cn(
