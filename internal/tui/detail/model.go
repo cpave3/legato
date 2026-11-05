@@ -2,6 +2,7 @@ package detail
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -14,6 +15,7 @@ import (
 	"github.com/charmbracelet/glamour/styles"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/cpave3/legato/internal/service"
+	"github.com/cpave3/legato/internal/tui/board"
 	"github.com/cpave3/legato/internal/tui/clipboard"
 	"github.com/cpave3/legato/internal/tui/hotkey"
 	"github.com/cpave3/legato/internal/tui/theme"
@@ -99,6 +101,25 @@ type Model struct {
 	headerStr  string
 	subtasks   []service.SwarmSubtaskInfo
 	subtaskIdx int
+	// away is the handoff of a task that is away on a worker: the view
+	// says where it is and refuses to change it.
+	away *service.AwayTask
+}
+
+// SetAway marks the task as away on a worker, or not when away is nil.
+func (m *Model) SetAway(away *service.AwayTask) {
+	m.away = away
+	m.renderContent()
+}
+
+// refuseAway says, in the view's bar, that an away task cannot be changed
+// here, and reports whether the task is away.
+func (m *Model) refuseAway() bool {
+	if m.away == nil || m.card == nil {
+		return false
+	}
+	m.feedback = board.AwayRefusal(m.card.ID, board.AwayWorker(m.away))
+	return true
 }
 
 // SetSubtasks attaches swarm sub-task info to the detail view (read-only render).
@@ -189,6 +210,11 @@ func (m Model) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return m, nil
 
 	case DescriptionEditedMsg:
+		var away *service.TaskAwayError
+		if errors.As(msg.Err, &away) {
+			m.feedback = board.AwayRefusal(away.TaskID, away.Worker)
+			return m, nil
+		}
 		if msg.Err != nil {
 			m.feedback = fmt.Sprintf("Edit failed: %v", msg.Err)
 			return m, nil
@@ -251,6 +277,13 @@ func (m Model) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 
 // HandleAction executes a registry action owned by the detail model.
 func (m Model) HandleAction(action hotkey.ActionID) (tea.Model, tea.Cmd) {
+	switch action {
+	case hotkey.ActionDetailMove, hotkey.ActionDetailMoveWorkspace, hotkey.ActionDetailDelete,
+		hotkey.ActionDetailEditDescription, hotkey.ActionDetailEditTitle:
+		if m.refuseAway() {
+			return m, nil
+		}
+	}
 	switch action {
 	case hotkey.ActionBack:
 		return m, func() tea.Msg { return BackToBoard{} }
@@ -656,6 +689,11 @@ func (m Model) renderHeader() string {
 	}
 
 	addMeta("Status", m.card.Status)
+	if m.away != nil {
+		addMeta("Away on", board.AwayWorker(m.away))
+		addMeta("Handoff", board.AwayState(m.away))
+		addMeta("Failure", m.away.Failure)
+	}
 	addMeta("Priority", m.card.Priority)
 	for _, row := range remoteMetaRows(m.card.Provider, m.card.RemoteMeta) {
 		addMeta(row.Label, row.Value)

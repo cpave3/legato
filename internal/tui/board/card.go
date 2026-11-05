@@ -7,6 +7,7 @@ import (
 
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
+	"github.com/cpave3/legato/internal/service"
 	"github.com/cpave3/legato/internal/tui/theme"
 )
 
@@ -29,6 +30,33 @@ type CardData struct {
 	ReviewUnreviewed int           // unreviewed review-tour steps
 	ReviewReady      bool          // agent marked the tour ready for review
 	HasWorktree      bool          // task has an associated worktree
+	// Away is set when the task is away on a worker instance: it stays in
+	// the column it left, and only the worker can change it.
+	Away *service.AwayTask
+}
+
+// AwayRefusal is what the TUI says when the person tries to change a task
+// that is away on a worker: the TUI has no handoff actions, so it sends
+// them to the web UI.
+func AwayRefusal(taskID, worker string) string {
+	return fmt.Sprintf("%s is away on %s: return or recall it from the web UI", taskID, worker)
+}
+
+// AwayWorker names the worker an away task is on.
+func AwayWorker(away *service.AwayTask) string {
+	if away.WorkerName != "" {
+		return away.WorkerName
+	}
+	return away.WorkerInstanceID
+}
+
+// AwayState words the worker's state of a handoff as last heard, whatever
+// state it is; "sent" when nothing was heard yet.
+func AwayState(away *service.AwayTask) string {
+	if away.State == "" {
+		return "sent"
+	}
+	return strings.ReplaceAll(away.State, "_", " ")
 }
 
 // SwarmStats holds aggregate sub-task counts for a swarm parent card.
@@ -82,6 +110,14 @@ type agentStrip struct {
 // stripFor returns the strip of a card, and false for a card with nothing to
 // report: no agent now and none before.
 func stripFor(card CardData, icons theme.Icons) (agentStrip, bool) {
+	if card.Away != nil {
+		// No agent runs here for an away task; its strip says where it is.
+		state := ""
+		if card.Away.State == "failed" {
+			state = "error"
+		}
+		return agentStrip{state, "↗", "away on " + AwayWorker(card.Away), AwayState(card.Away)}, true
+	}
 	switch card.AgentState {
 	case "working":
 		return agentStrip{"working", icons.AgentWorking, "running", formatDuration(card.WorkingDuration)}, true

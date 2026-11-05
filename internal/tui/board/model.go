@@ -141,6 +141,7 @@ func (m Model) loadData() Model {
 				HasWorktree:    c.HasWorktree,
 				WorkspaceName:  c.WorkspaceName,
 				WorkspaceColor: c.WorkspaceColor,
+				Away:           c.Away,
 			}
 		}
 		m.cards[col.Name] = cardData
@@ -342,6 +343,19 @@ func (m Model) SelectedCard() *CardData {
 	}
 	c := cards[m.cursorRow]
 	return &c
+}
+
+// AwayTask is the handoff of a task on the board that is away on a worker,
+// or nil when it is not away (or not on the board).
+func (m Model) AwayTask(taskID string) *service.AwayTask {
+	for _, colName := range m.columns {
+		for _, card := range m.cards[colName] {
+			if card.Key == taskID {
+				return card.Away
+			}
+		}
+	}
+	return nil
 }
 
 // SetActiveAgents updates which task IDs have running agent sessions.

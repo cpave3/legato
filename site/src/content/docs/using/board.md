@@ -88,6 +88,8 @@ Press `d` on the board, or `D` in the detail view, to delete a task. You confirm
 
 On a main instance paired with a [worker instance](/legato/running/instances/), the web board can send a task to the worker, which starts an agent on it. Choose **Hand off…** in the card's `⋯` or right-click menu, or in the panel beside the board. The task then leaves its column for the **Away** lane at the end of the web board, grouped by worker, and stays read-only on your main until it comes back. See [Hand off tasks to a worker](/legato/using/handoff/).
 
+The TUI has no handoff actions, but it shows an away task in the column it left, with "away on" and the worker's name at the foot of the card, and the handoff's state at its end. The detail view names the worker and the state too. Editing, moving, deleting, starting an agent or a workflow on an away task is refused with a message in the status bar: return or recall the task from the web UI.
+
 ## Task detail
 
 Press `enter` to open a task. The detail view shows the description as Markdown, the ticket's fields, the pull request and the worktree. In the web UI it also lists the task's notes, review tours, plans and workflow runs.

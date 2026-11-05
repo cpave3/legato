@@ -709,6 +709,7 @@ func (a App) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		} else {
 			a.detail = detail.New(card, a.svc, a.clip, a.editor)
 		}
+		a.detail.SetAway(a.board.AwayTask(msg.CardKey))
 		// Populate swarm sub-tasks if applicable.
 		if a.swarmSvc != nil {
 			if subs, err := a.swarmSvc.ListSubtaskInfos(context.Background(), msg.CardKey); err == nil && len(subs) > 0 {
@@ -856,6 +857,10 @@ func (a App) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			return a.Update(board.OpenDeleteMsg{CardKey: msg.TaskID})
 		}
 	case overlay.CardContextLoadWorkflowsMsg:
+		if refused, cmd, away := a.refuseAway(msg.TaskID); away {
+			refused.overlayType, refused.activeOverlay = overlayNone, nil
+			return refused, cmd
+		}
 		if a.taskWorkflows == nil {
 			return a.Update(taskWorkflowsLoadedMsg{Err: fmt.Errorf("workflow launcher is unavailable")})
 		}
@@ -1505,6 +1510,10 @@ func (a App) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if cmd != nil {
 			cmds = append(cmds, cmd)
 		}
+		// An open detail view follows its task away and back.
+		if a.active == viewDetail {
+			a.detail.SetAway(a.board.AwayTask(a.detail.TaskID()))
+		}
 		// Enrich cards with active agent indicators and activity states
 		if a.agentSvc != nil {
 			agentList, err := a.agentSvc.ListAgents(context.Background())
@@ -1649,6 +1658,9 @@ func (a App) boardHasTask(taskID string) bool {
 }
 
 func (a App) openMoveOverlay(taskID string) (tea.Model, tea.Cmd) {
+	if a, cmd, away := a.refuseAway(taskID); away {
+		return a, cmd
+	}
 	// Get columns from the board
 	columns, err := a.svc.ListColumns(context.Background())
 	if err != nil {
@@ -1683,7 +1695,8 @@ func (a App) handleMoveSelected(msg overlay.MoveSelectedMsg) (tea.Model, tea.Cmd
 		err = a.svc.MoveCard(context.Background(), msg.TaskID, msg.TargetColumn)
 	}
 	if err != nil {
-		return a, nil
+		a, cmd, _ := a.showAwayError(err)
+		return a, cmd
 	}
 	if a.workflowTriggers != nil {
 		_ = a.workflowTriggers.CaptureLatestForTask(context.Background(), msg.TaskID)
@@ -1790,6 +1803,9 @@ func (a App) openCreateOverlay() (tea.Model, tea.Cmd) {
 }
 
 func (a App) openDeleteOverlay(taskID string) (tea.Model, tea.Cmd) {
+	if a, cmd, away := a.refuseAway(taskID); away {
+		return a, cmd
+	}
 	card, err := a.svc.GetCard(context.Background(), taskID)
 	if err != nil {
 		return a, nil
@@ -1805,10 +1821,13 @@ func (a App) openDeleteOverlay(taskID string) (tea.Model, tea.Cmd) {
 func (a App) handleDeleteConfirmed(msg overlay.DeleteConfirmedMsg) (tea.Model, tea.Cmd) {
 	a.overlayType = overlayNone
 	a.activeOverlay = nil
-	_ = a.svc.DeleteTask(context.Background(), msg.TaskID)
+	err := a.svc.DeleteTask(context.Background(), msg.TaskID)
 	// If we were in detail view, return to board
 	if a.active == viewDetail {
 		a = a.setMode(viewBoard)
+	}
+	if refused, cmd, away := a.showAwayError(err); away {
+		return refused, tea.Batch(cmd, refused.board.Init())
 	}
 	// Refresh board
 	cmd := a.board.Init()
@@ -1846,6 +1865,9 @@ func (a App) handleArchiveConfirmed() (tea.Model, tea.Cmd) {
 }
 
 func (a App) openMoveWorkspaceOverlay(taskID string) (tea.Model, tea.Cmd) {
+	if a, cmd, away := a.refuseAway(taskID); away {
+		return a, cmd
+	}
 	workspaces := a.board.Workspaces()
 	card, err := a.svc.GetCard(context.Background(), taskID)
 	if err != nil {
@@ -1863,6 +1885,9 @@ func (a App) handleWorkspaceAssigned(msg overlay.WorkspaceAssignedMsg) (tea.Mode
 	a.overlayType = overlayNone
 	a.activeOverlay = nil
 	err := a.svc.UpdateTaskWorkspace(context.Background(), msg.TaskID, msg.WorkspaceID)
+	if refused, cmd, away := a.showAwayError(err); away {
+		return refused, cmd
+	}
 	if err != nil {
 		return a, func() tea.Msg {
 			return statusbar.ErrorMsg{Text: "workspace: " + err.Error()}
@@ -2155,6 +2180,9 @@ func (a App) handleLinkPRConfirmed(msg overlay.LinkPRConfirmedMsg) (tea.Model, t
 }
 
 func (a App) openTitleEditOverlay(taskID, currentTitle string) (tea.Model, tea.Cmd) {
+	if a, cmd, away := a.refuseAway(taskID); away {
+		return a, cmd
+	}
 	editModel := overlay.NewTitleEdit(taskID, currentTitle)
 	sized, _ := editModel.Update(tea.WindowSizeMsg{Width: a.width, Height: a.height})
 	a.activeOverlay = sized
@@ -2166,6 +2194,9 @@ func (a App) openSwarmInitOverlay() (tea.Model, tea.Cmd) {
 	selected := a.board.SelectedCard()
 	if selected == nil {
 		return a, nil
+	}
+	if a, cmd, away := a.refuseAway(selected.Key); away {
+		return a, cmd
 	}
 	suggested, _ := os.Getwd()
 	swModel := overlay.NewSwarmInit(selected.Key, selected.Title, suggested)
@@ -2311,7 +2342,8 @@ func (a App) handleTitleEditSubmit(msg overlay.TitleEditSubmitMsg) (tea.Model, t
 
 	err := a.svc.UpdateTaskTitle(context.Background(), msg.TaskID, msg.Title)
 	if err != nil {
-		return a, nil
+		a, cmd, _ := a.showAwayError(err)
+		return a, cmd
 	}
 
 	var cmds []tea.Cmd
@@ -2553,6 +2585,9 @@ func (a App) spawnTaskAgent(msg overlay.AgentSpawnSubmitMsg, sessionPolicy, resu
 	return a, tea.Batch(
 		func() tea.Msg {
 			if err := svc.SpawnAgent(context.Background(), msg.TaskID, termW, termH, opts); err != nil {
+				if text, away := awayErrorText(err); away {
+					return statusbar.ErrorMsg{Text: text}
+				}
 				return statusbar.ErrorMsg{Text: "spawn failed: " + err.Error()}
 			}
 			agentList, _ := svc.ListAgents(context.Background())
@@ -2918,11 +2953,14 @@ func voiceLevelTickCmd() tea.Cmd {
 }
 
 func (a App) handleBoardSpawnAgent() (tea.Model, tea.Cmd) {
-	if a.agentSvc == nil {
-		return a, nil
-	}
 	card := a.board.SelectedCard()
 	if card == nil {
+		return a, nil
+	}
+	if a, cmd, away := a.refuseAway(card.Key); away {
+		return a, cmd
+	}
+	if a.agentSvc == nil {
 		return a, nil
 	}
 
@@ -3094,6 +3132,9 @@ func (a App) dispatchHotkey(binding hotkey.Binding, msg tea.KeyMsg) (tea.Model, 
 		card := a.board.SelectedCard()
 		if card == nil {
 			return a, nil
+		}
+		if a, cmd, away := a.refuseAway(card.Key); away {
+			return a, cmd
 		}
 		branch := strings.ToLower(strings.ReplaceAll(card.Key, "_", "-"))
 		model := overlay.NewWorktree(card.Key, a.workDir, branch)

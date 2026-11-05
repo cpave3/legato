@@ -380,7 +380,12 @@ func (m Model) panelTask(card CardData, width int) []string {
 		row("workspace", colored(color, card.WorkspaceName))
 	}
 	row("source", sourceLabel(card, m.icons))
-	if strip, ok := stripFor(card, m.liveIcons()); ok {
+	if card.Away != nil {
+		row("away on", colored(theme.TextPrimary, AwayWorker(card.Away))+" "+colored(theme.TextSecondary, AwayState(card.Away)))
+		if card.Away.Failure != "" {
+			row("failure", colored(theme.Red, card.Away.Failure))
+		}
+	} else if strip, ok := stripFor(card, m.liveIcons()); ok {
 		agent := colored(theme.StateColor(strip.state), strip.mark) + " " + colored(theme.TextPrimary, strip.text)
 		if strip.right != "" {
 			agent += " " + colored(theme.TextSecondary, strip.right)
