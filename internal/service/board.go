@@ -492,6 +492,9 @@ func (b *boardService) DeleteTask(ctx context.Context, id string) error {
 	if err := RefuseAway(ctx, b.store, id); err != nil {
 		return err
 	}
+	if err := RefuseHandedOff(ctx, b.store, id); err != nil {
+		return err
+	}
 
 	if err := b.store.DeleteTask(ctx, id); err != nil {
 		return err
@@ -621,10 +624,11 @@ func (b *boardService) ArchiveDoneCards(ctx context.Context) (int, error) {
 	if err != nil {
 		return 0, err
 	}
-	// An away task stays: it can change only on its worker.
+	// An away task stays: it can change only on its worker. So does a card
+	// a main handed to this worker: it goes back to its main.
 	kept := tasks[:0]
 	for _, task := range tasks {
-		if RefuseAway(ctx, b.store, task.ID) == nil {
+		if RefuseAway(ctx, b.store, task.ID) == nil && RefuseHandedOff(ctx, b.store, task.ID) == nil {
 			kept = append(kept, task)
 		}
 	}
@@ -651,6 +655,9 @@ func (b *boardService) ArchiveTask(ctx context.Context, id string) error {
 		return err
 	}
 	if err := RefuseAway(ctx, b.store, id); err != nil {
+		return err
+	}
+	if err := RefuseHandedOff(ctx, b.store, id); err != nil {
 		return err
 	}
 	doneCol, err := b.doneColumnName(ctx)

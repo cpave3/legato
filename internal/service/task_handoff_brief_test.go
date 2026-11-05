@@ -19,13 +19,21 @@ func TestTheHandoffBriefSaysWhatTheSpecSays(t *testing.T) {
 		Notes:   []string{"Seen on CI since Tuesday.", "Retrying the job usually passes.\nThe failure is always a timeout."},
 		Kind:    HandoffNewBranch, Branch: "legato/k7q2m9xa",
 	}
-	for name, purpose := range map[string]string{
-		"make-change-new-branch-local.md": HandoffMakeChange,
-		"find-out-new-branch-local.md":    HandoffFindOut,
+	// Started from a branch the person pushed: it has commits already.
+	pushed := task
+	pushed.Kind, pushed.Branch, pushed.Base = HandoffPushedBranch, "fix/login-timeout", "main"
+	for name, form := range map[string]struct {
+		in      HandoffBriefInput
+		purpose string
+	}{
+		"make-change-new-branch-local.md":    {task, HandoffMakeChange},
+		"find-out-new-branch-local.md":       {task, HandoffFindOut},
+		"make-change-pushed-branch-local.md": {pushed, HandoffMakeChange},
+		"find-out-pushed-branch-local.md":    {pushed, HandoffFindOut},
 	} {
 		t.Run(name, func(t *testing.T) {
-			in := task
-			in.Purpose = purpose
+			in := form.in
+			in.Purpose = form.purpose
 			got := HandoffBrief(in)
 			path := filepath.Join("testdata", "handoff_brief", name)
 			if *updateBriefs {

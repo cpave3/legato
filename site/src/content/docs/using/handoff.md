@@ -20,7 +20,7 @@ Before you can hand anything off, pair a worker with this Legato. See [Main and 
 3. Fill in the form:
    - **Worker**: the worker that takes the task. A worker without Legato's [sandbox](/legato/security/sandbox/) is listed but cannot be chosen: it refuses every handoff.
    - **Purpose**: **Make a change** (the agent pushes its branches and opens draft pull requests) or **Find out** (the agent answers in the task's notes and pushes nothing).
-   - **Start from**: **A new branch**, named `legato/<task ID>`.
+   - **Start from**: **A new branch**, named `legato/<task ID>`, or **A pushed branch**: work you began and pushed to GitHub. For a pushed branch, type its name in **Branch**. See [Start from a pushed branch](#start-from-a-pushed-branch).
    - **Repository**: one of the repositories in Settings › Agents that has a GitHub name. With none, type its `owner/name`.
    - **Agent tool**: the tool the worker starts. This Legato's default comes first.
 4. Choose **Hand off**.
@@ -28,6 +28,14 @@ Before you can hand anything off, pair a worker with this Legato. See [Main and 
 The task's title, description and notes travel to the worker, with the repository and the branch. Your agent's conversation never does.
 
 The worker starts the agent in its sandbox, with its tool's own permission prompts off, and a brief that tells it to work alone, record its decisions in notes, and move the card to Done when it is through. See [On the worker](/legato/running/instances/#on-the-worker).
+
+### Start from a pushed branch
+
+Choose **A pushed branch** to hand off work you have already begun. Push the branch to GitHub first: Legato never pushes for you.
+
+The worker fetches its copy of the repository before it starts, then looks for the branch there. If GitHub does not have it, the handoff fails with "branch not on GitHub", and the Away lane says so. The worker never makes a new, empty branch of that name instead. The repository's default branch fails too: hand off a branch of your own.
+
+The agent works on your branch. Its brief tells it that the branch already has commits: read them against the default branch first, then only add commits. It never rebases, amends or force-pushes the branch, and it reuses the branch's pull request if it has one. Any new branches it stacks on top of yours are named `legato/<task ID>-<a few words>`. To make a change, it may push your branch and its own, and open draft pull requests, without asking.
 
 ### When a handoff is refused
 
@@ -37,7 +45,8 @@ The form says why, in the words of the main or the worker, and nothing is handed
 - **The worker did not answer.** Nothing was sent. Handing the task to the same worker again is safe: if the worker did get it, it does not make a second card.
 - **The worker has no sandbox**, or **does not know the agent tool** you chose. Choose another worker or tool.
 - **The worker cannot clone the repository**, for example because its GitHub credential cannot read it.
-- **Update the worker**: the worker runs a Legato too old to take a handoff.
+- **Update the worker**: the worker runs a Legato too old to take a handoff. A worker that cannot yet start from a pushed branch says so.
+- **No branch name**: starting from a pushed branch needs the branch's name.
 
 ## The Away lane
 

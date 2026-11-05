@@ -110,18 +110,26 @@ export async function createWorktree(baseUrl: string, taskId: string, body: { pr
   return response.json() as Promise<TaskWorktree>
 }
 
+// refusedWith is a failed request's error in the server's words when it
+// gave some (a worker refusing to archive or delete a card its main handed
+// it), else what failed and the status.
+async function refusedWith(res: Response, what: string): Promise<Error> {
+  const body = await res.json().catch(() => null)
+  return new Error(typeof body?.error === "string" && body.error ? body.error : `${what} failed: ${res.status}`)
+}
+
 export async function deleteTask(baseUrl: string, id: string): Promise<void> {
   const res = await apiFetch(baseUrl, `/api/tasks/${encodeURIComponent(id)}`, {
     method: "DELETE",
   })
-  if (!res.ok) throw new Error(`deleteTask failed: ${res.status}`)
+  if (!res.ok) throw await refusedWith(res, "deleteTask")
 }
 
 export async function archiveTask(baseUrl: string, id: string): Promise<void> {
   const res = await apiFetch(baseUrl, `/api/tasks/${encodeURIComponent(id)}/archive`, {
     method: "POST",
   })
-  if (!res.ok) throw new Error(`archiveTask failed: ${res.status}`)
+  if (!res.ok) throw await refusedWith(res, "archiveTask")
 }
 
 export async function archiveDone(baseUrl: string): Promise<ArchiveDoneResponse> {

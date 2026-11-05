@@ -25,12 +25,13 @@ func (s *Server) SetMainHandoffs(h MainHandoffs) { s.instances.mainHandoffs = h 
 
 // handOffRequest is the Hand off form: the worker's instance ID, the
 // purpose (make-change or find-out), where the work starts (new-branch when
-// empty), the repository (owner/name) and the agent tool (empty for the
-// worker's default).
+// empty, or pushed-branch with the branch's name), the repository
+// (owner/name) and the agent tool (empty for the worker's default).
 type handOffRequest struct {
 	Worker    string `json:"worker"`
 	Purpose   string `json:"purpose"`
 	Kind      string `json:"kind"`
+	Branch    string `json:"branch"`
 	Repo      string `json:"repo"`
 	AgentKind string `json:"agent_kind"`
 }
@@ -55,7 +56,7 @@ func (s *Server) taskHandOffHandler() http.HandlerFunc {
 			return
 		}
 		away, err := s.instances.mainHandoffs.HandOff(r.Context(), service.TaskHandoffRequest{
-			TaskID: id, Worker: body.Worker, Purpose: body.Purpose, Kind: body.Kind, Repo: body.Repo, AgentKind: body.AgentKind,
+			TaskID: id, Worker: body.Worker, Purpose: body.Purpose, Kind: body.Kind, Branch: body.Branch, Repo: body.Repo, AgentKind: body.AgentKind,
 		})
 		if err != nil {
 			writeJSONError(w, handOffStatus(err), err.Error())

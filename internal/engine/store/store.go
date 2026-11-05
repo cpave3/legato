@@ -868,7 +868,8 @@ func (s *Store) ListPRTrackedTasks(ctx context.Context) ([]Task, error) {
 func (s *Store) ArchiveTasksByStatus(ctx context.Context, status string) (int64, error) {
 	result, err := s.db.ExecContext(ctx,
 		`UPDATE tasks SET archived_at = datetime('now') WHERE status = ? AND archived_at IS NULL
-			AND id NOT IN (SELECT task_id FROM away_tasks WHERE state = 'away' AND closed_at IS NULL)`, status)
+			AND id NOT IN (SELECT task_id FROM away_tasks WHERE state = 'away' AND closed_at IS NULL)
+			AND id NOT IN (SELECT task_id FROM handoffs WHERE closed_at IS NULL)`, status)
 	if err != nil {
 		return 0, err
 	}

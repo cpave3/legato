@@ -85,8 +85,8 @@ func configuredAdapters(cfg *config.Config, legatoBin string) (service.AIToolAda
 		chimera.SetToolsPrompt(toolsPrompt)
 		// A handed-off task's session names its branches after the main's
 		// task (see docs/ai/credentials.md § Handed-off sessions).
-		toolsPromptFor := func(base string, granted bool) string {
-			return "## Legato tools\n\n" + cli.MCPGuidance + credentialPromptGuidance(cfg, hostStackSupport(), service.SessionBranches{Base: base, Granted: granted})
+		toolsPromptFor := func(base, given string, granted bool) string {
+			return "## Legato tools\n\n" + cli.MCPGuidance + credentialPromptGuidance(cfg, hostStackSupport(), service.SessionBranches{Base: base, Given: given, Granted: granted})
 		}
 		codex.SetToolsPromptFor(toolsPromptFor)
 		chimera.SetToolsPromptFor(toolsPromptFor)

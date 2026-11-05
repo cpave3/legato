@@ -162,7 +162,11 @@ type AgentSpawnOptions struct {
 	// Branches is what a handed-off task's session is told of its
 	// branches, in place of the ordinary legato/<task id>-… guidance; zero
 	// for any other session.
-	Branches          SessionBranches
+	Branches SessionBranches
+	// PushedBranch says Branch is already on GitHub (a handoff that starts
+	// from a pushed branch): the clone checks out GitHub's branch, and the
+	// spawn fails with ErrBranchNotOnGitHub rather than make a new one.
+	PushedBranch      bool
 	WorkflowAttemptID string     // owning workflow attempt, when applicable
 	SwarmID           string     // owning swarm parent ID, when applicable
 	Resources         []Resource // files and folders the agent is given: granted to Chimera, listed in every launch prompt
@@ -597,7 +601,7 @@ func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, hei
 			return fmt.Errorf("%s: Legato clones repositories for agents with a github credential, and none is configured", opt.Repo)
 		}
 		clone, err := repos.JobClone(ctx, JobCloneRequest{ExecutionID: executionID, TaskID: taskID, Repo: opt.Repo, Ref: opt.Ref,
-			Branch: opt.Branch, FreshBranch: "legato/" + strings.ToLower(taskID), CloneID: opt.Clone})
+			Branch: opt.Branch, FreshBranch: "legato/" + strings.ToLower(taskID), CloneID: opt.Clone, PushedBranch: opt.PushedBranch})
 		if err != nil {
 			return err
 		}
@@ -706,7 +710,7 @@ func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, hei
 	// After the peer decision above, so that a session whose only launch
 	// prompt is this guidance still gets its peers as a message, as before.
 	if tp, ok := adapter.(BranchToolsPromptAdapter); ok && opt.Branches.Base != "" {
-		rolePrompt = joinPromptSections(rolePrompt, tp.ToolsPromptFor(opt.Branches.Base, opt.Branches.Granted))
+		rolePrompt = joinPromptSections(rolePrompt, tp.ToolsPromptFor(opt.Branches.Base, opt.Branches.Given, opt.Branches.Granted))
 	} else if tp, ok := adapter.(ToolsPromptAdapter); ok {
 		rolePrompt = joinPromptSections(rolePrompt, tp.ToolsPrompt())
 	}

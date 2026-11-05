@@ -23,6 +23,16 @@ type HandoffAgents interface {
 	GetAgentSession(ctx context.Context, taskID string) (*store.AgentSession, error)
 }
 
+// HandoffRepositories is what a worker asks of its repository cache: which
+// repositories it can clone, and whether GitHub has a branch a handoff
+// starts from (RepositoryService).
+type HandoffRepositories interface {
+	CloneChecker
+	// PushedBranch fetches the repository's cache and returns its default
+	// branch, or ErrBranchNotOnGitHub when GitHub has no such branch.
+	PushedBranch(ctx context.Context, repo, branch string) (base string, err error)
+}
+
 // HandoffGrants is what a worker asks of its credential broker for a
 // make-a-change handoff's session.
 type HandoffGrants interface {
@@ -33,9 +43,10 @@ type HandoffGrants interface {
 type HandoffWorkerOptions struct {
 	// Agents starts the agents.
 	Agents HandoffAgents
-	// Repositories says which repositories this worker can clone (the
-	// repository service); nil when it can clone none.
-	Repositories CloneChecker
+	// Repositories says which repositories this worker can clone and
+	// which branches GitHub has (the repository service); nil when it can
+	// clone none.
+	Repositories HandoffRepositories
 	// Sandbox says whether agents can run in Legato's sandbox here. A
 	// worker without it refuses every handoff.
 	Sandbox func() bool
@@ -98,9 +109,7 @@ func validateHandoffCall(call HandoffCall) error {
 		return handoffErr("bad_request", "at most 500 notes travel with a task")
 	case call.Purpose != HandoffMakeChange && call.Purpose != HandoffFindOut:
 		return handoffErr("bad_request", "purpose must be %s or %s", HandoffMakeChange, HandoffFindOut)
-	case call.Kind == HandoffPushedBranch:
-		return handoffErr("unsupported", "this worker cannot start from a pushed branch yet")
-	case call.Kind != HandoffNewBranch:
+	case call.Kind != HandoffNewBranch && call.Kind != HandoffPushedBranch:
 		return handoffErr("bad_request", "kind must be %s or %s", HandoffNewBranch, HandoffPushedBranch)
 	case call.Jira != nil:
 		return handoffErr("unsupported", "this worker cannot take a Jira-backed task yet")
@@ -322,15 +331,55 @@ func (s *HandoffWorkerService) start(ctx context.Context, mainInstanceID, handof
 		move(store.HandoffFailed, err.Error())
 		return
 	}
-	brief := HandoffBrief(handoffBriefInput(h, task, notes))
+	in := handoffBriefInput(h, task, notes)
+	if h.Kind == HandoffPushedBranch {
+		base, failure := s.pushedBranch(ctx, h)
+		if failure != "" {
+			move(store.HandoffFailed, failure)
+			return
+		}
+		in.Base = base
+	}
+	brief := HandoffBrief(in)
 	opts := AgentSpawnOptions{AgentKind: h.AgentKind, Repo: h.Repo, Branch: h.Branch, Assignment: brief, Unattended: true,
-		Branches: handoffSessionBranches(h)}
+		Branches: handoffSessionBranches(h), PushedBranch: h.Kind == HandoffPushedBranch}
 	if err := s.opts.Agents.SpawnAgent(ctx, h.TaskID, 0, 0, opts); err != nil {
-		move(store.HandoffFailed, err.Error())
+		move(store.HandoffFailed, startFailure(err))
 		return
 	}
 	s.grant(ctx, h)
 	move(store.HandoffInProgress, "")
+}
+
+// pushedBranch checks the branch a handoff starts from is on GitHub, after
+// fetching the worker's copy of the repository, and is not its default
+// branch, which an agent never works on. It returns the default branch, or
+// why the handoff fails.
+func (s *HandoffWorkerService) pushedBranch(ctx context.Context, h *store.Handoff) (base, failure string) {
+	if s.opts.Repositories == nil {
+		return "", fmt.Sprintf("this worker cannot clone %s: it has no repository cache", h.Repo)
+	}
+	base, err := s.opts.Repositories.PushedBranch(ctx, h.Repo, h.Branch)
+	if err != nil {
+		return "", startFailure(err)
+	}
+	if base == h.Branch {
+		return "", fmt.Sprintf("%s is the default branch of %s: hand off a branch of your own", h.Branch, h.Repo)
+	}
+	return base, ""
+}
+
+// startFailure is why a handoff's start failed, as its main shows it: a
+// branch GitHub does not have says so first.
+func startFailure(err error) string {
+	if errors.Is(err, ErrBranchNotOnGitHub) {
+		msg := err.Error()
+		if i := strings.Index(msg, ErrBranchNotOnGitHub.Error()); i > 0 {
+			msg = msg[i:]
+		}
+		return msg
+	}
+	return err.Error()
 }
 
 // grant allows a make-a-change handoff's new session, without asking the

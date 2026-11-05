@@ -38,7 +38,11 @@ func stackGuidanceFor(branches service.SessionBranches) string {
 	}
 	text := strings.Replace(stackGuidance, "legato/$LEGATO_TASK_ID-<a few words>", branches.Base+"-<a few words>", 1)
 	if branches.Granted {
-		text = strings.Replace(text, "with no further /.", "with no further /, on top of "+branches.Base+". Pushing them is already allowed.", 1)
+		onTop := branches.Base
+		if branches.Given != "" {
+			onTop = branches.Given
+		}
+		text = strings.Replace(text, "with no further /.", "with no further /, on top of "+onTop+". Pushing them is already allowed.", 1)
 		// st pr make opens pull requests that are not drafts.
 		text = strings.Replace(text, "Open the stack's pull requests with st pr.", "Open each branch's pull request as a draft, from the bottom of the stack up, with gh pr create --draft --head <branch> --base <the branch below it>: st pr make cannot open a draft.", 1)
 	}

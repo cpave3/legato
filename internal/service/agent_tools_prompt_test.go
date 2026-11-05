@@ -91,7 +91,10 @@ func TestSpawnAgent_NoToolsPromptLeavesTheLaunchPromptAlone(t *testing.T) {
 // of a handed-off task.
 type branchToolsPromptAdapter struct{ toolsPromptAdapter }
 
-func (a branchToolsPromptAdapter) ToolsPromptFor(base string, granted bool) string {
+func (a branchToolsPromptAdapter) ToolsPromptFor(base, given string, granted bool) string {
+	if given != "" {
+		return a.tools + "\n\nWork on " + given + ", then " + base + "-<a few words>."
+	}
 	if granted {
 		return a.tools + "\n\nWork on " + base + "; pushing it is already allowed."
 	}
@@ -106,6 +109,10 @@ func TestSpawnAgent_AHandedOffSessionIsToldItsBranches(t *testing.T) {
 	prompt, _ := spawnAndReadPrompt(t, adapter, "task-1", AgentSpawnOptions{Branches: SessionBranches{Base: "legato/k7q2", Granted: true}})
 	if prompt != "## Legato tools\n\nWork on legato/k7q2; pushing it is already allowed." {
 		t.Fatalf("handed-off launch prompt = %q", prompt)
+	}
+	pushed, _ := spawnAndReadPrompt(t, adapter, "task-3", AgentSpawnOptions{Branches: SessionBranches{Base: "legato/k7q2", Given: "fix/login-timeout", Granted: true}})
+	if pushed != "## Legato tools\n\nWork on fix/login-timeout, then legato/k7q2-<a few words>." {
+		t.Fatalf("launch prompt from a pushed branch = %q", pushed)
 	}
 	ordinary, _ := spawnAndReadPrompt(t, adapter, "task-2")
 	if ordinary != "## Legato tools" {

@@ -118,7 +118,10 @@ func TestClaudeCodeAdapterAddsNoToolsGuidanceToItsLaunchPrompt(t *testing.T) {
 // A handed-off task's session is told about its own branches: the guidance
 // is written for its branches, and only for a session that has the tools.
 func TestCodexAndChimeraWriteToolsGuidanceForAHandedOffTasksBranches(t *testing.T) {
-	forBranches := func(base string, granted bool) string {
+	forBranches := func(base, given string, granted bool) string {
+		if given != "" {
+			return "## Legato tools\n\nWork on " + given + "."
+		}
 		if granted {
 			return "## Legato tools\n\nPush " + base + "-<a few words>; it is already allowed."
 		}
@@ -132,26 +135,29 @@ func TestCodexAndChimeraWriteToolsGuidanceForAHandedOffTasksBranches(t *testing.
 	chimera.SetToolsPromptFor(forBranches)
 	chimera.SetMCPConfigProbe(func() bool { return true })
 
-	if got := codex.ToolsPromptFor("legato/k7q2", true); got != "" {
+	if got := codex.ToolsPromptFor("legato/k7q2", "", true); got != "" {
 		t.Fatalf("guidance for tools the session does not have: %q", got)
 	}
 	codex.SetMCPTools(true)
 	chimera.SetMCPTools(true, nil)
 	for name, adapter := range map[string]interface {
-		ToolsPromptFor(string, bool) string
+		ToolsPromptFor(string, string, bool) string
 	}{"codex": codex, "chimera": chimera} {
-		if got := adapter.ToolsPromptFor("legato/k7q2", true); got != "## Legato tools\n\nPush legato/k7q2-<a few words>; it is already allowed." {
+		if got := adapter.ToolsPromptFor("legato/k7q2", "", true); got != "## Legato tools\n\nPush legato/k7q2-<a few words>; it is already allowed." {
 			t.Errorf("%s granted: %q", name, got)
 		}
-		if got := adapter.ToolsPromptFor("legato/k7q2", false); got != "## Legato tools\n\nAsk to push legato/k7q2-<a few words>." {
+		if got := adapter.ToolsPromptFor("legato/k7q2", "", false); got != "## Legato tools\n\nAsk to push legato/k7q2-<a few words>." {
 			t.Errorf("%s not granted: %q", name, got)
+		}
+		if got := adapter.ToolsPromptFor("legato/k7q2", "fix/login-timeout", true); got != "## Legato tools\n\nWork on fix/login-timeout." {
+			t.Errorf("%s from a pushed branch: %q", name, got)
 		}
 	}
 	// Without a writer for branches, the ordinary guidance.
 	plain := hooks.NewCodexAdapter("/usr/bin/legato")
 	plain.SetToolsPrompt("## Legato tools")
 	plain.SetMCPTools(true)
-	if got := plain.ToolsPromptFor("legato/k7q2", true); got != "## Legato tools" {
+	if got := plain.ToolsPromptFor("legato/k7q2", "", true); got != "## Legato tools" {
 		t.Fatalf("plain: %q", got)
 	}
 }

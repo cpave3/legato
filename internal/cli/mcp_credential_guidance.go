@@ -136,10 +136,17 @@ func branchWork(credential, repo string, stacks bool, branches service.SessionBr
 	}
 	base := branches.Base
 	work := fmt.Sprintf("Work on %s, the branch this task was handed off with, and name any new branch %s-<a few words>, with no further /.", base, base)
+	allowed := base
+	if given := branches.Given; given != "" {
+		// Work the person began and pushed: its commits and its pull
+		// request stay as they are.
+		work = fmt.Sprintf("Work on %s, the branch this task was handed off with: it already has commits, so add commits on top and never rebase, amend or force-push it, and reuse its pull request. Name any new branch %s-<a few words>, with no further /.", given, base)
+		allowed = given + ", " + base
+	}
 	if !branches.Granted {
 		return work + " " + branchRequest(credential, repo, stacks, base, "")
 	}
-	return work + fmt.Sprintf(" Pushing %s and branches named %s-<a few words>, and opening draft pull requests from them with gh pr create --draft, are already allowed: do not ask for them with request_access. Open every pull request as a draft and never merge.", base, base)
+	return work + fmt.Sprintf(" Pushing %s and branches named %s-<a few words>, and opening draft pull requests from them with gh pr create --draft, are already allowed: do not ask for them with request_access. Open every pull request as a draft and never merge.", allowed, base)
 }
 
 // branchRequest says what to ask for before the first push: the one branch,

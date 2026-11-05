@@ -116,11 +116,12 @@ type ToolsPromptAdapter interface {
 
 // BranchToolsPromptAdapter is a ToolsPromptAdapter whose guidance can name a
 // handed-off task's branches: base (legato/<main task id>) and new branches
-// base-<a few words>, which granted says the session may already push and
-// open draft pull requests from. The agent service uses it for a spawn with
+// base-<a few words>, given (the pushed branch the work starts from, "" for
+// a new branch), which granted says the session may already push and open
+// draft pull requests from. The agent service uses it for a spawn with
 // AgentSpawnOptions.Branches.
 type BranchToolsPromptAdapter interface {
-	ToolsPromptFor(base string, granted bool) string
+	ToolsPromptFor(base, given string, granted bool) string
 }
 
 // PathGrantingAdapter is an adapter whose tool can be granted files and

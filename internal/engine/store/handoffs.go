@@ -86,6 +86,20 @@ func (s *Store) GetHandoff(ctx context.Context, mainInstanceID, handoffID string
 	return &h, nil
 }
 
+// OpenHandoffForTask is the open handoff whose card is taskID, or
+// ErrNotFound.
+func (s *Store) OpenHandoffForTask(ctx context.Context, taskID string) (*Handoff, error) {
+	var h Handoff
+	err := s.db.GetContext(ctx, &h, `SELECT * FROM handoffs WHERE task_id = ? AND closed_at IS NULL ORDER BY created_at DESC, rowid DESC LIMIT 1`, taskID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	if err != nil {
+		return nil, err
+	}
+	return &h, nil
+}
+
 // ListOpenHandoffs lists the handoffs not closed, oldest first.
 func (s *Store) ListOpenHandoffs(ctx context.Context) ([]Handoff, error) {
 	var out []Handoff

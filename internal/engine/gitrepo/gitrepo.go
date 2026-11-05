@@ -359,6 +359,26 @@ func (r Runner) DefaultBranch(ctx context.Context, dir string) (string, error) {
 	return r.run(ctx, "", nil, "--git-dir", dir, "symbolic-ref", "--short", "HEAD")
 }
 
+// HasBranch says whether a bare clone has a branch of that name: in
+// Legato's cache, whether the repository had it at the last fetch.
+func (r Runner) HasBranch(ctx context.Context, dir, branch string) (bool, error) {
+	if _, err := r.run(ctx, "", nil, "check-ref-format", "--branch", branch); err != nil {
+		return false, fmt.Errorf("%q is not a branch name git takes", branch)
+	}
+	// for-each-ref matches whole segments: refs/heads/feature also lists
+	// refs/heads/feature/x, so the exact name is looked for.
+	out, err := r.run(ctx, "", nil, "--git-dir", dir, "for-each-ref", "--format=%(refname)", "refs/heads/"+branch)
+	if err != nil {
+		return false, err
+	}
+	for _, line := range strings.Split(out, "\n") {
+		if line == "refs/heads/"+branch {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
 // ErrBranchExists is a branch StartBranch will not make: one of that name
 // is there already, and is not the one checked out.
 var ErrBranchExists = errors.New("the branch exists")

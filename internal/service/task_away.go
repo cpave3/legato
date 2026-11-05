@@ -42,3 +42,40 @@ func RefuseAway(ctx context.Context, db *store.Store, taskID string) error {
 	}
 	return &TaskAwayError{TaskID: taskID, Worker: worker}
 }
+
+// ErrTaskHandedOff: the task is a card a main instance handed to this
+// worker, with its handoff open, so the worker refuses to archive or delete
+// it; the main returns or recalls it. Moves, edits, notes and its agent
+// work as usual.
+var ErrTaskHandedOff = errors.New("the task belongs to a main instance")
+
+// TaskHandedOffError names the main instance a handed-off card belongs to.
+// It is ErrTaskHandedOff.
+type TaskHandedOffError struct {
+	TaskID string
+	Main   string
+}
+
+func (e *TaskHandedOffError) Error() string {
+	return fmt.Sprintf("this task belongs to %s; return or recall it from there", e.Main)
+}
+
+func (e *TaskHandedOffError) Is(target error) bool { return target == ErrTaskHandedOff }
+
+// RefuseHandedOff is a *TaskHandedOffError when the task is a card a main
+// handed to this worker and its handoff is open, else nil. The board
+// service asks it before archiving or deleting a card.
+func RefuseHandedOff(ctx context.Context, db *store.Store, taskID string) error {
+	h, err := db.OpenHandoffForTask(ctx, taskID)
+	if errors.Is(err, store.ErrNotFound) {
+		return nil
+	}
+	if err != nil {
+		return err
+	}
+	main := h.MainName
+	if main == "" {
+		main = h.MainInstanceID
+	}
+	return &TaskHandedOffError{TaskID: taskID, Main: main}
+}

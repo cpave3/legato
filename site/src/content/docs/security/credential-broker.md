@@ -96,7 +96,7 @@ A grant covers what you approved, for that one agent session. It ends when its t
 
 Handing a task off to a worker to make a change counts as your approval to push its work. When the worker starts the task's agent, it grants that session, for its GitHub credential that lists the repository:
 
-- pushes to `legato/<task id>` and to `legato/<task id>-<a few words>`, where the task ID is the one on your main instance;
+- pushes to `legato/<task id>` and to `legato/<task id>-<a few words>`, where the task ID is the one on your main instance, and to the branch the work starts from when you [hand off a pushed branch](/legato/using/handoff/#start-from-a-pushed-branch);
 - opening draft pull requests from those branches.
 
 Nothing wider. Merging, the default branch, tags, other branches and pull requests that are not drafts are refused or ask, as for any agent. A handoff to find something out is granted nothing. The grant shows in **Standing grants** on the worker, recorded in the audit log as decided by the handoff, and you can revoke it there. Your rules still come first: a rule that refuses a use refuses it whatever is granted, and a credential with its own `policy` needs a rule for `pr.create-draft` before drafts can be opened at all.

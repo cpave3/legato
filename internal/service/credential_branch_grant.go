@@ -94,6 +94,10 @@ type SessionBranches struct {
 	// legato/<main task id>: the session works on it and names new
 	// branches Base-<a few words>.
 	Base string
+	// Given is the branch already on GitHub that the work starts from (a
+	// handoff from a pushed branch), "" for a new branch: the session works
+	// on it, only adds commits to it, and stacks new branches on top of it.
+	Given string
 	// Granted says pushing those branches and opening draft pull requests
 	// from them is already allowed (a make-a-change handoff).
 	Granted bool
@@ -120,5 +124,9 @@ func HandoffSessionBranches(ctx context.Context, db *store.Store, taskID string)
 }
 
 func handoffSessionBranches(h *store.Handoff) SessionBranches {
-	return SessionBranches{Base: HandoffBranchBase(h.MainTaskID), Granted: h.Purpose == HandoffMakeChange}
+	branches := SessionBranches{Base: HandoffBranchBase(h.MainTaskID), Granted: h.Purpose == HandoffMakeChange}
+	if h.Kind == HandoffPushedBranch {
+		branches.Given = h.Branch
+	}
+	return branches
 }

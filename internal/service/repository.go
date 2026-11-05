@@ -42,6 +42,7 @@ type RepoGit interface {
 	UnpushedTips(ctx context.Context, clone, cache string) ([]string, error)
 	OriginURL(ctx context.Context, dir string) (string, error)
 	DefaultBranch(ctx context.Context, dir string) (string, error)
+	HasBranch(ctx context.Context, dir, branch string) (bool, error)
 }
 
 // RepositoryServiceOptions configures the repository cache.
@@ -229,6 +230,41 @@ func (s *RepositoryService) clone(ctx context.Context, repo, url, path string, t
 	return nil
 }
 
+// ErrBranchNotOnGitHub is a branch a handoff starts from that the
+// repository does not have on GitHub.
+var ErrBranchNotOnGitHub = errors.New("branch not on GitHub")
+
+// PushedBranch fetches the repository's cache now (whatever MaxAge says)
+// and says whether GitHub has the branch: ErrBranchNotOnGitHub when it does
+// not. It returns the repository's default branch, which the work on the
+// branch is read against.
+func (s *RepositoryService) PushedBranch(ctx context.Context, repo, branch string) (base string, err error) {
+	cache, err := s.Refresh(ctx, repo)
+	if err != nil {
+		return "", err
+	}
+	if err := s.requireBranch(ctx, cache, repo, branch); err != nil {
+		return "", err
+	}
+	if base, err = s.opts.Git.DefaultBranch(ctx, cache); err != nil {
+		return "", fmt.Errorf("reading the default branch of %s: %w", repo, err)
+	}
+	return base, nil
+}
+
+// requireBranch is ErrBranchNotOnGitHub when the cache of repo has no
+// branch of that name.
+func (s *RepositoryService) requireBranch(ctx context.Context, cache, repo, branch string) error {
+	ok, err := s.opts.Git.HasBranch(ctx, cache, branch)
+	if err != nil {
+		return fmt.Errorf("looking for %s in %s: %w", branch, repo, err)
+	}
+	if !ok {
+		return fmt.Errorf("%w: %s has no branch %s", ErrBranchNotOnGitHub, repo, branch)
+	}
+	return nil
+}
+
 // KeepIdleForever keeps idle job clones until they are removed by hand.
 const KeepIdleForever time.Duration = -1
 
@@ -252,6 +288,11 @@ type JobCloneRequest struct {
 	Branch string
 	// FreshBranch is the branch a new clone ends on when Branch is empty.
 	FreshBranch string
+	// PushedBranch says Branch is one already on GitHub (a handoff that
+	// starts from a pushed branch): a new clone checks out GitHub's branch,
+	// and when the cache has no such branch it is ErrBranchNotOnGitHub and
+	// nothing is made, never a new branch of that name.
+	PushedBranch bool
 	// CloneID, when set, is a job clone to work in instead of a new one.
 	// Without it, a task with a clone of Repo works in that one again.
 	CloneID int64
@@ -294,6 +335,11 @@ func (s *RepositoryService) JobClone(ctx context.Context, req JobCloneRequest) (
 	cache, err := s.Ensure(ctx, req.Repo)
 	if err != nil {
 		return store.JobClone{}, err
+	}
+	if req.PushedBranch {
+		if err := s.requireBranch(ctx, cache, req.Repo, req.Branch); err != nil {
+			return store.JobClone{}, err
+		}
 	}
 	origin, err := s.opts.Git.OriginURL(ctx, cache)
 	if err != nil {

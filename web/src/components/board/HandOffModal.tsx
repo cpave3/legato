@@ -34,10 +34,14 @@ const purposes: { value: Purpose; label: string; note: string }[] = [
   { value: "find-out", label: "Find out", note: "Answers in notes, pushes nothing" },
 ]
 
-// Where the work can start. Starting from a branch already pushed to GitHub
-// slots in here as a second choice, with a field for its name.
+// Where the work can start: a new branch named after the task, or a branch
+// already pushed to GitHub, named in a field below. The worker fetches and
+// refuses a branch GitHub does not have.
 function startChoices(taskId: string): { value: StartFrom; label: string; note: string }[] {
-  return [{ value: "new-branch", label: "A new branch", note: `legato/${taskId.toLowerCase()}` }]
+  return [
+    { value: "new-branch", label: "A new branch", note: `legato/${taskId.toLowerCase()}` },
+    { value: "pushed-branch", label: "A pushed branch", note: "Work you began, on GitHub" },
+  ]
 }
 
 const fieldLabel = "text-xs text-lw-text-2"
@@ -75,6 +79,7 @@ export function HandOffModal({ baseUrl, open, card, repositories, onClose, onHan
   const [worker, setWorker] = useState("")
   const [purpose, setPurpose] = useState<Purpose>("make-change")
   const [startFrom, setStartFrom] = useState<StartFrom>("new-branch")
+  const [branch, setBranch] = useState("")
   const offered = repositories.filter((repository) => repository.repo)
   const [repo, setRepo] = useState(offered[0]?.repo ?? "")
   const [tool, setTool] = useState("")
@@ -116,7 +121,8 @@ export function HandOffModal({ baseUrl, open, card, repositories, onClose, onHan
   }, [open, repo, firstOffered])
 
   const agentHere = card.agent_active
-  const canSend = !sending && !agentHere && worker !== "" && repo.trim().includes("/")
+  const pushed = startFrom === "pushed-branch"
+  const canSend = !sending && !agentHere && worker !== "" && repo.trim().includes("/") && (!pushed || branch.trim() !== "")
 
   const submit = async (event: FormEvent) => {
     event.preventDefault()
@@ -124,7 +130,9 @@ export function HandOffModal({ baseUrl, open, card, repositories, onClose, onHan
     setSending(true)
     setError(null)
     try {
-      const away = await handOffTask(baseUrl, card.id, { worker, purpose, kind: startFrom, repo: repo.trim(), agent_kind: tool })
+      const request: HandOffRequest = { worker, purpose, kind: startFrom, repo: repo.trim(), agent_kind: tool }
+      if (pushed) request.branch = branch.trim()
+      const away = await handOffTask(baseUrl, card.id, request)
       onHandedOff(away)
       onClose()
     } catch (reason) {
@@ -164,6 +172,13 @@ export function HandOffModal({ baseUrl, open, card, repositories, onClose, onHan
             </label>
             <Choices name={`${id}-purpose`} legend="Purpose" value={purpose} options={purposes} onChange={setPurpose} />
             <Choices name={`${id}-start`} legend="Start from" value={startFrom} options={startChoices(card.id)} onChange={setStartFrom} />
+            {pushed && (
+              <label className="flex flex-col gap-1.5">
+                <span className={fieldLabel}>Branch</span>
+                <input aria-label="Branch" value={branch} onChange={(event) => setBranch(event.target.value)} placeholder="the branch's name on GitHub" autoComplete="off" spellCheck={false} className={`${control} font-lw-mono`} />
+                <span className="text-xs text-lw-text-2">The agent reads its commits first, then only adds commits to it and reuses its PR. A branch not on GitHub fails the handoff.</span>
+              </label>
+            )}
             <label className="flex flex-col gap-1.5">
               <span className={fieldLabel}>Repository</span>
               {offered.length > 0 ? (

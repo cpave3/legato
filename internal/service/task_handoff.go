@@ -13,6 +13,7 @@ import (
 	"time"
 
 	"github.com/cpave3/legato/internal/engine/events"
+	"github.com/cpave3/legato/internal/engine/stackgraph"
 	"github.com/cpave3/legato/internal/engine/store"
 )
 
@@ -28,10 +29,13 @@ var (
 // instance ID), for what purpose, where the work starts, in which
 // repository and with which agent tool (empty for the worker's default).
 type TaskHandoffRequest struct {
-	TaskID    string
-	Worker    string
-	Purpose   string
-	Kind      string // HandoffNewBranch when empty
+	TaskID  string
+	Worker  string
+	Purpose string
+	Kind    string // HandoffNewBranch when empty
+	// Branch is the branch already on GitHub that a HandoffPushedBranch
+	// handoff starts from; a new branch is always legato/<task id>.
+	Branch    string
 	Repo      string
 	AgentKind string
 }
@@ -130,12 +134,15 @@ func (s *TaskHandoffService) HandOff(ctx context.Context, req TaskHandoffRequest
 		req.Kind = HandoffNewBranch
 	}
 	req.Repo = strings.TrimSpace(req.Repo)
+	req.Branch = strings.TrimSpace(req.Branch)
 	switch {
 	case req.Purpose != HandoffMakeChange && req.Purpose != HandoffFindOut:
 		return AwayTask{}, fmt.Errorf("%w: the purpose is %s or %s", ErrHandoffInput, HandoffMakeChange, HandoffFindOut)
-	case req.Kind == HandoffPushedBranch:
-		return AwayTask{}, fmt.Errorf("%w: starting from a pushed branch is not supported yet", ErrHandoffInput)
-	case req.Kind != HandoffNewBranch:
+	case req.Kind == HandoffPushedBranch && req.Branch == "":
+		return AwayTask{}, fmt.Errorf("%w: name the pushed branch the work starts from", ErrHandoffInput)
+	case req.Kind == HandoffPushedBranch && !stackgraph.ValidBranchName(req.Branch):
+		return AwayTask{}, fmt.Errorf("%w: %q is not a branch name", ErrHandoffInput, req.Branch)
+	case req.Kind != HandoffNewBranch && req.Kind != HandoffPushedBranch:
 		return AwayTask{}, fmt.Errorf("%w: the work starts on %s or %s", ErrHandoffInput, HandoffNewBranch, HandoffPushedBranch)
 	case !strings.Contains(req.Repo, "/"):
 		return AwayTask{}, fmt.Errorf("%w: name the repository as owner/name", ErrHandoffInput)
@@ -188,8 +195,12 @@ func (s *TaskHandoffService) HandOff(ctx context.Context, req TaskHandoffRequest
 		return AwayTask{}, err
 	}
 	now := s.opts.Now().UTC().Format(time.RFC3339)
+	branch := HandoffBranchBase(task.ID)
+	if req.Kind == HandoffPushedBranch {
+		branch = req.Branch
+	}
 	row := store.AwayTask{TaskID: task.ID, WorkerInstanceID: client.Worker.InstanceID, State: store.AwaySending, Purpose: req.Purpose,
-		Kind: req.Kind, Repo: req.Repo, Branch: "legato/" + strings.ToLower(task.ID), AgentKind: req.AgentKind, LeftColumn: task.Status,
+		Kind: req.Kind, Repo: req.Repo, Branch: branch, AgentKind: req.AgentKind, LeftColumn: task.Status,
 		CreatedAt: now, UpdatedAt: now}
 	// An earlier attempt to this worker that was never answered: its ID
 	// again, so the worker answers with the card it made, if it made one.

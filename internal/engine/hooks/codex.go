@@ -40,7 +40,7 @@ type CodexAdapter struct {
 	toolsPrompt string
 	// toolsPromptFor writes that guidance for a handed-off task's
 	// branches; nil gives the ordinary guidance.
-	toolsPromptFor func(base string, granted bool) string
+	toolsPromptFor func(base, given string, granted bool) string
 }
 
 // NewCodexAdapter creates a Codex adapter.
@@ -76,19 +76,20 @@ func (a *CodexAdapter) SetToolsPrompt(prompt string) {
 }
 
 // SetToolsPromptFor sets how that guidance is written for a handed-off
-// task's session: branches named after base (legato/<main task id>), whose
-// pushes and draft pull requests granted says are already allowed.
-func (a *CodexAdapter) SetToolsPromptFor(write func(base string, granted bool) string) {
+// task's session: branches named after base (legato/<main task id>), on
+// top of given when the work starts from a branch already pushed (else ""),
+// whose pushes and draft pull requests granted says are already allowed.
+func (a *CodexAdapter) SetToolsPromptFor(write func(base, given string, granted bool) string) {
 	a.toolsPromptFor = write
 }
 
 // ToolsPromptFor implements service.BranchToolsPromptAdapter: ToolsPrompt
 // written for a handed-off task's branches.
-func (a *CodexAdapter) ToolsPromptFor(base string, granted bool) string {
+func (a *CodexAdapter) ToolsPromptFor(base, given string, granted bool) string {
 	if a.ToolsPrompt() == "" || a.toolsPromptFor == nil {
 		return a.ToolsPrompt()
 	}
-	return a.toolsPromptFor(base, granted)
+	return a.toolsPromptFor(base, given, granted)
 }
 
 // ToolsPrompt implements service.ToolsPromptAdapter: the guidance belongs in

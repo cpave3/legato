@@ -15,20 +15,55 @@ import (
 )
 
 // FakeRepos stands in for a worker's repository cache: it says which
-// repositories the worker can clone, and "clones" one by making an empty
-// folder. It never runs git or reaches GitHub.
+// repositories the worker can clone, which branches GitHub has (those
+// pushed with Push; every repository's default branch is main), and
+// "clones" one by making an empty folder. It never runs git or reaches
+// GitHub.
 type FakeRepos struct {
-	mu      sync.Mutex
-	dir     string
-	refused map[string]string
-	failing map[string]error
-	clones  []service.JobCloneRequest
-	nextID  int64
+	mu        sync.Mutex
+	dir       string
+	refused   map[string]string
+	failing   map[string]error
+	pushed    map[string]bool
+	refreshes []string
+	clones    []service.JobCloneRequest
+	nextID    int64
 }
 
 // NewFakeRepos makes clones under dir; every repository can be cloned.
 func NewFakeRepos(dir string) *FakeRepos {
-	return &FakeRepos{dir: dir, refused: map[string]string{}, failing: map[string]error{}}
+	return &FakeRepos{dir: dir, refused: map[string]string{}, failing: map[string]error{}, pushed: map[string]bool{}}
+}
+
+// Push puts a branch of repo on the fake GitHub, as a person pushing work
+// they began.
+func (f *FakeRepos) Push(repo, branch string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.pushed[repo+"@"+branch] = true
+}
+
+// Refreshes lists the repositories fetched to look for a pushed branch,
+// oldest first.
+func (f *FakeRepos) Refreshes() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]string(nil), f.refreshes...)
+}
+
+// PushedBranch "fetches" repo and says whether the branch was pushed, as
+// service.RepositoryService.PushedBranch does; the default branch is main.
+func (f *FakeRepos) PushedBranch(_ context.Context, repo, branch string) (string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.refreshes = append(f.refreshes, repo)
+	if err, ok := f.failing[repo]; ok {
+		return "", err
+	}
+	if !f.pushed[repo+"@"+branch] {
+		return "", fmt.Errorf("%w: %s has no branch %s", service.ErrBranchNotOnGitHub, repo, branch)
+	}
+	return "main", nil
 }
 
 // Refuse makes the worker unable to clone repo, saying why.
@@ -68,6 +103,9 @@ func (f *FakeRepos) JobClone(_ context.Context, req service.JobCloneRequest) (st
 	}
 	if why, ok := f.refused[req.Repo]; ok {
 		return store.JobClone{}, errors.New(why)
+	}
+	if req.PushedBranch && !f.pushed[req.Repo+"@"+req.Branch] {
+		return store.JobClone{}, fmt.Errorf("%w: %s has no branch %s", service.ErrBranchNotOnGitHub, req.Repo, req.Branch)
 	}
 	f.clones = append(f.clones, req)
 	f.nextID++

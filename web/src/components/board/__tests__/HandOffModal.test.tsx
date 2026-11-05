@@ -106,6 +106,25 @@ describe("HandOffModal", () => {
     expect(onClose).toHaveBeenCalled()
   })
 
+  it("starts from a branch already pushed, named in a field of its own", async () => {
+    const { onHandedOff } = renderForm()
+    const worker = await screen.findByRole("combobox", { name: "Worker" }) as HTMLSelectElement
+    await waitFor(() => expect(worker.value).toBe("srv-vm1"))
+    expect(screen.queryByRole("textbox", { name: "Branch" })).toBeNull()
+
+    fireEvent.click(screen.getByRole("radio", { name: /A pushed branch/ }))
+    const branch = screen.getByRole("textbox", { name: "Branch" }) as HTMLInputElement
+    const send = screen.getByRole("button", { name: "Hand off" }) as HTMLButtonElement
+    // Not without the branch's name.
+    expect(send.disabled).toBe(true)
+    fireEvent.change(branch, { target: { value: "  fix/login-timeout " } })
+    expect(send.disabled).toBe(false)
+    fireEvent.click(send)
+
+    await waitFor(() => expect(onHandedOff).toHaveBeenCalledTimes(1))
+    expect(posts[0].body).toEqual({ worker: "srv-vm1", purpose: "make-change", kind: "pushed-branch", branch: "fix/login-timeout", repo: "acme/widget", agent_kind: "codex" })
+  })
+
   it("says why the worker or the main refused, in the server's words", async () => {
     handOffAnswer = json({ error: `vm-1 refused the handoff: this worker does not know the agent tool "codex" (it knows claude-code)` }, 422)
     const { onHandedOff } = renderForm()

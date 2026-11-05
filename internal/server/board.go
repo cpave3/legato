@@ -397,9 +397,10 @@ func (s *Server) taskHandler() http.HandlerFunc {
 }
 
 // taskErrorStatus is the status of a failed change to a task: 409 for a
-// task away on a worker, which changes only there, else 500.
+// task away on a worker, which changes only there, and for a handed-off
+// card a worker will not archive or delete, else 500.
 func taskErrorStatus(err error) int {
-	if errors.Is(err, service.ErrTaskAway) {
+	if errors.Is(err, service.ErrTaskAway) || errors.Is(err, service.ErrTaskHandedOff) {
 		return http.StatusConflict
 	}
 	return http.StatusInternalServerError

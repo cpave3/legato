@@ -110,12 +110,14 @@ export function awayTime(iso: string, now = new Date()): string {
 }
 
 // HandOffRequest is the Hand off form: the worker's instance ID, the
-// purpose, where the work starts, the repository (owner/name) and the agent
+// purpose, where the work starts (a new branch, or a branch already pushed
+// to GitHub, named in branch), the repository (owner/name) and the agent
 // tool (empty for the worker's default).
 export interface HandOffRequest {
   worker: string
   purpose: "make-change" | "find-out"
-  kind: "new-branch"
+  kind: "new-branch" | "pushed-branch"
+  branch?: string
   repo: string
   agent_kind: string
 }

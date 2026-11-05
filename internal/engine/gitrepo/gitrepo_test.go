@@ -521,3 +521,20 @@ func TestStartBranchRunsNothingFromTheClone(t *testing.T) {
 		t.Fatal("the clone's configuration ran a command")
 	}
 }
+
+func TestHasBranchSaysWhetherTheCacheHasABranch(t *testing.T) {
+	dir := cache(t)
+	r := Runner{}
+	for branch, want := range map[string]bool{"main": true, "feature/x": true, "feature/y": false, "feature": false} {
+		got, err := r.HasBranch(context.Background(), dir, branch)
+		if err != nil || got != want {
+			t.Errorf("HasBranch(%s) = %v, %v; want %v", branch, got, err, want)
+		}
+	}
+	if _, err := r.HasBranch(context.Background(), dir, "-bad..name"); err == nil {
+		t.Error("HasBranch took a name git does not take as a branch")
+	}
+	if _, err := r.HasBranch(context.Background(), filepath.Join(t.TempDir(), "none.git"), "main"); err == nil {
+		t.Error("HasBranch of a folder that is no repository said nothing went wrong")
+	}
+}

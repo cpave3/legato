@@ -84,3 +84,28 @@ func TestTheMCPServerOfAHandedOffTaskNamesTheMainTasksBranches(t *testing.T) {
 		t.Errorf("an ordinary session's instructions:\n%s", ordinary)
 	}
 }
+
+// A handoff from a pushed branch: the session works on that branch, only
+// adds commits to it, and stacks new branches on top of it; pushing it is
+// allowed with its own.
+func TestASessionStartedFromAPushedBranchWorksOnIt(t *testing.T) {
+	given := service.SessionBranches{Base: "legato/k7q2", Given: "fix/login-timeout", Granted: true}
+	for _, stacks := range []bool{false, true} {
+		text := cli.GuidanceFor([]service.CredentialSummary{githubSummary}, nil, stacks, given)
+		for _, want := range []string{"Work on fix/login-timeout", "never rebase, amend or force-push it", "legato/k7q2-<a few words>",
+			"Pushing fix/login-timeout, legato/k7q2 and branches named legato/k7q2-<a few words>"} {
+			if !strings.Contains(text, want) {
+				t.Errorf("stacks %v: the guidance does not say %q:\n%s", stacks, want, text)
+			}
+		}
+		if stacks && !strings.Contains(text, "on top of fix/login-timeout") {
+			t.Errorf("the stack guidance does not stack on the given branch:\n%s", text)
+		}
+	}
+	// A find-out session is granted nothing: it asks, and still works on the
+	// given branch.
+	text := cli.GuidanceFor([]service.CredentialSummary{githubSummary}, nil, true, service.SessionBranches{Base: "legato/k7q2", Given: "fix/login-timeout"})
+	if !strings.Contains(text, "Work on fix/login-timeout") || strings.Contains(text, "already allowed") {
+		t.Errorf("a find-out session's guidance:\n%s", text)
+	}
+}
