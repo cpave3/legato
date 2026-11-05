@@ -1647,7 +1647,7 @@ func runServeCmd(args []string) int {
 	srv.StartBoardEvents()
 	srv.StartLearningEvents()
 	defer wireAgentUI(srv, cfg, db, bus)()
-	defer wireIntegrations(srv, integrationDeps{cfg: cfg, db: db, bus: bus, agents: agentSvc, board: boardSvc, approvals: approvalsRT})()
+	defer wireIntegrations(srv, integrationDeps{cfg: cfg, db: db, bus: bus, agents: agentSvc, board: boardSvc, approvals: approvalsRT, repos: repos})()
 	srv.SetDirectoryService(configuredDirectoryService(cfg, db, repoPresets))
 	srv.SetResourceService(wiredResourceService(cfg, db, agentSvc))
 
@@ -1922,7 +1922,7 @@ func runTUI() int {
 			webSrv.StartBoardEvents()
 			webSrv.StartLearningEvents()
 			stopAgentUI = wireAgentUI(webSrv, cfg, db, bus)
-			stopIntegrations = wireIntegrations(webSrv, integrationDeps{cfg: cfg, db: db, bus: bus, agents: agentSvc, board: boardSvc, approvals: approvalsRT})
+			stopIntegrations = wireIntegrations(webSrv, integrationDeps{cfg: cfg, db: db, bus: bus, agents: agentSvc, board: boardSvc, approvals: approvalsRT, repos: repos})
 			webSrv.SetDirectoryService(configuredDirectoryService(cfg, db, repoPresets))
 			webSrv.SetResourceService(wiredResourceService(cfg, db, agentSvc))
 			go func() {

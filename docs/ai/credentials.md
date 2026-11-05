@@ -129,6 +129,8 @@ An agent can still use `~/.1password/agent.sock` or `~/.ssh` directly: outside t
 
 `cli.CredentialGuidance` adds a paragraph to Legato's guidance for each configured credential, by its channel: for an SSH key, run `ssh` as usual, let a login wait up to a minute for the person, and after a refusal tell them and wait for the `[legato approvals]` message, never using another key, `IdentityFile`, `IdentityAgent` or `ssh -A`; for a proxied key, send requests to the base URL variable with the key variable, and treat a `403` with `"status": "pending"` as waiting for the person; for a secret, `request_access` and `legato credential exec`. Claude Code reads it in the MCP server's instructions (`legato mcp serve`); Codex and Chimera get it in their launch prompt, from the configuration (`describeCredentials`). `CredentialSummary` carries each credential's `channels` and `env` (the variables a session gets) for it.
 
+A handed-off task's agent on a worker (see [Integrations](integrations.md) § Handing off a task) is started with `AgentSpawnOptions.Unattended`: always in Legato's sandbox, with its tool's own permission prompts off (`PromptsOffAdapter`). The credential broker's rules and approval modes still apply to it as to any session; nothing is granted to it at acceptance yet. Push grants for its branches and draft PRs, and branch names `legato/<main task id>-…` in this guidance, come with LEG-21.
+
 ## Vaults as sources
 
 `credential_sources` makes the items of a 1Password vault credentials: each SSH Key item one of the `ssh` profile, and each API Credential, Password and Login item one of the `secret` profile. `profile: ssh` or `profile: secret` limits a source to one of them; other categories are not credentials.

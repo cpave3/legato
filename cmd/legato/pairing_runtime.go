@@ -10,7 +10,6 @@ import (
 
 	"github.com/cpave3/legato/config"
 	"github.com/cpave3/legato/internal/engine/discovery"
-	"github.com/cpave3/legato/internal/engine/sandbox"
 	"github.com/cpave3/legato/internal/engine/store"
 	"github.com/cpave3/legato/internal/server"
 	"github.com/cpave3/legato/internal/service"
@@ -61,9 +60,7 @@ func wirePairing(srv *server.Server, cfg *config.Config, db *store.Store, caCert
 	srv.SetInstanceID(instanceID)
 	// Asked at every /api/meta: the configuration and bwrap on PATH, not the
 	// whole sandbox plan.
-	srv.SetSandboxAvailable(func() bool {
-		return cfg.Agents.Sandbox.Enabled && (sandbox.Bwrap{}).Available() == nil
-	})
+	srv.SetSandboxAvailable(func() bool { return sandboxAvailable(cfg) })
 	srv.SetWorkers(service.NewWorkerService(db, service.WorkerServiceOptions{
 		Secrets:  configuredSecretStore(cfg, db),
 		MainName: pairingName(cfg),

@@ -149,6 +149,11 @@ type AgentSpawnOptions struct {
 	// Unsandboxed starts this agent outside Legato's sandbox when it is on.
 	// Swarm and workflow agents ignore it: they are always sandboxed.
 	Unsandboxed bool
+	// Unattended starts an agent nobody watches (a handed-off task's): in
+	// Legato's sandbox whatever Unsandboxed says, with its tool's own
+	// permission prompts off (PromptsOffAdapter). It is refused when the
+	// sandbox is off or the tool cannot turn its prompts off.
+	Unattended bool
 	// ReadOnlyCheckout starts an agent that may look but not change (a
 	// find-out delegation): sandboxed whatever Unsandboxed says, with its
 	// working directory and git folder read-only, and its execution marked so
@@ -522,6 +527,17 @@ func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, hei
 		opt = opts[0]
 	}
 
+	if err := RefuseAway(ctx, a.store, taskID); err != nil {
+		return err
+	}
+	if opt.Unattended {
+		if a.sandbox == nil {
+			return errors.New("Legato's sandbox is off here, and an unattended agent runs only in it")
+		}
+		if _, ok := a.resolveAdapter(opt.AgentKind).(PromptsOffAdapter); !ok {
+			return fmt.Errorf("%s cannot be started with its permission prompts off", orUnknown(opt.AgentKind))
+		}
+	}
 	if err := a.prepareTaskResume(ctx, taskID, &opt); err != nil {
 		return err
 	}
@@ -822,7 +838,7 @@ func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, hei
 	// Legato's sandbox: decided and checked before any tmux session exists,
 	// so a sandbox that cannot be built never leaves an unsandboxed agent.
 	sandboxPrefix := ""
-	sandboxed := a.sandbox != nil && (!opt.Unsandboxed || opt.ReadOnlyCheckout || opt.ParentTaskID != "" || opt.SubtaskID != "" || opt.WorkflowRunID != "")
+	sandboxed := a.sandbox != nil && (!opt.Unsandboxed || opt.Unattended || opt.ReadOnlyCheckout || opt.ParentTaskID != "" || opt.SubtaskID != "" || opt.WorkflowRunID != "")
 	if sandboxed {
 		prefix, err := a.sandboxPrefix(ctx, taskID, executionID, agentKind, workDir, envMap, append(resources, freshClone.sandboxResources()...), opt.ReadOnlyCheckout)
 		if err != nil {
@@ -989,6 +1005,11 @@ func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, hei
 	}
 	if launcher, ok := adapter.(LaunchCommandAdapter); ok {
 		if cmd := launcher.LaunchCommand(launchEnv, opt.Brief, opt.Model, opt.Tier); cmd != "" {
+			if off, ok := adapter.(PromptsOffAdapter); ok && opt.Unattended {
+				for _, arg := range off.PromptsOffArgs() {
+					cmd += " " + shellWord(arg)
+				}
+			}
 			if granter, ok := adapter.(PathGrantingAdapter); ok && len(resources) > 0 {
 				read, write := resourceGrants(resources)
 				cmd += granter.PathGrantFlags(read, write)

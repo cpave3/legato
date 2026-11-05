@@ -41,6 +41,10 @@ const (
 	// EventUpdateChanged: where this Legato's updates stand changed (a
 	// check, a new mode, an install). No payload.
 	EventUpdateChanged
+	// EventHandoffChanged: a task handed to this worker by a main instance
+	// was accepted or changed state (pending, in progress, done, failed).
+	// Payload: the worker's task ID.
+	EventHandoffChanged
 )
 
 // ErrorPayload carries structured error information for error events.

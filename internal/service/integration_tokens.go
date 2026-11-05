@@ -160,16 +160,20 @@ type PairedMain struct {
 	OpenHandoffs int     `json:"open_handoffs"`
 }
 
-// ListMains lists the main instances paired with this worker, oldest first.
-// OpenHandoffs is left at 0: the handoff service counts them.
+// ListMains lists the main instances paired with this worker, oldest first,
+// each with the number of its handoffs still open here.
 func (s *IntegrationTokenService) ListMains(ctx context.Context) ([]PairedMain, error) {
 	tokens, err := s.db.ListMainIntegrationTokens(ctx)
 	if err != nil {
 		return nil, err
 	}
+	open, err := s.db.CountOpenHandoffsByMain(ctx)
+	if err != nil {
+		return nil, err
+	}
 	out := make([]PairedMain, 0, len(tokens))
 	for _, t := range tokens {
-		out = append(out, PairedMain{Name: t.Name, InstanceID: t.InstanceID, PairedAt: t.CreatedAt, LastPullAt: t.LastUsedAt})
+		out = append(out, PairedMain{Name: t.Name, InstanceID: t.InstanceID, PairedAt: t.CreatedAt, LastPullAt: t.LastUsedAt, OpenHandoffs: open[t.InstanceID]})
 	}
 	return out, nil
 }

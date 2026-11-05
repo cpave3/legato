@@ -28,6 +28,15 @@ type RolePromptingAdapter interface {
 	RoleSystemPrompt(role string) string
 }
 
+// PromptsOffAdapter is an optional capability of an adapter whose tool can
+// be launched with its own permission prompts off, for an agent nobody
+// watches (AgentSpawnOptions.Unattended, a handed-off task's). The agent
+// service adds the arguments to the launch command only for such an agent,
+// which always runs in Legato's sandbox.
+type PromptsOffAdapter interface {
+	PromptsOffArgs() []string
+}
+
 // LaunchCommandAdapter is an optional capability adapters can implement to
 // supply the shell command that starts the AI tool inside a freshly-spawned
 // tmux session. When implemented, the agent service auto-launches the tool by

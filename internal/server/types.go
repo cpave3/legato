@@ -52,6 +52,24 @@ type CardResponse struct {
 	ReviewName       string              `json:"review_name,omitempty"`
 	ReviewReady      bool                `json:"review_ready"`
 	ReviewUnreviewed int                 `json:"review_unreviewed"`
+	// HandoffFrom is set on a worker for a card a main instance handed to
+	// it: "from <main> · <main task id>".
+	HandoffFrom *HandoffFromResponse `json:"handoff_from,omitempty"`
+	// Away is set on a main for a task away on a worker.
+	Away *AwayResponse `json:"away,omitempty"`
+}
+
+// HandoffFromResponse is the main instance a handed-off card came from.
+type HandoffFromResponse struct {
+	Main       string `json:"main"`
+	MainTaskID string `json:"main_task_id"`
+}
+
+// AwayResponse is the worker an away task is on.
+type AwayResponse struct {
+	WorkerInstanceID string `json:"worker_instance_id"`
+	Worker           string `json:"worker"`
+	HandoffID        string `json:"handoff_id"`
 }
 
 // SwarmStatsResponse is the JSON representation of aggregate sub-task counts.

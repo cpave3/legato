@@ -371,3 +371,51 @@ func TestASandboxedAgentWorksInAJobCloneItsTaskJoined(t *testing.T) {
 		t.Fatalf("a job clone the task joined: %v", err)
 	}
 }
+
+// promptsOffAdapter is fakeAdapter whose tool can turn its prompts off.
+type promptsOffAdapter struct{ *fakeAdapter }
+
+func (promptsOffAdapter) PromptsOffArgs() []string { return []string{"--no-prompts", "a b"} }
+
+func TestAnUnattendedAgentRunsInTheSandboxWithItsPromptsOff(t *testing.T) {
+	backend := &fakeBackend{}
+	svc, s, mt := sandboxedService(t, backend)
+	createTask(t, s, "task-1")
+	// A tool that cannot turn its prompts off is refused before anything starts.
+	if err := svc.SpawnAgent(context.Background(), "task-1", 0, 0, AgentSpawnOptions{Unattended: true}); err == nil || !strings.Contains(err.Error(), "permission prompts") {
+		t.Fatalf("err %v", err)
+	}
+	if lines := mt.sentLinesFor("legato-task-1"); len(lines) != 0 {
+		t.Fatalf("launched %v", lines)
+	}
+
+	svc = NewAgentService(s, mt, t.TempDir(), AgentServiceOptions{
+		Adapter: promptsOffAdapter{&fakeAdapter{name: "claude-code", launchFn: func(map[string]string, string, string, string) string { return "fake-tool" }}},
+		Sandbox: &SandboxSettings{Backend: backend, Base: SandboxPlanInput{Home: t.TempDir(), DefaultMounts: true}},
+	})
+	if err := svc.SpawnAgent(context.Background(), "task-1", 0, 0, AgentSpawnOptions{Unattended: true, Unsandboxed: true}); err != nil {
+		t.Fatal(err)
+	}
+	if lines := mt.sentLinesFor("legato-task-1"); len(lines) == 0 || !strings.HasPrefix(lines[0], "SANDBOX") || !strings.HasSuffix(lines[0], " -- fake-tool --no-prompts 'a b'") {
+		t.Fatalf("launch = %v", lines)
+	}
+}
+
+func TestAnUnattendedAgentIsRefusedWithoutTheSandbox(t *testing.T) {
+	s, err := store.New(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { s.Close() })
+	mt := newMockTmux()
+	svc := NewAgentService(s, mt, t.TempDir(), AgentServiceOptions{
+		Adapter: promptsOffAdapter{&fakeAdapter{name: "claude-code", launchFn: func(map[string]string, string, string, string) string { return "fake-tool" }}},
+	})
+	createTask(t, s, "task-1")
+	if err := svc.SpawnAgent(context.Background(), "task-1", 0, 0, AgentSpawnOptions{Unattended: true}); err == nil || !strings.Contains(err.Error(), "sandbox") {
+		t.Fatalf("err %v", err)
+	}
+	if lines := mt.sentLinesFor("legato-task-1"); len(lines) != 0 {
+		t.Fatalf("launched %v", lines)
+	}
+}

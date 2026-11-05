@@ -33,6 +33,7 @@ type instanceDeps struct {
 	workers    Workers
 	instanceID func(context.Context) (string, error)
 	sandbox    func() bool
+	handoffs   TaskHandoffs
 }
 
 // SetMainInstances serves Settings › Main instances (/api/settings/mains).
@@ -97,6 +98,8 @@ func requireHandoffMain(w http.ResponseWriter, r *http.Request) (service.Integra
 
 func (s *Server) registerInstanceRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/integrations/handoff/pairing", s.handoffPairingHandler())
+	mux.HandleFunc("POST "+service.HandoffCallPath, s.taskHandoffHandler())
+	mux.HandleFunc("GET "+service.HandoffCallPath+"/{handoff_id}", s.taskHandoffGetHandler())
 	mux.HandleFunc("GET /api/settings/mains", s.mainsListHandler())
 	mux.HandleFunc("DELETE /api/settings/mains/{instance_id}", s.mainsUnpairHandler())
 	mux.HandleFunc("GET /api/settings/workers", s.workersListHandler())

@@ -26,7 +26,8 @@ import (
 // HandoffProtocolVersion is the version of the calls a main instance and a
 // worker make to each other. A worker advertises it in /api/meta; a main
 // pairs with and hands off to a worker only when it is at least this.
-const HandoffProtocolVersion = 1
+// Version 2 adds the Handoff call (POST /api/integrations/handoff/tasks).
+const HandoffProtocolVersion = 2
 
 var (
 	// ErrWorkerInput: the address, phrase or name given to Add a worker
@@ -339,6 +340,19 @@ func (s *WorkerService) httpClient(cfg *tls.Config) *http.Client {
 // ErrWorkerUnreachable when there was no answer.
 func (c *WorkerClient) Call(ctx context.Context, method, path string, body, into any) error {
 	return workerCall(ctx, c.http, method, c.base+path, c.token, body, into)
+}
+
+// WorkerMeta is what a worker's /api/meta says of it: its version, whether
+// it pairs mains, the handoff protocol it speaks and whether its agents can
+// run in Legato's sandbox.
+type WorkerMeta = workerMeta
+
+// Meta reads the worker's /api/meta over its certificate. It is asked
+// without the main's token, which reaches only the handoff routes.
+func (c *WorkerClient) Meta(ctx context.Context) (WorkerMeta, error) {
+	var meta workerMeta
+	err := workerCall(ctx, c.http, http.MethodGet, c.base+"/api/meta", "", nil, &meta)
+	return meta, err
 }
 
 // CheckPairing asks the worker how it sees this pairing, and checks it is

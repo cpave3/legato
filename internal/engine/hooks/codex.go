@@ -172,6 +172,14 @@ func (a *CodexAdapter) LaunchCommand(env map[string]string, brief, model, tier s
 	return cmd
 }
 
+// PromptsOffArgs launches Codex without asking for approvals and without its
+// own sandbox, for an agent nobody watches: Legato's sandbox holds it. They
+// are configuration, which the native bridge's launcher also gives the
+// session's app server.
+func (a *CodexAdapter) PromptsOffArgs() []string {
+	return []string{"-c", `approval_policy="never"`, "-c", `sandbox_mode="danger-full-access"`}
+}
+
 func (a *CodexAdapter) Name() string { return "codex" }
 
 func (a *CodexAdapter) EnvVars(taskID, socketPath string) map[string]string {

@@ -308,6 +308,9 @@ func TaskUpdateFields(s *store.Store, taskID string, opts TaskUpdateOptions) err
 	if err != nil {
 		return fmt.Errorf("task %q not found: %w", taskID, err)
 	}
+	if err := service.RefuseAway(ctx, s, taskID); err != nil {
+		return err
+	}
 
 	if opts.Status != nil {
 		column, err := resolveColumn(ctx, s, *opts.Status)

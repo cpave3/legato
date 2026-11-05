@@ -463,6 +463,11 @@ func launchArgsContain(args []string, flag string) bool {
 // can be processed immediately.
 func (a *ChimeraAdapter) InterruptKeys() []string { return []string{"Escape"} }
 
+// PromptsOffArgs launches Chimera approving every tool call itself, for an
+// agent nobody watches. Legato adds them only for such an agent, which runs
+// in Legato's sandbox.
+func (a *ChimeraAdapter) PromptsOffArgs() []string { return []string{"--auto-approve", "all"} }
+
 func (a *ChimeraAdapter) Name() string { return "chimera" }
 
 func (a *ChimeraAdapter) EnvVars(taskID, socketPath string) map[string]string {

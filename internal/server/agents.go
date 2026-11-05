@@ -599,6 +599,14 @@ func (s *Server) taskAgentHandler() http.HandlerFunc {
 				opts.WorkingDir = opts.ResumeWorkingDir
 			}
 		}
+		if away, ok := s.board.(interface {
+			RefuseAway(ctx context.Context, taskID string) error
+		}); ok {
+			if err := away.RefuseAway(r.Context(), taskID); err != nil {
+				http.Error(w, err.Error(), taskErrorStatus(err))
+				return
+			}
+		}
 		if startsInBackground(opts) {
 			// A clone can take minutes: the agent is started in the
 			// background and listed as preparing until it runs.
@@ -620,7 +628,7 @@ func (s *Server) taskAgentHandler() http.HandlerFunc {
 				http.Error(w, err.Error(), http.StatusConflict)
 				return
 			}
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+			http.Error(w, err.Error(), taskErrorStatus(err))
 			return
 		}
 		s.hub.Broadcast(WSMessage{Type: MsgAgentsChanged})

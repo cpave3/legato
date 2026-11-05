@@ -80,6 +80,10 @@ type WorkerOptions struct {
 	// Wire is called with the worker's services before it serves, at start
 	// and after each restart.
 	Wire func(w *Worker)
+	// Handler, when set, wraps the worker's web server: a test stands in
+	// for a worker that answers differently (an old one, a dropped
+	// answer) without changing its services.
+	Handler func(http.Handler) http.Handler
 }
 
 // Worker is a worker instance: its database, services and web server.
@@ -99,6 +103,10 @@ type Worker struct {
 	Tokens  *service.IntegrationTokenService
 	Pairing *service.PairingService
 	Server  *server.Server
+	// Handoffs accepts the mains' handoffs and starts their agents.
+	Handoffs *service.HandoffWorkerService
+	// Repos is the worker's repository cache, faked: it outlives restarts.
+	Repos *FakeRepos
 
 	// HTTP is the TLS server; URL its address (https://127.0.0.1:port),
 	// which stays the same across restarts.
@@ -107,6 +115,11 @@ type Worker struct {
 
 	webToken string
 	addr     string
+
+	starts    sync.WaitGroup
+	startsMu  sync.Mutex
+	hold      bool
+	stopLoops func()
 }
 
 // StartWorker starts a worker; t's cleanup stops it.
@@ -119,7 +132,8 @@ func StartWorker(t testing.TB, opts WorkerOptions) *Worker {
 		opts.Clock = NewClock(time.Date(2026, 11, 5, 9, 0, 0, 0, time.UTC))
 	}
 	dir := t.TempDir()
-	w := &Worker{t: t, opts: opts, Dir: dir, DBPath: filepath.Join(dir, "worker.db"), Clock: opts.Clock, Tmux: NewFakeTmux(), webToken: "worker-web-token"}
+	w := &Worker{t: t, opts: opts, Dir: dir, DBPath: filepath.Join(dir, "worker.db"), Clock: opts.Clock, Tmux: NewFakeTmux(), webToken: "worker-web-token",
+		Repos: NewFakeRepos(filepath.Join(dir, "jobs"))}
 	w.start()
 	seedColumns(t, w.Store)
 	t.Cleanup(w.Stop)
@@ -136,7 +150,16 @@ func (w *Worker) start() {
 	w.Store = db
 	w.Bus = events.New()
 	w.Board = service.NewBoardService(db, w.Bus)
-	w.Agents = service.NewAgentService(db, w.Tmux, w.Dir)
+	tools := workerAgentTools()
+	agentOpts := service.AgentServiceOptions{Adapter: tools["claude-code"], Adapters: tools, DisablePeerAwareness: true}
+	if !w.opts.NoSandbox {
+		agentOpts.Sandbox = &service.SandboxSettings{Backend: fakeSandbox{}, Base: service.SandboxPlanInput{
+			Home: filepath.Join(w.Dir, "home"), RuntimeDir: filepath.Join(w.Dir, "run", "legato"), DataDir: filepath.Join(w.Dir, "data"), DefaultMounts: true}}
+	}
+	w.Agents = service.NewAgentService(db, w.Tmux, w.Dir, agentOpts)
+	if setter, ok := w.Agents.(interface{ SetRepositories(service.JobCloner) }); ok {
+		setter.SetRepositories(w.Repos)
+	}
 	w.Tokens = service.NewIntegrationTokenService(db)
 
 	instanceID := func(ctx context.Context) (string, error) { return service.InstanceID(ctx, db) }
@@ -158,12 +181,25 @@ func (w *Worker) start() {
 	srv.SetInstanceID(instanceID)
 	sandbox := !w.opts.NoSandbox
 	srv.SetSandboxAvailable(func() bool { return sandbox })
+	w.Handoffs = service.NewHandoffWorkerService(db, service.HandoffWorkerOptions{
+		Agents: w.Agents.(service.HandoffAgents), Repositories: w.Repos, Sandbox: func() bool { return sandbox },
+		Bus: w.Bus, Run: w.run, Now: w.Clock.Now,
+	})
+	srv.SetTaskHandoffs(w.Handoffs)
 	w.Server = srv
 	if w.opts.Wire != nil {
 		w.opts.Wire(w)
 	}
+	w.stopLoops = w.Handoffs.StartEventLoop(context.Background(), 0)
+	// As a worker's runtime does at start: handoffs accepted and never
+	// started are started now.
+	w.Handoffs.ResumePending(context.Background())
 
-	w.HTTP = httptest.NewUnstartedServer(srv.Handler())
+	handler := srv.Handler()
+	if w.opts.Handler != nil {
+		handler = w.opts.Handler(handler)
+	}
+	w.HTTP = httptest.NewUnstartedServer(handler)
 	if w.addr != "" {
 		ln, err := listenAgain(w.addr)
 		if err != nil {
@@ -203,15 +239,46 @@ func (w *Worker) caPEM() string {
 // Stop closes the web server and the database: the worker is unreachable.
 // Stopping a stopped worker does nothing.
 func (w *Worker) Stop() {
+	if w.stopLoops != nil {
+		w.stopLoops()
+		w.stopLoops = nil
+	}
 	if w.HTTP != nil {
 		w.HTTP.Close()
 		w.HTTP = nil
 	}
+	w.starts.Wait()
 	if w.Store != nil {
 		w.Store.Close()
 		w.Store = nil
 	}
 }
+
+// run runs an agent start in the background, unless starts are held.
+func (w *Worker) run(f func()) {
+	w.startsMu.Lock()
+	defer w.startsMu.Unlock()
+	if w.hold {
+		return
+	}
+	w.starts.Add(1)
+	go func() {
+		defer w.starts.Done()
+		f()
+	}()
+}
+
+// HoldStarts makes the worker accept handoffs without starting their agents,
+// as a worker that stopped right after accepting them would; Restart starts
+// them. HoldStarts(false) lets later handoffs start again.
+func (w *Worker) HoldStarts(hold bool) {
+	w.startsMu.Lock()
+	defer w.startsMu.Unlock()
+	w.hold = hold
+}
+
+// Settle waits for the agent starts under way to finish.
+func (w *Worker) Settle() { w.starts.Wait() }
 
 // Restart stops the worker if it runs, then starts it again on the same
 // database, at the same address, with the same certificate.
@@ -279,6 +346,8 @@ type Main struct {
 	Board   service.BoardService
 	Secrets *service.SecretStoreService
 	Workers *service.WorkerService
+	// Handoffs hands tasks to workers and keeps them away.
+	Handoffs *service.TaskHandoffService
 }
 
 // NewMain makes a main instance; t's cleanup closes it.
@@ -302,6 +371,7 @@ func NewMain(t testing.TB, opts MainOptions) *Main {
 	// The key file source works anywhere: no keyring, no systemd-creds.
 	m.Secrets = service.NewSecretStoreService(db, credential.MasterKeyOptions{DataDir: dir, Source: "file"})
 	m.Workers = service.NewWorkerService(db, service.WorkerServiceOptions{Secrets: m.Secrets, MainName: opts.Name, Now: opts.Clock.Now})
+	m.Handoffs = service.NewTaskHandoffService(db, service.TaskHandoffOptions{Workers: m.Workers, Bus: m.Bus, Now: opts.Clock.Now})
 	return m
 }
 

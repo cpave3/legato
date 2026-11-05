@@ -61,6 +61,12 @@ func (s *Server) boardHandler() http.HandlerFunc {
 					WorkspaceName:  c.WorkspaceName,
 					WorkspaceColor: c.WorkspaceColor,
 				}
+				if c.HandedOffFrom != nil {
+					cardResp[j].HandoffFrom = &HandoffFromResponse{Main: c.HandedOffFrom.MainName, MainTaskID: c.HandedOffFrom.MainTaskID}
+				}
+				if c.Away != nil {
+					cardResp[j].Away = &AwayResponse{WorkerInstanceID: c.Away.WorkerInstanceID, Worker: c.Away.WorkerName, HandoffID: c.Away.HandoffID}
+				}
 				allTaskIDs = append(allTaskIDs, c.ID)
 				cardRefs[c.ID] = ref{col: i, card: j}
 			}
@@ -292,7 +298,7 @@ func (s *Server) taskHandler() http.HandlerFunc {
 						s.writeError(w, http.StatusNotFound, "task not found")
 						return
 					}
-					s.writeError(w, http.StatusInternalServerError, err.Error())
+					s.writeError(w, taskErrorStatus(err), err.Error())
 					return
 				}
 				mutated = true
@@ -303,7 +309,7 @@ func (s *Server) taskHandler() http.HandlerFunc {
 						s.writeError(w, http.StatusNotFound, "task not found")
 						return
 					}
-					s.writeError(w, http.StatusInternalServerError, err.Error())
+					s.writeError(w, taskErrorStatus(err), err.Error())
 					return
 				}
 				mutated = true
@@ -314,7 +320,7 @@ func (s *Server) taskHandler() http.HandlerFunc {
 						s.writeError(w, http.StatusNotFound, "task not found")
 						return
 					}
-					s.writeError(w, http.StatusInternalServerError, err.Error())
+					s.writeError(w, taskErrorStatus(err), err.Error())
 					return
 				}
 				mutated = true
@@ -345,7 +351,7 @@ func (s *Server) taskHandler() http.HandlerFunc {
 						s.writeError(w, http.StatusNotFound, "task not found")
 						return
 					}
-					s.writeError(w, http.StatusInternalServerError, err.Error())
+					s.writeError(w, taskErrorStatus(err), err.Error())
 					return
 				}
 				mutated = true
@@ -379,7 +385,7 @@ func (s *Server) taskHandler() http.HandlerFunc {
 					s.writeError(w, http.StatusNotFound, "task not found")
 					return
 				}
-				s.writeError(w, http.StatusInternalServerError, err.Error())
+				s.writeError(w, taskErrorStatus(err), err.Error())
 				return
 			}
 			s.notifyTaskChanged(id)
@@ -389,6 +395,15 @@ func (s *Server) taskHandler() http.HandlerFunc {
 			s.writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 		}
 	}
+}
+
+// taskErrorStatus is the status of a failed change to a task: 409 for a
+// task away on a worker, which changes only there, else 500.
+func taskErrorStatus(err error) int {
+	if errors.Is(err, service.ErrTaskAway) {
+		return http.StatusConflict
+	}
+	return http.StatusInternalServerError
 }
 
 func cardDetailToResponse(d *service.CardDetail) CardDetailResponse {
@@ -463,7 +478,7 @@ func (s *Server) archiveTaskHandler() http.HandlerFunc {
 				s.writeError(w, http.StatusNotFound, "task not found")
 				return
 			}
-			s.writeError(w, http.StatusInternalServerError, err.Error())
+			s.writeError(w, taskErrorStatus(err), err.Error())
 			return
 		}
 		s.notifyTaskChanged(id)

@@ -80,6 +80,11 @@ func (b *boardService) ListCardsByWorkspace(ctx context.Context, column string, 
 		}
 	}
 
+	origins, away, err := b.handoffMarks(ctx)
+	if err != nil {
+		return nil, err
+	}
+
 	cards := make([]Card, len(tasks))
 	for i, t := range tasks {
 		issueType := ""
@@ -94,16 +99,18 @@ func (b *boardService) ListCardsByWorkspace(ctx context.Context, column string, 
 			provider = *t.Provider
 		}
 		cards[i] = Card{
-			ID:          t.ID,
-			Title:       t.Title,
-			Priority:    t.Priority,
-			IssueType:   issueType,
-			Status:      t.Status,
-			Provider:    provider,
-			SortOrder:   t.SortOrder,
-			HasWarning:  hasPushFailure(ctx, b.store, t.ID),
-			HasWorktree: t.WorktreePath != nil && *t.WorktreePath != "",
-			WorkspaceID: t.WorkspaceID,
+			ID:            t.ID,
+			Title:         t.Title,
+			Priority:      t.Priority,
+			IssueType:     issueType,
+			Status:        t.Status,
+			Provider:      provider,
+			SortOrder:     t.SortOrder,
+			HasWarning:    hasPushFailure(ctx, b.store, t.ID),
+			HasWorktree:   t.WorktreePath != nil && *t.WorktreePath != "",
+			WorkspaceID:   t.WorkspaceID,
+			HandedOffFrom: origins[t.ID],
+			Away:          away[t.ID],
 		}
 		if wsLookup != nil && t.WorkspaceID != nil {
 			if ws, ok := wsLookup[*t.WorkspaceID]; ok {
@@ -115,6 +122,35 @@ func (b *boardService) ListCardsByWorkspace(ctx context.Context, column string, 
 		}
 	}
 	return cards, nil
+}
+
+// RefuseAway is ErrTaskAway (naming the worker) when the task is away on a
+// worker, else nil; a caller that starts work in the background asks it
+// first.
+func (b *boardService) RefuseAway(ctx context.Context, taskID string) error {
+	return RefuseAway(ctx, b.store, taskID)
+}
+
+// handoffMarks are the handoffs a card shows: on a worker, the main each
+// handed-off card came from; on a main, the worker each away task is on.
+func (b *boardService) handoffMarks(ctx context.Context) (map[string]*HandoffOrigin, map[string]*AwayOn, error) {
+	handoffs, err := b.store.ListOpenHandoffs(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+	origins := make(map[string]*HandoffOrigin, len(handoffs))
+	for _, h := range handoffs {
+		origins[h.TaskID] = &HandoffOrigin{MainName: h.MainName, MainTaskID: h.MainTaskID}
+	}
+	awayTasks, err := b.store.ListAwayTasks(ctx)
+	if err != nil {
+		return nil, nil, err
+	}
+	away := make(map[string]*AwayOn, len(awayTasks))
+	for _, a := range awayTasks {
+		away[a.TaskID] = &AwayOn{WorkerInstanceID: a.WorkerInstanceID, WorkerName: a.WorkerName, HandoffID: a.HandoffID}
+	}
+	return origins, away, nil
 }
 
 func (b *boardService) TaskActivity(ctx context.Context, id string) (*TaskActivity, error) {
@@ -184,6 +220,9 @@ func (b *boardService) MoveCard(ctx context.Context, id string, targetColumn str
 func moveCard(ctx context.Context, taskStore *store.Store, bus *events.Bus, id string, targetColumn string, recordLocalMove bool) error {
 	t, err := taskStore.GetTask(ctx, id)
 	if err != nil {
+		return err
+	}
+	if err := RefuseAway(ctx, taskStore, id); err != nil {
 		return err
 	}
 
@@ -256,6 +295,9 @@ func moveCard(ctx context.Context, taskStore *store.Store, bus *events.Bus, id s
 func (b *boardService) ReorderCard(ctx context.Context, id string, newPosition int) error {
 	t, err := b.store.GetTask(ctx, id)
 	if err != nil {
+		return err
+	}
+	if err := RefuseAway(ctx, b.store, id); err != nil {
 		return err
 	}
 
@@ -446,6 +488,9 @@ func (b *boardService) DeleteTask(ctx context.Context, id string) error {
 	if _, err := b.store.GetTask(ctx, id); err != nil {
 		return err
 	}
+	if err := RefuseAway(ctx, b.store, id); err != nil {
+		return err
+	}
 
 	if err := b.store.DeleteTask(ctx, id); err != nil {
 		return err
@@ -461,6 +506,9 @@ func (b *boardService) DeleteTask(ctx context.Context, id string) error {
 func (b *boardService) UpdateTaskDescription(ctx context.Context, id, description string) error {
 	t, err := b.store.GetTask(ctx, id)
 	if err != nil {
+		return err
+	}
+	if err := RefuseAway(ctx, b.store, id); err != nil {
 		return err
 	}
 	t.Description = description
@@ -484,6 +532,9 @@ func (b *boardService) UpdateTaskTitle(ctx context.Context, id, title string) er
 	if err != nil {
 		return err
 	}
+	if err := RefuseAway(ctx, b.store, id); err != nil {
+		return err
+	}
 	if t.Provider != nil {
 		return fmt.Errorf("%w: cannot edit title of remote task %s", ErrRemoteTaskReadOnly, id)
 	}
@@ -504,6 +555,9 @@ func (b *boardService) SetTaskMetadata(ctx context.Context, taskID, path string,
 	if err != nil {
 		return err
 	}
+	if err := RefuseAway(ctx, b.store, taskID); err != nil {
+		return err
+	}
 	if err := b.store.SetTaskMetadata(ctx, taskID, parts, value); err != nil {
 		return err
 	}
@@ -513,6 +567,9 @@ func (b *boardService) SetTaskMetadata(ctx context.Context, taskID, path string,
 
 func (b *boardService) UpdateTaskWorkspace(ctx context.Context, id string, workspaceID *int) error {
 	if _, err := b.store.GetTask(ctx, id); err != nil {
+		return err
+	}
+	if err := RefuseAway(ctx, b.store, id); err != nil {
 		return err
 	}
 	if err := b.store.UpdateTaskWorkspace(ctx, id, workspaceID); err != nil {
@@ -563,6 +620,14 @@ func (b *boardService) ArchiveDoneCards(ctx context.Context) (int, error) {
 	if err != nil {
 		return 0, err
 	}
+	// An away task stays: it can change only on its worker.
+	kept := tasks[:0]
+	for _, task := range tasks {
+		if RefuseAway(ctx, b.store, task.ID) == nil {
+			kept = append(kept, task)
+		}
+	}
+	tasks = kept
 	count, err := b.store.ArchiveTasksByStatus(ctx, doneCol)
 	if err != nil {
 		return 0, err
@@ -582,6 +647,9 @@ func (b *boardService) ArchiveDoneCards(ctx context.Context) (int, error) {
 func (b *boardService) ArchiveTask(ctx context.Context, id string) error {
 	t, err := b.store.GetTask(ctx, id)
 	if err != nil {
+		return err
+	}
+	if err := RefuseAway(ctx, b.store, id); err != nil {
 		return err
 	}
 	doneCol, err := b.doneColumnName(ctx)

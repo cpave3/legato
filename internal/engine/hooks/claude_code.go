@@ -149,6 +149,13 @@ func (a *ClaudeCodeAdapter) LaunchCommand(env map[string]string, brief, model, t
 	return cmd
 }
 
+// PromptsOffArgs launches Claude Code without its permission prompts, for an
+// agent nobody watches. Legato adds them only for such an agent, which runs
+// in Legato's sandbox.
+func (a *ClaudeCodeAdapter) PromptsOffArgs() []string {
+	return []string{"--dangerously-skip-permissions"}
+}
+
 func (a *ClaudeCodeAdapter) Name() string { return "claude-code" }
 
 func (a *ClaudeCodeAdapter) EnvVars(taskID, socketPath string) map[string]string {
