@@ -109,12 +109,17 @@ func (s *Server) registerInstanceRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/integrations/handoff/pairing", s.handoffPairingHandler())
 	mux.HandleFunc("POST "+service.HandoffCallPath, s.taskHandoffHandler())
 	mux.HandleFunc("GET "+service.HandoffCallPath+"/{handoff_id}", s.taskHandoffGetHandler())
+	mux.HandleFunc("POST "+service.HandoffCallPath+"/{handoff_id}/return", s.taskHandoffReturnHandler(false))
+	mux.HandleFunc("POST "+service.HandoffCallPath+"/{handoff_id}/archive", s.taskHandoffReturnHandler(true))
 	mux.HandleFunc("GET "+service.HandoffPullPath, s.handoffPullHandler())
 	mux.HandleFunc("GET "+service.HandoffEventsPath, s.handoffEventsHandler())
 	mux.HandleFunc("GET /api/settings/mains", s.mainsListHandler())
 	mux.HandleFunc("DELETE /api/settings/mains/{instance_id}", s.mainsUnpairHandler())
 	mux.HandleFunc("GET /api/settings/workers", s.workersListHandler())
 	mux.HandleFunc("POST /api/tasks/{id}/handoff", s.taskHandOffHandler())
+	mux.HandleFunc("POST /api/tasks/{id}/return", s.taskReturnHandler(false))
+	mux.HandleFunc("POST /api/tasks/{id}/recall", s.taskReturnHandler(true))
+	mux.HandleFunc("POST /api/workers/{instance_id}/return-done", s.workerReturnDoneHandler())
 	mux.HandleFunc("POST /api/settings/workers", s.workersPairHandler())
 }
 

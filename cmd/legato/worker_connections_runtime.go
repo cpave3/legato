@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"time"
 
 	"github.com/cpave3/legato/config"
 	"github.com/cpave3/legato/internal/engine/events"
@@ -31,10 +32,23 @@ func startMainHandoffs(cfg *config.Config, db *store.Store, bus *events.Bus) *ma
 		Bus:      bus,
 	})
 	connections := service.NewWorkerConnections(db, service.WorkerConnectionsOptions{Workers: workers, Bus: bus})
+	handoffs := service.NewTaskHandoffService(db, service.TaskHandoffOptions{Workers: workers, Bus: bus})
+	// Step 2 of a return the worker did not confirm goes on connect, and
+	// returns a worker shows under way are finished.
+	connections.SetOwedCalls(handoffs)
+	stopReturns := handoffs.StartReturnLoop(context.Background(), returnLoopEvery)
+	stopConnections := connections.Start(context.Background())
 	return &mainHandoffs{
 		workers:     workers,
-		handoffs:    service.NewTaskHandoffService(db, service.TaskHandoffOptions{Workers: workers, Bus: bus}),
+		handoffs:    handoffs,
 		connections: connections,
-		stop:        connections.Start(context.Background()),
+		stop: func() {
+			stopReturns()
+			stopConnections()
+		},
 	}
 }
+
+// returnLoopEvery is how often a main looks again for returns under way and
+// step 2 calls owed, besides when the board hears of a worker's row.
+const returnLoopEvery = 30 * time.Second

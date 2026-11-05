@@ -28,10 +28,13 @@ func (e *TaskAwayError) Is(target error) bool { return target == ErrTaskAway }
 // nil. Every way of changing a task on a main asks it first: the board
 // service's edits and moves, the agent service's starts, the CLI's task
 // update and another handoff.
+//
+// On a worker, a handed-off card on its way back to its main (step 1 of a
+// return or recall) is frozen the same way: a *TaskReturningError.
 func RefuseAway(ctx context.Context, db *store.Store, taskID string) error {
 	away, err := db.OpenAwayTask(ctx, taskID)
 	if errors.Is(err, store.ErrNotFound) || (err == nil && away.State != store.AwayAway) {
-		return nil
+		return refuseReturning(ctx, db, taskID)
 	}
 	if err != nil {
 		return err

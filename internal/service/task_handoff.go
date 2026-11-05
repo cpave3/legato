@@ -10,6 +10,7 @@ import (
 	"net/http"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/cpave3/legato/internal/engine/events"
@@ -146,6 +147,8 @@ type TaskHandoffOptions struct {
 type TaskHandoffService struct {
 	db   *store.Store
 	opts TaskHandoffOptions
+	// returning holds a *sync.Mutex per handoff being brought home.
+	returning sync.Map
 }
 
 func NewTaskHandoffService(db *store.Store, opts TaskHandoffOptions) *TaskHandoffService {

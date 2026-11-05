@@ -71,7 +71,8 @@ func handOffStatus(err error) int {
 	switch {
 	case errors.Is(err, service.ErrHandoffInput), errors.Is(err, service.ErrWorkerNotPaired), errors.Is(err, service.ErrWorkerInput):
 		return http.StatusBadRequest
-	case errors.Is(err, service.ErrTaskAway), errors.Is(err, service.ErrHandoffAgentRunning), errors.Is(err, service.ErrWorkerTooOld):
+	case errors.Is(err, service.ErrTaskAway), errors.Is(err, service.ErrHandoffAgentRunning), errors.Is(err, service.ErrWorkerTooOld),
+		errors.Is(err, service.ErrReturnRefused):
 		return http.StatusConflict
 	case errors.Is(err, service.ErrWorkerRefused):
 		return http.StatusUnprocessableEntity
@@ -109,4 +110,69 @@ func (s *Server) boardWorkers(ctx context.Context) []BoardWorkerResponse {
 			UnreachableSince: w.UnreachableSince, RefusedAt: w.RefusedAt})
 	}
 	return out
+}
+
+// MainReturns brings this main's away tasks home: Return a task done on its
+// worker, Recall one in any state, Return all done on one worker. The
+// main's handoff service implements it beside MainHandoffs.
+type MainReturns interface {
+	Return(ctx context.Context, taskID string) (service.ReturnedTask, error)
+	Recall(ctx context.Context, taskID string) (service.ReturnedTask, error)
+	ReturnAllDone(ctx context.Context, workerInstanceID string) ([]service.ReturnedTask, error)
+}
+
+func (s *Server) mainReturns(w http.ResponseWriter) (MainReturns, bool) {
+	returns, ok := s.instances.mainHandoffs.(MainReturns)
+	if !ok {
+		writeJSONError(w, http.StatusServiceUnavailable, "this Legato does not hand tasks off")
+	}
+	return returns, ok
+}
+
+// taskReturnHandler is Return (recall false) or Recall of an away task:
+// 200 with {"returned": ...}, else {"error": ...} in the service's words.
+func (s *Server) taskReturnHandler(recall bool) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		returns, ok := s.mainReturns(w)
+		if !ok {
+			return
+		}
+		id := r.PathValue("id")
+		if _, err := s.board.GetCard(r.Context(), id); errors.Is(err, store.ErrNotFound) {
+			writeJSONError(w, http.StatusNotFound, "no task "+id)
+			return
+		}
+		bring := returns.Return
+		if recall {
+			bring = returns.Recall
+		}
+		back, err := bring(r.Context(), id)
+		if err != nil {
+			writeJSONError(w, handOffStatus(err), err.Error())
+			return
+		}
+		writeJSONValue(w, http.StatusOK, map[string]any{"returned": back})
+	}
+}
+
+// workerReturnDoneHandler is a worker group's Return all done: 200 with
+// {"returned": [...]} and, when some could not come back, {"error": ...};
+// an error status when none came back and one failed.
+func (s *Server) workerReturnDoneHandler() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		returns, ok := s.mainReturns(w)
+		if !ok {
+			return
+		}
+		back, err := returns.ReturnAllDone(r.Context(), r.PathValue("instance_id"))
+		if err != nil && len(back) == 0 {
+			writeJSONError(w, handOffStatus(err), err.Error())
+			return
+		}
+		body := map[string]any{"returned": back}
+		if err != nil {
+			body["error"] = err.Error()
+		}
+		writeJSONValue(w, http.StatusOK, body)
+	}
 }

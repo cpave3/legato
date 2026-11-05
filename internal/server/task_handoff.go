@@ -90,3 +90,43 @@ func writeHandoffError(w http.ResponseWriter, err error) {
 	}
 	writeIntegrationError(w, status, he.Code, he.Message)
 }
+
+// HandoffReturns is a worker's side of return and recall: step 1 stops the
+// handoff's agent and answers with the task, step 2 archives its card. The
+// worker's handoff service implements it beside TaskHandoffs.
+type HandoffReturns interface {
+	Return(ctx context.Context, mainInstanceID, handoffID string) (service.HandoffReturn, error)
+	FinishReturn(ctx context.Context, mainInstanceID, handoffID string) (service.HandoffArchived, error)
+}
+
+// taskHandoffReturnHandler is step 1 of a return or recall (POST
+// .../tasks/{handoff_id}/return), finish false, or step 2 (.../archive),
+// finish true; both for the calling main's own handoffs only, and safe to
+// repeat.
+func (s *Server) taskHandoffReturnHandler(finish bool) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		main, ok := requireHandoffMain(w, r)
+		if !ok {
+			return
+		}
+		returns, ok := s.instances.handoffs.(HandoffReturns)
+		if !ok {
+			writeIntegrationError(w, http.StatusServiceUnavailable, "unavailable", "this worker does not take handoffs")
+			return
+		}
+		var (
+			answer any
+			err    error
+		)
+		if finish {
+			answer, err = returns.FinishReturn(r.Context(), main.InstanceID, r.PathValue("handoff_id"))
+		} else {
+			answer, err = returns.Return(r.Context(), main.InstanceID, r.PathValue("handoff_id"))
+		}
+		if err != nil {
+			writeHandoffError(w, err)
+			return
+		}
+		writeJSONValue(w, http.StatusOK, answer)
+	}
+}

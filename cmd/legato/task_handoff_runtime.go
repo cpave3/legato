@@ -36,6 +36,8 @@ func wireTaskHandoffs(srv *server.Server, deps integrationDeps) (stop func()) {
 		Agents:  agents,
 		Sandbox: func() bool { return sandboxAvailable(deps.cfg) },
 		Bus:     deps.bus,
+		// Step 1 of a return gives back the stack an agent built.
+		Stacks: service.NewTaskStackService(deps.db, nil),
 	}
 	if deps.repos != nil {
 		opts.Repositories = deps.repos

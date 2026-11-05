@@ -21,6 +21,9 @@ type HandoffAgents interface {
 	DefaultAdapter() string
 	AdapterFor(kind string) AIToolAdapter
 	GetAgentSession(ctx context.Context, taskID string) (*store.AgentSession, error)
+	// KillAgent stops a card's agent, when a return or recall takes the
+	// task back.
+	KillAgent(ctx context.Context, taskID string) error
 }
 
 // HandoffRepositories is what a worker asks of its repository cache: which
@@ -54,6 +57,10 @@ type HandoffWorkerOptions struct {
 	// branches and open draft pull requests without asking (the credential
 	// broker); nil grants nothing, and the session asks as any other.
 	Grants HandoffGrants
+	// Stacks reads the Staccato stacks of the cards' clones, whose
+	// document step 1 of a return gives back (the task stack service); nil
+	// gives none back.
+	Stacks HandoffStacks
 	// Bus hears of new cards and changed handoffs; nil for none.
 	Bus *events.Bus
 	// Run runs an agent start; the default runs it in its own goroutine.
@@ -312,7 +319,7 @@ func (s *HandoffWorkerService) start(ctx context.Context, mainInstanceID, handof
 		// Being started here or by another Legato on this database.
 		return
 	}
-	move := func(to, failure string) {
+	move := func(to, failure string) bool {
 		moved, err := s.db.SetHandoffState(ctx, mainInstanceID, handoffID, store.HandoffPending, to, failure, s.opts.Now().UTC().Format(time.RFC3339))
 		if err != nil {
 			log.Printf("handoff %s: recording %s: %v", handoffID, to, err)
@@ -320,6 +327,7 @@ func (s *HandoffWorkerService) start(ctx context.Context, mainInstanceID, handof
 		if moved {
 			s.publish(events.EventHandoffChanged, h.TaskID)
 		}
+		return moved
 	}
 	// Another Legato on this database may have started it already.
 	if session, err := s.opts.Agents.GetAgentSession(ctx, h.TaskID); err == nil && session != nil {
@@ -352,8 +360,15 @@ func (s *HandoffWorkerService) start(ctx context.Context, mainInstanceID, handof
 		move(store.HandoffFailed, startFailure(err))
 		return
 	}
+	if !move(store.HandoffInProgress, "") {
+		// Returned or recalled while its agent was starting: the start is
+		// cancelled, so the agent stops.
+		if now, err := s.db.GetHandoff(ctx, mainInstanceID, handoffID); err == nil && (now.ClosedAt != nil || now.State == store.HandoffReturning) {
+			s.stopAgent(ctx, now)
+		}
+		return
+	}
 	s.grant(ctx, h)
-	move(store.HandoffInProgress, "")
 }
 
 // pushedBranch checks the branch a handoff starts from is on GitHub, after

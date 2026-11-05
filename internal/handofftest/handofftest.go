@@ -192,6 +192,7 @@ func (w *Worker) start() {
 	w.Handoffs = service.NewHandoffWorkerService(db, service.HandoffWorkerOptions{
 		Agents: w.Agents.(service.HandoffAgents), Repositories: w.Repos, Sandbox: func() bool { return sandbox },
 		Grants: w.Credentials, Bus: w.Bus, Run: w.run, Now: w.Clock.Now, StreamRescan: 50 * time.Millisecond,
+		Stacks: service.NewTaskStackService(db, w.Clock.Now),
 	})
 	srv.SetTaskHandoffs(w.Handoffs)
 	srv.SetHandoffReauthEvery(50 * time.Millisecond)
@@ -424,6 +425,8 @@ func NewMain(t testing.TB, opts MainOptions) *Main {
 		opts.Connections(&connections)
 	}
 	m.Connections = service.NewWorkerConnections(db, connections)
+	// Step 2 of a return the worker did not confirm is sent on connect.
+	m.Connections.SetOwedCalls(m.Handoffs)
 	return m
 }
 
@@ -432,6 +435,9 @@ func NewMain(t testing.TB, opts MainOptions) *Main {
 func (m *Main) StartConnections() {
 	stop := m.Connections.Start(context.Background())
 	m.t.Cleanup(stop)
+	// And, as a running main does, finishes the returns its workers show
+	// under way.
+	m.t.Cleanup(m.Handoffs.StartReturnLoop(context.Background(), 50*time.Millisecond))
 }
 
 // InstanceID is the main's instance ID.

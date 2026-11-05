@@ -360,6 +360,9 @@ type WorkerRefusal struct {
 	// Status is the HTTP status it answered with: 401 when it no longer
 	// takes this main's token.
 	Status int
+	// Code is the integration route's error code (not_found, bad_request,
+	// ...), when it gave one.
+	Code string
 }
 
 func (e *WorkerRefusal) Error() string        { return ErrWorkerRefused.Error() + ": " + e.Message }
@@ -431,9 +434,11 @@ func workerCall(ctx context.Context, client *http.Client, method, address, token
 			Message string `json:"message"`
 		}
 		_ = json.Unmarshal(raw, &failure)
-		message := failure.Message
+		message, code := failure.Message, ""
 		if message == "" {
 			message = failure.Error
+		} else {
+			code = failure.Error
 		}
 		if message == "" {
 			message = resp.Status
@@ -441,7 +446,7 @@ func workerCall(ctx context.Context, client *http.Client, method, address, token
 		if resp.StatusCode == http.StatusNotFound && strings.HasSuffix(address, "/api/pair/exchange") {
 			return fmt.Errorf("%w: it does not pair by phrase", ErrWorkerTooOld)
 		}
-		return &WorkerRefusal{Message: message, Status: resp.StatusCode}
+		return &WorkerRefusal{Message: message, Status: resp.StatusCode, Code: code}
 	}
 	if into == nil {
 		return nil

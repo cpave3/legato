@@ -231,6 +231,14 @@ type AwayTask struct {
 	// LostReason why; nil while it has it.
 	LostAt     *string `db:"lost_at"`
 	LostReason string  `db:"lost_reason"`
+	// ReturnAskedAt is when the person asked to return or recall it, and
+	// RecalledFrom the state a recall was made from ("" for a return).
+	// ReturnedStack is the stack document the worker gave back. ArchiveOwed
+	// is set from the return until the worker confirms archiving its card.
+	ReturnAskedAt *string `db:"return_asked_at"`
+	RecalledFrom  string  `db:"recalled_from"`
+	ReturnedStack *string `db:"returned_stack"`
+	ArchiveOwed   bool    `db:"archive_owed"`
 	// WorkerUnreachableSince and WorkerRefusedAt are read from workers.
 	WorkerUnreachableSince *string `db:"worker_unreachable_since"`
 	WorkerRefusedAt        *string `db:"worker_refused_at"`
