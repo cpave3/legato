@@ -70,6 +70,13 @@ function DescriptionSection({ kind, title, markdown, emptyLabel }: { kind: "remo
   </details>
 }
 
+// A worker's card for a Jira-backed task keeps a copy of Jira's text taken
+// at handoff ("jira-copy"); it says so, by the ticket's key.
+function remoteDetailsTitle(card: CardDetail): string {
+  if (card.provider === "jira-copy") return `From Jira ${card.remote_id} (read only)`
+  return "Remote ticket details"
+}
+
 export function DetailPanel({
   card,
   onClose,
@@ -144,7 +151,7 @@ export function DetailPanel({
                   ? <pre className="mt-3 whitespace-pre-wrap font-sans text-sm leading-6 text-zinc-400">{card.description_md}</pre>
                   : <p className="mt-3 text-sm italic text-zinc-600">No description</p>
                 : <div className="mt-3 space-y-3">
-                  <DescriptionSection kind="remote" title="Remote ticket details" markdown={card.remote_description_md} emptyLabel="No remote ticket details" />
+                  <DescriptionSection kind="remote" title={remoteDetailsTitle(card)} markdown={card.remote_description_md} emptyLabel="No remote ticket details" />
                   <DescriptionSection kind="local" title="Legato details" markdown={card.local_description_md} emptyLabel="No Legato details" />
                 </div>}
             </section>

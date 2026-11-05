@@ -27,9 +27,12 @@ type HandoffCall struct {
 	HandoffID  string `json:"handoff_id"`
 	MainTaskID string `json:"main_task_id"`
 	Title      string `json:"title"`
-	// Details are the task's Legato details: a local task's description.
+	// Details are the task's Legato details: a local task's description,
+	// or what a Jira-backed task has besides Jira's text. They are the one
+	// part the worker can edit, and the part a return brings back.
 	Details string `json:"details"`
-	// Jira is set for a Jira-backed task: its text, read only on the worker.
+	// Jira is set for a Jira-backed task, and only for one: Jira's text,
+	// read only on the worker, as is the title.
 	Jira  *HandoffJira      `json:"jira,omitempty"`
 	Notes []HandoffCallNote `json:"notes"`
 	// Repo is the GitHub repository (owner/name) the work is in.
@@ -43,11 +46,21 @@ type HandoffCall struct {
 	AgentKind string `json:"agent_kind,omitempty"`
 }
 
-// HandoffJira is a Jira-backed task's text, copied at handoff.
+// HandoffJira is a Jira-backed task's ticket: its key, its text as the
+// main last synced it, and where the person sees it in Jira (empty when the
+// main has no address). The worker keeps it as a copy taken at handoff and
+// never talks to Jira.
 type HandoffJira struct {
 	Key  string `json:"key"`
 	Text string `json:"text"`
+	URL  string `json:"url,omitempty"`
 }
+
+// HandoffJiraProvider is the provider of a worker's card for a Jira-backed
+// task: the card keeps Jira's text as a provider-backed task does
+// (remote_description_md, read only, with its title), but no ticket source
+// has this name, so nothing on the worker syncs it or moves a ticket.
+const HandoffJiraProvider = "jira-copy"
 
 // HandoffCallNote is one of the main's notes on a handed-off task.
 type HandoffCallNote struct {

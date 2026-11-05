@@ -22,6 +22,14 @@ func TestTheHandoffBriefSaysWhatTheSpecSays(t *testing.T) {
 	// Started from a branch the person pushed: it has commits already.
 	pushed := task
 	pushed.Kind, pushed.Branch, pushed.Base = HandoffPushedBranch, "fix/login-timeout", "main"
+	// A Jira-backed task: Jira's text, read only, then the Legato details.
+	jira, jiraPushed := task, pushed
+	for _, in := range []*HandoffBriefInput{&jira, &jiraPushed} {
+		in.MainTaskID, in.Title = "ACME-12", "Checkout times out on large carts"
+		in.JiraKey, in.JiraText = "ACME-12", "Carts over 50 items time out at checkout.\n\nAcceptance: checkout under 2s."
+		in.Details = "Start with the cart serializer."
+	}
+	jira.Branch = "legato/acme-12"
 	for name, form := range map[string]struct {
 		in      HandoffBriefInput
 		purpose string
@@ -30,6 +38,10 @@ func TestTheHandoffBriefSaysWhatTheSpecSays(t *testing.T) {
 		"find-out-new-branch-local.md":       {task, HandoffFindOut},
 		"make-change-pushed-branch-local.md": {pushed, HandoffMakeChange},
 		"find-out-pushed-branch-local.md":    {pushed, HandoffFindOut},
+		"make-change-new-branch-jira.md":     {jira, HandoffMakeChange},
+		"find-out-new-branch-jira.md":        {jira, HandoffFindOut},
+		"make-change-pushed-branch-jira.md":  {jiraPushed, HandoffMakeChange},
+		"find-out-pushed-branch-jira.md":     {jiraPushed, HandoffFindOut},
 	} {
 		t.Run(name, func(t *testing.T) {
 			in := form.in

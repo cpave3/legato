@@ -9,7 +9,12 @@ type HandoffBriefInput struct {
 	MainName   string
 	MainTaskID string
 	Title      string
-	Details    string
+	// JiraKey and JiraText are a Jira-backed task's ticket key and text,
+	// which the agent reads but cannot change; empty for a local task.
+	JiraKey  string
+	JiraText string
+	// Details are the task's Legato details.
+	Details string
 	// Notes are the main's notes, oldest first.
 	Notes   []string
 	Purpose string
@@ -54,6 +59,16 @@ func HandoffBrief(in HandoffBriefInput) string {
 	line("## The task")
 	line("")
 	line(in.Title)
+	if in.JiraKey != "" {
+		line("")
+		line("### From Jira " + in.JiraKey + " (read only)")
+		line("")
+		if text := strings.TrimSpace(in.JiraText); text != "" {
+			line(text)
+		} else {
+			line("The ticket has no description.")
+		}
+	}
 	if details := strings.TrimSpace(in.Details); details != "" {
 		line("")
 		line("### Details")

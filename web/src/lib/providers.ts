@@ -5,6 +5,8 @@ const known: { id: string; label: string; item: string }[] = [
   { id: "jira", label: "Jira", item: "issue" },
   { id: "burnlite", label: "Burnlite", item: "task" },
   { id: "github", label: "GitHub", item: "PR" },
+  // A worker's copy of a Jira-backed task handed to it: its link is Jira's.
+  { id: "jira-copy", label: "Jira", item: "issue" },
   // A sync's result also names the workers a main pulled.
   { id: "workers", label: "Workers", item: "task" },
 ]

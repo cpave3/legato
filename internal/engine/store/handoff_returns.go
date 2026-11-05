@@ -75,8 +75,10 @@ func (s *Store) ClearAwayTaskReturn(ctx context.Context, handoffID string) error
 // notes to add (each skipped when the task has a note of the same source
 // and remote ID), and the stack document.
 type AwayReturn struct {
-	HandoffID   string
-	TaskID      string
+	HandoffID string
+	TaskID    string
+	// Title is the task's title as it comes back; empty keeps the title the
+	// task has (a provider-backed task's is the provider's).
 	Title       string
 	Description string
 	Status      string
@@ -108,7 +110,7 @@ func (s *Store) ApplyAwayTaskReturn(ctx context.Context, r AwayReturn) (bool, er
 	if n, err := result.RowsAffected(); err != nil || n == 0 {
 		return false, err
 	}
-	if _, err := tx.ExecContext(ctx, `UPDATE tasks SET title = ?, description = ?, description_md = ?, status = ?,
+	if _, err := tx.ExecContext(ctx, `UPDATE tasks SET title = COALESCE(NULLIF(?, ''), title), description = ?, description_md = ?, status = ?,
 			sort_order = (SELECT COALESCE(MAX(sort_order), -1) + 1 FROM tasks WHERE status = ? AND archived_at IS NULL AND id <> ?),
 			code_context = COALESCE(?, code_context), updated_at = datetime('now')
 		WHERE id = ?`, r.Title, r.Description, r.Description, r.Status, r.Status, r.TaskID, codeContext, r.TaskID); err != nil {

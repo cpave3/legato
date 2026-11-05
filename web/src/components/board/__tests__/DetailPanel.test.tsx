@@ -170,6 +170,24 @@ describe("DetailPanel", () => {
     expect(screen.getByText("No Legato details")).toBeTruthy()
   })
 
+  it("shows a handed-off Jira task's text read only under its key, with only its Legato details editable", () => {
+    const onEditDescription = vi.fn()
+    const { container } = renderPanel(makeCard({
+      provider: "jira-copy",
+      remote_id: "ACME-12",
+      remote_description_md: "Carts over 50 items time out.",
+      local_description_md: "Start with the serializer.",
+      remote_meta: { url: "https://acme.atlassian.net/browse/ACME-12" },
+    }), { onEditDescription })
+    const remote = container.querySelector("[data-description-section='remote']") as HTMLDetailsElement
+    expect(within(remote).getByText("From Jira ACME-12 (read only)")).toBeTruthy()
+    expect(within(remote).getByText("Carts over 50 items time out.")).toBeTruthy()
+    expect(screen.queryByText(/Edit title/)).toBeNull()
+    fireEvent.click(screen.getAllByRole("button", { name: "Edit Legato details" })[0])
+    expect(onEditDescription).toHaveBeenCalledOnce()
+    expect(screen.getByRole("link", { name: "Open in Jira" })).toBeTruthy()
+  })
+
   it("offers Legato detail editing but not title editing for a remote task", () => {
     const onEditDescription = vi.fn()
     render(<DetailPanel card={makeCard({ provider: "jira" })} onClose={() => {}} onEditTitle={() => {}} onEditDescription={onEditDescription} onMove={() => {}} onDelete={() => {}} onLinkPR={() => {}} onCopyDescription={() => {}} onCopyFull={() => {}} onOpenURL={() => {}} onCancelSwarm={() => {}} />)

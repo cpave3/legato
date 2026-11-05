@@ -209,7 +209,11 @@ func (s *TaskHandoffService) finishReturn(ctx context.Context, handoffID string,
 	}
 	apply := store.AwayReturn{HandoffID: a.HandoffID, TaskID: a.TaskID, Title: task.Title, Description: task.DescriptionMD, Status: column,
 		CodeContext: returnedCodeContext(task, repo, answer.Branches, s.now()), At: s.now()}
-	if strings.TrimSpace(answer.Title) != "" {
+	if task.Provider != nil {
+		// A provider-backed task's title is the provider's, which its sync
+		// keeps; only its Legato details come back.
+		apply.Title = ""
+	} else if strings.TrimSpace(answer.Title) != "" {
 		apply.Title = answer.Title
 	}
 	apply.Description = answer.Details

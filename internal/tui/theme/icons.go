@@ -91,7 +91,8 @@ func NewIcons(mode string) Icons {
 // or "" for one without an icon.
 func (i Icons) Provider(provider string) string {
 	switch provider {
-	case "jira":
+	// jira-copy: a worker's copy of a Jira-backed task handed to it.
+	case "jira", "jira-copy":
 		return i.Jira
 	case "github":
 		return i.GitHub
@@ -105,7 +106,7 @@ func (i Icons) Provider(provider string) string {
 // a provider it does not know keeps its own name.
 func ProviderName(provider string) string {
 	switch provider {
-	case "jira":
+	case "jira", "jira-copy":
 		return "Jira"
 	case "github":
 		return "GitHub"

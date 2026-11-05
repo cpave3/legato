@@ -137,6 +137,8 @@ A Jira task has two descriptions:
 
 The task detail view shows Jira's description first, then your notes under a "Legato details" heading. Press `e` in the detail view to edit your notes in your editor. A Jira task's title comes from Jira, so `t` does not rename it. Press `o` to open the ticket in your browser.
 
+A Jira task you [hand off to a worker](/legato/using/handoff/#hand-off-a-jira-task) keeps its link and its sync here. The worker gets a read-only copy of Jira's description and your Legato details, never talks to Jira, and sends back only the Legato details.
+
 ## Image attachments
 
 Legato downloads each image attached to a tracked ticket when you import it and on every sync. It removes the copies of images that are no longer on the ticket, and the folder of a task you archive. It does not download other attachments, or images larger than `jira.attachment_max_size_bytes`.

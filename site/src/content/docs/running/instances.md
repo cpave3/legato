@@ -73,6 +73,8 @@ The worker refuses a handoff before it makes anything when it has no sandbox, do
 
 On the worker, a handed-off card works like any other: you can move it, edit it, add notes and talk to its agent. But you cannot archive or delete it there: the worker says "this task belongs to workstation; return or recall it from there", and archiving the Done column's cards leaves it there. The task goes back to its main.
 
+A card for a task from Jira shows Jira's text read-only, as a copy taken at handoff, then the task's Legato details, which are the one part you can edit there; its title is read-only too. The worker never syncs it with Jira. See [Hand off a Jira task](/legato/using/handoff/#hand-off-a-jira-task).
+
 On the main, the task is **away** while the worker holds it: the main refuses to edit it, move it, start an agent on it or hand it off again, from the web UI, the TUI and the `legato` command, and says which worker has it. Notes can still be added there.
 
 ## Not to be confused with

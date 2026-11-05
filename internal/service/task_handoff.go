@@ -197,7 +197,7 @@ func (s *TaskHandoffService) HandOff(ctx context.Context, req TaskHandoffRequest
 		return AwayTask{}, fmt.Errorf("%w: task %s is archived", ErrHandoffInput, task.ID)
 	case task.Ephemeral:
 		return AwayTask{}, fmt.Errorf("%w: task %s is not on the board", ErrHandoffInput, task.ID)
-	case task.Provider != nil:
+	case task.Provider != nil && *task.Provider != "jira":
 		return AwayTask{}, fmt.Errorf("%w: handing off a task from %s is not supported yet", ErrHandoffInput, *task.Provider)
 	}
 	if err := RefuseAway(ctx, s.db, task.ID); err != nil {
@@ -271,6 +271,7 @@ func (s *TaskHandoffService) HandOff(ctx context.Context, req TaskHandoffRequest
 	for _, n := range notes {
 		call.Notes = append(call.Notes, HandoffCallNote{ID: n.ID, Body: n.Body, CreatedAt: n.CreatedAt})
 	}
+	call.Jira = handoffJira(task)
 	var accepted HandoffAccepted
 	if err := client.Call(ctx, http.MethodPost, HandoffCallPath, call, &accepted); err != nil {
 		if errors.Is(err, ErrWorkerUnreachable) {
@@ -303,6 +304,21 @@ func (s *TaskHandoffService) HandOff(ctx context.Context, req TaskHandoffRequest
 		return AwayTask{}, err
 	}
 	return *away, nil
+}
+
+// handoffJira is what travels of a Jira-backed task's ticket: its key, its
+// text as last synced and its address. Its Legato details travel as the
+// call's details, and the link to Jira and its sync stay here. Nil for a
+// task that is not Jira's.
+func handoffJira(task *store.Task) *HandoffJira {
+	if task.Provider == nil || *task.Provider != "jira" {
+		return nil
+	}
+	key := task.ID
+	if task.RemoteID != nil && *task.RemoteID != "" {
+		key = *task.RemoteID
+	}
+	return &HandoffJira{Key: key, Text: task.RemoteDescriptionMD, URL: parseRemoteMeta(task.RemoteMeta).URL}
 }
 
 // Away is a task's handoff while it is away, or nil when it is not away.
