@@ -11,6 +11,7 @@ import { RepositoriesSettings } from "../components/RepositoriesSettings"
 import { CredentialsSettings } from "../components/CredentialsSettings"
 import { DevicesSettings } from "../components/DevicesSettings"
 import { IntegrationsSettings } from "../components/IntegrationsSettings"
+import { MainInstancesSettings, WorkersSettings } from "../components/InstancePairingSettings"
 import { ApprovalNotificationSettings } from "../components/ApprovalNotificationSettings"
 import { UpdatesSettings } from "../components/UpdatesSettings"
 import { SettingsCard, SettingsGroup, SettingsRow, SettingsRows, Toggle, BrowserTag, primaryButton, quietButton } from "../components/settings/SettingsUI"
@@ -126,6 +127,7 @@ export function SettingsPage() {
     { id: "agents", title: "Agents" },
     { id: "security", title: "Security" },
     { id: "integrations", title: "Integrations" },
+    { id: "handoff", title: "Handoff" },
     { id: "connection", title: "Connection" },
     { id: "appearance", title: "Appearance" },
     { id: "updates", title: "Updates" },
@@ -241,6 +243,11 @@ export function SettingsPage() {
 
           <SettingsGroup id="integrations" title="Integrations" description="Services outside Legato that look up and hand work to agents, and the tokens they use.">
             <IntegrationsSettings baseUrl={baseUrl} />
+          </SettingsGroup>
+
+          <SettingsGroup id="handoff" title="Handoff" description="Hand tasks from this Legato to workers that keep working while it sleeps, and take tasks from main instances. Every Legato can be both.">
+            <WorkersSettings baseUrl={baseUrl} />
+            <MainInstancesSettings baseUrl={baseUrl} />
           </SettingsGroup>
 
           <SettingsGroup id="connection" title="Connection" description="The servers this browser talks to, pairing, and trusting this server's certificate.">

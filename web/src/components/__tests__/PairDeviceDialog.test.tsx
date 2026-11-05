@@ -109,4 +109,23 @@ describe("PairDeviceDialog", () => {
     render(<PairDeviceDialog baseUrl="" onClose={() => {}} />)
     expect(await screen.findByText(/cannot pair by phrase/)).toBeTruthy()
   })
+
+  it("shows the request's purpose when a main instance's request replaced a phone's", async () => {
+    render(<PairDeviceDialog baseUrl="" onClose={() => {}} />)
+    await screen.findByText("river")
+    serverSays({ ...open, purpose: "main", pair_uri: undefined, address: "https://vm-1.lan:3080", phrase: ["acid", "acorn", "acre", "acts"] })
+    expect(await screen.findByText(/now pairs a main instance/)).toBeTruthy()
+    expect(screen.queryByRole("button", { name: "Show QR code" })).toBeNull()
+  })
+
+  it("pairs a main instance: the purpose, this server's address and no QR code", async () => {
+    current = { ...open, purpose: "main", pair_uri: undefined, address: "https://vm-1.lan:3080" }
+    render(<PairDeviceDialog baseUrl="" purpose="main" onClose={() => {}} />)
+    expect(await screen.findByText("river")).toBeTruthy()
+    expect(screen.getByRole("heading", { name: "Pair a main instance" })).toBeTruthy()
+    expect(screen.getByText("https://vm-1.lan:3080")).toBeTruthy()
+    expect(screen.queryByRole("button", { name: "Show QR code" })).toBeNull()
+    serverSays({ state: "paired", purpose: "main", device: "workstation", attempts_left: 5 })
+    expect(await screen.findByText(/Paired with main instance workstation/)).toBeTruthy()
+  })
 })

@@ -29,6 +29,7 @@ Every browser and phone must then sign in again. A Legato that is running reads 
 
 - **A browser** asks for the token the first time it opens a server. Paste the output of `legato auth token`. The browser keeps it for that server, in that browser only.
 - **The Legato app** gets it by pairing: you run `legato pair`, or choose Settings › Connection › Pair a phone › **Pair a device** in the web UI, and type the four words it shows into the app. The words are never sent: the phone and the server each prove they know them, and the server sends the token sealed under a key only the two of them have. See [Your phone and other devices](/legato/running/devices/).
+- **A main instance** never gets it. When it pairs with this Legato as a worker, it gets a token of its own that reaches only the routes a main uses to hand tasks off, and the worker can revoke it under Settings › Handoff › Main instances. See [Main and worker instances](/legato/running/instances/).
 - **A script** sends the token in the `Authorization` header:
 
   ```bash
@@ -40,7 +41,7 @@ Every browser and phone must then sign in again. A Legato that is running reads 
 A few things answer without the token:
 
 - `GET /health`, which says the server is up and its version, for monitoring.
-- `GET /api/meta`, which says the version, the server's tint and whether it pairs by phrase, so the app can list a server before it pairs.
+- `GET /api/meta`, which says the version, the server's tint, whether it pairs by phrase, and whether a main instance can pair with it, so the app or a main can check a server before it pairs.
 - `GET /api/ca-cert`, the server's CA certificate, which is public, so a device can install it before it has the token.
 - The web UI's own files, so the page can load and ask for the token. The page shows nothing of yours until it has one.
 - The two steps of pairing by phrase. The phrase is their check: it lasts five minutes and allows five tries.

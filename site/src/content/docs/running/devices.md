@@ -50,6 +50,8 @@ When the phone must use an address other than the one Legato picks, for example 
 legato pair --host 192.168.1.20
 ```
 
+To pair another Legato as a main instance rather than a phone, use `legato pair --main`; see [Main and worker instances](/legato/running/instances/).
+
 `legato pair` needs a running web server for pairing by words. Without one, it prints a QR code and the token instead; that code carries the token itself, so keep it private.
 
 ## The Legato app for Android

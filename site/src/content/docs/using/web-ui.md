@@ -28,7 +28,7 @@ On a phone, a tab bar along the bottom holds **Attention**, **Board**, **Agents*
 | **Reports** | Where agent time went. See [Reports](/legato/using/reports/). |
 | **Remote** | Clones Legato made for agents. |
 | **Audit** | The credential audit log. See [The credential broker](/legato/security/credential-broker/). |
-| **Settings** | Repositories, resources, security, integrations, connection, appearance and updates. |
+| **Settings** | Repositories, resources, security, integrations, handoff, connection, appearance and updates. |
 
 When the connection drops, the UI first says "Reconnecting…" and keeps the page as it is. After 10 seconds without a connection, a **Connection Lost** dialog offers **Retry** and a way to switch servers.
 
@@ -111,11 +111,12 @@ Requests from agents that wait for you (permissions, questions, credentials) app
 
 ## Settings
 
-**Settings** has six groups:
+**Settings** has seven groups:
 
 - **Agents**: repositories, a link to **Remote**, [resources](/legato/agent-tools/resources/), prompt detection and the agent switch key.
 - **Security**: browser notifications for approvals, the devices that can sign approvals, and credentials.
 - **Integrations**: [Argus](/legato/integrations/argus/) and integration tokens.
+- **Handoff**: **Workers**, the Legatos this one hands tasks to, with **Add a worker**; and **Main instances**, the Legatos that hand tasks to this one, with **Pair a main instance** and **Unpair**. See [Main and worker instances](/legato/running/instances/).
 - **Connection**: servers, **Pair a phone**, and the TLS certificate.
 - **Appearance**: the tint, the glitch effect, and the moving light round a working agent.
 - **Updates**: this server's version, the latest release, and the update mode. See [Updates](/legato/running/updates/).

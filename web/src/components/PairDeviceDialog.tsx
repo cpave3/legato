@@ -6,15 +6,25 @@ import { useWebSocket } from "../hooks/useWebSocket"
 
 // A pairing request of the server (GET/POST/DELETE /api/pairing): a phone in
 // the Legato app pairs by typing its four words. See mobile/README.md § Pairing.
+// A request for a main instance is typed into the main's Settings › Workers;
+// the main gets a token that can only hand tasks off to this server.
+export type PairingPurpose = "phone" | "main"
+
 interface PairingStatus {
   state: "none" | "open" | "paired" | "expired" | "exhausted" | "cancelled"
+  purpose?: PairingPurpose
   phrase?: string[]
   expires_at?: string
   attempts_left: number
   device?: string
   // The QR code the app scans: the address and this phrase, never the token.
+  // A main instance's request has none.
   pair_uri?: string
+  // A main instance's request: the address to type on the main.
+  address?: string
 }
+
+const purposeName: Record<PairingPurpose, string> = { phone: "a phone", main: "a main instance" }
 
 const ended: Record<string, string> = {
   expired: "The phrase expired before a device used it.",
@@ -79,7 +89,7 @@ function HiddenQrCode({ text }: { text: string }) {
   )
 }
 
-export function PairDeviceDialog({ baseUrl, onClose }: { baseUrl: string; onClose: () => void }) {
+export function PairDeviceDialog({ baseUrl, purpose = "phone", onClose }: { baseUrl: string; purpose?: PairingPurpose; onClose: () => void }) {
   const { subscribe } = useWebSocket()
   const [status, setStatus] = useState<PairingStatus | null>(null)
   const [error, setError] = useState("")
@@ -88,7 +98,11 @@ export function PairDeviceDialog({ baseUrl, onClose }: { baseUrl: string; onClos
   const request = useCallback(
     async (method: "GET" | "POST" | "DELETE") => {
       try {
-        const res = await apiFetch(baseUrl, "/api/pairing", { method })
+        // A phone's request is opened with no body, as older servers expect.
+        const init: RequestInit = method === "POST" && purpose === "main"
+          ? { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify({ purpose }) }
+          : { method }
+        const res = await apiFetch(baseUrl, "/api/pairing", init)
         const body = await res.json().catch(() => ({}))
         if (res.status === 404) {
           setError("This server cannot pair by phrase. Update Legato on it.")
@@ -104,12 +118,16 @@ export function PairDeviceDialog({ baseUrl, onClose }: { baseUrl: string; onClos
         setError("The server did not answer.")
       }
     },
-    [baseUrl],
+    [baseUrl, purpose],
   )
 
   useEffect(() => {
     void request("POST")
   }, [request])
+
+  // One request at a time: one opened elsewhere for something else replaces this one.
+  const shownPurpose: PairingPurpose = status?.purpose ?? "phone"
+  const replaced = status !== null && status.state === "open" && shownPurpose !== purpose
 
   useEffect(
     () =>
@@ -154,8 +172,12 @@ export function PairDeviceDialog({ baseUrl, onClose }: { baseUrl: string; onClos
       >
         <div className="flex items-center justify-between gap-3 border-b border-lw-line px-5 py-3.5">
           <div>
-            <h2 id="pair-device-title" className="text-base font-semibold sm:text-sm">Pair a device</h2>
-            <p className="text-xs text-lw-text-2">In the Legato app, add a server, choose this one and type the words.</p>
+            <h2 id="pair-device-title" className="text-base font-semibold sm:text-sm">{purpose === "main" ? "Pair a main instance" : "Pair a device"}</h2>
+            <p className="text-xs text-lw-text-2">
+              {purpose === "main"
+                ? "On the main instance, open Settings › Workers › Add a worker and enter this address and phrase. The main gets a token that can only hand tasks off here."
+                : "In the Legato app, add a server, choose this one and type the words."}
+            </p>
           </div>
           <button
             onClick={close}
@@ -173,9 +195,21 @@ export function PairDeviceDialog({ baseUrl, onClose }: { baseUrl: string; onClos
             </div>
           )}
 
+          {!error && replaced && (
+            <p role="status" className="rounded-md border border-lw-line-strong bg-lw-ground px-3 py-2 text-xs text-lw-needs">
+              Another request replaced this one: the phrase below now pairs {purposeName[shownPurpose]}.
+            </p>
+          )}
+
           {!error && status?.state === "open" && status.phrase && (
             <>
-              {status.pair_uri && (
+              {shownPurpose === "main" && status.address && (
+                <div className="flex flex-col gap-1">
+                  <span className="text-xs text-lw-text-2">Address</span>
+                  <span className="rounded-lg border border-lw-line-strong bg-lw-ground px-3 py-2 font-lw-mono text-sm text-lw-text">{status.address}</span>
+                </div>
+              )}
+              {shownPurpose === "phone" && status.pair_uri && (
                 <div className="flex flex-col gap-2">
                   <HiddenQrCode key={status.pair_uri} text={status.pair_uri} />
                   <p className="text-center text-xs text-lw-text-2">Scan it in the Legato app, or type the words.</p>
@@ -198,7 +232,7 @@ export function PairDeviceDialog({ baseUrl, onClose }: { baseUrl: string; onClos
               </p>
               <p className="flex items-center gap-2 text-xs text-lw-text-2">
                 <span className="h-2 w-2 animate-pulse rounded-full bg-lw-accent" />
-                Waiting for a device…
+                {shownPurpose === "main" ? "Waiting for a main instance…" : "Waiting for a device…"}
               </p>
             </>
           )}
@@ -206,7 +240,7 @@ export function PairDeviceDialog({ baseUrl, onClose }: { baseUrl: string; onClos
           {!error && status?.state === "paired" && (
             <p className="flex items-center gap-2 text-sm text-lw-live">
               <Check size={16} />
-              Paired with {status.device || "a device"}.
+              {status.purpose === "main" ? `Paired with main instance ${status.device}.` : `Paired with ${status.device || "a device"}.`}
             </p>
           )}
 

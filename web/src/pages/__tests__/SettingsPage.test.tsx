@@ -127,7 +127,7 @@ describe("SettingsPage layout", () => {
   it("groups settings by what they are about, in order", () => {
     renderPage()
     const groups = screen.getAllByRole("heading", { level: 2 }).map((h) => h.textContent)
-    expect(groups).toEqual(["Agents", "Security", "Integrations", "Connection", "Appearance", "Updates"])
+    expect(groups).toEqual(["Agents", "Security", "Integrations", "Handoff", "Connection", "Appearance", "Updates"])
   })
 
   it("puts each setting in its group", async () => {
@@ -140,6 +140,8 @@ describe("SettingsPage layout", () => {
     expect(group("Agents").querySelector("#resources")).toBeTruthy()
     expect(group("Security").querySelector("#devices")).toBeTruthy()
     expect(group("Security").querySelector("#credentials")).toBeTruthy()
+    expect(group("Handoff").querySelector("#workers")).toBeTruthy()
+    expect(group("Handoff").querySelector("#main-instances")).toBeTruthy()
     expect(within(group("Connection")).getByText("Servers")).toBeTruthy()
     expect(within(group("Connection")).getByText("Pair a phone")).toBeTruthy()
     expect(within(group("Connection")).getByText("TLS certificate")).toBeTruthy()
@@ -169,7 +171,7 @@ describe("SettingsPage layout", () => {
     renderPage()
     const nav = screen.getAllByRole("navigation", { name: "Settings sections" })[0]
     const links = within(nav).getAllByRole("button").map((b) => b.textContent)
-    expect(links).toEqual(["Agents", "Security", "Integrations", "Connection", "Appearance", "Updates"])
+    expect(links).toEqual(["Agents", "Security", "Integrations", "Handoff", "Connection", "Appearance", "Updates"])
     fireEvent.click(within(nav).getByRole("button", { name: "Security" }))
     expect(scroll).toHaveBeenCalled()
   })
