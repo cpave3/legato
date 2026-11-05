@@ -5,7 +5,7 @@ import { MobileBoardList } from "../MobileBoardList"
 import type { BoardCard, BoardColumn } from "../../../lib/board-types"
 
 function card(id: string, title: string, status: string): BoardCard {
-  return { id, title, status, priority: "High", issue_type: "Task", provider: "", has_warning: false, agent_active: false, agent_state: "", working_seconds: 0, waiting_seconds: 0, error_seconds: 0, workspace_id: null, workspace_name: "", workspace_color: "", pr_check_status: "", pr_review_decision: "", pr_comment_count: 0, pr_is_draft: false, pr_number: 0 }
+  return { id, title, status, priority: "High", issue_type: "Task", provider: "", has_warning: false, agent_active: false, agent_state: "", working_seconds: 0, waiting_seconds: 0, error_seconds: 0, workspace_id: null, workspace_name: "", workspace_color: "" }
 }
 
 const columns: BoardColumn[] = [

@@ -2,7 +2,7 @@ import { useEffect, useRef, type ReactNode } from "react"
 import { Link } from "react-router-dom"
 import { X } from "lucide-react"
 import { cn } from "../lib/utils"
-import type { CardDetail } from "../lib/board-types"
+import { taskPullRequests, type CardDetail } from "../lib/board-types"
 import type { RelatedWorkItem } from "../lib/task-activity"
 import type { LegatoNavigationKind } from "../lib/navigation"
 import { relatedStatusChip, relatedStatusLabel, relatedStatusNote, relatedStatusText, splitRelated } from "../lib/relatedWork"
@@ -44,7 +44,7 @@ const rowHead = "flex items-center justify-between gap-2 text-xs text-lw-text-2"
 // request, and the plans, reviews and workflow runs that came of it.
 export function RelatedWorkPanel({ items, card, cardId, onClose, mobile }: RelatedWorkPanelProps) {
   const { inProgress, linked } = splitRelated(items)
-  const pr = card?.pr_meta && card.pr_meta.pr_number > 0 ? card.pr_meta : null
+  const prs = card ? taskPullRequests(card) : []
   const container = useRef<HTMLElement>(null)
 
   // A sheet that covers the page takes the keyboard with it.
@@ -88,8 +88,8 @@ export function RelatedWorkPanel({ items, card, cardId, onClose, mobile }: Relat
               </span>
               {card && <span className="truncate">{card.title}</span>}
             </Link>
-            {pr && (
-              <a href={pr.pr_url} target="_blank" rel="noreferrer" className={row}>
+            {prs.map(pr => (
+              <a key={`${pr.repo}#${pr.pr_number}`} href={pr.pr_url} target="_blank" rel="noreferrer" className={row}>
                 <span className={rowHead}>
                   <span>Pull request · <span className="font-lw-mono">#{pr.pr_number}</span>{pr.is_draft && " · draft"}</span>
                   <ChecksMark status={pr.check_status} />
@@ -100,7 +100,7 @@ export function RelatedWorkPanel({ items, card, cardId, onClose, mobile }: Relat
                   {pr.comment_count > 0 && <><span aria-hidden="true" className="text-lw-faint">·</span><span>{pr.comment_count} {pr.comment_count === 1 ? "comment" : "comments"}</span></>}
                 </span>
               </a>
-            )}
+            ))}
             {linked.map((item) => (
               <Link key={`${item.kind}:${item.id}`} to={item.href} className={row}>
                 <span className={rowHead}>

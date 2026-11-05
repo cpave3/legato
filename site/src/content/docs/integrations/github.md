@@ -5,7 +5,7 @@ sidebar:
   order: 20
 ---
 
-Legato finds the GitHub pull request for each task and shows its state on the card: whether CI passes, whether the review approved it or asked for changes, and how many comments it has. It works for local tasks and Jira tasks alike. Legato only reads from GitHub. It never comments, approves, merges or pushes.
+Legato finds the GitHub pull requests for each task and shows their state on the card: whether CI passes, whether the review approved it or asked for changes, and how many comments it has. It works for local tasks and Jira tasks alike. Legato only reads from GitHub. It never comments, approves, merges or pushes.
 
 ## Set it up
 
@@ -41,7 +41,9 @@ Your token may be allowed to write. Legato still only reads: it refuses to send 
 
 ## How Legato finds a pull request
 
-To find a task's pull request, Legato first needs to know the task's repository, and if it can, its branch and commit. Legato calls this the task's code context. It learns it from, in this order of trust:
+A task can have several pull requests: one for each branch of a stack, such as the stack an agent builds with [Staccato](/legato/integrations/staccato/) in a job clone. Legato keeps a list of the task's branches, in stack order from the bottom, and finds the pull request of each.
+
+To find a task's pull requests, Legato first needs to know the task's repository, and if it can, its branch and commit. Legato calls this the task's code context. It learns it from, in this order of trust:
 
 1. What you set by hand (`p`, `legato task link`, `legato task github context`). Legato never overwrites it.
 2. The task's [Yggdrasil worktree](/legato/integrations/yggdrasil/).
@@ -61,13 +63,20 @@ repositories:
     workspaces: [Legato]
 ```
 
-On each poll, Legato fetches each repository's recent pull requests once and matches them to tasks by:
+A task's branches come from:
+
+- the branch of its code context;
+- the Staccato stack Legato recorded for each of the task's job clones, in stack order;
+- branches a handoff reports for the task.
+
+On each poll, Legato fetches each repository's recent pull requests once. It gives each of the task's branches the pull request whose head is that branch in that repository. When none of the task's branches has a pull request, Legato looks for one by:
 
 1. The task's exact head commit.
-2. The task's exact repository and branch.
-3. One branch that contains the task's key or ticket key.
+2. A branch that contains the task's key or ticket key.
 
-Legato never links by title, or by a default branch. When two pull requests could match, Legato links neither and says the match is ambiguous. A task with no repository is left alone.
+When several branches contain the key and their pull requests form one stack, each based on the branch of the one before, Legato takes them all, in stack order. Otherwise it links none and says the match is ambiguous. Legato never links by title, or by a default branch. A task with no repository and no branches is left alone.
+
+Legato fetches only the 100 newest pull requests of a repository, so it does not find a pull request older than those.
 
 ## Link a pull request yourself
 
@@ -91,8 +100,8 @@ legato task github context <task-id> --repo owner/repo --branch feature/task
 
 | Action | Board key | Command |
 | --- | --- | --- |
-| Fetch the linked PR again | `ctrl+r` | `legato task github refresh <task-id>` |
-| Forget the PR and match again, keeping the code context | `ctrl+p` | `legato task github rediscover <task-id>` |
+| Fetch the task's linked PRs again | `ctrl+r` | `legato task github refresh <task-id>` |
+| Forget the task's PRs and match every branch again, keeping the code context | `ctrl+p` | `legato task github rediscover <task-id>` |
 | Sync Jira and GitHub now | `r` | |
 
 The web UI's task detail has the same refresh and rediscover buttons, and shows the task's repository and branch.
@@ -106,9 +115,11 @@ A card with a pull request shows its state on one line, such as `✓ CI · ✓ r
 - **Comments**: how many the pull request has.
 - A draft shows `draft PR`.
 
-The task detail view shows the repository and branch, and says when Legato found no match, found more than one, or could not reach GitHub.
+A card with several pull requests lists each by number with its own state, in stack order from the bottom: `#11 ✗ CI · #12 draft PR`. In the web UI each has a line of its own on the card, and the task panel and task detail list them all with links.
 
-A pull request that is not a draft and is still open appears in [Attention](/legato/using/attention/) under **Merge blockers** when CI fails, when it needs a review, or when a reviewer asked for changes.
+The task detail view shows the repository and branch, and says when Legato found no match, found more than one, or could not reach GitHub. `legato task show <task-id> --format json` lists the task's branches under `tracked_branches` and its pull requests under `pull_requests`, both in stack order.
+
+Each pull request that is not a draft and is still open appears in [Attention](/legato/using/attention/) under **Merge blockers** when CI fails, when it needs a review, or when a reviewer asked for changes. A stack with two such pull requests has two items.
 
 ## Agents and GitHub
 

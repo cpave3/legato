@@ -15,7 +15,7 @@ Attention lists only what you can act on. Each item comes from the part of Legat
 | --- | --- |
 | Plans | A plan an agent proposed waits for your decision. See [Plans](/legato/using/plans/). |
 | Reviews | A review tour is marked ready and still has changes you have not reviewed. See [Reviews](/legato/using/reviews/). |
-| Pull requests | An open, non-draft pull request linked to a task needs a review, has changes requested, or failed CI. |
+| Pull requests | An open, non-draft pull request linked to a task needs a review, has changes requested, or failed CI. Each pull request of a stack has its own item. |
 | Agents | An agent you started by hand waits for you or stopped on an error. Agents that a swarm or a workflow runs are left to those. |
 | Workflows | A step waits for you to go on, a workflow agent waits for input, or a step failed. See [Workflows](/legato/using/workflows/). |
 | Workflow triggers | A trigger needs input or confirmation, or failed. |

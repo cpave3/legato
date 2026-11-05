@@ -36,6 +36,15 @@ type PRMetaView struct {
 	SyncError      string
 }
 
+// TrackedBranchView is one branch a task tracks, in stack order, with its
+// PR once found.
+type TrackedBranchView struct {
+	Repo   string
+	Branch string
+	Source string
+	PR     *PRMetaView
+}
+
 // ExportFormat defines the output format for card context export.
 type ExportFormat int
 
@@ -87,7 +96,13 @@ type CardDetail struct {
 	RemoteMeta          map[string]string
 	Metadata            map[string]any
 	WorkspaceID         *int
-	PRMeta              *PRMetaView
+	// PRMeta is the task's first PR in stack order (or how discovery last
+	// ended), kept for readers of the single form.
+	PRMeta *PRMetaView
+	// PullRequests are every PR of the task, in stack order.
+	PullRequests []PRMetaView
+	// Branches are the branches the task tracks, in stack order.
+	Branches            []TrackedBranchView
 	CodeContext         *CodeContextView
 	Worktree            *store.TaskWorktree
 	HasChimeraSession   bool

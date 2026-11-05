@@ -87,7 +87,7 @@ func TestCardMarksPriorityAndSaysWhereTheTaskComesFrom(t *testing.T) {
 }
 
 func TestCardPutsTypeWorkspaceAndPullRequestOnOneLineWhenTheyFit(t *testing.T) {
-	card := CardData{Key: "AG-9967", Title: "Convert", IssueType: "Task", WorkspaceName: "work", PRNumber: 7, PRCheckStatus: "pass", PRReviewDecision: "APPROVED"}
+	card := CardData{Key: "AG-9967", Title: "Convert", IssueType: "Task", WorkspaceName: "work", PullRequests: []PRStateData{{PRNumber: 7, CheckStatus: "pass", ReviewDecision: "APPROVED"}}}
 
 	wide := RenderCard(card, 60, false, "Doing", testIcons)
 	narrow := RenderCard(card, 24, false, "Doing", testIcons)
@@ -387,7 +387,7 @@ func TestSelectedCardInDoneColumnUsesSelectedStyle(t *testing.T) {
 }
 
 func TestCardWithPRPassingCI(t *testing.T) {
-	card := CardData{Key: "task1", Title: "Test", PRNumber: 42, PRCheckStatus: "pass", PRReviewDecision: "APPROVED"}
+	card := CardData{Key: "task1", Title: "Test", PullRequests: []PRStateData{{PRNumber: 42, CheckStatus: "pass", ReviewDecision: "APPROVED"}}}
 	out := RenderCard(card, 40, false, "Review", testIcons)
 	if !strings.Contains(out, "CI") {
 		t.Errorf("card with passing CI should show CI indicator, got: %q", out)
@@ -398,7 +398,7 @@ func TestCardWithPRPassingCI(t *testing.T) {
 }
 
 func TestCardWithPRFailingCI(t *testing.T) {
-	card := CardData{Key: "task1", Title: "Test", PRNumber: 42, PRCheckStatus: "fail"}
+	card := CardData{Key: "task1", Title: "Test", PullRequests: []PRStateData{{PRNumber: 42, CheckStatus: "fail"}}}
 	out := RenderCard(card, 40, false, "Review", testIcons)
 	if !strings.Contains(out, testIcons.CIFail) {
 		t.Errorf("card with failing CI should show fail icon, got: %q", out)
@@ -406,7 +406,7 @@ func TestCardWithPRFailingCI(t *testing.T) {
 }
 
 func TestCardWithPRPendingCI(t *testing.T) {
-	card := CardData{Key: "task1", Title: "Test", PRNumber: 42, PRCheckStatus: "pending"}
+	card := CardData{Key: "task1", Title: "Test", PullRequests: []PRStateData{{PRNumber: 42, CheckStatus: "pending"}}}
 	out := RenderCard(card, 40, false, "Review", testIcons)
 	if !strings.Contains(out, testIcons.CIPending) {
 		t.Errorf("card with pending CI should show pending icon, got: %q", out)
@@ -414,7 +414,7 @@ func TestCardWithPRPendingCI(t *testing.T) {
 }
 
 func TestCardWithPRChangesRequested(t *testing.T) {
-	card := CardData{Key: "task1", Title: "Test", PRNumber: 42, PRCheckStatus: "pass", PRReviewDecision: "CHANGES_REQUESTED"}
+	card := CardData{Key: "task1", Title: "Test", PullRequests: []PRStateData{{PRNumber: 42, CheckStatus: "pass", ReviewDecision: "CHANGES_REQUESTED"}}}
 	out := RenderCard(card, 40, false, "Review", testIcons)
 	if !strings.Contains(out, "changes") {
 		t.Errorf("card with changes requested should say so, got: %q", out)
@@ -422,7 +422,7 @@ func TestCardWithPRChangesRequested(t *testing.T) {
 }
 
 func TestCardWithPRDraft(t *testing.T) {
-	card := CardData{Key: "task1", Title: "Test", PRNumber: 42, PRIsDraft: true}
+	card := CardData{Key: "task1", Title: "Test", PullRequests: []PRStateData{{PRNumber: 42, IsDraft: true}}}
 	out := RenderCard(card, 40, false, "Doing", testIcons)
 	if !strings.Contains(out, "draft PR") {
 		t.Errorf("card with draft PR should say so, got: %q", out)
@@ -430,7 +430,7 @@ func TestCardWithPRDraft(t *testing.T) {
 }
 
 func TestCardWithPRComments(t *testing.T) {
-	card := CardData{Key: "task1", Title: "Test", PRNumber: 42, PRCheckStatus: "pass", PRCommentCount: 5}
+	card := CardData{Key: "task1", Title: "Test", PullRequests: []PRStateData{{PRNumber: 42, CheckStatus: "pass", CommentCount: 5}}}
 	out := RenderCard(card, 40, false, "Review", testIcons)
 	if !strings.Contains(out, "5 comments") {
 		t.Errorf("card with 5 comments should count them, got: %q", out)
@@ -447,7 +447,7 @@ func TestCardWithNoPR(t *testing.T) {
 }
 
 func TestCardWithPRSelectedRender(t *testing.T) {
-	card := CardData{Key: "task1", Title: "Test", PRNumber: 42, PRCheckStatus: "fail", PRReviewDecision: "CHANGES_REQUESTED"}
+	card := CardData{Key: "task1", Title: "Test", PullRequests: []PRStateData{{PRNumber: 42, CheckStatus: "fail", ReviewDecision: "CHANGES_REQUESTED"}}}
 	out := RenderCard(card, 40, true, "Review", testIcons)
 	if !strings.Contains(out, testIcons.CIFail) {
 		t.Errorf("selected card with failing CI should show fail icon, got: %q", out)
@@ -474,5 +474,20 @@ func TestCardSaysATaskComesFromBurnlite(t *testing.T) {
 		if !strings.Contains(out, icons.Burnlite+" burnlite") {
 			t.Errorf("a Burnlite task should name its source with its icon: %q", out)
 		}
+	}
+}
+
+func TestCardListsEveryPullRequestInStackOrder(t *testing.T) {
+	card := CardData{Key: "task1", Title: "Test", PullRequests: []PRStateData{
+		{PRNumber: 11, CheckStatus: "fail"},
+		{PRNumber: 12, IsDraft: true},
+	}}
+	out := RenderCard(card, 60, false, "Review", testIcons)
+	first, second := strings.Index(out, "#11"), strings.Index(out, "#12")
+	if first < 0 || second < first {
+		t.Fatalf("card should list #11 then #12, got: %q", out)
+	}
+	if !strings.Contains(out, testIcons.CIFail) || !strings.Contains(out, "draft") {
+		t.Errorf("card should give each PR its state, got: %q", out)
 	}
 }

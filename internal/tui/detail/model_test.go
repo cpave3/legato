@@ -2,6 +2,7 @@ package detail
 
 import (
 	"context"
+	"strings"
 	"testing"
 
 	tea "github.com/charmbracelet/bubbletea"
@@ -779,4 +780,25 @@ func TestOpenURLPickerSaysWhichProviderTheTaskIsFrom(t *testing.T) {
 	if !ok || picker.Provider != "burnlite" {
 		t.Fatalf("got %#v", picker)
 	}
+}
+
+func TestViewListsEveryPullRequestInStackOrder(t *testing.T) {
+	card := testCard()
+	card.PRMeta = &service.PRMetaView{PRNumber: 11}
+	card.PullRequests = []service.PRMetaView{
+		{PRNumber: 11, CheckStatus: "fail"},
+		{PRNumber: 12, IsDraft: true},
+	}
+	m := New(card, nil, nil, "")
+	m.width = 160
+	m.height = 40
+	m.renderContent()
+
+	view := m.View()
+	first, second := strings.Index(view, "#11"), strings.Index(view, "#12")
+	if first < 0 || second < first {
+		t.Fatalf("view should list #11 then #12:\n%s", view)
+	}
+	mustContain(t, view, "CI failing")
+	mustContain(t, view, "Draft")
 }

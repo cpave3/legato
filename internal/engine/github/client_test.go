@@ -23,7 +23,7 @@ func TestListRepositoryPRsConvertsGitHubResponse(t *testing.T) {
 		if r.URL.Path != "/repos/acme/widget/pulls" || r.URL.Query().Get("state") != "all" || r.URL.Query().Get("per_page") != "100" {
 			t.Fatalf("request = %s", r.URL.String())
 		}
-		_, _ = w.Write([]byte(`[{"number":7,"title":"Widget","state":"closed","draft":true,"merged_at":"2026-07-01T00:00:00Z","html_url":"https://github.com/acme/widget/pull/7","created_at":"2026-06-01T00:00:00Z","head":{"ref":"TASK-7-widget","sha":"deadbeef","repo":{"full_name":"fork/widget"}}}]`))
+		_, _ = w.Write([]byte(`[{"number":7,"title":"Widget","state":"closed","draft":true,"merged_at":"2026-07-01T00:00:00Z","html_url":"https://github.com/acme/widget/pull/7","created_at":"2026-06-01T00:00:00Z","head":{"ref":"TASK-7-widget","sha":"deadbeef","repo":{"full_name":"fork/widget"}},"base":{"ref":"TASK-6-model"}}]`))
 	}))
 	defer server.Close()
 	client, err := New(Options{Token: "token", BaseURL: server.URL, HTTPClient: server.Client()})
@@ -34,7 +34,7 @@ func TestListRepositoryPRsConvertsGitHubResponse(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if len(prs) != 1 || prs[0].State != "MERGED" || prs[0].HeadRepo != "fork/widget" || prs[0].HeadSHA != "deadbeef" {
+	if len(prs) != 1 || prs[0].State != "MERGED" || prs[0].HeadRepo != "fork/widget" || prs[0].HeadSHA != "deadbeef" || prs[0].BaseBranch != "TASK-6-model" {
 		t.Fatalf("PRs = %+v", prs)
 	}
 }

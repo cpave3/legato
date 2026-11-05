@@ -32,7 +32,10 @@ type PRStatus struct {
 	HeadBranch     string
 	HeadSHA        string
 	HeadRepo       string
-	CreatedAt      string
+	// BaseBranch is the branch the PR merges into: another PR's head
+	// branch when the PR is part of a stack.
+	BaseBranch string
+	CreatedAt  string
 }
 
 // ErrorKind classifies failures that callers can surface without parsing text.
@@ -135,6 +138,9 @@ type apiPR struct {
 			FullName string `json:"full_name"`
 		} `json:"repo"`
 	} `json:"head"`
+	Base struct {
+		Ref string `json:"ref"`
+	} `json:"base"`
 }
 
 func statusFromAPI(pr apiPR) PRStatus {
@@ -146,7 +152,7 @@ func statusFromAPI(pr apiPR) PRStatus {
 		HasPR: true, Number: pr.Number, Title: pr.Title, URL: pr.HTMLURL,
 		State: state, IsDraft: pr.Draft, CommentCount: pr.Comments + pr.ReviewComments,
 		HeadBranch: pr.Head.Ref, HeadSHA: pr.Head.SHA, HeadRepo: pr.Head.Repo.FullName,
-		CreatedAt: pr.CreatedAt,
+		BaseBranch: pr.Base.Ref, CreatedAt: pr.CreatedAt,
 	}
 }
 

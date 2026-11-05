@@ -24,11 +24,7 @@ type CardData struct {
 	WaitingDuration  time.Duration // cumulative waiting time
 	WorkspaceName    string        // workspace name (populated in "All" view)
 	WorkspaceColor   string        // workspace color hex (populated in "All" view)
-	PRCheckStatus    string        // pass, fail, pending, or ""
-	PRReviewDecision string        // APPROVED, CHANGES_REQUESTED, REVIEW_REQUIRED, or ""
-	PRCommentCount   int           // total PR comments
-	PRIsDraft        bool          // PR is a draft
-	PRNumber         int           // PR number (0 = no PR linked)
+	PullRequests     []PRStateData // the task's PRs in stack order, bottom first
 	SwarmStats       SwarmStats    // sub-task aggregate; zero value = no swarm
 	ReviewUnreviewed int           // unreviewed review-tour steps
 	ReviewReady      bool          // agent marked the tour ready for review
@@ -129,17 +125,30 @@ func historyLine(card CardData, icons theme.Icons) string {
 	return strings.Join(parts, metaSeparator)
 }
 
-// pullRequestParts names the state of a card's pull request: "draft PR", or
-// its checks and its review, then how many comments it has.
+// pullRequestParts names the state of a card's pull requests. One PR is
+// "draft PR", or its checks and its review, then how many comments it has;
+// several are each named by number with their state, in stack order.
 func pullRequestParts(card CardData, icons theme.Icons) []string {
-	if card.PRNumber == 0 {
+	switch len(card.PullRequests) {
+	case 0:
 		return nil
+	case 1:
+		return prStateParts(card.PullRequests[0], icons)
 	}
+	parts := make([]string, 0, len(card.PullRequests))
+	for _, pr := range card.PullRequests {
+		parts = append(parts, strings.Join(append([]string{colored(theme.TextPrimary, fmt.Sprintf("#%d", pr.PRNumber))}, prStateParts(pr, icons)...), " "))
+	}
+	return parts
+}
+
+// prStateParts names the state of one pull request.
+func prStateParts(pr PRStateData, icons theme.Icons) []string {
 	var parts []string
-	if card.PRIsDraft {
+	if pr.IsDraft {
 		parts = append(parts, colored(theme.TextSecondary, icons.PRDraft+" draft PR"))
 	} else {
-		switch card.PRCheckStatus {
+		switch pr.CheckStatus {
 		case "pass":
 			parts = append(parts, colored(theme.Green, icons.CIPass+" CI"))
 		case "fail":
@@ -147,17 +156,17 @@ func pullRequestParts(card CardData, icons theme.Icons) []string {
 		case "pending":
 			parts = append(parts, colored(theme.Yellow, icons.CIPending+" CI"))
 		}
-		switch card.PRReviewDecision {
+		switch pr.ReviewDecision {
 		case "APPROVED":
 			parts = append(parts, colored(theme.Green, icons.PRApproved+" review"))
 		case "CHANGES_REQUESTED":
 			parts = append(parts, colored(theme.Red, icons.PRChanges+" changes"))
 		}
 	}
-	if card.PRCommentCount == 1 {
+	if pr.CommentCount == 1 {
 		parts = append(parts, colored(theme.TextSecondary, "1 comment"))
-	} else if card.PRCommentCount > 1 {
-		parts = append(parts, colored(theme.TextSecondary, fmt.Sprintf("%d comments", card.PRCommentCount)))
+	} else if pr.CommentCount > 1 {
+		parts = append(parts, colored(theme.TextSecondary, fmt.Sprintf("%d comments", pr.CommentCount)))
 	}
 	return parts
 }

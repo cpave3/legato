@@ -381,7 +381,7 @@ func (m *Model) SetDurations(durations map[string]DurationData) {
 	m.computeMaxVisible()
 }
 
-// PRStateData holds PR status for populating card data.
+// PRStateData is the state of one of a card's pull requests.
 type PRStateData struct {
 	CheckStatus    string
 	ReviewDecision string
@@ -424,16 +424,12 @@ func (m *Model) SetReviewCounts(counts map[string]int) {
 	m.SetReviewStates(states)
 }
 
-// SetPRStates updates the PR status fields for each card.
-func (m *Model) SetPRStates(states map[string]PRStateData) {
+// SetPRStates sets each card's pull requests, in stack order.
+func (m *Model) SetPRStates(states map[string][]PRStateData) {
 	for colName, cards := range m.cards {
 		for i := range cards {
-			if pr, ok := states[cards[i].Key]; ok {
-				cards[i].PRCheckStatus = pr.CheckStatus
-				cards[i].PRReviewDecision = pr.ReviewDecision
-				cards[i].PRCommentCount = pr.CommentCount
-				cards[i].PRIsDraft = pr.IsDraft
-				cards[i].PRNumber = pr.PRNumber
+			if prs, ok := states[cards[i].Key]; ok {
+				cards[i].PullRequests = prs
 			}
 		}
 		m.cards[colName] = cards

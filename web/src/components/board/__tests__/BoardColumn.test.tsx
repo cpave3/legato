@@ -23,11 +23,6 @@ function makeCard(overrides: Partial<BoardCardType> = {}): BoardCardType {
     error_seconds: 0,
     workspace_id: null, workspace_name: "",
     workspace_color: "",
-    pr_check_status: "",
-    pr_review_decision: "",
-    pr_comment_count: 0,
-    pr_is_draft: false,
-    pr_number: 0,
     ...overrides,
   }
 }

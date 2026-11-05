@@ -154,14 +154,21 @@ func parseWorkspaceView(raw string) store.WorkspaceView {
 
 func (s *Server) enrichPRMeta(ctx context.Context, taskID string, card *CardResponse) {
 	detail, err := s.board.GetCard(ctx, taskID)
-	if err != nil || detail == nil || detail.PRMeta == nil {
+	if err != nil || detail == nil {
 		return
 	}
-	card.PRNumber = detail.PRMeta.PRNumber
-	card.PRCheckStatus = detail.PRMeta.CheckStatus
-	card.PRReviewDecision = detail.PRMeta.ReviewDecision
-	card.PRCommentCount = detail.PRMeta.CommentCount
-	card.PRIsDraft = detail.PRMeta.IsDraft
+	for _, pr := range detail.PullRequests {
+		card.PullRequests = append(card.PullRequests, prMetaResponse(pr))
+	}
+}
+
+func prMetaResponse(pr service.PRMetaView) PRMetaResponse {
+	return PRMetaResponse{
+		Repo: pr.Repo, Branch: pr.Branch, PRNumber: pr.PRNumber, PRURL: pr.PRURL, State: pr.State,
+		IsDraft: pr.IsDraft, ReviewDecision: pr.ReviewDecision, CheckStatus: pr.CheckStatus,
+		CommentCount: pr.CommentCount, Pinned: pr.Pinned, MatchMethod: pr.MatchMethod,
+		SyncOutcome: pr.SyncOutcome, SyncError: pr.SyncError,
+	}
 }
 
 func computeSwarmStats(ctx context.Context, swarm SwarmService, parentID string) *SwarmStatsResponse {
@@ -422,21 +429,21 @@ func cardDetailToResponse(d *service.CardDetail) CardDetailResponse {
 		}
 	}
 	if d.PRMeta != nil {
-		resp.PRMeta = &PRMetaResponse{
-			Repo:           d.PRMeta.Repo,
-			Branch:         d.PRMeta.Branch,
-			PRNumber:       d.PRMeta.PRNumber,
-			PRURL:          d.PRMeta.PRURL,
-			State:          d.PRMeta.State,
-			IsDraft:        d.PRMeta.IsDraft,
-			ReviewDecision: d.PRMeta.ReviewDecision,
-			CheckStatus:    d.PRMeta.CheckStatus,
-			CommentCount:   d.PRMeta.CommentCount,
-			Pinned:         d.PRMeta.Pinned,
-			MatchMethod:    d.PRMeta.MatchMethod,
-			SyncOutcome:    d.PRMeta.SyncOutcome,
-			SyncError:      d.PRMeta.SyncError,
+		meta := prMetaResponse(*d.PRMeta)
+		resp.PRMeta = &meta
+	}
+	resp.PullRequests = make([]PRMetaResponse, 0, len(d.PullRequests))
+	for _, pr := range d.PullRequests {
+		resp.PullRequests = append(resp.PullRequests, prMetaResponse(pr))
+	}
+	resp.TrackedBranches = make([]TrackedBranchResponse, 0, len(d.Branches))
+	for _, b := range d.Branches {
+		branch := TrackedBranchResponse{Repo: b.Repo, Branch: b.Branch, Source: b.Source}
+		if b.PR != nil {
+			pr := prMetaResponse(*b.PR)
+			branch.PR = &pr
 		}
+		resp.TrackedBranches = append(resp.TrackedBranches, branch)
 	}
 	return resp
 }

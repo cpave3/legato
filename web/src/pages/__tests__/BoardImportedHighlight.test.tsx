@@ -7,8 +7,7 @@ import { BoardPage } from "../Board"
 const importedCard = {
   id: "task-imported", title: "Imported Jira ticket", status: "Doing", priority: "High", issue_type: "Task", provider: "jira",
   has_warning: false, agent_active: false, agent_state: "", working_seconds: 0, waiting_seconds: 0, error_seconds: 0,
-  workspace_id: 1, workspace_name: "Platform", workspace_color: "#123456", pr_check_status: "", pr_review_decision: "",
-  pr_comment_count: 0, pr_is_draft: false, pr_number: 0,
+  workspace_id: 1, workspace_name: "Platform", workspace_color: "#123456",
 }
 const otherCard = { ...importedCard, id: "task-other", title: "Other task", status: "Backlog", provider: "" }
 

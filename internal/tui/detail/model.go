@@ -666,43 +666,52 @@ func (m Model) renderHeader() string {
 		addMeta("Repository", m.card.CodeContext.Repo)
 		addMeta("Branch", m.card.CodeContext.Branch)
 	}
-	if m.card.PRMeta != nil {
-		pr := m.card.PRMeta
-		if pr.PRNumber > 0 {
-			prLabel := fmt.Sprintf("#%d", pr.PRNumber)
-			if pr.IsDraft {
-				prLabel += " Draft"
-			}
-			if pr.State == "MERGED" {
-				prLabel += " Merged"
-			}
-			addMeta("PR", prLabel)
-			switch pr.ReviewDecision {
-			case "APPROVED":
-				addMeta("Review", "Approved")
-			case "CHANGES_REQUESTED":
-				addMeta("Review", "Changes Requested")
-			case "REVIEW_REQUIRED":
-				addMeta("Review", "Review Required")
-			}
-			switch pr.CheckStatus {
-			case "pass":
-				addMeta("CI", "Passing")
-			case "fail":
-				addMeta("CI", "Failing")
-			case "pending":
-				addMeta("CI", "Pending")
-			}
-			if pr.CommentCount > 0 {
-				addMeta("Comments", fmt.Sprintf("%d", pr.CommentCount))
-			}
-		} else if pr.SyncOutcome != "" {
-			outcome := strings.ReplaceAll(pr.SyncOutcome, "_", " ")
-			if pr.SyncError != "" {
-				outcome += ": " + pr.SyncError
-			}
-			addMeta("PR sync", outcome)
+	prs := m.card.PullRequests
+	if len(prs) == 0 && m.card.PRMeta != nil && m.card.PRMeta.PRNumber > 0 {
+		prs = []service.PRMetaView{*m.card.PRMeta}
+	}
+	switch {
+	case len(prs) == 1:
+		pr := prs[0]
+		prLabel := fmt.Sprintf("#%d", pr.PRNumber)
+		if pr.IsDraft {
+			prLabel += " Draft"
 		}
+		if pr.State == "MERGED" {
+			prLabel += " Merged"
+		}
+		addMeta("PR", prLabel)
+		switch pr.ReviewDecision {
+		case "APPROVED":
+			addMeta("Review", "Approved")
+		case "CHANGES_REQUESTED":
+			addMeta("Review", "Changes Requested")
+		case "REVIEW_REQUIRED":
+			addMeta("Review", "Review Required")
+		}
+		switch pr.CheckStatus {
+		case "pass":
+			addMeta("CI", "Passing")
+		case "fail":
+			addMeta("CI", "Failing")
+		case "pending":
+			addMeta("CI", "Pending")
+		}
+		if pr.CommentCount > 0 {
+			addMeta("Comments", fmt.Sprintf("%d", pr.CommentCount))
+		}
+	case len(prs) > 1:
+		// A stack: each PR on one line, bottom first.
+		for i, pr := range prs {
+			addMeta(fmt.Sprintf("PR %d/%d", i+1, len(prs)), pullRequestSummary(pr))
+		}
+	case m.card.PRMeta != nil && m.card.PRMeta.SyncOutcome != "":
+		pr := m.card.PRMeta
+		outcome := strings.ReplaceAll(pr.SyncOutcome, "_", " ")
+		if pr.SyncError != "" {
+			outcome += ": " + pr.SyncError
+		}
+		addMeta("PR sync", outcome)
 	}
 
 	metaLine := lipgloss.NewStyle().Padding(0, 1).Render(strings.Join(metaParts, "  "))
@@ -712,6 +721,36 @@ func (m Model) renderHeader() string {
 		Render(strings.Repeat("─", contentWidth-2))
 
 	return lipgloss.JoinVertical(lipgloss.Left, title, metaLine, separator)
+}
+
+// pullRequestSummary says one PR's number and state in a few words.
+func pullRequestSummary(pr service.PRMetaView) string {
+	parts := []string{fmt.Sprintf("#%d", pr.PRNumber)}
+	switch {
+	case pr.State == "MERGED":
+		parts = append(parts, "Merged")
+	case pr.State == "CLOSED":
+		parts = append(parts, "Closed")
+	case pr.IsDraft:
+		parts = append(parts, "Draft")
+	}
+	switch pr.CheckStatus {
+	case "pass":
+		parts = append(parts, "CI passing")
+	case "fail":
+		parts = append(parts, "CI failing")
+	case "pending":
+		parts = append(parts, "CI pending")
+	}
+	switch pr.ReviewDecision {
+	case "APPROVED":
+		parts = append(parts, "approved")
+	case "CHANGES_REQUESTED":
+		parts = append(parts, "changes requested")
+	case "REVIEW_REQUIRED":
+		parts = append(parts, "review required")
+	}
+	return strings.Join(parts, " · ")
 }
 
 // metaRow is one label and value of the metadata grid.

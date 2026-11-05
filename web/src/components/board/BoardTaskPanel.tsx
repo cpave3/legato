@@ -33,7 +33,8 @@ export function BoardTaskPanel({ card, column, detail, onClose, onOpenDetails, o
   const look = card.agent_active ? agentStripLook(card) : null
   const spent = formatDuration(card.working_seconds + card.waiting_seconds + card.error_seconds)
   const providerURL = ready?.remote_meta?.url || ""
-  const prURL = ready?.pr_meta?.pr_url || ""
+  const pullRequests = card.pull_requests ?? []
+  const prURL = pullRequests[0]?.pr_url || ready?.pr_meta?.pr_url || ""
 
   return (
     <aside aria-label="Selected task" className="flex w-[360px] shrink-0 flex-col border-l border-[#222228] bg-[#141417] font-lw">
@@ -52,7 +53,17 @@ export function BoardTaskPanel({ card, column, detail, onClose, onOpenDetails, o
         <Property label="Workspace">{card.workspace_name || <span className="text-lw-text-2">Unassigned</span>}</Property>
         <Property label="Agent">{look ? <span className={look.tone}>{look.label}</span> : <span className="text-lw-text-2">None yet</span>}</Property>
         {!card.agent_active && spent && <Property label="Agent time"><span className="text-lw-text-2">{spent}</span></Property>}
-        {card.pr_number > 0 && <Property label="Pull request">{prURL ? <a href={prURL} target="_blank" rel="noreferrer" className="font-lw-mono text-lw-link hover:underline">#{card.pr_number}</a> : <span className="font-lw-mono">#{card.pr_number}</span>}</Property>}
+        {pullRequests.length > 0 && <Property label={pullRequests.length === 1 ? "Pull request" : "Pull requests"}>
+          <ul aria-label="Pull requests" className="m-0 flex list-none flex-col gap-0.5 p-0">
+            {pullRequests.map(pr => <li key={`${pr.repo}#${pr.pr_number}`} className="flex flex-wrap items-baseline gap-x-1.5">
+              {pr.pr_url ? <a href={pr.pr_url} target="_blank" rel="noreferrer" className="font-lw-mono text-lw-link hover:underline">#{pr.pr_number}</a> : <span className="font-lw-mono">#{pr.pr_number}</span>}
+              {pr.is_draft && <span className="text-xs text-lw-text-2">draft</span>}
+              {pr.state === "MERGED" && <span className="text-xs text-lw-text-2">merged</span>}
+              {pr.check_status === "fail" && <span className="text-xs text-lw-error">CI failed</span>}
+              {pr.review_decision === "CHANGES_REQUESTED" && <span className="text-xs text-lw-error">changes requested</span>}
+            </li>)}
+          </ul>
+        </Property>}
         {ready?.worktree && <Property label="Worktree"><span className="font-lw-mono text-xs">{ready.worktree.branch}</span></Property>}
       </dl>
 

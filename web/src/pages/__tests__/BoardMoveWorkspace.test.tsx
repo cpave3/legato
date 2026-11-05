@@ -10,8 +10,7 @@ const mockFetch = vi.fn()
 const selectedCard = {
   id: "TASK-2", title: "Selected task", status: "Doing", priority: "High", issue_type: "Task", provider: "",
   has_warning: false, agent_active: false, agent_state: "", working_seconds: 0, waiting_seconds: 0, error_seconds: 0,
-  workspace_id: 1, workspace_name: "Platform", workspace_color: "#123456", pr_check_status: "", pr_review_decision: "",
-  pr_comment_count: 0, pr_is_draft: false, pr_number: 0,
+  workspace_id: 1, workspace_name: "Platform", workspace_color: "#123456",
 }
 const cursorCard = { ...selectedCard, id: "TASK-1", title: "Cursor task", status: "Backlog", workspace_id: null, workspace_name: "" }
 

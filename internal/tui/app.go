@@ -1555,25 +1555,10 @@ func (a App) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				}
 			}
 		}
-		// Enrich cards with PR state indicators
-		if a.prSvc != nil {
-			if taskIDs := a.board.TaskIDs(); len(taskIDs) > 0 {
-				prStates := make(map[string]board.PRStateData)
-				for _, id := range taskIDs {
-					meta, err := a.prSvc.GetPRStatus(context.Background(), id)
-					if err == nil && meta != nil && meta.PRNumber > 0 {
-						prStates[id] = board.PRStateData{
-							CheckStatus:    meta.CheckStatus,
-							ReviewDecision: meta.ReviewDecision,
-							CommentCount:   meta.CommentCount,
-							IsDraft:        meta.IsDraft,
-							PRNumber:       meta.PRNumber,
-						}
-					}
-				}
-				if len(prStates) > 0 {
-					a.board.SetPRStates(prStates)
-				}
+		// Enrich cards with their pull requests, in stack order.
+		if taskIDs := a.board.TaskIDs(); len(taskIDs) > 0 {
+			if prStates := a.pullRequestStates(taskIDs); len(prStates) > 0 {
+				a.board.SetPRStates(prStates)
 			}
 		}
 		// Populate swarm stats per board card.
@@ -2032,6 +2017,41 @@ func providerSyncSummary(result service.ProviderSyncResult) (string, bool) {
 		return "no providers configured", false
 	}
 	return strings.Join(completed, " + ") + " sync completed", false
+}
+
+// pullRequestStates are the PRs of the given tasks, in stack order: from
+// the board service, which reads them without GitHub, else the single PR
+// the PR service has for each.
+func (a App) pullRequestStates(taskIDs []string) map[string][]board.PRStateData {
+	states := make(map[string][]board.PRStateData)
+	if lister, ok := a.svc.(service.PullRequestLister); ok {
+		prs, err := lister.ListPullRequests(context.Background(), taskIDs)
+		if err != nil {
+			return states
+		}
+		for id, list := range prs {
+			for _, pr := range list {
+				states[id] = append(states[id], board.PRStateData{
+					CheckStatus: pr.CheckStatus, ReviewDecision: pr.ReviewDecision,
+					CommentCount: pr.CommentCount, IsDraft: pr.IsDraft, PRNumber: pr.PRNumber,
+				})
+			}
+		}
+		return states
+	}
+	if a.prSvc == nil {
+		return states
+	}
+	for _, id := range taskIDs {
+		meta, err := a.prSvc.GetPRStatus(context.Background(), id)
+		if err == nil && meta != nil && meta.PRNumber > 0 {
+			states[id] = []board.PRStateData{{
+				CheckStatus: meta.CheckStatus, ReviewDecision: meta.ReviewDecision,
+				CommentCount: meta.CommentCount, IsDraft: meta.IsDraft, PRNumber: meta.PRNumber,
+			}}
+		}
+	}
+	return states
 }
 
 func targetedPROutcome(meta *store.PRMeta, rediscover bool) string {

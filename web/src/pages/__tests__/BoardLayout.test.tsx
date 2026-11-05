@@ -9,7 +9,7 @@ const mockFetch = vi.fn()
 const useBoard = vi.fn()
 
 function card(id: string, title: string, status: string, overrides: Partial<BoardCard> = {}): BoardCard {
-  return { id, title, status, priority: "Medium", issue_type: "Bug", provider: "", has_warning: false, agent_active: false, agent_state: "", working_seconds: 0, waiting_seconds: 0, error_seconds: 0, workspace_id: null, workspace_name: "", workspace_color: "", pr_check_status: "", pr_review_decision: "", pr_comment_count: 0, pr_is_draft: false, pr_number: 0, ...overrides }
+  return { id, title, status, priority: "Medium", issue_type: "Bug", provider: "", has_warning: false, agent_active: false, agent_state: "", working_seconds: 0, waiting_seconds: 0, error_seconds: 0, workspace_id: null, workspace_name: "", workspace_color: "", ...overrides }
 }
 
 const columns = [

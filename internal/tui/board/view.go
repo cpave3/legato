@@ -389,9 +389,13 @@ func (m Model) panelTask(card CardData, width int) []string {
 	} else {
 		row("agent", colored(theme.TextFaint, "none"))
 	}
-	if card.PRNumber > 0 {
-		parts := append([]string{colored(theme.TextPrimary, fmt.Sprintf("#%d", card.PRNumber))}, pullRequestParts(card, m.icons)...)
-		row("pull request", strings.Join(parts, metaSeparator))
+	for i, pr := range card.PullRequests {
+		label := "pull request"
+		if len(card.PullRequests) > 1 {
+			label = fmt.Sprintf("PR %d of %d", i+1, len(card.PullRequests))
+		}
+		parts := append([]string{colored(theme.TextPrimary, fmt.Sprintf("#%d", pr.PRNumber))}, prStateParts(pr, m.icons)...)
+		row(label, strings.Join(parts, metaSeparator))
 	}
 	if card.HasWorktree {
 		row("worktree", colored(theme.Accent, m.icons.Worktree)+" "+colored(theme.TextPrimary, "yes"))

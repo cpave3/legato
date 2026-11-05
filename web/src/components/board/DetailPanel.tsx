@@ -1,7 +1,7 @@
 import type { ReactNode } from "react"
 import { ChevronRight, X } from "lucide-react"
 
-import type { CardDetail } from "../../lib/board-types"
+import { taskPullRequests, type CardDetail } from "../../lib/board-types"
 import { MarkdownBody } from "../MarkdownBody"
 import { Button } from "../ui/Button"
 import { TaskActivityTabs } from "./TaskActivityTabs"
@@ -85,6 +85,7 @@ export function DetailPanel({
   worktreesEnabled = false,
 }: DetailPanelProps) {
   const isLocal = !card.provider
+  const pullRequests = taskPullRequests(card)
   const agentActionProps = {
     taskId: card.id,
     worktreePath: card.worktree?.path,
@@ -145,19 +146,25 @@ export function DetailPanel({
                 <RemoteProperties provider={card.provider} meta={card.remote_meta ?? {}} />
                 {card.worktree && <><Property label="Worktree" wide>{card.worktree.path}</Property><Property label="Branch">{card.worktree.branch}</Property></>}
                 {card.code_context && <><Property label="Repository">{card.code_context.repo}</Property>{card.code_context.branch && <Property label="Code branch">{card.code_context.branch}</Property>}</>}
-                {card.pr_meta && card.pr_meta.pr_number > 0 && <Property label="Pull request" wide>
-                  <a href={card.pr_meta.pr_url} target="_blank" rel="noreferrer" className="text-indigo-400 hover:underline">#{card.pr_meta.pr_number}{card.pr_meta.is_draft && " (draft)"}</a>
-                  <div className="mt-1 flex flex-wrap gap-x-2 text-[10px]">
-                    {card.pr_meta.state === "MERGED" && <span>merged</span>}
-                    {card.pr_meta.review_decision === "APPROVED" && <span className="text-emerald-400">approved</span>}
-                    {card.pr_meta.review_decision === "CHANGES_REQUESTED" && <span className="text-red-400">changes requested</span>}
-                    {card.pr_meta.check_status === "pass" && <span className="text-emerald-400">CI passing</span>}
-                    {card.pr_meta.check_status === "fail" && <span className="text-red-400">CI failing</span>}
-                    {card.pr_meta.check_status === "pending" && <span className="text-amber-300">CI pending</span>}
-                    {card.pr_meta.comment_count > 0 && <span>{card.pr_meta.comment_count} comments</span>}
-                  </div>
+                {pullRequests.length > 0 && <Property label={pullRequests.length === 1 ? "Pull request" : "Pull requests"} wide>
+                  <ul aria-label="Pull requests" className="m-0 flex list-none flex-col gap-2 p-0">
+                    {pullRequests.map(pr => <li key={`${pr.repo}#${pr.pr_number}`}>
+                      <a href={pr.pr_url} target="_blank" rel="noreferrer" className="text-indigo-400 hover:underline">#{pr.pr_number}{pr.is_draft && " (draft)"}</a>
+                      {pullRequests.length > 1 && pr.branch && <span className="ml-2 font-mono text-[10px] text-zinc-500">{pr.branch}</span>}
+                      <div className="mt-1 flex flex-wrap gap-x-2 text-[10px]">
+                        {pr.state === "MERGED" && <span>merged</span>}
+                        {pr.state === "CLOSED" && <span>closed</span>}
+                        {pr.review_decision === "APPROVED" && <span className="text-emerald-400">approved</span>}
+                        {pr.review_decision === "CHANGES_REQUESTED" && <span className="text-red-400">changes requested</span>}
+                        {pr.check_status === "pass" && <span className="text-emerald-400">CI passing</span>}
+                        {pr.check_status === "fail" && <span className="text-red-400">CI failing</span>}
+                        {pr.check_status === "pending" && <span className="text-amber-300">CI pending</span>}
+                        {pr.comment_count > 0 && <span>{pr.comment_count} comments</span>}
+                      </div>
+                    </li>)}
+                  </ul>
                 </Property>}
-                {card.pr_meta && !card.pr_meta.pr_number && card.pr_meta.sync_outcome && <Property label="PR sync" wide>{card.pr_meta.sync_outcome.replaceAll("_", " ")}{card.pr_meta.sync_error && ` — ${card.pr_meta.sync_error}`}</Property>}
+                {pullRequests.length === 0 && card.pr_meta && card.pr_meta.sync_outcome && <Property label="PR sync" wide>{card.pr_meta.sync_outcome.replaceAll("_", " ")}{card.pr_meta.sync_error && ` — ${card.pr_meta.sync_error}`}</Property>}
               </dl>
             </section>
 
@@ -180,7 +187,7 @@ export function DetailPanel({
               <section aria-labelledby="task-more-heading" className="space-y-1">
                 <h3 id="task-more-heading" className={sectionHeadingClass}>More actions</h3>
                 <Button variant="ghost" size="sm" className={sidebarButtonClass} title="Shortcut: p" onClick={onLinkPR}>Link pull request</Button>
-                {(card.pr_meta?.pr_number ?? 0) > 0 && <Button variant="ghost" size="sm" className={sidebarButtonClass} onClick={onRefreshPR}>Refresh pull request</Button>}
+                {pullRequests.length > 0 && <Button variant="ghost" size="sm" className={sidebarButtonClass} onClick={onRefreshPR}>Refresh pull request</Button>}
                 {card.code_context?.repo && <Button variant="ghost" size="sm" className={sidebarButtonClass} onClick={onRediscoverPR}>Rediscover pull request</Button>}
                 <Button variant="ghost" size="sm" className={sidebarButtonClass} title="Shortcut: y" onClick={onCopyDescription}>Copy description</Button>
                 <Button variant="ghost" size="sm" className={sidebarButtonClass} title="Shortcut: Shift+y" onClick={onCopyFull}>Copy full task</Button>

@@ -165,6 +165,12 @@ func (b *boardService) GetCard(ctx context.Context, id string) (*CardDetail, err
 		return nil, err
 	}
 	detail.Notes = notes
+	branches, err := b.store.ListTaskBranches(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	detail.PullRequests = TaskPullRequests(t, branches)
+	detail.Branches = TrackedBranchViews(branches)
 	if err := b.addAttachments(detail); err != nil {
 		return nil, err
 	}
@@ -370,6 +376,11 @@ func (b *boardService) ExportCardContext(ctx context.Context, id string, format 
 		return "", err
 	}
 	detail.Notes = notes
+	branches, err := b.store.ListTaskBranches(ctx, id)
+	if err != nil {
+		return "", err
+	}
+	detail.PullRequests = TaskPullRequests(t, branches)
 	if err := b.addAttachments(detail); err != nil {
 		return "", err
 	}
@@ -725,8 +736,8 @@ func taskToCardDetail(t *store.Task) *CardDetail {
 		prMeta, err := store.ParsePRMeta(t.PRMeta)
 		if err == nil && prMeta != nil {
 			detail.PRMeta = &PRMetaView{
-				Repo:           valueOrEmpty(codeContext, func(context *store.CodeContext) string { return context.Repo }),
-				Branch:         valueOrEmpty(codeContext, func(context *store.CodeContext) string { return context.Branch }),
+				Repo:           firstNonEmpty(prMeta.Repo, valueOrEmpty(codeContext, func(context *store.CodeContext) string { return context.Repo })),
+				Branch:         firstNonEmpty(prMeta.Branch, valueOrEmpty(codeContext, func(context *store.CodeContext) string { return context.Branch })),
 				PRNumber:       prMeta.PRNumber,
 				PRURL:          prMeta.PRURL,
 				State:          prMeta.State,

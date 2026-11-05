@@ -30,7 +30,7 @@ Executable source actions additionally implement `AttentionActionHandler`. Navig
 |---|---|---|
 | `plans` | Proposed revisions awaiting a current user decision | `EventPlanChanged` |
 | `reviews` | Explicitly ready tours with visible unreviewed work | `EventReviewChanged` |
-| `pull_requests` | Open non-draft tracked PRs with a required review, changes requested, failed CI, or a combination. Failed CI is left out while an open Argus case targets the PR | `EventPRStatusUpdated`, and after each Argus push |
+| `pull_requests` | Open non-draft tracked PRs with a required review, changes requested, failed CI, or a combination; one item per PR, so each PR of a stack (`task_branches`) has its own (source key `<task>:<number>`). Failed CI is left out while an open Argus case targets the PR | `EventPRStatusUpdated`, and after each Argus push |
 | `agents` | Running standalone interactive agents explicitly reporting waiting or error | `EventAgentActivityChanged`, start/death/completion lifecycle |
 | `workflows` | Manual gates, workflow agents waiting for input, failed steps | Workflow and agent lifecycle events |
 | `workflow_triggers` | Missing input, confirmation, and failed automatic triggers | `EventWorkflowTriggerChanged` |

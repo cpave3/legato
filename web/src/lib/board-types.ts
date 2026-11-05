@@ -26,11 +26,8 @@ export interface BoardCard {
   workspace_id: number | null
   workspace_name: string
   workspace_color: string
-  pr_check_status: string
-  pr_review_decision: string
-  pr_comment_count: number
-  pr_is_draft: boolean
-  pr_number: number
+  // The task's pull requests in stack order, bottom first; absent when none.
+  pull_requests?: PRMetaView[]
   review_tour_id?: string
   review_ready?: boolean
   review_unreviewed?: number
@@ -71,7 +68,12 @@ export interface CardDetail {
   remote_id: string
   remote_meta: Record<string, string>
   workspace_id: number | null
+  // The first pull request in stack order, or how discovery last ended.
   pr_meta: PRMetaView | null
+  // Every pull request of the task, in stack order.
+  pull_requests?: PRMetaView[]
+  // The branches the task tracks, in stack order, each with its PR once found.
+  tracked_branches?: TrackedBranch[]
   code_context: CodeContextView | null
   worktree?: TaskWorktree
   has_chimera_session: boolean
@@ -93,6 +95,21 @@ export interface CodeContextView {
   base_branch: string
   repo_source: string
   branch_source: string
+}
+
+export interface TrackedBranch {
+  repo: string
+  branch: string
+  // code_context, stack, api, manual or discovered
+  source: string
+  pr?: PRMetaView
+}
+
+// The pull requests of a task's detail, in stack order: from a server that
+// lists them, else the single one it names.
+export function taskPullRequests(card: Pick<CardDetail, "pr_meta" | "pull_requests">): PRMetaView[] {
+  if (card.pull_requests && card.pull_requests.length > 0) return card.pull_requests
+  return card.pr_meta && card.pr_meta.pr_number > 0 ? [card.pr_meta] : []
 }
 
 export interface PRMetaView {

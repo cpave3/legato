@@ -528,6 +528,7 @@ func TaskLink(s *store.Store, taskID, branch, repo, sha string) error {
 	if existing == nil {
 		existing = &store.CodeContext{}
 	}
+	previous := *existing
 	branchChanged := existing.Branch != "" && existing.Branch != branch
 	existing.Branch = branch
 	existing.BranchSource = "manual"
@@ -542,6 +543,9 @@ func TaskLink(s *store.Store, taskID, branch, repo, sha string) error {
 		return fmt.Errorf("linking branch: %w", err)
 	}
 	if branchChanged {
+		if err := service.ForgetContextBranch(ctx, s, taskID, &previous); err != nil {
+			return fmt.Errorf("resetting stale PR association: %w", err)
+		}
 		if err := s.UpdatePRMeta(ctx, taskID, nil); err != nil {
 			return fmt.Errorf("resetting stale PR association: %w", err)
 		}
@@ -565,6 +569,9 @@ func TaskUnlink(s *store.Store, taskID string) error {
 		return fmt.Errorf("task %q not found: %w", taskID, err)
 	}
 
+	if err := s.RemoveTaskBranches(ctx, taskID); err != nil {
+		return fmt.Errorf("unlinking PR: %w", err)
+	}
 	if err := s.UpdatePRMeta(ctx, taskID, nil); err != nil {
 		return fmt.Errorf("unlinking PR: %w", err)
 	}
@@ -581,24 +588,26 @@ func TaskUnlink(s *store.Store, taskID string) error {
 }
 
 type taskDetailJSON struct {
-	ID                  string            `json:"id"`
-	Title               string            `json:"title"`
-	DescriptionMD       string            `json:"description_md"`
-	LocalDescriptionMD  string            `json:"local_description_md"`
-	RemoteDescriptionMD string            `json:"remote_description_md"`
-	Status              string            `json:"status"`
-	Priority            string            `json:"priority"`
-	Provider            string            `json:"provider"`
-	RemoteID            string            `json:"remote_id"`
-	RemoteMeta          map[string]string `json:"remote_meta"`
-	WorkspaceID         *int              `json:"workspace_id"`
-	PRMeta              *prMetaJSON       `json:"pr_meta"`
-	CodeContext         *codeContextJSON  `json:"code_context"`
-	SwarmActiveStep     int               `json:"swarm_active_step"`
-	SwarmStepNames      []string          `json:"swarm_step_names"`
-	CreatedAt           time.Time         `json:"created_at"`
-	UpdatedAt           time.Time         `json:"updated_at"`
-	Notes               []store.TaskNote  `json:"notes"`
+	ID                  string              `json:"id"`
+	Title               string              `json:"title"`
+	DescriptionMD       string              `json:"description_md"`
+	LocalDescriptionMD  string              `json:"local_description_md"`
+	RemoteDescriptionMD string              `json:"remote_description_md"`
+	Status              string              `json:"status"`
+	Priority            string              `json:"priority"`
+	Provider            string              `json:"provider"`
+	RemoteID            string              `json:"remote_id"`
+	RemoteMeta          map[string]string   `json:"remote_meta"`
+	WorkspaceID         *int                `json:"workspace_id"`
+	PRMeta              *prMetaJSON         `json:"pr_meta"`
+	PullRequests        []prMetaJSON        `json:"pull_requests"`
+	TrackedBranches     []trackedBranchJSON `json:"tracked_branches"`
+	CodeContext         *codeContextJSON    `json:"code_context"`
+	SwarmActiveStep     int                 `json:"swarm_active_step"`
+	SwarmStepNames      []string            `json:"swarm_step_names"`
+	CreatedAt           time.Time           `json:"created_at"`
+	UpdatedAt           time.Time           `json:"updated_at"`
+	Notes               []store.TaskNote    `json:"notes"`
 }
 
 type codeContextJSON struct {
@@ -609,6 +618,13 @@ type codeContextJSON struct {
 	BaseBranch   string `json:"base_branch"`
 	RepoSource   string `json:"repo_source"`
 	BranchSource string `json:"branch_source"`
+}
+
+type trackedBranchJSON struct {
+	Repo   string      `json:"repo"`
+	Branch string      `json:"branch"`
+	Source string      `json:"source"`
+	PR     *prMetaJSON `json:"pr,omitempty"`
 }
 
 type prMetaJSON struct {
@@ -660,23 +676,32 @@ func taskDetailJSONFromService(detail *service.CardDetail) taskDetailJSON {
 		}
 	}
 	if detail.PRMeta != nil {
-		resp.PRMeta = &prMetaJSON{
-			Repo:           detail.PRMeta.Repo,
-			Branch:         detail.PRMeta.Branch,
-			PRNumber:       detail.PRMeta.PRNumber,
-			PRURL:          detail.PRMeta.PRURL,
-			State:          detail.PRMeta.State,
-			IsDraft:        detail.PRMeta.IsDraft,
-			ReviewDecision: detail.PRMeta.ReviewDecision,
-			CheckStatus:    detail.PRMeta.CheckStatus,
-			CommentCount:   detail.PRMeta.CommentCount,
-			Pinned:         detail.PRMeta.Pinned,
-			MatchMethod:    detail.PRMeta.MatchMethod,
-			SyncOutcome:    detail.PRMeta.SyncOutcome,
-			SyncError:      detail.PRMeta.SyncError,
+		meta := prMetaJSONFromView(*detail.PRMeta)
+		resp.PRMeta = &meta
+	}
+	resp.PullRequests = make([]prMetaJSON, 0, len(detail.PullRequests))
+	for _, pr := range detail.PullRequests {
+		resp.PullRequests = append(resp.PullRequests, prMetaJSONFromView(pr))
+	}
+	resp.TrackedBranches = make([]trackedBranchJSON, 0, len(detail.Branches))
+	for _, b := range detail.Branches {
+		branch := trackedBranchJSON{Repo: b.Repo, Branch: b.Branch, Source: b.Source}
+		if b.PR != nil {
+			pr := prMetaJSONFromView(*b.PR)
+			branch.PR = &pr
 		}
+		resp.TrackedBranches = append(resp.TrackedBranches, branch)
 	}
 	return resp
+}
+
+func prMetaJSONFromView(pr service.PRMetaView) prMetaJSON {
+	return prMetaJSON{
+		Repo: pr.Repo, Branch: pr.Branch, PRNumber: pr.PRNumber, PRURL: pr.PRURL, State: pr.State,
+		IsDraft: pr.IsDraft, ReviewDecision: pr.ReviewDecision, CheckStatus: pr.CheckStatus,
+		CommentCount: pr.CommentCount, Pinned: pr.Pinned, MatchMethod: pr.MatchMethod,
+		SyncOutcome: pr.SyncOutcome, SyncError: pr.SyncError,
+	}
 }
 
 type workspaceJSON struct {

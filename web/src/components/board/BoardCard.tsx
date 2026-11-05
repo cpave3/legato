@@ -2,7 +2,7 @@ import { cn } from "../../lib/utils"
 import { useEffect, useRef, type DragEvent, type MouseEvent, type ReactNode } from "react"
 import { Link } from "react-router-dom"
 import { MoreHorizontal } from "lucide-react"
-import type { BoardCard as BoardCardType } from "../../lib/board-types"
+import type { BoardCard as BoardCardType, PRMetaView } from "../../lib/board-types"
 import { agentStripLook, formatDuration, priorityTone } from "../../lib/boardCard"
 import { animatedAgentActivityEnabled } from "../../lib/appearancePreferences"
 import { ChecksMark, Mark, ReviewMark } from "../PullRequestMarks"
@@ -47,15 +47,15 @@ function MetaLine({ card, showWorkspace }: { card: BoardCardType; showWorkspace:
   )
 }
 
-function PullRequestLine({ card }: { card: BoardCardType }) {
-  const ready = !card.pr_is_draft && card.pr_check_status === "pass" && card.pr_review_decision === "APPROVED"
+function PullRequestLine({ pr }: { pr: PRMetaView }) {
+  const ready = !pr.is_draft && pr.check_status === "pass" && pr.review_decision === "APPROVED"
   return (
-    <div aria-label={`Pull request #${card.pr_number}`} className="flex flex-wrap items-center gap-x-2 pt-0.5 text-xs text-lw-text-2">
-      <span className="font-lw-mono">#{card.pr_number}</span>
-      {card.pr_is_draft && <span>draft</span>}
-      <ChecksMark status={card.pr_check_status} />
-      <ReviewMark decision={card.pr_review_decision} />
-      {card.pr_comment_count > 0 && <span>{card.pr_comment_count} {card.pr_comment_count === 1 ? "comment" : "comments"}</span>}
+    <div aria-label={`Pull request #${pr.pr_number}`} className="flex flex-wrap items-center gap-x-2 pt-0.5 text-xs text-lw-text-2">
+      <span className="font-lw-mono">#{pr.pr_number}</span>
+      {pr.is_draft && <span>draft</span>}
+      <ChecksMark status={pr.check_status} />
+      <ReviewMark decision={pr.review_decision} />
+      {pr.comment_count > 0 && <span>{pr.comment_count} {pr.comment_count === 1 ? "comment" : "comments"}</span>}
       {ready && <span className="text-lw-done">ready to merge</span>}
     </div>
   )
@@ -116,7 +116,7 @@ export function BoardCard({ card, selected, highlighted = false, column, showWor
         <div className="text-sm font-semibold leading-[19px]">{card.title}</div>
         <MetaLine card={card} showWorkspace={showWorkspace} />
         {card.review_ready && !card.review_unreviewed && <Mark glyph="✓" tone="text-xs text-lw-done">Reviewed</Mark>}
-        {card.pr_number > 0 && <PullRequestLine card={card} />}
+        {(card.pull_requests ?? []).map(pr => <PullRequestLine key={`${pr.repo}#${pr.pr_number}`} pr={pr} />)}
       </div>
       {card.agent_active && <AgentStrip card={card} />}
       {Boolean(card.review_unreviewed) && <ReviewStrip card={card} />}

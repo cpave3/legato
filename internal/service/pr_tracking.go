@@ -105,6 +105,9 @@ func (p *prTrackingService) LinkBranch(ctx context.Context, taskID, branch, repo
 	if err := p.store.SetCodeContext(ctx, taskID, codeContext); err != nil {
 		return err
 	}
+	if err := p.store.RemoveTaskBranches(ctx, taskID, BranchSourceCodeContext, BranchSourceManual, BranchSourceDiscovered); err != nil {
+		return err
+	}
 	if err := p.store.UpdatePRMeta(ctx, taskID, nil); err != nil {
 		return err
 	}
@@ -119,44 +122,32 @@ func (p *prTrackingService) LinkPR(ctx context.Context, taskID string, owner, re
 	}
 
 	now := time.Now().UTC().Format(time.RFC3339)
+	full := owner + "/" + repo
 	codeContext := &store.CodeContext{
-		Repo: owner + "/" + repo, Branch: status.HeadBranch, HeadSHA: status.HeadSHA,
+		Repo: full, Branch: status.HeadBranch, HeadSHA: status.HeadSHA,
 		RepoSource: "manual", BranchSource: "manual", LinkedAt: now, UpdatedAt: now,
 	}
-	if err := p.store.SetCodeContext(ctx, taskID, codeContext); err != nil {
+	if err := SetTaskCodeContext(ctx, p.store, taskID, codeContext); err != nil {
 		return err
 	}
-	meta := &store.PRMeta{
-		PRNumber:     status.Number,
-		PRURL:        status.URL,
-		State:        status.State,
-		IsDraft:      status.IsDraft,
-		CheckStatus:  status.CheckStatus,
-		CommentCount: status.CommentCount,
-		UpdatedAt:    now,
-		Pinned:       true,
-		MatchMethod:  "manual",
-		SyncOutcome:  "linked",
-	}
-
-	raw, err := store.MarshalPRMeta(meta)
-	if err != nil {
+	if _, err := p.store.TrackTaskBranches(ctx, taskID, []store.BranchRef{{Repo: full, Branch: status.HeadBranch}}, BranchSourceManual); err != nil {
 		return err
 	}
-	if err := p.store.UpdatePRMeta(ctx, taskID, raw); err != nil {
+	// A PR linked by number replaces any other PR found on its branch.
+	pr := prFromStatus(status, "manual", true)
+	pr.UpdatedAt = now
+	if err := p.store.SetTaskBranchPR(ctx, taskID, full, status.HeadBranch, pr); err != nil {
 		return err
 	}
-
-	if p.bus != nil {
-		p.bus.Publish(events.Event{
-			Type: events.EventPRStatusUpdated,
-			At:   time.Now(),
-		})
-	}
+	p.writeSummary(ctx, taskID, "", "")
+	p.publishIfChanged(true)
 	return nil
 }
 
 func (p *prTrackingService) UnlinkBranch(ctx context.Context, taskID string) error {
+	if err := p.store.RemoveTaskBranches(ctx, taskID); err != nil {
+		return err
+	}
 	if err := p.store.UpdatePRMeta(ctx, taskID, nil); err != nil {
 		return err
 	}
@@ -182,10 +173,15 @@ func SetTaskCodeContext(ctx context.Context, taskStore *store.Store, taskID stri
 	if err := taskStore.SetCodeContext(ctx, taskID, codeContext); err != nil {
 		return err
 	}
-	if identityChanged {
-		return taskStore.UpdatePRMeta(ctx, taskID, nil)
+	if !identityChanged {
+		return nil
 	}
-	return nil
+	// The old branch was the task's because of its context; the branches of
+	// a stack or added by handoff stay.
+	if err := ForgetContextBranch(ctx, taskStore, taskID, existing); err != nil {
+		return err
+	}
+	return taskStore.UpdatePRMeta(ctx, taskID, nil)
 }
 
 func (p *prTrackingService) GetCodeContext(ctx context.Context, taskID string) (*store.CodeContext, error) {
@@ -197,71 +193,80 @@ func (p *prTrackingService) GetCodeContext(ctx context.Context, taskID string) (
 }
 
 func (p *prTrackingService) RefreshPR(ctx context.Context, taskID string) error {
-	task, err := p.store.GetTask(ctx, taskID)
+	task, cc, err := p.taskContext(ctx, taskID)
 	if err != nil {
 		return err
 	}
-	codeContext, err := store.ParseCodeContext(task.CodeContext)
+	rows, err := p.store.ListTaskBranches(ctx, taskID)
 	if err != nil {
 		return err
 	}
-	meta, err := store.ParsePRMeta(task.PRMeta)
+	legacy, err := store.ParsePRMeta(task.PRMeta)
 	if err != nil {
 		return err
 	}
-	if codeContext == nil || codeContext.Repo == "" {
-		codeContext = p.contextFromWorktree(ctx, task)
-	}
-	if codeContext == nil || codeContext.Repo == "" || meta == nil || meta.PRNumber == 0 {
+	hasLegacy := legacy != nil && legacy.PRNumber > 0 && cc != nil && cc.Repo != ""
+	if !hasLinkedBranch(rows) && !hasLegacy {
 		return fmt.Errorf("task %s has no linked PR with repository context", taskID)
 	}
-	owner, repo, ok := splitRepo(codeContext.Repo)
-	if !ok {
-		return fmt.Errorf("repository must be owner/name")
-	}
-	status, err := p.gh.FetchPRByNumber(owner, repo, meta.PRNumber)
+	changed, err := p.syncTask(ctx, task, cc, syncMode{refresh: true}, newPRListings(p.gh))
+	p.publishIfChanged(changed)
+	return err
+}
+
+// RediscoverPR forgets the PRs found for every branch of a task and looks
+// for them again, with one listing per repository.
+func (p *prTrackingService) RediscoverPR(ctx context.Context, taskID string) error {
+	task, cc, err := p.taskContext(ctx, taskID)
 	if err != nil {
-		p.applyDiscoveryOutcome(ctx, taskID, "error", err.Error())
 		return err
 	}
-	p.applyContextStatus(ctx, taskID, status, meta.MatchMethod)
+	rows, err := p.store.ListTaskBranches(ctx, taskID)
+	if err != nil {
+		return err
+	}
+	if (cc == nil || cc.Repo == "") && len(rows) == 0 {
+		return fmt.Errorf("task %s has no repository context", taskID)
+	}
+	if cc != nil && cc.Repo != "" {
+		if _, _, ok := splitRepo(cc.Repo); !ok {
+			return fmt.Errorf("repository must be owner/name")
+		}
+	}
+	changed, err := p.syncTask(ctx, task, cc, syncMode{rediscover: true, discover: true}, newPRListings(p.gh))
+	p.publishIfChanged(changed)
+	return err
+}
+
+func hasLinkedBranch(rows []store.TaskBranch) bool {
+	for _, row := range rows {
+		if row.PR != nil && row.PR.PRNumber > 0 {
+			return true
+		}
+	}
+	return false
+}
+
+// ForgetContextBranch stops tracking the branch a task's old code context
+// named, when that context is why it was tracked.
+func ForgetContextBranch(ctx context.Context, taskStore *store.Store, taskID string, old *store.CodeContext) error {
+	if old == nil || old.Repo == "" || old.Branch == "" {
+		return nil
+	}
+	rows, err := taskStore.ListTaskBranches(ctx, taskID)
+	if err != nil {
+		return err
+	}
+	for _, row := range rows {
+		if row.Repo == old.Repo && row.Branch == old.Branch && (row.Source == BranchSourceCodeContext || row.Source == BranchSourceManual) {
+			return taskStore.RemoveTaskBranch(ctx, taskID, row.Repo, row.Branch)
+		}
+	}
 	return nil
 }
 
-func (p *prTrackingService) RediscoverPR(ctx context.Context, taskID string) error {
-	task, err := p.store.GetTask(ctx, taskID)
-	if err != nil {
-		return err
-	}
-	codeContext, err := store.ParseCodeContext(task.CodeContext)
-	if err != nil {
-		return err
-	}
-	if codeContext == nil || codeContext.Repo == "" {
-		codeContext = p.contextFromWorktree(ctx, task)
-	}
-	if codeContext == nil || codeContext.Repo == "" {
-		return fmt.Errorf("task %s has no repository context", taskID)
-	}
-	if err := p.store.UpdatePRMeta(ctx, taskID, nil); err != nil {
-		return err
-	}
-	owner, repo, ok := splitRepo(codeContext.Repo)
-	if !ok {
-		return fmt.Errorf("repository must be owner/name")
-	}
-	prs, err := p.gh.ListRepositoryPRs(owner, repo)
-	if err != nil {
-		p.applyDiscoveryOutcome(ctx, taskID, "error", err.Error())
-		return err
-	}
-	status, method, outcome := matchContextPR(taskID, codeContext.Repo, codeContext, prs)
-	if status == nil {
-		p.applyDiscoveryOutcome(ctx, taskID, outcome, "")
-		return nil
-	}
-	p.applyContextStatus(ctx, taskID, status, method)
-	return nil
+func prStatusUpdated() events.Event {
+	return events.Event{Type: events.EventPRStatusUpdated, At: time.Now()}
 }
 
 // PollAll fetches PR status for all tracked tasks regardless of resolved state.
@@ -296,29 +301,27 @@ func (p *prTrackingService) pollInternal(ctx context.Context, skipResolved bool)
 		return nil
 	}
 
-	// Unresolved tasks with a recorded head SHA get exact commit-based
-	// discovery (immune to branch-name reuse); everything else goes through
-	// the branch batch query.
+	// Tasks with repository context or tracked branches are brought up to
+	// date branch by branch, each repository listed at most once. Legacy
+	// branch-only links without context keep the branch query; those with a
+	// recorded head SHA get exact commit-based discovery.
 	type shaTarget struct {
 		taskID string
 		meta   *store.PRMeta
 	}
 	var shaTargets []shaTarget
-	type contextTarget struct {
-		taskID  string
-		context *store.CodeContext
-	}
-	contextByRepo := make(map[string][]contextTarget)
-	type discoveredTarget struct {
-		taskID, owner, repo, method string
-		prNumber                    int
-	}
-	var discovered []discoveredTarget
 	var pollErrors []error
 	changed := false
+	listings := newPRListings(p.gh)
+	mode := syncMode{discover: true, refresh: !skipResolved}
 	branchToTasks := make(map[string][]string) // branch → task IDs
 	branchRepos := make(map[string]string)     // branch → repo (first seen)
-	for _, t := range tasks {
+	tracked, err := p.store.ListTrackedTaskBranches(ctx)
+	if err != nil {
+		return err
+	}
+	for i := range tasks {
+		t := &tasks[i]
 		meta, err := store.ParsePRMeta(t.PRMeta)
 		if err != nil {
 			continue
@@ -328,35 +331,20 @@ func (p *prTrackingService) pollInternal(ctx context.Context, skipResolved bool)
 			continue
 		}
 		if codeContext == nil || codeContext.Repo == "" {
-			codeContext = p.contextFromWorktree(ctx, &t)
+			codeContext = p.contextFromWorktree(ctx, t)
 		}
 		if codeContext == nil || codeContext.Repo == "" {
-			codeContext = p.contextFromMappings(ctx, &t)
+			codeContext = p.contextFromMappings(ctx, t)
 			if codeContext != nil {
 				_ = p.store.SetCodeContext(ctx, t.ID, codeContext)
 			}
 		}
-		if codeContext != nil && codeContext.Repo != "" {
-			if meta != nil && meta.PRNumber > 0 {
-				if skipResolved {
-					continue
-				}
-				owner, name, ok := splitRepo(codeContext.Repo)
-				if !ok {
-					continue
-				}
-				status, fetchErr := p.gh.FetchPRByNumber(owner, name, meta.PRNumber)
-				if fetchErr != nil {
-					pollErrors = append(pollErrors, fmt.Errorf("refresh %s PR #%d: %w", t.ID, meta.PRNumber, fetchErr))
-					if p.applyDiscoveryOutcome(ctx, t.ID, "error", fetchErr.Error()) {
-						changed = true
-					}
-				} else if p.applyContextStatus(ctx, t.ID, status, meta.MatchMethod) {
-					changed = true
-				}
-				continue
+		if (codeContext != nil && codeContext.Repo != "") || len(tracked[t.ID]) > 0 {
+			taskChanged, syncErr := p.syncTask(ctx, t, codeContext, mode, listings)
+			changed = changed || taskChanged
+			if syncErr != nil {
+				pollErrors = append(pollErrors, syncErr)
 			}
-			contextByRepo[codeContext.Repo] = append(contextByRepo[codeContext.Repo], contextTarget{taskID: t.ID, context: codeContext})
 			continue
 		}
 		if meta == nil || meta.Branch == "" {
@@ -377,54 +365,6 @@ func (p *prTrackingService) pollInternal(ctx context.Context, skipResolved bool)
 		branchToTasks[meta.Branch] = append(branchToTasks[meta.Branch], t.ID)
 		if branchRepos[meta.Branch] == "" {
 			branchRepos[meta.Branch] = meta.Repo
-		}
-	}
-
-	if !changed && len(branchToTasks) == 0 && len(shaTargets) == 0 && len(contextByRepo) == 0 {
-		return errors.Join(pollErrors...)
-	}
-
-	for repo, targets := range contextByRepo {
-		owner, name, ok := splitRepo(repo)
-		if !ok {
-			continue
-		}
-		prs, err := p.gh.ListRepositoryPRs(owner, name)
-		if err != nil {
-			pollErrors = append(pollErrors, fmt.Errorf("list %s pull requests: %w", repo, err))
-			for _, target := range targets {
-				if p.applyDiscoveryOutcome(ctx, target.taskID, "error", err.Error()) {
-					changed = true
-				}
-			}
-			continue
-		}
-		for _, target := range targets {
-			status, method, outcome := matchContextPR(target.taskID, repo, target.context, prs)
-			if status != nil {
-				if p.applyContextStatus(ctx, target.taskID, status, method) {
-					changed = true
-				}
-				discovered = append(discovered, discoveredTarget{
-					taskID: target.taskID, owner: owner, repo: name, method: method, prNumber: status.Number,
-				})
-			} else if p.applyDiscoveryOutcome(ctx, target.taskID, outcome, "") {
-				changed = true
-			}
-		}
-	}
-
-	for _, target := range discovered {
-		status, err := p.gh.FetchPRByNumber(target.owner, target.repo, target.prNumber)
-		if err != nil {
-			pollErrors = append(pollErrors, fmt.Errorf("refresh %s PR #%d: %w", target.taskID, target.prNumber, err))
-			if p.applyDiscoveryOutcome(ctx, target.taskID, "error", err.Error()) {
-				changed = true
-			}
-			continue
-		}
-		if p.applyContextStatus(ctx, target.taskID, status, target.method) {
-			changed = true
 		}
 	}
 
@@ -457,13 +397,7 @@ func (p *prTrackingService) pollInternal(ctx context.Context, skipResolved bool)
 		}
 	}
 
-	if changed && p.bus != nil {
-		p.bus.Publish(events.Event{
-			Type: events.EventPRStatusUpdated,
-			At:   time.Now(),
-		})
-	}
-
+	p.publishIfChanged(changed)
 	return errors.Join(pollErrors...)
 }
 
@@ -622,34 +556,6 @@ func isKeyCharacter(value byte) bool {
 
 func isDefaultBranch(branch, configured string) bool {
 	return branch == "" || branch == "HEAD" || branch == "main" || branch == "master" || configured != "" && branch == configured
-}
-
-func (p *prTrackingService) applyContextStatus(ctx context.Context, taskID string, status *github.PRStatus, method string) bool {
-	task, err := p.store.GetTask(ctx, taskID)
-	if err != nil {
-		return false
-	}
-	old, _ := store.ParsePRMeta(task.PRMeta)
-	meta := &store.PRMeta{
-		PRNumber: status.Number, PRURL: status.URL, State: status.State,
-		IsDraft: status.IsDraft, ReviewDecision: status.ReviewDecision,
-		CheckStatus: status.CheckStatus, CommentCount: status.CommentCount,
-		UpdatedAt: time.Now().UTC().Format(time.RFC3339), MatchMethod: method, SyncOutcome: "linked",
-	}
-	if old != nil && old.Pinned && old.PRNumber != status.Number {
-		return false
-	}
-	if old != nil {
-		meta.Pinned = old.Pinned
-		if meta.MatchMethod == "" {
-			meta.MatchMethod = old.MatchMethod
-		}
-	}
-	raw, err := store.MarshalPRMeta(meta)
-	if err != nil || p.store.UpdatePRMeta(ctx, taskID, raw) != nil {
-		return false
-	}
-	return true
 }
 
 func (p *prTrackingService) applyDiscoveryOutcome(ctx context.Context, taskID, outcome, syncError string) bool {

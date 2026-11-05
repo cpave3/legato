@@ -60,6 +60,7 @@ Inside an agent session, Legato sets `LEGATO_TASK_ID`. Commands that act on one 
 - `legato --hot-reload` and `legato --hot-reload serve [--port <port>]`: run the TUI or the web server under a supervisor that restarts it when the `legato` binary is rebuilt. `--hot-reload` must come first, and works with these two commands only. See [Build from source](/legato/contributing/build/).
 - `legato version [--json]`: print this binary's version, `vX.Y.Z` for a release or `dev` for a build from source. See [Updates](/legato/running/updates/).
 - `legato pair [--host <host|ip>] [--port <port>] [--json]`: pair a phone with the web UI. When Legato's web server runs on this machine, it shows a QR code and a phrase to type in the Legato app, and waits until a phone pairs (exit `0`) or the phrase expires (exit `4`). With `--json` it prints the phrase and does not wait. See [Phones and other devices](/legato/running/devices/).
+- `legato pair --main [--host <host|ip>] [--port <port>] [--json]`: on a worker, pair a main instance. It prints this Legato's address and a phrase to enter in the main's Settings › Handoff › Workers › **Add a worker**, and waits until the main pairs. It needs the web server to be running. See [Main and worker instances](/legato/running/instances/).
 - `legato auth token [--json]`: print the web UI's access token.
 - `legato auth regenerate [--json]`: replace the access token. Every paired device must pair again. See [Web UI access](/legato/security/web-auth/).
 - `legato device list [--json]`: list the phones that sign approval decisions.
@@ -75,7 +76,7 @@ legato pair --host 192.168.1.20
 
 - `legato task list [--status <column>] [--workspace <name|unassigned>] [--limit <count>] [--json]`: list active tasks in board order.
 - `legato task create <title> [--description <text> | --description-file <path|->] [--status <column>] [--priority <priority>] [--workspace <name|unassigned>] [--json]`: create a local task. `--description-file -` reads Markdown from standard input. `--workspace none` or `unassigned` overrides a configured default workspace.
-- `legato task show [<task-id>] [--format description|full|json] [--json]`: print a task. `full` and `json` include the task's notes.
+- `legato task show [<task-id>] [--format description|full|json] [--json]`: print a task. `full` and `json` include the task's notes and its pull requests in stack order; `json` also lists the branches it tracks (`tracked_branches`).
 - `legato task update [<task-id>] [--status <column>] [--title <title>] [--description <text> | --description-file <path|->] [--workspace <name>] [--json]`: change a task. `--status` moves it to another column; `--workspace none` clears its workspace. You cannot change the title of a task that comes from Jira. A description you set is Legato's own text, kept beside the ticket's description; Jira does not change.
 - `legato task description [<task-id>] (--description <text> | --description-file <path|->) [--json]`: replace a task's Legato-owned description. The same as `task update --description`.
 - `legato task note [<task-id>] <message> [--json]`: add a timestamped line to the end of a local task's description. Tasks from Jira are refused.

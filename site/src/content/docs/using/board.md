@@ -45,7 +45,7 @@ A card shows, from the top:
 
 - The priority mark (`▲` high, `▼` low, `·` none), the task's key, and where the task comes from: `local`, or a ticket provider such as `◈ jira`.
 - The title.
-- The ticket type, the workspace (in the All view), the swarm's progress, the review mark, and the state of the pull request: CI, review and comments, such as `✓ CI · ✓ review · 2 comments`.
+- The ticket type, the workspace (in the All view), the swarm's progress, the review mark, and the state of the pull request: CI, review and comments, such as `✓ CI · ✓ review · 2 comments`. A task built as a stack of branches has several pull requests; the card names each with its state, from the bottom of the stack: `#11 ✗ CI · #12 draft PR`.
 - A warning when Legato could not send a change to the ticket provider (`⚠ sync failed` in the web UI).
 - An agent strip at the foot, when an agent works on the task.
 

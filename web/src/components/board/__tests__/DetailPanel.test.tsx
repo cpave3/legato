@@ -1,7 +1,7 @@
 import { describe, expect, it, afterEach, vi } from "vitest"
 import { render, screen, cleanup, fireEvent, within } from "@testing-library/react"
 import { DetailPanel } from "../DetailPanel"
-import type { CardDetail } from "../../../lib/board-types"
+import type { CardDetail, PRMetaView } from "../../../lib/board-types"
 vi.mock("../TaskAgentAction",()=>({TaskAgentAction:({ taskId, worktreePath, rememberedWorkingDir, resumableAgentKinds }: { taskId: string; worktreePath?: string; rememberedWorkingDir?: string; resumableAgentKinds?: string[] })=> <button data-task-primary-action data-task-id={taskId} data-worktree-path={worktreePath} data-remembered-working-dir={rememberedWorkingDir} data-resumable-agent-kinds={JSON.stringify(resumableAgentKinds)} className="min-h-9 w-full" type="button">Open agent</button>}))
 vi.mock("../TaskActivityTabs",()=>({TaskActivityTabs:()=>null}))
 
@@ -104,6 +104,21 @@ describe("DetailPanel", () => {
     fireEvent.click(screen.getByRole("button", { name: "Rediscover pull request" }))
     expect(onRefreshPR).toHaveBeenCalledOnce()
     expect(onRediscoverPR).toHaveBeenCalledOnce()
+  })
+
+  it("lists every pull request of a stack in order, each with its state", () => {
+    const pr = (number: number, more: Partial<PRMetaView> = {}): PRMetaView => ({ repo: "acme/widget", branch: `stack-${number}`, pr_number: number, pr_url: `https://github.com/acme/widget/pull/${number}`, state: "OPEN", is_draft: false, review_decision: "", check_status: "", comment_count: 0, pinned: false, match_method: "branch", sync_outcome: "linked", sync_error: "", ...more })
+    renderPanel(makeCard({
+      pr_meta: pr(11),
+      pull_requests: [pr(11, { check_status: "fail" }), pr(12, { is_draft: true }), pr(13, { state: "MERGED" })],
+    }))
+    const list = screen.getByRole("list", { name: "Pull requests" })
+    const items = within(list).getAllByRole("listitem")
+    expect(items.map(item => within(item).getByRole("link").textContent)).toEqual(["#11", "#12 (draft)", "#13"])
+    expect(within(items[0]).getByRole("link").getAttribute("href")).toBe("https://github.com/acme/widget/pull/11")
+    expect(within(items[0]).getByText("CI failing")).toBeTruthy()
+    expect(within(items[1]).getByText("stack-12")).toBeTruthy()
+    expect(within(items[2]).getByText("merged")).toBeTruthy()
   })
 
   it("stays below action modals in the board stacking order", () => {

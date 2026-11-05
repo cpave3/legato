@@ -38,6 +38,13 @@ func formatFull(card *CardDetail) string {
 	if url := card.RemoteMeta["url"]; url != "" {
 		out += fmt.Sprintf("**URL:** %s\n", url)
 	}
+	if len(card.PullRequests) > 0 {
+		prs := make([]string, 0, len(card.PullRequests))
+		for _, pr := range card.PullRequests {
+			prs = append(prs, formatPullRequest(pr))
+		}
+		out += fmt.Sprintf("**Pull requests:** %s\n", strings.Join(prs, "; "))
+	}
 
 	out += "\n---\n"
 
@@ -69,4 +76,32 @@ func formatAttachments(items []LocalAttachment) string {
 		fmt.Fprintf(&out, "- %s: `%s`\n", item.Filename, item.Path)
 	}
 	return out.String()
+}
+
+// formatPullRequest names one PR for a task's context: number, branch,
+// state, checks and review.
+func formatPullRequest(pr PRMetaView) string {
+	out := fmt.Sprintf("#%d", pr.PRNumber)
+	var parts []string
+	if pr.Branch != "" {
+		parts = append(parts, pr.Branch)
+	}
+	if pr.IsDraft {
+		parts = append(parts, "draft")
+	} else if pr.State != "" {
+		parts = append(parts, strings.ToLower(pr.State))
+	}
+	if pr.CheckStatus != "" {
+		parts = append(parts, "checks "+pr.CheckStatus)
+	}
+	if pr.ReviewDecision != "" {
+		parts = append(parts, strings.ToLower(strings.ReplaceAll(pr.ReviewDecision, "_", " ")))
+	}
+	if pr.PRURL != "" {
+		parts = append(parts, pr.PRURL)
+	}
+	if len(parts) > 0 {
+		out += " (" + strings.Join(parts, ", ") + ")"
+	}
+	return out
 }

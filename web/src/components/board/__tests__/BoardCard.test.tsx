@@ -2,7 +2,16 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react"
 import { MemoryRouter } from "react-router-dom"
 import { BoardCard } from "../BoardCard"
-import type { BoardCard as BoardCardType } from "../../../lib/board-types"
+import type { BoardCard as BoardCardType, PRMetaView } from "../../../lib/board-types"
+
+function pr(number: number, overrides: Partial<PRMetaView> = {}): PRMetaView {
+  return {
+    repo: "acme/app", branch: `branch-${number}`, pr_number: number, pr_url: `https://github.com/acme/app/pull/${number}`,
+    state: "OPEN", is_draft: false, review_decision: "APPROVED", check_status: "pass", comment_count: 3,
+    pinned: false, match_method: "branch", sync_outcome: "linked", sync_error: "",
+    ...overrides,
+  }
+}
 
 function makeCard(overrides: Partial<BoardCardType> = {}): BoardCardType {
   return {
@@ -21,11 +30,7 @@ function makeCard(overrides: Partial<BoardCardType> = {}): BoardCardType {
     error_seconds: 0,
     workspace_id: null, workspace_name: "Default",
     workspace_color: "#ff0000",
-    pr_check_status: "pass",
-    pr_review_decision: "APPROVED",
-    pr_comment_count: 3,
-    pr_is_draft: false,
-    pr_number: 42,
+    pull_requests: [pr(42)],
     ...overrides,
   }
 }
@@ -88,10 +93,10 @@ describe("BoardCard", () => {
   })
 
   it("describes the pull request in one line", () => {
-    renderCard(makeCard({ pr_is_draft: true, pr_check_status: "fail", pr_review_decision: "CHANGES_REQUESTED", pr_comment_count: 12 }))
-    const pr = screen.getByLabelText("Pull request #42")
+    renderCard(makeCard({ pull_requests: [pr(42, { is_draft: true, check_status: "fail", review_decision: "CHANGES_REQUESTED", comment_count: 12 })] }))
+    const line = screen.getByLabelText("Pull request #42")
     for (const text of ["#42", "draft", "CI failed", "changes requested", "12 comments"]) {
-      expect(within(pr).getByText(text)).toBeTruthy()
+      expect(within(line).getByText(text)).toBeTruthy()
     }
   })
 
@@ -100,18 +105,31 @@ describe("BoardCard", () => {
     ["pending", "", ["CI pending", "review pending"]],
     ["", "REVIEW_REQUIRED", ["no checks", "review pending"]],
   ])("words CI %j and review %j", (checks, review, texts) => {
-    renderCard(makeCard({ pr_check_status: checks, pr_review_decision: review, pr_comment_count: 0 }))
-    const pr = screen.getByLabelText("Pull request #42")
-    for (const text of texts) expect(within(pr).getByText(text)).toBeTruthy()
-    expect(within(pr).queryByText(/comment/)).toBeNull()
+    renderCard(makeCard({ pull_requests: [pr(42, { check_status: checks, review_decision: review, comment_count: 0 })] }))
+    const line = screen.getByLabelText("Pull request #42")
+    for (const text of texts) expect(within(line).getByText(text)).toBeTruthy()
+    expect(within(line).queryByText(/comment/)).toBeNull()
   })
 
   it("never calls a draft ready to merge, and omits the line without a pull request", () => {
-    renderCard(makeCard({ pr_is_draft: true }))
+    renderCard(makeCard({ pull_requests: [pr(42, { is_draft: true })] }))
     expect(screen.queryByText("ready to merge")).toBeNull()
     cleanup()
-    renderCard(makeCard({ pr_number: 0 }))
+    renderCard(makeCard({ pull_requests: undefined }))
     expect(screen.queryByLabelText(/Pull request/)).toBeNull()
+  })
+
+  it("lists every pull request of a stack in order, each with its own state", () => {
+    renderCard(makeCard({ pull_requests: [
+      pr(11, { check_status: "fail", review_decision: "", comment_count: 0 }),
+      pr(12, { is_draft: true, comment_count: 0 }),
+      pr(13, { comment_count: 0 }),
+    ] }))
+    const lines = screen.getAllByLabelText(/^Pull request #/)
+    expect(lines.map(line => line.getAttribute("aria-label"))).toEqual(["Pull request #11", "Pull request #12", "Pull request #13"])
+    expect(within(lines[0]).getByText("CI failed")).toBeTruthy()
+    expect(within(lines[1]).getByText("draft")).toBeTruthy()
+    expect(within(lines[2]).getByText("ready to merge")).toBeTruthy()
   })
 
   it("lists priority, type, workspace and swarm progress under the title", () => {
