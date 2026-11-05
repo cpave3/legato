@@ -28,6 +28,7 @@ import androidx.compose.foundation.shape.RoundedCornerShape
 import androidx.compose.foundation.text.BasicTextField
 import androidx.compose.foundation.text.KeyboardOptions
 import androidx.compose.foundation.verticalScroll
+import androidx.compose.material3.AlertDialog
 import androidx.compose.material3.CircularProgressIndicator
 import androidx.compose.material3.DropdownMenu
 import androidx.compose.material3.DropdownMenuItem
@@ -37,6 +38,7 @@ import androidx.compose.material3.Icon
 import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ProvideTextStyle
 import androidx.compose.material3.Text
+import androidx.compose.material3.TextButton
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.pulltorefresh.PullToRefreshDefaults
@@ -126,9 +128,23 @@ fun LegatoApp(activity: MainActivity) {
                     BackHandler { if (!(sheet is SheetState.Ready && sheet.busy)) activity.closeSheet() }
                     ApprovalSheet(activity, sheet)
                 }
+                state.workerConfirm.value?.let { ask -> WorkerConfirmDialog(activity, ask) }
             }
         }
     }
+}
+
+// The app's own confirm before a server becomes a worker of the page's: a
+// dialog in its own window, which the page cannot draw over or answer.
+@Composable
+private fun WorkerConfirmDialog(activity: MainActivity, ask: WorkerConfirm) {
+    AlertDialog(
+        onDismissRequest = { activity.answerWorkerConfirm(false) },
+        title = { Text("Add a worker") },
+        text = { Text(ask.message) },
+        confirmButton = { TextButton(onClick = { activity.answerWorkerConfirm(true) }) { Text("Make it a worker") } },
+        dismissButton = { TextButton(onClick = { activity.answerWorkerConfirm(false) }) { Text("Cancel") } },
+    )
 }
 
 @OptIn(ExperimentalMaterial3Api::class)

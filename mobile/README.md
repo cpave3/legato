@@ -57,7 +57,8 @@ All of it is in `app/src/main/java/dev/legato/mobile/`.
 | `ShellVoice.kt` | Recording for the page |
 | `ConnectionStore.kt` | The saved servers |
 | `ServerProbe.kt` | `/health` and `/api/meta` |
-| `ServerPage.kt` | The WebView, wired to the four above |
+| `ShellWorkers.kt` | Pairing another saved server as a worker of the page's server |
+| `ServerPage.kt` | The WebView, wired to the five above |
 | `ApprovalSigning.kt` | Signed approvals: the server's endpoints, the key's parameters, enrollment, the signed message, what the sheet shows |
 | `AndroidApprovalKeys.kt` | The approval keys in the Keystore, the fingerprint prompt, calls to a server's API |
 | `ApprovalSheet.kt`, `ApprovalsScreen.kt` | The approval sheet with its seal, and the open approvals of every server |
@@ -284,6 +285,39 @@ signature.
   Pixel 9 Pro). On Android 10 the key is fingerprint-only and is retired: the
   app deletes it, forgets the device, and offers to enroll again, which an
   enrolled phone or passkey, or `legato device reset` at the host, allows.
+
+## Adding a worker from another saved server
+
+A main's Settings › Handoff › Workers › **Add a worker** can pair one of the
+app's other servers as a worker, without opening "Pair a main instance" on the
+worker and typing its address and phrase (`ShellWorkers.kt`). The page never
+sees another server's token: the app holds it, opens the pairing request and
+asks the person itself. It is the contract the desktop app shares (see
+`docs/ai/desktop.md`); the web side is `shellWorkers` in
+`web/src/lib/mobileShell.ts`.
+
+- The page is told `window.legatoShell.workers === 1`.
+- `{legatoShell: "workerCandidates", key, id}` (the contract names the kind
+  `type`; the app reads either) is answered with a `legato:shell-worker` event,
+  detail `{id, servers: [{key, name, url}]}`: every saved server except the
+  page's own, `key` being the connection's ID.
+- `{legatoShell: "openWorkerPairing", key, id, server, main}` opens the app's
+  own dialog, over the page and out of its reach: "Make <server> a worker of
+  <main>? <main> will be able to hand tasks to <server>, which runs their
+  agents there." (`main` is the page's name for its server, else the saved
+  name.) On **Make it a worker** the app calls `POST <server>/api/pairing` with
+  `{"purpose":"main"}`, that server's token and pinned certificate, and answers
+  `{id, address, phrase, expires_at}`: `address` is the app's URL for the
+  server, `phrase` and `expires_at` as the server sent them. On **Cancel**:
+  `{id, cancelled: true}`. On a failure: `{id, error}`, in the server's words
+  where it gave any.
+- A server from before handoff ignores the purpose and opens a phone's request;
+  the app withdraws it (`DELETE /api/pairing`) and says the server is too old
+  to be a worker.
+- The page then gives its own server the address and phrase, as the manual
+  form does, and the two servers pair between themselves.
+- Only a request with the page's key from its top frame is obeyed. A new
+  request replaces a confirm still open, and closing the page cancels it.
 
 ## File uploads and links
 

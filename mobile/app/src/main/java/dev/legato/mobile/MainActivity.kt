@@ -396,12 +396,51 @@ class MainActivity : ComponentActivity() {
     }
 
     private fun closePage() {
+        // A confirm outlives no page: whoever asked is gone.
+        answerWorkerConfirm(false)
         page?.destroy()
         page = null
         state.canGoBack.value = false
     }
 
+    // Adding a worker from the page: the app's own confirm, then the main's
+    // pairing request opened with the chosen server's token (ShellWorkers.kt).
+
+    // answerWorkerConfirm closes the confirm, giving whoever asked the answer.
+    fun answerWorkerConfirm(yes: Boolean) {
+        val ask = state.workerConfirm.value ?: return
+        state.workerConfirm.value = null
+        ask.answer(yes)
+    }
+
+    private fun openWorkerPairing(server: Connection, done: (Result<WorkerPairing>) -> Unit) {
+        io.execute {
+            val outcome = runCatching {
+                val token = store.token(server.id) ?: throw ServerError("${server.name} has no saved token. Pair it with this app again.")
+                try {
+                    WorkerPairingClient(AndroidServerHttp(server.baseUrl, token, server.caCertificate), server.baseUrl).open()
+                } catch (cause: IOException) {
+                    throw ServerError("Could not reach ${server.name}: ${cause.message ?: cause}")
+                }
+            }
+            runOnUiThread { done(outcome) }
+        }
+    }
+
     private val pageCallbacks = object : ServerPage.Callbacks {
+        override fun servers(): List<Connection> = store.load()
+
+        override fun confirmWorker(message: String, answer: (Boolean) -> Unit) {
+            runOnUiThread {
+                // One confirm at a time: a newer request replaces an older one.
+                answerWorkerConfirm(false)
+                state.workerConfirm.value = WorkerConfirm(message, answer)
+            }
+        }
+
+        override fun openWorkerPairing(server: Connection, done: (Result<WorkerPairing>) -> Unit) =
+            this@MainActivity.openWorkerPairing(server, done)
+
         override fun openApproval(connection: Connection, id: String, done: (String, String?, String?) -> Unit) {
             runOnUiThread { openApprovalSheet(store.load().firstOrNull { it.id == connection.id } ?: connection, id, done) }
         }
@@ -604,4 +643,8 @@ class AppState {
     val sheet = mutableStateOf<SheetState?>(null)
     // The open approvals of every saved server.
     val approvals = mutableStateOf<List<ServerApprovals>?>(null)
+    // The app's confirm before a server becomes a worker of the page's.
+    val workerConfirm = mutableStateOf<WorkerConfirm?>(null)
 }
+
+class WorkerConfirm(val message: String, val answer: (Boolean) -> Unit)

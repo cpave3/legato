@@ -65,6 +65,7 @@ The app is a native Android shell around the web UI, for Android 10 and later. O
 - Approval links: an approval notification from ntfy opens the app on that approval. See [Notifications](/legato/integrations/notifications/).
 - Signed approvals: the phone holds a key in its secure hardware and signs a decision after your fingerprint or PIN. See [How credentials reach agents](/legato/security/credential-broker/).
 - An approvals list across all your servers.
+- Adding a worker from another server the app knows: on a main's Settings › Handoff › Workers › **Add a worker**, choose one of the app's other servers and agree in the app's own dialog. The app opens the pairing request on that server with the token it holds, so you type no address or words. See [Main and worker instances](/legato/running/instances/).
 
 There is no download of the app yet. Build it from the repository with the Android SDK and a JDK from 17 to 24:
 

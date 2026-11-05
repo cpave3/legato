@@ -17,7 +17,7 @@ class PageContractTest {
     @Test
     fun `tells only the top frame it can record, with the page's key`() {
         val script = bootstrapScript("https://mac.example", "t", shellKey = "k1")
-        assertTrue(script.contains("window.legatoShell={voice:1,approval:1,enroll:1,key:\"k1\"}"))
+        assertTrue(script.contains("window.legatoShell={voice:1,approval:1,enroll:1,workers:1,key:\"k1\"}"))
         assertTrue(script.startsWith("if(window===window.top)"))
     }
 
@@ -63,5 +63,34 @@ class PageContractTest {
         val enroll = enrollEventScript("error", "it's \"broken\"")
         assertTrue(enroll.contains("legato:shell-enroll"))
         assertTrue(enroll.contains("it's \\\"broken\\\""))
+    }
+
+    @Test
+    fun `reads a request for the servers the app could add as workers`() {
+        assertEquals(PageMessage.WorkerCandidates("k1", "r1"), PageMessage.parse("""{"legatoShell":"workerCandidates","key":"k1","id":"r1"}"""))
+        // The contract names the kind `type`; either is read.
+        assertEquals(PageMessage.WorkerCandidates("k1", 7), PageMessage.parse("""{"type":"workerCandidates","key":"k1","id":7}"""))
+        assertEquals(PageMessage.Unknown, PageMessage.parse("""{"legatoShell":"workerCandidates","key":"k1"}"""))
+        assertEquals(PageMessage.Unknown, PageMessage.parse("""{"legatoShell":"workerCandidates","id":"r1"}"""))
+    }
+
+    @Test
+    fun `reads a request to pair a server as a worker`() {
+        assertEquals(
+            PageMessage.OpenWorkerPairing("k1", "r2", server = "c-2", main = "studio"),
+            PageMessage.parse("""{"legatoShell":"openWorkerPairing","key":"k1","id":"r2","server":"c-2","main":"studio"}"""),
+        )
+        assertEquals(PageMessage.Unknown, PageMessage.parse("""{"legatoShell":"openWorkerPairing","key":"k1","id":"r2","main":"studio"}"""))
+        assertEquals(PageMessage.Unknown, PageMessage.parse("""{"legatoShell":"openWorkerPairing","key":"k1","id":{},"server":"c-2","main":"studio"}"""))
+        // A page that names no main still gets a confirm, which names the page's server.
+        assertEquals(PageMessage.OpenWorkerPairing("k1", "r2", server = "c-2", main = ""), PageMessage.parse("""{"legatoShell":"openWorkerPairing","key":"k1","id":"r2","server":"c-2"}"""))
+    }
+
+    @Test
+    fun `answers the page with a worker event`() {
+        val script = workerEventScript(org.json.JSONObject().put("id", "r1").put("cancelled", true))
+        assertTrue(script.contains("legato:shell-worker"))
+        assertTrue(script.contains("\"id\":\"r1\""))
+        assertTrue(script.contains("\"cancelled\":true"))
     }
 }

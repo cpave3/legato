@@ -56,6 +56,16 @@ class ServerPage(
 
         // The page asks to enroll this phone to sign approvals.
         fun enroll(connection: Connection, done: (status: String, error: String?) -> Unit)
+
+        // The app's saved servers, for the page's Add a worker.
+        fun servers(): List<Connection>
+
+        // Asks the person, in the app, whether a server may become a worker.
+        fun confirmWorker(message: String, answer: (Boolean) -> Unit)
+
+        // Opens a main's pairing request on a server with its own token, off
+        // the main thread; done runs on it.
+        fun openWorkerPairing(server: Connection, done: (Result<WorkerPairing>) -> Unit)
     }
 
     private val appContext = context.applicationContext
@@ -79,6 +89,15 @@ class ServerPage(
         handler.postDelayed(tick, delay)
         return@ShellVoice { handler.removeCallbacks(tick) }
     }
+
+    private val workers = ShellWorkers(
+        shellKey,
+        connection,
+        servers = callbacks::servers,
+        confirm = callbacks::confirmWorker,
+        openRequest = callbacks::openWorkerPairing,
+        tell = { detail -> handler.post { evaluate(workerEventScript(detail)) } },
+    )
 
     private var inFront = true
 
@@ -294,6 +313,8 @@ class ServerPage(
             is PageMessage.Enroll -> if (message.key == shellKey) {
                 callbacks.enroll(connection) { status, error -> handler.post { evaluate(enrollEventScript(status, error)) } }
             }
+            is PageMessage.WorkerCandidates -> workers.handle(message)
+            is PageMessage.OpenWorkerPairing -> workers.handle(message)
             PageMessage.Unknown -> Unit
         }
     }

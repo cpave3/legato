@@ -12,15 +12,16 @@ import java.net.URI
 const val PAGE_BRIDGE ="ReactNativeWebView"
 
 // bootstrapScript runs in the page before its own scripts. It signs the page
-// in, and tells it the app can record for it (`window.legatoShell`) with a key
-// the page must send back: frames an agent's HTML runs in can post to the app
-// too, and must not start the microphone. Only the top frame gets either.
+// in, and tells it what the app does for it (`window.legatoShell`: records,
+// signs approvals, pairs its other servers as workers) with a key the page
+// must send back: frames an agent's HTML runs in can post to the app too, and
+// must not start the microphone. Only the top frame gets either.
 fun bootstrapScript(baseUrl: String, token: String, shellKey: String): String {
     val value = JSONObject.quote(token)
     return "if(window===window.top){" +
         "localStorage.setItem(\"legato:token:local\",$value);" +
         "localStorage.setItem(${JSONObject.quote("legato:token:$baseUrl")},$value);" +
-        "window.legatoShell={voice:1,approval:1,enroll:1,key:${JSONObject.quote(shellKey)}};" +
+        "window.legatoShell={voice:1,approval:1,enroll:1,workers:1,key:${JSONObject.quote(shellKey)}};" +
         "}"
 }
 
@@ -81,6 +82,16 @@ sealed interface PageMessage {
     // A request to enroll this phone to sign approvals for the server.
     data class Enroll(val key: String) : PageMessage
 
+    // A request for the app's other servers, which could become workers of
+    // the page's server. id is the page's, a string or a number, sent back
+    // as it came.
+    data class WorkerCandidates(val key: String, val id: Any) : PageMessage
+
+    // A request to open a main's pairing request on one of the app's servers
+    // (server is its connection ID), after the person agrees in the app.
+    // main is what the page calls its own server, for the confirm.
+    data class OpenWorkerPairing(val key: String, val id: Any, val server: String, val main: String) : PageMessage
+
     data object Unknown : PageMessage
 
     companion object {
@@ -90,7 +101,10 @@ sealed interface PageMessage {
             } catch (cause: Exception) {
                 return Unknown
             }
-            return when (message.opt("legatoShell")) {
+            // The worker messages are named `type` in the contract the
+            // desktop app shares; the app's own messages name their kind
+            // `legatoShell`. Either is read.
+            return when (message.opt("legatoShell") ?: message.opt("type")) {
                 "restore" -> (message.opt("url") as? String)?.let(::Restore) ?: Unknown
                 "voice" -> {
                     val key = message.opt("key") as? String
@@ -103,6 +117,17 @@ sealed interface PageMessage {
                     if (key != null && id != null && APPROVAL_ID.matches(id)) Approval(key, id) else Unknown
                 }
                 "enroll" -> (message.opt("key") as? String)?.let(::Enroll) ?: Unknown
+                "workerCandidates" -> {
+                    val key = message.opt("key") as? String
+                    val id = requestId(message)
+                    if (key != null && id != null) WorkerCandidates(key, id) else Unknown
+                }
+                "openWorkerPairing" -> {
+                    val key = message.opt("key") as? String
+                    val id = requestId(message)
+                    val server = message.opt("server") as? String
+                    if (key != null && id != null && server != null) OpenWorkerPairing(key, id, server, message.opt("main") as? String ?: "") else Unknown
+                }
                 else -> Unknown
             }
         }
@@ -110,6 +135,16 @@ sealed interface PageMessage {
 }
 
 private val APPROVAL_ID = Regex("^ap-[0-9a-f]{8}$")
+
+private fun requestId(message: JSONObject): Any? = when (val id = message.opt("id")) {
+    is String, is Number -> id
+    else -> null
+}
+
+// workerEventScript answers a worker request with a `legato:shell-worker`
+// event; detail carries the request's id.
+fun workerEventScript(detail: JSONObject): String =
+    "(function(){try{window.dispatchEvent(new CustomEvent(\"legato:shell-worker\",{detail:$detail}))}catch(e){}})()"
 
 // approvalEventScript tells the page how the approval sheet closed.
 fun approvalEventScript(id: String, status: String, option: String?, error: String?): String {
