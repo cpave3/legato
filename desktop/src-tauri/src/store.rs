@@ -136,6 +136,20 @@ impl Store {
         self.state.servers.iter_mut().find(|s| s.id == id)
     }
 
+    /// Puts the servers in the order of `ids`. An ID that names no server is
+    /// ignored, and a server left out keeps its relative place after the rest.
+    pub fn reorder_servers(&mut self, ids: &[String]) {
+        let mut rest = std::mem::take(&mut self.state.servers);
+        let mut ordered = Vec::with_capacity(rest.len());
+        for id in ids {
+            if let Some(i) = rest.iter().position(|s| &s.id == id) {
+                ordered.push(rest.remove(i));
+            }
+        }
+        ordered.extend(rest);
+        self.state.servers = ordered;
+    }
+
     pub fn token(&self, id: &str) -> Option<String> {
         self.secrets.get(id)
     }
@@ -228,6 +242,23 @@ pub(crate) mod tests {
         let again = open(&dir, &secrets);
         assert_eq!(again.state, store.state);
         assert_eq!(again.token(&s.id).as_deref(), Some("tok-1"));
+    }
+
+    #[test]
+    fn servers_keep_the_order_they_are_put_in() {
+        let (dir, secrets) = (tempfile::tempdir().unwrap(), Memory::default());
+        let mut store = open(&dir, &secrets);
+        let a = store.add_server("a", "https://a.local", None, "t").unwrap();
+        let b = store.add_server("b", "https://b.local", None, "t").unwrap();
+        let c = store.add_server("c", "https://c.local", None, "t").unwrap();
+
+        // An id the store does not know is ignored; one left out keeps its place at the end.
+        store.reorder_servers(&[c.id.clone(), "s-gone".into(), a.id.clone()]);
+        let ids = |s: &Store| s.state.servers.iter().map(|x| x.id.clone()).collect::<Vec<_>>();
+        assert_eq!(ids(&store), [c.id.clone(), a.id.clone(), b.id.clone()]);
+
+        store.save().unwrap();
+        assert_eq!(ids(&open(&dir, &secrets)), ids(&store));
     }
 
     #[test]

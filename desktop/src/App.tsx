@@ -175,6 +175,10 @@ export function App() {
         active={current?.id}
         panel={panel?.kind ?? null}
         onSelect={select}
+        onReorder={(ids) => {
+          setServers((list) => list && ids.map((id) => list.find((s) => s.id === id)).filter((s): s is Server => !!s))
+          api.reorderServers(ids).catch(() => loadServers())
+        }}
         onAdd={() => setPanel({ kind: "manage", pairing: true })}
         onApprovals={() => setPanel(panel?.kind === "approvals" ? null : { kind: "approvals" })}
         onManage={() => setPanel(panel?.kind === "manage" ? null : { kind: "manage", pairing: false })}

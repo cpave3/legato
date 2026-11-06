@@ -703,6 +703,13 @@ fn rename_server(desktop: State<'_, Desktop>, id: String, name: String) -> Resul
 }
 
 #[tauri::command]
+fn reorder_servers(desktop: State<'_, Desktop>, ids: Vec<String>) -> Result<(), String> {
+    let mut store = desktop.store.lock().unwrap();
+    store.reorder_servers(&ids);
+    store.save()
+}
+
+#[tauri::command]
 fn remove_server(app: AppHandle, desktop: State<'_, Desktop>, id: String) -> Result<(), String> {
     desktop.recording.lock().unwrap().take_if(|r| r.server == id);
     if let Some(view) = app.get_webview(&webview_label(&id)) {
@@ -1285,6 +1292,7 @@ pub fn run() {
             discovered,
             rename_server,
             remove_server,
+            reorder_servers,
             poll,
             keys,
             add_key,

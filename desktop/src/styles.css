@@ -63,6 +63,9 @@ code, .mono { font-family: var(--mono); font-size: 12px; }
 .dock-servers::-webkit-scrollbar { width: 0; }
 .dock-tile { position: relative; width: 44px; height: 44px; flex: none; border: 0; padding: 0; border-radius: 13px; cursor: pointer; background: none; }
 .dock-face { position: absolute; inset: 0; border-radius: 13px; display: grid; place-items: center; font-weight: 700; font-size: 15px; letter-spacing: 0.5px; color: white; background: linear-gradient(140deg, color-mix(in srgb, var(--tint) 85%, white 15%), color-mix(in srgb, var(--tint) 70%, black 30%)); opacity: 0.72; transition: opacity 0.15s, transform 0.15s, border-radius 0.15s; }
+.dock-tile { touch-action: none; user-select: none; }
+.dock-tile.dragging { z-index: 2; cursor: grabbing; }
+.dock-tile.dragging .dock-face { opacity: 1; transform: scale(1.08); box-shadow: 0 6px 16px rgba(0, 0, 0, 0.45); }
 .dock-tile:hover .dock-face { opacity: 1; transform: translateY(-1px); }
 .dock-tile.active .dock-face { opacity: 1; box-shadow: 0 0 0 2px var(--chrome), 0 0 0 4px color-mix(in srgb, var(--tint) 70%, transparent); }
 .dock-tile.active::before { content: ""; position: absolute; left: -12px; top: 10px; bottom: 10px; width: 4px; border-radius: 0 4px 4px 0; background: var(--tint); }

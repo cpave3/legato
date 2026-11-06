@@ -66,6 +66,7 @@ When a server knows Touch ID, the sheet asks for your fingerprint instead of a t
 
 - The title bar is the app's own: drag it to move the window, double-click it to maximize. It names the server in front and has a button to reload its page.
 - When the server in front has a [tint](/legato/using/web-ui/), the title bar, the dock and the window's edges take its colour.
+- To reorder the servers, press and hold a tile and drag it up or down; the order is kept until you change it again.
 - The dock's dot on each tile is green while the server answers and red while it does not.
 - The app keeps no offline copy of a server's web UI.
 - Dictation works in every server's page, over HTTP too: the app records for the page with `parecord` (or `arecord` when there is no `parecord`), and the server transcribes it as usual. Linux only for now.
