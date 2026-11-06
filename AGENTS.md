@@ -127,11 +127,11 @@ The documentation for people who use Legato is the Starlight site in `site/`, pu
 
 ### Issue tracker
 
-Issues live in GitHub Issues for `cpave3/legato`, managed with the `gh` CLI. See `docs/agents/issue-tracker.md`.
+Issues, specs and wayfinder maps live in Burnlite, in the Project `LEG`, managed with the Burnlite MCP tools (or the `burnlite` CLI when they aren't connected). Not GitHub Issues: pull requests stay on GitHub. See `docs/agents/issue-tracker.md`.
 
 ### Triage labels
 
-Default vocabulary: `needs-triage`, `needs-info`, `ready-for-agent`, `ready-for-human`, `wontfix`. See `docs/agents/triage-labels.md`.
+Burnlite Labels: `needs-triage`, `ready-for-agent`, `ready-for-human`, `wontfix`, plus `bug` and `enhancement`; `needs-info` is not used. See `docs/agents/triage-labels.md`.
 
 ### Domain docs
 

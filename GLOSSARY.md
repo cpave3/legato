@@ -44,6 +44,12 @@ An away task coming back to its main instance with what the worker did.
 A main instance ending an away task by itself, without the worker's results, when the worker cannot be reached or no longer has the task.
 _Avoid_: force recall, abandon
 
+### Engrams
+
+**Engram**:
+One named individual kept by the engram CLI, with its own memories, open threads and handoffs, that an agent session can be started as. The CLI itself is "the engram CLI".
+_Avoid_: identity, persona, profile
+
 ### Neighbouring terms
 
 **Delegation**:

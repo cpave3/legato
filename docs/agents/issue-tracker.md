@@ -1,50 +1,87 @@
-# Issue tracker: GitHub
+# Issue tracker: Burnlite
 
-Issues and specs for this repo live as GitHub issues. Use the `gh` CLI for all operations.
+Issues, specs and maps for this repo live in Burnlite, in the Project with key `LEG`. Use the Burnlite tools for all operations.
+
+_Written by `npx burnlite init --project LEG`; re-running it replaces this file. Burnlite tracker doc 2, following the `setup-matt-pocock-skills` templates (`issue-tracker-github.md`, `issue-tracker-local.md`) as installed on 2026-11-03, `issue-tracker-github.md` sha256 `6fdb3e9b00b7`._
+
+**Calling the tools:** each operation below names a Burnlite MCP tool and its arguments. If the Burnlite MCP tools aren't connected, run `npx burnlite <tool-with-dashes> --json` instead (`list_tasks` → `npx burnlite list-tasks --json`; arguments become flags such as `--task-id`, and `--<flag>-file <path>` reads long text from a file).
 
 ## Conventions
 
-- **Create an issue**: `gh issue create --title "..." --body "..."`. Use a heredoc for multi-line bodies.
-- **Read an issue**: `gh issue view <number> --json number,title,body,labels,comments`.
-- **List issues**: `gh issue list --state open --json number,title,body,labels,comments --jq '[.[] | {number, title, body, labels: [.labels[].name], comments: [.comments[].body]}]'` with appropriate `--label` and `--state` filters.
-- **Make an issue a sub-issue of a parent**: `gh issue create --parent <parent> ...`, or `gh issue edit <parent> --add-sub-issue <child>` afterwards (`gh` 2.94+). Older `gh`: `gh api --method POST repos/<owner>/<repo>/issues/<parent>/sub_issues -F sub_issue_id=<child-db-id>` (database id, as in **Blocking** below). Without sub-issues, put `Part of #<parent>` at the top of the child body.
-- **Blocking**: GitHub's **native issue dependencies**, the canonical, UI-visible representation. Add an edge with `gh issue create --blocked-by <n>,<n> ...` or `gh issue edit <child> --add-blocked-by <blocker>` (`gh` 2.94+). Older `gh`: `gh api --method POST repos/<owner>/<repo>/issues/<child>/dependencies/blocked_by -F issue_id=<blocker-db-id>`, where `<blocker-db-id>` is the blocker's numeric **database id** (`gh api repos/<owner>/<repo>/issues/<n> --jq .id`, _not_ the `#number` or `node_id`). Where dependencies aren't available, fall back to a `Blocked by: #<n>, #<n>` line at the top of the child body. A ticket is unblocked when every blocker is closed.
-- **Count open blockers**: `gh api repos/<owner>/<repo>/issues/<n> --jq .issue_dependencies_summary.blocked_by` (open blockers only; 0 means startable). `gh issue view <n> --json blockedBy` also lists closed blockers, so filter it: `--jq '[.blockedBy.nodes[] | select(.state == "OPEN")] | length'`.
-- **Comment on an issue**: `gh issue comment <number> --body "..."`
-- **Apply / remove labels**: `gh issue edit <number> --add-label "..."` / `--remove-label "..."`
-- **Close**: post the explanation with `gh issue comment <number> --body "..."`, then `gh issue close <number>`. On an already-closed issue, `gh issue close --comment` drops the comment and still exits 0.
+- **Items and Keys**: an issue is a **Task**; a group of issues (a map, a spec, a parent issue) is a **Milestone**. Every Task and Milestone has a Key like `LEG-42` that never changes. Every tool takes a Key or an id, and returns the Key and the item's URL, `/LEG-42`.
+- **Project**: pass `projectId: "LEG"` to tools that take a Project.
+- **Kinds**: a **Work task** is implementation work and needs `size` and `uncertaintyLevel` (see **Estimating Work tasks**). A **Meta task** (`kind: "meta"`) is planning or a decision ticket and takes no estimate.
+- **Create an issue**: `create_task` with `projectId`, `taskName`, `milestoneId` (optional), `kind`, `size` and `uncertaintyLevel` (Work tasks only), `description` (markdown: what and why), `plan` (optional, markdown: how), `labels` and `blockers`. To create several that block each other, use `create_tasks`: each item takes the same fields plus a `ref` that other items' `blockers` can name; the batch is saved all or nothing, and Keys come back in item order.
+- **Read an issue**: `get_task` with `taskId`. It returns the Description, Plan, Labels, Claim, Blockers and the Tasks it blocks with their states, Checklist items, Notes, and the text `revision`.
+- **List issues**: `list_tasks` with `projectId` and any of `milestoneId`, `kind`, `state` (`open`, the default; `closed`; `any`), `labels` (every one must match), `unlabeled: true`, `claimed_by`, `frontier: true` and `updated_since` (an ISO 8601 timestamp: only Tasks whose `updatedAt` is after it). Rows come in Milestone order, then Task order; Keys are numbered in creation order, so sort by `number` for oldest first.
+- **Make an issue part of a parent**: the parent is a Milestone. Create the Task with `milestoneId`, or move it with `update_task` and `milestoneId`. `create_milestone` (`projectId`, `name`, `description`, `labels`) makes the parent; `get_milestone` (`milestoneId`) reads it with its Notes and Task rows; `list_milestones` (`projectId`, `labels`, `state`) finds them.
+- **Blocking**: Burnlite's native **Blockers**, between Tasks in this Project. Set them on create (`blockers`, or refs in `create_tasks`), or later with `update_task` `add_blockers` / `remove_blockers`. An edge that would make a loop fails with `cycle`, naming the loop, and nothing is saved. A Task is unblocked when every Blocker is closed, for either reason.
+- **Count open blockers**: a `list_tasks` row has `blocked` and `openBlockers` (Keys); `get_task` lists each Blocker with its `state`.
+- **Comment on an issue**: `create_note` with `taskId` (or `milestoneId` for a Milestone), `content` (markdown) and `holder`.
+- **Apply / remove labels**: `update_task` (or `update_milestone`) with `add_labels` / `remove_labels`. A Label is created on first use and matched regardless of case; the result lists the Project's Labels, so reuse an existing one rather than add a near-duplicate. `list_labels` lists them.
+- **Close**: `close_task` with `taskId`, `reason` (`completed`, the default, or `not_planned`), `summary` (one line, at most 200 characters, no line breaks) and `note` (the explanation, saved with the close). Never post the explanation as a separate Note first. Closing releases the Claim. `reopen_task` undoes a close.
+- **Claim**: `claim_task` with `taskId` and `holder`, before any other work on the Task. If another holder has it, the call fails with `already_claimed`, naming the holder: take another Task. `release_claim` hands a Claim back.
+- **Holder name**: send the same `holder` on every call that takes one (claims, Notes, closes, text edits). Use the first that applies: your engram identity (`ENGRAM_IDENTITY`), else your Legato task id (`LEGATO_TASK_ID`), else your coding agent's own name. The CLI fills it from the environment.
+- **Editing text**: edit a Description or Plan from a fresh `get_task` / `get_milestone`, and send its `revision` as `expected_revision` to `update_task` / `update_milestone`. On `stale_write`, someone changed it since: the error returns the current text and revision, so re-apply your edit to that text and retry. Never resend your old text as it was.
+- **Refer to items by Key** (`LEG-42`) in commits, PRs and Notes. In Burnlite text, link an item by its name: `[the Task's name](/LEG-42)`.
+- **Errors** come back as `isError` with a `code`: `not_found`, `validation` (fix the arguments), `stale_write`, `cycle`, `already_claimed`, `conflict`, `insufficient_scope` (the user must reconnect with the scope it names).
 
-Infer the repo from `git remote -v`; `gh` does this automatically when run inside a clone.
-
-File issues only into the user's own repo. Never file into `mattpocock/skills` (the repo these skills come from) unless the user owns it. In a fork, `gh` can default to the upstream parent, so before the first `gh issue create` of a session, check the target with `gh repo view --json nameWithOwner` and confirm it with the user if it is not their repo.
+The user may run sessions in parallel, so expect other sessions to change the tracker at the same time: claim before you work, and edit text from a fresh read.
 
 ## Pull requests as a triage surface
 
-**PRs as a request surface: no.** _(Set to `yes` if this repo treats external PRs as feature requests; `/triage` reads this flag.)_
-
-When set to `yes`, PRs run through the same labels and states as issues, using the `gh pr` equivalents:
-
-- **Read a PR**: `gh pr view <number>`, then `gh pr view <number> --comments` (off a TTY, `--comments` prints only the comments, not the body), and `gh pr diff <number>` for the diff.
-- **List external PRs for triage**: `gh api --paginate 'repos/{owner}/{repo}/pulls?state=open' --jq '.[] | select(.author_association | IN("OWNER","MEMBER","COLLABORATOR") | not) | {number, title, author: .user.login, author_association, labels: [.labels[].name]}'`.
-- **Comment / label / close**: `gh pr comment`, `gh pr edit --add-label`/`--remove-label`, `gh pr close`.
-
-GitHub shares one number space across issues and PRs, so a bare `#42` may be either: resolve with `gh pr view 42` and fall back to `gh issue view 42`.
+**PRs as a request surface: no.** Pull requests stay on GitHub; Burnlite triage covers Tasks only.
 
 ## When a skill says "publish to the issue tracker"
 
-Create a GitHub issue.
+A spec or a group of tickets is a Milestone; a single ticket is a Task. See **Specs and tickets** below.
 
 ## When a skill says "fetch the relevant ticket"
 
-Read it as in **Read an issue** above.
+`get_task` for a Task Key; `get_milestone` for a Milestone Key (a spec or a map). A `/LEG-42` URL's last part is the Key. State its name before starting.
 
 ## Wayfinding operations
 
-Used by `/wayfinder`. The **map** is a single issue with **child** issues as tickets.
+Used by `/wayfinder`. The **map** is a Milestone with **Meta tasks** as tickets.
 
-- **Map**: a single issue labelled `wayfinder:map`, holding the Notes / Decisions-so-far / Fog body. `gh issue create --label wayfinder:map`.
-- **Child ticket**: an issue linked to the map as a GitHub sub-issue (see **Make an issue a sub-issue of a parent**). Where sub-issues aren't enabled, add the child to a task list in the map body and put `Part of #<map>` at the top of the child body. Labels: `wayfinder:<type>` (`research`/`prototype`/`grilling`/`task`). Once claimed, the ticket is assigned to the driving dev.
+- **Map**: a Milestone labelled `wayfinder:map`: `create_milestone` with `projectId`, `name`, `labels: ["wayfinder:map"]` and a `description` holding the Destination, Notes, Not yet specified, and an Out of scope section for work ruled out that never had a ticket. Find maps with `list_milestones` and `labels: ["wayfinder:map"]`. Load one with `get_milestone`: its Description, its built **Decisions so far** (`decisionsSoFar`) and **Out of scope** (`outOfScope`) lists, and summary rows for its tickets.
+- **Decisions so far is built, not written**: it is the map's Completed Meta tasks, oldest close first, each as `[name](/LEG-n): summary`. Never write Decisions so far, or out-of-scope tickets, into the Description.
+- **Child ticket**: a Meta task in the map Milestone (`kind: "meta"`, `milestoneId: <map Key>`), with the question as its `description` and one Label `wayfinder:<type>` (`research`/`prototype`/`grilling`/`task`). No size, no uncertainty, no triage Labels.
+- **Create and wire tickets**: one `create_tasks` call with every ticket, in map order, each with a `ref`; an item's `blockers` name other items' refs (or existing Keys). This replaces upstream's second wiring pass. For cross-references in a ticket's text, use the Keys the call returns: `update_task` with `description` and `expected_revision`. Edges found later: `update_task` with `add_blockers`.
 - **Blocking**: see **Blocking** under Conventions.
-- **Frontier query**: list the map's open children (`gh issue list --state open`, scoped to the map's sub-issues / task list), drop any with an open blocker (see **Count open blockers**, or an open issue in the `Blocked by` line) or an assignee; first in map order wins.
-- **Claim**: `gh issue edit <n> --add-assignee @me`, the session's first write.
-- **Resolve**: `gh issue comment <n> --body "<answer>"`, then `gh issue close <n>`, then append a context pointer (gist + link) to the map's Decisions-so-far.
+- **Frontier query**: `list_tasks` with `projectId`, `milestoneId: <map Key>` and `frontier: true` (open, unclaimed, every Blocker closed). The first row wins.
+- **Claim**: `claim_task` with `taskId` and your `holder` (see **Holder name**), the session's first write. On `already_claimed`, take the next frontier row.
+- **Resolve**: `close_task` with `reason: "completed"`, a `summary` (the one-line gist of the answer, which becomes its Decisions so far line) and a `note` (the answer in full, with links to any assets). Nothing is appended to the map.
+- **Rule out of scope**: `close_task` with `reason: "not_planned"` and a `summary` saying what was ruled out and why. It appears in the map's built Out of scope list, never in Decisions so far.
+- **Graduate fog**: create the new tickets as above, then edit the map's Description (see **Editing text**) to clear the graduated patch from Not yet specified.
+- **Invalidated tickets**: change them with `update_task`, or close them with `reason: "not_planned"` and a `summary`.
+
+## Specs and tickets
+
+A triage role such as `ready-for-agent` means the Label `triage-labels.md` maps it to.
+
+- **to-spec**: publish the spec as a Milestone: `create_milestone` with `projectId`, the spec's name, the spec as `description`, and `labels: ["ready-for-agent"]`.
+- **to-tickets**: publish the tickets as Work tasks in the source Milestone (the spec or map), in dependency order, preferably in one `create_tasks` call: each item with a `ref`, `milestoneId`, `taskName`, `description` (the ticket body), `size`, `uncertaintyLevel`, `labels: ["ready-for-agent"]`, and `blockers` naming other items' refs. Blockers are native, so leave the "Blocked by" section out of the body.
+  - **No source spec or map**: first `create_milestone` named for the work, with the summary a parent issue would have held as its `description`, then file the Tasks under it.
+  - **Source is a Task**: file the tickets in that Task's Milestone, and start each `description` with `Part of [its name](/LEG-n)`.
+  - Do not close or change the source Milestone or Task.
+- **implement**: fetch the ticket (`get_task`, or `get_milestone` for a whole spec), then `claim_task`. Follow its Plan, tick each Checklist item with `update_checklist_item` (`checklistItemId`, `done: true`), and when the work is committed, `close_task` with `reason: "completed"` and a one-line `summary`.
+
+## Estimating Work tasks
+
+Every Work task needs both `size` and `uncertaintyLevel`. Show them in the breakdown you present to the user.
+
+- **Size**: `Small` (0.5 day), `Medium` (1 day), `Large` (3 days), `X-Large` (5 days).
+- **Uncertainty**: how unsure the estimate is, not how hard the work is: `Low`, `Medium`, `High`, `Extreme`.
+- **They are slicing signals.** An `X-Large` or `Extreme` Task should usually be split before it is filed: into thinner vertical slices, or a Meta task that settles the unknown first.
+
+## Triage
+
+Used by `/triage`. The roles are Labels; `triage-labels.md` maps each role to its Label.
+
+- **Category and state**: `update_task` with `add_labels` / `remove_labels`, so each Task carries exactly one category Label and one state Label.
+- **Show what needs attention**: the **Unlabeled** bucket is `list_tasks` with `projectId` and `unlabeled: true`; the **needs-triage** bucket is `list_tasks` with `labels: ["needs-triage"]`. Sort each by `number`, oldest first. There is no third bucket.
+- **Triage notes and agent briefs**: `create_note` on the Task, starting with the AI disclaimer the skill gives.
+- **`needs-info` is not supported**: Burnlite has no reporters to wait on. Ask the user directly; until they answer, the Task stays `needs-triage`.
+- **`wontfix`**: `update_task` with `add_labels: ["wontfix"]` (and remove the old state Label), then `close_task` with `reason: "not_planned"`, a `summary`, and the explanation as its `note`.
+- **Pull requests** are not triaged here (see **Pull requests as a triage surface**).
