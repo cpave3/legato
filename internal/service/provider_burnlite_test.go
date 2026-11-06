@@ -16,9 +16,11 @@ type fakeBurnliteReader struct {
 	projects []burnlite.Project
 	rows     map[string][]burnlite.TaskRow // by project key
 	tasks    map[string]*burnlite.Task     // by key
-	listed   []string                      // project:state of each list
-	got      []string                      // keys fetched in full
-	listErr  error
+	// milestones are by key; their tasks are the rows that name them.
+	milestones map[string]*burnlite.Milestone
+	listed     []string // project:state of each list
+	got        []string // keys fetched in full
+	listErr    error
 }
 
 func (f *fakeBurnliteReader) ListProjects(context.Context) ([]burnlite.Project, error) {
@@ -51,6 +53,22 @@ func (f *fakeBurnliteReader) GetTask(_ context.Context, key string) (*burnlite.T
 	return nil, &burnlite.Error{Code: "not_found", Message: "Task " + key + " not found"}
 }
 
+func (f *fakeBurnliteReader) GetMilestone(_ context.Context, key string) (*burnlite.Milestone, error) {
+	f.got = append(f.got, key)
+	m, ok := f.milestones[key]
+	if !ok {
+		return nil, &burnlite.Error{Code: "not_found", Message: "Milestone " + key + " not found"}
+	}
+	out := *m
+	out.Tasks = nil
+	for _, r := range f.rows[projectOf(key)] {
+		if r.MilestoneKey == key {
+			out.Tasks = append(out.Tasks, r)
+		}
+	}
+	return &out, nil
+}
+
 var t0 = time.Date(2026, 11, 5, 9, 0, 0, 123_000_000, time.UTC)
 
 func burnliteFixture() *fakeBurnliteReader {
@@ -73,6 +91,9 @@ func burnliteFixture() *fakeBurnliteReader {
 				Checklist: []burnlite.ChecklistItem{{Name: "first", Done: true}, {Name: "second"}}, UpdatedAt: t0},
 			"EST-1": {Key: "EST-1", URL: "/EST-1", Name: "Ready one", Kind: "work", Size: "Large", Uncertainty: "High", State: "open", UpdatedAt: t0},
 			"EST-4": {Key: "EST-4", URL: "/EST-4", Name: "Dropped", Kind: "work", State: "closed", CloseReason: "not_planned", ResolutionSummary: "Not needed", UpdatedAt: t0},
+		},
+		milestones: map[string]*burnlite.Milestone{
+			"EST-9": {Key: "EST-9", URL: "/EST-9", Name: "Sync", State: "open", Description: "Where we are going.", Labels: []string{"wayfinder:map"}},
 		},
 	}
 }
@@ -115,6 +136,86 @@ func TestABurnliteTaskIsImportedWithItsTextAndState(t *testing.T) {
 	if meta.RemoteStatus != "Claimed" || meta.Assignee != "agent-1" || meta.IssueType != "Meta" || meta.EpicKey != "EST-9" ||
 		meta.EpicName != "Sync" || meta.Labels != "api,sync" || meta.URL != "https://burnlite.example.com/EST-3" || meta.BlockedBy != "EST-1" {
 		t.Errorf("meta = %+v", meta)
+	}
+}
+
+func TestABurnliteMilestoneIsImportedWithItsTasksListed(t *testing.T) {
+	reader := burnliteFixture()
+	reader.rows["EST"][0].MilestoneKey, reader.rows["EST"][0].MilestoneName = "EST-9", "Sync"
+	reader.rows["EST"][3].MilestoneKey, reader.rows["EST"][3].MilestoneName = "EST-9", "Sync"
+	svc, s := newBurnliteTest(t, reader, nil)
+	ctx := context.Background()
+
+	card, err := svc.ImportRemoteTask(ctx, "burnlite", "EST-9", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if card.Status != "Ready" {
+		t.Errorf("an open milestone is in %s, want Ready", card.Status)
+	}
+	task, _ := s.GetTask(ctx, "EST-9")
+	if task.Title != "Sync" {
+		t.Errorf("title = %q", task.Title)
+	}
+	want := "Where we are going.\n\n## Tasks\n\n" +
+		"- [ ] [EST-1](https://burnlite.example.com/EST-1) Ready one (Ready)\n" +
+		"- [ ] [EST-3](https://burnlite.example.com/EST-3) Claimed and blocked (Claimed by agent-1)\n" +
+		"- [x] [EST-4](https://burnlite.example.com/EST-4) Dropped (Not planned)\n"
+	if task.RemoteDescriptionMD != want {
+		t.Errorf("description = %q\nwant %q", task.RemoteDescriptionMD, want)
+	}
+	meta := parseRemoteMeta(task.RemoteMeta)
+	if meta.IssueType != "Milestone" || meta.RemoteStatus != "Ready" || meta.Labels != "wayfinder:map" || meta.URL != "https://burnlite.example.com/EST-9" {
+		t.Errorf("meta = %+v", meta)
+	}
+}
+
+func TestASyncKeepsAMilestonesListOfTasksCurrent(t *testing.T) {
+	reader := burnliteFixture()
+	svc, s := newBurnliteTest(t, reader, nil)
+	ctx := context.Background()
+	if _, err := svc.ImportRemoteTask(ctx, "burnlite", "EST-9", nil); err != nil {
+		t.Fatal(err)
+	}
+	description := func() string {
+		task, _ := s.GetTask(ctx, "EST-9")
+		return task.RemoteDescriptionMD
+	}
+
+	// Nothing changed: nothing is rewritten, and the milestone is not stale.
+	result, err := svc.Sync(ctx)
+	if err != nil || result.TasksSynced != 0 {
+		t.Fatalf("synced %+v, %v", result, err)
+	}
+	if task, _ := s.GetTask(ctx, "EST-9"); parseRemoteMeta(task.RemoteMeta).StaleAt != "" {
+		t.Error("a milestone was marked stale because it is not a task")
+	}
+
+	// EST-2 joins the milestone.
+	reader.rows["EST"][1].MilestoneKey = "EST-9"
+	if result, err := svc.Sync(ctx); err != nil || result.TasksSynced != 1 {
+		t.Fatalf("synced %+v, %v", result, err)
+	}
+	if !strings.Contains(description(), "[EST-2](https://burnlite.example.com/EST-2) Blocked one (Blocked)") {
+		t.Errorf("EST-2 is not listed: %q", description())
+	}
+
+	// It leaves again, which changes no timestamp the milestone's tasks have.
+	reader.rows["EST"][1].MilestoneKey = ""
+	if result, err := svc.Sync(ctx); err != nil || result.TasksSynced != 1 {
+		t.Fatalf("synced %+v, %v", result, err)
+	}
+	if strings.Contains(description(), "EST-2") {
+		t.Errorf("EST-2 is still listed: %q", description())
+	}
+
+	// The milestone is deleted.
+	delete(reader.milestones, "EST-9")
+	if _, err := svc.Sync(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if task, _ := s.GetTask(ctx, "EST-9"); parseRemoteMeta(task.RemoteMeta).StaleAt == "" {
+		t.Error("a deleted milestone is not marked stale")
 	}
 }
 

@@ -28,7 +28,7 @@ type fakeBurnlite struct {
 func (f *fakeBurnlite) server(t *testing.T) *httptest.Server {
 	t.Helper()
 	srv := mcp.NewServer(&mcp.Implementation{Name: "burnlite", Version: "test"}, nil)
-	for _, name := range []string{"list_projects", "list_tasks", "get_task"} {
+	for _, name := range []string{"list_projects", "list_tasks", "get_task", "get_milestone"} {
 		srv.AddTool(&mcp.Tool{Name: name, InputSchema: map[string]any{"type": "object"}}, func(_ context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 			var args map[string]any
 			_ = json.Unmarshal(req.Params.Arguments, &args)
@@ -161,6 +161,33 @@ func TestGetTaskReadsTheTextAndTheChecklist(t *testing.T) {
 	}
 	if len(task.Blockers) != 1 || task.Blockers[0].Key != "EST-5" || task.Blockers[0].State != "closed" {
 		t.Errorf("blockers = %+v", task.Blockers)
+	}
+}
+
+func TestGetMilestoneReadsItsTextAndItsTasks(t *testing.T) {
+	fake := &fakeBurnlite{token: "t1", results: map[string]func(map[string]any) *mcp.CallToolResult{
+		"get_milestone": func(args map[string]any) *mcp.CallToolResult {
+			var row map[string]any
+			_ = json.Unmarshal([]byte(listRow), &row)
+			return structured(map[string]any{"milestone": map[string]any{
+				"key": args["milestoneId"], "url": "/EST-3", "name": "Sync", "state": "closed", "closeReason": "completed",
+				"description": "Where we are going", "labels": []string{"wayfinder:map"},
+				"tasks": []map[string]any{row},
+			}})
+		},
+	}}
+	c := New(fake.server(t).URL, &tokens{current: "t1"}, nil)
+
+	m, err := c.GetMilestone(context.Background(), "EST-3")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if m.Key != "EST-3" || m.URL != "/EST-3" || m.Name != "Sync" || m.State != "closed" || m.CloseReason != "completed" ||
+		m.Description != "Where we are going" || strings.Join(m.Labels, ",") != "wayfinder:map" {
+		t.Errorf("milestone = %+v", m)
+	}
+	if len(m.Tasks) != 1 || m.Tasks[0].Key != "EST-7" || m.Tasks[0].Name != "Wire the thing" || m.Tasks[0].ClaimHolder != "agent-1" {
+		t.Errorf("tasks = %+v", m.Tasks)
 	}
 }
 

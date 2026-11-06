@@ -173,8 +173,12 @@ func (c *Client) ListTasks(ctx context.Context, project, state string) ([]TaskRo
 	if err := c.call(ctx, "list_tasks", map[string]any{"projectId": project, "state": state}, &out); err != nil {
 		return nil, err
 	}
-	rows := make([]TaskRow, len(out.Tasks))
-	for i, w := range out.Tasks {
+	return readRows(out.Tasks), nil
+}
+
+func readRows(wire []wireRow) []TaskRow {
+	rows := make([]TaskRow, len(wire))
+	for i, w := range wire {
 		rows[i] = TaskRow{Key: w.Key, URL: w.URL, Name: w.TaskName, Kind: w.Kind, MilestoneKey: deref(w.MilestoneKey),
 			MilestoneName: deref(w.MilestoneName), State: w.State, CloseReason: deref(w.CloseReason),
 			ResolutionSummary: deref(w.ResolutionSummary), Labels: w.Labels, Blocked: w.Blocked, OpenBlockers: w.OpenBlockers,
@@ -183,7 +187,43 @@ func (c *Client) ListTasks(ctx context.Context, project, state string) ([]TaskRo
 			rows[i].ClaimHolder = w.Claim.Holder
 		}
 	}
-	return rows, nil
+	return rows
+}
+
+// Milestone is one Milestone with its Description and its Tasks, in
+// Burnlite's order. A Milestone's key is from the same series as its
+// project's Task keys, and get_task refuses it as not_found.
+type Milestone struct {
+	Key         string
+	URL         string
+	Name        string
+	State       string
+	CloseReason string
+	Description string
+	Labels      []string
+	Tasks       []TaskRow
+}
+
+// GetMilestone reads a Milestone by its key.
+func (c *Client) GetMilestone(ctx context.Context, key string) (*Milestone, error) {
+	var out struct {
+		Milestone struct {
+			Key         string    `json:"key"`
+			URL         string    `json:"url"`
+			Name        string    `json:"name"`
+			State       string    `json:"state"`
+			CloseReason *string   `json:"closeReason"`
+			Description *string   `json:"description"`
+			Labels      []string  `json:"labels"`
+			Tasks       []wireRow `json:"tasks"`
+		} `json:"milestone"`
+	}
+	if err := c.call(ctx, "get_milestone", map[string]any{"milestoneId": key}, &out); err != nil {
+		return nil, err
+	}
+	w := out.Milestone
+	return &Milestone{Key: w.Key, URL: w.URL, Name: w.Name, State: w.State, CloseReason: deref(w.CloseReason),
+		Description: deref(w.Description), Labels: w.Labels, Tasks: readRows(w.Tasks)}, nil
 }
 
 // GetTask gets one Task by key (EST-42) or id.

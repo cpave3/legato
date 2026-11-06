@@ -42,9 +42,13 @@ Legato needs a Burnlite whose tasks have an update time (`updatedAt`). If your B
 
 On the board, press `i` in the TUI, or use the import dialog in the web UI. Type part of a task's name, or its key, such as `EST-42`. The results show which provider each task comes from. Select a task to import it.
 
-A search by name looks in the open tasks of your projects. A search by key also finds a closed task.
+A search by name looks in the open tasks of your projects. A search by key also finds a closed task, or a milestone.
 
-The [browser extension](/legato/integrations/browser-extension/) can also import the task you have open in Burnlite.
+### Import a milestone
+
+Import a milestone by its key, such as `EST-3`, the same way. Its card has the milestone's name, and its description is the milestone's description followed by a **Tasks** list: a line for each task in the milestone, with its key (a link to Burnlite), its name and its state, ticked when it is closed. Each sync brings the list up to date, as tasks are added to the milestone, leave it, are claimed or are closed. The tasks themselves are not imported: import any you want as cards of their own.
+
+The [browser extension](/legato/integrations/browser-extension/) can also import the task or milestone you have open in Burnlite.
 
 ## Choose the projects
 

@@ -121,9 +121,10 @@ export function reconcileTicketAction(doc: Document, href: string, provider: Tic
   doc.body.append(root)
 }
 
-// The task the open Burnlite drawer shows, and where its header's buttons are.
+// The task or milestone the open Burnlite drawer shows. A milestone's key is
+// from the same series as its project's task keys, and imports the same way.
 function burnliteDrawer(doc: Document, provider: TicketProvider): { drawer: Element; key: string } | null {
-  const drawer = doc.querySelector('[data-testid="task-drawer"]')
+  const drawer = doc.querySelector('[data-testid="task-drawer"], [data-testid="milestone-drawer"]')
   const key = drawer?.querySelector('[data-testid="item-key"]')?.textContent?.trim()
   if (!drawer || !key || !matchesKeyPattern(provider, key)) return null
   return { drawer, key }
@@ -141,7 +142,7 @@ function reconcileDrawerButton(doc: Document, provider: TicketProvider, sendMess
   existing?.remove()
 
   const ticketId = found.key
-  const copy = found.drawer.querySelector<HTMLElement>('[data-testid="copy-task-reference"]')
+  const copy = found.drawer.querySelector<HTMLElement>('[data-testid="copy-task-reference"], [data-testid="copy-milestone-reference"]')
   const keyElement = found.drawer.querySelector('[data-testid="item-key"]')!
 
   const wrap = doc.createElement("span")

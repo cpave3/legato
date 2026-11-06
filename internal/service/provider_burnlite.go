@@ -39,6 +39,7 @@ type burnliteReader interface {
 	ListProjects(ctx context.Context) ([]burnlite.Project, error)
 	ListTasks(ctx context.Context, project, state string) ([]burnlite.TaskRow, error)
 	GetTask(ctx context.Context, key string) (*burnlite.Task, error)
+	GetMilestone(ctx context.Context, key string) (*burnlite.Milestone, error)
 }
 
 // burnliteOpener gives a reader of the connected Burnlite and its address,
@@ -212,6 +213,18 @@ func (b *burnliteSource) Pull(ctx context.Context, tracked []store.Task) (PullBa
 		}
 		for _, task := range byProject[project] {
 			row, ok := byKey[task.ID]
+			if !ok && parseRemoteMeta(task.RemoteMeta).IssueType == burnliteMilestone {
+				ticket, found, err := b.pullMilestone(ctx, reader, base, task)
+				if err != nil {
+					return PullBatch{}, err
+				}
+				if found {
+					batch.Tickets = append(batch.Tickets, ticket)
+				} else {
+					batch.Missing = append(batch.Missing, task.ID)
+				}
+				continue
+			}
 			if !ok {
 				batch.Missing = append(batch.Missing, task.ID)
 				continue
@@ -237,6 +250,31 @@ func (b *burnliteSource) Pull(ctx context.Context, tracked []store.Task) (PullBa
 		}
 	}
 	return batch, nil
+}
+
+// pullMilestone reads a Milestone again. Burnlite gives it no updatedAt,
+// and a Task leaving it changes no timestamp it still lists, so the ticket
+// is dated now when what Legato shows of it has changed, and keeps the date
+// Legato holds when it has not.
+func (b *burnliteSource) pullMilestone(ctx context.Context, reader burnliteReader, base string, task store.Task) (RemoteTicket, bool, error) {
+	m, err := reader.GetMilestone(ctx, task.ID)
+	if errors.Is(err, burnlite.ErrNotFound) {
+		return RemoteTicket{}, false, nil
+	}
+	if err != nil {
+		return RemoteTicket{}, false, err
+	}
+	meta := parseRemoteMeta(task.RemoteMeta)
+	held, _ := time.Parse(time.RFC3339Nano, meta.RemoteUpdatedAt)
+	t := milestoneTicket(m, base, held)
+	if t.Summary != task.Title || t.DescriptionMD != task.RemoteDescriptionMD || t.Status != meta.RemoteStatus ||
+		strings.Join(t.Labels, ",") != meta.Labels || t.URL != meta.URL {
+		t.UpdatedAt = time.Now()
+		if !t.UpdatedAt.After(held) {
+			t.UpdatedAt = held.Add(time.Millisecond)
+		}
+	}
+	return t, true, nil
 }
 
 // searchLimit is the most results a search gives.
@@ -304,7 +342,16 @@ func (b *burnliteSource) Get(ctx context.Context, key string) (*RemoteTicket, er
 func (b *burnliteSource) get(ctx context.Context, reader burnliteReader, base, key string) (*RemoteTicket, error) {
 	full, err := reader.GetTask(ctx, key)
 	if errors.Is(err, burnlite.ErrNotFound) {
-		return nil, nil
+		// Milestones share the series of keys, and get_task refuses them.
+		m, err := reader.GetMilestone(ctx, key)
+		if errors.Is(err, burnlite.ErrNotFound) {
+			return nil, nil
+		}
+		if err != nil {
+			return nil, err
+		}
+		t := milestoneTicket(m, base, time.Now())
+		return &t, nil
 	}
 	if err != nil {
 		return nil, err
@@ -359,6 +406,47 @@ func fullTicket(row burnlite.TaskRow, task *burnlite.Task, base string) RemoteTi
 		}
 	}
 	return t
+}
+
+// burnliteMilestone is the issue type of a task imported from a Milestone.
+const burnliteMilestone = "Milestone"
+
+// milestoneTicket is a Milestone as a ticket: its Description, then a line
+// for each of its Tasks. Burnlite gives a Milestone no updatedAt, so the
+// caller says when it was read.
+func milestoneTicket(m *burnlite.Milestone, base string, updated time.Time) RemoteTicket {
+	base = strings.TrimRight(base, "/")
+	var b strings.Builder
+	if d := strings.TrimSpace(m.Description); d != "" {
+		b.WriteString(d + "\n")
+	}
+	if len(m.Tasks) > 0 {
+		if b.Len() > 0 {
+			b.WriteString("\n")
+		}
+		b.WriteString("## Tasks\n\n")
+		for _, row := range m.Tasks {
+			mark := " "
+			if row.State == "closed" {
+				mark = "x"
+			}
+			state := burnliteState(row.State, row.CloseReason, row.ClaimHolder, row.Blocked)
+			if state == burnliteClaimed {
+				state += " by " + row.ClaimHolder
+			}
+			fmt.Fprintf(&b, "- [%s] [%s](%s) %s (%s)\n", mark, row.Key, base+row.URL, row.Name, state)
+		}
+	}
+	return RemoteTicket{
+		ID:            m.Key,
+		Summary:       m.Name,
+		DescriptionMD: b.String(),
+		Status:        burnliteState(m.State, m.CloseReason, "", false),
+		IssueType:     burnliteMilestone,
+		Labels:        m.Labels,
+		URL:           base + m.URL,
+		UpdatedAt:     updated,
+	}
 }
 
 func kindLabel(kind string) string {

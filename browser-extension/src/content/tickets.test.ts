@@ -168,6 +168,24 @@ describe("reconcileTicketAction on Burnlite", () => {
     expect(inline()).toBeNull()
   })
 
+  it("puts the button in a milestone's drawer too, and imports the milestone", () => {
+    const send = vi.fn().mockResolvedValue({ ok: true })
+    document.body.insertAdjacentHTML("beforeend",
+      `<div data-testid="milestone-drawer"><div class="header"><span data-testid="item-key">EST-9</span>` +
+      `<span>Milestone</span><div class="flex-1"></div>` +
+      `<button class="milestone-copy" data-testid="copy-milestone-reference">Copy reference</button></div></div>`)
+    reconcileTicketAction(document, "https://burnlite.test:8443/project/0b7c6c1e?item=EST-9", burnlite, send)
+
+    const copy = document.querySelector("[data-testid=copy-milestone-reference]")!
+    expect(document.querySelector("[data-testid=milestone-drawer]")!.contains(inline())).toBe(true)
+    expect(inline()!.nextElementSibling).toBe(copy)
+    expect(inlineButton().className).toBe("milestone-copy")
+    expect(inlineButton().title).toBe("Import EST-9 to Legato")
+
+    inlineButton().click()
+    expect(send).toHaveBeenCalledWith({ type: "importTicket", context: { provider: "burnlite", ticketId: "EST-9" } })
+  })
+
   it("imports the drawer's task, reports success, and permits retry after an error", async () => {
     const send = vi.fn()
       .mockRejectedValueOnce(new Error("Burnlite is not connected"))
