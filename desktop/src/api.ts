@@ -98,6 +98,7 @@ export const api = {
   pairServer: (url: string, phrase: string) => invoke<Server>("pair_server", { url, phrase }),
   discovered: () => invoke<{ name: string; url: string }[]>("discovered"),
   renameServer: (id: string, name: string) => invoke<void>("rename_server", { id, name }),
+  reorderServers: (ids: string[]) => invoke<void>("reorder_servers", { ids }),
   removeServer: (id: string) => invoke<void>("remove_server", { id }),
   poll: () => invoke<Status[]>("poll"),
   keys: () => invoke<Key[]>("keys"),
