@@ -177,7 +177,7 @@ jobs:
   desktop-macos:
     needs: release
     if: needs.release.outputs.desktop == 'true'
-    runs-on: macos-14
+    runs-on: macos-15
     timeout-minutes: 45
     env:
       VERSION: ${{ needs.release.outputs.version }}
