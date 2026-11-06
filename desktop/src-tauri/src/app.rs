@@ -20,6 +20,7 @@ use crate::store::{ImportTarget, Keyring, Server, Store};
 use crate::updates;
 use crate::webauthn::{self, Attachment, ORIGIN, RP_ID};
 use crate::discovery::{Browser, Found};
+use crate::links;
 use crate::bridge::{self, PageMessage, VoiceAction, VoiceEvent};
 use crate::{fido, systrust, touchid, voice, workers};
 
@@ -191,11 +192,26 @@ fn make_server_view(app: &AppHandle, server: &Server, token: Option<String>, pat
     };
     let shell_bridge = format!("if (location.origin === {origin:?}) {}", bridge::script(&key, voice::system_recorder().is_some()));
     let (handle, server_id) = (app.clone(), server.id.clone());
+    let (server_url, new_window_server_url) = (server.url.clone(), server.url.clone());
     let builder = WebviewBuilder::new(webview_label(&server.id), WebviewUrl::External("about:blank".parse().unwrap()))
         .initialization_script(&seed)
         .initialization_script(&shell_bridge)
+        .on_new_window(move |url, _| {
+            // A link that opens a window (target=_blank, window.open) never
+            // makes one: another site goes to the system's browser.
+            if links::classify(&new_window_server_url, &url) == links::Link::External {
+                let _ = links::open_in_browser(&url);
+            }
+            tauri::webview::NewWindowResponse::Deny
+        })
         .on_navigation(move |url| {
             if url.scheme() != bridge::SCHEME {
+                // The page never leaves its server: another site opens in the
+                // system's browser and the navigation is cancelled.
+                if links::classify(&server_url, url) == links::Link::External {
+                    let _ = links::open_in_browser(url);
+                    return false;
+                }
                 return true;
             }
             let payload = match bridge::read(url.as_str(), &key) {
