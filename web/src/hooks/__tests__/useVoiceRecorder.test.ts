@@ -73,6 +73,36 @@ describe("useVoiceRecorder", () => {
     expect(body.pcm).toEqual([0, 0, 0xff, 0x3f, 0x00, 0xc0, 0xff, 0x7f])
   })
 
+  // The desktop app's AppImage carries WebKitGTK without GStreamer's
+  // plugins, and there decodeAudioData never settles. The app's recording is
+  // already the transcriber's 16 kHz mono 16-bit samples in a WAV, so the
+  // page reads them as they are.
+  it("reads the desktop app's WAV without decoding it", async () => {
+    inTheApp()
+    vi.stubGlobal("OfflineAudioContext", class {
+      decodeAudioData() { return new Promise(() => {}) }
+    })
+    const onTranscription = vi.fn()
+    const { result } = renderHook(() => useVoiceRecorder({ baseUrl: "", transcriptionOnly: true, onTranscription }))
+
+    await act(() => result.current.start())
+    appSays({ type: "started" })
+    await act(() => result.current.stop())
+    const samples = [0, 0x3fff, -0x4000, 0x7fff]
+    const wav = new DataView(new ArrayBuffer(44 + samples.length * 2))
+    const text = (at: number, s: string) => [...s].forEach((c, i) => wav.setUint8(at + i, c.charCodeAt(0)))
+    text(0, "RIFF"); wav.setUint32(4, 36 + samples.length * 2, true); text(8, "WAVE")
+    text(12, "fmt "); wav.setUint32(16, 16, true); wav.setUint16(20, 1, true); wav.setUint16(22, 1, true)
+    wav.setUint32(24, 16000, true); wav.setUint32(28, 32000, true); wav.setUint16(32, 2, true); wav.setUint16(34, 16, true)
+    text(36, "data"); wav.setUint32(40, samples.length * 2, true)
+    samples.forEach((s, i) => wav.setInt16(44 + i * 2, s, true))
+    appSays({ type: "audio", data: btoa(String.fromCharCode(...new Uint8Array(wav.buffer))), mime: "audio/wav" })
+
+    await waitFor(() => expect(onTranscription).toHaveBeenCalledWith("which tickets have designs"))
+    const body = JSON.parse(String(vi.mocked(fetch).mock.calls[0][1]?.body))
+    expect(body.pcm).toEqual([0, 0, 0xff, 0x3f, 0x00, 0xc0, 0xff, 0x7f])
+  })
+
   it("asks the app to throw a recording away", async () => {
     inTheApp()
     const { result } = renderHook(() => useVoiceRecorder({ baseUrl: "" }))

@@ -56,10 +56,40 @@ function toPcm16(samples: Float32Array): Int16Array {
   return pcm
 }
 
-// The app's recording is compressed; decoding it in a context at 16 kHz gives
-// the samples the transcriber takes.
+// The samples of a WAV that already holds what the transcriber takes (16 kHz
+// mono 16-bit PCM), as the desktop app records; null for anything else.
+function transcriberWav(bytes: Uint8Array): Int16Array | null {
+  const view = new DataView(bytes.buffer, bytes.byteOffset, bytes.byteLength)
+  const tag = (at: number) => String.fromCharCode(...bytes.subarray(at, at + 4))
+  if (bytes.length < 12 || tag(0) !== "RIFF" || tag(8) !== "WAVE") return null
+  let pcm = false
+  for (let at = 12; at + 8 <= bytes.length; ) {
+    const size = view.getUint32(at + 4, true)
+    const body = at + 8
+    if (tag(at) === "fmt " && size >= 16) {
+      pcm = view.getUint16(body, true) === 1 && view.getUint16(body + 2, true) === 1 &&
+        view.getUint32(body + 4, true) === 16000 && view.getUint16(body + 14, true) === 16
+    } else if (tag(at) === "data") {
+      if (!pcm) return null
+      const count = Math.floor(Math.min(size, bytes.length - body) / 2)
+      const samples = new Int16Array(count)
+      for (let i = 0; i < count; i++) samples[i] = view.getInt16(body + i * 2, true)
+      return samples
+    }
+    at = body + size + (size % 2)
+  }
+  return null
+}
+
+// The app's recording: the desktop app's WAV is read as it is, since the
+// WebKitGTK its AppImage carries has no GStreamer plugins and its
+// decodeAudioData never settles. Anything else (the Android app records AAC)
+// is decoded in a context at 16 kHz, which gives the samples the transcriber
+// takes.
 async function decodeRecording(base64: string): Promise<Int16Array> {
   const bytes = Uint8Array.from(atob(base64), (char) => char.charCodeAt(0))
+  const wav = transcriberWav(bytes)
+  if (wav) return wav
   const audio = await new OfflineAudioContext(1, 1, 16000).decodeAudioData(bytes.buffer)
   return toPcm16(audio.getChannelData(0))
 }
