@@ -64,6 +64,23 @@ func (s *ReviewPassService) laterPassBrief(ctx context.Context, b *strings.Build
 	for _, pr := range previous {
 		fmt.Fprintf(b, "- #%d at `%s` (`%s`)\n", pr.Number, pr.HeadSHA, pinRef(h.TaskID, pass-1, pr.Number))
 	}
+	if items, err := s.db.ListHandoffReviewItems(ctx, h.TaskID); err == nil {
+		var comments []store.HandoffReviewItem
+		for _, item := range items {
+			if item.Kind == ItemComment && !item.Closed {
+				comments = append(comments, item)
+			}
+		}
+		if len(comments) > 0 {
+			b.WriteString("\n## Comments from people and bots\n\nThe author settles these itself; give them no ruling. They are context:\n\n")
+			for _, c := range comments {
+				fmt.Fprintf(b, "- #%d %s\n  <comment>%s</comment>\n", c.PR, c.Title, c.Body)
+				if c.Answer != "" {
+					fmt.Fprintf(b, "  <author-answer>%s: %s</author-answer>\n", c.Answer, c.AnswerNote)
+				}
+			}
+		}
+	}
 	open, err := s.openBlocking(ctx, h.TaskID, pass)
 	if err != nil {
 		return err

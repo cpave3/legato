@@ -325,7 +325,10 @@ func (p *ReviewPublisher) PullRequests(ctx context.Context, repo string, branche
 			Title   string `json:"title"`
 			Body    string `json:"body"`
 			HTMLURL string `json:"html_url"`
-			Head    struct {
+			User    struct {
+				Login string `json:"login"`
+			} `json:"user"`
+			Head struct {
 				Ref string `json:"ref"`
 				SHA string `json:"sha"`
 			} `json:"head"`
@@ -338,7 +341,7 @@ func (p *ReviewPublisher) PullRequests(ctx context.Context, repo string, branche
 			return nil, err
 		}
 		for _, pr := range pulls {
-			out = append(out, ReviewGitHubPR{Number: pr.Number, Branch: pr.Head.Ref, Base: pr.Base.Ref, Title: pr.Title, Body: pr.Body, URL: pr.HTMLURL, HeadSHA: pr.Head.SHA})
+			out = append(out, ReviewGitHubPR{Number: pr.Number, Branch: pr.Head.Ref, Base: pr.Base.Ref, Title: pr.Title, Body: pr.Body, URL: pr.HTMLURL, HeadSHA: pr.Head.SHA, Author: pr.User.Login})
 		}
 	}
 	return out, nil

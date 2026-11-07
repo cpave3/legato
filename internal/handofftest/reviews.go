@@ -29,6 +29,10 @@ type FakeReviewGitHub struct {
 	comments []string
 	resolved []int64
 	comment  int64
+	// prComments are the comments on each pull request; polls counts
+	// the polls of them.
+	prComments map[int][]service.PRComment
+	polls      int
 }
 
 // NewFakeReviewGitHub has no pull requests.
@@ -40,7 +44,7 @@ func NewFakeReviewGitHub() *FakeReviewGitHub {
 func (f *FakeReviewGitHub) OpenPR(number int, branch, head string) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	f.prs[branch] = service.ReviewGitHubPR{Number: number, Branch: branch, Base: "main", Title: fmt.Sprintf("PR %d", number), HeadSHA: head}
+	f.prs[branch] = service.ReviewGitHubPR{Number: number, Branch: branch, Base: "main", Title: fmt.Sprintf("PR %d", number), HeadSHA: head, Author: "legato-author[bot]"}
 }
 
 // Posted are the reviews posted, oldest first.
@@ -89,6 +93,31 @@ func (f *FakeReviewGitHub) PostReview(_ context.Context, post service.ReviewPost
 		}
 	}
 	return posted, nil
+}
+
+// SetComments puts a pull request's comments on GitHub, as the next poll
+// finds them.
+func (f *FakeReviewGitHub) SetComments(number int, comments ...service.PRComment) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.prComments == nil {
+		f.prComments = map[int][]service.PRComment{}
+	}
+	f.prComments[number] = append([]service.PRComment(nil), comments...)
+}
+
+// Polls counts the polls of the pull requests' comments.
+func (f *FakeReviewGitHub) Polls() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return f.polls
+}
+
+func (f *FakeReviewGitHub) PollComments(_ context.Context, _ string, number int, _ service.PollPages) (service.CommentPoll, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.polls++
+	return service.CommentPoll{Changed: true, Comments: append([]service.PRComment(nil), f.prComments[number]...)}, nil
 }
 
 // Comments are the conversation comments posted, "identity: body".
@@ -227,6 +256,7 @@ func (o ReviewPassOptions) config() service.ReviewPassConfig {
 		passes = 3
 	}
 	return service.ReviewPassConfig{Enabled: true, PassTimeout: 45 * time.Minute, MaxConcurrent: concurrent, ReviewColumn: "Review",
+		PollInterval: time.Minute, QuietTime: 2 * time.Minute, CountedBots: []string{"cubic-dev-ai[bot]"},
 		Defaults: service.ReviewPassSettings{Enabled: true, Agent: "codex", Model: "gpt-5.5", Skill: "3-tier-review", MaxPasses: passes}}
 }
 

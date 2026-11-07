@@ -20,6 +20,13 @@ type HandoffReview struct {
 	UpdatedAt            string `db:"updated_at"`
 	// DeliveredPass is the last pass whose feedback the author was told of.
 	DeliveredPass int `db:"delivered_pass"`
+	// PolledAt is when the pull requests were last polled for comments,
+	// or when the next poll may be (after a rate limit); LastNewAt when a
+	// new counted comment last came in; SkippedComments how many comments
+	// do not count.
+	PolledAt        string `db:"polled_at"`
+	LastNewAt       string `db:"last_new_at"`
+	SkippedComments int    `db:"skipped_comments"`
 }
 
 // HandoffReviewPass is one review pass.
@@ -51,6 +58,8 @@ type HandoffReviewPR struct {
 	HeadSHA   string `db:"head_sha"`
 	ReviewID  int64  `db:"review_id"`
 	ReviewURL string `db:"review_url"`
+	// Author is the pull request's author on GitHub (the author App).
+	Author string `db:"author"`
 }
 
 // HandoffReviewFinding is one finding of a pass, with its ruling by a later one.
@@ -92,19 +101,20 @@ func (s *Store) ListHandoffReviews(ctx context.Context) ([]HandoffReview, error)
 // SaveHandoffReview writes a card's review loop.
 func (s *Store) SaveHandoffReview(ctx context.Context, r HandoffReview) error {
 	_, err := s.db.NamedExecContext(ctx, `
-		INSERT INTO handoff_reviews (task_id, settings, phase, pass, mismatches, nudged_at, author_busy_since_nudge, reason, queued_at, updated_at, delivered_pass)
-		VALUES (:task_id, :settings, :phase, :pass, :mismatches, :nudged_at, :author_busy_since_nudge, :reason, :queued_at, :updated_at, :delivered_pass)
+		INSERT INTO handoff_reviews (task_id, settings, phase, pass, mismatches, nudged_at, author_busy_since_nudge, reason, queued_at, updated_at, delivered_pass, polled_at, last_new_at, skipped_comments)
+		VALUES (:task_id, :settings, :phase, :pass, :mismatches, :nudged_at, :author_busy_since_nudge, :reason, :queued_at, :updated_at, :delivered_pass, :polled_at, :last_new_at, :skipped_comments)
 		ON CONFLICT(task_id) DO UPDATE SET settings = excluded.settings, phase = excluded.phase, pass = excluded.pass,
 			mismatches = excluded.mismatches, nudged_at = excluded.nudged_at,
 			author_busy_since_nudge = excluded.author_busy_since_nudge, reason = excluded.reason,
-			queued_at = excluded.queued_at, updated_at = excluded.updated_at, delivered_pass = excluded.delivered_pass`, r)
+			queued_at = excluded.queued_at, updated_at = excluded.updated_at, delivered_pass = excluded.delivered_pass,
+			polled_at = excluded.polled_at, last_new_at = excluded.last_new_at, skipped_comments = excluded.skipped_comments`, r)
 	return err
 }
 
 // DeleteHandoffReview forgets a card's review loop and its passes.
 func (s *Store) DeleteHandoffReview(ctx context.Context, taskID string) error {
 	return withTxDB(ctx, s, func(exec func(string, ...any) error) error {
-		for _, table := range []string{"handoff_review_items", "handoff_review_findings", "handoff_review_prs", "handoff_review_passes", "handoff_reviews"} {
+		for _, table := range []string{"handoff_review_poll_pages", "handoff_review_items", "handoff_review_findings", "handoff_review_prs", "handoff_review_passes", "handoff_reviews"} {
 			if err := exec(`DELETE FROM `+table+` WHERE task_id = ?`, taskID); err != nil {
 				return err
 			}
@@ -127,8 +137,8 @@ func (s *Store) InsertHandoffReviewPass(ctx context.Context, p HandoffReviewPass
 	}
 	for _, pr := range prs {
 		if _, err := tx.NamedExecContext(ctx, `
-			INSERT INTO handoff_review_prs (task_id, pass, repo, number, branch, base, title, body, url, head_sha, review_id, review_url)
-			VALUES (:task_id, :pass, :repo, :number, :branch, :base, :title, :body, :url, :head_sha, :review_id, :review_url)`, pr); err != nil {
+			INSERT INTO handoff_review_prs (task_id, pass, repo, number, branch, base, title, body, url, head_sha, review_id, review_url, author)
+			VALUES (:task_id, :pass, :repo, :number, :branch, :base, :title, :body, :url, :head_sha, :review_id, :review_url, :author)`, pr); err != nil {
 			return err
 		}
 	}
@@ -258,6 +268,8 @@ type HandoffReviewItem struct {
 	Posted          bool   `db:"posted" json:"posted,omitempty"`
 	Closed          bool   `db:"closed" json:"-"`
 	CreatedAt       string `db:"created_at" json:"-"`
+	// Delivered says the author was told of this version of the item.
+	Delivered bool `db:"delivered" json:"-"`
 }
 
 // UpsertHandoffReviewItem writes an item: a new one, or one raised again
@@ -265,14 +277,14 @@ type HandoffReviewItem struct {
 func (s *Store) UpsertHandoffReviewItem(ctx context.Context, item HandoffReviewItem) error {
 	_, err := s.db.NamedExecContext(ctx, `
 		INSERT INTO handoff_review_items (id, task_id, kind, pass, repo, pr, path, line, url, version, outdated, author, title, body,
-			thread_comment_id, source_id, answer, answer_note, answered_at, posted, closed, created_at)
+			thread_comment_id, source_id, answer, answer_note, answered_at, posted, closed, created_at, delivered)
 		VALUES (:id, :task_id, :kind, :pass, :repo, :pr, :path, :line, :url, :version, :outdated, :author, :title, :body,
-			:thread_comment_id, :source_id, :answer, :answer_note, :answered_at, :posted, :closed, :created_at)
+			:thread_comment_id, :source_id, :answer, :answer_note, :answered_at, :posted, :closed, :created_at, :delivered)
 		ON CONFLICT(id) DO UPDATE SET kind = excluded.kind, pass = excluded.pass, path = excluded.path, line = excluded.line,
 			url = excluded.url, version = excluded.version, outdated = excluded.outdated, author = excluded.author,
 			title = excluded.title, body = excluded.body, thread_comment_id = excluded.thread_comment_id,
 			answer = excluded.answer, answer_note = excluded.answer_note, answered_at = excluded.answered_at,
-			posted = excluded.posted, closed = excluded.closed`, item)
+			posted = excluded.posted, closed = excluded.closed, delivered = excluded.delivered`, item)
 	return err
 }
 
@@ -309,5 +321,35 @@ func (s *Store) AnswerHandoffReviewItem(ctx context.Context, taskID, id, answer,
 // MarkHandoffReviewItemPosted records that an item's answer is on GitHub.
 func (s *Store) MarkHandoffReviewItemPosted(ctx context.Context, taskID, id string) error {
 	_, err := s.db.ExecContext(ctx, `UPDATE handoff_review_items SET posted = 1 WHERE task_id = ? AND id = ?`, taskID, id)
+	return err
+}
+
+// MarkHandoffReviewItemsDelivered records that the author was told of
+// items.
+func (s *Store) MarkHandoffReviewItemsDelivered(ctx context.Context, taskID string, ids []string) error {
+	for _, id := range ids {
+		if _, err := s.db.ExecContext(ctx, `UPDATE handoff_review_items SET delivered = 1 WHERE task_id = ? AND id = ?`, taskID, id); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// HandoffReviewPollPage returns a list page polled before, false when none.
+func (s *Store) HandoffReviewPollPage(ctx context.Context, taskID string, pr int, list string, page int) (etag, body string, ok bool) {
+	var row struct {
+		ETag string `db:"etag"`
+		Body string `db:"body"`
+	}
+	if err := s.db.GetContext(ctx, &row, `SELECT etag, body FROM handoff_review_poll_pages WHERE task_id = ? AND pr = ? AND list = ? AND page = ?`, taskID, pr, list, page); err != nil {
+		return "", "", false
+	}
+	return row.ETag, row.Body, true
+}
+
+// SaveHandoffReviewPollPage keeps a list page and its ETag.
+func (s *Store) SaveHandoffReviewPollPage(ctx context.Context, taskID string, pr int, list string, page int, etag, body string) error {
+	_, err := s.db.ExecContext(ctx, `INSERT INTO handoff_review_poll_pages (task_id, pr, list, page, etag, body) VALUES (?, ?, ?, ?, ?, ?)
+		ON CONFLICT(task_id, pr, list, page) DO UPDATE SET etag = excluded.etag, body = excluded.body`, taskID, pr, list, page, etag, body)
 	return err
 }

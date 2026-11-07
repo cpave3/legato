@@ -58,6 +58,12 @@ type ReviewPassConfig struct {
 	// where it goes while the author works on feedback.
 	DoneColumn string
 	WorkColumn string
+	// PollInterval is how often pull requests are polled for comments,
+	// QuietTime how long new comments wait for more; CountedBots are the
+	// bot logins whose comments count.
+	PollInterval time.Duration
+	QuietTime    time.Duration
+	CountedBots  []string
 }
 
 // ReviewGitHubPR is an open pull request of a handoff's branch.
@@ -69,6 +75,8 @@ type ReviewGitHubPR struct {
 	Body    string
 	URL     string
 	HeadSHA string
+	// Author is the pull request's author (the author App's login).
+	Author string
 }
 
 // ReviewGitHub is what a review pass asks of GitHub: ReviewPublisher, as
@@ -79,6 +87,7 @@ type ReviewGitHub interface {
 	PullRequests(ctx context.Context, repo string, branches []string) ([]ReviewGitHubPR, error)
 	PostReview(ctx context.Context, post ReviewPost) (PostedReview, error)
 	PostIssueComment(ctx context.Context, who GitHubIdentity, repo string, number int, body string) (int64, error)
+	PollComments(ctx context.Context, repo string, number int, pages PollPages) (CommentPoll, error)
 	Reply(ctx context.Context, who GitHubIdentity, repo string, number int, commentID int64, body string) error
 	ResolveThread(ctx context.Context, repo string, number int, commentID int64) error
 }
@@ -241,6 +250,7 @@ func (s *ReviewPassService) Tick(ctx context.Context) {
 			continue
 		}
 		s.postAnswers(ctx, h)
+		s.pollComments(ctx, h)
 		if err := s.step(ctx, h); err != nil {
 			log.Printf("review passes: %s: %v", h.TaskID, err)
 		}
@@ -265,7 +275,10 @@ func (s *ReviewPassService) step(ctx context.Context, h *store.Handoff) error {
 	inDone := strings.EqualFold(task.Status, cfg.DoneColumn)
 	switch loop.Phase {
 	case ReviewPhaseAuthor:
-		if !inDone {
+		if err := s.deliverComments(ctx, h, loop); err != nil {
+			return err
+		}
+		if !inDone || RefuseUnansweredReview(ctx, s.db, h.TaskID) != nil {
 			return nil
 		}
 		loop.Phase = ReviewPhaseReady
@@ -275,7 +288,12 @@ func (s *ReviewPassService) step(ctx context.Context, h *store.Handoff) error {
 	case ReviewPhaseReviewing:
 		return s.watchReviewer(ctx, h, loop)
 	case ReviewPhaseWaitingForAuthor:
+		if err := s.deliverComments(ctx, h, loop); err != nil {
+			return err
+		}
 		return s.feedback(ctx, h, loop, inDone)
+	case ReviewPhaseClean:
+		return nil
 	}
 	return nil
 }
@@ -417,7 +435,7 @@ func (s *ReviewPassService) startPass(ctx context.Context, h *store.Handoff, loo
 			return s.stuck(ctx, h, loop, "Legato could not pin the head of #"+fmt.Sprint(pr.Number)+": "+err.Error())
 		}
 		pinned = append(pinned, store.HandoffReviewPR{TaskID: h.TaskID, Pass: pass, Repo: h.Repo, Number: pr.Number, Branch: pr.Branch,
-			Base: pr.Base, Title: pr.Title, Body: pr.Body, URL: pr.URL, HeadSHA: pr.HeadSHA})
+			Base: pr.Base, Title: pr.Title, Body: pr.Body, URL: pr.URL, HeadSHA: pr.HeadSHA, Author: pr.Author})
 	}
 	if err := s.db.InsertHandoffReviewPass(ctx, record, pinned); err != nil {
 		return err
