@@ -114,6 +114,10 @@ func (a *agentService) prepareTaskResume(ctx context.Context, taskID string, opt
 	opt.ResumeSessionID = saved.ID
 	opt.ResumeWorkingDir = saved.CWD
 	opt.ResumeStorageDir = saved.StorageDir
-	opt.WorkingDir = saved.CWD
+	// An agent that works in a job clone joins it again (and is recorded
+	// in it); the spawn checks the clone is where the conversation is.
+	if opt.Repo == "" && opt.Clone == 0 {
+		opt.WorkingDir = saved.CWD
+	}
 	return nil
 }

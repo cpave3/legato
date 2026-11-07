@@ -640,6 +640,9 @@ func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, hei
 			return err
 		}
 		workDir = clone.Path
+		if opt.SessionPolicy == "resume" && opt.ResumeWorkingDir != "" && !samePath(clone.Path, opt.ResumeWorkingDir) {
+			return fmt.Errorf("%w: the saved conversation is in %s, not in the clone at %s", ErrTaskResumeConflict, opt.ResumeWorkingDir, clone.Path)
+		}
 		freshClone = a.prepareFreshClone(clone, executionID, clone.Repo, opt.Ref)
 	}
 	var launchPeers []AgentPeer
@@ -1139,6 +1142,16 @@ func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, hei
 	}
 
 	return nil
+}
+
+// samePath says whether two paths name the same folder, links resolved.
+func samePath(a, b string) bool {
+	ra, errA := filepath.EvalSymlinks(a)
+	rb, errB := filepath.EvalSymlinks(b)
+	if errA != nil || errB != nil {
+		return filepath.Clean(a) == filepath.Clean(b)
+	}
+	return ra == rb
 }
 
 func peerCoordinationContext(peers []AgentPeer) string {

@@ -27,6 +27,10 @@ type HandoffAgents interface {
 	// KillAgent stops a card's agent, when a return or recall takes the
 	// task back.
 	KillAgent(ctx context.Context, taskID string) error
+	// ReconcileSessions and GetTaskResumeSession bring a handoff's author
+	// back (ResumeAuthor).
+	ReconcileSessions(ctx context.Context) error
+	GetTaskResumeSession(ctx context.Context, taskID, agentKind string) (*TaskResumeSession, error)
 }
 
 // HandoffRepositories is what a worker asks of its repository cache: which
