@@ -6,6 +6,7 @@ import { usePageInView } from "../hooks/usePageInView"
 import { AgentSidebar } from "../components/AgentSidebar"
 import { AgentContextMenu } from "../components/AgentContextMenu"
 import { TerminalPanel } from "../components/TerminalPanel"
+import { LiveTerminal } from "../components/LiveTerminal"
 import { NativeAgentPanel } from "../components/NativeAgentPanel"
 import { RelatedWorkPanel } from "../components/RelatedWorkPanel"
 import { PromptBar, type PromptBarHandle } from "../components/PromptBar"
@@ -104,6 +105,16 @@ export function AgentsPage() {
   }, [searchParams, setSearchParams])
   const [promptState, setPromptState] = useState<PromptState | null>(null)
   const [glitching, setGlitching] = useState(false)
+  // Terminal mode: a real tmux client in the browser instead of the read-only mirror.
+  const [liveTerminal, setLiveTerminal] = useState(() => {
+    try { return localStorage.getItem("legato:liveTerminal") === "1" } catch { return false }
+  })
+  const toggleLiveTerminal = useCallback(() => {
+    setLiveTerminal((on) => {
+      try { localStorage.setItem("legato:liveTerminal", on ? "0" : "1") } catch { /* private window */ }
+      return !on
+    })
+  }, [])
   const glitchTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const promptBarRef = useRef<PromptBarHandle>(null)
   const [showStartSwarm, setShowStartSwarm] = useState(false)
@@ -738,7 +749,20 @@ export function AgentsPage() {
                   stateTime={selectedAgent ? formatAgentTime(stateSeconds(selectedAgent)) : undefined}
                 />
               ) : (
-                <TerminalPanel agentId={selectedId} onGlitch={triggerGlitch} onClickTerminal={() => promptBarRef.current?.focus()} />
+                <>
+                  {liveTerminal ? (
+                    <LiveTerminal key={selectedId} agentId={selectedId} />
+                  ) : (
+                    <TerminalPanel agentId={selectedId} onGlitch={triggerGlitch} onClickTerminal={() => promptBarRef.current?.focus()} />
+                  )}
+                  <button
+                    onClick={toggleLiveTerminal}
+                    className="absolute right-3 top-2 z-10 rounded border border-zinc-700 bg-zinc-900/80 px-2 py-0.5 text-xs text-zinc-400 hover:text-zinc-200"
+                    title="Terminal mode: type straight into the session (menus, /model, Ctrl keys) and scroll tmux's own history"
+                  >
+                    {liveTerminal ? "Exit terminal mode" : "Terminal mode"}
+                  </button>
+                </>
               )}
               {glitching && !selectedAgent?.has_chimera_endpoint && (
                 <div className="terminal-glitch-overlay" aria-hidden="true" />
