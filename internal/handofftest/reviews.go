@@ -260,6 +260,13 @@ func (o ReviewPassOptions) config() service.ReviewPassConfig {
 		Defaults: service.ReviewPassSettings{Enabled: true, Agent: "codex", Model: "gpt-5.5", Skill: "3-tier-review", MaxPasses: passes}}
 }
 
+// advert is what the worker says of its review passes: codex or Claude
+// Code, codex's tier careful, and the 3-tier-review skill.
+func (o ReviewPassOptions) advert() *service.ReviewPassesAdvert {
+	return &service.ReviewPassesAdvert{Defaults: o.config().Defaults, Skills: []string{"3-tier-review"},
+		Adapters: []service.ReviewAdapter{{Name: "claude-code"}, {Name: "codex", Tiers: []string{"careful"}}}}
+}
+
 // typedTo is everything typed to a session, joined.
 func (w *Worker) typedTo(session string) string {
 	return strings.Join(w.Tmux.Typed(session), "\n")

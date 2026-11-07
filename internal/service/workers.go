@@ -184,6 +184,8 @@ type workerMeta struct {
 	HandoffPairing int    `json:"handoff_pairing"`
 	Handoff        int    `json:"handoff"`
 	Sandbox        *bool  `json:"sandbox"`
+	// ReviewPasses is set when the worker runs review passes.
+	ReviewPasses *ReviewPassesAdvert `json:"review_passes,omitempty"`
 }
 
 // Pair pairs this main with a worker by the phrase the worker shows: it

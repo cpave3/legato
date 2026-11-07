@@ -82,6 +82,26 @@ async function post(baseUrl: string, path: string): Promise<Record<string, unkno
   return body
 }
 
+// reviewStuck says the away task's review needs the person: Run another
+// pass and Message the author are offered.
+export function reviewStuck(away: AwayOn): boolean {
+  return away.review?.phase === "stuck"
+}
+
+// anotherPass asks the worker to run one more pass of a stuck review.
+export async function anotherPass(baseUrl: string, taskId: string): Promise<void> {
+  await post(baseUrl, `/api/tasks/${encodeURIComponent(taskId)}/away/review/another-pass`)
+}
+
+// messageAuthor sends the away task's agent the person's words.
+export async function messageAuthor(baseUrl: string, taskId: string, text: string): Promise<void> {
+  const res = await apiFetch(baseUrl, `/api/tasks/${encodeURIComponent(taskId)}/away/review/message`, {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text }),
+  })
+  const body = await res.json().catch(() => ({}))
+  if (!res.ok) throw new Error(body.error ?? `The server answered ${res.status}.`)
+}
+
 // returnTask returns a task done on its worker. A refusal throws the
 // server's words.
 export async function returnTask(baseUrl: string, taskId: string): Promise<ReturnedTask> {

@@ -21,6 +21,7 @@ const repositories = [
 
 let posts: { url: string; body: Record<string, unknown> }[]
 let handOffAnswer: Response | null
+let reviewPasses: unknown = null
 
 beforeEach(() => {
   posts = []
@@ -37,6 +38,7 @@ beforeEach(() => {
       })
     }
     if (u.endsWith("/api/adapters")) return json({ adapters: ["claude-code", "codex", "chimera"], default: "codex" })
+    if (u.endsWith("/api/settings/workers/srv-vm1/review-passes") && reviewPasses) return json({ review_passes: reviewPasses })
     if (u.endsWith(`/api/tasks/${card.id}/handoff`) && init?.method === "POST") {
       posts.push({ url: u, body: JSON.parse(String(init.body)) })
       if (handOffAnswer) return handOffAnswer
@@ -47,6 +49,7 @@ beforeEach(() => {
 })
 
 afterEach(() => {
+  reviewPasses = null
   cleanup()
   vi.unstubAllGlobals()
 })
@@ -196,5 +199,32 @@ describe("HandOffModal", () => {
     fireEvent.click(screen.getByRole("button", { name: "Hand off" }))
     await waitFor(() => expect(posts.length).toBe(1))
     expect(posts[0].body.repo).toBe("acme/other")
+  })
+
+  it("offers a worker's review passes, at its own settings, and sends only what changed", async () => {
+    reviewPasses = {
+      defaults: { enabled: true, agent: "codex", model: "gpt-5.5", skill: "3-tier-review", max_passes: 3 },
+      adapters: [{ name: "codex", tiers: ["careful"] }, { name: "claude-code" }],
+      skills: ["3-tier-review", "code-review"],
+    }
+    const { onHandedOff } = renderForm()
+    const section = await screen.findByRole("group", { name: "Review passes" })
+    expect((within(section).getByRole("combobox", { name: "Reviewer" }) as HTMLSelectElement).value).toBe("codex")
+    expect((within(section).getByRole("combobox", { name: "Review skill" }) as HTMLSelectElement).value).toBe("3-tier-review")
+    fireEvent.change(within(section).getByRole("combobox", { name: "Review skill" }), { target: { value: "code-review" } })
+    fireEvent.change(within(section).getByRole("spinbutton", { name: "Passes at most" }), { target: { value: "5" } })
+    fireEvent.change(screen.getByRole("combobox", { name: "Repository" }), { target: { value: "acme/widget" } })
+    fireEvent.click(screen.getByRole("button", { name: "Hand off" }))
+
+    await waitFor(() => expect(onHandedOff).toHaveBeenCalledTimes(1))
+    expect(posts[0].body.review).toEqual({ skill: "code-review", max_passes: 5 })
+  })
+
+  it("hides the review passes of a worker that has none", async () => {
+    renderForm()
+    const worker = await screen.findByRole("combobox", { name: "Worker" }) as HTMLSelectElement
+    await waitFor(() => expect(worker.value).toBe("srv-vm1"))
+    await new Promise((resolve) => setTimeout(resolve, 20))
+    expect(screen.queryByRole("group", { name: "Review passes" })).toBeNull()
   })
 })

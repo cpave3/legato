@@ -24,7 +24,7 @@ Attention lists only what you can act on. Each item comes from the part of Legat
 | Argus | [Argus](/legato/integrations/argus/) has an open case on one of your pull requests. |
 | Updates | A new release of Legato is ready to install, or an install failed. See [Updates](/legato/running/updates/). |
 | Integrations | In the last 7 days, a request from Argus did not reach an agent, a reply never reached Argus, or Argus refused the connection. |
-| Handoff | On a main instance: a task [away on a worker](/legato/using/handoff/) is done there (Ready for review, with **Return**), failed (with **Recall**) or was lost (with **Take back**); a worker no longer accepts your main (**Pair again**) or has been unreachable for 15 minutes. A task whose agent needs you raises nothing on your main: the worker tells you. See [Attention and notifications](/legato/using/handoff/#attention-and-notifications). |
+| Handoff | On a main instance: a task [away on a worker](/legato/using/handoff/) is done there (Ready for review, with **Return**), failed (with **Recall**) or was lost (with **Take back**); its review passes are stuck (with **Return as is**, **Run another pass**, **Message the author** and **Recall**); a worker no longer accepts your main (**Pair again**) or has been unreachable for 15 minutes. A task whose agent needs you raises nothing on your main: the worker tells you. See [Attention and notifications](/legato/using/handoff/#attention-and-notifications). |
 
 Some things never raise Attention: a draft, closed or merged pull request; CI that is still running; a comment count; an idle agent; a workflow that succeeded; and Learning's records.
 

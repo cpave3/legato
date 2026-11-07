@@ -217,6 +217,39 @@ export interface HandOffRequest {
   branch?: string
   repo: string
   agent_kind: string
+  // Changes to the worker's review passes for this handoff.
+  review?: ReviewOverride
+}
+
+// A worker's review passes, as its /api/meta says them: its defaults, and
+// the tools, tiers and skills a handoff may choose.
+export interface ReviewPassesAdvert {
+  defaults: { enabled: boolean; agent: string; model?: string; tier?: string; skill?: string; max_passes: number }
+  adapters: { name: string; tiers?: string[] }[]
+  skills: string[]
+}
+
+// What the Hand off dialog changes of a worker's review passes.
+export interface ReviewOverride {
+  enabled?: boolean
+  agent?: string
+  model?: string
+  tier?: string
+  skill?: string
+  max_passes?: number
+}
+
+// workerReviewPasses is what a worker says of its review passes, or null
+// when it runs none (or is too old to say).
+export async function workerReviewPasses(baseUrl: string, workerId: string): Promise<ReviewPassesAdvert | null> {
+  try {
+    const res = await apiFetch(baseUrl, `/api/settings/workers/${encodeURIComponent(workerId)}/review-passes`)
+    if (!res.ok) return null
+    const body = await res.json()
+    return (body.review_passes as ReviewPassesAdvert | null) ?? null
+  } catch {
+    return null
+  }
 }
 
 // handOffTask hands a task to a worker. A refusal throws the server's words:

@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react"
 import { MoreHorizontal } from "lucide-react"
 
-import { awayActions, doneOnWorker, recallTask, returnAllDone, returnTask, takeBackTask } from "../../lib/awayReturn"
+import { anotherPass, awayActions, doneOnWorker, messageAuthor, recallTask, returnAllDone, returnTask, reviewStuck, takeBackTask } from "../../lib/awayReturn"
 import type { BoardCard, BoardWorker } from "../../lib/board-types"
 import { removeWarning, removeWorker, removedText } from "../../lib/workers"
 import { Button } from "../ui/Button"
@@ -22,10 +22,12 @@ const actionButton = "rounded-md border border-lw-line px-2 py-1 text-xs font-me
 
 export function AwayRowActions({ baseUrl, card, onNotice }: { baseUrl: string; card: BoardCard; onNotice?: Notice }) {
   const [busy, setBusy] = useState(false)
-  const [confirming, setConfirming] = useState<"recall" | "take-back" | null>(null)
+  const [confirming, setConfirming] = useState<"recall" | "take-back" | "message" | null>(null)
   const [error, setError] = useState("")
+  const [message, setMessage] = useState("")
   const away = card.away
   if (!away) return null
+  const stuck = reviewStuck(away)
   const actions = awayActions(away)
   if (!actions.return && !actions.recall && !actions.takeBack) return null
 
@@ -46,9 +48,29 @@ export function AwayRowActions({ baseUrl, card, onNotice }: { baseUrl: string; c
     }
   }
 
+  const review = async (how: "another-pass" | "message") => {
+    setBusy(true)
+    setError("")
+    try {
+      if (how === "another-pass") await anotherPass(baseUrl, card.id)
+      else await messageAuthor(baseUrl, card.id, message)
+      onNotice?.(how === "another-pass" ? `Another review pass of ${card.id} starts on ${away.worker}` : `Message sent to ${card.id}'s agent`, false)
+      setMessage("")
+      setConfirming(null)
+    } catch (e) {
+      const text = e instanceof Error ? e.message : String(e)
+      setError(text)
+      onNotice?.(text, true)
+    } finally {
+      setBusy(false)
+    }
+  }
+
   return (
     <div className="flex flex-wrap items-center gap-1" onClick={(e) => e.stopPropagation()}>
-      {actions.return && <button type="button" disabled={busy} onClick={() => bring("return")} className={actionButton}>Return</button>}
+      {actions.return && <button type="button" disabled={busy} onClick={() => bring("return")} className={actionButton}>{stuck ? "Return as is" : "Return"}</button>}
+      {stuck && <button type="button" disabled={busy} onClick={() => review("another-pass")} className={actionButton}>Run another pass</button>}
+      {stuck && <button type="button" disabled={busy} onClick={() => setConfirming("message")} className={actionButton}>Message the author</button>}
       {actions.recall && <button type="button" disabled={busy} onClick={() => (actions.confirmRecall ? setConfirming("recall") : bring("recall"))} className={actionButton}>Recall</button>}
       {actions.takeBack && <button type="button" disabled={busy} onClick={() => setConfirming("take-back")} className={actionButton}>Take back</button>}
       {error && <span role="alert" className="basis-full text-xs text-lw-error">{error}</span>}
@@ -62,6 +84,19 @@ export function AwayRowActions({ baseUrl, card, onNotice }: { baseUrl: string; c
           <DialogFooter>
             <Button variant="ghost" size="sm" disabled={busy} onClick={() => setConfirming(null)}>Cancel</Button>
             <Button variant="warning" size="sm" disabled={busy} onClick={() => bring("recall")}>Recall now</Button>
+          </DialogFooter>
+        </DialogPanel>
+      </Dialog>
+      <Dialog open={confirming === "message"} onClose={() => setConfirming(null)} dismissible={!busy}>
+        <DialogPanel className="max-w-md">
+          <DialogHeader><DialogTitle>Message {card.id}'s agent</DialogTitle><DialogClose disabled={busy} /></DialogHeader>
+          <DialogBody className="space-y-2">
+            <p className="text-xs text-zinc-400">It reaches the agent on {away.worker} as a message from you, marked [legato main].</p>
+            <textarea aria-label="Message" value={message} onChange={(e) => setMessage(e.target.value)} rows={4} className="w-full rounded-md border border-lw-line bg-lw-raised p-2 text-sm text-lw-text" />
+          </DialogBody>
+          <DialogFooter>
+            <Button variant="ghost" size="sm" disabled={busy} onClick={() => setConfirming(null)}>Cancel</Button>
+            <Button size="sm" disabled={busy || message.trim() === ""} onClick={() => review("message")}>Send</Button>
           </DialogFooter>
         </DialogPanel>
       </Dialog>

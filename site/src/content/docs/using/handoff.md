@@ -82,7 +82,9 @@ On a worker that runs review passes (see [Review passes](/legato/reference/confi
 - **Done · approved** once a pass is clean and the reviewer approved the pull requests;
 - **Review stuck**, with why, when it needs you: the passes reached their limit, the reviewer could not review or ran out of time, or the agent could not be brought back.
 
-The panel links to Legato's latest review of each pull request. While a review runs, **Return** is not offered: recall the task to bring it back now. A stuck review can be returned as it is.
+The panel links to Legato's latest review of each pull request. When the review is stuck, the row, its panel and its Attention item offer **Return as is**, **Run another pass** (one more pass past the limit, or another try), **Message the author** (your words reach the agent on the worker, marked as from you) and **Recall**.
+
+When you hand off a task to such a worker, the Hand off form has a **Review passes** section: turn them off for this task, or choose another reviewer, tier or model, skill, or number of passes. It starts at the worker's own settings, and the worker refuses a choice it cannot meet before it takes the task. While a review runs, **Return** is not offered: recall the task to bring it back now. A stuck review can be returned as it is.
 
 ## Pull requests while away
 

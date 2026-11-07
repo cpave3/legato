@@ -189,6 +189,17 @@ func (s *HandoffWorkerService) Accept(ctx context.Context, main HandoffMain, cal
 	if err != nil {
 		return HandoffAccepted{}, false, err
 	}
+	var review *ReviewPassSettings
+	if call.Review != nil {
+		if s.opts.Reviews == nil {
+			return HandoffAccepted{}, false, handoffErr("no_review_passes", "this worker does not run review passes")
+		}
+		settings, err := s.opts.Reviews.Override(*call.Review)
+		if err != nil {
+			return HandoffAccepted{}, false, handoffErr("review_override", "%v", err)
+		}
+		review = &settings
+	}
 	if s.opts.Repositories == nil {
 		return HandoffAccepted{}, false, handoffErr("cannot_clone", "this worker cannot clone %s: it has no repository cache", call.Repo)
 	}
@@ -229,6 +240,11 @@ func (s *HandoffWorkerService) Accept(ctx context.Context, main HandoffMain, cal
 		return s.Accept(ctx, main, call)
 	} else if err != nil {
 		return HandoffAccepted{}, false, err
+	}
+	if review != nil {
+		if err := s.opts.Reviews.SetSettings(ctx, task.ID, *review); err != nil {
+			log.Printf("handoff %s: keeping its review settings: %v", call.HandoffID, err)
+		}
 	}
 	s.publish(events.EventCardsRefreshed, nil)
 	s.publish(events.EventHandoffChanged, task.ID)
@@ -442,6 +458,13 @@ type HandoffReviews interface {
 	ReviewNote(ctx context.Context, taskID string) string
 	// StopReview stops the reviewer of a handoff that closed.
 	StopReview(ctx context.Context, taskID string)
+	// Override checks a main's override; SetSettings keeps a handoff's.
+	Override(o ReviewPassOverride) (ReviewPassSettings, error)
+	SetSettings(ctx context.Context, taskID string, settings ReviewPassSettings) error
+	// AnotherPass and MessageAuthor are the main's actions on a stuck
+	// review.
+	AnotherPass(ctx context.Context, taskID string) error
+	MessageAuthor(ctx context.Context, taskID, text string) error
 }
 
 // pushedBranch checks the branch a handoff starts from is on GitHub, after

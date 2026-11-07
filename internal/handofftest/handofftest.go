@@ -204,7 +204,9 @@ func (w *Worker) start() {
 			Config: rp.config, Agents: w.Agents.(service.ReviewAgents), Board: w.Board, GitHub: w.ReviewGitHub,
 			Checkout: w.Checkout, Bus: w.Bus, Now: w.Clock.Now, Run: w.run, Overlay: func() bool { return false },
 			ResumeAuthor: func(ctx context.Context, taskID string) error { return w.Handoffs.ResumeAuthor(ctx, taskID) },
+			Advert:       rp.advert,
 		})
+		srv.SetReviewPasses(rp.advert)
 	}
 	w.Reviews = reviews
 	w.Handoffs = service.NewHandoffWorkerService(db, service.HandoffWorkerOptions{

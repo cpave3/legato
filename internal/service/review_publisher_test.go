@@ -438,8 +438,8 @@ func TestCommentsArePolledPageByPageWithETagsAndThreadsOnlyOnAChange(t *testing.
 		full = append(full, fmt.Sprintf(`{"id":%d,"user":{"login":"amy","type":"User"},"author_association":"MEMBER","body":"c%d","html_url":"u"}`, 1000+i, i))
 	}
 	f.github.lists = map[string][]string{
-		"/repos/cpave3/legato/pulls/12/reviews":  {`[{"id":1,"user":{"login":"bob","type":"User"},"author_association":"OWNER","body":"Please split this.","state":"COMMENTED","html_url":"r1"}]`},
-		"/repos/cpave3/legato/pulls/12/comments": {`[{"id":501,"user":{"login":"cubic-dev-ai[bot]","type":"Bot"},"author_association":"NONE","body":"Nil check.","path":"a.go","line":4,"html_url":"c501"},{"id":502,"user":{"login":"amy","type":"User"},"author_association":"MEMBER","body":"Old line.","path":"a.go","line":null,"original_line":9,"html_url":"c502"},{"id":503,"in_reply_to_id":502,"user":{"login":"amy","type":"User"},"author_association":"MEMBER","body":"Still?","path":"a.go","html_url":"c503"}]`},
+		"/repos/cpave3/legato/pulls/12/reviews":   {`[{"id":1,"user":{"login":"bob","type":"User"},"author_association":"OWNER","body":"Please split this.","state":"COMMENTED","html_url":"r1"}]`},
+		"/repos/cpave3/legato/pulls/12/comments":  {`[{"id":501,"user":{"login":"cubic-dev-ai[bot]","type":"Bot"},"author_association":"NONE","body":"Nil check.","path":"a.go","line":4,"html_url":"c501"},{"id":502,"user":{"login":"amy","type":"User"},"author_association":"MEMBER","body":"Old line.","path":"a.go","line":null,"original_line":9,"html_url":"c502"},{"id":503,"in_reply_to_id":502,"user":{"login":"amy","type":"User"},"author_association":"MEMBER","body":"Still?","path":"a.go","html_url":"c503"}]`},
 		"/repos/cpave3/legato/issues/12/comments": {"[" + strings.Join(full, ",") + "]", `[{"id":2000,"user":{"login":"stranger","type":"User"},"author_association":"NONE","body":"+1","html_url":"i2000"}]`},
 	}
 	pages := memoryPollPages{}

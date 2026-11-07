@@ -135,6 +135,9 @@ type ReviewPassOptions struct {
 	// Overlay says whether the reviewer's checkout gets a throwaway layer
 	// (CheckoutOverlayProber); nil means it does not.
 	Overlay func() bool
+	// Advert is this worker's review passes as /api/meta says them, which
+	// a main's override is checked against; nil refuses every override.
+	Advert func() *ReviewPassesAdvert
 	// ResumeAuthor brings back an author that is not running
 	// (HandoffWorkerService.ResumeAuthor); nil cannot.
 	ResumeAuthor func(ctx context.Context, taskID string) error
@@ -181,9 +184,17 @@ func (s *ReviewPassService) config() ReviewPassConfig {
 
 func (s *ReviewPassService) now() string { return s.opts.Now().UTC().Format(time.RFC3339) }
 
-// applies says whether a handoff runs review passes.
+// applies says whether a handoff runs review passes: a make-a-change one,
+// unless its main turned them off for it.
 func (s *ReviewPassService) applies(h *store.Handoff) bool {
-	return s.config().Enabled && h.Purpose == HandoffMakeChange && h.ClosedAt == nil
+	if !s.config().Enabled || h.Purpose != HandoffMakeChange || h.ClosedAt != nil {
+		return false
+	}
+	loop, err := s.db.GetHandoffReview(context.Background(), h.TaskID)
+	if err != nil {
+		return false
+	}
+	return loopSettings(loop, s.config().Defaults).Enabled
 }
 
 // DoneAllowed says whether a handoff whose card is in Done may be done: one
@@ -227,6 +238,11 @@ func (s *ReviewPassService) SetSettings(ctx context.Context, taskID string, sett
 	data, _ := json.Marshal(settings)
 	loop.Settings, loop.UpdatedAt = string(data), s.now()
 	return s.db.SaveHandoffReview(ctx, *loop)
+}
+
+func encodeJSON(v any) (string, error) {
+	data, err := json.Marshal(v)
+	return string(data), err
 }
 
 // Tick moves every open handoff's review loop on: a finished author's card

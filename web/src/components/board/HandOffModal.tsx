@@ -5,7 +5,7 @@ import { Button } from "../ui/Button"
 import { Dialog, DialogBody, DialogClose, DialogFooter, DialogHeader, DialogPanel, DialogTitle } from "../ui/Dialog"
 import { apiFetch } from "../../lib/api"
 import { agentKindLabel } from "../../lib/agentKind"
-import { handOffTask, type HandOffRequest } from "../../lib/away"
+import { handOffTask, type HandOffRequest, workerReviewPasses, type ReviewPassesAdvert, type ReviewOverride } from "../../lib/away"
 import type { AwayOn, BoardCard } from "../../lib/board-types"
 import { listWorkers, type Worker } from "../../lib/workers"
 import type { RepositoryPreset } from "../RepositoryPresetSelect"
@@ -86,6 +86,20 @@ export function HandOffModal({ baseUrl, open, card, repositories, onClose, onHan
   const [tool, setTool] = useState("")
   const [error, setError] = useState<string | null>(null)
   const [sending, setSending] = useState(false)
+  // The chosen worker's review passes, and this handoff's changes to them.
+  const [advert, setAdvert] = useState<ReviewPassesAdvert | null>(null)
+  const [review, setReview] = useState<ReviewOverride>({})
+
+  useEffect(() => {
+    if (!open || worker === "") {
+      setAdvert(null)
+      return
+    }
+    let current = true
+    setReview({})
+    workerReviewPasses(baseUrl, worker).then((found) => { if (current) setAdvert(found) })
+    return () => { current = false }
+  }, [open, baseUrl, worker])
 
   useEffect(() => {
     if (!open) return
@@ -132,6 +146,7 @@ export function HandOffModal({ baseUrl, open, card, repositories, onClose, onHan
     setError(null)
     try {
       const request: HandOffRequest = { worker, purpose, kind: startFrom, repo: repo.trim(), agent_kind: tool }
+      if (advert && purpose === "make-change" && Object.keys(review).length > 0) request.review = review
       if (pushed) request.branch = branch.trim()
       const away = await handOffTask(baseUrl, card.id, request)
       onHandedOff(away)
@@ -199,6 +214,7 @@ export function HandOffModal({ baseUrl, open, card, repositories, onClose, onHan
                 {tools.map((kind) => <option key={kind} value={kind}>{agentKindLabel(kind)}</option>)}
               </select>
             </label>
+            {advert && purpose === "make-change" && <ReviewPassesSection advert={advert} review={review} onChange={setReview} />}
             <p className="text-xs text-lw-text-2">
               The agent works on its own in {chosen?.name ?? "the worker"}'s sandbox
               {purpose === "make-change" ? " and can push its branches and open draft PRs" : " and pushes nothing"}.
@@ -213,5 +229,59 @@ export function HandOffModal({ baseUrl, open, card, repositories, onClose, onHan
         </form>
       </DialogPanel>
     </Dialog>
+  )
+}
+
+// ReviewPassesSection changes a worker's review passes for one handoff:
+// on or off, the reviewer's tool and its model or tier, the skill, and the
+// passes allowed. Each starts at the worker's own setting.
+function ReviewPassesSection({ advert, review, onChange }: { advert: ReviewPassesAdvert; review: ReviewOverride; onChange: (r: ReviewOverride) => void }) {
+  const d = advert.defaults
+  const enabled = review.enabled ?? d.enabled
+  const agent = review.agent ?? d.agent
+  const tiers = advert.adapters.find((a) => a.name === agent)?.tiers ?? []
+  const set = (change: ReviewOverride) => onChange({ ...review, ...change })
+  return (
+    <fieldset aria-label="Review passes" className="flex flex-col gap-2 rounded-md border border-lw-line px-3 py-2.5">
+      <legend className={fieldLabel}>Review passes</legend>
+      <label className="flex items-center gap-2 text-sm text-lw-text">
+        <input type="checkbox" aria-label="Review this handoff's pull requests" checked={enabled} onChange={(e) => set({ enabled: e.target.checked })} />
+        A reviewer on another model reviews its pull requests before it is done
+      </label>
+      {enabled && (
+        <div className="grid grid-cols-2 gap-2">
+          <label className="flex flex-col gap-1">
+            <span className="text-xs text-lw-text-2">Reviewer</span>
+            <select aria-label="Reviewer" value={agent} onChange={(e) => set({ agent: e.target.value, tier: undefined, model: undefined })} className={control}>
+              {advert.adapters.map((a) => <option key={a.name} value={a.name}>{agentKindLabel(a.name)}</option>)}
+            </select>
+          </label>
+          {tiers.length > 0 ? (
+            <label className="flex flex-col gap-1">
+              <span className="text-xs text-lw-text-2">Tier</span>
+              <select aria-label="Reviewer tier" value={review.tier ?? (agent === d.agent ? d.tier ?? "" : "")} onChange={(e) => set({ tier: e.target.value || undefined })} className={control}>
+                <option value="">Model below</option>
+                {tiers.map((t) => <option key={t} value={t}>{t}</option>)}
+              </select>
+            </label>
+          ) : <span />}
+          <label className="flex flex-col gap-1">
+            <span className="text-xs text-lw-text-2">Model</span>
+            <input aria-label="Reviewer model" value={review.model ?? (agent === d.agent ? d.model ?? "" : "")} onChange={(e) => set({ model: e.target.value || undefined })} placeholder="the tool's" className={control} />
+          </label>
+          <label className="flex flex-col gap-1">
+            <span className="text-xs text-lw-text-2">Skill</span>
+            <select aria-label="Review skill" value={review.skill ?? d.skill ?? ""} onChange={(e) => set({ skill: e.target.value || undefined })} className={control}>
+              {!d.skill && <option value="">None</option>}
+              {advert.skills.map((s) => <option key={s} value={s}>{s}</option>)}
+            </select>
+          </label>
+          <label className="flex flex-col gap-1">
+            <span className="text-xs text-lw-text-2">Passes at most</span>
+            <input aria-label="Passes at most" type="number" min={1} value={review.max_passes ?? d.max_passes} onChange={(e) => set({ max_passes: Number(e.target.value) || undefined })} className={control} />
+          </label>
+        </div>
+      )}
+    </fieldset>
   )
 }

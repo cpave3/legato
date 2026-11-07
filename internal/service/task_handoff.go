@@ -39,6 +39,8 @@ type TaskHandoffRequest struct {
 	Branch    string
 	Repo      string
 	AgentKind string
+	// Review overrides the worker's review passes; nil keeps its defaults.
+	Review *ReviewPassOverride
 }
 
 // AwayTask is a task of this main away on a worker: where it went, how,
@@ -233,6 +235,9 @@ func (s *TaskHandoffService) HandOff(ctx context.Context, req TaskHandoffRequest
 	if meta.Sandbox == nil || !*meta.Sandbox {
 		return AwayTask{}, &handoffWorkerError{ErrWorkerRefused, fmt.Sprintf("%s cannot run agents in Legato's sandbox, which a handed-off agent needs", name)}
 	}
+	if req.Review != nil && meta.ReviewPasses == nil {
+		return AwayTask{}, &handoffWorkerError{ErrWorkerRefused, fmt.Sprintf("%s does not run review passes", name)}
+	}
 
 	notes, err := s.db.ListTaskNotes(ctx, task.ID)
 	if err != nil {
@@ -277,6 +282,7 @@ func (s *TaskHandoffService) HandOff(ctx context.Context, req TaskHandoffRequest
 		call.Notes = append(call.Notes, HandoffCallNote{ID: n.ID, Body: n.Body, CreatedAt: n.CreatedAt})
 	}
 	call.Ticket = handoffTicket(task)
+	call.Review = req.Review
 	var accepted HandoffAccepted
 	if err := client.Call(ctx, http.MethodPost, HandoffCallPath, call, &accepted); err != nil {
 		if errors.Is(err, ErrWorkerUnreachable) {

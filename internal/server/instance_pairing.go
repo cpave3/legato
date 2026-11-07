@@ -138,6 +138,9 @@ func (s *Server) registerInstanceRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST "+service.HandoffCallPath+"/{handoff_id}/drop", s.taskHandoffDropHandler())
 	mux.HandleFunc("POST "+service.HandoffLeavePath, s.handoffLeaveHandler())
 	mux.HandleFunc("POST /api/tasks/{id}/take-back", s.taskTakeBackHandler())
+	mux.HandleFunc("POST /api/tasks/{id}/away/review/{action}", s.awayReviewActionHandler())
+	mux.HandleFunc("GET /api/settings/workers/{instance_id}/review-passes", s.workerReviewPassesHandler())
+	mux.HandleFunc("POST "+service.HandoffCallPath+"/{handoff_id}/review/{action}", s.taskHandoffReviewHandler())
 	mux.HandleFunc("DELETE /api/settings/workers/{instance_id}", s.workerRemoveHandler())
 }
 
