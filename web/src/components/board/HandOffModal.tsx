@@ -45,7 +45,8 @@ function startChoices(taskId: string): { value: StartFrom; label: string; note: 
 }
 
 const fieldLabel = "text-xs text-lw-text-2"
-const control = "min-h-10 w-full rounded-md border border-lw-line-strong bg-lw-ground px-3 text-sm text-lw-text outline-none focus:border-lw-accent"
+// 16px on a phone: a smaller field makes iOS zoom the page when it is focused.
+const control = "min-h-11 w-full rounded-md border border-lw-line-strong bg-lw-ground px-3 text-base text-lw-text outline-none focus:border-lw-accent sm:min-h-10 sm:text-sm"
 
 function Choices<T extends string>({ name, legend, value, options, onChange }: {
   name: string
@@ -57,13 +58,13 @@ function Choices<T extends string>({ name, legend, value, options, onChange }: {
   return (
     <fieldset className="flex flex-col gap-1.5">
       <legend className={`${fieldLabel} mb-1.5`}>{legend}</legend>
-      <div className="flex overflow-hidden rounded-md border border-lw-line-strong bg-lw-ground">
+      <div className="flex flex-col overflow-hidden rounded-md border border-lw-line-strong bg-lw-ground sm:flex-row">
         {options.map((option) => (
-          <label key={option.value} className={`flex flex-1 basis-0 cursor-pointer items-start gap-2.5 border-r border-lw-line px-3 py-2 last:border-r-0 ${value === option.value ? "bg-lw-selected" : ""}`}>
+          <label key={option.value} className={`flex min-h-11 flex-1 basis-0 cursor-pointer items-start gap-2.5 border-b border-lw-line px-3 py-2.5 last:border-b-0 sm:border-b-0 sm:border-r sm:last:border-r-0 ${value === option.value ? "bg-lw-selected" : ""}`}>
             <input type="radio" name={name} value={option.value} checked={value === option.value} onChange={() => onChange(option.value)} className="mt-1 accent-lw-accent" />
             <span className="flex min-w-0 flex-col gap-px">
               <span className="text-sm font-medium text-lw-text">{option.label}</span>
-              <span className="truncate font-lw-mono text-xs text-lw-text-2">{option.note}</span>
+              <span className="break-words font-lw-mono text-xs text-lw-text-2">{option.note}</span>
             </span>
           </label>
         ))}
@@ -81,7 +82,7 @@ export function HandOffModal({ baseUrl, open, card, repositories, onClose, onHan
   const [startFrom, setStartFrom] = useState<StartFrom>("new-branch")
   const [branch, setBranch] = useState("")
   const offered = repositories.filter((repository) => repository.repo)
-  const [repo, setRepo] = useState(offered[0]?.repo ?? "")
+  const [repo, setRepo] = useState("")
   const [tool, setTool] = useState("")
   const [error, setError] = useState<string | null>(null)
   const [sending, setSending] = useState(false)
@@ -114,11 +115,11 @@ export function HandOffModal({ baseUrl, open, card, repositories, onClose, onHan
     return () => { current = false }
   }, [open, baseUrl])
 
-  // The repositories are read with the settings, perhaps after the form opened.
-  const firstOffered = offered[0]?.repo ?? ""
+  // No repository is chosen for the person: work sent to the wrong one is
+  // easy to miss, so the form waits for a choice every time it opens.
   useEffect(() => {
-    if (open && repo === "" && firstOffered) setRepo(firstOffered)
-  }, [open, repo, firstOffered])
+    if (!open) setRepo("")
+  }, [open])
 
   const agentHere = card.agent_active
   const pushed = startFrom === "pushed-branch"
@@ -145,10 +146,10 @@ export function HandOffModal({ baseUrl, open, card, repositories, onClose, onHan
   const chosen = workers?.find((w) => w.instance_id === worker)
   return (
     <Dialog open={open} onClose={onClose} dismissible={!sending}>
-      <DialogPanel className="max-w-lg font-lw">
-        <form onSubmit={submit} className="contents">
+      <DialogPanel className="flex max-h-[calc(100dvh-2rem)] max-w-lg flex-col font-lw">
+        <form onSubmit={submit} className="flex min-h-0 flex-1 flex-col">
           <DialogHeader><DialogTitle>Hand off “{card.title}”</DialogTitle><DialogClose disabled={sending} /></DialogHeader>
-          <DialogBody className="flex flex-col gap-4">
+          <DialogBody className="flex min-h-0 flex-1 flex-col gap-4 overflow-y-auto overscroll-contain">
             {agentHere && (
               <p className="rounded-md border border-lw-needs/40 bg-lw-needs-soft px-3 py-2 text-xs text-lw-needs">
                 Stop this task's agent before handing it off: two agents never work on one task.
@@ -182,12 +183,14 @@ export function HandOffModal({ baseUrl, open, card, repositories, onClose, onHan
             <label className="flex flex-col gap-1.5">
               <span className={fieldLabel}>Repository</span>
               {offered.length > 0 ? (
-                <select aria-label="Repository" value={repo} onChange={(event) => setRepo(event.target.value)} className={control}>
+                <select aria-label="Repository" required value={repo} onChange={(event) => setRepo(event.target.value)} className={control}>
+                  <option value="" disabled>Choose a repository…</option>
                   {offered.map((repository) => <option key={repository.repo} value={repository.repo}>{repository.name === repository.repo ? repository.repo : `${repository.name} · ${repository.repo}`}</option>)}
                 </select>
               ) : (
-                <input aria-label="Repository" value={repo} onChange={(event) => setRepo(event.target.value)} placeholder="owner/name on GitHub" className={`${control} font-lw-mono`} />
+                <input aria-label="Repository" required value={repo} onChange={(event) => setRepo(event.target.value)} placeholder="owner/name on GitHub" className={`${control} font-lw-mono`} />
               )}
+              {repo.trim() === "" && <span className="text-xs text-lw-text-2">Choose a repository: the work goes to the one you pick, so none is picked for you.</span>}
             </label>
             <label className="flex flex-col gap-1.5">
               <span className={fieldLabel}>Agent tool</span>
@@ -203,9 +206,9 @@ export function HandOffModal({ baseUrl, open, card, repositories, onClose, onHan
             </p>
             {error && <p role="alert" className="rounded-md border border-lw-danger-line bg-lw-error-soft px-3 py-2 text-xs text-lw-danger">{error}</p>}
           </DialogBody>
-          <DialogFooter>
-            <Button type="button" variant="outline" size="sm" disabled={sending} onClick={onClose}>Cancel</Button>
-            <Button type="submit" size="sm" disabled={!canSend}>{sending ? "Handing off…" : "Hand off"}</Button>
+          <DialogFooter className="shrink-0 pb-[max(0.75rem,env(safe-area-inset-bottom))]">
+            <Button type="button" variant="outline" disabled={sending} onClick={onClose}>Cancel</Button>
+            <Button type="submit" disabled={!canSend}>{sending ? "Handing off…" : "Hand off"}</Button>
           </DialogFooter>
         </form>
       </DialogPanel>

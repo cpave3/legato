@@ -79,9 +79,12 @@ describe("HandOffModal", () => {
     expect(fresh.checked).toBe(true)
     expect(within(dialog).getByText("legato/t7x2")).toBeTruthy()
 
-    // The repositories with a GitHub name, as the spawn dialog offers them.
+    // The repositories with a GitHub name, as the spawn dialog offers them,
+    // after a placeholder: none is chosen for the person.
     const repo = within(dialog).getByRole("combobox", { name: "Repository" }) as HTMLSelectElement
-    expect(Array.from(repo.options).map((o) => o.value)).toEqual(["acme/widget", "acme/gadget"])
+    expect(Array.from(repo.options).map((o) => o.value)).toEqual(["", "acme/widget", "acme/gadget"])
+    expect(repo.value).toBe("")
+    expect(repo.required).toBe(true)
 
     // The agent tools, the default first; never a plain shell.
     const tool = await within(dialog).findByRole("combobox", { name: "Agent tool" }) as HTMLSelectElement
@@ -118,6 +121,7 @@ describe("HandOffModal", () => {
     // Not without the branch's name.
     expect(send.disabled).toBe(true)
     fireEvent.change(branch, { target: { value: "  fix/login-timeout " } })
+    fireEvent.change(screen.getByRole("combobox", { name: "Repository" }), { target: { value: "acme/widget" } })
     expect(send.disabled).toBe(false)
     fireEvent.click(send)
 
@@ -130,11 +134,49 @@ describe("HandOffModal", () => {
     const { onHandedOff } = renderForm()
     const worker = await screen.findByRole("combobox", { name: "Worker" }) as HTMLSelectElement
     await waitFor(() => expect(worker.value).toBe("srv-vm1"))
+    fireEvent.change(screen.getByRole("combobox", { name: "Repository" }), { target: { value: "acme/widget" } })
     fireEvent.click(screen.getByRole("button", { name: "Hand off" }))
     const alert = await screen.findByRole("alert")
     expect(alert.textContent).toBe(`vm-1 refused the handoff: this worker does not know the agent tool "codex" (it knows claude-code)`)
     expect(onHandedOff).not.toHaveBeenCalled()
     expect(screen.getByRole("dialog")).toBeTruthy()
+  })
+
+  it("does not hand off until a repository is chosen, and never picks one itself", async () => {
+    const { onHandedOff } = renderForm()
+    const worker = await screen.findByRole("combobox", { name: "Worker" }) as HTMLSelectElement
+    await waitFor(() => expect(worker.value).toBe("srv-vm1"))
+    const send = screen.getByRole("button", { name: "Hand off" }) as HTMLButtonElement
+    expect(send.disabled).toBe(true)
+    expect(screen.getByText(/none is picked for you/i)).toBeTruthy()
+    fireEvent.submit(send.closest("form")!)
+    expect(posts.length).toBe(0)
+    expect(onHandedOff).not.toHaveBeenCalled()
+
+    fireEvent.change(screen.getByRole("combobox", { name: "Repository" }), { target: { value: "acme/gadget" } })
+    expect(send.disabled).toBe(false)
+  })
+
+  it("does not fill in a repository when the list arrives after the form opened", async () => {
+    const view = render(<HandOffModal baseUrl="" open card={card} repositories={[]} onClose={vi.fn()} onHandedOff={vi.fn()} />)
+    view.rerender(<HandOffModal baseUrl="" open card={card} repositories={repositories} onClose={vi.fn()} onHandedOff={vi.fn()} />)
+    const repo = await screen.findByRole("combobox", { name: "Repository" }) as HTMLSelectElement
+    expect(repo.value).toBe("")
+  })
+
+  it("lays the choices out to fit a phone: stacked, wrapping, nothing cut off", async () => {
+    renderForm()
+    const dialog = screen.getByRole("dialog")
+    for (const name of [/Make a change/, /A new branch/]) {
+      const group = within(dialog).getByRole("radio", { name }).closest("fieldset")!
+      const row = group.querySelector("label")!.parentElement!
+      expect(row.className).toMatch(/\bflex-col\b/)
+      expect(row.className).toMatch(/\bsm:flex-row\b/)
+      expect(row.querySelector(".truncate")).toBeNull()
+    }
+    // The panel scrolls inside the screen instead of running off it.
+    expect(dialog.className).toMatch(/max-h-/)
+    expect(dialog.querySelector("form")!.className).toMatch(/\boverflow-hidden\b|\bmin-h-0\b/)
   })
 
   it("says to stop the task's agent here first", async () => {
@@ -148,6 +190,7 @@ describe("HandOffModal", () => {
     const worker = await screen.findByRole("combobox", { name: "Worker" }) as HTMLSelectElement
     await waitFor(() => expect(worker.value).toBe("srv-vm1"))
     const repo = screen.getByRole("textbox", { name: "Repository" }) as HTMLInputElement
+    expect(repo.value).toBe("")
     expect((screen.getByRole("button", { name: "Hand off" }) as HTMLButtonElement).disabled).toBe(true)
     fireEvent.change(repo, { target: { value: "acme/other" } })
     fireEvent.click(screen.getByRole("button", { name: "Hand off" }))
