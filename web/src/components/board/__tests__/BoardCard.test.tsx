@@ -215,4 +215,11 @@ describe("BoardCard in a long column", () => {
     // squeezed to a sliver once they no longer fit.
     expect((container.firstElementChild as HTMLElement).className).toMatch(/\bshrink-0\b/)
   })
+
+  it("shows a chip for each running named slot beside the main agent", () => {
+    renderCard(makeCard({ slot_agents: [{ slot: "reviewer", state: "working" }] }))
+    const strip = screen.getByTestId("agent-strip")
+    expect(strip.textContent).toContain("Running")
+    expect(within(strip).getByText("reviewer · running")).toBeTruthy()
+  })
 })

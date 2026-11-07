@@ -38,6 +38,9 @@ export interface BoardCard {
   agent_active: boolean
   agent_state: string
   agent_kind?: string
+  // The task's running named slots (a reviewer), shown as chips beside the
+  // main slot's state; absent when none.
+  slot_agents?: SlotAgent[]
   working_seconds: number
   waiting_seconds: number
   error_seconds: number
@@ -54,6 +57,11 @@ export interface BoardCard {
   handoff_from?: HandoffFrom
   // On a main: the worker this task is away on.
   away?: AwayOn
+}
+
+export interface SlotAgent {
+  slot: string
+  state: string
 }
 
 export interface HandoffFrom {

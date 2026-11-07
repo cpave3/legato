@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"strings"
 
 	"github.com/cpave3/legato/internal/engine/store"
 )
@@ -47,6 +48,26 @@ func AgentTmuxSession(taskID, slot string) string {
 	return "legato-" + AgentSlotKey(taskID, slot)
 }
 
+// SplitAgentID reads an agent ID, the address of one agent from outside
+// (an agents list's row, the web UI, the TUI): a task ID for the main
+// slot, <task>_<slot> for a named one. Task IDs have no underscores.
+func SplitAgentID(id string) (taskID, slot string) {
+	if i := strings.LastIndex(id, "_"); i > 0 && slotName.MatchString(id[i+1:]) {
+		return id[:i], id[i+1:]
+	}
+	return id, store.SlotMain
+}
+
+// agentAddress is the task and the context that address the agent of id
+// (an agent ID), for the methods that take a task ID.
+func agentAddress(ctx context.Context, id string) (context.Context, string) {
+	taskID, slot := SplitAgentID(id)
+	if IsNamedSlot(slot) {
+		return WithAgentSlot(ctx, slot), taskID
+	}
+	return ctx, taskID
+}
+
 type agentSlotKey struct{}
 
 // WithAgentSlot addresses the agent of one of a task's slots through
@@ -64,8 +85,10 @@ func AgentSlotFrom(ctx context.Context) string {
 	return store.SlotMain
 }
 
-// slotSession is the running session of the slot ctx addresses.
-func slotSession(ctx context.Context, s *store.Store, taskID string) (*store.AgentSession, error) {
+// slotSession is the running session of the slot ctx addresses, or that
+// an agent ID names.
+func slotSession(ctx context.Context, s *store.Store, id string) (*store.AgentSession, error) {
+	ctx, taskID := agentAddress(ctx, id)
 	return s.GetAgentSessionInSlot(ctx, taskID, AgentSlotFrom(ctx))
 }
 
