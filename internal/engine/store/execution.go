@@ -52,7 +52,7 @@ func (s *Store) ListRunningExecutionPeers(ctx context.Context) ([]ExecutionPeer,
 	err := s.db.SelectContext(ctx, &peers, `
 		SELECT e.id AS execution_id, e.execution_task_id AS task_id,
 			e.task_title, e.kind, e.role, a.activity, e.working_dir,
-			a.id AS agent_session_id
+			a.id AS agent_session_id, a.slot, e.read_only
 		FROM executions e
 		JOIN agent_sessions a ON a.id = e.agent_session_id
 		WHERE e.status = 'running' AND a.status = 'running'

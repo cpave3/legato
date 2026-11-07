@@ -183,11 +183,11 @@ func (s *Store) ListTasksForRepository(ctx context.Context, repo string) ([]Task
 	return tasks, err
 }
 
-// LatestAgentSessionForTask is a task's newest session row, running or
+// LatestAgentSessionForTask is the newest session row of a task's main slot, running or
 // ended; nil when it has none.
 func (s *Store) LatestAgentSessionForTask(ctx context.Context, taskID string) (*AgentSession, error) {
 	var a AgentSession
-	err := s.db.GetContext(ctx, &a, agentSessionSelect+" WHERE a.task_id = ? ORDER BY a.started_at DESC, a.id DESC LIMIT 1", taskID)
+	err := s.db.GetContext(ctx, &a, agentSessionSelect+" WHERE a.task_id = ? AND a.slot = 'main' ORDER BY a.started_at DESC, a.id DESC LIMIT 1", taskID)
 	if errors.Is(err, sql.ErrNoRows) {
 		return nil, nil
 	}

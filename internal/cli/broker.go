@@ -116,7 +116,7 @@ func brokerSessionCreated(db *store.Store) BrokerOp {
 		if err := json.Unmarshal(raw, &args); err != nil || args.SessionID == "" {
 			return nil, refuse("bad_request", "session_id is required")
 		}
-		if err := AgentSessionCreated(db, caller.TaskID, args.SessionID); err != nil {
+		if err := AgentSessionCreatedFor(db, caller.TaskID, caller.ExecutionID, args.SessionID); err != nil {
 			return nil, refuse("rejected", err.Error())
 		}
 		return map[string]bool{"ok": true}, nil

@@ -21,13 +21,7 @@ func TestAgentSessionCreatedLinksSessionToTask(t *testing.T) {
 	if err := AgentSessionCreated(s, "TASK-1", "chimera-123"); err != nil {
 		t.Fatal(err)
 	}
-	task, err := s.GetTask(t.Context(), "TASK-1")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if task.ChimeraSessionID == nil || *task.ChimeraSessionID != "chimera-123" {
-		t.Fatalf("ChimeraSessionID = %v", task.ChimeraSessionID)
-	}
+	assertTaskChimeraSessionID(t, s, "TASK-1", "chimera-123")
 }
 
 func TestAgentSessionCreatedFromHookLinksTaskNamedParent(t *testing.T) {
@@ -94,12 +88,12 @@ func newChimeraSessionTestStore(t *testing.T) *store.Store {
 
 func assertTaskChimeraSessionID(t *testing.T, s *store.Store, taskID, want string) {
 	t.Helper()
-	task, err := s.GetTask(t.Context(), taskID)
+	got, err := s.TaskChimeraSessionID(t.Context(), taskID)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if task.ChimeraSessionID == nil || *task.ChimeraSessionID != want {
-		t.Fatalf("ChimeraSessionID = %v, want %q", task.ChimeraSessionID, want)
+	if got != want {
+		t.Fatalf("Chimera session = %q, want %q", got, want)
 	}
 }
 

@@ -413,9 +413,8 @@ func TestClearTaskChimeraSessionClearsMatchingTaskAndSessionMetadata(t *testing.
 	if !cleared {
 		t.Fatal("metadata was not cleared")
 	}
-	task, _ := s.GetTask(ctx, "task-clean")
-	if task.ChimeraSessionID != nil {
-		t.Fatalf("task ChimeraSessionID = %q", *task.ChimeraSessionID)
+	if id, _ := s.TaskChimeraSessionID(ctx, "task-clean"); id != "" {
+		t.Fatalf("task Chimera session = %q", id)
 	}
 	agent, _ := s.GetAgentSessionByID(ctx, sessionID)
 	if agent.ChimeraSessionID != nil || agent.ChimeraEndpoint != nil || agent.LastEventID != nil {
@@ -438,9 +437,8 @@ func TestClearTaskChimeraSessionRefusesRunningAgent(t *testing.T) {
 	if _, err := s.ClearTaskChimeraSession(ctx, "task-running", "chimera-old"); err == nil {
 		t.Fatal("expected active agent refusal")
 	}
-	task, _ := s.GetTask(ctx, "task-running")
-	if task.ChimeraSessionID == nil || *task.ChimeraSessionID != "chimera-old" {
-		t.Fatalf("task ChimeraSessionID = %v", task.ChimeraSessionID)
+	if id, _ := s.TaskChimeraSessionID(ctx, "task-running"); id != "chimera-old" {
+		t.Fatalf("task Chimera session = %q", id)
 	}
 }
 
@@ -467,9 +465,8 @@ func TestClearTaskChimeraSessionPreservesReplacementSessionAndClearsOldBindings(
 	if !cleared {
 		t.Fatal("old agent binding was not cleared")
 	}
-	task, _ := s.GetTask(ctx, "task-replaced")
-	if task.ChimeraSessionID == nil || *task.ChimeraSessionID != "chimera-new" {
-		t.Fatalf("task ChimeraSessionID = %v", task.ChimeraSessionID)
+	if id, _ := s.TaskChimeraSessionID(ctx, "task-replaced"); id != "chimera-new" {
+		t.Fatalf("task Chimera session = %q", id)
 	}
 	agent, _ := s.GetAgentSessionByID(ctx, sessionID)
 	if agent.ChimeraSessionID != nil || agent.ChimeraEndpoint != nil || agent.LastEventID != nil {

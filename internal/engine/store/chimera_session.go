@@ -25,7 +25,7 @@ func (s *Store) ReserveChimeraCleanup(ctx context.Context, taskID, workflowRunID
 		if running > 0 {
 			return fmt.Errorf("task %s has a running agent; stop it before removing its Chimera session", taskID)
 		}
-		if err := tx.GetContext(ctx, &sessionID, `SELECT COALESCE(chimera_session_id, '') FROM tasks WHERE id = ?`, taskID); err != nil {
+		if err := tx.GetContext(ctx, &sessionID, `SELECT COALESCE((SELECT provider_session_id FROM task_native_sessions WHERE task_id = tasks.id AND slot = 'main' AND agent_kind = 'chimera'), '') FROM tasks WHERE id = ?`, taskID); err != nil {
 			if errors.Is(err, sql.ErrNoRows) {
 				return ErrNotFound
 			}
@@ -83,7 +83,7 @@ func (s *Store) clearTaskChimeraSession(ctx context.Context, taskID, expectedSes
 		return false, fmt.Errorf("task %s has a running agent; stop it before removing its Chimera session", taskID)
 	}
 
-	result, err := tx.ExecContext(ctx, `UPDATE tasks SET chimera_session_id = NULL, updated_at = datetime('now') WHERE id = ? AND chimera_session_id = ?`, taskID, expectedSessionID)
+	result, err := tx.ExecContext(ctx, `DELETE FROM task_native_sessions WHERE task_id = ? AND slot = 'main' AND agent_kind = 'chimera' AND provider_session_id = ?`, taskID, expectedSessionID)
 	if err != nil {
 		return false, err
 	}

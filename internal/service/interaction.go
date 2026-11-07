@@ -61,7 +61,7 @@ func NewSendKeysAdapter(tmux TmuxManager, store *store.Store) *SendKeysAdapter {
 }
 
 func (a *SendKeysAdapter) SendMessage(ctx context.Context, taskID, message string) error {
-	session, err := a.store.GetAgentSessionByTaskID(ctx, taskID)
+	session, err := slotSession(ctx, a.store, taskID)
 	if err != nil {
 		return err
 	}
@@ -73,7 +73,7 @@ func (a *SendKeysAdapter) QueueMessage(ctx context.Context, taskID, message stri
 }
 
 func (a *SendKeysAdapter) Interrupt(ctx context.Context, taskID string) error {
-	session, err := a.store.GetAgentSessionByTaskID(ctx, taskID)
+	session, err := slotSession(ctx, a.store, taskID)
 	if err != nil {
 		return err
 	}
