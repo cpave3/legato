@@ -291,6 +291,16 @@ func prepareMigration(queryer migrationQueryer, name, migrationSQL string) (stri
 		migrationSQL = strings.Replace(migrationSQL, "DROP INDEX idx_review_steps_commit;", "DROP INDEX IF EXISTS idx_review_steps_commit;", 1)
 		migrationSQL = strings.ReplaceAll(migrationSQL, "CREATE INDEX idx_review_", "CREATE INDEX IF NOT EXISTS idx_review_")
 	}
+	if name == "091_handoff_review_items.sql" {
+		// A legacy database rebuilt from parts may hold the column already.
+		var has int
+		if err := queryer.Get(&has, `SELECT COUNT(*) FROM pragma_table_info('handoff_reviews') WHERE name = 'delivered_pass'`); err != nil {
+			return "", err
+		}
+		if has > 0 {
+			migrationSQL = strings.Replace(migrationSQL, "ALTER TABLE handoff_reviews ADD COLUMN delivered_pass INTEGER NOT NULL DEFAULT 0;", "", 1)
+		}
+	}
 	if name == "089_agent_slots.sql" {
 		// A legacy database built in part has some of these tables or
 		// columns only: each statement runs where its source exists.

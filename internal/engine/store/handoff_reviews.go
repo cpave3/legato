@@ -18,6 +18,8 @@ type HandoffReview struct {
 	Reason               string `db:"reason"`
 	QueuedAt             string `db:"queued_at"`
 	UpdatedAt            string `db:"updated_at"`
+	// DeliveredPass is the last pass whose feedback the author was told of.
+	DeliveredPass int `db:"delivered_pass"`
 }
 
 // HandoffReviewPass is one review pass.
@@ -90,19 +92,19 @@ func (s *Store) ListHandoffReviews(ctx context.Context) ([]HandoffReview, error)
 // SaveHandoffReview writes a card's review loop.
 func (s *Store) SaveHandoffReview(ctx context.Context, r HandoffReview) error {
 	_, err := s.db.NamedExecContext(ctx, `
-		INSERT INTO handoff_reviews (task_id, settings, phase, pass, mismatches, nudged_at, author_busy_since_nudge, reason, queued_at, updated_at)
-		VALUES (:task_id, :settings, :phase, :pass, :mismatches, :nudged_at, :author_busy_since_nudge, :reason, :queued_at, :updated_at)
+		INSERT INTO handoff_reviews (task_id, settings, phase, pass, mismatches, nudged_at, author_busy_since_nudge, reason, queued_at, updated_at, delivered_pass)
+		VALUES (:task_id, :settings, :phase, :pass, :mismatches, :nudged_at, :author_busy_since_nudge, :reason, :queued_at, :updated_at, :delivered_pass)
 		ON CONFLICT(task_id) DO UPDATE SET settings = excluded.settings, phase = excluded.phase, pass = excluded.pass,
 			mismatches = excluded.mismatches, nudged_at = excluded.nudged_at,
 			author_busy_since_nudge = excluded.author_busy_since_nudge, reason = excluded.reason,
-			queued_at = excluded.queued_at, updated_at = excluded.updated_at`, r)
+			queued_at = excluded.queued_at, updated_at = excluded.updated_at, delivered_pass = excluded.delivered_pass`, r)
 	return err
 }
 
 // DeleteHandoffReview forgets a card's review loop and its passes.
 func (s *Store) DeleteHandoffReview(ctx context.Context, taskID string) error {
 	return withTxDB(ctx, s, func(exec func(string, ...any) error) error {
-		for _, table := range []string{"handoff_review_findings", "handoff_review_prs", "handoff_review_passes", "handoff_reviews"} {
+		for _, table := range []string{"handoff_review_items", "handoff_review_findings", "handoff_review_prs", "handoff_review_passes", "handoff_reviews"} {
 			if err := exec(`DELETE FROM `+table+` WHERE task_id = ?`, taskID); err != nil {
 				return err
 			}
@@ -229,4 +231,83 @@ func withTxDB(ctx context.Context, s *Store, f func(exec func(string, ...any) er
 		return err
 	}
 	return tx.Commit()
+}
+
+// HandoffReviewItem is one thing the author of a reviewed handoff must
+// handle (a finding, a counted comment, a failing check), and its answer.
+type HandoffReviewItem struct {
+	ID              string `db:"id" json:"id"`
+	TaskID          string `db:"task_id" json:"-"`
+	Kind            string `db:"kind" json:"kind"`
+	Pass            int    `db:"pass" json:"pass"`
+	Repo            string `db:"repo" json:"repo,omitempty"`
+	PR              int    `db:"pr" json:"pr,omitempty"`
+	Path            string `db:"path" json:"path,omitempty"`
+	Line            int    `db:"line" json:"line,omitempty"`
+	URL             string `db:"url" json:"url,omitempty"`
+	Version         int    `db:"version" json:"version"`
+	Outdated        bool   `db:"outdated" json:"outdated,omitempty"`
+	Author          string `db:"author" json:"author,omitempty"`
+	Title           string `db:"title" json:"title,omitempty"`
+	Body            string `db:"body" json:"body,omitempty"`
+	ThreadCommentID int64  `db:"thread_comment_id" json:"-"`
+	SourceID        string `db:"source_id" json:"-"`
+	Answer          string `db:"answer" json:"answer,omitempty"`
+	AnswerNote      string `db:"answer_note" json:"answer_note,omitempty"`
+	AnsweredAt      string `db:"answered_at" json:"answered_at,omitempty"`
+	Posted          bool   `db:"posted" json:"posted,omitempty"`
+	Closed          bool   `db:"closed" json:"-"`
+	CreatedAt       string `db:"created_at" json:"-"`
+}
+
+// UpsertHandoffReviewItem writes an item: a new one, or one raised again
+// (its answer cleared, its version moved on).
+func (s *Store) UpsertHandoffReviewItem(ctx context.Context, item HandoffReviewItem) error {
+	_, err := s.db.NamedExecContext(ctx, `
+		INSERT INTO handoff_review_items (id, task_id, kind, pass, repo, pr, path, line, url, version, outdated, author, title, body,
+			thread_comment_id, source_id, answer, answer_note, answered_at, posted, closed, created_at)
+		VALUES (:id, :task_id, :kind, :pass, :repo, :pr, :path, :line, :url, :version, :outdated, :author, :title, :body,
+			:thread_comment_id, :source_id, :answer, :answer_note, :answered_at, :posted, :closed, :created_at)
+		ON CONFLICT(id) DO UPDATE SET kind = excluded.kind, pass = excluded.pass, path = excluded.path, line = excluded.line,
+			url = excluded.url, version = excluded.version, outdated = excluded.outdated, author = excluded.author,
+			title = excluded.title, body = excluded.body, thread_comment_id = excluded.thread_comment_id,
+			answer = excluded.answer, answer_note = excluded.answer_note, answered_at = excluded.answered_at,
+			posted = excluded.posted, closed = excluded.closed`, item)
+	return err
+}
+
+// GetHandoffReviewItem returns one item.
+func (s *Store) GetHandoffReviewItem(ctx context.Context, taskID, id string) (*HandoffReviewItem, error) {
+	var item HandoffReviewItem
+	err := s.db.GetContext(ctx, &item, `SELECT * FROM handoff_review_items WHERE task_id = ? AND id = ?`, taskID, id)
+	if errors.Is(err, sql.ErrNoRows) {
+		return nil, ErrNotFound
+	}
+	return &item, err
+}
+
+// ListHandoffReviewItems returns a card's items, oldest first.
+func (s *Store) ListHandoffReviewItems(ctx context.Context, taskID string) ([]HandoffReviewItem, error) {
+	var out []HandoffReviewItem
+	err := s.db.SelectContext(ctx, &out, `SELECT * FROM handoff_review_items WHERE task_id = ? ORDER BY created_at, rowid`, taskID)
+	return out, err
+}
+
+// AnswerHandoffReviewItem records the author's answer to an item.
+func (s *Store) AnswerHandoffReviewItem(ctx context.Context, taskID, id, answer, note, at string) error {
+	result, err := s.db.ExecContext(ctx, `UPDATE handoff_review_items SET answer = ?, answer_note = ?, answered_at = ?, posted = 0
+		WHERE task_id = ? AND id = ? AND closed = 0`, answer, note, at, taskID, id)
+	if err != nil {
+		return err
+	}
+	if n, _ := result.RowsAffected(); n == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+// MarkHandoffReviewItemPosted records that an item's answer is on GitHub.
+func (s *Store) MarkHandoffReviewItemPosted(ctx context.Context, taskID, id string) error {
+	_, err := s.db.ExecContext(ctx, `UPDATE handoff_review_items SET posted = 1 WHERE task_id = ? AND id = ?`, taskID, id)
+	return err
 }

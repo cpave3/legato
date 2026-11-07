@@ -88,7 +88,9 @@ func ValidateReviewPasses(cfg *Config) error {
 			return fmt.Errorf("review_passes.%s must be a positive duration, got %q", d.name, d.value)
 		}
 	}
-	if rp.ReviewColumn != "" && !boardHasColumn(cfg, rp.ReviewColumn) {
+	// The default column is checked only once review passes are on: a
+	// board without a Review column loads while they are off.
+	if rp.Enabled && rp.ReviewColumn != "" && !boardHasColumn(cfg, rp.ReviewColumn) {
 		return fmt.Errorf("review_passes.review_column %q is not a board column", rp.ReviewColumn)
 	}
 	if rp.Reviewer.Model != "" && rp.Reviewer.Tier != "" {

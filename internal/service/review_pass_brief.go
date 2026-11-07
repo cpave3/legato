@@ -76,6 +76,13 @@ func (s *ReviewPassService) laterPassBrief(ctx context.Context, b *strings.Build
 				where = fmt.Sprintf(" at `%s:%d`", f.Path, f.Line)
 			}
 			fmt.Fprintf(b, "- `%s` on #%d%s: %s\n", f.ID, f.PR, where, f.Title)
+			if item, err := s.db.GetHandoffReviewItem(ctx, h.TaskID, f.ID); err == nil && item.Answer != "" {
+				answer := item.Answer
+				if item.AnswerNote != "" {
+					answer += ": " + item.AnswerNote
+				}
+				fmt.Fprintf(b, "  <author-answer>%s</author-answer>\n", answer)
+			}
 		}
 		b.WriteString("\n")
 	}

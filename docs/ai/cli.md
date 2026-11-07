@@ -54,6 +54,10 @@ See [Workflows](../../site/src/content/docs/using/workflows.md) for the schema a
 
 `legato review handoff template` prints the editable nested contract bound to the current ready review. `legato review handoff submit --file path|-` authors a bounded, strict JSON packet for an existing clean ready review. `show [--json]` reads persisted history; `export --packet ID --format github|maintenance` previews selected Markdown without publishing. Selectors use `--task`/`--name` or the corresponding review environment variables. Human notes are not writable through this authoring CLI. See [Review handoff](../../site/src/content/docs/using/review-handoff.md) for the full runnable schema example, evidence limits, revision conflicts, and privacy rules, and [Review handoff internals](review-handoff.md) for the API. Handoff is optional and does not change review readiness or approval.
 
+## Review pass commands
+
+`legato review-pass feedback [--task <id>] [--json]` and `legato review-pass answer <item-id> --fixed [--note …] | --replied --file <path|-> | --skipped [--task <id>]` (`cmd/legato/review_pass_contract.go`) read and answer a reviewed handoff's feedback: `service.ReviewFeedback` (the current round's `handoff_review_items`; it prints JSON even without `--json`, so GitHub's text reaches the author only as data, never as a prompt) and `service.AnswerReviewItem` (`--skipped` for nits only, a reply needs text; an answer already on GitHub is not changed). Both are forwarded from the sandbox (`forwardedCommands`). The answer is recorded only; the worker's review loop posts it as the author App on its next tick. `legato task update --status Done` (like `BoardService.MoveCard`) is refused with `ErrReviewItemsOpen` and a `[legato review pass]` line while an item other than a nit is unanswered. See [Integrations](integrations.md) § Review passes.
+
 ## Subcommands
 
 `legato` binary supports subcommand dispatch alongside the default TUI mode:
