@@ -17,8 +17,11 @@ import (
 // the sandbox was given.
 type fakeBackend struct {
 	missing bool
+	overlay bool
 	plans   []sandbox.Plan
 }
+
+func (f *fakeBackend) SupportsOverlay() bool { return f.overlay }
 
 func (f *fakeBackend) Name() string { return "fake" }
 func (f *fakeBackend) Available() error {
@@ -417,5 +420,33 @@ func TestAnUnattendedAgentIsRefusedWithoutTheSandbox(t *testing.T) {
 	}
 	if lines := mt.sentLinesFor("legato-task-1"); len(lines) != 0 {
 		t.Fatalf("launched %v", lines)
+	}
+}
+
+func TestAThrowawayCheckoutFallsBackToReadOnlyWithoutOverlays(t *testing.T) {
+	for _, overlay := range []bool{true, false} {
+		backend := &fakeBackend{overlay: overlay}
+		svc, s, _ := sandboxedService(t, backend)
+		createTask(t, s, "task-1")
+		dir := t.TempDir()
+		if got := svc.(CheckoutOverlayProber).CheckoutOverlayAvailable(); got != overlay {
+			t.Fatalf("overlay available = %v, want %v", got, overlay)
+		}
+		if err := svc.SpawnAgent(context.Background(), "task-1", 0, 0, AgentSpawnOptions{WorkingDir: dir, ReadOnlyCheckout: true, ThrowawayCheckout: true}); err != nil {
+			t.Fatal(err)
+		}
+		want := sandbox.ReadOnly
+		if overlay {
+			want = sandbox.Overlay
+		}
+		var kind sandbox.Kind = -1
+		for _, m := range backend.plans[0].Mounts {
+			if m.Path == dir {
+				kind = m.Kind
+			}
+		}
+		if kind != want {
+			t.Fatalf("overlay %v: the checkout's mount kind = %v, want %v", overlay, kind, want)
+		}
 	}
 }

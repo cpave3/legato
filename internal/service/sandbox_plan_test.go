@@ -517,3 +517,31 @@ func TestACoverNeverHidesWhatTheSandboxMustSee(t *testing.T) {
 		}
 	}
 }
+
+// A reviewer builds and tests in the author's checkout: its writes land in a
+// throwaway layer over the checkout and its git folder.
+func TestAThrowawayCheckoutIsOverlaid(t *testing.T) {
+	in := baseInput()
+	fs := hostFS()
+	fs["/var/home/me/Development/app"] = "dir"
+	fs["/var/home/me/Development/app/.git"] = "dir"
+	fs["/var/home/me/Development/app.feature"] = "dir"
+	fs["/var/home/me/Development/app.feature/legato.yaml"] = "file"
+	in.FS, in.WorkDir, in.GitCommonDir = fs, "/var/home/me/Development/app.feature", "/var/home/me/Development/app/.git"
+	in.ConfigPath = "/var/home/me/Development/app.feature/legato.yaml"
+	in.ReadOnlyCheckout, in.ThrowawayCheckout = true, true
+	plan, err := BuildSandboxPlan(in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := mounted(plan)
+	for _, path := range []string{in.WorkDir, "/var/home/me/Development/app/.git"} {
+		if m[path].Kind != sandbox.Overlay {
+			t.Fatalf("%s = %+v, want overlaid", path, m[path])
+		}
+	}
+	// What the sandbox must never see stays hidden beneath the layer.
+	if m[in.ConfigPath].Kind != sandbox.Hide {
+		t.Fatalf("Legato's configuration in the checkout = %+v, want hidden", m[in.ConfigPath])
+	}
+}

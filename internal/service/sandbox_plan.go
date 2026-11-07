@@ -92,7 +92,12 @@ type SandboxPlanInput struct {
 	// ReadOnlyCheckout mounts the working directory and its git folder
 	// read-only, for an agent that may look but not change (a find-out
 	// delegation).
-	ReadOnlyCheckout     bool
+	ReadOnlyCheckout bool
+	// ThrowawayCheckout, with ReadOnlyCheckout, shows the checkout and its
+	// git folder beneath a throwaway layer instead (a reviewer's): builds
+	// and tests can write, and none of it reaches the host. Only for a
+	// backend with overlays.
+	ThrowawayCheckout    bool
 	GitIdentity          [2]string
 	DefaultMounts        bool
 	Extra                []SandboxPath // agents.sandbox.mounts and resources
@@ -418,6 +423,9 @@ func BuildSandboxPlan(in SandboxPlanInput) (sandbox.Plan, error) {
 	checkout := sandbox.ReadWrite
 	if in.ReadOnlyCheckout {
 		checkout = sandbox.ReadOnly
+		if in.ThrowawayCheckout {
+			checkout = sandbox.Overlay
+		}
 	}
 	add(in.WorkDir, checkout)
 	if in.GitCommonDir != "" && !within(in.GitCommonDir, in.WorkDir) {
@@ -458,7 +466,7 @@ func BuildSandboxPlan(in SandboxPlanInput) (sandbox.Plan, error) {
 		}
 		seen[f] = true
 		for _, m := range mounts {
-			if m.Kind != sandbox.ReadOnly && m.Kind != sandbox.ReadWrite {
+			if !binds(m.Kind) {
 				continue
 			}
 			if m.Dest == "" && within(f, m.Path) && f != m.Path {
@@ -535,7 +543,7 @@ func linkTargetMounts(in SandboxPlanInput, mounts []sandbox.Mount, forbiddenPath
 	var out []sandbox.Mount
 	covered := func(path string) bool {
 		for _, m := range append(mounts, out...) {
-			if (m.Kind == sandbox.ReadOnly || m.Kind == sandbox.ReadWrite) && m.Dest == "" && within(path, m.Path) {
+			if binds(m.Kind) && m.Dest == "" && within(path, m.Path) {
 				return true
 			}
 			if m.Kind == sandbox.Symlink && m.Path == path {
@@ -589,6 +597,12 @@ func linkTargetMounts(in SandboxPlanInput, mounts []sandbox.Mount, forbiddenPath
 
 // mainCheckout is the working tree a worktree's common .git belongs to, or
 // "" for a bare repository.
+// binds says whether a mount shows a host folder's contents, which may hold
+// what must be hidden or links to follow.
+func binds(kind sandbox.Kind) bool {
+	return kind == sandbox.ReadOnly || kind == sandbox.ReadWrite || kind == sandbox.Overlay
+}
+
 func mainCheckout(gitCommonDir string) string {
 	if gitCommonDir == "" || filepath.Base(gitCommonDir) != ".git" {
 		return ""
