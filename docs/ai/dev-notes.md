@@ -1,6 +1,6 @@
 ## Development Notes
 
-- Legato builds without C: `task build` and `task install` set `CGO_ENABLED=0`, so `./legato` is one static binary that cross-compiles with `GOOS`/`GOARCH` alone. `TestLegatoBuildsWithoutC` (`cmd/legato`, skipped with `-short`) fails when a dependency starts to need C; put such code in a separate binary, as the credential-plugins plan does for PKCS#11. `task test:race` still needs C, since the race detector uses it
+- Legato builds without C: `task build` and `task install` set `CGO_ENABLED=0`, so `./legato` is one static binary that cross-compiles with `GOOS`/`GOARCH` alone. `TestLegatoBuildsWithoutC` (`cmd/legato`, skipped with `-short`) fails when a dependency starts to need C; put such code in a separate binary, as the credential-plugins plan does for PKCS#11. `TestLegatoBuildsForEveryReleasePlatform` (also skipped with `-short`) builds for each platform `task release:dist` lists, read from the Taskfile, so code that compiles only on Linux fails there and not in the release; give such code a file per OS (`openpty_linux.go`, `openpty_darwin.go`). `task test:race` still needs C, since the race detector uses it
 - Tests use real SQLite databases in `t.TempDir()` — no mocks for storage
 - Event bus tests use real channels — no mocks
 - Config tests use `t.Setenv()` for env var isolation

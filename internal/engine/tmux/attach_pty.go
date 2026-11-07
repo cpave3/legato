@@ -78,29 +78,6 @@ func (p *PTY) Close() error {
 	return p.closeErr
 }
 
-func openPTY() (master, slave *os.File, err error) {
-	fd, err := unix.Open("/dev/ptmx", unix.O_RDWR|unix.O_NOCTTY|unix.O_CLOEXEC, 0)
-	if err != nil {
-		return nil, nil, err
-	}
-	master = os.NewFile(uintptr(fd), "/dev/ptmx")
-	n, err := unix.IoctlGetInt(fd, unix.TIOCGPTN)
-	if err != nil {
-		master.Close()
-		return nil, nil, err
-	}
-	if err := unix.IoctlSetPointerInt(fd, unix.TIOCSPTLCK, 0); err != nil {
-		master.Close()
-		return nil, nil, err
-	}
-	slave, err = os.OpenFile(fmt.Sprintf("/dev/pts/%d", n), os.O_RDWR|syscall.O_NOCTTY, 0)
-	if err != nil {
-		master.Close()
-		return nil, nil, err
-	}
-	return master, slave, nil
-}
-
 func setWinsize(f *os.File, cols, rows int) error {
 	return unix.IoctlSetWinsize(int(f.Fd()), unix.TIOCSWINSZ, &unix.Winsize{Col: uint16(cols), Row: uint16(rows)})
 }
