@@ -73,6 +73,17 @@ Each row in a group shows:
 
 Select a row, as you select a card, to see the task in the panel beside the board. The panel shows the state, the worker, the purpose, where the work started, the branch, the repository, the column it left, its pull requests, and **Open on <worker>**, which opens the task on the worker's board. The description is marked read-only while away.
 
+### While its pull requests are reviewed
+
+On a worker that runs review passes (see [Review passes](/legato/reference/configuration/#review-passes)), a task is not done when its agent finishes: a reviewer reviews its pull requests first, and the agent works through what it finds. The row then shows the review in place of the agent:
+
+- **Reviewing · pass 2** while a reviewer works, or **Waiting for a reviewer** while the worker's reviewers are busy;
+- **Author fixing · 3 blocking, 1 comment** while the agent answers the findings and comments;
+- **Done · approved** once a pass is clean and the reviewer approved the pull requests;
+- **Review stuck**, with why, when it needs you: the passes reached their limit, the reviewer could not review or ran out of time, or the agent could not be brought back.
+
+The panel links to Legato's latest review of each pull request. While a review runs, **Return** is not offered: recall the task to bring it back now. A stuck review can be returned as it is.
+
 ## Pull requests while away
 
 Your main follows an away task's pull requests itself, with its own GitHub access, as it does for every task (see [GitHub](/legato/integrations/github/)). The worker tells your main which branches its agent pushed, in stack order. When a new branch shows up, your main looks for its pull request at once; after that, the pull request is refreshed with the others on every poll.
@@ -91,6 +102,8 @@ When the worker is done with a task, **return** it. Its row in the Away lane, an
 - the notes written on the worker, headed "From the worker" (your own notes stay as they were, and none comes back twice);
 - the repository, and the branches its agent pushed, in the order of the Staccato stack it built, with their pull requests.
 
+A reviewed task also comes back with a note summing up its review: the passes, Legato's reviews and any items left open.
+
 It lands in your column with the same name as its column on the worker (usually Done), or else in the column it left. It is no longer away: you can edit it, move it and start an agent on it again. On the worker, its agent stops and its card is archived; the worker's copy of the repository is cleaned up later.
 
 To bring a task back before it is done, **recall** it. Recall is offered in any state, and is the only way back for a handoff that **Failed**: fix the cause, then hand the task off again. A recall brings back whatever exists so far and adds a note naming the worker and the state, for example "Recalled from vm-1, where its agent was working." When the task's agent may still be at work, the board asks you to confirm first, since recalling stops it.
@@ -103,7 +116,7 @@ A task you hand off again after it came back is a new handoff, with a new card o
 
 When the worker cannot bring a task back, **take it back** without its results. **Take back** is offered on a row, and in its panel, when the task is **Unreachable**, **Lost on worker** or **Not accepted**, and never while the worker can still return or recall it. The board asks you to confirm first, and your main never does it by itself.
 
-The task leaves the Away lane for the column it left, with a note saying it was taken back from the worker without its results, and why. The notes, branches and edits made on the worker stay there. Pull requests your main already follows stay on the task.
+The task leaves the Away lane for the column it left, with a note saying it was taken back from the worker without its results, and why, and what your main last heard of its review. The notes, branches and edits made on the worker stay there. Pull requests your main already follows stay on the task.
 
 Your main then tells the worker to **drop** the task the next time it reaches it, for as long as the worker stays paired: the worker stops the task's agent and archives its card with a note that your main took it back.
 

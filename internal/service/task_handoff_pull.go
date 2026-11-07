@@ -129,6 +129,9 @@ func (s *HandoffWorkerService) summary(ctx context.Context, h store.Handoff) Han
 	if task != nil {
 		row.Branches = s.pushedBranches(ctx, h, task)
 	}
+	if s.opts.Reviews != nil {
+		row.Review = s.opts.Reviews.ReviewBlock(ctx, h.TaskID)
+	}
 	return row
 }
 

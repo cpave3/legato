@@ -15,6 +15,8 @@ import (
 // whose author has opened a pull request from its branch.
 type reviewed struct {
 	worker *Worker
+	main   *Main
+	taskID string // the main's task
 	card   string
 	branch string
 }
@@ -23,7 +25,7 @@ func newReviewed(t *testing.T, opts ReviewPassOptions) reviewed {
 	t.Helper()
 	ctx := context.Background()
 	worker := StartWorker(t, WorkerOptions{Name: "vm-1", GitHubRepositories: []string{"acme/*"}, ReviewPasses: &opts})
-	main := NewMain(t, MainOptions{Name: "workstation", Clock: worker.Clock})
+	main := liveMain(t, worker)
 	paired := Pair(t, main, worker)
 	taskID, _ := localTask(t, main, "Fix the flaky login test", "", "")
 	away, err := main.Handoffs.HandOff(ctx, service.TaskHandoffRequest{TaskID: taskID, Worker: paired.InstanceID,
@@ -36,7 +38,7 @@ func newReviewed(t *testing.T, opts ReviewPassOptions) reviewed {
 	worker.Checkout.Set(worker.Tmux.Spawned()[0].WorkDir, branch, "aaa111")
 	worker.Checkout.File("login.go", 40)
 	worker.ReviewGitHub.OpenPR(7, branch, "aaa111")
-	return reviewed{worker: worker, card: away.WorkerTaskID, branch: branch}
+	return reviewed{worker: worker, main: main, taskID: taskID, card: away.WorkerTaskID, branch: branch}
 }
 
 // finish moves the card to Done, as the author does, and lets the loop see.

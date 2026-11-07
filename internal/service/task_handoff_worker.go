@@ -68,9 +68,7 @@ type HandoffWorkerOptions struct {
 	Grants HandoffGrants
 	// Reviews holds a reviewed handoff in progress until its review is
 	// clean (ReviewPassService); nil lets Done mean done.
-	Reviews interface {
-		DoneAllowed(ctx context.Context, h *store.Handoff) bool
-	}
+	Reviews HandoffReviews
 	// Stacks reads the Staccato stacks of the cards' clones, whose
 	// document step 1 of a return gives back (the task stack service); nil
 	// gives none back.
@@ -429,10 +427,21 @@ func (s *HandoffWorkerService) start(ctx context.Context, mainInstanceID, handof
 
 // SetReviews holds a reviewed handoff in progress until its review is
 // clean.
-func (s *HandoffWorkerService) SetReviews(reviews interface {
-	DoneAllowed(ctx context.Context, h *store.Handoff) bool
-}) {
+func (s *HandoffWorkerService) SetReviews(reviews HandoffReviews) {
 	s.opts.Reviews = reviews
+}
+
+// HandoffReviews is what the handoff side asks of review passes
+// (ReviewPassService).
+type HandoffReviews interface {
+	// DoneAllowed says whether a handoff whose card is in Done is done.
+	DoneAllowed(ctx context.Context, h *store.Handoff) bool
+	// ReviewBlock is the review a summary row carries; nil for none.
+	ReviewBlock(ctx context.Context, taskID string) *HandoffReviewBlock
+	// ReviewNote sums the passes and open items up for a Return or Recall.
+	ReviewNote(ctx context.Context, taskID string) string
+	// StopReview stops the reviewer of a handoff that closed.
+	StopReview(ctx context.Context, taskID string)
 }
 
 // pushedBranch checks the branch a handoff starts from is on GitHub, after

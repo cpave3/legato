@@ -172,7 +172,9 @@ func (s *ReviewPassService) raiseItems(ctx context.Context, taskID string, pass 
 // once the card is in Done again, starts the next pass or lets it be done.
 func (s *ReviewPassService) feedback(ctx context.Context, h *store.Handoff, loop *store.HandoffReview, inDone bool) error {
 	if loop.DeliveredPass < loop.Pass {
-		return s.deliver(ctx, h, loop)
+		if err := s.deliver(ctx, h, loop); err != nil || loop.DeliveredPass < loop.Pass || loop.Phase != ReviewPhaseWaitingForAuthor {
+			return err
+		}
 	}
 	if !inDone {
 		return nil
