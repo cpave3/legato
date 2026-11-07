@@ -768,7 +768,10 @@ export function AgentsPage() {
                 <div className="terminal-glitch-overlay" aria-hidden="true" />
               )}
             </div>
-            {!selectedAgent?.has_chimera_endpoint && (
+            {/* In terminal mode on a desktop the terminal is the one place to type;
+                the menu is in the header. A phone keeps the box (no Esc/Ctrl/arrows
+                on its keyboard), and a swarm keeps it because it holds the menu there. */}
+            {!selectedAgent?.has_chimera_endpoint && !(liveTerminal && !isMobile && !swarmMode) && (
               <PromptBar
                 ref={promptBarRef}
                 promptState={isPromptDetectionEnabled ? promptState : null}

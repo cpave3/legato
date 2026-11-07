@@ -61,7 +61,7 @@ To switch agents from the keyboard, hold the switch key and press `1` to `9`. Th
 
 ### Terminal mode
 
-The terminal on the Agents page is a read-only mirror, with a message box under it. For things the agent's tool only offers in its terminal, such as changing the model, press **Terminal mode** above the terminal. It becomes a real terminal on the agent's tmux session: type straight into it (menus, arrow keys, Ctrl keys), scroll with the wheel or a drag to read tmux's own history, and it resizes with the window. **Exit terminal mode** goes back to the mirror. Your choice is remembered in this browser.
+The terminal on the Agents page is a read-only mirror, with a message box under it. For things the agent's tool only offers in its terminal, such as changing the model, press **Terminal mode** above the terminal. It becomes a real terminal on the agent's tmux session: type straight into it (menus, arrow keys, Ctrl keys), scroll with the wheel or a drag to read tmux's own history, and it resizes with the window. On a computer the message box is hidden in terminal mode, and the agent's menu stays in the header; a phone keeps the box for now. **Exit terminal mode** goes back to the mirror. Your choice is remembered in this browser.
 
 While a terminal is open in the web UI, the session has mouse mode on and no tmux status line, which a desktop `tmux attach` sees too. Hold Shift to select text with the mouse there.
 
