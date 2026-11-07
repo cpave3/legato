@@ -166,6 +166,11 @@ type AgentSpawnOptions struct {
 	// working directory and git folder read-only, and its execution marked so
 	// the credential broker refuses its pushes and pull request writes.
 	ReadOnlyCheckout bool
+	// ThrowawayCheckout, with ReadOnlyCheckout, shows the checkout beneath
+	// a throwaway layer, so the agent can build and run tests and nothing
+	// it writes reaches the host (a reviewer). Where the sandbox has no
+	// overlays the checkout is plain read-only (CheckoutOverlayProber).
+	ThrowawayCheckout bool
 	// Branches is what a handed-off task's session is told of its
 	// branches, in place of the ordinary legato/<task id>-… guidance; zero
 	// for any other session.
@@ -886,7 +891,7 @@ func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, hei
 	sandboxPrefix := ""
 	sandboxed := a.sandbox != nil && (!opt.Unsandboxed || opt.Unattended || opt.ReadOnlyCheckout || opt.ParentTaskID != "" || opt.SubtaskID != "" || opt.WorkflowRunID != "")
 	if sandboxed {
-		prefix, err := a.sandboxPrefix(ctx, taskID, executionID, agentKind, workDir, envMap, append(resources, freshClone.sandboxResources()...), opt.ReadOnlyCheckout)
+		prefix, err := a.sandboxPrefix(ctx, taskID, executionID, agentKind, workDir, envMap, append(resources, freshClone.sandboxResources()...), opt.ReadOnlyCheckout, opt.ThrowawayCheckout)
 		if err != nil {
 			failExecution()
 			return fmt.Errorf("Legato's sandbox: %w", err)
