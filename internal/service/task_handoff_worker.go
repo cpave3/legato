@@ -27,6 +27,10 @@ type HandoffAgents interface {
 	// KillAgent stops a card's agent, when a return or recall takes the
 	// task back.
 	KillAgent(ctx context.Context, taskID string) error
+	// ReconcileSessions and GetTaskResumeSession bring a handoff's author
+	// back (ResumeAuthor).
+	ReconcileSessions(ctx context.Context) error
+	GetTaskResumeSession(ctx context.Context, taskID, agentKind string) (*TaskResumeSession, error)
 }
 
 // HandoffRepositories is what a worker asks of its repository cache: which
@@ -62,6 +66,9 @@ type HandoffWorkerOptions struct {
 	// branches and open draft pull requests without asking (the credential
 	// broker); nil grants nothing, and the session asks as any other.
 	Grants HandoffGrants
+	// Reviews holds a reviewed handoff in progress until its review is
+	// clean (ReviewPassService); nil lets Done mean done.
+	Reviews HandoffReviews
 	// Stacks reads the Staccato stacks of the cards' clones, whose
 	// document step 1 of a return gives back (the task stack service); nil
 	// gives none back.
@@ -418,6 +425,25 @@ func (s *HandoffWorkerService) start(ctx context.Context, mainInstanceID, handof
 	s.grant(ctx, h)
 }
 
+// SetReviews holds a reviewed handoff in progress until its review is
+// clean.
+func (s *HandoffWorkerService) SetReviews(reviews HandoffReviews) {
+	s.opts.Reviews = reviews
+}
+
+// HandoffReviews is what the handoff side asks of review passes
+// (ReviewPassService).
+type HandoffReviews interface {
+	// DoneAllowed says whether a handoff whose card is in Done is done.
+	DoneAllowed(ctx context.Context, h *store.Handoff) bool
+	// ReviewBlock is the review a summary row carries; nil for none.
+	ReviewBlock(ctx context.Context, taskID string) *HandoffReviewBlock
+	// ReviewNote sums the passes and open items up for a Return or Recall.
+	ReviewNote(ctx context.Context, taskID string) string
+	// StopReview stops the reviewer of a handoff that closed.
+	StopReview(ctx context.Context, taskID string)
+}
+
 // pushedBranch checks the branch a handoff starts from is on GitHub, after
 // fetching the worker's copy of the repository, and is not its default
 // branch, which an agent never works on. It returns the default branch, or
@@ -531,7 +557,7 @@ func (s *HandoffWorkerService) Reconcile(ctx context.Context) error {
 			continue
 		}
 		want := store.HandoffInProgress
-		if strings.EqualFold(task.Status, "Done") {
+		if strings.EqualFold(task.Status, "Done") && (s.opts.Reviews == nil || s.opts.Reviews.DoneAllowed(ctx, &h)) {
 			want = store.HandoffDone
 		}
 		if want == h.State {

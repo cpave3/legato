@@ -41,7 +41,8 @@ func (s *WorkflowService) StartAgentEndedLoop(ctx context.Context, bus *events.B
 				return
 			case event := <-died:
 				payload, ok := event.Payload.(events.AgentDiedPayload)
-				if !ok || payload.TaskID == "" {
+				// A named slot's agent (a reviewer) is not the task's.
+				if !ok || payload.TaskID == "" || payload.Slot != "" {
 					continue
 				}
 				announce(s.AgentEnded(ctx, payload.TaskID))

@@ -40,6 +40,12 @@ export function agentStripLook(card: BoardCard): StripLook {
   }
 }
 
+// What a named slot's chip says of its agent: "reviewer · running".
+export function slotChipLabel(slot: string, state: string): string {
+  const text = state === "working" ? "running" : state === "waiting" ? "needs you" : state === "" ? "idle" : state
+  return `${slot} · ${text}`
+}
+
 // The color a task's priority is written in: red for high, amber for medium.
 export function priorityTone(priority: string): string {
   switch (priority.toLowerCase()) {

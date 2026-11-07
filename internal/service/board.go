@@ -5,6 +5,8 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
+	"strings"
 	"time"
 
 	"github.com/cpave3/legato/internal/engine/attachments"
@@ -19,6 +21,25 @@ type boardService struct {
 	store       *store.Store
 	bus         *events.Bus
 	attachments *attachments.Cache
+	agents      TaskAgentsStopper // stops a task's agents when it is deleted or archived; nil stops none
+}
+
+// TaskAgentsHolder is a board service that stops a task's agents, in every
+// slot, when the task is deleted or archived.
+type TaskAgentsHolder interface {
+	SetTaskAgents(TaskAgentsStopper)
+}
+
+func (b *boardService) SetTaskAgents(agents TaskAgentsStopper) { b.agents = agents }
+
+// stopAgents ends every slot's agent of a task that is going away.
+func (b *boardService) stopAgents(ctx context.Context, taskID string) {
+	if b.agents == nil {
+		return
+	}
+	if err := b.agents.StopTaskAgents(ctx, taskID); err != nil {
+		log.Printf("stopping the agents of %s: %v", taskID, err)
+	}
 }
 
 // NewBoardService creates a BoardService backed by the given store and event bus.
@@ -196,6 +217,9 @@ func (b *boardService) GetCard(ctx context.Context, id string) (*CardDetail, err
 	}
 	for _, saved := range sessions {
 		detail.ResumableAgentKinds = append(detail.ResumableAgentKinds, saved.AgentKind)
+		if saved.AgentKind == "chimera" {
+			detail.HasChimeraSession = true
+		}
 	}
 	notes, err := b.store.ListTaskNotes(ctx, id)
 	if err != nil {
@@ -225,6 +249,12 @@ func moveCard(ctx context.Context, taskStore *store.Store, bus *events.Bus, id s
 	}
 	if err := RefuseAway(ctx, taskStore, id); err != nil {
 		return err
+	}
+	// A reviewed handoff's author is done only once its feedback is.
+	if strings.EqualFold(targetColumn, "Done") {
+		if err := RefuseUnansweredReview(ctx, taskStore, id); err != nil {
+			return err
+		}
 	}
 
 	// Validate target column exists
@@ -495,6 +525,7 @@ func (b *boardService) DeleteTask(ctx context.Context, id string) error {
 	if err := RefuseHandedOff(ctx, b.store, id); err != nil {
 		return err
 	}
+	b.stopAgents(ctx, id)
 
 	if err := b.store.DeleteTask(ctx, id); err != nil {
 		return err
@@ -633,6 +664,9 @@ func (b *boardService) ArchiveDoneCards(ctx context.Context) (int, error) {
 		}
 	}
 	tasks = kept
+	for _, task := range tasks {
+		b.stopAgents(ctx, task.ID)
+	}
 	count, err := b.store.ArchiveTasksByStatus(ctx, doneCol)
 	if err != nil {
 		return 0, err
@@ -667,6 +701,7 @@ func (b *boardService) ArchiveTask(ctx context.Context, id string) error {
 	if t.Status != doneCol {
 		return fmt.Errorf("can only archive tasks in %q column", doneCol)
 	}
+	b.stopAgents(ctx, id)
 	if err := b.store.ArchiveTask(ctx, id); err != nil {
 		return err
 	}
@@ -770,14 +805,9 @@ func taskToCardDetail(t *store.Task) *CardDetail {
 		Status:              t.Status,
 		Priority:            t.Priority,
 		WorkspaceID:         t.WorkspaceID,
-		HasChimeraSession:   t.ChimeraSessionID != nil && *t.ChimeraSessionID != "",
 		ResumableAgentKinds: []string{},
 		CreatedAt:           createdAt,
 		UpdatedAt:           updatedAt,
-	}
-
-	if detail.HasChimeraSession {
-		detail.ResumableAgentKinds = append(detail.ResumableAgentKinds, "chimera")
 	}
 	detail.Provider = provider
 	if t.RemoteID != nil {

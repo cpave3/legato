@@ -10,6 +10,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"sort"
+	"strings"
 )
 
 // Kind is how one path appears in the sandbox.
@@ -27,6 +28,10 @@ const (
 	Hide
 	// HideDir covers a folder with an empty one.
 	HideDir
+	// Overlay shows a host path read-only beneath a throwaway layer: what
+	// is written there lands in memory and is gone when the sandbox ends.
+	// It needs a bwrap with overlays (SupportsOverlay).
+	Overlay
 )
 
 // Mount is one path of the plan. A bind's host path and its path inside are
@@ -69,6 +74,32 @@ type Bwrap struct {
 	Path string
 	// LookPath finds it; exec.LookPath when nil.
 	LookPath func(string) (string, error)
+	// Help returns the binary's --help; running it when nil.
+	Help func(binary string) (string, error)
+}
+
+// OverlaySupporter is a backend that may show a path beneath a throwaway
+// layer (Overlay mounts).
+type OverlaySupporter interface {
+	SupportsOverlay() bool
+}
+
+// SupportsOverlay says whether this bwrap has overlays (--tmp-overlay,
+// since bubblewrap 0.10.0), read from its --help.
+func (b Bwrap) SupportsOverlay() bool {
+	bin, err := b.binary()
+	if err != nil {
+		return false
+	}
+	help := b.Help
+	if help == nil {
+		help = func(binary string) (string, error) {
+			out, err := exec.Command(binary, "--help").CombinedOutput()
+			return string(out), err
+		}
+	}
+	text, err := help(bin)
+	return err == nil && strings.Contains(text, "--tmp-overlay")
 }
 
 func (b Bwrap) Name() string { return "bwrap" }
@@ -133,6 +164,8 @@ func (b Bwrap) Wrap(plan Plan, command []string) ([]string, error) {
 			args = append(args, "--ro-bind", "/dev/null", dest)
 		case HideDir:
 			args = append(args, "--tmpfs", dest)
+		case Overlay:
+			args = append(args, "--overlay-src", m.Path, "--tmp-overlay", dest)
 		default:
 			return nil, fmt.Errorf("mount %q has an unknown kind", m.Path)
 		}

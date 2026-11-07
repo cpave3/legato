@@ -62,7 +62,12 @@ export interface WSMessage {
 
 export interface AgentInfo {
   id: number
+  // The agent's address: its task's ID for the main slot, <task>_<slot>
+  // for a named slot (a reviewer). Every agent route and message takes it.
   task_id: string
+  // The task the agent's slot belongs to, and the slot ("main", "reviewer").
+  card_task_id?: string
+  slot?: string
   execution_id?: string
   attribution_task_id?: string
   execution_kind?: string

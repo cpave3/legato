@@ -69,6 +69,10 @@ func (s *HandoffWorkerService) UnpairMain(ctx context.Context, mainInstanceID st
 		return 0, fmt.Errorf("%w: %s", ErrMainNotPaired, mainInstanceID)
 	}
 	for _, h := range closed {
+		// The author keeps running on its ordinary card; the review ends.
+		if s.opts.Reviews != nil {
+			s.opts.Reviews.StopReview(ctx, h.TaskID)
+		}
 		s.publish(events.EventHandoffChanged, h.TaskID)
 	}
 	if len(closed) > 0 {

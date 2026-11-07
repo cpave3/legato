@@ -118,9 +118,8 @@ func TestSessionCreatedGoesThroughTheBroker(t *testing.T) {
 	if code := runCLI([]string{"agent", "session-created", "task1", "chm-9", "--hook-payload"}); code != 0 {
 		t.Fatalf("exit %d", code)
 	}
-	task, _ := db.GetTask(context.Background(), "task1")
-	if task.ChimeraSessionID == nil || *task.ChimeraSessionID != "chm-9" {
-		t.Fatalf("chimera session = %v", task.ChimeraSessionID)
+	if id, _ := db.TaskChimeraSessionID(context.Background(), "task1"); id != "chm-9" {
+		t.Fatalf("chimera session = %q", id)
 	}
 }
 

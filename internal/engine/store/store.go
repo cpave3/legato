@@ -291,6 +291,53 @@ func prepareMigration(queryer migrationQueryer, name, migrationSQL string) (stri
 		migrationSQL = strings.Replace(migrationSQL, "DROP INDEX idx_review_steps_commit;", "DROP INDEX IF EXISTS idx_review_steps_commit;", 1)
 		migrationSQL = strings.ReplaceAll(migrationSQL, "CREATE INDEX idx_review_", "CREATE INDEX IF NOT EXISTS idx_review_")
 	}
+	if name == "091_handoff_review_items.sql" {
+		// A legacy database rebuilt from parts may hold the column already.
+		var has int
+		if err := queryer.Get(&has, `SELECT COUNT(*) FROM pragma_table_info('handoff_reviews') WHERE name = 'delivered_pass'`); err != nil {
+			return "", err
+		}
+		if has > 0 {
+			migrationSQL = strings.Replace(migrationSQL, "ALTER TABLE handoff_reviews ADD COLUMN delivered_pass INTEGER NOT NULL DEFAULT 0;", "", 1)
+		}
+	}
+	if name == "089_agent_slots.sql" {
+		// A legacy database built in part has some of these tables or
+		// columns only: each statement runs where its source exists.
+		exists := func(query string, args ...any) (bool, error) {
+			var n int
+			err := queryer.Get(&n, query, args...)
+			return n > 0, err
+		}
+		table := func(name string) (bool, error) {
+			return exists(`SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = ?`, name)
+		}
+		var statements []string
+		for _, statement := range strings.SplitAfter(migrationSQL, ";\n") {
+			var need bool
+			var err error
+			switch {
+			case strings.Contains(statement, "ALTER TABLE agent_sessions"):
+				need, err = table("agent_sessions")
+			case func() bool { has, _ := table("tasks"); return !has }():
+				// Without tasks there is no resume record to key.
+				need = false
+			case strings.Contains(statement, "chimera_session_id"):
+				need, err = exists(`SELECT COUNT(*) FROM pragma_table_info('tasks') WHERE name = 'chimera_session_id'`)
+			case strings.Contains(statement, "FROM task_native_sessions") || strings.Contains(statement, "DROP TABLE task_native_sessions"):
+				need, err = table("task_native_sessions")
+			default:
+				need = true
+			}
+			if err != nil {
+				return "", err
+			}
+			if need {
+				statements = append(statements, statement)
+			}
+		}
+		migrationSQL = strings.Join(statements, "")
+	}
 	if name == "060_review_hunk_note_metadata.sql" {
 		var tables int
 		if err := queryer.Get(&tables, `SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'review_hunk_notes'`); err != nil {
@@ -422,21 +469,10 @@ func (s *Store) CreateTask(ctx context.Context, t Task) error {
 	return err
 }
 
+// SetTaskChimeraSessionID records the main slot's Chimera session, the one
+// the task resumes.
 func (s *Store) SetTaskChimeraSessionID(ctx context.Context, taskID, sessionID string) error {
-	result, err := s.db.ExecContext(ctx,
-		"UPDATE tasks SET chimera_session_id = ?, updated_at = datetime('now') WHERE id = ?",
-		sessionID, taskID)
-	if err != nil {
-		return err
-	}
-	rows, err := result.RowsAffected()
-	if err != nil {
-		return err
-	}
-	if rows == 0 {
-		return ErrNotFound
-	}
-	return nil
+	return s.SetChimeraResumeInSlot(ctx, taskID, SlotMain, sessionID)
 }
 
 func (s *Store) GetTask(ctx context.Context, id string) (*Task, error) {

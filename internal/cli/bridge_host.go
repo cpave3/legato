@@ -50,7 +50,7 @@ type storeBridgeHost struct {
 func StoreBridgeHost(s *store.Store) BridgeHost { return &storeBridgeHost{s: s} }
 
 func (h *storeBridgeHost) Session(ctx context.Context, taskID, executionID string) (BridgeSession, error) {
-	session, err := h.s.GetAgentSessionByTaskID(ctx, taskID)
+	session, err := h.s.GetRunningAgentSession(ctx, taskID, executionID)
 	if err != nil {
 		return BridgeSession{}, fmt.Errorf("no running agent to bridge for task %s: %w", taskID, err)
 	}

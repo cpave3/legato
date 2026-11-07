@@ -60,6 +60,9 @@ type AgentDiedPayload struct {
 	ParentTaskID string // empty for non-swarm agents
 	SubtaskID    string // empty for non-swarm agents
 	Role         string
+	// Slot is the agent slot that ended: empty for the task's main slot,
+	// which is the task's agent; a named slot (a reviewer) otherwise.
+	Slot string
 }
 
 type AgentActivityChangedPayload struct {

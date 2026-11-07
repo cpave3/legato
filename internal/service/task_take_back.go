@@ -94,8 +94,11 @@ func (s *TaskHandoffService) TakeBack(ctx context.Context, taskID string) (Retur
 // not known to be down or refusing this main.
 func (s *TaskHandoffService) takeBack(ctx context.Context, row *store.AwayTask, why string, tell bool) (ReturnedTask, error) {
 	name := orUnknown(row.WorkerName)
-	note := store.TaskNote{ID: workflowID("tn-"), Source: "local",
-		Body: fmt.Sprintf("Taken back from %s without its results: %s. %s is told to drop it when it can be reached.", name, why, name)}
+	body := fmt.Sprintf("Taken back from %s without its results: %s. %s is told to drop it when it can be reached.", name, why, name)
+	if review := ReviewBlockNote(awayTaskFromRow(*row).Review); review != "" {
+		body += "\n\n" + review
+	}
+	note := store.TaskNote{ID: workflowID("tn-"), Source: "local", Body: body}
 	took, err := s.db.TakeBackAwayTask(ctx, row.HandoffID, note, s.now())
 	if err != nil {
 		return ReturnedTask{}, err

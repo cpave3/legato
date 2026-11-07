@@ -92,3 +92,14 @@ describe("workerReach", () => {
     expect(workerReach({ ...vm1, refused_at: since }, now)).toEqual({ text: "no longer accepts this main; pair again", tone: "bad" })
   })
 })
+
+describe("awayLook, review passes", () => {
+  const away = card("b", "Ready", {}).away!
+  it("shows the review's phase and counts, and why a stuck review needs you", () => {
+    const look = (more: Partial<AwayOn>) => awayLook({ ...away, state: "in_progress", ...more })
+    expect(look({ view: "in_review", review: { pass: 2, phase: "reviewing", blocking_open: 0, comments_open: 0, checks_open: 0, skipped_comments: 0 } }).label).toBe("Reviewing · pass 2")
+    expect(look({ view: "in_review", review: { pass: 2, phase: "waiting_for_author", blocking_open: 3, comments_open: 1, checks_open: 0, skipped_comments: 0 } }).label).toBe("Author fixing · 3 blocking, 1 comment")
+    expect(look({ view: "needs_you", review: { pass: 3, phase: "stuck", reason: "the review reached its limit of 3 passes", blocking_open: 1, comments_open: 0, checks_open: 0, skipped_comments: 0 } }).label).toBe("Review stuck: the review reached its limit of 3 passes")
+    expect(awayLook({ ...away, state: "done", view: "done", review: { pass: 2, phase: "clean", blocking_open: 0, comments_open: 0, checks_open: 0, skipped_comments: 0 } }).label).toBe("Done · approved")
+  })
+})

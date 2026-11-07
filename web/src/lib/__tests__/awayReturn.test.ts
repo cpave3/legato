@@ -74,3 +74,12 @@ describe("takeBackTask", () => {
     await expect(takeBackTask("", "T-2")).rejects.toThrow("recall it")
   })
 })
+
+describe("awayActions, review passes", () => {
+  it("refuses Return while a review runs, and offers it as is when the review is stuck", () => {
+    const of = (away: Partial<AwayOn>) => awayActions(card("t", away).away!)
+    const review = { pass: 1, blocking_open: 0, comments_open: 0, checks_open: 0, skipped_comments: 0 }
+    expect(of({ view: "in_review", state: "in_progress", review: { ...review, phase: "reviewing" } })).toEqual({ return: false, recall: true, confirmRecall: true, takeBack: false })
+    expect(of({ view: "needs_you", state: "in_progress", review: { ...review, phase: "stuck", reason: "x" } })).toEqual({ return: true, recall: true, confirmRecall: true, takeBack: false })
+  })
+})

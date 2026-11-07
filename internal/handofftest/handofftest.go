@@ -88,6 +88,10 @@ type WorkerOptions struct {
 	// (named github) for these repositories. Nothing reaches GitHub: the
 	// broker only records and decides grants.
 	GitHubRepositories []string
+	// ReviewPasses, when set, turns the worker's review passes on, with
+	// GitHub and the author's checkout faked (Worker.ReviewGitHub,
+	// Worker.Checkout).
+	ReviewPasses *ReviewPassOptions
 }
 
 // Worker is a worker instance: its database, services and web server.
@@ -114,6 +118,11 @@ type Worker struct {
 	// Credentials is the worker's credential broker, with a GitHub
 	// credential when WorkerOptions.GitHubRepositories names repositories.
 	Credentials *service.CredentialBroker
+	// Reviews runs review passes, with WorkerOptions.ReviewPasses; its
+	// GitHub and the author's checkout are faked, and outlive restarts.
+	Reviews      *service.ReviewPassService
+	ReviewGitHub *FakeReviewGitHub
+	Checkout     *FakeCheckout
 
 	// HTTP is the TLS server; URL its address (https://127.0.0.1:port),
 	// which stays the same across restarts.
@@ -140,7 +149,7 @@ func StartWorker(t testing.TB, opts WorkerOptions) *Worker {
 	}
 	dir := t.TempDir()
 	w := &Worker{t: t, opts: opts, Dir: dir, DBPath: filepath.Join(dir, "worker.db"), Clock: opts.Clock, Tmux: NewFakeTmux(), webToken: "worker-web-token",
-		Repos: NewFakeRepos(filepath.Join(dir, "jobs"))}
+		Repos: NewFakeRepos(filepath.Join(dir, "jobs")), ReviewGitHub: NewFakeReviewGitHub(), Checkout: NewFakeCheckout()}
 	w.start()
 	seedColumns(t, w.Store)
 	t.Cleanup(w.Stop)
@@ -189,11 +198,23 @@ func (w *Worker) start() {
 	sandbox := !w.opts.NoSandbox
 	srv.SetSandboxAvailable(func() bool { return sandbox })
 	w.Credentials = w.credentialBroker(db)
+	var reviews *service.ReviewPassService
+	if rp := w.opts.ReviewPasses; rp != nil {
+		reviews = service.NewReviewPassService(db, service.ReviewPassOptions{
+			Config: rp.config, Agents: w.Agents.(service.ReviewAgents), Board: w.Board, GitHub: w.ReviewGitHub,
+			Checkout: w.Checkout, Bus: w.Bus, Now: w.Clock.Now, Run: w.run, Overlay: func() bool { return false },
+			ResumeAuthor: func(ctx context.Context, taskID string) error { return w.Handoffs.ResumeAuthor(ctx, taskID) },
+		})
+	}
+	w.Reviews = reviews
 	w.Handoffs = service.NewHandoffWorkerService(db, service.HandoffWorkerOptions{
 		Agents: w.Agents.(service.HandoffAgents), Repositories: w.Repos, Sandbox: func() bool { return sandbox },
 		Grants: w.Credentials, Bus: w.Bus, Run: w.run, Now: w.Clock.Now, StreamRescan: 50 * time.Millisecond,
 		Stacks: service.NewTaskStackService(db, w.Clock.Now),
 	})
+	if reviews != nil {
+		w.Handoffs.SetReviews(reviews)
+	}
 	srv.SetTaskHandoffs(w.Handoffs)
 	srv.SetHandoffReauthEvery(50 * time.Millisecond)
 	w.Server = srv

@@ -1676,6 +1676,14 @@ func (p AgentDiedPublisher) PublishAgentDied(taskID, parentTaskID, subtaskID, ro
 	})
 }
 
+// PublishSlotAgentDied announces that the agent of a task's named slot ended.
+func (p AgentDiedPublisher) PublishSlotAgentDied(taskID, slot string) {
+	if p.Bus == nil {
+		return
+	}
+	p.Bus.Publish(events.Event{Type: events.EventAgentDied, Payload: events.AgentDiedPayload{TaskID: taskID, Slot: slot}})
+}
+
 func (p AgentDiedPublisher) PublishAgentChimeraDiscovered(taskID string) {
 	if p.Bus == nil {
 		return

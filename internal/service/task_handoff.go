@@ -72,6 +72,8 @@ type AwayTask struct {
 	WorkerColumn string   `json:"worker_column,omitempty"`
 	WorkerTitle  string   `json:"worker_title,omitempty"`
 	Branches     []string `json:"branches,omitempty"`
+	// Review is the handoff's review passes as last heard, nil without.
+	Review *HandoffReviewBlock `json:"review,omitempty"`
 	// Lost says why the worker no longer has the task, since LostAt; empty
 	// while it has it.
 	Lost   string `json:"lost,omitempty"`
@@ -107,6 +109,8 @@ type HandoffSummary struct {
 	Title  string `json:"title,omitempty"`
 	// Branches are the branches pushed for the task, in stack order.
 	Branches []string `json:"branches,omitempty"`
+	// Review is the handoff's review passes, on a worker that runs them.
+	Review *HandoffReviewBlock `json:"review,omitempty"`
 }
 
 func awayTaskFromRow(a store.AwayTask) AwayTask {
@@ -117,6 +121,7 @@ func awayTaskFromRow(a store.AwayTask) AwayTask {
 	if a.LastSummary != nil && json.Unmarshal([]byte(*a.LastSummary), &summary) == nil {
 		away.State, away.Failure, away.WorkerURL = summary.State, summary.Failure, summary.URL
 		away.Activity, away.WorkerColumn, away.WorkerTitle, away.Branches = summary.Activity, summary.Column, summary.Title, summary.Branches
+		away.Review = summary.Review
 		if a.LastSummaryAt != nil {
 			away.StateAt = *a.LastSummaryAt
 		}

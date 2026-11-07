@@ -7,6 +7,7 @@ import (
 	"io"
 
 	"github.com/cpave3/legato/internal/engine/store"
+	"github.com/cpave3/legato/internal/service"
 )
 
 type chimeraSessionCreatedPayload struct {
@@ -19,14 +20,50 @@ type chimeraSessionCreatedPayload struct {
 // AgentSessionCreatedFromHook links a newly-created task parent session while
 // ignoring unnamed or differently named child sessions.
 func AgentSessionCreatedFromHook(s *store.Store, taskID, sessionID string, reader io.Reader) (bool, error) {
-	register, err := SessionCreatedPayloadNamesTask(taskID, sessionID, reader)
+	return AgentSessionCreatedFromHookFor(s, taskID, "", sessionID, reader)
+}
+
+// AgentSessionCreatedFromHookFor is AgentSessionCreatedFromHook for the
+// session of executionID: the session is kept in that agent's slot, and is
+// its own when it carries that slot's name ("" means the main slot's).
+func AgentSessionCreatedFromHookFor(s *store.Store, taskID, executionID, sessionID string, reader io.Reader) (bool, error) {
+	slot := callerSlot(s, taskID, executionID)
+	register, err := SessionCreatedPayloadNamesTask(service.AgentSlotKey(taskID, slot), sessionID, reader)
 	if err != nil || !register {
 		return false, err
 	}
-	if err := AgentSessionCreated(s, taskID, sessionID); err != nil {
-		return false, err
+	if err := s.SetChimeraResumeInSlot(context.Background(), taskID, slot, sessionID); err != nil {
+		return false, fmt.Errorf("linking Chimera session: %w", err)
 	}
 	return true, nil
+}
+
+// AgentSessionCreatedFor links a Chimera session to the slot of the agent of
+// executionID ("" for the main slot).
+func AgentSessionCreatedFor(s *store.Store, taskID, executionID, sessionID string) error {
+	if taskID == "" {
+		return fmt.Errorf("task ID is required")
+	}
+	if sessionID == "" {
+		return fmt.Errorf("session ID is required")
+	}
+	if err := s.SetChimeraResumeInSlot(context.Background(), taskID, callerSlot(s, taskID, executionID), sessionID); err != nil {
+		return fmt.Errorf("linking Chimera session: %w", err)
+	}
+	return nil
+}
+
+// callerSlot is the slot of the running agent of executionID on the task,
+// the main slot when there is none.
+func callerSlot(s *store.Store, taskID, executionID string) string {
+	if executionID == "" {
+		return store.SlotMain
+	}
+	session, err := s.GetRunningAgentSession(context.Background(), taskID, executionID)
+	if err != nil || session.ExecutionID != executionID {
+		return store.SlotMain
+	}
+	return session.Slot
 }
 
 // SessionCreatedPayloadNamesTask checks a Chimera SessionCreated payload and

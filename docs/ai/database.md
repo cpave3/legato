@@ -76,6 +76,12 @@ Migration 074 adds `executions.broker_token_hash`: the SHA-256 of the token an e
 
 Migration 075 adds `agent_sessions.sandboxed`: whether the session's agent runs in Legato's sandbox. A database from before agent sessions has no table to change. See [Sandbox](sandbox.md).
 
+### Agent slots
+
+Migration 089 makes the agent slot a store key. `agent_sessions.slot` (default `main`; existing rows are `main`) is the task's slot the session runs in. `task_native_sessions` is rebuilt keyed by `(task_id, slot, agent_kind)`, with `chimera` among its kinds: Chimera's selector moves into it from `tasks.chimera_session_id`, which is dropped (a Chimera record has no directory or owner, so `cwd`, `agent_session_id` and `execution_id` default to empty). `RecordTaskNativeSession` keeps its signature and saves into the slot of the session saving it, whose ownership is checked against the newest session of that slot only.
+
+Every query that addresses a task's agent without a slot means the main slot: `GetAgentSessionByTaskID`, `UpdateAgentSessionStatus`, `UpdateAgentActivity`, `DeleteDeadAgentSessions`, `LatestAgentSessionForTask`, `GetTaskNativeSession`, `ListTaskNativeSessions`, `TaskChimeraSessionID` and `SetTaskChimeraSessionID`. Their `…InSlot` forms name a slot. Inside a session, `GetRunningAgentSession(task, execution)` finds the caller's own session in whichever slot (the main slot's with no execution), and `UpdateAgentActivityForSession` writes to it. `ListTaskAgentSessions` lists a task's running sessions, the main slot's first. `ListRunningExecutionPeers` returns each peer's slot and `read_only`. Executions keep `task_id`, so a slot's active time counts toward its task. A database built in part (a migration test's) runs only the statements whose tables and columns it has. See `internal/service/agent_slot.go` and `GLOSSARY.md` § Agents on a task.
+
 ### Integrations
 
 Migration 079 adds `repository_presets`: repositories added in the web UI (a unique name, `repo`, `primary_dir`, `base_branch`), offered beside the configuration's. See [Configuration](config.md) § Shared repository presets.

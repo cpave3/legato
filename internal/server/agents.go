@@ -55,8 +55,14 @@ func (s *Server) sparklineParams() (time.Duration, int) {
 
 // AgentResponse is the JSON representation of an agent session.
 type AgentResponse struct {
-	ID                 int        `json:"id"`
-	TaskID             string     `json:"task_id"`
+	ID int `json:"id"`
+	// TaskID is the agent's address: the task's ID for its main slot,
+	// <task>_<slot> for a named slot (a reviewer), which every agent route
+	// and WebSocket message takes.
+	TaskID string `json:"task_id"`
+	// CardTaskID is the task the agent's slot belongs to; Slot its slot.
+	CardTaskID         string     `json:"card_task_id,omitempty"`
+	Slot               string     `json:"slot,omitempty"`
 	ExecutionID        string     `json:"execution_id,omitempty"`
 	AttributionTaskID  string     `json:"attribution_task_id"`
 	ExecutionKind      string     `json:"execution_kind,omitempty"`
@@ -97,7 +103,7 @@ func agentResponse(agent service.AgentSession) AgentResponse {
 		Command: agent.Command, AgentKind: agent.AgentKind, Status: agent.Status,
 		Activity: agent.Activity, Role: agent.Role, ParentTaskID: agent.ParentTaskID,
 		SubtaskID: agent.SubtaskID, StartedAt: agent.StartedAt, EndedAt: agent.EndedAt,
-		Sandboxed: agent.Sandboxed,
+		Sandboxed: agent.Sandboxed, CardTaskID: agent.CardTaskID, Slot: agent.Slot,
 	}
 }
 
@@ -134,9 +140,16 @@ func (s *Server) spawnAgentHandler() http.HandlerFunc {
 			// CloneID starts the agent in a job clone that exists: the
 			// next branch of a stack in the same folder.
 			CloneID int64 `json:"clone_id"`
+			// Slot is refused when named: only Legato starts agents in a
+			// named slot.
+			Slot string `json:"slot"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			http.Error(w, "invalid JSON", http.StatusBadRequest)
+			return
+		}
+		if service.IsNamedSlot(req.Slot) {
+			http.Error(w, service.ErrNamedSlotRefused.Error(), http.StatusForbidden)
 			return
 		}
 		if req.Title == "" {
@@ -213,6 +226,9 @@ func (s *Server) killAgentHandler() http.HandlerFunc {
 
 		var req struct {
 			TaskID string `json:"task_id"`
+			// Slot names the agent slot to stop; empty is the main slot,
+			// the task's agent.
+			Slot string `json:"slot"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil || req.TaskID == "" {
 			http.Error(w, "task_id is required", http.StatusBadRequest)
@@ -220,6 +236,21 @@ func (s *Server) killAgentHandler() http.HandlerFunc {
 		}
 
 		ctx := r.Context()
+		if service.IsNamedSlot(req.Slot) {
+			slots, ok := s.agents.(service.SlotAgents)
+			if !ok {
+				http.Error(w, "this server has no agent slots", http.StatusServiceUnavailable)
+				return
+			}
+			if err := slots.KillAgentInSlot(ctx, req.TaskID, req.Slot); err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+			s.hub.Broadcast(WSMessage{Type: MsgAgentsChanged})
+			w.Header().Set("Content-Type", "application/json")
+			json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+			return
+		}
 		cancelSwarm, err := s.isSwarmConductor(ctx, req.TaskID)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
@@ -525,11 +556,18 @@ func (s *Server) taskAgentHandler() http.HandlerFunc {
 			// CloneID starts the agent in a job clone that exists: the
 			// next branch of a stack in the same folder.
 			CloneID int64 `json:"clone_id"`
+			// Slot is refused when named: only Legato starts agents in a
+			// named slot.
+			Slot string `json:"slot"`
 		}
 		decoder := json.NewDecoder(r.Body)
 		decoder.DisallowUnknownFields()
 		if err := decoder.Decode(&req); err != nil && err != io.EOF {
 			http.Error(w, "invalid JSON", http.StatusBadRequest)
+			return
+		}
+		if service.IsNamedSlot(req.Slot) {
+			http.Error(w, service.ErrNamedSlotRefused.Error(), http.StatusForbidden)
 			return
 		}
 		if _, err := agents.CaptureOutput(r.Context(), taskID); err == nil {

@@ -90,8 +90,7 @@ func TestTheBrokerRecordsAChimeraSessionForItsOwnTask(t *testing.T) {
 	if _, err := call(h, token, "agent.session_created", map[string]any{"session_id": "chm-1"}); err != nil {
 		t.Fatal(err)
 	}
-	task, _ := s.GetTask(context.Background(), "abc123")
-	if task.ChimeraSessionID == nil || *task.ChimeraSessionID != "chm-1" {
-		t.Fatalf("task's chimera session = %v", task.ChimeraSessionID)
+	if id, _ := s.TaskChimeraSessionID(context.Background(), "abc123"); id != "chm-1" {
+		t.Fatalf("task's chimera session = %q", id)
 	}
 }

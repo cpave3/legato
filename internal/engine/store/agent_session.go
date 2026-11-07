@@ -16,8 +16,8 @@ const agentSessionSelect = `SELECT a.*,
 
 func (s *Store) InsertAgentSession(ctx context.Context, a AgentSession) error {
 	result, err := s.db.NamedExecContext(ctx, `
-		INSERT INTO agent_sessions (task_id, tmux_session, command, agent_kind, status, role, parent_task_id, subtask_id, sandboxed)
-		SELECT :task_id, :tmux_session, :command, :agent_kind, :status, :role, :parent_task_id, :subtask_id, :sandboxed
+		INSERT INTO agent_sessions (task_id, slot, tmux_session, command, agent_kind, status, role, parent_task_id, subtask_id, sandboxed)
+		SELECT :task_id, CASE WHEN :slot = '' THEN 'main' ELSE :slot END, :tmux_session, :command, :agent_kind, :status, :role, :parent_task_id, :subtask_id, :sandboxed
 		WHERE :status != 'running' OR NOT EXISTS (SELECT 1 FROM chimera_cleanup_reservations WHERE task_id = :task_id)`, a)
 	if err != nil {
 		return err
@@ -40,8 +40,8 @@ func (s *Store) InsertAgentSession(ctx context.Context, a AgentSession) error {
 // InsertAgentSessionReturningID inserts a session and returns the new row's ID.
 func (s *Store) InsertAgentSessionReturningID(ctx context.Context, a AgentSession) (int, error) {
 	result, err := s.db.NamedExecContext(ctx, `
-		INSERT INTO agent_sessions (task_id, tmux_session, command, agent_kind, status, role, parent_task_id, subtask_id, sandboxed)
-		SELECT :task_id, :tmux_session, :command, :agent_kind, :status, :role, :parent_task_id, :subtask_id, :sandboxed
+		INSERT INTO agent_sessions (task_id, slot, tmux_session, command, agent_kind, status, role, parent_task_id, subtask_id, sandboxed)
+		SELECT :task_id, CASE WHEN :slot = '' THEN 'main' ELSE :slot END, :tmux_session, :command, :agent_kind, :status, :role, :parent_task_id, :subtask_id, :sandboxed
 		WHERE :status != 'running' OR NOT EXISTS (SELECT 1 FROM chimera_cleanup_reservations WHERE task_id = :task_id)`, a)
 	if err != nil {
 		return 0, err
@@ -67,14 +67,48 @@ func (s *Store) ListAgentSessions(ctx context.Context) ([]AgentSession, error) {
 	return sessions, err
 }
 
+// GetAgentSessionByTaskID returns the running session of the task's main
+// slot: the task's agent, to anything that addresses it without a slot.
 func (s *Store) GetAgentSessionByTaskID(ctx context.Context, taskID string) (*AgentSession, error) {
+	return s.GetAgentSessionInSlot(ctx, taskID, SlotMain)
+}
+
+// GetAgentSessionInSlot returns the running session of one of the task's slots.
+func (s *Store) GetAgentSessionInSlot(ctx context.Context, taskID, slot string) (*AgentSession, error) {
 	var a AgentSession
 	err := s.db.GetContext(ctx, &a,
-		agentSessionSelect+" WHERE a.task_id = ? AND a.status = 'running' ORDER BY a.started_at DESC LIMIT 1", taskID)
+		agentSessionSelect+" WHERE a.task_id = ? AND a.slot = ? AND a.status = 'running' ORDER BY a.started_at DESC LIMIT 1", taskID, slotOrMain(slot))
 	if err == sql.ErrNoRows {
-		return nil, fmt.Errorf("agent session for task %s: %w", taskID, ErrNotFound)
+		return nil, fmt.Errorf("agent session for task %s, slot %s: %w", taskID, slotOrMain(slot), ErrNotFound)
 	}
 	return &a, err
+}
+
+// GetRunningAgentSession returns the running session a caller inside it
+// names: the one of executionID on the task, in whichever slot, or the main
+// slot's when executionID is empty.
+func (s *Store) GetRunningAgentSession(ctx context.Context, taskID, executionID string) (*AgentSession, error) {
+	if executionID == "" {
+		return s.GetAgentSessionByTaskID(ctx, taskID)
+	}
+	var a AgentSession
+	err := s.db.GetContext(ctx, &a,
+		agentSessionSelect+" WHERE a.task_id = ? AND e.id = ? AND a.status = 'running' LIMIT 1", taskID, executionID)
+	if err == sql.ErrNoRows {
+		// A session whose execution is not linked yet, or a legacy one: the
+		// main slot's, which the caller checks against executionID.
+		return s.GetAgentSessionByTaskID(ctx, taskID)
+	}
+	return &a, err
+}
+
+// ListTaskAgentSessions returns the running sessions of every slot of a task,
+// the main slot's first.
+func (s *Store) ListTaskAgentSessions(ctx context.Context, taskID string) ([]AgentSession, error) {
+	var sessions []AgentSession
+	err := s.db.SelectContext(ctx, &sessions,
+		agentSessionSelect+" WHERE a.task_id = ? AND a.status = 'running' ORDER BY a.slot != 'main', a.slot, a.started_at DESC", taskID)
+	return sessions, err
 }
 
 func (s *Store) GetAgentSessionByID(ctx context.Context, id int) (*AgentSession, error) {
@@ -96,10 +130,16 @@ func (s *Store) GetAgentSessionByTmuxName(ctx context.Context, tmuxSession strin
 	return &a, err
 }
 
+// UpdateAgentSessionStatus ends the task's main slot's running session.
 func (s *Store) UpdateAgentSessionStatus(ctx context.Context, taskID string, status string) error {
+	return s.UpdateAgentSessionStatusInSlot(ctx, taskID, SlotMain, status)
+}
+
+// UpdateAgentSessionStatusInSlot ends one slot's running session.
+func (s *Store) UpdateAgentSessionStatusInSlot(ctx context.Context, taskID, slot, status string) error {
 	_, err := s.db.ExecContext(ctx, `
 		UPDATE agent_sessions SET status = ?, ended_at = datetime('now')
-		WHERE task_id = ? AND status = 'running'`, status, taskID)
+		WHERE task_id = ? AND slot = ? AND status = 'running'`, status, taskID, slotOrMain(slot))
 	return err
 }
 
@@ -109,7 +149,7 @@ func (s *Store) UpdateAgentSessionSwarmRole(ctx context.Context, taskID, role, p
 	result, err := s.db.ExecContext(ctx, `
 		UPDATE agent_sessions
 		SET role = ?, parent_task_id = ?, subtask_id = ?
-		WHERE task_id = ? AND status = 'running'`,
+		WHERE task_id = ? AND slot = 'main' AND status = 'running'`,
 		role, parentTaskID, subtaskID, taskID)
 	if err != nil {
 		return err
@@ -124,10 +164,18 @@ func (s *Store) UpdateAgentSessionSwarmRole(ctx context.Context, taskID, role, p
 	return nil
 }
 
+// UpdateAgentActivity sets the activity of the task's main slot's session.
 func (s *Store) UpdateAgentActivity(ctx context.Context, taskID string, activity string) error {
 	_, err := s.db.ExecContext(ctx, `
 		UPDATE agent_sessions SET activity = ?
-		WHERE task_id = ? AND status = 'running'`, activity, taskID)
+		WHERE task_id = ? AND slot = 'main' AND status = 'running'`, activity, taskID)
+	return err
+}
+
+// UpdateAgentActivityForSession sets the activity of one running session.
+func (s *Store) UpdateAgentActivityForSession(ctx context.Context, id int, activity string) error {
+	_, err := s.db.ExecContext(ctx, `
+		UPDATE agent_sessions SET activity = ? WHERE id = ? AND status = 'running'`, activity, id)
 	return err
 }
 
@@ -187,9 +235,15 @@ func (s *Store) DeleteAgentSession(ctx context.Context, id int) error {
 	return err
 }
 
+// DeleteDeadAgentSessions removes the ended sessions of the task's main slot.
 func (s *Store) DeleteDeadAgentSessions(ctx context.Context, taskID string) error {
+	return s.DeleteDeadAgentSessionsInSlot(ctx, taskID, SlotMain)
+}
+
+// DeleteDeadAgentSessionsInSlot removes one slot's ended sessions.
+func (s *Store) DeleteDeadAgentSessionsInSlot(ctx context.Context, taskID, slot string) error {
 	_, err := s.db.ExecContext(ctx, `
-		DELETE FROM agent_sessions WHERE task_id = ? AND status != 'running'`, taskID)
+		DELETE FROM agent_sessions WHERE task_id = ? AND slot = ? AND status != 'running'`, taskID, slotOrMain(slot))
 	return err
 }
 
@@ -200,7 +254,7 @@ func (s *Store) UpdateChimeraDiscovery(ctx context.Context, taskID, chimeraSessi
 	_, err := s.db.ExecContext(ctx, `
 		UPDATE agent_sessions
 		SET chimera_session_id = ?, chimera_endpoint = ?
-		WHERE task_id = ? AND status = 'running'`,
+		WHERE task_id = ? AND slot = 'main' AND status = 'running'`,
 		chimeraSessionID, endpoint, taskID)
 	return err
 }
@@ -251,6 +305,6 @@ func (s *Store) ClearChimeraDiscoveryForSession(ctx context.Context, agentSessio
 func (s *Store) UpdateChimeraLastEventID(ctx context.Context, taskID, eventID string) error {
 	_, err := s.db.ExecContext(ctx, `
 		UPDATE agent_sessions SET last_event_id = ?
-		WHERE task_id = ? AND status = 'running'`, eventID, taskID)
+		WHERE task_id = ? AND slot = 'main' AND status = 'running'`, eventID, taskID)
 	return err
 }

@@ -480,8 +480,10 @@ func TestMCPPeerToolsAreNotOfferedWithoutAWayToReachAgents(t *testing.T) {
 // to run without asking. That list must be every tool the server can offer.
 func TestMCPToolNamesListsEveryToolTheServerOffers(t *testing.T) {
 	s := newTestStore(t)
-	executionID := seedMCPAgent(t, s, "task1")
-	session := connectMCP(t, cli.MCPOptions{Store: s, TaskID: "task1", ExecutionID: executionID, Agents: &fakePeers{}, Credentials: &fakeCredentials{}, CaseReplies: &fakeCaseReplies{}})
+	seedMCPAgent(t, s, "task1")
+	// A reviewer is offered every tool, submit_review too.
+	executionID := seedReviewer(t, s, "task1")
+	session := connectMCP(t, cli.MCPOptions{Store: s, TaskID: "task1", ExecutionID: executionID, Agents: &fakePeers{}, Credentials: &fakeCredentials{}, CaseReplies: &fakeCaseReplies{}, Reviews: &recordingReviews{}})
 	listed, err := session.ListTools(context.Background(), nil)
 	if err != nil {
 		t.Fatal(err)

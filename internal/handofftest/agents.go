@@ -28,11 +28,14 @@ type FakeRepos struct {
 	refreshes []string
 	clones    []service.JobCloneRequest
 	nextID    int64
+	// live are the clones made, by task and repository: a task's later
+	// clone of the same repository is that one again, as the real cache's.
+	live map[string]store.JobClone
 }
 
 // NewFakeRepos makes clones under dir; every repository can be cloned.
 func NewFakeRepos(dir string) *FakeRepos {
-	return &FakeRepos{dir: dir, refused: map[string]string{}, failing: map[string]error{}, pushed: map[string]bool{}}
+	return &FakeRepos{dir: dir, refused: map[string]string{}, failing: map[string]error{}, pushed: map[string]bool{}, live: map[string]store.JobClone{}}
 }
 
 // Push puts a branch of repo on the fake GitHub, as a person pushing work
@@ -119,6 +122,9 @@ func (f *FakeRepos) JobClone(_ context.Context, req service.JobCloneRequest) (st
 		return store.JobClone{}, fmt.Errorf("%w: %s has no branch %s", service.ErrBranchNotOnGitHub, req.Repo, req.Branch)
 	}
 	f.clones = append(f.clones, req)
+	if own, ok := f.live[req.TaskID+"@"+req.Repo]; ok && (req.CloneID == 0 || req.CloneID == own.ID) {
+		return own, nil // joined: still the execution that made it
+	}
 	f.nextID++
 	_, name, _ := strings.Cut(req.Repo, "/")
 	path := filepath.Join(f.dir, req.ExecutionID, name)
@@ -129,7 +135,9 @@ func (f *FakeRepos) JobClone(_ context.Context, req service.JobCloneRequest) (st
 	if branch == "" {
 		branch = req.FreshBranch
 	}
-	return store.JobClone{ID: f.nextID, ExecutionID: req.ExecutionID, TaskID: req.TaskID, Repo: req.Repo, Ref: req.Ref, Branch: branch, Path: path}, nil
+	clone := store.JobClone{ID: f.nextID, ExecutionID: req.ExecutionID, TaskID: req.TaskID, Repo: req.Repo, Ref: req.Ref, Branch: branch, Path: path}
+	f.live[req.TaskID+"@"+req.Repo] = clone
+	return clone, nil
 }
 
 // fakeSandbox is a sandbox backend that is always there and wraps a launch

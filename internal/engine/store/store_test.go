@@ -217,12 +217,12 @@ func TestSetTaskChimeraSessionIDPersistsAndReplaces(t *testing.T) {
 		if err := s.SetTaskChimeraSessionID(ctx, "TASK-1", sessionID); err != nil {
 			t.Fatal(err)
 		}
-		task, err := s.GetTask(ctx, "TASK-1")
+		got, err := s.TaskChimeraSessionID(ctx, "TASK-1")
 		if err != nil {
 			t.Fatal(err)
 		}
-		if task.ChimeraSessionID == nil || *task.ChimeraSessionID != sessionID {
-			t.Fatalf("ChimeraSessionID = %v, want %q", task.ChimeraSessionID, sessionID)
+		if got != sessionID {
+			t.Fatalf("Chimera session = %q, want %q", got, sessionID)
 		}
 	}
 }

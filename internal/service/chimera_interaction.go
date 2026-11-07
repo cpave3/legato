@@ -34,7 +34,7 @@ func NewChimeraInteractionAdapter(store *store.Store, clientFactory func(string)
 }
 
 func (a *ChimeraInteractionAdapter) getEndpointAndSession(ctx context.Context, taskID string) (endpoint, sessionID string, err error) {
-	session, err := a.store.GetAgentSessionByTaskID(ctx, taskID)
+	session, err := slotSession(ctx, a.store, taskID)
 	if err != nil {
 		return "", "", err
 	}

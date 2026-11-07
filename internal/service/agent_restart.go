@@ -43,6 +43,11 @@ func (a *agentService) RestartAgentSwitchingSandbox(ctx context.Context, taskID 
 }
 
 func (a *agentService) restartAgent(ctx context.Context, taskID string, resources []Resource, switchSandbox bool) (bool, error) {
+	if _, slot := SplitAgentID(taskID); IsNamedSlot(slot) {
+		// Legato starts a named slot's agent with what its work needs (a
+		// reviewer's read-only, unattended sandbox); a restart would not.
+		return false, fmt.Errorf("%w: Legato runs the %s of this task", ErrAgentNotRestartable, slot)
+	}
 	session, err := a.store.GetAgentSessionByTaskID(ctx, taskID)
 	if err != nil {
 		return false, err

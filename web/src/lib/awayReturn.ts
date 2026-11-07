@@ -26,6 +26,9 @@ const only = (actions: Partial<AwayActions>): AwayActions => ({ return: false, r
 // allows. A worker that cannot be reached, no longer accepts this main or
 // lost the task offers only Take back.
 export function awayActions(away: AwayOn): AwayActions {
+  // A stuck review may be returned as it is; one under way only recalled.
+  if (away.review?.phase === "stuck" && away.view === "needs_you") return only({ return: true, recall: true, confirmRecall: true })
+  if (away.view === "in_review") return only({ recall: true, confirmRecall: true })
   switch (away.view) {
     case "unreachable":
     case "not_accepted":

@@ -1,5 +1,5 @@
 import { apiFetch } from "./api"
-import type { AwayOn, BoardCard, BoardColumn, BoardWorker } from "./board-types"
+import type { AwayOn, AwayReview, BoardCard, BoardColumn, BoardWorker } from "./board-types"
 
 // Handing tasks off from this main instance to a worker instance, and the
 // tasks away on workers as the web board shows them: out of their columns,
@@ -63,6 +63,14 @@ export interface AwayLook {
 // view of the worker, then the worker's state and its agent's activity);
 // an older server sends only the state.
 export function awayLook(away: AwayOn): AwayLook {
+  const review = away.review
+  if (review && away.view !== "unreachable" && away.view !== "lost" && away.view !== "not_accepted") {
+    if (review.phase === "stuck") return { glyph: "?", label: `Review stuck: ${review.reason ?? ""}`.trim(), tone: "text-lw-needs", tint: "bg-lw-needs-soft" }
+    if (away.view === "in_review" || away.view === "done") {
+      const label = reviewLabel(review)
+      if (label) return { glyph: review.phase === "clean" ? "✓" : "◐", label, tone: review.phase === "clean" ? "text-lw-done" : "text-lw-live", tint: review.phase === "clean" ? "bg-lw-done-soft" : "bg-lw-live-soft" }
+    }
+  }
   switch (away.view) {
     case "starting":
       return { glyph: "◌", label: "Starting", tone: "text-lw-text-2", tint: "bg-lw-idle-soft" }
@@ -101,6 +109,26 @@ export function awayLook(away: AwayOn): AwayLook {
     default:
       return { glyph: "→", label: "Handed off", tone: "text-lw-text-2", tint: "bg-lw-idle-soft" }
   }
+}
+
+// What a review block says in a few words, as the worker's summary does.
+export function reviewLabel(review: AwayReview): string {
+  switch (review.phase) {
+    case "reviewing":
+      return `Reviewing · pass ${review.pass}`
+    case "waiting_for_reviewer":
+      return `Waiting for a reviewer · pass ${review.pass + 1}`
+    case "waiting_for_author": {
+      const parts: string[] = []
+      if (review.blocking_open) parts.push(`${review.blocking_open} blocking`)
+      if (review.comments_open) parts.push(`${review.comments_open} ${review.comments_open === 1 ? "comment" : "comments"}`)
+      if (review.checks_open) parts.push(`${review.checks_open} ${review.checks_open === 1 ? "check" : "checks"}`)
+      return parts.length ? `Author fixing · ${parts.join(", ")}` : "Author fixing"
+    }
+    case "clean":
+      return "Done · approved"
+  }
+  return ""
 }
 
 // Why an away task shows what it shows, for its pill's tooltip: why it

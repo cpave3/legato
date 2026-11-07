@@ -108,7 +108,6 @@ type Task struct {
 	Ephemeral           bool    `db:"ephemeral"`
 	SwarmWorkingDir     *string `db:"swarm_working_dir"`
 	SwarmActiveStep     int     `db:"swarm_active_step"`
-	ChimeraSessionID    *string `db:"chimera_session_id"`
 	Group               *string `db:"task_group"`
 	WorktreePrimaryDir  *string `db:"worktree_primary_dir"`
 	WorktreePath        *string `db:"worktree_path"`
@@ -366,6 +365,10 @@ type ExecutionPeer struct {
 	Activity     string `db:"activity"`
 	WorkingDir   string `db:"working_dir"`
 	AgentSession int    `db:"agent_session_id"`
+	// Slot is the agent slot of the peer's session; ReadOnly says its
+	// execution may only look.
+	Slot     string `db:"slot"`
+	ReadOnly bool   `db:"read_only"`
 }
 
 type ExecutionActivity struct {
@@ -399,6 +402,9 @@ type AgentSession struct {
 	LastEventID       *string `db:"last_event_id"`
 	// Sandboxed is true when the agent runs in Legato's sandbox.
 	Sandboxed bool `db:"sandboxed"`
+	// Slot is the task's agent slot the session runs in: SlotMain, or a
+	// named slot such as "reviewer".
+	Slot string `db:"slot"`
 }
 
 // SwarmEvent is a single conductor-bound event written to the swarm_events

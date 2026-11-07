@@ -369,6 +369,16 @@ func (m *Model) SetActiveAgents(taskIDs map[string]bool) {
 	m.computeMaxVisible()
 }
 
+// SetSlotAgents sets the running named slots (a reviewer) of each card.
+func (m *Model) SetSlotAgents(slots map[string][]service.SlotAgentSummary) {
+	for colName, cards := range m.cards {
+		for i := range cards {
+			cards[i].SlotAgents = slots[cards[i].Key]
+		}
+		m.cards[colName] = cards
+	}
+}
+
 // SetAgentStates updates the agent activity state for each card.
 // States: "working", "waiting", "error", or "" (idle/no agent).
 func (m *Model) SetAgentStates(states map[string]string) {

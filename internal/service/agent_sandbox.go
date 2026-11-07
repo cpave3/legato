@@ -21,9 +21,25 @@ type SandboxSettings struct {
 	Base SandboxPlanInput
 }
 
+// CheckoutOverlayProber says whether an agent's checkout can be shown
+// beneath a throwaway layer (AgentSpawnOptions.ThrowawayCheckout); without
+// it, a throwaway checkout is mounted read-only, and builds that write to
+// the tree fail.
+type CheckoutOverlayProber interface {
+	CheckoutOverlayAvailable() bool
+}
+
+func (a *agentService) CheckoutOverlayAvailable() bool {
+	if a.sandbox == nil {
+		return false
+	}
+	overlays, ok := a.sandbox.Backend.(sandbox.OverlaySupporter)
+	return ok && overlays.SupportsOverlay()
+}
+
 // sandboxPrefix is the command line that starts an agent's launch command
 // in its sandbox, ending in "--".
-func (a *agentService) sandboxPrefix(ctx context.Context, taskID, executionID, agentKind, workDir string, env map[string]string, resources []Resource, readOnly bool) (string, error) {
+func (a *agentService) sandboxPrefix(ctx context.Context, taskID, executionID, agentKind, workDir string, env map[string]string, resources []Resource, readOnly, throwaway bool) (string, error) {
 	backend := a.sandbox.Backend
 	if err := backend.Available(); err != nil {
 		return "", err
@@ -31,6 +47,8 @@ func (a *agentService) sandboxPrefix(ctx context.Context, taskID, executionID, a
 	in := a.sandbox.Base
 	in.WorkDir, in.ExecutionID, in.TaskID, in.AgentKind = workDir, executionID, taskID, agentKind
 	in.ReadOnlyCheckout = readOnly
+	// Without overlays, a throwaway checkout is the plain read-only one.
+	in.ThrowawayCheckout = readOnly && throwaway && a.CheckoutOverlayAvailable()
 	in.BrokerSocket = env["LEGATO_BROKER_SOCKET"]
 	if sock := env["SSH_AUTH_SOCK"]; sock != "" && in.RuntimeDir != "" && strings.HasPrefix(sock, filepath.Join(in.RuntimeDir, "ssh")+"/") {
 		in.SSHSocket = sock

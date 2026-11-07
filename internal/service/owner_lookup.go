@@ -223,9 +223,6 @@ func taskAgentPresence(ctx context.Context, db *store.Store, task *store.Task) (
 	if latestSaved != nil {
 		p.savedKind, p.savedExecution = latestSaved.AgentKind, latestSaved.ExecutionID
 	}
-	if p.savedKind == "" && task.ChimeraSessionID != nil && *task.ChimeraSessionID != "" {
-		p.savedKind = "chimera"
-	}
 	return p, nil
 }
 
