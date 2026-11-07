@@ -274,6 +274,14 @@ func NewCredentialBroker(db *store.Store, approvals *ApprovalService, opts Crede
 			if err := bc.proxySettings(); err != nil {
 				return nil, fmt.Errorf("credentials %q: %w", c.Name, err)
 			}
+		} else if upstream := firstNonEmpty(c.Settings.Upstream, profile.Upstream); upstream != "" {
+			// A credential Legato uses itself (the reviewer App) still
+			// has an API to call.
+			u, err := url.Parse(upstream)
+			if err != nil || u.Scheme != "https" || u.Host == "" {
+				return nil, fmt.Errorf("credentials %q: upstream %q: want an https address", c.Name, upstream)
+			}
+			bc.upstream = u
 		}
 		if listHas(profile.Channels, ChannelSSHAgent) && c.Type != "" && c.Type != credential.TypeKeyPair {
 			return nil, fmt.Errorf("credentials %q: profile ssh takes a keypair secret", c.Name)
@@ -785,6 +793,9 @@ func (b *CredentialBroker) Request(ctx context.Context, req AccessRequest) (Acce
 	if !b.executionRunning(ctx, req.ExecutionID, req.TaskID) {
 		return b.refuse(ctx, req, "the agent is not running"), nil
 	}
+	if c.profile.HostOnly {
+		return b.refuse(ctx, req, hostOnlyReason(req.Credential)), nil
+	}
 	for _, op := range req.Operations {
 		if reason := b.readOnlyRefusal(ctx, req.ExecutionID, op); reason != "" {
 			return b.refuse(ctx, req, reason), nil
@@ -1019,6 +1030,12 @@ func (b *CredentialBroker) Authorize(ctx context.Context, use CredentialUse) (Us
 		b.audit(ctx, use.TaskID, use.ExecutionID, entry)
 		return UseDecision{Reason: entry.Detail}, nil
 	}
+	if c.profile.HostOnly {
+		reason := hostOnlyReason(use.Credential)
+		entry.Event, entry.Detail = "refuse", withCall(reason, use.Call)
+		b.audit(ctx, use.TaskID, use.ExecutionID, entry)
+		return UseDecision{Reason: reason}, nil
+	}
 	if reason := b.readOnlyRefusal(ctx, use.ExecutionID, use.Operation); reason != "" {
 		entry.Event, entry.Detail = "refuse", withCall(reason, use.Call)
 		b.audit(ctx, use.TaskID, use.ExecutionID, entry)
@@ -1071,6 +1088,12 @@ func (b *CredentialBroker) CheckUse(ctx context.Context, use CredentialUse) (Use
 		entry.Detail = withCall("the agent is not running", use.Call)
 		b.audit(ctx, use.TaskID, use.ExecutionID, entry)
 		return UseDecision{Reason: "the agent is not running"}, nil
+	}
+	if c.profile.HostOnly {
+		reason := hostOnlyReason(use.Credential)
+		entry.Detail = withCall(reason, use.Call)
+		b.audit(ctx, use.TaskID, use.ExecutionID, entry)
+		return UseDecision{Reason: reason}, nil
 	}
 	if reason := b.readOnlyRefusal(ctx, use.ExecutionID, use.Operation); reason != "" {
 		entry.Detail = withCall(reason, use.Call)
@@ -1467,6 +1490,11 @@ func (b *CredentialBroker) VerifyAudit(ctx context.Context) (int64, error) {
 // readOnlyRefusal is why an execution that may only look (a find-out
 // delegation's) is refused an operation that writes: a push, a ref deletion,
 // or a pull request, issue or Actions write. Empty when it is not refused.
+// hostOnlyReason refuses an agent a credential only Legato uses.
+func hostOnlyReason(name string) string {
+	return name + " is Legato's own credential: Legato uses it itself, and no agent is given it"
+}
+
 func (b *CredentialBroker) readOnlyRefusal(ctx context.Context, executionID, operation string) string {
 	if !strings.HasPrefix(operation, "git.push") && operation != "git.delete-ref" && !strings.HasPrefix(operation, "pr.") && !strings.HasPrefix(operation, "issue.") && operation != "actions.write" {
 		return ""
