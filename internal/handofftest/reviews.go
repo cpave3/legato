@@ -26,6 +26,7 @@ type FakeReviewGitHub struct {
 	prs      map[string]service.ReviewGitHubPR
 	posted   []service.ReviewPost
 	replies  []string
+	comments []string
 	resolved []int64
 	comment  int64
 }
@@ -90,10 +91,31 @@ func (f *FakeReviewGitHub) PostReview(_ context.Context, post service.ReviewPost
 	return posted, nil
 }
 
-func (f *FakeReviewGitHub) Reply(_ context.Context, _ service.GitHubIdentity, _ string, _ int, commentID int64, body string) error {
+// Comments are the conversation comments posted, "identity: body".
+func (f *FakeReviewGitHub) Comments() []string {
 	f.mu.Lock()
 	defer f.mu.Unlock()
-	f.replies = append(f.replies, fmt.Sprintf("%d: %s", commentID, body))
+	return append([]string(nil), f.comments...)
+}
+
+func (f *FakeReviewGitHub) PostIssueComment(_ context.Context, who service.GitHubIdentity, _ string, _ int, body string) (int64, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.comments = append(f.comments, identityName(who)+": "+body)
+	return int64(len(f.comments)), nil
+}
+
+func identityName(who service.GitHubIdentity) string {
+	if who == service.AsAuthor {
+		return "author"
+	}
+	return "reviewer"
+}
+
+func (f *FakeReviewGitHub) Reply(_ context.Context, who service.GitHubIdentity, _ string, _ int, commentID int64, body string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.replies = append(f.replies, fmt.Sprintf("%s %d: %s", identityName(who), commentID, body))
 	return nil
 }
 

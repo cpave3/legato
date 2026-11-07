@@ -317,6 +317,11 @@ func TaskUpdateFields(s *store.Store, taskID string, opts TaskUpdateOptions) err
 		if err != nil {
 			return err
 		}
+		if strings.EqualFold(column, "Done") {
+			if err := service.RefuseUnansweredReview(ctx, s, taskID); err != nil {
+				return err
+			}
+		}
 		task.Status = column
 	}
 

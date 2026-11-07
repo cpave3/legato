@@ -27,17 +27,18 @@ import (
 // second words allowed ("*" for any). Host-only commands (device, secret,
 // audit, hooks, auth, serve, …) are not here.
 var forwardedCommands = map[string][]string{
-	"task":       {"show", "notes", "note", "update", "description", "list", "create", "link"},
-	"plan":       {"*"},
-	"review":     {"*"},
-	"swarm":      {"*"},
-	"learn":      {"*"},
-	"credential": {"request", "get", "list"},
-	"agent":      {"peers", "message", "broadcast"},
-	"workflow":   {"step", "show"},
-	"attention":  {"list"},
-	"resource":   {"list"},
-	"workspace":  {"list"},
+	"task":        {"show", "notes", "note", "update", "description", "list", "create", "link"},
+	"plan":        {"*"},
+	"review":      {"*"},
+	"review-pass": {"feedback", "answer"},
+	"swarm":       {"*"},
+	"learn":       {"*"},
+	"credential":  {"request", "get", "list"},
+	"agent":       {"peers", "message", "broadcast"},
+	"workflow":    {"step", "show"},
+	"attention":   {"list"},
+	"resource":    {"list"},
+	"workspace":   {"list"},
 }
 
 // forwardedEnv is what the host takes of the agent's environment: values

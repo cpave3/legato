@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"strings"
 	"time"
 
 	"github.com/cpave3/legato/internal/engine/attachments"
@@ -248,6 +249,12 @@ func moveCard(ctx context.Context, taskStore *store.Store, bus *events.Bus, id s
 	}
 	if err := RefuseAway(ctx, taskStore, id); err != nil {
 		return err
+	}
+	// A reviewed handoff's author is done only once its feedback is.
+	if strings.EqualFold(targetColumn, "Done") {
+		if err := RefuseUnansweredReview(ctx, taskStore, id); err != nil {
+			return err
+		}
 	}
 
 	// Validate target column exists

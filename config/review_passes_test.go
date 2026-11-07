@@ -78,7 +78,7 @@ func TestInvalidReviewPassSettingsFailToLoad(t *testing.T) {
 		{"negative concurrency", "max_concurrent: -1", "review_passes.max_concurrent must be positive"},
 		{"bad duration", "pass_timeout: soon", "review_passes.pass_timeout must be a positive duration"},
 		{"zero quiet time", "quiet_time: 0s", "review_passes.quiet_time must be a positive duration"},
-		{"unknown column", "review_column: Reviewing", `review_passes.review_column "Reviewing" is not a board column`},
+		{"unknown column", "enabled: true\n  reviewer: {agent: codex}\n  github_credential: reviewer-app\n  review_column: Reviewing", `review_passes.review_column "Reviewing" is not a board column`},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			writeTestConfig(t, reviewPassesBase+"review_passes:\n  "+tc.block+"\n")
@@ -87,5 +87,12 @@ func TestInvalidReviewPassSettingsFailToLoad(t *testing.T) {
 				t.Fatalf("err = %v, want %q", err, tc.want)
 			}
 		})
+	}
+}
+
+func TestABoardWithoutAReviewColumnLoadsWhileReviewPassesAreOff(t *testing.T) {
+	writeTestConfig(t, "board:\n  columns:\n    - name: Backlog\n    - name: Done\n")
+	if _, err := Load(); err != nil {
+		t.Fatalf("a board without Review: %v", err)
 	}
 }

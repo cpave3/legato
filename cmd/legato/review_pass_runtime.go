@@ -43,6 +43,9 @@ func wireReviewPasses(deps integrationDeps, handoffs *service.HandoffWorkerServi
 		GitHub:   service.NewReviewPublisher(deps.approvals.channels, deps.cfg.ReviewPasses.GitHubCredential),
 		Checkout: service.GitReviewCheckout{Store: deps.db},
 		Run:      func(f func()) { go f() },
+		// A dead author is resumed, with everything it had, to hear of its
+		// feedback.
+		ResumeAuthor: handoffs.ResumeAuthor,
 	}
 	if prober, ok := deps.agents.(service.CheckoutOverlayProber); ok {
 		opts.Overlay = prober.CheckoutOverlayAvailable

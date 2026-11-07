@@ -358,6 +358,9 @@ func (s *ReviewPassService) post(ctx context.Context, taskID string) error {
 		}
 		return s.opts.Board.MoveCard(ctx, taskID, cfg.DoneColumn)
 	}
+	if err := s.raiseItems(ctx, taskID, pass.Pass, prs); err != nil {
+		return err
+	}
 	loop.Phase = ReviewPhaseWaitingForAuthor
 	if err := s.saveChanged(ctx, loop); err != nil {
 		return err

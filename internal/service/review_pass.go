@@ -78,6 +78,7 @@ type ReviewGitHub interface {
 	// the order of branches.
 	PullRequests(ctx context.Context, repo string, branches []string) ([]ReviewGitHubPR, error)
 	PostReview(ctx context.Context, post ReviewPost) (PostedReview, error)
+	PostIssueComment(ctx context.Context, who GitHubIdentity, repo string, number int, body string) (int64, error)
 	Reply(ctx context.Context, who GitHubIdentity, repo string, number int, commentID int64, body string) error
 	ResolveThread(ctx context.Context, repo string, number int, commentID int64) error
 }
@@ -125,6 +126,9 @@ type ReviewPassOptions struct {
 	// Overlay says whether the reviewer's checkout gets a throwaway layer
 	// (CheckoutOverlayProber); nil means it does not.
 	Overlay func() bool
+	// ResumeAuthor brings back an author that is not running
+	// (HandoffWorkerService.ResumeAuthor); nil cannot.
+	ResumeAuthor func(ctx context.Context, taskID string) error
 }
 
 // ReviewPassService runs review passes on a worker's make-a-change
@@ -236,6 +240,7 @@ func (s *ReviewPassService) Tick(ctx context.Context) {
 		if !s.applies(h) || h.State == store.HandoffPending || h.State == store.HandoffFailed || h.State == store.HandoffReturning {
 			continue
 		}
+		s.postAnswers(ctx, h)
 		if err := s.step(ctx, h); err != nil {
 			log.Printf("review passes: %s: %v", h.TaskID, err)
 		}
@@ -269,6 +274,8 @@ func (s *ReviewPassService) step(ctx context.Context, h *store.Handoff) error {
 		return s.ready(ctx, h, loop)
 	case ReviewPhaseReviewing:
 		return s.watchReviewer(ctx, h, loop)
+	case ReviewPhaseWaitingForAuthor:
+		return s.feedback(ctx, h, loop, inDone)
 	}
 	return nil
 }
