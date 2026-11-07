@@ -36,6 +36,9 @@ type approvalRuntime struct {
 	// channels are the credential channels this process built, nil
 	// without a credential.
 	channels *service.CredentialChannels
+	// reviews runs review passes on this worker's handoffs, once wired
+	// (wireTaskHandoffs); submit_review reaches it through the broker.
+	reviews *service.ReviewPassService
 
 	cfg  *config.Config
 	mu   sync.Mutex
@@ -68,7 +71,7 @@ func startApprovals(ctx context.Context, cfg *config.Config, db *store.Store, bu
 	}
 	// The broker agent-side processes ask instead of the store.
 	rt.caseReplies = newCaseReplyService(cfg, db, bus, true)
-	deps := hostBrokerDeps(cfg, db, agents, rt.credentials, rt.caseReplies)
+	deps := hostBrokerDeps(cfg, db, agents, rt.credentials, rt.caseReplies, rt.reviewPasses)
 	broker := startBrokerHost(ctx, db, ipc.SocketDir(), brokerHostOptions{Deps: deps})
 	stops = append(stops, broker.Stop)
 	rt.brokerOwner = broker.Owner
@@ -209,10 +212,27 @@ func newCaseAttentionService(cfg *config.Config, db *store.Store, attention *ser
 	return service.NewCaseAttentionService(db, opts)
 }
 
+// setReviewPasses keeps the review loop for submit_review.
+func (rt *approvalRuntime) setReviewPasses(reviews *service.ReviewPassService) {
+	rt.mu.Lock()
+	defer rt.mu.Unlock()
+	rt.reviews = reviews
+}
+
+// reviewPasses is the review loop, nil until it is wired.
+func (rt *approvalRuntime) reviewPasses() cli.MCPReviews {
+	rt.mu.Lock()
+	defer rt.mu.Unlock()
+	if rt.reviews == nil {
+		return nil
+	}
+	return rt.reviews
+}
+
 // hostBrokerDeps is what the host's broker serves agent-side processes:
 // Legato's MCP tools, forwarded commands of the sandbox, and, with a
 // credential broker, the values `legato credential get` and `exec` ask for.
-func hostBrokerDeps(cfg *config.Config, db *store.Store, agents service.AgentService, credentials *service.CredentialBroker, caseReplies *service.CaseReplyService) cli.BrokerDeps {
+func hostBrokerDeps(cfg *config.Config, db *store.Store, agents service.AgentService, credentials *service.CredentialBroker, caseReplies *service.CaseReplyService, reviews func() cli.MCPReviews) cli.BrokerDeps {
 	deps := cli.BrokerDeps{Push: agentPushNotifier(cfg), OS: agentOSNotifier(cfg), ClaudeModels: cfg.Adapters["claude-code"].Models}
 	deps.Ops = cli.MCPBrokerOps(func(cli.BrokerCaller) cli.MCPOptions {
 		opts := cli.MCPOptions{Store: db, Version: version.String(), ResourceDomains: cfg.Agents.MCP.ResourceDomains,
@@ -225,6 +245,9 @@ func hostBrokerDeps(cfg *config.Config, db *store.Store, agents service.AgentSer
 		}
 		if caseReplies != nil {
 			opts.CaseReplies = caseReplies
+		}
+		if reviews != nil {
+			opts.Reviews = reviews()
 		}
 		return opts
 	})

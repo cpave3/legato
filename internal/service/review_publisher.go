@@ -8,6 +8,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"regexp"
 	"strconv"
 	"strings"
@@ -82,8 +83,10 @@ type PostedReview struct {
 	URL string
 	// Existed says the review was found, not posted by this call.
 	Existed bool
-	// Inline are the indexes of the findings posted inline, in order.
-	Inline []int
+	// Inline are the indexes of the findings posted inline, in order, and
+	// CommentIDs the inline comments GitHub made of them, in the same order.
+	Inline     []int
+	CommentIDs []int64
 }
 
 // GitHubError is GitHub refusing a call.
@@ -274,7 +277,9 @@ func (p *ReviewPublisher) PostReview(ctx context.Context, post ReviewPost) (Post
 	payload := map[string]any{"commit_id": post.CommitID, "event": post.Event, "body": body, "comments": comments}
 	err = write.do(ctx, http.MethodPost, fmt.Sprintf("/repos/%s/pulls/%d/reviews", post.Repo, post.Number), payload, &created)
 	if err == nil {
-		return PostedReview{ID: created.ID, URL: created.HTMLURL, Inline: inline}, nil
+		posted := PostedReview{ID: created.ID, URL: created.HTMLURL, Inline: inline}
+		posted.CommentIDs = p.reviewComments(ctx, read, post.Repo, post.Number, created.ID)
+		return posted, nil
 	}
 	var refused *GitHubError
 	if errors.As(err, &refused) && refused.Status < 500 {
@@ -286,6 +291,57 @@ func (p *ReviewPublisher) PostReview(ctx context.Context, post ReviewPost) (Post
 		return found, nil
 	}
 	return PostedReview{}, err
+}
+
+// reviewComments are the IDs of a review's inline comments, in the order
+// they were posted; nil when GitHub does not say.
+func (p *ReviewPublisher) reviewComments(ctx context.Context, call *githubCall, repo string, number int, reviewID int64) []int64 {
+	var comments []struct {
+		ID int64 `json:"id"`
+	}
+	if err := call.do(ctx, http.MethodGet, fmt.Sprintf("/repos/%s/pulls/%d/reviews/%d/comments?per_page=100", repo, number, reviewID), nil, &comments); err != nil {
+		return nil
+	}
+	ids := make([]int64, 0, len(comments))
+	for _, c := range comments {
+		ids = append(ids, c.ID)
+	}
+	return ids
+}
+
+// PullRequests are the open pull requests whose heads are branches, in the
+// order of branches, read as the reviewer App.
+func (p *ReviewPublisher) PullRequests(ctx context.Context, repo string, branches []string) ([]ReviewGitHubPR, error) {
+	call, release, err := p.open(ctx, AsReviewer, repo, false)
+	if err != nil {
+		return nil, err
+	}
+	defer release()
+	owner, _, _ := strings.Cut(repo, "/")
+	var out []ReviewGitHubPR
+	for _, branch := range branches {
+		var pulls []struct {
+			Number  int    `json:"number"`
+			Title   string `json:"title"`
+			Body    string `json:"body"`
+			HTMLURL string `json:"html_url"`
+			Head    struct {
+				Ref string `json:"ref"`
+				SHA string `json:"sha"`
+			} `json:"head"`
+			Base struct {
+				Ref string `json:"ref"`
+			} `json:"base"`
+		}
+		path := fmt.Sprintf("/repos/%s/pulls?state=open&head=%s:%s&per_page=10", repo, owner, url.QueryEscape(branch))
+		if err := call.do(ctx, http.MethodGet, path, nil, &pulls); err != nil {
+			return nil, err
+		}
+		for _, pr := range pulls {
+			out = append(out, ReviewGitHubPR{Number: pr.Number, Branch: pr.Head.Ref, Base: pr.Base.Ref, Title: pr.Title, Body: pr.Body, URL: pr.HTMLURL, HeadSHA: pr.Head.SHA})
+		}
+	}
+	return out, nil
 }
 
 // findReview looks among the pull request's reviews for one with the post's

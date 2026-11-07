@@ -49,6 +49,7 @@ func wireTaskHandoffs(srv *server.Server, deps integrationDeps) (stop func()) {
 	}
 	handoffs := service.NewHandoffWorkerService(deps.db, opts)
 	srv.SetTaskHandoffs(handoffs)
+	stopReviews := wireReviewPasses(deps, handoffs)
 	ctx, cancel := context.WithCancel(context.Background())
 	stopLoop := handoffs.StartEventLoop(ctx, handoffReconcileEvery)
 	if deps.approvals != nil && deps.approvals.brokerOwner != nil {
@@ -61,6 +62,7 @@ func wireTaskHandoffs(srv *server.Server, deps integrationDeps) (stop func()) {
 		}()
 	}
 	return func() {
+		stopReviews()
 		stopLoop()
 		cancel()
 	}

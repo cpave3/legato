@@ -66,6 +66,11 @@ type HandoffWorkerOptions struct {
 	// branches and open draft pull requests without asking (the credential
 	// broker); nil grants nothing, and the session asks as any other.
 	Grants HandoffGrants
+	// Reviews holds a reviewed handoff in progress until its review is
+	// clean (ReviewPassService); nil lets Done mean done.
+	Reviews interface {
+		DoneAllowed(ctx context.Context, h *store.Handoff) bool
+	}
 	// Stacks reads the Staccato stacks of the cards' clones, whose
 	// document step 1 of a return gives back (the task stack service); nil
 	// gives none back.
@@ -422,6 +427,14 @@ func (s *HandoffWorkerService) start(ctx context.Context, mainInstanceID, handof
 	s.grant(ctx, h)
 }
 
+// SetReviews holds a reviewed handoff in progress until its review is
+// clean.
+func (s *HandoffWorkerService) SetReviews(reviews interface {
+	DoneAllowed(ctx context.Context, h *store.Handoff) bool
+}) {
+	s.opts.Reviews = reviews
+}
+
 // pushedBranch checks the branch a handoff starts from is on GitHub, after
 // fetching the worker's copy of the repository, and is not its default
 // branch, which an agent never works on. It returns the default branch, or
@@ -535,7 +548,7 @@ func (s *HandoffWorkerService) Reconcile(ctx context.Context) error {
 			continue
 		}
 		want := store.HandoffInProgress
-		if strings.EqualFold(task.Status, "Done") {
+		if strings.EqualFold(task.Status, "Done") && (s.opts.Reviews == nil || s.opts.Reviews.DoneAllowed(ctx, &h)) {
 			want = store.HandoffDone
 		}
 		if want == h.State {
