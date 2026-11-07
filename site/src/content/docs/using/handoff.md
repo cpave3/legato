@@ -17,11 +17,11 @@ Before you can hand anything off, pair a worker with this Legato. See [Main and 
 
 1. On the web board, drag the task's card onto the **Away** lane, or onto its folded rail. You can also open the task's menu (choose `⋯` on its card, or right-click the card) and choose **Hand off…**, or select the card and choose **Hand off…** in the panel beside the board.
 2. The **Hand off** form opens for that task. Dropping a card only opens the form: nothing is handed off until you send it.
-3. Fill in the form:
+3. Fill in the form (on a phone the options stack, and the form scrolls above the buttons):
    - **Worker**: the worker that takes the task. A worker without Legato's [sandbox](/legato/security/sandbox/) is listed but cannot be chosen: it refuses every handoff.
    - **Purpose**: **Make a change** (the agent pushes its branches and opens draft pull requests) or **Find out** (the agent answers in the task's notes and pushes nothing).
    - **Start from**: **A new branch**, named `legato/<task ID>`, or **A pushed branch**: work you began and pushed to GitHub. For a pushed branch, type its name in **Branch**. See [Start from a pushed branch](#start-from-a-pushed-branch).
-   - **Repository**: one of the repositories in Settings › Agents that has a GitHub name. With none, type its `owner/name`.
+   - **Repository**: one of the repositories in Settings › Agents that has a GitHub name. With none, type its `owner/name`. Nothing is chosen for you: **Hand off** stays unavailable until you pick one, so a task never goes to the wrong repository because you forgot to change a default.
    - **Agent tool**: the tool the worker starts. This Legato's default comes first.
 4. Choose **Hand off**.
 
