@@ -41,6 +41,13 @@ type reviewGitHub struct {
 	acceptThenStall time.Duration
 	resolveError    string
 	posts           int
+	// lists are the comment lists' pages, by path; listHits counts the
+	// requests and notModified the 304s; limitLists answers lists 403.
+	lists       map[string][]string
+	listHits    int
+	notModified int
+	limitLists  bool
+	threadReads int
 }
 
 const reviewPatch = "@@ -1,3 +1,4 @@\n package main\n-import \"fmt\"\n+import \"os\"\n+\n func main() {\n@@ -20,2 +21,3 @@ func helper() {\n \treturn\n+\t// done\n }"
@@ -70,6 +77,30 @@ func newReviewGitHub(t *testing.T) *reviewGitHub {
 			w.WriteHeader(401)
 		case r.Method == "GET" && r.URL.Path == "/repos/cpave3/legato/pulls/12/files":
 			_ = json.NewEncoder(w).Encode([]map[string]any{{"filename": "main.go", "patch": reviewPatch}, {"filename": "big.bin"}})
+		case r.Method == "GET" && g.lists != nil && g.lists[r.URL.Path] != nil:
+			g.listHits++
+			if g.limitLists {
+				w.Header().Set("x-ratelimit-remaining", "0")
+				w.Header().Set("x-ratelimit-reset", fmt.Sprint(time.Now().Add(time.Hour).Unix()))
+				w.WriteHeader(403)
+				_, _ = io.WriteString(w, `{"message":"API rate limit exceeded"}`)
+				break
+			}
+			pages := g.lists[r.URL.Path]
+			page := 1
+			fmt.Sscan(r.URL.Query().Get("page"), &page)
+			body := "[]"
+			if page <= len(pages) {
+				body = pages[page-1]
+			}
+			etag := fmt.Sprintf(`"%x"`, len(body)*31+page)
+			if r.Header.Get("If-None-Match") == etag {
+				g.notModified++
+				w.WriteHeader(304)
+				break
+			}
+			w.Header().Set("ETag", etag)
+			_, _ = io.WriteString(w, body)
 		case r.Method == "GET" && r.URL.Path == "/repos/cpave3/legato/pulls/12/reviews":
 			out := []map[string]any{}
 			for i, review := range g.reviews {
@@ -126,6 +157,11 @@ func newReviewGitHub(t *testing.T) *reviewGitHub {
 				}
 				g.resolved = append(g.resolved, fmt.Sprint(body.Variables["id"]))
 				_, _ = io.WriteString(w, `{"data":{"resolveReviewThread":{"thread":{"isResolved":true}}}}`)
+			case strings.Contains(body.Query, "isOutdated"):
+				g.threadReads++
+				_, _ = io.WriteString(w, `{"data":{"repository":{"pullRequest":{"reviewThreads":{"pageInfo":{"hasNextPage":false},"nodes":[
+					{"isResolved":true,"isOutdated":false,"comments":{"nodes":[{"fullDatabaseId":"501"}]}},
+					{"isResolved":false,"isOutdated":true,"comments":{"nodes":[{"fullDatabaseId":"502"}]}}]}}}}}`)
 			default:
 				_, _ = io.WriteString(w, `{"data":{"repository":{"pullRequest":{"reviewThreads":{"pageInfo":{"hasNextPage":false},"nodes":[
 					{"id":"T_other","comments":{"nodes":[{"fullDatabaseId":"400"}]}},
@@ -379,5 +415,63 @@ func TestNoAgentCanUseTheReviewerCredential(t *testing.T) {
 		if g.Credential == "reviewer-app" {
 			t.Fatalf("a grant names the reviewer credential: %+v (granted %d)", g, granted)
 		}
+	}
+}
+
+// memoryPollPages keeps polled pages in memory.
+type memoryPollPages map[string][2]string
+
+func (m memoryPollPages) PollPage(_ context.Context, list string, page int) (string, string, bool) {
+	v, ok := m[fmt.Sprint(list, page)]
+	return v[0], v[1], ok
+}
+
+func (m memoryPollPages) SavePollPage(_ context.Context, list string, page int, etag, body string) error {
+	m[fmt.Sprint(list, page)] = [2]string{etag, body}
+	return nil
+}
+
+func TestCommentsArePolledPageByPageWithETagsAndThreadsOnlyOnAChange(t *testing.T) {
+	f := newPublisherFixture(t)
+	var full []string
+	for i := 0; i < 100; i++ {
+		full = append(full, fmt.Sprintf(`{"id":%d,"user":{"login":"amy","type":"User"},"author_association":"MEMBER","body":"c%d","html_url":"u"}`, 1000+i, i))
+	}
+	f.github.lists = map[string][]string{
+		"/repos/cpave3/legato/pulls/12/reviews":  {`[{"id":1,"user":{"login":"bob","type":"User"},"author_association":"OWNER","body":"Please split this.","state":"COMMENTED","html_url":"r1"}]`},
+		"/repos/cpave3/legato/pulls/12/comments": {`[{"id":501,"user":{"login":"cubic-dev-ai[bot]","type":"Bot"},"author_association":"NONE","body":"Nil check.","path":"a.go","line":4,"html_url":"c501"},{"id":502,"user":{"login":"amy","type":"User"},"author_association":"MEMBER","body":"Old line.","path":"a.go","line":null,"original_line":9,"html_url":"c502"},{"id":503,"in_reply_to_id":502,"user":{"login":"amy","type":"User"},"author_association":"MEMBER","body":"Still?","path":"a.go","html_url":"c503"}]`},
+		"/repos/cpave3/legato/issues/12/comments": {"[" + strings.Join(full, ",") + "]", `[{"id":2000,"user":{"login":"stranger","type":"User"},"author_association":"NONE","body":"+1","html_url":"i2000"}]`},
+	}
+	pages := memoryPollPages{}
+	ctx := context.Background()
+
+	poll, err := f.publisher.PollComments(ctx, "cpave3/legato", 12, pages)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !poll.Changed || len(poll.Comments) != 1+3+101 || f.github.threadReads != 1 {
+		t.Fatalf("first poll: changed %v, %d comments, %d thread reads", poll.Changed, len(poll.Comments), f.github.threadReads)
+	}
+	byID := map[int64]PRComment{}
+	for _, c := range poll.Comments {
+		byID[c.ID] = c
+	}
+	if !byID[501].Resolved || !byID[502].Outdated || byID[503].ThreadRoot != 502 || byID[1].Kind != "review" || byID[2000].Kind != "issue" || byID[501].Line != 4 {
+		t.Fatalf("comments %+v", byID)
+	}
+
+	// Nothing changed: every page is a 304, and threads are not read.
+	before := f.github.notModified
+	poll, err = f.publisher.PollComments(ctx, "cpave3/legato", 12, pages)
+	if err != nil || poll.Changed || len(poll.Comments) != 105 || f.github.notModified-before != 4 || f.github.threadReads != 1 {
+		t.Fatalf("second poll: changed %v, %d comments, 304s %d, thread reads %d, %v", poll.Changed, len(poll.Comments), f.github.notModified-before, f.github.threadReads, err)
+	}
+
+	// Rate limited: reported, never taken for "unchanged".
+	f.github.limitLists = true
+	_, err = f.publisher.PollComments(ctx, "cpave3/legato", 12, pages)
+	var gh *GitHubError
+	if !errors.As(err, &gh) || !gh.RateLimited {
+		t.Fatalf("rate limited poll: %v", err)
 	}
 }

@@ -109,7 +109,7 @@ func (s *ReviewPassService) ReviewBlock(ctx context.Context, taskID string) *Han
 			}
 		}
 	}
-	block.SkippedComments = s.skippedComments(ctx, taskID)
+	block.SkippedComments = loop.SkippedComments
 	for pass := loop.Pass; pass >= 1 && len(block.Links) == 0; pass-- {
 		prs, _ := s.db.ListHandoffReviewPRs(ctx, taskID, pass)
 		for _, pr := range prs {
@@ -120,10 +120,6 @@ func (s *ReviewPassService) ReviewBlock(ctx context.Context, taskID string) *Han
 	}
 	return block
 }
-
-// skippedComments counts the comments on the handoff's pull requests that
-// do not count as feedback (LEG-72 fills it in).
-func (s *ReviewPassService) skippedComments(context.Context, string) int { return 0 }
 
 // StopReview stops a card's reviewer: the handoff is closed (Drop, Leave,
 // unpair) and its loop ends with it, posting nothing more.

@@ -65,7 +65,10 @@ func currentItems(ctx context.Context, db *store.Store, loop *store.HandoffRevie
 	}
 	items := []store.HandoffReviewItem{}
 	for _, item := range all {
-		if !item.Closed && item.Pass == loop.Pass {
+		// A comment or check stays until it is answered, from round to
+		// round; a finding belongs to its pass's round.
+		carried := (item.Kind == ItemComment || item.Kind == ItemCheck) && item.Answer == ""
+		if !item.Closed && (item.Pass == loop.Pass || carried) {
 			items = append(items, item)
 		}
 	}
@@ -87,7 +90,12 @@ func AnswerReviewItem(ctx context.Context, db *store.Store, taskID, id, answer, 
 	if err != nil {
 		return fmt.Errorf("no feedback item %s on %s", id, taskID)
 	}
-	if item.Closed || item.Pass != loop.Pass {
+	open, _ := currentItems(ctx, db, loop)
+	found := false
+	for _, o := range open {
+		found = found || o.ID == id
+	}
+	if !found {
 		return fmt.Errorf("%s is not open in this round", id)
 	}
 	if item.Posted && item.Answer != "" {
@@ -115,7 +123,7 @@ func AnswerReviewItem(ctx context.Context, db *store.Store, taskID, id, answer, 
 // failing check) is unanswered. Its error is a tagged line for the author.
 func RefuseUnansweredReview(ctx context.Context, db *store.Store, taskID string) error {
 	loop, err := db.GetHandoffReview(ctx, taskID)
-	if err != nil || loop == nil || loop.Phase != ReviewPhaseWaitingForAuthor {
+	if err != nil || loop == nil || (loop.Phase != ReviewPhaseWaitingForAuthor && loop.Phase != ReviewPhaseAuthor) {
 		return nil
 	}
 	items, err := currentItems(ctx, db, loop)
@@ -243,6 +251,11 @@ func (s *ReviewPassService) deliver(ctx context.Context, h *store.Handoff, loop 
 	if err := s.opts.Agents.QueueMessage(ctx, h.TaskID, message); err != nil {
 		return s.stuck(ctx, h, loop, "the author could not be told of its feedback: "+err.Error())
 	}
+	var ids []string
+	for _, item := range items {
+		ids = append(ids, item.ID)
+	}
+	_ = s.db.MarkHandoffReviewItemsDelivered(ctx, h.TaskID, ids)
 	loop.DeliveredPass = loop.Pass
 	return s.save(ctx, loop)
 }
