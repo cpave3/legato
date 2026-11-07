@@ -61,7 +61,11 @@ To switch agents from the keyboard, hold the switch key and press `1` to `9`. Th
 
 ### Terminal mode
 
-The terminal on the Agents page is a read-only mirror, with a message box under it. For things the agent's tool only offers in its terminal, such as changing the model, press **Terminal mode** above the terminal. It becomes a real terminal on the agent's tmux session: type straight into it (menus, arrow keys, Ctrl keys), scroll with the wheel or a drag to read tmux's own history, and it resizes with the window. On a computer the message box is hidden in terminal mode, and the agent's menu stays in the header; a phone keeps the box for now. **Exit terminal mode** goes back to the mirror. Your choice is remembered in this browser.
+An agent that runs in tmux opens on the Agents page as a real terminal on its tmux session, set in a frame. Type straight into it (menus, arrow keys, Ctrl keys), scroll with the wheel or a drag to read tmux's own history; it resizes with the window. The strip along the top of the frame names the session. If the connection drops, it says **Reconnecting** and when it will try again, and **Retry now** tries at once. **Refresh terminal** in the agent's menu reconnects it too. Agents with a native panel keep their panel.
+
+On a computer there is no message box: the terminal is where you type, and the agent's menu is in the header. A phone keeps the message box, with a row of the keys its keyboard lacks: **Esc**, **⇧Tab**, **↑** and **↓**, and **Ctrl**, which sends the next character you type, in the box or the terminal, with Ctrl. When the agent asks something, such as a yes-or-no menu, its answers appear as buttons above the box.
+
+The terminal's colours are set in **Settings › Appearance › Terminal theme**, for this browser: **Legato** (the default, Legato's own colours), **Night** (the same on black), **Solarized Dark** or **Classic**.
 
 While a terminal is open in the web UI, the session has mouse mode on and no tmux status line, which a desktop `tmux attach` sees too. Hold Shift to select text with the mouse there.
 
@@ -126,7 +130,7 @@ Requests from agents that wait for you (permissions, questions, credentials) app
 - **Integrations**: [Argus](/legato/integrations/argus/) and integration tokens.
 - **Handoff**: **Workers**, the Legatos this one hands tasks to, with **Add a worker** (with none paired yet, it explains handing off); and **Main instances**, the Legatos that hand tasks to this one, with **Pair a main instance** and **Unpair**. See [Main and worker instances](/legato/running/instances/) and [Hand off tasks to a worker](/legato/using/handoff/).
 - **Connection**: servers, **Pair a phone**, and the TLS certificate.
-- **Appearance**: the tint, the glitch effect, and the moving light round a working agent.
+- **Appearance**: the tint, the terminal theme, the glitch effect, and the moving light round a working agent.
 - **Updates**: this server's version, the latest release, and the update mode. See [Updates](/legato/running/updates/).
 
 A setting kept in this browser only is marked `this browser`.

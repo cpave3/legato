@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react"
-import { ShieldCheck, Download, Zap, ScanSearch, Keyboard, QrCode, Server, Trash2, Plus, RefreshCw, Smartphone, Sparkles, FolderGit2, Palette } from "lucide-react"
+import { ShieldCheck, Download, Zap, ScanSearch, Keyboard, QrCode, Server, Trash2, Plus, RefreshCw, Smartphone, Sparkles, FolderGit2, Palette, SquareTerminal } from "lucide-react"
 import { TintPicker } from "../components/TintPicker"
+import { TerminalThemePicker } from "../components/settings/TerminalThemePicker"
 import { setToken } from "../lib/auth"
 import { useServer } from "../hooks/useServer"
 import { useServerVersion } from "../hooks/useServerTint"
@@ -343,6 +344,13 @@ export function SettingsPage() {
                 title="Tint"
                 description="A colour for this server, along the top of the window and down the rail, so you can tell at a glance which Legato you are on. Every browser and phone that uses this server shows it."
                 control={<TintPicker tint={settings.data?.tint} onChanged={() => void settings.refetch()} />}
+              />
+              <SettingsRow
+                icon={SquareTerminal}
+                title="Terminal theme"
+                description="The colours of agents' terminals. The frame around them stays Legato's."
+                browser
+                control={<TerminalThemePicker />}
               />
               <SettingsRow
                 icon={Zap}

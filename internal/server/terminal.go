@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"nhooyr.io/websocket"
 )
@@ -65,13 +66,25 @@ func (s *Server) terminalHandler() http.HandlerFunc {
 		defer cancel()
 
 		// terminal -> browser. Writes block while the browser is slow, which
-		// stops reading the pty and so applies backpressure to tmux.
+		// stops reading the pty and so applies backpressure to tmux. Once the
+		// output settles the screen is read for a prompt, as the mirror's
+		// stream does, since terminal mode has no mirror.
 		go func() {
 			defer cancel()
+			var detect *time.Timer
+			defer func() {
+				if detect != nil {
+					detect.Stop()
+				}
+			}()
 			buf := make([]byte, 32*1024)
 			for {
 				n, err := term.Read(buf)
 				if n > 0 {
+					if detect != nil {
+						detect.Stop()
+					}
+					detect = time.AfterFunc(promptDetectDelay, func() { s.announcePrompt(id) })
 					if werr := conn.Write(ctx, websocket.MessageBinary, buf[:n]); werr != nil {
 						return
 					}
@@ -110,4 +123,18 @@ func (s *Server) terminalHandler() http.HandlerFunc {
 			}
 		}
 	}
+}
+
+// announcePrompt reads an agent's screen for a prompt and tells every
+// browser what it found, so the message box can offer its answers.
+func (s *Server) announcePrompt(agentID string) {
+	if s.tmux == nil {
+		return
+	}
+	output, err := s.tmux.Capture("legato-" + agentID)
+	if err != nil {
+		return
+	}
+	state := s.streams.detectPromptState(agentID, output).State
+	s.hub.Broadcast(WSMessage{Type: MsgPromptState, AgentID: agentID, Prompt: &state})
 }

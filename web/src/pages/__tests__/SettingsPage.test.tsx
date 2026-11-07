@@ -67,6 +67,19 @@ describe("SettingsPage hot reload build", () => {
     expect(localStorage.getItem("legato:animated-agent-activity")).toBe("false")
   })
 
+  it("stores the terminal theme in this browser", () => {
+    renderPage()
+
+    const themes = screen.getByRole("radiogroup", { name: "Terminal theme" })
+    expect(within(themes).getByRole("radio", { name: "Legato" }).getAttribute("aria-checked")).toBe("true")
+
+    fireEvent.click(within(themes).getByRole("radio", { name: "Night" }))
+
+    expect(within(themes).getByRole("radio", { name: "Night" }).getAttribute("aria-checked")).toBe("true")
+    expect(within(themes).getByRole("radio", { name: "Legato" }).getAttribute("aria-checked")).toBe("false")
+    expect(localStorage.getItem("legato:terminal-theme")).toBe("night")
+  })
+
   it("hides the rebuild action when the server is not running under hot reload", () => {
     renderPage()
     expect(screen.queryByRole("button", { name: /rebuild and hot reload/i })).toBeNull()

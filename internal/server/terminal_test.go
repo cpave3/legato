@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
 	"io"
 	"net/http/httptest"
@@ -154,5 +155,58 @@ func TestTerminalRefusals(t *testing.T) {
 	srv2.Handler().ServeHTTP(w, httptest.NewRequest("GET", "/api/agents/abc/terminal?cols=80&rows=24", nil))
 	if w.Code != 503 {
 		t.Errorf("no attacher: %d, want 503", w.Code)
+	}
+}
+
+// menuTmux is a tmux whose panes all show a menu waiting for an answer.
+type menuTmux struct{ mockTmuxManager }
+
+func (menuTmux) Capture(string) (string, error) {
+	return "Do you want to proceed?\n❯ 1. Yes\n  2. No", nil
+}
+
+// Terminal mode has no mirror stream, so prompt detection runs off the
+// terminal's own output: once it settles, every browser hears the prompt.
+func TestTerminalOutputAnnouncesPromptToEveryBrowser(t *testing.T) {
+	srv := New(nil, nil, &menuTmux{}, ":0")
+	ft := newFakeTerm(0, 0)
+	srv.SetTerminalAttacher(func(string, int, int) (TerminalSession, error) { return ft, nil })
+
+	ts := httptest.NewServer(srv.Handler())
+	t.Cleanup(ts.Close)
+	ctx, cancel := context.WithTimeout(context.Background(), 5*time.Second)
+	t.Cleanup(cancel)
+	browser, _, err := websocket.Dial(ctx, "ws"+strings.TrimPrefix(ts.URL, "http")+"/ws", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { browser.CloseNow() })
+	if _, _, err := browser.Read(ctx); err != nil { // the agent list sent on connect
+		t.Fatal(err)
+	}
+
+	term, _, err := websocket.Dial(ctx, "ws"+strings.TrimPrefix(ts.URL, "http")+"/api/agents/abc/terminal?cols=80&rows=24", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { term.CloseNow() })
+	ft.out <- []byte("Do you want to proceed?\r\n❯ 1. Yes\r\n  2. No")
+	if _, _, err := term.Read(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	for {
+		_, data, err := browser.Read(ctx)
+		if err != nil {
+			t.Fatalf("no prompt_state reached the browser: %v", err)
+		}
+		var msg WSMessage
+		if json.Unmarshal(data, &msg) != nil || msg.Type != MsgPromptState {
+			continue
+		}
+		if msg.AgentID != "abc" || msg.Prompt == nil || len(msg.Prompt.Actions) != 2 {
+			t.Fatalf("got %+v", msg)
+		}
+		return
 	}
 }

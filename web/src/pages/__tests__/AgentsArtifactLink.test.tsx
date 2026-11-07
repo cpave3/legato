@@ -41,6 +41,7 @@ vi.mock("../../hooks/useReviewBriefing", () => ({
 }))
 vi.mock("../../hooks/useToast", () => ({ useToast: () => ({ addToast: vi.fn() }) }))
 vi.mock("../../components/TerminalPanel", () => ({ TerminalPanel: () => <div>Terminal session</div> }))
+vi.mock("../../components/LiveTerminal", () => ({ LiveTerminal: () => <div>Terminal session</div> }))
 vi.mock("../../components/PromptBar", () => ({ PromptBar: () => null }))
 vi.mock("../../hooks/useTaskCard", () => ({ useTaskCard: () => null }))
 vi.mock("../../components/StartSwarmModal", () => ({ StartSwarmModal: () => null }))

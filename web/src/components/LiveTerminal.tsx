@@ -3,6 +3,8 @@ import { Terminal } from "@xterm/xterm"
 import { FitAddon } from "@xterm/addon-fit"
 import { useServer } from "../hooks/useServer"
 import { terminalUrl, touchWheel, wheelSequence } from "../lib/terminalSocket"
+import { terminalTheme } from "../lib/terminalTheme"
+import { cn } from "../lib/utils"
 import "@xterm/xterm/css/xterm.css"
 
 interface LiveTerminalProps {
@@ -19,15 +21,24 @@ export function LiveTerminal({ agentId }: LiveTerminalProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const { baseUrl } = useServer()
   const [status, setStatus] = useState<"connecting" | "open" | "closed">("connecting")
+  // The theme is read once: Settings is another page, so a terminal opened
+  // after a change takes it.
+  const [theme] = useState(() => terminalTheme().theme)
+  const [size, setSize] = useState({ cols: 0, rows: 0 })
+  const [focused, setFocused] = useState(false)
+  // When the next reconnect is due, while the connection is down.
+  const [retryAt, setRetryAt] = useState<number | null>(null)
+  const [now, setNow] = useState(() => Date.now())
+  const retryNow = useRef<() => void>(() => {})
 
   useEffect(() => {
     const container = containerRef.current
     if (!container) return
 
     const term = new Terminal({
-      theme: { background: "#0a0a0f", foreground: "#e4e4e7", cursor: "#e4e4e7", selectionBackground: "#3f3f46" },
+      theme,
       fontSize: 13,
-      fontFamily: "ui-monospace, 'Cascadia Code', 'Source Code Pro', Menlo, Consolas, monospace",
+      fontFamily: "'Geist Mono', ui-monospace, 'Cascadia Code', 'Source Code Pro', Menlo, Consolas, monospace",
       cursorBlink: true,
       scrollback: 0, // tmux keeps the history
       allowProposedApi: true,
@@ -44,12 +55,16 @@ export function LiveTerminal({ agentId }: LiveTerminalProps) {
     let retry: ReturnType<typeof setTimeout> | null = null
 
     const sendResize = () => {
+      setSize({ cols: term.cols, rows: term.rows })
       if (ws?.readyState === WebSocket.OPEN) {
         ws.send(JSON.stringify({ type: "resize", cols: term.cols, rows: term.rows }))
       }
     }
 
     const connect = () => {
+      if (retry) clearTimeout(retry)
+      retry = null
+      setRetryAt(null)
       setStatus("connecting")
       const socket = new WebSocket(terminalUrl(baseUrl, agentId, term.cols, term.rows))
       socket.binaryType = "arraybuffer"
@@ -66,9 +81,12 @@ export function LiveTerminal({ agentId }: LiveTerminalProps) {
       socket.onclose = () => {
         if (disposed || ws !== socket) return
         setStatus("closed")
-        retry = setTimeout(connect, Math.min(1000 * 2 ** attempt++, 10000))
+        const wait = Math.min(1000 * 2 ** attempt++, 10000)
+        setRetryAt(Date.now() + wait)
+        retry = setTimeout(connect, wait)
       }
     }
+    retryNow.current = connect
     connect()
 
     const send = (bytes: Uint8Array) => {
@@ -115,16 +133,68 @@ export function LiveTerminal({ agentId }: LiveTerminalProps) {
       ws?.close()
       term.dispose()
     }
-  }, [agentId, baseUrl])
+  }, [agentId, baseUrl, theme])
+
+  // Counts down to the next reconnect.
+  useEffect(() => {
+    if (retryAt === null) return
+    setNow(Date.now())
+    const tick = setInterval(() => setNow(Date.now()), 1000)
+    return () => clearInterval(tick)
+  }, [retryAt])
+
+  const lost = status === "closed"
+  const retryIn = retryAt === null ? 0 : Math.max(1, Math.ceil((retryAt - now) / 1000))
 
   return (
-    <div className="absolute inset-0 bg-[#0a0a0f]">
-      <div ref={containerRef} className="absolute inset-0 overflow-hidden p-1" />
-      {status !== "open" && (
-        <div className="pointer-events-none absolute left-3 top-2 text-xs text-zinc-500">
-          {status === "connecting" ? "connecting…" : "disconnected, retrying…"}
+    <div className="absolute inset-0 flex bg-lw-ground p-4 max-sm:p-2">
+      <section
+        aria-label="Terminal"
+        onFocus={() => setFocused(true)}
+        onBlur={(event) => {
+          if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setFocused(false)
+        }}
+        style={{ background: theme.background }}
+        className={cn(
+          "relative flex min-w-0 flex-1 flex-col overflow-hidden rounded-[10px] border shadow-[inset_0_2px_10px_rgba(0,0,0,0.65)] transition-[border-color,box-shadow] max-sm:rounded-lg",
+          focused && !lost
+            ? "border-lw-accent-ring shadow-[0_0_0_3px_rgba(109,94,246,0.14),inset_0_2px_10px_rgba(0,0,0,0.65)]"
+            : "border-lw-line-strong",
+        )}
+      >
+        <div className="flex h-8 shrink-0 items-center justify-between gap-3 border-b border-lw-raised bg-[#0e0e12] px-3 font-lw-mono text-[11px] text-lw-faint max-sm:h-[30px]">
+          {lost ? (
+            <span className="flex items-center gap-1.5 uppercase tracking-wide text-lw-needs">
+              <span aria-hidden="true" className="size-1.5 rounded-full border-[1.5px] border-lw-needs" />
+              Reconnecting
+            </span>
+          ) : (
+            <span className="min-w-0 truncate">tmux · legato-{agentId}</span>
+          )}
+          <span className="shrink-0">
+            {lost ? `next try in ${retryIn}s` : focused || size.cols === 0 ? `${size.cols}×${size.rows}` : (
+              <><span className="max-sm:hidden">Click to type</span><span className="sm:hidden">Tap to type</span></>
+            )}
+          </span>
         </div>
-      )}
+        <div className={cn("min-h-0 flex-1 px-3.5 py-2.5 transition-opacity max-sm:px-2 max-sm:py-2", lost && "opacity-35")}>
+          <div ref={containerRef} className="h-full w-full overflow-hidden" />
+        </div>
+        {lost && (
+          <div className="absolute inset-x-0 bottom-0 top-8 flex items-center justify-center p-4">
+            <div className="flex flex-wrap items-center justify-center gap-2.5 rounded-lg border border-lw-line-strong bg-lw-surface px-3 py-2 text-center font-lw text-[13px] text-lw-text-2">
+              Lost the connection to tmux. The session keeps running.
+              <button
+                type="button"
+                onClick={() => retryNow.current()}
+                className="h-[26px] rounded-md border border-lw-line-strong bg-lw-raised px-2.5 text-xs text-lw-text hover:border-[#4a4955]"
+              >
+                Retry now
+              </button>
+            </div>
+          </div>
+        )}
+      </section>
     </div>
   )
 }

@@ -36,6 +36,7 @@ vi.mock("../../hooks/useReviewBriefing", () => ({
 }))
 vi.mock("../../hooks/useToast", () => ({ useToast: () => ({ addToast }) }))
 vi.mock("../../components/TerminalPanel", () => ({ TerminalPanel: () => <div>Terminal session</div> }))
+vi.mock("../../components/LiveTerminal", () => ({ LiveTerminal: () => <div>Terminal session</div> }))
 vi.mock("../../components/PromptBar", () => ({
   PromptBar: ({ onKill }: { onKill: () => void }) => <button onClick={onKill}>Dot menu kill</button>,
 }))
@@ -188,7 +189,9 @@ describe("AgentsPage sidebar context menu", () => {
 
     render(<MemoryRouter><AgentsPage /></MemoryRouter>)
     await screen.findByRole("button", { name: /TASK-1/ })
-    fireEvent.click(screen.getByRole("button", { name: "Dot menu kill" }))
+    // On a desktop the agent's terminal has no message box; its menu is the header's.
+    fireEvent.click(screen.getByRole("button", { name: "More actions" }))
+    fireEvent.click(screen.getByRole("menuitem", { name: "Kill agent" }))
 
     expect(screen.getByText("Cancel this swarm? This kills the conductor and all workers.")).toBeTruthy()
     fireEvent.click(screen.getByRole("button", { name: "Cancel swarm" }))

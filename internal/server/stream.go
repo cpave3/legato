@@ -415,7 +415,6 @@ func (sm *streamManager) readLoop(s *agentStream, reader io.Reader) {
 	buf := make([]byte, 32768) // 32KB — larger buffer reduces mid-sequence splits
 	var held []byte            // bytes held back from previous read (incomplete escape)
 	var detectTimer *time.Timer
-	const detectDelay = 500 * time.Millisecond
 
 	defer func() {
 		if detectTimer != nil {
@@ -471,7 +470,7 @@ func (sm *streamManager) readLoop(s *agentStream, reader io.Reader) {
 			if detectTimer != nil {
 				detectTimer.Stop()
 			}
-			detectTimer = time.AfterFunc(detectDelay, func() {
+			detectTimer = time.AfterFunc(promptDetectDelay, func() {
 				sm.detectAndBroadcastPrompt(s)
 			})
 		}
@@ -497,6 +496,10 @@ func (sm *streamManager) readLoop(s *agentStream, reader io.Reader) {
 		}
 	}
 }
+
+// promptDetectDelay is how long an agent's output must be quiet before its
+// screen is read for a prompt.
+const promptDetectDelay = 500 * time.Millisecond
 
 // detectAndBroadcastPrompt captures the pane and broadcasts prompt state to all clients.
 func (sm *streamManager) detectAndBroadcastPrompt(s *agentStream) {

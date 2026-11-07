@@ -3,6 +3,7 @@ import { ArrowDown } from "lucide-react"
 import { Terminal } from "@xterm/xterm"
 import { FitAddon } from "@xterm/addon-fit"
 import { useWebSocket, type WSMessage } from "../hooks/useWebSocket"
+import { terminalTheme } from "../lib/terminalTheme"
 import "@xterm/xterm/css/xterm.css"
 
 interface TerminalPanelProps {
@@ -27,14 +28,9 @@ export function TerminalPanel({ agentId, onGlitch, onClickTerminal }: TerminalPa
     if (!container) return
 
     const term = new Terminal({
-      theme: {
-        background: "#0a0a0f",
-        foreground: "#e4e4e7",
-        cursor: "#e4e4e7",
-        selectionBackground: "#3f3f46",
-      },
+      theme: terminalTheme().theme,
       fontSize: 13,
-      fontFamily: "ui-monospace, 'Cascadia Code', 'Source Code Pro', Menlo, Consolas, monospace",
+      fontFamily: "'Geist Mono', ui-monospace, 'Cascadia Code', 'Source Code Pro', Menlo, Consolas, monospace",
       cursorBlink: false,
       disableStdin: true,
       scrollback: 10000,
@@ -171,7 +167,7 @@ export function TerminalPanel({ agentId, onGlitch, onClickTerminal }: TerminalPa
   }
 
   return (
-    <div className="absolute inset-0 bg-[#0a0a0f]">
+    <div className="absolute inset-0" style={{ background: terminalTheme().theme.background }}>
       <div
         ref={containerRef}
         onClick={onClickTerminal}

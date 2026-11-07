@@ -33,6 +33,7 @@ vi.mock("../../hooks/useReviewBriefing", () => ({
 }))
 vi.mock("../../hooks/useToast", () => ({ useToast: () => ({ addToast: vi.fn() }) }))
 vi.mock("../../components/TerminalPanel", () => ({ TerminalPanel: () => <div>Terminal session</div> }))
+vi.mock("../../components/LiveTerminal", () => ({ LiveTerminal: () => <div>Terminal session</div> }))
 vi.mock("../../components/NativeAgentPanel", () => ({
   NativeAgentPanel: ({ onDowngradeChimera }: { onDowngradeChimera?: () => Promise<void> }) => (
     <div>
@@ -100,7 +101,6 @@ it("manually downgrades a native panel and replaces it with the terminal", async
 
   expect(await screen.findByText("Terminal session")).not.toBeNull()
   expect(screen.queryByText("Native Chimera session")).toBeNull()
-  expect(screen.getByPlaceholderText("Type a message...")).not.toBeNull()
   expect(mockFetch).toHaveBeenCalledWith(
     "/api/agents/TASK-42/chimera/downgrade",
     expect.objectContaining({ method: "POST" }),

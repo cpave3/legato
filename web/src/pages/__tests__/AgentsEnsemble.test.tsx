@@ -42,6 +42,10 @@ vi.mock("../../hooks/useToast", () => ({ useToast: () => ({ addToast: vi.fn() })
 vi.mock("../../components/TerminalPanel", () => ({
   TerminalPanel: ({ agentId }: { agentId: string }) => <div>Terminal of {agentId}</div>,
 }))
+// The terminal is typed into through xterm's own text box, named as xterm names it.
+vi.mock("../../components/LiveTerminal", () => ({
+  LiveTerminal: ({ agentId }: { agentId: string }) => <div>Terminal of {agentId}<textarea aria-label="Terminal input" /></div>,
+}))
 vi.mock("../../components/PromptBar", () => ({ PromptBar: () => <textarea aria-label="Message" /> }))
 vi.mock("../../hooks/useTaskCard", () => ({
   useTaskCard: (id: string | null) => id ? {
@@ -166,11 +170,11 @@ it("changes between the list and the ensemble with e", async () => {
   await waitFor(() => expect(address()).toBe("/agents"))
 })
 
-it("leaves e to the message box and to an open dialog", async () => {
+it("leaves e to the terminal and to an open dialog", async () => {
   open("/agents")
   await screen.findByText("Terminal of TASK-1")
 
-  fireEvent.keyDown(screen.getByLabelText("Message"), { key: "e" })
+  fireEvent.keyDown(screen.getByLabelText("Terminal input"), { key: "e" })
   fireEvent.keyDown(window, { key: "e", ctrlKey: true })
   expect(address()).toBe("/agents")
 

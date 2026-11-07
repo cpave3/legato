@@ -7,6 +7,7 @@ import { AgentSidebar } from "../components/AgentSidebar"
 import { AgentContextMenu } from "../components/AgentContextMenu"
 import { TerminalPanel } from "../components/TerminalPanel"
 import { LiveTerminal } from "../components/LiveTerminal"
+import { TerminalKeys } from "../components/TerminalKeys"
 import { NativeAgentPanel } from "../components/NativeAgentPanel"
 import { RelatedWorkPanel } from "../components/RelatedWorkPanel"
 import { PromptBar, type PromptBarHandle } from "../components/PromptBar"
@@ -108,16 +109,9 @@ export function AgentsPage() {
   }, [searchParams, setSearchParams])
   const [promptState, setPromptState] = useState<PromptState | null>(null)
   const [glitching, setGlitching] = useState(false)
-  // Terminal mode: a real tmux client in the browser instead of the read-only mirror.
-  const [liveTerminal, setLiveTerminal] = useState(() => {
-    try { return localStorage.getItem("legato:liveTerminal") === "1" } catch { return false }
-  })
-  const toggleLiveTerminal = useCallback(() => {
-    setLiveTerminal((on) => {
-      try { localStorage.setItem("legato:liveTerminal", on ? "0" : "1") } catch { /* private window */ }
-      return !on
-    })
-  }, [])
+  // Counts the terminal's reconnects: a new one attaches a new tmux client,
+  // which redraws the whole screen.
+  const [terminalAttach, setTerminalAttach] = useState(0)
   const glitchTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const promptBarRef = useRef<PromptBarHandle>(null)
   const [showStartSwarm, setShowStartSwarm] = useState(false)
@@ -290,6 +284,7 @@ export function AgentsPage() {
   const handleRefresh = useCallback(() => {
     if (selectedId) {
       send({ type: "refresh_pane", agent_id: selectedId })
+      setTerminalAttach((n) => n + 1)
     }
   }, [selectedId, send])
 
@@ -819,29 +814,17 @@ export function AgentsPage() {
                   stateTime={selectedAgent ? formatAgentTime(stateSeconds(selectedAgent)) : undefined}
                 />
               ) : (
-                <>
-                  {liveTerminal ? (
-                    <LiveTerminal key={selectedId} agentId={selectedId} />
-                  ) : (
-                    <TerminalPanel agentId={selectedId} onGlitch={triggerGlitch} onClickTerminal={() => promptBarRef.current?.focus()} />
-                  )}
-                  <button
-                    onClick={toggleLiveTerminal}
-                    className="absolute right-3 top-2 z-10 rounded border border-zinc-700 bg-zinc-900/80 px-2 py-0.5 text-xs text-zinc-400 hover:text-zinc-200"
-                    title="Terminal mode: type straight into the session (menus, /model, Ctrl keys) and scroll tmux's own history"
-                  >
-                    {liveTerminal ? "Exit terminal mode" : "Terminal mode"}
-                  </button>
-                </>
+                <LiveTerminal key={`${selectedId}:${terminalAttach}`} agentId={selectedId} />
               )}
               {glitching && !selectedAgent?.has_chimera_endpoint && (
                 <div className="terminal-glitch-overlay" aria-hidden="true" />
               )}
             </div>
-            {/* In terminal mode on a desktop the terminal is the one place to type;
-                the menu is in the header. A phone keeps the box (no Esc/Ctrl/arrows
-                on its keyboard), and a swarm keeps it because it holds the menu there. */}
-            {!selectedAgent?.has_chimera_endpoint && !(liveTerminal && !isMobile && !swarmMode) && (
+            {/* On a desktop the terminal is the one place to type; the menu is in
+                the header. A phone keeps the box, with the keys its keyboard lacks,
+                and a swarm keeps it because it holds the menu there. */}
+            {!selectedAgent?.has_chimera_endpoint && isMobile && <TerminalKeys onSendKeys={handleSendKeys} />}
+            {!selectedAgent?.has_chimera_endpoint && (isMobile || swarmMode) && (
               <PromptBar
                 ref={promptBarRef}
                 promptState={isPromptDetectionEnabled ? promptState : null}

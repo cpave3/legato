@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react"
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { afterEach, beforeEach, expect, it, vi } from "vitest"
 import { MemoryRouter } from "react-router-dom"
 import { AgentSelectionProvider } from "../../hooks/useAgentSelection"
@@ -8,12 +8,12 @@ import { AgentsPage } from "../Agents"
 vi.mock("../../components/PreparingAgents", () => ({ PreparingAgents: () => null }))
 
 
-const { mockFetch } = vi.hoisted(() => ({ mockFetch: vi.fn() }))
+const { mockFetch, mockSend, liveMounts } = vi.hoisted(() => ({ mockFetch: vi.fn(), mockSend: vi.fn(), liveMounts: { count: 0 } }))
 
 vi.stubGlobal("fetch", mockFetch)
 vi.mock("../../hooks/useWebSocket", () => ({
   useWebSocket: () => ({
-    send: vi.fn(),
+    send: mockSend,
     subscribe: vi.fn(() => vi.fn()),
     connected: true,
     connectionGeneration: 1,
@@ -55,7 +55,15 @@ vi.mock("../../components/AgentSelect", () => ({
 // The terminal draws on a canvas, which jsdom lacks; it shows only before the
 // agents load here.
 vi.mock("../../components/TerminalPanel", () => ({ TerminalPanel: () => <div data-testid="mirror" /> }))
-vi.mock("../../components/LiveTerminal", () => ({ LiveTerminal: () => <div data-testid="live" /> }))
+vi.mock("../../components/LiveTerminal", async () => {
+  const { useEffect } = await import("react")
+  return {
+    LiveTerminal: () => {
+      useEffect(() => { liveMounts.count++ }, [])
+      return <div data-testid="live" />
+    },
+  }
+})
 vi.mock("../../components/PromptBar", () => ({ PromptBar: () => <textarea aria-label="Message" /> }))
 vi.mock("../../hooks/useTaskCard", () => ({ useTaskCard: () => null }))
 vi.mock("../../components/StartSwarmModal", () => ({ StartSwarmModal: () => null }))
@@ -100,24 +108,55 @@ beforeEach(() => {
 })
 afterEach(cleanup)
 
-it("hides the message box in terminal mode on desktop and brings it back on exit", async () => {
+it("opens a tmux agent in terminal mode, with no message box on a desktop", async () => {
   mount(1024)
   fireEvent.click(await screen.findByRole("button", { name: "Agent A" }))
-  expect(await screen.findByLabelText("Message")).not.toBeNull()
-  expect(screen.getByTestId("mirror")).not.toBeNull()
-
-  fireEvent.click(screen.getByRole("button", { name: "Terminal mode" }))
   await waitFor(() => expect(screen.getByTestId("live")).not.toBeNull())
+  expect(screen.queryByTestId("mirror")).toBeNull()
+  expect(screen.queryByRole("button", { name: /terminal mode/i })).toBeNull()
   expect(screen.queryByLabelText("Message")).toBeNull()
-
-  fireEvent.click(screen.getByRole("button", { name: "Exit terminal mode" }))
-  expect(await screen.findByLabelText("Message")).not.toBeNull()
+  expect(screen.queryByRole("button", { name: "Escape" })).toBeNull()
 })
 
-it("keeps the message box in terminal mode on a phone", async () => {
-  localStorage.setItem("legato:liveTerminal", "1")
+it("keeps the message box on a phone, with keys the phone's keyboard lacks", async () => {
   mount(400)
   fireEvent.click(await screen.findByRole("button", { name: "Agent A" }))
   await waitFor(() => expect(screen.getByTestId("live")).not.toBeNull())
   expect(screen.getByLabelText("Message")).not.toBeNull()
+
+  for (const [label, keys] of [["Escape", "Escape"], ["Shift+Tab", "BTab"], ["Up", "Up"], ["Down", "Down"]]) {
+    mockSend.mockClear()
+    fireEvent.click(screen.getByRole("button", { name: label }))
+    expect(mockSend).toHaveBeenCalledWith({ type: "send_keys", agent_id: "agent-a", keys })
+  }
+})
+
+it("sends Ctrl with the next character typed after Ctrl is pressed", async () => {
+  mount(400)
+  fireEvent.click(await screen.findByRole("button", { name: "Agent A" }))
+  const ctrl = await screen.findByRole("button", { name: "Ctrl" })
+  fireEvent.click(ctrl)
+  expect(ctrl.getAttribute("aria-pressed")).toBe("true")
+
+  mockSend.mockClear()
+  const typed = new InputEvent("beforeinput", { data: "C", inputType: "insertText", bubbles: true, cancelable: true })
+  act(() => { screen.getByLabelText("Message").dispatchEvent(typed) })
+  expect(typed.defaultPrevented).toBe(true)
+  expect(mockSend).toHaveBeenCalledWith({ type: "send_keys", agent_id: "agent-a", keys: "C-c" })
+  expect(ctrl.getAttribute("aria-pressed")).toBe("false")
+
+  // Disarmed: the next character is typed as usual.
+  const next = new InputEvent("beforeinput", { data: "x", inputType: "insertText", bubbles: true, cancelable: true })
+  act(() => { screen.getByLabelText("Message").dispatchEvent(next) })
+  expect(next.defaultPrevented).toBe(false)
+})
+
+it("reconnects the terminal when it is refreshed from the menu", async () => {
+  mount(1024)
+  fireEvent.click(await screen.findByRole("button", { name: "Agent A" }))
+  await waitFor(() => expect(screen.getByTestId("live")).not.toBeNull())
+  const before = liveMounts.count
+  fireEvent.click(screen.getByRole("button", { name: "More actions" }))
+  fireEvent.click(screen.getByRole("menuitem", { name: "Refresh terminal" }))
+  await waitFor(() => expect(liveMounts.count).toBe(before + 1))
 })
