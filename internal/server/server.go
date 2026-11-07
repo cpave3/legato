@@ -32,6 +32,7 @@ type Server struct {
 	prTracking               service.PRTrackingService
 	providerSync             service.ProviderSyncService
 	tmux                     service.TmuxManager
+	terminal                 TerminalAttacher
 	bus                      *events.Bus
 	updates                  UpdateService
 	addr                     string
@@ -148,6 +149,7 @@ func NewWithSwarm(board service.BoardService, agents service.AgentService, tmux 
 	mux.HandleFunc("/api/agents/spawn", s.spawnAgentHandler())
 	mux.HandleFunc("/api/agents/kill", s.killAgentHandler())
 	mux.HandleFunc("/api/agents/{task_id}/notify", s.agentNotifyHandler())
+	mux.HandleFunc("/api/agents/{task_id}/terminal", s.terminalHandler())
 	mux.HandleFunc("/api/tasks", s.tasksHandler())
 	mux.HandleFunc("/api/tasks/search", s.searchTasksHandler())
 	mux.HandleFunc("/api/tasks/{id}/archive", s.archiveTaskHandler())
@@ -478,7 +480,7 @@ func (s *Server) authMiddleware(next http.Handler) http.Handler {
 		}
 
 		// WebSocket: token in query param.
-		if r.URL.Path == "/ws" {
+		if r.URL.Path == "/ws" || isTerminalPath(r.URL.Path) {
 			token := r.URL.Query().Get("token")
 			if subtle.ConstantTimeCompare([]byte(token), []byte(s.authToken)) == 1 {
 				next.ServeHTTP(w, r)
@@ -865,4 +867,10 @@ func (s *Server) StartBoardEvents() {
 func (s *Server) Stop(ctx context.Context) error {
 	s.agentContexts.Stop()
 	return s.server.Shutdown(ctx)
+}
+
+// isTerminalPath reports whether path is an agent's terminal WebSocket,
+// which carries its token in the query like /ws.
+func isTerminalPath(path string) bool {
+	return strings.HasPrefix(path, "/api/agents/") && strings.HasSuffix(path, "/terminal")
 }
