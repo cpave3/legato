@@ -51,6 +51,9 @@ type MCPOptions struct {
 	// CaseReplies sends replies to an integration's delegations. Without it
 	// reply_case is not offered.
 	CaseReplies MCPCaseReplies
+	// Reviews takes a reviewer's result. submit_review is offered only with
+	// it, and only to a session in a task's reviewer slot.
+	Reviews MCPReviews
 }
 
 // LibrettoProbe asks the installed libretto what it can do.
@@ -138,7 +141,7 @@ func MCPToolNames() []string {
 	}
 	// request_access is offered only with credentials and reply_case only
 	// with an integration; they are named always.
-	for _, always := range []string{"request_access", "reply_case"} {
+	for _, always := range []string{"request_access", "reply_case", "submit_review"} {
 		if !listHasName(names, always) {
 			names = append(names, always)
 		}
@@ -187,6 +190,9 @@ func (m *mcpTools) all() []mcpserver.Tool {
 	}
 	if m.opts.CaseReplies != nil {
 		tools = append(tools, m.replyCase())
+	}
+	if m.reviewerSession() {
+		tools = append(tools, m.submitReview())
 	}
 	return tools
 }

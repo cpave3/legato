@@ -109,14 +109,14 @@ func TestASandboxedCredentialGetIsForwardedWholeToAHostWithoutCredentialValue(t 
 func TestTheHostsBrokerServesCredentialValuesWhenItHasCredentials(t *testing.T) {
 	db, _, _, _ := brokerFixture(t)
 	cfg := &config.Config{}
-	if _, ok := hostBrokerDeps(cfg, db, nil, nil, nil).Ops["credential.value"]; ok {
+	if _, ok := hostBrokerDeps(cfg, db, nil, nil, nil, nil).Ops["credential.value"]; ok {
 		t.Fatal("credential.value without a credential broker")
 	}
 	credentials, err := service.NewCredentialBroker(db, service.NewApprovalService(db, service.ApprovalServiceOptions{}), service.CredentialBrokerOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
-	if _, ok := hostBrokerDeps(cfg, db, nil, credentials, nil).Ops["credential.value"]; !ok {
+	if _, ok := hostBrokerDeps(cfg, db, nil, credentials, nil, nil).Ops["credential.value"]; !ok {
 		t.Fatal("the host's broker does not serve credential.value")
 	}
 }

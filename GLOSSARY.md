@@ -58,6 +58,36 @@ _Avoid_: primary agent, default agent
 A slot other than the main one, such as `reviewer`. Only Legato starts agents in one; the person can attach to or stop them.
 _Avoid_: extra slot, side agent
 
+### Review passes
+
+**Review pass**:
+One review of all of a handoff's pull requests by a fresh reviewer, at heads pinned when it starts, ending in a GitHub review per pull request.
+_Avoid_: review round, review cycle
+
+**Reviewer**:
+The agent in a task's reviewer slot that does a review pass, on a different model from the author, and only looks.
+_Avoid_: review agent, critic
+
+**Finding**:
+One problem a reviewer reports on one pull request, kept with a stable ID across passes.
+_Avoid_: comment, issue
+
+**Blocking**:
+A finding that must be fixed or answered before the work is done.
+
+**Nit**:
+A finding that is optional: the author may skip it.
+
+**Ruling**:
+A later pass's judgement on an earlier blocking finding: resolved, or open with why.
+
+**Clean pass**:
+A review pass with no blocking finding and no open ruling. It approves the pull requests.
+
+**Counted comment**:
+A comment on a pull request that the author must answer: from the repository's owners, members or collaborators, or from a listed bot.
+_Avoid_: feedback comment
+
 ### Engrams
 
 **Engram**:
