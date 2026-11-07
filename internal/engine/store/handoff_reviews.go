@@ -27,6 +27,12 @@ type HandoffReview struct {
 	PolledAt        string `db:"polled_at"`
 	LastNewAt       string `db:"last_new_at"`
 	SkippedComments int    `db:"skipped_comments"`
+	// ChecksPolledAt is when the counted checks were last read, on
+	// ChecksHeads (each pull request's "number:head", in order), with
+	// ChecksPending of them not finished.
+	ChecksPolledAt string `db:"checks_polled_at"`
+	ChecksHeads    string `db:"checks_heads"`
+	ChecksPending  int    `db:"checks_pending"`
 }
 
 // HandoffReviewPass is one review pass.
@@ -101,13 +107,14 @@ func (s *Store) ListHandoffReviews(ctx context.Context) ([]HandoffReview, error)
 // SaveHandoffReview writes a card's review loop.
 func (s *Store) SaveHandoffReview(ctx context.Context, r HandoffReview) error {
 	_, err := s.db.NamedExecContext(ctx, `
-		INSERT INTO handoff_reviews (task_id, settings, phase, pass, mismatches, nudged_at, author_busy_since_nudge, reason, queued_at, updated_at, delivered_pass, polled_at, last_new_at, skipped_comments)
-		VALUES (:task_id, :settings, :phase, :pass, :mismatches, :nudged_at, :author_busy_since_nudge, :reason, :queued_at, :updated_at, :delivered_pass, :polled_at, :last_new_at, :skipped_comments)
+		INSERT INTO handoff_reviews (task_id, settings, phase, pass, mismatches, nudged_at, author_busy_since_nudge, reason, queued_at, updated_at, delivered_pass, polled_at, last_new_at, skipped_comments, checks_polled_at, checks_heads, checks_pending)
+		VALUES (:task_id, :settings, :phase, :pass, :mismatches, :nudged_at, :author_busy_since_nudge, :reason, :queued_at, :updated_at, :delivered_pass, :polled_at, :last_new_at, :skipped_comments, :checks_polled_at, :checks_heads, :checks_pending)
 		ON CONFLICT(task_id) DO UPDATE SET settings = excluded.settings, phase = excluded.phase, pass = excluded.pass,
 			mismatches = excluded.mismatches, nudged_at = excluded.nudged_at,
 			author_busy_since_nudge = excluded.author_busy_since_nudge, reason = excluded.reason,
 			queued_at = excluded.queued_at, updated_at = excluded.updated_at, delivered_pass = excluded.delivered_pass,
-			polled_at = excluded.polled_at, last_new_at = excluded.last_new_at, skipped_comments = excluded.skipped_comments`, r)
+			polled_at = excluded.polled_at, last_new_at = excluded.last_new_at, skipped_comments = excluded.skipped_comments,
+			checks_polled_at = excluded.checks_polled_at, checks_heads = excluded.checks_heads, checks_pending = excluded.checks_pending`, r)
 	return err
 }
 

@@ -33,6 +33,8 @@ type FakeReviewGitHub struct {
 	// the polls of them.
 	prComments map[int][]service.PRComment
 	polls      int
+	// checks are the counted checks of each head.
+	checks map[string][]service.CheckResult
 }
 
 // NewFakeReviewGitHub has no pull requests.
@@ -104,6 +106,23 @@ func (f *FakeReviewGitHub) SetComments(number int, comments ...service.PRComment
 		f.prComments = map[int][]service.PRComment{}
 	}
 	f.prComments[number] = append([]service.PRComment(nil), comments...)
+}
+
+// SetChecks sets the counted checks of a head, as the next poll finds
+// them.
+func (f *FakeReviewGitHub) SetChecks(head string, checks ...service.CheckResult) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.checks == nil {
+		f.checks = map[string][]service.CheckResult{}
+	}
+	f.checks[head] = append([]service.CheckResult(nil), checks...)
+}
+
+func (f *FakeReviewGitHub) Checks(_ context.Context, _, _, head string, _ []string) ([]service.CheckResult, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]service.CheckResult(nil), f.checks[head]...), nil
 }
 
 // Polls counts the polls of the pull requests' comments.

@@ -68,7 +68,8 @@ export function awayLook(away: AwayOn): AwayLook {
     if (review.phase === "stuck") return { glyph: "?", label: `Review stuck: ${review.reason ?? ""}`.trim(), tone: "text-lw-needs", tint: "bg-lw-needs-soft" }
     if (away.view === "in_review" || away.view === "done") {
       const label = reviewLabel(review)
-      if (label) return { glyph: review.phase === "clean" ? "✓" : "◐", label, tone: review.phase === "clean" ? "text-lw-done" : "text-lw-live", tint: review.phase === "clean" ? "bg-lw-done-soft" : "bg-lw-live-soft" }
+      const approved = review.phase === "clean" && !review.checks_pending
+      if (label) return { glyph: approved ? "✓" : "◐", label, tone: approved ? "text-lw-done" : "text-lw-live", tint: approved ? "bg-lw-done-soft" : "bg-lw-live-soft" }
     }
   }
   switch (away.view) {
@@ -125,8 +126,11 @@ export function reviewLabel(review: AwayReview): string {
       if (review.checks_open) parts.push(`${review.checks_open} ${review.checks_open === 1 ? "check" : "checks"}`)
       return parts.length ? `Author fixing · ${parts.join(", ")}` : "Author fixing"
     }
-    case "clean":
-      return "Done · approved"
+    case "clean": {
+      let label = review.checks_pending ? `Approved · waiting for ${review.checks_pending} ${review.checks_pending === 1 ? "check" : "checks"}` : "Done · approved"
+      if (review.checks_replied) label += ` · ${review.checks_replied} ${review.checks_replied === 1 ? "check" : "checks"} answered by reply`
+      return label
+    }
   }
   return ""
 }

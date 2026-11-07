@@ -195,7 +195,14 @@ func commentTitle(c PRComment) string {
 	return "Comment by " + c.Author
 }
 
-// deliverComments tells the author of new comments: after quiet_time with
+func plural(n int, one, many string) string {
+	if n == 1 {
+		return one
+	}
+	return many
+}
+
+// deliverComments tells the author of new comments and failing checks: after quiet_time with
 // nothing new, never during a pass, once the author is idle. Each item is
 // told once, whatever restarts in between.
 func (s *ReviewPassService) deliverComments(ctx context.Context, h *store.Handoff, loop *store.HandoffReview) error {
@@ -204,9 +211,15 @@ func (s *ReviewPassService) deliverComments(ctx context.Context, h *store.Handof
 		return err
 	}
 	var ids []string
+	comments, checks := 0, 0
 	for _, item := range items {
-		if item.Kind == ItemComment && !item.Delivered && item.Answer == "" {
+		if (item.Kind == ItemComment || item.Kind == ItemCheck) && !item.Delivered && item.Answer == "" {
 			ids = append(ids, item.ID)
+			if item.Kind == ItemCheck {
+				checks++
+			} else {
+				comments++
+			}
 		}
 	}
 	if len(ids) == 0 {
@@ -223,11 +236,14 @@ func (s *ReviewPassService) deliverComments(ctx context.Context, h *store.Handof
 	if !s.authorIdle(ctx, h.TaskID) {
 		return nil
 	}
-	word := "comments"
-	if len(ids) == 1 {
-		word = "comment"
+	var parts []string
+	if comments > 0 {
+		parts = append(parts, fmt.Sprintf("%d new %s", comments, plural(comments, "comment", "comments")))
 	}
-	message := fmt.Sprintf("%s %d new %s on your pull requests. Run legato review-pass feedback --json to read them.", ReviewTag, len(ids), word)
+	if checks > 0 {
+		parts = append(parts, fmt.Sprintf("%d failing %s", checks, plural(checks, "check", "checks")))
+	}
+	message := fmt.Sprintf("%s %s on your pull requests. Run legato review-pass feedback --json to read them.", ReviewTag, joinAnd(parts))
 	if err := s.opts.Agents.QueueMessage(ctx, h.TaskID, message); err != nil {
 		return s.stuck(ctx, h, loop, "the author could not be told of its feedback: "+err.Error())
 	}

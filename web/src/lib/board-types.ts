@@ -72,6 +72,10 @@ export interface AwayReview {
   blocking_open: number
   comments_open: number
   checks_open: number
+  // Counted checks not finished on the reviewed heads, and failing ones the
+  // author answered by a reply.
+  checks_pending?: number
+  checks_replied?: number
   skipped_comments: number
   reason?: string
   // Each pull request's latest review by Legato.

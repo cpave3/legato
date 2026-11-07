@@ -64,6 +64,9 @@ type ReviewPassConfig struct {
 	PollInterval time.Duration
 	QuietTime    time.Duration
 	CountedBots  []string
+	// RequiredChecks count when branch protection on a pull request's
+	// base names none.
+	RequiredChecks []string
 }
 
 // ReviewGitHubPR is an open pull request of a handoff's branch.
@@ -90,6 +93,8 @@ type ReviewGitHub interface {
 	PollComments(ctx context.Context, repo string, number int, pages PollPages) (CommentPoll, error)
 	Reply(ctx context.Context, who GitHubIdentity, repo string, number int, commentID int64, body string) error
 	ResolveThread(ctx context.Context, repo string, number int, commentID int64) error
+	// Checks are the counted checks of a pull request's head.
+	Checks(ctx context.Context, repo, base, head string, configured []string) ([]CheckResult, error)
 }
 
 // ReviewCheckout is the author's checkout, read on the host.
@@ -198,8 +203,9 @@ func (s *ReviewPassService) applies(h *store.Handoff) bool {
 }
 
 // DoneAllowed says whether a handoff whose card is in Done may be done: one
-// without review passes always, one with them only after a clean pass (or
-// when it had no pull request to review).
+// without review passes always, one with them only after a clean pass whose
+// counted checks all passed or were answered by a reply (or when it had no
+// pull request to review).
 func (s *ReviewPassService) DoneAllowed(ctx context.Context, h *store.Handoff) bool {
 	if !s.applies(h) {
 		return true
@@ -208,7 +214,13 @@ func (s *ReviewPassService) DoneAllowed(ctx context.Context, h *store.Handoff) b
 	if err != nil || loop == nil {
 		return false
 	}
-	return loop.Phase == ReviewPhaseClean || loop.Phase == ReviewPhaseSkipped
+	switch loop.Phase {
+	case ReviewPhaseSkipped:
+		return true
+	case ReviewPhaseClean:
+		return s.checksHandled(ctx, loop)
+	}
+	return false
 }
 
 // Review is a card's review loop as the main sees it.
@@ -267,6 +279,7 @@ func (s *ReviewPassService) Tick(ctx context.Context) {
 		}
 		s.postAnswers(ctx, h)
 		s.pollComments(ctx, h)
+		s.pollChecks(ctx, h)
 		if err := s.step(ctx, h); err != nil {
 			log.Printf("review passes: %s: %v", h.TaskID, err)
 		}
@@ -309,7 +322,7 @@ func (s *ReviewPassService) step(ctx context.Context, h *store.Handoff) error {
 		}
 		return s.feedback(ctx, h, loop, inDone)
 	case ReviewPhaseClean:
-		return nil
+		return s.checksReopen(ctx, h, loop)
 	}
 	return nil
 }
@@ -457,6 +470,10 @@ func (s *ReviewPassService) startPass(ctx context.Context, h *store.Handoff, loo
 		return err
 	}
 	loop.Pass, loop.Phase, loop.QueuedAt, loop.Reason = pass, ReviewPhaseReviewing, "", ""
+	if loop.ChecksHeads != checkHeads(pinned) {
+		// The checks of the heads this pass reviews, read now.
+		s.readChecks(ctx, h, loop, pinned)
+	}
 	if err := s.saveChanged(ctx, loop); err != nil {
 		return err
 	}

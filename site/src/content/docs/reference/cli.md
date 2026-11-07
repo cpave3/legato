@@ -208,7 +208,7 @@ A handed-off task's agent on a worker uses these when a reviewer's findings, or 
 - `legato review-pass answer <item-id> --replied --file <path|->`: a reply with your reasons, as Markdown.
 - `legato review-pass answer <item-id> --skipped`: skip a nit; only nits are optional.
 
-Legato posts each answer on the pull request. Moving the task to Done is refused while a blocking finding, a comment or a check is unanswered.
+Legato posts each answer on the pull request. Moving the task to Done is refused while a blocking finding or a comment is unanswered. A failing check does not refuse the move, but the task is not done until the check passes on a commit you push or you reply to it; `--fixed` alone does not handle it.
 
 ## Swarms
 

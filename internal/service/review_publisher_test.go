@@ -48,6 +48,10 @@ type reviewGitHub struct {
 	notModified int
 	limitLists  bool
 	threadReads int
+	// checkRuns are each head's check runs; noProtection makes the base
+	// branch unprotected.
+	checkRuns    map[string]string
+	noProtection bool
 }
 
 const reviewPatch = "@@ -1,3 +1,4 @@\n package main\n-import \"fmt\"\n+import \"os\"\n+\n func main() {\n@@ -20,2 +21,3 @@ func helper() {\n \treturn\n+\t// done\n }"
@@ -101,6 +105,20 @@ func newReviewGitHub(t *testing.T) *reviewGitHub {
 			}
 			w.Header().Set("ETag", etag)
 			_, _ = io.WriteString(w, body)
+		case r.Method == "GET" && r.URL.Path == "/repos/cpave3/legato/branches/main/protection/required_status_checks":
+			if g.noProtection {
+				w.WriteHeader(404)
+				_, _ = io.WriteString(w, `{"message":"Branch not protected"}`)
+				break
+			}
+			_, _ = io.WriteString(w, `{"contexts":["build"],"checks":[{"context":"build"},{"context":"lint"}]}`)
+		case r.Method == "GET" && strings.HasPrefix(r.URL.Path, "/repos/cpave3/legato/commits/") && strings.HasSuffix(r.URL.Path, "/check-runs"):
+			head := strings.Split(r.URL.Path, "/")[5]
+			_, _ = io.WriteString(w, g.checkRuns[head])
+		case r.Method == "GET" && strings.HasPrefix(r.URL.Path, "/repos/cpave3/legato/commits/") && strings.HasSuffix(r.URL.Path, "/status"):
+			_, _ = io.WriteString(w, `{"statuses":[{"context":"ci/legacy","state":"success","description":"ok","target_url":"s"}]}`)
+		case r.Method == "GET" && r.URL.Path == "/repos/cpave3/legato/check-runs/77/annotations":
+			_, _ = io.WriteString(w, `[{"path":"login_test.go","start_line":40,"message":"expected 3, got 4"}]`)
 		case r.Method == "GET" && r.URL.Path == "/repos/cpave3/legato/pulls/12/reviews":
 			out := []map[string]any{}
 			for i, review := range g.reviews {
@@ -473,5 +491,40 @@ func TestCommentsArePolledPageByPageWithETagsAndThreadsOnlyOnAChange(t *testing.
 	var gh *GitHubError
 	if !errors.As(err, &gh) || !gh.RateLimited {
 		t.Fatalf("rate limited poll: %v", err)
+	}
+}
+
+func TestRequiredChecksAreReadFromTheBaseBranchsProtection(t *testing.T) {
+	f := newPublisherFixture(t)
+	f.github.checkRuns = map[string]string{
+		"aaa": `{"check_runs":[{"id":77,"name":"build","status":"completed","conclusion":"failure","html_url":"b77","output":{"title":"2 tests failed","summary":"TestLogin failed"}},{"id":78,"name":"lint","status":"in_progress","html_url":"l78"},{"id":79,"name":"docs","status":"completed","conclusion":"failure"}]}`,
+		"bbb": `{"check_runs":[{"id":80,"name":"build","status":"completed","conclusion":"success"},{"id":81,"name":"lint","status":"completed","conclusion":"success"}]}`,
+	}
+	ctx := context.Background()
+
+	checks, err := f.publisher.Checks(ctx, "cpave3/legato", "main", "aaa", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(checks) != 2 {
+		t.Fatalf("checks %+v; want the two required ones only", checks)
+	}
+	build, lint := checks[0], checks[1]
+	if build.Name != "build" || build.State != CheckFailing || build.Conclusion != "failure" || build.URL != "b77" ||
+		!strings.Contains(build.Summary, "2 tests failed") || !strings.Contains(build.Excerpt, "login_test.go:40: expected 3, got 4") {
+		t.Fatalf("build %+v", build)
+	}
+	if lint.Name != "lint" || lint.State != CheckPending {
+		t.Fatalf("lint %+v", lint)
+	}
+	if checks, _ := f.publisher.Checks(ctx, "cpave3/legato", "main", "bbb", nil); checks[0].State != CheckPassing || checks[1].State != CheckPassing {
+		t.Fatalf("on a new head: %+v", checks)
+	}
+
+	// Without protection, the configured list counts.
+	f.github.noProtection = true
+	checks, err = f.publisher.Checks(ctx, "cpave3/legato", "main", "aaa", []string{"docs", "ci/legacy", "e2e"})
+	if err != nil || len(checks) != 3 || checks[0].State != CheckFailing || checks[1].State != CheckPassing || checks[2].State != CheckPending {
+		t.Fatalf("configured checks %+v, %v", checks, err)
 	}
 }

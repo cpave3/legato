@@ -12,11 +12,15 @@ import (
 // and each pull request's latest Legato review. A main that predates it
 // ignores it.
 type HandoffReviewBlock struct {
-	Pass            int          `json:"pass"`
-	Phase           string       `json:"phase"`
-	BlockingOpen    int          `json:"blocking_open"`
-	CommentsOpen    int          `json:"comments_open"`
-	ChecksOpen      int          `json:"checks_open"`
+	Pass         int    `json:"pass"`
+	Phase        string `json:"phase"`
+	BlockingOpen int    `json:"blocking_open"`
+	CommentsOpen int    `json:"comments_open"`
+	ChecksOpen   int    `json:"checks_open"`
+	// ChecksPending are counted checks not finished on the reviewed
+	// heads; ChecksReplied failing ones the author answered by a reply.
+	ChecksPending   int          `json:"checks_pending,omitempty"`
+	ChecksReplied   int          `json:"checks_replied,omitempty"`
 	SkippedComments int          `json:"skipped_comments"`
 	Reason          string       `json:"reason,omitempty"`
 	Links           []ReviewLink `json:"links,omitempty"`
@@ -29,9 +33,10 @@ type ReviewLink struct {
 }
 
 // InReview says the review is under way: a pass runs, waits for a
-// reviewer, or waits for the author.
+// reviewer, waits for the author, or is clean and waits for checks.
 func (b *HandoffReviewBlock) InReview() bool {
-	return b != nil && (b.Phase == ReviewPhaseReviewing || b.Phase == ReviewPhaseWaitingForReviewer || b.Phase == ReviewPhaseWaitingForAuthor)
+	return b != nil && (b.Phase == ReviewPhaseReviewing || b.Phase == ReviewPhaseWaitingForReviewer || b.Phase == ReviewPhaseWaitingForAuthor ||
+		(b.Phase == ReviewPhaseClean && b.ChecksPending > 0))
 }
 
 // Stuck says the review needs the person.
@@ -67,7 +72,14 @@ func (b *HandoffReviewBlock) Summary() string {
 		}
 		return "Author fixing · " + strings.Join(parts, ", ")
 	case ReviewPhaseClean:
-		return "Done · approved"
+		summary := "Done · approved"
+		if b.ChecksPending > 0 {
+			summary = fmt.Sprintf("Approved · waiting for %d %s", b.ChecksPending, plural(b.ChecksPending, "check", "checks"))
+		}
+		if b.ChecksReplied > 0 {
+			summary += fmt.Sprintf(" · %d %s answered by reply", b.ChecksReplied, plural(b.ChecksReplied, "check", "checks"))
+		}
+		return summary
 	case ReviewPhaseStuck:
 		return "Review stuck: " + b.Reason
 	}
@@ -109,7 +121,14 @@ func (s *ReviewPassService) ReviewBlock(ctx context.Context, taskID string) *Han
 			}
 		}
 	}
-	block.SkippedComments = loop.SkippedComments
+	block.SkippedComments, block.ChecksPending = loop.SkippedComments, loop.ChecksPending
+	if all, err := s.db.ListHandoffReviewItems(ctx, taskID); err == nil {
+		for _, item := range all {
+			if item.Kind == ItemCheck && !item.Closed && item.Answer == AnswerReplied {
+				block.ChecksReplied++
+			}
+		}
+	}
 	for pass := loop.Pass; pass >= 1 && len(block.Links) == 0; pass-- {
 		prs, _ := s.db.ListHandoffReviewPRs(ctx, taskID, pass)
 		for _, pr := range prs {

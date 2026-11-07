@@ -79,8 +79,11 @@ On a worker that runs review passes (see [Review passes](/legato/reference/confi
 
 - **Reviewing · pass 2** while a reviewer works, or **Waiting for a reviewer** while the worker's reviewers are busy;
 - **Author fixing · 3 blocking, 1 comment** while the agent answers the findings and comments;
-- **Done · approved** once a pass is clean and the reviewer approved the pull requests;
+- **Approved · waiting for 2 checks** once a pass is clean but the pull requests' required checks are still running;
+- **Done · approved** once a pass is clean, the reviewer approved the pull requests and their required checks passed (with "1 check answered by reply" when the agent explained a failure, a flaky test say, instead of fixing it);
 - **Review stuck**, with why, when it needs you: the passes reached their limit, the reviewer could not review or ran out of time, or the agent could not be brought back.
+
+The required checks are those branch protection requires on each pull request's base branch, or the worker's `review_passes.required_checks` when it requires none. A failing one goes to the agent like a review comment, with its summary and a link; the agent fixes it on a new commit or replies. Reviews do not wait for the checks; only the task's done does.
 
 The panel links to Legato's latest review of each pull request. When the review is stuck, the row, its panel and its Attention item offer **Return as is**, **Run another pass** (one more pass past the limit, or another try), **Message the author** (your words reach the agent on the worker, marked as from you) and **Recall**.
 
