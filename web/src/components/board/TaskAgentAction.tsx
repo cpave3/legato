@@ -58,7 +58,7 @@ export function TaskAgentAction({ taskId, worktreePath = "", rememberedWorkingDi
               navigate("/agents")
             }}><Bot size={14} />Go to agents</Button>
             : <Button data-task-primary-action size="sm" className="w-full justify-start" onClick={() => setOpen(true)}><Bot size={14} />Open agent</Button>}
-      {!loading && (swarmConductor
+      {!loading && (swarmConductor || settings.data?.swarm_enabled) && (swarmConductor
         ? <Button variant="outline" size="sm" className="w-full justify-start" onClick={() => {
           setSelectedAgentId(swarmConductor.task_id)
           navigate("/agents")

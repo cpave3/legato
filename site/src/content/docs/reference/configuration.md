@@ -233,6 +233,7 @@ How a swarm's conductor and workers start, and how large a plan may be. See [Swa
 
 | Setting | Type | Default | What it does |
 | --- | --- | --- | --- |
+| `swarm.enabled` | bool | `false` | Turns swarms on: the `legato swarm` commands, the swarm endpoints, the swarm controls in the terminal UI and the **Start swarm** buttons in the web UI. Off by default. Restart Legato after changing it. |
 | `swarm.conductor.agent` | string | `swarm.worker.agent`, then `claude-code` | The tool a new conductor runs: `claude-code`, `codex` or `chimera`. |
 | `swarm.conductor.model` | string | none | A model for new conductors, added to the tool's launch flags. |
 | `swarm.worker.agent` | string | `claude-code` | The tool a worker runs when its sub-task names none. It is also Legato's default agent tool. |

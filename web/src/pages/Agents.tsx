@@ -127,6 +127,7 @@ export function AgentsPage() {
   const contexts = useAgentContexts(agents)
   const settings = useSettings()
   const ntfyConfigured = Boolean(settings.data?.ntfy_configured)
+  const swarmEnabled = Boolean(settings.data?.swarm_enabled)
   const voiceEnabled = Boolean(settings.data?.voice_enabled)
   const voiceEnabledRef = useRef(false)
 
@@ -654,12 +655,12 @@ export function AgentsPage() {
         >
           Spawn Agent
         </button>
-        <button
+        {swarmEnabled && <button
           onClick={handleOpenStartSwarm}
           className="rounded border border-indigo-900 bg-lw-selected px-4 py-2 text-sm font-medium text-lw-link transition-colors hover:bg-lw-selected"
         >
           Start Swarm
-        </button>
+        </button>}
         <SpawnEphemeralModal
           open={showSpawn}
           onClose={() => setShowSpawn(false)}
@@ -720,7 +721,7 @@ export function AgentsPage() {
           selectedId={selectedId}
           onSelect={handleSelect}
           onSpawn={handleSpawn}
-          onStartSwarm={handleOpenStartSwarm}
+          onStartSwarm={swarmEnabled ? handleOpenStartSwarm : undefined}
           onShowEnsemble={() => showEnsemble(true)}
           onAgentContextMenu={(agent, position) => setAgentContextMenu({ agent, position })}
           modifierHeld={modifierHeld}

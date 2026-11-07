@@ -56,3 +56,19 @@ func TestAddingAResourceToASandboxedAgentReloadsItWhenAsked(t *testing.T) {
 		t.Fatalf("restarted %q with %+v", agents.restarted, agents.resources)
 	}
 }
+
+type swarmFake struct{ SwarmService }
+
+func TestSettingsSayWhetherSwarmIsEnabled(t *testing.T) {
+	var settings struct {
+		SwarmEnabled bool `json:"swarm_enabled"`
+	}
+	srv := New(nil, nil, nil, ":0")
+	if status := serveJSON(t, srv, http.MethodGet, "/api/settings", "", &settings); status != http.StatusOK || settings.SwarmEnabled {
+		t.Fatalf("without a swarm service: status %d settings %+v", status, settings)
+	}
+	srv = NewWithSwarm(nil, nil, nil, ":0", swarmFake{}, nil, "")
+	if status := serveJSON(t, srv, http.MethodGet, "/api/settings", "", &settings); status != http.StatusOK || !settings.SwarmEnabled {
+		t.Fatalf("with a swarm service: status %d settings %+v", status, settings)
+	}
+}

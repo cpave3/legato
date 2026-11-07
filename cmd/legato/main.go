@@ -1523,7 +1523,7 @@ func runServeCmd(args []string) int {
 
 	// Swarm service for HTTP endpoints.
 	var swarmSvc service.SwarmService
-	if agentSvc != nil {
+	if agentSvc != nil && cfg.Swarm.Enabled {
 		swarmCfg := service.SwarmConfig{
 			MaxConcurrentAgents: cfg.Swarm.MaxConcurrentAgents,
 			MaxSubtasksPerPlan:  cfg.Swarm.MaxSubtasksPerPlan,
@@ -1818,9 +1818,14 @@ func runTUI() int {
 		TierCatalog:         tierCatalog(cfg.Adapters),
 		ValidateOptions:     buildValidateOptions(cfg),
 	}
-	swarmSvc := service.NewSwarmService(db, agentSvc, bus, swarmCfg, wd, attachmentCache)
-	swarmStop := swarmSvc.StartEventLoop(context.Background())
-	defer swarmStop()
+	// Without swarm.enabled there is no swarm service: the TUI hides the swarm
+	// controls and the web server answers its swarm endpoints with 503.
+	var swarmSvc service.SwarmService
+	if cfg.Swarm.Enabled {
+		swarmSvc = service.NewSwarmService(db, agentSvc, bus, swarmCfg, wd, attachmentCache)
+		swarmStop := swarmSvc.StartEventLoop(context.Background())
+		defer swarmStop()
+	}
 
 	reviewSvc := newReviewService(cfg, db, tmuxMgr, bus)
 	planSvc := newPlanService(cfg, db, tmuxMgr, bus)
@@ -2438,6 +2443,10 @@ func loadSwarmServiceForCLI() (service.SwarmService, *store.Store, int) {
 	cfg, err := config.Load()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "config: %v\n", err)
+		return nil, nil, 1
+	}
+	if !cfg.Swarm.Enabled {
+		fmt.Fprintln(os.Stderr, "error: swarm is disabled; set swarm.enabled: true in config.yaml to use it")
 		return nil, nil, 1
 	}
 	db, err := openStore(cfg)

@@ -18,7 +18,7 @@ vi.mock("../../../hooks/useServer", () => ({ useServer: () => ({ baseUrl: "" }) 
 vi.mock("../../../hooks/useAgentSelection", () => ({ useAgentSelection: () => ({ setSelectedAgentId: select }) }))
 vi.mock("../../../hooks/useRunningAgent", () => ({ useRunningAgent: () => runningAgentState }))
 const { settingsData } = vi.hoisted(() => ({
-  settingsData: { working_dir: "/default", fresh_clones_enabled: false, repositories: [{ name: "Legato", repo: "cpave3/legato", primary_dir: "/projects/legato", base_branch: "main" }] },
+  settingsData: { swarm_enabled: false, working_dir: "/default", fresh_clones_enabled: false, repositories: [{ name: "Legato", repo: "cpave3/legato", primary_dir: "/projects/legato", base_branch: "main" }] },
 }))
 vi.mock("../../../hooks/useSettings", () => ({ useSettings: () => ({ data: settingsData }) }))
 vi.mock("../../../lib/api", () => ({ apiFetch }))
@@ -58,6 +58,7 @@ describe("TaskAgentAction", () => {
     runningAgentState.agents = []
     runningAgentState.loading = false
     startSwarmProps.current = null
+    settingsData.swarm_enabled = false
   })
 
   it("goes directly to the running agent without opening or launching", () => {
@@ -118,7 +119,13 @@ describe("TaskAgentAction", () => {
     expect(screen.queryByRole("button", { name: "Go to agent" })).toBeNull()
   })
 
+  it("offers no way to start a swarm while swarm is disabled", () => {
+    render(<MemoryRouter><TaskAgentAction taskId="T-1" /></MemoryRouter>)
+    expect(screen.queryByRole("button", { name: "Start swarm" })).toBeNull()
+  })
+
   it("opens a task-scoped swarm launch with the resolved directory", () => {
+    settingsData.swarm_enabled = true
     render(<MemoryRouter><TaskAgentAction taskId="T-1" worktreePath="/trees/t-1" rememberedWorkingDir="/remembered" /></MemoryRouter>)
 
     fireEvent.click(screen.getByRole("button", { name: "Start swarm" }))

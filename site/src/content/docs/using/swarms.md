@@ -7,6 +7,8 @@ sidebar:
 
 A swarm splits one task across several agents. You start a **conductor** on the task. The conductor explores the code, writes a plan of sub-tasks, and asks you to approve it. Then it starts a **worker** for each sub-task, follows their progress, checks their work, and finishes the swarm when the task is done. Use a swarm for work that falls into parts that can go on side by side.
 
+Swarms are off by default. Set `swarm.enabled: true` in `config.yaml` and restart Legato to use them; until then the swarm commands, the terminal UI keys and the web **Start swarm** buttons are not available.
+
 Only the conductor plans. Workers do one focused sub-task each and cannot start workers of their own.
 
 ## Starting a swarm
