@@ -44,6 +44,20 @@ An away task coming back to its main instance with what the worker did.
 A main instance ending an away task by itself, without the worker's results, when the worker cannot be reached or no longer has the task.
 _Avoid_: force recall, abandon
 
+### Agents on a task
+
+**Agent slot**:
+A place on a task for one agent at a time, with its own terminal session, execution and saved conversation. A task has a main slot and may have named slots.
+_Avoid_: agent seat, second agent
+
+**Main slot**:
+The slot of a task's own agent: the handoff's author, and any session the person starts. Anything that addresses "the task's agent" without naming a slot means it.
+_Avoid_: primary agent, default agent
+
+**Named slot**:
+A slot other than the main one, such as `reviewer`. Only Legato starts agents in one; the person can attach to or stop them.
+_Avoid_: extra slot, side agent
+
 ### Engrams
 
 **Engram**:

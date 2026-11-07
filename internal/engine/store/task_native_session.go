@@ -8,10 +8,16 @@ import (
 	"time"
 )
 
-// TaskNativeSession is the latest observed provider conversation for a task.
-// Ownership survives removal of the owning agent session and its live bindings.
+// SlotMain is a task's main agent slot: the author's, and any session the
+// person starts. Named slots (a reviewer's) are started by Legato only.
+const SlotMain = "main"
+
+// TaskNativeSession is the latest observed provider conversation of a task's
+// agent slot. Ownership survives removal of the owning agent session and its
+// live bindings. A Chimera record holds its selector only.
 type TaskNativeSession struct {
 	TaskID            string    `db:"task_id"`
+	Slot              string    `db:"slot"`
 	AgentKind         string    `db:"agent_kind"`
 	ProviderSessionID string    `db:"provider_session_id"`
 	CWD               string    `db:"cwd"`
@@ -21,10 +27,17 @@ type TaskNativeSession struct {
 	UpdatedAt         time.Time `db:"updated_at"`
 }
 
-// GetTaskNativeSession returns nil, nil when no conversation has been recorded.
+// GetTaskNativeSession returns the main slot's conversation, nil, nil when
+// none has been recorded.
 func (s *Store) GetTaskNativeSession(ctx context.Context, taskID, agentKind string) (*TaskNativeSession, error) {
+	return s.GetTaskNativeSessionInSlot(ctx, taskID, SlotMain, agentKind)
+}
+
+// GetTaskNativeSessionInSlot returns a slot's conversation, nil, nil when
+// none has been recorded.
+func (s *Store) GetTaskNativeSessionInSlot(ctx context.Context, taskID, slot, agentKind string) (*TaskNativeSession, error) {
 	var session TaskNativeSession
-	if err := s.db.GetContext(ctx, &session, `SELECT * FROM task_native_sessions WHERE task_id = ? AND agent_kind = ?`, taskID, agentKind); err != nil {
+	if err := s.db.GetContext(ctx, &session, `SELECT * FROM task_native_sessions WHERE task_id = ? AND slot = ? AND agent_kind = ?`, taskID, slotOrMain(slot), agentKind); err != nil {
 		if err == sql.ErrNoRows {
 			return nil, nil
 		}
@@ -33,11 +46,52 @@ func (s *Store) GetTaskNativeSession(ctx context.Context, taskID, agentKind stri
 	return &session, nil
 }
 
-// ListTaskNativeSessions returns saved conversations ordered by provider kind.
+// ListTaskNativeSessions returns the main slot's saved conversations, the
+// ones the task resumes, ordered by provider kind.
 func (s *Store) ListTaskNativeSessions(ctx context.Context, taskID string) ([]TaskNativeSession, error) {
 	sessions := make([]TaskNativeSession, 0)
-	err := s.db.SelectContext(ctx, &sessions, `SELECT * FROM task_native_sessions WHERE task_id = ? ORDER BY agent_kind`, taskID)
+	err := s.db.SelectContext(ctx, &sessions, `SELECT * FROM task_native_sessions WHERE task_id = ? AND slot = 'main' ORDER BY agent_kind`, taskID)
 	return sessions, err
+}
+
+// TaskChimeraSessionID is the main slot's Chimera session, "" when none.
+func (s *Store) TaskChimeraSessionID(ctx context.Context, taskID string) (string, error) {
+	saved, err := s.GetTaskNativeSession(ctx, taskID, "chimera")
+	if err != nil || saved == nil {
+		return "", err
+	}
+	return saved.ProviderSessionID, nil
+}
+
+// SetChimeraResumeInSlot records the Chimera session a slot resumes, and an
+// empty one forgets it. Chimera's hook reports it; it has no directory or
+// owner to check.
+func (s *Store) SetChimeraResumeInSlot(ctx context.Context, taskID, slot, sessionID string) error {
+	var exists int
+	if err := s.db.GetContext(ctx, &exists, `SELECT COUNT(*) FROM tasks WHERE id = ?`, taskID); err != nil {
+		return err
+	}
+	if exists == 0 {
+		return ErrNotFound
+	}
+	if strings.TrimSpace(sessionID) == "" {
+		_, err := s.db.ExecContext(ctx, `DELETE FROM task_native_sessions WHERE task_id = ? AND slot = ? AND agent_kind = 'chimera'`, taskID, slotOrMain(slot))
+		return err
+	}
+	_, err := s.db.ExecContext(ctx, `
+		INSERT INTO task_native_sessions (task_id, slot, agent_kind, provider_session_id, updated_at)
+		VALUES (?, ?, 'chimera', ?, ?)
+		ON CONFLICT(task_id, slot, agent_kind) DO UPDATE SET
+			provider_session_id = excluded.provider_session_id, updated_at = excluded.updated_at`,
+		taskID, slotOrMain(slot), sessionID, formatExecutionTime(time.Now()))
+	return err
+}
+
+func slotOrMain(slot string) string {
+	if slot == "" {
+		return SlotMain
+	}
+	return slot
 }
 
 // RecordTaskNativeSession atomically checks ownership and records a conversation.
@@ -63,6 +117,11 @@ func (s *Store) RecordTaskNativeSession(ctx context.Context, taskID string, agen
 	}
 	defer tx.Rollback()
 
+	// The record belongs to the slot of the session that saves it.
+	var slot string
+	if err := tx.GetContext(ctx, &slot, `SELECT slot FROM agent_sessions WHERE id = ?`, agentSessionID); err != nil && err != sql.ErrNoRows {
+		return false, err
+	}
 	var owns bool
 	err = tx.GetContext(ctx, &owns, `SELECT EXISTS (
 		SELECT 1 FROM agent_sessions a
@@ -70,7 +129,7 @@ func (s *Store) RecordTaskNativeSession(ctx context.Context, taskID string, agen
 		JOIN executions e ON e.agent_session_id = a.id
 		WHERE t.id = ?
 			AND a.id = ? AND a.status = 'running' AND a.agent_kind = ?
-			AND a.id = (SELECT id FROM agent_sessions WHERE task_id = t.id ORDER BY started_at DESC, id DESC LIMIT 1)
+			AND a.id = (SELECT id FROM agent_sessions WHERE task_id = t.id AND slot = a.slot ORDER BY started_at DESC, id DESC LIMIT 1)
 			AND (COALESCE(a.parent_task_id, '') = '' OR (a.role = 'conductor' AND a.parent_task_id = t.id))
 			AND COALESCE(a.subtask_id, '') = ''
 			AND a.role != 'worker'
@@ -87,9 +146,9 @@ func (s *Store) RecordTaskNativeSession(ctx context.Context, taskID string, agen
 	}
 
 	result, err := tx.ExecContext(ctx, `
-		INSERT INTO task_native_sessions (task_id, agent_kind, provider_session_id, cwd, storage_dir, agent_session_id, execution_id, updated_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?)
-		ON CONFLICT(task_id, agent_kind) DO UPDATE SET
+		INSERT INTO task_native_sessions (task_id, slot, agent_kind, provider_session_id, cwd, storage_dir, agent_session_id, execution_id, updated_at)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+		ON CONFLICT(task_id, slot, agent_kind) DO UPDATE SET
 			provider_session_id = excluded.provider_session_id, cwd = excluded.cwd,
 			storage_dir = excluded.storage_dir,
 			agent_session_id = excluded.agent_session_id, execution_id = excluded.execution_id,
@@ -99,7 +158,7 @@ func (s *Store) RecordTaskNativeSession(ctx context.Context, taskID string, agen
 			OR task_native_sessions.storage_dir != excluded.storage_dir
 			OR task_native_sessions.agent_session_id != excluded.agent_session_id
 			OR task_native_sessions.execution_id != excluded.execution_id`,
-		taskID, agentKind, providerSessionID, cwd, storageDir, agentSessionID, executionID, formatExecutionTime(time.Now()))
+		taskID, slotOrMain(slot), agentKind, providerSessionID, cwd, storageDir, agentSessionID, executionID, formatExecutionTime(time.Now()))
 	if err != nil {
 		return false, err
 	}

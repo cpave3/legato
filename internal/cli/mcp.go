@@ -195,7 +195,7 @@ func (m *mcpTools) all() []mcpserver.Tool {
 // each call rather than once at start: an agent tool starts its MCP servers
 // while Legato may still be recording the session it launched.
 func (m *mcpTools) session(ctx context.Context) (*store.AgentSession, error) {
-	session, err := m.opts.Store.GetAgentSessionByTaskID(ctx, m.opts.TaskID)
+	session, err := m.opts.Store.GetRunningAgentSession(ctx, m.opts.TaskID, m.opts.ExecutionID)
 	if errors.Is(err, store.ErrNotFound) {
 		return nil, fmt.Errorf("Legato has no running agent session for task %s, so there is nowhere to act", m.opts.TaskID)
 	}

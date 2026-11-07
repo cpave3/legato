@@ -202,6 +202,11 @@ type recordingPublisher struct {
 	starts      []string
 	activities  []recordedActivity
 	discoveries []string
+	slotDeaths  []string
+}
+
+func (r *recordingPublisher) PublishSlotAgentDied(taskID, slot string) {
+	r.slotDeaths = append(r.slotDeaths, taskID+"/"+slot)
 }
 
 type recordedDied struct {

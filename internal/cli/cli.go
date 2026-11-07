@@ -401,7 +401,8 @@ type AgentStateReport struct {
 // produce child readiness or error notifications without mutating the parent session.
 func AgentState(s *store.Store, report AgentStateReport, pushNotifier, osNotifier service.Notifier) error {
 	ctx := context.Background()
-	session, err := s.GetAgentSessionByTaskID(ctx, report.TaskID)
+	// The execution names the reporting agent's slot.
+	session, err := s.GetRunningAgentSession(ctx, report.TaskID, report.ExecutionID)
 	if err != nil {
 		return fmt.Errorf("getting agent session: %w", err)
 	}
@@ -428,7 +429,7 @@ func AgentState(s *store.Store, report AgentStateReport, pushNotifier, osNotifie
 	if report.ExecutionID != "" && session.ExecutionID != report.ExecutionID {
 		return fmt.Errorf("execution %q does not own running task session %s", report.ExecutionID, report.TaskID)
 	}
-	if err := s.UpdateAgentActivity(ctx, report.TaskID, report.Activity); err != nil {
+	if err := s.UpdateAgentActivityForSession(ctx, session.ID, report.Activity); err != nil {
 		return fmt.Errorf("updating agent activity: %w", err)
 	}
 	// Legacy hooks omit execution identity. Keep the live operational status

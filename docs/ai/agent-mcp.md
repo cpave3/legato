@@ -40,7 +40,7 @@ Legato is not the MCP host. The agent tool is, and a terminal agent cannot draw 
 | `session_info` | none | Task ID and title, agent tool, swarm role, working directory. |
 | `task_context` | none | The task as Markdown: description, linked ticket, repository details, durable notes. |
 | `add_task_note` | `body` | Records a durable Markdown note (`task_notes`, source `agent`). |
-| `list_peers` | none | Other agents in the same Git worktree. |
+| `list_peers` | none | Other agents in the same Git worktree, the task's own reviewer among them (`slot`, `read_only`). |
 | `message_peer` | `to`, `text` | Queues a message to one peer. |
 | `broadcast_peers` | `text` | Messages every peer; the result names who was and was not reached. |
 | `request_access` | `credential`, `operations`, `resources`, `reason`, `blocking` | Asks for a scope of a credential Legato holds, waiting up to a minute for the person; says what to do when granted, pending or denied. Offered only when credentials are configured, and its description names them. See [Credentials](credentials.md). |

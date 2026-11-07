@@ -126,9 +126,16 @@ func (s *HandoffWorkerService) FinishReturn(ctx context.Context, mainInstanceID,
 	return HandoffArchived{HandoffID: h.HandoffID, WorkerInstanceID: id}, nil
 }
 
-// stopAgent ends a handoff's agent, if one runs.
+// stopAgent ends a handoff's agents, if any run, in every slot.
 func (s *HandoffWorkerService) stopAgent(ctx context.Context, h *store.Handoff) {
 	if s.opts.Agents == nil {
+		return
+	}
+	// Every slot: the author's and a reviewer's.
+	if stopper, ok := s.opts.Agents.(TaskAgentsStopper); ok {
+		if err := stopper.StopTaskAgents(ctx, h.TaskID); err != nil {
+			log.Printf("handoff %s: stopping its agents: %v", h.HandoffID, err)
+		}
 		return
 	}
 	if session, err := s.opts.Agents.GetAgentSession(ctx, h.TaskID); err != nil || session == nil {
