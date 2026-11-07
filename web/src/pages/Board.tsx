@@ -209,6 +209,9 @@ export function BoardPage() {
   // From this width the selected card is described beside the board; below
   // it a click opens the card's details, as there is no room for both.
   const wide = useMediaQuery("(min-width: 1280px)")
+  // Below md the board is MobileBoardList, which shows one column at a time.
+  const phone = !useMediaQuery("(min-width: 768px)")
+  const [mobileColumn, setMobileColumn] = useState<string | null>(null)
   const [panelHidden, setPanelHidden] = useState(false)
   const [panelDetail, setPanelDetail] = useState<CardDetail | null>(null)
   const boardRef = useRef<HTMLDivElement>(null)
@@ -736,14 +739,18 @@ export function BoardPage() {
     setOverlay({ kind: "handoff", card })
   }
 
+  // Delete and the edits act on the card their dialog was opened for: a
+  // context menu or the detail panel opens them for a card that need not be
+  // the one under the cursor.
   const handleDelete = async () => {
-    if (!currentCard || pendingAction) return
+    const card = overlay.kind === "delete" ? overlay.card : null
+    if (!card || pendingAction) return
     setPendingAction("delete")
     try {
-      await deleteTask(baseUrl, currentCard.id)
+      await deleteTask(baseUrl, card.id)
       setOverlay({ kind: "none" })
       refresh()
-      if (detailCard?.id === currentCard.id) {
+      if (detailCard?.id === card.id) {
         setDetailCard(null)
         setDetailId(null)
       }
@@ -782,12 +789,13 @@ export function BoardPage() {
   }
 
   const handleSaveTitle = async (title: string) => {
-    if (!currentCard || pendingAction) return
+    const card = overlay.kind === "editTitle" ? overlay.card : null
+    if (!card || pendingAction) return
     setPendingAction("title")
     try {
-      await patchTask(baseUrl, currentCard.id, { title })
+      await patchTask(baseUrl, card.id, { title })
       setOverlay({ kind: "none" })
-      if (detailCard && detailCard.id === currentCard.id) {
+      if (detailCard && detailCard.id === card.id) {
         setDetailCard({ ...detailCard, title })
       }
       refresh()
@@ -800,13 +808,14 @@ export function BoardPage() {
   }
 
   const handleSaveDescription = async (description: string) => {
-    if (!currentCard || pendingAction) return
+    const card = overlay.kind === "editDescription" ? overlay.card : null
+    if (!card || pendingAction) return
     setPendingAction("description")
     try {
-      await patchTask(baseUrl, currentCard.id, { description })
+      await patchTask(baseUrl, card.id, { description })
       setOverlay({ kind: "none" })
-      if (detailCard && detailCard.id === currentCard.id) {
-        setDetailCard(await fetchCard(baseUrl, currentCard.id))
+      if (detailCard && detailCard.id === card.id) {
+        setDetailCard(await fetchCard(baseUrl, card.id))
       }
       refresh()
       addToast("Task description updated", "success")
@@ -969,7 +978,7 @@ export function BoardPage() {
                 />
               </div>
               <div className="h-full md:hidden">
-                <MobileBoardList columns={columns} showWorkspace={showWorkspace} highlightedTaskId={highlightedTaskId} onCardClick={handleCardClick} onCardContextMenu={handleCardContextMenu} workers={workers} baseUrl={baseUrl} onAwayNotice={awayNotice} />
+                <MobileBoardList columns={columns} showWorkspace={showWorkspace} highlightedTaskId={highlightedTaskId} onCardClick={handleCardClick} onCardContextMenu={handleCardContextMenu} onColumnShown={setMobileColumn} workers={workers} baseUrl={baseUrl} onAwayNotice={awayNotice} />
               </div>
             </>
           )}
@@ -1019,7 +1028,7 @@ export function BoardPage() {
       <CreateTaskModal
         open={overlay.kind === "create"}
         columns={columnNames}
-        currentColumn={activeColumn?.name || (columnNames[0] ?? "")}
+        currentColumn={(phone && mobileColumn) || activeColumn?.name || (columnNames[0] ?? "")}
         workspaces={workspaces}
         baseUrl={baseUrl}
         voiceEnabled={voiceEnabled}

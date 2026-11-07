@@ -42,7 +42,7 @@ Once this Legato is paired with a [worker instance](/legato/running/instances/),
 
 A card's detail has the task's notes, reviews, plans and workflow runs in tabs. When the task's agents built a stack of branches with Staccato, a **Stacks** tab shows it, with **Download stack** once every branch is pushed; see [Staccato](/legato/integrations/staccato/#taking-a-stack-home).
 
-On a phone, the board shows one column at a time. Swipe sideways, or tap a column's chip, to change column.
+On a phone, the board shows one column at a time. Swipe sideways, or tap a column's chip, to change column. A new card starts in the column you are looking at. Press and hold a card for its actions.
 
 ## Agents
 

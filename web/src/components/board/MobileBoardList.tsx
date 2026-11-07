@@ -35,6 +35,7 @@ export function MobileBoardList({
   highlightedTaskId,
   onCardClick,
   onCardContextMenu,
+  onColumnShown,
   workers = [],
   baseUrl,
   onAwayNotice,
@@ -44,6 +45,9 @@ export function MobileBoardList({
   highlightedTaskId?: string | null
   onCardClick: (column: number, row: number) => void
   onCardContextMenu?: (card: BoardColumn["cards"][number], position: { x: number; y: number }) => void
+  // Told the name of the column shown, when the board opens and on each
+  // change, so a new task can start in it.
+  onColumnShown?: (name: string) => void
   // The workers this main is paired with, and what the Away section's
   // Return, Recall and Return all done call and say.
   workers?: BoardWorker[]
@@ -66,6 +70,11 @@ export function MobileBoardList({
     const highlighted = columns.findIndex((candidate) => candidate.cards.some((card) => card.id === highlightedTaskId))
     if (highlighted >= 0) setShown(highlighted)
   }, [columns, highlightedTaskId])
+
+  const shownName = column?.name
+  useEffect(() => {
+    if (shownName) onColumnShown?.(shownName)
+  }, [shownName, onColumnShown])
 
   useEffect(() => {
     chipRefs.current[index]?.scrollIntoView?.({ block: "nearest", inline: "nearest" })
