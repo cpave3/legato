@@ -97,6 +97,11 @@ func (s *HandoffWorkerService) Return(ctx context.Context, mainInstanceID, hando
 			back.Notes = append(back.Notes, HandoffCallNote{ID: n.ID, Body: n.Body, CreatedAt: n.CreatedAt})
 		}
 	}
+	if s.opts.Reviews != nil {
+		if note := s.opts.Reviews.ReviewNote(ctx, h.TaskID); note != "" {
+			back.Notes = append(back.Notes, HandoffCallNote{ID: "rv-" + h.HandoffID, Body: note, CreatedAt: s.opts.Now().UTC().Format(time.RFC3339)})
+		}
+	}
 	back.Stack = s.stackDocument(ctx, h)
 	return back, nil
 }

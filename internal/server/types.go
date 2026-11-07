@@ -104,6 +104,8 @@ type AwayResponse struct {
 	WorkerUnreachableSince string   `json:"worker_unreachable_since,omitempty"`
 	WorkerRefusedAt        string   `json:"worker_refused_at,omitempty"`
 	View                   string   `json:"view,omitempty"`
+	// Review is the handoff's review passes on the worker, as last heard.
+	Review *service.HandoffReviewBlock `json:"review,omitempty"`
 }
 
 // BoardWorkerResponse is a worker this main is paired with, for the board's

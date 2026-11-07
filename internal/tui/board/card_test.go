@@ -508,3 +508,15 @@ func TestACardShowsAChipForEachRunningNamedSlot(t *testing.T) {
 		t.Fatalf("card = %q; want the reviewer's chip", out)
 	}
 }
+
+func TestAnAwayCardInReviewShowsTheReviewPhase(t *testing.T) {
+	away := &service.AwayTask{WorkerName: "vm-1", State: "in_progress", View: service.AwayViewInReview,
+		Review: &service.HandoffReviewBlock{Pass: 2, Phase: service.ReviewPhaseWaitingForAuthor, BlockingOpen: 3, CommentsOpen: 1}}
+	if got := AwayState(away); got != "Author fixing · 3 blocking, 1 comment" {
+		t.Fatalf("away state %q", got)
+	}
+	away.Review = &service.HandoffReviewBlock{Pass: 2, Phase: service.ReviewPhaseStuck, Reason: "the reviewer ran past 45m0s"}
+	if got := AwayState(away); got != "Review stuck: the reviewer ran past 45m0s" {
+		t.Fatalf("away state %q", got)
+	}
+}

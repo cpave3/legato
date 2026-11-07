@@ -105,6 +105,10 @@ func (s *TaskHandoffService) bringBack(ctx context.Context, taskID string, recal
 			from = workerStateView(away)
 		case away.State == store.HandoffFailed:
 			return ReturnedTask{}, fmt.Errorf("%w: the handoff failed on %s; recall it", ErrReturnRefused, name)
+		case away.Review.InReview():
+			return ReturnedTask{}, fmt.Errorf("%w: review pass %d is running on %s; recall it to bring it back now", ErrReturnRefused, away.Review.Pass, name)
+		case away.Review.Stuck():
+			// Return as is: the review needs the person.
 		case away.State != store.HandoffDone && away.State != store.HandoffReturning:
 			return ReturnedTask{}, fmt.Errorf("%w: task %s is not done on %s; recall it to bring back what there is", ErrReturnRefused, taskID, name)
 		}
@@ -129,6 +133,7 @@ func recallNote(worker, from, failure string) string {
 		AwayViewStarting:   "where it was starting",
 		AwayViewWorking:    "where its agent was working",
 		AwayViewNeedsYou:   "where its agent was waiting on you",
+		AwayViewInReview:   "where it was in review",
 		AwayViewIdle:       "where its agent was idle",
 		AwayViewEnded:      "where its agent had ended",
 		AwayViewDone:       "where it was done",

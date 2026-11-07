@@ -64,6 +64,20 @@ export interface SlotAgent {
   state: string
 }
 
+// A handoff's review passes on its worker, as the worker last said.
+export interface AwayReview {
+  pass: number
+  // reviewing, waiting_for_reviewer, waiting_for_author, clean or stuck
+  phase: string
+  blocking_open: number
+  comments_open: number
+  checks_open: number
+  skipped_comments: number
+  reason?: string
+  // Each pull request's latest review by Legato.
+  links?: { pr: number; url: string }[]
+}
+
 export interface HandoffFrom {
   main: string
   main_task_id: string
@@ -106,6 +120,8 @@ export interface AwayOn {
   // What the main shows: starting, working, needs_you, idle, ended, done,
   // failed, coming_back, unreachable, lost or not_accepted.
   view?: string
+  // Review passes on the worker; absent from a worker without them.
+  review?: AwayReview
 }
 
 export interface SwarmStats {

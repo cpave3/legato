@@ -56,6 +56,11 @@ func AwayWorker(away *service.AwayTask) string {
 // AwayState words the worker's state of a handoff as last heard, whatever
 // state it is; "sent" when nothing was heard yet.
 func AwayState(away *service.AwayTask) string {
+	if away.Review != nil && away.State != "done" {
+		if summary := away.Review.Summary(); summary != "" {
+			return summary
+		}
+	}
 	if away.State == "" {
 		return "sent"
 	}
@@ -151,6 +156,9 @@ func mainStripFor(card CardData, icons theme.Icons) (agentStrip, bool) {
 		state := ""
 		if card.Away.State == "failed" {
 			state = "error"
+		}
+		if card.Away.Review.Stuck() {
+			state = "waiting"
 		}
 		return agentStrip{state, "↗", "away on " + AwayWorker(card.Away), AwayState(card.Away)}, true
 	}
