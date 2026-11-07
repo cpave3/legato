@@ -1,11 +1,12 @@
 import { createElement, useState } from "react"
-import { Bell, BellOff, Eye, EyeOff, RefreshCw, RotateCw, ScanSearch, Skull, Sparkles, Unplug } from "lucide-react"
+import { Bell, BellOff, Eye, EyeOff, Pencil, RefreshCw, RotateCw, ScanSearch, Skull, Sparkles, Unplug } from "lucide-react"
 import { canBeNative } from "../lib/agentKind"
 import type { AgentMenuEntry } from "../components/AgentChatHeader"
 
 interface TerminalMenuOptions {
   agentKind?: string
   onUpgradeChimera?: () => Promise<void>
+  onRename?: () => void
   onRefresh: () => void
   onDetectPrompt: () => void
   onTogglePromptDetection: () => void
@@ -31,6 +32,7 @@ export function useTerminalMenu(options: TerminalMenuOptions): { entries: AgentM
   const { agentKind, onUpgradeChimera } = options
 
   const entries: AgentMenuEntry[] = []
+  if (options.onRename) entries.push({ label: "Rename", icon: icon(Pencil), onSelect: options.onRename })
   if (canBeNative(agentKind) && onUpgradeChimera) {
     entries.push({
       label: upgradePending ? "Upgrading…" : agentKind === "chimera" ? "Upgrade to native Chimera" : "Upgrade to native panel",

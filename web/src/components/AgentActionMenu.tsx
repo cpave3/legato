@@ -1,6 +1,7 @@
 import { useState, useRef, useEffect } from "react"
 import { useServer } from "../hooks/useServer"
 import { useToast } from "../hooks/useToast"
+import { useConfirm } from "../hooks/useConfirm"
 import { messageWorker, closeWorker, finishSwarm } from "../lib/swarm"
 import { cn } from "../lib/utils"
 import { MoreHorizontal, MessageSquare, X, Send } from "lucide-react"
@@ -18,6 +19,7 @@ export function AgentActionMenu({
 }) {
   const { baseUrl } = useServer()
   const { addToast } = useToast()
+  const { confirm, dialog: confirmDialog } = useConfirm()
   const [menuOpen, setMenuOpen] = useState(false)
   const [sendOpen, setSendOpen] = useState(false)
   const [finishOpen, setFinishOpen] = useState(false)
@@ -57,7 +59,7 @@ export function AgentActionMenu({
   }
 
   const handleCloseWorker = async () => {
-    if (!confirm(`Close worker ${subtaskId}?`)) return
+    if (!await confirm({ title: "Close worker", message: `Close worker ${subtaskId}?`, confirmLabel: "Close worker", destructive: true })) return
     setError("")
     try {
       await closeWorker(baseUrl, subtaskId)
@@ -125,6 +127,8 @@ export function AgentActionMenu({
           </div>
         )}
       </div>
+
+      {confirmDialog}
 
       {/* Send message modal */}
       {sendOpen && (

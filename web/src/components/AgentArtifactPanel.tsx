@@ -5,6 +5,7 @@ import { useReviewBriefing } from "../hooks/useReviewBriefing"
 import { useProposeMessage } from "../hooks/useProposeMessage"
 import { useServer } from "../hooks/useServer"
 import { useToast } from "../hooks/useToast"
+import { useConfirm } from "../hooks/useConfirm"
 import { buildStandaloneDocument, deleteAgentUIItem, inlineImages, itemImages, type AgentUIItem } from "../lib/agentUi"
 import { briefingPathOf, briefingTabId, briefingTabLabel } from "../lib/reviewBriefing"
 import { AgentUIItemView } from "./AgentUIItemView"
@@ -67,6 +68,7 @@ function itemLabel(item: AgentUIItem): string {
 export function AgentArtifactPanel({ agentId, focus, onFocus, onClose, mobile }: AgentArtifactPanelProps) {
   const { baseUrl } = useServer()
   const toast = useToast()
+  const { confirm, dialog: confirmDialog } = useConfirm()
   const { items, loading: listLoading, error: listError } = useAgentUIItems(agentId)
   // A studio is a tool the person works in, beside what the agent made to be
   // read. It shares this column and nothing else: it is not a tab, and has
@@ -180,7 +182,7 @@ export function AgentArtifactPanel({ agentId, focus, onFocus, onClose, mobile }:
 
   async function remove() {
     if (!selected || busy) return
-    if (!window.confirm(`Remove "${itemLabel(selected)}" and all of its revisions? The agent can show it again.`)) return
+    if (!await confirm({ title: "Remove artifact", message: `Remove "${itemLabel(selected)}" and all of its revisions? The agent can show it again.`, confirmLabel: "Remove artifact", destructive: true })) return
     setBusy(true)
     try {
       await deleteAgentUIItem(baseUrl, selected.id)
@@ -329,6 +331,7 @@ export function AgentArtifactPanel({ agentId, focus, onFocus, onClose, mobile }:
           </div>
         </div>
       )}
+      {confirmDialog}
     </>
   )
 

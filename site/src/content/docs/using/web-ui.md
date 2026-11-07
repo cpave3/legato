@@ -55,7 +55,7 @@ An agent shows in one of two ways:
 
 When a native agent's terminal shows a numbered menu (an update notice, a trust question), the panel draws it as a card with a button for each choice.
 
-The **More actions** menu in the agent's header holds **Refresh from snapshot**, notifications, **Reload agent**, **Disconnect** and **Kill agent**. See [Agents](/legato/using/agents/) for reloading and stopping.
+The **More actions** menu in the agent's header holds **Rename**, **Refresh from snapshot**, notifications, **Reload agent**, **Disconnect** and **Kill agent**. Right-click an agent in the sidebar for the same actions. For an agent you have not opened, the actions that act on the open terminal (refreshing it, prompt detection) are left out. **Rename** renames the agent's task, so it works for local tasks; a task from a provider keeps its title. Asking before **Kill agent**, **Reload agent** and similar actions uses a small dialog in the app, not the browser's. See [Agents](/legato/using/agents/) for reloading and stopping.
 
 To switch agents from the keyboard, hold the switch key and press `1` to `9`. The key is Control on Linux and Alt on a Mac unless you change it in **Settings › Agents**. Press `M` for the agent's macros. A draft you type for one agent is kept when you switch to another.
 

@@ -30,9 +30,12 @@ import { useAgentSelection } from "../hooks/useAgentSelection"
 import { isEditableTarget } from "../hooks/useMacroHotkeys"
 import { useSettings } from "../hooks/useSettings"
 import { useToast } from "../hooks/useToast"
+import { useConfirm } from "../hooks/useConfirm"
+import { RenameAgentDialog } from "../components/RenameAgentDialog"
 import { useAgentContexts } from "../hooks/useAgentContexts"
 import { agentListOrder, formatAgentTime, stateSeconds } from "../lib/agentList"
-import { AgentChatHeader, type AgentChatState, type SidePanel, type SidePanelsProps } from "../components/AgentChatHeader"
+import { AgentChatHeader, type AgentChatState, type AgentMenuEntry, type SidePanel, type SidePanelsProps } from "../components/AgentChatHeader"
+import { Bell, BellOff, Pencil, RefreshCw, RotateCw, Skull, Sparkles, Terminal, Unplug } from "lucide-react"
 import { useTerminalMenu } from "../hooks/useTerminalMenu"
 import { canReloadAgent, reloadAgent } from "../lib/agentReload"
 
@@ -117,6 +120,10 @@ export function AgentsPage() {
     position: { x: number; y: number }
   } | null>(null)
   const { addToast } = useToast()
+  const { confirm, dialog: confirmDialog } = useConfirm()
+  const [renaming, setRenaming] = useState<{ taskId: string; title: string } | null>(null)
+  // The selected native agent's own refresh, for its entry in the context menu.
+  const nativeResyncRef = useRef<(() => void) | null>(null)
   const contexts = useAgentContexts(agents)
   const settings = useSettings()
   const ntfyConfigured = Boolean(settings.data?.ntfy_configured)
@@ -274,27 +281,31 @@ export function AgentsPage() {
     }
   }, [selectedId, send])
 
-  const handleUpgradeChimera = useCallback(async () => {
-    if (!selectedId) return
-    const response = await apiFetch(baseUrl, `/api/agents/${encodeURIComponent(selectedId)}/chimera/discover`, {
+  const upgradeChimeraFor = useCallback(async (taskId: string) => {
+    const response = await apiFetch(baseUrl, `/api/agents/${encodeURIComponent(taskId)}/chimera/discover`, {
       method: "POST",
     })
     if (!response.ok) {
       throw new Error((await response.text()).trim() || "Could not upgrade the agent to the native panel")
     }
     await fetchAgents()
-  }, [selectedId, baseUrl, fetchAgents])
+  }, [baseUrl, fetchAgents])
+  const handleUpgradeChimera = useCallback(async () => {
+    if (selectedId) await upgradeChimeraFor(selectedId)
+  }, [selectedId, upgradeChimeraFor])
 
-  const handleDowngradeChimera = useCallback(async () => {
-    if (!selectedId) return
-    const response = await apiFetch(baseUrl, `/api/agents/${encodeURIComponent(selectedId)}/chimera/downgrade`, {
+  const downgradeChimeraFor = useCallback(async (taskId: string) => {
+    const response = await apiFetch(baseUrl, `/api/agents/${encodeURIComponent(taskId)}/chimera/downgrade`, {
       method: "POST",
     })
     if (!response.ok) {
       throw new Error((await response.text()).trim() || "Could not downgrade the agent to tmux")
     }
     await fetchAgents()
-  }, [selectedId, baseUrl, fetchAgents])
+  }, [baseUrl, fetchAgents])
+  const handleDowngradeChimera = useCallback(async () => {
+    if (selectedId) await downgradeChimeraFor(selectedId)
+  }, [selectedId, downgradeChimeraFor])
 
   const handleDisconnect = useCallback(() => {
     setSelectedId(null)
@@ -303,10 +314,13 @@ export function AgentsPage() {
   }, [setSelectedId])
 
   const killAgent = useCallback(async (taskId: string, role?: string) => {
-    const confirmation = role === "conductor"
-      ? "Cancel this swarm? This kills the conductor and all workers."
-      : "Kill this agent session?"
-    if (!window.confirm(confirmation)) return
+    const swarm = role === "conductor"
+    if (!await confirm({
+      title: swarm ? "Cancel swarm" : "Kill agent",
+      message: swarm ? "Cancel this swarm? This kills the conductor and all workers." : "Kill this agent session?",
+      confirmLabel: swarm ? "Cancel swarm" : "Kill agent",
+      destructive: true,
+    })) return
     localStorage.removeItem(`legato:draft:${taskId}`)
     try {
       const response = await apiFetch(baseUrl, "/api/agents/kill", {
@@ -320,7 +334,7 @@ export function AgentsPage() {
     } catch (error) {
       addToast(error instanceof Error ? error.message : "Failed to kill agent", "error")
     }
-  }, [baseUrl, addToast])
+  }, [baseUrl, addToast, confirm])
 
   const handleKill = useCallback(() => {
     if (selectedId) void killAgent(selectedId, agents.find((agent) => agent.task_id === selectedId)?.role)
@@ -329,11 +343,14 @@ export function AgentsPage() {
   // Stops the selected agent and starts it again, resuming its conversation,
   // so it reads its MCP servers, plugins and hooks afresh. An agent at work is
   // interrupted, so that is asked first.
-  const handleReload = useCallback(async () => {
-    const agent = agents.find((candidate) => candidate.task_id === selectedId)
-    if (!agent) return
+  const reloadFor = useCallback(async (agent: AgentInfo) => {
     if ((agent.activity === "working" || agent.activity === "background") &&
-      !window.confirm("This agent is at work. Reload it anyway? The current turn is stopped.")) return
+      !await confirm({
+        title: "Reload agent",
+        message: "This agent is at work. Reload it anyway? The current turn is stopped.",
+        confirmLabel: "Reload anyway",
+        destructive: true,
+      })) return
     try {
       await reloadAgent(baseUrl, agent.task_id)
       addToast(`Reloaded ${agent.task_id}`, "success")
@@ -341,7 +358,11 @@ export function AgentsPage() {
       addToast(error instanceof Error ? error.message : "The agent could not be reloaded", "error")
     }
     await fetchAgents()
-  }, [agents, selectedId, baseUrl, addToast, fetchAgents])
+  }, [baseUrl, addToast, fetchAgents, confirm])
+  const handleReload = useCallback(async () => {
+    const agent = agents.find((candidate) => candidate.task_id === selectedId)
+    if (agent) await reloadFor(agent)
+  }, [agents, selectedId, reloadFor])
   const canReload = canReloadAgent(agents.find((agent) => agent.task_id === selectedId))
 
   const handleSpawn = useCallback(() => {
@@ -416,16 +437,17 @@ export function AgentsPage() {
     }
   }, [connected, connectionGeneration, inView, interactiveAgentIds, send])
 
-  const handleToggleNotify = useCallback(async () => {
-    if (!selectedId) return
-    const next = !selectedAgent?.notify_enabled
+  const toggleNotifyFor = useCallback(async (agent: AgentInfo) => {
     try {
-      await toggleAgentNotify(baseUrl, selectedId, next)
+      await toggleAgentNotify(baseUrl, agent.task_id, !agent.notify_enabled)
       fetchAgents()
     } catch {
       // ignore
     }
-  }, [selectedId, selectedAgent, baseUrl, fetchAgents])
+  }, [baseUrl, fetchAgents])
+  const handleToggleNotify = useCallback(async () => {
+    if (selectedAgent) await toggleNotifyFor(selectedAgent)
+  }, [selectedAgent, toggleNotifyFor])
 
   // Keyboard agent switching: modifier + digit
   const [modifierHeld, setModifierHeld] = useState(false)
@@ -535,7 +557,14 @@ export function AgentsPage() {
 
   // The More actions menu of a session driven through its terminal, in the
   // header above it.
+  const openRename = useCallback((agent: AgentInfo) => {
+    setRenaming({ taskId: agent.task_id, title: agent.task_title || "" })
+  }, [])
+  const handleRename = useCallback(() => {
+    if (selectedAgent) openRename(selectedAgent)
+  }, [selectedAgent, openRename])
   const terminalMenu = useTerminalMenu({
+    onRename: handleRename,
     agentKind: selectedAgent?.agent_kind,
     onUpgradeChimera: canBeNative(selectedAgent?.agent_kind) ? handleUpgradeChimera : undefined,
     onRefresh: handleRefresh,
@@ -549,6 +578,43 @@ export function AgentsPage() {
     onDisconnect: handleDisconnect,
     onKill: handleKill,
   })
+
+  // What the right-click menu of an agent in the sidebar offers: the entries
+  // of the More actions menu of that agent. The selected agent's own menu is
+  // reused as it stands; for another agent the actions that act on the open
+  // terminal (refreshing it, prompt detection) have nothing to act on, so
+  // what is left are the ones that name the agent by itself.
+  const contextMenuEntries = (agent: AgentInfo): AgentMenuEntry[] => {
+    const isSelected = agent.task_id === selectedId
+    const native = Boolean(agent.has_chimera_endpoint)
+    if (isSelected && !native) return terminalMenu.entries
+    const icon = (Icon: typeof Pencil) => <Icon size={14} />
+    const fail = (error: unknown) => addToast(error instanceof Error ? error.message : String(error), "error")
+    const entries: AgentMenuEntry[] = [{ label: "Rename", icon: icon(Pencil), onSelect: () => openRename(agent) }]
+    if (isSelected && native) {
+      entries.push({ label: "Refresh from snapshot", icon: icon(RefreshCw), onSelect: () => nativeResyncRef.current?.() })
+    }
+    if (ntfyConfigured) {
+      entries.push({
+        label: agent.notify_enabled ? "Disable notify" : "Enable notify",
+        icon: icon(agent.notify_enabled ? Bell : BellOff),
+        onSelect: () => toggleNotifyFor(agent),
+      })
+    }
+    if (native) {
+      entries.push({ label: "Downgrade to tmux", icon: icon(Terminal), onSelect: () => downgradeChimeraFor(agent.task_id).catch(fail) })
+    } else if (canBeNative(agent.agent_kind)) {
+      entries.push({
+        label: agent.agent_kind === "chimera" ? "Upgrade to native Chimera" : "Upgrade to native panel",
+        icon: icon(Sparkles),
+        onSelect: () => upgradeChimeraFor(agent.task_id).catch(fail),
+      })
+    }
+    if (canReloadAgent(agent)) entries.push({ label: "Reload agent", icon: icon(RotateCw), onSelect: () => reloadFor(agent) })
+    if (isSelected) entries.push({ label: "Disconnect", icon: icon(Unplug), onSelect: handleDisconnect })
+    entries.push({ label: "Kill agent", icon: icon(Skull), onSelect: () => killAgent(agent.task_id, agent.role), danger: true })
+    return entries
+  }
   // If the selected agent died, deselect it.
   useEffect(() => {
     if (selectedId && selectedAgent && selectedAgent.status !== "running" && !conductor) {
@@ -703,6 +769,7 @@ export function AgentsPage() {
                       agentKind={agent.agent_kind}
                       composerEnabled={agent.task_id === selectedId}
                       title={agent.task_title}
+                      onRename={() => openRename(agent)}
                       activity={agent.activity}
                       stateTime={formatAgentTime(stateSeconds(agent))}
                       onOpenUIItem={agent.task_id === selectedId ? artifacts.openItem : undefined}
@@ -722,6 +789,8 @@ export function AgentsPage() {
                   agentId={selectedId}
                   sandboxed={selectedAgent?.sandboxed}
                   onKill={handleKill}
+                  onRename={handleRename}
+                  resyncRef={nativeResyncRef}
                   onReload={canReload ? () => { void handleReload() } : undefined}
                   onDisconnect={handleDisconnect}
                   onDowngradeChimera={handleDowngradeChimera}
@@ -805,13 +874,18 @@ export function AgentsPage() {
           agent={agentContextMenu.agent}
           position={agentContextMenu.position}
           onClose={() => setAgentContextMenu(null)}
-          onKill={() => {
-            const taskId = agentContextMenu.agent.task_id
-            setAgentContextMenu(null)
-            void killAgent(taskId, agentContextMenu.agent.role)
-          }}
+          entries={contextMenuEntries(agentContextMenu.agent)}
         />
       )}
+      {renaming && (
+        <RenameAgentDialog
+          taskId={renaming.taskId}
+          title={renaming.title}
+          onRenamed={() => { void fetchAgents() }}
+          onClose={() => setRenaming(null)}
+        />
+      )}
+      {confirmDialog}
 
       {/* Right sidebar: swarm event log for swarm participants */}
       {selectedParentId && (isMobile ? (

@@ -29,7 +29,7 @@ describe("AgentContextMenu", () => {
       <AgentContextMenu
         agent={agent}
         position={{ x: 999, y: 999 }}
-        onKill={() => {}}
+        entries={[{ label: "Kill agent", onSelect: () => {}, danger: true }]}
         onClose={() => {}}
       />,
     )
@@ -37,7 +37,7 @@ describe("AgentContextMenu", () => {
     const menu = screen.getByRole("menu", { name: "Actions for TASK-42" })
     const kill = screen.getByRole("menuitem", { name: "Kill agent" })
     expect(menu.style.left).toBe("72px")
-    expect(menu.style.top).toBe("96px")
+    expect(menu.style.top).toBe("108px")
     await waitFor(() => expect(document.activeElement).toBe(kill))
   })
 
@@ -47,7 +47,7 @@ describe("AgentContextMenu", () => {
       <AgentContextMenu
         agent={agent}
         position={{ x: 10, y: 10 }}
-        onKill={onKill}
+        entries={[{ label: "Kill agent", onSelect: onKill, danger: true }]}
         onClose={() => {}}
       />,
     )
@@ -59,13 +59,41 @@ describe("AgentContextMenu", () => {
     expect(onKill).toHaveBeenCalledTimes(1)
   })
 
+  it("lists every entry, moves focus with the arrow keys and closes after a selection", () => {
+    const rename = vi.fn()
+    const onClose = vi.fn()
+    render(
+      <AgentContextMenu
+        agent={agent}
+        position={{ x: 10, y: 10 }}
+        entries={[
+          { label: "Rename", onSelect: rename },
+          { label: "Reload agent", onSelect: () => {} },
+          { label: "Kill agent", onSelect: () => {}, danger: true },
+        ]}
+        onClose={onClose}
+      />,
+    )
+    const items = screen.getAllByRole("menuitem")
+    expect(items.map((item) => item.textContent)).toEqual(["Rename", "Reload agent", "Kill agent"])
+    expect(document.activeElement).toBe(items[0])
+    fireEvent.keyDown(window, { key: "ArrowDown" })
+    expect(document.activeElement).toBe(items[1])
+    fireEvent.keyDown(window, { key: "ArrowUp" })
+    fireEvent.keyDown(window, { key: "ArrowUp" })
+    expect(document.activeElement).toBe(items[2])
+    fireEvent.click(items[0])
+    expect(rename).toHaveBeenCalledTimes(1)
+    expect(onClose).toHaveBeenCalledTimes(1)
+  })
+
   it("dismisses with Escape, outside pointer-down, external scroll, or resize", () => {
     const onClose = vi.fn()
     const { rerender } = render(
       <AgentContextMenu
         agent={agent}
         position={{ x: 10, y: 10 }}
-        onKill={() => {}}
+        entries={[]}
         onClose={onClose}
       />,
     )
@@ -81,7 +109,7 @@ describe("AgentContextMenu", () => {
       <AgentContextMenu
         agent={agent}
         position={{ x: 10, y: 10 }}
-        onKill={() => {}}
+        entries={[]}
         onClose={onClose}
       />,
     )
