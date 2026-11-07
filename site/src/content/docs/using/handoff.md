@@ -75,7 +75,7 @@ Select a row, as you select a card, to see the task in the panel beside the boar
 
 ### While its pull requests are reviewed
 
-On a worker that runs review passes (see [Review passes](/legato/reference/configuration/#review-passes)), a task is not done when its agent finishes: a reviewer reviews its pull requests first, and the agent works through what it finds. The row then shows the review in place of the agent:
+On a worker that runs [review passes](/legato/using/review-passes/), a task is not done when its agent finishes: a reviewer reviews its pull requests first, and the agent works through what it finds. The row then shows the review in place of the agent:
 
 - **Reviewing · pass 2** while a reviewer works, or **Waiting for a reviewer** while the worker's reviewers are busy;
 - **Author fixing · 3 blocking, 1 comment** while the agent answers the findings and comments;

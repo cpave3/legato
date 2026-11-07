@@ -88,6 +88,16 @@ A review pass with no blocking finding and no open ruling. It approves the pull 
 A comment on a pull request that the author must answer: from the repository's owners, members or collaborators, or from a listed bot.
 _Avoid_: feedback comment
 
+**Counted check**:
+A check a pull request must pass before its handoff is done: one branch protection requires on its base, else one the worker lists.
+_Avoid_: required CI, gate
+
+**Feedback item**:
+One thing the author must handle after a review pass: a finding, a counted comment or a failing counted check, each with its ID and the author's answer.
+
+**Reviewer App**:
+The second GitHub App a worker posts reviews as. Only Legato holds its credential; no agent is given it.
+
 ### Engrams
 
 **Engram**:

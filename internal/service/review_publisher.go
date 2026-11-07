@@ -26,6 +26,9 @@ const (
 const (
 	opReviewPost = "pr.review"
 	opReviewRead = "pr.read"
+	// opReviewProtection reads branch protection, with administration
+	// read, which a reviewer App need not have.
+	opReviewProtection = "pr.protection"
 	opAuthorPost = "pr.write"
 )
 

@@ -1,7 +1,8 @@
 # The reviewer of review passes: a second GitHub App, whose approval of a
 # handoff's pull requests counts toward branch protection. The person
 # creates it (pull requests read and write, contents read and write,
-# metadata read), installs it on the repositories, and gives Legato its
+# checks, commit statuses and actions read, metadata read; administration
+# read optionally, to read branch protection's required checks), installs it on the repositories, and gives Legato its
 # private key. It is Legato's own: no agent is ever given it, it has no git
 # host, no channel and no route, and Legato's host side posts reviews,
 # rulings and thread replies, and polls pull requests, each with a token
@@ -38,5 +39,9 @@ permissions:
   # Posting a review, a thread reply, a ruling, resolving a thread. An App's
   # approval counts toward required reviews with contents: write.
   pr.review: { pull_requests: write, contents: write, metadata: read }
+  # Reading branch protection's required checks. Optional: an App without
+  # administration read is refused this token, and Legato counts
+  # review_passes.required_checks instead.
+  pr.protection: { administration: read, metadata: read }
 policy:
   - { approve: deny }

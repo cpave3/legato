@@ -32,12 +32,7 @@ type CheckResult struct {
 // protection requires on its base, else the configured ones, each pending
 // until it reports.
 func (p *ReviewPublisher) Checks(ctx context.Context, repo, base, head string, configured []string) ([]CheckResult, error) {
-	call, release, err := p.open(ctx, AsReviewer, repo, false)
-	if err != nil {
-		return nil, err
-	}
-	defer release()
-	required, err := p.requiredChecks(ctx, call, repo, base)
+	required, err := p.requiredChecks(ctx, repo, base)
 	if err != nil {
 		return nil, err
 	}
@@ -47,6 +42,11 @@ func (p *ReviewPublisher) Checks(ctx context.Context, repo, base, head string, c
 	if len(required) == 0 {
 		return nil, nil
 	}
+	call, release, err := p.open(ctx, AsReviewer, repo, false)
+	if err != nil {
+		return nil, err
+	}
+	defer release()
 	var runs struct {
 		CheckRuns []struct {
 			ID         int64  `json:"id"`
@@ -118,16 +118,33 @@ func (p *ReviewPublisher) Checks(ctx context.Context, repo, base, head string, c
 	return out, nil
 }
 
-// requiredChecks are the checks branch protection requires on base; none
-// when the branch is not protected or the App may not read it.
-func (p *ReviewPublisher) requiredChecks(ctx context.Context, call *githubCall, repo, base string) ([]string, error) {
-	var found struct {
+// requiredChecks are the checks branch protection requires on base, read
+// with a token of their own (administration read); none when the branch is
+// not protected or the App may not read it.
+func (p *ReviewPublisher) requiredChecks(ctx context.Context, repo, base string) ([]string, error) {
+	found, ok := p.channels.broker.lookup(ctx, p.reviewer)
+	if !ok || found.jwt == nil || found.upstream == nil {
+		return nil, fmt.Errorf("no reviewer GitHub credential named %q", p.reviewer)
+	}
+	token, release, err := p.channels.githubToken(ctx, found, repo, opReviewProtection)
+	if err != nil {
+		var gh *GitHubError
+		if errors.As(err, &gh) && gh.RateLimited {
+			return nil, err
+		}
+		return nil, nil // the App may not read branch protection
+	}
+	if release != nil {
+		defer release()
+	}
+	call := &githubCall{p: p, bc: found, token: token}
+	var protection struct {
 		Contexts []string `json:"contexts"`
 		Checks   []struct {
 			Context string `json:"context"`
 		} `json:"checks"`
 	}
-	err := call.do(ctx, http.MethodGet, fmt.Sprintf("/repos/%s/branches/%s/protection/required_status_checks", repo, url.PathEscape(base)), nil, &found)
+	err = call.do(ctx, http.MethodGet, fmt.Sprintf("/repos/%s/branches/%s/protection/required_status_checks", repo, url.PathEscape(base)), nil, &protection)
 	var gh *GitHubError
 	if errors.As(err, &gh) && !gh.RateLimited && (gh.Status == http.StatusNotFound || gh.Status == http.StatusForbidden) {
 		return nil, nil
@@ -137,13 +154,13 @@ func (p *ReviewPublisher) requiredChecks(ctx context.Context, call *githubCall, 
 	}
 	seen := map[string]bool{}
 	var names []string
-	for _, c := range found.Checks {
+	for _, c := range protection.Checks {
 		if !seen[c.Context] {
 			seen[c.Context] = true
 			names = append(names, c.Context)
 		}
 	}
-	for _, c := range found.Contexts {
+	for _, c := range protection.Contexts {
 		if !seen[c] {
 			seen[c] = true
 			names = append(names, c)

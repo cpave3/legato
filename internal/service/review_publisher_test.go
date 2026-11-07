@@ -48,10 +48,10 @@ type reviewGitHub struct {
 	notModified int
 	limitLists  bool
 	threadReads int
-	// checkRuns are each head's check runs; noProtection makes the base
-	// branch unprotected.
-	checkRuns    map[string]string
-	noProtection bool
+	// checkRuns are each head's check runs; noAdministration is an App
+	// without the permission to read branch protection.
+	checkRuns        map[string]string
+	noAdministration bool
 }
 
 const reviewPatch = "@@ -1,3 +1,4 @@\n package main\n-import \"fmt\"\n+import \"os\"\n+\n func main() {\n@@ -20,2 +21,3 @@ func helper() {\n \treturn\n+\t// done\n }"
@@ -69,6 +69,11 @@ func newReviewGitHub(t *testing.T) *reviewGitHub {
 		case r.URL.Path == "/app/installations/7/access_tokens":
 			var body map[string]any
 			_ = json.NewDecoder(r.Body).Decode(&body)
+			if asked, _ := body["permissions"].(map[string]any); g.noAdministration && asked["administration"] != nil {
+				w.WriteHeader(422)
+				_, _ = io.WriteString(w, `{"message":"The permissions requested are not granted to this installation."}`)
+				break
+			}
 			token := fmt.Sprintf("ghs_%d", len(g.tokens)+len(g.revoked)+1)
 			g.tokens[token], _ = body["permissions"].(map[string]any)
 			w.WriteHeader(201)
@@ -106,9 +111,9 @@ func newReviewGitHub(t *testing.T) *reviewGitHub {
 			w.Header().Set("ETag", etag)
 			_, _ = io.WriteString(w, body)
 		case r.Method == "GET" && r.URL.Path == "/repos/cpave3/legato/branches/main/protection/required_status_checks":
-			if g.noProtection {
-				w.WriteHeader(404)
-				_, _ = io.WriteString(w, `{"message":"Branch not protected"}`)
+			if perms["administration"] != "read" {
+				w.WriteHeader(403)
+				_, _ = io.WriteString(w, `{"message":"Resource not accessible by integration"}`)
 				break
 			}
 			_, _ = io.WriteString(w, `{"contexts":["build"],"checks":[{"context":"build"},{"context":"lint"}]}`)
@@ -521,8 +526,11 @@ func TestRequiredChecksAreReadFromTheBaseBranchsProtection(t *testing.T) {
 		t.Fatalf("on a new head: %+v", checks)
 	}
 
-	// Without protection, the configured list counts.
-	f.github.noProtection = true
+	// An App that may not read branch protection counts the configured
+	// list.
+	runs := f.github.checkRuns
+	f = newPublisherFixture(t)
+	f.github.checkRuns, f.github.noAdministration = runs, true
 	checks, err = f.publisher.Checks(ctx, "cpave3/legato", "main", "aaa", []string{"docs", "ci/legacy", "e2e"})
 	if err != nil || len(checks) != 3 || checks[0].State != CheckFailing || checks[1].State != CheckPassing || checks[2].State != CheckPending {
 		t.Fatalf("configured checks %+v, %v", checks, err)
