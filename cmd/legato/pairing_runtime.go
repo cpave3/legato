@@ -62,6 +62,7 @@ func wirePairing(srv *server.Server, cfg *config.Config, db *store.Store, caCert
 	// Asked at every /api/meta: the configuration and bwrap on PATH, not the
 	// whole sandbox plan.
 	srv.SetSandboxAvailable(func() bool { return sandboxAvailable(cfg) })
+	srv.SetReviewPasses(reviewPassesAdvert(cfg))
 	srv.SetWorkers(main.workers)
 	srv.SetMainHandoffs(main.handoffs)
 }

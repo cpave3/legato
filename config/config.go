@@ -59,6 +59,8 @@ type Config struct {
 	Manticore          ManticoreConfig          `yaml:"manticore"`
 	// Integrations are services outside Legato that hand work to agents.
 	Integrations IntegrationsConfig `yaml:"integrations"`
+	// ReviewPasses are a worker's review loop for make-a-change handoffs.
+	ReviewPasses ReviewPassesConfig `yaml:"review_passes"`
 }
 
 // ManticoreConfig names the Manticore instance that Claude Code sessions
@@ -491,6 +493,9 @@ func Load() (*Config, error) {
 	if err := normalizeCredentials(cfg); err != nil {
 		return nil, err
 	}
+	if err := ValidateReviewPasses(cfg); err != nil {
+		return nil, err
+	}
 	if cfg.Web.PublicURL != "" {
 		if u, err := url.Parse(cfg.Web.PublicURL); err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
 			return nil, fmt.Errorf("web.public_url %q: want an http or https address", cfg.Web.PublicURL)
@@ -788,6 +793,7 @@ func defaults() *Config {
 			StatusSyncEnabled:   true,
 			Columns:             defaultBurnliteColumns,
 		},
+		ReviewPasses: defaultReviewPasses(),
 		Board: BoardConfig{
 			Columns: DefaultColumns(),
 		},

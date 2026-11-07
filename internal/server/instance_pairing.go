@@ -34,7 +34,9 @@ type instanceDeps struct {
 	workers    Workers
 	instanceID func(context.Context) (string, error)
 	sandbox    func() bool
-	handoffs   TaskHandoffs
+	// reviewPasses is the review passes advertisement, nil when off.
+	reviewPasses func() *service.ReviewPassesAdvert
+	handoffs     TaskHandoffs
 	// mainHandoffs is this Legato as a main: handing its tasks off.
 	mainHandoffs MainHandoffs
 	// reauthEvery is how often an Events connection checks its main's
@@ -55,6 +57,12 @@ func (s *Server) SetWorkers(w Workers) { s.instances.workers = w }
 // handoff routes answer with.
 func (s *Server) SetInstanceID(id func(context.Context) (string, error)) { s.instances.instanceID = id }
 
+// SetReviewPasses tells /api/meta this worker's review passes; advert
+// returns nil while they are off.
+func (s *Server) SetReviewPasses(advert func() *service.ReviewPassesAdvert) {
+	s.instances.reviewPasses = advert
+}
+
 // SetSandboxAvailable tells /api/meta whether agents can run in Legato's
 // sandbox here, which a main checks before it hands work to this worker.
 func (s *Server) SetSandboxAvailable(available func() bool) { s.instances.sandbox = available }
@@ -68,6 +76,9 @@ type HandoffMeta struct {
 	HandoffPairing int   `json:"handoff_pairing,omitempty"`
 	Handoff        int   `json:"handoff,omitempty"`
 	Sandbox        *bool `json:"sandbox,omitempty"`
+	// ReviewPasses is set when this worker runs review passes on
+	// make-a-change handoffs: its defaults, and what a main may choose.
+	ReviewPasses *service.ReviewPassesAdvert `json:"review_passes,omitempty"`
 }
 
 // handoffMeta adds to /api/meta what a main checks before it pairs or hands
@@ -76,6 +87,9 @@ type HandoffMeta struct {
 func (s *Server) handoffMeta(meta *MobileMetaResponse) {
 	if s.pairing == nil || !s.pairing.MainsAllowed() {
 		return
+	}
+	if s.instances.reviewPasses != nil {
+		meta.ReviewPasses = s.instances.reviewPasses()
 	}
 	meta.HandoffPairing = 1
 	meta.Handoff = service.HandoffProtocolVersion
