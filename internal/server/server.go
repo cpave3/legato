@@ -525,14 +525,16 @@ func (s *Server) settingsHandler() http.HandlerFunc {
 		w.Header().Set("Content-Type", "application/json")
 		hasCACert := s.caCertPath != ""
 		resp := struct {
-			CaCertAvailable          bool                              `json:"ca_cert_available"`
-			WorkingDir               string                            `json:"working_dir"`
-			NtfyConfigured           bool                              `json:"ntfy_configured"`
-			VoiceEnabled             bool                              `json:"voice_enabled"`
-			WorktreesEnabled         bool                              `json:"worktrees_enabled"`
-			SandboxEnabled           bool                              `json:"sandbox_enabled"`
-			FreshClonesEnabled       bool                              `json:"fresh_clones_enabled"`
-			HotReloadEnabled         bool                              `json:"hot_reload_enabled"`
+			CaCertAvailable    bool   `json:"ca_cert_available"`
+			WorkingDir         string `json:"working_dir"`
+			NtfyConfigured     bool   `json:"ntfy_configured"`
+			VoiceEnabled       bool   `json:"voice_enabled"`
+			WorktreesEnabled   bool   `json:"worktrees_enabled"`
+			SandboxEnabled     bool   `json:"sandbox_enabled"`
+			FreshClonesEnabled bool   `json:"fresh_clones_enabled"`
+			HotReloadEnabled   bool   `json:"hot_reload_enabled"`
+			// SwarmEnabled: the server has a swarm service (swarm.enabled).
+			SwarmEnabled             bool                              `json:"swarm_enabled"`
 			DefaultWorkspaceID       *int                              `json:"default_workspace_id"`
 			DefaultImportWorkspaceID *int                              `json:"default_import_workspace_id"`
 			Repositories             []workflowengine.RepositoryPreset `json:"repositories"`
@@ -551,6 +553,7 @@ func (s *Server) settingsHandler() http.HandlerFunc {
 			SandboxEnabled:           s.sandboxEnabled,
 			FreshClonesEnabled:       s.freshClonesEnabled,
 			HotReloadEnabled:         s.hotReloadBuildTrigger != nil,
+			SwarmEnabled:             s.swarm != nil,
 			DefaultWorkspaceID:       s.defaultWorkspaceID,
 			DefaultImportWorkspaceID: s.defaultImportWorkspaceID,
 			Repositories:             s.repositories(r.Context()),

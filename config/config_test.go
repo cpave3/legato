@@ -509,6 +509,25 @@ func TestWorkspacesEmpty(t *testing.T) {
 	}
 }
 
+func TestSwarmIsDisabledUnlessEnabled(t *testing.T) {
+	writeTestConfig(t, "swarm:\n  max_steps_per_plan: 7\n")
+	cfg, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Swarm.Enabled {
+		t.Error("swarm.enabled defaults to true, want false")
+	}
+	writeTestConfig(t, "swarm:\n  enabled: true\n")
+	cfg, err = Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.Swarm.Enabled {
+		t.Error("swarm.enabled: true was not read")
+	}
+}
+
 func TestSwarmMaxStepsPerPlanParsed(t *testing.T) {
 	writeTestConfig(t, `
 swarm:

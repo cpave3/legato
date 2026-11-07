@@ -200,6 +200,10 @@ type SwarmParticipantConfig struct {
 
 // SwarmConfig holds swarm-orchestration settings.
 type SwarmConfig struct {
+	// Enabled turns the swarm features on: the conductor and worker agents,
+	// the `legato swarm` commands, the /api/swarm endpoints and the swarm
+	// controls of the TUI and the web UI. Off by default.
+	Enabled bool `yaml:"enabled"`
 	// MaxConcurrentAgents caps the number of live workers per swarm.
 	// Zero or negative falls back to 4 at runtime.
 	MaxConcurrentAgents int `yaml:"max_concurrent_agents"`

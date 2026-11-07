@@ -196,17 +196,18 @@ describe("AgentArtifactPanel", () => {
 
   it("removes an artifact only after the person confirms", async () => {
     const fetchMock = mockAPI([design])
-    const confirm = vi.spyOn(window, "confirm").mockReturnValue(false)
     render(<AgentArtifactPanel agentId="task-1" focus={{ itemId: "ui-aaaaaaaaaa", revision: 0 }} onFocus={() => {}} onClose={() => {}} mobile={false} />, { wrapper })
     await screen.findByRole("heading", { name: "Design, second draft" })
     const deletes = () => fetchMock.mock.calls.filter(([, init]) => init?.method === "DELETE")
 
     fireEvent.click(screen.getByRole("button", { name: "Remove" }))
-    expect(confirm).toHaveBeenCalledTimes(1)
+    expect(screen.getByRole("dialog", { name: "Remove artifact" })).toBeTruthy()
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }))
+    expect(screen.queryByRole("dialog", { name: "Remove artifact" })).toBeNull()
     expect(deletes()).toHaveLength(0)
 
-    confirm.mockReturnValue(true)
     fireEvent.click(screen.getByRole("button", { name: "Remove" }))
+    fireEvent.click(screen.getByRole("button", { name: "Remove artifact" }))
     await waitFor(() => expect(deletes()).toHaveLength(1))
     expect(String(deletes()[0][0])).toContain("/api/ui-items/ui-aaaaaaaaaa")
   })

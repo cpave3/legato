@@ -1,5 +1,7 @@
 ## Swarm
 
+Everything here sits behind `swarm.enabled` (default `false`, see [Configuration](config.md)): without it no `SwarmService` exists and the CLI, HTTP, TUI and web entry points refuse or hide themselves.
+
 ## Reporting executions
 
 A swarm conductor and every worker are distinct durable executions. All attribute activity to the parent task while retaining `swarm_id` and worker `swarm_subtask_id`. Active time is additive across these executions and can exceed swarm wall-clock time; parallel ratio is total active+waiting execution time divided by the union wall clock. Completion, cancellation, spawn failure, and reconciliation terminalize each execution before operational session cleanup.

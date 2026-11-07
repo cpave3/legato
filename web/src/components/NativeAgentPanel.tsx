@@ -1,5 +1,5 @@
 import { useState, useEffect, useCallback, useRef, useMemo, memo } from "react"
-import { ArrowDown, ArrowLeftRight, Check, Zap, RefreshCw, RotateCw, Unplug, Skull, Bell, BellOff, Terminal } from "lucide-react"
+import { ArrowDown, ArrowLeftRight, Check, Pencil, Zap, RefreshCw, RotateCw, Unplug, Skull, Bell, BellOff, Terminal } from "lucide-react"
 import { useWebSocket, type PromptState, type WSMessage } from "../hooks/useWebSocket"
 import { useServer } from "../hooks/useServer"
 import { useMacroHotkeys } from "../hooks/useMacroHotkeys"
@@ -190,6 +190,10 @@ interface NativeAgentPanelProps {
   sandboxed?: boolean
   onClickTerminal?: () => void
   onKill?: () => void
+  // Names the agent: opens the rename dialog.
+  onRename?: () => void
+  // Set to this panel's refresh from the snapshot, for a menu outside it.
+  resyncRef?: { current: (() => void) | null }
   // Stops the agent and starts it again, resuming its conversation.
   onReload?: () => void
   onDisconnect?: () => void
@@ -214,7 +218,7 @@ interface NativeAgentPanelProps {
   pullRequest?: number
 }
 
-export function NativeAgentPanel({ agentId, sandboxed, onKill, onReload, onDisconnect, onDowngradeChimera, ntfyConfigured, notifyEnabled, onToggleNotify, voiceEnabled, agentKind, composerEnabled = true, onOpenUIItem, panels, title, activity, stateTime, pullRequest }: NativeAgentPanelProps) {
+export function NativeAgentPanel({ agentId, sandboxed, onKill, onRename, resyncRef, onReload, onDisconnect, onDowngradeChimera, ntfyConfigured, notifyEnabled, onToggleNotify, voiceEnabled, agentKind, composerEnabled = true, onOpenUIItem, panels, title, activity, stateTime, pullRequest }: NativeAgentPanelProps) {
   const { send, subscribe, connected } = useWebSocket()
   // Out of view the panel stops following the agent and catches up from its
   // cursor on return, so a phone with its screen off does not keep receiving
@@ -461,6 +465,11 @@ export function NativeAgentPanel({ agentId, sandboxed, onKill, onReload, onDisco
       }
     }
   }, [agentId, baseUrl, replaceSyncState])
+  useEffect(() => {
+    if (!resyncRef) return
+    resyncRef.current = () => { void resync() }
+    return () => { resyncRef.current = null }
+  }, [resyncRef, resync])
   // Picking the agent that is already open asks for a fresh view of it.
   useAgentReselected(agentId, resync)
 
@@ -836,6 +845,7 @@ export function NativeAgentPanel({ agentId, sandboxed, onKill, onReload, onDisco
     : activity === "background" ? "background"
     : "idle"
   const menu: AgentMenuEntry[] = [
+    ...(onRename ? [{ label: "Rename", icon: <Pencil size={12} />, onSelect: onRename }] : []),
     { label: loading ? "Refreshing…" : "Refresh from snapshot", icon: <RefreshCw size={12} className={loading ? "animate-spin" : ""} />, onSelect: () => { void resync() }, disabled: loading },
     ...(ntfyConfigured && onToggleNotify ? [{ label: notifyEnabled ? "Disable notify" : "Enable notify", icon: notifyEnabled ? <Bell size={12} /> : <BellOff size={12} />, onSelect: onToggleNotify }] : []),
     ...(onDowngradeChimera ? [{

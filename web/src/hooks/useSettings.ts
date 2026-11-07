@@ -22,6 +22,8 @@ export interface Settings {
   // The spawn dialog offers a fresh clone of a repository (repository_cache.enabled).
   fresh_clones_enabled?: boolean
   hot_reload_enabled: boolean
+  // Swarm features are on (swarm.enabled); off by default and absent from an older server.
+  swarm_enabled?: boolean
   working_dir: string
   default_workspace_id: number | null
   default_import_workspace_id: number | null

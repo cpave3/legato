@@ -1,24 +1,28 @@
 import { useEffect, useRef } from "react"
-import { Skull } from "lucide-react"
 import type { AgentInfo } from "../hooks/useWebSocket"
+import { cn } from "../lib/utils"
+import type { AgentMenuEntry } from "./AgentChatHeader"
 
 const menuWidth = 240
-const menuHeight = 96
+const itemHeight = 40
+const headerHeight = 36
 const viewportGap = 8
 
 export function AgentContextMenu({
   agent,
   position,
-  onKill,
+  entries,
   onClose,
 }: {
   agent: AgentInfo
   position: { x: number; y: number }
-  onKill: () => void
+  // The same entries as the agent's More actions menu.
+  entries: AgentMenuEntry[]
   onClose: () => void
 }) {
   const menuRef = useRef<HTMLDivElement>(null)
   const left = Math.max(viewportGap, Math.min(position.x, window.innerWidth - menuWidth - viewportGap))
+  const menuHeight = headerHeight + entries.length * itemHeight + 8
   const top = Math.max(viewportGap, Math.min(position.y, window.innerHeight - menuHeight - viewportGap))
 
   useEffect(() => {
@@ -34,7 +38,11 @@ export function AgentContextMenu({
       }
       if (event.key !== "ArrowDown" && event.key !== "ArrowUp") return
       event.preventDefault()
-      menuRef.current?.querySelector<HTMLButtonElement>("[role=menuitem]")?.focus()
+      const items = Array.from(menuRef.current?.querySelectorAll<HTMLButtonElement>("[role=menuitem]:not(:disabled)") ?? [])
+      if (items.length === 0) return
+      const at = items.indexOf(document.activeElement as HTMLButtonElement)
+      const next = at < 0 ? 0 : (at + (event.key === "ArrowDown" ? 1 : -1) + items.length) % items.length
+      items[next].focus()
     }
     const scroll = (event: Event) => {
       const target = event.target
@@ -68,15 +76,24 @@ export function AgentContextMenu({
         <p className="truncate border-b border-zinc-800 px-3 py-2 text-xs text-zinc-500">
           {agent.task_id}{agent.task_title ? ` · ${agent.task_title}` : ""}
         </p>
-        <button
-          type="button"
-          role="menuitem"
-          onClick={onKill}
-          className="flex min-h-10 w-full items-center gap-3 rounded px-3 text-left text-sm text-red-300 hover:bg-zinc-800 focus:bg-zinc-800 focus:outline-none"
-        >
-          <Skull size={16} />
-          <span>Kill agent</span>
-        </button>
+        {entries.map((entry) => (
+          <div key={entry.label}>
+            {entry.danger && <div className="my-1 border-t border-zinc-800" />}
+            <button
+              type="button"
+              role="menuitem"
+              disabled={entry.disabled}
+              onClick={() => { onClose(); void entry.onSelect() }}
+              className={cn(
+                "flex min-h-10 w-full items-center gap-3 rounded px-3 text-left text-sm hover:bg-zinc-800 focus:bg-zinc-800 focus:outline-none disabled:opacity-50",
+                entry.danger ? "text-red-300" : "text-zinc-200",
+              )}
+            >
+              {entry.icon}
+              <span>{entry.label}</span>
+            </button>
+          </div>
+        ))}
       </div>
     </div>
   )
