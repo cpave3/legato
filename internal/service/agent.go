@@ -73,8 +73,11 @@ type AgentSession struct {
 	// Sandboxed is true when the agent runs in Legato's sandbox.
 	Sandboxed bool
 	// Slot is the task's agent slot it runs in: "main", or a named slot
-	// such as "reviewer".
+	// such as "reviewer". A named slot's row has the agent ID
+	// <task>_<slot> as TaskID, so every action on the row reaches it.
 	Slot string
+	// CardTaskID is the task the agent's slot belongs to.
+	CardTaskID string
 }
 
 // AgentPeer describes one live, routable agent sharing a Git worktree.
@@ -1378,8 +1381,11 @@ func (a *agentService) DefaultAdapter() string {
 	return a.adapter.Name()
 }
 
+// KillAgent stops the agent of an agent ID: the task's main slot's, or a
+// named slot's (<task>_<slot>).
 func (a *agentService) KillAgent(ctx context.Context, taskID string) error {
-	return a.stopAgent(ctx, taskID, true)
+	taskID, slot := SplitAgentID(taskID)
+	return a.stopAgentInSlot(ctx, taskID, slot, true)
 }
 
 // stopAgent ends the agent of taskID. announce says whether the agent has
@@ -1508,6 +1514,11 @@ func (a *agentService) ListAgents(ctx context.Context) ([]AgentSession, error) {
 			NotifyEnabled:     notifyEnabled,
 			Sandboxed:         s.Sandboxed,
 			Slot:              s.Slot,
+			CardTaskID:        s.TaskID,
+		}
+		if IsNamedSlot(s.Slot) {
+			result[i].TaskID = AgentSlotKey(s.TaskID, s.Slot)
+			result[i].Title = strings.TrimSpace(title + " · " + s.Slot)
 		}
 
 		// Hydrate subtask metadata for swarm workers.

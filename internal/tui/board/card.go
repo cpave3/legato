@@ -33,6 +33,9 @@ type CardData struct {
 	// Away is set when the task is away on a worker instance: it stays in
 	// the column it left, and only the worker can change it.
 	Away *service.AwayTask
+	// SlotAgents are the task's running named slots (a reviewer), each a
+	// chip on the strip beside the main slot's state.
+	SlotAgents []service.SlotAgentSummary
 }
 
 // AwayRefusal is what the TUI says when the person tries to change a task
@@ -110,6 +113,39 @@ type agentStrip struct {
 // stripFor returns the strip of a card, and false for a card with nothing to
 // report: no agent now and none before.
 func stripFor(card CardData, icons theme.Icons) (agentStrip, bool) {
+	strip, ok := mainStripFor(card, icons)
+	if len(card.SlotAgents) == 0 || card.Away != nil {
+		return strip, ok
+	}
+	chips := make([]string, 0, len(card.SlotAgents))
+	for _, slot := range card.SlotAgents {
+		chips = append(chips, slot.Slot+" · "+slotStateText(slot.State))
+	}
+	if !ok {
+		strip = agentStrip{state: "", mark: icons.AgentIdle}
+	}
+	if strip.text != "" {
+		strip.text += "  "
+	}
+	strip.text += "[" + strings.Join(chips, "] [") + "]"
+	return strip, true
+}
+
+// slotStateText is how a chip names a slot's agent's state.
+func slotStateText(state string) string {
+	switch state {
+	case "working":
+		return "running"
+	case "waiting":
+		return "needs you"
+	case "":
+		return "idle"
+	}
+	return state
+}
+
+// mainStripFor is the strip of the card's main slot.
+func mainStripFor(card CardData, icons theme.Icons) (agentStrip, bool) {
 	if card.Away != nil {
 		// No agent runs here for an away task; its strip says where it is.
 		state := ""

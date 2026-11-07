@@ -3,9 +3,9 @@ package service
 import (
 	"context"
 
-	"github.com/cpave3/legato/internal/engine/store"
 	"errors"
 	"fmt"
+	"github.com/cpave3/legato/internal/engine/store"
 	"os"
 	"path/filepath"
 )

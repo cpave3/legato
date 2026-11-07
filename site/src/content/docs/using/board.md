@@ -60,7 +60,7 @@ The agent strip shows the agent's state and how long it has been in it:
 | error | The agent stopped on an error. |
 | mixed (TUI), Agents disagree (web) | The task's agents are in different states. |
 
-`ready for review` replaces `idle` when the agent marked its review tour ready. A card with no live agent shows the time agents spent on it. The web UI also names the agent tool in the strip, and draws a moving light round the edge of a card whose agent is live. You can turn that light off in **Settings › Appearance**.
+`ready for review` replaces `idle` when the agent marked its review tour ready. When Legato runs a second agent on the task, such as a reviewer, the strip adds a chip for it, `reviewer · running`, and says `needs you` when either agent waits for you. A card with no live agent shows the time agents spent on it. The web UI also names the agent tool in the strip, and draws a moving light round the edge of a card whose agent is live. You can turn that light off in **Settings › Appearance**.
 
 To link a pull request to a task, press `p`. Legato also finds pull requests by itself; see [GitHub](/legato/integrations/github/).
 

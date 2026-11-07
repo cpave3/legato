@@ -55,8 +55,14 @@ func (s *Server) sparklineParams() (time.Duration, int) {
 
 // AgentResponse is the JSON representation of an agent session.
 type AgentResponse struct {
-	ID                 int        `json:"id"`
-	TaskID             string     `json:"task_id"`
+	ID int `json:"id"`
+	// TaskID is the agent's address: the task's ID for its main slot,
+	// <task>_<slot> for a named slot (a reviewer), which every agent route
+	// and WebSocket message takes.
+	TaskID string `json:"task_id"`
+	// CardTaskID is the task the agent's slot belongs to; Slot its slot.
+	CardTaskID         string     `json:"card_task_id,omitempty"`
+	Slot               string     `json:"slot,omitempty"`
 	ExecutionID        string     `json:"execution_id,omitempty"`
 	AttributionTaskID  string     `json:"attribution_task_id"`
 	ExecutionKind      string     `json:"execution_kind,omitempty"`
@@ -97,7 +103,7 @@ func agentResponse(agent service.AgentSession) AgentResponse {
 		Command: agent.Command, AgentKind: agent.AgentKind, Status: agent.Status,
 		Activity: agent.Activity, Role: agent.Role, ParentTaskID: agent.ParentTaskID,
 		SubtaskID: agent.SubtaskID, StartedAt: agent.StartedAt, EndedAt: agent.EndedAt,
-		Sandboxed: agent.Sandboxed,
+		Sandboxed: agent.Sandboxed, CardTaskID: agent.CardTaskID, Slot: agent.Slot,
 	}
 }
 

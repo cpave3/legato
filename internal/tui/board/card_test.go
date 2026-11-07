@@ -7,6 +7,7 @@ import (
 	"unicode/utf8"
 
 	"github.com/charmbracelet/lipgloss"
+	"github.com/cpave3/legato/internal/service"
 	"github.com/cpave3/legato/internal/tui/theme"
 )
 
@@ -489,5 +490,21 @@ func TestCardListsEveryPullRequestInStackOrder(t *testing.T) {
 	}
 	if !strings.Contains(out, testIcons.CIFail) || !strings.Contains(out, "draft") {
 		t.Errorf("card should give each PR its state, got: %q", out)
+	}
+}
+
+func TestACardShowsAChipForEachRunningNamedSlot(t *testing.T) {
+	card := CardData{
+		Key: "task1", Title: "Test task", AgentActive: true, AgentState: "working",
+		SlotAgents: []service.SlotAgentSummary{{Slot: "reviewer", State: "working"}},
+	}
+	out := RenderCard(card, 50, false, "Doing", testIcons)
+	if !strings.Contains(out, "running") || !strings.Contains(out, "reviewer · running") {
+		t.Fatalf("card = %q; want the author's state and a reviewer chip", out)
+	}
+	// A reviewer alone still shows.
+	card = CardData{Key: "task1", Title: "Test task", AgentActive: true, SlotAgents: []service.SlotAgentSummary{{Slot: "reviewer", State: "waiting"}}}
+	if out := RenderCard(card, 50, false, "Doing", testIcons); !strings.Contains(out, "reviewer · needs you") {
+		t.Fatalf("card = %q; want the reviewer's chip", out)
 	}
 }

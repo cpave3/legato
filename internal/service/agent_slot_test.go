@@ -279,3 +279,70 @@ func TestAReadOnlyReviewerIsListedAsAPeerButNotMessaged(t *testing.T) {
 		}
 	}
 }
+
+// From outside, a named slot's agent is addressed by its agent ID,
+// <task>_<slot>: its row carries it, and every action takes it.
+func TestANamedSlotsRowIsAddressedByItsAgentID(t *testing.T) {
+	f := newSlotFixture(t)
+	ctx := context.Background()
+	createTask(t, f.store, "task-s")
+	if err := f.svc.SpawnAgent(ctx, "task-s", 0, 0, AgentSpawnOptions{AgentKind: "claude-code"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.svc.SpawnAgent(ctx, "task-s", 0, 0, AgentSpawnOptions{AgentKind: "claude-code", Slot: "reviewer"}); err != nil {
+		t.Fatal(err)
+	}
+	agents, _ := f.svc.ListAgents(ctx)
+	var row AgentSession
+	for _, agent := range agents {
+		if agent.Slot == "reviewer" {
+			row = agent
+		}
+	}
+	if row.TaskID != "task-s_reviewer" || row.CardTaskID != "task-s" || !strings.HasSuffix(row.Title, " · reviewer") {
+		t.Fatalf("reviewer row = %+v", row)
+	}
+	for _, agent := range agents {
+		if agent.Slot == "main" && (agent.TaskID != "task-s" || agent.CardTaskID != "task-s") {
+			t.Fatalf("main row = %+v", agent)
+		}
+	}
+
+	f.tmux.setCapture("legato-task-s_reviewer", "reviewing…")
+	if out, err := f.svc.CaptureOutput(ctx, row.TaskID); err != nil || out != "reviewing…" {
+		t.Fatalf("capture of the reviewer = %q, %v", out, err)
+	}
+	if err := f.svc.(AgentRestarter).RestartAgent(ctx, row.TaskID, nil); !errors.Is(err, ErrAgentNotRestartable) {
+		t.Fatalf("restarting the reviewer: %v; want it refused, Legato runs it", err)
+	}
+	if err := f.svc.KillAgent(ctx, row.TaskID); err != nil {
+		t.Fatal(err)
+	}
+	if f.tmux.sessionAlive("legato-task-s_reviewer") || !f.tmux.sessionAlive("legato-task-s") {
+		t.Fatal("killing the reviewer's row did not stop the reviewer only")
+	}
+}
+
+func TestACardSummarisesItsMainSlotAndChipsItsNamedSlots(t *testing.T) {
+	row := func(slot, activity string) AgentSession {
+		id := "T1"
+		if slot != "main" {
+			id = "T1_" + slot
+		}
+		return AgentSession{TaskID: id, CardTaskID: "T1", AttributionTaskID: "T1", Slot: slot, Status: "running", Activity: activity, AgentKind: "claude-code"}
+	}
+	summary := SummarizeRelatedAgents([]AgentSession{row("main", "working"), row("reviewer", "working")})["T1"]
+	if summary.State != "working" || summary.Count != 1 || len(summary.Slots) != 1 || summary.Slots[0] != (SlotAgentSummary{Slot: "reviewer", State: "working"}) {
+		t.Fatalf("summary = %+v", summary)
+	}
+	// Needs you, when any slot does.
+	summary = SummarizeRelatedAgents([]AgentSession{row("main", "working"), row("reviewer", "waiting")})["T1"]
+	if summary.State != "waiting" {
+		t.Fatalf("a reviewer that needs the person: card state %q, want waiting", summary.State)
+	}
+	// A reviewer alone: the card is active, with the chip.
+	summary = SummarizeRelatedAgents([]AgentSession{row("reviewer", "working")})["T1"]
+	if !summary.Active || summary.State != "" || len(summary.Slots) != 1 {
+		t.Fatalf("reviewer alone: %+v", summary)
+	}
+}

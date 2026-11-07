@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"strings"
@@ -64,5 +65,44 @@ func TestKillAgentHandlerKillsTheNamedSlot(t *testing.T) {
 
 	if rec.Code != http.StatusOK || agents.killedTaskID != "AGENT-1" || agents.killedSlot != "reviewer" {
 		t.Fatalf("status %d, killed %q in slot %q", rec.Code, agents.killedTaskID, agents.killedSlot)
+	}
+}
+
+// twoSlotAgents lists an author and its reviewer on one task.
+type twoSlotAgents struct{ promptAgentService }
+
+func (twoSlotAgents) ListAgents(context.Context) ([]service.AgentSession, error) {
+	return []service.AgentSession{
+		{TaskID: "T-1", CardTaskID: "T-1", AttributionTaskID: "T-1", Slot: "main", Title: "Fix it", Status: "running", Activity: "working", AgentKind: "claude-code"},
+		{TaskID: "T-1_reviewer", CardTaskID: "T-1", AttributionTaskID: "T-1", Slot: "reviewer", Title: "Fix it · reviewer", Status: "running", Activity: "working", AgentKind: "codex"},
+	}, nil
+}
+
+func TestABoardCardShowsItsMainAgentAndAChipForItsReviewer(t *testing.T) {
+	board := &mockBoardService{columns: []service.Column{{Name: "Doing"}}, cards: map[string][]service.Card{"Doing": {{ID: "T-1", Title: "Fix it"}}}}
+	srv := New(board, &twoSlotAgents{}, nil, "")
+	rec := httptest.NewRecorder()
+	srv.boardHandler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/board", nil))
+
+	var resp BoardResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &resp); err != nil {
+		t.Fatal(err)
+	}
+	cards := resp.Columns[0].Cards
+	if len(cards) != 1 || cards[0].AgentState != "working" || cards[0].AgentKind != "claude-code" {
+		t.Fatalf("cards = %+v; want one card with the author's state and tool", cards)
+	}
+	if len(cards[0].SlotAgents) != 1 || cards[0].SlotAgents[0].Slot != "reviewer" || cards[0].SlotAgents[0].State != "working" {
+		t.Fatalf("slot chips = %+v", cards[0].SlotAgents)
+	}
+
+	rec = httptest.NewRecorder()
+	srv.agentsHandler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/agents", nil))
+	var agents []AgentResponse
+	if err := json.Unmarshal(rec.Body.Bytes(), &agents); err != nil {
+		t.Fatal(err)
+	}
+	if len(agents) != 2 || agents[1].TaskID != "T-1_reviewer" || agents[1].CardTaskID != "T-1" || agents[1].Slot != "reviewer" {
+		t.Fatalf("agents = %+v", agents)
 	}
 }
