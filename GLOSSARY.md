@@ -48,7 +48,7 @@ _Avoid_: force recall, abandon
 
 **Agent slot**:
 A place on a task for one agent at a time, with its own terminal session, execution and saved conversation. A task has a main slot and may have named slots.
-_Avoid_: agent seat, second agent
+_Avoid_: agent seat, lane, second agent
 
 **Main slot**:
 The slot of a task's own agent: the handoff's author, and any session the person starts. Anything that addresses "the task's agent" without naming a slot means it.
@@ -62,7 +62,7 @@ _Avoid_: extra slot, side agent
 
 **Review pass**:
 One review of all of a handoff's pull requests by a fresh reviewer, at heads pinned when it starts, ending in a GitHub review per pull request.
-_Avoid_: review round, review cycle
+_Avoid_: review round, review cycle, auto-review, automated review, review tour
 
 **Reviewer**:
 The agent in a task's reviewer slot that does a review pass, on a different model from the author, and only looks.
@@ -80,13 +80,15 @@ A finding that is optional: the author may skip it.
 
 **Ruling**:
 A later pass's judgement on an earlier blocking finding: resolved, or open with why.
+_Avoid_: verdict (the whole pass's outcome)
 
 **Clean pass**:
 A review pass with no blocking finding and no open ruling. It approves the pull requests.
+_Avoid_: green review, LGTM
 
 **Counted comment**:
 A comment on a pull request that the author must answer: from the repository's owners, members or collaborators, or from a listed bot.
-_Avoid_: feedback comment
+_Avoid_: feedback comment, external feedback
 
 **Counted check**:
 A check a pull request must pass before its handoff is done: one branch protection requires on its base, else one the worker lists.
