@@ -33,6 +33,9 @@ type SandboxSwitcher interface {
 	RestartAgentSwitchingSandbox(ctx context.Context, taskID string, resources []Resource) (sandboxed bool, err error)
 }
 
+// The web UI's restart route and the TUI's U both find the switch this way.
+var _ SandboxSwitcher = (*agentService)(nil)
+
 func (a *agentService) RestartAgent(ctx context.Context, taskID string, resources []Resource) error {
 	_, err := a.restartAgent(ctx, taskID, resources, false)
 	return err

@@ -15,6 +15,10 @@ type restartAgentFake struct {
 	restarted string
 	resources []service.Resource
 	err       error
+	// switched is set by a restart that switched the sandbox; sandboxed is
+	// where the agent then runs.
+	switched  bool
+	sandboxed bool
 }
 
 func (f *restartAgentFake) AttachedResources(context.Context, string) ([]string, error) {
@@ -27,6 +31,14 @@ func (f *restartAgentFake) RestartAgent(_ context.Context, taskID string, resour
 	}
 	f.restarted, f.resources = taskID, resources
 	return nil
+}
+
+func (f *restartAgentFake) RestartAgentSwitchingSandbox(_ context.Context, taskID string, resources []service.Resource) (bool, error) {
+	if f.err != nil {
+		return false, f.err
+	}
+	f.restarted, f.resources, f.switched = taskID, resources, true
+	return f.sandboxed, nil
 }
 
 func restartServer(agents *restartAgentFake) *Server {
@@ -59,5 +71,28 @@ func TestAnAgentThatCannotBeRestartedIsAConflict(t *testing.T) {
 
 	if status != http.StatusConflict || failure.Error == "" {
 		t.Fatalf("status = %d, body %+v; want 409 with the reason", status, failure)
+	}
+}
+
+func TestRestartingCanSwitchAnAgentOutOfTheSandboxOrBackIn(t *testing.T) {
+	agents := &restartAgentFake{attached: []string{"Vault"}, sandboxed: false}
+
+	var answer struct {
+		Restarted bool `json:"restarted"`
+		Sandboxed bool `json:"sandboxed"`
+	}
+	status := serveJSON(t, restartServer(agents), http.MethodPost, "/api/agents/T-1/restart", `{"switch_sandbox": true}`, &answer)
+
+	if status != http.StatusOK || !agents.switched || agents.restarted != "T-1" || !answer.Restarted || answer.Sandboxed {
+		t.Fatalf("status = %d, switched = %v, answer %+v; want the agent switched, now out of the sandbox", status, agents.switched, answer)
+	}
+	if len(agents.resources) != 1 || agents.resources[0].Name != "Vault" {
+		t.Fatalf("resources = %+v, want Vault kept", agents.resources)
+	}
+
+	// A plain restart leaves it where it was.
+	agents = &restartAgentFake{}
+	if status := serveJSON(t, restartServer(agents), http.MethodPost, "/api/agents/T-1/restart", "", nil); status != http.StatusOK || agents.switched {
+		t.Fatalf("plain restart: status = %d, switched = %v", status, agents.switched)
 	}
 }

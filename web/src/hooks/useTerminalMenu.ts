@@ -1,6 +1,7 @@
 import { createElement, useState } from "react"
-import { Bell, BellOff, Eye, EyeOff, Pencil, RefreshCw, RotateCw, ScanSearch, Skull, Sparkles, Unplug } from "lucide-react"
+import { Bell, BellOff, Eye, EyeOff, Pencil, RefreshCw, RotateCw, ScanSearch, Shield, Skull, Sparkles, Unplug } from "lucide-react"
 import { canBeNative } from "../lib/agentKind"
+import type { SandboxSwitch } from "../lib/agentReload"
 import type { AgentMenuEntry } from "../components/AgentChatHeader"
 
 interface TerminalMenuOptions {
@@ -17,6 +18,9 @@ interface TerminalMenuOptions {
   // Stops the agent and starts it again, resuming its conversation. Absent
   // for an agent a swarm or a workflow runs.
   onReload?: () => void
+  // Reloads it on the other side of the sandbox. Absent where there is no
+  // sandbox to switch.
+  switchSandbox?: SandboxSwitch
   onDisconnect: () => void
   onKill: () => void
 }
@@ -61,6 +65,9 @@ export function useTerminalMenu(options: TerminalMenuOptions): { entries: AgentM
   }
   if (options.onReload) {
     entries.push({ label: "Reload agent", icon: icon(RotateCw), onSelect: options.onReload })
+  }
+  if (options.switchSandbox) {
+    entries.push({ label: options.switchSandbox.label, icon: icon(Shield), onSelect: options.switchSandbox.onSelect })
   }
   entries.push(
     { label: "Disconnect", icon: icon(Unplug), onSelect: options.onDisconnect },

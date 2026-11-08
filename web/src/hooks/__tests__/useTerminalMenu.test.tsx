@@ -49,3 +49,12 @@ it("offers to reload the agent, just before disconnecting, when it can be reload
   const { result: without } = renderHook(() => useTerminalMenu(options()))
   expect(without.current.entries.some((entry) => entry.label === "Reload agent")).toBe(false)
 })
+
+it("offers to reload the agent on the other side of the sandbox, after Reload agent", () => {
+  const onSelect = vi.fn()
+  const { result } = renderHook(() => useTerminalMenu(options({ onReload: vi.fn(), switchSandbox: { label: "Reload without sandbox", onSelect } })))
+  const labels = result.current.entries.map((entry) => entry.label)
+  expect(labels.slice(-4)).toEqual(["Reload agent", "Reload without sandbox", "Disconnect", "Kill agent"])
+  result.current.entries.find((entry) => entry.label === "Reload without sandbox")?.onSelect()
+  expect(onSelect).toHaveBeenCalled()
+})
