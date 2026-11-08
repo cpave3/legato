@@ -95,6 +95,22 @@ export default defineConfig({
   build: {
     outDir: '../internal/server/static/dist',
     emptyOutDir: true,
+    // The service worker precaches no file over 2 MiB and the PWA plugin
+    // fails the build on one, so the libraries every page loads go in
+    // chunks of their own. Only these are named: a group takes a module
+    // however it is imported, so a catch-all would pull mermaid's
+    // on-demand diagrams into the code loaded at start.
+    rolldownOptions: {
+      output: {
+        codeSplitting: {
+          groups: [
+            { name: 'react', test: /[\\/]node_modules[\\/](react|react-dom|scheduler|react-router|react-router-dom|@tanstack)[\\/]/ },
+            { name: 'xterm', test: /[\\/]node_modules[\\/]@xterm[\\/]/ },
+            { name: 'markdown', test: /[\\/]node_modules[\\/](react-markdown|remark-[^\\/]+|micromark[^\\/]*|mdast-[^\\/]+|hast-[^\\/]+|unist-[^\\/]+|unified|vfile[^\\/]*|property-information|space-separated-tokens|comma-separated-tokens|decode-named-character-reference|character-entities[^\\/]*|html-url-attributes|devlop|bail|trough|is-plain-obj|ccount|escape-string-regexp|markdown-table|longest-streak|zwitch|trim-lines|style-to-js|style-to-object|inline-style-parser|estree-util-is-identifier-name)[\\/]/ },
+          ],
+        },
+      },
+    },
   },
   server: {
     proxy: {
