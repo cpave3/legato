@@ -29,7 +29,7 @@ const (
 	// opReviewProtection reads branch protection, with administration
 	// read, which a reviewer App need not have.
 	opReviewProtection = "pr.protection"
-	opAuthorPost = "pr.write"
+	opAuthorPost       = "pr.write"
 )
 
 // GitHubIdentity is who a post is made as.
