@@ -6,6 +6,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -94,7 +95,11 @@ func newAppServer(t *testing.T) *appServer {
 			if reply != nil {
 				result, failure = reply(params)
 			}
-			s.write(map[string]any{"id": incoming.ID, "result": result, "error": failure})
+			// The bridge may hang up before the answer reaches it, as when the
+			// test has finished; that is no failure of the test.
+			if s.send(map[string]any{"id": incoming.ID, "result": result, "error": failure}) != nil {
+				return
+			}
 		}
 	}))
 	t.Cleanup(s.server.Close)
@@ -107,6 +112,14 @@ func (s *appServer) url() string {
 
 func (s *appServer) write(value map[string]any) {
 	s.t.Helper()
+	if err := s.send(value); err != nil {
+		s.t.Fatal(err)
+	}
+}
+
+// send writes one frame to the bridge. It does not touch the test, so the
+// server's own goroutine can use it after the test has finished.
+func (s *appServer) send(value map[string]any) error {
 	if value["error"] == (*rpcError)(nil) {
 		delete(value, "error")
 	} else if _, failed := value["error"]; failed {
@@ -114,17 +127,18 @@ func (s *appServer) write(value map[string]any) {
 	}
 	data, err := json.Marshal(value)
 	if err != nil {
-		s.t.Fatal(err)
+		return err
 	}
 	s.mu.Lock()
 	conn := s.conn
 	s.mu.Unlock()
 	if conn == nil {
-		s.t.Fatal("the bridge is not connected")
+		return errors.New("the bridge is not connected")
 	}
 	if err := conn.Write(context.Background(), websocket.MessageText, data); err != nil {
-		s.t.Fatalf("writing to the bridge: %v", err)
+		return fmt.Errorf("writing to the bridge: %w", err)
 	}
+	return nil
 }
 
 // hangUp is the app server going away, as when its session ends.
@@ -659,5 +673,43 @@ func TestIdentityFailureIsNotMaskedByProviderExit(t *testing.T) {
 	defer cancel()
 	if err := bridge.Run(ctx); !errors.Is(err, failure) {
 		t.Fatalf("Run masked capture failure: %v", err)
+	}
+}
+
+// A new thread cannot be joined until its first turn starts. When that turn
+// starts while the bridge's first try is still waiting on its answer, the
+// bridge still joins it.
+func TestATurnThatStartsDuringTheFirstJoinIsJoined(t *testing.T) {
+	h := newHarness(t)
+	answer := make(chan struct{})
+	h.codex.on("thread/resume", func(map[string]any) (any, *rpcError) {
+		<-answer
+		return nil, &rpcError{Code: -32600, Message: "no rollout found for thread id " + threadID}
+	})
+	events := h.subscribe("")
+	h.codex.notify("thread/started", map[string]any{"thread": terminalThread(nil)})
+	for h.codex.count("thread/resume") == 0 {
+		time.Sleep(2 * time.Millisecond)
+	}
+
+	h.codex.on("thread/resume", func(map[string]any) (any, *rpcError) {
+		return map[string]any{
+			"thread": terminalThread(map[string]any{"status": map[string]any{"type": "active", "activeFlags": []any{}},
+				"turns": []any{map[string]any{"id": "turn-1", "status": "inProgress", "items": []any{}}}}),
+			"model": "gpt-6-astra", "reasoningEffort": "medium",
+		}, nil
+	})
+	h.codex.notify("thread/status/changed", map[string]any{"threadId": threadID, "status": map[string]any{"type": "active", "activeFlags": []any{}}})
+	for event := nextEvent(t, events); event["type"] != "session_started"; event = nextEvent(t, events) {
+	}
+	close(answer)
+
+	deadline := time.After(2 * time.Second)
+	for !h.bridge.joined() {
+		select {
+		case <-deadline:
+			t.Fatal("the bridge never joined the thread")
+		case <-time.After(2 * time.Millisecond):
+		}
 	}
 }

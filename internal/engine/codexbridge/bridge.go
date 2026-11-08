@@ -85,8 +85,11 @@ type Bridge struct {
 	retained    []envelope
 	subscribers map[chan envelope]struct{}
 	// joining is the thread a join is in flight for, so only one runs.
-	joining string
-	models  []modelInfo
+	// joinWanted is the attempts a join asked for while it ran wants: the
+	// one in flight makes them when its own run out.
+	joining    string
+	joinWanted int
+	models     []modelInfo
 }
 
 // errNoThread is a request made before the Codex terminal UI opened a thread.
@@ -463,21 +466,37 @@ func (b *Bridge) onThread(threadID string, apply func(*session) []nativeEvent) {
 // starts is retried for a moment.
 func (b *Bridge) join(threadID string, attempts int) {
 	b.mu.Lock()
-	if b.joining == threadID || b.session.threadID != threadID || b.session.joined {
+	if b.session.threadID != threadID || b.session.joined {
 		b.mu.Unlock()
 		return
 	}
-	b.joining = threadID
+	if b.joining == threadID {
+		b.joinWanted = max(b.joinWanted, attempts)
+		b.mu.Unlock()
+		return
+	}
+	b.joining, b.joinWanted = threadID, 0
 	b.mu.Unlock()
 	defer func() {
 		b.mu.Lock()
 		if b.joining == threadID {
-			b.joining = ""
+			b.joining, b.joinWanted = "", 0
 		}
 		b.mu.Unlock()
 	}()
 
-	for attempt := 0; attempt < attempts; attempt++ {
+	for attempt := 0; ; attempt++ {
+		if attempt >= attempts {
+			// A join asked for meanwhile (a turn started, say) takes over.
+			b.mu.Lock()
+			more := b.joinWanted
+			b.joinWanted = 0
+			b.mu.Unlock()
+			if more == 0 {
+				return
+			}
+			attempts = attempt + more
+		}
 		if attempt > 0 {
 			select {
 			case <-b.closed:
