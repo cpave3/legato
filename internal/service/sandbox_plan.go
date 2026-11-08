@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/cpave3/legato/internal/engine/sandbox"
@@ -273,6 +274,19 @@ func within(path, dir string) bool {
 	return path == dir || strings.HasPrefix(path, dir+string(filepath.Separator))
 }
 
+// mountDepth is how many folders down a mount lands inside the sandbox.
+func mountDepth(m sandbox.Mount) int {
+	dest := m.Dest
+	if dest == "" {
+		dest = m.Path
+	}
+	dest = filepath.Clean(dest)
+	if dest == "/" {
+		return 0
+	}
+	return strings.Count(dest, "/")
+}
+
 // inOthersScratch says whether path is at or inside the scratch folder and
 // not this execution's own runtime folder: what the sandbox must not see
 // whatever else allows it, as it holds every execution's /tmp and home.
@@ -527,27 +541,18 @@ func BuildSandboxPlan(in SandboxPlanInput) (sandbox.Plan, error) {
 			}
 		}
 	}
-	// The covers go after the mounts that hold what they hide, and before
-	// any mount inside what they hide (the job clone, Legato's mod and its
-	// repository cache are in the data folder), which bwrap would otherwise
-	// cover in turn.
-	var before, inside []sandbox.Mount
-	for _, m := range mounts {
-		dest := m.Dest
-		if dest == "" {
-			dest = m.Path
-		}
-		covered := false
-		for _, h := range hides {
-			covered = covered || (dest != h.Path && within(dest, h.Path))
-		}
-		if covered {
-			inside = append(inside, m)
-		} else {
-			before = append(before, m)
-		}
-	}
-	plan.Mounts = append(append(before, hides...), inside...)
+	// bwrap mounts in order and a later mount covers an earlier one, so
+	// every mount and cover goes after everything that holds it: ordered by
+	// the depth of its path inside, the order above kept between equals. A
+	// cover then lands on top of every mount that holds what it hides,
+	// however deep those are put back (the repository cache inside the
+	// data folder, inside a mounted home), and before any mount inside it
+	// (the job clone, Legato's mod and its repository cache are in the data
+	// folder), which it would otherwise cover in turn.
+	plan.Mounts = append(mounts, hides...)
+	sort.SliceStable(plan.Mounts, func(i, j int) bool {
+		return mountDepth(plan.Mounts[i]) < mountDepth(plan.Mounts[j])
+	})
 	// A throwaway layer is on disk too, one folder per overlay.
 	n := 0
 	for i := range plan.Mounts {

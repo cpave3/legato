@@ -677,6 +677,18 @@ func TestAScratchFolderAtOrInsideASharedDataMountIsPrivate(t *testing.T) {
 				t.Errorf("scratch %s is not covered after the cache: %+v", root, m)
 			}
 		}
+		// An ancestor of the data folder mounted too covers the data folder,
+		// which puts the cache back inside it: the scratch cover stays on top.
+		if root != repos {
+			in.Extra = []SandboxPath{{Path: in.Home}}
+			plan, err := BuildSandboxPlan(in)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if mountIndex(plan, repos) < 0 || mountIndex(plan, root) < mountIndex(plan, repos) {
+				t.Errorf("scratch %s with the home mounted: cover at %d, cache at %d", root, mountIndex(plan, root), mountIndex(plan, repos))
+			}
+		}
 		// Another execution's folder cannot be given as a mount.
 		in.Extra = []SandboxPath{{Path: root + "/ex-2", Access: "write"}}
 		if _, err := BuildSandboxPlan(in); err == nil {

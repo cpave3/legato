@@ -1,6 +1,8 @@
 package config
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 )
@@ -91,5 +93,22 @@ func TestAScratchFolderInsideTheDataFoldersSharedFoldersFailsToLoad(t *testing.T
 	writeTestConfig(t, "data_dir: /srv/legato\nagents:\n  sandbox:\n    scratch_dir: /srv/legato/scratch\n")
 	if _, err := Load(); err != nil {
 		t.Fatal(err)
+	}
+}
+
+// The check is made on the real path: a link to the repository cache is the
+// repository cache.
+func TestAScratchFolderLinkedIntoTheDataFolderFailsToLoad(t *testing.T) {
+	data := t.TempDir()
+	if err := os.MkdirAll(filepath.Join(data, "repos", "scratch"), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	link := filepath.Join(t.TempDir(), "scratch")
+	if err := os.Symlink(filepath.Join(data, "repos", "scratch"), link); err != nil {
+		t.Fatal(err)
+	}
+	writeTestConfig(t, "data_dir: "+data+"\nagents:\n  sandbox:\n    scratch_dir: "+link+"\n")
+	if _, err := Load(); err == nil || !strings.Contains(err.Error(), "scratch_dir") {
+		t.Fatalf("err = %v", err)
 	}
 }

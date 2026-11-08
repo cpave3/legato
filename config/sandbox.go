@@ -55,15 +55,18 @@ func normalizeAgentSandbox(cfg *Config) error {
 			return fmt.Errorf("agents.sandbox.scratch_dir: %q must be absolute or start with ~/", sb.ScratchDir)
 		}
 		sb.ScratchDir = filepath.Clean(dir)
-		if home != "" && (sb.ScratchDir == home || strings.HasPrefix(home, sb.ScratchDir+string(filepath.Separator)) || sb.ScratchDir == "/") {
+		// Compared where they really are: a link to the repository cache is
+		// the repository cache.
+		scratch, realHome := realPath(sb.ScratchDir), realPath(home)
+		if home != "" && (scratch == realHome || strings.HasPrefix(realHome, scratch+string(filepath.Separator)) || scratch == "/") {
 			return fmt.Errorf("agents.sandbox.scratch_dir: %q holds the home folder; name a folder of its own", sb.ScratchDir)
 		}
 		// Folders of the data folder that sandboxes are shown: the scratch
 		// folder in one would hide it from every agent.
-		data := ResolveDataDir(cfg)
+		data := realPath(ResolveDataDir(cfg))
 		for _, shared := range []string{"repos", "claude-mod", "jobs"} {
 			dir := filepath.Join(data, shared)
-			if sb.ScratchDir == dir || strings.HasPrefix(sb.ScratchDir, dir+string(filepath.Separator)) {
+			if scratch == dir || strings.HasPrefix(scratch, dir+string(filepath.Separator)) {
 				return fmt.Errorf("agents.sandbox.scratch_dir: %q is inside %s, which sandboxes are shown; name a folder of its own", sb.ScratchDir, dir)
 			}
 		}
@@ -89,4 +92,22 @@ func normalizeAgentSandbox(cfg *Config) error {
 		}
 	}
 	return nil
+}
+
+// realPath is path with its links resolved, as far as it exists: the part
+// not made yet is joined to where the rest really is.
+func realPath(path string) string {
+	if path == "" {
+		return path
+	}
+	rest := ""
+	for dir := filepath.Clean(path); ; dir = filepath.Dir(dir) {
+		if real, err := filepath.EvalSymlinks(dir); err == nil {
+			return filepath.Join(real, rest)
+		}
+		if dir == "/" || dir == "." {
+			return filepath.Clean(path)
+		}
+		rest = filepath.Join(filepath.Base(dir), rest)
+	}
 }
