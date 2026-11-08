@@ -38,7 +38,7 @@ With a `github` credential, Legato acts as a GitHub App you create:
 
 - `git` fetches with read tokens for the one repository it asks for.
 - `git push` goes through Legato's proxy. Legato reads which branches the push changes, checks each against your rules, and pushes with a token it makes for that push and then revokes. The agent never holds a token that can write code.
-- `gh` runs through a wrapper that asks Legato for a token for the command: a read token, or a token for pull requests or issues once you allow it.
+- `gh` runs through a wrapper that asks Legato for a token for the command: a read token, or a token for pull requests or issues once you allow it. Legato keeps the wrapper first on `PATH` in the agent's zsh and bash, after your own startup files have run, so a `gh` that Homebrew or your profile puts first is not used, and the tools your profile sets up (mise, say) still are. In fish, or an interactive bash, a profile that puts another `gh` first still wins; that `gh` gets "Bad credentials".
 - Opening a draft pull request (`gh pr create --draft`, or the API with `"draft": true`) is its own operation, `pr.create-draft`, decided for the branch it is opened from. Any other pull request asks as before.
 - Pushes to the default branch, pushes of tags and branch deletions are refused by default.
 

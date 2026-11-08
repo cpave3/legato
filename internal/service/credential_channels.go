@@ -154,6 +154,14 @@ func (c *CredentialChannels) SessionEnv(ctx context.Context, taskID, executionID
 					log.Printf("credentials: the gh wrapper: %v", err)
 				} else {
 					env["PATH"] = c.opts.WrapperDir + string(os.PathListSeparator) + os.Getenv("PATH")
+					// Login shells rebuild PATH from the person's files.
+					if shell, err := ShellStartup(c.opts.WrapperDir); err != nil {
+						log.Printf("credentials: the shells' startup files: %v", err)
+					} else {
+						for k, v := range shell {
+							env[k] = v
+						}
+					}
 				}
 			}
 		}

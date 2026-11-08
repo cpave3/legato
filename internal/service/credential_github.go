@@ -459,6 +459,73 @@ func writeGHWrapper(dir, legato string) error {
 	return os.Rename(tmp, path)
 }
 
+// shellStartupDir is where, beside the gh wrapper, the session's shells
+// find the startup files that keep the wrapper first on PATH. Hidden, so
+// nothing in it is a command on PATH.
+const shellStartupDir = ".shell"
+
+// zshStartupFiles are the files zsh reads from ZDOTDIR.
+var zshStartupFiles = []string{".zshenv", ".zprofile", ".zshrc", ".zlogin", ".zlogout"}
+
+// ShellStartup is the environment that keeps the gh wrapper in dir first
+// on PATH in the shells agent tools run commands in, whatever the person's
+// startup files put before it: ZDOTDIR for zsh and BASH_ENV for bash name
+// files that run the person's own (so the tools they set up stay) and then
+// put the wrapper back first. A ZDOTDIR or BASH_ENV of the person's own is
+// passed on for those files to run.
+func ShellStartup(dir string) (map[string]string, error) {
+	root := filepath.Join(dir, shellStartupDir)
+	zdot := filepath.Join(root, "zsh")
+	if err := os.MkdirAll(zdot, 0o700); err != nil {
+		return nil, err
+	}
+	first := shellQuote(dir)
+	for _, name := range zshStartupFiles {
+		script := "# Legato: the person's own " + name + ", then Legato's gh wrapper first on PATH.\n" +
+			"_legato_zdotdir=$ZDOTDIR\n" +
+			"ZDOTDIR=${LEGATO_USER_ZDOTDIR:-$HOME}\n" +
+			"[[ -r $ZDOTDIR/" + name + " ]] && source $ZDOTDIR/" + name + "\n"
+		if name == ".zshenv" {
+			// The person's .zshenv may move the rest of their files.
+			script += "LEGATO_USER_ZDOTDIR=$ZDOTDIR\n"
+		}
+		script += "ZDOTDIR=$_legato_zdotdir\n" +
+			"unset _legato_zdotdir\n" +
+			"[[ $path[1] == " + first + " ]] || path=(" + first + " $path)\n"
+		if err := writeIfChanged(filepath.Join(zdot, name), script, 0o600); err != nil {
+			return nil, err
+		}
+	}
+	bashEnv := filepath.Join(root, "bash_env")
+	script := "# Legato: bash runs this after its startup files; it puts Legato's gh wrapper first on PATH.\n" +
+		"if [ -n \"${LEGATO_USER_BASH_ENV:-}\" ] && [ -r \"$LEGATO_USER_BASH_ENV\" ]; then . \"$LEGATO_USER_BASH_ENV\"; fi\n" +
+		"case $PATH in " + first + "|" + first + ":*) ;; *) PATH=" + first + ":$PATH; export PATH ;; esac\n"
+	if err := writeIfChanged(bashEnv, script, 0o600); err != nil {
+		return nil, err
+	}
+	env := map[string]string{"ZDOTDIR": zdot, "BASH_ENV": bashEnv}
+	if own := os.Getenv("ZDOTDIR"); own != "" && own != zdot {
+		env["LEGATO_USER_ZDOTDIR"] = own
+	}
+	if own := os.Getenv("BASH_ENV"); own != "" && own != bashEnv {
+		env["LEGATO_USER_BASH_ENV"] = own
+	}
+	return env, nil
+}
+
+// writeIfChanged writes a file through a rename, and not at all when it
+// already holds content: a running shell may be reading it.
+func writeIfChanged(path, content string, mode os.FileMode) error {
+	if current, err := os.ReadFile(path); err == nil && string(current) == content {
+		return nil
+	}
+	tmp := path + ".tmp"
+	if err := os.WriteFile(tmp, []byte(content), mode); err != nil {
+		return err
+	}
+	return os.Rename(tmp, path)
+}
+
 // githubCredentialFor finds the GitHub credential (a token-making one with
 // a git host) that lists a repository.
 func (c *CredentialChannels) githubCredentialFor(repo string) (brokerCredential, error) {

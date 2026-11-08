@@ -500,6 +500,65 @@ func TestGHRunsWithAReadTokenThroughLegatosWrapper(t *testing.T) {
 	}
 }
 
+// Agent tools run commands in the person's shell, whose startup files
+// rebuild PATH and may put another gh (Homebrew's) before the wrapper. The
+// session's ZDOTDIR and BASH_ENV run those files, then put the wrapper back
+// first; what else the files set up (a tool mise adds, say) stays reachable.
+func TestTheShellsStartupFilesDoNotPutAnotherGHBeforeLegatos(t *testing.T) {
+	bin := t.TempDir()
+	_ = os.WriteFile(filepath.Join(bin, "gh"), []byte("#!/bin/sh\necho \"gh token=$GH_TOKEN\"\n"), 0o755)
+	legato := filepath.Join(t.TempDir(), "legato")
+	_ = os.WriteFile(legato, []byte("#!/bin/sh\n[ \"$1 $2 $3\" = \"credential gh-token --\" ] && echo ghs_read_for_gh\n"), 0o755)
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	// The person's startup files: another gh first, and a tool of theirs.
+	home := t.TempDir()
+	brew, tools := filepath.Join(home, "brew"), filepath.Join(home, "tools")
+	_ = os.MkdirAll(brew, 0o755)
+	_ = os.MkdirAll(tools, 0o755)
+	_ = os.WriteFile(filepath.Join(brew, "gh"), []byte("#!/bin/sh\necho brew gh\n"), 0o755)
+	_ = os.WriteFile(filepath.Join(tools, "mytool"), []byte("#!/bin/sh\necho mytool\n"), 0o755)
+	prepend := "export PATH=" + brew + ":" + tools + ":$PATH\n"
+	zdot := filepath.Join(home, ".config", "zsh")
+	_ = os.MkdirAll(zdot, 0o755)
+	_ = os.WriteFile(filepath.Join(home, ".zshenv"), []byte("ZDOTDIR=$HOME/.config/zsh\n"), 0o644)
+	_ = os.WriteFile(filepath.Join(zdot, ".zprofile"), []byte(prepend), 0o644)
+	_ = os.WriteFile(filepath.Join(home, ".bash_profile"), []byte(prepend), 0o644)
+
+	f := newGitHubFixture(t)
+	f.channels.opts.WrapperDir = filepath.Join(t.TempDir(), "bin")
+	f.channels.opts.LegatoBin = legato
+	env, err := f.channels.SessionEnv(context.Background(), "task-1", "ex-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ran := 0
+	for _, shell := range [][]string{{"zsh", "-c"}, {"zsh", "-lc"}, {"bash", "-c"}, {"bash", "-lc"}} {
+		path, err := exec.LookPath(shell[0])
+		if err != nil {
+			continue
+		}
+		ran++
+		cmd := exec.Command(path, shell[1], "gh pr list -R cpave3/legato; mytool || true")
+		cmd.Env = []string{"HOME=" + home, "LEGATO_SANDBOXED=1"}
+		for k, v := range env {
+			cmd.Env = append(cmd.Env, k+"="+v)
+		}
+		out, err := cmd.Output()
+		got := strings.TrimSpace(string(out))
+		want := "gh token=ghs_read_for_gh"
+		if shell[1] == "-lc" {
+			want += "\nmytool" // the login files ran
+		}
+		if err != nil || got != want {
+			t.Errorf("%s %s: %v\n got %q\nwant %q", shell[0], shell[1], err, got, want)
+		}
+	}
+	if ran == 0 {
+		t.Skip("neither zsh nor bash is installed")
+	}
+}
+
 func TestOnlyLegatosHelperAnswersForGitHub(t *testing.T) {
 	if _, err := exec.LookPath("git"); err != nil {
 		t.Skip("no git")
