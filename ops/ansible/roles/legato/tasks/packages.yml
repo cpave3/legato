@@ -1,0 +1,73 @@
+---
+- name: Base packages
+  ansible.builtin.apt:
+    name: "{{ legato_apt_packages + legato_desktop_build_packages + (['qemu-guest-agent'] if legato_qemu_guest_agent else []) }}"
+    state: present
+    update_cache: true
+    cache_valid_time: 3600
+
+- name: Keyring folder
+  ansible.builtin.file:
+    path: /etc/apt/keyrings
+    state: directory
+    mode: "0755"
+
+- name: GitHub CLI's apt repository
+  when: legato_install_gh | bool
+  block:
+    - name: GitHub CLI's key
+      ansible.builtin.get_url:
+        url: https://cli.github.com/packages/githubcli-archive-keyring.gpg
+        dest: /etc/apt/keyrings/githubcli-archive-keyring.gpg
+        mode: "0644"
+
+    - name: GitHub CLI's source
+      ansible.builtin.apt_repository:
+        repo: "deb [arch={{ legato_arch }} signed-by=/etc/apt/keyrings/githubcli-archive-keyring.gpg] https://cli.github.com/packages stable main"
+        filename: github-cli
+        state: present
+
+    - name: GitHub CLI
+      ansible.builtin.apt:
+        name: gh
+        state: present
+        update_cache: true
+
+- name: Tailscale's apt repository
+  when: legato_install_tailscale | bool
+  block:
+    - name: Tailscale's key
+      ansible.builtin.get_url:
+        url: "https://pkgs.tailscale.com/stable/ubuntu/{{ ansible_distribution_release }}.noarmor.gpg"
+        dest: /usr/share/keyrings/tailscale-archive-keyring.gpg
+        mode: "0644"
+
+    - name: Tailscale's source
+      ansible.builtin.apt_repository:
+        repo: >-
+          deb [signed-by=/usr/share/keyrings/tailscale-archive-keyring.gpg]
+          https://pkgs.tailscale.com/stable/ubuntu {{ ansible_distribution_release }} main
+        filename: tailscale
+        state: present
+
+    - name: Tailscale
+      ansible.builtin.apt:
+        name: tailscale
+        state: present
+        update_cache: true
+
+- name: Neovim from its latest release
+  when: legato_neovim | bool
+  block:
+    - name: Neovim's release
+      ansible.builtin.unarchive:
+        src: "https://github.com/neovim/neovim/releases/latest/download/nvim-linux-{{ 'x86_64' if legato_arch == 'amd64' else 'arm64' }}.tar.gz"
+        dest: /opt
+        remote_src: true
+        creates: "/opt/nvim-linux-{{ 'x86_64' if legato_arch == 'amd64' else 'arm64' }}/bin/nvim"
+
+    - name: Put nvim on PATH
+      ansible.builtin.file:
+        src: "/opt/nvim-linux-{{ 'x86_64' if legato_arch == 'amd64' else 'arm64' }}/bin/nvim"
+        dest: /usr/local/bin/nvim
+        state: link

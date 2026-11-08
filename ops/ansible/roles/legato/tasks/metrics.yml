@@ -1,0 +1,57 @@
+---
+- name: Prometheus node exporter
+  ansible.builtin.apt:
+    name: prometheus-node-exporter
+    state: present
+
+- name: The metrics script's folder
+  ansible.builtin.file:
+    path: /usr/local/lib/legato-obs
+    state: directory
+    mode: "0755"
+
+- name: The metrics script
+  ansible.builtin.copy:
+    src: legato-metrics.py
+    dest: /usr/local/lib/legato-obs/legato-metrics.py
+    mode: "0755"
+
+- name: Its service
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/legato-metrics.service
+    mode: "0644"
+    content: |
+      [Unit]
+      Description=Legato status for node exporter's textfile collector
+
+      [Service]
+      Type=oneshot
+      Environment=LEGATO_USER={{ legato_user }}
+      Environment=LEGATO_UID={{ legato_uid }}
+      Environment=LEGATO_HEALTH_URL={{ 'https' if legato_tls else 'http' }}://127.0.0.1:{{ legato_port }}/health
+      ExecStart=/usr/local/lib/legato-obs/legato-metrics.py
+  notify: Restart the metrics timer
+
+- name: Its timer
+  ansible.builtin.copy:
+    dest: /etc/systemd/system/legato-metrics.timer
+    mode: "0644"
+    content: |
+      [Unit]
+      Description=Legato status metrics every 15s
+
+      [Timer]
+      OnBootSec=30s
+      OnUnitActiveSec=15s
+      AccuracySec=1s
+
+      [Install]
+      WantedBy=timers.target
+  notify: Restart the metrics timer
+
+- name: Start the timer, and at every boot
+  ansible.builtin.systemd_service:
+    name: legato-metrics.timer
+    enabled: true
+    state: started
+    daemon_reload: true

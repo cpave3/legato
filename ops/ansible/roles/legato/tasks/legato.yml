@@ -1,0 +1,91 @@
+---
+- name: Legato, as the user
+  become: true
+  become_user: "{{ legato_user }}"
+  environment:
+    PATH: "{{ legato_path }}"
+    HOME: "{{ legato_home }}"
+    XDG_RUNTIME_DIR: "/run/user/{{ legato_uid }}"
+  block:
+    - name: Legato's folders
+      ansible.builtin.file:
+        path: "{{ item }}"
+        state: directory
+        mode: "0700"
+      loop:
+        - "{{ legato_home }}/.config/legato"
+        - "{{ legato_home }}/.config/systemd/user"
+
+    - name: Legato from its latest release
+      ansible.builtin.get_url:
+        url: "https://github.com/{{ legato_github_repo }}/releases/latest/download/legato-linux-{{ legato_arch }}"
+        checksum: "sha256:https://github.com/{{ legato_github_repo }}/releases/latest/download/SHA256SUMS"
+        dest: "{{ legato_home }}/.local/bin/legato"
+        mode: "0755"
+        force: "{{ legato_force_download | bool }}"
+      when: not legato_binary_src
+      notify: Restart Legato
+
+    - name: Legato from a binary of yours
+      ansible.builtin.copy:
+        src: "{{ legato_binary_src }}"
+        dest: "{{ legato_home }}/.local/bin/legato"
+        mode: "0755"
+      when: legato_binary_src | length > 0
+      notify: Restart Legato
+
+    - name: Write config.yaml
+      ansible.builtin.template:
+        src: config.yaml.j2
+        dest: "{{ legato_home }}/.config/legato/config.yaml"
+        mode: "0600"
+        force: "{{ legato_overwrite_config | bool }}"
+      register: legato_config
+      notify: Restart Legato
+
+    # The service reads it, and every agent inherits it. Never overwritten:
+    # the tokens you add here stay.
+    - name: The service's environment file
+      ansible.builtin.template:
+        src: env.j2
+        dest: "{{ legato_home }}/.config/legato/env"
+        mode: "0600"
+        force: false
+
+    - name: The service
+      ansible.builtin.template:
+        src: legato.service.j2
+        dest: "{{ legato_home }}/.config/systemd/user/legato.service"
+        mode: "0644"
+      notify: Restart Legato
+
+    - name: The board's columns
+      ansible.builtin.command: legato columns sync  # noqa: no-handler (before the service starts)
+      when: legato_config.changed
+      changed_when: true
+
+    - name: Chimera's hooks, so Legato hears from its sessions
+      ansible.builtin.command: legato hooks install --tool chimera
+      args:
+        creates: "{{ legato_home }}/.chimera/hooks/SessionCreated/legato-session-created.sh"
+      when: legato_install_chimera | bool
+
+    - name: Start Legato, and at every boot
+      ansible.builtin.systemd_service:
+        name: legato
+        scope: user
+        enabled: true
+        state: started
+        daemon_reload: true
+
+- name: Restart now if something changed
+  ansible.builtin.meta: flush_handlers
+
+- name: Legato answers
+  ansible.builtin.uri:
+    url: "{{ 'https' if legato_tls else 'http' }}://127.0.0.1:{{ legato_port }}/health"
+    validate_certs: false
+  register: legato_health
+  until: legato_health.status == 200
+  retries: 15
+  delay: 2

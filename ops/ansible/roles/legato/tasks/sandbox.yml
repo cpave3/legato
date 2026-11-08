@@ -1,0 +1,40 @@
+---
+# Ubuntu 24.04 blocks unprivileged user namespaces through AppArmor
+# (kernel.apparmor_restrict_unprivileged_userns = 1), so bwrap fails with
+# "setting up uid map: Permission denied". Rather than turning that off for
+# the whole machine, a profile lets only /usr/bin/bwrap make them.
+- name: Does AppArmor restrict user namespaces
+  ansible.builtin.command: sysctl -n kernel.apparmor_restrict_unprivileged_userns
+  register: legato_userns_restricted
+  changed_when: false
+  failed_when: false
+
+- name: AppArmor profile for bwrap
+  ansible.builtin.copy:
+    dest: /etc/apparmor.d/bwrap
+    mode: "0644"
+    content: |
+      # Lets bubblewrap (Legato's agent sandbox) make user namespaces while
+      # Ubuntu keeps kernel.apparmor_restrict_unprivileged_userns=1 for
+      # everything else. Written by Legato's Ansible role.
+      abi <abi/4.0>,
+      include <tunables/global>
+
+      profile bwrap /usr/bin/bwrap flags=(unconfined) {
+        userns,
+        include if exists <local/bwrap>
+      }
+  when: legato_userns_restricted.stdout | default('0') == "1"
+  notify: Load the bwrap AppArmor profile
+
+- name: Load it now
+  ansible.builtin.meta: flush_handlers
+
+- name: The sandbox works
+  ansible.builtin.command: >-
+    bwrap --ro-bind / / --unshare-pid --unshare-ipc --unshare-uts --unshare-cgroup
+    --die-with-parent --proc /proc --dev /dev true
+  become: true
+  become_user: "{{ legato_user }}"
+  changed_when: false
+  when: legato_sandbox | bool

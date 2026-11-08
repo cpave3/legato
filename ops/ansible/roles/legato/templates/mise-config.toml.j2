@@ -1,0 +1,12 @@
+# Written by Legato's Ansible role (legato_mise_tools). Every agent and the
+# Legato service find these through mise's shims.
+[tools]
+{% for name, version in legato_mise_tools | dictsort %}
+{{ name }} = "{{ version }}"
+{% endfor %}
+{% if 'dotnet' in legato_mise_tools %}
+
+# One .NET root holds every SDK, so a project's global.json picks one.
+[settings.dotnet]
+isolated = false
+{% endif %}

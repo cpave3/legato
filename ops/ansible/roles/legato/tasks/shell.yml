@@ -1,0 +1,75 @@
+---
+- name: Make zsh the user's login shell
+  ansible.builtin.user:
+    name: "{{ legato_user }}"
+    shell: "{{ legato_shell }}"
+
+- name: Run user services with nobody logged in
+  ansible.builtin.command: "loginctl enable-linger {{ legato_user }}"
+  args:
+    creates: "/var/lib/systemd/linger/{{ legato_user }}"
+
+- name: The user's systemd manager is running
+  ansible.builtin.systemd_service:
+    name: "user@{{ legato_uid }}.service"
+    state: started
+
+- name: Login shells find ~/.local/bin, mise's shims and pnpm's tools
+  ansible.builtin.blockinfile:
+    path: "{{ legato_home }}/.profile"
+    marker: "# {mark} Legato worker (Ansible)"
+    create: true
+    owner: "{{ legato_user }}"
+    mode: "0644"
+    block: |
+      export PATH="$HOME/.local/bin:$HOME/.local/share/mise/shims:$PATH"
+      export PNPM_HOME="$HOME/.local/share/pnpm"
+      export PATH="$PNPM_HOME:$PATH:$HOME/.dotnet/tools"
+      export DOTNET_ROOT="$HOME/.local/share/mise/dotnet-root"
+
+- name: Have zsh login shells read ~/.profile too
+  ansible.builtin.blockinfile:
+    path: "{{ legato_home }}/.zprofile"
+    marker: "# {mark} Legato worker (Ansible)"
+    create: true
+    owner: "{{ legato_user }}"
+    mode: "0644"
+    block: |
+      emulate sh -c '. $HOME/.profile'
+
+- name: Interactive bash activates mise
+  ansible.builtin.blockinfile:
+    path: "{{ legato_home }}/.bashrc"
+    marker: "# {mark} Legato worker (Ansible)"
+    create: true
+    owner: "{{ legato_user }}"
+    mode: "0644"
+    block: |
+      [ -x "$HOME/.local/bin/mise" ] && eval "$("$HOME/.local/bin/mise" activate bash)"
+
+- name: Oh My Zsh
+  when: legato_oh_my_zsh | bool
+  block:
+    - name: Oh My Zsh's checkout
+      ansible.builtin.git:
+        repo: https://github.com/ohmyzsh/ohmyzsh.git
+        dest: "{{ legato_home }}/.oh-my-zsh"
+        version: master
+        depth: 1
+        update: false
+      become: true
+      become_user: "{{ legato_user }}"
+
+    - name: A .zshrc, unless there is one
+      ansible.builtin.copy:
+        dest: "{{ legato_home }}/.zshrc"
+        owner: "{{ legato_user }}"
+        mode: "0644"
+        force: false
+        content: |
+          # Written by Legato's Ansible role once; yours to change.
+          export ZSH="$HOME/.oh-my-zsh"
+          ZSH_THEME="robbyrussell"
+          plugins=(git)
+          source $ZSH/oh-my-zsh.sh
+          [ -x "$HOME/.local/bin/mise" ] && eval "$("$HOME/.local/bin/mise" activate zsh)"

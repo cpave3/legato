@@ -1,0 +1,95 @@
+---
+- name: Agent tools, as the user
+  become: true
+  become_user: "{{ legato_user }}"
+  environment:
+    PATH: "{{ legato_path }}"
+    HOME: "{{ legato_home }}"
+    PNPM_HOME: "{{ legato_home }}/.local/share/pnpm"
+  block:
+    - name: Claude Code
+      ansible.builtin.shell: set -o pipefail && curl -fsSL https://claude.ai/install.sh | bash
+      args:
+        executable: /bin/bash
+        creates: "{{ legato_home }}/.local/bin/claude"
+      when: legato_install_claude | bool
+
+    - name: Codex's installer
+      ansible.builtin.get_url:
+        url: https://chatgpt.com/codex/install.sh
+        dest: /tmp/codex-install.sh
+        mode: "0755"
+      when: legato_install_codex | bool
+
+    - name: Codex
+      ansible.builtin.command: sh /tmp/codex-install.sh
+      args:
+        creates: "{{ legato_home }}/.local/bin/codex"
+      environment:
+        CODEX_NON_INTERACTIVE: "true"
+      when: legato_install_codex | bool
+
+    - name: Staccato's st, from its latest release
+      ansible.builtin.get_url:
+        url: "https://github.com/cpave3/staccato/releases/latest/download/st-linux-{{ legato_arch }}"
+        checksum: "sha256:https://github.com/cpave3/staccato/releases/latest/download/SHA256SUMS"
+        dest: "{{ legato_home }}/.local/bin/st"
+        mode: "0755"
+        force: false
+      when: legato_install_staccato | bool
+
+    - name: Chimera, from source
+      when: legato_install_chimera | bool
+      block:
+        - name: Chimera's checkout
+          ansible.builtin.git:
+            repo: "{{ legato_chimera_repo }}"
+            dest: "{{ legato_home }}/Projects/chimera"
+            version: "{{ legato_chimera_version }}"
+            update: false
+          register: legato_chimera_checkout
+
+        - name: Chimera's pinned pnpm
+          ansible.builtin.slurp:
+            src: "{{ legato_home }}/Projects/chimera/package.json"
+          register: legato_chimera_package
+
+        - name: Remember it
+          ansible.builtin.set_fact:
+            legato_chimera_pnpm: >-
+              {{ ((legato_chimera_package.content | b64decode | from_json).packageManager
+              | default('pnpm@latest')).split('+')[0] }}
+
+        # better-sqlite3 may have no prebuilt binary for this Node, and
+        # compiles with node-gyp.
+        - name: Install node-gyp
+          ansible.builtin.command: mise exec node -- npm install -g node-gyp
+          args:
+            creates: "{{ legato_home }}/.local/share/mise/shims/node-gyp"
+
+        - name: Build Chimera
+          ansible.builtin.command: "mise exec {{ legato_chimera_pnpm }} -- {{ item }}"
+          args:
+            chdir: "{{ legato_home }}/Projects/chimera"
+          loop:
+            - pnpm install
+            - pnpm build
+          when: legato_chimera_checkout.changed  # noqa: no-handler (before it is linked)
+          changed_when: true
+
+        - name: Link it into PNPM_HOME
+          ansible.builtin.command: "mise exec {{ legato_chimera_pnpm }} -- pnpm link --global"
+          args:
+            chdir: "{{ legato_home }}/Projects/chimera"
+            creates: "{{ legato_home }}/.local/share/pnpm/chimera"
+
+        # pnpm's shim finds Chimera from its own folder, so a link to it
+        # fails; the service's PATH holds ~/.local/bin.
+        - name: Put chimera in ~/.local/bin
+          ansible.builtin.copy:
+            dest: "{{ legato_home }}/.local/bin/chimera"
+            mode: "0755"
+            content: |
+              #!/bin/sh
+              # Chimera is linked into PNPM_HOME by pnpm link --global; the Legato service's PATH has ~/.local/bin.
+              exec "$HOME/.local/share/pnpm/chimera" "$@"

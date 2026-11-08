@@ -1,0 +1,16 @@
+---
+- name: Ubuntu only
+  ansible.builtin.assert:
+    that: ansible_distribution == "Ubuntu"
+    fail_msg: "This role sets up Ubuntu LTS; {{ ansible_distribution }} is not supported."
+
+- name: The user exists
+  ansible.builtin.getent:
+    database: passwd
+    key: "{{ legato_user }}"
+
+- name: Remember the user's ID and the release architecture
+  ansible.builtin.set_fact:
+    legato_uid: "{{ ansible_facts.getent_passwd[legato_user][1] }}"
+    legato_arch: "{{ {'x86_64': 'amd64', 'aarch64': 'arm64'}[ansible_architecture] }}"
+    legato_path: "{{ legato_home }}/.local/bin:{{ legato_home }}/.local/share/mise/shims:{{ legato_home }}/.local/share/pnpm:/usr/local/bin:/usr/bin:/bin"

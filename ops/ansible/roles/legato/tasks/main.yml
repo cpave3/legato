@@ -1,0 +1,25 @@
+---
+- name: Facts this role needs
+  ansible.builtin.include_tasks: facts.yml
+
+- name: System packages
+  ansible.builtin.include_tasks: packages.yml
+
+- name: Let bubblewrap make user namespaces
+  ansible.builtin.include_tasks: sandbox.yml
+
+- name: The user's shell
+  ansible.builtin.include_tasks: shell.yml
+
+- name: Toolchains
+  ansible.builtin.include_tasks: toolchains.yml
+
+- name: Agent tools
+  ansible.builtin.include_tasks: agent_tools.yml
+
+- name: Legato
+  ansible.builtin.include_tasks: legato.yml
+
+- name: Metrics
+  ansible.builtin.include_tasks: metrics.yml
+  when: legato_metrics | bool

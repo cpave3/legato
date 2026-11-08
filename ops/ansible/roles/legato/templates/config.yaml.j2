@@ -1,0 +1,112 @@
+# Legato worker. Written by Legato's Ansible role from its variables
+# (ops/ansible/roles/legato/defaults/main.yml), once: later runs
+# leave this file alone unless legato_overwrite_config is set.
+# Every setting: https://cpave3.github.io/legato/reference/configuration/
+
+web:
+  enabled: true
+  port: "{{ legato_port }}"
+{% if legato_public_url %}
+  public_url: {{ legato_public_url }}
+{% endif %}
+{% if legato_tls %}
+  tls:
+    enabled: true
+{% if legato_tls_hostname %}
+    hostname: {{ legato_tls_hostname }}
+{% endif %}
+{% endif %}
+
+board:
+  columns:
+{% for column in legato_board_columns %}
+    - name: {{ column }}
+{% endfor %}
+
+# Legato's own bare copy of each repository. Every job gets a fresh clone of
+# it, on a branch of its own.
+repository_cache:
+  enabled: true
+  max_age: 5m     # fetch first when the copy is older
+  keep_idle: 7d   # keep a clone this long after its last agent, for the next part of a stack
+
+{% if legato_repositories %}
+# What the spawn dialog, jobs and handoffs offer. More can be added in the
+# web UI (Settings › Agents › Repositories).
+repositories:
+{% for r in legato_repositories %}
+  - name: {{ r.name }}
+    repo: {{ r.repo }}
+    base_branch: {{ r.base_branch | default('main') }}
+{% endfor %}
+{% else %}
+# What the spawn dialog, jobs and handoffs offer: add them in the web UI
+# (Settings › Agents › Repositories), or here:
+# repositories:
+#   - name: legato
+#     repo: cpave3/legato
+#     base_branch: main
+{% endif %}
+
+agents:
+  sandbox:
+    # Agents see only their clone, their tool's login and Legato's sockets.
+    # A worker refuses handoffs without it.
+    enabled: {{ legato_sandbox | bool | lower }}
+
+{% if legato_skip_permission_prompts %}
+adapters:
+  # Nobody is at the terminal: the sandbox and the VM are the boundary.
+  claude-code:
+    launch_args: ["--dangerously-skip-permissions"]
+  codex:
+    launch_args: ["-c", 'model_reasoning_summary="detailed"']
+{% endif %}
+
+{% if legato_ntfy_topic %}
+notifications:
+  ntfy:
+    topic: {{ legato_ntfy_topic }}
+{% else %}
+# Push notifications for finished agents, agents that need you and approvals:
+# notifications:
+#   ntfy:
+#     topic: <a topic nobody could guess>
+{% endif %}
+
+{% if legato_android_app_digests %}
+# The key your Legato phone app is signed with, for signed approvals.
+approval_devices:
+  android_app_digests:
+{% for d in legato_android_app_digests %}
+    - "{{ d }}"
+{% endfor %}
+{% endif %}
+
+# GitHub, through a GitHub App of your own: read tokens for clones, pushes
+# checked branch by branch. Add the App's key on this machine first:
+#   legato secret add github-app --type keypair --from <app>.private-key.pem
+# then uncomment and fill in. See
+# https://cpave3.github.io/legato/security/credentials-setup/
+# credentials:
+#   - name: github
+#     secret: legato://github-app
+#     profile: github
+#     settings:
+#       client_id: <the App's client ID>
+#       repositories: [<owner>/*]
+#   - name: reviewer-app        # for review passes
+#     secret: legato://reviewer-app
+#     profile: github-reviewer
+#     type: keypair
+#     settings:
+#       client_id: <the reviewer App's client ID>
+#       repositories: [<owner>/*]
+
+# Review passes: a second agent reviews a handoff's pull requests before it
+# is done. Needs the reviewer App credential above. See
+# https://cpave3.github.io/legato/using/review-passes/
+# review_passes:
+#   enabled: true
+#   github_credential: reviewer-app
+#   reviewer: {agent: {{ legato_reviewer.agent }}{% if legato_reviewer.model %}, model: {{ legato_reviewer.model }}{% endif %}{% if legato_reviewer.skill %}, skill: {{ legato_reviewer.skill }}{% endif %}}

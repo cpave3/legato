@@ -1,0 +1,202 @@
+---
+# Everything the role does can be changed here, per host or group in your
+# inventory, or with -e. Nothing here is a secret: logins, tokens and keys
+# are left for you to add on the machine (see ops/ansible/README.md).
+
+# The user Legato and its agents run as. It must exist (an Ubuntu cloud
+# image's `ubuntu` does). Agents can use everything this user can, so give
+# it nothing an agent should not have.
+legato_user: ubuntu
+legato_home: "/home/{{ legato_user }}"
+legato_shell: /usr/bin/zsh
+
+# --- System packages -------------------------------------------------------
+
+legato_apt_packages:
+  # Legato itself: agents run in tmux, clones are made with git, and the
+  # sandbox is bubblewrap.
+  - tmux
+  - git
+  - git-lfs
+  - bubblewrap
+  - zsh
+  - curl
+  - wget
+  - ca-certificates
+  - gnupg
+  # Building things.
+  - build-essential
+  - pkg-config
+  - libssl-dev
+  - clang
+  - mold
+  - sqlite3
+  - python3
+  - python3-venv
+  - python3-pip
+  # Everyday tools agents reach for.
+  - jq
+  - ripgrep
+  - fd-find      # the command is `fdfind`
+  - unzip
+  - zip
+  - xz-utils
+  - file
+  - htop
+
+# Libraries for building Tauri apps (Legato's desktop app). Set to [] to skip.
+legato_desktop_build_packages:
+  - libwebkit2gtk-4.1-dev
+  - libgtk-3-dev
+  - libayatana-appindicator3-dev
+  - librsvg2-dev
+  - libsoup-3.0-dev
+  - libasound2-dev
+  - libdbus-1-dev
+  - libudev-dev
+
+# The QEMU guest agent, for a Proxmox or other KVM VM.
+legato_qemu_guest_agent: true
+
+# GitHub CLI and Tailscale from their own apt repositories (Ubuntu's are old
+# or missing). Neither is logged in.
+legato_install_gh: true
+legato_install_tailscale: true
+
+# --- Shell -----------------------------------------------------------------
+
+# Oh My Zsh with the git plugin, and a .zshrc that activates mise. An
+# existing .zshrc is left alone.
+legato_oh_my_zsh: true
+
+# Neovim from its latest release, in /opt/nvim with /usr/local/bin/nvim.
+legato_neovim: true
+
+# --- Toolchains (mise) -----------------------------------------------------
+
+# ~/.config/mise/config.toml. Every agent and the service find these through
+# mise's shims.
+legato_mise_tools:
+  node: "24"
+  python: "3.12"
+  go: latest
+  rust: latest
+  bun: latest
+  pnpm: latest
+  yarn: "1"
+  pipx: latest
+  lua: latest
+  sccache: latest
+  dotnet: "10"
+
+# More installed beside the defaults above, such as a second .NET SDK.
+legato_mise_extra_installs:
+  - dotnet@9
+
+# Go tools installed into mise's Go.
+legato_go_tools:
+  - github.com/go-task/task/v3/cmd/task@latest
+  - github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest
+
+# uv, from its standalone installer.
+legato_install_uv: true
+
+# Rust: share compiled crates between fresh clones (sccache) and link with
+# mold. Needs sccache in legato_mise_tools.
+legato_rust_build_cache: true
+
+# --- Agent tools -----------------------------------------------------------
+
+# Installed with their own installers into ~/.local/bin. None is logged in.
+legato_install_claude: true
+legato_install_codex: true
+
+# Chimera, built from source (github.com/cpave3/chimera) into ~/Projects and
+# linked with pnpm. Its ~/.chimera/config.json, which holds provider keys,
+# is yours to add.
+legato_install_chimera: true
+legato_chimera_repo: https://github.com/cpave3/chimera.git
+legato_chimera_version: main
+
+# Staccato's st, from its latest release. Legato keeps it up to date.
+legato_install_staccato: true
+
+# --- Legato ----------------------------------------------------------------
+
+# The binary: the latest release from GitHub, checked against its
+# SHA256SUMS. Legato updates itself after that, so a run of this playbook
+# does not replace a binary that is there unless legato_force_download.
+legato_github_repo: cpave3/legato
+legato_force_download: false
+# Or a binary of your own, such as one built from main (`task build`): a
+# path on the machine running Ansible. It is copied every run.
+legato_binary_src: ""
+
+legato_port: 3080
+
+# config.yaml is written once from the template, and left alone after that
+# so changes made on the machine or in the web UI stay. Set true to have
+# every run write it again.
+legato_overwrite_config: false
+
+# The address phones and notification links use, such as
+# https://legato-worker.example.ts.net:3080. Empty: Legato's own guess.
+legato_public_url: ""
+
+# HTTPS with a certificate Legato makes and signs itself. Extra host names
+# for it go in legato_tls_hostname.
+legato_tls: true
+legato_tls_hostname: ""
+
+legato_board_columns:
+  - Backlog
+  - Ready
+  - Doing
+  - Review   # review passes move a card here while it is reviewed
+  - Done
+
+# What the spawn dialog, jobs and handoffs offer. Each: name, repo
+# (owner/name), base_branch. More can be added in the web UI.
+legato_repositories: []
+#  - name: legato
+#    repo: cpave3/legato
+#    base_branch: main
+
+# Agents run in Legato's bubblewrap sandbox. A worker refuses handoffs
+# without it.
+legato_sandbox: true
+
+# Agents' own permission prompts off: the sandbox (and the VM) are the
+# boundary, and nobody is at the terminal to answer them.
+legato_skip_permission_prompts: true
+
+# Push notifications through ntfy.sh. Pick a topic nobody could guess.
+legato_ntfy_topic: ""
+
+# The digests of the key your Legato phone app is signed with, for signed
+# approvals. Empty: Legato's default, the public debug key.
+legato_android_app_digests: []
+
+# The reviewer named in config.yaml's commented review_passes example.
+# Review passes need a reviewer GitHub App credential added on the machine,
+# so the config only shows how (see the README).
+legato_reviewer:
+  agent: claude-code
+  model: ""
+  skill: ""
+
+# Lines for ~/.config/legato/env, which the service reads and every agent
+# inherits. Written once, never overwritten: add your tokens there by hand.
+legato_env:
+  DOTNET_CLI_TELEMETRY_OPTOUT: "1"
+  DOTNET_NOLOGO: "1"
+  # MSBuild nodes and the compiler server otherwise stay alive after every
+  # agent build and pile up.
+  MSBUILDDISABLENODEREUSE: "1"
+  DOTNET_CLI_USE_MSBUILD_SERVER: "0"
+
+# --- Metrics ---------------------------------------------------------------
+
+# Prometheus node exporter, and a timer that writes Legato's health, its
+# unit's state and its agents to node exporter's textfile collector.
+legato_metrics: true

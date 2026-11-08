@@ -1,0 +1,9 @@
+---
+# Sets up a fresh Ubuntu LTS machine as a Legato worker. See README.md.
+#
+#   ansible-playbook -i inventory.yml worker.yml
+- name: Legato worker
+  hosts: legato_workers
+  become: true
+  roles:
+    - legato

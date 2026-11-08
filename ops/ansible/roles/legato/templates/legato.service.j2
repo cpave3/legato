@@ -1,0 +1,25 @@
+# Legato as a systemd user service. Written by Legato's Ansible role from
+# docs/examples/cloud-vm/legato.service.
+#
+#   systemctl --user status legato
+#   journalctl --user -u legato -f      # its log
+
+[Unit]
+Description=Legato
+After=network-online.target
+
+[Service]
+ExecStart=%h/.local/bin/legato serve --port {{ legato_port }}
+EnvironmentFile=-%h/.config/legato/env
+# A service does not read your shell's profile: every agent tool and
+# toolchain the agents build with must be on this PATH.
+Environment=PATH=%h/.local/bin:%h/.local/share/mise/shims:/usr/local/bin:/usr/bin
+Restart=on-failure
+# An update makes Legato exit with 75 to be started again on the new binary.
+RestartForceExitStatus=75
+# Stop only Legato: the tmux server it starts, and the agents in it, keep
+# running across a restart, and Legato finds them again when it starts.
+KillMode=process
+
+[Install]
+WantedBy=default.target

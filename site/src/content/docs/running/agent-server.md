@@ -13,6 +13,8 @@ These steps are written from Legato's code, and nobody has yet run them end to e
 
 A complete example of the files this guide makes is in [`docs/examples/cloud-vm/`](https://github.com/cpave3/legato/tree/main/docs/examples/cloud-vm): `config.yaml`, `legato.service` and `env.example`. A test loads that configuration, so it stays valid.
 
+On Ubuntu LTS, an Ansible playbook does steps 1, 4 and 5 for you, with the sandbox on: [`ops/ansible/`](https://github.com/cpave3/legato/tree/main/ops/ansible). It installs the packages, toolchains and agent tools, the latest Legato as a service, and a configuration without secrets; logging the agent tools in, Tailscale and GitHub stay yours to do.
+
 ## What protects what
 
 There are two ways to keep agents on the server from doing harm, and you can use both.

@@ -1,0 +1,80 @@
+---
+- name: Toolchains, as the user
+  become: true
+  become_user: "{{ legato_user }}"
+  environment:
+    PATH: "{{ legato_path }}"
+    HOME: "{{ legato_home }}"
+  block:
+    - name: Make ~/.local/bin
+      ansible.builtin.file:
+        path: "{{ legato_home }}/.local/bin"
+        state: directory
+        mode: "0755"
+
+    - name: Install mise
+      ansible.builtin.shell: set -o pipefail && curl -fsSL https://mise.run | sh
+      args:
+        executable: /bin/bash
+        creates: "{{ legato_home }}/.local/bin/mise"
+
+    - name: Write mise's global tools
+      ansible.builtin.template:
+        src: mise-config.toml.j2
+        dest: "{{ legato_home }}/.config/mise/config.toml"
+        mode: "0644"
+
+    - name: Install them
+      ansible.builtin.command: mise install --yes
+      register: legato_mise_install
+      changed_when: legato_mise_install.stderr is search('installed')
+
+    - name: Install the extra versions
+      ansible.builtin.command: "mise install --yes {{ item }}"
+      loop: "{{ legato_mise_extra_installs }}"
+      register: legato_mise_extra
+      changed_when: legato_mise_extra.stderr is search('installed')
+
+    - name: Go tools
+      ansible.builtin.command: "mise exec go -- go install {{ item }}"
+      args:
+        creates: "{{ legato_home }}/.local/share/mise/shims/{{ item.split('@')[0].split('/')[-1] }}"
+      loop: "{{ legato_go_tools if 'go' in legato_mise_tools else [] }}"
+      register: legato_go_installs
+
+    - name: Shims for them
+      ansible.builtin.command: mise reshim
+      when: legato_go_installs.changed  # noqa: no-handler (before the next tools use them)
+      changed_when: true
+
+    - name: Install uv
+      ansible.builtin.shell: set -o pipefail && curl -LsSf https://astral.sh/uv/install.sh | sh
+      args:
+        executable: /bin/bash
+        creates: "{{ legato_home }}/.local/bin/uv"
+      environment:
+        UV_NO_MODIFY_PATH: "1"
+      when: legato_install_uv | bool
+
+    - name: Make ~/.cargo
+      ansible.builtin.file:
+        path: "{{ legato_home }}/.cargo"
+        state: directory
+        mode: "0755"
+      when: legato_rust_build_cache | bool and 'rust' in legato_mise_tools
+
+    - name: Rust builds share crates (sccache) and link with mold
+      ansible.builtin.copy:
+        dest: "{{ legato_home }}/.cargo/config.toml"
+        mode: "0644"
+        force: false
+        content: |
+          # Shared compile cache: every fresh clone reuses crates other clones built.
+          [build]
+          rustc-wrapper = "{{ legato_home }}/.local/share/mise/shims/sccache"
+
+          # mold links much faster than the default linker.
+          [target.{{ 'x86_64' if legato_arch == 'amd64' else 'aarch64' }}-unknown-linux-gnu]
+          linker = "clang"
+          rustflags = ["-C", "link-arg=-fuse-ld=mold"]
+      when: legato_rust_build_cache | bool and 'rust' in legato_mise_tools and 'sccache' in legato_mise_tools

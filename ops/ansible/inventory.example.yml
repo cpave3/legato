@@ -1,0 +1,13 @@
+# Copy to inventory.yml (ignored by git) and name your machines.
+legato_workers:
+  hosts:
+    legato-worker:
+      ansible_host: 192.0.2.10        # its address
+      ansible_user: ubuntu            # an account that can sudo
+  vars:
+    legato_user: ubuntu
+    # legato_public_url: https://legato-worker.example.ts.net:3080
+    # legato_ntfy_topic: legato-worker-<something nobody could guess>
+    # legato_repositories:
+    #   - {name: legato, repo: cpave3/legato, base_branch: main}
+    # legato_binary_src: ../../legato   # a build of your own instead of the latest release
