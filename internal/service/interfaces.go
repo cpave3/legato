@@ -250,8 +250,19 @@ type SyncService interface {
 	StartScheduler(ctx context.Context) func()
 	SearchRemote(ctx context.Context, query string) ([]RemoteSearchResult, error)
 	// ImportRemoteTask tracks a ticket as a task. provider names its source;
-	// "" is the only one connected.
-	ImportRemoteTask(ctx context.Context, provider, ticketID string, workspaceID *int) (*Card, error)
+	// "" is the only one connected. A ticket already tracked from the same
+	// source is returned as it is: opts do not move it.
+	ImportRemoteTask(ctx context.Context, provider, ticketID string, opts ImportRemoteTaskOptions) (*Card, error)
+}
+
+// ImportRemoteTaskOptions say where an imported ticket's task starts.
+type ImportRemoteTaskOptions struct {
+	// WorkspaceID is the task's workspace; nil is none.
+	WorkspaceID *int
+	// Column is the column the task starts in, matched without regard to
+	// case. "" is the source's status mapping, else Backlog. Sync may move
+	// the task when the ticket changes remotely.
+	Column string
 }
 
 // CardMoveSync coordinates a local card move with its remote provider.

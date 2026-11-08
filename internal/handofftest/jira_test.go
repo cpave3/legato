@@ -92,7 +92,7 @@ func jiraTask(t *testing.T, main *Main, jira *fakeJira, details, note string) se
 	t.Helper()
 	ctx := context.Background()
 	sync := service.NewSyncService(main.Store, main.Bus, jira, "", []string{"ACME"}, time.Hour, true)
-	if _, err := sync.ImportRemoteTask(ctx, "jira", checkoutTicket.ID, nil); err != nil {
+	if _, err := sync.ImportRemoteTask(ctx, "jira", checkoutTicket.ID, service.ImportRemoteTaskOptions{}); err != nil {
 		t.Fatal(err)
 	}
 	if err := main.Board.UpdateTaskDescription(ctx, checkoutTicket.ID, details); err != nil {

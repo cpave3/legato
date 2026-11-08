@@ -17,7 +17,7 @@ import type { BoardCard, BoardColumn, CardDetail } from "../lib/board-types"
 import { BoardGrid } from "../components/board/BoardGrid"
 import { isColumnCollapsed } from "../lib/boardColumns"
 import { MobileBoardList } from "../components/board/MobileBoardList"
-import { Plus, RefreshCw, Search } from "lucide-react"
+import { Download, Plus, RefreshCw, Search } from "lucide-react"
 import { WorkspaceFilter } from "../components/board/WorkspaceFilter"
 import { DetailPanel } from "../components/board/DetailPanel"
 import { BoardTaskPanel } from "../components/board/BoardTaskPanel"
@@ -46,7 +46,7 @@ import { useVoiceEnabled } from "../hooks/useVoiceEnabled"
 import { useSettings } from "../hooks/useSettings"
 import { apiFetch } from "../lib/api"
 import { WorkflowTriggerInputModal } from "../components/WorkflowTriggerInputModal"
-import type { WorkflowTriggerRequest } from "../lib/board"
+import type { ImportedTask, WorkflowTriggerRequest } from "../lib/board"
 import type { RepositoryPreset } from "../components/RepositoryPresetSelect"
 import { LoadingState } from "../components/ui/LoadingState"
 import { HandOffModal } from "../components/board/HandOffModal"
@@ -146,6 +146,12 @@ function CardFilter({ value, onChange, className, autoFocus }: { value: string; 
       />
     </label>
   )
+}
+
+// importedMessage says where an imported ticket's task landed.
+function importedMessage(task: ImportedTask): string {
+  if (!task.status) return `Imported ${task.id}`
+  return `Imported ${task.id} to ${task.status}${task.workspace_name ? ` · ${task.workspace_name}` : ""}`
 }
 
 function filterColumns(columns: BoardColumn[], query: string): BoardColumn[] {
@@ -895,6 +901,15 @@ export function BoardPage() {
             </button>
             <button
               type="button"
+              aria-label="Import ticket"
+              title="Import ticket (i)"
+              onClick={() => setOverlay({ kind: "import" })}
+              className="flex h-11 w-11 items-center justify-center rounded-full border border-lw-line-strong bg-lw-raised text-lw-text"
+            >
+              <Download size={17} aria-hidden="true" />
+            </button>
+            <button
+              type="button"
               aria-label="New card"
               onClick={() => setOverlay({ kind: "create" })}
               className="flex h-11 w-11 items-center justify-center rounded-full bg-lw-accent text-white"
@@ -936,6 +951,16 @@ export function BoardPage() {
             className="flex h-8 w-8 items-center justify-center rounded-md text-lw-text-2 hover:bg-lw-raised hover:text-lw-text disabled:cursor-wait disabled:opacity-60"
           >
             <RefreshCw size={15} className={syncingProviders ? "animate-spin" : ""} />
+          </button>
+          <button
+            type="button"
+            aria-label="Import ticket"
+            title="Import ticket (i)"
+            onClick={() => setOverlay({ kind: "import" })}
+            className="flex h-8 items-center gap-1.5 rounded-md border border-lw-line-strong px-3 text-[13px] text-lw-text-2 hover:bg-lw-raised hover:text-lw-text"
+          >
+            <Download size={14} aria-hidden="true" />
+            Import
           </button>
           <button
             onClick={() => setOverlay({ kind: "create" })}
@@ -1103,12 +1128,14 @@ export function BoardPage() {
       <ImportRemoteModal
         open={overlay.kind === "import"}
         workspaces={workspaces}
+        view={workspaceFilter}
         defaultWorkspaceId={settings.data?.default_import_workspace_id ?? null}
+        columns={columnNames}
         onClose={() => setOverlay({ kind: "none" })}
-        onImported={() => {
+        onImported={(task) => {
           setOverlay({ kind: "none" })
           refresh()
-          addToast("Remote task imported", "success")
+          addToast(importedMessage(task), "success")
         }}
       />
 

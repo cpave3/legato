@@ -110,7 +110,7 @@ func burnliteTask(t *testing.T, main *Main, burnlite *fakeBurnlite, details, not
 	t.Helper()
 	ctx := context.Background()
 	sync := service.NewTicketSync(main.Store, main.Bus, nil, burnlite)
-	if _, err := sync.ImportRemoteTask(ctx, service.BurnliteIntegration, estimateTicket.ID, nil); err != nil {
+	if _, err := sync.ImportRemoteTask(ctx, service.BurnliteIntegration, estimateTicket.ID, service.ImportRemoteTaskOptions{}); err != nil {
 		t.Fatal(err)
 	}
 	if err := main.Board.UpdateTaskDescription(ctx, estimateTicket.ID, details); err != nil {

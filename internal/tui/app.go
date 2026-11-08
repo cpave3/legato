@@ -1983,7 +1983,7 @@ func (a App) handleImportSelected(msg overlay.ImportSelectedMsg) (tea.Model, tea
 	a.pendingImport = ticketID
 	a.statusBar, _ = a.statusBar.Update(statusbar.ProgressMsg{Text: "importing " + ticketID + "..."})
 	return a, func() tea.Msg {
-		_, err := svc.ImportRemoteTask(context.Background(), provider, ticketID, workspaceID)
+		_, err := svc.ImportRemoteTask(context.Background(), provider, ticketID, service.ImportRemoteTaskOptions{WorkspaceID: workspaceID})
 		if err != nil {
 			return importRemoteDoneMsg{TicketID: ticketID, Err: err.Error()}
 		}

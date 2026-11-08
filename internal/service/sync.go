@@ -655,7 +655,7 @@ func (s *syncService) importSource(ctx context.Context, name string) (TicketSour
 	return nil, fmt.Errorf("say which provider the ticket is from: %s", strings.Join(names, ", "))
 }
 
-func (s *syncService) ImportRemoteTask(ctx context.Context, providerName, ticketID string, workspaceID *int) (*Card, error) {
+func (s *syncService) ImportRemoteTask(ctx context.Context, providerName, ticketID string, opts ImportRemoteTaskOptions) (*Card, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 
@@ -670,14 +670,14 @@ func (s *syncService) ImportRemoteTask(ctx context.Context, providerName, ticket
 		if existing.Provider == nil || *existing.Provider != source.Name() {
 			return nil, fmt.Errorf("%s: %w", ticketID, ErrTicketKeyTaken)
 		}
-		return &Card{
-			ID:       existing.ID,
-			Title:    existing.Title,
-			Priority: existing.Priority,
-			Status:   existing.Status,
-		}, nil
+		return s.importedCard(ctx, source.Name(), existing.ID, existing.Title, existing.Priority, existing.Status, existing.WorkspaceID), nil
 	}
 	if !errors.Is(err, store.ErrNotFound) {
+		return nil, err
+	}
+
+	picked, err := s.pickedColumn(ctx, opts.Column)
+	if err != nil {
 		return nil, err
 	}
 
@@ -690,10 +690,12 @@ func (s *syncService) ImportRemoteTask(ctx context.Context, providerName, ticket
 		return nil, fmt.Errorf("ticket %s not found on remote", ticketID)
 	}
 
-	// Resolve column
-	column, err := source.Column(ctx, *rt)
-	if err != nil {
-		return nil, err
+	column := picked
+	if column == "" {
+		column, err = source.Column(ctx, *rt)
+		if err != nil {
+			return nil, err
+		}
 	}
 	if column == "" {
 		column = "Backlog"
@@ -714,7 +716,7 @@ func (s *syncService) ImportRemoteTask(ctx context.Context, providerName, ticket
 		Provider:            &provider,
 		RemoteID:            &remoteID,
 		RemoteMeta:          encodeRemoteMeta(meta),
-		WorkspaceID:         workspaceID,
+		WorkspaceID:         opts.WorkspaceID,
 		CreatedAt:           now,
 		UpdatedAt:           now,
 	}
@@ -733,12 +735,42 @@ func (s *syncService) ImportRemoteTask(ctx context.Context, providerName, ticket
 		At:   time.Now(),
 	})
 
-	return &Card{
-		ID:       rt.ID,
-		Title:    rt.Summary,
-		Priority: rt.Priority,
-		Status:   column,
-	}, nil
+	return s.importedCard(ctx, provider, rt.ID, rt.Summary, rt.Priority, column, opts.WorkspaceID), nil
+}
+
+// pickedColumn is the board's name for the column an import asked for, or
+// "" when it asked for none.
+func (s *syncService) pickedColumn(ctx context.Context, name string) (string, error) {
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return "", nil
+	}
+	mappings, err := s.store.ListColumnMappings(ctx)
+	if err != nil {
+		return "", err
+	}
+	names := make([]string, 0, len(mappings))
+	for _, m := range mappings {
+		if strings.EqualFold(m.ColumnName, name) {
+			return m.ColumnName, nil
+		}
+		names = append(names, m.ColumnName)
+	}
+	return "", fmt.Errorf("%w: %q; pick one of %s", ErrUnknownColumn, name, strings.Join(names, ", "))
+}
+
+// importedCard is what an import returns: where the task is.
+func (s *syncService) importedCard(ctx context.Context, provider, id, title, priority, column string, workspaceID *int) *Card {
+	card := &Card{ID: id, Title: title, Priority: priority, Status: column, Provider: provider, WorkspaceID: workspaceID}
+	if workspaceID != nil {
+		if ws, err := s.store.GetWorkspace(ctx, *workspaceID); err == nil && ws != nil {
+			card.WorkspaceName = ws.Name
+			if ws.Color != nil {
+				card.WorkspaceColor = *ws.Color
+			}
+		}
+	}
+	return card
 }
 
 func buildSearchJQL(projectKeys []string, text string) string {

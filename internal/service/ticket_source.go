@@ -48,6 +48,9 @@ type PullBatch struct {
 // ErrNoTicketProvider: no ticket provider is connected, or not the one named.
 var ErrNoTicketProvider = errors.New("no ticket provider is connected to Legato")
 
+// ErrUnknownColumn: an import named a column the board does not have.
+var ErrUnknownColumn = errors.New("the board has no such column")
+
 // ErrTicketKeyTaken: a task with the ticket's key exists, from another
 // provider or made in Legato.
 var ErrTicketKeyTaken = errors.New("a task with this key already exists from another source")

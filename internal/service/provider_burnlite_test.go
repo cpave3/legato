@@ -117,7 +117,7 @@ func TestABurnliteTaskIsImportedWithItsTextAndState(t *testing.T) {
 	svc, s := newBurnliteTest(t, reader, nil)
 	ctx := context.Background()
 
-	card, err := svc.ImportRemoteTask(ctx, "burnlite", "EST-3", nil)
+	card, err := svc.ImportRemoteTask(ctx, "burnlite", "EST-3", ImportRemoteTaskOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -146,7 +146,7 @@ func TestABurnliteMilestoneIsImportedWithItsTasksListed(t *testing.T) {
 	svc, s := newBurnliteTest(t, reader, nil)
 	ctx := context.Background()
 
-	card, err := svc.ImportRemoteTask(ctx, "burnlite", "EST-9", nil)
+	card, err := svc.ImportRemoteTask(ctx, "burnlite", "EST-9", ImportRemoteTaskOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -174,7 +174,7 @@ func TestASyncKeepsAMilestonesListOfTasksCurrent(t *testing.T) {
 	reader := burnliteFixture()
 	svc, s := newBurnliteTest(t, reader, nil)
 	ctx := context.Background()
-	if _, err := svc.ImportRemoteTask(ctx, "burnlite", "EST-9", nil); err != nil {
+	if _, err := svc.ImportRemoteTask(ctx, "burnlite", "EST-9", ImportRemoteTaskOptions{}); err != nil {
 		t.Fatal(err)
 	}
 	description := func() string {
@@ -225,7 +225,7 @@ func TestEachBurnliteStateHasItsColumn(t *testing.T) {
 	svc, s := newBurnliteTest(t, reader, nil)
 	ctx := context.Background()
 	for key, want := range map[string][2]string{"EST-1": {"Ready", "Ready"}, "EST-2": {"Blocked", "Backlog"}, "EST-4": {"Not planned", "Done"}} {
-		card, err := svc.ImportRemoteTask(ctx, "burnlite", key, nil)
+		card, err := svc.ImportRemoteTask(ctx, "burnlite", key, ImportRemoteTaskOptions{})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -249,7 +249,7 @@ func TestPullFetchesOnlyTheTasksThatChanged(t *testing.T) {
 	svc, s := newBurnliteTest(t, reader, nil)
 	ctx := context.Background()
 	for _, key := range []string{"EST-1", "EST-3"} {
-		if _, err := svc.ImportRemoteTask(ctx, "burnlite", key, nil); err != nil {
+		if _, err := svc.ImportRemoteTask(ctx, "burnlite", key, ImportRemoteTaskOptions{}); err != nil {
 			t.Fatal(err)
 		}
 	}
@@ -278,7 +278,7 @@ func TestATaskBurnliteNoLongerListsIsStale(t *testing.T) {
 	reader := burnliteFixture()
 	svc, s := newBurnliteTest(t, reader, nil)
 	ctx := context.Background()
-	if _, err := svc.ImportRemoteTask(ctx, "burnlite", "EST-1", nil); err != nil {
+	if _, err := svc.ImportRemoteTask(ctx, "burnlite", "EST-1", ImportRemoteTaskOptions{}); err != nil {
 		t.Fatal(err)
 	}
 	reader.rows["EST"] = reader.rows["EST"][1:]
@@ -299,7 +299,7 @@ func TestABurnliteWithoutUpdatedAtIsReportedAsTooOld(t *testing.T) {
 	reader := burnliteFixture()
 	svc, _ := newBurnliteTest(t, reader, nil)
 	ctx := context.Background()
-	if _, err := svc.ImportRemoteTask(ctx, "burnlite", "EST-1", nil); err != nil {
+	if _, err := svc.ImportRemoteTask(ctx, "burnlite", "EST-1", ImportRemoteTaskOptions{}); err != nil {
 		t.Fatal(err)
 	}
 	reader.rows["EST"][0].UpdatedAt = time.Time{}
@@ -342,7 +342,7 @@ func TestBurnliteIsSkippedUntilItIsConnected(t *testing.T) {
 		return nil, "", ErrNotConnected
 	})
 	svc := NewTicketSync(s, events.New(), nil, source)
-	if _, err := svc.ImportRemoteTask(context.Background(), "burnlite", "EST-1", nil); err == nil {
+	if _, err := svc.ImportRemoteTask(context.Background(), "burnlite", "EST-1", ImportRemoteTaskOptions{}); err == nil {
 		t.Fatal("an import from Burnlite before it is connected was accepted")
 	}
 	result, err := svc.Sync(context.Background())
