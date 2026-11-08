@@ -39,13 +39,13 @@ From then on every agent Legato starts runs inside the sandbox. If `bwrap` is mi
 | Inside the sandbox | Access |
 | --- | --- |
 | The system: `/usr`, `/etc`, `/opt` | read-only |
-| The working directory, and a worktree's main `.git` | read and write. An agent that may only look (a find-out delegation) gets them read-only; a reviewer gets them beneath a throwaway layer: it can build and run tests, and what it writes is gone when it ends. That layer needs bubblewrap 0.10 or later; with an older one the reviewer's checkout is read-only |
+| The working directory, and a worktree's main `.git` | read and write. An agent that may only look (a find-out delegation) gets them read-only; a reviewer gets them beneath a throwaway layer: it can build and run tests, and what it writes is gone when it ends. That layer is on disk, and needs bubblewrap 0.10 or later; with an older one the reviewer's checkout is read-only |
 | The agent tool's own state, such as `~/.claude`, `~/.codex` or `~/.chimera`, so sessions resume inside and out | read and write |
 | The agent tool's installation | read-only |
 | Your toolchains, such as `~/.local/bin`, mise, `~/go/bin`, Rust and Bun | read-only |
 | Package and build caches for Go, npm, pnpm, Yarn, Bun, pip, uv, Cargo, Gradle, Maven and others | read and write |
-| A home folder | an empty folder, with only the entries above in it |
-| `/tmp` | a folder of the session's own |
+| A home folder | an empty folder of the session's own, on disk, with only the entries above in it |
+| `/tmp` | a folder of the session's own, on disk |
 | Legato's sockets for the session: the SSH agent socket, the `gh` wrapper and the host broker | read-only |
 | The `legato` binary | read-only |
 | Your `known_hosts` and the system's ssh configuration | read-only |
@@ -93,6 +93,20 @@ agents:
   sandbox:
     default_mounts: false
 ```
+
+## Scratch space
+
+Each agent's `/tmp`, its home folder and a reviewer's throwaway layer are folders on disk, not in memory: `<data_dir>/sandbox/<execution>/`, readable only by you. A build cache an agent puts in `/tmp` uses disk space, not the memory the build needs. Legato removes the folder when the agent ends, however it ends, and sweeps the folders of agents that ended while it was not running. Folders of agents that are still running are never touched, and no agent sees another's.
+
+To keep scratch elsewhere, on a bigger disk say:
+
+```yaml
+agents:
+  sandbox:
+    scratch_dir: /mnt/big/legato-scratch
+```
+
+Nothing limits how much an agent writes there, so a runaway agent can fill that disk.
 
 ## Run one agent outside
 

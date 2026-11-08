@@ -91,6 +91,13 @@ func (a *agentService) sandboxPrefix(ctx context.Context, taskID, executionID, a
 		}
 		in.GH = gh
 	}
+	// The scratch folder exists before the plan is made, so a plan whose
+	// mounts hold it covers it on the first spawn too.
+	if root := scratchFor(in).Root; root != "" {
+		if err := os.MkdirAll(root, 0o700); err != nil {
+			return "", err
+		}
+	}
 	plan, err := BuildSandboxPlan(in)
 	if err != nil {
 		return "", err
@@ -105,9 +112,26 @@ func (a *agentService) sandboxPrefix(ctx context.Context, taskID, executionID, a
 	if env["GH_TOKEN"] != GHSignedOut {
 		plan.Unsetenv = append(plan.Unsetenv, "GH_TOKEN")
 	}
-	if in.RuntimeDir != "" {
-		if err := os.MkdirAll(filepath.Join(in.RuntimeDir, "sandbox", executionID, "tmp"), 0o700); err != nil {
+	// The scratch folders on disk: private, as an agent may write a token
+	// there, and kept until the execution ends.
+	scratch := scratchFor(in)
+	var private []string
+	if scratch.Root != "" {
+		private = []string{scratch.Root, scratch.Dir(executionID), scratch.Tmp(executionID), scratch.Home(executionID)}
+	}
+	for _, m := range plan.Mounts {
+		if m.Kind == sandbox.Overlay && m.Upper != "" {
+			private = append(private, filepath.Dir(m.Upper), m.Upper, m.Work)
+		}
+	}
+	for _, dir := range private {
+		if err := os.MkdirAll(dir, 0o700); err != nil {
 			return "", err
+		}
+		if dir != scratch.Root {
+			if err := os.Chmod(dir, 0o700); err != nil {
+				return "", err
+			}
 		}
 	}
 	// The broker's folder is mounted whether or not a host serves it yet:

@@ -77,3 +77,11 @@ func TestWritesIntoAThrowawayCheckoutNeverReachTheHost(t *testing.T) {
 		t.Fatalf("main.go on the host = %q", data)
 	}
 }
+
+// An overlay with its layer on disk keeps its writes out of memory.
+func TestAnOverlayWithALayerOnDiskUsesIt(t *testing.T) {
+	got := argsOf(t, Plan{Mounts: []Mount{{Kind: Overlay, Path: "/work/app", Upper: "/scratch/0/upper", Work: "/scratch/0/work"}}}, "true")
+	if !strings.Contains(got, "--overlay-src /work/app --overlay /scratch/0/upper /scratch/0/work /work/app") || strings.Contains(got, "--tmp-overlay") {
+		t.Fatalf("args = %s", got)
+	}
+}

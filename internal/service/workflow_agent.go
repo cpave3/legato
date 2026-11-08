@@ -61,6 +61,14 @@ func (r *WorkflowAgentRunner) FinishWorkflowAgent(ctx context.Context, attempt s
 	if err != nil && err != store.ErrNotFound {
 		return err
 	}
+	// The pane is stopped first: until it has, the session is still running,
+	// so a sweep meanwhile leaves the sandbox's scratch alone, and a pane
+	// that cannot be stopped keeps it and its execution.
+	if tmuxer, ok := r.agents.(interface{ Tmux() TmuxManager }); ok && attempt.TmuxSession != "" {
+		if err := tmuxer.Tmux().Kill(attempt.TmuxSession); err != nil {
+			return fmt.Errorf("stopping the workflow agent's pane: %w", err)
+		}
+	}
 	if session != nil && session.ExecutionID != "" {
 		if err := r.store.TerminalizeExecution(ctx, session.ExecutionID, store.ExecutionSucceeded); err != nil {
 			return err
@@ -72,8 +80,9 @@ func (r *WorkflowAgentRunner) FinishWorkflowAgent(ctx context.Context, attempt s
 	if err := r.store.DeleteAgentSession(ctx, *attempt.AgentSessionID); err != nil {
 		return err
 	}
-	if tmuxer, ok := r.agents.(interface{ Tmux() TmuxManager }); ok && attempt.TmuxSession != "" {
-		tmuxer.Tmux().Kill(attempt.TmuxSession)
+	// The sandbox's scratch goes once nothing runs in it.
+	if remover, ok := r.agents.(interface{ RemoveSandboxScratch(executionID string) }); ok && session != nil {
+		remover.RemoveSandboxScratch(session.ExecutionID)
 	}
 	return nil
 }

@@ -78,7 +78,7 @@ func TestTheSandboxSeesItsWorkAndToolsAndNoCredentials(t *testing.T) {
 			t.Errorf("%s: %+v, want kind %v", path, got, kind)
 		}
 	}
-	if m["/bin"].Target != "usr/bin" || m["/tmp"].Path != "/run/user/1000/legato/sandbox/ex-1/tmp" {
+	if m["/bin"].Target != "usr/bin" || m["/tmp"].Path != "/var/home/me/.local/share/legato/sandbox/ex-1/tmp" {
 		t.Errorf("bin = %+v, tmp = %+v", m["/bin"], m["/tmp"])
 	}
 	for _, never := range []string{"/var/home/me/.ssh", "/var/home/me/.config/gh", "/var/home/me/.gitconfig", "/var/home/me/.config/legato",
@@ -543,5 +543,156 @@ func TestAThrowawayCheckoutIsOverlaid(t *testing.T) {
 	// What the sandbox must never see stays hidden beneath the layer.
 	if m[in.ConfigPath].Kind != sandbox.Hide {
 		t.Fatalf("Legato's configuration in the checkout = %+v, want hidden", m[in.ConfigPath])
+	}
+}
+
+// /tmp and the home are the execution's own folders on disk, so what an
+// agent writes there is not held in memory.
+func TestTheSandboxsTmpAndHomeAreItsScratchFoldersOnDisk(t *testing.T) {
+	in := baseInput()
+	in.ScratchDir = "/var/home/me/.local/share/legato/sandbox"
+	plan, err := BuildSandboxPlan(in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := mounted(plan)
+	if m["/tmp"].Path != "/var/home/me/.local/share/legato/sandbox/ex-1/tmp" || m["/tmp"].Kind != sandbox.ReadWrite {
+		t.Errorf("tmp = %+v", m["/tmp"])
+	}
+	if plan.Home != "/var/home/me" || plan.HomeSource != "/var/home/me/.local/share/legato/sandbox/ex-1/home" {
+		t.Errorf("home %q from %q", plan.Home, plan.HomeSource)
+	}
+}
+
+// Without a scratch folder named, the data folder's is used.
+func TestTheScratchFoldersAreInTheDataFolderByDefault(t *testing.T) {
+	plan, err := BuildSandboxPlan(baseInput())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := mounted(plan)["/tmp"].Path; got != "/var/home/me/.local/share/legato/sandbox/ex-1/tmp" {
+		t.Errorf("tmp = %s", got)
+	}
+	if plan.HomeSource != "/var/home/me/.local/share/legato/sandbox/ex-1/home" {
+		t.Errorf("home source = %s", plan.HomeSource)
+	}
+}
+
+// A throwaway checkout's layer is in the scratch folder too, one per mount.
+func TestAThrowawayCheckoutsLayerIsOnDisk(t *testing.T) {
+	in := baseInput()
+	fs := hostFS()
+	fs["/var/home/me/Development/app"] = "dir"
+	fs["/var/home/me/Development/app/.git"] = "dir"
+	fs["/var/home/me/Development/app.feature"] = "dir"
+	in.FS, in.WorkDir, in.GitCommonDir = fs, "/var/home/me/Development/app.feature", "/var/home/me/Development/app/.git"
+	in.ReadOnlyCheckout, in.ThrowawayCheckout = true, true
+	plan, err := BuildSandboxPlan(in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := mounted(plan)
+	seen := map[string]bool{}
+	for _, path := range []string{in.WorkDir, in.GitCommonDir} {
+		o := m[path]
+		if o.Kind != sandbox.Overlay || !strings.HasPrefix(o.Upper, "/var/home/me/.local/share/legato/sandbox/ex-1/overlay/") ||
+			!strings.HasPrefix(o.Work, "/var/home/me/.local/share/legato/sandbox/ex-1/overlay/") || o.Upper == o.Work || seen[o.Upper] {
+			t.Fatalf("%s = %+v", path, o)
+		}
+		seen[o.Upper] = true
+	}
+}
+
+// A scratch folder set inside something the sandbox mounts holds every
+// other execution's /tmp and home: it is covered, and a mount into it is
+// refused.
+func TestAScratchFolderInsideAMountIsHidden(t *testing.T) {
+	in := baseInput()
+	fs := hostFS()
+	fs["/opt"], fs["/opt/scratch"] = "dir", "dir"
+	in.FS, in.ScratchDir = fs, "/opt/scratch"
+	plan, err := BuildSandboxPlan(in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := mounted(plan)
+	if m["/opt"].Kind != sandbox.ReadOnly || m["/opt/scratch"].Kind != sandbox.HideDir {
+		t.Fatalf("opt = %+v, scratch = %+v", m["/opt"], m["/opt/scratch"])
+	}
+	if m["/tmp"].Path != "/opt/scratch/ex-1/tmp" || plan.HomeSource != "/opt/scratch/ex-1/home" {
+		t.Fatalf("tmp = %+v, home from %q", m["/tmp"], plan.HomeSource)
+	}
+	in.Extra = []SandboxPath{{Path: "/opt/scratch/ex-2", Access: "write"}}
+	if _, err := BuildSandboxPlan(in); err == nil {
+		t.Fatal("a mount inside the scratch folder was accepted")
+	}
+}
+
+// A scratch folder that is itself something the sandbox mounts by default
+// (a cache, /opt) is not mounted: through it every execution would see the
+// others' /tmp and home.
+func TestAScratchFolderThatIsADefaultMountIsNotMounted(t *testing.T) {
+	for _, root := range []string{"/var/home/me/.cache/go-build", "/opt"} {
+		in := baseInput()
+		fs := hostFS()
+		fs["/opt"], fs["/var/home/me/.cache/go-build"] = "dir", "dir"
+		fs[root+"/ex-2"] = "dir"
+		in.FS, in.ScratchDir = fs, root
+		plan, err := BuildSandboxPlan(in)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, m := range plan.Mounts {
+			if m.Kind != sandbox.Hide && m.Kind != sandbox.HideDir && m.Dest == "" && within(m.Path, root) {
+				t.Errorf("scratch %s: %+v is mounted", root, m)
+			}
+		}
+		if got := mounted(plan)["/tmp"].Path; got != root+"/ex-1/tmp" {
+			t.Errorf("scratch %s: tmp = %s", root, got)
+		}
+	}
+}
+
+// The data folder's shared mounts (the repository cache, Legato's mod) are
+// allowed inside the data folder, but not over the scratch folder: a
+// scratch folder that is one of them, or inside one, is still private.
+func TestAScratchFolderAtOrInsideASharedDataMountIsPrivate(t *testing.T) {
+	repos := "/var/home/me/.local/share/legato/repos"
+	for _, root := range []string{repos, repos + "/scratch"} {
+		in := baseInput()
+		fs := hostFS()
+		fs[repos], fs[root], fs[root+"/ex-2"] = "dir", "dir", "dir"
+		in.FS, in.ScratchDir = fs, root
+		plan, err := BuildSandboxPlan(in)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, m := range plan.Mounts {
+			if m.Kind != sandbox.Hide && m.Kind != sandbox.HideDir && m.Dest == "" && within(m.Path, root) {
+				t.Errorf("scratch %s: %+v is mounted", root, m)
+			}
+		}
+		if root != repos {
+			if m := mounted(plan)[root]; m.Kind != sandbox.HideDir || mountIndex(plan, root) < mountIndex(plan, repos) {
+				t.Errorf("scratch %s is not covered after the cache: %+v", root, m)
+			}
+		}
+		// An ancestor of the data folder mounted too covers the data folder,
+		// which puts the cache back inside it: the scratch cover stays on top.
+		if root != repos {
+			in.Extra = []SandboxPath{{Path: in.Home}}
+			plan, err := BuildSandboxPlan(in)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if mountIndex(plan, repos) < 0 || mountIndex(plan, root) < mountIndex(plan, repos) {
+				t.Errorf("scratch %s with the home mounted: cover at %d, cache at %d", root, mountIndex(plan, root), mountIndex(plan, repos))
+			}
+		}
+		// Another execution's folder cannot be given as a mount.
+		in.Extra = []SandboxPath{{Path: root + "/ex-2", Access: "write"}}
+		if _, err := BuildSandboxPlan(in); err == nil {
+			t.Errorf("scratch %s: a mount of another execution's folder was accepted", root)
+		}
 	}
 }

@@ -278,6 +278,7 @@ type agentService struct {
 	setupsMu          sync.Mutex
 	setups            map[string]string // task -> the status file of its clone's setup, while it runs
 	sandbox           *SandboxSettings  // nil: agents run unsandboxed
+	scratch           SandboxScratch    // the sandboxes' scratch folders, removed when executions end
 	store             *store.Store
 	tmux              TmuxManager
 	workDir           string
@@ -472,6 +473,10 @@ type AgentServiceOptions struct {
 	DisablePeerAwareness bool
 	// Sandbox runs agents in Legato's sandbox. Nil: no sandbox.
 	Sandbox *SandboxSettings
+	// SandboxScratch is where sandboxes keep their scratch, removed when
+	// their executions end and swept on reconcile, also while the sandbox
+	// is off. Nil: the Sandbox's own.
+	SandboxScratch *SandboxScratch
 }
 
 // JobCloner makes the clone an agent spawned with a repository works in.
@@ -543,6 +548,12 @@ func NewAgentService(s *store.Store, tmux TmuxManager, workDir string, opts ...A
 		svc.learningMaxBytes = opts[0].LearningPromptMaxBytes
 		svc.peerAwareness = !opts[0].DisablePeerAwareness
 		svc.sandbox = opts[0].Sandbox
+		switch {
+		case opts[0].SandboxScratch != nil:
+			svc.scratch = *opts[0].SandboxScratch
+		case opts[0].Sandbox != nil:
+			svc.scratch = scratchFor(opts[0].Sandbox.Base)
+		}
 	}
 	// Wire the interaction adapters. The send-keys adapter is always
 	// available (it wraps the tmux manager). The Chimera adapter is only
@@ -617,7 +628,7 @@ func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, hei
 		// Tmux session is gone — terminalize its durable execution before
 		// marking the operational session dead so reporting cannot leak.
 		if existing.ExecutionID != "" {
-			_ = a.store.TerminalizeExecution(ctx, existing.ExecutionID, store.ExecutionLost)
+			_ = a.EndExecution(ctx, existing.ExecutionID, store.ExecutionLost)
 		}
 		_ = a.store.UpdateAgentSessionStatusInSlot(ctx, taskID, slot, "dead")
 	}
@@ -869,7 +880,7 @@ func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, hei
 		}
 	}
 	envMap["LEGATO_EXECUTION_ID"] = executionID
-	failExecution := func() { _ = a.store.TerminalizeExecution(ctx, executionID, store.ExecutionFailed) }
+	failExecution := func() { _ = a.EndExecution(ctx, executionID, store.ExecutionFailed) }
 	// Credential channels: placeholder keys, the proxy's address and the
 	// session's own SSH agent, which win over what the session inherits.
 	if provider := a.credentialEnv(); provider != nil {
@@ -1415,10 +1426,14 @@ func (a *agentService) stopAgentInSlot(ctx context.Context, taskID, slot string,
 		return a.store.DeleteDeadAgentSessionsInSlot(ctx, taskID, slot)
 	}
 
-	a.tmux.Kill(session.TmuxSession)
+	// Until the pane has stopped, its session stays running: a pane that
+	// cannot be stopped keeps its execution and its sandbox's scratch.
+	if err := a.tmux.Kill(session.TmuxSession); err != nil {
+		return fmt.Errorf("stopping the agent's pane: %w", err)
+	}
 
 	if session.ExecutionID != "" {
-		if err := a.store.TerminalizeExecution(ctx, session.ExecutionID, store.ExecutionCancelled); err != nil {
+		if err := a.EndExecution(ctx, session.ExecutionID, store.ExecutionCancelled); err != nil {
 			return err
 		}
 	}
@@ -1547,6 +1562,22 @@ func (a *agentService) ListAgents(ctx context.Context) ([]AgentSession, error) {
 	return result, nil
 }
 
+// EndExecution records that an execution has ended and removes its
+// sandbox's scratch folders, which nothing reads after the agent.
+func (a *agentService) EndExecution(ctx context.Context, executionID, status string) error {
+	if err := a.store.TerminalizeExecution(ctx, executionID, status); err != nil {
+		return err
+	}
+	a.scratch.removeLogged(executionID)
+	return nil
+}
+
+// RemoveSandboxScratch removes the scratch folders of an execution that has
+// ended.
+func (a *agentService) RemoveSandboxScratch(executionID string) {
+	a.scratch.removeLogged(executionID)
+}
+
 func (a *agentService) ReconcileSessions(ctx context.Context) error {
 	sessions, err := a.store.ListAgentSessions(ctx)
 	if err != nil {
@@ -1566,7 +1597,7 @@ func (a *agentService) ReconcileSessions(ctx context.Context) error {
 	for _, s := range sessions {
 		if s.Status == "running" && !live[s.TmuxSession] {
 			if s.ExecutionID != "" {
-				if err := a.store.TerminalizeExecution(ctx, s.ExecutionID, store.ExecutionLost); err != nil {
+				if err := a.EndExecution(ctx, s.ExecutionID, store.ExecutionLost); err != nil {
 					return err
 				}
 			}
@@ -1598,6 +1629,11 @@ func (a *agentService) ReconcileSessions(ctx context.Context) error {
 	}
 	if reconciled > 0 {
 		log.Printf("executions: terminalized %d orphaned running execution(s) as lost", reconciled)
+	}
+	if cleared, err := a.scratch.Sweep(ctx, StoreExecutionStatus(a.store)); err != nil {
+		log.Printf("sandbox: sweeping the scratch of ended executions: %v", err)
+	} else if cleared > 0 {
+		log.Printf("sandbox: removed the scratch of %d ended execution(s)", cleared)
 	}
 	count, oldest, err := a.store.ExecutionHealth(ctx)
 	if err != nil {

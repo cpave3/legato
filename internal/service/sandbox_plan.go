@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 
 	"github.com/cpave3/legato/internal/engine/sandbox"
@@ -79,6 +80,9 @@ type SandboxPlanInput struct {
 	ExecutionID, TaskID string
 	AgentKind           string
 	RuntimeDir          string // <runtime>/legato
+	// ScratchDir holds each execution's /tmp, home and throwaway layers, on
+	// disk (agents.sandbox.scratch_dir); <DataDir>/sandbox when empty.
+	ScratchDir          string
 	DataDir, ConfigPath string
 	BinaryPath          string
 	BrokerSocket        string
@@ -241,6 +245,11 @@ func forbidden(in SandboxPlanInput) []string {
 		filepath.Join(home, ".m2/settings.xml"), filepath.Join(home, ".config/composer/auth.json"), filepath.Join(home, ".composer/auth.json"),
 		"/var/run/docker.sock", "/run/docker.sock", "/run/podman",
 	}
+	// Every execution's /tmp and home: a sandbox sees its own only where
+	// they are bound, never through the scratch folder.
+	if root := scratchFor(in).Root; root != "" {
+		paths = append(paths, root)
+	}
 	if in.RuntimeDir != "" {
 		// The runtime folder holds every Legato's IPC socket, and the
 		// person's (the session bus, Podman); only the broker's folder and
@@ -263,6 +272,32 @@ func forbidden(in SandboxPlanInput) []string {
 
 func within(path, dir string) bool {
 	return path == dir || strings.HasPrefix(path, dir+string(filepath.Separator))
+}
+
+// mountDepth is how many folders down a mount lands inside the sandbox.
+func mountDepth(m sandbox.Mount) int {
+	dest := m.Dest
+	if dest == "" {
+		dest = m.Path
+	}
+	dest = filepath.Clean(dest)
+	if dest == "/" {
+		return 0
+	}
+	return strings.Count(dest, "/")
+}
+
+// inOthersScratch says whether path is at or inside the scratch folder and
+// not this execution's own runtime folder: what the sandbox must not see
+// whatever else allows it, as it holds every execution's /tmp and home.
+func inOthersScratch(in SandboxPlanInput, root, path string) bool {
+	if root == "" || !within(path, root) {
+		return false
+	}
+	if in.RuntimeDir != "" && in.ExecutionID != "" && within(path, filepath.Join(in.RuntimeDir, "sandbox", in.ExecutionID)) {
+		return false
+	}
+	return true
 }
 
 // allowedInside are mounts that may sit inside a forbidden folder: the parts
@@ -295,6 +330,7 @@ func BuildSandboxPlan(in SandboxPlanInput) (sandbox.Plan, error) {
 			return resolver.Real(p)
 		}
 		in.Home, in.WorkDir, in.DataDir, in.ConfigPath = real(in.Home), real(in.WorkDir), real(in.DataDir), real(in.ConfigPath)
+		in.ScratchDir = real(in.ScratchDir)
 		in.JobDir = real(in.JobDir)
 		in.BinaryPath, in.GitCommonDir, in.AgentFilesDir, in.PastedImagesDir = real(in.BinaryPath), real(in.GitCommonDir), real(in.AgentFilesDir), real(in.PastedImagesDir)
 		in.CredentialWrapperDir, in.GHConfigDir = real(in.CredentialWrapperDir), real(in.GHConfigDir)
@@ -324,7 +360,13 @@ func BuildSandboxPlan(in SandboxPlanInput) (sandbox.Plan, error) {
 		in.Extra = extra
 	}
 	no := forbidden(in)
+	scratchRoot := scratchFor(in).Root
 	check := func(path string) error {
+		// The scratch folder before the exemptions: one inside the
+		// repository cache is no less private.
+		if inOthersScratch(in, scratchRoot, path) {
+			return fmt.Errorf("%s is in the sandboxes' scratch folder, which holds other agents' /tmp and home", path)
+		}
 		if allowedInside(in, path) {
 			return nil
 		}
@@ -335,7 +377,11 @@ func BuildSandboxPlan(in SandboxPlanInput) (sandbox.Plan, error) {
 		}
 		return nil
 	}
+	scratch := scratchFor(in)
 	plan := sandbox.Plan{Home: in.Home, Chdir: in.WorkDir, Setenv: map[string]string{"LEGATO_SANDBOXED": "1", "TMPDIR": "/tmp"}}
+	if scratch.Root != "" {
+		plan.HomeSource = scratch.Home(in.ExecutionID)
+	}
 	var mounts []sandbox.Mount
 	add := func(path string, kind sandbox.Kind) {
 		info := in.FS.Probe(path)
@@ -358,9 +404,10 @@ func BuildSandboxPlan(in SandboxPlanInput) (sandbox.Plan, error) {
 		add(p, sandbox.ReadOnly)
 	}
 	mounts = append(mounts, sshConfigMounts(in)...)
-	// /tmp is the execution's own, on the host, so the host can read what an
-	// agent writes there (a screenshot it shows).
-	mounts = append(mounts, sandbox.Mount{Kind: sandbox.ReadWrite, Path: filepath.Join(in.RuntimeDir, "sandbox", in.ExecutionID, "tmp"), Dest: "/tmp"})
+	// /tmp is the execution's own, on the host's disk, so the host can read
+	// what an agent writes there (a screenshot it shows), and none of it is
+	// held in memory.
+	mounts = append(mounts, sandbox.Mount{Kind: sandbox.ReadWrite, Path: scratch.Tmp(in.ExecutionID), Dest: "/tmp"})
 	if in.DefaultMounts {
 		for _, p := range systemToolchains {
 			add(p, sandbox.ReadOnly)
@@ -456,12 +503,27 @@ func BuildSandboxPlan(in SandboxPlanInput) (sandbox.Plan, error) {
 		plan.Setenv["LEGATO_GH_REAL"] = gh.RealMount
 	}
 	mounts = append(mounts, linkTargetMounts(in, mounts, no)...)
+	// Nothing at or inside the scratch folder is mounted by its path but
+	// this execution's own: a default mount that is the scratch folder (a
+	// cache, /opt) would show every execution the others' /tmp and home.
+	if root := scratch.Root; root != "" {
+		kept := mounts[:0]
+		for _, m := range mounts {
+			if m.Dest == "" && inOthersScratch(in, root, m.Path) {
+				continue
+			}
+			kept = append(kept, m)
+		}
+		mounts = kept
+	}
 	// Hide each forbidden path that a mount above holds.
 	var hides []sandbox.Mount
 	seen := map[string]bool{}
 	for _, f := range no {
 		info := in.FS.Probe(f)
-		if !info.Exists || allowedInside(in, f) || seen[f] {
+		// The scratch folder is covered even inside an exempt mount (the
+		// repository cache).
+		if !info.Exists || (allowedInside(in, f) && f != scratchRoot) || seen[f] {
 			continue
 		}
 		seen[f] = true
@@ -479,27 +541,26 @@ func BuildSandboxPlan(in SandboxPlanInput) (sandbox.Plan, error) {
 			}
 		}
 	}
-	// The covers go after the mounts that hold what they hide, and before
-	// any mount inside what they hide (the job clone, Legato's mod and its
-	// repository cache are in the data folder), which bwrap would otherwise
-	// cover in turn.
-	var before, inside []sandbox.Mount
-	for _, m := range mounts {
-		dest := m.Dest
-		if dest == "" {
-			dest = m.Path
-		}
-		covered := false
-		for _, h := range hides {
-			covered = covered || (dest != h.Path && within(dest, h.Path))
-		}
-		if covered {
-			inside = append(inside, m)
-		} else {
-			before = append(before, m)
+	// bwrap mounts in order and a later mount covers an earlier one, so
+	// every mount and cover goes after everything that holds it: ordered by
+	// the depth of its path inside, the order above kept between equals. A
+	// cover then lands on top of every mount that holds what it hides,
+	// however deep those are put back (the repository cache inside the
+	// data folder, inside a mounted home), and before any mount inside it
+	// (the job clone, Legato's mod and its repository cache are in the data
+	// folder), which it would otherwise cover in turn.
+	plan.Mounts = append(mounts, hides...)
+	sort.SliceStable(plan.Mounts, func(i, j int) bool {
+		return mountDepth(plan.Mounts[i]) < mountDepth(plan.Mounts[j])
+	})
+	// A throwaway layer is on disk too, one folder per overlay.
+	n := 0
+	for i := range plan.Mounts {
+		if plan.Mounts[i].Kind == sandbox.Overlay && scratch.Root != "" {
+			plan.Mounts[i].Upper, plan.Mounts[i].Work = scratch.overlay(in.ExecutionID, n)
+			n++
 		}
 	}
-	plan.Mounts = append(append(before, hides...), inside...)
 	if in.GitIdentity[0] != "" {
 		plan.Setenv["GIT_AUTHOR_NAME"], plan.Setenv["GIT_COMMITTER_NAME"] = in.GitIdentity[0], in.GitIdentity[0]
 	}
