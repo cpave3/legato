@@ -36,7 +36,7 @@ func (*providerSyncTickets) StartScheduler(context.Context) func() { return func
 func (*providerSyncTickets) SearchRemote(context.Context, string) ([]RemoteSearchResult, error) {
 	return nil, nil
 }
-func (*providerSyncTickets) ImportRemoteTask(context.Context, string, string, *int) (*Card, error) {
+func (*providerSyncTickets) ImportRemoteTask(context.Context, string, string, ImportRemoteTaskOptions) (*Card, error) {
 	return nil, nil
 }
 

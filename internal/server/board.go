@@ -803,6 +803,8 @@ func remoteErrorStatus(err error) int {
 		return http.StatusServiceUnavailable
 	case errors.Is(err, service.ErrTicketKeyTaken):
 		return http.StatusConflict
+	case errors.Is(err, service.ErrUnknownColumn):
+		return http.StatusBadRequest
 	}
 	return http.StatusInternalServerError
 }
@@ -829,6 +831,8 @@ func (s *Server) remoteImportHandler() http.HandlerFunc {
 			// Provider is the ticket's source; "" is the only one connected.
 			Provider    string `json:"provider,omitempty"`
 			WorkspaceID *int   `json:"workspace_id,omitempty"`
+			// Column is where the task starts; "" is the provider's mapping.
+			Column string `json:"column,omitempty"`
 		}
 		if err := json.Unmarshal(body, &req); err != nil {
 			s.writeError(w, http.StatusBadRequest, "invalid JSON")
@@ -844,16 +848,20 @@ func (s *Server) remoteImportHandler() http.HandlerFunc {
 			return
 		}
 		ctx := context.Background()
-		card, err := s.sync.ImportRemoteTask(ctx, req.Provider, req.TicketID, req.WorkspaceID)
+		card, err := s.sync.ImportRemoteTask(ctx, req.Provider, req.TicketID, service.ImportRemoteTaskOptions{WorkspaceID: req.WorkspaceID, Column: req.Column})
 		if err != nil {
 			s.writeError(w, remoteErrorStatus(err), err.Error())
 			return
 		}
 		resp := CardResponse{
-			ID:       card.ID,
-			Title:    card.Title,
-			Priority: card.Priority,
-			Status:   card.Status,
+			ID:             card.ID,
+			Title:          card.Title,
+			Priority:       card.Priority,
+			Status:         card.Status,
+			Provider:       card.Provider,
+			WorkspaceID:    card.WorkspaceID,
+			WorkspaceName:  card.WorkspaceName,
+			WorkspaceColor: card.WorkspaceColor,
 		}
 		s.writeJSON(w, http.StatusCreated, resp)
 	}

@@ -204,7 +204,7 @@ func TestImportGoesToTheNamedProvider(t *testing.T) {
 	svc, s := newSourcesTest(t, jira, burnlite)
 	ctx := context.Background()
 
-	card, err := svc.ImportRemoteTask(ctx, "burnlite", "EST-7", nil)
+	card, err := svc.ImportRemoteTask(ctx, "burnlite", "EST-7", ImportRemoteTaskOptions{})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -216,19 +216,19 @@ func TestImportGoesToTheNamedProvider(t *testing.T) {
 		t.Errorf("task = %+v", task)
 	}
 
-	if _, err := svc.ImportRemoteTask(ctx, "", "REX-1", nil); err == nil {
+	if _, err := svc.ImportRemoteTask(ctx, "", "REX-1", ImportRemoteTaskOptions{}); err == nil {
 		t.Error("an import without a provider was accepted while two are configured")
 	}
-	if _, err := svc.ImportRemoteTask(ctx, "linear", "REX-1", nil); err == nil {
+	if _, err := svc.ImportRemoteTask(ctx, "linear", "REX-1", ImportRemoteTaskOptions{}); err == nil {
 		t.Error("an import from a provider that is not configured was accepted")
 	}
 	// The same key, from the other provider.
 	jira.tickets["EST-7"] = RemoteTicket{ID: "EST-7", Summary: "jira's"}
-	if _, err := svc.ImportRemoteTask(ctx, "jira", "EST-7", nil); !errors.Is(err, ErrTicketKeyTaken) {
+	if _, err := svc.ImportRemoteTask(ctx, "jira", "EST-7", ImportRemoteTaskOptions{}); !errors.Is(err, ErrTicketKeyTaken) {
 		t.Errorf("err = %v, want ErrTicketKeyTaken", err)
 	}
 	// The same key again, from its own provider: the task there.
-	if again, err := svc.ImportRemoteTask(ctx, "burnlite", "EST-7", nil); err != nil || again.ID != "EST-7" {
+	if again, err := svc.ImportRemoteTask(ctx, "burnlite", "EST-7", ImportRemoteTaskOptions{}); err != nil || again.ID != "EST-7" {
 		t.Errorf("again = %+v, %v", again, err)
 	}
 }
@@ -237,7 +237,7 @@ func TestImportWithoutAProviderUsesTheOnlyOne(t *testing.T) {
 	jira := &fakeSource{name: "jira", tickets: map[string]RemoteTicket{"REX-1": {ID: "REX-1", Summary: "jira one", Status: "To Do"}}}
 	off := &fakeSource{name: "burnlite", disabled: true}
 	svc, s := newSourcesTest(t, jira, off)
-	if _, err := svc.ImportRemoteTask(context.Background(), "", "REX-1", nil); err != nil {
+	if _, err := svc.ImportRemoteTask(context.Background(), "", "REX-1", ImportRemoteTaskOptions{}); err != nil {
 		t.Fatal(err)
 	}
 	if task, _ := s.GetTask(context.Background(), "REX-1"); *task.Provider != "jira" {
@@ -296,10 +296,10 @@ func TestWithNoProviderConnectedSearchAndImportSaySo(t *testing.T) {
 	if _, err := svc.SearchRemote(ctx, "login"); !errors.Is(err, ErrNoTicketProvider) {
 		t.Errorf("search err = %v", err)
 	}
-	if _, err := svc.ImportRemoteTask(ctx, "", "EST-1", nil); !errors.Is(err, ErrNoTicketProvider) {
+	if _, err := svc.ImportRemoteTask(ctx, "", "EST-1", ImportRemoteTaskOptions{}); !errors.Is(err, ErrNoTicketProvider) {
 		t.Errorf("import err = %v", err)
 	}
-	if _, err := svc.ImportRemoteTask(ctx, "burnlite", "EST-1", nil); !errors.Is(err, ErrNoTicketProvider) {
+	if _, err := svc.ImportRemoteTask(ctx, "burnlite", "EST-1", ImportRemoteTaskOptions{}); !errors.Is(err, ErrNoTicketProvider) {
 		t.Errorf("import from a named provider err = %v", err)
 	}
 }

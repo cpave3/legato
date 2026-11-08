@@ -71,8 +71,15 @@ In a TUI at least 100 columns wide, a panel beside the board describes the selec
 A local task belongs to Legato alone. A remote ticket comes from a ticket provider, such as a Jira issue. Legato keeps a copy of the ticket and updates it at each sync, but it never adds tickets to the board by itself: you import each one.
 
 - Press `n` to create a local task. You give it a title, a description, a column, a priority (`ctrl+p` cycles it) and a workspace.
-- Press `i` to search the ticket provider and import a ticket. Type at least two characters.
+- Press `i` to search the ticket providers and import a ticket. Type at least two characters. In the web UI, **Import** in the board's header (the download button on a phone) opens the same dialog. Choose a result with `↑` and `↓` and press `enter`, or click it; `esc` closes the dialog. With no provider connected, the dialog sends you to Settings to connect Burnlite or Jira.
 - Press `r` to sync with the ticket provider now. It also pulls every [worker](/legato/using/handoff/#staying-up-to-date) holding tasks of yours.
+
+In the web UI's import dialog you also choose where the task starts:
+
+- **Workspace** starts as the workspace the board shows. With **Unassigned** shown it is **No workspace**, and with **All** it is `default_import_workspace`.
+- **Column** starts as **Provider default**: the column the ticket's status maps to, else Backlog. Pick a column to start the task there instead. Importing never changes the ticket. The column is only a starting point: when the ticket changes in its provider, the next sync moves the card to the column its status maps to, as for any ticket.
+
+When the import is done, a message says where the task is, such as "Imported LEG-12 to Ready · backend". Importing a ticket that is already on the board leaves its task where it is.
 
 You can rename only a local task. For any task you can edit the details that belong to Legato with `e` in the detail view. On a remote ticket, the provider's own description stays read-only, and the detail view shows both together.
 

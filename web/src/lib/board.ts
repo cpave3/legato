@@ -211,17 +211,41 @@ export async function remoteSearch(baseUrl: string, query: string): Promise<Remo
 
 // Imports a ticket; provider names the source a search result came from, so
 // the server need not guess when several are connected.
+// column is where the task starts; omitted, the provider's status mapping
+// decides. Sync may move the task when the ticket changes remotely.
 export async function remoteImport(
   baseUrl: string,
-  body: { ticket_id: string; provider?: string; workspace_id?: number | null }
-): Promise<{ id: string }> {
+  body: { ticket_id: string; provider?: string; workspace_id?: number | null; column?: string }
+): Promise<ImportedTask> {
   const res = await apiFetch(baseUrl, "/api/remote/import", {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   })
   if (!res.ok) throw await serverError(res, `remoteImport failed: ${res.status}`)
-  return res.json() as Promise<{ id: string }>
+  return res.json() as Promise<ImportedTask>
+}
+
+/** Where an imported ticket's task is: its column and workspace. */
+export interface ImportedTask {
+  id: string
+  status?: string
+  workspace_id?: number | null
+  workspace_name?: string
+}
+
+/** A connected ticket provider, from GET /api/ticket-providers. */
+export interface TicketProvider {
+  name: string
+  label: string
+}
+
+// The connected ticket providers. Throws when the server cannot say.
+export async function fetchTicketProviders(baseUrl: string): Promise<TicketProvider[]> {
+  const res = await apiFetch(baseUrl, "/api/ticket-providers")
+  if (!res.ok) throw new Error(`ticket providers: ${res.status}`)
+  const body = (await res.json()) as { providers?: TicketProvider[] }
+  return body.providers ?? []
 }
 
 export async function detectRepo(baseUrl: string): Promise<RepoDetectResponse> {

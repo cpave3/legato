@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"path/filepath"
@@ -781,7 +782,7 @@ func TestImportRemoteTaskCreatesLocalTask(t *testing.T) {
 		},
 	}
 
-	card, err := svc.ImportRemoteTask(ctx, "", "TEST-42", nil)
+	card, err := svc.ImportRemoteTask(ctx, "", "TEST-42", ImportRemoteTaskOptions{})
 	if err != nil {
 		t.Fatalf("ImportRemoteTask: %v", err)
 	}
@@ -819,7 +820,7 @@ func TestImportRemoteTaskSerializesConcurrentImports(t *testing.T) {
 		wg.Add(1)
 		go func() {
 			defer wg.Done()
-			card, err := svc.ImportRemoteTask(context.Background(), "", "TEST-42", nil)
+			card, err := svc.ImportRemoteTask(context.Background(), "", "TEST-42", ImportRemoteTaskOptions{})
 			results <- card
 			errors <- err
 		}()
@@ -851,7 +852,7 @@ func TestImportRemoteTaskAlreadyTracked(t *testing.T) {
 		{ID: "TEST-42", Summary: "Already here", Status: "To Do", UpdatedAt: time.Now()},
 	}
 
-	card, err := svc.ImportRemoteTask(ctx, "", "TEST-42", nil)
+	card, err := svc.ImportRemoteTask(ctx, "", "TEST-42", ImportRemoteTaskOptions{})
 	if err != nil {
 		t.Fatalf("ImportRemoteTask: %v", err)
 	}
@@ -879,7 +880,7 @@ func TestImportRemoteTaskWithWorkspace(t *testing.T) {
 		},
 	}
 
-	card, err := svc.ImportRemoteTask(ctx, "", "TEST-55", &wsID)
+	card, err := svc.ImportRemoteTask(ctx, "", "TEST-55", ImportRemoteTaskOptions{WorkspaceID: &wsID})
 	if err != nil {
 		t.Fatalf("ImportRemoteTask: %v", err)
 	}
@@ -901,7 +902,7 @@ func TestImportRemoteTaskNotFound(t *testing.T) {
 	ctx := context.Background()
 
 	// Provider returns nil for unknown ticket
-	_, err := svc.ImportRemoteTask(ctx, "", "NOPE-99", nil)
+	_, err := svc.ImportRemoteTask(ctx, "", "NOPE-99", ImportRemoteTaskOptions{})
 	if err == nil {
 		t.Fatal("expected error for unknown ticket")
 	}
@@ -929,7 +930,7 @@ func TestImportRemoteTaskDownloadsAttachments(t *testing.T) {
 		Attachments: []RemoteAttachment{{ID: "100", Filename: "screen.png", MimeType: "image/png", Size: 3}},
 	}}
 
-	if _, err := svc.ImportRemoteTask(context.Background(), "", "TEST-100", nil); err != nil {
+	if _, err := svc.ImportRemoteTask(context.Background(), "", "TEST-100", ImportRemoteTaskOptions{}); err != nil {
 		t.Fatalf("import: %v", err)
 	}
 	items, err := svc.attachments.List("TEST-100")
@@ -1231,5 +1232,76 @@ func TestPushLocalTaskNoRemoteTransition(t *testing.T) {
 	task, _ := s.GetTask(ctx, "local1")
 	if task.Status != "Doing" {
 		t.Errorf("status = %q, want Doing", task.Status)
+	}
+}
+
+func TestImportRemoteTaskInAPickedColumn(t *testing.T) {
+	svc, s, provider, bus := newTestSync(t)
+	ctx := context.Background()
+	wsID, err := s.CreateWorkspace(ctx, store.Workspace{Name: "Legato"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	provider.tickets = []RemoteTicket{{ID: "TEST-60", Summary: "Pick a column", Status: "To Do", UpdatedAt: time.Now()}}
+
+	refreshed := bus.Subscribe(events.EventCardsRefreshed)
+	card, err := svc.ImportRemoteTask(ctx, "", "TEST-60", ImportRemoteTaskOptions{WorkspaceID: &wsID, Column: "doing"})
+	if err != nil {
+		t.Fatalf("ImportRemoteTask: %v", err)
+	}
+	if card.Status != "Doing" || card.WorkspaceID == nil || *card.WorkspaceID != wsID || card.WorkspaceName != "Legato" {
+		t.Fatalf("card = %+v, want Doing in Legato", card)
+	}
+	select {
+	case <-refreshed:
+	case <-time.After(time.Second):
+		t.Fatal("no refresh event")
+	}
+	task, err := s.GetTask(ctx, "TEST-60")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if task.Status != "Doing" {
+		t.Fatalf("status = %q, want Doing", task.Status)
+	}
+	if len(provider.doTransCalls) != 0 {
+		t.Fatalf("import pushed transitions %v", provider.doTransCalls)
+	}
+}
+
+func TestImportRemoteTaskRefusesAnUnknownColumn(t *testing.T) {
+	svc, s, provider, _ := newTestSync(t)
+	ctx := context.Background()
+	provider.tickets = []RemoteTicket{{ID: "TEST-61", Summary: "Nowhere", Status: "To Do", UpdatedAt: time.Now()}}
+
+	_, err := svc.ImportRemoteTask(ctx, "", "TEST-61", ImportRemoteTaskOptions{Column: "Nowhere"})
+	if !errors.Is(err, ErrUnknownColumn) || !strings.Contains(err.Error(), "Backlog") {
+		t.Fatalf("err = %v, want ErrUnknownColumn naming the columns", err)
+	}
+	if _, err := s.GetTask(ctx, "TEST-61"); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("task was created: %v", err)
+	}
+}
+
+func TestImportRemoteTaskAgainLeavesTheTaskWhereItIs(t *testing.T) {
+	svc, s, provider, _ := newTestSync(t)
+	ctx := context.Background()
+	wsID, err := s.CreateWorkspace(ctx, store.Workspace{Name: "Legato"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	createSyncedTask(t, s, "TEST-42", "Already here", "Backlog", "To Do", time.Now(), nil)
+	provider.tickets = []RemoteTicket{{ID: "TEST-42", Summary: "Already here", Status: "To Do", UpdatedAt: time.Now()}}
+
+	card, err := svc.ImportRemoteTask(ctx, "", "TEST-42", ImportRemoteTaskOptions{WorkspaceID: &wsID, Column: "Done"})
+	if err != nil {
+		t.Fatalf("ImportRemoteTask: %v", err)
+	}
+	if card.Status != "Backlog" || card.WorkspaceID != nil {
+		t.Fatalf("card = %+v, want Backlog with no workspace", card)
+	}
+	task, _ := s.GetTask(ctx, "TEST-42")
+	if task.Status != "Backlog" || task.WorkspaceID != nil {
+		t.Fatalf("task moved: %q %v", task.Status, task.WorkspaceID)
 	}
 }

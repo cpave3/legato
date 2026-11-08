@@ -308,6 +308,7 @@ type mockSyncService struct {
 	searchResults     []service.RemoteSearchResult
 	importedCard      *service.Card
 	importedWorkspace *int
+	importedColumn    string
 	importedProvider  string
 	importedTicket    string
 	movedTaskID       string
@@ -443,9 +444,10 @@ func (m *mockSyncService) StartScheduler(_ context.Context) func() { return func
 func (m *mockSyncService) SearchRemote(_ context.Context, _ string) ([]service.RemoteSearchResult, error) {
 	return m.searchResults, m.searchErr
 }
-func (m *mockSyncService) ImportRemoteTask(_ context.Context, provider, ticketID string, workspaceID *int) (*service.Card, error) {
+func (m *mockSyncService) ImportRemoteTask(_ context.Context, provider, ticketID string, opts service.ImportRemoteTaskOptions) (*service.Card, error) {
 	m.importedProvider, m.importedTicket = provider, ticketID
-	m.importedWorkspace = workspaceID
+	m.importedWorkspace = opts.WorkspaceID
+	m.importedColumn = opts.Column
 	if m.importErr != nil {
 		return nil, m.importErr
 	}
@@ -1805,6 +1807,47 @@ func TestRemoteImportWorkspaceDefaultDistinguishesOmittedNullAndExplicit(t *test
 				t.Fatalf("workspace = %v, want %d", syncSvc.importedWorkspace, *tt.wantID)
 			}
 		})
+	}
+}
+
+func TestRemoteImportPassesAPickedColumnAndSaysWhereTheTaskIs(t *testing.T) {
+	wsID := 4
+	for _, tt := range []struct {
+		name, body, wantColumn string
+	}{
+		{name: "column omitted", body: `{"ticket_id":"EST-7","provider":"burnlite"}`},
+		{name: "column picked", body: `{"ticket_id":"EST-7","provider":"burnlite","column":"Ready"}`, wantColumn: "Ready"},
+	} {
+		t.Run(tt.name, func(t *testing.T) {
+			syncSvc := &mockSyncService{importedCard: &service.Card{ID: "EST-7", Status: "Ready", Provider: "burnlite", WorkspaceID: &wsID, WorkspaceName: "Legato"}}
+			srv := New(&mockBoardService{}, nil, nil, ":0")
+			srv.SetSyncService(syncSvc)
+			w := httptest.NewRecorder()
+			srv.Handler().ServeHTTP(w, httptest.NewRequest(http.MethodPost, "/api/remote/import", strings.NewReader(tt.body)))
+			if w.Code != http.StatusCreated {
+				t.Fatalf("status = %d, body = %s", w.Code, w.Body.String())
+			}
+			if syncSvc.importedColumn != tt.wantColumn {
+				t.Fatalf("column = %q, want %q", syncSvc.importedColumn, tt.wantColumn)
+			}
+			var resp CardResponse
+			if err := json.Unmarshal(w.Body.Bytes(), &resp); err != nil {
+				t.Fatal(err)
+			}
+			if resp.Status != "Ready" || resp.WorkspaceID == nil || *resp.WorkspaceID != wsID || resp.WorkspaceName != "Legato" || resp.Provider != "burnlite" {
+				t.Fatalf("response = %s", w.Body.String())
+			}
+		})
+	}
+}
+
+func TestRemoteImportRefusesAnUnknownColumn(t *testing.T) {
+	srv := New(&mockBoardService{}, nil, nil, ":0")
+	srv.SetSyncService(&mockSyncService{importErr: fmt.Errorf("%w: \"Nowhere\"; pick one of Backlog, Done", service.ErrUnknownColumn)})
+	w := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(w, httptest.NewRequest(http.MethodPost, "/api/remote/import", strings.NewReader(`{"ticket_id":"EST-7","column":"Nowhere"}`)))
+	if w.Code != http.StatusBadRequest || !strings.Contains(w.Body.String(), "Backlog") {
+		t.Fatalf("status = %d, body = %s", w.Code, w.Body.String())
 	}
 }
 
