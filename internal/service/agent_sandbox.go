@@ -91,6 +91,13 @@ func (a *agentService) sandboxPrefix(ctx context.Context, taskID, executionID, a
 		}
 		in.GH = gh
 	}
+	// The scratch folder exists before the plan is made, so a plan whose
+	// mounts hold it covers it on the first spawn too.
+	if root := scratchFor(in).Root; root != "" {
+		if err := os.MkdirAll(root, 0o700); err != nil {
+			return "", err
+		}
+	}
 	plan, err := BuildSandboxPlan(in)
 	if err != nil {
 		return "", err

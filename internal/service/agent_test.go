@@ -41,6 +41,9 @@ type mockTmux struct {
 	sendMultilineErr map[string]error
 	sentKeys         map[string][]string // session -> ordered list of SendKey payloads
 	sentRaw          map[string][]string // session -> ordered list of SendKeys (literal text) payloads
+	// onSpawn runs as a session is spawned, outside the lock: what happens
+	// while a spawn is in flight.
+	onSpawn func(name string)
 }
 
 func newMockTmux() *mockTmux {
@@ -60,6 +63,9 @@ func newMockTmux() *mockTmux {
 }
 
 func (m *mockTmux) Spawn(name, workDir string, width, height int, envVars ...string) error {
+	if m.onSpawn != nil {
+		m.onSpawn(name)
+	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	if m.spawnErr != nil {

@@ -244,6 +244,11 @@ func forbidden(in SandboxPlanInput) []string {
 		filepath.Join(home, ".m2/settings.xml"), filepath.Join(home, ".config/composer/auth.json"), filepath.Join(home, ".composer/auth.json"),
 		"/var/run/docker.sock", "/run/docker.sock", "/run/podman",
 	}
+	// Every execution's /tmp and home: a sandbox sees its own only where
+	// they are bound, never through the scratch folder.
+	if root := scratchFor(in).Root; root != "" {
+		paths = append(paths, root)
+	}
 	if in.RuntimeDir != "" {
 		// The runtime folder holds every Legato's IPC socket, and the
 		// person's (the session bus, Podman); only the broker's folder and
@@ -298,6 +303,7 @@ func BuildSandboxPlan(in SandboxPlanInput) (sandbox.Plan, error) {
 			return resolver.Real(p)
 		}
 		in.Home, in.WorkDir, in.DataDir, in.ConfigPath = real(in.Home), real(in.WorkDir), real(in.DataDir), real(in.ConfigPath)
+		in.ScratchDir = real(in.ScratchDir)
 		in.JobDir = real(in.JobDir)
 		in.BinaryPath, in.GitCommonDir, in.AgentFilesDir, in.PastedImagesDir = real(in.BinaryPath), real(in.GitCommonDir), real(in.AgentFilesDir), real(in.PastedImagesDir)
 		in.CredentialWrapperDir, in.GHConfigDir = real(in.CredentialWrapperDir), real(in.GHConfigDir)

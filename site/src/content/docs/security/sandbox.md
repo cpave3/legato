@@ -96,7 +96,7 @@ agents:
 
 ## Scratch space
 
-Each agent's `/tmp`, its home folder and a reviewer's throwaway layer are folders on disk, not in memory: `<data_dir>/sandbox/<execution>/`, readable only by you. A build cache an agent puts in `/tmp` uses disk space, not the memory the build needs. Legato removes the folder when the agent ends, however it ends, and sweeps the folders of agents that ended while it was not running. Folders of agents that are still running are never touched.
+Each agent's `/tmp`, its home folder and a reviewer's throwaway layer are folders on disk, not in memory: `<data_dir>/sandbox/<execution>/`, readable only by you. A build cache an agent puts in `/tmp` uses disk space, not the memory the build needs. Legato removes the folder when the agent ends, however it ends, and sweeps the folders of agents that ended while it was not running. Folders of agents that are still running are never touched, and no agent sees another's.
 
 To keep scratch elsewhere, on a bigger disk say:
 

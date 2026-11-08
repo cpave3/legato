@@ -602,3 +602,28 @@ func TestAThrowawayCheckoutsLayerIsOnDisk(t *testing.T) {
 		seen[o.Upper] = true
 	}
 }
+
+// A scratch folder set inside something the sandbox mounts holds every
+// other execution's /tmp and home: it is covered, and a mount into it is
+// refused.
+func TestAScratchFolderInsideAMountIsHidden(t *testing.T) {
+	in := baseInput()
+	fs := hostFS()
+	fs["/opt"], fs["/opt/scratch"] = "dir", "dir"
+	in.FS, in.ScratchDir = fs, "/opt/scratch"
+	plan, err := BuildSandboxPlan(in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := mounted(plan)
+	if m["/opt"].Kind != sandbox.ReadOnly || m["/opt/scratch"].Kind != sandbox.HideDir {
+		t.Fatalf("opt = %+v, scratch = %+v", m["/opt"], m["/opt/scratch"])
+	}
+	if m["/tmp"].Path != "/opt/scratch/ex-1/tmp" || plan.HomeSource != "/opt/scratch/ex-1/home" {
+		t.Fatalf("tmp = %+v, home from %q", m["/tmp"], plan.HomeSource)
+	}
+	in.Extra = []SandboxPath{{Path: "/opt/scratch/ex-2", Access: "write"}}
+	if _, err := BuildSandboxPlan(in); err == nil {
+		t.Fatal("a mount inside the scratch folder was accepted")
+	}
+}

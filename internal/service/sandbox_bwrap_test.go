@@ -34,7 +34,7 @@ func bwrapFixture(t *testing.T) (in SandboxPlanInput) {
 	_ = os.WriteFile(filepath.Join(home, ".config/gh/hosts.yml"), []byte("oauth_token: gho_x"), 0o600)
 	_ = os.WriteFile(filepath.Join(home, ".config/legato/config.yaml"), []byte("db: {}"), 0o600)
 	runtime := filepath.Join(base, "run", "legato")
-	_ = os.MkdirAll(filepath.Join(runtime, "sandbox", "ex-1", "tmp"), 0o700)
+	_ = os.MkdirAll(filepath.Join(runtime, "sandbox", "ex-1"), 0o700)
 	_ = os.MkdirAll(filepath.Join(runtime, "broker"), 0o700)
 	in = SandboxPlanInput{
 		Home: home, WorkDir: filepath.Join(home, "work"), ExecutionID: "ex-1", TaskID: "t1", AgentKind: "claude-code",
@@ -80,7 +80,9 @@ func runInSandbox(t *testing.T, in SandboxPlanInput, script string) (string, err
 		t.Fatal(err)
 	}
 	cmd := exec.Command(args[0], args[1:]...)
-	cmd.Env = append(os.Environ(), "GITHUB_TOKEN=ghp_secret", "OP_SERVICE_ACCOUNT_TOKEN=ops_secret")
+	// HOME is the fixture's, as an agent's pane has the person's: the test
+	// process's own is under /tmp, which the sandbox replaces.
+	cmd.Env = append(os.Environ(), "HOME="+in.Home, "GITHUB_TOKEN=ghp_secret", "OP_SERVICE_ACCOUNT_TOKEN=ops_secret")
 	out, err := cmd.CombinedOutput()
 	return string(out), err
 }
@@ -112,7 +114,7 @@ echo tmp > /tmp/note && echo wrote-tmp
 	if _, err := os.Stat(filepath.Join(in.WorkDir, "work.txt")); err != nil {
 		t.Error("the work written inside is not on the host")
 	}
-	if b, err := os.ReadFile(filepath.Join(in.RuntimeDir, "sandbox", "ex-1", "tmp", "note")); err != nil || string(b) != "tmp\n" {
+	if b, err := os.ReadFile(filepath.Join(scratchFor(in).Tmp("ex-1"), "note")); err != nil || string(b) != "tmp\n" {
 		t.Errorf("/tmp inside is not the session's host folder: %q %v", b, err)
 	}
 }
@@ -198,7 +200,9 @@ func TestTheSandboxStartsFromItsArgumentsFile(t *testing.T) {
 	if len(line) > 300 {
 		t.Fatalf("typed line is %d bytes: %s", len(line), line)
 	}
-	out, err := exec.Command("sh", "-c", line+` sh -c 'test ! -e "$HOME/.ssh/id_ed25519" && test -d "$PWD" && echo inside; ls /proc/self/fd'`).CombinedOutput()
+	cmd := exec.Command("sh", "-c", line+` sh -c 'test ! -e "$HOME/.ssh/id_ed25519" && test -d "$PWD" && echo inside; ls /proc/self/fd'`)
+	cmd.Env = append(os.Environ(), "HOME="+in.Home)
+	out, err := cmd.CombinedOutput()
 	if err != nil || !strings.Contains(string(out), "inside") {
 		t.Fatalf("err=%v out=%s", err, out)
 	}

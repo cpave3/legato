@@ -7,6 +7,7 @@ import (
 	"testing"
 	"time"
 
+	"github.com/cpave3/legato/internal/engine/sandbox"
 	"github.com/cpave3/legato/internal/engine/store"
 )
 
@@ -197,4 +198,70 @@ func TestAFinishedWorkflowAgentHasItsScratchRemoved(t *testing.T) {
 		t.Fatal("the agent's pane is still alive")
 	}
 	assertGone(t, scratch.Dir(ex))
+}
+
+// A reconcile that runs while a spawn is in flight (its execution recorded,
+// its scratch made, its session not yet linked) neither ends the execution
+// nor removes its scratch.
+func TestAReconcileDuringASpawnLeavesItsScratch(t *testing.T) {
+	svc, s, mt, scratch := scratchService(t)
+	createTask(t, s, "task-1")
+	ctx := context.Background()
+	reconciled := false
+	mt.onSpawn = func(string) {
+		reconciled = true
+		if err := svc.ReconcileSessions(ctx); err != nil {
+			t.Errorf("reconcile: %v", err)
+		}
+	}
+	if err := svc.SpawnAgent(ctx, "task-1", 0, 0); err != nil {
+		t.Fatal(err)
+	}
+	if !reconciled {
+		t.Fatal("the reconcile did not run during the spawn")
+	}
+	ex := executionOf(t, s, "task-1")
+	execution, err := s.GetExecution(ctx, ex)
+	if err != nil || execution.Status != store.ExecutionRunning {
+		t.Fatalf("execution = %+v, %v", execution, err)
+	}
+	assertPrivateDir(t, scratch.Tmp(ex))
+	assertPrivateDir(t, scratch.Home(ex))
+}
+
+// The sweep trusts a running agent session over its execution's status.
+func TestTheSweepKeepsTheScratchOfAnAgentStillRunning(t *testing.T) {
+	svc, s, _, scratch := scratchService(t)
+	createTask(t, s, "task-1")
+	ctx := context.Background()
+	if err := svc.SpawnAgent(ctx, "task-1", 0, 0); err != nil {
+		t.Fatal(err)
+	}
+	ex := executionOf(t, s, "task-1")
+	if err := s.TerminalizeExecution(ctx, ex, store.ExecutionCancelled); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.ReconcileSessions(ctx); err != nil {
+		t.Fatal(err)
+	}
+	assertPrivateDir(t, scratch.Tmp(ex))
+}
+
+// The cover works on the first spawn too, before anything made the folder.
+func TestTheFirstSpawnHidesAScratchFolderInsideAMount(t *testing.T) {
+	big := t.TempDir()
+	root := filepath.Join(big, "legato-scratch")
+	backend := &fakeBackend{}
+	svc, s, _ := sandboxedService(t, backend, func(settings *SandboxSettings) {
+		settings.Base.ScratchDir = root
+		settings.Base.Extra = []SandboxPath{{Path: big, Access: "write"}}
+	})
+	createTask(t, s, "task-1")
+	if err := svc.SpawnAgent(context.Background(), "task-1", 0, 0); err != nil {
+		t.Fatal(err)
+	}
+	m, ok := mountOf(backend.plans[0], root)
+	if !ok || m.Kind != sandbox.HideDir {
+		t.Fatalf("scratch = %+v (%v)", m, ok)
+	}
 }

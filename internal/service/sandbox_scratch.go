@@ -119,7 +119,8 @@ func removeScratch(path string) error {
 // Legato does not know it.
 type ExecutionStatus func(ctx context.Context, executionID string) (status string, found bool, err error)
 
-// StoreExecutionStatus reads an execution's status from the store.
+// StoreExecutionStatus reads an execution's status from the store: running
+// while its agent session runs, whatever the execution says.
 func StoreExecutionStatus(s *store.Store) ExecutionStatus {
 	return func(ctx context.Context, id string) (string, bool, error) {
 		execution, err := s.GetExecution(ctx, id)
@@ -128,6 +129,17 @@ func StoreExecutionStatus(s *store.Store) ExecutionStatus {
 		}
 		if err != nil {
 			return "", false, err
+		}
+		// An agent session still running counts over the execution's
+		// status: its sandbox is still in use.
+		if execution.AgentSessionID != nil {
+			session, err := s.GetAgentSessionByID(ctx, *execution.AgentSessionID)
+			if err != nil && !errors.Is(err, store.ErrNotFound) {
+				return "", false, err
+			}
+			if err == nil && session.Status == "running" {
+				return store.ExecutionRunning, true, nil
+			}
 		}
 		return execution.Status, true, nil
 	}

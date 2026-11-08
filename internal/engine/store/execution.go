@@ -211,20 +211,48 @@ func (s *Store) GetExecutionDurations(ctx context.Context, executionID string) (
 	return result, rows.Err()
 }
 
+// unlinkedExecutionGrace is how long a running execution may go without an
+// agent session before it is taken for an orphan: a spawn records its
+// execution, then starts its pane, then links the session, within seconds.
+const unlinkedExecutionGrace = 10 * time.Minute
+
+// lostExecutionCondition selects running executions that no running agent
+// session backs: none linked (and the spawn long past), or one that is gone
+// or not running.
+const lostExecutionCondition = `e.status='running' AND (
+	(e.agent_session_id IS NULL AND e.started_at <= ?)
+	OR (e.agent_session_id IS NOT NULL AND NOT EXISTS (
+		SELECT 1 FROM agent_sessions a WHERE a.id=e.agent_session_id AND a.status='running')))`
+
+// ReconcileLostExecutions marks lost the running executions no running agent
+// session backs. The condition is checked as the rows are written, in one
+// transaction, so a spawn that links its session meanwhile is never marked.
 func (s *Store) ReconcileLostExecutions(ctx context.Context) (int, error) {
-	var ids []string
-	if err := s.db.SelectContext(ctx, &ids, `
-		SELECT e.id FROM executions e
-		LEFT JOIN agent_sessions a ON a.id=e.agent_session_id
-		WHERE e.status='running' AND (e.agent_session_id IS NULL OR a.id IS NULL OR a.status!='running')`); err != nil {
+	now := time.Now().UTC()
+	cutoff := formatExecutionTime(now.Add(-unlinkedExecutionGrace))
+	stamp := formatExecutionTime(now)
+	tx, err := s.db.BeginTxx(ctx, nil)
+	if err != nil {
 		return 0, err
 	}
-	for _, id := range ids {
-		if err := s.TerminalizeExecution(ctx, id, ExecutionLost); err != nil {
-			return 0, err
-		}
+	defer tx.Rollback()
+	// The first statement writes, so the transaction holds SQLite's write
+	// lock from it on: both statements see the same rows, and no link can
+	// land between them.
+	if _, err := tx.ExecContext(ctx, `UPDATE execution_activity SET ended_at = ?
+		WHERE ended_at IS NULL AND execution_id IN (SELECT e.id FROM executions e WHERE `+lostExecutionCondition+`)`, stamp, cutoff); err != nil {
+		return 0, err
 	}
-	return len(ids), nil
+	result, err := tx.ExecContext(ctx, `UPDATE executions SET status = ?, ended_at = ? WHERE id IN (
+		SELECT e.id FROM executions e WHERE `+lostExecutionCondition+`)`, ExecutionLost, stamp, cutoff)
+	if err != nil {
+		return 0, err
+	}
+	n, err := result.RowsAffected()
+	if err != nil {
+		return 0, err
+	}
+	return int(n), tx.Commit()
 }
 
 func (s *Store) ExecutionHealth(ctx context.Context) (int, *time.Time, error) {
