@@ -627,3 +627,28 @@ func TestAScratchFolderInsideAMountIsHidden(t *testing.T) {
 		t.Fatal("a mount inside the scratch folder was accepted")
 	}
 }
+
+// A scratch folder that is itself something the sandbox mounts by default
+// (a cache, /opt) is not mounted: through it every execution would see the
+// others' /tmp and home.
+func TestAScratchFolderThatIsADefaultMountIsNotMounted(t *testing.T) {
+	for _, root := range []string{"/var/home/me/.cache/go-build", "/opt"} {
+		in := baseInput()
+		fs := hostFS()
+		fs["/opt"], fs["/var/home/me/.cache/go-build"] = "dir", "dir"
+		fs[root+"/ex-2"] = "dir"
+		in.FS, in.ScratchDir = fs, root
+		plan, err := BuildSandboxPlan(in)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, m := range plan.Mounts {
+			if m.Kind != sandbox.Hide && m.Kind != sandbox.HideDir && m.Dest == "" && within(m.Path, root) {
+				t.Errorf("scratch %s: %+v is mounted", root, m)
+			}
+		}
+		if got := mounted(plan)["/tmp"].Path; got != root+"/ex-1/tmp" {
+			t.Errorf("scratch %s: tmp = %s", root, got)
+		}
+	}
+}

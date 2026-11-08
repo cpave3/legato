@@ -470,6 +470,19 @@ func BuildSandboxPlan(in SandboxPlanInput) (sandbox.Plan, error) {
 		plan.Setenv["LEGATO_GH_REAL"] = gh.RealMount
 	}
 	mounts = append(mounts, linkTargetMounts(in, mounts, no)...)
+	// Nothing at or inside the scratch folder is mounted by its path but
+	// this execution's own: a default mount that is the scratch folder (a
+	// cache, /opt) would show every execution the others' /tmp and home.
+	if root := scratch.Root; root != "" {
+		kept := mounts[:0]
+		for _, m := range mounts {
+			if m.Dest == "" && within(m.Path, root) && !allowedInside(in, m.Path) {
+				continue
+			}
+			kept = append(kept, m)
+		}
+		mounts = kept
+	}
 	// Hide each forbidden path that a mount above holds.
 	var hides []sandbox.Mount
 	seen := map[string]bool{}

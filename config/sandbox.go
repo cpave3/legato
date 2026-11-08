@@ -55,6 +55,9 @@ func normalizeAgentSandbox(cfg *Config) error {
 			return fmt.Errorf("agents.sandbox.scratch_dir: %q must be absolute or start with ~/", sb.ScratchDir)
 		}
 		sb.ScratchDir = filepath.Clean(dir)
+		if home != "" && (sb.ScratchDir == home || strings.HasPrefix(home, sb.ScratchDir+string(filepath.Separator)) || sb.ScratchDir == "/") {
+			return fmt.Errorf("agents.sandbox.scratch_dir: %q holds the home folder; name a folder of its own", sb.ScratchDir)
+		}
 	}
 	for i := range sb.Mounts {
 		m := &sb.Mounts[i]

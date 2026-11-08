@@ -48,6 +48,8 @@ func TestASandboxThatCannotWorkFailsToLoad(t *testing.T) {
 		{"relative mount", "agents:\n  sandbox:\n    mounts: [{path: notes}]\n", "absolute"},
 		{"access", "agents:\n  sandbox:\n    mounts: [{path: /a, access: admin}]\n", "read or write"},
 		{"relative scratch", "agents:\n  sandbox:\n    scratch_dir: scratch\n", "absolute"},
+		{"scratch is the home", "agents:\n  sandbox:\n    scratch_dir: \"~\"\n", "home"},
+		{"scratch holds the home", "agents:\n  sandbox:\n    scratch_dir: /\n", "home"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			writeTestConfig(t, tc.yaml)
