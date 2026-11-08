@@ -1,0 +1,72 @@
+# Runs the test suite on every pull request and on every push to main (a
+# merge): the Go tests, as the release workflow runs them, and the web UI's
+# unit tests. The docs site has its own workflow (docs.yml), and the desktop
+# app is tested when a release builds it.
+name: ci
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+# A new push to a pull request replaces its run; every run on main finishes,
+# so each merge has a result.
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  go:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      # The plan validator's tests install mermaid with npm and run it in node.
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+
+      # Agent session tests skip without tmux.
+      - name: tmux
+        run: |
+          command -v tmux >/dev/null || { sudo apt-get update && sudo apt-get install -y tmux; }
+          tmux -V
+
+      - name: Vet
+        run: go vet ./...
+
+      - name: Test
+        run: go test -short -timeout 20m ./...
+
+  web:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 11 # as used to write web/pnpm-lock.yaml
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+          cache: pnpm
+          cache-dependency-path: web/pnpm-lock.yaml
+
+      - name: Dependencies
+        working-directory: web
+        run: pnpm install --frozen-lockfile
+
+      - name: Test
+        working-directory: web
+        run: pnpm run test

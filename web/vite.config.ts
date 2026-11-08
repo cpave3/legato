@@ -112,5 +112,9 @@ export default defineConfig({
   test: {
     environment: 'jsdom',
     setupFiles: ['./src/test/setup.ts'],
+    // Tests that render a long table into jsdom take seconds, and more on a
+    // shared CI runner or beside another suite; 5s (the default) failed them.
+    testTimeout: 20_000,
+    hookTimeout: 20_000,
   },
 })
