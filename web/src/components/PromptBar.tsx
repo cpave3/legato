@@ -8,6 +8,7 @@ import { useMacroHotkeys } from "../hooks/useMacroHotkeys"
 import { apiFetch } from "../lib/api"
 import { cn } from "../lib/utils"
 import { ArrowLeftRight, X, Terminal, Zap } from "lucide-react"
+import type { SandboxSwitch } from "../lib/agentReload"
 import { useVoiceRecorder } from "../hooks/useVoiceRecorder"
 import { DictateButton, DictationBar, SendButton, WorkingStrip } from "./Composer"
 import { composerToolButton, dictating } from "../lib/composer"
@@ -110,6 +111,8 @@ interface PromptBarProps {
   onKill: () => void
   // Stops the agent and starts it again, resuming its conversation.
   onReload?: () => void
+  // Reloads it on the other side of the sandbox, where there is one.
+  switchSandbox?: SandboxSwitch
   onRefresh: () => void
   onTogglePromptDetection: () => void
   promptDetectionEnabled: boolean
@@ -143,10 +146,10 @@ export interface PromptBarHandle {
   voiceIsRecording: () => boolean
 }
 
-export const PromptBar = forwardRef<PromptBarHandle, PromptBarProps>(function PromptBar({ promptState, onSendKeys, onSubmitMessage, onDismissPrompt, onDetectPrompt, onDisconnect, onKill, onReload, onRefresh, onTogglePromptDetection, promptDetectionEnabled, agentId, agentTitle, agentActivity, agentCommand, agentKind, connected, ntfyConfigured, notifyEnabled, onToggleNotify, voiceEnabled, onUpgradeChimera, panels, menuInHeader = false }, ref) {
+export const PromptBar = forwardRef<PromptBarHandle, PromptBarProps>(function PromptBar({ promptState, onSendKeys, onSubmitMessage, onDismissPrompt, onDetectPrompt, onDisconnect, onKill, onReload, switchSandbox, onRefresh, onTogglePromptDetection, promptDetectionEnabled, agentId, agentTitle, agentActivity, agentCommand, agentKind, connected, ntfyConfigured, notifyEnabled, onToggleNotify, voiceEnabled, onUpgradeChimera, panels, menuInHeader = false }, ref) {
   const { baseUrl } = useServer()
   const [input, setInput] = useState(() => localStorage.getItem(draftKey(agentId)) ?? "")
-  const terminalMenu = useTerminalMenu({ agentKind, onUpgradeChimera, onRefresh, onDetectPrompt, onTogglePromptDetection, promptDetectionEnabled, ntfyConfigured, notifyEnabled, onToggleNotify, onReload, onDisconnect, onKill })
+  const terminalMenu = useTerminalMenu({ agentKind, onUpgradeChimera, onRefresh, onDetectPrompt, onTogglePromptDetection, promptDetectionEnabled, ntfyConfigured, notifyEnabled, onToggleNotify, onReload, switchSandbox, onDisconnect, onKill })
   const [macrosOpen, setMacrosOpen] = useState(false)
   const [macros, setMacros] = useState<{ name: string; keys: string }[]>([])
   const macrosRef = useRef<HTMLDivElement>(null)

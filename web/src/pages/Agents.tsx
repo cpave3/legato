@@ -37,9 +37,9 @@ import { RenameAgentDialog } from "../components/RenameAgentDialog"
 import { useAgentContexts } from "../hooks/useAgentContexts"
 import { agentListOrder, formatAgentTime, stateSeconds } from "../lib/agentList"
 import { AgentChatHeader, type AgentChatState, type AgentMenuEntry, type SidePanel, type SidePanelsProps } from "../components/AgentChatHeader"
-import { Bell, BellOff, Pencil, RefreshCw, RotateCw, Skull, Sparkles, Terminal, Unplug } from "lucide-react"
+import { Bell, BellOff, Pencil, RefreshCw, RotateCw, Shield, Skull, Sparkles, Terminal, Unplug } from "lucide-react"
 import { useTerminalMenu } from "../hooks/useTerminalMenu"
-import { canReloadAgent, reloadAgent } from "../lib/agentReload"
+import { canReloadAgent, reloadAgent, sandboxSwitchLabel, switchAgentSandbox, type SandboxSwitch } from "../lib/agentReload"
 
 const GLITCH_DURATION_MS = 500
 
@@ -372,6 +372,32 @@ export function AgentsPage() {
   }, [agents, selectedId, reloadFor])
   const canReload = canReloadAgent(agents.find((agent) => agent.task_id === selectedId))
 
+  // Reloads an agent out of the sandbox, or back into it, resuming its
+  // conversation: the TUI's U. Asked first when the agent is at work.
+  const switchSandboxFor = useCallback(async (agent: AgentInfo) => {
+    const label = sandboxSwitchLabel(agent)
+    if (!label) return
+    if ((agent.activity === "working" || agent.activity === "background") &&
+      !await confirm({
+        title: label,
+        message: "This agent is at work. Reload it anyway? The current turn is stopped.",
+        confirmLabel: "Reload anyway",
+        destructive: true,
+      })) return
+    try {
+      const sandboxed = await switchAgentSandbox(baseUrl, agent.task_id)
+      addToast(`Reloaded ${agent.task_id} ${sandboxed ? "in the sandbox" : "without the sandbox"}`, "success")
+    } catch (error) {
+      addToast(error instanceof Error ? error.message : "The agent could not be reloaded", "error")
+    }
+    await fetchAgents()
+  }, [baseUrl, addToast, fetchAgents, confirm])
+  const sandboxSwitchOf = useCallback((agent: AgentInfo | undefined): SandboxSwitch | undefined => {
+    const label = sandboxSwitchLabel(agent)
+    return agent && label ? { label, onSelect: () => { void switchSandboxFor(agent) } } : undefined
+  }, [switchSandboxFor])
+  const selectedSandboxSwitch = sandboxSwitchOf(agents.find((agent) => agent.task_id === selectedId))
+
   const handleSpawn = useCallback(() => {
     setShowSpawn(true)
   }, [])
@@ -582,6 +608,7 @@ export function AgentsPage() {
     notifyEnabled: selectedAgent?.notify_enabled,
     onToggleNotify: () => { void handleToggleNotify() },
     onReload: canReload ? () => { void handleReload() } : undefined,
+    switchSandbox: selectedSandboxSwitch,
     onDisconnect: handleDisconnect,
     onKill: handleKill,
   })
@@ -618,6 +645,8 @@ export function AgentsPage() {
       })
     }
     if (canReloadAgent(agent)) entries.push({ label: "Reload agent", icon: icon(RotateCw), onSelect: () => reloadFor(agent) })
+    const sandboxSwitch = sandboxSwitchOf(agent)
+    if (sandboxSwitch) entries.push({ label: sandboxSwitch.label, icon: icon(Shield), onSelect: sandboxSwitch.onSelect })
     if (isSelected) entries.push({ label: "Disconnect", icon: icon(Unplug), onSelect: handleDisconnect })
     entries.push({ label: "Kill agent", icon: icon(Skull), onSelect: () => killAgent(agent.task_id, agent.role), danger: true })
     return entries
@@ -799,6 +828,7 @@ export function AgentsPage() {
                   onRename={handleRename}
                   resyncRef={nativeResyncRef}
                   onReload={canReload ? () => { void handleReload() } : undefined}
+                  switchSandbox={selectedSandboxSwitch}
                   onDisconnect={handleDisconnect}
                   onDowngradeChimera={handleDowngradeChimera}
                   ntfyConfigured={ntfyConfigured}
@@ -835,6 +865,7 @@ export function AgentsPage() {
                 onDisconnect={handleDisconnect}
                 onKill={handleKill}
                 onReload={canReload ? () => { void handleReload() } : undefined}
+                  switchSandbox={selectedSandboxSwitch}
                 onRefresh={handleRefresh}
                 onTogglePromptDetection={handleTogglePromptDetection}
                 promptDetectionEnabled={isPromptDetectionEnabled}

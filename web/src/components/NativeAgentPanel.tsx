@@ -1,5 +1,6 @@
 import { useState, useEffect, useCallback, useRef, useMemo, memo } from "react"
-import { ArrowDown, ArrowLeftRight, Check, Pencil, Zap, RefreshCw, RotateCw, Unplug, Skull, Bell, BellOff, Terminal } from "lucide-react"
+import { ArrowDown, ArrowLeftRight, Bell, BellOff, Check, Pencil, RefreshCw, RotateCw, Shield, Skull, Terminal, Unplug, Zap } from "lucide-react"
+import type { SandboxSwitch } from "../lib/agentReload"
 import { useWebSocket, type PromptState, type WSMessage } from "../hooks/useWebSocket"
 import { useServer } from "../hooks/useServer"
 import { useMacroHotkeys } from "../hooks/useMacroHotkeys"
@@ -196,6 +197,8 @@ interface NativeAgentPanelProps {
   resyncRef?: { current: (() => void) | null }
   // Stops the agent and starts it again, resuming its conversation.
   onReload?: () => void
+  // Reloads it on the other side of the sandbox, where there is one.
+  switchSandbox?: SandboxSwitch
   onDisconnect?: () => void
   onDowngradeChimera?: () => Promise<void>
   ntfyConfigured?: boolean
@@ -218,7 +221,7 @@ interface NativeAgentPanelProps {
   pullRequest?: number
 }
 
-export function NativeAgentPanel({ agentId, sandboxed, onKill, onRename, resyncRef, onReload, onDisconnect, onDowngradeChimera, ntfyConfigured, notifyEnabled, onToggleNotify, voiceEnabled, agentKind, composerEnabled = true, onOpenUIItem, panels, title, activity, stateTime, pullRequest }: NativeAgentPanelProps) {
+export function NativeAgentPanel({ agentId, sandboxed, onKill, onRename, resyncRef, onReload, switchSandbox, onDisconnect, onDowngradeChimera, ntfyConfigured, notifyEnabled, onToggleNotify, voiceEnabled, agentKind, composerEnabled = true, onOpenUIItem, panels, title, activity, stateTime, pullRequest }: NativeAgentPanelProps) {
   const { send, subscribe, connected } = useWebSocket()
   // Out of view the panel stops following the agent and catches up from its
   // cursor on return, so a phone with its screen off does not keep receiving
@@ -858,6 +861,7 @@ export function NativeAgentPanel({ agentId, sandboxed, onKill, onRename, resyncR
       },
     }] : []),
     ...(onReload ? [{ label: "Reload agent", icon: <RotateCw size={12} />, onSelect: onReload }] : []),
+    ...(switchSandbox ? [{ label: switchSandbox.label, icon: <Shield size={12} />, onSelect: switchSandbox.onSelect }] : []),
     ...(onDisconnect ? [{ label: "Disconnect", icon: <Unplug size={12} />, onSelect: onDisconnect }] : []),
     ...(onKill ? [{ label: "Kill agent", icon: <Skull size={12} />, onSelect: onKill, danger: true }] : []),
   ]

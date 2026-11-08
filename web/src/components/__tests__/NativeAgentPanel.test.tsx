@@ -105,12 +105,16 @@ describe("NativeAgentPanel", () => {
       ? new Response(JSON.stringify({ id: "session-1", status: "idle", messages: [], toolCalls: [] }), { status: 200 })
       : new Response("[]", { status: 200 }))
 
-    const view = render(<NativeAgentPanel agentId="task-1" onReload={onReload} />)
+    const onSwitch = vi.fn()
+    const view = render(<NativeAgentPanel agentId="task-1" onReload={onReload} switchSandbox={{ label: "Reload in sandbox", onSelect: onSwitch }} />)
     await within(view.container).findByText("Session ready — send a message to start")
     fireEvent.click(within(view.container).getByTitle("More actions"))
     fireEvent.click(within(view.container).getByRole("menuitem", { name: "Reload agent" }))
-
     expect(onReload).toHaveBeenCalledOnce()
+
+    fireEvent.click(within(view.container).getByTitle("More actions"))
+    fireEvent.click(within(view.container).getByRole("menuitem", { name: "Reload in sandbox" }))
+    expect(onSwitch).toHaveBeenCalledOnce()
   })
 
   it("renders and resolves a permission request from snapshot hydration", async () => {

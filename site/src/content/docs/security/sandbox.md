@@ -104,7 +104,7 @@ You can start one agent without the sandbox:
 
 Such an agent is marked unsandboxed, in the web UI and in the TUI's agents view. Swarm and workflow agents always run in the sandbox.
 
-To move a running agent, press `U` in the TUI's agents view. Legato restarts it on the other side of the sandbox, resuming its conversation. **Reload agent** keeps whichever side the agent is on.
+To move a running agent, press `U` in the TUI's agents view, or in the web UI choose **Reload without sandbox** (or **Reload in sandbox**) in the agent's **More actions** menu or its right-click menu in the sidebar. Legato restarts it on the other side of the sandbox, resuming its conversation. **Reload agent** keeps whichever side the agent is on.
 
 ## Limits
 
