@@ -1,5 +1,9 @@
-import { cleanup } from "@testing-library/react"
+import { cleanup, configure } from "@testing-library/react"
 import { afterEach } from "vitest"
+
+// findBy and waitFor give up after 1s by default, which a loaded machine (a CI
+// runner, or the Go tests running beside these) can miss on a large page.
+configure({ asyncUtilTimeout: 5000 })
 
 // Testing Library unmounts after each test only when vitest's globals are on,
 // and they are off here. Without this a test's components stay mounted into
