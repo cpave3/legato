@@ -109,8 +109,14 @@ func ValidateReviewPasses(cfg *Config) error {
 			}
 		}
 	}
-	if rp.GitHubCredential != "" && !hasCredential(cfg, rp.GitHubCredential) {
-		return fmt.Errorf("review_passes.github_credential %q is not a configured credential", rp.GitHubCredential)
+	if rp.GitHubCredential != "" {
+		credential, ok := findCredential(cfg, rp.GitHubCredential)
+		if !ok {
+			return fmt.Errorf("review_passes.github_credential %q is not a configured credential", rp.GitHubCredential)
+		}
+		if credential.Profile != "github-reviewer" {
+			return fmt.Errorf("review_passes.github_credential %q is on the %s profile, not github-reviewer", rp.GitHubCredential, credential.Profile)
+		}
 	}
 	if !rp.Enabled {
 		return nil
@@ -133,11 +139,11 @@ func boardHasColumn(cfg *Config, name string) bool {
 	return false
 }
 
-func hasCredential(cfg *Config, name string) bool {
+func findCredential(cfg *Config, name string) (CredentialConfig, bool) {
 	for _, credential := range cfg.Credentials {
 		if strings.EqualFold(credential.Name, name) {
-			return true
+			return credential, true
 		}
 	}
-	return false
+	return CredentialConfig{}, false
 }

@@ -16,6 +16,11 @@ credentials:
   - name: reviewer-app
     secret: env://REVIEWER_KEY
     profile: github-reviewer
+    settings: {client_id: Iv23liReViEwEr, repositories: ["cpave3/*"]}
+  - name: author-app
+    secret: env://AUTHOR_KEY
+    profile: github
+    settings: {client_id: Iv23liAuThOr, repositories: [cpave3/legato]}
 `
 
 func TestReviewPassesAreOffWithTheDecidedDefaults(t *testing.T) {
@@ -74,6 +79,7 @@ func TestInvalidReviewPassSettingsFailToLoad(t *testing.T) {
 		{"unknown tier", "enabled: true\n  reviewer: {agent: codex, tier: fast}\n  github_credential: reviewer-app", `review_passes.reviewer.tier "fast"`},
 		{"model and tier", "enabled: true\n  reviewer: {agent: codex, tier: careful, model: x}\n  github_credential: reviewer-app", "model or tier, not both"},
 		{"unknown credential", "enabled: true\n  reviewer: {agent: codex}\n  github_credential: nobody", `review_passes.github_credential "nobody" is not a configured credential`},
+		{"the author's credential", "enabled: true\n  reviewer: {agent: codex}\n  github_credential: author-app", `review_passes.github_credential "author-app" is on the github profile, not github-reviewer`},
 		{"zero passes", "max_passes: 0", "review_passes.max_passes must be positive"},
 		{"negative concurrency", "max_concurrent: -1", "review_passes.max_concurrent must be positive"},
 		{"bad duration", "pass_timeout: soon", "review_passes.pass_timeout must be a positive duration"},

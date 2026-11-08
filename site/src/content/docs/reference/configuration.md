@@ -577,7 +577,7 @@ On a worker instance, a reviewer on another model reviews the pull requests of e
 | `review_passes.reviewer.model` | string | the tool's | The reviewer's model. Set this or `review_passes.reviewer.tier`, not both. |
 | `review_passes.reviewer.tier` | string | none | A tier of `adapters.<name>.tiers` for the reviewer. |
 | `review_passes.reviewer.skill` | string | none | The review skill the reviewer is told to use, such as `3-tier-review`. |
-| `review_passes.github_credential` | string | none | The credential of the reviewer's GitHub App, on a profile no agent is given. Legato posts reviews and polls pull requests with it. Required when enabled. |
+| `review_passes.github_credential` | string | none | The credential of the reviewer's GitHub App, on the `github-reviewer` profile, which no agent is given; like a `github` credential it needs `settings.client_id` and `settings.repositories`. Legato posts reviews and polls pull requests with it. Required when enabled. |
 | `review_passes.max_passes` | number | `3` | Passes before the review is stuck and the main instance is asked. |
 | `review_passes.pass_timeout` | duration | `45m` | How long a reviewer has for one pass. |
 | `review_passes.max_concurrent` | number | `2` | Reviewers that run at once on this worker; others wait. |
