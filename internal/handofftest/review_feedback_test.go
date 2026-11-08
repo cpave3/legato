@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -184,6 +185,22 @@ func TestALaterPassResumesTheReviewer(t *testing.T) {
 			env := strings.Join(spawns[len(spawns)-1].Env, "\n")
 			if resumed := strings.Contains(env, "LEGATO_RESUME_SESSION_ID=reviewer-conversation"); resumed == gone {
 				t.Fatalf("pass 2 resumed %v; env %s", resumed, env)
+			}
+			// Resumed or not, it gets pass 2's brief: a resumed agent is sent
+			// its prompt, where a fresh one reads its assignment.
+			brief := ""
+			if gone {
+				brief = briefOf(t, spawns[len(spawns)-1])
+			} else {
+				for _, kv := range spawns[len(spawns)-1].Env {
+					if file, ok := strings.CutPrefix(kv, "LEGATO_PROMPT_FILE="); ok {
+						raw, _ := os.ReadFile(file)
+						brief = string(raw)
+					}
+				}
+			}
+			if !strings.Contains(brief, "# Review pass 2") {
+				t.Fatalf("the pass 2 reviewer's brief: %q", brief)
 			}
 		})
 	}

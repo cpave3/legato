@@ -518,6 +518,10 @@ func (s *ReviewPassService) resumeReviewer(ctx context.Context, taskID string, p
 		return false
 	}
 	opts.SessionPolicy, opts.ResumeSessionID = "resume", saved.ID
+	// A resumed launch sends no kickoff for an assignment (and Chimera's
+	// resume drops --prompt), but every tool is sent its prompt: the
+	// brief is the conversation's next message.
+	opts.Prompt, opts.Assignment = opts.Assignment, ""
 	if err := s.opts.Agents.SpawnAgent(ctx, taskID, 0, 0, opts); err != nil {
 		log.Printf("review passes: %s: resuming the reviewer for pass %d, starting a fresh one: %v", taskID, pass, err)
 		return false
