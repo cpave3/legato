@@ -146,7 +146,7 @@ func TestAPassWithChangesIsAComment(t *testing.T) {
 	r.finish(t)
 
 	result, err := r.submit(t, service.ReviewSubmission{Summary: "One bug.", Findings: []service.SubmittedFinding{
-		{PR: 7, Severity: "blocking", Title: "Retries never stop", Body: "The loop has no bound.", Place: &service.ReviewPlace{Path: "login.go", Line: 20}},
+		{PR: 7, Severity: "blocking", Title: "Retries never stop", Body: "The loop has no bound.", FailureScenario: "A login while the server is down never returns.", Place: &service.ReviewPlace{Path: "login.go", Line: 20}},
 	}})
 	if err != nil || result.Verdict != service.VerdictChanges {
 		t.Fatalf("submit = %+v, %v", result, err)
@@ -218,6 +218,32 @@ func TestAReviewerPastItsTimeIsUnableAndTheReviewStuck(t *testing.T) {
 	}
 	if _, err := r.worker.Store.GetAgentSessionInSlot(context.Background(), r.card, "reviewer"); err == nil {
 		t.Fatal("the reviewer still runs")
+	}
+}
+
+// A blocking finding says how it fails: what happens, and what goes wrong.
+// It is posted with the finding. A nit needs none.
+func TestABlockingFindingNeedsAFailureScenario(t *testing.T) {
+	r := newReviewed(t, ReviewPassOptions{})
+	r.finish(t)
+	blocking := service.SubmittedFinding{PR: 7, Severity: "blocking", Title: "Retries never stop", Body: "The loop has no bound.",
+		Place: &service.ReviewPlace{Path: "login.go", Line: 20}}
+	nit := service.SubmittedFinding{PR: 7, Severity: "nit", Title: "Name it", Body: "Call it maxRetries."}
+
+	_, err := r.submit(t, service.ReviewSubmission{Summary: "One bug.", Findings: []service.SubmittedFinding{blocking, nit}})
+	var refused *service.ReviewSubmissionError
+	if !errors.As(err, &refused) || len(refused.Problems) != 1 || !strings.Contains(refused.Problems[0], "failure_scenario") {
+		t.Fatalf("err = %v", err)
+	}
+
+	blocking.FailureScenario = "A login while the server is down retries for ever and never returns."
+	result, err := r.submit(t, service.ReviewSubmission{Summary: "One bug.", Findings: []service.SubmittedFinding{blocking, nit}})
+	if err != nil || result.Verdict != service.VerdictChanges {
+		t.Fatalf("submit = %+v, %v", result, err)
+	}
+	posted := r.worker.ReviewGitHub.Posted()
+	if len(posted) != 1 || !strings.Contains(posted[0].Findings[0].Body, blocking.FailureScenario) {
+		t.Fatalf("posted = %+v", posted)
 	}
 }
 

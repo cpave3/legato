@@ -44,7 +44,7 @@ func TestSubmitReviewIsOfferedToTheReviewerOnly(t *testing.T) {
 	session := connectMCP(t, cli.MCPOptions{Store: s, TaskID: "task1", ExecutionID: reviewer, Reviews: reviews})
 	result := callMCP(t, session, "submit_review", map[string]any{
 		"summary":  "One bug.",
-		"findings": []any{map[string]any{"pr": 7, "severity": "blocking", "title": "No bound", "body": "Retries forever.", "place": map[string]any{"path": "login.go", "line": 20, "side": "right"}}},
+		"findings": []any{map[string]any{"pr": 7, "severity": "blocking", "title": "No bound", "body": "Retries forever.", "failure_scenario": "A login while the server is down never returns.", "place": map[string]any{"path": "login.go", "line": 20, "side": "right"}}},
 		"rulings":  []any{map[string]any{"finding": "f-1", "status": "resolved"}},
 	})
 

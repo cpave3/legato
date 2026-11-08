@@ -27,6 +27,12 @@ type SubmittedFinding struct {
 	Title    string       `json:"title"`
 	Body     string       `json:"body"`
 	Place    *ReviewPlace `json:"place,omitempty"`
+	// FailureScenario is how a blocking finding fails: what happens, and
+	// what goes wrong. Required for blocking; posted with the finding.
+	FailureScenario string `json:"failure_scenario,omitempty"`
+	// Critical is why a new blocking finding of a later pass, on code
+	// that did not change since the pass before, cannot wait.
+	Critical string `json:"critical,omitempty"`
 }
 
 // SubmittedRuling rules on an earlier blocking finding: resolved, or open
@@ -108,8 +114,15 @@ func (s *ReviewPassService) Submit(ctx context.Context, taskID, executionID stri
 		if f.Severity == SeverityBlocking {
 			verdict = VerdictChanges
 		}
+		body := strings.TrimSpace(f.Body)
+		if scenario := strings.TrimSpace(f.FailureScenario); scenario != "" {
+			body += "\n\n**Failure scenario:** " + scenario
+		}
+		if critical := strings.TrimSpace(f.Critical); critical != "" && f.Severity == SeverityBlocking {
+			body += "\n\n**Critical:** " + critical
+		}
 		finding := store.HandoffReviewFinding{ID: findingID(), TaskID: taskID, Pass: pass.Pass, PR: f.PR, Severity: f.Severity,
-			Title: strings.TrimSpace(f.Title), Body: strings.TrimSpace(f.Body), Status: "open"}
+			Title: strings.TrimSpace(f.Title), Body: body, Status: "open"}
 		if f.Place != nil {
 			finding.Path, finding.Line, finding.StartLine, finding.Side = f.Place.Path, f.Place.Line, f.Place.StartLine, sideOf(f.Place)
 		}
@@ -181,6 +194,9 @@ func (s *ReviewPassService) validate(ctx context.Context, pass *store.HandoffRev
 		if strings.TrimSpace(f.Title) == "" || strings.TrimSpace(f.Body) == "" {
 			problems = append(problems, label+": title and body are required")
 		}
+		if f.Severity == SeverityBlocking && strings.TrimSpace(f.FailureScenario) == "" {
+			problems = append(problems, label+": a blocking finding needs a failure_scenario: what happens, and what goes wrong. Without one, make it a nit")
+		}
 		if p := f.Place; p != nil {
 			if p.Side != "" && p.Side != "RIGHT" && p.Side != "LEFT" {
 				problems = append(problems, fmt.Sprintf("%s: side is RIGHT or LEFT, not %q", label, p.Side))
@@ -204,6 +220,7 @@ func (s *ReviewPassService) validate(ctx context.Context, pass *store.HandoffRev
 			}
 		}
 	}
+	problems = append(problems, s.outsideChanges(ctx, pass, prs, sub)...)
 	need := map[string]bool{}
 	for _, f := range earlier {
 		need[f.ID] = true
@@ -227,6 +244,67 @@ func (s *ReviewPassService) validate(ctx context.Context, pass *store.HandoffRev
 		}
 	}
 	return problems
+}
+
+// outsideChanges lists a later pass's new blocking findings that are not on
+// what changed since the pass before and are not critical. A pull request
+// the pass before did not review is new in full.
+func (s *ReviewPassService) outsideChanges(ctx context.Context, pass *store.HandoffReviewPass, prs []store.HandoffReviewPR, sub ReviewSubmission) []string {
+	if pass.Pass < 2 {
+		return nil
+	}
+	previous, err := s.db.ListHandoffReviewPRs(ctx, pass.TaskID, pass.Pass-1)
+	if err != nil {
+		return nil
+	}
+	before, heads := map[int]string{}, map[int]string{}
+	for _, pr := range previous {
+		before[pr.Number] = pr.HeadSHA
+	}
+	for _, pr := range prs {
+		heads[pr.Number] = pr.HeadSHA
+	}
+	changed := map[int]map[string][][2]int{}
+	var problems []string
+	for i, f := range sub.Findings {
+		from, reviewed := before[f.PR]
+		if f.Severity != SeverityBlocking || strings.TrimSpace(f.Critical) != "" || !reviewed {
+			continue
+		}
+		if _, ok := changed[f.PR]; !ok {
+			lines, err := s.opts.Checkout.Changed(ctx, pass.Checkout, from, heads[f.PR])
+			if err != nil {
+				log.Printf("review passes: what changed in #%d since pass %d: %v", f.PR, pass.Pass-1, err)
+				lines = nil // unknown: the finding is not held to it
+			}
+			changed[f.PR] = lines
+		}
+		lines := changed[f.PR]
+		if lines == nil || onChangedLines(f.Place, lines) {
+			continue
+		}
+		problems = append(problems, fmt.Sprintf("findings[%d]: pass %d reviews what changed since pass %d, and this blocking finding is not on those changes. "+
+			"Make it a nit (a follow-up), or give critical: why it cannot wait for another change", i, pass.Pass, pass.Pass-1))
+	}
+	return problems
+}
+
+// onChangedLines says whether a place is on, or overlaps, changed lines of
+// the head. A finding with no place, or on a deleted line, is not.
+func onChangedLines(p *ReviewPlace, changed map[string][][2]int) bool {
+	if p == nil || p.Side == "LEFT" {
+		return false
+	}
+	first := p.Line
+	if p.StartLine > 0 {
+		first = p.StartLine
+	}
+	for _, r := range changed[p.Path] {
+		if first <= r[1] && p.Line >= r[0] {
+			return true
+		}
+	}
+	return false
 }
 
 // moved says how the author's checkout differs from the pass's pin: HEAD,
@@ -361,11 +439,35 @@ func (s *ReviewPassService) post(ctx context.Context, taskID string) error {
 	if err := s.raiseItems(ctx, taskID, pass.Pass, prs); err != nil {
 		return err
 	}
+	// Two passes in a row that each found new problems: the author fixes
+	// these, then the person decides whether another pass is worth it.
+	if notConverging(all, pass.Pass) && (settings.MaxPasses == 0 || settings.MaxPasses > pass.Pass) {
+		settings.MaxPasses = pass.Pass
+		if err := s.setSettings(ctx, loop, settings); err != nil {
+			return err
+		}
+	}
 	loop.Phase = ReviewPhaseWaitingForAuthor
 	if err := s.saveChanged(ctx, loop); err != nil {
 		return err
 	}
 	return s.opts.Board.MoveCard(ctx, taskID, cfg.WorkColumn)
+}
+
+// notConverging says whether a pass and the one before it each raised new
+// blocking findings, from the third pass on: the fixes keep bringing new
+// problems.
+func notConverging(findings []store.HandoffReviewFinding, pass int) bool {
+	if pass < 3 {
+		return false
+	}
+	raised := map[int]bool{}
+	for _, f := range findings {
+		if f.Severity == SeverityBlocking {
+			raised[f.Pass] = true
+		}
+	}
+	return raised[pass] && raised[pass-1]
 }
 
 func severityTitle(f store.HandoffReviewFinding) string {

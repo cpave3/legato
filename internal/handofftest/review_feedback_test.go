@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -16,7 +17,7 @@ func changesPass(t *testing.T, r reviewed, body string) string {
 	t.Helper()
 	r.finish(t)
 	result, err := r.submit(t, service.ReviewSubmission{Summary: "One bug.", Findings: []service.SubmittedFinding{
-		{PR: 7, Severity: "blocking", Title: "Retries never stop", Body: body, Place: &service.ReviewPlace{Path: "login.go", Line: 20}},
+		{PR: 7, Severity: "blocking", Title: "Retries never stop", Body: body, FailureScenario: "A login while the server is down never returns.", Place: &service.ReviewPlace{Path: "login.go", Line: 20}},
 		{PR: 7, Severity: "nit", Title: "Name it", Body: "Call it maxRetries."},
 	}})
 	if err != nil || result.Verdict != service.VerdictChanges {
@@ -82,6 +83,164 @@ func TestFeedbackFixedAndPushedIsReviewedAgainAndACleanPassFinishesIt(t *testing
 	}
 	if r.handoffState(t) != "done" {
 		t.Fatalf("handoff = %s", r.handoffState(t))
+	}
+}
+
+// A later pass reviews what the author changed since the pass before. A new
+// blocking finding must be on those changes, or critical with why it
+// cannot wait; anything else older is a nit.
+func TestALaterPassRaisesNewBlockingFindingsOnlyOnWhatChanged(t *testing.T) {
+	r := newReviewed(t, ReviewPassOptions{})
+	finding := changesPass(t, r, "The loop has no bound.")
+	r.answer(t, finding, service.AnswerFixed, "bounded the retries")
+	r.worker.Checkout.Commit(r.branch, "bbb222")
+	r.worker.Checkout.Change("bbb222", "login.go", 18, 24) // the fix
+	r.worker.ReviewGitHub.OpenPR(7, r.branch, "bbb222")
+	r.tick()
+	r.finish(t)
+	resolved := []service.SubmittedRuling{{Finding: finding, Status: "resolved"}}
+
+	old := service.SubmittedFinding{PR: 7, Severity: "blocking", Title: "The session is not cleared", Body: "x",
+		FailureScenario: "y", Place: &service.ReviewPlace{Path: "login.go", Line: 5}}
+	_, err := r.submit(t, service.ReviewSubmission{Summary: "s", Findings: []service.SubmittedFinding{old}, Rulings: resolved})
+	var refused *service.ReviewSubmissionError
+	if !errors.As(err, &refused) || len(refused.Problems) != 1 || !strings.Contains(refused.Problems[0], "since pass 1") || !strings.Contains(refused.Problems[0], "critical") {
+		t.Fatalf("err = %v", err)
+	}
+
+	onTheFix := service.SubmittedFinding{PR: 7, Severity: "blocking", Title: "The bound is off by one", Body: "x",
+		FailureScenario: "y", Place: &service.ReviewPlace{Path: "login.go", Line: 20}}
+	old.Critical = "Every logout leaves the session usable by the next person at the machine."
+	result, err := r.submit(t, service.ReviewSubmission{Summary: "s", Findings: []service.SubmittedFinding{onTheFix, old}, Rulings: resolved})
+	if err != nil || result.Verdict != service.VerdictChanges {
+		t.Fatalf("submit = %+v, %v", result, err)
+	}
+}
+
+// The first pass reviews in full, held to a bar for blocking; a later one
+// is told to review what changed and to rule, and what a new blocking
+// finding outside that needs.
+func TestTheReviewersBriefSetsTheBarAndALaterPassItsScope(t *testing.T) {
+	r := newReviewed(t, ReviewPassOptions{})
+	finding := changesPass(t, r, "The loop has no bound.")
+	spawns := r.worker.Tmux.Spawned()
+	first := briefOf(t, spawns[len(spawns)-1])
+	for _, want := range []string{"every pull request in full", "failure_scenario", "A setting only the person can choose"} {
+		if !strings.Contains(first, want) {
+			t.Errorf("pass 1's brief lacks %q:\n%s", want, first)
+		}
+	}
+
+	r.answer(t, finding, service.AnswerFixed, "bounded the retries")
+	r.worker.Checkout.Commit(r.branch, "bbb222")
+	r.worker.ReviewGitHub.OpenPR(7, r.branch, "bbb222")
+	r.tick()
+	r.finish(t)
+	spawns = r.worker.Tmux.Spawned()
+	second := briefOf(t, spawns[len(spawns)-1])
+	for _, want := range []string{"what changed since pass 1", "critical", "failure_scenario", "follow-up"} {
+		if !strings.Contains(second, want) {
+			t.Errorf("pass 2's brief lacks %q:\n%s", want, second)
+		}
+	}
+	if strings.Contains(second, "every pull request in full") {
+		t.Errorf("pass 2's brief asks for a full review again:\n%s", second)
+	}
+}
+
+// A later pass resumes the reviewer's conversation, so it remembers what it
+// read and decided; when that cannot be resumed, a fresh reviewer starts.
+func TestALaterPassResumesTheReviewer(t *testing.T) {
+	for name, gone := range map[string]bool{"resumed": false, "fresh when it cannot be": true} {
+		t.Run(name, func(t *testing.T) {
+			ctx := context.Background()
+			r := newReviewed(t, ReviewPassOptions{})
+			r.finish(t)
+			reviewer := r.reviewer(t)
+			cwd := r.worker.Tmux.Spawned()[0].WorkDir
+			if gone {
+				cwd = filepath.Join(t.TempDir(), "gone")
+			}
+			// Its bridge saved the conversation, as a live reviewer's does.
+			if _, err := r.worker.Store.RecordTaskNativeSession(ctx, r.card, reviewer.ID, reviewer.ExecutionID, "codex", "reviewer-conversation", cwd, ""); err != nil {
+				t.Fatal(err)
+			}
+			result, err := r.submit(t, service.ReviewSubmission{Summary: "One bug.", Findings: []service.SubmittedFinding{
+				{PR: 7, Severity: "blocking", Title: "Retries never stop", Body: "x", FailureScenario: "y", Place: &service.ReviewPlace{Path: "login.go", Line: 20}}}})
+			if err != nil {
+				t.Fatalf("submit = %+v, %v", result, err)
+			}
+			r.tick()
+			r.answer(t, result.Findings[0], service.AnswerFixed, "bounded")
+			r.worker.Checkout.Commit(r.branch, "bbb222")
+			r.worker.ReviewGitHub.OpenPR(7, r.branch, "bbb222")
+			r.tick()
+			r.finish(t)
+
+			if loop := r.loop(t); loop.Pass != 2 || loop.Phase != service.ReviewPhaseReviewing {
+				t.Fatalf("loop = %+v", loop)
+			}
+			spawns := r.worker.Tmux.Spawned()
+			env := strings.Join(spawns[len(spawns)-1].Env, "\n")
+			if resumed := strings.Contains(env, "LEGATO_RESUME_SESSION_ID=reviewer-conversation"); resumed == gone {
+				t.Fatalf("pass 2 resumed %v; env %s", resumed, env)
+			}
+		})
+	}
+}
+
+// The author need not fix everything: a finding below the bar, or for
+// another change, is answered with a reply that names a follow-up.
+func TestTheAuthorMayAnswerAFindingWithAFollowUp(t *testing.T) {
+	r := newReviewed(t, ReviewPassOptions{})
+	changesPass(t, r, "The loop has no bound.")
+	view, err := service.ReviewFeedback(context.Background(), r.worker.Store, r.card)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, want := range []string{"follow-up", "below the bar", "smallest fix"} {
+		if !strings.Contains(view.How, want) {
+			t.Errorf("how lacks %q: %s", want, view.How)
+		}
+	}
+}
+
+// When two passes in a row each find new blocking problems in the author's
+// fixes, the review stops for the person before another pass, whatever its
+// limit; Run another pass goes on.
+func TestAReviewThatKeepsFindingNewProblemsStopsEarly(t *testing.T) {
+	r := newReviewed(t, ReviewPassOptions{MaxPasses: 6})
+	finding := changesPass(t, r, "The loop has no bound.")
+	for pass, sha := range []string{"bbb222", "ccc333", "ddd444"} {
+		r.answer(t, finding, service.AnswerFixed, "fixed")
+		r.worker.Checkout.Commit(r.branch, sha)
+		r.worker.Checkout.Change(sha, "login.go", 18, 24)
+		r.worker.ReviewGitHub.OpenPR(7, r.branch, sha)
+		r.tick()
+		r.finish(t)
+		if pass == 2 {
+			break // after passes 2 and 3 each found a new problem
+		}
+		result, err := r.submit(t, service.ReviewSubmission{Summary: "The fix has a bug.",
+			Findings: []service.SubmittedFinding{{PR: 7, Severity: "blocking", Title: "The fix has a bug", Body: "x", FailureScenario: "y",
+				Place: &service.ReviewPlace{Path: "login.go", Line: 20}}},
+			Rulings: []service.SubmittedRuling{{Finding: finding, Status: "resolved"}}})
+		if err != nil || result.Verdict != service.VerdictChanges {
+			t.Fatalf("pass %d = %+v, %v", pass+2, result, err)
+		}
+		r.tick()
+		finding = result.Findings[0]
+	}
+	loop := r.loop(t)
+	if loop.Phase != service.ReviewPhaseStuck || loop.Pass != 3 || !strings.Contains(loop.Reason, "passes 2 and 3 each found new blocking problems") {
+		t.Fatalf("loop = %+v", loop)
+	}
+	if err := r.worker.Reviews.AnotherPass(context.Background(), r.card); err != nil {
+		t.Fatal(err)
+	}
+	r.tick()
+	if loop := r.loop(t); loop.Pass != 4 || loop.Phase != service.ReviewPhaseReviewing {
+		t.Fatalf("after Run another pass: %+v", loop)
 	}
 }
 

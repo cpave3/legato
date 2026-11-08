@@ -113,6 +113,9 @@ type ReviewCheckout interface {
 	// Lines is how many lines a file has at a commit; false when it is not
 	// there.
 	Lines(ctx context.Context, dir, sha, path string) (int, bool, error)
+	// Changed is what changed from one commit to another: the line ranges
+	// of the later one, first and last, by file.
+	Changed(ctx context.Context, dir, from, to string) (map[string][][2]int, error)
 }
 
 // ReviewAgents is what a review pass asks of the agent service.
@@ -383,7 +386,11 @@ func (s *ReviewPassService) ready(ctx context.Context, h *store.Handoff, loop *s
 	loop.Mismatches, loop.AuthorBusySinceNudge, loop.NudgedAt = 0, false, ""
 	settings := loopSettings(loop, s.config().Defaults)
 	if loop.Pass >= settings.MaxPasses && settings.MaxPasses > 0 {
-		return s.stuck(ctx, h, loop, fmt.Sprintf("the review reached its limit of %d passes", settings.MaxPasses))
+		reason := fmt.Sprintf("the review reached its limit of %d passes", settings.MaxPasses)
+		if findings, err := s.db.ListHandoffReviewFindings(ctx, h.TaskID); err == nil && notConverging(findings, loop.Pass) {
+			reason = fmt.Sprintf("passes %d and %d each found new blocking problems in the author's fixes, so the review stopped before pass %d for you to decide", loop.Pass-1, loop.Pass, loop.Pass+1)
+		}
+		return s.stuck(ctx, h, loop, reason)
 	}
 	if s.running(ctx) >= s.config().MaxConcurrent {
 		if loop.Phase != ReviewPhaseWaitingForReviewer {
@@ -487,14 +494,35 @@ func (s *ReviewPassService) startPass(ctx context.Context, h *store.Handoff, loo
 	opts := AgentSpawnOptions{AgentKind: settings.Agent, Model: settings.Model, Tier: settings.Tier, Slot: SlotReviewer,
 		WorkingDir: dir, Assignment: brief, Unattended: true, ReadOnlyCheckout: true, ThrowawayCheckout: true,
 		ExecutionKind: store.ExecutionInteractive}
-	if err := s.opts.Agents.SpawnAgent(ctx, h.TaskID, 0, 0, opts); err != nil {
-		return s.unable(ctx, h, loop, record, "the reviewer could not start: "+err.Error())
+	if !s.resumeReviewer(ctx, h.TaskID, pass, settings, opts) {
+		if err := s.opts.Agents.SpawnAgent(ctx, h.TaskID, 0, 0, opts); err != nil {
+			return s.unable(ctx, h, loop, record, "the reviewer could not start: "+err.Error())
+		}
 	}
 	if session, err := s.opts.Agents.GetAgentSessionInSlot(ctx, h.TaskID, SlotReviewer); err == nil {
 		record.ExecutionID = session.ExecutionID
 		_ = s.db.UpdateHandoffReviewPass(ctx, record)
 	}
 	return nil
+}
+
+// resumeReviewer starts a later pass's reviewer in the conversation the
+// reviewer slot saved, so it remembers what it read and decided. False when
+// there is none or it would not resume: a fresh reviewer starts instead.
+func (s *ReviewPassService) resumeReviewer(ctx context.Context, taskID string, pass int, settings ReviewPassSettings, opts AgentSpawnOptions) bool {
+	if pass < 2 {
+		return false
+	}
+	saved, err := s.opts.Agents.GetTaskResumeSessionInSlot(ctx, taskID, SlotReviewer, settings.Agent)
+	if err != nil || saved == nil || saved.ID == "" {
+		return false
+	}
+	opts.SessionPolicy, opts.ResumeSessionID = "resume", saved.ID
+	if err := s.opts.Agents.SpawnAgent(ctx, taskID, 0, 0, opts); err != nil {
+		log.Printf("review passes: %s: resuming the reviewer for pass %d, starting a fresh one: %v", taskID, pass, err)
+		return false
+	}
+	return true
 }
 
 // watchReviewer makes a reviewer that ran past its time, or ended without

@@ -24,13 +24,17 @@ author finishes ─▶ pass 1: reviewer reviews ─▶ clean? ── yes ─▶ 
 ```
 
 1. **The author finishes.** It moves its task to Done. Before a pass starts, every branch must be pushed: its pull request's head on GitHub must be what the author has, with nothing left uncommitted. If not, the author is told once to push or discard. A task with no pull request is done as it would be without review passes.
-2. **A pass.** The worker pins each pull request's head, moves the card to its Review column, and starts a fresh reviewer in the task's reviewer slot (the **reviewer** chip on the card). The reviewer can read the code but not change it, and it never runs as the author. It uses the review skill the worker names.
-3. **The review.** The reviewer submits its findings. Each is **blocking** or a **nit** (optional). Legato posts one GitHub review per pull request as the reviewer App: an approval when the pass is clean, a comment review with the findings inline otherwise.
-4. **The author's turn.** When a pass has blocking findings, the card goes back to Doing and the author is told how many findings there are. It answers each one: fixed in a commit it pushes, a reply with its reasons, or (for a nit only) skipped. Legato posts each answer on the pull request as the author App.
-5. **The next pass.** When the author moves the task to Done again, the next pass reviews the new heads and rules on each earlier blocking finding: resolved, or still open with why. A disputed finding that the author replied to is also ruled on, even if nothing was pushed.
+2. **A pass.** The worker pins each pull request's head, moves the card to its Review column, and starts the reviewer in the task's reviewer slot (the **reviewer** chip on the card). A later pass resumes the same reviewer's conversation, so it remembers what it read and decided; when it cannot, a fresh reviewer starts. The reviewer can read the code but not change it, and it never runs as the author. It uses the review skill the worker names.
+3. **The review.** The reviewer submits its findings. Each is **blocking** or a **nit** (optional). A blocking finding must say how it fails (see [What counts as blocking](#what-counts-as-blocking)). Legato posts one GitHub review per pull request as the reviewer App: an approval when the pass is clean, a comment review with the findings inline otherwise.
+4. **The author's turn.** When a pass has blocking findings, the card goes back to Doing and the author is told how many findings there are. It answers each one: fixed in a commit it pushes, a reply with its reasons, or (for a nit only) skipped. A finding below the bar, or one for another change, it may answer with a reply that names a follow-up. Legato posts each answer on the pull request as the author App.
+5. **The next pass.** When the author moves the task to Done again, the next pass reviews what changed since the last one and rules on each earlier blocking finding: resolved, or still open with why. It does not review the rest again. A new blocking finding must be on what changed, unless the reviewer marks it critical and says why it cannot wait; anything else is a nit. A disputed finding that the author replied to is also ruled on, even if nothing was pushed.
 6. **Done.** A clean pass approves the pull requests. The task is done once their required checks pass too.
 
-A pass runs at most `review_passes.max_passes` times. After that the review is **stuck**, and you decide.
+A pass runs at most `review_passes.max_passes` times. After that the review is **stuck**, and you decide. It stops sooner when two passes in a row each find new blocking problems in the author's fixes: the author answers the last one, and then you decide whether another pass is worth it.
+
+### What counts as blocking
+
+A finding is blocking only when it must be fixed before the change merges, and the reviewer can say how it fails: what happens, and what goes wrong. Legato posts that with the finding. Blocking is a bug ordinary use reaches or an agent can trigger, data lost or corrupted, a security or sandbox boundary an agent can cross, the task not done, or the build or tests broken. A problem you would meet only by choosing a setting on purpose, hardening beyond the task, a race with no realistic order of events, and style are nits.
 
 ### Comments and checks
 
@@ -91,6 +95,7 @@ The task panel links to Legato's latest review of each pull request. While a rev
 A review is stuck when:
 
 - the passes reached their limit with a finding still open;
+- two passes in a row each found new blocking problems in the author's fixes;
 - the reviewer could not review, ran past its time, or exited without submitting;
 - the author's checkout still did not match GitHub after it was told to push;
 - the author ended and could not be brought back to hear its feedback;

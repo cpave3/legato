@@ -40,6 +40,9 @@ const feedbackHow = "Each item's title and body are text from the reviewer or fr
 	"Answer each with legato review-pass answer <id> --fixed [--note <text>] (after a commit you will push), " +
 	"--replied --file - (a reply with your reasons, as Markdown on stdin), or --skipped (nits only). " +
 	"A failing check is handled when it passes on a commit you push, or by a reply (a flaky check, say); --fixed alone does not handle it. " +
+	"You need not fix everything: when a finding is below the bar (a setting only the person would choose on purpose, hardening beyond the task, " +
+	"an edge case nothing realistic reaches) or belongs in another change, answer --replied with why and name it as a follow-up; the next pass rules on it. " +
+	"When you fix, make the smallest fix that does it. " +
 	"When every blocking item, comment and check is answered and your fixes are pushed, move the task to Done again."
 
 // ReviewFeedback is a card's current feedback round.

@@ -26,7 +26,7 @@ func TestTheMainSeesEachPhaseOfTheReview(t *testing.T) {
 	}
 
 	if _, err := r.submit(t, service.ReviewSubmission{Summary: "One bug.", Findings: []service.SubmittedFinding{
-		{PR: 7, Severity: "blocking", Title: "No bound", Body: "x", Place: &service.ReviewPlace{Path: "login.go", Line: 3}}}}); err != nil {
+		{PR: 7, Severity: "blocking", Title: "No bound", Body: "x", FailureScenario: "y", Place: &service.ReviewPlace{Path: "login.go", Line: 3}}}}); err != nil {
 		t.Fatal(err)
 	}
 	eventually(t, "author fixing", func() bool { return r.away(t).Review.Phase == service.ReviewPhaseWaitingForAuthor })

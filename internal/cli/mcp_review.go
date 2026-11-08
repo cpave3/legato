@@ -24,10 +24,13 @@ type reviewPlaceInput struct {
 
 type reviewFindingInput struct {
 	PR       int               `json:"pr" jsonschema:"the pull request's number"`
-	Severity string            `json:"severity" jsonschema:"blocking (must be fixed before merging) or nit (optional)"`
+	Severity string            `json:"severity" jsonschema:"blocking (must be fixed before merging, by the brief's bar) or nit (optional)"`
 	Title    string            `json:"title" jsonschema:"one line"`
 	Body     string            `json:"body" jsonschema:"the finding, as Markdown"`
 	Place    *reviewPlaceInput `json:"place,omitempty" jsonschema:"where it is, when it is about particular lines"`
+	// FailureScenario is required on a blocking finding.
+	FailureScenario string `json:"failure_scenario,omitempty" jsonschema:"required when blocking: what happens, and what goes wrong (who or what triggers it, and the result)"`
+	Critical        string `json:"critical,omitempty" jsonschema:"on a later pass only, for a new blocking finding on code that did not change since the pass before: why it cannot wait"`
 }
 
 type reviewRulingInput struct {
@@ -48,7 +51,7 @@ func (m *mcpTools) submitReview() mcpserver.Tool {
 		Name:  "submit_review",
 		Title: "Submit the review",
 		Description: "Hands your review pass to Legato, which posts it to GitHub; you never post yourself. " +
-			"Give a summary and findings: each with the pull request's number, severity blocking or nit, a one-line title, a body, " +
+			"Give a summary and findings: each with the pull request's number, severity blocking or nit, a one-line title, a body, a failure_scenario when blocking, " +
 			"and a place (path and line at the pinned head, optional start_line, side RIGHT or LEFT) when it is about particular lines. " +
 			"On a later pass, give a ruling on every earlier blocking finding the brief lists: resolved, or open with a reason. " +
 			"The verdict follows from them: any blocking finding or open ruling means changes, otherwise clean. " +
@@ -63,7 +66,7 @@ func (m *mcpTools) submitReview() mcpserver.Tool {
 		}
 		sub := service.ReviewSubmission{Summary: in.Summary, Unable: in.Unable}
 		for _, f := range in.Findings {
-			finding := service.SubmittedFinding{PR: f.PR, Severity: f.Severity, Title: f.Title, Body: f.Body}
+			finding := service.SubmittedFinding{PR: f.PR, Severity: f.Severity, Title: f.Title, Body: f.Body, FailureScenario: f.FailureScenario, Critical: f.Critical}
 			if f.Place != nil {
 				finding.Place = &service.ReviewPlace{Path: f.Place.Path, Line: f.Place.Line, StartLine: f.Place.StartLine, Side: strings.ToUpper(f.Place.Side)}
 			}

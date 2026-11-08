@@ -61,7 +61,7 @@ _Avoid_: extra slot, side agent
 ### Review passes
 
 **Review pass**:
-One review of all of a handoff's pull requests by a fresh reviewer, at heads pinned when it starts, ending in a GitHub review per pull request.
+One review of a handoff's pull requests by the reviewer, at heads pinned when it starts, ending in a GitHub review per pull request. The first reviews them in full; a later one reviews what changed since the pass before and rules on the earlier blocking findings.
 _Avoid_: review round, review cycle, auto-review, automated review, review tour
 
 **Reviewer**:

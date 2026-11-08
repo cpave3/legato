@@ -57,4 +57,22 @@ func TestTheAuthorsCheckoutIsReadOnTheHost(t *testing.T) {
 	if got := git("rev-parse", "refs/legato/review/abc/1/7"); got != sha {
 		t.Fatalf("pinned = %s", got)
 	}
+
+	// What changed between two commits: the lines of the later one, by
+	// file. A deletion marks the lines around it; a deleted file has none.
+	_ = os.WriteFile(filepath.Join(dir, "main.go"), []byte("package main\n\nimport \"os\"\n\nfunc main() { os.Exit(0) }\n"), 0o644)
+	_ = os.WriteFile(filepath.Join(dir, "new.go"), []byte("package main\n"), 0o644)
+	_ = os.RemoveAll(filepath.Join(dir, "bin"))
+	_ = os.Remove(filepath.Join(dir, ".gitignore"))
+	git("add", "-A")
+	git("commit", "-q", "-m", "two")
+	later := git("rev-parse", "HEAD")
+	changed, err := checkout.Changed(ctx, dir, sha, later)
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string][][2]int{"main.go": {{3, 5}}, "new.go": {{1, 1}}}
+	if len(changed) != len(want) || len(changed["main.go"]) != 1 || changed["main.go"][0] != want["main.go"][0] || len(changed["new.go"]) != 1 || changed["new.go"][0] != want["new.go"][0] {
+		t.Fatalf("changed = %v; want %v", changed, want)
+	}
 }

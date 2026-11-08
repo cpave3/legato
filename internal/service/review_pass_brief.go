@@ -18,7 +18,13 @@ func (s *ReviewPassService) brief(ctx context.Context, h *store.Handoff, pass in
 	}
 	var b strings.Builder
 	fmt.Fprintf(&b, "# Review pass %d of %s\n\n", pass, h.Repo)
-	b.WriteString("You are the reviewer of a handed-off task's pull requests. Review the whole stack, every pull request in full, each against its own base. You may only look: do not change, commit or push anything, and do not post to GitHub. Legato posts your review.\n\n")
+	b.WriteString("You are the reviewer of a handed-off task's pull requests. ")
+	if pass == 1 {
+		b.WriteString("Review the whole stack, every pull request in full, each against its own base. ")
+	} else {
+		fmt.Fprintf(&b, "This is a later pass: review what changed since pass %d, and rule on the earlier blocking findings listed below. Earlier passes reviewed the rest; do not review it again. ", pass-1)
+	}
+	b.WriteString("You may only look: do not change, commit or push anything, and do not post to GitHub. Legato posts your review.\n\n")
 	if s.opts.Overlay != nil && s.opts.Overlay() {
 		b.WriteString("You can build and run the tests: what you write in the checkout is thrown away when you end.\n\n")
 	} else {
@@ -37,17 +43,26 @@ func (s *ReviewPassService) brief(ctx context.Context, h *store.Handoff, pass in
 			return "", err
 		}
 	}
+	b.WriteString(blockingBar)
 	b.WriteString("## What to do\n\n")
-	if settings.Skill != "" {
-		fmt.Fprintf(&b, "1. Review these pull requests with the %s skill.\n", settings.Skill)
-	} else {
-		b.WriteString("1. Review these pull requests.\n")
-	}
-	b.WriteString("2. Turn each problem into a finding: `blocking` when it must be fixed before merging, `nit` when it is optional. Give each the pull request's number, a one-line title, a body, and a place (path, line, optional start_line, side RIGHT for the head or LEFT for a deleted line) when it is about particular lines.\n")
-	if pass > 1 {
-		b.WriteString("3. Rule on every earlier blocking finding listed above: `resolved` when it was fixed or you accept the author's answer, `open` with why when it was not.\n4. Call the `submit_review` tool from the legato MCP server with your summary, findings and rulings. If it lists problems, fix them and call it again.\n")
-	} else {
+	place := "Give each the pull request's number, a one-line title, a body, a `failure_scenario` when it is blocking, and a place (path, line, optional start_line, side RIGHT for the head or LEFT for a deleted line) when it is about particular lines."
+	if pass == 1 {
+		if settings.Skill != "" {
+			fmt.Fprintf(&b, "1. Review these pull requests with the %s skill.\n", settings.Skill)
+		} else {
+			b.WriteString("1. Review these pull requests.\n")
+		}
+		b.WriteString("2. Turn each problem into a finding: `blocking` when it meets the bar above, `nit` otherwise. " + place + "\n")
 		b.WriteString("3. Call the `submit_review` tool from the legato MCP server with your summary and findings. If it lists problems, fix them and call it again.\n")
+	} else {
+		fmt.Fprintf(&b, "1. Read what changed since pass %d: the diff from the heads listed above to the pinned heads.", pass-1)
+		if settings.Skill != "" {
+			fmt.Fprintf(&b, " If you use the %s skill, point it at that diff only.", settings.Skill)
+		}
+		b.WriteString("\n")
+		b.WriteString("2. Rule on every earlier blocking finding listed above: `resolved` when it was fixed or you accept the author's answer, `open` with why when it was not. Accept an answer that a finding is below the bar, or is a follow-up outside this task, when that is so.\n")
+		fmt.Fprintf(&b, "3. Turn each new problem into a finding. A new `blocking` finding must meet the bar above and be on what changed since pass %d: its place on a changed line. A problem elsewhere is a `nit`, a follow-up for another change, unless it is critical: then give `critical` with why it cannot wait. Legato refuses a new blocking finding that is neither. "+place+"\n", pass-1)
+		b.WriteString("4. Call the `submit_review` tool from the legato MCP server with your summary, findings and rulings. If it lists problems, fix them and call it again.\n")
 	}
 	b.WriteString("\nIf you cannot review (the code does not build for reasons outside it, the pull requests are not what the task is), call `submit_review` with `unable` and the reason. Then end your turn.\n")
 	return b.String(), nil
@@ -105,3 +120,24 @@ func (s *ReviewPassService) laterPassBrief(ctx context.Context, b *strings.Build
 	}
 	return nil
 }
+
+// blockingBar is what makes a finding blocking, for every pass.
+const blockingBar = `## What is blocking
+
+A finding is ` + "`blocking`" + ` only when it must be fixed before this merges, and you can say how it fails: its ` + "`failure_scenario`" + `, what happens and what goes wrong. Blocking is:
+
+- a bug that ordinary use reaches, or that an agent or untrusted input can trigger;
+- data lost or corrupted;
+- a security or sandbox boundary an agent can cross;
+- the task not done, or done otherwise than it asks;
+- the build or the tests broken.
+
+Not blocking (make these nits, or leave them out):
+
+- A setting only the person can choose: a problem they would meet only by configuring it so on purpose.
+- Hardening beyond what the task asks, and races with no realistic order of events.
+- Style, naming, and how you would have written it.
+
+Prefer the smallest fix that would do, such as refusing a bad setting over machinery that copes with it. Name a pattern of edge cases once, in one finding, not each case in turn.
+
+`

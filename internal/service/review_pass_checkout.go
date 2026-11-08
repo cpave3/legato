@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"os"
 	"os/exec"
+	"strconv"
 	"strings"
 
 	"github.com/cpave3/legato/internal/engine/gitrepo"
@@ -76,6 +77,59 @@ func (c GitReviewCheckout) State(ctx context.Context, dir string) (string, bool,
 func (c GitReviewCheckout) Pin(ctx context.Context, dir, ref, sha string) error {
 	_, err := c.git(ctx, dir, "update-ref", ref, sha)
 	return err
+}
+
+// Changed reads git diff -U0 between the commits: each hunk's lines in to,
+// and for a deletion the lines around where it was.
+func (c GitReviewCheckout) Changed(ctx context.Context, dir, from, to string) (map[string][][2]int, error) {
+	out, err := c.git(ctx, dir, "-c", "core.quotePath=false", "diff", "-U0", "--no-color", "--no-ext-diff", from, to)
+	if err != nil {
+		return nil, err
+	}
+	changed := map[string][][2]int{}
+	path := ""
+	for _, line := range strings.Split(out, "\n") {
+		switch {
+		case strings.HasPrefix(line, "+++ "):
+			path = ""
+			if name := strings.TrimPrefix(line, "+++ "); strings.HasPrefix(name, "b/") {
+				path = strings.TrimPrefix(name, "b/")
+			}
+		case strings.HasPrefix(line, "@@ ") && path != "":
+			start, count, ok := hunkLines(line)
+			if !ok {
+				continue
+			}
+			if count == 0 {
+				changed[path] = append(changed[path], [2]int{max(start, 1), start + 1})
+				continue
+			}
+			changed[path] = append(changed[path], [2]int{start, start + count - 1})
+		}
+	}
+	return changed, nil
+}
+
+// hunkLines reads the new side of a hunk header, "@@ -a,b +c,d @@".
+func hunkLines(header string) (start, count int, ok bool) {
+	fields := strings.Fields(header)
+	if len(fields) < 3 || !strings.HasPrefix(fields[2], "+") {
+		return 0, 0, false
+	}
+	spec := strings.TrimPrefix(fields[2], "+")
+	count = 1
+	if i := strings.IndexByte(spec, ','); i >= 0 {
+		n, err := strconv.Atoi(spec[i+1:])
+		if err != nil {
+			return 0, 0, false
+		}
+		count, spec = n, spec[:i]
+	}
+	start, err := strconv.Atoi(spec)
+	if err != nil {
+		return 0, 0, false
+	}
+	return start, count, true
 }
 
 func (c GitReviewCheckout) Lines(ctx context.Context, dir, sha, path string) (int, bool, error) {

@@ -186,11 +186,12 @@ type FakeCheckout struct {
 	clean    bool
 	lines    map[string]int
 	pins     map[string]string
+	changes  map[string]map[string][][2]int // commit -> file -> lines
 }
 
 // NewFakeCheckout is a clean checkout with no branches.
 func NewFakeCheckout() *FakeCheckout {
-	return &FakeCheckout{tips: map[string]string{}, clean: true, lines: map[string]int{}, pins: map[string]string{}}
+	return &FakeCheckout{tips: map[string]string{}, clean: true, lines: map[string]int{}, pins: map[string]string{}, changes: map[string]map[string][][2]int{}}
 }
 
 // Set puts the checkout in dir with branch at tip, checked out.
@@ -219,6 +220,30 @@ func (f *FakeCheckout) File(path string, n int) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.lines[path] = n
+}
+
+// Change records that commit sha changed lines first to last of path,
+// against any other commit.
+func (f *FakeCheckout) Change(sha, path string, first, last int) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.changes[sha] == nil {
+		f.changes[sha] = map[string][][2]int{}
+	}
+	f.changes[sha][path] = append(f.changes[sha][path], [2]int{first, last})
+}
+
+func (f *FakeCheckout) Changed(_ context.Context, _, from, to string) (map[string][][2]int, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	out := map[string][][2]int{}
+	if from == to {
+		return out, nil
+	}
+	for path, ranges := range f.changes[to] {
+		out[path] = append([][2]int(nil), ranges...)
+	}
+	return out, nil
 }
 
 // Pins are the refs pinned, ref -> commit.
