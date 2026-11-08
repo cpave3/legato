@@ -9,6 +9,7 @@ import (
 	"testing"
 
 	"github.com/cpave3/legato/internal/cli"
+	"github.com/cpave3/legato/internal/service"
 )
 
 // fakeLegato is a binary that prints what it was run with.
@@ -38,7 +39,8 @@ func TestTheHostRunsAForwardedCommandAsTheSession(t *testing.T) {
 		t.Skip("no /var/tmp")
 	}
 	t.Cleanup(func() { _ = os.RemoveAll(work) })
-	op := cliRunOp(fakeLegato(t), runtime)
+	scratch := t.TempDir()
+	op := cliRunOp(fakeLegato(t), service.SandboxScratch{Root: scratch, RuntimeDir: runtime})
 	raw, _ := json.Marshal(map[string]any{
 		"args": []string{"plan", "submit", "/tmp/bundle", "--file=/tmp/a.md", "--task", "t1"},
 		"cwd":  work, "stdin": []byte("from stdin"),
@@ -51,7 +53,8 @@ func TestTheHostRunsAForwardedCommandAsTheSession(t *testing.T) {
 	}
 	out := got.(cliRunResult)
 	stdout := string(out.Stdout)
-	tmp := filepath.Join(runtime, "sandbox", "ex-1", "tmp")
+	// The session's /tmp is its scratch folder on disk.
+	tmp := filepath.Join(scratch, "ex-1", "tmp")
 	for _, want := range []string{
 		"args=plan submit " + tmp + "/bundle --file=" + tmp + "/a.md --task t1",
 		"task=t1 exec=ex-1 broker=none sandboxed=no sub=st-1",
@@ -83,7 +86,7 @@ func TestOnlyAgentCommandsAreForwarded(t *testing.T) {
 func TestASandboxedCommandRunsOnTheHostThroughTheBroker(t *testing.T) {
 	db, _, _, token := brokerFixture(t)
 	runtime := shortDir(t)
-	ops := map[string]cli.BrokerOp{"cli.run": cliRunOp(fakeLegato(t), runtime)}
+	ops := map[string]cli.BrokerOp{"cli.run": cliRunOp(fakeLegato(t), service.SandboxScratch{Root: filepath.Join(runtime, "scratch"), RuntimeDir: runtime})}
 	host := startBrokerHost(context.Background(), db, shortDir(t), brokerHostOptions{Deps: cli.BrokerDeps{Ops: ops}})
 	t.Cleanup(host.Stop)
 	t.Setenv("LEGATO_SANDBOXED", "1")

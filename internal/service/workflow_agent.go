@@ -75,6 +75,10 @@ func (r *WorkflowAgentRunner) FinishWorkflowAgent(ctx context.Context, attempt s
 	if tmuxer, ok := r.agents.(interface{ Tmux() TmuxManager }); ok && attempt.TmuxSession != "" {
 		tmuxer.Tmux().Kill(attempt.TmuxSession)
 	}
+	// The sandbox's scratch goes once nothing runs in it.
+	if remover, ok := r.agents.(interface{ RemoveSandboxScratch(executionID string) }); ok && session != nil {
+		remover.RemoveSandboxScratch(session.ExecutionID)
+	}
 	return nil
 }
 func (r *WorkflowAgentRunner) PromptAgent(ctx context.Context, taskID, prompt string) error {

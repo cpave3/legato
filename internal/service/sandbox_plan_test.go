@@ -78,7 +78,7 @@ func TestTheSandboxSeesItsWorkAndToolsAndNoCredentials(t *testing.T) {
 			t.Errorf("%s: %+v, want kind %v", path, got, kind)
 		}
 	}
-	if m["/bin"].Target != "usr/bin" || m["/tmp"].Path != "/run/user/1000/legato/sandbox/ex-1/tmp" {
+	if m["/bin"].Target != "usr/bin" || m["/tmp"].Path != "/var/home/me/.local/share/legato/sandbox/ex-1/tmp" {
 		t.Errorf("bin = %+v, tmp = %+v", m["/bin"], m["/tmp"])
 	}
 	for _, never := range []string{"/var/home/me/.ssh", "/var/home/me/.config/gh", "/var/home/me/.gitconfig", "/var/home/me/.config/legato",
@@ -543,5 +543,62 @@ func TestAThrowawayCheckoutIsOverlaid(t *testing.T) {
 	// What the sandbox must never see stays hidden beneath the layer.
 	if m[in.ConfigPath].Kind != sandbox.Hide {
 		t.Fatalf("Legato's configuration in the checkout = %+v, want hidden", m[in.ConfigPath])
+	}
+}
+
+// /tmp and the home are the execution's own folders on disk, so what an
+// agent writes there is not held in memory.
+func TestTheSandboxsTmpAndHomeAreItsScratchFoldersOnDisk(t *testing.T) {
+	in := baseInput()
+	in.ScratchDir = "/var/home/me/.local/share/legato/sandbox"
+	plan, err := BuildSandboxPlan(in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := mounted(plan)
+	if m["/tmp"].Path != "/var/home/me/.local/share/legato/sandbox/ex-1/tmp" || m["/tmp"].Kind != sandbox.ReadWrite {
+		t.Errorf("tmp = %+v", m["/tmp"])
+	}
+	if plan.Home != "/var/home/me" || plan.HomeSource != "/var/home/me/.local/share/legato/sandbox/ex-1/home" {
+		t.Errorf("home %q from %q", plan.Home, plan.HomeSource)
+	}
+}
+
+// Without a scratch folder named, the data folder's is used.
+func TestTheScratchFoldersAreInTheDataFolderByDefault(t *testing.T) {
+	plan, err := BuildSandboxPlan(baseInput())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := mounted(plan)["/tmp"].Path; got != "/var/home/me/.local/share/legato/sandbox/ex-1/tmp" {
+		t.Errorf("tmp = %s", got)
+	}
+	if plan.HomeSource != "/var/home/me/.local/share/legato/sandbox/ex-1/home" {
+		t.Errorf("home source = %s", plan.HomeSource)
+	}
+}
+
+// A throwaway checkout's layer is in the scratch folder too, one per mount.
+func TestAThrowawayCheckoutsLayerIsOnDisk(t *testing.T) {
+	in := baseInput()
+	fs := hostFS()
+	fs["/var/home/me/Development/app"] = "dir"
+	fs["/var/home/me/Development/app/.git"] = "dir"
+	fs["/var/home/me/Development/app.feature"] = "dir"
+	in.FS, in.WorkDir, in.GitCommonDir = fs, "/var/home/me/Development/app.feature", "/var/home/me/Development/app/.git"
+	in.ReadOnlyCheckout, in.ThrowawayCheckout = true, true
+	plan, err := BuildSandboxPlan(in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := mounted(plan)
+	seen := map[string]bool{}
+	for _, path := range []string{in.WorkDir, in.GitCommonDir} {
+		o := m[path]
+		if o.Kind != sandbox.Overlay || !strings.HasPrefix(o.Upper, "/var/home/me/.local/share/legato/sandbox/ex-1/overlay/") ||
+			!strings.HasPrefix(o.Work, "/var/home/me/.local/share/legato/sandbox/ex-1/overlay/") || o.Upper == o.Work || seen[o.Upper] {
+			t.Fatalf("%s = %+v", path, o)
+		}
+		seen[o.Upper] = true
 	}
 }

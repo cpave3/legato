@@ -92,7 +92,7 @@ func TestAnUnsandboxedCredentialGetReadsItselfWhenNoBrokerAnswers(t *testing.T) 
 
 func TestASandboxedCredentialGetIsForwardedWholeToAHostWithoutCredentialValue(t *testing.T) {
 	db, _, _, token := brokerFixture(t)
-	ops := map[string]cli.BrokerOp{"cli.run": cliRunOp(fakeLegato(t), shortDir(t))}
+	ops := map[string]cli.BrokerOp{"cli.run": cliRunOp(fakeLegato(t), service.SandboxScratch{Root: shortDir(t)})}
 	host := startBrokerHost(context.Background(), db, shortDir(t), brokerHostOptions{Deps: cli.BrokerDeps{Ops: ops}})
 	t.Cleanup(host.Stop)
 	t.Setenv("LEGATO_SANDBOXED", "1")

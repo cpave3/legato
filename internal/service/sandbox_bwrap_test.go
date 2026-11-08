@@ -36,10 +36,36 @@ func bwrapFixture(t *testing.T) (in SandboxPlanInput) {
 	runtime := filepath.Join(base, "run", "legato")
 	_ = os.MkdirAll(filepath.Join(runtime, "sandbox", "ex-1", "tmp"), 0o700)
 	_ = os.MkdirAll(filepath.Join(runtime, "broker"), 0o700)
-	return SandboxPlanInput{
+	in = SandboxPlanInput{
 		Home: home, WorkDir: filepath.Join(home, "work"), ExecutionID: "ex-1", TaskID: "t1", AgentKind: "claude-code",
 		RuntimeDir: runtime, DataDir: filepath.Join(home, ".local/share/legato"), ConfigPath: filepath.Join(home, ".config/legato/config.yaml"),
 		BrokerSocket: filepath.Join(runtime, "broker", "broker.sock"),
+	}
+	scratch := scratchFor(in)
+	_ = os.MkdirAll(scratch.Tmp("ex-1"), 0o700)
+	_ = os.MkdirAll(scratch.Home("ex-1"), 0o700)
+	return in
+}
+
+// What an agent writes to /tmp and its home lands in its scratch folders on
+// disk, where the host can read it and Legato can remove it.
+func TestInsideTheSandboxTmpAndHomeAreTheScratchFolders(t *testing.T) {
+	in := bwrapFixture(t)
+	out, err := runInSandbox(t, in, `echo t > /tmp/a && echo h > "$HOME/b" && mkdir -p "$HOME/.cache/x" && ls -a "$HOME"`)
+	if err != nil {
+		t.Fatalf("%v: %s", err, out)
+	}
+	if strings.Contains(out, ".ssh") {
+		t.Fatalf("the home shows the person's: %s", out)
+	}
+	scratch := scratchFor(in)
+	for path, want := range map[string]string{filepath.Join(scratch.Tmp("ex-1"), "a"): "t\n", filepath.Join(scratch.Home("ex-1"), "b"): "h\n"} {
+		if got, err := os.ReadFile(path); err != nil || string(got) != want {
+			t.Errorf("%s = %q, %v", path, got, err)
+		}
+	}
+	if _, err := os.Stat(filepath.Join(in.Home, "b")); !os.IsNotExist(err) {
+		t.Errorf("the write reached the person's home (%v)", err)
 	}
 }
 

@@ -79,6 +79,9 @@ type SandboxPlanInput struct {
 	ExecutionID, TaskID string
 	AgentKind           string
 	RuntimeDir          string // <runtime>/legato
+	// ScratchDir holds each execution's /tmp, home and throwaway layers, on
+	// disk (agents.sandbox.scratch_dir); <DataDir>/sandbox when empty.
+	ScratchDir          string
 	DataDir, ConfigPath string
 	BinaryPath          string
 	BrokerSocket        string
@@ -335,7 +338,11 @@ func BuildSandboxPlan(in SandboxPlanInput) (sandbox.Plan, error) {
 		}
 		return nil
 	}
+	scratch := scratchFor(in)
 	plan := sandbox.Plan{Home: in.Home, Chdir: in.WorkDir, Setenv: map[string]string{"LEGATO_SANDBOXED": "1", "TMPDIR": "/tmp"}}
+	if scratch.Root != "" {
+		plan.HomeSource = scratch.Home(in.ExecutionID)
+	}
 	var mounts []sandbox.Mount
 	add := func(path string, kind sandbox.Kind) {
 		info := in.FS.Probe(path)
@@ -358,9 +365,10 @@ func BuildSandboxPlan(in SandboxPlanInput) (sandbox.Plan, error) {
 		add(p, sandbox.ReadOnly)
 	}
 	mounts = append(mounts, sshConfigMounts(in)...)
-	// /tmp is the execution's own, on the host, so the host can read what an
-	// agent writes there (a screenshot it shows).
-	mounts = append(mounts, sandbox.Mount{Kind: sandbox.ReadWrite, Path: filepath.Join(in.RuntimeDir, "sandbox", in.ExecutionID, "tmp"), Dest: "/tmp"})
+	// /tmp is the execution's own, on the host's disk, so the host can read
+	// what an agent writes there (a screenshot it shows), and none of it is
+	// held in memory.
+	mounts = append(mounts, sandbox.Mount{Kind: sandbox.ReadWrite, Path: scratch.Tmp(in.ExecutionID), Dest: "/tmp"})
 	if in.DefaultMounts {
 		for _, p := range systemToolchains {
 			add(p, sandbox.ReadOnly)
@@ -500,6 +508,14 @@ func BuildSandboxPlan(in SandboxPlanInput) (sandbox.Plan, error) {
 		}
 	}
 	plan.Mounts = append(append(before, hides...), inside...)
+	// A throwaway layer is on disk too, one folder per overlay.
+	n := 0
+	for i := range plan.Mounts {
+		if plan.Mounts[i].Kind == sandbox.Overlay && scratch.Root != "" {
+			plan.Mounts[i].Upper, plan.Mounts[i].Work = scratch.overlay(in.ExecutionID, n)
+			n++
+		}
+	}
 	if in.GitIdentity[0] != "" {
 		plan.Setenv["GIT_AUTHOR_NAME"], plan.Setenv["GIT_COMMITTER_NAME"] = in.GitIdentity[0], in.GitIdentity[0]
 	}

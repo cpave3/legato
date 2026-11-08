@@ -81,3 +81,19 @@ func TestTheBackendSaysWhenBwrapIsMissing(t *testing.T) {
 		t.Fatalf("missing: %v", err)
 	}
 }
+
+// A home with a source on disk is that folder, not a tmpfs: what an agent
+// writes there is not held in memory.
+func TestAHomeWithASourceIsBoundFromDisk(t *testing.T) {
+	got := argsOf(t, Plan{Home: "/var/home/me", HomeSource: "/var/home/me/.local/share/legato/sandbox/ex-1/home",
+		Mounts: []Mount{{Kind: ReadOnly, Path: "/var/home/me/.local/bin"}}}, "true")
+	if !strings.Contains(got, "--bind /var/home/me/.local/share/legato/sandbox/ex-1/home /var/home/me ") {
+		t.Fatalf("args = %s", got)
+	}
+	if strings.Contains(got, "--tmpfs /var/home/me") {
+		t.Fatalf("the home is still a tmpfs: %s", got)
+	}
+	if strings.Index(got, "--bind /var/home/me/.local/share") > strings.Index(got, "--ro-bind /var/home/me/.local/bin") {
+		t.Fatalf("the home is bound after the mounts inside it: %s", got)
+	}
+}

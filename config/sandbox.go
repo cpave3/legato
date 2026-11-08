@@ -20,6 +20,17 @@ type AgentSandboxConfig struct {
 	DefaultMounts *bool `yaml:"default_mounts"`
 	// Mounts are further paths every sandbox sees, read-only by default.
 	Mounts []ResourcePathConfig `yaml:"mounts"`
+	// ScratchDir holds each sandbox's /tmp, home folder and throwaway
+	// layers, on disk, until its agent ends. Default <data_dir>/sandbox.
+	ScratchDir string `yaml:"scratch_dir"`
+}
+
+// ResolveSandboxScratchDir is where sandboxes keep their scratch.
+func ResolveSandboxScratchDir(cfg *Config) string {
+	if dir := cfg.Agents.Sandbox.ScratchDir; dir != "" {
+		return dir
+	}
+	return filepath.Join(ResolveDataDir(cfg), "sandbox")
 }
 
 // DefaultMountsOn reports whether the toolchain mounts are on.
@@ -34,6 +45,17 @@ func normalizeAgentSandbox(cfg *Config) error {
 		return fmt.Errorf("agents.sandbox.backend: only bwrap is supported, got %q", sb.Backend)
 	}
 	home, _ := os.UserHomeDir()
+	if dir := strings.TrimSpace(sb.ScratchDir); dir != "" {
+		if dir == "~" {
+			dir = home
+		} else if strings.HasPrefix(dir, "~/") {
+			dir = filepath.Join(home, dir[2:])
+		}
+		if !filepath.IsAbs(dir) {
+			return fmt.Errorf("agents.sandbox.scratch_dir: %q must be absolute or start with ~/", sb.ScratchDir)
+		}
+		sb.ScratchDir = filepath.Clean(dir)
+	}
 	for i := range sb.Mounts {
 		m := &sb.Mounts[i]
 		path := strings.TrimSpace(m.Path)

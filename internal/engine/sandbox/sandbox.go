@@ -29,8 +29,9 @@ const (
 	// HideDir covers a folder with an empty one.
 	HideDir
 	// Overlay shows a host path read-only beneath a throwaway layer: what
-	// is written there lands in memory and is gone when the sandbox ends.
-	// It needs a bwrap with overlays (SupportsOverlay).
+	// is written there lands in the mount's Upper folder on the host, or in
+	// memory without one, and never in the host path. It needs a bwrap with
+	// overlays (SupportsOverlay).
 	Overlay
 )
 
@@ -44,17 +45,24 @@ type Mount struct {
 	Target string
 	// Optional skips a bind whose host path does not exist.
 	Optional bool
+	// Upper and Work are an Overlay's writable layer and overlayfs's work
+	// folder, empty folders on one host filesystem. Without them the layer
+	// is a tmpfs, held in memory.
+	Upper, Work string
 }
 
 // Plan is what a sandbox sees, in order: a later mount covers an earlier one.
 type Plan struct {
 	// Home is the person's home folder; it starts empty and writable, and
 	// only what Mounts bind into it is seen.
-	Home     string
-	Mounts   []Mount
-	Setenv   map[string]string
-	Unsetenv []string
-	Chdir    string
+	Home string
+	// HomeSource is the empty host folder the home is, so what is written
+	// there lands on disk; a tmpfs, held in memory, when empty.
+	HomeSource string
+	Mounts     []Mount
+	Setenv     map[string]string
+	Unsetenv   []string
+	Chdir      string
 }
 
 // Backend builds a sandbox around a command.
@@ -140,7 +148,14 @@ func (b Bwrap) Wrap(plan Plan, command []string) ([]string, error) {
 		if !filepath.IsAbs(plan.Home) {
 			return nil, fmt.Errorf("home %q is not absolute", plan.Home)
 		}
-		args = append(args, "--tmpfs", plan.Home)
+		if plan.HomeSource != "" {
+			if !filepath.IsAbs(plan.HomeSource) {
+				return nil, fmt.Errorf("home source %q is not absolute", plan.HomeSource)
+			}
+			args = append(args, "--bind", plan.HomeSource, plan.Home)
+		} else {
+			args = append(args, "--tmpfs", plan.Home)
+		}
 	}
 	for _, m := range plan.Mounts {
 		if !filepath.IsAbs(m.Path) || (m.Dest != "" && !filepath.IsAbs(m.Dest)) {
@@ -165,7 +180,11 @@ func (b Bwrap) Wrap(plan Plan, command []string) ([]string, error) {
 		case HideDir:
 			args = append(args, "--tmpfs", dest)
 		case Overlay:
-			args = append(args, "--overlay-src", m.Path, "--tmp-overlay", dest)
+			if m.Upper != "" && m.Work != "" {
+				args = append(args, "--overlay-src", m.Path, "--overlay", m.Upper, m.Work, dest)
+			} else {
+				args = append(args, "--overlay-src", m.Path, "--tmp-overlay", dest)
+			}
 		default:
 			return nil, fmt.Errorf("mount %q has an unknown kind", m.Path)
 		}

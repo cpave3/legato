@@ -87,7 +87,7 @@ const cliRunTimeout = time.Hour
 // cliRunOp is the host's side: run binary with the forwarded arguments as
 // the caller. A path under the sandbox's /tmp is the session's folder on the
 // host.
-func cliRunOp(binary, runtimeDir string) cli.BrokerOp {
+func cliRunOp(binary string, scratch service.SandboxScratch) cli.BrokerOp {
 	return func(ctx context.Context, caller cli.BrokerCaller, raw json.RawMessage) (any, error) {
 		var in struct {
 			Args  []string          `json:"args"`
@@ -98,7 +98,7 @@ func cliRunOp(binary, runtimeDir string) cli.BrokerOp {
 		if err := json.Unmarshal(raw, &in); err != nil || !forwardable(in.Args) {
 			return nil, &broker.Error{Code: "forbidden", Message: "this command is not run for agents in the sandbox"}
 		}
-		tmp := filepath.Join(runtimeDir, "sandbox", caller.ExecutionID, "tmp")
+		tmp := scratch.Tmp(caller.ExecutionID)
 		args := make([]string, len(in.Args))
 		for i, a := range in.Args {
 			args[i] = hostPath(a, tmp)

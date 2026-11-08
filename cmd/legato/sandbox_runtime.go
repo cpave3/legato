@@ -35,13 +35,19 @@ func sandboxSettings(cfg *config.Config) *service.SandboxSettings {
 	return &service.SandboxSettings{
 		Backend: sandbox.Bwrap{},
 		Base: service.SandboxPlanInput{
-			Home: home, RuntimeDir: runtimeDir,
+			Home: home, RuntimeDir: runtimeDir, ScratchDir: config.ResolveSandboxScratchDir(cfg),
 			DataDir: config.ResolveDataDir(cfg), ConfigPath: config.ResolveConfigPath(),
 			BinaryPath: legatoBinary(), DefaultMounts: cfg.Agents.Sandbox.DefaultMountsOn(), Extra: extra,
 			CredentialWrapperDir: filepath.Join(runtimeDir, wrapperDirName), GHConfigDir: ghConfigDir(cfg, runtimeDir),
 			GitIdentity: gitIdentity(), KnownHosts: cfg.CredentialChannels.SSHAgent.KnownHosts, ToolInstalls: installs,
 		},
 	}
+}
+
+// sandboxScratch is where sandboxes keep their scratch, also when the
+// sandbox is off now: what earlier agents left is still swept.
+func sandboxScratch(cfg *config.Config) *service.SandboxScratch {
+	return &service.SandboxScratch{Root: config.ResolveSandboxScratchDir(cfg), RuntimeDir: ipc.SocketDir()}
 }
 
 // gitIdentity is the person's git name and address, which commits in the

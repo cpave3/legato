@@ -47,6 +47,7 @@ func TestASandboxThatCannotWorkFailsToLoad(t *testing.T) {
 		{"backend", "agents:\n  sandbox:\n    backend: podman\n", "bwrap"},
 		{"relative mount", "agents:\n  sandbox:\n    mounts: [{path: notes}]\n", "absolute"},
 		{"access", "agents:\n  sandbox:\n    mounts: [{path: /a, access: admin}]\n", "read or write"},
+		{"relative scratch", "agents:\n  sandbox:\n    scratch_dir: scratch\n", "absolute"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			writeTestConfig(t, tc.yaml)
@@ -54,5 +55,24 @@ func TestASandboxThatCannotWorkFailsToLoad(t *testing.T) {
 				t.Fatalf("err = %v, want %q", err, tc.want)
 			}
 		})
+	}
+}
+
+func TestTheSandboxsScratchIsInTheDataFolderUnlessConfigured(t *testing.T) {
+	t.Setenv("HOME", "/home/me")
+	writeTestConfig(t, "data_dir: /srv/legato\n")
+	cfg, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := ResolveSandboxScratchDir(cfg); got != "/srv/legato/sandbox" {
+		t.Fatalf("scratch = %s", got)
+	}
+	writeTestConfig(t, "agents:\n  sandbox:\n    scratch_dir: ~/scratch\n")
+	if cfg, err = Load(); err != nil {
+		t.Fatal(err)
+	}
+	if got := ResolveSandboxScratchDir(cfg); got != "/home/me/scratch" {
+		t.Fatalf("scratch = %s", got)
 	}
 }
