@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"os"
 	"path/filepath"
 	"testing"
@@ -263,5 +264,72 @@ func TestTheFirstSpawnHidesAScratchFolderInsideAMount(t *testing.T) {
 	m, ok := mountOf(backend.plans[0], root)
 	if !ok || m.Kind != sandbox.HideDir {
 		t.Fatalf("scratch = %+v (%v)", m, ok)
+	}
+}
+
+// While a finished workflow agent's pane is being stopped, its session is
+// still running: a sweep then leaves its scratch alone.
+func TestASweepWhileAWorkflowAgentStopsLeavesItsScratch(t *testing.T) {
+	svc, s, mt, scratch := scratchService(t)
+	createTask(t, s, "task-1")
+	ctx := context.Background()
+	if err := svc.SpawnAgent(ctx, "task-1", 0, 0); err != nil {
+		t.Fatal(err)
+	}
+	session, err := s.GetAgentSessionByTaskID(ctx, "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ex, id := session.ExecutionID, session.ID
+	swept := false
+	mt.onKill = func(string) {
+		swept = true
+		if err := svc.ReconcileSessions(ctx); err != nil {
+			t.Errorf("reconcile: %v", err)
+		}
+		if _, err := os.Stat(scratch.Tmp(ex)); err != nil {
+			t.Errorf("the scratch went while the pane was still running: %v", err)
+		}
+	}
+	if err := NewWorkflowAgentRunner(svc, s).FinishWorkflowAgent(ctx, store.WorkflowStepAttempt{AgentSessionID: &id, TmuxSession: session.TmuxSession}); err != nil {
+		t.Fatal(err)
+	}
+	if !swept {
+		t.Fatal("the pane was never stopped")
+	}
+	assertGone(t, scratch.Dir(ex))
+}
+
+// A pane that cannot be stopped keeps its agent's scratch, and its
+// execution running.
+func TestAnAgentWhosePaneCannotBeStoppedKeepsItsScratch(t *testing.T) {
+	for _, workflow := range []bool{false, true} {
+		svc, s, mt, scratch := scratchService(t)
+		createTask(t, s, "task-1")
+		ctx := context.Background()
+		if err := svc.SpawnAgent(ctx, "task-1", 0, 0); err != nil {
+			t.Fatal(err)
+		}
+		session, err := s.GetAgentSessionByTaskID(ctx, "task-1")
+		if err != nil {
+			t.Fatal(err)
+		}
+		ex, id := session.ExecutionID, session.ID
+		mt.killErr = errors.New("tmux kill-session: server busy")
+		if workflow {
+			err = NewWorkflowAgentRunner(svc, s).FinishWorkflowAgent(ctx, store.WorkflowStepAttempt{AgentSessionID: &id, TmuxSession: session.TmuxSession})
+		} else {
+			err = svc.KillAgent(ctx, "task-1")
+		}
+		if err == nil {
+			t.Fatalf("workflow %v: a failed kill was not reported", workflow)
+		}
+		if err := svc.ReconcileSessions(ctx); err != nil {
+			t.Fatal(err)
+		}
+		assertPrivateDir(t, scratch.Tmp(ex))
+		if execution, err := s.GetExecution(ctx, ex); err != nil || execution.Status != store.ExecutionRunning {
+			t.Fatalf("workflow %v: execution = %+v, %v", workflow, execution, err)
+		}
 	}
 }

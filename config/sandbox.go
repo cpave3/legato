@@ -66,8 +66,8 @@ func normalizeAgentSandbox(cfg *Config) error {
 		data := realPath(ResolveDataDir(cfg))
 		for _, shared := range []string{"repos", "claude-mod", "jobs"} {
 			dir := filepath.Join(data, shared)
-			if scratch == dir || strings.HasPrefix(scratch, dir+string(filepath.Separator)) {
-				return fmt.Errorf("agents.sandbox.scratch_dir: %q is inside %s, which sandboxes are shown; name a folder of its own", sb.ScratchDir, dir)
+			if scratch == dir || strings.HasPrefix(scratch, dir+string(filepath.Separator)) || strings.HasPrefix(dir, scratch+string(filepath.Separator)) {
+				return fmt.Errorf("agents.sandbox.scratch_dir: %q overlaps %s, which sandboxes are shown; name a folder of its own, such as %s", sb.ScratchDir, dir, filepath.Join(data, "sandbox"))
 			}
 		}
 	}

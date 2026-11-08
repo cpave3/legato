@@ -1426,7 +1426,11 @@ func (a *agentService) stopAgentInSlot(ctx context.Context, taskID, slot string,
 		return a.store.DeleteDeadAgentSessionsInSlot(ctx, taskID, slot)
 	}
 
-	a.tmux.Kill(session.TmuxSession)
+	// Until the pane has stopped, its session stays running: a pane that
+	// cannot be stopped keeps its execution and its sandbox's scratch.
+	if err := a.tmux.Kill(session.TmuxSession); err != nil {
+		return fmt.Errorf("stopping the agent's pane: %w", err)
+	}
 
 	if session.ExecutionID != "" {
 		if err := a.EndExecution(ctx, session.ExecutionID, store.ExecutionCancelled); err != nil {

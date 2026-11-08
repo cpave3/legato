@@ -44,6 +44,10 @@ type mockTmux struct {
 	// onSpawn runs as a session is spawned, outside the lock: what happens
 	// while a spawn is in flight.
 	onSpawn func(name string)
+	// onKill runs as a session is killed, before it ends; killErr fails the
+	// kill and leaves the session running.
+	onKill  func(name string)
+	killErr error
 }
 
 func newMockTmux() *mockTmux {
@@ -105,8 +109,14 @@ func (m *mockTmux) SessionEnvironment(name string) ([]string, error) {
 }
 
 func (m *mockTmux) Kill(name string) error {
+	if m.onKill != nil {
+		m.onKill(name)
+	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if m.killErr != nil {
+		return m.killErr
+	}
 	delete(m.sessions, name)
 	return nil
 }
