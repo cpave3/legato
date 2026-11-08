@@ -1,0 +1,47 @@
+# The reviewer of review passes: a second GitHub App, whose approval of a
+# handoff's pull requests counts toward branch protection. The person
+# creates it (pull requests read and write, contents read and write,
+# checks, commit statuses and actions read, metadata read; administration
+# read optionally, to read branch protection's required checks), installs it on the repositories, and gives Legato its
+# private key. It is Legato's own: no agent is ever given it, it has no git
+# host, no channel and no route, and Legato's host side posts reviews,
+# rulings and thread replies, and polls pull requests, each with a token
+# made for that call and revoked after it.
+name: github-reviewer
+description: The reviewer GitHub App of review passes; Legato's own, never an agent's
+issuer: jwt-exchange
+host_only: true
+accepts: [keypair]
+upstream: https://api.github.com
+jwt_exchange:
+  headers:
+    Accept: application/vnd.github+json
+    X-GitHub-Api-Version: "2022-11-28"
+  jwt:
+    alg: RS256
+    claims: { iss: "{settings.client_id}", iat: "{now-60}", exp: "{now+540}" }
+  lookup:
+    url: "https://api.github.com/repos/{owner}/{repo}/installation"
+    set: { installation: "$.id" }
+  exchange:
+    method: POST
+    url: "https://api.github.com/app/installations/{installation}/access_tokens"
+    body: { repositories: ["{repo}"], permissions: "{permissions}" }
+    token: "$.token"
+    expires_at: "$.expires_at"
+  revoke:
+    method: DELETE
+    url: "https://api.github.com/installation/token"
+    auth: issued
+permissions:
+  # Reading a pull request's diff, reviews, comments, threads and checks.
+  pr.read: { pull_requests: read, contents: read, metadata: read, checks: read, statuses: read, actions: read }
+  # Posting a review, a thread reply, a ruling, resolving a thread. An App's
+  # approval counts toward required reviews with contents: write.
+  pr.review: { pull_requests: write, contents: write, metadata: read }
+  # Reading branch protection's required checks. Optional: an App without
+  # administration read is refused this token, and Legato counts
+  # review_passes.required_checks instead.
+  pr.protection: { administration: read, metadata: read }
+policy:
+  - { approve: deny }

@@ -26,6 +26,9 @@ const only = (actions: Partial<AwayActions>): AwayActions => ({ return: false, r
 // allows. A worker that cannot be reached, no longer accepts this main or
 // lost the task offers only Take back.
 export function awayActions(away: AwayOn): AwayActions {
+  // A stuck review may be returned as it is; one under way only recalled.
+  if (away.review?.phase === "stuck" && away.view === "needs_you") return only({ return: true, recall: true, confirmRecall: true })
+  if (away.view === "in_review") return only({ recall: true, confirmRecall: true })
   switch (away.view) {
     case "unreachable":
     case "not_accepted":
@@ -77,6 +80,26 @@ async function post(baseUrl: string, path: string): Promise<Record<string, unkno
     throw new Error(body.error ?? `The server answered ${res.status}.`)
   }
   return body
+}
+
+// reviewStuck says the away task's review needs the person: Run another
+// pass and Message the author are offered.
+export function reviewStuck(away: AwayOn): boolean {
+  return away.review?.phase === "stuck"
+}
+
+// anotherPass asks the worker to run one more pass of a stuck review.
+export async function anotherPass(baseUrl: string, taskId: string): Promise<void> {
+  await post(baseUrl, `/api/tasks/${encodeURIComponent(taskId)}/away/review/another-pass`)
+}
+
+// messageAuthor sends the away task's agent the person's words.
+export async function messageAuthor(baseUrl: string, taskId: string, text: string): Promise<void> {
+  const res = await apiFetch(baseUrl, `/api/tasks/${encodeURIComponent(taskId)}/away/review/message`, {
+    method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify({ text }),
+  })
+  const body = await res.json().catch(() => ({}))
+  if (!res.ok) throw new Error(body.error ?? `The server answered ${res.status}.`)
 }
 
 // returnTask returns a task done on its worker. A refusal throws the

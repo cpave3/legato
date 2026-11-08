@@ -1198,6 +1198,16 @@ func runAgentCmd(args []string) int {
 	}
 }
 
+// wireTaskAgents makes deleting or archiving a task stop its agents, in
+// every slot.
+func wireTaskAgents(board service.BoardService, agents service.AgentService) {
+	holder, ok := board.(service.TaskAgentsHolder)
+	stopper, stops := agents.(service.TaskAgentsStopper)
+	if ok && stops {
+		holder.SetTaskAgents(stopper)
+	}
+}
+
 func runAgentSessionCreated(args []string) int {
 	if len(args) != 2 {
 		fmt.Fprintln(os.Stderr, "usage: legato agent session-created <task-id> <session-id>")
@@ -1519,6 +1529,7 @@ func runServeCmd(args []string) int {
 			DisablePeerAwareness: !cfg.Agents.PeerAwareness,
 		})
 		recoverNativeEndpoints(agentSvc)
+		wireTaskAgents(boardSvc, agentSvc)
 	}
 
 	// Swarm service for HTTP endpoints.
@@ -1802,6 +1813,7 @@ func runTUI() int {
 			DisablePeerAwareness: !cfg.Agents.PeerAwareness,
 		})
 		recoverNativeEndpoints(agentSvc)
+		wireTaskAgents(boardSvc, agentSvc)
 	}
 
 	icons := theme.NewIcons(cfg.Icons)

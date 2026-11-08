@@ -34,6 +34,8 @@ type handOffRequest struct {
 	Branch    string `json:"branch"`
 	Repo      string `json:"repo"`
 	AgentKind string `json:"agent_kind"`
+	// Review overrides the worker's review passes for this handoff.
+	Review *service.ReviewPassOverride `json:"review,omitempty"`
 }
 
 // taskHandOffHandler hands a task to a worker: 201 with {"away": ...} as the
@@ -57,6 +59,7 @@ func (s *Server) taskHandOffHandler() http.HandlerFunc {
 		}
 		away, err := s.instances.mainHandoffs.HandOff(r.Context(), service.TaskHandoffRequest{
 			TaskID: id, Worker: body.Worker, Purpose: body.Purpose, Kind: body.Kind, Branch: body.Branch, Repo: body.Repo, AgentKind: body.AgentKind,
+			Review: body.Review,
 		})
 		if err != nil {
 			writeJSONError(w, handOffStatus(err), err.Error())
@@ -91,7 +94,7 @@ func awayResponse(a *service.AwayTask) *AwayResponse {
 		Purpose: a.Purpose, Kind: a.Kind, Repo: a.Repo, Branch: a.Branch, AgentKind: a.AgentKind, LeftColumn: a.LeftColumn,
 		HandedOffAt: a.HandedOffAt, State: a.State, Failure: a.Failure, StateAt: a.StateAt, URL: a.WorkerURL,
 		Activity: a.Activity, WorkerColumn: a.WorkerColumn, WorkerTitle: a.WorkerTitle, Branches: a.Branches, Lost: a.Lost, LostAt: a.LostAt,
-		WorkerUnreachableSince: a.WorkerUnreachableSince, WorkerRefusedAt: a.WorkerRefusedAt, View: a.View}
+		WorkerUnreachableSince: a.WorkerUnreachableSince, WorkerRefusedAt: a.WorkerRefusedAt, View: a.View, Review: a.Review}
 }
 
 // boardWorkers are the workers this main is paired with, for the board's

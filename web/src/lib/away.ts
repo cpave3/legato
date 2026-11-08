@@ -1,5 +1,5 @@
 import { apiFetch } from "./api"
-import type { AwayOn, BoardCard, BoardColumn, BoardWorker } from "./board-types"
+import type { AwayOn, AwayReview, BoardCard, BoardColumn, BoardWorker } from "./board-types"
 
 // Handing tasks off from this main instance to a worker instance, and the
 // tasks away on workers as the web board shows them: out of their columns,
@@ -63,6 +63,15 @@ export interface AwayLook {
 // view of the worker, then the worker's state and its agent's activity);
 // an older server sends only the state.
 export function awayLook(away: AwayOn): AwayLook {
+  const review = away.review
+  if (review && away.view !== "unreachable" && away.view !== "lost" && away.view !== "not_accepted") {
+    if (review.phase === "stuck") return { glyph: "?", label: `Review stuck: ${review.reason ?? ""}`.trim(), tone: "text-lw-needs", tint: "bg-lw-needs-soft" }
+    if (away.view === "in_review" || away.view === "done") {
+      const label = reviewLabel(review)
+      const approved = review.phase === "clean" && !review.checks_pending
+      if (label) return { glyph: approved ? "✓" : "◐", label, tone: approved ? "text-lw-done" : "text-lw-live", tint: approved ? "bg-lw-done-soft" : "bg-lw-live-soft" }
+    }
+  }
   switch (away.view) {
     case "starting":
       return { glyph: "◌", label: "Starting", tone: "text-lw-text-2", tint: "bg-lw-idle-soft" }
@@ -101,6 +110,29 @@ export function awayLook(away: AwayOn): AwayLook {
     default:
       return { glyph: "→", label: "Handed off", tone: "text-lw-text-2", tint: "bg-lw-idle-soft" }
   }
+}
+
+// What a review block says in a few words, as the worker's summary does.
+export function reviewLabel(review: AwayReview): string {
+  switch (review.phase) {
+    case "reviewing":
+      return `Reviewing · pass ${review.pass}`
+    case "waiting_for_reviewer":
+      return `Waiting for a reviewer · pass ${review.pass + 1}`
+    case "waiting_for_author": {
+      const parts: string[] = []
+      if (review.blocking_open) parts.push(`${review.blocking_open} blocking`)
+      if (review.comments_open) parts.push(`${review.comments_open} ${review.comments_open === 1 ? "comment" : "comments"}`)
+      if (review.checks_open) parts.push(`${review.checks_open} ${review.checks_open === 1 ? "check" : "checks"}`)
+      return parts.length ? `Author fixing · ${parts.join(", ")}` : "Author fixing"
+    }
+    case "clean": {
+      let label = review.checks_pending ? `Approved · waiting for ${review.checks_pending} ${review.checks_pending === 1 ? "check" : "checks"}` : "Done · approved"
+      if (review.checks_replied) label += ` · ${review.checks_replied} ${review.checks_replied === 1 ? "check" : "checks"} answered by reply`
+      return label
+    }
+  }
+  return ""
 }
 
 // Why an away task shows what it shows, for its pill's tooltip: why it
@@ -189,6 +221,39 @@ export interface HandOffRequest {
   branch?: string
   repo: string
   agent_kind: string
+  // Changes to the worker's review passes for this handoff.
+  review?: ReviewOverride
+}
+
+// A worker's review passes, as its /api/meta says them: its defaults, and
+// the tools, tiers and skills a handoff may choose.
+export interface ReviewPassesAdvert {
+  defaults: { enabled: boolean; agent: string; model?: string; tier?: string; skill?: string; max_passes: number }
+  adapters: { name: string; tiers?: string[] }[]
+  skills: string[]
+}
+
+// What the Hand off dialog changes of a worker's review passes.
+export interface ReviewOverride {
+  enabled?: boolean
+  agent?: string
+  model?: string
+  tier?: string
+  skill?: string
+  max_passes?: number
+}
+
+// workerReviewPasses is what a worker says of its review passes, or null
+// when it runs none (or is too old to say).
+export async function workerReviewPasses(baseUrl: string, workerId: string): Promise<ReviewPassesAdvert | null> {
+  try {
+    const res = await apiFetch(baseUrl, `/api/settings/workers/${encodeURIComponent(workerId)}/review-passes`)
+    if (!res.ok) return null
+    const body = await res.json()
+    return (body.review_passes as ReviewPassesAdvert | null) ?? null
+  } catch {
+    return null
+  }
 }
 
 // handOffTask hands a task to a worker. A refusal throws the server's words:

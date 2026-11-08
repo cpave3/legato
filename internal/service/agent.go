@@ -72,6 +72,12 @@ type AgentSession struct {
 	Scope       []string // file globs
 	// Sandboxed is true when the agent runs in Legato's sandbox.
 	Sandboxed bool
+	// Slot is the task's agent slot it runs in: "main", or a named slot
+	// such as "reviewer". A named slot's row has the agent ID
+	// <task>_<slot> as TaskID, so every action on the row reaches it.
+	Slot string
+	// CardTaskID is the task the agent's slot belongs to.
+	CardTaskID string
 }
 
 // AgentPeer describes one live, routable agent sharing a Git worktree.
@@ -83,6 +89,10 @@ type AgentPeer struct {
 	Role        string `json:"role,omitempty"`
 	Activity    string `json:"activity"`
 	WorkingDir  string `json:"working_dir"`
+	// Slot is set for an agent in a named slot of its task (a reviewer);
+	// ReadOnly for one that can only look, which is never messaged.
+	Slot     string `json:"slot,omitempty"`
+	ReadOnly bool   `json:"read_only,omitempty"`
 }
 
 // AgentDeliveryFailure records one peer that could not receive a message.
@@ -159,6 +169,11 @@ type AgentSpawnOptions struct {
 	// working directory and git folder read-only, and its execution marked so
 	// the credential broker refuses its pushes and pull request writes.
 	ReadOnlyCheckout bool
+	// ThrowawayCheckout, with ReadOnlyCheckout, shows the checkout beneath
+	// a throwaway layer, so the agent can build and run tests and nothing
+	// it writes reaches the host (a reviewer). Where the sandbox has no
+	// overlays the checkout is plain read-only (CheckoutOverlayProber).
+	ThrowawayCheckout bool
 	// Branches is what a handed-off task's session is told of its
 	// branches, in place of the ordinary legato/<task id>-… guidance; zero
 	// for any other session.
@@ -170,6 +185,11 @@ type AgentSpawnOptions struct {
 	WorkflowAttemptID string     // owning workflow attempt, when applicable
 	SwarmID           string     // owning swarm parent ID, when applicable
 	Resources         []Resource // files and folders the agent is given: granted to Chimera, listed in every launch prompt
+	// Slot is the task's agent slot the agent runs in: "" or "main" for the
+	// main slot, a name such as "reviewer" for a named one, which only
+	// Legato's own services start. Each slot keeps its own tmux session,
+	// execution and saved conversation.
+	Slot string
 }
 
 // AgentSpawnConflict describes a scope-overlap warning encountered at spawn time.
@@ -418,6 +438,9 @@ func joinPromptSections(parts ...string) string {
 type EventPublisher interface {
 	PublishAgentStarted(taskID string)
 	PublishAgentDied(taskID, parentTaskID, subtaskID, role string)
+	// PublishSlotAgentDied announces that a named slot's agent ended, which
+	// is not the task's agent ending.
+	PublishSlotAgentDied(taskID, slot string)
 	PublishAgentActivityChanged(taskID, activity string)
 	PublishAgentChimeraDiscovered(taskID string)
 }
@@ -538,6 +561,14 @@ func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, hei
 	if err := RefuseAway(ctx, a.store, taskID); err != nil {
 		return err
 	}
+	if err := ValidateAgentSlot(opt.Slot); err != nil {
+		return err
+	}
+	slot := opt.Slot
+	if slot == "" {
+		slot = store.SlotMain
+	}
+	named := IsNamedSlot(slot)
 	if opt.Unattended {
 		if a.sandbox == nil {
 			return errors.New("Legato's sandbox is off here, and an unattended agent runs only in it")
@@ -572,12 +603,15 @@ func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, hei
 		a.setLastConflicts(conflicts)
 	}
 
-	// Check for existing running session
-	existing, err := a.store.GetAgentSessionByTaskID(ctx, taskID)
+	// Check for an existing running session in the same slot.
+	existing, err := a.store.GetAgentSessionInSlot(ctx, taskID, slot)
 	if err == nil {
 		// DB says "running" — verify the tmux session is actually alive
 		alive, aliveErr := a.tmux.IsAlive(existing.TmuxSession)
 		if aliveErr == nil && alive {
+			if named {
+				return fmt.Errorf("agent already running in the %s slot of task %s", slot, taskID)
+			}
 			return fmt.Errorf("agent already running for task %s", taskID)
 		}
 		// Tmux session is gone — terminalize its durable execution before
@@ -585,11 +619,11 @@ func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, hei
 		if existing.ExecutionID != "" {
 			_ = a.store.TerminalizeExecution(ctx, existing.ExecutionID, store.ExecutionLost)
 		}
-		_ = a.store.UpdateAgentSessionStatus(ctx, taskID, "dead")
+		_ = a.store.UpdateAgentSessionStatusInSlot(ctx, taskID, slot, "dead")
 	}
 
 	// Clean up dead sessions so UNIQUE constraint doesn't block re-spawn
-	_ = a.store.DeleteDeadAgentSessions(ctx, taskID)
+	_ = a.store.DeleteDeadAgentSessionsInSlot(ctx, taskID, slot)
 
 	executionID := "ex-" + store.GenerateTaskID()
 	var freshClone *cloneSetup
@@ -606,16 +640,24 @@ func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, hei
 			return err
 		}
 		workDir = clone.Path
+		if opt.SessionPolicy == "resume" && opt.ResumeWorkingDir != "" && !samePath(clone.Path, opt.ResumeWorkingDir) {
+			return fmt.Errorf("%w: the saved conversation is in %s, not in the clone at %s", ErrTaskResumeConflict, opt.ResumeWorkingDir, clone.Path)
+		}
 		freshClone = a.prepareFreshClone(clone, executionID, clone.Repo, opt.Ref)
 	}
 	var launchPeers []AgentPeer
-	if a.peerAwareness {
+	// An agent in a read-only named slot (a reviewer) cannot change the
+	// tree: it is not announced to the worktree's peers, and is told none.
+	quietSlot := named && opt.ReadOnlyCheckout
+	if a.peerAwareness && !quietSlot {
 		if peers, peerErr := a.ListPeers(ctx, taskID, "", workDir); peerErr == nil {
 			launchPeers = peers
 		}
 	}
 
-	sessionName := "legato-" + taskID
+	sessionName := AgentTmuxSession(taskID, slot)
+	// The agent's own folder of prompt files, one per slot.
+	agentKey := AgentSlotKey(taskID, slot)
 	// Kill any orphaned tmux session with the same name
 	a.tmux.Kill(sessionName)
 
@@ -631,6 +673,11 @@ func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, hei
 	envMap := map[string]string{}
 	if opt.Ephemeral {
 		envMap["LEGATO_TASK_EPHEMERAL"] = "1"
+	}
+	// For display only: inside the session, the slot comes from its
+	// execution.
+	if named {
+		envMap["LEGATO_SLOT"] = slot
 	}
 	for key, value := range opt.ExtraEnv {
 		if strings.HasPrefix(key, "LEGATO_WORKFLOW_") {
@@ -652,7 +699,7 @@ func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, hei
 		if policy == "" {
 			policy = "new"
 		}
-		envMap["LEGATO_CHIMERA_SESSION_NAME"] = taskID
+		envMap["LEGATO_CHIMERA_SESSION_NAME"] = agentKey
 		// For resume, pass the real hook-captured Chimera session ID so
 		// LaunchCommand emits --session <realID>. For new sessions with no
 		// prior history (first creation), pass the task ID so Chimera creates
@@ -661,7 +708,7 @@ func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, hei
 		if policy == "resume" && opt.ResumeSessionID != "" {
 			envMap["LEGATO_CHIMERA_SESSION_ID"] = opt.ResumeSessionID
 		} else if policy == "new" && opt.ResumeSessionID == "" {
-			envMap["LEGATO_CHIMERA_SESSION_ID"] = taskID
+			envMap["LEGATO_CHIMERA_SESSION_ID"] = agentKey
 		}
 		envMap["LEGATO_CHIMERA_SESSION_EXISTS"] = policy
 	}
@@ -755,7 +802,7 @@ func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, hei
 		}
 	}
 	if rolePrompt != "" || assignment != "" {
-		rolePath, briefPath, perr := writeAgentPromptFiles(taskID, rolePrompt, assignment)
+		rolePath, briefPath, perr := writeAgentPromptFiles(agentKey, rolePrompt, assignment)
 		if perr != nil {
 			// Non-fatal — fall back to a session without prompt files. The
 			// adapter's LaunchCommand will see no LEGATO_*_FILE env and skip
@@ -775,7 +822,7 @@ func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, hei
 	// is told to read; the pane takes one line.
 	prompt := strings.TrimSpace(opt.Prompt)
 	if strings.ContainsAny(prompt, "\n\r\"") {
-		if dir, err := swarm.AgentDir(taskID); err != nil {
+		if dir, err := swarm.AgentDir(agentKey); err != nil {
 			log.Printf("writing the prompt of %s: %v", taskID, err)
 		} else {
 			path := filepath.Join(dir, "prompt.md")
@@ -850,7 +897,7 @@ func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, hei
 	sandboxPrefix := ""
 	sandboxed := a.sandbox != nil && (!opt.Unsandboxed || opt.Unattended || opt.ReadOnlyCheckout || opt.ParentTaskID != "" || opt.SubtaskID != "" || opt.WorkflowRunID != "")
 	if sandboxed {
-		prefix, err := a.sandboxPrefix(ctx, taskID, executionID, agentKind, workDir, envMap, append(resources, freshClone.sandboxResources()...), opt.ReadOnlyCheckout)
+		prefix, err := a.sandboxPrefix(ctx, taskID, executionID, agentKind, workDir, envMap, append(resources, freshClone.sandboxResources()...), opt.ReadOnlyCheckout, opt.ThrowawayCheckout)
 		if err != nil {
 			failExecution()
 			return fmt.Errorf("Legato's sandbox: %w", err)
@@ -865,7 +912,8 @@ func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, hei
 
 	// Snapshot ordinary repository HEAD before the agent starts. Review sync can
 	// then import only this session's commits even when no task worktree exists.
-	if gitpkg.IsRepository(ctx, workDir) {
+	// A named slot's agent is not the task's author: its session is not one.
+	if !named && gitpkg.IsRepository(ctx, workDir) {
 		if err := NewReviewService(a.store, nil, nil).BeginCapture(ctx, taskID, workDir); err != nil && opt.ParentTaskID == "" {
 			log.Printf("starting review capture for %s: %v", taskID, err)
 		}
@@ -916,6 +964,7 @@ func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, hei
 		Status:      "running",
 		Role:        opt.Role,
 		Sandboxed:   sandboxed,
+		Slot:        slot,
 	}
 	if opt.ParentTaskID != "" {
 		p := opt.ParentTaskID
@@ -933,7 +982,7 @@ func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, hei
 	}
 	if err := a.store.LinkExecutionAgentSession(ctx, executionID, sessionID); err != nil {
 		a.tmux.Kill(sessionName)
-		_ = a.store.UpdateAgentSessionStatus(ctx, taskID, "dead")
+		_ = a.store.UpdateAgentSessionStatusInSlot(ctx, taskID, slot, "dead")
 		failExecution()
 		return fmt.Errorf("linking execution to agent session: %w", err)
 	}
@@ -949,7 +998,7 @@ func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, hei
 	if promptManifestID != "" {
 		if err := a.store.BindLearningPromptManifestSession(ctx, promptManifestID, sessionID); err != nil {
 			a.tmux.Kill(sessionName)
-			_ = a.store.UpdateAgentSessionStatus(ctx, taskID, "dead")
+			_ = a.store.UpdateAgentSessionStatusInSlot(ctx, taskID, slot, "dead")
 			failExecution()
 			return fmt.Errorf("binding learning prompt manifest: %w", err)
 		}
@@ -1057,7 +1106,7 @@ func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, hei
 					messages = append(messages, prompt)
 				}
 				if len(messages) > 0 {
-					go a.deliverLaunchMessages(taskID, sessionName, adapter, messages, envMap["LEGATO_PROMPT_FILE"])
+					go a.deliverLaunchMessages(WithAgentSlot(context.Background(), slot), taskID, sessionName, adapter, messages, envMap["LEGATO_PROMPT_FILE"])
 				}
 			}
 		}
@@ -1069,10 +1118,10 @@ func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, hei
 	// The endpoint and session ID are persisted on the agent session row
 	// so the web UI can proxy the SSE stream and send follow-ups via HTTP.
 	if agentKind == "chimera" {
-		go a.discoverChimeraLockfile(context.Background(), taskID, expectedChimeraSessionName, chimeraLockfilesBeforeLaunch)
+		go a.discoverChimeraLockfile(WithAgentSlot(context.Background(), slot), taskID, expectedChimeraSessionName, chimeraLockfilesBeforeLaunch)
 	}
 
-	if executionKind == store.ExecutionInteractive && !opt.Ephemeral && opt.Role == "" && opt.ParentTaskID == "" && opt.SubtaskID == "" {
+	if executionKind == store.ExecutionInteractive && !named && !opt.Ephemeral && opt.Role == "" && opt.ParentTaskID == "" && opt.SubtaskID == "" {
 		if err := a.rememberAgentWorkingDir(ctx, taskID, workDir); err != nil {
 			return fmt.Errorf("remembering agent working directory: %w", err)
 		}
@@ -1082,7 +1131,7 @@ func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, hei
 	// remembering it, so asynchronous enrichment always merges from the latest
 	// task context. Agent startup remains successful when local Git inspection or
 	// GitHub synchronization is unavailable.
-	if a.checkoutInspector != nil {
+	if a.checkoutInspector != nil && !named {
 		go a.captureAgentCodeContext(taskID, workDir)
 	}
 	if a.bus != nil {
@@ -1093,6 +1142,16 @@ func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, hei
 	}
 
 	return nil
+}
+
+// samePath says whether two paths name the same folder, links resolved.
+func samePath(a, b string) bool {
+	ra, errA := filepath.EvalSymlinks(a)
+	rb, errB := filepath.EvalSymlinks(b)
+	if errA != nil || errB != nil {
+		return filepath.Clean(a) == filepath.Clean(b)
+	}
+	return ra == rb
 }
 
 func peerCoordinationContext(peers []AgentPeer) string {
@@ -1111,7 +1170,7 @@ func (a *agentService) notifyPeerJoin(taskID, executionID, workDir string, adapt
 	if notifyNewcomer {
 		// The newcomer is told once it can take a message; its peers hear of
 		// it after that, as they always did.
-		a.awaitNativeEndpoint(taskID, adapter)
+		a.awaitNativeEndpoint(context.Background(), taskID, adapter)
 		if err := a.QueueMessage(context.Background(), taskID, "[legato coordination] "+strings.TrimPrefix(peerCoordinationContext(peers), "## Active worktree peers\n\n")); err != nil {
 			log.Printf("agent coordination notice to %s (%s) failed: %v", taskID, executionID, err)
 		}
@@ -1139,16 +1198,16 @@ func (a *agentService) notifyPeerJoin(taskID, executionID, workDir string, adapt
 // in order, once it can take them: over its native endpoint, else typed into
 // the pane. A message of more than one line is typed as a pointer to its
 // file, since the pane takes one line.
-func (a *agentService) deliverLaunchMessages(taskID, session string, adapter AIToolAdapter, messages []string, promptFile string) {
+func (a *agentService) deliverLaunchMessages(ctx context.Context, taskID, session string, adapter AIToolAdapter, messages []string, promptFile string) {
 	// The agent tool starts once its clone is set up, which takes minutes
 	// the first time the dependencies are fetched.
-	if err := a.AwaitCloneSetup(context.Background(), taskID); err != nil {
+	if err := a.AwaitCloneSetup(ctx, taskID); err != nil {
 		log.Printf("launch messages for %s: %v", session, err)
 	}
-	native := a.awaitNativeEndpoint(taskID, adapter)
+	native := a.awaitNativeEndpoint(ctx, taskID, adapter)
 	for _, message := range messages {
 		if native {
-			err := a.QueueMessage(context.Background(), taskID, message)
+			err := a.QueueMessage(ctx, taskID, message)
 			if err == nil {
 				continue
 			}
@@ -1164,7 +1223,7 @@ func (a *agentService) deliverLaunchMessages(taskID, session string, adapter AIT
 	}
 }
 
-func (a *agentService) awaitNativeEndpoint(taskID string, adapter AIToolAdapter) bool {
+func (a *agentService) awaitNativeEndpoint(ctx context.Context, taskID string, adapter AIToolAdapter) bool {
 	binder, ok := adapter.(NativeBindingAdapter)
 	if !ok || !binder.BindsNativeEndpoint() {
 		time.Sleep(a.briefKickoffDelay)
@@ -1172,7 +1231,7 @@ func (a *agentService) awaitNativeEndpoint(taskID string, adapter AIToolAdapter)
 	}
 	deadline := time.Now().Add(a.nativeBindTimeout)
 	for {
-		session, err := a.store.GetAgentSessionByTaskID(context.Background(), taskID)
+		session, err := slotSession(ctx, a.store, taskID)
 		if err != nil {
 			return false
 		}
@@ -1335,17 +1394,25 @@ func (a *agentService) DefaultAdapter() string {
 	return a.adapter.Name()
 }
 
+// KillAgent stops the agent of an agent ID: the task's main slot's, or a
+// named slot's (<task>_<slot>).
 func (a *agentService) KillAgent(ctx context.Context, taskID string) error {
-	return a.stopAgent(ctx, taskID, true)
+	taskID, slot := SplitAgentID(taskID)
+	return a.stopAgentInSlot(ctx, taskID, slot, true)
 }
 
 // stopAgent ends the agent of taskID. announce says whether the agent has
 // ended for good: a restart stops it without announcing that it died.
 func (a *agentService) stopAgent(ctx context.Context, taskID string, announce bool) error {
-	session, err := a.store.GetAgentSessionByTaskID(ctx, taskID)
+	return a.stopAgentInSlot(ctx, taskID, store.SlotMain, announce)
+}
+
+// stopAgentInSlot ends the agent of one of the task's slots.
+func (a *agentService) stopAgentInSlot(ctx context.Context, taskID, slot string, announce bool) error {
+	session, err := a.store.GetAgentSessionInSlot(ctx, taskID, slot)
 	if err != nil {
 		// No running session — delete dead records
-		return a.store.DeleteDeadAgentSessions(ctx, taskID)
+		return a.store.DeleteDeadAgentSessionsInSlot(ctx, taskID, slot)
 	}
 
 	a.tmux.Kill(session.TmuxSession)
@@ -1356,8 +1423,12 @@ func (a *agentService) stopAgent(ctx context.Context, taskID string, announce bo
 		}
 	}
 
-	if err := a.store.UpdateAgentSessionStatus(ctx, taskID, "dead"); err != nil {
+	if err := a.store.UpdateAgentSessionStatusInSlot(ctx, taskID, slot, "dead"); err != nil {
 		return err
+	}
+	if a.bus != nil && announce && IsNamedSlot(slot) {
+		a.bus.PublishSlotAgentDied(taskID, slot)
+		return a.store.DeleteDeadAgentSessionsInSlot(ctx, taskID, slot)
 	}
 	// Publish AgentDied so the swarm conductor (and any other subscribers)
 	// receive the same notification regardless of whether the kill came from
@@ -1373,7 +1444,7 @@ func (a *agentService) stopAgent(ctx context.Context, taskID string, announce bo
 		}
 		a.bus.PublishAgentDied(taskID, parent, subtask, session.Role)
 	}
-	return a.store.DeleteDeadAgentSessions(ctx, taskID)
+	return a.store.DeleteDeadAgentSessionsInSlot(ctx, taskID, slot)
 }
 
 func (a *agentService) SetTaskGroup(ctx context.Context, taskID string, group *string) error {
@@ -1455,6 +1526,12 @@ func (a *agentService) ListAgents(ctx context.Context) ([]AgentSession, error) {
 			EndedAt:           endedAt,
 			NotifyEnabled:     notifyEnabled,
 			Sandboxed:         s.Sandboxed,
+			Slot:              s.Slot,
+			CardTaskID:        s.TaskID,
+		}
+		if IsNamedSlot(s.Slot) {
+			result[i].TaskID = AgentSlotKey(s.TaskID, s.Slot)
+			result[i].Title = strings.TrimSpace(title + " · " + s.Slot)
 		}
 
 		// Hydrate subtask metadata for swarm workers.
@@ -1493,8 +1570,12 @@ func (a *agentService) ReconcileSessions(ctx context.Context) error {
 					return err
 				}
 			}
-			if err := a.store.UpdateAgentSessionStatus(ctx, s.TaskID, "dead"); err != nil {
+			if err := a.store.UpdateAgentSessionStatusInSlot(ctx, s.TaskID, s.Slot, "dead"); err != nil {
 				return err
+			}
+			if a.bus != nil && IsNamedSlot(s.Slot) {
+				a.bus.PublishSlotAgentDied(s.TaskID, s.Slot)
+				continue
 			}
 			// Notify swarm orchestrator that an agent died (best-effort).
 			if a.bus != nil {
@@ -1665,7 +1746,7 @@ func (a *agentService) GetTaskNotifyEnabled(ctx context.Context, taskID string) 
 }
 
 func (a *agentService) CaptureOutput(ctx context.Context, taskID string) (string, error) {
-	session, err := a.store.GetAgentSessionByTaskID(ctx, taskID)
+	session, err := slotSession(ctx, a.store, taskID)
 	if err != nil {
 		return "", err
 	}
@@ -1673,7 +1754,7 @@ func (a *agentService) CaptureOutput(ctx context.Context, taskID string) (string
 }
 
 func (a *agentService) AttachCmd(ctx context.Context, taskID string) (*exec.Cmd, error) {
-	session, err := a.store.GetAgentSessionByTaskID(ctx, taskID)
+	session, err := slotSession(ctx, a.store, taskID)
 	if err != nil {
 		return nil, err
 	}
@@ -1699,7 +1780,7 @@ func (a *agentService) ListPeers(ctx context.Context, taskID, executionID, direc
 	callerDir := strings.TrimSpace(directory)
 	if callerDir == "" {
 		for _, row := range rows {
-			if (executionID != "" && row.ExecutionID == executionID) || (executionID == "" && taskID != "" && row.TaskID == taskID) {
+			if (executionID != "" && row.ExecutionID == executionID) || (executionID == "" && taskID != "" && row.TaskID == taskID && row.Slot == store.SlotMain) {
 				callerDir = row.WorkingDir
 				break
 			}
@@ -1715,17 +1796,23 @@ func (a *agentService) ListPeers(ctx context.Context, taskID, executionID, direc
 
 	peers := make([]AgentPeer, 0, len(rows))
 	for _, row := range rows {
-		if (executionID != "" && row.ExecutionID == executionID) || (taskID != "" && row.TaskID == taskID) {
+		// The caller itself; the agents of its task's other slots (its
+		// reviewer) are its peers too.
+		if (executionID != "" && row.ExecutionID == executionID) || (taskID != "" && row.TaskID == taskID && row.Slot == store.SlotMain) {
 			continue
 		}
 		root, rootErr := gitWorktreeRoot(row.WorkingDir)
 		if rootErr != nil || root != callerRoot {
 			continue
 		}
-		peers = append(peers, AgentPeer{
+		peer := AgentPeer{
 			TaskID: row.TaskID, ExecutionID: row.ExecutionID, Title: row.TaskTitle,
 			Kind: row.Kind, Role: row.Role, Activity: row.Activity, WorkingDir: root,
-		})
+		}
+		if IsNamedSlot(row.Slot) {
+			peer.Slot, peer.ReadOnly = row.Slot, row.ReadOnly
+		}
+		peers = append(peers, peer)
 	}
 	sort.Slice(peers, func(i, j int) bool { return peers[i].TaskID < peers[j].TaskID })
 	return peers, nil
@@ -1782,6 +1869,11 @@ func (a *agentService) BroadcastToPeers(ctx context.Context, taskID, executionID
 	}
 	result := AgentBroadcastResult{Delivered: []string{}, Failed: []AgentDeliveryFailure{}}
 	for _, peer := range peers {
+		// A peer in a named slot is addressed by its task, which is the
+		// main slot's agent; a read-only one is told nothing.
+		if peer.Slot != "" {
+			continue
+		}
 		if err := a.SendPeerMessage(ctx, taskID, peer.TaskID, message); err != nil {
 			result.Failed = append(result.Failed, AgentDeliveryFailure{TaskID: peer.TaskID, Error: err.Error()})
 			continue
@@ -1850,7 +1942,7 @@ func (a *agentService) AnswerQuestion(ctx context.Context, taskID, requestID str
 // HasChimeraEndpoint returns true if the agent has a discovered Chimera
 // endpoint, meaning the web UI should render the structured panel.
 func (a *agentService) HasChimeraEndpoint(ctx context.Context, taskID string) bool {
-	session, err := a.store.GetAgentSessionByTaskID(ctx, taskID)
+	session, err := slotSession(ctx, a.store, taskID)
 	if err != nil {
 		return false
 	}
@@ -1882,7 +1974,7 @@ type tmuxEnvironmentReader interface {
 // session. SpawnAgent writes all injected variables there, so later consumers
 // automatically inherit additions without maintaining a second variable list.
 func (a *agentService) GetAgentEnvironment(ctx context.Context, taskID string) ([]string, error) {
-	session, err := a.store.GetAgentSessionByTaskID(ctx, taskID)
+	session, err := slotSession(ctx, a.store, taskID)
 	if err != nil {
 		return nil, err
 	}
@@ -1895,7 +1987,7 @@ func (a *agentService) GetAgentEnvironment(ctx context.Context, taskID string) (
 
 // GetAgentSession returns the raw agent session row for the given task.
 func (a *agentService) GetAgentSession(ctx context.Context, taskID string) (*store.AgentSession, error) {
-	return a.store.GetAgentSessionByTaskID(ctx, taskID)
+	return slotSession(ctx, a.store, taskID)
 }
 
 // resolveInteractionAdapter returns the appropriate interaction adapter
@@ -2052,7 +2144,7 @@ func (a *agentService) discoverChimeraLockfile(ctx context.Context, taskID, expe
 		return
 	}
 
-	activeSession, err := a.store.GetAgentSessionByTaskID(ctx, taskID)
+	activeSession, err := slotSession(ctx, a.store, taskID)
 	if err != nil {
 		return
 	}
@@ -2060,7 +2152,7 @@ func (a *agentService) discoverChimeraLockfile(ctx context.Context, taskID, expe
 	for i := 0; i < 60; i++ {
 		// Stop once the agent is gone or replaced: its endpoint is no one's
 		// to find now, and every poll asks each instance on the machine.
-		if current, err := a.store.GetAgentSessionByTaskID(ctx, taskID); err != nil || current.ID != activeSession.ID || current.Status != "running" {
+		if current, err := slotSession(ctx, a.store, taskID); err != nil || current.ID != activeSession.ID || current.Status != "running" {
 			return
 		}
 		if err := a.discoverChimeraFromLockfiles(ctx, taskID, activeSession.ID, expectedSessionName, preExisting); err == nil {

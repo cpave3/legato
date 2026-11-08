@@ -5,7 +5,7 @@ sidebar:
   order: 20
 ---
 
-Legato finds the GitHub pull requests for each task and shows their state on the card: whether CI passes, whether the review approved it or asked for changes, and how many comments it has. It works for local tasks and Jira tasks alike. Legato only reads from GitHub. It never comments, approves, merges or pushes.
+Legato finds the GitHub pull requests for each task and shows their state on the card: whether CI passes, whether the review approved it or asked for changes, and how many comments it has. It works for local tasks and Jira tasks alike. Pull request tracking only reads from GitHub. It never comments, approves, merges or pushes. (A worker instance that runs [review passes](/legato/using/review-passes/) does post reviews, as a GitHub App of its own.)
 
 ## Set it up
 

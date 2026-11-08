@@ -46,9 +46,8 @@ func TestChimeraSessionRemoveExecutorRemovesExactSessionAndClearsResumeMetadata(
 	if result.Status != "succeeded" || result.Outputs["removed"] != true || result.Outputs["metadata_cleared"] != true {
 		t.Fatalf("result = %+v", result)
 	}
-	task, _ := db.GetTask(ctx, "task-1")
-	if task.ChimeraSessionID != nil {
-		t.Fatalf("task session = %v", task.ChimeraSessionID)
+	if id, _ := db.TaskChimeraSessionID(ctx, "task-1"); id != "" {
+		t.Fatalf("task session = %q", id)
 	}
 }
 
@@ -69,9 +68,8 @@ func TestChimeraSessionRemoveExecutorPreservesMetadataOnProviderRefusal(t *testi
 	if err == nil {
 		t.Fatal("expected provider refusal")
 	}
-	task, _ := db.GetTask(ctx, "task-1")
-	if task.ChimeraSessionID == nil || *task.ChimeraSessionID != "chimera-full-id" {
-		t.Fatalf("task session = %v", task.ChimeraSessionID)
+	if id, _ := db.TaskChimeraSessionID(ctx, "task-1"); id != "chimera-full-id" {
+		t.Fatalf("task session = %q", id)
 	}
 }
 

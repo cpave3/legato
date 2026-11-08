@@ -97,6 +97,11 @@ func (s *HandoffWorkerService) Return(ctx context.Context, mainInstanceID, hando
 			back.Notes = append(back.Notes, HandoffCallNote{ID: n.ID, Body: n.Body, CreatedAt: n.CreatedAt})
 		}
 	}
+	if s.opts.Reviews != nil {
+		if note := s.opts.Reviews.ReviewNote(ctx, h.TaskID); note != "" {
+			back.Notes = append(back.Notes, HandoffCallNote{ID: "rv-" + h.HandoffID, Body: note, CreatedAt: s.opts.Now().UTC().Format(time.RFC3339)})
+		}
+	}
 	back.Stack = s.stackDocument(ctx, h)
 	return back, nil
 }
@@ -126,9 +131,16 @@ func (s *HandoffWorkerService) FinishReturn(ctx context.Context, mainInstanceID,
 	return HandoffArchived{HandoffID: h.HandoffID, WorkerInstanceID: id}, nil
 }
 
-// stopAgent ends a handoff's agent, if one runs.
+// stopAgent ends a handoff's agents, if any run, in every slot.
 func (s *HandoffWorkerService) stopAgent(ctx context.Context, h *store.Handoff) {
 	if s.opts.Agents == nil {
+		return
+	}
+	// Every slot: the author's and a reviewer's.
+	if stopper, ok := s.opts.Agents.(TaskAgentsStopper); ok {
+		if err := stopper.StopTaskAgents(ctx, h.TaskID); err != nil {
+			log.Printf("handoff %s: stopping its agents: %v", h.HandoffID, err)
+		}
 		return
 	}
 	if session, err := s.opts.Agents.GetAgentSession(ctx, h.TaskID); err != nil || session == nil {

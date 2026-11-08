@@ -361,6 +361,17 @@ func commandTree() *commandDef {
 		group("reflection", "Submit typed session reflections", []string{"legato learn reflection submit --request <id> --file reflection.json"}, leaf("submit", "Submit a reflection and complete its workflow step", func(a []string) int { return runLearnCmd(append([]string{"reflection", "submit"}, a...)) }, nil, []commandFlag{valueFlag("request", "request-id", "Reflection request ID"), valueFlag("file", "path|-", "JSON file; defaults to stdin"), jsonFlag}, "legato learn reflection submit --request <id> --file reflection.json")),
 	)
 
+	reviewPass := group("review-pass", "Read and answer the feedback of a reviewed handoff", []string{"legato review-pass feedback --json"},
+		leaf("feedback", "Print this round's feedback items as JSON", runReviewPassFeedbackContract, nil,
+			[]commandFlag{valueFlag("task", "task-id", "Defaults to LEGATO_TASK_ID"), jsonFlag},
+			"legato review-pass feedback --json"),
+		leaf("answer", "Answer one feedback item; Legato posts it on GitHub", runReviewPassAnswerContract,
+			[]argumentDef{arg("item-id", "The item's ID, as feedback lists it")},
+			[]commandFlag{boolFlag("fixed", "It is fixed in a commit you push"), boolFlag("replied", "A reply with your reasons (--file -)"), boolFlag("skipped", "Skip an optional nit"),
+				valueFlag("note", "text", "A short note with --fixed"), valueFlag("file", "path|-", "The reply's Markdown, from a file or stdin"), valueFlag("task", "task-id", "Defaults to LEGATO_TASK_ID"), jsonFlag},
+			"legato review-pass answer f-1a2b3c4d --fixed --note \"bounded the retries\"", "legato review-pass answer f-1a2b3c4d --replied --file - <<'EOF'\nThe retry is bounded by the context.\nEOF"),
+	)
+
 	mcp := group("mcp", "Give an agent Legato's tools over the Model Context Protocol", []string{"legato mcp serve"},
 		leaf("serve", "Serve Legato's tools to the agent of this session over stdio", runMCPServeContract, nil,
 			[]commandFlag{valueFlag("task", "task-id", "Session task; defaults to LEGATO_TASK_ID"), valueFlag("execution-id", "id", "Owning Legato execution ID; defaults to LEGATO_EXECUTION_ID")},
@@ -371,7 +382,7 @@ func commandTree() *commandDef {
 		"It speaks MCP on stdin and stdout and acts on the session it was started in: showing artifacts and cards in the web UI, reading the task, recording notes and messaging peer agents."
 
 	root := group("", "Legato task management and AI-agent orchestration", []string{"legato task list", "legato workflow list --json"},
-		task, workspace, clone, resource, secret, credentialGroup, device, integration, audit, columns, agent, plan, review, workflow, swarm, attention, learn, hooks, mcp,
+		task, workspace, clone, resource, secret, credentialGroup, device, integration, audit, columns, agent, plan, review, reviewPass, workflow, swarm, attention, learn, hooks, mcp,
 		leaf("serve", "Run the Legato web server", runServeCmd, nil, []commandFlag{valueFlag("port", "port", "Listening port"), boolFlag("hot-reload", "Supervise this foreground server and restart after binary replacement")}, "legato serve --port 3080", "legato --hot-reload serve --port 3080"),
 		authGroup,
 		leaf("version", "Print the version of this Legato", runVersionCmd, nil, []commandFlag{jsonFlag}, "legato version", "legato version --json"),

@@ -88,6 +88,10 @@ agents:
 
 In the web UI, open an agent from the Agents page. A native agent shows as a conversation; another agent shows its terminal. See [The web UI](/legato/using/web-ui/).
 
+## A task with more than one agent
+
+A task has one agent of its own, and Legato may run another beside it: a reviewer that checks a handoff's pull requests. The agents view lists each as its own row, the reviewer as "Task title · reviewer". Attaching, messages and stopping act on that row's agent only. You cannot start an agent in the reviewer's place yourself, and Legato refuses to reload it, since it starts the reviewer with the settings its review needs.
+
 ## Reloading an agent
 
 Reloading stops an agent and starts it again with the same tool, directory, resources and sandbox choice, and resumes its conversation. The agent then reads its MCP servers, plugins and hooks again.

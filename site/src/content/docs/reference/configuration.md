@@ -565,3 +565,32 @@ integrations:
     url: https://argus.example.net
     delivery: ask
 ```
+
+## Review passes
+
+On a worker instance, a reviewer on another model reviews the pull requests of each make-a-change handoff when its author finishes, and the author works through the findings until a pass is clean. Settings alone start nothing; `review_passes.enabled` turns it on. The main instance can change the reviewer, the skill and the number of passes for one handoff in the Hand off dialog. See [Handing off a task](/legato/using/handoff/).
+
+| Setting | Type | Default | What it does |
+| --- | --- | --- | --- |
+| `review_passes.enabled` | bool | `false` | Runs review passes on this worker's make-a-change handoffs, and tells main instances it does. |
+| `review_passes.reviewer.agent` | string | none | The reviewer's tool: `claude-code`, `codex` or `chimera`. Required when enabled. Choose a different model from the author's; Legato does not check. |
+| `review_passes.reviewer.model` | string | the tool's | The reviewer's model. Set this or `review_passes.reviewer.tier`, not both. |
+| `review_passes.reviewer.tier` | string | none | A tier of `adapters.<name>.tiers` for the reviewer. |
+| `review_passes.reviewer.skill` | string | none | The review skill the reviewer is told to use, such as `3-tier-review`. |
+| `review_passes.github_credential` | string | none | The credential of the reviewer's GitHub App, on the `github-reviewer` profile, which no agent is given; like a `github` credential it needs `settings.client_id` and `settings.repositories`. Legato posts reviews and polls pull requests with it. Required when enabled. |
+| `review_passes.max_passes` | number | `3` | Passes before the review is stuck and the main instance is asked. |
+| `review_passes.pass_timeout` | duration | `45m` | How long a reviewer has for one pass. |
+| `review_passes.max_concurrent` | number | `2` | Reviewers that run at once on this worker; others wait. |
+| `review_passes.review_column` | string | `Review` | The column a card is in while it is reviewed. It must be a column of `board.columns`. |
+| `review_passes.poll_interval` | duration | `60s` | How often the pull requests are checked for new comments. |
+| `review_passes.quiet_time` | duration | `2m` | How long new feedback waits for more before the author is told. |
+| `review_passes.counted_bots` | list of strings | none | Bot logins whose comments count as feedback, as the repository's owners, members and collaborators do. |
+| `review_passes.required_checks` | list of strings | none | The checks that must pass. Empty means the branch protection's required checks. |
+
+```yaml
+review_passes:
+  enabled: true
+  reviewer: {agent: codex, model: gpt-5.5, skill: 3-tier-review}
+  github_credential: reviewer-app
+  counted_bots: ["cubic-dev-ai[bot]"]
+```

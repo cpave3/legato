@@ -109,7 +109,14 @@ func runAgentPeersContract(args []string) int {
 	}
 	var text strings.Builder
 	for _, peer := range peers {
-		fmt.Fprintf(&text, "task=%s\texecution=%s\tactivity=%s\t%s\n", peer.TaskID, peer.ExecutionID, peer.Activity, peer.Title)
+		slot := ""
+		if peer.Slot != "" {
+			slot = "slot=" + peer.Slot + "\t"
+			if peer.ReadOnly {
+				slot += "read-only\t"
+			}
+		}
+		fmt.Fprintf(&text, "task=%s\texecution=%s\t%sactivity=%s\t%s\n", peer.TaskID, peer.ExecutionID, slot, peer.Activity, peer.Title)
 	}
 	return writeCommandSuccess(command, map[string]any{"peers": peers}, text.String(), jsonMode)
 }
@@ -342,7 +349,10 @@ func runAgentSessionCreatedContract(args []string) int {
 		register := true
 		if parsed.Present["hook-payload"] {
 			var err error
-			if register, err = cli.SessionCreatedPayloadNamesTask(taskID, sessionID, os.Stdin); err != nil {
+			// A named slot's session carries the slot's name; the broker
+			// keeps it in the slot of the caller's execution.
+			expected := service.AgentSlotKey(taskID, strings.TrimSpace(os.Getenv("LEGATO_SLOT")))
+			if register, err = cli.SessionCreatedPayloadNamesTask(expected, sessionID, os.Stdin); err != nil {
 				return renderCommandError(command, commandDomainError(err), jsonMode)
 			}
 			data["registered"] = register
@@ -360,7 +370,7 @@ func runAgentSessionCreatedContract(args []string) int {
 			return code
 		}
 		defer db.Close()
-		if err := cli.AgentSessionCreated(db, taskID, sessionID); err != nil {
+		if err := cli.AgentSessionCreatedFor(db, taskID, strings.TrimSpace(os.Getenv("LEGATO_EXECUTION_ID")), sessionID); err != nil {
 			return renderCommandError(command, commandDomainError(err), jsonMode)
 		}
 		return writeCommandSuccess(command, data, "", jsonMode)
@@ -372,12 +382,12 @@ func runAgentSessionCreatedContract(args []string) int {
 	defer db.Close()
 	data := map[string]any{"task_id": parsed.Positionals[0], "session_id": parsed.Positionals[1]}
 	if parsed.Present["hook-payload"] {
-		registered, err := cli.AgentSessionCreatedFromHook(db, parsed.Positionals[0], parsed.Positionals[1], os.Stdin)
+		registered, err := cli.AgentSessionCreatedFromHookFor(db, parsed.Positionals[0], strings.TrimSpace(os.Getenv("LEGATO_EXECUTION_ID")), parsed.Positionals[1], os.Stdin)
 		if err != nil {
 			return renderCommandError(command, commandDomainError(err), jsonMode)
 		}
 		data["registered"] = registered
-	} else if err := cli.AgentSessionCreated(db, parsed.Positionals[0], parsed.Positionals[1]); err != nil {
+	} else if err := cli.AgentSessionCreatedFor(db, parsed.Positionals[0], strings.TrimSpace(os.Getenv("LEGATO_EXECUTION_ID")), parsed.Positionals[1]); err != nil {
 		return renderCommandError(command, commandDomainError(err), jsonMode)
 	}
 	return writeCommandSuccess(command, data, "", jsonMode)

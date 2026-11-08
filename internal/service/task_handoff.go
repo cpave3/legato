@@ -39,6 +39,8 @@ type TaskHandoffRequest struct {
 	Branch    string
 	Repo      string
 	AgentKind string
+	// Review overrides the worker's review passes; nil keeps its defaults.
+	Review *ReviewPassOverride
 }
 
 // AwayTask is a task of this main away on a worker: where it went, how,
@@ -72,6 +74,8 @@ type AwayTask struct {
 	WorkerColumn string   `json:"worker_column,omitempty"`
 	WorkerTitle  string   `json:"worker_title,omitempty"`
 	Branches     []string `json:"branches,omitempty"`
+	// Review is the handoff's review passes as last heard, nil without.
+	Review *HandoffReviewBlock `json:"review,omitempty"`
 	// Lost says why the worker no longer has the task, since LostAt; empty
 	// while it has it.
 	Lost   string `json:"lost,omitempty"`
@@ -107,6 +111,8 @@ type HandoffSummary struct {
 	Title  string `json:"title,omitempty"`
 	// Branches are the branches pushed for the task, in stack order.
 	Branches []string `json:"branches,omitempty"`
+	// Review is the handoff's review passes, on a worker that runs them.
+	Review *HandoffReviewBlock `json:"review,omitempty"`
 }
 
 func awayTaskFromRow(a store.AwayTask) AwayTask {
@@ -117,6 +123,7 @@ func awayTaskFromRow(a store.AwayTask) AwayTask {
 	if a.LastSummary != nil && json.Unmarshal([]byte(*a.LastSummary), &summary) == nil {
 		away.State, away.Failure, away.WorkerURL = summary.State, summary.Failure, summary.URL
 		away.Activity, away.WorkerColumn, away.WorkerTitle, away.Branches = summary.Activity, summary.Column, summary.Title, summary.Branches
+		away.Review = summary.Review
 		if a.LastSummaryAt != nil {
 			away.StateAt = *a.LastSummaryAt
 		}
@@ -228,6 +235,9 @@ func (s *TaskHandoffService) HandOff(ctx context.Context, req TaskHandoffRequest
 	if meta.Sandbox == nil || !*meta.Sandbox {
 		return AwayTask{}, &handoffWorkerError{ErrWorkerRefused, fmt.Sprintf("%s cannot run agents in Legato's sandbox, which a handed-off agent needs", name)}
 	}
+	if req.Review != nil && meta.ReviewPasses == nil {
+		return AwayTask{}, &handoffWorkerError{ErrWorkerRefused, fmt.Sprintf("%s does not run review passes", name)}
+	}
 
 	notes, err := s.db.ListTaskNotes(ctx, task.ID)
 	if err != nil {
@@ -272,6 +282,7 @@ func (s *TaskHandoffService) HandOff(ctx context.Context, req TaskHandoffRequest
 		call.Notes = append(call.Notes, HandoffCallNote{ID: n.ID, Body: n.Body, CreatedAt: n.CreatedAt})
 	}
 	call.Ticket = handoffTicket(task)
+	call.Review = req.Review
 	var accepted HandoffAccepted
 	if err := client.Call(ctx, http.MethodPost, HandoffCallPath, call, &accepted); err != nil {
 		if errors.Is(err, ErrWorkerUnreachable) {

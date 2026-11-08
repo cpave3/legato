@@ -42,6 +42,10 @@ With a `github` credential, Legato acts as a GitHub App you create:
 - Opening a draft pull request (`gh pr create --draft`, or the API with `"draft": true`) is its own operation, `pr.create-draft`, decided for the branch it is opened from. Any other pull request asks as before.
 - Pushes to the default branch, pushes of tags and branch deletions are refused by default.
 
+### The reviewer App
+
+Review passes post as a second GitHub App, the reviewer, so that its approval counts toward branch protection. Its credential uses the `github-reviewer` profile, which is Legato's own: no agent is ever given it, whatever it asks, and Legato uses it only on its own side, with a token made for each post and revoked after it. See [Setting up credentials](/legato/security/credentials-setup/).
+
 ### Secrets handed over
 
 For a credential with the `secret` profile, the agent runs one command with the value in an environment variable:

@@ -48,6 +48,9 @@ type HandoffCall struct {
 	Branch string `json:"branch"`
 	// AgentKind is the agent tool; empty for the worker's default.
 	AgentKind string `json:"agent_kind,omitempty"`
+	// Review overrides the worker's review passes for this handoff; nil
+	// keeps its defaults.
+	Review *ReviewPassOverride `json:"review,omitempty"`
 }
 
 // HandoffTicket is a provider-backed task's ticket: the main's provider

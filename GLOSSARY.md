@@ -44,6 +44,60 @@ An away task coming back to its main instance with what the worker did.
 A main instance ending an away task by itself, without the worker's results, when the worker cannot be reached or no longer has the task.
 _Avoid_: force recall, abandon
 
+### Agents on a task
+
+**Agent slot**:
+A place on a task for one agent at a time, with its own terminal session, execution and saved conversation. A task has a main slot and may have named slots.
+_Avoid_: agent seat, second agent
+
+**Main slot**:
+The slot of a task's own agent: the handoff's author, and any session the person starts. Anything that addresses "the task's agent" without naming a slot means it.
+_Avoid_: primary agent, default agent
+
+**Named slot**:
+A slot other than the main one, such as `reviewer`. Only Legato starts agents in one; the person can attach to or stop them.
+_Avoid_: extra slot, side agent
+
+### Review passes
+
+**Review pass**:
+One review of all of a handoff's pull requests by a fresh reviewer, at heads pinned when it starts, ending in a GitHub review per pull request.
+_Avoid_: review round, review cycle
+
+**Reviewer**:
+The agent in a task's reviewer slot that does a review pass, on a different model from the author, and only looks.
+_Avoid_: review agent, critic
+
+**Finding**:
+One problem a reviewer reports on one pull request, kept with a stable ID across passes.
+_Avoid_: comment, issue
+
+**Blocking**:
+A finding that must be fixed or answered before the work is done.
+
+**Nit**:
+A finding that is optional: the author may skip it.
+
+**Ruling**:
+A later pass's judgement on an earlier blocking finding: resolved, or open with why.
+
+**Clean pass**:
+A review pass with no blocking finding and no open ruling. It approves the pull requests.
+
+**Counted comment**:
+A comment on a pull request that the author must answer: from the repository's owners, members or collaborators, or from a listed bot.
+_Avoid_: feedback comment
+
+**Counted check**:
+A check a pull request must pass before its handoff is done: one branch protection requires on its base, else one the worker lists.
+_Avoid_: required CI, gate
+
+**Feedback item**:
+One thing the author must handle after a review pass: a finding, a counted comment or a failing counted check, each with its ID and the author's answer.
+
+**Reviewer App**:
+The second GitHub App a worker posts reviews as. Only Legato holds its credential; no agent is given it.
+
 ### Engrams
 
 **Engram**:

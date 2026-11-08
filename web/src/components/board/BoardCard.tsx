@@ -3,7 +3,7 @@ import { useEffect, useRef, type DragEvent, type MouseEvent, type ReactNode } fr
 import { Link } from "react-router-dom"
 import { MoreHorizontal } from "lucide-react"
 import type { BoardCard as BoardCardType, PRMetaView } from "../../lib/board-types"
-import { agentStripLook, formatDuration, priorityTone } from "../../lib/boardCard"
+import { agentStripLook, formatDuration, priorityTone, slotChipLabel } from "../../lib/boardCard"
 import { animatedAgentActivityEnabled } from "../../lib/appearancePreferences"
 import { ChecksMark, Mark, ReviewMark } from "../PullRequestMarks"
 
@@ -26,7 +26,9 @@ function AgentStrip({ card }: { card: BoardCardType }) {
   const look = agentStripLook(card)
   return (
     <div data-testid="agent-strip" className={cn("flex items-center justify-between gap-2 px-3 py-[5px] text-xs", look.tint)}>
-      <span className={cn("flex min-w-0 items-center gap-1.5", look.tone)}><span aria-hidden="true">{look.glyph}</span><span className="truncate">{look.label}</span></span>
+      <span className={cn("flex min-w-0 items-center gap-1.5", look.tone)}><span aria-hidden="true">{look.glyph}</span><span className="truncate">{look.label}</span>
+        {card.slot_agents?.map((slot) => <span key={slot.slot} className="shrink-0 rounded border border-lw-line px-1 text-lw-text-2">{slotChipLabel(slot.slot, slot.state)}</span>)}
+      </span>
       {look.time > 0 && <span className="shrink-0 font-lw-mono text-lw-text-2">{formatDuration(look.time)}</span>}
     </div>
   )

@@ -170,9 +170,12 @@ credentials:
 		"a name pattern":   "{client_id: Iv1, repositories: ['cpave3/leg*']}",
 		"an owner pattern": "{client_id: Iv1, repositories: ['*/legato']}",
 	} {
-		writeTestConfig(t, "credentials:\n  - name: gh-broken\n    secret: legato://k\n    profile: github\n    settings: "+settings+"\n")
-		if _, err := Load(); err == nil || !strings.Contains(err.Error(), "gh-broken") {
-			t.Errorf("%s: err = %v", name, err)
+		// The reviewer App's credential names the same settings.
+		for _, profile := range []string{"github", "github-reviewer"} {
+			writeTestConfig(t, "credentials:\n  - name: gh-broken\n    secret: legato://k\n    profile: "+profile+"\n    settings: "+settings+"\n")
+			if _, err := Load(); err == nil || !strings.Contains(err.Error(), "gh-broken") {
+				t.Errorf("%s, %s: err = %v", profile, name, err)
+			}
 		}
 	}
 }

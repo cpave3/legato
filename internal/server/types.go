@@ -1,6 +1,9 @@
 package server
 
-import "github.com/cpave3/legato/internal/engine/store"
+import (
+	"github.com/cpave3/legato/internal/engine/store"
+	"github.com/cpave3/legato/internal/service"
+)
 
 // HealthResponse is the JSON response for GET /health.
 type HealthResponse struct {
@@ -28,23 +31,26 @@ type ColumnResponse struct {
 
 // CardResponse represents a card summary in the board response.
 type CardResponse struct {
-	ID             string  `json:"id"`
-	Title          string  `json:"title"`
-	Priority       string  `json:"priority"`
-	IssueType      string  `json:"issue_type"`
-	Status         string  `json:"status"`
-	Provider       string  `json:"provider"`
-	HasWarning     bool    `json:"has_warning"`
-	HasWorktree    bool    `json:"has_worktree"`
-	WorkspaceID    *int    `json:"workspace_id"`
-	WorkspaceName  string  `json:"workspace_name"`
-	WorkspaceColor string  `json:"workspace_color"`
-	AgentActive    bool    `json:"agent_active"`
-	AgentState     string  `json:"agent_state"`
-	AgentKind      string  `json:"agent_kind,omitempty"`
-	WorkingSeconds float64 `json:"working_seconds"`
-	WaitingSeconds float64 `json:"waiting_seconds"`
-	ErrorSeconds   float64 `json:"error_seconds"`
+	ID             string `json:"id"`
+	Title          string `json:"title"`
+	Priority       string `json:"priority"`
+	IssueType      string `json:"issue_type"`
+	Status         string `json:"status"`
+	Provider       string `json:"provider"`
+	HasWarning     bool   `json:"has_warning"`
+	HasWorktree    bool   `json:"has_worktree"`
+	WorkspaceID    *int   `json:"workspace_id"`
+	WorkspaceName  string `json:"workspace_name"`
+	WorkspaceColor string `json:"workspace_color"`
+	AgentActive    bool   `json:"agent_active"`
+	AgentState     string `json:"agent_state"`
+	AgentKind      string `json:"agent_kind,omitempty"`
+	// SlotAgents are the task's running named slots (a reviewer), each
+	// shown as a chip beside the main slot's state.
+	SlotAgents     []service.SlotAgentSummary `json:"slot_agents,omitempty"`
+	WorkingSeconds float64                    `json:"working_seconds"`
+	WaitingSeconds float64                    `json:"waiting_seconds"`
+	ErrorSeconds   float64                    `json:"error_seconds"`
 	// PullRequests are the task's PRs in stack order, bottom first.
 	PullRequests     []PRMetaResponse    `json:"pull_requests,omitempty"`
 	SwarmStats       *SwarmStatsResponse `json:"swarm_stats,omitempty"`
@@ -98,6 +104,8 @@ type AwayResponse struct {
 	WorkerUnreachableSince string   `json:"worker_unreachable_since,omitempty"`
 	WorkerRefusedAt        string   `json:"worker_refused_at,omitempty"`
 	View                   string   `json:"view,omitempty"`
+	// Review is the handoff's review passes on the worker, as last heard.
+	Review *service.HandoffReviewBlock `json:"review,omitempty"`
 }
 
 // BoardWorkerResponse is a worker this main is paired with, for the board's

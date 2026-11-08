@@ -38,6 +38,9 @@ export interface BoardCard {
   agent_active: boolean
   agent_state: string
   agent_kind?: string
+  // The task's running named slots (a reviewer), shown as chips beside the
+  // main slot's state; absent when none.
+  slot_agents?: SlotAgent[]
   working_seconds: number
   waiting_seconds: number
   error_seconds: number
@@ -54,6 +57,29 @@ export interface BoardCard {
   handoff_from?: HandoffFrom
   // On a main: the worker this task is away on.
   away?: AwayOn
+}
+
+export interface SlotAgent {
+  slot: string
+  state: string
+}
+
+// A handoff's review passes on its worker, as the worker last said.
+export interface AwayReview {
+  pass: number
+  // reviewing, waiting_for_reviewer, waiting_for_author, clean or stuck
+  phase: string
+  blocking_open: number
+  comments_open: number
+  checks_open: number
+  // Counted checks not finished on the reviewed heads, and failing ones the
+  // author answered by a reply.
+  checks_pending?: number
+  checks_replied?: number
+  skipped_comments: number
+  reason?: string
+  // Each pull request's latest review by Legato.
+  links?: { pr: number; url: string }[]
 }
 
 export interface HandoffFrom {
@@ -98,6 +124,8 @@ export interface AwayOn {
   // What the main shows: starting, working, needs_you, idle, ended, done,
   // failed, coming_back, unreachable, lost or not_accepted.
   view?: string
+  // Review passes on the worker; absent from a worker without them.
+  review?: AwayReview
 }
 
 export interface SwarmStats {

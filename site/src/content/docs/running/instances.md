@@ -79,6 +79,8 @@ When a main hands a task to a worker, the worker:
 
 The worker refuses a handoff before it makes anything when it has no sandbox, does not know the agent tool asked for, or cannot clone the repository. If the agent then fails to start, for example because the clone failed, the handoff is marked failed with the reason. A pushed branch that GitHub does not have fails the handoff with "branch not on GitHub". A handoff accepted just before the worker stopped starts when the worker starts again.
 
+A worker can also review a make-a-change task's pull requests with a second agent before the task is done. See [Review passes](/legato/using/review-passes/).
+
 On the worker, a handed-off card works like any other: you can move it, edit it, add notes and talk to its agent. But you cannot archive or delete it there: the worker says "this task belongs to workstation; return or recall it from there", and archiving the Done column's cards leaves it there. The task goes back to its main.
 
 A card for a task from a ticket provider (Jira, Burnlite) shows the ticket's text read-only, as a copy taken at handoff, then the task's Legato details, which are the one part you can edit there; its title is read-only too. The worker never syncs it with the provider. See [Hand off a task from Jira or Burnlite](/legato/using/handoff/#hand-off-a-task-from-jira-or-burnlite).

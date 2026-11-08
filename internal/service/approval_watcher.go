@@ -138,7 +138,7 @@ func (w *ApprovalWatcher) Start(ctx context.Context, bus *events.Bus) (stop func
 				return
 			case event := <-signals:
 				if event.Type == events.EventAgentDied {
-					if payload, ok := event.Payload.(events.AgentDiedPayload); ok {
+					if payload, ok := event.Payload.(events.AgentDiedPayload); ok && payload.Slot == "" {
 						w.AgentEnded(ctx, payload.TaskID)
 					}
 				}

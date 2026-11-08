@@ -32,6 +32,10 @@ const (
 	// AttentionSignalHandoffLost: the worker no longer has the task; only
 	// taking it back is left.
 	AttentionSignalHandoffLost = "handoff_lost"
+	// AttentionSignalHandoffReviewStuck: an away task's review passes are
+	// stuck and need the person: Return as is, Run another pass, Message
+	// the author, or Recall.
+	AttentionSignalHandoffReviewStuck = "handoff_review_stuck"
 	// AttentionSignalWorkerNotAccepting: a worker refuses this main's token
 	// (401); pair again. One per worker.
 	AttentionSignalWorkerNotAccepting = "worker_not_accepting"
@@ -201,6 +205,34 @@ func (a *HandoffAttentionAdapter) taskItem(ctx context.Context, away AwayTask) (
 		item.Actions = []AttentionAction{{ID: "recall", Label: "Recall", Kind: "execute", Intent: "primary"}, openWorker, openTask}
 		notice := &handoffNotice{key: item.SourceKey + "@" + item.SourceRevision, title: item.Title, message: item.Reason, path: path}
 		return item, notice, true, nil
+	case away.Review.Stuck() && away.State != store.HandoffDone:
+		review := away.Review
+		item.SignalKind, item.SourceRevision = AttentionSignalHandoffReviewStuck, fmt.Sprintf("review:%d:%s", review.Pass, review.Reason)
+		item.Title = fmt.Sprintf("The review of %s is stuck on %s", title, worker)
+		item.Reason = review.Reason
+		var open []string
+		for _, c := range []struct {
+			n    int
+			what string
+		}{{review.BlockingOpen, "blocking findings"}, {review.CommentsOpen, "comments"}, {review.ChecksOpen, "failing checks"}} {
+			if c.n > 0 {
+				open = append(open, fmt.Sprintf("%d %s", c.n, c.what))
+			}
+		}
+		item.Detail = fmt.Sprintf("Pass %d.", review.Pass)
+		if len(open) > 0 {
+			item.Detail += " Open: " + strings.Join(open, ", ") + "."
+		}
+		item.Actions = []AttentionAction{
+			{ID: "return", Label: "Return as is", Kind: "execute", Intent: "primary"},
+			{ID: "another_pass", Label: "Run another pass", Kind: "execute"},
+			{ID: "message", Label: "Message the author", Kind: "execute", RequiresText: true},
+			{ID: "recall", Label: "Recall", Kind: "execute", RequiresConfirm: true,
+				Confirmation: fmt.Sprintf("Recall %s from %s? Its agents stop, and nothing more is posted on GitHub.", title, worker)},
+			openWorker, openTask,
+		}
+		notice := &handoffNotice{key: item.SourceKey + "@" + item.SourceRevision, title: item.Title, message: review.Reason, path: path}
+		return item, notice, true, nil
 	case away.State == store.HandoffDone:
 		// The worker's own agent-finished notification tells the phone.
 		item.SignalKind, item.SourceRevision = AttentionSignalHandoffDone, "done"
@@ -315,6 +347,10 @@ func (a *HandoffAttentionAdapter) Execute(ctx context.Context, req AttentionActi
 		_, err = a.opts.Handoffs.Recall(ctx, away.TaskID)
 	case "take_back":
 		_, err = a.opts.Handoffs.TakeBack(ctx, away.TaskID)
+	case "another_pass":
+		err = a.opts.Handoffs.AnotherPass(ctx, away.TaskID)
+	case "message":
+		err = a.opts.Handoffs.MessageAuthor(ctx, away.TaskID, req.Text)
 	default:
 		return fmt.Errorf("unknown handoff action %q", req.ActionID)
 	}

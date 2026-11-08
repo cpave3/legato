@@ -2,8 +2,10 @@ package service
 
 import (
 	"context"
+
 	"errors"
 	"fmt"
+	"github.com/cpave3/legato/internal/engine/store"
 	"os"
 	"path/filepath"
 )
@@ -21,24 +23,25 @@ func SupportsTaskResume(agentKind string) bool {
 	return agentKind == "chimera" || agentKind == "claude-code" || agentKind == "codex"
 }
 
+// GetTaskResumeSession is the conversation the task's main slot resumes.
 func (a *agentService) GetTaskResumeSession(ctx context.Context, taskID, agentKind string) (*TaskResumeSession, error) {
+	return a.GetTaskResumeSessionInSlot(ctx, taskID, store.SlotMain, agentKind)
+}
+
+// GetTaskResumeSessionInSlot is the conversation one of the task's slots
+// resumes: each slot keeps its own, so a reviewer never replaces the
+// author's.
+func (a *agentService) GetTaskResumeSessionInSlot(ctx context.Context, taskID, slot, agentKind string) (*TaskResumeSession, error) {
 	if agentKind == "" {
 		agentKind = a.DefaultAdapter()
 	}
 	if !SupportsTaskResume(agentKind) {
 		return nil, nil
 	}
-	if agentKind == "chimera" {
-		task, err := a.store.GetTask(ctx, taskID)
-		if err != nil {
-			return nil, err
-		}
-		if task.ChimeraSessionID == nil || *task.ChimeraSessionID == "" {
-			return nil, nil
-		}
-		return &TaskResumeSession{ID: *task.ChimeraSessionID}, nil
+	if _, err := a.store.GetTask(ctx, taskID); err != nil {
+		return nil, err
 	}
-	saved, err := a.store.GetTaskNativeSession(ctx, taskID, agentKind)
+	saved, err := a.store.GetTaskNativeSessionInSlot(ctx, taskID, slot, agentKind)
 	if err != nil || saved == nil {
 		return nil, err
 	}
@@ -73,7 +76,7 @@ func (a *agentService) prepareTaskResume(ctx context.Context, taskID string, opt
 	if kind == "chimera" {
 		return nil
 	}
-	saved, err := a.GetTaskResumeSession(ctx, taskID, kind)
+	saved, err := a.GetTaskResumeSessionInSlot(ctx, taskID, opt.Slot, kind)
 	if err != nil {
 		return err
 	}
@@ -111,6 +114,10 @@ func (a *agentService) prepareTaskResume(ctx context.Context, taskID string, opt
 	opt.ResumeSessionID = saved.ID
 	opt.ResumeWorkingDir = saved.CWD
 	opt.ResumeStorageDir = saved.StorageDir
-	opt.WorkingDir = saved.CWD
+	// An agent that works in a job clone joins it again (and is recorded
+	// in it); the spawn checks the clone is where the conversation is.
+	if opt.Repo == "" && opt.Clone == 0 {
+		opt.WorkingDir = saved.CWD
+	}
 	return nil
 }

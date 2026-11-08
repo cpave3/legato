@@ -40,11 +40,12 @@ Legato is not the MCP host. The agent tool is, and a terminal agent cannot draw 
 | `session_info` | none | Task ID and title, agent tool, swarm role, working directory. |
 | `task_context` | none | The task as Markdown: description, linked ticket, repository details, durable notes. |
 | `add_task_note` | `body` | Records a durable Markdown note (`task_notes`, source `agent`). |
-| `list_peers` | none | Other agents in the same Git worktree. |
+| `list_peers` | none | Other agents in the same Git worktree, the task's own reviewer among them (`slot`, `read_only`). |
 | `message_peer` | `to`, `text` | Queues a message to one peer. |
 | `broadcast_peers` | `text` | Messages every peer; the result names who was and was not reached. |
 | `request_access` | `credential`, `operations`, `resources`, `reason`, `blocking` | Asks for a scope of a credential Legato holds, waiting up to a minute for the person; says what to do when granted, pending or denied. Offered only when credentials are configured, and its description names them. See [Credentials](credentials.md). |
 | `reply_case` | `delegation_id`, `outcome` (`done`, `finding`, `question`, `cannot`), `text` | Answers an `[argus case …]` message: queues the reply for Argus and tries it at once. Refused for a delegation not delivered to the caller's task. Offered only with `integrations.argus`. See [Integrations](integrations.md). |
+| `submit_review` | `summary`, `findings` (`pr`, `severity` `blocking`/`nit`, `title`, `body`, `place` {`path`, `line`, `start_line`, `side`}), `rulings` (`finding`, `status` `resolved`/`open`, `reason`), or `unable` | Hands a review pass's result to Legato, which posts it. Offered only to a session in a task's `reviewer` slot (`MCPOptions.Reviews`, decided on the host from the caller's session), and refused to any other at call time. Problems (a place not at the pinned head, a missing ruling, a pull request not of the pass) come back as a list to fix and submit again. See [Integrations](integrations.md) § Review passes. |
 
 A swarm worker's own identity is its sub-task, which has no description or notes, so `task_context` and `add_task_note` act on the swarm's parent task. The peer tools need tmux; without it the other tools still work and those three are not offered.
 

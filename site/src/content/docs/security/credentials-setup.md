@@ -117,6 +117,27 @@ In an agent session, `git fetch` and `git pull` get read tokens from Legato's cr
 
 PR tracking keeps its own read access (`github.auth`); this changes nothing there.
 
+### The reviewer App (for review passes)
+
+A worker that runs review passes posts its reviews as a second GitHub App, so its approval of the author App's pull requests counts.
+
+1. Create another GitHub App, for example `legato-reviewer`, with **Pull requests: Read and write**, **Contents: Read and write**, **Checks: Read**, **Commit statuses: Read**, **Actions: Read** and **Metadata: Read**. GitHub counts an App's approval only when it can write the repository's contents. Add **Administration: Read** to let Legato read which checks branch protection requires; without it, Legato counts `review_passes.required_checks`. No webhook.
+2. Install it on the same repositories, and keep its private key as you did the first App's.
+3. Add it with the `github-reviewer` profile, and name it in `review_passes.github_credential`:
+
+   ```yaml
+   credentials:
+     - name: reviewer-app
+       secret: op://Agents/legato-reviewer/private key
+       profile: github-reviewer
+       type: keypair
+       settings:
+         client_id: Iv23liReViEwEr
+         repositories: [cpave3/legato]
+   ```
+
+No agent is given this credential: Legato posts the reviews itself. See [Review passes](/legato/using/review-passes/) for the whole setup. Contents write would let the App push, so you may leave it off the bypass list of the ruleset above, as the first App is.
+
 ## 6. The configuration
 
 In `~/.config/legato/config.yaml`:

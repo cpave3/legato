@@ -32,9 +32,12 @@ import (
 // What the main shows of an away task (AwayTask.View): the worker's state
 // and its agent's activity, or the main's own view of the worker.
 const (
-	AwayViewStarting   = "starting"
-	AwayViewWorking    = "working"
-	AwayViewNeedsYou   = "needs_you"
+	AwayViewStarting = "starting"
+	AwayViewWorking  = "working"
+	AwayViewNeedsYou = "needs_you"
+	// AwayViewInReview: a review pass runs, waits for a reviewer, or waits
+	// for the author's answers.
+	AwayViewInReview   = "in_review"
 	AwayViewIdle       = "idle"
 	AwayViewEnded      = "ended"
 	AwayViewDone       = "done"
@@ -86,6 +89,12 @@ func awayView(a AwayTask) string {
 		return AwayViewDone
 	case store.HandoffPending, "":
 		return AwayViewStarting
+	}
+	switch {
+	case a.Review.Stuck():
+		return AwayViewNeedsYou
+	case a.Review.InReview():
+		return AwayViewInReview
 	}
 	switch a.Activity {
 	case HandoffActivityWorking:

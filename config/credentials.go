@@ -308,13 +308,14 @@ func normalizeCredentialSettings(c *CredentialConfig) error {
 			return fmt.Errorf("the api-key profile needs settings.key: {header: <name>} or {query: <name>}")
 		}
 	}
-	if c.Profile == "github" {
+	// The reviewer App's credential (review passes) names its App the same way.
+	if c.Profile == "github" || c.Profile == "github-reviewer" {
 		s.ClientID = strings.TrimSpace(s.ClientID)
 		if s.ClientID == "" {
-			return fmt.Errorf("the github profile needs settings.client_id, the GitHub App's client ID")
+			return fmt.Errorf("the %s profile needs settings.client_id, the GitHub App's client ID", c.Profile)
 		}
 		if len(s.Repositories) == 0 {
-			return fmt.Errorf("the github profile needs settings.repositories, the owner/name repositories agents may use")
+			return fmt.Errorf("the %s profile needs settings.repositories, the owner/name repositories it may use", c.Profile)
 		}
 		for i, repo := range s.Repositories {
 			s.Repositories[i] = strings.TrimSpace(repo)

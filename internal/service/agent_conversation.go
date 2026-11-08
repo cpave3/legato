@@ -90,7 +90,7 @@ type AgentConversationReader interface {
 }
 
 func (a *agentService) ConversationTail(ctx context.Context, taskID string, limit int) (*ConversationTail, error) {
-	session, err := a.store.GetAgentSessionByTaskID(ctx, taskID)
+	session, err := slotSession(ctx, a.store, taskID)
 	if err != nil {
 		return nil, err
 	}

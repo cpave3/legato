@@ -58,6 +58,12 @@ function AwayProperties({ card, actions }: { card: BoardCard; actions?: ReactNod
         <p className="m-0 text-[11px] font-semibold uppercase tracking-[1px] text-lw-faint">Pull requests</p>
         <AwayPullRequests prs={card.pull_requests ?? []} branches={away.branches ?? []} />
       </div>
+      {away.review?.links && away.review.links.length > 0 && (
+        <div className="flex flex-col gap-1">
+          <p className="m-0 text-[11px] font-semibold uppercase tracking-[1px] text-lw-faint">Legato's reviews</p>
+          {away.review.links.map((link) => <a key={link.pr} href={link.url} target="_blank" rel="noreferrer" className="w-fit text-[13px] text-lw-link hover:underline">Review of #{link.pr}</a>)}
+        </div>
+      )}
       {away.url && <a href={away.url} target="_blank" rel="noreferrer" className="w-fit text-[13px] text-lw-link hover:underline">Open on {away.worker}</a>}
       {actions}
     </section>

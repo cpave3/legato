@@ -44,6 +44,9 @@ type CredentialProfile struct {
 	// {placeholder}, {base_url} and {NAME} (the credential's name in
 	// capitals) are filled in.
 	Env map[string]string `yaml:"env"`
+	// HostOnly marks a credential Legato itself uses and no agent is ever
+	// given (the reviewer App): every agent request and use is refused.
+	HostOnly bool `yaml:"host_only"`
 	// Source is where the profile was read from: "shipped" or a file.
 	Source string `yaml:"-"`
 }
