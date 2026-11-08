@@ -661,3 +661,52 @@ func TestIdentityFailureIsNotMaskedByProviderExit(t *testing.T) {
 		t.Fatalf("Run masked capture failure: %v", err)
 	}
 }
+
+// The join made as the terminal attaches tries once, as a new thread has no
+// history yet. A turn that starts while that join is still waiting for its
+// answer asks for a join that keeps trying; it must not be dropped when the
+// first one fails.
+func TestAJoinAskedForWhileAnotherIsUnderwayStillHappens(t *testing.T) {
+	h := newHarness(t)
+	events := h.subscribe("")
+	release := make(chan struct{})
+	h.codex.on("thread/resume", func(map[string]any) (any, *rpcError) {
+		<-release
+		return nil, &rpcError{Code: -32600, Message: "no rollout found for thread id " + threadID}
+	})
+	h.codex.notify("thread/started", map[string]any{"thread": terminalThread(nil)})
+	deadline := time.After(2 * time.Second)
+	for h.codex.count("thread/resume") == 0 {
+		select {
+		case <-deadline:
+			t.Fatal("the bridge never tried to join on attach")
+		case <-time.After(time.Millisecond):
+		}
+	}
+
+	// The turn starts while that join waits; the bridge has seen it once it
+	// says the agent is working.
+	h.codex.notify("thread/status/changed", map[string]any{"threadId": threadID, "status": map[string]any{"type": "active", "activeFlags": []any{}}})
+	for {
+		event := nextEvent(t, events)
+		if event["type"] == "session_started" {
+			break
+		}
+	}
+	h.codex.on("thread/resume", func(map[string]any) (any, *rpcError) {
+		return map[string]any{"thread": terminalThread(map[string]any{
+			"status": map[string]any{"type": "active", "activeFlags": []any{}},
+			"turns":  []any{map[string]any{"id": "turn-1", "status": "inProgress", "items": []any{}}},
+		})}, nil
+	})
+	close(release)
+
+	deadline = time.After(2 * time.Second)
+	for !h.bridge.joined() {
+		select {
+		case <-deadline:
+			t.Fatal("the join asked for while another was underway was lost")
+		case <-time.After(time.Millisecond):
+		}
+	}
+}

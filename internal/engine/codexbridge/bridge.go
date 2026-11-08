@@ -86,7 +86,10 @@ type Bridge struct {
 	subscribers map[chan envelope]struct{}
 	// joining is the thread a join is in flight for, so only one runs.
 	joining string
-	models  []modelInfo
+	// joinAgain is the attempts of a join asked for while another was
+	// underway: made when that one ends without joining.
+	joinAgain int
+	models    []modelInfo
 }
 
 // errNoThread is a request made before the Codex terminal UI opened a thread.
@@ -463,7 +466,14 @@ func (b *Bridge) onThread(threadID string, apply func(*session) []nativeEvent) {
 // starts is retried for a moment.
 func (b *Bridge) join(threadID string, attempts int) {
 	b.mu.Lock()
-	if b.joining == threadID || b.session.threadID != threadID || b.session.joined {
+	if b.session.threadID != threadID || b.session.joined {
+		b.mu.Unlock()
+		return
+	}
+	if b.joining == threadID {
+		// The join underway may try fewer times (the one made on attach
+		// tries once): this one is made when it ends without joining.
+		b.joinAgain = max(b.joinAgain, attempts)
 		b.mu.Unlock()
 		return
 	}
@@ -471,10 +481,16 @@ func (b *Bridge) join(threadID string, attempts int) {
 	b.mu.Unlock()
 	defer func() {
 		b.mu.Lock()
+		again := 0
 		if b.joining == threadID {
 			b.joining = ""
+			again, b.joinAgain = b.joinAgain, 0
 		}
+		retry := again > 0 && b.session.threadID == threadID && !b.session.joined
 		b.mu.Unlock()
+		if retry {
+			go b.join(threadID, again)
+		}
 	}()
 
 	for attempt := 0; attempt < attempts; attempt++ {
