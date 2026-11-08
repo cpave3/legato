@@ -533,10 +533,13 @@ func (c *WorkerConnections) session(ctx context.Context, id string, wc *workerCo
 			switch m.Type {
 			case HandoffStreamPull:
 				c.applyPull(ctx, worker, before, m.Handoffs)
-				c.heard(ctx, id)
+				// Connected before heard clears unreachable_since: a CheckReach
+				// between the two would otherwise mark it unreachable again,
+				// from the old outage's drop time.
 				wc.mu.Lock()
 				wc.connected, wc.droppedAt = true, time.Time{}
 				wc.mu.Unlock()
+				c.heard(ctx, id)
 				pulled = true
 				wc.answer(session, nil)
 			case HandoffStreamRow:
