@@ -25,7 +25,7 @@ interface AwayLaneProps {
   // What a group's header adds after its name: how the worker can be
   // reached, its Return all done.
   groupExtras?: (worker: BoardWorker, cards: BoardCard[]) => ReactNode
-  // What a row offers beside it: Return, Recall, Take back.
+  // What a row offers under its details: Return, Recall, Take back.
   rowActions?: (card: BoardCard) => ReactNode
   // A card dropped on the lane: its ID, to hand it off.
   onCardDrop?: (cardId: string) => void
@@ -41,7 +41,7 @@ export function AwayRow({ card, selected, highlighted, onClick, actions }: { car
     if (selected || highlighted) ref.current?.scrollIntoView?.({ block: "nearest" })
   }, [selected, highlighted])
   return (
-    <div ref={ref} data-card={card.id} className={cn("flex items-start gap-2 border-t border-lw-line first:border-t-0", selected && "bg-lw-selected", highlighted && "ring-2 ring-inset ring-cyan-400")}>
+    <div ref={ref} data-card={card.id} className={cn("flex flex-col border-t border-lw-line first:border-t-0", selected && "bg-lw-selected", highlighted && "ring-2 ring-inset ring-cyan-400")}>
       <button
         type="button"
         data-selected={selected || undefined}
@@ -63,7 +63,7 @@ export function AwayRow({ card, selected, highlighted, onClick, actions }: { car
         </span>
         {prs && <span data-testid="away-prs" className={cn("text-xs", prs.blocked ? "text-lw-error" : "text-lw-text-2")}>{prs.text}</span>}
       </button>
-      {actions && <div className="flex shrink-0 items-center gap-1 py-2 pr-2">{actions}</div>}
+      {actions && <div className="flex flex-wrap items-center gap-1 px-3 pb-2 empty:hidden">{actions}</div>}
     </div>
   )
 }

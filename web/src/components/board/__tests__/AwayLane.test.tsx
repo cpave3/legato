@@ -45,6 +45,18 @@ describe("AwayLane", () => {
     expect(within(empty).getByText(/Nothing away on vm-2/)).toBeTruthy()
   })
 
+  it("puts a row's actions on a wrapping line under its details, so they never squeeze the title", () => {
+    const actions = (card: BoardCard) => <><button type="button">Return as is</button><button type="button">Run another pass</button><button type="button">Message the author {card.id}</button></>
+    render(<AwayLane workers={[vm1]} cards={[away("T-1", "Fix login")]} selectedIndex={-1} isActive={false} onRowClick={() => {}} rowActions={actions} />)
+    const details = screen.getByRole("button", { name: /Fix login/ })
+    const bar = screen.getByRole("button", { name: "Return as is" }).parentElement!
+    const row = details.parentElement!
+    expect(bar.parentElement).toBe(row)
+    expect(row.className).toContain("flex-col")
+    expect(bar.className).toContain("flex-wrap")
+    expect(bar.className).not.toContain("shrink-0")
+  })
+
   it("selects a row as the board selects a card", () => {
     const onRowClick = vi.fn()
     const cards = [away("T-1", "Fix login"), away("T-2", "Find the leak")]
