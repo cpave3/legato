@@ -273,6 +273,19 @@ func within(path, dir string) bool {
 	return path == dir || strings.HasPrefix(path, dir+string(filepath.Separator))
 }
 
+// inOthersScratch says whether path is at or inside the scratch folder and
+// not this execution's own runtime folder: what the sandbox must not see
+// whatever else allows it, as it holds every execution's /tmp and home.
+func inOthersScratch(in SandboxPlanInput, root, path string) bool {
+	if root == "" || !within(path, root) {
+		return false
+	}
+	if in.RuntimeDir != "" && in.ExecutionID != "" && within(path, filepath.Join(in.RuntimeDir, "sandbox", in.ExecutionID)) {
+		return false
+	}
+	return true
+}
+
 // allowedInside are mounts that may sit inside a forbidden folder: the parts
 // of Legato's runtime and data folders a session needs.
 func allowedInside(in SandboxPlanInput, path string) bool {
@@ -333,7 +346,13 @@ func BuildSandboxPlan(in SandboxPlanInput) (sandbox.Plan, error) {
 		in.Extra = extra
 	}
 	no := forbidden(in)
+	scratchRoot := scratchFor(in).Root
 	check := func(path string) error {
+		// The scratch folder before the exemptions: one inside the
+		// repository cache is no less private.
+		if inOthersScratch(in, scratchRoot, path) {
+			return fmt.Errorf("%s is in the sandboxes' scratch folder, which holds other agents' /tmp and home", path)
+		}
 		if allowedInside(in, path) {
 			return nil
 		}
@@ -476,7 +495,7 @@ func BuildSandboxPlan(in SandboxPlanInput) (sandbox.Plan, error) {
 	if root := scratch.Root; root != "" {
 		kept := mounts[:0]
 		for _, m := range mounts {
-			if m.Dest == "" && within(m.Path, root) && !allowedInside(in, m.Path) {
+			if m.Dest == "" && inOthersScratch(in, root, m.Path) {
 				continue
 			}
 			kept = append(kept, m)
@@ -488,7 +507,9 @@ func BuildSandboxPlan(in SandboxPlanInput) (sandbox.Plan, error) {
 	seen := map[string]bool{}
 	for _, f := range no {
 		info := in.FS.Probe(f)
-		if !info.Exists || allowedInside(in, f) || seen[f] {
+		// The scratch folder is covered even inside an exempt mount (the
+		// repository cache).
+		if !info.Exists || (allowedInside(in, f) && f != scratchRoot) || seen[f] {
 			continue
 		}
 		seen[f] = true

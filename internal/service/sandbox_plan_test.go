@@ -652,3 +652,35 @@ func TestAScratchFolderThatIsADefaultMountIsNotMounted(t *testing.T) {
 		}
 	}
 }
+
+// The data folder's shared mounts (the repository cache, Legato's mod) are
+// allowed inside the data folder, but not over the scratch folder: a
+// scratch folder that is one of them, or inside one, is still private.
+func TestAScratchFolderAtOrInsideASharedDataMountIsPrivate(t *testing.T) {
+	repos := "/var/home/me/.local/share/legato/repos"
+	for _, root := range []string{repos, repos + "/scratch"} {
+		in := baseInput()
+		fs := hostFS()
+		fs[repos], fs[root], fs[root+"/ex-2"] = "dir", "dir", "dir"
+		in.FS, in.ScratchDir = fs, root
+		plan, err := BuildSandboxPlan(in)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, m := range plan.Mounts {
+			if m.Kind != sandbox.Hide && m.Kind != sandbox.HideDir && m.Dest == "" && within(m.Path, root) {
+				t.Errorf("scratch %s: %+v is mounted", root, m)
+			}
+		}
+		if root != repos {
+			if m := mounted(plan)[root]; m.Kind != sandbox.HideDir || mountIndex(plan, root) < mountIndex(plan, repos) {
+				t.Errorf("scratch %s is not covered after the cache: %+v", root, m)
+			}
+		}
+		// Another execution's folder cannot be given as a mount.
+		in.Extra = []SandboxPath{{Path: root + "/ex-2", Access: "write"}}
+		if _, err := BuildSandboxPlan(in); err == nil {
+			t.Errorf("scratch %s: a mount of another execution's folder was accepted", root)
+		}
+	}
+}

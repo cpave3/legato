@@ -78,3 +78,18 @@ func TestTheSandboxsScratchIsInTheDataFolderUnlessConfigured(t *testing.T) {
 		t.Fatalf("scratch = %s", got)
 	}
 }
+
+// The data folder's shared folders, which every sandbox is shown, cannot
+// hold the scratch: the sandbox would have to hide them.
+func TestAScratchFolderInsideTheDataFoldersSharedFoldersFailsToLoad(t *testing.T) {
+	for _, dir := range []string{"/srv/legato/repos", "/srv/legato/repos/scratch", "/srv/legato/claude-mod", "/srv/legato/jobs/x"} {
+		writeTestConfig(t, "data_dir: /srv/legato\nagents:\n  sandbox:\n    scratch_dir: "+dir+"\n")
+		if _, err := Load(); err == nil || !strings.Contains(err.Error(), "scratch_dir") {
+			t.Errorf("%s: err = %v", dir, err)
+		}
+	}
+	writeTestConfig(t, "data_dir: /srv/legato\nagents:\n  sandbox:\n    scratch_dir: /srv/legato/scratch\n")
+	if _, err := Load(); err != nil {
+		t.Fatal(err)
+	}
+}

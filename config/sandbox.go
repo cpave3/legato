@@ -58,6 +58,15 @@ func normalizeAgentSandbox(cfg *Config) error {
 		if home != "" && (sb.ScratchDir == home || strings.HasPrefix(home, sb.ScratchDir+string(filepath.Separator)) || sb.ScratchDir == "/") {
 			return fmt.Errorf("agents.sandbox.scratch_dir: %q holds the home folder; name a folder of its own", sb.ScratchDir)
 		}
+		// Folders of the data folder that sandboxes are shown: the scratch
+		// folder in one would hide it from every agent.
+		data := ResolveDataDir(cfg)
+		for _, shared := range []string{"repos", "claude-mod", "jobs"} {
+			dir := filepath.Join(data, shared)
+			if sb.ScratchDir == dir || strings.HasPrefix(sb.ScratchDir, dir+string(filepath.Separator)) {
+				return fmt.Errorf("agents.sandbox.scratch_dir: %q is inside %s, which sandboxes are shown; name a folder of its own", sb.ScratchDir, dir)
+			}
+		}
 	}
 	for i := range sb.Mounts {
 		m := &sb.Mounts[i]

@@ -180,7 +180,7 @@ How Legato runs the agents it starts. See [Agents](/legato/using/agents/).
 | `agents.sandbox.default_mounts` | bool | `true` | Shows your toolchains inside the sandbox read-only, and your package and build caches read-write. |
 | `agents.sandbox.mounts[].path` | path | none | Another file or folder every sandbox sees. Absolute, or starting with `~/`. |
 | `agents.sandbox.mounts[].access` | string | `read` | `read` or `write`. |
-| `agents.sandbox.scratch_dir` | path | `<data_dir>/sandbox` | Where each sandbox's `/tmp`, home folder and throwaway layer are kept on disk until its agent ends. Absolute, or starting with `~/`, and not your home folder or a folder that holds it. A folder the sandbox would otherwise show, such as a cache, is then not shown. See [Scratch space](/legato/security/sandbox/#scratch-space). |
+| `agents.sandbox.scratch_dir` | path | `<data_dir>/sandbox` | Where each sandbox's `/tmp`, home folder and throwaway layer are kept on disk until its agent ends. Absolute, or starting with `~/`, and not your home folder, a folder that holds it, or Legato's `repos`, `claude-mod` or `jobs` folders. A folder the sandbox would otherwise show, such as a cache, is then not shown. See [Scratch space](/legato/security/sandbox/#scratch-space). |
 
 ```yaml
 agents:
