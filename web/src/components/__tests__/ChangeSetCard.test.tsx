@@ -52,3 +52,31 @@ describe("ChangeSetLines", () => {
     expect(list.textContent).toContain("done, 3 of 3 ran")
   })
 })
+
+describe("ChangeSetCard: what each kind of call runs", () => {
+  afterEach(() => cleanup())
+
+  it("shows a legato command's every argument, a shell command, a file and a service in full", () => {
+    render(<ChangeSetCard approval={{
+      ...approval,
+      details: {
+        id: "cs-9", instance: "legato-1", level: "verified", reason: "Fix the proxy",
+        calls: [
+          { kind: "legato", args: ["agent", "message", "T-1", "please rebase onto main"], class: "change", description: "Message an agent", level: "approve" },
+          { kind: "host_shell", command: "journalctl -u caddy -n 50", class: "risky", description: "Run on the host: journalctl -u caddy -n 50", level: "approve" },
+          { kind: "edit_file", file: "/etc/caddy/Caddyfile", diff: "- old\n+ new\n", class: "risky", description: "Write the file /etc/caddy/Caddyfile", level: "approve" },
+          { kind: "manage_service", unit: "caddy.service", action: "restart", system: true, as_root: true, class: "risky", description: "Restart the system service caddy.service", level: "verified" },
+        ],
+      },
+    }} />)
+    const card = screen.getByTestId("change-set")
+    expect(card.textContent).not.toContain("undefined")
+    expect(screen.getByTestId("change-1").textContent).toContain(`legato agent message T-1 "please rebase onto main"`)
+    expect(screen.getByTestId("change-2").textContent).toContain("$ journalctl -u caddy -n 50")
+    expect(screen.getByTestId("change-3").textContent).toContain("write /etc/caddy/Caddyfile")
+    const service = screen.getByTestId("change-4").textContent ?? ""
+    expect(service).toContain("restart caddy.service")
+    expect(service).toContain("system service")
+    expect(service).toContain("host as root")
+  })
+})

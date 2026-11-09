@@ -17,6 +17,25 @@ function callKind(call: ChangeSetCall): { label: string; tone: string } {
   return { label: "change", tone: "bg-lw-raised text-lw-text-2" }
 }
 
+// quoteArg writes one argument as a shell would need it, so the person sees
+// where each begins and ends.
+function quoteArg(arg: string): string {
+  return arg === "" || /[\s"'\\$`]/.test(arg) ? JSON.stringify(arg) : arg
+}
+
+// callTarget is what a call runs, in full: the person approves exactly this.
+function callTarget(call: ChangeSetCall): string {
+  switch (call.kind) {
+    case "restart": return "restart Legato"
+    case "config_edit": return "edit config.yaml"
+    case "legato": return ["legato", ...(call.args ?? [])].map((arg, i) => (i === 0 ? arg : quoteArg(arg))).join(" ")
+    case "host_shell": return `$ ${call.command ?? ""}`
+    case "edit_file": return `write ${call.file ?? ""}`
+    case "manage_service": return `${call.action ?? ""} ${call.unit ?? ""} (${call.system ? "system" : "user"} service)`
+    default: return `${call.method ?? "GET"} ${call.path ?? ""}`
+  }
+}
+
 // ChangeSetCard is what a Reeve change set's approval shows: where it comes
 // from, its ID, how many changes and the level it needs; then each change
 // with its kind, its route or tool, and a before-and-after for a setting;
@@ -37,7 +56,7 @@ export function ChangeSetCard({ approval }: { approval: Approval }) {
               <div className="flex flex-wrap items-center gap-1.5">
                 <span className="text-lw-faint">{i + 1}.</span>
                 <span className={cn("rounded px-1.5 text-[11px] font-medium uppercase", kind.tone)}>{kind.label}</span>
-                <span className="font-lw-mono text-lw-text">{call.kind === "restart" ? "restart Legato" : call.kind === "config_edit" ? "edit config.yaml" : `${call.method} ${call.path}`}</span>
+                <span className="whitespace-pre-wrap break-all font-lw-mono text-lw-text">{callTarget(call)}</span>
               </div>
               <p className="mt-0.5 text-lw-text-2">{call.description}</p>
               {call.setting && (

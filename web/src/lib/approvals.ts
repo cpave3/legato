@@ -127,6 +127,16 @@ export interface ChangeSetCall {
   diff?: string
   check?: string
   optional?: boolean
+  // A legato command's arguments (kind legato).
+  args?: string[]
+  // A host call: the shell command (host_shell), the file (edit_file), the
+  // service's unit and action, and whether it is a system one
+  // (manage_service).
+  command?: string
+  file?: string
+  unit?: string
+  action?: string
+  system?: boolean
 }
 
 export function approvalKind(approval: Approval): string {
