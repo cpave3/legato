@@ -7,7 +7,6 @@ import (
 	"fmt"
 	"io"
 	"net/http"
-	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"strings"
@@ -74,9 +73,14 @@ func startChangeSets(ctx context.Context, cfg *config.Config, db *store.Store, a
 	return changeSets
 }
 
-// classifyCall classes a call by the route class table.
+// classifyCall classes a call by the route class table. A call that is not
+// a request at all is never made.
 func classifyCall(method, path string) (string, string) {
-	info := server.ClassifyRequest(httptest.NewRequest(method, path, nil))
+	req, err := http.NewRequest(method, path, nil)
+	if err != nil || strings.ContainsFunc(method+path, func(r rune) bool { return r <= ' ' || r == 0x7f }) {
+		return "never", "Make a request that does not parse"
+	}
+	info := server.ClassifyRequest(req)
 	return string(info.Class), info.Description
 }
 
@@ -100,7 +104,10 @@ func localAPI(cfg *config.Config) service.CallRunner {
 		if len(body) > 0 {
 			req.Header.Set("Content-Type", "application/json")
 		}
-		client := &http.Client{Timeout: 2 * time.Minute, Transport: &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true}}}
+		client := &http.Client{Timeout: 2 * time.Minute, Transport: &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true}},
+			// A redirect is answered as it is, never followed: the call
+			// fails rather than turning into another request.
+			CheckRedirect: func(*http.Request, []*http.Request) error { return http.ErrUseLastResponse }}
 		resp, err := client.Do(req)
 		if err != nil {
 			return 0, "", err

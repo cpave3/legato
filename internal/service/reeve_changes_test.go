@@ -76,7 +76,7 @@ func newChangeSetFixture(t *testing.T) *changeSetFixture {
 			f.ran = append(f.ran, "legato "+strings.Join(args, " "))
 			return 0, "token lgi_xyz created", nil
 		},
-		Wait:          50 * time.Millisecond,
+		Wait: 50 * time.Millisecond,
 	})
 	f.svc.Register()
 	return f
@@ -291,7 +291,6 @@ func TestAnImportIsOneChangeSetToApprove(t *testing.T) {
 	}
 }
 
-
 func TestALegatoCommandRunsOnTheHostOnceApproved(t *testing.T) {
 	f := newChangeSetFixture(t)
 	ctx := context.Background()
@@ -327,5 +326,42 @@ func TestAnAttentionActionOnAnApprovalIsNeverTheReeves(t *testing.T) {
 	}
 	if _, err := f.svc.Propose(ctx, f.reeve, "restart", []ChangeCall{{Kind: CallAPI, Method: "POST", Path: "/api/attention/" + other.ID + "/actions/restart"}}); err != nil {
 		t.Fatalf("another item's action: %v", err)
+	}
+}
+
+// A call whose method or path is not a plain route of Legato's API is
+// refused before it is classed or put to the person.
+func TestAMalformedOrNoncanonicalAPICallIsRefused(t *testing.T) {
+	f := newChangeSetFixture(t)
+	for _, call := range []ChangeCall{
+		{Kind: CallAPI, Method: "DELETE", Path: "/api/tasks/hello world"},
+		{Kind: CallAPI, Method: "DELETE", Path: "/api/tasks/a\x00b"},
+		{Kind: CallAPI, Method: "DELETE", Path: "/api//tasks/T-1"},
+		{Kind: CallAPI, Method: "DELETE", Path: "/api/tasks/../board"},
+		{Kind: CallAPI, Method: "BREW", Path: "/api/tasks/T-1"},
+		{Kind: CallAPI, Method: "GET HTTP/1.1", Path: "/api/tasks"},
+	} {
+		if _, err := f.svc.Propose(context.Background(), f.reeve, "x", []ChangeCall{call}); err == nil {
+			t.Errorf("%s %q was accepted", call.Method, call.Path)
+		}
+	}
+	if _, err := f.svc.Propose(context.Background(), f.reeve, "ok", []ChangeCall{{Kind: CallAPI, Method: "PATCH", Path: "/api/tasks/T-1?x=1"}}); err != nil {
+		t.Fatalf("a plain call was refused: %v", err)
+	}
+}
+
+// An answer that redirects is not a success: the call did not happen.
+func TestARedirectedCallFails(t *testing.T) {
+	f := newChangeSetFixture(t)
+	ctx := context.Background()
+	f.svc.opts.Run = func(context.Context, string, string, []byte) (int, string, error) { return 301, "", nil }
+	out, err := f.svc.Propose(ctx, f.reeve, "move", []ChangeCall{{Kind: CallAPI, Method: "DELETE", Path: "/api/tasks/T-1"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.decide(t, out.ApprovalID, ApprovalAllow, "")
+	f.svc.RunQueued(ctx)
+	if len(f.notes) != 1 || !strings.Contains(f.notes[0], "1 failed") {
+		t.Fatalf("notes %v", f.notes)
 	}
 }

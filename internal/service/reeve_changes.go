@@ -10,6 +10,7 @@ import (
 	"log"
 	"net/http"
 	"net/url"
+	"path"
 	"sort"
 	"strings"
 	"time"
@@ -236,8 +237,8 @@ func (c *ChangeSetService) Describe(ctx context.Context, reason string, calls []
 			if p.Method == "" {
 				p.Method = "GET"
 			}
-			if !strings.HasPrefix(call.Path, "/api/") {
-				return details, fmt.Errorf("call %d: %q is not a route of Legato's API", i+1, call.Path)
+			if err := checkAPICall(p.Method, call.Path); err != nil {
+				return details, fmt.Errorf("call %d: %w", i+1, err)
 			}
 			p.Class, p.Description = c.opts.Classify(p.Method, call.Path)
 			if why := c.decidesApproval(ctx, p.Method, call.Path); why != "" {
@@ -526,6 +527,9 @@ func (c *ChangeSetService) run(ctx context.Context, set store.ReeveChangeSet, no
 				results[i].State, results[i].Detail, failed = "failed", err.Error(), true
 			case status >= 400:
 				results[i].State, results[i].Detail, failed = "failed", clip(strings.TrimSpace(body), 500), true
+			case status >= 300:
+				// A redirect is not followed: the call did not happen.
+				results[i].State, results[i].Detail, failed = "failed", "the route answered with a redirect", true
 			default:
 				results[i].State, results[i].Detail = "ran", clip(strings.TrimSpace(body), 300)
 			}
@@ -748,4 +752,29 @@ func (c *ChangeSetService) ProposeImport(ctx context.Context, data []byte, by st
 		return ImportOutcome{Skipped: skipped}, err
 	}
 	return ImportOutcome{ID: out.ID, ApprovalID: out.ApprovalID, Level: string(out.Level), Calls: len(calls), Skipped: skipped}, nil
+}
+
+// apiMethods are the methods a change set's API call may use.
+var apiMethods = map[string]bool{"GET": true, "POST": true, "PUT": true, "PATCH": true, "DELETE": true}
+
+// checkAPICall refuses a method or path that is not a plain route of
+// Legato's API: an unknown method, a path that does not parse, has spaces
+// or control characters, or is not in its clean form (no //, . or ..).
+func checkAPICall(method, target string) error {
+	if !apiMethods[method] {
+		return fmt.Errorf("%q is not a method a change may use", method)
+	}
+	for _, r := range target {
+		if r <= ' ' || r == 0x7f {
+			return fmt.Errorf("%q has a space or a control character", target)
+		}
+	}
+	u, err := url.ParseRequestURI(target)
+	if err != nil || u.Scheme != "" || u.Host != "" || u.Fragment != "" {
+		return fmt.Errorf("%q is not a path of Legato's API", target)
+	}
+	if !strings.HasPrefix(u.Path, "/api/") || path.Clean(u.Path) != u.Path {
+		return fmt.Errorf("%q is not a route of Legato's API in its plain form", target)
+	}
+	return nil
 }
