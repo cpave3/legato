@@ -53,6 +53,7 @@ export function QuerySyncProvider({ children }: { children: ReactNode }) {
           break
         case "approvals_changed":
           invalidate(queryKeys.approvals(baseUrl))
+          invalidate(queryKeys.peerApprovals(baseUrl))
           // A decided approval may enroll or remove a device.
           invalidate(queryKeys.devices(baseUrl))
           invalidate(queryKeys.navigationSummary(baseUrl))
@@ -73,14 +74,17 @@ export function QuerySyncProvider({ children }: { children: ReactNode }) {
           break
         case "agents_changed":
           invalidate(queryKeys.jobClones(baseUrl))
+          invalidate(queryKeys.reeve(baseUrl))
           invalidate(queryKeys.navigationSummary(baseUrl))
           invalidate([baseUrl, "board"], false)
           // An agent started in the background began, or failed.
           invalidate(queryKeys.preparingAgents(baseUrl))
           break
         case "settings_changed":
-          // Another browser changed this server's settings: its tint.
+          // Another browser changed this server's settings.
           invalidate(queryKeys.settings(baseUrl))
+          invalidate(queryKeys.configSettings(baseUrl))
+          invalidate(queryKeys.configLists(baseUrl))
           break
         case "update_changed":
           // A check, a new mode, or an update installing: the settings

@@ -93,6 +93,9 @@ type AgentResponse struct {
 	// agent's context window; later changes arrive as agent_context.
 	ContextUsed   int `json:"context_used,omitempty"`
 	ContextWindow int `json:"context_window,omitempty"`
+	// Reeve is true for the agent of this Legato itself, which the Agents
+	// page pins first.
+	Reeve bool `json:"reeve,omitempty"`
 }
 
 func agentResponse(agent service.AgentSession) AgentResponse {
@@ -363,8 +366,10 @@ func (s *Server) agentsHandler() http.HandlerFunc {
 
 		resp := make([]AgentResponse, len(agents))
 		var native []string
+		reeveTask := s.reeveTaskID(r.Context())
 		for i, a := range agents {
 			r := agentResponse(a)
+			r.Reeve = reeveTask != "" && a.TaskID == reeveTask
 			r.Unsandboxed = s.sandboxEnabled && !a.Sandboxed
 			if d, ok := durations[a.TaskID]; ok {
 				r.WorkingSeconds = d.Working.Seconds()

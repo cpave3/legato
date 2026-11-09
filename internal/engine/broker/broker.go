@@ -159,15 +159,29 @@ func (s *Server) serve(conn net.Conn) {
 	_, _ = conn.Write(append(line, '\n'))
 }
 
+// Wait is how long a call waits for a broker to answer at its socket: Legato
+// restarting is away for a few seconds, and an agent's tool call made then
+// should wait rather than fail. Only connecting is retried; a request the
+// broker received is never sent twice.
+var Wait = 30 * time.Second
+
+// retryEvery is the pause between attempts to connect.
+const retryEvery = 200 * time.Millisecond
+
+type noWaitKey struct{}
+
+// WithoutWaiting makes a call give up at once when no broker answers, for a
+// caller that has another way to do the work (the store, outside the
+// sandbox).
+func WithoutWaiting(ctx context.Context) context.Context {
+	return context.WithValue(ctx, noWaitKey{}, true)
+}
+
 // Call sends one request to the broker at socket and reads its reply into
-// result (when not nil). It gives up after Timeout unless ctx says
-// otherwise, with ErrUnreachable.
+// result (when not nil). While no broker answers at socket, it tries again
+// for up to Wait (or until ctx ends); then the exchange itself gives up after
+// Timeout unless ctx says otherwise. Both failures are ErrUnreachable.
 func Call(ctx context.Context, socket, token, op string, args, result any) error {
-	if _, ok := ctx.Deadline(); !ok {
-		var cancel context.CancelFunc
-		ctx, cancel = context.WithTimeout(ctx, Timeout)
-		defer cancel()
-	}
 	var raw json.RawMessage
 	if args != nil {
 		b, err := json.Marshal(args)
@@ -176,12 +190,16 @@ func Call(ctx context.Context, socket, token, op string, args, result any) error
 		}
 		raw = b
 	}
-	var d net.Dialer
-	conn, err := d.DialContext(ctx, "unix", socket)
+	conn, err := dial(ctx, socket)
 	if err != nil {
 		return fmt.Errorf("%w: %v", ErrUnreachable, err)
 	}
 	defer conn.Close()
+	if _, ok := ctx.Deadline(); !ok {
+		var cancel context.CancelFunc
+		ctx, cancel = context.WithTimeout(ctx, Timeout)
+		defer cancel()
+	}
 	if deadline, ok := ctx.Deadline(); ok {
 		_ = conn.SetDeadline(deadline)
 	}
@@ -212,4 +230,32 @@ func Call(ctx context.Context, socket, token, op string, args, result any) error
 		return json.Unmarshal(out.Result, result)
 	}
 	return nil
+}
+
+// dial connects to socket, trying again while nothing listens there, for up
+// to Wait unless ctx ends first or says not to wait.
+func dial(ctx context.Context, socket string) (net.Conn, error) {
+	wait := Wait
+	if noWait, _ := ctx.Value(noWaitKey{}).(bool); noWait {
+		wait = 0
+	}
+	giveUp := time.Now().Add(wait)
+	for {
+		attempt, cancel := context.WithTimeout(ctx, Timeout)
+		var d net.Dialer
+		conn, err := d.DialContext(attempt, "unix", socket)
+		cancel()
+		if err == nil {
+			return conn, nil
+		}
+		left := time.Until(giveUp)
+		if ctx.Err() != nil || left <= 0 {
+			return nil, err
+		}
+		select {
+		case <-ctx.Done():
+			return nil, err
+		case <-time.After(min(retryEvery, left)):
+		}
+	}
 }

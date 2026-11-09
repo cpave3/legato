@@ -3,6 +3,9 @@ import { QueryClient } from "@tanstack/react-query"
 export const queryKeys = {
   jobClones: (baseUrl: string) => [baseUrl, "job-clones"] as const,
   settings: (baseUrl: string) => [baseUrl, "settings"] as const,
+  configSettings: (baseUrl: string) => [baseUrl, "config-settings"] as const,
+  configLists: (baseUrl: string) => [baseUrl, "config-lists"] as const,
+  reeve: (baseUrl: string) => [baseUrl, "reeve"] as const,
   navigationSummary: (baseUrl: string) => [baseUrl, "navigation-summary"] as const,
   board: (baseUrl: string, workspace?: string) => [baseUrl, "board", workspace ?? ""] as const,
   task: (baseUrl: string, taskId: string) => [baseUrl, "task", taskId] as const,
@@ -13,6 +16,7 @@ export const queryKeys = {
   plan: (baseUrl: string, planId: string) => [baseUrl, "plan", planId] as const,
   attention: (baseUrl: string) => [baseUrl, "attention"] as const,
   approvals: (baseUrl: string) => [baseUrl, "approvals"] as const,
+  peerApprovals: (baseUrl: string) => [baseUrl, "peer-approvals"] as const,
   devices: (baseUrl: string) => [baseUrl, "devices"] as const,
   workflowDefinitions: (baseUrl: string) => [baseUrl, "workflow-definitions"] as const,
   workflowRuns: (baseUrl: string) => [baseUrl, "workflow-runs"] as const,

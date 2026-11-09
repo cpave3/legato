@@ -253,3 +253,51 @@ func TestAnIdentityAgentInSSHConfigIsWarnedAbout(t *testing.T) {
 		t.Errorf("no ssh: %q", got)
 	}
 }
+
+func TestAProxyOnPortZeroKeepsItsPortAcrossARestart(t *testing.T) {
+	db := channelsTestDB(t)
+	first, err := listenProxy(context.Background(), db, "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	port := first.Addr().(*net.TCPAddr).Port
+	first.Close()
+
+	again, err := listenProxy(context.Background(), db, "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer again.Close()
+	if got := again.Addr().(*net.TCPAddr).Port; got != port {
+		t.Fatalf("port after the restart = %d, want %d", got, port)
+	}
+}
+
+func TestAProxyWhoseRememberedPortIsTakenGetsAnother(t *testing.T) {
+	db := channelsTestDB(t)
+	first, _ := listenProxy(context.Background(), db, "127.0.0.1:0")
+	defer first.Close() // still held: the remembered port is busy
+	other, err := listenProxy(context.Background(), db, "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer other.Close()
+	if other.Addr().(*net.TCPAddr).Port == first.Addr().(*net.TCPAddr).Port {
+		t.Fatal("same port twice")
+	}
+}
+
+func TestAProxyWithAFixedPortUsesIt(t *testing.T) {
+	db := channelsTestDB(t)
+	probe, _ := net.Listen("tcp", "127.0.0.1:0")
+	fixed := probe.Addr().String()
+	probe.Close()
+	ln, err := listenProxy(context.Background(), db, fixed)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+	if ln.Addr().String() != fixed {
+		t.Fatalf("listening at %s, want %s", ln.Addr(), fixed)
+	}
+}

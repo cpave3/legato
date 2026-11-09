@@ -40,7 +40,7 @@ func TestTheHostRunsAForwardedCommandAsTheSession(t *testing.T) {
 	}
 	t.Cleanup(func() { _ = os.RemoveAll(work) })
 	scratch := t.TempDir()
-	op := cliRunOp(fakeLegato(t), service.SandboxScratch{Root: scratch, RuntimeDir: runtime})
+	op := cliRunOp(fakeLegato(t), service.SandboxScratch{Root: scratch, RuntimeDir: runtime}, nil)
 	raw, _ := json.Marshal(map[string]any{
 		"args": []string{"plan", "submit", "/tmp/bundle", "--file=/tmp/a.md", "--task", "t1"},
 		"cwd":  work, "stdin": []byte("from stdin"),
@@ -86,7 +86,7 @@ func TestOnlyAgentCommandsAreForwarded(t *testing.T) {
 func TestASandboxedCommandRunsOnTheHostThroughTheBroker(t *testing.T) {
 	db, _, _, token := brokerFixture(t)
 	runtime := shortDir(t)
-	ops := map[string]cli.BrokerOp{"cli.run": cliRunOp(fakeLegato(t), service.SandboxScratch{Root: filepath.Join(runtime, "scratch"), RuntimeDir: runtime})}
+	ops := map[string]cli.BrokerOp{"cli.run": cliRunOp(fakeLegato(t), service.SandboxScratch{Root: filepath.Join(runtime, "scratch"), RuntimeDir: runtime}, nil)}
 	host := startBrokerHost(context.Background(), db, shortDir(t), brokerHostOptions{Deps: cli.BrokerDeps{Ops: ops}})
 	t.Cleanup(host.Stop)
 	t.Setenv("LEGATO_SANDBOXED", "1")
@@ -100,5 +100,26 @@ func TestASandboxedCommandRunsOnTheHostThroughTheBroker(t *testing.T) {
 	// A host-only command is not forwarded, and cannot open the store here.
 	if code := runCLI([]string{"device", "list"}); code == 0 {
 		t.Fatal("device list ran in the sandbox")
+	}
+}
+
+// The Reeve's session runs only commands that read; a change goes to the
+// person through the legato tool or propose_changes.
+func TestTheReevesSessionRunsOnlyReadCommandsThroughTheBroker(t *testing.T) {
+	op := cliRunOp(fakeLegato(t), service.SandboxScratch{Root: t.TempDir(), RuntimeDir: t.TempDir()},
+		func(_ context.Context, taskID string) bool { return taskID == "rv-1" })
+	run := func(taskID string, args ...string) error {
+		raw, _ := json.Marshal(map[string]any{"args": args})
+		_, err := op(context.Background(), cli.BrokerCaller{TaskID: taskID, ExecutionID: "ex-1"}, raw)
+		return err
+	}
+	if err := run("rv-1", "task", "update", "other", "--title", "Bypassed"); err == nil || !strings.Contains(err.Error(), "propose_changes") {
+		t.Fatalf("a change from the Reeve ran: %v", err)
+	}
+	if err := run("rv-1", "task", "show", "other"); err != nil {
+		t.Fatalf("a read from the Reeve was refused: %v", err)
+	}
+	if err := run("t1", "task", "update", "t1", "--title", "Fine"); err != nil {
+		t.Fatalf("another agent's change was refused: %v", err)
 	}
 }

@@ -35,6 +35,19 @@ type Server struct {
 	terminal                 TerminalAttacher
 	bus                      *events.Bus
 	updates                  UpdateService
+	restart                  func()
+	routes                   []string // every pattern the mux was given
+	settingsRegistry         SettingsRegistry
+	reeve                    ReeveSessions
+	reeveRules               ReeveRuleProposer
+	reeveChangeSets          ReeveChangeSets
+	reeveSecrets             ReeveSecretKeeper
+	reevePeers               ReevePeers
+	peerApprovals            peerApprovalCache
+	mainReeve                MainReeveScope
+	settingsMover            SettingsMover
+	settingsImporter         SettingsImporter
+	moveRestart              func()
 	addr                     string
 	workDir                  string // default CWD for agent spawn
 	directories              DirectoryService
@@ -139,7 +152,7 @@ func NewWithSwarm(board service.BoardService, agents service.AgentService, tmux 
 		s.NotifyAgentChanged(agentID)
 	}
 	sm.onAgentActivityChanged = s.NotifyAgentChanged
-	mux := http.NewServeMux()
+	mux := newRouteMux()
 	mux.HandleFunc("/health", healthHandler())
 	mux.HandleFunc("/frontend-meta", frontendMetaHandler())
 	mux.HandleFunc("/api/meta", s.mobileMetaHandler())
@@ -180,6 +193,14 @@ func NewWithSwarm(board service.BoardService, agents service.AgentService, tmux 
 	mux.HandleFunc("/api/updates", s.updatesHandler())
 	mux.HandleFunc("/api/updates/check", s.updateCheckHandler())
 	mux.HandleFunc("/api/updates/apply", s.updateApplyHandler())
+	mux.HandleFunc("/api/restart", s.restartHandler())
+	mux.HandleFunc("/api/config/settings", s.configSettingsHandler())
+	mux.HandleFunc("/api/config/settings/{key}", s.configSettingHandler())
+	mux.HandleFunc("/api/config/lists", s.configListsHandler())
+	mux.HandleFunc("/api/config/move", s.configMoveHandler())
+	mux.HandleFunc("/api/config/export", s.configExportHandler())
+	mux.HandleFunc("/api/config/import", s.configImportHandler())
+	mux.HandleFunc("/api/config/lists/{list}/{name}", s.configListEntryHandler())
 	mux.HandleFunc("/api/updates/tools/{name}/apply", s.updateToolApplyHandler())
 	mux.HandleFunc("/api/hot-reload/build", s.hotReloadBuildHandler())
 	mux.HandleFunc("/api/navigation-summary", s.navigationSummaryHandler())
@@ -315,12 +336,15 @@ func NewWithSwarm(board service.BoardService, agents service.AgentService, tmux 
 	s.registerIntegrationRoutes(mux)
 	s.registerInstanceRoutes(mux)
 	s.registerBurnliteRoutes(mux)
+	s.registerReeveRoutes(mux)
+	s.registerReevePeerRoutes(mux)
 
 	// SPA fallback — serve embedded frontend for all non-API paths.
 	if fsys := static.DistFS(); fsys != nil {
 		mux.HandleFunc("/", spaHandler(fsys))
 	}
 
+	s.routes = mux.patterns
 	s.server = &http.Server{
 		Addr: addr,
 		// CORS outside the token check: a refusal reaches another origin's
@@ -500,6 +524,10 @@ func (s *Server) authMiddleware(next http.Handler) http.Handler {
 			token := strings.TrimPrefix(auth, "Bearer ")
 			if subtle.ConstantTimeCompare([]byte(token), []byte(s.authToken)) == 1 {
 				next.ServeHTTP(w, r)
+				return
+			}
+			if strings.HasPrefix(token, service.ReeveTokenPrefix) {
+				s.serveReeveToken(w, r, next, token)
 				return
 			}
 			if s.integrationAuth != nil && strings.HasPrefix(token, service.IntegrationTokenPrefix) {

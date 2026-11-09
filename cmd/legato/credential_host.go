@@ -42,7 +42,7 @@ func credentialFromHost(name, operation, resource string) (cli.CredentialValueRe
 	ctx, cancel := context.WithTimeout(context.Background(), credentialHostTimeout)
 	defer cancel()
 	var result cli.CredentialValueResult
-	err := broker.Call(ctx, socket, token, "credential.value", map[string]string{"credential": name, "operation": operation, "resource": resource}, &result)
+	err := broker.Call(fallbackCtx(ctx), socket, token, "credential.value", map[string]string{"credential": name, "operation": operation, "resource": resource}, &result)
 	var refused *broker.Error
 	switch {
 	case err == nil:

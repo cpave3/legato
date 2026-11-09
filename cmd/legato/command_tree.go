@@ -151,6 +151,16 @@ func commandTree() *commandDef {
 		),
 	)
 
+	configGroup := group("config", "Show Legato's settings and where each comes from", []string{"legato config show --sources"},
+		leaf("show", "Print the effective settings: config.yaml, then those kept in the database", runConfigShowCmd, nil,
+			[]commandFlag{boolFlag("sources", "Say where each value comes from: default, config.yaml (pinned) or set here"), jsonFlag},
+			"legato config show", "legato config show --sources"),
+		leaf("export", "Write the settings set in the database as YAML shaped like config.yaml", runConfigExportCmd, nil,
+			[]commandFlag{boolFlag("pinned", "Include the settings config.yaml pins")},
+			"legato config export > settings.yaml", "legato config export --pinned"),
+		leaf("import", "Turn a file written by legato config export into one change set to approve", runConfigImportCmd, nil,
+			[]commandFlag{jsonFlag}, "legato config import settings.yaml"),
+	)
 	workspace := group("workspace", "Discover task workspaces", []string{"legato workspace list"},
 		leaf("list", "List configured workspaces", func(a []string) int { return runWorkspaceContract(append([]string{"list"}, a...)) },
 			nil, []commandFlag{valueFlag("format", "text|json", "Output format"), jsonFlag}, "legato workspace list"),
@@ -385,6 +395,8 @@ func commandTree() *commandDef {
 		task, workspace, clone, resource, secret, credentialGroup, device, integration, audit, columns, agent, plan, review, reviewPass, workflow, swarm, attention, learn, hooks, mcp,
 		leaf("serve", "Run the Legato web server", runServeCmd, nil, []commandFlag{valueFlag("port", "port", "Listening port"), boolFlag("hot-reload", "Supervise this foreground server and restart after binary replacement")}, "legato serve --port 3080", "legato --hot-reload serve --port 3080"),
 		authGroup,
+		configGroup,
+		leaf("restart", "Restart every Legato process of this instance in place", runRestartCmd, nil, []commandFlag{jsonFlag}, "legato restart"),
 		leaf("version", "Print the version of this Legato", runVersionCmd, nil, []commandFlag{jsonFlag}, "legato version", "legato version --json"),
 		leaf("pair", "Pair a device, or a main instance, with the Legato web UI", runPairContract, nil, []commandFlag{valueFlag("host", "host|ip", "Address this device uses to reach this specific Legato instance"), valueFlag("port", "port", "Server port"), boolFlag("main", "Pair a main instance that hands tasks to this Legato, instead of a phone"), jsonFlag}, "legato pair --host 192.168.1.20", "legato pair --main"),
 	)

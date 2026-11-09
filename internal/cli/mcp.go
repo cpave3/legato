@@ -54,6 +54,9 @@ type MCPOptions struct {
 	// Reviews takes a reviewer's result. submit_review is offered only with
 	// it, and only to a session in a task's reviewer slot.
 	Reviews MCPReviews
+	// Reeve serves the Reeve's own tools (docs, instance_status, read_logs,
+	// legato_api), offered only to a session of the Reeve.
+	Reeve *MCPReeve
 }
 
 // LibrettoProbe asks the installed libretto what it can do.
@@ -141,7 +144,7 @@ func MCPToolNames() []string {
 	}
 	// request_access is offered only with credentials and reply_case only
 	// with an integration; they are named always.
-	for _, always := range []string{"request_access", "reply_case", "submit_review"} {
+	for _, always := range []string{"request_access", "reply_case", "submit_review", "docs", "instance_status", "read_logs", "legato_api", "propose_changes", "restart_legato", "propose_config_edit", "request_secret", "legato", "host_shell", "edit_file", "manage_service", "message_reeve"} {
 		if !listHasName(names, always) {
 			names = append(names, always)
 		}
@@ -193,6 +196,9 @@ func (m *mcpTools) all() []mcpserver.Tool {
 	}
 	if m.reviewerSession() {
 		tools = append(tools, m.submitReview())
+	}
+	if m.reeveSession() {
+		tools = append(tools, m.reeveTools()...)
 	}
 	return tools
 }

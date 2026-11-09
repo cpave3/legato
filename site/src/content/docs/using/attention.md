@@ -22,6 +22,9 @@ Attention lists only what you can act on. Each item comes from the part of Legat
 | Approvals | An agent's request waits for your answer. See [Approvals](#approvals). |
 | Devices | Someone ran `legato device reset`. |
 | Argus | [Argus](/legato/integrations/argus/) has an open case on one of your pull requests. |
+| Settings | You changed settings that take effect only when Legato restarts. **Restart Legato** restarts it. |
+| Moving settings | Once, after the upgrade: settings set in `config.yaml` that can move into the database, so they can be changed from Settings. **Choose what to move** opens the list. |
+| Restarts | A restart of Legato failed (its configuration did not load, or it was not answering in time) and was rolled back to the configuration from before. See [Updates](/legato/running/updates/#restarting-legato-yourself). |
 | Updates | A new release of Legato is ready to install, or an install failed. See [Updates](/legato/running/updates/). |
 | Integrations | In the last 7 days, a request from Argus did not reach an agent, a reply never reached Argus, or Argus refused the connection. |
 | Handoff | On a main instance: a task [away on a worker](/legato/using/handoff/) is done there (Ready for review, with **Return**), failed (with **Recall**) or was lost (with **Take back**); its review passes are stuck (with **Return as is**, **Run another pass**, **Message the author** and **Recall**); a worker no longer accepts your main (**Pair again**) or has been unreachable for 15 minutes. A task whose agent needs you raises nothing on your main: the worker tells you. See [Attention and notifications](/legato/using/handoff/#attention-and-notifications). |
@@ -31,6 +34,8 @@ Some things never raise Attention: a draft, closed or merged pull request; CI th
 ### Acting on an item
 
 Most items have a main action, such as approving a plan, allowing an agent's request, returning a task from a worker, or opening the review. An action that cannot be undone, such as taking a task back without its results, asks you to confirm first. Others take you to the page where you act. An item about a task, such as a pull request that cannot merge, opens the board with that task selected, in the Away lane when the task is [away on a worker](/legato/using/handoff/#pull-requests-while-away).
+
+In the web UI each item also has **Ask the Reeve**, which starts the [Reeve](/legato/using/reeve/) with what the item is about, so it can find out what is wrong.
 
 You can also dismiss an item. Dismissing hides that item as it is now. If its source changes (the pull request fails CI again, the agent asks something new), the item comes back.
 
@@ -65,6 +70,8 @@ Legato raises approvals for agents it talks to natively: Claude Code and Codex t
 ### Answering in the web UI
 
 While approvals wait, a tray at the bottom right of every page shows them as cards. Each says which agent asks, what it would do, and its options. **Deny** takes a note for the agent. A question shows its options, and you can type an answer of your own. The tray folds to a count and opens again when a new approval arrives.
+
+The tray also lists the [Reeve](/legato/using/reeve/)'s change sets that wait on instances this one is paired with, marked with the instance. They are decided there, with a device enrolled there: **◈ Approve on legato-1** opens that instance's page on the change set, and **Open legato-1 ↗** opens its page.
 
 ### Focus mode
 
@@ -111,4 +118,6 @@ notifications:
 
 ### Approvals that need your phone
 
-Some decisions are signed: only you, at an enrolled phone or with a passkey on your computer, can allow them. An agent that has the web token still cannot. The TUI and Attention can deny a signed approval but not allow it, and say to use your phone. Which credential requests need a signature is set by the credential's rules; see [The credential broker](/legato/security/credential-broker/).
+The Reeve's change sets are approvals too: one per step, at the level of its riskiest change. See [The Reeve](/legato/using/reeve/).
+
+Some decisions are signed: only you, at an enrolled phone or with a passkey on your computer, can allow them. An agent that has the web token still cannot. The TUI and Attention can deny a signed approval but not allow it, and say to use your phone. Some also need a verification: a fingerprint or a PIN on the device, not only a touch of a security key; such an approval refuses a touch alone. Which credential requests need a signature is set by the credential's rules; see [The credential broker](/legato/security/credential-broker/).

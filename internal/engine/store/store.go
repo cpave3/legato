@@ -347,7 +347,59 @@ func prepareMigration(queryer migrationQueryer, name, migrationSQL string) (stri
 			return "", nil
 		}
 	}
-	if name == "075_agent_session_sandboxed.sql" {
+	if name == "103_reeve_peers.sql" {
+		var n int
+		if err := queryer.Get(&n, `SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'integration_tokens'`); err != nil {
+			return "", err
+		}
+		if n == 0 {
+			migrationSQL = strings.Replace(migrationSQL, `UPDATE integration_tokens SET scopes = '["handoff","reeve"]' WHERE kind = 'main' AND scopes = '["handoff"]';`, "", 1)
+		}
+	}
+	if name == "101_reeve.sql" {
+		var n int
+		if err := queryer.Get(&n, `SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'tasks'`); err != nil {
+			return "", err
+		}
+		if n == 0 {
+			migrationSQL = strings.Replace(migrationSQL, "ALTER TABLE tasks ADD COLUMN kind TEXT NOT NULL DEFAULT '';", "", 1)
+		}
+	}
+	if name == "100_approval_verified.sql" {
+		// A legacy database built in part may lack either table.
+		var kept []string
+		for _, statement := range strings.SplitAfter(migrationSQL, ";\n") {
+			table := ""
+			if strings.Contains(statement, "ALTER TABLE approval_requests") {
+				table = "approval_requests"
+			} else if strings.Contains(statement, "ALTER TABLE credential_audit") {
+				table = "credential_audit"
+			}
+			if table != "" {
+				var n int
+				if err := queryer.Get(&n, `SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = ?`, table); err != nil {
+					return "", err
+				}
+				if n == 0 {
+					continue
+				}
+			}
+			kept = append(kept, statement)
+		}
+		migrationSQL = strings.Join(kept, "")
+	}
+	if name == "098_settings.sql" {
+		// A legacy database built in part may have no instance values to
+		// move: the table is made, and nothing is copied.
+		var tables int
+		if err := queryer.Get(&tables, `SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'instance_values'`); err != nil {
+			return "", err
+		}
+		if tables == 0 {
+			migrationSQL = migrationSQL[:strings.Index(migrationSQL, "-- The tint, the update mode")]
+		}
+	}
+	if name == "075_agent_session_sandboxed.sql" || name == "097_agent_native_off.sql" {
 		var tables int
 		if err := queryer.Get(&tables, `SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'agent_sessions'`); err != nil {
 			return "", err

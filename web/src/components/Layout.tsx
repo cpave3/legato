@@ -59,7 +59,7 @@ export function Layout() {
         </div>
       )}
       {!updateRequired && <UpdateNotice status={settings?.updates} baseUrl={baseUrl} />}
-      {((summary?.approvals ?? 0) > 0 || focusMode) && <ApprovalTray />}
+      {((summary?.approvals ?? 0) > 0 || (summary?.peer_approvals ?? 0) > 0 || focusMode) && <ApprovalTray />}
       {notificationsSupported() && <ApprovalNotifier />}
       <OfflineDialog />
       <PlanApprovalModal />

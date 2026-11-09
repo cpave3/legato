@@ -80,4 +80,21 @@ describe("Board provider sync", () => {
 
     await waitFor(() => expect(addToast).toHaveBeenCalledWith("Provider sync failed — Burnlite: Burnlite refused Legato's tokens", "error"))
   })
+
+  it("keeps a failed sync on the board, with Ask the Reeve, until the next one works", async () => {
+    mockFetch.mockResolvedValue({
+      ok: true,
+      status: 200,
+      json: async () => ({ jira: { status: "failed", error: "Jira answered 401" } }),
+    })
+    render(<MemoryRouter><AgentSelectionProvider><BoardPage /></AgentSelectionProvider></MemoryRouter>)
+    fireEvent.click(screen.getByRole("button", { name: "Sync providers" }))
+    const note = await screen.findByTestId("sync-failure")
+    expect(note.textContent).toContain("Jira answered 401")
+    expect(screen.getByRole("button", { name: "Ask the Reeve" })).toBeTruthy()
+
+    mockFetch.mockResolvedValue({ ok: true, status: 200, json: async () => ({ jira: { status: "completed" } }) })
+    fireEvent.click(screen.getByRole("button", { name: "Sync providers" }))
+    await waitFor(() => expect(screen.queryByTestId("sync-failure")).toBeNull())
+  })
 })

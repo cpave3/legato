@@ -302,6 +302,25 @@ describe("NativeAgentPanel", () => {
     expect(screen.getByLabelText("Message from Legato: review")).not.toBeNull()
   })
 
+  it("shows another instance's Reeve's message as its own block, marked with the instance", async () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => String(input).includes("/snapshot")
+      ? new Response(JSON.stringify({
+          id: "task-1", status: "idle", toolCalls: [], pendingPermissions: [],
+          messages: [
+            { role: "system", content: "" },
+            { role: "user", content: "[from the Reeve on vm-1 · worker] Jira answered 401 here too." },
+          ],
+        }), { status: 200 })
+      : new Response("[]", { status: 200 }))
+
+    render(<NativeAgentPanel agentId="task-1" agentKind="claude-code" />)
+
+    const block = await screen.findByLabelText("Message from the Reeve on vm-1")
+    expect(block.textContent).toContain("From the Reeve on vm-1 · worker")
+    expect(within(block).getByText("Jira answered 401 here too.")).not.toBeNull()
+    expect(block.className).toContain("border-l-[#8b5cf6]")
+  })
+
   it("sets another agent's messages apart from Legato's and from what the person typed", async () => {
     const footer = "\n\n---\nAgent-to-agent message from `pm4d4m4e`. Reply with `legato agent message pm4d4m4e \"<reply>\"`."
     vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => String(input).includes("/snapshot")

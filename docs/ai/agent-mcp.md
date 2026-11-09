@@ -55,6 +55,10 @@ A swarm worker's own identity is its sub-task, which has no description or notes
 
 **Schemas.** Tool input schemas are inferred from Go structs. Go slices and pointers infer as "this type or null"; `internal/engine/mcpserver` rewrites those to the type alone, because a tool's schema is passed on to model providers and several of those reject a property that names two types.
 
+### The Reeve's tools
+
+A session of the Reeve (a task of kind `reeve`) also gets `docs`, `instance_status`, `read_logs`, `legato_api`, `propose_changes`, `restart_legato`, `propose_config_edit`, `request_secret` and `legato` (`internal/cli/mcp_reeve.go`, `MCPOptions.Reeve`, wired by `reeveTools` in `cmd/legato/reeve_runtime.go`). Every other session is offered none of them, and each call checks the session again. `MCPToolNames` names them, so an agent tool can be told to run them without asking. See [The Reeve](reeve.md) § What it knows.
+
 ## How each agent gets the server
 
 `agents.mcp.enabled` (default `true`) turns injection on for all three adapters, in `configuredAdapters`.

@@ -24,7 +24,15 @@ func recoverNativeEndpoints(agents service.AgentService) {
 	}
 	go func() {
 		ctx, cancel := context.WithTimeout(context.Background(), nativeRecoveryTimeout)
-		defer cancel()
 		recoverer.RecoverNativeEndpoints(ctx)
+		cancel()
+		// With the endpoints bound again, launch messages a restart
+		// interrupted go out over them, with a budget of their own: a slow
+		// scan above does not use it up.
+		if resumer, ok := agents.(service.LaunchMessageResumer); ok {
+			ctx, cancel := context.WithTimeout(context.Background(), nativeRecoveryTimeout)
+			defer cancel()
+			resumer.ResumeLaunchMessages(ctx)
+		}
 	}()
 }

@@ -186,3 +186,39 @@ func TestRecoveryLeavesFinishedAgentsAlone(t *testing.T) {
 		t.Fatalf("recovered %d agents, want none", recovered)
 	}
 }
+
+// An agent switched to its terminal on purpose stays there across a
+// restart, though its bridge still runs; upgrading it again binds it.
+func TestADeliberateDowngradeToTmuxSurvivesARestart(t *testing.T) {
+	t.Setenv("XDG_RUNTIME_DIR", t.TempDir())
+	svc, s, _ := newDiscoveryTestService(t)
+	ctx := context.Background()
+	runningAgent(t, s, "CODEX-1", "codex")
+	endpoint := nativeEndpoint(t, "CODEX-1", "CODEX-1")
+	if err := codexbridge.WriteLockfile(ipc.SocketDir(), "CODEX-1", codexbridge.Lockfile{SessionID: "CODEX-1", URL: endpoint}); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.DiscoverChimera(ctx, "CODEX-1"); err != nil {
+		t.Fatal(err)
+	}
+	session, _ := s.GetAgentSessionByTaskID(ctx, "CODEX-1")
+
+	downgraded, err := svc.(NativeDowngrader).DowngradeToTmux(ctx, session.ID, "CODEX-1", endpoint)
+	if err != nil || !downgraded {
+		t.Fatalf("DowngradeToTmux = %v, %v", downgraded, err)
+	}
+	if recovered := svc.(NativeEndpointRecoverer).RecoverNativeEndpoints(ctx); recovered != 0 {
+		t.Fatalf("recovered %d agents, want the downgraded one left alone", recovered)
+	}
+	if _, bound := binding(t, s, "CODEX-1"); bound != "" {
+		t.Fatalf("bound again to %q after a restart", bound)
+	}
+
+	// The person upgrades it again: it is native, and stays so.
+	if err := svc.DiscoverChimera(ctx, "CODEX-1"); err != nil {
+		t.Fatal(err)
+	}
+	if after, _ := s.GetAgentSessionByTaskID(ctx, "CODEX-1"); after.NativeOff {
+		t.Fatal("still marked as kept on tmux after an upgrade")
+	}
+}

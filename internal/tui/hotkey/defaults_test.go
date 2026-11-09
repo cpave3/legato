@@ -39,7 +39,7 @@ func TestNoKeyStartsAWebServer(t *testing.T) {
 	ctx := Context{Page: PageBoard, Capabilities: NewCapabilities(
 		CapabilityWorktrees, CapabilitySwarm, CapabilityVoice, CapabilityNotifications,
 		CapabilityReview, CapabilityPlans, CapabilityAttention, CapabilitySync, CapabilityPR,
-		CapabilityAgentUI, CapabilityApprovals,
+		CapabilityAgentUI, CapabilityApprovals, CapabilityReeve,
 	)}
 	if binding, ok := DefaultRegistry().Resolve(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'W'}}, ctx); ok {
 		t.Fatalf("W on the board runs %s", binding.ID)

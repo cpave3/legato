@@ -3,6 +3,7 @@ package setup
 import (
 	"bufio"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"strings"
@@ -39,6 +40,20 @@ type WizardOption func(*wizardOpts)
 
 type wizardOpts struct {
 	configPath string
+	settings   SettingsSink
+}
+
+// SettingsSink keeps what the wizard is told in Legato's database: settings
+// by key (JSON values), and the Jira token as a secret, by name.
+type SettingsSink interface {
+	SetSetting(ctx context.Context, key string, raw []byte) error
+	StoreSecret(ctx context.Context, name, value string) (ref string, err error)
+}
+
+// WithSettings saves Jira's settings to the database through sink instead
+// of writing config.yaml.
+func WithSettings(sink SettingsSink) WizardOption {
+	return func(o *wizardOpts) { o.settings = sink }
 }
 
 // WithConfigPath sets the config file path for Jira setup.
@@ -85,7 +100,7 @@ func RunWizard(ctx context.Context, out io.Writer, in io.Reader, store ColumnSee
 	answer := strings.ToLower(readLine())
 
 	if answer != "y" && answer != "yes" {
-		fmt.Fprintln(out, "Running in local-only mode. You can configure Jira later in config.yaml.")
+		fmt.Fprintln(out, "Running in local-only mode. You can configure Jira later in Settings.")
 		fmt.Fprintln(out)
 		fmt.Fprintln(out, "Launching Legato...")
 		return nil
@@ -166,6 +181,16 @@ func RunWizard(ctx context.Context, out io.Writer, in io.Reader, store ColumnSee
 		return err
 	}
 
+	if o.settings != nil {
+		if err := saveJira(ctx, o.settings, baseURL, email, token, selectedProject.Key); err != nil {
+			return fmt.Errorf("saving Jira's settings: %w", err)
+		}
+		fmt.Fprintln(out, "  Jira's settings are saved in Legato's database, and the token in its secret store.")
+		fmt.Fprintln(out)
+		fmt.Fprintln(out, "Launching Legato...")
+		return nil
+	}
+
 	// Write config file
 	wizCfg := WizardConfig{
 		BaseURL:     baseURL,
@@ -194,6 +219,27 @@ func seedColumns(ctx context.Context, store ColumnSeeder, columns []config.Colum
 		})
 		if err != nil {
 			return fmt.Errorf("creating column %q: %w", col.Name, err)
+		}
+	}
+	return nil
+}
+
+// jiraTokenSecret is the name the wizard keeps the Jira token under.
+const jiraTokenSecret = "jira-api-token"
+
+// saveJira keeps Jira's settings in the database: the token in the secret
+// store, the setting naming it.
+func saveJira(ctx context.Context, sink SettingsSink, baseURL, email, token, project string) error {
+	ref, err := sink.StoreSecret(ctx, jiraTokenSecret, token)
+	if err != nil {
+		return err
+	}
+	for key, value := range map[string]any{
+		"jira.base_url": baseURL, "jira.email": email, "jira.project_keys": []string{project}, "jira.api_token": ref,
+	} {
+		raw, _ := json.Marshal(value)
+		if err := sink.SetSetting(ctx, key, raw); err != nil {
+			return err
 		}
 	}
 	return nil

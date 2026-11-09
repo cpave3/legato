@@ -66,8 +66,8 @@ type NativeEndpointRecoverer interface {
 //   - a binding to an endpoint that is gone, with nothing to replace it, is
 //     cleared, so the agent is shown through its terminal.
 //
-// An agent downgraded to its terminal on purpose is bound again here if its
-// endpoint is still running: Legato keeps no record of the choice.
+// An agent the person switched to its terminal on purpose (native_off) is
+// left there; upgrading it again clears the mark.
 func (a *agentService) RecoverNativeEndpoints(ctx context.Context) int {
 	sessions, err := a.store.ListAgentSessions(ctx)
 	if err != nil {
@@ -75,7 +75,7 @@ func (a *agentService) RecoverNativeEndpoints(ctx context.Context) int {
 	}
 	recovered := 0
 	for _, session := range sessions {
-		if session.Status != "running" {
+		if session.Status != "running" || session.NativeOff {
 			continue
 		}
 		bound := session.ChimeraEndpoint != nil && session.ChimeraSessionID != nil

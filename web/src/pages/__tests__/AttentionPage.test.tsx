@@ -34,6 +34,13 @@ vi.mock("../../lib/attention", () => ({
   dismissAttentionItem: (...args: unknown[]) => mockDismiss(...args),
 }))
 
+const mockStartReeve = vi.fn()
+vi.mock("../../lib/reeve", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../lib/reeve")>()),
+  fetchReeve: () => Promise.resolve({ history: [], folder: "/r" }),
+  startReeve: (...a: unknown[]) => mockStartReeve(...a),
+}))
+
 describe("AttentionPage", () => {
   afterEach(() => cleanup())
   beforeEach(() => {
@@ -269,5 +276,27 @@ describe("AttentionPage", () => {
     mockError = "attention unavailable"
     render(<MemoryRouter><AttentionPage /></MemoryRouter>)
     expect(screen.getByRole("alert").textContent).toContain("attention unavailable")
+  })
+})
+
+describe("AttentionPage: Ask the Reeve", () => {
+  afterEach(() => cleanup())
+  beforeEach(() => {
+    mockLoading = false
+    mockError = null
+  })
+
+  it("starts the Reeve with what the item is, its IDs and its reason", async () => {
+    mockData = [item({ id: "att-sync", producer: "sync", title: "Jira sync failed", reason: "Jira answered 401", task_id: "LEG-3" })]
+    mockStartReeve.mockResolvedValue({ task_id: "rv-1" })
+    const { AttentionPage } = await import("../AttentionPage")
+    render(<MemoryRouter><AttentionPage /></MemoryRouter>)
+    fireEvent.click(await screen.findByRole("button", { name: "Ask the Reeve" }))
+    await waitFor(() => expect(mockStartReeve).toHaveBeenCalled())
+    const brief = mockStartReeve.mock.calls[0][1].brief as string
+    expect(brief).toContain("the Attention item “Jira sync failed”")
+    expect(brief).toContain("- Attention item: att-sync")
+    expect(brief).toContain("- task: LEG-3")
+    expect(brief).toContain("- Error: Jira answered 401")
   })
 })

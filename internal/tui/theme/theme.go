@@ -47,6 +47,9 @@ var (
 	TintBlue  = lipgloss.Color("#1f2433")
 	TintRed   = lipgloss.Color("#3a2228")
 	TintCyan  = lipgloss.Color("#1c2a2e")
+	// The Reeve's violet wash, and the same selected.
+	TintViolet       = lipgloss.Color("#2a2240")
+	TintVioletActive = lipgloss.Color("#342a52")
 
 	AccentPurple    = Accent
 	AccentPurpleAlt = AccentAlt

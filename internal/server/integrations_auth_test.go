@@ -29,6 +29,7 @@ func integrationTestServer(t *testing.T) http.Handler {
 		"lgi_owner":     {Name: "argus", Scopes: []string{service.ScopeOwnerRead}},
 		"lgi_attention": {Name: "argus", Scopes: []string{service.ScopeAttention}},
 		"lgi_all":       {Name: "argus", Scopes: []string{service.ScopeOwnerRead, service.ScopeDelegate, service.ScopeAttention}},
+		"lgi_reeve":     {Name: "laptop", Kind: service.IntegrationKindReevePeer, InstanceID: "srv-0123456789abcdef", Scopes: []string{service.ScopeReeve}},
 	})
 	return srv.Handler()
 }
@@ -71,6 +72,12 @@ func TestAScopedTokenReachesOnlyIntegrationRoutes(t *testing.T) {
 		{"an unknown path under a known one's name is refused", "GET", "/api/integrations/ownership", "lgi_all", 403, "forbidden"},
 		{"the integration root is refused", "GET", "/api/integrations/", "lgi_all", 403, "forbidden"},
 		{"handoff routes need the handoff scope", "POST", "/api/integrations/handoff/handoffs", "lgi_all", 403, "missing_scope"},
+		{"a Reeve's message needs the reeve scope", "POST", "/api/integrations/reeve/messages", "lgi_all", 403, "missing_scope"},
+		{"a Reeve's message with its scope passes auth", "POST", "/api/integrations/reeve/messages", "lgi_reeve", 503, "unavailable"},
+		{"a reeve token reaches nothing else", "POST", "/api/integrations/delegations", "lgi_reeve", 403, "missing_scope"},
+		{"a Reeve's approvals need the reeve scope", "GET", "/api/integrations/reeve/approvals", "lgi_all", 403, "missing_scope"},
+		{"a Reeve's approvals with its scope pass auth", "GET", "/api/integrations/reeve/approvals", "lgi_reeve", 503, "unavailable"},
+		{"a reeve token cannot pair or list peers", "GET", "/api/reeve/peers", "lgi_reeve", 403, "forbidden"},
 		{"the handoff root needs the handoff scope", "GET", "/api/integrations/handoff", "lgi_all", 403, "missing_scope"},
 	} {
 		t.Run(tc.name, func(t *testing.T) {

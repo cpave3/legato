@@ -136,3 +136,13 @@ func giveSessionsBroker(agents service.AgentService, db *store.Store, socket str
 		setter.SetBrokerEnv(service.NewBrokerSessionEnv(db, socket))
 	}
 }
+
+// fallbackCtx is ctx for a broker call that has another way to do its work
+// when no broker answers: outside the sandbox the store is there, so the
+// call does not wait for Legato to come back. In the sandbox it waits.
+func fallbackCtx(ctx context.Context) context.Context {
+	if sandboxed() {
+		return ctx
+	}
+	return broker.WithoutWaiting(ctx)
+}

@@ -48,6 +48,9 @@ const (
 	ActionViewReview       ActionID = "view.reviews"
 	ActionViewPlans        ActionID = "view.plans"
 	ActionViewAttention    ActionID = "view.attention"
+	// ActionOpenReeve opens the Reeve's conversation from anywhere,
+	// starting or resuming its session.
+	ActionOpenReeve ActionID = "view.reeve"
 
 	ActionDetailDown            ActionID = "detail.down"
 	ActionDetailUp              ActionID = "detail.up"
@@ -78,6 +81,8 @@ const (
 	ActionAgentsDetails             ActionID = "agents.details"
 	ActionAgentsNotify              ActionID = "agents.notify"
 	ActionAgentsVoice               ActionID = "agents.voice"
+	// ActionAgentsAskReeve asks the Reeve about the selected agent.
+	ActionAgentsAskReeve ActionID = "agents.ask-reeve"
 	// ActionAgentsOpenShown opens the cards and artifacts the selected agent
 	// showed, which only the web UI can draw.
 	ActionAgentsOpenShown ActionID = "agents.open-shown"
@@ -179,6 +184,9 @@ func DefaultBindings() []Binding {
 	bindings[len(bindings)-1].Precedence = YieldToSpecific
 	add(ActionApprovals, global, TargetRoot, []Key{Rune('!')}, "answer", "Answer pending approvals", "General", 90, 15, FullHelp, CapabilityApprovals)
 	bindings[len(bindings)-1].Precedence = YieldToSpecific
+	// In the agents view R reloads the selected agent.
+	add(ActionOpenReeve, global, TargetRoot, []Key{Rune('R')}, "Reeve", "Open the Reeve", "General", 90, 16, FullHelp, CapabilityReeve)
+	bindings[len(bindings)-1].Precedence = YieldToSpecific
 
 	board := PageScope(PageBoard)
 	add(ActionBoardLeft, board, TargetPage, []Key{Rune('h')}, "left", "Move to previous column", "Navigation", 10, 10, FullHelp)
@@ -213,7 +221,7 @@ func DefaultBindings() []Binding {
 	add(ActionBoardCancelSwarm, board, TargetRoot, []Key{Rune('C')}, "cancel swarm", "Cancel active swarm", "Swarm", 30, 20, FullHelp, CapabilitySwarm)
 	add(ActionBoardToggleEmpty, board, TargetPage, []Key{Rune('z')}, "empty columns", "Open or collapse columns with no cards", "Views", 40, 5, FullHelp|ShortcutBar|BarEnd)
 	add(ActionViewAgents, board, TargetRoot, []Key{Rune('A')}, "agents", "Open agents view", "Views", 40, 10, FullHelp|ShortcutBar|BarEnd)
-	add(ActionViewReport, board, TargetRoot, []Key{Rune('R')}, "reports", "Open reporting view", "Views", 40, 20, FullHelp)
+	add(ActionViewReport, board, TargetRoot, []Key{Rune('T')}, "reports", "Open reporting view", "Views", 40, 20, FullHelp)
 	add(ActionViewReview, board, TargetRoot, []Key{Rune('V')}, "reviews", "Open review tours", "Views", 40, 30, FullHelp, CapabilityReview)
 	add(ActionViewPlans, board, TargetRoot, []Key{Rune('P')}, "plans", "Open implementation plans", "Views", 40, 40, FullHelp, CapabilityPlans)
 	add(ActionViewAttention, board, TargetRoot, []Key{Rune('I')}, "attention", "Open attention inbox", "Views", 40, 50, FullHelp, CapabilityAttention)
@@ -274,6 +282,7 @@ func addPageBindings(bindings *[]Binding, add func(ActionID, Scope, Target, []Ke
 	(*bindings)[len(*bindings)-1].Precedence = YieldToSpecific
 	add(ActionAgentsNotify, agents, TargetPage, []Key{Rune('n')}, "notify", "Toggle notifications", "Agents", 50, 27, FullHelp|ShortcutBar, CapabilityNotifications)
 	add(ActionAgentsVoice, agents, TargetPage, []Key{Rune('v')}, "voice", "Start voice dictation", "Agents", 50, 28, FullHelp|ShortcutBar, CapabilityVoice)
+	add(ActionAgentsAskReeve, agents, TargetPage, []Key{Rune('a')}, "ask Reeve", "Ask the Reeve about the selected agent", "Agents", 50, 30, FullHelp, CapabilityReeve)
 	add(ActionAgentsOpenShown, agents, TargetPage, []Key{Rune('o')}, "open shown", "Open the agent's cards and artifacts in the web UI", "Agents", 50, 29, FullHelp, CapabilityAgentUI)
 	add(ActionAgentsEnsemble, PageModeScope(PageAgents, ModeList), TargetPage, []Key{Rune('e')}, "ensemble", "Show every agent at once", "Agents", 50, 40, FullHelp|ShortcutBar|BarEnd)
 	ensemble := PageModeScope(PageAgents, ModeGrid)

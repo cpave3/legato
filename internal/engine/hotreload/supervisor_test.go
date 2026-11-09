@@ -103,3 +103,21 @@ func waitForText(t *testing.T, path, text string) {
 	}
 	t.Fatalf("timed out waiting for %q", text)
 }
+
+func TestAChildThatAsksToRestartIsStartedAgain(t *testing.T) {
+	dir := t.TempDir()
+	binary := filepath.Join(dir, "app")
+	logPath := filepath.Join(dir, "events")
+	counter := filepath.Join(dir, "count")
+	// The first run asks for a restart; the second ends normally.
+	writeHelper(t, binary, fmt.Sprintf("echo start >> %q\nif [ ! -f %q ]; then touch %q; exit %d; fi\nexit 0\n", logPath, counter, counter, RestartExitCode))
+	var out bytes.Buffer
+	code := Run(Options{Path: binary, Env: os.Environ(), Dir: dir, Stdout: &out, Stderr: &out, PollInterval: 10 * time.Millisecond})
+	if code != 0 {
+		t.Fatalf("Run = %d, output = %s", code, out.String())
+	}
+	got, _ := os.ReadFile(logPath)
+	if strings.Count(string(got), "start") != 2 {
+		t.Fatalf("child started %d times, want 2:\n%s", strings.Count(string(got), "start"), got)
+	}
+}

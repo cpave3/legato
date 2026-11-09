@@ -16,6 +16,16 @@ type ReloadAgentMsg struct {
 	SwitchSandbox bool
 }
 
+// AskReeveMsg asks the Reeve about an agent: the app starts or messages
+// the Reeve's session with a brief and opens it.
+type AskReeveMsg struct {
+	TaskID    string
+	Title     string
+	AgentKind string
+	// State is what the agent is doing, in the list's words ("needs you").
+	State string
+}
+
 // AttachSessionMsg requests attaching to a tmux session.
 type AttachSessionMsg struct {
 	TmuxSession string

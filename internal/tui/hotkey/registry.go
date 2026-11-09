@@ -43,6 +43,7 @@ const (
 	CapabilityPR            Capability = "pr-service"
 	CapabilityAgentUI       Capability = "agent-ui-service"
 	CapabilityApprovals     Capability = "approval-service"
+	CapabilityReeve         Capability = "reeve-service"
 )
 
 const (

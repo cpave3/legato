@@ -1,4 +1,4 @@
-import { useState, useRef, useEffect } from "react"
+import { useState, useRef, useEffect, type ReactNode } from "react"
 import type { AgentInfo } from "../hooks/useWebSocket"
 import { cn } from "../lib/utils"
 import { ChevronDown, Play, Pause, AlertTriangle, LayoutGrid, Plus } from "lucide-react"
@@ -6,6 +6,7 @@ import { AgentKindBadge, UnsandboxedBadge } from "./AgentKindBadge"
 import { agentKindLabel, isAgentToolInForeground } from "../lib/agentKind"
 import { ensembleSection } from "../lib/agentGlance"
 import { formatAgentTime, sectionLabels, stateSeconds } from "../lib/agentList"
+import { reeveWash } from "./ReeveEntry"
 
 function formatDuration(seconds: number): string {
   if (seconds < 60) return "<1m"
@@ -67,12 +68,16 @@ interface AgentSelectProps {
   agents: AgentInfo[]
   selectedId: string | null
   onSelect: (taskId: string) => void
+  // Leads the list: the Reeve (ReeveEntry), whether or not it runs.
+  reeve?: ReactNode
 }
 
-export function AgentSelect({ agents, selectedId, onSelect }: AgentSelectProps) {
+export function AgentSelect({ agents: all, selectedId, onSelect, reeve }: AgentSelectProps) {
+  // The Reeve leads the list; with its own entry it is not listed again.
+  const agents = reeve ? all.filter((a) => !a.reeve) : [...all.filter((a) => a.reeve), ...all.filter((a) => !a.reeve)]
   const [open, setOpen] = useState(false)
   const containerRef = useRef<HTMLDivElement>(null)
-  const selectedAgent = agents.find((a) => a.task_id === selectedId)
+  const selectedAgent = all.find((a) => a.task_id === selectedId)
   const title = selectedAgent ? selectedAgent.task_title || selectedAgent.command || selectedAgent.task_id : ""
   const state = selectedAgent ? pickerState(selectedAgent) : null
 
@@ -133,7 +138,8 @@ export function AgentSelect({ agents, selectedId, onSelect }: AgentSelectProps) 
 
       {open && (
         <div role="group" aria-label="Running agents" className="absolute left-0 right-0 top-full z-50 mt-1 max-h-[60vh] overflow-y-auto rounded-lg border border-lw-line-strong bg-lw-surface font-lw shadow-xl">
-          {agents.length === 0 && (
+          {reeve && <div className="border-b border-lw-line p-1" onClick={() => setOpen(false)}>{reeve}</div>}
+          {agents.length === 0 && !reeve && (
             <div className="px-3 py-4 text-center text-sm text-lw-text-2">
               No active agents
             </div>
@@ -150,7 +156,8 @@ export function AgentSelect({ agents, selectedId, onSelect }: AgentSelectProps) 
                 onClick={() => handleSelect(agent.task_id)}
                 className={cn(
                   "flex w-full flex-col gap-1 border-b border-lw-line px-3 py-2.5 text-left transition-colors last:border-b-0",
-                  isSelected ? "bg-lw-raised text-lw-text" : "text-lw-text-2 hover:bg-zinc-800/60 hover:text-lw-text"
+                  isSelected ? "bg-lw-raised text-lw-text" : "text-lw-text-2 hover:bg-zinc-800/60 hover:text-lw-text",
+                  agent.reeve && reeveWash,
                 )}
               >
                 <div className="flex items-center gap-2">

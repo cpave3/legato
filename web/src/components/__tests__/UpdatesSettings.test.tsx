@@ -44,6 +44,14 @@ describe("UpdatesSettings", () => {
     await waitFor(() => expect(changed).toHaveBeenCalled())
   })
 
+  it("locks the mode when config.yaml pins it", () => {
+    render(<UpdatesSettings status={upToDate} baseUrl="" modeSetting={{
+      key: "updates.mode", title: "Updates", kind: "enum", class: "risky", mode: "live", value: "ask", source: "config.yaml", pinned: true,
+    }} />)
+    expect((screen.getByRole("radio", { name: /Automatic/ }) as HTMLInputElement).disabled).toBe(true)
+    expect(screen.getByTestId("source-updates.mode").textContent).toContain("config.yaml")
+  })
+
   it("checks now", async () => {
     render(<UpdatesSettings status={upToDate} baseUrl="" />)
 

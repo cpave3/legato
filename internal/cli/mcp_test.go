@@ -492,6 +492,15 @@ func TestMCPToolNamesListsEveryToolTheServerOffers(t *testing.T) {
 	for _, tool := range listed.Tools {
 		offered[tool.Name] = true
 	}
+	// The Reeve's tools are offered only to the Reeve's session.
+	reeveTask, reeveExecution := seedReeve(t, s)
+	reeve := connectMCP(t, cli.MCPOptions{Store: s, TaskID: reeveTask, ExecutionID: reeveExecution, Reeve: everyReeveTool()})
+	if listed, err = reeve.ListTools(context.Background(), nil); err != nil {
+		t.Fatal(err)
+	}
+	for _, tool := range listed.Tools {
+		offered[tool.Name] = true
+	}
 
 	names := cli.MCPToolNames()
 

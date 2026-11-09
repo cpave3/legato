@@ -58,9 +58,10 @@ The first time Legato starts with an empty database, it runs a short setup wizar
 1. Asks for the base URL, your email and the API token, and checks them against Jira.
 2. Lists your projects and lets you pick one.
 3. Reads that project's statuses and maps them to columns by name: Backlog, Doing, Review, Done, and Unmapped for any status it does not know.
-4. Writes `jira` and `board.columns` to the config file, with `api_token: ${LEGATO_JIRA_TOKEN}`.
+4. Makes the board's columns from that mapping, in Legato's database.
+5. Saves Jira's settings in the database (`jira.base_url`, `jira.email`, `jira.project_keys`), and the token you typed in Legato's own secret store as `jira-api-token`, which `jira.api_token` names (`legato://jira-api-token`).
 
-The wizard does not store the token you typed. Set `LEGATO_JIRA_TOKEN` in your shell before Legato starts again.
+Nothing is written to `config.yaml`, so Settings can change Jira later. A `jira` section you write in `config.yaml` yourself still wins.
 
 ## Map columns to Jira statuses
 

@@ -15,6 +15,7 @@ In the TUI, press `?` to see these keys. The help shows only the keys that work 
 | --- | --- |
 | `?` | Toggle keyboard reference |
 | `!` | Answer pending approvals |
+| `R` | Open the Reeve |
 | `q/ctrl+c` | Quit Legato |
 
 ## Board
@@ -71,7 +72,7 @@ In the TUI, press `?` to see these keys. The help shows only the keys that work 
 | --- | --- |
 | `z` | Open or collapse columns with no cards |
 | `A` | Open agents view |
-| `R` | Open reporting view |
+| `T` | Open reporting view |
 | `V` | Open review tours |
 | `P` | Open implementation plans |
 | `I` | Open attention inbox |
@@ -116,6 +117,7 @@ In the TUI, press `?` to see these keys. The help shows only the keys that work 
 | `n` | Toggle notifications (with ntfy notifications set up) |
 | `v` | Start voice dictation (with voice input on) |
 | `o` | Open the agent's cards and artifacts in the web UI |
+| `a` | Ask the Reeve about the selected agent |
 
 ### In the list
 

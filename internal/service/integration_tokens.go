@@ -24,6 +24,11 @@ const (
 	// hands tasks to this worker. Only pairing a main gives it (CreateMain),
 	// and alone; Create refuses it.
 	ScopeHandoff = "handoff"
+	// ScopeReeve reaches /api/integrations/reeve/, where another instance's
+	// Reeve messages this one's. A paired main's token has it by default
+	// (the worker's person can take it away); a Reeve pairing's token has
+	// nothing else.
+	ScopeReeve = "reeve"
 )
 
 // Kinds of integration token: Argus's, made with the CLI, and a paired main
@@ -31,6 +36,9 @@ const (
 const (
 	IntegrationKindArgus = store.IntegrationKindArgus
 	IntegrationKindMain  = store.IntegrationKindMain
+	// IntegrationKindReevePeer is another instance's Reeve, by a Reeve
+	// pairing or a reply contact.
+	IntegrationKindReevePeer = "reeve_peer"
 )
 
 // IntegrationTokenPrefix starts every integration token, so it can be told
@@ -139,7 +147,7 @@ func (s *IntegrationTokenService) CreateMain(ctx context.Context, name, instance
 	if err != nil {
 		return "", err
 	}
-	row.Kind, row.Name, row.InstanceID, row.Scopes = IntegrationKindMain, name, instanceID, []string{ScopeHandoff}
+	row.Kind, row.Name, row.InstanceID, row.Scopes = IntegrationKindMain, name, instanceID, []string{ScopeHandoff, ScopeReeve}
 	err = s.db.ReplaceMainIntegrationToken(ctx, row)
 	if errors.Is(err, store.ErrConflict) {
 		return "", fmt.Errorf("%w: %q; unpair it on this worker first, or pair under another name", ErrMainNameTaken, name)
@@ -158,6 +166,8 @@ type PairedMain struct {
 	PairedAt     string  `json:"paired_at"`
 	LastPullAt   *string `json:"last_pull_at,omitempty"`
 	OpenHandoffs int     `json:"open_handoffs"`
+	// Reeve says whether its Reeve may message this one's.
+	Reeve bool `json:"reeve"`
 }
 
 // ListMains lists the main instances paired with this worker, oldest first,
@@ -173,7 +183,7 @@ func (s *IntegrationTokenService) ListMains(ctx context.Context) ([]PairedMain, 
 	}
 	out := make([]PairedMain, 0, len(tokens))
 	for _, t := range tokens {
-		out = append(out, PairedMain{Name: t.Name, InstanceID: t.InstanceID, PairedAt: t.CreatedAt, LastPullAt: t.LastUsedAt, OpenHandoffs: open[t.InstanceID]})
+		out = append(out, PairedMain{Name: t.Name, InstanceID: t.InstanceID, PairedAt: t.CreatedAt, LastPullAt: t.LastUsedAt, OpenHandoffs: open[t.InstanceID], Reeve: slices.Contains(t.Scopes, ScopeReeve)})
 	}
 	return out, nil
 }
@@ -223,4 +233,41 @@ func (s *IntegrationTokenService) Authenticate(ctx context.Context, token string
 func hashIntegrationToken(token string) string {
 	sum := sha256.Sum256([]byte(token))
 	return hex.EncodeToString(sum[:])
+}
+
+// CreateReevePeer makes the token another instance's Reeve uses to message
+// this one's: kind reeve_peer, the reeve scope and nothing else. Tokens it
+// was given before are revoked.
+func (s *IntegrationTokenService) CreateReevePeer(ctx context.Context, name, instanceID string) (string, error) {
+	if !ValidInstanceID(instanceID) {
+		return "", fmt.Errorf("%q is not an instance ID", instanceID)
+	}
+	if err := s.db.RevokeReevePeerTokens(ctx, instanceID); err != nil {
+		return "", err
+	}
+	token, row, err := newIntegrationToken()
+	if err != nil {
+		return "", err
+	}
+	row.Kind, row.Name, row.InstanceID, row.Scopes = IntegrationKindReevePeer, "reeve-"+instanceID, instanceID, []string{ScopeReeve}
+	_ = name
+	if err := s.db.InsertIntegrationToken(ctx, row); err != nil {
+		return "", err
+	}
+	return token, nil
+}
+
+// SetMainReeve gives a paired main's token the reeve scope, or takes it
+// away: whether its Reeve may message this one's.
+func (s *IntegrationTokenService) SetMainReeve(ctx context.Context, instanceID string, on bool) error {
+	scopes := []string{ScopeHandoff}
+	if on {
+		scopes = append(scopes, ScopeReeve)
+	}
+	if err := s.db.SetMainIntegrationTokenScopes(ctx, instanceID, scopes); errors.Is(err, store.ErrNotFound) {
+		return ErrMainNotPaired
+	} else if err != nil {
+		return err
+	}
+	return nil
 }

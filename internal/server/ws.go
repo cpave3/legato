@@ -259,8 +259,10 @@ func (s *Server) sendAgentList(client *wsClient) {
 	durations, _ := s.agents.GetTaskDurations(context.Background(), taskIDs)
 
 	resp := make([]AgentResponse, len(agents))
+	reeveTask := s.reeveTaskID(context.Background())
 	for i, a := range agents {
 		r := agentResponse(a)
+		r.Reeve = reeveTask != "" && a.TaskID == reeveTask
 		r.Unsandboxed = s.sandboxEnabled && !a.Sandboxed
 		if d, ok := durations[a.TaskID]; ok {
 			r.WorkingSeconds = d.Working.Seconds()

@@ -53,6 +53,8 @@ import { HandOffModal } from "../components/board/HandOffModal"
 import { AwayRowActions } from "../components/board/AwayActions"
 import { withAwayLane } from "../lib/away"
 import type { BoardWorker } from "../lib/board-types"
+import { AskReeve } from "../components/AskReeve"
+import { reeveBrief } from "../lib/reeve"
 
 const noWorkers: BoardWorker[] = []
 
@@ -208,6 +210,9 @@ export function BoardPage() {
   const [detailId, setDetailId] = useState<string | null>(null)
   const [pendingAction, setPendingAction] = useState<string | null>(null)
   const [syncingProviders, setSyncingProviders] = useState(false)
+  // The last provider sync's failure, kept until a sync works, so the
+  // person can ask the Reeve about it.
+  const [syncFailure, setSyncFailure] = useState("")
   const settings = useSettings()
   const repositories = (settings.data?.repositories ?? []) as RepositoryPreset[]
   const defaultWorkingDir = settings.data?.working_dir ?? ""
@@ -868,11 +873,13 @@ export function BoardPage() {
       await refresh()
       const feedback = providerSyncMessage(result)
       addToast(feedback.message, feedback.type)
+      setSyncFailure(feedback.type === "error" ? feedback.message : "")
     } catch (error) {
       if (error instanceof ProviderSyncConflictError) {
         addToast(error.message, "info")
       } else {
         addToast(errorMessage(error, "Provider sync failed"), "error")
+        setSyncFailure(errorMessage(error, "Provider sync failed"))
       }
     } finally {
       setSyncingProviders(false)
@@ -970,6 +977,14 @@ export function BoardPage() {
           </button>
         </div>
       </header>
+
+      {syncFailure && (
+        <div data-testid="sync-failure" role="status" className="flex flex-wrap items-center gap-2 border-b border-lw-danger-line bg-lw-error-soft px-4 py-2 text-sm text-lw-text md:px-5 md:text-xs">
+          <span className="min-w-0 flex-1 text-lw-danger">{syncFailure}</span>
+          <AskReeve brief={reeveBrief({ what: "a provider sync that failed", error: syncFailure })} />
+          <button type="button" onClick={() => setSyncFailure("")} className="min-h-11 rounded-lg px-2 text-lw-text-2 hover:bg-lw-raised md:min-h-8">Dismiss</button>
+        </div>
+      )}
 
       <div className="flex min-h-0 flex-1">
         <div className="min-w-0 flex-1 overflow-hidden">

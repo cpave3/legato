@@ -44,6 +44,7 @@ Press `A` to open the agents view. Agents that need you come first, then running
 - `w` selects the next agent that needs you.
 - `m` sends a [macro](/legato/using/agents/), a saved message, to the agent.
 - `e` changes to the ensemble, which shows every agent at once.
+- `a` asks the [Reeve](/legato/using/reeve/) about the selected agent. `R` opens the Reeve from anywhere.
 - `q` goes back to the board.
 
 ## Attention, plans and reviews

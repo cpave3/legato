@@ -106,15 +106,17 @@ type Task struct {
 	WorkspaceID         *int    `db:"workspace_id"`
 	ArchivedAt          *string `db:"archived_at"`
 	Ephemeral           bool    `db:"ephemeral"`
-	SwarmWorkingDir     *string `db:"swarm_working_dir"`
-	SwarmActiveStep     int     `db:"swarm_active_step"`
-	Group               *string `db:"task_group"`
-	WorktreePrimaryDir  *string `db:"worktree_primary_dir"`
-	WorktreePath        *string `db:"worktree_path"`
-	WorktreeBranch      *string `db:"worktree_branch"`
-	WorktreeBaseBranch  *string `db:"worktree_base_branch"`
-	CreatedAt           string  `db:"created_at"`
-	UpdatedAt           string  `db:"updated_at"`
+	// Kind is "" for an ordinary task, TaskKindReeve for a Reeve session.
+	Kind               string  `db:"kind"`
+	SwarmWorkingDir    *string `db:"swarm_working_dir"`
+	SwarmActiveStep    int     `db:"swarm_active_step"`
+	Group              *string `db:"task_group"`
+	WorktreePrimaryDir *string `db:"worktree_primary_dir"`
+	WorktreePath       *string `db:"worktree_path"`
+	WorktreeBranch     *string `db:"worktree_branch"`
+	WorktreeBaseBranch *string `db:"worktree_base_branch"`
+	CreatedAt          string  `db:"created_at"`
+	UpdatedAt          string  `db:"updated_at"`
 }
 
 type ReflectionRequestStatus string
@@ -405,6 +407,10 @@ type AgentSession struct {
 	// Slot is the task's agent slot the session runs in: SlotMain, or a
 	// named slot such as "reviewer".
 	Slot string `db:"slot"`
+	// NativeOff is true when the person switched the agent to its terminal
+	// on purpose: Legato does not bind it to its native endpoint again on
+	// its own.
+	NativeOff bool `db:"native_off"`
 }
 
 // SwarmEvent is a single conductor-bound event written to the swarm_events

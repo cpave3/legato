@@ -43,7 +43,7 @@ func wireIntegrations(srv *server.Server, deps integrationDeps) (stop func()) {
 	// browser comes back to this server's /oauth/callback.
 	secretStore := configuredSecretStore(deps.cfg, deps.db)
 	burnlite := service.NewBurnliteSettings(deps.db, service.NewIntegrationConnector(deps.db, service.SealedIntegrationSecrets{Store: secretStore}, nil),
-		service.BurnliteSettingsOptions{ConfiguredURL: deps.cfg.Burnlite.URL, ConfiguredProjects: deps.cfg.Burnlite.Projects, SecretSource: secretStore.Source})
+		service.BurnliteSettingsOptions{ConfiguredURL: deps.cfg.Burnlite.URL, ConfiguredProjects: pinnedBurnliteProjects(deps.cfg), SecretSource: secretStore.Source})
 	overview.SetBurnlite(burnlite)
 	srv.SetBurnliteSettings(burnlite)
 	srv.SetIntegrationOverview(overview)

@@ -28,7 +28,7 @@ Legato names the host by the key the server proves it holds, looked up in your `
 
 ### API keys through the proxy
 
-When a session starts, Legato gives it a placeholder key and a base address for each proxied credential, for example `ELEVENLABS_API_KEY` and `ELEVENLABS_BASE_URL`. The agent sends plain requests to Legato's proxy on a loopback port. Legato checks each request against your rules, swaps the placeholder for the real key, and sends the request on to the real service over TLS. A placeholder works only for its credential and only while its session runs.
+When a session starts, Legato gives it a placeholder key and a base address for each proxied credential, for example `ELEVENLABS_API_KEY` and `ELEVENLABS_BASE_URL`. The agent sends plain requests to Legato's proxy on a loopback port. Legato checks each request against your rules, swaps the placeholder for the real key, and sends the request on to the real service over TLS. A placeholder works only for its credential and only while its session runs. The proxy keeps its port when Legato restarts, so a running agent's base address keeps working.
 
 A tool can use the proxy only when it lets you set its base address.
 
@@ -132,7 +132,7 @@ Some decisions should need you in person, not just someone who has the web token
 
 - **A phone** running the Legato app keeps a key in its secure hardware and unlocks it with your fingerprint or PIN for each signature.
 - **A security key in the [desktop app](/legato/running/desktop-app/)**, enrolled on every server the app has paired with. You touch the key to sign. On a Mac, Touch ID can be the key: you sign with your fingerprint.
-- **A passkey** on a computer, made in Settings › Security in the web UI. It needs a secure page: `localhost`, or HTTPS at a host name. A security key such as a YubiKey can sign with a touch alone; your browser or password manager may still ask for a PIN or fingerprint. Each decision records which it was: a touch, or a verification.
+- **A passkey** on a computer, made in Settings › Security in the web UI. It needs a secure page: `localhost`, or HTTPS at a host name. A security key such as a YubiKey can sign with a touch alone; your browser or password manager may still ask for a PIN or fingerprint. Each decision records which it was: a touch, or a verification. An approval that needs a verification (a host command run as root, for one) refuses a touch alone. The audit log records which it was for every decision. The audit log also records every command, file edit and service action the [Reeve](/legato/using/reeve/) ran on the machine, with who approved it.
 
 A rule asks for a signature with `signed: true`. Once you enroll any device, rules with `approve: request` ask for one by default. Adding or removing a device always needs one. Denying never does.
 

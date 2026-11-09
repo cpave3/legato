@@ -87,7 +87,12 @@ const cliRunTimeout = time.Hour
 // cliRunOp is the host's side: run binary with the forwarded arguments as
 // the caller. A path under the sandbox's /tmp is the session's folder on the
 // host.
-func cliRunOp(binary string, scratch service.SandboxScratch) cli.BrokerOp {
+//
+// isReeve says whether a caller's task is the Reeve's: its session runs only
+// commands that read (classifyLegatoCommand); a change goes to the person
+// through the legato tool or propose_changes. nil treats no caller as the
+// Reeve.
+func cliRunOp(binary string, scratch service.SandboxScratch, isReeve func(ctx context.Context, taskID string) bool) cli.BrokerOp {
 	return func(ctx context.Context, caller cli.BrokerCaller, raw json.RawMessage) (any, error) {
 		var in struct {
 			Args  []string          `json:"args"`
@@ -97,6 +102,11 @@ func cliRunOp(binary string, scratch service.SandboxScratch) cli.BrokerOp {
 		}
 		if err := json.Unmarshal(raw, &in); err != nil || !forwardable(in.Args) {
 			return nil, &broker.Error{Code: "forbidden", Message: "this command is not run for agents in the sandbox"}
+		}
+		if isReeve != nil && isReeve(ctx, caller.TaskID) {
+			if class, _ := classifyLegatoCommand(in.Args); class != "read" {
+				return nil, &broker.Error{Code: "forbidden", Message: "the Reeve runs only commands that read here; propose a change with the legato tool or propose_changes, for the person to approve"}
+			}
 		}
 		tmp := scratch.Tmp(caller.ExecutionID)
 		args := make([]string, len(in.Args))

@@ -53,6 +53,12 @@ The web UI's dialog asks the same questions and adds two:
 
 An ephemeral agent belongs to no card. Press `s` in the agents view, or **+ Spawn agent** in the web UI, and give it a title. Without one it is called "Ephemeral session".
 
+## The Reeve in the list
+
+The [Reeve](/legato/using/reeve/), the agent of your Legato itself, is pinned first in the web UI's Agents list, above the groups, with a violet edge. It shows this instance's name and how many of its changes wait for your approval. When no session runs it stays in the list, quieter; picking it starts one, or resumes the one that was suspended. On a phone it leads the agent picker. Its conversation's status bar says it runs in the sandbox, and on which instance.
+
+In the TUI the Reeve is on the first row of the agents view, above the groups, with a violet wash. Press `R` in any view to open it: Legato goes to its session, resuming or starting one. In the agents view `R` still reloads the selected agent; there, `a` asks the Reeve about the selected agent instead, with a brief of what it is and what it is doing.
+
 ## The agents view
 
 Press `A` on the board to open the agents view. Agents are listed under what they are doing, the ones that need you first:

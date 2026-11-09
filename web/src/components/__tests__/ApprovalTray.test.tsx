@@ -13,6 +13,8 @@ let mockPasskey: unknown = undefined
 const mockSignWithPasskey = vi.fn()
 vi.mock("../../hooks/usePasskeyDevice", () => ({ usePasskeyDevice: () => mockPasskey }))
 vi.mock("../../lib/passkeys", () => ({ signWithPasskey: (...args: unknown[]) => mockSignWithPasskey(...args) }))
+let mockPeerData: unknown[] = []
+vi.mock("../../hooks/usePeerApprovals", () => ({ usePeerApprovals: () => mockPeerData }))
 vi.mock("../../hooks/useApprovals", () => ({
   useApprovals: () => ({ data: mockData, error: null, refresh: mockRefresh }),
 }))
@@ -386,5 +388,31 @@ describe("ApprovalTray", () => {
       renderTray()
       expect(screen.queryByRole("button", { name: "Answer in focus mode" })).toBeNull()
     })
+  })
+})
+
+describe("ApprovalTray: paired instances", () => {
+  beforeEach(() => { mockData = []; mockPeerData = [] })
+  afterEach(() => { cleanup(); mockPeerData = [] })
+
+  it("lists another instance's Reeve change sets, marked with it, decided there", async () => {
+    mockPeerData = [{
+      id: "ap-99", title: "Restart after the Jira token change", summary: "2 changes", signed: true, created_at: "2026-11-09T10:00:00Z",
+      instance_id: "srv-bbbbbbbbbbbbbbb2", instance: "legato-1",
+      url: "https://legato-1.lan:3080/?approval=ap-99", instance_url: "https://legato-1.lan:3080/",
+    }]
+    render(<MemoryRouter><ApprovalTray /></MemoryRouter>)
+    const card = await screen.findByTestId("peer-approval-ap-99")
+    expect(card.textContent).toContain("legato-1")
+    expect(card.textContent).toContain("Restart after the Jira token change")
+    expect(within(card).getByRole("link", { name: "◈ Approve on legato-1" }).getAttribute("href")).toBe("https://legato-1.lan:3080/?approval=ap-99")
+    expect(within(card).getByRole("link", { name: "Open legato-1 ↗" }).getAttribute("href")).toBe("https://legato-1.lan:3080/")
+    expect(screen.getByRole("heading", { level: 2 }).textContent).toBe("1 needs you")
+  })
+
+  it("says Approve on without the mark when the change set needs no signature", async () => {
+    mockPeerData = [{ id: "ap-98", title: "Move a card", signed: false, created_at: "", instance_id: "srv-x", instance: "vm-1", url: "https://vm-1/?approval=ap-98", instance_url: "https://vm-1/" }]
+    render(<MemoryRouter><ApprovalTray /></MemoryRouter>)
+    expect(await screen.findByRole("link", { name: "Approve on vm-1" })).toBeTruthy()
   })
 })

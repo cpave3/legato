@@ -51,7 +51,7 @@ The **Agents** page lists your running agents on the left, by state, as the TUI 
 An agent shows in one of two ways:
 
 - **Native panel.** Claude Code, Codex and Chimera, when Legato talks to them through its bridge, show as a conversation: your messages, the agent's replies, its tool calls as compact rows, and its thinking when the tool shares it. Permission requests and questions appear as cards you answer in place. A model menu and a settings dialog change the model and effort for this session; see [Model settings](/legato/agent-tools/model-settings/). You can queue a message while the agent works.
-- **Terminal.** Any other agent, or one you switched with **Downgrade to tmux**, shows its terminal. A prompt bar below it sends text and keys. **Upgrade to native panel** switches a terminal agent back when its tool supports it.
+- **Terminal.** Any other agent, or one you switched with **Downgrade to tmux**, shows its terminal. A switched agent stays on its terminal when Legato restarts. A prompt bar below it sends text and keys. **Upgrade to native panel** switches a terminal agent back when its tool supports it.
 
 When a native agent's terminal shows a numbered menu (an update notice, a trust question), the panel draws it as a card with a button for each choice.
 
@@ -131,7 +131,10 @@ Requests from agents that wait for you (permissions, questions, credentials) app
 - **Handoff**: **Workers**, the Legatos this one hands tasks to, with **Add a worker** (with none paired yet, it explains handing off); and **Main instances**, the Legatos that hand tasks to this one, with **Pair a main instance** and **Unpair**. See [Main and worker instances](/legato/running/instances/) and [Hand off tasks to a worker](/legato/using/handoff/).
 - **Connection**: servers, **Pair a phone**, and the TLS certificate.
 - **Appearance**: the tint, the terminal theme, the glitch effect, and the moving light round a working agent.
-- **Updates**: this server's version, the latest release, and the update mode. See [Updates](/legato/running/updates/).
+- **Where a setting comes from.** Settings that can be kept on the server show where their value comes from: **default**, **config.yaml** with a lock (change it in the file), or **set here** with **Reset**, which goes back to the default. One marked **applies at restart** waits for Legato to restart.
+- **Export and import settings** (in Lists): download the settings kept on the server as a file shaped like `config.yaml`, secrets as names; or import such a file, which becomes one change set for you to approve.
+- **Lists**: workspaces, macros, agent tools, credentials and the other lists kept on the server. Entries from `config.yaml` are locked; add, edit or remove the others.
+- **Updates**: this server's version, the latest release, and the update mode, and **Restart Legato**, which restarts every Legato process of this server. See [Updates](/legato/running/updates/).
 
 A setting kept in this browser only is marked `this browser`.
 

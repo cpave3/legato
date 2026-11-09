@@ -23,7 +23,7 @@ type BurnliteSettings interface {
 // SetBurnliteSettings serves Burnlite's settings and its connect flow.
 func (s *Server) SetBurnliteSettings(b BurnliteSettings) { s.burnliteSettings = b }
 
-func (s *Server) registerBurnliteRoutes(mux *http.ServeMux) {
+func (s *Server) registerBurnliteRoutes(mux *routeMux) {
 	mux.HandleFunc("POST /api/settings/integrations/burnlite/connect", s.burnliteConnectHandler())
 	mux.HandleFunc("PUT /api/settings/integrations/burnlite", s.burnliteProjectsHandler())
 	mux.HandleFunc("DELETE /api/settings/integrations/burnlite", s.burnliteDisconnectHandler())

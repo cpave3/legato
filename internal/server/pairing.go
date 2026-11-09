@@ -55,7 +55,7 @@ func (s *Server) viewPairing(r *http.Request, st service.PairingStatus) pairingV
 	if address == "" {
 		return view
 	}
-	if st.Purpose == service.PairingMain {
+	if st.Purpose == service.PairingMain || st.Purpose == service.PairingReeve {
 		view.Address = address
 		return view
 	}

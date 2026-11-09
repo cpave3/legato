@@ -67,6 +67,8 @@ type Model struct {
 	icons             theme.Icons
 	ntfyConfigured    bool
 	voiceEnabled      bool
+	// reeveEnabled offers a, which asks the Reeve about the selected agent.
+	reeveEnabled bool
 	// sandbox is true when agents run in Legato's sandbox unless their spawn
 	// opted out, so an agent outside it is marked.
 	sandbox bool
@@ -115,6 +117,11 @@ func (m *Model) SetSandboxEnabled(v bool) {
 // SetVoiceEnabled controls whether the 'v' voice dictation keybinding is active.
 func (m *Model) SetVoiceEnabled(v bool) {
 	m.voiceEnabled = v
+}
+
+// SetReeveEnabled offers a, which asks the Reeve about the selected agent.
+func (m *Model) SetReeveEnabled(v bool) {
+	m.reeveEnabled = v
 }
 
 // SetSpinner sets the frame the mark of a running agent is drawn at.
@@ -168,11 +175,15 @@ func (m *Model) SetAgents(agents []service.AgentSession) {
 	}
 }
 
-// orderAgents returns agents in the order the view lists them: by section,
-// and inside a section as sortAgentsForGrouping clusters them.
+// orderAgents returns agents in the order the view lists them: the Reeve
+// first, then by section, and inside a section as sortAgentsForGrouping
+// clusters them.
 func orderAgents(agents []service.AgentSession) []service.AgentSession {
 	ordered := sortAgentsForGrouping(agents)
 	sort.SliceStable(ordered, func(i, j int) bool {
+		if ordered[i].Reeve != ordered[j].Reeve {
+			return ordered[i].Reeve
+		}
 		return sectionOf(ordered[i]) < sectionOf(ordered[j])
 	})
 	return ordered
@@ -418,6 +429,9 @@ func (m Model) handleKey(msg tea.KeyMsg) (Model, tea.Cmd) {
 	if m.shown != nil {
 		ctx.Capabilities[hotkey.CapabilityAgentUI] = true
 	}
+	if m.reeveEnabled {
+		ctx.Capabilities[hotkey.CapabilityReeve] = true
+	}
 	// The page still checks whether the selected agent belongs to a swarm.
 	ctx.Capabilities[hotkey.CapabilitySwarm] = true
 	binding, ok := hotkey.DefaultRegistry().Resolve(msg, ctx)
@@ -462,6 +476,12 @@ func (m Model) HandleAction(action hotkey.ActionID) (Model, tea.Cmd) {
 	case hotkey.ActionAgentsKill:
 		if a := m.SelectedAgent(); a != nil {
 			return m, func() tea.Msg { return KillAgentMsg{TaskID: a.TaskID} }
+		}
+		return m, nil
+	case hotkey.ActionAgentsAskReeve:
+		if a := m.SelectedAgent(); a != nil && !a.Reeve {
+			msg := AskReeveMsg{TaskID: a.TaskID, Title: a.Title, AgentKind: a.AgentKind, State: stateWord(stateOf(*a))}
+			return m, func() tea.Msg { return msg }
 		}
 		return m, nil
 	case hotkey.ActionAgentsReload:

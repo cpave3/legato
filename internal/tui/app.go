@@ -183,12 +183,15 @@ type App struct {
 	resourceSvc ResourceService
 	// spinFrame is the frame of the mark of a running agent, and
 	// spinnerRunning whether a tick that will advance it is on its way.
-	spinFrame                int
-	spinnerRunning           bool
-	agentUIWebURL            string
-	agentUISub               <-chan events.Event
-	approvalSub              <-chan events.Event
-	approvalSvc              ApprovalService
+	spinFrame      int
+	spinnerRunning bool
+	agentUIWebURL  string
+	agentUISub     <-chan events.Event
+	approvalSub    <-chan events.Event
+	approvalSvc    ApprovalService
+	// reeve opens the Reeve (R) and asks it about an agent (a); nil
+	// without one.
+	reeve                    ReeveOpener
 	approvals                []service.Approval
 	openURL                  func(string) error
 	statusBar                statusbar.Model
@@ -754,6 +757,10 @@ func (a App) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.reviewView, cmd = a.reviewView.Update(msg)
 		return a, cmd
 
+	case agents.AskReeveMsg:
+		return a, a.askReeve(msg)
+	case reeveOpenedMsg:
+		return a.showReeve(msg)
 	case agents.ReloadAgentMsg:
 		return a.handleReloadAgent(msg)
 	case agents.KillAgentMsg:
@@ -3034,6 +3041,9 @@ func (a App) hotkeyContext() hotkey.Context {
 	if a.agentUISvc != nil {
 		ctx.Capabilities[hotkey.CapabilityAgentUI] = true
 	}
+	if a.reeve != nil {
+		ctx.Capabilities[hotkey.CapabilityReeve] = true
+	}
 	if a.voiceEnabled {
 		ctx.Capabilities[hotkey.CapabilityVoice] = true
 	}
@@ -3128,6 +3138,8 @@ func (a App) dispatchHotkey(binding hotkey.Binding, msg tea.KeyMsg) (tea.Model, 
 		return a.openSwarmCancelOverlay()
 	case hotkey.ActionViewReport:
 		return a.switchToReportView()
+	case hotkey.ActionOpenReeve:
+		return a, a.openReeve()
 	case hotkey.ActionViewReview:
 		a = a.setMode(viewReview)
 		return a, a.reviewView.Init()

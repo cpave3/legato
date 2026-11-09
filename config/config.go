@@ -61,6 +61,16 @@ type Config struct {
 	Integrations IntegrationsConfig `yaml:"integrations"`
 	// ReviewPasses are a worker's review loop for make-a-change handoffs.
 	ReviewPasses ReviewPassesConfig `yaml:"review_passes"`
+	// Updates is how this Legato takes new releases.
+	Updates UpdatesConfig `yaml:"updates"`
+	// Reeve is the agent of this Legato itself.
+	Reeve ReeveConfig `yaml:"reeve"`
+
+	// pins are the dotted keys config.yaml gives a value (Pinned).
+	pins map[string]bool
+	// fileEntries are the names of each entry list's entries the file
+	// gives (PinnedEntry).
+	fileEntries map[string][]string
 }
 
 // ManticoreConfig names the Manticore instance that Claude Code sessions
@@ -290,6 +300,9 @@ type WebConfig struct {
 	// approval notifications. Optional: without it Legato uses the first
 	// local network address it announces.
 	PublicURL string `yaml:"public_url"`
+	// Tint is a colour that tells this Legato from others in the web UI:
+	// one of service.Tints, or none.
+	Tint string `yaml:"tint"`
 }
 
 type GitHubConfig struct {
@@ -432,17 +445,23 @@ func ResolveConfigPath() string {
 // Load reads and parses the config file, expanding env vars and applying defaults.
 // Returns a default config without error if the file does not exist.
 func Load() (*Config, error) {
-	path := ResolveConfigPath()
-
-	cfg := defaults()
-
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(ResolveConfigPath())
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
+			cfg := defaults()
+			cfg.pins = map[string]bool{}
+			recordFileEntries(cfg)
 			return cfg, nil
 		}
 		return nil, err
 	}
+	return LoadBytes(data)
+}
+
+// LoadBytes reads a config.yaml from data, as Load reads the file: for a
+// check of an edited copy before it is written.
+func LoadBytes(data []byte) (*Config, error) {
+	cfg := defaults()
 
 	// Capture macros from the raw file before os.ExpandEnv touches $VARs.
 	// Macros are sent verbatim to agent tmux panes, so env vars inside
@@ -467,51 +486,62 @@ func Load() (*Config, error) {
 	}
 
 	applyDefaults(cfg)
+	if err := validate(cfg); err != nil {
+		return nil, err
+	}
+	cfg.pins = pinnedKeys([]byte(expanded))
+	recordFileEntries(cfg)
+	return cfg, nil
+}
+
+// validate checks a configuration and normalizes it, with the rules Load
+// uses for a file: Overlay runs it again on the effective configuration.
+func validate(cfg *Config) error {
 	if cfg.GitHub.Auth != "auto" && cfg.GitHub.Auth != "gh" && cfg.GitHub.Auth != "token" {
-		return nil, fmt.Errorf("github.auth must be auto, gh, or token")
+		return fmt.Errorf("github.auth must be auto, gh, or token")
 	}
 	if err := ValidateSwarmConfig(cfg); err != nil {
-		return nil, err
+		return err
 	}
 	if err := ValidateRepositoryCache(cfg); err != nil {
-		return nil, err
+		return err
 	}
 	if err := ValidateLearningConfig(cfg); err != nil {
-		return nil, err
+		return err
 	}
 	if err := ValidateWorkspaceDefaults(cfg); err != nil {
-		return nil, err
+		return err
 	}
 	if err := normalizeManticoreConfig(cfg); err != nil {
-		return nil, err
+		return err
 	}
 	if err := normalizeIntegrations(cfg); err != nil {
-		return nil, err
+		return err
 	}
 	if err := normalizeAgentMCPConfig(cfg); err != nil {
-		return nil, err
+		return err
 	}
 	if err := normalizeAgentGuidance(cfg); err != nil {
-		return nil, err
+		return err
 	}
 	if err := normalizeResources(cfg); err != nil {
-		return nil, err
+		return err
 	}
 	if err := normalizeAgentSandbox(cfg); err != nil {
-		return nil, err
+		return err
 	}
 	if err := normalizeCredentials(cfg); err != nil {
-		return nil, err
+		return err
 	}
 	if err := ValidateReviewPasses(cfg); err != nil {
-		return nil, err
+		return err
 	}
 	if cfg.Web.PublicURL != "" {
 		if u, err := url.Parse(cfg.Web.PublicURL); err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
-			return nil, fmt.Errorf("web.public_url %q: want an http or https address", cfg.Web.PublicURL)
+			return fmt.Errorf("web.public_url %q: want an http or https address", cfg.Web.PublicURL)
 		}
 	}
-	return cfg, nil
+	return nil
 }
 
 var resourceDomainPattern = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$`)
@@ -1000,4 +1030,81 @@ func ValidateRepositoryCache(cfg *Config) error {
 		}
 	}
 	return nil
+}
+
+// UpdatesConfig is how this Legato takes new releases.
+type UpdatesConfig struct {
+	// Mode is auto, ask (the default when empty) or off.
+	Mode string `yaml:"mode"`
+}
+
+// ReeveConfig is the Reeve's defaults: the agent tool a session runs, its
+// model or tier, and launch arguments. See docs/ai/reeve.md.
+type ReeveConfig struct {
+	Agent      string   `yaml:"agent"`
+	Model      string   `yaml:"model"`
+	LaunchArgs []string `yaml:"launch_args"`
+	// IdleTimeout is how long a session may be idle before it is
+	// suspended: a Go duration, 2h when empty.
+	IdleTimeout string `yaml:"idle_timeout"`
+	// Levels is what each class of change needs; Rules raise or lower it
+	// for the calls they match. Both are the Reeve's own rules: changed
+	// only with a signed approval.
+	Levels ReeveLevels `yaml:"levels"`
+	Rules  []ReeveRule `yaml:"rules"`
+	// HostOperations offers the Reeve host_shell, edit_file and
+	// manage_service. On when unset; one of its own rules.
+	HostOperations *bool `yaml:"host_operations"`
+	// HostTimeout bounds one host command (10m when empty);
+	// HostOutputCap is how much of its output the Reeve is given (64 KiB
+	// when 0), the rest kept in a file it can read.
+	HostTimeout   string `yaml:"host_timeout"`
+	HostOutputCap int    `yaml:"host_output_cap"`
+	// Peer is what a message from another instance's Reeve does when no
+	// session runs: start (the default), ask a person first, or refuse.
+	// One of the Reeve's own rules.
+	Peer string `yaml:"peer"`
+}
+
+// HostOperationsOn reports whether host operations are on (the default).
+func (c ReeveConfig) HostOperationsOn() bool { return c.HostOperations == nil || *c.HostOperations }
+
+// HostCommandTimeout is how long one host command may run.
+func (c ReeveConfig) HostCommandTimeout() time.Duration {
+	if d, err := time.ParseDuration(c.HostTimeout); err == nil && d > 0 {
+		return d
+	}
+	return 10 * time.Minute
+}
+
+// HostOutputLimit is how much of a host command's output the Reeve gets.
+func (c ReeveConfig) HostOutputLimit() int {
+	if c.HostOutputCap > 0 {
+		return c.HostOutputCap
+	}
+	return 64 << 10
+}
+
+// ReeveLevels is the level of each class: approve (a tap), signed (an
+// enrolled device), verified (signed, with a fingerprint or a PIN). Risky
+// may also be auto: signed once a device is enrolled, else approve.
+type ReeveLevels struct {
+	Change string `yaml:"change"`
+	Risky  string `yaml:"risky"`
+}
+
+// ReeveRule sets the level of the calls a pattern matches: METHOD /path
+// with * for any run of characters (POST /api/tasks*), or a legato
+// subcommand (legato integration *).
+type ReeveRule struct {
+	Pattern string `yaml:"pattern"`
+	Level   string `yaml:"level"`
+}
+
+// ReeveIdleTimeout is the Reeve's idle time before a session is suspended.
+func (c ReeveConfig) ReeveIdleTimeout() time.Duration {
+	if d, err := time.ParseDuration(c.IdleTimeout); err == nil && d > 0 {
+		return d
+	}
+	return 2 * time.Hour
 }

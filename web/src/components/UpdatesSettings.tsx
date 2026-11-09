@@ -3,6 +3,8 @@ import { Download } from "lucide-react"
 import { SettingsCard, primaryButton, quietButton } from "./settings/SettingsUI"
 import { applyToolUpdate, applyUpdate, checkForUpdates, setUpdateMode, type ToolStatus, type UpdateMode, type UpdateStatus } from "../lib/updates"
 import { cn } from "../lib/utils"
+import type { ConfigSetting } from "../lib/configSettings"
+import { SettingSource } from "./settings/RegistrySettings"
 
 const modes: { mode: UpdateMode; label: string; description: string }[] = [
   { mode: "auto", label: "Automatic", description: "Installs a new release once no agent is in the middle of a turn, and restarts. Agents keep running." },
@@ -32,7 +34,7 @@ const toolStates: Record<ToolStatus["state"], string> = {
 }
 
 // UpdatesSettings is how this server takes new releases of Legato.
-export function UpdatesSettings({ status, baseUrl, onChanged }: { status: UpdateStatus | null | undefined; baseUrl: string; onChanged?: () => void }) {
+export function UpdatesSettings({ status, baseUrl, modeSetting, onChanged }: { status: UpdateStatus | null | undefined; baseUrl: string; modeSetting?: ConfigSetting; onChanged?: () => void }) {
   const [busy, setBusy] = useState("")
   const [error, setError] = useState("")
 
@@ -85,11 +87,14 @@ export function UpdatesSettings({ status, baseUrl, onChanged }: { status: Update
       </dl>
       {status.error && <p className="mt-2 text-xs text-lw-error">{status.error}</p>}
 
-      <fieldset className="mt-4 flex flex-col gap-2" disabled={busy !== ""}>
-        <legend className="mb-1 text-sm text-lw-text">When a new release is out</legend>
+      <fieldset className="mt-4 flex flex-col gap-2" disabled={busy !== "" || modeSetting?.pinned}>
+        <legend className="mb-1 flex flex-wrap items-center gap-2 text-sm text-lw-text">
+          When a new release is out
+          {modeSetting && <SettingSource setting={modeSetting} />}
+        </legend>
         {modes.map((option) => (
           <label key={option.mode} className={cn("flex cursor-pointer gap-3 rounded-lg border px-3 py-2", status.mode === option.mode ? "border-lw-accent" : "border-lw-line")}>
-            <input type="radio" name="update-mode" className="mt-1" checked={status.mode === option.mode}
+            <input type="radio" name="update-mode" className="mt-1" checked={status.mode === option.mode} disabled={modeSetting?.pinned}
               onChange={() => void run("mode", () => setUpdateMode(baseUrl, option.mode))} />
             <span>
               <span className="block text-sm text-lw-text">{option.label}</span>

@@ -49,6 +49,8 @@ export interface PairedMain {
   paired_at: string
   last_pull_at?: string
   open_handoffs: number
+  // Whether its Reeve may message this one's.
+  reeve?: boolean
 }
 
 async function failure(res: Response): Promise<Error> {
@@ -95,6 +97,15 @@ export async function listMains(baseUrl: string): Promise<PairedMain[]> {
   const res = await apiFetch(baseUrl, "/api/settings/mains")
   if (!res.ok) throw await failure(res)
   return (await res.json()).mains ?? []
+}
+
+export async function setMainReeve(baseUrl: string, instanceId: string, enabled: boolean): Promise<void> {
+  const res = await apiFetch(baseUrl, `/api/settings/mains/${encodeURIComponent(instanceId)}/reeve`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ enabled }),
+  })
+  if (!res.ok) throw await failure(res)
 }
 
 export async function unpairMain(baseUrl: string, instanceId: string): Promise<void> {

@@ -29,6 +29,8 @@ interface AgentChatHeaderProps {
   panels?: SidePanelsProps
   // Brings what the agent waits on into view.
   onShowRequest?: () => void
+  // A way to ask the Reeve about the agent, offered while it needs the person.
+  ask?: ReactNode
   menu: AgentMenuEntry[]
 }
 
@@ -115,7 +117,7 @@ export function SidePanelSwitch({ open, related, artifacts, onSelect, studio }: 
 // The line an agent's chat opens with, whether Legato drives the agent
 // natively or through its terminal: what it is doing, the task, and what can
 // be done with it.
-export function AgentChatHeader({ state, time, title, taskId, agentKind, native = false, notes, pullRequest, panels, onShowRequest, menu }: AgentChatHeaderProps) {
+export function AgentChatHeader({ state, time, title, taskId, agentKind, native = false, notes, pullRequest, panels, onShowRequest, ask, menu }: AgentChatHeaderProps) {
   const chip = chips[state]
   // On a phone the agent picker above says how long; the time is left out.
   const chipText = <><span aria-hidden="true">{chip.glyph} </span>{chip.label}{time && <span className="max-sm:hidden"> {time}</span>}</>
@@ -136,6 +138,7 @@ export function AgentChatHeader({ state, time, title, taskId, agentKind, native 
         {notes && <span className="flex min-w-0 items-center gap-2 truncate text-xs text-lw-text-2">{notes}</span>}
       </div>
       <div className="flex shrink-0 items-center gap-2">
+        {state === "needs-you" && ask}
         {panels && <SidePanelSwitch {...panels} />}
         <AgentMoreMenu entries={menu} />
       </div>

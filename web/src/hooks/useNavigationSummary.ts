@@ -13,6 +13,8 @@ export interface NavigationSummary {
   learning?: number
   // Approvals waiting for the person; absent from an older server.
   approvals?: number
+  // Paired instances' Reeve change sets waiting for their person.
+  peer_approvals?: number
 }
 
 export async function fetchNavigationSummary(baseUrl: string): Promise<NavigationSummary> {

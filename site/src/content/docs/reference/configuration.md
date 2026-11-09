@@ -15,7 +15,7 @@ Legato looks for the file in this order and uses the first that is set:
 2. `$XDG_CONFIG_HOME/legato/config.yaml`
 3. `~/.config/legato/config.yaml`
 
-You do not need a file. When there is none, Legato starts with the defaults on this page. On the first start, when the database has no columns yet, a setup wizard adds the columns of `board.columns` and offers to set up Jira.
+You do not need to write a file. When there is none, the TUI or `legato serve` writes one that sets nothing: comments that point to Settings and show the file-only settings you might want. On the first start, when the database has no columns yet, a setup wizard adds the columns of `board.columns` and offers to set up Jira, whose settings it saves in the database. A `config.yaml` written by provisioning (an Ansible playbook, say) still pins everything it holds.
 
 Legato expands environment variables in the file before it reads the YAML, so you can keep secrets out of it:
 
@@ -32,6 +32,24 @@ Because of the expansion, a `$` in any other value starts a variable name, and t
 
 Legato checks the file when it starts. A value it cannot use (an unknown option, a malformed address, a duration it cannot read) stops it with an error that names the setting.
 
+### Settings in the file and in the database
+
+Most settings can also be kept in Legato's database, and changed from the web UI without touching this file. The two layer:
+
+- **A value in `config.yaml` wins.** The setting is *pinned*: the web UI shows it locked, and only an edit to the file changes it. Remove it from the file and, at the next start, the database's value (or the default) applies again.
+- **Otherwise the database's value applies,** or the default when there is none.
+- **Lists are pinned entry by entry.** Workspaces, macros, agent tools (`adapters`), credentials, credential sources, tmux options, sandbox mounts and swarm prompts are each the file's entries plus those added in Settings › Lists, matched by name. An entry whose name the file has is locked, and the web UI will not add another of that name. Repositories, resources and repository guidance work the same way, in their own sections.
+- **Secrets are kept by name.** A setting that holds a secret (`jira.api_token`, `github.token`, `notifications.ntfy.token`, `manticore.api_key`) takes, in the database, only the name of a secret: `legato://<name>` in Legato's own store (`legato secret add`), or `op://<vault>/<item>/<field>` in 1Password. Legato reads the secret when it starts. In the file, `${ENV}` references work as before.
+- **A change is checked before it is kept**: the value by its own rule, then the whole configuration with the rules Legato uses for this file. A change that would leave it invalid is refused with that error, so a value in the database never stops Legato from starting.
+
+Some settings are **file-only**: they live only in this file, and nothing else changes them. They are what Legato needs before its database opens (`db.*`, `data_dir`), what unseals its secrets (`secrets.master_key`, `secrets.onepassword`), how it is reached (`web.enabled`, `web.port`, `web.tls`, `web.public_url`), and the signing trust root (`approval_devices.android_app_digests`). They are marked *file-only* below.
+
+**Moving settings out of the file.** After the upgrade that brought settings into the database, Attention offers once to move every setting `config.yaml` pins into the database, listed in Settings › Lists with a tick each; untick any to keep it in the file. Each pinned setting in Settings also has **Move to the database**. A move copies the values into the database, rewrites `config.yaml` without them (its comments and order kept, the old file kept beside it as `config.yaml.<time>.bak`), and restarts Legato; if Legato does not start on the result, it puts the old file and values back. A setting that holds a secret, or whose value reads an environment variable, stays in the file.
+
+**Export and import.** `legato config export` writes the settings kept in the database as a file shaped like `config.yaml`; `legato config import` turns such a file into one change set to approve, so one instance can set up another.
+
+You can see what Legato runs with, and where each value comes from, with `legato config show --sources`.
+
 ### When a change takes effect
 
 A running Legato (the TUI or `legato serve`) reads the file once, when it starts. Restart it after you change the file. Commands such as `legato task create` read the file each time they run.
@@ -40,7 +58,7 @@ Some things change without a restart, because they are not in this file:
 
 - The items of a 1Password vault listed in `credential_sources`. Legato lists the vault again every two minutes.
 - The 1Password token in `secrets.onepassword.token_file`. Legato reads the file each time it uses the token.
-- Repositories, directories and resources you add in the web UI, and the update mode and tint you set there. Legato keeps those in its database.
+- Repositories, directories and resources you add in the web UI, and the update mode, the tint and Burnlite's projects you set there. Legato keeps those in its database.
 
 Board columns live in the database too. After you change `board.columns`, run this to make the board match the file:
 
@@ -85,9 +103,9 @@ Settings at the top level of the file.
 | --- | --- | --- | --- |
 | `icons` | string | `unicode` | The glyphs on cards: `unicode`, or `nerdfonts` if your terminal font is a Nerd Font. |
 | `editor` | string | `$VISUAL`, then `$EDITOR`, then `vi` | The command that opens when you edit a task's description (`e` in the detail view). |
-| `db.driver` | string | `sqlite` | The database. `sqlite` is the only one; any other value stops Legato at start. |
-| `db.path` | path | `$XDG_DATA_HOME/legato/legato.db`, else `~/.local/share/legato/legato.db` | Where the database file is. |
-| `data_dir` | path | the folder that holds `db.path` | Where Legato keeps its other files: the web token, TLS certificates, Jira attachments, workflow artifacts, repository clones and its own secret store. |
+| `db.driver` | string | `sqlite` | *File-only.* The database. `sqlite` is the only one; any other value stops Legato at start. |
+| `db.path` | path | `$XDG_DATA_HOME/legato/legato.db`, else `~/.local/share/legato/legato.db` | *File-only.* Where the database file is. |
+| `data_dir` | path | the folder that holds `db.path` | *File-only.* Where Legato keeps its other files: the web token, TLS certificates, Jira attachments, workflow artifacts, repository clones and its own secret store. |
 | `ssh_agent_socket` | path | none | Sets `SSH_AUTH_SOCK` for Legato and everything it starts. Without it, Legato keeps the `SSH_AUTH_SOCK` it was started with; when that is empty, it uses 1Password's agent at `~/.1password/agent.sock` if that exists. With an `ssh` credential configured, agent sessions get their own socket instead (see [the credential broker](/legato/security/credential-broker/)). |
 | `theme` | string | `default` | Not used. |
 | `keybindings.vim_mode` | bool | `true` | Not used. The board always takes vim keys. |
@@ -303,14 +321,42 @@ The web UI and its API. The TUI starts it beside itself when `web.enabled` is on
 
 | Setting | Type | Default | What it does |
 | --- | --- | --- | --- |
-| `web.enabled` | bool | `false` | Starts the web server with the TUI. If the port is in use, the TUI starts without it. |
-| `web.port` | string | `"3080"` | The port of the web server, for the TUI's (`web.enabled`) and for `legato serve`. `legato serve --port` overrides it for one run. |
-| `web.tls.enabled` | bool | `false` | Serves HTTPS with a certificate Legato makes and signs itself, kept in `<data_dir>/certs/`. |
-| `web.tls.cert` | path | none | A certificate file of your own. With `web.tls.key`, it turns HTTPS on. |
-| `web.tls.key` | path | none | The private key of `web.tls.cert`. |
-| `web.tls.hostname` | string | none | Another host name for the certificate Legato makes, such as `mybox.local`. It already covers `localhost` and this machine's addresses. |
+| `web.enabled` | bool | `false` | *File-only.* Starts the web server with the TUI. If the port is in use, the TUI starts without it. |
+| `web.port` | string | `"3080"` | *File-only.* The port of the web server, for the TUI's (`web.enabled`) and for `legato serve`. `legato serve --port` overrides it for one run. |
+| `web.tls.enabled` | bool | `false` | *File-only.* Serves HTTPS with a certificate Legato makes and signs itself, kept in `<data_dir>/certs/`. |
+| `web.tls.cert` | path | none | *File-only.* A certificate file of your own. With `web.tls.key`, it turns HTTPS on. |
+| `web.tls.key` | path | none | *File-only.* The private key of `web.tls.cert`. |
+| `web.tls.hostname` | string | none | *File-only.* Another host name for the certificate Legato makes, such as `mybox.local`. It already covers `localhost` and this machine's addresses. |
+| `web.tint` | string | none | A colour that tells this Legato from others in the web UI: `red`, `orange`, `yellow`, `green`, `teal`, `blue`, `purple` or `pink`. Usually set in Settings › Appearance. |
 | `web.discovery` | bool | `true` | Announces the server on the local network (mDNS), so the Legato phone app finds it. See [Devices](/legato/running/devices/). |
-| `web.public_url` | URL | the first local address Legato announces | The address a phone uses to reach this server, put in the links of approval notifications. It must be an `http` or `https` address. |
+| `web.public_url` | URL | the first local address Legato announces | *File-only.* The address a phone uses to reach this server, put in the links of approval notifications. It must be an `http` or `https` address. |
+
+## Reeve
+
+The Reeve's defaults, read when a session starts. Usually set in Settings › Reeve. See [The Reeve](/legato/using/reeve/).
+
+| Setting | Type | Default | What it does |
+| --- | --- | --- | --- |
+| `reeve.agent` | string | the default agent tool | The agent tool a session runs: `claude-code`, `codex` or `chimera`. |
+| `reeve.model` | string | the tool's default | The model or tier a session runs. |
+| `reeve.idle_timeout` | duration | `2h` | How long a session may be idle before its agent is stopped. The next message to it resumes it. |
+| `reeve.levels.change` | string | `approve` | What a change the Reeve proposes needs: `approve` (a tap), `signed` (an enrolled device) or `verified` (signed, with a fingerprint or a PIN). Changed only with a signed approval. |
+| `reeve.levels.risky` | string | `auto` | The same for a risky change; `auto` is `signed` once a device is enrolled, else `approve`. Changed only with a signed approval. |
+| `reeve.rules[].pattern` | string | none | A call a rule matches: `METHOD /path` or a `legato` subcommand, `*` for any run of characters. |
+| `reeve.rules[].level` | string | none | The level the rule gives the calls it matches, higher or lower than their class's (never below `approve`). |
+| `reeve.host_operations` | bool | `true` | Offers the Reeve a shell, file edits and systemd services on this machine, each as a change you approve. Changed only with a signed approval. |
+| `reeve.host_timeout` | duration | `10m` | How long one host command may run. |
+| `reeve.host_output_cap` | int | `65536` | How many bytes of a host command's output the Reeve is given; the rest is kept in a file it can read. |
+| `reeve.peer` | string | `start` | What a message from another instance's Reeve does when no session runs here: `start` a session, `ask` you first in Attention, or `refuse` it. Changed only with a signed approval. |
+| `reeve.launch_args` | list of strings | none | Arguments added to the agent tool's launch command. |
+
+## Updates
+
+How this Legato takes new releases. Usually set in Settings › Updates. See [Updates](/legato/running/updates/).
+
+| Setting | Type | Default | What it does |
+| --- | --- | --- | --- |
+| `updates.mode` | string | `ask` | `auto` installs a new release once no agent is in the middle of a turn, and restarts; `ask` offers it; `off` never looks. |
 
 ## GitHub
 
@@ -483,10 +529,10 @@ Where Legato keeps the key of its own secret store, and how it reads 1Password.
 
 | Setting | Type | Default | What it does |
 | --- | --- | --- | --- |
-| `secrets.master_key` | string | `auto` | Where the key of Legato's own store lives: `auto`, `systemd-creds`, `secret-service`, `keychain`, `passphrase` or `file`. `auto` takes the first of them that works. |
-| `secrets.onepassword.token_file` | path | none | A file (mode `0600`) that holds a 1Password service account token, for `op://` secrets. Absolute, or starting with `~/`. Prefer this to `secrets.onepassword.token`. |
-| `secrets.onepassword.token` | string | none | The service account token itself. Set this or the file, not both. |
-| `secrets.onepassword.backend` | string | `sdk` | How Legato reads 1Password: `sdk` (built in, no `op` command needed) or `op` (the `op` command). |
+| `secrets.master_key` | string | `auto` | *File-only.* Where the key of Legato's own store lives: `auto`, `systemd-creds`, `secret-service`, `keychain`, `passphrase` or `file`. `auto` takes the first of them that works. |
+| `secrets.onepassword.token_file` | path | none | *File-only.* A file (mode `0600`) that holds a 1Password service account token, for `op://` secrets. Absolute, or starting with `~/`. Prefer this to `secrets.onepassword.token`. |
+| `secrets.onepassword.token` | string | none | *File-only.* The service account token itself. Set this or the file, not both. |
+| `secrets.onepassword.backend` | string | `sdk` | *File-only.* How Legato reads 1Password: `sdk` (built in, no `op` command needed) or `op` (the `op` command). |
 
 ## Credential channels
 
@@ -494,7 +540,7 @@ How agents reach credentials without holding them. See [The credential broker](/
 
 | Setting | Type | Default | What it does |
 | --- | --- | --- | --- |
-| `credential_channels.http_proxy.listen` | string | `127.0.0.1:0` | The loopback address and port of Legato's proxy for API keys. Port `0` picks a free one. Any address that is not loopback stops Legato at start. |
+| `credential_channels.http_proxy.listen` | string | `127.0.0.1:0` | The loopback address and port of Legato's proxy for API keys. Port `0` picks a free one, and Legato keeps the same port across restarts, so running agents keep reaching it. Any address that is not loopback stops Legato at start. |
 | `credential_channels.ssh_agent.known_hosts` | path | `~/.ssh/known_hosts` | The file that names SSH hosts by their keys, so rules can name hosts. |
 | `credential_channels.gh.isolate_login` | bool | `true` | With a `github` credential, keeps each agent's `gh` from your own GitHub login: it gets Legato's tokens or none. `false` lets an agent's `gh` fall back to your login when Legato gives no token. |
 
@@ -502,7 +548,7 @@ How agents reach credentials without holding them. See [The credential broker](/
 
 | Setting | Type | Default | What it does |
 | --- | --- | --- | --- |
-| `approval_devices.android_app_digests` | list of strings | the digest of the public debug key the app is built with | SHA-256 digests (hex, colons allowed) of the certificates the Legato Android app may be signed with. Only that app's keys may sign approvals. Set the digest of your own release key. See [Devices](/legato/running/devices/). |
+| `approval_devices.android_app_digests` | list of strings | the digest of the public debug key the app is built with | *File-only.* SHA-256 digests (hex, colons allowed) of the certificates the Legato Android app may be signed with. Only that app's keys may sign approvals. Set the digest of your own release key. See [Devices](/legato/running/devices/). |
 
 ## Learning
 

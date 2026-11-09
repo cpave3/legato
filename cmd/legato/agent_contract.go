@@ -478,7 +478,7 @@ func viaBroker(command string, jsonMode bool, op string, args, data any) (int, b
 	if !ok {
 		return 0, false
 	}
-	err := broker.Call(context.Background(), socket, token, op, args, nil)
+	err := broker.Call(fallbackCtx(context.Background()), socket, token, op, args, nil)
 	switch {
 	case err == nil:
 		return writeCommandSuccess(command, data, "", jsonMode), true

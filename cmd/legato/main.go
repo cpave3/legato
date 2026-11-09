@@ -48,6 +48,11 @@ func main() {
 	if gitrepo.IsAskPass(os.Getenv) {
 		os.Exit(gitrepo.AskPass(os.Args[1:], os.Stdout, os.Stderr))
 	}
+	// The Reeve's host commands run through this binary, which drops the
+	// right to gain privileges before it starts the command.
+	if isHostExec(os.Getenv) {
+		os.Exit(hostExec(os.Args[1:]))
+	}
 	launch, err := parseLaunch(os.Args[1:], os.Getenv(hotReloadChildEnv) == "1")
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n\n%s", err, helpText(nil))
@@ -62,7 +67,21 @@ func main() {
 		env := append(os.Environ(), hotReloadChildEnv+"=1")
 		os.Exit(hotreload.Run(hotreload.Options{Args: launch.Args, Env: env, Dir: wd}))
 	}
-	os.Exit(runApplication(launch.Args))
+	code := runApplication(launch.Args)
+	if !restartInPlace.Load() {
+		// A start that failed after a restart rolls it back and starts
+		// again on the old configuration.
+		rollBackFailedStart(launch.Args, code, config.ResolveConfigPath(), reexec)
+	}
+	if restartInPlace.Load() {
+		// Asked to restart: everything above has shut down; start again
+		// in place.
+		if err := reexec(); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+	}
+	os.Exit(code)
 }
 
 func runApplication(args []string) int {
@@ -1454,12 +1473,13 @@ func runServeCmd(args []string) int {
 		}
 		return exitUsage
 	}
-	cfg, err := config.Load()
+	cfg, err := loadConfig()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "config: %v\n", err)
 		return 1
 	}
 	port := servePort(parsed.Values["port"], cfg)
+	defer startLogFile(cfg, stderrLog)()
 
 	db, err := openStore(cfg)
 	if err != nil {
@@ -1585,7 +1605,7 @@ func runServeCmd(args []string) int {
 	giveAgentsPrimaryDirs(agentSvc, repoPresets)
 	srv.SetRepositoryPresetService(repoPresets)
 	srv.SetRepositoryGuidanceService(repositoryGuidance(cfg, db))
-	srv.SetTintService(service.NewTintService(db))
+	srv.SetTintService(service.NewTintService(service.StringSetting{Settings: settingsFor(db)}))
 	srv.SetJobCloneService(repos)
 	srv.SetTaskStackService(wireTaskStacks(db, bus, repos))
 	repos.SetCacheListener(srv.BroadcastRepositoryCache)
@@ -1607,8 +1627,17 @@ func runServeCmd(args []string) int {
 	defer approvalsRT.stop()
 	approvalsRT.attach(srv)
 	updates := newUpdateService(db, bus, agentSvc, serveRestarter())
-	wireAttention(context.Background(), db, bus, srv, planSvc, reviewSvc, agentSvc, workflowSvc, approvalsRT, updates, mainSide, triggerCoordinator)
+	serveAttention := wireAttention(context.Background(), db, bus, srv, planSvc, reviewSvc, agentSvc, workflowSvc, approvalsRT, updates, mainSide, triggerCoordinator)
+	srv.SetSettingsService(wireSettings(db, bus, serveAttention))
+	srv.SetSettingsMover(settingsMover(db), restartAll)
+	serveReeve := wireReeve(srv, db, agentSvc, bus, approvalsRT.approvals)
+	wireReevePeers(srv, cfg, db, serveReeve, serveAttention)
+	srv.SetReeveRules(reeveRules(db, approvalsRT.approvals))
+	srv.SetReeveChangeSets(processChangeSets)
+	srv.SetReeveSecrets(processSecrets)
+	srv.SetSettingsImporter(processChangeSets)
 	wireUpdates(srv, updates)
+	srv.SetRestarter(restartAll)
 	srv.SetMacros(cfg.Macros)
 	srv.SetTerminalAttacher(terminalAttacher(tmuxMgr))
 	srv.SetSandboxEnabled(cfg.Agents.Sandbox.Enabled)
@@ -1638,6 +1667,11 @@ func runServeCmd(args []string) int {
 	// IPC server for receiving CLI→web updates.
 	socketPath := ipc.SocketPath()
 	ipcSrv, ipcErr := ipc.NewServer(socketPath, func(msg ipc.Message) {
+		if isRestartFor(msg, config.ResolveConfigPath()) {
+			prepareRestart(restartRollback(cfg, db), "restart")
+			requestRestart()
+			return
+		}
 		handleServeIPCMessage(msg, bus, srv)
 	})
 	if ipcErr == nil {
@@ -1677,6 +1711,7 @@ func runServeCmd(args []string) int {
 		scheme = "https"
 	}
 	approvalsRT.SetServerURL(scheme, port)
+	go settleRestart(context.Background(), restartRollback(cfg, db), scheme+"://127.0.0.1:"+port+"/health")
 	fmt.Printf("Legato web UI: %s://localhost:%s\n", scheme, port)
 	defer announceWebServer(cfg, port)()
 	if err := srv.Start(); err != nil && err.Error() != "http: Server closed" {
@@ -1691,11 +1726,13 @@ func runServeCmd(args []string) int {
 }
 
 func runTUI() int {
-	cfg, err := config.Load()
+	cfg, err := loadConfig()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "config: %v\n", err)
 		return 1
 	}
+	// The TUI owns its terminal: its log goes only to the log file.
+	defer startLogFile(cfg, nil)()
 
 	db, err := openStore(cfg)
 	if err != nil {
@@ -1713,15 +1750,19 @@ func runTUI() int {
 	if len(mappings) == 0 {
 		adapter := &setup.StoreAdapter{S: db}
 		jiraSetup := &setup.RealJiraSetup{}
-		if err := setup.RunWizard(context.Background(), os.Stdout, os.Stdin, adapter, cfg.Board.Columns, jiraSetup); err != nil {
+		if err := setup.RunWizard(context.Background(), os.Stdout, os.Stdin, adapter, cfg.Board.Columns, jiraSetup, setup.WithSettings(wizardSettings{cfg: cfg, db: db})); err != nil {
 			fmt.Fprintf(os.Stderr, "setup: %v\n", err)
 			return 1
 		}
-		// Reload config in case Jira was configured
+		// Read the configuration again: the wizard saved Jira's settings
+		// in the database.
 		cfg, err = config.Load()
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "config reload: %v\n", err)
 			return 1
+		}
+		if err := service.ApplySettings(context.Background(), db, cfg, settingSecrets(cfg, db)); err != nil {
+			log.Printf("settings: %v", err)
 		}
 	}
 
@@ -1744,6 +1785,11 @@ func runTUI() int {
 	stopIntegrations := func() {}
 	socketPath := ipc.SocketPath()
 	ipcServer, ipcErr := ipc.NewServer(socketPath, func(msg ipc.Message) {
+		if isRestartFor(msg, config.ResolveConfigPath()) {
+			prepareRestart(restartRollback(cfg, db), "restart")
+			requestRestart()
+			return
+		}
 		var wn webNotifier
 		if webSrv != nil {
 			wn = webSrv
@@ -1915,15 +1961,24 @@ func runTUI() int {
 			}
 			approvalsRT.attach(webSrv)
 			updates := newUpdateService(db, bus, agentSvc, tuiRestarter())
-			wireAttention(context.Background(), db, bus, webSrv, planSvc, reviewSvc, agentSvc, tuiWorkflowSvc, approvalsRT, updates, mainSide, triggerCoordinator)
+			webAttention := wireAttention(context.Background(), db, bus, webSrv, planSvc, reviewSvc, agentSvc, tuiWorkflowSvc, approvalsRT, updates, mainSide, triggerCoordinator)
+			webSrv.SetSettingsService(wireSettings(db, bus, webAttention))
+			webSrv.SetSettingsMover(settingsMover(db), restartAll)
+			webReeve := wireReeve(webSrv, db, agentSvc, bus, approvalsRT.approvals)
+			wireReevePeers(webSrv, cfg, db, webReeve, webAttention)
+			webSrv.SetReeveRules(reeveRules(db, approvalsRT.approvals))
+			webSrv.SetReeveChangeSets(processChangeSets)
+			webSrv.SetReeveSecrets(processSecrets)
+			webSrv.SetSettingsImporter(processChangeSets)
 			wireUpdates(webSrv, updates)
+			webSrv.SetRestarter(restartAll)
 			webSrv.SetMacros(cfg.Macros)
 			webSrv.SetTerminalAttacher(terminalAttacher(tmuxMgr))
 			webSrv.SetSandboxEnabled(cfg.Agents.Sandbox.Enabled)
 			webSrv.SetFreshClonesEnabled(cfg.RepositoryCache.Enabled)
 			webSrv.SetRepositoryPresetService(repoPresets)
 			webSrv.SetRepositoryGuidanceService(repositoryGuidance(cfg, db))
-			webSrv.SetTintService(service.NewTintService(db))
+			webSrv.SetTintService(service.NewTintService(service.StringSetting{Settings: settingsFor(db)}))
 			webSrv.SetJobCloneService(repos)
 			webSrv.SetTaskStackService(taskStacks)
 			repos.SetCacheListener(webSrv.BroadcastRepositoryCache)
@@ -1973,6 +2028,18 @@ func runTUI() int {
 		}
 	}
 
+	// A restart that is pending is settled once this process is up: the web
+	// server (when it runs) and the broker answering.
+	tuiHealthURL := ""
+	if webSrv != nil {
+		scheme := "http"
+		if tlsEnabled(cfg) {
+			scheme = "https"
+		}
+		tuiHealthURL = scheme + "://127.0.0.1:" + cfg.Web.Port + "/health"
+	}
+	go settleRestart(context.Background(), restartRollback(cfg, db), tuiHealthURL)
+
 	// Load workspaces for TUI
 	workspaces, _ := boardSvc.ListWorkspaces(context.Background())
 
@@ -2014,6 +2081,11 @@ func runTUI() int {
 		app.SetWorkflowTriggerCoordinator(triggerCoordinator, workflowRepositoryPresets(cfg))
 	}
 	registerApprovalAttention(attentionSvc, approvalsRT)
+	_ = attentionSvc.RegisterProducer(service.NewRestartAttentionAdapter(db))
+	if webSrv == nil {
+		wireSettings(db, bus, nil)
+	}
+	registerSettingsAttention(attentionSvc, settingsFor(db))
 	// Away tasks and workers that need this main; their actions are the
 	// web UI's.
 	mainSide.registerAttention(attentionSvc, cfg, approvalsRT.serverURL())
@@ -2031,6 +2103,10 @@ func runTUI() int {
 	// counts it and links to the web UI.
 	app.SetAgentUIService(service.NewAgentUIService(db, bus, service.AgentUIOptions{}), localWebURL(cfg))
 	app.SetGroupDefaults(cfg.Groups.Defaults)
+	// R opens the Reeve; a in the agents view asks it about an agent.
+	if reeve := newReeveService(db, agentSvc, webSrv, approvalsRT.approvals); reeve != nil {
+		app.SetReeve(reeve)
+	}
 	if cfg.Manticore.URL != "" {
 		// The instance that records the agents' usage can also say how much
 		// it has recorded.
@@ -2062,10 +2138,6 @@ func runTUI() int {
 			webSrv.SetVoiceService(voiceSvc, cfg.Voice.AutoSend)
 		}
 	}
-
-	// Silence log output — bubbletea owns the terminal in alt-screen mode
-	// and stray log writes corrupt the UI.
-	log.SetOutput(io.Discard)
 
 	p := tea.NewProgram(app, tea.WithAltScreen(), tea.WithoutSignalHandler())
 	if err := runProgram(p, nil); err != nil {

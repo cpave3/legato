@@ -119,7 +119,7 @@ func requireHandoffMain(w http.ResponseWriter, r *http.Request) (service.Integra
 	return id, ok
 }
 
-func (s *Server) registerInstanceRoutes(mux *http.ServeMux) {
+func (s *Server) registerInstanceRoutes(mux *routeMux) {
 	mux.HandleFunc("GET /api/integrations/handoff/pairing", s.handoffPairingHandler())
 	mux.HandleFunc("POST "+service.HandoffCallPath, s.taskHandoffHandler())
 	mux.HandleFunc("GET "+service.HandoffCallPath+"/{handoff_id}", s.taskHandoffGetHandler())

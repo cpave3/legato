@@ -62,6 +62,8 @@ The import overlay (`i`) searches every connected provider, names each result's 
 
 `internal/tui/agents`: `list.go` (the list beside one terminal), `grid.go` (the ensemble), `conversation.go` (a native agent's conversation in a tile), `shown.go`, `usage.go`.
 
+The Reeve's agent (`service.AgentSession.Reeve`) is pinned on the first row, above the groups and not counted in them, named "Reeve" with a violet wash (`theme.TintViolet`, `TintVioletActive` when selected; `orderAgents`, `sidebarEntries`). `R` opens the Reeve from any view (`hotkey.ActionOpenReeve`, global, `YieldToSpecific` so the agents view's `R` stays **Reload agent**): `ReeveOpener.Open` (`service.ReeveService.Open`) goes to the running session, resumes a suspended one or starts one, and the agents view opens on it (`app_reeve.go`). `a` in the agents view (`ActionAgentsAskReeve`, not on the Reeve itself) sends `AskReeveMsg`; the app gives the Reeve a brief of the agent (`agentReeveBrief`: its title, task, agent tool and state) with `ReeveService.Ask`, which messages the running session, resumes a suspended one or starts one, and opens it. Both need `CapabilityReeve`, set by `App.SetReeve` when the process has an agent service. The reporting view moved from `R` to `T`.
+
 Agents are listed by what they are doing: **NEEDS YOU** (waiting, or stopped on an error), **RUNNING**, **BACKGROUND**, **IDLE**, **ENDED**. Inside one state, swarm participants stay together (conductor first), then grouped agents, then the rest. The selection follows an agent that changes state.
 
 ### List

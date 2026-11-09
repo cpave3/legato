@@ -90,12 +90,12 @@ func (s *Server) chimeraDowngradeHandler() http.HandlerFunc {
 			http.Error(w, "agent is already using tmux", http.StatusConflict)
 			return
 		}
-		invalidator, ok := s.agents.(service.ChimeraBindingInvalidator)
+		downgrader, ok := s.agents.(service.NativeDowngrader)
 		if !ok {
 			http.Error(w, "agent service does not support Chimera downgrade", http.StatusNotImplemented)
 			return
 		}
-		cleared, err := invalidator.InvalidateChimeraBinding(r.Context(), agentSession.ID, *agentSession.ChimeraSessionID, *agentSession.ChimeraEndpoint)
+		cleared, err := downgrader.DowngradeToTmux(r.Context(), agentSession.ID, *agentSession.ChimeraSessionID, *agentSession.ChimeraEndpoint)
 		if err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return

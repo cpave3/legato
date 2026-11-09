@@ -71,10 +71,16 @@ func startApprovals(ctx context.Context, cfg *config.Config, db *store.Store, bu
 	}
 	// The broker agent-side processes ask instead of the store.
 	rt.caseReplies = newCaseReplyService(cfg, db, bus, true)
+	changeSets := startChangeSets(ctx, cfg, db, rt.approvals, agents, nil)
 	deps := hostBrokerDeps(cfg, db, agents, rt.credentials, rt.caseReplies, rt.reviewPasses)
 	broker := startBrokerHost(ctx, db, ipc.SocketDir(), brokerHostOptions{Deps: deps})
 	stops = append(stops, broker.Stop)
 	rt.brokerOwner = broker.Owner
+	// Approved change sets are run by the process that serves the broker.
+	go whileBrokerOwner(ctx, broker.Owner, 2*time.Second, func(ctx context.Context) {
+		changeSets.RunQueued(ctx)
+		changeSets.ReportRestarts(ctx, processStart, version.String())
+	})
 	if rt.caseReplies != nil {
 		// Replies are sent by the process that serves the broker.
 		repliesCtx, stopReplies := context.WithCancel(ctx)
@@ -249,10 +255,13 @@ func hostBrokerDeps(cfg *config.Config, db *store.Store, agents service.AgentSer
 		if reviews != nil {
 			opts.Reviews = reviews()
 		}
+		opts.Reeve = reeveTools(cfg, db)
 		return opts
 	})
 	// Agents in the sandbox run their own `legato` commands here.
-	deps.Ops["cli.run"] = cliRunOp(legatoBinary(), *sandboxScratch(cfg))
+	deps.Ops["cli.run"] = cliRunOp(legatoBinary(), *sandboxScratch(cfg), func(ctx context.Context, taskID string) bool {
+		return service.IsReeveTask(ctx, db, taskID)
+	})
 	// Values come from this broker, whose stores (1Password) stay signed in.
 	if credentials != nil {
 		for name, op := range cli.CredentialBrokerOps(credentials) {

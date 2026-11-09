@@ -1,3 +1,7 @@
+import { ReeveStatus, reeveWash } from "./ReeveEntry"
+import { AskReeve } from "./AskReeve"
+import { parseReeveMessage, reeveBrief } from "../lib/reeve"
+import { ChangeSetLines } from "./ChangeSetLines"
 import { useState, useEffect, useCallback, useRef, useMemo, memo } from "react"
 import { ArrowDown, ArrowLeftRight, Bell, BellOff, Check, Pencil, RefreshCw, RotateCw, Shield, Skull, Terminal, Unplug, Zap } from "lucide-react"
 import type { SandboxSwitch } from "../lib/agentReload"
@@ -187,6 +191,8 @@ function PermissionCard({
 
 interface NativeAgentPanelProps {
   agentId: string
+  // The agent of this Legato itself: its status bar says so.
+  reeve?: boolean
   // The agent runs in Legato's sandbox: giving it a resource reloads it.
   sandboxed?: boolean
   onClickTerminal?: () => void
@@ -221,7 +227,7 @@ interface NativeAgentPanelProps {
   pullRequest?: number
 }
 
-export function NativeAgentPanel({ agentId, sandboxed, onKill, onRename, resyncRef, onReload, switchSandbox, onDisconnect, onDowngradeChimera, ntfyConfigured, notifyEnabled, onToggleNotify, voiceEnabled, agentKind, composerEnabled = true, onOpenUIItem, panels, title, activity, stateTime, pullRequest }: NativeAgentPanelProps) {
+export function NativeAgentPanel({ agentId, reeve, sandboxed, onKill, onRename, resyncRef, onReload, switchSandbox, onDisconnect, onDowngradeChimera, ntfyConfigured, notifyEnabled, onToggleNotify, voiceEnabled, agentKind, composerEnabled = true, onOpenUIItem, panels, title, activity, stateTime, pullRequest }: NativeAgentPanelProps) {
   const { send, subscribe, connected } = useWebSocket()
   // Out of view the panel stops following the agent and catches up from its
   // cursor on return, so a phone with its screen off does not keep receiving
@@ -880,13 +886,16 @@ export function NativeAgentPanel({ agentId, sandboxed, onKill, onRename, resyncR
         pullRequest={pullRequest}
         panels={panels}
         onShowRequest={scrollToBottom}
+        ask={reeve ? undefined : <AskReeve brief={reeveBrief({ what: `the agent “${title || agentId}”, which waits for the person`, ids: { task: agentId, "agent tool": agentKind }, error: error || undefined })} />}
         menu={menu}
         notes={<>
+          {reeve && <ReeveStatus baseUrl={baseUrl} />}
           {mode && <span className="rounded bg-lw-raised px-1.5 font-lw-mono">{mode}</span>}
           {syncing && <span className="text-lw-link">Syncing…</span>}
           {error && <span className="truncate text-lw-error">{error}</span>}
         </>}
       />
+      {reeve && <ChangeSetLines baseUrl={baseUrl} taskId={agentId} refresh={activity} />}
 
       {/* Conversation viewport owns both scrolling and its floating action. */}
       <div role="region" aria-label="Conversation" className="relative min-h-0 flex-1">
@@ -905,6 +914,24 @@ export function NativeAgentPanel({ agentId, sandboxed, onKill, onRename, resyncR
           if (item.role === "user") {
             // Legato's own messages arrive as user turns; they are drawn
             // apart from what the person typed.
+            const peerReeve = parseReeveMessage(item.text)
+            if (peerReeve) {
+              // Another instance's Reeve wrote this: its own block, with the
+              // Reeve's violet edge.
+              return (
+                <div key={item.key} className="flex justify-end px-4 py-2">
+                  <div
+                    aria-label={`Message from the Reeve on ${peerReeve.instance}`}
+                    className={`max-w-[75%] rounded-lg border-l-2 border-l-[#8b5cf6] px-3 py-2 text-sm text-zinc-300 whitespace-pre-wrap break-words ${reeveWash}`}
+                  >
+                    <div className="mb-1 text-[10px] font-semibold uppercase tracking-wide text-[#c4b5fd]">
+                      From the Reeve on <span className="normal-case">{peerReeve.instance}</span> · <span className="normal-case">{peerReeve.role}</span>
+                    </div>
+                    <div>{peerReeve.body}</div>
+                  </div>
+                </div>
+              )
+            }
             const legato = parseLegatoMessage(item.text)
             if (legato?.peer !== undefined) {
               // Another agent wrote this and Legato only carried it, so it

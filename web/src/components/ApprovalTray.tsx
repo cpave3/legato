@@ -1,7 +1,11 @@
+import { ChangeSetCard } from "./ChangeSetCard"
+import { SecretRequestForm } from "./SecretRequestForm"
 import { useEffect, useRef, useState } from "react"
 import { createPortal } from "react-dom"
 import { Link, useSearchParams } from "react-router-dom"
 import { useApprovals } from "../hooks/useApprovals"
+import { usePeerApprovals } from "../hooks/usePeerApprovals"
+import type { PeerApproval } from "../lib/reeve"
 import { useServer } from "../hooks/useServer"
 import { approvalAsker, approvalKind, decideApproval, dismissApproval, type Approval, type ApprovalDecision } from "../lib/approvals"
 import { NativeQuestionCard } from "./NativeQuestionCard"
@@ -41,6 +45,7 @@ function useFade(open: boolean, ms = 300) {
 // arrive opens it again.
 export function ApprovalTray() {
   const { data: approvals, refresh } = useApprovals()
+  const peerApprovals = usePeerApprovals()
   const [folded, setFolded] = useState(false)
   const focusMode = useFocusMode()
   const asking = approvals.filter((approval) => approvalQuestions(approval).length > 0)
@@ -79,7 +84,8 @@ export function ApprovalTray() {
     setParams(next, { replace: true })
   }, [wanted, params, setParams])
 
-  const count = `${approvals.length} ${approvals.length === 1 ? "needs" : "need"} you`
+  const total = approvals.length + peerApprovals.length
+  const count = `${total} ${total === 1 ? "needs" : "need"} you`
   const focus = (
     <>
       {fade.mounted && createPortal(
@@ -104,7 +110,7 @@ export function ApprovalTray() {
       )}
     </>
   )
-  if (approvals.length === 0) return focus
+  if (total === 0) return focus
 
   return (
     <>
@@ -151,6 +157,9 @@ export function ApprovalTray() {
             {approvals.map((approval) => (
               <ApprovalCard key={approval.id} approval={approval} focused={approval.id === focused} onDone={refresh} />
             ))}
+            {peerApprovals.map((approval) => (
+              <PeerApprovalCard key={`${approval.instance_id}:${approval.id}`} approval={approval} />
+            ))}
           </div>
         </div>
       )}
@@ -162,6 +171,30 @@ export function ApprovalTray() {
 // A choice on a phone is a full-width button a thumb hits without aiming;
 // from the md breakpoint it is the compact button of a desktop tray.
 const choiceSize = "flex min-h-12 w-full items-center justify-center rounded-xl px-4 text-base md:min-h-0 md:w-auto md:rounded md:px-2.5 md:py-1 md:text-xs"
+
+// Another instance's Reeve change set: marked with its instance, and decided
+// there, with a device enrolled there.
+function PeerApprovalCard({ approval }: { approval: PeerApproval }) {
+  const link = "inline-flex min-h-11 items-center justify-center rounded-lg px-3 text-sm md:min-h-0 md:py-1 md:text-xs"
+  return (
+    <article data-testid={`peer-approval-${approval.id}`} className="rounded-lg border border-lw-line border-l-2 border-l-[#8b5cf6] bg-lw-ground p-3">
+      <div className="flex items-center gap-2 text-xs text-lw-text-2">
+        <span className="rounded-full border border-lw-line-strong px-2 py-0.5 text-lw-text">{approval.instance}</span>
+        <span>Reeve change set</span>
+      </div>
+      <h3 className="mt-1 text-sm font-medium text-lw-text">{approval.title}</h3>
+      {approval.summary && <p className="text-xs text-lw-text-2">{approval.summary}</p>}
+      <div className="mt-2 flex flex-wrap gap-2">
+        <a href={approval.url} target="_blank" rel="noreferrer" className={`${link} border border-lw-accent-ring bg-lw-accent-soft text-lw-accent-text hover:brightness-125`}>
+          {approval.signed ? `◈ Approve on ${approval.instance}` : `Approve on ${approval.instance}`}
+        </a>
+        <a href={approval.instance_url} target="_blank" rel="noreferrer" className={`${link} text-lw-text-2 hover:bg-lw-raised`}>
+          Open {approval.instance} ↗
+        </a>
+      </div>
+    </article>
+  )
+}
 
 function ApprovalCard({ approval, focused, onDone }: { approval: Approval; focused: boolean; onDone: () => Promise<void> }) {
   const { baseUrl } = useServer()
@@ -224,6 +257,8 @@ function ApprovalCard({ approval, focused, onDone }: { approval: Approval; focus
       {asker && <p className="text-sm text-lw-text-2 md:text-xs">{asker}</p>}
 
       {approval.source === "credential" && <CredentialScope approval={approval} />}
+      {approval.source === "reeve_change_set" && <ChangeSetCard approval={approval} />}
+      {approval.source === "reeve_secret" && <SecretRequestForm approval={approval} baseUrl={baseUrl} onDone={onDone} />}
 
       {questions.length > 0 ? (
         <div className="-mx-4 mt-1">
@@ -237,7 +272,7 @@ function ApprovalCard({ approval, focused, onDone }: { approval: Approval; focus
         </div>
       ) : (
         <>
-          {approval.source !== "credential" && (details.command || approval.summary) && !details.plan && (
+          {approval.source !== "credential" && approval.source !== "reeve_change_set" && approval.source !== "reeve_secret" && (details.command || approval.summary) && !details.plan && (
             <pre className="mt-3 max-h-48 overflow-auto whitespace-pre-wrap break-words rounded-lg bg-lw-ground p-3 font-lw-mono text-sm md:mt-2 md:max-h-40 md:rounded md:p-2 md:text-xs">{details.command || approval.summary}</pre>
           )}
           {details.plan && (
@@ -246,7 +281,7 @@ function ApprovalCard({ approval, focused, onDone }: { approval: Approval; focus
               <pre className="mt-1 max-h-60 overflow-auto whitespace-pre-wrap break-words rounded bg-lw-ground p-2 font-lw-mono">{details.plan}</pre>
             </details>
           )}
-          {details.reason && approval.source !== "credential" && <p className="mt-2 break-words text-sm text-lw-text-2 md:mt-1 md:text-xs">{details.reason}</p>}
+          {details.reason && approval.source !== "credential" && approval.source !== "reeve_change_set" && <p className="mt-2 break-words text-sm text-lw-text-2 md:mt-1 md:text-xs">{details.reason}</p>}
           {details.cwd && <p className="mt-1 truncate font-lw-mono text-xs text-lw-faint md:text-[11px]">{details.cwd}</p>}
 
           {error && <p role="alert" className="mt-2 text-sm text-lw-error md:text-xs">{error}</p>}
@@ -296,7 +331,7 @@ function ApprovalCard({ approval, focused, onDone }: { approval: Approval; focus
                   <span aria-hidden>◈ </span>Needs your phone: open this approval in the Legato app and sign it with your fingerprint or PIN, or add a passkey for this computer in Settings › Devices.
                 </p>
               )}
-              {!approval.signed && allows.map((option, index) => (
+              {!approval.signed && approval.source !== "reeve_secret" && allows.map((option, index) => (
                 <button
                   key={option.id}
                   disabled={busy}

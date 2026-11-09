@@ -43,6 +43,9 @@ type PairingPurpose string
 const (
 	PairingPhone PairingPurpose = "phone"
 	PairingMain  PairingPurpose = "main"
+	// PairingReeve pairs another instance's Reeve with this one's: each
+	// side gets a reeve-scoped token for the other (a Reeve pairing).
+	PairingReeve PairingPurpose = "reeve"
 )
 
 var (
@@ -181,7 +184,7 @@ func (s *PairingService) OpenFor(purpose PairingPurpose) (PairingStatus, error) 
 	if purpose == "" {
 		purpose = PairingPhone
 	}
-	if purpose != PairingPhone && (purpose != PairingMain || !s.MainsAllowed()) {
+	if purpose != PairingPhone && purpose != PairingReeve && (purpose != PairingMain || !s.MainsAllowed()) {
 		return PairingStatus{}, fmt.Errorf("%w: %q", ErrPairingPurpose, purpose)
 	}
 	phrase, err := pairing.NewPhrase(s.random)
@@ -245,7 +248,7 @@ func (s *PairingService) Exchange(phoneShare []byte) (string, []byte, error) {
 		return "", nil, ErrPairingClosed
 	}
 	protocol := pairing.Protocol
-	if s.status.Purpose == PairingMain {
+	if s.status.Purpose == PairingMain || s.status.Purpose == PairingReeve {
 		protocol = pairing.MainProtocol
 	}
 	session, share, err := pairing.Start(pairing.PartyB, protocol, s.w, s.random)
@@ -303,8 +306,10 @@ func (s *PairingService) Confirm(ctx context.Context, sessionID string, phoneCon
 		return nil, nil, ErrPairingMismatch
 	}
 	client := PairingClient{Purpose: s.status.Purpose}
-	if client.Purpose == PairingMain {
+	if client.Purpose == PairingMain || client.Purpose == PairingReeve {
+		purpose := client.Purpose
 		client, err = openMainDescription(keys.Key, sealedPhone)
+		client.Purpose = purpose
 		if err != nil {
 			s.mu.Unlock()
 			return nil, nil, err
@@ -423,6 +428,21 @@ func (p PairingSecrets) Secret(ctx context.Context, client PairingClient) (Pairi
 			return PairingSecret{}, err
 		}
 		secret.CACertificate = pem
+	}
+	if client.Purpose == PairingReeve {
+		if p.Mains == nil || p.InstanceID == nil {
+			return PairingSecret{}, fmt.Errorf("%w: %q", ErrPairingPurpose, client.Purpose)
+		}
+		id, err := p.InstanceID(ctx)
+		if err != nil {
+			return PairingSecret{}, err
+		}
+		token, err := p.Mains.CreateReevePeer(ctx, client.Name, client.InstanceID)
+		if err != nil {
+			return PairingSecret{}, err
+		}
+		secret.Token, secret.InstanceID = token, id
+		return secret, nil
 	}
 	if client.Purpose != PairingMain {
 		token := ""

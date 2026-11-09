@@ -59,6 +59,10 @@ legato integration token create argus --scope owner:read,delegate,attention
 
 Such a token starts with `lgi_` and reaches nothing else. `legato integration token revoke argus` stops it at once. See [Argus](/legato/integrations/argus/).
 
+## How risky each call is
+
+Legato knows, for every call of its API, whether it only reads, changes something, is risky (it touches security, stops something, or cannot be undone), or is one an agent may never make whatever you approve (deciding an approval, enrolling a device, typing into another agent's terminal). The Reeve's changes are approved by these classes. A call Legato does not know counts as risky.
+
 ## Keep the port safe
 
 :::danger

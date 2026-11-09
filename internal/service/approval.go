@@ -54,6 +54,10 @@ type ApprovalInput struct {
 	Blocking bool
 	// Signed: only a decision signed by an enrolled device may allow it.
 	Signed bool
+	// Verified: only a signed decision whose device verified the person
+	// (fingerprint, PIN) may allow it; a touch alone is refused. It
+	// implies Signed.
+	Verified bool
 }
 
 // ApprovalDecision is what the person decided, and where.
@@ -106,6 +110,9 @@ var (
 	ErrApprovalNeedsSignature = errors.New("this approval needs a decision signed on an enrolled device (your phone)")
 	// ErrApprovalBadSignature: the signature does not hold.
 	ErrApprovalBadSignature = errors.New("the decision's signature does not hold")
+	// ErrApprovalNeedsVerification: the approval may be allowed only by a
+	// device that verified the person, not by a touch alone.
+	ErrApprovalNeedsVerification = errors.New("this approval needs a device that checks it is you (a fingerprint or a PIN), not only a touch")
 )
 
 // Approval is an approval request as callers see it.
@@ -190,7 +197,7 @@ func (s *ApprovalService) Submit(ctx context.Context, in ApprovalInput) (*Approv
 		ID: newApprovalID(), Source: in.Source, SourceKey: in.SourceKey,
 		TaskID: in.TaskID, ExecutionID: in.ExecutionID,
 		Title: in.Title, Summary: in.Summary,
-		DetailsJSON: string(details), OptionsJSON: string(optionsJSON), Blocking: in.Blocking, Signed: in.Signed,
+		DetailsJSON: string(details), OptionsJSON: string(optionsJSON), Blocking: in.Blocking, Signed: in.Signed || in.Verified, Verified: in.Verified,
 	})
 	if err != nil {
 		return nil, false, err
@@ -276,6 +283,9 @@ func (s *ApprovalService) Decide(ctx context.Context, id string, decision Approv
 			return nil, fmt.Errorf("%w: %v", ErrApprovalBadSignature, err)
 		}
 		decision.Device, decision.Verification = by.Device, by.Verification
+	}
+	if current.Verified && allows && decision.Verification != VerificationVerified {
+		return nil, ErrApprovalNeedsVerification
 	}
 	resolver := s.resolver(current.Source)
 	if resolver == nil {

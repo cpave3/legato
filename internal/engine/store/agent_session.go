@@ -253,7 +253,7 @@ func (s *Store) DeleteDeadAgentSessionsInSlot(ctx context.Context, taskID, slot 
 func (s *Store) UpdateChimeraDiscovery(ctx context.Context, taskID, chimeraSessionID, endpoint string) error {
 	_, err := s.db.ExecContext(ctx, `
 		UPDATE agent_sessions
-		SET chimera_session_id = ?, chimera_endpoint = ?
+		SET chimera_session_id = ?, chimera_endpoint = ?, native_off = 0
 		WHERE task_id = ? AND slot = 'main' AND status = 'running'`,
 		chimeraSessionID, endpoint, taskID)
 	return err
@@ -265,7 +265,7 @@ func (s *Store) UpdateChimeraDiscovery(ctx context.Context, taskID, chimeraSessi
 func (s *Store) UpdateChimeraDiscoveryForSession(ctx context.Context, agentSessionID int, chimeraSessionID, endpoint string) error {
 	result, err := s.db.ExecContext(ctx, `
 		UPDATE agent_sessions
-		SET chimera_session_id = ?, chimera_endpoint = ?
+		SET chimera_session_id = ?, chimera_endpoint = ?, native_off = 0
 		WHERE id = ? AND status = 'running'`,
 		chimeraSessionID, endpoint, agentSessionID)
 	if err != nil {
@@ -307,4 +307,21 @@ func (s *Store) UpdateChimeraLastEventID(ctx context.Context, taskID, eventID st
 		UPDATE agent_sessions SET last_event_id = ?
 		WHERE task_id = ? AND slot = 'main' AND status = 'running'`, eventID, taskID)
 	return err
+}
+
+// KeepAgentSessionOnTmux clears a running agent's native binding, as
+// ClearChimeraDiscoveryForSession does, and marks it as switched to its
+// terminal on purpose (native_off), so a restart does not bind it again.
+func (s *Store) KeepAgentSessionOnTmux(ctx context.Context, agentSessionID int, chimeraSessionID, endpoint string) (bool, error) {
+	result, err := s.db.ExecContext(ctx, `
+		UPDATE agent_sessions
+		SET chimera_session_id = NULL, chimera_endpoint = NULL, last_event_id = NULL, native_off = 1
+		WHERE id = ? AND status = 'running'
+			AND chimera_session_id = ? AND chimera_endpoint = ?`,
+		agentSessionID, chimeraSessionID, endpoint)
+	if err != nil {
+		return false, err
+	}
+	updated, err := result.RowsAffected()
+	return updated == 1, err
 }

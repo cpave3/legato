@@ -58,6 +58,11 @@ func (s *Server) approvalsHandler() http.HandlerFunc {
 			s.writeApprovalError(w, err)
 			return
 		}
+		if _, reeve := ReeveCaller(r.Context()); reeve {
+			for i := range approvals {
+				approvals[i] = withoutHostContent(approvals[i])
+			}
+		}
 		s.writeJSON(w, http.StatusOK, struct {
 			Approvals []service.Approval `json:"approvals"`
 		}{Approvals: approvals})
@@ -79,8 +84,36 @@ func (s *Server) approvalHandler() http.HandlerFunc {
 			s.writeApprovalError(w, err)
 			return
 		}
+		if _, reeve := ReeveCaller(r.Context()); reeve {
+			plain := withoutHostContent(*approval)
+			approval = &plain
+		}
 		s.writeJSON(w, http.StatusOK, approval)
 	}
+}
+
+// withoutHostContent is a change set's approval as the Reeve may read it:
+// without what Legato read from the host to show the person (an edited
+// file's or config.yaml's diff, a setting's value before), which the
+// Reeve could otherwise read by proposing a change it never means to make.
+func withoutHostContent(approval service.Approval) service.Approval {
+	if approval.Source != service.ApprovalSourceReeveChangeSet || len(approval.Details) == 0 {
+		return approval
+	}
+	var details map[string]any
+	if json.Unmarshal(approval.Details, &details) != nil {
+		approval.Details = nil
+		return approval
+	}
+	calls, _ := details["calls"].([]any)
+	for _, call := range calls {
+		if fields, ok := call.(map[string]any); ok {
+			delete(fields, "diff")
+			delete(fields, "before")
+		}
+	}
+	approval.Details, _ = json.Marshal(details)
+	return approval
 }
 
 // approvalDecisionHandler serves POST /api/approvals/{id}/decision.

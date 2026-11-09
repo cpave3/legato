@@ -90,7 +90,7 @@ Migration 094 adds `repository_guidance`: guidance saved in the web UI for the a
 
 Migration 079 adds `repository_presets`: repositories added in the web UI (a unique name, `repo`, `primary_dir`, `base_branch`), offered beside the configuration's. See [Configuration](config.md) § Shared repository presets.
 
-`instance_values` (migration 072) also keeps settings of this Legato that the web UI changes: `web.tint`, its tint (`GetInstanceValue`, `SetInstanceValue`; `service.TintService`).
+`instance_values` (migration 072) kept the tint, the update mode and Burnlite's projects until migration 098 moved them into `settings`, the table of settings kept in the database (`key`, JSON `value`, `updated_at`, `updated_by`). See [Settings](settings.md).
 
 Migration 080 lets a job clone be shared: `job_clone_tasks` (`clone_id`, `task_id`, `attached_at`; the clone's own task is listed first, and existing clones are filled in) holds every task that works in a clone, and `job_clones.last_used_at` is when an agent last started there or was seen working there, from which `repository_cache.keep_idle` counts. `job_clones.task_id` stays the task the clone was made for. `CreateJobClone` returns the new ID; `AttachJobCloneTask`, `TouchJobClone`, `JobCloneByID` and `LiveJobCloneForTask` (the newest live clone of a repository a task works in) go with it, and every read fills `TaskIDs` and `LastUsedAt`.
 
@@ -113,6 +113,22 @@ Migration 086 brings away tasks home (return and recall). On a worker, a handoff
 Migration 087 takes away tasks back and removes workers. On a main, `away_tasks` gains `taken_back_at` and `drop_owed` (1 from a take back until the worker confirms it dropped the task; `TakeBackAwayTask` closes an open `away` task, sets both and adds the main's note in one transaction; `ListDropOwed`, with `""` for every worker, and `ClearDropOwed`), and `workers` gains `leaving_until` (a removed worker kept, hidden, only to send it the calls owed it until then; `SetWorkerLeaving`). `ListWorkers` leaves hidden workers out and `ListAllWorkers` lists them too; `SaveWorker` clears `leaving_until`; `DeleteWorker` forgets a worker and clears the calls owed it. On a worker, `CloseHandoffWithNote` closes a handoff with a note on its card, archiving it for a Drop, and `CloseMainHandoffs` closes all of a main's open handoffs with a note on each card, leaving the cards. See [Integrations](integrations.md) § Take back, Drop and Leave.
 
 Migration 088 adds `handoff_notices` (`notice` primary key, `sent_at`) on a main: one row per state of an away task or worker the phone was told of, `<attention source key>@<revision>`. `ClaimHandoffNotice` inserts one and says whether this call did, so only one Legato process on the database sends the notification. See [Attention](attention.md) § Handoff.
+
+### Restart records
+
+Migration 095 adds `restart_records`: a restart of Legato that can be rolled back. `id` (`rs-<12 hex>`), `reason`, `requested_by`, `version`, `config_path`, `config_backup` (a copy of `config.yaml` from before the change, `""` when the file was not changed), `settings` (JSON `[{key, old}]`: the database settings the restart altered with their old values, `old` absent when the setting was unset), `state` (`pending`, `applied`, `rolled_back`), `failure`, `created_at`, `finished_at`. A pointer file beside `config.yaml` (`config.yaml.restart-pending`) names the pending record, the backup and the database, so a start whose configuration does not load can still roll back. See [Releases and updates](updates.md) § Rollback.
+
+### Launch messages
+
+Migration 096 adds `launch_messages` (`execution_id`, `position`: the key; `task_id`, `slot`, `tmux_session`, `agent_kind`, `prompt_file`, `message`, `owner`, `created_at`): the messages an agent was launched with that are not delivered yet. `owner` is the agent service delivering them (a random token per process); `TakeLaunchMessage` deletes one row only for its owner, and `AdoptLaunchMessages` moves an execution's rows from one owner to another only if the first still holds them, so a message is sent once. See [Releases and updates](updates.md) § Restarting in place.
+
+### Agents kept on their terminal
+
+Migration 097 adds `agent_sessions.native_off`: set by **Downgrade to tmux** (`KeepAgentSessionOnTmux`), cleared by any binding of a native endpoint (`UpdateChimeraDiscovery`, `UpdateChimeraDiscoveryForSession`). `RecoverNativeEndpoints` skips a session that has it.
+
+### The Reeve
+
+Migration 101 adds `tasks.kind` (`""`, or `reeve` for a Reeve session's hidden task) and `reeve_sessions` (one row per session: state, agent tool, model, launch arguments, the API token and its hash, `active_at`). See [The Reeve](reeve.md).
 
 ### Directory presets
 

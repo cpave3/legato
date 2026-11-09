@@ -78,6 +78,8 @@ type AgentSession struct {
 	Slot string
 	// CardTaskID is the task the agent's slot belongs to.
 	CardTaskID string
+	// Reeve is true for the agent of this Legato itself.
+	Reeve bool
 }
 
 // AgentPeer describes one live, routable agent sharing a Git worktree.
@@ -159,6 +161,12 @@ type AgentSpawnOptions struct {
 	// Unsandboxed starts this agent outside Legato's sandbox when it is on.
 	// Swarm and workflow agents ignore it: they are always sandboxed.
 	Unsandboxed bool
+	// LaunchPrompt replaces the general launch prompt (the Reeve's): no
+	// repository guidance, review prompt or learnings are added to it.
+	LaunchPrompt string
+	// LaunchArgs are added to the agent tool's launch command, after its
+	// adapter's own (the Reeve's reeve.launch_args).
+	LaunchArgs []string
 	// Unattended starts an agent nobody watches (a handed-off task's): in
 	// Legato's sandbox whatever Unsandboxed says, with its tool's own
 	// permission prompts off (PromptsOffAdapter). It is refused when the
@@ -302,6 +310,9 @@ type agentService struct {
 	// nativeBindTimeout bounds how long a launch message waits for the
 	// session's native endpoint before it is typed into the pane instead.
 	nativeBindTimeout time.Duration
+	// launchOwner names this service as the deliverer of the launch
+	// messages it keeps in launch_messages (launch_messages.go).
+	launchOwner string
 
 	sendKeysAdapter AgentInteraction
 	chimeraAdapter  AgentInteraction
@@ -536,7 +547,7 @@ func (a *agentService) credentialEnv() SessionEnvProvider {
 
 // NewAgentService creates an AgentService.
 func NewAgentService(s *store.Store, tmux TmuxManager, workDir string, opts ...AgentServiceOptions) AgentService {
-	svc := &agentService{store: s, tmux: tmux, workDir: workDir, briefKickoffDelay: briefKickoffDelay, peerAwareness: true, nativeBindTimeout: nativeBindTimeout}
+	svc := &agentService{store: s, tmux: tmux, workDir: workDir, briefKickoffDelay: briefKickoffDelay, peerAwareness: true, nativeBindTimeout: nativeBindTimeout, launchOwner: newLaunchOwner()}
 	if len(opts) > 0 {
 		svc.adapter = opts[0].Adapter
 		svc.adapters = opts[0].Adapters
@@ -596,6 +607,16 @@ func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, hei
 		}
 		if _, ok := a.resolveAdapter(opt.AgentKind).(PromptsOffAdapter); !ok {
 			return fmt.Errorf("%s cannot be started with its permission prompts off", orUnknown(opt.AgentKind))
+		}
+	}
+	// A Reeve session runs only in Legato's sandbox.
+	reeve := IsReeveTask(ctx, a.store, taskID)
+	if reeve {
+		if opt.Unsandboxed {
+			return ErrReeveSandboxed
+		}
+		if a.sandbox == nil {
+			return fmt.Errorf("%w, which is off here (agents.sandbox.enabled)", ErrReeveSandboxed)
 		}
 	}
 	if err := a.prepareTaskResume(ctx, taskID, &opt); err != nil {
@@ -765,9 +786,13 @@ func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, hei
 	// content never has to traverse shell escaping.
 	isSwarm := opt.Role != "" || opt.ParentTaskID != ""
 	rolePrompt := ""
-	if isSwarm {
+	ownPrompt := opt.LaunchPrompt != ""
+	switch {
+	case isSwarm:
 		rolePrompt = rolePromptForAdapter(adapter, opt.Role)
-	} else {
+	case ownPrompt:
+		rolePrompt = opt.LaunchPrompt
+	default:
 		rolePrompt = generalPromptForAdapter(adapter)
 	}
 	peerContextInjected := false
@@ -789,7 +814,7 @@ func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, hei
 		rolePrompt = ""
 	}
 	projectKey := ""
-	if (a.learning != nil || a.guidance != nil) && adapter != nil && !nativeResume {
+	if (a.learning != nil || a.guidance != nil) && adapter != nil && !nativeResume && !ownPrompt {
 		if task, taskErr := a.store.GetTask(ctx, taskID); taskErr == nil {
 			codeContext, parseErr := store.ParseCodeContext(task.CodeContext)
 			if parseErr != nil {
@@ -802,9 +827,9 @@ func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, hei
 	}
 	// With reviews on, an adapter whose agents learn of them only from here
 	// (Claude Code, Codex) is told; swarm workers never review.
-	if a.reviewsOff && !nativeResume {
+	if a.reviewsOff && !nativeResume && !ownPrompt {
 		rolePrompt = joinPromptSections(rolePrompt, reviewsOffPrompt)
-	} else if rp, ok := adapter.(ReviewsPromptAdapter); ok && rp.NeedsReviewsPrompt() && !nativeResume && !isSwarm {
+	} else if rp, ok := adapter.(ReviewsPromptAdapter); ok && rp.NeedsReviewsPrompt() && !nativeResume && !isSwarm && !ownPrompt {
 		rolePrompt = joinPromptSections(rolePrompt, reviewsOnPrompt)
 	}
 	if repo, ok := strings.CutPrefix(projectKey, "repo:"); ok && a.guidance != nil {
@@ -815,7 +840,7 @@ func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, hei
 		rolePrompt = joinPromptSections(rolePrompt, repositoryGuidancePrompt(repo, text))
 	}
 	var promptManifestID string
-	if a.learning != nil && adapter != nil && !nativeResume {
+	if a.learning != nil && adapter != nil && !nativeResume && !ownPrompt {
 		compiled, compileErr := a.learning.CompileLearningPrompt(ctx, LearningPromptCompileInput{
 			TaskID: taskID, Adapter: agentKind, Role: opt.Role, ProjectKey: projectKey,
 			MaxItems: a.learningMaxItems, MaxBytes: a.learningMaxBytes,
@@ -1110,6 +1135,9 @@ func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, hei
 				read, write := resourceGrants(resources)
 				cmd += granter.PathGrantFlags(read, write)
 			}
+			for _, arg := range opt.LaunchArgs {
+				cmd += " " + shellWord(arg)
+			}
 			if sandboxed {
 				cmd = sandboxPrefix + " " + cmd
 			}
@@ -1143,7 +1171,7 @@ func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, hei
 					messages = append(messages, prompt)
 				}
 				if len(messages) > 0 {
-					go a.deliverLaunchMessages(WithAgentSlot(context.Background(), slot), taskID, sessionName, adapter, messages, envMap["LEGATO_PROMPT_FILE"])
+					a.launchWith(ctx, executionID, taskID, slot, sessionName, agentKind, adapter, messages, envMap["LEGATO_PROMPT_FILE"])
 				}
 			}
 		}
@@ -1235,14 +1263,20 @@ func (a *agentService) notifyPeerJoin(taskID, executionID, workDir string, adapt
 // in order, once it can take them: over its native endpoint, else typed into
 // the pane. A message of more than one line is typed as a pointer to its
 // file, since the pane takes one line.
-func (a *agentService) deliverLaunchMessages(ctx context.Context, taskID, session string, adapter AIToolAdapter, messages []string, promptFile string) {
+func (a *agentService) deliverLaunchMessages(ctx context.Context, executionID, taskID, session string, adapter AIToolAdapter, messages []store.LaunchMessage, promptFile string) {
 	// The agent tool starts once its clone is set up, which takes minutes
 	// the first time the dependencies are fetched.
 	if err := a.AwaitCloneSetup(ctx, taskID); err != nil {
 		log.Printf("launch messages for %s: %v", session, err)
 	}
 	native := a.awaitNativeEndpoint(ctx, taskID, adapter)
-	for _, message := range messages {
+	for _, kept := range messages {
+		// A message is taken from the store as it is sent; one another
+		// process has taken over (after a restart) is left to it.
+		if taken, err := a.store.TakeLaunchMessage(context.Background(), executionID, kept.Position, a.launchOwner); err != nil || !taken {
+			return
+		}
+		message := kept.Message
 		if native {
 			err := a.QueueMessage(ctx, taskID, message)
 			if err == nil {
@@ -1569,6 +1603,7 @@ func (a *agentService) ListAgents(ctx context.Context) ([]AgentSession, error) {
 			Sandboxed:         s.Sandboxed,
 			Slot:              s.Slot,
 			CardTaskID:        s.TaskID,
+			Reeve:             IsReeveTask(ctx, a.store, s.TaskID),
 		}
 		if IsNamedSlot(s.Slot) {
 			result[i].TaskID = AgentSlotKey(s.TaskID, s.Slot)
@@ -2014,6 +2049,16 @@ func (a *agentService) HasChimeraEndpoint(ctx context.Context, taskID string) bo
 // ChimeraBindingInvalidator conditionally clears a stale native binding.
 type ChimeraBindingInvalidator interface {
 	InvalidateChimeraBinding(ctx context.Context, agentSessionID int, expectedSessionID, expectedEndpoint string) (bool, error)
+}
+
+// NativeDowngrader switches an agent to its terminal on purpose: unlike an
+// invalidated binding, a restart of Legato does not bind it again.
+type NativeDowngrader interface {
+	DowngradeToTmux(ctx context.Context, agentSessionID int, expectedSessionID, expectedEndpoint string) (bool, error)
+}
+
+func (a *agentService) DowngradeToTmux(ctx context.Context, agentSessionID int, expectedSessionID, expectedEndpoint string) (bool, error) {
+	return a.store.KeepAgentSessionOnTmux(ctx, agentSessionID, expectedSessionID, expectedEndpoint)
 }
 
 // InvalidateChimeraBinding clears an unusable native binding only while the
