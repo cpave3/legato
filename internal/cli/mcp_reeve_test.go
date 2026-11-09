@@ -182,3 +182,17 @@ func TestTheLegatoToolReadsAtOnceAndProposesChanges(t *testing.T) {
 		t.Fatal("a change or a never command ran at once")
 	}
 }
+
+func TestHostToolsAreOfferedOnlyWhileHostOperationsAreOn(t *testing.T) {
+	s := newTestStore(t)
+	taskID, executionID := seedReeve(t, s)
+	on := true
+	reeve := &cli.MCPReeve{ChangeSets: &fakeChangeSets{}, HostOperations: func(context.Context) bool { return on }}
+	if names := reeveToolNames(t, connectMCP(t, cli.MCPOptions{Store: s, TaskID: taskID, ExecutionID: executionID, Reeve: reeve})); !names["host_shell"] || !names["edit_file"] || !names["manage_service"] {
+		t.Fatalf("with host operations on: %v", names)
+	}
+	on = false
+	if names := reeveToolNames(t, connectMCP(t, cli.MCPOptions{Store: s, TaskID: taskID, ExecutionID: executionID, Reeve: reeve})); names["host_shell"] {
+		t.Fatal("host_shell offered with host operations off")
+	}
+}

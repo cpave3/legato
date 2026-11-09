@@ -219,6 +219,9 @@ var registry = []Setting{
 	{Key: "reeve.idle_timeout", Title: "Suspend the Reeve after", Description: "How long a session may be idle before its agent is stopped; the next message resumes it. 2h when empty.", Kind: KindDuration, Class: ClassChange, Mode: ModeLive},
 	{Key: "reeve.levels.change", Title: "What a change needs", Description: "approve (a tap), signed (an enrolled device) or verified (signed, with a fingerprint or a PIN). One of the Reeve's own rules: changed only with a signature.", Kind: KindEnum, Enum: []string{"", "approve", "signed", "verified"}, Class: ClassRisky, Mode: ModeLive, OwnRule: true},
 	{Key: "reeve.levels.risky", Title: "What a risky change needs", Description: "auto (signed once a device is enrolled, else approve), approve, signed or verified. One of the Reeve's own rules.", Kind: KindEnum, Enum: []string{"", "auto", "approve", "signed", "verified"}, Class: ClassRisky, Mode: ModeLive, OwnRule: true},
+	{Key: "reeve.host_operations", Title: "Host operations", Description: "Offer the Reeve a shell, file edits and systemd services on this machine, each as a change you approve. One of the Reeve's own rules.", Kind: KindBool, Class: ClassRisky, Mode: ModeLive, OwnRule: true},
+	{Key: "reeve.host_timeout", Title: "Host command timeout", Description: "How long one host command may run. 10m when empty.", Kind: KindDuration, Class: ClassRisky, Mode: ModeLive},
+	{Key: "reeve.host_output_cap", Title: "Host command output (bytes)", Description: "How much of a host command's output the Reeve is given; the rest is kept in a file it can read. 65536 when 0.", Kind: KindInt, Class: ClassChange, Mode: ModeLive, Check: nonNegative},
 	{Key: "reeve.launch_args", Title: "The Reeve's launch arguments", Kind: KindStrings, Class: ClassRisky, Mode: ModeLive},
 
 	// Burnlite's projects, read on each use.
@@ -470,7 +473,7 @@ func SettingValue(cfg *Config, key string) (any, error) {
 // pointerDefault is the value an unset pointer setting means.
 func pointerDefault(key string, field reflect.Value) any {
 	switch key {
-	case "notifications.approvals", "notifications.handoff", "agents.sandbox.default_mounts":
+	case "notifications.approvals", "notifications.handoff", "agents.sandbox.default_mounts", "reeve.host_operations":
 		return true
 	}
 	return reflect.Zero(field.Type().Elem()).Interface()

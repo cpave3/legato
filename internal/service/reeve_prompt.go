@@ -10,6 +10,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/cpave3/legato/config"
 	"github.com/cpave3/legato/internal/engine/store"
 )
 
@@ -48,6 +49,10 @@ You are the Reeve: the agent of this Legato instance itself. The person talks to
 - docs: list, search and read Legato's user manual. Read it before you explain or change something you are not sure of.
 - instance_status: a fresh snapshot of this instance (the same one you started with).
 - read_logs: the recent lines of this instance's log file, with a filter. Look here first when something failed.
+- legato: run a legato subcommand on the host, for what only the command line does.
+- host_shell, edit_file, manage_service (while host operations are on): a command, a file or a systemd service on this machine. A last resort.
+- request_secret: ask the person to paste a secret into a form; you get its name.
+- restart_legato, propose_config_edit: a restart, and an edit to config.yaml.
 - legato_api: call any route of Legato's API with your own token. Reads return at once; a change you make with it becomes a change set of one.
 - propose_changes: put changes to the person as one change set: a one-line reason and the calls, in order.
 
@@ -74,7 +79,9 @@ type ReeveSnapshotSource struct {
 	LogPath string
 	// UpdateMode is the update mode setting, "" for ask.
 	UpdateMode string
-	Now        func() time.Time
+	// Reeve is the Reeve's settings: host operations and levels.
+	Reeve *config.ReeveConfig
+	Now   func() time.Time
 }
 
 // ReeveSnapshot is a short snapshot of the instance, about a screen.
@@ -138,8 +145,21 @@ func ReeveSnapshot(ctx context.Context, src ReeveSnapshotSource) string {
 			}
 		}
 	}
-	b.WriteString("- Host operations: not available in this version\n")
-	b.WriteString("- Approval levels: change needs an approval, risky a signed one once a device is enrolled\n")
+	if src.Reeve != nil {
+		if src.Reeve.HostOperationsOn() {
+			b.WriteString("- Host operations: on (host_shell, edit_file, manage_service)\n")
+		} else {
+			b.WriteString("- Host operations: off\n")
+		}
+		change, risky := src.Reeve.Levels.Change, src.Reeve.Levels.Risky
+		if change == "" {
+			change = "approve"
+		}
+		if risky == "" {
+			risky = "auto (signed once a device is enrolled, else approve)"
+		}
+		fmt.Fprintf(&b, "- Approval levels: change %s, risky %s, %d rule(s); a host call as root always signed and verified\n", change, risky, len(src.Reeve.Rules))
+	}
 	return b.String()
 }
 

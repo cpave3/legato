@@ -344,6 +344,9 @@ The Reeve's defaults, read when a session starts. Usually set in Settings › Re
 | `reeve.levels.risky` | string | `auto` | The same for a risky change; `auto` is `signed` once a device is enrolled, else `approve`. Changed only with a signed approval. |
 | `reeve.rules[].pattern` | string | none | A call a rule matches: `METHOD /path` or a `legato` subcommand, `*` for any run of characters. |
 | `reeve.rules[].level` | string | none | The level the rule gives the calls it matches, higher or lower than their class's (never below `approve`). |
+| `reeve.host_operations` | bool | `true` | Offers the Reeve a shell, file edits and systemd services on this machine, each as a change you approve. Changed only with a signed approval. |
+| `reeve.host_timeout` | duration | `10m` | How long one host command may run. |
+| `reeve.host_output_cap` | int | `65536` | How many bytes of a host command's output the Reeve is given; the rest is kept in a file it can read. |
 | `reeve.launch_args` | list of strings | none | Arguments added to the agent tool's launch command. |
 
 ## Updates

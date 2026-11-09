@@ -50,6 +50,15 @@ type ChangeCall struct {
 	// Args are a legato call's arguments: the subcommand and its flags,
 	// run with no shell.
 	Args []string `json:"args,omitempty"`
+	// A host operation: a shell command, a file to write (its whole new
+	// content), or a systemd unit with an action. AsRoot runs it as root.
+	Command string `json:"command,omitempty"`
+	File    string `json:"file,omitempty"`
+	Content string `json:"content,omitempty"`
+	Unit    string `json:"unit,omitempty"`
+	Action  string `json:"action,omitempty"`
+	System  bool   `json:"system,omitempty"`
+	AsRoot  bool   `json:"as_root,omitempty"`
 	// Optional marks a restart the person may untick: the change waits
 	// for the next restart.
 	Optional bool `json:"optional,omitempty"`
@@ -126,6 +135,10 @@ type ChangeSetOptions struct {
 	// the host (its exit code and output).
 	ClassifyLegato func(args []string) (class, description string)
 	RunLegato      func(ctx context.Context, args []string) (int, string, error)
+	// HostExec runs a host operation's command; OutputDir is where the
+	// whole output of one past the cap is kept (in the Reeve's folder).
+	HostExec  HostExecutor
+	OutputDir string
 	// ConfigPath is config.yaml (config.ResolveConfigPath when nil).
 	ConfigPath func() string
 	// Restart restarts Legato, last in a set.
@@ -189,6 +202,10 @@ func (c *ChangeSetService) Describe(ctx context.Context, reason string, calls []
 				p.Description = "Restart Legato (you can leave this out: the change then waits for the next restart)"
 			}
 			p.Level = ReeveLevelFor(cfg.Reeve, p.Class, "restart", enrolled)
+		case CallHostShell, CallEditFile, CallManageService:
+			if err := c.describeHost(cfg, enrolled, i, &p); err != nil {
+				return details, err
+			}
 		case CallLegato:
 			if c.opts.ClassifyLegato == nil {
 				return details, fmt.Errorf("call %d: legato commands cannot be run here", i+1)
@@ -412,8 +429,16 @@ func (c *ChangeSetService) RunQueued(ctx context.Context) int {
 // first failure, and tells the Reeve.
 func (c *ChangeSetService) run(ctx context.Context, set store.ReeveChangeSet, noRestart bool) {
 	var details ChangeSetDetails
+	var decision *ApprovalDecision
 	if approval, err := c.opts.Approvals.Get(ctx, set.ApprovalID); err == nil {
 		_ = json.Unmarshal(approval.Details, &details)
+		decision = approval.Decision
+	}
+	cfg := config.Defaults()
+	if c.opts.Settings != nil {
+		if effective, err := c.opts.Settings.Effective(ctx); err == nil {
+			cfg = effective
+		}
 	}
 	calls := details.Calls
 	order := make([]int, len(calls))
@@ -436,6 +461,11 @@ func (c *ChangeSetService) run(ctx context.Context, set store.ReeveChangeSet, no
 		case call.Kind == CallRestart:
 			results[i].State = "ran"
 			restart = true
+		case isHostCall(call.Kind):
+			res, _, output := c.runHost(ctx, cfg, set, i+1, call)
+			results[i] = res
+			failed = res.State == "failed"
+			c.auditHost(ctx, set, decision, call, res, output)
 		case call.Kind == CallLegato:
 			exit, output, err := c.opts.RunLegato(ctx, call.Args)
 			results[i].Status = exit

@@ -37,6 +37,9 @@ type MCPReeve struct {
 	// Legato classes and runs legato subcommands on the host (the legato
 	// tool).
 	Legato MCPLegato
+	// HostOperations reports whether host operations are on: host_shell,
+	// edit_file and manage_service are offered only then.
+	HostOperations func(ctx context.Context) bool
 }
 
 // MCPLegato classes and runs legato subcommands on the host.
@@ -70,6 +73,9 @@ func (m *mcpTools) reeveTools() []mcpserver.Tool {
 	}
 	if m.opts.Reeve.Legato != nil {
 		tools = append(tools, m.legatoCommand())
+	}
+	if m.opts.Reeve.ChangeSets != nil && m.opts.Reeve.HostOperations != nil && m.opts.Reeve.HostOperations(context.Background()) {
+		tools = append(tools, m.hostShell(), m.editFile(), m.manageService())
 	}
 	return tools
 }
@@ -436,4 +442,67 @@ func (m *mcpTools) legatoCommand() mcpserver.Tool {
 		}
 		return m.propose(ctx, reason, []service.ChangeCall{{Kind: service.CallLegato, Args: in.Args}})
 	})
+}
+
+type hostShellInput struct {
+	Command string `json:"command" jsonschema:"the command, run with sh -c, word for word as the person will see it"`
+	AsRoot  bool   `json:"as_root,omitempty" jsonschema:"run it as root (with sudo); then it always needs the person's signature with a fingerprint or PIN"`
+	Reason  string `json:"reason" jsonschema:"one line saying why"`
+}
+
+func (m *mcpTools) hostShell() mcpserver.Tool {
+	return mcpserver.NewTool(mcpserver.Definition{
+		Name: "host_shell", Title: "Run a command on the host",
+		Description: "Proposes a shell command on this machine, as Legato's user in its home folder, with a small fixed environment and no way to gain privileges (sudo fails) unless as_root. A last resort: use Legato's own tools first. It runs once the person approves; a [legato] message gives its exit code and output (cut at 64 KB, the rest in a file you can read).",
+	}, func(ctx context.Context, in hostShellInput) (mcpserver.Result, error) {
+		if err := m.mustBeReeve(ctx); err != nil {
+			return mcpserver.Result{}, err
+		}
+		return m.propose(ctx, firstLine(in.Reason, in.Command), []service.ChangeCall{{Kind: service.CallHostShell, Command: in.Command, AsRoot: in.AsRoot}})
+	})
+}
+
+type editFileInput struct {
+	Path    string `json:"path" jsonschema:"the file, as an absolute path"`
+	Content string `json:"content" jsonschema:"the file's whole new content"`
+	Reason  string `json:"reason" jsonschema:"one line saying why"`
+}
+
+func (m *mcpTools) editFile() mcpserver.Tool {
+	return mcpserver.NewTool(mcpserver.Definition{
+		Name: "edit_file", Title: "Write a file on the host",
+		Description: "Proposes writing a file outside Legato, as Legato's user: the person sees a diff, and once approved the file is written atomically, the old one kept beside it as a backup.",
+	}, func(ctx context.Context, in editFileInput) (mcpserver.Result, error) {
+		if err := m.mustBeReeve(ctx); err != nil {
+			return mcpserver.Result{}, err
+		}
+		return m.propose(ctx, firstLine(in.Reason, "write "+in.Path), []service.ChangeCall{{Kind: service.CallEditFile, File: in.Path, Content: in.Content}})
+	})
+}
+
+type manageServiceInput struct {
+	Unit   string `json:"unit" jsonschema:"the systemd unit, as legato.service"`
+	Action string `json:"action" jsonschema:"start, stop, restart, status, or logs (its recent log)"`
+	System bool   `json:"system,omitempty" jsonschema:"a system unit rather than one of Legato's user's"`
+	AsRoot bool   `json:"as_root,omitempty" jsonschema:"run it as root, as a system unit needs to start or stop"`
+	Reason string `json:"reason" jsonschema:"one line saying why"`
+}
+
+func (m *mcpTools) manageService() mcpserver.Tool {
+	return mcpserver.NewTool(mcpserver.Definition{
+		Name: "manage_service", Title: "Manage a systemd service",
+		Description: "Proposes starting, stopping or restarting a systemd unit (Legato's user's, or a system one), or reading its status or recent log, once the person approves.",
+	}, func(ctx context.Context, in manageServiceInput) (mcpserver.Result, error) {
+		if err := m.mustBeReeve(ctx); err != nil {
+			return mcpserver.Result{}, err
+		}
+		return m.propose(ctx, firstLine(in.Reason, in.Action+" "+in.Unit), []service.ChangeCall{{Kind: service.CallManageService, Unit: in.Unit, Action: in.Action, System: in.System, AsRoot: in.AsRoot}})
+	})
+}
+
+func firstLine(reason, fallback string) string {
+	if strings.TrimSpace(reason) != "" {
+		return strings.TrimSpace(reason)
+	}
+	return fallback
 }

@@ -50,6 +50,10 @@ Ending a session withdraws the change sets still waiting for you; a suspended se
 - It can propose an **edit to `config.yaml`**, for a setting that lives only in the file or one the file pins. Legato checks the edited file loads before it asks you, and shows you the change as a diff. Approved, it writes the file with its comments kept and the old one beside it as a backup, then restarts. **Approve without the restart** writes the file and leaves the restart for later.
 - When it needs a **secret** (an API key, a token), it asks for it by name, and a form in the approval tray takes the value. Legato keeps it in its own secret store, and the Reeve only ever gets the name. Never paste a secret into the conversation.
 
+### Commands on the machine
+
+With host operations on (the default; Settings › Reeve, changed only with a signature), the Reeve can also propose, as a last resort, a shell command, writing a file outside Legato (you see a diff; the old file is kept as a backup), or starting, stopping or reading a systemd service. Each needs your approval. They run as Legato's user, in its home folder, with a small fixed environment, for at most ten minutes, and cannot gain privileges: `sudo` fails. Only a call the Reeve marks **as root** runs as root, and it always needs your signature with a fingerprint or PIN. Every host action is written to the audit log: what ran, whether as root, who approved it with which device, the exit code and a fingerprint of the output.
+
 ## What a change needs
 
 Each change the Reeve proposes needs your approval, at a level set in Settings › Reeve:

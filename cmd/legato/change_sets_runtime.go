@@ -8,6 +8,8 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"time"
 
@@ -42,6 +44,8 @@ func startChangeSets(ctx context.Context, cfg *config.Config, db *store.Store, a
 		Run:            localAPI(cfg),
 		ClassifyLegato: classifyLegatoCommand,
 		RunLegato:      runLegatoCommand,
+		HostExec:       runHostCommand,
+		OutputDir:      filepath.Join(service.ReeveFolder(os.Getenv), "host-output"),
 		Restart:        restartAll,
 		Notify: func(ctx context.Context, taskID, text string) {
 			notifyReeve(ctx, db, reeve, taskID, text)

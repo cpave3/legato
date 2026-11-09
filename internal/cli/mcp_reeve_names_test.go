@@ -17,8 +17,9 @@ func (noSecrets) Request(context.Context, string, string, string) (service.Secre
 // is offered.
 func everyReeveTool() *cli.MCPReeve {
 	return &cli.MCPReeve{
-		ChangeSets: &fakeChangeSets{},
-		Secrets:    noSecrets{},
-		Legato:     &fakeLegato{},
+		ChangeSets:     &fakeChangeSets{},
+		Secrets:        noSecrets{},
+		Legato:         &fakeLegato{},
+		HostOperations: func(context.Context) bool { return true },
 	}
 }

@@ -144,7 +144,7 @@ func MCPToolNames() []string {
 	}
 	// request_access is offered only with credentials and reply_case only
 	// with an integration; they are named always.
-	for _, always := range []string{"request_access", "reply_case", "submit_review", "docs", "instance_status", "read_logs", "legato_api", "propose_changes", "restart_legato", "propose_config_edit", "request_secret", "legato"} {
+	for _, always := range []string{"request_access", "reply_case", "submit_review", "docs", "instance_status", "read_logs", "legato_api", "propose_changes", "restart_legato", "propose_config_edit", "request_secret", "legato", "host_shell", "edit_file", "manage_service"} {
 		if !listHasName(names, always) {
 			names = append(names, always)
 		}

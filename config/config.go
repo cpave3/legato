@@ -1052,6 +1052,33 @@ type ReeveConfig struct {
 	// only with a signed approval.
 	Levels ReeveLevels `yaml:"levels"`
 	Rules  []ReeveRule `yaml:"rules"`
+	// HostOperations offers the Reeve host_shell, edit_file and
+	// manage_service. On when unset; one of its own rules.
+	HostOperations *bool `yaml:"host_operations"`
+	// HostTimeout bounds one host command (10m when empty);
+	// HostOutputCap is how much of its output the Reeve is given (64 KiB
+	// when 0), the rest kept in a file it can read.
+	HostTimeout   string `yaml:"host_timeout"`
+	HostOutputCap int    `yaml:"host_output_cap"`
+}
+
+// HostOperationsOn reports whether host operations are on (the default).
+func (c ReeveConfig) HostOperationsOn() bool { return c.HostOperations == nil || *c.HostOperations }
+
+// HostCommandTimeout is how long one host command may run.
+func (c ReeveConfig) HostCommandTimeout() time.Duration {
+	if d, err := time.ParseDuration(c.HostTimeout); err == nil && d > 0 {
+		return d
+	}
+	return 10 * time.Minute
+}
+
+// HostOutputLimit is how much of a host command's output the Reeve gets.
+func (c ReeveConfig) HostOutputLimit() int {
+	if c.HostOutputCap > 0 {
+		return c.HostOutputCap
+	}
+	return 64 << 10
 }
 
 // ReeveLevels is the level of each class: approve (a tap), signed (an

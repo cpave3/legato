@@ -48,6 +48,11 @@ func main() {
 	if gitrepo.IsAskPass(os.Getenv) {
 		os.Exit(gitrepo.AskPass(os.Args[1:], os.Stdout, os.Stderr))
 	}
+	// The Reeve's host commands run through this binary, which drops the
+	// right to gain privileges before it starts the command.
+	if isHostExec(os.Getenv) {
+		os.Exit(hostExec(os.Args[1:]))
+	}
 	launch, err := parseLaunch(os.Args[1:], os.Getenv(hotReloadChildEnv) == "1")
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n\n%s", err, helpText(nil))

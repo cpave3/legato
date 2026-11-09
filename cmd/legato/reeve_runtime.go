@@ -69,6 +69,7 @@ func reeveSnapshot(ctx context.Context, db *store.Store) string {
 	if cfg != nil {
 		src.LogPath = logfile.Path(config.ResolveDataDir(cfg))
 		src.UpdateMode = cfg.Updates.Mode
+		src.Reeve = &cfg.Reeve
 	}
 	return service.ReeveSnapshot(ctx, src)
 }
@@ -101,6 +102,10 @@ func reeveTools(cfg *config.Config, db *store.Store) *cli.MCPReeve {
 		tools.Secrets = processSecrets
 	}
 	tools.Legato = legatoCommands{}
+	tools.HostOperations = func(ctx context.Context) bool {
+		effective, err := settingsFor(db).Effective(ctx)
+		return err == nil && effective.Reeve.HostOperationsOn()
+	}
 	if cfg.Web.Enabled || (len(os.Args) > 1 && os.Args[1] == "serve") {
 		scheme := "http"
 		if tlsEnabled(cfg) {
