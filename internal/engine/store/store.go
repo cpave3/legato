@@ -347,6 +347,17 @@ func prepareMigration(queryer migrationQueryer, name, migrationSQL string) (stri
 			return "", nil
 		}
 	}
+	if name == "098_settings.sql" {
+		// A legacy database built in part may have no instance values to
+		// move: the table is made, and nothing is copied.
+		var tables int
+		if err := queryer.Get(&tables, `SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'instance_values'`); err != nil {
+			return "", err
+		}
+		if tables == 0 {
+			migrationSQL = migrationSQL[:strings.Index(migrationSQL, "-- The tint, the update mode")]
+		}
+	}
 	if name == "075_agent_session_sandboxed.sql" || name == "097_agent_native_off.sql" {
 		var tables int
 		if err := queryer.Get(&tables, `SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'agent_sessions'`); err != nil {

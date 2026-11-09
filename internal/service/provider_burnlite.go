@@ -1,6 +1,7 @@
 package service
 
 import (
+	"encoding/json"
 	"context"
 	"errors"
 	"fmt"
@@ -142,11 +143,15 @@ func BurnliteProjects(ctx context.Context, db *store.Store, configured []string)
 	if len(configured) > 0 {
 		return configured
 	}
-	raw, err := db.GetInstanceValue(ctx, burnliteProjectsKey)
-	if err != nil || raw == "" {
+	raw, ok, err := db.GetSetting(ctx, burnliteProjectsKey)
+	if err != nil || !ok {
 		return nil
 	}
-	return strings.Split(raw, ",")
+	var projects []string
+	if json.Unmarshal(raw, &projects) != nil || len(projects) == 0 {
+		return nil
+	}
+	return projects
 }
 
 // SaveBurnliteProjects keeps the projects the web UI was given, as upper
@@ -165,7 +170,11 @@ func SaveBurnliteProjects(ctx context.Context, db *store.Store, projects []strin
 		seen[p] = true
 		keys = append(keys, p)
 	}
-	return db.SetInstanceValue(ctx, burnliteProjectsKey, strings.Join(keys, ","))
+	if keys == nil {
+		keys = []string{}
+	}
+	raw, _ := json.Marshal(keys)
+	return db.SetSetting(ctx, burnliteProjectsKey, raw, "web")
 }
 
 // projectOf is a key's project: EST in EST-42.

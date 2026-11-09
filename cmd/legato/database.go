@@ -1,11 +1,14 @@
 package main
 
 import (
+	"context"
 	"errors"
+	"log"
 	"path/filepath"
 
 	"github.com/cpave3/legato/config"
 	"github.com/cpave3/legato/internal/engine/store"
+	"github.com/cpave3/legato/internal/service"
 )
 
 func openStore(cfg *config.Config) (*store.Store, error) {
@@ -18,7 +21,17 @@ func openStore(cfg *config.Config) (*store.Store, error) {
 	if err != nil {
 		return nil, err
 	}
-	return store.Open(store.Options{Driver: database.Driver, Path: database.Path})
+	db, err := store.Open(store.Options{Driver: database.Driver, Path: database.Path})
+	if err != nil {
+		return nil, err
+	}
+	// Every process (the TUI, serve, a short-lived CLI command) reads the
+	// effective configuration: the file, then the settings kept in the
+	// database for what the file does not pin.
+	if err := service.ApplySettings(context.Background(), db, cfg); err != nil {
+		log.Printf("settings: %v", err)
+	}
+	return db, nil
 }
 
 func attachmentRoot(cfg *config.Config) string {

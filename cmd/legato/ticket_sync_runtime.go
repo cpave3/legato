@@ -26,7 +26,7 @@ func ticketSources(cfg *config.Config, db *store.Store) []service.TicketSource {
 	secrets := service.SealedIntegrationSecrets{Store: configuredSecretStore(cfg, db)}
 	b := cfg.Burnlite
 	sources = append(sources, service.NewBurnliteSource(db, service.NewOAuthTokens(db, secrets, nil, service.BurnliteIntegration), service.BurnliteSourceOptions{
-		Projects:   func(ctx context.Context) []string { return service.BurnliteProjects(ctx, db, b.Projects) },
+		Projects:   func(ctx context.Context) []string { return service.BurnliteProjects(ctx, db, pinnedBurnliteProjects(cfg)) },
 		Columns:    service.BurnliteColumns{Ready: b.Columns.Ready, Blocked: b.Columns.Blocked, Claimed: b.Columns.Claimed, Closed: b.Columns.Closed},
 		Interval:   time.Duration(b.SyncIntervalSeconds) * time.Second,
 		MovesCards: b.StatusSyncEnabled,
@@ -38,4 +38,14 @@ func ticketSources(cfg *config.Config, db *store.Store) []service.TicketSource {
 // be nil.
 func newTicketSync(cfg *config.Config, db *store.Store, bus *events.Bus, cache *attachments.Cache) service.SyncService {
 	return service.NewTicketSync(db, bus, cache, ticketSources(cfg, db)...)
+}
+
+// pinnedBurnliteProjects are Burnlite's projects when config.yaml gives
+// them; otherwise none, and the projects saved in the database apply, read
+// on each use.
+func pinnedBurnliteProjects(cfg *config.Config) []string {
+	if cfg.Pinned("burnlite.projects") {
+		return cfg.Burnlite.Projects
+	}
+	return nil
 }

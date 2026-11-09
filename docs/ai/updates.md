@@ -26,7 +26,7 @@ The asset names have no version in them, so `https://github.com/cpave3/legato/re
 
 `service.UpdateService`, wired in `cmd/legato/update_runtime.go` for `legato serve` and for the TUI's web server.
 
-- **Mode**, kept in `instance_values` as `updates.mode`: `auto`, `ask` (the default) or `off`. `PUT /api/settings/updates {mode}`, Settings › Updates.
+- **Mode**, the setting `updates.mode` (the `settings` table, or pinned by `config.yaml`; see [Settings](settings.md)): `auto`, `ask` (the default) or `off`. `PUT /api/settings/updates {mode}`, Settings › Updates.
 - **Checks**: a minute after start, then every 6 hours, and at once when the mode changes; never in `off`. `selfupdate.Client.Latest` reads GitHub's latest release of `cpave3/legato`, which is never a draft or a prerelease, without a token (60 requests an hour).
 - **ask**: the web UI's bar along the top says the release is out (`UpdateNotice`; "Later" hides it in that browser until the next release), and Attention has an item (`updates` producer, `update_available`) with **Update and restart**. Either calls `POST /api/updates/apply`.
 - **auto**: installs once no agent is in the middle of a turn (`AgentsMidTurn`: an agent `working`, or `background` with work that will wake it; one `waiting` for the person is not), asking every 30 seconds, and after 3 hours installs whatever the agents are doing.

@@ -90,7 +90,7 @@ Migration 094 adds `repository_guidance`: guidance saved in the web UI for the a
 
 Migration 079 adds `repository_presets`: repositories added in the web UI (a unique name, `repo`, `primary_dir`, `base_branch`), offered beside the configuration's. See [Configuration](config.md) § Shared repository presets.
 
-`instance_values` (migration 072) also keeps settings of this Legato that the web UI changes: `web.tint`, its tint (`GetInstanceValue`, `SetInstanceValue`; `service.TintService`).
+`instance_values` (migration 072) kept the tint, the update mode and Burnlite's projects until migration 098 moved them into `settings`, the table of settings kept in the database (`key`, JSON `value`, `updated_at`, `updated_by`). See [Settings](settings.md).
 
 Migration 080 lets a job clone be shared: `job_clone_tasks` (`clone_id`, `task_id`, `attached_at`; the clone's own task is listed first, and existing clones are filled in) holds every task that works in a clone, and `job_clones.last_used_at` is when an agent last started there or was seen working there, from which `repository_cache.keep_idle` counts. `job_clones.task_id` stays the task the clone was made for. `CreateJobClone` returns the new ID; `AttachJobCloneTask`, `TouchJobClone`, `JobCloneByID` and `LiveJobCloneForTask` (the newest live clone of a repository a task works in) go with it, and every read fills `TaskIDs` and `LastUsedAt`.
 

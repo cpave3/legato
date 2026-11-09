@@ -61,6 +61,11 @@ type Config struct {
 	Integrations IntegrationsConfig `yaml:"integrations"`
 	// ReviewPasses are a worker's review loop for make-a-change handoffs.
 	ReviewPasses ReviewPassesConfig `yaml:"review_passes"`
+	// Updates is how this Legato takes new releases.
+	Updates UpdatesConfig `yaml:"updates"`
+
+	// pins are the dotted keys config.yaml gives a value (Pinned).
+	pins map[string]bool
 }
 
 // ManticoreConfig names the Manticore instance that Claude Code sessions
@@ -290,6 +295,9 @@ type WebConfig struct {
 	// approval notifications. Optional: without it Legato uses the first
 	// local network address it announces.
 	PublicURL string `yaml:"public_url"`
+	// Tint is a colour that tells this Legato from others in the web UI:
+	// one of service.Tints, or none.
+	Tint string `yaml:"tint"`
 }
 
 type GitHubConfig struct {
@@ -467,51 +475,61 @@ func Load() (*Config, error) {
 	}
 
 	applyDefaults(cfg)
+	if err := validate(cfg); err != nil {
+		return nil, err
+	}
+	cfg.pins = pinnedKeys([]byte(expanded))
+	return cfg, nil
+}
+
+// validate checks a configuration and normalizes it, with the rules Load
+// uses for a file: Overlay runs it again on the effective configuration.
+func validate(cfg *Config) error {
 	if cfg.GitHub.Auth != "auto" && cfg.GitHub.Auth != "gh" && cfg.GitHub.Auth != "token" {
-		return nil, fmt.Errorf("github.auth must be auto, gh, or token")
+		return fmt.Errorf("github.auth must be auto, gh, or token")
 	}
 	if err := ValidateSwarmConfig(cfg); err != nil {
-		return nil, err
+		return err
 	}
 	if err := ValidateRepositoryCache(cfg); err != nil {
-		return nil, err
+		return err
 	}
 	if err := ValidateLearningConfig(cfg); err != nil {
-		return nil, err
+		return err
 	}
 	if err := ValidateWorkspaceDefaults(cfg); err != nil {
-		return nil, err
+		return err
 	}
 	if err := normalizeManticoreConfig(cfg); err != nil {
-		return nil, err
+		return err
 	}
 	if err := normalizeIntegrations(cfg); err != nil {
-		return nil, err
+		return err
 	}
 	if err := normalizeAgentMCPConfig(cfg); err != nil {
-		return nil, err
+		return err
 	}
 	if err := normalizeAgentGuidance(cfg); err != nil {
-		return nil, err
+		return err
 	}
 	if err := normalizeResources(cfg); err != nil {
-		return nil, err
+		return err
 	}
 	if err := normalizeAgentSandbox(cfg); err != nil {
-		return nil, err
+		return err
 	}
 	if err := normalizeCredentials(cfg); err != nil {
-		return nil, err
+		return err
 	}
 	if err := ValidateReviewPasses(cfg); err != nil {
-		return nil, err
+		return err
 	}
 	if cfg.Web.PublicURL != "" {
 		if u, err := url.Parse(cfg.Web.PublicURL); err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
-			return nil, fmt.Errorf("web.public_url %q: want an http or https address", cfg.Web.PublicURL)
+			return fmt.Errorf("web.public_url %q: want an http or https address", cfg.Web.PublicURL)
 		}
 	}
-	return cfg, nil
+	return nil
 }
 
 var resourceDomainPattern = regexp.MustCompile(`^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$`)
@@ -1000,4 +1018,10 @@ func ValidateRepositoryCache(cfg *Config) error {
 		}
 	}
 	return nil
+}
+
+// UpdatesConfig is how this Legato takes new releases.
+type UpdatesConfig struct {
+	// Mode is auto, ask (the default when empty) or off.
+	Mode string `yaml:"mode"`
 }
