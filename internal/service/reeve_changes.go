@@ -591,7 +591,10 @@ func ChangeSetReport(id, reason string, calls []ProposedCall, results []CallResu
 		if r.Status != 0 {
 			fmt.Fprintf(&b, " (%d)", r.Status)
 		}
-		if r.Detail != "" && r.State == "failed" {
+		// A failure says why. A host call's output is reported when it
+		// ran too: it is what the Reeve asked for. Other calls' output is
+		// not (a legato command's may hold a token).
+		if r.Detail != "" && (r.State == "failed" || (i < len(calls) && isHostCall(calls[i].Kind))) {
 			fmt.Fprintf(&b, ": %s", r.Detail)
 		}
 		b.WriteString("\n")

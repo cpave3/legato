@@ -149,20 +149,23 @@ func (c *ChangeSetService) runHost(ctx context.Context, cfg *config.Config, set 
 		exit, output, err = c.opts.HostExec(ctx, hostCommand(p), cfg.Reeve.HostCommandTimeout())
 	}
 	res.Status = exit
-	text := string(output)
-	if limit := cfg.Reeve.HostOutputLimit(); len(output) > limit && c.opts.OutputDir != "" {
+	text := strings.TrimSpace(string(output))
+	if limit := cfg.Reeve.HostOutputLimit(); len(output) > limit {
+		text = strings.TrimSpace(string(output[:limit])) + fmt.Sprintf("\n… cut at %d bytes", limit)
 		path := filepath.Join(c.opts.OutputDir, fmt.Sprintf("%s-%d.log", set.ID, n))
-		if os.MkdirAll(c.opts.OutputDir, 0o700) == nil && os.WriteFile(path, output, 0o600) == nil {
-			text = string(output[:limit]) + fmt.Sprintf("\n… cut at %d bytes; the whole output is in %s", limit, path)
+		if c.opts.OutputDir != "" && os.MkdirAll(c.opts.OutputDir, 0o700) == nil && os.WriteFile(path, output, 0o600) == nil {
+			text += "; the whole output is in " + path
 		}
 	}
+	// The Reeve is given the output (up to the cap, then where the rest
+	// is), whether the call ran or failed.
 	switch {
 	case err != nil:
 		res.State, res.Detail = "failed", err.Error()
 	case exit != 0:
-		res.State, res.Detail = "failed", clip(strings.TrimSpace(text), 2000)
+		res.State, res.Detail = "failed", text
 	default:
-		res.State, res.Detail = "ran", clip(strings.TrimSpace(text), 2000)
+		res.State, res.Detail = "ran", text
 	}
 	return res, text, output
 }

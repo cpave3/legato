@@ -179,3 +179,34 @@ func TestAFileEditsDiffIsBounded(t *testing.T) {
 		t.Fatal("the rewrite's diff lacks its lines")
 	}
 }
+
+// A host call that succeeds tells the Reeve its output, and where the rest
+// is kept when it is long; other calls that succeed do not report their
+// output (a legato command's may hold a token).
+func TestASuccessfulHostCallsOutputReachesTheReeve(t *testing.T) {
+	f, _ := hostFixture(t)
+	ctx := context.Background()
+	f.svc.opts.HostExec = func(_ context.Context, cmd HostCommand, _ time.Duration) (int, []byte, error) {
+		if strings.Contains(strings.Join(cmd.Argv, " "), "big") {
+			return 0, []byte(strings.Repeat("y", 70<<10)), nil
+		}
+		return 0, []byte("/dev/sda1  50G  12G  38G  24% /data"), nil
+	}
+	out, _ := f.svc.Propose(ctx, f.reeve, "disk", []ChangeCall{{Kind: CallHostShell, Command: "df -h /data"}, {Kind: CallLegato, Args: []string{"integration", "token", "create"}}})
+	f.decide(t, out.ApprovalID, ApprovalAllow, "")
+	f.svc.RunQueued(ctx)
+	if len(f.notes) != 1 || !strings.Contains(f.notes[0], "24% /data") {
+		t.Fatalf("notes = %v", f.notes)
+	}
+	if strings.Contains(f.notes[0], "lgi_xyz") {
+		t.Fatalf("a legato command's output was reported: %v", f.notes)
+	}
+
+	out, _ = f.svc.Propose(ctx, f.reeve, "big", []ChangeCall{{Kind: CallHostShell, Command: "cat big.log"}})
+	f.decide(t, out.ApprovalID, ApprovalAllow, "")
+	f.svc.RunQueued(ctx)
+	logs, _ := filepath.Glob(filepath.Join(f.svc.opts.OutputDir, "*.log"))
+	if len(logs) != 1 || len(f.notes) != 2 || !strings.Contains(f.notes[1], logs[0]) {
+		t.Fatalf("logs %v, note %q", logs, f.notes[len(f.notes)-1][:200])
+	}
+}
