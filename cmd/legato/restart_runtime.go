@@ -8,13 +8,15 @@ import (
 	"syscall"
 	"time"
 
+	"github.com/cpave3/legato/config"
 	"github.com/cpave3/legato/internal/engine/hotreload"
 	"github.com/cpave3/legato/internal/engine/ipc"
 )
 
-// ipcRestart is the IPC message that makes every Legato process of one data
-// folder restart. Content holds the data folder, so a scratch instance
-// sharing the runtime folder is left alone.
+// ipcRestart is the IPC message that makes every Legato process of one
+// instance restart. Content holds the instance's config.yaml path, which is
+// known without loading it (so `legato restart` works after a bad edit), and
+// a scratch instance sharing the runtime folder is left alone.
 const ipcRestart = "restart"
 
 // restartInPlace is set once this process was asked to restart itself: it
@@ -48,20 +50,22 @@ func requestRestart() {
 	}()
 }
 
-// restartMessage asks every Legato process of dataDir to restart.
-func restartMessage(dataDir string) ipc.Message {
-	return ipc.Message{Type: ipcRestart, Content: filepath.Clean(dataDir)}
+// restartMessage asks every Legato process of the configuration at
+// configPath to restart.
+func restartMessage(configPath string) ipc.Message {
+	return ipc.Message{Type: ipcRestart, Content: filepath.Clean(configPath)}
 }
 
-// isRestartFor reports whether msg asks the processes of dataDir to restart.
-func isRestartFor(msg ipc.Message, dataDir string) bool {
-	return msg.Type == ipcRestart && msg.Content != "" && filepath.Clean(msg.Content) == filepath.Clean(dataDir)
+// isRestartFor reports whether msg asks the processes of configPath to
+// restart.
+func isRestartFor(msg ipc.Message, configPath string) bool {
+	return msg.Type == ipcRestart && msg.Content != "" && filepath.Clean(msg.Content) == filepath.Clean(configPath)
 }
 
-// restartAll restarts every Legato process of dataDir, this one included
-// when it listens for IPC.
-func restartAll(dataDir string) {
-	ipc.Broadcast(restartMessage(dataDir))
+// restartAll restarts every Legato process of this instance, this one
+// included when it listens for IPC.
+func restartAll() {
+	ipc.Broadcast(restartMessage(config.ResolveConfigPath()))
 }
 
 // restartHow is how this process starts again: under the hot-reload

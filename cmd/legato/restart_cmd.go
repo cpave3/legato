@@ -1,10 +1,6 @@
 package main
 
-import (
-	"syscall"
-
-	"github.com/cpave3/legato/config"
-)
+import "syscall"
 
 // syscallZero checks a process exists without signalling it.
 var syscallZero = syscall.Signal(0)
@@ -22,10 +18,8 @@ func runRestartCmd(args []string) int {
 	if len(parsed.Positionals) != 0 {
 		return renderCommandError(command, usageError("unexpected_argument", "restart accepts no positional arguments"), jsonMode)
 	}
-	cfg, err := config.Load()
-	if err != nil {
-		return renderCommandError(command, &commandError{Code: "config_invalid", Message: err.Error(), Exit: exitEnvironment}, jsonMode)
-	}
-	restartAll(config.ResolveDataDir(cfg))
+	// The configuration is not loaded: a restart after a bad edit is how
+	// that edit is rolled back.
+	restartAll()
 	return writeCommandSuccess(command, map[string]any{"restarting": true}, "Asked Legato to restart.", jsonMode)
 }

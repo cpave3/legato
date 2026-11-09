@@ -16,15 +16,15 @@ import (
 	"github.com/cpave3/legato/internal/engine/ipc"
 )
 
-func TestARestartReachesOnlyTheProcessesOfItsDataFolder(t *testing.T) {
-	msg := restartMessage("/srv/legato/data/")
-	if !isRestartFor(msg, "/srv/legato/data") {
+func TestARestartReachesOnlyTheProcessesOfItsConfiguration(t *testing.T) {
+	msg := restartMessage("/srv/legato/config.yaml")
+	if !isRestartFor(msg, "/srv/legato/./config.yaml") {
 		t.Fatal("the instance's own processes did not take the restart")
 	}
-	if isRestartFor(msg, "/tmp/scratch-legato") {
+	if isRestartFor(msg, "/tmp/scratch-legato/config.yaml") {
 		t.Fatal("a scratch instance sharing the runtime folder took the restart")
 	}
-	if isRestartFor(ipc.Message{Type: ipcRestart}, "/srv/legato/data") {
+	if isRestartFor(ipc.Message{Type: ipcRestart}, "/srv/legato/config.yaml") {
 		t.Fatal("a restart naming no data folder was taken")
 	}
 }
@@ -56,7 +56,7 @@ func TestLegatoRestartAsksEveryProcessOfTheInstance(t *testing.T) {
 	}
 	select {
 	case msg := <-got:
-		if !isRestartFor(msg, dataDir) {
+		if !isRestartFor(msg, cfgPath) {
 			t.Fatalf("message = %+v", msg)
 		}
 	case <-time.After(2 * time.Second):
@@ -109,6 +109,74 @@ func TestServeRestartsInPlaceAndKeepsItsPID(t *testing.T) {
 	waitHealthy(t, port)
 	if err := serve.Process.Signal(syscallZero); err != nil {
 		t.Fatalf("the process with the first PID is gone: %v", err)
+	}
+}
+
+// A restart after a bad edit to config.yaml comes back on the old file, and
+// says so in Attention.
+func TestARestartAfterABadEditComesBackOnTheOldFile(t *testing.T) {
+	if testing.Short() {
+		t.Skip("builds and runs the binary")
+	}
+	bin := filepath.Join(t.TempDir(), "legato")
+	if out, err := exec.Command("go", "build", "-o", bin, ".").CombinedOutput(); err != nil {
+		t.Fatalf("build: %v\n%s", err, out)
+	}
+	root := t.TempDir()
+	port := freePort(t)
+	cfgPath := filepath.Join(root, "config.yaml")
+	good := "data_dir: " + filepath.Join(root, "data") + "\nweb:\n  port: \"" + port + "\"\n"
+	os.WriteFile(cfgPath, []byte(good), 0o600)
+	env := scratchEnv(root, cfgPath)
+
+	serve := exec.Command(bin, "serve")
+	serve.Env = env
+	stdout, _ := serve.StdoutPipe()
+	serve.Stderr = io.Discard
+	if err := serve.Start(); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = serve.Process.Kill(); _ = serve.Wait() })
+	lines := make(chan string, 64)
+	go func() {
+		s := bufio.NewScanner(stdout)
+		for s.Scan() {
+			lines <- s.Text()
+		}
+		close(lines)
+	}()
+	waitForLine(t, lines, "Legato web UI")
+	waitHealthy(t, port)
+
+	os.WriteFile(cfgPath, []byte(good+"github:\n  auth: nonsense\n"), 0o600)
+	restart := exec.Command(bin, "restart")
+	restart.Env = env
+	if out, err := restart.CombinedOutput(); err != nil {
+		t.Fatalf("legato restart: %v\n%s", err, out)
+	}
+	waitForLine(t, lines, "Legato web UI")
+	waitHealthy(t, port)
+
+	if got, _ := os.ReadFile(cfgPath); string(got) != good {
+		t.Fatalf("config.yaml = %q, want the file from before the edit", got)
+	}
+	token, _ := os.ReadFile(filepath.Join(root, "data", "auth-token"))
+	deadline := time.Now().Add(15 * time.Second)
+	for {
+		req, _ := http.NewRequest(http.MethodGet, "http://127.0.0.1:"+port+"/api/attention", nil)
+		req.Header.Set("Authorization", "Bearer "+strings.TrimSpace(string(token)))
+		resp, err := http.DefaultClient.Do(req)
+		if err == nil {
+			body, _ := io.ReadAll(resp.Body)
+			resp.Body.Close()
+			if strings.Contains(string(body), "restart_rolled_back") && strings.Contains(string(body), "github.auth") {
+				return
+			}
+			if time.Now().After(deadline) {
+				t.Fatalf("no rolled-back restart in Attention: %s", body)
+			}
+		}
+		time.Sleep(200 * time.Millisecond)
 	}
 }
 

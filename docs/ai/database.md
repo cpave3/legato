@@ -114,6 +114,10 @@ Migration 087 takes away tasks back and removes workers. On a main, `away_tasks`
 
 Migration 088 adds `handoff_notices` (`notice` primary key, `sent_at`) on a main: one row per state of an away task or worker the phone was told of, `<attention source key>@<revision>`. `ClaimHandoffNotice` inserts one and says whether this call did, so only one Legato process on the database sends the notification. See [Attention](attention.md) § Handoff.
 
+### Restart records
+
+Migration 095 adds `restart_records`: a restart of Legato that can be rolled back. `id` (`rs-<12 hex>`), `reason`, `requested_by`, `version`, `config_path`, `config_backup` (a copy of `config.yaml` from before the change, `""` when the file was not changed), `settings` (JSON `[{key, old}]`: the database settings the restart altered with their old values, `old` absent when the setting was unset), `state` (`pending`, `applied`, `rolled_back`), `failure`, `created_at`, `finished_at`. A pointer file beside `config.yaml` (`config.yaml.restart-pending`) names the pending record, the backup and the database, so a start whose configuration does not load can still roll back. See [Releases and updates](updates.md) § Rollback.
+
 ### Directory presets
 
 Migration 067 adds `directory_presets`: the directories the person saved from a spawn dialog (`path`, the identity and absolute; `name`; `created_at`). Saving a path again renames it and keeps its place. The spawn dialogs list them after the `repositories` of the configuration, through `service.DirectoryService`; a saved directory that the configuration also names is listed once, as the configured one.

@@ -1463,7 +1463,7 @@ func runServeCmd(args []string) int {
 		}
 		return exitUsage
 	}
-	cfg, err := config.Load()
+	cfg, err := loadConfig()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "config: %v\n", err)
 		return 1
@@ -1619,7 +1619,7 @@ func runServeCmd(args []string) int {
 	updates := newUpdateService(db, bus, agentSvc, serveRestarter())
 	wireAttention(context.Background(), db, bus, srv, planSvc, reviewSvc, agentSvc, workflowSvc, approvalsRT, updates, mainSide, triggerCoordinator)
 	wireUpdates(srv, updates)
-	srv.SetRestarter(func() { restartAll(config.ResolveDataDir(cfg)) })
+	srv.SetRestarter(restartAll)
 	srv.SetMacros(cfg.Macros)
 	srv.SetTerminalAttacher(terminalAttacher(tmuxMgr))
 	srv.SetSandboxEnabled(cfg.Agents.Sandbox.Enabled)
@@ -1649,7 +1649,8 @@ func runServeCmd(args []string) int {
 	// IPC server for receiving CLI→web updates.
 	socketPath := ipc.SocketPath()
 	ipcSrv, ipcErr := ipc.NewServer(socketPath, func(msg ipc.Message) {
-		if isRestartFor(msg, dataDir) {
+		if isRestartFor(msg, config.ResolveConfigPath()) {
+			prepareRestart(restartRollback(cfg, db), "restart")
 			requestRestart()
 			return
 		}
@@ -1692,6 +1693,7 @@ func runServeCmd(args []string) int {
 		scheme = "https"
 	}
 	approvalsRT.SetServerURL(scheme, port)
+	go settleRestart(context.Background(), restartRollback(cfg, db), scheme+"://127.0.0.1:"+port+"/health")
 	fmt.Printf("Legato web UI: %s://localhost:%s\n", scheme, port)
 	defer announceWebServer(cfg, port)()
 	if err := srv.Start(); err != nil && err.Error() != "http: Server closed" {
@@ -1706,7 +1708,7 @@ func runServeCmd(args []string) int {
 }
 
 func runTUI() int {
-	cfg, err := config.Load()
+	cfg, err := loadConfig()
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "config: %v\n", err)
 		return 1
@@ -1760,9 +1762,9 @@ func runTUI() int {
 	stopAgentUI := func() {}
 	stopIntegrations := func() {}
 	socketPath := ipc.SocketPath()
-	tuiDataDir := config.ResolveDataDir(cfg)
 	ipcServer, ipcErr := ipc.NewServer(socketPath, func(msg ipc.Message) {
-		if isRestartFor(msg, tuiDataDir) {
+		if isRestartFor(msg, config.ResolveConfigPath()) {
+			prepareRestart(restartRollback(cfg, db), "restart")
 			requestRestart()
 			return
 		}
@@ -1939,7 +1941,7 @@ func runTUI() int {
 			updates := newUpdateService(db, bus, agentSvc, tuiRestarter())
 			wireAttention(context.Background(), db, bus, webSrv, planSvc, reviewSvc, agentSvc, tuiWorkflowSvc, approvalsRT, updates, mainSide, triggerCoordinator)
 			wireUpdates(webSrv, updates)
-			webSrv.SetRestarter(func() { restartAll(config.ResolveDataDir(cfg)) })
+			webSrv.SetRestarter(restartAll)
 			webSrv.SetMacros(cfg.Macros)
 			webSrv.SetTerminalAttacher(terminalAttacher(tmuxMgr))
 			webSrv.SetSandboxEnabled(cfg.Agents.Sandbox.Enabled)
@@ -1996,6 +1998,18 @@ func runTUI() int {
 		}
 	}
 
+	// A restart that is pending is settled once this process is up: the web
+	// server (when it runs) and the broker answering.
+	tuiHealthURL := ""
+	if webSrv != nil {
+		scheme := "http"
+		if tlsEnabled(cfg) {
+			scheme = "https"
+		}
+		tuiHealthURL = scheme + "://127.0.0.1:" + cfg.Web.Port + "/health"
+	}
+	go settleRestart(context.Background(), restartRollback(cfg, db), tuiHealthURL)
+
 	// Load workspaces for TUI
 	workspaces, _ := boardSvc.ListWorkspaces(context.Background())
 
@@ -2037,6 +2051,7 @@ func runTUI() int {
 		app.SetWorkflowTriggerCoordinator(triggerCoordinator, workflowRepositoryPresets(cfg))
 	}
 	registerApprovalAttention(attentionSvc, approvalsRT)
+	_ = attentionSvc.RegisterProducer(service.NewRestartAttentionAdapter(db))
 	// Away tasks and workers that need this main; their actions are the
 	// web UI's.
 	mainSide.registerAttention(attentionSvc, cfg, approvalsRT.serverURL())

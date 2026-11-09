@@ -37,6 +37,7 @@ Executable source actions additionally implement `AttentionActionHandler`. Navig
 | `approvals` | Pending approval requests (agents' permissions and questions), with their options as actions; see [Approvals](approvals.md) | `EventApprovalChanged` |
 | `devices` | The last `legato device reset`, until dismissed; see [Approvals](approvals.md) § Signed approvals | `EventApprovalChanged` |
 | `argus` | Argus's open CI cases on the person's PRs (`argus_case`, `argus_needs_you`), pushed by Argus and put on the task that owns the PR; navigation `external`; see [Integrations](integrations.md) § Cases in Attention | After each push, `EventPRStatusUpdated`, `EventCardsRefreshed` |
+| `restart` | A restart of Legato that failed and was rolled back in the last week (`restart_rolled_back`, high urgency): the reason and who asked, and the failure (the configuration did not load, or Legato was not healthy within 30 s); navigation `settings#updates`. See [Releases and updates](updates.md) § Rollback | none (read at start, after the rollback's own restart) |
 | `updates` | A newer release of Legato waiting for the person (`update_available`): in ask mode, with **Update and restart**, or after an install failed, with **Try again**; navigation `settings#updates`; see [Releases and updates](updates.md) | `EventUpdateChanged` |
 | `integrations` | Delegations that did not reach an agent (`delegation_failed`), agents' replies Argus never took (`case_reply_failed`), a connection Argus refused (`integration_disconnected`); the last 7 days; see [Integrations](integrations.md) | `EventDelegationChanged` |
 | `handoff` | On a main: away tasks done on their worker (`handoff_done`), failed there (`handoff_failed`), lost (`handoff_lost`) or whose review is stuck (`handoff_review_stuck`); workers holding away tasks that refuse this main (`worker_not_accepting`) or have been unreachable 15 minutes (`worker_unreachable`); see [§ Handoff](#handoff) | `EventCardUpdated` (rows), `EventCardsRefreshed` (pulls, reach, return, recall, take back), and every 30 seconds |
@@ -54,6 +55,7 @@ Each producer builds a revision from meaningful source state. Dismiss suppresses
 Attention deliberately includes only states the local durable data can support reliably:
 
 - **Needs intervention:** plan decisions, workflow gates/failures/input, standalone agent waiting/error, pending approvals, and a device reset.
+- **Needs intervention** also: a restart of Legato rolled back (`restart_rolled_back`).
 - **Needs intervention** also: an away task failed or lost on its worker, and a worker that no longer accepts this main or has been unreachable for 15 minutes.
 - **Ready for review:** tours explicitly marked ready through `legato review ready` and still containing visible unreviewed work. Also an away task done on its worker (`handoff_done`), waiting to be returned.
 - **Merge blockers:** open, non-draft tracked PRs whose persisted review decision is `REVIEW_REQUIRED` or `CHANGES_REQUESTED`, whose persisted check status is `fail`, or a combination.

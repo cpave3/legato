@@ -60,6 +60,8 @@ Agents keep running across the restart in every case, since they live in tmux. A
 
 Legato restarts itself on request: **Restart Legato** in Settings › Updates, or `legato restart` on the machine. Every Legato process of the instance, the TUI and `legato serve` alike, shuts down and starts again in place, with the same command line: the TUI clears its screen and draws again in the same terminal, and a systemd service keeps its process. Under `--hot-reload`, the supervisor starts it again. Agents keep running.
 
+If you edited `config.yaml` since Legato started, the restart keeps the file Legato was running on as `config.yaml.<time>.bak`. When the edited file does not load, or Legato is not answering within 30 seconds of starting on it, Legato puts the old file back, starts again on it, and says so in Attention ("A restart of Legato failed and was rolled back", with the error).
+
 ## Going back
 
 If a new release does not start, put the old binary back:
