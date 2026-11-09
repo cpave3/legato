@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -72,7 +73,10 @@ func (c *ChangeSetService) describeHost(cfg *config.Config, enrolled bool, i int
 		if p.AsRoot {
 			return fmt.Errorf("call %d: edit_file runs as Legato's user; edit a root file with host_shell as root", i+1)
 		}
-		old, err := os.ReadFile(p.File)
+		if len(p.Content) > MaxEditFileBytes {
+			return fmt.Errorf("call %d: edit_file writes at most %d bytes; use host_shell for a larger file", i+1, MaxEditFileBytes)
+		}
+		old, err := readBounded(p.File, MaxEditFileBytes)
 		if err != nil && !os.IsNotExist(err) {
 			return fmt.Errorf("call %d: %w", i+1, err)
 		}
@@ -207,4 +211,25 @@ func writeFileWithBackup(path string, content []byte) (string, error) {
 		return backup, err
 	}
 	return backup, os.Rename(tmp, path)
+}
+
+// MaxEditFileBytes is the largest file edit_file reads or writes: its diff
+// is worked out before the person sees it.
+const MaxEditFileBytes = 1 << 20
+
+// readBounded reads a file of at most limit bytes; a larger one is refused.
+func readBounded(path string, limit int) ([]byte, error) {
+	f, err := os.Open(path)
+	if err != nil {
+		return nil, err
+	}
+	defer f.Close()
+	data, err := io.ReadAll(io.LimitReader(f, int64(limit)+1))
+	if err != nil {
+		return nil, err
+	}
+	if len(data) > limit {
+		return nil, fmt.Errorf("%s is larger than %d bytes; edit it with host_shell", path, limit)
+	}
+	return data, nil
 }

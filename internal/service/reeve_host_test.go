@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"errors"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
@@ -136,5 +137,45 @@ func TestAFileIsWrittenAtomicallyWithABackupAndAServiceByItsUnit(t *testing.T) {
 	}
 	if len(*ran) != 1 || strings.Join((*ran)[0].Argv, " ") != "systemctl --user status legato.service --no-pager" {
 		t.Fatalf("ran %+v", *ran)
+	}
+}
+
+// A file edit's diff is bounded: a file or content past the limit is
+// refused, and a large rewrite is shown as the old lines out and the new
+// in, without the work of a line-by-line match.
+func TestAFileEditsDiffIsBounded(t *testing.T) {
+	f, _ := hostFixture(t)
+	ctx := context.Background()
+	dir := t.TempDir()
+	big := filepath.Join(dir, "big.log")
+	os.WriteFile(big, []byte(strings.Repeat("x", MaxEditFileBytes+1)), 0o600)
+	if _, err := f.svc.Propose(ctx, f.reeve, "x", []ChangeCall{{Kind: CallEditFile, File: big, Content: "y\n"}}); err == nil {
+		t.Fatal("a file past the limit was diffed")
+	}
+	small := filepath.Join(dir, "small")
+	if _, err := f.svc.Propose(ctx, f.reeve, "x", []ChangeCall{{Kind: CallEditFile, File: small, Content: strings.Repeat("y", MaxEditFileBytes+1)}}); err == nil {
+		t.Fatal("content past the limit was diffed")
+	}
+
+	var old, next strings.Builder
+	for i := 0; i < 20000; i++ {
+		fmt.Fprintf(&old, "old line %d\n", i)
+		fmt.Fprintf(&next, "new line %d\n", i)
+	}
+	lines := filepath.Join(dir, "lines")
+	os.WriteFile(lines, []byte(old.String()), 0o600)
+	start := time.Now()
+	out, err := f.svc.Propose(ctx, f.reeve, "rewrite", []ChangeCall{{Kind: CallEditFile, File: lines, Content: next.String()}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if took := time.Since(start); took > 5*time.Second {
+		t.Fatalf("describing took %v", took)
+	}
+	approval, _ := f.devices.approvals.Get(ctx, out.ApprovalID)
+	var details ChangeSetDetails
+	json.Unmarshal(approval.Details, &details)
+	if !strings.Contains(details.Calls[0].Diff, "- old line 19999") || !strings.Contains(details.Calls[0].Diff, "+ new line 0") {
+		t.Fatal("the rewrite's diff lacks its lines")
 	}
 }

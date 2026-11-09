@@ -64,6 +64,17 @@ func WriteConfigEdit(path string, edits []ConfigEdit) (backup string, err error)
 // one added, "  " for one kept.
 func lineDiff(a, b string) string {
 	x, y := splitLines(a), splitLines(b)
+	if len(x)*len(y) > maxDiffWork {
+		// Too much to match line by line: the old lines out, the new in.
+		var out strings.Builder
+		for _, line := range x {
+			out.WriteString("- " + line + "\n")
+		}
+		for _, line := range y {
+			out.WriteString("+ " + line + "\n")
+		}
+		return out.String()
+	}
 	// Longest common subsequence, from the end.
 	lcs := make([][]int, len(x)+1)
 	for i := range lcs {
@@ -98,6 +109,10 @@ func lineDiff(a, b string) string {
 	}
 	return out.String()
 }
+
+// maxDiffWork bounds lineDiff's line-by-line match, which takes memory for
+// every pair of old and new lines.
+const maxDiffWork = 4_000_000
 
 func splitLines(s string) []string {
 	s = strings.TrimRight(s, "\n")
