@@ -19,6 +19,8 @@ import { UpdatesSettings } from "../components/UpdatesSettings"
 import { RestartLegato } from "../components/RestartLegato"
 import { SettingsCard, SettingsGroup, SettingsRow, SettingsRows, Toggle, BrowserTag, primaryButton, quietButton } from "../components/settings/SettingsUI"
 import { useSettings } from "../hooks/useSettings"
+import { useConfigSettings } from "../hooks/useConfigSettings"
+import { RegistrySettings, SettingSource } from "../components/settings/RegistrySettings"
 import { useToast } from "../hooks/useToast"
 import { apiFetch } from "../lib/api"
 import { Link, useSearchParams } from "react-router-dom"
@@ -31,6 +33,9 @@ export function SettingsPage() {
   const { baseUrl, servers, addServer, removeServer, setActiveServer } = useServer()
   const version = useServerVersion(baseUrl)
   const settings = useSettings()
+  const configSettings = useConfigSettings(baseUrl)
+  const registry = configSettings.data ?? []
+  const registered = (key: string) => registry.find((s) => s.key === key)
   const { addToast } = useToast()
   const [buildStarting, setBuildStarting] = useState(false)
   const [showPairDevice, setShowPairDevice] = useState(false)
@@ -210,6 +215,7 @@ export function SettingsPage() {
               <Link to="/remote" className={quietButton}>Open Remote</Link>
             </SettingsCard>
             <ResourcesSettings baseUrl={baseUrl} />
+            <RegistrySettings settings={registry} baseUrl={baseUrl} prefixes={["agents"]} />
             <SettingsRows>
               <SettingsRow
                 icon={ScanSearch}
@@ -241,6 +247,7 @@ export function SettingsPage() {
 
           <SettingsGroup id="security" title="Security" description="Who can allow approvals, how you hear of them, and the secrets agents use without seeing them.">
             <ApprovalNotificationSettings />
+            <RegistrySettings settings={registry} baseUrl={baseUrl} prefixes={["notifications"]} />
             <DevicesSettings baseUrl={baseUrl} />
             <CredentialsSettings baseUrl={baseUrl} />
           </SettingsGroup>
@@ -346,7 +353,12 @@ export function SettingsPage() {
                 icon={Palette}
                 title="Tint"
                 description="A colour for this server, along the top of the window and down the rail, so you can tell at a glance which Legato you are on. Every browser and phone that uses this server shows it."
-                control={<TintPicker tint={settings.data?.tint} onChanged={() => void settings.refetch()} />}
+                control={
+                  <div className="flex flex-col items-end gap-1">
+                    <TintPicker tint={settings.data?.tint} pinned={registered("web.tint")?.pinned} onChanged={() => { void settings.refetch(); void configSettings.refetch() }} />
+                    {registered("web.tint") && <SettingSource setting={registered("web.tint")!} />}
+                  </div>
+                }
               />
               <SettingsRow
                 icon={SquareTerminal}
@@ -370,10 +382,12 @@ export function SettingsPage() {
                 control={<Toggle label="Animated agent activity" on={animatedActivityEnabled} onChange={toggleAnimatedActivity} />}
               />
             </SettingsRows>
+            <RegistrySettings settings={registry} baseUrl={baseUrl} prefixes={["theme", "icons", "editor"]} />
           </SettingsGroup>
 
           <SettingsGroup id="updates" title="Updates" description="Which release of Legato this server runs, and how it takes the next.">
-            <UpdatesSettings status={settings.data ? settings.data.updates ?? null : undefined} baseUrl={baseUrl} onChanged={() => void settings.refetch()} />
+            <UpdatesSettings status={settings.data ? settings.data.updates ?? null : undefined} baseUrl={baseUrl} modeSetting={registered("updates.mode")}
+              onChanged={() => { void settings.refetch(); void configSettings.refetch() }} />
             <RestartLegato baseUrl={baseUrl} />
           </SettingsGroup>
 

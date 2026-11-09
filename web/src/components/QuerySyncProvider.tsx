@@ -79,8 +79,9 @@ export function QuerySyncProvider({ children }: { children: ReactNode }) {
           invalidate(queryKeys.preparingAgents(baseUrl))
           break
         case "settings_changed":
-          // Another browser changed this server's settings: its tint.
+          // Another browser changed this server's settings.
           invalidate(queryKeys.settings(baseUrl))
+          invalidate(queryKeys.configSettings(baseUrl))
           break
         case "update_changed":
           // A check, a new mode, or an update installing: the settings

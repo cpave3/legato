@@ -261,7 +261,13 @@ An agent that runs in tmux (any agent without a native panel) opens on the Agent
 
 ### Settings from the registry
 
-`GET /api/config/settings`, `PUT` and `DELETE /api/config/settings/{key}` serve the settings registry (`internal/server/settings_registry.go`; see [Settings](settings.md)): values with their source, set, and reset. A change broadcasts `settings_changed`.
+`GET /api/config/settings`, `PUT` and `DELETE /api/config/settings/{key}` serve the settings registry (`internal/server/settings_registry.go`; see [Settings](settings.md)): values with their source, set, and reset. A change broadcasts `settings_changed`, which invalidates `queryKeys.configSettings` as well as the settings.
+
+The Settings page draws the registry with `useConfigSettings` and `components/settings/RegistrySettings.tsx`:
+
+- `RegistrySettings` lists the settings under some prefixes as generic rows (`RegistrySettingRow`): the title, the key, the description, `SettingSource`, and a control by kind (a toggle for `bool`, a select for `enum`, a text box committed on blur or Enter for the rest; `strings` as a comma-separated list). A pinned setting shows a lock in place of its icon and a disabled control. A refused change shows the server's reason under the row.
+- `SettingSource` is the source mark: **default**, **config.yaml** with a lock, or **set here** with **Reset** (`DELETE`), and **applies at restart** while `pending_restart`.
+- Where: Agents (`agents.*`), Security (`notifications.*`), Appearance (`theme`, `icons`, `editor`). Sections of their own keep their look and add the mark: the tint row (`TintPicker` disabled when pinned) and the update mode in `UpdatesSettings` (`modeSetting`; the radios disabled when pinned). Burnlite's projects keep their own section, which already says when `config.yaml` sets them.
 
 ### Tint
 

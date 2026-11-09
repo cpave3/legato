@@ -131,6 +131,7 @@ Requests from agents that wait for you (permissions, questions, credentials) app
 - **Handoff**: **Workers**, the Legatos this one hands tasks to, with **Add a worker** (with none paired yet, it explains handing off); and **Main instances**, the Legatos that hand tasks to this one, with **Pair a main instance** and **Unpair**. See [Main and worker instances](/legato/running/instances/) and [Hand off tasks to a worker](/legato/using/handoff/).
 - **Connection**: servers, **Pair a phone**, and the TLS certificate.
 - **Appearance**: the tint, the terminal theme, the glitch effect, and the moving light round a working agent.
+- **Where a setting comes from.** Settings that can be kept on the server show where their value comes from: **default**, **config.yaml** with a lock (change it in the file), or **set here** with **Reset**, which goes back to the default. One marked **applies at restart** waits for Legato to restart.
 - **Updates**: this server's version, the latest release, and the update mode, and **Restart Legato**, which restarts every Legato process of this server. See [Updates](/legato/running/updates/).
 
 A setting kept in this browser only is marked `this browser`.
