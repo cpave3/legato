@@ -56,17 +56,17 @@ type ReeveSpawner interface {
 	KillAgent(ctx context.Context, taskID string) error
 }
 
-// ReeveLaunch builds what a session's agent is launched with: the launch
-// prompt (R2) around the brief. Nil sends the brief alone.
-type ReeveLaunch func(ctx context.Context, taskID, brief string, resumed bool) string
-
 // ReeveServiceOptions wires a ReeveService.
 type ReeveServiceOptions struct {
 	Store    *store.Store
 	Agents   ReeveSpawner
 	Folder   string
 	Defaults func() ReeveDefaults
-	Launch   ReeveLaunch
+	// Snapshot is the instance's snapshot, put in the launch prompt and
+	// sent to a resumed session first.
+	Snapshot func(ctx context.Context) string
+	// Engram boots the Reeve's engram; nil is NoEngram.
+	Engram EngramBooter
 	// Changed is told when a session starts, ends, is suspended or is
 	// resumed.
 	Changed func(taskID string)
@@ -161,12 +161,23 @@ func (s *ReeveService) spawn(ctx context.Context, row store.ReeveSession, brief 
 	if err := os.MkdirAll(s.WorkDir(), 0o700); err != nil {
 		return fmt.Errorf("making the Reeve's folder: %w", err)
 	}
-	prompt := brief
-	if s.opts.Launch != nil {
-		prompt = s.opts.Launch(ctx, row.TaskID, brief, resumed)
+	snapshot := ""
+	if s.opts.Snapshot != nil {
+		snapshot = s.opts.Snapshot(ctx)
+	}
+	launch := ReeveLaunchPrompt(ctx, s.opts.Engram, row.TaskID, snapshot, brief)
+	first := ""
+	switch {
+	case resumed:
+		first = ReeveResumeMessage(snapshot)
+		if strings.TrimSpace(brief) != "" {
+			first += "\n\n" + strings.TrimSpace(brief)
+		}
+	case strings.TrimSpace(brief) != "":
+		first = "[legato] Look into the brief at the end of your instructions, and tell me what you find."
 	}
 	opt := AgentSpawnOptions{
-		AgentKind: row.AgentKind, Model: row.Model, WorkingDir: s.WorkDir(), Ephemeral: true, Prompt: prompt,
+		AgentKind: row.AgentKind, Model: row.Model, WorkingDir: s.WorkDir(), Ephemeral: true, Prompt: first, LaunchPrompt: launch,
 		Resources: []Resource{{Name: "The Reeve's folder", Paths: []ResourcePath{{Path: s.opts.Folder, Access: "write"}}, Configured: true}},
 		ExtraEnv:  map[string]string{"LEGATO_REEVE": "1"},
 	}

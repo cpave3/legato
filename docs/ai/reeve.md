@@ -11,6 +11,21 @@ The Reeve is the agent of a Legato instance itself (see `GLOSSARY.md`): the pers
 - **Resuming** (`Resume`): a new API token (for an ended session), the session's tool and model unless overridden, and the spawn with `SessionPolicy: resume`, so the conversation comes back.
 - **Deleting** (`Delete`): only an ended session (`ErrReeveNotEnded`); removes its row and its task.
 
+## What it knows
+
+- **The launch prompt** (`ReeveLaunchPrompt`, `internal/service/reeve_prompt.go`), in the engram sessions spec's order:
+  1. the engram's boot packet; until engram sessions exist (LEG-46), `EngramBooter` is `NoEngram`, whose boot always fails with `ErrEngramUnavailable`, so a line saying the session starts without its engram (and writes nothing to one) stands in for it. `ReeveServiceOptions.Engram` is the one seam where the boot goes;
+  2. `ReeveRolePrompt`: the Reeve's tools and when to use each, changes and approvals (reads only in this version), the never list, the host shell only as a last resort, secrets only by name, not proposing a denied change again unless asked, and what is worth remembering;
+  3. the instance snapshot (`ReeveSnapshot`): the time, version and update mode, how it runs (`howThisRuns`: the TUI or `legato serve`, under systemd or the hot-reload supervisor), the instance ID, its workers with their reachability and its mains, open Attention items (eight at most), running agents, the last five error lines of the log, host operations (none yet) and approval levels;
+  4. the brief (`## The brief`), when there is one; the first message then asks the Reeve to look into it.
+- The spawn takes it as `AgentSpawnOptions.LaunchPrompt`, which replaces the general prompt: no repository guidance, review prompt or learnings are added. Each agent tool gets it as it gets any launch prompt (`--append-system-prompt`, `developer_instructions`, `--prompt`).
+- **A resumed session** is sent a fresh snapshot first (`ReeveResumeMessage`: `[legato] since you were last here: …`), then the brief if any.
+- **Its tools** (`internal/cli/mcp_reeve.go`), served by `legato mcp serve` only to a session whose task is a Reeve's (`IsReeveTask`), and checked again on each call (`mustBeReeve`):
+  - `docs` (`list`, `search`, `read`): the user manual, the `site/src/content/docs` pages built into the binary by the `site` package (`site.Pages`, `Search`, `Read`); not `docs/ai/`;
+  - `instance_status`: the snapshot, fresh;
+  - `read_logs`: the last lines of the log file (`<data_dir>/logs/legato.log`, and `.1` before it), filtered by a regular expression (`ReadLogLines`), 100 by default, 1000 at most;
+  - `legato_api`: a call to this instance's API (`MCPReeve.APIBase`, the local web server) with the session's own token, answered with the status and body. Its token passes read routes only, so change and risky calls come back `403 needs_approval` until change sets exist.
+
 ## Where it runs
 
 - **Always in Legato's sandbox.** `SpawnAgent` refuses a `reeve` task with `Unsandboxed` (Run without sandbox) or when the sandbox is off (`ErrReeveSandboxed`); `RestartAgentSwitchingSandbox` (the TUI's `U`, the web UI's `switch_sandbox`) refuses it too. Swarm and workflow agents were already pinned.

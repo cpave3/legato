@@ -139,3 +139,24 @@ func TestSpawnAgent_ReviewsOnAsksForATourWhereNothingElseDoes(t *testing.T) {
 type reviewsPromptAdapter struct{ *fakeAdapter }
 
 func (reviewsPromptAdapter) NeedsReviewsPrompt() bool { return true }
+
+// The Reeve's own launch prompt gets no repository guidance and no review
+// prompt.
+func TestSpawnAgent_AnOwnLaunchPromptGetsNoGuidanceAndNoReviewPrompt(t *testing.T) {
+	db := newServiceTestStore(t)
+	ctx := context.Background()
+	createTask(t, db, "task-1")
+	db.SetCodeContext(ctx, "task-1", &store.CodeContext{Repo: "git@github.com:acme/web-app.git"})
+	mt := newMockTmux()
+	svc := NewAgentService(db, mt, t.TempDir(), AgentServiceOptions{
+		Adapter:            reviewsPromptAdapter{fakeAdapter: &fakeAdapter{name: "claude-code"}},
+		RepositoryGuidance: NewRepositoryGuidanceService(nil, []config.AgentGuidance{{Repo: "github.com/acme/web-app", Text: "REPOSITORY GUIDANCE"}}),
+	})
+	if err := svc.SpawnAgent(ctx, "task-1", 0, 0, AgentSpawnOptions{LaunchPrompt: "YOU ARE THE REEVE"}); err != nil {
+		t.Fatal(err)
+	}
+	prompt := spawnedLaunchPrompt(t, mt, "task-1")
+	if !strings.HasPrefix(prompt, "YOU ARE THE REEVE") || strings.Contains(prompt, "REPOSITORY GUIDANCE") || strings.Contains(prompt, "legato-review") {
+		t.Fatalf("launch prompt = %q", prompt)
+	}
+}

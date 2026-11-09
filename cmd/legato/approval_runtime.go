@@ -249,6 +249,7 @@ func hostBrokerDeps(cfg *config.Config, db *store.Store, agents service.AgentSer
 		if reviews != nil {
 			opts.Reviews = reviews()
 		}
+		opts.Reeve = reeveTools(cfg, db)
 		return opts
 	})
 	// Agents in the sandbox run their own `legato` commands here.

@@ -17,6 +17,19 @@ Settings › **Reeve** has **Start the Reeve**. A session runs with the agent to
 
 **End session** stops it. Ended sessions are kept in the history, where **Resume** starts one again with its conversation, and **Delete** removes it.
 
+## What it knows
+
+A session starts with what it needs to know about this instance: a short snapshot (version and updates, how Legato runs, its workers, open Attention items, running agents, recent errors in the log) and how it is meant to work. "Ask the Reeve" adds a brief about what you asked about. A session you resume is told what changed since it was last here.
+
+While it runs, it has tools of its own:
+
+- **docs**: Legato's user manual, these pages, built into Legato.
+- **instance_status**: a fresh snapshot of the instance.
+- **read_logs**: the recent lines of Legato's [log file](/legato/running/agent-server/#the-log-file).
+- **legato_api**: any of Legato's API calls that only read.
+
+The Reeve does not yet remember earlier sessions: it starts each one without its memory, and says so.
+
 ## Where it runs
 
 The Reeve always runs in Legato's [sandbox](/legato/security/sandbox/): it cannot be started without it, and **Run without sandbox** and the switch out of the sandbox are refused for it. It works in a folder of its own, `~/.local/state/legato/reeve` (or under `$XDG_STATE_HOME`), outside your repositories and Legato's data folder.

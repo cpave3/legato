@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/cpave3/legato/internal/engine/store"
@@ -156,5 +157,54 @@ func TestAReeveTaskIsRefusedOutsideTheSandbox(t *testing.T) {
 	}
 	if err := svc.SpawnAgent(ctx, taskID, 0, 0, AgentSpawnOptions{}); !errors.Is(err, ErrReeveSandboxed) {
 		t.Fatalf("with the sandbox off: %v", err)
+	}
+}
+
+func TestTheReevesLaunchPromptIsInTheSpecsOrder(t *testing.T) {
+	svc, _, agents, _ := newReeveFixture(t)
+	svc.opts.Snapshot = func(context.Context) string { return "## This instance\n- Running agents: 2" }
+	ctx := context.Background()
+	if _, err := svc.Start(ctx, ReeveStart{Brief: "The sync of LEG failed: 401."}); err != nil {
+		t.Fatal(err)
+	}
+	prompt := agents.spawned[0].LaunchPrompt
+	order := []string{"without your engram", "## You are the Reeve", "## This instance", "## The brief", "The sync of LEG failed"}
+	last := -1
+	for _, part := range order {
+		i := strings.Index(prompt, part)
+		if i < 0 || i < last {
+			t.Fatalf("%q missing or out of order in:\n%s", part, prompt)
+		}
+		last = i
+	}
+	if agents.spawned[0].Prompt == "" {
+		t.Fatal("a session with a brief does not start on it")
+	}
+}
+
+func TestAResumedReeveSessionIsSentAFreshSnapshotFirst(t *testing.T) {
+	svc, _, agents, _ := newReeveFixture(t)
+	snap := "first"
+	svc.opts.Snapshot = func(context.Context) string { return "## This instance: " + snap }
+	ctx := context.Background()
+	s, _ := svc.Start(ctx, ReeveStart{})
+	svc.End(ctx, s.TaskID)
+	snap = "second"
+	svc.Resume(ctx, s.TaskID, ReeveStart{})
+	if got := agents.spawned[1].Prompt; !strings.HasPrefix(got, "[legato] since you were last here:") || !strings.Contains(got, "second") {
+		t.Fatalf("first message on resume = %q", got)
+	}
+}
+
+type bootedEngram struct{}
+
+func (bootedEngram) Boot(context.Context, string) (string, error) { return "## Memories\nthe person likes short answers", nil }
+
+// The one seam where the engram's boot goes: a booter that works puts its
+// packet first.
+func TestAnEngramThatBootsLeadsTheLaunchPrompt(t *testing.T) {
+	prompt := ReeveLaunchPrompt(context.Background(), bootedEngram{}, "t", "## This instance", "")
+	if !strings.HasPrefix(prompt, "## Memories") || strings.Contains(prompt, "without your engram") {
+		t.Fatalf("prompt = %s", prompt)
 	}
 }

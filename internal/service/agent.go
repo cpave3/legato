@@ -159,6 +159,9 @@ type AgentSpawnOptions struct {
 	// Unsandboxed starts this agent outside Legato's sandbox when it is on.
 	// Swarm and workflow agents ignore it: they are always sandboxed.
 	Unsandboxed bool
+	// LaunchPrompt replaces the general launch prompt (the Reeve's): no
+	// repository guidance, review prompt or learnings are added to it.
+	LaunchPrompt string
 	// LaunchArgs are added to the agent tool's launch command, after its
 	// adapter's own (the Reeve's reeve.launch_args).
 	LaunchArgs []string
@@ -781,9 +784,13 @@ func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, hei
 	// content never has to traverse shell escaping.
 	isSwarm := opt.Role != "" || opt.ParentTaskID != ""
 	rolePrompt := ""
-	if isSwarm {
+	ownPrompt := opt.LaunchPrompt != ""
+	switch {
+	case isSwarm:
 		rolePrompt = rolePromptForAdapter(adapter, opt.Role)
-	} else {
+	case ownPrompt:
+		rolePrompt = opt.LaunchPrompt
+	default:
 		rolePrompt = generalPromptForAdapter(adapter)
 	}
 	peerContextInjected := false
@@ -805,7 +812,7 @@ func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, hei
 		rolePrompt = ""
 	}
 	projectKey := ""
-	if (a.learning != nil || a.guidance != nil) && adapter != nil && !nativeResume {
+	if (a.learning != nil || a.guidance != nil) && adapter != nil && !nativeResume && !ownPrompt {
 		if task, taskErr := a.store.GetTask(ctx, taskID); taskErr == nil {
 			codeContext, parseErr := store.ParseCodeContext(task.CodeContext)
 			if parseErr != nil {
@@ -818,9 +825,9 @@ func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, hei
 	}
 	// With reviews on, an adapter whose agents learn of them only from here
 	// (Claude Code, Codex) is told; swarm workers never review.
-	if a.reviewsOff && !nativeResume {
+	if a.reviewsOff && !nativeResume && !ownPrompt {
 		rolePrompt = joinPromptSections(rolePrompt, reviewsOffPrompt)
-	} else if rp, ok := adapter.(ReviewsPromptAdapter); ok && rp.NeedsReviewsPrompt() && !nativeResume && !isSwarm {
+	} else if rp, ok := adapter.(ReviewsPromptAdapter); ok && rp.NeedsReviewsPrompt() && !nativeResume && !isSwarm && !ownPrompt {
 		rolePrompt = joinPromptSections(rolePrompt, reviewsOnPrompt)
 	}
 	if repo, ok := strings.CutPrefix(projectKey, "repo:"); ok && a.guidance != nil {
@@ -831,7 +838,7 @@ func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, hei
 		rolePrompt = joinPromptSections(rolePrompt, repositoryGuidancePrompt(repo, text))
 	}
 	var promptManifestID string
-	if a.learning != nil && adapter != nil && !nativeResume {
+	if a.learning != nil && adapter != nil && !nativeResume && !ownPrompt {
 		compiled, compileErr := a.learning.CompileLearningPrompt(ctx, LearningPromptCompileInput{
 			TaskID: taskID, Adapter: agentKind, Role: opt.Role, ProjectKey: projectKey,
 			MaxItems: a.learningMaxItems, MaxBytes: a.learningMaxBytes,
