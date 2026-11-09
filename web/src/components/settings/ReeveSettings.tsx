@@ -1,7 +1,8 @@
-import { useState } from "react"
+import { useCallback, useEffect, useState } from "react"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
-import { Crown } from "lucide-react"
-import { deleteReeve, endReeve, fetchReeve, resumeReeve, startReeve, type ReeveSession } from "../../lib/reeve"
+import { Crown, Link2 } from "lucide-react"
+import { deleteReeve, endReeve, fetchReeve, listReevePeers, pairReevePeer, removeReevePeer, resumeReeve, startReeve, type ReevePeer, type ReeveSession } from "../../lib/reeve"
+import { PairDeviceDialog } from "../PairDeviceDialog"
 import { queryKeys } from "../../lib/query"
 import { SettingsCard, primaryButton, quietButton } from "./SettingsUI"
 
@@ -79,6 +80,84 @@ export function ReeveSessions({ baseUrl }: { baseUrl: string }) {
           </ul>
         </section>
       )}
+    </SettingsCard>
+  )
+}
+
+const viaLabel: Record<ReevePeer["via"], string> = { worker: "Worker", main: "Main instance", pairing: "Paired Reeve", prime: "Paired Reeve (answers when it calls)" }
+
+// ReevePairings lists the instances whose Reeves this one can message — its
+// workers and mains, and instances paired here — and pairs or removes one.
+export function ReevePairings({ baseUrl }: { baseUrl: string }) {
+  const [peers, setPeers] = useState<ReevePeer[] | null>(null)
+  const [address, setAddress] = useState("")
+  const [phrase, setPhrase] = useState("")
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState("")
+  const [showPair, setShowPair] = useState(false)
+  const load = useCallback(async () => {
+    try {
+      setPeers(await listReevePeers(baseUrl))
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : String(reason))
+    }
+  }, [baseUrl])
+  useEffect(() => { void load() }, [load])
+  const act = async (action: () => Promise<unknown>) => {
+    setBusy(true)
+    setError("")
+    try {
+      await action()
+      await load()
+      return true
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : String(reason))
+      return false
+    } finally {
+      setBusy(false)
+    }
+  }
+  const pair = async () => {
+    if (await act(() => pairReevePeer(baseUrl, { address: address.trim(), phrase: phrase.trim() }))) {
+      setAddress("")
+      setPhrase("")
+    }
+  }
+  return (
+    <SettingsCard id="reeve-pairings" icon={Link2} title="Reeve pairings"
+      description="Instances whose Reeves this one can message with message_reeve: its workers and mains, and instances paired here. A Reeve only asks another; each instance's own person approves what its Reeve changes.">
+      <div className="flex flex-col gap-3">
+        {peers && peers.length === 0 && <p className="text-xs text-lw-faint">No other instance is paired with this one.</p>}
+        {peers && peers.length > 0 && (
+          <ul className="flex flex-col divide-y divide-lw-line rounded-lg border border-lw-line">
+            {peers.map((p) => (
+              <li key={p.instance_id} data-testid={`reeve-peer-${p.instance_id}`} className="flex flex-wrap items-center gap-2 px-3 py-2 text-sm">
+                <span className="text-lw-text">{p.name}</span>
+                <span className="text-xs text-lw-text-2">{viaLabel[p.via] ?? p.via}</span>
+                <span className="font-lw-mono text-xs text-lw-faint">{p.instance_id}</span>
+                {(p.via === "pairing" || p.via === "prime") && (
+                  <button type="button" className={quietButton + " ml-auto"} disabled={busy} aria-label={`Remove ${p.name}`}
+                    onClick={() => void act(() => removeReevePeer(baseUrl, p.instance_id))}>Remove</button>
+                )}
+              </li>
+            ))}
+          </ul>
+        )}
+        <div className="flex flex-wrap items-end gap-2">
+          <label className="flex flex-col gap-1 text-xs text-lw-text-2">Address
+            <input aria-label="Address of the other instance" placeholder="https://nas.lan:3080" value={address} onChange={(e) => setAddress(e.target.value)}
+              className="min-h-9 w-56 rounded-lg border border-lw-line bg-lw-ground px-2 text-sm text-lw-text" />
+          </label>
+          <label className="flex flex-col gap-1 text-xs text-lw-text-2">Phrase
+            <input aria-label="Its phrase" placeholder="four words" value={phrase} onChange={(e) => setPhrase(e.target.value)}
+              className="min-h-9 w-48 rounded-lg border border-lw-line bg-lw-ground px-2 text-sm text-lw-text" />
+          </label>
+          <button type="button" className={primaryButton} disabled={busy || !address.trim() || !phrase.trim()} onClick={() => void pair()}>Pair</button>
+          <button type="button" className={quietButton} onClick={() => setShowPair(true)}>Let another instance pair with this one</button>
+        </div>
+        {error && <p role="alert" className="text-xs text-lw-error">{error}</p>}
+      </div>
+      {showPair && <PairDeviceDialog baseUrl={baseUrl} purpose="reeve" onClose={() => { setShowPair(false); void load() }} />}
     </SettingsCard>
   )
 }

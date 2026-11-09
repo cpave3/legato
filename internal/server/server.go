@@ -42,6 +42,8 @@ type Server struct {
 	reeveRules               ReeveRuleProposer
 	reeveChangeSets          ReeveChangeSets
 	reeveSecrets             ReeveSecretKeeper
+	reevePeers               ReevePeers
+	mainReeve                MainReeveScope
 	settingsMover            SettingsMover
 	settingsImporter         SettingsImporter
 	moveRestart              func()
@@ -334,6 +336,7 @@ func NewWithSwarm(board service.BoardService, agents service.AgentService, tmux 
 	s.registerInstanceRoutes(mux)
 	s.registerBurnliteRoutes(mux)
 	s.registerReeveRoutes(mux)
+	s.registerReevePeerRoutes(mux)
 
 	// SPA fallback — serve embedded frontend for all non-API paths.
 	if fsys := static.DistFS(); fsys != nil {

@@ -87,6 +87,10 @@ A card for a task from a ticket provider (Jira, Burnlite) shows the ticket's tex
 
 On the main, the task is **away** while the worker holds it: the main refuses to edit it, move it, start an agent on it or hand it off again, from the web UI, the TUI and the `legato` command, and says which worker has it. Notes can still be added there.
 
+## The Reeves of a main and its workers
+
+A main's [Reeve](/legato/using/reeve/) can message each worker's Reeve, to ask how it stands, without another pairing. On a worker, **Settings › Main instances** has a switch for each main, **Its Reeve may message this one's**, on unless you turn it off. Each Reeve's changes still need its own person's approval.
+
 ## Not to be confused with
 
 - A **review handoff** is the packet of decisions and evidence that an agent writes for a review. See [Review handoff](/legato/using/review-handoff/).

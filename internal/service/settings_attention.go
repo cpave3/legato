@@ -4,6 +4,8 @@ import (
 	"context"
 	"fmt"
 	"strings"
+
+	"github.com/cpave3/legato/internal/engine/store"
 )
 
 // AttentionSignalSettingsRestart is settings changed since Legato started
@@ -86,4 +88,56 @@ func (a *SettingsMoveAttentionAdapter) Snapshot(ctx context.Context) ([]Attentio
 		Detail:     strings.Join(movable.Settings, ", "),
 		Actions:    []AttentionAction{{ID: "open", Label: "Choose what to move", Kind: "navigate", Intent: "primary"}},
 	}}, nil
+}
+
+// AttentionSignalReevePeer is another instance's Reeve that wants to talk,
+// with no session running here and reeve.peer set to ask.
+const AttentionSignalReevePeer = "reeve_peer"
+
+// ReevePeerAttentionAdapter asks the person to let another Reeve talk.
+type ReevePeerAttentionAdapter struct {
+	db    *store.Store
+	reeve *ReeveService
+}
+
+func NewReevePeerAttentionAdapter(db *store.Store, reeve *ReeveService) *ReevePeerAttentionAdapter {
+	return &ReevePeerAttentionAdapter{db: db, reeve: reeve}
+}
+
+func (a *ReevePeerAttentionAdapter) Producer() string { return "reeve-peer" }
+
+func (a *ReevePeerAttentionAdapter) Snapshot(ctx context.Context) ([]AttentionInput, error) {
+	waiting, err := a.db.ListReeveInbox(ctx)
+	if err != nil {
+		return nil, err
+	}
+	seen := map[string]bool{}
+	var items []AttentionInput
+	for _, m := range waiting {
+		if seen[m.InstanceID] {
+			continue
+		}
+		seen[m.InstanceID] = true
+		items = append(items, AttentionInput{
+			SignalKind: AttentionSignalReevePeer, SourceKey: "reeve-peer:" + m.InstanceID, SourceRevision: fmt.Sprint(m.ID),
+			Category: "maintenance", Urgency: "normal",
+			Navigation: AttentionNavigation{Kind: "settings", Target: "reeve"},
+			Title:      "The Reeve on " + m.Name + " wants to talk",
+			Reason:     "No Reeve session runs here, and Settings › Reeve says to ask you first.",
+			Detail:     m.Text,
+			Actions: []AttentionAction{
+				{ID: "talk", Label: "Let it talk", Kind: "execute", Intent: "primary"},
+				{ID: "open", Label: "Open settings", Kind: "navigate"},
+			},
+		})
+	}
+	return items, nil
+}
+
+// Execute lets the peer talk: a session starts with its messages.
+func (a *ReevePeerAttentionAdapter) Execute(ctx context.Context, req AttentionActionRequest) error {
+	if req.ActionID != "talk" || a.reeve == nil {
+		return fmt.Errorf("unknown action %q", req.ActionID)
+	}
+	return a.reeve.LetPeerTalk(ctx, strings.TrimPrefix(req.SourceKey, "reeve-peer:"))
 }

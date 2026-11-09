@@ -196,3 +196,33 @@ func TestHostToolsAreOfferedOnlyWhileHostOperationsAreOn(t *testing.T) {
 		t.Fatal("host_shell offered with host operations off")
 	}
 }
+
+type fakeReevePeers struct {
+	to, text string
+}
+
+func (f *fakeReevePeers) List(context.Context) ([]service.Peer, error) {
+	return []service.Peer{{InstanceID: "srv-0123456789abcdef", Name: "erebus", Via: service.PeerViaWorker}}, nil
+}
+
+func (f *fakeReevePeers) Send(_ context.Context, to, text string) (service.SendOutcome, error) {
+	f.to, f.text = to, text
+	return service.SendOutcome{To: service.Peer{Name: "erebus"}, State: "delivered", Replies: []string{"all well here"}}, nil
+}
+
+// The Reeve messages a paired instance's Reeve, and lists them when it
+// names none.
+func TestTheReeveMessagesAnotherInstancesReeve(t *testing.T) {
+	s := newTestStore(t)
+	peers := &fakeReevePeers{}
+	taskID, executionID := seedReeve(t, s)
+	session := connectMCP(t, cli.MCPOptions{Store: s, TaskID: taskID, ExecutionID: executionID, Reeve: &cli.MCPReeve{Peers: peers}})
+	got := mcpText(callMCP(t, session, "message_reeve", map[string]any{"to": "erebus", "text": "how are your workers?"}))
+	if peers.to != "erebus" || peers.text != "how are your workers?" || !strings.Contains(got, "all well here") {
+		t.Fatalf("result %q, sent %+v", got, peers)
+	}
+	listed := mcpText(callMCP(t, session, "message_reeve", map[string]any{}))
+	if !strings.Contains(listed, "erebus") {
+		t.Fatalf("listing %q", listed)
+	}
+}

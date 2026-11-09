@@ -8,7 +8,7 @@ import { useWebSocket } from "../hooks/useWebSocket"
 // the Legato app pairs by typing its four words. See mobile/README.md § Pairing.
 // A request for a main instance is typed into the main's Settings › Workers;
 // the main gets a token that can only hand tasks off to this server.
-export type PairingPurpose = "phone" | "main"
+export type PairingPurpose = "phone" | "main" | "reeve"
 
 interface PairingStatus {
   state: "none" | "open" | "paired" | "expired" | "exhausted" | "cancelled"
@@ -24,7 +24,7 @@ interface PairingStatus {
   address?: string
 }
 
-const purposeName: Record<PairingPurpose, string> = { phone: "a phone", main: "a main instance" }
+const purposeName: Record<PairingPurpose, string> = { phone: "a phone", main: "a main instance", reeve: "another instance's Reeve" }
 
 const ended: Record<string, string> = {
   expired: "The phrase expired before a device used it.",
@@ -99,7 +99,7 @@ export function PairDeviceDialog({ baseUrl, purpose = "phone", onClose }: { base
     async (method: "GET" | "POST" | "DELETE") => {
       try {
         // A phone's request is opened with no body, as older servers expect.
-        const init: RequestInit = method === "POST" && purpose === "main"
+        const init: RequestInit = method === "POST" && purpose !== "phone"
           ? { method, headers: { "Content-Type": "application/json" }, body: JSON.stringify({ purpose }) }
           : { method }
         const res = await apiFetch(baseUrl, "/api/pairing", init)
@@ -172,11 +172,13 @@ export function PairDeviceDialog({ baseUrl, purpose = "phone", onClose }: { base
       >
         <div className="flex items-center justify-between gap-3 border-b border-lw-line px-5 py-3.5">
           <div>
-            <h2 id="pair-device-title" className="text-base font-semibold sm:text-sm">{purpose === "main" ? "Pair a main instance" : "Pair a device"}</h2>
+            <h2 id="pair-device-title" className="text-base font-semibold sm:text-sm">{purpose === "main" ? "Pair a main instance" : purpose === "reeve" ? "Pair another Reeve" : "Pair a device"}</h2>
             <p className="text-xs text-lw-text-2">
               {purpose === "main"
                 ? "On the main instance, open Settings › Workers › Add a worker and enter this address and phrase. The main gets a token that can only hand tasks off here."
-                : "In the Legato app, add a server, choose this one and type the words."}
+                : purpose === "reeve"
+                  ? "On the other instance, open Settings › Reeve › Reeve pairings and enter this address and phrase. Its Reeve can then message this one's, and only that: whatever either proposes, its own person approves."
+                  : "In the Legato app, add a server, choose this one and type the words."}
             </p>
           </div>
           <button
@@ -203,7 +205,7 @@ export function PairDeviceDialog({ baseUrl, purpose = "phone", onClose }: { base
 
           {!error && status?.state === "open" && status.phrase && (
             <>
-              {shownPurpose === "main" && status.address && (
+              {shownPurpose !== "phone" && status.address && (
                 <div className="flex flex-col gap-1">
                   <span className="text-xs text-lw-text-2">Address</span>
                   <span className="rounded-lg border border-lw-line-strong bg-lw-ground px-3 py-2 font-lw-mono text-sm text-lw-text">{status.address}</span>
@@ -232,7 +234,7 @@ export function PairDeviceDialog({ baseUrl, purpose = "phone", onClose }: { base
               </p>
               <p className="flex items-center gap-2 text-xs text-lw-text-2">
                 <span className="h-2 w-2 animate-pulse rounded-full bg-lw-accent" />
-                {shownPurpose === "main" ? "Waiting for a main instance…" : "Waiting for a device…"}
+                {shownPurpose === "main" ? "Waiting for a main instance…" : shownPurpose === "reeve" ? "Waiting for the other instance…" : "Waiting for a device…"}
               </p>
             </>
           )}
@@ -240,7 +242,7 @@ export function PairDeviceDialog({ baseUrl, purpose = "phone", onClose }: { base
           {!error && status?.state === "paired" && (
             <p className="flex items-center gap-2 text-sm text-lw-live">
               <Check size={16} />
-              {status.purpose === "main" ? `Paired with main instance ${status.device}.` : `Paired with ${status.device || "a device"}.`}
+              {status.purpose === "main" ? `Paired with main instance ${status.device}.` : status.purpose === "reeve" ? `Paired with the Reeve on ${status.device || "the other instance"}.` : `Paired with ${status.device || "a device"}.`}
             </p>
           )}
 

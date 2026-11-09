@@ -347,6 +347,15 @@ func prepareMigration(queryer migrationQueryer, name, migrationSQL string) (stri
 			return "", nil
 		}
 	}
+	if name == "103_reeve_peers.sql" {
+		var n int
+		if err := queryer.Get(&n, `SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'integration_tokens'`); err != nil {
+			return "", err
+		}
+		if n == 0 {
+			migrationSQL = strings.Replace(migrationSQL, `UPDATE integration_tokens SET scopes = '["handoff","reeve"]' WHERE kind = 'main' AND scopes = '["handoff"]';`, "", 1)
+		}
+	}
 	if name == "101_reeve.sql" {
 		var n int
 		if err := queryer.Get(&n, `SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'tasks'`); err != nil {

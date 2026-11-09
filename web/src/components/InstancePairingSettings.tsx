@@ -2,7 +2,7 @@ import { useCallback, useEffect, useMemo, useState } from "react"
 import { Laptop, Plus, ServerCog } from "lucide-react"
 import { SettingsCard, primaryButton, quietButton } from "./settings/SettingsUI"
 import { PairDeviceDialog } from "./PairDeviceDialog"
-import { listMains, listWorkers, pairWorker, removeWarning, removeWorker, removedText, unpairMain, workerCandidates, type PairedMain, type Worker, type WorkerCandidate, type WorkerList } from "../lib/workers"
+import { listMains, listWorkers, pairWorker, removeWarning, removeWorker, removedText, unpairMain, setMainReeve, workerCandidates, type PairedMain, type Worker, type WorkerCandidate, type WorkerList } from "../lib/workers"
 
 // Handoff: a main instance hands tasks to a worker instance it paired with
 // by phrase. Settings › Workers is the main's side; Settings › Main
@@ -247,6 +247,16 @@ export function MainInstancesSettings({ baseUrl }: { baseUrl: string }) {
   }, [baseUrl])
   useEffect(() => { void load() }, [load])
 
+  const toggleReeve = async (main: PairedMain, enabled: boolean) => {
+    setError(null)
+    try {
+      await setMainReeve(baseUrl, main.instance_id, enabled)
+      await load()
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : String(reason))
+    }
+  }
+
   const unpair = async (main: PairedMain) => {
     setError(null)
     try {
@@ -276,6 +286,11 @@ export function MainInstancesSettings({ baseUrl }: { baseUrl: string }) {
                       <span>{m.last_pull_at ? `Last pulled ${when(m.last_pull_at)}` : "Never pulled"}</span>
                       <span>{m.open_handoffs} open handoffs</span>
                     </div>
+                    <label className="flex items-center gap-2 text-xs text-lw-text-2">
+                      <input type="checkbox" checked={Boolean(m.reeve)} onChange={(e) => void toggleReeve(m, e.target.checked)}
+                        aria-label={`Let the Reeve on ${m.name} message this one`} />
+                      Its Reeve may message this one's
+                    </label>
                   </div>
                   {confirming?.instance_id !== m.instance_id && (
                     <button onClick={() => setConfirming(m)} aria-label={`Unpair ${m.name}`} className="min-h-10 shrink-0 rounded-lg px-3 text-sm text-lw-danger hover:bg-lw-raised">

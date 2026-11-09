@@ -102,6 +102,7 @@ func reeveTools(cfg *config.Config, db *store.Store) *cli.MCPReeve {
 		tools.Secrets = processSecrets
 	}
 	tools.Legato = legatoCommands{}
+	tools.Peers = newReevePeers(cfg, db, nil, nil, nil)
 	tools.HostOperations = func(ctx context.Context) bool {
 		effective, err := settingsFor(db).Effective(ctx)
 		return err == nil && effective.Reeve.HostOperationsOn()

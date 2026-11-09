@@ -64,6 +64,14 @@ Each change the Reeve proposes needs your approval, at a level set in Settings �
 
 These levels and rules are the Reeve's own rules: they change only with a signed approval, even from Settings, and not at all while no device is enrolled.
 
+## Talking to other instances' Reeves
+
+The Reeve can message the Reeve of another Legato this one is paired with: its workers, its main instances, and instances you pair in **Settings › Reeve › Reeve pairings**. It asks; it never changes the other instance. Whatever the other Reeve does there, that instance's person approves.
+
+- **To pair two instances**, choose **Let another instance pair with this one** on one of them. It shows an address and four words; on the other, enter them under Reeve pairings and choose **Pair**.
+- A main instance's Reeve can message its workers' without another pairing. On a worker, **Settings › Main instances** has a switch for each main: **Its Reeve may message this one's**.
+- A message from another Reeve shows in the conversation marked with the instance it came from. When no session runs here, **Reeve › When another Reeve messages** (`reeve.peer`) decides: start a session (the default), ask you first in Attention (**Let it talk**), or refuse. It is one of the Reeve's own rules, changed only with a signature.
+
 ## Where it runs
 
 The Reeve always runs in Legato's [sandbox](/legato/security/sandbox/): it cannot be started without it, and **Run without sandbox** and the switch out of the sandbox are refused for it. It works in a folder of its own, `~/.local/state/legato/reeve` (or under `$XDG_STATE_HOME`), outside your repositories and Legato's data folder.

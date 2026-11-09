@@ -78,6 +78,7 @@ var integrationScopes = map[string]string{
 	"delegations": service.ScopeDelegate,
 	"attention":   service.ScopeAttention,
 	"handoff":     service.ScopeHandoff,
+	"reeve":       service.ScopeReeve,
 }
 
 // integrationScope is the scope a route under /api/integrations/ needs, or ""

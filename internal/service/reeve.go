@@ -149,11 +149,15 @@ func instanceName() string {
 	return name
 }
 
-// instanceRole is whether this instance is a main (it has workers), a
-// worker (mains are paired with it), both, or standalone.
 func (s *ReeveService) instanceRole(ctx context.Context) string {
-	workers, _ := s.opts.Store.ListWorkers(ctx)
-	mains, _ := s.opts.Store.ListMainIntegrationTokens(ctx)
+	return InstanceRole(ctx, s.opts.Store)
+}
+
+// InstanceRole is whether this instance is a main (it has workers), a
+// worker (mains are paired with it), both, or standalone.
+func InstanceRole(ctx context.Context, db *store.Store) string {
+	workers, _ := db.ListWorkers(ctx)
+	mains, _ := db.ListMainIntegrationTokens(ctx)
 	switch {
 	case len(workers) > 0 && len(mains) > 0:
 		return "main and worker"
@@ -418,4 +422,53 @@ func (s *ReeveService) Message(ctx context.Context, text, by string) error {
 	}
 	s.Touch(ctx, current.TaskID)
 	return messenger.QueueMessage(ctx, current.TaskID, text)
+}
+
+// Peer policies: what a peer's message does when no session runs.
+const (
+	PeerStart  = "start"
+	PeerAsk    = "ask"
+	PeerRefuse = "refuse"
+)
+
+// PeerMessage gives this instance's Reeve a message from another
+// instance's, marked as such: into the running session (a suspended one
+// resumes). With none running, policy decides: start a session (the
+// default), keep it for a person to let the Reeve talk (ErrPeerAsk), or
+// refuse it (ErrPeerRefused). A peer starts at most one session at a time.
+func (s *ReeveService) PeerMessage(ctx context.Context, from PeerInfo, text, policy string) error {
+	framed := PeerFrame(from, text)
+	current, err := s.opts.Store.CurrentReeveSession(ctx)
+	if err != nil {
+		return err
+	}
+	if current != nil {
+		return s.Message(ctx, framed, "peer:"+from.InstanceID)
+	}
+	switch policy {
+	case PeerRefuse:
+		return ErrPeerRefused
+	case PeerAsk:
+		if err := s.opts.Store.InsertReeveInbox(ctx, store.ReeveInboxMessage{InstanceID: from.InstanceID, Name: from.Name, Role: from.Role, Text: text}); err != nil {
+			return err
+		}
+		s.changed("")
+		return ErrPeerAsk
+	}
+	_, err = s.Start(ctx, ReeveStart{Brief: framed, StartedBy: "peer:" + from.InstanceID})
+	return err
+}
+
+// LetPeerTalk starts a session with the messages one peer left while the
+// person was asked.
+func (s *ReeveService) LetPeerTalk(ctx context.Context, instanceID string) error {
+	waiting, err := s.opts.Store.TakeReeveInbox(ctx, instanceID)
+	if err != nil || len(waiting) == 0 {
+		return err
+	}
+	var texts []string
+	for _, m := range waiting {
+		texts = append(texts, PeerFrame(PeerInfo{InstanceID: m.InstanceID, Name: m.Name, Role: m.Role}, m.Text))
+	}
+	return s.Message(ctx, strings.Join(texts, "\n\n"), "peer:"+instanceID)
 }

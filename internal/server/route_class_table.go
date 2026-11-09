@@ -291,4 +291,10 @@ var routeClassTable = []routeClassEntry{
 	{"GET", "/api/reeve/sessions/{task_id}/change-sets", ClassRead, "List a Reeve session's change sets"},
 	{"POST", "/api/reeve/secrets/{approval_id}", ClassNever, "Store a secret the person pasted"},
 	{"POST", "/api/config/import", ClassRisky, "Import settings from a file, as a change set"},
+	// Reeve to Reeve.
+	{"POST", "/api/integrations/reeve/messages", ClassChange, "Message this instance's Reeve, as another instance's"},
+	{"GET", "/api/reeve/peers", ClassRead, "List the instances whose Reeves this one can message"},
+	{"POST", "/api/reeve/peers", ClassRisky, "Pair with another instance's Reeve"},
+	{"DELETE", "/api/reeve/peers/{instance_id}", ClassRisky, "Remove a Reeve pairing"},
+	{"PUT", "/api/settings/mains/{instance_id}/reeve", ClassRisky, "Let a paired main's Reeve message this one's, or stop it"},
 }

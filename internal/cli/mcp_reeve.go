@@ -40,6 +40,15 @@ type MCPReeve struct {
 	// HostOperations reports whether host operations are on: host_shell,
 	// edit_file and manage_service are offered only then.
 	HostOperations func(ctx context.Context) bool
+	// Peers messages other instances' Reeves (message_reeve).
+	Peers MCPPeerReeves
+}
+
+// MCPPeerReeves messages other instances' Reeves
+// (service.ReevePeerService).
+type MCPPeerReeves interface {
+	List(ctx context.Context) ([]service.Peer, error)
+	Send(ctx context.Context, to, text string) (service.SendOutcome, error)
 }
 
 // MCPLegato classes and runs legato subcommands on the host.
@@ -70,6 +79,9 @@ func (m *mcpTools) reeveTools() []mcpserver.Tool {
 	}
 	if m.opts.Reeve.Secrets != nil {
 		tools = append(tools, m.requestSecret())
+	}
+	if m.opts.Reeve.Peers != nil {
+		tools = append(tools, m.messageReeve())
 	}
 	if m.opts.Reeve.Legato != nil {
 		tools = append(tools, m.legatoCommand())
@@ -404,6 +416,57 @@ func (m *mcpTools) requestSecret() mcpserver.Tool {
 			text = "The person declined to give the secret."
 		default:
 			text = "The request waits in the person's approval tray (" + out.ApprovalID + "). A [legato] message does not follow: call request_secret again later, or ask the person."
+		}
+		return mcpserver.Result{Text: text, Data: out}, nil
+	})
+}
+
+type messageReeveInput struct {
+	To   string `json:"to,omitempty" jsonschema:"the instance, by its name or instance ID; leave out to list them"`
+	Text string `json:"text,omitempty" jsonschema:"the message"`
+}
+
+func (m *mcpTools) messageReeve() mcpserver.Tool {
+	return mcpserver.NewTool(mcpserver.Definition{
+		Name: "message_reeve", Title: "Message another instance's Reeve",
+		Description: "Sends a message to the Reeve of another Legato instance this one is paired with: its workers, its main, or an instance paired in Settings › Reeve. Its answer comes back as a [from the Reeve on <name>] message. Call it with no arguments to list the instances you can reach. Ask the other Reeve, never tell it to change something without its person's approval: it proposes its own changes there.",
+	}, func(ctx context.Context, in messageReeveInput) (mcpserver.Result, error) {
+		if err := m.mustBeReeve(ctx); err != nil {
+			return mcpserver.Result{}, err
+		}
+		if strings.TrimSpace(in.To) == "" {
+			peers, err := m.opts.Reeve.Peers.List(ctx)
+			if err != nil {
+				return mcpserver.Result{}, err
+			}
+			if len(peers) == 0 {
+				return mcpserver.Result{Text: "No other instance is paired with this one."}, nil
+			}
+			var b strings.Builder
+			b.WriteString("Instances whose Reeve you can message:\n")
+			for _, p := range peers {
+				fmt.Fprintf(&b, "- %s (%s, %s)\n", p.Name, p.Via, p.InstanceID)
+			}
+			return mcpserver.Result{Text: b.String(), Data: peers}, nil
+		}
+		if strings.TrimSpace(in.Text) == "" {
+			return mcpserver.Result{}, fmt.Errorf("give the text of the message")
+		}
+		out, err := m.opts.Reeve.Peers.Send(ctx, in.To, in.Text)
+		if err != nil {
+			return mcpserver.Result{}, err
+		}
+		var text string
+		switch out.State {
+		case "queued":
+			text = "The Reeve on " + out.To.Name + " cannot be reached from here; the message goes with its next message to you."
+		case "waiting":
+			text = "Delivered. No Reeve session runs on " + out.To.Name + ", and its person is asked first; its answer comes later."
+		default:
+			text = "Delivered to the Reeve on " + out.To.Name + "; its answer comes as a message."
+		}
+		for _, r := range out.Replies {
+			text += "\n\nA reply that waited for you: " + r
 		}
 		return mcpserver.Result{Text: text, Data: out}, nil
 	})

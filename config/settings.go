@@ -222,6 +222,7 @@ var registry = []Setting{
 	{Key: "reeve.host_operations", Title: "Host operations", Description: "Offer the Reeve a shell, file edits and systemd services on this machine, each as a change you approve. One of the Reeve's own rules.", Kind: KindBool, Class: ClassRisky, Mode: ModeLive, OwnRule: true},
 	{Key: "reeve.host_timeout", Title: "Host command timeout", Description: "How long one host command may run. 10m when empty.", Kind: KindDuration, Class: ClassRisky, Mode: ModeLive},
 	{Key: "reeve.host_output_cap", Title: "Host command output (bytes)", Description: "How much of a host command's output the Reeve is given; the rest is kept in a file it can read. 65536 when 0.", Kind: KindInt, Class: ClassChange, Mode: ModeLive, Check: nonNegative},
+	{Key: "reeve.peer", Title: "When another Reeve messages", Description: "With no session running: start one (start, the default), ask a person first (ask), or refuse. One of the Reeve's own rules.", Kind: KindEnum, Enum: []string{"", "start", "ask", "refuse"}, Class: ClassRisky, Mode: ModeLive, OwnRule: true},
 	{Key: "reeve.launch_args", Title: "The Reeve's launch arguments", Kind: KindStrings, Class: ClassRisky, Mode: ModeLive},
 
 	// Burnlite's projects, read on each use.

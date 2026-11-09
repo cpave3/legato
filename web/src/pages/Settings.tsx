@@ -24,7 +24,7 @@ import { RegistrySettings, SettingSource } from "../components/settings/Registry
 import { ListSettings } from "../components/settings/ListSettings"
 import { MoveSettings } from "../components/settings/MoveSettings"
 import { ExportSettings } from "../components/settings/ExportSettings"
-import { ReeveSessions } from "../components/settings/ReeveSettings"
+import { ReevePairings, ReeveSessions } from "../components/settings/ReeveSettings"
 import { useToast } from "../hooks/useToast"
 import { apiFetch } from "../lib/api"
 import { Link, useSearchParams } from "react-router-dom"
@@ -253,6 +253,7 @@ export function SettingsPage() {
 
           <SettingsGroup id="reeve" title="Reeve" description="The agent of this Legato itself: its sessions, and the agent tool, model and launch arguments it starts with.">
             <ReeveSessions baseUrl={baseUrl} />
+            <ReevePairings baseUrl={baseUrl} />
             <RegistrySettings settings={registry} baseUrl={baseUrl} prefixes={["reeve"]} />
           </SettingsGroup>
 

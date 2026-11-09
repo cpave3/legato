@@ -9,7 +9,9 @@ import (
 
 const mainInstance = "srv-0123456789abcdef"
 
-func TestAPairedMainGetsAHandoffOnlyTokenOfItsOwn(t *testing.T) {
+// A main's token hands off, and lets its Reeve message this one's; nothing
+// more.
+func TestAPairedMainGetsAHandoffAndReeveTokenOfItsOwn(t *testing.T) {
 	svc := NewIntegrationTokenService(newIntegrationStore(t))
 	ctx := context.Background()
 	token, err := svc.CreateMain(ctx, "workstation", mainInstance)
@@ -26,11 +28,11 @@ func TestAPairedMainGetsAHandoffOnlyTokenOfItsOwn(t *testing.T) {
 	if id.Kind != IntegrationKindMain || id.InstanceID != mainInstance || id.Name != "workstation" {
 		t.Fatalf("identity %+v", id)
 	}
-	if len(id.Scopes) != 1 || !id.Has(ScopeHandoff) {
+	if len(id.Scopes) != 2 || !id.Has(ScopeHandoff) || !id.Has(ScopeReeve) {
 		t.Fatalf("scopes %v", id.Scopes)
 	}
 	mains, err := svc.ListMains(ctx)
-	if err != nil || len(mains) != 1 || mains[0].InstanceID != mainInstance || mains[0].Name != "workstation" || mains[0].PairedAt == "" {
+	if err != nil || len(mains) != 1 || mains[0].InstanceID != mainInstance || mains[0].Name != "workstation" || mains[0].PairedAt == "" || !mains[0].Reeve {
 		t.Fatalf("mains %+v, %v", mains, err)
 	}
 }

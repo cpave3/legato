@@ -1060,6 +1060,10 @@ type ReeveConfig struct {
 	// when 0), the rest kept in a file it can read.
 	HostTimeout   string `yaml:"host_timeout"`
 	HostOutputCap int    `yaml:"host_output_cap"`
+	// Peer is what a message from another instance's Reeve does when no
+	// session runs: start (the default), ask a person first, or refuse.
+	// One of the Reeve's own rules.
+	Peer string `yaml:"peer"`
 }
 
 // HostOperationsOn reports whether host operations are on (the default).

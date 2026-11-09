@@ -44,6 +44,7 @@ beforeEach(() => {
       return json({ removed: { worker: "vm-1", recalled: [], taken_back: [{ task_id: "T-1" }], left: false } })
     }
     if (String(url).endsWith("/api/settings/mains")) return json({ mains })
+    if (String(url).endsWith("/reeve") && method === "PUT") return json({ enabled: body.enabled })
     if (String(url).includes("/api/settings/mains/") && method === "DELETE") {
       mains = mains.filter((m) => !String(url).endsWith(String(m.instance_id)))
       return json({ status: "ok" })
@@ -145,6 +146,14 @@ describe("MainInstancesSettings", () => {
     expect(within(main).getByText(/paired/i)).toBeTruthy()
     expect(within(main).getByText(/last pulled/i)).toBeTruthy()
     expect(within(main).getByText(/0 open handoffs/)).toBeTruthy()
+  })
+
+  it("lets a main's Reeve message this one's, or stops it", async () => {
+    render(<MainInstancesSettings baseUrl="https://worker.lan:3080" />)
+    const toggle = await screen.findByRole("checkbox", { name: "Let the Reeve on workstation message this one" })
+    expect((toggle as HTMLInputElement).checked).toBe(false)
+    fireEvent.click(toggle)
+    await waitFor(() => expect(requests.some((r) => r.method === "PUT" && r.url.endsWith("/api/settings/mains/srv-2f7d61c0ab493e85/reeve") && r.body?.enabled === true)).toBe(true))
   })
 
   it("unpairs a main after asking", async () => {

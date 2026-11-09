@@ -21,5 +21,6 @@ func everyReeveTool() *cli.MCPReeve {
 		Secrets:        noSecrets{},
 		Legato:         &fakeLegato{},
 		HostOperations: func(context.Context) bool { return true },
+		Peers:          &fakeReevePeers{},
 	}
 }

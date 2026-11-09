@@ -347,6 +347,7 @@ The Reeve's defaults, read when a session starts. Usually set in Settings › Re
 | `reeve.host_operations` | bool | `true` | Offers the Reeve a shell, file edits and systemd services on this machine, each as a change you approve. Changed only with a signed approval. |
 | `reeve.host_timeout` | duration | `10m` | How long one host command may run. |
 | `reeve.host_output_cap` | int | `65536` | How many bytes of a host command's output the Reeve is given; the rest is kept in a file it can read. |
+| `reeve.peer` | string | `start` | What a message from another instance's Reeve does when no session runs here: `start` a session, `ask` you first in Attention, or `refuse` it. Changed only with a signed approval. |
 | `reeve.launch_args` | list of strings | none | Arguments added to the agent tool's launch command. |
 
 ## Updates

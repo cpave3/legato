@@ -87,3 +87,21 @@ export async function storeReeveSecret(baseUrl: string, approvalId: string, valu
   const body = await response.json() as { ref: string }
   return body.ref
 }
+
+// An instance whose Reeve this one can message (service.Peer): a worker, a
+// main, or one paired in Settings › Reeve.
+export interface ReevePeer {
+  instance_id: string
+  name: string
+  via: "worker" | "main" | "pairing" | "prime"
+  address?: string
+}
+
+export async function listReevePeers(baseUrl: string): Promise<ReevePeer[]> {
+  const response = await apiFetch(baseUrl, "/api/reeve/peers")
+  if (!response.ok) throw await failed(response)
+  return ((await response.json()) as { peers?: ReevePeer[] }).peers ?? []
+}
+
+export const pairReevePeer = (baseUrl: string, pairing: { address: string; phrase: string }) => post(baseUrl, "/api/reeve/peers", pairing) as Promise<ReevePeer>
+export const removeReevePeer = (baseUrl: string, instanceId: string) => post(baseUrl, `/api/reeve/peers/${encodeURIComponent(instanceId)}`, undefined, "DELETE")
