@@ -21,6 +21,7 @@ type SettingsRegistry interface {
 	Lists(ctx context.Context) ([]service.SettingList, error)
 	SetEntry(ctx context.Context, list, name string, raw json.RawMessage, by string) error
 	DeleteEntry(ctx context.Context, list, name string) error
+	Export(ctx context.Context, pinned bool) ([]byte, error)
 }
 
 // SetSettingsService serves the settings kept in the database.
@@ -157,5 +158,28 @@ func (s *Server) configListEntryHandler() http.HandlerFunc {
 			s.broadcastSettingsChanged()
 			s.writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 		}
+	}
+}
+
+// configExportHandler serves GET /api/config/export[?pinned=1]: the
+// settings set here as YAML shaped like config.yaml, to download.
+func (s *Server) configExportHandler() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodGet {
+			s.writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+			return
+		}
+		if s.settingsRegistry == nil {
+			s.writeError(w, http.StatusServiceUnavailable, "settings are not available")
+			return
+		}
+		out, err := s.settingsRegistry.Export(r.Context(), r.URL.Query().Get("pinned") == "1")
+		if err != nil {
+			s.writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		w.Header().Set("Content-Type", "application/yaml; charset=utf-8")
+		w.Header().Set("Content-Disposition", `attachment; filename="legato-settings.yaml"`)
+		_, _ = w.Write(out)
 	}
 }

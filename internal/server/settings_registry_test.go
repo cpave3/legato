@@ -126,3 +126,18 @@ func TestListEntriesAreAddedAndRemovedButNotTheFiles(t *testing.T) {
 		t.Fatalf("DELETE again: %d", rec.Code)
 	}
 }
+
+func TestSettingsExportDownloadsYAML(t *testing.T) {
+	srv := settingsServer(t, "icons: nerdfonts\n")
+	callUpdates(srv, http.MethodPut, "/api/config/settings/agents.reviews", `{"value": false}`)
+	rec := callUpdates(srv, http.MethodGet, "/api/config/export", "")
+	if rec.Code != http.StatusOK || !strings.Contains(rec.Body.String(), "reviews: false") || strings.Contains(rec.Body.String(), "icons") {
+		t.Fatalf("export: %d %s", rec.Code, rec.Body)
+	}
+	if !strings.Contains(rec.Header().Get("Content-Disposition"), "legato-settings.yaml") {
+		t.Fatalf("headers = %v", rec.Header())
+	}
+	if rec := callUpdates(srv, http.MethodGet, "/api/config/export?pinned=1", ""); !strings.Contains(rec.Body.String(), "icons: nerdfonts") {
+		t.Fatalf("pinned export: %s", rec.Body)
+	}
+}

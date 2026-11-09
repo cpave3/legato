@@ -23,6 +23,7 @@ import { useConfigSettings } from "../hooks/useConfigSettings"
 import { RegistrySettings, SettingSource } from "../components/settings/RegistrySettings"
 import { ListSettings } from "../components/settings/ListSettings"
 import { MoveSettings } from "../components/settings/MoveSettings"
+import { ExportSettings } from "../components/settings/ExportSettings"
 import { useToast } from "../hooks/useToast"
 import { apiFetch } from "../lib/api"
 import { Link, useSearchParams } from "react-router-dom"
@@ -391,6 +392,7 @@ export function SettingsPage() {
           <SettingsGroup id="lists" title="Lists" description="Workspaces, macros, agent tools, credentials and other lists, kept on this server beside config.yaml. Entries config.yaml gives are locked.">
             <MoveSettings baseUrl={baseUrl} />
             <ListSettings baseUrl={baseUrl} />
+            <ExportSettings baseUrl={baseUrl} />
           </SettingsGroup>
 
           <SettingsGroup id="updates" title="Updates" description="Which release of Legato this server runs, and how it takes the next.">

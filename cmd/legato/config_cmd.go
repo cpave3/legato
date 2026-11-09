@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"os"
 	"encoding/json"
 	"fmt"
 	"strings"
@@ -56,4 +57,30 @@ func sourceLabel(s service.SettingValue) string {
 		return label
 	}
 	return "default"
+}
+
+// runConfigExportCmd is `legato config export [--pinned]`: the settings set
+// in the database (and with --pinned those config.yaml pins) as YAML shaped
+// like config.yaml, secrets as names.
+func runConfigExportCmd(args []string) int {
+	const command = "config.export"
+	parsed, parseErr := parseCommandArgs(args, commandFlagSpecs("config", "export"))
+	if parseErr != nil {
+		return renderCommandError(command, parseErr, false)
+	}
+	cfg, err := config.Load()
+	if err != nil {
+		return renderCommandError(command, &commandError{Code: "config_invalid", Message: err.Error(), Exit: exitEnvironment}, false)
+	}
+	db, err := openStore(cfg)
+	if err != nil {
+		return renderCommandError(command, &commandError{Code: "database", Message: err.Error(), Exit: exitEnvironment}, false)
+	}
+	defer db.Close()
+	out, err := service.NewSettingsService(db, nil).Export(context.Background(), parsed.Present["pinned"])
+	if err != nil {
+		return renderCommandError(command, commandDomainError(err), false)
+	}
+	_, _ = os.Stdout.Write(out)
+	return exitOK
 }

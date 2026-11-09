@@ -108,3 +108,11 @@ export async function moveSettings(baseUrl: string, move: SettingsMove): Promise
   })
   if (!response.ok) throw await failed(response)
 }
+
+// exportSettings fetches the settings set on the server as YAML shaped like
+// config.yaml (GET /api/config/export); pinned adds config.yaml's own.
+export async function exportSettings(baseUrl: string, pinned: boolean): Promise<string> {
+  const response = await apiFetch(baseUrl, `/api/config/export${pinned ? "?pinned=1" : ""}`)
+  if (!response.ok) throw await failed(response)
+  return response.text()
+}

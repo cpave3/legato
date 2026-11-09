@@ -67,3 +67,15 @@ func TestConfigShowJSON(t *testing.T) {
 		t.Fatalf("output = %s, %v", out, err)
 	}
 }
+
+func TestConfigExportWritesTheDatabasesSettingsAsYAML(t *testing.T) {
+	configCmdInstance(t)
+	out := captureStdout(t, func() int { return runCLI([]string{"config", "export"}) })
+	if !strings.Contains(out, "reviews: false") || strings.Contains(out, "icons") {
+		t.Fatalf("export:\n%s", out)
+	}
+	pinned := captureStdout(t, func() int { return runCLI([]string{"config", "export", "--pinned"}) })
+	if !strings.Contains(pinned, "icons: nerdfonts") {
+		t.Fatalf("export --pinned:\n%s", pinned)
+	}
+}

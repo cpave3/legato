@@ -189,6 +189,7 @@ func NewWithSwarm(board service.BoardService, agents service.AgentService, tmux 
 	mux.HandleFunc("/api/config/settings/{key}", s.configSettingHandler())
 	mux.HandleFunc("/api/config/lists", s.configListsHandler())
 	mux.HandleFunc("/api/config/move", s.configMoveHandler())
+	mux.HandleFunc("/api/config/export", s.configExportHandler())
 	mux.HandleFunc("/api/config/lists/{list}/{name}", s.configListEntryHandler())
 	mux.HandleFunc("/api/updates/tools/{name}/apply", s.updateToolApplyHandler())
 	mux.HandleFunc("/api/hot-reload/build", s.hotReloadBuildHandler())
