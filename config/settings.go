@@ -491,7 +491,8 @@ func SettingValue(cfg *Config, key string) (any, error) {
 // pointerDefault is the value an unset pointer setting means.
 func pointerDefault(key string, field reflect.Value) any {
 	switch key {
-	case "notifications.approvals", "notifications.handoff", "agents.sandbox.default_mounts", "reeve.host_operations":
+	case "notifications.approvals", "notifications.handoff", "agents.sandbox.default_mounts", "reeve.host_operations",
+		"web.discovery", "credential_channels.gh.isolate_login":
 		return true
 	}
 	return reflect.Zero(field.Type().Elem()).Interface()
