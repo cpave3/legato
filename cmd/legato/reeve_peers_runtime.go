@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"os"
+	"time"
 
 	"github.com/cpave3/legato/config"
 	"github.com/cpave3/legato/internal/engine/discovery"
@@ -70,6 +71,8 @@ func wireReevePeers(srv *server.Server, cfg *config.Config, db *store.Store, ree
 		mustRegister(attention.RegisterHandler(adapter.Producer(), adapter))
 	}
 	srv.SetReevePeers(newReevePeers(cfg, db, reeve, approvalAddress(cfg), attention), service.NewIntegrationTokenService(db))
+	// The tray lists paired instances' pending change sets.
+	srv.StartPeerApprovals(context.Background(), 30*time.Second)
 }
 
 // peerAttentionProducer is the Attention producer of Reeves that want to

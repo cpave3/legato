@@ -48,6 +48,9 @@ type navigationSummary struct {
 	Agents            int `json:"agents"`
 	Learning          int `json:"learning"`
 	Approvals         int `json:"approvals"`
+	// PeerApprovals counts paired instances' Reeve change sets waiting for
+	// their person, as last heard.
+	PeerApprovals int `json:"peer_approvals"`
 }
 
 func (s *Server) navigationSummaryHandler() http.HandlerFunc {
@@ -114,6 +117,7 @@ func (s *Server) navigationSummaryHandler() http.HandlerFunc {
 			s.writeError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
+		summary.PeerApprovals = s.peerApprovalCount()
 		s.writeJSON(w, http.StatusOK, summary)
 	}
 }

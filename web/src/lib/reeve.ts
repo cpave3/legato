@@ -105,3 +105,25 @@ export async function listReevePeers(baseUrl: string): Promise<ReevePeer[]> {
 
 export const pairReevePeer = (baseUrl: string, pairing: { address: string; phrase: string }) => post(baseUrl, "/api/reeve/peers", pairing) as Promise<ReevePeer>
 export const removeReevePeer = (baseUrl: string, instanceId: string) => post(baseUrl, `/api/reeve/peers/${encodeURIComponent(instanceId)}`, undefined, "DELETE")
+
+// Another instance's Reeve change set waiting for its person
+// (service.InstanceApproval): decided there.
+export interface PeerApproval {
+  id: string
+  title: string
+  summary?: string
+  signed?: boolean
+  verified?: boolean
+  created_at: string
+  instance_id: string
+  instance: string
+  // url opens that instance's page on the approval; instance_url its page.
+  url: string
+  instance_url: string
+}
+
+export async function fetchPeerApprovals(baseUrl: string): Promise<PeerApproval[]> {
+  const response = await apiFetch(baseUrl, "/api/reeve/peers/approvals")
+  if (!response.ok) throw await failed(response)
+  return ((await response.json()) as { approvals?: PeerApproval[] }).approvals ?? []
+}

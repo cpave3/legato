@@ -43,6 +43,7 @@ type Server struct {
 	reeveChangeSets          ReeveChangeSets
 	reeveSecrets             ReeveSecretKeeper
 	reevePeers               ReevePeers
+	peerApprovals            peerApprovalCache
 	mainReeve                MainReeveScope
 	settingsMover            SettingsMover
 	settingsImporter         SettingsImporter

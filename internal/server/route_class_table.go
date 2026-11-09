@@ -293,6 +293,8 @@ var routeClassTable = []routeClassEntry{
 	{"POST", "/api/config/import", ClassRisky, "Import settings from a file, as a change set"},
 	// Reeve to Reeve.
 	{"POST", "/api/integrations/reeve/messages", ClassChange, "Message this instance's Reeve, as another instance's"},
+	{"GET", "/api/integrations/reeve/approvals", ClassRead, "List this instance's Reeve change sets waiting for its person, for a paired instance"},
+	{"GET", "/api/reeve/peers/approvals", ClassRead, "List paired instances' Reeve change sets waiting for their person"},
 	{"GET", "/api/reeve/peers", ClassRead, "List the instances whose Reeves this one can message"},
 	{"POST", "/api/reeve/peers", ClassRisky, "Pair with another instance's Reeve"},
 	{"DELETE", "/api/reeve/peers/{instance_id}", ClassRisky, "Remove a Reeve pairing"},

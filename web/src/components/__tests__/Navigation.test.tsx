@@ -5,7 +5,7 @@ import { Layout } from "../Layout"
 
 const { state } = vi.hoisted(() => ({
   state: {
-    summary: { agents: 0, attention: 0, review: 0, plans: 0, workflow_attention: 0, learning: 0 },
+    summary: { agents: 0, attention: 0, review: 0, plans: 0, workflow_attention: 0, learning: 0 } as Record<string, number>,
     connected: true,
     lost: false,
     servers: [] as { name: string; url: string }[],
@@ -22,6 +22,7 @@ vi.mock("../../hooks/useServer", () => ({
 }))
 vi.mock("../PlanApprovalModal", () => ({ PlanApprovalModal: () => null }))
 vi.mock("../OfflineDialog", () => ({ OfflineDialog: () => null }))
+vi.mock("../ApprovalTray", () => ({ ApprovalTray: () => <section aria-label="Approvals" /> }))
 vi.mock("../../hooks/useAgentSelection", () => ({ AgentSelectionProvider: ({ children }: { children: React.ReactNode }) => children }))
 
 function renderAt(entry: string) {
@@ -152,5 +153,20 @@ describe("the More sheet", () => {
     fireEvent.click(within(sheet).getByRole("button", { name: "Switch server" }))
     fireEvent.click(within(sheet).getByRole("button", { name: "Laptop" }))
     expect(state.setActiveServer).toHaveBeenCalledWith("http://laptop:3080")
+  })
+})
+
+describe("the approval tray", () => {
+  afterEach(() => cleanup())
+
+  it("is shown while only a paired instance's change sets wait", () => {
+    state.summary = { ...state.summary, approvals: 0, peer_approvals: 1 }
+    renderAt("/board")
+    expect(screen.getByRole("region", { name: "Approvals" })).toBeTruthy()
+  })
+
+  it("is not shown while nothing waits", () => {
+    renderAt("/board")
+    expect(screen.queryByRole("region", { name: "Approvals" })).toBeNull()
   })
 })

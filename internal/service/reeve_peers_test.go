@@ -73,6 +73,15 @@ func newInstance(t *testing.T, id, name string) *instance {
 			w.WriteHeader(http.StatusUnauthorized)
 			return
 		}
+		if r.Method == http.MethodGet && r.URL.Path == ReeveApprovalsPath {
+			own, err := in.peers.OwnApprovals(r.Context())
+			if err != nil {
+				w.WriteHeader(http.StatusInternalServerError)
+				return
+			}
+			json.NewEncoder(w).Encode(map[string]any{"approvals": own})
+			return
+		}
 		var msg PeerMessage
 		json.NewDecoder(r.Body).Decode(&msg)
 		answer, err := in.peers.Receive(r.Context(), identity, msg)
@@ -209,5 +218,38 @@ func TestAPeersMessageGoesInOrStartsOrWaitsOrIsRefused(t *testing.T) {
 	current, _ = db.CurrentReeveSession(ctx)
 	if current == nil || current.StartedBy != "peer:"+from.InstanceID {
 		t.Fatalf("start: %+v", current)
+	}
+}
+
+// The tray of one instance lists the Reeve change sets waiting on its
+// paired instances, each marked with its instance and a link to decide it
+// there; an instance that does not answer is named.
+func TestPairedInstancesPendingChangeSetsAreListedWithTheirInstance(t *testing.T) {
+	ctx := context.Background()
+	a := newInstance(t, "srv-aaaaaaaaaaaaaaa1", "laptop")
+	b := newInstance(t, "srv-bbbbbbbbbbbbbbb2", "vm-1")
+	pairWith(t, a, b, "vm-1")
+	waiting, _, err := b.db.InsertApproval(ctx, store.Approval{ID: "ap-1", Source: ApprovalSourceReeveChangeSet, SourceKey: "cs-1", Title: "Turn reviews off", Summary: "2 changes", Status: store.ApprovalPending, Signed: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	b.db.InsertApproval(ctx, store.Approval{ID: "ap-2", Source: "credential", SourceKey: "c-1", Title: "Not the Reeve's", Status: store.ApprovalPending})
+	b.db.InsertApproval(ctx, store.Approval{ID: "ap-3", Source: ApprovalSourceReeveChangeSet, SourceKey: "cs-0", Title: "Decided", Status: store.ApprovalPending})
+	b.db.CloseApproval(ctx, "ap-3", store.ApprovalClose{Status: store.ApprovalApproved})
+	a.db.SaveReevePeer(ctx, store.ReevePeer{InstanceID: "srv-ccccccccccccccc3", Name: "nas", Via: PeerViaPairing, Address: "http://127.0.0.1:1", TokenSecret: reevePeerSecret("srv-ccccccccccccccc3")})
+
+	list, err := a.peers.PeerApprovals(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(list.Approvals) != 1 {
+		t.Fatalf("approvals %+v", list.Approvals)
+	}
+	got := list.Approvals[0]
+	if got.ID != waiting.ID || got.Title != "Turn reviews off" || !got.Signed || got.Instance != "vm-1" || got.InstanceID != b.id || got.URL != b.server.URL+"/?approval=ap-1" || got.InstanceURL != b.server.URL+"/" {
+		t.Fatalf("approval %+v", got)
+	}
+	if len(list.Unreachable) != 1 || list.Unreachable[0] != "nas" {
+		t.Fatalf("unreachable %v", list.Unreachable)
 	}
 }

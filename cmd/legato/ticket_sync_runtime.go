@@ -26,7 +26,9 @@ func ticketSources(cfg *config.Config, db *store.Store) []service.TicketSource {
 	secrets := service.SealedIntegrationSecrets{Store: configuredSecretStore(cfg, db)}
 	b := cfg.Burnlite
 	sources = append(sources, service.NewBurnliteSource(db, service.NewOAuthTokens(db, secrets, nil, service.BurnliteIntegration), service.BurnliteSourceOptions{
-		Projects:   func(ctx context.Context) []string { return service.BurnliteProjects(ctx, db, pinnedBurnliteProjects(cfg)) },
+		Projects: func(ctx context.Context) []string {
+			return service.BurnliteProjects(ctx, db, pinnedBurnliteProjects(cfg))
+		},
 		Columns:    service.BurnliteColumns{Ready: b.Columns.Ready, Blocked: b.Columns.Blocked, Claimed: b.Columns.Claimed, Closed: b.Columns.Closed},
 		Interval:   time.Duration(b.SyncIntervalSeconds) * time.Second,
 		MovesCards: b.StatusSyncEnabled,

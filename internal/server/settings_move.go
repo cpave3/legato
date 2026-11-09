@@ -2,9 +2,9 @@ package server
 
 import (
 	"context"
-	"io"
 	"encoding/json"
 	"errors"
+	"io"
 	"net/http"
 
 	"github.com/cpave3/legato/internal/engine/store"

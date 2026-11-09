@@ -7,7 +7,9 @@ import (
 	"errors"
 	"fmt"
 	"net/http"
+	"net/url"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/cpave3/legato/internal/engine/credential"
@@ -285,6 +287,10 @@ func (s *ReevePeerService) replyContact(ctx context.Context, peer Peer, self Ree
 }
 
 func (s *ReevePeerService) callPeer(ctx context.Context, instanceID string, msg PeerMessage, into any) error {
+	return s.callPeerAt(ctx, instanceID, http.MethodPost, ReeveMessagePath, msg, into)
+}
+
+func (s *ReevePeerService) callPeerAt(ctx context.Context, instanceID, method, path string, body, into any) error {
 	row, err := s.opts.Store.GetReevePeer(ctx, instanceID)
 	if err != nil {
 		return ErrReevePeerUnknown
@@ -304,7 +310,7 @@ func (s *ReevePeerService) callPeer(ctx context.Context, instanceID string, msg 
 		}
 	}
 	client := (&WorkerService{opts: WorkerServiceOptions{Timeout: s.opts.Timeout}}).httpClient(cfg)
-	return workerCall(ctx, client, http.MethodPost, strings.TrimRight(row.Address, "/")+ReeveMessagePath, string(secret.Value), msg, into)
+	return workerCall(ctx, client, method, strings.TrimRight(row.Address, "/")+path, string(secret.Value), body, into)
 }
 
 // Receive takes a message from another instance's Reeve: the sender is the
@@ -370,4 +376,108 @@ func PeerFrame(from PeerInfo, text string) string {
 		role = "peer"
 	}
 	return fmt.Sprintf("[from the Reeve on %s · %s] %s", from.Name, role, text)
+}
+
+// ReeveApprovalsPath is where an instance lists its pending Reeve change
+// sets for a paired instance's tray (scope reeve).
+const ReeveApprovalsPath = "/api/integrations/reeve/approvals"
+
+// PeerApproval is a pending Reeve change set, as a paired instance's tray
+// shows it.
+type PeerApproval struct {
+	ID        string `json:"id"`
+	Title     string `json:"title"`
+	Summary   string `json:"summary,omitempty"`
+	Signed    bool   `json:"signed,omitempty"`
+	Verified  bool   `json:"verified,omitempty"`
+	CreatedAt string `json:"created_at"`
+}
+
+// OwnApprovals lists this instance's Reeve change sets waiting for the
+// person: what a paired instance's tray shows of it.
+func (s *ReevePeerService) OwnApprovals(ctx context.Context) ([]PeerApproval, error) {
+	rows, err := s.opts.Store.ListApprovals(ctx, store.ApprovalFilter{Status: store.ApprovalPending, Source: ApprovalSourceReeveChangeSet})
+	if err != nil {
+		return nil, err
+	}
+	out := make([]PeerApproval, 0, len(rows))
+	for _, a := range rows {
+		out = append(out, PeerApproval{ID: a.ID, Title: a.Title, Summary: a.Summary, Signed: a.Signed, Verified: a.Verified, CreatedAt: a.CreatedAt})
+	}
+	return out, nil
+}
+
+// InstanceApproval is another instance's pending change set, marked with
+// its instance, with the links to decide it there.
+type InstanceApproval struct {
+	PeerApproval
+	InstanceID string `json:"instance_id"`
+	Instance   string `json:"instance"`
+	// URL opens that instance's page on the approval; InstanceURL its page.
+	URL         string `json:"url"`
+	InstanceURL string `json:"instance_url"`
+}
+
+// InstanceApprovals is every paired instance's pending change sets, and
+// the instances that did not answer.
+type InstanceApprovals struct {
+	Approvals   []InstanceApproval `json:"approvals"`
+	Unreachable []string           `json:"unreachable"`
+}
+
+// PeerApprovals asks each paired instance for its pending Reeve change
+// sets. They are decided there, with a device enrolled there.
+func (s *ReevePeerService) PeerApprovals(ctx context.Context) (InstanceApprovals, error) {
+	out := InstanceApprovals{Approvals: []InstanceApproval{}, Unreachable: []string{}}
+	peers, err := s.List(ctx)
+	if err != nil {
+		return out, err
+	}
+	type answer struct {
+		peer Peer
+		list []PeerApproval
+		err  error
+	}
+	answers := make([]answer, len(peers))
+	var wg sync.WaitGroup
+	for i, p := range peers {
+		if p.Address == "" {
+			continue
+		}
+		wg.Add(1)
+		go func(i int, p Peer) {
+			defer wg.Done()
+			var body struct {
+				Approvals []PeerApproval `json:"approvals"`
+			}
+			var err error
+			if p.Via == PeerViaWorker {
+				client, cerr := s.opts.Workers.Client(ctx, p.InstanceID)
+				if cerr != nil {
+					err = cerr
+				} else {
+					err = client.Call(ctx, http.MethodGet, ReeveApprovalsPath, nil, &body)
+				}
+			} else {
+				err = s.callPeerAt(ctx, p.InstanceID, http.MethodGet, ReeveApprovalsPath, nil, &body)
+			}
+			answers[i] = answer{peer: p, list: body.Approvals, err: err}
+		}(i, p)
+	}
+	wg.Wait()
+	for _, a := range answers {
+		if a.peer.InstanceID == "" {
+			continue
+		}
+		if a.err != nil {
+			out.Unreachable = append(out.Unreachable, a.peer.Name)
+			continue
+		}
+		base := strings.TrimRight(a.peer.Address, "/")
+		for _, item := range a.list {
+			out.Approvals = append(out.Approvals, InstanceApproval{PeerApproval: item, InstanceID: a.peer.InstanceID, Instance: a.peer.Name,
+				URL: base + "/?approval=" + url.QueryEscape(item.ID), InstanceURL: base + "/"})
+		}
+	}
+	return out, nil
 }

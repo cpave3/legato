@@ -70,6 +70,7 @@ The Reeve can message the Reeve of another Legato this one is paired with: its w
 
 - **To pair two instances**, choose **Let another instance pair with this one** on one of them. It shows an address and four words; on the other, enter them under Reeve pairings and choose **Pair**.
 - A main instance's Reeve can message its workers' without another pairing. On a worker, **Settings › Main instances** has a switch for each main: **Its Reeve may message this one's**.
+- Change sets that wait on a paired instance show in this instance's approvals tray too, marked with it, and are decided there.
 - A message from another Reeve shows in the conversation marked with the instance it came from. When no session runs here, **Reeve › When another Reeve messages** (`reeve.peer`) decides: start a session (the default), ask you first in Attention (**Let it talk**), or refuse. It is one of the Reeve's own rules, changed only with a signature.
 
 ## Where it runs

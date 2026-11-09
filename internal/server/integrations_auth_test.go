@@ -75,6 +75,8 @@ func TestAScopedTokenReachesOnlyIntegrationRoutes(t *testing.T) {
 		{"a Reeve's message needs the reeve scope", "POST", "/api/integrations/reeve/messages", "lgi_all", 403, "missing_scope"},
 		{"a Reeve's message with its scope passes auth", "POST", "/api/integrations/reeve/messages", "lgi_reeve", 503, "unavailable"},
 		{"a reeve token reaches nothing else", "POST", "/api/integrations/delegations", "lgi_reeve", 403, "missing_scope"},
+		{"a Reeve's approvals need the reeve scope", "GET", "/api/integrations/reeve/approvals", "lgi_all", 403, "missing_scope"},
+		{"a Reeve's approvals with its scope pass auth", "GET", "/api/integrations/reeve/approvals", "lgi_reeve", 503, "unavailable"},
 		{"a reeve token cannot pair or list peers", "GET", "/api/reeve/peers", "lgi_reeve", 403, "forbidden"},
 		{"the handoff root needs the handoff scope", "GET", "/api/integrations/handoff", "lgi_all", 403, "missing_scope"},
 	} {

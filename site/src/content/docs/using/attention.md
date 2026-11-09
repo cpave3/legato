@@ -69,6 +69,8 @@ Legato raises approvals for agents it talks to natively: Claude Code and Codex t
 
 While approvals wait, a tray at the bottom right of every page shows them as cards. Each says which agent asks, what it would do, and its options. **Deny** takes a note for the agent. A question shows its options, and you can type an answer of your own. The tray folds to a count and opens again when a new approval arrives.
 
+The tray also lists the [Reeve](/legato/using/reeve/)'s change sets that wait on instances this one is paired with, marked with the instance. They are decided there, with a device enrolled there: **◈ Approve on legato-1** opens that instance's page on the change set, and **Open legato-1 ↗** opens its page.
+
 ### Focus mode
 
 When agents ask questions, the button beside the tray's fold arrow opens **focus mode**: the questions one at a time, in the middle of the screen with nothing else on it. Each option has a number; the agent's recommendation is marked. An agent's questions are reviewed and sent together; a single question sends from the question itself.
