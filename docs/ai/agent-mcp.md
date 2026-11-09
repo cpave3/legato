@@ -57,7 +57,7 @@ A swarm worker's own identity is its sub-task, which has no description or notes
 
 ### The Reeve's tools
 
-A session of the Reeve (a task of kind `reeve`) also gets `docs`, `instance_status`, `read_logs` and `legato_api` (`internal/cli/mcp_reeve.go`, `MCPOptions.Reeve`, wired by `reeveTools` in `cmd/legato/reeve_runtime.go`). Every other session is offered none of them, and each call checks the session again. `MCPToolNames` names them, so an agent tool can be told to run them without asking. See [The Reeve](reeve.md) § What it knows.
+A session of the Reeve (a task of kind `reeve`) also gets `docs`, `instance_status`, `read_logs`, `legato_api`, `propose_changes`, `restart_legato`, `propose_config_edit`, `request_secret` and `legato` (`internal/cli/mcp_reeve.go`, `MCPOptions.Reeve`, wired by `reeveTools` in `cmd/legato/reeve_runtime.go`). Every other session is offered none of them, and each call checks the session again. `MCPToolNames` names them, so an agent tool can be told to run them without asking. See [The Reeve](reeve.md) § What it knows.
 
 ## How each agent gets the server
 

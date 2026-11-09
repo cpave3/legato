@@ -145,3 +145,40 @@ func TestAChangeThroughTheAPIToolBecomesASetOfOne(t *testing.T) {
 		t.Fatalf("result %q, proposed %+v", got, sets)
 	}
 }
+
+type fakeLegato struct{ ran [][]string }
+
+func (f *fakeLegato) Classify(args []string) (string, string) {
+	switch args[0] {
+	case "version":
+		return "read", "Print the version"
+	case "serve":
+		return "never", "Run the web server"
+	}
+	return "risky", "Create an integration token"
+}
+
+func (f *fakeLegato) Run(_ context.Context, args []string) (int, string, error) {
+	f.ran = append(f.ran, args)
+	return 0, "legato v1.2.3", nil
+}
+
+func TestTheLegatoToolReadsAtOnceAndProposesChanges(t *testing.T) {
+	s := newTestStore(t)
+	legato, sets := &fakeLegato{}, &fakeChangeSets{}
+	taskID, executionID := seedReeve(t, s)
+	session := connectMCP(t, cli.MCPOptions{Store: s, TaskID: taskID, ExecutionID: executionID, Reeve: &cli.MCPReeve{Legato: legato, ChangeSets: sets}})
+
+	if got := mcpText(callMCP(t, session, "legato", map[string]any{"args": []string{"version"}})); !strings.Contains(got, "v1.2.3") || len(legato.ran) != 1 {
+		t.Fatalf("a read: %q", got)
+	}
+	if got := mcpText(callMCP(t, session, "legato", map[string]any{"args": []string{"integration", "token", "create", "argus"}})); !strings.Contains(got, "cs-1") || len(sets.calls) != 1 || sets.calls[0].Kind != "legato" {
+		t.Fatalf("a change: %q, %+v", got, sets.calls)
+	}
+	if result := callMCP(t, session, "legato", map[string]any{"args": []string{"serve"}}); !result.IsError {
+		t.Fatal("a never command was not refused")
+	}
+	if len(legato.ran) != 1 {
+		t.Fatal("a change or a never command ran at once")
+	}
+}

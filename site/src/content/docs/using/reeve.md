@@ -31,7 +31,8 @@ While it runs, it has tools of its own:
 - **docs**: Legato's user manual, these pages, built into Legato.
 - **instance_status**: a fresh snapshot of the instance.
 - **read_logs**: the recent lines of Legato's [log file](/legato/running/agent-server/#the-log-file).
-- **legato_api**: any of Legato's API calls that only read.
+- **legato_api**: any of Legato's API calls; a change becomes a change set for you to approve.
+- **legato**: a `legato` command on the machine, for what only the command line does (integration tokens, connecting Argus, `columns sync`, `hooks install`). A command that only reads runs at once; one that changes something is a change set. Some commands it never runs, such as those that hand out secrets or reset your devices.
 
 The Reeve does not yet remember earlier sessions: it starts each one without its memory, and says so.
 

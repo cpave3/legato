@@ -34,6 +34,15 @@ type MCPReeve struct {
 	ChangeSets MCPChangeSets
 	// Secrets asks the person for a secret (request_secret).
 	Secrets MCPSecrets
+	// Legato classes and runs legato subcommands on the host (the legato
+	// tool).
+	Legato MCPLegato
+}
+
+// MCPLegato classes and runs legato subcommands on the host.
+type MCPLegato interface {
+	Classify(args []string) (class, description string)
+	Run(ctx context.Context, args []string) (int, string, error)
 }
 
 // MCPSecrets asks the person for a secret (service.ReeveSecrets).
@@ -58,6 +67,9 @@ func (m *mcpTools) reeveTools() []mcpserver.Tool {
 	}
 	if m.opts.Reeve.Secrets != nil {
 		tools = append(tools, m.requestSecret())
+	}
+	if m.opts.Reeve.Legato != nil {
+		tools = append(tools, m.legatoCommand())
 	}
 	return tools
 }
@@ -388,5 +400,40 @@ func (m *mcpTools) requestSecret() mcpserver.Tool {
 			text = "The request waits in the person's approval tray (" + out.ApprovalID + "). A [legato] message does not follow: call request_secret again later, or ask the person."
 		}
 		return mcpserver.Result{Text: text, Data: out}, nil
+	})
+}
+
+type legatoCommandInput struct {
+	Args   []string `json:"args" jsonschema:"the subcommand and its arguments, without legato: [integration, token, list]"`
+	Reason string   `json:"reason,omitempty" jsonschema:"for a change: one line saying why"`
+}
+
+func (m *mcpTools) legatoCommand() mcpserver.Tool {
+	return mcpserver.NewTool(mcpserver.Definition{
+		Name: "legato", Title: "Run a legato command on the host",
+		Description: "Runs a legato subcommand on this instance's host, with no shell: for what the CLI does and the API does not (integration tokens, Argus connect and disconnect, columns sync, hooks install). A command that only reads runs at once; one that changes something becomes a change set for the person to approve. Some commands are never run.",
+	}, func(ctx context.Context, in legatoCommandInput) (mcpserver.Result, error) {
+		if err := m.mustBeReeve(ctx); err != nil {
+			return mcpserver.Result{}, err
+		}
+		class, description := m.opts.Reeve.Legato.Classify(in.Args)
+		switch class {
+		case "never":
+			return mcpserver.Result{}, fmt.Errorf("refused: %s", description)
+		case "read":
+			exit, output, err := m.opts.Reeve.Legato.Run(ctx, in.Args)
+			if err != nil {
+				return mcpserver.Result{}, err
+			}
+			return mcpserver.Result{Text: fmt.Sprintf("legato %s → exit %d\n\n%s", strings.Join(in.Args, " "), exit, output)}, nil
+		}
+		reason := strings.TrimSpace(in.Reason)
+		if reason == "" {
+			reason = description
+		}
+		if m.opts.Reeve.ChangeSets == nil {
+			return mcpserver.Result{}, fmt.Errorf("%s needs the person's approval, and change sets are not available here", description)
+		}
+		return m.propose(ctx, reason, []service.ChangeCall{{Kind: service.CallLegato, Args: in.Args}})
 	})
 }

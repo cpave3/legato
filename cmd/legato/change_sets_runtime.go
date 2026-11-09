@@ -38,9 +38,11 @@ func startChangeSets(ctx context.Context, cfg *config.Config, db *store.Store, a
 	reeve := newReeveService(db, agents, nil, approvals)
 	changeSets := service.NewChangeSetService(service.ChangeSetOptions{
 		Store: db, Approvals: approvals, Settings: settingsFor(db),
-		Classify: classifyCall,
-		Run:      localAPI(cfg),
-		Restart:  restartAll,
+		Classify:       classifyCall,
+		Run:            localAPI(cfg),
+		ClassifyLegato: classifyLegatoCommand,
+		RunLegato:      runLegatoCommand,
+		Restart:        restartAll,
 		Notify: func(ctx context.Context, taskID, text string) {
 			notifyReeve(ctx, db, reeve, taskID, text)
 		},

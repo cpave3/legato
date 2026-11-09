@@ -26,6 +26,7 @@ const (
 	CallAPI        = "api"
 	CallRestart    = "restart"
 	CallConfigEdit = "config_edit"
+	CallLegato     = "legato"
 )
 
 // OptionNoRestart approves a set but leaves out its optional restart.
@@ -46,6 +47,9 @@ type ChangeCall struct {
 	Body   json.RawMessage `json:"body,omitempty"`
 	// Edits are a config_edit's edits to config.yaml.
 	Edits []ConfigEdit `json:"edits,omitempty"`
+	// Args are a legato call's arguments: the subcommand and its flags,
+	// run with no shell.
+	Args []string `json:"args,omitempty"`
 	// Optional marks a restart the person may untick: the change waits
 	// for the next restart.
 	Optional bool `json:"optional,omitempty"`
@@ -118,6 +122,10 @@ type ChangeSetOptions struct {
 	Settings  *SettingsService
 	Classify  RouteClassifier
 	Run       CallRunner
+	// ClassifyLegato classes a legato subcommand; RunLegato runs one on
+	// the host (its exit code and output).
+	ClassifyLegato func(args []string) (class, description string)
+	RunLegato      func(ctx context.Context, args []string) (int, string, error)
 	// ConfigPath is config.yaml (config.ResolveConfigPath when nil).
 	ConfigPath func() string
 	// Restart restarts Legato, last in a set.
@@ -181,6 +189,15 @@ func (c *ChangeSetService) Describe(ctx context.Context, reason string, calls []
 				p.Description = "Restart Legato (you can leave this out: the change then waits for the next restart)"
 			}
 			p.Level = ReeveLevelFor(cfg.Reeve, p.Class, "restart", enrolled)
+		case CallLegato:
+			if c.opts.ClassifyLegato == nil {
+				return details, fmt.Errorf("call %d: legato commands cannot be run here", i+1)
+			}
+			p.Class, p.Description = c.opts.ClassifyLegato(call.Args)
+			if p.Class == "never" {
+				return details, fmt.Errorf("call %d (legato %s): %w: %s", i+1, strings.Join(call.Args, " "), ErrNeverCall, p.Description)
+			}
+			p.Level = ReeveLevelFor(cfg.Reeve, p.Class, "legato "+strings.Join(call.Args, " "), enrolled)
 		case CallConfigEdit:
 			if len(call.Edits) == 0 {
 				return details, fmt.Errorf("call %d: a config.yaml edit needs edits", i+1)
@@ -419,6 +436,17 @@ func (c *ChangeSetService) run(ctx context.Context, set store.ReeveChangeSet, no
 		case call.Kind == CallRestart:
 			results[i].State = "ran"
 			restart = true
+		case call.Kind == CallLegato:
+			exit, output, err := c.opts.RunLegato(ctx, call.Args)
+			results[i].Status = exit
+			switch {
+			case err != nil:
+				results[i].State, results[i].Detail, failed = "failed", err.Error(), true
+			case exit != 0:
+				results[i].State, results[i].Detail, failed = "failed", clip(strings.TrimSpace(output), 500), true
+			default:
+				results[i].State, results[i].Detail = "ran", clip(strings.TrimSpace(output), 300)
+			}
 		case call.Kind == CallConfigEdit:
 			if backup, err := WriteConfigEdit(c.configPath(), call.Edits); err != nil {
 				results[i].State, results[i].Detail, failed = "failed", err.Error(), true

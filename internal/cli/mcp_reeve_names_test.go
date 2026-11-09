@@ -19,5 +19,6 @@ func everyReeveTool() *cli.MCPReeve {
 	return &cli.MCPReeve{
 		ChangeSets: &fakeChangeSets{},
 		Secrets:    noSecrets{},
+		Legato:     &fakeLegato{},
 	}
 }

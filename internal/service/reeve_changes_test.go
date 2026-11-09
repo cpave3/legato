@@ -64,6 +64,18 @@ func newChangeSetFixture(t *testing.T) *changeSetFixture {
 			f.notes = append(f.notes, text)
 		},
 		RunningAgents: func(context.Context) []string { return []string{"T-1", "T-2"} },
+		ClassifyLegato: func(args []string) (string, string) {
+			if len(args) > 0 && args[0] == "serve" {
+				return "never", "Run the web server"
+			}
+			return "risky", "Run legato " + strings.Join(args, " ")
+		},
+		RunLegato: func(_ context.Context, args []string) (int, string, error) {
+			f.mu.Lock()
+			defer f.mu.Unlock()
+			f.ran = append(f.ran, "legato "+strings.Join(args, " "))
+			return 0, "token lgi_xyz created", nil
+		},
 		Wait:          50 * time.Millisecond,
 	})
 	f.svc.Register()
@@ -276,5 +288,23 @@ func TestAnImportIsOneChangeSetToApprove(t *testing.T) {
 	}
 	if _, err := f.svc.ProposeImport(ctx, []byte("github:\n  auth: nonsense\n"), "x"); err == nil {
 		t.Fatal("imported a file that does not load")
+	}
+}
+
+
+func TestALegatoCommandRunsOnTheHostOnceApproved(t *testing.T) {
+	f := newChangeSetFixture(t)
+	ctx := context.Background()
+	if _, err := f.svc.Propose(ctx, f.reeve, "serve", []ChangeCall{{Kind: CallLegato, Args: []string{"serve"}}}); !errors.Is(err, ErrNeverCall) {
+		t.Fatalf("a never command: %v", err)
+	}
+	out, err := f.svc.Propose(ctx, f.reeve, "a token for Argus", []ChangeCall{{Kind: CallLegato, Args: []string{"integration", "token", "create", "argus"}}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	f.decide(t, out.ApprovalID, ApprovalAllow, "")
+	f.svc.RunQueued(ctx)
+	if len(f.ran) != 1 || f.ran[0] != "legato integration token create argus" || !strings.Contains(f.notes[0], "1 of 1 ran") {
+		t.Fatalf("ran %v, notes %v", f.ran, f.notes)
 	}
 }
