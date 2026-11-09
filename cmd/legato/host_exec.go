@@ -47,6 +47,10 @@ func hostExec(args []string) int {
 // the user's own bin folders.
 const hostCommandPath = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
 
+// hostOutputWait is how long a stopped host command's output is still read
+// before it is given up.
+const hostOutputWait = 2 * time.Second
+
 // runHostCommand runs a Reeve host command as Legato's user, in its home
 // folder, with a small fixed environment (not Legato's own) and, unless as
 // root, through this binary's no_new_privs wrapper so sudo fails. As root
@@ -74,6 +78,12 @@ func runHostCommand(ctx context.Context, command service.HostCommand, timeout ti
 		env = append(env, hostExecEnv+"=1")
 	}
 	cmd.Env, cmd.Dir = env, home
+	// The command and everything it starts form a process group, which the
+	// timeout kills whole; a child that still holds the output open is not
+	// waited for more than hostOutputWait.
+	cmd.SysProcAttr = &syscall.SysProcAttr{Setpgid: true}
+	cmd.Cancel = func() error { return syscall.Kill(-cmd.Process.Pid, syscall.SIGKILL) }
+	cmd.WaitDelay = hostOutputWait
 	var out bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &out, &out
 	err := cmd.Run()

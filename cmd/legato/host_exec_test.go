@@ -40,4 +40,17 @@ func TestAHostCommandCannotGainPrivileges(t *testing.T) {
 	if exit != -1 {
 		t.Fatalf("a command past its timeout: exit %d", exit)
 	}
+
+	// The timeout stops what the command started too: a child holding the
+	// output open does not keep it running.
+	marker := filepath.Join(t.TempDir(), "survived")
+	start := time.Now()
+	exit, _, _ = runHostCommand(context.Background(), service.HostCommand{Argv: []string{"sh", "-c", "(sleep 3; touch " + marker + ") & sleep 3"}}, 200*time.Millisecond)
+	if took := time.Since(start); exit != -1 || took > 2*time.Second {
+		t.Fatalf("a command whose child outlives the timeout: exit %d after %s", exit, took)
+	}
+	time.Sleep(3500 * time.Millisecond)
+	if _, err := os.Stat(marker); err == nil {
+		t.Fatal("the command's child kept running after the timeout")
+	}
 }
