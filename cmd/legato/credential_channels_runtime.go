@@ -12,6 +12,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"sync"
 	"syscall"
@@ -205,7 +206,7 @@ func (h *channelHost) tryOwn(ctx context.Context) {
 }
 
 func (h *channelHost) serveProxy() error {
-	listener, err := net.Listen("tcp", h.cfg.CredentialChannels.HTTPProxy.Listen)
+	listener, err := listenProxy(context.Background(), h.db, h.cfg.CredentialChannels.HTTPProxy.Listen)
 	if err != nil {
 		return err
 	}
@@ -415,4 +416,31 @@ func runSSHG(env []string) ([]byte, error) {
 	cmd := exec.Command("ssh", "-G", "legato-agent-check.invalid")
 	cmd.Env = append(os.Environ(), env...)
 	return cmd.Output()
+}
+
+// proxyPortKey is the instance value holding the port a proxy configured on
+// port 0 was given, so a restart listens on it again.
+const proxyPortKey = "credential_channels.http_proxy.port"
+
+// listenProxy listens at listen. On port 0 it tries the port it had before
+// first, since running agents were given its address (<NAME>_BASE_URL), and
+// remembers the port it gets.
+func listenProxy(ctx context.Context, db *store.Store, listen string) (net.Listener, error) {
+	host, port, err := net.SplitHostPort(listen)
+	if err != nil || port != "0" {
+		return net.Listen("tcp", listen)
+	}
+	if kept, _ := db.GetInstanceValue(ctx, proxyPortKey); kept != "" {
+		if ln, err := net.Listen("tcp", net.JoinHostPort(host, kept)); err == nil {
+			return ln, nil
+		}
+	}
+	ln, err := net.Listen("tcp", listen)
+	if err != nil {
+		return nil, err
+	}
+	if tcp, ok := ln.Addr().(*net.TCPAddr); ok {
+		_ = db.SetInstanceValue(ctx, proxyPortKey, strconv.Itoa(tcp.Port))
+	}
+	return ln, nil
 }

@@ -28,7 +28,7 @@ Legato names the host by the key the server proves it holds, looked up in your `
 
 ### API keys through the proxy
 
-When a session starts, Legato gives it a placeholder key and a base address for each proxied credential, for example `ELEVENLABS_API_KEY` and `ELEVENLABS_BASE_URL`. The agent sends plain requests to Legato's proxy on a loopback port. Legato checks each request against your rules, swaps the placeholder for the real key, and sends the request on to the real service over TLS. A placeholder works only for its credential and only while its session runs.
+When a session starts, Legato gives it a placeholder key and a base address for each proxied credential, for example `ELEVENLABS_API_KEY` and `ELEVENLABS_BASE_URL`. The agent sends plain requests to Legato's proxy on a loopback port. Legato checks each request against your rules, swaps the placeholder for the real key, and sends the request on to the real service over TLS. A placeholder works only for its credential and only while its session runs. The proxy keeps its port when Legato restarts, so a running agent's base address keeps working.
 
 A tool can use the proxy only when it lets you set its base address.
 

@@ -494,7 +494,7 @@ How agents reach credentials without holding them. See [The credential broker](/
 
 | Setting | Type | Default | What it does |
 | --- | --- | --- | --- |
-| `credential_channels.http_proxy.listen` | string | `127.0.0.1:0` | The loopback address and port of Legato's proxy for API keys. Port `0` picks a free one. Any address that is not loopback stops Legato at start. |
+| `credential_channels.http_proxy.listen` | string | `127.0.0.1:0` | The loopback address and port of Legato's proxy for API keys. Port `0` picks a free one, and Legato keeps the same port across restarts, so running agents keep reaching it. Any address that is not loopback stops Legato at start. |
 | `credential_channels.ssh_agent.known_hosts` | path | `~/.ssh/known_hosts` | The file that names SSH hosts by their keys, so rules can name hosts. |
 | `credential_channels.gh.isolate_login` | bool | `true` | With a `github` credential, keeps each agent's `gh` from your own GitHub login: it gets Legato's tokens or none. `false` lets an agent's `gh` fall back to your login when Legato gives no token. |
 
