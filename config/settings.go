@@ -213,6 +213,7 @@ var registry = []Setting{
 	// The Reeve: read when a session starts.
 	{Key: "reeve.agent", Title: "The Reeve's agent tool", Description: "claude-code, codex or chimera; the default agent tool when empty.", Kind: KindString, Class: ClassChange, Mode: ModeLive},
 	{Key: "reeve.model", Title: "The Reeve's model or tier", Kind: KindString, Class: ClassChange, Mode: ModeLive},
+	{Key: "reeve.idle_timeout", Title: "Suspend the Reeve after", Description: "How long a session may be idle before its agent is stopped; the next message resumes it. 2h when empty.", Kind: KindDuration, Class: ClassChange, Mode: ModeLive},
 	{Key: "reeve.launch_args", Title: "The Reeve's launch arguments", Kind: KindStrings, Class: ClassRisky, Mode: ModeLive},
 
 	// Burnlite's projects, read on each use.

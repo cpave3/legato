@@ -19,6 +19,7 @@ type ReeveSessions interface {
 	Resume(ctx context.Context, taskID string, in service.ReeveStart) (*store.ReeveSession, error)
 	Delete(ctx context.Context, taskID string) error
 	Authenticate(ctx context.Context, token string) (service.ReeveIdentity, error)
+	Message(ctx context.Context, text, by string) error
 }
 
 type reeveKey struct{}
@@ -39,6 +40,7 @@ func (s *Server) registerReeveRoutes(mux *routeMux) {
 	mux.HandleFunc("POST /api/reeve/sessions/{task_id}/end", s.reeveEndHandler())
 	mux.HandleFunc("POST /api/reeve/sessions/{task_id}/resume", s.reeveResumeHandler())
 	mux.HandleFunc("DELETE /api/reeve/sessions/{task_id}", s.reeveDeleteHandler())
+	mux.HandleFunc("POST /api/reeve/message", s.reeveMessageHandler())
 }
 
 // serveReeveToken lets a Reeve API token reach the read routes only: a
@@ -167,5 +169,28 @@ func (s *Server) reeveDeleteHandler() http.HandlerFunc {
 			return
 		}
 		s.writeJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
+	}
+}
+
+// reeveMessageHandler serves POST /api/reeve/message {text}: into the
+// running session, resuming a suspended one, or starting one with it.
+func (s *Server) reeveMessageHandler() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if !s.haveReeve(w) {
+			return
+		}
+		var in struct {
+			Text string `json:"text"`
+		}
+		if json.NewDecoder(r.Body).Decode(&in) != nil || strings.TrimSpace(in.Text) == "" {
+			s.writeError(w, http.StatusBadRequest, "want {\"text\": …}")
+			return
+		}
+		if err := s.reeve.Message(r.Context(), in.Text, "web"); err != nil {
+			s.reeveError(w, err)
+			return
+		}
+		s.NotifyAgentsChanged()
+		s.writeJSON(w, http.StatusOK, map[string]string{"status": "sent"})
 	}
 }

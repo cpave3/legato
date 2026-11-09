@@ -17,6 +17,8 @@ Settings › **Reeve** has **Start the Reeve**. A session runs with the agent to
 
 **End session** stops it. Ended sessions are kept in the history, where **Resume** starts one again with its conversation, and **Delete** removes it.
 
+A session that has been idle for two hours is suspended: its agent stops, and it picks up where it left off the next time you send it a message. Change the time in Settings › Reeve (`reeve.idle_timeout`).
+
 ## What it knows
 
 A session starts with what it needs to know about this instance: a short snapshot (version and updates, how Legato runs, its workers, open Attention items, running agents, recent errors in the log) and how it is meant to work. "Ask the Reeve" adds a brief about what you asked about. A session you resume is told what changed since it was last here.

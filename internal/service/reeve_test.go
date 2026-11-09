@@ -6,6 +6,7 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/cpave3/legato/internal/engine/store"
 )
@@ -206,5 +207,55 @@ func TestAnEngramThatBootsLeadsTheLaunchPrompt(t *testing.T) {
 	prompt := ReeveLaunchPrompt(context.Background(), bootedEngram{}, "t", "## This instance", "")
 	if !strings.HasPrefix(prompt, "## Memories") || strings.Contains(prompt, "without your engram") {
 		t.Fatalf("prompt = %s", prompt)
+	}
+}
+
+func TestAnIdleReeveSessionIsSuspendedAndTheNextMessageResumesIt(t *testing.T) {
+	svc, db, agents, _ := newReeveFixture(t)
+	ctx := context.Background()
+	session, _ := svc.Start(ctx, ReeveStart{})
+	row, _ := db.GetReeveSession(ctx, session.TaskID)
+	token := row.APIToken
+
+	active, _ := time.Parse("2006-01-02T15:04:05.000Z", row.ActiveAt)
+	if n, _ := svc.SuspendIdle(ctx, active.Add(time.Hour), 2*time.Hour); n != 0 {
+		t.Fatal("suspended after an hour")
+	}
+	if n, err := svc.SuspendIdle(ctx, active.Add(3*time.Hour), 2*time.Hour); err != nil || n != 1 {
+		t.Fatalf("SuspendIdle = %d, %v", n, err)
+	}
+	row, _ = db.GetReeveSession(ctx, session.TaskID)
+	if row.State != store.ReeveSuspended || len(agents.killed) != 1 {
+		t.Fatalf("after idle: %s, killed %v", row.State, agents.killed)
+	}
+	// It still counts as the running session, and its token stays for resume.
+	if _, err := svc.Start(ctx, ReeveStart{}); !errors.Is(err, ErrReeveRunning) {
+		t.Fatalf("a start while suspended: %v", err)
+	}
+	if row.APIToken != token {
+		t.Fatal("the token changed on suspend")
+	}
+
+	if err := svc.Message(ctx, "is the sync fixed?", "web"); err != nil {
+		t.Fatal(err)
+	}
+	row, _ = db.GetReeveSession(ctx, session.TaskID)
+	if row.State != store.ReeveRunning || row.APIToken != token {
+		t.Fatalf("after a message: %s, same token %v", row.State, row.APIToken == token)
+	}
+	last := agents.spawned[len(agents.spawned)-1]
+	if last.SessionPolicy != "resume" || !strings.Contains(last.Prompt, "is the sync fixed?") {
+		t.Fatalf("resume spawn = %+v", last)
+	}
+}
+
+func TestAMessageWithNoSessionStartsOne(t *testing.T) {
+	svc, db, agents, _ := newReeveFixture(t)
+	ctx := context.Background()
+	if err := svc.Message(ctx, "pair the new worker", "web"); err != nil {
+		t.Fatal(err)
+	}
+	if current, _ := db.CurrentReeveSession(ctx); current == nil || len(agents.spawned) != 1 || !strings.Contains(agents.spawned[0].LaunchPrompt, "pair the new worker") {
+		t.Fatalf("current %+v, spawned %+v", current, agents.spawned)
 	}
 }

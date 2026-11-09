@@ -2,11 +2,14 @@ package main
 
 import (
 	"context"
+	"log"
 	"os"
 	"strconv"
+	"time"
 
 	"github.com/cpave3/legato/config"
 	"github.com/cpave3/legato/internal/cli"
+	"github.com/cpave3/legato/internal/engine/events"
 	"github.com/cpave3/legato/internal/engine/logfile"
 	"github.com/cpave3/legato/internal/engine/store"
 	"github.com/cpave3/legato/internal/engine/version"
@@ -43,11 +46,13 @@ func reeveDefaults(cfg *config.Config) service.ReeveDefaults {
 	return service.ReeveDefaults{Agent: cfg.Reeve.Agent, Model: cfg.Reeve.Model, LaunchArgs: cfg.Reeve.LaunchArgs}
 }
 
-// wireReeve serves the Reeve on a web server.
-func wireReeve(srv *server.Server, db *store.Store, agents service.AgentService) *service.ReeveService {
+// wireReeve serves the Reeve on a web server, and suspends its idle
+// sessions.
+func wireReeve(srv *server.Server, db *store.Store, agents service.AgentService, bus *events.Bus) *service.ReeveService {
 	reeve := newReeveService(db, agents, srv)
 	if reeve != nil {
 		srv.SetReeveService(reeve)
+		go runReeveIdle(context.Background(), reeve, db, bus)
 	}
 	return reeve
 }
@@ -93,4 +98,34 @@ func reeveTools(cfg *config.Config, db *store.Store) *cli.MCPReeve {
 		tools.APIBase = scheme + "://127.0.0.1:" + cfg.Web.Port
 	}
 	return tools
+}
+
+// runReeveIdle suspends the Reeve's session once it has been idle for
+// reeve.idle_timeout, checking every minute, and counts an agent's activity
+// as the session's.
+func runReeveIdle(ctx context.Context, reeve *service.ReeveService, db *store.Store, bus *events.Bus) {
+	if reeve == nil {
+		return
+	}
+	activity := bus.Subscribe(events.EventAgentActivityChanged)
+	ticker := time.NewTicker(time.Minute)
+	defer ticker.Stop()
+	for {
+		select {
+		case <-ctx.Done():
+			return
+		case ev := <-activity:
+			if p, ok := ev.Payload.(events.AgentActivityChangedPayload); ok && service.IsReeveTask(ctx, db, p.TaskID) {
+				reeve.Touch(ctx, p.TaskID)
+			}
+		case now := <-ticker.C:
+			cfg, err := settingsFor(db).Effective(ctx)
+			if err != nil {
+				continue
+			}
+			if _, err := reeve.SuspendIdle(ctx, now.UTC(), cfg.Reeve.ReeveIdleTimeout()); err != nil {
+				log.Printf("reeve: suspending an idle session: %v", err)
+			}
+		}
+	}
 }

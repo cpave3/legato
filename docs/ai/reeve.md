@@ -26,6 +26,12 @@ The Reeve is the agent of a Legato instance itself (see `GLOSSARY.md`): the pers
   - `read_logs`: the last lines of the log file (`<data_dir>/logs/legato.log`, and `.1` before it), filtered by a regular expression (`ReadLogLines`), 100 by default, 1000 at most;
   - `legato_api`: a call to this instance's API (`MCPReeve.APIBase`, the local web server) with the session's own token, answered with the status and body. Its token passes read routes only, so change and risky calls come back `403 needs_approval` until change sets exist.
 
+## Idle, and the next message
+
+- **Suspend.** `runReeveIdle` (`cmd/legato/reeve_runtime.go`, in every process that serves the web UI) checks once a minute: a `running` session whose `active_at` is older than `reeve.idle_timeout` (a duration, `2h` when empty; `ReeveConfig.ReeveIdleTimeout`) is suspended (`ReeveService.SuspendIdle`): its agent stops, its state is `suspended`, its API token stays (for resume only: nothing calls with it while no agent runs), and its pending approvals stay. A suspended session still counts as the instance's running one.
+- **Activity** moves `active_at` on: the agent's activity changes (`EventAgentActivityChanged` for a reeve task), each `legato_api` call, each message, a start and a resume.
+- **The next message** (`ReeveService.Message`; `POST /api/reeve/message {text}`): into the running session (`QueueMessage`), resuming a suspended one with the text after the fresh snapshot, or starting a session with it as the brief when none runs.
+
 ## Where it runs
 
 - **Always in Legato's sandbox.** `SpawnAgent` refuses a `reeve` task with `Unsandboxed` (Run without sandbox) or when the sandbox is off (`ErrReeveSandboxed`); `RestartAgentSwitchingSandbox` (the TUI's `U`, the web UI's `switch_sandbox`) refuses it too. Swarm and workflow agents were already pinned.

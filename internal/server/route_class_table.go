@@ -287,4 +287,5 @@ var routeClassTable = []routeClassEntry{
 	{"POST", "/api/reeve/sessions/{task_id}/end", ClassChange, "End a Reeve session"},
 	{"POST", "/api/reeve/sessions/{task_id}/resume", ClassChange, "Resume a Reeve session"},
 	{"DELETE", "/api/reeve/sessions/{task_id}", ClassRisky, "Delete a Reeve session"},
+	{"POST", "/api/reeve/message", ClassChange, "Send the Reeve a message"},
 }

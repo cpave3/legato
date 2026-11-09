@@ -337,6 +337,7 @@ The Reeve's defaults, read when a session starts. Usually set in Settings › Re
 | --- | --- | --- | --- |
 | `reeve.agent` | string | the default agent tool | The agent tool a session runs: `claude-code`, `codex` or `chimera`. |
 | `reeve.model` | string | the tool's default | The model or tier a session runs. |
+| `reeve.idle_timeout` | duration | `2h` | How long a session may be idle before its agent is stopped. The next message to it resumes it. |
 | `reeve.launch_args` | list of strings | none | Arguments added to the agent tool's launch command. |
 
 ## Updates

@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/cpave3/legato/internal/engine/store"
 )
@@ -309,4 +310,63 @@ func nonNilStrings(values []string) []string {
 		return []string{}
 	}
 	return values
+}
+
+// ReeveMessenger delivers a message to a running agent; the agent service
+// is one.
+type ReeveMessenger interface {
+	QueueMessage(ctx context.Context, taskID, message string) error
+}
+
+// SuspendIdle suspends the running session when it has been idle (no
+// activity since active_at) for longer than timeout at now: its agent
+// stops; its token and its pending approvals stay. It reports how many it
+// suspended.
+func (s *ReeveService) SuspendIdle(ctx context.Context, now time.Time, timeout time.Duration) (int, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	current, err := s.opts.Store.CurrentReeveSession(ctx)
+	if err != nil || current == nil || current.State != store.ReeveRunning {
+		return 0, err
+	}
+	active, err := time.Parse("2006-01-02T15:04:05.000Z", current.ActiveAt)
+	if err != nil || now.Sub(active) < timeout {
+		return 0, nil
+	}
+	if err := s.opts.Agents.KillAgent(ctx, current.TaskID); err != nil && !errors.Is(err, store.ErrNotFound) {
+		return 0, err
+	}
+	if err := s.opts.Store.SetReeveSessionState(ctx, current.TaskID, store.ReeveSuspended); err != nil {
+		return 0, err
+	}
+	s.changed(current.TaskID)
+	return 1, nil
+}
+
+// Touch records activity in a session, which puts off its idle suspend.
+func (s *ReeveService) Touch(ctx context.Context, taskID string) {
+	_ = s.opts.Store.TouchReeveSession(ctx, taskID)
+}
+
+// Message sends text to the Reeve: into the running session, resuming a
+// suspended one with it, or starting a session with it as the brief.
+func (s *ReeveService) Message(ctx context.Context, text, by string) error {
+	current, err := s.opts.Store.CurrentReeveSession(ctx)
+	if err != nil {
+		return err
+	}
+	switch {
+	case current == nil:
+		_, err = s.Start(ctx, ReeveStart{Brief: text, StartedBy: by})
+		return err
+	case current.State == store.ReeveSuspended:
+		_, err = s.Resume(ctx, current.TaskID, ReeveStart{Brief: text, StartedBy: by})
+		return err
+	}
+	messenger, ok := s.opts.Agents.(ReeveMessenger)
+	if !ok {
+		return errors.New("the Reeve's agent cannot be sent a message here")
+	}
+	s.Touch(ctx, current.TaskID)
+	return messenger.QueueMessage(ctx, current.TaskID, text)
 }

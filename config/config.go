@@ -1038,4 +1038,15 @@ type ReeveConfig struct {
 	Agent      string   `yaml:"agent"`
 	Model      string   `yaml:"model"`
 	LaunchArgs []string `yaml:"launch_args"`
+	// IdleTimeout is how long a session may be idle before it is
+	// suspended: a Go duration, 2h when empty.
+	IdleTimeout string `yaml:"idle_timeout"`
+}
+
+// ReeveIdleTimeout is the Reeve's idle time before a session is suspended.
+func (c ReeveConfig) ReeveIdleTimeout() time.Duration {
+	if d, err := time.ParseDuration(c.IdleTimeout); err == nil && d > 0 {
+		return d
+	}
+	return 2 * time.Hour
 }
