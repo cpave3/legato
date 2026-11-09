@@ -213,6 +213,19 @@ func (r *RestartRollback) Settle(ctx context.Context, configPath string, healthy
 	return store.RestartRolledBack, nil
 }
 
+// RollBackFailedStart rolls a pending restart back at once when the start
+// after it failed before it could be healthy (its port taken, its database
+// not opened): config.yaml and the settings are put back and the record says
+// why. It reports true when it rolled one back; the caller then starts
+// again. With no restart pending it does nothing.
+func (r *RestartRollback) RollBackFailedStart(ctx context.Context, configPath string, startErr error) (bool, error) {
+	p, ok := ReadRestartPointer(configPath)
+	if !ok {
+		return false, nil
+	}
+	return r.rollBack(ctx, configPath, p, "Legato did not start: "+startErr.Error())
+}
+
 // rollBack puts back config.yaml and the database settings of the restart
 // p, in the database p names, and records why. The record is read before
 // the pointer is claimed, so a pointer whose record is missing is kept.

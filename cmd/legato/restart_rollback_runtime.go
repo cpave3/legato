@@ -102,6 +102,30 @@ func settleRestart(ctx context.Context, rb *service.RestartRollback, healthURL s
 	}
 }
 
+// rollBackFailedStart is run when this process ends: when it was the TUI or
+// `legato serve` (args) and it exited with an error (code) while a restart
+// was pending, it failed to start (its port taken, say) before the health
+// check could roll the restart back, so it rolls it back now, in the
+// database the pointer names, and starts again (again). It reports whether
+// it did.
+func rollBackFailedStart(args []string, code int, configPath string, again func() error) bool {
+	if code == 0 || code == exitRestart || (len(args) > 0 && args[0] != "serve") {
+		return false
+	}
+	rolled, err := (&service.RestartRollback{}).RollBackFailedStart(context.Background(), configPath, fmt.Errorf("it exited with status %d before it was healthy; see the log", code))
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "restart rollback: %v\n", err)
+	}
+	if !rolled {
+		return false
+	}
+	fmt.Fprintln(os.Stderr, "Legato did not start after the restart; it is rolled back to the configuration before it. Starting again.")
+	if err := again(); err != nil {
+		fmt.Fprintln(os.Stderr, err)
+	}
+	return true
+}
+
 // checkHealth is healthy when healthURL (if any) answers 200 and the broker
 // answers at its socket, whichever process serves it.
 func checkHealth(ctx context.Context, healthURL string) error {

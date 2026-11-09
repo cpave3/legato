@@ -68,6 +68,11 @@ func main() {
 		os.Exit(hotreload.Run(hotreload.Options{Args: launch.Args, Env: env, Dir: wd}))
 	}
 	code := runApplication(launch.Args)
+	if !restartInPlace.Load() {
+		// A start that failed after a restart rolls it back and starts
+		// again on the old configuration.
+		rollBackFailedStart(launch.Args, code, config.ResolveConfigPath(), reexec)
+	}
 	if restartInPlace.Load() {
 		// Asked to restart: everything above has shut down; start again
 		// in place.
