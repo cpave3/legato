@@ -383,8 +383,22 @@ func attachCredentialChannels(cfg *config.Config, db *store.Store, agents servic
 // outside the sandbox; this keeps the token out of their environment.
 func dropSecretEnv() {
 	for _, name := range []string{"OP_SERVICE_ACCOUNT_TOKEN", "LEGATO_SECRETS_PASSPHRASE"} {
+		if value, ok := os.LookupEnv(name); ok {
+			launchSecretEnv = append(launchSecretEnv, name+"="+value)
+		}
 		_ = os.Unsetenv(name)
 	}
+}
+
+// launchSecretEnv keeps the variables dropSecretEnv removed, for a restart
+// in place only (restartEnv): never back in this process's environment,
+// which agents inherit.
+var launchSecretEnv []string
+
+// restartEnv is the environment a restart in place runs with: environ and
+// the variables that unlock the secret stores, as the process was started.
+func restartEnv(environ []string) []string {
+	return append(append([]string{}, environ...), launchSecretEnv...)
 }
 
 // sshAgentOverride says what is wrong when ssh's own configuration names an

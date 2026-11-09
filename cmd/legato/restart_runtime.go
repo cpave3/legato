@@ -70,8 +70,9 @@ func restartAll() {
 
 // restartHow is how this process starts again: under the hot-reload
 // supervisor it exits for the supervisor to start a new child; otherwise it
-// replaces itself with the same binary, arguments and environment, keeping
-// its PID (so systemd sees the same service).
+// replaces itself with the same binary, arguments and environment (with the
+// secret-unlock variables it dropped at start, restartEnv), keeping its PID
+// (so systemd sees the same service).
 func restartHow(getenv func(string) string) string {
 	if getenv(hotReloadChildEnv) != "" {
 		return "supervisor"
@@ -84,7 +85,7 @@ func reexec() error {
 	if restartHow(os.Getenv) == "supervisor" {
 		os.Exit(hotreload.RestartExitCode)
 	}
-	if err := syscall.Exec(launchExecutable, os.Args, os.Environ()); err != nil {
+	if err := syscall.Exec(launchExecutable, os.Args, restartEnv(os.Environ())); err != nil {
 		return fmt.Errorf("restart: exec %s: %w", launchExecutable, err)
 	}
 	return nil
