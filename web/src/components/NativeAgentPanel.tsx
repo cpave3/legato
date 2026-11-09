@@ -1,4 +1,5 @@
 import { ReeveStatus } from "./ReeveEntry"
+import { ChangeSetLines } from "./ChangeSetLines"
 import { useState, useEffect, useCallback, useRef, useMemo, memo } from "react"
 import { ArrowDown, ArrowLeftRight, Bell, BellOff, Check, Pencil, RefreshCw, RotateCw, Shield, Skull, Terminal, Unplug, Zap } from "lucide-react"
 import type { SandboxSwitch } from "../lib/agentReload"
@@ -891,6 +892,7 @@ export function NativeAgentPanel({ agentId, reeve, sandboxed, onKill, onRename, 
           {error && <span className="truncate text-lw-error">{error}</span>}
         </>}
       />
+      {reeve && <ChangeSetLines baseUrl={baseUrl} taskId={agentId} refresh={activity} />}
 
       {/* Conversation viewport owns both scrolling and its floating action. */}
       <div role="region" aria-label="Conversation" className="relative min-h-0 flex-1">

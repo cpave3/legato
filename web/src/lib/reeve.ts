@@ -57,3 +57,20 @@ export const startReeve = (baseUrl: string, start: ReeveStart) => post(baseUrl, 
 export const endReeve = (baseUrl: string, taskId: string) => post(baseUrl, `/api/reeve/sessions/${encodeURIComponent(taskId)}/end`)
 export const resumeReeve = (baseUrl: string, taskId: string, start: ReeveStart = {}) => post(baseUrl, `/api/reeve/sessions/${encodeURIComponent(taskId)}/resume`, start) as Promise<ReeveSession>
 export const deleteReeve = (baseUrl: string, taskId: string) => post(baseUrl, `/api/reeve/sessions/${encodeURIComponent(taskId)}`, undefined, "DELETE")
+
+// A change set as the conversation shows it (GET
+// /api/reeve/sessions/{task_id}/change-sets).
+export interface ChangeSetLine {
+  id: string
+  reason: string
+  state: "pending" | "queued" | "running" | "done" | "failed" | "denied" | "expired" | "restarting"
+  calls: number
+  ran: number
+}
+
+export async function fetchChangeSetLines(baseUrl: string, taskId: string): Promise<ChangeSetLine[]> {
+  const response = await apiFetch(baseUrl, `/api/reeve/sessions/${encodeURIComponent(taskId)}/change-sets`)
+  if (!response.ok) throw await failed(response)
+  const body = await response.json() as { change_sets: ChangeSetLine[] }
+  return body.change_sets ?? []
+}

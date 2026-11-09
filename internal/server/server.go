@@ -40,6 +40,7 @@ type Server struct {
 	settingsRegistry         SettingsRegistry
 	reeve                    ReeveSessions
 	reeveRules               ReeveRuleProposer
+	reeveChangeSets          ReeveChangeSets
 	settingsMover            SettingsMover
 	moveRestart              func()
 	addr                     string

@@ -41,6 +41,7 @@ func (s *Server) registerReeveRoutes(mux *routeMux) {
 	mux.HandleFunc("POST /api/reeve/sessions/{task_id}/resume", s.reeveResumeHandler())
 	mux.HandleFunc("DELETE /api/reeve/sessions/{task_id}", s.reeveDeleteHandler())
 	mux.HandleFunc("POST /api/reeve/message", s.reeveMessageHandler())
+	mux.HandleFunc("GET /api/reeve/sessions/{task_id}/change-sets", s.reeveChangeSetsHandler())
 }
 
 // serveReeveToken lets a Reeve API token reach the read routes only: a
@@ -205,4 +206,53 @@ func (s *Server) reeveTaskID(ctx context.Context) string {
 		return ""
 	}
 	return overview.Current.TaskID
+}
+
+// ReeveChangeSets lists a session's change sets (service.ChangeSetService).
+type ReeveChangeSets interface {
+	ChangeSetsOf(ctx context.Context, taskID string) ([]store.ReeveChangeSet, error)
+}
+
+// SetReeveChangeSets lists the Reeve's change sets for its conversation.
+func (s *Server) SetReeveChangeSets(sets ReeveChangeSets) { s.reeveChangeSets = sets }
+
+// ChangeSetLine is a change set as the conversation shows it: a compact
+// line with its state.
+type ChangeSetLine struct {
+	ID     string `json:"id"`
+	Reason string `json:"reason"`
+	State  string `json:"state"`
+	Calls  int    `json:"calls"`
+	Ran    int    `json:"ran"`
+}
+
+func (s *Server) reeveChangeSetsHandler() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if s.reeveChangeSets == nil {
+			s.writeJSON(w, http.StatusOK, map[string]any{"change_sets": []ChangeSetLine{}})
+			return
+		}
+		sets, err := s.reeveChangeSets.ChangeSetsOf(r.Context(), r.PathValue("task_id"))
+		if err != nil {
+			s.writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		lines := make([]ChangeSetLine, 0, len(sets))
+		for _, set := range sets {
+			var calls []json.RawMessage
+			_ = json.Unmarshal([]byte(set.Calls), &calls)
+			var results []struct {
+				State string `json:"state"`
+			}
+			_ = json.Unmarshal([]byte(set.Results), &results)
+			line := ChangeSetLine{ID: set.ID, Reason: set.Reason, State: set.State, Calls: len(calls)}
+			for _, res := range results {
+				if res.State == "ran" {
+					line.Ran++
+				}
+			}
+			lines = append(lines, line)
+		}
+		s.writeJSON(w, http.StatusOK, map[string]any{"change_sets": lines})
+	}
 }

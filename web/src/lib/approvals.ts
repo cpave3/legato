@@ -31,6 +31,12 @@ export type ApprovalDetails = {
   resources?: string[]
   broader?: boolean
   signed?: boolean
+  // A Reeve change set (source reeve_change_set): its ID, the instance, its
+  // level and every call it will run.
+  id?: string
+  instance?: string
+  level?: "approve" | "signed" | "verified"
+  calls?: ChangeSetCall[]
   [key: string]: unknown
 }
 
@@ -102,8 +108,27 @@ export function approvalAsker(approval: Approval): string {
 }
 
 /** The line above an approval's title: what kind of request it is. */
+// One call of a Reeve change set, as its approval shows it.
+export interface ChangeSetCall {
+  kind: "api" | "restart" | string
+  method?: string
+  path?: string
+  body?: unknown
+  class: "read" | "change" | "risky" | string
+  description: string
+  level: string
+  setting?: string
+  before?: unknown
+  after?: unknown
+  applies_at_restart?: boolean
+  unreached?: string[]
+  as_root?: boolean
+}
+
 export function approvalKind(approval: Approval): string {
   switch (approval.source) {
+    case "reeve_change_set": return "Change set"
+    case "reeve_rules": return "The Reeve's rules"
     case "agent_permission": return approval.details.plan ? "Plan" : "Permission"
     case "agent_question": return "Question"
     case "credential": return "Credential"

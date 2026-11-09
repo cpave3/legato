@@ -64,7 +64,7 @@ Some decisions can be made only by a person at an enrolled phone, with a key the
 
 ### The Reeve's change sets
 
-Source `reeve_change_set`: the calls the Reeve proposed together for one step, at the level of the strictest (`signed`, `verified` set to match), every call in the details. Its resolver queues the set; the broker's process runs it. A session's pending ones expire when it ends. See [The Reeve](reeve.md) § Change sets.
+Source `reeve_change_set`: the calls the Reeve proposed together for one step, at the level of the strictest (`signed`, `verified` set to match), every call in the details. Its resolver queues the set; the broker's process runs it. A session's pending ones expire when it ends. See [The Reeve](reeve.md) § Change sets. The tray shows it as `ChangeSetCard`: each change with its kind, route and before-and-after.
 
 ### Rules of the Reeve
 

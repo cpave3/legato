@@ -1,3 +1,4 @@
+import { ChangeSetCard } from "./ChangeSetCard"
 import { useEffect, useRef, useState } from "react"
 import { createPortal } from "react-dom"
 import { Link, useSearchParams } from "react-router-dom"
@@ -224,6 +225,7 @@ function ApprovalCard({ approval, focused, onDone }: { approval: Approval; focus
       {asker && <p className="text-sm text-lw-text-2 md:text-xs">{asker}</p>}
 
       {approval.source === "credential" && <CredentialScope approval={approval} />}
+      {approval.source === "reeve_change_set" && <ChangeSetCard approval={approval} />}
 
       {questions.length > 0 ? (
         <div className="-mx-4 mt-1">
@@ -237,7 +239,7 @@ function ApprovalCard({ approval, focused, onDone }: { approval: Approval; focus
         </div>
       ) : (
         <>
-          {approval.source !== "credential" && (details.command || approval.summary) && !details.plan && (
+          {approval.source !== "credential" && approval.source !== "reeve_change_set" && (details.command || approval.summary) && !details.plan && (
             <pre className="mt-3 max-h-48 overflow-auto whitespace-pre-wrap break-words rounded-lg bg-lw-ground p-3 font-lw-mono text-sm md:mt-2 md:max-h-40 md:rounded md:p-2 md:text-xs">{details.command || approval.summary}</pre>
           )}
           {details.plan && (
@@ -246,7 +248,7 @@ function ApprovalCard({ approval, focused, onDone }: { approval: Approval; focus
               <pre className="mt-1 max-h-60 overflow-auto whitespace-pre-wrap break-words rounded bg-lw-ground p-2 font-lw-mono">{details.plan}</pre>
             </details>
           )}
-          {details.reason && approval.source !== "credential" && <p className="mt-2 break-words text-sm text-lw-text-2 md:mt-1 md:text-xs">{details.reason}</p>}
+          {details.reason && approval.source !== "credential" && approval.source !== "reeve_change_set" && <p className="mt-2 break-words text-sm text-lw-text-2 md:mt-1 md:text-xs">{details.reason}</p>}
           {details.cwd && <p className="mt-1 truncate font-lw-mono text-xs text-lw-faint md:text-[11px]">{details.cwd}</p>}
 
           {error && <p role="alert" className="mt-2 text-sm text-lw-error md:text-xs">{error}</p>}

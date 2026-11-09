@@ -39,6 +39,8 @@ The Reeve does not yet remember earlier sessions: it starts each one without its
 
 When the Reeve wants to change something, it proposes a **change set**: the calls of one step, with a one-line reason, put to you as one approval in the approval tray and on your phone. You see each call, and for a setting its value before and after. Approve it, and Legato runs exactly those calls, in order, a restart last, stopping at the first failure; the Reeve is told how each went. Deny it with a note, and the Reeve gets the note and does not propose the same change again unless you ask.
 
+The approval card says where the set comes from (the Reeve and the instance), its ID, how many changes and what it needs; each change with its kind (change, risky), the call it makes, and a setting's value before and after. In the Reeve's conversation, each change set is a line with its state: waiting, or done with how many of its calls ran.
+
 Ending a session withdraws the change sets still waiting for you; a suspended session keeps them.
 
 ## What a change needs
