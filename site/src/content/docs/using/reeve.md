@@ -35,6 +35,16 @@ While it runs, it has tools of its own:
 
 The Reeve does not yet remember earlier sessions: it starts each one without its memory, and says so.
 
+## What a change needs
+
+Each change the Reeve proposes needs your approval, at a level set in Settings › Reeve:
+
+- **A change** (a task, a setting that is not about security): a tap, unless you ask for more.
+- **A risky change** (security, restarts and anything that stops work, anything that cannot be undone, any command on the machine): a decision signed on your phone, passkey or security key once one is enrolled; until then a tap.
+- **Rules** raise or lower the level of the calls they match, such as `POST /api/tasks*`.
+
+These levels and rules are the Reeve's own rules: they change only with a signed approval, even from Settings, and not at all while no device is enrolled.
+
 ## Where it runs
 
 The Reeve always runs in Legato's [sandbox](/legato/security/sandbox/): it cannot be started without it, and **Run without sandbox** and the switch out of the sandbox are refused for it. It works in a folder of its own, `~/.local/state/legato/reeve` (or under `$XDG_STATE_HOME`), outside your repositories and Legato's data folder.

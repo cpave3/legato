@@ -39,11 +39,16 @@ export function useSettingActions(baseUrl: string) {
   const queryClient = useQueryClient()
   const [busy, setBusy] = useState("")
   const [errors, setErrors] = useState<Record<string, string>>({})
+  const [notices, setNotices] = useState<Record<string, string>>({})
   const run = async (key: string, action: () => Promise<unknown>) => {
     setBusy(key)
     setErrors((e) => ({ ...e, [key]: "" }))
+    setNotices((n) => ({ ...n, [key]: "" }))
     try {
-      await action()
+      const result = await action() as { status?: string } | undefined
+      if (result?.status === "needs_signature") {
+        setNotices((n) => ({ ...n, [key]: "This is one of the Reeve's own rules: it changes once you approve it on your phone or with a passkey." }))
+      }
       await queryClient.invalidateQueries({ queryKey: queryKeys.configSettings(baseUrl) })
       await queryClient.invalidateQueries({ queryKey: queryKeys.settings(baseUrl) })
     } catch (reason) {
@@ -53,7 +58,7 @@ export function useSettingActions(baseUrl: string) {
     }
   }
   return {
-    busy, errors,
+    busy, errors, notices,
     set: (key: string, value: unknown) => run(key, () => setConfigSetting(baseUrl, key, value)),
     reset: (key: string) => run(key, () => resetConfigSetting(baseUrl, key)),
     move: (key: string) => run(key, () => moveSettings(baseUrl, { settings: [key], entries: [] })),
@@ -101,7 +106,7 @@ function SettingControl({ setting, disabled, onSet }: { setting: ConfigSetting; 
 // value comes from, and its control.
 export function RegistrySettingRow({ setting, baseUrl, actions }: { setting: ConfigSetting; baseUrl: string; actions?: ReturnType<typeof useSettingActions> }) {
   const own = useSettingActions(baseUrl)
-  const { busy, errors, set, reset, move } = actions ?? own
+  const { busy, errors, notices, set, reset, move } = actions ?? own
   return (
     <div className="flex min-h-16 flex-wrap items-center gap-3 px-4 py-3" data-testid={`setting-${setting.key}`}>
       <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-lw-raised text-lw-link">
@@ -110,6 +115,7 @@ export function RegistrySettingRow({ setting, baseUrl, actions }: { setting: Con
       <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-center gap-2">
           <p className="text-sm text-lw-text">{setting.title}</p>
+          {setting.own_rule && <span className="rounded bg-[#8b5cf6]/20 px-1.5 text-[10px] text-[#c4b5fd]" title="Changed only with a signed approval">signed</span>}
           <code className="text-[11px] text-lw-faint">{setting.key}</code>
           <SettingSource setting={setting} busy={busy === setting.key} onReset={() => void reset(setting.key)} />
         </div>
@@ -121,6 +127,7 @@ export function RegistrySettingRow({ setting, baseUrl, actions }: { setting: Con
           </button>
         )}
         {errors[setting.key] && <p role="alert" className="mt-1 text-xs text-lw-error">{errors[setting.key]}</p>}
+        {notices[setting.key] && <p role="status" className="mt-1 text-xs text-lw-text-2">{notices[setting.key]}</p>}
       </div>
       <div className={cn("shrink-0", busy === setting.key && "opacity-60")}>
         <SettingControl setting={setting} disabled={setting.pinned || busy === setting.key} onSet={(value) => void set(setting.key, value)} />

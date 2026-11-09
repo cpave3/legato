@@ -129,3 +129,10 @@ func runReeveIdle(ctx context.Context, reeve *service.ReeveService, db *store.St
 		}
 	}
 }
+
+// reeveRules puts changes to the Reeve's own rules to signed approvals.
+func reeveRules(db *store.Store, approvals *service.ApprovalService) *service.ReeveRules {
+	rules := &service.ReeveRules{Settings: settingsFor(db), Approvals: approvals, Store: db}
+	rules.Register()
+	return rules
+}

@@ -39,6 +39,7 @@ type Server struct {
 	routes                   []string // every pattern the mux was given
 	settingsRegistry         SettingsRegistry
 	reeve                    ReeveSessions
+	reeveRules               ReeveRuleProposer
 	settingsMover            SettingsMover
 	moveRestart              func()
 	addr                     string

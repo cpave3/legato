@@ -68,8 +68,16 @@ func (s *Server) configSettingHandler() http.HandlerFunc {
 				return
 			}
 			err = s.settingsRegistry.Set(r.Context(), key, req.Value, "web")
+			if errors.Is(err, service.ErrOwnRule) {
+				s.proposeOwnRule(w, r, service.RuleChange{Key: key, Value: req.Value})
+				return
+			}
 		case http.MethodDelete:
 			err = s.settingsRegistry.Reset(r.Context(), key)
+			if errors.Is(err, service.ErrOwnRule) {
+				s.proposeOwnRule(w, r, service.RuleChange{Key: key, Delete: true})
+				return
+			}
 		default:
 			s.writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 			return
@@ -141,8 +149,16 @@ func (s *Server) configListEntryHandler() http.HandlerFunc {
 				return
 			}
 			err = s.settingsRegistry.SetEntry(r.Context(), list, name, req.Value, "web")
+			if errors.Is(err, service.ErrOwnRule) {
+				s.proposeOwnRule(w, r, service.RuleChange{Key: list, Name: name, Value: req.Value})
+				return
+			}
 		case http.MethodDelete:
 			err = s.settingsRegistry.DeleteEntry(r.Context(), list, name)
+			if errors.Is(err, service.ErrOwnRule) {
+				s.proposeOwnRule(w, r, service.RuleChange{Key: list, Name: name, Delete: true})
+				return
+			}
 		default:
 			s.writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 			return
@@ -181,5 +197,33 @@ func (s *Server) configExportHandler() http.HandlerFunc {
 		w.Header().Set("Content-Type", "application/yaml; charset=utf-8")
 		w.Header().Set("Content-Disposition", `attachment; filename="legato-settings.yaml"`)
 		_, _ = w.Write(out)
+	}
+}
+
+// ReeveRuleProposer puts a change to one of the Reeve's own rules to the
+// person as a signed approval (service.ReeveRules).
+type ReeveRuleProposer interface {
+	Propose(ctx context.Context, change service.RuleChange, by string) (*service.Approval, error)
+}
+
+// SetReeveRules lets the settings routes put changes to the Reeve's own
+// rules to a signed approval.
+func (s *Server) SetReeveRules(rules ReeveRuleProposer) { s.reeveRules = rules }
+
+// proposeOwnRule answers a change to one of the Reeve's own rules: 202 with
+// the approval that will make it once signed, or 409 with no device to sign.
+func (s *Server) proposeOwnRule(w http.ResponseWriter, r *http.Request, change service.RuleChange) {
+	if s.reeveRules == nil {
+		s.writeError(w, http.StatusConflict, service.ErrOwnRule.Error())
+		return
+	}
+	approval, err := s.reeveRules.Propose(r.Context(), change, "web")
+	switch {
+	case errors.Is(err, service.ErrNoDeviceEnrolled):
+		s.writeError(w, http.StatusConflict, err.Error())
+	case err != nil:
+		s.writeError(w, http.StatusBadRequest, err.Error())
+	default:
+		s.writeJSON(w, http.StatusAccepted, map[string]any{"status": "needs_signature", "approval_id": approval.ID})
 	}
 }

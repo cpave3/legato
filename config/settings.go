@@ -65,6 +65,9 @@ type Setting struct {
 	// Secret: the value is the name of a secret in Legato's secret store
 	// or 1Password, never the secret itself.
 	Secret bool `json:"secret,omitempty"`
+	// OwnRule marks one of the Reeve's own rules: changed only with a
+	// signed approval, and refused when no device is enrolled.
+	OwnRule bool `json:"own_rule,omitempty"`
 	// Check is the setting's own rule, past its kind and enum.
 	Check func(v any) error `json:"-"`
 }
@@ -214,6 +217,8 @@ var registry = []Setting{
 	{Key: "reeve.agent", Title: "The Reeve's agent tool", Description: "claude-code, codex or chimera; the default agent tool when empty.", Kind: KindString, Class: ClassChange, Mode: ModeLive},
 	{Key: "reeve.model", Title: "The Reeve's model or tier", Kind: KindString, Class: ClassChange, Mode: ModeLive},
 	{Key: "reeve.idle_timeout", Title: "Suspend the Reeve after", Description: "How long a session may be idle before its agent is stopped; the next message resumes it. 2h when empty.", Kind: KindDuration, Class: ClassChange, Mode: ModeLive},
+	{Key: "reeve.levels.change", Title: "What a change needs", Description: "approve (a tap), signed (an enrolled device) or verified (signed, with a fingerprint or a PIN). One of the Reeve's own rules: changed only with a signature.", Kind: KindEnum, Enum: []string{"", "approve", "signed", "verified"}, Class: ClassRisky, Mode: ModeLive, OwnRule: true},
+	{Key: "reeve.levels.risky", Title: "What a risky change needs", Description: "auto (signed once a device is enrolled, else approve), approve, signed or verified. One of the Reeve's own rules.", Kind: KindEnum, Enum: []string{"", "auto", "approve", "signed", "verified"}, Class: ClassRisky, Mode: ModeLive, OwnRule: true},
 	{Key: "reeve.launch_args", Title: "The Reeve's launch arguments", Kind: KindStrings, Class: ClassRisky, Mode: ModeLive},
 
 	// Burnlite's projects, read on each use.

@@ -338,6 +338,10 @@ The Reeve's defaults, read when a session starts. Usually set in Settings › Re
 | `reeve.agent` | string | the default agent tool | The agent tool a session runs: `claude-code`, `codex` or `chimera`. |
 | `reeve.model` | string | the tool's default | The model or tier a session runs. |
 | `reeve.idle_timeout` | duration | `2h` | How long a session may be idle before its agent is stopped. The next message to it resumes it. |
+| `reeve.levels.change` | string | `approve` | What a change the Reeve proposes needs: `approve` (a tap), `signed` (an enrolled device) or `verified` (signed, with a fingerprint or a PIN). Changed only with a signed approval. |
+| `reeve.levels.risky` | string | `auto` | The same for a risky change; `auto` is `signed` once a device is enrolled, else `approve`. Changed only with a signed approval. |
+| `reeve.rules[].pattern` | string | none | A call a rule matches: `METHOD /path` or a `legato` subcommand, `*` for any run of characters. |
+| `reeve.rules[].level` | string | none | The level the rule gives the calls it matches, higher or lower than their class's (never below `approve`). |
 | `reeve.launch_args` | list of strings | none | Arguments added to the agent tool's launch command. |
 
 ## Updates

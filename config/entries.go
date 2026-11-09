@@ -25,6 +25,9 @@ type EntryList struct {
 	// NameField is the yaml field that names an entry; "" for a map, whose
 	// keys name its entries.
 	NameField string `json:"name_field,omitempty"`
+	// OwnRule marks a list of the Reeve's own rules: changed only with a
+	// signed approval.
+	OwnRule bool `json:"own_rule,omitempty"`
 }
 
 var entryListDefs = []EntryList{
@@ -36,6 +39,7 @@ var entryListDefs = []EntryList{
 	{Key: "agents.tmux_options", Title: "tmux options for agents", Class: ClassChange, Mode: ModeNewAgents},
 	{Key: "agents.sandbox.mounts", Title: "Sandbox mounts", Class: ClassRisky, Mode: ModeRestart, NameField: "path"},
 	{Key: "swarm.prompts", Title: "Swarm role prompts", Class: ClassChange, Mode: ModeRestart},
+	{Key: "reeve.rules", Title: "The Reeve's rules", Class: ClassRisky, Mode: ModeLive, NameField: "pattern", OwnRule: true},
 }
 
 // tabledLists are lists that had tables of their own before the registry

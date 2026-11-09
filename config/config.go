@@ -1041,6 +1041,27 @@ type ReeveConfig struct {
 	// IdleTimeout is how long a session may be idle before it is
 	// suspended: a Go duration, 2h when empty.
 	IdleTimeout string `yaml:"idle_timeout"`
+	// Levels is what each class of change needs; Rules raise or lower it
+	// for the calls they match. Both are the Reeve's own rules: changed
+	// only with a signed approval.
+	Levels ReeveLevels `yaml:"levels"`
+	Rules  []ReeveRule `yaml:"rules"`
+}
+
+// ReeveLevels is the level of each class: approve (a tap), signed (an
+// enrolled device), verified (signed, with a fingerprint or a PIN). Risky
+// may also be auto: signed once a device is enrolled, else approve.
+type ReeveLevels struct {
+	Change string `yaml:"change"`
+	Risky  string `yaml:"risky"`
+}
+
+// ReeveRule sets the level of the calls a pattern matches: METHOD /path
+// with * for any run of characters (POST /api/tasks*), or a legato
+// subcommand (legato integration *).
+type ReeveRule struct {
+	Pattern string `yaml:"pattern"`
+	Level   string `yaml:"level"`
 }
 
 // ReeveIdleTimeout is the Reeve's idle time before a session is suspended.

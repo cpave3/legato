@@ -11,6 +11,8 @@ export interface ConfigSetting {
   class: "read" | "change" | "risky"
   mode: "live" | "new_agents" | "restart"
   secret?: boolean
+  // One of the Reeve's own rules: changed only with a signed approval.
+  own_rule?: boolean
   value: unknown
   source: "default" | "config.yaml" | "database"
   pinned: boolean

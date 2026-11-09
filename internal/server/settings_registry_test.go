@@ -141,3 +141,11 @@ func TestSettingsExportDownloadsYAML(t *testing.T) {
 		t.Fatalf("pinned export: %s", rec.Body)
 	}
 }
+
+func TestAnOwnRuleOfTheReeveIsRefusedWithNoDeviceToSign(t *testing.T) {
+	srv := settingsServer(t, "")
+	rec := callUpdates(srv, http.MethodPut, "/api/config/settings/reeve.levels.risky", `{"value": "approve"}`)
+	if rec.Code != http.StatusConflict || !strings.Contains(rec.Body.String(), "signed approval") {
+		t.Fatalf("PUT an own rule: %d %s", rec.Code, rec.Body)
+	}
+}

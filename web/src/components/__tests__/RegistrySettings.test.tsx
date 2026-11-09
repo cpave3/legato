@@ -76,6 +76,15 @@ describe("RegistrySettings", () => {
     expect((await screen.findByRole("alert")).textContent).toContain("only bwrap")
   })
 
+  it("says an own rule of the Reeve waits for a signed approval", async () => {
+    mockSet.mockResolvedValue({ status: "needs_signature", approval_id: "ap-1" })
+    render(wrap(<RegistrySettings baseUrl="" prefixes={["reeve"]} settings={[
+      setting({ key: "reeve.levels.risky", title: "What a risky change needs", kind: "enum", enum: ["", "auto", "approve"], value: "", own_rule: true }),
+    ]} />))
+    fireEvent.change(screen.getByRole("combobox", { name: "What a risky change needs" }), { target: { value: "approve" } })
+    expect((await screen.findByRole("status")).textContent).toContain("approve it on your phone")
+  })
+
   it("leaves out settings a section of their own shows", () => {
     render(wrap(<RegistrySettings baseUrl="" prefixes={["web"]} exclude={["web.tint"]} settings={[
       setting({ key: "web.tint", title: "Tint", kind: "enum", enum: ["", "red"], value: "" }),
