@@ -92,7 +92,7 @@ func cancelWhenOrphaned(ctx context.Context, cancel context.CancelFunc, parent i
 func bridgeHost(command, taskID, executionID string, models func(*config.Config) []string) (host cli.BridgeHost, db *store.Store, chosen []string, failed int) {
 	if socket, token, ok := brokerSession(); ok {
 		host = cli.BrokerBridgeHost(socket, token)
-		_, err := host.Session(context.Background(), taskID, executionID)
+		_, err := host.Session(fallbackCtx(context.Background()), taskID, executionID)
 		switch {
 		case err == nil:
 			return host, nil, nil, 0

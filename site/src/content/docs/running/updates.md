@@ -54,7 +54,7 @@ A new binary takes effect when Legato starts again. How that happens depends on 
 - **In a terminal**, the TUI or `legato serve` you started by hand: Legato does not quit from under you. The bar says the new version is installed and asks you to restart Legato.
 - **Under `--hot-reload`**, the development mode: the supervisor sees the new binary and restarts Legato.
 
-Agents keep running across the restart in every case, since they live in tmux.
+Agents keep running across the restart in every case, since they live in tmux. An agent that uses a Legato tool or command while Legato is away waits for it, for up to 30 seconds, instead of failing.
 
 ## Going back
 

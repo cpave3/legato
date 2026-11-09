@@ -94,11 +94,54 @@ func TestACallGivesUpAfterItsTimeout(t *testing.T) {
 	}
 }
 
-func TestAMissingSocketIsUnreachable(t *testing.T) {
+func TestAMissingSocketIsUnreachableOnceTheWaitIsOver(t *testing.T) {
+	shortWait(t, 300*time.Millisecond)
+	start := time.Now()
 	err := Call(context.Background(), filepath.Join(t.TempDir(), "none.sock"), "tok", "echo", nil, nil)
 	if !errors.Is(err, ErrUnreachable) {
 		t.Fatalf("missing socket: %v", err)
 	}
+	if waited := time.Since(start); waited < 250*time.Millisecond {
+		t.Fatalf("gave up after %v, want it to wait for a broker to come back", waited)
+	}
+}
+
+func TestACallWaitsForABrokerThatStartsWithinTheWait(t *testing.T) {
+	shortWait(t, 3*time.Second)
+	path := socketPath(t)
+	go func() {
+		time.Sleep(700 * time.Millisecond)
+		srv, err := Listen(path, echo)
+		if err == nil {
+			t.Cleanup(func() { srv.Close() })
+		}
+	}()
+	var got map[string]any
+	if err := Call(context.Background(), path, "tok", "echo", map[string]any{"x": 1}, &got); err != nil {
+		t.Fatalf("call made while Legato restarts: %v", err)
+	}
+}
+
+func TestACallThatMustNotWaitGivesUpAtOnce(t *testing.T) {
+	shortWait(t, 3*time.Second)
+	start := time.Now()
+	err := Call(WithoutWaiting(context.Background()), filepath.Join(t.TempDir(), "none.sock"), "tok", "echo", nil, nil)
+	if !errors.Is(err, ErrUnreachable) || time.Since(start) > time.Second {
+		t.Fatalf("WithoutWaiting: %v after %v", err, time.Since(start))
+	}
+}
+
+func TestTheWaitIsThirtySeconds(t *testing.T) {
+	if Wait != 30*time.Second {
+		t.Fatalf("Wait = %v", Wait)
+	}
+}
+
+func shortWait(t *testing.T, d time.Duration) {
+	t.Helper()
+	old := Wait
+	Wait = d
+	t.Cleanup(func() { Wait = old })
 }
 
 func TestAStaleSocketIsReplacedButALiveOneIsNot(t *testing.T) {

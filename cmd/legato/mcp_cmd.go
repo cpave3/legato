@@ -52,7 +52,7 @@ func runMCPServe(args []string, in io.ReadCloser, out io.WriteCloser) int {
 	// A session with a broker gets the host's tools relayed through it, and
 	// reads neither configuration nor store.
 	if socket, token, ok := brokerSession(); ok && taskID != "" {
-		relay, err := cli.MCPRelay(ctx, socket, token, version.String())
+		relay, err := cli.MCPRelay(fallbackCtx(ctx), socket, token, version.String())
 		switch {
 		case err == nil:
 			return serveMCP(ctx, relay, in, out)
