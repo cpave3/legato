@@ -23,6 +23,12 @@ func (s *SettingsService) Export(ctx context.Context, pinned bool) ([]byte, erro
 	if err != nil {
 		return nil, err
 	}
+	// The listing hides a secret the file pins; the export reads the file's
+	// own value, and keeps it only when it is a name.
+	file, err := s.load()
+	if err != nil {
+		return nil, err
+	}
 	return config.EditBytes(nil, func(doc *yaml.Node) error {
 		header := "Legato settings exported with legato config export"
 		if pinned {
@@ -30,16 +36,20 @@ func (s *SettingsService) Export(ctx context.Context, pinned bool) ([]byte, erro
 		}
 		doc.Content[0].HeadComment = header + ".\nSecrets are names of secrets (legato://, op://), never values."
 		for _, v := range values {
+			value := v.Value
 			switch {
 			case v.Source == SettingFromDatabase:
 			case v.Source == SettingFromFile && pinned:
-				if str, ok := v.Value.(string); v.Secret && (!ok || !isSecretRef(str)) {
-					continue
+				if v.Secret {
+					value, _ = config.SettingValue(file, v.Key)
+					if str, ok := value.(string); !ok || !isSecretRef(str) {
+						continue
+					}
 				}
 			default:
 				continue
 			}
-			if err := config.SetKey(doc, v.Key, v.Value); err != nil {
+			if err := config.SetKey(doc, v.Key, value); err != nil {
 				return err
 			}
 		}

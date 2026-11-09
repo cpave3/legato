@@ -74,7 +74,7 @@ A list of named entries is the file's entries, each pinned and matched by name i
 
 ## Export
 
-`SettingsService.Export(ctx, pinned)` writes the settings set in the database (single values by key, list entries under their list, through `config.SetKey` on a new document) as YAML shaped like `config.yaml`, with a header comment. With `pinned`, the settings and entries `config.yaml` pins are included. Secrets are names: a database secret setting is a name already; a pinned one is written only when the file's value is a `legato://` or `op://` reference, and a credential whose secret is not a reference is left out. The export loads as a `config.yaml`. `legato config export [--pinned]` prints it; `GET /api/config/export[?pinned=1]` serves it as `legato-settings.yaml`; Settings › Lists › **Export settings** (`ExportSettings.tsx`, with **Include settings from config.yaml**) downloads it. 
+`SettingsService.Export(ctx, pinned)` writes the settings set in the database (single values by key, list entries under their list, through `config.SetKey` on a new document) as YAML shaped like `config.yaml`, with a header comment. With `pinned`, the settings and entries `config.yaml` pins are included. Secrets are names: a database secret setting is a name already; a pinned one is written only when the file's value is a `legato://` or `op://` reference (read from the file itself, since the listing hides a pinned secret), and a credential whose secret is not a reference is left out. The export loads as a `config.yaml`. `legato config export [--pinned]` prints it; `GET /api/config/export[?pinned=1]` serves it as `legato-settings.yaml`; Settings › Lists › **Export settings** (`ExportSettings.tsx`, with **Include settings from config.yaml**) downloads it. 
 
 ## Import
 
