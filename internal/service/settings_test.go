@@ -38,7 +38,7 @@ func TestASettingSetHereAppliesAndSaysSo(t *testing.T) {
 	}
 	// Every process reads the effective configuration through the store.
 	cfg, _ := config.Load()
-	if err := ApplySettings(ctx, db, cfg); err != nil || cfg.Agents.Reviews {
+	if err := ApplySettings(ctx, db, cfg, nil); err != nil || cfg.Agents.Reviews {
 		t.Fatalf("applied: reviews = %v, %v", cfg.Agents.Reviews, err)
 	}
 }
@@ -155,5 +155,38 @@ func TestChangesWaitingForARestartAreInAttention(t *testing.T) {
 	}
 	if err := adapter.Execute(ctx, AttentionActionRequest{ActionID: "restart"}); err != nil || !restarted {
 		t.Fatalf("restart action: %v, restarted = %v", err, restarted)
+	}
+}
+
+// A secret setting keeps a secret's name; the process gets the value.
+func TestASecretSettingKeepsTheNameAndAppliesTheValue(t *testing.T) {
+	settings, db := newSettingsFixture(t, "")
+	ctx := context.Background()
+	if err := settings.Set(ctx, "jira.api_token", json.RawMessage(`"legato://jira-token"`), "web"); err != nil {
+		t.Fatal(err)
+	}
+	if err := settings.Set(ctx, "jira.api_token", json.RawMessage(`"ATATT3xFfGF0secret"`), "web"); err == nil {
+		t.Fatal("a token itself was kept")
+	}
+	if got, _ := settings.Get(ctx, "jira.api_token"); got.Value != "legato://jira-token" {
+		t.Fatalf("listed = %v, want the name", got.Value)
+	}
+	cfg, _ := config.Load()
+	resolve := func(_ context.Context, ref string) (string, error) {
+		if ref != "legato://jira-token" {
+			return "", errors.New("no such secret")
+		}
+		return "the-real-token", nil
+	}
+	if err := ApplySettings(ctx, db, cfg, resolve); err != nil || cfg.Jira.APIToken != "the-real-token" {
+		t.Fatalf("token = %q, %v", cfg.Jira.APIToken, err)
+	}
+}
+
+func TestASecretInTheFileIsNeverListed(t *testing.T) {
+	settings, _ := newSettingsFixture(t, "jira:\n  api_token: ATATT3xFfGF0secret\n")
+	got, _ := settings.Get(context.Background(), "jira.api_token")
+	if got.Value == "ATATT3xFfGF0secret" || !got.Pinned {
+		t.Fatalf("listed = %+v", got)
 	}
 }

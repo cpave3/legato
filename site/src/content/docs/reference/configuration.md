@@ -38,6 +38,7 @@ Most settings can also be kept in Legato's database, and changed from the web UI
 
 - **A value in `config.yaml` wins.** The setting is *pinned*: the web UI shows it locked, and only an edit to the file changes it. Remove it from the file and, at the next start, the database's value (or the default) applies again.
 - **Otherwise the database's value applies,** or the default when there is none.
+- **Secrets are kept by name.** A setting that holds a secret (`jira.api_token`, `github.token`, `notifications.ntfy.token`, `manticore.api_key`) takes, in the database, only the name of a secret: `legato://<name>` in Legato's own store (`legato secret add`), or `op://<vault>/<item>/<field>` in 1Password. Legato reads the secret when it starts. In the file, `${ENV}` references work as before.
 - **A change is checked before it is kept**: the value by its own rule, then the whole configuration with the rules Legato uses for this file. A change that would leave it invalid is refused with that error, so a value in the database never stops Legato from starting.
 
 Some settings are **file-only**: they live only in this file, and nothing else changes them. They are what Legato needs before its database opens (`db.*`, `data_dir`), what unseals its secrets (`secrets.master_key`, `secrets.onepassword`), how it is reached (`web.enabled`, `web.port`, `web.tls`, `web.public_url`), and the signing trust root (`approval_devices.android_app_digests`). They are marked *file-only* below.

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"strings"
 	"sync"
 
 	"github.com/cpave3/legato/config"
@@ -63,7 +64,10 @@ func NewSettingsService(db *store.Store, load func() (*config.Config, error)) *S
 // configuration invalid (the file changed since the values were saved),
 // cfg is left as the file has it and the error is returned: a database
 // value never stops Legato from starting.
-func ApplySettings(ctx context.Context, db *store.Store, cfg *config.Config) error {
+//
+// A secret setting keeps a secret's name in the database; resolve reads the
+// secret (nil leaves such settings empty).
+func ApplySettings(ctx context.Context, db *store.Store, cfg *config.Config, resolve SecretResolver) error {
 	values, err := db.SettingValues(ctx)
 	if err != nil || len(values) == 0 {
 		return err
@@ -75,8 +79,38 @@ func ApplySettings(ctx context.Context, db *store.Store, cfg *config.Config) err
 	if err != nil {
 		return fmt.Errorf("the settings saved in the database are not applied: %w", err)
 	}
-	return config.Overlay(cfg, values)
+	if err := config.Overlay(cfg, values); err != nil {
+		return err
+	}
+	var failed []string
+	for _, setting := range config.Settings() {
+		if !setting.Secret || cfg.Pinned(setting.Key) {
+			continue
+		}
+		raw, ok := values[setting.Key]
+		if !ok {
+			continue
+		}
+		var ref string
+		_ = json.Unmarshal(raw, &ref)
+		plain := ""
+		if ref != "" && resolve != nil {
+			if plain, err = resolve(ctx, ref); err != nil {
+				failed = append(failed, fmt.Sprintf("%s (%s): %v", setting.Key, ref, err))
+				plain = ""
+			}
+		}
+		_ = config.SetSetting(cfg, setting.Key, plain)
+	}
+	if len(failed) > 0 {
+		return fmt.Errorf("secret settings not read: %s", strings.Join(failed, "; "))
+	}
+	return nil
 }
+
+// SecretResolver reads the secret a reference names (legato://name,
+// op://vault/item/field).
+type SecretResolver func(ctx context.Context, ref string) (string, error)
 
 // Effective is the effective configuration.
 func (s *SettingsService) Effective(ctx context.Context) (*config.Config, error) {
@@ -220,6 +254,10 @@ func describeSetting(cfg *config.Config, setting config.Setting, rows map[string
 	switch row, inDB := rows[setting.Key]; {
 	case cfg.Pinned(setting.Key):
 		v.Source, v.Pinned = SettingFromFile, true
+		if setting.Secret && value != "" {
+			// A secret given in the file is never shown.
+			v.Value = "(set in config.yaml)"
+		}
 	case inDB:
 		v.Source, v.UpdatedAt, v.UpdatedBy = SettingFromDatabase, row.UpdatedAt, row.UpdatedBy
 	}

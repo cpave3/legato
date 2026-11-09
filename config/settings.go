@@ -99,7 +99,118 @@ var registry = []Setting{
 	// Updates.
 	{Key: "updates.mode", Title: "Updates", Description: "auto installs new releases; ask offers them; off never looks.", Kind: KindEnum, Enum: []string{"auto", "ask", "off"}, Class: ClassRisky, Mode: ModeLive},
 
+	{Key: "notifications.ntfy.token", Title: "ntfy token", Description: "The name of a secret holding the token for a private topic.", Kind: KindString, Secret: true, Class: ClassRisky, Mode: ModeRestart},
+	{Key: "keybindings.vim_mode", Title: "Vim keys", Kind: KindBool, Class: ClassChange, Mode: ModeRestart},
+	{Key: "web.discovery", Title: "Announce on the network", Description: "Announce the web server over mDNS so the phone app finds it.", Kind: KindBool, Class: ClassRisky, Mode: ModeRestart},
+	{Key: "agents.mcp.resource_domains", Title: "Hosts agents' HTML may load from", Kind: KindStrings, Class: ClassRisky, Mode: ModeRestart},
+	{Key: "groups.defaults", Title: "Default groups", Kind: KindStrings, Class: ClassChange, Mode: ModeRestart},
+	{Key: "default_workspace", Title: "Default workspace", Description: "The workspace of a new task.", Kind: KindString, Class: ClassChange, Mode: ModeRestart},
+	{Key: "default_import_workspace", Title: "Default import workspace", Description: "The workspace of an imported task.", Kind: KindString, Class: ClassChange, Mode: ModeRestart},
+	{Key: "ssh_agent_socket", Title: "SSH agent socket", Kind: KindString, Class: ClassRisky, Mode: ModeRestart},
+
+	// Jira.
+	{Key: "jira.base_url", Title: "Jira address", Kind: KindString, Class: ClassChange, Mode: ModeRestart},
+	{Key: "jira.email", Title: "Jira email", Kind: KindString, Class: ClassChange, Mode: ModeRestart},
+	{Key: "jira.api_token", Title: "Jira API token", Description: "The name of a secret holding the token.", Kind: KindString, Secret: true, Class: ClassRisky, Mode: ModeRestart},
+	{Key: "jira.project_keys", Title: "Jira projects", Kind: KindStrings, Class: ClassChange, Mode: ModeRestart},
+	{Key: "jira.jql_filter", Title: "Jira filter", Kind: KindString, Class: ClassChange, Mode: ModeRestart},
+	{Key: "jira.sync_interval_seconds", Title: "Jira sync interval (seconds)", Kind: KindInt, Class: ClassChange, Mode: ModeRestart, Check: nonNegative},
+	{Key: "jira.status_sync_enabled", Title: "Move Jira issues with their cards", Kind: KindBool, Class: ClassChange, Mode: ModeRestart},
+	{Key: "jira.attachment_max_size_bytes", Title: "Largest Jira attachment (bytes)", Kind: KindInt, Class: ClassChange, Mode: ModeRestart, Check: nonNegative},
+
 	// Burnlite.
+	{Key: "burnlite.url", Title: "Burnlite address", Kind: KindString, Class: ClassChange, Mode: ModeRestart},
+	{Key: "burnlite.sync_interval_seconds", Title: "Burnlite sync interval (seconds)", Kind: KindInt, Class: ClassChange, Mode: ModeRestart, Check: nonNegative},
+	{Key: "burnlite.status_sync_enabled", Title: "Move cards with Burnlite", Kind: KindBool, Class: ClassChange, Mode: ModeRestart},
+	{Key: "burnlite.columns.ready", Title: "Burnlite: column for ready", Kind: KindString, Class: ClassChange, Mode: ModeRestart},
+	{Key: "burnlite.columns.blocked", Title: "Burnlite: column for blocked", Kind: KindString, Class: ClassChange, Mode: ModeRestart},
+	{Key: "burnlite.columns.claimed", Title: "Burnlite: column for claimed", Kind: KindString, Class: ClassChange, Mode: ModeRestart},
+	{Key: "burnlite.columns.closed", Title: "Burnlite: column for closed", Kind: KindString, Class: ClassChange, Mode: ModeRestart},
+
+	// GitHub.
+	{Key: "github.auth", Title: "GitHub sign-in", Description: "auto, gh or token.", Kind: KindEnum, Enum: []string{"auto", "gh", "token"}, Class: ClassRisky, Mode: ModeRestart},
+	{Key: "github.token", Title: "GitHub token", Description: "The name of a secret holding the token.", Kind: KindString, Secret: true, Class: ClassRisky, Mode: ModeRestart},
+	{Key: "github.poll_interval_seconds", Title: "GitHub poll interval (seconds)", Kind: KindInt, Class: ClassChange, Mode: ModeRestart, Check: nonNegative},
+	{Key: "github.resolved_poll_interval_seconds", Title: "GitHub poll interval for known PRs (seconds)", Kind: KindInt, Class: ClassChange, Mode: ModeRestart, Check: nonNegative},
+
+	// Swarms.
+	{Key: "swarm.enabled", Title: "Swarms", Kind: KindBool, Class: ClassChange, Mode: ModeRestart},
+	{Key: "swarm.max_concurrent_agents", Title: "Swarm: most agents at once", Kind: KindInt, Class: ClassChange, Mode: ModeRestart},
+	{Key: "swarm.max_subtasks_per_plan", Title: "Swarm: most sub-tasks in a plan", Kind: KindInt, Class: ClassChange, Mode: ModeRestart},
+	{Key: "swarm.max_steps_per_plan", Title: "Swarm: most steps in a plan", Kind: KindInt, Class: ClassChange, Mode: ModeRestart},
+	{Key: "swarm.conductor.agent", Title: "Swarm conductor's agent tool", Kind: KindString, Class: ClassChange, Mode: ModeRestart},
+	{Key: "swarm.conductor.model", Title: "Swarm conductor's model", Kind: KindString, Class: ClassChange, Mode: ModeRestart},
+	{Key: "swarm.worker.agent", Title: "Swarm workers' agent tool", Kind: KindString, Class: ClassChange, Mode: ModeRestart},
+	{Key: "swarm.worker.model", Title: "Swarm workers' model", Kind: KindString, Class: ClassChange, Mode: ModeRestart},
+	{Key: "swarm.strict_scope", Title: "Swarm: strict scopes", Kind: KindBool, Class: ClassChange, Mode: ModeRestart},
+	{Key: "swarm.require_user_close", Title: "Swarm: you close workers", Kind: KindBool, Class: ClassChange, Mode: ModeRestart},
+	{Key: "swarm.brief_kickoff_delay_ms", Title: "Swarm: kickoff delay (ms)", Kind: KindInt, Class: ClassChange, Mode: ModeRestart, Check: nonNegative},
+
+	// Voice.
+	{Key: "voice.enabled", Title: "Voice dictation", Kind: KindBool, Class: ClassChange, Mode: ModeRestart},
+	{Key: "voice.whisper_url", Title: "Whisper server", Kind: KindString, Class: ClassChange, Mode: ModeRestart},
+	{Key: "voice.autosend", Title: "Send dictation at once", Kind: KindBool, Class: ClassChange, Mode: ModeRestart},
+	{Key: "voice.mic_device", Title: "Microphone", Kind: KindString, Class: ClassChange, Mode: ModeRestart},
+
+	// Worktrees and the repository cache.
+	{Key: "worktrees.yggdrasil.enabled", Title: "Yggdrasil worktrees", Kind: KindBool, Class: ClassChange, Mode: ModeRestart},
+	{Key: "repository_cache.enabled", Title: "Fresh clones", Kind: KindBool, Class: ClassChange, Mode: ModeRestart},
+	{Key: "repository_cache.max_age", Title: "Fetch a repository older than", Kind: KindDuration, Class: ClassChange, Mode: ModeRestart},
+	{Key: "repository_cache.keep_idle", Title: "Keep idle clones for", Description: "A duration, or forever.", Kind: KindString, Class: ClassRisky, Mode: ModeRestart},
+
+	// Credential channels.
+	{Key: "credential_channels.http_proxy.listen", Title: "Credential proxy address", Kind: KindString, Class: ClassRisky, Mode: ModeRestart},
+	{Key: "credential_channels.ssh_agent.known_hosts", Title: "Known hosts for the SSH channel", Kind: KindString, Class: ClassRisky, Mode: ModeRestart},
+	{Key: "credential_channels.gh.isolate_login", Title: "Keep gh's own login from agents", Kind: KindBool, Class: ClassRisky, Mode: ModeRestart},
+
+	// Learning.
+	{Key: "learning.enabled", Title: "Legato Learn", Kind: KindBool, Class: ClassChange, Mode: ModeRestart},
+	{Key: "learning.prompt_enabled", Title: "Learnings in launch prompts", Kind: KindBool, Class: ClassChange, Mode: ModeRestart},
+	{Key: "learning.transition_columns", Title: "Reflect when a card enters", Kind: KindStrings, Class: ClassChange, Mode: ModeRestart},
+	{Key: "learning.curator_adapter", Title: "Curator's agent tool", Kind: KindString, Class: ClassChange, Mode: ModeRestart},
+	{Key: "learning.curator_tier", Title: "Curator's tier", Kind: KindString, Class: ClassChange, Mode: ModeRestart},
+	{Key: "learning.curator_working_dir", Title: "Curator's folder", Kind: KindString, Class: ClassChange, Mode: ModeRestart},
+	{Key: "learning.packet_max_items", Title: "Learn: most items in a packet", Kind: KindInt, Class: ClassChange, Mode: ModeRestart},
+	{Key: "learning.packet_max_bytes", Title: "Learn: largest packet (bytes)", Kind: KindInt, Class: ClassChange, Mode: ModeRestart},
+	{Key: "learning.reflection_timeout", Title: "Learn: reflection timeout", Kind: KindDuration, Class: ClassChange, Mode: ModeRestart},
+	{Key: "learning.reflection_retries", Title: "Learn: reflection retries", Kind: KindInt, Class: ClassChange, Mode: ModeRestart},
+	{Key: "learning.prompt_max_items", Title: "Learn: most items in a prompt", Kind: KindInt, Class: ClassChange, Mode: ModeRestart},
+	{Key: "learning.prompt_max_bytes", Title: "Learn: largest prompt section (bytes)", Kind: KindInt, Class: ClassChange, Mode: ModeRestart},
+	{Key: "learning.consolidation_automatic", Title: "Learn: consolidate on its own", Kind: KindBool, Class: ClassChange, Mode: ModeRestart},
+	{Key: "learning.consolidation_threshold", Title: "Learn: consolidate past", Kind: KindInt, Class: ClassChange, Mode: ModeRestart},
+	{Key: "learning.embedding.enabled", Title: "Learn: semantic search", Kind: KindBool, Class: ClassChange, Mode: ModeRestart},
+	{Key: "learning.embedding.provider", Title: "Learn: embedding provider", Kind: KindString, Class: ClassChange, Mode: ModeRestart},
+	{Key: "learning.embedding.model", Title: "Learn: embedding model", Kind: KindString, Class: ClassChange, Mode: ModeRestart},
+	{Key: "learning.embedding.base_url", Title: "Learn: embedding address", Kind: KindString, Class: ClassChange, Mode: ModeRestart},
+	{Key: "learning.embedding.api_key_env", Title: "Learn: variable with the embedding key", Kind: KindString, Class: ClassRisky, Mode: ModeRestart},
+	{Key: "learning.embedding.timeout", Title: "Learn: embedding timeout", Kind: KindDuration, Class: ClassChange, Mode: ModeRestart},
+	{Key: "learning.embedding.dimensions", Title: "Learn: embedding dimensions", Kind: KindInt, Class: ClassChange, Mode: ModeRestart},
+	{Key: "learning.embedding.batch_size", Title: "Learn: embedding batch size", Kind: KindInt, Class: ClassChange, Mode: ModeRestart},
+
+	// Manticore and integrations.
+	{Key: "manticore.url", Title: "Manticore address", Kind: KindString, Class: ClassChange, Mode: ModeRestart},
+	{Key: "manticore.api_key", Title: "Manticore key", Description: "The name of a secret holding the key.", Kind: KindString, Secret: true, Class: ClassRisky, Mode: ModeRestart},
+	{Key: "integrations.argus.url", Title: "Argus address", Kind: KindString, Class: ClassRisky, Mode: ModeRestart},
+	{Key: "integrations.argus.delivery", Title: "Argus delivery", Kind: KindString, Class: ClassChange, Mode: ModeRestart},
+	{Key: "integrations.argus.agent", Title: "Argus's agent tool", Kind: KindString, Class: ClassChange, Mode: ModeRestart},
+
+	// Review passes.
+	{Key: "review_passes.enabled", Title: "Review passes", Kind: KindBool, Class: ClassChange, Mode: ModeRestart},
+	{Key: "review_passes.reviewer.agent", Title: "Reviewer's agent tool", Kind: KindString, Class: ClassChange, Mode: ModeRestart},
+	{Key: "review_passes.reviewer.model", Title: "Reviewer's model", Kind: KindString, Class: ClassChange, Mode: ModeRestart},
+	{Key: "review_passes.reviewer.tier", Title: "Reviewer's tier", Kind: KindString, Class: ClassChange, Mode: ModeRestart},
+	{Key: "review_passes.reviewer.skill", Title: "Reviewer's skill", Kind: KindString, Class: ClassChange, Mode: ModeRestart},
+	{Key: "review_passes.github_credential", Title: "Reviewer's GitHub credential", Kind: KindString, Class: ClassRisky, Mode: ModeRestart},
+	{Key: "review_passes.max_passes", Title: "Most review passes", Kind: KindInt, Class: ClassChange, Mode: ModeRestart},
+	{Key: "review_passes.pass_timeout", Title: "Review pass timeout", Kind: KindDuration, Class: ClassChange, Mode: ModeRestart},
+	{Key: "review_passes.max_concurrent", Title: "Most review passes at once", Kind: KindInt, Class: ClassChange, Mode: ModeRestart},
+	{Key: "review_passes.review_column", Title: "Review column", Kind: KindString, Class: ClassChange, Mode: ModeRestart},
+	{Key: "review_passes.poll_interval", Title: "Review pass poll interval", Kind: KindDuration, Class: ClassChange, Mode: ModeRestart},
+	{Key: "review_passes.quiet_time", Title: "Review pass quiet time", Kind: KindDuration, Class: ClassChange, Mode: ModeRestart},
+	{Key: "review_passes.counted_bots", Title: "Review bots counted", Kind: KindStrings, Class: ClassChange, Mode: ModeRestart},
+	{Key: "review_passes.required_checks", Title: "Checks a review pass waits for", Kind: KindStrings, Class: ClassChange, Mode: ModeRestart},
+
+	// Burnlite's projects, read on each use.
 	{Key: "burnlite.projects", Title: "Burnlite projects", Description: "The projects searched for import; none is every project.", Kind: KindStrings, Class: ClassChange, Mode: ModeLive, Check: func(v any) error {
 		for _, p := range v.([]string) {
 			if !burnliteProjectPattern.MatchString(p) {
@@ -110,6 +221,17 @@ var registry = []Setting{
 	}},
 }
 
+func nonNegative(v any) error {
+	if v.(int) < 0 {
+		return errors.New("must not be negative")
+	}
+	return nil
+}
+
+// secretRefPattern is a secret's name: legato://<name> in Legato's own
+// store, or op://<vault>/<item>/<field> in 1Password.
+var secretRefPattern = regexp.MustCompile(`^(legato://[A-Za-z0-9][A-Za-z0-9._-]{0,127}|op://[^/\s]+/[^/\s]+/.+)$`)
+
 // fileOnly are the settings that live only in config.yaml: what is needed
 // before the database opens, what unseals secrets, how the instance is
 // reached, and the signing trust root.
@@ -119,6 +241,21 @@ var fileOnly = []string{
 	"web.enabled", "web.port", "web.tls", "web.public_url",
 	"approval_devices.android_app_digests",
 }
+
+// entryLists are the lists of named entries, kept in tables of their own
+// rather than as one value (docs/ai/settings.md § Lists).
+var entryLists = []string{
+	"board.columns", "workspaces", "macros", "adapters", "repositories", "workflows.repositories",
+	"resources", "credentials", "credential_sources", "agents.guidance", "agents.tmux_options",
+	"agents.sandbox.mounts", "swarm.prompts",
+}
+
+// EntryLists lists the keys of the lists of named entries.
+func EntryLists() []string { return slices.Clone(entryLists) }
+
+// SetSetting gives key a value in cfg, as Overlay does: for a secret
+// setting, the secret's value once its name is resolved.
+func SetSetting(cfg *Config, key string, v any) error { return setSettingValue(cfg, key, v) }
 
 // Settings lists the registry, in its order.
 func Settings() []Setting { return slices.Clone(registry) }
@@ -193,6 +330,9 @@ func DecodeSetting(s Setting, raw json.RawMessage) (any, error) {
 		v = list
 	default:
 		return nil, fmt.Errorf("%s: unknown kind %q", s.Key, s.Kind)
+	}
+	if s.Secret && v != "" && !secretRefPattern.MatchString(v.(string)) {
+		return nil, fmt.Errorf("%s holds a secret: give the name of one, legato://<name> in Legato's secret store or op://<vault>/<item>/<field> in 1Password, never the value", s.Key)
 	}
 	if s.Check != nil {
 		if err := s.Check(v); err != nil {
@@ -304,7 +444,7 @@ func Defaults() *Config {
 // SettingValue reads key's value from cfg, pointers followed (nil is the
 // zero value of the pointed type).
 func SettingValue(cfg *Config, key string) (any, error) {
-	field, err := settingField(cfg, key)
+	field, err := settingField(cfg, key, false)
 	if err != nil {
 		return nil, err
 	}
@@ -327,7 +467,7 @@ func pointerDefault(key string, field reflect.Value) any {
 }
 
 func setSettingValue(cfg *Config, key string, v any) error {
-	field, err := settingField(cfg, key)
+	field, err := settingField(cfg, key, true)
 	if err != nil {
 		return err
 	}
@@ -345,10 +485,13 @@ func setSettingValue(cfg *Config, key string, v any) error {
 	return nil
 }
 
-// settingField finds the field of cfg a dotted key names, by yaml tags.
-func settingField(cfg *Config, key string) (reflect.Value, error) {
+// settingField finds the field of cfg a dotted key names, by yaml tags. A
+// nil section on the way (such as integrations.argus) is made when alloc,
+// else read as its zero value.
+func settingField(cfg *Config, key string, alloc bool) (reflect.Value, error) {
 	v := reflect.ValueOf(cfg).Elem()
 	for _, part := range strings.Split(key, ".") {
+		v = section(v, alloc)
 		if v.Kind() != reflect.Struct {
 			return reflect.Value{}, fmt.Errorf("%s: %w", key, ErrUnknownSetting)
 		}
@@ -367,4 +510,19 @@ func settingField(cfg *Config, key string) (reflect.Value, error) {
 		}
 	}
 	return v, nil
+}
+
+// section is v, or the struct a pointer v points to: made when nil and
+// alloc, else a zero value that is not part of the configuration.
+func section(v reflect.Value, alloc bool) reflect.Value {
+	if v.Kind() != reflect.Pointer || v.Type().Elem().Kind() != reflect.Struct {
+		return v
+	}
+	if v.IsNil() {
+		if !alloc {
+			return reflect.New(v.Type().Elem()).Elem()
+		}
+		v.Set(reflect.New(v.Type().Elem()))
+	}
+	return v.Elem()
 }
