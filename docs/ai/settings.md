@@ -23,7 +23,7 @@ Modes are honest: `live` only for `web.tint`, `updates.mode` and `burnlite.proje
 ## Layering
 
 - **Pins.** `config.Load` records every dotted path the file gives a value (`pinnedKeys`: mappings walked, lists and scalars as leaves; `null` gives none). `Config.Pinned(key)` is true for that path or for any path above it that is a leaf (a list given whole). `PinnedKeys` lists the registered ones.
-- **Overlay.** `config.Overlay(cfg, values)` applies JSON values by key to the settings the file does not pin, then runs `validate`: the same checks and normalization `Load` runs on a file (`Load` now calls it too). Its error is `Load`'s error for the same configuration.
+- **Overlay.** `config.Overlay(cfg, values)` applies JSON values by key to the settings the file does not pin, then runs `validate`: the same checks and normalization `Load` runs on a file (`Load` now calls it too). Its error is `Load`'s error for the same configuration. `config.OverlayAll(cfg, values, entries)` applies the values and the list entries first and validates once, so a value may name an entry kept in the database (`default_workspace` a workspace added there); `ApplySettings`, `Effective`, `Check` and `Reset` use it.
 - **Storage.** Migration 098 adds `settings` (`key` primary, `value` JSON, `updated_at`, `updated_by`) and moves the instance values `web.tint`, `updates.mode` and `burnlite.projects` into it, keeping their values. Store: `ListSettings`, `SettingValues`, `GetSetting`, `SetSetting`, `DeleteSetting`. A pinned value is never written here.
 - **The effective configuration.** `service.ApplySettings(ctx, db, cfg, resolve)` overlays the database's values on a configuration loaded from the file, in place. `openStore` (`cmd/legato/database.go`) calls it, so the TUI, `legato serve` and every short-lived command that opens the store read the same effective configuration. When the overlay would be invalid (the file changed since a value was saved), it is skipped and logged: the file's configuration applies, and a database value never stops Legato from starting.
 
@@ -33,7 +33,7 @@ Modes are honest: `live` only for `web.tint`, `updates.mode` and `burnlite.proje
 
 - `Effective`: the file, then the database.
 - `List`, `Get`: each setting with `value`, `source` (`default`, `config.yaml`, `database`), `pinned`, `updated_at`, `updated_by`.
-- `Check`, `Set`: the value by its own rule (`DecodeSetting`), then refused when pinned (`ErrSettingPinned`), then the whole configuration (the file, every database value, the change) through `Overlay`. `Set` keeps the canonical JSON.
+- `Check`, `Set`: the value by its own rule (`DecodeSetting`), then refused when pinned (`ErrSettingPinned`), then the whole configuration (the file, every database value and list entry, the change) through `OverlayAll`. `Set` keeps the canonical JSON.
 - `Reset`: deletes the database value (checked the same way).
 - `RestoreSettings`: a `SettingsRestorer` for restart rollback.
 - `StringSetting`: the `TintStore` shape (`GetInstanceValue`/`SetInstanceValue` by key) over the settings, which `TintService` and `UpdateService` now take instead of the instance values.

@@ -109,3 +109,20 @@ func TestTheOfferToMoveIsOneAttentionItem(t *testing.T) {
 		t.Fatalf("an offer with nothing to move: %+v", items)
 	}
 }
+
+// Moving the workspace that the database's default workspace names keeps
+// both: the configuration is checked once everything is in place.
+func TestMovingTheDefaultWorkspaceKeepsItTheDefault(t *testing.T) {
+	mover, db, _ := newMoveFixture(t, "workspaces:\n  - name: Personal\n    color: \"#ff0000\"\n")
+	ctx := context.Background()
+	if err := mover.Settings.Set(ctx, "default_workspace", []byte(`"Personal"`), "web"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := mover.Move(ctx, SettingsMove{Entries: []EntryRef{{List: "workspaces", Name: "Personal"}}}, "web"); err != nil {
+		t.Fatal(err)
+	}
+	cfg, _ := config.Load()
+	if err := ApplySettings(ctx, db, cfg, nil); err != nil || cfg.DefaultWorkspace != "Personal" || len(cfg.Workspaces) != 1 {
+		t.Fatalf("effective: default %q, workspaces %+v, %v", cfg.DefaultWorkspace, cfg.Workspaces, err)
+	}
+}

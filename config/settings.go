@@ -426,6 +426,23 @@ func pinnedKeys(data []byte) map[string]bool {
 // is checked with the rules Load uses. On an error cfg may be partly
 // changed; load it again.
 func Overlay(cfg *Config, values map[string]json.RawMessage) error {
+	return OverlayAll(cfg, values, nil)
+}
+
+// OverlayAll applies the database's single values and its list entries to
+// cfg, then checks the whole configuration once, so a value may name an
+// entry kept in the database (default_workspace a workspace added there).
+func OverlayAll(cfg *Config, values map[string]json.RawMessage, entries map[string]map[string]json.RawMessage) error {
+	if err := applyValues(cfg, values); err != nil {
+		return err
+	}
+	if err := applyEntries(cfg, entries); err != nil {
+		return err
+	}
+	return validate(cfg)
+}
+
+func applyValues(cfg *Config, values map[string]json.RawMessage) error {
 	keys := make([]string, 0, len(values))
 	for key := range values {
 		keys = append(keys, key)
@@ -444,7 +461,7 @@ func Overlay(cfg *Config, values map[string]json.RawMessage) error {
 			return err
 		}
 	}
-	return validate(cfg)
+	return nil
 }
 
 // Defaults is the configuration of an empty config.yaml.

@@ -198,6 +198,10 @@ func setEntryName(v reflect.Value, nameField, name string) error {
 // leaving out any whose name config.yaml has, then checks the whole
 // configuration with the rules Load uses.
 func OverlayEntries(cfg *Config, entries map[string]map[string]json.RawMessage) error {
+	return OverlayAll(cfg, nil, entries)
+}
+
+func applyEntries(cfg *Config, entries map[string]map[string]json.RawMessage) error {
 	lists := make([]string, 0, len(entries))
 	for list := range entries {
 		lists = append(lists, list)
@@ -222,5 +226,5 @@ func OverlayEntries(cfg *Config, entries map[string]map[string]json.RawMessage) 
 			}
 		}
 	}
-	return validate(cfg)
+	return nil
 }

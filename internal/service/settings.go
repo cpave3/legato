@@ -115,15 +115,10 @@ func ApplySettings(ctx context.Context, db *store.Store, cfg *config.Config, res
 	return nil
 }
 
-// overlayAll applies the database's single values, then its list entries.
+// overlayAll applies the database's single values and its list entries,
+// then checks the whole configuration once.
 func overlayAll(cfg *config.Config, values map[string]json.RawMessage, entries map[string]map[string]json.RawMessage) error {
-	if err := config.Overlay(cfg, values); err != nil {
-		return err
-	}
-	if len(entries) == 0 {
-		return nil
-	}
-	return config.OverlayEntries(cfg, entries)
+	return config.OverlayAll(cfg, values, entries)
 }
 
 // SecretResolver reads the secret a reference names (legato://name,
@@ -311,7 +306,11 @@ func (s *SettingsService) Check(ctx context.Context, key string, raw json.RawMes
 		return nil, err
 	}
 	values[key] = canonical
-	if err := config.Overlay(cfg, values); err != nil {
+	entries, err := s.db.SettingEntries(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if err := overlayAll(cfg, values, entries); err != nil {
 		return nil, err
 	}
 	return canonical, nil
@@ -354,7 +353,11 @@ func (s *SettingsService) Reset(ctx context.Context, key string) error {
 		return err
 	}
 	delete(values, key)
-	if err := config.Overlay(cfg, values); err != nil {
+	entries, err := s.db.SettingEntries(ctx)
+	if err != nil {
+		return err
+	}
+	if err := overlayAll(cfg, values, entries); err != nil {
 		return err
 	}
 	if err := s.db.DeleteSetting(ctx, key); err != nil {

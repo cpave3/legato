@@ -221,3 +221,23 @@ func TestAListIsTheFilesEntriesPlusTheDatabases(t *testing.T) {
 		t.Fatalf("removing the file's entry: %v", err)
 	}
 }
+
+// A setting may name a list entry kept in the database: the default
+// workspace may be a workspace added here.
+func TestASettingMayNameAListEntryKeptInTheDatabase(t *testing.T) {
+	settings, db := newSettingsFixture(t, "")
+	ctx := context.Background()
+	if err := settings.SetEntry(ctx, "workspaces", "Personal", json.RawMessage(`{"color":"#ff0000"}`), "web"); err != nil {
+		t.Fatal(err)
+	}
+	if err := settings.Set(ctx, "default_workspace", json.RawMessage(`"Personal"`), "web"); err != nil {
+		t.Fatalf("Set default_workspace = %v", err)
+	}
+	cfg, _ := config.Load()
+	if err := ApplySettings(ctx, db, cfg, nil); err != nil || cfg.DefaultWorkspace != "Personal" || len(cfg.Workspaces) != 1 {
+		t.Fatalf("applied: default %q, workspaces %v, %v", cfg.DefaultWorkspace, cfg.Workspaces, err)
+	}
+	if err := settings.Reset(ctx, "agents.reviews"); err != nil {
+		t.Fatalf("Reset beside it = %v", err)
+	}
+}
