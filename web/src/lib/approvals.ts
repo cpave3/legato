@@ -123,12 +123,17 @@ export interface ChangeSetCall {
   applies_at_restart?: boolean
   unreached?: string[]
   as_root?: boolean
+  // A config.yaml edit's diff, and what loading the edited copy said.
+  diff?: string
+  check?: string
+  optional?: boolean
 }
 
 export function approvalKind(approval: Approval): string {
   switch (approval.source) {
     case "reeve_change_set": return "Change set"
     case "reeve_rules": return "The Reeve's rules"
+    case "reeve_secret": return "Secret for the Reeve"
     case "agent_permission": return approval.details.plan ? "Plan" : "Permission"
     case "agent_question": return "Question"
     case "credential": return "Credential"

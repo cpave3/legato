@@ -77,7 +77,10 @@ func startApprovals(ctx context.Context, cfg *config.Config, db *store.Store, bu
 	stops = append(stops, broker.Stop)
 	rt.brokerOwner = broker.Owner
 	// Approved change sets are run by the process that serves the broker.
-	go whileBrokerOwner(ctx, broker.Owner, 2*time.Second, func(ctx context.Context) { changeSets.RunQueued(ctx) })
+	go whileBrokerOwner(ctx, broker.Owner, 2*time.Second, func(ctx context.Context) {
+		changeSets.RunQueued(ctx)
+		changeSets.ReportRestarts(ctx, processStart, version.String())
+	})
 	if rt.caseReplies != nil {
 		// Replies are sent by the process that serves the broker.
 		repliesCtx, stopReplies := context.WithCancel(ctx)

@@ -445,17 +445,23 @@ func ResolveConfigPath() string {
 // Load reads and parses the config file, expanding env vars and applying defaults.
 // Returns a default config without error if the file does not exist.
 func Load() (*Config, error) {
-	path := ResolveConfigPath()
-
-	cfg := defaults()
-
-	data, err := os.ReadFile(path)
+	data, err := os.ReadFile(ResolveConfigPath())
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
+			cfg := defaults()
+			cfg.pins = map[string]bool{}
+			recordFileEntries(cfg)
 			return cfg, nil
 		}
 		return nil, err
 	}
+	return LoadBytes(data)
+}
+
+// LoadBytes reads a config.yaml from data, as Load reads the file: for a
+// check of an edited copy before it is written.
+func LoadBytes(data []byte) (*Config, error) {
+	cfg := defaults()
 
 	// Capture macros from the raw file before os.ExpandEnv touches $VARs.
 	// Macros are sent verbatim to agent tmux panes, so env vars inside

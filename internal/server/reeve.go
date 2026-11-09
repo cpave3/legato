@@ -42,6 +42,7 @@ func (s *Server) registerReeveRoutes(mux *routeMux) {
 	mux.HandleFunc("DELETE /api/reeve/sessions/{task_id}", s.reeveDeleteHandler())
 	mux.HandleFunc("POST /api/reeve/message", s.reeveMessageHandler())
 	mux.HandleFunc("GET /api/reeve/sessions/{task_id}/change-sets", s.reeveChangeSetsHandler())
+	mux.HandleFunc("POST /api/reeve/secrets/{approval_id}", s.reeveSecretHandler())
 }
 
 // serveReeveToken lets a Reeve API token reach the read routes only: a
@@ -254,5 +255,41 @@ func (s *Server) reeveChangeSetsHandler() http.HandlerFunc {
 			lines = append(lines, line)
 		}
 		s.writeJSON(w, http.StatusOK, map[string]any{"change_sets": lines})
+	}
+}
+
+// ReeveSecretKeeper stores a secret the person pasted for the Reeve
+// (service.ReeveSecrets).
+type ReeveSecretKeeper interface {
+	Fulfil(ctx context.Context, approvalID, value string) (string, error)
+}
+
+// SetReeveSecrets lets the person answer the Reeve's requests for secrets.
+func (s *Server) SetReeveSecrets(secrets ReeveSecretKeeper) { s.reeveSecrets = secrets }
+
+// reeveSecretHandler serves POST /api/reeve/secrets/{approval_id} {value}:
+// the value goes to the secret store, and the Reeve is given its name.
+func (s *Server) reeveSecretHandler() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if s.reeveSecrets == nil {
+			s.writeError(w, http.StatusServiceUnavailable, "secrets cannot be stored here")
+			return
+		}
+		var in struct {
+			Value string `json:"value"`
+		}
+		if json.NewDecoder(r.Body).Decode(&in) != nil {
+			s.writeError(w, http.StatusBadRequest, "want {\"value\": …}")
+			return
+		}
+		ref, err := s.reeveSecrets.Fulfil(r.Context(), r.PathValue("approval_id"), in.Value)
+		switch {
+		case errors.Is(err, service.ErrSecretRequestClosed), errors.Is(err, store.ErrNotFound):
+			s.writeError(w, http.StatusConflict, "this request for a secret is no longer open")
+		case err != nil:
+			s.writeError(w, http.StatusBadRequest, err.Error())
+		default:
+			s.writeJSON(w, http.StatusOK, map[string]string{"ref": ref})
+		}
 	}
 }

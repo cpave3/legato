@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"sort"
 	"strings"
 	"time"
 
@@ -31,6 +32,13 @@ type MCPReeve struct {
 	// ChangeSets puts the Reeve's changes to the person (propose_changes,
 	// and a change made with legato_api).
 	ChangeSets MCPChangeSets
+	// Secrets asks the person for a secret (request_secret).
+	Secrets MCPSecrets
+}
+
+// MCPSecrets asks the person for a secret (service.ReeveSecrets).
+type MCPSecrets interface {
+	Request(ctx context.Context, taskID, name, purpose string) (service.SecretOutcome, error)
 }
 
 // MCPChangeSets proposes a change set (service.ChangeSetService).
@@ -46,7 +54,10 @@ func (m *mcpTools) reeveSession() bool {
 func (m *mcpTools) reeveTools() []mcpserver.Tool {
 	tools := []mcpserver.Tool{m.reeveDocs(), m.reeveStatus(), m.reeveLogs(), m.reeveAPI()}
 	if m.opts.Reeve.ChangeSets != nil {
-		tools = append(tools, m.proposeChanges())
+		tools = append(tools, m.proposeChanges(), m.restartLegato(), m.proposeConfigEdit())
+	}
+	if m.opts.Reeve.Secrets != nil {
+		tools = append(tools, m.requestSecret())
 	}
 	return tools
 }
@@ -163,8 +174,8 @@ func (m *mcpTools) reeveLogs() mcpserver.Tool {
 }
 
 type reeveAPIInput struct {
-	Method string          `json:"method" jsonschema:"GET, POST, PUT, PATCH or DELETE"`
-	Path   string          `json:"path" jsonschema:"the route, starting /api/, with its query string"`
+	Method string         `json:"method" jsonschema:"GET, POST, PUT, PATCH or DELETE"`
+	Path   string         `json:"path" jsonschema:"the route, starting /api/, with its query string"`
 	Body   map[string]any `json:"body,omitempty" jsonschema:"the JSON body, for a route that takes one"`
 	Reason string         `json:"reason,omitempty" jsonschema:"for a change: one line saying why, shown to the person with it"`
 }
@@ -295,4 +306,87 @@ func noteOrNone(note string) string {
 		return "(no note)"
 	}
 	return note
+}
+
+type restartLegatoInput struct {
+	Reason string `json:"reason" jsonschema:"one line saying why Legato should restart"`
+}
+
+func (m *mcpTools) restartLegato() mcpserver.Tool {
+	return mcpserver.NewTool(mcpserver.Definition{
+		Name: "restart_legato", Title: "Restart Legato",
+		Description: "Proposes a restart of every Legato process of this instance, as a change set for the person to approve. Agents keep running. A restart whose start fails is rolled back. When Legato is back, a [legato] message says so.",
+	}, func(ctx context.Context, in restartLegatoInput) (mcpserver.Result, error) {
+		if err := m.mustBeReeve(ctx); err != nil {
+			return mcpserver.Result{}, err
+		}
+		reason := strings.TrimSpace(in.Reason)
+		if reason == "" {
+			reason = "restart Legato"
+		}
+		return m.propose(ctx, reason, []service.ChangeCall{{Kind: service.CallRestart}})
+	})
+}
+
+type configEditInput struct {
+	Reason string         `json:"reason" jsonschema:"one line saying why"`
+	Set    map[string]any `json:"set,omitempty" jsonschema:"keys to give a value, dotted as in config.yaml (web.port, agents.sandbox.enabled), with their values"`
+	Remove []string       `json:"remove,omitempty" jsonschema:"dotted keys to take out of config.yaml"`
+}
+
+func (m *mcpTools) proposeConfigEdit() mcpserver.Tool {
+	return mcpserver.NewTool(mcpserver.Definition{
+		Name: "propose_config_edit", Title: "Propose an edit to config.yaml",
+		Description: "Proposes an edit to this instance's config.yaml (for a file-only setting, or one config.yaml pins): Legato checks the edited copy loads, shows the person a diff, and writes it with its comments kept and a backup, then restarts. The person may leave the restart out; the edit then waits for the next one.",
+	}, func(ctx context.Context, in configEditInput) (mcpserver.Result, error) {
+		if err := m.mustBeReeve(ctx); err != nil {
+			return mcpserver.Result{}, err
+		}
+		var edits []service.ConfigEdit
+		keys := make([]string, 0, len(in.Set))
+		for key := range in.Set {
+			keys = append(keys, key)
+		}
+		sort.Strings(keys)
+		for _, key := range keys {
+			edits = append(edits, service.ConfigEdit{Key: key, Value: in.Set[key]})
+		}
+		for _, key := range in.Remove {
+			edits = append(edits, service.ConfigEdit{Key: key, Remove: true})
+		}
+		if len(edits) == 0 {
+			return mcpserver.Result{}, fmt.Errorf("give keys to set or remove")
+		}
+		return m.propose(ctx, in.Reason, []service.ChangeCall{{Kind: service.CallConfigEdit, Edits: edits}, {Kind: service.CallRestart, Optional: true}})
+	})
+}
+
+type requestSecretInput struct {
+	Name    string `json:"name" jsonschema:"the name to keep the secret under, as elevenlabs-key"`
+	Purpose string `json:"purpose" jsonschema:"what it is for, shown to the person"`
+}
+
+func (m *mcpTools) requestSecret() mcpserver.Tool {
+	return mcpserver.NewTool(mcpserver.Definition{
+		Name: "request_secret", Title: "Ask the person for a secret",
+		Description: "Asks the person to paste a secret (an API key, a token) into a form in Legato, which keeps it in its secret store. You get its name to use (legato://<name>, in a setting or a credential), never its value. Never ask for a secret in the conversation.",
+	}, func(ctx context.Context, in requestSecretInput) (mcpserver.Result, error) {
+		if err := m.mustBeReeve(ctx); err != nil {
+			return mcpserver.Result{}, err
+		}
+		out, err := m.opts.Reeve.Secrets.Request(ctx, m.opts.TaskID, in.Name, in.Purpose)
+		if err != nil {
+			return mcpserver.Result{}, err
+		}
+		var text string
+		switch out.State {
+		case "stored":
+			text = "The person stored the secret. Use it by its name: " + out.Ref
+		case "declined":
+			text = "The person declined to give the secret."
+		default:
+			text = "The request waits in the person's approval tray (" + out.ApprovalID + "). A [legato] message does not follow: call request_secret again later, or ask the person."
+		}
+		return mcpserver.Result{Text: text, Data: out}, nil
+	})
 }

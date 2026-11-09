@@ -37,7 +37,7 @@ export function ChangeSetCard({ approval }: { approval: Approval }) {
               <div className="flex flex-wrap items-center gap-1.5">
                 <span className="text-lw-faint">{i + 1}.</span>
                 <span className={cn("rounded px-1.5 text-[11px] font-medium uppercase", kind.tone)}>{kind.label}</span>
-                <span className="font-lw-mono text-lw-text">{call.kind === "restart" ? "restart Legato" : `${call.method} ${call.path}`}</span>
+                <span className="font-lw-mono text-lw-text">{call.kind === "restart" ? "restart Legato" : call.kind === "config_edit" ? "edit config.yaml" : `${call.method} ${call.path}`}</span>
               </div>
               <p className="mt-0.5 text-lw-text-2">{call.description}</p>
               {call.setting && (
@@ -46,6 +46,16 @@ export function ChangeSetCard({ approval }: { approval: Approval }) {
                   <span aria-hidden="true" className="px-1 text-lw-faint">→</span>
                   <span className="text-lw-live">{show(call.after)}</span>
                 </p>
+              )}
+              {call.diff && (
+                <>
+                  <pre className="mt-1 max-h-48 overflow-auto font-lw-mono text-[11px]" data-testid="config-diff">
+                    {call.diff.split("\n").filter(Boolean).map((line, n) => (
+                      <span key={n} className={cn("block", line.startsWith("+ ") ? "text-lw-live" : line.startsWith("- ") ? "text-lw-error" : "text-lw-faint")}>{line}</span>
+                    ))}
+                  </pre>
+                  {call.check && <p className="mt-1 text-lw-text-2">The edited config.yaml {call.check === "loads" ? "loads" : `does not load: ${call.check}`}.</p>}
+                </>
               )}
               {call.applies_at_restart && <p className="mt-1 text-lw-needs">Applies at restart.</p>}
               {call.unreached && call.unreached.length > 0 && (

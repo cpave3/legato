@@ -74,3 +74,16 @@ export async function fetchChangeSetLines(baseUrl: string, taskId: string): Prom
   const body = await response.json() as { change_sets: ChangeSetLine[] }
   return body.change_sets ?? []
 }
+
+// storeReeveSecret stores the value the person pasted for the Reeve's
+// request; the Reeve gets only its name.
+export async function storeReeveSecret(baseUrl: string, approvalId: string, value: string): Promise<string> {
+  const response = await apiFetch(baseUrl, `/api/reeve/secrets/${encodeURIComponent(approvalId)}`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ value }),
+  })
+  if (!response.ok) throw await failed(response)
+  const body = await response.json() as { ref: string }
+  return body.ref
+}

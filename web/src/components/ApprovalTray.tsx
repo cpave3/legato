@@ -1,4 +1,5 @@
 import { ChangeSetCard } from "./ChangeSetCard"
+import { SecretRequestForm } from "./SecretRequestForm"
 import { useEffect, useRef, useState } from "react"
 import { createPortal } from "react-dom"
 import { Link, useSearchParams } from "react-router-dom"
@@ -226,6 +227,7 @@ function ApprovalCard({ approval, focused, onDone }: { approval: Approval; focus
 
       {approval.source === "credential" && <CredentialScope approval={approval} />}
       {approval.source === "reeve_change_set" && <ChangeSetCard approval={approval} />}
+      {approval.source === "reeve_secret" && <SecretRequestForm approval={approval} baseUrl={baseUrl} onDone={onDone} />}
 
       {questions.length > 0 ? (
         <div className="-mx-4 mt-1">
@@ -239,7 +241,7 @@ function ApprovalCard({ approval, focused, onDone }: { approval: Approval; focus
         </div>
       ) : (
         <>
-          {approval.source !== "credential" && approval.source !== "reeve_change_set" && (details.command || approval.summary) && !details.plan && (
+          {approval.source !== "credential" && approval.source !== "reeve_change_set" && approval.source !== "reeve_secret" && (details.command || approval.summary) && !details.plan && (
             <pre className="mt-3 max-h-48 overflow-auto whitespace-pre-wrap break-words rounded-lg bg-lw-ground p-3 font-lw-mono text-sm md:mt-2 md:max-h-40 md:rounded md:p-2 md:text-xs">{details.command || approval.summary}</pre>
           )}
           {details.plan && (
@@ -298,7 +300,7 @@ function ApprovalCard({ approval, focused, onDone }: { approval: Approval; focus
                   <span aria-hidden>◈ </span>Needs your phone: open this approval in the Legato app and sign it with your fingerprint or PIN, or add a passkey for this computer in Settings › Devices.
                 </p>
               )}
-              {!approval.signed && allows.map((option, index) => (
+              {!approval.signed && approval.source !== "reeve_secret" && allows.map((option, index) => (
                 <button
                   key={option.id}
                   disabled={busy}

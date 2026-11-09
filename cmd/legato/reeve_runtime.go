@@ -97,6 +97,9 @@ func reeveTools(cfg *config.Config, db *store.Store) *cli.MCPReeve {
 	if processChangeSets != nil {
 		tools.ChangeSets = processChangeSets
 	}
+	if processSecrets != nil {
+		tools.Secrets = processSecrets
+	}
 	if cfg.Web.Enabled || (len(os.Args) > 1 && os.Args[1] == "serve") {
 		scheme := "http"
 		if tlsEnabled(cfg) {

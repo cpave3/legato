@@ -181,3 +181,75 @@ func TestADenialPassesTheNoteToTheReeve(t *testing.T) {
 		t.Fatal("a denied set ran")
 	}
 }
+
+func TestAConfigEditIsCheckedShownAsADiffAndItsRestartCanBeLeftOut(t *testing.T) {
+	f := newChangeSetFixture(t)
+	ctx := context.Background()
+	path := os.Getenv("LEGATO_CONFIG")
+	os.WriteFile(path, []byte("# Mine.\ntheme: default\n"), 0o600)
+
+	if _, err := f.svc.Propose(ctx, f.reeve, "bad edit", []ChangeCall{{Kind: CallConfigEdit, Edits: []ConfigEdit{{Key: "github.auth", Value: "nonsense"}}}}); err == nil || !strings.Contains(err.Error(), "does not load") {
+		t.Fatalf("an edit that does not load: %v", err)
+	}
+
+	out, err := f.svc.Propose(ctx, f.reeve, "Nerd Font icons", []ChangeCall{
+		{Kind: CallConfigEdit, Edits: []ConfigEdit{{Key: "icons", Value: "nerdfonts"}}},
+		{Kind: CallRestart, Optional: true},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	approval, _ := f.devices.approvals.Get(ctx, out.ApprovalID)
+	var details ChangeSetDetails
+	json.Unmarshal(approval.Details, &details)
+	if !strings.Contains(details.Calls[0].Diff, "+ icons: nerdfonts") || details.Calls[0].Check != "loads" {
+		t.Fatalf("edit call = %+v", details.Calls[0])
+	}
+	if len(approval.Options) != 3 || approval.Options[1].ID != OptionNoRestart {
+		t.Fatalf("options = %+v", approval.Options)
+	}
+
+	if _, err := f.devices.approvals.Decide(ctx, out.ApprovalID, ApprovalDecision{Decision: ApprovalAllow, Option: OptionNoRestart, By: "web"}); err != nil {
+		t.Fatal(err)
+	}
+	f.svc.RunQueued(ctx)
+	if file, _ := os.ReadFile(path); !strings.Contains(string(file), "icons: nerdfonts") || !strings.Contains(string(file), "# Mine.") {
+		t.Fatalf("config.yaml = %s", file)
+	}
+	if f.restarts != 0 || !strings.Contains(f.notes[0], "next restart") {
+		t.Fatalf("restarts %d, notes %v", f.restarts, f.notes)
+	}
+}
+
+// After a restart a set asked for, the Reeve is told Legato is back, with
+// each step's result and the settings now in effect; once.
+func TestLegatoIsBackIsSentAfterARestartOnce(t *testing.T) {
+	f := newChangeSetFixture(t)
+	ctx := context.Background()
+	out, _ := f.svc.Propose(ctx, f.reeve, "turn reviews off", []ChangeCall{
+		{Kind: CallAPI, Method: "PUT", Path: "/api/config/settings/agents.reviews", Body: json.RawMessage(`{"value":false}`)},
+		{Kind: CallRestart},
+	})
+	f.decide(t, out.ApprovalID, ApprovalAllow, "")
+	f.svc.RunQueued(ctx)
+	if f.restarts != 1 {
+		t.Fatal("no restart")
+	}
+	// The process that restarted it reports nothing; the next one does.
+	if n := f.svc.ReportRestarts(ctx, time.Now().Add(-time.Hour), "v1.2.3"); n != 0 {
+		t.Fatal("reported before the restart")
+	}
+	back := time.Now().Add(time.Second)
+	if n := f.svc.ReportRestarts(ctx, back, "v1.2.3"); n != 1 {
+		t.Fatalf("reported %d", n)
+	}
+	last := f.notes[len(f.notes)-1]
+	for _, want := range []string{"Legato is back", "v1.2.3", "turn reviews off", "1. ", "applied", "Now in effect: agents.reviews"} {
+		if !strings.Contains(last, want) {
+			t.Fatalf("message lacks %q:\n%s", want, last)
+		}
+	}
+	if n := f.svc.ReportRestarts(ctx, back, "v1.2.3"); n != 0 {
+		t.Fatal("reported twice")
+	}
+}

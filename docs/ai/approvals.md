@@ -66,6 +66,10 @@ Some decisions can be made only by a person at an enrolled phone, with a key the
 
 Source `reeve_change_set`: the calls the Reeve proposed together for one step, at the level of the strictest (`signed`, `verified` set to match), every call in the details. Its resolver queues the set; the broker's process runs it. A session's pending ones expire when it ends. See [The Reeve](reeve.md) § Change sets. The tray shows it as `ChangeSetCard`: each change with its kind, route and before-and-after.
 
+### The Reeve's secrets
+
+Source `reeve_secret`: the Reeve asks for a secret by name. The tray's form stores the value through `POST /api/reeve/secrets/{id}`; the approval never holds it. See [The Reeve](reeve.md) § Restart, config edits and secrets as tools.
+
 ### Rules of the Reeve
 
 Source `reeve_rules`: a change to one of the Reeve's own rules (`reeve.levels.*`, `reeve.rules`), always `signed`; its resolver applies the change once allowed. See [The Reeve](reeve.md) § Levels and rules.

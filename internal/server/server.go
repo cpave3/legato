@@ -41,6 +41,7 @@ type Server struct {
 	reeve                    ReeveSessions
 	reeveRules               ReeveRuleProposer
 	reeveChangeSets          ReeveChangeSets
+	reeveSecrets             ReeveSecretKeeper
 	settingsMover            SettingsMover
 	moveRestart              func()
 	addr                     string

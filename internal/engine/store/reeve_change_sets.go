@@ -8,14 +8,16 @@ import (
 
 // Change set states.
 const (
-	ChangeSetPending    = "pending"
-	ChangeSetQueued     = "queued"
-	ChangeSetRunning    = "running"
-	ChangeSetDone       = "done"
-	ChangeSetFailed     = "failed"
-	ChangeSetDenied     = "denied"
-	ChangeSetExpired    = "expired"
-	ChangeSetRestarting = "restarting"
+	ChangeSetPending = "pending"
+	ChangeSetQueued  = "queued"
+	// ChangeSetQueuedNoRestart: approved, its optional restart left out.
+	ChangeSetQueuedNoRestart = "queued_no_restart"
+	ChangeSetRunning         = "running"
+	ChangeSetDone            = "done"
+	ChangeSetFailed          = "failed"
+	ChangeSetDenied          = "denied"
+	ChangeSetExpired         = "expired"
+	ChangeSetRestarting      = "restarting"
 )
 
 // ReeveChangeSet is one change set of the Reeve. Calls and Results are

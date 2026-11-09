@@ -13,6 +13,7 @@ import (
 
 	"github.com/cpave3/legato/config"
 	"github.com/cpave3/legato/internal/engine/auth"
+	"github.com/cpave3/legato/internal/engine/credential"
 	"github.com/cpave3/legato/internal/engine/store"
 	"github.com/cpave3/legato/internal/server"
 	"github.com/cpave3/legato/internal/service"
@@ -23,6 +24,13 @@ import (
 // applies decisions on them, and runs the approved ones while this
 // process serves the broker.
 var processChangeSets *service.ChangeSetService
+
+// processSecrets asks the person for the Reeve's secrets.
+var processSecrets *service.ReeveSecrets
+
+// processStart is when this process started: a set that ended in a restart
+// before it is reported as Legato being back.
+var processStart = time.Now()
 
 // startChangeSets makes the change set service of this process and runs
 // approved sets in the background while it serves the broker.
@@ -51,6 +59,8 @@ func startChangeSets(ctx context.Context, cfg *config.Config, db *store.Store, a
 		},
 	})
 	changeSets.Register()
+	processSecrets = &service.ReeveSecrets{Approvals: approvals, Sink: legatoSecretSink{cfg: cfg, db: db}}
+	processSecrets.Register()
 	if owner != nil {
 		go whileBrokerOwner(ctx, owner, 2*time.Second, func(ctx context.Context) { changeSets.RunQueued(ctx) })
 	}
@@ -107,4 +117,18 @@ func notifyReeve(ctx context.Context, db *store.Store, reeve *service.ReeveServi
 		return
 	}
 	_ = reeve.Message(ctx, text, "legato")
+}
+
+// legatoSecretSink keeps secrets the person pasted for the Reeve in
+// Legato's own sealed store.
+type legatoSecretSink struct {
+	cfg *config.Config
+	db  *store.Store
+}
+
+func (s legatoSecretSink) Put(ctx context.Context, name, value string) (string, error) {
+	if err := configuredSecretStore(s.cfg, s.db).Add(ctx, name, credential.TypeValue, []byte(value)); err != nil {
+		return "", err
+	}
+	return "legato://" + name, nil
 }

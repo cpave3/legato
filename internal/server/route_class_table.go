@@ -289,4 +289,5 @@ var routeClassTable = []routeClassEntry{
 	{"DELETE", "/api/reeve/sessions/{task_id}", ClassRisky, "Delete a Reeve session"},
 	{"POST", "/api/reeve/message", ClassChange, "Send the Reeve a message"},
 	{"GET", "/api/reeve/sessions/{task_id}/change-sets", ClassRead, "List a Reeve session's change sets"},
+	{"POST", "/api/reeve/secrets/{approval_id}", ClassNever, "Store a secret the person pasted"},
 }

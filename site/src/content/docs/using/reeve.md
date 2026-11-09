@@ -43,6 +43,12 @@ The approval card says where the set comes from (the Reeve and the instance), it
 
 Ending a session withdraws the change sets still waiting for you; a suspended session keeps them.
 
+### Restarts, config.yaml and secrets
+
+- The Reeve can propose a **restart** of Legato. When Legato is back, the Reeve is told: when it restarted, on which version, how each step went, and which settings now apply.
+- It can propose an **edit to `config.yaml`**, for a setting that lives only in the file or one the file pins. Legato checks the edited file loads before it asks you, and shows you the change as a diff. Approved, it writes the file with its comments kept and the old one beside it as a backup, then restarts. **Approve without the restart** writes the file and leaves the restart for later.
+- When it needs a **secret** (an API key, a token), it asks for it by name, and a form in the approval tray takes the value. Legato keeps it in its own secret store, and the Reeve only ever gets the name. Never paste a secret into the conversation.
+
 ## What a change needs
 
 Each change the Reeve proposes needs your approval, at a level set in Settings › Reeve:

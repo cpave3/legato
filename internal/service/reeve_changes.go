@@ -23,9 +23,13 @@ const ApprovalSourceReeveChangeSet = "reeve_change_set"
 
 // Kinds of call in a change set.
 const (
-	CallAPI     = "api"
-	CallRestart = "restart"
+	CallAPI        = "api"
+	CallRestart    = "restart"
+	CallConfigEdit = "config_edit"
 )
+
+// OptionNoRestart approves a set but leaves out its optional restart.
+const OptionNoRestart = "allow_no_restart"
 
 var (
 	// ErrNeverCall: a call the Reeve may never make, whatever is approved.
@@ -40,6 +44,11 @@ type ChangeCall struct {
 	Method string          `json:"method,omitempty"`
 	Path   string          `json:"path,omitempty"`
 	Body   json.RawMessage `json:"body,omitempty"`
+	// Edits are a config_edit's edits to config.yaml.
+	Edits []ConfigEdit `json:"edits,omitempty"`
+	// Optional marks a restart the person may untick: the change waits
+	// for the next restart.
+	Optional bool `json:"optional,omitempty"`
 }
 
 // ProposedCall is a call as the approval shows it and as Legato runs it:
@@ -59,6 +68,10 @@ type ProposedCall struct {
 	// Unreached are the running agents a new-agents-mode setting does not
 	// reach.
 	Unreached []string `json:"unreached,omitempty"`
+	// Diff is a config_edit's diff of config.yaml; Check what loading the
+	// edited copy said ("loads", or the error).
+	Diff  string `json:"diff,omitempty"`
+	Check string `json:"check,omitempty"`
 }
 
 // ChangeSetDetails is what the approval of a set holds: everything Legato
@@ -105,6 +118,8 @@ type ChangeSetOptions struct {
 	Settings  *SettingsService
 	Classify  RouteClassifier
 	Run       CallRunner
+	// ConfigPath is config.yaml (config.ResolveConfigPath when nil).
+	ConfigPath func() string
 	// Restart restarts Legato, last in a set.
 	Restart func()
 	// Notify sends a message to a Reeve session ([legato] results, a
@@ -162,7 +177,24 @@ func (c *ChangeSetService) Describe(ctx context.Context, reason string, calls []
 		switch call.Kind {
 		case CallRestart:
 			p.Class, p.Description = "risky", "Restart Legato"
+			if call.Optional {
+				p.Description = "Restart Legato (you can leave this out: the change then waits for the next restart)"
+			}
 			p.Level = ReeveLevelFor(cfg.Reeve, p.Class, "restart", enrolled)
+		case CallConfigEdit:
+			if len(call.Edits) == 0 {
+				return details, fmt.Errorf("call %d: a config.yaml edit needs edits", i+1)
+			}
+			p.Class, p.Description = "risky", "Edit config.yaml"
+			diff, loadErr, err := CheckConfigEdit(c.configPath(), call.Edits)
+			if err != nil {
+				return details, fmt.Errorf("call %d: %w", i+1, err)
+			}
+			if loadErr != "" {
+				return details, fmt.Errorf("call %d: the edited config.yaml does not load: %s", i+1, loadErr)
+			}
+			p.Diff, p.Check = diff, "loads"
+			p.Level = ReeveLevelFor(cfg.Reeve, p.Class, "config_edit", enrolled)
 		case CallAPI, "":
 			p.Kind = CallAPI
 			p.Method = strings.ToUpper(strings.TrimSpace(call.Method))
@@ -227,6 +259,23 @@ func (c *ChangeSetService) describeSetting(ctx context.Context, cfg *config.Conf
 	}
 }
 
+func (c *ChangeSetService) configPath() string {
+	if c.opts.ConfigPath != nil {
+		return c.opts.ConfigPath()
+	}
+	return config.ResolveConfigPath()
+}
+
+// optionalRestart reports whether a set's restart may be left out.
+func optionalRestart(calls []ProposedCall) bool {
+	for _, call := range calls {
+		if call.Kind == CallRestart && call.Optional {
+			return true
+		}
+	}
+	return false
+}
+
 // Propose makes a change set of calls for a Reeve session and puts it to
 // the person as one approval at its strictest level, then waits for the
 // decision (60 seconds). A signed level with no device enrolled refuses
@@ -250,11 +299,17 @@ func (c *ChangeSetService) Propose(ctx context.Context, taskID, reason string, c
 	if title == "" {
 		title = fmt.Sprintf("%d changes from the Reeve", len(details.Calls))
 	}
+	options := []ApprovalOption{{ID: "allow", Label: "Approve", Kind: ApprovalAllow}}
+	if optionalRestart(details.Calls) {
+		options = append(options, ApprovalOption{ID: OptionNoRestart, Label: "Approve without the restart", Kind: ApprovalAllow,
+			Description: "The change is made; it takes effect at the next restart."})
+	}
+	options = append(options, ApprovalOption{ID: "deny", Label: "Deny", Kind: ApprovalDeny})
 	approval, _, err := c.opts.Approvals.Submit(ctx, ApprovalInput{
 		Source: ApprovalSourceReeveChangeSet, SourceKey: details.ID, TaskID: taskID,
 		Title: title, Summary: changeSetSummary(details), Details: details,
 		Signed: details.Level == LevelSigned || details.Level == LevelVerified, Verified: details.Level == LevelVerified,
-		Options: []ApprovalOption{{ID: "allow", Label: "Approve", Kind: ApprovalAllow}, {ID: "deny", Label: "Deny", Kind: ApprovalDeny}},
+		Options: options,
 	})
 	if err != nil {
 		return ChangeSetOutcome{}, err
@@ -294,7 +349,11 @@ func (r changeSetResolver) Resolve(ctx context.Context, approval Approval, decis
 		return err
 	}
 	if decision.Decision == ApprovalAllow {
-		_, err := r.c.opts.Store.MoveReeveChangeSet(ctx, set.ID, store.ChangeSetPending, store.ChangeSetQueued)
+		to := store.ChangeSetQueued
+		if decision.Option == OptionNoRestart {
+			to = store.ChangeSetQueuedNoRestart
+		}
+		_, err := r.c.opts.Store.MoveReeveChangeSet(ctx, set.ID, store.ChangeSetPending, to)
 		return err
 	}
 	if moved, err := r.c.opts.Store.MoveReeveChangeSet(ctx, set.ID, store.ChangeSetPending, store.ChangeSetDenied); err != nil || !moved {
@@ -320,13 +379,13 @@ func (c *ChangeSetService) RunQueued(ctx context.Context) int {
 	}
 	ran := 0
 	for _, set := range sets {
-		if set.State != store.ChangeSetQueued {
+		if set.State != store.ChangeSetQueued && set.State != store.ChangeSetQueuedNoRestart {
 			continue
 		}
-		if claimed, err := c.opts.Store.MoveReeveChangeSet(ctx, set.ID, store.ChangeSetQueued, store.ChangeSetRunning); err != nil || !claimed {
+		if claimed, err := c.opts.Store.MoveReeveChangeSet(ctx, set.ID, set.State, store.ChangeSetRunning); err != nil || !claimed {
 			continue
 		}
-		c.run(ctx, set)
+		c.run(ctx, set, set.State == store.ChangeSetQueuedNoRestart)
 		ran++
 	}
 	return ran
@@ -334,7 +393,7 @@ func (c *ChangeSetService) RunQueued(ctx context.Context) int {
 
 // run runs a claimed set's calls in order, a restart last, stopping at the
 // first failure, and tells the Reeve.
-func (c *ChangeSetService) run(ctx context.Context, set store.ReeveChangeSet) {
+func (c *ChangeSetService) run(ctx context.Context, set store.ReeveChangeSet, noRestart bool) {
 	var details ChangeSetDetails
 	if approval, err := c.opts.Approvals.Get(ctx, set.ApprovalID); err == nil {
 		_ = json.Unmarshal(approval.Details, &details)
@@ -355,9 +414,17 @@ func (c *ChangeSetService) run(ctx context.Context, set store.ReeveChangeSet) {
 		switch {
 		case failed:
 			results[i].State = "skipped"
+		case call.Kind == CallRestart && noRestart:
+			results[i].State, results[i].Detail = "skipped", "left out by the person: the change waits for the next restart"
 		case call.Kind == CallRestart:
 			results[i].State = "ran"
 			restart = true
+		case call.Kind == CallConfigEdit:
+			if backup, err := WriteConfigEdit(c.configPath(), call.Edits); err != nil {
+				results[i].State, results[i].Detail, failed = "failed", err.Error(), true
+			} else {
+				results[i].State, results[i].Detail = "ran", "config.yaml written; the old file is "+backup
+			}
 		default:
 			status, body, err := c.opts.Run(ctx, call.Method, call.Path, call.Body)
 			results[i].Status = status
@@ -435,4 +502,99 @@ func ChangeSetReport(id, reason string, calls []ProposedCall, results []CallResu
 // lines.
 func (c *ChangeSetService) ChangeSetsOf(ctx context.Context, taskID string) ([]store.ReeveChangeSet, error) {
 	return c.opts.Store.ListReeveChangeSets(ctx, taskID)
+}
+
+// ReportRestarts tells the Reeve that Legato is back, for each set that
+// ended in a restart before this process started (since): the restart's
+// time and version, who asked and why, each step's result, the settings
+// now in effect, or the rollback and its error. Each set is reported once.
+func (c *ChangeSetService) ReportRestarts(ctx context.Context, since time.Time, version string) int {
+	sets, err := c.opts.Store.ListReeveChangeSets(ctx, "")
+	if err != nil {
+		return 0
+	}
+	reported := 0
+	for _, set := range sets {
+		if set.State != store.ChangeSetRestarting {
+			continue
+		}
+		updated, err := time.Parse("2006-01-02T15:04:05.000Z", set.UpdatedAt)
+		if err != nil || !updated.Before(since) {
+			continue
+		}
+		var record *store.RestartRecord
+		if records, err := c.opts.Store.ListRestartRecords(ctx, 1); err == nil && len(records) == 1 {
+			record = &records[0]
+		}
+		final := store.ChangeSetDone
+		if record != nil && record.State == store.RestartRolledBack {
+			final = store.ChangeSetFailed
+		}
+		if moved, err := c.opts.Store.MoveReeveChangeSet(ctx, set.ID, store.ChangeSetRestarting, final); err != nil || !moved {
+			continue
+		}
+		reported++
+		if c.opts.Notify != nil {
+			c.opts.Notify(ctx, set.TaskID, c.backMessage(ctx, set, record, since, version))
+		}
+	}
+	return reported
+}
+
+func (c *ChangeSetService) backMessage(ctx context.Context, set store.ReeveChangeSet, record *store.RestartRecord, since time.Time, version string) string {
+	var calls []ProposedCall
+	_ = json.Unmarshal([]byte(set.Calls), &calls)
+	var results []CallResult
+	_ = json.Unmarshal([]byte(set.Results), &results)
+	var b strings.Builder
+	fmt.Fprintf(&b, "[legato] Legato is back: running %s since %s.\n", version, since.UTC().Format("15:04:05 UTC"))
+	fmt.Fprintf(&b, "The restart was asked for by you (the Reeve), in change set %s: %s.\n", set.ID, set.Reason)
+	if record != nil && record.State == store.RestartRolledBack {
+		fmt.Fprintf(&b, "The restart failed and was rolled back: %s\nThe configuration from before is in effect again.\n", record.Failure)
+	}
+	for i, r := range results {
+		desc := ""
+		if i < len(calls) {
+			desc = calls[i].Description
+		}
+		state := r.State
+		if state == "ran" {
+			state = "applied"
+		}
+		if record != nil && record.State == store.RestartRolledBack && r.State == "ran" {
+			state = "rolled back"
+		}
+		fmt.Fprintf(&b, "%d. %s: %s\n", r.Call, desc, state)
+	}
+	if record == nil || record.State != store.RestartRolledBack {
+		var now []string
+		for _, call := range calls {
+			if call.Setting != "" && call.AppliesAtRestart {
+				now = append(now, call.Setting)
+			}
+		}
+		if c.opts.Settings != nil {
+			if pending, err := c.opts.Settings.PendingRestart(ctx); err == nil {
+				for _, key := range pending {
+					now = append(now, key)
+				}
+			}
+		}
+		if len(now) > 0 {
+			fmt.Fprintf(&b, "Now in effect: %s.\n", strings.Join(dedupe(now), ", "))
+		}
+	}
+	return b.String()
+}
+
+func dedupe(values []string) []string {
+	seen := map[string]bool{}
+	var out []string
+	for _, v := range values {
+		if !seen[v] {
+			seen[v] = true
+			out = append(out, v)
+		}
+	}
+	return out
 }
