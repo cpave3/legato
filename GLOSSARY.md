@@ -100,6 +100,32 @@ One thing the author must handle after a review pass: a finding, a counted comme
 **Reviewer App**:
 The second GitHub App a worker posts reviews as. Only Legato holds its credential; no agent is given it.
 
+### Running Legato
+
+**Reeve**:
+The agent of a Legato instance itself, which helps the person run and configure that instance rather than work on a task. Each instance has its own.
+_Avoid_: Legato agent, admin agent, management agent, steward, operator
+
+**Reeve prime**:
+The Reeve of the instance the person is working from at the moment. It reaches the Reeves of instances paired with its own, and lets them reach it back.
+_Avoid_: master Reeve, home Reeve, main Reeve
+
+**Reeve pairing**:
+A pairing by phrase between two instances that lets their Reeves message each other, for instances that are not already a main and a worker.
+_Avoid_: Reeve link, peer pairing
+
+**Change set**:
+The changes the Reeve proposes together for one step, approved or denied as one and carried out by Legato in order.
+_Avoid_: batch, plan, transaction
+
+**Pinned setting**:
+A setting, or one entry of a list, whose value comes from the instance's `config.yaml`. Only an edit to that file changes it; the web UI and the Reeve show it as pinned.
+_Avoid_: locked setting, configured setting, read-only setting
+
+**File-only setting**:
+A setting that lives only in `config.yaml` and never in the database: what the instance needs to start, to unseal its secrets, to be reached, and to trust a signature.
+_Avoid_: bootstrap setting, static setting
+
 ### Engrams
 
 **Engram**:
