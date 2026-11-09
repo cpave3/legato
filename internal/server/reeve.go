@@ -1,0 +1,171 @@
+package server
+
+import (
+	"context"
+	"encoding/json"
+	"errors"
+	"net/http"
+	"strings"
+
+	"github.com/cpave3/legato/internal/engine/store"
+	"github.com/cpave3/legato/internal/service"
+)
+
+// ReeveSessions is the Reeve's sessions (service.ReeveService).
+type ReeveSessions interface {
+	Overview(ctx context.Context) (service.ReeveOverview, error)
+	Start(ctx context.Context, in service.ReeveStart) (*store.ReeveSession, error)
+	End(ctx context.Context, taskID string) error
+	Resume(ctx context.Context, taskID string, in service.ReeveStart) (*store.ReeveSession, error)
+	Delete(ctx context.Context, taskID string) error
+	Authenticate(ctx context.Context, token string) (service.ReeveIdentity, error)
+}
+
+type reeveKey struct{}
+
+// ReeveCaller is the Reeve session a request was made for, when it came
+// with a Reeve API token.
+func ReeveCaller(ctx context.Context) (service.ReeveIdentity, bool) {
+	id, ok := ctx.Value(reeveKey{}).(service.ReeveIdentity)
+	return id, ok
+}
+
+// SetReeveService serves the Reeve's sessions and accepts its API tokens.
+func (s *Server) SetReeveService(reeve ReeveSessions) { s.reeve = reeve }
+
+func (s *Server) registerReeveRoutes(mux *routeMux) {
+	mux.HandleFunc("GET /api/reeve", s.reeveOverviewHandler())
+	mux.HandleFunc("POST /api/reeve/sessions", s.reeveStartHandler())
+	mux.HandleFunc("POST /api/reeve/sessions/{task_id}/end", s.reeveEndHandler())
+	mux.HandleFunc("POST /api/reeve/sessions/{task_id}/resume", s.reeveResumeHandler())
+	mux.HandleFunc("DELETE /api/reeve/sessions/{task_id}", s.reeveDeleteHandler())
+}
+
+// serveReeveToken lets a Reeve API token reach the read routes only: a
+// change goes to the person as a change set, and never routes are refused
+// whatever is approved.
+func (s *Server) serveReeveToken(w http.ResponseWriter, r *http.Request, next http.Handler, token string) {
+	if s.reeve == nil {
+		writeIntegrationError(w, http.StatusUnauthorized, "unauthorized", "unknown Reeve token")
+		return
+	}
+	id, err := s.reeve.Authenticate(r.Context(), token)
+	if err != nil {
+		writeIntegrationError(w, http.StatusUnauthorized, "unauthorized", "unknown or revoked Reeve token")
+		return
+	}
+	switch info := ClassifyRequest(r); info.Class {
+	case ClassRead:
+		next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), reeveKey{}, id)))
+	case ClassNever:
+		writeIntegrationError(w, http.StatusForbidden, "never", "the Reeve may never "+lowerFirst(info.Description))
+	default:
+		writeIntegrationError(w, http.StatusForbidden, "needs_approval", info.Description+" is a "+string(info.Class)+" call: propose it as a change set for the person to approve")
+	}
+}
+
+func lowerFirst(s string) string {
+	if s == "" {
+		return s
+	}
+	return strings.ToLower(s[:1]) + s[1:]
+}
+
+func (s *Server) haveReeve(w http.ResponseWriter) bool {
+	if s.reeve == nil {
+		s.writeError(w, http.StatusServiceUnavailable, "the Reeve is not available on this server")
+		return false
+	}
+	return true
+}
+
+func (s *Server) reeveError(w http.ResponseWriter, err error) {
+	switch {
+	case errors.Is(err, service.ErrReeveRunning), errors.Is(err, service.ErrReeveNotEnded):
+		s.writeError(w, http.StatusConflict, err.Error())
+	case errors.Is(err, store.ErrNotFound):
+		s.writeError(w, http.StatusNotFound, "no such Reeve session")
+	case errors.Is(err, service.ErrReeveSandboxed):
+		s.writeError(w, http.StatusConflict, err.Error())
+	default:
+		s.writeError(w, http.StatusInternalServerError, err.Error())
+	}
+}
+
+func (s *Server) reeveOverviewHandler() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if !s.haveReeve(w) {
+			return
+		}
+		overview, err := s.reeve.Overview(r.Context())
+		if err != nil {
+			s.reeveError(w, err)
+			return
+		}
+		s.writeJSON(w, http.StatusOK, overview)
+	}
+}
+
+func decodeReeveStart(r *http.Request) service.ReeveStart {
+	var in service.ReeveStart
+	_ = json.NewDecoder(r.Body).Decode(&in)
+	in.StartedBy = "web"
+	return in
+}
+
+func (s *Server) reeveStartHandler() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if !s.haveReeve(w) {
+			return
+		}
+		session, err := s.reeve.Start(r.Context(), decodeReeveStart(r))
+		if err != nil {
+			s.reeveError(w, err)
+			return
+		}
+		s.NotifyAgentsChanged()
+		s.writeJSON(w, http.StatusCreated, session)
+	}
+}
+
+func (s *Server) reeveEndHandler() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if !s.haveReeve(w) {
+			return
+		}
+		if err := s.reeve.End(r.Context(), r.PathValue("task_id")); err != nil {
+			s.reeveError(w, err)
+			return
+		}
+		s.NotifyAgentsChanged()
+		s.writeJSON(w, http.StatusOK, map[string]string{"status": "ended"})
+	}
+}
+
+func (s *Server) reeveResumeHandler() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if !s.haveReeve(w) {
+			return
+		}
+		session, err := s.reeve.Resume(r.Context(), r.PathValue("task_id"), decodeReeveStart(r))
+		if err != nil {
+			s.reeveError(w, err)
+			return
+		}
+		s.NotifyAgentsChanged()
+		s.writeJSON(w, http.StatusOK, session)
+	}
+}
+
+func (s *Server) reeveDeleteHandler() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if !s.haveReeve(w) {
+			return
+		}
+		if err := s.reeve.Delete(r.Context(), r.PathValue("task_id")); err != nil {
+			s.reeveError(w, err)
+			return
+		}
+		s.writeJSON(w, http.StatusOK, map[string]string{"status": "deleted"})
+	}
+}

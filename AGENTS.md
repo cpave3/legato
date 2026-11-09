@@ -71,6 +71,7 @@ The rest are not imported. Before changing an area, read its doc, and keep it cu
 
 - `docs/ai/database.md` — store boundary, migrations, schema, execution activity
 - `docs/ai/config.md` — every `config.yaml` setting and its validation
+- `docs/ai/reeve.md` — the Reeve: sessions, sandbox pinning, its folder and tokens, what it may call
 - `docs/ai/settings.md` — the settings registry, settings kept in the database, pins and the effective configuration
 - `docs/ai/cli.md` — subcommands, host broker, JSON contract and exit codes, hook integrations (Claude Code, Codex, Chimera, Staccato), tmux status line
 - `docs/ai/web-ui.md` — web UI pages, components, API endpoints, WebSocket sync, PWA, pairing
@@ -109,6 +110,7 @@ The documentation for people who use Legato is the Starlight site in `site/`, pu
 | --- | --- |
 | `docs/ai/config.md` | `reference/configuration`, the feature page of each setting |
 | `docs/ai/settings.md` | `reference/configuration` |
+| `docs/ai/reeve.md` | `using/reeve` |
 | `docs/ai/cli.md` | `reference/cli`, `agent-tools/*`, `integrations/staccato`, `integrations/tmux-status` |
 | `docs/ai/tui.md` | `using/board`, `using/agents`, `start/tour` |
 | `docs/ai/web-ui.md` | `using/web-ui`, `running/devices`, `security/web-auth` |

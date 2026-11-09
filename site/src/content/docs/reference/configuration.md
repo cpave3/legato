@@ -329,6 +329,16 @@ The web UI and its API. The TUI starts it beside itself when `web.enabled` is on
 | `web.discovery` | bool | `true` | Announces the server on the local network (mDNS), so the Legato phone app finds it. See [Devices](/legato/running/devices/). |
 | `web.public_url` | URL | the first local address Legato announces | *File-only.* The address a phone uses to reach this server, put in the links of approval notifications. It must be an `http` or `https` address. |
 
+## Reeve
+
+The Reeve's defaults, read when a session starts. Usually set in Settings › Reeve. See [The Reeve](/legato/using/reeve/).
+
+| Setting | Type | Default | What it does |
+| --- | --- | --- | --- |
+| `reeve.agent` | string | the default agent tool | The agent tool a session runs: `claude-code`, `codex` or `chimera`. |
+| `reeve.model` | string | the tool's default | The model or tier a session runs. |
+| `reeve.launch_args` | list of strings | none | Arguments added to the agent tool's launch command. |
+
 ## Updates
 
 How this Legato takes new releases. Usually set in Settings › Updates. See [Updates](/legato/running/updates/).

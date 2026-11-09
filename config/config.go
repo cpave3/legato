@@ -63,6 +63,8 @@ type Config struct {
 	ReviewPasses ReviewPassesConfig `yaml:"review_passes"`
 	// Updates is how this Legato takes new releases.
 	Updates UpdatesConfig `yaml:"updates"`
+	// Reeve is the agent of this Legato itself.
+	Reeve ReeveConfig `yaml:"reeve"`
 
 	// pins are the dotted keys config.yaml gives a value (Pinned).
 	pins map[string]bool
@@ -1028,4 +1030,12 @@ func ValidateRepositoryCache(cfg *Config) error {
 type UpdatesConfig struct {
 	// Mode is auto, ask (the default when empty) or off.
 	Mode string `yaml:"mode"`
+}
+
+// ReeveConfig is the Reeve's defaults: the agent tool a session runs, its
+// model or tier, and launch arguments. See docs/ai/reeve.md.
+type ReeveConfig struct {
+	Agent      string   `yaml:"agent"`
+	Model      string   `yaml:"model"`
+	LaunchArgs []string `yaml:"launch_args"`
 }

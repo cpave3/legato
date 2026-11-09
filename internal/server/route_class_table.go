@@ -281,4 +281,10 @@ var routeClassTable = []routeClassEntry{
 
 	// Web UI
 	{"GET", "/", ClassRead, "Load the web UI"},
+	// The Reeve's sessions.
+	{"GET", "/api/reeve", ClassRead, "List the Reeve's sessions"},
+	{"POST", "/api/reeve/sessions", ClassChange, "Start a Reeve session"},
+	{"POST", "/api/reeve/sessions/{task_id}/end", ClassChange, "End a Reeve session"},
+	{"POST", "/api/reeve/sessions/{task_id}/resume", ClassChange, "Resume a Reeve session"},
+	{"DELETE", "/api/reeve/sessions/{task_id}", ClassRisky, "Delete a Reeve session"},
 }

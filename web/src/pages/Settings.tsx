@@ -24,6 +24,7 @@ import { RegistrySettings, SettingSource } from "../components/settings/Registry
 import { ListSettings } from "../components/settings/ListSettings"
 import { MoveSettings } from "../components/settings/MoveSettings"
 import { ExportSettings } from "../components/settings/ExportSettings"
+import { ReeveSessions } from "../components/settings/ReeveSettings"
 import { useToast } from "../hooks/useToast"
 import { apiFetch } from "../lib/api"
 import { Link, useSearchParams } from "react-router-dom"
@@ -136,6 +137,7 @@ export function SettingsPage() {
 
   const groups: Group[] = [
     { id: "agents", title: "Agents" },
+    { id: "reeve", title: "Reeve" },
     { id: "security", title: "Security" },
     { id: "integrations", title: "Integrations" },
     { id: "handoff", title: "Handoff" },
@@ -247,6 +249,11 @@ export function SettingsPage() {
                 )}
               />
             </SettingsRows>
+          </SettingsGroup>
+
+          <SettingsGroup id="reeve" title="Reeve" description="The agent of this Legato itself: its sessions, and the agent tool, model and launch arguments it starts with.">
+            <ReeveSessions baseUrl={baseUrl} />
+            <RegistrySettings settings={registry} baseUrl={baseUrl} prefixes={["reeve"]} />
           </SettingsGroup>
 
           <SettingsGroup id="security" title="Security" description="Who can allow approvals, how you hear of them, and the secrets agents use without seeing them.">

@@ -347,6 +347,15 @@ func prepareMigration(queryer migrationQueryer, name, migrationSQL string) (stri
 			return "", nil
 		}
 	}
+	if name == "101_reeve.sql" {
+		var n int
+		if err := queryer.Get(&n, `SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'tasks'`); err != nil {
+			return "", err
+		}
+		if n == 0 {
+			migrationSQL = strings.Replace(migrationSQL, "ALTER TABLE tasks ADD COLUMN kind TEXT NOT NULL DEFAULT '';", "", 1)
+		}
+	}
 	if name == "100_approval_verified.sql" {
 		// A legacy database built in part may lack either table.
 		var kept []string

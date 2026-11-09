@@ -126,6 +126,10 @@ Migration 096 adds `launch_messages` (`execution_id`, `position`: the key; `task
 
 Migration 097 adds `agent_sessions.native_off`: set by **Downgrade to tmux** (`KeepAgentSessionOnTmux`), cleared by any binding of a native endpoint (`UpdateChimeraDiscovery`, `UpdateChimeraDiscoveryForSession`). `RecoverNativeEndpoints` skips a session that has it.
 
+### The Reeve
+
+Migration 101 adds `tasks.kind` (`""`, or `reeve` for a Reeve session's hidden task) and `reeve_sessions` (one row per session: state, agent tool, model, launch arguments, the API token and its hash, `active_at`). See [The Reeve](reeve.md).
+
 ### Directory presets
 
 Migration 067 adds `directory_presets`: the directories the person saved from a spawn dialog (`path`, the identity and absolute; `name`; `created_at`). Saving a path again renames it and keeps its place. The spawn dialogs list them after the `repositories` of the configuration, through `service.DirectoryService`; a saved directory that the configuration also names is listed once, as the configured one.

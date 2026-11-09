@@ -5,6 +5,7 @@ export const queryKeys = {
   settings: (baseUrl: string) => [baseUrl, "settings"] as const,
   configSettings: (baseUrl: string) => [baseUrl, "config-settings"] as const,
   configLists: (baseUrl: string) => [baseUrl, "config-lists"] as const,
+  reeve: (baseUrl: string) => [baseUrl, "reeve"] as const,
   navigationSummary: (baseUrl: string) => [baseUrl, "navigation-summary"] as const,
   board: (baseUrl: string, workspace?: string) => [baseUrl, "board", workspace ?? ""] as const,
   task: (baseUrl: string, taskId: string) => [baseUrl, "task", taskId] as const,

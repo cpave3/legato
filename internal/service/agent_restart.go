@@ -65,6 +65,9 @@ func (a *agentService) restartAgent(ctx context.Context, taskID string, resource
 	// It comes back as it was, in the sandbox or out of it, unless it is
 	// asked to switch.
 	sandboxed := session.Sandboxed
+	if switchSandbox && IsReeveTask(ctx, a.store, taskID) {
+		return false, ErrReeveSandboxed
+	}
 	if switchSandbox {
 		sandboxed = !sandboxed
 		if sandboxed && a.sandbox == nil {

@@ -210,6 +210,11 @@ var registry = []Setting{
 	{Key: "review_passes.counted_bots", Title: "Review bots counted", Kind: KindStrings, Class: ClassChange, Mode: ModeRestart},
 	{Key: "review_passes.required_checks", Title: "Checks a review pass waits for", Kind: KindStrings, Class: ClassChange, Mode: ModeRestart},
 
+	// The Reeve: read when a session starts.
+	{Key: "reeve.agent", Title: "The Reeve's agent tool", Description: "claude-code, codex or chimera; the default agent tool when empty.", Kind: KindString, Class: ClassChange, Mode: ModeLive},
+	{Key: "reeve.model", Title: "The Reeve's model or tier", Kind: KindString, Class: ClassChange, Mode: ModeLive},
+	{Key: "reeve.launch_args", Title: "The Reeve's launch arguments", Kind: KindStrings, Class: ClassRisky, Mode: ModeLive},
+
 	// Burnlite's projects, read on each use.
 	{Key: "burnlite.projects", Title: "Burnlite projects", Description: "The projects searched for import; none is every project.", Kind: KindStrings, Class: ClassChange, Mode: ModeLive, Check: func(v any) error {
 		for _, p := range v.([]string) {

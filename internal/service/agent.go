@@ -159,6 +159,9 @@ type AgentSpawnOptions struct {
 	// Unsandboxed starts this agent outside Legato's sandbox when it is on.
 	// Swarm and workflow agents ignore it: they are always sandboxed.
 	Unsandboxed bool
+	// LaunchArgs are added to the agent tool's launch command, after its
+	// adapter's own (the Reeve's reeve.launch_args).
+	LaunchArgs []string
 	// Unattended starts an agent nobody watches (a handed-off task's): in
 	// Legato's sandbox whatever Unsandboxed says, with its tool's own
 	// permission prompts off (PromptsOffAdapter). It is refused when the
@@ -599,6 +602,16 @@ func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, hei
 		}
 		if _, ok := a.resolveAdapter(opt.AgentKind).(PromptsOffAdapter); !ok {
 			return fmt.Errorf("%s cannot be started with its permission prompts off", orUnknown(opt.AgentKind))
+		}
+	}
+	// A Reeve session runs only in Legato's sandbox.
+	reeve := IsReeveTask(ctx, a.store, taskID)
+	if reeve {
+		if opt.Unsandboxed {
+			return ErrReeveSandboxed
+		}
+		if a.sandbox == nil {
+			return fmt.Errorf("%w, which is off here (agents.sandbox.enabled)", ErrReeveSandboxed)
 		}
 	}
 	if err := a.prepareTaskResume(ctx, taskID, &opt); err != nil {
@@ -1112,6 +1125,9 @@ func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, hei
 			if granter, ok := adapter.(PathGrantingAdapter); ok && len(resources) > 0 {
 				read, write := resourceGrants(resources)
 				cmd += granter.PathGrantFlags(read, write)
+			}
+			for _, arg := range opt.LaunchArgs {
+				cmd += " " + shellWord(arg)
 			}
 			if sandboxed {
 				cmd = sandboxPrefix + " " + cmd

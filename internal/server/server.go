@@ -38,6 +38,7 @@ type Server struct {
 	restart                  func()
 	routes                   []string // every pattern the mux was given
 	settingsRegistry         SettingsRegistry
+	reeve                    ReeveSessions
 	settingsMover            SettingsMover
 	moveRestart              func()
 	addr                     string
@@ -327,6 +328,7 @@ func NewWithSwarm(board service.BoardService, agents service.AgentService, tmux 
 	s.registerIntegrationRoutes(mux)
 	s.registerInstanceRoutes(mux)
 	s.registerBurnliteRoutes(mux)
+	s.registerReeveRoutes(mux)
 
 	// SPA fallback — serve embedded frontend for all non-API paths.
 	if fsys := static.DistFS(); fsys != nil {
@@ -513,6 +515,10 @@ func (s *Server) authMiddleware(next http.Handler) http.Handler {
 			token := strings.TrimPrefix(auth, "Bearer ")
 			if subtle.ConstantTimeCompare([]byte(token), []byte(s.authToken)) == 1 {
 				next.ServeHTTP(w, r)
+				return
+			}
+			if strings.HasPrefix(token, service.ReeveTokenPrefix) {
+				s.serveReeveToken(w, r, next, token)
 				return
 			}
 			if s.integrationAuth != nil && strings.HasPrefix(token, service.IntegrationTokenPrefix) {

@@ -73,6 +73,7 @@ export function QuerySyncProvider({ children }: { children: ReactNode }) {
           break
         case "agents_changed":
           invalidate(queryKeys.jobClones(baseUrl))
+          invalidate(queryKeys.reeve(baseUrl))
           invalidate(queryKeys.navigationSummary(baseUrl))
           invalidate([baseUrl, "board"], false)
           // An agent started in the background began, or failed.
