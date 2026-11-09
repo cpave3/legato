@@ -2098,6 +2098,10 @@ func runTUI() int {
 	// counts it and links to the web UI.
 	app.SetAgentUIService(service.NewAgentUIService(db, bus, service.AgentUIOptions{}), localWebURL(cfg))
 	app.SetGroupDefaults(cfg.Groups.Defaults)
+	// R opens the Reeve; a in the agents view asks it about an agent.
+	if reeve := newReeveService(db, agentSvc, webSrv, approvalsRT.approvals); reeve != nil {
+		app.SetReeve(reeve)
+	}
 	if cfg.Manticore.URL != "" {
 		// The instance that records the agents' usage can also say how much
 		// it has recorded.

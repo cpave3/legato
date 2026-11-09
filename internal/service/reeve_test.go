@@ -297,3 +297,36 @@ func TestPendingApprovalsExpireWhenTheSessionEndsNotWhenItIsSuspended(t *testing
 		t.Fatalf("expired = %v", approvals.expired)
 	}
 }
+
+// Opening the Reeve (the TUI's R) starts a session, goes to the running
+// one, or resumes a suspended one.
+func TestOpeningTheReeveStartsGoesToOrResumesItsSession(t *testing.T) {
+	svc, db, agents, _ := newReeveFixture(t)
+	ctx := context.Background()
+	first, err := svc.Open(ctx, "tui")
+	if err != nil || first == "" || len(agents.spawned) != 1 {
+		t.Fatalf("open = %q, %v; spawned %d", first, err, len(agents.spawned))
+	}
+	again, err := svc.Open(ctx, "tui")
+	if err != nil || again != first || len(agents.spawned) != 1 {
+		t.Fatalf("open again = %q, %v; spawned %d", again, err, len(agents.spawned))
+	}
+	row, _ := db.GetReeveSession(ctx, first)
+	active, _ := time.Parse("2006-01-02T15:04:05.000Z", row.ActiveAt)
+	svc.SuspendIdle(ctx, active.Add(3*time.Hour), 2*time.Hour)
+	resumed, err := svc.Open(ctx, "tui")
+	if row, _ = db.GetReeveSession(ctx, first); err != nil || resumed != first || row.State != store.ReeveRunning || len(agents.spawned) != 2 {
+		t.Fatalf("open suspended = %q, %v; state %s, spawned %d", resumed, err, row.State, len(agents.spawned))
+	}
+}
+
+// Asking the Reeve (the TUI's a) starts a session with the brief, and says
+// which session has it.
+func TestAskingTheReeveSaysWhichSessionHasTheBrief(t *testing.T) {
+	svc, _, agents, _ := newReeveFixture(t)
+	ctx := context.Background()
+	taskID, err := svc.Ask(ctx, "why is agent T-1 stuck?", "tui")
+	if err != nil || taskID == "" || !strings.Contains(agents.spawned[0].LaunchPrompt, "why is agent T-1 stuck?") {
+		t.Fatalf("ask = %q, %v; spawned %+v", taskID, err, agents.spawned)
+	}
+}

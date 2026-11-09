@@ -545,9 +545,9 @@ func TestAppRoutesControlPRShortcutsWithoutOverridingReports(t *testing.T) {
 		t.Fatalf("rediscovered = %q", prSvc.rediscovered)
 	}
 
-	updated, _ = app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("R")})
+	updated, _ = app.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("T")})
 	if updated.(App).active != viewReport {
-		t.Fatal("uppercase R no longer opens reporting")
+		t.Fatal("T no longer opens reporting")
 	}
 }
 
@@ -1587,9 +1587,9 @@ func TestBoardSelectionPreservedAfterDetailReturn(t *testing.T) {
 	// Board model should preserve its state (no re-initialization)
 }
 
-func TestShiftROpensReportView(t *testing.T) {
+func TestShiftTOpensReportView(t *testing.T) {
 	app := initTestApp()
-	app, _ = updateApp(app, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'R'}})
+	app, _ = updateApp(app, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'T'}})
 	if app.active != viewReport {
 		t.Errorf("expected viewReport, got %d", app.active)
 	}
@@ -1597,7 +1597,7 @@ func TestShiftROpensReportView(t *testing.T) {
 
 func TestReportViewEscReturnsToBoard(t *testing.T) {
 	app := initTestApp()
-	app, _ = updateApp(app, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'R'}})
+	app, _ = updateApp(app, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'T'}})
 	if app.active != viewReport {
 		t.Fatalf("expected viewReport, got %d", app.active)
 	}
@@ -1610,7 +1610,7 @@ func TestReportViewEscReturnsToBoard(t *testing.T) {
 
 func TestReportViewCopyReportMsg(t *testing.T) {
 	app := initTestApp()
-	app, _ = updateApp(app, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'R'}})
+	app, _ = updateApp(app, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'T'}})
 	// CopyReportMsg should not panic even without clipboard
 	app, _ = updateApp(app, report.CopyReportMsg{Markdown: "# Test Report"})
 	if app.active != viewReport {

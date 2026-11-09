@@ -2002,3 +2002,30 @@ func TestSetAgentActivity_NoNotificationForWorkingTransition(t *testing.T) {
 		t.Fatalf("expected 0 notifications, got %d", len(fn.calls))
 	}
 }
+
+// The Reeve's agent is marked, so views can pin it.
+func TestListAgentsMarksTheReeve(t *testing.T) {
+	svc, s, _ := newTestAgentService(t)
+	ctx := context.Background()
+	createTask(t, s, "REX-1")
+	reeveTask, err := s.CreateReeveTask(ctx, "The Reeve")
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, id := range []string{"REX-1", reeveTask} {
+		if err := s.InsertAgentSession(ctx, store.AgentSession{TaskID: id, TmuxSession: "legato-" + id, AgentKind: "claude-code", Status: "running"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	agents, err := svc.ListAgents(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	marked := map[string]bool{}
+	for _, a := range agents {
+		marked[a.TaskID] = a.Reeve
+	}
+	if !marked[reeveTask] || marked["REX-1"] {
+		t.Fatalf("marked %v", marked)
+	}
+}

@@ -78,6 +78,8 @@ type AgentSession struct {
 	Slot string
 	// CardTaskID is the task the agent's slot belongs to.
 	CardTaskID string
+	// Reeve is true for the agent of this Legato itself.
+	Reeve bool
 }
 
 // AgentPeer describes one live, routable agent sharing a Git worktree.
@@ -1601,6 +1603,7 @@ func (a *agentService) ListAgents(ctx context.Context) ([]AgentSession, error) {
 			Sandboxed:         s.Sandboxed,
 			Slot:              s.Slot,
 			CardTaskID:        s.TaskID,
+			Reeve:             IsReeveTask(ctx, a.store, s.TaskID),
 		}
 		if IsNamedSlot(s.Slot) {
 			result[i].TaskID = AgentSlotKey(s.TaskID, s.Slot)

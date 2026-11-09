@@ -472,3 +472,38 @@ func (s *ReeveService) LetPeerTalk(ctx context.Context, instanceID string) error
 	}
 	return s.Message(ctx, strings.Join(texts, "\n\n"), "peer:"+instanceID)
 }
+
+// Open is the Reeve's session to go to: the running one, a suspended one
+// resumed, or a new one started.
+func (s *ReeveService) Open(ctx context.Context, by string) (string, error) {
+	current, err := s.opts.Store.CurrentReeveSession(ctx)
+	if err != nil {
+		return "", err
+	}
+	switch {
+	case current == nil:
+		session, err := s.Start(ctx, ReeveStart{StartedBy: by})
+		if err != nil {
+			return "", err
+		}
+		return session.TaskID, nil
+	case current.State == store.ReeveSuspended:
+		if _, err := s.Resume(ctx, current.TaskID, ReeveStart{StartedBy: by}); err != nil {
+			return "", err
+		}
+	}
+	return current.TaskID, nil
+}
+
+// Ask gives the Reeve a brief (Message) and returns the task of the session
+// that has it.
+func (s *ReeveService) Ask(ctx context.Context, brief, by string) (string, error) {
+	if err := s.Message(ctx, brief, by); err != nil {
+		return "", err
+	}
+	current, err := s.opts.Store.CurrentReeveSession(ctx)
+	if err != nil || current == nil {
+		return "", errors.New("the Reeve's session did not start")
+	}
+	return current.TaskID, nil
+}

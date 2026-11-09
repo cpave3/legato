@@ -33,7 +33,7 @@ The report breaks the time down:
 
 ## In the TUI
 
-Press `R` on the board. The report opens on today.
+Press `T` on the board. The report opens on today.
 
 | Key | Action |
 | --- | --- |

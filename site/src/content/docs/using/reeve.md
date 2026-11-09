@@ -13,7 +13,7 @@ The Reeve is the agent of a Legato instance itself. You talk to it to run and co
 
 ## Starting it
 
-The quickest way is the Reeve entry pinned at the top of the Agents list: pick it to start a session, or to go to the one that runs.
+The quickest way is the Reeve entry pinned at the top of the Agents list: pick it to start a session, or to go to the one that runs. In the TUI, press `R` from any view.
 
 **Ask the Reeve** starts it about something specific: it is on each item in Attention, on the note the board keeps when a provider sync fails, and beside an agent that needs you. The session starts with a brief of what it is, its IDs and its error. If a session is already there, Legato asks whether to **Add to the current conversation** or **End it and start fresh**.
 

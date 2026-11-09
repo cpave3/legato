@@ -244,12 +244,15 @@ func windowAround(lines []string, start, size, height int) []string {
 func (m Model) sidebarEntries(width int) (lines []string, selectedStart, selectedHeight int) {
 	counts := map[section]int{}
 	for _, a := range m.agents {
-		counts[sectionOf(a)]++
+		if !a.Reeve {
+			counts[sectionOf(a)]++
+		}
 	}
 
 	current := section(-1)
 	for i, a := range m.agents {
-		if s := sectionOf(a); s != current {
+		// The Reeve is pinned on the first row, above the groups.
+		if s := sectionOf(a); !a.Reeve && s != current {
 			if len(lines) > 0 {
 				lines = append(lines, "")
 			}
@@ -295,7 +298,11 @@ func (m Model) renderSidebarEntry(a service.AgentSession, selected bool, width i
 		marks += " " + colored(theme.Accent, "🔔")
 	}
 	idWidth := text - 2 - lipgloss.Width(marks) - lipgloss.Width(note) - 1
-	id := lipgloss.NewStyle().Foreground(theme.TextPrimary).Bold(selected).Render(truncateID(a.TaskID, idWidth))
+	name := a.TaskID
+	if a.Reeve {
+		name = "Reeve"
+	}
+	id := lipgloss.NewStyle().Foreground(theme.TextPrimary).Bold(selected).Render(truncateID(name, idWidth))
 	first := theme.Spread(colored(theme.StateColor(stateOf(a)), m.stateMark(a))+" "+id+marks, note, text)
 
 	parts := []string{kindLabel(a)}
@@ -327,8 +334,15 @@ func (m Model) renderSidebarEntry(a service.AgentSession, selected bool, width i
 	// The selected agent is marked down its left side and lifted off the
 	// panel.
 	lead, bg := "  ", theme.Surface
+	if a.Reeve {
+		// The Reeve's violet wash.
+		bg = theme.TintViolet
+	}
 	if selected {
 		lead, bg = colored(theme.Accent, "▌")+" ", theme.CardActive
+		if a.Reeve {
+			bg = theme.TintVioletActive
+		}
 	}
 	for i, line := range lines {
 		lines[i] = theme.Fill(lead+line, width, bg)
