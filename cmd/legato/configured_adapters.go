@@ -19,6 +19,9 @@ func configuredAdapters(cfg *config.Config, legatoBin string) (service.AIToolAda
 	claude := hooks.NewClaudeCodeAdapter(legatoBin)
 	chimera := hooks.NewChimeraAdapter(legatoBin)
 	codex := hooks.NewCodexAdapter(legatoBin)
+	claude.SetReviews(cfg.Agents.Reviews)
+	chimera.SetReviews(cfg.Agents.Reviews)
+	codex.SetReviews(cfg.Agents.Reviews)
 
 	if overrides := buildAdapterRoleOverrides(cfg, claude.Name()); overrides != nil {
 		claude.SetRoleOverrides(overrides)

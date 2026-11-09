@@ -56,11 +56,50 @@ func builtinRolePrompt(role string) string {
 
 // resolveRolePrompt checks override map then falls back to built-in.
 // Returns "" if neither is configured.
-func resolveRolePrompt(overrides RolePromptOverrides, role string) string {
+// With reviews off, the parts of the prompt about Legato's review packet are
+// left out (see withReviews).
+func resolveRolePrompt(overrides RolePromptOverrides, role string, reviews bool) string {
 	if overrides != nil {
 		if p, ok := overrides[role]; ok {
-			return p
+			return withReviews(p, reviews)
 		}
 	}
-	return builtinRolePrompt(role)
+	return withReviews(builtinRolePrompt(role), reviews)
+}
+
+// Lines of a prompt between these markers are for one setting of reviews:
+// "<!-- reviews -->" to "<!-- /reviews -->" when they are on, and
+// "<!-- no-reviews -->" to "<!-- /no-reviews -->" when they are off. Each
+// marker is a line of its own.
+const (
+	reviewsStart   = "<!-- reviews -->"
+	reviewsEnd     = "<!-- /reviews -->"
+	noReviewsStart = "<!-- no-reviews -->"
+	noReviewsEnd   = "<!-- /no-reviews -->"
+)
+
+// withReviews keeps the lines of prompt for this setting of reviews and
+// drops the markers.
+func withReviews(prompt string, reviews bool) string {
+	if !strings.Contains(prompt, "<!--") {
+		return prompt
+	}
+	lines := strings.SplitAfter(prompt, "\n")
+	kept := make([]string, 0, len(lines))
+	keep := true
+	for _, line := range lines {
+		switch strings.TrimSpace(line) {
+		case reviewsStart:
+			keep = reviews
+		case noReviewsStart:
+			keep = !reviews
+		case reviewsEnd, noReviewsEnd:
+			keep = true
+		default:
+			if keep {
+				kept = append(kept, line)
+			}
+		}
+	}
+	return strings.Join(kept, "")
 }

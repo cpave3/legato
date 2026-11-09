@@ -42,11 +42,11 @@ func TestBuiltinRolePromptEmptyRole(t *testing.T) {
 
 func TestResolveRolePromptOverrideTakesPrecedence(t *testing.T) {
 	overrides := RolePromptOverrides{"backend": "OVERRIDE"}
-	if got := resolveRolePrompt(overrides, "backend"); got != "OVERRIDE" {
+	if got := resolveRolePrompt(overrides, "backend", true); got != "OVERRIDE" {
 		t.Errorf("resolveRolePrompt = %q, want OVERRIDE", got)
 	}
 	// Unknown role + no matching override → falls back to worker prompt.
-	if got := resolveRolePrompt(overrides, "frontend"); got == "" || !strings.Contains(got, "worker") {
+	if got := resolveRolePrompt(overrides, "frontend", true); got == "" || !strings.Contains(got, "worker") {
 		t.Errorf("frontend without override should yield worker fallback, got %q", got)
 	}
 }

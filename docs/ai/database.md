@@ -86,6 +86,8 @@ Every query that addresses a task's agent without a slot means the main slot: `G
 
 ### Integrations
 
+Migration 094 adds `repository_guidance`: guidance saved in the web UI for the agents of a repository (`repo` as `host/owner/name`, the primary key, and `text`), served after the configuration's `agents.guidance`. See [Configuration](config.md) § Config.
+
 Migration 079 adds `repository_presets`: repositories added in the web UI (a unique name, `repo`, `primary_dir`, `base_branch`), offered beside the configuration's. See [Configuration](config.md) § Shared repository presets.
 
 `instance_values` (migration 072) also keeps settings of this Legato that the web UI changes: `web.tint`, its tint (`GetInstanceValue`, `SetInstanceValue`; `service.TintService`).

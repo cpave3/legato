@@ -24,6 +24,8 @@ var legatoScriptNames = []string{
 
 // ClaudeCodeAdapter implements the AIToolAdapter interface for Claude Code.
 type ClaudeCodeAdapter struct {
+	// reviewsOff leaves Legato's review packet out of its prompts.
+	reviewsOff    bool
 	legatoBin     string // absolute path to the legato binary
 	roleOverrides RolePromptOverrides
 	launchArgs    []string            // appended to `claude` invocation in LaunchCommand
@@ -102,7 +104,7 @@ func (a *ClaudeCodeAdapter) BindsNativeEndpoint() bool {
 // RoleSystemPrompt returns the system prompt for a swarm role.
 // Adapters opt into prompt injection by implementing this method.
 func (a *ClaudeCodeAdapter) RoleSystemPrompt(role string) string {
-	return resolveRolePrompt(a.roleOverrides, role)
+	return resolveRolePrompt(a.roleOverrides, role, !a.reviewsOff)
 }
 
 // InterruptKeys implements the InterruptAdapter interface. Sending Escape
@@ -397,3 +399,11 @@ func agentStateScript(legatoBin, activity string) string {
 	b.WriteString("exit 0\n")
 	return b.String()
 }
+
+// SetReviews says whether agents are told to capture Legato's review tours
+// and handoff packets (agents.reviews). On by default.
+func (a *ClaudeCodeAdapter) SetReviews(on bool) { a.reviewsOff = !on }
+
+// NeedsReviewsPrompt implements service.ReviewsPromptAdapter: nothing in
+// this tool's own prompts asks for a review tour, so the launch prompt does.
+func (a *ClaudeCodeAdapter) NeedsReviewsPrompt() bool { return true }

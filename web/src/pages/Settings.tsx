@@ -9,6 +9,7 @@ import { QRScanner } from "../components/QRScanner"
 import { PairDeviceDialog } from "../components/PairDeviceDialog"
 import { ResourcesSettings } from "../components/ResourcesSettings"
 import { RepositoriesSettings } from "../components/RepositoriesSettings"
+import { RepositoryGuidanceSettings } from "../components/RepositoryGuidanceSettings"
 import { CredentialsSettings } from "../components/CredentialsSettings"
 import { DevicesSettings } from "../components/DevicesSettings"
 import { IntegrationsSettings } from "../components/IntegrationsSettings"
@@ -203,6 +204,7 @@ export function SettingsPage() {
           <SettingsGroup id="agents" title="Agents" description="What agents are given, and how this browser works with them.">
             {/* The spawn dialog and the workflow form read the repositories from the settings. */}
             <RepositoriesSettings baseUrl={baseUrl} onChanged={() => void settings.refetch()} />
+            <RepositoryGuidanceSettings baseUrl={baseUrl} />
             <SettingsCard id="job-clones" icon={FolderGit2} title="Managed clones" description="View and remove clones Legato made for agents on the Remote page.">
               <Link to="/remote" className={quietButton}>Open Remote</Link>
             </SettingsCard>

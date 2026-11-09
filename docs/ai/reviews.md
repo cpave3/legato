@@ -2,6 +2,8 @@
 
 The user guide is [Reviews](../../site/src/content/docs/using/reviews.md) (on the site at `/legato/using/reviews/`). This file keeps the model and the API behind it. The CLI verbs are in [CLI](cli.md); the web page in [Web UI](web-ui.md) § Review tours and § Review briefings on the branch; image files of narration and answers in [Plans](plans.md) § Image files; review handoff packets in [Review handoff](review-handoff.md).
 
+Agents are told to capture tours only while `agents.reviews` is on (the default); with it off, the review blocks of the role and general prompts are left out and every launch prompt says to skip reviews unless asked. See [Configuration](config.md) § Config.
+
 ### The tour model
 
 `internal/service/review.go` (`ReviewService`). A task has a default tour and any number of named ones (`--name`, `LEGATO_REVIEW_NAME`); `EnsureReviewTour` creates one on first use.

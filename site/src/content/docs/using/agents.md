@@ -124,6 +124,23 @@ Legato sends `keys` exactly as written. It does not expand environment variables
 - In the TUI, press `m` in the agents view and pick a macro.
 - In the web UI, press `M` on the Agents page, then `1` to `9` for the first nine macros. Click a later macro to send it. The keys do nothing while you type in a field.
 
+## Guidance for a repository
+
+You can give every agent that works in a repository the same instructions, such as "run the prove-it skill when the work is done". Legato adds them to the agent's launch prompt. It finds the repository from the origin remote of the folder the agent starts in, so the guidance applies in every checkout and worktree of that repository, wherever it is on disk.
+
+Add guidance in the web UI under **Settings › Agents › Repository guidance**, or in `config.yaml`:
+
+```yaml
+agents:
+  guidance:
+    - repo: acme/web-app
+      text: |
+        When a piece of work is done, run the prove-it skill
+        and show its result before you say the work is finished.
+```
+
+`repo` takes `owner/name` (a GitHub repository), `host/owner/name` for another host, or a Git remote address. Guidance from `config.yaml` is shown in Settings but can only be changed in the file. Agents started after you save guidance get it. An agent that is already running does not, and neither does a conversation that is resumed.
+
 ## Agents that work together
 
 Agents started anywhere in the same Git worktree are peers. A peer can list the others and message them, so two agents can agree who edits which file. Separate worktrees stay apart.

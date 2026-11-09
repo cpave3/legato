@@ -23,6 +23,8 @@ var codexScripts = []struct {
 
 // CodexAdapter implements the AIToolAdapter interface for the OpenAI Codex CLI.
 type CodexAdapter struct {
+	// reviewsOff leaves Legato's review packet out of its prompts.
+	reviewsOff    bool
 	legatoBin     string
 	roleOverrides RolePromptOverrides
 	launchArgs    []string
@@ -126,7 +128,7 @@ func (a *CodexAdapter) BindsNativeEndpoint() bool {
 
 // RoleSystemPrompt returns the system prompt for a swarm role.
 func (a *CodexAdapter) RoleSystemPrompt(role string) string {
-	return resolveRolePrompt(a.roleOverrides, role)
+	return resolveRolePrompt(a.roleOverrides, role, !a.reviewsOff)
 }
 
 // InterruptKeys implements the InterruptAdapter interface. Sending Escape
@@ -365,3 +367,11 @@ func (a *CodexAdapter) unmergeHooksJSON(codexDir, hooksDir string) error {
 	}
 	return os.WriteFile(settingsPath, out, 0o644)
 }
+
+// SetReviews says whether agents are told to capture Legato's review tours
+// and handoff packets (agents.reviews). On by default.
+func (a *CodexAdapter) SetReviews(on bool) { a.reviewsOff = !on }
+
+// NeedsReviewsPrompt implements service.ReviewsPromptAdapter: nothing in
+// this tool's own prompts asks for a review tour, so the launch prompt does.
+func (a *CodexAdapter) NeedsReviewsPrompt() bool { return true }

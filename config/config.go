@@ -309,12 +309,19 @@ type WorkspaceConfig struct {
 }
 
 type AgentsConfig struct {
-	EscapeKey       string             `yaml:"escape_key"`
-	TmuxOptions     map[string]string  `yaml:"tmux_options"`
-	SparklineWindow string             `yaml:"sparkline_window"` // Go duration string, default "10m"
-	PeerAwareness   bool               `yaml:"peer_awareness"`   // automatic peer context and join notices; default true
-	MCP             AgentMCPConfig     `yaml:"mcp"`
-	Sandbox         AgentSandboxConfig `yaml:"sandbox"`
+	EscapeKey       string            `yaml:"escape_key"`
+	TmuxOptions     map[string]string `yaml:"tmux_options"`
+	SparklineWindow string            `yaml:"sparkline_window"` // Go duration string, default "10m"
+	PeerAwareness   bool              `yaml:"peer_awareness"`   // automatic peer context and join notices; default true
+	// Reviews tells agents to capture review tours and handoff packets at
+	// the end of their work. Default true; false tells them to skip both
+	// unless the person asks.
+	Reviews bool `yaml:"reviews"`
+	// Guidance is text for the launch prompt of agents working in a
+	// repository; see AgentGuidance.
+	Guidance []AgentGuidance    `yaml:"guidance"`
+	MCP      AgentMCPConfig     `yaml:"mcp"`
+	Sandbox  AgentSandboxConfig `yaml:"sandbox"`
 }
 
 // AgentMCPConfig configures the tools Legato gives the agents it launches,
@@ -482,6 +489,9 @@ func Load() (*Config, error) {
 		return nil, err
 	}
 	if err := normalizeAgentMCPConfig(cfg); err != nil {
+		return nil, err
+	}
+	if err := normalizeAgentGuidance(cfg); err != nil {
 		return nil, err
 	}
 	if err := normalizeResources(cfg); err != nil {
@@ -801,7 +811,7 @@ func defaults() *Config {
 		Keybindings: KeybindingsConfig{
 			VimMode: true,
 		},
-		Agents: AgentsConfig{PeerAwareness: true, MCP: AgentMCPConfig{Enabled: true, ResourceDomains: DefaultAgentResourceDomains()}},
+		Agents: AgentsConfig{PeerAwareness: true, Reviews: true, MCP: AgentMCPConfig{Enabled: true, ResourceDomains: DefaultAgentResourceDomains()}},
 		Learning: LearningConfig{
 			PacketMaxItems:         100,
 			PacketMaxBytes:         256 * 1024,

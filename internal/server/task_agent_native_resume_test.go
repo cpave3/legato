@@ -325,6 +325,14 @@ esac
 			if err := os.WriteFile(filepath.Join(binDir, tool), []byte(script), 0700); err != nil {
 				t.Fatal(err)
 			}
+			// A fresh launch reads its launch prompt with cat.
+			catPath, err := exec.LookPath("cat")
+			if err != nil {
+				t.Skip("cat is not installed")
+			}
+			if err := os.Symlink(catPath, filepath.Join(binDir, "cat")); err != nil {
+				t.Fatal(err)
+			}
 			t.Setenv("PATH", binDir)
 			freshCWD := t.TempDir()
 			mt := &nativeResumeProcessTmux{}
@@ -367,7 +375,7 @@ esac
 			}
 			postNativeResumeAgent(t, server, `{"session_policy":"new"}`)
 			pane, err := agents.CaptureOutput(context.Background(), "task-resume")
-			if err != nil || pane != "fresh conversation launched\n" || mt.exitErr != nil || mt.stderr.Len() != 0 || len(mt.commands) != 4 || mt.command != tool || mt.cwd != freshCWD {
+			if err != nil || pane != "fresh conversation launched\n" || mt.exitErr != nil || mt.stderr.Len() != 0 || len(mt.commands) != 4 || !freshLaunch(mt.command, tool) || mt.cwd != freshCWD {
 				t.Fatalf("New: pane %q, error %v, exit %v, stderr %q, commands %q, cwd %q", pane, err, mt.exitErr, mt.stderr.String(), mt.commands, mt.cwd)
 			}
 			env := nativeResumeEnv(mt.env)
@@ -379,4 +387,10 @@ esac
 			}
 		})
 	}
+}
+
+// freshLaunch says whether command starts tool on a new conversation, with
+// or without a launch prompt, rather than resuming one.
+func freshLaunch(command, tool string) bool {
+	return (command == tool || strings.HasPrefix(command, tool+" ")) && !strings.Contains(command, "resume")
 }

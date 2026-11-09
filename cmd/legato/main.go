@@ -1528,6 +1528,8 @@ func runServeCmd(args []string) int {
 			LearningPromptProvider: learningPromptProvider(cfg, db, bus),
 			LearningPromptMaxItems: cfg.Learning.PromptMaxItems, LearningPromptMaxBytes: cfg.Learning.PromptMaxBytes,
 			DisablePeerAwareness: !cfg.Agents.PeerAwareness,
+			ReviewsOff:           !cfg.Agents.Reviews,
+			RepositoryGuidance:   repositoryGuidance(cfg, db),
 		})
 		recoverNativeEndpoints(agentSvc)
 		wireTaskAgents(boardSvc, agentSvc)
@@ -1582,6 +1584,7 @@ func runServeCmd(args []string) int {
 	repoPresets := newRepositoryPresetService(cfg, db, repos)
 	giveAgentsPrimaryDirs(agentSvc, repoPresets)
 	srv.SetRepositoryPresetService(repoPresets)
+	srv.SetRepositoryGuidanceService(repositoryGuidance(cfg, db))
 	srv.SetTintService(service.NewTintService(db))
 	srv.SetJobCloneService(repos)
 	srv.SetTaskStackService(wireTaskStacks(db, bus, repos))
@@ -1813,6 +1816,8 @@ func runTUI() int {
 			LearningPromptProvider: learningPromptProvider(cfg, db, bus),
 			LearningPromptMaxItems: cfg.Learning.PromptMaxItems, LearningPromptMaxBytes: cfg.Learning.PromptMaxBytes,
 			DisablePeerAwareness: !cfg.Agents.PeerAwareness,
+			ReviewsOff:           !cfg.Agents.Reviews,
+			RepositoryGuidance:   repositoryGuidance(cfg, db),
 		})
 		recoverNativeEndpoints(agentSvc)
 		wireTaskAgents(boardSvc, agentSvc)
@@ -1917,6 +1922,7 @@ func runTUI() int {
 			webSrv.SetSandboxEnabled(cfg.Agents.Sandbox.Enabled)
 			webSrv.SetFreshClonesEnabled(cfg.RepositoryCache.Enabled)
 			webSrv.SetRepositoryPresetService(repoPresets)
+			webSrv.SetRepositoryGuidanceService(repositoryGuidance(cfg, db))
 			webSrv.SetTintService(service.NewTintService(db))
 			webSrv.SetJobCloneService(repos)
 			webSrv.SetTaskStackService(taskStacks)
@@ -2496,6 +2502,8 @@ func loadSwarmServiceForCLI() (service.SwarmService, *store.Store, int) {
 		LearningPromptProvider: learningPromptProvider(cfg, db, bus),
 		LearningPromptMaxItems: cfg.Learning.PromptMaxItems, LearningPromptMaxBytes: cfg.Learning.PromptMaxBytes,
 		DisablePeerAwareness: !cfg.Agents.PeerAwareness,
+		ReviewsOff:           !cfg.Agents.Reviews,
+		RepositoryGuidance:   repositoryGuidance(cfg, db),
 	})
 	attachCredentialChannels(cfg, db, agents)
 

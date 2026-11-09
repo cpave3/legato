@@ -5,12 +5,11 @@ import (
 	"encoding/hex"
 	"errors"
 	"fmt"
-	"net/url"
 	"os/exec"
 	"path/filepath"
-	"regexp"
 	"strings"
 
+	"github.com/cpave3/legato/config"
 	"github.com/cpave3/legato/internal/engine/store"
 )
 
@@ -72,44 +71,8 @@ func repositoryIdentity(repo string) ProjectIdentity {
 	return ProjectIdentity{Key: "repo:" + repo, Label: repo}
 }
 
-var repositoryPart = regexp.MustCompile(`^[a-z0-9](?:[a-z0-9._-]*[a-z0-9])?$`)
-
 func normalizeRepository(raw string) (string, bool) {
-	repo := strings.TrimSpace(raw)
-	if repo == "" {
-		return "", false
-	}
-
-	// Convert the common SCP-style Git remote into URL form before parsing.
-	if strings.HasPrefix(repo, "git@") && !strings.Contains(repo, "://") {
-		parts := strings.SplitN(strings.TrimPrefix(repo, "git@"), ":", 2)
-		if len(parts) != 2 {
-			return "", false
-		}
-		repo = parts[0] + "/" + parts[1]
-	} else if strings.Contains(repo, "://") {
-		u, err := url.Parse(repo)
-		if err != nil || u.Hostname() == "" {
-			return "", false
-		}
-		repo = u.Hostname() + "/" + strings.TrimPrefix(u.Path, "/")
-	}
-
-	repo = strings.TrimSuffix(strings.TrimSuffix(repo, "/"), ".git")
-	parts := strings.Split(repo, "/")
-	if len(parts) == 2 {
-		parts = append([]string{"github.com"}, parts...)
-	}
-	if len(parts) != 3 {
-		return "", false
-	}
-	for i, part := range parts {
-		parts[i] = strings.ToLower(strings.TrimSpace(part))
-		if !repositoryPart.MatchString(parts[i]) {
-			return "", false
-		}
-	}
-	return strings.Join(parts, "/"), true
+	return config.NormalizeRepository(raw)
 }
 
 func gitCommonDirectory(directory string) (string, error) {

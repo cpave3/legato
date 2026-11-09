@@ -288,6 +288,8 @@ type agentService struct {
 	tmuxOptions       map[string]string
 	prSvc             PRTrackingService
 	checkoutInspector CheckoutInspector
+	guidance          RepositoryGuidanceSource
+	reviewsOff        bool
 	binaryPath        string
 	bus               EventPublisher
 	briefKickoffDelay time.Duration
@@ -471,6 +473,12 @@ type AgentServiceOptions struct {
 	// DisablePeerAwareness suppresses automatic startup notices. Explicit peer
 	// discovery and messaging remain available.
 	DisablePeerAwareness bool
+	// RepositoryGuidance adds the guidance of the repository an agent works
+	// in to its launch prompt. Nil: none.
+	RepositoryGuidance RepositoryGuidanceSource
+	// ReviewsOff tells agents to skip Legato's review tours and handoff
+	// packets unless the person asks for one.
+	ReviewsOff bool
 	// Sandbox runs agents in Legato's sandbox. Nil: no sandbox.
 	Sandbox *SandboxSettings
 	// SandboxScratch is where sandboxes keep their scratch, removed when
@@ -536,6 +544,8 @@ func NewAgentService(s *store.Store, tmux TmuxManager, workDir string, opts ...A
 		svc.tmuxOptions = opts[0].TmuxOptions
 		svc.prSvc = opts[0].PRService
 		svc.checkoutInspector = opts[0].CheckoutInspector
+		svc.guidance = opts[0].RepositoryGuidance
+		svc.reviewsOff = opts[0].ReviewsOff
 		svc.binaryPath = opts[0].BinaryPath
 		svc.bus = opts[0].EventBus
 		if opts[0].BriefKickoffDelay > 0 {
@@ -778,9 +788,8 @@ func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, hei
 	if nativeResume {
 		rolePrompt = ""
 	}
-	var promptManifestID string
-	if a.learning != nil && adapter != nil && !nativeResume {
-		projectKey := ""
+	projectKey := ""
+	if (a.learning != nil || a.guidance != nil) && adapter != nil && !nativeResume {
 		if task, taskErr := a.store.GetTask(ctx, taskID); taskErr == nil {
 			codeContext, parseErr := store.ParseCodeContext(task.CodeContext)
 			if parseErr != nil {
@@ -790,6 +799,23 @@ func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, hei
 				projectKey = identity.Key
 			}
 		}
+	}
+	// With reviews on, an adapter whose agents learn of them only from here
+	// (Claude Code, Codex) is told; swarm workers never review.
+	if a.reviewsOff && !nativeResume {
+		rolePrompt = joinPromptSections(rolePrompt, reviewsOffPrompt)
+	} else if rp, ok := adapter.(ReviewsPromptAdapter); ok && rp.NeedsReviewsPrompt() && !nativeResume && !isSwarm {
+		rolePrompt = joinPromptSections(rolePrompt, reviewsOnPrompt)
+	}
+	if repo, ok := strings.CutPrefix(projectKey, "repo:"); ok && a.guidance != nil {
+		text, guidanceErr := a.guidance.GuidanceFor(ctx, repo)
+		if guidanceErr != nil {
+			log.Printf("reading the guidance for %s: %v", repo, guidanceErr)
+		}
+		rolePrompt = joinPromptSections(rolePrompt, repositoryGuidancePrompt(repo, text))
+	}
+	var promptManifestID string
+	if a.learning != nil && adapter != nil && !nativeResume {
 		compiled, compileErr := a.learning.CompileLearningPrompt(ctx, LearningPromptCompileInput{
 			TaskID: taskID, Adapter: agentKind, Role: opt.Role, ProjectKey: projectKey,
 			MaxItems: a.learningMaxItems, MaxBytes: a.learningMaxBytes,

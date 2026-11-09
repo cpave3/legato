@@ -102,6 +102,14 @@ type GeneralPromptAdapter interface {
 	GeneralPrompt() string
 }
 
+// ReviewsPromptAdapter is an optional adapter capability for tools whose
+// agents learn of Legato's review tours only from the launch prompt: nothing
+// in the tool's own prompts asks for one. While agents.reviews is on, a
+// plain spawn's launch prompt then asks for a tour at the end of the work.
+type ReviewsPromptAdapter interface {
+	NeedsReviewsPrompt() bool
+}
+
 // ToolsPromptAdapter is an optional adapter capability for tools whose
 // sessions are given Legato's own tools (`legato mcp serve`) but whose model
 // is not told about them by the tool itself: it does not pass an MCP server's

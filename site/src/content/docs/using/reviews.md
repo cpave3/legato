@@ -9,6 +9,17 @@ A review tour is an agent's change set out for you to read. The agent groups the
 
 A review tour is not the same as a [plan](/legato/using/plans/), which you agree before the work starts. When you use both, the review shows the plan the work was meant to follow.
 
+## Turning reviews off
+
+By default Legato tells agents to make a review tour and a handoff packet at the end of their work. To stop that, set this in `config.yaml`:
+
+```yaml
+agents:
+  reviews: false
+```
+
+Agents started after that are told to skip review tours and handoff packets unless you ask for a review. The review pages and the `legato review` commands still work, so you can still ask an agent for a tour. To give agents a different end-of-work step for one repository, add [guidance for that repository](/legato/using/agents/#guidance-for-a-repository).
+
 ## How a tour is built
 
 Legato starts a tour by itself. When an agent starts in a Git repository, Legato records the commit it starts from. From then on, every commit the agent makes, and any uncommitted work, becomes a step of the tour for that task.

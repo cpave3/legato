@@ -77,7 +77,7 @@ func buildWorkflowService(db *store.Store, cfg *config.Config, opts workflowRunt
 		if cfg.Learning.PromptEnabled {
 			promptProvider = learningSvc
 		}
-		agentSvc = service.NewAgentService(db, mgr, opts.WorkDir, service.AgentServiceOptions{Adapter: defaultAdapter, Adapters: adapters, PRService: prSvc, EventBus: service.AgentDiedPublisher{Bus: bus}, TmuxOptions: cfg.Agents.TmuxOptions, LearningPromptProvider: promptProvider, LearningPromptMaxItems: cfg.Learning.PromptMaxItems, LearningPromptMaxBytes: cfg.Learning.PromptMaxBytes, DisablePeerAwareness: !cfg.Agents.PeerAwareness, Sandbox: sandboxSettings(cfg), SandboxScratch: sandboxScratch(cfg)})
+		agentSvc = service.NewAgentService(db, mgr, opts.WorkDir, service.AgentServiceOptions{Adapter: defaultAdapter, Adapters: adapters, PRService: prSvc, EventBus: service.AgentDiedPublisher{Bus: bus}, TmuxOptions: cfg.Agents.TmuxOptions, LearningPromptProvider: promptProvider, LearningPromptMaxItems: cfg.Learning.PromptMaxItems, LearningPromptMaxBytes: cfg.Learning.PromptMaxBytes, DisablePeerAwareness: !cfg.Agents.PeerAwareness, ReviewsOff: !cfg.Agents.Reviews, RepositoryGuidance: repositoryGuidance(cfg, db), Sandbox: sandboxSettings(cfg), SandboxScratch: sandboxScratch(cfg)})
 		channels := attachCredentialChannels(cfg, db, agentSvc)
 		if opts.Repos == nil {
 			opts.Repos = newRepositoryService(cfg, db)
@@ -161,4 +161,10 @@ func workflowRepositoryPresets(cfg *config.Config) []workflowengine.RepositoryPr
 		presets[i] = workflowengine.RepositoryPreset{Name: repository.Name, Repo: repository.Repo, PrimaryDir: repository.PrimaryDir, BaseBranch: repository.BaseBranch}
 	}
 	return presets
+}
+
+// repositoryGuidance is the guidance agents get for the repository they work
+// in: config.yaml's agents.guidance, then what was saved in the web UI.
+func repositoryGuidance(cfg *config.Config, db *store.Store) *service.RepositoryGuidanceService {
+	return service.NewRepositoryGuidanceService(db, cfg.Agents.Guidance)
 }

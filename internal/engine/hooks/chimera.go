@@ -34,6 +34,8 @@ var chimeraScripts = []struct {
 
 // ChimeraAdapter implements the AIToolAdapter interface for the Chimera coding agent.
 type ChimeraAdapter struct {
+	// reviewsOff leaves Legato's review packet out of its prompts.
+	reviewsOff    bool
 	legatoBin     string
 	roleOverrides RolePromptOverrides
 	launchArgs    []string
@@ -215,7 +217,7 @@ func (a *ChimeraAdapter) resolveMode(role string) string {
 
 // RoleSystemPrompt returns the system prompt for a swarm role.
 func (a *ChimeraAdapter) RoleSystemPrompt(role string) string {
-	return resolveRolePrompt(a.roleOverrides, role)
+	return resolveRolePrompt(a.roleOverrides, role, !a.reviewsOff)
 }
 
 // LaunchIsSelfKickoff reports that Chimera's `--prompt` flag treats its value
@@ -239,7 +241,7 @@ func (a *ChimeraAdapter) RolePromptPreamble() string {
 // legato-spawned session, not a swarm participant, so it must not look for a
 // brief or sub-task context that doesn't exist.
 func (a *ChimeraAdapter) GeneralPrompt() string {
-	return chimeraGeneralPrompt
+	return withReviews(chimeraGeneralPrompt, !a.reviewsOff)
 }
 
 const chimeraGeneralPrompt = "You are a standalone coding agent launched by Legato. " +
@@ -262,6 +264,13 @@ const chimeraGeneralPrompt = "You are a standalone coding agent launched by Lega
 	"touching. Unexpected changes may belong to a peer: do not revert them before " +
 	"checking with the responsible agent. Peer announcements are advisory, not locks.\n" +
 	"\n" +
+	"<!-- no-reviews -->\n" +
+	"## Commits\n" +
+	"\n" +
+	"- **Make reasonable semantic commits as you work** — keep commits logically " +
+	"coherent, with bodies explaining *why* when decisions or tradeoffs need context.\n" +
+	"<!-- /no-reviews -->\n" +
+	"<!-- reviews -->\n" +
 	"## Review capture\n" +
 	"\n" +
 	"The user reviews your work as a guided tour. Narrate as you go. If " +
@@ -337,7 +346,8 @@ const chimeraGeneralPrompt = "You are a standalone coding agent launched by Lega
 	"reviewer gets one tour per feature. For a single-feature session the " +
 	"default (no `--name`) is fine. `LEGATO_REVIEW_NAME` is used as a fallback " +
 	"when `--name` is omitted, so you can set it once at the start of a " +
-	"multi-feature session and skip the flag on every call.\n"
+	"multi-feature session and skip the flag on every call.\n" +
+	"<!-- /reviews -->\n"
 
 const chimeraSandboxPreamble = "## Chimera-specific guidance for legato\n" +
 	"\n" +
@@ -580,3 +590,7 @@ func chimeraHookDir(event string) string {
 	home, _ := os.UserHomeDir()
 	return filepath.Join(home, ".chimera", "hooks", event)
 }
+
+// SetReviews says whether agents are told to capture Legato's review tours
+// and handoff packets (agents.reviews). On by default.
+func (a *ChimeraAdapter) SetReviews(on bool) { a.reviewsOff = !on }

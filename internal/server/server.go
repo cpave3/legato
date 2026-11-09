@@ -76,6 +76,7 @@ type Server struct {
 	workflowProjectDir       string
 	workflowRepositories     []workflowengine.RepositoryPreset
 	repositoryPresets        RepositoryPresetService
+	repositoryGuidance       RepositoryGuidanceService
 	jobClones                JobCloneService
 	taskStacks               TaskStackService
 	preparing                preparingAgents
@@ -174,6 +175,7 @@ func NewWithSwarm(board service.BoardService, agents service.AgentService, tmux 
 	mux.HandleFunc("/api/workspaces", s.workspacesHandler())
 	mux.HandleFunc("/api/settings", s.settingsHandler())
 	mux.HandleFunc("/api/settings/tint", s.tintHandler())
+	mux.HandleFunc("/api/settings/repository-guidance", s.repositoryGuidanceHandler())
 	mux.HandleFunc("/api/settings/updates", s.updateModeHandler())
 	mux.HandleFunc("/api/updates", s.updatesHandler())
 	mux.HandleFunc("/api/updates/check", s.updateCheckHandler())
