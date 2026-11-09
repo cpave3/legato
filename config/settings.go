@@ -536,3 +536,31 @@ func section(v reflect.Value, alloc bool) reflect.Value {
 	}
 	return v.Elem()
 }
+
+// PinnedSettingsAndOthers lists every dotted key this configuration's file
+// gives a value: registered settings and file-only ones alike.
+func (c *Config) PinnedSettingsAndOthers() []string {
+	keys := make([]string, 0, len(c.pins))
+	for _, s := range registry {
+		if c.Pinned(s.Key) {
+			keys = append(keys, s.Key)
+		}
+	}
+	for key := range c.pins {
+		if IsFileOnly(key) {
+			keys = append(keys, key)
+		}
+	}
+	sort.Strings(keys[len(keys)-countFileOnly(c.pins):])
+	return keys
+}
+
+func countFileOnly(pins map[string]bool) int {
+	n := 0
+	for key := range pins {
+		if IsFileOnly(key) {
+			n++
+		}
+	}
+	return n
+}

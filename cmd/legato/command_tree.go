@@ -158,6 +158,8 @@ func commandTree() *commandDef {
 		leaf("export", "Write the settings set in the database as YAML shaped like config.yaml", runConfigExportCmd, nil,
 			[]commandFlag{boolFlag("pinned", "Include the settings config.yaml pins")},
 			"legato config export > settings.yaml", "legato config export --pinned"),
+		leaf("import", "Turn a file written by legato config export into one change set to approve", runConfigImportCmd, nil,
+			[]commandFlag{jsonFlag}, "legato config import settings.yaml"),
 	)
 	workspace := group("workspace", "Discover task workspaces", []string{"legato workspace list"},
 		leaf("list", "List configured workspaces", func(a []string) int { return runWorkspaceContract(append([]string{"list"}, a...)) },

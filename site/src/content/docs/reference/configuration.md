@@ -46,6 +46,8 @@ Some settings are **file-only**: they live only in this file, and nothing else c
 
 **Moving settings out of the file.** After the upgrade that brought settings into the database, Attention offers once to move every setting `config.yaml` pins into the database, listed in Settings › Lists with a tick each; untick any to keep it in the file. Each pinned setting in Settings also has **Move to the database**. A move copies the values into the database, rewrites `config.yaml` without them (its comments and order kept, the old file kept beside it as `config.yaml.<time>.bak`), and restarts Legato; if Legato does not start on the result, it puts the old file and values back. A setting that holds a secret, or whose value reads an environment variable, stays in the file.
 
+**Export and import.** `legato config export` writes the settings kept in the database as a file shaped like `config.yaml`; `legato config import` turns such a file into one change set to approve, so one instance can set up another.
+
 You can see what Legato runs with, and where each value comes from, with `legato config show --sources`.
 
 ### When a change takes effect

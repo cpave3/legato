@@ -118,3 +118,24 @@ export async function exportSettings(baseUrl: string, pinned: boolean): Promise<
   if (!response.ok) throw await failed(response)
   return response.text()
 }
+
+// What an import proposed (POST /api/config/import).
+export interface ImportOutcome {
+  id: string
+  approval_id: string
+  level: string
+  calls: number
+  skipped?: string[]
+}
+
+// importSettings sends a file written by Export settings; it becomes one
+// change set to approve in the tray.
+export async function importSettings(baseUrl: string, text: string): Promise<ImportOutcome> {
+  const response = await apiFetch(baseUrl, "/api/config/import", {
+    method: "POST",
+    headers: { "Content-Type": "application/yaml" },
+    body: text,
+  })
+  if (!response.ok) throw await failed(response)
+  return response.json()
+}

@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"io"
 	"encoding/json"
 	"errors"
 	"net/http"
@@ -61,5 +62,40 @@ func (s *Server) configMoveHandler() http.HandlerFunc {
 		default:
 			s.writeError(w, http.StatusMethodNotAllowed, "method not allowed")
 		}
+	}
+}
+
+// SettingsImporter turns an exported file into a change set
+// (service.ChangeSetService).
+type SettingsImporter interface {
+	ProposeImport(ctx context.Context, data []byte, by string) (service.ImportOutcome, error)
+}
+
+// SetSettingsImporter serves the import of settings.
+func (s *Server) SetSettingsImporter(importer SettingsImporter) { s.settingsImporter = importer }
+
+// configImportHandler serves POST /api/config/import (the file as the
+// body): one change set to approve.
+func (s *Server) configImportHandler() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			s.writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+			return
+		}
+		if s.settingsImporter == nil {
+			s.writeError(w, http.StatusServiceUnavailable, "settings cannot be imported here")
+			return
+		}
+		data, err := io.ReadAll(io.LimitReader(r.Body, 1<<20))
+		if err != nil {
+			s.writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		out, err := s.settingsImporter.ProposeImport(r.Context(), data, "Settings › Import")
+		if err != nil {
+			s.writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		s.writeJSON(w, http.StatusAccepted, out)
 	}
 }

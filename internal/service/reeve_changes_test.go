@@ -253,3 +253,28 @@ func TestLegatoIsBackIsSentAfterARestartOnce(t *testing.T) {
 		t.Fatal("reported twice")
 	}
 }
+
+func TestAnImportIsOneChangeSetToApprove(t *testing.T) {
+	f := newChangeSetFixture(t)
+	ctx := context.Background()
+	exported := []byte("agents:\n  reviews: false\nweb:\n  port: \"4000\"\nworkspaces:\n  - name: Home\n    color: '#00ff00'\n")
+	out, err := f.svc.ProposeImport(ctx, exported, "legato config import")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if out.Calls != 2 || len(out.Skipped) != 1 || out.Skipped[0] != "web.port" {
+		t.Fatalf("outcome = %+v", out)
+	}
+	approval, _ := f.devices.approvals.Get(ctx, out.ApprovalID)
+	if approval.Source != ApprovalSourceReeveChangeSet || approval.Status != store.ApprovalPending {
+		t.Fatalf("approval = %+v", approval.Approval)
+	}
+	f.decide(t, out.ApprovalID, ApprovalAllow, "")
+	f.svc.RunQueued(ctx)
+	if strings.Join(f.ran, ",") != "PUT /api/config/settings/agents.reviews,PUT /api/config/lists/workspaces/Home" {
+		t.Fatalf("ran %v", f.ran)
+	}
+	if _, err := f.svc.ProposeImport(ctx, []byte("github:\n  auth: nonsense\n"), "x"); err == nil {
+		t.Fatal("imported a file that does not load")
+	}
+}

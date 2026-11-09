@@ -79,3 +79,13 @@ func TestConfigExportWritesTheDatabasesSettingsAsYAML(t *testing.T) {
 		t.Fatalf("export --pinned:\n%s", pinned)
 	}
 }
+
+func TestConfigImportProposesOneChangeSet(t *testing.T) {
+	configCmdInstance(t)
+	file := filepath.Join(t.TempDir(), "settings.yaml")
+	os.WriteFile(file, []byte("agents:\n  peer_awareness: false\ndata_dir: /elsewhere\n"), 0o600)
+	out := captureStdout(t, func() int { return runCLI([]string{"config", "import", file}) })
+	if !strings.Contains(out, "1 changes wait for your approval") || !strings.Contains(out, "Left out, since they live only in config.yaml: data_dir") {
+		t.Fatalf("output:\n%s", out)
+	}
+}

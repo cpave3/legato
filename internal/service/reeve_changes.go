@@ -598,3 +598,61 @@ func dedupe(values []string) []string {
 	}
 	return out
 }
+
+// ImportOutcome is what an import proposed: the change set's approval, and
+// the keys of the file that no API changes (file-only ones), left out.
+type ImportOutcome struct {
+	ID         string   `json:"id"`
+	ApprovalID string   `json:"approval_id"`
+	Level      string   `json:"level"`
+	Calls      int      `json:"calls"`
+	Skipped    []string `json:"skipped,omitempty"`
+}
+
+// ProposeImport turns a file shaped like config.yaml (legato config
+// export) into one change set for the person to approve: a call setting
+// each registered setting it gives, and one saving each list entry. It
+// does not wait for the decision.
+func (c *ChangeSetService) ProposeImport(ctx context.Context, data []byte, by string) (ImportOutcome, error) {
+	imported, err := config.LoadBytes(data)
+	if err != nil {
+		return ImportOutcome{}, fmt.Errorf("the file does not load: %w", err)
+	}
+	var calls []ChangeCall
+	var skipped []string
+	for _, key := range imported.PinnedSettingsAndOthers() {
+		setting, ok := config.LookupSetting(key)
+		if !ok {
+			if config.IsFileOnly(key) {
+				skipped = append(skipped, key)
+			}
+			continue
+		}
+		value, err := config.SettingValue(imported, setting.Key)
+		if err != nil {
+			continue
+		}
+		body, _ := json.Marshal(map[string]any{"value": value})
+		calls = append(calls, ChangeCall{Kind: CallAPI, Method: "PUT", Path: "/api/config/settings/" + url.PathEscape(setting.Key), Body: body})
+	}
+	for _, l := range config.EntryListDefs() {
+		for _, name := range imported.FileEntries(l.Key) {
+			value, ok, err := config.EntryValue(imported, l.Key, name)
+			if err != nil || !ok {
+				continue
+			}
+			body, _ := json.Marshal(map[string]any{"value": value})
+			calls = append(calls, ChangeCall{Kind: CallAPI, Method: "PUT", Path: "/api/config/lists/" + url.PathEscape(l.Key) + "/" + url.PathEscape(name), Body: body})
+		}
+	}
+	if len(calls) == 0 {
+		return ImportOutcome{Skipped: skipped}, errors.New("the file holds no setting that can be imported")
+	}
+	waitless := *c
+	waitless.opts.Wait = time.Millisecond
+	out, err := waitless.Propose(ctx, "", "Import settings ("+by+")", calls)
+	if err != nil {
+		return ImportOutcome{Skipped: skipped}, err
+	}
+	return ImportOutcome{ID: out.ID, ApprovalID: out.ApprovalID, Level: string(out.Level), Calls: len(calls), Skipped: skipped}, nil
+}

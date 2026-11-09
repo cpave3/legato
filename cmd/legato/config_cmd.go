@@ -2,12 +2,13 @@ package main
 
 import (
 	"context"
-	"os"
 	"encoding/json"
 	"fmt"
+	"os"
 	"strings"
 
 	"github.com/cpave3/legato/config"
+	"github.com/cpave3/legato/internal/engine/ipc"
 	"github.com/cpave3/legato/internal/service"
 )
 
@@ -83,4 +84,45 @@ func runConfigExportCmd(args []string) int {
 	}
 	_, _ = os.Stdout.Write(out)
 	return exitOK
+}
+
+// runConfigImportCmd is `legato config import <file>`: the file (as `legato
+// config export` writes it) becomes one change set to approve in the tray.
+func runConfigImportCmd(args []string) int {
+	const command = "config.import"
+	parsed, parseErr := parseCommandArgs(args, commandFlagSpecs("config", "import"))
+	jsonMode := parsed.Present["json"]
+	if parseErr != nil {
+		return renderCommandError(command, parseErr, jsonMode)
+	}
+	if len(parsed.Positionals) != 1 {
+		return renderCommandError(command, usageError("missing_argument", "give the file to import"), jsonMode)
+	}
+	data, err := os.ReadFile(parsed.Positionals[0])
+	if err != nil {
+		return renderCommandError(command, &commandError{Code: "unreadable", Message: err.Error(), Exit: exitEnvironment}, jsonMode)
+	}
+	cfg, err := config.Load()
+	if err != nil {
+		return renderCommandError(command, &commandError{Code: "config_invalid", Message: err.Error(), Exit: exitEnvironment}, jsonMode)
+	}
+	db, err := openStore(cfg)
+	if err != nil {
+		return renderCommandError(command, &commandError{Code: "database", Message: err.Error(), Exit: exitEnvironment}, jsonMode)
+	}
+	defer db.Close()
+	changeSets := service.NewChangeSetService(service.ChangeSetOptions{
+		Store: db, Approvals: service.NewApprovalService(db, service.ApprovalServiceOptions{}),
+		Settings: service.NewSettingsService(db, nil), Classify: classifyCall,
+	})
+	out, err := changeSets.ProposeImport(context.Background(), data, "legato config import")
+	if err != nil {
+		return renderCommandError(command, commandDomainError(err), jsonMode)
+	}
+	ipc.Broadcast(ipc.Message{Type: "approval_changed"})
+	text := fmt.Sprintf("Change set %s: %d changes wait for your approval in the approval tray (approval %s, needs %s).", out.ID, out.Calls, out.ApprovalID, out.Level)
+	if len(out.Skipped) > 0 {
+		text += "\nLeft out, since they live only in config.yaml: " + strings.Join(out.Skipped, ", ")
+	}
+	return writeCommandSuccess(command, out, text, jsonMode)
 }
