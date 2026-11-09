@@ -38,6 +38,7 @@ Most settings can also be kept in Legato's database, and changed from the web UI
 
 - **A value in `config.yaml` wins.** The setting is *pinned*: the web UI shows it locked, and only an edit to the file changes it. Remove it from the file and, at the next start, the database's value (or the default) applies again.
 - **Otherwise the database's value applies,** or the default when there is none.
+- **Lists are pinned entry by entry.** Workspaces, macros, agent tools (`adapters`), credentials, credential sources, tmux options, sandbox mounts and swarm prompts are each the file's entries plus those added in Settings › Lists, matched by name. An entry whose name the file has is locked, and the web UI will not add another of that name. Repositories, resources and repository guidance work the same way, in their own sections.
 - **Secrets are kept by name.** A setting that holds a secret (`jira.api_token`, `github.token`, `notifications.ntfy.token`, `manticore.api_key`) takes, in the database, only the name of a secret: `legato://<name>` in Legato's own store (`legato secret add`), or `op://<vault>/<item>/<field>` in 1Password. Legato reads the secret when it starts. In the file, `${ENV}` references work as before.
 - **A change is checked before it is kept**: the value by its own rule, then the whole configuration with the rules Legato uses for this file. A change that would leave it invalid is refused with that error, so a value in the database never stops Legato from starting.
 

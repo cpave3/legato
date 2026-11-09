@@ -46,3 +46,43 @@ export async function resetConfigSetting(baseUrl: string, key: string): Promise<
   if (!response.ok) throw await failed(response)
   return response.json()
 }
+
+// One entry of a list of named entries (service.SettingEntryValue).
+export interface ConfigListEntry {
+  name: string
+  value: unknown
+  source: "config.yaml" | "database"
+  pinned: boolean
+  updated_at?: string
+}
+
+// A list of named entries, the file's and the database's.
+export interface ConfigList {
+  key: string
+  title: string
+  class: "read" | "change" | "risky"
+  mode: "live" | "new_agents" | "restart"
+  name_field?: string
+  entries: ConfigListEntry[]
+}
+
+export async function fetchConfigLists(baseUrl: string): Promise<ConfigList[]> {
+  const response = await apiFetch(baseUrl, "/api/config/lists")
+  if (!response.ok) throw await failed(response)
+  const body = await response.json() as { lists: ConfigList[] }
+  return body.lists ?? []
+}
+
+export async function saveConfigListEntry(baseUrl: string, list: string, name: string, value: unknown): Promise<void> {
+  const response = await apiFetch(baseUrl, `/api/config/lists/${encodeURIComponent(list)}/${encodeURIComponent(name)}`, {
+    method: "PUT",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ value }),
+  })
+  if (!response.ok) throw await failed(response)
+}
+
+export async function removeConfigListEntry(baseUrl: string, list: string, name: string): Promise<void> {
+  const response = await apiFetch(baseUrl, `/api/config/lists/${encodeURIComponent(list)}/${encodeURIComponent(name)}`, { method: "DELETE" })
+  if (!response.ok) throw await failed(response)
+}

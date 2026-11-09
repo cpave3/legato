@@ -94,3 +94,35 @@ func TestASettingChangeIsRefusedWithItsReason(t *testing.T) {
 	}
 	_ = context.Background()
 }
+
+func TestListEntriesAreAddedAndRemovedButNotTheFiles(t *testing.T) {
+	srv := settingsServer(t, "workspaces:\n  - name: Work\n")
+	if rec := callUpdates(srv, http.MethodPut, "/api/config/lists/workspaces/Home", `{"value": {"color": "#00ff00"}}`); rec.Code != http.StatusOK {
+		t.Fatalf("PUT: %d %s", rec.Code, rec.Body)
+	}
+	if rec := callUpdates(srv, http.MethodPut, "/api/config/lists/workspaces/work", `{"value": {}}`); rec.Code != http.StatusConflict {
+		t.Fatalf("PUT a name the file has: %d %s", rec.Code, rec.Body)
+	}
+	rec := callUpdates(srv, http.MethodGet, "/api/config/lists", "")
+	var got struct {
+		Lists []service.SettingList `json:"lists"`
+	}
+	json.Unmarshal(rec.Body.Bytes(), &got)
+	var names []string
+	for _, l := range got.Lists {
+		if l.Key == "workspaces" {
+			for _, e := range l.Entries {
+				names = append(names, e.Name+":"+e.Source)
+			}
+		}
+	}
+	if strings.Join(names, ",") != "Work:config.yaml,Home:database" {
+		t.Fatalf("workspaces = %v", names)
+	}
+	if rec := callUpdates(srv, http.MethodDelete, "/api/config/lists/workspaces/Home", ""); rec.Code != http.StatusOK {
+		t.Fatalf("DELETE: %d %s", rec.Code, rec.Body)
+	}
+	if rec := callUpdates(srv, http.MethodDelete, "/api/config/lists/workspaces/Home", ""); rec.Code != http.StatusNotFound {
+		t.Fatalf("DELETE again: %d", rec.Code)
+	}
+}

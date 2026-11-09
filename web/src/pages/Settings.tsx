@@ -21,6 +21,7 @@ import { SettingsCard, SettingsGroup, SettingsRow, SettingsRows, Toggle, Browser
 import { useSettings } from "../hooks/useSettings"
 import { useConfigSettings } from "../hooks/useConfigSettings"
 import { RegistrySettings, SettingSource } from "../components/settings/RegistrySettings"
+import { ListSettings } from "../components/settings/ListSettings"
 import { useToast } from "../hooks/useToast"
 import { apiFetch } from "../lib/api"
 import { Link, useSearchParams } from "react-router-dom"
@@ -138,6 +139,7 @@ export function SettingsPage() {
     { id: "handoff", title: "Handoff" },
     { id: "connection", title: "Connection" },
     { id: "appearance", title: "Appearance" },
+    { id: "lists", title: "Lists" },
     { id: "updates", title: "Updates" },
     ...(settings.data?.hot_reload_enabled ? [{ id: "development", title: "Development" }] : []),
   ]
@@ -383,6 +385,10 @@ export function SettingsPage() {
               />
             </SettingsRows>
             <RegistrySettings settings={registry} baseUrl={baseUrl} prefixes={["theme", "icons", "editor"]} />
+          </SettingsGroup>
+
+          <SettingsGroup id="lists" title="Lists" description="Workspaces, macros, agent tools, credentials and other lists, kept on this server beside config.yaml. Entries config.yaml gives are locked.">
+            <ListSettings baseUrl={baseUrl} />
           </SettingsGroup>
 
           <SettingsGroup id="updates" title="Updates" description="Which release of Legato this server runs, and how it takes the next.">

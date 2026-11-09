@@ -66,6 +66,9 @@ type Config struct {
 
 	// pins are the dotted keys config.yaml gives a value (Pinned).
 	pins map[string]bool
+	// fileEntries are the names of each entry list's entries the file
+	// gives (PinnedEntry).
+	fileEntries map[string][]string
 }
 
 // ManticoreConfig names the Manticore instance that Claude Code sessions
@@ -479,6 +482,7 @@ func Load() (*Config, error) {
 		return nil, err
 	}
 	cfg.pins = pinnedKeys([]byte(expanded))
+	recordFileEntries(cfg)
 	return cfg, nil
 }
 

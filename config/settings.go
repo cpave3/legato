@@ -242,16 +242,15 @@ var fileOnly = []string{
 	"approval_devices.android_app_digests",
 }
 
-// entryLists are the lists of named entries, kept in tables of their own
-// rather than as one value (docs/ai/settings.md § Lists).
-var entryLists = []string{
-	"board.columns", "workspaces", "macros", "adapters", "repositories", "workflows.repositories",
-	"resources", "credentials", "credential_sources", "agents.guidance", "agents.tmux_options",
-	"agents.sandbox.mounts", "swarm.prompts",
+// EntryLists lists the keys of every list of named entries: those the
+// entries table keeps (EntryListDefs) and those with tables of their own.
+func EntryLists() []string {
+	keys := slices.Clone(tabledLists)
+	for _, l := range entryListDefs {
+		keys = append(keys, l.Key)
+	}
+	return keys
 }
-
-// EntryLists lists the keys of the lists of named entries.
-func EntryLists() []string { return slices.Clone(entryLists) }
 
 // SetSetting gives key a value in cfg, as Overlay does: for a secret
 // setting, the secret's value once its name is resolved.

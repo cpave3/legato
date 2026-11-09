@@ -132,6 +132,7 @@ Requests from agents that wait for you (permissions, questions, credentials) app
 - **Connection**: servers, **Pair a phone**, and the TLS certificate.
 - **Appearance**: the tint, the terminal theme, the glitch effect, and the moving light round a working agent.
 - **Where a setting comes from.** Settings that can be kept on the server show where their value comes from: **default**, **config.yaml** with a lock (change it in the file), or **set here** with **Reset**, which goes back to the default. One marked **applies at restart** waits for Legato to restart.
+- **Lists**: workspaces, macros, agent tools, credentials and the other lists kept on the server. Entries from `config.yaml` are locked; add, edit or remove the others.
 - **Updates**: this server's version, the latest release, and the update mode, and **Restart Legato**, which restarts every Legato process of this server. See [Updates](/legato/running/updates/).
 
 A setting kept in this browser only is marked `this browser`.

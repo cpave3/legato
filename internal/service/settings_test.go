@@ -190,3 +190,34 @@ func TestASecretInTheFileIsNeverListed(t *testing.T) {
 		t.Fatalf("listed = %+v", got)
 	}
 }
+
+func TestAListIsTheFilesEntriesPlusTheDatabases(t *testing.T) {
+	settings, db := newSettingsFixture(t, "macros:\n  - name: hi\n    keys: hello\n")
+	ctx := context.Background()
+	if err := settings.SetEntry(ctx, "macros", "bye", json.RawMessage(`{"keys": "goodbye"}`), "web"); err != nil {
+		t.Fatal(err)
+	}
+	if err := settings.SetEntry(ctx, "macros", "HI", json.RawMessage(`{"keys": "again"}`), "web"); !errors.Is(err, config.ErrEntryPinned) {
+		t.Fatalf("an entry of a name the file has: %v", err)
+	}
+	lists, _ := settings.Lists(ctx)
+	var macros SettingList
+	for _, l := range lists {
+		if l.Key == "macros" {
+			macros = l
+		}
+	}
+	if len(macros.Entries) != 2 || macros.Entries[0].Name != "hi" || !macros.Entries[0].Pinned || macros.Entries[1].Name != "bye" || macros.Entries[1].Source != SettingFromDatabase {
+		t.Fatalf("macros = %+v", macros.Entries)
+	}
+	cfg, _ := config.Load()
+	if err := ApplySettings(ctx, db, cfg, nil); err != nil || len(cfg.Macros) != 2 || cfg.Macros[1].Keys != "goodbye" {
+		t.Fatalf("macros applied = %+v, %v", cfg.Macros, err)
+	}
+	if err := settings.DeleteEntry(ctx, "macros", "bye"); err != nil {
+		t.Fatal(err)
+	}
+	if err := settings.DeleteEntry(ctx, "macros", "hi"); !errors.Is(err, config.ErrEntryPinned) {
+		t.Fatalf("removing the file's entry: %v", err)
+	}
+}

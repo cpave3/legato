@@ -52,7 +52,7 @@ func TestEverySettingIsRegisteredOrFileOnly(t *testing.T) {
 		if _, ok := LookupSetting(key); ok {
 			continue
 		}
-		if isList && slices.Contains(entryLists, key) {
+		if isList && slices.Contains(EntryLists(), key) {
 			continue
 		}
 		t.Errorf("%s is neither registered nor file-only: register it in config/settings.go, or add it to fileOnly with a reason", key)

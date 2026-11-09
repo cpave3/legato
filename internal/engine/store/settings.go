@@ -61,3 +61,55 @@ func (s *Store) DeleteSetting(ctx context.Context, key string) error {
 	_, err := s.db.ExecContext(ctx, `DELETE FROM settings WHERE key = ?`, key)
 	return err
 }
+
+// SettingEntry is one entry of a list of named entries.
+type SettingEntry struct {
+	List      string `db:"list"`
+	Name      string `db:"name"`
+	Value     string `db:"value"`
+	UpdatedAt string `db:"updated_at"`
+	UpdatedBy string `db:"updated_by"`
+}
+
+// ListSettingEntries lists every entry kept, by list and name.
+func (s *Store) ListSettingEntries(ctx context.Context) ([]SettingEntry, error) {
+	rows := []SettingEntry{}
+	err := s.db.SelectContext(ctx, &rows, `SELECT list, name, value, updated_at, updated_by FROM setting_entries ORDER BY list, rowid`)
+	return rows, err
+}
+
+// SettingEntries is every entry kept, by list and name.
+func (s *Store) SettingEntries(ctx context.Context) (map[string]map[string]json.RawMessage, error) {
+	rows, err := s.ListSettingEntries(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := map[string]map[string]json.RawMessage{}
+	for _, r := range rows {
+		if out[r.List] == nil {
+			out[r.List] = map[string]json.RawMessage{}
+		}
+		out[r.List][r.Name] = json.RawMessage(r.Value)
+	}
+	return out, nil
+}
+
+// SetSettingEntry keeps one entry, replacing any of the same name.
+func (s *Store) SetSettingEntry(ctx context.Context, list, name string, value json.RawMessage, by string) error {
+	_, err := s.db.ExecContext(ctx, `INSERT INTO setting_entries (list, name, value, updated_by) VALUES (?, ?, ?, ?)
+		ON CONFLICT(list, name) DO UPDATE SET value = excluded.value, updated_by = excluded.updated_by, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')`,
+		list, name, string(value), by)
+	return err
+}
+
+// DeleteSettingEntry removes one entry; none is ErrNotFound.
+func (s *Store) DeleteSettingEntry(ctx context.Context, list, name string) error {
+	res, err := s.db.ExecContext(ctx, `DELETE FROM setting_entries WHERE list = ? AND name = ?`, list, name)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return ErrNotFound
+	}
+	return nil
+}

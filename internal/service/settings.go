@@ -69,17 +69,24 @@ func NewSettingsService(db *store.Store, load func() (*config.Config, error)) *S
 // secret (nil leaves such settings empty).
 func ApplySettings(ctx context.Context, db *store.Store, cfg *config.Config, resolve SecretResolver) error {
 	values, err := db.SettingValues(ctx)
-	if err != nil || len(values) == 0 {
+	if err != nil {
 		return err
+	}
+	entries, err := db.SettingEntries(ctx)
+	if err != nil {
+		return err
+	}
+	if len(values) == 0 && len(entries) == 0 {
+		return nil
 	}
 	probe, err := config.Load()
 	if err == nil {
-		err = config.Overlay(probe, values)
+		err = overlayAll(probe, values, entries)
 	}
 	if err != nil {
 		return fmt.Errorf("the settings saved in the database are not applied: %w", err)
 	}
-	if err := config.Overlay(cfg, values); err != nil {
+	if err := overlayAll(cfg, values, entries); err != nil {
 		return err
 	}
 	var failed []string
@@ -108,6 +115,17 @@ func ApplySettings(ctx context.Context, db *store.Store, cfg *config.Config, res
 	return nil
 }
 
+// overlayAll applies the database's single values, then its list entries.
+func overlayAll(cfg *config.Config, values map[string]json.RawMessage, entries map[string]map[string]json.RawMessage) error {
+	if err := config.Overlay(cfg, values); err != nil {
+		return err
+	}
+	if len(entries) == 0 {
+		return nil
+	}
+	return config.OverlayEntries(cfg, entries)
+}
+
 // SecretResolver reads the secret a reference names (legato://name,
 // op://vault/item/field).
 type SecretResolver func(ctx context.Context, ref string) (string, error)
@@ -122,7 +140,11 @@ func (s *SettingsService) Effective(ctx context.Context) (*config.Config, error)
 	if err != nil {
 		return nil, err
 	}
-	if err := config.Overlay(cfg, values); err != nil {
+	entries, err := s.db.SettingEntries(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if err := overlayAll(cfg, values, entries); err != nil {
 		log.Printf("settings: %v", err)
 		return s.load()
 	}
@@ -371,4 +393,138 @@ func (s StringSetting) GetInstanceValue(ctx context.Context, key string) (string
 func (s StringSetting) SetInstanceValue(ctx context.Context, key, value string) error {
 	raw, _ := json.Marshal(value)
 	return s.Settings.Set(ctx, key, raw, "web")
+}
+
+// SettingEntryValue is one entry of a list, with where it comes from.
+type SettingEntryValue struct {
+	Name      string `json:"name"`
+	Value     any    `json:"value"`
+	Source    string `json:"source"`
+	Pinned    bool   `json:"pinned"`
+	UpdatedAt string `json:"updated_at,omitempty"`
+	UpdatedBy string `json:"updated_by,omitempty"`
+}
+
+// SettingList is a list of named entries with its entries.
+type SettingList struct {
+	config.EntryList
+	Entries []SettingEntryValue `json:"entries"`
+}
+
+// Lists is every list of named entries the database keeps, with the
+// file's entries (pinned) and the database's.
+func (s *SettingsService) Lists(ctx context.Context) ([]SettingList, error) {
+	cfg, err := s.Effective(ctx)
+	if err != nil {
+		return nil, err
+	}
+	rows, err := s.db.ListSettingEntries(ctx)
+	if err != nil {
+		return nil, err
+	}
+	var out []SettingList
+	for _, l := range config.EntryListDefs() {
+		list := SettingList{EntryList: l, Entries: []SettingEntryValue{}}
+		for _, name := range cfg.FileEntries(l.Key) {
+			v, _, _ := config.EntryValue(cfg, l.Key, name)
+			if l.Key == "credentials" || l.Key == "credential_sources" {
+				v = redactEntry(v)
+			}
+			list.Entries = append(list.Entries, SettingEntryValue{Name: name, Value: v, Source: SettingFromFile, Pinned: true})
+		}
+		for _, r := range rows {
+			if r.List != l.Key || cfg.PinnedEntry(l.Key, r.Name) {
+				continue
+			}
+			var v any
+			_ = json.Unmarshal([]byte(r.Value), &v)
+			list.Entries = append(list.Entries, SettingEntryValue{Name: r.Name, Value: v, Source: SettingFromDatabase, UpdatedAt: r.UpdatedAt, UpdatedBy: r.UpdatedBy})
+		}
+		out = append(out, list)
+	}
+	return out, nil
+}
+
+// redactEntry hides a secret given in the file: a credential's secret is a
+// reference, but a file may hold anything.
+func redactEntry(v any) any {
+	m, ok := v.(map[string]any)
+	if !ok {
+		return v
+	}
+	if secret, ok := m["secret"].(string); ok && !strings.Contains(secret, "://") {
+		m["secret"] = "(set in config.yaml)"
+	}
+	return m
+}
+
+// SetEntry keeps one entry of a list in the database: refused when the
+// file has an entry of that name, or when the whole configuration would be
+// invalid with it.
+func (s *SettingsService) SetEntry(ctx context.Context, list, name string, raw json.RawMessage, by string) error {
+	if _, err := s.CheckEntry(ctx, list, name, raw); err != nil {
+		return err
+	}
+	if err := s.db.SetSettingEntry(ctx, list, strings.TrimSpace(name), raw, by); err != nil {
+		return err
+	}
+	s.changed()
+	return nil
+}
+
+// CheckEntry says whether SetEntry would take an entry.
+func (s *SettingsService) CheckEntry(ctx context.Context, list, name string, raw json.RawMessage) (json.RawMessage, error) {
+	if _, ok := config.LookupEntryList(list); !ok {
+		return nil, fmt.Errorf("%s: %w", list, config.ErrUnknownSetting)
+	}
+	name = strings.TrimSpace(name)
+	if name == "" {
+		return nil, errors.New("an entry needs a name")
+	}
+	var probe map[string]any
+	if json.Unmarshal(raw, &probe) != nil {
+		return nil, fmt.Errorf("%s %q: want an object", list, name)
+	}
+	cfg, err := s.load()
+	if err != nil {
+		return nil, err
+	}
+	if cfg.PinnedEntry(list, name) {
+		return nil, fmt.Errorf("%s %q: %w", list, name, config.ErrEntryPinned)
+	}
+	values, err := s.db.SettingValues(ctx)
+	if err != nil {
+		return nil, err
+	}
+	entries, err := s.db.SettingEntries(ctx)
+	if err != nil {
+		return nil, err
+	}
+	if entries[list] == nil {
+		entries[list] = map[string]json.RawMessage{}
+	}
+	entries[list][name] = raw
+	if err := overlayAll(cfg, values, entries); err != nil {
+		return nil, err
+	}
+	return raw, nil
+}
+
+// DeleteEntry removes one database entry of a list.
+func (s *SettingsService) DeleteEntry(ctx context.Context, list, name string) error {
+	if _, ok := config.LookupEntryList(list); !ok {
+		return fmt.Errorf("%s: %w", list, config.ErrUnknownSetting)
+	}
+	cfg, err := s.load()
+	if err != nil {
+		return err
+	}
+	if cfg.PinnedEntry(list, name) {
+		return fmt.Errorf("%s %q: %w", list, name, config.ErrEntryPinned)
+	}
+	if err := s.db.DeleteSettingEntry(ctx, list, name); err != nil {
+		return err
+	}
+	s.changed()
+	return nil
 }
