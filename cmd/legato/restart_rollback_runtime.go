@@ -53,7 +53,7 @@ func loadConfig() (*config.Config, error) {
 // restartRollback is the rollback of this instance's restarts.
 func restartRollback(cfg *config.Config, db *store.Store) *service.RestartRollback {
 	resolved, _ := config.ResolveDatabase(cfg)
-	return &service.RestartRollback{Store: db, DBDriver: resolved.Driver, DBPath: resolved.Path}
+	return &service.RestartRollback{Store: db, Settings: settingsFor(db), DBDriver: resolved.Driver, DBPath: resolved.Path}
 }
 
 // prepareRestart records a restart before this process restarts, when

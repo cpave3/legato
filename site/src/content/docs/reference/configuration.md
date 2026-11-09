@@ -44,6 +44,8 @@ Most settings can also be kept in Legato's database, and changed from the web UI
 
 Some settings are **file-only**: they live only in this file, and nothing else changes them. They are what Legato needs before its database opens (`db.*`, `data_dir`), what unseals its secrets (`secrets.master_key`, `secrets.onepassword`), how it is reached (`web.enabled`, `web.port`, `web.tls`, `web.public_url`), and the signing trust root (`approval_devices.android_app_digests`). They are marked *file-only* below.
 
+**Moving settings out of the file.** After the upgrade that brought settings into the database, Attention offers once to move every setting `config.yaml` pins into the database, listed in Settings › Lists with a tick each; untick any to keep it in the file. Each pinned setting in Settings also has **Move to the database**. A move copies the values into the database, rewrites `config.yaml` without them (its comments and order kept, the old file kept beside it as `config.yaml.<time>.bak`), and restarts Legato; if Legato does not start on the result, it puts the old file and values back. A setting that holds a secret, or whose value reads an environment variable, stays in the file.
+
 You can see what Legato runs with, and where each value comes from, with `legato config show --sources`.
 
 ### When a change takes effect

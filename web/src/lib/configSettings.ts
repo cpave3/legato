@@ -86,3 +86,25 @@ export async function removeConfigListEntry(baseUrl: string, list: string, name:
   const response = await apiFetch(baseUrl, `/api/config/lists/${encodeURIComponent(list)}/${encodeURIComponent(name)}`, { method: "DELETE" })
   if (!response.ok) throw await failed(response)
 }
+
+// What can move from config.yaml into the database (GET /api/config/move).
+export interface SettingsMove {
+  settings: string[]
+  entries: { list: string; name: string }[]
+}
+
+export async function fetchMovable(baseUrl: string): Promise<SettingsMove> {
+  const response = await apiFetch(baseUrl, "/api/config/move")
+  if (!response.ok) throw await failed(response)
+  return response.json()
+}
+
+// moveSettings moves settings into the database; Legato restarts after it.
+export async function moveSettings(baseUrl: string, move: SettingsMove): Promise<void> {
+  const response = await apiFetch(baseUrl, "/api/config/move", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify(move),
+  })
+  if (!response.ok) throw await failed(response)
+}

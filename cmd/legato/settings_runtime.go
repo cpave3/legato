@@ -5,6 +5,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/cpave3/legato/config"
 	"github.com/cpave3/legato/internal/engine/events"
 	"github.com/cpave3/legato/internal/engine/store"
 	"github.com/cpave3/legato/internal/service"
@@ -30,6 +31,10 @@ func settingsFor(db *store.Store) *service.SettingsService {
 // changes waiting for a restart in Attention.
 func wireSettings(db *store.Store, bus *events.Bus, attention *service.AttentionService) *service.SettingsService {
 	settings := settingsFor(db)
+	if attention != nil {
+		mover := settingsMover(db)
+		_ = attention.RegisterProducerWithEvents(service.NewSettingsMoveAttentionAdapter(mover), events.EventSettingsChanged)
+	}
 	settings.OnChange(func() {
 		bus.Publish(events.Event{Type: events.EventSettingsChanged, At: time.Now()})
 	})
@@ -45,4 +50,15 @@ func registerSettingsAttention(attention *service.AttentionService, settings *se
 	adapter := service.NewSettingsAttentionAdapter(settings, restartAll)
 	_ = attention.RegisterProducerWithEvents(adapter, events.EventSettingsChanged)
 	_ = attention.RegisterHandler(adapter.Producer(), adapter)
+}
+
+// settingsMover moves pinned settings into the database for this process.
+func settingsMover(db *store.Store) *service.SettingsMover {
+	cfg, _ := config.Load()
+	rb := &service.RestartRollback{Store: db, Settings: settingsFor(db)}
+	if cfg != nil {
+		resolved, _ := config.ResolveDatabase(cfg)
+		rb.DBDriver, rb.DBPath = resolved.Driver, resolved.Path
+	}
+	return &service.SettingsMover{Settings: settingsFor(db), Rollback: rb}
 }

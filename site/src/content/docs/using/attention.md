@@ -23,6 +23,7 @@ Attention lists only what you can act on. Each item comes from the part of Legat
 | Devices | Someone ran `legato device reset`. |
 | Argus | [Argus](/legato/integrations/argus/) has an open case on one of your pull requests. |
 | Settings | You changed settings that take effect only when Legato restarts. **Restart Legato** restarts it. |
+| Moving settings | Once, after the upgrade: settings set in `config.yaml` that can move into the database, so they can be changed from Settings. **Choose what to move** opens the list. |
 | Restarts | A restart of Legato failed (its configuration did not load, or it was not answering in time) and was rolled back to the configuration from before. See [Updates](/legato/running/updates/#restarting-legato-yourself). |
 | Updates | A new release of Legato is ready to install, or an install failed. See [Updates](/legato/running/updates/). |
 | Integrations | In the last 7 days, a request from Argus did not reach an agent, a reply never reached Argus, or Argus refused the connection. |

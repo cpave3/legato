@@ -363,6 +363,19 @@ func (s *SettingsService) Reset(ctx context.Context, key string) error {
 func (s *SettingsService) RestoreSettings(ctx context.Context, settings []RestartSetting) error {
 	for _, setting := range settings {
 		var err error
+		if setting.List != "" {
+			if len(setting.Old) == 0 {
+				if err = s.db.DeleteSettingEntry(ctx, setting.List, setting.Key); errors.Is(err, store.ErrNotFound) {
+					err = nil
+				}
+			} else {
+				err = s.db.SetSettingEntry(ctx, setting.List, setting.Key, setting.Old, "rollback")
+			}
+			if err != nil {
+				return err
+			}
+			continue
+		}
 		if len(setting.Old) == 0 {
 			err = s.db.DeleteSetting(ctx, setting.Key)
 		} else {

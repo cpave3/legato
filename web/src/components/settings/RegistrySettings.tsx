@@ -1,7 +1,7 @@
 import { useEffect, useState } from "react"
 import { useQueryClient } from "@tanstack/react-query"
 import { Lock, RotateCcw, SlidersHorizontal } from "lucide-react"
-import { resetConfigSetting, setConfigSetting, type ConfigSetting } from "../../lib/configSettings"
+import { moveSettings, resetConfigSetting, setConfigSetting, type ConfigSetting } from "../../lib/configSettings"
 import { queryKeys } from "../../lib/query"
 import { cn } from "../../lib/utils"
 import { SettingsRows, Toggle } from "./SettingsUI"
@@ -56,6 +56,7 @@ export function useSettingActions(baseUrl: string) {
     busy, errors,
     set: (key: string, value: unknown) => run(key, () => setConfigSetting(baseUrl, key, value)),
     reset: (key: string) => run(key, () => resetConfigSetting(baseUrl, key)),
+    move: (key: string) => run(key, () => moveSettings(baseUrl, { settings: [key], entries: [] })),
   }
 }
 
@@ -100,7 +101,7 @@ function SettingControl({ setting, disabled, onSet }: { setting: ConfigSetting; 
 // value comes from, and its control.
 export function RegistrySettingRow({ setting, baseUrl, actions }: { setting: ConfigSetting; baseUrl: string; actions?: ReturnType<typeof useSettingActions> }) {
   const own = useSettingActions(baseUrl)
-  const { busy, errors, set, reset } = actions ?? own
+  const { busy, errors, set, reset, move } = actions ?? own
   return (
     <div className="flex min-h-16 flex-wrap items-center gap-3 px-4 py-3" data-testid={`setting-${setting.key}`}>
       <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-lw-raised text-lw-link">
@@ -113,6 +114,12 @@ export function RegistrySettingRow({ setting, baseUrl, actions }: { setting: Con
           <SettingSource setting={setting} busy={busy === setting.key} onReset={() => void reset(setting.key)} />
         </div>
         {setting.description && <p className="mt-0.5 text-xs text-lw-text-2">{setting.description}</p>}
+        {setting.pinned && !setting.secret && (
+          <button type="button" className="mt-1 text-xs text-lw-link hover:underline disabled:opacity-50" disabled={busy === setting.key}
+            onClick={() => void move(setting.key)}>
+            Move to the database (restarts Legato)
+          </button>
+        )}
         {errors[setting.key] && <p role="alert" className="mt-1 text-xs text-lw-error">{errors[setting.key]}</p>}
       </div>
       <div className={cn("shrink-0", busy === setting.key && "opacity-60")}>

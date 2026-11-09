@@ -17,8 +17,11 @@ import (
 // RestartSetting is a database setting a restart altered, with the value it
 // had before (nil: it was not set).
 type RestartSetting struct {
-	Key string          `json:"key"`
-	Old json.RawMessage `json:"old,omitempty"`
+	// List is set for an entry of a list of named entries; Key is then
+	// the entry's name.
+	List string          `json:"list,omitempty"`
+	Key  string          `json:"key"`
+	Old  json.RawMessage `json:"old,omitempty"`
 }
 
 // RestartPlan is what a restart changed and can put back.
