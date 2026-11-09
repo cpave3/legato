@@ -259,6 +259,14 @@ An agent that runs in tmux (any agent without a native panel) opens on the Agent
 
 `UpdateNotice` (in `Layout`, from `updates` in `/api/settings`) is a bar along the top: in ask mode "Legato vX is available" with **Update and restart** (`POST /api/updates/apply`) and **Later**, which hides it in this browser until the next release (`legato:update-later`); "Updating Legato to vX" while it installs and restarts, whatever the mode; "vX is installed. Restart Legato to use it" where Legato cannot restart itself; and why an update failed, with **Try again**. `update_changed` refetches the settings. See [Releases and updates](updates.md).
 
+### Route classes
+
+Every method of every route has a class and a plain description, in `internal/server/route_class_table.go` (`routeClassTable`), beside the mux: **read** (changes nothing), **change** (needs an approval when an agent asks for it), **risky** (touches security, availability, or cannot be undone; can need a signed approval), **never** (refused whatever the approval: deciding approvals, answering an agent's permission prompt, enrolling or removing approval devices, typing into an agent's terminal or running `!` commands in it, and `/ws`, which carries keys to terminals). The classes are the Reeve's (see the spec, LEG-106 Part 4).
+
+- **Lookup.** `ClassifyRequest(r)` matches a request to its entry the way the server's mux matches it to a handler (each entry is registered as `METHOD pattern` on a `ServeMux` of its own). A request no entry matches, or an `/api/` path that only the web UI's catch-all `/` matches, is `risky` with `Known: false`. `PUT`/`DELETE /api/config/settings/{key}` take the setting's class from the registry, and `/api/config/lists/{list}/{name}` the list's.
+- **The test.** The mux records every pattern it is given (`routeMux`, `Server.routes`). `TestEveryRouteHasAClass` fails for a served pattern with no entry, a method-carrying pattern whose method has none, or an entry for a pattern no longer served. A new route needs its entries.
+- `RouteClasses()` lists the table.
+
 ### Settings from the registry
 
 `GET /api/config/settings`, `PUT` and `DELETE /api/config/settings/{key}` serve the settings registry (`internal/server/settings_registry.go`; see [Settings](settings.md)): values with their source, set, and reset. A change broadcasts `settings_changed`, which invalidates `queryKeys.configSettings` as well as the settings.

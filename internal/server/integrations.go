@@ -120,7 +120,7 @@ func (s *Server) serveScopedToken(w http.ResponseWriter, r *http.Request, next h
 	next.ServeHTTP(w, r.WithContext(context.WithValue(r.Context(), integrationKey{}, id)))
 }
 
-func (s *Server) registerIntegrationRoutes(mux *http.ServeMux) {
+func (s *Server) registerIntegrationRoutes(mux *routeMux) {
 	mux.HandleFunc("GET /api/integrations/owner", s.integrationOwnerHandler())
 	mux.HandleFunc("POST /api/integrations/delegations", s.integrationDelegateHandler())
 	mux.HandleFunc("GET /api/integrations/delegations/{id}", s.integrationDelegationStatusHandler())

@@ -36,6 +36,7 @@ type Server struct {
 	bus                      *events.Bus
 	updates                  UpdateService
 	restart                  func()
+	routes                   []string // every pattern the mux was given
 	settingsRegistry         SettingsRegistry
 	settingsMover            SettingsMover
 	moveRestart              func()
@@ -143,7 +144,7 @@ func NewWithSwarm(board service.BoardService, agents service.AgentService, tmux 
 		s.NotifyAgentChanged(agentID)
 	}
 	sm.onAgentActivityChanged = s.NotifyAgentChanged
-	mux := http.NewServeMux()
+	mux := newRouteMux()
 	mux.HandleFunc("/health", healthHandler())
 	mux.HandleFunc("/frontend-meta", frontendMetaHandler())
 	mux.HandleFunc("/api/meta", s.mobileMetaHandler())
@@ -332,6 +333,7 @@ func NewWithSwarm(board service.BoardService, agents service.AgentService, tmux 
 		mux.HandleFunc("/", spaHandler(fsys))
 	}
 
+	s.routes = mux.patterns
 	s.server = &http.Server{
 		Addr: addr,
 		// CORS outside the token check: a refusal reaches another origin's
