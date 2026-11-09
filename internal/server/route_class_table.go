@@ -7,11 +7,13 @@ var routeClassTable = []routeClassEntry{
 	{"GET", "/health", ClassRead, "Check that Legato is running"},
 	{"GET", "/frontend-meta", ClassRead, "Read the web UI's build details"},
 	{"GET", "/api/meta", ClassRead, "Read this Legato's version and abilities"},
-	{"GET", "/api/pairing", ClassRead, "Show the open pairing request"},
-	{"POST", "/api/pairing", ClassRisky, "Open a pairing request"},
+	// A request's phrase authenticates the exchange that hands out a
+	// token: reading or opening one, or pairing, is never the Reeve's.
+	{"GET", "/api/pairing", ClassNever, "Show the open pairing request, with its phrase"},
+	{"POST", "/api/pairing", ClassNever, "Open a pairing request"},
 	{"DELETE", "/api/pairing", ClassRisky, "Cancel the pairing request"},
-	{"POST", "/api/pair/exchange", ClassRisky, "Exchange keys to pair a device"},
-	{"POST", "/api/pair/confirm", ClassRisky, "Confirm the pairing of a device"},
+	{"POST", "/api/pair/exchange", ClassNever, "Exchange keys to pair a device"},
+	{"POST", "/api/pair/confirm", ClassNever, "Confirm the pairing of a device"},
 
 	// Agents
 	{"GET", "/api/agents", ClassRead, "List the agents"},

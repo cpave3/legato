@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"net/http"
+	"net/http/httptest"
 	"strings"
 	"testing"
 
@@ -50,5 +51,32 @@ func TestTheReeveReadsItsChangeSetsWithoutWhatItReadFromTheHost(t *testing.T) {
 		if rec := callAs(srv, "secret", http.MethodGet, path, ""); !strings.Contains(rec.Body.String(), "SECRET-ORIGINAL") || !strings.Contains(rec.Body.String(), "SECRET-BEFORE") {
 			t.Fatalf("the person's view of %s lost the diff: %s", path, rec.Body)
 		}
+	}
+}
+
+// The pairing phrase authenticates the exchange that hands out the web
+// token, so the Reeve never reads an open request nor opens one.
+func TestTheReeveNeverReadsOrOpensAPairingRequest(t *testing.T) {
+	srv, db := reeveServer(t)
+	srv.SetPairingService(service.NewPairingService(func(context.Context, service.PairingClient) (service.PairingSecret, error) {
+		return service.PairingSecret{}, nil
+	}))
+	if rec := callAs(srv, "secret", http.MethodPost, "/api/pairing", `{}`); rec.Code/100 != 2 {
+		t.Fatalf("the person opens a request: %d %s", rec.Code, rec.Body)
+	}
+	token := reeveToken(t, srv, db)
+	for _, call := range [][2]string{{http.MethodGet, "/api/pairing"}, {http.MethodPost, "/api/pairing"}} {
+		if rec := callAs(srv, token, call[0], call[1], `{}`); rec.Code != http.StatusForbidden || !strings.Contains(rec.Body.String(), `"never"`) {
+			t.Fatalf("%s %s by the Reeve: %d %s", call[0], call[1], rec.Code, rec.Body)
+		}
+	}
+	// Nor can a change set call them.
+	for _, path := range []string{"/api/pairing", "/api/pair/exchange", "/api/pair/confirm"} {
+		if class := ClassifyRequest(httptest.NewRequest(http.MethodPost, path, nil)).Class; class != ClassNever {
+			t.Fatalf("POST %s is %s", path, class)
+		}
+	}
+	if rec := callAs(srv, "secret", http.MethodGet, "/api/pairing", ""); !strings.Contains(rec.Body.String(), "phrase") {
+		t.Fatalf("the person's view lost the phrase: %s", rec.Body)
 	}
 }

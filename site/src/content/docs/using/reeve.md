@@ -9,7 +9,7 @@ The Reeve is the agent of a Legato instance itself. You talk to it to run and co
 
 - **It reads freely.** Anything Legato can show, the Reeve can read.
 - **It never changes anything by itself.** Every change it wants comes to you as an approval; Legato carries out what you approved.
-- **Some things it may never do,** whatever you approve: decide an approval, enroll or remove one of your approval devices, or type into another agent's terminal.
+- **Some things it may never do,** whatever you approve: decide an approval, enroll or remove one of your approval devices, read or open a pairing request, or type into another agent's terminal.
 
 ## Starting it
 
