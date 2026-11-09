@@ -35,6 +35,8 @@ Some things never raise Attention: a draft, closed or merged pull request; CI th
 
 Most items have a main action, such as approving a plan, allowing an agent's request, returning a task from a worker, or opening the review. An action that cannot be undone, such as taking a task back without its results, asks you to confirm first. Others take you to the page where you act. An item about a task, such as a pull request that cannot merge, opens the board with that task selected, in the Away lane when the task is [away on a worker](/legato/using/handoff/#pull-requests-while-away).
 
+In the web UI each item also has **Ask the Reeve**, which starts the [Reeve](/legato/using/reeve/) with what the item is about, so it can find out what is wrong.
+
 You can also dismiss an item. Dismissing hides that item as it is now. If its source changes (the pull request fails CI again, the agent asks something new), the item comes back.
 
 ### Where you see it

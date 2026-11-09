@@ -127,3 +127,41 @@ export async function fetchPeerApprovals(baseUrl: string): Promise<PeerApproval[
   if (!response.ok) throw await failed(response)
   return ((await response.json()) as { approvals?: PeerApproval[] }).approvals ?? []
 }
+
+// messageReeve sends the running session a message, resuming a suspended one
+// (POST /api/reeve/message).
+export const messageReeve = (baseUrl: string, text: string) => post(baseUrl, "/api/reeve/message", { text })
+
+// What "Ask the Reeve" is about: what it is, its IDs, and its error line.
+export interface ReeveAsk {
+  what: string
+  ids?: Record<string, string | undefined>
+  error?: string
+}
+
+// reeveBrief is the brief a session starts with, or the message added to
+// the running one.
+export function reeveBrief(ask: ReeveAsk): string {
+  const lines = [`The person asks you about ${ask.what}.`]
+  for (const [label, id] of Object.entries(ask.ids ?? {})) {
+    if (id) lines.push(`- ${label}: ${id}`)
+  }
+  const error = ask.error?.split("\n").find((line) => line.trim())?.trim()
+  if (error) lines.push(`- Error: ${error}`)
+  lines.push("", "Find out what is wrong and what to do about it. Read first; any change goes to the person as a change set.")
+  return lines.join("\n")
+}
+
+// A message another instance's Reeve sent (service.PeerFrame).
+export interface ReeveMessage {
+  instance: string
+  role: string
+  body: string
+}
+
+const peerFrame = /^\[from the Reeve on (.+?) · (.+?)\] ?([\s\S]*)$/
+
+export function parseReeveMessage(text: string): ReeveMessage | null {
+  const match = peerFrame.exec(text)
+  return match ? { instance: match[1], role: match[2], body: match[3] } : null
+}

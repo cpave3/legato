@@ -7,6 +7,8 @@ import { executeAttentionAction, dismissAttentionItem, type AttentionAction, typ
 import { externalHref, legatoHref } from "../lib/navigation"
 import { LoadingState } from "../components/ui/LoadingState"
 import { MarkdownBody } from "../components/MarkdownBody"
+import { AskReeve } from "../components/AskReeve"
+import { reeveBrief } from "../lib/reeve"
 
 function formatRelativeTime(iso: string): string {
   const date = new Date(iso)
@@ -152,6 +154,13 @@ function AttentionCard({ item, pending, onAction, onDismiss }: AttentionCardProp
               {action.label}
             </button>
           ))}
+          {item.producer !== "reeve-peer" && (
+            <AskReeve brief={reeveBrief({
+              what: `the Attention item “${item.title}”`,
+              ids: { "Attention item": item.id, task: item.task_id, source: `${item.producer} ${item.source_key}` },
+              error: item.reason,
+            })} />
+          )}
           <button
             type="button"
             disabled={pending}

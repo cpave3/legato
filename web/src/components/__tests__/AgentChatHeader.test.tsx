@@ -95,4 +95,9 @@ describe("AgentChatHeader", () => {
     render(<AgentChatHeader state="idle" title="T" taskId="t-1" menu={[]} notes={<span>Syncing…</span>} />)
     expect(screen.getByText("Syncing…")).toBeTruthy()
   })
+
+  it("offers what is given to ask about an agent that needs the person", () => {
+    render(<AgentChatHeader state="needs-you" title="T" taskId="t-1" menu={[]} ask={<button type="button">Ask the Reeve</button>} />)
+    expect(screen.getByRole("button", { name: "Ask the Reeve" })).toBeTruthy()
+  })
 })

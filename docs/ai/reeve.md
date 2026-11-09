@@ -94,6 +94,10 @@ The Reeve is the agent of a Legato instance itself (see `GLOSSARY.md`): the pers
 - **Audit**: each host action is appended to the hash-chained `credential_audit` (event `host`, empty credential): the command, file or unit (`resource`), the kind (`operation`), the approval, who decided with which device (`decided_by`) and verification, and in `detail` whether it ran as root, the exit code, the state and the SHA-256 of the output.
 - The snapshot says whether host operations are on, and the approval levels.
 
+## Ask the Reeve
+
+Attention items, a failed provider sync on the board, and agents that need the person have **Ask the Reeve** in the web UI and on the phone: a session starts with a brief of what it is, its IDs and its error line, or, with a session there, the person adds the brief to it or ends it and starts fresh. See [Web UI](web-ui.md) § The Reeve on the Agents page.
+
 ## Reeve to Reeve
 
 A Reeve can message the Reeve of another instance this one is paired with (`internal/service/reeve_peers.go`, `ReevePeerService`). It only asks: whatever the other Reeve changes is its own change set, approved by its own person.

@@ -15,6 +15,8 @@ The Reeve is the agent of a Legato instance itself. You talk to it to run and co
 
 The quickest way is the Reeve entry pinned at the top of the Agents list: pick it to start a session, or to go to the one that runs.
 
+**Ask the Reeve** starts it about something specific: it is on each item in Attention, on the note the board keeps when a provider sync fails, and beside an agent that needs you. The session starts with a brief of what it is, its IDs and its error. If a session is already there, Legato asks whether to **Add to the current conversation** or **End it and start fresh**.
+
 
 Settings › **Reeve** has **Start the Reeve**. A session runs with the agent tool, model and launch arguments set there (`reeve.agent`, `reeve.model`, `reeve.launch_args`); you can pick another tool or model for one session before starting it. One session runs at a time.
 
@@ -71,7 +73,7 @@ The Reeve can message the Reeve of another Legato this one is paired with: its w
 - **To pair two instances**, choose **Let another instance pair with this one** on one of them. It shows an address and four words; on the other, enter them under Reeve pairings and choose **Pair**.
 - A main instance's Reeve can message its workers' without another pairing. On a worker, **Settings › Main instances** has a switch for each main: **Its Reeve may message this one's**.
 - Change sets that wait on a paired instance show in this instance's approvals tray too, marked with it, and are decided there.
-- A message from another Reeve shows in the conversation marked with the instance it came from. When no session runs here, **Reeve › When another Reeve messages** (`reeve.peer`) decides: start a session (the default), ask you first in Attention (**Let it talk**), or refuse. It is one of the Reeve's own rules, changed only with a signature.
+- A message from another Reeve shows in the conversation as its own block, marked "From the Reeve on <instance> · <role>", with the Reeve's violet edge. When no session runs here, **Reeve › When another Reeve messages** (`reeve.peer`) decides: start a session (the default), ask you first in Attention (**Let it talk**), or refuse. It is one of the Reeve's own rules, changed only with a signature.
 
 ## Where it runs
 
