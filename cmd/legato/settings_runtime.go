@@ -6,6 +6,7 @@ import (
 	"time"
 
 	"github.com/cpave3/legato/config"
+	"github.com/cpave3/legato/internal/engine/credential"
 	"github.com/cpave3/legato/internal/engine/events"
 	"github.com/cpave3/legato/internal/engine/store"
 	"github.com/cpave3/legato/internal/service"
@@ -61,4 +62,22 @@ func settingsMover(db *store.Store) *service.SettingsMover {
 		rb.DBDriver, rb.DBPath = resolved.Driver, resolved.Path
 	}
 	return &service.SettingsMover{Settings: settingsFor(db), Rollback: rb}
+}
+
+// wizardSettings keeps what the first-run wizard is told in the database:
+// Jira's settings, and its token in Legato's secret store.
+type wizardSettings struct {
+	cfg *config.Config
+	db  *store.Store
+}
+
+func (w wizardSettings) SetSetting(ctx context.Context, key string, raw []byte) error {
+	return settingsFor(w.db).Set(ctx, key, raw, "setup")
+}
+
+func (w wizardSettings) StoreSecret(ctx context.Context, name, value string) (string, error) {
+	if err := configuredSecretStore(w.cfg, w.db).Add(ctx, name, credential.TypeValue, []byte(value)); err != nil {
+		return "", err
+	}
+	return "legato://" + name, nil
 }

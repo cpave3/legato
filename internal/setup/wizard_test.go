@@ -195,3 +195,61 @@ func TestWizard_DeclineJira_LocalOnlyMessage(t *testing.T) {
 		t.Error("should say launching at the end")
 	}
 }
+
+// fakeSettings keeps what the wizard saves in the database.
+type fakeSettings struct {
+	values  map[string]string
+	secrets map[string]string
+}
+
+func (f *fakeSettings) SetSetting(_ context.Context, key string, raw []byte) error {
+	if f.values == nil {
+		f.values = map[string]string{}
+	}
+	f.values[key] = string(raw)
+	return nil
+}
+
+func (f *fakeSettings) StoreSecret(_ context.Context, name, value string) (string, error) {
+	if f.secrets == nil {
+		f.secrets = map[string]string{}
+	}
+	f.secrets[name] = value
+	return "legato://" + name, nil
+}
+
+func TestWizard_JiraGoesToTheDatabaseAndTheTokenToTheSecretStore(t *testing.T) {
+	store := &fakeColumnStore{}
+	var out bytes.Buffer
+	in := strings.NewReader("y\nhttps://team.atlassian.net\nuser@example.com\nmy-token\n1\n")
+	jira := &fakeJiraSetup{projects: []Project{{Key: "REX", Name: "Rex App"}}, statuses: []string{"To Do", "Done"}}
+	configPath := t.TempDir() + "/config.yaml"
+	settings := &fakeSettings{}
+
+	if err := RunWizard(context.Background(), &out, in, store, config.DefaultColumns(), jira, WithConfigPath(configPath), WithSettings(settings)); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(configPath); !os.IsNotExist(err) {
+		t.Error("the wizard wrote config.yaml")
+	}
+	want := map[string]string{
+		"jira.base_url":     `"https://team.atlassian.net"`,
+		"jira.email":        `"user@example.com"`,
+		"jira.project_keys": `["REX"]`,
+		"jira.api_token":    `"legato://jira-api-token"`,
+	}
+	for key, value := range want {
+		if settings.values[key] != value {
+			t.Errorf("%s = %s, want %s", key, settings.values[key], value)
+		}
+	}
+	if settings.secrets["jira-api-token"] != "my-token" {
+		t.Errorf("secrets = %v", settings.secrets)
+	}
+	if strings.Contains(out.String(), "LEGATO_JIRA_TOKEN") {
+		t.Error("asks for an environment variable it does not need")
+	}
+	if len(store.mappings) != 2 {
+		t.Errorf("columns = %+v", store.mappings)
+	}
+}

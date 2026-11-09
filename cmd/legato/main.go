@@ -1734,15 +1734,19 @@ func runTUI() int {
 	if len(mappings) == 0 {
 		adapter := &setup.StoreAdapter{S: db}
 		jiraSetup := &setup.RealJiraSetup{}
-		if err := setup.RunWizard(context.Background(), os.Stdout, os.Stdin, adapter, cfg.Board.Columns, jiraSetup); err != nil {
+		if err := setup.RunWizard(context.Background(), os.Stdout, os.Stdin, adapter, cfg.Board.Columns, jiraSetup, setup.WithSettings(wizardSettings{cfg: cfg, db: db})); err != nil {
 			fmt.Fprintf(os.Stderr, "setup: %v\n", err)
 			return 1
 		}
-		// Reload config in case Jira was configured
+		// Read the configuration again: the wizard saved Jira's settings
+		// in the database.
 		cfg, err = config.Load()
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "config reload: %v\n", err)
 			return 1
+		}
+		if err := service.ApplySettings(context.Background(), db, cfg, settingSecrets(cfg, db)); err != nil {
+			log.Printf("settings: %v", err)
 		}
 	}
 

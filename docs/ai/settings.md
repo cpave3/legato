@@ -66,3 +66,8 @@ A list of named entries is the file's entries, each pinned and matched by name i
 - **The offer.** The `settings-move` Attention producer (`SettingsMoveAttentionAdapter`, signal `settings_move`) raises one item while anything can move, "Move N settings from config.yaml into the database", navigating to Settings › Lists › `#move`. Its revision never changes (`offer-1`), so once dismissed it stays dismissed.
 - **API.** `GET /api/config/move` (`{settings, entries: [{list, name}]}`); `POST /api/config/move` with the same shape (`202 {restart}`, then `restartAll`; `409` while a restart is pending; `400` with the reason for anything that cannot move).
 - **Web.** `MoveSettings.tsx`: every movable setting and entry, ticked; untick to keep pinned; **Move N to the database and restart**. Each pinned, non-secret registry row has **Move to the database (restarts Legato)**.
+
+## Fresh installs
+
+- `config.WriteFirstConfig(path)` writes, when there is no file, one that sets nothing: comments pointing to Settings and `legato config show --sources`, and the file-only settings commented out. `loadConfig` (TUI and `legato serve`) calls it before loading. A file already there is never touched; one written by provisioning pins what it holds.
+- The setup wizard (`internal/setup`) with `WithSettings(sink)` saves Jira's settings in the database (`jira.base_url`, `jira.email`, `jira.project_keys`) and the token in Legato's secret store as `jira-api-token`, naming it in `jira.api_token`. The columns were always the database's (`column_mappings`). The TUI re-applies the settings after the wizard, so its sync starts with them.

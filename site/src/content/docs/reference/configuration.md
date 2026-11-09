@@ -15,7 +15,7 @@ Legato looks for the file in this order and uses the first that is set:
 2. `$XDG_CONFIG_HOME/legato/config.yaml`
 3. `~/.config/legato/config.yaml`
 
-You do not need a file. When there is none, Legato starts with the defaults on this page. On the first start, when the database has no columns yet, a setup wizard adds the columns of `board.columns` and offers to set up Jira.
+You do not need to write a file. When there is none, the TUI or `legato serve` writes one that sets nothing: comments that point to Settings and show the file-only settings you might want. On the first start, when the database has no columns yet, a setup wizard adds the columns of `board.columns` and offers to set up Jira, whose settings it saves in the database. A `config.yaml` written by provisioning (an Ansible playbook, say) still pins everything it holds.
 
 Legato expands environment variables in the file before it reads the YAML, so you can keep secrets out of it:
 

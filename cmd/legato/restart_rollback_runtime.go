@@ -32,6 +32,13 @@ var configAtStart []byte
 // old file is put back and this process starts again on it.
 func loadConfig() (*config.Config, error) {
 	path := config.ResolveConfigPath()
+	// A first run writes a config.yaml that pins nothing, pointing to
+	// Settings.
+	if wrote, err := config.WriteFirstConfig(path); err != nil {
+		fmt.Fprintf(os.Stderr, "config: writing %s: %v\n", path, err)
+	} else if wrote {
+		fmt.Fprintf(os.Stderr, "Wrote %s. Most settings are changed in Settings in the web UI.\n", path)
+	}
 	cfg, err := config.Load()
 	if err != nil {
 		rolled, rbErr := service.RollBackUnloadable(context.Background(), path, err, nil)
