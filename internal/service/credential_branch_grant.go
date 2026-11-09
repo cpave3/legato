@@ -60,7 +60,7 @@ func (b *CredentialBroker) GrantBranches(ctx context.Context, g BranchGrant) (in
 		}
 		req := AccessRequest{TaskID: g.TaskID, ExecutionID: g.ExecutionID, Credential: c.config.Name,
 			Operations: branchGrantOperations, Resources: resources}
-		if err := b.grant(ctx, req, grantSession, 0, "", g.By); err != nil {
+		if err := b.grant(ctx, req, grantSession, 0, "", g.By, ""); err != nil {
 			return granted, err
 		}
 		granted++

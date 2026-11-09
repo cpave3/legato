@@ -41,6 +41,9 @@ type Approval struct {
 	DecidedAt    *string `db:"decided_at" json:"decided_at,omitempty"`
 	// Signed: only a decision signed by an enrolled device may allow it.
 	Signed bool `db:"signed" json:"signed,omitempty"`
+	// Verified: the signed decision must also have verified the person
+	// (fingerprint, PIN), not only their presence.
+	Verified bool `db:"verified" json:"verified,omitempty"`
 	// DecidedDevice is the device that signed the decision.
 	DecidedDevice string `db:"decided_device" json:"decided_device,omitempty"`
 }
@@ -74,9 +77,9 @@ func (s *Store) InsertApproval(ctx context.Context, a Approval) (*Approval, bool
 	}
 	result, err := s.db.NamedExecContext(ctx, `
 		INSERT INTO approval_requests
-			(id, source, source_key, task_id, execution_id, title, summary, details_json, options_json, blocking, signed)
+			(id, source, source_key, task_id, execution_id, title, summary, details_json, options_json, blocking, signed, verified)
 		VALUES
-			(:id, :source, :source_key, :task_id, :execution_id, :title, :summary, :details_json, :options_json, :blocking, :signed)
+			(:id, :source, :source_key, :task_id, :execution_id, :title, :summary, :details_json, :options_json, :blocking, :signed, :verified)
 		ON CONFLICT(source, source_key) DO NOTHING`, a)
 	if err != nil {
 		return nil, false, err

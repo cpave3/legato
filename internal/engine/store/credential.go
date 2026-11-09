@@ -159,6 +159,9 @@ type CredentialAuditEntry struct {
 	Amount      string `db:"amount" json:"amount,omitempty"`
 	ApprovalID  string `db:"approval_id" json:"approval_id,omitempty"`
 	DecidedBy   string `db:"decided_by" json:"decided_by,omitempty"`
+	// Verification is how the deciding device knew it was the person
+	// ("verified" or "presence"), for a decision made with a signature.
+	Verification string `db:"verification" json:"verification,omitempty"`
 	Detail      string `db:"detail" json:"detail,omitempty"`
 	PrevHash    string `db:"prev_hash" json:"prev_hash"`
 	Hash        string `db:"hash" json:"hash"`
@@ -167,7 +170,12 @@ type CredentialAuditEntry struct {
 // auditHash is the SHA-256 of the previous hash and the entry's canonical
 // JSON (every field but the hashes and the sequence number).
 func auditHash(prev string, e CredentialAuditEntry) string {
-	body, _ := json.Marshal([]string{e.At, e.Event, e.ExecutionID, e.TaskID, e.AgentKind, e.WorkspaceID, e.Credential, e.Operation, e.Resource, e.Amount, e.ApprovalID, e.DecidedBy, e.Detail})
+	fields := []string{e.At, e.Event, e.ExecutionID, e.TaskID, e.AgentKind, e.WorkspaceID, e.Credential, e.Operation, e.Resource, e.Amount, e.ApprovalID, e.DecidedBy, e.Detail}
+	if e.Verification != "" {
+		// Rows from before verification was recorded keep their hashes.
+		fields = append(fields, e.Verification)
+	}
+	body, _ := json.Marshal(fields)
 	sum := sha256.Sum256(append([]byte(prev+"\n"), body...))
 	return hex.EncodeToString(sum[:])
 }
@@ -191,9 +199,9 @@ func (s *Store) AppendCredentialAudit(ctx context.Context, e CredentialAuditEntr
 	e.Hash = auditHash(prev, e)
 	result, err := tx.NamedExecContext(ctx, `
 		INSERT INTO credential_audit
-			(at, event, execution_id, task_id, agent_kind, workspace_id, credential, operation, resource, amount, approval_id, decided_by, detail, prev_hash, hash)
+			(at, event, execution_id, task_id, agent_kind, workspace_id, credential, operation, resource, amount, approval_id, decided_by, verification, detail, prev_hash, hash)
 		VALUES
-			(:at, :event, :execution_id, :task_id, :agent_kind, :workspace_id, :credential, :operation, :resource, :amount, :approval_id, :decided_by, :detail, :prev_hash, :hash)`, e)
+			(:at, :event, :execution_id, :task_id, :agent_kind, :workspace_id, :credential, :operation, :resource, :amount, :approval_id, :decided_by, :verification, :detail, :prev_hash, :hash)`, e)
 	if err != nil {
 		return nil, err
 	}

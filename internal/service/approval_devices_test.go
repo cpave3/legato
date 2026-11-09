@@ -273,7 +273,7 @@ func TestTheAuditLogNamesTheDeviceThatSigned(t *testing.T) {
 		t.Fatal(err)
 	}
 	grants, _ := bf.store.ListCredentialAudit(ctx, store.CredentialAuditFilter{Event: "grant"})
-	if len(grants) != 1 || !strings.Contains(grants[0].DecidedBy, p.id) {
+	if len(grants) != 1 || !strings.Contains(grants[0].DecidedBy, p.id) || grants[0].Verification != VerificationVerified {
 		t.Fatalf("grant rows = %+v", grants)
 	}
 	if bad, _ := bf.store.VerifyCredentialAudit(ctx); bad != 0 {

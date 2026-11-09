@@ -819,7 +819,7 @@ func (b *CredentialBroker) Request(ctx context.Context, req AccessRequest) (Acce
 		return AccessResult{Status: AccessGranted, Grant: "already granted"}, nil
 	}
 	if strictest.Approve == "auto" {
-		if err := b.grant(ctx, req, grantAuto, 0, "", "rule"); err != nil {
+		if err := b.grant(ctx, req, grantAuto, 0, "", "rule", ""); err != nil {
 			return AccessResult{}, err
 		}
 		return AccessResult{Status: AccessGranted, Grant: "this session"}, nil
@@ -889,7 +889,7 @@ func findGrant(grants []store.CredentialGrant, p pair) *store.CredentialGrant {
 	return nil
 }
 
-func (b *CredentialBroker) grant(ctx context.Context, req AccessRequest, kind string, window time.Duration, approvalID, decidedBy string) error {
+func (b *CredentialBroker) grant(ctx context.Context, req AccessRequest, kind string, window time.Duration, approvalID, decidedBy, verification string) error {
 	ops, _ := json.Marshal(req.Operations)
 	resources := req.Resources
 	if resources == nil {
@@ -913,7 +913,7 @@ func (b *CredentialBroker) grant(ctx context.Context, req AccessRequest, kind st
 	if kind == grantWindow {
 		detail += " " + window.String()
 	}
-	b.audit(ctx, req.TaskID, req.ExecutionID, store.CredentialAuditEntry{Event: "grant", Credential: req.Credential, Operation: strings.Join(req.Operations, ","), Resource: strings.Join(req.Resources, " "), ApprovalID: approvalID, DecidedBy: decidedBy, Detail: detail})
+	b.audit(ctx, req.TaskID, req.ExecutionID, store.CredentialAuditEntry{Event: "grant", Credential: req.Credential, Operation: strings.Join(req.Operations, ","), Resource: strings.Join(req.Resources, " "), ApprovalID: approvalID, DecidedBy: decidedBy, Verification: verification, Detail: detail})
 	return nil
 }
 
@@ -1269,7 +1269,7 @@ func (r credentialResolver) Resolve(ctx context.Context, approval Approval, deci
 	switch decision.Decision {
 	case ApprovalAllow:
 		window := time.Duration(d.WindowSeconds) * time.Second
-		if err := r.b.grant(ctx, req, decision.Option, window, approval.ID, decidedBy(decision)); err != nil {
+		if err := r.b.grant(ctx, req, decision.Option, window, approval.ID, decidedBy(decision), decision.Verification); err != nil {
 			return err
 		}
 		phrase := map[string]string{grantSession: "for this session", grantWindow: "for " + humanDuration(window), grantOnce: "once"}[decision.Option]
@@ -1278,7 +1278,7 @@ func (r credentialResolver) Resolve(ctx context.Context, approval Approval, deci
 			message = fmt.Sprintf("[legato approvals] %s approved: %s with %s %s. It was refused while it waited for the person, so run it again now.", approval.ID, scope, d.Credential, phrase)
 		}
 	default:
-		r.b.audit(ctx, approval.TaskID, approval.ExecutionID, store.CredentialAuditEntry{Event: "deny", Credential: d.Credential, Operation: strings.Join(d.Operations, ","), Resource: strings.Join(d.Resources, " "), ApprovalID: approval.ID, DecidedBy: decidedBy(decision), Detail: clip(decision.Feedback, 500)})
+		r.b.audit(ctx, approval.TaskID, approval.ExecutionID, store.CredentialAuditEntry{Event: "deny", Credential: d.Credential, Operation: strings.Join(d.Operations, ","), Resource: strings.Join(d.Resources, " "), ApprovalID: approval.ID, DecidedBy: decidedBy(decision), Verification: decision.Verification, Detail: clip(decision.Feedback, 500)})
 		note := firstNonEmpty(decision.Feedback, "no reason given")
 		message = fmt.Sprintf("[legato approvals] %s denied: %s with %s. The person said: %s. Do not look for another way to get this credential.", approval.ID, scope, d.Credential, note)
 	}
