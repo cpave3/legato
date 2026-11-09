@@ -39,7 +39,9 @@ func newReeveFixture(t *testing.T) (*ReeveService, *store.Store, *fakeReeveAgent
 	agents := &fakeReeveAgents{}
 	folder := filepath.Join(dir, "state", "legato", "reeve")
 	svc := NewReeveService(ReeveServiceOptions{Store: db, Agents: agents, Folder: folder,
-		Defaults: func() ReeveDefaults { return ReeveDefaults{Agent: "claude-code", Model: "opus", LaunchArgs: []string{"--verbose"}} }})
+		Defaults: func() ReeveDefaults {
+			return ReeveDefaults{Agent: "claude-code", Model: "opus", LaunchArgs: []string{"--verbose"}}
+		}})
 	return svc, db, agents, folder
 }
 
@@ -199,7 +201,9 @@ func TestAResumedReeveSessionIsSentAFreshSnapshotFirst(t *testing.T) {
 
 type bootedEngram struct{}
 
-func (bootedEngram) Boot(context.Context, string) (string, error) { return "## Memories\nthe person likes short answers", nil }
+func (bootedEngram) Boot(context.Context, string) (string, error) {
+	return "## Memories\nthe person likes short answers", nil
+}
 
 // The one seam where the engram's boot goes: a booter that works puts its
 // packet first.

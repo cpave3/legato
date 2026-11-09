@@ -62,4 +62,3 @@ func TestSettingsMigrationMovesInstanceValuesKeepingThem(t *testing.T) {
 		t.Errorf("another instance value was touched: %q", v)
 	}
 }
-

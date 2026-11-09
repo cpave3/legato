@@ -19,7 +19,7 @@ func (v fixedVerifier) VerifyDecision(_ context.Context, _ Approval, d ApprovalD
 func verifiedRequest(key string) ApprovalInput {
 	return ApprovalInput{Source: "test", SourceKey: key, TaskID: "t", Title: "Run as root",
 		Options: []ApprovalOption{{ID: "allow", Label: "Allow", Kind: ApprovalAllow}, {ID: "deny", Label: "Deny", Kind: ApprovalDeny}},
-		Signed: true, Verified: true}
+		Signed:  true, Verified: true}
 }
 
 func TestAnApprovalThatNeedsVerificationRefusesABareTouch(t *testing.T) {

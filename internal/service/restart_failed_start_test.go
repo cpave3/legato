@@ -37,4 +37,3 @@ func TestAStartThatFailsAfterARestartIsRolledBackAtOnce(t *testing.T) {
 		t.Fatalf("with nothing pending: %v, %v", rolled, err)
 	}
 }
-

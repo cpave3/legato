@@ -304,7 +304,9 @@ var ErrUnknownSetting = errors.New("not a setting that can be changed here")
 // DecodeSetting reads a JSON value for s and checks it against its kind,
 // its enum and its own rule.
 func DecodeSetting(s Setting, raw json.RawMessage) (any, error) {
-	fail := func(want string) error { return fmt.Errorf("%s: want %s, got %s", s.Key, want, strings.TrimSpace(string(raw))) }
+	fail := func(want string) error {
+		return fmt.Errorf("%s: want %s, got %s", s.Key, want, strings.TrimSpace(string(raw)))
+	}
 	var v any
 	switch s.Kind {
 	case KindBool:

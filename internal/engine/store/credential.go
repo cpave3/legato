@@ -162,9 +162,9 @@ type CredentialAuditEntry struct {
 	// Verification is how the deciding device knew it was the person
 	// ("verified" or "presence"), for a decision made with a signature.
 	Verification string `db:"verification" json:"verification,omitempty"`
-	Detail      string `db:"detail" json:"detail,omitempty"`
-	PrevHash    string `db:"prev_hash" json:"prev_hash"`
-	Hash        string `db:"hash" json:"hash"`
+	Detail       string `db:"detail" json:"detail,omitempty"`
+	PrevHash     string `db:"prev_hash" json:"prev_hash"`
+	Hash         string `db:"hash" json:"hash"`
 }
 
 // auditHash is the SHA-256 of the previous hash and the entry's canonical
