@@ -347,7 +347,7 @@ func prepareMigration(queryer migrationQueryer, name, migrationSQL string) (stri
 			return "", nil
 		}
 	}
-	if name == "075_agent_session_sandboxed.sql" {
+	if name == "075_agent_session_sandboxed.sql" || name == "097_agent_native_off.sql" {
 		var tables int
 		if err := queryer.Get(&tables, `SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'agent_sessions'`); err != nil {
 			return "", err

@@ -405,6 +405,10 @@ type AgentSession struct {
 	// Slot is the task's agent slot the session runs in: SlotMain, or a
 	// named slot such as "reviewer".
 	Slot string `db:"slot"`
+	// NativeOff is true when the person switched the agent to its terminal
+	// on purpose: Legato does not bind it to its native endpoint again on
+	// its own.
+	NativeOff bool `db:"native_off"`
 }
 
 // SwarmEvent is a single conductor-bound event written to the swarm_events

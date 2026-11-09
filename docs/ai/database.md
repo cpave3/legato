@@ -122,6 +122,10 @@ Migration 095 adds `restart_records`: a restart of Legato that can be rolled bac
 
 Migration 096 adds `launch_messages` (`execution_id`, `position`: the key; `task_id`, `slot`, `tmux_session`, `agent_kind`, `prompt_file`, `message`, `owner`, `created_at`): the messages an agent was launched with that are not delivered yet. `owner` is the agent service delivering them (a random token per process); `TakeLaunchMessage` deletes one row only for its owner, and `AdoptLaunchMessages` moves an execution's rows from one owner to another only if the first still holds them, so a message is sent once. See [Releases and updates](updates.md) § Restarting in place.
 
+### Agents kept on their terminal
+
+Migration 097 adds `agent_sessions.native_off`: set by **Downgrade to tmux** (`KeepAgentSessionOnTmux`), cleared by any binding of a native endpoint (`UpdateChimeraDiscovery`, `UpdateChimeraDiscoveryForSession`). `RecoverNativeEndpoints` skips a session that has it.
+
 ### Directory presets
 
 Migration 067 adds `directory_presets`: the directories the person saved from a spawn dialog (`path`, the identity and absolute; `name`; `created_at`). Saving a path again renames it and keeps its place. The spawn dialogs list them after the `repositories` of the configuration, through `service.DirectoryService`; a saved directory that the configuration also names is listed once, as the configured one.

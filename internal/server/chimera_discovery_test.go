@@ -24,6 +24,7 @@ type chimeraDiscoveryAgentFake struct {
 	invalidatedID   int
 	invalidatedSID  string
 	invalidatedAddr string
+	keptOnTmux      bool
 }
 
 func (f *chimeraDiscoveryAgentFake) GetAgentSession(context.Context, string) (*store.AgentSession, error) {
@@ -40,6 +41,13 @@ func (f *chimeraDiscoveryAgentFake) InvalidateChimeraBinding(_ context.Context, 
 	f.invalidatedSID = sessionID
 	f.invalidatedAddr = endpoint
 	return f.cleared, f.invalidateErr
+}
+
+// DowngradeToTmux is the person's downgrade: the same exact-match clear,
+// which a restart then leaves alone.
+func (f *chimeraDiscoveryAgentFake) DowngradeToTmux(ctx context.Context, agentSessionID int, sessionID, endpoint string) (bool, error) {
+	f.keptOnTmux = true
+	return f.InvalidateChimeraBinding(ctx, agentSessionID, sessionID, endpoint)
 }
 
 func TestChimeraDiscoverEndpointRequiresAgentService(t *testing.T) {
@@ -90,6 +98,9 @@ func TestChimeraDowngradeEndpointClearsCurrentBindingAndBroadcasts(t *testing.T)
 
 	if response.Code != http.StatusOK {
 		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+	}
+	if !agents.keptOnTmux {
+		t.Fatal("the downgrade was not kept for a restart")
 	}
 	if agents.invalidatedID != 17 || agents.invalidatedSID != sessionID || agents.invalidatedAddr != endpoint {
 		t.Fatalf("invalidated id=%d session=%q endpoint=%q", agents.invalidatedID, agents.invalidatedSID, agents.invalidatedAddr)

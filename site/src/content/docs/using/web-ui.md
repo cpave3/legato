@@ -51,7 +51,7 @@ The **Agents** page lists your running agents on the left, by state, as the TUI 
 An agent shows in one of two ways:
 
 - **Native panel.** Claude Code, Codex and Chimera, when Legato talks to them through its bridge, show as a conversation: your messages, the agent's replies, its tool calls as compact rows, and its thinking when the tool shares it. Permission requests and questions appear as cards you answer in place. A model menu and a settings dialog change the model and effort for this session; see [Model settings](/legato/agent-tools/model-settings/). You can queue a message while the agent works.
-- **Terminal.** Any other agent, or one you switched with **Downgrade to tmux**, shows its terminal. A prompt bar below it sends text and keys. **Upgrade to native panel** switches a terminal agent back when its tool supports it.
+- **Terminal.** Any other agent, or one you switched with **Downgrade to tmux**, shows its terminal. A switched agent stays on its terminal when Legato restarts. A prompt bar below it sends text and keys. **Upgrade to native panel** switches a terminal agent back when its tool supports it.
 
 When a native agent's terminal shows a numbered menu (an update notice, a trust question), the panel draws it as a card with a button for each choice.
 

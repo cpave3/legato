@@ -2025,6 +2025,16 @@ type ChimeraBindingInvalidator interface {
 	InvalidateChimeraBinding(ctx context.Context, agentSessionID int, expectedSessionID, expectedEndpoint string) (bool, error)
 }
 
+// NativeDowngrader switches an agent to its terminal on purpose: unlike an
+// invalidated binding, a restart of Legato does not bind it again.
+type NativeDowngrader interface {
+	DowngradeToTmux(ctx context.Context, agentSessionID int, expectedSessionID, expectedEndpoint string) (bool, error)
+}
+
+func (a *agentService) DowngradeToTmux(ctx context.Context, agentSessionID int, expectedSessionID, expectedEndpoint string) (bool, error) {
+	return a.store.KeepAgentSessionOnTmux(ctx, agentSessionID, expectedSessionID, expectedEndpoint)
+}
+
 // InvalidateChimeraBinding clears an unusable native binding only while the
 // active agent row still matches the endpoint and session observed by its caller.
 func (a *agentService) InvalidateChimeraBinding(ctx context.Context, agentSessionID int, expectedSessionID, expectedEndpoint string) (bool, error) {
