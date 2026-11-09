@@ -231,6 +231,13 @@ func (c *ChangeSetService) Describe(ctx context.Context, reason string, calls []
 			}
 			p.Diff, p.Check = diff, "loads"
 			p.Level = ReeveLevelFor(cfg.Reeve, p.Class, "config_edit", enrolled)
+			if key := editsOwnRule(call.Edits); key != "" {
+				// One of the Reeve's own rules: a signature, as from Settings.
+				if !enrolled {
+					return details, fmt.Errorf("call %d (%s): %w", i+1, key, ErrNoDeviceEnrolled)
+				}
+				p.Level = StrictestLevel(p.Level, LevelSigned)
+			}
 		case CallAPI, "":
 			p.Kind = CallAPI
 			p.Method = strings.ToUpper(strings.TrimSpace(call.Method))
@@ -777,4 +784,30 @@ func checkAPICall(method, target string) error {
 		return fmt.Errorf("%q is not a route of Legato's API in its plain form", target)
 	}
 	return nil
+}
+
+// editsOwnRule names the first of the Reeve's own rules that edits touch:
+// the rule's key, a parent of it (replacing the whole object) or a part of
+// it; "" for none.
+func editsOwnRule(edits []ConfigEdit) string {
+	var rules []string
+	for _, s := range config.Settings() {
+		if s.OwnRule {
+			rules = append(rules, s.Key)
+		}
+	}
+	for _, l := range config.EntryListDefs() {
+		if l.OwnRule {
+			rules = append(rules, l.Key)
+		}
+	}
+	for _, e := range edits {
+		key := strings.TrimSpace(e.Key)
+		for _, rule := range rules {
+			if key == rule || strings.HasPrefix(rule, key+".") || strings.HasPrefix(key, rule+".") {
+				return rule
+			}
+		}
+	}
+	return ""
 }

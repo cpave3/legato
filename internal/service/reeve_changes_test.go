@@ -365,3 +365,36 @@ func TestARedirectedCallFails(t *testing.T) {
 		t.Fatalf("notes %v", f.notes)
 	}
 }
+
+// A config.yaml edit that touches one of the Reeve's own rules (the key
+// itself, a parent of it or a part of it) needs a signature: refused with
+// no device enrolled, signed once one is.
+func TestAConfigEditOfAnOwnRuleNeedsASignature(t *testing.T) {
+	f := newChangeSetFixture(t)
+	ctx := context.Background()
+	os.WriteFile(os.Getenv("LEGATO_CONFIG"), []byte("theme: default\n"), 0o600)
+	for _, key := range []string{"reeve.levels.risky", "reeve.levels", "reeve", "reeve.host_operations"} {
+		value := any("approve")
+		switch key {
+		case "reeve.levels":
+			value = map[string]any{"risky": "approve"}
+		case "reeve":
+			value = map[string]any{"levels": map[string]any{"risky": "approve"}}
+		case "reeve.host_operations":
+			value = false
+		}
+		_, err := f.svc.Propose(ctx, f.reeve, "x", []ChangeCall{{Kind: CallConfigEdit, Edits: []ConfigEdit{{Key: key, Value: value}}}})
+		if !errors.Is(err, ErrNoDeviceEnrolled) {
+			t.Errorf("%s with no device: %v", key, err)
+		}
+	}
+	f.devices.enroll(t, newPhone(t), "Pixel")
+	out, err := f.svc.Propose(ctx, f.reeve, "x", []ChangeCall{{Kind: CallConfigEdit, Edits: []ConfigEdit{{Key: "reeve.levels.risky", Value: "approve"}}}})
+	if err != nil || out.Level != LevelSigned {
+		t.Fatalf("with a device: %+v, %v", out, err)
+	}
+	// Any other key stays at its class's level.
+	if _, err := f.svc.Propose(ctx, f.reeve, "x", []ChangeCall{{Kind: CallConfigEdit, Edits: []ConfigEdit{{Key: "reeve.idle_timeout", Value: "1h"}}}}); err != nil {
+		t.Fatal(err)
+	}
+}
