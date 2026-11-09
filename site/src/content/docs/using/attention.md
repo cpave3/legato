@@ -22,6 +22,7 @@ Attention lists only what you can act on. Each item comes from the part of Legat
 | Approvals | An agent's request waits for your answer. See [Approvals](#approvals). |
 | Devices | Someone ran `legato device reset`. |
 | Argus | [Argus](/legato/integrations/argus/) has an open case on one of your pull requests. |
+| Settings | You changed settings that take effect only when Legato restarts. **Restart Legato** restarts it. |
 | Restarts | A restart of Legato failed (its configuration did not load, or it was not answering in time) and was rolled back to the configuration from before. See [Updates](/legato/running/updates/#restarting-legato-yourself). |
 | Updates | A new release of Legato is ready to install, or an install failed. See [Updates](/legato/running/updates/). |
 | Integrations | In the last 7 days, a request from Argus did not reach an agent, a reply never reached Argus, or Argus refused the connection. |

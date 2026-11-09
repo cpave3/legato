@@ -36,6 +36,7 @@ type Server struct {
 	bus                      *events.Bus
 	updates                  UpdateService
 	restart                  func()
+	settingsRegistry         SettingsRegistry
 	addr                     string
 	workDir                  string // default CWD for agent spawn
 	directories              DirectoryService
@@ -182,6 +183,8 @@ func NewWithSwarm(board service.BoardService, agents service.AgentService, tmux 
 	mux.HandleFunc("/api/updates/check", s.updateCheckHandler())
 	mux.HandleFunc("/api/updates/apply", s.updateApplyHandler())
 	mux.HandleFunc("/api/restart", s.restartHandler())
+	mux.HandleFunc("/api/config/settings", s.configSettingsHandler())
+	mux.HandleFunc("/api/config/settings/{key}", s.configSettingHandler())
 	mux.HandleFunc("/api/updates/tools/{name}/apply", s.updateToolApplyHandler())
 	mux.HandleFunc("/api/hot-reload/build", s.hotReloadBuildHandler())
 	mux.HandleFunc("/api/navigation-summary", s.navigationSummaryHandler())

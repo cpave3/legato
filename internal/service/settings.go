@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"sync"
 
 	"github.com/cpave3/legato/config"
 	"github.com/cpave3/legato/internal/engine/store"
@@ -26,11 +27,14 @@ var ErrSettingPinned = errors.New("this setting is pinned by config.yaml; change
 // from.
 type SettingValue struct {
 	config.Setting
-	Value     any    `json:"value"`
-	Source    string `json:"source"`
-	Pinned    bool   `json:"pinned"`
-	UpdatedAt string `json:"updated_at,omitempty"`
-	UpdatedBy string `json:"updated_by,omitempty"`
+	Value  any    `json:"value"`
+	Source string `json:"source"`
+	Pinned bool   `json:"pinned"`
+	// PendingRestart: a restart-mode setting whose value changed since this
+	// process started; it applies at the next restart.
+	PendingRestart bool   `json:"pending_restart,omitempty"`
+	UpdatedAt      string `json:"updated_at,omitempty"`
+	UpdatedBy      string `json:"updated_by,omitempty"`
 }
 
 // SettingsService keeps the settings of the registry that live in the
@@ -39,6 +43,10 @@ type SettingValue struct {
 type SettingsService struct {
 	db   *store.Store
 	load func() (*config.Config, error)
+
+	mu       sync.Mutex
+	started  map[string]string // canonical JSON of each value at MarkStarted
+	onChange []func()
 }
 
 // NewSettingsService keeps settings in db; load reads config.yaml
@@ -107,9 +115,74 @@ func (s *SettingsService) List(ctx context.Context) ([]SettingValue, error) {
 		if err != nil {
 			return nil, err
 		}
+		v.PendingRestart = s.pending(v)
 		out = append(out, v)
 	}
 	return out, nil
+}
+
+// MarkStarted keeps the values this process started with: a restart-mode
+// setting that changes after it waits for a restart.
+func (s *SettingsService) MarkStarted(ctx context.Context) {
+	cfg, err := s.Effective(ctx)
+	if err != nil {
+		return
+	}
+	started := map[string]string{}
+	for _, setting := range config.Settings() {
+		if v, err := config.SettingValue(cfg, setting.Key); err == nil {
+			raw, _ := json.Marshal(v)
+			started[setting.Key] = string(raw)
+		}
+	}
+	s.mu.Lock()
+	s.started = started
+	s.mu.Unlock()
+}
+
+func (s *SettingsService) pending(v SettingValue) bool {
+	if v.Mode != config.ModeRestart {
+		return false
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	was, ok := s.started[v.Key]
+	if !ok {
+		return false
+	}
+	now, _ := json.Marshal(v.Value)
+	return string(now) != was
+}
+
+// PendingRestart lists the settings waiting for a restart.
+func (s *SettingsService) PendingRestart(ctx context.Context) ([]string, error) {
+	all, err := s.List(ctx)
+	if err != nil {
+		return nil, err
+	}
+	var keys []string
+	for _, v := range all {
+		if v.PendingRestart {
+			keys = append(keys, v.Key)
+		}
+	}
+	return keys, nil
+}
+
+// OnChange runs f after every change this service keeps.
+func (s *SettingsService) OnChange(f func()) {
+	s.mu.Lock()
+	s.onChange = append(s.onChange, f)
+	s.mu.Unlock()
+}
+
+func (s *SettingsService) changed() {
+	s.mu.Lock()
+	fs := append([]func(){}, s.onChange...)
+	s.mu.Unlock()
+	for _, f := range fs {
+		f()
+	}
 }
 
 // Get is one setting with its value and source.
@@ -130,7 +203,12 @@ func (s *SettingsService) Get(ctx context.Context, key string) (SettingValue, er
 	for _, r := range rows {
 		byKey[r.Key] = r
 	}
-	return describeSetting(cfg, setting, byKey)
+	v, err := describeSetting(cfg, setting, byKey)
+	if err != nil {
+		return SettingValue{}, err
+	}
+	v.PendingRestart = s.pending(v)
+	return v, nil
 }
 
 func describeSetting(cfg *config.Config, setting config.Setting, rows map[string]store.SettingRow) (SettingValue, error) {
@@ -156,11 +234,6 @@ func (s *SettingsService) Check(ctx context.Context, key string, raw json.RawMes
 	if !ok {
 		return nil, fmt.Errorf("%s: %w", key, config.ErrUnknownSetting)
 	}
-	value, err := config.DecodeSetting(setting, raw)
-	if err != nil {
-		return nil, err
-	}
-	canonical, _ := json.Marshal(value)
 	cfg, err := s.load()
 	if err != nil {
 		return nil, err
@@ -168,6 +241,11 @@ func (s *SettingsService) Check(ctx context.Context, key string, raw json.RawMes
 	if cfg.Pinned(key) {
 		return nil, fmt.Errorf("%s: %w", key, ErrSettingPinned)
 	}
+	value, err := config.DecodeSetting(setting, raw)
+	if err != nil {
+		return nil, err
+	}
+	canonical, _ := json.Marshal(value)
 	values, err := s.db.SettingValues(ctx)
 	if err != nil {
 		return nil, err
@@ -186,7 +264,11 @@ func (s *SettingsService) Set(ctx context.Context, key string, raw json.RawMessa
 	if err != nil {
 		return err
 	}
-	return s.db.SetSetting(ctx, key, canonical, by)
+	if err := s.db.SetSetting(ctx, key, canonical, by); err != nil {
+		return err
+	}
+	s.changed()
+	return nil
 }
 
 // Reset deletes a setting's database value, so the default applies.
@@ -209,7 +291,11 @@ func (s *SettingsService) Reset(ctx context.Context, key string) error {
 	if err := config.Overlay(cfg, values); err != nil {
 		return err
 	}
-	return s.db.DeleteSetting(ctx, key)
+	if err := s.db.DeleteSetting(ctx, key); err != nil {
+		return err
+	}
+	s.changed()
+	return nil
 }
 
 // RestoreSettings puts settings back to the values a restart record kept

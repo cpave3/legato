@@ -45,6 +45,9 @@ const (
 	// was accepted or changed state (pending, in progress, done, failed).
 	// Payload: the worker's task ID.
 	EventHandoffChanged
+	// EventSettingsChanged: a setting kept in the database changed. No
+	// payload.
+	EventSettingsChanged
 )
 
 // ErrorPayload carries structured error information for error events.

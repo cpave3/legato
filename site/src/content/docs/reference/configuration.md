@@ -42,6 +42,8 @@ Most settings can also be kept in Legato's database, and changed from the web UI
 
 Some settings are **file-only**: they live only in this file, and nothing else changes them. They are what Legato needs before its database opens (`db.*`, `data_dir`), what unseals its secrets (`secrets.master_key`, `secrets.onepassword`), how it is reached (`web.enabled`, `web.port`, `web.tls`, `web.public_url`), and the signing trust root (`approval_devices.android_app_digests`). They are marked *file-only* below.
 
+You can see what Legato runs with, and where each value comes from, with `legato config show --sources`.
+
 ### When a change takes effect
 
 A running Legato (the TUI or `legato serve`) reads the file once, when it starts. Restart it after you change the file. Commands such as `legato task create` read the file each time they run.

@@ -35,3 +35,10 @@ Registered so far: `agents.*` single values (escape key, sparkline window, peer 
 - `StringSetting`: the `TintStore` shape (`GetInstanceValue`/`SetInstanceValue` by key) over the settings, which `TintService` and `UpdateService` now take instead of the instance values.
 
 Burnlite's projects: `service.BurnliteProjects` and `SaveBurnliteProjects` read and write the `burnlite.projects` setting; the runtime passes the configured projects only when the file pins them (`pinnedBurnliteProjects`).
+
+## Sources, the API and the CLI
+
+- **Waiting for a restart.** Each process makes one `SettingsService` per store at start (`settingsFor` in `cmd/legato/settings_runtime.go`), which calls `MarkStarted`: the values it started with. A `restart`-mode setting whose effective value differs from that is `pending_restart` ("applies at restart"); `PendingRestart` lists them. `OnChange` hooks run after each `Set` or `Reset`; `wireSettings` publishes `EventSettingsChanged` on them.
+- **Attention.** The `settings` producer (`SettingsAttentionAdapter`, signal `settings_restart`) raises one item, "Restart to apply N changes", while any wait, with **Restart Legato** (an `execute` action that runs `restartAll`) and **Open settings**. Its revision is the waiting keys, so a dismissed item comes back when another change waits.
+- **API** (`internal/server/settings_registry.go`): `GET /api/config/settings` (`{settings: [SettingValue], file_only: [...]}`: each setting's `key`, `title`, `description`, `kind`, `enum`, `class`, `mode`, `secret`, `value`, `source`, `pinned`, `pending_restart`, `updated_at`, `updated_by`); `PUT /api/config/settings/{key}` (`{value}`; `200` with the new `SettingValue`; `404` not a setting, `409` pinned, `400` a refused value with its reason); `DELETE /api/config/settings/{key}` (reset). A change broadcasts `settings_changed`.
+- **CLI.** `legato config show [--sources] [--json]` prints `key: value` for every setting; `--sources` adds `(default)`, `(config.yaml, pinned)` or `(set here)`.

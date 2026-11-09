@@ -113,3 +113,47 @@ func TestTheTintAndUpdateModeMoveOutOfInstanceValuesKeepingThem(t *testing.T) {
 		t.Fatalf("the tint is still an instance value: %q", raw)
 	}
 }
+
+func TestARestartSettingChangedSinceStartWaitsForARestart(t *testing.T) {
+	settings, _ := newSettingsFixture(t, "")
+	ctx := context.Background()
+	settings.MarkStarted(ctx)
+
+	settings.Set(ctx, "agents.reviews", json.RawMessage(`false`), "web")
+	settings.Set(ctx, "web.tint", json.RawMessage(`"teal"`), "web") // live: applies at once
+
+	got, _ := settings.Get(ctx, "agents.reviews")
+	if !got.PendingRestart {
+		t.Fatalf("agents.reviews = %+v, want pending a restart", got)
+	}
+	if tint, _ := settings.Get(ctx, "web.tint"); tint.PendingRestart {
+		t.Fatal("a live setting waits for a restart")
+	}
+	if pending, _ := settings.PendingRestart(ctx); len(pending) != 1 || pending[0] != "agents.reviews" {
+		t.Fatalf("pending = %v", pending)
+	}
+
+	// Set back to what this process started with: nothing waits.
+	settings.Reset(ctx, "agents.reviews")
+	if pending, _ := settings.PendingRestart(ctx); len(pending) != 0 {
+		t.Fatalf("pending = %v", pending)
+	}
+}
+
+func TestChangesWaitingForARestartAreInAttention(t *testing.T) {
+	settings, _ := newSettingsFixture(t, "")
+	ctx := context.Background()
+	settings.MarkStarted(ctx)
+	settings.Set(ctx, "agents.reviews", json.RawMessage(`false`), "web")
+	settings.Set(ctx, "icons", json.RawMessage(`"nerdfonts"`), "web")
+	restarted := false
+	adapter := NewSettingsAttentionAdapter(settings, func() { restarted = true })
+
+	items, err := adapter.Snapshot(ctx)
+	if err != nil || len(items) != 1 || items[0].Title != "Restart to apply 2 changes" || items[0].SignalKind != AttentionSignalSettingsRestart {
+		t.Fatalf("items = %+v, %v", items, err)
+	}
+	if err := adapter.Execute(ctx, AttentionActionRequest{ActionID: "restart"}); err != nil || !restarted {
+		t.Fatalf("restart action: %v, restarted = %v", err, restarted)
+	}
+}

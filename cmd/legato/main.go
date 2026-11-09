@@ -1595,7 +1595,7 @@ func runServeCmd(args []string) int {
 	giveAgentsPrimaryDirs(agentSvc, repoPresets)
 	srv.SetRepositoryPresetService(repoPresets)
 	srv.SetRepositoryGuidanceService(repositoryGuidance(cfg, db))
-	srv.SetTintService(service.NewTintService(service.StringSetting{Settings: service.NewSettingsService(db, nil)}))
+	srv.SetTintService(service.NewTintService(service.StringSetting{Settings: settingsFor(db)}))
 	srv.SetJobCloneService(repos)
 	srv.SetTaskStackService(wireTaskStacks(db, bus, repos))
 	repos.SetCacheListener(srv.BroadcastRepositoryCache)
@@ -1617,7 +1617,8 @@ func runServeCmd(args []string) int {
 	defer approvalsRT.stop()
 	approvalsRT.attach(srv)
 	updates := newUpdateService(db, bus, agentSvc, serveRestarter())
-	wireAttention(context.Background(), db, bus, srv, planSvc, reviewSvc, agentSvc, workflowSvc, approvalsRT, updates, mainSide, triggerCoordinator)
+	serveAttention := wireAttention(context.Background(), db, bus, srv, planSvc, reviewSvc, agentSvc, workflowSvc, approvalsRT, updates, mainSide, triggerCoordinator)
+	srv.SetSettingsService(wireSettings(db, bus, serveAttention))
 	wireUpdates(srv, updates)
 	srv.SetRestarter(restartAll)
 	srv.SetMacros(cfg.Macros)
@@ -1939,7 +1940,8 @@ func runTUI() int {
 			}
 			approvalsRT.attach(webSrv)
 			updates := newUpdateService(db, bus, agentSvc, tuiRestarter())
-			wireAttention(context.Background(), db, bus, webSrv, planSvc, reviewSvc, agentSvc, tuiWorkflowSvc, approvalsRT, updates, mainSide, triggerCoordinator)
+			webAttention := wireAttention(context.Background(), db, bus, webSrv, planSvc, reviewSvc, agentSvc, tuiWorkflowSvc, approvalsRT, updates, mainSide, triggerCoordinator)
+			webSrv.SetSettingsService(wireSettings(db, bus, webAttention))
 			wireUpdates(webSrv, updates)
 			webSrv.SetRestarter(restartAll)
 			webSrv.SetMacros(cfg.Macros)
@@ -1948,7 +1950,7 @@ func runTUI() int {
 			webSrv.SetFreshClonesEnabled(cfg.RepositoryCache.Enabled)
 			webSrv.SetRepositoryPresetService(repoPresets)
 			webSrv.SetRepositoryGuidanceService(repositoryGuidance(cfg, db))
-			webSrv.SetTintService(service.NewTintService(service.StringSetting{Settings: service.NewSettingsService(db, nil)}))
+			webSrv.SetTintService(service.NewTintService(service.StringSetting{Settings: settingsFor(db)}))
 			webSrv.SetJobCloneService(repos)
 			webSrv.SetTaskStackService(taskStacks)
 			repos.SetCacheListener(webSrv.BroadcastRepositoryCache)
@@ -2052,6 +2054,10 @@ func runTUI() int {
 	}
 	registerApprovalAttention(attentionSvc, approvalsRT)
 	_ = attentionSvc.RegisterProducer(service.NewRestartAttentionAdapter(db))
+	if webSrv == nil {
+		wireSettings(db, bus, nil)
+	}
+	registerSettingsAttention(attentionSvc, settingsFor(db))
 	// Away tasks and workers that need this main; their actions are the
 	// web UI's.
 	mainSide.registerAttention(attentionSvc, cfg, approvalsRT.serverURL())

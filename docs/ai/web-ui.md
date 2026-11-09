@@ -259,6 +259,10 @@ An agent that runs in tmux (any agent without a native panel) opens on the Agent
 
 `UpdateNotice` (in `Layout`, from `updates` in `/api/settings`) is a bar along the top: in ask mode "Legato vX is available" with **Update and restart** (`POST /api/updates/apply`) and **Later**, which hides it in this browser until the next release (`legato:update-later`); "Updating Legato to vX" while it installs and restarts, whatever the mode; "vX is installed. Restart Legato to use it" where Legato cannot restart itself; and why an update failed, with **Try again**. `update_changed` refetches the settings. See [Releases and updates](updates.md).
 
+### Settings from the registry
+
+`GET /api/config/settings`, `PUT` and `DELETE /api/config/settings/{key}` serve the settings registry (`internal/server/settings_registry.go`; see [Settings](settings.md)): values with their source, set, and reset. A change broadcasts `settings_changed`.
+
 ### Tint
 
 A Legato can be tinted so it is clear at a glance which server a page is on: Settings › Appearance › **Tint**, a row of swatches (none, red, orange, yellow, green, teal, blue, purple, pink; `lib/tints.ts`, `service.Tints`). The tint is saved on the server (the setting `web.tint`; `service.TintService` over `service.StringSetting`), so every browser and phone that uses it shows it. `PUT /api/settings/tint {tint}` sets it (`400` for another colour, `""` for none) and broadcasts `settings_changed`, which refetches the settings in every open web UI; `/api/settings` carries `tint`, and so does the public `/api/meta`, so a switcher reads it without a token.
