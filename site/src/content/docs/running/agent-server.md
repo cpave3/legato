@@ -156,6 +156,10 @@ journalctl --user -u legato -f        # its log
 
 `PATH` must hold every agent tool and toolchain: a service does not read your shell's profile.
 
+### The log file
+
+Legato also writes its log to a file in its data folder, `~/.local/share/legato/logs/legato.log` unless `data_dir` says otherwise, whether it runs as `legato serve`, as the TUI, or under hot reload. `legato serve` still logs to stderr too, so `journalctl` shows the same lines; the TUI, which owns its terminal, writes only to the file. The file is rotated at 10 MB, and the three files before it are kept as `legato.log.1` (the newest) to `legato.log.3`.
+
 ### Updates
 
 A release of Legato updates itself. Settings › Updates chooses how: **Ask** (the default) shows a bar and an Attention item with **Update and restart**; **Automatic** installs a new release once no agent is in the middle of a turn (after three hours, whatever they are doing); **Off** never looks. An update replaces `~/.local/bin/legato` (the old one is kept as `legato.prev`) and Legato exits with status 75, which this unit starts again. `KillMode=process` keeps tmux and the agents running across it. See [Releases and updates](/legato/running/updates/).

@@ -1460,6 +1460,7 @@ func runServeCmd(args []string) int {
 		return 1
 	}
 	port := servePort(parsed.Values["port"], cfg)
+	defer startLogFile(cfg, stderrLog)()
 
 	db, err := openStore(cfg)
 	if err != nil {
@@ -1696,6 +1697,8 @@ func runTUI() int {
 		fmt.Fprintf(os.Stderr, "config: %v\n", err)
 		return 1
 	}
+	// The TUI owns its terminal: its log goes only to the log file.
+	defer startLogFile(cfg, nil)()
 
 	db, err := openStore(cfg)
 	if err != nil {
@@ -2062,10 +2065,6 @@ func runTUI() int {
 			webSrv.SetVoiceService(voiceSvc, cfg.Voice.AutoSend)
 		}
 	}
-
-	// Silence log output — bubbletea owns the terminal in alt-screen mode
-	// and stray log writes corrupt the UI.
-	log.SetOutput(io.Discard)
 
 	p := tea.NewProgram(app, tea.WithAltScreen(), tea.WithoutSignalHandler())
 	if err := runProgram(p, nil); err != nil {
