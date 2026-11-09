@@ -28,6 +28,14 @@ type MCPReeve struct {
 	// HTTP calls the API; nil uses a client that trusts the local server's
 	// own certificate.
 	HTTP *http.Client
+	// ChangeSets puts the Reeve's changes to the person (propose_changes,
+	// and a change made with legato_api).
+	ChangeSets MCPChangeSets
+}
+
+// MCPChangeSets proposes a change set (service.ChangeSetService).
+type MCPChangeSets interface {
+	Propose(ctx context.Context, taskID, reason string, calls []service.ChangeCall) (service.ChangeSetOutcome, error)
 }
 
 // reeveSession reports whether the calling session is the Reeve's.
@@ -36,7 +44,11 @@ func (m *mcpTools) reeveSession() bool {
 }
 
 func (m *mcpTools) reeveTools() []mcpserver.Tool {
-	return []mcpserver.Tool{m.reeveDocs(), m.reeveStatus(), m.reeveLogs(), m.reeveAPI()}
+	tools := []mcpserver.Tool{m.reeveDocs(), m.reeveStatus(), m.reeveLogs(), m.reeveAPI()}
+	if m.opts.Reeve.ChangeSets != nil {
+		tools = append(tools, m.proposeChanges())
+	}
+	return tools
 }
 
 // mustBeReeve refuses a call from any session but the Reeve's: the tools
@@ -153,7 +165,8 @@ func (m *mcpTools) reeveLogs() mcpserver.Tool {
 type reeveAPIInput struct {
 	Method string          `json:"method" jsonschema:"GET, POST, PUT, PATCH or DELETE"`
 	Path   string          `json:"path" jsonschema:"the route, starting /api/, with its query string"`
-	Body   json.RawMessage `json:"body,omitempty" jsonschema:"the JSON body, for a route that takes one"`
+	Body   map[string]any `json:"body,omitempty" jsonschema:"the JSON body, for a route that takes one"`
+	Reason string         `json:"reason,omitempty" jsonschema:"for a change: one line saying why, shown to the person with it"`
 }
 
 func (m *mcpTools) reeveAPI() mcpserver.Tool {
@@ -179,8 +192,9 @@ func (m *mcpTools) reeveAPI() mcpserver.Tool {
 			method = http.MethodGet
 		}
 		var body io.Reader
-		if len(in.Body) > 0 {
-			body = strings.NewReader(string(in.Body))
+		raw := rawBody(in.Body)
+		if len(raw) > 0 {
+			body = strings.NewReader(string(raw))
 		}
 		req, err := http.NewRequestWithContext(ctx, method, strings.TrimRight(m.opts.Reeve.APIBase, "/")+in.Path, body)
 		if err != nil {
@@ -201,6 +215,11 @@ func (m *mcpTools) reeveAPI() mcpserver.Tool {
 		defer resp.Body.Close()
 		out, _ := io.ReadAll(io.LimitReader(resp.Body, 256<<10))
 		_ = m.opts.Store.TouchReeveSession(ctx, m.opts.TaskID)
+		// A change is not made with the Reeve's token: it becomes a change
+		// set of one, for the person to approve.
+		if resp.StatusCode == http.StatusForbidden && strings.Contains(string(out), "needs_approval") && m.opts.Reeve.ChangeSets != nil {
+			return m.propose(ctx, in.Reason, []service.ChangeCall{{Kind: service.CallAPI, Method: method, Path: in.Path, Body: raw}})
+		}
 		return mcpserver.Result{Text: fmt.Sprintf("%s %s → %d\n\n%s", method, in.Path, resp.StatusCode, out)}, nil
 	})
 }
@@ -210,4 +229,70 @@ func clipLine(s string, n int) string {
 		return s
 	}
 	return s[:n] + "…"
+}
+
+type proposeChangesInput struct {
+	Reason string         `json:"reason" jsonschema:"one line saying why, the approval's title"`
+	Calls  []proposedCall `json:"calls" jsonschema:"the calls, in order: {kind: api, method, path, body} for an API route, {kind: restart} for a restart of Legato (always run last)"`
+}
+
+type proposedCall struct {
+	Kind   string         `json:"kind" jsonschema:"api or restart"`
+	Method string         `json:"method,omitempty" jsonschema:"for api: GET, POST, PUT, PATCH or DELETE"`
+	Path   string         `json:"path,omitempty" jsonschema:"for api: the route, starting /api/"`
+	Body   map[string]any `json:"body,omitempty" jsonschema:"for api: the JSON body"`
+}
+
+// rawBody is a call's body as JSON, nil for none.
+func rawBody(body map[string]any) json.RawMessage {
+	if len(body) == 0 {
+		return nil
+	}
+	raw, _ := json.Marshal(body)
+	return raw
+}
+
+func (m *mcpTools) proposeChanges() mcpserver.Tool {
+	return mcpserver.NewTool(mcpserver.Definition{
+		Name: "propose_changes", Title: "Propose a change set",
+		Description: "Puts changes to the person as one approval: a one-line reason and an ordered list of calls. Legato runs exactly these calls once they are approved, in order, a restart last, stopping at the first failure, and tells you each call's result. " +
+			"It waits up to a minute for the decision, then answers pending. A call you may never make refuses the whole set.",
+	}, func(ctx context.Context, in proposeChangesInput) (mcpserver.Result, error) {
+		if err := m.mustBeReeve(ctx); err != nil {
+			return mcpserver.Result{}, err
+		}
+		calls := make([]service.ChangeCall, len(in.Calls))
+		for i, c := range in.Calls {
+			calls[i] = service.ChangeCall{Kind: c.Kind, Method: c.Method, Path: c.Path, Body: rawBody(c.Body)}
+		}
+		return m.propose(ctx, in.Reason, calls)
+	})
+}
+
+func (m *mcpTools) propose(ctx context.Context, reason string, calls []service.ChangeCall) (mcpserver.Result, error) {
+	if strings.TrimSpace(reason) == "" && len(calls) == 1 {
+		reason = strings.TrimSpace(calls[0].Method + " " + calls[0].Path)
+	}
+	out, err := m.opts.Reeve.ChangeSets.Propose(ctx, m.opts.TaskID, reason, calls)
+	if err != nil {
+		return mcpserver.Result{}, err
+	}
+	_ = m.opts.Store.TouchReeveSession(ctx, m.opts.TaskID)
+	var text string
+	switch out.State {
+	case "approved":
+		text = fmt.Sprintf("Change set %s was approved. Legato is running it now; a [legato] message will tell you each call's result.", out.ID)
+	case "denied":
+		text = fmt.Sprintf("Change set %s was denied. The person's note: %s\nDo not propose the same change again in this session unless they ask.", out.ID, noteOrNone(out.Note))
+	default:
+		text = fmt.Sprintf("Change set %s waits for the person's approval (%s, approval %s). A [legato] message will tell you the decision and the results; carry on meanwhile, or end your turn.", out.ID, out.Level, out.ApprovalID)
+	}
+	return mcpserver.Result{Text: text, Data: out}, nil
+}
+
+func noteOrNone(note string) string {
+	if strings.TrimSpace(note) == "" {
+		return "(no note)"
+	}
+	return note
 }

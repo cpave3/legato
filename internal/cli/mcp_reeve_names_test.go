@@ -7,5 +7,7 @@ import (
 // everyReeveTool is a Reeve with everything its tools need, so that each
 // is offered.
 func everyReeveTool() *cli.MCPReeve {
-	return &cli.MCPReeve{}
+	return &cli.MCPReeve{
+		ChangeSets: &fakeChangeSets{},
+	}
 }

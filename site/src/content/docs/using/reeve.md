@@ -35,6 +35,12 @@ While it runs, it has tools of its own:
 
 The Reeve does not yet remember earlier sessions: it starts each one without its memory, and says so.
 
+## Its changes
+
+When the Reeve wants to change something, it proposes a **change set**: the calls of one step, with a one-line reason, put to you as one approval in the approval tray and on your phone. You see each call, and for a setting its value before and after. Approve it, and Legato runs exactly those calls, in order, a restart last, stopping at the first failure; the Reeve is told how each went. Deny it with a note, and the Reeve gets the note and does not propose the same change again unless you ask.
+
+Ending a session withdraws the change sets still waiting for you; a suspended session keeps them.
+
 ## What a change needs
 
 Each change the Reeve proposes needs your approval, at a level set in Settings › Reeve:

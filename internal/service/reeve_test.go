@@ -272,3 +272,28 @@ func TestTheOverviewSaysTheInstanceItsRoleAndWhatWaitsForApproval(t *testing.T) 
 		t.Fatalf("overview = %+v, %v", overview, err)
 	}
 }
+
+type expiringApprovals struct{ expired []string }
+
+func (e *expiringApprovals) ExpireTask(_ context.Context, taskID string) error {
+	e.expired = append(e.expired, taskID)
+	return nil
+}
+
+func TestPendingApprovalsExpireWhenTheSessionEndsNotWhenItIsSuspended(t *testing.T) {
+	svc, db, _, _ := newReeveFixture(t)
+	approvals := &expiringApprovals{}
+	svc.opts.Approvals = approvals
+	ctx := context.Background()
+	s, _ := svc.Start(ctx, ReeveStart{})
+	row, _ := db.GetReeveSession(ctx, s.TaskID)
+	active, _ := time.Parse("2006-01-02T15:04:05.000Z", row.ActiveAt)
+	svc.SuspendIdle(ctx, active.Add(3*time.Hour), 2*time.Hour)
+	if len(approvals.expired) != 0 {
+		t.Fatal("approvals expired on suspend")
+	}
+	svc.End(ctx, s.TaskID)
+	if len(approvals.expired) != 1 || approvals.expired[0] != s.TaskID {
+		t.Fatalf("expired = %v", approvals.expired)
+	}
+}

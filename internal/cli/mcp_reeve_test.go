@@ -11,6 +11,7 @@ import (
 
 	"github.com/cpave3/legato/internal/cli"
 	"github.com/cpave3/legato/internal/engine/store"
+	"github.com/cpave3/legato/internal/service"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
 )
 
@@ -100,5 +101,47 @@ func TestTheReeveCallsTheAPIWithItsOwnToken(t *testing.T) {
 	got := mcpText(callMCP(t, session, "legato_api", map[string]any{"method": "GET", "path": "/api/agents"}))
 	if !strings.Contains(got, "200") || !strings.Contains(got, `"agents"`) || auth != "Bearer lgr_test" {
 		t.Fatalf("result %q, auth %q", got, auth)
+	}
+}
+
+type fakeChangeSets struct {
+	reason string
+	calls  []service.ChangeCall
+}
+
+func (f *fakeChangeSets) Propose(_ context.Context, _ string, reason string, calls []service.ChangeCall) (service.ChangeSetOutcome, error) {
+	f.reason, f.calls = reason, calls
+	return service.ChangeSetOutcome{ID: "cs-1", ApprovalID: "ap-1", State: "pending", Level: service.LevelApprove}, nil
+}
+
+func TestTheReeveProposesAChangeSet(t *testing.T) {
+	s := newTestStore(t)
+	sets := &fakeChangeSets{}
+	taskID, executionID := seedReeve(t, s)
+	session := connectMCP(t, cli.MCPOptions{Store: s, TaskID: taskID, ExecutionID: executionID, Reeve: &cli.MCPReeve{ChangeSets: sets}})
+	got := mcpText(callMCP(t, session, "propose_changes", map[string]any{
+		"reason": "turn reviews off",
+		"calls":  []any{map[string]any{"kind": "api", "method": "PUT", "path": "/api/config/settings/agents.reviews", "body": map[string]any{"value": false}}, map[string]any{"kind": "restart"}},
+	}))
+	if !strings.Contains(got, "waits for the person's approval") || sets.reason != "turn reviews off" || len(sets.calls) != 2 || sets.calls[1].Kind != "restart" {
+		t.Fatalf("result %q, proposed %+v", got, sets)
+	}
+}
+
+// A change made with legato_api is refused to the Reeve's token and becomes
+// a change set of one.
+func TestAChangeThroughTheAPIToolBecomesASetOfOne(t *testing.T) {
+	s := newTestStore(t)
+	sets := &fakeChangeSets{}
+	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.WriteHeader(http.StatusForbidden)
+		w.Write([]byte(`{"code":"needs_approval"}`))
+	}))
+	defer api.Close()
+	taskID, executionID := seedReeve(t, s)
+	session := connectMCP(t, cli.MCPOptions{Store: s, TaskID: taskID, ExecutionID: executionID, Reeve: &cli.MCPReeve{APIBase: api.URL, HTTP: api.Client(), ChangeSets: sets}})
+	got := mcpText(callMCP(t, session, "legato_api", map[string]any{"method": "POST", "path": "/api/restart"}))
+	if !strings.Contains(got, "cs-1") || len(sets.calls) != 1 || sets.calls[0].Path != "/api/restart" || sets.reason != "POST /api/restart" {
+		t.Fatalf("result %q, proposed %+v", got, sets)
 	}
 }

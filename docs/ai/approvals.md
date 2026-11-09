@@ -62,6 +62,10 @@ Some decisions can be made only by a person at an enrolled phone, with a key the
 - **Lost phone.** `legato device list` lists the devices; `legato device reset` at the host removes them all, writes the audit log, sends an ntfy notice and records the reset (`instance_values` key `devices_reset`, with a sequence number). Attention shows the last reset (producer `devices`, signal `devices_reset`, high urgency, opening `/settings#devices`) until it is dismissed; enrolling a phone afterwards does not hide it, since that phone may be the one the reset was for, and the next reset is a new revision. The command sends `approval_changed` over IPC so a running Legato shows it at once. 
 - **The phone's side** is in `mobile/README.md` § Signed approvals.
 
+### The Reeve's change sets
+
+Source `reeve_change_set`: the calls the Reeve proposed together for one step, at the level of the strictest (`signed`, `verified` set to match), every call in the details. Its resolver queues the set; the broker's process runs it. A session's pending ones expire when it ends. See [The Reeve](reeve.md) § Change sets.
+
 ### Rules of the Reeve
 
 Source `reeve_rules`: a change to one of the Reeve's own rules (`reeve.levels.*`, `reeve.rules`), always `signed`; its resolver applies the change once allowed. See [The Reeve](reeve.md) § Levels and rules.

@@ -19,11 +19,11 @@ import (
 
 // newReeveService is the Reeve of this instance, its sessions started with
 // the agent service and the reeve.* settings, read when each starts.
-func newReeveService(db *store.Store, agents service.AgentService, srv *server.Server) *service.ReeveService {
+func newReeveService(db *store.Store, agents service.AgentService, srv *server.Server, approvals *service.ApprovalService) *service.ReeveService {
 	if agents == nil {
 		return nil
 	}
-	return service.NewReeveService(service.ReeveServiceOptions{
+	opts := service.ReeveServiceOptions{
 		Store: db, Agents: agents, Folder: service.ReeveFolder(os.Getenv),
 		Defaults: func() service.ReeveDefaults {
 			cfg, err := settingsFor(db).Effective(context.Background())
@@ -39,7 +39,11 @@ func newReeveService(db *store.Store, agents service.AgentService, srv *server.S
 				srv.NotifyAgentsChanged()
 			}
 		},
-	})
+	}
+	if approvals != nil {
+		opts.Approvals = approvals
+	}
+	return service.NewReeveService(opts)
 }
 
 func reeveDefaults(cfg *config.Config) service.ReeveDefaults {
@@ -48,8 +52,8 @@ func reeveDefaults(cfg *config.Config) service.ReeveDefaults {
 
 // wireReeve serves the Reeve on a web server, and suspends its idle
 // sessions.
-func wireReeve(srv *server.Server, db *store.Store, agents service.AgentService, bus *events.Bus) *service.ReeveService {
-	reeve := newReeveService(db, agents, srv)
+func wireReeve(srv *server.Server, db *store.Store, agents service.AgentService, bus *events.Bus, approvals *service.ApprovalService) *service.ReeveService {
+	reeve := newReeveService(db, agents, srv, approvals)
 	if reeve != nil {
 		srv.SetReeveService(reeve)
 		go runReeveIdle(context.Background(), reeve, db, bus)
@@ -89,6 +93,9 @@ func reeveTools(cfg *config.Config, db *store.Store) *cli.MCPReeve {
 	tools := &cli.MCPReeve{
 		Snapshot: func(ctx context.Context) string { return reeveSnapshot(ctx, db) },
 		LogPath:  logfile.Path(config.ResolveDataDir(cfg)),
+	}
+	if processChangeSets != nil {
+		tools.ChangeSets = processChangeSets
 	}
 	if cfg.Web.Enabled || (len(os.Args) > 1 && os.Args[1] == "serve") {
 		scheme := "http"

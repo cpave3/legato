@@ -68,6 +68,11 @@ type ReeveServiceOptions struct {
 	Snapshot func(ctx context.Context) string
 	// Engram boots the Reeve's engram; nil is NoEngram.
 	Engram EngramBooter
+	// Approvals expires a session's pending approvals when it ends (not
+	// when it is suspended).
+	Approvals interface {
+		ExpireTask(ctx context.Context, taskID string) error
+	}
 	// Changed is told when a session starts, ends, is suspended or is
 	// resumed.
 	Changed func(taskID string)
@@ -245,6 +250,13 @@ func (s *ReeveService) End(ctx context.Context, taskID string) error {
 	if err := s.opts.Store.SetReeveSessionState(ctx, taskID, store.ReeveEnded); err != nil {
 		return err
 	}
+	// Its pending approvals expire with it; they do not come back on resume.
+	if s.opts.Approvals != nil {
+		if err := s.opts.Approvals.ExpireTask(ctx, taskID); err != nil {
+			return err
+		}
+	}
+	_ = s.opts.Store.ExpireReeveChangeSets(ctx, taskID)
 	s.changed(taskID)
 	return nil
 }

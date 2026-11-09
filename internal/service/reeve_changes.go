@@ -1,0 +1,438 @@
+package service
+
+import (
+	"context"
+	"crypto/rand"
+	"encoding/hex"
+	"encoding/json"
+	"errors"
+	"fmt"
+	"log"
+	"net/url"
+	"sort"
+	"strings"
+	"time"
+
+	"github.com/cpave3/legato/config"
+	"github.com/cpave3/legato/internal/engine/store"
+)
+
+// ApprovalSourceReeveChangeSet is the approval of a change set the Reeve
+// proposed.
+const ApprovalSourceReeveChangeSet = "reeve_change_set"
+
+// Kinds of call in a change set.
+const (
+	CallAPI     = "api"
+	CallRestart = "restart"
+)
+
+var (
+	// ErrNeverCall: a call the Reeve may never make, whatever is approved.
+	ErrNeverCall = errors.New("the Reeve may never make this call")
+	// ErrEmptyChangeSet: a set with no calls.
+	ErrEmptyChangeSet = errors.New("a change set needs at least one call")
+)
+
+// ChangeCall is one call of a change set, as the Reeve proposes it.
+type ChangeCall struct {
+	Kind   string          `json:"kind"`
+	Method string          `json:"method,omitempty"`
+	Path   string          `json:"path,omitempty"`
+	Body   json.RawMessage `json:"body,omitempty"`
+}
+
+// ProposedCall is a call as the approval shows it and as Legato runs it:
+// with its class, a plain description, its level, and for a setting its
+// value before and after.
+type ProposedCall struct {
+	ChangeCall
+	Class       string     `json:"class"`
+	Description string     `json:"description"`
+	Level       ReeveLevel `json:"level"`
+	Setting     string     `json:"setting,omitempty"`
+	Before      any        `json:"before,omitempty"`
+	After       any        `json:"after,omitempty"`
+	// AppliesAtRestart: a restart-mode setting, which takes effect when
+	// Legato restarts.
+	AppliesAtRestart bool `json:"applies_at_restart,omitempty"`
+	// Unreached are the running agents a new-agents-mode setting does not
+	// reach.
+	Unreached []string `json:"unreached,omitempty"`
+}
+
+// ChangeSetDetails is what the approval of a set holds: everything Legato
+// will run, so a signature covers exactly that.
+type ChangeSetDetails struct {
+	ID       string         `json:"id"`
+	Reason   string         `json:"reason"`
+	Instance string         `json:"instance"`
+	Level    ReeveLevel     `json:"level"`
+	Calls    []ProposedCall `json:"calls"`
+}
+
+// CallResult is what one call of a set did.
+type CallResult struct {
+	Call   int    `json:"call"`
+	State  string `json:"state"` // ran, failed, skipped
+	Status int    `json:"status,omitempty"`
+	Detail string `json:"detail,omitempty"`
+}
+
+// ChangeSetOutcome is what propose_changes answers.
+type ChangeSetOutcome struct {
+	ID         string `json:"id"`
+	ApprovalID string `json:"approval_id"`
+	// State is approved (Legato runs it now; results follow as a
+	// message), denied, or pending (no decision within the wait).
+	State string     `json:"state"`
+	Level ReeveLevel `json:"level"`
+	Note  string     `json:"note,omitempty"`
+}
+
+// RouteClassifier says a call's class and a plain description of it, from
+// the route class table.
+type RouteClassifier func(method, path string) (class, description string)
+
+// CallRunner runs one API call with Legato's own authority, as the person
+// would: its status and body.
+type CallRunner func(ctx context.Context, method, path string, body []byte) (int, string, error)
+
+// ChangeSetOptions wires a ChangeSetService.
+type ChangeSetOptions struct {
+	Store     *store.Store
+	Approvals *ApprovalService
+	Settings  *SettingsService
+	Classify  RouteClassifier
+	Run       CallRunner
+	// Restart restarts Legato, last in a set.
+	Restart func()
+	// Notify sends a message to a Reeve session ([legato] results, a
+	// denial's note).
+	Notify func(ctx context.Context, taskID, text string)
+	// RunningAgents lists the task IDs of the agents running now, but the
+	// Reeve's.
+	RunningAgents func(ctx context.Context) []string
+	Wait          time.Duration
+	Now           func() time.Time
+}
+
+// ChangeSetService proposes the Reeve's change sets as approvals and runs
+// the approved ones.
+type ChangeSetService struct{ opts ChangeSetOptions }
+
+func NewChangeSetService(opts ChangeSetOptions) *ChangeSetService {
+	if opts.Wait == 0 {
+		opts.Wait = 60 * time.Second
+	}
+	if opts.Now == nil {
+		opts.Now = time.Now
+	}
+	return &ChangeSetService{opts: opts}
+}
+
+// Register makes the approval service queue approved sets.
+func (c *ChangeSetService) Register() {
+	c.opts.Approvals.RegisterResolver(ApprovalSourceReeveChangeSet, changeSetResolver{c})
+}
+
+func (c *ChangeSetService) devicesEnrolled(ctx context.Context) bool {
+	devices, err := c.opts.Store.ListApprovalDevices(ctx, store.DeviceActive)
+	return err == nil && len(devices) > 0
+}
+
+// Describe works out what a set of calls is: each call's class,
+// description and level, a setting's before and after, and the set's
+// level. A call the Reeve may never make refuses the set.
+func (c *ChangeSetService) Describe(ctx context.Context, reason string, calls []ChangeCall) (ChangeSetDetails, error) {
+	if len(calls) == 0 {
+		return ChangeSetDetails{}, ErrEmptyChangeSet
+	}
+	cfg := config.Defaults()
+	if c.opts.Settings != nil {
+		if effective, err := c.opts.Settings.Effective(ctx); err == nil {
+			cfg = effective
+		}
+	}
+	enrolled := c.devicesEnrolled(ctx)
+	details := ChangeSetDetails{Reason: strings.TrimSpace(reason), Instance: instanceName()}
+	var levels []ReeveLevel
+	for i, call := range calls {
+		p := ProposedCall{ChangeCall: call}
+		switch call.Kind {
+		case CallRestart:
+			p.Class, p.Description = "risky", "Restart Legato"
+			p.Level = ReeveLevelFor(cfg.Reeve, p.Class, "restart", enrolled)
+		case CallAPI, "":
+			p.Kind = CallAPI
+			p.Method = strings.ToUpper(strings.TrimSpace(call.Method))
+			if p.Method == "" {
+				p.Method = "GET"
+			}
+			if !strings.HasPrefix(call.Path, "/api/") {
+				return details, fmt.Errorf("call %d: %q is not a route of Legato's API", i+1, call.Path)
+			}
+			p.Class, p.Description = c.opts.Classify(p.Method, call.Path)
+			if p.Class == "never" {
+				return details, fmt.Errorf("call %d (%s %s): %w: %s", i+1, p.Method, call.Path, ErrNeverCall, p.Description)
+			}
+			p.Level = ReeveLevelFor(cfg.Reeve, p.Class, p.Method+" "+call.Path, enrolled)
+			c.describeSetting(ctx, cfg, &p)
+		default:
+			return details, fmt.Errorf("call %d: unknown kind %q", i+1, call.Kind)
+		}
+		levels = append(levels, p.Level)
+		details.Calls = append(details.Calls, p)
+	}
+	details.Level = StrictestLevel(levels...)
+	return details, nil
+}
+
+// describeSetting adds a setting's before and after to a call that changes
+// one, and what its mode means.
+func (c *ChangeSetService) describeSetting(ctx context.Context, cfg *config.Config, p *ProposedCall) {
+	key, ok := strings.CutPrefix(p.Path, "/api/config/settings/")
+	if !ok || c.opts.Settings == nil {
+		return
+	}
+	key, _ = url.PathUnescape(key)
+	setting, found := config.LookupSetting(key)
+	if !found {
+		return
+	}
+	p.Setting = key
+	if current, err := c.opts.Settings.Get(ctx, key); err == nil {
+		p.Before = current.Value
+	}
+	switch p.Method {
+	case "PUT":
+		var body struct {
+			Value json.RawMessage `json:"value"`
+		}
+		if json.Unmarshal(p.Body, &body) == nil {
+			if v, err := config.DecodeSetting(setting, body.Value); err == nil {
+				p.After = v
+			}
+		}
+	case "DELETE":
+		p.After, _ = config.SettingValue(config.Defaults(), key)
+	}
+	switch setting.Mode {
+	case config.ModeRestart:
+		p.AppliesAtRestart = true
+	case config.ModeNewAgents:
+		if c.opts.RunningAgents != nil {
+			p.Unreached = c.opts.RunningAgents(ctx)
+		}
+	}
+}
+
+// Propose makes a change set of calls for a Reeve session and puts it to
+// the person as one approval at its strictest level, then waits for the
+// decision (60 seconds). A signed level with no device enrolled refuses
+// the set.
+func (c *ChangeSetService) Propose(ctx context.Context, taskID, reason string, calls []ChangeCall) (ChangeSetOutcome, error) {
+	details, err := c.Describe(ctx, reason, calls)
+	if err != nil {
+		return ChangeSetOutcome{}, err
+	}
+	if (details.Level == LevelSigned || details.Level == LevelVerified) && !c.devicesEnrolled(ctx) {
+		return ChangeSetOutcome{}, ErrNoDeviceEnrolled
+	}
+	b := make([]byte, 5)
+	_, _ = rand.Read(b)
+	details.ID = "cs-" + hex.EncodeToString(b)
+	raw, _ := json.Marshal(details.Calls)
+	if err := c.opts.Store.InsertReeveChangeSet(ctx, store.ReeveChangeSet{ID: details.ID, TaskID: taskID, Reason: details.Reason, Level: string(details.Level), Calls: string(raw), Waiting: true}); err != nil {
+		return ChangeSetOutcome{}, err
+	}
+	title := details.Reason
+	if title == "" {
+		title = fmt.Sprintf("%d changes from the Reeve", len(details.Calls))
+	}
+	approval, _, err := c.opts.Approvals.Submit(ctx, ApprovalInput{
+		Source: ApprovalSourceReeveChangeSet, SourceKey: details.ID, TaskID: taskID,
+		Title: title, Summary: changeSetSummary(details), Details: details,
+		Signed: details.Level == LevelSigned || details.Level == LevelVerified, Verified: details.Level == LevelVerified,
+		Options: []ApprovalOption{{ID: "allow", Label: "Approve", Kind: ApprovalAllow}, {ID: "deny", Label: "Deny", Kind: ApprovalDeny}},
+	})
+	if err != nil {
+		return ChangeSetOutcome{}, err
+	}
+	_ = c.opts.Store.SetReeveChangeSetApproval(ctx, details.ID, approval.ID)
+	out := ChangeSetOutcome{ID: details.ID, ApprovalID: approval.ID, State: "pending", Level: details.Level}
+	decided, err := c.opts.Approvals.Wait(ctx, approval.ID, c.opts.Wait)
+	_ = c.opts.Store.SetReeveChangeSetWaiting(context.Background(), details.ID, false)
+	if err != nil || decided == nil {
+		return out, nil
+	}
+	switch decided.Status {
+	case store.ApprovalApproved:
+		out.State = "approved"
+	case store.ApprovalDenied, store.ApprovalDismissed:
+		out.State = "denied"
+		if decided.Decision != nil {
+			out.Note = decided.Decision.Feedback
+		}
+	}
+	return out, nil
+}
+
+func changeSetSummary(d ChangeSetDetails) string {
+	var parts []string
+	for _, call := range d.Calls {
+		parts = append(parts, call.Description)
+	}
+	return strings.Join(parts, "; ")
+}
+
+type changeSetResolver struct{ c *ChangeSetService }
+
+func (r changeSetResolver) Resolve(ctx context.Context, approval Approval, decision ApprovalDecision) error {
+	set, err := r.c.opts.Store.GetReeveChangeSet(ctx, approval.SourceKey)
+	if err != nil {
+		return err
+	}
+	if decision.Decision == ApprovalAllow {
+		_, err := r.c.opts.Store.MoveReeveChangeSet(ctx, set.ID, store.ChangeSetPending, store.ChangeSetQueued)
+		return err
+	}
+	if moved, err := r.c.opts.Store.MoveReeveChangeSet(ctx, set.ID, store.ChangeSetPending, store.ChangeSetDenied); err != nil || !moved {
+		return err
+	}
+	// The tool reports a denial it was waiting for; a later one is told.
+	if current, err := r.c.opts.Store.GetReeveChangeSet(ctx, set.ID); err == nil && !current.Waiting && r.c.opts.Notify != nil {
+		note := strings.TrimSpace(decision.Feedback)
+		if note == "" {
+			note = "(no note)"
+		}
+		r.c.opts.Notify(ctx, set.TaskID, fmt.Sprintf("[legato] The person denied change set %s (%s). Their note: %s\nDo not propose the same change again in this session unless they ask.", set.ID, set.Reason, note))
+	}
+	return nil
+}
+
+// RunQueued runs the approved sets waiting to run, each once (a set is
+// claimed by moving it to running), from what its approval holds.
+func (c *ChangeSetService) RunQueued(ctx context.Context) int {
+	sets, err := c.opts.Store.ListReeveChangeSets(ctx, "")
+	if err != nil {
+		return 0
+	}
+	ran := 0
+	for _, set := range sets {
+		if set.State != store.ChangeSetQueued {
+			continue
+		}
+		if claimed, err := c.opts.Store.MoveReeveChangeSet(ctx, set.ID, store.ChangeSetQueued, store.ChangeSetRunning); err != nil || !claimed {
+			continue
+		}
+		c.run(ctx, set)
+		ran++
+	}
+	return ran
+}
+
+// run runs a claimed set's calls in order, a restart last, stopping at the
+// first failure, and tells the Reeve.
+func (c *ChangeSetService) run(ctx context.Context, set store.ReeveChangeSet) {
+	var details ChangeSetDetails
+	if approval, err := c.opts.Approvals.Get(ctx, set.ApprovalID); err == nil {
+		_ = json.Unmarshal(approval.Details, &details)
+	}
+	calls := details.Calls
+	order := make([]int, len(calls))
+	for i := range order {
+		order[i] = i
+	}
+	sort.SliceStable(order, func(a, b int) bool {
+		return calls[order[a]].Kind != CallRestart && calls[order[b]].Kind == CallRestart
+	})
+	results := make([]CallResult, len(calls))
+	failed, restart := false, false
+	for _, i := range order {
+		call := calls[i]
+		results[i] = CallResult{Call: i + 1}
+		switch {
+		case failed:
+			results[i].State = "skipped"
+		case call.Kind == CallRestart:
+			results[i].State = "ran"
+			restart = true
+		default:
+			status, body, err := c.opts.Run(ctx, call.Method, call.Path, call.Body)
+			results[i].Status = status
+			switch {
+			case err != nil:
+				results[i].State, results[i].Detail, failed = "failed", err.Error(), true
+			case status >= 400:
+				results[i].State, results[i].Detail, failed = "failed", clip(strings.TrimSpace(body), 500), true
+			default:
+				results[i].State, results[i].Detail = "ran", clip(strings.TrimSpace(body), 300)
+			}
+		}
+	}
+	state := store.ChangeSetDone
+	if failed {
+		state = store.ChangeSetFailed
+	} else if restart {
+		state = store.ChangeSetRestarting
+	}
+	raw, _ := json.Marshal(results)
+	if err := c.opts.Store.FinishReeveChangeSet(ctx, set.ID, state, string(raw)); err != nil {
+		log.Printf("reeve: change set %s: %v", set.ID, err)
+	}
+	if c.opts.Notify != nil {
+		c.opts.Notify(ctx, set.TaskID, ChangeSetReport(set.ID, set.Reason, calls, results, restart && !failed))
+	}
+	if restart && !failed && c.opts.Restart != nil {
+		c.opts.Restart()
+	}
+}
+
+// ChangeSetReport is the message that tells the Reeve what each call did.
+func ChangeSetReport(id, reason string, calls []ProposedCall, results []CallResult, restarting bool) string {
+	var b strings.Builder
+	ran, failed, skipped := 0, 0, 0
+	for _, r := range results {
+		switch r.State {
+		case "ran":
+			ran++
+		case "failed":
+			failed++
+		default:
+			skipped++
+		}
+	}
+	fmt.Fprintf(&b, "[legato] Change set %s (%s): %d of %d ran", id, reason, ran, len(results))
+	if failed > 0 {
+		fmt.Fprintf(&b, ", %d failed", failed)
+	}
+	if skipped > 0 {
+		fmt.Fprintf(&b, ", %d skipped", skipped)
+	}
+	b.WriteString(".\n")
+	for i, r := range results {
+		desc := ""
+		if i < len(calls) {
+			desc = calls[i].Description
+		}
+		fmt.Fprintf(&b, "%d. %s: %s", r.Call, desc, r.State)
+		if r.Status != 0 {
+			fmt.Fprintf(&b, " (%d)", r.Status)
+		}
+		if r.Detail != "" && r.State == "failed" {
+			fmt.Fprintf(&b, ": %s", r.Detail)
+		}
+		b.WriteString("\n")
+	}
+	if restarting {
+		b.WriteString("Legato restarts now; you will be told when it is back.\n")
+	}
+	return b.String()
+}
+
+// ChangeSetsOf lists a session's sets, for the conversation's compact
+// lines.
+func (c *ChangeSetService) ChangeSetsOf(ctx context.Context, taskID string) ([]store.ReeveChangeSet, error) {
+	return c.opts.Store.ListReeveChangeSets(ctx, taskID)
+}
