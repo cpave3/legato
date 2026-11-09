@@ -182,10 +182,18 @@ func (r *RestartRollback) Settle(ctx context.Context, configPath string, healthy
 	lastErr := errors.New("not healthy")
 	for {
 		if lastErr = healthy(ctx); lastErr == nil {
+			db, _, done, err := r.pointerStore(p)
+			if err != nil {
+				return "", err
+			}
+			defer done()
+			if _, err := db.GetRestartRecord(ctx, p.RecordID); err != nil {
+				return "", err
+			}
 			if !claimPointer(configPath) {
 				return "", nil
 			}
-			_, err := r.Store.FinishRestartRecord(ctx, p.RecordID, store.RestartApplied, "")
+			_, err = db.FinishRestartRecord(ctx, p.RecordID, store.RestartApplied, "")
 			return store.RestartApplied, err
 		}
 		if !time.Now().Before(deadline) {
@@ -197,24 +205,55 @@ func (r *RestartRollback) Settle(ctx context.Context, configPath string, healthy
 		case <-time.After(every):
 		}
 	}
-	if !claimPointer(configPath) {
-		return "", nil
-	}
-	rec, err := r.Store.GetRestartRecord(ctx, p.RecordID)
-	if err != nil {
+	why := fmt.Sprintf("Legato was not healthy within %s of starting: %v", timeout.Round(time.Second), lastErr)
+	rolled, err := r.rollBack(ctx, configPath, p, why)
+	if err != nil || !rolled {
 		return "", err
+	}
+	return store.RestartRolledBack, nil
+}
+
+// rollBack puts back config.yaml and the database settings of the restart
+// p, in the database p names, and records why. The record is read before
+// the pointer is claimed, so a pointer whose record is missing is kept.
+// false when another process claimed it first.
+func (r *RestartRollback) rollBack(ctx context.Context, configPath string, p RestartPointer, why string) (bool, error) {
+	db, settingsRestorer, done, err := r.pointerStore(p)
+	if err != nil {
+		return false, err
+	}
+	defer done()
+	rec, err := db.GetRestartRecord(ctx, p.RecordID)
+	if err != nil {
+		return false, err
+	}
+	if !claimPointer(configPath) {
+		return false, nil
 	}
 	if err := RestoreConfig(p); err != nil {
-		return "", err
+		return false, err
 	}
 	var settings []RestartSetting
 	_ = json.Unmarshal([]byte(rec.Settings), &settings)
-	if len(settings) > 0 && r.Settings != nil {
-		if err := r.Settings.RestoreSettings(ctx, settings); err != nil {
-			return "", err
+	if len(settings) > 0 && settingsRestorer != nil {
+		if err := settingsRestorer.RestoreSettings(ctx, settings); err != nil {
+			return false, err
 		}
 	}
-	why := fmt.Sprintf("Legato was not healthy within %s of starting: %v", timeout.Round(time.Second), lastErr)
-	_, err = r.Store.FinishRestartRecord(ctx, p.RecordID, store.RestartRolledBack, why)
-	return store.RestartRolledBack, err
+	_, err = db.FinishRestartRecord(ctx, p.RecordID, store.RestartRolledBack, why)
+	return true, err
+}
+
+// pointerStore is the database the pointer p names, with what puts its
+// settings back: this rollback's own when it is the same database, else
+// that database opened for the rollback. done closes what was opened.
+func (r *RestartRollback) pointerStore(p RestartPointer) (*store.Store, SettingsRestorer, func(), error) {
+	if p.DBPath == "" || (p.DBPath == r.DBPath && p.DBDriver == r.DBDriver) {
+		return r.Store, r.Settings, func() {}, nil
+	}
+	db, err := store.Open(store.Options{Driver: p.DBDriver, Path: p.DBPath})
+	if err != nil {
+		return nil, nil, nil, fmt.Errorf("opening the restart's database %s: %w", p.DBPath, err)
+	}
+	return db, NewSettingsService(db, nil), func() { db.Close() }, nil
 }
