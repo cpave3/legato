@@ -42,6 +42,7 @@ The Reeve is the agent of a Legato instance itself (see `GLOSSARY.md`): the pers
 
 - **An API token** `lgr_<48 hex>` per session (`ReeveTokenPrefix`), kept with its SHA-256 in `reeve_sessions` and resolved by `ReeveService.Authenticate` (an ended session's token is gone). `serveReeveToken` (`internal/server/reeve.go`), reached from the auth middleware for a Bearer token with that prefix, classes the request (`ClassifyRequest`, see [Web UI](web-ui.md) § Route classes): **read** passes, with the session in the request's context (`ReeveCaller`); **never** is refused (`403`, code `never`); **change** and **risky** are refused (`403`, code `needs_approval`): the Reeve proposes changes as change sets, which Legato runs itself.
 - No other session's token reaches the Reeve's routes; the web token does (the person).
+- **Its sandbox's `legato` commands**: the broker's `cli.run` (`cliRunOp`, `cmd/legato/cli_forward.go`) runs a command for the Reeve's session only when `classifyLegatoCommand` classes it `read`; any other is refused (`forbidden`), since a change goes to the person through the `legato` tool or `propose_changes`.
 
 ## API and web
 

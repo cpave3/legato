@@ -259,7 +259,9 @@ func hostBrokerDeps(cfg *config.Config, db *store.Store, agents service.AgentSer
 		return opts
 	})
 	// Agents in the sandbox run their own `legato` commands here.
-	deps.Ops["cli.run"] = cliRunOp(legatoBinary(), *sandboxScratch(cfg))
+	deps.Ops["cli.run"] = cliRunOp(legatoBinary(), *sandboxScratch(cfg), func(ctx context.Context, taskID string) bool {
+		return service.IsReeveTask(ctx, db, taskID)
+	})
 	// Values come from this broker, whose stores (1Password) stay signed in.
 	if credentials != nil {
 		for name, op := range cli.CredentialBrokerOps(credentials) {
