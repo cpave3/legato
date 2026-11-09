@@ -302,6 +302,9 @@ type agentService struct {
 	// nativeBindTimeout bounds how long a launch message waits for the
 	// session's native endpoint before it is typed into the pane instead.
 	nativeBindTimeout time.Duration
+	// launchOwner names this service as the deliverer of the launch
+	// messages it keeps in launch_messages (launch_messages.go).
+	launchOwner string
 
 	sendKeysAdapter AgentInteraction
 	chimeraAdapter  AgentInteraction
@@ -536,7 +539,7 @@ func (a *agentService) credentialEnv() SessionEnvProvider {
 
 // NewAgentService creates an AgentService.
 func NewAgentService(s *store.Store, tmux TmuxManager, workDir string, opts ...AgentServiceOptions) AgentService {
-	svc := &agentService{store: s, tmux: tmux, workDir: workDir, briefKickoffDelay: briefKickoffDelay, peerAwareness: true, nativeBindTimeout: nativeBindTimeout}
+	svc := &agentService{store: s, tmux: tmux, workDir: workDir, briefKickoffDelay: briefKickoffDelay, peerAwareness: true, nativeBindTimeout: nativeBindTimeout, launchOwner: newLaunchOwner()}
 	if len(opts) > 0 {
 		svc.adapter = opts[0].Adapter
 		svc.adapters = opts[0].Adapters
@@ -1143,7 +1146,7 @@ func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, hei
 					messages = append(messages, prompt)
 				}
 				if len(messages) > 0 {
-					go a.deliverLaunchMessages(WithAgentSlot(context.Background(), slot), taskID, sessionName, adapter, messages, envMap["LEGATO_PROMPT_FILE"])
+					a.launchWith(ctx, executionID, taskID, slot, sessionName, agentKind, adapter, messages, envMap["LEGATO_PROMPT_FILE"])
 				}
 			}
 		}
@@ -1235,14 +1238,20 @@ func (a *agentService) notifyPeerJoin(taskID, executionID, workDir string, adapt
 // in order, once it can take them: over its native endpoint, else typed into
 // the pane. A message of more than one line is typed as a pointer to its
 // file, since the pane takes one line.
-func (a *agentService) deliverLaunchMessages(ctx context.Context, taskID, session string, adapter AIToolAdapter, messages []string, promptFile string) {
+func (a *agentService) deliverLaunchMessages(ctx context.Context, executionID, taskID, session string, adapter AIToolAdapter, messages []store.LaunchMessage, promptFile string) {
 	// The agent tool starts once its clone is set up, which takes minutes
 	// the first time the dependencies are fetched.
 	if err := a.AwaitCloneSetup(ctx, taskID); err != nil {
 		log.Printf("launch messages for %s: %v", session, err)
 	}
 	native := a.awaitNativeEndpoint(ctx, taskID, adapter)
-	for _, message := range messages {
+	for _, kept := range messages {
+		// A message is taken from the store as it is sent; one another
+		// process has taken over (after a restart) is left to it.
+		if taken, err := a.store.TakeLaunchMessage(context.Background(), executionID, kept.Position, a.launchOwner); err != nil || !taken {
+			return
+		}
+		message := kept.Message
 		if native {
 			err := a.QueueMessage(ctx, taskID, message)
 			if err == nil {
