@@ -308,3 +308,24 @@ func TestALegatoCommandRunsOnTheHostOnceApproved(t *testing.T) {
 		t.Fatalf("ran %v, notes %v", f.ran, f.notes)
 	}
 }
+
+// An Attention item's action on a pending approval decides it, as a
+// device's acts on approval devices: never the Reeve's, through any route.
+func TestAnAttentionActionOnAnApprovalIsNeverTheReeves(t *testing.T) {
+	f := newChangeSetFixture(t)
+	ctx := context.Background()
+	db := f.devices.db
+	approvalItem, _, err := db.UpsertAttentionItem(ctx, store.AttentionItem{ID: "att-ap", Producer: "approvals", SourceKey: "ap-1", Title: "Run a command", Category: "approval", Urgency: "high", SignalKind: "approval", Status: "open"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	other, _, _ := db.UpsertAttentionItem(ctx, store.AttentionItem{ID: "att-restart", Producer: "settings", SourceKey: "restart", Title: "Restart", Category: "maintenance", Urgency: "normal", SignalKind: "settings_restart", Status: "open"})
+	for _, path := range []string{"/api/attention/" + approvalItem.ID + "/actions/allow:once", "/api/attention/att-missing/actions/allow:once"} {
+		if _, err := f.svc.Propose(ctx, f.reeve, "allow it", []ChangeCall{{Kind: CallAPI, Method: "POST", Path: path}}); !errors.Is(err, ErrNeverCall) {
+			t.Fatalf("%s: %v", path, err)
+		}
+	}
+	if _, err := f.svc.Propose(ctx, f.reeve, "restart", []ChangeCall{{Kind: CallAPI, Method: "POST", Path: "/api/attention/" + other.ID + "/actions/restart"}}); err != nil {
+		t.Fatalf("another item's action: %v", err)
+	}
+}

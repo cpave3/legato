@@ -8,6 +8,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"net/http"
 	"net/url"
 	"sort"
 	"strings"
@@ -239,6 +240,9 @@ func (c *ChangeSetService) Describe(ctx context.Context, reason string, calls []
 				return details, fmt.Errorf("call %d: %q is not a route of Legato's API", i+1, call.Path)
 			}
 			p.Class, p.Description = c.opts.Classify(p.Method, call.Path)
+			if why := c.decidesApproval(ctx, p.Method, call.Path); why != "" {
+				p.Class, p.Description = "never", why
+			}
 			if p.Class == "never" {
 				return details, fmt.Errorf("call %d (%s %s): %w: %s", i+1, p.Method, call.Path, ErrNeverCall, p.Description)
 			}
@@ -252,6 +256,34 @@ func (c *ChangeSetService) Describe(ctx context.Context, reason string, calls []
 	}
 	details.Level = StrictestLevel(levels...)
 	return details, nil
+}
+
+// approvalProducers are the Attention producers whose actions decide an
+// approval or act on approval devices.
+var approvalProducers = map[string]bool{"approvals": true, "devices": true}
+
+// decidesApproval says why an API call is never the Reeve's though its
+// route is not: an Attention item's action on a pending approval or an
+// approval device decides it as the approval routes do. An item that
+// cannot be found is refused too, since its producer is unknown. "" for
+// any other call.
+func (c *ChangeSetService) decidesApproval(ctx context.Context, method, path string) string {
+	rest, ok := strings.CutPrefix(path, "/api/attention/")
+	if !ok || method != http.MethodPost {
+		return ""
+	}
+	id, action, ok := strings.Cut(rest, "/actions/")
+	if !ok || id == "" || action == "" {
+		return ""
+	}
+	item, err := c.opts.Store.GetAttentionItem(ctx, id)
+	if err != nil {
+		return "Take the action of an Attention item that cannot be found"
+	}
+	if approvalProducers[item.Producer] {
+		return "Decide an approval through its Attention item"
+	}
+	return ""
 }
 
 // describeSetting adds a setting's before and after to a call that changes
@@ -483,6 +515,9 @@ func (c *ChangeSetService) run(ctx context.Context, set store.ReeveChangeSet, no
 			} else {
 				results[i].State, results[i].Detail = "ran", "config.yaml written; the old file is "+backup
 			}
+		case c.decidesApproval(ctx, strings.ToUpper(call.Method), call.Path) != "":
+			// Checked again as it runs: never decide an approval.
+			results[i].State, results[i].Detail, failed = "failed", c.decidesApproval(ctx, strings.ToUpper(call.Method), call.Path), true
 		default:
 			status, body, err := c.opts.Run(ctx, call.Method, call.Path, call.Body)
 			results[i].Status = status
