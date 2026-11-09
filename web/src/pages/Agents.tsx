@@ -17,6 +17,7 @@ import { SwarmEventLog } from "../components/SwarmEventLog"
 import { SwarmCommandCenter } from "../components/SwarmCommandCenter"
 import { AgentEnsemble } from "../components/AgentEnsemble"
 import { AgentPickerBar } from "../components/AgentSelect"
+import { ReeveEntry, ReeveStatus } from "../components/ReeveEntry"
 import { AgentArtifactPanel } from "../components/AgentArtifactPanel"
 import { useAgentUIItems } from "../hooks/useAgentUI"
 import { useReviewBriefing, useUnseenBriefingPages } from "../hooks/useReviewBriefing"
@@ -747,6 +748,7 @@ export function AgentsPage() {
           agents={runningAgents}
           selectedId={selectedId}
           onSelect={handleSelect}
+          reeve={<ReeveEntry baseUrl={baseUrl} compact agent={runningAgents.find((a) => a.reeve)} selected={Boolean(selectedAgent?.reeve)} onSelect={handleSelect} />}
           onEnsemble={() => showEnsemble(true)}
           onSpawn={handleSpawn}
         />
@@ -763,6 +765,7 @@ export function AgentsPage() {
           unseenArtifacts={artifacts.unseen}
           contexts={contexts}
           preparing={<PreparingAgents />}
+          reeve={<ReeveEntry baseUrl={baseUrl} agent={runningAgents.find((a) => a.reeve)} selected={Boolean(selectedAgent?.reeve)} onSelect={handleSelect} />}
         />
       )}
       {isMobile && <PreparingAgents className="border-b border-lw-line px-2 pb-2" />}
@@ -780,7 +783,10 @@ export function AgentsPage() {
                 pullRequest={pullRequest}
                 panels={sidePanels}
                 menu={terminalMenu.entries}
-                notes={terminalMenu.upgradeError && <span role="alert" className="text-lw-error">{terminalMenu.upgradeError}</span>}
+                notes={<>
+                  {selectedAgent.reeve && <ReeveStatus baseUrl={baseUrl} />}
+                  {terminalMenu.upgradeError && <span role="alert" className="text-lw-error">{terminalMenu.upgradeError}</span>}
+                </>}
               />
             )}
             <div className="relative flex min-h-0 min-w-0 flex-1 overflow-hidden">
@@ -801,6 +807,7 @@ export function AgentsPage() {
                     <NativeAgentPanel
                       key={agent.task_id}
                       agentId={agent.task_id}
+                      reeve={agent.reeve}
                       sandboxed={agent.sandboxed}
                       agentKind={agent.agent_kind}
                       composerEnabled={agent.task_id === selectedId}
@@ -823,6 +830,7 @@ export function AgentsPage() {
                 <NativeAgentPanel
                   key={selectedId}
                   agentId={selectedId}
+                  reeve={selectedAgent?.reeve}
                   sandboxed={selectedAgent?.sandboxed}
                   onKill={handleKill}
                   onRename={handleRename}

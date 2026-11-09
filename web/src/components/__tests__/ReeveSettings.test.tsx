@@ -31,7 +31,7 @@ describe("ReeveSessions", () => {
   afterEach(() => cleanup())
 
   it("starts a session with an override of its tool and model", async () => {
-    mockFetch.mockResolvedValue({ history: [ended], folder: "/home/me/.local/state/legato/reeve" })
+    mockFetch.mockResolvedValue({ history: [ended], folder: "/home/me/.local/state/legato/reeve", instance: "box", role: "standalone", to_approve: 0 })
     show()
     fireEvent.change(await screen.findByRole("textbox", { name: "Model for this session" }), { target: { value: "opus" } })
     fireEvent.click(screen.getByRole("button", { name: "Start the Reeve" }))

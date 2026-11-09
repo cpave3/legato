@@ -97,6 +97,8 @@ export interface AgentInfo {
   // as agent_context messages (useAgentContexts).
   context_used?: number
   context_window?: number
+  // The agent of this Legato itself, pinned first.
+  reeve?: boolean
 }
 
 export interface PromptState {

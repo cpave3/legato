@@ -194,3 +194,15 @@ func (s *Server) reeveMessageHandler() http.HandlerFunc {
 		s.writeJSON(w, http.StatusOK, map[string]string{"status": "sent"})
 	}
 }
+
+// reeveTaskID is the task of the Reeve's current session, "" for none.
+func (s *Server) reeveTaskID(ctx context.Context) string {
+	if s.reeve == nil {
+		return ""
+	}
+	overview, err := s.reeve.Overview(ctx)
+	if err != nil || overview.Current == nil {
+		return ""
+	}
+	return overview.Current.TaskID
+}

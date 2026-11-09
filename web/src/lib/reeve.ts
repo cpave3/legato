@@ -18,6 +18,11 @@ export interface ReeveOverview {
   current?: ReeveSession
   history: ReeveSession[]
   folder: string
+  // This instance's name and role (main, worker, main and worker, standalone).
+  instance: string
+  role: string
+  // Approvals the Reeve's sessions wait on.
+  to_approve: number
 }
 
 // How a session starts: an override of the agent tool and model, a brief.

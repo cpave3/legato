@@ -13,6 +13,9 @@ The Reeve is the agent of a Legato instance itself. You talk to it to run and co
 
 ## Starting it
 
+The quickest way is the Reeve entry pinned at the top of the Agents list: pick it to start a session, or to go to the one that runs.
+
+
 Settings › **Reeve** has **Start the Reeve**. A session runs with the agent tool, model and launch arguments set there (`reeve.agent`, `reeve.model`, `reeve.launch_args`); you can pick another tool or model for one session before starting it. One session runs at a time.
 
 **End session** stops it. Ended sessions are kept in the history, where **Resume** starts one again with its conversation, and **Delete** removes it.

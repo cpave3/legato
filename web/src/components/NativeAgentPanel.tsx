@@ -1,3 +1,4 @@
+import { ReeveStatus } from "./ReeveEntry"
 import { useState, useEffect, useCallback, useRef, useMemo, memo } from "react"
 import { ArrowDown, ArrowLeftRight, Bell, BellOff, Check, Pencil, RefreshCw, RotateCw, Shield, Skull, Terminal, Unplug, Zap } from "lucide-react"
 import type { SandboxSwitch } from "../lib/agentReload"
@@ -187,6 +188,8 @@ function PermissionCard({
 
 interface NativeAgentPanelProps {
   agentId: string
+  // The agent of this Legato itself: its status bar says so.
+  reeve?: boolean
   // The agent runs in Legato's sandbox: giving it a resource reloads it.
   sandboxed?: boolean
   onClickTerminal?: () => void
@@ -221,7 +224,7 @@ interface NativeAgentPanelProps {
   pullRequest?: number
 }
 
-export function NativeAgentPanel({ agentId, sandboxed, onKill, onRename, resyncRef, onReload, switchSandbox, onDisconnect, onDowngradeChimera, ntfyConfigured, notifyEnabled, onToggleNotify, voiceEnabled, agentKind, composerEnabled = true, onOpenUIItem, panels, title, activity, stateTime, pullRequest }: NativeAgentPanelProps) {
+export function NativeAgentPanel({ agentId, reeve, sandboxed, onKill, onRename, resyncRef, onReload, switchSandbox, onDisconnect, onDowngradeChimera, ntfyConfigured, notifyEnabled, onToggleNotify, voiceEnabled, agentKind, composerEnabled = true, onOpenUIItem, panels, title, activity, stateTime, pullRequest }: NativeAgentPanelProps) {
   const { send, subscribe, connected } = useWebSocket()
   // Out of view the panel stops following the agent and catches up from its
   // cursor on return, so a phone with its screen off does not keep receiving
@@ -882,6 +885,7 @@ export function NativeAgentPanel({ agentId, sandboxed, onKill, onRename, resyncR
         onShowRequest={scrollToBottom}
         menu={menu}
         notes={<>
+          {reeve && <ReeveStatus baseUrl={baseUrl} />}
           {mode && <span className="rounded bg-lw-raised px-1.5 font-lw-mono">{mode}</span>}
           {syncing && <span className="text-lw-link">Syncing…</span>}
           {error && <span className="truncate text-lw-error">{error}</span>}

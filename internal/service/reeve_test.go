@@ -259,3 +259,16 @@ func TestAMessageWithNoSessionStartsOne(t *testing.T) {
 		t.Fatalf("current %+v, spawned %+v", current, agents.spawned)
 	}
 }
+
+func TestTheOverviewSaysTheInstanceItsRoleAndWhatWaitsForApproval(t *testing.T) {
+	svc, db, _, _ := newReeveFixture(t)
+	ctx := context.Background()
+	s, _ := svc.Start(ctx, ReeveStart{})
+	if _, _, err := db.InsertApproval(ctx, store.Approval{ID: "ap-1", Source: "reeve_change_set", SourceKey: "cs-1", TaskID: s.TaskID, Title: "Restart", DetailsJSON: "{}", OptionsJSON: "[]"}); err != nil {
+		t.Fatal(err)
+	}
+	overview, err := svc.Overview(ctx)
+	if err != nil || overview.Instance == "" || overview.Role != "standalone" || overview.ToApprove != 1 {
+		t.Fatalf("overview = %+v, %v", overview, err)
+	}
+}

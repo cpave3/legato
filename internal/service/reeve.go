@@ -108,6 +108,12 @@ type ReeveOverview struct {
 	Current *store.ReeveSession  `json:"current,omitempty"`
 	History []store.ReeveSession `json:"history"`
 	Folder  string               `json:"folder"`
+	// Instance is this instance's name (its host name) and Role whether it
+	// is a main, a worker, both, or standalone.
+	Instance string `json:"instance"`
+	Role     string `json:"role"`
+	// ToApprove is how many approvals the Reeve's sessions wait on.
+	ToApprove int `json:"to_approve"`
 }
 
 // Overview is the current session and every session, newest first.
@@ -120,7 +126,38 @@ func (s *ReeveService) Overview(ctx context.Context) (ReeveOverview, error) {
 	if err != nil {
 		return ReeveOverview{}, err
 	}
-	return ReeveOverview{Current: current, History: history, Folder: s.opts.Folder}, nil
+	overview := ReeveOverview{Current: current, History: history, Folder: s.opts.Folder, Instance: instanceName(), Role: s.instanceRole(ctx)}
+	for _, h := range history {
+		if pending, err := s.opts.Store.ListApprovals(ctx, store.ApprovalFilter{Status: store.ApprovalPending, TaskID: h.TaskID}); err == nil {
+			overview.ToApprove += len(pending)
+		}
+	}
+	return overview, nil
+}
+
+// instanceName is this instance's name: its host name.
+func instanceName() string {
+	name, err := os.Hostname()
+	if err != nil {
+		return "this Legato"
+	}
+	return name
+}
+
+// instanceRole is whether this instance is a main (it has workers), a
+// worker (mains are paired with it), both, or standalone.
+func (s *ReeveService) instanceRole(ctx context.Context) string {
+	workers, _ := s.opts.Store.ListWorkers(ctx)
+	mains, _ := s.opts.Store.ListMainIntegrationTokens(ctx)
+	switch {
+	case len(workers) > 0 && len(mains) > 0:
+		return "main and worker"
+	case len(workers) > 0:
+		return "main"
+	case len(mains) > 0:
+		return "worker"
+	}
+	return "standalone"
 }
 
 // Current is the running or suspended session, or nil.

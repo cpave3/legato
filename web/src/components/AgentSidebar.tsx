@@ -26,6 +26,8 @@ interface AgentSidebarProps {
   contexts?: Record<string, AgentContext>;
   // Shown above the agents: those still being started (PreparingAgents).
   preparing?: ReactNode;
+  // Pinned first, above the groups: the Reeve (ReeveEntry).
+  reeve?: ReactNode;
 }
 
 const sectionTone: Record<EnsembleSection, string> = {
@@ -47,8 +49,10 @@ export function AgentSidebar({
   unseenArtifacts,
   contexts,
   preparing,
+  reeve,
 }: AgentSidebarProps) {
-  const sections = agentSections(agents);
+  // The Reeve's agent is pinned on its own, above the groups.
+  const sections = agentSections(reeve ? agents.filter((a) => !a.reeve) : agents);
   let position = 0;
 
   return (
@@ -90,6 +94,7 @@ export function AgentSidebar({
       </div>
 
       <div className="flex flex-col gap-0.5 px-2 pb-3">
+        {reeve}
         {preparing}
         {sections.map(({ section, agents: members }) => (
           <section key={section} className="flex flex-col gap-0.5">
