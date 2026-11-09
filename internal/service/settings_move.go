@@ -131,13 +131,18 @@ func (m *SettingsMover) Move(ctx context.Context, req SettingsMove, by string) (
 			return store.RestartRecord{}, err
 		}
 	}
+	stored, err := db.SettingEntries(ctx)
+	if err != nil {
+		return store.RestartRecord{}, err
+	}
 	for _, e := range req.Entries {
 		value, _, err := config.EntryValue(cfg, e.List, e.Name)
 		if err != nil {
 			return store.RestartRecord{}, err
 		}
 		raw, _ := json.Marshal(value)
-		olds = append(olds, RestartSetting{List: e.List, Key: e.Name})
+		// An entry the file shadowed is kept, so a rollback restores it.
+		olds = append(olds, RestartSetting{List: e.List, Key: e.Name, Old: stored[e.List][e.Name]})
 		if err := db.SetSettingEntry(ctx, e.List, e.Name, raw, by); err != nil {
 			return store.RestartRecord{}, err
 		}

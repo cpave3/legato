@@ -110,6 +110,27 @@ func TestTheOfferToMoveIsOneAttentionItem(t *testing.T) {
 	}
 }
 
+// A database entry the file shadowed comes back when a move of that entry
+// rolls back.
+func TestARolledBackEntryMoveRestoresTheEntryItReplaced(t *testing.T) {
+	mover, db, path := newMoveFixture(t, pinnedFile)
+	ctx := context.Background()
+	// Saved before config.yaml had an entry of that name.
+	if err := db.SetSettingEntry(ctx, "macros", "hi", []byte(`{"keys":"from the database"}`), "web"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := mover.Move(ctx, SettingsMove{Entries: []EntryRef{{List: "macros", Name: "hi"}}}, "web"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := mover.Rollback.Settle(ctx, path, func(context.Context) error { return os.ErrDeadlineExceeded }, 0, 0); err != nil {
+		t.Fatal(err)
+	}
+	entries, _ := db.SettingEntries(ctx)
+	if got := string(entries["macros"]["hi"]); !strings.Contains(got, "from the database") {
+		t.Fatalf("the shadowed entry after rollback = %q", got)
+	}
+}
+
 // Moving the workspace that the database's default workspace names keeps
 // both: the configuration is checked once everything is in place.
 func TestMovingTheDefaultWorkspaceKeepsItTheDefault(t *testing.T) {
