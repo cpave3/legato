@@ -63,6 +63,7 @@ See [Workflows](../../site/src/content/docs/using/workflows.md) for the schema a
 `legato` binary supports subcommand dispatch alongside the default TUI mode:
 
 - `legato` (no args) — launches TUI (existing behavior)
+- `legato restart [--json]` — every Legato process of this instance's data folder shuts down and starts again in place (the IPC message `restart`); see [Releases and updates](updates.md) § Restarting in place
 - `legato --help`, `legato <command> --help`, and deeper registered paths such as `legato workflow step complete --help` — print context-specific CLI help with realistic examples to stdout and exit successfully without loading configuration or the database. Every registered command level includes at least one example; parent help shows up to three examples from each immediate child, with a count and path to child help when more forms are available. `-h` and a nested trailing `help` are aliases.
 - `legato help` / `legato learn` — print a Markdown primer designed for AI-agent discovery, including task workflows, Jira edit restrictions, agent-session environment, and links to command-family help.
 - `legato task list [--status <status>] [--workspace <name|unassigned>] [--limit <count>] [--json]` — list active tasks in board-column and card order. Text output is tab-separated; JSON returns concise task objects.

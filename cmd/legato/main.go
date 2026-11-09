@@ -62,7 +62,16 @@ func main() {
 		env := append(os.Environ(), hotReloadChildEnv+"=1")
 		os.Exit(hotreload.Run(hotreload.Options{Args: launch.Args, Env: env, Dir: wd}))
 	}
-	os.Exit(runApplication(launch.Args))
+	code := runApplication(launch.Args)
+	if restartInPlace.Load() {
+		// Asked to restart: everything above has shut down; start again
+		// in place.
+		if err := reexec(); err != nil {
+			fmt.Fprintln(os.Stderr, err)
+			os.Exit(1)
+		}
+	}
+	os.Exit(code)
 }
 
 func runApplication(args []string) int {
@@ -1610,6 +1619,7 @@ func runServeCmd(args []string) int {
 	updates := newUpdateService(db, bus, agentSvc, serveRestarter())
 	wireAttention(context.Background(), db, bus, srv, planSvc, reviewSvc, agentSvc, workflowSvc, approvalsRT, updates, mainSide, triggerCoordinator)
 	wireUpdates(srv, updates)
+	srv.SetRestarter(func() { restartAll(config.ResolveDataDir(cfg)) })
 	srv.SetMacros(cfg.Macros)
 	srv.SetTerminalAttacher(terminalAttacher(tmuxMgr))
 	srv.SetSandboxEnabled(cfg.Agents.Sandbox.Enabled)
@@ -1639,6 +1649,10 @@ func runServeCmd(args []string) int {
 	// IPC server for receiving CLI→web updates.
 	socketPath := ipc.SocketPath()
 	ipcSrv, ipcErr := ipc.NewServer(socketPath, func(msg ipc.Message) {
+		if isRestartFor(msg, dataDir) {
+			requestRestart()
+			return
+		}
 		handleServeIPCMessage(msg, bus, srv)
 	})
 	if ipcErr == nil {
@@ -1746,7 +1760,12 @@ func runTUI() int {
 	stopAgentUI := func() {}
 	stopIntegrations := func() {}
 	socketPath := ipc.SocketPath()
+	tuiDataDir := config.ResolveDataDir(cfg)
 	ipcServer, ipcErr := ipc.NewServer(socketPath, func(msg ipc.Message) {
+		if isRestartFor(msg, tuiDataDir) {
+			requestRestart()
+			return
+		}
 		var wn webNotifier
 		if webSrv != nil {
 			wn = webSrv
@@ -1920,6 +1939,7 @@ func runTUI() int {
 			updates := newUpdateService(db, bus, agentSvc, tuiRestarter())
 			wireAttention(context.Background(), db, bus, webSrv, planSvc, reviewSvc, agentSvc, tuiWorkflowSvc, approvalsRT, updates, mainSide, triggerCoordinator)
 			wireUpdates(webSrv, updates)
+			webSrv.SetRestarter(func() { restartAll(config.ResolveDataDir(cfg)) })
 			webSrv.SetMacros(cfg.Macros)
 			webSrv.SetTerminalAttacher(terminalAttacher(tmuxMgr))
 			webSrv.SetSandboxEnabled(cfg.Agents.Sandbox.Enabled)

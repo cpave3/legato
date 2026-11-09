@@ -56,6 +56,10 @@ A new binary takes effect when Legato starts again. How that happens depends on 
 
 Agents keep running across the restart in every case, since they live in tmux. An agent that uses a Legato tool or command while Legato is away waits for it, for up to 30 seconds, instead of failing.
 
+### Restarting Legato yourself
+
+Legato restarts itself on request: **Restart Legato** in Settings › Updates, or `legato restart` on the machine. Every Legato process of the instance, the TUI and `legato serve` alike, shuts down and starts again in place, with the same command line: the TUI clears its screen and draws again in the same terminal, and a systemd service keeps its process. Under `--hot-reload`, the supervisor starts it again. Agents keep running.
+
 ## Going back
 
 If a new release does not start, put the old binary back:

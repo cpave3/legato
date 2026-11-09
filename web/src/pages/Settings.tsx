@@ -16,6 +16,7 @@ import { IntegrationsSettings } from "../components/IntegrationsSettings"
 import { MainInstancesSettings, WorkersSettings } from "../components/InstancePairingSettings"
 import { ApprovalNotificationSettings } from "../components/ApprovalNotificationSettings"
 import { UpdatesSettings } from "../components/UpdatesSettings"
+import { RestartLegato } from "../components/RestartLegato"
 import { SettingsCard, SettingsGroup, SettingsRow, SettingsRows, Toggle, BrowserTag, primaryButton, quietButton } from "../components/settings/SettingsUI"
 import { useSettings } from "../hooks/useSettings"
 import { useToast } from "../hooks/useToast"
@@ -373,6 +374,7 @@ export function SettingsPage() {
 
           <SettingsGroup id="updates" title="Updates" description="Which release of Legato this server runs, and how it takes the next.">
             <UpdatesSettings status={settings.data ? settings.data.updates ?? null : undefined} baseUrl={baseUrl} onChanged={() => void settings.refetch()} />
+            <RestartLegato baseUrl={baseUrl} />
           </SettingsGroup>
 
           {settings.data?.hot_reload_enabled && (

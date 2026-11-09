@@ -14,6 +14,11 @@ import (
 	"time"
 )
 
+// RestartExitCode is the exit status by which a child asks the supervisor
+// to start it again at once (Legato restarting itself). It is the status
+// `legato serve` exits with for systemd to restart it on an update.
+const RestartExitCode = 75
+
 type Options struct {
 	Path            string
 	Args            []string
@@ -97,7 +102,18 @@ func Run(options Options) int {
 			}
 			return stopChild(active, sig, options.ShutdownTimeout)
 		case result := <-activeDone:
-			return exitCode(result.err)
+			code := exitCode(result.err)
+			if code != RestartExitCode {
+				return code
+			}
+			// The child asked to be started again: Legato restarting
+			// itself under the supervisor.
+			replacement, startErr := startChild(options)
+			if startErr != nil {
+				fmt.Fprintf(options.Stderr, "hot reload: restart: %v\n", startErr)
+				return 1
+			}
+			active = replacement
 		case <-ticker.C:
 			next, statErr := fileIdentity(options.Path)
 			if statErr != nil {
