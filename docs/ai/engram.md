@@ -55,3 +55,9 @@ Nothing is cached between calls, so installing engram later needs no restart. `c
 6. **Failure**: an error, the timeout, an engram engram no longer lists, a missing store or engram not found starts the agent without the engram: no `ENGRAM_*`, no packet, nothing on the execution. `SpawnReport.EngramWarning` (`WithSpawnReport` passes one through the context) says why, in `EngramFailure`'s words, and the spawn endpoints answer it as `engram_warning`. A spawn that fails after a fresh boot runs `engram session end`.
 
 `POST /api/agents/spawn` and `POST /api/tasks/{id}/agent` take `engram` (a name, or empty for none) and answer `engram` or `engram_warning` (`spawnResult` in `internal/server/agents.go`).
+
+## In the sandbox
+
+`SandboxEngram{Binary, BinMount, Store}` is a per-spawn input of the sandbox plan, like `SandboxGH`, and does not depend on `default_mounts`. `sandboxPrefix` gets the booted engram's binary and store (from `where`), makes `<runtime>/legato/sandbox/<execution>/bin/engram` as an empty file, and returns the launch line with `PATH=<that bin folder>:"$PATH"` before the backend, so the shell that runs it keeps its own `PATH` behind the engram's folder. `BuildSandboxPlan` binds the binary read-only at `BinMount` and the whole store read-write after `check`; a store that does not exist refuses the sandbox, and so the spawn. The binary is the real one `where` names (`os.Executable()` in engram), never a mise shim, and no other `engram` on the host's `PATH` is covered: links there are resolved, and covering a shim would cover mise itself. `ENGRAM_HOME` is the same path inside and out.
+
+Host and sandboxed processes write the same files. Checked against engram `main` (`b51ee38`): 12 concurrent `engram note` calls on one session and 12 concurrent `engram remember` calls all landed.

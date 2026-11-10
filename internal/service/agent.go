@@ -1013,7 +1013,11 @@ func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, hei
 	sandboxPrefix := ""
 	sandboxed := a.sandbox != nil && (!opt.Unsandboxed || opt.Unattended || opt.ReadOnlyCheckout || opt.ParentTaskID != "" || opt.SubtaskID != "" || opt.WorkflowRunID != "")
 	if sandboxed {
-		prefix, err := a.sandboxPrefix(ctx, taskID, executionID, agentKind, workDir, envMap, append(resources, freshClone.sandboxResources()...), opt.ReadOnlyCheckout, opt.ThrowawayCheckout)
+		var engramMounts SandboxEngram
+		if booted != nil {
+			engramMounts = SandboxEngram{Binary: booted.Binary, Store: booted.Store}
+		}
+		prefix, err := a.sandboxPrefix(ctx, taskID, executionID, agentKind, workDir, envMap, append(resources, freshClone.sandboxResources()...), opt.ReadOnlyCheckout, opt.ThrowawayCheckout, engramMounts)
 		if err != nil {
 			failExecution()
 			return fmt.Errorf("Legato's sandbox: %w", err)

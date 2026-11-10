@@ -39,7 +39,7 @@ func (a *agentService) CheckoutOverlayAvailable() bool {
 
 // sandboxPrefix is the command line that starts an agent's launch command
 // in its sandbox, ending in "--".
-func (a *agentService) sandboxPrefix(ctx context.Context, taskID, executionID, agentKind, workDir string, env map[string]string, resources []Resource, readOnly, throwaway bool) (string, error) {
+func (a *agentService) sandboxPrefix(ctx context.Context, taskID, executionID, agentKind, workDir string, env map[string]string, resources []Resource, readOnly, throwaway bool, engram SandboxEngram) (string, error) {
 	backend := a.sandbox.Backend
 	if err := backend.Available(); err != nil {
 		return "", err
@@ -91,6 +91,21 @@ func (a *agentService) sandboxPrefix(ctx context.Context, taskID, executionID, a
 		}
 		in.GH = gh
 	}
+	// An engram session's binary, at a path of the execution's own whose
+	// folder goes first on its PATH.
+	pathFirst := ""
+	if engram.Store != "" && in.RuntimeDir != "" {
+		binDir := filepath.Join(in.RuntimeDir, "sandbox", executionID, "bin")
+		engram.BinMount = filepath.Join(binDir, "engram")
+		if err := os.MkdirAll(binDir, 0o700); err != nil {
+			return "", err
+		}
+		if err := os.WriteFile(engram.BinMount, nil, 0o600); err != nil {
+			return "", err
+		}
+		pathFirst = binDir
+	}
+	in.Engram = engram
 	az, err := sandboxAz(in, executionID)
 	if err != nil {
 		return "", err
@@ -151,15 +166,24 @@ func (a *agentService) sandboxPrefix(ctx context.Context, taskID, executionID, a
 		return "", err
 	}
 	args = args[:len(args)-1] // the backend's command, then its options, then "--"
+	// The shell that runs the line expands $PATH, so what the session's
+	// shell put on it stays, after the engram's folder.
+	withPath := func(line string) string {
+		if pathFirst == "" {
+			return line
+		}
+		return "PATH=" + shellWord(pathFirst) + `:"$PATH" ` + line
+	}
 	if in.RuntimeDir != "" && len(args) >= 2 && args[len(args)-1] == "--" {
 		file := filepath.Join(in.RuntimeDir, "sandbox", executionID, "bwrap.args")
-		return argsFileCommand(args[0], args[1:len(args)-1], file)
+		line, err := argsFileCommand(args[0], args[1:len(args)-1], file)
+		return withPath(line), err
 	}
 	quoted := make([]string, len(args))
 	for i, arg := range args {
 		quoted[i] = shellWord(arg)
 	}
-	return strings.Join(quoted, " "), nil
+	return withPath(strings.Join(quoted, " ")), nil
 }
 
 // argsFileCommand writes a backend's options to file, NUL-separated, and
