@@ -72,6 +72,15 @@ func (a *agentService) bootEngram(ctx context.Context, taskID, executionID, agen
 		}
 		reason := EngramFailure(opt.Engram, err)
 		log.Printf("engram: %s for %s did not boot, starting without it: %s", opt.Engram, taskID, reason)
+		// A restart that kept the session for the agent that resumes it
+		// ends it, as that agent runs without it.
+		if opt.EngramSession != "" {
+			if engrams := a.engramBooter(); engrams != nil {
+				if endErr := engrams.EndSession(ctx, EngramSessionRef{Name: opt.Engram, Session: opt.EngramSession, Dir: workDir}); endErr != nil {
+					log.Printf("engram: ending %s's kept session %s: %v", opt.Engram, opt.EngramSession, endErr)
+				}
+			}
+		}
 		if report != nil {
 			report.EngramWarning = fmt.Sprintf("%s did not boot, so the agent started without it: %s", opt.Engram, reason)
 		}
@@ -81,17 +90,18 @@ func (a *agentService) bootEngram(ctx context.Context, taskID, executionID, agen
 	if engrams == nil {
 		return fail(ErrEngramsOff)
 	}
-	resume := opt.SessionPolicy == "resume"
-	session := executionID
-	if resume {
-		session = opt.EngramSession
-		if session == "" {
+	// A resumed conversation keeps the engram session it ran in. One that
+	// never ran as this engram has none to keep: it boots afresh.
+	session, resume := executionID, false
+	if opt.SessionPolicy == "resume" {
+		kept := opt.EngramSession
+		if kept == "" {
 			if last, err := a.store.LastEngramSession(ctx, taskID, opt.Engram); err == nil {
-				session = last
+				kept = last
 			}
 		}
-		if session == "" {
-			session = executionID
+		if kept != "" {
+			session, resume = kept, true
 		}
 	}
 	boot, err := engrams.Boot(ctx, EngramBootRequest{

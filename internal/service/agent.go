@@ -620,7 +620,7 @@ func NewAgentService(s *store.Store, tmux TmuxManager, workDir string, opts ...A
 	return svc
 }
 
-func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, height int, opts ...AgentSpawnOptions) error {
+func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, height int, opts ...AgentSpawnOptions) (spawnErr error) {
 	var opt AgentSpawnOptions
 	if len(opts) > 0 {
 		opt = opts[0]
@@ -753,6 +753,14 @@ func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, hei
 	if err != nil {
 		return err
 	}
+	// Until the engram is recorded on the execution (which ends its session
+	// with it), a spawn that fails ends the session it booted.
+	engramRecorded := false
+	defer func() {
+		if spawnErr != nil && !engramRecorded {
+			booted.endIfFresh(ctx, a.engramBooter(), workDir)
+		}
+	}()
 
 	// Build env vars to inject into the initial shell. Track them as a map
 	// for the adapter LaunchCommand call, then flatten for tmux Spawn.
@@ -930,6 +938,12 @@ func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, hei
 	// A prompt of more than one line reaches a terminal agent as a file it
 	// is told to read; the pane takes one line.
 	prompt := strings.TrimSpace(opt.Prompt)
+	// A resumed conversation of a tool that takes no launch prompt then
+	// (Claude Code, Codex) gets a freshly booted engram's packet as its
+	// first message instead.
+	if nativeResume && booted.booted() && !booted.resumed && booted.Packet != "" {
+		prompt = joinPromptSections(EngramPromptSection(booted.name, booted.Packet), prompt)
+	}
 	if strings.ContainsAny(prompt, "\n\r\"") {
 		if dir, err := swarm.AgentDir(agentKey); err != nil {
 			log.Printf("writing the prompt of %s: %v", taskID, err)
@@ -970,7 +984,6 @@ func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, hei
 		AgentKind: agentKind, Role: opt.Role, WorkingDir: workDir, StartedAt: time.Now().UTC(),
 	}
 	if err := a.store.CreateExecution(ctx, execution); err != nil {
-		booted.endIfFresh(ctx, a.engramBooter(), workDir)
 		return fmt.Errorf("creating execution: %w", err)
 	}
 	if opt.ReadOnlyCheckout {
@@ -987,9 +1000,9 @@ func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, hei
 		}
 		if err := a.store.SetExecutionEngram(ctx, executionID, booted.name, booted.session); err != nil {
 			failExecution()
-			booted.endIfFresh(ctx, a.engramBooter(), workDir)
 			return fmt.Errorf("recording the engram: %w", err)
 		}
+		engramRecorded = true
 	} else if booted != nil {
 		if err := a.store.SetExecutionEngramFailure(ctx, executionID, booted.name, booted.failed); err != nil {
 			log.Printf("engram: recording that %s did not boot for %s: %v", booted.name, taskID, err)

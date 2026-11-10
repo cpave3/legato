@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"os/exec"
@@ -94,7 +95,10 @@ func (a *agentService) sandboxPrefix(ctx context.Context, taskID, executionID, a
 	// An engram session's binary, at a path of the execution's own whose
 	// folder goes first on its PATH.
 	pathFirst := ""
-	if engram.Store != "" && in.RuntimeDir != "" {
+	if engram.Store != "" && in.RuntimeDir == "" {
+		return "", errors.New("an engram session needs Legato's runtime folder for its engram binary")
+	}
+	if engram.Store != "" {
 		binDir := filepath.Join(in.RuntimeDir, "sandbox", executionID, "bin")
 		engram.BinMount = filepath.Join(binDir, "engram")
 		if err := os.MkdirAll(binDir, 0o700); err != nil {

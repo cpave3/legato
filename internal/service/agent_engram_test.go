@@ -253,3 +253,79 @@ func TestFinishingAWorkflowAgentEndsItsEngramSession(t *testing.T) {
 		t.Fatalf("ended %v", f.cli.ended)
 	}
 }
+
+func TestResumingAConversationAsAnEngramItNeverRanAsBootsIt(t *testing.T) {
+	f := newEngramSpawnFixture(t, "chimera")
+	if err := f.svc.SpawnAgent(context.Background(), "task-1", 0, 0, AgentSpawnOptions{Engram: "mneme", SessionPolicy: "resume", ResumeSessionID: "chimera-1"}); err != nil {
+		t.Fatal(err)
+	}
+	exec := f.execution(t)
+	if f.cli.boots != 1 {
+		t.Fatalf("booted %d times, want a fresh boot", f.cli.boots)
+	}
+	if got := f.tmux.envVarsFor("legato-task-1")["ENGRAM_SESSION"]; got != exec {
+		t.Fatalf("ENGRAM_SESSION = %q, want the new execution %q", got, exec)
+	}
+	if !strings.Contains(f.prompt(t), "<engram-boot") {
+		t.Fatal("the packet is not in the launch prompt")
+	}
+}
+
+// A tool whose resumed conversation takes no launch prompt gets the packet
+// as its first message.
+func TestAResumedNativeConversationGetsAFreshPacketAsItsFirstMessage(t *testing.T) {
+	f := newRestartFixture(t)
+	f.withEngrams(t)
+	ctx := context.Background()
+	createTask(t, f.store, "task-p")
+	cwd := t.TempDir()
+	if err := f.svc.SpawnAgent(ctx, "task-p", 0, 0, AgentSpawnOptions{AgentKind: "claude-code", WorkingDir: cwd}); err != nil {
+		t.Fatal(err)
+	}
+	f.reportConversation(t, "task-p", cwd)
+	if err := f.svc.KillAgent(ctx, "task-p"); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.svc.SpawnAgent(ctx, "task-p", 0, 0, AgentSpawnOptions{AgentKind: "claude-code", WorkingDir: cwd, Engram: "mneme", SessionPolicy: "resume", ResumeSessionID: "conversation-1"}); err != nil {
+		t.Fatal(err)
+	}
+	path := f.tmux.envVarsFor("legato-task-p")["LEGATO_PROMPT_FILE"]
+	if path == "" {
+		t.Fatal("no first message was written")
+	}
+	data, _ := os.ReadFile(path)
+	if !strings.Contains(string(data), "<engram-boot name=\"mneme\">") {
+		t.Fatalf("first message = %q", data)
+	}
+}
+
+func TestASpawnThatFailsBeforeItsEngramIsRecordedEndsTheSession(t *testing.T) {
+	f := newEngramSpawnFixture(t, "claude-code")
+	// The learnings cannot be compiled: the spawn stops after the boot and
+	// before its execution exists.
+	f.svc.(*agentService).learning = failingLearnings{}
+	if err := f.svc.SpawnAgent(context.Background(), "task-1", 0, 0, AgentSpawnOptions{Engram: "mneme"}); err == nil {
+		t.Fatal("the spawn succeeded")
+	}
+	if f.cli.boots != 1 || len(f.cli.ended) != 1 {
+		t.Fatalf("booted %d, ended %d", f.cli.boots, len(f.cli.ended))
+	}
+}
+
+type failingLearnings struct{}
+
+func (failingLearnings) CompileLearningPrompt(context.Context, LearningPromptCompileInput) (*CompiledLearningPrompt, error) {
+	return nil, errors.New("the ledger is locked")
+}
+
+func TestAResumedRestartWhoseBootFailsEndsTheSessionItKept(t *testing.T) {
+	f := newEngramSpawnFixture(t, "chimera")
+	// The engram is gone by the time its agent is restarted.
+	f.cli.ids = nil
+	if err := f.svc.SpawnAgent(context.Background(), "task-1", 0, 0, AgentSpawnOptions{Engram: "mneme", EngramSession: "ex-old", SessionPolicy: "resume", ResumeSessionID: "chimera-1"}); err != nil {
+		t.Fatal(err)
+	}
+	if len(f.cli.ended) != 1 || envOf(f.cli.ended[0])["ENGRAM_SESSION"] != "ex-old" {
+		t.Fatalf("ended %v, want the kept session ex-old", f.cli.ended)
+	}
+}
