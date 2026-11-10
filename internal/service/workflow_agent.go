@@ -73,6 +73,12 @@ func (r *WorkflowAgentRunner) FinishWorkflowAgent(ctx context.Context, attempt s
 		if err := r.store.TerminalizeExecution(ctx, session.ExecutionID, store.ExecutionSucceeded); err != nil {
 			return err
 		}
+		// An agent that ran as an engram ends its engram session with it.
+		if ender, ok := r.agents.(interface {
+			EndEngramSession(ctx context.Context, executionID string)
+		}); ok {
+			ender.EndEngramSession(ctx, session.ExecutionID)
+		}
 	}
 	if err := r.store.FinishAgentSession(ctx, *attempt.AgentSessionID); err != nil && err != store.ErrNotFound {
 		return err
@@ -148,11 +154,14 @@ func (e *AgentRunExecutor) Start(ctx context.Context, step ResolvedWorkflowStep)
 	repo, _ := workflowString(step.With, "repo", false)
 	ref, _ := workflowString(step.With, "ref", false)
 	branch, _ := workflowString(step.With, "branch", false)
+	// An engram engram does not list fails the step before anything starts.
+	engram, _ := workflowString(step.With, "engram", false)
 	assignment := buildWorkflowAssignment(prompt, step, e.binaryPath)
 	opts := AgentSpawnOptions{
 		AgentKind: kind, Tier: tier, WorkingDir: workingDir, Repo: strings.TrimSpace(repo), Ref: strings.TrimSpace(ref), Branch: strings.TrimSpace(branch), Assignment: assignment,
 		ExecutionKind: store.ExecutionWorkflowAgent, AttributionTaskID: step.RelatedTaskID,
 		WorkflowRunID: step.RunID, WorkflowAttemptID: step.AttemptID,
+		Engram: strings.TrimSpace(engram), EngramRequired: strings.TrimSpace(engram) != "",
 		ExtraEnv: map[string]string{
 			"LEGATO_TASK_ID": step.TaskID, "LEGATO_WORKFLOW_RUN_ID": step.RunID, "LEGATO_WORKFLOW_STEP_ID": step.StepID, "LEGATO_WORKFLOW_ATTEMPT_ID": step.AttemptID,
 		},

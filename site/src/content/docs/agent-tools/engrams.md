@@ -56,3 +56,11 @@ When an engram agent ends for good, Legato tells engram the session is over (`en
 ## Engram bindings in Settings
 
 **Settings › Agents › Engram bindings** lists each repository or folder that has engrams bound to it, with its default marked and any engram that engram no longer lists marked **missing**. You can make a bound engram the default, unbind one, or clear the default. Engrams are bound with **Remember** in the spawn dialog, not here. The section also says where engram and its store are, or that engram was not found.
+
+## In workflows
+
+A workflow's `agent.run` step can start its agent as an engram with `with.engram`. See [Workflows](/legato/using/workflows/).
+
+## Not offered
+
+Swarm conductors and workers, and tasks handed off to another Legato, cannot be started as an engram. Legato does not create or edit engrams: use the engram command for that.

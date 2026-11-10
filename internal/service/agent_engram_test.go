@@ -209,3 +209,47 @@ func TestListAgentsSaysWhichEngramAnAgentRunsAs(t *testing.T) {
 		t.Fatalf("agents = %+v %v", agents, err)
 	}
 }
+
+// touchingEngrams records the bindings a spawn touches.
+type touchingEngrams struct {
+	AgentEngrams
+	touched []string
+}
+
+func (t *touchingEngrams) Touch(_ context.Context, dir, name string) error {
+	t.touched = append(t.touched, name)
+	return nil
+}
+
+func TestAWorkflowAgentNeverTouchesBindings(t *testing.T) {
+	f := newEngramSpawnFixture(t, "claude-code")
+	engrams, _ := bootService(f.cli)
+	touching := &touchingEngrams{AgentEngrams: engrams}
+	f.svc.(interface{ SetEngrams(AgentEngrams) }).SetEngrams(touching)
+	if err := f.svc.SpawnAgent(context.Background(), "task-1", 0, 0, AgentSpawnOptions{Engram: "mneme", WorkflowRunID: "wr-1", ExecutionKind: store.ExecutionWorkflowAgent}); err != nil {
+		t.Fatal(err)
+	}
+	if len(touching.touched) != 0 {
+		t.Fatalf("a workflow agent touched %v", touching.touched)
+	}
+	if name, _, _ := f.store.ExecutionEngram(context.Background(), f.execution(t)); name != "mneme" {
+		t.Fatalf("the workflow agent did not start as mneme: %q", name)
+	}
+}
+
+func TestFinishingAWorkflowAgentEndsItsEngramSession(t *testing.T) {
+	f := newEngramSpawnFixture(t, "claude-code")
+	ctx := context.Background()
+	if err := f.svc.SpawnAgent(ctx, "task-1", 0, 0, AgentSpawnOptions{Engram: "mneme", WorkflowRunID: "wr-1", ExecutionKind: store.ExecutionWorkflowAgent}); err != nil {
+		t.Fatal(err)
+	}
+	session, _ := f.store.GetAgentSessionByTaskID(ctx, "task-1")
+	runner := NewWorkflowAgentRunner(f.svc, f.store)
+	id := session.ID
+	if err := runner.FinishWorkflowAgent(ctx, store.WorkflowStepAttempt{AgentSessionID: &id, TmuxSession: session.TmuxSession}); err != nil {
+		t.Fatal(err)
+	}
+	if len(f.cli.ended) != 1 || envOf(f.cli.ended[0])["ENGRAM_SESSION"] != session.ExecutionID {
+		t.Fatalf("ended %v", f.cli.ended)
+	}
+}

@@ -109,3 +109,11 @@ The spawn overlay's `engram` row (see [TUI](tui.md) § Spawning an agent) shows 
 ## Display
 
 `store.AgentSession.Engram` comes from the agent session listing's join (`COALESCE(e.engram, '')`), and `service.AgentSession.Engram` from it; `GET /api/agents` answers `engram`. `RelatedAgentSummary.Engram` names the engram a task's agents run as (empty when they run as different ones), which the web board answers as `agent_engram` and the TUI board's panel shows in an `engram` row. The tool is shown as `claude · hestia` (TUI) and `Claude Code · hestia` (web) wherever it is shown: see [TUI](tui.md) § Agents and [Web UI](web-ui.md) § An agent's engram. The report's executions table has an **engram** column (`ExecutionBreakdown.Engram`, `by_execution[].engram`, and the Markdown export); there is no breakdown by engram.
+
+## Workflows
+
+`agent.run` takes `with.engram` (see [Workflows](workflows.md)): `EngramRequired` makes an engram that `identity list` does not list fail the step before the agent starts; any other failed boot starts it without the engram. Workflows never read or write bindings. A finished workflow agent's execution ends outside `EndExecution`, so `FinishWorkflowAgent` calls `EndEngramSession`.
+
+## Not offered
+
+Swarm conductors and workers (`bootEngram` refuses a spawn with a role, parent or sub-task), and tasks handed off to worker instances (the handoff's spawn passes no engram). Legato does not create or edit engrams, keeps no bindings in `config.yaml`, asks for no handoff when a session closes, and has no report breakdown by engram.

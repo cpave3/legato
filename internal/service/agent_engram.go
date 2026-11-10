@@ -8,6 +8,7 @@ import (
 	"os"
 
 	"github.com/cpave3/legato/internal/engine/engram"
+	"github.com/cpave3/legato/internal/engine/store"
 )
 
 // SpawnReport is what a spawn tells its caller past success or failure:
@@ -103,8 +104,11 @@ func (a *agentService) bootEngram(ctx context.Context, taskID, executionID, agen
 	if report != nil {
 		report.Engram = opt.Engram
 	}
-	if err := engrams.Touch(ctx, workDir, opt.Engram); err != nil {
-		log.Printf("engram: recording the use of %s in %s: %v", opt.Engram, workDir, err)
+	// Workflows never read or write bindings.
+	if opt.WorkflowRunID == "" && opt.ExecutionKind != store.ExecutionWorkflowAgent {
+		if err := engrams.Touch(ctx, workDir, opt.Engram); err != nil {
+			log.Printf("engram: recording the use of %s in %s: %v", opt.Engram, workDir, err)
+		}
 	}
 	return &spawnedEngram{EngramBoot: boot, name: opt.Engram, session: session, resumed: resume}, nil
 }
@@ -115,6 +119,12 @@ type engramSessionKeptKey struct{}
 // session is not ended with its execution.
 func withEngramSessionKept(ctx context.Context) context.Context {
 	return context.WithValue(ctx, engramSessionKeptKey{}, true)
+}
+
+// EndEngramSession ends the engram session of an execution that ended for
+// good outside EndExecution (a finished workflow agent).
+func (a *agentService) EndEngramSession(ctx context.Context, executionID string) {
+	a.endEngramSession(ctx, executionID)
 }
 
 // endEngramSession runs `engram session end` for an execution that ran as
