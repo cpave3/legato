@@ -180,6 +180,37 @@ credentials:
 	}
 }
 
+func TestAnAzureCredentialNamesItsAppAndTenant(t *testing.T) {
+	writeTestConfig(t, `
+credentials:
+  - name: azure-reader
+    secret: legato://azure-reader-secret
+    profile: azure
+    settings:
+      client_id: " b4c42806-dfd5-4a59-b6d3-6ae1c96d2166 "
+      tenant_id: 7948632d-756d-40b1-8af2-1b9ca8b344b1
+`)
+	cfg, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	s := cfg.Credentials[0].Settings
+	if s.ClientID != "b4c42806-dfd5-4a59-b6d3-6ae1c96d2166" || s.TenantID != "7948632d-756d-40b1-8af2-1b9ca8b344b1" {
+		t.Fatalf("settings = %+v", s)
+	}
+	for name, settings := range map[string]string{
+		"no client id":       "{tenant_id: 7948632d-756d-40b1-8af2-1b9ca8b344b1}",
+		"no tenant id":       "{client_id: b4c42806-dfd5-4a59-b6d3-6ae1c96d2166}",
+		"a client id flag":   "{client_id: '--debug', tenant_id: 7948632d-756d-40b1-8af2-1b9ca8b344b1}",
+		"a tenant with an ;": "{client_id: b4c42806-dfd5-4a59-b6d3-6ae1c96d2166, tenant_id: 'x; rm -rf ~'}",
+	} {
+		writeTestConfig(t, "credentials:\n  - name: az-broken\n    secret: legato://k\n    profile: azure\n    settings: "+settings+"\n")
+		if _, err := Load(); err == nil || !strings.Contains(err.Error(), "az-broken") {
+			t.Errorf("%s: err = %v", name, err)
+		}
+	}
+}
+
 func TestAgentsGHIsKeptFromThePersonsLoginUnlessTurnedOff(t *testing.T) {
 	writeTestConfig(t, "")
 	cfg, err := Load()

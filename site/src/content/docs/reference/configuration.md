@@ -455,14 +455,15 @@ Credentials that Legato holds for agents, so that no agent needs a secret in its
 | --- | --- | --- | --- |
 | `credentials[].name` | string | none | The credential's name: letters, digits, `.`, `_` and `-`, up to 64 characters. Names must differ, ignoring case. |
 | `credentials[].secret` | string | none | Where the secret is, as `<store>://<path>`. The stores are `legato` (Legato's own), `op` (1Password), `systemd-creds`, `keychain` (macOS), `env` and `file`. |
-| `credentials[].profile` | string | `secret` | What kind of credential it is: `secret`, `api-key`, `elevenlabs`, `ssh` or `github`. A profile of your own in `<config folder>/profiles/` works too. |
+| `credentials[].profile` | string | `secret` | What kind of credential it is: `secret`, `api-key`, `elevenlabs`, `ssh`, `github` or `azure`. A profile of your own in `<config folder>/profiles/` works too. |
 | `credentials[].type` | string | the profile's | The secret's type, when the profile takes several: `value`, `userpass`, `keypair`, `oauth-client` or `oauth-refresh`. |
 | `credentials[].settings.upstream` | URL | none | `api-key`: the `https` address of the API. Required. |
 | `credentials[].settings.key.header` | string | none | `api-key`: the header that carries the key. Give this or `credentials[].settings.key.query`. |
 | `credentials[].settings.key.format` | string | `{secret}` | How the header's value is written, such as `Bearer {secret}`. It must contain `{secret}`. |
 | `credentials[].settings.key.query` | string | none | `api-key`: the query parameter that carries the key, for an API that takes it there. |
-| `credentials[].settings.client_id` | string | none | `github`: your GitHub App's client ID. Required. |
+| `credentials[].settings.client_id` | string | none | `github`: your GitHub App's client ID. `azure`: the app (client) ID that `az` signs in as, a GUID. Required for both. |
 | `credentials[].settings.repositories` | list of strings | none | `github`: the repositories agents may use, as `owner/name`, or `owner/*` for all of an owner's. Required. |
+| `credentials[].settings.tenant_id` | string | none | `azure`: the Microsoft Entra tenant (directory) ID, or its domain, that `az` signs in to. Required. See [Azure](/legato/security/credential-broker/#azure). |
 
 ### Rules
 

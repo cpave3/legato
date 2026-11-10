@@ -91,6 +91,11 @@ func (a *agentService) sandboxPrefix(ctx context.Context, taskID, executionID, a
 		}
 		in.GH = gh
 	}
+	az, err := sandboxAz(in, executionID)
+	if err != nil {
+		return "", err
+	}
+	in.Az = az
 	// The scratch folder exists before the plan is made, so a plan whose
 	// mounts hold it covers it on the first spawn too.
 	if root := scratchFor(in).Root; root != "" {
@@ -227,25 +232,64 @@ func toolStateDirs(agentKind string, env map[string]string, home string) []strin
 // gh, for a session whose PATH starts with the wrapper's folder (a session
 // with a GitHub credential). The agent tools run commands in login shells,
 // which reorder PATH, so the wrapper cannot rely on coming first.
-func sandboxGH(wrapperDir, sessionPath, realMount string) (SandboxGH, bool) {
+func sandboxGH(wrapperDir, sessionPath, realMount string) (SandboxWrapper, bool) {
 	if wrapperDir == "" {
-		return SandboxGH{}, false
+		return SandboxWrapper{}, false
 	}
 	first, _, _ := strings.Cut(sessionPath, string(os.PathListSeparator))
 	wrapper := filepath.Join(wrapperDir, "gh")
 	if filepath.Clean(first) != filepath.Clean(wrapperDir) {
-		return SandboxGH{}, false
+		return SandboxWrapper{}, false
 	}
 	if _, err := os.Stat(wrapper); err != nil {
-		return SandboxGH{}, false
+		return SandboxWrapper{}, false
 	}
-	gh := SandboxGH{Wrapper: wrapper, RealMount: realMount}
+	gh := SandboxWrapper{Wrapper: wrapper, RealMount: realMount, Overlays: realCommands("gh", wrapperDir)}
+	if len(gh.Overlays) == 0 {
+		return SandboxWrapper{}, false
+	}
+	gh.Real = gh.Overlays[0]
+	return gh, true
+}
+
+// sandboxAz is how a sandbox puts Legato's az wrapper in place of every real
+// az, when an azure credential is configured: the wrapper is written into
+// the execution's runtime folder (removed when it ends), and the first real
+// az is mounted aside for it at az-real. There is no wrapper outside the
+// sandbox, where ~/.azure is the person's own.
+func sandboxAz(in SandboxPlanInput, executionID string) (SandboxWrapper, error) {
+	if in.Azure.Credential == "" || in.RuntimeDir == "" {
+		return SandboxWrapper{}, nil
+	}
+	reals := realCommands("az", "")
+	if len(reals) == 0 {
+		return SandboxWrapper{}, nil
+	}
+	dir := filepath.Join(in.RuntimeDir, "sandbox", executionID)
+	az := SandboxWrapper{Wrapper: filepath.Join(dir, "az"), Real: reals[0], RealMount: filepath.Join(dir, "az-real"), Overlays: reals}
+	legato := in.BinaryPath
+	if legato == "" {
+		legato = "legato"
+	}
+	if err := writeAzWrapper(az.Wrapper, legato, in.Azure); err != nil {
+		return SandboxWrapper{}, err
+	}
+	if err := os.WriteFile(az.RealMount, nil, 0o600); err != nil {
+		return SandboxWrapper{}, err
+	}
+	return az, nil
+}
+
+// realCommands are the real paths (links resolved) of every executable named
+// name on this process's PATH, in PATH's order, skipping the folder skip.
+func realCommands(name, skip string) []string {
+	var out []string
 	seen := map[string]bool{}
 	for _, dir := range filepath.SplitList(os.Getenv("PATH")) {
-		if dir == "" || filepath.Clean(dir) == filepath.Clean(wrapperDir) {
+		if dir == "" || (skip != "" && filepath.Clean(dir) == filepath.Clean(skip)) {
 			continue
 		}
-		real, err := filepath.EvalSymlinks(filepath.Join(dir, "gh"))
+		real, err := filepath.EvalSymlinks(filepath.Join(dir, name))
 		if err != nil || seen[real] {
 			continue
 		}
@@ -253,12 +297,9 @@ func sandboxGH(wrapperDir, sessionPath, realMount string) (SandboxGH, bool) {
 			continue
 		}
 		seen[real] = true
-		if gh.Real == "" {
-			gh.Real = real
-		}
-		gh.Overlays = append(gh.Overlays, real)
+		out = append(out, real)
 	}
-	return gh, gh.Real != ""
+	return out
 }
 
 // taskJobClone is the job clone that holds workDir when the task works in

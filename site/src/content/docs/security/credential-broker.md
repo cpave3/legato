@@ -18,6 +18,7 @@ Each credential reaches agents through one channel. Most channels keep the secre
 | An SSH key | An SSH agent socket of its own. Legato signs each login you allow. | No |
 | An API key with a proxied profile (`elevenlabs`, `api-key`) | A placeholder key and the address of Legato's proxy. Legato puts the real key into each request it allows. | No |
 | GitHub, through a GitHub App you create | Short-lived tokens for one repository, given to `git` and `gh`. Pushes go through Legato's proxy. | Read tokens only |
+| An Azure app's client secret (profile `azure`) | In Legato's sandbox, an `az` already signed in as the app, after you allow it | Only `az login` gets it |
 | Any other secret (profile `secret`) | The value, through `legato credential exec`, after you allow it | Yes |
 
 ### SSH keys
@@ -45,6 +46,26 @@ With a `github` credential, Legato acts as a GitHub App you create:
 ### The reviewer App
 
 Review passes post as a second GitHub App, the reviewer, so that its approval counts toward branch protection. Its credential uses the `github-reviewer` profile, which is Legato's own: no agent is ever given it, whatever it asks, and Legato uses it only on its own side, with a token made for each post and revoked after it. See [Setting up credentials](/legato/security/credentials-setup/).
+
+### Azure
+
+With an `azure` credential, `az` in a sandboxed agent signs itself in as an app you register in Microsoft Entra. Give the app only the roles the agent needs, such as Reader:
+
+```yaml
+credentials:
+  - name: azure-reader
+    secret: legato://azure-reader-secret     # the app's client secret
+    profile: azure
+    settings:
+      client_id: b4c42806-dfd5-4a59-b6d3-6ae1c96d2166   # the app (client) ID
+      tenant_id: 7948632d-756d-40b1-8af2-1b9ca8b344b1   # the tenant (directory) ID
+```
+
+In Legato's sandbox, `az` is Legato's wrapper. The first `az` command that needs an account signs in as the app, with `az login --service-principal`, and then runs. The client secret goes to that `az login` alone. The account is kept in the sandbox's own `~/.azure`, which goes when the agent ends, so the next agent signs in again. `az login`, `az logout`, `az version` and help run as they are.
+
+The sign-in is a `read` of the credential, so your rules apply. By default you are asked once per agent session. While you decide, `az` waits up to a minute. Then it stops with a message that tells the agent to run the command again after you approve.
+
+Outside the sandbox nothing changes: `az` is your own, with your own `~/.azure`, in your shell and in an agent that runs unsandboxed. Legato does not sign that `az` in, because it would replace your own login. If you configure several `azure` credentials, the sandbox's `az` signs in with the first.
 
 ### Secrets handed over
 

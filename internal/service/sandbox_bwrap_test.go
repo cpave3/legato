@@ -226,7 +226,7 @@ func TestInsideTheSandboxEveryGHIsLegatosWrapper(t *testing.T) {
 	_ = os.WriteFile(wrapper, []byte("#!/bin/sh\necho wrapper\nexec \"$LEGATO_GH_REAL\" \"$@\"\n"), 0o700)
 	in.CredentialWrapperDir = wrapperDir
 	in.Extra = append(in.Extra, SandboxPath{Path: cellar}, SandboxPath{Path: bin})
-	in.GH = SandboxGH{Wrapper: wrapper, Real: realGH, Overlays: []string{realGH}, RealMount: filepath.Join(in.RuntimeDir, "sandbox", "ex-1", "gh-real")}
+	in.GH = SandboxWrapper{Wrapper: wrapper, Real: realGH, Overlays: []string{realGH}, RealMount: filepath.Join(in.RuntimeDir, "sandbox", "ex-1", "gh-real")}
 	_ = os.WriteFile(in.GH.RealMount, nil, 0o600)
 
 	// Whatever order a login shell puts PATH in, gh is the wrapper.

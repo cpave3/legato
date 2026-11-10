@@ -106,6 +106,18 @@ func TestTheGuidanceSaysHowToUseEachCredential(t *testing.T) {
 	}
 }
 
+func TestTheGuidanceSaysAzSignsItselfInWithAnAzureCredential(t *testing.T) {
+	text := cli.CredentialGuidance([]service.CredentialSummary{{Name: "azure-reader", Profile: "azure", Channels: []string{"helper"}}})
+	for _, want := range []string{"azure-reader", "run az", "signs in", "az login", "[legato approvals]", "Outside Legato's sandbox"} {
+		if !strings.Contains(text, want) {
+			t.Errorf("the guidance does not say %q:\n%s", want, text)
+		}
+	}
+	if strings.Contains(text, "legato credential exec azure-reader") {
+		t.Errorf("the guidance tells the agent to sign in by hand:\n%s", text)
+	}
+}
+
 func TestTheServersInstructionsIncludeTheCredentials(t *testing.T) {
 	s := newTestStore(t)
 	executionID := seedMCPAgent(t, s, "task1")

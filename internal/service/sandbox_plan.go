@@ -65,13 +65,14 @@ type SandboxPath struct {
 	Access string
 }
 
-// SandboxGH puts Legato's gh wrapper in the place of every real gh: a login
-// shell reorders PATH, so the wrapper cannot rely on coming first in it.
-type SandboxGH struct {
+// SandboxWrapper puts one of Legato's wrappers (gh, az) in the place of
+// every real command of its name: a login shell reorders PATH, so the
+// wrapper cannot rely on coming first in it.
+type SandboxWrapper struct {
 	Wrapper   string   // the wrapper script
-	Real      string   // the real gh, which the wrapper runs
-	RealMount string   // where the real gh is mounted inside; LEGATO_GH_REAL
-	Overlays  []string // the real paths of every gh on the host's PATH
+	Real      string   // the real command, which the wrapper runs
+	RealMount string   // where the real command is mounted inside; LEGATO_GH_REAL, LEGATO_AZ_REAL
+	Overlays  []string // the real paths of every command of its name on the host's PATH
 }
 
 // SandboxPlanInput is everything a sandbox's plan is made from.
@@ -116,8 +117,12 @@ type SandboxPlanInput struct {
 	// ToolState are state folders of the agent's tool beyond the usual ones
 	// (CLAUDE_CONFIG_DIR, CODEX_HOME, a resumed session's), read-write.
 	ToolState []string
-	GH        SandboxGH
-	FS        FSProbe
+	GH        SandboxWrapper
+	// Azure is the credential az signs in with (the azure profile's first);
+	// with one, Az puts Legato's az wrapper over every real az.
+	Azure SandboxAzure
+	Az    SandboxWrapper
+	FS    FSProbe
 }
 
 // linkDirs are the folders of commands where a tool is often a link to a
@@ -236,7 +241,7 @@ func forbidden(in SandboxPlanInput) []string {
 		filepath.Join(home, ".ssh"), filepath.Join(home, ".config/gh"), filepath.Join(home, ".gitconfig"),
 		filepath.Join(home, ".git-credentials"), filepath.Join(home, ".config/git/credentials"), filepath.Join(home, ".netrc"),
 		filepath.Join(home, ".1password"), filepath.Join(home, ".config/op"), filepath.Join(home, ".config/legato"),
-		filepath.Join(home, ".local/share/legato"), filepath.Join(home, ".docker"), filepath.Join(home, ".aws"),
+		filepath.Join(home, ".local/share/legato"), filepath.Join(home, ".docker"), filepath.Join(home, ".aws"), filepath.Join(home, ".azure"),
 		filepath.Join(home, ".kube"), filepath.Join(home, ".gnupg"), filepath.Join(home, ".password-store"),
 		filepath.Join(home, ".local/share/keyrings"), filepath.Join(home, ".config/containers/auth.json"),
 		filepath.Join(home, ".pypirc"), filepath.Join(home, ".npmrc"),
@@ -492,15 +497,25 @@ func BuildSandboxPlan(in SandboxPlanInput) (sandbox.Plan, error) {
 	if in.SSHSocket != "" {
 		mounts = append(mounts, sandbox.Mount{Kind: sandbox.ReadOnly, Path: in.SSHSocket})
 	}
-	if gh := in.GH; gh.Wrapper != "" && gh.Real != "" && gh.RealMount != "" && in.FS.Probe(gh.Wrapper).Exists && in.FS.Probe(gh.Real).Exists {
-		// The real gh first, before its own path is covered by the wrapper.
-		mounts = append(mounts, sandbox.Mount{Kind: sandbox.ReadOnly, Path: gh.Real, Dest: gh.RealMount})
-		for _, path := range gh.Overlays {
+	for _, w := range []struct {
+		SandboxWrapper
+		env string
+	}{{in.GH, "LEGATO_GH_REAL"}, {in.Az, "LEGATO_AZ_REAL"}} {
+		if w.Wrapper == "" || w.Real == "" || w.RealMount == "" || !in.FS.Probe(w.Wrapper).Exists || !in.FS.Probe(w.Real).Exists {
+			continue
+		}
+		// The real command first, before its own path is covered by the wrapper.
+		mounts = append(mounts, sandbox.Mount{Kind: sandbox.ReadOnly, Path: w.Real, Dest: w.RealMount})
+		for _, path := range w.Overlays {
 			if in.FS.Probe(path).Exists {
-				mounts = append(mounts, sandbox.Mount{Kind: sandbox.ReadOnly, Path: gh.Wrapper, Dest: path})
+				mounts = append(mounts, sandbox.Mount{Kind: sandbox.ReadOnly, Path: w.Wrapper, Dest: path})
 			}
 		}
-		plan.Setenv["LEGATO_GH_REAL"] = gh.RealMount
+		plan.Setenv[w.env] = w.RealMount
+		if w.env == "LEGATO_AZ_REAL" {
+			// az keeps its account in the sandbox's own ~/.azure.
+			plan.Unsetenv = append(plan.Unsetenv, "AZURE_CONFIG_DIR")
+		}
 	}
 	mounts = append(mounts, linkTargetMounts(in, mounts, no)...)
 	// Nothing at or inside the scratch folder is mounted by its path but
@@ -567,7 +582,7 @@ func BuildSandboxPlan(in SandboxPlanInput) (sandbox.Plan, error) {
 	if in.GitIdentity[1] != "" {
 		plan.Setenv["GIT_AUTHOR_EMAIL"], plan.Setenv["GIT_COMMITTER_EMAIL"] = in.GitIdentity[1], in.GitIdentity[1]
 	}
-	plan.Unsetenv = append([]string{}, secretVars...)
+	plan.Unsetenv = append(append([]string{}, secretVars...), plan.Unsetenv...)
 	return plan, nil
 }
 

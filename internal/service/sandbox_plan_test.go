@@ -138,7 +138,7 @@ func TestAMountThatHoldsACredentialHidesIt(t *testing.T) {
 }
 
 func TestAMountInsideACredentialIsRefused(t *testing.T) {
-	for _, path := range []string{"/var/home/me/.ssh", "/var/home/me/.config/gh/hosts.yml", "/var/home/me/.local/share/legato"} {
+	for _, path := range []string{"/var/home/me/.ssh", "/var/home/me/.config/gh/hosts.yml", "/var/home/me/.local/share/legato", "/var/home/me/.azure"} {
 		in := baseInput()
 		in.Extra = []SandboxPath{{Path: path, Access: "read"}}
 		if _, err := BuildSandboxPlan(in); err == nil {

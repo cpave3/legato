@@ -5,6 +5,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -293,6 +294,80 @@ func TestASandboxWithLegatosGHWrapperCoversEveryRealGH(t *testing.T) {
 	}
 	if !covered || !kept {
 		t.Fatalf("covered=%v kept=%v mounts=%+v", covered, kept, plan.Mounts)
+	}
+}
+
+func TestASandboxWithAnAzureCredentialPutsLegatosAzWrapperOverEveryRealAz(t *testing.T) {
+	cellar, bin := t.TempDir(), t.TempDir()
+	realAz := filepath.Join(cellar, "az")
+	_ = os.WriteFile(realAz, []byte("#!/bin/sh\n"), 0o755)
+	_ = os.Symlink(realAz, filepath.Join(bin, "az"))
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+	t.Setenv("AZURE_CONFIG_DIR", "/var/home/me/.azure")
+
+	backend := &fakeBackend{}
+	svc, s, _ := sandboxedService(t, backend, func(settings *SandboxSettings) {
+		settings.Base.BinaryPath = "/opt/legato/legato"
+		settings.Base.Azure = testAzure
+	})
+	createTask(t, s, "task-1")
+	if err := svc.SpawnAgent(context.Background(), "task-1", 0, 0); err != nil {
+		t.Fatal(err)
+	}
+	plan := backend.plans[0]
+	realMount := plan.Setenv["LEGATO_AZ_REAL"]
+	if realMount == "" {
+		t.Fatal("LEGATO_AZ_REAL is not set")
+	}
+	var wrapper string
+	var kept bool
+	for _, m := range plan.Mounts {
+		if m.Dest == realAz {
+			wrapper = m.Path
+		}
+		kept = kept || (m.Dest == realMount && m.Path == realAz)
+	}
+	if wrapper == "" || !kept {
+		t.Fatalf("wrapper=%q kept=%v mounts=%+v", wrapper, kept, plan.Mounts)
+	}
+	script, err := os.ReadFile(wrapper)
+	if err != nil || !strings.Contains(string(script), "'/opt/legato/legato' credential exec 'azure-reader'") || !strings.Contains(string(script), testAzure.TenantID) {
+		t.Fatalf("the wrapper over az: %v\n%s", err, script)
+	}
+	// az keeps its configuration in the sandbox's own home, not a folder of
+	// the person's the session inherited the name of.
+	if !slices.Contains(plan.Unsetenv, "AZURE_CONFIG_DIR") {
+		t.Errorf("AZURE_CONFIG_DIR is kept: %v", plan.Unsetenv)
+	}
+}
+
+// Without an azure credential, or outside the sandbox, az is untouched.
+func TestWithoutAnAzureCredentialOrASandboxAzIsTheRealOne(t *testing.T) {
+	bin := t.TempDir()
+	_ = os.WriteFile(filepath.Join(bin, "az"), []byte("#!/bin/sh\n"), 0o755)
+	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
+
+	backend := &fakeBackend{}
+	svc, s, mt := sandboxedService(t, backend)
+	createTask(t, s, "task-1")
+	if err := svc.SpawnAgent(context.Background(), "task-1", 0, 0); err != nil {
+		t.Fatal(err)
+	}
+	if real := backend.plans[0].Setenv["LEGATO_AZ_REAL"]; real != "" {
+		t.Fatalf("no azure credential: LEGATO_AZ_REAL = %q", real)
+	}
+
+	backend = &fakeBackend{}
+	svc, s, mt = sandboxedService(t, backend, func(settings *SandboxSettings) { settings.Base.Azure = testAzure })
+	createTask(t, s, "task-2")
+	if err := svc.SpawnAgent(context.Background(), "task-2", 0, 0, AgentSpawnOptions{Unsandboxed: true}); err != nil {
+		t.Fatal(err)
+	}
+	if len(backend.plans) != 0 {
+		t.Fatalf("an unsandboxed agent got a plan: %+v", backend.plans)
+	}
+	if env := mt.envVarsFor("legato-task-2"); env["LEGATO_AZ_REAL"] != "" || strings.Contains(env["PATH"], "az") {
+		t.Fatalf("outside the sandbox: %v", env)
 	}
 }
 

@@ -58,6 +58,9 @@ type CredentialSettings struct {
 	// installed on.
 	ClientID     string   `yaml:"client_id"`
 	Repositories []string `yaml:"repositories"`
+	// TenantID is the azure profile's Microsoft Entra tenant (directory);
+	// with it, ClientID is the app (client) ID it signs in as.
+	TenantID string `yaml:"tenant_id"`
 }
 
 // CredentialKeyPlace is where an HTTP API takes its key: a header, written
@@ -194,6 +197,8 @@ var (
 	masterKeys     = []string{"auto", "systemd-creds", "secret-service", "keychain", "passphrase", "file"}
 	opBackends     = []string{"sdk", "op"}
 	credentialName = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,63}$`)
+	azureClientID  = regexp.MustCompile(`^[0-9A-Fa-f]{8}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{4}-[0-9A-Fa-f]{12}$`)
+	azureTenantID  = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9.-]*$`)
 	githubRepo     = regexp.MustCompile(`^[A-Za-z0-9_.-]+/([A-Za-z0-9_.-]+|\*)$`)
 	limitPattern   = regexp.MustCompile(`^\s*(\d+)\s*/\s*(minute|hour|day|week)\s*$`)
 )
@@ -322,6 +327,15 @@ func normalizeCredentialSettings(c *CredentialConfig) error {
 			if !githubRepo.MatchString(s.Repositories[i]) {
 				return fmt.Errorf("settings.repositories: %q: want owner/name, or owner/* for every repository of an owner", repo)
 			}
+		}
+	}
+	if c.Profile == "azure" {
+		s.ClientID, s.TenantID = strings.TrimSpace(s.ClientID), strings.TrimSpace(s.TenantID)
+		if !azureClientID.MatchString(s.ClientID) {
+			return fmt.Errorf("the azure profile needs settings.client_id, the app (client) ID it signs in as: %q is not one", s.ClientID)
+		}
+		if !azureTenantID.MatchString(s.TenantID) {
+			return fmt.Errorf("the azure profile needs settings.tenant_id, the tenant (directory) ID or domain: %q is not one", s.TenantID)
 		}
 	}
 	if s.Upstream != "" {

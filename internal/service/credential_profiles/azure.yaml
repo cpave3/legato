@@ -1,0 +1,12 @@
+# A Microsoft Entra app's client secret, for the Azure CLI. Its settings name
+# the app (client_id) and the tenant (tenant_id). In Legato's sandbox, az is
+# Legato's wrapper: the first az command of a session signs in as the app
+# with this secret (handed to the az login process only), then runs. The
+# app's roles decide what az may do; give it Reader for a read-only agent.
+name: azure
+description: An Entra app's client secret; az in the sandbox signs in with it
+issuer: static
+channels: [helper]
+accepts: [value]
+policy:
+  - { operation: read, approve: session }

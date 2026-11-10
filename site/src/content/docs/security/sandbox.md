@@ -54,7 +54,7 @@ Agents never see:
 
 - Legato's configuration, database and data folder, and `~/.config/legato`.
 - `~/.ssh`, `~/.gnupg`, `~/.1password`, `~/.config/op`, `~/.config/gh`, `~/.gitconfig`, git credential stores and `~/.netrc`.
-- `~/.aws`, `~/.kube`, `~/.docker`, and the Docker and Podman sockets.
+- `~/.aws`, `~/.azure`, `~/.kube`, `~/.docker`, and the Docker and Podman sockets.
 - Package registry logins: `~/.npmrc`, `~/.pypirc`, `~/.yarnrc`, Gradle's `gradle.properties`, Maven's `settings.xml`, Composer's `auth.json`.
 - Password stores and keyrings, the session bus, and your runtime folder.
 
@@ -67,6 +67,7 @@ The sandbox shares the host's network and your user. It has its own process, IPC
 - **Legato commands.** Commands an agent runs, such as `legato task note` or `legato credential exec`, and Legato's own tools and hooks reach the host Legato through a socket called the host broker. The host runs them for the agent's own task, and nothing else.
 - **SSH.** `~/.ssh` stays hidden, so the agent has no keys of its own. A login works when an `ssh` credential covers the host: Legato's SSH agent signs it.
 - **GitHub.** With a `github` credential, `git` fetches with read tokens even when the repository's `origin` is an ssh address, and pushes go through Legato's proxy. `gh` is always Legato's wrapper inside the sandbox.
+- **Azure.** With an `azure` credential, `az` inside the sandbox is Legato's wrapper: it signs in as the credential's app before the first command that needs an account, once you allow it. See [Azure](/legato/security/credential-broker/#azure).
 - **Packages.** A package already in a shared cache installs as it does outside. One that is not needs a registry that works without your login.
 
 ## Add folders

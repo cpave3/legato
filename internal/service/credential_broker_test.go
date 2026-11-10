@@ -285,6 +285,24 @@ func TestACredentialNamingAnUnknownProfileIsRefused(t *testing.T) {
 	}
 }
 
+func TestAnAzureCredentialIsHandedOutOnceASessionLikeASecret(t *testing.T) {
+	f := newBrokerFixture(t, config.CredentialConfig{Name: "eleven", Secret: "env://BROKER_TEST_KEY", Profile: "azure",
+		Settings: config.CredentialSettings{ClientID: "b4c42806-dfd5-4a59-b6d3-6ae1c96d2166", TenantID: "7948632d-756d-40b1-8af2-1b9ca8b344b1"}})
+	ctx := context.Background()
+
+	_, d, err := f.broker.Value(ctx, use("read", ""))
+	if err != nil || d.Allowed || d.ApprovalID == "" {
+		t.Fatalf("first use = %+v, %v; want it to wait for the person", d, err)
+	}
+	if _, err := f.approvals.Decide(ctx, d.ApprovalID, ApprovalDecision{Decision: ApprovalAllow, Option: "session"}); err != nil {
+		t.Fatal(err)
+	}
+	secret, d, err := f.broker.Value(ctx, use("read", ""))
+	if err != nil || !d.Allowed || string(secret.Value) != "sk-eleven" {
+		t.Fatalf("after the approval = %+v, %v", d, err)
+	}
+}
+
 func waitForPending(t *testing.T, approvals *ApprovalService) Approval {
 	t.Helper()
 	deadline := time.Now().Add(2 * time.Second)

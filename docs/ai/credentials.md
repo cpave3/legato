@@ -14,6 +14,7 @@ There are three ways an agent gets a credential, set by its profile's channel:
 | `http-proxy` | A placeholder key and Legato's proxy address; Legato puts the real key in each request it allows | `elevenlabs`, `api-key` |
 | `ssh-agent` | An SSH agent socket of its own; Legato signs each login it allows | `ssh` |
 | `http-proxy` with `git` | Read tokens from git's credential helper; pushes and pull requests through the proxy | `github` |
+| `helper`, through the sandbox's `az` | Nothing itself: in the sandbox, `az` signs in as the app before its first command | `azure` |
 
 The two last ones are described under [HTTP proxy](#http-proxy) and [SSH agent](#ssh-agent).
 
@@ -188,6 +189,14 @@ The `github` profile reaches GitHub through a GitHub App the person creates (set
 - **Guidance.** Agents are told to work on `legato/$LEGATO_TASK_ID-…`, ask for that one branch with `request_access` before the first push (when the session's `st` can move stacks, for every branch at once: `…@refs/heads/legato/$LEGATO_TASK_ID-*`, which `Covers` matches only one path segment deep, so one approval covers a whole stack and no other task's branches; see [CLI](cli.md) § Staccato Integration), push as usual, and use `gh` as usual for pull requests and issues, running a command again after the `[legato approvals]` message when it was pending. `curl` to `$LEGATO_GITHUB_API_URL` (`pr.create`) still works. A handed-off task's session is told its own branches instead (see [Handed-off sessions](#handed-off-sessions)).
 - Not built yet: GraphQL writes, the `oauth2` and `ssh-cert` issuers (`openspec/changes/archive/2026-10-29-github-credentials`).
 
+## Azure
+
+The `azure` profile (`credential_profiles/azure.yaml`, `credential_azure.go`) is a `helper` credential whose secret (`value`) is a Microsoft Entra app's client secret; its `settings` are `client_id` (the app ID, a GUID) and `tenant_id` (the tenant ID or domain), both required (`normalizeCredentialSettings` in `config/credentials.go`). Its default rule is `read: session`. Shape chosen over a general "wrap any secret's CLI" option because the signed-in check, the login command and the subcommands that need no account are all `az`'s own.
+
+- **Only in the sandbox.** `SandboxAzureFor(cfg.Credentials)` (the first `azure` credential) is `SandboxPlanInput.Azure`, set by `sandboxSettings` in `cmd/legato/sandbox_runtime.go`. At each sandboxed spawn `sandboxAz` writes the wrapper to `<runtime>/legato/sandbox/<execution>/az` (removed with the execution), and the plan mounts it read-only over every real `az` on the host's `PATH` (`realCommands`, links resolved; the gh wrapper uses the same) with the first real one at `…/az-real`, named by `LEGATO_AZ_REAL`, and unsets `AZURE_CONFIG_DIR`, so the account lands in the sandbox's own home. `~/.azure` is forbidden. An unsandboxed session gets no wrapper and no variable: its `~/.azure` is the person's, and signing it in would replace their login.
+- **The wrapper** (`writeAzWrapper`). With no `LEGATO_AZ_REAL`, or one that is the wrapper itself, it exits 127. No arguments, `login`, `logout`, `version`, `--version`, `help`, or a `-h`/`--help` anywhere run the real `az` at once. Otherwise, when `${AZURE_CONFIG_DIR:-$HOME/.azure}/azureProfile.json` has no `"user"` (az writes one per account; cheaper than `az account show`), it runs `legato credential exec <credential> --env AZURE_CLIENT_SECRET -- /bin/sh -c 'exec "$0" login --service-principal --username "$1" --tenant "$2" --password="$AZURE_CLIENT_SECRET" --allow-no-subscriptions --output none' <real az> <client id> <tenant id>`, then execs the real `az` without the secret. `az login` takes a service principal's secret only as an argument, so it is in that one process's command line, which only the sandbox's own processes (its PID namespace) can read. Exit 4 from `credential exec` (pending or refused) prints that Legato did not give the credential and to run the command again after the `[legato approvals]` message, and exits 4; any other failure is the login's, passed on.
+- **What agents are told.** `cli.credentialGuidance` describes an `azure` credential as "run az as usual" in the sandbox, not to run `az login`, and not to sign in the person's `az` outside the sandbox.
+
 ## The reviewer App
 
 Review passes post as a second GitHub App, so the reviewer's approval of a handoff's pull requests counts toward branch protection (the author App cannot approve its own). Its credential is on the shipped `github-reviewer` profile (`credential_profiles/github-reviewer.yaml`): the same `jwt-exchange` issuer, but `host_only: true`, no `git` host, no channel and no route. `review_passes.github_credential` names it ([Configuration](config.md)).
@@ -242,7 +251,7 @@ Commands in an agent's session (`legato credential get`, `legato mcp serve`) ask
 
 ## Profiles
 
-A profile is YAML: `name`, `description`, `issuer` (`static` in this phase), `channels` (`helper`, `http-proxy`, `ssh-agent`), `accepts` (secret types) and default `policy`; a proxied profile adds `inspector: rest`, `upstream`, `key`, `routes` and `env`, and an SSH one `inspector: ssh`. Legato ships `secret` (a value handed to the agent on request; default rule `read: session`), `elevenlabs`, `api-key` and `ssh`. Profiles in `<config dir>/profiles/*.yaml` add to or replace the shipped ones by name. Shipped profiles are in `internal/service/credential_profiles/`.
+A profile is YAML: `name`, `description`, `issuer` (`static` in this phase), `channels` (`helper`, `http-proxy`, `ssh-agent`), `accepts` (secret types) and default `policy`; a proxied profile adds `inspector: rest`, `upstream`, `key`, `routes` and `env`, and an SSH one `inspector: ssh`. Legato ships `secret` (a value handed to the agent on request; default rule `read: session`), `elevenlabs`, `api-key`, `ssh`, `github`, `github-reviewer` and `azure` (see [Azure](#azure)). Profiles in `<config dir>/profiles/*.yaml` add to or replace the shipped ones by name. Shipped profiles are in `internal/service/credential_profiles/`.
 
 ## Audit log
 
@@ -256,6 +265,7 @@ A profile is YAML: `name`, `description`, `issuer` (`static` in this phase), `ch
 - `internal/engine/credential`: GitHub's parts: `JWTExchange` and `ExchangeTemplate` (`issuer_jwt.go`), `ReadReceivePack`, `ClassifyRefUpdate` and `RefusePush` (`inspect_git.go`), the proxy's `/git/` and `/token` routes and `GitBackend` (`httpproxy_git.go`).
 - `internal/engine/store/credential_channels.go`: placeholders, meter totals, running executions.
 - `internal/service/credential_branch_grant.go`: `GrantBranches`, `HandoffGrantBranches`, `SessionBranches`, `HandoffSessionBranches`.
+- `internal/service/credential_azure.go`: the `azure` profile's sandbox `az` wrapper (`SandboxAzure`, `SandboxAzureFor`, `writeAzWrapper`); `sandboxAz` in `agent_sandbox.go` places it.
 - `internal/service/credential_github.go`: tokens per use, the default branch, `AuthorizePush`, the session's git settings and the `gh` wrapper. `internal/cli/credential_git.go`: the git helper and `gh-token`.
 - `internal/service/credential_channels.go`: `CredentialChannels`, the session environment and the backend of both channels; `SessionEnvProvider`, which `agentService.SetSessionEnv` takes.
 - `cmd/legato/credential_channels_runtime.go`: the channel host (lock, proxy listener, address file, socket reconcile) and `attachCredentialChannels` for commands that spawn agents.

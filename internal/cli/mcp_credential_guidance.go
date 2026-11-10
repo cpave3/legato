@@ -72,6 +72,8 @@ func credentialGuidance(credentials []service.CredentialSummary, sources []servi
 			continue
 		case c.Git != "":
 			b.WriteString(githubGuidance(c, stacks, branches))
+		case c.Profile == service.AzureProfile:
+			fmt.Fprintf(&b, "- %s (Azure, for the az command): in Legato's sandbox, run az as usual. The first az command that needs an account signs in as the credential's app by itself, once the person allows it; do not run az login yourself. If az says Legato did not give the credential, carry on with other work or end your turn, and run the command again after the [legato approvals] message. The app's roles limit what az can do. Outside Legato's sandbox, az is the person's own: do not sign it in with %s.\n", c.Name, c.Name)
 		case has(c.Channels, service.ChannelHTTPProxy):
 			key, base := "its key variable", "its base URL variable"
 			if len(c.Env) > 0 {
