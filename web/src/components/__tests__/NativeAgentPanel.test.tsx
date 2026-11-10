@@ -1902,3 +1902,102 @@ describe("NativeAgentPanel", () => {
     })
   })
 })
+
+describe("NativeAgentPanel sub-agent tiles", () => {
+  const subagentSnapshot = {
+    id: "session-1",
+    status: "running",
+    messages: [
+      { role: "user", content: "Launch prompt" },
+      { role: "assistant", content: [{ type: "text", text: "Splitting this up." }, { type: "tool-call" }] },
+    ],
+    toolCalls: [{
+      callId: "call-1",
+      name: "spawn_agent",
+      args: { purpose: "Find the loader", prompt: "Locate where config is parsed.", agent: "Explore" },
+      subagent: {
+        subagentId: "agent-7", purpose: "Find the loader", status: "running", startedAt: Date.now(),
+        events: [{ type: "tool_call_start", callId: "c1", name: "Grep", display: { summary: "yaml.Unmarshal" } }],
+      },
+    }],
+  }
+
+  function serve(snapshot: object) {
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => String(input).includes("/snapshot")
+      ? new Response(JSON.stringify(snapshot), { status: 200 })
+      : new Response("[]", { status: 200 }))
+  }
+
+  const width = (pixels: number) => {
+    Object.defineProperty(window, "innerWidth", { configurable: true, value: pixels })
+    window.dispatchEvent(new Event("resize"))
+  }
+
+  beforeEach(() => {
+    localStorage.removeItem("legato:subagent-view")
+    width(1440)
+  })
+
+  afterEach(() => {
+    cleanup()
+    vi.restoreAllMocks()
+  })
+
+  it("offers the switch only once the session has sub-agents", async () => {
+    serve({ id: "session-1", status: "idle", messages: [{ role: "user", content: "Launch" }, { role: "assistant", content: "Ready" }], toolCalls: [] })
+    const quiet = render(<NativeAgentPanel agentId="agent-1" />)
+    await within(quiet.container).findByText("Ready")
+    expect(within(quiet.container).queryByRole("group", { name: "Sub-agents" })).toBeNull()
+    quiet.unmount()
+
+    serve(subagentSnapshot)
+    const view = render(<NativeAgentPanel agentId="agent-1" />)
+    const group = await within(view.container).findByRole("group", { name: "Sub-agents" })
+    expect(within(group).getByRole("button", { name: "Inline" }).getAttribute("aria-pressed")).toBe("true")
+    expect(within(view.container).getByTestId("subagent-card-call-1")).not.toBeNull()
+  })
+
+  it("shows sub-agents as tiles beside the conversation, and remembers the choice", async () => {
+    serve(subagentSnapshot)
+    const view = render(<NativeAgentPanel agentId="agent-1" />)
+    fireEvent.click(await within(view.container).findByRole("button", { name: /^Tiles/ }))
+
+    const deck = within(view.container).getByRole("region", { name: "Sub-agents" })
+    const tile = within(deck).getByRole("article", { name: "Find the loader, running" })
+    expect(tile.textContent).toContain("yaml.Unmarshal")
+    expect(tile.textContent).toContain("1 tool")
+    // In the conversation the card gives way to a pointer at its tile.
+    expect(within(view.container).queryByTestId("subagent-card-call-1")).toBeNull()
+    expect(within(view.container).getByRole("button", { name: "Show Find the loader in tiles" })).not.toBeNull()
+    view.unmount()
+
+    serve(subagentSnapshot)
+    const again = render(<NativeAgentPanel agentId="agent-1" />)
+    expect(await within(again.container).findByRole("region", { name: "Sub-agents" })).not.toBeNull()
+  })
+
+  it("opens a sub-agent's tile from its place in the conversation", async () => {
+    localStorage.setItem("legato:subagent-view", "tiles")
+    serve(subagentSnapshot)
+    const view = render(<NativeAgentPanel agentId="agent-1" />)
+
+    fireEvent.click(await within(view.container).findByRole("button", { name: "Show Find the loader in tiles" }))
+
+    const opened = within(view.container).getByRole("article", { name: "Find the loader, running" })
+    expect(opened.textContent).toContain("Locate where config is parsed.")
+    expect(within(view.container).getByRole("button", { name: "All tiles" })).not.toBeNull()
+  })
+
+  it("on a narrow screen, lays the tiles out as a strip above the conversation", async () => {
+    localStorage.setItem("legato:subagent-view", "tiles")
+    width(600)
+    serve(subagentSnapshot)
+    const view = render(<NativeAgentPanel agentId="agent-1" />)
+
+    const strip = await within(view.container).findByRole("list", { name: "Sub-agents" })
+    fireEvent.click(within(strip).getByRole("button", { name: "Open Find the loader" }))
+
+    const sheet = screen.getByRole("dialog", { name: "Find the loader" })
+    expect(sheet.textContent).toContain("yaml.Unmarshal")
+  })
+})

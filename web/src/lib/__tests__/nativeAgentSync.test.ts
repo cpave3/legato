@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest"
+import { describe, expect, it, vi } from "vitest"
 import { createNativeSyncState, reconcileNativeSnapshot, reduceNativeEvent, stateFromNativeSnapshot } from "../nativeAgentSync"
 import fixture from "../../../../contracts/model-settings-v1.json"
 import type { ModelSettingsState } from "../modelSettings"
@@ -142,6 +142,92 @@ describe("native agent synchronization", () => {
       reason: "stop",
       activities: [{ text: "Found a regression" }],
     })
+  })
+
+  it("restores a subagent and what it did from a snapshot", () => {
+    const state = stateFromNativeSnapshot({
+      messages: [
+        { role: "system", content: "" },
+        { role: "assistant", content: [{ type: "tool-call" }] },
+      ],
+      toolCalls: [{
+        callId: "spawn-1",
+        name: "spawn_agent",
+        args: { purpose: "Find the loader" },
+        subagent: {
+          subagentId: "agent-7", purpose: "Find the loader", status: "running", startedAt: 1_000,
+          events: [
+            { type: "assistant_text_done", text: "Looking in config/." },
+            { type: "tool_call_start", callId: "c1", name: "Grep", display: { summary: "yaml.Unmarshal" } },
+          ],
+        },
+      }],
+    })
+
+    expect(state.items[0]?.tool?.subagent).toMatchObject({
+      subagentId: "agent-7",
+      purpose: "Find the loader",
+      status: "running",
+      startedAt: 1_000,
+      activities: [{ text: "Looking in config/." }, { text: "Grep: yaml.Unmarshal", toolName: "Grep" }],
+    })
+  })
+
+  it("records when a subagent started and ended", () => {
+    let state = reduceNativeEvent(createNativeSyncState(), {
+      eventId: "call", type: "tool_call_start", callId: "spawn-1", name: "spawn_agent", args: {},
+    })
+    state = reduceNativeEvent(state, {
+      eventId: "spawned", type: "subagent_spawned", subagentId: "sub-1", parentCallId: "spawn-1", purpose: "Review", startedAt: 5_000,
+    })
+    state = reduceNativeEvent(state, { eventId: "done", type: "subagent_finished", subagentId: "sub-1", reason: "stop", endedAt: 9_000 })
+
+    expect(state.items[0]?.tool?.subagent).toMatchObject({ startedAt: 5_000, endedAt: 9_000, status: "finished" })
+  })
+
+  it("dates a subagent by when its events arrived when the agent sends no times", () => {
+    vi.useFakeTimers()
+    try {
+      vi.setSystemTime(2_000)
+      let state = reduceNativeEvent(createNativeSyncState(), {
+        eventId: "call", type: "tool_call_start", callId: "spawn-1", name: "spawn_agent", args: {},
+      })
+      state = reduceNativeEvent(state, { eventId: "spawned", type: "subagent_spawned", subagentId: "sub-1", parentCallId: "spawn-1" })
+      vi.setSystemTime(7_000)
+      state = reduceNativeEvent(state, { eventId: "done", type: "subagent_finished", subagentId: "sub-1", reason: "error" })
+
+      expect(state.items[0]?.tool?.subagent).toMatchObject({ startedAt: 2_000, endedAt: 7_000, status: "error" })
+    } finally {
+      vi.useRealTimers()
+    }
+  })
+
+  it("does not repeat subagent activity that the snapshot already holds", () => {
+    const snapshot = {
+      messages: [
+        { role: "system", content: "" },
+        { role: "assistant", content: [{ type: "tool-call" }] },
+      ],
+      toolCalls: [{
+        callId: "spawn-1", name: "spawn_agent", args: {},
+        subagent: {
+          subagentId: "agent-7", purpose: "Look", status: "running" as const,
+          events: [
+            { type: "assistant_text_done", text: "Looking." },
+            { type: "tool_call_start", callId: "c1", name: "Grep", display: { summary: "x" } },
+          ],
+        },
+      }],
+    }
+    const replayed = [
+      { eventId: "e1", type: "subagent_event", subagentId: "agent-7", event: { type: "assistant_text_done", text: "Looking." } },
+      { eventId: "e2", type: "subagent_event", subagentId: "agent-7", event: { type: "tool_call_start", callId: "c1", name: "Grep", display: { summary: "x" } } },
+      { eventId: "e3", type: "subagent_event", subagentId: "agent-7", event: { type: "tool_call_start", callId: "c2", name: "Read", display: { summary: "y" } } },
+    ]
+
+    const state = reconcileNativeSnapshot(snapshot, createNativeSyncState(), replayed)
+
+    expect(state.items[0]?.tool?.subagent?.activities.map((activity) => activity.text)).toEqual(["Looking.", "Grep: x", "Read: y"])
   })
 
   it("renders forwarded child reasoning, updated tool summaries, and failures", () => {

@@ -156,6 +156,26 @@ type toolCall struct {
 	result    map[string]any
 	startedAt int64
 	endedAt   int64
+	// subagent is the subagent this call spawned, if it spawned one.
+	subagent *subagentRecord
+}
+
+// subagentEventLimit bounds the events kept for each subagent: enough for a
+// tile to show what it has been doing, small enough for every snapshot.
+const subagentEventLimit = 200
+
+// subagentRecord is what a subagent did, kept so a panel that loads later
+// sees it as one that watched it live did.
+type subagentRecord struct {
+	id        string
+	purpose   string
+	status    string
+	reason    string
+	startedAt int64
+	endedAt   int64
+	// events are the subagent's own native events, as sent wrapped in
+	// subagent_event, newest last.
+	events []nativeEvent
 }
 
 // permission is a tool call waiting on a person's decision.
@@ -305,7 +325,7 @@ func (s *session) apply(event modEvent, now time.Time) []nativeEvent {
 		}
 		return []nativeEvent{s.settingsChanged()}
 	case "agent_spawn":
-		return s.applyAgentSpawn(event)
+		return s.applyAgentSpawn(event, now)
 	case "user_note":
 		// A message the mod folded into the running turn. Its stored row is
 		// framed for the model, so the mod reports the words as sent.
@@ -319,10 +339,18 @@ func (s *session) apply(event modEvent, now time.Time) []nativeEvent {
 		return []nativeEvent{{"type": "session_started"}}
 	case "turn_complete":
 		if event.AgentID != "" {
-			if _, known := s.subagents[event.AgentID]; !known {
+			record := s.subagent(event.AgentID)
+			if record == nil {
 				return nil
 			}
-			return []nativeEvent{{"type": "subagent_finished", "subagentId": event.AgentID, "reason": runFinishReason(event.Reason)}}
+			reason := runFinishReason(event.Reason)
+			record.reason = reason
+			record.status = "error"
+			if reason == "stop" {
+				record.status = "finished"
+			}
+			record.endedAt = now.UnixMilli()
+			return []nativeEvent{{"type": "subagent_finished", "subagentId": event.AgentID, "reason": reason, "endedAt": record.endedAt}}
 		}
 		s.busy = false
 		s.openStreams = nil
@@ -410,24 +438,40 @@ func (s *session) applyContext(usage *contextUsage) []nativeEvent {
 	return []nativeEvent{{"type": "usage_updated", "contextWindow": usage.Window, "usedContextTokens": *usage.Tokens}}
 }
 
-func (s *session) applyAgentSpawn(event modEvent) []nativeEvent {
-	if event.AgentID == "" || event.ToolUseID == "" || s.tools[event.ToolUseID] == nil {
+func (s *session) applyAgentSpawn(event modEvent, now time.Time) []nativeEvent {
+	tool := s.tools[event.ToolUseID]
+	if event.AgentID == "" || event.ToolUseID == "" || tool == nil {
 		return nil
 	}
 	s.subagents[event.AgentID] = event.ToolUseID
+	tool.subagent = &subagentRecord{id: event.AgentID, purpose: event.Description, status: "running", startedAt: now.UnixMilli()}
 	return []nativeEvent{{
 		"type": "subagent_spawned", "parentCallId": event.ToolUseID,
-		"subagentId": event.AgentID, "purpose": event.Description,
+		"subagentId": event.AgentID, "purpose": event.Description, "startedAt": tool.subagent.startedAt,
 	}}
+}
+
+// subagent is the record of a subagent this session spawned, or nil.
+func (s *session) subagent(agentID string) *subagentRecord {
+	tool := s.tools[s.subagents[agentID]]
+	if tool == nil {
+		return nil
+	}
+	return tool.subagent
 }
 
 // applySubagentRow reports a subagent's own row as activity under the call
 // that spawned it; its rows never join the main conversation.
 func (s *session) applySubagentRow(event modEvent) []nativeEvent {
-	if _, known := s.subagents[event.AgentID]; !known {
+	record := s.subagent(event.AgentID)
+	if record == nil {
 		return nil
 	}
 	wrap := func(inner nativeEvent) nativeEvent {
+		record.events = append(record.events, inner)
+		if over := len(record.events) - subagentEventLimit; over > 0 {
+			record.events = append([]nativeEvent(nil), record.events[over:]...)
+		}
 		return nativeEvent{"type": "subagent_event", "subagentId": event.AgentID, "event": inner}
 	}
 	var out []nativeEvent
@@ -454,6 +498,16 @@ func (s *session) applySubagentRow(event modEvent) []nativeEvent {
 		}
 	}
 	return out
+}
+
+func (r *subagentRecord) snapshot() *snapshotSubagent {
+	if r == nil {
+		return nil
+	}
+	return &snapshotSubagent{
+		SubagentID: r.id, Purpose: r.purpose, Status: r.status, Reason: r.reason,
+		StartedAt: r.startedAt, EndedAt: r.endedAt, Events: append([]nativeEvent{}, r.events...),
+	}
 }
 
 // effectiveModel is the model the session's requests go to.
@@ -749,6 +803,11 @@ func (s *session) applyToolResults(event modEvent, now time.Time) []nativeEvent 
 		// result for the call being decided means the person answered there.
 		out = append(out, s.expirePermissionsFor(call.key)...)
 		call.result = nativeToolResult(call.name, block.resultText(), block.IsError)
+		if call.name == nativeSpawnAgent && call.args["background"] == true && !block.IsError {
+			// The call returned when the subagent was launched; it has not
+			// stopped. Its own turn says when it does.
+			delete(call.result, "reason")
+		}
 		call.endedAt = now.UnixMilli()
 		out = append(out, nativeEvent{
 			"type": "tool_call_result", "callId": call.callID, "result": call.result,
@@ -816,13 +875,26 @@ type snapshotMessage struct {
 }
 
 type snapshotToolCall struct {
-	CallID    string          `json:"callId"`
-	Name      string          `json:"name"`
-	Args      map[string]any  `json:"args"`
-	Result    map[string]any  `json:"result,omitempty"`
-	StartedAt int64           `json:"startedAt,omitempty"`
-	EndedAt   int64           `json:"endedAt,omitempty"`
-	Display   snapshotDisplay `json:"display"`
+	CallID    string            `json:"callId"`
+	Name      string            `json:"name"`
+	Args      map[string]any    `json:"args"`
+	Result    map[string]any    `json:"result,omitempty"`
+	StartedAt int64             `json:"startedAt,omitempty"`
+	EndedAt   int64             `json:"endedAt,omitempty"`
+	Display   snapshotDisplay   `json:"display"`
+	Subagent  *snapshotSubagent `json:"subagent,omitempty"`
+}
+
+// snapshotSubagent is a subagent as a snapshot carries it: its events are
+// the ones subagent_event carried, for the panel to replay.
+type snapshotSubagent struct {
+	SubagentID string        `json:"subagentId"`
+	Purpose    string        `json:"purpose"`
+	Status     string        `json:"status"`
+	Reason     string        `json:"reason,omitempty"`
+	StartedAt  int64         `json:"startedAt,omitempty"`
+	EndedAt    int64         `json:"endedAt,omitempty"`
+	Events     []nativeEvent `json:"events"`
 }
 
 type snapshotDisplay struct {
@@ -902,7 +974,7 @@ func (s *session) snapshot(taskID string) sessionSnapshot {
 			toolCalls = append(toolCalls, snapshotToolCall{
 				CallID: entry.tool.callID, Name: entry.tool.name, Args: entry.tool.args,
 				Result: entry.tool.result, StartedAt: entry.tool.startedAt, EndedAt: entry.tool.endedAt,
-				Display: snapshotDisplay{Summary: entry.tool.summary},
+				Display: snapshotDisplay{Summary: entry.tool.summary}, Subagent: entry.tool.subagent.snapshot(),
 			})
 		}
 	}

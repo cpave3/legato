@@ -150,6 +150,15 @@ type snapshot struct {
 		Display   struct {
 			Summary string `json:"summary"`
 		} `json:"display"`
+		Subagent *struct {
+			SubagentID string           `json:"subagentId"`
+			Purpose    string           `json:"purpose"`
+			Status     string           `json:"status"`
+			Reason     string           `json:"reason"`
+			StartedAt  int64            `json:"startedAt"`
+			EndedAt    int64            `json:"endedAt"`
+			Events     []map[string]any `json:"events"`
+		} `json:"subagent"`
 	} `json:"toolCalls"`
 	PendingPermissions []struct {
 		RequestID string `json:"requestId"`
@@ -1075,6 +1084,119 @@ func TestSubagentActivityIsGroupedUnderTheCallThatSpawnedIt(t *testing.T) {
 	// The subagent's own rows never join the main conversation.
 	if calls := h.snapshot().ToolCalls; len(calls) != 1 {
 		t.Fatalf("tool calls = %+v", calls)
+	}
+}
+
+// A panel that loads after a subagent started, or reloads, still sees what it
+// did: the call that spawned it carries the subagent, its times and its own
+// events, as they were sent live.
+func TestASubagentsActivityIsKeptInTheSnapshot(t *testing.T) {
+	h := newHarness(t)
+	h.mod(hello(nil), assistantRow("row-a", toolUse("toolu_agent", "Agent", map[string]any{
+		"description": "Find the config loader", "prompt": "Locate where config is parsed.",
+	})))
+	h.mod(map[string]any{"type": "agent_spawn", "toolUseId": "toolu_agent", "agentId": "agent-7", "description": "Find the config loader"})
+	child := assistantRow("row-c", textBlock("Looking in config/."), toolUse("toolu_c1", "Grep", map[string]any{"pattern": "yaml.Unmarshal"}))
+	child["agentId"] = "agent-7"
+	h.mod(child)
+
+	running := h.snapshot().ToolCalls[0].Subagent
+	if running == nil || running.SubagentID != "agent-7" || running.Purpose != "Find the config loader" || running.Status != "running" {
+		t.Fatalf("running subagent = %+v", running)
+	}
+	if running.StartedAt != 1_700_000_000_000 || running.EndedAt != 0 {
+		t.Fatalf("running times = %d, %d", running.StartedAt, running.EndedAt)
+	}
+	if len(running.Events) != 2 || running.Events[0]["type"] != "assistant_text_done" || running.Events[0]["text"] != "Looking in config/." ||
+		running.Events[1]["type"] != "tool_call_start" || running.Events[1]["name"] != "Grep" {
+		t.Fatalf("events = %v", running.Events)
+	}
+
+	h.mod(map[string]any{"type": "turn_complete", "turnId": "turn-9", "reason": "answer", "agentId": "agent-7"})
+	done := h.snapshot().ToolCalls[0].Subagent
+	if done == nil || done.Status != "finished" || done.Reason != "stop" || done.EndedAt != 1_700_000_000_000 {
+		t.Fatalf("finished subagent = %+v", done)
+	}
+}
+
+// A subagent started in the background answers its call at once, while it
+// goes on working: the call's result says it was launched, not that it
+// stopped, and the subagent stays running until its own turn ends.
+func TestABackgroundSubagentIsStillRunningAfterItsCallReturns(t *testing.T) {
+	h := newHarness(t)
+	h.mod(hello(nil), assistantRow("row-a", toolUse("toolu_agent", "Agent", map[string]any{
+		"description": "Audit the tests", "prompt": "Find gaps.", "subagent_type": "general-purpose", "run_in_background": true,
+	})))
+	h.mod(map[string]any{"type": "agent_spawn", "toolUseId": "toolu_agent", "agentId": "agent-7", "description": "Audit the tests"})
+	events := h.subscribe("")
+	h.mod(toolResultRow("row-r", "toolu_agent", "Async agent launched successfully. agentId: agent-7", false))
+
+	if launched := nextEvent(t, events); launched["type"] != "tool_call_result" {
+		t.Fatalf("event = %v", launched)
+	} else if result, _ := launched["result"].(map[string]any); result["reason"] != nil {
+		t.Fatalf("launch result = %v, want no reason while the subagent runs", result)
+	}
+	call := h.snapshot().ToolCalls[0]
+	if call.Args["background"] != true || call.Result["reason"] != nil || call.Subagent == nil || call.Subagent.Status != "running" {
+		t.Fatalf("call = %+v, subagent = %+v", call, call.Subagent)
+	}
+
+	h.mod(map[string]any{"type": "turn_complete", "turnId": "turn-9", "reason": "answer", "agentId": "agent-7"})
+	if done := h.snapshot().ToolCalls[0].Subagent; done.Status != "finished" {
+		t.Fatalf("subagent = %+v, want finished once its turn ends", done)
+	}
+}
+
+// A resumed session runs in a new process: background subagents of the old
+// one are gone, so their calls read as finished.
+func TestABackgroundSubagentFromAResumedSessionReadsAsFinished(t *testing.T) {
+	h := newHarness(t)
+	h.mod(hello(map[string]any{
+		"messages": []map[string]any{
+			{"role": "user", "text": "audit it", "toolUses": []any{}},
+			{"role": "assistant", "text": "", "toolUses": []map[string]any{{
+				"tool_use_id": "toolu_agent", "tool": "Agent",
+				"input": map[string]any{"description": "Audit the tests", "run_in_background": true},
+				"text":  "Async agent launched successfully.",
+			}}},
+		},
+	}))
+
+	if result := h.snapshot().ToolCalls[0].Result; result["reason"] != "stop" {
+		t.Fatalf("result = %v, want stop", result)
+	}
+}
+
+// The live events say when a subagent started and ended, so a tile can show
+// how long it ran.
+func TestSubagentEventsSayWhenItStartedAndEnded(t *testing.T) {
+	h := newHarness(t)
+	h.mod(hello(nil), assistantRow("row-a", toolUse("toolu_agent", "Agent", map[string]any{"description": "Look"})))
+	events := h.subscribe("")
+	h.mod(map[string]any{"type": "agent_spawn", "toolUseId": "toolu_agent", "agentId": "agent-7", "description": "Look"})
+	if spawned := nextEvent(t, events); spawned["startedAt"] != float64(1_700_000_000_000) {
+		t.Fatalf("spawned = %v", spawned)
+	}
+	h.mod(map[string]any{"type": "turn_complete", "turnId": "turn-9", "reason": "error", "agentId": "agent-7"})
+	if finished := nextEvent(t, events); finished["endedAt"] != float64(1_700_000_000_000) {
+		t.Fatalf("finished = %v", finished)
+	}
+}
+
+// A long-running subagent keeps only its newest events, so the snapshot
+// stays small.
+func TestASubagentKeepsOnlyItsNewestEvents(t *testing.T) {
+	h := newHarness(t)
+	h.mod(hello(nil), assistantRow("row-a", toolUse("toolu_agent", "Agent", map[string]any{"description": "Look"})))
+	h.mod(map[string]any{"type": "agent_spawn", "toolUseId": "toolu_agent", "agentId": "agent-7", "description": "Look"})
+	for i := 0; i < subagentEventLimit+5; i++ {
+		row := assistantRow(fmt.Sprintf("row-%d", i), textBlock(fmt.Sprintf("step %d", i)))
+		row["agentId"] = "agent-7"
+		h.mod(row)
+	}
+	kept := h.snapshot().ToolCalls[0].Subagent.Events
+	if len(kept) != subagentEventLimit || kept[0]["text"] != "step 5" || kept[len(kept)-1]["text"] != fmt.Sprintf("step %d", subagentEventLimit+4) {
+		t.Fatalf("kept %d events, first %v, last %v", len(kept), kept[0], kept[len(kept)-1])
 	}
 }
 

@@ -26,6 +26,9 @@ export interface NativeSubagentState {
   purpose: string
   status: "running" | "finished" | "error"
   reason?: string
+  // When it started and ended, in milliseconds since the epoch.
+  startedAt?: number
+  endedAt?: number
   activities: NativeSubagentActivity[]
 }
 
@@ -131,6 +134,19 @@ export interface NativeSnapshotToolCall {
   startedAt?: number
   endedAt?: number
   display?: { summary?: string }
+  subagent?: NativeSnapshotSubagent
+}
+
+// A subagent as a snapshot carries it: events are the ones subagent_event
+// carried live, replayed to rebuild its activity.
+export interface NativeSnapshotSubagent {
+  subagentId: string
+  purpose?: string
+  status?: NativeSubagentState["status"]
+  reason?: string
+  startedAt?: number
+  endedAt?: number
+  events?: Omit<NativeEvent, "eventId">[]
 }
 
 export interface NativeSnapshotPermission {
@@ -199,6 +215,8 @@ export interface NativeEvent {
   childSessionId?: string
   purpose?: string
   reason?: string
+  startedAt?: number
+  endedAt?: number
   from?: string
   to?: string
   effectiveModel?: string
@@ -327,6 +345,7 @@ export function stateFromNativeSnapshot(snapshot: NativeSnapshot): NativeSyncSta
           result: call.result,
           summary: call.display?.summary,
           durationMs: call.startedAt && call.endedAt ? call.endedAt - call.startedAt : undefined,
+          ...(call.subagent ? { subagent: subagentFromSnapshot(call.subagent, call.args) } : {}),
         },
       })
     }
@@ -370,7 +389,7 @@ export function reconcileNativeSnapshot(
       tool: {
         ...item.tool,
         ...(preserved.skillName ? { skillName: preserved.skillName, skillSource: preserved.skillSource } : {}),
-        ...(preserved.subagent ? {
+        ...(preserved.subagent && !item.tool.subagent ? {
           subagent: {
             ...preserved.subagent,
             ...subagentCompletionFromResult(item.tool.result),
@@ -540,6 +559,7 @@ export function reduceNativeEvent(state: NativeSyncState, event: NativeEvent): N
             childSessionId: event.childSessionId,
             purpose: event.purpose || String(tool.args.purpose || "Subagent"),
             status: "running",
+            startedAt: event.startedAt ?? tool.subagent?.startedAt ?? Date.now(),
             activities: tool.subagent?.activities ?? [],
           },
         }))
@@ -556,6 +576,7 @@ export function reduceNativeEvent(state: NativeSyncState, event: NativeEvent): N
           ...subagent,
           status: event.reason === "stop" ? "finished" : "error",
           reason: event.reason,
+          endedAt: event.endedAt ?? Date.now(),
         }))
       }
       break
@@ -713,10 +734,28 @@ function subagentCompletionFromResult(result?: Record<string, unknown>): Pick<Na
   return { status: reason === "stop" ? "finished" : "error", reason }
 }
 
+function subagentFromSnapshot(snapshot: NativeSnapshotSubagent, args: Record<string, unknown>): NativeSubagentState {
+  let subagent: NativeSubagentState = {
+    subagentId: snapshot.subagentId,
+    purpose: snapshot.purpose || String(args.purpose || "Subagent"),
+    status: snapshot.status ?? "running",
+    reason: snapshot.reason,
+    startedAt: snapshot.startedAt,
+    endedAt: snapshot.endedAt,
+    activities: [],
+  }
+  for (const event of snapshot.events ?? []) subagent = applySubagentEvent(subagent, event)
+  return subagent
+}
+
 function applySubagentEvent(subagent: NativeSubagentState, event: Omit<NativeEvent, "eventId">): NativeSubagentState {
   const activities = [...subagent.activities]
-  if ((event.type === "assistant_text_done" || event.type === "reasoning_text_done") && event.text) {
-    activities.push({ key: `${subagent.subagentId}-${activities.length}`, text: event.text })
+  // Events replayed over a snapshot that already holds them change nothing.
+  if (event.type === "tool_call_start" && event.callId && activities.some((activity) => activity.callId === event.callId)) return subagent
+  const said = (event.type === "assistant_text_done" || event.type === "reasoning_text_done") ? event.text : undefined
+  if (said && activities.some((activity) => !activity.toolName && activity.text === said)) return subagent
+  if (said) {
+    activities.push({ key: `${subagent.subagentId}-${activities.length}`, text: said })
   } else if (event.type === "tool_call_start" && event.name) {
     const summary = event.display?.summary
     activities.push({

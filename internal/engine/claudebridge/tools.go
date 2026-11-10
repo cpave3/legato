@@ -46,6 +46,10 @@ func nativeToolCall(tool string, input map[string]any) (name string, args map[st
 		if model := stringArg(input, "model"); model != "" {
 			args["model"] = model
 		}
+		// A subagent in the background answers its call at once and works on.
+		if background, _ := input["run_in_background"].(bool); background {
+			args["background"] = true
+		}
 		return nativeSpawnAgent, args, stringArg(input, "description")
 	}
 	if input == nil {

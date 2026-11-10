@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from "react"
-import { Mic, MoreHorizontal } from "lucide-react"
+import { LayoutGrid, List, Mic, MoreHorizontal } from "lucide-react"
 import { cn } from "../lib/utils"
 import { AgentKindBadge } from "./AgentKindBadge"
 
@@ -27,6 +27,8 @@ interface AgentChatHeaderProps {
   // The pull request of the agent's task, when it has one.
   pullRequest?: number
   panels?: SidePanelsProps
+  // How the agent's subagents are shown, when it has any.
+  subagents?: SubagentSwitchProps
   // Brings what the agent waits on into view.
   onShowRequest?: () => void
   // A way to ask the Reeve about the agent, offered while it needs the person.
@@ -76,6 +78,38 @@ function StudioButton({ onOpen }: { onOpen: () => void }) {
   )
 }
 
+export interface SubagentSwitchProps {
+  total: number
+  running: number
+  view: "inline" | "tiles"
+  onView: (view: "inline" | "tiles") => void
+}
+
+// SubagentSwitch chooses whether subagents are drawn in the conversation or
+// as tiles beside it.
+export function SubagentSwitch({ total, running, view, onView }: SubagentSwitchProps) {
+  const look = (option: "inline" | "tiles") => cn(segment, view === option ? "bg-lw-selected text-lw-text" : "text-lw-text-2 hover:text-lw-text")
+  return (
+    <div role="group" aria-label="Sub-agents" className="flex shrink-0 rounded-md border border-lw-line bg-lw-surface p-0.5">
+      <button type="button" aria-pressed={view === "inline"} aria-label="Inline" title="Sub-agents in the conversation" onClick={() => onView("inline")} className={look("inline")}>
+        <List size={12} aria-hidden="true" /><span className="hidden lg:inline">Inline</span>
+      </button>
+      <button
+        type="button"
+        aria-pressed={view === "tiles"}
+        aria-label={`Tiles (${total})${running > 0 ? `, ${running} running` : ""}`}
+        title="Sub-agents as tiles beside the conversation"
+        onClick={() => onView("tiles")}
+        className={look("tiles")}
+      >
+        <LayoutGrid size={12} aria-hidden="true" /><span className="hidden lg:inline">Tiles</span>
+        <span className="font-lw-mono text-lw-text-2">{total}</span>
+        {running > 0 && <span aria-hidden="true" className="size-1.5 rounded-full bg-lw-live" />}
+      </button>
+    </div>
+  )
+}
+
 const segment = "flex h-[26px] items-center gap-1.5 rounded px-2.5 text-xs transition-colors disabled:cursor-default disabled:opacity-50"
 
 // SidePanelSwitch chooses what the column beside the chat shows: the work
@@ -117,7 +151,7 @@ export function SidePanelSwitch({ open, related, artifacts, onSelect, studio }: 
 // The line an agent's chat opens with, whether Legato drives the agent
 // natively or through its terminal: what it is doing, the task, and what can
 // be done with it.
-export function AgentChatHeader({ state, time, title, taskId, agentKind, native = false, notes, pullRequest, panels, onShowRequest, ask, menu }: AgentChatHeaderProps) {
+export function AgentChatHeader({ state, time, title, taskId, agentKind, native = false, notes, pullRequest, panels, subagents, onShowRequest, ask, menu }: AgentChatHeaderProps) {
   const chip = chips[state]
   // On a phone the agent picker above says how long; the time is left out.
   const chipText = <><span aria-hidden="true">{chip.glyph} </span>{chip.label}{time && <span className="max-sm:hidden"> {time}</span>}</>
@@ -139,6 +173,7 @@ export function AgentChatHeader({ state, time, title, taskId, agentKind, native 
       </div>
       <div className="flex shrink-0 items-center gap-2">
         {state === "needs-you" && ask}
+        {subagents && subagents.total > 0 && <SubagentSwitch {...subagents} />}
         {panels && <SidePanelSwitch {...panels} />}
         <AgentMoreMenu entries={menu} />
       </div>

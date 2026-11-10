@@ -47,6 +47,14 @@ import {
   type NativeToolItem as ToolCallItem,
 } from "../lib/nativeAgentSync"
 import { LoadingState } from "./ui/LoadingState"
+import { TileDeck } from "./TileDeck"
+import { SubagentLink } from "./SubagentParts"
+import { saveSubagentView, savedSubagentView, subagentTiles, type SubagentView } from "../lib/subagentTiles"
+import { useElementWidth } from "../hooks/useElementWidth"
+
+// The least width at which subagent tiles sit beside the conversation; below
+// it they are a strip above it.
+const tilesBesideWidth = 1000
 
 function formatTokens(value: number): string {
   if (value < 1_000) return value.toLocaleString()
@@ -251,6 +259,19 @@ export function NativeAgentPanel({ agentId, reeve, sandboxed, onKill, onRename, 
   const draftKey = `legato:chimera-draft:${agentId}`
   const { items, busy, error, contextUsage, model } = syncState
   const blocks = useMemo(() => conversationBlocks(items), [items])
+  const tiles = useMemo(() => subagentTiles(items), [items])
+  const [subagentView, setSubagentView] = useState<SubagentView>(savedSubagentView)
+  const [focusedTile, setFocusedTile] = useState<string | null>(null)
+  const [highlightedTile, setHighlightedTile] = useState<string | null>(null)
+  const panelRef = useRef<HTMLDivElement>(null)
+  const panelWidth = useElementWidth(panelRef)
+  const showTiles = subagentView === "tiles" && tiles.length > 0
+  const tilesBeside = panelWidth >= tilesBesideWidth
+  const chooseSubagentView = useCallback((view: SubagentView) => {
+    setSubagentView(view)
+    saveSubagentView(view)
+    setFocusedTile(null)
+  }, [])
   const step = useMemo(() => busy ? currentStep(items) : null, [busy, items])
   const turnSeconds = useTurnClock(busy, !loading)
   // The agent has stopped on a permission prompt or a question of its own.
@@ -875,7 +896,7 @@ export function NativeAgentPanel({ agentId, reeve, sandboxed, onKill, onRename, 
   const contextShareOf = contextUsage ? Math.round((contextUsage.used / contextUsage.window) * 100) : null
 
   return (
-    <div className="relative flex h-full min-w-0 w-full flex-1 flex-col overflow-hidden bg-lw-ground font-lw text-[13px] leading-5 text-lw-text">
+    <div ref={panelRef} className="relative flex h-full min-w-0 w-full flex-1 flex-col overflow-hidden bg-lw-ground font-lw text-[13px] leading-5 text-lw-text">
       <AgentChatHeader
         state={headerState}
         time={stateTime}
@@ -885,6 +906,7 @@ export function NativeAgentPanel({ agentId, reeve, sandboxed, onKill, onRename, 
         native
         pullRequest={pullRequest}
         panels={panels}
+        subagents={{ total: tiles.length, running: tiles.filter((tile) => tile.state === "running").length, view: subagentView, onView: chooseSubagentView }}
         onShowRequest={scrollToBottom}
         ask={reeve ? undefined : <AskReeve brief={reeveBrief({ what: `the agent “${title || agentId}”, which waits for the person`, ids: { task: agentId, "agent tool": agentKind }, error: error || undefined })} />}
         menu={menu}
@@ -896,7 +918,14 @@ export function NativeAgentPanel({ agentId, reeve, sandboxed, onKill, onRename, 
         </>}
       />
       {reeve && <ChangeSetLines baseUrl={baseUrl} taskId={agentId} refresh={activity} />}
+      {showTiles && !tilesBeside && (
+        <TileDeck title="Sub-agents" tiles={tiles} layout="strip" focused={focusedTile} onFocus={setFocusedTile} />
+      )}
 
+      {/* The conversation and its composer; subagent tiles may sit beside them,
+          in the other half and never more. */}
+      <div className="flex min-h-0 flex-1">
+      <div className={`flex min-h-0 min-w-0 flex-1 flex-col ${showTiles && tilesBeside ? "border-r border-lw-line" : ""}`}>
       {/* Conversation viewport owns both scrolling and its floating action. */}
       <div role="region" aria-label="Conversation" className="relative min-h-0 flex-1">
         <div data-conversation-scroll ref={scrollRef} className="h-full overflow-y-auto overflow-x-hidden" onScroll={(e) => { const el = e.currentTarget; const atBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 40; isScrolledUpRef.current = !atBottom; setIsScrolledUp(!atBottom) }}>
@@ -985,6 +1014,10 @@ export function NativeAgentPanel({ agentId, reeve, sandboxed, onKill, onRename, 
             // Every other tool call is in a "tools" block.
             const uiCall = shownUICall(item.tool)
             if (uiCall) return <AgentUICallCard key={item.key} call={uiCall} agentId={agentId} onOpen={onOpenUIItem} />
+            const tile = showTiles ? tiles.find((each) => each.id === item.tool!.key) : undefined
+            if (tile) {
+              return <SubagentLink key={item.key} tile={tile} highlighted={highlightedTile === tile.id} onOpen={() => setFocusedTile(tile.id)} onHighlight={setHighlightedTile} />
+            }
             return <SubagentCard key={item.key} tool={item.tool} />
           }
           if (item.role === "bang" && item.bang) {
@@ -1187,6 +1220,19 @@ export function NativeAgentPanel({ agentId, reeve, sandboxed, onKill, onRename, 
           </div>
           )}
         </div>
+      </div>
+      </div>
+      {showTiles && tilesBeside && (
+        <TileDeck
+          title="Sub-agents"
+          tiles={tiles}
+          layout="grid"
+          focused={focusedTile}
+          onFocus={setFocusedTile}
+          highlighted={highlightedTile}
+          onHighlight={setHighlightedTile}
+        />
+      )}
       </div>
     </div>
   )
