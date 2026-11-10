@@ -16,6 +16,7 @@ import (
 var nativeAgentKinds = map[string]string{
 	"chimera":     "Chimera",
 	"claude-code": "Claude Code",
+	"codex":       "Codex",
 }
 
 func (s *Server) chimeraDiscoverHandler() http.HandlerFunc {
@@ -39,10 +40,11 @@ func (s *Server) chimeraDiscoverHandler() http.HandlerFunc {
 			return
 		}
 		// Chimera sessions serve the native protocol themselves; a Claude Code
-		// session serves it through the bridge its Legato mod starts.
+		// session serves it through the bridge its Legato mod starts, and a
+		// Codex session through the bridge `legato agent codex` starts.
 		native := nativeAgentKinds[session.AgentKind]
 		if native == "" || session.Status != "running" {
-			http.Error(w, "native upgrade requires an active Chimera or Claude Code agent", http.StatusConflict)
+			http.Error(w, "native upgrade requires an active Chimera, Claude Code or Codex agent", http.StatusConflict)
 			return
 		}
 		if session.ChimeraEndpoint != nil || session.ChimeraSessionID != nil {
@@ -53,6 +55,8 @@ func (s *Server) chimeraDiscoverHandler() http.HandlerFunc {
 			switch {
 			case errors.Is(err, service.ErrChimeraDiscoveryNotFound) && session.AgentKind == "claude-code":
 				http.Error(w, "no live Claude Code bridge for this task was found; the session may not have loaded the Legato mod", http.StatusNotFound)
+			case errors.Is(err, service.ErrChimeraDiscoveryNotFound) && session.AgentKind == "codex":
+				http.Error(w, "no live Codex bridge for this task was found; the session may have started plain codex (its terminal says why)", http.StatusNotFound)
 			case errors.Is(err, service.ErrChimeraDiscoveryNotFound):
 				http.Error(w, "no live Chimera instance for this task was found", http.StatusNotFound)
 			case errors.Is(err, service.ErrChimeraDiscoveryAmbiguous):
