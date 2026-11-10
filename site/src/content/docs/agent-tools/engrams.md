@@ -30,6 +30,8 @@ The agent starts with the engram's boot packet at the top of its launch prompt, 
 
 If the engram does not boot (engram fails, takes longer than 5 seconds, no longer has that engram, or its store is missing), the agent starts anyway, as a normal session, and Legato says why.
 
+In the TUI's spawn dialog, the `engram` row comes right after `agent`: `‹ mneme · default ›  2/11`. Press `h` and `l` to go through the engrams in the same order as the web dialog. When remembering would change something, a line `[ ] remember for this repo (r)` appears under it; press `r` on the row to tick it. If the engram does not boot, the status bar says why.
+
 ## Engrams for a repository
 
 The **Engram** list starts with **No engram**, then the engrams of **This repo** (or **This folder**, for a folder outside git), then the other engrams:

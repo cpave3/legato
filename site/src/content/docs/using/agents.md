@@ -14,8 +14,9 @@ Each tool has its own page under Agent tools: [Claude Code](/legato/agent-tools/
 1. Select the task's card on the board.
 2. Press `a`. The spawn dialog opens.
 3. Choose the agent tool with `h` and `l`. The default tool comes first, then the others, then `shell`.
-4. Tick any [resources](/legato/agent-tools/resources/) to give the agent, with `space`.
-5. Choose where the agent starts, then press `enter`.
+4. With engram installed, choose an [engram](/legato/agent-tools/engrams/) on the `engram` row with `h` and `l`, or leave it on `no engram`. Press `r` there to remember the choice for the repository.
+5. Tick any [resources](/legato/agent-tools/resources/) to give the agent, with `space`.
+6. Choose where the agent starts, then press `enter`.
 
 `tab` and `shift+tab` move between the fields, and `enter` spawns from any of them. A line above the keys says what `enter` will do, such as `→ chimera in ~/Development/autopilot · for f41p6uf0`.
 
