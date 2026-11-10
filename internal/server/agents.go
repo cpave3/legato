@@ -146,6 +146,8 @@ func (s *Server) spawnAgentHandler() http.HandlerFunc {
 			// Slot is refused when named: only Legato starts agents in a
 			// named slot.
 			Slot string `json:"slot"`
+			// Engram starts the agent as that engram; empty for none.
+			Engram string `json:"engram"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			http.Error(w, "invalid JSON", http.StatusBadRequest)
@@ -186,6 +188,7 @@ func (s *Server) spawnAgentHandler() http.HandlerFunc {
 			Resources:   resources,
 			Unsandboxed: req.Sandbox != nil && !*req.Sandbox,
 			Prompt:      req.Prompt,
+			Engram:      strings.TrimSpace(req.Engram),
 		}
 		if creator, ok := s.agents.(ephemeralTaskCreator); ok && startsInBackground(opts) {
 			// A clone can take minutes: the agent is started in the
@@ -201,7 +204,8 @@ func (s *Server) spawnAgentHandler() http.HandlerFunc {
 			s.writeJSON(w, http.StatusAccepted, map[string]any{"status": "preparing", "task_id": taskID, "preparing": true})
 			return
 		}
-		if err := s.agents.SpawnEphemeralAgent(context.Background(), req.Title, 0, 0, opts); err != nil {
+		var report service.SpawnReport
+		if err := s.agents.SpawnEphemeralAgent(service.WithSpawnReport(context.Background(), &report), req.Title, 0, 0, opts); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
@@ -211,7 +215,7 @@ func (s *Server) spawnAgentHandler() http.HandlerFunc {
 
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusCreated)
-		json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+		json.NewEncoder(w).Encode(spawnResult(map[string]any{"status": "ok"}, report))
 	}
 }
 
@@ -564,6 +568,8 @@ func (s *Server) taskAgentHandler() http.HandlerFunc {
 			// Slot is refused when named: only Legato starts agents in a
 			// named slot.
 			Slot string `json:"slot"`
+			// Engram starts the agent as that engram; empty for none.
+			Engram string `json:"engram"`
 		}
 		decoder := json.NewDecoder(r.Body)
 		decoder.DisallowUnknownFields()
@@ -604,7 +610,7 @@ func (s *Server) taskAgentHandler() http.HandlerFunc {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
-		opts := service.AgentSpawnOptions{AgentKind: req.AgentKind, WorkingDir: req.WorkingDir, Repo: req.Repo, Ref: req.Ref, Branch: strings.TrimSpace(req.Branch), Clone: req.CloneID, Resources: resources, Unsandboxed: req.Sandbox != nil && !*req.Sandbox, Prompt: req.Prompt}
+		opts := service.AgentSpawnOptions{AgentKind: req.AgentKind, WorkingDir: req.WorkingDir, Repo: req.Repo, Ref: req.Ref, Branch: strings.TrimSpace(req.Branch), Clone: req.CloneID, Resources: resources, Unsandboxed: req.Sandbox != nil && !*req.Sandbox, Prompt: req.Prompt, Engram: strings.TrimSpace(req.Engram)}
 		effectiveAdapter := req.AgentKind
 		if effectiveAdapter == "" {
 			effectiveAdapter = agents.DefaultAdapter()
@@ -666,7 +672,8 @@ func (s *Server) taskAgentHandler() http.HandlerFunc {
 			s.writeJSON(w, http.StatusAccepted, map[string]any{"task_id": taskID, "created": true, "preparing": true})
 			return
 		}
-		if err := agents.SpawnAgent(r.Context(), taskID, 0, 0, opts); err != nil {
+		var report service.SpawnReport
+		if err := agents.SpawnAgent(service.WithSpawnReport(r.Context(), &report), taskID, 0, 0, opts); err != nil {
 			if errors.Is(err, service.ErrTaskResumeConflict) {
 				http.Error(w, err.Error(), http.StatusConflict)
 				return
@@ -675,6 +682,18 @@ func (s *Server) taskAgentHandler() http.HandlerFunc {
 			return
 		}
 		s.hub.Broadcast(WSMessage{Type: MsgAgentsChanged})
-		s.writeJSON(w, http.StatusCreated, map[string]any{"task_id": taskID, "created": true})
+		s.writeJSON(w, http.StatusCreated, spawnResult(map[string]any{"task_id": taskID, "created": true}, report))
 	}
+}
+
+// spawnResult adds what a spawn reported to its answer: the engram the
+// agent started as, or why it started without the one asked for.
+func spawnResult(body map[string]any, report service.SpawnReport) map[string]any {
+	if report.Engram != "" {
+		body["engram"] = report.Engram
+	}
+	if report.EngramWarning != "" {
+		body["engram_warning"] = report.EngramWarning
+	}
+	return body
 }

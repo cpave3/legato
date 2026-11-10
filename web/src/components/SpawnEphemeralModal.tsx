@@ -3,6 +3,8 @@ import { useServer } from "../hooks/useServer"
 import { apiFetch } from "../lib/api"
 import { SpawnAgentDialog, type SpawnAgentRequest } from "./SpawnAgentDialog"
 import { spawnPlace } from "../lib/spawnPlace"
+import { engramFields, readSpawnWarning } from "../lib/engrams"
+import { useToast } from "../hooks/useToast"
 
 // SpawnEphemeralModal starts an agent that belongs to no card.
 export function SpawnEphemeralModal({
@@ -15,6 +17,8 @@ export function SpawnEphemeralModal({
   onSpawned?: () => void
 }) {
   const { baseUrl } = useServer()
+  // Absent outside the app's ToastProvider; the warning is then not shown.
+  const toast = useToast()
 
   const spawn = useCallback(async (request: SpawnAgentRequest) => {
     const response = await apiFetch(baseUrl, "/api/agents/spawn", {
@@ -27,12 +31,15 @@ export function SpawnEphemeralModal({
         ...(request.resources ? { resources: request.resources } : {}),
         ...(request.sandbox === false ? { sandbox: false } : {}),
         ...(request.prompt ? { prompt: request.prompt } : {}),
+        ...engramFields(request),
       }),
     })
     if (!response.ok) throw new Error("The agent was not spawned: " + await response.text())
+    const warning = await readSpawnWarning(response)
+    if (warning) toast?.addToast(warning, "error")
     onSpawned?.()
     onClose()
-  }, [baseUrl, onSpawned, onClose])
+  }, [baseUrl, onSpawned, onClose, toast])
 
   return (
     <SpawnAgentDialog

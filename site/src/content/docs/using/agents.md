@@ -44,9 +44,10 @@ An agent that runs outside the sandbox is marked in amber: with `⊘` beside its
 
 ### The web spawn dialog
 
-The web UI's dialog asks the same questions and adds two:
+The web UI's dialog asks the same questions and adds these:
 
 - **First message**: text the agent gets as its first message once it is ready. `Ctrl+Enter` spawns from any field.
+- **Engram**: with the engram command installed, start the agent as one of your [engrams](/legato/agent-tools/engrams/), or as **No engram** for a normal session. The engram's summary is shown under it.
 - **Clone**: with `repository_cache.enabled`, a **Folder | Clone** switch lets the agent start in a fresh clone of a repository on a branch of its own, instead of a folder. The agent appears under **Starting** while Legato copies and sets up the clone.
 
 ## Agents with no task

@@ -141,3 +141,7 @@ Migration 068 adds `resources` (`id`, `name` unique ignoring case) and `resource
 ### Future PostgreSQL work
 
 This boundary prepares but does not claim PostgreSQL support. A later change must test against a real PostgreSQL server, add a PostgreSQL baseline and advisory migration locking, implement dialect-specific reporting/search/generated IDs, and provide a one-way SQLite importer. Safe shared multi-host operation also requires node ownership and coordination beyond the database driver.
+
+### Engram sessions
+
+Migration 104 adds `executions.engram` and `executions.engram_session` (both `''` for an agent started as no engram): the engram an execution ran as and its engram session key, which a resumed conversation reuses. `SetExecutionEngram`, `ExecutionEngram`, `LastTaskEngram` (the task's latest execution that ran as an engram, for pre-selection) and `LastEngramSession` (that engram's latest session on the task). It also adds `engram_bindings` (`place_key`, `engram`: the key; `is_default`, `last_used_at`, `created_at`): the engrams bound to a place, with a partial unique index that allows one default per place. `BindEngram` (binds, and with `makeDefault` makes it the default; the old default stays bound), `SetEngramDefault` (`ErrNotFound` for an engram not bound there), `ClearEngramDefault`, `UnbindEngram`, `TouchEngramBinding` (`last_used_at`), `EngramBindings(places)` and `AllEngramBindings`. Bindings live in the database only, never in `config.yaml`. See [Engram sessions](engram.md).

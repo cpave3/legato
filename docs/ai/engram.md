@@ -42,3 +42,16 @@ Nothing is cached between calls, so installing engram later needs no restart. `c
 ## API
 
 `GET /api/engrams` (`internal/server/engrams.go`): `EngramStatus` — `{enabled, mode, found, binary, version, store, store_source, store_exists, error, engrams: [{name, summary}]}`. Without an engram service it answers `enabled: false`.
+
+## The spawn, with an engram
+
+`AgentSpawnOptions.Engram` names the engram; `EngramSession` is the session a resumed conversation keeps (found with `store.LastEngramSession` for the task and engram when empty); `EngramRequired` fails the spawn when engram does not list the engram (a workflow step's). The agent service gets the `AgentEngrams` (the `EngramService`) through `SetEngrams`, which `giveAgentsEngrams` calls wherever `cmd/legato` makes an agent service, except the swarm CLI's. `bootEngram` (`internal/service/agent_engram.go`) runs in `SpawnAgent` after the job clone exists and before the prompt files are written:
+
+1. **Refused** for swarm agents (a role, parent or sub-task).
+2. **Session key**: a fresh start uses the new execution's ID; `SessionPolicy == "resume"` (any tool, Chimera included) reuses the saved one.
+3. **`EngramService.Boot`**: `where` (its binary and store); a store whose root does not exist is a missing store; the engram must be one `identity list` lists. The environment is `ENGRAM_IDENTITY`, `ENGRAM_HOME` (the store root from `where`), `ENGRAM_SESSION`, `ENGRAM_HARNESS` (`EngramHarness`: `claude-code`, `codex` or `chimera`; any other tool is refused), `ENGRAM_MODEL` (only with a chosen model), `LEGATO_TASK_ID` and `LEGATO_EXECUTION_ID`, set alike for the boot and in the session's `envMap`. On a resume nothing is booted; otherwise `engram boot` runs, with the binary `where` named, in the agent's working directory (the clone, for a clone spawn), 5 s.
+4. **Launch prompt**: `EngramPromptSection(name, packet)` comes first, before every other section, for all three tools. No `--budget` is passed.
+5. **Record**: `store.SetExecutionEngram` writes `executions.engram` and `engram_session`.
+6. **Failure**: an error, the timeout, an engram engram no longer lists, a missing store or engram not found starts the agent without the engram: no `ENGRAM_*`, no packet, nothing on the execution. `SpawnReport.EngramWarning` (`WithSpawnReport` passes one through the context) says why, in `EngramFailure`'s words, and the spawn endpoints answer it as `engram_warning`. A spawn that fails after a fresh boot runs `engram session end`.
+
+`POST /api/agents/spawn` and `POST /api/tasks/{id}/agent` take `engram` (a name, or empty for none) and answer `engram` or `engram_warning` (`spawnResult` in `internal/server/agents.go`).

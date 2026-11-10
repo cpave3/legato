@@ -42,3 +42,13 @@ func engramsFor(db *store.Store) *service.EngramService {
 	}
 	return actual.(*service.EngramService)
 }
+
+// giveAgentsEngrams lets an agent service start agents as engrams.
+func giveAgentsEngrams(agents service.AgentService, db *store.Store) {
+	if agents == nil {
+		return
+	}
+	if setter, ok := agents.(interface{ SetEngrams(service.AgentEngrams) }); ok {
+		setter.SetEngrams(engramsFor(db))
+	}
+}

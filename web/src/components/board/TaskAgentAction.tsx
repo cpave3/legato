@@ -11,12 +11,16 @@ import { SpawnAgentDialog, type SpawnAgentRequest } from "../SpawnAgentDialog"
 import { spawnPlace } from "../../lib/spawnPlace"
 import { StartSwarmModal } from "../StartSwarmModal"
 import { resolveTaskWorkingDirectory } from "../../lib/taskLaunch"
+import { engramFields, readSpawnWarning } from "../../lib/engrams"
+import { useToast } from "../../hooks/useToast"
 
 export function TaskAgentAction({ taskId, worktreePath = "", rememberedWorkingDir = "", resumableAgentKinds = [] }: { taskId: string; worktreePath?: string; rememberedWorkingDir?: string; resumableAgentKinds?: string[] }) {
   const { baseUrl } = useServer()
   const settings = useSettings()
   const navigate = useNavigate()
   const { setSelectedAgentId } = useAgentSelection()
+  // Absent outside the app's ToastProvider; the warning is then not shown.
+  const toast = useToast()
   const { agent, agents, loading } = useRunningAgent(taskId)
   const [open, setOpen] = useState(false)
   const [swarmOpen, setSwarmOpen] = useState(false)
@@ -25,7 +29,7 @@ export function TaskAgentAction({ taskId, worktreePath = "", rememberedWorkingDi
   const initialWorkingDir = resolveTaskWorkingDirectory(worktreePath, rememberedWorkingDir, settings.data?.working_dir || "")
 
   const launch = useCallback(async (request: SpawnAgentRequest) => {
-    const body: { agent_kind: string; working_dir?: string; repo?: string; ref?: string; branch?: string; clone_id?: number; session_policy?: "resume" | "new"; resources?: string[]; sandbox?: false; prompt?: string } = {
+    const body: { agent_kind: string; working_dir?: string; repo?: string; ref?: string; branch?: string; clone_id?: number; session_policy?: "resume" | "new"; resources?: string[]; sandbox?: false; prompt?: string; engram?: string; remember_engram?: boolean } = {
       agent_kind: request.agentKind,
     }
     Object.assign(body, spawnPlace(request))
@@ -33,15 +37,18 @@ export function TaskAgentAction({ taskId, worktreePath = "", rememberedWorkingDi
     if (request.resources) body.resources = request.resources
     if (request.sandbox === false) body.sandbox = false
     if (request.prompt) body.prompt = request.prompt
+    Object.assign(body, engramFields(request))
     const response = await apiFetch(baseUrl, `/api/tasks/${encodeURIComponent(taskId)}/agent`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify(body),
     })
     if (!response.ok) throw new Error(await response.text())
+    const warning = await readSpawnWarning(response)
+    if (warning) toast?.addToast(warning, "error")
     setSelectedAgentId(taskId)
     navigate("/agents")
-  }, [baseUrl, taskId, setSelectedAgentId, navigate])
+  }, [baseUrl, taskId, setSelectedAgentId, navigate, toast])
 
   return <>
     <div className="space-y-2">

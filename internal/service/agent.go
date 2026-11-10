@@ -198,6 +198,16 @@ type AgentSpawnOptions struct {
 	// Legato's own services start. Each slot keeps its own tmux session,
 	// execution and saved conversation.
 	Slot string
+	// Engram starts the agent as that engram (docs/ai/engram.md): its boot
+	// packet first in the launch prompt, ENGRAM_* in its environment. A
+	// boot that fails starts the agent without it, unless EngramRequired.
+	Engram string
+	// EngramSession is the engram session a resumed conversation keeps
+	// (from the execution it resumes); found from the task when empty.
+	EngramSession string
+	// EngramRequired fails the spawn, before anything starts, when the
+	// engram is not one engram lists (a workflow step's).
+	EngramRequired bool
 }
 
 // AgentSpawnConflict describes a scope-overlap warning encountered at spawn time.
@@ -282,6 +292,7 @@ type agentService struct {
 	sessionEnv        SessionEnvProvider       // credential channels; nil without any
 	brokerEnv         SessionEnvProvider       // the host broker's socket and a token; nil without one
 	repos             JobCloner                // makes clones for agents spawned with a repository; nil without one
+	engrams           AgentEngrams             // boots engrams for agents started as one; nil without
 	primaryDir        func(repo string) string // a repository's main checkout, for a fresh clone's setup; nil without
 	setupsMu          sync.Mutex
 	setups            map[string]string // task -> the status file of its clone's setup, while it runs
@@ -511,6 +522,26 @@ func (a *agentService) SetRepositories(repos JobCloner) {
 	a.repos = repos
 }
 
+// AgentEngrams boots an engram for a spawn and ends its session
+// (EngramService).
+type AgentEngrams interface {
+	Boot(ctx context.Context, req EngramBootRequest) (EngramBoot, error)
+	EndSession(ctx context.Context, ref EngramSessionRef) error
+}
+
+// SetEngrams lets agents spawned from now on start as engrams.
+func (a *agentService) SetEngrams(engrams AgentEngrams) {
+	a.sessionEnvMu.Lock()
+	defer a.sessionEnvMu.Unlock()
+	a.engrams = engrams
+}
+
+func (a *agentService) engramBooter() AgentEngrams {
+	a.sessionEnvMu.Lock()
+	defer a.sessionEnvMu.Unlock()
+	return a.engrams
+}
+
 func (a *agentService) repositories() JobCloner {
 	a.sessionEnvMu.Lock()
 	defer a.sessionEnvMu.Unlock()
@@ -710,6 +741,14 @@ func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, hei
 	}
 	nativeResume := opt.SessionPolicy == "resume" && (agentKind == "claude-code" || agentKind == "codex")
 
+	// An engram boots on the host, where the agent will work, before its
+	// launch prompt is written. A boot that fails leaves the agent to start
+	// without it.
+	booted, err := a.bootEngram(ctx, taskID, executionID, agentKind, workDir, opt)
+	if err != nil {
+		return err
+	}
+
 	// Build env vars to inject into the initial shell. Track them as a map
 	// for the adapter LaunchCommand call, then flatten for tmux Spawn.
 	envMap := map[string]string{}
@@ -863,6 +902,9 @@ func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, hei
 			rolePrompt = opt.Assignment
 		}
 	}
+	if booted != nil && booted.Packet != "" {
+		rolePrompt = joinPromptSections(EngramPromptSection(booted.name, booted.Packet), rolePrompt)
+	}
 	if rolePrompt != "" || assignment != "" {
 		rolePath, briefPath, perr := writeAgentPromptFiles(agentKey, rolePrompt, assignment)
 		if perr != nil {
@@ -931,7 +973,19 @@ func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, hei
 		}
 	}
 	envMap["LEGATO_EXECUTION_ID"] = executionID
-	failExecution := func() { _ = a.EndExecution(ctx, executionID, store.ExecutionFailed) }
+	failExecution := func() {
+		_ = a.EndExecution(ctx, executionID, store.ExecutionFailed)
+		booted.endIfFresh(ctx, a.engramBooter(), workDir)
+	}
+	if booted != nil {
+		for k, v := range booted.Env {
+			envMap[k] = v
+		}
+		if err := a.store.SetExecutionEngram(ctx, executionID, booted.name, booted.session); err != nil {
+			failExecution()
+			return fmt.Errorf("recording the engram: %w", err)
+		}
+	}
 	// Credential channels: placeholder keys, the proxy's address and the
 	// session's own SSH agent, which win over what the session inherits.
 	if provider := a.credentialEnv(); provider != nil {

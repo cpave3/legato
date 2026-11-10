@@ -144,3 +144,143 @@ func TestEngramStatusUsesTheConfiguredCommandAndReadsItEachTime(t *testing.T) {
 		t.Fatal("status did not pick up an engram installed later")
 	}
 }
+
+func bootService(cli *fakeEngramCLI) (*EngramService, *[]string) {
+	var commands []string
+	svc := NewEngramService(EngramOptions{
+		Config: func(context.Context) (config.EngramConfig, error) {
+			return config.EngramConfig{Enabled: config.EngramAuto}, nil
+		},
+		Runner: func(command string) EngramCLI { commands = append(commands, command); return cli },
+	})
+	return svc, &commands
+}
+
+func envOf(env []string) map[string]string {
+	m := map[string]string{}
+	for _, kv := range env {
+		k, v, _ := strings.Cut(kv, "=")
+		m[k] = v
+	}
+	return m
+}
+
+func TestEngramBootSetsTheSessionsEnvironmentAndReturnsThePacket(t *testing.T) {
+	cli := &fakeEngramCLI{where: testWhere, ids: []engram.Identity{{Name: "mneme"}}, boot: engram.BootResult{Packet: "# mneme\n"}}
+	svc, commands := bootService(cli)
+	got, err := svc.Boot(context.Background(), EngramBootRequest{
+		Name: "mneme", Session: "ex-1", Harness: "claude-code", Model: "opus",
+		TaskID: "task-1", ExecutionID: "ex-1", Dir: "/work/clone",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := map[string]string{
+		"ENGRAM_IDENTITY": "mneme", "ENGRAM_HOME": testWhere.Store.Root, "ENGRAM_SESSION": "ex-1",
+		"ENGRAM_HARNESS": "claude-code", "ENGRAM_MODEL": "opus", "LEGATO_TASK_ID": "task-1", "LEGATO_EXECUTION_ID": "ex-1",
+	}
+	for k, v := range want {
+		if got.Env[k] != v {
+			t.Errorf("session env %s = %q, want %q", k, got.Env[k], v)
+		}
+		if envOf(cli.bootEnv)[k] != v {
+			t.Errorf("boot env %s = %q, want %q", k, envOf(cli.bootEnv)[k], v)
+		}
+	}
+	if got.Packet != "# mneme\n" || cli.bootDir != "/work/clone" {
+		t.Fatalf("packet %q in %q", got.Packet, cli.bootDir)
+	}
+	// The boot runs the binary where named.
+	if (*commands)[len(*commands)-1] != testWhere.Binary {
+		t.Fatalf("booted with %q, want %q", (*commands)[len(*commands)-1], testWhere.Binary)
+	}
+}
+
+func TestEngramBootWithoutAModelSetsNone(t *testing.T) {
+	cli := &fakeEngramCLI{where: testWhere, ids: []engram.Identity{{Name: "mneme"}}}
+	svc, _ := bootService(cli)
+	got, err := svc.Boot(context.Background(), EngramBootRequest{Name: "mneme", Session: "ex-1", Harness: "codex", ExecutionID: "ex-1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if v, ok := got.Env["ENGRAM_MODEL"]; ok && v != "" {
+		t.Fatalf("ENGRAM_MODEL = %q", v)
+	}
+}
+
+func TestEngramBootOnAResumeSendsNoPacket(t *testing.T) {
+	cli := &fakeEngramCLI{where: testWhere, ids: []engram.Identity{{Name: "mneme"}}, boot: engram.BootResult{Packet: "x"}}
+	svc, _ := bootService(cli)
+	got, err := svc.Boot(context.Background(), EngramBootRequest{Name: "mneme", Session: "ex-old", Harness: "chimera", ExecutionID: "ex-2", Resume: true})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cli.boots != 0 || got.Packet != "" || got.Env["ENGRAM_SESSION"] != "ex-old" {
+		t.Fatalf("resume booted %d times, packet %q, session %q", cli.boots, got.Packet, got.Env["ENGRAM_SESSION"])
+	}
+}
+
+func TestEngramBootFailures(t *testing.T) {
+	cases := []struct {
+		name string
+		cli  *fakeEngramCLI
+		cfg  string
+		want error
+	}{
+		{"engram is off", &fakeEngramCLI{where: testWhere}, config.EngramOff, ErrEngramsOff},
+		{"engram not found", &fakeEngramCLI{whereErr: engram.ErrNotInstalled}, config.EngramAuto, engram.ErrNotInstalled},
+		{"the engram is gone", &fakeEngramCLI{where: testWhere, ids: []engram.Identity{{Name: "argus"}}}, config.EngramAuto, engram.ErrUnknownIdentity},
+		{"the store is missing", &fakeEngramCLI{where: engram.Where{Binary: "/b", Store: engram.Store{Root: "/s", Exists: false}}}, config.EngramAuto, engram.ErrMissingStore},
+		{"boot fails", &fakeEngramCLI{where: testWhere, ids: []engram.Identity{{Name: "mneme"}}, bootErr: &engram.Error{Code: 1, Message: "disk full"}}, config.EngramAuto, nil},
+		{"boot times out", &fakeEngramCLI{where: testWhere, ids: []engram.Identity{{Name: "mneme"}}, bootErr: engram.ErrTimeout}, config.EngramAuto, engram.ErrTimeout},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			svc := newTestEngramService(tc.cli, config.EngramConfig{Enabled: tc.cfg})
+			_, err := svc.Boot(context.Background(), EngramBootRequest{Name: "mneme", Session: "ex-1", Harness: "claude-code", ExecutionID: "ex-1"})
+			if err == nil {
+				t.Fatal("Boot succeeded")
+			}
+			if tc.want != nil && !errors.Is(err, tc.want) {
+				t.Fatalf("Boot error = %v, want %v", err, tc.want)
+			}
+		})
+	}
+}
+
+func TestEngramBootNeedsAHarness(t *testing.T) {
+	cli := &fakeEngramCLI{where: testWhere, ids: []engram.Identity{{Name: "mneme"}}}
+	svc, _ := bootService(cli)
+	if _, err := svc.Boot(context.Background(), EngramBootRequest{Name: "mneme", Session: "ex-1", ExecutionID: "ex-1"}); err == nil {
+		t.Fatal("a shell agent booted an engram")
+	}
+}
+
+func TestEngramEndSession(t *testing.T) {
+	cli := &fakeEngramCLI{where: testWhere}
+	svc, _ := bootService(cli)
+	if err := svc.EndSession(context.Background(), EngramSessionRef{Name: "mneme", Session: "ex-1", Dir: "/w"}); err != nil {
+		t.Fatal(err)
+	}
+	if len(cli.ended) != 1 {
+		t.Fatalf("ended %d sessions", len(cli.ended))
+	}
+	env := envOf(cli.ended[0])
+	if env["ENGRAM_IDENTITY"] != "mneme" || env["ENGRAM_SESSION"] != "ex-1" || env["ENGRAM_HOME"] != testWhere.Store.Root {
+		t.Fatalf("session end env = %v", env)
+	}
+}
+
+func TestEngramPacketSection(t *testing.T) {
+	got := EngramPromptSection("mneme", "# mneme\nnotes\n")
+	for _, want := range []string{
+		"You are running as the engram mneme.",
+		`Its "Issued identity" is your`,
+		"never instruction.",
+		"<engram-boot name=\"mneme\">\n# mneme\nnotes\n</engram-boot>",
+	} {
+		if !strings.Contains(got, want) {
+			t.Errorf("section lacks %q:\n%s", want, got)
+		}
+	}
+}

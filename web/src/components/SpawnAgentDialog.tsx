@@ -6,6 +6,7 @@ import { useSettings } from "../hooks/useSettings"
 import { apiFetch } from "../lib/api"
 import { agentKindLabel } from "../lib/agentKind"
 import { cloneChoices, listJobClones, type JobClone } from "../lib/jobClones"
+import { engramMarkLabel, fetchEngramPicker, takesEngram, type EngramPicker } from "../lib/engrams"
 import {
   completionOf,
   directoryName,
@@ -46,6 +47,11 @@ export interface SpawnAgentRequest {
   // branch of a stack); workingDir is then empty. An empty branch stays on
   // the clone's.
   joinClone?: { id: number; branch: string }
+  // The engram the agent starts as; absent for a normal session.
+  engram?: string
+  // Bind the engram to the place and make it the default there (or, with no
+  // engram, clear the place's default); absent when not ticked.
+  rememberEngram?: boolean
 }
 
 // What "Where" is: a folder on the server, or a clone Legato manages (a new
@@ -175,6 +181,9 @@ export function SpawnAgentDialog({
   const [jobClones, setJobClones] = useState<JobClone[]>([])
   const [jobCloneId, setJobCloneId] = useState<number | null>(null)
   const [jobClonesError, setJobClonesError] = useState("")
+  // The engrams the agent can start as, and the one picked ("" for none).
+  const [engramPicker, setEngramPicker] = useState<EngramPicker | null>(null)
+  const [engram, setEngram] = useState("")
 
   const formRef = useRef<HTMLFormElement>(null)
   const titleRef = useRef<HTMLInputElement>(null)
@@ -205,6 +214,8 @@ export function SpawnAgentDialog({
     setJobClones([])
     setJobCloneId(null)
     setJobClonesError("")
+    setEngramPicker(null)
+    setEngram("")
     if (settingsRef.current?.fresh_clones_enabled) {
       listJobClones(baseUrl)
         .then((listed) => {
@@ -300,6 +311,28 @@ export function SpawnAgentDialog({
   const where = inClone ? cloneRepository?.name ?? "" : selected?.name ?? directoryName(path)
   const canSave = !inClone && serverKnowsDirectories && path.trim() !== "" && !selected
 
+  // The engrams are asked for again whenever "Where" changes: the place
+  // decides which are bound there and which is picked first.
+  const engramRepo = inClone ? cloneRepository?.repo ?? "" : ""
+  const engramDir = inClone ? "" : path.trim()
+  useEffect(() => {
+    if (!open) return
+    const controller = new AbortController()
+    const timer = window.setTimeout(() => {
+      fetchEngramPicker(baseUrl, { dir: engramDir, repo: engramRepo, taskId }, controller.signal)
+        .then((picker) => {
+          if (controller.signal.aborted) return
+          setEngramPicker(picker)
+          setEngram(picker.enabled ? picker.preselect ?? "" : "")
+        })
+        .catch(() => {})
+    }, suggestDelayMs)
+    return () => {
+      window.clearTimeout(timer)
+      controller.abort()
+    }
+  }, [open, baseUrl, engramDir, engramRepo, taskId])
+
   // What is listed under the path, and what of it the keys can take. The
   // last answer stays up, dimmed, while the one for another directory is on
   // its way; see suggestionsWhile.
@@ -324,6 +357,13 @@ export function SpawnAgentDialog({
     { value: "shell", label: agentKindLabel("shell"), note: "" },
   ]
   const effectiveAdapter = agentKind || defaultAdapter
+  const engramShown = !!engramPicker?.enabled && takesEngram(effectiveAdapter)
+  const engramChoice = engramPicker?.engrams.find((choice) => choice.name === engram)
+  // The engrams of this place first (the task's last one leads them), then
+  // the rest.
+  const placeEngrams = (engramPicker?.engrams ?? []).filter((choice) => choice.bound || choice.mark === "last" || choice.mark === "default")
+  const otherEngrams = (engramPicker?.engrams ?? []).filter((choice) => !placeEngrams.includes(choice))
+  const placeWord = engramPicker?.place?.kind === "folder" ? "This folder" : "This repo"
   const offersSessionChoice = resumableAgentKinds.includes(effectiveAdapter)
   const toolLabel = agentKindLabel(effectiveAdapter)
 
@@ -395,13 +435,14 @@ export function SpawnAgentDialog({
         ...(picked.length > 0 ? { resources: picked } : {}),
         ...(unsandboxed ? { sandbox: false as const } : {}),
         ...(prompt.trim() ? { prompt: prompt.trim() } : {}),
+        ...(engramShown && engram ? { engram } : {}),
       })
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : String(reason))
     } finally {
       setLoading(false)
     }
-  }, [loading, ready, path, savePath, canSave, baseUrl, onSubmit, title, agentKind, offersSessionChoice, sessionPolicy, picked, unsandboxed, prompt, cloneRepository, baseBranch, branch, inClone, jobClone])
+  }, [loading, ready, path, savePath, canSave, baseUrl, onSubmit, title, agentKind, offersSessionChoice, sessionPolicy, picked, unsandboxed, prompt, cloneRepository, baseBranch, branch, inClone, jobClone, engramShown, engram])
 
   if (!open) return null
 
@@ -527,6 +568,42 @@ export function SpawnAgentDialog({
               })}
             </div>
           </div>
+
+          {engramShown && (
+            <div className="flex flex-col gap-1.5">
+              <label className="flex flex-col gap-1.5">
+                <span className={fieldLabel}>Engram</span>
+                <span className="relative flex">
+                  <select
+                    aria-label="Engram"
+                    value={engram}
+                    onChange={(event) => setEngram(event.target.value)}
+                    className={`h-[46px] w-full min-w-0 appearance-none truncate rounded-[10px] border border-lw-line-strong bg-lw-ground pl-3 pr-9 text-base text-lw-text outline-none sm:h-9 sm:rounded-md sm:text-sm ${focusRing}`}
+                  >
+                    <option value="">No engram</option>
+                    {placeEngrams.length > 0 && (
+                      <optgroup label={placeWord}>
+                        {placeEngrams.map((choice) => (
+                          <option key={choice.name} value={choice.name}>
+                            {engramMarkLabel(choice.mark) ? `${choice.name} · ${engramMarkLabel(choice.mark)}` : choice.name}
+                          </option>
+                        ))}
+                      </optgroup>
+                    )}
+                    {placeEngrams.length > 0
+                      ? otherEngrams.length > 0 && (
+                        <optgroup label="Other engrams">
+                          {otherEngrams.map((choice) => <option key={choice.name} value={choice.name}>{choice.name}</option>)}
+                        </optgroup>
+                      )
+                      : otherEngrams.map((choice) => <option key={choice.name} value={choice.name}>{choice.name}</option>)}
+                  </select>
+                  <ChevronDown aria-hidden="true" size={16} className="pointer-events-none absolute right-3 top-1/2 -translate-y-1/2 text-lw-faint" />
+                </span>
+              </label>
+              {engramChoice?.summary && <p className="text-xs text-lw-faint">{engramChoice.summary}</p>}
+            </div>
+          )}
 
           {offersSessionChoice && (
             <fieldset className="flex flex-col gap-1.5">

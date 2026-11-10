@@ -21,3 +21,11 @@ Legato asks engram where it is and which engrams it keeps each time you open a s
 | `engram.command` | none | The engram binary to run. Without it, Legato runs `engram` from its `PATH`. |
 
 Both can be changed in Settings or in `config.yaml`; see [Configuration](/legato/reference/configuration/#engram).
+
+## Start an agent as an engram
+
+In the web UI's spawn dialog, pick an engram in **Engram**, under **Agent**. **No engram** starts a normal session. Only Claude Code, Codex and Chimera agents can be started as an engram; a shell cannot.
+
+The agent starts with the engram's boot packet at the top of its launch prompt, and with the engram's name, store and session in its environment, so its own `engram` commands write to that engram. Legato adds no guidance of its own about keeping the engram current: the boot packet says when to note, remember and hand off.
+
+If the engram does not boot (engram fails, takes longer than 5 seconds, no longer has that engram, or its store is missing), the agent starts anyway, as a normal session, and Legato says why.

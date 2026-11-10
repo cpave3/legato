@@ -1553,6 +1553,7 @@ func runServeCmd(args []string) int {
 		})
 		recoverNativeEndpoints(agentSvc)
 		wireTaskAgents(boardSvc, agentSvc)
+		giveAgentsEngrams(agentSvc, db)
 	}
 
 	// Swarm service for HTTP endpoints.
@@ -1868,6 +1869,7 @@ func runTUI() int {
 		})
 		recoverNativeEndpoints(agentSvc)
 		wireTaskAgents(boardSvc, agentSvc)
+		giveAgentsEngrams(agentSvc, db)
 	}
 
 	icons := theme.NewIcons(cfg.Icons)
