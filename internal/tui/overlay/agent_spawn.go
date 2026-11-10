@@ -9,6 +9,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/charmbracelet/lipgloss"
 	"github.com/charmbracelet/x/ansi"
+	"github.com/cpave3/legato/internal/tui/hotkey"
 	"github.com/cpave3/legato/internal/tui/theme"
 )
 
@@ -24,6 +25,43 @@ type AgentSpawnSubmitMsg struct {
 	Resources []string
 	// Unsandboxed starts the agent outside Legato's sandbox.
 	Unsandboxed bool
+	// Engram starts the agent as that engram; empty for none.
+	Engram string
+	// RememberEngram binds Engram to the place and makes it the default
+	// there, or with no engram clears the place's default.
+	RememberEngram bool
+}
+
+// AgentSpawnEngramsWantedMsg asks the app for the engrams an agent can start
+// as in Dir. The app answers with an AgentSpawnEngramsMsg.
+type AgentSpawnEngramsWantedMsg struct {
+	Dir    string
+	TaskID string
+}
+
+// AgentSpawnEngramsMsg carries the engram picker for Dir.
+type AgentSpawnEngramsMsg struct {
+	Dir    string
+	Picker SpawnEngramPicker
+}
+
+// SpawnEngramPicker is what the engram row offers: the engrams in the order
+// to list them after No engram, the place they are for, and the one to
+// pick first. Enabled is false when engrams are off or engram is absent.
+type SpawnEngramPicker struct {
+	Enabled    bool
+	PlaceKind  string // repo or folder; empty with no place
+	PlaceLabel string
+	Default    string
+	Engrams    []SpawnEngram
+	Preselect  string
+}
+
+// SpawnEngram is one engram of the picker. Mark is last or default.
+type SpawnEngram struct {
+	Name    string
+	Summary string
+	Mark    string
 }
 
 // AgentSpawnCancelledMsg is sent when the user cancels.
@@ -89,10 +127,11 @@ const (
 	spawnFocusAgent
 	spawnFocusWhere
 	spawnFocusResources
+	spawnFocusEngram
 )
 
 // spawnFieldOrder is the order tab moves through the fields in.
-var spawnFieldOrder = []spawnField{spawnFocusTitle, spawnFocusAgent, spawnFocusResources, spawnFocusWhere}
+var spawnFieldOrder = []spawnField{spawnFocusTitle, spawnFocusAgent, spawnFocusEngram, spawnFocusResources, spawnFocusWhere}
 
 type spawnAgent struct{ label, value string }
 
@@ -105,6 +144,17 @@ type AgentSpawnOverlay struct {
 	agents     []spawnAgent
 	agentIndex int
 	focus      spawnField
+	// defaultAdapter is the tool of the first agent choice.
+	defaultAdapter string
+
+	// engrams is the picker for engramFor, the directory it was given for;
+	// engramAsked is the last directory it was asked for. engramIndex 0 is
+	// No engram, i the picker's engram i-1.
+	engrams     SpawnEngramPicker
+	engramFor   string
+	engramAsked string
+	engramIndex int
+	remember    bool
 
 	defaultDir SpawnDir
 	rows       []SpawnDir
@@ -161,7 +211,7 @@ func NewAgentSpawn(adapters []string, defaultAdapter, defaultCWD, taskID, title 
 		focus = spawnFocusAgent
 	}
 
-	m := AgentSpawnOverlay{taskID: taskID, title: title, agents: options, focus: focus, pick: -1}
+	m := AgentSpawnOverlay{taskID: taskID, title: title, agents: options, focus: focus, pick: -1, defaultAdapter: defaultAdapter}
 	return m.WithLocations(SpawnDir{Path: defaultCWD}, nil)
 }
 
@@ -278,10 +328,106 @@ func (m AgentSpawnOverlay) Update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		}
 		return m, nil
 
+	case AgentSpawnEngramsMsg:
+		if msg.Dir != m.target().path {
+			return m, nil
+		}
+		m.engrams, m.engramFor, m.engramAsked = msg.Picker, msg.Dir, msg.Dir
+		m.engramIndex, m.remember = 0, false
+		for i, e := range msg.Picker.Engrams {
+			if e.Name == msg.Picker.Preselect {
+				m.engramIndex = i + 1
+			}
+		}
+		return m, nil
+
 	case tea.KeyMsg:
-		return m.handleKey(msg)
+		next, cmd := m.handleKey(msg)
+		spawn, ok := next.(AgentSpawnOverlay)
+		if !ok {
+			return next, cmd
+		}
+		if ask := spawn.askForEngrams(); ask != nil {
+			return spawn, tea.Batch(cmd, ask)
+		}
+		return spawn, cmd
 	}
 	return m, nil
+}
+
+// askForEngrams asks for the picker of the directory the agent would now
+// start in, once engrams are known to be offered and that directory has
+// not been asked for.
+func (m *AgentSpawnOverlay) askForEngrams() tea.Cmd {
+	dir := m.target().path
+	if !m.engrams.Enabled || strings.TrimSpace(dir) == "" || dir == m.engramAsked {
+		return nil
+	}
+	m.engramAsked = dir
+	taskID := m.taskID
+	return func() tea.Msg { return AgentSpawnEngramsWantedMsg{Dir: dir, TaskID: taskID} }
+}
+
+// engramShown says whether the engram row is offered: engrams are on, and
+// the chosen tool takes a launch prompt.
+func (m AgentSpawnOverlay) engramShown() bool {
+	if !m.engrams.Enabled {
+		return false
+	}
+	kind := m.agents[m.agentIndex].value
+	if kind == "" {
+		kind = m.defaultAdapter
+	}
+	switch kind {
+	case "claude-code", "codex", "chimera":
+		return true
+	}
+	return false
+}
+
+// engram is the engram picked, "" for none.
+func (m AgentSpawnOverlay) engram() string {
+	if !m.engramShown() || m.engramIndex <= 0 || m.engramIndex > len(m.engrams.Engrams) {
+		return ""
+	}
+	return m.engrams.Engrams[m.engramIndex-1].Name
+}
+
+// canRemember says whether ticking remember would change anything: the
+// pick is not the place's default, or with No engram the place has one.
+func (m AgentSpawnOverlay) canRemember() bool {
+	if !m.engramShown() || m.engrams.PlaceKind == "" || m.engramFor != m.target().path {
+		return false
+	}
+	if picked := m.engram(); picked != "" {
+		return picked != m.engrams.Default
+	}
+	return m.engrams.Default != ""
+}
+
+// handleEngramKey cycles the engrams in picker order and toggles remember,
+// with the keys the registry gives the engram row.
+func (m *AgentSpawnOverlay) handleEngramKey(msg tea.KeyMsg) {
+	binding, ok := hotkey.DefaultRegistry().Resolve(msg, hotkey.Context{Overlay: hotkey.OverlayAgentSpawn, Mode: hotkey.ModeSpawnEngram})
+	if !ok {
+		return
+	}
+	switch binding.ID {
+	case hotkey.ActionSpawnEngramPrev:
+		if m.engramIndex > 0 {
+			m.engramIndex--
+			m.remember = false
+		}
+	case hotkey.ActionSpawnEngramNext:
+		if m.engramIndex < len(m.engrams.Engrams) {
+			m.engramIndex++
+			m.remember = false
+		}
+	case hotkey.ActionSpawnEngramRemember:
+		if m.canRemember() {
+			m.remember = !m.remember
+		}
+	}
 }
 
 func (m AgentSpawnOverlay) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
@@ -325,6 +471,8 @@ func (m AgentSpawnOverlay) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 		}
 	case spawnFocusAgent:
 		m.moveAgent(msg.String())
+	case spawnFocusEngram:
+		m.handleEngramKey(msg)
 	case spawnFocusResources:
 		m.handleResourceKey(msg)
 	case spawnFocusWhere:
@@ -354,6 +502,9 @@ func (m AgentSpawnOverlay) nextField(step int) spawnField {
 			continue
 		}
 		if focus == spawnFocusResources && len(m.resources) == 0 {
+			continue
+		}
+		if focus == spawnFocusEngram && !m.engramShown() {
 			continue
 		}
 		return focus
@@ -525,7 +676,9 @@ func (m AgentSpawnOverlay) submit() (tea.Model, tea.Cmd) {
 		WorkingDir: m.target().path,
 		Resources:  m.pickedResources(),
 		// The choice is the person's own and only while the sandbox is on.
-		Unsandboxed: m.sandbox && m.unsandboxed,
+		Unsandboxed:    m.sandbox && m.unsandboxed,
+		Engram:         m.engram(),
+		RememberEngram: m.remember && m.canRemember(),
 	}
 	return m, func() tea.Msg { return submit }
 }
@@ -595,6 +748,10 @@ func (m AgentSpawnOverlay) View() string {
 	if len(m.resources) > 0 {
 		fixed, gaps = fixed+1, gaps+1
 	}
+	engramLines := m.engramLines()
+	if len(engramLines) > 0 {
+		fixed, gaps = fixed+len(engramLines), gaps+1
+	}
 	if sized {
 		boxWidth = min(spawnPanelWidth, max(m.width-4, 24))
 		room := m.height - 2 - fixed
@@ -646,6 +803,10 @@ func (m AgentSpawnOverlay) View() string {
 	gap()
 	lines = append(lines, field("agent", spawnFocusAgent, []string{m.agentValue()})...)
 	gap()
+	if len(engramLines) > 0 {
+		lines = append(lines, field("engram", spawnFocusEngram, engramLines)...)
+		gap()
+	}
 	if len(m.resources) > 0 {
 		lines = append(lines, field("resources", spawnFocusResources, []string{m.resourcesValue(valueWidth)})...)
 		gap()
@@ -708,6 +869,56 @@ func (m AgentSpawnOverlay) agentValue() string {
 		chips[i] = style.Render(agent.label)
 	}
 	return strings.Join(chips, " ")
+}
+
+// engramLines draws the engram row, `‹ mneme · default ›  2/11`, and under
+// it the box to remember the pick when that would change something. None
+// when the row is not offered.
+func (m AgentSpawnOverlay) engramLines() []string {
+	if !m.engramShown() {
+		return nil
+	}
+	name, mark := "no engram", ""
+	if m.engramIndex > 0 && m.engramIndex <= len(m.engrams.Engrams) {
+		e := m.engrams.Engrams[m.engramIndex-1]
+		name, mark = e.Name, spawnEngramMark(e.Mark)
+	}
+	value := name
+	if mark != "" {
+		value += " · " + mark
+	}
+	style := lipgloss.NewStyle().Foreground(theme.TextPrimary)
+	if m.focus == spawnFocusEngram {
+		style = style.Foreground(theme.Accent).Bold(true)
+	}
+	faint := lipgloss.NewStyle().Foreground(theme.TextFaint)
+	lines := []string{style.Render("‹ "+value+" ›") + faint.Render(fmt.Sprintf("  %d/%d", m.engramIndex+1, len(m.engrams.Engrams)+1))}
+	if m.canRemember() {
+		box := "[ ]"
+		if m.remember {
+			box = "[x]"
+		}
+		noun := "repo"
+		if m.engrams.PlaceKind == "folder" {
+			noun = "folder"
+		}
+		text := box + " remember for this " + noun + " (r)"
+		if m.engram() == "" {
+			text = box + " clear this " + noun + "'s default (r)"
+		}
+		lines = append(lines, lipgloss.NewStyle().Foreground(theme.TextSecondary).Render(text))
+	}
+	return lines
+}
+
+func spawnEngramMark(mark string) string {
+	switch mark {
+	case "last":
+		return "last on this task"
+	case "default":
+		return "default"
+	}
+	return ""
 }
 
 // resourcesValue draws the resources as boxes to tick, kept around the one
@@ -898,7 +1109,11 @@ func (m AgentSpawnOverlay) summary(primary, secondary lipgloss.Style) string {
 		}
 		return arrow + secondary.Render("↵ to type a path")
 	}
-	text := arrow + secondary.Render(m.agents[m.agentIndex].label+" in ") + primary.Render(target.display)
+	agent := m.agents[m.agentIndex].label
+	if engram := m.engram(); engram != "" {
+		agent += " as " + engram
+	}
+	text := arrow + secondary.Render(agent+" in ") + primary.Render(target.display)
 	separator := lipgloss.NewStyle().Foreground(theme.TextFaint).Render(" · ")
 	switch {
 	case m.notice != "" && m.failed:
@@ -964,6 +1179,10 @@ func (m AgentSpawnOverlay) hints(width int) string {
 		left = join("tab", "field", presets, "preset", "h/l", "agent", "/", "path")
 	case m.focus == spawnFocusAgent:
 		left = join("tab", "field", "h/l", "agent")
+	case m.focus == spawnFocusEngram && m.canRemember():
+		left = join("tab", "field", "h/l", "engram", "r", "remember")
+	case m.focus == spawnFocusEngram:
+		left = join("tab", "field", "h/l", "engram")
 	case m.focus == spawnFocusResources:
 		left = join("tab", "field", "h/l", "move", "space", "pick")
 	default:

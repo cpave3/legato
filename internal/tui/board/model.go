@@ -379,6 +379,16 @@ func (m *Model) SetSlotAgents(slots map[string][]service.SlotAgentSummary) {
 	}
 }
 
+// SetAgentEngrams sets the engram each task's running agent runs as.
+func (m *Model) SetAgentEngrams(engrams map[string]string) {
+	for colName, cards := range m.cards {
+		for i := range cards {
+			cards[i].Engram = engrams[cards[i].Key]
+		}
+		m.cards[colName] = cards
+	}
+}
+
 // SetAgentStates updates the agent activity state for each card.
 // States: "working", "waiting", "error", or "" (idle/no agent).
 func (m *Model) SetAgentStates(states map[string]string) {

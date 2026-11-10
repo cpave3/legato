@@ -7,8 +7,8 @@ import (
 
 // keyboardReference writes the docs site's keyboard page from the
 // registry: the keys of the full help, page by page, with the keys of a
-// page's modes under their own headings. Overlay keys are left out: each
-// overlay shows its own.
+// page's modes under their own headings. Overlay keys are left out (each
+// overlay shows its own) but for the spawn dialog's engram row.
 func keyboardReference(bindings []Binding) string {
 	var b strings.Builder
 	b.WriteString(`---
@@ -28,6 +28,8 @@ In the TUI, press ` + "`?`" + ` to see these keys. The help shows only the keys 
 		inPage := bindingsIn(bindings, func(s Scope) bool { return s.Page == page.page })
 		writeGroup(&b, page.title, inPage)
 	}
+	// The spawn dialog's engram row, which other overlays do not have.
+	writeGroup(&b, "Spawn dialog", bindingsIn(bindings, func(s Scope) bool { return s.Overlay == OverlayAgentSpawn }))
 	return strings.TrimRight(b.String(), "\n") + "\n"
 }
 
@@ -54,6 +56,7 @@ var modeTitles = []struct {
 	{ModeQueue, "In the queue"},
 	{ModeReader, "Reading a plan"},
 	{ModeTour, "In a review tour"},
+	{ModeSpawnEngram, "On the engram row"},
 }
 
 // What a person turns on to get a key that is not always there.

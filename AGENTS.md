@@ -88,6 +88,7 @@ The rest are not imported. Before changing an area, read its doc, and keep it cu
 - `docs/ai/agent-mcp.md` — `legato mcp serve` tools, artifacts/cards, images, videos, studios, HTML sandbox
 - `docs/ai/integrations.md` — Argus: scoped tokens, owner lookup, delegations, replies, the OAuth connection, cases in Attention
 - `docs/ai/resources.md` — named file/folder resources given to agents
+- `docs/ai/engram.md` — engram sessions: the engram client, the setting and probe, bindings, the spawn as an engram
 - `docs/ai/sandbox.md` — bubblewrap sandbox: what agents see and what is hidden
 - `docs/ai/updates.md` — the version, the release workflow, and the self-updater
 - `docs/ai/plans.md` — collaborative plans: storage, revisions, API, image copies
@@ -123,6 +124,7 @@ The documentation for people who use Legato is the Starlight site in `site/`, pu
 | `docs/ai/sync.md`, `docs/ai/pr-tracking.md` | `integrations/jira`, `integrations/github` |
 | `docs/ai/claude-code-native.md`, `docs/ai/codex-native.md`, `docs/ai/agent-mcp.md`, `docs/ai/resources.md` | `agent-tools/*` |
 | `docs/ai/credentials.md`, `docs/ai/sandbox.md` | `security/*`, `running/agent-server` |
+| `docs/ai/engram.md` | `agent-tools/engrams` |
 | `docs/ai/integrations.md` | `integrations/argus` |
 | `docs/ai/updates.md` | `running/updates`, `start/install` |
 | `docs/ai/desktop.md` | `running/desktop-app` |

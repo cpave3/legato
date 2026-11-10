@@ -61,16 +61,18 @@ type AgentResponse struct {
 	// and WebSocket message takes.
 	TaskID string `json:"task_id"`
 	// CardTaskID is the task the agent's slot belongs to; Slot its slot.
-	CardTaskID         string     `json:"card_task_id,omitempty"`
-	Slot               string     `json:"slot,omitempty"`
-	ExecutionID        string     `json:"execution_id,omitempty"`
-	AttributionTaskID  string     `json:"attribution_task_id"`
-	ExecutionKind      string     `json:"execution_kind,omitempty"`
-	WorkflowRunID      string     `json:"workflow_run_id,omitempty"`
-	Title              string     `json:"task_title"`
-	TmuxSession        string     `json:"tmux_session"`
-	Command            string     `json:"command"`
-	AgentKind          string     `json:"agent_kind"`
+	CardTaskID        string `json:"card_task_id,omitempty"`
+	Slot              string `json:"slot,omitempty"`
+	ExecutionID       string `json:"execution_id,omitempty"`
+	AttributionTaskID string `json:"attribution_task_id"`
+	ExecutionKind     string `json:"execution_kind,omitempty"`
+	WorkflowRunID     string `json:"workflow_run_id,omitempty"`
+	Title             string `json:"task_title"`
+	TmuxSession       string `json:"tmux_session"`
+	Command           string `json:"command"`
+	AgentKind         string `json:"agent_kind"`
+	// Engram is the engram the agent runs as; absent for none.
+	Engram             string     `json:"engram,omitempty"`
 	Status             string     `json:"status"`
 	Activity           string     `json:"activity"`
 	Role               string     `json:"role,omitempty"`
@@ -103,7 +105,7 @@ func agentResponse(agent service.AgentSession) AgentResponse {
 		ID: agent.ID, TaskID: agent.TaskID, ExecutionID: agent.ExecutionID,
 		AttributionTaskID: agent.AttributionTaskID, ExecutionKind: agent.ExecutionKind,
 		WorkflowRunID: agent.WorkflowRunID, Title: agent.Title, TmuxSession: agent.TmuxSession,
-		Command: agent.Command, AgentKind: agent.AgentKind, Status: agent.Status,
+		Command: agent.Command, AgentKind: agent.AgentKind, Engram: agent.Engram, Status: agent.Status,
 		Activity: agent.Activity, Role: agent.Role, ParentTaskID: agent.ParentTaskID,
 		SubtaskID: agent.SubtaskID, StartedAt: agent.StartedAt, EndedAt: agent.EndedAt,
 		Sandboxed: agent.Sandboxed, CardTaskID: agent.CardTaskID, Slot: agent.Slot,
@@ -146,6 +148,12 @@ func (s *Server) spawnAgentHandler() http.HandlerFunc {
 			// Slot is refused when named: only Legato starts agents in a
 			// named slot.
 			Slot string `json:"slot"`
+			// Engram starts the agent as that engram; empty for none.
+			Engram string `json:"engram"`
+			// RememberEngram binds Engram to where the agent starts and
+			// makes it the default there; with no engram, it clears the
+			// default.
+			RememberEngram bool `json:"remember_engram"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			http.Error(w, "invalid JSON", http.StatusBadRequest)
@@ -186,7 +194,9 @@ func (s *Server) spawnAgentHandler() http.HandlerFunc {
 			Resources:   resources,
 			Unsandboxed: req.Sandbox != nil && !*req.Sandbox,
 			Prompt:      req.Prompt,
+			Engram:      strings.TrimSpace(req.Engram),
 		}
+		s.rememberEngram(r.Context(), req.RememberEngram, opts.WorkingDir, opts.Repo, opts.Engram)
 		if creator, ok := s.agents.(ephemeralTaskCreator); ok && startsInBackground(opts) {
 			// A clone can take minutes: the agent is started in the
 			// background and listed as preparing until it runs.
@@ -201,7 +211,8 @@ func (s *Server) spawnAgentHandler() http.HandlerFunc {
 			s.writeJSON(w, http.StatusAccepted, map[string]any{"status": "preparing", "task_id": taskID, "preparing": true})
 			return
 		}
-		if err := s.agents.SpawnEphemeralAgent(context.Background(), req.Title, 0, 0, opts); err != nil {
+		var report service.SpawnReport
+		if err := s.agents.SpawnEphemeralAgent(service.WithSpawnReport(context.Background(), &report), req.Title, 0, 0, opts); err != nil {
 			http.Error(w, err.Error(), http.StatusInternalServerError)
 			return
 		}
@@ -211,7 +222,7 @@ func (s *Server) spawnAgentHandler() http.HandlerFunc {
 
 		w.Header().Set("Content-Type", "application/json")
 		w.WriteHeader(http.StatusCreated)
-		json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+		json.NewEncoder(w).Encode(spawnResult(map[string]any{"status": "ok"}, report))
 	}
 }
 
@@ -564,6 +575,12 @@ func (s *Server) taskAgentHandler() http.HandlerFunc {
 			// Slot is refused when named: only Legato starts agents in a
 			// named slot.
 			Slot string `json:"slot"`
+			// Engram starts the agent as that engram; empty for none.
+			Engram string `json:"engram"`
+			// RememberEngram binds Engram to where the agent starts and
+			// makes it the default there; with no engram, it clears the
+			// default.
+			RememberEngram bool `json:"remember_engram"`
 		}
 		decoder := json.NewDecoder(r.Body)
 		decoder.DisallowUnknownFields()
@@ -604,7 +621,7 @@ func (s *Server) taskAgentHandler() http.HandlerFunc {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
-		opts := service.AgentSpawnOptions{AgentKind: req.AgentKind, WorkingDir: req.WorkingDir, Repo: req.Repo, Ref: req.Ref, Branch: strings.TrimSpace(req.Branch), Clone: req.CloneID, Resources: resources, Unsandboxed: req.Sandbox != nil && !*req.Sandbox, Prompt: req.Prompt}
+		opts := service.AgentSpawnOptions{AgentKind: req.AgentKind, WorkingDir: req.WorkingDir, Repo: req.Repo, Ref: req.Ref, Branch: strings.TrimSpace(req.Branch), Clone: req.CloneID, Resources: resources, Unsandboxed: req.Sandbox != nil && !*req.Sandbox, Prompt: req.Prompt, Engram: strings.TrimSpace(req.Engram)}
 		effectiveAdapter := req.AgentKind
 		if effectiveAdapter == "" {
 			effectiveAdapter = agents.DefaultAdapter()
@@ -650,6 +667,7 @@ func (s *Server) taskAgentHandler() http.HandlerFunc {
 				return
 			}
 		}
+		s.rememberEngram(r.Context(), req.RememberEngram, opts.WorkingDir, opts.Repo, opts.Engram)
 		if startsInBackground(opts) {
 			// A clone can take minutes: the agent is started in the
 			// background and listed as preparing until it runs.
@@ -666,7 +684,8 @@ func (s *Server) taskAgentHandler() http.HandlerFunc {
 			s.writeJSON(w, http.StatusAccepted, map[string]any{"task_id": taskID, "created": true, "preparing": true})
 			return
 		}
-		if err := agents.SpawnAgent(r.Context(), taskID, 0, 0, opts); err != nil {
+		var report service.SpawnReport
+		if err := agents.SpawnAgent(service.WithSpawnReport(r.Context(), &report), taskID, 0, 0, opts); err != nil {
 			if errors.Is(err, service.ErrTaskResumeConflict) {
 				http.Error(w, err.Error(), http.StatusConflict)
 				return
@@ -675,6 +694,18 @@ func (s *Server) taskAgentHandler() http.HandlerFunc {
 			return
 		}
 		s.hub.Broadcast(WSMessage{Type: MsgAgentsChanged})
-		s.writeJSON(w, http.StatusCreated, map[string]any{"task_id": taskID, "created": true})
+		s.writeJSON(w, http.StatusCreated, spawnResult(map[string]any{"task_id": taskID, "created": true}, report))
 	}
+}
+
+// spawnResult adds what a spawn reported to its answer: the engram the
+// agent started as, or why it started without the one asked for.
+func spawnResult(body map[string]any, report service.SpawnReport) map[string]any {
+	if report.Engram != "" {
+		body["engram"] = report.Engram
+	}
+	if report.EngramWarning != "" {
+		body["engram_warning"] = report.EngramWarning
+	}
+	return body
 }

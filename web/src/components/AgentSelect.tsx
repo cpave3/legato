@@ -3,7 +3,7 @@ import type { AgentInfo } from "../hooks/useWebSocket"
 import { cn } from "../lib/utils"
 import { ChevronDown, Play, Pause, AlertTriangle, LayoutGrid, Plus } from "lucide-react"
 import { AgentKindBadge, UnsandboxedBadge } from "./AgentKindBadge"
-import { agentKindLabel, isAgentToolInForeground } from "../lib/agentKind"
+import { agentToolLabel, isAgentToolInForeground } from "../lib/agentKind"
 import { ensembleSection } from "../lib/agentGlance"
 import { formatAgentTime, sectionLabels, stateSeconds } from "../lib/agentList"
 import { reeveWash } from "./ReeveEntry"
@@ -124,9 +124,9 @@ export function AgentSelect({ agents: all, selectedId, onSelect, reeve }: AgentS
                 <span aria-hidden="true" className="text-lw-faint">· </span>
                 <span className="font-lw-mono">{selectedAgent.task_id}</span>
               </span>
-              <span title={`${agentKindLabel(selectedAgent.agent_kind)}, ${selectedAgent.has_chimera_endpoint ? "native" : "terminal"} session`} className="hidden shrink-0 @min-[18rem]:inline">
+              <span title={`${agentToolLabel(selectedAgent.agent_kind, selectedAgent.engram)}, ${selectedAgent.has_chimera_endpoint ? "native" : "terminal"} session`} className="hidden shrink-0 @min-[18rem]:inline">
                 <span aria-hidden="true" className="text-lw-faint">· </span>
-                <span>{agentKindLabel(selectedAgent.agent_kind)}</span>
+                <span>{agentToolLabel(selectedAgent.agent_kind, selectedAgent.engram)}</span>
               </span>
             </span>
           </span>
@@ -179,7 +179,7 @@ export function AgentSelect({ agents: all, selectedId, onSelect, reeve }: AgentS
                   <span className="truncate pl-4 text-xs text-[#c9c8d0]">{agent.task_title}</span>
                 )}
                 <span className="flex min-w-0 items-center gap-1.5 pl-4">
-                  <AgentKindBadge kind={agent.agent_kind} isNative={!!agent.has_chimera_endpoint} />
+                  <AgentKindBadge kind={agent.agent_kind} engram={agent.engram} isNative={!!agent.has_chimera_endpoint} />
                   {agent.unsandboxed && <UnsandboxedBadge />}
                   {!isAgentToolInForeground(agent.agent_kind, agent.command) && (
                     <span className="min-w-0 truncate font-mono text-xs text-lw-text-2">{agent.command}</span>

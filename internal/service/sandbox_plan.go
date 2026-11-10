@@ -122,7 +122,21 @@ type SandboxPlanInput struct {
 	// with one, Az puts Legato's az wrapper over every real az.
 	Azure SandboxAzure
 	Az    SandboxWrapper
-	FS    FSProbe
+	// Engram is the engram an agent started as runs: its binary and its
+	// store. Zero for a session with no engram.
+	Engram SandboxEngram
+	FS     FSProbe
+}
+
+// SandboxEngram is what an engram session needs inside the sandbox: the
+// real engram binary from `engram where` (never a shim), bound read-only
+// at BinMount (an empty file made first, in a folder that goes first on
+// the session's PATH), and the whole store, read-write. It does not depend
+// on default_mounts.
+type SandboxEngram struct {
+	Binary   string
+	BinMount string
+	Store    string
 }
 
 // linkDirs are the folders of commands where a tool is often a link to a
@@ -358,6 +372,7 @@ func BuildSandboxPlan(in SandboxPlanInput) (sandbox.Plan, error) {
 			overlays[i] = real(p)
 		}
 		in.GH.Overlays = overlays
+		in.Engram.Binary, in.Engram.Store = real(in.Engram.Binary), real(in.Engram.Store)
 		extra := make([]SandboxPath, len(in.Extra))
 		for i, e := range in.Extra {
 			extra[i] = SandboxPath{Path: real(e.Path), Access: e.Access}
@@ -515,6 +530,19 @@ func BuildSandboxPlan(in SandboxPlanInput) (sandbox.Plan, error) {
 		if w.env == "LEGATO_AZ_REAL" {
 			// az keeps its account in the sandbox's own ~/.azure.
 			plan.Unsetenv = append(plan.Unsetenv, "AZURE_CONFIG_DIR")
+		}
+	}
+	if in.Engram.Store != "" {
+		store := filepath.Clean(in.Engram.Store)
+		if !in.FS.Probe(store).Exists {
+			return sandbox.Plan{}, fmt.Errorf("engram's store %s is missing", store)
+		}
+		if err := check(store); err != nil {
+			return sandbox.Plan{}, err
+		}
+		mounts = append(mounts, sandbox.Mount{Kind: sandbox.ReadWrite, Path: store})
+		if in.Engram.Binary != "" && in.Engram.BinMount != "" && in.FS.Probe(in.Engram.Binary).Exists {
+			mounts = append(mounts, sandbox.Mount{Kind: sandbox.ReadOnly, Path: in.Engram.Binary, Dest: in.Engram.BinMount})
 		}
 	}
 	mounts = append(mounts, linkTargetMounts(in, mounts, no)...)

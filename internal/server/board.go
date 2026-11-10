@@ -92,6 +92,7 @@ func (s *Server) boardHandler() http.HandlerFunc {
 					resp.Columns[r.col].Cards[r.card].AgentActive = summary.Active
 					resp.Columns[r.col].Cards[r.card].AgentState = summary.State
 					resp.Columns[r.col].Cards[r.card].AgentKind = summary.Kind
+					resp.Columns[r.col].Cards[r.card].AgentEngram = summary.Engram
 					resp.Columns[r.col].Cards[r.card].SlotAgents = summary.Slots
 				}
 			}

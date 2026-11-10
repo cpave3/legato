@@ -127,7 +127,7 @@ Requests from agents that wait for you (permissions, questions, credentials) app
 
 **Settings** has seven groups:
 
-- **Agents**: repositories, a link to **Remote**, [resources](/legato/agent-tools/resources/), prompt detection and the agent switch key.
+- **Agents**: repositories, a link to **Remote**, [resources](/legato/agent-tools/resources/), **Engram bindings** (the [engrams](/legato/agent-tools/engrams/) bound to each repository or folder, with **Make default**, **Unbind** and **Clear the default**, and whether engram was found), the engram settings, prompt detection and the agent switch key.
 - **Security**: browser notifications for approvals, the devices that can sign approvals, and credentials.
 - **Integrations**: [Argus](/legato/integrations/argus/) and integration tokens.
 - **Handoff**: **Workers**, the Legatos this one hands tasks to, with **Add a worker** (with none paired yet, it explains handing off); and **Main instances**, the Legatos that hand tasks to this one, with **Pair a main instance** and **Unpair**. See [Main and worker instances](/legato/running/instances/) and [Hand off tasks to a worker](/legato/using/handoff/).

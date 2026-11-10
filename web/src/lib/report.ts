@@ -25,7 +25,7 @@ export interface ReportTask { task_id: string; display_id: string; title: string
 export interface ReportWorkspace { workspace_id: number | null; workspace_name: string; workspace_color: string; working_seconds: number; waiting_seconds: number; error_seconds: number; task_count: number }
 export interface ReportDirectory { directory: string; working_seconds: number; waiting_seconds: number; error_seconds: number; task_count: number }
 export interface ReportSwarm { parent_task_id: string; title: string; working_seconds: number; waiting_seconds: number; error_seconds: number; wall_clock_seconds: number; parallel_ratio: number; worker_count: number; subtask_count: number }
-export interface ReportExecution { id: string; kind: string; status: string; task_id: string; task_title: string; workflow_run_id: string; working_seconds: number; waiting_seconds: number; error_seconds: number; wall_clock_seconds: number; started_at: string; ended_at: string | null }
+export interface ReportExecution { id: string; kind: string; status: string; task_id: string; task_title: string; workflow_run_id: string; engram?: string; working_seconds: number; waiting_seconds: number; error_seconds: number; wall_clock_seconds: number; started_at: string; ended_at: string | null }
 
 export interface Report {
   period: ReportPeriod

@@ -1553,6 +1553,7 @@ func runServeCmd(args []string) int {
 		})
 		recoverNativeEndpoints(agentSvc)
 		wireTaskAgents(boardSvc, agentSvc)
+		giveAgentsEngrams(agentSvc, db)
 	}
 
 	// Swarm service for HTTP endpoints.
@@ -1606,6 +1607,7 @@ func runServeCmd(args []string) int {
 	srv.SetRepositoryPresetService(repoPresets)
 	srv.SetRepositoryGuidanceService(repositoryGuidance(cfg, db))
 	srv.SetTintService(service.NewTintService(service.StringSetting{Settings: settingsFor(db)}))
+	srv.SetEngramService(engramsFor(db))
 	srv.SetJobCloneService(repos)
 	srv.SetTaskStackService(wireTaskStacks(db, bus, repos))
 	repos.SetCacheListener(srv.BroadcastRepositoryCache)
@@ -1867,6 +1869,7 @@ func runTUI() int {
 		})
 		recoverNativeEndpoints(agentSvc)
 		wireTaskAgents(boardSvc, agentSvc)
+		giveAgentsEngrams(agentSvc, db)
 	}
 
 	icons := theme.NewIcons(cfg.Icons)
@@ -1979,6 +1982,7 @@ func runTUI() int {
 			webSrv.SetRepositoryPresetService(repoPresets)
 			webSrv.SetRepositoryGuidanceService(repositoryGuidance(cfg, db))
 			webSrv.SetTintService(service.NewTintService(service.StringSetting{Settings: settingsFor(db)}))
+			webSrv.SetEngramService(engramsFor(db))
 			webSrv.SetJobCloneService(repos)
 			webSrv.SetTaskStackService(taskStacks)
 			repos.SetCacheListener(webSrv.BroadcastRepositoryCache)
@@ -2045,6 +2049,7 @@ func runTUI() int {
 
 	app := tui.NewApp(boardSvc, syncSvc, agentSvc, prSvc, reportSvc, icons, bus, editor, workspaces, tmuxMgr, wd, swarmSvc, cfg.Macros, reviewSvc)
 	app.SetDirectoryService(configuredDirectoryService(cfg, db, repoPresets))
+	app.SetEngramService(engramsFor(db))
 	app.SetSandboxEnabled(cfg.Agents.Sandbox.Enabled)
 	app.SetResourceService(configuredResourceService(cfg, db))
 	app.SetProviderSyncService(providerSync)
@@ -2082,6 +2087,7 @@ func runTUI() int {
 	}
 	registerApprovalAttention(attentionSvc, approvalsRT)
 	_ = attentionSvc.RegisterProducer(service.NewRestartAttentionAdapter(db))
+	_ = attentionSvc.RegisterProducerWithEvents(service.NewEngramAttentionAdapter(db), events.EventAgentStarted, events.EventAgentDied, events.EventAgentCompleted)
 	if webSrv == nil {
 		wireSettings(db, bus, nil)
 	}

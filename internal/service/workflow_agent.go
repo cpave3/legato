@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 
+	"github.com/cpave3/legato/internal/engine/events"
 	"github.com/cpave3/legato/internal/engine/store"
 )
 
@@ -22,7 +24,13 @@ type WorkflowAgentRunner struct {
 	agents     AgentService
 	store      *store.Store
 	binaryPath string
+	bus        *events.Bus
 }
+
+// SetBus has a finished workflow agent announced as EventAgentCompleted,
+// so Attention reconciles what it said of that agent (an engram that did
+// not boot).
+func (r *WorkflowAgentRunner) SetBus(bus *events.Bus) { r.bus = bus }
 
 func NewWorkflowAgentRunner(agents AgentService, s *store.Store, binaryPath ...string) *WorkflowAgentRunner {
 	runner := &WorkflowAgentRunner{agents: agents, store: s}
@@ -73,6 +81,12 @@ func (r *WorkflowAgentRunner) FinishWorkflowAgent(ctx context.Context, attempt s
 		if err := r.store.TerminalizeExecution(ctx, session.ExecutionID, store.ExecutionSucceeded); err != nil {
 			return err
 		}
+		// An agent that ran as an engram ends its engram session with it.
+		if ender, ok := r.agents.(interface {
+			EndEngramSession(ctx context.Context, executionID string)
+		}); ok {
+			ender.EndEngramSession(ctx, session.ExecutionID)
+		}
 	}
 	if err := r.store.FinishAgentSession(ctx, *attempt.AgentSessionID); err != nil && err != store.ErrNotFound {
 		return err
@@ -83,6 +97,9 @@ func (r *WorkflowAgentRunner) FinishWorkflowAgent(ctx context.Context, attempt s
 	// The sandbox's scratch goes once nothing runs in it.
 	if remover, ok := r.agents.(interface{ RemoveSandboxScratch(executionID string) }); ok && session != nil {
 		remover.RemoveSandboxScratch(session.ExecutionID)
+	}
+	if r.bus != nil && session != nil {
+		r.bus.Publish(events.Event{Type: events.EventAgentCompleted, At: time.Now(), Payload: events.AgentDiedPayload{TaskID: session.TaskID}})
 	}
 	return nil
 }
@@ -148,11 +165,17 @@ func (e *AgentRunExecutor) Start(ctx context.Context, step ResolvedWorkflowStep)
 	repo, _ := workflowString(step.With, "repo", false)
 	ref, _ := workflowString(step.With, "ref", false)
 	branch, _ := workflowString(step.With, "branch", false)
+	// An engram engram does not list fails the step before anything starts.
+	engram, err := workflowString(step.With, "engram", false)
+	if err != nil {
+		return WorkflowExecutionResult{}, err
+	}
 	assignment := buildWorkflowAssignment(prompt, step, e.binaryPath)
 	opts := AgentSpawnOptions{
 		AgentKind: kind, Tier: tier, WorkingDir: workingDir, Repo: strings.TrimSpace(repo), Ref: strings.TrimSpace(ref), Branch: strings.TrimSpace(branch), Assignment: assignment,
 		ExecutionKind: store.ExecutionWorkflowAgent, AttributionTaskID: step.RelatedTaskID,
 		WorkflowRunID: step.RunID, WorkflowAttemptID: step.AttemptID,
+		Engram: strings.TrimSpace(engram), EngramRequired: strings.TrimSpace(engram) != "",
 		ExtraEnv: map[string]string{
 			"LEGATO_TASK_ID": step.TaskID, "LEGATO_WORKFLOW_RUN_ID": step.RunID, "LEGATO_WORKFLOW_STEP_ID": step.StepID, "LEGATO_WORKFLOW_ATTEMPT_ID": step.AttemptID,
 		},

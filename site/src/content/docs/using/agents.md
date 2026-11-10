@@ -14,8 +14,9 @@ Each tool has its own page under Agent tools: [Claude Code](/legato/agent-tools/
 1. Select the task's card on the board.
 2. Press `a`. The spawn dialog opens.
 3. Choose the agent tool with `h` and `l`. The default tool comes first, then the others, then `shell`.
-4. Tick any [resources](/legato/agent-tools/resources/) to give the agent, with `space`.
-5. Choose where the agent starts, then press `enter`.
+4. With engram installed, choose an [engram](/legato/agent-tools/engrams/) on the `engram` row with `h` and `l`, or leave it on `no engram`. Press `r` there to remember the choice for the repository.
+5. Tick any [resources](/legato/agent-tools/resources/) to give the agent, with `space`.
+6. Choose where the agent starts, then press `enter`.
 
 `tab` and `shift+tab` move between the fields, and `enter` spawns from any of them. A line above the keys says what `enter` will do, such as `→ chimera in ~/Development/autopilot · for f41p6uf0`.
 
@@ -40,13 +41,16 @@ Presets are the `repositories` in your configuration that have a `primary_dir`, 
 
 When `agents.sandbox.enabled` is on, every agent runs inside Legato's [sandbox](/legato/security/sandbox/). To start one agent outside it, press `ctrl+u` in the spawn dialog. The web dialog has a **Run without sandbox** box, which is unticked each time it opens.
 
+An agent started as an [engram](/legato/agent-tools/engrams/) shows it beside its tool, such as `claude · hestia`, in the agents list, over its terminal, on its ensemble tile, in the board's panel about the task, and on its card in the web UI (`Running · Claude Code · hestia`).
+
 An agent that runs outside the sandbox is marked in amber: with `⊘` beside its ID in the agents list (an open padlock with Nerd Fonts), and with **unsandboxed** over its terminal and on its tile in the ensemble. When the sandbox is off, no agent is marked.
 
 ### The web spawn dialog
 
-The web UI's dialog asks the same questions and adds two:
+The web UI's dialog asks the same questions and adds these:
 
 - **First message**: text the agent gets as its first message once it is ready. `Ctrl+Enter` spawns from any field.
+- **Engram**: with the engram command installed, start the agent as one of your [engrams](/legato/agent-tools/engrams/), or as **No engram** for a normal session. The engram's summary is shown under it.
 - **Clone**: with `repository_cache.enabled`, a **Folder | Clone** switch lets the agent start in a fresh clone of a repository on a branch of its own, instead of a folder. The agent appears under **Starting** while Legato copies and sets up the clone.
 
 ## Agents with no task

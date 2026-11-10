@@ -210,3 +210,13 @@ In the TUI, press `?` to see these keys. The help shows only the keys that work 
 | `k/up` | Select previous item |
 | `enter` | Execute primary action |
 | `d` | Dismiss attention item |
+
+## Spawn dialog
+
+### On the engram row
+
+| Key | Action |
+| --- | --- |
+| `h/left` | Previous engram |
+| `l/right` | Next engram |
+| `r` | Remember the engram for this repository, or clear its default |

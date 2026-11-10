@@ -48,6 +48,7 @@ From then on every agent Legato starts runs inside the sandbox. If `bwrap` is mi
 | `/tmp` | a folder of the session's own, on disk |
 | Legato's sockets for the session: the SSH agent socket, the `gh` wrapper and the host broker | read-only |
 | The `legato` binary | read-only |
+| For an agent started as an [engram](/legato/agent-tools/engrams/): the engram binary, first on `PATH`, and engram's store, so the agent's own engram notes and memories are written | binary read-only, store read and write |
 | Your `known_hosts` and the system's ssh configuration | read-only |
 
 Agents never see:

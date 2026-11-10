@@ -52,19 +52,21 @@ type AgentSession struct {
 	AttributionTaskID string // user-facing task this execution concerns
 	ExecutionKind     string
 	WorkflowRunID     string
-	Title             string
-	Group             string
-	TmuxSession       string
-	Command           string
-	AgentKind         string
-	Status            string
-	Activity          string // "working", "waiting", "error", or "" (idle)
-	Role              string // "conductor", "" for non-swarm, or worker role label
-	ParentTaskID      string // when set, this session belongs to a swarm
-	SubtaskID         string // when set, this session is a swarm worker
-	StartedAt         time.Time
-	EndedAt           *time.Time
-	NotifyEnabled     bool
+	// Engram is the engram the agent runs as, "" for none.
+	Engram        string
+	Title         string
+	Group         string
+	TmuxSession   string
+	Command       string
+	AgentKind     string
+	Status        string
+	Activity      string // "working", "waiting", "error", or "" (idle)
+	Role          string // "conductor", "" for non-swarm, or worker role label
+	ParentTaskID  string // when set, this session belongs to a swarm
+	SubtaskID     string // when set, this session is a swarm worker
+	StartedAt     time.Time
+	EndedAt       *time.Time
+	NotifyEnabled bool
 
 	// Swarm worker metadata, hydrated from the subtask row.
 	Description string
@@ -198,6 +200,16 @@ type AgentSpawnOptions struct {
 	// Legato's own services start. Each slot keeps its own tmux session,
 	// execution and saved conversation.
 	Slot string
+	// Engram starts the agent as that engram (docs/ai/engram.md): its boot
+	// packet first in the launch prompt, ENGRAM_* in its environment. A
+	// boot that fails starts the agent without it, unless EngramRequired.
+	Engram string
+	// EngramSession is the engram session a resumed conversation keeps
+	// (from the execution it resumes); found from the task when empty.
+	EngramSession string
+	// EngramRequired fails the spawn, before anything starts, when the
+	// engram is not one engram lists (a workflow step's).
+	EngramRequired bool
 }
 
 // AgentSpawnConflict describes a scope-overlap warning encountered at spawn time.
@@ -282,6 +294,7 @@ type agentService struct {
 	sessionEnv        SessionEnvProvider       // credential channels; nil without any
 	brokerEnv         SessionEnvProvider       // the host broker's socket and a token; nil without one
 	repos             JobCloner                // makes clones for agents spawned with a repository; nil without one
+	engrams           AgentEngrams             // boots engrams for agents started as one; nil without
 	primaryDir        func(repo string) string // a repository's main checkout, for a fresh clone's setup; nil without
 	setupsMu          sync.Mutex
 	setups            map[string]string // task -> the status file of its clone's setup, while it runs
@@ -511,6 +524,29 @@ func (a *agentService) SetRepositories(repos JobCloner) {
 	a.repos = repos
 }
 
+// AgentEngrams boots an engram for a spawn and ends its session
+// (EngramService).
+type AgentEngrams interface {
+	Boot(ctx context.Context, req EngramBootRequest) (EngramBoot, error)
+	EndSession(ctx context.Context, ref EngramSessionRef) error
+	// Touch records that an engram was spawned in dir, for the order of
+	// its place's bound engrams.
+	Touch(ctx context.Context, dir, name string) error
+}
+
+// SetEngrams lets agents spawned from now on start as engrams.
+func (a *agentService) SetEngrams(engrams AgentEngrams) {
+	a.sessionEnvMu.Lock()
+	defer a.sessionEnvMu.Unlock()
+	a.engrams = engrams
+}
+
+func (a *agentService) engramBooter() AgentEngrams {
+	a.sessionEnvMu.Lock()
+	defer a.sessionEnvMu.Unlock()
+	return a.engrams
+}
+
 func (a *agentService) repositories() JobCloner {
 	a.sessionEnvMu.Lock()
 	defer a.sessionEnvMu.Unlock()
@@ -584,7 +620,7 @@ func NewAgentService(s *store.Store, tmux TmuxManager, workDir string, opts ...A
 	return svc
 }
 
-func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, height int, opts ...AgentSpawnOptions) error {
+func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, height int, opts ...AgentSpawnOptions) (spawnErr error) {
 	var opt AgentSpawnOptions
 	if len(opts) > 0 {
 		opt = opts[0]
@@ -709,6 +745,22 @@ func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, hei
 		agentKind = adapter.Name()
 	}
 	nativeResume := opt.SessionPolicy == "resume" && (agentKind == "claude-code" || agentKind == "codex")
+
+	// An engram boots on the host, where the agent will work, before its
+	// launch prompt is written. A boot that fails leaves the agent to start
+	// without it.
+	booted, err := a.bootEngram(ctx, taskID, executionID, agentKind, workDir, opt)
+	if err != nil {
+		return err
+	}
+	// Until the engram is recorded on the execution (which ends its session
+	// with it), a spawn that fails ends the session it booted.
+	engramRecorded := false
+	defer func() {
+		if spawnErr != nil && !engramRecorded {
+			booted.endIfFresh(ctx, a.engramBooter(), workDir)
+		}
+	}()
 
 	// Build env vars to inject into the initial shell. Track them as a map
 	// for the adapter LaunchCommand call, then flatten for tmux Spawn.
@@ -863,6 +915,9 @@ func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, hei
 			rolePrompt = opt.Assignment
 		}
 	}
+	if booted.booted() && booted.Packet != "" {
+		rolePrompt = joinPromptSections(EngramPromptSection(booted.name, booted.Packet), rolePrompt)
+	}
 	if rolePrompt != "" || assignment != "" {
 		rolePath, briefPath, perr := writeAgentPromptFiles(agentKey, rolePrompt, assignment)
 		if perr != nil {
@@ -883,6 +938,13 @@ func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, hei
 	// A prompt of more than one line reaches a terminal agent as a file it
 	// is told to read; the pane takes one line.
 	prompt := strings.TrimSpace(opt.Prompt)
+	// A resumed conversation takes no launch prompt (Claude Code and Codex
+	// drop it, and Chimera's --session launch does not pass --prompt), so
+	// it gets a freshly booted engram's packet as its first message.
+	resumedLaunch := nativeResume || (opt.SessionPolicy == "resume" && agentKind == "chimera")
+	if resumedLaunch && booted.booted() && !booted.resumed && booted.Packet != "" {
+		prompt = joinPromptSections(EngramPromptSection(booted.name, booted.Packet), prompt)
+	}
 	if strings.ContainsAny(prompt, "\n\r\"") {
 		if dir, err := swarm.AgentDir(agentKey); err != nil {
 			log.Printf("writing the prompt of %s: %v", taskID, err)
@@ -931,7 +993,22 @@ func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, hei
 		}
 	}
 	envMap["LEGATO_EXECUTION_ID"] = executionID
+	// Once recorded on the execution, an engram session is ended with it.
 	failExecution := func() { _ = a.EndExecution(ctx, executionID, store.ExecutionFailed) }
+	if booted.booted() {
+		for k, v := range booted.Env {
+			envMap[k] = v
+		}
+		if err := a.store.SetExecutionEngram(ctx, executionID, booted.name, booted.session); err != nil {
+			failExecution()
+			return fmt.Errorf("recording the engram: %w", err)
+		}
+		engramRecorded = true
+	} else if booted != nil {
+		if err := a.store.SetExecutionEngramFailure(ctx, executionID, booted.name, booted.failed); err != nil {
+			log.Printf("engram: recording that %s did not boot for %s: %v", booted.name, taskID, err)
+		}
+	}
 	// Credential channels: placeholder keys, the proxy's address and the
 	// session's own SSH agent, which win over what the session inherits.
 	if provider := a.credentialEnv(); provider != nil {
@@ -959,7 +1036,11 @@ func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, hei
 	sandboxPrefix := ""
 	sandboxed := a.sandbox != nil && (!opt.Unsandboxed || opt.Unattended || opt.ReadOnlyCheckout || opt.ParentTaskID != "" || opt.SubtaskID != "" || opt.WorkflowRunID != "")
 	if sandboxed {
-		prefix, err := a.sandboxPrefix(ctx, taskID, executionID, agentKind, workDir, envMap, append(resources, freshClone.sandboxResources()...), opt.ReadOnlyCheckout, opt.ThrowawayCheckout)
+		var engramMounts SandboxEngram
+		if booted.booted() {
+			engramMounts = SandboxEngram{Binary: booted.Binary, Store: booted.Store}
+		}
+		prefix, err := a.sandboxPrefix(ctx, taskID, executionID, agentKind, workDir, envMap, append(resources, freshClone.sandboxResources()...), opt.ReadOnlyCheckout, opt.ThrowawayCheckout, engramMounts)
 		if err != nil {
 			failExecution()
 			return fmt.Errorf("Legato's sandbox: %w", err)
@@ -1587,6 +1668,7 @@ func (a *agentService) ListAgents(ctx context.Context) ([]AgentSession, error) {
 			AttributionTaskID: attributionTaskID,
 			ExecutionKind:     s.ExecutionKind,
 			WorkflowRunID:     s.WorkflowRunID,
+			Engram:            s.Engram,
 			Title:             title,
 			Group:             group,
 			TmuxSession:       s.TmuxSession,
@@ -1630,6 +1712,7 @@ func (a *agentService) EndExecution(ctx context.Context, executionID, status str
 		return err
 	}
 	a.scratch.removeLogged(executionID)
+	a.endEngramSession(ctx, executionID)
 	return nil
 }
 

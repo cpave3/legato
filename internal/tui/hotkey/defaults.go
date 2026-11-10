@@ -139,6 +139,9 @@ const (
 	OverlayMove          Overlay = "move"
 	OverlayWorkspace     Overlay = "workspace"
 	OverlayMoveWorkspace Overlay = "move-workspace"
+	// OverlayAgentSpawn is the spawn dialog. Only the keys of its engram
+	// row are resolved here; its other fields read keys themselves.
+	OverlayAgentSpawn Overlay = "agent-spawn"
 )
 
 const (
@@ -147,6 +150,10 @@ const (
 	ActionOverlaySelect ActionID = "overlay.select"
 	ActionOverlayCancel ActionID = "overlay.cancel"
 	ActionMoveWorkspace ActionID = "overlay.move.workspace"
+
+	ActionSpawnEngramPrev     ActionID = "overlay.agent-spawn.engram-prev"
+	ActionSpawnEngramNext     ActionID = "overlay.agent-spawn.engram-next"
+	ActionSpawnEngramRemember ActionID = "overlay.agent-spawn.engram-remember"
 )
 
 const (
@@ -160,6 +167,8 @@ const (
 	// ModeList and ModeGrid are the two layouts of the agents page.
 	ModeList Mode = "list"
 	ModeGrid Mode = "grid"
+	// ModeSpawnEngram is the spawn dialog with its engram row focused.
+	ModeSpawnEngram Mode = "spawn-engram"
 )
 
 const (
@@ -240,6 +249,11 @@ func addOverlayBindings(add func(ActionID, Scope, Target, []Key, string, string,
 		add(ActionOverlayCancel, scope, TargetOverlay, []Key{Special(tea.KeyEsc, "esc"), Rune('q')}, "cancel", "Close overlay", "Overlay", 100, 30, 0)
 	}
 	add(ActionMoveWorkspace, OverlayScope(OverlayMove), TargetOverlay, []Key{Rune('w')}, "workspace", "Assign workspace", "Overlay", 100, 25, 0)
+
+	engram := OverlayModeScope(OverlayAgentSpawn, ModeSpawnEngram)
+	add(ActionSpawnEngramPrev, engram, TargetOverlay, []Key{Rune('h'), Special(tea.KeyLeft, "left")}, "engram", "Previous engram", "Spawn dialog", 110, 10, FullHelp)
+	add(ActionSpawnEngramNext, engram, TargetOverlay, []Key{Rune('l'), Special(tea.KeyRight, "right")}, "engram", "Next engram", "Spawn dialog", 110, 11, FullHelp)
+	add(ActionSpawnEngramRemember, engram, TargetOverlay, []Key{Rune('r')}, "remember", "Remember the engram for this repository, or clear its default", "Spawn dialog", 110, 20, FullHelp)
 }
 
 func addPageBindings(bindings *[]Binding, add func(ActionID, Scope, Target, []Key, string, string, string, int, int, Surface, ...Capability)) {

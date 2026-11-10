@@ -94,6 +94,7 @@ type Server struct {
 	taskStacks               TaskStackService
 	preparing                preparingAgents
 	tints                    TintService
+	engrams                  EngramService
 	builtInWorkflows         []*workflowengine.Definition
 	worktrees                WorktreeService
 	notifyTaskChanged        func(string)
@@ -188,6 +189,9 @@ func NewWithSwarm(board service.BoardService, agents service.AgentService, tmux 
 	mux.HandleFunc("/api/workspaces", s.workspacesHandler())
 	mux.HandleFunc("/api/settings", s.settingsHandler())
 	mux.HandleFunc("/api/settings/tint", s.tintHandler())
+	mux.HandleFunc("/api/engrams", s.engramsHandler())
+	mux.HandleFunc("/api/engram-bindings", s.engramBindingsHandler())
+	mux.HandleFunc("/api/engram-bindings/default", s.engramDefaultHandler())
 	mux.HandleFunc("/api/settings/repository-guidance", s.repositoryGuidanceHandler())
 	mux.HandleFunc("/api/settings/updates", s.updateModeHandler())
 	mux.HandleFunc("/api/updates", s.updatesHandler())

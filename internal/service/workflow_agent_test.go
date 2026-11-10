@@ -88,3 +88,31 @@ func TestAgentRunExecutorStartsTheAgentInAClone(t *testing.T) {
 		t.Fatalf("opts = %+v", agents.opts)
 	}
 }
+
+func TestAgentRunExecutorStartsTheAgentAsItsEngram(t *testing.T) {
+	agents := &fakeWorkflowAgentService{}
+	executor := NewAgentRunExecutor(agents)
+	if _, err := executor.Start(context.Background(), ResolvedWorkflowStep{
+		RunID: "wr-1", AttemptID: "wa-1", TaskID: "workflow-task", StepID: "work", Type: "agent.run",
+		With: map[string]any{"prompt": "work", "engram": " mneme "},
+	}); err != nil {
+		t.Fatal(err)
+	}
+	if agents.opts.Engram != "mneme" || !agents.opts.EngramRequired {
+		t.Fatalf("opts = %+v", agents.opts)
+	}
+	// Absent: no engram.
+	if _, err := executor.Start(context.Background(), ResolvedWorkflowStep{RunID: "wr-1", TaskID: "workflow-task", With: map[string]any{"prompt": "work"}}); err != nil {
+		t.Fatal(err)
+	}
+	if agents.opts.Engram != "" {
+		t.Fatalf("an agent with no engram set started as %q", agents.opts.Engram)
+	}
+}
+
+func TestAgentRunExecutorRefusesAnEngramThatIsNotText(t *testing.T) {
+	executor := NewAgentRunExecutor(&fakeWorkflowAgentService{})
+	if _, err := executor.Start(context.Background(), ResolvedWorkflowStep{RunID: "wr-1", TaskID: "workflow-task", With: map[string]any{"prompt": "work", "engram": map[string]any{"name": "mneme"}}}); err == nil {
+		t.Fatal("an engram that resolved to an object was dropped silently")
+	}
+}

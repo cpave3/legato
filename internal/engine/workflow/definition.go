@@ -201,6 +201,11 @@ func validateStepContract(step Step, inputs map[string]Input) error {
 				return fmt.Errorf("with keep_agent must be true or false")
 			}
 		}
+		if engram, ok := step.With["engram"]; ok {
+			if _, text := engram.(string); !text {
+				return fmt.Errorf("with engram must be the name of an engram")
+			}
+		}
 	case "agent.stop":
 		required = []string{"task"}
 	case "chimera.session.remove":

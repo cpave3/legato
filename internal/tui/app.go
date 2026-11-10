@@ -178,6 +178,7 @@ type App struct {
 	agentUISvc    AgentUIService
 	usageSvc      service.UsageService
 	dirSvc        DirectoryService
+	engramSvc     EngramPickerService
 	// sandbox: agents run in Legato's sandbox unless their spawn opts out.
 	sandbox     bool
 	resourceSvc ResourceService
@@ -1193,10 +1194,13 @@ func (a App) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 	case overlay.AgentSpawnPathChangedMsg:
 		return a, a.suggestSpawnDirectories(msg.Query)
 
+	case overlay.AgentSpawnEngramsWantedMsg:
+		return a, a.spawnEngrams(msg.Dir, msg.TaskID)
+
 	case overlay.AgentSpawnSavePresetMsg:
 		return a, a.saveSpawnPreset(msg.Path)
 
-	case overlay.AgentSpawnSuggestionsMsg, overlay.AgentSpawnPresetsMsg:
+	case overlay.AgentSpawnSuggestionsMsg, overlay.AgentSpawnPresetsMsg, overlay.AgentSpawnEngramsMsg:
 		if a.overlayType != overlayAgentSpawn || a.activeOverlay == nil {
 			return a, nil
 		}
@@ -1528,14 +1532,17 @@ func (a App) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				active := make(map[string]bool, len(agentList))
 				states := make(map[string]string, len(agentList))
 				slots := make(map[string][]service.SlotAgentSummary)
+				engrams := make(map[string]string)
 				for taskID, summary := range service.SummarizeRelatedAgents(agentList) {
 					active[taskID] = summary.Active
 					states[taskID] = summary.State
 					slots[taskID] = summary.Slots
+					engrams[taskID] = summary.Engram
 				}
 				a.board.SetActiveAgents(active)
 				a.board.SetAgentStates(states)
 				a.board.SetSlotAgents(slots)
+				a.board.SetAgentEngrams(engrams)
 				// The agents view keeps its list, and its record of what
 				// changed, current while the board is in front.
 				a.agentView, _ = a.agentView.Update(agents.AgentsRefreshedMsg{Agents: agentList})
@@ -2521,7 +2528,8 @@ func (a App) openAgentSpawnOverlay(taskID, title string) (tea.Model, tea.Cmd) {
 	sized, _ := spawnModel.Update(tea.WindowSizeMsg{Width: a.width, Height: a.height})
 	a.activeOverlay = sized
 	a.overlayType = overlayAgentSpawn
-	return a, nil
+	// The engram row is offered once engram answers for where it starts.
+	return a, a.spawnEngrams(defaultDir, taskID)
 }
 
 func (a App) handleAgentSpawnSubmit(msg overlay.AgentSpawnSubmitMsg) (tea.Model, tea.Cmd) {
@@ -2552,18 +2560,21 @@ func (a App) handleAgentSpawnSubmit(msg overlay.AgentSpawnSubmitMsg) (tea.Model,
 		WorkingDir:  msg.WorkingDir,
 		Resources:   resources,
 		Unsandboxed: msg.Unsandboxed,
+		Engram:      msg.Engram,
 	}
 
 	if msg.TaskID == "" {
 		// Ephemeral agent: no task backing
 		title := msg.Title
+		a.rememberSpawnEngram(msg)
 		return a, tea.Batch(
 			func() tea.Msg {
-				if err := svc.SpawnEphemeralAgent(context.Background(), title, termW, termH, opts); err != nil {
+				var report service.SpawnReport
+				if err := svc.SpawnEphemeralAgent(service.WithSpawnReport(context.Background(), &report), title, termW, termH, opts); err != nil {
 					return statusbar.ErrorMsg{Text: "spawn failed: " + err.Error()}
 				}
 				agentList, _ := svc.ListAgents(context.Background())
-				return agents.AgentsRefreshedMsg{Agents: agentList}
+				return spawnDone(agents.AgentsRefreshedMsg{Agents: agentList}, report)
 			},
 			agentTickCmd(),
 		)
@@ -2601,21 +2612,23 @@ func (a App) spawnTaskAgent(msg overlay.AgentSpawnSubmitMsg, sessionPolicy, resu
 	if err != nil {
 		return a, func() tea.Msg { return statusbar.ErrorMsg{Text: "spawn failed: " + err.Error()} }
 	}
-	opts := service.AgentSpawnOptions{AgentKind: msg.AgentKind, WorkingDir: msg.WorkingDir, SessionPolicy: sessionPolicy, ResumeSessionID: resumeSessionID, ResumeWorkingDir: resumeWorkingDir, Resources: resources, Unsandboxed: msg.Unsandboxed}
+	opts := service.AgentSpawnOptions{AgentKind: msg.AgentKind, WorkingDir: msg.WorkingDir, SessionPolicy: sessionPolicy, ResumeSessionID: resumeSessionID, ResumeWorkingDir: resumeWorkingDir, Resources: resources, Unsandboxed: msg.Unsandboxed, Engram: msg.Engram}
+	a.rememberSpawnEngram(msg)
 
 	// Task-bound agent: switch to agent view and spawn with options
 	a = a.setMode(viewAgents)
 	a.agentView.StartPolling()
 	return a, tea.Batch(
 		func() tea.Msg {
-			if err := svc.SpawnAgent(context.Background(), msg.TaskID, termW, termH, opts); err != nil {
+			var report service.SpawnReport
+			if err := svc.SpawnAgent(service.WithSpawnReport(context.Background(), &report), msg.TaskID, termW, termH, opts); err != nil {
 				if text, away := awayErrorText(err); away {
 					return statusbar.ErrorMsg{Text: text}
 				}
 				return statusbar.ErrorMsg{Text: "spawn failed: " + err.Error()}
 			}
 			agentList, _ := svc.ListAgents(context.Background())
-			return agents.AgentsRefreshedMsg{Agents: agentList, SelectTask: msg.TaskID}
+			return spawnDone(agents.AgentsRefreshedMsg{Agents: agentList, SelectTask: msg.TaskID}, report)
 		},
 		agentTickCmd(),
 	)

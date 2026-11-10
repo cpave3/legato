@@ -1,8 +1,10 @@
-import { agentKindLabel, agentKindTone } from "../lib/agentKind"
+import { agentKindTone, agentToolLabel } from "../lib/agentKind"
 import { cn } from "../lib/utils"
 
 interface AgentKindBadgeProps {
   kind: string | undefined
+  // The engram the agent runs as, named after the tool.
+  engram?: string
   // Driven through its native endpoint rather than its terminal.
   isNative: boolean
   className?: string
@@ -10,8 +12,8 @@ interface AgentKindBadgeProps {
 
 // Which agent tool a session runs and how Legato is connected to it. Chimera
 // and Claude Code share the native panel, so the panel alone does not say.
-export function AgentKindBadge({ kind, isNative, className }: AgentKindBadgeProps) {
-  const label = agentKindLabel(kind)
+export function AgentKindBadge({ kind, engram, isNative, className }: AgentKindBadgeProps) {
+  const label = agentToolLabel(kind, engram)
   const connection = isNative ? "native" : "terminal"
   return (
     <span

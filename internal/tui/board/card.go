@@ -36,6 +36,8 @@ type CardData struct {
 	// SlotAgents are the task's running named slots (a reviewer), each a
 	// chip on the strip beside the main slot's state.
 	SlotAgents []service.SlotAgentSummary
+	// Engram is the engram the task's running agent runs as, "" for none.
+	Engram string
 }
 
 // AwayRefusal is what the TUI says when the person tries to change a task

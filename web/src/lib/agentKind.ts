@@ -26,6 +26,13 @@ export function agentKindLabel(kind: string | undefined): string {
   return resolve(kind).label
 }
 
+// agentToolLabel names the tool an agent runs and the engram it runs as:
+// "Claude Code · hestia". No engram shows nothing more.
+export function agentToolLabel(kind: string | undefined, engram: string | undefined): string {
+  const label = agentKindLabel(kind)
+  return engram ? `${label} · ${engram}` : label
+}
+
 export function agentKindTone(kind: string | undefined): string {
   return resolve(kind).tone
 }

@@ -6,6 +6,7 @@ import (
 	tea "github.com/charmbracelet/bubbletea"
 	"github.com/cpave3/legato/internal/service"
 	"github.com/cpave3/legato/internal/tui/overlay"
+	"github.com/cpave3/legato/internal/tui/statusbar"
 )
 
 // spawnSuggestionLimit is how many directories the spawn overlay is given
@@ -135,4 +136,73 @@ func (a App) spawnResources(names []string) ([]service.Resource, error) {
 		return nil, nil
 	}
 	return a.resourceSvc.Resolve(context.Background(), names)
+}
+
+// EngramPickerService offers the engrams an agent can start as, and
+// remembers one for a place (service.EngramService).
+type EngramPickerService interface {
+	Picker(ctx context.Context, req service.EngramPickerRequest) (service.EngramPicker, error)
+	Remember(ctx context.Context, req service.EngramPickerRequest, name string) error
+}
+
+// SetEngramService gives the spawn overlay its engram row.
+func (a *App) SetEngramService(svc EngramPickerService) {
+	a.engramSvc = svc
+}
+
+// spawnEngrams asks for the engram picker of a directory, for the spawn
+// overlay. The answer names the directory as the overlay asked for it,
+// which may be a typed path that starts with a tilde.
+func (a App) spawnEngrams(dir, taskID string) tea.Cmd {
+	svc := a.engramSvc
+	if svc == nil {
+		return nil
+	}
+	expanded := a.expandSpawnDir(dir)
+	return func() tea.Msg {
+		picker, err := svc.Picker(context.Background(), service.EngramPickerRequest{Dir: expanded, TaskID: taskID})
+		if err != nil {
+			return overlay.AgentSpawnEngramsMsg{Dir: dir}
+		}
+		return overlay.AgentSpawnEngramsMsg{Dir: dir, Picker: spawnEngramPicker(picker)}
+	}
+}
+
+func spawnEngramPicker(picker service.EngramPicker) overlay.SpawnEngramPicker {
+	out := overlay.SpawnEngramPicker{Enabled: picker.Enabled, Preselect: picker.Preselect}
+	if picker.Place != nil {
+		out.PlaceKind, out.PlaceLabel, out.Default = picker.Place.Kind, picker.Place.Label, picker.Place.Default
+	}
+	for _, e := range picker.Engrams {
+		out.Engrams = append(out.Engrams, overlay.SpawnEngram{Name: e.Name, Summary: e.Summary, Mark: e.Mark})
+	}
+	return out
+}
+
+// rememberSpawnEngram is the overlay's remember: the engram picked bound to
+// the directory and made its default, or with none its default cleared.
+func (a App) rememberSpawnEngram(msg overlay.AgentSpawnSubmitMsg) {
+	if !msg.RememberEngram || a.engramSvc == nil {
+		return
+	}
+	_ = a.engramSvc.Remember(context.Background(), service.EngramPickerRequest{Dir: msg.WorkingDir}, msg.Engram)
+}
+
+// spawnDone is what a spawn that worked answers: the agents as they are
+// now, and the warning of an engram that did not boot.
+func spawnDone(refreshed tea.Msg, report service.SpawnReport) tea.Msg {
+	if report.EngramWarning == "" {
+		return refreshed
+	}
+	warning := statusbar.WarningMsg{Text: report.EngramWarning}
+	return tea.BatchMsg{func() tea.Msg { return refreshed }, func() tea.Msg { return warning }}
+}
+
+// expandSpawnDir turns a typed path that starts with a tilde into the
+// directory it names.
+func (a App) expandSpawnDir(dir string) string {
+	if a.dirSvc == nil {
+		return dir
+	}
+	return a.dirSvc.Expand(dir)
 }
