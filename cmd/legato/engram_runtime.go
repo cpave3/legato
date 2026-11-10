@@ -29,6 +29,7 @@ func engramsFor(db *store.Store) *service.EngramService {
 			return cfg.Engram, nil
 		},
 		Runner: service.EngramRunner(os.Getenv),
+		Store:  db,
 	})
 	actual, loaded := processEngrams.LoadOrStore(db, s)
 	if !loaded {

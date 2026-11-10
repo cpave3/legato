@@ -148,6 +148,10 @@ func (s *Server) spawnAgentHandler() http.HandlerFunc {
 			Slot string `json:"slot"`
 			// Engram starts the agent as that engram; empty for none.
 			Engram string `json:"engram"`
+			// RememberEngram binds Engram to where the agent starts and
+			// makes it the default there; with no engram, it clears the
+			// default.
+			RememberEngram bool `json:"remember_engram"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
 			http.Error(w, "invalid JSON", http.StatusBadRequest)
@@ -190,6 +194,7 @@ func (s *Server) spawnAgentHandler() http.HandlerFunc {
 			Prompt:      req.Prompt,
 			Engram:      strings.TrimSpace(req.Engram),
 		}
+		s.rememberEngram(r.Context(), req.RememberEngram, opts.WorkingDir, opts.Repo, opts.Engram)
 		if creator, ok := s.agents.(ephemeralTaskCreator); ok && startsInBackground(opts) {
 			// A clone can take minutes: the agent is started in the
 			// background and listed as preparing until it runs.
@@ -570,6 +575,10 @@ func (s *Server) taskAgentHandler() http.HandlerFunc {
 			Slot string `json:"slot"`
 			// Engram starts the agent as that engram; empty for none.
 			Engram string `json:"engram"`
+			// RememberEngram binds Engram to where the agent starts and
+			// makes it the default there; with no engram, it clears the
+			// default.
+			RememberEngram bool `json:"remember_engram"`
 		}
 		decoder := json.NewDecoder(r.Body)
 		decoder.DisallowUnknownFields()
@@ -656,6 +665,7 @@ func (s *Server) taskAgentHandler() http.HandlerFunc {
 				return
 			}
 		}
+		s.rememberEngram(r.Context(), req.RememberEngram, opts.WorkingDir, opts.Repo, opts.Engram)
 		if startsInBackground(opts) {
 			// A clone can take minutes: the agent is started in the
 			// background and listed as preparing until it runs.

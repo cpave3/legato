@@ -103,6 +103,9 @@ func (a *agentService) bootEngram(ctx context.Context, taskID, executionID, agen
 	if report != nil {
 		report.Engram = opt.Engram
 	}
+	if err := engrams.Touch(ctx, workDir, opt.Engram); err != nil {
+		log.Printf("engram: recording the use of %s in %s: %v", opt.Engram, workDir, err)
+	}
 	return &spawnedEngram{EngramBoot: boot, name: opt.Engram, session: session, resumed: resume}, nil
 }
 

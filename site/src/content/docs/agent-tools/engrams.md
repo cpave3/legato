@@ -30,6 +30,21 @@ The agent starts with the engram's boot packet at the top of its launch prompt, 
 
 If the engram does not boot (engram fails, takes longer than 5 seconds, no longer has that engram, or its store is missing), the agent starts anyway, as a normal session, and Legato says why.
 
+## Engrams for a repository
+
+The **Engram** list starts with **No engram**, then the engrams of **This repo** (or **This folder**, for a folder outside git), then the other engrams:
+
+1. the engram this task last ran as, marked **last on this task**;
+2. the repository's default engram, marked **default**;
+3. the other engrams bound to the repository, the most recently used first;
+4. every other engram, A to Z.
+
+The dialog picks the task's last engram first, else the repository's default, else No engram. When you change **Where**, the list and the pick follow the new place.
+
+Tick **Remember for this repo** to bind the engram you picked to the repository and make it the default there; the old default stays bound. With **No engram** picked, the box reads **Clear this repo's default**, and the bound engrams stay. The box shows only when ticking it would change something. A repository is named the way engram names it, such as `github.com/cpave3/legato`, so every clone of it shares its engrams.
+
+An engram that engram no longer lists is left out of the list, and its bindings are kept: if it comes back, they work again.
+
 ## Restarting and ending
 
 Restarting an engram agent keeps its engram. When its conversation is resumed it keeps its engram session too, and the boot packet is not sent again; otherwise the engram boots again in a new session.

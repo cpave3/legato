@@ -184,6 +184,13 @@ export function SpawnAgentDialog({
   // The engrams the agent can start as, and the one picked ("" for none).
   const [engramPicker, setEngramPicker] = useState<EngramPicker | null>(null)
   const [engram, setEngram] = useState("")
+  // Ticked: the pick is bound to the place and made its default, or with
+  // no engram the place's default is cleared. Unticked by every new pick.
+  const [rememberEngram, setRememberEngram] = useState(false)
+  const pickEngram = (name: string) => {
+    setEngram(name)
+    setRememberEngram(false)
+  }
 
   const formRef = useRef<HTMLFormElement>(null)
   const titleRef = useRef<HTMLInputElement>(null)
@@ -216,6 +223,7 @@ export function SpawnAgentDialog({
     setJobClonesError("")
     setEngramPicker(null)
     setEngram("")
+    setRememberEngram(false)
     if (settingsRef.current?.fresh_clones_enabled) {
       listJobClones(baseUrl)
         .then((listed) => {
@@ -324,6 +332,7 @@ export function SpawnAgentDialog({
           if (controller.signal.aborted) return
           setEngramPicker(picker)
           setEngram(picker.enabled ? picker.preselect ?? "" : "")
+          setRememberEngram(false)
         })
         .catch(() => {})
     }, suggestDelayMs)
@@ -364,6 +373,10 @@ export function SpawnAgentDialog({
   const placeEngrams = (engramPicker?.engrams ?? []).filter((choice) => choice.bound || choice.mark === "last" || choice.mark === "default")
   const otherEngrams = (engramPicker?.engrams ?? []).filter((choice) => !placeEngrams.includes(choice))
   const placeWord = engramPicker?.place?.kind === "folder" ? "This folder" : "This repo"
+  const placeNoun = engramPicker?.place?.kind === "folder" ? "folder" : "repo"
+  const placeDefault = engramPicker?.place?.default ?? ""
+  // Remember is offered only when ticking it would change something.
+  const canRemember = engramShown && !!engramPicker?.place && (engram ? engram !== placeDefault : placeDefault !== "")
   const offersSessionChoice = resumableAgentKinds.includes(effectiveAdapter)
   const toolLabel = agentKindLabel(effectiveAdapter)
 
@@ -436,13 +449,14 @@ export function SpawnAgentDialog({
         ...(unsandboxed ? { sandbox: false as const } : {}),
         ...(prompt.trim() ? { prompt: prompt.trim() } : {}),
         ...(engramShown && engram ? { engram } : {}),
+        ...(canRemember && rememberEngram ? { rememberEngram: true } : {}),
       })
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : String(reason))
     } finally {
       setLoading(false)
     }
-  }, [loading, ready, path, savePath, canSave, baseUrl, onSubmit, title, agentKind, offersSessionChoice, sessionPolicy, picked, unsandboxed, prompt, cloneRepository, baseBranch, branch, inClone, jobClone, engramShown, engram])
+  }, [loading, ready, path, savePath, canSave, baseUrl, onSubmit, title, agentKind, offersSessionChoice, sessionPolicy, picked, unsandboxed, prompt, cloneRepository, baseBranch, branch, inClone, jobClone, engramShown, engram, canRemember, rememberEngram])
 
   if (!open) return null
 
@@ -577,7 +591,7 @@ export function SpawnAgentDialog({
                   <select
                     aria-label="Engram"
                     value={engram}
-                    onChange={(event) => setEngram(event.target.value)}
+                    onChange={(event) => pickEngram(event.target.value)}
                     className={`h-[46px] w-full min-w-0 appearance-none truncate rounded-[10px] border border-lw-line-strong bg-lw-ground pl-3 pr-9 text-base text-lw-text outline-none sm:h-9 sm:rounded-md sm:text-sm ${focusRing}`}
                   >
                     <option value="">No engram</option>
@@ -602,6 +616,22 @@ export function SpawnAgentDialog({
                 </span>
               </label>
               {engramChoice?.summary && <p className="text-xs text-lw-faint">{engramChoice.summary}</p>}
+              {canRemember && engramPicker?.place && (
+                <label className="flex cursor-pointer items-start gap-2.5 text-sm text-lw-text-2 sm:text-xs">
+                  <input
+                    type="checkbox"
+                    checked={rememberEngram}
+                    onChange={(event) => setRememberEngram(event.target.checked)}
+                    className="mt-0.5 accent-lw-accent"
+                  />
+                  <span>
+                    <span className="text-lw-text">{engram ? `Remember for this ${placeNoun}` : `Clear this ${placeNoun}'s default`}</span>
+                    {engram && (
+                      <span className="block text-lw-faint">Bind {engram} to {engramPicker.place.label} and make it the default.</span>
+                    )}
+                  </span>
+                </label>
+              )}
             </div>
           )}
 

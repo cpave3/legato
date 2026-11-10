@@ -76,3 +76,24 @@ A spawn that fails after its engram booted runs `engram session end` (`spawnedEn
 
 - **Restart** (`restartAgent`) reads `engram` and `engram_session` from the execution it replaces into `AgentSpawnOptions.Engram` and `EngramSession`. A resumed conversation keeps both and gets no packet; a restart that does not resume boots again with a new key (the new execution's ID).
 - **Ending.** `EndExecution`, where every agent's execution ends (a kill, a pane that went away, a task deleted, archived or handed back, a spawn that failed), runs `engram session end` for an execution with an engram (`endEngramSession`), in its working directory when that still exists. A restart that resumes stops its agent with `withEngramSessionKept`, so the session goes on in the agent that resumes it. Legato never asks the agent for a handoff; engram's practice section does. An ended session still resumes through its strong key.
+
+## Bindings, Remember and pre-selection
+
+Bindings live in `engram_bindings` (see [Database](database.md) § Engram sessions), never in `config.yaml`.
+
+**Place key.** `EngramService.place` (`internal/service/engram_picker.go`):
+
+- A folder (`Dir`): `engram where --dir`. A binding matches when its key is any of the folder's scopes, and a `repo:` match beats a `dir:` one; the place is the matching key, else engram's primary key. A folder outside git has a `dir:` key and kind `folder`. A folder engram cannot name has no place.
+- A job clone (`Repo`), which does not exist when the dialog opens: `engram.RepoKey("", owner/name)`, `repo:github.com/<lowercase owner/name>`. Legato's clones are of GitHub only today; the host would come from the credential profile's `git` if that changed.
+
+**Picker** (`EngramService.Picker`, built once for the TUI and the web): `EngramPicker{EngramStatus, Place{key, label, kind, default}, Engrams[{name, summary, mark, bound}], Preselect}`.
+
+- Pre-selected: the task's last engram (`store.LastTaskEngram`: the engram of the task's latest execution that ran as one), else the place's default, else none.
+- Order, each once, after No engram: the task's last engram (`mark: last`), the default (`mark: default`), the other bound engrams by `last_used_at` (newest first), then every other engram A–Z.
+- An engram `identity list` does not list is left out; a default that is gone falls back to none. Its binding is kept unchanged, and works again if it comes back. `place.default` still names it, so it can be cleared.
+
+**Remember** (`EngramService.Remember`): with an engram, binds it to the place if it is not bound and makes it the default (the old default stays bound); with none, clears the place's default (the bound engrams stay). Not ticked, nothing is stored. The spawn endpoints take `remember_engram` and call it before the spawn (`rememberEngram` in `internal/server/engrams.go`); a Remember that cannot be done (a job clone named only by its ID) is logged and does not stop the spawn.
+
+**Last use.** `EngramService.Touch(dir, name)` sets `last_used_at` on each binding of the engram to one of the directory's scopes; `bootEngram` calls it after every successful boot.
+
+`GET /api/engrams?dir=…|repo=…&task_id=…` answers the picker; `dir` may start with a tilde. Workflows never read or write bindings.

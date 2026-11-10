@@ -527,6 +527,9 @@ func (a *agentService) SetRepositories(repos JobCloner) {
 type AgentEngrams interface {
 	Boot(ctx context.Context, req EngramBootRequest) (EngramBoot, error)
 	EndSession(ctx context.Context, ref EngramSessionRef) error
+	// Touch records that an engram was spawned in dir, for the order of
+	// its place's bound engrams.
+	Touch(ctx context.Context, dir, name string) error
 }
 
 // SetEngrams lets agents spawned from now on start as engrams.

@@ -6,9 +6,11 @@ import (
 	"log"
 	"sort"
 	"strings"
+	"time"
 
 	"github.com/cpave3/legato/config"
 	"github.com/cpave3/legato/internal/engine/engram"
+	"github.com/cpave3/legato/internal/engine/store"
 )
 
 // EngramCLI is the engram command (engram.Runner).
@@ -27,6 +29,21 @@ type EngramOptions struct {
 	Config func(ctx context.Context) (config.EngramConfig, error)
 	// Runner makes the engram client for a command ("" for PATH).
 	Runner func(command string) EngramCLI
+	// Store keeps the bindings and knows each task's last engram; without
+	// it the picker has no place.
+	Store EngramBindingStore
+}
+
+// EngramBindingStore is where bindings are kept (store.Store).
+type EngramBindingStore interface {
+	EngramBindings(ctx context.Context, places []string) ([]store.EngramBinding, error)
+	AllEngramBindings(ctx context.Context) ([]store.EngramBinding, error)
+	BindEngram(ctx context.Context, place, engram string, makeDefault bool, at time.Time) error
+	SetEngramDefault(ctx context.Context, place, engram string) error
+	ClearEngramDefault(ctx context.Context, place string) error
+	UnbindEngram(ctx context.Context, place, engram string) error
+	TouchEngramBinding(ctx context.Context, place, engram string, at time.Time) error
+	LastTaskEngram(ctx context.Context, taskID string) (store.TaskEngram, error)
 }
 
 // EngramIdentity is one engram as the spawn surfaces list it.
