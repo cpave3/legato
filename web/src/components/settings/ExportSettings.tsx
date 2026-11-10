@@ -45,7 +45,7 @@ export function ExportSettings({ baseUrl, save = saveFile }: { baseUrl: string; 
           Include settings from config.yaml
         </label>
         <button type="button" className={quietButton} onClick={() => void run()}>Export settings</button>
-        <label className={`${quietButton} cursor-pointer`}>
+        <label className={`${quietButton} relative cursor-pointer`}>
           Import settings…
           <input type="file" accept=".yaml,.yml" aria-label="Import settings" className="sr-only"
             onChange={(e) => { const file = e.target.files?.[0]; if (file) void runImport(file) }} />

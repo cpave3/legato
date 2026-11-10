@@ -162,7 +162,7 @@ function ResourceForm({ draft, onChange, onSave, onCancel, saving }: {
           </div>
           <div role="radiogroup" aria-label={`Access for path ${index + 1}`} className="flex gap-1 text-xs">
             {(["read", "write"] as const).map((access) => (
-              <label key={access} className={"flex min-h-9 cursor-pointer items-center gap-1.5 rounded border px-3 sm:min-h-0 sm:py-1 " + (path.access === access ? "border-indigo-500 bg-indigo-950 text-indigo-100" : "border-zinc-700 text-zinc-400 hover:bg-zinc-800")}>
+              <label key={access} className={"relative flex min-h-9 cursor-pointer items-center gap-1.5 rounded border px-3 sm:min-h-0 sm:py-1 " + (path.access === access ? "border-indigo-500 bg-indigo-950 text-indigo-100" : "border-zinc-700 text-zinc-400 hover:bg-zinc-800")}>
                 <input type="radio" name={`${id}-access-${index}`} value={access} checked={path.access === access} onChange={() => setPath(index, { access })} className="sr-only" />
                 {access === "read" ? "Read" : "Write"}
               </label>
