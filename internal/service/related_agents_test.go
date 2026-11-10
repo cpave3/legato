@@ -69,3 +69,17 @@ func TestSummarizeRelatedAgentsNamesTheAgentToolOnlyWhenTheAgentsShareOne(t *tes
 		t.Fatalf("mixed kind = %q, want none", mixed.Kind)
 	}
 }
+
+func TestSummarizeRelatedAgentsNamesTheEngramOnlyWhenTheAgentsShareOne(t *testing.T) {
+	one := SummarizeRelatedAgents([]AgentSession{{TaskID: "t", Status: "running", AgentKind: "claude-code", Engram: "hestia"}})
+	if one["t"].Engram != "hestia" {
+		t.Fatalf("one agent: %+v", one["t"])
+	}
+	two := SummarizeRelatedAgents([]AgentSession{
+		{TaskID: "t", Status: "running", Engram: "hestia"},
+		{TaskID: "w", AttributionTaskID: "t", Status: "running", Engram: "argus"},
+	})
+	if two["t"].Engram != "" {
+		t.Fatalf("two engrams: %+v", two["t"])
+	}
+}

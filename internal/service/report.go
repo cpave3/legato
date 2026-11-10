@@ -191,7 +191,7 @@ func (r *reportService) GenerateReport(ctx context.Context, period analytics.Tim
 	for i, execution := range executionBreakdown {
 		executionStats[i] = ExecutionStats{
 			ID: execution.ID, Kind: execution.Kind, Status: execution.Status,
-			TaskID: execution.TaskID, TaskTitle: execution.TaskTitle, WorkflowRunID: execution.WorkflowRunID,
+			TaskID: execution.TaskID, TaskTitle: execution.TaskTitle, WorkflowRunID: execution.WorkflowRunID, Engram: execution.Engram,
 			Working: execution.Working, Waiting: execution.Waiting, Error: execution.Error, WallClock: execution.WallClock,
 			StartedAt: execution.StartedAt, EndedAt: execution.EndedAt,
 		}

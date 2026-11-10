@@ -72,6 +72,7 @@ type reportExecutionResponse struct {
 	TaskID           string  `json:"task_id"`
 	TaskTitle        string  `json:"task_title"`
 	WorkflowRunID    string  `json:"workflow_run_id"`
+	Engram           string  `json:"engram"`
 	WorkingSeconds   int64   `json:"working_seconds"`
 	WaitingSeconds   int64   `json:"waiting_seconds"`
 	ErrorSeconds     int64   `json:"error_seconds"`
@@ -238,7 +239,7 @@ func mapReportResponse(report *service.Report, kind string, offset int) reportRe
 			formatted := execution.EndedAt.Format(time.RFC3339Nano)
 			endedAt = &formatted
 		}
-		response.ByExecution[i] = reportExecutionResponse{ID: execution.ID, Kind: execution.Kind, Status: execution.Status, TaskID: execution.TaskID, TaskTitle: execution.TaskTitle, WorkflowRunID: execution.WorkflowRunID, WorkingSeconds: durationSeconds(execution.Working), WaitingSeconds: durationSeconds(execution.Waiting), ErrorSeconds: durationSeconds(execution.Error), WallClockSeconds: durationSeconds(execution.WallClock), StartedAt: execution.StartedAt.Format(time.RFC3339Nano), EndedAt: endedAt}
+		response.ByExecution[i] = reportExecutionResponse{ID: execution.ID, Kind: execution.Kind, Status: execution.Status, TaskID: execution.TaskID, TaskTitle: execution.TaskTitle, WorkflowRunID: execution.WorkflowRunID, Engram: execution.Engram, WorkingSeconds: durationSeconds(execution.Working), WaitingSeconds: durationSeconds(execution.Waiting), ErrorSeconds: durationSeconds(execution.Error), WallClockSeconds: durationSeconds(execution.WallClock), StartedAt: execution.StartedAt.Format(time.RFC3339Nano), EndedAt: endedAt}
 	}
 	return response
 }

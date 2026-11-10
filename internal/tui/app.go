@@ -1532,14 +1532,17 @@ func (a App) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				active := make(map[string]bool, len(agentList))
 				states := make(map[string]string, len(agentList))
 				slots := make(map[string][]service.SlotAgentSummary)
+				engrams := make(map[string]string)
 				for taskID, summary := range service.SummarizeRelatedAgents(agentList) {
 					active[taskID] = summary.Active
 					states[taskID] = summary.State
 					slots[taskID] = summary.Slots
+					engrams[taskID] = summary.Engram
 				}
 				a.board.SetActiveAgents(active)
 				a.board.SetAgentStates(states)
 				a.board.SetSlotAgents(slots)
+				a.board.SetAgentEngrams(engrams)
 				// The agents view keeps its list, and its record of what
 				// changed, current while the board is in front.
 				a.agentView, _ = a.agentView.Update(agents.AgentsRefreshedMsg{Agents: agentList})

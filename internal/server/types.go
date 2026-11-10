@@ -45,6 +45,8 @@ type CardResponse struct {
 	AgentActive    bool   `json:"agent_active"`
 	AgentState     string `json:"agent_state"`
 	AgentKind      string `json:"agent_kind,omitempty"`
+	// AgentEngram is the engram the card's agents run as; absent for none.
+	AgentEngram string `json:"agent_engram,omitempty"`
 	// SlotAgents are the task's running named slots (a reviewer), each
 	// shown as a chip beside the main slot's state.
 	SlotAgents     []service.SlotAgentSummary `json:"slot_agents,omitempty"`

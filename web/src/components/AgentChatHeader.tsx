@@ -21,6 +21,8 @@ interface AgentChatHeaderProps {
   title: string
   taskId: string
   agentKind?: string
+  // The engram the agent runs as, shown beside its tool.
+  engram?: string
   native?: boolean
   // Small things worth saying beside the title: a mode, a sync, an error.
   notes?: ReactNode
@@ -151,7 +153,7 @@ export function SidePanelSwitch({ open, related, artifacts, onSelect, studio }: 
 // The line an agent's chat opens with, whether Legato drives the agent
 // natively or through its terminal: what it is doing, the task, and what can
 // be done with it.
-export function AgentChatHeader({ state, time, title, taskId, agentKind, native = false, notes, pullRequest, panels, subagents, onShowRequest, ask, menu }: AgentChatHeaderProps) {
+export function AgentChatHeader({ state, time, title, taskId, agentKind, engram, native = false, notes, pullRequest, panels, subagents, onShowRequest, ask, menu }: AgentChatHeaderProps) {
   const chip = chips[state]
   // On a phone the agent picker above says how long; the time is left out.
   const chipText = <><span aria-hidden="true">{chip.glyph} </span>{chip.label}{time && <span className="max-sm:hidden"> {time}</span>}</>
@@ -168,7 +170,7 @@ export function AgentChatHeader({ state, time, title, taskId, agentKind, native 
         {/* On a phone the agent picker above names the agent, and the switch needs the room. */}
         <h2 className="m-0 min-w-0 truncate text-[15px] font-semibold max-sm:sr-only">{title}</h2>
         <span className="hidden shrink-0 font-lw-mono text-xs text-lw-faint sm:inline">{taskId}{pullRequest ? ` · PR #${pullRequest}` : ""}</span>
-        {agentKind !== undefined && <AgentKindBadge kind={agentKind} isNative={native} className="hidden md:inline-flex" />}
+        {agentKind !== undefined && <AgentKindBadge kind={agentKind} engram={engram} isNative={native} className="hidden md:inline-flex" />}
         {notes && <span className="flex min-w-0 items-center gap-2 truncate text-xs text-lw-text-2">{notes}</span>}
       </div>
       <div className="flex shrink-0 items-center gap-2">

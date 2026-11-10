@@ -198,3 +198,14 @@ func TestSpawnAgent_AResumeFindsTheTasksLastSessionOfThatEngram(t *testing.T) {
 		t.Fatalf("ENGRAM_SESSION = %q, want the first execution's %q", got, first)
 	}
 }
+
+func TestListAgentsSaysWhichEngramAnAgentRunsAs(t *testing.T) {
+	f := newEngramSpawnFixture(t, "claude-code")
+	if err := f.svc.SpawnAgent(context.Background(), "task-1", 0, 0, AgentSpawnOptions{Engram: "mneme"}); err != nil {
+		t.Fatal(err)
+	}
+	agents, err := f.svc.ListAgents(context.Background())
+	if err != nil || len(agents) != 1 || agents[0].Engram != "mneme" {
+		t.Fatalf("agents = %+v %v", agents, err)
+	}
+}

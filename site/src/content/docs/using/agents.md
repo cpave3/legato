@@ -41,6 +41,8 @@ Presets are the `repositories` in your configuration that have a `primary_dir`, 
 
 When `agents.sandbox.enabled` is on, every agent runs inside Legato's [sandbox](/legato/security/sandbox/). To start one agent outside it, press `ctrl+u` in the spawn dialog. The web dialog has a **Run without sandbox** box, which is unticked each time it opens.
 
+An agent started as an [engram](/legato/agent-tools/engrams/) shows it beside its tool, such as `claude · hestia`, in the agents list, over its terminal, on its ensemble tile, in the board's panel about the task, and on its card in the web UI (`Running · Claude Code · hestia`).
+
 An agent that runs outside the sandbox is marked in amber: with `⊘` beside its ID in the agents list (an open padlock with Nerd Fonts), and with **unsandboxed** over its terminal and on its tile in the ensemble. When the sandbox is off, no agent is marked.
 
 ### The web spawn dialog

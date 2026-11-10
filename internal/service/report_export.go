@@ -75,14 +75,14 @@ func ExportReportMarkdown(r *Report) string {
 
 	if len(r.ByExecution) > 0 {
 		b.WriteString("## Executions\n\n")
-		b.WriteString("| Execution | Kind | Status | Task | Active | Waiting | Error | Wall Clock |\n")
-		b.WriteString("|-----------|------|--------|------|--------|---------|-------|------------|\n")
+		b.WriteString("| Execution | Kind | Status | Task | Engram | Active | Waiting | Error | Wall Clock |\n")
+		b.WriteString("|-----------|------|--------|------|--------|--------|---------|-------|------------|\n")
 		for _, execution := range r.ByExecution {
 			task := execution.TaskTitle
 			if task == "" {
 				task = execution.TaskID
 			}
-			b.WriteString(fmt.Sprintf("| %s | %s | %s | %s | %s | %s | %s | %s |\n", execution.ID, execution.Kind, execution.Status, task, fmtDuration(execution.Working), fmtDuration(execution.Waiting), fmtDuration(execution.Error), fmtDuration(execution.WallClock)))
+			b.WriteString(fmt.Sprintf("| %s | %s | %s | %s | %s | %s | %s | %s | %s |\n", execution.ID, execution.Kind, execution.Status, task, execution.Engram, fmtDuration(execution.Working), fmtDuration(execution.Waiting), fmtDuration(execution.Error), fmtDuration(execution.WallClock)))
 		}
 		b.WriteString("\n")
 	}

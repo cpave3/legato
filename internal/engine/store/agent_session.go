@@ -10,7 +10,8 @@ const agentSessionSelect = `SELECT a.*,
 	COALESCE(e.id, '') AS execution_id,
 	COALESCE(e.task_id, '') AS attribution_task_id,
 	COALESCE(e.kind, '') AS execution_kind,
-	COALESCE(e.workflow_run_id, '') AS workflow_run_id
+	COALESCE(e.workflow_run_id, '') AS workflow_run_id,
+	COALESCE(e.engram, '') AS engram
 	FROM agent_sessions a
 	LEFT JOIN executions e ON e.agent_session_id = a.id`
 

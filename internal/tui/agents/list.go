@@ -102,8 +102,16 @@ func (m Model) stateMark(a service.AgentSession) string {
 	}
 }
 
-// kindLabel names the tool an agent runs.
+// kindLabel names the tool an agent runs, and the engram it runs as:
+// claude · hestia.
 func kindLabel(a service.AgentSession) string {
+	if a.Engram != "" {
+		return toolLabel(a) + " · " + a.Engram
+	}
+	return toolLabel(a)
+}
+
+func toolLabel(a service.AgentSession) string {
 	switch {
 	case a.AgentKind == "claude-code":
 		return "claude"

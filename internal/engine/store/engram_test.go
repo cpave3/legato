@@ -160,3 +160,27 @@ func TestAFailedEngramBootIsListedWhileItsAgentRuns(t *testing.T) {
 		t.Fatalf("an ended agent's failure is still listed: %+v", got)
 	}
 }
+
+func TestTheReportsExecutionsSayWhichEngramEachRanAs(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	start := time.Now().UTC().Add(-time.Hour)
+	if err := s.CreateExecution(ctx, executionAt("ex-a", "task-a", start)); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.CreateExecution(ctx, executionAt("ex-b", "task-b", start)); err != nil {
+		t.Fatal(err)
+	}
+	_ = s.SetExecutionEngram(ctx, "ex-a", "hestia", "ex-a")
+	rows, err := s.QueryExecutionBreakdown(ctx, ReportRange{Start: start.Add(-time.Hour), End: time.Now().UTC().Add(time.Hour)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := map[string]string{}
+	for _, row := range rows {
+		got[row.ID] = row.Engram
+	}
+	if got["ex-a"] != "hestia" || got["ex-b"] != "" {
+		t.Fatalf("engrams = %v", got)
+	}
+}

@@ -13,7 +13,7 @@ import {
   type GlanceItem,
   type ToolState,
 } from "../lib/agentGlance"
-import { agentKindLabel } from "../lib/agentKind"
+import { agentToolLabel } from "../lib/agentKind"
 import { formatAgentTime, stateSeconds } from "../lib/agentList"
 import { cn } from "../lib/utils"
 import { ActivityBar, ContextMeter } from "./AgentMeters"
@@ -114,7 +114,7 @@ function AgentTile({ agent, context, onOpen, onSend }: {
   const native = Boolean(agent.has_chimera_endpoint)
   const idle = state.label === "idle"
   const time = formatAgentTime(stateSeconds(agent))
-  const tool = native ? agentKindLabel(agent.agent_kind) : `${agentKindLabel(agent.agent_kind)} · terminal`
+  const tool = native ? agentToolLabel(agent.agent_kind, agent.engram) : `${agentToolLabel(agent.agent_kind, agent.engram)} · terminal`
   const meta = [tool, agent.parent_task_id ? agent.role : ""].filter(Boolean).join(" · ")
   const lastReply = idle && conversation ? newestReply(conversation) : null
 

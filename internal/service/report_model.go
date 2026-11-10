@@ -79,12 +79,14 @@ type ExecutionStats struct {
 	TaskID        string
 	TaskTitle     string
 	WorkflowRunID string
-	Working       time.Duration
-	Waiting       time.Duration
-	Error         time.Duration
-	WallClock     time.Duration
-	StartedAt     time.Time
-	EndedAt       *time.Time
+	// Engram is the engram the execution ran as, "" for none.
+	Engram    string
+	Working   time.Duration
+	Waiting   time.Duration
+	Error     time.Duration
+	WallClock time.Duration
+	StartedAt time.Time
+	EndedAt   *time.Time
 }
 
 // SwarmStats holds per-swarm analytics.

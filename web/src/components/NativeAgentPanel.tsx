@@ -220,6 +220,8 @@ interface NativeAgentPanelProps {
   onToggleNotify?: () => void
   voiceEnabled?: boolean
   agentKind?: string
+  // The engram the agent runs as, shown beside its tool.
+  engram?: string
   composerEnabled?: boolean
   // Open something the agent showed (an artifact, or a card at full size)
   // in the side panel.
@@ -235,7 +237,7 @@ interface NativeAgentPanelProps {
   pullRequest?: number
 }
 
-export function NativeAgentPanel({ agentId, reeve, sandboxed, onKill, onRename, resyncRef, onReload, switchSandbox, onDisconnect, onDowngradeChimera, ntfyConfigured, notifyEnabled, onToggleNotify, voiceEnabled, agentKind, composerEnabled = true, onOpenUIItem, panels, title, activity, stateTime, pullRequest }: NativeAgentPanelProps) {
+export function NativeAgentPanel({ agentId, reeve, sandboxed, onKill, onRename, resyncRef, onReload, switchSandbox, onDisconnect, onDowngradeChimera, ntfyConfigured, notifyEnabled, onToggleNotify, voiceEnabled, agentKind, engram, composerEnabled = true, onOpenUIItem, panels, title, activity, stateTime, pullRequest }: NativeAgentPanelProps) {
   const { send, subscribe, connected } = useWebSocket()
   // Out of view the panel stops following the agent and catches up from its
   // cursor on return, so a phone with its screen off does not keep receiving
@@ -903,6 +905,7 @@ export function NativeAgentPanel({ agentId, reeve, sandboxed, onKill, onRename, 
         title={title || agentId}
         taskId={agentId}
         agentKind={agentKind}
+        engram={engram}
         native
         pullRequest={pullRequest}
         panels={panels}

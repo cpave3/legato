@@ -32,7 +32,9 @@ func newPickerFixture(t *testing.T) *pickerFixture {
 		"/notes":       {Primary: "dir:/notes", Scopes: []string{"dir:/notes"}},
 	}}
 	svc := NewEngramService(EngramOptions{
-		Config: func(context.Context) (config.EngramConfig, error) { return config.EngramConfig{Enabled: config.EngramAuto}, nil },
+		Config: func(context.Context) (config.EngramConfig, error) {
+			return config.EngramConfig{Enabled: config.EngramAuto}, nil
+		},
 		Runner: func(string) EngramCLI { return cli },
 		Store:  s,
 	})

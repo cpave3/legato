@@ -61,16 +61,18 @@ type AgentResponse struct {
 	// and WebSocket message takes.
 	TaskID string `json:"task_id"`
 	// CardTaskID is the task the agent's slot belongs to; Slot its slot.
-	CardTaskID         string     `json:"card_task_id,omitempty"`
-	Slot               string     `json:"slot,omitempty"`
-	ExecutionID        string     `json:"execution_id,omitempty"`
-	AttributionTaskID  string     `json:"attribution_task_id"`
-	ExecutionKind      string     `json:"execution_kind,omitempty"`
-	WorkflowRunID      string     `json:"workflow_run_id,omitempty"`
-	Title              string     `json:"task_title"`
-	TmuxSession        string     `json:"tmux_session"`
-	Command            string     `json:"command"`
-	AgentKind          string     `json:"agent_kind"`
+	CardTaskID        string `json:"card_task_id,omitempty"`
+	Slot              string `json:"slot,omitempty"`
+	ExecutionID       string `json:"execution_id,omitempty"`
+	AttributionTaskID string `json:"attribution_task_id"`
+	ExecutionKind     string `json:"execution_kind,omitempty"`
+	WorkflowRunID     string `json:"workflow_run_id,omitempty"`
+	Title             string `json:"task_title"`
+	TmuxSession       string `json:"tmux_session"`
+	Command           string `json:"command"`
+	AgentKind         string `json:"agent_kind"`
+	// Engram is the engram the agent runs as; absent for none.
+	Engram             string     `json:"engram,omitempty"`
 	Status             string     `json:"status"`
 	Activity           string     `json:"activity"`
 	Role               string     `json:"role,omitempty"`
@@ -103,7 +105,7 @@ func agentResponse(agent service.AgentSession) AgentResponse {
 		ID: agent.ID, TaskID: agent.TaskID, ExecutionID: agent.ExecutionID,
 		AttributionTaskID: agent.AttributionTaskID, ExecutionKind: agent.ExecutionKind,
 		WorkflowRunID: agent.WorkflowRunID, Title: agent.Title, TmuxSession: agent.TmuxSession,
-		Command: agent.Command, AgentKind: agent.AgentKind, Status: agent.Status,
+		Command: agent.Command, AgentKind: agent.AgentKind, Engram: agent.Engram, Status: agent.Status,
 		Activity: agent.Activity, Role: agent.Role, ParentTaskID: agent.ParentTaskID,
 		SubtaskID: agent.SubtaskID, StartedAt: agent.StartedAt, EndedAt: agent.EndedAt,
 		Sandboxed: agent.Sandboxed, CardTaskID: agent.CardTaskID, Slot: agent.Slot,

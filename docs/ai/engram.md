@@ -105,3 +105,7 @@ Bindings live in `engram_bindings` (see [Database](database.md) § Engram sessio
 ## In the TUI
 
 The spawn overlay's `engram` row (see [TUI](tui.md) § Spawning an agent) shows the same `EngramService.Picker`: the TUI asks the service directly, not the API.
+
+## Display
+
+`store.AgentSession.Engram` comes from the agent session listing's join (`COALESCE(e.engram, '')`), and `service.AgentSession.Engram` from it; `GET /api/agents` answers `engram`. `RelatedAgentSummary.Engram` names the engram a task's agents run as (empty when they run as different ones), which the web board answers as `agent_engram` and the TUI board's panel shows in an `engram` row. The tool is shown as `claude · hestia` (TUI) and `Claude Code · hestia` (web) wherever it is shown: see [TUI](tui.md) § Agents and [Web UI](web-ui.md) § An agent's engram. The report's executions table has an **engram** column (`ExecutionBreakdown.Engram`, `by_execution[].engram`, and the Markdown export); there is no breakdown by engram.

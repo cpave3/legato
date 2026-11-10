@@ -121,6 +121,8 @@ interface PromptBarProps {
   agentActivity?: string
   agentCommand?: string
   agentKind?: string
+  // The engram the agent runs as, shown beside its tool.
+  engram?: string
   connected?: boolean
   ntfyConfigured?: boolean
   notifyEnabled?: boolean
@@ -146,7 +148,7 @@ export interface PromptBarHandle {
   voiceIsRecording: () => boolean
 }
 
-export const PromptBar = forwardRef<PromptBarHandle, PromptBarProps>(function PromptBar({ promptState, onSendKeys, onSubmitMessage, onDismissPrompt, onDetectPrompt, onDisconnect, onKill, onReload, switchSandbox, onRefresh, onTogglePromptDetection, promptDetectionEnabled, agentId, agentTitle, agentActivity, agentCommand, agentKind, connected, ntfyConfigured, notifyEnabled, onToggleNotify, voiceEnabled, onUpgradeChimera, panels, menuInHeader = false }, ref) {
+export const PromptBar = forwardRef<PromptBarHandle, PromptBarProps>(function PromptBar({ promptState, onSendKeys, onSubmitMessage, onDismissPrompt, onDetectPrompt, onDisconnect, onKill, onReload, switchSandbox, onRefresh, onTogglePromptDetection, promptDetectionEnabled, agentId, agentTitle, agentActivity, agentCommand, agentKind, engram, connected, ntfyConfigured, notifyEnabled, onToggleNotify, voiceEnabled, onUpgradeChimera, panels, menuInHeader = false }, ref) {
   const { baseUrl } = useServer()
   const [input, setInput] = useState(() => localStorage.getItem(draftKey(agentId)) ?? "")
   const terminalMenu = useTerminalMenu({ agentKind, onUpgradeChimera, onRefresh, onDetectPrompt, onTogglePromptDetection, promptDetectionEnabled, ntfyConfigured, notifyEnabled, onToggleNotify, onReload, switchSandbox, onDisconnect, onKill })
@@ -304,7 +306,7 @@ export const PromptBar = forwardRef<PromptBarHandle, PromptBarProps>(function Pr
         <div className="flex items-center justify-between gap-2 py-2">
           <div className="flex min-w-0 items-center gap-2">
             {/* Below md the agent picker above the terminal already names the tool. */}
-            <AgentKindBadge kind={agentKind} isNative={false} className="hidden md:inline-flex" />
+            <AgentKindBadge kind={agentKind} engram={engram} isNative={false} className="hidden md:inline-flex" />
             {agentTitle && <div className="truncate text-xs text-lw-text-2">{agentTitle}</div>}
           </div>
           <div className="flex shrink-0 items-center gap-1.5">

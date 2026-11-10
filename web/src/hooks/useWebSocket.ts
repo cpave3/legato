@@ -76,6 +76,8 @@ export interface AgentInfo {
   tmux_session: string
   command: string
   agent_kind: string
+  // The engram the agent runs as; absent for none.
+  engram?: string
   status: string
   activity: string
   role?: string

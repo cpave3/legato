@@ -391,6 +391,9 @@ func (m Model) panelTask(card CardData, width int) []string {
 			agent += " " + colored(theme.TextSecondary, strip.right)
 		}
 		row("agent", agent)
+		if card.Engram != "" {
+			row("engram", colored(theme.TextPrimary, card.Engram))
+		}
 	} else {
 		row("agent", colored(theme.TextFaint, "none"))
 	}

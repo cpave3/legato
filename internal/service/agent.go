@@ -52,19 +52,21 @@ type AgentSession struct {
 	AttributionTaskID string // user-facing task this execution concerns
 	ExecutionKind     string
 	WorkflowRunID     string
-	Title             string
-	Group             string
-	TmuxSession       string
-	Command           string
-	AgentKind         string
-	Status            string
-	Activity          string // "working", "waiting", "error", or "" (idle)
-	Role              string // "conductor", "" for non-swarm, or worker role label
-	ParentTaskID      string // when set, this session belongs to a swarm
-	SubtaskID         string // when set, this session is a swarm worker
-	StartedAt         time.Time
-	EndedAt           *time.Time
-	NotifyEnabled     bool
+	// Engram is the engram the agent runs as, "" for none.
+	Engram        string
+	Title         string
+	Group         string
+	TmuxSession   string
+	Command       string
+	AgentKind     string
+	Status        string
+	Activity      string // "working", "waiting", "error", or "" (idle)
+	Role          string // "conductor", "" for non-swarm, or worker role label
+	ParentTaskID  string // when set, this session belongs to a swarm
+	SubtaskID     string // when set, this session is a swarm worker
+	StartedAt     time.Time
+	EndedAt       *time.Time
+	NotifyEnabled bool
 
 	// Swarm worker metadata, hydrated from the subtask row.
 	Description string
@@ -1652,6 +1654,7 @@ func (a *agentService) ListAgents(ctx context.Context) ([]AgentSession, error) {
 			AttributionTaskID: attributionTaskID,
 			ExecutionKind:     s.ExecutionKind,
 			WorkflowRunID:     s.WorkflowRunID,
+			Engram:            s.Engram,
 			Title:             title,
 			Group:             group,
 			TmuxSession:       s.TmuxSession,

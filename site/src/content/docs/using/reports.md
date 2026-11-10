@@ -29,7 +29,7 @@ The report breaks the time down:
 | Workspaces | Time and task count for each [workspace](/legato/using/board/#workspaces). |
 | Directories (Projects in the web UI) | Time and task count for each working directory. |
 | Swarms | Time for each [swarm](/legato/using/swarms/), with its elapsed time, how parallel it ran, and its workers and sub-tasks. |
-| Executions | Each agent run, with its kind, status and task, its time, and how long it lasted from start to end. The TUI leaves this one out. |
+| Executions | Each agent run, with its kind, status and task, the [engram](/legato/agent-tools/engrams/) it ran as, its time, and how long it lasted from start to end. The TUI leaves this one out. |
 
 ## In the TUI
 

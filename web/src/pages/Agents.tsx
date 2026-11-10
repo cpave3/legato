@@ -782,6 +782,7 @@ export function AgentsPage() {
                 title={selectedAgent.task_title || selectedAgent.task_id}
                 taskId={selectedAgent.task_id}
                 agentKind={selectedAgent.agent_kind}
+                engram={selectedAgent.engram}
                 pullRequest={pullRequest}
                 panels={sidePanels}
                 menu={terminalMenu.entries}
@@ -813,6 +814,7 @@ export function AgentsPage() {
                       reeve={agent.reeve}
                       sandboxed={agent.sandboxed}
                       agentKind={agent.agent_kind}
+                      engram={agent.engram}
                       composerEnabled={agent.task_id === selectedId}
                       title={agent.task_title}
                       onRename={() => openRename(agent)}
@@ -847,6 +849,7 @@ export function AgentsPage() {
                   onToggleNotify={handleToggleNotify}
                   voiceEnabled={voiceEnabled}
                   agentKind={selectedAgent?.agent_kind}
+                  engram={selectedAgent?.engram}
                   onOpenUIItem={artifacts.openItem}
                   panels={sidePanels}
                   pullRequest={pullRequest}
@@ -885,6 +888,7 @@ export function AgentsPage() {
                 agentActivity={selectedAgent?.activity}
                 agentCommand={selectedAgent?.command}
                 agentKind={selectedAgent?.agent_kind}
+                engram={selectedAgent?.engram}
                 connected={connected}
                 ntfyConfigured={ntfyConfigured}
                 notifyEnabled={selectedAgent?.notify_enabled}
