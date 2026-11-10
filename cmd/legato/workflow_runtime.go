@@ -91,6 +91,7 @@ func buildWorkflowService(db *store.Store, cfg *config.Config, opts workflowRunt
 	}
 	binary, _ := os.Executable()
 	runner := service.NewWorkflowAgentRunner(agentSvc, db, binary)
+	runner.SetBus(bus)
 	executors := []service.WorkflowExecutor{
 		service.NewAgentRunExecutor(runner, binary),
 		service.NewAgentDispatchExecutor(agentSvc, db),

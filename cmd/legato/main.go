@@ -2087,7 +2087,7 @@ func runTUI() int {
 	}
 	registerApprovalAttention(attentionSvc, approvalsRT)
 	_ = attentionSvc.RegisterProducer(service.NewRestartAttentionAdapter(db))
-	_ = attentionSvc.RegisterProducerWithEvents(service.NewEngramAttentionAdapter(db), events.EventAgentStarted, events.EventAgentDied)
+	_ = attentionSvc.RegisterProducerWithEvents(service.NewEngramAttentionAdapter(db), events.EventAgentStarted, events.EventAgentDied, events.EventAgentCompleted)
 	if webSrv == nil {
 		wireSettings(db, bus, nil)
 	}

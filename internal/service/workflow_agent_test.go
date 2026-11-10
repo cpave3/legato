@@ -109,3 +109,10 @@ func TestAgentRunExecutorStartsTheAgentAsItsEngram(t *testing.T) {
 		t.Fatalf("an agent with no engram set started as %q", agents.opts.Engram)
 	}
 }
+
+func TestAgentRunExecutorRefusesAnEngramThatIsNotText(t *testing.T) {
+	executor := NewAgentRunExecutor(&fakeWorkflowAgentService{})
+	if _, err := executor.Start(context.Background(), ResolvedWorkflowStep{RunID: "wr-1", TaskID: "workflow-task", With: map[string]any{"prompt": "work", "engram": map[string]any{"name": "mneme"}}}); err == nil {
+		t.Fatal("an engram that resolved to an object was dropped silently")
+	}
+}

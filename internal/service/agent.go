@@ -938,10 +938,11 @@ func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, hei
 	// A prompt of more than one line reaches a terminal agent as a file it
 	// is told to read; the pane takes one line.
 	prompt := strings.TrimSpace(opt.Prompt)
-	// A resumed conversation of a tool that takes no launch prompt then
-	// (Claude Code, Codex) gets a freshly booted engram's packet as its
-	// first message instead.
-	if nativeResume && booted.booted() && !booted.resumed && booted.Packet != "" {
+	// A resumed conversation takes no launch prompt (Claude Code and Codex
+	// drop it, and Chimera's --session launch does not pass --prompt), so
+	// it gets a freshly booted engram's packet as its first message.
+	resumedLaunch := nativeResume || (opt.SessionPolicy == "resume" && agentKind == "chimera")
+	if resumedLaunch && booted.booted() && !booted.resumed && booted.Packet != "" {
 		prompt = joinPromptSections(EngramPromptSection(booted.name, booted.Packet), prompt)
 	}
 	if strings.ContainsAny(prompt, "\n\r\"") {

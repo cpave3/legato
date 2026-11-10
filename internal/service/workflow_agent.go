@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"time"
 
+	"github.com/cpave3/legato/internal/engine/events"
 	"github.com/cpave3/legato/internal/engine/store"
 )
 
@@ -22,7 +24,13 @@ type WorkflowAgentRunner struct {
 	agents     AgentService
 	store      *store.Store
 	binaryPath string
+	bus        *events.Bus
 }
+
+// SetBus has a finished workflow agent announced as EventAgentCompleted,
+// so Attention reconciles what it said of that agent (an engram that did
+// not boot).
+func (r *WorkflowAgentRunner) SetBus(bus *events.Bus) { r.bus = bus }
 
 func NewWorkflowAgentRunner(agents AgentService, s *store.Store, binaryPath ...string) *WorkflowAgentRunner {
 	runner := &WorkflowAgentRunner{agents: agents, store: s}
@@ -90,6 +98,9 @@ func (r *WorkflowAgentRunner) FinishWorkflowAgent(ctx context.Context, attempt s
 	if remover, ok := r.agents.(interface{ RemoveSandboxScratch(executionID string) }); ok && session != nil {
 		remover.RemoveSandboxScratch(session.ExecutionID)
 	}
+	if r.bus != nil && session != nil {
+		r.bus.Publish(events.Event{Type: events.EventAgentCompleted, At: time.Now(), Payload: events.AgentDiedPayload{TaskID: session.TaskID}})
+	}
 	return nil
 }
 func (r *WorkflowAgentRunner) PromptAgent(ctx context.Context, taskID, prompt string) error {
@@ -155,7 +166,10 @@ func (e *AgentRunExecutor) Start(ctx context.Context, step ResolvedWorkflowStep)
 	ref, _ := workflowString(step.With, "ref", false)
 	branch, _ := workflowString(step.With, "branch", false)
 	// An engram engram does not list fails the step before anything starts.
-	engram, _ := workflowString(step.With, "engram", false)
+	engram, err := workflowString(step.With, "engram", false)
+	if err != nil {
+		return WorkflowExecutionResult{}, err
+	}
 	assignment := buildWorkflowAssignment(prompt, step, e.binaryPath)
 	opts := AgentSpawnOptions{
 		AgentKind: kind, Tier: tier, WorkingDir: workingDir, Repo: strings.TrimSpace(repo), Ref: strings.TrimSpace(ref), Branch: strings.TrimSpace(branch), Assignment: assignment,

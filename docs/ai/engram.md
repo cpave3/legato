@@ -50,7 +50,7 @@ Nothing is cached between calls, so installing engram later needs no restart. `c
 1. **Refused** for swarm agents (a role, parent or sub-task).
 2. **Session key**: a fresh start uses the new execution's ID; `SessionPolicy == "resume"` (any tool, Chimera included) reuses the one it ran in (`EngramSession`, else `store.LastEngramSession`). A resumed conversation that never ran as this engram has none, so it boots afresh with a new key.
 3. **`EngramService.Boot`**: `where` (its binary and store); a store whose root does not exist is a missing store; the engram must be one `identity list` lists. The environment is `ENGRAM_IDENTITY`, `ENGRAM_HOME` (the store root from `where`), `ENGRAM_SESSION`, `ENGRAM_HARNESS` (`EngramHarness`: `claude-code`, `codex` or `chimera`; any other tool is refused), `ENGRAM_MODEL` (only with a chosen model), `LEGATO_TASK_ID` and `LEGATO_EXECUTION_ID`, set alike for the boot and in the session's `envMap`. On a resume nothing is booted; otherwise `engram boot` runs, with the binary `where` named, in the agent's working directory (the clone, for a clone spawn), 5 s.
-4. **Launch prompt**: `EngramPromptSection(name, packet)` comes first, before every other section, for all three tools. No `--budget` is passed. A resumed Claude Code or Codex conversation takes no launch prompt, so a packet booted for it goes first in its first message instead.
+4. **Launch prompt**: `EngramPromptSection(name, packet)` comes first, before every other section, for all three tools. No `--budget` is passed. A resumed conversation takes no launch prompt (Claude Code and Codex drop it; Chimera's `--session` launch passes no `--prompt`), so a packet booted for it goes first in its first message instead.
 5. **Record**: `store.SetExecutionEngram` writes `executions.engram` and `engram_session`.
 6. **Failure**: an error, the timeout, an engram engram no longer lists, a missing store or engram not found starts the agent without the engram: no `ENGRAM_*`, no packet, nothing on the execution. `SpawnReport.EngramWarning` (`WithSpawnReport` passes one through the context) says why, in `EngramFailure`'s words, and the spawn endpoints answer it as `engram_warning`. A spawn that fails after a fresh boot runs `engram session end`.
 
@@ -67,7 +67,7 @@ Host and sandboxed processes write the same files. Checked against engram `main`
 The agent starts without the engram (see § The spawn, with an engram) and the person is told three ways:
 
 - **Where it was spawned.** The spawn endpoints answer `engram_warning`, which the web dialog's callers show as an error toast. A spawn that runs in the background (a clone) has no answer to carry it; the Attention item is what says so. The TUI shows it in its status bar (see [TUI](tui.md)).
-- **Attention.** `bootEngram` returns a `spawnedEngram` with `failed` set, and `SpawnAgent` records it with `store.SetExecutionEngramFailure` (`executions.engram_boot_failed`, `engram_boot_error`; migration 105). The `engram` producer (`EngramAttentionAdapter`, `internal/service/engram_attention.go`) lists the running executions with one as `engram_boot_failed` items on their task, reconciled on `EventAgentStarted` and `EventAgentDied`, so the item goes when the agent ends.
+- **Attention.** `bootEngram` returns a `spawnedEngram` with `failed` set, and `SpawnAgent` records it with `store.SetExecutionEngramFailure` (`executions.engram_boot_failed`, `engram_boot_error`; migration 105). The `engram` producer (`EngramAttentionAdapter`, `internal/service/engram_attention.go`) lists the running executions with one as `engram_boot_failed` items on their task, reconciled on `EventAgentStarted`, `EventAgentDied` and `EventAgentCompleted`, so the item goes when the agent ends. A finished workflow agent leaves without `EventAgentDied` (which would fire `agent_ended` triggers); `WorkflowAgentRunner.SetBus` has it publish `EventAgentCompleted` instead.
 - **The log**, with engram's stderr.
 
 A spawn that fails after its engram booted runs `engram session end`: `EndExecution` does once the engram is recorded on the execution, and a deferred `spawnedEngram.endIfFresh` before that. A resumed session is left as it was, except when the restart that kept it fails to boot the engram again: then the kept session (`EngramSession`) is ended, as its agent runs without it.
@@ -112,7 +112,7 @@ The spawn overlay's `engram` row (see [TUI](tui.md) § Spawning an agent) shows 
 
 ## Workflows
 
-`agent.run` takes `with.engram` (see [Workflows](workflows.md)): `EngramRequired` makes an engram that `identity list` does not list fail the step before the agent starts; any other failed boot starts it without the engram. Workflows never read or write bindings. A finished workflow agent's execution ends outside `EndExecution`, so `FinishWorkflowAgent` calls `EndEngramSession`.
+`agent.run` takes `with.engram` (see [Workflows](workflows.md)); a value that resolves to anything but text fails the step: `EngramRequired` makes an engram that `identity list` does not list fail the step before the agent starts; any other failed boot starts it without the engram. Workflows never read or write bindings. A finished workflow agent's execution ends outside `EndExecution`, so `FinishWorkflowAgent` calls `EndEngramSession`.
 
 ## Not offered
 

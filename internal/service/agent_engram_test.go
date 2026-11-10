@@ -7,8 +7,10 @@ import (
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/cpave3/legato/internal/engine/engram"
+	"github.com/cpave3/legato/internal/engine/events"
 	"github.com/cpave3/legato/internal/engine/store"
 )
 
@@ -327,5 +329,44 @@ func TestAResumedRestartWhoseBootFailsEndsTheSessionItKept(t *testing.T) {
 	}
 	if len(f.cli.ended) != 1 || envOf(f.cli.ended[0])["ENGRAM_SESSION"] != "ex-old" {
 		t.Fatalf("ended %v, want the kept session ex-old", f.cli.ended)
+	}
+}
+
+// Chimera's resumed launch drops --prompt too, so a fresh packet reaches it
+// as its first message.
+func TestAResumedChimeraConversationGetsAFreshPacketAsItsFirstMessage(t *testing.T) {
+	f := newEngramSpawnFixture(t, "chimera")
+	if err := f.svc.SpawnAgent(context.Background(), "task-1", 0, 0, AgentSpawnOptions{Engram: "mneme", SessionPolicy: "resume", ResumeSessionID: "chimera-1"}); err != nil {
+		t.Fatal(err)
+	}
+	path := f.tmux.envVarsFor("legato-task-1")["LEGATO_PROMPT_FILE"]
+	if path == "" {
+		t.Fatal("no first message was written")
+	}
+	data, _ := os.ReadFile(path)
+	if !strings.Contains(string(data), "<engram-boot name=\"mneme\">") {
+		t.Fatalf("first message = %q", data)
+	}
+}
+
+func TestFinishingAWorkflowAgentReconcilesItsAttention(t *testing.T) {
+	f := newEngramSpawnFixture(t, "claude-code")
+	ctx := context.Background()
+	if err := f.svc.SpawnAgent(ctx, "task-1", 0, 0, AgentSpawnOptions{WorkflowRunID: "wr-1", ExecutionKind: store.ExecutionWorkflowAgent}); err != nil {
+		t.Fatal(err)
+	}
+	session, _ := f.store.GetAgentSessionByTaskID(ctx, "task-1")
+	bus := events.New()
+	completed := bus.Subscribe(events.EventAgentCompleted)
+	runner := NewWorkflowAgentRunner(f.svc, f.store)
+	runner.SetBus(bus)
+	id := session.ID
+	if err := runner.FinishWorkflowAgent(ctx, store.WorkflowStepAttempt{AgentSessionID: &id, TmuxSession: session.TmuxSession}); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-completed:
+	case <-time.After(time.Second):
+		t.Fatal("finishing a workflow agent published nothing for Attention to reconcile on")
 	}
 }
