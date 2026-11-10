@@ -65,6 +65,9 @@ type Config struct {
 	Updates UpdatesConfig `yaml:"updates"`
 	// Reeve is the agent of this Legato itself.
 	Reeve ReeveConfig `yaml:"reeve"`
+	// Engram is whether agents can be started as engrams. See
+	// docs/ai/engram.md.
+	Engram EngramConfig `yaml:"engram"`
 
 	// pins are the dotted keys config.yaml gives a value (Pinned).
 	pins map[string]bool
@@ -515,6 +518,12 @@ func validate(cfg *Config) error {
 	if err := normalizeManticoreConfig(cfg); err != nil {
 		return err
 	}
+	cfg.Engram.Command = strings.TrimSpace(cfg.Engram.Command)
+	switch cfg.Engram.Enabled {
+	case EngramAuto, EngramOn, EngramOff:
+	default:
+		return fmt.Errorf("engram.enabled must be auto, on or off, got %q", cfg.Engram.Enabled)
+	}
 	if err := normalizeIntegrations(cfg); err != nil {
 		return err
 	}
@@ -884,6 +893,9 @@ func applyDefaults(cfg *Config) {
 	if cfg.Theme == "" {
 		cfg.Theme = "default"
 	}
+	if cfg.Engram.Enabled == "" {
+		cfg.Engram.Enabled = EngramAuto
+	}
 	if len(cfg.Board.Columns) == 0 {
 		cfg.Board.Columns = DefaultColumns()
 	}
@@ -1030,6 +1042,24 @@ func ValidateRepositoryCache(cfg *Config) error {
 		}
 	}
 	return nil
+}
+
+// The values of engram.enabled.
+const (
+	EngramAuto = "auto"
+	EngramOn   = "on"
+	EngramOff  = "off"
+)
+
+// EngramConfig is whether Legato offers to start agents as engrams, and
+// which engram binary it runs.
+type EngramConfig struct {
+	// Enabled is auto (on when engram answers; the default), on (the same,
+	// with a failed probe reported as an error) or off (nothing engram is
+	// shown).
+	Enabled string `yaml:"enabled"`
+	// Command is the engram binary; engram on PATH when empty.
+	Command string `yaml:"command"`
 }
 
 // UpdatesConfig is how this Legato takes new releases.

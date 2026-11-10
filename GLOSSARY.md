@@ -132,6 +132,16 @@ _Avoid_: bootstrap setting, static setting
 One named individual kept by the engram CLI, with its own memories, open threads and handoffs, that an agent session can be started as. The CLI itself is "the engram CLI".
 _Avoid_: identity, persona, profile
 
+**Place key**:
+How engram names where a session runs: `repo:<host>/<path>` for a repository, `dir:<path>` for a folder. Engram bindings are kept under it.
+_Avoid_: scope (engram's word for any key a record can carry)
+
+**Engram binding**:
+An engram bound to a place key, so the spawn dialog lists it under "This repo" (or "This folder") there. Made by ticking Remember; kept in the database only.
+
+**Default engram**:
+The engram bound to a place that is pre-selected there when the task has no engram of its own. At most one per place.
+
 ### Neighbouring terms
 
 **Delegation**:

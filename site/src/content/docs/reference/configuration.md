@@ -589,6 +589,15 @@ With embeddings on, `legato learn search` finds lessons by meaning as well as by
 | `learning.embedding.dimensions` | integer | `0` | The vector size to ask for. `0` takes what the model gives. |
 | `learning.embedding.batch_size` | integer | `32` | Not used yet. It must still be positive. |
 
+## Engram
+
+Whether agents can be started as engrams. Usually set in Settings. See [Engrams](/legato/agent-tools/engrams/).
+
+| Setting | Type | Default | What it does |
+| --- | --- | --- | --- |
+| `engram.enabled` | string | `auto` | `auto` offers engrams when the engram command answers; `on` does too, and logs an error when it does not; `off` hides everything about engrams. |
+| `engram.command` | string | none | The engram binary. Without it, `engram` is looked up on the `PATH` of the Legato server. |
+
 ## Manticore
 
 Reports the tokens each Claude Code session uses to a Manticore instance, and shows today's total in the TUI. Set both settings or neither. See [Manticore](/legato/integrations/manticore/).
