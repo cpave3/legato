@@ -79,6 +79,12 @@ func (a *agentService) restartAgent(ctx context.Context, taskID string, resource
 		if execution, err := a.store.GetExecution(ctx, session.ExecutionID); err == nil {
 			opt.WorkingDir = execution.WorkingDir
 		}
+		// It comes back as the engram it ran as: in the same engram
+		// session when its conversation is resumed, booted again with a
+		// new one when not.
+		if name, engramSession, err := a.store.ExecutionEngram(ctx, session.ExecutionID); err == nil && name != "" {
+			opt.Engram, opt.EngramSession = name, engramSession
+		}
 	}
 	if SupportsTaskResume(session.AgentKind) {
 		resume, err := a.restartConversation(ctx, task, session)
@@ -93,7 +99,12 @@ func (a *agentService) restartAgent(ctx context.Context, taskID string, resource
 			return false, err
 		}
 	}
-	if err := a.stopAgent(ctx, taskID, false); err != nil {
+	stopCtx := ctx
+	if opt.SessionPolicy == "resume" {
+		// The engram session goes on in the agent that resumes it.
+		stopCtx = withEngramSessionKept(ctx)
+	}
+	if err := a.stopAgent(stopCtx, taskID, false); err != nil {
 		return false, err
 	}
 	return sandboxed, a.SpawnAgent(ctx, taskID, 0, 0, opt)

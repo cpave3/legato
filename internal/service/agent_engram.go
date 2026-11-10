@@ -5,6 +5,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"os"
 
 	"github.com/cpave3/legato/internal/engine/engram"
 )
@@ -103,6 +104,40 @@ func (a *agentService) bootEngram(ctx context.Context, taskID, executionID, agen
 		report.Engram = opt.Engram
 	}
 	return &spawnedEngram{EngramBoot: boot, name: opt.Engram, session: session, resumed: resume}, nil
+}
+
+type engramSessionKeptKey struct{}
+
+// withEngramSessionKept marks an agent stopped to be resumed: its engram
+// session is not ended with its execution.
+func withEngramSessionKept(ctx context.Context) context.Context {
+	return context.WithValue(ctx, engramSessionKeptKey{}, true)
+}
+
+// endEngramSession runs `engram session end` for an execution that ran as
+// an engram and has ended for good. Legato asks the agent for no handoff:
+// engram's practice section does.
+func (a *agentService) endEngramSession(ctx context.Context, executionID string) {
+	if kept, _ := ctx.Value(engramSessionKeptKey{}).(bool); kept {
+		return
+	}
+	engrams := a.engramBooter()
+	if engrams == nil {
+		return
+	}
+	name, session, err := a.store.ExecutionEngram(ctx, executionID)
+	if err != nil || name == "" {
+		return
+	}
+	dir := ""
+	if execution, err := a.store.GetExecution(ctx, executionID); err == nil {
+		if info, statErr := os.Stat(execution.WorkingDir); statErr == nil && info.IsDir() {
+			dir = execution.WorkingDir
+		}
+	}
+	if err := engrams.EndSession(context.WithoutCancel(ctx), EngramSessionRef{Name: name, Session: session, Dir: dir}); err != nil {
+		log.Printf("engram: ending %s's session %s: %v", name, session, err)
+	}
 }
 
 // SpawnReportFromContext is the report WithSpawnReport asked for, nil when

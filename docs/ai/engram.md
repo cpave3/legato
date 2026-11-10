@@ -71,3 +71,8 @@ The agent starts without the engram (see § The spawn, with an engram) and the p
 - **The log**, with engram's stderr.
 
 A spawn that fails after its engram booted runs `engram session end` (`spawnedEngram.endIfFresh`); a resumed session is left as it was.
+
+## Restart and ending
+
+- **Restart** (`restartAgent`) reads `engram` and `engram_session` from the execution it replaces into `AgentSpawnOptions.Engram` and `EngramSession`. A resumed conversation keeps both and gets no packet; a restart that does not resume boots again with a new key (the new execution's ID).
+- **Ending.** `EndExecution`, where every agent's execution ends (a kill, a pane that went away, a task deleted, archived or handed back, a spawn that failed), runs `engram session end` for an execution with an engram (`endEngramSession`), in its working directory when that still exists. A restart that resumes stops its agent with `withEngramSessionKept`, so the session goes on in the agent that resumes it. Legato never asks the agent for a handoff; engram's practice section does. An ended session still resumes through its strong key.

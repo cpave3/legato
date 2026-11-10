@@ -965,6 +965,7 @@ func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, hei
 		AgentKind: agentKind, Role: opt.Role, WorkingDir: workDir, StartedAt: time.Now().UTC(),
 	}
 	if err := a.store.CreateExecution(ctx, execution); err != nil {
+		booted.endIfFresh(ctx, a.engramBooter(), workDir)
 		return fmt.Errorf("creating execution: %w", err)
 	}
 	if opt.ReadOnlyCheckout {
@@ -973,16 +974,15 @@ func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, hei
 		}
 	}
 	envMap["LEGATO_EXECUTION_ID"] = executionID
-	failExecution := func() {
-		_ = a.EndExecution(ctx, executionID, store.ExecutionFailed)
-		booted.endIfFresh(ctx, a.engramBooter(), workDir)
-	}
+	// Once recorded on the execution, an engram session is ended with it.
+	failExecution := func() { _ = a.EndExecution(ctx, executionID, store.ExecutionFailed) }
 	if booted.booted() {
 		for k, v := range booted.Env {
 			envMap[k] = v
 		}
 		if err := a.store.SetExecutionEngram(ctx, executionID, booted.name, booted.session); err != nil {
 			failExecution()
+			booted.endIfFresh(ctx, a.engramBooter(), workDir)
 			return fmt.Errorf("recording the engram: %w", err)
 		}
 	} else if booted != nil {
@@ -1692,6 +1692,7 @@ func (a *agentService) EndExecution(ctx context.Context, executionID, status str
 		return err
 	}
 	a.scratch.removeLogged(executionID)
+	a.endEngramSession(ctx, executionID)
 	return nil
 }
 
