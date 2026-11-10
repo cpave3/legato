@@ -53,8 +53,9 @@ func (m *SettingsMover) path() string {
 }
 
 // Movable is every setting and list entry config.yaml pins that can move:
-// not one holding a secret, and not one whose value in the file reads an
-// environment variable (moving it would freeze the variable's value).
+// not one holding a secret, not one whose value in the file reads an
+// environment variable (moving it would freeze the variable's value), and
+// not one the file cannot load without (keepFileLoadable).
 func (m *SettingsMover) Movable(ctx context.Context) (SettingsMove, error) {
 	cfg, err := m.Settings.load()
 	if err != nil {
@@ -78,7 +79,79 @@ func (m *SettingsMover) Movable(ctx context.Context) (SettingsMove, error) {
 			out.Entries = append(out.Entries, EntryRef{List: l.Key, Name: name})
 		}
 	}
-	return out, nil
+	return keepFileLoadable(raw, out), nil
+}
+
+// keepFileLoadable is the part of all that can leave config.yaml with the
+// file still loading by itself, since a start reads the file before the
+// database. A setting a secret in the file needs (manticore.url beside
+// manticore.api_key) stays. Each pass takes what can go given what already
+// went, so a pair that must leave together (a workspace and the
+// default_workspace naming it) still goes.
+func keepFileLoadable(raw []byte, all SettingsMove) SettingsMove {
+	if fileLoadsWithout(raw, all) == nil {
+		return all
+	}
+	var went SettingsMove
+	settingGone, entryGone := map[string]bool{}, map[EntryRef]bool{}
+	for progress := true; progress; {
+		progress = false
+		for _, key := range all.Settings {
+			if settingGone[key] {
+				continue
+			}
+			try := SettingsMove{Settings: append(slices.Clone(went.Settings), key), Entries: went.Entries}
+			if fileLoadsWithout(raw, try) == nil {
+				went, settingGone[key], progress = try, true, true
+			}
+		}
+		for _, e := range all.Entries {
+			if entryGone[e] {
+				continue
+			}
+			try := SettingsMove{Settings: went.Settings, Entries: append(slices.Clone(went.Entries), e)}
+			if fileLoadsWithout(raw, try) == nil {
+				went, entryGone[e], progress = try, true, true
+			}
+		}
+	}
+	out := SettingsMove{Settings: []string{}, Entries: []EntryRef{}}
+	for _, key := range all.Settings {
+		if settingGone[key] {
+			out.Settings = append(out.Settings, key)
+		}
+	}
+	for _, e := range all.Entries {
+		if entryGone[e] {
+			out.Entries = append(out.Entries, e)
+		}
+	}
+	return out
+}
+
+// fileLoadsWithout loads config.yaml (raw) without what move names, as a
+// start would load it.
+func fileLoadsWithout(raw []byte, move SettingsMove) error {
+	edited, err := config.EditBytes(raw, removeMoved(move))
+	if err != nil {
+		return err
+	}
+	_, err = config.LoadBytes(edited)
+	return err
+}
+
+// removeMoved takes what move names out of a parsed config.yaml.
+func removeMoved(move SettingsMove) func(doc *yaml.Node) error {
+	return func(doc *yaml.Node) error {
+		for _, key := range move.Settings {
+			config.RemoveKey(doc, key)
+		}
+		for _, e := range move.Entries {
+			l, _ := config.LookupEntryList(e.List)
+			config.RemoveListEntry(doc, e.List, l.NameField, e.Name)
+		}
+		return nil
+	}
 }
 
 // Move copies what req names from config.yaml into the database, rewrites
@@ -105,6 +178,13 @@ func (m *SettingsMover) Move(ctx context.Context, req SettingsMove, by string) (
 		if !containsEntry(movable.Entries, e) {
 			return store.RestartRecord{}, fmt.Errorf("%s %q cannot move: config.yaml does not have it, or it reads an environment variable", e.List, e.Name)
 		}
+	}
+	raw, err := os.ReadFile(path)
+	if err != nil {
+		return store.RestartRecord{}, err
+	}
+	if err := fileLoadsWithout(raw, req); err != nil {
+		return store.RestartRecord{}, fmt.Errorf("config.yaml would not load without them, and a start reads it before the database: %w", err)
 	}
 	cfg, err := m.Settings.load()
 	if err != nil {
@@ -147,16 +227,7 @@ func (m *SettingsMover) Move(ctx context.Context, req SettingsMove, by string) (
 			return store.RestartRecord{}, err
 		}
 	}
-	backup, err := config.EditFile(path, func(doc *yaml.Node) error {
-		for _, key := range req.Settings {
-			config.RemoveKey(doc, key)
-		}
-		for _, e := range req.Entries {
-			l, _ := config.LookupEntryList(e.List)
-			config.RemoveListEntry(doc, e.List, l.NameField, e.Name)
-		}
-		return nil
-	})
+	backup, err := config.EditFile(path, removeMoved(req))
 	if err != nil {
 		_ = m.Settings.RestoreSettings(ctx, olds)
 		return store.RestartRecord{}, err

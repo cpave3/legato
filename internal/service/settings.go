@@ -36,6 +36,9 @@ type SettingValue struct {
 	PendingRestart bool   `json:"pending_restart,omitempty"`
 	UpdatedAt      string `json:"updated_at,omitempty"`
 	UpdatedBy      string `json:"updated_by,omitempty"`
+	// effective is the value before a pinned secret is masked: what a
+	// restart compares against the value the process started with.
+	effective any
 }
 
 // SettingsService keeps the settings of the registry that live in the
@@ -201,7 +204,7 @@ func (s *SettingsService) pending(v SettingValue) bool {
 	if !ok {
 		return false
 	}
-	now, _ := json.Marshal(v.Value)
+	now, _ := json.Marshal(v.effective)
 	return string(now) != was
 }
 
@@ -267,7 +270,7 @@ func describeSetting(cfg *config.Config, setting config.Setting, rows map[string
 	if err != nil {
 		return SettingValue{}, err
 	}
-	v := SettingValue{Setting: setting, Value: value, Source: SettingFromDefault}
+	v := SettingValue{Setting: setting, Value: value, Source: SettingFromDefault, effective: value}
 	switch row, inDB := rows[setting.Key]; {
 	case cfg.Pinned(setting.Key):
 		v.Source, v.Pinned = SettingFromFile, true

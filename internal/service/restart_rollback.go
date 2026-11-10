@@ -147,9 +147,11 @@ func RestoreConfig(p RestartPointer) error {
 
 // RollBackUnloadable is the first thing a start does when its configuration
 // does not load: with a pending restart that changed config.yaml, it puts
-// the backup back and records why, and reports true; the caller then starts
-// again on the old file. open opens the database the pointer names
-// (store.Open when nil).
+// the backup back, puts back the database settings the restart changed (a
+// move writes them before it), records why, and reports true; the caller
+// then starts again on the old file. open opens the database the pointer
+// names (store.Open when nil). An error with true is a setting not put
+// back; the file was.
 func RollBackUnloadable(ctx context.Context, configPath string, loadErr error, open func(store.Options) (*store.Store, error)) (bool, error) {
 	p, ok := ReadRestartPointer(configPath)
 	if !ok || p.ConfigBackup == "" || !claimPointer(configPath) {
@@ -161,11 +163,21 @@ func RollBackUnloadable(ctx context.Context, configPath string, loadErr error, o
 	if open == nil {
 		open = store.Open
 	}
-	if db, err := open(store.Options{Driver: p.DBDriver, Path: p.DBPath}); err == nil {
-		defer db.Close()
-		_, _ = db.FinishRestartRecord(ctx, p.RecordID, store.RestartRolledBack, "The configuration did not load: "+loadErr.Error())
+	db, err := open(store.Options{Driver: p.DBDriver, Path: p.DBPath})
+	if err != nil {
+		return true, nil
 	}
-	return true, nil
+	defer db.Close()
+	var restoreErr error
+	if rec, err := db.GetRestartRecord(ctx, p.RecordID); err == nil {
+		var settings []RestartSetting
+		_ = json.Unmarshal([]byte(rec.Settings), &settings)
+		if len(settings) > 0 {
+			restoreErr = NewSettingsService(db, nil).RestoreSettings(ctx, settings)
+		}
+	}
+	_, _ = db.FinishRestartRecord(ctx, p.RecordID, store.RestartRolledBack, "The configuration did not load: "+loadErr.Error())
+	return true, restoreErr
 }
 
 // Settle decides a pending restart once this process has started: healthy

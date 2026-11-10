@@ -140,6 +140,16 @@ func TestARestartSettingChangedSinceStartWaitsForARestart(t *testing.T) {
 	}
 }
 
+func TestASecretPinnedInTheFileDoesNotWaitForARestart(t *testing.T) {
+	settings, _ := newSettingsFixture(t, "manticore:\n  url: http://192.168.1.220:3456\n  api_key: mk-secret\njira:\n  api_token: jira-secret\n")
+	ctx := context.Background()
+	settings.MarkStarted(ctx)
+
+	if pending, err := settings.PendingRestart(ctx); err != nil || len(pending) != 0 {
+		t.Fatalf("pending = %v, %v; want nothing waiting", pending, err)
+	}
+}
+
 func TestChangesWaitingForARestartAreInAttention(t *testing.T) {
 	settings, _ := newSettingsFixture(t, "")
 	ctx := context.Background()

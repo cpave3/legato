@@ -93,6 +93,27 @@ func TestAStartThatCannotLoadItsConfigurationPutsTheOldFileBack(t *testing.T) {
 	}
 }
 
+// A move writes the database before the restart; a start that cannot load
+// the file it left puts the database back too, not only the file.
+func TestAStartThatCannotLoadItsConfigurationPutsTheOldSettingsBack(t *testing.T) {
+	f := newRollbackFixture(t)
+	ctx := context.Background()
+	f.begin(t) // updates.mode was "ask" before it
+	if err := f.db.SetSetting(ctx, "updates.mode", json.RawMessage(`"auto"`), "web"); err != nil {
+		t.Fatal(err)
+	}
+	f.db.Close()
+
+	if rolled, err := RollBackUnloadable(ctx, f.configPath, errors.New("manticore.url is required when manticore.api_key is set"), nil); err != nil || !rolled {
+		t.Fatalf("RollBackUnloadable = %v, %v", rolled, err)
+	}
+	db, _ := store.New(f.dbPath)
+	defer db.Close()
+	if got, _, _ := db.GetSetting(ctx, "updates.mode"); string(got) != `"ask"` {
+		t.Fatalf("updates.mode = %s, want the value from before the restart", got)
+	}
+}
+
 func TestAHealthyStartAppliesTheRestart(t *testing.T) {
 	f := newRollbackFixture(t)
 	rec := f.begin(t)

@@ -147,3 +147,43 @@ func TestMovingTheDefaultWorkspaceKeepsItTheDefault(t *testing.T) {
 		t.Fatalf("effective: default %q, workspaces %+v, %v", cfg.DefaultWorkspace, cfg.Workspaces, err)
 	}
 }
+
+const manticoreFile = `agents:
+  reviews: false
+manticore:
+  url: http://192.168.1.220:3456
+  api_key: mk-secret
+`
+
+// A secret never moves, so the setting it needs stays beside it: without
+// manticore.url, a config.yaml that keeps manticore.api_key does not load.
+func TestASettingASecretInTheFileNeedsDoesNotMove(t *testing.T) {
+	mover, _, _ := newMoveFixture(t, manticoreFile)
+	got, err := mover.Movable(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Join(got.Settings, ",") != "agents.reviews" {
+		t.Fatalf("settings = %v, want only agents.reviews", got.Settings)
+	}
+}
+
+// A move never leaves a config.yaml that does not load by itself: a start
+// reads the file before the database.
+func TestAMoveThatWouldLeaveTheFileUnloadableIsRefused(t *testing.T) {
+	mover, db, path := newMoveFixture(t, "workspaces:\n  - name: Personal\ndefault_workspace: Personal\n")
+	ctx := context.Background()
+	_, err := mover.Move(ctx, SettingsMove{Entries: []EntryRef{{List: "workspaces", Name: "Personal"}}}, "web")
+	if err == nil || !strings.Contains(err.Error(), "would not load") {
+		t.Fatalf("Move = %v, want refused", err)
+	}
+	if file, _ := os.ReadFile(path); !strings.Contains(string(file), "name: Personal") {
+		t.Fatalf("config.yaml = %s", file)
+	}
+	if entries, _ := db.SettingEntries(ctx); len(entries["workspaces"]) != 0 {
+		t.Fatalf("the entry was copied to the database: %v", entries)
+	}
+	if _, pending := ReadRestartPointer(path); pending {
+		t.Fatal("a restart was recorded")
+	}
+}
