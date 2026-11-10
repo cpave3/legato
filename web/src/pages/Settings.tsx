@@ -10,6 +10,7 @@ import { PairDeviceDialog } from "../components/PairDeviceDialog"
 import { ResourcesSettings } from "../components/ResourcesSettings"
 import { RepositoriesSettings } from "../components/RepositoriesSettings"
 import { RepositoryGuidanceSettings } from "../components/RepositoryGuidanceSettings"
+import { EngramBindingsSettings } from "../components/EngramBindingsSettings"
 import { CredentialsSettings } from "../components/CredentialsSettings"
 import { DevicesSettings } from "../components/DevicesSettings"
 import { IntegrationsSettings } from "../components/IntegrationsSettings"
@@ -221,7 +222,8 @@ export function SettingsPage() {
               <Link to="/remote" className={quietButton}>Open Remote</Link>
             </SettingsCard>
             <ResourcesSettings baseUrl={baseUrl} />
-            <RegistrySettings settings={registry} baseUrl={baseUrl} prefixes={["agents"]} />
+            <EngramBindingsSettings baseUrl={baseUrl} />
+            <RegistrySettings settings={registry} baseUrl={baseUrl} prefixes={["agents", "engram"]} />
             <SettingsRows>
               <SettingsRow
                 icon={ScanSearch}

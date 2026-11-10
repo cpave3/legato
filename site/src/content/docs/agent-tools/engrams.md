@@ -50,3 +50,7 @@ An engram that engram no longer lists is left out of the list, and its bindings 
 Restarting an engram agent keeps its engram. When its conversation is resumed it keeps its engram session too, and the boot packet is not sent again; otherwise the engram boots again in a new session.
 
 When an engram agent ends for good, Legato tells engram the session is over (`engram session end`). Legato does not ask the agent for a handoff: the boot packet tells it to hand off at stopping points.
+
+## Engram bindings in Settings
+
+**Settings › Agents › Engram bindings** lists each repository or folder that has engrams bound to it, with its default marked and any engram that engram no longer lists marked **missing**. You can make a bound engram the default, unbind one, or clear the default. Engrams are bound with **Remember** in the spawn dialog, not here. The section also says where engram and its store are, or that engram was not found.

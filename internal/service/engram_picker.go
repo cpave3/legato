@@ -243,3 +243,76 @@ func (s *EngramService) Touch(ctx context.Context, dir, name string) error {
 	}
 	return nil
 }
+
+// EngramBound is one engram bound to a place, as Settings lists it.
+type EngramBound struct {
+	Name    string `json:"name"`
+	Default bool   `json:"default,omitempty"`
+	// Missing: engram no longer lists it. Never set while engram cannot
+	// be asked.
+	Missing bool `json:"missing,omitempty"`
+}
+
+// EngramBindingPlace is a place and the engrams bound to it.
+type EngramBindingPlace struct {
+	Key     string        `json:"key"`
+	Label   string        `json:"label"`
+	Kind    string        `json:"kind"`
+	Engrams []EngramBound `json:"engrams"`
+}
+
+// EngramBindingsView is Settings' Engram bindings: the probe's state and
+// every place with bindings, folders and repositories by their label.
+type EngramBindingsView struct {
+	Status EngramStatus         `json:"status"`
+	Places []EngramBindingPlace `json:"places"`
+}
+
+// Bindings lists every binding by place. It lists them whether engram is
+// here or not.
+func (s *EngramService) Bindings(ctx context.Context) (EngramBindingsView, error) {
+	view := EngramBindingsView{Status: s.Status(ctx), Places: []EngramBindingPlace{}}
+	if s.opts.Store == nil {
+		return view, nil
+	}
+	all, err := s.opts.Store.AllEngramBindings(ctx)
+	if err != nil {
+		return view, err
+	}
+	listed := map[string]bool{}
+	for _, id := range view.Status.Engrams {
+		listed[id.Name] = true
+	}
+	index := map[string]int{}
+	for _, b := range all {
+		i, ok := index[b.PlaceKey]
+		if !ok {
+			i = len(view.Places)
+			index[b.PlaceKey] = i
+			view.Places = append(view.Places, EngramBindingPlace{Key: b.PlaceKey, Label: engram.Label(b.PlaceKey), Kind: engram.KindOf(b.PlaceKey), Engrams: []EngramBound{}})
+		}
+		view.Places[i].Engrams = append(view.Places[i].Engrams, EngramBound{Name: b.Engram, Default: b.IsDefault, Missing: view.Status.Enabled && !listed[b.Engram]})
+	}
+	sort.SliceStable(view.Places, func(i, j int) bool { return view.Places[i].Label < view.Places[j].Label })
+	return view, nil
+}
+
+// Unbind removes one binding; store.ErrNotFound when there is none.
+func (s *EngramService) Unbind(ctx context.Context, place, name string) error {
+	if s.opts.Store == nil {
+		return ErrNoEngramPlace
+	}
+	return s.opts.Store.UnbindEngram(ctx, place, name)
+}
+
+// SetDefault makes a bound engram its place's default, or with no name
+// clears the default.
+func (s *EngramService) SetDefault(ctx context.Context, place, name string) error {
+	if s.opts.Store == nil {
+		return ErrNoEngramPlace
+	}
+	if name == "" {
+		return s.opts.Store.ClearEngramDefault(ctx, place)
+	}
+	return s.opts.Store.SetEngramDefault(ctx, place, name)
+}

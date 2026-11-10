@@ -199,3 +199,52 @@ func TestSpawningABoundEngramRecordsItsUse(t *testing.T) {
 		t.Fatal("last_used_at was not set")
 	}
 }
+
+func TestTheBindingsListEachPlaceWithItsEngrams(t *testing.T) {
+	f := newPickerFixture(t)
+	ctx := context.Background()
+	_ = f.store.BindEngram(ctx, "repo:github.com/cpave3/legato", "argus", true, time.Now())
+	_ = f.store.BindEngram(ctx, "repo:github.com/cpave3/legato", "ghost", false, time.Now())
+	_ = f.store.BindEngram(ctx, "dir:/notes", "mneme", false, time.Now())
+	view, err := f.svc.Bindings(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !view.Status.Enabled || len(view.Places) != 2 {
+		t.Fatalf("view = %+v", view)
+	}
+	folder, repo := view.Places[0], view.Places[1]
+	if folder.Label != "/notes" || folder.Kind != "folder" || repo.Label != "github.com/cpave3/legato" || repo.Kind != "repo" {
+		t.Fatalf("places = %+v", view.Places)
+	}
+	if len(repo.Engrams) != 2 || repo.Engrams[0].Name != "argus" || !repo.Engrams[0].Default || repo.Engrams[1].Name != "ghost" || !repo.Engrams[1].Missing {
+		t.Fatalf("repo engrams = %+v", repo.Engrams)
+	}
+	// Without engram, nothing can be called missing.
+	f.cli.whereErr = engram.ErrNotInstalled
+	view, _ = f.svc.Bindings(ctx)
+	if view.Status.Enabled || view.Places[1].Engrams[1].Missing {
+		t.Fatalf("without engram: %+v", view)
+	}
+}
+
+func TestBindingsCanBeUnboundAndTheirDefaultChanged(t *testing.T) {
+	f := newPickerFixture(t)
+	ctx := context.Background()
+	place := "repo:github.com/cpave3/legato"
+	_ = f.store.BindEngram(ctx, place, "argus", true, time.Now())
+	_ = f.store.BindEngram(ctx, place, "mneme", false, time.Now())
+	if err := f.svc.SetDefault(ctx, place, "mneme"); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.svc.SetDefault(ctx, place, ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.svc.Unbind(ctx, place, "argus"); err != nil {
+		t.Fatal(err)
+	}
+	view, _ := f.svc.Bindings(ctx)
+	if len(view.Places) != 1 || len(view.Places[0].Engrams) != 1 || view.Places[0].Engrams[0].Default {
+		t.Fatalf("view = %+v", view)
+	}
+}

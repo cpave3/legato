@@ -8,6 +8,7 @@ import (
 	"strings"
 	"testing"
 
+	"github.com/cpave3/legato/internal/engine/store"
 	"github.com/cpave3/legato/internal/service"
 )
 
@@ -17,6 +18,8 @@ type stubEngrams struct {
 	asked      service.EngramPickerRequest
 	remembered []string
 	rememberAt service.EngramPickerRequest
+	unbound    []string
+	defaults   []string
 }
 
 func (s *stubEngrams) Status(context.Context) service.EngramStatus { return s.status }
@@ -30,6 +33,20 @@ func (s *stubEngrams) Picker(_ context.Context, req service.EngramPickerRequest)
 		return service.EngramPicker{EngramStatus: s.status, Engrams: engrams}, nil
 	}
 	return s.picker, nil
+}
+func (s *stubEngrams) Bindings(context.Context) (service.EngramBindingsView, error) {
+	return service.EngramBindingsView{Status: s.status, Places: []service.EngramBindingPlace{{Key: "repo:github.com/a/b", Label: "github.com/a/b", Kind: "repo", Engrams: []service.EngramBound{{Name: "argus", Default: true}, {Name: "ghost", Missing: true}}}}}, nil
+}
+func (s *stubEngrams) Unbind(_ context.Context, place, name string) error {
+	if name == "nobody" {
+		return store.ErrNotFound
+	}
+	s.unbound = append(s.unbound, place+" "+name)
+	return nil
+}
+func (s *stubEngrams) SetDefault(_ context.Context, place, name string) error {
+	s.defaults = append(s.defaults, place+" "+name)
+	return nil
 }
 func (s *stubEngrams) Remember(_ context.Context, req service.EngramPickerRequest, name string) error {
 	s.rememberAt = req
@@ -122,5 +139,39 @@ func TestTheSpawnRemembersTheEngramWhenAsked(t *testing.T) {
 	server.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/tasks/T-1/agent", strings.NewReader(`{"working_dir":"/repo","engram":"mneme"}`)))
 	if len(stub.remembered) != 0 {
 		t.Fatalf("remembered without being asked: %v", stub.remembered)
+	}
+}
+
+func TestEngramBindingsAreListedUnboundAndTheirDefaultSet(t *testing.T) {
+	stub := &stubEngrams{status: service.EngramStatus{Enabled: true}}
+	srv := New(nil, nil, nil, ":0")
+	srv.SetEngramService(stub)
+	var view struct {
+		Places []struct {
+			Label   string `json:"label"`
+			Engrams []struct {
+				Name    string `json:"name"`
+				Default bool   `json:"default"`
+				Missing bool   `json:"missing"`
+			} `json:"engrams"`
+		} `json:"places"`
+	}
+	if status := serveJSON(t, srv, http.MethodGet, "/api/engram-bindings", "", &view); status != http.StatusOK || len(view.Places) != 1 || !view.Places[0].Engrams[0].Default || !view.Places[0].Engrams[1].Missing {
+		t.Fatalf("GET = %d %+v", status, view)
+	}
+	if status := serveJSON(t, srv, http.MethodDelete, "/api/engram-bindings?place=repo:github.com/a/b&engram=argus", "", nil); status != http.StatusNoContent || len(stub.unbound) != 1 || stub.unbound[0] != "repo:github.com/a/b argus" {
+		t.Fatalf("DELETE = %d %v", status, stub.unbound)
+	}
+	if status := serveJSON(t, srv, http.MethodDelete, "/api/engram-bindings?place=repo:github.com/a/b&engram=nobody", "", nil); status != http.StatusNotFound {
+		t.Fatalf("DELETE of nothing = %d", status)
+	}
+	if status := serveJSON(t, srv, http.MethodPut, "/api/engram-bindings/default", `{"place":"repo:github.com/a/b","engram":"ghost"}`, nil); status != http.StatusNoContent {
+		t.Fatalf("PUT = %d", status)
+	}
+	if status := serveJSON(t, srv, http.MethodPut, "/api/engram-bindings/default", `{"place":"repo:github.com/a/b","engram":null}`, nil); status != http.StatusNoContent {
+		t.Fatalf("PUT null = %d", status)
+	}
+	if len(stub.defaults) != 2 || stub.defaults[0] != "repo:github.com/a/b ghost" || stub.defaults[1] != "repo:github.com/a/b " {
+		t.Fatalf("defaults = %v", stub.defaults)
 	}
 }
