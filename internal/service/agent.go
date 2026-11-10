@@ -902,7 +902,7 @@ func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, hei
 			rolePrompt = opt.Assignment
 		}
 	}
-	if booted != nil && booted.Packet != "" {
+	if booted.booted() && booted.Packet != "" {
 		rolePrompt = joinPromptSections(EngramPromptSection(booted.name, booted.Packet), rolePrompt)
 	}
 	if rolePrompt != "" || assignment != "" {
@@ -977,13 +977,17 @@ func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, hei
 		_ = a.EndExecution(ctx, executionID, store.ExecutionFailed)
 		booted.endIfFresh(ctx, a.engramBooter(), workDir)
 	}
-	if booted != nil {
+	if booted.booted() {
 		for k, v := range booted.Env {
 			envMap[k] = v
 		}
 		if err := a.store.SetExecutionEngram(ctx, executionID, booted.name, booted.session); err != nil {
 			failExecution()
 			return fmt.Errorf("recording the engram: %w", err)
+		}
+	} else if booted != nil {
+		if err := a.store.SetExecutionEngramFailure(ctx, executionID, booted.name, booted.failed); err != nil {
+			log.Printf("engram: recording that %s did not boot for %s: %v", booted.name, taskID, err)
 		}
 	}
 	// Credential channels: placeholder keys, the proxy's address and the
@@ -1014,7 +1018,7 @@ func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, hei
 	sandboxed := a.sandbox != nil && (!opt.Unsandboxed || opt.Unattended || opt.ReadOnlyCheckout || opt.ParentTaskID != "" || opt.SubtaskID != "" || opt.WorkflowRunID != "")
 	if sandboxed {
 		var engramMounts SandboxEngram
-		if booted != nil {
+		if booted.booted() {
 			engramMounts = SandboxEngram{Binary: booted.Binary, Store: booted.Store}
 		}
 		prefix, err := a.sandboxPrefix(ctx, taskID, executionID, agentKind, workDir, envMap, append(resources, freshClone.sandboxResources()...), opt.ReadOnlyCheckout, opt.ThrowawayCheckout, engramMounts)

@@ -136,3 +136,27 @@ func TestEngramBindings(t *testing.T) {
 		t.Fatalf("after unbind = %+v", got)
 	}
 }
+
+func TestAFailedEngramBootIsListedWhileItsAgentRuns(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	start := time.Date(2026, 11, 10, 9, 0, 0, 0, time.UTC)
+	for _, id := range []string{"ex-a", "ex-b"} {
+		if err := s.CreateExecution(ctx, executionAt(id, "task-"+id, start)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := s.SetExecutionEngramFailure(ctx, "ex-a", "mneme", "disk is full"); err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.ListEngramBootFailures(ctx)
+	if err != nil || len(got) != 1 || got[0].ExecutionID != "ex-a" || got[0].TaskID != "task-ex-a" || got[0].Engram != "mneme" || got[0].Reason != "disk is full" || got[0].TaskTitle != "Task task-ex-a" {
+		t.Fatalf("failures = %+v %v", got, err)
+	}
+	if err := s.TerminalizeExecutionAt(ctx, "ex-a", ExecutionSucceeded, start.Add(time.Minute)); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := s.ListEngramBootFailures(ctx); len(got) != 0 {
+		t.Fatalf("an ended agent's failure is still listed: %+v", got)
+	}
+}

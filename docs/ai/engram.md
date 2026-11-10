@@ -61,3 +61,13 @@ Nothing is cached between calls, so installing engram later needs no restart. `c
 `SandboxEngram{Binary, BinMount, Store}` is a per-spawn input of the sandbox plan, like `SandboxGH`, and does not depend on `default_mounts`. `sandboxPrefix` gets the booted engram's binary and store (from `where`), makes `<runtime>/legato/sandbox/<execution>/bin/engram` as an empty file, and returns the launch line with `PATH=<that bin folder>:"$PATH"` before the backend, so the shell that runs it keeps its own `PATH` behind the engram's folder. `BuildSandboxPlan` binds the binary read-only at `BinMount` and the whole store read-write after `check`; a store that does not exist refuses the sandbox, and so the spawn. The binary is the real one `where` names (`os.Executable()` in engram), never a mise shim, and no other `engram` on the host's `PATH` is covered: links there are resolved, and covering a shim would cover mise itself. `ENGRAM_HOME` is the same path inside and out.
 
 Host and sandboxed processes write the same files. Checked against engram `main` (`b51ee38`): 12 concurrent `engram note` calls on one session and 12 concurrent `engram remember` calls all landed.
+
+## A boot that fails
+
+The agent starts without the engram (see § The spawn, with an engram) and the person is told three ways:
+
+- **Where it was spawned.** The spawn endpoints answer `engram_warning`, which the web dialog's callers show as an error toast. A spawn that runs in the background (a clone) has no answer to carry it; the Attention item is what says so. The TUI shows it in its status bar (see [TUI](tui.md)).
+- **Attention.** `bootEngram` returns a `spawnedEngram` with `failed` set, and `SpawnAgent` records it with `store.SetExecutionEngramFailure` (`executions.engram_boot_failed`, `engram_boot_error`; migration 105). The `engram` producer (`EngramAttentionAdapter`, `internal/service/engram_attention.go`) lists the running executions with one as `engram_boot_failed` items on their task, reconciled on `EventAgentStarted` and `EventAgentDied`, so the item goes when the agent ends.
+- **The log**, with engram's stderr.
+
+A spawn that fails after its engram booted runs `engram session end` (`spawnedEngram.endIfFresh`); a resumed session is left as it was.

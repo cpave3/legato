@@ -128,6 +128,10 @@ func TestSpawnAgent_AFailedBootStartsTheAgentWithoutItsEngram(t *testing.T) {
 	if !strings.Contains(report.EngramWarning, "disk is full") || report.Engram != "" {
 		t.Fatalf("report = %+v", report)
 	}
+	failures, err := f.store.ListEngramBootFailures(context.Background())
+	if err != nil || len(failures) != 1 || failures[0].Engram != "mneme" || !strings.Contains(failures[0].Reason, "disk is full") || failures[0].TaskID != "task-1" {
+		t.Fatalf("recorded failures = %+v %v", failures, err)
+	}
 }
 
 func TestSpawnAgent_AnEngramThatIsRequiredFailsTheSpawnWhenItIsUnknown(t *testing.T) {

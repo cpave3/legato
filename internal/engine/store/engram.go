@@ -202,3 +202,36 @@ func (s *Store) engramBindings(ctx context.Context, where string, args ...any) (
 	}
 	return out, nil
 }
+
+// SetExecutionEngramFailure records that an execution was asked to start
+// as an engram that did not boot, and why.
+func (s *Store) SetExecutionEngramFailure(ctx context.Context, executionID, engram, reason string) error {
+	result, err := s.db.ExecContext(ctx, `UPDATE executions SET engram_boot_failed = ?, engram_boot_error = ? WHERE id = ?`, engram, reason, executionID)
+	if err != nil {
+		return err
+	}
+	if n, err := result.RowsAffected(); err != nil {
+		return err
+	} else if n == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
+// EngramBootFailure is a running execution whose engram did not boot.
+type EngramBootFailure struct {
+	ExecutionID string `db:"id"`
+	TaskID      string `db:"task_id"`
+	TaskTitle   string `db:"task_title"`
+	Engram      string `db:"engram_boot_failed"`
+	Reason      string `db:"engram_boot_error"`
+}
+
+// ListEngramBootFailures lists the running executions whose engram did not
+// boot.
+func (s *Store) ListEngramBootFailures(ctx context.Context) ([]EngramBootFailure, error) {
+	var out []EngramBootFailure
+	err := s.db.SelectContext(ctx, &out, `SELECT id, COALESCE(task_id, '') AS task_id, task_title, engram_boot_failed, engram_boot_error
+		FROM executions WHERE engram_boot_failed != '' AND status = ? ORDER BY started_at`, ExecutionRunning)
+	return out, err
+}

@@ -34,12 +34,18 @@ type spawnedEngram struct {
 	name    string
 	session string
 	resumed bool
+	// failed is why the engram asked for did not boot; the agent then
+	// starts without it, and nothing else here is set.
+	failed string
 }
+
+// booted says whether the agent starts as the engram.
+func (b *spawnedEngram) booted() bool { return b != nil && b.failed == "" }
 
 // endIfFresh ends the engram session a spawn that failed had booted. A
 // resumed session is left as it was.
 func (b *spawnedEngram) endIfFresh(ctx context.Context, engrams AgentEngrams, dir string) {
-	if b == nil || b.resumed || engrams == nil {
+	if !b.booted() || b.resumed || engrams == nil {
 		return
 	}
 	if err := engrams.EndSession(ctx, EngramSessionRef{Name: b.name, Session: b.session, Dir: dir}); err != nil {
@@ -47,9 +53,9 @@ func (b *spawnedEngram) endIfFresh(ctx context.Context, engrams AgentEngrams, di
 	}
 }
 
-// bootEngram boots the engram a spawn names. nil, nil is a spawn without
-// one, or one whose boot failed: the agent then starts without it and the
-// caller's report says why. An error stops the spawn.
+// bootEngram boots the engram a spawn names. nil is a spawn without one;
+// one whose boot failed says why in failed, and the agent then starts
+// without it and the caller's report says why. An error stops the spawn.
 func (a *agentService) bootEngram(ctx context.Context, taskID, executionID, agentKind, workDir string, opt AgentSpawnOptions) (*spawnedEngram, error) {
 	if opt.Engram == "" {
 		return nil, nil
@@ -67,7 +73,7 @@ func (a *agentService) bootEngram(ctx context.Context, taskID, executionID, agen
 		if report != nil {
 			report.EngramWarning = fmt.Sprintf("%s did not boot, so the agent started without it: %s", opt.Engram, reason)
 		}
-		return nil, nil
+		return &spawnedEngram{name: opt.Engram, failed: reason}, nil
 	}
 	engrams := a.engramBooter()
 	if engrams == nil {
