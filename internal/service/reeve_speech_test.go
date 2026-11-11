@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"path/filepath"
@@ -242,4 +243,17 @@ func TestSpeechRemembersItsLastFailureUntilALinePlays(t *testing.T) {
 	f.say(t, "after")
 	f.waitForPlayed(t, 2)
 	waitUntil(t, func() bool { return f.speech.LastError() == "" })
+}
+
+func TestAnOlderLineThatPlaysDoesNotClearANewerLinesError(t *testing.T) {
+	s := NewReeveSpeech(ReeveSpeechOptions{})
+	s.failed(2, errors.New("the voice command failed"))
+	s.failed(1, nil)
+	if s.LastError() == "" {
+		t.Fatal("line 1 playing cleared line 2's error")
+	}
+	s.failed(3, nil)
+	if s.LastError() != "" {
+		t.Fatalf("a newer line played, error = %q", s.LastError())
+	}
 }

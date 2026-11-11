@@ -71,11 +71,15 @@ type ReeveSpeech struct {
 
 	mu      sync.Mutex
 	lastErr string
+	// The line lastErr is about: only a newer line playing clears it.
+	lastErrLine int64
 }
 
-// madeLine is a line whose audio is ready to play.
+// madeLine is a line whose audio is ready to play; n is its place in the
+// queue.
 type madeLine struct {
 	path string
+	n    int64
 }
 
 // NewReeveSpeech makes the Reeve's voice. Nothing runs until the first
@@ -119,12 +123,17 @@ func (s *ReeveSpeech) LastError() string {
 	return s.lastErr
 }
 
-func (s *ReeveSpeech) failed(err error) {
+// failed records how line n went: an error, or nil when it played, which
+// clears an error about an older line only.
+func (s *ReeveSpeech) failed(n int64, err error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.lastErr = ""
 	if err != nil {
-		s.lastErr = err.Error()
+		s.lastErr, s.lastErrLine = err.Error(), n
+		return
+	}
+	if n >= s.lastErrLine {
+		s.lastErr = ""
 	}
 }
 
@@ -139,18 +148,20 @@ func (s *ReeveSpeech) run() {
 }
 
 func (s *ReeveSpeech) makeLines(ready chan<- madeLine) {
+	var n int64
 	for line := range s.lines {
+		n++
 		voice := s.opts.Settings(context.Background())
 		if !voice.Enabled {
 			continue
 		}
 		path, err := s.make(voice, line)
 		if err != nil {
-			s.failed(err)
+			s.failed(n, err)
 			s.opts.Logf("reeve voice: a line of %d characters was not said: %v", utf8.RuneCountInString(line.Text), err)
 			continue
 		}
-		ready <- madeLine{path: path}
+		ready <- madeLine{path: path, n: n}
 	}
 }
 
@@ -158,10 +169,10 @@ func (s *ReeveSpeech) playLines(ready <-chan madeLine) {
 	for made := range ready {
 		if voice := s.opts.Settings(context.Background()); voice.Enabled {
 			if err := s.play(voice, made.path); err != nil {
-				s.failed(err)
+				s.failed(made.n, err)
 				s.opts.Logf("reeve voice: a line was not played: %v", err)
 			} else {
-				s.failed(nil)
+				s.failed(made.n, nil)
 			}
 		}
 		_ = os.Remove(made.path)

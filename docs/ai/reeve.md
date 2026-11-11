@@ -45,7 +45,7 @@ One engram per instance, the Reeve's own, in a store apart from the person's, so
 
 - **Suspend.** `runReeveIdle` (`cmd/legato/reeve_runtime.go`, in every process that serves the web UI) checks once a minute: a `running` session whose `active_at` is older than `reeve.idle_timeout` (a duration, `2h` when empty; `ReeveConfig.ReeveIdleTimeout`) is suspended (`ReeveService.SuspendIdle`): its agent stops with its engram session kept, its state is `suspended`, its API token stays (for resume only: nothing calls with it while no agent runs), and its pending approvals stay. A suspended session still counts as the instance's running one.
 - **Activity** moves `active_at` on: the agent's activity changes (`EventAgentActivityChanged` for a reeve task), each `legato_api` call, each message, a start and a resume.
-- **The next message** (`ReeveService.Message`; `POST /api/reeve/message {text}`): into the running session (`QueueMessage`), resuming a suspended one with the text after the fresh snapshot, or starting a session with it as the brief when none runs.
+- **The next message** (`ReeveService.Message`; `POST /api/reeve/message {text}`): into the running session (`QueueMessage`), resuming a suspended one with the text after the fresh snapshot, or starting a session with it as the brief when none runs. It reads the session under the lock `Start` and `Resume` hold, so a message that comes while one runs (the voice status's warm-up) waits for it and goes to the session it made. A message to a session launched within the last 30 s (`reeveBindWait`) waits until its native endpoint is bound (`HasChimeraEndpoint`), as launch messages do, so it is not typed into a tool still starting.
 
 ## Where it runs
 
@@ -129,7 +129,7 @@ The Reeve can speak out loud with the tool `speak` (`internal/cli/mcp_reeve.go`;
 A spoken back-and-forth with the main's Reeve from the desktop and Android apps (Burnlite `LEG-118`; design `docs/analysis/reeve-voice-conversation.md`). `service.ReeveVoice` (`internal/service/reeve_voice.go`) holds it; `wireReeveVoice` (`cmd/legato/reeve_voice_runtime.go`) serves it on both web servers.
 
 - **Transcription in `legato serve`.** `newVoiceService` builds `VoiceService` when `voice.enabled` and `voice.whisper_url` are set at start (both take a restart), for `legato serve` as for the TUI, so `/api/voice/transcribe` works on serve too. A `VoiceService` without tmux transcribes but cannot type into a pane. `voice.whisper_url` can name the Wyoming Whisper that Home Assistant Assist already uses (`tcp://<host>:10300`); that server takes one request at a time, so Legato's and Assist's wait for each other.
-- **The status route**, `GET /api/reeve/voice` (class read, web token): `VoiceReadiness` with the instance (`InstanceID`, the host name, `InstanceRole`), the Reeve's session state and whether its agent is `working`, speech (`reeve.voice.enabled`, whether a command is set, `ReeveSpeech.LastError`), transcription (built in this process, and whether Whisper answers a Wyoming `describe` within 1 s: `whisper.Client.Describe`, `VoiceService.Probe`), the open voice session, then `ready`, `reason` and `setting`. It never gives the command line, the credential or the Whisper address. The reasons, first match wins:
+- **The status route**, `GET /api/reeve/voice` (class read, web token): `VoiceReadiness` with the instance (`InstanceID`, the host name, `InstanceRole`), the Reeve's session state and whether its agent is `working`, speech (`reeve.voice.enabled`, whether a command is set, `ReeveSpeech.LastError`, cleared only by a line newer than the one that failed), transcription (built in this process, and whether Whisper answered a Wyoming `describe` within 1 s: `whisper.Client.Describe`, `VoiceService.Probe`; false when it was not asked), the open voice session, then `ready`, `reason` and `setting`. It never gives the command line, the credential or the Whisper address. The reasons, first match wins:
   1. "Transcription is off on <name>" (`voice.enabled`; `voice.whisper_url` when only the address is missing).
   2. "Whisper isn't answering on <name>" (`voice.whisper_url`).
   3. "The Reeve's voice is off on <name>" (`reeve.voice.enabled`).
@@ -137,7 +137,7 @@ A spoken back-and-forth with the main's Reeve from the desktop and Android apps 
   5. "The Reeve can't start on <name>" (this server has no Reeve), or "…: the sandbox is off" (`agents.sandbox.enabled` was off at start; the Reeve runs only in the sandbox; `ReeveVoiceOptions.CanStart`).
 
   The client adds its own: it cannot reach the server, or has no microphone.
-- **Warming up.** When the voice is ready and the Reeve's session is suspended, the status call resumes it in the background (`started_by` `voice`), so the resume happens while the person speaks.
+- **Warming up.** When the voice is ready and the Reeve's session is suspended, the status call resumes it in the background (`started_by` `voice`), so the resume happens while the person speaks. A turn sent meanwhile waits for it (see The next message).
 
 ## Ask the Reeve
 

@@ -162,12 +162,18 @@ func (v *ReeveVoice) Status(ctx context.Context) (VoiceReadiness, error) {
 	}
 
 	out.Transcription.Enabled = v.opts.Transcription != nil
+	// Whether Whisper answered, when it was asked.
+	answered := false
+	asked := func() bool {
+		answered = v.reachable(ctx)
+		return answered
+	}
 	switch {
 	case !cfg.Voice.Enabled || v.opts.Transcription == nil && strings.TrimSpace(cfg.Voice.WhisperURL) != "":
 		out.notReady("Transcription is off on "+name, "voice.enabled")
 	case strings.TrimSpace(cfg.Voice.WhisperURL) == "":
 		out.notReady("Transcription is off on "+name, "voice.whisper_url")
-	case !v.reachable(ctx):
+	case !asked():
 		out.notReady("Whisper isn't answering on "+name, "voice.whisper_url")
 	case !cfg.Reeve.Voice.Enabled:
 		out.notReady("The Reeve's voice is off on "+name, "reeve.voice.enabled")
@@ -183,7 +189,7 @@ func (v *ReeveVoice) Status(ctx context.Context) (VoiceReadiness, error) {
 			}
 		}
 	}
-	out.Transcription.Reachable = out.Transcription.Enabled && out.Reason != "Whisper isn't answering on "+name
+	out.Transcription.Reachable = answered
 	if out.Ready && current != nil && current.State == store.ReeveSuspended {
 		v.warmUp(current.TaskID)
 	}

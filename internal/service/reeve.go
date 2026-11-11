@@ -83,6 +83,20 @@ type ReeveServiceOptions struct {
 type ReeveService struct {
 	opts ReeveServiceOptions
 	mu   sync.Mutex
+	// When each session's agent was last launched: a message to one still
+	// starting waits for its native endpoint.
+	launchedMu sync.Mutex
+	launched   map[string]time.Time
+}
+
+// reeveBindWait is how long after a launch a message waits for the Reeve's
+// native endpoint, as the agent service waits for its launch messages.
+const reeveBindWait = 30 * time.Second
+
+// reeveEndpoints is the part of the agent service that says whether an
+// agent's native endpoint is bound.
+type reeveEndpoints interface {
+	HasChimeraEndpoint(ctx context.Context, taskID string) bool
 }
 
 func NewReeveService(opts ReeveServiceOptions) *ReeveService {
@@ -187,6 +201,10 @@ func (s *ReeveService) Current(ctx context.Context) (*store.ReeveSession, error)
 func (s *ReeveService) Start(ctx context.Context, in ReeveStart) (*store.ReeveSession, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	return s.startLocked(ctx, in)
+}
+
+func (s *ReeveService) startLocked(ctx context.Context, in ReeveStart) (*store.ReeveSession, error) {
 	if current, err := s.opts.Store.CurrentReeveSession(ctx); err != nil {
 		return nil, err
 	} else if current != nil {
@@ -246,7 +264,40 @@ func (s *ReeveService) spawn(ctx context.Context, row store.ReeveSession, brief 
 	if resumed {
 		opt.SessionPolicy = "resume"
 	}
-	return s.opts.Agents.SpawnAgent(ctx, row.TaskID, 0, 0, opt)
+	if err := s.opts.Agents.SpawnAgent(ctx, row.TaskID, 0, 0, opt); err != nil {
+		return err
+	}
+	s.launchedMu.Lock()
+	if s.launched == nil {
+		s.launched = map[string]time.Time{}
+	}
+	s.launched[row.TaskID] = time.Now()
+	s.launchedMu.Unlock()
+	return nil
+}
+
+// awaitLaunch waits, for a session launched moments ago, until its native
+// endpoint is bound: text sent before then would be typed into a tool still
+// starting. Up to reeveBindWait after the launch.
+func (s *ReeveService) awaitLaunch(ctx context.Context, taskID string) {
+	endpoints, ok := s.opts.Agents.(reeveEndpoints)
+	if !ok {
+		return
+	}
+	s.launchedMu.Lock()
+	at, launched := s.launched[taskID]
+	s.launchedMu.Unlock()
+	if !launched {
+		return
+	}
+	deadline := at.Add(reeveBindWait)
+	for time.Now().Before(deadline) && !endpoints.HasChimeraEndpoint(ctx, taskID) {
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(100 * time.Millisecond):
+		}
+	}
 }
 
 // engram is the Reeve's engram for a session, or why it has none.
@@ -324,6 +375,10 @@ func (s *ReeveService) StopAgent(ctx context.Context, taskID string) (handled bo
 func (s *ReeveService) Resume(ctx context.Context, taskID string, in ReeveStart) (*store.ReeveSession, error) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	return s.resumeLocked(ctx, taskID, in)
+}
+
+func (s *ReeveService) resumeLocked(ctx context.Context, taskID string, in ReeveStart) (*store.ReeveSession, error) {
 	row, err := s.opts.Store.GetReeveSession(ctx, taskID)
 	if err != nil {
 		return nil, err
@@ -456,24 +511,33 @@ func (s *ReeveService) Touch(ctx context.Context, taskID string) {
 }
 
 // Message sends text to the Reeve: into the running session, resuming a
-// suspended one with it, or starting a session with it as the brief.
+// suspended one with it, or starting a session with it as the brief. The
+// session is read under the lock Start and Resume hold, so a message that
+// comes while one runs waits for it, then goes to the session it started,
+// once that can take it.
 func (s *ReeveService) Message(ctx context.Context, text, by string) error {
+	s.mu.Lock()
 	current, err := s.opts.Store.CurrentReeveSession(ctx)
 	if err != nil {
+		s.mu.Unlock()
 		return err
 	}
 	switch {
 	case current == nil:
-		_, err = s.Start(ctx, ReeveStart{Brief: text, StartedBy: by})
+		_, err = s.startLocked(ctx, ReeveStart{Brief: text, StartedBy: by})
+		s.mu.Unlock()
 		return err
 	case current.State == store.ReeveSuspended:
-		_, err = s.Resume(ctx, current.TaskID, ReeveStart{Brief: text, StartedBy: by})
+		_, err = s.resumeLocked(ctx, current.TaskID, ReeveStart{Brief: text, StartedBy: by})
+		s.mu.Unlock()
 		return err
 	}
+	s.mu.Unlock()
 	messenger, ok := s.opts.Agents.(ReeveMessenger)
 	if !ok {
 		return errors.New("the Reeve's agent cannot be sent a message here")
 	}
+	s.awaitLaunch(ctx, current.TaskID)
 	s.Touch(ctx, current.TaskID)
 	return messenger.QueueMessage(ctx, current.TaskID, text)
 }

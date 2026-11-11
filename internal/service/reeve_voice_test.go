@@ -94,6 +94,16 @@ func TestVoiceSaysWhyItIsNotReadyInOneLineAndNamesTheSetting(t *testing.T) {
 	}
 }
 
+func TestWhisperIsReachableOnlyWhenItWasAskedAndAnswered(t *testing.T) {
+	cfg := readyVoiceConfig()
+	cfg.Voice.Enabled = false
+	voice, _, _, _ := newReeveVoiceFixture(t, cfg, fakeVoiceProbe{})
+	got, _ := voice.Status(context.Background())
+	if !got.Transcription.Enabled || got.Transcription.Reachable {
+		t.Fatalf("transcription switched off since start: %+v, want enabled but not reachable (never asked)", got.Transcription)
+	}
+}
+
 func TestVoiceIsNotReadyWithoutAReeve(t *testing.T) {
 	_, db, _, _ := newReeveFixture(t)
 	voice := NewReeveVoice(ReeveVoiceOptions{Store: db, InstanceName: "tessitura",
@@ -134,6 +144,9 @@ func TestTheVoiceStatusWarmsUpASuspendedReeve(t *testing.T) {
 		current, _ := db.CurrentReeveSession(ctx)
 		return current != nil && current.State == store.ReeveRunning
 	})
+	// The row says running before the agent is spawned: Message takes the
+	// lock the resume holds, so once it returns the spawn is done.
+	_ = reeve.Message(ctx, "hello", "test")
 	if len(agents.spawned) != 2 || agents.spawned[1].SessionPolicy != "resume" {
 		t.Fatalf("not resumed: %+v", agents.spawned)
 	}
