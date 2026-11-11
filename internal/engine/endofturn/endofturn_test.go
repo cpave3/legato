@@ -356,3 +356,26 @@ func TestLevelFollowsTheLatestFrame(t *testing.T) {
 		t.Fatalf("Level of silence = %v, want 0", d.Level())
 	}
 }
+
+func TestResetKeepsAnOddByteSoTheSamplesStayAligned(t *testing.T) {
+	hiss := pcm(noise(30, time.Second, 7))
+	d := New(Config{})
+	d.Write(hiss[:len(hiss)-1])
+	d.Reset()
+	// The byte that completes the last sample, then more hiss.
+	rest := append([]byte{hiss[len(hiss)-1]}, pcm(noise(30, 9*time.Second, 8))...)
+	if evs := feed(d, rest, 3201); len(evs) != 1 || evs[0].Kind != NoSpeech {
+		t.Fatalf("hiss after a Reset mid-sample: events = %+v, want only NoSpeech", evs)
+	}
+}
+
+func TestTheNoiseFloorIsHeldWhileTheReeveSpeaks(t *testing.T) {
+	d := New(Config{})
+	feed(d, pcm(noise(100, 4*time.Second, 3)), 3200)
+	before := d.NoiseFloor()
+	d.SetSpeaking(true)
+	feed(d, pcm(tone(1000, 3*time.Second)), 3200)
+	if after := d.NoiseFloor(); after != before {
+		t.Fatalf("noise floor while speaking = %.1f, want it held at %.1f", after, before)
+	}
+}

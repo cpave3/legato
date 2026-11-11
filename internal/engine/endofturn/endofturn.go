@@ -20,8 +20,9 @@
 //
 // # Events
 //
-//   - SpeechStarted: the turn has at least MinSpeech of speech. At is where
-//     that speech began, so it is reported up to MinSpeech late. Speech
+//   - SpeechStarted: the turn has at least MinSpeech of speech, quiet gaps
+//     shorter than Pause not counted. At is where that speech began, so the
+//     event comes after it by MinSpeech or more. Speech
 //     shorter than MinSpeech followed by Pause of quiet (a click, a cough)
 //     is forgotten, and no event is sent for it.
 //   - Pause: during quiet after speech, every 100 ms of silence, with Silence
@@ -37,7 +38,9 @@
 //   - NoSpeech: NoSpeech passed since listening began with no turn.
 //
 // After TurnEnded or NoSpeech the detector sends nothing until Reset. It
-// still follows the level and the noise floor.
+// still follows the level and the noise floor. NoSpeech counts while the
+// Reeve speaks too, so a caller listening for barge-in calls Reset when the
+// Reeve stops.
 //
 // # Speech, the noise floor and the thresholds
 //
@@ -326,11 +329,11 @@ func (d *Detector) SetSpeaking(on bool) {
 
 // Reset starts listening for a new turn. Positions count from here again,
 // and a part frame not yet processed is dropped. The noise floor, the level
-// and SetSpeaking are kept.
+// and SetSpeaking are kept, and so is an odd byte not yet paired: it
+// belongs to the stream, whose next byte completes its sample.
 func (d *Detector) Reset() {
 	d.mu.Lock()
 	defer d.mu.Unlock()
-	d.carry = d.carry[:0]
 	d.samples = d.samples[:0]
 	d.pos = 0
 	d.state = listening
