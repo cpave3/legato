@@ -457,6 +457,8 @@ Each needs `docs/ai/config.md`, `docs/ai/settings.md` and the site's configurati
 
 In Personal › Backlog, in build order. The server tasks come first; the Android task comes after them, as the notes ask.
 
+They are also in Burnlite, as the milestone [Hands-free voice with the Reeve](/LEG-118) (LEG-118), with native blockers. Task (2) is split there into the voice session (LEG-120) and the end-of-turn detector (LEG-121), so the tasks are LEG-119 to LEG-131 in this order.
+
 1. `pin6xnzw` **Reeve voice (1): transcription in `legato serve`, and the voice status route.**
 2. `u0sxafww` **Reeve voice (2): the voice session.** Streaming audio, the end-of-turn detector, transcription and delivery, plus timing logs.
 3. `knk1augt` **Reeve voice (3): voice mode.** `[legato voice]` messages, the prompt, and the `speak` description.
