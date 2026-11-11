@@ -130,6 +130,8 @@ export class VoiceSessionClient {
   private capturing = false
   private playing = false
   private mutedUntil = 0
+  // After bye the page has moved on: nothing more is told to it.
+  private disposed = false
   private opts: VoiceClientOptions
 
   constructor(opts: VoiceClientOptions) {
@@ -209,11 +211,13 @@ export class VoiceSessionClient {
 
   bye() {
     this.sendJSON({ type: "bye" })
+    this.disposed = true
     this.release()
     this.socket?.close()
   }
 
   private receive(msg: VoiceOut) {
+    if (this.disposed) return
     const before = this.view
     const next = reduceVoice(before, msg)
     this.update(next)
@@ -281,6 +285,7 @@ export class VoiceSessionClient {
   }
 
   private update(view: VoiceView) {
+    if (this.disposed) return
     this.view = view
     this.opts.onView(view)
   }

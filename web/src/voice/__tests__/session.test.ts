@@ -116,6 +116,19 @@ describe("the voice session client", () => {
     for (const t of ["hello", "listen", "send", "cancel", "stop", "bye"]) expect(types).toContain(t)
   })
 
+  it("after bye, tells the page nothing more, though the socket closes later", async () => {
+    const { socket, audio, client, views } = connect()
+    await client.listen()
+    const close = socket.onclose
+    const receive = socket.onmessage
+    client.bye()
+    const after = views.length
+    close?.()
+    receive?.({ data: JSON.stringify({ type: "state", state: "listening" }) })
+    expect(views.length).toBe(after)
+    expect(audio.capturing).toBe(false)
+  })
+
   it("plays the Reeve's lines in order, mutes the microphone meanwhile, and says played", async () => {
     const { socket, audio, client } = connect()
     await client.listen()

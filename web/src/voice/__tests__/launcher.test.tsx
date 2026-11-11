@@ -86,6 +86,36 @@ describe("the voice sheet in the web UI", () => {
     expect(JSON.parse(Socket.last!.sent.at(-1)!)).toEqual({ type: "send" })
   })
 
+  it("opened before the person touched the page, waits for Talk", async () => {
+    mockStatus(status())
+    vi.stubGlobal("navigator", { ...navigator, userActivation: { hasBeenActive: false, isActive: false } })
+    Socket.last = null
+    open()
+    const talk = await screen.findByRole("button", { name: "Talk" })
+    expect(Socket.last).toBeNull()
+    fireEvent.click(talk)
+    await waitFor(() => expect(Socket.last?.sent.map((s) => JSON.parse(s).type)).toEqual(["hello", "listen"]))
+  })
+
+  it("is a modal dialog: focus moves in, and Escape closes it", async () => {
+    mockStatus(status())
+    open()
+    const sheet = await screen.findByRole("dialog", { name: "Talk to the Reeve" })
+    expect(sheet).toHaveAttribute("aria-modal", "true")
+    await waitFor(() => expect(sheet.contains(document.activeElement)).toBe(true))
+    fireEvent.keyDown(document, { key: "Escape" })
+    await waitFor(() => expect(screen.queryByTestId("voice-sheet")).toBeNull())
+  })
+
+  it("keeps the router's history state when it closes", async () => {
+    mockStatus(status())
+    open()
+    history.replaceState({ idx: 3, key: "k" }, "", window.location.pathname + VOICE_HASH)
+    fireEvent.click(await screen.findByRole("button", { name: /Cancel|Close/ }))
+    await waitFor(() => expect(screen.queryByTestId("voice-sheet")).toBeNull())
+    expect(history.state).toEqual({ idx: 3, key: "k" })
+  })
+
   it("ends the session when the sheet is closed by its fragment going (Back)", async () => {
     mockStatus(status())
     stopCapture.mockClear()

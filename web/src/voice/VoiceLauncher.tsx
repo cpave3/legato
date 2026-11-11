@@ -56,7 +56,7 @@ function useVoiceHash(): [boolean, (open: boolean) => void] {
     if (next) {
       window.location.hash = VOICE_HASH
     } else if (window.location.hash === VOICE_HASH) {
-      history.replaceState(null, "", window.location.pathname + window.location.search)
+      history.replaceState(window.history.state, "", window.location.pathname + window.location.search)
     }
     setOpen(next)
   }, [])
@@ -94,7 +94,9 @@ export function VoiceLauncher({ baseUrl, audio: givenAudio, socket }: VoiceLaunc
     if (!open) end()
   }, [open, end])
 
-  const listen = useCallback(async () => {
+  // listen checks the server can, then starts a turn; with start false it
+  // only checks.
+  const listen = useCallback(async (start = true) => {
     const mine = openingRef.current
     const stale = () => mine !== openingRef.current
     let status: VoiceStatus
@@ -114,7 +116,7 @@ export function VoiceLauncher({ baseUrl, audio: givenAudio, socket }: VoiceLaunc
       next.reason = "No microphone here: this page needs HTTPS, or the Legato app"
     }
     setReadiness(next)
-    if (!next.ready || !audio) return
+    if (!next.ready || !audio || !start) return
     try {
       let client = clientRef.current
       if (!client || client.view.ended) {
@@ -142,10 +144,24 @@ export function VoiceLauncher({ baseUrl, audio: givenAudio, socket }: VoiceLaunc
     navigate(task ? `/agents?task=${encodeURIComponent(task)}` : "/agents")
   }, [baseUrl, close, navigate])
 
-  // Opening the sheet starts listening, as the key does on the desktop.
+  // Opening the sheet starts listening, as the key does on the desktop;
+  // but a page the person has not touched yet (opened at #reeve-voice) may
+  // not start the microphone's audio, so it waits for Talk.
   useEffect(() => {
-    if (open && !clientRef.current) void listen()
+    if (open && !clientRef.current) void listen(navigator.userActivation?.hasBeenActive !== false)
   }, [open, listen])
+
+  // Escape closes the sheet, and the focus goes back where it was.
+  useEffect(() => {
+    if (!open) return
+    const before = document.activeElement as HTMLElement | null
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape" && !e.defaultPrevented) close() }
+    document.addEventListener("keydown", onKey)
+    return () => {
+      document.removeEventListener("keydown", onKey)
+      before?.focus?.()
+    }
+  }, [open, close])
 
   // Closing the page ends the conversation.
   useEffect(() => () => end(), [end])

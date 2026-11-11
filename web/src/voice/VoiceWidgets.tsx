@@ -1,4 +1,4 @@
-import type { ReactNode } from "react"
+import { useEffect, useRef, type ReactNode } from "react"
 import { VoiceRing, type RingMode } from "./VoiceRing"
 import type { VoiceView } from "./session"
 import { idleLine } from "./copy"
@@ -83,7 +83,7 @@ function Header({ view, main }: { view: VoiceView; main: string }) {
   return (
     <div className="flex items-center gap-2">
       <span className="text-[#6D5EF6]" aria-hidden="true">◈</span>
-      <span className="voice-kicker">{KICKER[view.state] ?? "READY"}</span>
+      <span className="voice-kicker" aria-live="polite">{KICKER[view.state] ?? "READY"}</span>
       <span className="flex-1" />
       <span className="h-2 w-2 rounded-full bg-[#6D5EF6]" />
       <span className="voice-mono text-xs text-[#9A99A5]">{main}</span>
@@ -188,17 +188,20 @@ function Body({ view, centered }: { view: VoiceView; centered?: boolean }) {
 // VoiceSheet is the phone's: a sheet over the page with the ring at 176 px.
 export function VoiceSheet({ view, main, readiness, ...actions }: { view: VoiceView; main: string; readiness?: VoiceReadinessView } & VoiceActions) {
   const blocked = readiness && !readiness.ready
+  // The focus moves into the sheet when it opens.
+  const ref = useRef<HTMLDivElement>(null)
+  useEffect(() => { ref.current?.focus() }, [])
   return (
-    <div className="voice-ui voice-rise flex flex-col gap-[18px] rounded-t-[22px] border border-b-0 border-[#6D5EF6]/45 px-5 pt-[18px] pb-[30px]"
+    <div ref={ref} tabIndex={-1} className="voice-ui voice-rise flex flex-col gap-[18px] rounded-t-[22px] border border-b-0 border-[#6D5EF6]/45 px-5 pt-[18px] pb-[30px] outline-none"
       style={{ background: "var(--voice-surface)" }} data-testid="voice-sheet" data-state={blocked ? "blocked" : view.state}
-      role="dialog" aria-label="Talk to the Reeve">
+      role="dialog" aria-modal="true" aria-label="Talk to the Reeve">
       <Header view={view} main={main} />
       <div className="flex justify-center py-1.5">
         <VoiceRing mode={blocked ? "blocked" : view.state} size={176} level={view.level} />
       </div>
       {blocked ? (
         <>
-          <p className="m-0 text-center text-lg font-medium leading-[1.45]">{readiness.reason || "Voice isn't ready"}</p>
+          <p className="m-0 text-center text-lg font-medium leading-[1.45]" aria-live="polite">{readiness.reason || "Voice isn't ready"}</p>
           {readiness.setting && <p className="voice-mono m-0 text-center text-[11px] text-[#9A99A5]">{readiness.setting}</p>}
           <div className="flex gap-2.5">
             {actions.onClose && <button type="button" onClick={actions.onClose} className="voice-secondary h-[52px] flex-1 rounded-[14px] text-[15px] font-semibold">Close</button>}
@@ -208,7 +211,7 @@ export function VoiceSheet({ view, main, readiness, ...actions }: { view: VoiceV
         </>
       ) : (
         <>
-          <div className="flex flex-col items-center gap-2.5 text-center"><Body view={view} centered /></div>
+          <div className="flex flex-col items-center gap-2.5 text-center" aria-live="polite"><Body view={view} centered /></div>
           {view.state === "listening" && (
             <PauseBar view={view} hint={<div className="voice-mono text-center text-[11px] text-[#9A99A5]">pause to send</div>} />
           )}

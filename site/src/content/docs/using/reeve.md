@@ -120,7 +120,7 @@ The Reeve's answer plays on the device you are talking to, not on the main's spe
 
 **Quiet hours** (`reeve.voice.quiet_hours`, as `22:00-07:00` in the main's local time): no line plays on the main's speakers then, and the Reeve replies in writing. A reply to something you said to it still plays on your device.
 
-In the web UI, the ring beside the Reeve in the Agents list opens a voice sheet. It needs the page over HTTPS (a browser gives a page served over plain HTTP no microphone), or the Legato app. On a worker's page the sheet says the voice is on the main; in the Android app, **Open the main** goes there.
+In the web UI, the ring beside the Reeve in the Agents list opens a voice sheet. It needs the page over HTTPS (a browser gives a page served over plain HTTP no microphone), or the Legato app. On a worker's page the sheet says the voice is on the main; in the Android app, **Open the main** goes there. When the sheet opens on a page you haven't touched yet (a reload with the sheet open), it waits for you to tap **Talk**. Press Escape to close it. The transcription settings (`voice.*`) are in Settings, under Reeve.
 
 Before it listens, an app asks the main whether a conversation will work. If not, it shows one line saying why, such as "Whisper isn't answering on tessitura", and which setting to change. When the Reeve is suspended, that question also starts resuming it, so it is ready by the time you finish speaking.
 
