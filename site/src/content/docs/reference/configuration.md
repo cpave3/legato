@@ -311,7 +311,7 @@ Dictate to an agent: press `v` in the TUI's agents view to start recording and a
 | Setting | Type | Default | What it does |
 | --- | --- | --- | --- |
 | `voice.enabled` | bool | `false` | Turns dictation on. Without `voice.whisper_url` it stays off. |
-| `voice.whisper_url` | string | none | The Wyoming address of the whisper server, such as `tcp://192.168.1.220:10300`. A bare `host:port` works too. |
+| `voice.whisper_url` | string | none | The Wyoming address of the whisper server, such as `tcp://192.168.1.220:10300`. A bare `host:port` works too. It can be the Whisper that Home Assistant Assist already uses; Legato's requests and Assist's then wait for each other. |
 | `voice.autosend` | bool | `false` | Sends the text as a message. When `false`, Legato types the text into the agent's terminal without pressing Enter, so you can finish it there. |
 | `voice.mic_device` | string | `default` | The ALSA device to record from, such as `hw:1,0`. |
 

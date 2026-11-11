@@ -6,6 +6,7 @@ import (
 
 	"github.com/cpave3/legato/config"
 	"github.com/cpave3/legato/internal/engine/store"
+	"github.com/cpave3/legato/internal/server"
 	"github.com/cpave3/legato/internal/service"
 )
 
@@ -31,4 +32,50 @@ func newReeveVoice(cfg *config.Config, db *store.Store, credentials *service.Cre
 		opts.Credentials = credentials
 	}
 	return service.NewReeveSpeech(opts)
+}
+
+// newVoiceService is transcription, and dictation's delivery to agents,
+// when voice.enabled and voice.whisper_url are set at start; nil
+// otherwise. Both settings take a restart.
+func newVoiceService(cfg *config.Config, tmux service.TmuxManager, agents service.AgentService) *service.VoiceService {
+	if !cfg.Voice.Enabled || cfg.Voice.WhisperURL == "" {
+		return nil
+	}
+	var deliver service.VoiceAgents
+	if agents != nil {
+		deliver = agents
+	}
+	return service.NewVoiceService(cfg.Voice.WhisperURL, tmux, deliver, service.VoiceServiceOptions{
+		AutoSend:  cfg.Voice.AutoSend,
+		MicDevice: cfg.Voice.MicDevice,
+	})
+}
+
+// wireReeveVoice serves dictation and hands-free voice with the Reeve on
+// a web server. voice is nil when this process has no transcription, and
+// reeve nil when it has no Reeve: the voice status then says why.
+func wireReeveVoice(srv *server.Server, cfg *config.Config, db *store.Store, reeve *service.ReeveService, voice *service.VoiceService) *service.ReeveVoice {
+	opts := service.ReeveVoiceOptions{
+		Store: db,
+		Settings: func(ctx context.Context) *config.Config {
+			effective, err := settingsFor(db).Effective(ctx)
+			if err != nil {
+				return nil
+			}
+			return effective
+		},
+	}
+	if voice != nil {
+		srv.SetVoiceService(voice, cfg.Voice.AutoSend)
+		opts.Transcription = voice
+	}
+	if reeve != nil {
+		opts.Reeve = reeve
+	}
+	if processSpeech != nil {
+		opts.Speech = processSpeech
+	}
+	rv := service.NewReeveVoice(opts)
+	srv.SetReeveVoice(rv)
+	return rv
 }

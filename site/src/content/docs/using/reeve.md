@@ -105,6 +105,15 @@ Lines play one at a time, in order, with `pw-play` (or `ffplay` if `pw-play` fai
 
 To switch to a local voice such as Piper, set the voice command to a Piper script and clear the voice credential.
 
+### Talking to the Reeve
+
+You can also talk to the Reeve and hear its answers, from the desktop and Android apps. This needs, on the main instance:
+
+- [Voice dictation](/legato/reference/configuration/) on (`voice.enabled`) with a Whisper server (`voice.whisper_url`). It can be the Whisper that Home Assistant Assist already uses. Both settings take a restart.
+- The Reeve's voice, set up as above.
+
+Before it listens, an app asks the main whether a conversation will work. If not, it shows one line saying why, such as "Whisper isn't answering on tessitura", and which setting to change. When the Reeve is suspended, that question also starts resuming it, so it is ready by the time you finish speaking.
+
 ## Where it runs
 
 The Reeve always runs in Legato's [sandbox](/legato/security/sandbox/): it cannot be started without it, and **Run without sandbox** and the switch out of the sandbox are refused for it. It works in a folder of its own, `~/.local/state/legato/reeve` (or under `$XDG_STATE_HOME`), outside your repositories and Legato's data folder. The folder also holds its engram's store.

@@ -122,6 +122,22 @@ The Reeve can speak out loud with the tool `speak` (`internal/cli/mcp_reeve.go`;
 - **Audio** is written to `<data_dir>/reeve-voice/line-<n>.mp3` and removed once played or failed; the folder is cleared when the queue starts, so nothing is kept after a crash.
 - **The credential** is read with `CredentialBroker.UseForLegato`: Legato's own use, which the person allowed by naming it in a setting. No rule is asked and no approval raised; each use is audited (`use`, detail "Legato's own use · the Reeve's voice", the characters as its amount) against the Reeve's session. The Reeve never holds the value.
 - To switch from ElevenLabs (`reeve-say.sh`) to Piper, set `command` to a Piper script and clear `credential`; no code changes.
+- **`LastError`** is why the last line was not made or played, cleared when a line plays. The voice status gives it.
+
+## Hands-free voice
+
+A spoken back-and-forth with the main's Reeve from the desktop and Android apps (Burnlite `LEG-118`; design `docs/analysis/reeve-voice-conversation.md`). `service.ReeveVoice` (`internal/service/reeve_voice.go`) holds it; `wireReeveVoice` (`cmd/legato/reeve_voice_runtime.go`) serves it on both web servers.
+
+- **Transcription in `legato serve`.** `newVoiceService` builds `VoiceService` when `voice.enabled` and `voice.whisper_url` are set at start (both take a restart), for `legato serve` as for the TUI, so `/api/voice/transcribe` works on serve too. A `VoiceService` without tmux transcribes but cannot type into a pane. `voice.whisper_url` can name the Wyoming Whisper that Home Assistant Assist already uses (`tcp://<host>:10300`); that server takes one request at a time, so Legato's and Assist's wait for each other.
+- **The status route**, `GET /api/reeve/voice` (class read, web token): `VoiceReadiness` with the instance (`InstanceID`, the host name, `InstanceRole`), the Reeve's session state and whether its agent is `working`, speech (`reeve.voice.enabled`, whether a command is set, `ReeveSpeech.LastError`), transcription (built in this process, and whether Whisper answers a Wyoming `describe` within 1 s: `whisper.Client.Describe`, `VoiceService.Probe`), the open voice session, then `ready`, `reason` and `setting`. It never gives the command line, the credential or the Whisper address. The reasons, first match wins:
+  1. "Transcription is off on <name>" (`voice.enabled`; `voice.whisper_url` when only the address is missing).
+  2. "Whisper isn't answering on <name>" (`voice.whisper_url`).
+  3. "The Reeve's voice is off on <name>" (`reeve.voice.enabled`).
+  4. "The Reeve has no voice command on <name>" (`reeve.voice.command`).
+  5. "The Reeve can't start on <name>" (this server has no Reeve).
+
+  The client adds its own: it cannot reach the server, or has no microphone.
+- **Warming up.** When the voice is ready and the Reeve's session is suspended, the status call resumes it in the background (`started_by` `voice`), so the resume happens while the person speaks.
 
 ## Ask the Reeve
 

@@ -342,3 +342,21 @@ func fakeWAVData() []byte {
 
 // silence unused import warning
 var _ = time.Second
+
+type probedWhisper struct {
+	stubWhisperClient
+	err error
+}
+
+func (p *probedWhisper) Describe(context.Context) error { return p.err }
+
+func TestVoiceServiceProbesWhisper(t *testing.T) {
+	ok := &VoiceService{whisper: &probedWhisper{}}
+	if err := ok.Probe(context.Background()); err != nil {
+		t.Fatalf("probe: %v", err)
+	}
+	down := &VoiceService{whisper: &probedWhisper{err: fmt.Errorf("refused")}}
+	if err := down.Probe(context.Background()); err == nil {
+		t.Fatal("probe of a Whisper that is down succeeded")
+	}
+}

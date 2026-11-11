@@ -151,7 +151,7 @@ var registry = []Setting{
 
 	// Voice.
 	{Key: "voice.enabled", Title: "Voice dictation", Kind: KindBool, Class: ClassChange, Mode: ModeRestart},
-	{Key: "voice.whisper_url", Title: "Whisper server", Kind: KindString, Class: ClassChange, Mode: ModeRestart},
+	{Key: "voice.whisper_url", Title: "Whisper server", Description: "The Wyoming address of a Whisper server, such as tcp://192.168.1.220:10300. It can be the one Home Assistant Assist already uses; Legato's requests and Assist's then wait for each other.", Kind: KindString, Class: ClassChange, Mode: ModeRestart},
 	{Key: "voice.autosend", Title: "Send dictation at once", Kind: KindBool, Class: ClassChange, Mode: ModeRestart},
 	{Key: "voice.mic_device", Title: "Microphone", Kind: KindString, Class: ClassChange, Mode: ModeRestart},
 

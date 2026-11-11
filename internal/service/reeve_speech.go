@@ -68,6 +68,9 @@ type ReeveSpeech struct {
 	lines chan SpokenLine
 	start sync.Once
 	seq   atomic.Int64
+
+	mu      sync.Mutex
+	lastErr string
 }
 
 // madeLine is a line whose audio is ready to play.
@@ -108,6 +111,23 @@ func (s *ReeveSpeech) Say(_ context.Context, line SpokenLine) error {
 	}
 }
 
+// LastError is why the last line was not said, "" once a line has played
+// since. It holds no text the Reeve said and no key.
+func (s *ReeveSpeech) LastError() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.lastErr
+}
+
+func (s *ReeveSpeech) failed(err error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.lastErr = ""
+	if err != nil {
+		s.lastErr = err.Error()
+	}
+}
+
 // run clears the audio folder and starts the queue's two workers.
 func (s *ReeveSpeech) run() {
 	if err := os.RemoveAll(s.opts.Dir); err != nil {
@@ -126,6 +146,7 @@ func (s *ReeveSpeech) makeLines(ready chan<- madeLine) {
 		}
 		path, err := s.make(voice, line)
 		if err != nil {
+			s.failed(err)
 			s.opts.Logf("reeve voice: a line of %d characters was not said: %v", utf8.RuneCountInString(line.Text), err)
 			continue
 		}
@@ -137,7 +158,10 @@ func (s *ReeveSpeech) playLines(ready <-chan madeLine) {
 	for made := range ready {
 		if voice := s.opts.Settings(context.Background()); voice.Enabled {
 			if err := s.play(voice, made.path); err != nil {
+				s.failed(err)
 				s.opts.Logf("reeve voice: a line was not played: %v", err)
+			} else {
+				s.failed(nil)
 			}
 		}
 		_ = os.Remove(made.path)

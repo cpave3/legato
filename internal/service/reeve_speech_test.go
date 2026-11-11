@@ -227,3 +227,19 @@ func TestSpeechTurnedOffMutesTheQueue(t *testing.T) {
 		t.Fatalf("played %v after the voice was turned off", played)
 	}
 }
+
+func TestSpeechRemembersItsLastFailureUntilALinePlays(t *testing.T) {
+	f := newSpeechFixture(t)
+	if got := f.speech.LastError(); got != "" {
+		t.Fatalf("a new voice has an error: %q", got)
+	}
+	f.say(t, "fail")
+	waitUntil(t, func() bool { return f.speech.LastError() != "" })
+	got := f.speech.LastError()
+	if !strings.Contains(got, "exit status 3") || strings.Contains(got, "sk-secret-key") {
+		t.Fatalf("last error %q", got)
+	}
+	f.say(t, "after")
+	f.waitForPlayed(t, 2)
+	waitUntil(t, func() bool { return f.speech.LastError() == "" })
+}
