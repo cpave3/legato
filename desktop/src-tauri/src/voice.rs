@@ -130,6 +130,21 @@ impl Recorder {
         self.still_running()
     }
 
+    /// Why a recorder whose output has ended stopped, in one line: what it
+    /// said last, waiting up to a second for it to exit.
+    pub fn why_stopped(&mut self) -> String {
+        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(1);
+        loop {
+            if let Err(why) = self.still_running() {
+                return why;
+            }
+            if std::time::Instant::now() > deadline {
+                return format!("{} stopped recording.", self.program);
+            }
+            std::thread::sleep(std::time::Duration::from_millis(20));
+        }
+    }
+
     /// Ends the recording and gives it back as a WAV file.
     pub fn stop(mut self) -> Result<Vec<u8>, String> {
         self.still_running()?;
@@ -324,6 +339,18 @@ mod tests {
         assert!(error.contains("no microphone here"), "{error}");
         let error = recorder.stop().err().expect("no recording");
         assert!(error.contains("no microphone here"), "{error}");
+    }
+
+    #[test]
+    fn a_stream_that_ends_says_why_the_recorder_stopped() {
+        let (tx, rx) = std::sync::mpsc::channel::<Vec<u8>>();
+        let mut recorder = Recorder::stream("sh", &["-c", "echo 'no such device' >&2; exit 1"], move |b| {
+            let _ = tx.send(b.to_vec());
+        })
+        .expect("sh starts");
+        while !rx.recv_timeout(Duration::from_secs(5)).expect("an end").is_empty() {}
+        let why = recorder.why_stopped();
+        assert!(why.contains("no such device"), "{why}");
     }
 
     #[test]

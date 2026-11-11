@@ -87,6 +87,10 @@ impl<T: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send> Io for T {}
 /// A WebSocket to a server.
 pub type Socket = tokio_tungstenite::WebSocketStream<Box<dyn Io>>;
 
+/// How long opening a WebSocket may take, from the TCP connect to the
+/// upgrade.
+pub const CONNECT_TIMEOUT: std::time::Duration = std::time::Duration::from_secs(5);
+
 /// One server's API, with its token.
 #[derive(Clone)]
 pub struct Client {
@@ -130,8 +134,17 @@ impl Client {
     }
 
     /// Opens a WebSocket to path with the token in `?token=`, as the web UI
-    /// does, over the pinned TLS for an https server.
+    /// does, over the pinned TLS for an https server, giving up when the
+    /// connection, TLS and upgrade take longer than CONNECT_TIMEOUT.
     pub async fn websocket(&self, path: &str) -> Result<Socket, String> {
+        self.websocket_within(path, CONNECT_TIMEOUT).await
+    }
+
+    pub async fn websocket_within(&self, path: &str, timeout: std::time::Duration) -> Result<Socket, String> {
+        tokio::time::timeout(timeout, self.open_websocket(path)).await.map_err(|_| format!("the server did not answer within {} s", timeout.as_secs_f32()))?
+    }
+
+    async fn open_websocket(&self, path: &str) -> Result<Socket, String> {
         use tokio_tungstenite::tungstenite::client::IntoClientRequest;
         let url = reqwest::Url::parse(&format!("{}{}", self.base, path)).map_err(|e| e.to_string())?;
         let tls = match url.scheme() {
@@ -320,5 +333,23 @@ mod tests {
         let back: Vec<_> = rustls_pemfile::certs(&mut pem.as_bytes()).collect::<Result<_, _>>().unwrap();
         assert_eq!(back.len(), 1);
         assert_eq!(back[0].as_ref(), cert.der().as_ref());
+    }
+
+    #[tokio::test]
+    async fn a_server_that_never_finishes_the_websocket_handshake_is_given_up_on() {
+        // Takes the connection and says nothing.
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let url = format!("http://{}", listener.local_addr().unwrap());
+        let held = tokio::spawn(async move {
+            let (tcp, _) = listener.accept().await.unwrap();
+            tokio::time::sleep(std::time::Duration::from_secs(30)).await;
+            drop(tcp);
+        });
+        let client = Client::new(&url, None, Some("t".into())).unwrap();
+        let started = std::time::Instant::now();
+        let error = client.websocket_within("/api/reeve/voice/session", std::time::Duration::from_millis(200)).await.err().expect("given up on");
+        assert!(started.elapsed() < std::time::Duration::from_secs(5));
+        assert!(error.contains("did not answer"), "{error}");
+        held.abort();
     }
 }

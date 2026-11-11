@@ -70,6 +70,8 @@ pub struct Desktop {
     voice_targets: Mutex<HashMap<String, voicemain::Instance>>,
     /// The conversation with the Reeve, while there is one.
     voice_session: Mutex<Option<tokio::sync::mpsc::UnboundedSender<Command>>>,
+    /// Every server has been asked which instance it is, once.
+    voice_targets_known: tokio::sync::watch::Sender<bool>,
 }
 
 fn webview_label(id: &str) -> String {
@@ -589,31 +591,30 @@ fn voice_key_input(app: &AppHandle, input: Input, from: &'static str) {
 
 /// Tells the app the key asked something: the `voice-key` event,
 /// `{key: "talk" | "hold" | "release" | "cancel", from: "portal" | "shortcut" | "link"}`.
-/// Until the widget exists, a press also brings the window to the front.
+/// The press is also handed to the conversation, which it starts when
+/// there is none.
 fn voice_key(app: &AppHandle, key: VoiceKey, from: &'static str) {
     println!("[voice key] {key:?} from the {from}");
-    let _ = app.emit_filter("voice-key", json!({ "key": key, "from": from }), for_the_app);
+    let _ = app.emit("voice-key", json!({ "key": key, "from": from }));
     voice_command(app, Command::Key(key));
 }
 
-/// The app's own pages: the shell, and the voice widget. A server's page
-/// is not told what is said to the Reeve.
-fn for_the_app(target: &tauri::EventTarget) -> bool {
-    use tauri::EventTarget::*;
-    match target {
-        AnyLabel { label } | Window { label } | Webview { label } | WebviewWindow { label } => label == "shell" || label == "voice",
-        _ => false,
-    }
-}
+// The voice events go to every webview, but only the app's own pages can
+// listen: a server's page has no capability, so no event:listen, and is
+// never told what is said to the Reeve. (In Tauri 2 a target or filter would
+// not keep them out: a JS listener's target is Any, which every emit
+// matches.)
 
 // ---- Talking to the Reeve ----
 
 fn tell_widget(app: &AppHandle, ui: Ui) {
+    // The log has states and line IDs, never what was said.
     match &ui {
-        Ui::Level(_) | Ui::Pause { .. } => {}
-        other => println!("[voice] {}: {}", other.name(), other.payload()),
+        Ui::State { state, .. } => println!("[voice] {state}"),
+        Ui::Line { id, status, .. } => println!("[voice] line {id} {status}"),
+        _ => {}
     }
-    let _ = app.emit_filter(ui.name(), ui.payload(), for_the_app);
+    let _ = app.emit(ui.name(), ui.payload());
 }
 
 /// Hands a command to the conversation; the key starts one when there is
@@ -662,6 +663,10 @@ fn voice_choice(desktop: &Desktop) -> voicemain::Choice {
 async fn converse(app: &AppHandle, commands: tokio::sync::mpsc::UnboundedReceiver<Command>) {
     let not_ready = |reason: String, setting: Option<String>| tell_widget(app, Ui::State { state: "not_ready".into(), reason: Some(reason), setting });
     let desktop = app.state::<Desktop>();
+    // A press at a cold start waits for the first ask of the servers, so
+    // the main is known.
+    let mut known = desktop.voice_targets_known.subscribe();
+    let _ = tokio::time::timeout(std::time::Duration::from_secs(10), known.wait_for(|k| *k)).await;
     let server = match voice_choice(&desktop) {
         voicemain::Choice::Server(id) => id,
         voicemain::Choice::Ask => return not_ready("Choose the Reeve to talk to in Servers & keys".into(), None),
@@ -690,6 +695,15 @@ async fn converse(app: &AppHandle, commands: tokio::sync::mpsc::UnboundedReceive
         return not_ready(reason, setting);
     }
     let (program, args) = recorder.expect("checked");
+    // Recording starts before the session opens: what is said meanwhile is
+    // kept for the main (voiceclient::Audio::Hold).
+    let (audio_tx, audio) = tokio::sync::mpsc::unbounded_channel();
+    let mut recorder = match voice::Recorder::stream(program, args, move |bytes| {
+        let _ = audio_tx.send(bytes.to_vec());
+    }) {
+        Ok(r) => r,
+        Err(e) => return not_ready(e, None),
+    };
     let socket = match client.websocket("/api/reeve/voice/session").await {
         Ok(s) => s,
         Err(e) => {
@@ -697,16 +711,9 @@ async fn converse(app: &AppHandle, commands: tokio::sync::mpsc::UnboundedReceive
             return not_ready(format!("Can't reach {name}"), None);
         }
     };
-    let (audio_tx, audio) = tokio::sync::mpsc::unbounded_channel();
-    let _recorder = match voice::Recorder::stream(program, args, move |bytes| {
-        let _ = audio_tx.send(bytes.to_vec());
-    }) {
-        Ok(r) => r,
-        Err(e) => return not_ready(e, None),
-    };
     let lines = voiceclient::system_player().map(|(program, args)| std::sync::Arc::new(PlayLines { client: client.clone(), program, args }) as std::sync::Arc<dyn voiceclient::Lines>);
     println!("[voice] {name}: talking, recording with {program}, playing with {}", voiceclient::system_player().map(|p| p.0).unwrap_or("nothing"));
-    voiceclient::run(socket, &device_name(), lines, commands, audio, |ui| tell_widget(app, ui)).await;
+    voiceclient::run(socket, &device_name(), lines, commands, audio, || recorder.why_stopped(), |ui| tell_widget(app, ui)).await;
     println!("[voice] {name}: the conversation ended");
 }
 
@@ -720,6 +727,17 @@ struct PlayLines {
 }
 
 struct Removed(std::path::PathBuf);
+
+/// Writes a new file only its owner can read: the temporary folder is
+/// shared.
+fn write_private(path: &std::path::Path, bytes: &[u8]) -> std::io::Result<()> {
+    use std::io::Write;
+    let mut options = std::fs::OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
+    options.open(path)?.write_all(bytes)
+}
 
 impl Drop for Removed {
     fn drop(&mut self) {
@@ -735,7 +753,7 @@ impl voiceclient::Lines for PlayLines {
             let mut name = [0u8; 8];
             rand::rngs::OsRng.fill_bytes(&mut name);
             let file = Removed(std::env::temp_dir().join(format!("legato-voice-{}", hex::encode(name))));
-            std::fs::write(&file.0, audio).map_err(|e| e.to_string())?;
+            write_private(&file.0, &audio).map_err(|e| e.to_string())?;
             let status = tokio::process::Command::new(program)
                 .args(args)
                 .arg(&file.0)
@@ -759,20 +777,21 @@ async fn refresh_voice_targets(app: &AppHandle) {
         let store = desktop.store.lock().unwrap();
         store.state.servers.iter().map(|s| (s.id.clone(), client(&store, &s.id))).collect()
     };
-    let mut answered = HashMap::new();
-    for (id, c) in &clients {
-        let Ok(c) = c else { continue };
-        if let Ok(r) = c.get_within("/api/reeve/voice", std::time::Duration::from_secs(5)).await.and_then(|v| serde_json::from_value::<voicemain::Readiness>(v).map_err(|e| e.to_string())) {
-            answered.insert(id.clone(), r.instance);
-        }
-    }
+    // All at once, so the first ask (which a cold-start press waits for)
+    // takes 5 seconds at most.
+    let asks = clients.iter().filter_map(|(id, c)| c.as_ref().ok().map(|c| (id, c))).map(|(id, c)| async move {
+        let r = c.get_within("/api/reeve/voice", std::time::Duration::from_secs(5)).await.and_then(|v| serde_json::from_value::<voicemain::Readiness>(v).map_err(|e| e.to_string()));
+        r.ok().map(|r| (id.clone(), r.instance))
+    });
+    let answered: HashMap<String, voicemain::Instance> = futures_util::future::join_all(asks).await.into_iter().flatten().collect();
     {
         let mut targets = desktop.voice_targets.lock().unwrap();
         // A server that did not answer keeps what it said last.
         targets.retain(|id, _| clients.iter().any(|(c, _)| c == id));
         targets.extend(answered);
     }
-    let _ = app.emit_filter("voice-targets-changed", voice_targets(desktop), for_the_app);
+    desktop.voice_targets_known.send_replace(true);
+    let _ = app.emit("voice-targets-changed", voice_targets(desktop));
 }
 
 fn refresh_voice_targets_soon(app: &AppHandle) {
@@ -825,7 +844,7 @@ fn set_voice_server(app: AppHandle, desktop: State<'_, Desktop>, instance: Optio
         store.state.voice.server = instance;
         store.save()?;
     }
-    let _ = app.emit_filter("voice-targets-changed", voice_targets(desktop), for_the_app);
+    let _ = app.emit("voice-targets-changed", voice_targets(desktop));
     Ok(())
 }
 
@@ -1680,6 +1699,7 @@ pub fn run() {
             portal: Mutex::default(),
             voice_targets: Mutex::default(),
             voice_session: Mutex::default(),
+            voice_targets_known: tokio::sync::watch::Sender::new(false),
         })
         .setup(|app| {
             // Servers take a few seconds to answer on the network; listening
@@ -1735,7 +1755,8 @@ pub fn run() {
                 }
             });
             // Started with --voice. No page hears the voice-key event this
-            // early: the shell's webview has not loaded.
+            // early, but the press starts the conversation, which waits for
+            // the first ask of the servers.
             let args: Vec<String> = std::env::args().collect();
             if let Some(key) = voicekey::read_args(&args) {
                 voice_key(app.handle(), key, "link");
