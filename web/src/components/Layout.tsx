@@ -16,6 +16,7 @@ import { MobileTabBar, MoreSheet } from "./MobileNav"
 import { TintBand } from "./TintBand"
 import { useSettings } from "../hooks/useSettings"
 import { UpdateNotice } from "./UpdateNotice"
+import { VoiceLauncher } from "../voice/VoiceLauncher"
 
 export function Layout() {
   const { connected: open, lost, updateRequired, retryUpdate } = useWebSocket()
@@ -63,6 +64,7 @@ export function Layout() {
       {notificationsSupported() && <ApprovalNotifier />}
       <OfflineDialog />
       <PlanApprovalModal />
+      <VoiceLauncher baseUrl={baseUrl} />
       </div>
     </AgentSelectionProvider>
   )

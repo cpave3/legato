@@ -1,0 +1,82 @@
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import "@testing-library/jest-dom/vitest"
+import { fireEvent, render, screen, waitFor } from "@testing-library/react"
+import { MemoryRouter } from "react-router-dom"
+import { VoiceLauncher } from "../VoiceLauncher"
+import { VOICE_HASH } from "../status"
+import type { AudioPort, SocketLike } from "../session"
+
+function status(over: Record<string, unknown> = {}) {
+  return { instance: { id: "srv-1", name: "tessitura", role: "main" }, ready: true, reason: "", setting: "", ...over }
+}
+
+function mockStatus(body: unknown) {
+  vi.stubGlobal("fetch", vi.fn(async () => new Response(JSON.stringify(body), { status: 200, headers: { "Content-Type": "application/json" } })))
+}
+
+class Socket implements SocketLike {
+  static last: Socket | null = null
+  binaryType = ""
+  readyState = 0
+  sent: string[] = []
+  onopen: (() => void) | null = null
+  onmessage: ((ev: { data: unknown }) => void) | null = null
+  onclose: (() => void) | null = null
+  onerror: (() => void) | null = null
+  url: string
+  constructor(url: string) { this.url = url; Socket.last = this; setTimeout(() => { this.readyState = 1; this.onopen?.() }, 0) }
+  send(data: string | ArrayBuffer) { if (typeof data === "string") this.sent.push(data) }
+  close() { this.readyState = 3 }
+}
+
+const audio: AudioPort = { canPlay: true, startCapture: async () => {}, stopCapture: () => {}, play: async () => {}, stopPlayback: () => {} }
+
+function open(props: Partial<Parameters<typeof VoiceLauncher>[0]> = {}) {
+  window.location.hash = VOICE_HASH
+  return render(<MemoryRouter><VoiceLauncher baseUrl="" audio={audio} socket={(url) => new Socket(url)} {...props} /></MemoryRouter>)
+}
+
+describe("the voice sheet in the web UI", () => {
+  beforeEach(() => { localStorage.clear() })
+  afterEach(() => { vi.unstubAllGlobals(); history.replaceState(null, "", "/") })
+
+  it("stays closed without #reeve-voice", () => {
+    history.replaceState(null, "", "/")
+    render(<MemoryRouter><VoiceLauncher baseUrl="" audio={audio} /></MemoryRouter>)
+    expect(screen.queryByTestId("voice-sheet")).toBeNull()
+  })
+
+  it("says why the voice is not ready, and records nothing", async () => {
+    mockStatus(status({ ready: false, reason: "The Reeve's voice is off on tessitura", setting: "reeve.voice.enabled" }))
+    Socket.last = null
+    open()
+    expect(await screen.findByText("The Reeve's voice is off on tessitura")).toBeInTheDocument()
+    expect(screen.getByRole("button", { name: "Open settings" })).toBeInTheDocument()
+    expect(Socket.last).toBeNull()
+  })
+
+  it("on a worker's page says the voice is on the main", async () => {
+    mockStatus(status({ instance: { id: "srv-2", name: "vm-1", role: "worker" } }))
+    open()
+    expect(await screen.findByText("Voice is on the main")).toBeInTheDocument()
+  })
+
+  it("says so when the page has no microphone", async () => {
+    mockStatus(status())
+    open({ audio: null })
+    expect(await screen.findByText(/No microphone here/)).toBeInTheDocument()
+  })
+
+  it("when ready, opens a session with the token, says hello and listens", async () => {
+    mockStatus(status())
+    localStorage.setItem("legato-auth-token", "tok")
+    open()
+    await waitFor(() => expect(Socket.last?.sent.map((s) => JSON.parse(s).type)).toEqual(["hello", "listen"]))
+    expect(Socket.last?.url).toMatch(/\/api\/reeve\/voice\/session/)
+    Socket.last?.onmessage?.({ data: JSON.stringify({ type: "state", state: "listening" }) })
+    Socket.last?.onmessage?.({ data: JSON.stringify({ type: "partial", text: "turn the" }) })
+    expect(await screen.findByText("turn the")).toBeInTheDocument()
+    fireEvent.click(screen.getByRole("button", { name: "Send now" }))
+    expect(JSON.parse(Socket.last!.sent.at(-1)!)).toEqual({ type: "send" })
+  })
+})

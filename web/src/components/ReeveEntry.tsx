@@ -7,6 +7,7 @@ import { cn } from "../lib/utils"
 import { AgentKindBadge } from "./AgentKindBadge"
 import { ActivityBar } from "./AgentMeters"
 import { formatAgentTime, stateSeconds } from "../lib/agentList"
+import { VoiceButton } from "../voice/VoiceLauncher"
 
 // The Reeve's violet: a wash from the left edge and a faint border, apart
 // from the selection accent.
@@ -50,7 +51,7 @@ export function ReeveEntry({ baseUrl, agent, selected, onSelect, compact }: {
   const time = agent ? formatAgentTime(stateSeconds(agent)) : ""
   const state = starting ? "Starting…" : agent ? (agent.activity === "working" ? "Running" : agent.activity === "waiting" ? "Needs you" : "Idle") : current?.state === "suspended" ? "Suspended" : "Not running"
   return (
-    <div data-testid="reeve-entry" className={cn("rounded-md", compact ? "" : "mb-1", reeveWash, selected && "shadow-[inset_0_0_0_1px] shadow-lw-accent-ring", !live && "opacity-70")}>
+    <div data-testid="reeve-entry" className={cn("relative rounded-md", compact ? "" : "mb-1", reeveWash, selected && "shadow-[inset_0_0_0_1px] shadow-lw-accent-ring", !live && "opacity-70")}>
       <button type="button" onClick={() => void pick()} disabled={starting} aria-label={live ? "The Reeve" : "Start the Reeve"}
         className={cn("flex w-full min-w-0 flex-col gap-[3px] px-2.5 py-2 text-left", live ? "text-lw-text" : "text-lw-text-2")}>
         <span className="flex min-w-0 items-center gap-1.5">
@@ -68,6 +69,7 @@ export function ReeveEntry({ baseUrl, agent, selected, onSelect, compact }: {
         </span>
         {agent && !compact && <ActivityBar states={agent.state_timeline} />}
       </button>
+      {!compact && <VoiceButton className="absolute right-1.5 bottom-1.5 rounded-full p-0.5 hover:bg-white/5" />}
       {error && <p role="alert" className="px-2.5 pb-2 text-[11px] text-lw-error">{error}</p>}
     </div>
   )
