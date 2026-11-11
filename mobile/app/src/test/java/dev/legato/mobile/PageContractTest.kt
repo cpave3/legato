@@ -17,7 +17,7 @@ class PageContractTest {
     @Test
     fun `tells only the top frame it can record, with the page's key`() {
         val script = bootstrapScript("https://mac.example", "t", shellKey = "k1")
-        assertTrue(script.contains("window.legatoShell={voice:1,approval:1,enroll:1,workers:1,key:\"k1\"}"))
+        assertTrue(script.contains("window.legatoShell={voice:1,voiceStream:1,approval:1,enroll:1,workers:1,key:\"k1\"}"))
         assertTrue(script.startsWith("if(window===window.top)"))
     }
 
@@ -92,5 +92,13 @@ class PageContractTest {
         assertTrue(script.contains("legato:shell-worker"))
         assertTrue(script.contains("\"id\":\"r1\""))
         assertTrue(script.contains("\"cancelled\":true"))
+    }
+
+    @Test
+    fun `reads a request to stream the microphone, and to open the main's voice`() {
+        assertEquals(PageMessage.VoiceStream(key = "k", action = "start"), PageMessage.parse("""{"legatoShell":"voice-stream","key":"k","action":"start"}"""))
+        assertEquals(PageMessage.Unknown, PageMessage.parse("""{"legatoShell":"voice-stream","key":"k"}"""))
+        assertEquals(PageMessage.OpenVoice(key = "k"), PageMessage.parse("""{"legatoShell":"open-voice","key":"k"}"""))
+        assertEquals(PageMessage.Unknown, PageMessage.parse("""{"legatoShell":"open-voice"}"""))
     }
 }

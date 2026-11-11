@@ -22,6 +22,7 @@ import android.webkit.WebViewClient
 import android.widget.FrameLayout
 import androidx.webkit.WebViewCompat
 import androidx.webkit.WebViewFeature
+import org.json.JSONObject
 import java.util.UUID
 
 private const val TAG = "LegatoPage"
@@ -40,6 +41,9 @@ class ServerPage(
     val connection: Connection,
     private val token: String,
     microphone: ShellVoice.Microphone,
+    // Listening for a conversation with the Reeve: the stream and its focus.
+    streamRecorder: ShellVoiceStream.Recorder,
+    streamFocus: ShellVoiceStream.Focus,
     private val callbacks: Callbacks,
     // Where on the server to open first, such as an approval: "/?approval=…".
     startPath: String = "",
@@ -66,6 +70,10 @@ class ServerPage(
         // Opens a main's pairing request on a server with its own token, off
         // the main thread; done runs on it.
         fun openWorkerPairing(server: Connection, done: (Result<WorkerPairing>) -> Unit)
+
+        // A worker's page asks for the main's page with the voice sheet
+        // open; failed says why there is none, on the main thread.
+        fun openVoice(from: Connection, failed: (String) -> Unit)
     }
 
     private val appContext = context.applicationContext
@@ -89,6 +97,8 @@ class ServerPage(
         handler.postDelayed(tick, delay)
         return@ShellVoice { handler.removeCallbacks(tick) }
     }
+
+    private val stream = ShellVoiceStream(shellKey, streamRecorder, streamFocus) { evaluate(voiceEventScript(it)) }
 
     private val workers = ShellWorkers(
         shellKey,
@@ -122,6 +132,8 @@ class ServerPage(
         } else {
             keeper.backgrounded()
             voice.release()
+            // The conversation ends when the person leaves the app.
+            stream.release()
         }
     }
 
@@ -133,6 +145,7 @@ class ServerPage(
 
     fun destroy() {
         voice.release()
+        stream.release()
         handler.removeCallbacksAndMessages(null)
         // The next page of this process would start with its timers paused.
         if (timersPaused) webView?.resumeTimers()
@@ -157,6 +170,7 @@ class ServerPage(
     }
 
     override fun open(url: String) {
+        stream.release()
         webView?.let(::discard)
         val page = createWebView()
         webView = page
@@ -252,6 +266,8 @@ class ServerPage(
 
         page.webViewClient = object : WebViewClient() {
             override fun onPageStarted(view: WebView, url: String?, favicon: android.graphics.Bitmap?) {
+                // A new document: the one that was listening is gone.
+                if (view === webView) stream.release()
                 // Without document-start scripts this is the earliest moment.
                 if (!startScripts && url != null && allowNavigation(baseUrl, url)) view.evaluateJavascript(bootstrap, null)
             }
@@ -305,6 +321,10 @@ class ServerPage(
         when (val message = PageMessage.parse(data)) {
             is PageMessage.Restore -> keeper.pageAsksToReturnTo(message.url)
             is PageMessage.Voice -> voice.handle(message)
+            is PageMessage.VoiceStream -> stream.handle(message)
+            is PageMessage.OpenVoice -> if (message.key == shellKey) {
+                callbacks.openVoice(connection) { why -> evaluate(voiceEventScript(JSONObject().put("type", "error").put("message", why))) }
+            }
             is PageMessage.Approval -> if (message.key == shellKey) {
                 callbacks.openApproval(connection, message.id) { status, option, error ->
                     handler.post { evaluate(approvalEventScript(message.id, status, option, error)) }

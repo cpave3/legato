@@ -14,6 +14,10 @@ data class Connection(
     // The device this phone enrolled as to sign approvals for the server;
     // its key is approvalKeyAlias(id).
     val approvalDevice: String? = null,
+    // Which Legato instance the server is, and its role ("main", "worker",
+    // "standalone"), from its voice status: see ReeveVoice.kt.
+    val instanceId: String? = null,
+    val role: String? = null,
 )
 
 // The alias of the Keystore key that signs approvals for a saved server.
@@ -76,6 +80,12 @@ class ConnectionStore(private val text: Text, private val vault: TokenVault) {
         write(load().map { if (it.id == id) it.copy(approvalDevice = device) else it })
     }
 
+    // Keeps who each answering server is; the others keep what was known.
+    fun rememberVoiceInstances(learned: Map<String, VoiceInstance>) {
+        if (learned.isEmpty()) return
+        write(load().map { connection -> learned[connection.id]?.let { connection.copy(instanceId = it.id, role = it.role) } ?: connection })
+    }
+
     fun remove(id: String) {
         vault.remove(id)
         write(load().filter { it.id != id })
@@ -106,6 +116,8 @@ private fun readConnection(json: JSONObject): Connection? {
         serverVersion = json.opt("serverVersion") as? String,
         caCertificate = json.opt("caCertificate") as? String,
         approvalDevice = json.opt("approvalDevice") as? String,
+        instanceId = json.opt("instanceId") as? String,
+        role = json.opt("role") as? String,
     )
 }
 
@@ -118,4 +130,6 @@ private fun writeConnection(connection: Connection): JSONObject = JSONObject()
         connection.serverVersion?.let { put("serverVersion", it) }
         connection.caCertificate?.let { put("caCertificate", it) }
         connection.approvalDevice?.let { put("approvalDevice", it) }
+        connection.instanceId?.let { put("instanceId", it) }
+        connection.role?.let { put("role", it) }
     }
