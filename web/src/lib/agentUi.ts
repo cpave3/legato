@@ -226,6 +226,12 @@ function stringArg(args: Record<string, unknown>, name: string): string {
 // already name it `speak`.
 const LEGATO_SPEAK_TOOL = /(?:^|[^a-zA-Z0-9])legato(?:__|[._])speak$/
 
+// speakFailed reports whether a speak call came back with an error: the
+// words were not spoken.
+export function speakFailed(tool: NativeToolItem): boolean {
+  return tool.result?.error !== undefined && tool.result?.error !== null && tool.result?.error !== ""
+}
+
 // speakText returns what the agent said out loud when a tool call is
 // Legato's speak, and null for every other call.
 export function speakText(tool: NativeToolItem): string | null {

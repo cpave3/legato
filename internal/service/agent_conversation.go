@@ -235,11 +235,15 @@ func describeToolCall(call snapshotToolCall) ConversationEntry {
 		Command     string `json:"command"`
 		Description string `json:"description"`
 		Path        string `json:"path"`
+		Text        string `json:"text"`
 	}
 	_ = json.Unmarshal(call.Args, &args)
 
 	entry := ConversationEntry{Kind: EntryTool, Tool: call.Name, Command: firstLineOf(args.Command), State: ToolDone}
 	switch {
+	case args.Text != "" && strings.HasSuffix(call.Name, "speak"):
+		// A line said out loud is its words, whichever agent tool made it.
+		entry.Text = firstLineOf(args.Text)
 	case args.Path != "" && (call.Name == "read" || call.Name == "edit" || call.Name == "write"):
 		entry.Text = path.Base(args.Path)
 	case args.Description != "":

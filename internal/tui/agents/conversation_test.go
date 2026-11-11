@@ -170,6 +170,29 @@ func TestWhatTheAgentSaidOutLoudIsShownAsSaid(t *testing.T) {
 	}
 }
 
+func TestALineThatFailedIsShownAsNotSaid(t *testing.T) {
+	m := told(t, "busy-1", service.ConversationTail{Entries: []service.ConversationEntry{
+		{Kind: service.EntryTool, Tool: "speak", Text: "The tests pass.", State: service.ToolFailed},
+	}})
+
+	if view := m.View(); !strings.Contains(view, `not said "The tests pass."`) {
+		t.Errorf("a speak call that failed should say it was not said: %q", view)
+	}
+}
+
+func TestAnotherServersSpeakIsAnOrdinaryTool(t *testing.T) {
+	for _, tool := range []string{"mcp__notlegato__speak", "notlegato.speak", "mcp_mylegato_speak"} {
+		if isSpeak(tool) {
+			t.Errorf("isSpeak(%q) = true, want false", tool)
+		}
+	}
+	for _, tool := range []string{"speak", "mcp__plugin_legato-tools_legato__speak", "legato.speak", "mcp_legato_speak"} {
+		if !isSpeak(tool) {
+			t.Errorf("isSpeak(%q) = false, want true", tool)
+		}
+	}
+}
+
 func TestTileOfAnAgentThatHasSaidNothingSaysSo(t *testing.T) {
 	m := told(t, "idle-1", service.ConversationTail{})
 

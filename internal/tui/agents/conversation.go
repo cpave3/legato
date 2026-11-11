@@ -2,6 +2,7 @@ package agents
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
@@ -84,13 +85,12 @@ func isSpeak(tool string) bool {
 	if tool == "speak" {
 		return true
 	}
-	for _, sep := range []string{"__", ".", "_"} {
-		if strings.HasSuffix(tool, "legato"+sep+"speak") {
-			return true
-		}
-	}
-	return false
+	return legatoSpeak.MatchString(tool)
 }
+
+// legatoSpeak is Legato's speak under a server named legato, and not under
+// one whose name only ends in it (notlegato), as the web UI matches it.
+var legatoSpeak = regexp.MustCompile(`(?:^|[^a-zA-Z0-9])legato(?:__|[._])speak$`)
 
 // toolLine renders one tool call: how it stands, the tool, and what the call
 // is for. state is what the agent is doing, which says what a call with no
@@ -99,6 +99,10 @@ func (m Model) toolLine(entry service.ConversationEntry, state string, width int
 	if isSpeak(entry.Tool) {
 		// A line the agent said out loud: the words, not the call.
 		line := colored(theme.Accent, "◈") + " " + lipgloss.NewStyle().Foreground(theme.TextPrimary).Bold(true).Render("said")
+		if entry.State == service.ToolFailed {
+			// The call failed: the words were not spoken.
+			line = colored(theme.Red, m.icons.CIFail) + " " + lipgloss.NewStyle().Foreground(theme.TextPrimary).Bold(true).Render("not said")
+		}
 		if room := width - lipgloss.Width(line) - 3; entry.Text != "" && room >= 4 {
 			line += " " + colored(theme.TextPrimary, `"`+truncateID(entry.Text, room)+`"`)
 		}

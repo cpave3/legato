@@ -131,6 +131,16 @@ describe("NativeAgentPanel and what an agent shows", () => {
     expect((await screen.findByRole("group", { name: "Said out loud" })).textContent).toContain("Done.")
   })
 
+  it("says a line was not spoken when the speak call failed", async () => {
+    mockSession([
+      { callId: "c2", name: "speak", args: { text: "The tests pass." }, result: { error: "your voice is off (reeve.voice.enabled): reply in writing" } },
+    ])
+    render(<NativeAgentPanel agentId="task-1" />, { wrapper })
+
+    const said = await screen.findByRole("group", { name: "Said out loud" })
+    expect(said.textContent).toContain("Not spoken")
+  })
+
   it("ignores a message proposed for another agent", async () => {
     mockSession([])
     render(<NativeAgentPanel agentId="task-1" />, { wrapper })

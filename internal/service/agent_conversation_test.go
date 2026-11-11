@@ -204,3 +204,12 @@ func TestALongMessageIsCutBeforeItReachesTheCaller(t *testing.T) {
 		t.Errorf("the message is %d characters, want at most %d", got, conversationTextLimit)
 	}
 }
+
+func TestASpokenLineIsItsWordsWhateverTheAgentToolSummarised(t *testing.T) {
+	// Chimera names Legato's speak after its server and may set no summary.
+	entry := describeToolCall(snapshotToolCall{Name: "mcp_legato_speak", Args: []byte(`{"text": "The tests pass.\nAll of them."}`), Result: []byte(`{"output": "Queued."}`)})
+
+	if entry.Text != "The tests pass." {
+		t.Errorf("text = %q, want the first line of what was said", entry.Text)
+	}
+}
