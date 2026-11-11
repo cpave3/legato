@@ -684,6 +684,136 @@ describe("NativeAgentPanel", () => {
     expect(screen.queryByRole("list", { name: "Queued messages" })).toBeNull()
   })
 
+  // The turn can end before the conversation shows a message it was sent
+  // (the agent takes it up next, as a prompt of its own). Idle is no proof it
+  // was read: the composer lists it until the conversation shows it.
+  it("keeps a queued message listed when the turn ends before the conversation shows it", async () => {
+    let status = "running"
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => String(input).includes("/snapshot")
+      ? new Response(JSON.stringify({ id: "session-1", status, messages: [], toolCalls: [] }), { status: 200 })
+      : new Response("[]", { status: 200 }))
+
+    render(<NativeAgentPanel agentId="task-1" />)
+    const box = await screen.findByRole("textbox", { name: "Message" })
+    fireEvent.change(box, { target: { value: "also update the docs" } })
+    fireEvent.keyDown(box, { key: "Enter" })
+
+    status = "idle"
+    act(() => websocketHandler?.({
+      type: "chimera_event",
+      agent_id: "task-1",
+      content: JSON.stringify({ eventId: "end-1", type: "run_finished", reason: "stop" }),
+    }))
+    await screen.findByPlaceholderText("Message task-1")
+
+    const queue = screen.getByRole("list", { name: "Queued messages" })
+    expect(within(queue).getByText("also update the docs")).not.toBeNull()
+
+    act(() => websocketHandler?.({
+      type: "chimera_event",
+      agent_id: "task-1",
+      content: JSON.stringify({ eventId: "user-1", type: "user_message", content: "also update the docs" }),
+    }))
+    expect(screen.queryByRole("list", { name: "Queued messages" })).toBeNull()
+  })
+
+  // Messages the agent had not read when its turn ended reach it together,
+  // as one prompt of paragraphs.
+  it("takes queued messages as read when the conversation shows them joined in one message", async () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => String(input).includes("/snapshot")
+      ? new Response(JSON.stringify({ id: "session-1", status: "running", messages: [], toolCalls: [] }), { status: 200 })
+      : new Response("[]", { status: 200 }))
+
+    render(<NativeAgentPanel agentId="task-1" />)
+    const box = await screen.findByRole("textbox", { name: "Message" })
+    for (const text of ["yes", "yes", "and the changelog"]) {
+      fireEvent.change(box, { target: { value: text } })
+      fireEvent.keyDown(box, { key: "Enter" })
+    }
+    expect(within(screen.getByRole("list", { name: "Queued messages" })).getAllByRole("listitem")).toHaveLength(3)
+
+    act(() => websocketHandler?.({
+      type: "chimera_event",
+      agent_id: "task-1",
+      content: JSON.stringify({ eventId: "user-1", type: "user_message", content: "yes\n\nand the changelog" }),
+    }))
+    const queue = screen.getByRole("list", { name: "Queued messages" })
+    expect(within(queue).getAllByRole("listitem")).toHaveLength(1)
+    expect(within(queue).getByText("yes")).not.toBeNull()
+  })
+
+  it("keeps the message in the box when it cannot be sent", async () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => String(input).includes("/snapshot")
+      ? new Response(JSON.stringify({ id: "session-1", status: "running", messages: [], toolCalls: [] }), { status: 200 })
+      : new Response("[]", { status: 200 }))
+    send.mockImplementation((message: { type: string }) => message.type !== "agent_message")
+
+    render(<NativeAgentPanel agentId="task-1" />)
+    const box = await screen.findByRole("textbox", { name: "Message" })
+    fireEvent.change(box, { target: { value: "also update the docs" } })
+    fireEvent.keyDown(box, { key: "Enter" })
+
+    expect((box as HTMLTextAreaElement).value).toBe("also update the docs")
+    expect(screen.queryByRole("list", { name: "Queued messages" })).toBeNull()
+    expect(screen.getByRole("alert").textContent).toMatch(/not connected/i)
+  })
+
+  it("shows a message Legato could not deliver as failed, its words recoverable", async () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => String(input).includes("/snapshot")
+      ? new Response(JSON.stringify({ id: "session-1", status: "running", messages: [], toolCalls: [] }), { status: 200 })
+      : new Response("[]", { status: 200 }))
+
+    render(<NativeAgentPanel agentId="task-1" />)
+    const box = await screen.findByRole("textbox", { name: "Message" })
+    for (const text of ["also update the docs", "and the changelog"]) {
+      fireEvent.change(box, { target: { value: text } })
+      fireEvent.keyDown(box, { key: "Enter" })
+    }
+    const sent = send.mock.calls.map(([message]) => message).filter((message) => message.type === "agent_message")
+    expect(sent.map((message) => message.request_id)).toEqual([expect.any(String), expect.any(String)])
+    expect(sent[0].request_id).not.toBe(sent[1].request_id)
+
+    act(() => websocketHandler?.({ type: "agent_message_sent", agent_id: "task-1", request_id: sent[0].request_id }))
+    act(() => websocketHandler?.({ type: "error", agent_id: "task-1", request_id: sent[1].request_id, error: "send message failed: the bridge is gone" }))
+
+    const queue = screen.getByRole("list", { name: "Queued messages" })
+    const [delivered, failed] = within(queue).getAllByRole("listitem")
+    expect(within(delivered).getByText("sent")).not.toBeNull()
+    expect(within(failed).getByText(/not sent/i)).not.toBeNull()
+    expect(failed.textContent).toContain("the bridge is gone")
+
+    fireEvent.click(within(failed).getByRole("button", { name: "Edit" }))
+    expect((box as HTMLTextAreaElement).value).toBe("and the changelog")
+    expect(within(screen.getByRole("list", { name: "Queued messages" })).getAllByRole("listitem")).toHaveLength(1)
+  })
+
+  it("shows a message the agent's session would not take as not sent", async () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => String(input).includes("/snapshot")
+      ? new Response(JSON.stringify({ id: "session-1", status: "running", messages: [], toolCalls: [] }), { status: 200 })
+      : new Response("[]", { status: 200 }))
+
+    render(<NativeAgentPanel agentId="task-1" />)
+    const box = await screen.findByRole("textbox", { name: "Message" })
+    for (const text of ["yes", "yes"]) {
+      fireEvent.change(box, { target: { value: text } })
+      fireEvent.keyDown(box, { key: "Enter" })
+    }
+    for (const [message] of send.mock.calls.filter(([message]) => message.type === "agent_message")) {
+      act(() => websocketHandler?.({ type: "agent_message_sent", agent_id: "task-1", request_id: message.request_id }))
+    }
+
+    act(() => websocketHandler?.({
+      type: "chimera_event",
+      agent_id: "task-1",
+      content: JSON.stringify({ eventId: "failed-1", type: "message_failed", content: "yes", error: "the session dropped it: blocked by policy" }),
+    }))
+
+    const [first, second] = within(screen.getByRole("list", { name: "Queued messages" })).getAllByRole("listitem")
+    expect(within(first).getByText(/not sent/i)).not.toBeNull()
+    expect(first.textContent).toContain("blocked by policy")
+    expect(within(second).getByText("sent")).not.toBeNull()
+  })
+
   it("lets a queued shell command be edited or taken out before it runs", async () => {
     vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => String(input).includes("/snapshot")
       ? new Response(JSON.stringify({ id: "session-1", status: "running", messages: [], toolCalls: [] }), { status: 200 })
@@ -1059,12 +1189,12 @@ describe("NativeAgentPanel", () => {
     fireEvent.change(composer, { target: { value: "Check the tests next" } })
     fireEvent.click(within(view.container).getByRole("button", { name: "Queue" }))
 
-    expect(send).toHaveBeenCalledWith({
+    expect(send).toHaveBeenCalledWith(expect.objectContaining({
       type: "agent_message",
       agent_id: "task-1",
       content: "Check the tests next",
       queue: true,
-    })
+    }))
   })
 
   it("shows current context usage instead of cumulative session tokens", async () => {

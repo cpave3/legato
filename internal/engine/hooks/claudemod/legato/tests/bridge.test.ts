@@ -32,6 +32,11 @@ const world = (
     // The process's variables, for a test that changes them as it goes; the
     // others give theirs to `mock.env`.
     env?: Record<string, string>
+    // The statuses the bridge answers successive event batches with, before
+    // it answers 204 to every one.
+    eventStatuses?: number[]
+    // Why the session drops every prompt submitted, when it does.
+    drop?: string
   } = {},
 ) => {
   // The session the mod reads; a test swaps it to stand for a resume.
@@ -51,10 +56,18 @@ const world = (
   const posted: Posted[] = []
   const logs: string[] = []
   const submitted: string[] = []
-  let exit = (): void => {}
-  const exited = new Promise<void>(resolve => {
-    exit = resolve
-  })
+  // Commands the bridge prints later in the test, when it says them.
+  const said: string[] = []
+  let heard: (() => void) | undefined
+  let isExited = false
+  const say = (command: object): void => {
+    said.push(JSON.stringify(command))
+    heard?.()
+  }
+  const exit = (): void => {
+    isExited = true
+    heard?.()
+  }
 
   on('process.spawn', async function* ($, e) {
     spawned.push([...e.argv])
@@ -65,7 +78,19 @@ const world = (
       yield { stream: 'stdout', text: `${line}\n` }
     }
 
-    await exited
+    while (!isExited) {
+      const line = said.shift()
+
+      if (line !== undefined) {
+        yield { stream: 'stdout', text: `${line}\n` }
+        continue
+      }
+
+      await new Promise<void>(resolve => {
+        heard = resolve
+      })
+      heard = undefined
+    }
 
     return { value: { code: 0, signal: null } }
   })
@@ -75,8 +100,9 @@ const world = (
     const text = e.url.endsWith('/mod/permissions')
       ? JSON.stringify(script.permissions?.shift() ?? script.permission ?? { decision: 'ask' })
       : ''
+    const status = (e.url.endsWith('/mod/events') ? script.eventStatuses?.shift() : undefined) ?? 200
 
-    return { value: { status: 200, ok: true, headers: {}, text } }
+    return { value: { status, ok: status < 300, headers: {}, text } }
   })
   // The mod's own store, which every process running the mod shares.
   const store = new Map<string, unknown>(Object.entries(script.store ?? {}))
@@ -104,6 +130,10 @@ const world = (
     return { value: undefined }
   })
   on('prompt.submit', ($, e) => {
+    if (script.drop !== undefined) {
+      return { drop: script.drop }
+    }
+
     submitted.push(e.text)
 
     return { text: e.text }
@@ -145,8 +175,52 @@ const world = (
 
   const events = () => posted.flatMap(post => post.body.events ?? [])
 
-  return { session, spawned, spawnedWith, envSet, store, requested, posted, logs, submitted, events, exit }
+  return { session, spawned, spawnedWith, envSet, store, requested, posted, logs, submitted, events, say, exit }
 }
+
+// The rows the mod appends to the conversation, as their text. An append made
+// while the test holds them waits until it lets them go, as a slow engine
+// would keep one waiting.
+const transcript = (on: On) => {
+  const rows: string[] = []
+  let held: Promise<void> | undefined
+
+  on('session.append', async ($, e, next) => {
+    await held
+
+    rows.push(e.message.content.map(block => (block.type === 'text' ? String(block.text) : '')).join(''))
+
+    return next(e)
+  })
+
+  const hold = (): (() => void) => {
+    let release = (): void => {}
+    held = new Promise<void>(resolve => {
+      release = resolve
+    })
+
+    return () => {
+      held = undefined
+      release()
+    }
+  }
+
+  return { rows, hold }
+}
+
+// How many times the model is given a text: as a row of the conversation or
+// as a prompt of its own. A message is given exactly once.
+const deliveries = (text: string, rows: readonly string[], submitted: readonly string[]): number =>
+  [...rows, ...submitted].filter(given => given.includes(text)).length
+
+// One model request of the main conversation, read to its end.
+const step = async ($: Parameters<Parameters<typeof test>[1]>[0], index: number): Promise<void> => {
+  for await (const chunk of $.turn.step({ turnId: 'turn-1', index, model: 'claude-opus-5-5', messageCount: 1 })) {
+    void chunk
+  }
+}
+
+const COMPLETE = { reason: 'answer', answer: 'Done.', durationMs: 10, isAborted: false, turnId: 'turn-1' } as const
 
 const READY = JSON.stringify({ type: 'ready', url: 'http://bridge.test/secret' })
 
@@ -357,9 +431,10 @@ test('a message queued during a turn that ends before reading it becomes the nex
   deliver()
   await clock.settle()
 
-  // Folded into the running turn, not submitted as a prompt of its own.
+  // Waiting for the running turn, not submitted as a prompt of its own; no
+  // tool call has ended to fold it in.
   expect(submitted).toEqual([])
-  expect(JSON.stringify(rows.appended())).toContain('also update the docs')
+  expect(JSON.stringify(rows.appended())).not.toContain('also update the docs')
 
   await $.turn.complete({
     reason: 'answer',
@@ -371,6 +446,305 @@ test('a message queued during a turn that ends before reading it becomes the nex
   await clock.settle()
 
   expect(submitted).toEqual(['also update the docs'])
+
+  exit()
+  await clock.settle()
+})
+
+// Seen live (task 2ud1k1f0): two notes queued during a turn whose last request
+// called no tool. The second was given to the model in that turn and again as
+// a prompt after it.
+test('messages queued during a turn\'s last request reach the model once', { timeoutMs: 15_000 }, async ($, on) => {
+  const clock = mock.clock(on)
+  mock.env(on, LEGATO_SESSION)
+  const { rows, hold } = transcript(on)
+  const { submitted, events, say, exit } = world(on, { lines: [READY] })
+
+  await $.session.start(INTERACTIVE)
+  await clock.settle()
+  await $.turn.start({ text: 'fix the bug', turnId: 'turn-1' })
+  say({ type: 'queue', text: 'cs-169118da99 is ready' })
+  await clock.settle()
+
+  // The engine is slow to keep the second one.
+  const release = hold()
+  say({ type: 'queue', text: 'cs-b24b4944b0 is ready' })
+  await clock.settle()
+
+  await step($, 0)
+  release()
+  await clock.settle()
+  await $.turn.complete(COMPLETE)
+  await clock.settle()
+
+  for (const text of ['cs-169118da99 is ready', 'cs-b24b4944b0 is ready']) {
+    expect({ text, given: deliveries(text, rows, submitted) }).toEqual({ text, given: 1 })
+  }
+
+  // Shown once in Legato: a note shown during the turn is not also a prompt.
+  const shown = events().filter(event => event.type === 'user_note').map(event => String(event.text))
+  for (const text of shown) {
+    expect(submitted.some(prompt => prompt.includes(text))).toBe(false)
+  }
+
+  exit()
+  await clock.settle()
+})
+
+// A tool the test lets finish: the moment between two requests of a turn.
+const tool = (on: On) => {
+  let finish = (): void => {}
+  let finished = Promise.resolve()
+
+  on('tool.call', async () => {
+    await finished
+
+    return { result: 'ok' }
+  })
+
+  return {
+    runs: (): void => {
+      finished = new Promise<void>(resolve => {
+        finish = resolve
+      })
+    },
+    finish: (): void => finish(),
+  }
+}
+
+test('a message sent while a tool runs joins the turn at the request after it, shown once', async ($, on) => {
+  const clock = mock.clock(on)
+  mock.env(on, LEGATO_SESSION)
+  const { rows, hold } = transcript(on)
+  const bash = tool(on)
+  const { submitted, events, say, exit } = world(on, { lines: [READY] })
+
+  await $.session.start(INTERACTIVE)
+  await clock.settle()
+  await $.turn.start({ text: 'fix the bug', turnId: 'turn-1' })
+  await step($, 0)
+
+  bash.runs()
+  const called = $.tool.call({ tool: 'Bash', tool_use_id: 'tu-1', command: 'make' })
+  say({ type: 'queue', text: 'also update the docs' })
+  await clock.settle()
+  expect(rows).toEqual([])
+
+  // The engine is slow to keep the row: the tool call is not over until it
+  // has, so the request after it is built with the row in it.
+  const release = hold()
+  bash.finish()
+  let isOver = false
+  void called.then(() => {
+    isOver = true
+  })
+  await clock.settle()
+  expect(isOver).toBe(false)
+
+  release()
+  await called
+  expect(rows).toEqual([expect.stringContaining('also update the docs')])
+
+  await step($, 1)
+  await $.turn.complete(COMPLETE)
+  await clock.settle()
+
+  expect(deliveries('also update the docs', rows, submitted)).toBe(1)
+  expect(events().filter(event => event.type === 'user_note')).toEqual([
+    expect.objectContaining({ text: 'also update the docs' }),
+  ])
+
+  exit()
+  await clock.settle()
+})
+
+test('messages join the turn in the order they were sent, repeats included', async ($, on) => {
+  const clock = mock.clock(on)
+  mock.env(on, LEGATO_SESSION)
+  const { rows } = transcript(on)
+  const bash = tool(on)
+  const { events, say, exit } = world(on, { lines: [READY] })
+
+  await $.session.start(INTERACTIVE)
+  await clock.settle()
+  await $.turn.start({ text: 'fix the bug', turnId: 'turn-1' })
+  bash.runs()
+  const called = $.tool.call({ tool: 'Bash', tool_use_id: 'tu-1', command: 'make' })
+  say({ type: 'queue', text: 'yes' })
+  say({ type: 'queue', text: 'yes' })
+  say({ type: 'queue', text: 'no' })
+  await clock.settle()
+  bash.finish()
+  await called
+  await step($, 1)
+  await clock.settle()
+
+  expect(rows.map(row => row.split('\n\n').at(-1))).toEqual(['yes', 'yes', 'no'])
+  expect(events().filter(event => event.type === 'user_note').map(event => event.text)).toEqual(['yes', 'yes', 'no'])
+
+  exit()
+  await clock.settle()
+})
+
+test('a message Legato sent as a prompt while the session was busy waits to join the turn', async ($, on) => {
+  const clock = mock.clock(on)
+  mock.env(on, LEGATO_SESSION)
+  const { rows } = transcript(on)
+  const bash = tool(on)
+  const { submitted, say, exit } = world(on, { lines: [READY] })
+
+  await $.session.start(INTERACTIVE)
+  await clock.settle()
+  // The turn started before the bridge heard of it.
+  await $.turn.start({ text: 'fix the bug', turnId: 'turn-1' })
+  bash.runs()
+  const called = $.tool.call({ tool: 'Bash', tool_use_id: 'tu-1', command: 'make' })
+  say({ type: 'submit', text: 'also update the docs' })
+  await clock.settle()
+  bash.finish()
+  await called
+  await $.turn.complete(COMPLETE)
+  await clock.settle()
+
+  expect(submitted).toEqual([])
+  expect(deliveries('also update the docs', rows, submitted)).toBe(1)
+
+  exit()
+  await clock.settle()
+})
+
+test('a subagent\'s tool calls leave the main conversation\'s messages waiting', async ($, on) => {
+  const clock = mock.clock(on)
+  mock.env(on, LEGATO_SESSION)
+  const { rows } = transcript(on)
+  tool(on)
+  const { submitted, events, say, exit } = world(on, { lines: [READY] })
+
+  await $.session.start(INTERACTIVE)
+  await clock.settle()
+  await $.turn.start({ text: 'fix the bug', turnId: 'turn-1' })
+  say({ type: 'queue', text: 'also update the docs' })
+  await clock.settle()
+
+  await $.tool.call({ tool: 'Bash', tool_use_id: 'tu-9', command: 'ls', agentId: 'agent-7' })
+  for await (const chunk of $.turn.step({ ...STEP, agentId: 'agent-7' })) {
+    void chunk
+  }
+  await $.turn.complete({ ...COMPLETE, agentId: 'agent-7' })
+  await clock.settle()
+
+  expect(rows).toEqual([])
+  expect(submitted).toEqual([])
+  expect(events().some(event => event.type === 'user_note')).toBe(false)
+
+  await $.turn.complete(COMPLETE)
+  await clock.settle()
+  expect(submitted).toEqual(['also update the docs'])
+
+  exit()
+  await clock.settle()
+})
+
+test('a message the engine refuses to fold in is not lost', async ($, on) => {
+  const clock = mock.clock(on)
+  mock.env(on, LEGATO_SESSION)
+  on('session.append', () => ({ deny: 'read-only session' }))
+  const bash = tool(on)
+  const { submitted, events, say, exit } = world(on, { lines: [READY] })
+
+  await $.session.start(INTERACTIVE)
+  await clock.settle()
+  await $.turn.start({ text: 'fix the bug', turnId: 'turn-1' })
+  bash.runs()
+  const called = $.tool.call({ tool: 'Bash', tool_use_id: 'tu-1', command: 'make' })
+  say({ type: 'queue', text: 'also update the docs' })
+  await clock.settle()
+  bash.finish()
+  await called
+  await step($, 1)
+  await $.turn.complete(COMPLETE)
+  await clock.settle()
+
+  expect(events().some(event => event.type === 'user_note')).toBe(false)
+  expect(submitted).toEqual(['also update the docs'])
+
+  exit()
+  await clock.settle()
+})
+
+test('events the bridge refused are sent again, numbered so it applies each once', async ($, on) => {
+  const clock = mock.clock(on)
+  mock.env(on, LEGATO_SESSION)
+  const { posted, exit } = world(on, { lines: [READY], eventStatuses: [500] })
+
+  await $.session.start(INTERACTIVE)
+  await clock.settle()
+  await $.turn.start({ text: 'fix the bug', turnId: 'turn-1' })
+  await clock.advance(5_000)
+
+  const batches = posted
+    .filter(post => post.url.endsWith('/mod/events'))
+    .map(post => (post.body.events ?? []).map(event => [event.type, event.seq]))
+  const refused = batches[0] ?? []
+  expect(refused.length).toBeGreaterThan(0)
+  // The refused batch again, whole and as numbered, and then what followed.
+  expect(batches.flat().slice(0, refused.length * 2)).toEqual([...refused, ...refused])
+  const sent = batches.flat().slice(refused.length)
+  expect(sent.map(([type]) => type)).toEqual(['hello', 'turn_start'])
+  expect(new Set(sent.map(([, seq]) => seq)).size).toBe(sent.length)
+
+  exit()
+  await clock.settle()
+})
+
+// A hook can drop a prompt, or the engine refuse it. The person is told, by
+// the words they sent, so they can send them again.
+test('a message the session would not take is reported to Legato as not sent', async ($, on) => {
+  const clock = mock.clock(on)
+  mock.env(on, LEGATO_SESSION)
+  const { events, say, exit } = world(on, { lines: [READY], drop: 'blocked by policy' })
+
+  await $.session.start(INTERACTIVE)
+  await clock.settle()
+  say({ type: 'submit', text: 'run the linter' })
+  await clock.settle()
+
+  await $.turn.start({ text: 'fix the bug', turnId: 'turn-1' })
+  say({ type: 'queue', text: 'also update the docs' })
+  await clock.settle()
+  await $.turn.complete(COMPLETE)
+  await clock.settle()
+
+  expect(events().filter(event => event.type === 'message_failed')).toEqual([
+    expect.objectContaining({ text: 'run the linter', error: expect.stringContaining('blocked by policy') }),
+    expect.objectContaining({ text: 'also update the docs', error: expect.stringContaining('blocked by policy') }),
+  ])
+
+  exit()
+  await clock.settle()
+})
+
+test('a message whose turn ends while it is being queued becomes the next prompt', async ($, on) => {
+  const clock = mock.clock(on)
+  mock.env(on, LEGATO_SESSION)
+  const { rows, hold } = transcript(on)
+  const { submitted, say, exit } = world(on, { lines: [READY] })
+
+  await $.session.start(INTERACTIVE)
+  await clock.settle()
+  await $.turn.start({ text: 'fix the bug', turnId: 'turn-1' })
+
+  const release = hold()
+  say({ type: 'queue', text: 'also update the docs' })
+  await clock.settle()
+  await $.turn.complete(COMPLETE)
+  await clock.settle()
+  release()
+  await clock.settle()
+
+  // Nothing else will start a turn: the model is asked to answer it now.
+  expect(submitted).toEqual(['also update the docs'])
+  expect(deliveries('also update the docs', rows, submitted)).toBe(1)
 
   exit()
   await clock.settle()
@@ -839,14 +1213,14 @@ test('a /clear reports the replacement identity once the engine switches session
     resume: { id: session.id },
   })
   await clock.settle()
-  expect(events().filter(event => event.type === 'reset')).toEqual([{ type: 'reset' }])
+  expect(events().filter(event => event.type === 'reset')).toEqual([expect.objectContaining({ type: 'reset' })])
 
   session.id = 'claude-cleared-session'
   session.cwd = '/work/cleared'
   await clock.advance(100)
 
   expect(events().filter(event => event.type === 'identity')).toEqual([
-    { type: 'identity', sessionId: 'claude-cleared-session', cwd: '/work/cleared' },
+    expect.objectContaining({ type: 'identity', sessionId: 'claude-cleared-session', cwd: '/work/cleared' }),
   ])
   expect(spawned).toHaveLength(1)
 
@@ -1158,7 +1532,7 @@ test('clear resets before new rows and reports its new identity non-destructivel
   await $.turn.start({ text: 'fresh question', turnId: 'new-turn' })
   await clock.advance(100)
   expect(events().map(event => event.type)).toEqual(['hello', 'reset', 'row', 'turn_start', 'identity'])
-  expect(events().at(-1)).toEqual({ type: 'identity', sessionId: 'cleared-session', cwd: '/work/repo' })
+  expect(events().at(-1)).toEqual(expect.objectContaining({ type: 'identity', sessionId: 'cleared-session', cwd: '/work/repo' }))
   exit()
   await clock.settle()
 })

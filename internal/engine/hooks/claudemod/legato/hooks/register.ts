@@ -143,9 +143,18 @@ let viewers = 0
 let turnId: string | undefined
 let permissionCount = 0
 let commandChain: Promise<void> = Promise.resolve()
-// Messages folded into the running turn that no model request has carried
-// yet. A turn that ends first never read them.
-let unreadNotes: string[] = []
+// Messages sent while a turn runs. They join the turn when one of its tool
+// calls ends: the engine waits for that call's hooks before it builds the
+// next request, so that request is sure to carry them. The engine says no
+// other way which rows a request carries, and a row appended at any other
+// moment may or may not be in the request being built. A turn that ends
+// while they wait never read them, and they become a prompt of their own.
+let heldNotes: string[] = []
+// Appended to the conversation, so the main loop's next request carries
+// them; the panel shows them from then.
+let foldedNotes: string[] = []
+// Folding is one at a time, so notes keep the order they were sent in.
+let foldChain: Promise<void> = Promise.resolve()
 // The model and effort chosen in Legato for this session. They are applied
 // to each request as it leaves; the session's own settings, and the person's
 // saved defaults, are never written.
@@ -179,6 +188,24 @@ const TAIL_LENGTH = 5
 // slower than this many events is not coming.
 const PENDING_LIMIT = 5_000
 
+// Each event is numbered as it is queued. A batch the bridge refused is sent
+// again whole, and the bridge skips the events it already applied: it may
+// have applied some before it failed.
+let eventSeq = 0
+// The newest event sent at least once. Text is never added to one of those:
+// the bridge may have it already.
+let sentSeq = 0
+
+// How a refused batch is sent again: after a pause, this many times at most.
+const RESEND_DELAY = 1_000
+const RESEND_LIMIT = 5
+
+const numbered = (event: BridgeEvent): BridgeEvent => {
+  eventSeq += 1
+
+  return { ...event, seq: eventSeq }
+}
+
 const post = (event: BridgeEvent): void => {
   const isIdentity = event.type === 'hello' || event.type === 'reset' || event.type === 'identity'
 
@@ -189,6 +216,7 @@ const post = (event: BridgeEvent): void => {
   const last = queue.at(-1)
   // Pieces of one block that are still waiting to be sent go as one.
   const isSameBlock =
+    Number(last?.seq) > sentSeq &&
     (event.type === 'text_delta' || event.type === 'thinking_delta') &&
     last?.type === event.type &&
     last.turnId === event.turnId &&
@@ -199,7 +227,7 @@ const post = (event: BridgeEvent): void => {
   if (isSameBlock && last !== undefined) {
     last.text = `${String(last.text)}${String(event.text)}`
   } else {
-    queue.push(event)
+    queue.push(numbered(event))
   }
 
   wake?.()
@@ -208,6 +236,8 @@ const post = (event: BridgeEvent): void => {
 // One pump per bridge sends the queue in order, a batch at a time. Hooks
 // only queue: no hook waits on the bridge to forward what it saw.
 const pump = async ($: EngineInterface, url: string): Promise<void> => {
+  let resends = 0
+
   while (endpoint === url) {
     if (queue.length === 0) {
       await new Promise<void>(resolve => {
@@ -219,6 +249,7 @@ const pump = async ($: EngineInterface, url: string): Promise<void> => {
 
     const events = queue
     queue = []
+    sentSeq = Math.max(sentSeq, Number(events.at(-1)?.seq) || 0)
 
     try {
       const response = await $.http.fetch(`${url}/mod/events`, {
@@ -227,10 +258,27 @@ const pump = async ($: EngineInterface, url: string): Promise<void> => {
         body: JSON.stringify({ events }),
       })
 
-      if (!response.ok) {
-        $.ui.log(`legato: the bridge refused ${events.length} events (${response.status})`, {
-          to: 'debug',
-        })
+      if (response.ok) {
+        resends = 0
+        continue
+      }
+
+      // A batch it could not read (400) it never will; one it failed to
+      // apply in full may go through once what failed has passed. 503 is a
+      // bridge closing, which the loop's end will notice.
+      const isResent = response.status >= 500 && response.status !== 503 && resends < RESEND_LIMIT
+
+      $.ui.log(
+        `legato: the bridge refused ${events.length} events (${response.status})${isResent ? '; sending them again' : ''}`,
+        { to: 'debug' },
+      )
+
+      if (isResent && endpoint === url) {
+        resends += 1
+        queue = [...events, ...queue]
+        await $.clock.sleep(RESEND_DELAY)
+      } else {
+        resends = 0
       }
     } catch (error) {
       $.ui.log(`legato: the bridge is unreachable: ${String(error)}`, { to: 'debug' })
@@ -639,6 +687,32 @@ const report =
     $.ui.log(`legato: ${what} failed: ${String(error)}`, { to: 'debug' })
   }
 
+// The session would not take these messages: Legato is told, by the words
+// sent, so the person sees them as not sent and can send them again.
+const notSent =
+  ($: EngineInterface, texts: readonly string[], what: string) =>
+  (error: unknown): void => {
+    report($, what)(error)
+
+    for (const text of texts) {
+      post({ type: 'message_failed', text, error: error instanceof Error ? error.message : String(error) })
+    }
+  }
+
+// Submits a prompt read as the person's words. Not awaited: it resolves when
+// its turn starts, which may be a while. A hook may drop it, which is no
+// rejection.
+const submitPrompt = ($: EngineInterface, text: string, texts: readonly string[], what: string): void => {
+  void $.prompt
+    .submit({ text, asUser: true })
+    .then(entered => {
+      if (entered.drop !== undefined) {
+        throw new Error(`the session dropped it: ${entered.drop}`)
+      }
+    })
+    .catch(notSent($, texts, what))
+}
+
 // A prompt of its own, read as the person's words. `/name args` naming a
 // command of the session runs that command, as typing it would.
 const submit = async ($: EngineInterface, text: string): Promise<void> => {
@@ -649,14 +723,13 @@ const submit = async ($: EngineInterface, text: string): Promise<void> => {
     const commands = await $.command.list()
 
     if (commands.some(command => command.name === name)) {
-      void $.command.run({ command: name, args }).catch(report($, `/${name}`))
+      void $.command.run({ command: name, args }).catch(notSent($, [text], `/${name}`))
 
       return
     }
   }
 
-  // Not awaited: it resolves when its turn starts, which may be a while.
-  void $.prompt.submit({ text, asUser: true }).catch(report($, 'submitting a prompt'))
+  submitPrompt($, text, [text], 'submitting a prompt')
 }
 
 // A row the next model request reads, without starting a turn.
@@ -670,18 +743,56 @@ const appendRow = async ($: EngineInterface, text: string): Promise<void> => {
   }
 }
 
-const run = async ($: EngineInterface, command: Command): Promise<void> => {
-  if (command.type === 'submit') {
-    await submit($, command.text)
-  } else if (command.type === 'queue') {
-    // Sent while a turn ran. It joins that turn, whose next model request
-    // reads it; if the turn has since ended it is a prompt of its own.
-    if (turnId === undefined) {
-      await submit($, command.text)
-    } else {
-      await appendRow($, `${NOTE_FRAME}\n\n${command.text}`)
-      unreadNotes.push(command.text)
+// Notes the turn has not read become one prompt, read as the person's words.
+const submitNotes = ($: EngineInterface, notes: readonly string[]): void => {
+  if (notes.length > 0) {
+    submitPrompt($, notes.join('\n\n'), notes, 'submitting a queued message')
+  }
+}
+
+// Appends the held notes, one row each, in the order they were sent. One the
+// engine refuses goes back to wait, with those after it, for the next tool
+// call to end or the turn to.
+const foldNotes = ($: EngineInterface): Promise<void> => {
+  foldChain = foldChain.then(async () => {
+    const notes = heldNotes
+    heldNotes = []
+
+    for (const [at, text] of notes.entries()) {
+      try {
+        await appendRow($, `${NOTE_FRAME}\n\n${text}`)
+        foldedNotes.push(text)
+      } catch (error) {
+        report($, 'queueing a message')(error)
+
+        const unread = notes.slice(at)
+
+        if (turnId === undefined) {
+          submitNotes($, unread)
+        } else {
+          heldNotes = [...unread, ...heldNotes]
+        }
+
+        return
+      }
     }
+  })
+
+  return foldChain
+}
+
+const run = async ($: EngineInterface, command: Command): Promise<void> => {
+  // Sent while a turn runs, as Legato knew it or as the session has it: it
+  // waits to join that turn. A command waits behind the turn, as the engine
+  // runs a plugin's prompt only once the session is idle.
+  const isNote =
+    (command.type === 'queue' || (command.type === 'submit' && !command.text.trim().startsWith('/'))) &&
+    turnId !== undefined
+
+  if (isNote) {
+    heldNotes.push(command.text)
+  } else if (command.type === 'submit' || command.type === 'queue') {
+    await submit($, command.text)
   } else if (command.type === 'append') {
     await appendRow($, command.text)
   }
@@ -836,7 +947,7 @@ export const register: Register = on => {
       // The process started another session under the bridge it already has.
       post(described)
     } else {
-      queue = [described]
+      queue = [numbered(described)]
       isCollecting = true
       isBridgeRunning = true
       void runBridge($, taskId, env)
@@ -853,7 +964,8 @@ export const register: Register = on => {
     } else {
       transitionRun += 1
       turnId = undefined
-      unreadNotes = []
+      heldNotes = []
+      foldedNotes = []
       post({ type: 'reset' })
     }
 
@@ -917,17 +1029,13 @@ export const register: Register = on => {
 
     turnId = undefined
 
-    // The turn ended before any request carried these: the model never read
-    // them. They become a prompt of their own, as a message typed during a
-    // turn does.
-    const unread = unreadNotes
-    unreadNotes = []
-
-    if (unread.length > 0) {
-      void $.prompt
-        .submit({ text: unread.join('\n\n'), asUser: true })
-        .catch(report($, 'submitting a queued message'))
-    }
+    // The turn ended before any of its tool calls did after these were sent:
+    // they are not in the conversation and the model never read them. They
+    // become a prompt of their own, as a message typed during a turn does.
+    // Notes already folded stay for the next request, which carries them.
+    const unread = heldNotes
+    heldNotes = []
+    submitNotes($, unread)
 
     void keepNote($).catch(report($, 'keeping the session\'s note'))
 
@@ -962,13 +1070,14 @@ export const register: Register = on => {
       effort: effortOverride ?? e.effort,
     })
 
-    // This request carries every row appended so far, so the model now reads
-    // the messages folded into the turn; the panel shows them from here.
-    for (const text of unreadNotes) {
+    // Notes are folded only while a tool call's hooks hold the engine, before
+    // it builds the request after them: this request carries every one folded
+    // so far, and the panel shows them from here.
+    for (const text of foldedNotes) {
       post({ type: 'user_note', text })
     }
 
-    unreadNotes = []
+    foldedNotes = []
 
     for await (const chunk of stream) {
       if ((chunk.kind === 'text' || chunk.kind === 'thinking') && chunk.text !== '') {
@@ -992,6 +1101,19 @@ export const register: Register = on => {
     }
 
     return response
+  })
+
+  // The end of one of the main loop's tool calls: the moment notes join the
+  // turn. A subagent's calls end inside one of the main loop's, whose own end
+  // comes before the main loop's next request.
+  on('tool.call', async ($, e, next) => {
+    const called = await next(e)
+
+    if (e.agentId === undefined && heldNotes.length > 0) {
+      await foldNotes($)
+    }
+
+    return called
   })
 
   on('agent.spawn', async ($, e, next) => {

@@ -24,7 +24,7 @@ import { PastedImageStrip } from "./PastedImageStrip"
 import { AgentChatHeader, type AgentChatState, type AgentMenuEntry, type SidePanelsProps } from "./AgentChatHeader"
 import { ResourcesButton } from "./ResourcesButton"
 import { ContextGauge, ContextNotice, DictateButton, DictationBar, QueuedList, SendButton, WorkingStrip, type QueuedEntry } from "./Composer"
-import { CONTEXT_NEARLY_FULL, composerToolButton, currentStep, dictating, formatElapsed, queueMessage, unreadQueued, type QueuedMessage } from "../lib/composer"
+import { CONTEXT_NEARLY_FULL, composerToolButton, currentStep, dictating, failQueuedByWords, formatElapsed, queueMessage, settleQueued, unreadQueued, type QueuedMessage } from "../lib/composer"
 import { useTurnClock } from "../hooks/useTurnClock"
 import { usePageInView } from "../hooks/usePageInView"
 import { appendProposal, legatoUICall, onComposerProposal } from "../lib/agentUi"
@@ -110,6 +110,10 @@ const agentToolName = nativeToolName
 // How often the panel asks what the agent's terminal is showing, for prompts
 // that never reach Legato as requests of their own.
 const TERMINAL_PROMPT_POLL_MS = 2000
+
+// How the request_id of a message from the box starts, so Legato's answer
+// about it is told from one about a permission or a question.
+const MESSAGE_REQUEST = "message-"
 
 // The prompt types that ask the person to pick something.
 const terminalPromptTypes = new Set<PromptState["type"]>(["menu", "tool_approval", "plan_approval", "question"])
@@ -525,12 +529,37 @@ export function NativeAgentPanel({ agentId, reeve, sandboxed, onKill, onRename, 
   const [bangQueue, setBangQueue] = useState<string[]>([])
   const [bangRunning, setBangRunning] = useState(false)
   const isBang = draft.trim().startsWith("!") && draft.trim().length > 1
-  // Messages sent while the agent worked, until it reads them. A turn that
-  // ends has read what it was going to.
+  // Messages sent from the box, until the conversation shows them. A turn
+  // that ends is no proof: what it did not read is the agent's next prompt.
   const [queued, setQueued] = useState<QueuedMessage[]>([])
-  if (!busy && queued.length > 0) setQueued([])
+  // Why the last message could not leave the page; it stays in the box.
+  const [sendError, setSendError] = useState<string | null>(null)
+  const unread = unreadQueued(queued, items)
+  // Forget what the conversation shows, so a conversation started over (a
+  // /clear) does not bring it back.
+  if (unread.length !== queued.length) setQueued(unread)
   const queuedEntries: QueuedEntry[] = [
-    ...unreadQueued(queued, items).map((entry, index) => ({ key: `message-${index}-${entry.text}`, text: entry.text })),
+    ...unread.map((entry) => ({
+      key: entry.id,
+      text: entry.text,
+      state: entry.state,
+      error: entry.error,
+      ...(entry.state === "failed"
+        ? {
+            onEdit: () => {
+              setQueued((current) => current.filter((other) => other.id !== entry.id))
+              setDraft(entry.text)
+              textareaRef.current?.focus()
+            },
+            onRemove: () => setQueued((current) => current.filter((other) => other.id !== entry.id)),
+          }
+        : !busy && entry.state === "sent"
+          ? {
+              onRemove: () => setQueued((current) => current.filter((other) => other.id !== entry.id)),
+              removeLabel: "Stop listing this message",
+            }
+          : {}),
+    })),
     ...bangQueue.map((command, index) => ({
       key: `bang-${index}-${command}`,
       text: `!${command}`,
@@ -568,6 +597,14 @@ export function NativeAgentPanel({ agentId, reeve, sandboxed, onKill, onRename, 
         setTerminalPrompt(msg.prompt ?? null)
         return
       }
+      if (msg.type === "agent_message_sent" && msg.request_id) {
+        setQueued((current) => settleQueued(current, msg.request_id!))
+        return
+      }
+      if (msg.type === "error" && msg.request_id?.startsWith(MESSAGE_REQUEST)) {
+        setQueued((current) => settleQueued(current, msg.request_id!, msg.error || "The message could not be sent"))
+        return
+      }
       if (msg.type === "error" && msg.request_id) {
         const reopened = updatePermissionState(syncStateRef.current, msg.request_id, (permission) => ({
           ...permission,
@@ -588,6 +625,11 @@ export function NativeAgentPanel({ agentId, reeve, sandboxed, onKill, onRename, 
       if (msg.type !== "chimera_event") return
       try {
         const event: ChimeraEvent = JSON.parse(msg.content || "{}")
+        if (event.type === "message_failed") {
+          const words = event.content ?? ""
+          setQueued((current) => failQueuedByWords(current, words, event.error || "The agent's session would not take it"))
+          return
+        }
         applyEvent(event)
         if (event.type === "run_finished") {
           if (runFinishTimerRef.current != null) window.clearTimeout(runFinishTimerRef.current)
@@ -669,8 +711,15 @@ export function NativeAgentPanel({ agentId, reeve, sandboxed, onKill, onRename, 
       void handleBuiltinSlash(trimmed)
       return
     }
-    send({ type: "agent_message", agent_id: agentId, content: trimmed, queue: busy })
-    if (busy) setQueued((current) => queueMessage(current, trimmed, syncStateRef.current.items))
+    const requestId = `${MESSAGE_REQUEST}${crypto.randomUUID()}`
+    if (send({ type: "agent_message", agent_id: agentId, content: trimmed, queue: busy, request_id: requestId }) === false) {
+      setSendError("Not connected to Legato. Your message is still in the box: send it again once connected.")
+      return
+    }
+    setSendError(null)
+    // A command the agent runs is never shown as a message, so it is not
+    // listed; it is only answered, and an error for it shows as one.
+    if (!trimmed.startsWith("/")) setQueued((current) => queueMessage(current, trimmed, syncStateRef.current.items, requestId))
     setDraft("")
     if (!busy) replaceSyncState({ ...syncStateRef.current, busy: true, error: null })
     scrollToBottomAfterRender()
@@ -1093,6 +1142,7 @@ export function NativeAgentPanel({ agentId, reeve, sandboxed, onKill, onRename, 
             <ContextNotice used={formatTokens(contextUsage.used)} window={formatTokens(contextUsage.window)} />
           )}
           {busy && <WorkingStrip elapsed={turnSeconds === null ? undefined : formatElapsed(turnSeconds)} step={step} onInterrupt={handleInterrupt} />}
+          {sendError && <p role="alert" className="px-3.5 pt-2 text-xs text-lw-danger">{sendError}</p>}
           <QueuedList entries={queuedEntries} />
           <PastedImageStrip pasted={pasted} />
           {composerEnabled && (
@@ -1113,7 +1163,7 @@ export function NativeAgentPanel({ agentId, reeve, sandboxed, onKill, onRename, 
                 aria-autocomplete="list"
                 aria-controls={slashOpen ? slashListId : undefined}
                 aria-activedescendant={slashOpen && slashMatches.length > 0 ? slashOptionId(slashIndex) : undefined}
-                placeholder={queuedEntries.length > 0 ? "Queue another" : busy ? "Queue a message. Sent after the current step." : `Message ${agentId}`}
+                placeholder={busy && queuedEntries.length > 0 ? "Queue another" : busy ? "Queue a message. Sent after the current step." : `Message ${agentId}`}
                 rows={2}
                 className={`block min-h-14 w-full resize-none border-0 bg-transparent px-3.5 pb-1 pt-3 text-sm text-lw-text placeholder:text-lw-faint focus:outline-none disabled:opacity-50 max-sm:text-base ${isBang ? "pt-8 shadow-[inset_0_0_0_1px] shadow-lw-needs/60" : ""}`}
               />

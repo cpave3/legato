@@ -25,28 +25,64 @@ export function formatElapsed(seconds: number): string {
   return `${Math.floor(minutes / 60)}h ${minutes % 60}m`
 }
 
-// A message sent while the agent works: it goes to the agent at once and is
-// read at its next step. Until then the composer lists it.
+// A message sent from the composer, listed until the conversation shows it.
+// Its state is what Legato said of it: still sending, taken by the agent
+// (which reads it at its next step, or as its next prompt), or not sent. An
+// agent going idle says nothing of it: one the turn did not read becomes the
+// agent's next prompt.
 export interface QueuedMessage {
+  // The request_id it was sent under; Legato's answers name it.
+  id: string
   text: string
   // How many messages with the same words the conversation had when this one
   // was sent, so an earlier one is not taken for it.
   before: number
+  state: "sending" | "sent" | "failed"
+  error?: string
 }
 
+// How many times the conversation's user messages say text. Messages the agent
+// had not read when its turn ended reach it as one prompt, one paragraph each,
+// so each paragraph run that is the text counts.
 function userMessagesWith(items: NativeConversationItem[], text: string): number {
-  return items.filter((item) => item.role === "user" && item.text.trim() === text).length
+  const needle = `\n\n${text}\n\n`
+  let count = 0
+  for (const item of items) {
+    if (item.role !== "user") continue
+    const said = `\n\n${item.text.trim()}\n\n`
+    for (let at = said.indexOf(needle); at >= 0; at = said.indexOf(needle, at + needle.length - 2)) count++
+  }
+  return count
 }
 
-export function queueMessage(queued: QueuedMessage[], text: string, items: NativeConversationItem[]): QueuedMessage[] {
-  const earlier = queued.filter((entry) => entry.text === text).length
-  return [...queued, { text, before: userMessagesWith(items, text) + earlier }]
+export function queueMessage(queued: QueuedMessage[], text: string, items: NativeConversationItem[], id: string): QueuedMessage[] {
+  const earlier = queued.filter((entry) => entry.text === text && entry.state !== "failed").length
+  return [...queued, { id, text, before: userMessagesWith(items, text) + earlier, state: "sending" }]
 }
 
 // unreadQueued is what of the queue the agent has not read yet: a message is
-// read once the conversation shows it.
+// read once the conversation shows it. One that was not sent stays until the
+// person takes it back.
 export function unreadQueued(queued: QueuedMessage[], items: NativeConversationItem[]): QueuedMessage[] {
-  return queued.filter((entry) => userMessagesWith(items, entry.text) <= entry.before)
+  return queued.filter((entry) => entry.state === "failed" || userMessagesWith(items, entry.text) <= entry.before)
+}
+
+// settleQueued records Legato's answer about the message sent under id.
+export function settleQueued(queued: QueuedMessage[], id: string, error?: string): QueuedMessage[] {
+  return queued.map((entry) => {
+    if (entry.id !== id) return entry
+    if (error !== undefined) return { ...entry, state: "failed", error }
+    return entry.state === "sending" ? { ...entry, state: "sent" } : entry
+  })
+}
+
+// failQueuedByWords marks as not sent the oldest message with these words that
+// is not already: the agent's session reports a message it would not take by
+// its words alone.
+export function failQueuedByWords(queued: QueuedMessage[], text: string, error: string): QueuedMessage[] {
+  const at = queued.findIndex((entry) => entry.text === text && entry.state !== "failed")
+  if (at < 0) return queued
+  return queued.map((entry, index) => index === at ? { ...entry, state: "failed", error } : entry)
 }
 
 // shortModelName is a model as the composer's chip names it: without its

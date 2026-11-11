@@ -38,14 +38,14 @@ describe("unreadQueued", () => {
   const user = (key: string, text: string): NativeConversationItem => ({ key, role: "user", text })
 
   it("keeps a queued message until the agent reads it", () => {
-    const queued = queueMessage([], "check the tests", [user("u1", "start")])
+    const queued = queueMessage([], "check the tests", [user("u1", "start")], "m-1")
     expect(unreadQueued(queued, [user("u1", "start")]).map((entry) => entry.text)).toEqual(["check the tests"])
     expect(unreadQueued(queued, [user("u1", "start"), user("u2", "check the tests")])).toEqual([])
   })
 
   it("tells a message apart from the same words sent before it", () => {
     const before = [user("u1", "go on")]
-    const queued = queueMessage([], "go on", before)
+    const queued = queueMessage([], "go on", before, "m-1")
     expect(unreadQueued(queued, before)).toHaveLength(1)
     expect(unreadQueued(queued, [...before, user("u2", "go on")])).toEqual([])
   })

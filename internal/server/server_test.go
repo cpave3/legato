@@ -287,6 +287,29 @@ func TestAgentMessageQueuesThroughServiceWhenRequested(t *testing.T) {
 	}
 }
 
+// The page keeps a message pending until it hears what became of it: each
+// answer names the agent and the message it is about.
+func TestAgentMessageIsAnsweredForTheMessageItWasAbout(t *testing.T) {
+	agents := &promptAgentService{}
+	s := New(nil, agents, nil, "")
+	var answers []WSMessage
+	client := &wsClient{ctx: context.Background(), sendFn: func(msg WSMessage) { answers = append(answers, msg) }}
+
+	s.handleWSMessage(client, WSMessage{Type: MsgAgentMessage, AgentID: "task-1", Content: "Follow this up", Queue: true, RequestID: "m-1"})
+	agents.queueErr = errors.New("the bridge is gone")
+	s.handleWSMessage(client, WSMessage{Type: MsgAgentMessage, AgentID: "task-1", Content: "And this", Queue: true, RequestID: "m-2"})
+
+	if len(answers) != 2 {
+		t.Fatalf("answers = %+v, want two", answers)
+	}
+	if sent := answers[0]; sent.Type != MsgAgentMessageSent || sent.AgentID != "task-1" || sent.RequestID != "m-1" {
+		t.Fatalf("first answer = %+v, want agent_message_sent for m-1", sent)
+	}
+	if failed := answers[1]; failed.Type != MsgError || failed.AgentID != "task-1" || failed.RequestID != "m-2" || !strings.Contains(failed.Error, "the bridge is gone") {
+		t.Fatalf("second answer = %+v, want an error for m-2", failed)
+	}
+}
+
 func TestArchivedTasksEndpointUsesBoardCardJSONShape(t *testing.T) {
 	board := &mockBoardService{archivedCards: []service.Card{{ID: "LEG-44", Title: "Archived task", Status: "Done", WorkspaceName: "Platform", WorkspaceColor: "#123456"}}}
 	s := New(board, nil, nil, "")
@@ -324,6 +347,7 @@ type promptAgentService struct {
 	setWorkingDirs   []string
 	queuedTaskID     string
 	queuedMessage    string
+	queueErr         error
 	chimeraEndpoint  string
 	chimeraSessionID string
 	agentEnvironment []string
@@ -411,7 +435,7 @@ func (p *promptAgentService) SendMessage(context.Context, string, string) error 
 func (p *promptAgentService) QueueMessage(_ context.Context, taskID, message string) error {
 	p.queuedTaskID = taskID
 	p.queuedMessage = message
-	return nil
+	return p.queueErr
 }
 func (p *promptAgentService) InterruptAgent(context.Context, string) error {
 	return nil

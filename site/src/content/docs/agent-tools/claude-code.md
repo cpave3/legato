@@ -80,7 +80,7 @@ Claude Code asks whether you trust a folder the first time it starts there. An a
 With the mod loaded, the web UI shows a Claude Code agent in the same native panel it uses for Chimera and Codex, a few seconds after Claude Code starts. In the panel you can:
 
 - Read the conversation as it streams, with a card for each tool call and subagent.
-- Send a message. A message sent during a turn joins that turn. `/name args` runs a slash command of the session.
+- Send a message. A message sent during a turn joins that turn when Claude next finishes a tool call, and shows in the conversation from then. If the turn ends first (Claude's last reply calls no tool, or you interrupt it), the message becomes Claude's next prompt. Either way Claude reads it once. `/name args` runs a slash command of the session.
 - Run `!command` in the agent's folder. Its output goes to the session for the model's next request, and no turn starts.
 - Interrupt the turn.
 - Pick a model and a reasoning effort for this session only. Legato does not change Claude Code's saved defaults.

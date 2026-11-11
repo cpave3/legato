@@ -5,10 +5,12 @@ import (
 	"bytes"
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -1309,6 +1311,81 @@ func TestMessageFoldedIntoARunningTurnShowsAsThePersonsMessage(t *testing.T) {
 	if tail := last[len(last)-1]; tail.Role != "user" || messageText(tail.Content) != "also update the docs" {
 		t.Fatalf("last message = %+v", tail)
 	}
+}
+
+// The bridge may fail part way through a batch (saving an identity), having
+// applied the events before it. The mod sends the whole batch again; the
+// events it applied are skipped by their numbers, so a message shows once.
+func TestABatchSentAgainAfterAFailureAppliesEachEventOnce(t *testing.T) {
+	failures := 1
+	h := newHarness(t, func(sessionID, cwd string) error {
+		if sessionID == "claude-session-2" && failures > 0 {
+			failures--
+			return errors.New("database is locked")
+		}
+		return nil
+	})
+	h.mod(numberedEvent(1, hello(nil)), numberedEvent(2, map[string]any{"type": "turn_start", "turnId": "turn-1"}))
+	events := h.subscribe("")
+
+	batch := map[string]any{"events": []map[string]any{
+		numberedEvent(3, map[string]any{"type": "user_note", "text": "also update the docs"}),
+		numberedEvent(4, map[string]any{"type": "identity", "sessionId": "claude-session-2", "cwd": "/work/repo"}),
+		numberedEvent(5, map[string]any{"type": "user_note", "text": "and the changelog"}),
+	}}
+	if status, body := h.post("/mod/events", batch); status != http.StatusInternalServerError {
+		t.Fatalf("first POST = %d %s, want 500", status, body)
+	}
+	if status, body := h.post("/mod/events", batch); status != http.StatusNoContent {
+		t.Fatalf("POST again = %d %s, want 204", status, body)
+	}
+
+	var shown []string
+	for _, message := range h.snapshot().Messages {
+		if message.Role == "user" {
+			shown = append(shown, messageText(message.Content))
+		}
+	}
+	if want := []string{"also update the docs", "and the changelog"}; !slices.Equal(shown, want) {
+		t.Fatalf("user messages = %q, want %q", shown, want)
+	}
+	for _, want := range []string{"also update the docs", "and the changelog"} {
+		if event := nextEvent(t, events); event["type"] != "user_message" || event["content"] != want {
+			t.Fatalf("event = %v, want the user_message %q", event, want)
+		}
+	}
+	select {
+	case event := <-events:
+		if event["type"] == "user_message" {
+			t.Fatalf("user message published twice: %v", event)
+		}
+	case <-time.After(100 * time.Millisecond):
+	}
+}
+
+// A message the session would not take reaches the panel by its words, so
+// the person sees it as not sent. It is no part of the conversation.
+func TestAMessageTheSessionWouldNotTakeIsReportedLive(t *testing.T) {
+	h := newHarness(t)
+	h.mod(hello(nil))
+	events := h.subscribe("")
+
+	h.mod(map[string]any{"type": "message_failed", "text": "run the linter", "error": "the session dropped it: blocked by policy"})
+
+	event := nextEvent(t, events)
+	if event["type"] != "message_failed" || event["content"] != "run the linter" || event["error"] != "the session dropped it: blocked by policy" {
+		t.Fatalf("event = %v", event)
+	}
+	for _, message := range h.snapshot().Messages {
+		if message.Role == "user" {
+			t.Fatalf("snapshot has the user message %+v", message)
+		}
+	}
+}
+
+func numberedEvent(seq int, event map[string]any) map[string]any {
+	event["seq"] = seq
+	return event
 }
 
 func promptRow(uuid, originKind, text string, extra map[string]any) map[string]any {

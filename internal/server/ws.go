@@ -54,7 +54,10 @@ const (
 	MsgRepositoryCache = "repository_cache"
 	// MsgSettingsChanged says this server's settings changed (its tint).
 	MsgSettingsChanged = "settings_changed"
-	MsgError           = "error"
+	// MsgAgentMessageSent says the agent took the message of request_id. It
+	// is not yet read: the conversation shows it once it is.
+	MsgAgentMessageSent = "agent_message_sent"
+	MsgError            = "error"
 )
 
 // WSMessage is the JSON envelope for all WebSocket messages.
@@ -299,20 +302,26 @@ func (s *Server) unsubscribeAgent(client *wsClient, agentID string) {
 
 // handleAgentMessage sends a text message to the agent through the
 // AgentService interaction adapter (HTTP for Chimera, send-keys for others).
+// Every answer names the agent and the page's request_id, so the page knows
+// which message it is about: agent_message_sent once the agent took it, an
+// error when it did not.
 func (s *Server) handleAgentMessage(client *wsClient, msg WSMessage) {
+	sendError := func(message string) {
+		client.send(WSMessage{Type: MsgError, AgentID: msg.AgentID, RequestID: msg.RequestID, Error: message})
+	}
 	if s.agents == nil {
-		client.send(WSMessage{Type: MsgError, Error: "agent service not available"})
+		sendError("agent service not available")
 		return
 	}
 	if msg.AgentID == "" || msg.Content == "" {
-		client.send(WSMessage{Type: MsgError, Error: "agent_id and content are required"})
+		sendError("agent_id and content are required")
 		return
 	}
 	var err error
 	if msg.Queue {
 		queuer, ok := s.agents.(service.AgentMessageQueuer)
 		if !ok {
-			client.send(WSMessage{Type: MsgError, Error: "agent does not support queued messages"})
+			sendError("agent does not support queued messages")
 			return
 		}
 		err = queuer.QueueMessage(context.Background(), msg.AgentID, msg.Content)
@@ -320,7 +329,11 @@ func (s *Server) handleAgentMessage(client *wsClient, msg WSMessage) {
 		err = s.agents.SendMessage(context.Background(), msg.AgentID, msg.Content)
 	}
 	if err != nil {
-		client.send(WSMessage{Type: MsgError, Error: "send message failed: " + err.Error()})
+		sendError("send message failed: " + err.Error())
+		return
+	}
+	if msg.RequestID != "" {
+		client.send(WSMessage{Type: MsgAgentMessageSent, AgentID: msg.AgentID, RequestID: msg.RequestID})
 	}
 }
 

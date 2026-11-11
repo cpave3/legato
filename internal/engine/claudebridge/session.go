@@ -11,6 +11,10 @@ import (
 // modEvent is one engine event as the Claude Code mod forwards it. Fields a
 // given type does not use stay zero.
 type modEvent struct {
+	// Seq numbers the mod's events in the order it queued them. A batch the
+	// bridge failed to apply in full is sent again whole; the events it had
+	// applied are skipped by their numbers. Zero from a mod that numbers none.
+	Seq       int64  `json:"seq"`
 	Type      string `json:"type"`
 	SessionID string `json:"sessionId"`
 	CWD       string `json:"cwd"`
@@ -28,6 +32,9 @@ type modEvent struct {
 
 	// settings
 	Effort string `json:"effort"`
+
+	// message_failed: why the session would not take the message in Text.
+	Error string `json:"error"`
 
 	// turn_start, turn_complete, text_delta, thinking_delta
 	TurnID string `json:"turnId"`
@@ -334,6 +341,10 @@ func (s *session) apply(event modEvent, now time.Time) []nativeEvent {
 		}
 		s.items = append(s.items, item{kind: itemUser, text: event.Text})
 		return []nativeEvent{{"type": "user_message", "content": event.Text}}
+	case "message_failed":
+		// A message from Legato the session would not take. Live only: the
+		// page that sent it lists it as not sent; the conversation never had it.
+		return []nativeEvent{{"type": "message_failed", "content": event.Text, "error": event.Error}}
 	case "turn_start":
 		s.busy = true
 		return []nativeEvent{{"type": "session_started"}}

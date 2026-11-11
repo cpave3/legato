@@ -37,11 +37,26 @@ export function WorkingStrip({ elapsed, step, onInterrupt }: {
 export interface QueuedEntry {
   key: string
   text: string
+  // A message's state, as Legato said; absent for a shell command, which
+  // waits in the page.
+  state?: "sending" | "sent" | "failed"
+  // Why a message was not sent.
+  error?: string
   // A message already went to the agent and cannot be taken back; a shell
-  // command waits in the page and can be.
+  // command waits in the page and can be, as can a message that was not sent.
   onEdit?: () => void
   onRemove?: () => void
+  // What removing it does, for a reader: a message that went is only no
+  // longer listed.
+  removeLabel?: string
 }
+
+const stateLabel = { sending: "sending", sent: "sent", failed: "not sent" } as const
+const stateTitle = {
+  sending: "Sending to the agent.",
+  sent: "Sent. The agent reads it at its next step, or as its next prompt.",
+  failed: "Not sent. Edit puts it back in the message box.",
+} as const
 
 // QueuedList is what was sent while the agent worked and has not reached it
 // yet, numbered in the order it will be read.
@@ -53,11 +68,15 @@ export function QueuedList({ entries }: { entries: QueuedEntry[] }) {
         <li key={entry.key} className="flex min-w-0 items-center gap-2 rounded-md bg-lw-raised px-2 py-1 text-xs">
           <span className="shrink-0 font-lw-mono text-lw-faint">{index + 1}</span>
           <span className="min-w-0 flex-1 truncate" title={entry.text}>{entry.text}</span>
-          {entry.onEdit
-            ? <button type="button" onClick={entry.onEdit} className="shrink-0 text-lw-text-2 hover:text-lw-text">Edit</button>
-            : <span className="shrink-0 text-lw-faint" title="Sent. The agent reads it at its next step.">sent</span>}
+          {entry.state && (
+            <span className={entry.state === "failed" ? "shrink-0 text-lw-danger" : "shrink-0 text-lw-faint"} title={entry.error ?? stateTitle[entry.state]}>
+              {stateLabel[entry.state]}
+            </span>
+          )}
+          {entry.error && <span className="min-w-0 max-w-[40%] truncate text-lw-danger" title={entry.error}>{entry.error}</span>}
+          {entry.onEdit && <button type="button" onClick={entry.onEdit} className="shrink-0 text-lw-text-2 hover:text-lw-text">Edit</button>}
           {entry.onRemove && (
-            <button type="button" onClick={entry.onRemove} aria-label="Remove queued message" className="shrink-0 px-0.5 text-sm leading-none text-lw-text-2 hover:text-lw-danger">×</button>
+            <button type="button" onClick={entry.onRemove} aria-label={entry.removeLabel ?? "Remove queued message"} className="shrink-0 px-0.5 text-sm leading-none text-lw-text-2 hover:text-lw-danger">×</button>
           )}
         </li>
       ))}

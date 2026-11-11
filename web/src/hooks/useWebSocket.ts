@@ -6,7 +6,7 @@ import { clearFrontendUpdateAttempt, coordinateFrontendUpdate, updateRegisteredS
 export interface WSMessage {
   type: "agent_output" | "agent_list" | "agents_changed" | "prompt_state" | "error" | "chimera_event" | "chimera_sync_required"
     | "subscribe_agent" | "unsubscribe_agent" | "send_keys" | "resize" | "detect_prompt" | "refresh_pane"
-    | "agent_message" | "agent_interrupt" | "agent_permission" | "agent_question"
+    | "agent_message" | "agent_message_sent" | "agent_interrupt" | "agent_permission" | "agent_question"
     | "plan_proposed" | "plan_verdict" | "plan_changed" | "swarm_changed" | "cards_changed" | "review_changed" | "workflow_changed" | "attention_changed" | "approvals_changed"
     | "agent_ui_changed" | "agent_context" | "pairing_changed" | "repository_cache" | "settings_changed" | "update_changed"
   agent_id?: string
@@ -125,7 +125,8 @@ interface WebSocketContextValue {
   // reconnect tries at once, without reloading the page.
   reconnect: () => void
   connectionGeneration: number
-  send: (msg: WSMessage) => void
+  // send says whether the message left: false while there is no connection.
+  send: (msg: WSMessage) => boolean
   subscribe: (handler: MessageHandler) => () => void
   updateRequired: boolean
   retryUpdate: () => void
@@ -267,10 +268,10 @@ export function useWebSocketProvider(wsUrl: string) {
     }
   }, [reconnectNow])
 
-  const send = useCallback((msg: WSMessage) => {
-    if (wsRef.current?.readyState === WebSocket.OPEN) {
-      wsRef.current.send(JSON.stringify(msg))
-    }
+  const send = useCallback((msg: WSMessage): boolean => {
+    if (wsRef.current?.readyState !== WebSocket.OPEN) return false
+    wsRef.current.send(JSON.stringify(msg))
+    return true
   }, [])
 
   const subscribe = useCallback((handler: MessageHandler) => {

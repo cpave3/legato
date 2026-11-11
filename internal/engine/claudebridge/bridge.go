@@ -65,6 +65,9 @@ type Bridge struct {
 	onIdentity  func(string, string) error
 	identityID  string
 	identityCWD string
+	// appliedSeq is the number of the newest mod event applied, so a batch
+	// sent again is not applied twice. Held under mu.
+	appliedSeq int64
 
 	closeOnce sync.Once
 	closed    chan struct{}
@@ -179,6 +182,9 @@ func (b *Bridge) handleModEvents(w http.ResponseWriter, r *http.Request) {
 	default:
 	}
 	for _, event := range batch.Events {
+		if event.Seq > 0 && event.Seq <= b.appliedSeq {
+			continue
+		}
 		if event.Type == "ended" {
 			ended = true
 			continue
@@ -191,11 +197,16 @@ func (b *Bridge) handleModEvents(w http.ResponseWriter, r *http.Request) {
 				err := b.onIdentity(event.SessionID, cwd)
 				b.mu.Lock()
 				if err != nil {
+					// Not counted as applied: sent again, it is applied
+					// again (which these three bear) and saved again.
 					identityErr = fmt.Errorf("saving Claude session %s for resume: %w", event.SessionID, err)
 					break
 				}
 				b.identityID, b.identityCWD = event.SessionID, cwd
 			}
+		}
+		if event.Seq > 0 {
+			b.appliedSeq = event.Seq
 		}
 	}
 	b.releaseSettledWaiters()

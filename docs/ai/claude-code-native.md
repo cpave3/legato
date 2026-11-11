@@ -44,12 +44,15 @@ A mod cannot listen for connections: it can only call out and spawn a child. So 
 | `session.start` | Describes the session (`hello`) and spawns `legato agent bridge` once per process. A second session under the same process (`/clear`, `/resume`) is described to the bridge already running. A background session (`CLAUDE_CODE_SESSION_KIND=bg`) first finds which task it serves from its note, never from its environment (see Sessions sent to the background). |
 | `session.end` | On `clear` or `resume`, resets the panel immediately and waits for the replacement ID. Clear reports the identity without erasing new rows; resume describes the replacement history. For every other reason the session is over in this process: the mod leaves a hand-over note and tells its bridge to go (`ended`). |
 | `session.append` | Forwards each stored user or assistant row (`row`), with long text, arguments and results cut to bounded sizes. A thinking block goes with what can be read of it, without its signature. Rows the engine writes beside the conversation never leave the session. |
-| `turn.start`, `turn.complete` | Report the turn's start and end. At the end it also sends the model and context fill, and submits as a new prompt any message that was folded into the turn but never read. |
-| `turn.step` | Applies the model and effort chosen in Legato to the request, forwards the reply text and the thinking before it as they stream (`text_delta`, `thinking_delta`), reports messages the request carried (`user_note`) and the context fill after it (`usage`). Subagent requests pass through untouched. |
+| `turn.start`, `turn.complete` | Report the turn's start and end. At the end it also sends the model and context fill, and submits as one new prompt (paragraphs joined by a blank line) every message still held for the turn. Messages already folded in stay for the next request, which carries them. |
+| `turn.step` | Applies the model and effort chosen in Legato to the request, forwards the reply text and the thinking before it as they stream (`text_delta`, `thinking_delta`), reports the messages folded in since the last request (`user_note`), which this request carries, and the context fill after it (`usage`). Subagent requests pass through untouched. |
+| `tool.call` | After one of the main loop's tool calls ends, and before the hook returns, appends the messages held for the turn (see Messages). Subagent tool calls fold nothing in. |
 | `agent.spawn` | Reports a subagent launched by the main loop (`agent_spawn`) so its activity is grouped under the call that spawned it. The bridge keeps each subagent on that call: its status, start and end (`startedAt` on `subagent_spawned`, `endedAt` on `subagent_finished`) and its newest 200 inner events (`subagentEventLimit`), which the snapshot carries as the call's `subagent` so a panel opened later shows what it did. Subagent text is not streamed: `turn.step` passes subagent requests through, so a subagent's text arrives whole with its row. A background subagent (`run_in_background`) answers its call as soon as it is launched: the call's args carry `background: true` and a live launch result carries no `reason`, so the panel does not read the call's end as the subagent's; a background call replayed from a resumed session keeps `reason: stop`, since that process's subagents are gone. |
 | `classic.PermissionRequest` | Posts the request to `POST <endpoint>/mod/permissions` and waits inside that call for a decision. This one hook carries tool approvals, plan approval and the model's questions. |
 
-**What the mod posts** (`POST <endpoint>/mod/events`, batched, in order): `hello`, `reset`, `identity`, `row`, `turn_start`, `turn_complete`, `text_delta`, `thinking_delta`, `user_note`, `usage`, `model`, `settings`, `agent_spawn`. Hooks only add to a queue; one pump per bridge sends it, so no hook waits on the bridge. The one exception is `ended`, which an ending session posts itself, because the engine gives it little time.
+**What the mod posts** (`POST <endpoint>/mod/events`, batched, in order): `hello`, `reset`, `identity`, `row`, `turn_start`, `turn_complete`, `text_delta`, `thinking_delta`, `user_note`, `usage`, `model`, `settings`, `agent_spawn`, `message_failed`. Hooks only add to a queue; one pump per bridge sends it, so no hook waits on the bridge. The one exception is `ended`, which an ending session posts itself, because the engine gives it little time.
+
+Each event carries `seq`, numbered as it is queued. A batch the bridge refuses with a `5xx` other than `503` (it failed part way, saving an identity) is sent again whole after a second, up to five times; the bridge skips the events it already applied (`appliedSeq`), and does not count an identity event whose save failed, so that one is applied and saved again. Text is never added to an event already sent. A `400` (unreadable) and a `503` (bridge closing) are not sent again. An event without `seq`, from an older mod, is always applied.
 
 **What the bridge writes back** (one JSON object per line on its stdout):
 
@@ -57,7 +60,7 @@ A mod cannot listen for connections: it can only call out and spawn a child. So 
 | --- | --- |
 | `ready` | Names the bridge's URL; the queue starts to drain. |
 | `submit` | `$.prompt.submit` as the person's own prompt, or `$.command.run` when the text is `/name args` for a command the session has. |
-| `queue` | During a turn: appended as a row the next request reads. With no turn running it is a `submit`. |
+| `queue` | During a turn: held for the turn (see Messages). With no turn running it is a `submit`. A `submit` that reaches the mod while a main turn runs (the bridge had not heard the turn start) is held the same way, unless it is a `/command`. |
 | `append` | A row for the next request to read, without starting a turn (an attached file). |
 | `interrupt` | `$.turn.abort` on the running turn. |
 | `model`, `effort` | Set or clear the override `turn.step` applies. |
@@ -81,7 +84,16 @@ All wording and all mapping from options to engine changes live in the bridge (`
 
 ## Behaviour
 
-**Messages.** `AgentService.SendMessage` and `QueueMessage` reach a bridged agent as `$.prompt.submit`, read as the person's own words. A message sent during a turn is appended to that turn and read by its next model request; if the turn ends first, the mod submits it as the next prompt. The bridge never answers "busy". A message of the form `/name args` that names a slash command of the session runs that command.
+**Messages.** `AgentService.SendMessage` and `QueueMessage` reach a bridged agent as `$.prompt.submit`, read as the person's own words. The bridge never answers "busy". A message of the form `/name args` that names a slash command of the session runs that command.
+
+A message sent during a turn reaches the model exactly once. The engine says no way which rows a model request carries, and a plugin's `$.prompt.submit` waits until the session is idle, so the mod chooses when a message joins the turn:
+
+- It holds the message (`heldNotes`) until one of the main loop's tool calls ends. Inside that call's `tool.call` hook, after the tool ran, it appends the message as a framed row (`Message received through Legato while you were working:`). The engine waits for the hook before it builds the next request, so that request is sure to carry the row. That step reports `user_note`, which the panel shows as the person's message.
+- A message still held when the turn ends (its last request called no tool, or it was interrupted) was never in the conversation: the mod submits it as the next prompt, all held messages as one prompt.
+- The engine refusing the append puts the message back to wait; the turn ending then submits it.
+- A prompt the session would not take (a hook dropped it, or `$.prompt.submit` failed) is reported as `message_failed` with its words and the reason. The bridge relays it as a live native event of the same name, which the panel uses to mark the message not sent; it is not in the snapshot.
+
+Appending the moment a message arrived lost and doubled messages: a request built while the append was in flight carried the row, but the mod learned of it too late, cleared its list, and submitted the message again when the turn ended (task `2ud1k1f0`); and an append that finished after the turn ended stranded the message.
 
 **Shell commands from the panel.** A `!command` typed in the native composer or sent as a macro runs on the server (`/chimera/bang`), and its result is appended to the session (`append`): the model reads it with its next request, and no turn starts. The mod's `session.append` hook never sees a row the mod appends itself, so the bridge adds the result to its own conversation when it accepts the append (`showAppended`), and the panel draws it as a command card when it reads the snapshot after the command. Only text in the result's shape (`!<command> (exit <code>)` and the output) is shown; an attached file stays hidden. It is in the snapshot only, with no live event: a `user_message` would be drawn as a prompt and mark the session busy.
 
