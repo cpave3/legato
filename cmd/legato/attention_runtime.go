@@ -29,6 +29,9 @@ func wireAttention(ctx context.Context, db *store.Store, bus *events.Bus, srv *s
 		adapter := service.NewAgentAttentionAdapter(agentSvc)
 		mustRegister(attention.RegisterProducerWithEvents(adapter, events.EventAgentActivityChanged, events.EventAgentStarted, events.EventAgentDied, events.EventAgentCompleted))
 	}
+	if agentSvc != nil {
+		registerInterruptedAttention(attention, agentSvc)
+	}
 	if workflowSvc != nil {
 		adapter := service.NewWorkflowAttentionAdapter(workflowSvc)
 		mustRegister(attention.RegisterProducerWithEvents(adapter, events.EventWorkflowChanged, events.EventAgentDied, events.EventAgentCompleted))

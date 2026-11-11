@@ -56,6 +56,7 @@ func wireReeve(srv *server.Server, db *store.Store, agents service.AgentService,
 	reeve := newReeveService(db, agents, srv, approvals)
 	if reeve != nil {
 		srv.SetReeveService(reeve)
+		addInterruptedResumeRoute(agents, reeve.ResumeInterrupted)
 		go runReeveIdle(context.Background(), reeve, db, bus)
 	}
 	return reeve

@@ -113,6 +113,24 @@ Legato refuses to reload an agent that a swarm or a workflow runs, and one that 
 
 Press `U` to reload an agent on the other side of the sandbox: out of it when it runs inside, and back in when it runs outside. Use it when the sandbox blocks something the agent needs.
 
+## After a crash: interrupted agents
+
+When the machine goes down, or tmux is killed, the agents' tmux sessions go with it. When Legato starts again, it keeps each agent that was running and whose session is gone as **Interrupted**, so you can bring it back. Stopping and starting Legato alone, as `legato restart` does, leaves agents running, so they are not marked.
+
+Interrupted agents are listed in their own group: **Interrupted** at the top of the web UI's Agents list, and **INTERRUPTED** in the TUI's agents view. Legato does not resume them by itself. An Attention item says how many there are, with **Resume all**.
+
+- **Resume** starts the agent again as it was: the same tool, folder, resources, sandbox choice and [engram](/legato/agent-tools/engrams/). Its conversation resumes, and its first message tells it that it was interrupted, since its last step may not have finished. In the TUI, select it and press `R`.
+- **Resume all** resumes every interrupted agent that can be resumed. In the TUI, press `A`.
+- **Dismiss** marks it ended. In the TUI, press `X`.
+
+Some agents cannot be resumed, and the list says why:
+
+- An agent that never reported its conversation has nothing to resume. **Start new** (`R` in the TUI) starts a new agent on its task, set up as it was.
+- When its folder, worktree or clone is gone, Legato does not start it.
+- An agent that a swarm or a workflow runs is only shown. The swarm or workflow hears that it died, as it does of any agent that ends. A reviewer is ended, and its review pass handles it.
+
+The Reeve's session resumes the same way, with a fresh snapshot of Legato. An interrupted agent on a task [handed off](/legato/using/handoff/) to a worker resumes there, unattended in its clone, and your main shows **Interrupted on worker** in the Away lane.
+
 ## Stopping an agent
 
 Press `X` in the agents view, or choose **Kill agent** in the web UI's **More actions** menu. Stopping a swarm's conductor from the web UI cancels the whole swarm; see [Swarms](/legato/using/swarms/).

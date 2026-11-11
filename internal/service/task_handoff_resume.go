@@ -48,3 +48,13 @@ func (s *HandoffWorkerService) ResumeAuthor(ctx context.Context, taskID string) 
 	s.grant(ctx, h)
 	return nil
 }
+
+// ResumeInterrupted resumes the author of a handed-off card when a crash
+// took it (an InterruptedResumeRoute): through ResumeAuthor, unattended in
+// its clone. A card with no open handoff is not handled.
+func (s *HandoffWorkerService) ResumeInterrupted(ctx context.Context, taskID string) (bool, error) {
+	if _, err := s.db.OpenHandoffForTask(ctx, taskID); err != nil {
+		return false, nil
+	}
+	return true, s.ResumeAuthor(ctx, taskID)
+}

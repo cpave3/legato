@@ -79,6 +79,7 @@ export function QuerySyncProvider({ children }: { children: ReactNode }) {
           invalidate([baseUrl, "board"], false)
           // An agent started in the background began, or failed.
           invalidate(queryKeys.preparingAgents(baseUrl))
+          invalidate(queryKeys.interruptedAgents(baseUrl))
           break
         case "settings_changed":
           // Another browser changed this server's settings.

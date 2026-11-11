@@ -15,6 +15,7 @@ type section int
 
 const (
 	sectionNeedsYou section = iota
+	sectionInterrupted
 	sectionRunning
 	sectionBackground
 	sectionIdle
@@ -22,25 +23,29 @@ const (
 )
 
 var sectionLabels = map[section]string{
-	sectionNeedsYou:   "NEEDS YOU",
-	sectionRunning:    "RUNNING",
-	sectionBackground: "BACKGROUND",
-	sectionIdle:       "IDLE",
-	sectionEnded:      "ENDED",
+	sectionNeedsYou:    "NEEDS YOU",
+	sectionInterrupted: "INTERRUPTED",
+	sectionRunning:     "RUNNING",
+	sectionBackground:  "BACKGROUND",
+	sectionIdle:        "IDLE",
+	sectionEnded:       "ENDED",
 }
 
 var sectionColors = map[section]lipgloss.Color{
-	sectionNeedsYou:   theme.Amber,
-	sectionRunning:    theme.Green,
-	sectionBackground: theme.Cyan,
-	sectionIdle:       theme.TextSecondary,
-	sectionEnded:      theme.TextSecondary,
+	sectionNeedsYou:    theme.Amber,
+	sectionInterrupted: theme.Amber,
+	sectionRunning:     theme.Green,
+	sectionBackground:  theme.Cyan,
+	sectionIdle:        theme.TextSecondary,
+	sectionEnded:       theme.TextSecondary,
 }
 
 // sectionOf places an agent in the list. An agent that failed needs the
 // person as much as one that asks.
 func sectionOf(a service.AgentSession) section {
 	switch {
+	case a.Status == statusInterrupted:
+		return sectionInterrupted
 	case a.Status == "dead":
 		return sectionEnded
 	case a.Activity == "waiting", a.Activity == "error":
@@ -56,8 +61,8 @@ func sectionOf(a service.AgentSession) section {
 
 // stateOf names what an agent is doing, in the theme's words.
 func stateOf(a service.AgentSession) string {
-	if a.Status == "dead" {
-		return "dead"
+	if a.Status == "dead" || a.Status == statusInterrupted {
+		return a.Status
 	}
 	return a.Activity
 }
@@ -75,6 +80,8 @@ func stateWord(state string) string {
 		return "error"
 	case "dead":
 		return "ended"
+	case statusInterrupted:
+		return "interrupted"
 	default:
 		return "idle"
 	}
@@ -97,6 +104,8 @@ func (m Model) stateMark(a service.AgentSession) string {
 		return m.icons.Warning
 	case "dead":
 		return m.icons.CIFail
+	case statusInterrupted:
+		return m.icons.Warning
 	default:
 		return m.icons.AgentIdle
 	}

@@ -74,13 +74,15 @@ const (
 	ActionAgentsKill                ActionID = "agents.kill"
 	ActionAgentsReload              ActionID = "agents.reload"
 	ActionAgentsReloadSwitchSandbox ActionID = "agents.reload-switch-sandbox"
-	ActionAgentsAttach              ActionID = "agents.attach"
-	ActionAgentsMacro               ActionID = "agents.macro"
-	ActionAgentsGroup               ActionID = "agents.group"
-	ActionAgentsActions             ActionID = "agents.actions"
-	ActionAgentsDetails             ActionID = "agents.details"
-	ActionAgentsNotify              ActionID = "agents.notify"
-	ActionAgentsVoice               ActionID = "agents.voice"
+	// ActionAgentsResumeAll resumes every agent a crash interrupted.
+	ActionAgentsResumeAll ActionID = "agents.resume-all"
+	ActionAgentsAttach    ActionID = "agents.attach"
+	ActionAgentsMacro     ActionID = "agents.macro"
+	ActionAgentsGroup     ActionID = "agents.group"
+	ActionAgentsActions   ActionID = "agents.actions"
+	ActionAgentsDetails   ActionID = "agents.details"
+	ActionAgentsNotify    ActionID = "agents.notify"
+	ActionAgentsVoice     ActionID = "agents.voice"
 	// ActionAgentsAskReeve asks the Reeve about the selected agent.
 	ActionAgentsAskReeve ActionID = "agents.ask-reeve"
 	// ActionAgentsOpenShown opens the cards and artifacts the selected agent
@@ -284,8 +286,9 @@ func addPageBindings(bindings *[]Binding, add func(ActionID, Scope, Target, []Ke
 	add(ActionAgentsUp, agents, TargetPage, []Key{Rune('k')}, "select", "Select previous agent", "Agents", 50, 11, FullHelp|Shortlist|ShortcutBar)
 	add(ActionAgentsNextWaiting, agents, TargetPage, []Key{Rune('w')}, "next waiting", "Select the next agent that needs you", "Agents", 50, 12, FullHelp|Shortlist|ShortcutBar)
 	add(ActionAgentsSpawn, agents, TargetPage, []Key{Rune('s')}, "spawn", "Spawn agent", "Agents", 50, 20, FullHelp|Shortlist|ShortcutBar)
-	add(ActionAgentsKill, agents, TargetPage, []Key{Rune('X')}, "kill", "Kill agent", "Agents", 50, 21, FullHelp|Shortlist|ShortcutBar)
-	add(ActionAgentsReload, agents, TargetPage, []Key{Rune('R')}, "reload", "Reload agent, resuming its conversation", "Agents", 50, 21, FullHelp)
+	add(ActionAgentsKill, agents, TargetPage, []Key{Rune('X')}, "kill", "Kill agent; dismiss an interrupted one", "Agents", 50, 21, FullHelp|Shortlist|ShortcutBar)
+	add(ActionAgentsReload, agents, TargetPage, []Key{Rune('R')}, "reload", "Reload agent, resuming its conversation; resume an interrupted one", "Agents", 50, 21, FullHelp)
+	add(ActionAgentsResumeAll, agents, TargetPage, []Key{Rune('A')}, "resume all", "Resume every interrupted agent", "Agents", 50, 21, FullHelp)
 	add(ActionAgentsReloadSwitchSandbox, agents, TargetPage, []Key{Rune('U')}, "switch sandbox", "Reload agent out of the sandbox, or back into it, resuming its conversation", "Agents", 50, 21, FullHelp)
 	add(ActionAgentsAttach, agents, TargetPage, []Key{Special(tea.KeyEnter, "enter"), Special(tea.KeyTab, "tab")}, "attach", "Attach to agent session", "Agents", 50, 22, FullHelp|Shortlist|ShortcutBar)
 	add(ActionAgentsMacro, agents, TargetPage, []Key{Rune('m')}, "macro", "Send macro", "Agents", 50, 23, FullHelp|Shortlist|ShortcutBar)

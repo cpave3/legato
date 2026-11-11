@@ -507,3 +507,24 @@ func (s *ReeveService) Ask(ctx context.Context, brief, by string) (string, error
 	}
 	return current.TaskID, nil
 }
+
+// ResumeInterrupted resumes the Reeve's session when a crash took its agent
+// (an InterruptedResumeRoute). The session is still marked running, so it
+// is suspended first and resumed as one, with a fresh snapshot. Another
+// task is not handled.
+func (s *ReeveService) ResumeInterrupted(ctx context.Context, taskID string) (bool, error) {
+	row, err := s.opts.Store.GetReeveSession(ctx, taskID)
+	if errors.Is(err, store.ErrNotFound) {
+		return false, nil
+	}
+	if err != nil {
+		return true, err
+	}
+	if row.State == store.ReeveRunning {
+		if err := s.opts.Store.SetReeveSessionState(ctx, taskID, store.ReeveSuspended); err != nil {
+			return true, err
+		}
+	}
+	_, err = s.Resume(ctx, taskID, ReeveStart{})
+	return true, err
+}

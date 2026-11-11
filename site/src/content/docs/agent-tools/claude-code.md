@@ -135,6 +135,8 @@ If Claude Code deleted the transcript, it says so in the terminal. Legato does n
 
 **Reload agent** in the web UI, or `R` in the TUI's agents view, stops an agent and starts it again with the same folder and resources, resuming its conversation. Use it after you change plugins, MCP servers or hooks.
 
+After a crash, an agent whose session is gone is kept as **Interrupted** and resumes the same way, from its saved conversation. See [After a crash: interrupted agents](/legato/using/agents/#after-a-crash-interrupted-agents).
+
 ## Token usage in Manticore
 
 With a `manticore:` block in the configuration, Legato loads a second mod, `legato-manticore`, into each Claude Code session. It reports the token counts of every model request to your Manticore instance, and never the prompt or the reply. It works with or without the native panel. See [Manticore](/legato/integrations/manticore/).

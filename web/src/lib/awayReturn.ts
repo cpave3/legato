@@ -39,6 +39,7 @@ export function awayActions(away: AwayOn): AwayActions {
       return only({ return: true })
     case "failed":
     case "ended":
+    case "interrupted":
       return only({ recall: true })
     case "starting":
     case "working":

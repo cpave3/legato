@@ -96,6 +96,9 @@ type Model struct {
 	recording    bool
 	transcribing bool
 	audioLevels  []float64
+	// interrupted are the agents a crash interrupted, listed beside the
+	// running ones.
+	interrupted []service.InterruptedAgent
 }
 
 // New creates a new agent view model.
@@ -159,6 +162,7 @@ func (m *Model) SetAgents(agents []service.AgentSession) {
 		prevSelTaskID = m.agents[m.selected].TaskID
 	}
 
+	agents = m.withInterrupted(agents)
 	m.observe(agents)
 	m.agents = orderAgents(agents)
 
@@ -325,8 +329,9 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 		if m.selected < len(m.agents) {
 			prevSelTaskID = m.agents[m.selected].TaskID
 		}
-		m.observe(msg.Agents)
-		m.agents = orderAgents(msg.Agents)
+		agents := m.withInterrupted(msg.Agents)
+		m.observe(agents)
+		m.agents = orderAgents(agents)
 		for _, a := range m.agents {
 			m.notifyStates[a.TaskID] = a.NotifyEnabled
 		}
@@ -339,6 +344,17 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 		if msg.SelectTask != "" {
 			m.SelectByTaskID(msg.SelectTask)
 		}
+		return m, nil
+
+	case InterruptedRefreshedMsg:
+		m.interrupted = msg.Agents
+		var running []service.AgentSession
+		for _, a := range m.agents {
+			if a.Status != statusInterrupted {
+				running = append(running, a)
+			}
+		}
+		m.SetAgents(running)
 		return m, nil
 
 	case CaptureOutputMsg:
@@ -473,7 +489,15 @@ func (m Model) HandleAction(action hotkey.ActionID) (Model, tea.Cmd) {
 		return m, nil
 	case hotkey.ActionAgentsSpawn:
 		return m, func() tea.Msg { return OpenAgentSpawnMsg{} }
+	case hotkey.ActionAgentsResumeAll:
+		if len(m.interrupted) > 0 {
+			return m, func() tea.Msg { return ResumeAllInterruptedMsg{} }
+		}
+		return m, nil
 	case hotkey.ActionAgentsKill:
+		if a, ok := m.selectedInterrupted(); ok {
+			return m, func() tea.Msg { return DismissInterruptedMsg{TaskID: a.TaskID} }
+		}
 		if a := m.SelectedAgent(); a != nil {
 			return m, func() tea.Msg { return KillAgentMsg{TaskID: a.TaskID} }
 		}
@@ -485,16 +509,26 @@ func (m Model) HandleAction(action hotkey.ActionID) (Model, tea.Cmd) {
 		}
 		return m, nil
 	case hotkey.ActionAgentsReload:
+		if a, ok := m.selectedInterrupted(); ok {
+			msg := ResumeInterruptedMsg{TaskID: a.TaskID, Fresh: !a.Resumable && a.CanStartNew}
+			return m, func() tea.Msg { return msg }
+		}
 		if a := m.SelectedAgent(); a != nil {
 			return m, func() tea.Msg { return ReloadAgentMsg{TaskID: a.TaskID} }
 		}
 		return m, nil
 	case hotkey.ActionAgentsReloadSwitchSandbox:
+		if _, ok := m.selectedInterrupted(); ok {
+			return m, nil
+		}
 		if a := m.SelectedAgent(); a != nil {
 			return m, func() tea.Msg { return ReloadAgentMsg{TaskID: a.TaskID, SwitchSandbox: true} }
 		}
 		return m, nil
 	case hotkey.ActionAgentsAttach:
+		if _, ok := m.selectedInterrupted(); ok {
+			return m, nil
+		}
 		if a := m.SelectedAgent(); a != nil {
 			session := a.TmuxSession
 			return m, func() tea.Msg { return AttachSessionMsg{TmuxSession: session} }
@@ -571,6 +605,9 @@ func (m Model) renderTerminal(width, height int) string {
 			Foreground(theme.TextSecondary).
 			Padding(1, 2).
 			Render("No agent selected")
+	}
+	if info, ok := m.selectedInterrupted(); ok {
+		return m.renderInterrupted(info, width, height)
 	}
 
 	content := m.termContent

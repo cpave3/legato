@@ -38,6 +38,9 @@ const (
 	HandoffActivityIdle    = "idle"
 	// HandoffActivityEnded: no agent runs on the card.
 	HandoffActivityEnded = "ended"
+	// HandoffActivityInterrupted: a crash on the worker took the card's
+	// agent; it can be resumed there.
+	HandoffActivityInterrupted = "interrupted"
 )
 
 // HandoffPull is the answer to Pull: the worker's instance ID, which the
@@ -115,6 +118,9 @@ func (s *HandoffWorkerService) summary(ctx context.Context, h store.Handoff) Han
 	}
 	if h.State != store.HandoffPending {
 		row.Activity = HandoffActivityEnded
+		if _, err := s.db.GetInterruptedAgentSession(ctx, h.TaskID); err == nil {
+			row.Activity = HandoffActivityInterrupted
+		}
 		if session, err := s.db.GetAgentSessionByTaskID(ctx, h.TaskID); err == nil {
 			switch session.Activity {
 			case store.ActivityWorking:

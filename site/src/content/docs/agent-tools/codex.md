@@ -124,6 +124,8 @@ If the transcript is gone, Codex says so in the terminal. Legato does not start 
 
 **Reload agent** in the web UI, or `R` in the TUI's agents view, stops an agent and starts it again with the same folder and resources, resuming its conversation.
 
+After a crash, an agent whose session is gone is kept as **Interrupted** and resumes the same way, from its saved conversation. See [After a crash: interrupted agents](/legato/using/agents/#after-a-crash-interrupted-agents).
+
 ## Limits
 
 - The app-server interface of Codex is experimental and changes between releases. Legato was checked against Codex 0.157.1.

@@ -109,6 +109,8 @@ The `SessionCreated` hook saves the Chimera session ID of each task's agent. Whe
 
 **Reload agent** in the web UI, or `R` in the TUI's agents view, stops an agent and starts it again with the same folder and resources, resuming its conversation.
 
+After a crash, an agent whose session is gone is kept as **Interrupted** and resumes the same way, from its saved conversation. See [After a crash: interrupted agents](/legato/using/agents/#after-a-crash-interrupted-agents).
+
 ## Sandboxes
 
 Chimera has a sandbox of its own, and Legato has [one for every agent](/legato/security/sandbox/). They interact in two ways:

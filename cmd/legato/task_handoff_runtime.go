@@ -49,6 +49,7 @@ func wireTaskHandoffs(srv *server.Server, deps integrationDeps) (stop func()) {
 	}
 	handoffs := service.NewHandoffWorkerService(deps.db, opts)
 	srv.SetTaskHandoffs(handoffs)
+	addInterruptedResumeRoute(deps.agents, handoffs.ResumeInterrupted)
 	stopReviews := wireReviewPasses(deps, handoffs)
 	ctx, cancel := context.WithCancel(context.Background())
 	stopLoop := handoffs.StartEventLoop(ctx, handoffReconcileEvery)

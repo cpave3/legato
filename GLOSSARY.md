@@ -58,6 +58,10 @@ _Avoid_: primary agent, default agent
 A slot other than the main one, such as `reviewer`. Only Legato starts agents in one; the person can attach to or stop them.
 _Avoid_: extra slot, side agent
 
+**Interrupted agent**:
+An agent that was running when Legato last stopped and whose tmux session was gone when it started again, because the machine or tmux went down. It is kept until it is resumed, replaced or dismissed. An agent whose session ends while Legato runs has ended, not been interrupted.
+_Avoid_: crashed agent, lost agent, dead agent
+
 ### Review passes
 
 **Review pass**:
