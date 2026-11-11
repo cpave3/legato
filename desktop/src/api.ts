@@ -22,6 +22,9 @@ export type SheetOutcome = { status: "decided" | "cancelled" | "error"; option?:
 // What a server's page asked of the app (src-tauri/src/bridge.rs).
 export type PageMessage = { server: string; kind: "approval"; id: string } | { server: string; kind: "enroll" }
 
+// A server's page did not load (Linux; src-tauri/src/app.rs).
+export type PageLoadFailed = { server: string; uri: string }
+
 export type Status = {
   id: string
   online: boolean
@@ -95,6 +98,9 @@ export const api = {
   openCertificate: (path: string) => invoke<void>("open_certificate", { path }),
   setContentVisible: (visible: boolean) => invoke<void>("set_content_visible", { visible }),
   reloadServer: (id: string) => invoke<void>("reload_server", { id }),
+  // Loads a page that did not load again: at uri when it is the server's own,
+  // else at the server's root.
+  loadServerPage: (id: string, uri?: string) => invoke<void>("load_server_page", { id, uri: uri || null }),
   pairServer: (url: string, phrase: string) => invoke<Server>("pair_server", { url, phrase }),
   discovered: () => invoke<{ name: string; url: string }[]>("discovered"),
   renameServer: (id: string, name: string) => invoke<void>("rename_server", { id, name }),

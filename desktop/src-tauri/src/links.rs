@@ -29,6 +29,16 @@ pub fn classify(server_url: &str, target: &Url) -> Link {
     }
 }
 
+/// The address a page that did not load starts again at: the one that failed
+/// when it is a page of the server at `server_url`, else the server's root.
+pub fn page_to_load(server_url: &str, failed: Option<&str>) -> String {
+    failed
+        .and_then(|f| Url::parse(f).ok())
+        .filter(|u| matches!(u.scheme(), "http" | "https") && classify(server_url, u) == Link::Stay)
+        .map(|u| u.to_string())
+        .unwrap_or_else(|| server_url.to_string())
+}
+
 /// Hands `url` to the system's default handler for it. Never through a shell.
 pub fn open_in_browser(url: &Url) -> Result<(), String> {
     #[cfg(target_os = "macos")]
@@ -61,6 +71,16 @@ mod tests {
     }
 
     const SERVER: &str = "https://legato.local:8443";
+
+    #[test]
+    fn a_page_that_failed_loads_again_where_it_was_only_on_its_own_server() {
+        assert_eq!(page_to_load(SERVER, Some("https://legato.local:8443/board?highlight_task=a1")), "https://legato.local:8443/board?highlight_task=a1");
+        assert_eq!(page_to_load(SERVER, None), SERVER);
+        assert_eq!(page_to_load(SERVER, Some("")), SERVER);
+        assert_eq!(page_to_load(SERVER, Some("https://evil.example/board")), SERVER);
+        assert_eq!(page_to_load(SERVER, Some("about:blank")), SERVER);
+        assert_eq!(page_to_load(SERVER, Some("javascript:alert(1)")), SERVER);
+    }
 
     #[test]
     fn the_servers_own_pages_stay() {

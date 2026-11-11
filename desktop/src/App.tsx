@@ -1,16 +1,18 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import { listen } from "@tauri-apps/api/event"
 import { getCurrentWindow } from "@tauri-apps/api/window"
-import { api, errorText, tintColor, type ImportRequest, type PageMessage, type Server, type SheetOutcome, type Status } from "./api"
+import { api, errorText, tintColor, type ImportRequest, type PageLoadFailed, type PageMessage, type Server, type SheetOutcome, type Status } from "./api"
 import { ApprovalSheet } from "./components/ApprovalSheet"
 import { ApprovalsPanel } from "./components/ApprovalsPanel"
 import { Dock } from "./components/Dock"
 import { ImportSheet } from "./components/ImportSheet"
+import { OfflineScreen } from "./components/OfflineScreen"
 import { PairForm } from "./components/PairForm"
 import { ServersPanel } from "./components/ServersPanel"
 import { TitleBar } from "./components/TitleBar"
 import { TrustScreen } from "./components/TrustScreen"
 import { useUpdates } from "./components/Updates"
+import { failedAtStart, recovered, screenFor, type Failed } from "./pageState"
 
 type Panel = null | { kind: "manage"; pairing: boolean } | { kind: "approvals" }
 type Sheet = null | { server: Server; id: string }
@@ -62,19 +64,45 @@ export function App() {
     setSheet(null)
   }
 
-  // Each server's state and open approvals, every few seconds.
+  // Pages that did not load (see pageState.ts): the web view says so on
+  // Linux, and a page made before its server was known to be down is taken
+  // as one. The shell draws the offline screen in their place.
+  const [failed, setFailed] = useState<Failed>({})
+  const failedRef = useRef<Failed>({})
+  failedRef.current = failed
+  const made = useRef(new Set<string>())
+  const statusesRef = useRef<Record<string, Status>>({})
   useEffect(() => {
-    let stop = false
-    const tick = async () => {
-      try {
-        const list = await api.poll()
-        if (!stop) setStatuses(Object.fromEntries(list.map((s) => [s.id, s])))
-      } catch { /* the next tick tries again */ }
-    }
-    tick()
-    const id = setInterval(tick, 3000)
-    return () => { stop = true; clearInterval(id) }
+    const off = listen<PageLoadFailed>("page-load-failed", ({ payload }) => {
+      setFailed((f) => ({ ...f, [payload.server]: payload.uri }))
+    })
+    return () => { off.then((f) => f()) }
   }, [])
+
+  // Each server's state and open approvals, every few seconds. A failed
+  // page is loaded again once its server answers: at most once a poll, so a
+  // page that keeps failing is not loaded in a loop.
+  const refresh = useCallback(async () => {
+    try {
+      const list = await api.poll()
+      const next = Object.fromEntries(list.map((s) => [s.id, s]))
+      const now: Failed = { ...failedRef.current }
+      for (const id of failedAtStart(made.current, statusesRef.current, next)) now[id] ??= ""
+      for (const id of recovered(now, next)) {
+        api.loadServerPage(id, now[id]).catch(() => {})
+        delete now[id]
+      }
+      statusesRef.current = next
+      failedRef.current = now
+      setFailed(now)
+      setStatuses(next)
+    } catch { /* the next tick tries again */ }
+  }, [])
+  useEffect(() => {
+    refresh()
+    const id = setInterval(refresh, 3000)
+    return () => clearInterval(id)
+  }, [refresh])
 
   // The server in front: the remembered one, else the first.
   const current = useMemo(() => servers?.find((s) => s.id === active) ?? servers?.[0], [servers, active])
@@ -130,13 +158,20 @@ export function App() {
   const page = current ? pages[current.id] : undefined
   const recheck = (id: string) => setPages((p) => { const { [id]: _, ...rest } = p; return rest })
 
+  // A server that is down gets the app's offline screen, not its page.
+  const screen = current ? screenFor(statuses[current.id], current.id in failed) : "page"
+
   // The content area shows the server's page unless the shell draws over it.
-  const overlay = !!panel || !!sheet || !!importing || !current || page !== "trusted"
+  // A server known to be down gets no page until it answers.
+  const overlay = !!panel || !!sheet || !!importing || !current || page !== "trusted" || screen === "offline"
   useEffect(() => {
     if (!servers) return
-    if (current && !panel && page === "trusted") api.showServer(current.id).catch(() => {})
+    if (current && !panel && page === "trusted" && screen === "page") {
+      made.current.add(current.id)
+      api.showServer(current.id).catch(() => {})
+    }
     api.setContentVisible(!overlay).catch(() => {})
-  }, [servers, current, panel, overlay, page])
+  }, [servers, current, panel, overlay, page, screen])
 
   const select = (id: string) => {
     setActive(id)
@@ -167,7 +202,7 @@ export function App() {
         waiting={waiting.length}
         updates={updates}
         onApprovals={() => waiting[0] && setSheet(waiting[0])}
-        onReload={() => current && api.reloadServer(current.id)}
+        onReload={() => { if (screen === "offline") refresh(); else if (current) api.reloadServer(current.id) }}
       />
       <Dock
         servers={servers}
@@ -212,12 +247,10 @@ export function App() {
             onTrusted={() => setPages((p) => ({ ...p, [current.id]: "trusted" }))}
             onCheckAgain={() => recheck(current.id)}
           />
+        ) : screen === "offline" ? (
+          <OfflineScreen server={current} status={statuses[current.id]} onRetry={refresh} />
         ) : (
-          <div className="content-under">
-            {statuses[current.id] && !statuses[current.id].online && (
-              <p className="dim">{current.name} is not answering: {statuses[current.id].error}</p>
-            )}
-          </div>
+          <div className="content-under" />
         )}
       </main>
       {sheet && <ApprovalSheet key={`${sheet.server.id}/${sheet.id}`} server={sheet.server} approvalId={sheet.id} onClose={closeSheet} />}

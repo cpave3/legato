@@ -181,6 +181,7 @@ tasks:
       - pnpm install --frozen-lockfile
       - pnpm exec tsc -b
       - pnpm exec vite build
+      - node --test "tests/*.test.ts"
       - cd src-tauri && cargo test --lib
 
   desktop:dev:

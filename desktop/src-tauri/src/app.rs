@@ -243,6 +243,7 @@ fn make_server_view(app: &AppHandle, server: &Server, token: Option<String>, pat
     {
         let pin = server.ca_pem.as_deref().map(crate::pin::Pin::from_pem).transpose()?;
         let target = url.to_string();
+        let (failed_handle, failed_server) = (app.clone(), server.id.clone());
         view.with_webview(move |platform| {
             use webkit2gtk::gio::prelude::TlsCertificateExt;
             use webkit2gtk::{WebContextExt, WebViewExt};
@@ -261,6 +262,18 @@ fn make_server_view(app: &AppHandle, server: &Server, token: Option<String>, pat
                     }
                     _ => false,
                 }
+            });
+            // A page that did not load (the server is down) is the shell's
+            // to explain: WebKit's own error page is not drawn, and the shell
+            // loads the address again when the server answers. A navigation
+            // the app cancelled itself is not a failure.
+            page.connect_load_failed(move |_, _, uri, error| {
+                if error.matches(webkit2gtk::NetworkError::Cancelled) || error.is::<webkit2gtk::PolicyError>() {
+                    return false;
+                }
+                println!("[page] {failed_server}: {uri} did not load: {error}");
+                let _ = failed_handle.emit_to("shell", "page-load-failed", json!({ "server": failed_server, "uri": uri }));
+                true
             });
             page.load_uri(&target);
         })
@@ -662,6 +675,17 @@ fn reload_server(app: AppHandle, id: String) {
     if let Some(view) = app.get_webview(&webview_label(&id)) {
         let _ = view.eval("location.reload()");
     }
+}
+
+/// Loads a server's page again after it did not load (see
+/// `page-load-failed`): at the address that failed when it is the server's
+/// own, else at its root. Nothing when the server has no page yet.
+#[tauri::command]
+fn load_server_page(app: AppHandle, desktop: State<'_, Desktop>, id: String, uri: Option<String>) -> Result<(), String> {
+    let Some(view) = app.get_webview(&webview_label(&id)) else { return Ok(()) };
+    let base = desktop.store.lock().unwrap().server(&id).map(|s| s.url.clone()).ok_or("no such server")?;
+    let url = links::page_to_load(&base, uri.as_deref()).parse::<tauri::Url>().map_err(|e| e.to_string())?;
+    view.navigate(url).map_err(|e| e.to_string())
 }
 
 /// Pairs by phrase, keeps the server, and enrolls each key the app holds.
@@ -1288,6 +1312,7 @@ pub fn run() {
             open_certificate,
             set_content_visible,
             reload_server,
+            load_server_page,
             pair_server,
             discovered,
             rename_server,
