@@ -268,7 +268,11 @@ func (s *ReeveSpeech) makeLines(ready chan<- madeLine) {
 
 func (s *ReeveSpeech) playLines(ready <-chan madeLine) {
 	for made := range ready {
-		if voice := s.opts.Settings(context.Background()); voice.Enabled {
+		voice := s.opts.Settings(context.Background())
+		if !voice.Enabled {
+			// Turned off since the line was made.
+			s.spoke(made.line, SpokeDropped)
+		} else {
 			if err := s.play(voice, made.path); err != nil {
 				s.failed(made.n, err)
 				s.spoke(made.line, SpokeFailed)

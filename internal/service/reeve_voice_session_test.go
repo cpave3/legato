@@ -617,6 +617,58 @@ func TestADeviceThatCannotPlayLeavesLinesToTheHost(t *testing.T) {
 	}
 }
 
+func TestADeviceThatCannotPlayStillHearsTheAnswerToItsTurnOnTheHost(t *testing.T) {
+	f := newVoiceFixture(t)
+	d := &voiceDevice{got: make(chan VoiceOut, 4096)}
+	d.session = f.voice.Open(VoiceHello{Device: "watch", Play: false}, func(o VoiceOut) { d.got <- o })
+	f.askAndAnswer(t, d)
+	if route := f.voice.Deliver(SpokenLine{Text: "The lights are off."}, lineAudio(t, "x"), "audio/mpeg"); route != RouteHost {
+		t.Fatalf("the answer to its own turn went %v, want the host", route)
+	}
+}
+
+func TestALineThatAnswersNoSpokenTurnPlaysOnTheHostThoughASessionIsOpen(t *testing.T) {
+	f := newVoiceFixture(t)
+	d := f.open("desk")
+	d.expectState(t, VoiceIdle)
+	if route := f.voice.Deliver(SpokenLine{Text: "The build passed."}, lineAudio(t, "x"), "audio/mpeg"); route != RouteHost {
+		t.Fatalf("an idle session took a line it does not want: %v", route)
+	}
+}
+
+func TestStopBeforeTheTurnIsSentDropsNoLaterLines(t *testing.T) {
+	f := newVoiceFixture(t)
+	f.whisper.gate = make(chan struct{})
+	d := f.open("desk")
+	d.session.Handle(VoiceIn{Type: "listen"})
+	d.speak(1000)
+	d.quiet(1100)
+	d.expectState(t, VoiceThinking)
+	d.session.Handle(VoiceIn{Type: "stop"})
+	d.expectState(t, VoiceIdle)
+	close(f.whisper.gate)
+	if route := f.voice.Deliver(SpokenLine{Text: "The build passed."}, lineAudio(t, "x"), "audio/mpeg"); route != RouteHost {
+		t.Fatalf("a line of the Reeve's own work after a turn that never reached it: %v", route)
+	}
+}
+
+func TestAfterStopTheReeveIsNoLongerAnsweredOnceItStops(t *testing.T) {
+	f := newVoiceFixture(t)
+	d := f.open("desk")
+	f.askAndAnswer(t, d)
+	d.session.Handle(VoiceIn{Type: "stop"})
+	d.expectState(t, VoiceIdle)
+	if route := f.voice.Deliver(SpokenLine{Text: "Stopping."}, lineAudio(t, "x"), "audio/mpeg"); route != RouteDrop {
+		t.Fatalf("a line of the stopped turn: %v, want dropped", route)
+	}
+	// The interrupted Reeve stops; what it says later answers something else.
+	f.setActivity(t, "waiting")
+	waitUntil(t, func() bool { return !f.voice.AnsweringVoice() })
+	if route := f.voice.Deliver(SpokenLine{Text: "The build passed."}, lineAudio(t, "x"), "audio/mpeg"); route != RouteHost {
+		t.Fatalf("a later line: %v, want the host", route)
+	}
+}
+
 func TestStopWhileSpeakingDropsTheLinesLeft(t *testing.T) {
 	f := newVoiceFixture(t)
 	d := f.open("desk")

@@ -68,29 +68,33 @@ func (v *ReeveVoice) setAnswering(on bool) {
 	}
 }
 
-// Deliver routes a line the Reeve made (SpeechOutput): to the open
-// session when its device plays lines; dropped when it answers a voice
-// message whose session has gone, or one the person stopped; else to the
-// host's speakers.
+// Deliver routes a line the Reeve made (SpeechOutput). A line that answers
+// no spoken message plays on the host's speakers. One that does goes to the
+// session's device when it plays lines, else to the host; it is dropped when
+// the person stopped that turn, or its session has gone.
 func (v *ReeveVoice) Deliver(line SpokenLine, path, contentType string) LineRoute {
 	v.mu.Lock()
 	v.sweepLocked()
 	s, answering, dropping := v.session, v.answeringLocked(), v.dropTurn
-	if s == nil || !s.hello.Play {
+	switch {
+	case !answering:
 		v.mu.Unlock()
-		if answering {
-			return RouteDrop
-		}
 		return RouteHost
-	}
-	if dropping {
+	case dropping, s == nil:
 		v.mu.Unlock()
 		return RouteDrop
+	case !s.hello.Play:
+		v.mu.Unlock()
+		return RouteHost
 	}
 	id := newClipID()
 	v.clips[id] = &voiceClip{path: path, contentType: contentType, expires: v.now().Add(v.clipTTL()), session: s}
 	v.mu.Unlock()
-	s.put(voiceInput{line: &VoiceLine{ID: id, Text: line.Text, URL: VoiceLinePath + id}})
+	if !s.put(voiceInput{line: &VoiceLine{ID: id, Text: line.Text, URL: VoiceLinePath + id}}) {
+		// The session ended meanwhile.
+		v.release(id)
+		return RouteDrop
+	}
 	return RouteDevice
 }
 

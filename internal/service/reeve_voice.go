@@ -86,8 +86,8 @@ type ReeveVoice struct {
 	answeredAt time.Time // a voice message was delivered, its turn not over
 	dropTurn   bool      // the person stopped the lines of this turn
 	session    *VoiceSession
-	device  string // the device holding the voice session, "" for none
-	open    bool
+	device     string // the device holding the voice session, "" for none
+	open       bool
 }
 
 var (

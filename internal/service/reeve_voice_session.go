@@ -178,6 +178,9 @@ type VoiceSession struct {
 	delivering, interruptOnDelivery int
 	// The turn that reached the Reeve.
 	delivered int
+	// settling: the person stopped a turn that reached the Reeve, which is
+	// still answered (its lines dropped) until it stops working.
+	settling bool
 }
 
 // Open opens a voice session for a device. One session at a time: an
@@ -244,19 +247,26 @@ func (s *VoiceSession) end(reason string) {
 	})
 }
 
-func (s *VoiceSession) put(in voiceInput) {
+// put hands the loop something to do, and reports whether it took it: not
+// once the session has ended.
+func (s *VoiceSession) put(in voiceInput) bool {
 	select {
 	case <-s.done:
+		return false
 	case s.in <- in:
+		return true
 	default:
 		// A device that sends faster than the session keeps up loses
 		// audio, not the conversation.
 		if in.audio == nil {
 			select {
 			case <-s.done:
+				return false
 			case s.in <- in:
+				return true
 			}
 		}
+		return false
 	}
 }
 
@@ -612,6 +622,14 @@ func (s *VoiceSession) interruptReeve() {
 // onTick follows the Reeve while it thinks: what it is doing, and when
 // its turn is over.
 func (s *VoiceSession) onTick() {
+	if s.settling {
+		// After Stop, the interrupted Reeve's lines are dropped until it
+		// stops; what it says after answers something else.
+		if working, _ := s.reeveActivity(); !working {
+			s.settling = false
+			s.v.setAnswering(false)
+		}
+	}
 	if s.state != VoiceThinking && s.state != VoiceSpeaking || s.sent.IsZero() {
 		return
 	}
@@ -626,6 +644,8 @@ func (s *VoiceSession) onTick() {
 	case s.sawWorking:
 		s.turnOver()
 	case time.Since(s.sent) > voiceAnswerWait:
+		s.sent = time.Time{}
+		s.v.setAnswering(false)
 		s.setState(VoiceIdle, VoiceReasonNoAnswer)
 	}
 }
@@ -707,17 +727,25 @@ func (s *VoiceSession) onStop() {
 		// Only a turn that reached the Reeve is interrupted: one still on
 		// its way is, once it lands; one not yet sent is dropped, and the
 		// Reeve's own work goes on.
+		reached := true
 		switch {
 		case s.delivered == s.turn:
 			s.interruptReeve()
 		case s.delivering == s.turn:
 			s.interruptOnDelivery = s.turn
+		default:
+			reached = false
 		}
 		s.turn++
 		s.sent, s.grace = time.Time{}, false
-		s.v.mu.Lock()
-		s.v.dropTurn = true
-		s.v.mu.Unlock()
+		if reached {
+			s.v.mu.Lock()
+			s.v.dropTurn = true
+			s.v.mu.Unlock()
+			s.settling = true
+		} else {
+			s.v.setAnswering(false)
+		}
 		s.setState(VoiceIdle, VoiceReasonCancelled)
 	case VoiceListening:
 		s.turn++

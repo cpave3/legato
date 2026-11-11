@@ -211,18 +211,32 @@ func TestAVoiceSessionStartsWithHello(t *testing.T) {
 
 func TestALinesAudioIsServedToTheDeviceWithItsType(t *testing.T) {
 	srv, db := reeveServer(t)
-	voice := service.NewReeveVoice(service.ReeveVoiceOptions{Store: db, Logf: func(string, ...any) {}})
+	voice := service.NewReeveVoice(service.ReeveVoiceOptions{Store: db, Logf: func(string, ...any) {},
+		Transcription: fixedTranscription{text: "say hi"}, Reeve: &recordingReeve{}})
 	srv.SetReeveVoice(voice)
-	got := make(chan service.VoiceOut, 64)
+	got := make(chan service.VoiceOut, 1024)
 	session := voice.Open(service.VoiceHello{Device: "desk", Play: true}, func(o service.VoiceOut) { got <- o })
 	defer session.Close()
 	path := t.TempDir() + "/line.wav"
 	if err := os.WriteFile(path, []byte("RIFF\x00\x00\x00\x00WAVEfmt "), 0o600); err != nil {
 		t.Fatal(err)
 	}
-	// A line with no turn waiting is still offered while the device listens.
+	// A line answering the device's spoken turn goes to it.
 	session.Handle(service.VoiceIn{Type: "listen"})
-	voice.Deliver(service.SpokenLine{Text: "hi"}, path, "audio/wav")
+	for _, f := range append(voiceFrames(1000, 4000), voiceFrames(1200, 0)...) {
+		session.Audio(f)
+	}
+	deadline := time.After(5 * time.Second)
+	for !voice.AnsweringVoice() {
+		select {
+		case <-deadline:
+			t.Fatal("the turn was not delivered")
+		case <-time.After(10 * time.Millisecond):
+		}
+	}
+	if route := voice.Deliver(service.SpokenLine{Text: "hi"}, path, "audio/wav"); route != service.RouteDevice {
+		t.Fatalf("route %v", route)
+	}
 	var line service.VoiceOut
 	for line.Type != "line" {
 		select {
