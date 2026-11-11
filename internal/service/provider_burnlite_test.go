@@ -18,9 +18,38 @@ type fakeBurnliteReader struct {
 	tasks    map[string]*burnlite.Task     // by key
 	// milestones are by key; their tasks are the rows that name them.
 	milestones map[string]*burnlite.Milestone
-	listed     []string // project:state of each list
-	got        []string // keys fetched in full
-	listErr    error
+	// milestoneUpdated dates the milestones, by key; a Burnlite too old to
+	// date them has none.
+	milestoneUpdated map[string]time.Time
+	listed           []string // project:state of each list; :since for the changed ones only
+	got              []string // keys fetched in full
+	listErr          error
+}
+
+func (f *fakeBurnliteReader) ListTasksSince(ctx context.Context, project, state string, since time.Time) ([]burnlite.TaskRow, error) {
+	rows, err := f.ListTasks(ctx, project, state)
+	f.listed[len(f.listed)-1] += ":since"
+	var out []burnlite.TaskRow
+	for _, r := range rows {
+		if r.UpdatedAt.After(since) {
+			out = append(out, r)
+		}
+	}
+	return out, err
+}
+
+func (f *fakeBurnliteReader) ListMilestones(_ context.Context, project string) ([]burnlite.MilestoneRow, error) {
+	f.listed = append(f.listed, project+":milestones")
+	if _, ok := f.rows[project]; !ok {
+		return nil, &burnlite.Error{Code: "not_found", Message: "Project " + project + " not found"}
+	}
+	var out []burnlite.MilestoneRow
+	for key := range f.milestones {
+		if projectOf(key) == project {
+			out = append(out, burnlite.MilestoneRow{Key: key, UpdatedAt: f.milestoneUpdated[key]})
+		}
+	}
+	return out, nil
 }
 
 func (f *fakeBurnliteReader) ListProjects(context.Context) ([]burnlite.Project, error) {
@@ -100,6 +129,13 @@ func burnliteFixture() *fakeBurnliteReader {
 
 func newBurnliteTest(t *testing.T, reader *fakeBurnliteReader, projects []string) (SyncService, *store.Store) {
 	t.Helper()
+	svc, s, _ := newBurnliteSourceTest(t, reader, projects)
+	return svc, s
+}
+
+// newBurnliteSourceTest also gives the source, whose clock a test can set.
+func newBurnliteSourceTest(t *testing.T, reader *fakeBurnliteReader, projects []string) (SyncService, *store.Store, *burnliteSource) {
+	t.Helper()
 	svc, s := newSourcesTest(t)
 	source := newBurnliteSource(BurnliteSourceOptions{
 		Projects: func(context.Context) []string { return projects },
@@ -109,7 +145,7 @@ func newBurnliteTest(t *testing.T, reader *fakeBurnliteReader, projects []string
 		return reader, "https://burnlite.example.com", nil
 	})
 	svc = NewTicketSync(s, events.New(), nil, source)
-	return svc, s
+	return svc, s, source
 }
 
 func TestABurnliteTaskIsImportedWithItsTextAndState(t *testing.T) {
@@ -368,5 +404,144 @@ func TestBurnliteProjectsComeFromConfigElseWhatTheWebUISaved(t *testing.T) {
 	}
 	if err := SaveBurnliteProjects(ctx, db, []string{"not a key!"}); err == nil {
 		t.Error("a project key Burnlite would never give was saved")
+	}
+}
+
+func TestBetweenWholeListsAPullAsksOnlyForWhatChanged(t *testing.T) {
+	reader := burnliteFixture()
+	svc, s, source := newBurnliteSourceTest(t, reader, nil)
+	now := time.Date(2026, 11, 12, 9, 0, 0, 0, time.UTC)
+	source.now = func() time.Time { return now }
+	ctx := context.Background()
+	for _, key := range []string{"EST-1", "EST-3"} {
+		if _, err := svc.ImportRemoteTask(ctx, "burnlite", key, ImportRemoteTaskOptions{}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	sync := func() (int, string, string) {
+		t.Helper()
+		reader.got, reader.listed = nil, nil
+		result, err := svc.Sync(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return result.TasksSynced, strings.Join(reader.listed, ","), strings.Join(reader.got, ",")
+	}
+
+	// The first pull after a start lists the project whole.
+	if synced, listed, got := sync(); synced != 0 || listed != "EST:any" || got != "" {
+		t.Fatalf("first pull: synced %d, listed %q, fetched %q", synced, listed, got)
+	}
+	// The next asks only for what changed, and nothing did.
+	now = now.Add(time.Minute)
+	if synced, listed, got := sync(); synced != 0 || listed != "EST:any:since" || got != "" {
+		t.Fatalf("second pull: synced %d, listed %q, fetched %q", synced, listed, got)
+	}
+
+	// EST-3 is closed in Burnlite: it is in the changes, and fetched.
+	later := t0.Add(time.Hour)
+	reader.rows["EST"][2].State, reader.rows["EST"][2].UpdatedAt = "closed", later
+	reader.tasks["EST-3"].State, reader.tasks["EST-3"].CloseReason, reader.tasks["EST-3"].UpdatedAt = "closed", "completed", later
+	now = now.Add(time.Minute)
+	if synced, listed, got := sync(); synced != 1 || listed != "EST:any:since" || got != "EST-3" {
+		t.Fatalf("after a change: synced %d, listed %q, fetched %q", synced, listed, got)
+	}
+	if task, _ := s.GetTask(ctx, "EST-3"); task.Status != "Done" {
+		t.Errorf("EST-3 is in %s", task.Status)
+	}
+
+	// EST-1 is deleted. The changes do not say so, and it is not stale yet.
+	reader.rows["EST"] = reader.rows["EST"][1:]
+	now = now.Add(time.Minute)
+	if synced, listed, _ := sync(); synced != 0 || listed != "EST:any:since" {
+		t.Fatalf("after a deletion: synced %d, listed %q", synced, listed)
+	}
+	if task, _ := s.GetTask(ctx, "EST-1"); parseRemoteMeta(task.RemoteMeta).StaleAt != "" {
+		t.Error("EST-1 was marked stale by a list of changes")
+	}
+	// The next whole list shows it is gone.
+	now = now.Add(burnliteFullListEvery)
+	if _, listed, _ := sync(); listed != "EST:any" {
+		t.Fatalf("after %v: listed %q", burnliteFullListEvery, listed)
+	}
+	if task, _ := s.GetTask(ctx, "EST-1"); parseRemoteMeta(task.RemoteMeta).StaleAt == "" {
+		t.Error("EST-1 is not stale after a whole list without it")
+	}
+}
+
+func TestAWholeListThatFailedIsMadeAgain(t *testing.T) {
+	reader := burnliteFixture()
+	svc, _, _ := newBurnliteSourceTest(t, reader, nil)
+	ctx := context.Background()
+	if _, err := svc.ImportRemoteTask(ctx, "burnlite", "EST-1", ImportRemoteTaskOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	reader.listErr = context.DeadlineExceeded
+	if _, err := svc.Sync(ctx); err == nil {
+		t.Fatal("the sync did not fail")
+	}
+	reader.listErr, reader.listed = nil, nil
+	if _, err := svc.Sync(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if got := strings.Join(reader.listed, ","); got != "EST:any" {
+		t.Errorf("listed %q, want the whole project again", got)
+	}
+}
+
+func TestAMilestoneIsReadAgainOnlyWhenBurnliteSaysItChanged(t *testing.T) {
+	reader := burnliteFixture()
+	reader.milestoneUpdated = map[string]time.Time{"EST-9": t0}
+	reader.milestones["EST-9"].UpdatedAt = t0
+	svc, s := newBurnliteTest(t, reader, nil)
+	ctx := context.Background()
+	if _, err := svc.ImportRemoteTask(ctx, "burnlite", "EST-9", ImportRemoteTaskOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	sync := func() (int, string, string) {
+		t.Helper()
+		reader.got, reader.listed = nil, nil
+		result, err := svc.Sync(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		return result.TasksSynced, strings.Join(reader.listed, ","), strings.Join(reader.got, ",")
+	}
+
+	// Nothing changed: one list of the project's Milestones, nothing read,
+	// and no list of its tasks, since none is tracked.
+	if synced, listed, got := sync(); synced != 0 || listed != "EST:milestones" || got != "" {
+		t.Fatalf("unchanged: synced %d, listed %q, fetched %q", synced, listed, got)
+	}
+	if task, _ := s.GetTask(ctx, "EST-9"); parseRemoteMeta(task.RemoteMeta).StaleAt != "" {
+		t.Error("an unchanged milestone was marked stale")
+	}
+
+	// EST-2 joins it, which moves the Milestone's updatedAt.
+	later := t0.Add(time.Minute)
+	reader.rows["EST"][1].MilestoneKey = "EST-9"
+	reader.milestoneUpdated["EST-9"] = later
+	if synced, _, got := sync(); synced != 1 || got != "EST-9" {
+		t.Fatalf("changed: synced %d, fetched %q", synced, got)
+	}
+	task, _ := s.GetTask(ctx, "EST-9")
+	if !strings.Contains(task.RemoteDescriptionMD, "[EST-2](https://burnlite.example.com/EST-2)") {
+		t.Errorf("EST-2 is not listed: %q", task.RemoteDescriptionMD)
+	}
+	// Legato holds Burnlite's date, so the next pull reads nothing.
+	if held := heldUpdatedAt(*task); !held.Equal(later) {
+		t.Errorf("holds %v, want %v", held, later)
+	}
+	if synced, _, got := sync(); synced != 0 || got != "" {
+		t.Fatalf("after the change: synced %d, fetched %q", synced, got)
+	}
+
+	// The Milestone is deleted: the list no longer has it.
+	delete(reader.milestones, "EST-9")
+	if _, _, got := sync(); got != "" {
+		t.Fatalf("a deleted milestone was read: %q", got)
+	}
+	if task, _ := s.GetTask(ctx, "EST-9"); parseRemoteMeta(task.RemoteMeta).StaleAt == "" {
+		t.Error("a deleted milestone is not marked stale")
 	}
 }
