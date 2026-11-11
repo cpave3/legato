@@ -599,6 +599,20 @@ fn start_voice_key(app: &AppHandle) {
         Backend::Link => println!("[voice key] no global key here; {VOICE_LINK} does what it would"),
         Backend::Shortcut => {
             use tauri_plugin_global_shortcut::GlobalShortcutExt;
+            // The plugin is added only here, where the app grabs the key.
+            let plugin = tauri_plugin_global_shortcut::Builder::new()
+                .with_handler(|app, _shortcut, event| {
+                    let input = match event.state() {
+                        tauri_plugin_global_shortcut::ShortcutState::Pressed => Input::Pressed(voicekey::Shortcut::Talk),
+                        tauri_plugin_global_shortcut::ShortcutState::Released => Input::Released(voicekey::Shortcut::Talk),
+                    };
+                    voice_key_input(app, input, "shortcut");
+                })
+                .build();
+            if let Err(e) = app.plugin(plugin) {
+                println!("[voice key] the global-shortcut plugin did not start: {e}");
+                return key_changed(app, |k| k.problem = Some(format!("Could not grab a global key: {e}")));
+            }
             let accelerator = voicekey::shortcut_accelerator(std::env::consts::OS);
             match app.global_shortcut().register(accelerator) {
                 Ok(()) => key_changed(app, |k| k.key = voicekey::key_text(accelerator, cfg!(target_os = "macos"))),
@@ -612,10 +626,19 @@ fn start_voice_key(app: &AppHandle) {
         Backend::Portal => {
             let app = app.clone();
             tauri::async_runtime::spawn(async move {
-                let (on_input, on_text) = (app.clone(), app.clone());
+                let (on_input, on_text, on_lost) = (app.clone(), app.clone(), app.clone());
                 let opened = crate::voicekey_portal::Portal::open(
                     move |input| voice_key_input(&on_input, input, "portal"),
                     move |text| key_changed(&on_text, |k| k.key = text),
+                    move || {
+                        println!("[voice key] the portal went away");
+                        on_lost.state::<Desktop>().portal.lock().unwrap().take();
+                        key_changed(&on_lost, |k| {
+                            k.key = None;
+                            k.can_change = false;
+                            k.problem = Some(format!("The desktop's shortcut service stopped, so the key no longer works. Restart the app, or bind {VOICE_LINK} in the desktop's own shortcut settings."));
+                        });
+                    },
                 )
                 .await;
                 match opened {
@@ -1384,18 +1407,6 @@ pub fn run() {
             Some(key) => voice_key(app, key, "link"),
             None => bring_to_front(app),
         }))
-        // The key on X11 and macOS; registered only there (start_voice_key).
-        .plugin(
-            tauri_plugin_global_shortcut::Builder::new()
-                .with_handler(|app, _shortcut, event| {
-                    let input = match event.state() {
-                        tauri_plugin_global_shortcut::ShortcutState::Pressed => Input::Pressed(voicekey::Shortcut::Talk),
-                        tauri_plugin_global_shortcut::ShortcutState::Released => Input::Released(voicekey::Shortcut::Talk),
-                    };
-                    voice_key_input(app, input, "shortcut");
-                })
-                .build(),
-        )
         .plugin(tauri_plugin_deep_link::init())
         // The confirm before one of the app's servers becomes a worker.
         .plugin(tauri_plugin_dialog::init())
@@ -1460,7 +1471,8 @@ pub fn run() {
                     relayout(&handle);
                 }
             });
-            // Started with --voice: the window is up, so the key is heard.
+            // Started with --voice. No page hears the voice-key event this
+            // early: the shell's webview has not loaded.
             let args: Vec<String> = std::env::args().collect();
             if let Some(key) = voicekey::read_args(&args) {
                 voice_key(app.handle(), key, "link");

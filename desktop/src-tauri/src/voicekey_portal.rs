@@ -46,10 +46,13 @@ fn write_desktop_file() -> Result<(), String> {
 impl Portal {
     /// Opens the session and makes sure both shortcuts are bound. Each
     /// press and release is passed to `on_input`; `on_text` hears the key
-    /// whenever the desktop changes it. Returns the key bound now.
+    /// whenever the desktop changes it, and `on_lost` that the portal went
+    /// away (its signals ended), after which no key arrives. Returns the key
+    /// bound now.
     pub async fn open(
         on_input: impl Fn(Input) + Send + Sync + 'static,
         on_text: impl Fn(Option<String>) + Send + Sync + 'static,
+        on_lost: impl FnOnce() + Send + 'static,
     ) -> Result<(Portal, Option<String>), String> {
         fn fail(what: &'static str) -> impl Fn(ashpd::Error) -> String {
             move |e| format!("{what}: {e}")
@@ -78,6 +81,7 @@ impl Portal {
                     down(Input::Pressed(s));
                 }
             }
+            on_lost();
         });
         tauri::async_runtime::spawn(async move {
             while let Some(d) = deactivated.next().await {

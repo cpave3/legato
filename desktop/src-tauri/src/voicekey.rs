@@ -3,7 +3,7 @@
 //! - On a Wayland desktop (KDE Plasma first) the key is the XDG desktop
 //!   portal's GlobalShortcuts (`voicekey_portal`): two shortcuts, `talk` and
 //!   `cancel`, that the desktop's own dialog binds and keeps.
-//! - On X11 and macOS it is `tauri-plugin-global-shortcut`, which grabs the
+//! - On X11, macOS and Windows it is `tauri-plugin-global-shortcut`, which grabs the
 //!   key itself (on Wayland it would see keys only while an XWayland window
 //!   has focus).
 //! - Everywhere, `legato-desktop://voice` (or `legato-desktop --voice`) does
@@ -21,7 +21,7 @@ use serde::Serialize;
 pub enum Backend {
     /// The XDG desktop portal's GlobalShortcuts (Wayland).
     Portal,
-    /// `tauri-plugin-global-shortcut` (X11, macOS).
+    /// `tauri-plugin-global-shortcut` (X11, macOS, Windows): talk only, no cancel.
     Shortcut,
     /// Only the `legato-desktop://voice` link.
     Link,
@@ -134,14 +134,19 @@ pub enum VoiceKey {
     Cancel,
 }
 
+/// How close together presses with no release between are taken for a key
+/// repeating while held. A press later than this after the last one is a
+/// new press: its release was lost (a screen lock), or the desktop never
+/// sends one.
+pub const REPEAT_GAP: std::time::Duration = std::time::Duration::from_secs(1);
+
 /// Turns presses and releases into what they ask. A key that repeats while
 /// held asks once; a release with no press before it asks nothing.
 #[derive(Debug, Default)]
 pub struct Keys {
     hold_to_talk: bool,
-    held: bool,
-    /// Cancel was pressed while talk was held: its release asks nothing.
-    cancelled: bool,
+    /// When talk was last seen going down, while it is held.
+    held: Option<std::time::Instant>,
 }
 
 impl Keys {
@@ -159,22 +164,24 @@ impl Keys {
     }
 
     pub fn on(&mut self, input: Input) -> Option<VoiceKey> {
+        self.on_at(input, std::time::Instant::now())
+    }
+
+    pub fn on_at(&mut self, input: Input, now: std::time::Instant) -> Option<VoiceKey> {
         match input {
             Input::Pressed(Shortcut::Talk) => {
-                if self.held {
+                let repeat = self.held.is_some_and(|last| now.saturating_duration_since(last) < REPEAT_GAP);
+                self.held = Some(now);
+                if repeat {
                     return None;
                 }
-                self.held = true;
-                self.cancelled = false;
                 Some(if self.hold_to_talk { VoiceKey::Hold } else { VoiceKey::Talk })
             }
-            Input::Released(Shortcut::Talk) => {
-                let was = std::mem::take(&mut self.held);
-                let cancelled = std::mem::take(&mut self.cancelled);
-                (was && self.hold_to_talk && !cancelled).then_some(VoiceKey::Release)
-            }
+            Input::Released(Shortcut::Talk) => (self.held.take().is_some() && self.hold_to_talk).then_some(VoiceKey::Release),
+            // Cancel forgets a held key: its release asks nothing, and the
+            // next press talks.
             Input::Pressed(Shortcut::Cancel) => {
-                self.cancelled = self.held;
+                self.held = None;
                 Some(VoiceKey::Cancel)
             }
             Input::Released(Shortcut::Cancel) => None,
@@ -265,7 +272,8 @@ pub const APP_ID: &str = "dev.legato.desktop";
 /// AppImage) to run.
 pub fn desktop_entry(exec: &str) -> String {
     // A quoted argument escapes ", `, $ and \ with \, and the value then
-    // escapes \ again (the Desktop Entry Specification's Exec key).
+    // escapes \ again (the Desktop Entry Specification's Exec key); % is a
+    // field code, so a literal one is %%.
     let mut quoted = String::new();
     for c in exec.chars() {
         match c {
@@ -274,6 +282,7 @@ pub fn desktop_entry(exec: &str) -> String {
                 quoted.push(c);
             }
             '\\' => quoted.push_str("\\\\\\\\"),
+            '%' => quoted.push_str("%%"),
             _ => quoted.push(c),
         }
     }
@@ -317,6 +326,41 @@ mod tests {
             assert!(keys.on(Input::Pressed(Shortcut::Talk)).is_some());
             assert_eq!(keys.on(Input::Pressed(Shortcut::Talk)), None);
             assert_eq!(keys.on(Input::Pressed(Shortcut::Talk)), None);
+        }
+    }
+
+    #[test]
+    fn a_press_long_after_a_release_that_never_came_is_a_new_press() {
+        // A portal that sends no Deactivated, or a release lost to a screen
+        // lock: the key keeps working.
+        let t0 = std::time::Instant::now();
+        for hold in [false, true] {
+            let mut keys = Keys::new(hold);
+            let first = keys.on_at(Input::Pressed(Shortcut::Talk), t0);
+            assert!(first.is_some());
+            assert_eq!(keys.on_at(Input::Pressed(Shortcut::Talk), t0 + REPEAT_GAP * 2), first, "hold {hold}");
+            assert_eq!(keys.on_at(Input::Pressed(Shortcut::Talk), t0 + REPEAT_GAP * 4), first, "hold {hold}");
+        }
+    }
+
+    #[test]
+    fn repeats_close_together_stay_one_press_however_long_the_key_is_held() {
+        let t0 = std::time::Instant::now();
+        let mut keys = Keys::new(false);
+        assert!(keys.on_at(Input::Pressed(Shortcut::Talk), t0).is_some());
+        let step = REPEAT_GAP / 2;
+        for i in 1..10 {
+            assert_eq!(keys.on_at(Input::Pressed(Shortcut::Talk), t0 + step * i), None, "repeat {i}");
+        }
+    }
+
+    #[test]
+    fn cancel_lets_the_next_press_talk_with_no_release_between() {
+        for hold in [false, true] {
+            let mut keys = Keys::new(hold);
+            let first = keys.on(Input::Pressed(Shortcut::Talk));
+            assert_eq!(keys.on(Input::Pressed(Shortcut::Cancel)), Some(VoiceKey::Cancel));
+            assert_eq!(keys.on(Input::Pressed(Shortcut::Talk)), first, "hold {hold}");
         }
     }
 
@@ -407,5 +451,7 @@ mod tests {
         assert!(entry.contains("\nExec=\"/home/c/Apps/Legato desktop.AppImage\" %u\n"), "{entry}");
         assert!(entry.contains("\nNoDisplay=true\n"), "{entry}");
         assert!(desktop_entry("/a/$b\"c").contains("Exec=\"/a/\\\\$b\\\\\"c\" %u"));
+        // % is a field code in Exec, so a literal one is doubled.
+        assert!(desktop_entry("/a/50%b").contains("Exec=\"/a/50%%b\" %u"));
     }
 }

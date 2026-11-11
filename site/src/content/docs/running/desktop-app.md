@@ -73,11 +73,11 @@ When a server knows Touch ID, the sheet asks for your fingerprint instead of a t
 
 ## Talk to the Reeve
 
-The app has a key that starts talking to the [Reeve](/legato/using/reeve/) from any app. On Linux with Wayland, such as KDE Plasma, the desktop asks the first time which key to use, and offers **Meta+Alt+Space**. It keeps your choice. On X11 the key is **Meta+Alt+Space**, and on a Mac **Ctrl+Shift+Space**.
+The app has a key that starts talking to the [Reeve](/legato/using/reeve/) from any app. On Linux with Wayland, such as KDE Plasma, the desktop asks the first time which key to use, and offers **Meta+Alt+Space**. It keeps your choice, and also gives a second key to stop talking. On X11 and Windows the key is **Meta+Alt+Space**, and on a Mac **Ctrl+Shift+Space**. These have no key to stop.
 
 - Open **Servers & keys** › **Talking to the Reeve** to see the key. **Change the key…** opens the desktop's own shortcut settings, where the desktop has them.
 - Press the key to start, and again to send. Select **Hold the key to talk** to talk only while you hold it.
-- On a desktop where the key does not work, make a shortcut in the desktop's own settings that runs `xdg-open legato-desktop://voice` or `legato-desktop --voice`. It does what the key does.
+- On a desktop where the key does not work, make a shortcut in the desktop's own settings that runs `xdg-open legato-desktop://voice` or `legato-desktop --voice`. It does what the key does. `legato-desktop://voice?action=cancel` or `legato-desktop --voice=cancel` stops talking.
 
 ## Add a worker from another server
 
