@@ -60,14 +60,19 @@ impl ServerCertVerifier for PinVerifier {
     }
 }
 
-fn http_client(pin: Option<Pin>, seen: Arc<Mutex<Option<Vec<u8>>>>) -> reqwest::Client {
+/// TLS that trusts the pinned certificate and nothing else.
+fn tls_config(pin: Option<Pin>, seen: Arc<Mutex<Option<Vec<u8>>>>) -> rustls::ClientConfig {
     let provider = Arc::new(rustls::crypto::ring::default_provider());
-    let tls = rustls::ClientConfig::builder_with_provider(provider.clone())
+    rustls::ClientConfig::builder_with_provider(provider.clone())
         .with_safe_default_protocol_versions()
         .expect("TLS versions")
         .dangerous()
         .with_custom_certificate_verifier(Arc::new(PinVerifier { pin, seen, provider }))
-        .with_no_client_auth();
+        .with_no_client_auth()
+}
+
+fn http_client(pin: Option<Pin>, seen: Arc<Mutex<Option<Vec<u8>>>>) -> reqwest::Client {
+    let tls = tls_config(pin, seen);
     reqwest::Client::builder()
         .use_preconfigured_tls(tls)
         .timeout(std::time::Duration::from_secs(15))
@@ -75,12 +80,21 @@ fn http_client(pin: Option<Pin>, seen: Arc<Mutex<Option<Vec<u8>>>>) -> reqwest::
         .expect("HTTP client")
 }
 
+/// A connection's two halves, whatever carries them (TCP, or TLS over it).
+pub trait Io: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send {}
+impl<T: tokio::io::AsyncRead + tokio::io::AsyncWrite + Unpin + Send> Io for T {}
+
+/// A WebSocket to a server.
+pub type Socket = tokio_tungstenite::WebSocketStream<Box<dyn Io>>;
+
 /// One server's API, with its token.
 #[derive(Clone)]
 pub struct Client {
     base: String,
     token: Option<String>,
     http: reqwest::Client,
+    /// The pinned TLS, for connections reqwest does not make.
+    tls: Arc<rustls::ClientConfig>,
 }
 
 impl Client {
@@ -89,7 +103,69 @@ impl Client {
         if url.starts_with("https://") && pin.is_none() {
             return Err("this server has no pinned certificate; pair with it again".into());
         }
-        Ok(Client { base: url.trim_end_matches('/').to_string(), token, http: http_client(pin, Arc::default()) })
+        let tls = Arc::new(tls_config(pin.clone(), Arc::default()));
+        Ok(Client { base: url.trim_end_matches('/').to_string(), token, http: http_client(pin, Arc::default()), tls })
+    }
+
+    /// GET path, giving up after timeout.
+    pub async fn get_within(&self, path: &str, timeout: std::time::Duration) -> Result<Value, String> {
+        let mut req = self.http.get(format!("{}{}", self.base, path)).header("Origin", ORIGIN).timeout(timeout);
+        if let Some(t) = &self.token {
+            req = req.bearer_auth(t);
+        }
+        read(req.send().await.map_err(|e| describe(&e))?).await
+    }
+
+    /// GET path's body as it is (an audio file).
+    pub async fn bytes(&self, path: &str) -> Result<Vec<u8>, String> {
+        let mut req = self.http.get(format!("{}{}", self.base, path)).header("Origin", ORIGIN);
+        if let Some(t) = &self.token {
+            req = req.bearer_auth(t);
+        }
+        let resp = req.send().await.map_err(|e| describe(&e))?;
+        if !resp.status().is_success() {
+            return Err(read(resp).await.err().unwrap_or_default());
+        }
+        Ok(resp.bytes().await.map_err(|e| describe(&e))?.to_vec())
+    }
+
+    /// Opens a WebSocket to path with the token in `?token=`, as the web UI
+    /// does, over the pinned TLS for an https server.
+    pub async fn websocket(&self, path: &str) -> Result<Socket, String> {
+        use tokio_tungstenite::tungstenite::client::IntoClientRequest;
+        let url = reqwest::Url::parse(&format!("{}{}", self.base, path)).map_err(|e| e.to_string())?;
+        let tls = match url.scheme() {
+            "https" => true,
+            "http" => false,
+            other => return Err(format!("a {other} server has no WebSocket")),
+        };
+        let host = url.host_str().ok_or("the server's address has no host")?.to_string();
+        let port = url.port_or_known_default().unwrap_or(if tls { 443 } else { 80 });
+        let mut ws = url.clone();
+        ws.set_scheme(if tls { "wss" } else { "ws" }).expect("ws schemes");
+        if let Some(t) = &self.token {
+            ws.query_pairs_mut().append_pair("token", t);
+        }
+        let mut request = ws.as_str().into_client_request().map_err(|e| e.to_string())?;
+        request.headers_mut().insert("Origin", ORIGIN.parse().expect("an ASCII origin"));
+        let tcp = tokio::net::TcpStream::connect((host.trim_start_matches('[').trim_end_matches(']'), port))
+            .await
+            .map_err(|e| format!("the server does not answer ({e})"))?;
+        let stream: Box<dyn Io> = if tls {
+            let name = ServerName::try_from(host.trim_start_matches('[').trim_end_matches(']').to_string()).map_err(|e| e.to_string())?;
+            let connector = tokio_rustls::TlsConnector::from(self.tls.clone());
+            Box::new(connector.connect(name, tcp).await.map_err(|e| e.to_string())?)
+        } else {
+            Box::new(tcp)
+        };
+        let (socket, _) = tokio_tungstenite::client_async(request, stream).await.map_err(|e| match e {
+            tokio_tungstenite::tungstenite::Error::Http(resp) => {
+                let said = resp.body().as_ref().and_then(|b| serde_json::from_slice::<Value>(b).ok()).and_then(|v| v["error"].as_str().map(String::from));
+                said.unwrap_or_else(|| format!("HTTP {}", resp.status().as_u16()))
+            }
+            other => other.to_string(),
+        })?;
+        Ok(socket)
     }
 
     pub async fn call(&self, method: reqwest::Method, path: &str, body: Option<Value>) -> Result<Value, String> {

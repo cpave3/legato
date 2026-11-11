@@ -79,6 +79,15 @@ The app has a key that starts talking to the [Reeve](/legato/using/reeve/) from 
 - Press the key to start, and again to send. Select **Hold the key to talk** to talk only while you hold it.
 - On a desktop where the key does not work, make a shortcut in the desktop's own settings that runs `xdg-open legato-desktop://voice` or `legato-desktop --voice`. It does what the key does. `legato-desktop://voice?action=cancel` or `legato-desktop --voice=cancel` stops talking.
 
+The app talks to the Reeve of your main server. When you have several servers and none of them is the only main, choose one under **The Reeve to talk to** in **Servers & keys**. The app remembers the server, also when its address changes.
+
+When you press the key, the app first asks the main whether it can listen. If it cannot, the app says why in one line and records nothing: for example, the Reeve's voice is off on the main, or this computer has no `parecord` or `arecord`. Otherwise it streams your voice to the main, which ends your turn when you pause. The app plays the Reeve's answer with `pw-play` (or `paplay`). It does not send your voice while it plays, so the Reeve does not hear itself. After the Reeve has spoken, you can just talk again to reply. If you say nothing, the conversation ends.
+
+- Press the key while the Reeve speaks to stop it and reply.
+- Press the key while you speak to send at once, without waiting for the pause.
+
+Linux only for now.
+
 ## Add a worker from another server
 
 When one of your servers should hand tasks to another ([handoff](/legato/using/handoff/)), open the main's Settings › Handoff › Workers › **Add a worker** in the app. **From this app** lists your other servers. Choose the worker, and the app asks in a dialog of its own, outside the page: "Make vm-1 a worker of workstation?" On **Make it a worker**, it opens the worker's pairing request with the token it holds for that server, and the main pairs with it. You type no address or words, and the main's page never sees the worker's token. See [Main and worker instances](/legato/running/instances/#pair-a-main-instance-with-a-worker).

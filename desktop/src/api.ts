@@ -92,6 +92,16 @@ export type VoiceKeyInfo = {
   link: string
 }
 
+// Which server's Reeve the key talks to (src-tauri/src/voicemain.rs): each
+// server with the instance it last said it is, the one talked to now, and
+// whether the person must choose.
+export type VoiceTargets = {
+  servers: { server: string; name: string; instance?: { id: string; name: string; role: string } | null }[]
+  talking_to?: string | null
+  must_choose: boolean
+  chosen?: string | null
+}
+
 export const api = {
   servers: () => invoke<Server[]>("servers"),
   takeImportRequests: () => invoke<ImportRequest[]>("take_import_requests"),
@@ -134,6 +144,10 @@ export const api = {
   voiceKeyInfo: () => invoke<VoiceKeyInfo>("voice_key_info"),
   changeVoiceKey: () => invoke<void>("change_voice_key"),
   setHoldToTalk: (on: boolean) => invoke<void>("set_hold_to_talk", { on }),
+  voiceTargets: () => invoke<VoiceTargets>("voice_targets"),
+  setVoiceServer: (instance: string | null) => invoke<void>("set_voice_server", { instance }),
+  // The widget's buttons: talk (the key), stop, reply, send, cancel, end.
+  voiceAction: (action: "talk" | "stop" | "reply" | "send" | "cancel" | "end") => invoke<void>("voice_action", { action }),
 }
 
 // The colours a Legato can be tinted, as web/src/lib/tints.ts has them.
