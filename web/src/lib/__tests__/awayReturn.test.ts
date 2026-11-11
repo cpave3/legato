@@ -21,6 +21,7 @@ describe("awayActions", () => {
     expect(of({ view: "needs_you", state: "in_progress" })).toEqual({ return: false, recall: true, confirmRecall: true, takeBack: false })
     expect(of({ view: "starting", state: "pending" })).toEqual({ return: false, recall: true, confirmRecall: true, takeBack: false })
     expect(of({ view: "ended", state: "in_progress" })).toEqual({ return: false, recall: true, confirmRecall: false, takeBack: false })
+    expect(of({ view: "interrupted", state: "in_progress" })).toEqual({ return: false, recall: true, confirmRecall: false, takeBack: false })
     // A return under way can be pushed on.
     expect(of({ view: "coming_back", state: "returning" })).toEqual({ return: true, recall: false, confirmRecall: false, takeBack: false })
     // A worker that cannot be reached, refuses this main or lost the task:

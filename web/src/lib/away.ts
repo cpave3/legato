@@ -83,6 +83,8 @@ export function awayLook(away: AwayOn): AwayLook {
       return { glyph: "○", label: "Idle", tone: "text-lw-text-2", tint: "bg-lw-idle-soft" }
     case "ended":
       return { glyph: "■", label: "Agent ended", tone: "text-lw-text-2", tint: "bg-lw-idle-soft" }
+    case "interrupted":
+      return { glyph: "‖", label: "Interrupted on worker", tone: "text-lw-needs", tint: "bg-lw-needs-soft" }
     case "done":
       return { glyph: "✓", label: "Done", tone: "text-lw-done", tint: "bg-lw-done-soft" }
     case "failed":

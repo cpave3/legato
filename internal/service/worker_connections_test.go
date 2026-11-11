@@ -35,6 +35,7 @@ func TestTheMainShowsItsOwnViewOfTheWorkerFirst(t *testing.T) {
 		{AwayTask{State: "in_progress", Activity: HandoffActivityWaiting}, AwayViewNeedsYou},
 		{AwayTask{State: "in_progress", Activity: HandoffActivityIdle}, AwayViewIdle},
 		{AwayTask{State: "in_progress", Activity: HandoffActivityEnded}, AwayViewEnded},
+		{AwayTask{State: "in_progress", Activity: HandoffActivityInterrupted}, AwayViewInterrupted},
 		{AwayTask{State: "done", Activity: HandoffActivityIdle}, AwayViewDone},
 		{AwayTask{State: "failed", Failure: "no clone"}, AwayViewFailed},
 		{AwayTask{State: "returning"}, AwayViewComingBack},

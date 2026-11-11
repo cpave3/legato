@@ -326,3 +326,43 @@ func (s *Store) KeepAgentSessionOnTmux(ctx context.Context, agentSessionID int, 
 	updated, err := result.RowsAffected()
 	return updated == 1, err
 }
+
+// AgentSessionInterrupted is the status of a session whose agent was running
+// when Legato last stopped and whose tmux session was gone when it started
+// again: a crash, not an ending. It stays listed until it is resumed,
+// replaced or dismissed.
+const AgentSessionInterrupted = "interrupted"
+
+// ListInterruptedAgentSessions returns the interrupted sessions, newest first.
+func (s *Store) ListInterruptedAgentSessions(ctx context.Context) ([]AgentSession, error) {
+	var sessions []AgentSession
+	err := s.db.SelectContext(ctx, &sessions,
+		agentSessionSelect+" WHERE a.status = 'interrupted' ORDER BY a.started_at DESC, a.id DESC")
+	return sessions, err
+}
+
+// GetInterruptedAgentSession returns the interrupted session of the task's
+// main slot.
+func (s *Store) GetInterruptedAgentSession(ctx context.Context, taskID string) (*AgentSession, error) {
+	var a AgentSession
+	err := s.db.GetContext(ctx, &a,
+		agentSessionSelect+" WHERE a.task_id = ? AND a.slot = 'main' AND a.status = 'interrupted' ORDER BY a.id DESC LIMIT 1", taskID)
+	if err == sql.ErrNoRows {
+		return nil, fmt.Errorf("interrupted agent of task %s: %w", taskID, ErrNotFound)
+	}
+	return &a, err
+}
+
+// EndInterruptedAgentSession marks the interrupted sessions of one of the
+// task's slots as ended.
+func (s *Store) EndInterruptedAgentSession(ctx context.Context, taskID, slot string) error {
+	result, err := s.db.ExecContext(ctx, `
+		UPDATE agent_sessions SET status = 'dead' WHERE task_id = ? AND slot = ? AND status = 'interrupted'`, taskID, slotOrMain(slot))
+	if err != nil {
+		return err
+	}
+	if n, err := result.RowsAffected(); err == nil && n == 0 {
+		return fmt.Errorf("interrupted agent of task %s: %w", taskID, ErrNotFound)
+	}
+	return err
+}

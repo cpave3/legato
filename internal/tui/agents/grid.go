@@ -150,6 +150,8 @@ func changeText(state string) string {
 		return "stopped on an error"
 	case "dead":
 		return "ended"
+	case statusInterrupted:
+		return "was interrupted"
 	default:
 		return "went idle"
 	}

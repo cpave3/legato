@@ -67,7 +67,7 @@ Each row in a group shows:
 
 - the task's title and ID;
 - "from Doing": the column the task left;
-- its state, which changes as the worker works: **Starting** while the worker clones the repository and starts the agent; then what its agent is doing, **Working**, **Needs you** (it asks you something on the worker), **Idle** or **Agent ended**; **Done** once the card is in the worker's Done column; or **Failed** with the reason. Your main shows **Unreachable** while the worker is down, **Lost on worker** when the worker no longer has the task, and **Not accepted** when it no longer accepts your main. Hover the pill for why;
+- its state, which changes as the worker works: **Starting** while the worker clones the repository and starts the agent; then what its agent is doing, **Working**, **Needs you** (it asks you something on the worker), **Idle**, **Agent ended**, or **Interrupted on worker** when a crash on the worker took the agent (resume it from the worker's Agents page); **Done** once the card is in the worker's Done column; or **Failed** with the reason. Your main shows **Unreachable** while the worker is down, **Lost on worker** when the worker no longer has the task, and **Not accepted** when it no longer accepts your main. Hover the pill for why;
 - when you handed it off;
 - its pull requests, once it has any: "PR #12 · draft", or "3 PRs · 2 draft · 1 ready". The line is red, and says what blocks it, when a pull request that is ready for review failed CI or has changes requested.
 

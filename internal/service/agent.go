@@ -290,36 +290,40 @@ type LearningPromptProvider interface {
 }
 
 type agentService struct {
-	sessionEnvMu      sync.Mutex
-	sessionEnv        SessionEnvProvider       // credential channels; nil without any
-	brokerEnv         SessionEnvProvider       // the host broker's socket and a token; nil without one
-	repos             JobCloner                // makes clones for agents spawned with a repository; nil without one
-	engrams           AgentEngrams             // boots engrams for agents started as one; nil without
-	primaryDir        func(repo string) string // a repository's main checkout, for a fresh clone's setup; nil without
-	setupsMu          sync.Mutex
-	setups            map[string]string // task -> the status file of its clone's setup, while it runs
-	sandbox           *SandboxSettings  // nil: agents run unsandboxed
-	scratch           SandboxScratch    // the sandboxes' scratch folders, removed when executions end
-	store             *store.Store
-	tmux              TmuxManager
-	workDir           string
-	adapter           AIToolAdapter
-	adapters          map[string]AIToolAdapter // optional registry keyed by name; falls back to `adapter`
-	socketPath        string
-	tmuxOptions       map[string]string
-	prSvc             PRTrackingService
-	checkoutInspector CheckoutInspector
-	guidance          RepositoryGuidanceSource
-	reviewsOff        bool
-	binaryPath        string
-	bus               EventPublisher
-	briefKickoffDelay time.Duration
-	notifier          Notifier
-	osNotifier        Notifier
-	learning          LearningPromptProvider
-	learningMaxItems  int
-	learningMaxBytes  int
-	peerAwareness     bool
+	interruptedMu        sync.Mutex
+	interruptedRoutes    []InterruptedResumeRoute
+	resourceResolver     ResourceResolver
+	interruptedListeners []func()
+	sessionEnvMu         sync.Mutex
+	sessionEnv           SessionEnvProvider       // credential channels; nil without any
+	brokerEnv            SessionEnvProvider       // the host broker's socket and a token; nil without one
+	repos                JobCloner                // makes clones for agents spawned with a repository; nil without one
+	engrams              AgentEngrams             // boots engrams for agents started as one; nil without
+	primaryDir           func(repo string) string // a repository's main checkout, for a fresh clone's setup; nil without
+	setupsMu             sync.Mutex
+	setups               map[string]string // task -> the status file of its clone's setup, while it runs
+	sandbox              *SandboxSettings  // nil: agents run unsandboxed
+	scratch              SandboxScratch    // the sandboxes' scratch folders, removed when executions end
+	store                *store.Store
+	tmux                 TmuxManager
+	workDir              string
+	adapter              AIToolAdapter
+	adapters             map[string]AIToolAdapter // optional registry keyed by name; falls back to `adapter`
+	socketPath           string
+	tmuxOptions          map[string]string
+	prSvc                PRTrackingService
+	checkoutInspector    CheckoutInspector
+	guidance             RepositoryGuidanceSource
+	reviewsOff           bool
+	binaryPath           string
+	bus                  EventPublisher
+	briefKickoffDelay    time.Duration
+	notifier             Notifier
+	osNotifier           Notifier
+	learning             LearningPromptProvider
+	learningMaxItems     int
+	learningMaxBytes     int
+	peerAwareness        bool
 	// nativeBindTimeout bounds how long a launch message waits for the
 	// session's native endpoint before it is typed into the pane instead.
 	nativeBindTimeout time.Duration
@@ -1740,29 +1744,8 @@ func (a *agentService) ReconcileSessions(ctx context.Context) error {
 
 	for _, s := range sessions {
 		if s.Status == "running" && !live[s.TmuxSession] {
-			if s.ExecutionID != "" {
-				if err := a.EndExecution(ctx, s.ExecutionID, store.ExecutionLost); err != nil {
-					return err
-				}
-			}
-			if err := a.store.UpdateAgentSessionStatusInSlot(ctx, s.TaskID, s.Slot, "dead"); err != nil {
+			if err := a.endGoneSession(ctx, s, "dead"); err != nil {
 				return err
-			}
-			if a.bus != nil && IsNamedSlot(s.Slot) {
-				a.bus.PublishSlotAgentDied(s.TaskID, s.Slot)
-				continue
-			}
-			// Notify swarm orchestrator that an agent died (best-effort).
-			if a.bus != nil {
-				parent := ""
-				if s.ParentTaskID != nil {
-					parent = *s.ParentTaskID
-				}
-				subtask := ""
-				if s.SubtaskID != nil {
-					subtask = *s.SubtaskID
-				}
-				a.bus.PublishAgentDied(s.TaskID, parent, subtask, s.Role)
 			}
 		}
 	}
@@ -1785,6 +1768,43 @@ func (a *agentService) ReconcileSessions(ctx context.Context) error {
 	}
 	if count > 0 && oldest != nil && time.Since(*oldest) > 24*time.Hour {
 		log.Printf("executions: %d running; oldest started %s", count, oldest.Format(time.RFC3339))
+	}
+	return nil
+}
+
+// endGoneSession ends a running session whose tmux session is gone, as
+// status: "dead" for an agent that ended, AgentSessionInterrupted for one a
+// crash took. Its execution is lost; an interrupted agent keeps its engram
+// session for the agent that resumes it. Whatever owns the agent hears that
+// it died.
+func (a *agentService) endGoneSession(ctx context.Context, s store.AgentSession, status string) error {
+	if s.ExecutionID != "" {
+		endCtx := ctx
+		if status == store.AgentSessionInterrupted {
+			endCtx = withEngramSessionKept(ctx)
+		}
+		if err := a.EndExecution(endCtx, s.ExecutionID, store.ExecutionLost); err != nil {
+			return err
+		}
+	}
+	if err := a.store.UpdateAgentSessionStatusInSlot(ctx, s.TaskID, s.Slot, status); err != nil {
+		return err
+	}
+	if a.bus != nil && IsNamedSlot(s.Slot) {
+		a.bus.PublishSlotAgentDied(s.TaskID, s.Slot)
+		return nil
+	}
+	// Notify swarm orchestrator that an agent died (best-effort).
+	if a.bus != nil {
+		parent := ""
+		if s.ParentTaskID != nil {
+			parent = *s.ParentTaskID
+		}
+		subtask := ""
+		if s.SubtaskID != nil {
+			subtask = *s.SubtaskID
+		}
+		a.bus.PublishAgentDied(s.TaskID, parent, subtask, s.Role)
 	}
 	return nil
 }

@@ -130,14 +130,15 @@ func workerStateView(a AwayTask) string {
 // was recalled from.
 func recallNote(worker, from, failure string) string {
 	where := map[string]string{
-		AwayViewStarting:   "where it was starting",
-		AwayViewWorking:    "where its agent was working",
-		AwayViewNeedsYou:   "where its agent was waiting on you",
-		AwayViewInReview:   "where it was in review",
-		AwayViewIdle:       "where its agent was idle",
-		AwayViewEnded:      "where its agent had ended",
-		AwayViewDone:       "where it was done",
-		AwayViewComingBack: "where it was coming back",
+		AwayViewStarting:    "where it was starting",
+		AwayViewWorking:     "where its agent was working",
+		AwayViewNeedsYou:    "where its agent was waiting on you",
+		AwayViewInReview:    "where it was in review",
+		AwayViewIdle:        "where its agent was idle",
+		AwayViewEnded:       "where its agent had ended",
+		AwayViewInterrupted: "where a crash had interrupted its agent",
+		AwayViewDone:        "where it was done",
+		AwayViewComingBack:  "where it was coming back",
 	}[from]
 	if from == AwayViewFailed {
 		where = "where it had failed"

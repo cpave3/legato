@@ -1551,6 +1551,7 @@ func runServeCmd(args []string) int {
 			ReviewsOff:           !cfg.Agents.Reviews,
 			RepositoryGuidance:   repositoryGuidance(cfg, db),
 		})
+		sweepInterruptedAgents(agentSvc, configuredResourceService(cfg, db))
 		recoverNativeEndpoints(agentSvc)
 		wireTaskAgents(boardSvc, agentSvc)
 		giveAgentsEngrams(agentSvc, db)
@@ -1867,6 +1868,7 @@ func runTUI() int {
 			ReviewsOff:           !cfg.Agents.Reviews,
 			RepositoryGuidance:   repositoryGuidance(cfg, db),
 		})
+		sweepInterruptedAgents(agentSvc, configuredResourceService(cfg, db))
 		recoverNativeEndpoints(agentSvc)
 		wireTaskAgents(boardSvc, agentSvc)
 		giveAgentsEngrams(agentSvc, db)
@@ -2067,6 +2069,7 @@ func runTUI() int {
 	}
 	prAttentionAdapter := service.NewPRAttentionAdapter(db)
 	_ = attentionSvc.RegisterProducerWithEvents(prAttentionAdapter, events.EventPRStatusUpdated)
+	registerInterruptedAttention(attentionSvc, agentSvc)
 	if agentSvc != nil {
 		agentAttentionAdapter := service.NewAgentAttentionAdapter(agentSvc)
 		_ = attentionSvc.RegisterProducerWithEvents(agentAttentionAdapter, events.EventAgentActivityChanged, events.EventAgentStarted, events.EventAgentDied, events.EventAgentCompleted)

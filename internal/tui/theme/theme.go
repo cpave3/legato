@@ -131,7 +131,7 @@ func StateColor(activity string) lipgloss.Color {
 	switch activity {
 	case "working":
 		return Green
-	case "waiting":
+	case "waiting", "interrupted":
 		return Amber
 	case "background":
 		return Cyan
@@ -150,7 +150,7 @@ func StateTint(activity string) lipgloss.Color {
 	switch activity {
 	case "working":
 		return TintGreen
-	case "waiting":
+	case "waiting", "interrupted":
 		return TintAmber
 	case "background":
 		return TintCyan

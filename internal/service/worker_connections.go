@@ -37,12 +37,15 @@ const (
 	AwayViewNeedsYou = "needs_you"
 	// AwayViewInReview: a review pass runs, waits for a reviewer, or waits
 	// for the author's answers.
-	AwayViewInReview   = "in_review"
-	AwayViewIdle       = "idle"
-	AwayViewEnded      = "ended"
-	AwayViewDone       = "done"
-	AwayViewFailed     = "failed"
-	AwayViewComingBack = "coming_back"
+	AwayViewInReview = "in_review"
+	AwayViewIdle     = "idle"
+	AwayViewEnded    = "ended"
+	// AwayViewInterrupted: a crash on the worker took the agent; it can be
+	// resumed there.
+	AwayViewInterrupted = "interrupted"
+	AwayViewDone        = "done"
+	AwayViewFailed      = "failed"
+	AwayViewComingBack  = "coming_back"
 	// AwayViewUnreachable: the worker has been down longer than the grace.
 	AwayViewUnreachable = "unreachable"
 	// AwayViewLost: the worker no longer has the task; only Take back is
@@ -103,6 +106,8 @@ func awayView(a AwayTask) string {
 		return AwayViewNeedsYou
 	case HandoffActivityEnded:
 		return AwayViewEnded
+	case HandoffActivityInterrupted:
+		return AwayViewInterrupted
 	}
 	return AwayViewIdle
 }

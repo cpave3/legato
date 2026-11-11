@@ -5,6 +5,7 @@ import { MemoryRouter, useLocation } from "react-router-dom"
 import { AgentsPage } from "../Agents"
 // The agents being started have their own tests, and a query client.
 vi.mock("../../components/PreparingAgents", () => ({ PreparingAgents: () => null }))
+vi.mock("../../components/InterruptedAgents", () => ({ InterruptedAgents: () => null }))
 
 
 // The socket's functions keep their identity between renders, as the real

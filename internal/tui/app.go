@@ -766,6 +766,15 @@ func (a App) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		return a.handleReloadAgent(msg)
 	case agents.KillAgentMsg:
 		return a.handleKillAgent(msg)
+	case agents.ResumeInterruptedMsg:
+		return a.handleResumeInterrupted(msg)
+	case agents.DismissInterruptedMsg:
+		return a.handleDismissInterrupted(msg)
+	case agents.ResumeAllInterruptedMsg:
+		return a.handleResumeAllInterrupted()
+	case agents.InterruptedRefreshedMsg:
+		a.agentView, _ = a.agentView.Update(msg)
+		return a, nil
 
 	case agents.AttachSessionMsg:
 		return a.handleAttachSession(msg)
@@ -776,8 +785,9 @@ func (a App) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case agents.AgentsRefreshedMsg:
 		a.agentView, _ = a.agentView.Update(msg)
-		// The list changed, so what each agent has shown is asked for again.
-		return a, a.loadAgentShown(msg.Agents)
+		// The list changed, so what each agent has shown is asked for again,
+		// and the interrupted agents are read again beside it.
+		return a, tea.Batch(a.loadAgentShown(msg.Agents), a.loadInterrupted())
 
 	case agents.ShownRefreshedMsg:
 		a.agentView, _ = a.agentView.Update(msg)
@@ -1545,6 +1555,11 @@ func (a App) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 				a.board.SetAgentEngrams(engrams)
 				// The agents view keeps its list, and its record of what
 				// changed, current while the board is in front.
+				if svc := a.interruptedAgents(); svc != nil {
+					if list, err := svc.ListInterruptedAgents(context.Background()); err == nil {
+						a.agentView, _ = a.agentView.Update(agents.InterruptedRefreshedMsg{Agents: list})
+					}
+				}
 				a.agentView, _ = a.agentView.Update(agents.AgentsRefreshedMsg{Agents: agentList})
 
 				// Populate duration data for agent view

@@ -26,6 +26,7 @@ export const queryKeys = {
   agentUIItem: (baseUrl: string, itemId: string, revision = 0) => [baseUrl, "agent-ui-item", itemId, revision] as const,
   // Agents being started in the background while their clone is made.
   preparingAgents: (baseUrl: string) => [baseUrl, "preparing-agents"] as const,
+  interruptedAgents: (baseUrl: string) => [baseUrl, "interrupted-agents"] as const,
   // How each repository's copy in the server's cache stands, by owner/name;
   // repository_cache messages update it.
   repositoryCache: (baseUrl: string) => [baseUrl, "repository-cache"] as const,

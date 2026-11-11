@@ -510,3 +510,20 @@ func TestSendKeysMultilineIntegration(t *testing.T) {
 		t.Errorf("SendKeysMultiline plain: %v", err)
 	}
 }
+
+// After the machine restarts there is no tmux server, and often no folder
+// for its socket either: that is no sessions, not an error.
+func TestListSessionsWithNoServerOrSocketFolderIsEmpty(t *testing.T) {
+	skipWithoutTmux(t)
+	t.Setenv("TMUX", "")
+	t.Setenv("TMUX_TMPDIR", t.TempDir())
+
+	m, err := New(Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	sessions, err := m.ListSessions()
+	if err != nil || len(sessions) != 0 {
+		t.Fatalf("ListSessions = %v, %v; want none and no error", sessions, err)
+	}
+}

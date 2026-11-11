@@ -334,3 +334,26 @@ func TestAskingTheReeveSaysWhichSessionHasTheBrief(t *testing.T) {
 		t.Fatalf("ask = %q, %v; spawned %+v", taskID, err, agents.spawned)
 	}
 }
+
+// A crash leaves the Reeve's session marked running with no agent: resuming
+// it as an interrupted agent starts its conversation again.
+func TestAnInterruptedReeveSessionResumesItsConversation(t *testing.T) {
+	svc, _, agents, _ := newReeveFixture(t)
+	ctx := context.Background()
+	session, err := svc.Start(ctx, ReeveStart{})
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	handled, err := svc.ResumeInterrupted(ctx, session.TaskID)
+
+	if err != nil || !handled {
+		t.Fatalf("resume = %v, %v; want handled", handled, err)
+	}
+	if len(agents.spawned) != 2 || agents.spawned[1].SessionPolicy != "resume" {
+		t.Fatalf("spawns = %+v, want a resumed second", agents.spawned)
+	}
+	if handled, err := svc.ResumeInterrupted(ctx, "not-the-reeve"); handled || err != nil {
+		t.Fatalf("another task: %v, %v; want it left to the agent service", handled, err)
+	}
+}

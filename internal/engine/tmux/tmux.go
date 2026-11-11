@@ -129,9 +129,9 @@ func (m *Manager) ListSessions() ([]string, error) {
 	cmd := exec.Command(m.tmuxPath, "list-sessions", "-F", "#{session_name}")
 	out, err := cmd.CombinedOutput()
 	if err != nil {
-		// No server running = no sessions
-		if strings.Contains(string(out), "no server running") ||
-			strings.Contains(string(out), "no sessions") {
+		// No server running = no sessions. With no socket at all (after
+		// the machine restarts) tmux cannot connect: no server either.
+		if noServer(string(out)) {
 			return nil, nil
 		}
 		return nil, fmt.Errorf("tmux list-sessions: %s: %w", strings.TrimSpace(string(out)), err)
@@ -145,6 +145,13 @@ func (m *Manager) ListSessions() ([]string, error) {
 		}
 	}
 	return sessions, nil
+}
+
+// noServer says whether tmux's output means there is no server to ask.
+func noServer(out string) bool {
+	return strings.Contains(out, "no server running") ||
+		strings.Contains(out, "no sessions") ||
+		(strings.Contains(out, "error connecting to") && strings.Contains(out, "No such file or directory"))
 }
 
 // IsAlive checks whether a tmux session with the given name exists.
@@ -327,9 +334,7 @@ func (m *Manager) PaneCommands() (map[string]string, error) {
 		"-f", "#{m:legato-*,#{session_name}}")
 	out, err := cmd.CombinedOutput()
 	if err != nil {
-		// No server running = no sessions
-		if strings.Contains(string(out), "no server running") ||
-			strings.Contains(string(out), "no sessions") {
+		if noServer(string(out)) {
 			return map[string]string{}, nil
 		}
 		return nil, fmt.Errorf("tmux list-panes: %s: %w", strings.TrimSpace(string(out)), err)

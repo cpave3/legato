@@ -6,6 +6,7 @@ import type { AgentInfo } from "../../hooks/useWebSocket"
 import { AgentsPage } from "../Agents"
 // The agents being started have their own tests, and a query client.
 vi.mock("../../components/PreparingAgents", () => ({ PreparingAgents: () => null }))
+vi.mock("../../components/InterruptedAgents", () => ({ InterruptedAgents: () => null }))
 
 
 const { mockFetch, mockSend, liveMounts } = vi.hoisted(() => ({ mockFetch: vi.fn(), mockSend: vi.fn(), liveMounts: { count: 0 } }))

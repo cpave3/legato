@@ -106,9 +106,10 @@ In the TUI, press `?` to see these keys. The help shows only the keys that work 
 | `k` | Select previous agent |
 | `w` | Select the next agent that needs you |
 | `s` | Spawn agent |
-| `X` | Kill agent |
-| `R` | Reload agent, resuming its conversation |
+| `X` | Kill agent; dismiss an interrupted one |
+| `R` | Reload agent, resuming its conversation; resume an interrupted one |
 | `U` | Reload agent out of the sandbox, or back into it, resuming its conversation |
+| `A` | Resume every interrupted agent |
 | `enter/tab` | Attach to agent session |
 | `m` | Send macro |
 | `g` | Set task group |

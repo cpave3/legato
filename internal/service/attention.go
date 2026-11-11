@@ -49,6 +49,7 @@ const (
 	AttentionSignalLearningCuratorWork         = "learning_curator_work"
 	AttentionSignalApproval                    = "approval"
 	AttentionSignalDevicesReset                = "devices_reset"
+	AttentionSignalAgentsInterrupted           = "agents_interrupted"
 )
 
 var defaultAttentionSignals = []string{
@@ -65,6 +66,7 @@ var defaultAttentionSignals = []string{
 	AttentionSignalWorkflowTriggerFailed,
 	AttentionSignalApproval,
 	AttentionSignalDevicesReset,
+	AttentionSignalAgentsInterrupted,
 	AttentionSignalDelegationFailed,
 	AttentionSignalCaseReplyFailed,
 	AttentionSignalIntegrationDisconnected,
@@ -100,6 +102,7 @@ var knownAttentionSignals = map[string]bool{
 	AttentionSignalLearningCuratorWork:         true,
 	AttentionSignalApproval:                    true,
 	AttentionSignalDevicesReset:                true,
+	AttentionSignalAgentsInterrupted:           true,
 	AttentionSignalDelegationFailed:            true,
 	AttentionSignalCaseReplyFailed:             true,
 	AttentionSignalIntegrationDisconnected:     true,

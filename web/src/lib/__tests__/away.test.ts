@@ -68,6 +68,7 @@ describe("awayLook, live", () => {
     expect(label({ state: "in_progress", activity: "waiting", view: "needs_you" })).toBe("Needs you")
     expect(label({ state: "in_progress", activity: "idle", view: "idle" })).toBe("Idle")
     expect(label({ state: "in_progress", activity: "ended", view: "ended" })).toBe("Agent ended")
+    expect(label({ state: "in_progress", activity: "interrupted", view: "interrupted" })).toBe("Interrupted on worker")
     expect(label({ state: "done", view: "done" })).toBe("Done")
     expect(label({ state: "failed", failure: "branch not on GitHub", view: "failed" })).toBe("Failed: branch not on GitHub")
     expect(label({ state: "returning", view: "coming_back" })).toBe("Coming back")
