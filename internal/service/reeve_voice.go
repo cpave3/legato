@@ -6,6 +6,7 @@ import (
 	"log"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/cpave3/legato/config"
@@ -32,6 +33,13 @@ type ReeveVoiceSessions interface {
 	Current(ctx context.Context) (*store.ReeveSession, error)
 	Message(ctx context.Context, text, by string) error
 	Resume(ctx context.Context, taskID string, in ReeveStart) (*store.ReeveSession, error)
+}
+
+// reeveVoicer is the part of the Reeve's sessions that gives a running
+// Reeve its voice (ReeveService).
+type reeveVoicer interface {
+	StartedWithVoice(taskID string) (on, known bool)
+	GiveVoice(ctx context.Context, taskID string) error
 }
 
 // ReeveVoiceOptions configures hands-free voice with the Reeve.
@@ -66,6 +74,8 @@ type ReeveVoiceOptions struct {
 // docs/ai/reeve.md § Hands-free voice.
 type ReeveVoice struct {
 	opts ReeveVoiceOptions
+	// giving: a restart to give the Reeve its voice is under way.
+	giving atomic.Bool
 
 	mu      sync.Mutex
 	session *VoiceSession
@@ -209,6 +219,16 @@ func (v *ReeveVoice) Status(ctx context.Context) (VoiceReadiness, error) {
 	if out.Ready && current != nil && current.State == store.ReeveSuspended {
 		v.warmUp(current.TaskID)
 	}
+	// A Reeve started before its voice was on has neither the voice section
+	// nor speak: it is restarted to take them up, between its turns.
+	if voicer, ok := v.opts.Reeve.(reeveVoicer); ok && out.Ready && current != nil && current.State == store.ReeveRunning {
+		if on, known := voicer.StartedWithVoice(current.TaskID); known && !on {
+			out.notReady("The Reeve on "+name+" is getting its voice: try again in a moment", "")
+			if !out.Reeve.Busy {
+				v.giveVoice(voicer, current.TaskID)
+			}
+		}
+	}
 	return out, nil
 }
 
@@ -224,6 +244,20 @@ func (v *ReeveVoice) reachable(ctx context.Context) bool {
 	ctx, cancel := context.WithTimeout(ctx, voiceProbeTimeout)
 	defer cancel()
 	return v.opts.Transcription.Probe(ctx) == nil
+}
+
+// giveVoice restarts the Reeve with its voice in the background, one
+// restart at a time.
+func (v *ReeveVoice) giveVoice(voicer reeveVoicer, taskID string) {
+	if !v.giving.CompareAndSwap(false, true) {
+		return
+	}
+	go func() {
+		defer v.giving.Store(false)
+		if err := voicer.GiveVoice(context.Background(), taskID); err != nil {
+			log.Printf("reeve voice: giving the Reeve its voice: %v", err)
+		}
+	}()
 }
 
 // warmUp resumes a suspended Reeve in the background.

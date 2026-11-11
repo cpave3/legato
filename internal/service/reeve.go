@@ -90,6 +90,8 @@ type ReeveService struct {
 	// starting waits for its native endpoint.
 	launchedMu sync.Mutex
 	launched   map[string]time.Time
+	// Whether each session this process launched had the voice on.
+	voiced map[string]bool
 }
 
 // reeveBindWait is how long after a launch a message waits for the Reeve's
@@ -247,15 +249,27 @@ func (s *ReeveService) spawn(ctx context.Context, row store.ReeveSession, brief 
 	if s.opts.Defaults != nil {
 		voice = s.opts.Defaults().Voice
 	}
-	launch := ReeveLaunchPrompt(noEngram, snapshot, brief, voice)
+	// A spoken turn is the first message itself, marked at its start, and
+	// not a brief: the voice section answers only a message that starts so.
+	brief = strings.TrimSpace(brief)
+	spoken := strings.HasPrefix(brief, VoiceMarker)
+	launchBrief := brief
+	if spoken {
+		launchBrief = ""
+	}
+	launch := ReeveLaunchPrompt(noEngram, snapshot, launchBrief, voice)
 	first := ""
 	switch {
+	case resumed && spoken:
+		first = brief + "\n\n" + ReeveResumeMessage(snapshot)
 	case resumed:
 		first = ReeveResumeMessage(snapshot)
-		if strings.TrimSpace(brief) != "" {
-			first += "\n\n" + strings.TrimSpace(brief)
+		if brief != "" {
+			first += "\n\n" + brief
 		}
-	case strings.TrimSpace(brief) != "":
+	case spoken:
+		first = brief
+	case brief != "":
 		first = "[legato] Look into the brief at the end of your instructions, and tell me what you find."
 	}
 	opt := AgentSpawnOptions{
@@ -279,6 +293,10 @@ func (s *ReeveService) spawn(ctx context.Context, row store.ReeveSession, brief 
 		s.launched = map[string]time.Time{}
 	}
 	s.launched[row.TaskID] = time.Now()
+	if s.voiced == nil {
+		s.voiced = map[string]bool{}
+	}
+	s.voiced[row.TaskID] = voice
 	s.launchedMu.Unlock()
 	return nil
 }
@@ -510,6 +528,39 @@ func (s *ReeveService) SuspendIdle(ctx context.Context, now time.Time, timeout t
 	}
 	s.changed(current.TaskID)
 	return 1, nil
+}
+
+// StartedWithVoice says whether a session's agent was launched with the
+// voice on, which its prompt and its speak tool follow; known is false for
+// one this process did not launch.
+func (s *ReeveService) StartedWithVoice(taskID string) (on, known bool) {
+	s.launchedMu.Lock()
+	defer s.launchedMu.Unlock()
+	on, known = s.voiced[taskID]
+	return on, known
+}
+
+// GiveVoice restarts a running session's agent so it takes up the voice:
+// stopped with its engram session kept, as the idle suspend does, then
+// resumed with its conversation. Nothing happens to a session that has it.
+func (s *ReeveService) GiveVoice(ctx context.Context, taskID string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	current, err := s.opts.Store.CurrentReeveSession(ctx)
+	if err != nil || current == nil || current.TaskID != taskID || current.State != store.ReeveRunning {
+		return err
+	}
+	if on, known := s.StartedWithVoice(taskID); on || !known {
+		return nil
+	}
+	if err := s.opts.Agents.KillAgent(withEngramSessionKept(ctx), taskID); err != nil && !errors.Is(err, store.ErrNotFound) {
+		return err
+	}
+	if err := s.opts.Store.SetReeveSessionState(ctx, taskID, store.ReeveSuspended); err != nil {
+		return err
+	}
+	_, err = s.resumeLocked(ctx, taskID, ReeveStart{StartedBy: "voice"})
+	return err
 }
 
 // Touch records activity in a session, which puts off its idle suspend.
