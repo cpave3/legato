@@ -33,6 +33,20 @@ func (a *EngramAttentionAdapter) Snapshot(ctx context.Context) ([]AttentionInput
 		if task == "" {
 			task = f.TaskID
 		}
+		// The Reeve's task is hidden: its item leads to its engram in
+		// Settings.
+		if kind, err := a.db.TaskKind(ctx, f.TaskID); err == nil && kind == store.TaskKindReeve {
+			items = append(items, AttentionInput{
+				SignalKind: AttentionSignalEngramBootFailed, SourceKey: "engram:" + f.ExecutionID, SourceRevision: f.ExecutionID,
+				TaskID: f.TaskID, Category: "agent", Urgency: "normal",
+				Title:      "The Reeve's engram did not boot",
+				Reason:     "The Reeve started without " + f.Engram + ": it remembers nothing of earlier sessions, and keeps nothing from this one.",
+				Detail:     f.Reason,
+				Navigation: AttentionNavigation{Kind: "settings", Target: "reeve-engram"},
+				Actions:    []AttentionAction{{ID: "open", Label: "Open the Reeve's engram", Kind: "navigate"}},
+			})
+			continue
+		}
 		items = append(items, AttentionInput{
 			SignalKind: AttentionSignalEngramBootFailed, SourceKey: "engram:" + f.ExecutionID, SourceRevision: f.ExecutionID,
 			TaskID: f.TaskID, Category: "agent", Urgency: "normal",

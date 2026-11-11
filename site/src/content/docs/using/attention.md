@@ -25,7 +25,7 @@ Attention lists only what you can act on. Each item comes from the part of Legat
 | Argus | [Argus](/legato/integrations/argus/) has an open case on one of your pull requests. |
 | Settings | You changed settings that take effect only when Legato restarts. **Restart Legato** restarts it. |
 | Moving settings | Once, after the upgrade: settings set in `config.yaml` that can move into the database, so they can be changed from Settings. **Choose what to move** opens the list. |
-| Engrams | An agent was asked to start as an [engram](/legato/agent-tools/engrams/), and the engram did not boot, so the agent runs as a normal session. The item says why, and goes when the agent ends. |
+| Engrams | An agent was asked to start as an [engram](/legato/agent-tools/engrams/), and the engram did not boot, so the agent runs as a normal session. The item says why, and goes when the agent ends. For the Reeve, the item is **The Reeve's engram did not boot** and leads to its engram in Settings. |
 | Restarts | A restart of Legato failed (its configuration did not load, or it was not answering in time) and was rolled back to the configuration from before. See [Updates](/legato/running/updates/#restarting-legato-yourself). |
 | Updates | A new release of Legato is ready to install, or an install failed. See [Updates](/legato/running/updates/). |
 | Integrations | In the last 7 days, a request from Argus did not reach an agent, a reply never reached Argus, or Argus refused the connection. |

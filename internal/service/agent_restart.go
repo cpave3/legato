@@ -84,6 +84,7 @@ func (a *agentService) restartAgent(ctx context.Context, taskID string, resource
 		// new one when not.
 		if name, engramSession, err := a.store.ExecutionEngram(ctx, session.ExecutionID); err == nil && name != "" {
 			opt.Engram, opt.EngramSession = name, engramSession
+			opt.EngramHome, _ = a.store.ExecutionEngramHome(ctx, session.ExecutionID)
 		}
 	}
 	if SupportsTaskResume(session.AgentKind) {

@@ -144,6 +144,7 @@ export function approvalKind(approval: Approval): string {
     case "reeve_change_set": return "Change set"
     case "reeve_rules": return "The Reeve's rules"
     case "reeve_secret": return "Secret for the Reeve"
+    case "reeve_seed": return "The Reeve's seed"
     case "agent_permission": return approval.details.plan ? "Plan" : "Permission"
     case "agent_question": return "Question"
     case "credential": return "Credential"

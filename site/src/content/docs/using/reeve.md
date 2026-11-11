@@ -36,7 +36,23 @@ While it runs, it has tools of its own:
 - **legato_api**: any of Legato's API calls; a change becomes a change set for you to approve.
 - **legato**: a `legato` command on the machine, for what only the command line does (integration tokens, connecting Argus, `columns sync`, `hooks install`). A command that only reads runs at once; one that changes something is a change set. Some commands it never runs, such as those that hand out secrets or reset your devices.
 
-The Reeve does not yet remember earlier sessions: it starts each one without its memory, and says so.
+## Its memory
+
+The Reeve remembers earlier sessions through an [engram](/legato/agent-tools/engrams/) of its own, named after the instance (`reeve-` and eight characters of the instance's ID). It keeps the why and the how there as it works: your preferences, why settings are as they are, problems and how they were fixed, and work left open. Legato's own records already hold what changed and who approved it. Secrets are never kept.
+
+- **Legato makes it** the first time a session starts, from a built-in seed, in a store of its own inside the Reeve's folder (`~/.local/state/legato/reeve/engram`). It never shows among your own engrams, in `engram identity list` or in the spawn dialog.
+- **A resumed session** carries on in the same engram session; a new session starts with what earlier ones kept.
+- **Ending a session** ends its engram session too. A session suspended for being idle keeps it.
+- **If its engram cannot start** (engram is missing, or its store cannot be written), the Reeve starts anyway, says so in its first reply, and keeps nothing that session. An item in Attention, **The Reeve's engram did not boot**, says why. With engrams turned off (`engram.enabled: off`) it starts without one and raises no item.
+
+The conversation's status bar names the engram the Reeve runs as, or says **no engram**.
+
+### In Settings
+
+**Settings › Reeve › The Reeve's engram** shows its name and where it is kept, and:
+
+- **The seed**: who the Reeve is and how it should work, the one part of its engram it treats as your instruction. Change it and choose **Save the seed**; like the Reeve's other rules, the change needs your signature on your phone or with a passkey, and the next session starts with it. Legato never overwrites a seed you changed. When a newer version of Legato has a new built-in seed, Settings offers it: **Use the new built-in seed** (with a signature too).
+- **Memories and open threads**: what it keeps, each with **Remove**. Removing a memory deletes it for good; removing a thread closes it. To edit a memory, use the engram command with `ENGRAM_HOME` set to the store shown.
 
 ## Its changes
 
@@ -64,7 +80,7 @@ Each change the Reeve proposes needs your approval, at a level set in Settings �
 - **A risky change** (security, restarts and anything that stops work, anything that cannot be undone, any command on the machine): a decision signed on your phone, passkey or security key once one is enrolled; until then a tap.
 - **Rules** raise or lower the level of the calls they match, such as `POST /api/tasks*`.
 
-These levels and rules are the Reeve's own rules: they change only with a signed approval, even from Settings, and not at all while no device is enrolled.
+These levels and rules, and the seed of its engram, are the Reeve's own rules: they change only with a signed approval, even from Settings, and not at all while no device is enrolled.
 
 ## Talking to other instances' Reeves
 
@@ -77,6 +93,6 @@ The Reeve can message the Reeve of another Legato this one is paired with: its w
 
 ## Where it runs
 
-The Reeve always runs in Legato's [sandbox](/legato/security/sandbox/): it cannot be started without it, and **Run without sandbox** and the switch out of the sandbox are refused for it. It works in a folder of its own, `~/.local/state/legato/reeve` (or under `$XDG_STATE_HOME`), outside your repositories and Legato's data folder.
+The Reeve always runs in Legato's [sandbox](/legato/security/sandbox/): it cannot be started without it, and **Run without sandbox** and the switch out of the sandbox are refused for it. It works in a folder of its own, `~/.local/state/legato/reeve` (or under `$XDG_STATE_HOME`), outside your repositories and Legato's data folder. The folder also holds its engram's store.
 
 Each session gets a token of its own for Legato's API that can only read. It stops working when the session ends.

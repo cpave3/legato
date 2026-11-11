@@ -3,7 +3,6 @@ package service
 import (
 	"bufio"
 	"context"
-	"errors"
 	"fmt"
 	"os"
 	"regexp"
@@ -14,27 +13,20 @@ import (
 	"github.com/cpave3/legato/internal/engine/store"
 )
 
-// ErrEngramUnavailable is the boot of an engram that cannot happen: engram
-// sessions are not built yet (LEG-46), so every Reeve session starts
-// without one.
-var ErrEngramUnavailable = errors.New("engram sessions are not available in this Legato yet")
-
-// EngramBooter boots the Reeve's engram for a session and returns its boot
-// packet, the first part of the launch prompt. It is the one seam where
-// the engram boot goes.
-type EngramBooter interface {
-	Boot(ctx context.Context, taskID string) (packet string, err error)
+// ReeveEngram is the Reeve's own engram: its name (reeve-<the first 8 of
+// the instance ID>), its store (ENGRAM_HOME, inside the Reeve's folder,
+// never the person's) and the seed it is issued with when the store does
+// not have it yet. The spawn's engram steps boot it (docs/ai/reeve.md).
+type ReeveEngram struct {
+	Name string
+	Home string
+	Seed string
 }
 
-// NoEngram is the booter until engram sessions exist: it always fails, so
-// the session starts through the boot-failure path.
-type NoEngram struct{}
-
-func (NoEngram) Boot(context.Context, string) (string, error) { return "", ErrEngramUnavailable }
-
-// reeveNoEngram stands in for the boot packet when the engram did not boot.
-func reeveNoEngram(err error) string {
-	return "## Your engram\n\nYou start this session without your engram: it could not boot (" + err.Error() + "). " +
+// reeveNoEngram stands in for the boot packet when the engram did not
+// boot, or the Reeve has none.
+func reeveNoEngram(reason string) string {
+	return "## Your engram\n\nYou start this session without your engram: it could not boot (" + reason + "). " +
 		"You have no memories of earlier sessions. Say so in your first reply. Write nothing to an engram this session."
 }
 
@@ -67,7 +59,7 @@ Some things you may never do, whatever is approved: decide any approval or answe
 - Use the host shell only sparingly, as a last resort, when Legato's own tools cannot do the job.
 - Secrets reach you only by name. Never ask the person to paste a secret into the conversation, and never repeat one.
 - When the person denies a change, do not propose the same change again in this session unless they ask; you may propose something different.
-- What is worth remembering: the person's preferences, why settings are as they are, past problems and their fixes, open threads. Secrets never are.`
+- Your engram keeps what you learn from one session to the next, with the engram command. What is worth remembering: the person's preferences, why settings are as they are, past problems and their fixes, open threads. Secrets never are.`
 
 // ReeveSnapshotSource is what the snapshot of an instance is read from.
 type ReeveSnapshotSource struct {
@@ -163,21 +155,16 @@ func ReeveSnapshot(ctx context.Context, src ReeveSnapshotSource) string {
 	return b.String()
 }
 
-// ReeveLaunchPrompt is the launch prompt of a session, in the order the
-// engram sessions spec gives: the engram's boot packet (or the line saying
-// it did not boot), the role prompt, the snapshot, then the brief.
-func ReeveLaunchPrompt(ctx context.Context, booter EngramBooter, taskID, snapshot, brief string) string {
-	if booter == nil {
-		booter = NoEngram{}
+// ReeveLaunchPrompt is a Reeve session's launch prompt after its engram's
+// part: the role prompt, the snapshot and the brief. noEngram, when not
+// empty, says why the session has no engram and comes first; otherwise the
+// spawn puts the boot packet (or the line that stands in for it) first.
+func ReeveLaunchPrompt(noEngram, snapshot, brief string) string {
+	var sections []string
+	if noEngram != "" {
+		sections = append(sections, reeveNoEngram(noEngram))
 	}
-	packet, err := booter.Boot(ctx, taskID)
-	if err != nil || strings.TrimSpace(packet) == "" {
-		if err == nil {
-			err = errors.New("the boot packet was empty")
-		}
-		packet = reeveNoEngram(err)
-	}
-	sections := []string{packet, ReeveRolePrompt, snapshot}
+	sections = append(sections, ReeveRolePrompt, snapshot)
 	if strings.TrimSpace(brief) != "" {
 		sections = append(sections, "## The brief\n\n"+strings.TrimSpace(brief))
 	}

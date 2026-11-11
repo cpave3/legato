@@ -130,3 +130,28 @@ func TestASandboxedEngramSessionHasItsBinaryFirstOnPathAndItsStore(t *testing.T)
 		t.Errorf("the engram binary is not mounted at %s: %+v", binDir, plan.Mounts)
 	}
 }
+
+// The Reeve's store is inside the Reeve's folder, which its session is
+// given read-write: the store is still mounted, with the binary.
+func TestTheReevesEngramStoreInsideItsFolderIsMountedWithTheBinary(t *testing.T) {
+	in := engramInput()
+	folder := "/var/home/me/.local/state/legato/reeve"
+	in.FS.(fakeFS)[folder] = "dir"
+	in.FS.(fakeFS)[folder+"/engram"] = "dir"
+	in.Engram.Store = folder + "/engram"
+	in.Extra = append(in.Extra, SandboxPath{Path: folder, Access: "write"})
+	plan, err := BuildSandboxPlan(in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := mounted(plan)
+	if got := m["/run/user/1000/legato/sandbox/ex-1/bin/engram"]; got.Kind != sandbox.ReadOnly || got.Path != "/opt/engram/bin/engram" {
+		t.Errorf("binary mount = %+v", got)
+	}
+	if got := m[folder+"/engram"]; got.Kind != sandbox.ReadWrite {
+		t.Errorf("store mount = %+v", got)
+	}
+	if got := m[folder]; got.Kind != sandbox.ReadWrite {
+		t.Errorf("folder mount = %+v", got)
+	}
+}

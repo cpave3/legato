@@ -1,7 +1,8 @@
-import { useEffect, useState } from "react"
+import { useState } from "react"
 import { Crown } from "lucide-react"
 import type { AgentInfo } from "../hooks/useWebSocket"
-import { fetchReeve, resumeReeve, startReeve, type ReeveOverview } from "../lib/reeve"
+import { resumeReeve, startReeve, type ReeveOverview } from "../lib/reeve"
+import { useReeveOverview } from "../hooks/useReeveOverview"
 import { cn } from "../lib/utils"
 import { AgentKindBadge } from "./AgentKindBadge"
 import { ActivityBar } from "./AgentMeters"
@@ -10,22 +11,6 @@ import { formatAgentTime, stateSeconds } from "../lib/agentList"
 // The Reeve's violet: a wash from the left edge and a faint border, apart
 // from the selection accent.
 export const reeveWash = "bg-gradient-to-r from-[#8b5cf6]/20 via-[#8b5cf6]/[0.06] to-transparent shadow-[inset_0_0_0_1px_rgba(167,139,250,0.28)]"
-
-// useReeveOverview reads the Reeve's overview, again whenever key changes
-// (the agents list), without needing a query client: the agents page
-// renders it on its own.
-export function useReeveOverview(baseUrl: string, key = "") {
-  const [state, setState] = useState<{ data?: ReeveOverview; isError: boolean }>({ isError: false })
-  const [nonce, setNonce] = useState(0)
-  useEffect(() => {
-    let live = true
-    fetchReeve(baseUrl)
-      .then((data) => { if (live) setState({ data, isError: false }) })
-      .catch(() => { if (live) setState({ isError: true }) })
-    return () => { live = false }
-  }, [baseUrl, key, nonce])
-  return { ...state, refetch: () => setNonce((n) => n + 1) }
-}
 
 // ReeveEntry is the Reeve pinned first in the agents list: its session's
 // state and time, agent tool and activity, this instance's name, and how
@@ -89,7 +74,7 @@ export function ReeveEntry({ baseUrl, agent, selected, onSelect, compact }: {
 }
 
 // ReeveStatus is what the conversation's status bar adds for the Reeve:
-// that it runs in the sandbox, and the instance with its role.
+// that it runs in the sandbox, the instance with its role, and its engram.
 export function ReeveStatus({ baseUrl }: { baseUrl: string }) {
   const overview = useReeveOverview(baseUrl)
   if (!overview.data) return null
@@ -100,7 +85,9 @@ export function ReeveStatus({ baseUrl }: { baseUrl: string }) {
       <span aria-hidden="true" className="text-lw-faint">·</span>
       <span className="truncate">{overview.data.instance} ({overview.data.role})</span>
       <span aria-hidden="true" className="text-lw-faint">·</span>
-      <span className="text-lw-faint">no engram</span>
+      {overview.data.engram
+        ? <span className="truncate" title="The Reeve's engram">{overview.data.engram}</span>
+        : <span className="text-lw-faint">no engram</span>}
     </span>
   )
 }

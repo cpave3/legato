@@ -75,6 +75,10 @@ Source `reeve_secret`: the Reeve asks for a secret by name. The tray's form stor
 
 Source `reeve_rules`: a change to one of the Reeve's own rules (`reeve.levels.*`, `reeve.rules`), always `signed`; its resolver applies the change once allowed. See [The Reeve](reeve.md) § Levels and rules.
 
+### The Reeve's seed
+
+Source `reeve_seed`: a new seed for the Reeve's engram, one of its own rules, always `signed`, refused with no device enrolled. The details hold the engram and the whole seed, which the tray shows as the summary; its resolver writes the seed into the engram once allowed. See [The Reeve](reeve.md) § Its engram.
+
 ## API
 
 Behind the web token:

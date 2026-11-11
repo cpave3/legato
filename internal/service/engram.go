@@ -20,6 +20,11 @@ type EngramCLI interface {
 	Place(ctx context.Context, dir string) (engram.Place, error)
 	Boot(ctx context.Context, env []string, dir string) (engram.BootResult, error)
 	EndSession(ctx context.Context, env []string, dir string) error
+	NewIdentity(ctx context.Context, name, seed string) (string, error)
+	Memories(ctx context.Context, name string) ([]engram.Memory, error)
+	Threads(ctx context.Context, name string) ([]engram.Thread, error)
+	RemoveMemory(ctx context.Context, name, id string) error
+	CloseThread(ctx context.Context, name, id, resolution string) error
 }
 
 // EngramOptions are what an EngramService works with.
@@ -27,8 +32,9 @@ type EngramOptions struct {
 	// Config is the engram block of the effective configuration, read on
 	// every call: engram.enabled and engram.command are live settings.
 	Config func(ctx context.Context) (config.EngramConfig, error)
-	// Runner makes the engram client for a command ("" for PATH).
-	Runner func(command string) EngramCLI
+	// Runner makes the engram client for a command ("" for PATH) and a
+	// store (ENGRAM_HOME; "" for the person's own).
+	Runner func(command, home string) EngramCLI
 	// Store keeps the bindings and knows each task's last engram; without
 	// it the picker has no place.
 	Store EngramBindingStore
@@ -99,12 +105,29 @@ func (s *EngramService) config(ctx context.Context) config.EngramConfig {
 	return cfg
 }
 
-// cli is the engram client for the current settings, nil when off.
+// cli is the engram client for the current settings and the person's
+// store, nil when off.
 func (s *EngramService) cli(cfg config.EngramConfig) EngramCLI {
+	return s.cliIn(cfg, "")
+}
+
+// cliIn is the engram client for the current settings and a store of its
+// own (home; "" for the person's), nil when off.
+func (s *EngramService) cliIn(cfg config.EngramConfig, home string) EngramCLI {
 	if cfg.Enabled == config.EngramOff || s.opts.Runner == nil {
 		return nil
 	}
-	return s.opts.Runner(cfg.Command)
+	return s.opts.Runner(cfg.Command, home)
+}
+
+// In is the engram client for a store of its own (home; "" for the
+// person's), with the current settings; ErrEngramsOff when off.
+func (s *EngramService) In(ctx context.Context, home string) (EngramCLI, error) {
+	cli := s.cliIn(s.config(ctx), home)
+	if cli == nil {
+		return nil, ErrEngramsOff
+	}
+	return cli, nil
 }
 
 // Status probes engram: where it is, then the engrams it keeps. With
@@ -157,9 +180,13 @@ func engramProblem(err error) string {
 // EngramRunner is the engram client used outside tests: the binary named
 // by command, with what it needs of this process's environment to find its
 // store and git.
-func EngramRunner(getenv func(string) string) func(command string) EngramCLI {
-	return func(command string) EngramCLI {
-		return engram.Runner{Command: command, Env: engram.HostEnvironment(getenv)}
+func EngramRunner(getenv func(string) string) func(command, home string) EngramCLI {
+	return func(command, home string) EngramCLI {
+		env := engram.HostEnvironment(getenv)
+		if home != "" {
+			env = append(env, "ENGRAM_HOME="+home)
+		}
+		return engram.Runner{Command: command, Env: env}
 	}
 }
 
@@ -187,6 +214,11 @@ type EngramBootRequest struct {
 	TaskID      string
 	ExecutionID string
 	Dir         string // where the agent works (the job clone, for one)
+	// Home is the engram's own store (ENGRAM_HOME), "" for the person's.
+	Home string
+	// Seed issues the engram with it when the store does not have it yet;
+	// "" requires the engram to exist.
+	Seed string
 	// Resume is a resumed conversation: it keeps its session and gets no
 	// packet, so nothing is booted.
 	Resume bool
@@ -213,7 +245,7 @@ func (s *EngramService) Boot(ctx context.Context, req EngramBootRequest) (Engram
 		return EngramBoot{}, errors.New("only Claude Code, Codex and Chimera agents can be started as an engram")
 	}
 	cfg := s.config(ctx)
-	cli := s.cli(cfg)
+	cli := s.cliIn(cfg, req.Home)
 	if cli == nil {
 		return EngramBoot{}, ErrEngramsOff
 	}
@@ -221,15 +253,33 @@ func (s *EngramService) Boot(ctx context.Context, req EngramBootRequest) (Engram
 	if err != nil {
 		return EngramBoot{}, err
 	}
+	issue := func() error {
+		if _, err := cli.NewIdentity(ctx, req.Name, req.Seed); err != nil && !errors.Is(err, engram.ErrIdentityExists) {
+			return err
+		}
+		where.Store.Exists = true
+		return nil
+	}
 	if !where.Store.Exists {
-		return EngramBoot{}, &engram.Error{Code: 4, Message: "no store at " + where.Store.Root}
+		if req.Seed == "" {
+			return EngramBoot{}, &engram.Error{Code: 4, Message: "no store at " + where.Store.Root}
+		}
+		// engram makes the store with the engram's first file.
+		if err := issue(); err != nil {
+			return EngramBoot{}, err
+		}
 	}
 	ids, err := cli.List(ctx)
 	if err != nil {
 		return EngramBoot{}, err
 	}
 	if !hasIdentity(ids, req.Name) {
-		return EngramBoot{}, &engram.Error{Code: 3, Message: "unknown identity \"" + req.Name + "\""}
+		if req.Seed == "" {
+			return EngramBoot{}, &engram.Error{Code: 3, Message: "unknown identity \"" + req.Name + "\""}
+		}
+		if err := issue(); err != nil {
+			return EngramBoot{}, err
+		}
 	}
 	boot := EngramBoot{
 		Env: map[string]string{
@@ -251,7 +301,7 @@ func (s *EngramService) Boot(ctx context.Context, req EngramBootRequest) (Engram
 	}
 	booter := cli
 	if where.Binary != "" {
-		booter = s.opts.Runner(where.Binary)
+		booter = s.opts.Runner(where.Binary, req.Home)
 	}
 	result, err := booter.Boot(ctx, envList(boot.Env), req.Dir)
 	if result.Stderr != "" {
@@ -269,12 +319,14 @@ type EngramSessionRef struct {
 	Name    string
 	Session string
 	Dir     string
+	// Home is the engram's own store, "" for the person's.
+	Home string
 }
 
 // EndSession runs `engram session end` for an engram session, which marks
 // it over without a handoff.
 func (s *EngramService) EndSession(ctx context.Context, ref EngramSessionRef) error {
-	cli := s.cli(s.config(ctx))
+	cli := s.cliIn(s.config(ctx), ref.Home)
 	if cli == nil {
 		return ErrEngramsOff
 	}
@@ -284,7 +336,7 @@ func (s *EngramService) EndSession(ctx context.Context, ref EngramSessionRef) er
 	}
 	ender := cli
 	if where.Binary != "" {
-		ender = s.opts.Runner(where.Binary)
+		ender = s.opts.Runner(where.Binary, ref.Home)
 	}
 	return ender.EndSession(ctx, envList(map[string]string{
 		"ENGRAM_IDENTITY": ref.Name, "ENGRAM_HOME": where.Store.Root, "ENGRAM_SESSION": ref.Session,

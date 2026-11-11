@@ -99,3 +99,28 @@ func TestAnEngramAgentWhosePaneEndedEndsItsEngramSession(t *testing.T) {
 		t.Fatalf("ended %d engram sessions, want 1", len(cli.ended))
 	}
 }
+
+// The Reeve's idle suspend stops its agent with the engram session kept;
+// ending the session later ends it.
+func TestEndingATasksKeptEngramSession(t *testing.T) {
+	f := newRestartFixture(t)
+	cli := f.withEngrams(t)
+	ctx := context.Background()
+	createTask(t, f.store, "task-s")
+	if err := f.svc.SpawnAgent(ctx, "task-s", 0, 0, AgentSpawnOptions{AgentKind: "claude-code", WorkingDir: t.TempDir(), Engram: "mneme", EngramHome: "/state/reeve/engram"}); err != nil {
+		t.Fatal(err)
+	}
+	session, _ := f.store.GetAgentSessionByTaskID(ctx, "task-s")
+	if err := f.svc.KillAgent(withEngramSessionKept(ctx), "task-s"); err != nil {
+		t.Fatal(err)
+	}
+	if len(cli.ended) != 0 {
+		t.Fatalf("a kept session was ended: %v", cli.ended)
+	}
+	f.svc.(interface {
+		EndTaskEngramSession(ctx context.Context, taskID string)
+	}).EndTaskEngramSession(ctx, "task-s")
+	if len(cli.ended) != 1 || envOf(cli.ended[0])["ENGRAM_SESSION"] != session.ExecutionID || envOf(cli.ended[0])["ENGRAM_HOME"] != "/state/reeve/engram" {
+		t.Fatalf("ended = %v", cli.ended)
+	}
+}

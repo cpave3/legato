@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"fmt"
 	"log"
 	"os"
 	"strconv"
@@ -23,8 +24,12 @@ func newReeveService(db *store.Store, agents service.AgentService, srv *server.S
 	if agents == nil {
 		return nil
 	}
+	// The Reeve starts as its own engram, through the agent service's
+	// engram steps.
+	giveAgentsEngrams(agents, db)
+	folder := service.ReeveFolder(os.Getenv)
 	opts := service.ReeveServiceOptions{
-		Store: db, Agents: agents, Folder: service.ReeveFolder(os.Getenv),
+		Store: db, Agents: agents, Folder: folder,
 		Defaults: func() service.ReeveDefaults {
 			cfg, err := settingsFor(db).Effective(context.Background())
 			if err != nil || cfg == nil {
@@ -33,7 +38,9 @@ func newReeveService(db *store.Store, agents service.AgentService, srv *server.S
 			return reeveDefaults(cfg)
 		},
 		Snapshot: func(ctx context.Context) string { return reeveSnapshot(ctx, db) },
-		Engram:   service.NoEngram{},
+		Engram: func(ctx context.Context) (service.ReeveEngram, error) {
+			return reeveEngram(ctx, db, folder)
+		},
 		Changed: func(string) {
 			if srv != nil {
 				srv.NotifyAgentsChanged()
@@ -44,6 +51,20 @@ func newReeveService(db *store.Store, agents service.AgentService, srv *server.S
 		opts.Approvals = approvals
 	}
 	return service.NewReeveService(opts)
+}
+
+// reeveEngram is this instance's Reeve engram, or why it has none: with
+// engram.enabled off the Reeve starts without one, and no Attention item
+// says so.
+func reeveEngram(ctx context.Context, db *store.Store, folder string) (service.ReeveEngram, error) {
+	if cfg, err := settingsFor(db).Effective(ctx); err == nil && cfg != nil && cfg.Engram.Enabled == config.EngramOff {
+		return service.ReeveEngram{}, service.ErrEngramsOff
+	}
+	id, err := service.InstanceID(ctx, db)
+	if err != nil {
+		return service.ReeveEngram{}, fmt.Errorf("reading this instance's ID: %w", err)
+	}
+	return service.ReeveEngramFor(id, folder), nil
 }
 
 func reeveDefaults(cfg *config.Config) service.ReeveDefaults {
@@ -153,4 +174,16 @@ func reeveRules(db *store.Store, approvals *service.ApprovalService) *service.Re
 	rules := &service.ReeveRules{Settings: settingsFor(db), Approvals: approvals, Store: db}
 	rules.Register()
 	return rules
+}
+
+// wireReeveEngram serves the Reeve's engram in Settings, and writes a seed
+// the person signed.
+func wireReeveEngram(srv *server.Server, db *store.Store, approvals *service.ApprovalService) {
+	folder := service.ReeveFolder(os.Getenv)
+	e := service.NewReeveEngramService(service.ReeveEngramOptions{
+		Engram:  func(ctx context.Context) (service.ReeveEngram, error) { return reeveEngram(ctx, db, folder) },
+		Engrams: engramsFor(db), Approvals: approvals, Store: db,
+	})
+	e.Register()
+	srv.SetReeveEngram(e)
 }

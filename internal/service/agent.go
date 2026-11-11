@@ -210,6 +210,16 @@ type AgentSpawnOptions struct {
 	// EngramRequired fails the spawn, before anything starts, when the
 	// engram is not one engram lists (a workflow step's).
 	EngramRequired bool
+	// EngramHome keeps the engram in a store of its own (ENGRAM_HOME): the
+	// Reeve's. "" is the person's store.
+	EngramHome string
+	// EngramSeed issues the engram with this seed when its store does not
+	// have it yet.
+	EngramSeed string
+	// EngramMissing is what stands first in the launch prompt, in place of
+	// the packet, when the engram did not boot (the Reeve's line); nil adds
+	// nothing.
+	EngramMissing func(reason string) string
 }
 
 // AgentSpawnConflict describes a scope-overlap warning encountered at spawn time.
@@ -922,6 +932,11 @@ func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, hei
 	if booted.booted() && booted.Packet != "" {
 		rolePrompt = joinPromptSections(EngramPromptSection(booted.name, booted.Packet), rolePrompt)
 	}
+	missing := ""
+	if booted != nil && !booted.booted() && opt.EngramMissing != nil {
+		missing = opt.EngramMissing(booted.failed)
+		rolePrompt = joinPromptSections(missing, rolePrompt)
+	}
 	if rolePrompt != "" || assignment != "" {
 		rolePath, briefPath, perr := writeAgentPromptFiles(agentKey, rolePrompt, assignment)
 		if perr != nil {
@@ -948,6 +963,9 @@ func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, hei
 	resumedLaunch := nativeResume || (opt.SessionPolicy == "resume" && agentKind == "chimera")
 	if resumedLaunch && booted.booted() && !booted.resumed && booted.Packet != "" {
 		prompt = joinPromptSections(EngramPromptSection(booted.name, booted.Packet), prompt)
+	}
+	if resumedLaunch && missing != "" {
+		prompt = joinPromptSections(missing, prompt)
 	}
 	if strings.ContainsAny(prompt, "\n\r\"") {
 		if dir, err := swarm.AgentDir(agentKey); err != nil {
@@ -1006,6 +1024,12 @@ func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, hei
 		if err := a.store.SetExecutionEngram(ctx, executionID, booted.name, booted.session); err != nil {
 			failExecution()
 			return fmt.Errorf("recording the engram: %w", err)
+		}
+		if booted.home != "" {
+			if err := a.store.SetExecutionEngramHome(ctx, executionID, booted.home); err != nil {
+				failExecution()
+				return fmt.Errorf("recording the engram's store: %w", err)
+			}
 		}
 		engramRecorded = true
 	} else if booted != nil {

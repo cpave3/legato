@@ -66,8 +66,9 @@ type ReeveServiceOptions struct {
 	// Snapshot is the instance's snapshot, put in the launch prompt and
 	// sent to a resumed session first.
 	Snapshot func(ctx context.Context) string
-	// Engram boots the Reeve's engram; nil is NoEngram.
-	Engram EngramBooter
+	// Engram is the Reeve's own engram for a session; nil, or an error
+	// (ErrEngramsOff), starts the session without one.
+	Engram func(ctx context.Context) (ReeveEngram, error)
 	// Approvals expires a session's pending approvals when it ends (not
 	// when it is suspended).
 	Approvals interface {
@@ -119,6 +120,9 @@ type ReeveOverview struct {
 	Role     string `json:"role"`
 	// ToApprove is how many approvals the Reeve's sessions wait on.
 	ToApprove int `json:"to_approve"`
+	// Engram is the engram the current session's agent runs as, "" when
+	// it runs without one.
+	Engram string `json:"engram,omitempty"`
 }
 
 // Overview is the current session and every session, newest first.
@@ -132,6 +136,11 @@ func (s *ReeveService) Overview(ctx context.Context) (ReeveOverview, error) {
 		return ReeveOverview{}, err
 	}
 	overview := ReeveOverview{Current: current, History: history, Folder: s.opts.Folder, Instance: instanceName(), Role: s.instanceRole(ctx)}
+	if current != nil {
+		if agent, err := s.opts.Store.GetAgentSessionByTaskID(ctx, current.TaskID); err == nil {
+			overview.Engram = agent.Engram
+		}
+	}
 	for _, h := range history {
 		if pending, err := s.opts.Store.ListApprovals(ctx, store.ApprovalFilter{Status: store.ApprovalPending, TaskID: h.TaskID}); err == nil {
 			overview.ToApprove += len(pending)
@@ -212,7 +221,8 @@ func (s *ReeveService) spawn(ctx context.Context, row store.ReeveSession, brief 
 	if s.opts.Snapshot != nil {
 		snapshot = s.opts.Snapshot(ctx)
 	}
-	launch := ReeveLaunchPrompt(ctx, s.opts.Engram, row.TaskID, snapshot, brief)
+	reeveEngram, noEngram := s.engram(ctx)
+	launch := ReeveLaunchPrompt(noEngram, snapshot, brief)
 	first := ""
 	switch {
 	case resumed:
@@ -228,11 +238,36 @@ func (s *ReeveService) spawn(ctx context.Context, row store.ReeveSession, brief 
 		Resources: []Resource{{Name: "The Reeve's folder", Paths: []ResourcePath{{Path: s.opts.Folder, Access: "write"}}, Configured: true}},
 		ExtraEnv:  map[string]string{"LEGATO_REEVE": "1"},
 	}
+	if reeveEngram.Name != "" {
+		opt.Engram, opt.EngramHome, opt.EngramSeed = reeveEngram.Name, reeveEngram.Home, reeveEngram.Seed
+		opt.EngramMissing = reeveNoEngram
+	}
 	_ = json.Unmarshal([]byte(row.LaunchArgs), &opt.LaunchArgs)
 	if resumed {
 		opt.SessionPolicy = "resume"
 	}
 	return s.opts.Agents.SpawnAgent(ctx, row.TaskID, 0, 0, opt)
+}
+
+// engram is the Reeve's engram for a session, or why it has none.
+func (s *ReeveService) engram(ctx context.Context) (ReeveEngram, string) {
+	if s.opts.Engram == nil {
+		return ReeveEngram{}, "this Legato gives the Reeve no engram"
+	}
+	e, err := s.opts.Engram(ctx)
+	if err != nil {
+		return ReeveEngram{}, err.Error()
+	}
+	if e.Name == "" {
+		return ReeveEngram{}, "this Legato gives the Reeve no engram"
+	}
+	return e, ""
+}
+
+// reeveEngramEnder ends the engram session a task's agent left kept (the
+// agent service).
+type reeveEngramEnder interface {
+	EndTaskEngramSession(ctx context.Context, taskID string)
 }
 
 // End ends the running session: its agent stops, its token is revoked.
@@ -249,6 +284,13 @@ func (s *ReeveService) End(ctx context.Context, taskID string) error {
 	if row.State == store.ReeveRunning {
 		if err := s.opts.Agents.KillAgent(ctx, taskID); err != nil && !errors.Is(err, store.ErrNotFound) && !strings.Contains(err.Error(), "no agent") {
 			return err
+		}
+	}
+	// A suspended session's agent stopped with its engram session kept:
+	// ending the session ends that too.
+	if row.State == store.ReeveSuspended {
+		if ender, ok := s.opts.Agents.(reeveEngramEnder); ok {
+			ender.EndTaskEngramSession(ctx, taskID)
 		}
 	}
 	if err := s.opts.Store.SetReeveSessionState(ctx, taskID, store.ReeveEnded); err != nil {
@@ -386,7 +428,8 @@ func (s *ReeveService) SuspendIdle(ctx context.Context, now time.Time, timeout t
 	if err != nil || now.Sub(active) < timeout {
 		return 0, nil
 	}
-	if err := s.opts.Agents.KillAgent(ctx, current.TaskID); err != nil && !errors.Is(err, store.ErrNotFound) {
+	// Its engram session stays open for the resume.
+	if err := s.opts.Agents.KillAgent(withEngramSessionKept(ctx), current.TaskID); err != nil && !errors.Is(err, store.ErrNotFound) {
 		return 0, err
 	}
 	if err := s.opts.Store.SetReeveSessionState(ctx, current.TaskID, store.ReeveSuspended); err != nil {

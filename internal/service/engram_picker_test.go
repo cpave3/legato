@@ -35,7 +35,7 @@ func newPickerFixture(t *testing.T) *pickerFixture {
 		Config: func(context.Context) (config.EngramConfig, error) {
 			return config.EngramConfig{Enabled: config.EngramAuto}, nil
 		},
-		Runner: func(string) EngramCLI { return cli },
+		Runner: func(string, string) EngramCLI { return cli },
 		Store:  s,
 	})
 	return &pickerFixture{store: s, cli: cli, svc: svc}

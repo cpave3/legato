@@ -300,6 +300,10 @@ var routeClassTable = []routeClassEntry{
 	{"POST", "/api/reeve/message", ClassChange, "Send the Reeve a message"},
 	{"GET", "/api/reeve/sessions/{task_id}/change-sets", ClassRead, "List a Reeve session's change sets"},
 	{"POST", "/api/reeve/secrets/{approval_id}", ClassNever, "Store a secret the person pasted"},
+	{"GET", "/api/reeve/engram", ClassRead, "Show the Reeve's engram: its seed, memories and open threads"},
+	{"PUT", "/api/reeve/engram/seed", ClassRisky, "Change the Reeve's seed (one of its own rules: needs a signature)"},
+	{"DELETE", "/api/reeve/engram/memories/{id}", ClassRisky, "Delete one of the Reeve's memories for good"},
+	{"DELETE", "/api/reeve/engram/threads/{id}", ClassRisky, "Close one of the Reeve's open threads"},
 	{"POST", "/api/config/import", ClassRisky, "Import settings from a file, as a change set"},
 	// Reeve to Reeve.
 	{"POST", "/api/integrations/reeve/messages", ClassChange, "Message this instance's Reeve, as another instance's"},

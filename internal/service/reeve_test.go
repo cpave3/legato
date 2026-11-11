@@ -12,9 +12,15 @@ import (
 )
 
 type fakeReeveAgents struct {
-	spawned []AgentSpawnOptions
-	tasks   []string
-	killed  []string
+	spawned      []AgentSpawnOptions
+	tasks        []string
+	killed       []string
+	keptOnKill   []bool
+	engramsEnded []string
+}
+
+func (f *fakeReeveAgents) EndTaskEngramSession(_ context.Context, taskID string) {
+	f.engramsEnded = append(f.engramsEnded, taskID)
 }
 
 func (f *fakeReeveAgents) SpawnAgent(_ context.Context, taskID string, _, _ int, opts ...AgentSpawnOptions) error {
@@ -23,8 +29,10 @@ func (f *fakeReeveAgents) SpawnAgent(_ context.Context, taskID string, _, _ int,
 	return nil
 }
 
-func (f *fakeReeveAgents) KillAgent(_ context.Context, taskID string) error {
+func (f *fakeReeveAgents) KillAgent(ctx context.Context, taskID string) error {
 	f.killed = append(f.killed, taskID)
+	kept, _ := ctx.Value(engramSessionKeptKey{}).(bool)
+	f.keptOnKill = append(f.keptOnKill, kept)
 	return nil
 }
 
@@ -199,18 +207,80 @@ func TestAResumedReeveSessionIsSentAFreshSnapshotFirst(t *testing.T) {
 	}
 }
 
-type bootedEngram struct{}
+var testReeveEngram = ReeveEngram{Name: "reeve-1a2b3c4d", Home: "/state/legato/reeve/engram", Seed: "You keep this Legato running."}
 
-func (bootedEngram) Boot(context.Context, string) (string, error) {
-	return "## Memories\nthe person likes short answers", nil
+// The Reeve's engram goes through the spawn's engram steps: its name, its
+// own store and its seed, and the line that stands in for the packet when
+// the boot fails.
+func TestAReeveSessionStartsAsItsOwnEngram(t *testing.T) {
+	svc, _, agents, _ := newReeveFixture(t)
+	svc.opts.Engram = func(context.Context) (ReeveEngram, error) { return testReeveEngram, nil }
+	svc.opts.Snapshot = func(context.Context) string { return "## This instance" }
+	if _, err := svc.Start(context.Background(), ReeveStart{}); err != nil {
+		t.Fatal(err)
+	}
+	opt := agents.spawned[0]
+	if opt.Engram != "reeve-1a2b3c4d" || opt.EngramHome != testReeveEngram.Home || opt.EngramSeed != testReeveEngram.Seed {
+		t.Fatalf("spawn engram = %q in %q seeded %q", opt.Engram, opt.EngramHome, opt.EngramSeed)
+	}
+	if !strings.HasPrefix(opt.LaunchPrompt, "## You are the Reeve") {
+		t.Fatalf("the spawn puts the packet first; the launch prompt starts:\n%s", opt.LaunchPrompt)
+	}
+	if opt.EngramMissing == nil || !strings.Contains(opt.EngramMissing("its store is read-only"), "without your engram") ||
+		!strings.Contains(opt.EngramMissing("its store is read-only"), "its store is read-only") {
+		t.Fatal("no line stands in for a packet that did not boot")
+	}
 }
 
-// The one seam where the engram's boot goes: a booter that works puts its
-// packet first.
-func TestAnEngramThatBootsLeadsTheLaunchPrompt(t *testing.T) {
-	prompt := ReeveLaunchPrompt(context.Background(), bootedEngram{}, "t", "## This instance", "")
-	if !strings.HasPrefix(prompt, "## Memories") || strings.Contains(prompt, "without your engram") {
-		t.Fatalf("prompt = %s", prompt)
+func TestAResumedReeveSessionKeepsItsEngram(t *testing.T) {
+	svc, _, agents, _ := newReeveFixture(t)
+	svc.opts.Engram = func(context.Context) (ReeveEngram, error) { return testReeveEngram, nil }
+	ctx := context.Background()
+	s, _ := svc.Start(ctx, ReeveStart{})
+	svc.End(ctx, s.TaskID)
+	if _, err := svc.Resume(ctx, s.TaskID, ReeveStart{}); err != nil {
+		t.Fatal(err)
+	}
+	if opt := agents.spawned[1]; opt.SessionPolicy != "resume" || opt.Engram != "reeve-1a2b3c4d" || opt.EngramHome != testReeveEngram.Home {
+		t.Fatalf("resume spawn = %+v", opt)
+	}
+}
+
+// With engrams off (or no instance to name it after), the Reeve starts
+// without one, and its launch prompt says so first.
+func TestAReeveWithoutAnEngramSaysSoFirst(t *testing.T) {
+	svc, _, agents, _ := newReeveFixture(t)
+	svc.opts.Engram = func(context.Context) (ReeveEngram, error) { return ReeveEngram{}, ErrEngramsOff }
+	if _, err := svc.Start(context.Background(), ReeveStart{}); err != nil {
+		t.Fatal(err)
+	}
+	opt := agents.spawned[0]
+	if opt.Engram != "" || !strings.HasPrefix(opt.LaunchPrompt, "## Your engram") || !strings.Contains(opt.LaunchPrompt, "engram.enabled") {
+		t.Fatalf("engram %q, launch prompt:\n%s", opt.Engram, opt.LaunchPrompt)
+	}
+}
+
+// Suspending for idleness keeps the engram session for the resume; ending
+// a suspended session ends it.
+func TestSuspendingKeepsTheEngramSessionAndEndingEndsIt(t *testing.T) {
+	svc, db, agents, _ := newReeveFixture(t)
+	svc.opts.Engram = func(context.Context) (ReeveEngram, error) { return testReeveEngram, nil }
+	ctx := context.Background()
+	s, _ := svc.Start(ctx, ReeveStart{})
+	row, _ := db.GetReeveSession(ctx, s.TaskID)
+	active, _ := time.Parse("2006-01-02T15:04:05.000Z", row.ActiveAt)
+	svc.SuspendIdle(ctx, active.Add(3*time.Hour), 2*time.Hour)
+	if len(agents.keptOnKill) != 1 || !agents.keptOnKill[0] {
+		t.Fatalf("the idle suspend did not keep the engram session: %v", agents.keptOnKill)
+	}
+	if len(agents.engramsEnded) != 0 {
+		t.Fatalf("suspending ended %v", agents.engramsEnded)
+	}
+	if err := svc.End(ctx, s.TaskID); err != nil {
+		t.Fatal(err)
+	}
+	if len(agents.engramsEnded) != 1 || agents.engramsEnded[0] != s.TaskID {
+		t.Fatalf("ending a suspended session ended %v", agents.engramsEnded)
 	}
 }
 
@@ -355,5 +425,32 @@ func TestAnInterruptedReeveSessionResumesItsConversation(t *testing.T) {
 	}
 	if handled, err := svc.ResumeInterrupted(ctx, "not-the-reeve"); handled || err != nil {
 		t.Fatalf("another task: %v, %v; want it left to the agent service", handled, err)
+	}
+}
+
+// The conversation's status bar names the engram the Reeve's agent runs
+// as, or none when it did not boot.
+func TestTheOverviewNamesTheEngramTheReevesAgentRunsAs(t *testing.T) {
+	svc, db, _, _ := newReeveFixture(t)
+	ctx := context.Background()
+	s, _ := svc.Start(ctx, ReeveStart{})
+	if overview, _ := svc.Overview(ctx); overview.Engram != "" {
+		t.Fatalf("engram with no agent = %q", overview.Engram)
+	}
+	if err := db.CreateExecution(ctx, store.Execution{ID: "ex-r", Kind: store.ExecutionInteractive, Status: store.ExecutionRunning, TaskID: s.TaskID, ExecutionTaskID: s.TaskID, StartedAt: time.Now()}); err != nil {
+		t.Fatal(err)
+	}
+	if err := db.SetExecutionEngram(ctx, "ex-r", "reeve-1a2b3c4d", "ex-r"); err != nil {
+		t.Fatal(err)
+	}
+	id, err := db.InsertAgentSessionReturningID(ctx, store.AgentSession{TaskID: s.TaskID, Status: "running", AgentKind: "claude-code"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := db.LinkExecutionAgentSession(ctx, "ex-r", id); err != nil {
+		t.Fatal(err)
+	}
+	if overview, _ := svc.Overview(ctx); overview.Engram != "reeve-1a2b3c4d" {
+		t.Fatalf("engram = %q", overview.Engram)
 	}
 }

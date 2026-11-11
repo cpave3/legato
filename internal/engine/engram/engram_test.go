@@ -238,3 +238,73 @@ func TestHostEnvironmentKeepsOnlyWhatFindsTheStore(t *testing.T) {
 		t.Fatalf("HostEnvironment = %v, want %v", env, want)
 	}
 }
+
+func TestNewIdentityIssuesItWithTheSeedOnStdin(t *testing.T) {
+	seed := filepath.Join(t.TempDir(), "seed")
+	bin := fakeEngram(t, `"identity new reeve-1a2b3c4d --file - --json") cat > `+seed+`; echo '{"identity":"reeve-1a2b3c4d","dir":"/store/identities/reeve-1a2b3c4d"}';;`)
+	dir, err := Runner{Command: bin}.NewIdentity(context.Background(), "reeve-1a2b3c4d", "You keep this Legato running.\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if dir != "/store/identities/reeve-1a2b3c4d" {
+		t.Fatalf("dir = %q", dir)
+	}
+	if got, _ := os.ReadFile(seed); string(got) != "You keep this Legato running.\n" {
+		t.Fatalf("engram read the seed %q", got)
+	}
+}
+
+func TestNewIdentityThatExistsIsTold(t *testing.T) {
+	bin := fakeEngram(t, `"identity new reeve-1 --file - --json") cat >/dev/null; echo '{"error":{"code":"identity_exists","message":"exists"}}'; echo 'identity "reeve-1" already exists' >&2; exit 5;;`)
+	_, err := Runner{Command: bin}.NewIdentity(context.Background(), "reeve-1", "seed")
+	if !errors.Is(err, ErrIdentityExists) {
+		t.Fatalf("error = %v, want ErrIdentityExists", err)
+	}
+}
+
+const memoriesJSON = `{"total":2,"memories":[{"id":"kp5rastm","kind":"preference","scope":"global","source":"told","created":"2026-11-10T23:08:45Z","tags":["tea"],"body":"The person likes short answers"},{"id":"a1","kind":"fact","scope":"dir:/x","source":"observed","created":"2026-11-09T10:00:00Z","body":"Worker 2 is on wifi"}]}`
+
+func TestMemoriesListsEveryScopeOfTheEngram(t *testing.T) {
+	bin := fakeEngram(t, `"memories --as reeve-1 --all-scopes --limit 200 --json") echo '`+memoriesJSON+`';;`)
+	got, err := Runner{Command: bin}.Memories(context.Background(), "reeve-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 2 || got[0].ID != "kp5rastm" || got[0].Kind != "preference" || got[0].Body != "The person likes short answers" ||
+		got[0].Scope != "global" || got[0].Source != "told" || !got[0].Created.Equal(time.Date(2026, 11, 10, 23, 8, 45, 0, time.UTC)) {
+		t.Fatalf("Memories = %+v", got)
+	}
+}
+
+func TestThreadsListsTheOpenOnes(t *testing.T) {
+	bin := fakeEngram(t, `"thread list --as reeve-1 --json") echo '[{"id":"geg64724","title":"Check the worker","scope":"global","opened":"2026-11-10T23:08:45Z","body":"It dropped twice"}]';;`)
+	got, err := Runner{Command: bin}.Threads(context.Background(), "reeve-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(got) != 1 || got[0].ID != "geg64724" || got[0].Title != "Check the worker" || got[0].Body != "It dropped twice" || got[0].Opened.IsZero() {
+		t.Fatalf("Threads = %+v", got)
+	}
+}
+
+func TestRemoveMemoryConfirmsTheDeletion(t *testing.T) {
+	marker := filepath.Join(t.TempDir(), "removed")
+	bin := fakeEngram(t, `"remove kp5rastm --as reeve-1 --yes") echo removed > `+marker+`;;`)
+	if err := (Runner{Command: bin}).RemoveMemory(context.Background(), "reeve-1", "kp5rastm"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(marker); err != nil {
+		t.Fatal("engram was not asked to remove the memory")
+	}
+}
+
+func TestCloseThreadGivesTheResolution(t *testing.T) {
+	marker := filepath.Join(t.TempDir(), "closed")
+	bin := fakeEngram(t, `"thread close geg64724 --as reeve-1 --file -") cat > `+marker+`;;`)
+	if err := (Runner{Command: bin}).CloseThread(context.Background(), "reeve-1", "geg64724", "Removed in Settings."); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := os.ReadFile(marker); string(got) != "Removed in Settings." {
+		t.Fatalf("resolution = %q", got)
+	}
+}

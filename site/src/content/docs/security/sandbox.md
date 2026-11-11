@@ -118,7 +118,7 @@ You can start one agent without the sandbox:
 - **TUI**: press `ctrl+u` in the spawn overlay.
 - **API**: send `"sandbox": false` to `POST /api/agents/spawn` or `POST /api/tasks/{id}/agent`.
 
-Such an agent is marked unsandboxed, in the web UI and in the TUI's agents view. Swarm and workflow agents always run in the sandbox, and so does [the Reeve](/legato/using/reeve/), which cannot be started or moved out of it. The Reeve gets its own folder, `~/.local/state/legato/reeve`, read-write.
+Such an agent is marked unsandboxed, in the web UI and in the TUI's agents view. Swarm and workflow agents always run in the sandbox, and so does [the Reeve](/legato/using/reeve/), which cannot be started or moved out of it. The Reeve gets its own folder, `~/.local/state/legato/reeve`, read-write. Its engram's store is inside that folder, and its sandbox has the engram binary first on `PATH`, read-only, as for any agent started as an engram.
 
 To move a running agent, press `U` in the TUI's agents view, or in the web UI choose **Reload without sandbox** (or **Reload in sandbox**) in the agent's **More actions** menu or its right-click menu in the sidebar. Legato restarts it on the other side of the sandbox, resuming its conversation. **Reload agent** keeps whichever side the agent is on.
 

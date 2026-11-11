@@ -63,4 +63,4 @@ A workflow's `agent.run` step can start its agent as an engram with `with.engram
 
 ## Not offered
 
-Swarm conductors and workers, and tasks handed off to another Legato, cannot be started as an engram. Legato does not create or edit engrams: use the engram command for that.
+Swarm conductors and workers, and tasks handed off to another Legato, cannot be started as an engram. Legato does not create or edit engrams: use the engram command for that. The one exception is [the Reeve](/legato/using/reeve/#its-memory)'s own engram, which Legato makes, in a store of its own that never shows among yours.

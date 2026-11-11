@@ -23,6 +23,8 @@ export interface ReeveOverview {
   role: string
   // Approvals the Reeve's sessions wait on.
   to_approve: number
+  // The engram the current session's agent runs as, absent without one.
+  engram?: string
 }
 
 // How a session starts: an override of the agent tool and model, a brief.
@@ -165,3 +167,56 @@ export function parseReeveMessage(text: string): ReeveMessage | null {
   const match = peerFrame.exec(text)
   return match ? { instance: match[1], role: match[2], body: match[3] } : null
 }
+
+// The Reeve's engram (GET /api/reeve/engram): its seed, memories and open
+// threads, in a store of its own.
+export interface ReeveMemory {
+  id: string
+  kind: string
+  scope: string
+  source: string
+  created: string
+  tags?: string[]
+  body: string
+}
+
+export interface ReeveThread {
+  id: string
+  title: string
+  scope: string
+  opened: string
+  body?: string
+}
+
+export interface ReeveEngram {
+  enabled: boolean
+  error?: string
+  name: string
+  store: string
+  // False until the Reeve's first session issues it.
+  exists: boolean
+  seed: {
+    text: string
+    // None of Legato's built-in seeds.
+    edited: boolean
+    // This version's built-in seed.
+    template: string
+    // The built-in seed changed since the seed was written.
+    newer: boolean
+  }
+  memories: ReeveMemory[]
+  threads: ReeveThread[]
+}
+
+export async function fetchReeveEngram(baseUrl: string): Promise<ReeveEngram> {
+  const response = await apiFetch(baseUrl, "/api/reeve/engram")
+  if (!response.ok) throw await failed(response)
+  return response.json()
+}
+
+// saveReeveSeed asks for a signed approval of a new seed (one of the
+// Reeve's own rules); the seed changes once it is signed.
+export const saveReeveSeed = (baseUrl: string, seed: string) =>
+  post(baseUrl, "/api/reeve/engram/seed", { seed }, "PUT") as Promise<{ status: string; approval_id: string }>
+export const removeReeveMemory = (baseUrl: string, id: string) => post(baseUrl, `/api/reeve/engram/memories/${encodeURIComponent(id)}`, undefined, "DELETE")
+export const removeReeveThread = (baseUrl: string, id: string) => post(baseUrl, `/api/reeve/engram/threads/${encodeURIComponent(id)}`, undefined, "DELETE")

@@ -24,11 +24,56 @@ type fakeEngramCLI struct {
 	boots     int
 	ended     [][]string
 	command   string // the command the service built this runner for
+	home      string // the store the service built this runner for, "" for the person's
+	issued    map[string]string
+	newErr    error
+	memories  []engram.Memory
+	threads   []engram.Thread
+	removed   []string
+	closed    map[string]string
 	endErr    error
 	placeErrs map[string]error
 }
 
-func (f *fakeEngramCLI) Probe(context.Context) (engram.Where, error) { return f.where, f.whereErr }
+func (f *fakeEngramCLI) Probe(context.Context) (engram.Where, error) {
+	where := f.where
+	if f.home != "" {
+		where.Store.Root, where.Store.Source = f.home, "ENGRAM_HOME"
+	}
+	return where, f.whereErr
+}
+func (f *fakeEngramCLI) NewIdentity(_ context.Context, name, seed string) (string, error) {
+	if f.newErr != nil {
+		return "", f.newErr
+	}
+	if hasIdentity(f.ids, name) {
+		return "", &engram.Error{Code: 5, Message: "identity exists"}
+	}
+	if f.issued == nil {
+		f.issued = map[string]string{}
+	}
+	f.issued[name] = seed
+	f.ids = append(f.ids, engram.Identity{Name: name})
+	f.where.Store.Exists = true
+	return f.where.Store.Root + "/identities/" + name, nil
+}
+func (f *fakeEngramCLI) Memories(context.Context, string) ([]engram.Memory, error) {
+	return f.memories, f.listErr
+}
+func (f *fakeEngramCLI) Threads(context.Context, string) ([]engram.Thread, error) {
+	return f.threads, f.listErr
+}
+func (f *fakeEngramCLI) RemoveMemory(_ context.Context, _, id string) error {
+	f.removed = append(f.removed, id)
+	return nil
+}
+func (f *fakeEngramCLI) CloseThread(_ context.Context, _, id, resolution string) error {
+	if f.closed == nil {
+		f.closed = map[string]string{}
+	}
+	f.closed[id] = resolution
+	return nil
+}
 func (f *fakeEngramCLI) List(context.Context) ([]engram.Identity, error) {
 	return f.ids, f.listErr
 }
@@ -55,7 +100,7 @@ func (f *fakeEngramCLI) EndSession(_ context.Context, env []string, _ string) er
 func newTestEngramService(cli *fakeEngramCLI, cfg config.EngramConfig) *EngramService {
 	return NewEngramService(EngramOptions{
 		Config: func(context.Context) (config.EngramConfig, error) { return cfg, nil },
-		Runner: func(command string) EngramCLI { cli.command = command; return cli },
+		Runner: func(command, home string) EngramCLI { cli.command, cli.home = command, home; return cli },
 	})
 }
 
@@ -115,7 +160,7 @@ func TestEngramStatusOffNeverProbes(t *testing.T) {
 		Config: func(context.Context) (config.EngramConfig, error) {
 			return config.EngramConfig{Enabled: config.EngramOff}, nil
 		},
-		Runner: func(string) EngramCLI { probed = true; return cli },
+		Runner: func(string, string) EngramCLI { probed = true; return cli },
 	})
 	st := svc.Status(context.Background())
 	if st.Enabled || probed || st.Mode != config.EngramOff {
@@ -128,7 +173,7 @@ func TestEngramStatusUsesTheConfiguredCommandAndReadsItEachTime(t *testing.T) {
 	cfg := config.EngramConfig{Enabled: config.EngramAuto, Command: "/custom/engram"}
 	svc := NewEngramService(EngramOptions{
 		Config: func(context.Context) (config.EngramConfig, error) { return cfg, nil },
-		Runner: func(command string) EngramCLI { cli.command = command; return cli },
+		Runner: func(command, home string) EngramCLI { cli.command, cli.home = command, home; return cli },
 	})
 	svc.Status(context.Background())
 	if cli.command != "/custom/engram" {
@@ -151,7 +196,11 @@ func bootService(cli *fakeEngramCLI) (*EngramService, *[]string) {
 		Config: func(context.Context) (config.EngramConfig, error) {
 			return config.EngramConfig{Enabled: config.EngramAuto}, nil
 		},
-		Runner: func(command string) EngramCLI { commands = append(commands, command); return cli },
+		Runner: func(command, home string) EngramCLI {
+			commands = append(commands, command)
+			cli.home = home
+			return cli
+		},
 	})
 	return svc, &commands
 }
@@ -282,5 +331,68 @@ func TestEngramPacketSection(t *testing.T) {
 		if !strings.Contains(got, want) {
 			t.Errorf("section lacks %q:\n%s", want, got)
 		}
+	}
+}
+
+func TestBootingAnEngramInAStoreOfItsOwnSetsEngramHomeToIt(t *testing.T) {
+	cli := &fakeEngramCLI{where: testWhere, ids: []engram.Identity{{Name: "reeve-1a2b3c4d"}}, boot: engram.BootResult{Packet: "# reeve\n"}}
+	svc, _ := bootService(cli)
+	got, err := svc.Boot(context.Background(), EngramBootRequest{Name: "reeve-1a2b3c4d", Home: "/state/reeve/engram", Session: "ex-1", Harness: "claude-code", ExecutionID: "ex-1"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cli.home != "/state/reeve/engram" {
+		t.Fatalf("engram ran against the store %q", cli.home)
+	}
+	if got.Env["ENGRAM_HOME"] != "/state/reeve/engram" || envOf(cli.bootEnv)["ENGRAM_HOME"] != "/state/reeve/engram" || got.Store != "/state/reeve/engram" {
+		t.Fatalf("env = %v, boot env = %v, store = %q", got.Env, cli.bootEnv, got.Store)
+	}
+}
+
+func TestBootingWithASeedIssuesAMissingEngramFirst(t *testing.T) {
+	where := testWhere
+	where.Store.Exists = false
+	cli := &fakeEngramCLI{where: where, boot: engram.BootResult{Packet: "# reeve\n"}}
+	svc, _ := bootService(cli)
+	got, err := svc.Boot(context.Background(), EngramBootRequest{Name: "reeve-1a2b3c4d", Home: "/state/reeve/engram", Seed: "You keep this Legato.", Session: "ex-1", Harness: "codex"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cli.issued["reeve-1a2b3c4d"] != "You keep this Legato." {
+		t.Fatalf("issued = %v", cli.issued)
+	}
+	if got.Packet != "# reeve\n" || !got.StoreExists {
+		t.Fatalf("boot = %+v", got)
+	}
+}
+
+func TestBootingWithASeedLeavesAnEngramThatExistsAsItIs(t *testing.T) {
+	cli := &fakeEngramCLI{where: testWhere, ids: []engram.Identity{{Name: "reeve-1a2b3c4d"}}, boot: engram.BootResult{Packet: "# reeve\n"}}
+	svc, _ := bootService(cli)
+	if _, err := svc.Boot(context.Background(), EngramBootRequest{Name: "reeve-1a2b3c4d", Seed: "new seed", Session: "ex-1", Harness: "codex"}); err != nil {
+		t.Fatal(err)
+	}
+	if len(cli.issued) != 0 {
+		t.Fatalf("an existing engram was issued again: %v", cli.issued)
+	}
+}
+
+func TestBootingWithASeedThatEngramCannotIssueFails(t *testing.T) {
+	cli := &fakeEngramCLI{where: testWhere, newErr: &engram.Error{Code: 1, Message: "permission denied"}}
+	svc, _ := bootService(cli)
+	_, err := svc.Boot(context.Background(), EngramBootRequest{Name: "reeve-1a2b3c4d", Seed: "seed", Session: "ex-1", Harness: "codex"})
+	if err == nil || !strings.Contains(EngramFailure("reeve-1a2b3c4d", err), "permission denied") {
+		t.Fatalf("error = %v", err)
+	}
+}
+
+func TestEndingASessionInAStoreOfItsOwnUsesThatStore(t *testing.T) {
+	cli := &fakeEngramCLI{where: testWhere}
+	svc, _ := bootService(cli)
+	if err := svc.EndSession(context.Background(), EngramSessionRef{Name: "reeve-1", Session: "ex-1", Home: "/state/reeve/engram"}); err != nil {
+		t.Fatal(err)
+	}
+	if cli.home != "/state/reeve/engram" || envOf(cli.ended[0])["ENGRAM_HOME"] != "/state/reeve/engram" {
+		t.Fatalf("ended in %q with %v", cli.home, cli.ended)
 	}
 }

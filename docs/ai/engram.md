@@ -25,13 +25,16 @@ A client of the CLI that knows nothing of Legato and imports no other engine pac
 - `RepoKey(host, owner/name)`: `repo:` + lowercase `host/owner/name` (host `github.com` when empty), for a job clone that does not exist yet. `KindOf` (`repo` or `folder`) and `Label` (the key without its prefix).
 - `Boot(env, dir)`: the packet from stdout, stderr apart (`BootResult`), 5 s. Exit 3 is `ErrUnknownIdentity`, exit 4 `ErrMissingStore`, any other failure an `*Error{Code, Message}`, the deadline `ErrTimeout`.
 - `EndSession(env, dir)`: `engram session end`.
+- `NewIdentity(name, seed)`: `identity new <name> --file - --json`, the seed on standard input; returns the engram's folder. Exit 5 is `ErrIdentityExists` (its seed is left as it was).
+- `Memories(name)` (`memories --as <name> --all-scopes --limit 200 --json`), `Threads(name)` (`thread list --as <name> --json`), `RemoveMemory(name, id)` (`remove <id> --as <name> --yes`) and `CloseThread(name, id, resolution)` (`thread close <id> --as <name> --file -`): for the Reeve's engram in Settings.
 - A missing binary is `ErrNotInstalled`.
+- `ENGRAM_HOME` in `Env` picks the store; the Reeve's engram is run that way, in a store of its own.
 
 ## Settings and detection
 
 `engram.enabled` (`auto`, the default; `on`; `off`) and `engram.command` (the binary; `engram` on `PATH` when empty) are live settings in the registry (`config/settings.go`), so a change applies to the next probe.
 
-`service.EngramService` (`internal/service/engram.go`) reads both from the effective configuration on every call (`EngramOptions.Config`) and makes the client with `EngramOptions.Runner` (`EngramRunner(os.Getenv)` in production). `Status(ctx)` probes: `where --json`, then `identity list --json`.
+`service.EngramService` (`internal/service/engram.go`) reads both from the effective configuration on every call (`EngramOptions.Config`) and makes the client with `EngramOptions.Runner(command, home)` (`EngramRunner(os.Getenv)` in production, which adds `ENGRAM_HOME=<home>` for a store of its own; `""` is the person's). `In(ctx, home)` is the client for such a store, `ErrEngramsOff` when off. `Status(ctx)` probes: `where --json`, then `identity list --json`.
 
 - `off`: no probe; `Enabled` false.
 - `auto`: `Enabled` when both answer; a failure only leaves engrams out (its words are in `Error`).
@@ -49,10 +52,10 @@ Nothing is cached between calls, so installing engram later needs no restart. `c
 
 1. **Refused** for swarm agents (a role, parent or sub-task).
 2. **Session key**: a fresh start uses the new execution's ID; `SessionPolicy == "resume"` (any tool, Chimera included) reuses the one it ran in (`EngramSession`, else `store.LastEngramSession`). A resumed conversation that never ran as this engram has none, so it boots afresh with a new key.
-3. **`EngramService.Boot`**: `where` (its binary and store); a store whose root does not exist is a missing store; the engram must be one `identity list` lists. The environment is `ENGRAM_IDENTITY`, `ENGRAM_HOME` (the store root from `where`), `ENGRAM_SESSION`, `ENGRAM_HARNESS` (`EngramHarness`: `claude-code`, `codex` or `chimera`; any other tool is refused), `ENGRAM_MODEL` (only with a chosen model), `LEGATO_TASK_ID` and `LEGATO_EXECUTION_ID`, set alike for the boot and in the session's `envMap`. On a resume nothing is booted; otherwise `engram boot` runs, with the binary `where` named, in the agent's working directory (the clone, for a clone spawn), 5 s.
+3. **`EngramService.Boot`**: `where` (its binary and store); a store whose root does not exist is a missing store; the engram must be one `identity list` lists. With `AgentSpawnOptions.EngramHome` (`EngramBootRequest.Home`) every call runs against that store; with `EngramSeed` (`Seed`) a missing store or engram is issued first (`NewIdentity`; exit 5 is fine), and a failure to issue it is a boot failure. Only the Reeve uses either (see [The Reeve](reeve.md) § Its engram). The environment is `ENGRAM_IDENTITY`, `ENGRAM_HOME` (the store root from `where`), `ENGRAM_SESSION`, `ENGRAM_HARNESS` (`EngramHarness`: `claude-code`, `codex` or `chimera`; any other tool is refused), `ENGRAM_MODEL` (only with a chosen model), `LEGATO_TASK_ID` and `LEGATO_EXECUTION_ID`, set alike for the boot and in the session's `envMap`. On a resume nothing is booted; otherwise `engram boot` runs, with the binary `where` named, in the agent's working directory (the clone, for a clone spawn), 5 s.
 4. **Launch prompt**: `EngramPromptSection(name, packet)` comes first, before every other section, for all three tools. No `--budget` is passed. A resumed conversation takes no launch prompt (Claude Code and Codex drop it; Chimera's `--session` launch passes no `--prompt`), so a packet booted for it goes first in its first message instead.
-5. **Record**: `store.SetExecutionEngram` writes `executions.engram` and `engram_session`.
-6. **Failure**: an error, the timeout, an engram engram no longer lists, a missing store or engram not found starts the agent without the engram: no `ENGRAM_*`, no packet, nothing on the execution. `SpawnReport.EngramWarning` (`WithSpawnReport` passes one through the context) says why, in `EngramFailure`'s words, and the spawn endpoints answer it as `engram_warning`. A spawn that fails after a fresh boot runs `engram session end`.
+5. **Record**: `store.SetExecutionEngram` writes `executions.engram` and `engram_session`, and `SetExecutionEngramHome` the store of an engram kept apart (`engram_home`), which ending and restarting use.
+6. **Failure**: an error, the timeout, an engram engram no longer lists, a missing store or engram not found starts the agent without the engram: no `ENGRAM_*`, no packet, nothing on the execution. With `AgentSpawnOptions.EngramMissing` (the Reeve's), its line for the reason stands first in the launch prompt in place of the packet (in the first message, on a resume). `SpawnReport.EngramWarning` (`WithSpawnReport` passes one through the context) says why, in `EngramFailure`'s words, and the spawn endpoints answer it as `engram_warning`. A spawn that fails after a fresh boot runs `engram session end`.
 
 `POST /api/agents/spawn` and `POST /api/tasks/{id}/agent` take `engram` (a name, or empty for none) and answer `engram` or `engram_warning` (`spawnResult` in `internal/server/agents.go`).
 
@@ -74,8 +77,8 @@ A spawn that fails after its engram booted runs `engram session end`: `EndExecut
 
 ## Restart and ending
 
-- **Restart** (`restartAgent`) reads `engram` and `engram_session` from the execution it replaces into `AgentSpawnOptions.Engram` and `EngramSession`. A resumed conversation keeps both and gets no packet; a restart that does not resume boots again with a new key (the new execution's ID).
-- **Ending.** `EndExecution`, where every agent's execution ends (a kill, a pane that went away, a task deleted, archived or handed back, a spawn that failed), runs `engram session end` for an execution with an engram (`endEngramSession`), in its working directory when that still exists. A restart that resumes stops its agent with `withEngramSessionKept`, so the session goes on in the agent that resumes it. Legato never asks the agent for a handoff; engram's practice section does. An ended session still resumes through its strong key.
+- **Restart** (`restartAgent`) reads `engram`, `engram_session` and `engram_home` from the execution it replaces into `AgentSpawnOptions.Engram`, `EngramSession` and `EngramHome`. A resumed conversation keeps both and gets no packet; a restart that does not resume boots again with a new key (the new execution's ID).
+- **Ending.** `EndExecution`, where every agent's execution ends (a kill, a pane that went away, a task deleted, archived or handed back, a spawn that failed), runs `engram session end` for an execution with an engram (`endEngramSession`), in its working directory when that still exists. A restart that resumes stops its agent with `withEngramSessionKept`, so the session goes on in the agent that resumes it; so does the Reeve's idle suspend, and `EndTaskEngramSession` ends the kept session when the Reeve's session is ended. Legato never asks the agent for a handoff; engram's practice section does. An ended session still resumes through its strong key.
 
 ## Bindings, Remember and pre-selection
 
@@ -94,7 +97,7 @@ Bindings live in `engram_bindings` (see [Database](database.md) § Engram sessio
 
 **Remember** (`EngramService.Remember`): with an engram, binds it to the place if it is not bound and makes it the default (the old default stays bound); with none, clears the place's default (the bound engrams stay). Not ticked, nothing is stored. The spawn endpoints take `remember_engram` and call it before the spawn (`rememberEngram` in `internal/server/engrams.go`); a Remember that cannot be done (a job clone named only by its ID) is logged and does not stop the spawn.
 
-**Last use.** `EngramService.Touch(dir, name)` sets `last_used_at` on each binding of the engram to one of the directory's scopes; `bootEngram` calls it after every successful boot.
+**Last use.** `EngramService.Touch(dir, name)` sets `last_used_at` on each binding of the engram to one of the directory's scopes; `bootEngram` calls it after every successful boot, except for an engram in a store of its own (the Reeve's).
 
 `GET /api/engrams?dir=…|repo=…&task_id=…` answers the picker; `dir` may start with a tilde. Workflows never read or write bindings.
 
@@ -116,4 +119,4 @@ The spawn overlay's `engram` row (see [TUI](tui.md) § Spawning an agent) shows 
 
 ## Not offered
 
-Swarm conductors and workers (`bootEngram` refuses a spawn with a role, parent or sub-task), and tasks handed off to worker instances (the handoff's spawn passes no engram). Legato does not create or edit engrams, keeps no bindings in `config.yaml`, asks for no handoff when a session closes, and has no report breakdown by engram.
+Swarm conductors and workers (`bootEngram` refuses a spawn with a role, parent or sub-task), and tasks handed off to worker instances (the handoff's spawn passes no engram). Legato does not create or edit engrams, except the Reeve's own (see [The Reeve](reeve.md) § Its engram), keeps no bindings in `config.yaml`, asks for no handoff when a session closes, and has no report breakdown by engram.

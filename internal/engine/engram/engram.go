@@ -28,6 +28,7 @@ const (
 const (
 	exitUnknownIdentity = 3
 	exitMissingStore    = 4
+	exitIdentityExists  = 5
 )
 
 var (
@@ -39,6 +40,9 @@ var (
 	ErrUnknownIdentity = errors.New("unknown engram")
 	// ErrMissingStore says engram's store folder does not exist.
 	ErrMissingStore = errors.New("engram's store is missing")
+	// ErrIdentityExists says an engram of that name was already issued;
+	// its seed is unchanged.
+	ErrIdentityExists = errors.New("the engram already exists")
 )
 
 // Error is engram exiting with a failure: its exit code and what it wrote
@@ -62,6 +66,8 @@ func (e *Error) Is(target error) bool {
 		return e.Code == exitUnknownIdentity
 	case ErrMissingStore:
 		return e.Code == exitMissingStore
+	case ErrIdentityExists:
+		return e.Code == exitIdentityExists
 	}
 	return false
 }
@@ -96,6 +102,26 @@ type Identity struct {
 	Name    string    `json:"name"`
 	Created time.Time `json:"created"`
 	Summary string    `json:"summary"`
+}
+
+// Memory is one durable claim an engram keeps.
+type Memory struct {
+	ID      string    `json:"id"`
+	Kind    string    `json:"kind"`
+	Scope   string    `json:"scope"`
+	Source  string    `json:"source"`
+	Created time.Time `json:"created"`
+	Tags    []string  `json:"tags,omitempty"`
+	Body    string    `json:"body"`
+}
+
+// Thread is a piece of unfinished work an engram keeps open.
+type Thread struct {
+	ID     string    `json:"id"`
+	Title  string    `json:"title"`
+	Scope  string    `json:"scope"`
+	Opened time.Time `json:"opened"`
+	Body   string    `json:"body,omitempty"`
 }
 
 // BootResult is a boot packet, and what engram wrote on stderr beside it,
@@ -198,6 +224,54 @@ func (r Runner) EndSession(ctx context.Context, env []string, dir string) error 
 	return err
 }
 
+// NewIdentity issues an engram with its seed (`identity new <name> --file
+// -`) and returns the folder engram keeps it in. A name already issued is
+// ErrIdentityExists, and its seed is left as it was.
+func (r Runner) NewIdentity(ctx context.Context, name, seed string) (string, error) {
+	stdout, _, err := r.runInput(ctx, r.bootTimeout(), nil, "", seed, "identity", "new", name, "--file", "-", "--json")
+	if err != nil {
+		return "", err
+	}
+	var issued struct {
+		Dir string `json:"dir"`
+	}
+	if err := json.Unmarshal([]byte(stdout), &issued); err != nil {
+		return "", fmt.Errorf("engram identity new: unreadable answer: %w", err)
+	}
+	return issued.Dir, nil
+}
+
+// maxMemories is the most memories Memories asks engram for.
+const maxMemories = 200
+
+// Memories lists an engram's memories in every scope, newest first.
+func (r Runner) Memories(ctx context.Context, name string) ([]Memory, error) {
+	var out struct {
+		Memories []Memory `json:"memories"`
+	}
+	err := r.runJSON(ctx, r.probeTimeout(), "", &out, "memories", "--as", name, "--all-scopes", "--limit", fmt.Sprint(maxMemories), "--json")
+	return out.Memories, err
+}
+
+// Threads lists an engram's open threads.
+func (r Runner) Threads(ctx context.Context, name string) ([]Thread, error) {
+	var threads []Thread
+	err := r.runJSON(ctx, r.probeTimeout(), "", &threads, "thread", "list", "--as", name, "--json")
+	return threads, err
+}
+
+// RemoveMemory deletes one of an engram's memories for good.
+func (r Runner) RemoveMemory(ctx context.Context, name, id string) error {
+	_, _, err := r.run(ctx, r.probeTimeout(), nil, "", "remove", id, "--as", name, "--yes")
+	return err
+}
+
+// CloseThread closes one of an engram's threads, saying how it ended.
+func (r Runner) CloseThread(ctx context.Context, name, id, resolution string) error {
+	_, _, err := r.runInput(ctx, r.probeTimeout(), nil, "", resolution, "thread", "close", id, "--as", name, "--file", "-")
+	return err
+}
+
 func (r Runner) probeTimeout() time.Duration {
 	if r.ProbeTimeout > 0 {
 		return r.ProbeTimeout
@@ -224,6 +298,10 @@ func (r Runner) runJSON(ctx context.Context, timeout time.Duration, dir string, 
 }
 
 func (r Runner) run(ctx context.Context, timeout time.Duration, env []string, dir string, args ...string) (string, string, error) {
+	return r.runInput(ctx, timeout, env, dir, "", args...)
+}
+
+func (r Runner) runInput(ctx context.Context, timeout time.Duration, env []string, dir, input string, args ...string) (string, string, error) {
 	bin, err := r.Binary()
 	if err != nil {
 		return "", "", err
@@ -241,6 +319,9 @@ func (r Runner) run(ctx context.Context, timeout time.Duration, env []string, di
 	cmd.WaitDelay = 200 * time.Millisecond
 	var stdout, stderr bytes.Buffer
 	cmd.Stdout, cmd.Stderr = &stdout, &stderr
+	if input != "" {
+		cmd.Stdin = strings.NewReader(input)
+	}
 	err = cmd.Run()
 	if ctx.Err() == context.DeadlineExceeded {
 		return stdout.String(), stderr.String(), ErrTimeout

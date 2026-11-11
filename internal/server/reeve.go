@@ -43,6 +43,10 @@ func (s *Server) registerReeveRoutes(mux *routeMux) {
 	mux.HandleFunc("POST /api/reeve/message", s.reeveMessageHandler())
 	mux.HandleFunc("GET /api/reeve/sessions/{task_id}/change-sets", s.reeveChangeSetsHandler())
 	mux.HandleFunc("POST /api/reeve/secrets/{approval_id}", s.reeveSecretHandler())
+	mux.HandleFunc("GET /api/reeve/engram", s.reeveEngramHandler())
+	mux.HandleFunc("PUT /api/reeve/engram/seed", s.reeveSeedHandler())
+	mux.HandleFunc("DELETE /api/reeve/engram/memories/{id}", s.reeveEngramRemoveHandler(ReeveEngramKeeper.RemoveMemory))
+	mux.HandleFunc("DELETE /api/reeve/engram/threads/{id}", s.reeveEngramRemoveHandler(ReeveEngramKeeper.CloseThread))
 }
 
 // serveReeveToken lets a Reeve API token reach the read routes only: a
@@ -291,5 +295,82 @@ func (s *Server) reeveSecretHandler() http.HandlerFunc {
 		default:
 			s.writeJSON(w, http.StatusOK, map[string]string{"ref": ref})
 		}
+	}
+}
+
+// ReeveEngramKeeper is the Reeve's engram in Settings
+// (service.ReeveEngramService).
+type ReeveEngramKeeper interface {
+	View(ctx context.Context) (service.ReeveEngramView, error)
+	ProposeSeed(ctx context.Context, seed, by string) (*service.Approval, error)
+	RemoveMemory(ctx context.Context, id string) error
+	CloseThread(ctx context.Context, id string) error
+}
+
+// SetReeveEngram serves the Reeve's engram: its seed, memories and threads.
+func (s *Server) SetReeveEngram(e ReeveEngramKeeper) { s.reeveEngram = e }
+
+func (s *Server) reeveEngramReady(w http.ResponseWriter) bool {
+	if s.reeveEngram == nil {
+		s.writeError(w, http.StatusServiceUnavailable, "this server does not keep the Reeve's engram")
+		return false
+	}
+	return true
+}
+
+// reeveEngramHandler serves GET /api/reeve/engram.
+func (s *Server) reeveEngramHandler() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if !s.reeveEngramReady(w) {
+			return
+		}
+		view, err := s.reeveEngram.View(r.Context())
+		if err != nil {
+			s.writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		s.writeJSON(w, http.StatusOK, view)
+	}
+}
+
+// reeveSeedHandler serves PUT /api/reeve/engram/seed {seed}: one of the
+// Reeve's own rules, so it answers 202 with the approval to sign, or 409
+// with no device enrolled.
+func (s *Server) reeveSeedHandler() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if !s.reeveEngramReady(w) {
+			return
+		}
+		var in struct {
+			Seed string `json:"seed"`
+		}
+		if json.NewDecoder(r.Body).Decode(&in) != nil {
+			s.writeError(w, http.StatusBadRequest, "want {\"seed\": …}")
+			return
+		}
+		approval, err := s.reeveEngram.ProposeSeed(r.Context(), in.Seed, "web")
+		switch {
+		case errors.Is(err, service.ErrNoDeviceEnrolled):
+			s.writeError(w, http.StatusConflict, err.Error())
+		case err != nil:
+			s.writeError(w, http.StatusBadRequest, err.Error())
+		default:
+			s.writeJSON(w, http.StatusAccepted, map[string]any{"status": "needs_signature", "approval_id": approval.ID})
+		}
+	}
+}
+
+// reeveEngramRemoveHandler serves DELETE /api/reeve/engram/memories/{id}
+// and /threads/{id}: a memory is deleted, a thread closed.
+func (s *Server) reeveEngramRemoveHandler(remove func(ReeveEngramKeeper, context.Context, string) error) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if !s.reeveEngramReady(w) {
+			return
+		}
+		if err := remove(s.reeveEngram, r.Context(), r.PathValue("id")); err != nil {
+			s.writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		s.writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
 	}
 }

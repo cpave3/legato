@@ -42,6 +42,7 @@ type Server struct {
 	reeveRules               ReeveRuleProposer
 	reeveChangeSets          ReeveChangeSets
 	reeveSecrets             ReeveSecretKeeper
+	reeveEngram              ReeveEngramKeeper
 	reevePeers               ReevePeers
 	peerApprovals            peerApprovalCache
 	mainReeve                MainReeveScope

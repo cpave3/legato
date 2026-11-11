@@ -37,6 +37,24 @@ func (s *Store) ExecutionEngram(ctx context.Context, executionID string) (engram
 	return row.Engram, row.Session, err
 }
 
+// SetExecutionEngramHome records the store of an engram that is not kept
+// in the person's own (ENGRAM_HOME).
+func (s *Store) SetExecutionEngramHome(ctx context.Context, executionID, home string) error {
+	_, err := s.db.ExecContext(ctx, `UPDATE executions SET engram_home = ? WHERE id = ?`, home, executionID)
+	return err
+}
+
+// ExecutionEngramHome is the store of the engram an execution ran as, ""
+// for the person's own.
+func (s *Store) ExecutionEngramHome(ctx context.Context, executionID string) (string, error) {
+	var home string
+	err := s.db.GetContext(ctx, &home, `SELECT engram_home FROM executions WHERE id = ?`, executionID)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", ErrNotFound
+	}
+	return home, err
+}
+
 // TaskEngram is the engram a task's execution ran as.
 type TaskEngram struct {
 	ExecutionID string `db:"id"`

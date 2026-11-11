@@ -35,6 +35,7 @@ type spawnedEngram struct {
 	EngramBoot
 	name    string
 	session string
+	home    string
 	resumed bool
 	// failed is why the engram asked for did not boot; the agent then
 	// starts without it, and nothing else here is set.
@@ -50,7 +51,7 @@ func (b *spawnedEngram) endIfFresh(ctx context.Context, engrams AgentEngrams, di
 	if !b.booted() || b.resumed || engrams == nil {
 		return
 	}
-	if err := engrams.EndSession(ctx, EngramSessionRef{Name: b.name, Session: b.session, Dir: dir}); err != nil {
+	if err := engrams.EndSession(ctx, EngramSessionRef{Name: b.name, Session: b.session, Dir: dir, Home: b.home}); err != nil {
 		log.Printf("engram: ending the session of %s: %v", b.name, err)
 	}
 }
@@ -76,7 +77,7 @@ func (a *agentService) bootEngram(ctx context.Context, taskID, executionID, agen
 		// ends it, as that agent runs without it.
 		if opt.EngramSession != "" {
 			if engrams := a.engramBooter(); engrams != nil {
-				if endErr := engrams.EndSession(ctx, EngramSessionRef{Name: opt.Engram, Session: opt.EngramSession, Dir: workDir}); endErr != nil {
+				if endErr := engrams.EndSession(ctx, EngramSessionRef{Name: opt.Engram, Session: opt.EngramSession, Dir: workDir, Home: opt.EngramHome}); endErr != nil {
 					log.Printf("engram: ending %s's kept session %s: %v", opt.Engram, opt.EngramSession, endErr)
 				}
 			}
@@ -107,6 +108,7 @@ func (a *agentService) bootEngram(ctx context.Context, taskID, executionID, agen
 	boot, err := engrams.Boot(ctx, EngramBootRequest{
 		Name: opt.Engram, Session: session, Harness: EngramHarness(agentKind), Model: opt.Model,
 		TaskID: taskID, ExecutionID: executionID, Dir: workDir, Resume: resume,
+		Home: opt.EngramHome, Seed: opt.EngramSeed,
 	})
 	if err != nil {
 		return fail(err)
@@ -115,12 +117,13 @@ func (a *agentService) bootEngram(ctx context.Context, taskID, executionID, agen
 		report.Engram = opt.Engram
 	}
 	// Workflows never read or write bindings.
-	if opt.WorkflowRunID == "" && opt.ExecutionKind != store.ExecutionWorkflowAgent {
+	// Nor does an engram in a store of its own (the Reeve's).
+	if opt.WorkflowRunID == "" && opt.ExecutionKind != store.ExecutionWorkflowAgent && opt.EngramHome == "" {
 		if err := engrams.Touch(ctx, workDir, opt.Engram); err != nil {
 			log.Printf("engram: recording the use of %s in %s: %v", opt.Engram, workDir, err)
 		}
 	}
-	return &spawnedEngram{EngramBoot: boot, name: opt.Engram, session: session, resumed: resume}, nil
+	return &spawnedEngram{EngramBoot: boot, name: opt.Engram, session: session, home: opt.EngramHome, resumed: resume}, nil
 }
 
 type engramSessionKeptKey struct{}
@@ -135,6 +138,17 @@ func withEngramSessionKept(ctx context.Context) context.Context {
 // good outside EndExecution (a finished workflow agent).
 func (a *agentService) EndEngramSession(ctx context.Context, executionID string) {
 	a.endEngramSession(ctx, executionID)
+}
+
+// EndTaskEngramSession ends the engram session of the task's latest
+// execution that ran as an engram: the Reeve's, kept when its agent was
+// suspended for idleness, once the session is ended.
+func (a *agentService) EndTaskEngramSession(ctx context.Context, taskID string) {
+	last, err := a.store.LastTaskEngram(ctx, taskID)
+	if err != nil || last.ExecutionID == "" {
+		return
+	}
+	a.endEngramSession(context.WithoutCancel(ctx), last.ExecutionID)
 }
 
 // endEngramSession runs `engram session end` for an execution that ran as
@@ -152,13 +166,14 @@ func (a *agentService) endEngramSession(ctx context.Context, executionID string)
 	if err != nil || name == "" {
 		return
 	}
+	home, _ := a.store.ExecutionEngramHome(ctx, executionID)
 	dir := ""
 	if execution, err := a.store.GetExecution(ctx, executionID); err == nil {
 		if info, statErr := os.Stat(execution.WorkingDir); statErr == nil && info.IsDir() {
 			dir = execution.WorkingDir
 		}
 	}
-	if err := engrams.EndSession(context.WithoutCancel(ctx), EngramSessionRef{Name: name, Session: session, Dir: dir}); err != nil {
+	if err := engrams.EndSession(context.WithoutCancel(ctx), EngramSessionRef{Name: name, Session: session, Dir: dir, Home: home}); err != nil {
 		log.Printf("engram: ending %s's session %s: %v", name, session, err)
 	}
 }

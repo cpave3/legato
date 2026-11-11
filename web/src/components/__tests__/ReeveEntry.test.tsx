@@ -81,5 +81,14 @@ describe("ReeveEntry", () => {
     const status = await screen.findByTestId("reeve-status")
     expect(status.textContent).toContain("sandboxed")
     expect(status.textContent).toContain("legato-1 (main)")
+    expect(status.textContent).toContain("no engram")
+  })
+
+  it("names the engram the Reeve runs as", async () => {
+    mockFetch.mockResolvedValue({ ...overview, engram: "reeve-1a2b3c4d" })
+    render(wrap(<ReeveStatus baseUrl="" />))
+    const status = await screen.findByTestId("reeve-status")
+    expect(status.textContent).toContain("reeve-1a2b3c4d")
+    expect(status.textContent).not.toContain("no engram")
   })
 })
