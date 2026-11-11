@@ -189,13 +189,14 @@ class MainActivity : ComponentActivity() {
         }
         io.execute {
             val results = connections.map { connection -> connection to probeHealth(connection.baseUrl, connection.caCertificate) }
-            learnVoiceRoles(connections)
             runOnUiThread {
-                state.connections.value = store.load()
                 state.reachability.value = results.associate { (connection, health) -> connection.id to if (health.online) Reachability.ONLINE else Reachability.OFFLINE }
                 state.versions.value = state.versions.value + results.mapNotNull { (connection, health) -> health.version?.let { connection.id to it } }
                 done()
             }
+            // Then, which is the main: only servers that answered are asked.
+            learnVoiceRoles(results.filter { (_, health) -> health.online }.map { (connection, _) -> connection })
+            runOnUiThread { state.connections.value = store.load() }
         }
     }
 
@@ -238,11 +239,11 @@ class MainActivity : ComponentActivity() {
     // The Reeve's voice: which server is the main (ReeveVoice.kt).
 
     // learnVoiceRoles asks each server who it is and keeps the answers.
-    // Blocking.
+    // Blocking, a few seconds at most for each server.
     private fun learnVoiceRoles(connections: List<Connection>) {
         val learned = learnVoiceRoles(connections) { connection ->
             val token = store.token(connection.id) ?: throw IllegalStateException("No saved token.")
-            fetchVoiceInstance(AndroidServerHttp(connection.baseUrl, token, connection.caCertificate))
+            fetchVoiceInstance(AndroidServerHttp(connection.baseUrl, token, connection.caCertificate, timeoutMs = 5_000))
         }
         store.rememberVoiceInstances(learned)
     }

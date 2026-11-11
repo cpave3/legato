@@ -34,15 +34,16 @@ class ShellVoiceStream(
     // person and the Reeve talk.
     interface Focus {
         // Whether the focus was granted; lost is told when another app takes
-        // it, permanently or for a moment.
-        fun request(lost: (permanent: Boolean) -> Unit): Boolean
+        // it, with ends when that ends the conversation (a call).
+        fun request(lost: (ends: Boolean) -> Unit): Boolean
         fun abandon()
     }
 
     private var streaming = false
 
     // Each start gets its own generation, so a frame from a recording already
-    // stopped is not sent.
+    // stopped is not sent, and a start the page stopped while the person was
+    // asked for the microphone does not begin.
     private var generation = 0
 
     fun handle(message: PageMessage.VoiceStream) {
@@ -58,14 +59,14 @@ class ShellVoiceStream(
 
     private fun start() {
         if (streaming) return
+        val current = ++generation
         recorder.requestPermission { granted ->
+            if (current != generation || streaming) return@requestPermission
             if (!granted) {
                 error("Legato may not use the microphone. Allow it in the app's settings.")
                 return@requestPermission
             }
-            if (streaming) return@requestPermission
-            val current = ++generation
-            if (!focus.request { permanent -> if (permanent && current == generation) end() }) {
+            if (!focus.request { ends -> if (ends && current == generation) end() }) {
                 error("Another app is using the audio. Try again when it stops.")
                 return@requestPermission
             }
@@ -90,9 +91,10 @@ class ShellVoiceStream(
     }
 
     private fun end() {
+        // A start still waiting for the person's answer is cancelled too.
+        generation++
         if (!streaming) return
         streaming = false
-        generation++
         runCatching { recorder.stop() }
         focus.abandon()
         tell(JSONObject().put("type", "stream-stopped"))

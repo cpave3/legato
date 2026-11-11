@@ -156,9 +156,13 @@ class AndroidAudioFocus(context: Context) : ShellVoiceStream.Focus {
                     .build(),
             )
             .setOnAudioFocusChangeListener({ change ->
+                // A call takes the focus for a while (LOSS_TRANSIENT): the
+                // conversation ends. A loss for good is not one: the page's
+                // own <audio>, a line of the Reeve's, takes the focus so in
+                // the WebView. A loss we may duck under is ignored.
                 when (change) {
-                    AudioManager.AUDIOFOCUS_LOSS -> lost(true)
-                    AudioManager.AUDIOFOCUS_LOSS_TRANSIENT, AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK -> lost(false)
+                    AudioManager.AUDIOFOCUS_LOSS_TRANSIENT -> lost(true)
+                    AudioManager.AUDIOFOCUS_LOSS, AudioManager.AUDIOFOCUS_LOSS_TRANSIENT_CAN_DUCK -> lost(false)
                 }
             }, Handler(Looper.getMainLooper()))
             .build()

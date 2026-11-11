@@ -9,12 +9,17 @@ import org.junit.Test
 
 private class FakeStreamRecorder : ShellVoiceStream.Recorder {
     var allowed = true
+    // When set, the person has not answered yet: answer() answers.
+    var asking = false
+    var answer: ((Boolean) -> Unit)? = null
     var failToStart: String? = null
     var recording = false
     var frame: ((ByteArray) -> Unit)? = null
     var failed: ((String) -> Unit)? = null
 
-    override fun requestPermission(granted: (Boolean) -> Unit) = granted(allowed)
+    override fun requestPermission(granted: (Boolean) -> Unit) {
+        if (asking) answer = granted else granted(allowed)
+    }
     override fun start(frame: (ByteArray) -> Unit, failed: (String) -> Unit) {
         failToStart?.let { throw IllegalStateException(it) }
         recording = true
@@ -74,6 +79,27 @@ class ShellVoiceStreamTest {
         assertFalse(recorder.recording)
         assertFalse(focus.held)
         assertEquals(listOf("stream-started", "frame", "stream-stopped"), types())
+    }
+
+    @Test
+    fun `a stop while the person is asked for the microphone cancels the start`() {
+        recorder.asking = true
+        pageAsks("start")
+        pageAsks("stop")
+        recorder.answer!!(true)
+        assertFalse(recorder.recording)
+        assertFalse(focus.held)
+        assertEquals(emptyList<String>(), types())
+    }
+
+    @Test
+    fun `the page going while the person is asked cancels the start`() {
+        recorder.asking = true
+        pageAsks("start")
+        stream.release()
+        recorder.answer!!(true)
+        assertFalse(recorder.recording)
+        assertEquals(emptyList<String>(), types())
     }
 
     @Test

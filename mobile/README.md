@@ -254,9 +254,12 @@ and plays the Reeve's lines with `<audio>`; the app only listens for it
   (`data`: 3,200 bytes of little-endian samples, base64).
 - `action: "stop"` stops recording and gives the focus back, answered with
   `stream-stopped`. The app stops by itself, with `stream-stopped` too, when
-  it leaves the foreground, when another app takes the focus for good (a call),
-  and when the page loads another document. A short loss of focus does not
-  stop it. Anything that fails is an `error` with a `message`.
+  it leaves the foreground, when a call takes the focus
+  (`AUDIOFOCUS_LOSS_TRANSIENT`), and when the page loads another document,
+  or when the person answers the microphone dialog after the page stopped.
+  A loss of focus for good does not stop it, since the page's own `<audio>`
+  (a line of the Reeve's) takes the focus so in the WebView; nor does a loss
+  it may duck under. Anything that fails is an `error` with a `message`.
 - **Which server is the main.** The app asks each saved server
   `GET /api/reeve/voice` with its token and keeps the instance's ID and role
   with the connection. The main is the one server whose role is `main`; else,

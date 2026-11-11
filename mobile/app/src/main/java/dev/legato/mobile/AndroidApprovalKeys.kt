@@ -124,15 +124,22 @@ private fun authenticate(
 }
 
 // AndroidServerHttp calls a saved server's API with its token, trusting
-// the certificate pinned at pairing. Blocking; off the main thread.
-class AndroidServerHttp(private val baseUrl: String, private val token: String, private val pin: String?) : ServerHttp {
+// the certificate pinned at pairing. Blocking; off the main thread. A call
+// gives up after timeoutMs (a signature waits for the person, so long by
+// default).
+class AndroidServerHttp(
+    private val baseUrl: String,
+    private val token: String,
+    private val pin: String?,
+    private val timeoutMs: Int = 70_000,
+) : ServerHttp {
     override fun call(method: String, path: String, body: JSONObject?): Pair<Int, String> {
         val connection = URL(baseUrl + path).openConnection() as HttpURLConnection
         PinnedTrust.apply(connection, pin)
         try {
             connection.requestMethod = method
-            connection.connectTimeout = 8_000
-            connection.readTimeout = 70_000
+            connection.connectTimeout = minOf(8_000, timeoutMs)
+            connection.readTimeout = timeoutMs
             connection.useCaches = false
             connection.setRequestProperty("Authorization", "Bearer $token")
             connection.setRequestProperty("Accept", "application/json")
