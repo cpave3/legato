@@ -228,6 +228,11 @@ var registry = []Setting{
 	{Key: "reeve.host_output_cap", Title: "Host command output (bytes)", Description: "How much of a host command's output the Reeve is given; the rest is kept in a file it can read. 65536 when 0.", Kind: KindInt, Class: ClassChange, Mode: ModeLive, Check: nonNegative},
 	{Key: "reeve.peer", Title: "When another Reeve messages", Description: "With no session running: start one (start, the default), ask a person first (ask), or refuse. One of the Reeve's own rules.", Kind: KindEnum, Enum: []string{"", "start", "ask", "refuse"}, Class: ClassRisky, Mode: ModeLive, OwnRule: true},
 	{Key: "reeve.launch_args", Title: "The Reeve's launch arguments", Kind: KindStrings, Class: ClassRisky, Mode: ModeLive},
+	{Key: "reeve.voice.enabled", Title: "The Reeve's voice", Description: "Lets the Reeve speak out loud on this machine's speakers. Sessions started after it is turned on are offered the speak tool; turning it off mutes the Reeve at once.", Kind: KindBool, Class: ClassChange, Mode: ModeLive},
+	{Key: "reeve.voice.command", Title: "Voice command", Description: "Makes a line's audio: run as <command> \"<text>\" <out-file>, it writes an audio file to <out-file>. A script such as reeve-say.sh, or one for Piper.", Kind: KindString, Class: ClassRisky, Mode: ModeLive},
+	{Key: "reeve.voice.credential", Title: "Voice credential", Description: "A credential Legato gives the voice command, as elevenlabs. Empty for a local voice.", Kind: KindString, Class: ClassRisky, Mode: ModeLive},
+	{Key: "reeve.voice.credential_env", Title: "Voice credential variable", Description: "The variable the command finds the credential in. The credential's name in capitals with _API_KEY when empty (ELEVENLABS_API_KEY).", Kind: KindString, Class: ClassRisky, Mode: ModeLive},
+	{Key: "reeve.voice.player", Title: "Voice player", Description: "Plays a line's audio file, named after it. pw-play, else ffplay, when empty.", Kind: KindString, Class: ClassRisky, Mode: ModeLive},
 
 	// Burnlite's projects, read on each use.
 	{Key: "burnlite.projects", Title: "Burnlite projects", Description: "The projects searched for import; none is every project.", Kind: KindStrings, Class: ClassChange, Mode: ModeLive, Check: func(v any) error {

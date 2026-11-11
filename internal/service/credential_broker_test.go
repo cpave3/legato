@@ -388,3 +388,30 @@ func TestOnePasswordReferencesAreReadThroughTheSDKByDefault(t *testing.T) {
 		t.Fatalf("err = %v; want the SDK store's message", err)
 	}
 }
+
+// Legato's own use of a credential (the Reeve's voice, named in a setting
+// by the person) asks no rule and no one, and is audited.
+func TestLegatosOwnUseReadsTheValueWithoutAskingAndIsAudited(t *testing.T) {
+	f := newBrokerFixture(t, eleven(rule("session", "read")))
+	ctx := context.Background()
+
+	secret, err := f.broker.UseForLegato(ctx, CredentialUse{TaskID: "task-1", ExecutionID: "ex-1", Credential: "eleven", Operation: "read",
+		Amounts: map[string]int64{"characters": 12}, Call: "the Reeve's voice"})
+
+	if err != nil || string(secret.Value) != "sk-eleven" {
+		t.Fatalf("value = %q, %v", secret.Value, err)
+	}
+	if pending, _ := f.approvals.List(ctx, store.ApprovalFilter{}); len(pending) != 0 {
+		t.Fatalf("the person was asked: %+v", pending)
+	}
+	if got := strings.Join(auditEvents(t, f.store), ","); got != "use" {
+		t.Fatalf("audit = %s", got)
+	}
+	entries, _ := f.broker.Audit(ctx, store.CredentialAuditFilter{Credential: "eleven"})
+	if len(entries) != 1 || entries[0].TaskID != "task-1" || !strings.Contains(entries[0].Detail, "Legato's own use") || !strings.Contains(entries[0].Detail, "the Reeve's voice") {
+		t.Fatalf("audit entry %+v", entries)
+	}
+	if _, err := f.broker.UseForLegato(ctx, CredentialUse{Credential: "nope", Operation: "read"}); err == nil {
+		t.Fatal("an unknown credential was read")
+	}
+}

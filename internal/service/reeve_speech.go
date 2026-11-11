@@ -1,0 +1,262 @@
+package service
+
+import (
+	"bytes"
+	"context"
+	"errors"
+	"fmt"
+	"log"
+	"os"
+	"os/exec"
+	"path/filepath"
+	"strings"
+	"sync"
+	"sync/atomic"
+	"time"
+	"unicode/utf8"
+
+	"github.com/cpave3/legato/config"
+	"github.com/cpave3/legato/internal/engine/credential"
+)
+
+// MaxSpokenChars is the longest line the Reeve may say: speech is the
+// short version, and each character of a paid voice costs.
+const MaxSpokenChars = 400
+
+const (
+	// speechQueueSize is how many lines may wait to be said.
+	speechQueueSize = 16
+	// makeTimeout bounds making one line's audio, playTimeout playing it.
+	makeTimeout = time.Minute
+	playTimeout = 5 * time.Minute
+)
+
+// SpokenLine is one line the Reeve says out loud, and the session that
+// said it.
+type SpokenLine struct {
+	TaskID      string
+	ExecutionID string
+	Text        string
+}
+
+// ReeveVoiceCredentials reads the credential the voice command is given
+// (CredentialBroker.UseForLegato).
+type ReeveVoiceCredentials interface {
+	UseForLegato(ctx context.Context, use CredentialUse) (credential.Secret, error)
+}
+
+// ReeveSpeechOptions configures the Reeve's voice.
+type ReeveSpeechOptions struct {
+	// Settings is reeve.voice, read for each line.
+	Settings func(ctx context.Context) config.ReeveVoiceConfig
+	// Credentials gives the command reeve.voice.credential; nil when this
+	// Legato has no credential broker.
+	Credentials ReeveVoiceCredentials
+	// Dir holds a line's audio until it has played. It is Legato's own:
+	// whatever is in it when the queue starts is removed.
+	Dir string
+	// Logf records a line that was not said; log.Printf when nil.
+	Logf func(format string, args ...any)
+}
+
+// ReeveSpeech says the Reeve's lines out loud on this machine, one at a
+// time and in order: a command makes each line's audio while the line
+// before it plays, and a player plays it. It runs in the host Legato, the
+// one process that can reach the sound system.
+type ReeveSpeech struct {
+	opts  ReeveSpeechOptions
+	lines chan SpokenLine
+	start sync.Once
+	seq   atomic.Int64
+}
+
+// madeLine is a line whose audio is ready to play.
+type madeLine struct {
+	path string
+}
+
+// NewReeveSpeech makes the Reeve's voice. Nothing runs until the first
+// line.
+func NewReeveSpeech(opts ReeveSpeechOptions) *ReeveSpeech {
+	if opts.Logf == nil {
+		opts.Logf = log.Printf
+	}
+	return &ReeveSpeech{opts: opts, lines: make(chan SpokenLine, speechQueueSize)}
+}
+
+// Enabled reports whether the voice is on (reeve.voice.enabled).
+func (s *ReeveSpeech) Enabled(ctx context.Context) bool {
+	return s.opts.Settings(ctx).Enabled
+}
+
+// Say puts a line in the queue and returns at once. A line that is empty,
+// too long, or finds the queue full is refused.
+func (s *ReeveSpeech) Say(_ context.Context, line SpokenLine) error {
+	line.Text = strings.TrimSpace(line.Text)
+	if line.Text == "" {
+		return errors.New("give the text to say")
+	}
+	if n := utf8.RuneCountInString(line.Text); n > MaxSpokenChars {
+		return fmt.Errorf("%d characters is too long to say: say less, in %d characters at most, and leave the detail to your written reply", n, MaxSpokenChars)
+	}
+	s.start.Do(s.run)
+	select {
+	case s.lines <- line:
+		return nil
+	default:
+		return errors.New("too many lines are waiting to be said: wait for them, or say less")
+	}
+}
+
+// run clears the audio folder and starts the queue's two workers.
+func (s *ReeveSpeech) run() {
+	if err := os.RemoveAll(s.opts.Dir); err != nil {
+		s.opts.Logf("reeve voice: clearing %s: %v", s.opts.Dir, err)
+	}
+	ready := make(chan madeLine, 1)
+	go s.makeLines(ready)
+	go s.playLines(ready)
+}
+
+func (s *ReeveSpeech) makeLines(ready chan<- madeLine) {
+	for line := range s.lines {
+		voice := s.opts.Settings(context.Background())
+		if !voice.Enabled {
+			continue
+		}
+		path, err := s.make(voice, line)
+		if err != nil {
+			s.opts.Logf("reeve voice: a line of %d characters was not said: %v", utf8.RuneCountInString(line.Text), err)
+			continue
+		}
+		ready <- madeLine{path: path}
+	}
+}
+
+func (s *ReeveSpeech) playLines(ready <-chan madeLine) {
+	for made := range ready {
+		if voice := s.opts.Settings(context.Background()); voice.Enabled {
+			if err := s.play(voice, made.path); err != nil {
+				s.opts.Logf("reeve voice: a line was not played: %v", err)
+			}
+		}
+		_ = os.Remove(made.path)
+	}
+}
+
+// make runs the voice command for one line, with its credential, and
+// returns the audio file it wrote.
+func (s *ReeveSpeech) make(voice config.ReeveVoiceConfig, line SpokenLine) (string, error) {
+	command := strings.Fields(voice.Command)
+	if len(command) == 0 {
+		return "", errors.New("reeve.voice.command is not set")
+	}
+	command[0] = expandHome(command[0])
+	if err := os.MkdirAll(s.opts.Dir, 0o700); err != nil {
+		return "", err
+	}
+	path := filepath.Join(s.opts.Dir, fmt.Sprintf("line-%d.mp3", s.seq.Add(1)))
+	ctx, cancel := context.WithTimeout(context.Background(), makeTimeout)
+	defer cancel()
+
+	env := soundEnv()
+	var key string
+	if name := strings.TrimSpace(voice.Credential); name != "" {
+		if s.opts.Credentials == nil {
+			return "", fmt.Errorf("reeve.voice.credential names %s, and this Legato has no credentials", name)
+		}
+		secret, err := s.opts.Credentials.UseForLegato(ctx, CredentialUse{TaskID: line.TaskID, ExecutionID: line.ExecutionID, Credential: name,
+			Operation: "read", Amounts: map[string]int64{"characters": int64(utf8.RuneCountInString(line.Text))}, Call: "the Reeve's voice"})
+		if err != nil {
+			return "", fmt.Errorf("credential %s: %w", name, err)
+		}
+		key = string(secret.Value)
+		env = append(env, voice.CredentialVariable()+"="+key)
+	}
+
+	cmd := exec.CommandContext(ctx, command[0], append(command[1:], line.Text, path)...)
+	cmd.Env = env
+	if strings.Contains(command[0], "/") {
+		// A script finds the files beside it from its own folder.
+		cmd.Dir = filepath.Dir(command[0])
+	}
+	if out, err := runQuiet(cmd); err != nil {
+		_ = os.Remove(path)
+		return "", fmt.Errorf("%s: %w%s", filepath.Base(command[0]), err, redacted(out, key))
+	}
+	if info, err := os.Stat(path); err != nil || info.Size() == 0 {
+		_ = os.Remove(path)
+		return "", fmt.Errorf("%s wrote no audio to its out-file", filepath.Base(command[0]))
+	}
+	return path, nil
+}
+
+// play plays one file with reeve.voice.player, else pw-play, else ffplay.
+func (s *ReeveSpeech) play(voice config.ReeveVoiceConfig, path string) error {
+	players := [][]string{{"pw-play"}, {"ffplay", "-nodisp", "-autoexit", "-loglevel", "error"}}
+	if fields := strings.Fields(voice.Player); len(fields) > 0 {
+		fields[0] = expandHome(fields[0])
+		players = [][]string{fields}
+	}
+	var failures []string
+	for _, player := range players {
+		ctx, cancel := context.WithTimeout(context.Background(), playTimeout)
+		cmd := exec.CommandContext(ctx, player[0], append(player[1:], path)...)
+		cmd.Env = soundEnv()
+		out, err := runQuiet(cmd)
+		cancel()
+		if err == nil {
+			return nil
+		}
+		failures = append(failures, fmt.Sprintf("%s: %v%s", filepath.Base(player[0]), err, redacted(out, "")))
+	}
+	return errors.New(strings.Join(failures, "; "))
+}
+
+// runQuiet runs a command and returns the end of what it wrote.
+func runQuiet(cmd *exec.Cmd) (string, error) {
+	var out bytes.Buffer
+	cmd.Stdout, cmd.Stderr = &out, &out
+	// A child that keeps the output open does not hold the queue.
+	cmd.WaitDelay = 2 * time.Second
+	err := cmd.Run()
+	text := strings.TrimSpace(out.String())
+	if len(text) > 500 {
+		text = "…" + text[len(text)-500:]
+	}
+	return text, err
+}
+
+// redacted is a command's output for the log, without the key.
+func redacted(out, key string) string {
+	if out == "" {
+		return ""
+	}
+	if key != "" {
+		out = strings.ReplaceAll(out, key, "[credential]")
+	}
+	return " (" + out + ")"
+}
+
+// soundEnv is this process's environment, with XDG_RUNTIME_DIR, where the
+// sound server's socket is, when the process was started without it.
+func soundEnv() []string {
+	env := os.Environ()
+	if os.Getenv("XDG_RUNTIME_DIR") == "" {
+		dir := fmt.Sprintf("/run/user/%d", os.Getuid())
+		if info, err := os.Stat(dir); err == nil && info.IsDir() {
+			env = append(env, "XDG_RUNTIME_DIR="+dir)
+		}
+	}
+	return env
+}
+
+// expandHome turns a leading ~/ into the home directory.
+func expandHome(path string) string {
+	if rest, ok := strings.CutPrefix(path, "~/"); ok {
+		if home, err := os.UserHomeDir(); err == nil {
+			return filepath.Join(home, rest)
+		}
+	}
+	return path
+}

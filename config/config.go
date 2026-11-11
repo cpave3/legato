@@ -1094,6 +1094,37 @@ type ReeveConfig struct {
 	// session runs: start (the default), ask a person first, or refuse.
 	// One of the Reeve's own rules.
 	Peer string `yaml:"peer"`
+	// Voice lets the Reeve speak out loud (its speak tool).
+	Voice ReeveVoiceConfig `yaml:"voice"`
+}
+
+// ReeveVoiceConfig is the Reeve's voice: a command that makes a line's
+// audio, and a player that plays it, both run by Legato on its host. See
+// docs/ai/reeve.md § Voice.
+type ReeveVoiceConfig struct {
+	// Enabled offers the speak tool; off, it also mutes the queue.
+	Enabled bool `yaml:"enabled"`
+	// Command is run as <command> "<text>" <out-file> and writes the
+	// line's audio to <out-file>.
+	Command string `yaml:"command"`
+	// Credential names a credential Legato gives the command in
+	// CredentialEnv (<NAME>_API_KEY when empty).
+	Credential    string `yaml:"credential"`
+	CredentialEnv string `yaml:"credential_env"`
+	// Player plays the file, named after it; pw-play, else ffplay, when
+	// empty.
+	Player string `yaml:"player"`
+}
+
+// CredentialVariable is the variable the voice command gets its
+// credential in: CredentialEnv, else the credential's name in capitals
+// with _API_KEY.
+func (c ReeveVoiceConfig) CredentialVariable() string {
+	if v := strings.TrimSpace(c.CredentialEnv); v != "" {
+		return v
+	}
+	name := strings.ToUpper(strings.NewReplacer("-", "_", ".", "_", " ", "_").Replace(strings.TrimSpace(c.Credential)))
+	return name + "_API_KEY"
 }
 
 // HostOperationsOn reports whether host operations are on (the default).

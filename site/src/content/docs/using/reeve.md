@@ -91,6 +91,20 @@ The Reeve can message the Reeve of another Legato this one is paired with: its w
 - Change sets that wait on a paired instance show in this instance's approvals tray too, marked with it, and are decided there.
 - A message from another Reeve shows in the conversation as its own block, marked "From the Reeve on <instance> · <role>", with the Reeve's violet edge. When no session runs here, **Reeve › When another Reeve messages** (`reeve.peer`) decides: start a session (the default), ask you first in Attention (**Let it talk**), or refuse. It is one of the Reeve's own rules, changed only with a signature.
 
+## The Reeve's voice
+
+The Reeve can talk out loud on the speakers of the machine Legato runs on. It speaks a short line, one to three sentences with the outcome first, and leaves the detail to its written reply. Say "voice mode on" in the conversation and it speaks once for each reply.
+
+To turn it on, in **Settings › Reeve**:
+
+1. Set **Voice command** (`reeve.voice.command`) to a command that makes a line's audio. Legato runs it as `<command> "<text>" <out-file>`, and it must write an audio file to `<out-file>`. For the ElevenLabs voice, that is the path to `reeve-say.sh`.
+2. For a paid voice, set **Voice credential** (`reeve.voice.credential`) to the credential that holds its key, as `elevenlabs`. Legato gives the command the key as `ELEVENLABS_API_KEY` (or the variable in `reeve.voice.credential_env`). The Reeve never sees the key, no approval is asked, and each use is written to the credential audit log.
+3. Turn on **The Reeve's voice** (`reeve.voice.enabled`), and start a new Reeve session: a session gets the `speak` tool when it starts.
+
+Lines play one at a time, in order, with `pw-play` (or `ffplay` if `pw-play` fails), or with the command in **Voice player** (`reeve.voice.player`). A line over about 400 characters is refused. A line that fails to be made or played is written to Legato's log, and the next one still plays. Turn **The Reeve's voice** off to mute it at once. Legato keeps no audio: each file is removed once it has played.
+
+To switch to a local voice such as Piper, set the voice command to a Piper script and clear the voice credential.
+
 ## Where it runs
 
 The Reeve always runs in Legato's [sandbox](/legato/security/sandbox/): it cannot be started without it, and **Run without sandbox** and the switch out of the sandbox are refused for it. It works in a folder of its own, `~/.local/state/legato/reeve` (or under `$XDG_STATE_HOME`), outside your repositories and Legato's data folder. The folder also holds its engram's store.

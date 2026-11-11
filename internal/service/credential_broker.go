@@ -1195,6 +1195,20 @@ func withCall(detail, call string) string {
 	return detail + " · " + clip(call, 300)
 }
 
+// UseForLegato reads a credential for Legato's own use on its host, which
+// the person set up by naming it in a setting (reeve.voice.credential): no
+// agent holds the value, so no rule is asked and no one is asked. The use
+// is audited against the session it serves.
+func (b *CredentialBroker) UseForLegato(ctx context.Context, use CredentialUse) (credential.Secret, error) {
+	secret, err := b.readSecret(ctx, use.Credential)
+	if err != nil {
+		return credential.Secret{}, err
+	}
+	b.audit(ctx, use.TaskID, use.ExecutionID, store.CredentialAuditEntry{Event: "use", Credential: use.Credential, Operation: use.Operation,
+		Resource: use.Resource, Amount: amounts(use.Amounts), Detail: withCall("Legato's own use", use.Call)})
+	return secret, nil
+}
+
 // readSecret reads a credential's secret from its store, with no use: for a
 // channel that has authorized the use itself, or needs a public key.
 func (b *CredentialBroker) readSecret(ctx context.Context, name string) (credential.Secret, error) {

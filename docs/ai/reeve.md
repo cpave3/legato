@@ -112,6 +112,17 @@ One engram per instance, the Reeve's own, in a store apart from the person's, so
 - **Audit**: each host action is appended to the hash-chained `credential_audit` (event `host`, empty credential): the command, file or unit (`resource`), the kind (`operation`), the approval, who decided with which device (`decided_by`) and verification, and in `detail` whether it ran as root, the exit code, the state and the SHA-256 of the output.
 - The snapshot says whether host operations are on, and the approval levels.
 
+## Voice
+
+The Reeve can speak out loud with the tool `speak` (`internal/cli/mcp_reeve.go`; queue in `internal/service/reeve_speech.go`, `ReeveSpeech`).
+
+- **Settings** (`reeve.voice.*`, `config.ReeveVoiceConfig`, all live, read for each line): `enabled` (off by default; it offers the tool, and off also mutes lines already queued; class `change`), `command` (run as `<command> "<text>" <out-file>`, writes the audio), `credential` (a credential name, given to the command in `credential_env`, which is `<NAME>_API_KEY` when empty), `player` (`<player> <file>`; `pw-play`, else `ffplay -nodisp -autoexit`, when empty). Command, credential and player are `risky`: they choose what runs on the host and which secret it gets.
+- **The tool** is offered only to the Reeve's session while `enabled` is on (`MCPReeve.Speech`, listed when the session's MCP server starts, so a session started before the voice was turned on lacks it), checked again on each call (`mustBeReeve`, then `Enabled`). It takes `text`, refuses empty text and text over `MaxSpokenChars` (400 characters: "say less"), queues the line and answers `queued` at once. Its description teaches writing for the ear; "voice mode" is the person asking the Reeve to call it for each reply.
+- **The queue** runs in the process that serves the broker, where the Reeve's tools run (`processSpeech`, `cmd/legato/reeve_voice_runtime.go`): the Reeve's sandbox cannot reach the sound system. At most 16 lines wait. One goroutine makes each line's audio while another plays the line before it, so lines play in order, one at a time. The command runs with Legato's environment (plus `XDG_RUNTIME_DIR` = `/run/user/<uid>` when it is missing), in its own folder when given as a path, for at most a minute; the player for at most five minutes. A line that fails to be made or played is logged (its length and the command's error, the key replaced by `[credential]`, never the text) and the queue carries on.
+- **Audio** is written to `<data_dir>/reeve-voice/line-<n>.mp3` and removed once played or failed; the folder is cleared when the queue starts, so nothing is kept after a crash.
+- **The credential** is read with `CredentialBroker.UseForLegato`: Legato's own use, which the person allowed by naming it in a setting. No rule is asked and no approval raised; each use is audited (`use`, detail "Legato's own use · the Reeve's voice", the characters as its amount) against the Reeve's session. The Reeve never holds the value.
+- To switch from ElevenLabs (`reeve-say.sh`) to Piper, set `command` to a Piper script and clear `credential`; no code changes.
+
 ## Ask the Reeve
 
 Attention items, a failed provider sync on the board, and agents that need the person have **Ask the Reeve** in the web UI and on the phone: a session starts with a brief of what it is, its IDs and its error line, or, with a session there, the person adds the brief to it or ends it and starts fresh. See [Web UI](web-ui.md) § The Reeve on the Agents page.

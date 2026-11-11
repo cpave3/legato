@@ -42,6 +42,15 @@ type MCPReeve struct {
 	HostOperations func(ctx context.Context) bool
 	// Peers messages other instances' Reeves (message_reeve).
 	Peers MCPPeerReeves
+	// Speech says the Reeve's lines out loud on this machine (speak).
+	Speech MCPSpeech
+}
+
+// MCPSpeech is the Reeve's voice (service.ReeveSpeech): whether it is on,
+// and a line put in its queue.
+type MCPSpeech interface {
+	Enabled(ctx context.Context) bool
+	Say(ctx context.Context, line service.SpokenLine) error
 }
 
 // MCPPeerReeves messages other instances' Reeves
@@ -82,6 +91,9 @@ func (m *mcpTools) reeveTools() []mcpserver.Tool {
 	}
 	if m.opts.Reeve.Peers != nil {
 		tools = append(tools, m.messageReeve())
+	}
+	if m.opts.Reeve.Speech != nil && m.opts.Reeve.Speech.Enabled(context.Background()) {
+		tools = append(tools, m.speak())
 	}
 	if m.opts.Reeve.Legato != nil {
 		tools = append(tools, m.legatoCommand())
@@ -469,6 +481,31 @@ func (m *mcpTools) messageReeve() mcpserver.Tool {
 			text += "\n\nA reply that waited for you: " + r
 		}
 		return mcpserver.Result{Text: text, Data: out}, nil
+	})
+}
+
+type speakInput struct {
+	Text string `json:"text" jsonschema:"what to say: one to three short sentences, the outcome first, written to be heard"`
+}
+
+func (m *mcpTools) speak() mcpserver.Tool {
+	return mcpserver.NewTool(mcpserver.Definition{
+		Name: "speak", Title: "Say something out loud",
+		Description: "Says a short line out loud to the person, in your voice, on the speakers of the machine Legato runs on. It returns at once, before the line is heard; lines are spoken in order, one at a time. " +
+			"Write for the ear: one to three short sentences, the outcome first, in plain spoken words. Never say code, file paths, IDs, URLs, Markdown, tables or lists, and never read your written reply aloud: " +
+			"speech is the short version, and the screen has the detail. Over about 400 characters is refused, so say less. " +
+			"When the person asks for voice mode, call it once for each reply, beside the written one.",
+	}, func(ctx context.Context, in speakInput) (mcpserver.Result, error) {
+		if err := m.mustBeReeve(ctx); err != nil {
+			return mcpserver.Result{}, err
+		}
+		if !m.opts.Reeve.Speech.Enabled(ctx) {
+			return mcpserver.Result{}, fmt.Errorf("your voice is off (reeve.voice.enabled): reply in writing")
+		}
+		if err := m.opts.Reeve.Speech.Say(ctx, service.SpokenLine{TaskID: m.opts.TaskID, ExecutionID: m.opts.ExecutionID, Text: in.Text}); err != nil {
+			return mcpserver.Result{}, err
+		}
+		return mcpserver.Result{Text: "queued"}, nil
 	})
 }
 

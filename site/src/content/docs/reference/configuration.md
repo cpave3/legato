@@ -349,6 +349,11 @@ The Reeve's defaults, read when a session starts. Usually set in Settings › Re
 | `reeve.host_output_cap` | int | `65536` | How many bytes of a host command's output the Reeve is given; the rest is kept in a file it can read. |
 | `reeve.peer` | string | `start` | What a message from another instance's Reeve does when no session runs here: `start` a session, `ask` you first in Attention, or `refuse` it. Changed only with a signed approval. |
 | `reeve.launch_args` | list of strings | none | Arguments added to the agent tool's launch command. |
+| `reeve.voice.enabled` | bool | `false` | Lets the Reeve speak out loud on this machine's speakers with its `speak` tool. Sessions started after you turn it on get the tool; turning it off mutes the Reeve at once. See [The Reeve's voice](/legato/using/reeve/#the-reeves-voice). |
+| `reeve.voice.command` | string | none | Makes a line's audio. Legato runs it as `<command> "<text>" <out-file>`, and it writes an audio file to `<out-file>`. |
+| `reeve.voice.credential` | string | none | A credential Legato gives the command in an environment variable, as `elevenlabs`. Leave it empty for a local voice. |
+| `reeve.voice.credential_env` | string | `<NAME>_API_KEY` | The variable the command finds the credential in. When empty, the credential's name in capitals with `_API_KEY`, as `ELEVENLABS_API_KEY`. |
+| `reeve.voice.player` | string | `pw-play`, else `ffplay` | Plays a line's audio file, named after the command and its arguments. |
 
 ## Updates
 

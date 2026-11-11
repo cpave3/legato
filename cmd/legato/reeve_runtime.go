@@ -123,6 +123,9 @@ func reeveTools(cfg *config.Config, db *store.Store) *cli.MCPReeve {
 	if processSecrets != nil {
 		tools.Secrets = processSecrets
 	}
+	if processSpeech != nil {
+		tools.Speech = processSpeech
+	}
 	tools.Legato = legatoCommands{}
 	tools.Peers = newReevePeers(cfg, db, nil, nil, nil)
 	tools.HostOperations = func(ctx context.Context) bool {
