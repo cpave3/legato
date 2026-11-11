@@ -76,11 +76,11 @@ When a server knows Touch ID, the sheet asks for your fingerprint instead of a t
 A small capsule in a corner of the screen shows the Reeve, whether your main can listen, and the key. It stays above your other windows and never takes the keyboard from the app you are in.
 
 - Click the capsule to talk, as with the key.
-- While you talk, it grows into a card: your words, the pause bar, what the Reeve is doing, and what it says. Its buttons are **Send now**, **Cancel**, **Stop** and **Reply**.
+- While you talk, it grows into a card: your words, the pause bar, what the Reeve is doing, and what it says. Its buttons are **Send now**, **Cancel**, **Stop** and **Reply**. **Stop** stops the Reeve and keeps the card, so you can talk again or close it.
 - If the main cannot listen, the capsule turns amber and says why. **Open settings** opens that setting on the main.
-- Right-click the capsule to hide it, move it to another corner, or open the app's settings. Hidden, it still shows while you talk. **Servers & keys** › **Show the voice widget** brings it back.
+- Right-click the capsule to hide it, move it to another corner, or open the app's settings. Hidden, it still shows while you talk, and for a few seconds after to say how the conversation ended. **Servers & keys** › **Show the voice widget** brings it back.
 
-On KDE Plasma and other Wayland desktops, the widget keeps to its corner only when `gtk-layer-shell` is installed. Without it, the widget is an ordinary small window, and your desktop decides where it goes. On a Mac it is an ordinary window for now.
+On KDE Plasma and other Wayland desktops (when the app runs on Wayland, not through XWayland), the widget keeps to its corner only when `gtk-layer-shell` is installed. Without it, the widget is an ordinary small window, and your desktop decides where it goes. On a Mac it is an ordinary window for now.
 
 ## Talk to the Reeve
 

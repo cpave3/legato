@@ -13,7 +13,8 @@ export interface Readiness {
 }
 
 // idle: the capsule, ready; connecting: the capsule while the main is asked;
-// not_ready: the amber capsule; talking: the card; ended: the card saying
+// not_ready: the amber capsule; talking: the card (also idle in a
+// conversation kept after Stop); ended: the card saying
 // how the conversation ended, until it is closed.
 export type Phase = "idle" | "connecting" | "not_ready" | "talking" | "ended"
 
@@ -62,6 +63,9 @@ export function reduce(model: WidgetModel, event: VoiceEvent): WidgetModel {
           return { ...model, phase: "talking", readiness: { ...model.readiness, ready: true, reason: "", setting: "" }, view: reduceVoice(view, { type: "state", state }) }
         case "idle": {
           const why = reason ?? ""
+          // No reason: the person stopped the Reeve and the app keeps the
+          // conversation; the card stays, to talk again or close.
+          if (!why) return { ...model, phase: "talking", view: { ...reduceVoice(view, { type: "state", state: "idle" }), lines: [], speaking: "" } }
           // The person ended it, or the Reeve said its piece: nothing to say.
           if ((why === "bye" || why === "cancelled" || why === "done") && !view.written) return { ...model, phase: "idle", view: initialVoiceView }
           const known = IDLE_REASONS.has(why)

@@ -16,6 +16,8 @@
 //! Only the geometry and the choices are decided here, and tested; the
 //! window itself is made in `app.rs` (`make_voice_widget`).
 
+use std::time::{Duration, Instant};
+
 use crate::store::Corner;
 
 /// The window's label, which its capability and events name.
@@ -56,10 +58,12 @@ pub struct Rect {
 }
 
 /// Where the widget's top-left goes: in its corner of the work area (the
-/// screen less panels), MARGIN in from both edges, scaled.
+/// screen less panels), MARGIN in from both edges. size is the logical
+/// size the page asked for: on Linux the window's own size changes only
+/// once the compositor has answered, so it is not read back.
 pub fn place(corner: Corner, area: Rect, size: (f64, f64), scale: f64) -> (f64, f64) {
     let margin = MARGIN * scale;
-    let (w, h) = size;
+    let (w, h) = (size.0 * scale, size.1 * scale);
     let left = area.x + margin;
     let right = area.x + area.width - margin - w;
     let top = area.y + margin;
@@ -83,10 +87,48 @@ pub fn anchors(corner: Corner) -> (bool, bool, bool, bool) {
     }
 }
 
-/// Whether the widget shows: always during a conversation and while it
-/// says something (not ready, connecting), else unless the person hid it.
-pub fn shows(hidden: bool, state: &str) -> bool {
-    !hidden || state != "idle"
+/// How long a hidden widget shows to say why the key could not listen.
+pub const NOT_READY_FOR: Duration = Duration::from_secs(8);
+
+/// How long it shows how a conversation ended: the page's card stays as
+/// long (`ENDED_FOR` in src/voice/Widget.tsx).
+pub const ENDED_FOR: Duration = Duration::from_secs(6);
+
+/// Whether the widget has something to show whatever the person chose.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum Showing {
+    /// Nothing: at rest.
+    Rest,
+    /// A conversation, or the key asking the main.
+    Busy,
+    /// Something to say, until then.
+    Until(Instant),
+}
+
+/// What the widget has to show after a `voice-state`: reason is the
+/// state's, written whether the Reeve answered in writing. Idle with no
+/// reason is a conversation kept after the person's Stop. Which ends say
+/// something is as the page's `surface` has it (src/voice/model.ts).
+pub fn showing(state: &str, reason: Option<&str>, written: bool, now: Instant) -> Showing {
+    match (state, reason.unwrap_or_default()) {
+        ("not_ready", _) => Showing::Until(now + NOT_READY_FOR),
+        ("idle", "") => Showing::Busy,
+        ("idle", "bye" | "cancelled") => Showing::Rest,
+        ("idle", "done") if !written => Showing::Rest,
+        ("idle", _) => Showing::Until(now + ENDED_FOR),
+        _ => Showing::Busy,
+    }
+}
+
+/// Whether the widget shows: unless the person hid it, and then still
+/// while it has something to show.
+pub fn shows(hidden: bool, showing: Showing, now: Instant) -> bool {
+    !hidden
+        || match showing {
+            Showing::Rest => false,
+            Showing::Busy => true,
+            Showing::Until(until) => now < until,
+        }
 }
 
 /// The widget's size before the page says, and the limits it is kept to
@@ -226,6 +268,7 @@ pub mod layer_shell {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use std::time::{Duration, Instant};
 
     const SCREEN: Rect = Rect { x: 0.0, y: 0.0, width: 1920.0, height: 1040.0 };
 
@@ -241,9 +284,11 @@ mod tests {
     #[test]
     fn the_margin_scales_and_a_second_screen_keeps_its_offset() {
         let right = Rect { x: 1920.0, y: 40.0, width: 2560.0, height: 1400.0 };
-        // At 2x the widget is 636x128 physical pixels and the margin 32.
-        assert_eq!(place(Corner::TopLeft, right, (636.0, 128.0), 2.0), (1952.0, 72.0));
-        assert_eq!(place(Corner::BottomRight, right, (636.0, 128.0), 2.0), (1920.0 + 2560.0 - 32.0 - 636.0, 40.0 + 1400.0 - 32.0 - 128.0));
+        // At 2x the widget asked for 318x64 is 636x128 physical pixels and
+        // the margin 32: placed from the size asked, not the window's,
+        // which a Linux window has only once the compositor has resized it.
+        assert_eq!(place(Corner::TopLeft, right, (318.0, 64.0), 2.0), (1952.0, 72.0));
+        assert_eq!(place(Corner::BottomRight, right, (318.0, 64.0), 2.0), (1920.0 + 2560.0 - 32.0 - 636.0, 40.0 + 1400.0 - 32.0 - 128.0));
     }
 
     #[test]
@@ -266,12 +311,40 @@ mod tests {
 
     #[test]
     fn a_hidden_widget_still_shows_during_a_conversation() {
-        assert!(shows(false, "idle"));
-        assert!(!shows(true, "idle"));
-        for state in ["connecting", "not_ready", "listening", "thinking", "speaking"] {
-            assert!(shows(true, state), "{state}");
+        let now = Instant::now();
+        assert!(shows(false, Showing::Rest, now));
+        assert!(!shows(true, Showing::Rest, now));
+        for state in ["connecting", "listening", "thinking", "speaking"] {
+            assert_eq!(showing(state, None, false, now), Showing::Busy, "{state}");
+        }
+        assert!(shows(true, Showing::Busy, now));
+        // Idle with nothing said: the person stopped the Reeve and the
+        // conversation is still open.
+        assert_eq!(showing("idle", None, false, now), Showing::Busy);
+    }
+
+    #[test]
+    fn a_hidden_widget_shows_why_for_a_while() {
+        let now = Instant::now();
+        let not_ready = showing("not_ready", Some("Voice is off"), false, now);
+        assert!(shows(true, not_ready, now + NOT_READY_FOR - Duration::from_millis(1)));
+        assert!(!shows(true, not_ready, now + NOT_READY_FOR));
+
+        // How a conversation ended, for as long as the page's card says it.
+        for reason in ["no_speech", "nothing_heard", "no_answer", "failed", "taken over by Pixel 9", LOST_EXAMPLE] {
+            let ended = showing("idle", Some(reason), false, now);
+            assert!(shows(true, ended, now + ENDED_FOR - Duration::from_millis(1)), "{reason}");
+            assert!(!shows(true, ended, now + ENDED_FOR), "{reason}");
+        }
+        // Answered in writing: the card says so.
+        assert!(shows(true, showing("idle", Some("done"), true, now), now));
+        // Ended by the person, or the Reeve said its piece: nothing to say.
+        for reason in ["bye", "cancelled", "done"] {
+            assert_eq!(showing("idle", Some(reason), false, now), Showing::Rest, "{reason}");
         }
     }
+
+    const LOST_EXAMPLE: &str = "Lost the connection to the main";
 
     #[test]
     fn open_settings_goes_to_the_mains_setting() {

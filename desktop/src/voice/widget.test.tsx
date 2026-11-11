@@ -57,6 +57,15 @@ describe("what the widget draws", () => {
     expect(surface(run(state("speaking"), state("idle", "done")))).toBe("capsule")
   })
 
+  it("keeps the card after the person stops the Reeve, ready to talk again", () => {
+    // The app keeps the conversation and says idle with no reason.
+    const stopped = run(state("speaking"), state("thinking"), state("idle"))
+    expect(stopped.phase).toBe("talking")
+    expect(stopped.view.state).toBe("idle")
+    expect(surface(stopped)).toBe("card")
+    expect(surface(run(state("speaking"), state("idle"), state("listening")))).toBe("card")
+  })
+
   it("keeps the lines in order, the one playing lit", () => {
     const line = (id: string, status: "queued" | "playing" | "played" | "dropped"): VoiceEvent => ({ name: "voice-line", payload: { id, text: `Line ${id}.`, status } })
     let m = run(state("speaking"), line("a", "queued"), line("b", "queued"), line("a", "playing"))

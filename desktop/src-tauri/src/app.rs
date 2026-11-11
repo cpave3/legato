@@ -72,8 +72,8 @@ pub struct Desktop {
     voice_session: Mutex<Option<tokio::sync::mpsc::UnboundedSender<Command>>>,
     /// Every server has been asked which instance it is, once.
     voice_targets_known: tokio::sync::watch::Sender<bool>,
-    /// The voice widget: the last state it was told, and how it keeps its place.
-    widget_state: Mutex<String>,
+    /// The voice widget: what it has to show, and how it keeps its place.
+    widget: Mutex<WidgetState>,
     widget_placement: Mutex<voicewidget::Placement>,
     #[cfg(target_os = "linux")]
     layer_shell: Mutex<Option<std::sync::Arc<voicewidget::layer_shell::LayerShell>>>,
@@ -619,28 +619,44 @@ fn tell_widget(app: &AppHandle, ui: Ui) {
         Ui::Line { id, status, .. } => println!("[voice] line {id} {status}"),
         _ => {}
     }
-    if let Ui::State { state, .. } = &ui {
-        *app.state::<Desktop>().widget_state.lock().unwrap() = state.clone();
-        show_widget_as_it_should(app);
-        // A hidden widget that showed to say why it could not listen goes again.
-        if state == "not_ready" {
-            let app = app.clone();
-            tauri::async_runtime::spawn(async move {
-                tokio::time::sleep(std::time::Duration::from_secs(8)).await;
+    match &ui {
+        Ui::Caption { kind: "written", .. } => app.state::<Desktop>().widget.lock().unwrap().written = true,
+        Ui::State { state, reason, .. } => {
+            let showing = {
                 let desktop = app.state::<Desktop>();
-                let mut last = desktop.widget_state.lock().unwrap();
-                if *last == "not_ready" {
-                    *last = "idle".into();
+                let mut widget = desktop.widget.lock().unwrap();
+                if state == "connecting" {
+                    widget.written = false;
                 }
-                drop(last);
-                show_widget_as_it_should(&app);
-            });
+                widget.showing = voicewidget::showing(state, reason.as_deref(), widget.written, std::time::Instant::now());
+                widget.showing
+            };
+            show_widget_as_it_should(app);
+            // A hidden widget that showed to say something goes again after.
+            if let voicewidget::Showing::Until(until) = showing {
+                let app = app.clone();
+                tauri::async_runtime::spawn(async move {
+                    tokio::time::sleep_until(until.into()).await;
+                    show_widget_as_it_should(&app);
+                });
+            }
         }
+        _ => {}
     }
     let _ = app.emit(ui.name(), ui.payload());
 }
 
 // ---- The voice widget ----
+
+pub struct WidgetState {
+    showing: voicewidget::Showing,
+    /// The Reeve answered in writing this conversation.
+    written: bool,
+    /// The logical size the page last asked for.
+    size: (f64, f64),
+    /// The corner a layer surface is anchored to now.
+    anchored: Option<crate::store::Corner>,
+}
 
 /// Makes the `voice` window: the app's own page, transparent, undecorated,
 /// out of the taskbar, above other windows, never focused; on Wayland a
@@ -662,7 +678,12 @@ fn make_voice_widget(app: &AppHandle) -> tauri::Result<()> {
         .focusable(false)
         .visible(false);
     let window = builder.build()?;
-    let wayland = voicekey::backend(&voicekey::Platform::this()) == voicekey::Backend::Portal;
+    // GTK's own display, not the environment: GDK_BACKEND=x11 on a Wayland
+    // session gives an X11 window, which the app places.
+    #[cfg(target_os = "linux")]
+    let wayland = window.gtk_window().map(|w| { use gtk::prelude::*; WidgetExt::display(&w).type_().name() == "GdkWaylandDisplay" }).unwrap_or(false);
+    #[cfg(not(target_os = "linux"))]
+    let wayland = false;
     #[allow(unused_mut)]
     let mut layered = false;
     #[cfg(target_os = "linux")]
@@ -672,6 +693,7 @@ fn make_voice_widget(app: &AppHandle) -> tauri::Result<()> {
                 let corner = app.state::<Desktop>().store.lock().unwrap().state.voice.corner;
                 match window.gtk_window().map_err(|e| e.to_string()).and_then(|gtk| shell.attach(&gtk, corner)) {
                     Ok(()) => {
+                        app.state::<Desktop>().widget.lock().unwrap().anchored = Some(corner);
                         *app.state::<Desktop>().layer_shell.lock().unwrap() = Some(std::sync::Arc::new(shell));
                         true
                     }
@@ -699,9 +721,8 @@ fn show_widget_as_it_should(app: &AppHandle) {
     let Some(window) = app.get_webview_window(voicewidget::LABEL) else { return };
     let desktop = app.state::<Desktop>();
     let hidden = desktop.store.lock().unwrap().state.voice.widget_hidden;
-    let state = desktop.widget_state.lock().unwrap().clone();
-    let state = if state.is_empty() { "idle".to_string() } else { state };
-    if voicewidget::shows(hidden, &state) {
+    let showing = desktop.widget.lock().unwrap().showing;
+    if voicewidget::shows(hidden, showing, std::time::Instant::now()) {
         let _ = window.show();
         place_widget(app);
     } else {
@@ -719,18 +740,30 @@ fn place_widget(app: &AppHandle) {
     match placement {
         voicewidget::Placement::Placed => {
             let monitor = window.current_monitor().ok().flatten().or_else(|| window.primary_monitor().ok().flatten());
-            let (Some(monitor), Ok(size)) = (monitor, window.outer_size()) else { return };
+            let Some(monitor) = monitor else { return };
+            let size = desktop.widget.lock().unwrap().size;
             let area = monitor.work_area();
             let rect = voicewidget::Rect { x: area.position.x as f64, y: area.position.y as f64, width: area.size.width as f64, height: area.size.height as f64 };
-            let (x, y) = voicewidget::place(corner, rect, (size.width as f64, size.height as f64), monitor.scale_factor());
+            let (x, y) = voicewidget::place(corner, rect, size, monitor.scale_factor());
             let _ = window.set_position(tauri::PhysicalPosition::new(x.round() as i32, y.round() as i32));
         }
         #[cfg(target_os = "linux")]
         voicewidget::Placement::LayerShell => {
-            let shell = desktop.layer_shell.lock().unwrap().clone();
-            if let (Some(shell), Ok(gtk)) = (shell, window.gtk_window()) {
-                shell.corner(&gtk, corner);
+            // Only when the corner changes; and GTK only on its own thread,
+            // where this may not be (a conversation runs on tokio's).
+            {
+                let mut widget = desktop.widget.lock().unwrap();
+                if widget.anchored == Some(corner) {
+                    return;
+                }
+                widget.anchored = Some(corner);
             }
+            let shell = desktop.layer_shell.lock().unwrap().clone();
+            let _ = app.run_on_main_thread(move || {
+                if let (Some(shell), Ok(gtk)) = (shell, window.gtk_window()) {
+                    shell.corner(&gtk, corner);
+                }
+            });
         }
         _ => {}
     }
@@ -741,6 +774,7 @@ fn place_widget(app: &AppHandle) {
 fn voice_widget_size(app: AppHandle, width: f64, height: f64) {
     let Some(window) = app.get_webview_window(voicewidget::LABEL) else { return };
     let (w, h) = voicewidget::clamp_size(width, height);
+    app.state::<Desktop>().widget.lock().unwrap().size = (w, h);
     let _ = window.set_size(tauri::LogicalSize::new(w, h));
     place_widget(&app);
 }
@@ -1965,7 +1999,7 @@ pub fn run() {
             voice_targets: Mutex::default(),
             voice_session: Mutex::default(),
             voice_targets_known: tokio::sync::watch::Sender::new(false),
-            widget_state: Mutex::default(),
+            widget: Mutex::new(WidgetState { showing: voicewidget::Showing::Rest, written: false, size: voicewidget::FIRST_SIZE, anchored: None }),
             widget_placement: Mutex::new(voicewidget::Placement::Placed),
             #[cfg(target_os = "linux")]
             layer_shell: Mutex::default(),
@@ -2086,4 +2120,31 @@ pub fn run() {
         ])
         .run(tauri::generate_context!())
         .expect("the app did not start");
+}
+
+#[cfg(test)]
+mod tests {
+    /// The commands build.rs makes permissions for are generate_handler!'s,
+    /// and each capability allows only commands that exist.
+    #[test]
+    fn every_command_has_a_permission_and_the_capabilities_name_real_ones() {
+        let names = |text: &str, start: &str, end: &str| -> Vec<String> {
+            let from = text.find(start).expect(start) + start.len();
+            let to = from + text[from..].find(end).expect(end);
+            text[from..to].split(',').map(|n| n.trim().trim_matches('"').to_string()).filter(|n| !n.is_empty()).collect()
+        };
+        let app = include_str!("app.rs");
+        let build = include_str!("../build.rs");
+        let mut handled = names(app, "generate_handler![", "]");
+        let mut listed = names(build, "const COMMANDS: &[&str] = &[", "];");
+        handled.sort();
+        listed.sort();
+        assert_eq!(handled, listed);
+        for capability in [include_str!("../capabilities/shell.json"), include_str!("../capabilities/voice.json")] {
+            let v: serde_json::Value = serde_json::from_str(capability).unwrap();
+            for p in v["permissions"].as_array().unwrap().iter().filter_map(|p| p.as_str()?.strip_prefix("allow-")) {
+                assert!(listed.contains(&p.replace('-', "_")), "{p}");
+            }
+        }
+    }
 }
