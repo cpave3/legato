@@ -439,7 +439,7 @@ func (r changeSetResolver) Resolve(ctx context.Context, approval Approval, decis
 		if note == "" {
 			note = "(no note)"
 		}
-		r.c.opts.Notify(ctx, set.TaskID, fmt.Sprintf("[legato] The person denied change set %s (%s). Their note: %s\nDo not propose the same change again in this session unless they ask.", set.ID, set.Reason, note))
+		r.c.opts.Notify(ctx, set.TaskID, fmt.Sprintf("[legato] The operator denied change set %s (%s). Their note: %s\nDo not propose the same change again in this session unless they ask.", set.ID, set.Reason, note))
 	}
 	return nil
 }
@@ -497,7 +497,7 @@ func (c *ChangeSetService) run(ctx context.Context, set store.ReeveChangeSet, no
 		case failed:
 			results[i].State = "skipped"
 		case call.Kind == CallRestart && noRestart:
-			results[i].State, results[i].Detail = "skipped", "left out by the person: the change waits for the next restart"
+			results[i].State, results[i].Detail = "skipped", "left out by the operator: the change waits for the next restart"
 		case call.Kind == CallRestart:
 			results[i].State = "ran"
 			restart = true

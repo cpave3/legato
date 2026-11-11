@@ -133,7 +133,7 @@ func (p *HTTPProxy) serveGit(w http.ResponseWriter, r *http.Request, c ProxyCred
 			if d.Pending {
 				reasons[ref] = "pending " + d.ApprovalID
 				messages = append(messages,
-					fmt.Sprintf("Legato: %s waits for the person (pending %s).", ref, d.ApprovalID),
+					fmt.Sprintf("Legato: %s waits for the operator (pending %s).", ref, d.ApprovalID),
 					"Legato: push again after the [legato approvals] message that tells you they allowed it.")
 				continue
 			}

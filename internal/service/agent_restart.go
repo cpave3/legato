@@ -108,7 +108,31 @@ func (a *agentService) restartAgent(ctx context.Context, taskID string, resource
 	if err := a.stopAgent(stopCtx, taskID, false); err != nil {
 		return false, err
 	}
+	opt.Prompt = restartNote(switchSandbox, sandboxed, opt.SessionPolicy == "resume")
 	return sandboxed, a.SpawnAgent(ctx, taskID, 0, 0, opt)
+}
+
+// restartNote is the first message a restarted agent gets: what happened to
+// its session, since nothing in its conversation says so. Its tag marks it as
+// Legato's own message, which the conversation draws apart from what the
+// person typed.
+func restartNote(switchedSandbox, sandboxed, resumed bool) string {
+	conversation := ""
+	if resumed {
+		conversation = " and your conversation resumed"
+	}
+	unfinished := " A step that was running when it stopped may not have finished: check before you go on."
+	switch {
+	case !switchedSandbox:
+		return "[legato reloaded] The operator reloaded this session: it was stopped and started again" + conversation +
+			", so your tools and configuration (MCP servers, plugins, hooks) were read afresh." + unfinished
+	case sandboxed:
+		return "[legato sandbox] The operator added the sandbox: this session was stopped and started again inside Legato's sandbox" + conversation +
+			". Files, credentials and commands you could reach before may now be hidden or refused." + unfinished
+	default:
+		return "[legato sandbox] The operator removed the sandbox: this session was stopped and started again outside Legato's sandbox" + conversation +
+			". What the sandbox hid or refused before can now be reached, so a step it blocked can be tried again." + unfinished
+	}
 }
 
 // restartOwner names what owns an agent that is started by it, not by the

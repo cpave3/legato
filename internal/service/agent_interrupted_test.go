@@ -122,6 +122,11 @@ func TestResumingAnInterruptedAgentResumesItsConversationAndSaysItWasInterrupted
 	if !strings.Contains(strings.Join(lines[1:], "\n"), "interrupted") {
 		t.Fatalf("lines = %q, want a note that the session was interrupted", lines)
 	}
+	// The note is Legato's, not the person's: its tag is what makes the
+	// conversation draw it as a message from Legato.
+	if !strings.HasPrefix(lines[1], "[legato interrupted] ") {
+		t.Fatalf("note = %q, want it to open with Legato's tag", lines[1])
+	}
 	session, err := f.store.GetAgentSessionByTaskID(ctx, "task-i")
 	if err != nil {
 		t.Fatalf("running session: %v", err)

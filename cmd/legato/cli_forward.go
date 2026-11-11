@@ -105,7 +105,7 @@ func cliRunOp(binary string, scratch service.SandboxScratch, isReeve func(ctx co
 		}
 		if isReeve != nil && isReeve(ctx, caller.TaskID) {
 			if class, _ := classifyLegatoCommand(in.Args); class != "read" {
-				return nil, &broker.Error{Code: "forbidden", Message: "the Reeve runs only commands that read here; propose a change with the legato tool or propose_changes, for the person to approve"}
+				return nil, &broker.Error{Code: "forbidden", Message: "the Reeve runs only commands that read here; propose a change with the legato tool or propose_changes, for the operator to approve"}
 			}
 		}
 		tmp := scratch.Tmp(caller.ExecutionID)

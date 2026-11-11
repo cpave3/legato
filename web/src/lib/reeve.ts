@@ -144,13 +144,13 @@ export interface ReeveAsk {
 // reeveBrief is the brief a session starts with, or the message added to
 // the running one.
 export function reeveBrief(ask: ReeveAsk): string {
-  const lines = [`The person asks you about ${ask.what}.`]
+  const lines = [`The operator asks you about ${ask.what}.`]
   for (const [label, id] of Object.entries(ask.ids ?? {})) {
     if (id) lines.push(`- ${label}: ${id}`)
   }
   const error = ask.error?.split("\n").find((line) => line.trim())?.trim()
   if (error) lines.push(`- Error: ${error}`)
-  lines.push("", "Find out what is wrong and what to do about it. Read first; any change goes to the person as a change set.")
+  lines.push("", "Find out what is wrong and what to do about it. Read first; any change goes to the operator as a change set.")
   return lines.join("\n")
 }
 

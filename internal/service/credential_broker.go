@@ -846,7 +846,7 @@ func (b *CredentialBroker) Request(ctx context.Context, req AccessRequest) (Acce
 		if decided.Decision != nil {
 			note = decided.Decision.Feedback
 		}
-		return AccessResult{Status: AccessDenied, ApprovalID: approval.ID, Reason: firstNonEmpty(note, "the person did not allow it")}, nil
+		return AccessResult{Status: AccessDenied, ApprovalID: approval.ID, Reason: firstNonEmpty(note, "the operator did not allow it")}, nil
 	}
 }
 
@@ -1071,7 +1071,7 @@ func (b *CredentialBroker) Authorize(ctx context.Context, use CredentialUse) (Us
 			return UseDecision{Allowed: ok, ApprovalID: result.ApprovalID}, err
 		}
 	}
-	return UseDecision{ApprovalID: result.ApprovalID, Reason: firstNonEmpty(result.Reason, "waiting for the person")}, nil
+	return UseDecision{ApprovalID: result.ApprovalID, Reason: firstNonEmpty(result.Reason, "waiting for the operator")}, nil
 }
 
 // CheckUse decides a use as Authorize would, without spending a grant or
@@ -1128,7 +1128,7 @@ func (b *CredentialBroker) CheckUse(ctx context.Context, use CredentialUse) (Use
 	if result.Status == AccessGranted {
 		return UseDecision{Allowed: true, ApprovalID: result.ApprovalID}, nil
 	}
-	return UseDecision{ApprovalID: result.ApprovalID, Reason: firstNonEmpty(result.Reason, "waiting for the person")}, nil
+	return UseDecision{ApprovalID: result.ApprovalID, Reason: firstNonEmpty(result.Reason, "waiting for the operator")}, nil
 }
 
 // useGrant spends a live grant that covers the use, if there is one.
@@ -1289,12 +1289,12 @@ func (r credentialResolver) Resolve(ctx context.Context, approval Approval, deci
 		phrase := map[string]string{grantSession: "for this session", grantWindow: "for " + humanDuration(window), grantOnce: "once"}[decision.Option]
 		message = fmt.Sprintf("[legato approvals] %s approved: %s with %s %s. Carry on with what needed it.", approval.ID, scope, d.Credential, phrase)
 		if d.NoWait {
-			message = fmt.Sprintf("[legato approvals] %s approved: %s with %s %s. It was refused while it waited for the person, so run it again now.", approval.ID, scope, d.Credential, phrase)
+			message = fmt.Sprintf("[legato approvals] %s approved: %s with %s %s. It was refused while it waited for the operator, so run it again now.", approval.ID, scope, d.Credential, phrase)
 		}
 	default:
 		r.b.audit(ctx, approval.TaskID, approval.ExecutionID, store.CredentialAuditEntry{Event: "deny", Credential: d.Credential, Operation: strings.Join(d.Operations, ","), Resource: strings.Join(d.Resources, " "), ApprovalID: approval.ID, DecidedBy: decidedBy(decision), Verification: decision.Verification, Detail: clip(decision.Feedback, 500)})
 		note := firstNonEmpty(decision.Feedback, "no reason given")
-		message = fmt.Sprintf("[legato approvals] %s denied: %s with %s. The person said: %s. Do not look for another way to get this credential.", approval.ID, scope, d.Credential, note)
+		message = fmt.Sprintf("[legato approvals] %s denied: %s with %s. The operator said: %s. Do not look for another way to get this credential.", approval.ID, scope, d.Credential, note)
 	}
 	// A decision made while the requester still waited reached it directly;
 	// a requester that did not wait hears every decision.

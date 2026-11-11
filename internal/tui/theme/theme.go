@@ -35,7 +35,7 @@ var (
 	AccentAlt = lipgloss.Color("#d4c4ff")
 
 	Green  = lipgloss.Color("#8fd18b") // running, passed, added
-	Amber  = lipgloss.Color("#f0b35a") // needs the person
+	Amber  = lipgloss.Color("#f0b35a") // needs the operator
 	Blue   = lipgloss.Color("#7aa7ff") // finished and handed over
 	Red    = lipgloss.Color("#f08a8a") // failed, removed
 	Yellow = lipgloss.Color("#e6d76a") // in progress, a command

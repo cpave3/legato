@@ -154,11 +154,11 @@ func repositoryGuidancePrompt(repo, text string) string {
 const reviewsOffPrompt = "## Reviews\n\n" +
 	"Legato reviews are off. Do not capture a review tour, run `legato review` commands, " +
 	"or write a review handoff packet, and do not use the legato-review skill, " +
-	"unless the person asks for a review."
+	"unless the operator asks for a review."
 
 // reviewsOnPrompt asks an agent whose launch prompt teaches nothing of
 // reviews for a review tour at the end of its work.
 const reviewsOnPrompt = "## Reviews\n\n" +
-	"The person reviews your work in Legato as a guided tour. When a piece of work " +
+	"The operator reviews your work in Legato as a guided tour. When a piece of work " +
 	"is done, use the legato-review skill to capture a review tour and mark it ready. " +
-	"If `LEGATO_TASK_EPHEMERAL=1`, skip it unless the person asks for a review."
+	"If `LEGATO_TASK_EPHEMERAL=1`, skip it unless the operator asks for a review."

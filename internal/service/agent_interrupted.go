@@ -17,8 +17,9 @@ import (
 var ErrAgentNotResumable = errors.New("interrupted agent cannot be resumed")
 
 // InterruptedNote is the first message a resumed interrupted agent gets: it
-// may have stopped in the middle of a step.
-const InterruptedNote = "Legato and this session were interrupted (the machine or tmux went down) while you were working, and your conversation has been resumed. Your last step may not have finished: check the state of what you were doing before you go on."
+// may have stopped in the middle of a step. Its tag marks it as Legato's own
+// message, which the conversation draws apart from what the person typed.
+const InterruptedNote = "[legato interrupted] Legato and this session were interrupted (the machine or tmux went down) while you were working, and your conversation has been resumed. Your last step may not have finished: check the state of what you were doing before you go on."
 
 // InterruptedAgent is an agent that was running when Legato last stopped and
 // whose tmux session was gone when it started again.

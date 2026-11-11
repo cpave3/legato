@@ -149,7 +149,7 @@ func TestADelegationToARunningAgentIsATaggedMessage(t *testing.T) {
 	}
 	msg := f.agents.messages[0]
 	if !strings.HasPrefix(msg, "t1: [argus case ci:acme/widget#12 · delegation "+status.DelegationID+" · fix]") ||
-		!strings.Contains(msg, fixRequest(DelegationTarget{}).Brief) || !strings.Contains(msg, "reply_case") || !strings.Contains(msg, "not from the person") {
+		!strings.Contains(msg, fixRequest(DelegationTarget{}).Brief) || !strings.Contains(msg, "reply_case") || !strings.Contains(msg, "not from the operator") {
 		t.Fatalf("message = %q", msg)
 	}
 	got, err := f.svc.Status(context.Background(), "argus", status.DelegationID)

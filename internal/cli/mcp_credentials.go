@@ -19,7 +19,7 @@ type requestAccessInput struct {
 	Credential string   `json:"credential" jsonschema:"the credential's name"`
 	Operations []string `json:"operations" jsonschema:"what you will do with it, such as read"`
 	Resources  []string `json:"resources,omitempty" jsonschema:"what you will do it to, as narrowly as the task allows: one URL, one host, one branch. Leave out for the whole credential"`
-	Reason     string   `json:"reason" jsonschema:"one sentence the person reads: what you need it for"`
+	Reason     string   `json:"reason" jsonschema:"one sentence the operator reads: what you need it for"`
 	Blocking   bool     `json:"blocking,omitempty" jsonschema:"true when you cannot go on without it"`
 }
 
@@ -54,8 +54,8 @@ func (m *mcpTools) requestAccess() mcpserver.Tool {
 		Name:  "request_access",
 		Title: "Request access to a credential",
 		Description: "Asks Legato for access to a credential it holds for you (an API key, a login), for exactly the operations and resources you name, with your reason. " +
-			"Ask before you need it, and ask for the smallest scope the task needs; a pattern such as a branch prefix is shown to the person as broader. " +
-			"Legato answers at once when the person's rules allow it, or asks the person and waits up to a minute. " +
+			"Ask before you need it, and ask for the smallest scope the task needs; a pattern such as a branch prefix is shown to the operator as broader. " +
+			"Legato answers at once when the operator's rules allow it, or asks the operator and waits up to a minute. " +
 			"If the answer is pending, Legato tells you the decision later in a message that starts with [legato approvals]. " +
 			"Never look for the secret another way. Credentials here: " + known + ".",
 	}, func(ctx context.Context, in requestAccessInput) (mcpserver.Result, error) {
@@ -91,11 +91,11 @@ func accessText(in requestAccessInput, result service.AccessResult) string {
 		return fmt.Sprintf("Granted: %s with %s, for %s. Use the value with `legato credential exec %s --env VARIABLE -- <command>`, which keeps it out of your output; `legato credential get %s` prints it.",
 			scope, in.Credential, firstNonBlank(result.Grant, "now"), in.Credential, in.Credential)
 	case service.AccessPending:
-		return fmt.Sprintf("Pending: Legato asked the person (%s). The decision will come in a message that starts with [legato approvals] %s. If you are not blocked, continue with other work and do not use %s until then. If you are blocked, stop and end your turn now. Do not try another way to get this credential.",
+		return fmt.Sprintf("Pending: Legato asked the operator (%s). The decision will come in a message that starts with [legato approvals] %s. If you are not blocked, continue with other work and do not use %s until then. If you are blocked, stop and end your turn now. Do not try another way to get this credential.",
 			result.ApprovalID, result.ApprovalID, in.Credential)
 	default:
-		return fmt.Sprintf("Denied: %s with %s. %s. Do not look for another way to get this credential; say so and go on without it, or ask the person.",
-			scope, in.Credential, firstNonBlank(result.Reason, "The person did not allow it"))
+		return fmt.Sprintf("Denied: %s with %s. %s. Do not look for another way to get this credential; say so and go on without it, or ask the operator.",
+			scope, in.Credential, firstNonBlank(result.Reason, "The operator did not allow it"))
 	}
 }
 

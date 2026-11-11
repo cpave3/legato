@@ -4,6 +4,12 @@ A board of tasks and the AI coding agents that work on them, run as one or more 
 
 ## Language
 
+### People
+
+**Operator**:
+The human who runs a Legato and works with its agents: the one who starts, messages, reloads and approves. Every text Legato gives an agent (messages, prompts, tool guidance, refusals) names them so.
+_Avoid_: the person, the user, the human
+
 ### Instances and handoff
 
 **Main instance**:

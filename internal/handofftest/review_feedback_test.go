@@ -126,7 +126,7 @@ func TestTheReviewersBriefSetsTheBarAndALaterPassItsScope(t *testing.T) {
 	finding := changesPass(t, r, "The loop has no bound.")
 	spawns := r.worker.Tmux.Spawned()
 	first := briefOf(t, spawns[len(spawns)-1])
-	for _, want := range []string{"every pull request in full", "failure_scenario", "A setting only the person can choose"} {
+	for _, want := range []string{"every pull request in full", "failure_scenario", "A setting only the operator can choose"} {
 		if !strings.Contains(first, want) {
 			t.Errorf("pass 1's brief lacks %q:\n%s", want, first)
 		}

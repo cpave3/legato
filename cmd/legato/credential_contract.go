@@ -345,7 +345,7 @@ func runCredentialContract(verb string, args []string) int {
 
 // useResult says what a refused use came to, as a request's result.
 func useResult(d service.UseDecision) service.AccessResult {
-	if d.ApprovalID != "" && d.Reason == "waiting for the person" {
+	if d.ApprovalID != "" && d.Reason == "waiting for the operator" {
 		return service.AccessResult{Status: service.AccessPending, ApprovalID: d.ApprovalID}
 	}
 	return service.AccessResult{Status: service.AccessDenied, ApprovalID: d.ApprovalID, Reason: d.Reason}

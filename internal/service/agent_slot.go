@@ -27,7 +27,7 @@ func ValidateAgentSlot(slot string) error {
 
 // ErrNamedSlotRefused is the refusal of a request from the person to start an
 // agent in a named slot: only Legato starts agents there.
-var ErrNamedSlotRefused = errors.New("only Legato starts agents in a named slot; the person's agents run in the main slot")
+var ErrNamedSlotRefused = errors.New("only Legato starts agents in a named slot; the operator's agents run in the main slot")
 
 // IsNamedSlot reports whether slot is a named slot, not the main one.
 func IsNamedSlot(slot string) bool { return slot != "" && slot != store.SlotMain }

@@ -789,7 +789,7 @@ export function AgentsPage() {
                 pullRequest={pullRequest}
                 panels={sidePanels}
                 menu={terminalMenu.entries}
-                ask={selectedAgent.reeve ? undefined : <AskReeve brief={reeveBrief({ what: `the agent “${selectedAgent.task_title || selectedAgent.task_id}”, which waits for the person`, ids: { task: selectedAgent.task_id, "agent tool": selectedAgent.agent_kind } })} />}
+                ask={selectedAgent.reeve ? undefined : <AskReeve brief={reeveBrief({ what: `the agent “${selectedAgent.task_title || selectedAgent.task_id}”, which waits for the operator`, ids: { task: selectedAgent.task_id, "agent tool": selectedAgent.agent_kind } })} />}
                 notes={<>
                   {selectedAgent.reeve && <ReeveStatus baseUrl={baseUrl} />}
                   {terminalMenu.upgradeError && <span role="alert" className="text-lw-error">{terminalMenu.upgradeError}</span>}

@@ -123,7 +123,7 @@ func TestTheReeveProposesAChangeSet(t *testing.T) {
 		"reason": "turn reviews off",
 		"calls":  []any{map[string]any{"kind": "api", "method": "PUT", "path": "/api/config/settings/agents.reviews", "body": map[string]any{"value": false}}, map[string]any{"kind": "restart"}},
 	}))
-	if !strings.Contains(got, "waits for the person's approval") || sets.reason != "turn reviews off" || len(sets.calls) != 2 || sets.calls[1].Kind != "restart" {
+	if !strings.Contains(got, "waits for the operator's approval") || sets.reason != "turn reviews off" || len(sets.calls) != 2 || sets.calls[1].Kind != "restart" {
 		t.Fatalf("result %q, proposed %+v", got, sets)
 	}
 }

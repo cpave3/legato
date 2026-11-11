@@ -441,8 +441,8 @@ func writeGHWrapper(dir, legato string) error {
 		"elif [ \"$GH_TOKEN\" = " + GHSignedOut + " ]; then\n" +
 		"  echo \"legato: gh has no GitHub token for this command, so GitHub will refuse it.\" >&2\n" +
 		"  [ -n \"$out\" ] && echo \"$out\" >&2\n" +
-		"  case $out in *pending*) echo \"legato: the person has been asked. When they decide you get a [legato approvals] message; run this gh command again then.\" >&2 ;;\n" +
-		"  *) echo \"legato: name a listed repository with -R owner/name, or run gh inside a clone. In a Legato session gh does not use the person's own login.\" >&2 ;; esac\n" +
+		"  case $out in *pending*) echo \"legato: the operator has been asked. When they decide you get a [legato approvals] message; run this gh command again then.\" >&2 ;;\n" +
+		"  *) echo \"legato: name a listed repository with -R owner/name, or run gh inside a clone. In a Legato session gh does not use the operator's own login.\" >&2 ;; esac\n" +
 		"fi\n" +
 		"exec \"$real\" \"$@\"\n"
 	if err := os.MkdirAll(dir, 0o700); err != nil {
@@ -481,7 +481,7 @@ func ShellStartup(dir string) (map[string]string, error) {
 	}
 	first := shellQuote(dir)
 	for _, name := range zshStartupFiles {
-		script := "# Legato: the person's own " + name + ", then Legato's gh wrapper first on PATH.\n" +
+		script := "# Legato: the operator's own " + name + ", then Legato's gh wrapper first on PATH.\n" +
 			"_legato_zdotdir=$ZDOTDIR\n" +
 			"ZDOTDIR=${LEGATO_USER_ZDOTDIR:-$HOME}\n" +
 			"[[ -r $ZDOTDIR/" + name + " ]] && source $ZDOTDIR/" + name + "\n"

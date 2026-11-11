@@ -55,7 +55,7 @@ func writeAzWrapper(path, legato string, az SandboxAzure) error {
 		"\"$real\" " + shellQuote(az.ClientID) + " " + shellQuote(az.TenantID) + "\n" +
 		"  status=$?\n" +
 		"  if [ $status -eq 4 ]; then\n" +
-		"    echo \"legato: az is not signed in: Legato did not give the credential " + az.Credential + " (above). If the person is being asked, you get a [legato approvals] message when they decide; run this az command again once it is approved.\" >&2\n" +
+		"    echo \"legato: az is not signed in: Legato did not give the credential " + az.Credential + " (above). If the operator is being asked, you get a [legato approvals] message when they decide; run this az command again once it is approved.\" >&2\n" +
 		"    exit 4\n" +
 		"  elif [ $status -ne 0 ]; then\n" +
 		"    echo \"legato: az could not sign in as the app of the credential " + az.Credential + " (above).\" >&2\n" +

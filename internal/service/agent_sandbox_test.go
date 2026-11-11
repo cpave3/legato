@@ -182,6 +182,9 @@ func TestReloadingAnAgentWithoutTheSandboxTakesItOut(t *testing.T) {
 	if last := lines[len(lines)-1]; strings.HasPrefix(last, "SANDBOX") {
 		t.Fatalf("relaunched as %q", last)
 	}
+	if note := sentLineEventually(t, mt, "task-1", "[legato sandbox] "); !strings.Contains(note, "outside Legato's sandbox") {
+		t.Fatalf("note = %q, want it to say the agent now runs outside the sandbox", note)
+	}
 }
 
 func TestReloadingAnUnsandboxedAgentSwitchingTheSandboxPutsItBack(t *testing.T) {
@@ -207,6 +210,9 @@ func TestReloadingAnUnsandboxedAgentSwitchingTheSandboxPutsItBack(t *testing.T) 
 	lines := mt.sentLinesFor("legato-task-1")
 	if last := lines[len(lines)-1]; !strings.HasPrefix(last, "SANDBOX") {
 		t.Fatalf("relaunched as %q", last)
+	}
+	if note := sentLineEventually(t, mt, "task-1", "[legato sandbox] "); !strings.Contains(note, "inside Legato's sandbox") {
+		t.Fatalf("note = %q, want it to say the agent now runs inside the sandbox", note)
 	}
 }
 

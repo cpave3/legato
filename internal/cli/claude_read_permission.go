@@ -9,7 +9,7 @@ import (
 
 // claudeReadAllowed is what a Claude Code PreToolUse hook prints to let a
 // tool call run without a permission prompt.
-const claudeReadAllowed = `{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"allow","permissionDecisionReason":"An image the person pasted for this session"}}`
+const claudeReadAllowed = `{"hookSpecificOutput":{"hookEventName":"PreToolUse","permissionDecision":"allow","permissionDecisionReason":"An image the operator pasted for this session"}}`
 
 // ClaudeReadPermission answers a Claude Code PreToolUse hook for the Read
 // tool. Claude Code asks the person before it reads a file outside its

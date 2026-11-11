@@ -1395,7 +1395,7 @@ func (a *agentService) deliverLaunchMessages(ctx context.Context, executionID, t
 		}
 		typed := message
 		if promptFile != "" && strings.ContainsAny(message, "\n\r\"") {
-			typed = "Read " + promptFile + " in full: it is your task from the person. Then do it."
+			typed = "Read " + promptFile + " in full: it is your task from the operator. Then do it."
 		}
 		if err := a.tmux.SendKeysLine(session, typed); err != nil {
 			log.Printf("launch message failed for %s: %v", session, err)

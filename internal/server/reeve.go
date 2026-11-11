@@ -73,7 +73,7 @@ func (s *Server) serveReeveToken(w http.ResponseWriter, r *http.Request, next ht
 	case ClassNever:
 		writeIntegrationError(w, http.StatusForbidden, "never", "the Reeve may never "+lowerFirst(info.Description))
 	default:
-		writeIntegrationError(w, http.StatusForbidden, "needs_approval", info.Description+" is a "+string(info.Class)+" call: propose it as a change set for the person to approve")
+		writeIntegrationError(w, http.StatusForbidden, "needs_approval", info.Description+" is a "+string(info.Class)+" call: propose it as a change set for the operator to approve")
 	}
 }
 

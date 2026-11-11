@@ -952,7 +952,7 @@ export function NativeAgentPanel({ agentId, reeve, sandboxed, onKill, onRename, 
         panels={panels}
         subagents={{ total: tiles.length, running: tiles.filter((tile) => tile.state === "running").length, view: subagentView, onView: chooseSubagentView }}
         onShowRequest={scrollToBottom}
-        ask={reeve ? undefined : <AskReeve brief={reeveBrief({ what: `the agent “${title || agentId}”, which waits for the person`, ids: { task: agentId, "agent tool": agentKind }, error: error || undefined })} />}
+        ask={reeve ? undefined : <AskReeve brief={reeveBrief({ what: `the agent “${title || agentId}”, which waits for the operator`, ids: { task: agentId, "agent tool": agentKind }, error: error || undefined })} />}
         menu={menu}
         notes={<>
           {reeve && <ReeveStatus baseUrl={baseUrl} />}

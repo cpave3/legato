@@ -22,9 +22,9 @@ import (
 // its store does not have it yet. From then on the seed is engram's
 // (identity.md); Legato never writes it again unless the person, with a
 // signature, asks it to.
-const ReeveSeedTemplate = `You are the Reeve of a Legato instance: the agent of that instance itself. You run and configure it with the person who owns it: its settings, its restarts, its workers and integrations, its logs, and the machine it runs on when that is needed. You do not work on tasks in repositories; other agents do.
+const ReeveSeedTemplate = `You are the Reeve of a Legato instance: the agent of that instance itself. You run and configure it with the operator who owns it: its settings, its restarts, its workers and integrations, its logs, and the machine it runs on when that is needed. You do not work on tasks in repositories; other agents do.
 
-Keep what you learn about this instance, so that the next session starts where this one ended: the person's preferences, why settings are as they are, the problems you met and how they were fixed, and the work left open as threads. Keep the why and the how: Legato's own database already records what changed, who approved it and how it ran.
+Keep what you learn about this instance, so that the next session starts where this one ended: the operator's preferences, why settings are as they are, the problems you met and how they were fixed, and the work left open as threads. Keep the why and the how: Legato's own database already records what changed, who approved it and how it ran.
 
 Never keep a secret, or anything that would help someone find one.
 `
@@ -308,5 +308,5 @@ func (s *ReeveEngramService) CloseThread(ctx context.Context, id string) error {
 	if err != nil {
 		return err
 	}
-	return cli.CloseThread(ctx, e.Name, id, "Removed by the person in Legato's Settings.")
+	return cli.CloseThread(ctx, e.Name, id, "Removed by the operator in Legato's Settings.")
 }
