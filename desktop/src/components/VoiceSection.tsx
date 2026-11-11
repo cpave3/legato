@@ -1,12 +1,15 @@
 import { useEffect, useState } from "react"
 import { listen } from "@tauri-apps/api/event"
-import { api, errorText, type VoiceKeyInfo, type VoiceTargets } from "../api"
+import { api, errorText, type Corner, type VoiceKeyInfo, type VoiceTargets, type VoiceWidgetSettings } from "../api"
+
+const CORNERS: [Corner, string][] = [["bottom-right", "Bottom right"], ["bottom-left", "Bottom left"], ["top-right", "Top right"], ["top-left", "Top left"]]
 
 // Servers & keys: the key that starts talking to the Reeve, and which
 // server's Reeve it talks to.
 export function VoiceSection() {
   const [key, setKey] = useState<VoiceKeyInfo | null>(null)
   const [targets, setTargets] = useState<VoiceTargets | null>(null)
+  const [widget, setWidget] = useState<VoiceWidgetSettings | null>(null)
   const [error, setError] = useState("")
 
   useEffect(() => {
@@ -14,7 +17,10 @@ export function VoiceSection() {
     api.voiceTargets().then(setTargets).catch((e) => setError(errorText(e)))
     const offKey = listen<VoiceKeyInfo>("voice-key-changed", (e) => setKey(e.payload))
     const offTargets = listen<VoiceTargets>("voice-targets-changed", (e) => setTargets(e.payload))
+    api.voiceWidgetSettings().then(setWidget).catch((e) => setError(errorText(e)))
+    const offWidget = listen<VoiceWidgetSettings>("voice-widget-changed", (e) => setWidget(e.payload))
     return () => {
+      offWidget.then((f) => f())
       offKey.then((f) => f())
       offTargets.then((f) => f())
     }
@@ -27,6 +33,11 @@ export function VoiceSection() {
   const change = () => {
     setError("")
     api.changeVoiceKey().catch((e) => setError(errorText(e)))
+  }
+  const placeWidget = (next: VoiceWidgetSettings) => {
+    setError("")
+    setWidget(next)
+    api.setVoiceWidget(next.shown, next.corner).catch((e) => setError(errorText(e)))
   }
   const choose = (instance: string) => {
     setError("")
@@ -57,6 +68,17 @@ export function VoiceSection() {
             A desktop shortcut that opens <code>{key.link}</code> does what the key does.
           </p>
         </>
+      )}
+      {widget && (
+        <div className="row gap small">
+          <label className="row gap">
+            <input type="checkbox" checked={widget.shown} onChange={(e) => placeWidget({ ...widget, shown: e.target.checked })} />
+            Show the voice widget
+          </label>
+          <select value={widget.corner} onChange={(e) => placeWidget({ ...widget, corner: e.target.value as Corner })} aria-label="Corner">
+            {CORNERS.map(([c, label]) => <option key={c} value={c}>{label}</option>)}
+          </select>
+        </div>
       )}
       {targets && targets.servers.length > 1 && (
         <>

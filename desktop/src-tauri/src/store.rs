@@ -80,6 +80,29 @@ pub struct VoiceSettings {
     /// Listen while the key is held, and send when it is let go of.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub hold_to_talk: bool,
+    /// The person hid the widget: it shows only during a conversation.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub widget_hidden: bool,
+    /// The corner of the screen the widget keeps to.
+    #[serde(default, skip_serializing_if = "Corner::is_default")]
+    pub corner: Corner,
+}
+
+/// A corner of the screen.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum Corner {
+    #[default]
+    BottomRight,
+    BottomLeft,
+    TopRight,
+    TopLeft,
+}
+
+impl Corner {
+    fn is_default(&self) -> bool {
+        *self == Corner::default()
+    }
 }
 
 impl VoiceSettings {
@@ -308,7 +331,7 @@ pub(crate) mod tests {
         store.save().unwrap();
         assert!(!std::fs::read_to_string(&path).unwrap().contains("voice"));
 
-        store.state.voice = VoiceSettings { server: Some("inst-1".into()), hold_to_talk: true };
+        store.state.voice = VoiceSettings { server: Some("inst-1".into()), hold_to_talk: true, widget_hidden: true, corner: Corner::TopLeft };
         store.save().unwrap();
         let text = std::fs::read_to_string(&path).unwrap();
         assert!(text.contains(r#""server": "inst-1""#), "{text}");

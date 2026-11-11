@@ -1,0 +1,8 @@
+/* The voice window: transparent around the capsule or the card, which
+   Tailwind draws (their classes are in web/src/voice/). */
+@import "tailwindcss";
+@source "../../../web/src/voice";
+
+html, body, #root { margin: 0; padding: 0; background: transparent; overflow: hidden; }
+body { font-family: system-ui, sans-serif; -webkit-font-smoothing: antialiased; user-select: none; }
+.voice-widget { display: inline-block; }

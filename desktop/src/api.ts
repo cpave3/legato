@@ -92,6 +92,10 @@ export type VoiceKeyInfo = {
   link: string
 }
 
+// The voice widget: shown when at rest, and the corner it keeps to.
+export type Corner = "bottom-right" | "bottom-left" | "top-right" | "top-left"
+export type VoiceWidgetSettings = { shown: boolean; corner: Corner }
+
 // Which server's Reeve the key talks to (src-tauri/src/voicemain.rs): each
 // server with the instance it last said it is, the one talked to now, and
 // whether the person must choose.
@@ -147,6 +151,8 @@ export const api = {
   voiceTargets: () => invoke<VoiceTargets>("voice_targets"),
   setVoiceServer: (instance: string | null) => invoke<void>("set_voice_server", { instance }),
   // The widget's buttons: talk (the key), stop, reply, send, cancel, end.
+  voiceWidgetSettings: () => invoke<VoiceWidgetSettings>("voice_widget_settings"),
+  setVoiceWidget: (shown: boolean, corner: Corner) => invoke<void>("set_voice_widget", { shown, corner }),
   voiceAction: (action: "talk" | "stop" | "reply" | "send" | "cancel" | "end") => invoke<void>("voice_action", { action }),
 }
 

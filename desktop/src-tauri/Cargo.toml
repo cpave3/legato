@@ -64,6 +64,9 @@ gtk = "0.18"
 # The key that starts talking to the Reeve on Wayland: the desktop portal's
 # GlobalShortcuts, pure Rust over zbus (voicekey_portal.rs).
 ashpd = { version = "0.14", default-features = false, features = ["tokio", "global_shortcuts"] }
+# gtk-layer-shell, opened at run time for the voice widget (voicewidget.rs),
+# so the app neither links it nor needs it.
+libloading = "0.8"
 
 [dev-dependencies]
 rcgen = "0.13"
