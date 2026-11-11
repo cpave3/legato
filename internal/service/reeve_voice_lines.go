@@ -7,8 +7,11 @@ type VoiceLine struct {
 	URL  string
 }
 
-// VoiceMessage is a turn as the Reeve is given it.
-func VoiceMessage(text string) string { return text }
+// VoiceMarker starts every spoken message: the Reeve answers it by voice.
+const VoiceMarker = "[legato voice]"
+
+// VoiceMessage is a spoken turn as the Reeve is given it.
+func VoiceMessage(text string) string { return VoiceMarker + " " + text }
 
 func (s *VoiceSession) onLine(VoiceLine) {}
 func (s *VoiceSession) onPlaying(string) {}

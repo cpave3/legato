@@ -39,6 +39,9 @@ type ReeveDefaults struct {
 	Agent      string
 	Model      string
 	LaunchArgs []string
+	// Voice is reeve.voice.enabled: the session is offered speak and told
+	// about voice mode.
+	Voice bool
 }
 
 // ReeveStart is how a session starts: an override of the agent tool and
@@ -240,7 +243,11 @@ func (s *ReeveService) spawn(ctx context.Context, row store.ReeveSession, brief 
 		snapshot = s.opts.Snapshot(ctx)
 	}
 	reeveEngram, noEngram := s.engram(ctx)
-	launch := ReeveLaunchPrompt(noEngram, snapshot, brief)
+	voice := false
+	if s.opts.Defaults != nil {
+		voice = s.opts.Defaults().Voice
+	}
+	launch := ReeveLaunchPrompt(noEngram, snapshot, brief, voice)
 	first := ""
 	switch {
 	case resumed:

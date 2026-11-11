@@ -68,7 +68,7 @@ func reeveEngram(ctx context.Context, db *store.Store, folder string) (service.R
 }
 
 func reeveDefaults(cfg *config.Config) service.ReeveDefaults {
-	return service.ReeveDefaults{Agent: cfg.Reeve.Agent, Model: cfg.Reeve.Model, LaunchArgs: cfg.Reeve.LaunchArgs}
+	return service.ReeveDefaults{Agent: cfg.Reeve.Agent, Model: cfg.Reeve.Model, LaunchArgs: cfg.Reeve.LaunchArgs, Voice: cfg.Reeve.Voice.Enabled}
 }
 
 // wireReeve serves the Reeve on a web server, and suspends its idle

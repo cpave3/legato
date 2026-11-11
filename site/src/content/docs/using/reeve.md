@@ -93,7 +93,7 @@ The Reeve can message the Reeve of another Legato this one is paired with: its w
 
 ## The Reeve's voice
 
-The Reeve can talk out loud on the speakers of the machine Legato runs on. It speaks a short line, one to three sentences with the outcome first, and leaves the detail to its written reply. Say "voice mode on" in the conversation and it speaks once for each reply.
+The Reeve can talk out loud on the speakers of the machine Legato runs on. It speaks a short line, one to three sentences with the outcome first, and leaves the detail to its written reply. Say "voice mode on" in the conversation and it speaks once for each reply. When you talk to it (see [Talking to the Reeve](#talking-to-the-reeve)), it answers out loud by itself.
 
 To turn it on, in **Settings › Reeve**:
 
@@ -111,6 +111,8 @@ You can also talk to the Reeve and hear its answers, from the desktop and Androi
 
 - [Voice dictation](/legato/reference/configuration/) on (`voice.enabled`) with a Whisper server (`voice.whisper_url`). It can be the Whisper that Home Assistant Assist already uses. Both settings take a restart.
 - The Reeve's voice, set up as above.
+
+What you say reaches the Reeve marked as spoken, and it answers out loud, in a few short sentences, and writes only what cannot be said, such as a path or a link. A message you type gets a written answer, as before: voice lasts for one message. If the Reeve answers a spoken message only in writing, the app says so.
 
 Press the key or the button and speak. When you stop for about a second (**Pause that ends a spoken turn**, `reeve.voice.pause`), what you said is sent to the Reeve, and the words appear as you speak (**Words as you speak**, `reeve.voice.partials`). If you go on speaking within two seconds, before the Reeve answers, that is sent too. While the Reeve works, the app shows what it is doing. After it has answered out loud, the app listens for your reply for six seconds (**Listen for a reply for**, `reeve.voice.follow_up`); press the key again, or Cancel, to stop. Only one device talks to the Reeve at a time: starting on another takes the conversation over.
 

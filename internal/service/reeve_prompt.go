@@ -155,16 +155,27 @@ func ReeveSnapshot(ctx context.Context, src ReeveSnapshotSource) string {
 	return b.String()
 }
 
+// ReeveVoicePrompt is the Voice section of the Reeve's prompt, given while
+// reeve.voice.enabled: what a spoken message asks of it. Voice mode lasts
+// one message, so the Reeve keeps no state for it.
+const ReeveVoicePrompt = `## Voice
+
+A message that starts with ` + "`" + VoiceMarker + "`" + ` was spoken, and the person is listening, probably not looking at the screen. Answer it with ` + "`speak`" + `: one call for each reply, the outcome first, at most three short sentences. Keep the written reply to what cannot be said aloud (a path, a link, code); write nothing more. When the work will take more than a few seconds, first say in one short line what you are doing. A message without the marker was typed: answer in writing, and speak only if asked.`
+
 // ReeveLaunchPrompt is a Reeve session's launch prompt after its engram's
 // part: the role prompt, the snapshot and the brief. noEngram, when not
 // empty, says why the session has no engram and comes first; otherwise the
 // spawn puts the boot packet (or the line that stands in for it) first.
-func ReeveLaunchPrompt(noEngram, snapshot, brief string) string {
+func ReeveLaunchPrompt(noEngram, snapshot, brief string, voice bool) string {
 	var sections []string
 	if noEngram != "" {
 		sections = append(sections, reeveNoEngram(noEngram))
 	}
-	sections = append(sections, ReeveRolePrompt, snapshot)
+	sections = append(sections, ReeveRolePrompt)
+	if voice {
+		sections = append(sections, ReeveVoicePrompt)
+	}
+	sections = append(sections, snapshot)
 	if strings.TrimSpace(brief) != "" {
 		sections = append(sections, "## The brief\n\n"+strings.TrimSpace(brief))
 	}

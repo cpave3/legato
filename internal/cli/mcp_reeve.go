@@ -491,10 +491,10 @@ type speakInput struct {
 func (m *mcpTools) speak() mcpserver.Tool {
 	return mcpserver.NewTool(mcpserver.Definition{
 		Name: "speak", Title: "Say something out loud",
-		Description: "Says a short line out loud to the person, in your voice, on the speakers of the machine Legato runs on. It returns at once, before the line is heard; lines are spoken in order, one at a time. " +
+		Description: "Says a short line out loud to the person, in your voice, on the device they are listening on. It returns at once, before the line is heard; lines are spoken in order, one at a time. " +
 			"Write for the ear: one to three short sentences, the outcome first, in plain spoken words. Never say code, file paths, IDs, URLs, Markdown, tables or lists, and never read your written reply aloud: " +
-			"speech is the short version, and the screen has the detail. Over about 400 characters is refused, so say less. " +
-			"When the person asks for voice mode, call it once for each reply, beside the written one.",
+			"speech is the short version, and the screen has the detail; the conversation shows what you said, so do not write it again. Over about 400 characters is refused, so say less. " +
+			"Answer a message that starts with [legato voice] with it: that message was spoken. Otherwise speak only when the person asks.",
 	}, func(ctx context.Context, in speakInput) (mcpserver.Result, error) {
 		if err := m.mustBeReeve(ctx); err != nil {
 			return mcpserver.Result{}, err
