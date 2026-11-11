@@ -134,7 +134,7 @@ A spoken back-and-forth with the main's Reeve from the desktop and Android apps 
   2. "Whisper isn't answering on <name>" (`voice.whisper_url`).
   3. "The Reeve's voice is off on <name>" (`reeve.voice.enabled`).
   4. "The Reeve has no voice command on <name>" (`reeve.voice.command`).
-  5. "The Reeve can't start on <name>" (this server has no Reeve).
+  5. "The Reeve can't start on <name>" (this server has no Reeve), or "…: the sandbox is off" (`agents.sandbox.enabled` was off at start; the Reeve runs only in the sandbox; `ReeveVoiceOptions.CanStart`).
 
   The client adds its own: it cannot reach the server, or has no microphone.
 - **Warming up.** When the voice is ready and the Reeve's session is suspended, the status call resumes it in the background (`started_by` `voice`), so the resume happens while the person speaks.

@@ -46,6 +46,9 @@ type ReeveVoiceOptions struct {
 	Speech SpeechErrors
 	// InstanceName is this instance's name; the host name when empty.
 	InstanceName string
+	// CanStart says why the Reeve could not start here, and the setting to
+	// change ("" when it can); nil when nothing stops it.
+	CanStart func(ctx context.Context) (why, setting string)
 }
 
 // ReeveVoice is hands-free voice with this instance's Reeve: whether it is
@@ -174,6 +177,11 @@ func (v *ReeveVoice) Status(ctx context.Context) (VoiceReadiness, error) {
 		out.notReady("The Reeve can't start on "+name, "")
 	default:
 		out.Ready = true
+		if v.opts.CanStart != nil {
+			if why, setting := v.opts.CanStart(ctx); why != "" {
+				out.notReady("The Reeve can't start on "+name+": "+why, setting)
+			}
+		}
 	}
 	out.Transcription.Reachable = out.Transcription.Enabled && out.Reason != "Whisper isn't answering on "+name
 	if out.Ready && current != nil && current.State == store.ReeveSuspended {

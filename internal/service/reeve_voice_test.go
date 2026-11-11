@@ -191,3 +191,14 @@ func waitUntil(t *testing.T, cond func() bool) {
 		time.Sleep(5 * time.Millisecond)
 	}
 }
+
+func TestVoiceIsNotReadyWhenTheReeveCannotStart(t *testing.T) {
+	reeve, db, _, _ := newReeveFixture(t)
+	voice := NewReeveVoice(ReeveVoiceOptions{Store: db, InstanceName: "tessitura", Reeve: reeve, Transcription: fakeVoiceProbe{},
+		Settings: func(context.Context) *config.Config { return readyVoiceConfig() },
+		CanStart: func(context.Context) (string, string) { return "the sandbox is off", "agents.sandbox.enabled" }})
+	got, _ := voice.Status(context.Background())
+	if got.Ready || got.Reason != "The Reeve can't start on tessitura: the sandbox is off" || got.Setting != "agents.sandbox.enabled" {
+		t.Fatalf("got %+v", got)
+	}
+}

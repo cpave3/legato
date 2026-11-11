@@ -72,6 +72,14 @@ func wireReeveVoice(srv *server.Server, cfg *config.Config, db *store.Store, ree
 	if reeve != nil {
 		opts.Reeve = reeve
 	}
+	// The Reeve runs only in the sandbox, which takes a restart to turn on.
+	sandboxOn := cfg.Agents.Sandbox.Enabled
+	opts.CanStart = func(context.Context) (string, string) {
+		if !sandboxOn {
+			return "the sandbox is off", "agents.sandbox.enabled"
+		}
+		return "", ""
+	}
 	if processSpeech != nil {
 		opts.Speech = processSpeech
 	}
