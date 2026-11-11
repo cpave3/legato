@@ -8,6 +8,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"testing"
 	"time"
 
@@ -54,6 +55,8 @@ type fakeVoiceReeve struct {
 	mu       sync.Mutex
 	messages []string
 	by       []string
+	// gate, when set, holds Message until it is closed: a Reeve resuming.
+	gate chan struct{}
 }
 
 func (f *fakeVoiceReeve) Current(context.Context) (*store.ReeveSession, error) {
@@ -63,6 +66,12 @@ func (f *fakeVoiceReeve) Resume(context.Context, string, ReeveStart) (*store.Ree
 	return nil, nil
 }
 func (f *fakeVoiceReeve) Message(_ context.Context, text, by string) error {
+	f.mu.Lock()
+	gate := f.gate
+	f.mu.Unlock()
+	if gate != nil {
+		<-gate
+	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.messages = append(f.messages, text)
@@ -90,6 +99,12 @@ func (f *fakeReeveVoiceAgents) ConversationTail(context.Context, string, int) (*
 	}
 	return &ConversationTail{Entries: []ConversationEntry{{Kind: EntryTool, Tool: "Read", Text: f.tool}}}, nil
 }
+func (f *fakeReeveVoiceAgents) interrupts() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]string(nil), f.interrupted...)
+}
+
 func (f *fakeReeveVoiceAgents) InterruptAgent(_ context.Context, taskID string) error {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -98,6 +113,7 @@ func (f *fakeReeveVoiceAgents) InterruptAgent(_ context.Context, taskID string) 
 }
 
 type voiceFixture struct {
+	reads   atomic.Int64 // settings read
 	voice   *ReeveVoice
 	db      *store.Store
 	reeve   *fakeVoiceReeve
@@ -123,6 +139,7 @@ func newVoiceFixture(t *testing.T) *voiceFixture {
 	f.voice = NewReeveVoice(ReeveVoiceOptions{
 		Store: db, InstanceName: "tessitura", Reeve: f.reeve, Agents: f.agents, Transcription: f.whisper,
 		Settings: func(context.Context) *config.Config {
+			f.reads.Add(1)
 			f.cfgMu.Lock()
 			defer f.cfgMu.Unlock()
 			c := *f.cfg
@@ -414,12 +431,67 @@ func TestStopWhileThinkingInterruptsTheReeve(t *testing.T) {
 	d.speak(1000)
 	d.quiet(1100)
 	d.expectState(t, VoiceThinking)
+	waitUntil(t, func() bool { return len(f.reeve.sent()) == 1 })
 	d.session.Handle(VoiceIn{Type: "stop"})
 	d.expectState(t, VoiceIdle)
-	f.agents.mu.Lock()
-	defer f.agents.mu.Unlock()
-	if len(f.agents.interrupted) != 1 || f.agents.interrupted[0] != "reeve-1" {
-		t.Fatalf("interrupted %v", f.agents.interrupted)
+	waitUntil(t, func() bool { return len(f.agents.interrupts()) == 1 })
+	if got := f.agents.interrupts(); got[0] != "reeve-1" {
+		t.Fatalf("interrupted %v", got)
+	}
+}
+
+func TestStopBeforeTheTurnIsSentInterruptsNothing(t *testing.T) {
+	f := newVoiceFixture(t)
+	f.whisper.gate = make(chan struct{})
+	d := f.open("desk")
+	d.session.Handle(VoiceIn{Type: "listen"})
+	d.speak(1000)
+	d.quiet(1100)
+	d.expectState(t, VoiceThinking)
+	// Still transcribing: nothing has reached the Reeve, whose own work
+	// (a typed task) must go on.
+	d.session.Handle(VoiceIn{Type: "stop"})
+	d.expectState(t, VoiceIdle)
+	close(f.whisper.gate)
+	time.Sleep(100 * time.Millisecond)
+	if got := f.reeve.sent(); len(got) != 0 {
+		t.Fatalf("a stopped turn reached the Reeve: %q", got)
+	}
+	if got := f.agents.interrupts(); len(got) != 0 {
+		t.Fatalf("interrupted %v, though the turn was never sent", got)
+	}
+}
+
+func TestStopWhileTheTurnIsBeingDeliveredInterruptsOnceItLands(t *testing.T) {
+	f := newVoiceFixture(t)
+	f.reeve.gate = make(chan struct{})
+	d := f.open("desk")
+	d.session.Handle(VoiceIn{Type: "listen"})
+	d.speak(1000)
+	d.quiet(1100)
+	d.expectState(t, VoiceThinking)
+	d.expectType(t, "heard")
+	// The Reeve is still resuming when the person stops.
+	d.session.Handle(VoiceIn{Type: "stop"})
+	d.expectState(t, VoiceIdle)
+	if got := f.agents.interrupts(); len(got) != 0 {
+		t.Fatalf("interrupted %v before the turn reached the Reeve", got)
+	}
+	close(f.reeve.gate)
+	waitUntil(t, func() bool { return len(f.agents.interrupts()) == 1 })
+}
+
+func TestTheSettingsAreReadOncePerTurnNotPerFrame(t *testing.T) {
+	f := newVoiceFixture(t)
+	d := f.open("desk")
+	d.session.Handle(VoiceIn{Type: "listen"})
+	d.expectState(t, VoiceListening)
+	before := f.reads.Load()
+	d.quiet(3000)
+	d.speak(2000)
+	time.Sleep(50 * time.Millisecond)
+	if n := f.reads.Load() - before; n > 2 {
+		t.Fatalf("settings read %d times in 5 s of audio, want once per turn", n)
 	}
 }
 

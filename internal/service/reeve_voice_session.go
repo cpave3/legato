@@ -142,6 +142,10 @@ type VoiceSession struct {
 	once  sync.Once
 	ctx   context.Context
 	stop  context.CancelFunc
+	// outMu keeps a message from following ended.
+	outMu sync.Mutex
+	// oversize: a frame too large was dropped, logged once.
+	oversize sync.Once
 
 	// The loop's state.
 	state      string
@@ -165,6 +169,14 @@ type VoiceSession struct {
 	playing    string
 	spoke      bool
 	times      voiceTimings
+	// The turn's settings, read when it starts.
+	pause, followUpWait time.Duration
+	partials            bool
+	// The turn being delivered, and one the person stopped meanwhile: the
+	// Reeve is interrupted once it lands.
+	delivering, interruptOnDelivery int
+	// The turn that reached the Reeve.
+	delivered int
 }
 
 // Open opens a voice session for a device. One session at a time: an
@@ -194,7 +206,13 @@ func (s *VoiceSession) Done() <-chan struct{} { return s.done }
 
 // Audio gives the session a frame of 16 kHz mono s16le PCM.
 func (s *VoiceSession) Audio(pcm []byte) {
-	if len(pcm) == 0 || len(pcm) > voiceMaxFrame {
+	if len(pcm) == 0 {
+		return
+	}
+	if len(pcm) > voiceMaxFrame {
+		s.oversize.Do(func() {
+			s.v.logf("reeve voice: %s sent an audio frame of %d bytes, over a second: frames that large are dropped", s.hello.Device, len(pcm))
+		})
 		return
 	}
 	s.put(voiceInput{audio: append([]byte(nil), pcm...)})
@@ -210,6 +228,7 @@ func (s *VoiceSession) Close() { s.end("") }
 func (s *VoiceSession) end(reason string) {
 	s.once.Do(func() {
 		s.stop()
+		s.outMu.Lock()
 		if reason != "" {
 			s.out(VoiceOut{Type: "ended", Reason: reason})
 		}
@@ -219,7 +238,7 @@ func (s *VoiceSession) end(reason string) {
 		}
 		s.v.mu.Unlock()
 		close(s.done)
-		s.dropLines()
+		s.outMu.Unlock()
 	})
 }
 
@@ -240,6 +259,8 @@ func (s *VoiceSession) put(in voiceInput) {
 }
 
 func (s *VoiceSession) send(out VoiceOut) {
+	s.outMu.Lock()
+	defer s.outMu.Unlock()
 	select {
 	case <-s.done:
 	default:
@@ -321,7 +342,9 @@ func (s *VoiceSession) onMessage(msg VoiceIn) {
 
 // listen starts a turn: from the key, Reply, or the follow-up window.
 func (s *VoiceSession) listen(followUp bool) {
-	pause := s.settings().PauseDuration()
+	cfg := s.settings()
+	s.pause, s.followUpWait, s.partials = cfg.PauseDuration(), cfg.FollowUpDuration(), cfg.PartialsOn()
+	pause := s.pause
 	if s.det == nil || s.det.Config().Pause != pause {
 		// The session times the wait for speech itself, so the detector's
 		// own is out of the way.
@@ -365,7 +388,7 @@ func (s *VoiceSession) onAudio(pcm []byte) {
 	if !s.started {
 		wait := voiceNoSpeech
 		if s.followUp {
-			wait = s.settings().FollowUpDuration()
+			wait = s.followUpWait
 		}
 		if elapsed >= wait {
 			s.turn++
@@ -425,7 +448,7 @@ func (s *VoiceSession) speculate() {
 // maybePartial transcribes the words so far about once a second, when
 // Whisper is idle, in a turn's first 20 seconds.
 func (s *VoiceSession) maybePartial() {
-	if s.busy || !s.settings().PartialsOn() || s.v.opts.Transcription == nil {
+	if s.busy || !s.partials || s.v.opts.Transcription == nil {
 		return
 	}
 	if samplesToDuration(s.heard) > voicePartialsFor || samplesToDuration(s.heard-s.lastPart) < voicePartialEvery {
@@ -440,7 +463,9 @@ func (s *VoiceSession) transcribe(kind int) {
 	job := voiceTranscript{kind: kind, turn: s.turn, gen: s.gen, bytes: len(s.buf)}
 	pcm := append([]byte(nil), s.buf...)
 	if t == nil {
-		s.put(voiceInput{transcript: &voiceTranscript{kind: kind, turn: job.turn, gen: job.gen, err: errNoTranscription}})
+		// Handled here: putting it on the loop's own queue could wait on
+		// the loop.
+		s.onTranscript(voiceTranscript{kind: kind, turn: job.turn, gen: job.gen, err: errNoTranscription})
 		return
 	}
 	s.busy = true
@@ -527,6 +552,7 @@ func (s *VoiceSession) deliver(text string) {
 	s.send(VoiceOut{Type: "heard", Text: text})
 	s.sent, s.sawWorking, s.activity, s.spoke = time.Now(), false, "", false
 	turn := s.turn
+	s.delivering = turn
 	reeve := s.v.opts.Reeve
 	go func() {
 		var err error
@@ -544,6 +570,17 @@ func (s *VoiceSession) deliver(text string) {
 }
 
 func (s *VoiceSession) onDelivered(d voiceDelivery) {
+	if s.delivering == d.turn {
+		s.delivering = 0
+	}
+	if d.turn == s.interruptOnDelivery {
+		// The person stopped this turn while it was on its way.
+		s.interruptOnDelivery = 0
+		if d.err == nil {
+			s.interruptReeve()
+		}
+		return
+	}
 	if d.err != nil {
 		s.v.logf("reeve voice: delivering a turn to the Reeve: %v", d.err)
 		if d.turn == s.turn && s.state == VoiceThinking {
@@ -552,7 +589,20 @@ func (s *VoiceSession) onDelivered(d voiceDelivery) {
 		return
 	}
 	if d.turn == s.turn {
+		s.delivered = d.turn
 		s.times.delivered = time.Now()
+	}
+}
+
+// interruptReeve stops the Reeve's turn.
+func (s *VoiceSession) interruptReeve() {
+	if s.v.opts.Reeve == nil || s.v.opts.Agents == nil {
+		return
+	}
+	if current, err := s.v.opts.Reeve.Current(s.ctx); err == nil && current != nil {
+		if err := s.v.opts.Agents.InterruptAgent(s.ctx, current.TaskID); err != nil {
+			s.v.logf("reeve voice: interrupting the Reeve: %v", err)
+		}
 	}
 }
 
@@ -644,13 +694,16 @@ func (s *VoiceSession) onStop() {
 			s.setState(VoiceThinking, "")
 		}
 	case VoiceThinking:
-		if s.v.opts.Reeve != nil && s.v.opts.Agents != nil {
-			if current, err := s.v.opts.Reeve.Current(s.ctx); err == nil && current != nil {
-				if err := s.v.opts.Agents.InterruptAgent(s.ctx, current.TaskID); err != nil {
-					s.v.logf("reeve voice: interrupting the Reeve: %v", err)
-				}
-			}
+		// Only a turn that reached the Reeve is interrupted: one still on
+		// its way is, once it lands; one not yet sent is dropped, and the
+		// Reeve's own work goes on.
+		switch {
+		case s.delivered == s.turn:
+			s.interruptReeve()
+		case s.delivering == s.turn:
+			s.interruptOnDelivery = s.turn
 		}
+		s.turn++
 		s.sent, s.grace = time.Time{}, false
 		s.setState(VoiceIdle, VoiceReasonCancelled)
 	case VoiceListening:
