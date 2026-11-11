@@ -2,7 +2,7 @@ import { ReeveStatus, reeveWash } from "./ReeveEntry"
 import { AskReeve } from "./AskReeve"
 import { parseReeveMessage, reeveBrief } from "../lib/reeve"
 import { ChangeSetLines } from "./ChangeSetLines"
-import { useState, useEffect, useCallback, useRef, useMemo, memo } from "react"
+import { useState, useEffect, useLayoutEffect, useCallback, useRef, useMemo, useId, memo } from "react"
 import { ArrowDown, ArrowLeftRight, Bell, BellOff, Check, Pencil, RefreshCw, RotateCw, Shield, Skull, Terminal, Unplug, Zap } from "lucide-react"
 import type { SandboxSwitch } from "../lib/agentReload"
 import { useWebSocket, type PromptState, type WSMessage } from "../hooks/useWebSocket"
@@ -17,6 +17,7 @@ import { NativeModelSettingsForm } from "./NativeModelSettings"
 import { ComposerModelMenu } from "./ComposerModelMenu"
 import { NativeQuestionCard } from "./NativeQuestionCard"
 import { NativeTerminalPrompt } from "./NativeTerminalPrompt"
+import { NativeSlashMenu } from "./NativeSlashMenu"
 import { AgentUICallCard } from "./AgentUICallCard"
 import { ReadImageRow } from "./ReadImageRow"
 import { PastedImageStrip } from "./PastedImageStrip"
@@ -28,6 +29,7 @@ import { useTurnClock } from "../hooks/useTurnClock"
 import { usePageInView } from "../hooks/usePageInView"
 import { appendProposal, legatoUICall, onComposerProposal } from "../lib/agentUi"
 import { insertAtCursor, isImagePath } from "../lib/agentImage"
+import { rankSlashItems, type SlashItem } from "../lib/slashMenu"
 import { usePastedImages } from "../hooks/usePastedImages"
 import { nativeToolName } from "../lib/agentKind"
 import { parseLegatoMessage } from "../lib/legatoMessage"
@@ -91,13 +93,6 @@ interface ModelInfo {
   maxOutputTokens?: number
   vision?: boolean
   isDefault: boolean
-}
-
-type SlashSuggestion = {
-  type: "command" | "skill"
-  name: string
-  description: string
-  body?: string
 }
 
 function permissionFindingLabel(finding: NonNullable<NativePermissionItem["policyAnalysis"]>["findings"][number]): string {
@@ -302,8 +297,13 @@ export function NativeAgentPanel({ agentId, reeve, sandboxed, onKill, onRename, 
   })
   const [commands, setCommands] = useState<CommandInfo[]>([])
   const [skills, setSkills] = useState<SkillInfo[]>([])
-  const [slashOpen, setSlashOpen] = useState(false)
-  const [slashIndex, setSlashIndex] = useState(0)
+  // The draft the slash menu was closed on (Escape, or an item completed);
+  // typing again reopens it.
+  const [slashClosedOn, setSlashClosedOn] = useState<string | null>(null)
+  // The highlighted row, kept only while the list it was chosen in stands.
+  const [slashActive, setSlashActive] = useState({ list: "", index: 0 })
+  const caretToEnd = useRef(false)
+  const slashListId = useId()
   const textareaRef = useRef<HTMLTextAreaElement>(null)
   // An image pasted into the message box is stored by Legato, and its path
   // goes into the message where the cursor is.
@@ -407,28 +407,31 @@ export function NativeAgentPanel({ agentId, reeve, sandboxed, onKill, onRename, 
     })
   }, [agentId, baseUrl])
 
-  // Compute slash suggestions from current draft
-  const slashSuggestions: SlashSuggestion[] = useMemo(() => {
-    if (!draft.startsWith("/")) return []
-    const query = draft.slice(1).toLowerCase()
-    const cmdSuggestions: SlashSuggestion[] = commands
-      .filter((c) => c.name.toLowerCase().includes(query))
-      .map((c) => ({ type: "command" as const, name: c.name, description: c.description || "", body: c.body }))
-    const skillSuggestions: SlashSuggestion[] = skills
-      .filter((s) => s.name.toLowerCase().includes(query))
-      .map((s) => ({ type: "skill" as const, name: s.name, description: s.description }))
-    return [...cmdSuggestions, ...skillSuggestions]
-  }, [draft, commands, skills])
+  // The slash menu: open while the draft is a slash and a name, until it is
+  // closed on this draft.
+  const slashItems: SlashItem[] = useMemo(() => [
+    ...commands.map((c) => ({ type: "command" as const, name: c.name, description: c.description || "", body: c.body })),
+    ...skills.map((s) => ({ type: "skill" as const, name: s.name, description: s.description || "" })),
+  ], [commands, skills])
+  const slashQuery = /^\/(\S*)$/.exec(draft)?.[1]
+  const slashMatches = useMemo(
+    () => slashQuery === undefined ? [] : rankSlashItems(slashItems, slashQuery),
+    [slashItems, slashQuery],
+  )
+  const slashOpen = slashQuery !== undefined && slashItems.length > 0 && slashClosedOn !== draft
+  const slashList = useMemo(() => slashMatches.map((m) => m.item.type + ":" + m.item.name).join("\n"), [slashMatches])
+  const slashIndex = slashActive.list === slashList ? Math.min(slashActive.index, Math.max(slashMatches.length - 1, 0)) : 0
+  const setSlashIndex = useCallback((index: number) => setSlashActive({ list: slashList, index }), [slashList])
+  const slashOptionId = useCallback((index: number) => `${slashListId}-option-${index}`, [slashListId])
 
-  // Open/close slash menu based on draft
-  useEffect(() => {
-    if (draft.startsWith("/") && slashSuggestions.length > 0) {
-      setSlashOpen(true)
-      setSlashIndex(0)
-    } else {
-      setSlashOpen(false)
-    }
-    // eslint-disable-next-line react-hooks/exhaustive-deps
+  // A completed item leaves the cursor at the end, so the person keeps typing.
+  useLayoutEffect(() => {
+    if (!caretToEnd.current) return
+    caretToEnd.current = false
+    const box = textareaRef.current
+    if (!box) return
+    box.focus()
+    box.setSelectionRange(box.value.length, box.value.length)
   }, [draft])
 
   // Fetch macros eagerly so numbered shortcuts are ready when the menu opens.
@@ -738,43 +741,32 @@ export function NativeAgentPanel({ agentId, reeve, sandboxed, onKill, onRename, 
     [agentId, replaceSyncState, send],
   )
 
-  const handleSlashSelect = useCallback((suggestion: SlashSuggestion) => {
-    if (suggestion.type === "command" && suggestion.body) {
-      // Expand the command body into the draft and send immediately
-      setDraft(suggestion.body)
-      setSlashOpen(false)
-      // Auto-send the expanded command
-      send({ type: "agent_message", agent_id: agentId, content: suggestion.body })
-      setDraft("")
-    } else {
-      // For skills, insert the skill name and let the user continue typing
-      setDraft(`/${suggestion.name} `)
-      setSlashOpen(false)
-      textareaRef.current?.focus()
-    }
-  }, [agentId, send])
+  // Completing an item fills the box and never sends: a command with a body
+  // expands to it, anything else becomes "/name ", ready for arguments.
+  const handleSlashSelect = useCallback((item: SlashItem) => {
+    const next = item.type === "command" && item.body ? item.body : `/${item.name} `
+    caretToEnd.current = true
+    setSlashClosedOn(next)
+    setDraft(next)
+  }, [])
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
-      if (slashOpen) {
-        if (e.key === "ArrowDown") {
+      if (slashOpen && !e.nativeEvent.isComposing) {
+        const count = slashMatches.length
+        if ((e.key === "ArrowDown" || e.key === "ArrowUp") && count > 0) {
           e.preventDefault()
-          setSlashIndex((i) => Math.min(i + 1, slashSuggestions.length - 1))
+          setSlashIndex((slashIndex + (e.key === "ArrowDown" ? 1 : count - 1)) % count)
           return
         }
-        if (e.key === "ArrowUp") {
+        if ((e.key === "Tab" || e.key === "Enter") && !e.shiftKey && count > 0) {
           e.preventDefault()
-          setSlashIndex((i) => Math.max(i - 1, 0))
-          return
-        }
-        if (e.key === "Enter" && !e.shiftKey) {
-          e.preventDefault()
-          handleSlashSelect(slashSuggestions[slashIndex])
+          handleSlashSelect(slashMatches[slashIndex].item)
           return
         }
         if (e.key === "Escape") {
           e.preventDefault()
-          setSlashOpen(false)
+          setSlashClosedOn(draft)
           return
         }
       }
@@ -788,7 +780,7 @@ export function NativeAgentPanel({ agentId, reeve, sandboxed, onKill, onRename, 
         handleInterrupt()
       }
     },
-    [handleSend, handleInterrupt, busy, slashOpen, slashIndex, slashSuggestions, handleSlashSelect],
+    [handleSend, handleInterrupt, busy, draft, slashOpen, slashIndex, slashMatches, setSlashIndex, handleSlashSelect],
   )
 
   const handleModeChange = useCallback((mode: string) => {
@@ -1088,22 +1080,14 @@ export function NativeAgentPanel({ agentId, reeve, sandboxed, onKill, onRename, 
       <div className="px-3 pb-3 md:px-6 md:pb-[18px]">
         <div className={`relative mx-auto flex w-full max-w-[820px] flex-col rounded-[10px] border bg-lw-surface max-sm:rounded-xl ${dictating(voice) ? "border-lw-danger-line" : "border-lw-line-strong"}`}>
           {slashOpen && (
-            <div className="absolute bottom-full left-3 right-3 z-20 mb-1 max-h-48 overflow-y-auto rounded-[10px] border border-lw-line-strong bg-lw-raised p-1 shadow-[0_12px_30px_rgba(0,0,0,.45)]">
-              {slashSuggestions.map((s, i) => (
-                <button
-                  key={s.type + ":" + s.name}
-                  onMouseDown={(e) => { e.preventDefault(); handleSlashSelect(s) }}
-                  onMouseEnter={() => setSlashIndex(i)}
-                  className={"flex w-full items-center gap-2 rounded-md px-2.5 py-1.5 text-left text-xs transition-colors " + (i === slashIndex ? "bg-lw-selected text-lw-text" : "text-[#b4b3bd] hover:bg-lw-selected")}
-                >
-                  <span className={"shrink-0 rounded px-1 font-lw-mono text-[10px] uppercase " + (s.type === "command" ? "bg-lw-accent-soft text-lw-accent-text" : "bg-lw-needs-soft text-lw-needs")}>
-                    {s.type === "command" ? "cmd" : "skill"}
-                  </span>
-                  <span className="font-lw-mono text-lw-text">{s.name}</span>
-                  {s.description && <span className="truncate text-lw-faint">{s.description}</span>}
-                </button>
-              ))}
-            </div>
+            <NativeSlashMenu
+              listId={slashListId}
+              optionId={slashOptionId}
+              matches={slashMatches}
+              active={slashIndex}
+              onHover={setSlashIndex}
+              onPick={handleSlashSelect}
+            />
           )}
           {contextUsage && contextShareOf !== null && contextShareOf >= CONTEXT_NEARLY_FULL && (
             <ContextNotice used={formatTokens(contextUsage.used)} window={formatTokens(contextUsage.window)} />
@@ -1126,6 +1110,9 @@ export function NativeAgentPanel({ agentId, reeve, sandboxed, onKill, onRename, 
                 onChange={(e) => setDraft(e.target.value)}
                 onKeyDown={handleKeyDown}
                 onPaste={pasted.onPaste}
+                aria-autocomplete="list"
+                aria-controls={slashOpen ? slashListId : undefined}
+                aria-activedescendant={slashOpen && slashMatches.length > 0 ? slashOptionId(slashIndex) : undefined}
                 placeholder={queuedEntries.length > 0 ? "Queue another" : busy ? "Queue a message. Sent after the current step." : `Message ${agentId}`}
                 rows={2}
                 className={`block min-h-14 w-full resize-none border-0 bg-transparent px-3.5 pb-1 pt-3 text-sm text-lw-text placeholder:text-lw-faint focus:outline-none disabled:opacity-50 max-sm:text-base ${isBang ? "pt-8 shadow-[inset_0_0_0_1px] shadow-lw-needs/60" : ""}`}
