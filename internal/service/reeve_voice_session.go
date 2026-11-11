@@ -168,6 +168,7 @@ type VoiceSession struct {
 	lines      []VoiceLine
 	playing    string
 	spoke      bool
+	stopped    bool // the person stopped this turn's lines
 	times      voiceTimings
 	// The turn's settings, read when it starts.
 	pause, followUpWait time.Duration
@@ -239,6 +240,7 @@ func (s *VoiceSession) end(reason string) {
 		s.v.mu.Unlock()
 		close(s.done)
 		s.outMu.Unlock()
+		s.v.releaseSession(s)
 	})
 }
 
@@ -356,7 +358,7 @@ func (s *VoiceSession) listen(followUp bool) {
 	s.turn++
 	s.gen, s.heard, s.started, s.buf = 0, 0, false, s.buf[:0]
 	s.spec, s.wantSpec, s.wantFinal, s.lastPart, s.grace = nil, false, false, 0, false
-	s.followUp = followUp
+	s.followUp, s.stopped = followUp, false
 	s.times = voiceTimings{}
 	s.setState(VoiceListening, "")
 }
@@ -551,6 +553,7 @@ func (s *VoiceSession) deliver(text string) {
 	}
 	s.send(VoiceOut{Type: "heard", Text: text})
 	s.sent, s.sawWorking, s.activity, s.spoke = time.Now(), false, "", false
+	s.v.setAnswering(true)
 	turn := s.turn
 	s.delivering = turn
 	reeve := s.v.opts.Reeve
@@ -609,11 +612,11 @@ func (s *VoiceSession) interruptReeve() {
 // onTick follows the Reeve while it thinks: what it is doing, and when
 // its turn is over.
 func (s *VoiceSession) onTick() {
-	if s.state != VoiceThinking || s.sent.IsZero() {
+	if s.state != VoiceThinking && s.state != VoiceSpeaking || s.sent.IsZero() {
 		return
 	}
 	working, activity := s.reeveActivity()
-	if activity != "" && activity != s.activity {
+	if activity != "" && activity != s.activity && s.state == VoiceThinking {
 		s.activity = activity
 		s.send(VoiceOut{Type: "activity", Text: activity})
 	}
@@ -662,6 +665,12 @@ func (s *VoiceSession) reeveActivity() (bool, string) {
 func (s *VoiceSession) turnOver() {
 	s.sent = time.Time{}
 	s.grace = false
+	s.v.setAnswering(false)
+	if s.stopped {
+		s.logTimings()
+		s.setState(VoiceIdle, "")
+		return
+	}
 	if s.spoke {
 		if len(s.lines) == 0 && s.playing == "" {
 			s.afterSpeaking()
@@ -688,6 +697,7 @@ func (s *VoiceSession) onStop() {
 	switch s.state {
 	case VoiceSpeaking:
 		s.dropLines()
+		s.stopped = true
 		if s.sent.IsZero() {
 			s.setState(VoiceIdle, "")
 		} else {
@@ -705,6 +715,9 @@ func (s *VoiceSession) onStop() {
 		}
 		s.turn++
 		s.sent, s.grace = time.Time{}, false
+		s.v.mu.Lock()
+		s.v.dropTurn = true
+		s.v.mu.Unlock()
 		s.setState(VoiceIdle, VoiceReasonCancelled)
 	case VoiceListening:
 		s.turn++

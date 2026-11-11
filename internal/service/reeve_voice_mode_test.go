@@ -4,7 +4,9 @@ import (
 	"context"
 	"strings"
 	"testing"
+	"time"
 
+	"github.com/cpave3/legato/config"
 	"github.com/cpave3/legato/internal/engine/store"
 )
 
@@ -94,5 +96,22 @@ func TestAReeveStartedWithoutItsVoiceIsGivenItWhenNotBusy(t *testing.T) {
 	}
 	if got, _ := voice.Status(ctx); !got.Ready {
 		t.Fatalf("status after the restart %+v, want ready", got)
+	}
+}
+
+func TestTheSnapshotSaysWhenQuietHoursAreOn(t *testing.T) {
+	_, db, _, _ := newReeveFixture(t)
+	reeve := &config.ReeveConfig{}
+	reeve.Voice.Enabled = true
+	reeve.Voice.QuietHours = "22:00-07:00"
+	night := func() time.Time { return time.Date(2026, 11, 11, 23, 0, 0, 0, time.Local) }
+	noon := func() time.Time { return time.Date(2026, 11, 11, 12, 0, 0, 0, time.Local) }
+	quiet := ReeveSnapshot(context.Background(), ReeveSnapshotSource{Store: db, Reeve: reeve, Now: night})
+	if !strings.Contains(quiet, "quiet hours now (22:00-07:00)") {
+		t.Fatalf("at night: %s", quiet)
+	}
+	day := ReeveSnapshot(context.Background(), ReeveSnapshotSource{Store: db, Reeve: reeve, Now: noon})
+	if strings.Contains(day, "quiet hours now") || !strings.Contains(day, "- Voice: on") {
+		t.Fatalf("at noon: %s", day)
 	}
 }

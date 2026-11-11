@@ -257,3 +257,151 @@ func TestAnOlderLineThatPlaysDoesNotClearANewerLinesError(t *testing.T) {
 		t.Fatalf("a newer line played, error = %q", s.LastError())
 	}
 }
+
+// fakeSpeechOutput is a listening device's side of the voice.
+type fakeSpeechOutput struct {
+	mu        sync.Mutex
+	answering bool
+	route     LineRoute
+	lines     []SpokenLine
+	paths     []string
+	types     []string
+}
+
+func (o *fakeSpeechOutput) AnsweringVoice() bool {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	return o.answering
+}
+func (o *fakeSpeechOutput) Deliver(line SpokenLine, path, contentType string) LineRoute {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	o.lines = append(o.lines, line)
+	o.paths = append(o.paths, path)
+	o.types = append(o.types, contentType)
+	return o.route
+}
+func (o *fakeSpeechOutput) delivered() int {
+	o.mu.Lock()
+	defer o.mu.Unlock()
+	return len(o.lines)
+}
+
+func TestALineGoesToTheListeningDeviceInsteadOfTheSpeakers(t *testing.T) {
+	f := newSpeechFixture(t)
+	out := &fakeSpeechOutput{route: RouteDevice}
+	f.speech.SetOutput(out)
+	f.say(t, "hello")
+	waitUntil(t, func() bool { return out.delivered() == 1 })
+	time.Sleep(100 * time.Millisecond)
+	if played := readLines(f.played); len(played) != 0 {
+		t.Fatalf("played on the host too: %v", played)
+	}
+	data, err := os.ReadFile(out.paths[0])
+	if err != nil || string(data) != "hello" {
+		t.Fatalf("the device's file: %q %v", data, err)
+	}
+	if out.lines[0].Text != "hello" {
+		t.Fatalf("line %+v", out.lines[0])
+	}
+}
+
+func TestALineNobodyIsListeningForAnyMoreIsDropped(t *testing.T) {
+	f := newSpeechFixture(t)
+	out := &fakeSpeechOutput{route: RouteDrop}
+	f.speech.SetOutput(out)
+	f.say(t, "gone")
+	waitUntil(t, func() bool { return out.delivered() == 1 })
+	time.Sleep(100 * time.Millisecond)
+	if played := readLines(f.played); len(played) != 0 {
+		t.Fatalf("a dropped line played: %v", played)
+	}
+	if _, err := os.Stat(out.paths[0]); !os.IsNotExist(err) {
+		t.Fatalf("a dropped line's audio was kept: %v", err)
+	}
+}
+
+func TestWithNoDeviceListeningALinePlaysOnTheHost(t *testing.T) {
+	f := newSpeechFixture(t)
+	f.speech.SetOutput(&fakeSpeechOutput{route: RouteHost})
+	f.say(t, "here")
+	if played := f.waitForPlayed(t, 2); strings.Join(played, ",") != "start_here,end_here" {
+		t.Fatalf("played %v", played)
+	}
+}
+
+func TestInQuietHoursTheReeveIsToldToReplyInWriting(t *testing.T) {
+	f := newSpeechFixture(t)
+	f.mu.Lock()
+	f.voice.QuietHours = "00:00-23:59"
+	f.mu.Unlock()
+	f.speech.SetOutput(&fakeSpeechOutput{route: RouteHost})
+	err := f.speech.Say(context.Background(), SpokenLine{TaskID: "reeve-1", Text: "late"})
+	if err == nil || !strings.Contains(err.Error(), "quiet hours: reply in writing") {
+		t.Fatalf("say in quiet hours: %v", err)
+	}
+}
+
+func TestInQuietHoursAReplyToTheListeningDeviceStillGoes(t *testing.T) {
+	f := newSpeechFixture(t)
+	f.mu.Lock()
+	f.voice.QuietHours = "00:00-23:59"
+	f.mu.Unlock()
+	out := &fakeSpeechOutput{route: RouteDevice, answering: true}
+	f.speech.SetOutput(out)
+	f.say(t, "answer")
+	waitUntil(t, func() bool { return out.delivered() == 1 })
+}
+
+func TestInQuietHoursNothingPlaysOnTheHost(t *testing.T) {
+	f := newSpeechFixture(t)
+	out := &fakeSpeechOutput{route: RouteHost, answering: true}
+	f.speech.SetOutput(out)
+	f.mu.Lock()
+	f.voice.QuietHours = "00:00-23:59"
+	f.mu.Unlock()
+	f.say(t, "night")
+	waitUntil(t, func() bool { return out.delivered() == 1 })
+	time.Sleep(300 * time.Millisecond)
+	if played := readLines(f.played); len(played) != 0 {
+		t.Fatalf("played in quiet hours: %v", played)
+	}
+}
+
+func TestALinesAudioIsNamedByWhatItHolds(t *testing.T) {
+	f := newSpeechFixture(t)
+	bin := t.TempDir()
+	f.mu.Lock()
+	f.voice.Command = script(t, bin, "wav.sh", `printf 'RIFF\000\000\000\000WAVEfmt ' > "$2"`)
+	f.voice.Credential = ""
+	f.mu.Unlock()
+	out := &fakeSpeechOutput{route: RouteDevice}
+	f.speech.SetOutput(out)
+	f.say(t, "piper")
+	waitUntil(t, func() bool { return out.delivered() == 1 })
+	if !strings.HasSuffix(out.paths[0], ".wav") || out.types[0] != "audio/wav" {
+		t.Fatalf("path %s, type %s", out.paths[0], out.types[0])
+	}
+}
+
+func TestTheVoiceSaysWhatBecameOfEachLine(t *testing.T) {
+	f := newSpeechFixture(t)
+	var mu sync.Mutex
+	var states []string
+	f.speech.opts.Spoke = func(e SpokeEvent) {
+		mu.Lock()
+		defer mu.Unlock()
+		states = append(states, e.Text+":"+e.State)
+	}
+	f.say(t, "fail")
+	f.say(t, "ok")
+	f.waitForPlayed(t, 2)
+	waitUntil(t, func() bool {
+		mu.Lock()
+		defer mu.Unlock()
+		return len(states) == 3
+	})
+	if got := strings.Join(states, ","); got != "fail:failed,ok:made,ok:played" {
+		t.Fatalf("events %s", got)
+	}
+}

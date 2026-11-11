@@ -72,7 +72,7 @@ func startApprovals(ctx context.Context, cfg *config.Config, db *store.Store, bu
 	// The broker agent-side processes ask instead of the store.
 	rt.caseReplies = newCaseReplyService(cfg, db, bus, true)
 	changeSets := startChangeSets(ctx, cfg, db, rt.approvals, agents, nil)
-	processSpeech = newReeveVoice(cfg, db, rt.credentials)
+	processSpeech = newReeveVoice(cfg, db, rt.credentials, bus)
 	deps := hostBrokerDeps(cfg, db, agents, rt.credentials, rt.caseReplies, rt.reviewPasses)
 	broker := startBrokerHost(ctx, db, ipc.SocketDir(), brokerHostOptions{Deps: deps})
 	stops = append(stops, broker.Stop)

@@ -301,6 +301,7 @@ var routeClassTable = []routeClassEntry{
 	{"GET", "/api/reeve/sessions/{task_id}/change-sets", ClassRead, "List a Reeve session's change sets"},
 	{"POST", "/api/reeve/secrets/{approval_id}", ClassNever, "Store a secret the person pasted"},
 	{"GET", "/api/reeve/voice", ClassRead, "Check whether a spoken conversation with the Reeve will work here"},
+	{"GET", "/api/reeve/voice/lines/{id}", ClassRead, "Fetch the audio of a line the Reeve said, for the device listening"},
 	{"GET", "/api/reeve/voice/session", ClassNever, "Talk to the Reeve: stream the microphone, hear its answers"},
 	{"GET", "/api/reeve/engram", ClassRead, "Show the Reeve's engram: its seed, memories and open threads"},
 	{"PUT", "/api/reeve/engram/seed", ClassRisky, "Change the Reeve's seed (one of its own rules: needs a signature)"},

@@ -208,3 +208,37 @@ func TestAVoiceSessionStartsWithHello(t *testing.T) {
 		t.Fatalf("a session without hello: %v", err)
 	}
 }
+
+func TestALinesAudioIsServedToTheDeviceWithItsType(t *testing.T) {
+	srv, db := reeveServer(t)
+	voice := service.NewReeveVoice(service.ReeveVoiceOptions{Store: db, Logf: func(string, ...any) {}})
+	srv.SetReeveVoice(voice)
+	got := make(chan service.VoiceOut, 64)
+	session := voice.Open(service.VoiceHello{Device: "desk", Play: true}, func(o service.VoiceOut) { got <- o })
+	defer session.Close()
+	path := t.TempDir() + "/line.wav"
+	if err := os.WriteFile(path, []byte("RIFF\x00\x00\x00\x00WAVEfmt "), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	// A line with no turn waiting is still offered while the device listens.
+	session.Handle(service.VoiceIn{Type: "listen"})
+	voice.Deliver(service.SpokenLine{Text: "hi"}, path, "audio/wav")
+	var line service.VoiceOut
+	for line.Type != "line" {
+		select {
+		case line = <-got:
+		case <-time.After(2 * time.Second):
+			t.Fatal("no line")
+		}
+	}
+	rec := callAs(srv, "secret", http.MethodGet, line.URL, "")
+	if rec.Code != http.StatusOK || rec.Header().Get("Content-Type") != "audio/wav" || !strings.HasPrefix(rec.Body.String(), "RIFF") {
+		t.Fatalf("line: %d %s %q", rec.Code, rec.Header().Get("Content-Type"), rec.Body.String())
+	}
+	if rec := callAs(srv, "secret", http.MethodGet, service.VoiceLinePath+"00000000000000000000000000000000", ""); rec.Code != http.StatusNotFound {
+		t.Fatalf("an unknown line: %d", rec.Code)
+	}
+	if rec := callAs(srv, "wrong", http.MethodGet, line.URL, ""); rec.Code != http.StatusUnauthorized {
+		t.Fatalf("without the token: %d", rec.Code)
+	}
+}

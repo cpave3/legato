@@ -5,6 +5,7 @@ import (
 	"path/filepath"
 
 	"github.com/cpave3/legato/config"
+	"github.com/cpave3/legato/internal/engine/events"
 	"github.com/cpave3/legato/internal/engine/store"
 	"github.com/cpave3/legato/internal/server"
 	"github.com/cpave3/legato/internal/service"
@@ -17,7 +18,7 @@ var processSpeech *service.ReeveSpeech
 
 // newReeveVoice makes the Reeve's voice, reading reeve.voice for each line
 // and keeping each line's audio under the data folder until it has played.
-func newReeveVoice(cfg *config.Config, db *store.Store, credentials *service.CredentialBroker) *service.ReeveSpeech {
+func newReeveVoice(cfg *config.Config, db *store.Store, credentials *service.CredentialBroker, bus *events.Bus) *service.ReeveSpeech {
 	opts := service.ReeveSpeechOptions{
 		Settings: func(ctx context.Context) config.ReeveVoiceConfig {
 			effective, err := settingsFor(db).Effective(ctx)
@@ -27,6 +28,11 @@ func newReeveVoice(cfg *config.Config, db *store.Store, credentials *service.Cre
 			return effective.Reeve.Voice
 		},
 		Dir: filepath.Join(config.ResolveDataDir(cfg), "reeve-voice"),
+	}
+	if bus != nil {
+		opts.Spoke = func(e service.SpokeEvent) {
+			bus.Publish(events.Event{Type: events.EventReeveSpoke, Payload: events.ReeveSpokePayload{TaskID: e.TaskID, Text: e.Text, State: e.State}})
+		}
 	}
 	if credentials != nil {
 		opts.Credentials = credentials
@@ -90,5 +96,10 @@ func wireReeveVoice(srv *server.Server, cfg *config.Config, db *store.Store, ree
 	}
 	rv := service.NewReeveVoice(opts)
 	srv.SetReeveVoice(rv)
+	srv.StartReeveSpokeEvents()
+	// The Reeve's lines go to the device listening, when one is.
+	if processSpeech != nil {
+		processSpeech.SetOutput(rv)
+	}
 	return rv
 }

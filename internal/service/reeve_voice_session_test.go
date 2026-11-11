@@ -5,6 +5,7 @@ import (
 	"encoding/binary"
 	"fmt"
 	"math"
+	"os"
 	"path/filepath"
 	"strings"
 	"sync"
@@ -514,5 +515,158 @@ func TestByeEndsTheSession(t *testing.T) {
 	case <-d.session.Done():
 	case <-time.After(time.Second):
 		t.Fatal("still open")
+	}
+}
+
+// lineAudio writes a line's audio as the voice command would.
+func lineAudio(t *testing.T, text string) string {
+	t.Helper()
+	path := filepath.Join(t.TempDir(), "line.mp3")
+	if err := os.WriteFile(path, []byte("ID3"+text), 0o600); err != nil {
+		t.Fatal(err)
+	}
+	return path
+}
+
+// askAndAnswer runs a turn up to the Reeve working on it.
+func (f *voiceFixture) askAndAnswer(t *testing.T, d *voiceDevice) {
+	t.Helper()
+	d.session.Handle(VoiceIn{Type: "listen"})
+	d.speak(1000)
+	d.quiet(1100)
+	d.expectType(t, "heard")
+	f.setActivity(t, "working")
+	waitUntil(t, f.voice.AnsweringVoice)
+}
+
+func TestTheReevesLineGoesToTheListeningDeviceAndFollowUpListensForAReply(t *testing.T) {
+	f := newVoiceFixture(t)
+	f.cfg.Reeve.Voice.FollowUp = "1s"
+	d := f.open("desk")
+	f.askAndAnswer(t, d)
+
+	path := lineAudio(t, "The lights are off.")
+	if route := f.voice.Deliver(SpokenLine{TaskID: "reeve-1", Text: "The lights are off."}, path, "audio/mpeg"); route != RouteDevice {
+		t.Fatalf("route %v", route)
+	}
+	line := d.expectType(t, "line")
+	if line.Text != "The lights are off." || line.URL != VoiceLinePath+line.ID || len(line.ID) != 32 {
+		t.Fatalf("line %+v", line)
+	}
+	d.expectState(t, VoiceSpeaking)
+	if got, typ, ok := f.voice.Clip(line.ID); !ok || got != path || typ != "audio/mpeg" {
+		t.Fatalf("clip %s %s %v", got, typ, ok)
+	}
+
+	// Audio while the line plays is not listened to.
+	d.session.Handle(VoiceIn{Type: "playing", Line: line.ID})
+	d.speak(1000)
+	d.quiet(1100)
+	f.setActivity(t, "waiting")
+	d.session.Handle(VoiceIn{Type: "played", Line: line.ID})
+	d.expectState(t, VoiceListening)
+	if _, _, ok := f.voice.Clip(line.ID); ok {
+		t.Fatal("a played line's audio is kept")
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatal("a played line's file is kept")
+	}
+	if n := len(f.reeve.sent()); n != 1 {
+		t.Fatalf("speech during the line was sent: %d messages", n)
+	}
+	// Nobody replies: the follow-up window closes.
+	d.quiet(1100)
+	if idle := d.expectState(t, VoiceIdle); idle.Reason != VoiceReasonNoSpeech {
+		t.Fatalf("idle for %q", idle.Reason)
+	}
+}
+
+func TestWithNoFollowUpTheSessionGoesIdleAfterSpeaking(t *testing.T) {
+	f := newVoiceFixture(t)
+	f.cfg.Reeve.Voice.FollowUp = "0s"
+	d := f.open("desk")
+	f.askAndAnswer(t, d)
+	f.voice.Deliver(SpokenLine{Text: "Done."}, lineAudio(t, "Done."), "audio/mpeg")
+	line := d.expectType(t, "line")
+	f.setActivity(t, "waiting")
+	time.Sleep(30 * time.Millisecond)
+	d.session.Handle(VoiceIn{Type: "played", Line: line.ID})
+	d.expectState(t, VoiceIdle)
+	d.sentNo(t, "written")
+}
+
+func TestALineAnsweringAClosedSessionIsDroppedAndOtherwisePlaysOnTheHost(t *testing.T) {
+	f := newVoiceFixture(t)
+	if route := f.voice.Deliver(SpokenLine{Text: "hi"}, lineAudio(t, "hi"), "audio/mpeg"); route != RouteHost {
+		t.Fatalf("with no session and no voice turn: %v", route)
+	}
+	d := f.open("desk")
+	f.askAndAnswer(t, d)
+	d.session.Close()
+	if route := f.voice.Deliver(SpokenLine{Text: "late"}, lineAudio(t, "late"), "audio/mpeg"); route != RouteDrop {
+		t.Fatalf("after the session closed mid-turn: %v", route)
+	}
+}
+
+func TestADeviceThatCannotPlayLeavesLinesToTheHost(t *testing.T) {
+	f := newVoiceFixture(t)
+	d := &voiceDevice{got: make(chan VoiceOut, 1024)}
+	d.session = f.voice.Open(VoiceHello{Device: "watch", Play: false}, func(o VoiceOut) { d.got <- o })
+	if route := f.voice.Deliver(SpokenLine{Text: "hi"}, lineAudio(t, "hi"), "audio/mpeg"); route != RouteHost {
+		t.Fatalf("route %v", route)
+	}
+}
+
+func TestStopWhileSpeakingDropsTheLinesLeft(t *testing.T) {
+	f := newVoiceFixture(t)
+	d := f.open("desk")
+	f.askAndAnswer(t, d)
+	first := lineAudio(t, "one")
+	f.voice.Deliver(SpokenLine{Text: "one"}, first, "audio/mpeg")
+	d.expectState(t, VoiceSpeaking)
+	d.session.Handle(VoiceIn{Type: "stop"})
+	d.expectState(t, VoiceThinking)
+	waitUntil(t, func() bool { _, err := os.Stat(first); return os.IsNotExist(err) })
+	if route := f.voice.Deliver(SpokenLine{Text: "two"}, lineAudio(t, "two"), "audio/mpeg"); route != RouteDrop {
+		t.Fatalf("a line after stop: %v", route)
+	}
+	f.setActivity(t, "waiting")
+	d.expectState(t, VoiceIdle)
+}
+
+func TestALinesAudioIsKeptForTenMinutesAtMost(t *testing.T) {
+	f := newVoiceFixture(t)
+	now := time.Now()
+	var mu sync.Mutex
+	f.voice.opts.Now = func() time.Time { mu.Lock(); defer mu.Unlock(); return now }
+	d := f.open("desk")
+	f.askAndAnswer(t, d)
+	path := lineAudio(t, "old")
+	f.voice.Deliver(SpokenLine{Text: "old"}, path, "audio/mpeg")
+	line := d.expectType(t, "line")
+	mu.Lock()
+	now = now.Add(11 * time.Minute)
+	mu.Unlock()
+	if _, _, ok := f.voice.Clip(line.ID); ok {
+		t.Fatal("kept past ten minutes")
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatal("the file is kept")
+	}
+}
+
+func TestAnEndedSessionsLinesAreRemoved(t *testing.T) {
+	f := newVoiceFixture(t)
+	d := f.open("desk")
+	f.askAndAnswer(t, d)
+	path := lineAudio(t, "bye")
+	f.voice.Deliver(SpokenLine{Text: "bye"}, path, "audio/mpeg")
+	line := d.expectType(t, "line")
+	d.session.Close()
+	if _, _, ok := f.voice.Clip(line.ID); ok {
+		t.Fatal("kept after the session ended")
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatal("the file is kept")
 	}
 }

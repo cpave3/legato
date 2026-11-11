@@ -138,6 +138,20 @@ func ReeveSnapshot(ctx context.Context, src ReeveSnapshotSource) string {
 		}
 	}
 	if src.Reeve != nil {
+		if v := src.Reeve.Voice; v.Enabled {
+			now := time.Now()
+			if src.Now != nil {
+				now = src.Now()
+			}
+			switch {
+			case v.QuietAt(now):
+				fmt.Fprintf(&b, "- Voice: on, but quiet hours now (%s): reply in writing, except to a [legato voice] message\n", v.QuietHours)
+			case v.QuietHours != "":
+				fmt.Fprintf(&b, "- Voice: on (quiet hours %s)\n", v.QuietHours)
+			default:
+				b.WriteString("- Voice: on\n")
+			}
+		}
 		if src.Reeve.HostOperationsOn() {
 			b.WriteString("- Host operations: on (host_shell, edit_file, manage_service)\n")
 		} else {

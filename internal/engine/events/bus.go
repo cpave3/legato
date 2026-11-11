@@ -48,7 +48,19 @@ const (
 	// EventSettingsChanged: a setting kept in the database changed. No
 	// payload.
 	EventSettingsChanged
+	// EventReeveSpoke: a line the Reeve said was made, sent to the
+	// listening device, played, failed or dropped. Payload:
+	// ReeveSpokePayload.
+	EventReeveSpoke
 )
+
+// ReeveSpokePayload is what became of one line the Reeve said.
+type ReeveSpokePayload struct {
+	TaskID string
+	Text   string
+	// State is made, sent, played, failed or dropped.
+	State string
+}
 
 // ErrorPayload carries structured error information for error events.
 type ErrorPayload struct {

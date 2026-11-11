@@ -58,6 +58,10 @@ type ReeveVoiceOptions struct {
 	Poll time.Duration
 	// Logf records a turn's timings and failures; log.Printf when nil.
 	Logf func(format string, args ...any)
+	// ClipTTL is how long a line's audio is kept for its device (10
+	// minutes when 0); Now is the time (time.Now when nil).
+	ClipTTL time.Duration
+	Now     func() time.Time
 	// Reeve is this instance's Reeve; nil when it has none.
 	Reeve ReeveVoiceSessions
 	// Speech reports the voice's last failure; nil when unknown.
@@ -77,8 +81,11 @@ type ReeveVoice struct {
 	// giving: a restart to give the Reeve its voice is under way.
 	giving atomic.Bool
 
-	mu      sync.Mutex
-	session *VoiceSession
+	mu         sync.Mutex
+	clips      map[string]*voiceClip
+	answeredAt time.Time // a voice message was delivered, its turn not over
+	dropTurn   bool      // the person stopped the lines of this turn
+	session    *VoiceSession
 	device  string // the device holding the voice session, "" for none
 	open    bool
 }
@@ -93,7 +100,7 @@ func NewReeveVoice(opts ReeveVoiceOptions) *ReeveVoice {
 	if opts.InstanceName == "" {
 		opts.InstanceName = instanceName()
 	}
-	return &ReeveVoice{opts: opts}
+	return &ReeveVoice{opts: opts, clips: map[string]*voiceClip{}}
 }
 
 // VoiceReadiness is GET /api/reeve/voice: whether a spoken conversation

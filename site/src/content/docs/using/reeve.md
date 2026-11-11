@@ -116,6 +116,10 @@ What you say reaches the Reeve marked as spoken, and it answers out loud, in a f
 
 Press the key or the button and speak. When you stop for about a second (**Pause that ends a spoken turn**, `reeve.voice.pause`), what you said is sent to the Reeve, and the words appear as you speak (**Words as you speak**, `reeve.voice.partials`). If you go on speaking within two seconds, before the Reeve answers, that is sent too. While the Reeve works, the app shows what it is doing. After it has answered out loud, the app listens for your reply for six seconds (**Listen for a reply for**, `reeve.voice.follow_up`); press the key again, or Cancel, to stop. Only one device talks to the Reeve at a time: starting on another takes the conversation over.
 
+The Reeve's answer plays on the device you are talking to, not on the main's speakers, with its words shown as it plays. The microphone is off while it plays. **Stop** drops the rest of the answer; while the Reeve is still working, it interrupts it. The main keeps each line's audio only until your device has played it, ten minutes at most, and the voice key never leaves the main.
+
+**Quiet hours** (`reeve.voice.quiet_hours`, as `22:00-07:00` in the main's local time): no line plays on the main's speakers then, and the Reeve replies in writing. A reply to something you said to it still plays on your device.
+
 Before it listens, an app asks the main whether a conversation will work. If not, it shows one line saying why, such as "Whisper isn't answering on tessitura", and which setting to change. When the Reeve is suspended, that question also starts resuming it, so it is ready by the time you finish speaking.
 
 ## Where it runs
