@@ -15,6 +15,8 @@ import (
 type ReeveOpener interface {
 	Open(ctx context.Context, by string) (string, error)
 	Ask(ctx context.Context, brief, by string) (string, error)
+	// StopAgent ends the Reeve's session when taskID is its agent's.
+	StopAgent(ctx context.Context, taskID string) (bool, error)
 }
 
 // SetReeve offers R, which opens the Reeve from anywhere, and a in the

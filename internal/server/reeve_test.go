@@ -116,3 +116,46 @@ func TestAChangeSetShowsInTheConversationAsALineWithItsState(t *testing.T) {
 		t.Fatalf("lines = %+v", got.ChangeSets)
 	}
 }
+
+type killRecordingReeveAgents struct{ killed []string }
+
+func (k *killRecordingReeveAgents) SpawnAgent(context.Context, string, int, int, ...service.AgentSpawnOptions) error {
+	return nil
+}
+func (k *killRecordingReeveAgents) KillAgent(_ context.Context, taskID string) error {
+	k.killed = append(k.killed, taskID)
+	return nil
+}
+
+// Killing the Reeve's agent from the sidebar ends its session: the token
+// goes, and a new session can start.
+func TestKillingTheReevesAgentEndsItsSession(t *testing.T) {
+	dir := t.TempDir()
+	db, err := store.New(filepath.Join(dir, "legato.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Close() })
+	reeveAgents := &killRecordingReeveAgents{}
+	reeve := service.NewReeveService(service.ReeveServiceOptions{Store: db, Agents: reeveAgents, Folder: filepath.Join(dir, "reeve")})
+	session, err := reeve.Start(context.Background(), service.ReeveStart{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	agents := &promptAgentService{agent: service.AgentSession{TaskID: session.TaskID}}
+	srv := New(nil, agents, nil, "")
+	srv.SetReeveService(reeve)
+
+	rec := httptest.NewRecorder()
+	srv.killAgentHandler().ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/agents/kill", strings.NewReader(`{"task_id":"`+session.TaskID+`"}`)))
+	if rec.Code != http.StatusOK {
+		t.Fatalf("kill: %d %s", rec.Code, rec.Body)
+	}
+	row, _ := db.GetReeveSession(context.Background(), session.TaskID)
+	if row.State != store.ReeveEnded || row.APIToken != "" {
+		t.Fatalf("after the kill: %s, token %q", row.State, row.APIToken)
+	}
+	if len(reeveAgents.killed) != 1 || agents.killedTaskID != "" {
+		t.Fatalf("the Reeve ended its own agent %v; the handler killed %q directly", reeveAgents.killed, agents.killedTaskID)
+	}
+}

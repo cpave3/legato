@@ -307,6 +307,17 @@ func (s *ReeveService) End(ctx context.Context, taskID string) error {
 	return nil
 }
 
+// StopAgent is the person stopping an agent (the sidebar's or the TUI's
+// kill): when it is the current Reeve session's, the session ends, as End
+// does, and handled is true. Any other agent is left to the caller.
+func (s *ReeveService) StopAgent(ctx context.Context, taskID string) (handled bool, err error) {
+	current, err := s.opts.Store.CurrentReeveSession(ctx)
+	if err != nil || current == nil || current.TaskID != taskID {
+		return false, err
+	}
+	return true, s.End(ctx, taskID)
+}
+
 // Resume runs an ended (or suspended) session again with its conversation:
 // a new token, the current defaults unless overridden. Refused while
 // another session runs.

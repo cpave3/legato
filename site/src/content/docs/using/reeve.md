@@ -20,7 +20,7 @@ The quickest way is the Reeve entry pinned at the top of the Agents list: pick i
 
 Settings › **Reeve** has **Start the Reeve**. A session runs with the agent tool, model and launch arguments set there (`reeve.agent`, `reeve.model`, `reeve.launch_args`); you can pick another tool or model for one session before starting it. One session runs at a time.
 
-**End session** stops it. Ended sessions are kept in the history, where **Resume** starts one again with its conversation, and **Delete** removes it.
+**End session** stops it, and so does killing its agent from the Agents list or the TUI's agents view. Ended sessions are kept in the history, where **Resume** starts one again with its conversation, and **Delete** removes it.
 
 A session that has been idle for two hours is suspended: its agent stops, and it picks up where it left off the next time you send it a message. Change the time in Settings › Reeve (`reeve.idle_timeout`).
 

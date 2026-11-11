@@ -20,6 +20,8 @@ type ReeveSessions interface {
 	Delete(ctx context.Context, taskID string) error
 	Authenticate(ctx context.Context, token string) (service.ReeveIdentity, error)
 	Message(ctx context.Context, text, by string) error
+	// StopAgent ends the current session when taskID is its agent's.
+	StopAgent(ctx context.Context, taskID string) (bool, error)
 }
 
 type reeveKey struct{}

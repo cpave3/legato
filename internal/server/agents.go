@@ -250,6 +250,20 @@ func (s *Server) killAgentHandler() http.HandlerFunc {
 		}
 
 		ctx := r.Context()
+		// Stopping the Reeve's agent ends its session, as End does.
+		if s.reeve != nil && !service.IsNamedSlot(req.Slot) {
+			handled, err := s.reeve.StopAgent(ctx, req.TaskID)
+			if err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+			if handled {
+				s.hub.Broadcast(WSMessage{Type: MsgAgentsChanged})
+				w.Header().Set("Content-Type", "application/json")
+				json.NewEncoder(w).Encode(map[string]string{"status": "ok"})
+				return
+			}
+		}
 		if service.IsNamedSlot(req.Slot) {
 			slots, ok := s.agents.(service.SlotAgents)
 			if !ok {

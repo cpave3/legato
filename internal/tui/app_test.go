@@ -1273,6 +1273,7 @@ func TestTitleEditSubmitClosesOverlayAndRefreshes(t *testing.T) {
 }
 
 type fakeAgentService struct {
+	killed         []string
 	agents         []service.AgentSession
 	durations      map[string]service.DurationData
 	captureErr     bool // when true, CaptureOutput returns an error (agent not running)
@@ -1293,7 +1294,10 @@ func (f *fakeAgentService) SpawnAgent(_ context.Context, _ string, _, _ int, opt
 	}
 	return nil
 }
-func (f *fakeAgentService) KillAgent(_ context.Context, _ string) error { return nil }
+func (f *fakeAgentService) KillAgent(_ context.Context, taskID string) error {
+	f.killed = append(f.killed, taskID)
+	return nil
+}
 func (f *fakeAgentService) SetTaskGroup(_ context.Context, taskID string, group *string) error {
 	f.groupTaskID, f.group = taskID, group
 	return nil

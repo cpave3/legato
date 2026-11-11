@@ -12,8 +12,18 @@ import (
 )
 
 type fakeReeve struct {
-	opened int
-	briefs []string
+	opened  int
+	briefs  []string
+	stopped []string
+}
+
+// StopAgent ends the session of the Reeve's agent, rv-1.
+func (f *fakeReeve) StopAgent(_ context.Context, taskID string) (bool, error) {
+	if taskID != "rv-1" {
+		return false, nil
+	}
+	f.stopped = append(f.stopped, taskID)
+	return true, nil
 }
 
 func (f *fakeReeve) Open(context.Context, string) (string, error) {
@@ -112,5 +122,28 @@ func TestAskingTheReeveAboutAnAgentGivesItABrief(t *testing.T) {
 	}
 	if app.active != viewAgents {
 		t.Fatalf("view %d", app.active)
+	}
+}
+
+// Killing the Reeve's agent in the agents view ends its session; any other
+// agent is killed as before.
+func TestKillingTheReevesAgentEndsItsSession(t *testing.T) {
+	reeve := &fakeReeve{}
+	agentSvc := &fakeAgentService{agents: []service.AgentSession{
+		{ID: 1, TaskID: "T-1", Title: "Fix the sync", AgentKind: "codex", Status: "running"},
+		{ID: 2, TaskID: "rv-1", Title: "The Reeve", AgentKind: "claude-code", Status: "running", Reeve: true},
+	}}
+	app := NewApp(&fakeBoardService{}, nil, agentSvc, nil, &fakeReportService{}, theme.NewIcons("unicode"), nil, "", nil, nil, "", nil, nil)
+	app.SetReeve(reeve)
+
+	updated, cmd := app.Update(agents.KillAgentMsg{TaskID: "rv-1"})
+	runAll(updated.(App), cmd)
+	if len(reeve.stopped) != 1 || len(agentSvc.killed) != 0 {
+		t.Fatalf("stopped %v, killed directly %v", reeve.stopped, agentSvc.killed)
+	}
+	updated, cmd = app.Update(agents.KillAgentMsg{TaskID: "T-1"})
+	runAll(updated.(App), cmd)
+	if len(agentSvc.killed) != 1 || agentSvc.killed[0] != "T-1" {
+		t.Fatalf("killed %v", agentSvc.killed)
 	}
 }

@@ -454,3 +454,30 @@ func TestTheOverviewNamesTheEngramTheReevesAgentRunsAs(t *testing.T) {
 		t.Fatalf("engram = %q", overview.Engram)
 	}
 }
+
+// The person stopping the Reeve's agent (the sidebar's or the TUI's kill)
+// ends its session, as End does; any other agent is not the Reeve's.
+func TestStoppingTheReevesAgentEndsItsSession(t *testing.T) {
+	svc, db, agents, _ := newReeveFixture(t)
+	approvals := &expiringApprovals{}
+	svc.opts.Approvals = approvals
+	ctx := context.Background()
+	s, _ := svc.Start(ctx, ReeveStart{})
+	if handled, err := svc.StopAgent(ctx, "some-task"); handled || err != nil {
+		t.Fatalf("another agent: handled %v, %v", handled, err)
+	}
+	if len(agents.killed) != 0 {
+		t.Fatalf("killed %v", agents.killed)
+	}
+	handled, err := svc.StopAgent(ctx, s.TaskID)
+	if !handled || err != nil {
+		t.Fatalf("the Reeve's agent: handled %v, %v", handled, err)
+	}
+	row, _ := db.GetReeveSession(ctx, s.TaskID)
+	if row.State != store.ReeveEnded || row.APIToken != "" || len(agents.killed) != 1 || len(approvals.expired) != 1 {
+		t.Fatalf("state %s, token %q, killed %v, expired %v", row.State, row.APIToken, agents.killed, approvals.expired)
+	}
+	if _, err := svc.Start(ctx, ReeveStart{}); err != nil {
+		t.Fatalf("a new session after the kill: %v", err)
+	}
+}
