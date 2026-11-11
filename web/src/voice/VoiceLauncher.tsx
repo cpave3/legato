@@ -1,6 +1,7 @@
 import { useCallback, useEffect, useRef, useState } from "react"
 import { useNavigate } from "react-router-dom"
 import { fetchVoiceStatus, openVoice, VOICE_HASH, type VoiceStatus } from "./status"
+import { fetchReeve } from "../lib/reeve"
 import { getToken } from "../lib/auth"
 import { openMainVoice, shellStreams, voiceAudio } from "./audio"
 import { initialVoiceView, VoiceSessionClient, type AudioPort, type SocketLike, type VoiceView } from "./session"
@@ -72,24 +73,39 @@ export function VoiceLauncher({ baseUrl, audio: givenAudio, socket }: VoiceLaunc
   const [role, setRole] = useState("")
   const [view, setView] = useState<VoiceView>(initialVoiceView)
   const clientRef = useRef<VoiceSessionClient | null>(null)
+  // Each opening of the sheet; closing it makes any start still under way
+  // stale, so it records nothing.
+  const openingRef = useRef(0)
   const navigate = useNavigate()
 
-  const close = useCallback(() => {
+  // end ends the conversation however the sheet closed: a button, a click
+  // outside, Back, or the page going.
+  const end = useCallback(() => {
+    openingRef.current++
     clientRef.current?.bye()
     clientRef.current = null
     setView(initialVoiceView)
     setReadiness(null)
-    setOpen(false)
-  }, [setOpen])
+  }, [])
+
+  const close = useCallback(() => setOpen(false), [setOpen])
+
+  useEffect(() => {
+    if (!open) end()
+  }, [open, end])
 
   const listen = useCallback(async () => {
+    const mine = openingRef.current
+    const stale = () => mine !== openingRef.current
     let status: VoiceStatus
     try {
       status = await fetchVoiceStatus(baseUrl)
     } catch {
+      if (stale()) return
       setReadiness({ ready: false, reason: "Can't reach this Legato", setting: "", main: "this Legato" })
       return
     }
+    if (stale()) return
     setRole(status.instance.role)
     const next = readinessOf(status)
     const audio = givenAudio === undefined ? voiceAudio(baseUrl) : givenAudio
@@ -100,16 +116,31 @@ export function VoiceLauncher({ baseUrl, audio: givenAudio, socket }: VoiceLaunc
     setReadiness(next)
     if (!next.ready || !audio) return
     try {
-      if (!clientRef.current || clientRef.current.view.ended) {
-        const client = new VoiceSessionClient({ url: sessionUrl(baseUrl), device: deviceName(), client: "web", audio, socket, onView: setView })
+      let client = clientRef.current
+      if (!client || client.view.ended) {
+        client = new VoiceSessionClient({ url: sessionUrl(baseUrl), device: deviceName(), client: "web", audio, socket, onView: setView })
         clientRef.current = client
         await client.connect()
       }
-      await clientRef.current.listen()
+      if (stale()) return
+      await client.listen()
     } catch (err) {
+      if (stale()) return
       setReadiness({ ...next, ready: false, reason: err instanceof Error ? err.message : String(err) })
     }
   }, [baseUrl, givenAudio, socket])
+
+  // openConversation shows the Reeve's own conversation.
+  const openConversation = useCallback(async () => {
+    let task = ""
+    try {
+      task = (await fetchReeve(baseUrl)).current?.task_id ?? ""
+    } catch {
+      // The Agents page still opens.
+    }
+    close()
+    navigate(task ? `/agents?task=${encodeURIComponent(task)}` : "/agents")
+  }, [baseUrl, close, navigate])
 
   // Opening the sheet starts listening, as the key does on the desktop.
   useEffect(() => {
@@ -117,7 +148,7 @@ export function VoiceLauncher({ baseUrl, audio: givenAudio, socket }: VoiceLaunc
   }, [open, listen])
 
   // Closing the page ends the conversation.
-  useEffect(() => () => { clientRef.current?.bye() }, [])
+  useEffect(() => () => end(), [end])
 
   if (!open) return null
   const main = readiness?.main ?? ""
@@ -135,7 +166,7 @@ export function VoiceLauncher({ baseUrl, audio: givenAudio, socket }: VoiceLaunc
             onStop={() => client?.stop()}
             onReply={() => void client?.reply()}
             onClose={close}
-            onOpenConversation={() => { close(); navigate("/agents") }}
+            onOpenConversation={() => void openConversation()}
             onOpenMain={role === "worker" && shellStreams() ? () => { openMainVoice(); close() } : undefined}
             onOpenSettings={role !== "worker" && readiness.setting ? () => { close(); navigate(`/settings#setting-${readiness.setting}`) } : undefined}
           />

@@ -1,7 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import "@testing-library/jest-dom/vitest"
 import { fireEvent, render, screen, waitFor } from "@testing-library/react"
-import { MemoryRouter } from "react-router-dom"
+import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom"
 import { VoiceLauncher } from "../VoiceLauncher"
 import { VOICE_HASH } from "../status"
 import type { AudioPort, SocketLike } from "../session"
@@ -29,7 +29,13 @@ class Socket implements SocketLike {
   close() { this.readyState = 3 }
 }
 
-const audio: AudioPort = { canPlay: true, startCapture: async () => {}, stopCapture: () => {}, play: async () => {}, stopPlayback: () => {} }
+const stopCapture = vi.fn()
+const audio: AudioPort = { canPlay: true, startCapture: async () => {}, stopCapture, play: async () => {}, stopPlayback: () => {} }
+
+function Where() {
+  const location = useLocation()
+  return <div data-testid="where">{location.pathname + location.search}</div>
+}
 
 function open(props: Partial<Parameters<typeof VoiceLauncher>[0]> = {}) {
   window.location.hash = VOICE_HASH
@@ -78,5 +84,43 @@ describe("the voice sheet in the web UI", () => {
     expect(await screen.findByText("turn the")).toBeInTheDocument()
     fireEvent.click(screen.getByRole("button", { name: "Send now" }))
     expect(JSON.parse(Socket.last!.sent.at(-1)!)).toEqual({ type: "send" })
+  })
+
+  it("ends the session when the sheet is closed by its fragment going (Back)", async () => {
+    mockStatus(status())
+    stopCapture.mockClear()
+    open()
+    await waitFor(() => expect(Socket.last?.sent.map((m) => JSON.parse(m).type)).toEqual(["hello", "listen"]))
+    history.back()
+    window.location.hash = ""
+    window.dispatchEvent(new HashChangeEvent("hashchange"))
+    await waitFor(() => expect(screen.queryByTestId("voice-sheet")).toBeNull())
+    expect(Socket.last?.sent.map((m) => JSON.parse(m).type)).toContain("bye")
+    expect(stopCapture).toHaveBeenCalled()
+  })
+
+  it("starts nothing when closed while it was still checking the server", async () => {
+    let answer!: (r: Response) => void
+    vi.stubGlobal("fetch", vi.fn(() => new Promise<Response>((r) => { answer = r })))
+    Socket.last = null
+    open()
+    fireEvent.click(await screen.findByRole("button", { name: "Close" }))
+    answer(new Response(JSON.stringify(status()), { status: 200 }))
+    await new Promise((r) => setTimeout(r, 20))
+    expect(Socket.last).toBeNull()
+  })
+
+  it("Open conversation opens the Reeve's own conversation", async () => {
+    vi.stubGlobal("fetch", vi.fn(async (url: string) => {
+      const body = String(url).endsWith("/api/reeve") ? { current: { task_id: "reeve-1", state: "running" }, history: [] } : status()
+      return new Response(JSON.stringify(body), { status: 200 })
+    }))
+    window.location.hash = VOICE_HASH
+    render(<MemoryRouter><Routes><Route path="*" element={<><Where /><VoiceLauncher baseUrl="" audio={audio} socket={(url) => new Socket(url)} /></>} /></Routes></MemoryRouter>)
+    await waitFor(() => expect(Socket.last?.sent.length).toBe(2))
+    Socket.last?.onmessage?.({ data: JSON.stringify({ type: "written" }) })
+    Socket.last?.onmessage?.({ data: JSON.stringify({ type: "state", state: "idle" }) })
+    fireEvent.click(await screen.findByRole("button", { name: "Open conversation" }))
+    await waitFor(() => expect(screen.getByTestId("where")).toHaveTextContent("/agents?task=reeve-1"))
   })
 })

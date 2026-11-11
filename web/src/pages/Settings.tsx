@@ -168,6 +168,15 @@ export function SettingsPage() {
     return () => observer.disconnect()
   }, [groupIds])
 
+  // A link to one setting (#setting-<key>, as the voice sheet's Open
+  // settings) opens at it once the settings have loaded.
+  const loaded = registry.length > 0
+  useEffect(() => {
+    const hash = window.location.hash
+    if (!loaded || !hash.startsWith("#setting-")) return
+    document.getElementById(decodeURIComponent(hash.slice(1)))?.scrollIntoView?.({ block: "center" })
+  }, [loaded])
+
   const goTo = (id: string) => {
     document.getElementById(id)?.scrollIntoView?.({ behavior: "smooth", block: "start" })
     window.history.replaceState(window.history.state, "", `#${id}`)

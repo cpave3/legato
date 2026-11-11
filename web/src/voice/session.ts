@@ -184,7 +184,7 @@ export class VoiceSessionClient {
     if (this.capturing) return
     this.capturing = true
     try {
-      await this.opts.audio.startCapture((pcm, level) => this.frame(pcm, level), () => { this.capturing = false })
+      await this.opts.audio.startCapture((pcm, level) => this.frame(pcm, level), () => this.lostMicrophone())
     } catch (err) {
       this.capturing = false
       throw err
@@ -224,6 +224,17 @@ export class VoiceSessionClient {
       this.capture().catch(() => this.sendJSON({ type: "cancel" }))
     }
     if (msg.type === "ended") this.release()
+  }
+
+  // lostMicrophone: the stream stopped by itself. While a line plays the
+  // app may have given the audio focus to it, and the microphone starts
+  // again when the main listens; while listening the turn cannot go on.
+  private lostMicrophone() {
+    this.capturing = false
+    if (this.view.state === "listening") {
+      this.sendJSON({ type: "cancel" })
+      this.update({ ...this.view, state: "idle", reason: "mic_lost", pause: 0 })
+    }
   }
 
   private frame(pcm: ArrayBuffer, level: number) {

@@ -46,17 +46,33 @@ export class Framer {
 
 // LinePlayer plays the Reeve's lines with an <audio> element, fetching
 // each with the server's token: a page cannot add a header to <audio src>.
+// stop also cancels a line still downloading.
 class LinePlayer {
   private audio: HTMLAudioElement | null = null
   private done: (() => void) | null = null
+  private download: AbortController | null = null
+  private generation = 0
   private baseUrl: string
   constructor(baseUrl: string) { this.baseUrl = baseUrl }
 
   async play(url: string): Promise<void> {
     this.stop()
-    const res = await apiFetch(this.baseUrl, url)
-    if (!res.ok) throw new Error(`line: ${res.status}`)
-    const src = URL.createObjectURL(await res.blob())
+    const mine = ++this.generation
+    const download = new AbortController()
+    this.download = download
+    let src = ""
+    try {
+      const res = await apiFetch(this.baseUrl, url, { signal: download.signal })
+      if (!res.ok) throw new Error(`line: ${res.status}`)
+      const blob = await res.blob()
+      if (mine !== this.generation) return
+      src = URL.createObjectURL(blob)
+    } catch (err) {
+      if (mine !== this.generation) return
+      throw err
+    } finally {
+      if (this.download === download) this.download = null
+    }
     const audio = new Audio(src)
     this.audio = audio
     try {
@@ -74,6 +90,9 @@ class LinePlayer {
   }
 
   stop() {
+    this.generation++
+    this.download?.abort()
+    this.download = null
     this.audio?.pause()
     this.done?.()
   }
@@ -84,10 +103,17 @@ class LinePlayer {
 export function browserAudio(baseUrl: string): AudioPort {
   const player = new LinePlayer(baseUrl)
   let stop: (() => void) | null = null
+  // Each start's own; stopping before the microphone is granted cancels it.
+  let starting = 0
   return {
     canPlay: true,
-    async startCapture(onFrame) {
+    async startCapture(onFrame, onStopped) {
+      const mine = ++starting
       const stream = await navigator.mediaDevices.getUserMedia({ audio: { channelCount: 1, echoCancellation: true, noiseSuppression: true } })
+      if (mine !== starting) {
+        stream.getTracks().forEach((t) => t.stop())
+        throw new Error("stopped before the microphone was ready")
+      }
       // A context at 16 kHz resamples for us where the browser can.
       const ctx = new AudioContext({ sampleRate: RATE })
       const source = ctx.createMediaStreamSource(stream)
@@ -107,14 +133,25 @@ export function browserAudio(baseUrl: string): AudioPort {
       }
       source.connect(processor)
       processor.connect(ctx.destination)
-      stop = () => {
+      const release = () => {
         processor.disconnect()
         source.disconnect()
         stream.getTracks().forEach((t) => t.stop())
         ctx.close().catch(() => {})
       }
+      stop = release
+      // The device went away, or the browser took the microphone back.
+      for (const track of stream.getTracks()) {
+        track.addEventListener("ended", () => {
+          if (stop !== release) return
+          release()
+          stop = null
+          onStopped?.()
+        })
+      }
     },
     stopCapture() {
+      starting++
       stop?.()
       stop = null
     },

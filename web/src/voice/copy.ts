@@ -9,6 +9,7 @@ export function idleLine(view: VoiceView): string {
     case "nothing_heard": return "I couldn't make out any words"
     case "no_answer": return "The Reeve didn't answer"
     case "failed": return "That didn't reach the Reeve"
+    case "mic_lost": return "The microphone stopped"
   }
   return ""
 }

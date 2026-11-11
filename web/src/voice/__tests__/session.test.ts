@@ -186,6 +186,19 @@ describe("the voice session client", () => {
     await vi.waitFor(() => expect(audio.starts).toBe(2))
   })
 
+  it("cancels the turn and says so when the microphone stops while listening", async () => {
+    const { socket, audio, client } = connect()
+    await client.listen()
+    socket.receive({ type: "state", state: "listening" })
+    audio.capturing = false
+    audio.onStopped?.()
+    expect(socket.texts().at(-1)).toEqual({ type: "cancel" })
+    expect(client.view).toMatchObject({ state: "idle", reason: "mic_lost" })
+    // Talk again starts the microphone again.
+    await client.listen()
+    expect(audio.starts).toBe(2)
+  })
+
   it("stops capturing when the session ends", async () => {
     const { socket, audio, client } = connect()
     await client.listen()

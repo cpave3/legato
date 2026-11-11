@@ -69,7 +69,7 @@ export function ReeveEntry({ baseUrl, agent, selected, onSelect, compact }: {
         </span>
         {agent && !compact && <ActivityBar states={agent.state_timeline} />}
       </button>
-      {!compact && <VoiceButton className="absolute right-1.5 bottom-1.5 rounded-full p-0.5 hover:bg-white/5" />}
+      <VoiceButton className={cn("absolute right-1.5 rounded-full p-0.5 hover:bg-white/5", compact ? "top-1/2 -translate-y-1/2" : "bottom-1.5")} />
       {error && <p role="alert" className="px-2.5 pb-2 text-[11px] text-lw-error">{error}</p>}
     </div>
   )
