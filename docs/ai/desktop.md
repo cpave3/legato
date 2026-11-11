@@ -35,6 +35,21 @@ The shell's parts: `TitleBar` (drag region, server name, reload, the update pill
 - `import_ticket` is `POST /api/remote/import {ticket_id, provider}` with that server's token; `open_task_in_page` then puts the server in front at `/board?highlight_task=<task>`.
 - The dev build and the AppImage share the app's identifier, so with single-instance one does not start while the other runs, and the last to start owns the links.
 
+## Talking to the Reeve
+
+Hands-free voice with the main's Reeve (Burnlite `LEG-118`; design `docs/analysis/reeve-voice-conversation.md`, server side [The Reeve](reeve.md) § Hands-free voice).
+
+### The key
+
+`voicekey.rs` decides everything about the key; `voicekey_portal.rs` (Linux) only talks to the portal; `app.rs` wires them (`start_voice_key`, `voice_key_input`, `voice_key`).
+
+- **Which way** (`voicekey::backend`): a Wayland session (`XDG_SESSION_TYPE=wayland`, else `WAYLAND_DISPLAY`) uses the XDG desktop portal's GlobalShortcuts; X11 and macOS use `tauri-plugin-global-shortcut` (`Super+Alt+Space`, on a Mac `Ctrl+Shift+Space`), which on Wayland would see keys only while an XWayland window has focus; anything else has only the link. A portal that fails falls back to the link, not to an X11 grab.
+- **The portal** (`ashpd`, pure Rust over zbus, `tokio`): the app writes `~/.local/share/applications/dev.legato.desktop.desktop` (`voicekey::desktop_entry`: `Name=Legato`, `NoDisplay=true`, `Exec` the AppImage or the binary) and registers that ID with `org.freedesktop.host.portal.Registry` (`ashpd::register_host_app`), so KDE lists the shortcuts under Legato. One session for the app's life: `ListShortcuts`, then `BindShortcuts` only when `talk` or `cancel` is missing (`voicekey::needs_binding`; KDE bug 498575), with `talk` ("Talk to the Reeve", preferred `LOGO+ALT+space`) and `cancel` ("Stop talking to the Reeve", no preferred key). The first bind shows KDE's own dialog. `Activated`/`Deactivated` become presses and releases; `ShortcutsChanged` updates the key's text. **Change the key…** is `ConfigureShortcuts` (portal version 2, `can_change`).
+- **The link**: `legato-desktop://voice` (`?action=cancel` for cancel) and `legato-desktop --voice` (`--voice=cancel`), through the deep-link and single-instance plugins (`voicekey::read_link`, `read_args`). Any other `voice` link is ignored; a page's own `voice?key=…` addresses never reach the system. A link has no release, so it is a press whatever the mode. Any page can open the link, as it can the import link; the browser asks first.
+- **Hold to talk** (`voicekey::Keys`, off by default, `voice.hold_to_talk` in the state file, `set_hold_to_talk`): off, a press is `talk` and its release nothing; on, a press is `hold` and its release `release`. A key repeating while held asks once; `cancel` while held swallows the release; a release with no press asks nothing.
+- **Events.** `voice-key` `{key: "talk" | "hold" | "release" | "cancel", from: "portal" | "shortcut" | "link"}`, to every webview; a press also brings the window to the front until the widget exists. `voice-key-changed` carries `KeyInfo` `{backend, key, hold_to_talk, can_change, problem, link}`, which `voice_key_info` also answers; `key` is the bound key as the person reads it (`voicekey::key_text`: `Meta+Alt+Space`, on a Mac `⌃⇧Space`), for the widget. The shell shows it in Servers & keys › **Talking to the Reeve** (`VoiceSection.tsx`).
+- **Not checked here** (no session bus in the sandbox): that KDE lists the shortcut under Legato, keeps it across restarts (so later starts list and do not bind), and sends `Deactivated` on release.
+
 ## Pairing
 
 `src-tauri/src/pairing.rs` is SPAKE2 (RFC 9382, P-256/SHA-256/HKDF/HMAC) as `internal/engine/pairing` has it, the app as party A with the phone's identities, and `legato.rs::pair` the two requests (`POST /api/pair/exchange`, `/api/pair/confirm`). `tests/fixtures/pairing-exchange.json` is written by `go test ./internal/engine/pairing -update`, which fails when the desktop's copy differs; `resources/pairing-words.txt` is checked by a Rust test against the digest `internal/engine/pairing/phrase_test.go` holds. A phrase is read word by word by its first three letters.
@@ -65,7 +80,7 @@ The app is its own WebAuthn client (WebKitGTK has none), over CTAP2 with `ctap-h
 
 ## What the app keeps
 
-`store.rs`: `~/.config/legato-desktop/state.json` (mode `0600`, written beside and renamed over; `LEGATO_DESKTOP_STATE` names another file): each server's name, address (the servers in the dock's order), sealed certificate, tint and the device each key is on it; each key's name, credential ID and authenticator data, and a Touch ID key's Secure Enclave blob (`enclave`); and `import_target` (`ask` or `current`). Tokens are in the desktop's keyring (`keyring`: Secret Service on Linux, Keychain on macOS) under service `dev.legato.desktop`, account the server's ID. Removing a server deletes its token. WebKit's data (cookies, storage) is in `~/.local/share/dev.legato.desktop/`.
+`store.rs`: `~/.config/legato-desktop/state.json` (mode `0600`, written beside and renamed over; `LEGATO_DESKTOP_STATE` names another file): each server's name, address (the servers in the dock's order), sealed certificate, tint and the device each key is on it; each key's name, credential ID and authenticator data, and a Touch ID key's Secure Enclave blob (`enclave`); `import_target` (`ask` or `current`), and `voice` (`hold_to_talk`; `server`, the instance ID of the Reeve the person chose to talk to). Tokens are in the desktop's keyring (`keyring`: Secret Service on Linux, Keychain on macOS) under service `dev.legato.desktop`, account the server's ID. Removing a server deletes its token. WebKit's data (cookies, storage) is in `~/.local/share/dev.legato.desktop/`.
 
 ## Network discovery
 

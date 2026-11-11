@@ -22,7 +22,8 @@ use crate::webauthn::{self, Attachment, ORIGIN, RP_ID};
 use crate::discovery::{Browser, Found};
 use crate::links;
 use crate::bridge::{self, PageMessage, VoiceAction, VoiceEvent};
-use crate::{fido, systrust, touchid, voice, workers};
+use crate::{fido, systrust, touchid, voice, voicekey, workers};
+use crate::voicekey::{Backend, Input, VoiceKey};
 
 // The shell's chrome, in logical pixels: the title bar across the top and
 // the dock down the left. Server pages fill the rest.
@@ -58,6 +59,11 @@ pub struct Desktop {
     recordings: std::sync::atomic::AtomicU64,
     /// Tickets the browser extension handed the app, for the shell to take.
     imports: Mutex<Vec<ImportLink>>,
+    /// The key that starts talking to the Reeve.
+    keys: Mutex<voicekey::Keys>,
+    key: Mutex<KeyInfo>,
+    #[cfg(target_os = "linux")]
+    portal: Mutex<Option<std::sync::Arc<crate::voicekey_portal::Portal>>>,
 }
 
 fn webview_label(id: &str) -> String {
@@ -538,11 +544,143 @@ fn open_in_page(app: &AppHandle, desktop: &Desktop, server: String, path: &str, 
     Ok(())
 }
 
+// ---- The key that starts talking to the Reeve ----
+
+/// The key as the settings show it, and the widget will.
+#[derive(Clone, Debug, Serialize)]
+pub struct KeyInfo {
+    backend: Backend,
+    /// The bound key as the person reads it; None when none is bound.
+    key: Option<String>,
+    hold_to_talk: bool,
+    /// The desktop can show its own dialog to change the key.
+    can_change: bool,
+    /// Why the key is not working, when it is not: the link still is.
+    problem: Option<String>,
+    /// The link that does what the key does, for the desktop's own shortcuts.
+    link: &'static str,
+}
+
+const VOICE_LINK: &str = "legato-desktop://voice";
+
+fn key_changed(app: &AppHandle, change: impl FnOnce(&mut KeyInfo)) {
+    let info = {
+        let desktop = app.state::<Desktop>();
+        let mut key = desktop.key.lock().unwrap();
+        change(&mut key);
+        key.clone()
+    };
+    let _ = app.emit("voice-key-changed", info);
+}
+
+/// A key went down or up: what it asks, if anything, is sent on.
+fn voice_key_input(app: &AppHandle, input: Input, from: &'static str) {
+    let asked = app.state::<Desktop>().keys.lock().unwrap().on(input);
+    if let Some(key) = asked {
+        voice_key(app, key, from);
+    }
+}
+
+/// Tells the app the key asked something: the `voice-key` event,
+/// `{key: "talk" | "hold" | "release" | "cancel", from: "portal" | "shortcut" | "link"}`.
+/// Until the widget exists, a press also brings the window to the front.
+fn voice_key(app: &AppHandle, key: VoiceKey, from: &'static str) {
+    println!("[voice key] {key:?} from the {from}");
+    let _ = app.emit("voice-key", json!({ "key": key, "from": from }));
+    if matches!(key, VoiceKey::Talk | VoiceKey::Hold) {
+        bring_to_front(app);
+    }
+}
+
+/// Starts listening for the key the way this computer has it.
+fn start_voice_key(app: &AppHandle) {
+    let backend = app.state::<Desktop>().key.lock().unwrap().backend;
+    match backend {
+        Backend::Link => println!("[voice key] no global key here; {VOICE_LINK} does what it would"),
+        Backend::Shortcut => {
+            use tauri_plugin_global_shortcut::GlobalShortcutExt;
+            let accelerator = voicekey::shortcut_accelerator(std::env::consts::OS);
+            match app.global_shortcut().register(accelerator) {
+                Ok(()) => key_changed(app, |k| k.key = voicekey::key_text(accelerator, cfg!(target_os = "macos"))),
+                Err(e) => {
+                    println!("[voice key] could not take {accelerator}: {e}");
+                    key_changed(app, |k| k.problem = Some(format!("Could not take {accelerator}: {e}")));
+                }
+            }
+        }
+        #[cfg(target_os = "linux")]
+        Backend::Portal => {
+            let app = app.clone();
+            tauri::async_runtime::spawn(async move {
+                let (on_input, on_text) = (app.clone(), app.clone());
+                let opened = crate::voicekey_portal::Portal::open(
+                    move |input| voice_key_input(&on_input, input, "portal"),
+                    move |text| key_changed(&on_text, |k| k.key = text),
+                )
+                .await;
+                match opened {
+                    Ok((portal, text)) => {
+                        let can_change = portal.can_change();
+                        *app.state::<Desktop>().portal.lock().unwrap() = Some(std::sync::Arc::new(portal));
+                        key_changed(&app, |k| {
+                            k.key = text;
+                            k.can_change = can_change;
+                        });
+                    }
+                    Err(e) => {
+                        println!("[voice key] the portal did not give a key: {e}");
+                        key_changed(&app, |k| {
+                            k.backend = Backend::Link;
+                            k.problem = Some(format!("The desktop gave no global key ({e}). Bind {VOICE_LINK} in its own shortcut settings."));
+                        });
+                    }
+                }
+            });
+        }
+        #[cfg(not(target_os = "linux"))]
+        Backend::Portal => {}
+    }
+}
+
+#[tauri::command]
+fn voice_key_info(desktop: State<'_, Desktop>) -> KeyInfo {
+    desktop.key.lock().unwrap().clone()
+}
+
+/// "Change the key…": the desktop's own dialog, where the portal has one.
+#[tauri::command]
+async fn change_voice_key(desktop: State<'_, Desktop>) -> Result<(), String> {
+    #[cfg(target_os = "linux")]
+    {
+        let portal = desktop.portal.lock().unwrap().clone();
+        if let Some(portal) = portal {
+            return portal.change().await;
+        }
+    }
+    let _ = desktop;
+    Err("The key is not changed from here on this computer.".into())
+}
+
+#[tauri::command]
+fn set_hold_to_talk(app: AppHandle, desktop: State<'_, Desktop>, on: bool) -> Result<(), String> {
+    {
+        let mut store = desktop.store.lock().unwrap();
+        store.state.voice.hold_to_talk = on;
+        store.save()?;
+    }
+    desktop.keys.lock().unwrap().set_hold_to_talk(on);
+    key_changed(&app, |k| k.hold_to_talk = on);
+    Ok(())
+}
+
 // ---- Tickets the browser extension hands the app ----
 
 /// Takes a link the system handed the app: an import is kept for the shell,
 /// which is told, and the window comes to the front. Other links are ignored.
 fn handle_link(app: &AppHandle, url: &str) {
+    if let Some(key) = voicekey::read_link(url) {
+        return voice_key(app, key, "link");
+    }
     let Some(link) = applink::read(url) else {
         println!("[link] ignored a link the app does not read");
         return;
@@ -1236,10 +1374,28 @@ fn state_path() -> std::path::PathBuf {
 
 pub fn run() {
     let store = Store::open(state_path(), Box::new(Keyring)).expect("the app's saved state does not read");
+    let hold_to_talk = store.state.voice.hold_to_talk;
+    let backend = voicekey::backend(&voicekey::Platform::this());
     tauri::Builder::default()
         // A second start (the system opening a link) hands its link to the
         // app that runs and ends; the deep-link plugin reads the link.
-        .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| bring_to_front(app)))
+        // `legato-desktop --voice` is the key, as the link is.
+        .plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| match voicekey::read_args(&argv) {
+            Some(key) => voice_key(app, key, "link"),
+            None => bring_to_front(app),
+        }))
+        // The key on X11 and macOS; registered only there (start_voice_key).
+        .plugin(
+            tauri_plugin_global_shortcut::Builder::new()
+                .with_handler(|app, _shortcut, event| {
+                    let input = match event.state() {
+                        tauri_plugin_global_shortcut::ShortcutState::Pressed => Input::Pressed(voicekey::Shortcut::Talk),
+                        tauri_plugin_global_shortcut::ShortcutState::Released => Input::Released(voicekey::Shortcut::Talk),
+                    };
+                    voice_key_input(app, input, "shortcut");
+                })
+                .build(),
+        )
         .plugin(tauri_plugin_deep_link::init())
         // The confirm before one of the app's servers becomes a worker.
         .plugin(tauri_plugin_dialog::init())
@@ -1253,6 +1409,10 @@ pub fn run() {
             recording: Mutex::default(),
             recordings: Default::default(),
             imports: Mutex::default(),
+            keys: Mutex::new(voicekey::Keys::new(hold_to_talk)),
+            key: Mutex::new(KeyInfo { backend, key: None, hold_to_talk, can_change: false, problem: None, link: VOICE_LINK }),
+            #[cfg(target_os = "linux")]
+            portal: Mutex::default(),
         })
         .setup(|app| {
             // Servers take a few seconds to answer on the network; listening
@@ -1279,6 +1439,7 @@ pub fn run() {
                     }
                 }
             }
+            start_voice_key(app.handle());
             let window = WindowBuilder::new(app, "main")
                 .title("Legato")
                 .inner_size(1360.0, 880.0)
@@ -1299,6 +1460,11 @@ pub fn run() {
                     relayout(&handle);
                 }
             });
+            // Started with --voice: the window is up, so the key is heard.
+            let args: Vec<String> = std::env::args().collect();
+            if let Some(key) = voicekey::read_args(&args) {
+                voice_key(app.handle(), key, "link");
+            }
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -1335,7 +1501,10 @@ pub fn run() {
             import_preference,
             set_import_preference,
             import_ticket,
-            open_task_in_page
+            open_task_in_page,
+            voice_key_info,
+            change_voice_key,
+            set_hold_to_talk
         ])
         .run(tauri::generate_context!())
         .expect("the app did not start");

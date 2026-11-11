@@ -64,6 +64,28 @@ pub struct State {
     /// Where a ticket the browser extension hands the app is imported.
     #[serde(default)]
     pub import_target: ImportTarget,
+    /// Talking to the Reeve: the key's mode and the Reeve chosen.
+    #[serde(default, skip_serializing_if = "VoiceSettings::is_default")]
+    pub voice: VoiceSettings,
+}
+
+/// The person's choices about talking to the Reeve.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct VoiceSettings {
+    /// The instance ID of the Legato whose Reeve to talk to, when the person
+    /// chose one ("The Reeve to talk to"): kept by ID, so a new address
+    /// does not lose it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub server: Option<String>,
+    /// Listen while the key is held, and send when it is let go of.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub hold_to_talk: bool,
+}
+
+impl VoiceSettings {
+    fn is_default(&self) -> bool {
+        self == &VoiceSettings::default()
+    }
 }
 
 /// Where a ticket the browser extension hands the app is imported: the app
@@ -274,6 +296,23 @@ pub(crate) mod tests {
         let text = std::fs::read_to_string(dir.path().join("legato-desktop.json")).unwrap();
         assert!(text.contains(r#""import_target": "current""#), "{text}");
         assert_eq!(open(&dir, &secrets).state.import_target, ImportTarget::Current);
+    }
+
+    #[test]
+    fn the_voice_choices_are_kept_and_absent_until_made() {
+        let (dir, secrets) = (tempfile::tempdir().unwrap(), Memory::default());
+        let path = dir.path().join("legato-desktop.json");
+        std::fs::write(&path, r#"{"servers":[],"keys":[]}"#).unwrap();
+        let mut store = open(&dir, &secrets);
+        assert_eq!(store.state.voice, VoiceSettings::default());
+        store.save().unwrap();
+        assert!(!std::fs::read_to_string(&path).unwrap().contains("voice"));
+
+        store.state.voice = VoiceSettings { server: Some("inst-1".into()), hold_to_talk: true };
+        store.save().unwrap();
+        let text = std::fs::read_to_string(&path).unwrap();
+        assert!(text.contains(r#""server": "inst-1""#), "{text}");
+        assert_eq!(open(&dir, &secrets).state.voice, store.state.voice);
     }
 
     #[test]

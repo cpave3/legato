@@ -80,6 +80,18 @@ export type ImportRequest = { provider: string; key: string }
 // Where such a ticket goes: the app asks which server, or uses the one in front.
 export type ImportTarget = "ask" | "current"
 
+// The key that starts talking to the Reeve (src-tauri/src/voicekey.rs).
+// key is the bound key as the person reads it; problem says why it does not
+// work, when it does not, and link then still does what it would.
+export type VoiceKeyInfo = {
+  backend: "portal" | "shortcut" | "link"
+  key?: string | null
+  hold_to_talk: boolean
+  can_change: boolean
+  problem?: string | null
+  link: string
+}
+
 export const api = {
   servers: () => invoke<Server[]>("servers"),
   takeImportRequests: () => invoke<ImportRequest[]>("take_import_requests"),
@@ -119,6 +131,9 @@ export const api = {
   checkUpdate: () => invoke<UpdateStatus>("check_update"),
   applyUpdate: () => invoke<string>("apply_update"),
   restartApp: () => invoke<void>("restart_app"),
+  voiceKeyInfo: () => invoke<VoiceKeyInfo>("voice_key_info"),
+  changeVoiceKey: () => invoke<void>("change_voice_key"),
+  setHoldToTalk: (on: boolean) => invoke<void>("set_hold_to_talk", { on }),
 }
 
 // The colours a Legato can be tinted, as web/src/lib/tints.ts has them.

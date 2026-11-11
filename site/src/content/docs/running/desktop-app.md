@@ -71,6 +71,14 @@ When a server knows Touch ID, the sheet asks for your fingerprint instead of a t
 - The app keeps no offline copy of a server's web UI. While a server is down, the app shows its own offline screen for it, with the address and the reason it could not be reached. It keeps checking every few seconds (**Try again** checks at once), and the server's page comes back by itself when the server answers.
 - Dictation works in every server's page, over HTTP too: the app records for the page with `parecord` (or `arecord` when there is no `parecord`), and the server transcribes it as usual. Linux only for now.
 
+## Talk to the Reeve
+
+The app has a key that starts talking to the [Reeve](/legato/using/reeve/) from any app. On Linux with Wayland, such as KDE Plasma, the desktop asks the first time which key to use, and offers **Meta+Alt+Space**. It keeps your choice. On X11 the key is **Meta+Alt+Space**, and on a Mac **Ctrl+Shift+Space**.
+
+- Open **Servers & keys** › **Talking to the Reeve** to see the key. **Change the key…** opens the desktop's own shortcut settings, where the desktop has them.
+- Press the key to start, and again to send. Select **Hold the key to talk** to talk only while you hold it.
+- On a desktop where the key does not work, make a shortcut in the desktop's own settings that runs `xdg-open legato-desktop://voice` or `legato-desktop --voice`. It does what the key does.
+
 ## Add a worker from another server
 
 When one of your servers should hand tasks to another ([handoff](/legato/using/handoff/)), open the main's Settings › Handoff › Workers › **Add a worker** in the app. **From this app** lists your other servers. Choose the worker, and the app asks in a dialog of its own, outside the page: "Make vm-1 a worker of workstation?" On **Make it a worker**, it opens the worker's pairing request with the token it holds for that server, and the main pairs with it. You type no address or words, and the main's page never sees the worker's token. See [Main and worker instances](/legato/running/instances/#pair-a-main-instance-with-a-worker).

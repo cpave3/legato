@@ -3,6 +3,7 @@ import { api, errorText, initials, tintColor, type Key, type Server, type Status
 import { PairForm } from "./PairForm"
 import { Fingerprint, KeyIcon, Lock, Plus, Servers } from "./Icons"
 import { ImportTargetSection } from "./importTarget"
+import { VoiceSection } from "./VoiceSection"
 import { UpdatesSection, type Updates } from "./Updates"
 
 type Props = {
@@ -81,6 +82,7 @@ export function ServersPanel({ servers, statuses, startPairing, updates, onChang
         {touchId?.mac && !touchId.available && <p className="dim small">Touch ID can't sign here: {touchId.reason}</p>}
       </div>
 
+      <VoiceSection />
       <ImportTargetSection />
       <UpdatesSection updates={updates} />
 
