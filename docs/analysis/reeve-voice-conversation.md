@@ -66,18 +66,25 @@ sequenceDiagram
   - `ConfigureShortcuts` (portal version 2) opens KDE's dialog again. The desktop app's settings offer it as "Change the key…".
   - `Activated` and `Deactivated` give key press and release, which a hold-to-talk mode needs (see [§ 4](#4-end-of-turn)).
   - `ashpd` is pure Rust over `zbus`, with a `tokio` feature to match Tauri's runtime. It needs no C library.
-- **Two risks for the spike** (task 7):
-  - A portal must know which app is asking. A sandboxed app is known by its Flatpak ID. A host app like this one registers its desktop-file ID with `org.freedesktop.host.portal.Registry` (`xdg-desktop-portal` 1.19 or newer; `ashpd` has a call for it), or is known by its systemd scope. Check that KDE lists the shortcut under "Legato" and keeps it across restarts.
+- **The person's desktop has what this needs** (checked 2026-11-11, outside the sandbox): Plasma and KWin 6.7.2, `xdg-desktop-portal` 1.22.1 with the KDE backend. GlobalShortcuts is version 2, and `org.freedesktop.host.portal.Registry` is present. KDE keeps portal shortcuts: Slack's (`com.slack.Slack`, "Electron shortcut Ctrl+Shift+Space") is listed in `~/.config/kglobalshortcutsrc` under its app ID.
+- **What is left for the spike** (task 7):
+  - A portal must know which app is asking. A sandboxed app (Slack, above) is known by its Flatpak ID. A host app like this one registers its desktop-file ID with `org.freedesktop.host.portal.Registry` (`ashpd` has a call for it), or is known by its systemd scope. Check that KDE lists the shortcut under "Legato" and keeps it across restarts.
+  - Check that KDE sends `Deactivated` on release, which hold-to-talk needs.
   - KDE has had bugs with `BindShortcuts` after the first call (KDE bug 498575). Bind once per session, and do not bind again while a session is open.
 - **The deep-link fallback** costs almost nothing. The app already registers `legato-desktop://` and runs as a single instance. `xdg-open legato-desktop://voice` (or `legato-desktop --voice`) is passed to the running app. The person can bind that in any desktop's custom shortcuts. It covers GNOME before version 48, wlroots compositors without the portal, and a portal that fails.
-- **The person's other Tauri apps.** The task says the person has other Tauri apps that bind global hotkeys, and asks to see how they do it. **This session runs in Legato's sandbox, which hides the rest of `~/Projects` and `~/.config/kglobalshortcutsrc`, so I could not look.** Task `0kbqr321` mentions another project of the person's with a "desktop widget" and "Psi Pocket", which send 16 kHz PCM to a gateway that runs Wyoming and end turns after about 1.8 s of silence. That is prior art for [§ 3](#3-microphone-capture) and [§ 4](#4-end-of-turn). Task 7 starts by reading how those apps bind their key.
-- **The default key.** Meta+Alt+Space is not a Plasma default as far as I could find. These were rejected:
-  - Meta+Space switches the input method with IBus and fcitx, which Fedora ships, and some Plasma setups give it to KRunner.
-  - Alt+Space and Alt+F2 open KRunner.
-  - Meta alone opens the launcher.
-  - Ctrl+Space is the input-method switch and many editors' completion key.
+- **How the person's other Tauri app does it.** PSITTAC Desktop (`~/Projects/personal-ai-agent/packages/desktop`, Tauri 2) binds all its keys with `tauri-plugin-global-shortcut`: Alt+P (text), Alt+V (voice), Alt+Space (push to talk), Alt+M, Alt+S, Alt+X, Alt+W and Alt+Escape, configurable under `[hotkeys]` in `~/.config/psittac/config.toml` (`register_hotkey` in `src-tauri/src/main.rs`).
+  - It runs as a native Wayland client (no `GDK_BACKEND` override), so its keys are grabbed on XWayland (`DISPLAY=:0`). It does not appear in KDE's shortcut list.
+  - Whether those keys reach it while a Wayland app has focus depends on Plasma's "Legacy X11 App Support" setting. The person's `kwinrc` leaves it at the default, which, as I understand it, passes modifier keys alone but not Alt+letter combinations. **Ask the person whether Alt+V works while a native Wayland app has focus.** If it does not, that confirms the portal is needed.
+  - It also talks to KWin over D-Bus (`kwin.rs`, a KWin script, with `zbus` and `ashpd`), and its own docs say a window cannot place itself on Wayland ("centre it with a KWin window rule"). That agrees with [§ 2](#2-the-desktop-widget).
+  - Its voice code is prior art for [§ 4](#4-end-of-turn).
+- **The default key: Meta+Alt+Space, which is free** on the person's Plasma. The `Meta+Alt` keys already taken there are K and L (keyboard layout) and S (screen reader). Rejected:
+  - Ctrl+Space: KRunner here (`[services][org.kde.krunner.desktop]`), and many editors' completion key.
+  - Alt+Space: PSITTAC's push to talk.
+  - Ctrl+Shift+Space: Slack's portal shortcut, though it is unbound (`none`) at the moment.
+  - Meta+Space: the input-method switch with IBus and fcitx.
+  - Meta alone: opens the launcher.
 
-  Check `~/.config/kglobalshortcutsrc` for `Meta+Alt+Space` before shipping. KDE's dialog also shows any conflict.
+  KDE's dialog also shows any conflict when the shortcut is first bound.
 - **macOS:** `tauri-plugin-global-shortcut` works there. It uses Carbon hot keys and needs no Accessibility permission. Option+Cmd+Space opens Finder's search window, Cmd+Space opens Spotlight, and Ctrl+Option+Space switches the input source. Propose Ctrl+Shift+Space and check it on a Mac.
 
 ## 2. The desktop widget
@@ -99,6 +106,7 @@ The approved design shows:
   - **Keyboard interactivity `None`**: the widget never takes focus from the app the person is in, which the task asks for. Clicks still work.
   - It shows on every virtual desktop, and leaves no taskbar entry.
   - It costs the `gtk-layer-shell` C library at build and run time. The desktop app already links GTK and WebKitGTK, so this is one more system package and one more library in the AppImage. The "no C" rule is the Go binary's, not the desktop app's.
+  - **It is not installed on the person's machine** (Fedora 44 Atomic: no `libgtk-layer-shell` in `/usr/lib64`). Build it in a distrobox, as PSITTAC does (`install-with-distrobox.sh`), and bundle the library in the AppImage. Load it with `dlopen` at run time, so a build without it still runs and falls back to a normal window.
 - **The catch: layer shell must be set before GTK realizes the window.** `tauri-plugin-widgets` works around this: it hides the Tauri window, moves the webview's container into a new `gtk::ApplicationWindow`, and makes that a layer surface. Task 8 starts with a spike to find the simplest way that holds. Either make the window invisible and initialise layer shell before tao realizes it, or move the container as that plugin does.
 - **Size.** The surface resizes with the state (capsule ↔ card). A layer surface anchored to a corner grows up and to the left. A transparent window (`transparent(true)`) gives the rounded capsule and its shadow. Size the surface to the content, because a transparent margin would still take clicks.
 - **Fallbacks:**
@@ -146,8 +154,12 @@ The approved design shows:
   - The clients still draw the level themselves.
   - The cost is a round trip before the pause bar moves, which is a few milliseconds on the LAN.
 - **The detector (v1):** energy, in pure Go, as Legato builds without C.
-  - 20 ms frames. A noise floor tracked slowly from the quiet frames.
-  - Speech is a frame more than 12 dB over the floor. A turn needs at least 300 ms of speech.
+  - **Start from PSITTAC's detector** (`src/voice/vad.ts`), which already works in the person's room. It times by sample count, as here. It uses hysteresis, with two RMS thresholds: 650 to start speech, 300 to keep it going, so quiet syllables and breaths stay in the turn. Speech starts after 45 ms of loud frames and ends after 1800 ms of quiet. While the agent speaks, it raises both thresholds 2.5×, so the speakers' sound rarely counts as speech. That gives it a rough barge-in with no echo cancellation.
+  - Port it to Go, with its cases as test fixtures, and add what it lacks:
+    - a noise floor tracked slowly from the quiet frames, with the thresholds relative to it;
+    - the 400 ms sentence boundary below;
+    - `reeve.voice.pause` in place of the fixed 1800 ms;
+    - at least 300 ms of speech per turn.
   - It ends after `pause` of non-speech.
   - No speech within 8 s of listening returns to idle ("I didn't hear anything").
   - A turn longer than 60 s is sent as it stands.
@@ -304,6 +316,8 @@ Rules:
 
 Later, so that the person can interrupt the Reeve mid-sentence:
 
+- **A cheaper step first:** PSITTAC already lets the person interrupt without echo cancellation. While the agent speaks, it raises its speech thresholds 2.5×, so only speech louder than the speakers' sound counts ([§ 4](#4-end-of-turn)). The same can be tried here before echo cancellation, on a desk with speakers rather than a headset.
+
 - **Desktop (PipeWire):** `libpipewire-module-echo-cancel` (WebRTC's echo canceller) adds a sink and a source. The app plays lines into the sink (`pw-play --target`) and records from the source (`parecord --device`). The module can be loaded by the person's PipeWire configuration, or at run time with `pactl load-module module-echo-cancel`. The app finds the nodes and uses them when present.
 - **Android:** `AudioRecord` with `VOICE_COMMUNICATION` and `AcousticEchoCanceler`, with playback as `USAGE_VOICE_COMMUNICATION` in the same audio session.
 - **A browser:** `getUserMedia({echoCancellation: true})` with playback in the same page.
@@ -446,12 +460,13 @@ Each needs `docs/ai/config.md`, `docs/ai/settings.md` and the site's configurati
 
 ## Open questions
 
-1. **How do the person's other Tauri apps bind their key?** The sandbox hid them. Task 7 reads them first.
-2. **Does KDE keep a host app's portal shortcut across restarts, and does it send `Deactivated`?** Task 7's spike.
-3. **What is the simplest way to make a Tauri window a layer surface before it is realized?** Task 8's spike.
+1. **Do PSITTAC's Alt+letter keys work while a native Wayland app has focus?** If not, that confirms the Tauri plugin is not enough on this desktop. Ask the person.
+2. **Does KDE list a host app's portal shortcut under its name, keep it across restarts, and send `Deactivated`?** Task 7's spike. KDE does keep a Flatpak app's (Slack's).
+3. **What is the simplest way to make a Tauri window a layer surface before it is realized, and to bundle `gtk-layer-shell`?** Task 8's spike.
 4. **How fast is the main's Whisper, and is it the one Home Assistant shares?** This decides whether partials are on by default. Task 2 measures it.
-5. **Which end-of-turn pause feels right:** the person's second, or Psi's 300–500 ms? Task 2 tunes it by feel.
-6. **Is Meta+Alt+Space free on the person's Plasma?** Check `~/.config/kglobalshortcutsrc`.
+5. **Which end-of-turn pause feels right:** the person's second, Psi's 300–500 ms, or PSITTAC's 1.8 s? Task 2 tunes it by feel.
+
+Answered on 2026-11-11, outside the sandbox: how PSITTAC binds its keys (§ 1), and whether Meta+Alt+Space is free (it is).
 
 ## Follow-up tasks
 
