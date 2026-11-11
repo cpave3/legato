@@ -4,7 +4,7 @@ import { cn } from "../lib/utils"
 
 // lineState is a change set's state as its line says it: waiting, or done
 // with how many of how many ran.
-export function lineState(set: ChangeSetLine): { text: string; tone: string } {
+function lineState(set: ChangeSetLine): { text: string; tone: string } {
   switch (set.state) {
     case "pending":
       return { text: "waiting for your approval", tone: "text-lw-needs" }

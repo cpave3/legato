@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState } from "react"
+import { useEffect, useLayoutEffect, useRef, useState } from "react"
 import { ArrowDown } from "lucide-react"
 import { Terminal } from "@xterm/xterm"
 import { FitAddon } from "@xterm/addon-fit"
@@ -18,9 +18,13 @@ export function TerminalPanel({ agentId, onGlitch, onClickTerminal }: TerminalPa
   const fitRef = useRef<FitAddon | null>(null)
   const { send, subscribe, connected } = useWebSocket()
   const agentIdRef = useRef(agentId)
-  agentIdRef.current = agentId
   const onGlitchRef = useRef(onGlitch)
-  onGlitchRef.current = onGlitch
+  // The latest agent and callback, for the terminal's handlers; set before
+  // any effect of this render runs.
+  useLayoutEffect(() => {
+    agentIdRef.current = agentId
+    onGlitchRef.current = onGlitch
+  })
   const [isScrolledUp, setIsScrolledUp] = useState(false)
 
   useEffect(() => {

@@ -24,7 +24,7 @@ export function EditDescriptionModal({ open, currentDescription, baseUrl, voiceE
     if (!open) return
     setDescription(currentDescription)
     setTimeout(() => textareaRef.current?.focus(), 50)
-  }, [open, currentDescription])
+  }, [open, currentDescription, textareaRef])
 
   const handleSubmit = (event: React.FormEvent) => {
     event.preventDefault()

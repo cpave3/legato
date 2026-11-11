@@ -97,6 +97,26 @@ export function ImportRemoteModal({ open, workspaces = [], view = "all", default
     return () => clearTimeout(t)
   }, [open, query, doSearch, hasProviders])
 
+  const handleImport = useCallback(async (r: RemoteSearchResult) => {
+    if (importingID) return
+    setImportingID(r.id)
+    setError("")
+    try {
+      const task = await remoteImport(baseUrl, {
+        ticket_id: r.id,
+        ...(r.provider ? { provider: r.provider } : {}),
+        workspace_id: workspaceId,
+        ...(column ? { column } : {}),
+      })
+      onImported(task)
+      onClose()
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Import failed")
+    } finally {
+      setImportingID("")
+    }
+  }, [importingID, baseUrl, workspaceId, column, onImported, onClose])
+
   // Keyboard nav: arrows, so every letter types into the search.
   useEffect(() => {
     if (!open) return
@@ -119,27 +139,7 @@ export function ImportRemoteModal({ open, workspaces = [], view = "all", default
     }
     window.addEventListener("keydown", handler)
     return () => window.removeEventListener("keydown", handler)
-  }, [open, results, cursor, importingID, workspaceId, column, onClose])
-
-  const handleImport = async (r: RemoteSearchResult) => {
-    if (importingID) return
-    setImportingID(r.id)
-    setError("")
-    try {
-      const task = await remoteImport(baseUrl, {
-        ticket_id: r.id,
-        ...(r.provider ? { provider: r.provider } : {}),
-        workspace_id: workspaceId,
-        ...(column ? { column } : {}),
-      })
-      onImported(task)
-      onClose()
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Import failed")
-    } finally {
-      setImportingID("")
-    }
-  }
+  }, [open, results, cursor, importingID, onClose, handleImport])
 
   if (!open) return null
 

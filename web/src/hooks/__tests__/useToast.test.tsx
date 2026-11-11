@@ -1,6 +1,7 @@
 import { fireEvent, render, screen } from "@testing-library/react"
 import { describe, expect, it } from "vitest"
-import { ToastProvider, useToast } from "../useToast"
+import { useToast } from "../useToast"
+import { ToastProvider } from "../../components/ToastProvider"
 
 function ToastControls() {
   const { addToast } = useToast()

@@ -35,7 +35,10 @@ export function WorkflowTaskInput({ label, required, value, onChange }: { label:
     return () => { current = false }
   }, [baseUrl, showCompleted])
 
-  const tasks = showCompleted ? [...active, ...archived] : active.filter(task => !isDone(task))
+  const tasks = useMemo(
+    () => showCompleted ? [...active, ...archived] : active.filter(task => !isDone(task)),
+    [showCompleted, active, archived],
+  )
   const groups = useMemo(() => {
     const grouped = new Map<string, SelectableTask[]>()
     for (const task of tasks) {

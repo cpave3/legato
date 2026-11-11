@@ -34,4 +34,4 @@ Capabilities are model-specific: Codex requires thinking; a reasoning summary ca
 
 ### Verification
 
-Tests cover Go serialization, settings patches, frontend controls, errors, reset and cancel, stale responses and reconnect state. Backend tests use local mocks. No browser, live-model or end-to-end tests were part of the change. The web build and the extension build stay separate from deployment. Web lint failures in `TerminalPanel.tsx`, `useAgentSelection.tsx` and `useToast.tsx` predated the feature and were not changed by it.
+Tests cover Go serialization, settings patches, frontend controls, errors, reset and cancel, stale responses and reconnect state. Backend tests use local mocks. No browser, live-model or end-to-end tests were part of the change. The web build and the extension build stay separate from deployment.

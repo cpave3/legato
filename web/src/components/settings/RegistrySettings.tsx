@@ -35,7 +35,7 @@ export function SettingSource({ setting, onReset, busy }: { setting: ConfigSetti
 }
 
 // useSettingActions sets and resets one setting, refetching the registry.
-export function useSettingActions(baseUrl: string) {
+function useSettingActions(baseUrl: string) {
   const queryClient = useQueryClient()
   const [busy, setBusy] = useState("")
   const [errors, setErrors] = useState<Record<string, string>>({})

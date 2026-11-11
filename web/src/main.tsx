@@ -11,7 +11,7 @@ import { ServerProvider } from './components/ServerProvider'
 import { WebSocketProvider } from './components/WebSocketProvider'
 import { QueryProvider } from './components/QueryProvider'
 import { QuerySyncProvider } from './components/QuerySyncProvider'
-import { ToastProvider } from './hooks/useToast'
+import { ToastProvider } from './components/ToastProvider'
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

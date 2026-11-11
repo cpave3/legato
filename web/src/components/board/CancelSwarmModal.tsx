@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react"
+import { useCallback, useEffect, useState } from "react"
 import { X } from "lucide-react"
 import { useServer } from "../../hooks/useServer"
 import { cancelSwarm } from "../../lib/swarm"
@@ -23,6 +23,20 @@ export function CancelSwarmModal({ taskId, taskTitle, isOpen, onClose, onConfirm
     }
   }, [isOpen])
 
+  const handleConfirm = useCallback(async () => {
+    if (loading) return
+    setLoading(true)
+    setError("")
+    try {
+      await cancelSwarm(baseUrl, taskId)
+      onConfirm()
+    } catch (e) {
+      setError(e instanceof Error ? e.message : "Failed to cancel swarm")
+    } finally {
+      setLoading(false)
+    }
+  }, [loading, baseUrl, taskId, onConfirm])
+
   useEffect(() => {
     if (!isOpen) return
     const handler = (e: KeyboardEvent) => {
@@ -38,21 +52,7 @@ export function CancelSwarmModal({ taskId, taskTitle, isOpen, onClose, onConfirm
     }
     window.addEventListener("keydown", handler)
     return () => window.removeEventListener("keydown", handler)
-  }, [isOpen, onClose])
-
-  const handleConfirm = async () => {
-    if (loading) return
-    setLoading(true)
-    setError("")
-    try {
-      await cancelSwarm(baseUrl, taskId)
-      onConfirm()
-    } catch (e) {
-      setError(e instanceof Error ? e.message : "Failed to cancel swarm")
-    } finally {
-      setLoading(false)
-    }
-  }
+  }, [isOpen, onClose, handleConfirm])
 
   if (!isOpen) return null
 

@@ -1,22 +1,8 @@
-import { useState, useCallback, useRef, createContext, useContext } from "react"
+import { useState, useCallback, useRef } from "react"
+import { ToastContext, type ToastItem } from "../hooks/useToast"
 import { cn } from "../lib/utils"
 
-export interface ToastItem {
-  id: string
-  message: string
-  variant: "success" | "error" | "info"
-  duration: number
-}
-
-interface ToastContextValue {
-  toasts: ToastItem[]
-  addToast: (message: string, variant: ToastItem["variant"]) => void
-  removeToast: (id: string) => void
-}
-
-const ToastContext = createContext<ToastContextValue>(null as unknown as ToastContextValue)
-
-export function useToastProvider() {
+function useToastProvider() {
   const [toasts, setToasts] = useState<ToastItem[]>([])
   const timersRef = useRef<Record<string, ReturnType<typeof setTimeout>>>({})
 
@@ -35,17 +21,13 @@ export function useToastProvider() {
     timersRef.current[id] = setTimeout(() => removeToast(id), duration)
   }, [removeToast])
 
-  return { toasts, addToast, removeToast, Provider: ToastContext.Provider }
-}
-
-export function useToast() {
-  return useContext(ToastContext)
+  return { toasts, addToast, removeToast }
 }
 
 export function ToastProvider({ children }: { children: React.ReactNode }) {
-  const { Provider, ...value } = useToastProvider()
+  const value = useToastProvider()
   return (
-    <Provider value={value}>
+    <ToastContext.Provider value={value}>
       {children}
       <div className="fixed bottom-4 right-4 z-50 flex flex-col gap-2" aria-live="polite" aria-atomic="false">
         {value.toasts.map((toast) => (
@@ -63,6 +45,6 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
           </div>
         ))}
       </div>
-    </Provider>
+    </ToastContext.Provider>
   )
 }
