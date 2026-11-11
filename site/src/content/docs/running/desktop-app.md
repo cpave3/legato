@@ -71,6 +71,34 @@ When a server knows Touch ID, the sheet asks for your fingerprint instead of a t
 - The app keeps no offline copy of a server's web UI. While a server is down, the app shows its own offline screen for it, with the address and the reason it could not be reached. It keeps checking every few seconds (**Try again** checks at once), and the server's page comes back by itself when the server answers.
 - Dictation works in every server's page, over HTTP too: the app records for the page with `parecord` (or `arecord` when there is no `parecord`), and the server transcribes it as usual. Linux only for now.
 
+### The voice widget
+
+A small capsule in a corner of the screen shows the Reeve, whether your main can listen, and the key. It stays above your other windows and never takes the keyboard from the app you are in.
+
+- Click the capsule to talk, as with the key.
+- While you talk, it grows into a card: your words, the pause bar, what the Reeve is doing, and what it says. Its buttons are **Send now**, **Cancel**, **Stop** and **Reply**. **Stop** stops the Reeve and keeps the card, so you can talk again or close it.
+- If the main cannot listen, the capsule turns amber and says why. **Open settings** opens that setting on the main.
+- Right-click the capsule to hide it, move it to another corner, or open the app's settings. Hidden, it still shows while you talk, and for a few seconds after to say how the conversation ended. **Servers & keys** › **Show the voice widget** brings it back.
+
+On KDE Plasma and other Wayland desktops (when the app runs on Wayland, not through XWayland), the widget keeps to its corner only when `gtk-layer-shell` is installed. Without it, the widget is an ordinary small window, and your desktop decides where it goes. On a Mac it is an ordinary window for now.
+
+## Talk to the Reeve
+
+The app has a key that starts talking to the [Reeve](/legato/using/reeve/) from any app. On Linux with Wayland, such as KDE Plasma, the desktop asks the first time which key to use, and offers **Meta+Alt+Space**. It keeps your choice, and also gives a second key to stop talking. On X11 and Windows the key is **Meta+Alt+Space**, and on a Mac **Ctrl+Shift+Space**. These have no key to stop.
+
+- Open **Servers & keys** › **Talking to the Reeve** to see the key. **Change the key…** opens the desktop's own shortcut settings, where the desktop has them.
+- Press the key to start, and again to send. Select **Hold the key to talk** to talk only while you hold it.
+- On a desktop where the key does not work, make a shortcut in the desktop's own settings that runs `xdg-open legato-desktop://voice` or `legato-desktop --voice`. It does what the key does. `legato-desktop://voice?action=cancel` or `legato-desktop --voice=cancel` stops talking.
+
+The app talks to the Reeve of your main server. When you have several servers and none of them is the only main, choose one under **The Reeve to talk to** in **Servers & keys**. The app remembers the server, also when its address changes.
+
+When you press the key, the app first asks the main whether it can listen. If it cannot, the app says why in one line and records nothing: for example, the Reeve's voice is off on the main, or this computer has no `parecord` or `arecord`. Otherwise it streams your voice to the main, which ends your turn when you pause. The app plays the Reeve's answer with `pw-play` (or `paplay`). It does not send your voice while it plays, so the Reeve does not hear itself. After the Reeve has spoken, you can just talk again to reply. If you say nothing, the conversation ends.
+
+- Press the key while the Reeve speaks to stop it and reply.
+- Press the key while you speak to send at once, without waiting for the pause.
+
+Linux only for now.
+
 ## Add a worker from another server
 
 When one of your servers should hand tasks to another ([handoff](/legato/using/handoff/)), open the main's Settings › Handoff › Workers › **Add a worker** in the app. **From this app** lists your other servers. Choose the worker, and the app asks in a dialog of its own, outside the page: "Make vm-1 a worker of workstation?" On **Make it a worker**, it opens the worker's pairing request with the token it holds for that server, and the main pairs with it. You type no address or words, and the main's page never sees the worker's token. See [Main and worker instances](/legato/running/instances/#pair-a-main-instance-with-a-worker).

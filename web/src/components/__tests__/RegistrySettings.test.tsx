@@ -43,6 +43,11 @@ describe("RegistrySettings", () => {
     expect(screen.getByTestId("source-theme").textContent).toContain("applies at restart")
   })
 
+  it("gives each setting an anchor a link can open it at", () => {
+    render(wrap(<RegistrySettings baseUrl="" prefixes={["agents"]} settings={[setting({})]} />))
+    expect(document.getElementById("setting-agents.reviews")).not.toBeNull()
+  })
+
   it("locks a pinned setting", () => {
     render(wrap(<RegistrySettings baseUrl="" prefixes={["icons"]} settings={[
       setting({ key: "icons", title: "Icons", kind: "enum", enum: ["unicode", "nerdfonts"], value: "nerdfonts", source: "config.yaml", pinned: true }),

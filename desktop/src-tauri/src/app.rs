@@ -22,7 +22,9 @@ use crate::webauthn::{self, Attachment, ORIGIN, RP_ID};
 use crate::discovery::{Browser, Found};
 use crate::links;
 use crate::bridge::{self, PageMessage, VoiceAction, VoiceEvent};
-use crate::{fido, systrust, touchid, voice, workers};
+use crate::{fido, systrust, touchid, voice, voiceclient, voicekey, voicemain, voicewidget, workers};
+use crate::voiceclient::{Command, Ui};
+use crate::voicekey::{Backend, Input, VoiceKey};
 
 // The shell's chrome, in logical pixels: the title bar across the top and
 // the dock down the left. Server pages fill the rest.
@@ -58,6 +60,23 @@ pub struct Desktop {
     recordings: std::sync::atomic::AtomicU64,
     /// Tickets the browser extension handed the app, for the shell to take.
     imports: Mutex<Vec<ImportLink>>,
+    /// The key that starts talking to the Reeve.
+    keys: Mutex<voicekey::Keys>,
+    key: Mutex<KeyInfo>,
+    #[cfg(target_os = "linux")]
+    portal: Mutex<Option<std::sync::Arc<crate::voicekey_portal::Portal>>>,
+    /// The instance each server last said it is (`/api/reeve/voice`), by
+    /// the app's server ID: which one is the main.
+    voice_targets: Mutex<HashMap<String, voicemain::Instance>>,
+    /// The conversation with the Reeve, while there is one.
+    voice_session: Mutex<Option<tokio::sync::mpsc::UnboundedSender<Command>>>,
+    /// Every server has been asked which instance it is, once.
+    voice_targets_known: tokio::sync::watch::Sender<bool>,
+    /// The voice widget: what it has to show, and how it keeps its place.
+    widget: Mutex<WidgetState>,
+    widget_placement: Mutex<voicewidget::Placement>,
+    #[cfg(target_os = "linux")]
+    layer_shell: Mutex<Option<std::sync::Arc<voicewidget::layer_shell::LayerShell>>>,
 }
 
 fn webview_label(id: &str) -> String {
@@ -538,11 +557,720 @@ fn open_in_page(app: &AppHandle, desktop: &Desktop, server: String, path: &str, 
     Ok(())
 }
 
+// ---- The key that starts talking to the Reeve ----
+
+/// The key as the settings show it, and the widget will.
+#[derive(Clone, Debug, Serialize)]
+pub struct KeyInfo {
+    backend: Backend,
+    /// The bound key as the person reads it; None when none is bound.
+    key: Option<String>,
+    hold_to_talk: bool,
+    /// The desktop can show its own dialog to change the key.
+    can_change: bool,
+    /// Why the key is not working, when it is not: the link still is.
+    problem: Option<String>,
+    /// The link that does what the key does, for the desktop's own shortcuts.
+    link: &'static str,
+}
+
+const VOICE_LINK: &str = "legato-desktop://voice";
+
+fn key_changed(app: &AppHandle, change: impl FnOnce(&mut KeyInfo)) {
+    let info = {
+        let desktop = app.state::<Desktop>();
+        let mut key = desktop.key.lock().unwrap();
+        change(&mut key);
+        key.clone()
+    };
+    let _ = app.emit("voice-key-changed", info);
+}
+
+/// A key went down or up: what it asks, if anything, is sent on.
+fn voice_key_input(app: &AppHandle, input: Input, from: &'static str) {
+    let asked = app.state::<Desktop>().keys.lock().unwrap().on(input);
+    if let Some(key) = asked {
+        voice_key(app, key, from);
+    }
+}
+
+/// Tells the app the key asked something: the `voice-key` event,
+/// `{key: "talk" | "hold" | "release" | "cancel", from: "portal" | "shortcut" | "link"}`.
+/// The press is also handed to the conversation, which it starts when
+/// there is none.
+fn voice_key(app: &AppHandle, key: VoiceKey, from: &'static str) {
+    println!("[voice key] {key:?} from the {from}");
+    let _ = app.emit("voice-key", json!({ "key": key, "from": from }));
+    voice_command(app, Command::Key(key));
+}
+
+// The voice events go to every webview, but only the app's own pages can
+// listen: a server's page has no capability, so no event:listen, and is
+// never told what is said to the Reeve. (In Tauri 2 a target or filter would
+// not keep them out: a JS listener's target is Any, which every emit
+// matches.)
+
+// ---- Talking to the Reeve ----
+
+fn tell_widget(app: &AppHandle, ui: Ui) {
+    // The log has states and line IDs, never what was said.
+    match &ui {
+        Ui::State { state, .. } => println!("[voice] {state}"),
+        Ui::Line { id, status, .. } => println!("[voice] line {id} {status}"),
+        _ => {}
+    }
+    match &ui {
+        Ui::Caption { kind: "written", .. } => app.state::<Desktop>().widget.lock().unwrap().written = true,
+        Ui::State { state, reason, .. } => {
+            let showing = {
+                let desktop = app.state::<Desktop>();
+                let mut widget = desktop.widget.lock().unwrap();
+                if state == "connecting" {
+                    widget.written = false;
+                }
+                widget.showing = voicewidget::showing(state, reason.as_deref(), widget.written, std::time::Instant::now());
+                widget.showing
+            };
+            show_widget_as_it_should(app);
+            // A hidden widget that showed to say something goes again after.
+            if let voicewidget::Showing::Until(until) = showing {
+                let app = app.clone();
+                tauri::async_runtime::spawn(async move {
+                    tokio::time::sleep_until(until.into()).await;
+                    show_widget_as_it_should(&app);
+                });
+            }
+        }
+        _ => {}
+    }
+    let _ = app.emit(ui.name(), ui.payload());
+}
+
+// ---- The voice widget ----
+
+pub struct WidgetState {
+    showing: voicewidget::Showing,
+    /// The Reeve answered in writing this conversation.
+    written: bool,
+    /// The logical size the page last asked for.
+    size: (f64, f64),
+    /// The corner a layer surface is anchored to now.
+    anchored: Option<crate::store::Corner>,
+}
+
+/// Makes the `voice` window: the app's own page, transparent, undecorated,
+/// out of the taskbar, above other windows, never focused; on Wayland a
+/// layer surface when gtk-layer-shell is there (see voicewidget).
+fn make_voice_widget(app: &AppHandle) -> tauri::Result<()> {
+    use tauri::WebviewWindowBuilder;
+    let (w, h) = voicewidget::FIRST_SIZE;
+    let builder = WebviewWindowBuilder::new(app, voicewidget::LABEL, WebviewUrl::App("voice.html".into()))
+        .title("Legato voice")
+        .inner_size(w, h)
+        .decorations(false)
+        .transparent(true)
+        .shadow(false)
+        .resizable(false)
+        .skip_taskbar(true)
+        .always_on_top(true)
+        .visible_on_all_workspaces(true)
+        .focused(false)
+        .focusable(false)
+        .visible(false);
+    let window = builder.build()?;
+    // GTK's own display, not the environment: GDK_BACKEND=x11 on a Wayland
+    // session gives an X11 window, which the app places.
+    #[cfg(target_os = "linux")]
+    let wayland = window.gtk_window().map(|w| { use gtk::prelude::*; WidgetExt::display(&w).type_().name() == "GdkWaylandDisplay" }).unwrap_or(false);
+    #[cfg(not(target_os = "linux"))]
+    let wayland = false;
+    #[allow(unused_mut)]
+    let mut layered = false;
+    #[cfg(target_os = "linux")]
+    if wayland {
+        layered = match voicewidget::layer_shell::LayerShell::load() {
+            Ok(shell) => {
+                let corner = app.state::<Desktop>().store.lock().unwrap().state.voice.corner;
+                match window.gtk_window().map_err(|e| e.to_string()).and_then(|gtk| shell.attach(&gtk, corner)) {
+                    Ok(()) => {
+                        app.state::<Desktop>().widget.lock().unwrap().anchored = Some(corner);
+                        *app.state::<Desktop>().layer_shell.lock().unwrap() = Some(std::sync::Arc::new(shell));
+                        true
+                    }
+                    Err(e) => {
+                        println!("[voice widget] layer shell refused the window: {e}");
+                        false
+                    }
+                }
+            }
+            Err(e) => {
+                println!("[voice widget] no layer shell ({e}); the widget is an ordinary window");
+                false
+            }
+        };
+    }
+    let placement = voicewidget::placement(wayland, layered);
+    println!("[voice widget] placed as {placement:?}");
+    *app.state::<Desktop>().widget_placement.lock().unwrap() = placement;
+    show_widget_as_it_should(app);
+    Ok(())
+}
+
+/// Shows or hides the widget as the person's choice and the conversation say.
+fn show_widget_as_it_should(app: &AppHandle) {
+    let Some(window) = app.get_webview_window(voicewidget::LABEL) else { return };
+    let desktop = app.state::<Desktop>();
+    let hidden = desktop.store.lock().unwrap().state.voice.widget_hidden;
+    let showing = desktop.widget.lock().unwrap().showing;
+    if voicewidget::shows(hidden, showing, std::time::Instant::now()) {
+        let _ = window.show();
+        place_widget(app);
+    } else {
+        let _ = window.hide();
+    }
+}
+
+/// Puts the widget in its corner of the screen it is on, where the app
+/// places it (X11, macOS); a layer surface is anchored instead.
+fn place_widget(app: &AppHandle) {
+    let Some(window) = app.get_webview_window(voicewidget::LABEL) else { return };
+    let desktop = app.state::<Desktop>();
+    let corner = desktop.store.lock().unwrap().state.voice.corner;
+    let placement = *desktop.widget_placement.lock().unwrap();
+    match placement {
+        voicewidget::Placement::Placed => {
+            let monitor = window.current_monitor().ok().flatten().or_else(|| window.primary_monitor().ok().flatten());
+            let Some(monitor) = monitor else { return };
+            let size = desktop.widget.lock().unwrap().size;
+            let area = monitor.work_area();
+            let rect = voicewidget::Rect { x: area.position.x as f64, y: area.position.y as f64, width: area.size.width as f64, height: area.size.height as f64 };
+            let (x, y) = voicewidget::place(corner, rect, size, monitor.scale_factor());
+            let _ = window.set_position(tauri::PhysicalPosition::new(x.round() as i32, y.round() as i32));
+        }
+        #[cfg(target_os = "linux")]
+        voicewidget::Placement::LayerShell => {
+            // Only when the corner changes; and GTK only on its own thread,
+            // where this may not be (a conversation runs on tokio's).
+            {
+                let mut widget = desktop.widget.lock().unwrap();
+                if widget.anchored == Some(corner) {
+                    return;
+                }
+                widget.anchored = Some(corner);
+            }
+            let shell = desktop.layer_shell.lock().unwrap().clone();
+            let _ = app.run_on_main_thread(move || {
+                if let (Some(shell), Ok(gtk)) = (shell, window.gtk_window()) {
+                    shell.corner(&gtk, corner);
+                }
+            });
+        }
+        _ => {}
+    }
+}
+
+/// The page's size, so the window is the size of what it draws.
+#[tauri::command]
+fn voice_widget_size(app: AppHandle, width: f64, height: f64) {
+    let Some(window) = app.get_webview_window(voicewidget::LABEL) else { return };
+    let (w, h) = voicewidget::clamp_size(width, height);
+    app.state::<Desktop>().widget.lock().unwrap().size = (w, h);
+    let _ = window.set_size(tauri::LogicalSize::new(w, h));
+    place_widget(&app);
+}
+
+/// The widget's menu (a right click): Hide, Corner, Settings.
+#[tauri::command]
+fn voice_widget_menu(app: AppHandle) -> Result<(), String> {
+    use tauri::menu::{CheckMenuItem, Menu, MenuItem, Submenu};
+    let window = app.get_webview_window(voicewidget::LABEL).ok_or("no widget")?;
+    let corner = app.state::<Desktop>().store.lock().unwrap().state.voice.corner;
+    let e = |e: tauri::Error| e.to_string();
+    let hide = MenuItem::with_id(&app, "voice-hide", "Hide", true, None::<&str>).map_err(e)?;
+    let corners = voicewidget::CORNERS
+        .iter()
+        .map(|(c, id, label)| CheckMenuItem::with_id(&app, *id, *label, true, *c == corner, None::<&str>))
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(e)?;
+    let items: Vec<&dyn tauri::menu::IsMenuItem<tauri::Wry>> = corners.iter().map(|c| c as &dyn tauri::menu::IsMenuItem<tauri::Wry>).collect();
+    let corner_menu = Submenu::with_items(&app, "Corner", true, &items).map_err(e)?;
+    let settings = MenuItem::with_id(&app, "voice-settings", "Settings…", true, None::<&str>).map_err(e)?;
+    let menu = Menu::with_items(&app, &[&hide, &corner_menu, &settings]).map_err(e)?;
+    window.popup_menu(&menu).map_err(e)
+}
+
+/// What the widget's menu asked.
+fn voice_widget_menu_chosen(app: &AppHandle, id: &str) {
+    let desktop = app.state::<Desktop>();
+    if id == "voice-hide" {
+        let _ = set_widget(app, &desktop, Some(true), None);
+    } else if id == "voice-settings" {
+        bring_to_front(app);
+        let _ = app.emit_to("shell", "shell-open-panel", json!({ "kind": "manage" }));
+    } else if let Some((corner, _, _)) = voicewidget::CORNERS.iter().find(|(_, cid, _)| *cid == id) {
+        let _ = set_widget(app, &desktop, None, Some(*corner));
+    }
+}
+
+fn set_widget(app: &AppHandle, desktop: &Desktop, hidden: Option<bool>, corner: Option<crate::store::Corner>) -> Result<(), String> {
+    {
+        let mut store = desktop.store.lock().unwrap();
+        if let Some(h) = hidden {
+            store.state.voice.widget_hidden = h;
+        }
+        if let Some(c) = corner {
+            store.state.voice.corner = c;
+        }
+        store.save()?;
+    }
+    show_widget_as_it_should(app);
+    let _ = app.emit("voice-widget-changed", voice_widget_settings(app.state::<Desktop>()));
+    Ok(())
+}
+
+#[derive(Clone, Serialize)]
+pub struct WidgetSettings {
+    shown: bool,
+    corner: crate::store::Corner,
+}
+
+#[tauri::command]
+fn voice_widget_settings(desktop: State<'_, Desktop>) -> WidgetSettings {
+    let v = &desktop.store.lock().unwrap().state.voice;
+    WidgetSettings { shown: !v.widget_hidden, corner: v.corner }
+}
+
+/// Servers & keys: show or hide the widget, and its corner.
+#[tauri::command]
+fn set_voice_widget(app: AppHandle, desktop: State<'_, Desktop>, shown: bool, corner: crate::store::Corner) -> Result<(), String> {
+    set_widget(&app, &desktop, Some(!shown), Some(corner))
+}
+
+/// Not ready: Open settings opens the main's settings page at the setting,
+/// in front.
+#[tauri::command]
+fn voice_open_settings(app: AppHandle, desktop: State<'_, Desktop>, setting: String) -> Result<(), String> {
+    let voicemain::Choice::Server(server) = voice_choice(&desktop) else {
+        bring_to_front(&app);
+        let _ = app.emit_to("shell", "shell-open-panel", json!({ "kind": "manage" }));
+        return Ok(());
+    };
+    let base = desktop.store.lock().unwrap().server(&server).map(|s| s.url.clone()).ok_or("no such server")?;
+    let url = voicewidget::settings_url(&base, &setting)?;
+    match app.get_webview(&webview_label(&server)) {
+        Some(view) => view.navigate(url).map_err(|e| e.to_string())?,
+        None => {
+            let path = format!("{}#{}", url.path(), url.fragment().unwrap_or_default());
+            let (s, token) = {
+                let store = desktop.store.lock().unwrap();
+                (store.server(&server).cloned().ok_or("no such server")?, store.token(&server))
+            };
+            make_server_view(&app, &s, token, &path)?;
+        }
+    }
+    *desktop.active.lock().unwrap() = Some(server.clone());
+    show_only_active(&app, &desktop);
+    let _ = app.emit_to("shell", "shell-show-server", json!({ "server": server }));
+    bring_to_front(&app);
+    Ok(())
+}
+
+#[derive(Serialize)]
+pub struct VoiceStatus {
+    /// The main's name, as the app calls it.
+    main: String,
+    ready: bool,
+    reason: String,
+    setting: String,
+}
+
+/// Whether the key would listen now, for the widget at rest (asked when it
+/// starts, every 30 seconds and when the servers change). Records nothing.
+#[tauri::command]
+async fn voice_status(app: AppHandle) -> Result<VoiceStatus, String> {
+    Ok(match ready_main(&app).await {
+        Ok((_, name, _)) => VoiceStatus { main: name, ready: true, reason: String::new(), setting: String::new() },
+        Err(n) => VoiceStatus { main: n.main, ready: false, reason: n.reason, setting: n.setting.unwrap_or_default() },
+    })
+}
+
+struct NotReady {
+    main: String,
+    reason: String,
+    setting: Option<String>,
+}
+
+/// The main to talk to, if it can listen now: its server ID, name and
+/// client; else why not.
+async fn ready_main(app: &AppHandle) -> Result<(String, String, Client), NotReady> {
+    let desktop = app.state::<Desktop>();
+    let refuse = |main: &str, reason: String, setting: Option<String>| NotReady { main: main.into(), reason, setting };
+    let server = match voice_choice(&desktop) {
+        voicemain::Choice::Server(id) => id,
+        voicemain::Choice::Ask => return Err(refuse("", "Choose the Reeve to talk to in Servers & keys".into(), None)),
+        voicemain::Choice::None => return Err(refuse("", "Pair a Legato server first".into(), None)),
+    };
+    let (name, client) = {
+        let store = desktop.store.lock().unwrap();
+        let name = store.server(&server).map(|s| s.name.clone()).unwrap_or_default();
+        (name, client(&store, &server))
+    };
+    let client = client.map_err(|e| refuse(&name, e, None))?;
+    let answer = client
+        .get_within("/api/reeve/voice", voicemain::STATUS_TIMEOUT)
+        .await
+        .and_then(|v| serde_json::from_value::<voicemain::Readiness>(v).map_err(|e| e.to_string()));
+    if let Ok(r) = &answer {
+        desktop.voice_targets.lock().unwrap().insert(server.clone(), r.instance.clone());
+    }
+    if let Some(reason) = voicemain::not_ready(&answer, &name, voice::system_recorder().is_some()) {
+        let setting = answer.ok().map(|r| r.setting).filter(|s| !s.is_empty());
+        return Err(refuse(&name, reason, setting));
+    }
+    Ok((server, name, client))
+}
+
+/// Hands a command to the conversation; the key starts one when there is
+/// none.
+fn voice_command(app: &AppHandle, command: Command) {
+    let desktop = app.state::<Desktop>();
+    let mut session = desktop.voice_session.lock().unwrap();
+    if let Some(tx) = session.as_ref() {
+        if tx.send(command).is_ok() {
+            return;
+        }
+        session.take();
+    }
+    if !matches!(command, Command::Key(VoiceKey::Talk | VoiceKey::Hold)) {
+        return;
+    }
+    let (tx, rx) = tokio::sync::mpsc::unbounded_channel();
+    *session = Some(tx.clone());
+    drop(session);
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move {
+        converse(&app, rx).await;
+        let desktop = app.state::<Desktop>();
+        let mut session = desktop.voice_session.lock().unwrap();
+        if session.as_ref().is_some_and(|s| s.same_channel(&tx)) {
+            session.take();
+        }
+    });
+}
+
+/// The servers, each with the instance it last said it is.
+fn voice_seen(desktop: &Desktop) -> Vec<voicemain::Seen> {
+    let targets = desktop.voice_targets.lock().unwrap();
+    let store = desktop.store.lock().unwrap();
+    store.state.servers.iter().map(|s| voicemain::Seen { server: s.id.clone(), instance: targets.get(&s.id).cloned() }).collect()
+}
+
+fn voice_choice(desktop: &Desktop) -> voicemain::Choice {
+    let saved = desktop.store.lock().unwrap().state.voice.server.clone();
+    voicemain::choose(&voice_seen(desktop), saved.as_deref())
+}
+
+/// One conversation: which main, whether it is ready (asked now, within 2
+/// seconds), then the session until it ends. Not ready says why and
+/// records nothing.
+async fn converse(app: &AppHandle, commands: tokio::sync::mpsc::UnboundedReceiver<Command>) {
+    let not_ready = |reason: String, setting: Option<String>| tell_widget(app, Ui::State { state: "not_ready".into(), reason: Some(reason), setting });
+    // A press at a cold start waits for the first ask of the servers, so
+    // the main is known.
+    {
+        let mut known = app.state::<Desktop>().voice_targets_known.subscribe();
+        let _ = tokio::time::timeout(std::time::Duration::from_secs(10), known.wait_for(|k| *k)).await;
+    }
+    let main = {
+        let desktop = app.state::<Desktop>();
+        match voice_choice(&desktop) {
+            voicemain::Choice::Server(id) => desktop.store.lock().unwrap().server(&id).map(|s| s.name.clone()).unwrap_or_default(),
+            _ => String::new(),
+        }
+    };
+    tell_widget(app, Ui::state("connecting", Some(&main)));
+    let (_, name, client) = match ready_main(app).await {
+        Ok(ready) => ready,
+        Err(n) => return not_ready(n.reason, n.setting),
+    };
+    let Some((program, args)) = voice::system_recorder() else { return not_ready("No microphone on this computer".into(), None) };
+    // Recording starts before the session opens: what is said meanwhile is
+    // kept for the main (voiceclient::Audio::Hold).
+    let (audio_tx, audio) = tokio::sync::mpsc::unbounded_channel();
+    let mut recorder = match voice::Recorder::stream(program, args, move |bytes| {
+        let _ = audio_tx.send(bytes.to_vec());
+    }) {
+        Ok(r) => r,
+        Err(e) => return not_ready(e, None),
+    };
+    let socket = match client.websocket("/api/reeve/voice/session").await {
+        Ok(s) => s,
+        Err(e) => {
+            println!("[voice] {name}: the session did not open: {e}");
+            return not_ready(format!("Can't reach {name}"), None);
+        }
+    };
+    let lines = voiceclient::system_player().map(|(program, args)| std::sync::Arc::new(PlayLines { client: client.clone(), program, args }) as std::sync::Arc<dyn voiceclient::Lines>);
+    println!("[voice] {name}: talking, recording with {program}, playing with {}", voiceclient::system_player().map(|p| p.0).unwrap_or("nothing"));
+    voiceclient::run(socket, &device_name(), lines, commands, audio, || recorder.why_stopped(), |ui| tell_widget(app, ui)).await;
+    println!("[voice] {name}: the conversation ended");
+}
+
+/// Plays a line: fetched over the pinned TLS with the token, written to a
+/// file of its own, and played by the system's player to the end. Stopping
+/// drops the future, which ends the player and removes the file.
+struct PlayLines {
+    client: Client,
+    program: &'static str,
+    args: &'static [&'static str],
+}
+
+struct Removed(std::path::PathBuf);
+
+/// Writes a new file only its owner can read: the temporary folder is
+/// shared.
+fn write_private(path: &std::path::Path, bytes: &[u8]) -> std::io::Result<()> {
+    use std::io::Write;
+    let mut options = std::fs::OpenOptions::new();
+    options.write(true).create_new(true);
+    #[cfg(unix)]
+    std::os::unix::fs::OpenOptionsExt::mode(&mut options, 0o600);
+    options.open(path)?.write_all(bytes)
+}
+
+impl Drop for Removed {
+    fn drop(&mut self) {
+        let _ = std::fs::remove_file(&self.0);
+    }
+}
+
+impl voiceclient::Lines for PlayLines {
+    fn play(&self, url: String) -> futures_util::future::BoxFuture<'static, Result<(), String>> {
+        let (client, program, args) = (self.client.clone(), self.program, self.args);
+        Box::pin(async move {
+            let audio = client.bytes(&url).await?;
+            let mut name = [0u8; 8];
+            rand::rngs::OsRng.fill_bytes(&mut name);
+            let file = Removed(std::env::temp_dir().join(format!("legato-voice-{}", hex::encode(name))));
+            write_private(&file.0, &audio).map_err(|e| e.to_string())?;
+            let status = tokio::process::Command::new(program)
+                .args(args)
+                .arg(&file.0)
+                .kill_on_drop(true)
+                .status()
+                .await
+                .map_err(|e| format!("{program}: {e}"))?;
+            if !status.success() {
+                return Err(format!("{program} ended with {status}"));
+            }
+            Ok(())
+        })
+    }
+}
+
+/// Asks every server which instance it is, so the main is known before the
+/// key is pressed: at start, when the servers change, and every 10 minutes.
+async fn refresh_voice_targets(app: &AppHandle) {
+    let desktop = app.state::<Desktop>();
+    let clients: Vec<(String, Result<Client, String>)> = {
+        let store = desktop.store.lock().unwrap();
+        store.state.servers.iter().map(|s| (s.id.clone(), client(&store, &s.id))).collect()
+    };
+    // All at once, so the first ask (which a cold-start press waits for)
+    // takes 5 seconds at most.
+    let asks = clients.iter().filter_map(|(id, c)| c.as_ref().ok().map(|c| (id, c))).map(|(id, c)| async move {
+        let r = c.get_within("/api/reeve/voice", std::time::Duration::from_secs(5)).await.and_then(|v| serde_json::from_value::<voicemain::Readiness>(v).map_err(|e| e.to_string()));
+        r.ok().map(|r| (id.clone(), r.instance))
+    });
+    let answered: HashMap<String, voicemain::Instance> = futures_util::future::join_all(asks).await.into_iter().flatten().collect();
+    {
+        let mut targets = desktop.voice_targets.lock().unwrap();
+        // A server that did not answer keeps what it said last.
+        targets.retain(|id, _| clients.iter().any(|(c, _)| c == id));
+        targets.extend(answered);
+    }
+    desktop.voice_targets_known.send_replace(true);
+    let _ = app.emit("voice-targets-changed", voice_targets(desktop));
+}
+
+fn refresh_voice_targets_soon(app: &AppHandle) {
+    let app = app.clone();
+    tauri::async_runtime::spawn(async move { refresh_voice_targets(&app).await });
+}
+
+#[derive(Clone, Serialize)]
+pub struct VoiceTargets {
+    /// Each server, with the instance it last said it is.
+    servers: Vec<VoiceTarget>,
+    /// The server the key talks to now (the app's ID), if one is known.
+    talking_to: Option<String>,
+    /// The roles do not decide, and the person has not chosen.
+    must_choose: bool,
+    /// The instance ID the person chose.
+    chosen: Option<String>,
+}
+
+#[derive(Clone, Serialize)]
+pub struct VoiceTarget {
+    server: String,
+    name: String,
+    instance: Option<voicemain::Instance>,
+}
+
+/// "The Reeve to talk to", for Servers & keys.
+#[tauri::command]
+fn voice_targets(desktop: State<'_, Desktop>) -> VoiceTargets {
+    let seen = voice_seen(&desktop);
+    let chosen = desktop.store.lock().unwrap().state.voice.server.clone();
+    let choice = voicemain::choose(&seen, chosen.as_deref());
+    let names: HashMap<String, String> = desktop.store.lock().unwrap().state.servers.iter().map(|s| (s.id.clone(), s.name.clone())).collect();
+    VoiceTargets {
+        servers: seen.into_iter().map(|s| VoiceTarget { name: names.get(&s.server).cloned().unwrap_or_default(), server: s.server, instance: s.instance }).collect(),
+        talking_to: match &choice {
+            voicemain::Choice::Server(id) => Some(id.clone()),
+            _ => None,
+        },
+        must_choose: choice == voicemain::Choice::Ask,
+        chosen,
+    }
+}
+
+/// Keeps the person's choice of Reeve, by instance ID; None forgets it.
+#[tauri::command]
+fn set_voice_server(app: AppHandle, desktop: State<'_, Desktop>, instance: Option<String>) -> Result<(), String> {
+    {
+        let mut store = desktop.store.lock().unwrap();
+        store.state.voice.server = instance;
+        store.save()?;
+    }
+    let _ = app.emit("voice-targets-changed", voice_targets(desktop));
+    Ok(())
+}
+
+/// The widget's buttons: `stop`, `reply`, `send`, `cancel`, `end`; and
+/// `talk`, which is the key.
+#[tauri::command]
+fn voice_action(app: AppHandle, action: String) -> Result<(), String> {
+    let command = match action.as_str() {
+        "talk" => Command::Key(VoiceKey::Talk),
+        other => Command::named(other).ok_or_else(|| format!("no voice action {other}"))?,
+    };
+    voice_command(&app, command);
+    Ok(())
+}
+
+/// Starts listening for the key the way this computer has it.
+fn start_voice_key(app: &AppHandle) {
+    let backend = app.state::<Desktop>().key.lock().unwrap().backend;
+    match backend {
+        Backend::Link => println!("[voice key] no global key here; {VOICE_LINK} does what it would"),
+        Backend::Shortcut => {
+            use tauri_plugin_global_shortcut::GlobalShortcutExt;
+            // The plugin is added only here, where the app grabs the key.
+            let plugin = tauri_plugin_global_shortcut::Builder::new()
+                .with_handler(|app, _shortcut, event| {
+                    let input = match event.state() {
+                        tauri_plugin_global_shortcut::ShortcutState::Pressed => Input::Pressed(voicekey::Shortcut::Talk),
+                        tauri_plugin_global_shortcut::ShortcutState::Released => Input::Released(voicekey::Shortcut::Talk),
+                    };
+                    voice_key_input(app, input, "shortcut");
+                })
+                .build();
+            if let Err(e) = app.plugin(plugin) {
+                println!("[voice key] the global-shortcut plugin did not start: {e}");
+                return key_changed(app, |k| k.problem = Some(format!("Could not grab a global key: {e}")));
+            }
+            let accelerator = voicekey::shortcut_accelerator(std::env::consts::OS);
+            match app.global_shortcut().register(accelerator) {
+                Ok(()) => key_changed(app, |k| k.key = voicekey::key_text(accelerator, cfg!(target_os = "macos"))),
+                Err(e) => {
+                    println!("[voice key] could not take {accelerator}: {e}");
+                    key_changed(app, |k| k.problem = Some(format!("Could not take {accelerator}: {e}")));
+                }
+            }
+        }
+        #[cfg(target_os = "linux")]
+        Backend::Portal => {
+            let app = app.clone();
+            tauri::async_runtime::spawn(async move {
+                let (on_input, on_text, on_lost) = (app.clone(), app.clone(), app.clone());
+                let opened = crate::voicekey_portal::Portal::open(
+                    move |input| voice_key_input(&on_input, input, "portal"),
+                    move |text| key_changed(&on_text, |k| k.key = text),
+                    move || {
+                        println!("[voice key] the portal went away");
+                        on_lost.state::<Desktop>().portal.lock().unwrap().take();
+                        key_changed(&on_lost, |k| {
+                            k.key = None;
+                            k.can_change = false;
+                            k.problem = Some(format!("The desktop's shortcut service stopped, so the key no longer works. Restart the app, or bind {VOICE_LINK} in the desktop's own shortcut settings."));
+                        });
+                    },
+                )
+                .await;
+                match opened {
+                    Ok((portal, text)) => {
+                        let can_change = portal.can_change();
+                        *app.state::<Desktop>().portal.lock().unwrap() = Some(std::sync::Arc::new(portal));
+                        key_changed(&app, |k| {
+                            k.key = text;
+                            k.can_change = can_change;
+                        });
+                    }
+                    Err(e) => {
+                        println!("[voice key] the portal did not give a key: {e}");
+                        key_changed(&app, |k| {
+                            k.backend = Backend::Link;
+                            k.problem = Some(format!("The desktop gave no global key ({e}). Bind {VOICE_LINK} in its own shortcut settings."));
+                        });
+                    }
+                }
+            });
+        }
+        #[cfg(not(target_os = "linux"))]
+        Backend::Portal => {}
+    }
+}
+
+#[tauri::command]
+fn voice_key_info(desktop: State<'_, Desktop>) -> KeyInfo {
+    desktop.key.lock().unwrap().clone()
+}
+
+/// "Change the key…": the desktop's own dialog, where the portal has one.
+#[tauri::command]
+async fn change_voice_key(desktop: State<'_, Desktop>) -> Result<(), String> {
+    #[cfg(target_os = "linux")]
+    {
+        let portal = desktop.portal.lock().unwrap().clone();
+        if let Some(portal) = portal {
+            return portal.change().await;
+        }
+    }
+    let _ = desktop;
+    Err("The key is not changed from here on this computer.".into())
+}
+
+#[tauri::command]
+fn set_hold_to_talk(app: AppHandle, desktop: State<'_, Desktop>, on: bool) -> Result<(), String> {
+    {
+        let mut store = desktop.store.lock().unwrap();
+        store.state.voice.hold_to_talk = on;
+        store.save()?;
+    }
+    desktop.keys.lock().unwrap().set_hold_to_talk(on);
+    key_changed(&app, |k| k.hold_to_talk = on);
+    Ok(())
+}
+
 // ---- Tickets the browser extension hands the app ----
 
 /// Takes a link the system handed the app: an import is kept for the shell,
 /// which is told, and the window comes to the front. Other links are ignored.
 fn handle_link(app: &AppHandle, url: &str) {
+    if let Some(key) = voicekey::read_link(url) {
+        return voice_key(app, key, "link");
+    }
     let Some(link) = applink::read(url) else {
         println!("[link] ignored a link the app does not read");
         return;
@@ -690,7 +1418,7 @@ fn load_server_page(app: AppHandle, desktop: State<'_, Desktop>, id: String, uri
 
 /// Pairs by phrase, keeps the server, and enrolls each key the app holds.
 #[tauri::command]
-async fn pair_server(desktop: State<'_, Desktop>, url: String, phrase: String) -> Result<ServerView, String> {
+async fn pair_server(app: AppHandle, desktop: State<'_, Desktop>, url: String, phrase: String) -> Result<ServerView, String> {
     let url = url.trim().trim_end_matches('/').to_string();
     if !(url.starts_with("https://") || url.starts_with("http://")) {
         return Err("The address starts with https:// (or http://).".into());
@@ -706,6 +1434,7 @@ async fn pair_server(desktop: State<'_, Desktop>, url: String, phrase: String) -
     for key in keys {
         let _ = enroll(&desktop, &key.id, &server.id).await;
     }
+    refresh_voice_targets_soon(&app);
     let store = desktop.store.lock().unwrap();
     Ok(view(store.server(&server.id).unwrap()))
 }
@@ -739,9 +1468,13 @@ fn remove_server(app: AppHandle, desktop: State<'_, Desktop>, id: String) -> Res
     if let Some(view) = app.get_webview(&webview_label(&id)) {
         let _ = view.close();
     }
-    let mut store = desktop.store.lock().unwrap();
-    store.remove_server(&id)?;
-    store.save()
+    {
+        let mut store = desktop.store.lock().unwrap();
+        store.remove_server(&id)?;
+        store.save()?;
+    }
+    refresh_voice_targets_soon(&app);
+    Ok(())
 }
 
 #[derive(Serialize)]
@@ -1236,10 +1969,16 @@ fn state_path() -> std::path::PathBuf {
 
 pub fn run() {
     let store = Store::open(state_path(), Box::new(Keyring)).expect("the app's saved state does not read");
+    let hold_to_talk = store.state.voice.hold_to_talk;
+    let backend = voicekey::backend(&voicekey::Platform::this());
     tauri::Builder::default()
         // A second start (the system opening a link) hands its link to the
         // app that runs and ends; the deep-link plugin reads the link.
-        .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| bring_to_front(app)))
+        // `legato-desktop --voice` is the key, as the link is.
+        .plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| match voicekey::read_args(&argv) {
+            Some(key) => voice_key(app, key, "link"),
+            None => bring_to_front(app),
+        }))
         .plugin(tauri_plugin_deep_link::init())
         // The confirm before one of the app's servers becomes a worker.
         .plugin(tauri_plugin_dialog::init())
@@ -1253,7 +1992,19 @@ pub fn run() {
             recording: Mutex::default(),
             recordings: Default::default(),
             imports: Mutex::default(),
+            keys: Mutex::new(voicekey::Keys::new(hold_to_talk)),
+            key: Mutex::new(KeyInfo { backend, key: None, hold_to_talk, can_change: false, problem: None, link: VOICE_LINK }),
+            #[cfg(target_os = "linux")]
+            portal: Mutex::default(),
+            voice_targets: Mutex::default(),
+            voice_session: Mutex::default(),
+            voice_targets_known: tokio::sync::watch::Sender::new(false),
+            widget: Mutex::new(WidgetState { showing: voicewidget::Showing::Rest, written: false, size: voicewidget::FIRST_SIZE, anchored: None }),
+            widget_placement: Mutex::new(voicewidget::Placement::Placed),
+            #[cfg(target_os = "linux")]
+            layer_shell: Mutex::default(),
         })
+        .on_menu_event(|app, event| voice_widget_menu_chosen(app, event.id().as_ref()))
         .setup(|app| {
             // Servers take a few seconds to answer on the network; listening
             // from the start has the pair form's list ready when it opens.
@@ -1279,6 +2030,14 @@ pub fn run() {
                     }
                 }
             }
+            start_voice_key(app.handle());
+            let handle = app.handle().clone();
+            tauri::async_runtime::spawn(async move {
+                loop {
+                    refresh_voice_targets(&handle).await;
+                    tokio::time::sleep(voicemain::REFRESH).await;
+                }
+            });
             let window = WindowBuilder::new(app, "main")
                 .title("Legato")
                 .inner_size(1360.0, 880.0)
@@ -1299,6 +2058,16 @@ pub fn run() {
                     relayout(&handle);
                 }
             });
+            if let Err(e) = make_voice_widget(app.handle()) {
+                println!("[voice widget] the window was not made: {e}");
+            }
+            // Started with --voice. No page hears the voice-key event this
+            // early, but the press starts the conversation, which waits for
+            // the first ask of the servers.
+            let args: Vec<String> = std::env::args().collect();
+            if let Some(key) = voicekey::read_args(&args) {
+                voice_key(app.handle(), key, "link");
+            }
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
@@ -1335,8 +2104,47 @@ pub fn run() {
             import_preference,
             set_import_preference,
             import_ticket,
-            open_task_in_page
+            open_task_in_page,
+            voice_key_info,
+            change_voice_key,
+            set_hold_to_talk,
+            voice_targets,
+            set_voice_server,
+            voice_action,
+            voice_status,
+            voice_open_settings,
+            voice_widget_size,
+            voice_widget_menu,
+            voice_widget_settings,
+            set_voice_widget
         ])
         .run(tauri::generate_context!())
         .expect("the app did not start");
+}
+
+#[cfg(test)]
+mod tests {
+    /// The commands build.rs makes permissions for are generate_handler!'s,
+    /// and each capability allows only commands that exist.
+    #[test]
+    fn every_command_has_a_permission_and_the_capabilities_name_real_ones() {
+        let names = |text: &str, start: &str, end: &str| -> Vec<String> {
+            let from = text.find(start).expect(start) + start.len();
+            let to = from + text[from..].find(end).expect(end);
+            text[from..to].split(',').map(|n| n.trim().trim_matches('"').to_string()).filter(|n| !n.is_empty()).collect()
+        };
+        let app = include_str!("app.rs");
+        let build = include_str!("../build.rs");
+        let mut handled = names(app, "generate_handler![", "]");
+        let mut listed = names(build, "const COMMANDS: &[&str] = &[", "];");
+        handled.sort();
+        listed.sort();
+        assert_eq!(handled, listed);
+        for capability in [include_str!("../capabilities/shell.json"), include_str!("../capabilities/voice.json")] {
+            let v: serde_json::Value = serde_json::from_str(capability).unwrap();
+            for p in v["permissions"].as_array().unwrap().iter().filter_map(|p| p.as_str()?.strip_prefix("allow-")) {
+                assert!(listed.contains(&p.replace('-', "_")), "{p}");
+            }
+        }
+    }
 }

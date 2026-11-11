@@ -49,10 +49,24 @@ tauri-plugin-single-instance = { version = "2", features = ["deep-link"] }
 # The system's own yes/no dialog, outside any page: the confirm before one of
 # the app's servers becomes a worker (workers.rs).
 tauri-plugin-dialog = "2"
+# The key that starts talking to the Reeve, on X11 and macOS (voicekey.rs).
+tauri-plugin-global-shortcut = "2"
+futures-util = "0.3"
+# The voice session with the main (voiceclient.rs): a WebSocket over the
+# app's own pinned TLS, with ring as rustls's provider (no C).
+tokio = { version = "1", features = ["net", "process", "sync", "time", "macros", "rt", "io-util"] }
+tokio-tungstenite = { version = "0.28", default-features = false, features = ["handshake"] }
+tokio-rustls = { version = "0.26", default-features = false, features = ["ring", "tls12", "logging"] }
 
 [target.'cfg(target_os = "linux")'.dependencies]
 webkit2gtk = { version = "2.0", features = ["v2_6"] }
 gtk = "0.18"
+# The key that starts talking to the Reeve on Wayland: the desktop portal's
+# GlobalShortcuts, pure Rust over zbus (voicekey_portal.rs).
+ashpd = { version = "0.14", default-features = false, features = ["tokio", "global_shortcuts"] }
+# gtk-layer-shell, opened at run time for the voice widget (voicewidget.rs),
+# so the app neither links it nor needs it.
+libloading = "0.8"
 
 [dev-dependencies]
 rcgen = "0.13"

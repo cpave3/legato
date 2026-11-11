@@ -1,0 +1,17 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "voice",
+  "description": "The voice widget (voice.html, the app's own page) may hear the app's voice-* events and call the few commands it uses. It holds no token, and cannot move or focus windows, sign, pair or update.",
+  "windows": ["voice"],
+  "webviews": ["voice"],
+  "permissions": [
+    "core:event:default",
+    "core:app:default",
+    "allow-voice-action",
+    "allow-voice-status",
+    "allow-voice-key-info",
+    "allow-voice-open-settings",
+    "allow-voice-widget-size",
+    "allow-voice-widget-menu"
+  ]
+}

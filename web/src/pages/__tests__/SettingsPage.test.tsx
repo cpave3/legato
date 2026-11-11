@@ -189,6 +189,29 @@ describe("SettingsPage layout", () => {
     expect(scroll).toHaveBeenCalled()
   })
 
+  // Every setting the voice sheet's Open settings can name
+  // (internal/service/reeve_voice.go, cmd/legato/reeve_voice_runtime.go).
+  it.each(["voice.enabled", "voice.whisper_url", "reeve.voice.enabled", "reeve.voice.command", "agents.sandbox.enabled"])("has a row to open at for %s", async (key) => {
+    const setting = { key, title: key, kind: "string", class: "change", mode: "restart", value: "", source: "default", pinned: false }
+    mockedApiFetch.mockImplementation(async (_base, path) => (path === "/api/config/settings"
+      ? new Response(JSON.stringify({ settings: [setting] }), { status: 200 })
+      : new Response("{}", { status: 404 })))
+    renderPage()
+    await waitFor(() => expect(document.getElementById(`setting-${key}`)).toBeTruthy())
+  })
+
+  it("opens at the setting a link names", async () => {
+    const scroll = vi.fn()
+    Object.defineProperty(HTMLElement.prototype, "scrollIntoView", { configurable: true, value: scroll })
+    const setting = { key: "voice.whisper_url", title: "Whisper server", kind: "string", class: "change", mode: "restart", value: "", source: "default", pinned: false }
+    mockedApiFetch.mockImplementation(async (_base, path) => (path === "/api/config/settings"
+      ? new Response(JSON.stringify({ settings: [setting] }), { status: 200 })
+      : new Response("{}", { status: 404 })))
+    render(<QueryClientProvider client={createQueryClient()}><MemoryRouter initialEntries={["/settings#setting-voice.whisper_url"]}><SettingsPage /></MemoryRouter></QueryClientProvider>)
+    await waitFor(() => expect(scroll).toHaveBeenCalled())
+    expect(scroll.mock.contexts.at(-1)).toBe(document.getElementById("setting-voice.whisper_url"))
+  })
+
   it("marks what is kept in this browser only", () => {
     renderPage()
     const appearance = screen.getByRole("region", { name: "Appearance" })

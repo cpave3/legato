@@ -91,4 +91,13 @@ describe("ReeveEntry", () => {
     expect(status.textContent).toContain("reeve-1a2b3c4d")
     expect(status.textContent).not.toContain("no engram")
   })
+
+  it("offers the voice ring on the phone's compact entry too", async () => {
+    mockFetch.mockResolvedValue({ ...overview, current: { task_id: "rv1", state: "running" } })
+    vi.stubGlobal("isSecureContext", true)
+    Object.defineProperty(navigator, "mediaDevices", { value: { getUserMedia: vi.fn() }, configurable: true })
+    render(wrap(<ReeveEntry baseUrl="" compact agent={agent({ task_id: "rv1", reeve: true })} selected={false} onSelect={vi.fn()} />))
+    expect(await screen.findByRole("button", { name: "Talk to the Reeve" })).toBeTruthy()
+    vi.unstubAllGlobals()
+  })
 })

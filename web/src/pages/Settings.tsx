@@ -29,7 +29,7 @@ import { ReevePairings, ReeveSessions } from "../components/settings/ReeveSettin
 import { ReeveEngramSettings } from "../components/settings/ReeveEngramSettings"
 import { useToast } from "../hooks/useToast"
 import { apiFetch } from "../lib/api"
-import { Link, useSearchParams } from "react-router-dom"
+import { Link, useLocation, useSearchParams } from "react-router-dom"
 import { animatedAgentActivityEnabled, setAnimatedAgentActivityEnabled } from "../lib/appearancePreferences"
 
 type Group = { id: string; title: string }
@@ -168,6 +168,15 @@ export function SettingsPage() {
     return () => observer.disconnect()
   }, [groupIds])
 
+  // A link to one setting (#setting-<key>, as the voice sheet's Open
+  // settings) opens at it once the settings have loaded.
+  const loaded = registry.length > 0
+  const { hash } = useLocation()
+  useEffect(() => {
+    if (!loaded || !hash.startsWith("#setting-")) return
+    document.getElementById(decodeURIComponent(hash.slice(1)))?.scrollIntoView?.({ block: "center" })
+  }, [loaded, hash])
+
   const goTo = (id: string) => {
     document.getElementById(id)?.scrollIntoView?.({ behavior: "smooth", block: "start" })
     window.history.replaceState(window.history.state, "", `#${id}`)
@@ -254,11 +263,11 @@ export function SettingsPage() {
             </SettingsRows>
           </SettingsGroup>
 
-          <SettingsGroup id="reeve" title="Reeve" description="The agent of this Legato itself: its sessions, its engram, and the agent tool, model and launch arguments it starts with.">
+          <SettingsGroup id="reeve" title="Reeve" description="The agent of this Legato itself: its sessions, its engram, the agent tool, model and launch arguments it starts with, and the transcription its voice and dictation use.">
             <ReeveSessions baseUrl={baseUrl} />
             <ReeveEngramSettings baseUrl={baseUrl} />
             <ReevePairings baseUrl={baseUrl} />
-            <RegistrySettings settings={registry} baseUrl={baseUrl} prefixes={["reeve"]} />
+            <RegistrySettings settings={registry} baseUrl={baseUrl} prefixes={["reeve", "voice"]} />
           </SettingsGroup>
 
           <SettingsGroup id="security" title="Security" description="Who can allow approvals, how you hear of them, and the secrets agents use without seeing them.">

@@ -18,3 +18,10 @@ pub mod voice;
 pub mod applink;
 pub mod workers;
 pub mod links;
+pub mod voicekey;
+pub mod voiceproto;
+pub mod voicemain;
+pub mod voiceclient;
+pub mod voicewidget;
+#[cfg(target_os = "linux")]
+pub mod voicekey_portal;

@@ -1634,6 +1634,7 @@ func runServeCmd(args []string) int {
 	srv.SetSettingsService(wireSettings(db, bus, serveAttention))
 	srv.SetSettingsMover(settingsMover(db), restartAll)
 	serveReeve := wireReeve(srv, db, agentSvc, bus, approvalsRT.approvals)
+	wireReeveVoice(srv, cfg, db, serveReeve, agentSvc, newVoiceService(cfg, tmuxMgr, agentSvc))
 	wireReevePeers(srv, cfg, db, serveReeve, serveAttention)
 	srv.SetReeveRules(reeveRules(db, approvalsRT.approvals))
 	wireReeveEngram(srv, db, approvalsRT.approvals)
@@ -1875,6 +1876,9 @@ func runTUI() int {
 		giveAgentsEngrams(agentSvc, db)
 	}
 
+	// Transcription, shared by the TUI and its web server.
+	voiceSvc := newVoiceService(cfg, tmuxMgr, agentSvc)
+
 	icons := theme.NewIcons(cfg.Icons)
 	editor := config.ResolveEditor(cfg)
 
@@ -1971,6 +1975,7 @@ func runTUI() int {
 			webSrv.SetSettingsService(wireSettings(db, bus, webAttention))
 			webSrv.SetSettingsMover(settingsMover(db), restartAll)
 			webReeve := wireReeve(webSrv, db, agentSvc, bus, approvalsRT.approvals)
+			wireReeveVoice(webSrv, cfg, db, webReeve, agentSvc, voiceSvc)
 			wireReevePeers(webSrv, cfg, db, webReeve, webAttention)
 			webSrv.SetReeveRules(reeveRules(db, approvalsRT.approvals))
 			wireReeveEngram(webSrv, db, approvalsRT.approvals)
@@ -2130,24 +2135,15 @@ func runTUI() int {
 	app.SetSparklineWindow(appWindow, appBuckets)
 	app.SetNtfyConfigured(cfg.Notifications.Ntfy.Topic != "")
 
-	// Wire voice dictation when enabled in config. The same service instance
-	// is shared between the TUI (recorder-based) and web (PCM-based) paths.
-	var voiceSvc *service.VoiceService
-	if cfg.Voice.Enabled && cfg.Voice.WhisperURL != "" {
-		voiceSvc = service.NewVoiceService(cfg.Voice.WhisperURL, tmuxMgr, agentSvc, service.VoiceServiceOptions{
-			AutoSend:  cfg.Voice.AutoSend,
-			MicDevice: cfg.Voice.MicDevice,
-		})
+	// Voice dictation: the same service (made with the web server above)
+	// serves the TUI (recorder-based) and web (PCM-based) paths.
+	if voiceSvc != nil {
 		app.SetVoiceService(voiceSvc, cfg.Voice.AutoSend, cfg.Voice.MicDevice)
 	}
 
 	// If the web server was auto-started, tell the TUI to show the indicator.
 	if webSrv != nil {
 		app.SetWebServerRunning(cfg.Web.Port)
-		// Wire voice service into the web server for the web UI voice button.
-		if voiceSvc != nil {
-			webSrv.SetVoiceService(voiceSvc, cfg.Voice.AutoSend)
-		}
 	}
 
 	p := tea.NewProgram(app, tea.WithAltScreen(), tea.WithoutSignalHandler())

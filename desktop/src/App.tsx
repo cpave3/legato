@@ -57,6 +57,19 @@ export function App() {
     return () => { off.then((f) => f()) }
   }, [])
 
+  // The voice widget opens a server's settings, or Servers & keys.
+  useEffect(() => {
+    const offServer = listen<{ server: string }>("shell-show-server", ({ payload }) => {
+      setActive(payload.server)
+      setPanel(null)
+    })
+    const offPanel = listen("shell-open-panel", () => setPanel({ kind: "manage", pairing: false }))
+    return () => {
+      offServer.then((f) => f())
+      offPanel.then((f) => f())
+    }
+  }, [])
+
   // The sheet closed: its server's page is told how it came out, so its
   // tray stops waiting on it.
   const closeSheet = (outcome: SheetOutcome) => {

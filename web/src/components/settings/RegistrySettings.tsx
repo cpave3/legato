@@ -108,7 +108,7 @@ export function RegistrySettingRow({ setting, baseUrl, actions }: { setting: Con
   const own = useSettingActions(baseUrl)
   const { busy, errors, notices, set, reset, move } = actions ?? own
   return (
-    <div className="flex min-h-16 flex-wrap items-center gap-3 px-4 py-3" data-testid={`setting-${setting.key}`}>
+    <div className="flex min-h-16 flex-wrap items-center gap-3 px-4 py-3" id={`setting-${setting.key}`} data-testid={`setting-${setting.key}`}>
       <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-lw-raised text-lw-link">
         {setting.pinned ? <Lock size={15} aria-label="Pinned by config.yaml" /> : <SlidersHorizontal size={15} aria-hidden />}
       </span>

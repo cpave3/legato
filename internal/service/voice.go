@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"log"
 	"os"
@@ -146,6 +147,9 @@ func (v *VoiceService) Deliver(ctx context.Context, taskID, tmuxSession, agentKi
 		log.Printf("voice: native delivery to %s failed, typing into its pane instead: %v", taskID, err)
 	}
 
+	if v.tmux == nil {
+		return errors.New("this Legato has no tmux to type the text into")
+	}
 	if err := v.tmux.SendKeys(tmuxSession, text); err != nil {
 		return fmt.Errorf("sending text: %w", err)
 	}
@@ -181,6 +185,16 @@ func (v *VoiceService) sendNative(ctx context.Context, taskID, text string) erro
 		return queuer.QueueMessage(ctx, taskID, text)
 	}
 	return v.agents.SendMessage(ctx, taskID, text)
+}
+
+// Probe checks that Whisper answers, with Wyoming's describe, before ctx
+// ends.
+func (v *VoiceService) Probe(ctx context.Context) error {
+	prober, ok := v.whisper.(interface{ Describe(context.Context) error })
+	if !ok {
+		return errors.New("this transcription cannot be checked")
+	}
+	return prober.Describe(ctx)
 }
 
 // AutoSend returns the configured autoSend setting.

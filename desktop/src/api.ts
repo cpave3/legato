@@ -80,6 +80,32 @@ export type ImportRequest = { provider: string; key: string }
 // Where such a ticket goes: the app asks which server, or uses the one in front.
 export type ImportTarget = "ask" | "current"
 
+// The key that starts talking to the Reeve (src-tauri/src/voicekey.rs).
+// key is the bound key as the person reads it; problem says why it does not
+// work, when it does not, and link then still does what it would.
+export type VoiceKeyInfo = {
+  backend: "portal" | "shortcut" | "link"
+  key?: string | null
+  hold_to_talk: boolean
+  can_change: boolean
+  problem?: string | null
+  link: string
+}
+
+// The voice widget: shown when at rest, and the corner it keeps to.
+export type Corner = "bottom-right" | "bottom-left" | "top-right" | "top-left"
+export type VoiceWidgetSettings = { shown: boolean; corner: Corner }
+
+// Which server's Reeve the key talks to (src-tauri/src/voicemain.rs): each
+// server with the instance it last said it is, the one talked to now, and
+// whether the person must choose.
+export type VoiceTargets = {
+  servers: { server: string; name: string; instance?: { id: string; name: string; role: string } | null }[]
+  talking_to?: string | null
+  must_choose: boolean
+  chosen?: string | null
+}
+
 export const api = {
   servers: () => invoke<Server[]>("servers"),
   takeImportRequests: () => invoke<ImportRequest[]>("take_import_requests"),
@@ -119,6 +145,15 @@ export const api = {
   checkUpdate: () => invoke<UpdateStatus>("check_update"),
   applyUpdate: () => invoke<string>("apply_update"),
   restartApp: () => invoke<void>("restart_app"),
+  voiceKeyInfo: () => invoke<VoiceKeyInfo>("voice_key_info"),
+  changeVoiceKey: () => invoke<void>("change_voice_key"),
+  setHoldToTalk: (on: boolean) => invoke<void>("set_hold_to_talk", { on }),
+  voiceTargets: () => invoke<VoiceTargets>("voice_targets"),
+  setVoiceServer: (instance: string | null) => invoke<void>("set_voice_server", { instance }),
+  // The widget's buttons: talk (the key), stop, reply, send, cancel, end.
+  voiceWidgetSettings: () => invoke<VoiceWidgetSettings>("voice_widget_settings"),
+  setVoiceWidget: (shown: boolean, corner: Corner) => invoke<void>("set_voice_widget", { shown, corner }),
+  voiceAction: (action: "talk" | "stop" | "reply" | "send" | "cancel" | "end") => invoke<void>("voice_action", { action }),
 }
 
 // The colours a Legato can be tinted, as web/src/lib/tints.ts has them.

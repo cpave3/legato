@@ -73,3 +73,28 @@ func TestSpeakRefusesWhileTheVoiceIsOff(t *testing.T) {
 		t.Fatalf("result %q (error %v), queued %+v", mcpText(result), result.IsError, speech.lines)
 	}
 }
+
+// speak says where a line is heard: on the device the person listens on,
+// and what a spoken message asks of the Reeve.
+func TestSpeakSaysTheLineIsHeardOnTheDeviceThePersonListensOn(t *testing.T) {
+	s := newTestStore(t)
+	taskID, executionID := seedReeve(t, s)
+	session := connectMCP(t, cli.MCPOptions{Store: s, TaskID: taskID, ExecutionID: executionID, Reeve: &cli.MCPReeve{Speech: &fakeSpeech{on: true}}})
+	list, err := session.ListTools(context.Background(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, tool := range list.Tools {
+		if tool.Name != "speak" {
+			continue
+		}
+		if !strings.Contains(tool.Description, "on the device they are listening on") || strings.Contains(tool.Description, "speakers of the machine") {
+			t.Fatalf("description: %s", tool.Description)
+		}
+		if !strings.Contains(tool.Description, "[legato voice]") {
+			t.Fatalf("the description does not name spoken messages: %s", tool.Description)
+		}
+		return
+	}
+	t.Fatal("no speak tool")
+}

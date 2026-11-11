@@ -93,7 +93,7 @@ The Reeve can message the Reeve of another Legato this one is paired with: its w
 
 ## The Reeve's voice
 
-The Reeve can talk out loud on the speakers of the machine Legato runs on. It speaks a short line, one to three sentences with the outcome first, and leaves the detail to its written reply. Say "voice mode on" in the conversation and it speaks once for each reply.
+The Reeve can talk out loud on the speakers of the machine Legato runs on. It speaks a short line, one to three sentences with the outcome first, and leaves the detail to its written reply. To a typed message it answers in writing, unless you ask it to say something out loud. When you talk to it (see [Talking to the Reeve](#talking-to-the-reeve)), it answers out loud by itself.
 
 To turn it on, in **Settings › Reeve**:
 
@@ -104,6 +104,25 @@ To turn it on, in **Settings › Reeve**:
 Lines play one at a time, in order, with `pw-play` (or `ffplay` if `pw-play` fails), or with the command in **Voice player** (`reeve.voice.player`). A line over about 400 characters is refused. A line that fails to be made or played is written to Legato's log, and the next one still plays. Turn **The Reeve's voice** off to mute it at once. Legato keeps no audio: each file is removed once it has played.
 
 To switch to a local voice such as Piper, set the voice command to a Piper script and clear the voice credential.
+
+### Talking to the Reeve
+
+You can also talk to the Reeve and hear its answers, from the desktop and Android apps. This needs, on the main instance:
+
+- [Voice dictation](/legato/reference/configuration/) on (`voice.enabled`) with a Whisper server (`voice.whisper_url`). It can be the Whisper that Home Assistant Assist already uses. Both settings take a restart.
+- The Reeve's voice, set up as above.
+
+What you say reaches the Reeve marked as spoken, and it answers out loud, in a few short sentences, and writes only what cannot be said, such as a path or a link. A message you type gets a written answer, as before: voice lasts for one message. If the Reeve answers a spoken message only in writing, the app says so.
+
+Press the key or the button and speak. When you stop for about a second (**Pause that ends a spoken turn**, `reeve.voice.pause`), what you said is sent to the Reeve, and the words appear as you speak (**Words as you speak**, `reeve.voice.partials`). If you go on speaking within two seconds, before the Reeve answers, that is sent too. While the Reeve works, the app shows what it is doing. After it has answered out loud, the app listens for your reply for six seconds (**Listen for a reply for**, `reeve.voice.follow_up`); press the key again, or Cancel, to stop. Only one device talks to the Reeve at a time: starting on another takes the conversation over.
+
+The Reeve's answer plays on the device you are talking to, not on the main's speakers, with its words shown as it plays. The microphone is off while it plays. **Stop** drops the rest of the answer; while the Reeve is still working, it interrupts it. The main keeps each line's audio only until your device has played it, ten minutes at most, and the voice key never leaves the main.
+
+**Quiet hours** (`reeve.voice.quiet_hours`, as `22:00-07:00` in the main's local time): no line plays on the main's speakers then, and the Reeve replies in writing. A reply to something you said to it still plays on your device.
+
+In the web UI, the ring beside the Reeve in the Agents list opens a voice sheet. It needs the page over HTTPS (a browser gives a page served over plain HTTP no microphone), or the Legato app. On a worker's page the sheet says the voice is on the main; in the Android app, **Open the main** goes there. When the sheet opens on a page you haven't touched yet (a reload with the sheet open), it waits for you to tap **Talk**. Press Escape to close it. The transcription settings (`voice.*`) are in Settings, under Reeve.
+
+Before it listens, an app asks the main whether a conversation will work. If not, it shows one line saying why, such as "Whisper isn't answering on tessitura", and which setting to change. When the Reeve is suspended, that question also starts resuming it, so it is ready by the time you finish speaking.
 
 ## Where it runs
 
