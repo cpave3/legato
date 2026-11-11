@@ -589,6 +589,27 @@ func TestOtherToolsKeepTheirNameWithAReadableSummary(t *testing.T) {
 	}
 }
 
+func TestLegatosSpeakIsShownAsWhatWasSaid(t *testing.T) {
+	// Claude Code names an MCP tool after the server that serves it: the
+	// Legato plugin's server, or a server configured by hand as legato.
+	for _, tool := range []string{"mcp__plugin_legato-tools_legato__speak", "mcp__legato__speak"} {
+		h := newHarness(t)
+		h.mod(hello(nil), assistantRow("row-a", toolUse("toolu_s", tool, map[string]any{"text": "The tests pass.\nI pushed the branch."})))
+
+		call := h.snapshot().ToolCalls[0]
+		if call.Name != "speak" || call.Args["text"] != "The tests pass.\nI pushed the branch." || call.Display.Summary != "The tests pass." {
+			t.Fatalf("%s: call = %+v", tool, call)
+		}
+	}
+
+	// Another server's speak is not Legato's.
+	h := newHarness(t)
+	h.mod(hello(nil), assistantRow("row-a", toolUse("toolu_o", "mcp__notlegato__speak", map[string]any{"text": "hi"})))
+	if call := h.snapshot().ToolCalls[0]; call.Name != "mcp__notlegato__speak" {
+		t.Fatalf("call = %+v", call)
+	}
+}
+
 func TestToolResultBlocksMayCarryTextParts(t *testing.T) {
 	h := newHarness(t)
 	h.mod(hello(nil), assistantRow("row-a", toolUse("toolu_g", "Glob", map[string]any{"pattern": "*.go"})))

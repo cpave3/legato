@@ -17,7 +17,13 @@ const (
 	nativeWrite      = "write"
 	nativeRead       = "read"
 	nativeSpawnAgent = "spawn_agent"
+	nativeSpeak      = "speak"
 )
+
+// legatoSpeakTool matches Legato's speak tool as Claude Code names it:
+// mcp__<server>__speak, where the server is Legato's plugin server
+// (plugin_legato-tools_legato) or one configured by hand as legato.
+var legatoSpeakTool = regexp.MustCompile(`^mcp__(?:.*[^a-zA-Z0-9])?legato__speak$`)
 
 // resultTextLimit bounds the tool output kept and streamed per call. The
 // model read the whole result; the panel only needs enough to inspect.
@@ -55,12 +61,16 @@ func nativeToolCall(tool string, input map[string]any) (name string, args map[st
 	if input == nil {
 		input = map[string]any{}
 	}
+	if legatoSpeakTool.MatchString(tool) {
+		// What the agent said out loud: the panel draws it as a said bubble.
+		tool = nativeSpeak
+	}
 	return tool, input, toolSummary(tool, input)
 }
 
 // summaryKeys are the arguments that best say what a call is about, in the
 // order tried.
-var summaryKeys = []string{"description", "pattern", "query", "url", "file_path", "path", "command", "skill", "prompt", "subject", "name"}
+var summaryKeys = []string{"description", "pattern", "query", "url", "file_path", "path", "command", "skill", "prompt", "subject", "name", "text"}
 
 func toolSummary(tool string, input map[string]any) string {
 	switch tool {

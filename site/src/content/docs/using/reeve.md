@@ -103,6 +103,8 @@ To turn it on, in **Settings › Reeve**:
 
 Lines play one at a time, in order, with `pw-play` (or `ffplay` if `pw-play` fails), or with the command in **Voice player** (`reeve.voice.player`). A line over about 400 characters is refused. A line that fails to be made or played is written to Legato's log, and the next one still plays. Turn **The Reeve's voice** off to mute it at once. Legato keeps no audio: each file is removed once it has played.
 
+The conversation keeps a record of each line. In the web UI it is a bubble marked **◈ Said** with the words. In the TUI's ensemble it is a line `◈ said "…"`. The Reeve does not write the same words again in its reply.
+
 To switch to a local voice such as Piper, set the voice command to a Piper script and clear the voice credential.
 
 ## Where it runs

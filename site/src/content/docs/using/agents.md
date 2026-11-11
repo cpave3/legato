@@ -81,7 +81,7 @@ The selected agent's terminal is beside the list. When another agent needs you, 
 
 Press `e` to see every agent at once as tiles, and `e` again to go back to the list. In the ensemble, `h` and `l` move between tiles.
 
-A tile shows the agent's state, its task, and what it is doing. For a native agent (Claude Code, Codex or Chimera through Legato's bridge), that is the end of its conversation: what you sent, what it said, its tool calls, and any request it has open. For an agent Legato drives through its terminal, it is the last lines of the terminal. The foot of a tile shows how full the agent's context window is, such as `ctx ▰▰▰▱▱ 60%`, in amber from 70% and red from 85%.
+A tile shows the agent's state, its task, and what it is doing. For a native agent (Claude Code, Codex or Chimera through Legato's bridge), that is the end of its conversation: what you sent, what it said, its tool calls, and any request it has open. A line the [Reeve](/legato/using/reeve/) said out loud shows as `◈ said "…"`. For an agent Legato drives through its terminal, it is the last lines of the terminal. The foot of a tile shows how full the agent's context window is, such as `ctx ▰▰▰▱▱ 60%`, in amber from 70% and red from 85%.
 
 From 120 columns of width, a panel lists what changed among the agents, newest first.
 

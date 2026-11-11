@@ -105,6 +105,32 @@ describe("NativeAgentPanel and what an agent shows", () => {
     expect(screen.queryByText("Show the 7 day forecast", { selector: "div" })).toBeNull()
   })
 
+  it("draws what the agent said out loud as a said bubble, apart from the tool calls around it", async () => {
+    mockSession([
+      { callId: "c1", name: "bash", args: { command: "go test ./..." }, result: { stdout: "ok", exit_code: 0 } },
+      { callId: "c2", name: "speak", args: { text: "The tests pass." }, result: { output: "Queued." } },
+      { callId: "c3", name: "bash", args: { command: "git push" }, result: { stdout: "", exit_code: 0 } },
+    ])
+    render(<NativeAgentPanel agentId="task-1" />, { wrapper })
+
+    const said = await screen.findByRole("group", { name: "Said out loud" })
+    expect(said.textContent).toContain("◈")
+    expect(said.textContent).toContain("Said")
+    expect(said.textContent).toContain("The tests pass.")
+    // It is not a step: the calls on either side of it are not folded together around it.
+    expect(screen.queryByRole("group", { name: /tool calls/ })).toBeNull()
+    expect(screen.queryByText("speak")).toBeNull()
+  })
+
+  it("knows Legato's speak by Chimera's name for it", async () => {
+    mockSession([
+      { callId: "c2", name: "mcp_legato_speak", args: { text: "Done." }, result: { output: "Queued." } },
+    ])
+    render(<NativeAgentPanel agentId="task-1" />, { wrapper })
+
+    expect((await screen.findByRole("group", { name: "Said out loud" })).textContent).toContain("Done.")
+  })
+
   it("ignores a message proposed for another agent", async () => {
     mockSession([])
     render(<NativeAgentPanel agentId="task-1" />, { wrapper })

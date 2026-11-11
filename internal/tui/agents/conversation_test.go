@@ -153,6 +153,23 @@ func TestToolsOfAPluginAreNamedByTheirOwnName(t *testing.T) {
 	}
 }
 
+func TestWhatTheAgentSaidOutLoudIsShownAsSaid(t *testing.T) {
+	// A line said out loud is not one of the calls a long run folds away.
+	entries := steps("one", "two", "three")
+	entries = append(entries, service.ConversationEntry{Kind: service.EntryTool, Tool: "speak", Text: "The tests pass.", State: service.ToolDone})
+	entries = append(entries, steps("four", "five", "six", "seven", "eight", "nine", "ten")...)
+	m := told(t, "busy-1", service.ConversationTail{Entries: entries})
+
+	view := m.View()
+
+	if !strings.Contains(view, `◈ said "The tests pass."`) {
+		t.Errorf("the tile should show what was said: %q", view)
+	}
+	if strings.Contains(view, "speak") {
+		t.Errorf("a line said out loud should not be shown as a tool call: %q", view)
+	}
+}
+
 func TestTileOfAnAgentThatHasSaidNothingSaysSo(t *testing.T) {
 	m := told(t, "idle-1", service.ConversationTail{})
 

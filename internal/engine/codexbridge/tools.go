@@ -15,7 +15,12 @@ const (
 	nativeBash      = "bash"
 	nativePatch     = "patch"
 	nativeWebSearch = "web_search"
+	nativeSpeak     = "speak"
 )
+
+// legatoServer is the name Legato gives its MCP server in a Codex launch
+// (-c mcp_servers.legato.*).
+const legatoServer = "legato"
 
 // outputLimit bounds the tool output kept and streamed per call. The model
 // read the whole result; the panel only needs enough to inspect.
@@ -130,7 +135,10 @@ func nativeTool(item threadItem) (name string, args map[string]any, summary stri
 		if tool == "" {
 			return "", nil, "", false
 		}
-		if item.Server != "" {
+		switch {
+		case item.Server == legatoServer && tool == nativeSpeak:
+			// What the agent said out loud: the panel draws it as a said bubble.
+		case item.Server != "":
 			tool = item.Server + "." + tool
 		}
 		args := map[string]any{}
@@ -236,7 +244,7 @@ func shellCommand(command string) string {
 
 // summaryKeys are the arguments that best say what a call is about, in the
 // order tried.
-var summaryKeys = []string{"description", "pattern", "query", "url", "file_path", "path", "command", "prompt", "subject", "name"}
+var summaryKeys = []string{"description", "pattern", "query", "url", "file_path", "path", "command", "prompt", "subject", "name", "text"}
 
 func toolSummary(args map[string]any) string {
 	for _, key := range summaryKeys {
