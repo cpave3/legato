@@ -112,6 +112,8 @@ You can also talk to the Reeve and hear its answers, from the desktop and Androi
 - [Voice dictation](/legato/reference/configuration/) on (`voice.enabled`) with a Whisper server (`voice.whisper_url`). It can be the Whisper that Home Assistant Assist already uses. Both settings take a restart.
 - The Reeve's voice, set up as above.
 
+Press the key or the button and speak. When you stop for about a second (**Pause that ends a spoken turn**, `reeve.voice.pause`), what you said is sent to the Reeve, and the words appear as you speak (**Words as you speak**, `reeve.voice.partials`). If you go on speaking within two seconds, before the Reeve answers, that is sent too. While the Reeve works, the app shows what it is doing. After it has answered out loud, the app listens for your reply for six seconds (**Listen for a reply for**, `reeve.voice.follow_up`); press the key again, or Cancel, to stop. Only one device talks to the Reeve at a time: starting on another takes the conversation over.
+
 Before it listens, an app asks the main whether a conversation will work. If not, it shows one line saying why, such as "Whisper isn't answering on tessitura", and which setting to change. When the Reeve is suspended, that question also starts resuming it, so it is ready by the time you finish speaking.
 
 ## Where it runs

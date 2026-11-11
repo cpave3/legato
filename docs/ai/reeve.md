@@ -138,6 +138,21 @@ A spoken back-and-forth with the main's Reeve from the desktop and Android apps 
 
   The client adds its own: it cannot reach the server, or has no microphone.
 - **Warming up.** When the voice is ready and the Reeve's session is suspended, the status call resumes it in the background (`started_by` `voice`), so the resume happens while the person speaks. A turn sent meanwhile waits for it (see The next message).
+- **Settings** (live, read at each turn): `reeve.voice.pause` (the quiet that ends a turn, 1 s, kept to 0.3–2 s, `PauseDuration`), `reeve.voice.follow_up` (how long the session listens for a reply after the Reeve has spoken, 6 s, 0 for a single turn), `reeve.voice.partials` (words so far, on unless set to false).
+
+### The voice session
+
+`GET /api/reeve/voice/session` (class change) is a WebSocket with the web token in `?token=`, as `/ws`. Text frames are JSON (`service.VoiceIn` from the device, `service.VoiceOut` from the main); binary frames are audio, 16 kHz mono s16le PCM, at most a second each. The first frame must be `hello {device, client, play}`, within 10 s, or the socket closes with policy violation. `internal/server/reeve_voice_session.go` is the socket; `service.VoiceSession` (`reeve_voice_session.go`) the conversation, run on one loop so it needs no locks: audio, messages, transcripts, deliveries and a poll (500 ms) all go through it.
+
+- **One session at a time.** `ReeveVoice.Open` ends an open one with `ended {reason: "taken over by <device>"}`. The status route reports the open session's device.
+- **The device sends** `listen` (start a turn), `send` (send now), `cancel` (drop the turn), `stop` (while thinking, `InterruptAgent` on the Reeve; while speaking, drop the lines), `playing`/`played {line}`, `bye`.
+- **The main sends** `state {state, reason}` (`idle`, `listening`, `thinking`, `speaking`; idle reasons `no_speech`, `nothing_heard`, `cancelled`, `no_answer`, `failed`), `pause {ms, of}`, `partial {text}`, `heard {text}`, `activity {text}`, `line {id, text, url}`, `written`, `ended {reason}`.
+- **The end of the turn** is `internal/engine/endofturn`'s detector, fed every frame while listening: `Pause` events drive the pause bar; at the 400 ms `Boundary` the turn so far is transcribed (speculative), `Resumed` drops that text, and at `TurnEnded` the speculative text is sent when it still covers the turn, else the turn is transcribed then. The session counts its own waits in samples: 8 s with no speech goes idle (`no_speech`), and in the follow-up window `follow_up` does. Partial words: the turn so far, at most once a second, only while Whisper is idle, for the first 20 s.
+- **Delivery.** The text goes to `ReeveService.Message` (by `voice:<device>`), which starts or resumes the Reeve as a typed message does. The device gets `heard`, then `thinking`. For 2 s after a send the session keeps listening: speech that starts then (before the Reeve answers) is a second message.
+- **While thinking**, the poll reads the Reeve's agent activity and its conversation tail: the newest tool call (but `speak`) is sent as `activity`. Once the agent has been `working` and stops, its turn is over: with no line said, `written` and idle. No answer within 2 minutes is `no_answer`.
+- **Audio is ignored** while idle, speaking (no echo cancellation in v1), or thinking past the 2 s window.
+- **Timings** of each turn are logged from the end of speech: transcript, delivered, first `speak`, line made, playback started.
+- **Fixtures** shared with the desktop's Rust tests and the web's TypeScript tests: `internal/server/testdata/voice-session/messages.json` (every message, round-tripped by the Go types) and `turn.json` (one turn, replayed over a real socket).
 
 ## Ask the Reeve
 

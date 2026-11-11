@@ -15,6 +15,9 @@ import (
 type fakeVoiceProbe struct{ err error }
 
 func (f fakeVoiceProbe) Probe(context.Context) error { return f.err }
+func (f fakeVoiceProbe) TranscribePCM(context.Context, []byte, int) (string, error) {
+	return "", f.err
+}
 
 type fakeSpeechErrors struct{ last string }
 
@@ -31,7 +34,7 @@ func readyVoiceConfig() *config.Config {
 	return cfg
 }
 
-func newReeveVoiceFixture(t *testing.T, cfg *config.Config, probe VoiceProbe) (*ReeveVoice, *ReeveService, *store.Store, *fakeReeveAgents) {
+func newReeveVoiceFixture(t *testing.T, cfg *config.Config, probe VoiceTranscription) (*ReeveVoice, *ReeveService, *store.Store, *fakeReeveAgents) {
 	t.Helper()
 	reeve, db, agents, _ := newReeveFixture(t)
 	voice := NewReeveVoice(ReeveVoiceOptions{
@@ -66,7 +69,7 @@ func TestVoiceSaysWhyItIsNotReadyInOneLineAndNamesTheSetting(t *testing.T) {
 	cases := []struct {
 		name    string
 		cfg     func(*config.Config)
-		probe   VoiceProbe
+		probe   VoiceTranscription
 		reason  string
 		setting string
 	}{

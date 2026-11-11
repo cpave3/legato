@@ -73,7 +73,7 @@ func TestServeTranscribesAndReportsVoiceWhenVoiceIsOn(t *testing.T) {
 
 	srv := server.New(nil, nil, nil, ":0")
 	srv.SetAuthToken("secret")
-	wireReeveVoice(srv, cfg, db, nil, newVoiceService(cfg, nil, nil))
+	wireReeveVoice(srv, cfg, db, nil, nil, newVoiceService(cfg, nil, nil))
 
 	call := func(method, path, body string) *httptest.ResponseRecorder {
 		rec := httptest.NewRecorder()

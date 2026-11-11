@@ -1,0 +1,16 @@
+{
+  "comment": "One spoken turn, from hello to the message delivered. Steps run in order: send is a text frame from the device; audio is speech (a loud tone) or quiet, in 20 ms frames; expect waits for the next message of that type from the main, skipping pause and partial messages. The fake Whisper transcribes any audio as transcript.",
+  "transcript": "turn the lights off",
+  "steps": [
+    {"send": {"type": "hello", "device": "Cameron's desktop", "client": "desktop", "play": true}},
+    {"expect": {"type": "state", "state": "idle"}},
+    {"send": {"type": "listen"}},
+    {"expect": {"type": "state", "state": "listening"}},
+    {"audio": {"speech_ms": 1000}},
+    {"audio": {"quiet_ms": 1200}},
+    {"expect": {"type": "state", "state": "thinking"}},
+    {"expect": {"type": "heard", "text": "turn the lights off"}},
+    {"send": {"type": "bye"}},
+    {"expect": {"type": "ended", "reason": "bye"}}
+  ]
+}

@@ -54,7 +54,7 @@ func newVoiceService(cfg *config.Config, tmux service.TmuxManager, agents servic
 // wireReeveVoice serves dictation and hands-free voice with the Reeve on
 // a web server. voice is nil when this process has no transcription, and
 // reeve nil when it has no Reeve: the voice status then says why.
-func wireReeveVoice(srv *server.Server, cfg *config.Config, db *store.Store, reeve *service.ReeveService, voice *service.VoiceService) *service.ReeveVoice {
+func wireReeveVoice(srv *server.Server, cfg *config.Config, db *store.Store, reeve *service.ReeveService, agents service.AgentService, voice *service.VoiceService) *service.ReeveVoice {
 	opts := service.ReeveVoiceOptions{
 		Store: db,
 		Settings: func(ctx context.Context) *config.Config {
@@ -82,6 +82,11 @@ func wireReeveVoice(srv *server.Server, cfg *config.Config, db *store.Store, ree
 	}
 	if processSpeech != nil {
 		opts.Speech = processSpeech
+	}
+	// The Reeve's conversation says what it is doing; its turn can be
+	// interrupted.
+	if a, ok := agents.(service.ReeveVoiceAgents); ok && agents != nil {
+		opts.Agents = a
 	}
 	rv := service.NewReeveVoice(opts)
 	srv.SetReeveVoice(rv)

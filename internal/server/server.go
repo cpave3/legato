@@ -516,7 +516,7 @@ func (s *Server) authMiddleware(next http.Handler) http.Handler {
 		}
 
 		// WebSocket: token in query param.
-		if r.URL.Path == "/ws" || isTerminalPath(r.URL.Path) {
+		if r.URL.Path == "/ws" || isTerminalPath(r.URL.Path) || r.URL.Path == voiceSessionPath {
 			token := r.URL.Query().Get("token")
 			if subtle.ConstantTimeCompare([]byte(token), []byte(s.authToken)) == 1 {
 				next.ServeHTTP(w, r)

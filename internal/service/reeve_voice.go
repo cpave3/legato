@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"log"
 	"strings"
 	"sync"
@@ -29,6 +30,7 @@ type SpeechErrors interface {
 // ReeveVoiceSessions is what the voice needs of the Reeve's sessions.
 type ReeveVoiceSessions interface {
 	Current(ctx context.Context) (*store.ReeveSession, error)
+	Message(ctx context.Context, text, by string) error
 	Resume(ctx context.Context, taskID string, in ReeveStart) (*store.ReeveSession, error)
 }
 
@@ -39,7 +41,15 @@ type ReeveVoiceOptions struct {
 	Settings func(ctx context.Context) *config.Config
 	// Transcription is this process's transcription; nil when it has
 	// none (voice.enabled was off, or voice.whisper_url empty, at start).
-	Transcription VoiceProbe
+	Transcription VoiceTranscription
+	// Agents reads the Reeve's conversation and interrupts its turn; nil
+	// leaves both out.
+	Agents ReeveVoiceAgents
+	// Poll is how often a session checks on the Reeve while it thinks
+	// (500ms when 0).
+	Poll time.Duration
+	// Logf records a turn's timings and failures; log.Printf when nil.
+	Logf func(format string, args ...any)
 	// Reeve is this instance's Reeve; nil when it has none.
 	Reeve ReeveVoiceSessions
 	// Speech reports the voice's last failure; nil when unknown.
@@ -57,10 +67,16 @@ type ReeveVoiceOptions struct {
 type ReeveVoice struct {
 	opts ReeveVoiceOptions
 
-	mu     sync.Mutex
-	device string // the device holding the voice session, "" for none
-	open   bool
+	mu      sync.Mutex
+	session *VoiceSession
+	device  string // the device holding the voice session, "" for none
+	open    bool
 }
+
+var (
+	errNoTranscription = errors.New("this Legato has no transcription")
+	errNoReeve         = errors.New("this Legato has no Reeve")
+)
 
 // NewReeveVoice makes the Reeve's hands-free voice.
 func NewReeveVoice(opts ReeveVoiceOptions) *ReeveVoice {
@@ -74,14 +90,14 @@ func NewReeveVoice(opts ReeveVoiceOptions) *ReeveVoice {
 // with the Reeve will work here and, when not, why in one line, with the
 // setting to change. It never holds the command line or the credential.
 type VoiceReadiness struct {
-	Instance      VoiceInstance      `json:"instance"`
-	Reeve         VoiceReeveState    `json:"reeve"`
-	Speech        VoiceSpeechState   `json:"speech"`
-	Transcription VoiceTranscription `json:"transcription"`
-	Session       VoiceSessionState  `json:"session"`
-	Ready         bool               `json:"ready"`
-	Reason        string             `json:"reason"`
-	Setting       string             `json:"setting"`
+	Instance      VoiceInstance           `json:"instance"`
+	Reeve         VoiceReeveState         `json:"reeve"`
+	Speech        VoiceSpeechState        `json:"speech"`
+	Transcription VoiceTranscriptionState `json:"transcription"`
+	Session       VoiceSessionState       `json:"session"`
+	Ready         bool                    `json:"ready"`
+	Reason        string                  `json:"reason"`
+	Setting       string                  `json:"setting"`
 }
 
 // VoiceInstance is the instance answering: a client talks to the one
@@ -108,9 +124,9 @@ type VoiceSpeechState struct {
 	LastError string `json:"last_error"`
 }
 
-// VoiceTranscription is this process's transcription, and whether Whisper
-// answered.
-type VoiceTranscription struct {
+// VoiceTranscriptionState is this process's transcription, and whether
+// Whisper answered.
+type VoiceTranscriptionState struct {
 	Enabled   bool `json:"enabled"`
 	Reachable bool `json:"reachable"`
 }

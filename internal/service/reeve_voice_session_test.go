@@ -1,0 +1,446 @@
+package service
+
+import (
+	"context"
+	"encoding/binary"
+	"fmt"
+	"math"
+	"path/filepath"
+	"strings"
+	"sync"
+	"testing"
+	"time"
+
+	"github.com/cpave3/legato/config"
+	"github.com/cpave3/legato/internal/engine/store"
+)
+
+// fakeTranscriber transcribes by the audio's length, so a test can tell
+// which part of a turn was transcribed.
+type fakeTranscriber struct {
+	mu    sync.Mutex
+	calls []int // bytes of each call
+	text  func(bytes int) string
+	gate  chan struct{}
+}
+
+func (f *fakeTranscriber) Probe(context.Context) error { return nil }
+func (f *fakeTranscriber) TranscribePCM(ctx context.Context, pcm []byte, _ int) (string, error) {
+	f.mu.Lock()
+	f.calls = append(f.calls, len(pcm))
+	gate := f.gate
+	f.mu.Unlock()
+	if gate != nil {
+		select {
+		case <-gate:
+		case <-ctx.Done():
+			return "", ctx.Err()
+		}
+	}
+	if f.text != nil {
+		return f.text(len(pcm)), nil
+	}
+	return "turn the lights off", nil
+}
+
+func (f *fakeTranscriber) count() int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return len(f.calls)
+}
+
+// fakeVoiceReeve is a running Reeve that records the messages it is sent.
+type fakeVoiceReeve struct {
+	mu       sync.Mutex
+	messages []string
+	by       []string
+}
+
+func (f *fakeVoiceReeve) Current(context.Context) (*store.ReeveSession, error) {
+	return &store.ReeveSession{TaskID: "reeve-1", State: store.ReeveRunning}, nil
+}
+func (f *fakeVoiceReeve) Resume(context.Context, string, ReeveStart) (*store.ReeveSession, error) {
+	return nil, nil
+}
+func (f *fakeVoiceReeve) Message(_ context.Context, text, by string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.messages = append(f.messages, text)
+	f.by = append(f.by, by)
+	return nil
+}
+func (f *fakeVoiceReeve) sent() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]string(nil), f.messages...)
+}
+
+// fakeReeveVoiceAgents is the Reeve's conversation and its interrupts.
+type fakeReeveVoiceAgents struct {
+	mu          sync.Mutex
+	tool        string
+	interrupted []string
+}
+
+func (f *fakeReeveVoiceAgents) ConversationTail(context.Context, string, int) (*ConversationTail, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.tool == "" {
+		return &ConversationTail{}, nil
+	}
+	return &ConversationTail{Entries: []ConversationEntry{{Kind: EntryTool, Tool: "Read", Text: f.tool}}}, nil
+}
+func (f *fakeReeveVoiceAgents) InterruptAgent(_ context.Context, taskID string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.interrupted = append(f.interrupted, taskID)
+	return nil
+}
+
+type voiceFixture struct {
+	voice   *ReeveVoice
+	db      *store.Store
+	reeve   *fakeVoiceReeve
+	agents  *fakeReeveVoiceAgents
+	whisper *fakeTranscriber
+	cfg     *config.Config
+	cfgMu   sync.Mutex
+}
+
+func newVoiceFixture(t *testing.T) *voiceFixture {
+	t.Helper()
+	db, err := store.New(filepath.Join(t.TempDir(), "legato.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Close() })
+	if err := db.InsertAgentSession(context.Background(), store.AgentSession{TaskID: "reeve-1", TmuxSession: "legato-reeve-1", Status: "running"}); err != nil {
+		t.Fatal(err)
+	}
+	f := &voiceFixture{db: db, reeve: &fakeVoiceReeve{}, agents: &fakeReeveVoiceAgents{}, whisper: &fakeTranscriber{}, cfg: readyVoiceConfig()}
+	off := false
+	f.cfg.Reeve.Voice.Partials = &off
+	f.voice = NewReeveVoice(ReeveVoiceOptions{
+		Store: db, InstanceName: "tessitura", Reeve: f.reeve, Agents: f.agents, Transcription: f.whisper,
+		Settings: func(context.Context) *config.Config {
+			f.cfgMu.Lock()
+			defer f.cfgMu.Unlock()
+			c := *f.cfg
+			return &c
+		},
+		Poll: 5 * time.Millisecond,
+		Logf: func(string, ...any) {},
+	})
+	return f
+}
+
+func (f *voiceFixture) setActivity(t *testing.T, activity string) {
+	t.Helper()
+	if err := f.db.UpdateAgentActivity(context.Background(), "reeve-1", activity); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// voiceDevice is a device's end of a session: what it was sent.
+type voiceDevice struct {
+	session *VoiceSession
+	got     chan VoiceOut
+	mu      sync.Mutex
+	all     []VoiceOut
+}
+
+func (f *voiceFixture) open(name string) *voiceDevice {
+	d := &voiceDevice{got: make(chan VoiceOut, 4096)}
+	d.session = f.voice.Open(VoiceHello{Device: name, Client: "web", Play: true}, func(out VoiceOut) {
+		d.mu.Lock()
+		d.all = append(d.all, out)
+		d.mu.Unlock()
+		d.got <- out
+	})
+	return d
+}
+
+// expect waits for a message the device was sent that matches, skipping
+// the others.
+func (d *voiceDevice) expect(t *testing.T, what string, match func(VoiceOut) bool) VoiceOut {
+	t.Helper()
+	timeout := time.After(3 * time.Second)
+	for {
+		select {
+		case out := <-d.got:
+			if match(out) {
+				return out
+			}
+		case <-timeout:
+			d.mu.Lock()
+			defer d.mu.Unlock()
+			t.Fatalf("no %s; the device got %+v", what, d.all)
+		}
+	}
+}
+
+func (d *voiceDevice) expectState(t *testing.T, state string) VoiceOut {
+	t.Helper()
+	return d.expect(t, "state "+state, func(o VoiceOut) bool { return o.Type == "state" && o.State == state })
+}
+
+func (d *voiceDevice) expectType(t *testing.T, typ string) VoiceOut {
+	t.Helper()
+	return d.expect(t, typ, func(o VoiceOut) bool { return o.Type == typ })
+}
+
+// sentNo checks that no message of type typ was sent so far.
+func (d *voiceDevice) sentNo(t *testing.T, typ string) {
+	t.Helper()
+	d.mu.Lock()
+	defer d.mu.Unlock()
+	for _, o := range d.all {
+		if o.Type == typ {
+			t.Fatalf("the device was sent %+v", o)
+		}
+	}
+}
+
+// speak sends ms of a loud tone, and quiet sends ms of silence, in 20 ms
+// frames as a device does.
+func (d *voiceDevice) speak(ms int) { d.frames(ms, 4000) }
+func (d *voiceDevice) quiet(ms int) { d.frames(ms, 0) }
+
+func (d *voiceDevice) frames(ms int, amplitude float64) {
+	for i := 0; i < ms/20; i++ {
+		frame := make([]byte, 640)
+		for n := 0; n < 320; n++ {
+			v := int16(amplitude * math.Sin(2*math.Pi*220*float64(i*320+n)/16000))
+			binary.LittleEndian.PutUint16(frame[2*n:], uint16(v))
+		}
+		d.session.Audio(frame)
+	}
+}
+
+func TestAVoiceTurnEndsAfterAPauseAndIsSentToTheReeve(t *testing.T) {
+	f := newVoiceFixture(t)
+	d := f.open("Cameron's desktop")
+	d.expectState(t, VoiceIdle)
+
+	d.session.Handle(VoiceIn{Type: "listen"})
+	d.expectState(t, VoiceListening)
+	d.speak(1000)
+	d.quiet(1200)
+
+	pause := d.expectType(t, "pause")
+	if pause.Of != 1000 {
+		t.Fatalf("pause bar of %d ms, want the 1 s pause", pause.Of)
+	}
+	d.expectState(t, VoiceThinking)
+	heard := d.expectType(t, "heard")
+	if heard.Text != "turn the lights off" {
+		t.Fatalf("heard %q", heard.Text)
+	}
+	waitUntil(t, func() bool { return len(f.reeve.sent()) == 1 })
+	if got := f.reeve.sent()[0]; !strings.HasSuffix(got, "turn the lights off") {
+		t.Fatalf("the Reeve was sent %q", got)
+	}
+	if f.reeve.by[0] != "voice:Cameron's desktop" {
+		t.Fatalf("sent by %q", f.reeve.by[0])
+	}
+}
+
+func TestTheTurnUsesTheTextTranscribedAtTheSentenceBoundary(t *testing.T) {
+	f := newVoiceFixture(t)
+	d := f.open("desk")
+	d.session.Handle(VoiceIn{Type: "listen"})
+	d.speak(1000)
+	d.quiet(1200)
+	d.expectType(t, "heard")
+	if n := f.whisper.count(); n != 1 {
+		t.Fatalf("Whisper was asked %d times, want once: at the boundary, its text reused", n)
+	}
+}
+
+func TestSpeechThatResumesDropsTheTextFromTheBoundary(t *testing.T) {
+	f := newVoiceFixture(t)
+	f.whisper.text = func(bytes int) string { return fmt.Sprintf("%d bytes", bytes) }
+	d := f.open("desk")
+	d.session.Handle(VoiceIn{Type: "listen"})
+	d.speak(1000)
+	d.quiet(600) // past the 400 ms boundary, short of the 1 s pause
+	d.speak(800)
+	d.quiet(1200)
+
+	heard := d.expectType(t, "heard")
+	if heard.Text == fmt.Sprintf("%d bytes", f.whisper.calls[0]) {
+		t.Fatalf("the turn was sent as the text from before the speech resumed: %q", heard.Text)
+	}
+	if n := f.whisper.count(); n != 2 {
+		t.Fatalf("Whisper was asked %d times, want 2", n)
+	}
+	var b int
+	fmt.Sscanf(heard.Text, "%d bytes", &b)
+	if b < (1000+600+800)*32 {
+		t.Fatalf("the turn sent covers %d bytes, not the whole turn", b)
+	}
+	d.sentNo(t, "ended")
+}
+
+func TestSendEndsTheTurnAtOnce(t *testing.T) {
+	f := newVoiceFixture(t)
+	d := f.open("desk")
+	d.session.Handle(VoiceIn{Type: "listen"})
+	d.speak(800)
+	d.session.Handle(VoiceIn{Type: "send"})
+	d.expectState(t, VoiceThinking)
+	d.expectType(t, "heard")
+	waitUntil(t, func() bool { return len(f.reeve.sent()) == 1 })
+}
+
+func TestCancelDropsTheTurn(t *testing.T) {
+	f := newVoiceFixture(t)
+	d := f.open("desk")
+	d.session.Handle(VoiceIn{Type: "listen"})
+	d.speak(800)
+	d.session.Handle(VoiceIn{Type: "cancel"})
+	d.expect(t, "idle, cancelled", func(o VoiceOut) bool { return o.Type == "state" && o.Reason == VoiceReasonCancelled })
+	d.quiet(1200)
+	time.Sleep(50 * time.Millisecond)
+	if len(f.reeve.sent()) != 0 {
+		t.Fatalf("a cancelled turn was sent: %v", f.reeve.sent())
+	}
+}
+
+func TestNoSpeechGoesBackToIdle(t *testing.T) {
+	f := newVoiceFixture(t)
+	d := f.open("desk")
+	d.session.Handle(VoiceIn{Type: "listen"})
+	d.expectState(t, VoiceListening)
+	d.quiet(8200)
+	if idle := d.expectState(t, VoiceIdle); idle.Reason != VoiceReasonNoSpeech {
+		t.Fatalf("idle for %q", idle.Reason)
+	}
+	if f.whisper.count() != 0 {
+		t.Fatal("silence was transcribed")
+	}
+}
+
+func TestAudioIsIgnoredWhileNotListening(t *testing.T) {
+	f := newVoiceFixture(t)
+	d := f.open("desk")
+	d.speak(1000)
+	d.quiet(1200)
+	time.Sleep(50 * time.Millisecond)
+	d.sentNo(t, "heard")
+	if f.whisper.count() != 0 {
+		t.Fatal("audio was transcribed before listen")
+	}
+}
+
+func TestANewSessionTakesOverTheOpenOne(t *testing.T) {
+	f := newVoiceFixture(t)
+	desk := f.open("desk")
+	phone := f.open("phone")
+	ended := desk.expectType(t, "ended")
+	if ended.Reason != "taken over by phone" {
+		t.Fatalf("ended for %q", ended.Reason)
+	}
+	select {
+	case <-desk.session.Done():
+	case <-time.After(time.Second):
+		t.Fatal("the old session is still open")
+	}
+	status, _ := f.voice.Status(context.Background())
+	if !status.Session.Open || status.Session.Device != "phone" {
+		t.Fatalf("session: %+v", status.Session)
+	}
+	phone.session.Close()
+	status, _ = f.voice.Status(context.Background())
+	if status.Session.Open {
+		t.Fatalf("closed session still open: %+v", status.Session)
+	}
+}
+
+func TestSpeechRightAfterASendIsASecondMessage(t *testing.T) {
+	f := newVoiceFixture(t)
+	f.whisper.text = func(bytes int) string { return fmt.Sprintf("%d bytes", bytes) }
+	d := f.open("desk")
+	d.session.Handle(VoiceIn{Type: "listen"})
+	d.speak(1000)
+	d.quiet(1100)
+	d.expectType(t, "heard")
+	d.speak(800) // the person goes on, before the Reeve answers
+	d.quiet(1200)
+	d.expectType(t, "heard")
+	waitUntil(t, func() bool { return len(f.reeve.sent()) == 2 })
+}
+
+func TestSpeechLongAfterASendIsNotListenedTo(t *testing.T) {
+	f := newVoiceFixture(t)
+	d := f.open("desk")
+	d.session.Handle(VoiceIn{Type: "listen"})
+	d.speak(1000)
+	d.quiet(1100)
+	d.expectType(t, "heard")
+	d.quiet(3000)
+	d.speak(800)
+	d.quiet(1200)
+	time.Sleep(50 * time.Millisecond)
+	if n := len(f.reeve.sent()); n != 1 {
+		t.Fatalf("%d messages sent", n)
+	}
+}
+
+func TestWhileTheReeveThinksTheDeviceIsToldWhatItIsDoingThenThatItAnsweredInWriting(t *testing.T) {
+	f := newVoiceFixture(t)
+	d := f.open("desk")
+	d.session.Handle(VoiceIn{Type: "listen"})
+	d.speak(1000)
+	d.quiet(1100)
+	d.expectType(t, "heard")
+
+	f.agents.mu.Lock()
+	f.agents.tool = "Reading config.yaml\nmore"
+	f.agents.mu.Unlock()
+	f.setActivity(t, "working")
+	if got := d.expectType(t, "activity"); got.Text != "Reading config.yaml" {
+		t.Fatalf("activity %q", got.Text)
+	}
+	f.setActivity(t, "waiting")
+	d.expectType(t, "written")
+	d.expectState(t, VoiceIdle)
+}
+
+func TestStopWhileThinkingInterruptsTheReeve(t *testing.T) {
+	f := newVoiceFixture(t)
+	d := f.open("desk")
+	d.session.Handle(VoiceIn{Type: "listen"})
+	d.speak(1000)
+	d.quiet(1100)
+	d.expectState(t, VoiceThinking)
+	d.session.Handle(VoiceIn{Type: "stop"})
+	d.expectState(t, VoiceIdle)
+	f.agents.mu.Lock()
+	defer f.agents.mu.Unlock()
+	if len(f.agents.interrupted) != 1 || f.agents.interrupted[0] != "reeve-1" {
+		t.Fatalf("interrupted %v", f.agents.interrupted)
+	}
+}
+
+func TestPartialWordsAreSentWhileThePersonSpeaks(t *testing.T) {
+	f := newVoiceFixture(t)
+	f.cfg.Reeve.Voice.Partials = nil
+	d := f.open("desk")
+	d.session.Handle(VoiceIn{Type: "listen"})
+	d.speak(2500)
+	if got := d.expectType(t, "partial"); got.Text == "" {
+		t.Fatal("an empty partial")
+	}
+}
+
+func TestByeEndsTheSession(t *testing.T) {
+	f := newVoiceFixture(t)
+	d := f.open("desk")
+	d.session.Handle(VoiceIn{Type: "bye"})
+	select {
+	case <-d.session.Done():
+	case <-time.After(time.Second):
+		t.Fatal("still open")
+	}
+}

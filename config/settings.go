@@ -232,6 +232,9 @@ var registry = []Setting{
 	{Key: "reeve.voice.command", Title: "Voice command", Description: "Makes a line's audio: run as <command> \"<text>\" <out-file>, it writes an audio file to <out-file>. A script such as reeve-say.sh, or one for Piper.", Kind: KindString, Class: ClassRisky, Mode: ModeLive},
 	{Key: "reeve.voice.credential", Title: "Voice credential", Description: "A credential Legato gives the voice command, as elevenlabs. Empty for a local voice.", Kind: KindString, Class: ClassRisky, Mode: ModeLive},
 	{Key: "reeve.voice.credential_env", Title: "Voice credential variable", Description: "The variable the command finds the credential in. The credential's name in capitals with _API_KEY when empty (ELEVENLABS_API_KEY).", Kind: KindString, Class: ClassRisky, Mode: ModeLive},
+	{Key: "reeve.voice.pause", Title: "Pause that ends a spoken turn", Description: "How long you stay quiet before what you said is sent to the Reeve, from 0.3s to 2s. 1s when empty.", Kind: KindDuration, Class: ClassChange, Mode: ModeLive, Check: voicePause},
+	{Key: "reeve.voice.follow_up", Title: "Listen for a reply for", Description: "How long the voice listens for your reply after the Reeve has spoken. 6s when empty; 0s for a single turn.", Kind: KindDuration, Class: ClassChange, Mode: ModeLive, Check: notNegativeDuration},
+	{Key: "reeve.voice.partials", Title: "Words as you speak", Description: "Show the words so far while you speak, by transcribing about once a second. Turn it off when Whisper runs on a CPU, or is shared with Home Assistant.", Kind: KindBool, Class: ClassChange, Mode: ModeLive},
 	{Key: "reeve.voice.player", Title: "Voice player", Description: "Plays a line's audio file, named after it. pw-play, else ffplay, when empty.", Kind: KindString, Class: ClassRisky, Mode: ModeLive},
 
 	// Burnlite's projects, read on each use.
@@ -243,6 +246,25 @@ var registry = []Setting{
 		}
 		return nil
 	}},
+}
+
+// voicePause keeps reeve.voice.pause to 0.3–2s.
+func voicePause(v any) error {
+	if s := v.(string); s != "" {
+		if d, _ := time.ParseDuration(s); d < MinVoicePause || d > MaxVoicePause {
+			return errors.New("must be from 0.3s to 2s")
+		}
+	}
+	return nil
+}
+
+func notNegativeDuration(v any) error {
+	if s := v.(string); s != "" {
+		if d, _ := time.ParseDuration(s); d < 0 {
+			return errors.New("must not be negative")
+		}
+	}
+	return nil
 }
 
 func nonNegative(v any) error {
@@ -502,7 +524,7 @@ func SettingValue(cfg *Config, key string) (any, error) {
 // pointerDefault is the value an unset pointer setting means.
 func pointerDefault(key string, field reflect.Value) any {
 	switch key {
-	case "notifications.approvals", "notifications.handoff", "agents.sandbox.default_mounts", "reeve.host_operations",
+	case "notifications.approvals", "notifications.handoff", "agents.sandbox.default_mounts", "reeve.host_operations", "reeve.voice.partials",
 		"web.discovery", "credential_channels.gh.isolate_login":
 		return true
 	}

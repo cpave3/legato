@@ -1,0 +1,33 @@
+{
+  "comment": "Every message of the voice session (GET /api/reeve/voice/session), as JSON text frames. Binary frames are audio: 16 kHz mono s16le PCM, 20-100 ms each. The Go server, the desktop app's Rust client and the web UI's TypeScript client all test against this file.",
+  "device": [
+    {"type": "hello", "device": "Cameron's desktop", "client": "desktop", "play": true},
+    {"type": "listen"},
+    {"type": "send"},
+    {"type": "cancel"},
+    {"type": "stop"},
+    {"type": "playing", "line": "6f1c2a9e0b7d4e3f8a5c1b2d3e4f5a6b"},
+    {"type": "played", "line": "6f1c2a9e0b7d4e3f8a5c1b2d3e4f5a6b"},
+    {"type": "bye"}
+  ],
+  "main": [
+    {"type": "state", "state": "idle"},
+    {"type": "state", "state": "listening"},
+    {"type": "state", "state": "thinking"},
+    {"type": "state", "state": "speaking"},
+    {"type": "state", "state": "idle", "reason": "no_speech"},
+    {"type": "state", "state": "idle", "reason": "nothing_heard"},
+    {"type": "state", "state": "idle", "reason": "cancelled"},
+    {"type": "state", "state": "idle", "reason": "no_answer"},
+    {"type": "state", "state": "idle", "reason": "failed"},
+    {"type": "pause", "ms": 300, "of": 1000},
+    {"type": "pause", "of": 1000},
+    {"type": "partial", "text": "turn the"},
+    {"type": "heard", "text": "turn the lights off"},
+    {"type": "activity", "text": "Reading config.yaml"},
+    {"type": "line", "id": "6f1c2a9e0b7d4e3f8a5c1b2d3e4f5a6b", "text": "The lights are off.", "url": "/api/reeve/voice/lines/6f1c2a9e0b7d4e3f8a5c1b2d3e4f5a6b"},
+    {"type": "written"},
+    {"type": "ended", "reason": "taken over by Pixel 9"},
+    {"type": "ended", "reason": "bye"}
+  ]
+}

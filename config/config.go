@@ -1114,7 +1114,54 @@ type ReeveVoiceConfig struct {
 	// Player plays the file, named after it; pw-play, else ffplay, when
 	// empty.
 	Player string `yaml:"player"`
+	// Pause is the quiet that ends a spoken turn (1s when empty,
+	// 0.3–2s); FollowUp how long the voice listens for a reply after the
+	// Reeve has spoken (6s when empty, 0 for a single turn); Partials
+	// transcribes the words so far while the person speaks (on when unset).
+	Pause    string `yaml:"pause"`
+	FollowUp string `yaml:"follow_up"`
+	Partials *bool  `yaml:"partials"`
 }
+
+// Hands-free voice's pause bounds and defaults.
+const (
+	DefaultVoicePause    = time.Second
+	MinVoicePause        = 300 * time.Millisecond
+	MaxVoicePause        = 2 * time.Second
+	DefaultVoiceFollowUp = 6 * time.Second
+)
+
+// PauseDuration is the quiet that ends a spoken turn, kept to 0.3–2s.
+func (c ReeveVoiceConfig) PauseDuration() time.Duration {
+	d, err := time.ParseDuration(strings.TrimSpace(c.Pause))
+	switch {
+	case err != nil || d <= 0:
+		return DefaultVoicePause
+	case d < MinVoicePause:
+		return MinVoicePause
+	case d > MaxVoicePause:
+		return MaxVoicePause
+	}
+	return d
+}
+
+// FollowUpDuration is how long the voice listens for a reply; 0 is a
+// single turn.
+func (c ReeveVoiceConfig) FollowUpDuration() time.Duration {
+	v := strings.TrimSpace(c.FollowUp)
+	if v == "0" {
+		return 0
+	}
+	d, err := time.ParseDuration(v)
+	if err != nil || d < 0 {
+		return DefaultVoiceFollowUp
+	}
+	return d
+}
+
+// PartialsOn reports whether the words so far are transcribed while the
+// person speaks (the default).
+func (c ReeveVoiceConfig) PartialsOn() bool { return c.Partials == nil || *c.Partials }
 
 // CredentialVariable is the variable the voice command gets its
 // credential in: CredentialEnv, else the credential's name in capitals

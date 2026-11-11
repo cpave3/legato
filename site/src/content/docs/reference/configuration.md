@@ -354,6 +354,9 @@ The Reeve's defaults, read when a session starts. Usually set in Settings › Re
 | `reeve.voice.credential` | string | none | A credential Legato gives the command in an environment variable, as `elevenlabs`. Leave it empty for a local voice. |
 | `reeve.voice.credential_env` | string | `<NAME>_API_KEY` | The variable the command finds the credential in. When empty, the credential's name in capitals with `_API_KEY`, as `ELEVENLABS_API_KEY`. |
 | `reeve.voice.player` | string | `pw-play`, else `ffplay` | Plays a line's audio file, named after the command and its arguments. |
+| `reeve.voice.pause` | duration | `1s` | When you talk to the Reeve, how long you stay quiet before what you said is sent, from `0.3s` to `2s`. See [Talking to the Reeve](/legato/using/reeve/#talking-to-the-reeve). |
+| `reeve.voice.follow_up` | duration | `6s` | How long the voice listens for your reply after the Reeve has spoken. `0s` for a single turn. |
+| `reeve.voice.partials` | bool | `true` | Shows the words so far while you speak, by transcribing about once a second. Turn it off when Whisper runs on a CPU or is shared with Home Assistant. |
 
 ## Updates
 
