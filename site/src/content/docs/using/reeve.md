@@ -24,6 +24,14 @@ Settings › **Reeve** has **Start the Reeve**. A session runs with the agent to
 
 A session that has been idle for two hours is suspended: its agent stops, and it picks up where it left off the next time you send it a message. Change the time in Settings › Reeve (`reeve.idle_timeout`).
 
+## Give it a name
+
+Each instance's Reeve can have a name. Set it in Settings › Reeve (`reeve.name`), such as Tessitura, and Legato says it wherever it would say "the Reeve": its entry in the Agents list, its conversation, Ask buttons, approvals and the approval tray, notifications, the audit log, the desktop app's list of approvals and the TUI. The Reeve is told its name too, from its next session or the next time it resumes. Everywhere else shows a change at once.
+
+A name is one line of plain text, at most 40 characters: letters, digits, spaces, apostrophes, hyphens and dots. Leave it empty and Legato keeps saying "the Reeve". The name changes only what you see: the Reeve may do no more or less, and the manual, settings and the API still call the role the Reeve.
+
+An approval keeps the name the Reeve had when it asked.
+
 ## What it knows
 
 A session starts with what it needs to know about this instance: a short snapshot (version and updates, how Legato runs, its workers, open Attention items, running agents, recent errors in the log) and how it is meant to work. "Ask the Reeve" adds a brief about what you asked about. A session you resume is told what changed since it was last here.

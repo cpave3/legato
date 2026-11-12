@@ -2,6 +2,7 @@ import { useEffect, useRef, type ReactNode } from "react"
 import { VoiceRing, type RingMode } from "./VoiceRing"
 import type { VoiceView } from "./session"
 import { idleLine } from "./copy"
+import { useReeveName } from "../lib/reeveName"
 import "./voice.css"
 
 // What a widget does with the person's presses. Each is optional: a widget
@@ -162,6 +163,7 @@ export function VoiceCard({ view, main, keyLabel, ...actions }: { view: VoiceVie
 }
 
 function Body({ view, centered }: { view: VoiceView; centered?: boolean }) {
+  const reeve = useReeveName()
   const big = centered ? "text-lg font-medium" : "text-[15px]"
   switch (view.state) {
     case "listening":
@@ -181,20 +183,21 @@ function Body({ view, centered }: { view: VoiceView; centered?: boolean }) {
         </>
       )
   }
-  const line = idleLine(view)
-  return <p className={`m-0 leading-[1.45] text-[#9A99A5] ${centered ? "text-[15px]" : "text-sm"}`}>{line || "Press to talk to the Reeve"}</p>
+  const line = idleLine(view, reeve)
+  return <p className={`m-0 leading-[1.45] text-[#9A99A5] ${centered ? "text-[15px]" : "text-sm"}`}>{line || `Press to talk to ${reeve.mid}`}</p>
 }
 
 // VoiceSheet is the phone's: a sheet over the page with the ring at 176 px.
 export function VoiceSheet({ view, main, readiness, ...actions }: { view: VoiceView; main: string; readiness?: VoiceReadinessView } & VoiceActions) {
   const blocked = readiness && !readiness.ready
+  const reeve = useReeveName()
   // The focus moves into the sheet when it opens.
   const ref = useRef<HTMLDivElement>(null)
   useEffect(() => { ref.current?.focus() }, [])
   return (
     <div ref={ref} tabIndex={-1} className="voice-ui voice-rise flex flex-col gap-[18px] rounded-t-[22px] border border-b-0 border-[#6D5EF6]/45 px-5 pt-[18px] pb-[30px] outline-none"
       style={{ background: "var(--voice-surface)" }} data-testid="voice-sheet" data-state={blocked ? "blocked" : view.state}
-      role="dialog" aria-modal="true" aria-label="Talk to the Reeve">
+      role="dialog" aria-modal="true" aria-label={`Talk to ${reeve.mid}`}>
       <Header view={view} main={main} />
       <div className="flex justify-center py-1.5">
         <VoiceRing mode={blocked ? "blocked" : view.state} size={176} level={view.level} />

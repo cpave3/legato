@@ -165,7 +165,6 @@ func (v *ReeveVoice) Status(ctx context.Context) (VoiceReadiness, error) {
 		return out, err
 	}
 	out.Instance = VoiceInstance{ID: id, Name: name, Role: InstanceRole(ctx, v.opts.Store)}
-	out.Reeve.Name = "The Reeve"
 
 	cfg := &config.Config{}
 	if v.opts.Settings != nil {
@@ -173,6 +172,8 @@ func (v *ReeveVoice) Status(ctx context.Context) (VoiceReadiness, error) {
 			cfg = c
 		}
 	}
+	reeve := ReeveNameOf(cfg)
+	out.Reeve.Name = reeve.Start()
 	out.Speech = VoiceSpeechState{Enabled: cfg.Reeve.Voice.Enabled, Command: strings.TrimSpace(cfg.Reeve.Voice.Command) != ""}
 	if v.opts.Speech != nil {
 		out.Speech.LastError = v.opts.Speech.LastError()
@@ -209,16 +210,16 @@ func (v *ReeveVoice) Status(ctx context.Context) (VoiceReadiness, error) {
 	case !asked():
 		out.notReady("Whisper isn't answering on "+name, "voice.whisper_url")
 	case !cfg.Reeve.Voice.Enabled:
-		out.notReady("The Reeve's voice is off on "+name, "reeve.voice.enabled")
+		out.notReady(reeve.Start()+"'s voice is off on "+name, "reeve.voice.enabled")
 	case !out.Speech.Command:
-		out.notReady("The Reeve has no voice command on "+name, "reeve.voice.command")
+		out.notReady(reeve.Start()+" has no voice command on "+name, "reeve.voice.command")
 	case v.opts.Reeve == nil:
-		out.notReady("The Reeve can't start on "+name, "")
+		out.notReady(reeve.Start()+" can't start on "+name, "")
 	default:
 		out.Ready = true
 		if v.opts.CanStart != nil {
 			if why, setting := v.opts.CanStart(ctx); why != "" {
-				out.notReady("The Reeve can't start on "+name+": "+why, setting)
+				out.notReady(reeve.Start()+" can't start on "+name+": "+why, setting)
 			}
 		}
 	}
@@ -230,7 +231,7 @@ func (v *ReeveVoice) Status(ctx context.Context) (VoiceReadiness, error) {
 	// nor speak: it is restarted to take them up, between its turns.
 	if voicer, ok := v.opts.Reeve.(reeveVoicer); ok && out.Ready && current != nil && current.State == store.ReeveRunning {
 		if on, known := voicer.StartedWithVoice(current.TaskID); known && !on {
-			out.notReady("The Reeve on "+name+" is getting its voice: try again in a moment", "")
+			out.notReady(reeve.Start()+" on "+name+" is getting its voice: try again in a moment", "")
 			if !out.Reeve.Busy {
 				v.giveVoice(voicer, current.TaskID)
 			}

@@ -107,7 +107,7 @@ func (r *ReeveRules) Propose(ctx context.Context, change RuleChange, by string) 
 	_, _ = rand.Read(b)
 	approval, _, err := r.Approvals.Submit(ctx, ApprovalInput{
 		Source: ApprovalSourceReeveRules, SourceKey: hex.EncodeToString(b),
-		Title:   fmt.Sprintf("%s the Reeve's rule %s", verb, what),
+		Title:   fmt.Sprintf("%s %s's rule %s", verb, r.Approvals.ReeveName(ctx).Mid(), what),
 		Summary: string(change.Value), Details: change, Signed: true,
 		Options: []ApprovalOption{{ID: "allow", Label: "Allow", Kind: ApprovalAllow}, {ID: "deny", Label: "Deny", Kind: ApprovalDeny}},
 	})

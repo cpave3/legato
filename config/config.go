@@ -514,6 +514,9 @@ func validate(cfg *Config) error {
 	if err := ValidateSwarmConfig(cfg); err != nil {
 		return err
 	}
+	if err := CheckReeveName(cfg.Reeve.Name); err != nil {
+		return fmt.Errorf("reeve.name: %w", err)
+	}
 	if err := ValidateRepositoryCache(cfg); err != nil {
 		return err
 	}
@@ -1082,6 +1085,9 @@ type UpdatesConfig struct {
 // ReeveConfig is the Reeve's defaults: the agent tool a session runs, its
 // model or tier, and launch arguments. See docs/ai/reeve.md.
 type ReeveConfig struct {
+	// Name is what this instance's Reeve is called where the UI would say
+	// "the Reeve"; empty keeps "the Reeve". Plain text (CheckReeveName).
+	Name       string   `yaml:"name"`
 	Agent      string   `yaml:"agent"`
 	Model      string   `yaml:"model"`
 	LaunchArgs []string `yaml:"launch_args"`

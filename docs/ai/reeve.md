@@ -11,6 +11,13 @@ The Reeve is the agent of a Legato instance itself (see `GLOSSARY.md`): the pers
 - **Resuming** (`Resume`): a new API token (for an ended session), the session's tool and model unless overridden, and the spawn with `SessionPolicy: resume`, so the conversation comes back.
 - **Deleting** (`Delete`): only an ended session (`ErrReeveNotEnded`); removes its row and its task.
 
+## Its name
+
+- **`reeve.name`** (`config.ReeveConfig.Name`, a live `change` setting, not an own rule; empty by default): what the UI calls this instance's Reeve. `config.CheckReeveName` keeps it to one line of plain text (letters, marks, digits, space, `'`, `’`, `-`, `.`), at most 40 characters, trimmed; Load and the registry both check it, and `ReeveConfig.DisplayName` reads it trimmed ("" when invalid). Site: `using/reeve` § Give it a name.
+- **One helper per surface**, each with the three places a sentence puts it (`Label` "Reeve", `Start` "The Reeve", `Mid` "the Reeve"; a name is itself in all three): Go `service.ReeveName` (`reeve_name.go`, `ReeveNameOf(cfg)`, `ReeveNameSource` read live through `reeveNameFor(db)` in `cmd/legato/reeve_runtime.go`), web `lib/reeveName.ts` (`reeveName`, `useReeveName`, `ReeveNameContext` provided by `Layout` from `/api/settings`' `reeve_name`, so a change in Settings shows at once). The role keeps its name: settings keys, routes, IDs, the engram name and the manual still say Reeve.
+- **Where it shows.** Approvals of the Reeve's sources carry `reeve_name` in their details (`ApprovalService.SetReeveName`, stamped in `Submit` by `IsReeveApprovalSource`) and say it in their titles, so the tray, the change-set card, the desktop widget's feed and ntfy/OS notifications (`ApprovalNotifications`: the name instead of the hidden task's ID) show the name it had when it asked. `ListAgents` gives the Reeve's agent `ReeveName` and the name as its title (`AgentServiceOptions.ReeveName`), which the TUI's agents list shows; the audit log's rows of the Reeve's task show the name as their title (the row keeps the task ID). The engram Attention item, the voice readiness (`reeve.name` and its reasons) and the web UI's Reeve entry, status bar, Ask buttons, Settings cards and voice sheet use it too. The desktop voice capsule still says "The Reeve" before it has asked a main.
+- **The Reeve knows it.** `ReeveNamePrompt` (`## Your name`) goes before the snapshot at launch and in the resume message (`ReeveDefaults.Name`), so a name changed while it was away reaches it.
+
 ## What it knows
 
 - **The launch prompt** (`ReeveLaunchPrompt`, `internal/service/reeve_prompt.go`), in the engram sessions spec's order:

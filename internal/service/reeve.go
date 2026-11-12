@@ -42,6 +42,8 @@ type ReeveDefaults struct {
 	// Voice is reeve.voice.enabled: the session is offered speak and told
 	// about voice mode.
 	Voice bool
+	// Name is reeve.name: the session is told it goes by it.
+	Name ReeveName
 }
 
 // ReeveStart is how a session starts: an override of the agent tool and
@@ -245,9 +247,15 @@ func (s *ReeveService) spawn(ctx context.Context, row store.ReeveSession, brief 
 		snapshot = s.opts.Snapshot(ctx)
 	}
 	reeveEngram, noEngram := s.engram(ctx)
-	voice := false
+	var defaults ReeveDefaults
 	if s.opts.Defaults != nil {
-		voice = s.opts.Defaults().Voice
+		defaults = s.opts.Defaults()
+	}
+	voice := defaults.Voice
+	// Its name comes before the snapshot, at launch and on a resume, so a
+	// name changed while it was away reaches it.
+	if named := ReeveNamePrompt(defaults.Name); named != "" {
+		snapshot = named + "\n\n" + snapshot
 	}
 	// A spoken turn is the first message itself, marked at its start, and
 	// not a brief: the voice section answers only a message that starts so.

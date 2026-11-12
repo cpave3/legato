@@ -23,9 +23,14 @@ func ApprovalNotifications(notifier Notifier, serverURL string) func(Approval) {
 		var details struct {
 			TaskTitle string `json:"task_title"`
 			AgentKind string `json:"agent_kind"`
+			ReeveName string `json:"reeve_name"`
 		}
 		_ = json.Unmarshal(approval.Details, &details)
 		who := details.TaskTitle
+		if IsReeveApprovalSource(approval.Source) {
+			// The Reeve's task is hidden: its ID means nothing to the person.
+			who, details.AgentKind = ReeveName(details.ReeveName).Start(), ""
+		}
 		if who == "" {
 			who = approval.TaskID
 		}

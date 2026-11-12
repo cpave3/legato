@@ -222,6 +222,7 @@ var registry = []Setting{
 	{Key: "review_passes.required_checks", Title: "Checks a review pass waits for", Kind: KindStrings, Class: ClassChange, Mode: ModeRestart},
 
 	// The Reeve: read when a session starts.
+	{Key: "reeve.name", Title: "The Reeve's name", Description: "What Legato calls the Reeve on this instance: in the sidebar, its conversation, approvals, notifications and the TUI, and in its own prompt. \"the Reeve\" when empty.", Kind: KindString, Class: ClassChange, Mode: ModeLive, Check: func(v any) error { return CheckReeveName(v.(string)) }},
 	{Key: "reeve.agent", Title: "The Reeve's agent tool", Description: "claude-code, codex or chimera; the default agent tool when empty.", Kind: KindString, Class: ClassChange, Mode: ModeLive},
 	{Key: "reeve.model", Title: "The Reeve's model or tier", Kind: KindString, Class: ClassChange, Mode: ModeLive},
 	{Key: "reeve.idle_timeout", Title: "Suspend the Reeve after", Description: "How long a session may be idle before its agent is stopped; the next message resumes it. 2h when empty.", Kind: KindDuration, Class: ClassChange, Mode: ModeLive},

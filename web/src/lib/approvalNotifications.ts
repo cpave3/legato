@@ -1,4 +1,4 @@
-import type { Approval } from "./approvals"
+import { approvalAsker, isReeveApproval, type Approval } from "./approvals"
 import { agentKindLabel } from "./agentKind"
 
 // Browser notifications for approvals that wait for the person, while the
@@ -47,7 +47,9 @@ export function freshApprovals(seen: Set<string> | null, approvals: Approval[]):
 // approvalNotice is what a notification says: what is asked, then which
 // task's agent asks, and what it would do.
 export function approvalNotice(approval: Approval): { title: string; body: string } {
-  const who = [approval.task_id, approval.details.task_title, approval.details.agent_kind && agentKindLabel(approval.details.agent_kind)].filter(Boolean).join(" · ")
+  const who = isReeveApproval(approval)
+    ? approvalAsker(approval)
+    : [approval.task_id, approval.details.task_title, approval.details.agent_kind && agentKindLabel(approval.details.agent_kind)].filter(Boolean).join(" · ")
   return {
     title: `Approval needed: ${approval.title}`,
     body: [who, approval.summary].filter(Boolean).join("\n"),

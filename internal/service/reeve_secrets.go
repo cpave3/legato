@@ -80,7 +80,7 @@ func (r *ReeveSecrets) Request(ctx context.Context, taskID, name, purpose string
 	}
 	approval, _, err := r.Approvals.Submit(ctx, ApprovalInput{
 		Source: ApprovalSourceReeveSecret, SourceKey: taskID + ":" + name, TaskID: taskID,
-		Title:   "The Reeve asks for a secret: " + name,
+		Title:   r.Approvals.ReeveName(ctx).Start() + " asks for a secret: " + name,
 		Summary: purpose, Details: SecretRequestDetails{Name: name, Purpose: strings.TrimSpace(purpose)},
 		Options: []ApprovalOption{{ID: "stored", Label: "Store the secret", Kind: ApprovalAllow}, {ID: "deny", Label: "Decline", Kind: ApprovalDeny}},
 	})

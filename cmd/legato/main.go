@@ -951,6 +951,7 @@ func runServeCmd(args []string) int {
 			DisablePeerAwareness: !cfg.Agents.PeerAwareness,
 			ReviewsOff:           !cfg.Agents.Reviews,
 			RepositoryGuidance:   repositoryGuidance(cfg, db),
+			ReeveName:            reeveNameFor(db),
 			RepositoryResources:  repositoryResources(cfg),
 		})
 		sweepInterruptedAgents(agentSvc, configuredResourceService(cfg, db))
@@ -1272,6 +1273,7 @@ func runTUI() int {
 			DisablePeerAwareness: !cfg.Agents.PeerAwareness,
 			ReviewsOff:           !cfg.Agents.Reviews,
 			RepositoryGuidance:   repositoryGuidance(cfg, db),
+			ReeveName:            reeveNameFor(db),
 			RepositoryResources:  repositoryResources(cfg),
 		})
 		sweepInterruptedAgents(agentSvc, configuredResourceService(cfg, db))
@@ -1502,7 +1504,7 @@ func runTUI() int {
 	}
 	registerApprovalAttention(attentionSvc, approvalsRT)
 	_ = attentionSvc.RegisterProducer(service.NewRestartAttentionAdapter(db))
-	_ = attentionSvc.RegisterProducerWithEvents(service.NewEngramAttentionAdapter(db), events.EventAgentStarted, events.EventAgentDied, events.EventAgentCompleted)
+	_ = attentionSvc.RegisterProducerWithEvents(engramAttention(db), events.EventAgentStarted, events.EventAgentDied, events.EventAgentCompleted)
 	if webSrv == nil {
 		wireSettings(db, bus, nil)
 	}

@@ -397,7 +397,7 @@ func (c *ChangeSetService) Propose(ctx context.Context, taskID, reason string, c
 	}
 	title := details.Reason
 	if title == "" {
-		title = fmt.Sprintf("%d changes from the Reeve", len(details.Calls))
+		title = fmt.Sprintf("%d changes from %s", len(details.Calls), c.opts.Approvals.ReeveName(ctx).Mid())
 	}
 	options := []ApprovalOption{{ID: "allow", Label: "Approve", Kind: ApprovalAllow}}
 	if optionalRestart(details.Calls) {

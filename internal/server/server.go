@@ -97,6 +97,7 @@ type Server struct {
 	taskStacks               TaskStackService
 	preparing                preparingAgents
 	tints                    TintService
+	reeveName                service.ReeveNameSource
 	engrams                  EngramService
 	builtInWorkflows         []*workflowengine.Definition
 	worktrees                WorktreeService
@@ -586,6 +587,8 @@ func (s *Server) settingsHandler() http.HandlerFunc {
 			Repositories             []workflowengine.RepositoryPreset `json:"repositories"`
 			// Tint is this Legato's colour, "" for none (service.Tints).
 			Tint string `json:"tint"`
+			// ReeveName is reeve.name, "" when the Reeve has none.
+			ReeveName string `json:"reeve_name"`
 			// Updates is where this Legato's updates stand; absent when it
 			// has no updater. Here so the web UI's update bar costs no
 			// request of its own.
@@ -604,6 +607,7 @@ func (s *Server) settingsHandler() http.HandlerFunc {
 			DefaultImportWorkspaceID: s.defaultImportWorkspaceID,
 			Repositories:             s.repositories(r.Context()),
 			Tint:                     s.tint(r.Context()),
+			ReeveName:                string(s.reeveName.Of(r.Context())),
 		}
 		if s.updates != nil {
 			status := s.updates.Status(r.Context())

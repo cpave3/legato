@@ -7,6 +7,7 @@ import { openMainVoice, shellStreams, voiceAudio } from "./audio"
 import { initialVoiceView, VoiceSessionClient, type AudioPort, type SocketLike, type VoiceView } from "./session"
 import { VoiceSheet, type VoiceReadinessView } from "./VoiceWidgets"
 import { VoiceRing } from "./VoiceRing"
+import { useReeveName } from "../lib/reeveName"
 
 function sessionUrl(baseUrl: string): string {
   let base: string
@@ -195,10 +196,11 @@ export function VoiceLauncher({ baseUrl, audio: givenAudio, socket }: VoiceLaunc
 // VoiceButton is the ring button that opens the voice sheet; it shows only
 // where the page can hold a conversation.
 export function VoiceButton({ className }: { className?: string }) {
+  const reeve = useReeveName()
   if (voiceAudio("") === null) return null
   return (
-    <button type="button" onClick={(e) => { e.stopPropagation(); openVoice() }} className={className} aria-label="Talk to the Reeve" title="Talk to the Reeve">
-      <VoiceRing mode="idle" size={22} label="Talk to the Reeve" />
+    <button type="button" onClick={(e) => { e.stopPropagation(); openVoice() }} className={className} aria-label={`Talk to ${reeve.mid}`} title={`Talk to ${reeve.mid}`}>
+      <VoiceRing mode="idle" size={22} label={`Talk to ${reeve.mid}`} />
     </button>
   )
 }

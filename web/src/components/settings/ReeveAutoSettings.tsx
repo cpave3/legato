@@ -4,6 +4,7 @@ import { Zap } from "lucide-react"
 import { fetchReeveAuto, turnReeveAutoOff, type AutoRun } from "../../lib/reeve"
 import { queryKeys } from "../../lib/query"
 import { SettingsCard, quietButton } from "./SettingsUI"
+import { useReeveName } from "../../lib/reeveName"
 
 const stateText: Record<string, string> = { queued: "running", running: "running", done: "done", failed: "failed", restarting: "restarting" }
 
@@ -24,6 +25,7 @@ function AutoRunRow({ run }: { run: AutoRun }) {
 export function ReeveAutoSettings({ baseUrl }: { baseUrl: string }) {
   const queryClient = useQueryClient()
   const auto = useQuery({ queryKey: queryKeys.reeveAuto(baseUrl), queryFn: () => fetchReeveAuto(baseUrl), retry: false })
+  const reeve = useReeveName()
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState("")
   const data = auto.data
@@ -44,10 +46,10 @@ export function ReeveAutoSettings({ baseUrl }: { baseUrl: string }) {
   const items: { key: string; text: string; warning?: string }[] = []
   if (data.change === "auto") items.push({ key: "change", text: "Changes (tasks, agents, their messages, ordinary settings)" })
   if (data.risky === "auto") items.push({ key: "risky", text: "Risky changes", warning: "Includes restarts, stopping agents and settings that choose what runs on this machine." })
-  if (data.host_auto) items.push({ key: "host", text: "Host operations not as root", warning: "The Reeve can run any command as your user on this machine, and write any file you can." })
+  if (data.host_auto) items.push({ key: "host", text: "Host operations not as root", warning: `${reeve.start} can run any command as your user on this machine, and write any file you can.` })
   return (
     <SettingsCard id="reeve-auto" icon={Zap} title="Runs without asking"
-      description="Change sets at the auto level run at once. Deletions, the Reeve's own rules, security settings, pairing, secrets, config.yaml edits and anything as root still wait for you.">
+      description={`Change sets at the auto level run at once. Deletions, ${reeve.mid}'s own rules, security settings, pairing, secrets, config.yaml edits and anything as root still wait for you.`}>
       {data.on ? (
         <div className="flex flex-col gap-2">
           <ul className="flex flex-col gap-1.5 text-sm">

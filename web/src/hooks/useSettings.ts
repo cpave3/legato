@@ -30,6 +30,8 @@ export interface Settings {
   repositories: RepositorySetting[]
   // This server's tint (lib/tints), "" for none; absent from an older server.
   tint?: string
+  // What this server calls its Reeve (reeve.name), "" for none (lib/reeveName).
+  reeve_name?: string
   // Where this server's updates stand; absent when it has no updater.
   updates?: UpdateStatus
 }

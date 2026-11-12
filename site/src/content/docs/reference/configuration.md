@@ -343,6 +343,7 @@ The Reeve's defaults, read when a session starts. Usually set in Settings › Re
 
 | Setting | Type | Default | What it does |
 | --- | --- | --- | --- |
+| `reeve.name` | string | empty: "the Reeve" | What Legato calls the Reeve on this instance, in the web UI, the desktop app, the TUI, notifications and the Reeve's own prompt. One line of plain text, at most 40 characters. See [Give it a name](/legato/using/reeve/#give-it-a-name). |
 | `reeve.agent` | string | the default agent tool | The agent tool a session runs: `claude-code`, `codex` or `chimera`. |
 | `reeve.model` | string | the tool's default | The model or tier a session runs. |
 | `reeve.idle_timeout` | duration | `2h` | How long a session may be idle before its agent is stopped. The next message to it resumes it. |

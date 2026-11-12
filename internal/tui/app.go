@@ -2845,6 +2845,7 @@ func (a App) handleKillAgent(msg agents.KillAgentMsg) (tea.Model, tea.Cmd) {
 	}
 	svc := a.agentSvc
 	reeve := a.reeve
+	reeveName := a.agentView.ReeveName()
 	taskID := msg.TaskID
 	return a, func() tea.Msg {
 		// Killing the Reeve's agent ends its session, as End does.
@@ -2852,7 +2853,7 @@ func (a App) handleKillAgent(msg agents.KillAgentMsg) (tea.Model, tea.Cmd) {
 		if reeve != nil {
 			var err error
 			if handled, err = reeve.StopAgent(context.Background(), taskID); err != nil {
-				return statusbar.ErrorMsg{Text: "Ending the Reeve's session: " + err.Error()}
+				return statusbar.ErrorMsg{Text: "Ending " + reeveName.Mid() + "'s session: " + err.Error()}
 			}
 		}
 		if !handled {
