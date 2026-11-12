@@ -682,9 +682,7 @@ func (c *ChangeSetService) backMessage(ctx context.Context, set store.ReeveChang
 		}
 		if c.opts.Settings != nil {
 			if pending, err := c.opts.Settings.PendingRestart(ctx); err == nil {
-				for _, key := range pending {
-					now = append(now, key)
-				}
+				now = append(now, pending...)
 			}
 		}
 		if len(now) > 0 {

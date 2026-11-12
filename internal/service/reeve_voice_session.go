@@ -101,7 +101,6 @@ type voiceInput struct {
 	transcript *voiceTranscript
 	delivered  *voiceDelivery
 	line       *VoiceLine
-	end        string
 }
 
 // The kinds of transcription a session asks for.
