@@ -325,6 +325,7 @@ pub mod layer_shell {
         set_margin: unsafe extern "C" fn(Win, c_int, c_int),
         set_exclusive_zone: unsafe extern "C" fn(Win, c_int),
         set_keyboard_mode: unsafe extern "C" fn(Win, c_int),
+        set_monitor: unsafe extern "C" fn(Win, *mut gtk::gdk::ffi::GdkMonitor),
     }
 
     /// A layer surface is the size the window asks for, not the size it was
@@ -360,6 +361,7 @@ pub mod layer_shell {
                 set_margin: sym!("gtk_layer_set_margin"),
                 set_exclusive_zone: sym!("gtk_layer_set_exclusive_zone"),
                 set_keyboard_mode: sym!("gtk_layer_set_keyboard_mode"),
+                set_monitor: sym!("gtk_layer_set_monitor"),
                 _lib: lib,
             };
             // SAFETY: called on the GTK main thread, after GTK started.
@@ -392,11 +394,17 @@ pub mod layer_shell {
             Ok(())
         }
 
-        /// Sizes the surface (logical), anchors it and sets its margins
-        /// from the edges it is anchored to; the others have none.
-        pub fn place(&self, window: &gtk::ApplicationWindow, anchor: Anchor, m: Offset, size: (f64, f64)) {
+        /// Puts the surface on a screen (GDK's index of the monitor; none is
+        /// the compositor's choice), sizes it (logical), anchors it and sets
+        /// its margins from the edges it is anchored to; the others have
+        /// none.
+        pub fn place(&self, window: &gtk::ApplicationWindow, monitor: Option<usize>, anchor: Anchor, m: Offset, size: (f64, f64)) {
             request(window, size);
             let w: Win = window.upcast_ref::<gtk::Window>().to_glib_none().0;
+            let monitor = monitor.and_then(|i| WidgetExt::display(window).monitor(i as i32));
+            let monitor_ptr: *mut gtk::gdk::ffi::GdkMonitor = monitor.as_ref().map_or(std::ptr::null_mut(), |m| m.to_glib_none().0);
+            // SAFETY: as in attach; the monitor is GDK's, alive while held.
+            unsafe { (self.set_monitor)(w, monitor_ptr) };
             let (left, right, top, bottom) = anchors(anchor);
             let px = |on: bool, v: f64| if on { v.round() as c_int } else { 0 };
             // SAFETY: as in attach.

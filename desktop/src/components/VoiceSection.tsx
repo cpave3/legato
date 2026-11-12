@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react"
 import { listen } from "@tauri-apps/api/event"
-import { api, errorText, type Anchor, type KeyBackend, type VoiceKeyInfo, type VoiceTargets, type VoiceWidgetSettings } from "../api"
+import { api, errorText, type Anchor, type KeyBackend, type ScreenId, type VoiceKeyInfo, type VoiceTargets, type VoiceWidgetSettings } from "../api"
 import { recordedKey } from "../keys"
 
 // Corners, then edges (the widget centred on them), as the widget's menu has them.
@@ -47,6 +47,12 @@ export function VoiceSection() {
     setError("")
     setWidget(next)
     api.setVoiceWidget(next.shown, next.anchor).catch((e) => setError(errorText(e)))
+  }
+  const chooseScreen = (value: string) => {
+    if (!widget || value === "missing") return
+    setError("")
+    const screen: ScreenId | null = value === "auto" ? null : widget.screens[Number(value)]?.id ?? null
+    api.setVoiceScreen(screen).catch((e) => setError(errorText(e)))
   }
   const choose = (instance: string) => {
     setError("")
@@ -117,6 +123,17 @@ export function VoiceSection() {
           </select>
         </div>
       )}
+      {widget && (widget.screens.length > 1 || widget.screen) && (
+        <label className="row gap small">
+          Screen
+          <select value={screenValue(widget)} onChange={(e) => chooseScreen(e.target.value)} aria-label="Screen">
+            <option value="auto">Where the desktop puts it</option>
+            {widget.screens.map((s, i) => <option key={i} value={String(i)}>{s.name}</option>)}
+            {widget.missing && <option value="missing">{widget.missing} (not connected)</option>}
+          </select>
+        </label>
+      )}
+      {widget?.missing && <p className="hint">{widget.missing} is not connected, so the widget is on another screen until it is.</p>}
       {widget && <p className="hint">Drag the widget to put it anywhere; it stays where you drop it.</p>}
       {targets && targets.servers.length > 1 && (
         <>
@@ -172,4 +189,12 @@ function KeyField({ label, value, onRecorded, onError }: { label: string; value:
       </button>
     </label>
   )
+}
+
+// The screen select's value: the chosen screen's place in the list, "missing"
+// when it is not connected, or "auto".
+function screenValue(w: VoiceWidgetSettings): string {
+  if (!w.screen) return "auto"
+  if (w.chosen != null) return String(w.chosen)
+  return w.missing ? "missing" : "auto"
 }

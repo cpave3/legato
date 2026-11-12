@@ -23,5 +23,8 @@ pub mod voiceproto;
 pub mod voicemain;
 pub mod voiceclient;
 pub mod voicewidget;
+pub mod screens;
 #[cfg(target_os = "linux")]
 pub mod voicekey_portal;
+#[cfg(target_os = "linux")]
+pub mod wloutputs;

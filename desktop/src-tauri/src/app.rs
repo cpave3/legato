@@ -16,13 +16,13 @@ use tauri::{AppHandle, Emitter, LogicalPosition, LogicalSize, Manager, State, We
 
 use crate::legato::{self, Client};
 use crate::applink::{self, ImportLink};
-use crate::store::{Anchor, ImportTarget, Keyring, Offset, Server, Store};
+use crate::store::{Anchor, ImportTarget, Keyring, Offset, ScreenId, Server, Store};
 use crate::updates;
 use crate::webauthn::{self, Attachment, ORIGIN, RP_ID};
 use crate::discovery::{Browser, Found};
 use crate::links;
 use crate::bridge::{self, PageMessage, VoiceAction, VoiceEvent};
-use crate::{fido, systrust, touchid, voice, voiceclient, voicekey, voicemain, voicewidget, workers};
+use crate::{fido, screens, systrust, touchid, voice, voiceclient, voicekey, voicemain, voicewidget, workers};
 use crate::voiceclient::{Command, Ui};
 use crate::voicekey::{Backend, Input, KeyBackend, VoiceKey};
 
@@ -77,6 +77,8 @@ pub struct Desktop {
     /// The voice widget: what it has to show, and how it keeps its place.
     widget: Mutex<WidgetState>,
     widget_placement: Mutex<voicewidget::Placement>,
+    /// The screens, as last read on GTK's main thread (`refresh_screens`).
+    screens: Mutex<Vec<screens::Screen>>,
     #[cfg(target_os = "linux")]
     layer_shell: Mutex<Option<std::sync::Arc<voicewidget::layer_shell::LayerShell>>>,
 }
@@ -659,6 +661,10 @@ fn tell_widget(app: &AppHandle, ui: Ui) {
 
 // ---- The voice widget ----
 
+/// What a layer surface was last given: its screen (GDK's index), anchor,
+/// margins and size.
+pub type Applied = (Option<usize>, Anchor, Offset, (f64, f64));
+
 pub struct WidgetState {
     showing: voicewidget::Showing,
     /// The Reeve answered in writing this conversation.
@@ -666,7 +672,7 @@ pub struct WidgetState {
     /// The logical size the page last asked for.
     size: (f64, f64),
     /// The anchor and margins a layer surface has now.
-    applied: Option<(Anchor, Offset, (f64, f64))>,
+    applied: Option<Applied>,
     /// The widget being dragged.
     drag: Option<Drag>,
     /// The layout the page was last told.
@@ -792,10 +798,23 @@ fn show_widget_as_it_should(app: &AppHandle) {
     }
 }
 
-/// The work area of the monitor the widget is on (physical) and its scale.
-/// On Wayland GTK knows no panels, so it is the whole monitor; a layer
-/// surface's margins count from inside the panels.
+/// The screen the widget goes on, when the person chose one: that one
+/// while it is here, else the primary, else the first (`screens::screen_for`).
+fn widget_screen(app: &AppHandle) -> Option<screens::Screen> {
+    let desktop = app.state::<Desktop>();
+    let chosen = desktop.store.lock().unwrap().state.voice.screen.clone();
+    let list = desktop.screens.lock().unwrap();
+    screens::screen_for(chosen.as_ref(), &list).map(|i| list[i].clone())
+}
+
+/// The work area (physical) and scale of the screen the widget goes on:
+/// the chosen one, else the monitor it is on. On Wayland GTK knows no
+/// panels, so it is the whole monitor; a layer surface's margins count from
+/// inside the panels.
 fn widget_area(window: &tauri::WebviewWindow) -> Option<(voicewidget::Rect, f64)> {
+    if let Some(screen) = widget_screen(window.app_handle()) {
+        return Some((screen.area, screen.scale));
+    }
     let monitor = window
         .current_monitor()
         .ok()
@@ -855,10 +874,11 @@ fn place_widget(app: &AppHandle) {
 fn anchor_layer(app: &AppHandle, window: &tauri::WebviewWindow, anchor: Anchor, m: Offset) {
     #[cfg(target_os = "linux")]
     {
+        let monitor = widget_screen(app).map(|s| s.index);
         let desktop = app.state::<Desktop>();
         let size = {
             let mut widget = desktop.widget.lock().unwrap();
-            let applied = Some((anchor, m, widget.size));
+            let applied = Some((monitor, anchor, m, widget.size));
             if widget.applied == applied {
                 return;
             }
@@ -869,7 +889,7 @@ fn anchor_layer(app: &AppHandle, window: &tauri::WebviewWindow, anchor: Anchor, 
         let window = window.clone();
         let _ = app.run_on_main_thread(move || {
             if let (Some(shell), Ok(gtk)) = (shell, window.gtk_window()) {
-                shell.place(&gtk, anchor, m, size);
+                shell.place(&gtk, monitor, anchor, m, size);
             }
         });
     }
@@ -959,7 +979,101 @@ fn voice_widget_drag_end(app: AppHandle) -> Result<(), String> {
     Ok(())
 }
 
-/// The widget's menu (a right click): Hide, Place, Settings.
+/// Reads the screens (GDK's monitors, with Wayland's connectors), keeps
+/// them, says them on the output, and puts the widget again. On GTK's main
+/// thread. Elsewhere than Linux there is no list, and the widget is on the
+/// monitor it is on.
+fn refresh_screens(app: &AppHandle) {
+    #[cfg(target_os = "linux")]
+    {
+        let list = read_screens();
+        let names = screens::names(&list);
+        let said: Vec<String> = list.iter().zip(&names).map(|(s, n)| format!("{n} [{}]", s.connector.as_deref().unwrap_or("-"))).collect();
+        println!("[voice widget] screens: {}", said.join(", "));
+        *app.state::<Desktop>().screens.lock().unwrap() = list;
+        if let Some(screen) = widget_screen(app) {
+            let chosen = app.state::<Desktop>().store.lock().unwrap().state.voice.screen.clone();
+            let here = chosen.as_ref().is_some_and(|c| screens::find(c, &app.state::<Desktop>().screens.lock().unwrap()).is_some());
+            println!("[voice widget] on screen {} ({})", screen.index, if here { "the one chosen" } else { "the chosen one is missing" });
+        }
+        place_widget(app);
+        let _ = app.emit("voice-widget-changed", voice_widget_settings(app.state::<Desktop>()));
+    }
+    #[cfg(not(target_os = "linux"))]
+    let _ = app;
+}
+
+/// GDK's monitors, in its order, with each one's connector when Wayland
+/// says it (`wloutputs`).
+#[cfg(target_os = "linux")]
+fn read_screens() -> Vec<screens::Screen> {
+    use gtk::prelude::*;
+    let Some(display) = gtk::gdk::Display::default() else { return Vec::new() };
+    let monitors: Vec<gtk::gdk::Monitor> = (0..display.n_monitors()).filter_map(|i| display.monitor(i)).collect();
+    let outputs = if display.type_().name() == "GdkWaylandDisplay" {
+        crate::wloutputs::read().unwrap_or_else(|e| {
+            println!("[voice widget] could not read the screens' connectors: {e}");
+            Vec::new()
+        })
+    } else {
+        Vec::new()
+    };
+    let places: Vec<(i32, i32)> = monitors.iter().map(|m| (m.geometry().x(), m.geometry().y())).collect();
+    let matched = crate::wloutputs::match_monitors(&places, &outputs);
+    let text = |s: Option<gtk::glib::GString>| s.map(|s| s.trim().to_string()).filter(|s| !s.is_empty());
+    monitors
+        .iter()
+        .zip(matched)
+        .enumerate()
+        .map(|(index, (m, out))| {
+            let scale = m.scale_factor() as f64;
+            let w = m.workarea();
+            screens::Screen {
+                index,
+                maker: text(m.manufacturer()).or_else(|| out.as_ref().map(|o| o.maker.clone())).unwrap_or_default(),
+                model: text(m.model()).or_else(|| out.as_ref().map(|o| o.model.clone())).unwrap_or_default(),
+                connector: out.and_then(|o| o.connector),
+                area: voicewidget::Rect { x: w.x() as f64 * scale, y: w.y() as f64 * scale, width: w.width() as f64 * scale, height: w.height() as f64 * scale },
+                scale,
+                primary: m.is_primary(),
+            }
+        })
+        .collect()
+}
+
+/// Reads the screens again whenever one comes or goes, a moment later, so
+/// the compositor has said all about it.
+#[cfg(target_os = "linux")]
+fn watch_screens(app: &AppHandle) {
+    let Some(display) = gtk::gdk::Display::default() else { return };
+    let later = |app: AppHandle| {
+        gtk::glib::timeout_add_local_once(std::time::Duration::from_millis(500), move || refresh_screens(&app));
+    };
+    let (added, removed) = (app.clone(), app.clone());
+    display.connect_monitor_added(move |_, _| later(added.clone()));
+    display.connect_monitor_removed(move |_, _| later(removed.clone()));
+}
+
+/// The screen the person chose, or none for where the desktop puts it.
+fn set_screen(app: &AppHandle, screen: Option<ScreenId>) -> Result<(), String> {
+    {
+        let desktop = app.state::<Desktop>();
+        let mut store = desktop.store.lock().unwrap();
+        store.state.voice.screen = screen;
+        store.save()?;
+    }
+    place_widget(app);
+    let _ = app.emit("voice-widget-changed", voice_widget_settings(app.state::<Desktop>()));
+    Ok(())
+}
+
+/// Servers & keys: the screen the widget goes on.
+#[tauri::command]
+fn set_voice_screen(app: AppHandle, screen: Option<ScreenId>) -> Result<(), String> {
+    set_screen(&app, screen)
+}
+
+/// The widget's menu (a right click): Hide, Place, Screen, Settings.
 #[tauri::command]
 fn voice_widget_menu(app: AppHandle) -> Result<(), String> {
     use tauri::menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu};
@@ -977,8 +1091,31 @@ fn voice_widget_menu(app: AppHandle) -> Result<(), String> {
     let mut items: Vec<&dyn tauri::menu::IsMenuItem<tauri::Wry>> = places.iter().map(|c| c as &dyn tauri::menu::IsMenuItem<tauri::Wry>).collect();
     items.insert(4, &between);
     let place_menu = Submenu::with_items(&app, "Place", true, &items).map_err(e)?;
+    // The screens, when there is a choice to make.
+    let (list, chosen) = {
+        let desktop = app.state::<Desktop>();
+        let list = desktop.screens.lock().unwrap().clone();
+        let chosen = desktop.store.lock().unwrap().state.voice.screen.clone();
+        (list, chosen)
+    };
+    let on = screens::screen_for(chosen.as_ref(), &list);
+    let auto = CheckMenuItem::with_id(&app, "screen-auto", "Where the desktop puts it", true, chosen.is_none(), None::<&str>).map_err(e)?;
+    let screen_items = screens::names(&list)
+        .iter()
+        .enumerate()
+        .map(|(i, name)| CheckMenuItem::with_id(&app, format!("screen-{i}"), name, true, chosen.is_some() && on == Some(i), None::<&str>))
+        .collect::<Result<Vec<_>, _>>()
+        .map_err(e)?;
+    let mut items: Vec<&dyn tauri::menu::IsMenuItem<tauri::Wry>> = vec![&auto];
+    items.extend(screen_items.iter().map(|c| c as &dyn tauri::menu::IsMenuItem<tauri::Wry>));
+    let screen_menu = Submenu::with_items(&app, "Screen", true, &items).map_err(e)?;
     let settings = MenuItem::with_id(&app, "voice-settings", "Settings…", true, None::<&str>).map_err(e)?;
-    let menu = Menu::with_items(&app, &[&hide, &place_menu, &settings]).map_err(e)?;
+    let menu = if list.len() > 1 || chosen.is_some() {
+        Menu::with_items(&app, &[&hide, &place_menu, &screen_menu, &settings])
+    } else {
+        Menu::with_items(&app, &[&hide, &place_menu, &settings])
+    }
+    .map_err(e)?;
     window.popup_menu(&menu).map_err(e)
 }
 
@@ -992,6 +1129,13 @@ fn voice_widget_menu_chosen(app: &AppHandle, id: &str) {
         let _ = app.emit_to("shell", "shell-open-panel", json!({ "kind": "manage" }));
     } else if let Some((anchor, _, _)) = voicewidget::PLACES.iter().find(|(_, pid, _)| *pid == id) {
         let _ = set_widget(app, &desktop, None, Some(*anchor));
+    } else if id == "screen-auto" {
+        let _ = set_screen(app, None);
+    } else if let Some(i) = id.strip_prefix("screen-").and_then(|i| i.parse::<usize>().ok()) {
+        let screen = desktop.screens.lock().unwrap().get(i).map(|s| s.id());
+        if let Some(screen) = screen {
+            let _ = set_screen(app, Some(screen));
+        }
     }
 }
 
@@ -1022,12 +1166,34 @@ pub struct WidgetSettings {
     anchor: Anchor,
     /// Dragged to a spot of its own, rather than at the anchor's margin.
     dropped: bool,
+    /// The screens there are, named (`screens::names`).
+    screens: Vec<ScreenChoice>,
+    /// The screen chosen; none is where the desktop puts it.
+    screen: Option<ScreenId>,
+    /// Where in `screens` the chosen one is, while it is connected.
+    chosen: Option<usize>,
+    /// The chosen screen's name when it is not connected now (the widget
+    /// is on the primary or the first meanwhile).
+    missing: Option<String>,
+}
+
+#[derive(Clone, Serialize)]
+pub struct ScreenChoice {
+    id: ScreenId,
+    name: String,
 }
 
 #[tauri::command]
 fn voice_widget_settings(desktop: State<'_, Desktop>) -> WidgetSettings {
-    let v = &desktop.store.lock().unwrap().state.voice;
-    WidgetSettings { shown: !v.widget_hidden, anchor: v.anchor, dropped: v.offset.is_some() }
+    let v = desktop.store.lock().unwrap().state.voice.clone();
+    let list = desktop.screens.lock().unwrap().clone();
+    let screens: Vec<ScreenChoice> = list.iter().zip(screens::names(&list)).map(|(s, name)| ScreenChoice { id: s.id(), name }).collect();
+    let chosen = v.screen.as_ref().and_then(|c| screens::find(c, &list));
+    let missing = v.screen.as_ref().filter(|_| chosen.is_none()).map(|c| {
+        let alone = screens::Screen { index: 0, maker: c.maker.clone(), model: c.model.clone(), connector: c.connector.clone(), area: voicewidget::Rect { x: 0.0, y: 0.0, width: 0.0, height: 0.0 }, scale: 1.0, primary: false };
+        screens::names(&[alone]).remove(0)
+    });
+    WidgetSettings { shown: !v.widget_hidden, anchor: v.anchor, dropped: v.offset.is_some(), screens, screen: v.screen, chosen, missing }
 }
 
 /// Servers & keys: show or hide the widget, and where it keeps to.
@@ -2296,6 +2462,7 @@ pub fn run() {
             widget_placement: Mutex::new(voicewidget::Placement::Placed),
             #[cfg(target_os = "linux")]
             layer_shell: Mutex::default(),
+            screens: Mutex::default(),
         })
         .on_menu_event(|app, event| voice_widget_menu_chosen(app, event.id().as_ref()))
         .setup(|app| {
@@ -2351,6 +2518,12 @@ pub fn run() {
                     relayout(&handle);
                 }
             });
+            // The screens before the widget, so it goes on the chosen one.
+            #[cfg(target_os = "linux")]
+            {
+                refresh_screens(app.handle());
+                watch_screens(app.handle());
+            }
             if let Err(e) = make_voice_widget(app.handle()) {
                 println!("[voice widget] the window was not made: {e}");
             }
@@ -2412,6 +2585,7 @@ pub fn run() {
             voice_widget_menu,
             voice_widget_settings,
             set_voice_widget,
+            set_voice_screen,
             voice_widget_drag_start,
             voice_widget_drag_move,
             voice_widget_drag_end,

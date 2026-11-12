@@ -102,6 +102,21 @@ pub struct VoiceSettings {
     /// The grabbed key that cancels.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub cancel_key: Option<String>,
+    /// The screen the widget goes on; none is where the desktop puts it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub screen: Option<ScreenId>,
+}
+
+/// A screen as the person chose it: its maker, model and connector, which
+/// find it again when the screens change (`screens::find`).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ScreenId {
+    #[serde(default)]
+    pub maker: String,
+    #[serde(default)]
+    pub model: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub connector: Option<String>,
 }
 
 /// How the key that talks to the Reeve is had on a Wayland desktop.
@@ -415,6 +430,17 @@ pub(crate) mod tests {
         assert_eq!(again.state.voice.key_backend, KeyBackend::Portal);
         assert_eq!(again.state.voice.talk_key.as_deref(), Some("Ctrl+Alt+V"));
         assert_eq!(again.state.voice.cancel_key.as_deref(), Some("Ctrl+Alt+Shift+V"));
+    }
+
+    #[test]
+    fn the_widgets_screen_is_kept_by_maker_model_and_connector() {
+        let (dir, secrets) = (tempfile::tempdir().unwrap(), Memory::default());
+        let mut store = open(&dir, &secrets);
+        assert_eq!(store.state.voice.screen, None);
+        let lg = ScreenId { maker: "LG".into(), model: "27GL850".into(), connector: Some("HDMI-A-1".into()) };
+        store.state.voice.screen = Some(lg.clone());
+        store.save().unwrap();
+        assert_eq!(open(&dir, &secrets).state.voice.screen, Some(lg));
     }
 
     #[test]

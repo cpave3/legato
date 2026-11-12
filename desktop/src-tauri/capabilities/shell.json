@@ -58,6 +58,7 @@
     "allow-voice-widget-size",
     "allow-voice-widget-menu",
     "allow-voice-widget-settings",
-    "allow-set-voice-widget"
+    "allow-set-voice-widget",
+    "allow-set-voice-screen"
   ]
 }

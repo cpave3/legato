@@ -104,7 +104,20 @@ export type VoiceKeyInfo = {
 // The voice widget: shown when at rest, and the corner or edge it keeps
 // to; dropped when the person dragged it to a spot of its own there.
 export type Anchor = "bottom-right" | "bottom-left" | "top-right" | "top-left" | "top" | "bottom" | "left" | "right"
-export type VoiceWidgetSettings = { shown: boolean; anchor: Anchor; dropped: boolean }
+// screens are the screens there are, by name; screen is the one chosen
+// (null: where the desktop puts it), kept by maker, model and connector;
+// chosen is its place in screens while it is connected, and missing names
+// it when it is not.
+export type ScreenId = { maker: string; model: string; connector?: string | null }
+export type VoiceWidgetSettings = {
+  shown: boolean
+  anchor: Anchor
+  dropped: boolean
+  screens: { id: ScreenId; name: string }[]
+  screen?: ScreenId | null
+  chosen?: number | null
+  missing?: string | null
+}
 
 // Which server's Reeve the key talks to (src-tauri/src/voicemain.rs): each
 // server with the instance it last said it is, the one talked to now, and
@@ -161,6 +174,7 @@ export const api = {
   // A key as recordedKey writes it; null is the default.
   setVoiceKeys: (talk: string | null, cancel: string | null) => invoke<void>("set_voice_keys", { talk, cancel }),
   setVoiceKeyBackend: (backend: KeyBackend) => invoke<void>("set_voice_key_backend", { backend }),
+  setVoiceScreen: (screen: ScreenId | null) => invoke<void>("set_voice_screen", { screen }),
   voiceTargets: () => invoke<VoiceTargets>("voice_targets"),
   setVoiceServer: (instance: string | null) => invoke<void>("set_voice_server", { instance }),
   // The widget's buttons: talk (the key), stop, reply, send, cancel, end.

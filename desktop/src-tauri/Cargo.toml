@@ -67,6 +67,10 @@ ashpd = { version = "0.14", default-features = false, features = ["tokio", "glob
 # gtk-layer-shell, opened at run time for the voice widget (voicewidget.rs),
 # so the app neither links it nor needs it.
 libloading = "0.8"
+# Each screen's connector (DP-1), which GTK 3 does not say, read from the
+# compositor's wl_output over a connection of the app's own (wloutputs.rs).
+# Pure Rust: no libwayland.
+wayland-client = "0.31"
 
 [dev-dependencies]
 rcgen = "0.13"
