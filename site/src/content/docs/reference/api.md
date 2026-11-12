@@ -160,6 +160,9 @@ A card on the board is a task: its ID is the task's. An agent is addressed by it
 | `PUT` | `/api/reeve/engram/seed` | risky | Change the Reeve's seed (one of its own rules: needs a signature) |  |
 | `DELETE` | `/api/reeve/engram/memories/{id}` | risky | Delete one of the Reeve's memories for good |  |
 | `DELETE` | `/api/reeve/engram/threads/{id}` | risky | Close one of the Reeve's open threads |  |
+| `GET` | `/api/reeve/watches` | read | List the agents the Reeve watches |  |
+| `POST` | `/api/reeve/watches` | read | Watch an agent: the Reeve is told when it waits, goes idle, adds a note, opens a pull request or exits |  |
+| `DELETE` | `/api/reeve/watches/{task_id}` | read | Stop watching an agent |  |
 | `POST` | `/api/integrations/reeve/messages` | change | Message this instance's Reeve, as another instance's |  |
 | `GET` | `/api/integrations/reeve/approvals` | read | List this instance's Reeve change sets waiting for its person, for a paired instance |  |
 | `GET` | `/api/reeve/peers/approvals` | read | List paired instances' Reeve change sets waiting for their person |  |

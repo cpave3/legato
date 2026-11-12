@@ -69,3 +69,53 @@ func TestATaskWorkedSince(t *testing.T) {
 		}
 	}
 }
+
+// A watch keeps the events it was asked for; watching again replaces them.
+func TestAWatchKeepsItsEvents(t *testing.T) {
+	s, err := New(filepath.Join(t.TempDir(), "events.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	ctx := context.Background()
+	if err := s.WatchForReeve(ctx, ReeveWatch{TaskID: "T-1", ReeveTaskID: "R-1", Events: "waiting,exited"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.WatchForReeve(ctx, ReeveWatch{TaskID: "T-1", ReeveTaskID: "R-1", Events: "note"}); err != nil {
+		t.Fatal(err)
+	}
+	watches, _ := s.ListReeveWatches(ctx)
+	if len(watches) != 1 || watches[0].Events != "note" {
+		t.Fatalf("watches = %+v", watches)
+	}
+}
+
+// Events wait in a queue, oldest first, until the Reeve takes them; taking
+// them removes those up to the last one taken, not any that came since.
+func TestWatchEventsWaitInAQueue(t *testing.T) {
+	s, err := New(filepath.Join(t.TempDir(), "queue.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	ctx := context.Background()
+	for _, body := range []string{`{"n":1}`, `{"n":2}`} {
+		if err := s.QueueReeveWatchEvent(ctx, "T-1", body); err != nil {
+			t.Fatal(err)
+		}
+	}
+	queued, err := s.ListReeveWatchEvents(ctx, 10)
+	if err != nil || len(queued) != 2 || queued[0].Body != `{"n":1}` || queued[1].Body != `{"n":2}` || queued[0].CreatedAt == "" {
+		t.Fatalf("queued = %+v, %v", queued, err)
+	}
+	if err := s.QueueReeveWatchEvent(ctx, "T-2", `{"n":3}`); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.DeleteReeveWatchEventsThrough(ctx, queued[1].ID); err != nil {
+		t.Fatal(err)
+	}
+	left, _ := s.ListReeveWatchEvents(ctx, 10)
+	if len(left) != 1 || left[0].Body != `{"n":3}` {
+		t.Fatalf("left = %+v", left)
+	}
+}

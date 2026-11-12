@@ -80,9 +80,28 @@ To let only some of them run, add a rule at `auto` instead (see [What a change n
 - `edit_file:~/Projects/**`: a file in that folder. `~` is your home folder; `*` matches any run of characters, slashes too. A path with `..` in it still asks.
 - `manage_service:status *`, `manage_service:restart legato.service`: an action and a unit.
 
-### Agents it starts
+### Watching agents
 
-When the Reeve starts an agent or sends one a message through a change set, it hears back without asking: a note the agent adds, a pull request it opens or that changes state, the end of a turn of work, a wait for you, an error, and the end of its session. These come into its conversation as `[legato agent]` messages. Agents it did not start or message are not reported.
+The Reeve can look after agents while you are away: start one on a task, hear back when it needs something, and decide what comes next. It watches every agent it starts or messages, and you can ask it to watch any other.
+
+A watched agent wakes the Reeve with a `[legato agent]` message in its conversation when it:
+
+- waits for you: a question or a permission prompt;
+- has been idle for a while (30 seconds), or busy only with work it left running in the background;
+- stops with an error, or exits;
+- adds a note to its task, or has a pull request opened, or its checks or review change.
+
+The message has the agent's last words, which often say what it waits on ("waiting for the build"), and whether anything it started still runs. The Reeve then reads the task's notes and decides: leave the agent alone, message it, tell you, or stop it and start the next task, still one change at a time for you to approve. It never answers a permission prompt: it tells you what the agent asks.
+
+A short pause doesn't wake it, and news that comes close together arrives as one message, only between the Reeve's turns. When no Reeve session is running, the news waits for the next one. Turn on `reeve.watch.wake` to have Legato resume or start the Reeve instead, which costs tokens while you are away. Watching asks no approval, and outlasts a restart of Legato or of the Reeve. A watch ends when its agent exits.
+
+| Setting | What it does |
+| --- | --- |
+| `reeve.watch.settle` | How long an agent must stay idle before the Reeve is told. `30s` by default. |
+| `reeve.watch.started` | Watch every agent the Reeve starts or messages. On by default. |
+| `reeve.watch.wake` | Resume or start the Reeve to tell it. Off by default. |
+
+A [swarm](/legato/using/swarms/) is another way to run many agents: a conductor agent splits one task among workers, with a plan you approve. Watching is the Reeve running ordinary agents on ordinary tasks, each step a change you approve.
 
 ## What a change needs
 

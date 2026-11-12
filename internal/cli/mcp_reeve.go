@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"sort"
 	"strings"
 	"time"
@@ -96,7 +97,7 @@ func (m *mcpTools) reeveSession() bool {
 }
 
 func (m *mcpTools) reeveTools() []mcpserver.Tool {
-	tools := []mcpserver.Tool{m.reeveDocs(), m.reeveStatus(), m.reeveLogs(), m.reeveAPI()}
+	tools := []mcpserver.Tool{m.reeveDocs(), m.reeveStatus(), m.reeveLogs(), m.reeveAPI(), m.watchAgent(), m.unwatchAgent(), m.listWatches()}
 	if m.opts.Reeve.ChangeSets != nil {
 		tools = append(tools, m.proposeChanges(), m.restartLegato(), m.proposeConfigEdit())
 	}
@@ -244,50 +245,142 @@ func (m *mcpTools) reeveAPI() mcpserver.Tool {
 		if err := m.mustBeReeve(ctx); err != nil {
 			return mcpserver.Result{}, err
 		}
-		if m.opts.Reeve.APIBase == "" {
-			return mcpserver.Result{}, fmt.Errorf("this Legato runs no web server, so its API cannot be called")
-		}
 		if !strings.HasPrefix(in.Path, "/api/") {
 			return mcpserver.Result{}, fmt.Errorf("path %q: give a route starting /api/", in.Path)
-		}
-		session, err := m.opts.Store.GetReeveSession(ctx, m.opts.TaskID)
-		if err != nil || session.APIToken == "" {
-			return mcpserver.Result{}, fmt.Errorf("this session has no API token: it has ended")
 		}
 		method := strings.ToUpper(strings.TrimSpace(in.Method))
 		if method == "" {
 			method = http.MethodGet
 		}
-		var body io.Reader
 		raw := rawBody(in.Body)
-		if len(raw) > 0 {
-			body = strings.NewReader(string(raw))
-		}
-		req, err := http.NewRequestWithContext(ctx, method, strings.TrimRight(m.opts.Reeve.APIBase, "/")+in.Path, body)
+		status, out, err := m.callAPI(ctx, method, in.Path, raw)
 		if err != nil {
 			return mcpserver.Result{}, err
 		}
-		req.Header.Set("Authorization", "Bearer "+session.APIToken)
-		if body != nil {
-			req.Header.Set("Content-Type", "application/json")
-		}
-		client := m.opts.Reeve.HTTP
-		if client == nil {
-			client = &http.Client{Timeout: 60 * time.Second, Transport: &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true}}}
-		}
-		resp, err := client.Do(req)
-		if err != nil {
-			return mcpserver.Result{}, err
-		}
-		defer resp.Body.Close()
-		out, _ := io.ReadAll(io.LimitReader(resp.Body, 256<<10))
-		_ = m.opts.Store.TouchReeveSession(ctx, m.opts.TaskID)
 		// A change is not made with the Reeve's token: it becomes a change
 		// set of one, for the person to approve.
-		if resp.StatusCode == http.StatusForbidden && strings.Contains(string(out), "needs_approval") && m.opts.Reeve.ChangeSets != nil {
+		if status == http.StatusForbidden && strings.Contains(string(out), "needs_approval") && m.opts.Reeve.ChangeSets != nil {
 			return m.propose(ctx, in.Reason, []service.ChangeCall{{Kind: service.CallAPI, Method: method, Path: in.Path, Body: raw}})
 		}
-		return mcpserver.Result{Text: fmt.Sprintf("%s %s → %d\n\n%s", method, in.Path, resp.StatusCode, out)}, nil
+		return mcpserver.Result{Text: fmt.Sprintf("%s %s → %d\n\n%s", method, in.Path, status, out)}, nil
+	})
+}
+
+// callAPI calls a route of this Legato's API with the session's own token
+// and answers its status and body (cut at 256 KiB).
+func (m *mcpTools) callAPI(ctx context.Context, method, path string, raw json.RawMessage) (int, []byte, error) {
+	if m.opts.Reeve.APIBase == "" {
+		return 0, nil, fmt.Errorf("this Legato runs no web server, so its API cannot be called")
+	}
+	session, err := m.opts.Store.GetReeveSession(ctx, m.opts.TaskID)
+	if err != nil || session.APIToken == "" {
+		return 0, nil, fmt.Errorf("this session has no API token: it has ended")
+	}
+	var body io.Reader
+	if len(raw) > 0 {
+		body = strings.NewReader(string(raw))
+	}
+	req, err := http.NewRequestWithContext(ctx, method, strings.TrimRight(m.opts.Reeve.APIBase, "/")+path, body)
+	if err != nil {
+		return 0, nil, err
+	}
+	req.Header.Set("Authorization", "Bearer "+session.APIToken)
+	if body != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
+	client := m.opts.Reeve.HTTP
+	if client == nil {
+		client = &http.Client{Timeout: 60 * time.Second, Transport: &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true}}}
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return 0, nil, err
+	}
+	defer resp.Body.Close()
+	out, _ := io.ReadAll(io.LimitReader(resp.Body, 256<<10))
+	_ = m.opts.Store.TouchReeveSession(ctx, m.opts.TaskID)
+	return resp.StatusCode, out, nil
+}
+
+type watchAgentInput struct {
+	TaskID string   `json:"task_id" jsonschema:"the task whose agent to watch"`
+	Events []string `json:"events,omitempty" jsonschema:"what to be told of: waiting (a question or permission prompt), idle, background (only background work runs), error, exited, note (a task note added), pr (a pull request opened or changed); all when left out"`
+}
+
+type unwatchAgentInput struct {
+	TaskID string `json:"task_id" jsonschema:"the task whose agent to stop watching"`
+}
+
+func (m *mcpTools) watchAgent() mcpserver.Tool {
+	return mcpserver.NewTool(mcpserver.Definition{
+		Name: "watch_agent", Title: "Watch an agent",
+		Description: "Be told when an agent waits for the operator, goes idle, works only in the background, errors, exits, adds a task note or has a pull request opened or changed. A [legato agent] message arrives between your turns with what changed and the agent's last message; do not poll it. Watching asks no approval, outlives a restart, and ends when the agent exits. Agents you start or message through a change set are watched already, while reeve.watch.started is on.",
+	}, func(ctx context.Context, in watchAgentInput) (mcpserver.Result, error) {
+		if err := m.mustBeReeve(ctx); err != nil {
+			return mcpserver.Result{}, err
+		}
+		raw, _ := json.Marshal(map[string]any{"task_id": in.TaskID, "events": in.Events})
+		if len(in.Events) == 0 {
+			raw, _ = json.Marshal(map[string]any{"task_id": in.TaskID})
+		}
+		status, out, err := m.callAPI(ctx, http.MethodPost, "/api/reeve/watches", raw)
+		if err != nil {
+			return mcpserver.Result{}, err
+		}
+		if status != http.StatusCreated {
+			return mcpserver.Result{}, fmt.Errorf("watching %s: %d %s", in.TaskID, status, strings.TrimSpace(string(out)))
+		}
+		var watch service.ReeveWatchInfo
+		_ = json.Unmarshal(out, &watch)
+		return mcpserver.Result{Text: fmt.Sprintf("Watching %s for %s. Its agent is %s now.", in.TaskID, strings.Join(watch.Events, ", "), firstLine(watch.State, "not started yet"))}, nil
+	})
+}
+
+func (m *mcpTools) unwatchAgent() mcpserver.Tool {
+	return mcpserver.NewTool(mcpserver.Definition{
+		Name: "unwatch_agent", Title: "Stop watching an agent",
+		Description: "Stop being told what an agent does.",
+	}, func(ctx context.Context, in unwatchAgentInput) (mcpserver.Result, error) {
+		if err := m.mustBeReeve(ctx); err != nil {
+			return mcpserver.Result{}, err
+		}
+		status, out, err := m.callAPI(ctx, http.MethodDelete, "/api/reeve/watches/"+url.PathEscape(in.TaskID), nil)
+		if err != nil {
+			return mcpserver.Result{}, err
+		}
+		if status != http.StatusOK {
+			return mcpserver.Result{}, fmt.Errorf("unwatching %s: %d %s", in.TaskID, status, strings.TrimSpace(string(out)))
+		}
+		return mcpserver.Result{Text: in.TaskID + " is no longer watched."}, nil
+	})
+}
+
+func (m *mcpTools) listWatches() mcpserver.Tool {
+	return mcpserver.NewTool(mcpserver.Definition{
+		Name: "list_watches", Title: "List the agents you watch",
+		Description: "Lists the agents you watch, what you are told of for each, and how each stands.",
+	}, func(ctx context.Context, _ struct{}) (mcpserver.Result, error) {
+		if err := m.mustBeReeve(ctx); err != nil {
+			return mcpserver.Result{}, err
+		}
+		status, out, err := m.callAPI(ctx, http.MethodGet, "/api/reeve/watches", nil)
+		if err != nil {
+			return mcpserver.Result{}, err
+		}
+		var list struct {
+			Watches []service.ReeveWatchInfo `json:"watches"`
+		}
+		if status != http.StatusOK || json.Unmarshal(out, &list) != nil {
+			return mcpserver.Result{}, fmt.Errorf("listing watches: %d %s", status, strings.TrimSpace(string(out)))
+		}
+		if len(list.Watches) == 0 {
+			return mcpserver.Result{Text: "You watch no agents."}, nil
+		}
+		var b strings.Builder
+		for _, w := range list.Watches {
+			fmt.Fprintf(&b, "- %s (%s): %s; told of %s\n", w.TaskID, w.Title, firstLine(w.State, "not started yet"), strings.Join(w.Events, ", "))
+		}
+		return mcpserver.Result{Text: b.String()}, nil
 	})
 }
 

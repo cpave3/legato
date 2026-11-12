@@ -365,6 +365,9 @@ The Reeve's defaults, read when a session starts. Usually set in Settings › Re
 | `reeve.voice.follow_up` | duration | `6s` | How long the voice listens for your reply after the Reeve has spoken. `0s` for a single turn. |
 | `reeve.voice.quiet_hours` | string | none | Hours when no line plays on this machine's speakers, as `22:00-07:00` in its local time; the Reeve replies in writing instead. A reply to something you said to it still plays on your device. |
 | `reeve.voice.partials` | bool | `true` | Shows the words so far while you speak, by transcribing about once a second. Turn it off when Whisper runs on a CPU or is shared with Home Assistant. |
+| `reeve.watch.settle` | duration | `30s` | How long an agent the Reeve watches must stay idle, or busy only in the background, before the Reeve is told, so brief pauses do not wake it. See [Watching agents](/legato/using/reeve/#watching-agents). |
+| `reeve.watch.started` | bool | `true` | Watches every agent the Reeve starts or messages. |
+| `reeve.watch.wake` | bool | `false` | When a watched agent needs the Reeve and no session is running, starts or resumes one to tell it. Off, the news waits for the next session. On costs tokens while you are away. |
 
 ## Updates
 

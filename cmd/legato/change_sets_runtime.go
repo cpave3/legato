@@ -6,7 +6,6 @@ import (
 	"crypto/tls"
 	"fmt"
 	"io"
-	"log"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -27,6 +26,41 @@ import (
 // process serves the broker.
 var processChangeSets *service.ChangeSetService
 
+// processWatcher is the agents the Reeve watches: the routes and tools
+// that watch, and the check that tells it what they did.
+var processWatcher *service.ReeveWatcher
+
+// newReeveWatcher tells the Reeve what the agents it watches do, through
+// ReeveService.Message (which resumes or starts a session, when the
+// watcher decides to wake it), with each agent's conversation read through
+// the agent service.
+func newReeveWatcher(db *store.Store, reeve *service.ReeveService, agents service.AgentService) *service.ReeveWatcher {
+	opts := service.ReeveWatcherOptions{
+		Store:   db,
+		Deliver: func(ctx context.Context, text string) error { return reeve.Message(ctx, text, "legato") },
+		Settings: func(ctx context.Context) service.ReeveWatchSettings {
+			cfg, err := settingsFor(db).Effective(ctx)
+			if err != nil || cfg == nil {
+				return service.ReeveWatchSettings{Started: true}
+			}
+			return service.ReeveWatchSettings{Settle: cfg.Reeve.WatchSettle(), Started: cfg.Reeve.WatchStarted(), Wake: cfg.Reeve.Watch.Wake}
+		},
+	}
+	if reader, ok := agents.(service.AgentConversationReader); ok {
+		opts.Conversation = func(ctx context.Context, taskID string) (*service.ConversationTail, error) {
+			return reader.ConversationTail(ctx, taskID, 12)
+		}
+	}
+	return service.NewReeveWatcher(opts)
+}
+
+// wireReeveWatches serves the Reeve's watches, when this process watches.
+func wireReeveWatches(srv *server.Server) {
+	if processWatcher != nil {
+		srv.SetReeveWatches(processWatcher)
+	}
+}
+
 // processSecrets asks the person for the Reeve's secrets.
 var processSecrets *service.ReeveSecrets
 
@@ -38,10 +72,7 @@ var processStart = time.Now()
 // approved sets in the background while it serves the broker.
 func startChangeSets(ctx context.Context, cfg *config.Config, db *store.Store, approvals *service.ApprovalService, agents service.AgentService, owner func() bool) *service.ChangeSetService {
 	reeve := newReeveService(db, agents, nil, approvals)
-	// The agents the Reeve's change sets start or message: it is told what
-	// they do.
-	watcher := service.NewReeveWatcher(service.ReeveWatcherOptions{Store: db,
-		Notify: func(ctx context.Context, taskID, text string) { notifyReeve(ctx, db, reeve, taskID, text) }})
+	watcher := newReeveWatcher(db, reeve, agents)
 	changeSets := service.NewChangeSetService(service.ChangeSetOptions{
 		Store: db, Approvals: approvals, Settings: settingsFor(db),
 		Classify:       classifyCall,
@@ -54,11 +85,9 @@ func startChangeSets(ctx context.Context, cfg *config.Config, db *store.Store, a
 		Notify: func(ctx context.Context, taskID, text string) {
 			notifyReeve(ctx, db, reeve, taskID, text)
 		},
-		Watch: func(ctx context.Context, reeveTaskID, taskID string) {
-			if err := watcher.Watch(ctx, reeveTaskID, taskID); err != nil {
-				log.Printf("reeve: watching %s: %v", taskID, err)
-			}
-		},
+		// The agents the Reeve's change sets start or message are watched,
+		// while reeve.watch.started is on.
+		Watch: watcher.WatchStarted,
 		RunningAgents: func(ctx context.Context) []string {
 			var ids []string
 			if agents == nil {
@@ -81,6 +110,7 @@ func startChangeSets(ctx context.Context, cfg *config.Config, db *store.Store, a
 		go whileBrokerOwner(ctx, owner, service.ReeveWatchCheckEvery, func(ctx context.Context) { watcher.Check(ctx) })
 	}
 	processChangeSets = changeSets
+	processWatcher = watcher
 	return changeSets
 }
 
