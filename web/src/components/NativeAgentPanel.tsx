@@ -21,6 +21,7 @@ import { NativeSlashMenu } from "./NativeSlashMenu"
 import { AgentUICallCard } from "./AgentUICallCard"
 import { ReadImageRow } from "./ReadImageRow"
 import { PastedImageStrip } from "./PastedImageStrip"
+import { AttachImageButton } from "./AttachImageButton"
 import { AgentChatHeader, type AgentChatState, type AgentMenuEntry, type SidePanelsProps } from "./AgentChatHeader"
 import { ResourcesButton } from "./ResourcesButton"
 import { ContextGauge, ContextNotice, DictateButton, DictationBar, QueuedList, SendButton, WorkingStrip, type QueuedEntry } from "./Composer"
@@ -1130,7 +1131,8 @@ export function NativeAgentPanel({ agentId, reeve, sandboxed, onKill, onRename, 
           the agent works (model, effort, mode, resources, macros) beside
           how full its context is and the buttons that send and interrupt. */}
       <div className="px-3 pb-3 md:px-6 md:pb-[18px]">
-        <div className={`relative mx-auto flex w-full max-w-[820px] flex-col rounded-[10px] border bg-lw-surface max-sm:rounded-xl ${dictating(voice) ? "border-lw-danger-line" : "border-lw-line-strong"}`}>
+        {/* An image dropped anywhere on the composer joins the message. */}
+        <div {...(composerEnabled ? pasted.dropTarget : {})} className={`relative mx-auto flex w-full max-w-[820px] flex-col rounded-[10px] border bg-lw-surface max-sm:rounded-xl ${dictating(voice) ? "border-lw-danger-line" : pasted.dragging ? "border-lw-accent" : "border-lw-line-strong"}`}>
           {slashOpen && (
             <NativeSlashMenu
               listId={slashListId}
@@ -1175,6 +1177,7 @@ export function NativeAgentPanel({ agentId, reeve, sandboxed, onKill, onRename, 
           {dictating(voice) ? <DictationBar recorder={voice} /> : (
           <div data-testid="composer-actions" className="flex min-w-0 items-center gap-1 px-2 pb-2 pt-1.5 text-xs text-lw-text-2 max-sm:gap-0.5 max-sm:px-1.5">
             <div className="flex min-w-0 flex-1 items-center gap-1 max-sm:gap-0.5">
+            {composerEnabled && <AttachImageButton onFiles={pasted.attach} />}
             {models.length > 0 && (
               <ComposerModelMenu
                 models={models}

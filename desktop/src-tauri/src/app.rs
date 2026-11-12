@@ -223,6 +223,10 @@ fn make_server_view(app: &AppHandle, server: &Server, token: Option<String>, pat
     let builder = WebviewBuilder::new(webview_label(&server.id), WebviewUrl::External("about:blank".parse().unwrap()))
         .initialization_script(&seed)
         .initialization_script(&shell_bridge)
+        // Files dropped on the page are the page's: an image dropped on an
+        // agent's chat. Tauri's own handler would finish the drop itself
+        // (wry returns true to GTK), and WebKit would never fire `drop`.
+        .disable_drag_drop_handler()
         .on_new_window(move |url, _| {
             // A link that opens a window (target=_blank, window.open) never
             // makes one: another site goes to the system's browser.

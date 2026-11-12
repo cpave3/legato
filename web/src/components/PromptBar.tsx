@@ -4,6 +4,7 @@ import { useServer } from "../hooks/useServer"
 import { usePastedImages } from "../hooks/usePastedImages"
 import { insertAtCursor } from "../lib/agentImage"
 import { PastedImageStrip } from "./PastedImageStrip"
+import { AttachImageButton } from "./AttachImageButton"
 import { useMacroHotkeys } from "../hooks/useMacroHotkeys"
 import { apiFetch } from "../lib/api"
 import { cn } from "../lib/utils"
@@ -317,7 +318,8 @@ export const PromptBar = forwardRef<PromptBarHandle, PromptBarProps>(function Pr
       )}
       {!menuInHeader && terminalMenu.upgradeError && <div role="alert" className="mb-2 text-xs text-lw-error">{terminalMenu.upgradeError}</div>}
 
-      <div className={cn("mx-auto flex w-full max-w-[820px] flex-col rounded-[10px] border bg-lw-surface max-sm:rounded-xl", dictating(voice) ? "border-lw-danger-line" : "border-lw-line-strong", menuInHeader && "mt-3")}>
+      {/* An image dropped anywhere on the composer joins the message. */}
+      <div {...pasted.dropTarget} className={cn("mx-auto flex w-full max-w-[820px] flex-col rounded-[10px] border bg-lw-surface max-sm:rounded-xl", dictating(voice) ? "border-lw-danger-line" : pasted.dragging ? "border-lw-accent" : "border-lw-line-strong", menuInHeader && "mt-3")}>
         {isWorking && !asking && <WorkingStrip onInterrupt={() => onSendKeys("Escape")} />}
         {asking && promptState?.actions && type && (
           <div className="p-2.5">
@@ -363,6 +365,7 @@ export const PromptBar = forwardRef<PromptBarHandle, PromptBarProps>(function Pr
         {dictating(voice) ? <DictationBar recorder={voice} /> : (
         <div className={cn("flex min-w-0 items-center gap-1 px-2 pb-2 pt-1.5 text-xs text-lw-text-2 max-sm:gap-0.5 max-sm:px-1.5", asking && "border-t border-lw-line")}>
           <div className="flex min-w-0 flex-1 items-center gap-1 max-sm:gap-0.5">
+            {!asking && <AttachImageButton onFiles={pasted.attach} disabled={connected === false} />}
             <button type="button" onClick={() => onSendKeys("BTab")} className={composerToolButton()} title="Cycle Claude mode (Shift+Tab)" aria-label="Mode">
               <ArrowLeftRight size={16} aria-hidden="true" className="sm:hidden" />
               <span className="hidden sm:inline">Mode</span>
