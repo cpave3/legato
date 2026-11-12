@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net"
 	"net/http"
 	"os"
@@ -119,7 +120,7 @@ func RunCodexBridge(ctx context.Context, s *store.Store, opts CodexBridgeOptions
 			reportCtx, stop := context.WithTimeout(context.WithoutCancel(runCtx), 10*time.Second)
 			defer stop()
 			if err := host.TurnEnded(reportCtx, status); err != nil {
-				fmt.Fprintf(os.Stderr, "legato: the end of a %s turn was not reported: %v\n", status, err)
+				log.Printf("codex bridge: the end of a %s turn was not reported: %v", status, err)
 			}
 		},
 	})

@@ -439,11 +439,9 @@ func TestClaudeBridgeEndsAnInterruptedTurn(t *testing.T) {
 		t.Fatalf("events = %d %s", code, body)
 	}
 
-	session, err := s.GetAgentSessionByTaskID(context.Background(), "task1")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if session.Activity != "" {
-		t.Fatalf("activity after the interrupt = %q, want idle", session.Activity)
-	}
+	// The bridge waits a moment to see that no new turn began.
+	waitFor(t, "the agent idle after the interrupt", func() bool {
+		session, err := s.GetAgentSessionByTaskID(context.Background(), "task1")
+		return err == nil && session.Activity == ""
+	})
 }

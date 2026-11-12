@@ -44,14 +44,21 @@ type Options struct {
 	OnIdentity func(sessionID, cwd string) error
 	// OnTurnEnded is told the status of a turn of the session's thread that
 	// did not complete ("interrupted", "failed"). It runs off the RPC
-	// reader, so a slow report holds nothing up.
+	// reader, TurnEndedDelay after the turn ended, and not at all when
+	// another turn has started by then: that turn's own hooks report it.
 	OnTurnEnded func(status string)
+	// TurnEndedDelay is that wait; zero means DefaultTurnEndedDelay.
+	TurnEndedDelay time.Duration
 	// RejoinEvery is how often joining a thread is retried while its first
 	// turn is starting. Zero means a sensible default.
 	RejoinEvery time.Duration
 	// Now overrides the clock in tests.
 	Now func() time.Time
 }
+
+// DefaultTurnEndedDelay is how long the bridge waits after a turn ended
+// without completing before it says so, to see whether another has begun.
+const DefaultTurnEndedDelay = 1500 * time.Millisecond
 
 // Bridge holds one Codex session's conversation state and serves it.
 type Bridge struct {
@@ -63,6 +70,7 @@ type Bridge struct {
 	now             func() time.Time
 	onIdentity      func(string, string) error
 	onTurnEnded     func(string)
+	turnEndedDelay  time.Duration
 	identityID      string
 	identityCWD     string
 	identityErr     chan error
@@ -130,14 +138,20 @@ func New(opts Options) *Bridge {
 	session := newSession()
 	session.cwd = opts.CWD
 	b := &Bridge{
-		taskID:       opts.TaskID,
-		token:        opts.Token,
-		appURL:       opts.AppServerURL,
-		appToken:     opts.AppServerToken,
-		rejoinEvery:  rejoinEvery,
-		now:          now,
-		onIdentity:   opts.OnIdentity,
-		onTurnEnded:  opts.OnTurnEnded,
+		taskID:      opts.TaskID,
+		token:       opts.Token,
+		appURL:      opts.AppServerURL,
+		appToken:    opts.AppServerToken,
+		rejoinEvery: rejoinEvery,
+		now:         now,
+		onIdentity:  opts.OnIdentity,
+		onTurnEnded: opts.OnTurnEnded,
+		turnEndedDelay: func() time.Duration {
+			if opts.TurnEndedDelay > 0 {
+				return opts.TurnEndedDelay
+			}
+			return DefaultTurnEndedDelay
+		}(),
 		identityErr:  make(chan error, 1),
 		identityWake: make(chan struct{}, 1),
 		identityDone: make(chan struct{}),
@@ -372,7 +386,7 @@ func (b *Bridge) handle(incoming frame) {
 			return s.finishTurn(params.Turn.Status, failure)
 		})
 		if ours && b.onTurnEnded != nil && runFinishReason(params.Turn.Status) != "stop" {
-			go b.onTurnEnded(params.Turn.Status)
+			go b.reportTurnEnded(params.Turn.Status)
 		}
 	case "item/started", "item/completed":
 		var params struct {
@@ -585,4 +599,20 @@ func randomHex(bytes int) string {
 		return "0"
 	}
 	return hex.EncodeToString(buf)
+}
+
+// reportTurnEnded tells OnTurnEnded that a turn did not complete, once
+// TurnEndedDelay has passed with no other turn begun.
+func (b *Bridge) reportTurnEnded(status string) {
+	select {
+	case <-time.After(b.turnEndedDelay):
+	case <-b.closed:
+		return
+	}
+	b.mu.Lock()
+	busy := b.session.busy
+	b.mu.Unlock()
+	if !busy {
+		b.onTurnEnded(status)
+	}
 }

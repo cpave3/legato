@@ -3,10 +3,14 @@ package cli_test
 import (
 	"bufio"
 	"context"
+	"encoding/json"
+	"fmt"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
+	"time"
+	"unicode/utf8"
 
 	"github.com/cpave3/legato/internal/cli"
 	"github.com/cpave3/legato/internal/engine/store"
@@ -346,11 +350,10 @@ func TestClaudeHook_StateAndJobsOutliveLegato(t *testing.T) {
 
 func (a *hookAgent) turnEnded(reason string) step {
 	a.t.Helper()
-	hook := cli.ClaudeHook{Event: cli.ClaudeTurnEnded, Reason: reason}
-	if err := cli.ApplyClaudeHook(a.s, cli.ClaudeHookReport{TaskID: a.taskID, ExecutionID: a.execution, Hook: hook}, a.notifier, a.notifier); err != nil {
+	if err := cli.ApplyTurnEnded(a.s, a.taskID, a.execution, reason, a.notifier, a.notifier); err != nil {
 		a.t.Fatal(err)
 	}
-	return a.now(cli.ClaudeTurnEnded)
+	return a.now(cli.HookTurnEnded)
 }
 
 // lineOf is one payload of a recorded sequence, counting from 0.
@@ -431,5 +434,211 @@ func TestABridgeReportLeavesTheSessionsOwnHooksInCharge(t *testing.T) {
 				t.Fatalf("the session's own hook was ignored after a bridge report: %q", got.activity)
 			}
 		})
+	}
+}
+
+// What a session reports of its jobs is the agent's to write, and reaches
+// the Reeve, the API and the operator's terminal: Legato keeps known kinds,
+// one short line of text and a bounded list.
+func TestClaudeHook_JobsAreKeptToWhatLegatoCanShowSafely(t *testing.T) {
+	agent := newHookAgent(t)
+	agent.send(lineOf(t, "background-bash", 1))
+	var running []map[string]any
+	for i := range 40 {
+		running = append(running, map[string]any{"id": fmt.Sprintf("j%d", i), "type": "bash\n- LEG-1: forged line", "description": "line one\nline two \x1b]52;c;aGk=\x07 " + strings.Repeat("x", 400)})
+	}
+	payload, _ := json.Marshal(map[string]any{"hook_event_name": "Stop", "background_tasks": running})
+
+	got := agent.send(payload)
+
+	if len(got.jobs) != 32 {
+		t.Fatalf("jobs kept = %d, want 32", len(got.jobs))
+	}
+	job := got.jobs[0]
+	if job.Kind != "other" {
+		t.Fatalf("kind = %q, want other", job.Kind)
+	}
+	if strings.ContainsAny(job.Label, "\n\x1b\x07") || utf8.RuneCountInString(job.Label) > 200 || !strings.HasPrefix(job.Label, "line one line two") {
+		t.Fatalf("label = %q", job.Label)
+	}
+}
+
+// A subagent's own permission prompt waits on the operator; once allowed,
+// the agent goes back to what it was doing: working in a foreground
+// subagent, in the background for one that outlived the turn. The payloads
+// follow the recorded shapes (a subagent's hooks carry its agent_id).
+func TestClaudeHook_ASubagentsPermissionPromptEndsWhenItIsAnswered(t *testing.T) {
+	permission := func(agentID string) []byte {
+		return []byte(`{"hook_event_name":"PermissionRequest","agent_id":"` + agentID + `","tool_name":"Bash","tool_input":{"command":"touch x"}}`)
+	}
+	allowed := func(agentID string) []byte {
+		return []byte(`{"hook_event_name":"PostToolUse","agent_id":"` + agentID + `","tool_name":"Bash","tool_input":{"command":"touch x"},"tool_response":{"stdout":""}}`)
+	}
+
+	t.Run("foreground", func(t *testing.T) {
+		agent := newHookAgent(t)
+		agent.send(lineOf(t, "background-bash", 1)) // the turn starts
+		if got := agent.send(permission("a1")); got.activity != store.ActivityWaiting {
+			t.Fatalf("on the prompt: %q", got.activity)
+		}
+		if got := agent.send(allowed("a1")); got.activity != store.ActivityWorking {
+			t.Fatalf("once allowed: %q, want working", got.activity)
+		}
+	})
+	t.Run("background", func(t *testing.T) {
+		agent := newHookAgent(t)
+		agent.send(lineOf(t, "several-jobs-and-subagent", 1))
+		agent.send(lineOf(t, "several-jobs-and-subagent", 9)) // Stop: two shells and the subagent
+		const subagent = "ad5f8a8d3914377a8"
+		if got := agent.send(permission(subagent)); got.activity != store.ActivityWaiting {
+			t.Fatalf("on the prompt: %q", got.activity)
+		}
+		if got := agent.send(allowed(subagent)); got.activity != store.ActivityBackground || len(got.jobs) != 3 {
+			t.Fatalf("once allowed: %q [%s], want background with its jobs", got.activity, jobsOf(got))
+		}
+	})
+}
+
+// A subagent's API error is not the session's: its turn goes on.
+func TestClaudeHook_ASubagentsErrorIsNotTheSessions(t *testing.T) {
+	agent := newHookAgent(t)
+	agent.send(lineOf(t, "background-bash", 1))
+
+	got := agent.send([]byte(`{"hook_event_name":"StopFailure","agent_id":"a1","error":"rate_limit"}`))
+
+	if got.activity != store.ActivityWorking {
+		t.Fatalf("after a subagent's error: %q, want working", got.activity)
+	}
+}
+
+// Jobs that end together may wake the session with one prompt.
+func TestClaudeHook_OnePromptCanReportSeveralJobsEnding(t *testing.T) {
+	agent := newHookAgent(t)
+	agent.send(lineOf(t, "several-jobs-and-subagent", 1))
+	agent.send(lineOf(t, "several-jobs-and-subagent", 9))
+	prompt := "<task-notification>\n<task-id>bvf2m49z6</task-id>\n<status>completed</status>\n</task-notification>\n<task-notification>\n<task-id>bmvy04csq</task-id>\n<status>completed</status>\n</task-notification>"
+	payload, _ := json.Marshal(map[string]any{"hook_event_name": "UserPromptSubmit", "prompt": prompt})
+
+	got := agent.send(payload)
+
+	if jobsOf(got) != "subagent:general-purpose: count files" {
+		t.Fatalf("jobs = %q, want only the subagent", jobsOf(got))
+	}
+}
+
+// An interrupt is the operator's doing and ends the turn quietly; a turn
+// that failed is still news.
+func TestTurnEnded_NotifiesOnlyOfAnError(t *testing.T) {
+	for _, tc := range []struct {
+		reason string
+		notify bool
+	}{{"aborted", false}, {"failed", true}} {
+		t.Run(tc.reason, func(t *testing.T) {
+			agent := newHookAgent(t)
+			if err := agent.s.UpdateTaskNotifyEnabled(context.Background(), agent.taskID, true); err != nil {
+				t.Fatal(err)
+			}
+			agent.send(lineOf(t, "background-bash", 1))
+
+			if err := cli.ApplyTurnEnded(agent.s, agent.taskID, agent.execution, tc.reason, agent.notifier, agent.notifier); err != nil {
+				t.Fatal(err)
+			}
+
+			if notified := len(agent.notifier.calls) > 0; notified != tc.notify {
+				t.Fatalf("notified = %v, want %v (%+v)", notified, tc.notify, agent.notifier.calls)
+			}
+		})
+	}
+}
+
+// The cases below could not be recorded where these tests were written; their
+// payloads follow the shapes of the recorded ones and Claude Code's hook
+// reference.
+
+// A resumed or reloaded agent is a new session: what ran in the old process
+// ended with it, and the new one reports for itself from its first hook.
+func TestClaudeHook_AResumedAgentStartsWithNothingInTheBackground(t *testing.T) {
+	agent := newHookAgent(t)
+	agent.send(lineOf(t, "background-bash", 1))
+	agent.send(lineOf(t, "background-bash", 3))
+	agent.send(lineOf(t, "background-bash", 4)) // background, a shell running
+	ctx := context.Background()
+	if err := agent.s.UpdateAgentSessionStatus(ctx, agent.taskID, "dead"); err != nil {
+		t.Fatal(err)
+	}
+	if err := agent.s.TerminalizeExecution(ctx, agent.execution, store.ExecutionCancelled); err != nil {
+		t.Fatal(err)
+	}
+	if err := agent.s.InsertAgentSession(ctx, store.AgentSession{TaskID: agent.taskID, TmuxSession: "legato-abc123-resumed", AgentKind: "claude-code", Status: "running"}); err != nil {
+		t.Fatal(err)
+	}
+	resumedSession, err := agent.s.GetAgentSessionByTaskID(ctx, agent.taskID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	agent.execution = "exec-resumed"
+	if err := agent.s.CreateExecution(ctx, store.Execution{ID: agent.execution, Kind: store.ExecutionInteractive, Status: store.ExecutionRunning, TaskID: agent.taskID, ExecutionTaskID: agent.taskID, AgentSessionID: &resumedSession.ID, StartedAt: time.Now().UTC()}); err != nil {
+		t.Fatal(err)
+	}
+
+	start := agent.send([]byte(`{"hook_event_name":"SessionStart","source":"resume"}`))
+	resumed := agent.send([]byte(`{"hook_event_name":"UserPromptSubmit","prompt":"[legato interrupted] Carry on."}`))
+
+	if start.activity != "" || len(start.jobs) != 0 {
+		t.Fatalf("on resume: %q [%s], want idle with nothing running", start.activity, jobsOf(start))
+	}
+	if resumed.activity != store.ActivityWorking {
+		t.Fatalf("on the resume note: %q, want working", resumed.activity)
+	}
+	session, _ := agent.s.GetAgentSessionByTaskID(ctx, agent.taskID)
+	if session.HookSource != store.HookSourcePlugin {
+		t.Fatalf("hook source = %q, want the plugin's from its first hook", session.HookSource)
+	}
+}
+
+func TestClaudeHook_ARateLimitIsAnError(t *testing.T) {
+	agent := newHookAgent(t)
+	agent.send(lineOf(t, "background-bash", 1))
+
+	got := agent.send([]byte(`{"hook_event_name":"StopFailure","error":"rate_limit","last_assistant_message":"API Error: rate limited"}`))
+
+	if got.activity != store.ActivityError {
+		t.Fatalf("after a rate limit: %q, want error", got.activity)
+	}
+}
+
+// Compaction Claude Code starts itself happens inside a turn, which goes on.
+func TestClaudeHook_AutomaticCompactionKeepsTheTurnWorking(t *testing.T) {
+	agent := newHookAgent(t)
+	agent.send(lineOf(t, "background-bash", 1))
+
+	steps := []step{
+		agent.send([]byte(`{"hook_event_name":"PreCompact","trigger":"auto","custom_instructions":null}`)),
+		agent.send([]byte(`{"hook_event_name":"SessionStart","source":"compact"}`)),
+		agent.send([]byte(`{"hook_event_name":"PostCompact","trigger":"auto","compact_summary":"…"}`)),
+	}
+
+	if got := states(steps); got != "PreCompact=working SessionStart=working PostCompact=working" {
+		t.Fatalf("states: %s", got)
+	}
+}
+
+// A subagent run in the foreground is part of the turn: its tool calls keep
+// it working, and its return starts nothing that runs on.
+func TestClaudeHook_AForegroundSubagentIsPartOfTheTurn(t *testing.T) {
+	agent := newHookAgent(t)
+	agent.send(lineOf(t, "background-bash", 1))
+
+	steps := []step{
+		agent.send([]byte(`{"hook_event_name":"PostToolUse","agent_id":"a1","agent_type":"Explore","tool_name":"Grep","tool_input":{"pattern":"x"},"tool_response":{"numFiles":0}}`)),
+		agent.send([]byte(`{"hook_event_name":"PostToolUse","tool_name":"Agent","tool_input":{"description":"find callers","prompt":"…","subagent_type":"Explore"},"tool_response":{"status":"completed","content":[{"type":"text","text":"none"}]}}`)),
+		agent.send([]byte(`{"hook_event_name":"Stop","background_tasks":[],"session_crons":[]}`)),
+	}
+
+	if got := states(steps); got != "PostToolUse=working PostToolUse=working Stop=idle" {
+		t.Fatalf("states: %s", got)
+	}
+	if len(steps[1].jobs) != 0 {
+		t.Fatalf("a foreground subagent left jobs: %s", jobsOf(steps[1]))
 	}
 }

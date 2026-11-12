@@ -7,6 +7,7 @@ import (
 	"regexp"
 	"strings"
 	"time"
+	"unicode"
 
 	"github.com/cpave3/legato/internal/engine/ipc"
 	"github.com/cpave3/legato/internal/engine/store"
@@ -15,21 +16,22 @@ import (
 
 // Claude Code hook events Legato reads, and the one the native bridge adds.
 const (
-	ClaudeSessionStart     = "SessionStart"
-	ClaudeUserPromptSubmit = "UserPromptSubmit"
-	ClaudePostToolUse      = "PostToolUse"
-	ClaudePermissionReq    = "PermissionRequest"
-	ClaudeStop             = "Stop"
-	ClaudeStopFailure      = "StopFailure"
-	ClaudePreCompact       = "PreCompact"
-	ClaudePostCompact      = "PostCompact"
-	ClaudeSessionEnd       = "SessionEnd"
-	// ClaudeTurnEnded is not Claude Code's: a native bridge (Claude Code's
-	// or Codex's) sends it when a main turn ends without an answer (an
-	// interrupt, an error), which no hook reports. Reason "failed" or
-	// "error" is an error.
-	ClaudeTurnEnded = "TurnEnded"
+	ClaudeSessionStart      = "SessionStart"
+	ClaudeUserPromptSubmit  = "UserPromptSubmit"
+	ClaudePostToolUse       = "PostToolUse"
+	ClaudePermissionRequest = "PermissionRequest"
+	ClaudeStop              = "Stop"
+	ClaudeStopFailure       = "StopFailure"
+	ClaudePreCompact        = "PreCompact"
+	ClaudePostCompact       = "PostCompact"
+	ClaudeSessionEnd        = "SessionEnd"
 )
+
+// HookTurnEnded is no agent tool's own hook: a native bridge (Claude Code's
+// or Codex's) sends it when a main turn ends without an answer (an
+// interrupt, an error), which no hook reports. Reason "failed" or "error" is
+// an error. See ApplyTurnEnded.
+const HookTurnEnded = "TurnEnded"
 
 // ClaudeHook is what Legato keeps of one Claude Code hook payload: only
 // what the agent's state needs, so a large tool result never travels to the
@@ -40,9 +42,9 @@ type ClaudeHook struct {
 	AgentID string `json:"agent_id,omitempty"`
 	// Started is the background job a tool call started (PostToolUse).
 	Started *store.BackgroundJob `json:"started,omitempty"`
-	// Woke is the background job whose end woke the session
-	// (UserPromptSubmit with a task notification).
-	Woke string `json:"woke,omitempty"`
+	// Woke are the background jobs whose end woke the session
+	// (UserPromptSubmit with task notifications).
+	Woke []string `json:"woke,omitempty"`
 	// Running is what still runs as the turn ends (Stop): background tasks
 	// and session crons.
 	Running []store.BackgroundJob `json:"running,omitempty"`
@@ -95,7 +97,7 @@ func ParseClaudeHook(raw []byte) (ClaudeHook, error) {
 		hook.Woke = wokenBy(p.Prompt)
 	case ClaudeStop:
 		for _, task := range p.BackgroundTasks {
-			job := store.BackgroundJob{ID: task.ID, Kind: task.Type, Label: firstText(task.Description, task.Command)}
+			job := store.BackgroundJob{ID: task.ID, Kind: task.Type, Label: strings.TrimSpace(firstNonBlank(task.Description, task.Command))}
 			switch task.Type {
 			case "shell":
 				job.Kind = store.JobBash
@@ -132,7 +134,7 @@ func startedJob(tool string, rawInput, rawResponse json.RawMessage) *store.Backg
 	// A tool's response is an object, a string or a list; only an object
 	// names a job.
 	_ = json.Unmarshal(rawResponse, &response)
-	label := firstText(input.Description, input.Command)
+	label := strings.TrimSpace(firstNonBlank(input.Description, input.Command))
 	switch {
 	case tool == "Bash" && response.BackgroundTaskID != "":
 		return &store.BackgroundJob{Kind: store.JobBash, ID: response.BackgroundTaskID, Label: label}
@@ -148,32 +150,24 @@ func startedJob(tool string, rawInput, rawResponse json.RawMessage) *store.Backg
 
 func subagentLabel(agentType, description string) string {
 	if agentType == "" || description == "" {
-		return firstText(description, agentType)
+		return strings.TrimSpace(firstNonBlank(description, agentType))
 	}
 	return agentType + ": " + description
 }
 
 var taskNotificationID = regexp.MustCompile(`<task-id>([^<]+)</task-id>`)
 
-// wokenBy is the background job a prompt reports the end of: Claude Code
-// wakes a session for one with a prompt that is a <task-notification>.
-func wokenBy(prompt string) string {
+// wokenBy are the background jobs a prompt reports the end of: Claude Code
+// wakes a session with a prompt of <task-notification>s.
+func wokenBy(prompt string) []string {
 	if !strings.HasPrefix(strings.TrimSpace(prompt), "<task-notification>") {
-		return ""
+		return nil
 	}
-	if m := taskNotificationID.FindStringSubmatch(prompt); m != nil {
-		return strings.TrimSpace(m[1])
+	var ids []string
+	for _, m := range taskNotificationID.FindAllStringSubmatch(prompt, -1) {
+		ids = append(ids, strings.TrimSpace(m[1]))
 	}
-	return ""
-}
-
-func firstText(values ...string) string {
-	for _, v := range values {
-		if strings.TrimSpace(v) != "" {
-			return strings.TrimSpace(v)
-		}
-	}
-	return ""
+	return ids
 }
 
 // ClaudeHookReport is one hook of a Claude Code session, for the session's
@@ -200,7 +194,7 @@ func applyClaudeHookAt(s *store.Store, report ClaudeHookReport, now time.Time, p
 	if report.ExecutionID != "" && session.ExecutionID != report.ExecutionID {
 		return fmt.Errorf("execution %q does not own running task session %s", report.ExecutionID, report.TaskID)
 	}
-	hook := report.Hook
+	hook := cleanHook(report.Hook)
 	jobs := append(store.BackgroundJobs(nil), session.BackgroundJobs...)
 	activity, decided := session.Activity, false
 	set := func(to string) { activity, decided = to, true }
@@ -214,19 +208,25 @@ func applyClaudeHookAt(s *store.Store, report ClaudeHookReport, now time.Time, p
 	switch hook.Event {
 	case ClaudeUserPromptSubmit:
 		set(store.ActivityWorking)
-		if hook.Woke != "" {
-			jobs = withoutJob(jobs, hook.Woke)
+		for _, id := range hook.Woke {
+			jobs = withoutJob(jobs, id)
 		}
 	case ClaudePostToolUse:
 		// A subagent's tool calls say nothing of the main loop's turn: a
-		// background subagent makes them after that turn has ended.
-		if hook.AgentID == "" {
+		// background subagent makes them after that turn has ended. Only
+		// its permission prompt, once answered, is over.
+		switch {
+		case hook.AgentID == "":
 			set(store.ActivityWorking)
 			if hook.Started != nil {
 				jobs = withJob(jobs, *hook.Started, now)
 			}
+		case session.Activity == store.ActivityWaiting && hasJob(jobs, hook.AgentID):
+			set(store.ActivityBackground)
+		case session.Activity == store.ActivityWaiting:
+			set(store.ActivityWorking)
 		}
-	case ClaudePermissionReq:
+	case ClaudePermissionRequest:
 		set(store.ActivityWaiting)
 	case ClaudeStop:
 		if hook.AgentID == "" {
@@ -234,7 +234,10 @@ func applyClaudeHookAt(s *store.Store, report ClaudeHookReport, now time.Time, p
 			set(settled())
 		}
 	case ClaudeStopFailure:
-		set(store.ActivityError)
+		// A subagent's error is reported to the turn that runs it.
+		if hook.AgentID == "" {
+			set(store.ActivityError)
+		}
 	case ClaudePreCompact:
 		if hook.Trigger == "manual" {
 			set(store.ActivityWorking)
@@ -246,7 +249,7 @@ func applyClaudeHookAt(s *store.Store, report ClaudeHookReport, now time.Time, p
 	case ClaudeSessionEnd:
 		jobs = nil
 		set("")
-	case ClaudeTurnEnded:
+	case HookTurnEnded:
 		// Only a turn no Stop or StopFailure has settled: the bridge's
 		// report may come before or after theirs.
 		if session.Activity == store.ActivityWorking || session.Activity == store.ActivityWaiting {
@@ -262,7 +265,7 @@ func applyClaudeHookAt(s *store.Store, report ClaudeHookReport, now time.Time, p
 	// A bridge's report is not the plugin's: a Codex session's own hooks
 	// must still count after it.
 	source := store.HookSourcePlugin
-	if hook.Event == ClaudeTurnEnded {
+	if hook.Event == HookTurnEnded {
 		source = ""
 	}
 	firstReport := source != "" && session.HookSource != source
@@ -278,7 +281,22 @@ func applyClaudeHookAt(s *store.Store, report ClaudeHookReport, now time.Time, p
 		}
 		return nil
 	}
+	// An interrupt is the operator's own doing, or another agent's for it:
+	// it ends the turn quietly. An error is still news.
+	if hook.Event == HookTurnEnded && activity != store.ActivityError {
+		pushNotifier, osNotifier = nil, nil
+	}
 	return settleActivity(ctx, s, session, report.TaskID, report.ExecutionID, activity, report.WorkingDir, pushNotifier, osNotifier)
+}
+
+// ApplyTurnEnded reports that a session's main turn ended without an answer,
+// as a bridge saw it: idle (or background, with jobs still running), or
+// error for reason "failed" or "error". It changes only a session still
+// working or waiting, and never marks it as reported by the plugin, so the
+// session's own hooks keep counting.
+func ApplyTurnEnded(s *store.Store, taskID, executionID, reason string, pushNotifier, osNotifier service.Notifier) error {
+	report := ClaudeHookReport{TaskID: taskID, ExecutionID: executionID, Hook: ClaudeHook{Event: HookTurnEnded, Reason: reason}}
+	return ApplyClaudeHook(s, report, pushNotifier, osNotifier)
 }
 
 // withJob adds a job the agent started, unless it is listed already.
@@ -290,6 +308,15 @@ func withJob(jobs store.BackgroundJobs, job store.BackgroundJob, now time.Time) 
 	}
 	job.StartedAt = now
 	return append(jobs, job)
+}
+
+func hasJob(jobs store.BackgroundJobs, id string) bool {
+	for _, j := range jobs {
+		if j.ID == id {
+			return true
+		}
+	}
+	return false
 }
 
 func withoutJob(jobs store.BackgroundJobs, id string) store.BackgroundJobs {
@@ -337,4 +364,60 @@ func sameJobs(a, b store.BackgroundJobs) bool {
 		}
 	}
 	return true
+}
+
+// Limits on what a session reports of its jobs. The agent writes these, and
+// they reach the Reeve's messages, the API and the operator's terminal.
+const (
+	maxJobs        = 32
+	maxJobLabel    = 200
+	maxJobIDOrWhen = 64
+)
+
+// cleanHook keeps a hook's jobs to what Legato can show safely: a known
+// kind ("other" for any other), each text one line without control
+// characters and clipped, and at most maxJobs of them.
+func cleanHook(hook ClaudeHook) ClaudeHook {
+	if hook.Started != nil {
+		job := cleanJob(*hook.Started)
+		hook.Started = &job
+	}
+	if len(hook.Running) > maxJobs {
+		hook.Running = hook.Running[:maxJobs]
+	}
+	running := make([]store.BackgroundJob, len(hook.Running))
+	for i, job := range hook.Running {
+		running[i] = cleanJob(job)
+	}
+	if hook.Running != nil {
+		hook.Running = running
+	}
+	return hook
+}
+
+func cleanJob(job store.BackgroundJob) store.BackgroundJob {
+	switch job.Kind {
+	case store.JobBash, store.JobMonitor, store.JobSubagent, store.JobCron:
+	default:
+		job.Kind = "other"
+	}
+	job.ID = cleanText(job.ID, maxJobIDOrWhen)
+	job.Label = cleanText(job.Label, maxJobLabel)
+	job.Schedule = cleanText(job.Schedule, maxJobIDOrWhen)
+	return job
+}
+
+// cleanText is s on one line, without control characters, at most n runes.
+func cleanText(s string, n int) string {
+	s = strings.Map(func(r rune) rune {
+		if unicode.IsControl(r) {
+			return ' '
+		}
+		return r
+	}, s)
+	s = strings.Join(strings.Fields(s), " ")
+	if r := []rune(s); len(r) > n {
+		s = string(r[:n-1]) + "…"
+	}
+	return s
 }

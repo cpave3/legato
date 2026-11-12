@@ -101,8 +101,7 @@ func (h *storeBridgeHost) SaveIdentity(ctx context.Context, kind, providerSessio
 }
 
 func (h *storeBridgeHost) TurnEnded(_ context.Context, reason string) error {
-	hook := ClaudeHook{Event: ClaudeTurnEnded, Reason: reason}
-	return ApplyClaudeHook(h.s, ClaudeHookReport{TaskID: h.taskID, ExecutionID: h.session.ExecutionID, Hook: hook}, nil, nil)
+	return ApplyTurnEnded(h.s, h.taskID, h.session.ExecutionID, reason, nil, nil)
 }
 
 // recordsIdentity reports whether the task resumes this session's
@@ -152,7 +151,7 @@ func (h *brokerBridgeHost) SaveIdentity(ctx context.Context, kind, providerSessi
 }
 
 func (h *brokerBridgeHost) TurnEnded(ctx context.Context, reason string) error {
-	return h.call(ctx, "agent.hook", map[string]any{"hook": ClaudeHook{Event: ClaudeTurnEnded, Reason: reason}}, nil)
+	return h.call(ctx, "agent.hook", map[string]any{"hook": ClaudeHook{Event: HookTurnEnded, Reason: reason}}, nil)
 }
 
 // bridgeOps serve BridgeHost over the broker, through the store, for the

@@ -97,6 +97,7 @@ func TestClaudeStateModReportsEveryHookTheStateNeeds(t *testing.T) {
 	}
 	run("LEGATO_BIN=" + binary)
 	run("LEGATO_TASK_ID=task1")
+	run("LEGATO_BIN="+binary, "LEGATO_TASK_ID=task1") // no execution: not a session Legato started
 	if _, err := os.Stat(record); !os.IsNotExist(err) {
 		t.Fatal("Legato was run outside a Legato session")
 	}

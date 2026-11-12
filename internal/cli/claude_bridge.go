@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net"
 	"net/http"
 	"os"
@@ -120,7 +121,7 @@ func RunClaudeBridge(ctx context.Context, s *store.Store, opts ClaudeBridgeOptio
 			reportCtx, stop := context.WithTimeout(context.WithoutCancel(runCtx), 10*time.Second)
 			defer stop()
 			if err := host.TurnEnded(reportCtx, reason); err != nil {
-				fmt.Fprintf(os.Stderr, "legato: the end of an interrupted turn was not reported: %v\n", err)
+				log.Printf("claude bridge: the end of an interrupted turn was not reported: %v", err)
 			}
 		},
 		OnIdentity: func(sessionID, cwd string) error {

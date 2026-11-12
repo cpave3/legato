@@ -566,7 +566,10 @@ func TestAnExitSaysWhenItsLastMessageWasRead(t *testing.T) {
 // An agent in the background is described by what it waits on, read from
 // its hooks, whether or not its conversation can be read (LEG-144).
 func TestTheMessageNamesTheBackgroundJobs(t *testing.T) {
-	for _, tail := range []*ConversationTail{nil, {Entries: []ConversationEntry{{Kind: EntryAssistant, Text: "Waiting on the build."}}}} {
+	for _, tail := range []*ConversationTail{nil, {Entries: []ConversationEntry{{Kind: EntryAssistant, Text: "Waiting on the build."}}},
+		// A background call shows as running in the conversation too; the
+		// hooks say what it is and what else runs.
+		{Entries: []ConversationEntry{{Kind: EntryTool, Tool: "Bash", Command: "npm run build", State: ToolRunning}}}} {
 		f := newWatchFixture(t)
 		f.watchAll(t, f.task)
 		if tail != nil {

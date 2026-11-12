@@ -485,10 +485,13 @@ func (w *ReeveWatcher) news(ctx context.Context, taskID string, before watchSeen
 // describe adds to a change of state what the agent's conversation says:
 // its last message, what still runs, and what it asks.
 func (w *ReeveWatcher) describe(ctx context.Context, e *WatchEvent, seen *watchSeen) {
+	// The hooks' list of background jobs is the whole of what still runs;
+	// the conversation is read for it only when they listed none.
+	fromHooks := false
 	if e.To == WatchBackground {
 		e.Running = "work it started in the background"
 		if jobs := w.backgroundJobs(ctx, e.TaskID); jobs != "" {
-			e.Running = jobs
+			e.Running, fromHooks = jobs, true
 		}
 	}
 	if w.opts.Conversation == nil {
@@ -511,6 +514,7 @@ func (w *ReeveWatcher) describe(ctx context.Context, e *WatchEvent, seen *watchS
 	}
 	e.LastMessage = seen.LastMessage
 	switch {
+	case fromHooks:
 	case len(running) > 0:
 		e.Running = clipRunes(strings.Join(running, "; "), 300)
 	case e.Running == "":

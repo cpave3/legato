@@ -50,7 +50,11 @@ new session with none: its background work ended with the old process.
   `waiting`; `PermissionResolved` → from its payload; `OnError` → `error`; `Stop`,
   `Interrupt`, `Timeout`, `SessionEnd` → idle) into `legato agent state`, with
   child sessions' reports turned into notifications only.
-- **The tmux pane** is read for prompts (`engine/prompt`), never for the state.
+- **The tmux pane** is read for prompts (`engine/prompt`). The web stream's
+  prompt detector (`internal/server/stream.go`) sets `waiting` while it sees a
+  dialog and clears it after, through `AgentService.SetAgentActivity`, for an
+  agent that reports nothing itself. It leaves a session the plugin reports for
+  alone (`hook_source = 'plugin'`), whose hooks already report the dialog.
 
 ## Evidence
 
@@ -58,7 +62,10 @@ The Claude Code sequences were recorded on 2026-11-12 from Claude Code 2.1.322,
 with a hook on every event that appended its payload to a file, in `claude -p`
 and in an interactive session in a private tmux server. They are the fixtures
 in `internal/cli/testdata/claude-hooks/` and drive `TestClaudeHook*` in
-`internal/cli/claude_hook_test.go`. Codex and Chimera could not be run where
+`internal/cli/claude_hook_test.go`. Cases that could not be recorded (a rate
+limit, a resume, automatic compaction, a foreground subagent, a subagent's
+permission prompt or error) are tested with payloads of the recorded shapes
+and say so. Codex and Chimera could not be run where
 this was written (Codex is not installed, Chimera's build is hidden by the
 sandbox), so their rows come from the code and are marked *from code*.
 
@@ -89,6 +96,18 @@ What the recordings showed:
   `Stop` without reading the payload, so `background` could not appear. Nothing
   refreshed installed hook scripts. This is the PROP-348 report: the agent did
   start a background wait, and Legato never read the payload that said so.
+- The ticket's empty activity and `state_timeline` for agents that were
+  working (its third observation) could not be reproduced after the fact. The
+  recordings give two causes that fit it: with the old `Stop` script, a turn
+  that ends while a background subagent or shell keeps working reports idle,
+  and the timeline shows no work while the agent plainly does some; and an
+  agent whose hooks were installed only in some projects' `.claude/` reports
+  nothing elsewhere (here they were in the home folder, which covers every
+  project). The opposite, `working` throughout, is what an interrupt leaves.
+  Sandboxed reports reach the host through the broker as unsandboxed ones do
+  (a `legato agent state` sent from a sandboxed session during this work was
+  accepted), so the sandbox is not a cause. The plugin is loaded into every
+  session Legato launches, wherever it runs, and the bridge reports interrupts.
 
 ## Claude Code
 
@@ -108,6 +127,9 @@ where the repository's current scripts differ, it says so.
 | Turn ends, background subagent runs | `PostToolUse` `Agent` (`isAsync`, `agentId`), `Stop` with a `subagent` | idle (stale); `background` | `background`, job `subagent` named by description and type |
 | Background subagent's tool calls after the turn | `PreToolUse`/`PostToolUse` with `agent_id` | flips to `working` | unchanged (`background`) |
 | Foreground subagent (Task/Agent) | its tool calls with `agent_id`, inside the parent's turn | `working` | `working` |
+| A subagent's permission prompt | `PermissionRequest` (with `agent_id`), then its `PostToolUse` | `waiting`, then `working` | `waiting`, then back: `working` in a foreground subagent, `background` for one listed as a job |
+| A subagent's API error | `StopFailure` with `agent_id` | n/a (not hooked) | unchanged: the turn running it goes on |
+| Forks | not recorded; a fork is a session of its own, which the mod gives no task (see [Claude Code native integration](claude-code-native.md)) | — | not reported |
 | A job finishes and wakes the session | `UserPromptSubmit` with `<task-notification>` | `working` | `working`, that job removed |
 | Several jobs, one finishes | as above, then `Stop` listing the rest | `working`, then idle (stale) | `working`, then `background` with the rest |
 | Turn ends with a session cron | `Stop` with `session_crons` | idle | `background`, job `cron` |
@@ -120,7 +142,7 @@ where the repository's current scripts differ, it says so.
 | Resumed after an interrupt or reload | a new session: `SessionStart(resume)`, then the resume note's `UserPromptSubmit` | idle, then `working` | the same; jobs start empty |
 | Legato restarted | none | kept (database) | kept, jobs too |
 | Sandboxed against unsandboxed | the same hooks; the report goes through the broker in both when it is reachable | the same | the same |
-| Old installed scripts beside the plugin | both report | n/a | the plugin's session ignores `agent state` reports without an event (`agent_sessions.hook_source = 'plugin'`) |
+| Old installed scripts beside the plugin | both report | n/a | the plugin's session ignores every `agent state` report (`agent_sessions.hook_source = 'plugin'`) |
 
 ## Codex (from code)
 
@@ -161,3 +183,18 @@ where the repository's current scripts differ, it says so.
   the bridge the agent goes idle, which is right, since Claude Code then waits
   for a message.
 - **Exits the Reeve caused** (LEG-140) are not carried with the state.
+- **Jobs written by two hooks at once.** `ApplyClaudeHook` reads the session
+  and writes it back. Two `PostToolUse` hooks of parallel background calls that
+  run at the same moment can each keep only their own job; the next `Stop`
+  lists the whole truth again. A Monitor lost this way shows as `bash` until it
+  ends.
+- **A late `TurnEnded`.** A bridge reports a turn that ended without an answer
+  only after `TurnEndedDelay` (1.5 s) with no new turn begun, since the next
+  turn's own prompt reaches Legato on another path. A next turn that starts
+  later than that is reported by its `UserPromptSubmit`, which comes after.
+- **`/clear` and running jobs.** Whether background shells outlive `/clear`
+  was not recorded; Legato clears the jobs then. If one does outlive it, its
+  notification wakes the session and reads as `working`.
+- **What job text an agent writes** is kept to known kinds (`other` for any
+  other), one line of at most 200 characters without control characters, and
+  32 jobs (`cleanHook`), since it reaches the Reeve, the API and the terminal.
