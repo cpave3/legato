@@ -22,7 +22,7 @@ use crate::webauthn::{self, Attachment, ORIGIN, RP_ID};
 use crate::discovery::{Browser, Found};
 use crate::links;
 use crate::bridge::{self, PageMessage, VoiceAction, VoiceEvent};
-use crate::{fido, screens, systrust, touchid, voice, voiceclient, voicekey, voicemain, voicewidget, widgetapprovals, workers};
+use crate::{fido, lifecycle, screens, systrust, touchid, voice, voiceclient, voicekey, voicemain, voicewidget, widgetapprovals, workers};
 use crate::voiceclient::{Command, Ui};
 use crate::voicekey::{Backend, Input, KeyBackend, VoiceKey};
 
@@ -1205,6 +1205,13 @@ fn voice_widget_settings(desktop: State<'_, Desktop>) -> WidgetSettings {
     WidgetSettings { shown: !v.widget_hidden, anchor: v.anchor, dropped: v.offset.is_some(), screens, screen: v.screen, chosen, missing }
 }
 
+/// The widget's close button: hides the widget, as its menu's Hide does.
+/// The app and the main window go on; Servers & keys shows it again.
+#[tauri::command]
+fn voice_widget_hide(app: AppHandle, desktop: State<'_, Desktop>) -> Result<(), String> {
+    set_widget(&app, &desktop, Some(true), None)
+}
+
 /// Servers & keys: show or hide the widget, and where it keeps to.
 #[tauri::command]
 fn set_voice_widget(app: AppHandle, desktop: State<'_, Desktop>, shown: bool, anchor: Anchor) -> Result<(), String> {
@@ -1745,8 +1752,45 @@ fn handle_link(app: &AppHandle, url: &str) {
     bring_to_front(app);
 }
 
+/// Makes the main window, with the shell in it. Closing it quits the app,
+/// the voice widget with it (lifecycle::quits_when): Tauri would otherwise
+/// keep running while the widget's window is open, with no window to come
+/// back to.
+fn make_main_window(app: &AppHandle) -> tauri::Result<()> {
+    let window = WindowBuilder::new(app, lifecycle::MAIN)
+        .title("Legato")
+        .inner_size(1360.0, 880.0)
+        .min_inner_size(820.0, 560.0)
+        .decorations(false)
+        .build()?;
+    #[cfg(target_os = "linux")]
+    overlay::install(&window)?;
+    let size = window.inner_size()?.to_logical::<f64>(window.scale_factor()?);
+    let shell = window.add_child(WebviewBuilder::new("shell", WebviewUrl::App("index.html".into())), LogicalPosition::new(0.0, 0.0), size)?;
+    #[cfg(target_os = "linux")]
+    shell.with_webview(|platform| overlay::adopt(&platform.inner(), None))?;
+    #[cfg(not(target_os = "linux"))]
+    let _ = shell;
+    let handle = app.clone();
+    window.on_window_event(move |e| {
+        if matches!(e, WindowEvent::Resized(_) | WindowEvent::ScaleFactorChanged { .. }) {
+            relayout(&handle);
+        }
+        let closed = match e {
+            WindowEvent::CloseRequested { .. } => Some(lifecycle::Closed::Requested),
+            WindowEvent::Destroyed => Some(lifecycle::Closed::Destroyed),
+            _ => None,
+        };
+        if closed.is_some_and(|c| lifecycle::quits_when(lifecycle::MAIN, c)) {
+            println!("[start] the main window closed; quitting");
+            handle.exit(0);
+        }
+    });
+    Ok(())
+}
+
 fn bring_to_front(app: &AppHandle) {
-    if let Some(window) = app.get_window("main") {
+    if let Some(window) = app.get_window(lifecycle::MAIN) {
         let _ = window.unminimize();
         let _ = window.show();
         let _ = window.set_focus();
@@ -2542,10 +2586,18 @@ pub fn run() {
     tauri::Builder::default()
         // A second start (the system opening a link) hands its link to the
         // app that runs and ends; the deep-link plugin reads the link.
-        // `legato-desktop --voice` is the key, as the link is.
-        .plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| match voicekey::read_args(&argv) {
-            Some(key) => voice_key(app, key, "link"),
-            None => bring_to_front(app),
+        // `legato-desktop --voice` is the key, as the link is. Any other
+        // start brings the main window to the front, made again if it is
+        // gone (lifecycle::relaunch), so a start never does nothing.
+        .plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
+            match lifecycle::relaunch(&argv, app.get_window(lifecycle::MAIN).is_some()) {
+                lifecycle::Relaunch::Key(key) => voice_key(app, key, "link"),
+                lifecycle::Relaunch::ShowMain => bring_to_front(app),
+                lifecycle::Relaunch::MakeMain => match make_main_window(app) {
+                    Ok(()) => bring_to_front(app),
+                    Err(e) => println!("[start] the main window was not made again: {e}"),
+                },
+            }
         }))
         .plugin(tauri_plugin_deep_link::init())
         // The confirm before one of the app's servers becomes a worker.
@@ -2610,26 +2662,7 @@ pub fn run() {
                     tokio::time::sleep(voicemain::REFRESH).await;
                 }
             });
-            let window = WindowBuilder::new(app, "main")
-                .title("Legato")
-                .inner_size(1360.0, 880.0)
-                .min_inner_size(820.0, 560.0)
-                .decorations(false)
-                .build()?;
-            #[cfg(target_os = "linux")]
-            overlay::install(&window)?;
-            let size = window.inner_size()?.to_logical::<f64>(window.scale_factor()?);
-            let shell = window.add_child(WebviewBuilder::new("shell", WebviewUrl::App("index.html".into())), LogicalPosition::new(0.0, 0.0), size)?;
-            #[cfg(target_os = "linux")]
-            shell.with_webview(|platform| overlay::adopt(&platform.inner(), None))?;
-            #[cfg(not(target_os = "linux"))]
-            let _ = shell;
-            let handle = app.handle().clone();
-            window.on_window_event(move |e| {
-                if matches!(e, WindowEvent::Resized(_) | WindowEvent::ScaleFactorChanged { .. }) {
-                    relayout(&handle);
-                }
-            });
+            make_main_window(app.handle())?;
             // The screens before the widget, so it goes on the chosen one.
             #[cfg(target_os = "linux")]
             {
@@ -2696,6 +2729,7 @@ pub fn run() {
             voice_open_settings,
             voice_widget_size,
             voice_widget_menu,
+            voice_widget_hide,
             voice_widget_settings,
             set_voice_widget,
             set_voice_screen,

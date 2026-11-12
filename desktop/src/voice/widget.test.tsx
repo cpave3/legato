@@ -227,6 +227,40 @@ describe("the widget page", () => {
     expect(root.style.getPropertyValue("--widget-max-h")).toBe("380px")
   })
 
+  it("has a close button on the capsule that hides the widget, and does not talk", async () => {
+    render(<Widget />)
+    await screen.findByText(/tessitura · ready/)
+    const close = screen.getByRole("button", { name: "Hide the voice widget" })
+    // A real button outside the capsule's own, so Tab reaches it.
+    expect(close.tagName).toBe("BUTTON")
+    expect(close).not.toHaveAttribute("tabindex", "-1")
+    expect(screen.getByTestId("voice-capsule")).not.toContainElement(close)
+    fireEvent.pointerDown(close, { pointerId: 1, button: 0, clientX: 10, clientY: 10 })
+    fireEvent.pointerMove(close, { pointerId: 1, clientX: 40, clientY: 25 })
+    fireEvent.pointerUp(close, { pointerId: 1, clientX: 40, clientY: 25 })
+    fireEvent.click(close)
+    await act(async () => {})
+    expect(invoked.map((i) => i.cmd)).toContain("voice_widget_hide")
+    // Pressing it neither drags the widget nor talks.
+    expect(invoked.filter((i) => i.cmd.startsWith("voice_widget_drag"))).toEqual([])
+    expect(actions()).toEqual([])
+  })
+
+  it("has the close button when voice is not ready too", async () => {
+    status = { ready: false, reason: "The Reeve's voice is off on tessitura", setting: "reeve.voice.enabled", main: "tessitura" }
+    render(<Widget />)
+    await screen.findByText("The Reeve's voice is off on tessitura")
+    fireEvent.click(screen.getByRole("button", { name: "Hide the voice widget" }))
+    expect(invoked.map((i) => i.cmd)).toContain("voice_widget_hide")
+  })
+
+  it("has no close button on the card, whose own close ends the conversation", async () => {
+    render(<Widget />)
+    await screen.findByText(/tessitura · ready/)
+    emit("voice-state", { state: "listening" })
+    expect(screen.queryByRole("button", { name: "Hide the voice widget" })).not.toBeInTheDocument()
+  })
+
   it("asks Rust for its menu on a right click", async () => {
     render(<Widget />)
     await screen.findByText(/tessitura · ready/)
