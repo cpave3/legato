@@ -106,13 +106,14 @@ func TestAChangeSetShowsInTheConversationAsALineWithItsState(t *testing.T) {
 	srv.SetReeveChangeSets(listedSets{
 		{ID: "cs-1", Reason: "rename", State: "pending", Calls: `[{},{}]`, Results: `[]`},
 		{ID: "cs-2", Reason: "tidy", State: "failed", Calls: `[{},{},{}]`, Results: `[{"state":"ran"},{"state":"failed"},{"state":"skipped"}]`},
+		{ID: "cs-3", Reason: "new task", State: "done", Level: "auto", Calls: `[{}]`, Results: `[{"state":"ran"}]`},
 	})
 	rec := callAs(srv, "secret", http.MethodGet, "/api/reeve/sessions/T/change-sets", "")
 	var got struct {
 		ChangeSets []ChangeSetLine `json:"change_sets"`
 	}
 	json.Unmarshal(rec.Body.Bytes(), &got)
-	if len(got.ChangeSets) != 2 || got.ChangeSets[0].Calls != 2 || got.ChangeSets[1].Ran != 1 || got.ChangeSets[1].State != "failed" {
+	if len(got.ChangeSets) != 3 || got.ChangeSets[0].Calls != 2 || got.ChangeSets[1].Ran != 1 || got.ChangeSets[1].State != "failed" || got.ChangeSets[0].Auto || !got.ChangeSets[2].Auto {
 		t.Fatalf("lines = %+v", got.ChangeSets)
 	}
 }

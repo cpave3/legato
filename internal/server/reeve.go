@@ -236,6 +236,8 @@ type ChangeSetLine struct {
 	State  string `json:"state"`
 	Calls  int    `json:"calls"`
 	Ran    int    `json:"ran"`
+	// Auto: the set ran with no approval asked (the auto level).
+	Auto bool `json:"auto,omitempty"`
 }
 
 func (s *Server) reeveChangeSetsHandler() http.HandlerFunc {
@@ -257,7 +259,7 @@ func (s *Server) reeveChangeSetsHandler() http.HandlerFunc {
 				State string `json:"state"`
 			}
 			_ = json.Unmarshal([]byte(set.Results), &results)
-			line := ChangeSetLine{ID: set.ID, Reason: set.Reason, State: set.State, Calls: len(calls)}
+			line := ChangeSetLine{ID: set.ID, Reason: set.Reason, State: set.State, Calls: len(calls), Auto: set.Level == string(service.LevelAuto)}
 			for _, res := range results {
 				if res.State == "ran" {
 					line.Ran++

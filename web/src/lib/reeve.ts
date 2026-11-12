@@ -68,6 +68,8 @@ export interface ChangeSetLine {
   state: "pending" | "queued" | "running" | "done" | "failed" | "denied" | "expired" | "restarting"
   calls: number
   ran: number
+  // auto: it ran with no approval asked.
+  auto?: boolean
 }
 
 export async function fetchChangeSetLines(baseUrl: string, taskId: string): Promise<ChangeSetLine[]> {
@@ -220,3 +222,38 @@ export const saveReeveSeed = (baseUrl: string, seed: string) =>
   post(baseUrl, "/api/reeve/engram/seed", { seed }, "PUT") as Promise<{ status: string; approval_id: string }>
 export const removeReeveMemory = (baseUrl: string, id: string) => post(baseUrl, `/api/reeve/engram/memories/${encodeURIComponent(id)}`, undefined, "DELETE")
 export const removeReeveThread = (baseUrl: string, id: string) => post(baseUrl, `/api/reeve/engram/threads/${encodeURIComponent(id)}`, undefined, "DELETE")
+
+// A change set that ran with no approval asked (the auto level), and what
+// allowed it ("auto: reeve.levels.change", "auto: rule …").
+export interface AutoRun {
+  id: string
+  approval_id: string
+  task_id: string
+  reason: string
+  state: string
+  by: string
+  at: string
+}
+
+// What the Reeve runs without asking (GET /api/reeve/auto): the class
+// levels, host auto, the rules at auto, what config.yaml pins of them, and
+// the newest sets that ran so.
+export interface ReeveAuto {
+  on: boolean
+  change: string
+  risky: string
+  host_auto: boolean
+  rules: string[]
+  pinned: string[]
+  recent: AutoRun[]
+}
+
+export async function fetchReeveAuto(baseUrl: string): Promise<ReeveAuto> {
+  const response = await apiFetch(baseUrl, "/api/reeve/auto")
+  if (!response.ok) throw await failed(response)
+  return await response.json() as ReeveAuto
+}
+
+// turnReeveAutoOff is the off switch: everything at auto back to approve.
+export const turnReeveAutoOff = (baseUrl: string) =>
+  post(baseUrl, "/api/reeve/auto/off") as Promise<{ changed: string[]; pinned: string[] }>
