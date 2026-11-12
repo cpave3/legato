@@ -145,6 +145,21 @@ func (s *RepositoryService) Ensure(ctx context.Context, repo string) (string, er
 	return s.ensure(ctx, repo, false)
 }
 
+// FetchPushed fetches the repository's cache after an agent pushed to it,
+// so the cache has the agent's commits at once. A repository with no cache
+// is left alone: a push makes no copy. A failure is logged.
+func (s *RepositoryService) FetchPushed(ctx context.Context, repo string) {
+	if validRepo(repo) != nil {
+		return
+	}
+	if _, err := os.Stat(filepath.Join(s.CachePath(repo), "HEAD")); err != nil {
+		return
+	}
+	if _, err := s.Refresh(ctx, repo); err != nil {
+		log.Printf("repositories: fetching %s after a push: %v", repo, err)
+	}
+}
+
 // Refresh fetches the repository's cache now, making it when there is none.
 func (s *RepositoryService) Refresh(ctx context.Context, repo string) (string, error) {
 	return s.ensure(ctx, repo, true)

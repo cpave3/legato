@@ -580,3 +580,23 @@ func (c *CredentialChannels) PushesThroughProxy(repo string) bool {
 	bc, err := c.githubCredentialFor(repo)
 	return err == nil && listHas(bc.profile.Channels, ChannelHTTPProxy)
 }
+
+// SetPushListener is told the repository (owner/name) of each push that
+// went through the proxy and that GitHub accepted: the runtime fetches it
+// into the repository cache (RepositoryService.FetchPushed).
+func (c *CredentialChannels) SetPushListener(listen func(repo string)) {
+	c.mu.Lock()
+	c.onPush = listen
+	c.mu.Unlock()
+}
+
+// Pushed passes a push GitHub accepted to the push listener
+// (credential.GitPushListener).
+func (c *CredentialChannels) Pushed(_ context.Context, _ credential.Execution, _, repo string, _ []string) {
+	c.mu.Lock()
+	listen := c.onPush
+	c.mu.Unlock()
+	if listen != nil {
+		listen(repo)
+	}
+}

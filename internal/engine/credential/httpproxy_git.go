@@ -27,6 +27,14 @@ type GitBackend interface {
 	PushToken(ctx context.Context, execution Execution, credential, repo string) ([]byte, func(), error)
 }
 
+// GitPushListener is told of each push the proxy passed to the git host
+// and the host accepted (a 200 answer), with the refs it carried, so Legato
+// can fetch them into its own copy of the repository. A backend need not
+// listen.
+type GitPushListener interface {
+	Pushed(ctx context.Context, execution Execution, credential, repo string, refs []string)
+}
+
 // pushTokenLife is how long a write token made for a push's advertisement
 // waits for the push itself.
 const pushTokenLife = 2 * time.Minute
@@ -161,7 +169,14 @@ func (p *HTTPProxy) serveGit(w http.ResponseWriter, r *http.Request, c ProxyCred
 		return
 	}
 	defer p.dropPushToken(key)
-	p.forwardGit(w, r, c, repo, tail, io.MultiReader(bytes.NewReader(head), r.Body), token)
+	status := p.forwardGit(w, r, c, repo, tail, io.MultiReader(bytes.NewReader(head), r.Body), token)
+	if listener, ok := p.Backend.(GitPushListener); ok && status == http.StatusOK {
+		refs := make([]string, 0, len(pushed.Commands))
+		for _, cmd := range pushed.Commands {
+			refs = append(refs, cmd.Ref)
+		}
+		listener.Pushed(context.WithoutCancel(ctx), execution, c.Name, repo, refs)
+	}
 }
 
 // pushTokenFor makes a write token for a push, or takes the one made for
@@ -212,15 +227,16 @@ func (p *HTTPProxy) dropPushToken(key string) {
 }
 
 // forwardGit sends a push request to the git host with the write token and
-// streams the answer back, without the token.
-func (p *HTTPProxy) forwardGit(w http.ResponseWriter, r *http.Request, c ProxyCredential, repo, tail string, body io.Reader, token []byte) {
+// streams the answer back, without the token. It returns the host's status,
+// 0 when it was not reached.
+func (p *HTTPProxy) forwardGit(w http.ResponseWriter, r *http.Request, c ProxyCredential, repo, tail string, body io.Reader, token []byte) int {
 	target := *c.Git
 	target.Path = strings.TrimSuffix(c.Git.Path, "/") + "/" + repo + ".git/" + tail
 	target.RawQuery = r.URL.RawQuery
 	out, err := http.NewRequestWithContext(r.Context(), r.Method, target.String(), body)
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadRequest)
-		return
+		return 0
 	}
 	if body != nil && r.ContentLength > 0 {
 		out.ContentLength = r.ContentLength // the same bytes as they came
@@ -239,7 +255,7 @@ func (p *HTTPProxy) forwardGit(w http.ResponseWriter, r *http.Request, c ProxyCr
 	if err != nil {
 		log.Printf("credentials: proxy %s: %v", c.Name, err)
 		http.Error(w, "the git host of "+c.Name+" could not be reached", http.StatusBadGateway)
-		return
+		return 0
 	}
 	defer resp.Body.Close()
 	tokenText := string(token)
@@ -255,6 +271,7 @@ func (p *HTTPProxy) forwardGit(w http.ResponseWriter, r *http.Request, c ProxyCr
 	}
 	w.WriteHeader(resp.StatusCode)
 	_, _ = copyFlushing(w, resp.Body)
+	return resp.StatusCode
 }
 
 // serveToken gives the git and gh helpers a token for one repository, after

@@ -158,4 +158,6 @@ Before it listens, an app asks the main whether a conversation will work. If not
 
 The Reeve always runs in Legato's [sandbox](/legato/security/sandbox/): it cannot be started without it, and **Run without sandbox** and the switch out of the sandbox are refused for it. It works in a folder of its own, `~/.local/state/legato/reeve` (or under `$XDG_STATE_HOME`), outside your repositories and Legato's data folder. The folder also holds its engram's store.
 
+It reads your agents' work from Legato's copy of each repository, which it can see but not change. Legato fetches that copy each time an agent pushes, so the Reeve has an agent's latest commits within seconds of the push. It cannot see the agents' own clones, which hold files copied from your checkout (such as `.env`) and the key each agent pushes with.
+
 Each session gets a token of its own for Legato's API that can only read. It stops working when the session ends.
