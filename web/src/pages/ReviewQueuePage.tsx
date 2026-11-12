@@ -98,10 +98,7 @@ export function ReviewQueuePage() {
   return (
     <div className="flex h-full flex-col overflow-hidden bg-[#0a0a0f] text-zinc-200">
       <header className="flex items-center justify-between border-b border-zinc-800 px-4 py-3 md:px-6 md:py-4">
-        <div>
-          <h1 className="text-lg font-semibold">Review queue</h1>
-          <p className="mt-0.5 text-xs text-zinc-500">Walk through agent changes before completing work.</p>
-        </div>
+        <h1 className="text-lg font-semibold">Review queue</h1>
         <div className="flex items-center gap-3">
           <label className="flex min-h-10 cursor-pointer items-center gap-2 text-xs text-zinc-400">
             <input type="checkbox" checked={showCapturing} onChange={(event) => {

@@ -13,7 +13,7 @@ function statusClass(status: string) {
 
 function PageFrame({ tab, setTab, refresh, children }: { tab: WorkflowTab; setTab: (tab: WorkflowTab) => void; refresh: () => Promise<void>; children: React.ReactNode }) {
   return <div className="flex min-h-0 flex-1 flex-col overflow-y-auto px-4 py-4 sm:px-6">
-    <header className="mx-auto flex w-full max-w-6xl items-center justify-between"><div><h1 className="flex items-center gap-2 text-xl font-semibold"><Workflow className="text-indigo-300"/>Workflows</h1><p className="text-sm text-zinc-500">Reusable deterministic and agent-backed runs</p></div><button aria-label="Refresh workflows" onClick={()=>{void refresh()}} className="min-h-11 rounded-lg border border-zinc-700 px-3 text-zinc-300"><RefreshCw size={16}/></button></header>
+    <header className="mx-auto flex w-full max-w-6xl items-center justify-between"><div><h1 className="flex items-center gap-2 text-xl font-semibold"><Workflow className="text-indigo-300"/>Workflows</h1></div><button aria-label="Refresh workflows" onClick={()=>{void refresh()}} className="min-h-11 rounded-lg border border-zinc-700 px-3 text-zinc-300"><RefreshCw size={16}/></button></header>
     <div className="mx-auto mt-4 flex w-full max-w-6xl gap-2 border-b border-zinc-800"><button onClick={()=>setTab("definitions")} className={`min-h-11 px-3 text-sm ${tab==="definitions"?"border-b-2 border-indigo-400 text-white":"text-zinc-500"}`}>Definitions</button><button onClick={()=>setTab("runs")} className={`min-h-11 px-3 text-sm ${tab==="runs"?"border-b-2 border-indigo-400 text-white":"text-zinc-500"}`}>Runs</button></div>
     {children}
   </div>

@@ -76,7 +76,7 @@ export function CreateTaskModal({ open, columns, currentColumn, workspaces, base
   return (
     <Dialog open={open} onClose={onClose} dismissible={!loading}>
       <DialogPanel className="max-h-[calc(100dvh-2rem)] max-w-2xl">
-        <DialogHeader><div><DialogTitle>New Task</DialogTitle><p className="mt-0.5 text-xs text-zinc-500">Capture the work now; placement can change later.</p></div><DialogClose disabled={loading} /></DialogHeader>
+        <DialogHeader><DialogTitle>New Task</DialogTitle><DialogClose disabled={loading} /></DialogHeader>
         <form onSubmit={handleSubmit}>
           <DialogBody className="max-h-[calc(100dvh-9rem)] overflow-y-auto">
             {error && <InlineNotice variant="error" className="mb-4 text-xs">{error}</InlineNotice>}
@@ -120,10 +120,7 @@ export function CreateTaskModal({ open, columns, currentColumn, workspaces, base
 
               <fieldset className="space-y-4 rounded-lg border border-zinc-800 bg-zinc-950/40 p-4 md:self-start">
                 <legend className="sr-only">Placement</legend>
-                <div>
-                  <h3 className="text-xs font-semibold text-zinc-300">Placement</h3>
-                  <p className="mt-1 text-[11px] leading-4 text-zinc-600">Choose where the task starts.</p>
-                </div>
+                <h3 className="text-xs font-semibold text-zinc-300">Placement</h3>
                 <label className="block text-xs font-medium text-zinc-400">Column
                   <select aria-label="Column" value={column} onChange={(event) => setColumn(event.target.value)} className="mt-1 min-h-11 w-full rounded-md border border-zinc-700 bg-zinc-950 px-3 text-sm text-zinc-200 outline-none focus:border-indigo-500">
                     {columns.map((value) => <option key={value} value={value}>{value}</option>)}

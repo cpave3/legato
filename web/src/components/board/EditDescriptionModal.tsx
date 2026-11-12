@@ -34,7 +34,7 @@ export function EditDescriptionModal({ open, currentDescription, baseUrl, voiceE
   return (
     <Dialog open={open} onClose={onClose} dismissible={!loading}>
       <DialogPanel className="flex max-h-[calc(100dvh-2rem)] max-w-2xl flex-col">
-        <DialogHeader><div><DialogTitle>{providerBacked ? "Edit Legato details" : "Edit description"}</DialogTitle><p className="mt-0.5 text-xs text-zinc-500">{providerBacked ? "The provider description is read-only. These details stay in Legato and are included in task context." : "Update the task context agents and reviewers will read."}</p></div><DialogClose disabled={loading} /></DialogHeader>
+        <DialogHeader><div><DialogTitle>{providerBacked ? "Edit Legato details" : "Edit description"}</DialogTitle>{providerBacked && <p className="mt-0.5 text-xs text-zinc-500">The provider description is read-only. These details stay in Legato and are included in task context.</p>}</div><DialogClose disabled={loading} /></DialogHeader>
         <form onSubmit={handleSubmit} className="flex min-h-0 flex-col">
           <DialogBody className="min-h-0 overflow-y-auto">
             <div className="mb-1.5 flex items-center justify-between gap-3">

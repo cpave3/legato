@@ -225,7 +225,7 @@ export function SettingsPage() {
         <main className="flex min-w-0 max-w-3xl flex-col gap-10">
           <h1 className="text-xl font-semibold lg:hidden">Settings</h1>
 
-          <SettingsGroup id="agents" title="Agents" description="What agents are given, and how this browser works with them.">
+          <SettingsGroup id="agents" title="Agents">
             {/* The spawn dialog and the workflow form read the repositories from the settings. */}
             <RepositoriesSettings baseUrl={baseUrl} onChanged={() => void settings.refetch()} />
             <RepositoryGuidanceSettings baseUrl={baseUrl} />
@@ -264,7 +264,7 @@ export function SettingsPage() {
             </SettingsRows>
           </SettingsGroup>
 
-          <SettingsGroup id="reeve" title="Reeve" description="The agent of this Legato itself: its sessions, its engram, the agent tool, model and launch arguments it starts with, and the transcription its voice and dictation use.">
+          <SettingsGroup id="reeve" title="Reeve" description="The agent of this Legato itself.">
             <ReeveSessions baseUrl={baseUrl} />
             <ReeveAutoSettings baseUrl={baseUrl} />
             <ReeveEngramSettings baseUrl={baseUrl} />
@@ -272,7 +272,7 @@ export function SettingsPage() {
             <RegistrySettings settings={registry} baseUrl={baseUrl} prefixes={["reeve", "voice"]} />
           </SettingsGroup>
 
-          <SettingsGroup id="security" title="Security" description="Who can allow approvals, how you hear of them, and the secrets agents use without seeing them.">
+          <SettingsGroup id="security" title="Security">
             <ApprovalNotificationSettings />
             <RegistrySettings settings={registry} baseUrl={baseUrl} prefixes={["notifications"]} />
             <DevicesSettings baseUrl={baseUrl} />
@@ -288,7 +288,7 @@ export function SettingsPage() {
             <MainInstancesSettings baseUrl={baseUrl} />
           </SettingsGroup>
 
-          <SettingsGroup id="connection" title="Connection" description="The servers this browser talks to, pairing, and trusting this server's certificate.">
+          <SettingsGroup id="connection" title="Connection">
             <SettingsCard icon={Server} title="Servers" browser description="The Legato server this browser shows. Switch to another, or add one by its address.">
               <div className="overflow-hidden rounded-lg border border-lw-line divide-y divide-lw-line">
                 {[{ name: "Local", url: "" }, ...servers].map((s) => (
@@ -379,7 +379,7 @@ export function SettingsPage() {
               <SettingsRow
                 icon={Palette}
                 title="Tint"
-                description="A colour for this server, along the top of the window and down the rail, so you can tell at a glance which Legato you are on. Every browser and phone that uses this server shows it."
+                description="A colour for this server, along the top of the window and down the rail. Every browser and phone that uses this server shows it."
                 control={
                   <div className="flex flex-col items-end gap-1">
                     <TintPicker tint={settings.data?.tint} pinned={registered("web.tint")?.pinned} onChanged={() => { void settings.refetch(); void configSettings.refetch() }} />

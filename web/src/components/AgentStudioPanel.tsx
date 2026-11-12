@@ -417,9 +417,9 @@ export function AgentStudioPanel({ item, fill = false, pollMs = 2000, testHoldMs
       setQuiet(0)
       close()
       const heard = samples?.heard()
-      const refused = cancelled.current ? "That take was thrown away. Nothing was kept."
+      const refused = cancelled.current ? "That take was thrown away."
         : lasted < MIN_TAKE_MS ? "That take was too short to hold a word, so it was not kept."
-          : words.size < MIN_TAKE_BYTES || (heard && !heard.loud) ? "Nothing was recorded: the microphone gave no sound, so nothing was kept. Test it in the settings, then record again."
+          : words.size < MIN_TAKE_BYTES || (heard && !heard.loud) ? "Nothing was recorded: the microphone gave no sound. Test it in the settings, then record again."
             : ""
       if (refused) {
         setNote(refused)
@@ -801,7 +801,7 @@ export function AgentStudioPanel({ item, fill = false, pollMs = 2000, testHoldMs
                   <button type="button" disabled={phase !== "idle"} onClick={test} className={secondary} title="Opens the microphone and the camera without recording, to see that they are the right ones">
                     Test
                   </button>
-                  <span className="min-w-0 flex-1 truncate">{using ? `Using ${using}` : "Your choice is remembered. Test opens them without recording."}</span>
+                  <span className="min-w-0 flex-1 truncate">{using ? `Using ${using}` : ""}</span>
                 </div>
                 <label className="flex items-start gap-2 border-t border-lw-line pt-2">
                   <input
@@ -995,7 +995,7 @@ export function AgentStudioPanel({ item, fill = false, pollMs = 2000, testHoldMs
                     <p className="whitespace-pre-wrap text-sm leading-[23px] text-lw-text">{scene.heard || scene.says || "The take has no transcript yet."}</p>
                   )}
                   {leftTheScript(scene) && (
-                    <p className="text-xs text-lw-done">You went your own way here. That is fine: the scene is changed to follow what you said.</p>
+                    <p className="text-xs text-lw-done">You went your own way here: the scene is changed to follow what you said.</p>
                   )}
                 </div>
 
@@ -1254,7 +1254,7 @@ function StudioUnavailable({ failure }: { failure: StudioError }) {
       <h3 className="font-semibold text-lw-needs">{theirs ? "The studio cannot open on this machine" : "The studio is not answering"}</h3>
       <p className="mt-1 text-lw-text">{failure.message}</p>
       <p className="mt-2 text-xs text-lw-text-2">
-        {theirs ? "Nothing is lost: the storyboard is a file, and the studio opens here as soon as this is put right." : "It is tried again every few seconds."}
+        {theirs ? "The studio opens here as soon as this is put right." : "It is tried again every few seconds."}
       </p>
     </div>
   )
