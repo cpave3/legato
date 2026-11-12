@@ -16,7 +16,7 @@ use tauri::{AppHandle, Emitter, LogicalPosition, LogicalSize, Manager, State, We
 
 use crate::legato::{self, Client};
 use crate::applink::{self, ImportLink};
-use crate::store::{ImportTarget, Keyring, Server, Store};
+use crate::store::{Anchor, ImportTarget, Keyring, Offset, Server, Store};
 use crate::updates;
 use crate::webauthn::{self, Attachment, ORIGIN, RP_ID};
 use crate::discovery::{Browser, Found};
@@ -654,8 +654,20 @@ pub struct WidgetState {
     written: bool,
     /// The logical size the page last asked for.
     size: (f64, f64),
-    /// The corner a layer surface is anchored to now.
-    anchored: Option<crate::store::Corner>,
+    /// The anchor and margins a layer surface has now.
+    applied: Option<(Anchor, Offset)>,
+    /// The widget being dragged.
+    drag: Option<Drag>,
+}
+
+/// A drag of the widget: its top-left within the work area it started on,
+/// logical, that area, and the corner a layer surface keeps to meanwhile.
+#[derive(Clone, Copy)]
+struct Drag {
+    pos: (f64, f64),
+    area: voicewidget::Rect,
+    scale: f64,
+    corner: Anchor,
 }
 
 /// Makes the `voice` window: the app's own page, transparent, undecorated,
@@ -689,20 +701,16 @@ fn make_voice_widget(app: &AppHandle) -> tauri::Result<()> {
     #[cfg(target_os = "linux")]
     if wayland {
         layered = match voicewidget::layer_shell::LayerShell::load() {
-            Ok(shell) => {
-                let corner = app.state::<Desktop>().store.lock().unwrap().state.voice.corner;
-                match window.gtk_window().map_err(|e| e.to_string()).and_then(|gtk| shell.attach(&gtk, corner)) {
-                    Ok(()) => {
-                        app.state::<Desktop>().widget.lock().unwrap().anchored = Some(corner);
-                        *app.state::<Desktop>().layer_shell.lock().unwrap() = Some(std::sync::Arc::new(shell));
-                        true
-                    }
-                    Err(e) => {
-                        println!("[voice widget] layer shell refused the window: {e}");
-                        false
-                    }
+            Ok(shell) => match window.gtk_window().map_err(|e| e.to_string()).and_then(|gtk| shell.attach(&gtk)) {
+                Ok(()) => {
+                    *app.state::<Desktop>().layer_shell.lock().unwrap() = Some(std::sync::Arc::new(shell));
+                    true
                 }
-            }
+                Err(e) => {
+                    println!("[voice widget] layer shell refused the window: {e}");
+                    false
+                }
+            },
             Err(e) => {
                 println!("[voice widget] no layer shell ({e}); the widget is an ordinary window");
                 false
@@ -712,6 +720,8 @@ fn make_voice_widget(app: &AppHandle) -> tauri::Result<()> {
     let placement = voicewidget::placement(wayland, layered);
     println!("[voice widget] placed as {placement:?}");
     *app.state::<Desktop>().widget_placement.lock().unwrap() = placement;
+    // A layer surface is anchored before it is first shown.
+    place_widget(app);
     show_widget_as_it_should(app);
     Ok(())
 }
@@ -730,42 +740,83 @@ fn show_widget_as_it_should(app: &AppHandle) {
     }
 }
 
-/// Puts the widget in its corner of the screen it is on, where the app
-/// places it (X11, macOS); a layer surface is anchored instead.
+/// The work area of the monitor the widget is on (physical) and its scale.
+/// On Wayland GTK knows no panels, so it is the whole monitor; a layer
+/// surface's margins count from inside the panels.
+fn widget_area(window: &tauri::WebviewWindow) -> Option<(voicewidget::Rect, f64)> {
+    let monitor = window
+        .current_monitor()
+        .ok()
+        .flatten()
+        .or_else(|| window.primary_monitor().ok().flatten())
+        .or_else(|| window.available_monitors().ok().and_then(|m| m.into_iter().next()))?;
+    let area = monitor.work_area();
+    let rect = voicewidget::Rect { x: area.position.x as f64, y: area.position.y as f64, width: area.size.width as f64, height: area.size.height as f64 };
+    Some((rect, monitor.scale_factor()))
+}
+
+/// The area's size in logical pixels.
+fn logical(area: voicewidget::Rect, scale: f64) -> (f64, f64) {
+    (area.width / scale, area.height / scale)
+}
+
+/// Puts the widget at its anchor, offset as saved and kept on the screen:
+/// the app places it (X11, macOS), a layer surface is anchored with margins
+/// (Wayland). Not during a drag, which places it itself.
 fn place_widget(app: &AppHandle) {
     let Some(window) = app.get_webview_window(voicewidget::LABEL) else { return };
     let desktop = app.state::<Desktop>();
-    let corner = desktop.store.lock().unwrap().state.voice.corner;
+    let (anchor, offset) = {
+        let voice = &desktop.store.lock().unwrap().state.voice;
+        (voice.anchor, voice.offset)
+    };
     let placement = *desktop.widget_placement.lock().unwrap();
+    let (size, dragging) = {
+        let widget = desktop.widget.lock().unwrap();
+        (widget.size, widget.drag.is_some())
+    };
+    if dragging {
+        return;
+    }
     match placement {
         voicewidget::Placement::Placed => {
-            let monitor = window.current_monitor().ok().flatten().or_else(|| window.primary_monitor().ok().flatten());
-            let Some(monitor) = monitor else { return };
-            let size = desktop.widget.lock().unwrap().size;
-            let area = monitor.work_area();
-            let rect = voicewidget::Rect { x: area.position.x as f64, y: area.position.y as f64, width: area.size.width as f64, height: area.size.height as f64 };
-            let (x, y) = voicewidget::place(corner, rect, size, monitor.scale_factor());
+            let Some((area, scale)) = widget_area(&window) else { return };
+            let (x, y) = voicewidget::place(anchor, offset, area, size, scale);
             let _ = window.set_position(tauri::PhysicalPosition::new(x.round() as i32, y.round() as i32));
         }
-        #[cfg(target_os = "linux")]
         voicewidget::Placement::LayerShell => {
-            // Only when the corner changes; and GTK only on its own thread,
-            // where this may not be (a conversation runs on tokio's).
-            {
-                let mut widget = desktop.widget.lock().unwrap();
-                if widget.anchored == Some(corner) {
-                    return;
-                }
-                widget.anchored = Some(corner);
-            }
-            let shell = desktop.layer_shell.lock().unwrap().clone();
-            let _ = app.run_on_main_thread(move || {
-                if let (Some(shell), Ok(gtk)) = (shell, window.gtk_window()) {
-                    shell.corner(&gtk, corner);
-                }
-            });
+            let m = match widget_area(&window) {
+                Some((area, scale)) => voicewidget::margins(anchor, offset, logical(area, scale), size),
+                None => voicewidget::margins(anchor, offset, (f64::MAX, f64::MAX), size),
+            };
+            anchor_layer(app, &window, anchor, m);
         }
-        _ => {}
+        voicewidget::Placement::Floating => {}
+    }
+}
+
+/// Anchors the layer surface with these margins, when they changed; on
+/// GTK's main thread, where this may not be (a conversation runs on
+/// tokio's).
+#[allow(unused_variables)]
+fn anchor_layer(app: &AppHandle, window: &tauri::WebviewWindow, anchor: Anchor, m: Offset) {
+    #[cfg(target_os = "linux")]
+    {
+        let desktop = app.state::<Desktop>();
+        {
+            let mut widget = desktop.widget.lock().unwrap();
+            if widget.applied == Some((anchor, m)) {
+                return;
+            }
+            widget.applied = Some((anchor, m));
+        }
+        let shell = desktop.layer_shell.lock().unwrap().clone();
+        let window = window.clone();
+        let _ = app.run_on_main_thread(move || {
+            if let (Some(shell), Ok(gtk)) = (shell, window.gtk_window()) {
+                shell.place(&gtk, anchor, m);
+            }
+        });
     }
 }
 
@@ -779,23 +830,99 @@ fn voice_widget_size(app: AppHandle, width: f64, height: f64) {
     place_widget(&app);
 }
 
-/// The widget's menu (a right click): Hide, Corner, Settings.
+/// The page's pointer moved far enough with a button down to be a drag,
+/// not a click: the widget follows it from where it is now. An ordinary
+/// window on Wayland is moved by the compositor instead, and not kept.
+#[tauri::command]
+fn voice_widget_drag_start(app: AppHandle) {
+    let Some(window) = app.get_webview_window(voicewidget::LABEL) else { return };
+    let desktop = app.state::<Desktop>();
+    let placement = *desktop.widget_placement.lock().unwrap();
+    if placement == voicewidget::Placement::Floating {
+        let _ = window.start_dragging();
+        return;
+    }
+    let Some((area, scale)) = widget_area(&window) else { return };
+    let (anchor, offset) = {
+        let voice = &desktop.store.lock().unwrap().state.voice;
+        (voice.anchor, voice.offset)
+    };
+    let mut widget = desktop.widget.lock().unwrap();
+    let span = logical(area, scale);
+    let pos = voicewidget::origin(anchor, voicewidget::margins(anchor, offset, span, widget.size), span, widget.size);
+    widget.drag = Some(Drag { pos, area, scale, corner: voicewidget::drag_corner(anchor) });
+}
+
+/// The pointer moved by dx, dy (logical) from where it took hold of the
+/// widget: the widget moves as much, kept on the screen.
+#[tauri::command]
+fn voice_widget_drag_move(app: AppHandle, dx: f64, dy: f64) {
+    let Some(window) = app.get_webview_window(voicewidget::LABEL) else { return };
+    let desktop = app.state::<Desktop>();
+    let placement = *desktop.widget_placement.lock().unwrap();
+    let (drag, size) = {
+        let mut widget = desktop.widget.lock().unwrap();
+        let size = widget.size;
+        let Some(drag) = widget.drag.as_mut() else { return };
+        drag.pos = voicewidget::drag_to(drag.pos, (dx, dy), logical(drag.area, drag.scale), size);
+        (*drag, size)
+    };
+    match placement {
+        voicewidget::Placement::Placed => {
+            let (x, y) = (drag.area.x + drag.pos.0 * drag.scale, drag.area.y + drag.pos.1 * drag.scale);
+            let _ = window.set_position(tauri::PhysicalPosition::new(x.round() as i32, y.round() as i32));
+        }
+        voicewidget::Placement::LayerShell => {
+            let m = voicewidget::margins_for(drag.corner, drag.pos, logical(drag.area, drag.scale), size);
+            anchor_layer(&app, &window, drag.corner, m);
+        }
+        voicewidget::Placement::Floating => {}
+    }
+}
+
+/// The pointer let go: the widget keeps to the nearest corner or edge, as
+/// far from it as it was dropped, and that is saved.
+#[tauri::command]
+fn voice_widget_drag_end(app: AppHandle) -> Result<(), String> {
+    let desktop = app.state::<Desktop>();
+    let (drag, size) = {
+        let mut widget = desktop.widget.lock().unwrap();
+        (widget.drag.take(), widget.size)
+    };
+    let Some(drag) = drag else { return Ok(()) };
+    let (anchor, offset) = voicewidget::drop_at(drag.pos, size, logical(drag.area, drag.scale));
+    println!("[voice widget] dropped: {anchor:?}");
+    {
+        let mut store = desktop.store.lock().unwrap();
+        store.state.voice.anchor = anchor;
+        store.state.voice.offset = Some(offset);
+        store.save()?;
+    }
+    place_widget(&app);
+    let _ = app.emit("voice-widget-changed", voice_widget_settings(app.state::<Desktop>()));
+    Ok(())
+}
+
+/// The widget's menu (a right click): Hide, Place, Settings.
 #[tauri::command]
 fn voice_widget_menu(app: AppHandle) -> Result<(), String> {
-    use tauri::menu::{CheckMenuItem, Menu, MenuItem, Submenu};
+    use tauri::menu::{CheckMenuItem, Menu, MenuItem, PredefinedMenuItem, Submenu};
     let window = app.get_webview_window(voicewidget::LABEL).ok_or("no widget")?;
-    let corner = app.state::<Desktop>().store.lock().unwrap().state.voice.corner;
+    let anchor = app.state::<Desktop>().store.lock().unwrap().state.voice.anchor;
     let e = |e: tauri::Error| e.to_string();
     let hide = MenuItem::with_id(&app, "voice-hide", "Hide", true, None::<&str>).map_err(e)?;
-    let corners = voicewidget::CORNERS
+    let places = voicewidget::PLACES
         .iter()
-        .map(|(c, id, label)| CheckMenuItem::with_id(&app, *id, *label, true, *c == corner, None::<&str>))
+        .map(|(a, id, label)| CheckMenuItem::with_id(&app, *id, *label, true, *a == anchor, None::<&str>))
         .collect::<Result<Vec<_>, _>>()
         .map_err(e)?;
-    let items: Vec<&dyn tauri::menu::IsMenuItem<tauri::Wry>> = corners.iter().map(|c| c as &dyn tauri::menu::IsMenuItem<tauri::Wry>).collect();
-    let corner_menu = Submenu::with_items(&app, "Corner", true, &items).map_err(e)?;
+    // Corners, then edges.
+    let between = PredefinedMenuItem::separator(&app).map_err(e)?;
+    let mut items: Vec<&dyn tauri::menu::IsMenuItem<tauri::Wry>> = places.iter().map(|c| c as &dyn tauri::menu::IsMenuItem<tauri::Wry>).collect();
+    items.insert(4, &between);
+    let place_menu = Submenu::with_items(&app, "Place", true, &items).map_err(e)?;
     let settings = MenuItem::with_id(&app, "voice-settings", "Settings…", true, None::<&str>).map_err(e)?;
-    let menu = Menu::with_items(&app, &[&hide, &corner_menu, &settings]).map_err(e)?;
+    let menu = Menu::with_items(&app, &[&hide, &place_menu, &settings]).map_err(e)?;
     window.popup_menu(&menu).map_err(e)
 }
 
@@ -807,19 +934,24 @@ fn voice_widget_menu_chosen(app: &AppHandle, id: &str) {
     } else if id == "voice-settings" {
         bring_to_front(app);
         let _ = app.emit_to("shell", "shell-open-panel", json!({ "kind": "manage" }));
-    } else if let Some((corner, _, _)) = voicewidget::CORNERS.iter().find(|(_, cid, _)| *cid == id) {
-        let _ = set_widget(app, &desktop, None, Some(*corner));
+    } else if let Some((anchor, _, _)) = voicewidget::PLACES.iter().find(|(_, pid, _)| *pid == id) {
+        let _ = set_widget(app, &desktop, None, Some(*anchor));
     }
 }
 
-fn set_widget(app: &AppHandle, desktop: &Desktop, hidden: Option<bool>, corner: Option<crate::store::Corner>) -> Result<(), String> {
+/// Saves the person's choices; an anchor chosen (not dropped) forgets where
+/// the widget was dropped.
+fn set_widget(app: &AppHandle, desktop: &Desktop, hidden: Option<bool>, anchor: Option<Anchor>) -> Result<(), String> {
     {
         let mut store = desktop.store.lock().unwrap();
         if let Some(h) = hidden {
             store.state.voice.widget_hidden = h;
         }
-        if let Some(c) = corner {
-            store.state.voice.corner = c;
+        if let Some(a) = anchor {
+            if store.state.voice.anchor != a || store.state.voice.offset.is_some() {
+                store.state.voice.anchor = a;
+                store.state.voice.offset = None;
+            }
         }
         store.save()?;
     }
@@ -831,19 +963,21 @@ fn set_widget(app: &AppHandle, desktop: &Desktop, hidden: Option<bool>, corner: 
 #[derive(Clone, Serialize)]
 pub struct WidgetSettings {
     shown: bool,
-    corner: crate::store::Corner,
+    anchor: Anchor,
+    /// Dragged to a spot of its own, rather than at the anchor's margin.
+    dropped: bool,
 }
 
 #[tauri::command]
 fn voice_widget_settings(desktop: State<'_, Desktop>) -> WidgetSettings {
     let v = &desktop.store.lock().unwrap().state.voice;
-    WidgetSettings { shown: !v.widget_hidden, corner: v.corner }
+    WidgetSettings { shown: !v.widget_hidden, anchor: v.anchor, dropped: v.offset.is_some() }
 }
 
-/// Servers & keys: show or hide the widget, and its corner.
+/// Servers & keys: show or hide the widget, and where it keeps to.
 #[tauri::command]
-fn set_voice_widget(app: AppHandle, desktop: State<'_, Desktop>, shown: bool, corner: crate::store::Corner) -> Result<(), String> {
-    set_widget(&app, &desktop, Some(!shown), Some(corner))
+fn set_voice_widget(app: AppHandle, desktop: State<'_, Desktop>, shown: bool, anchor: Anchor) -> Result<(), String> {
+    set_widget(&app, &desktop, Some(!shown), Some(anchor))
 }
 
 /// Not ready: Open settings opens the main's settings page at the setting,
@@ -1999,7 +2133,7 @@ pub fn run() {
             voice_targets: Mutex::default(),
             voice_session: Mutex::default(),
             voice_targets_known: tokio::sync::watch::Sender::new(false),
-            widget: Mutex::new(WidgetState { showing: voicewidget::Showing::Rest, written: false, size: voicewidget::FIRST_SIZE, anchored: None }),
+            widget: Mutex::new(WidgetState { showing: voicewidget::Showing::Rest, written: false, size: voicewidget::FIRST_SIZE, applied: None, drag: None }),
             widget_placement: Mutex::new(voicewidget::Placement::Placed),
             #[cfg(target_os = "linux")]
             layer_shell: Mutex::default(),
@@ -2116,7 +2250,10 @@ pub fn run() {
             voice_widget_size,
             voice_widget_menu,
             voice_widget_settings,
-            set_voice_widget
+            set_voice_widget,
+            voice_widget_drag_start,
+            voice_widget_drag_move,
+            voice_widget_drag_end
         ])
         .run(tauri::generate_context!())
         .expect("the app did not start");

@@ -83,26 +83,44 @@ pub struct VoiceSettings {
     /// The person hid the widget: it shows only during a conversation.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub widget_hidden: bool,
-    /// The corner of the screen the widget keeps to.
-    #[serde(default, skip_serializing_if = "Corner::is_default")]
-    pub corner: Corner,
+    /// The corner or edge of the screen the widget keeps to (`corner`
+    /// before edges existed).
+    #[serde(default, alias = "corner", skip_serializing_if = "Anchor::is_default")]
+    pub anchor: Anchor,
+    /// Where the person dropped the widget, from the edges it is anchored
+    /// to; none is the default margin.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub offset: Option<Offset>,
 }
 
-/// A corner of the screen.
+/// A corner of the screen, or an edge with the widget centred on it.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "kebab-case")]
-pub enum Corner {
+pub enum Anchor {
     #[default]
     BottomRight,
     BottomLeft,
     TopRight,
     TopLeft,
+    Top,
+    Bottom,
+    Left,
+    Right,
 }
 
-impl Corner {
+impl Anchor {
     fn is_default(&self) -> bool {
-        *self == Corner::default()
+        *self == Anchor::default()
     }
+}
+
+/// How far the widget keeps from the edges it is anchored to, in logical
+/// pixels: x from the left or right edge, y from the top or bottom. An axis
+/// it is centred on has none.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize)]
+pub struct Offset {
+    pub x: f64,
+    pub y: f64,
 }
 
 impl VoiceSettings {
@@ -331,11 +349,21 @@ pub(crate) mod tests {
         store.save().unwrap();
         assert!(!std::fs::read_to_string(&path).unwrap().contains("voice"));
 
-        store.state.voice = VoiceSettings { server: Some("inst-1".into()), hold_to_talk: true, widget_hidden: true, corner: Corner::TopLeft };
+        store.state.voice = VoiceSettings { server: Some("inst-1".into()), hold_to_talk: true, widget_hidden: true, anchor: Anchor::Top, offset: Some(Offset { x: 0.0, y: 120.0 }) };
         store.save().unwrap();
         let text = std::fs::read_to_string(&path).unwrap();
         assert!(text.contains(r#""server": "inst-1""#), "{text}");
+        assert!(text.contains(r#""anchor": "top""#), "{text}");
         assert_eq!(open(&dir, &secrets).state.voice, store.state.voice);
+    }
+
+    #[test]
+    fn a_corner_saved_before_edges_existed_is_still_the_widgets_anchor() {
+        let (dir, secrets) = (tempfile::tempdir().unwrap(), Memory::default());
+        std::fs::write(dir.path().join("legato-desktop.json"), r#"{"servers":[],"keys":[],"voice":{"corner":"top-left"}}"#).unwrap();
+        let store = open(&dir, &secrets);
+        assert_eq!(store.state.voice.anchor, Anchor::TopLeft);
+        assert_eq!(store.state.voice.offset, None);
     }
 
     #[test]

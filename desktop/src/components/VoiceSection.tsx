@@ -1,8 +1,12 @@
 import { useEffect, useState } from "react"
 import { listen } from "@tauri-apps/api/event"
-import { api, errorText, type Corner, type VoiceKeyInfo, type VoiceTargets, type VoiceWidgetSettings } from "../api"
+import { api, errorText, type Anchor, type VoiceKeyInfo, type VoiceTargets, type VoiceWidgetSettings } from "../api"
 
-const CORNERS: [Corner, string][] = [["bottom-right", "Bottom right"], ["bottom-left", "Bottom left"], ["top-right", "Top right"], ["top-left", "Top left"]]
+// Corners, then edges (the widget centred on them), as the widget's menu has them.
+const PLACES: [Anchor, string][] = [
+  ["bottom-right", "Bottom right"], ["bottom-left", "Bottom left"], ["top-right", "Top right"], ["top-left", "Top left"],
+  ["top", "Top"], ["bottom", "Bottom"], ["left", "Left"], ["right", "Right"],
+]
 
 // Servers & keys: the key that starts talking to the Reeve, and which
 // server's Reeve it talks to.
@@ -37,7 +41,7 @@ export function VoiceSection() {
   const placeWidget = (next: VoiceWidgetSettings) => {
     setError("")
     setWidget(next)
-    api.setVoiceWidget(next.shown, next.corner).catch((e) => setError(errorText(e)))
+    api.setVoiceWidget(next.shown, next.anchor).catch((e) => setError(errorText(e)))
   }
   const choose = (instance: string) => {
     setError("")
@@ -75,11 +79,12 @@ export function VoiceSection() {
             <input type="checkbox" checked={widget.shown} onChange={(e) => placeWidget({ ...widget, shown: e.target.checked })} />
             Show the voice widget
           </label>
-          <select value={widget.corner} onChange={(e) => placeWidget({ ...widget, corner: e.target.value as Corner })} aria-label="Corner">
-            {CORNERS.map(([c, label]) => <option key={c} value={c}>{label}</option>)}
+          <select value={widget.anchor} onChange={(e) => placeWidget({ ...widget, anchor: e.target.value as Anchor, dropped: false })} aria-label="Place">
+            {PLACES.map(([a, label]) => <option key={a} value={a}>{label}{widget.dropped && a === widget.anchor ? " (where you dropped it)" : ""}</option>)}
           </select>
         </div>
       )}
+      {widget && <p className="hint">Drag the widget to put it anywhere; it stays where you drop it.</p>}
       {targets && targets.servers.length > 1 && (
         <>
           <p className="small">The Reeve to talk to</p>

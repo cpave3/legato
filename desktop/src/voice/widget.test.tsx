@@ -1,7 +1,8 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import "@testing-library/jest-dom/vitest"
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react"
-import { initialModel, keyCaps, reduce, surface, type VoiceEvent, type WidgetModel } from "./model"
+import { CAP, capped, initialModel, keyCaps, reduce, surface, tail, type VoiceEvent, type WidgetModel } from "./model"
+import { DRAG_FROM, useWidgetDrag } from "./drag"
 
 // The app's events, as Rust emits them, and what the page asks of Rust.
 const handlers = new Map<string, (e: { payload: unknown }) => void>()
@@ -97,6 +98,43 @@ describe("what the widget draws", () => {
   })
 })
 
+describe("a long transcript", () => {
+  const words = (n: number) => Array.from({ length: n }, (_, i) => `word${i}`).join(" ")
+
+  it("keeps only its end, after an ellipsis, from the start of a word", () => {
+    expect(tail("turn the lights off", 40)).toBe("turn the lights off")
+    const long = words(100)
+    const t = tail(long, 60)
+    expect(t.startsWith("…")).toBe(true)
+    expect(long.endsWith(t.slice(1))).toBe(true)
+    expect(t.length).toBeLessThanOrEqual(61)
+    expect(t.slice(1)).toMatch(/^word\d+ /)
+  })
+
+  it("is cut to the latest words in every part the card shows", () => {
+    const long = words(200)
+    const view = capped({ ...initialModel.view, partial: long, heard: long, activity: long, ended: long })
+    expect(view.partial.length).toBeLessThanOrEqual(CAP.partial + 1)
+    expect(view.heard.length).toBeLessThanOrEqual(CAP.heard + 1)
+    expect(view.activity.length).toBeLessThanOrEqual(CAP.activity + 1)
+    expect(view.ended.length).toBeLessThanOrEqual(CAP.heard + 1)
+    expect(view.partial.endsWith("word199")).toBe(true)
+  })
+
+  it("speaks the line playing, and leaves the lines to come that do not fit for later", () => {
+    const lines = [
+      { id: "a", text: words(80), url: "" },
+      { id: "b", text: "Done.", url: "" },
+      { id: "c", text: words(30), url: "" },
+    ]
+    const view = capped({ ...initialModel.view, state: "speaking", lines, speaking: "a" })
+    expect(view.lines.map((l) => l.id)).toEqual(["a"])
+    expect(view.lines[0].text.length).toBeLessThanOrEqual(CAP.lines + 1)
+    const short = capped({ ...initialModel.view, state: "speaking", lines: [{ id: "a", text: "Yes.", url: "" }, { id: "b", text: "Done.", url: "" }], speaking: "a" })
+    expect(short.lines.map((l) => l.text)).toEqual(["Yes.", "Done."])
+  })
+})
+
 describe("the widget page", () => {
   beforeEach(() => {
     handlers.clear()
@@ -141,10 +179,105 @@ describe("the widget page", () => {
     expect(screen.getByTestId("voice-capsule")).toBeInTheDocument()
   })
 
+  it("shows the end of a long dictation, not the start", async () => {
+    render(<Widget />)
+    await screen.findByText(/tessitura · ready/)
+    emit("voice-state", { state: "listening" })
+    const said = Array.from({ length: 120 }, (_, i) => `w${i}`).join(" ")
+    emit("voice-caption", { kind: "partial", text: said })
+    const card = screen.getByTestId("voice-card")
+    expect(card).toHaveTextContent("w119")
+    expect(card).toHaveTextContent("…")
+    expect(card).not.toHaveTextContent(/\bw0\b/)
+  })
+
+  it("is dragged from the capsule, and a drag is not a click", async () => {
+    render(<Widget />)
+    await screen.findByText(/tessitura · ready/)
+    const capsule = screen.getByTestId("voice-capsule")
+    fireEvent.pointerDown(capsule, { pointerId: 1, button: 0, clientX: 10, clientY: 10 })
+    fireEvent.pointerMove(capsule, { pointerId: 1, clientX: 40, clientY: 25 })
+    await act(async () => {})
+    fireEvent.pointerUp(capsule, { pointerId: 1, clientX: 40, clientY: 25 })
+    fireEvent.click(capsule)
+    await act(async () => {})
+    const drags = invoked.filter((i) => i.cmd.startsWith("voice_widget_drag"))
+    expect(drags).toEqual([
+      { cmd: "voice_widget_drag_start", args: undefined },
+      { cmd: "voice_widget_drag_move", args: { dx: 30, dy: 15 } },
+      { cmd: "voice_widget_drag_end", args: undefined },
+    ])
+    expect(actions()).toEqual([])
+    // The next click talks again.
+    fireEvent.click(capsule)
+    expect(actions()).toEqual(["talk"])
+  })
+
   it("asks Rust for its menu on a right click", async () => {
     render(<Widget />)
     await screen.findByText(/tessitura · ready/)
     fireEvent.contextMenu(screen.getByTestId("voice-capsule"))
     expect(invoked.map((i) => i.cmd)).toContain("voice_widget_menu")
+  })
+})
+
+describe("dragging", () => {
+  beforeEach(() => { invoked.length = 0 })
+  afterEach(cleanup)
+
+  function Box() {
+    const drag = useWidgetDrag()
+    return (
+      <div data-testid="box" {...drag}>
+        <button type="button" onClick={() => invoked.push({ cmd: "clicked" })}>Talk</button>
+        <div data-no-drag><button type="button" onClick={() => invoked.push({ cmd: "approved" })}>Approve</button></div>
+      </div>
+    )
+  }
+  const cmds = () => invoked.map((i) => i.cmd)
+
+  it("is a click when the pointer moves less than the drag distance", () => {
+    render(<Box />)
+    const talk = screen.getByText("Talk")
+    fireEvent.pointerDown(talk, { pointerId: 1, button: 0, clientX: 10, clientY: 10 })
+    fireEvent.pointerMove(talk, { pointerId: 1, clientX: 10 + DRAG_FROM - 1, clientY: 10 })
+    fireEvent.pointerUp(talk, { pointerId: 1 })
+    fireEvent.click(talk)
+    expect(cmds()).toEqual(["clicked"])
+  })
+
+  it("never starts from inside [data-no-drag]", () => {
+    render(<Box />)
+    const approve = screen.getByText("Approve")
+    fireEvent.pointerDown(approve, { pointerId: 1, button: 0, clientX: 10, clientY: 10 })
+    fireEvent.pointerMove(approve, { pointerId: 1, clientX: 80, clientY: 60 })
+    fireEvent.pointerUp(approve, { pointerId: 1 })
+    fireEvent.click(approve)
+    expect(cmds()).toEqual(["approved"])
+  })
+
+  it("ignores the right button, which opens the menu", () => {
+    render(<Box />)
+    const talk = screen.getByText("Talk")
+    fireEvent.pointerDown(talk, { pointerId: 1, button: 2, clientX: 10, clientY: 10 })
+    fireEvent.pointerMove(talk, { pointerId: 1, clientX: 80, clientY: 60 })
+    expect(cmds()).toEqual([])
+  })
+
+  it("sends one move at a time, each from where the widget took hold", async () => {
+    render(<Box />)
+    const box = screen.getByTestId("box")
+    fireEvent.pointerDown(box, { pointerId: 1, button: 0, clientX: 10, clientY: 10 })
+    fireEvent.pointerMove(box, { pointerId: 1, clientX: 30, clientY: 10 })
+    // Still moving the window: this one is stale, and dropped.
+    fireEvent.pointerMove(box, { pointerId: 1, clientX: 50, clientY: 10 })
+    await act(async () => {})
+    // The window has moved 20: the pointer is 5 past where it took hold.
+    fireEvent.pointerMove(box, { pointerId: 1, clientX: 15, clientY: 12 })
+    await act(async () => {})
+    fireEvent.pointerUp(box, { pointerId: 1 })
+    await act(async () => {})
+    expect(invoked.filter((i) => i.cmd === "voice_widget_drag_move").map((i) => i.args)).toEqual([{ dx: 20, dy: 0 }, { dx: 5, dy: 2 }])
+    expect(cmds().at(-1)).toBe("voice_widget_drag_end")
   })
 })

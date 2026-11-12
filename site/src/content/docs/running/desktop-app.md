@@ -73,14 +73,16 @@ When a server knows Touch ID, the sheet asks for your fingerprint instead of a t
 
 ### The voice widget
 
-A small capsule in a corner of the screen shows the Reeve, whether your main can listen, and the key. It stays above your other windows and never takes the keyboard from the app you are in.
+A small capsule at the edge of the screen shows the Reeve, whether your main can listen, and the key. It stays above your other windows and never takes the keyboard from the app you are in.
 
 - Click the capsule to talk, as with the key.
 - While you talk, it grows into a card: your words, the pause bar, what the Reeve is doing, and what it says. Its buttons are **Send now**, **Cancel**, **Stop** and **Reply**. **Stop** stops the Reeve and keeps the card, so you can talk again or close it.
 - If the main cannot listen, the capsule turns amber and says why. **Open settings** opens that setting on the main.
-- Right-click the capsule to hide it, move it to another corner, or open the app's settings. Hidden, it still shows while you talk, and for a few seconds after to say how the conversation ended. **Servers & keys** › **Show the voice widget** brings it back.
+- A long message does not grow the card off the screen: it shows your latest words, after an ellipsis. The whole message still goes to the Reeve.
+- Drag the capsule to put it anywhere. It stays where you drop it, also after a restart: it keeps to the nearest corner, or to the middle of the nearest edge, as far from that edge as you dropped it. A click without a drag still talks.
+- Right-click the capsule to hide it, put it in a corner or the middle of an edge (**Place**), or open the app's settings. **Servers & keys** has the same choice. Hidden, it still shows while you talk, and for a few seconds after to say how the conversation ended. **Servers & keys** › **Show the voice widget** brings it back.
 
-On KDE Plasma and other Wayland desktops (when the app runs on Wayland, not through XWayland), the widget keeps to its corner only when `gtk-layer-shell` is installed. Without it, the widget is an ordinary small window, and your desktop decides where it goes. On a Mac it is an ordinary window for now.
+On KDE Plasma and other Wayland desktops (when the app runs on Wayland, not through XWayland), the AppImage brings its own `gtk-layer-shell`, so the widget stays where you put it and above other windows with nothing to install. On a desktop without layer shell (GNOME), the widget is an ordinary small window: your desktop decides where it goes, and a drag moves it only until the app restarts. On a Mac it is an ordinary window for now.
 
 ## Talk to the Reeve
 

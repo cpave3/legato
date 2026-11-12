@@ -6,3 +6,4 @@
 html, body, #root { margin: 0; padding: 0; background: transparent; overflow: hidden; }
 body { font-family: system-ui, sans-serif; -webkit-font-smoothing: antialiased; user-select: none; }
 .voice-widget { display: inline-block; }
+.voice-widget { touch-action: none; }

@@ -114,3 +114,48 @@ export function keyCaps(text: string): string[] {
   if (!text) return []
   return text.includes("+") ? text.split("+") : [text]
 }
+
+// How much of each part of a conversation the card shows, in characters:
+// enough for a few lines, so a long dictation never grows the widget past
+// the screen. The conversation keeps the whole text; the widget only the
+// latest words.
+export const CAP = { partial: 180, heard: 140, activity: 60, lines: 180 }
+
+// tail is text's last max characters, from the start of a word, after an
+// ellipsis; text itself when it fits.
+export function tail(text: string, max: number): string {
+  if (text.length <= max) return text
+  let end = text.slice(-max)
+  const space = end.search(/\s/)
+  if (space > 0 && space < max / 3) end = end.slice(space)
+  return `…${end.trimStart()}`
+}
+
+// capped is the view as the widget draws it: each part cut to its latest
+// words, and of the Reeve's lines the one playing (cut to its end) and as
+// many to come as fit after it.
+export function capped(view: VoiceView): VoiceView {
+  const lit = Math.max(0, view.lines.findIndex((l) => l.id === view.speaking))
+  const lines: VoiceView["lines"] = []
+  let room = CAP.lines
+  for (const [i, line] of view.lines.slice(lit).entries()) {
+    if (i === 0) {
+      const text = tail(line.text, CAP.lines)
+      lines.push({ ...line, text })
+      room -= text.length
+    } else if (line.text.length + 1 <= room) {
+      lines.push(line)
+      room -= line.text.length + 1
+    } else {
+      break
+    }
+  }
+  return {
+    ...view,
+    partial: tail(view.partial, CAP.partial),
+    heard: tail(view.heard, CAP.heard),
+    activity: tail(view.activity, CAP.activity),
+    ended: tail(view.ended, CAP.heard),
+    lines,
+  }
+}

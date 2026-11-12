@@ -2,7 +2,8 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react"
 import { invoke } from "@tauri-apps/api/core"
 import { listen } from "@tauri-apps/api/event"
 import { VoiceCapsule, VoiceCard } from "@web-voice/VoiceWidgets"
-import { EVENT_NAMES, initialModel, keyCaps, reduce, surface, type VoiceEvent, type WidgetModel } from "./model"
+import { capped, EVENT_NAMES, initialModel, keyCaps, reduce, surface, type VoiceEvent, type WidgetModel } from "./model"
+import { useWidgetDrag } from "./drag"
 
 // The voice window's page: the capsule at rest, the card in a
 // conversation. Rust tells it what to draw (voice-* events) and does what
@@ -68,13 +69,16 @@ export function Widget() {
     invoke("voice_widget_menu").catch(() => {})
   }
 
+  // Dragging the widget places it; a click still talks.
+  const drag = useWidgetDrag()
+
   const close = () => setModel((m) => ({ ...m, phase: "idle" }))
   const name = "The Reeve"
   return (
-    <div ref={box} className="voice-widget" onContextMenu={menu}>
+    <div ref={box} className="voice-widget" onContextMenu={menu} {...drag}>
       {surface(model) === "card" ? (
         <VoiceCard
-          view={model.view}
+          view={capped(model.view)}
           main={model.readiness.main}
           keyLabel={model.keyText || undefined}
           onListen={act("talk")}
