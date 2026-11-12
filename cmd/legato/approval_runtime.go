@@ -69,6 +69,10 @@ func startApprovals(ctx context.Context, cfg *config.Config, db *store.Store, bu
 		giveSessionsChannels(agents, host.Channels())
 		rt.channels = host.Channels()
 	}
+	// Sandboxed agents' Docker sockets (agents.sandbox.docker).
+	if docker := startDockerHost(ctx, cfg, db, bus); docker != nil {
+		stops = append(stops, docker.Stop)
+	}
 	// The broker agent-side processes ask instead of the store.
 	rt.caseReplies = newCaseReplyService(cfg, db, bus, true)
 	changeSets := startChangeSets(ctx, cfg, db, rt.approvals, agents, nil)

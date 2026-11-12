@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 )
 
@@ -23,6 +24,57 @@ type AgentSandboxConfig struct {
 	// ScratchDir holds each sandbox's /tmp, home folder and throwaway
 	// layers, on disk, until its agent ends. Default <data_dir>/sandbox.
 	ScratchDir string `yaml:"scratch_dir"`
+	// Docker gives each sandboxed agent a filtered Docker API socket.
+	Docker SandboxDockerConfig `yaml:"docker"`
+}
+
+// SandboxDockerConfig is the Docker API proxy of sandboxed agents: a socket
+// per execution that passes to the real daemon only what keeps within the
+// agent's sandbox.
+type SandboxDockerConfig struct {
+	// Enabled gives sandboxed agents the socket. Default false.
+	Enabled bool `yaml:"enabled"`
+	// Host is the daemon, as DOCKER_HOST names it (unix:// or tcp://);
+	// empty: Legato's DOCKER_HOST, else the current Docker context, else
+	// /var/run/docker.sock.
+	Host string `yaml:"host"`
+	// CapAdd are the capabilities containers may add. Load keeps them upper
+	// case, without CAP_, each once.
+	CapAdd []string `yaml:"cap_add"`
+	// Publish is where published ports bind: loopback (127.0.0.1, the
+	// default) or any.
+	Publish string `yaml:"publish"`
+}
+
+// hostCapabilities reach past a container's namespaces to the host kernel,
+// so no container of a sandboxed agent may add them.
+var hostCapabilities = []string{"ALL", "SYS_ADMIN", "SYS_MODULE", "SYS_RAWIO", "SYS_BOOT", "SYS_TIME", "MAC_ADMIN",
+	"MAC_OVERRIDE", "DAC_READ_SEARCH", "BPF", "PERFMON", "SYSLOG", "AUDIT_CONTROL", "AUDIT_READ", "WAKE_ALARM", "BLOCK_SUSPEND"}
+
+func normalizeSandboxDocker(d *SandboxDockerConfig) error {
+	d.Host = strings.TrimSpace(d.Host)
+	if d.Host != "" && !strings.HasPrefix(d.Host, "unix:///") && !strings.HasPrefix(d.Host, "tcp://") {
+		return fmt.Errorf("agents.sandbox.docker.host: %q: want unix:///path/to/socket or tcp://host:port", d.Host)
+	}
+	switch d.Publish {
+	case "":
+		d.Publish = "loopback"
+	case "loopback", "any":
+	default:
+		return fmt.Errorf("agents.sandbox.docker.publish: want loopback or any, got %q", d.Publish)
+	}
+	var caps []string
+	for _, c := range d.CapAdd {
+		name := strings.TrimPrefix(strings.ToUpper(strings.TrimSpace(c)), "CAP_")
+		if slices.Contains(hostCapabilities, name) {
+			return fmt.Errorf("agents.sandbox.docker.cap_add: %s reaches the host past the container, and is never allowed", name)
+		}
+		if name != "" && !slices.Contains(caps, name) {
+			caps = append(caps, name)
+		}
+	}
+	d.CapAdd = caps
+	return nil
 }
 
 // ResolveSandboxScratchDir is where sandboxes keep their scratch.
@@ -38,6 +90,9 @@ func (c AgentSandboxConfig) DefaultMountsOn() bool { return c.DefaultMounts == n
 
 func normalizeAgentSandbox(cfg *Config) error {
 	sb := &cfg.Agents.Sandbox
+	if err := normalizeSandboxDocker(&sb.Docker); err != nil {
+		return err
+	}
 	switch strings.TrimSpace(sb.Backend) {
 	case "", "bwrap":
 		sb.Backend = "bwrap"

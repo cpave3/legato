@@ -5,6 +5,7 @@ import { useServer } from "../hooks/useServer"
 import { PlanApprovalModal } from "./PlanApprovalModal"
 import { OfflineDialog } from "./OfflineDialog"
 import { ApprovalTray } from "./ApprovalTray"
+import { AutoRunNotice } from "./AutoRunNotice"
 import { useFocusMode } from "../lib/focusMode"
 import { ApprovalNotifier } from "./ApprovalNotifier"
 import { notificationsSupported } from "../lib/approvalNotifications"
@@ -61,6 +62,7 @@ export function Layout() {
       )}
       {!updateRequired && <UpdateNotice status={settings?.updates} baseUrl={baseUrl} />}
       {((summary?.approvals ?? 0) > 0 || (summary?.peer_approvals ?? 0) > 0 || focusMode) && <ApprovalTray />}
+      <AutoRunNotice />
       {notificationsSupported() && <ApprovalNotifier />}
       <OfflineDialog />
       <PlanApprovalModal />

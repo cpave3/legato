@@ -11,7 +11,7 @@ fn main() {
     }
     // Each command gets allow-<command> and deny-<command>, and a webview
     // may call only those its capability allows: the voice widget gets the
-    // few it uses (capabilities/voice.json), not signing or pairing. Keep
+    // few it uses (capabilities/voice.json), not pairing or updating. Keep
     // this list as generate_handler! in app.rs has it.
     let manifest = tauri_build::AppManifest::new().commands(COMMANDS);
     tauri_build::try_build(tauri_build::Attributes::new().app_manifest(manifest)).expect("the Tauri build step")
@@ -55,6 +55,8 @@ const COMMANDS: &[&str] = &[
     "voice_key_info",
     "change_voice_key",
     "set_hold_to_talk",
+    "set_voice_keys",
+    "set_voice_key_backend",
     "voice_targets",
     "set_voice_server",
     "voice_action",
@@ -64,4 +66,13 @@ const COMMANDS: &[&str] = &[
     "voice_widget_menu",
     "voice_widget_settings",
     "set_voice_widget",
+    "set_voice_screen",
+    "voice_widget_drag_start",
+    "voice_widget_drag_move",
+    "voice_widget_drag_end",
+    "voice_widget_layout",
+    "voice_approvals",
+    "voice_approval_decide",
+    "voice_approval_open",
+    "voice_approval_sheet",
 ];

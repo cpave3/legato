@@ -83,18 +83,41 @@ export type ImportTarget = "ask" | "current"
 // The key that starts talking to the Reeve (src-tauri/src/voicekey.rs).
 // key is the bound key as the person reads it; problem says why it does not
 // work, when it does not, and link then still does what it would.
+// backend is the way the key is had now: grabbed by the app, or the
+// desktop's portal; choice is the way chosen for a Wayland desktop, which
+// applies from the next start (can_choose: this desktop can). talk and
+// cancel are the grabbed keys, as the plugin reads them.
+export type KeyBackend = "grab" | "portal"
 export type VoiceKeyInfo = {
-  backend: "portal" | "shortcut" | "link"
+  backend: KeyBackend | "link"
+  choice: KeyBackend
+  can_choose: boolean
   key?: string | null
+  talk?: string | null
+  cancel?: string | null
   hold_to_talk: boolean
   can_change: boolean
   problem?: string | null
   link: string
 }
 
-// The voice widget: shown when at rest, and the corner it keeps to.
-export type Corner = "bottom-right" | "bottom-left" | "top-right" | "top-left"
-export type VoiceWidgetSettings = { shown: boolean; corner: Corner }
+// The voice widget: shown when at rest, and the corner or edge it keeps
+// to; dropped when the person dragged it to a spot of its own there.
+export type Anchor = "bottom-right" | "bottom-left" | "top-right" | "top-left" | "top" | "bottom" | "left" | "right"
+// screens are the screens there are, by name; screen is the one chosen
+// (null: where the desktop puts it), kept by maker, model and connector;
+// chosen is its place in screens while it is connected, and missing names
+// it when it is not.
+export type ScreenId = { maker: string; model: string; connector?: string | null }
+export type VoiceWidgetSettings = {
+  shown: boolean
+  anchor: Anchor
+  dropped: boolean
+  screens: { id: ScreenId; name: string }[]
+  screen?: ScreenId | null
+  chosen?: number | null
+  missing?: string | null
+}
 
 // Which server's Reeve the key talks to (src-tauri/src/voicemain.rs): each
 // server with the instance it last said it is, the one talked to now, and
@@ -148,11 +171,15 @@ export const api = {
   voiceKeyInfo: () => invoke<VoiceKeyInfo>("voice_key_info"),
   changeVoiceKey: () => invoke<void>("change_voice_key"),
   setHoldToTalk: (on: boolean) => invoke<void>("set_hold_to_talk", { on }),
+  // A key as recordedKey writes it; null is the default.
+  setVoiceKeys: (talk: string | null, cancel: string | null) => invoke<void>("set_voice_keys", { talk, cancel }),
+  setVoiceKeyBackend: (backend: KeyBackend) => invoke<void>("set_voice_key_backend", { backend }),
+  setVoiceScreen: (screen: ScreenId | null) => invoke<void>("set_voice_screen", { screen }),
   voiceTargets: () => invoke<VoiceTargets>("voice_targets"),
   setVoiceServer: (instance: string | null) => invoke<void>("set_voice_server", { instance }),
   // The widget's buttons: talk (the key), stop, reply, send, cancel, end.
   voiceWidgetSettings: () => invoke<VoiceWidgetSettings>("voice_widget_settings"),
-  setVoiceWidget: (shown: boolean, corner: Corner) => invoke<void>("set_voice_widget", { shown, corner }),
+  setVoiceWidget: (shown: boolean, anchor: Anchor) => invoke<void>("set_voice_widget", { shown, anchor }),
   voiceAction: (action: "talk" | "stop" | "reply" | "send" | "cancel" | "end") => invoke<void>("voice_action", { action }),
 }
 

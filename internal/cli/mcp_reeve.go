@@ -309,7 +309,7 @@ func (m *mcpTools) proposeChanges() mcpserver.Tool {
 	return mcpserver.NewTool(mcpserver.Definition{
 		Name: "propose_changes", Title: "Propose a change set",
 		Description: "Puts changes to the operator as one approval: a one-line reason and an ordered list of calls. Legato runs exactly these calls once they are approved, in order, a restart last, stopping at the first failure, and tells you each call's result. " +
-			"It waits up to a minute for the decision, then answers pending. A call you may never make refuses the whole set.",
+			"It waits up to a minute for the decision, then answers pending. A set the operator lets run without asking (auto) is approved at once. A call you may never make refuses the whole set.",
 	}, func(ctx context.Context, in proposeChangesInput) (mcpserver.Result, error) {
 		if err := m.mustBeReeve(ctx); err != nil {
 			return mcpserver.Result{}, err
@@ -335,6 +335,9 @@ func (m *mcpTools) propose(ctx context.Context, reason string, calls []service.C
 	switch out.State {
 	case "approved":
 		text = fmt.Sprintf("Change set %s was approved. Legato is running it now; a [legato] message will tell you each call's result.", out.ID)
+		if out.Level == service.LevelAuto {
+			text = fmt.Sprintf("Change set %s runs now with no approval asked (the operator set these calls to auto). A [legato] message will tell you each call's result: read it before you propose the next step.", out.ID)
+		}
 	case "denied":
 		text = fmt.Sprintf("Change set %s was denied. The operator's note: %s\nDo not propose the same change again in this session unless they ask.", out.ID, noteOrNone(out.Note))
 	default:

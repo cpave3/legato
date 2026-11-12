@@ -299,6 +299,8 @@ var routeClassTable = []routeClassEntry{
 	{"DELETE", "/api/reeve/sessions/{task_id}", ClassRisky, "Delete a Reeve session"},
 	{"POST", "/api/reeve/message", ClassChange, "Send the Reeve a message"},
 	{"GET", "/api/reeve/sessions/{task_id}/change-sets", ClassRead, "List a Reeve session's change sets"},
+	{"GET", "/api/reeve/auto", ClassRead, "Show what the Reeve runs without asking, and the sets that ran so"},
+	{"POST", "/api/reeve/auto/off", ClassChange, "Turn off everything the Reeve runs without asking (only makes it ask more)"},
 	{"POST", "/api/reeve/secrets/{approval_id}", ClassNever, "Store a secret the operator pasted"},
 	{"GET", "/api/reeve/voice", ClassRead, "Check whether a spoken conversation with the Reeve will work here"},
 	{"GET", "/api/reeve/voice/lines/{id}", ClassRead, "Fetch the audio of a line the Reeve said, for the device listening"},

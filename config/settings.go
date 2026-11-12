@@ -85,6 +85,10 @@ var registry = []Setting{
 	{Key: "agents.sandbox.backend", Title: "Sandbox backend", Description: "Only bwrap for now.", Kind: KindString, Class: ClassRisky, Mode: ModeRestart},
 	{Key: "agents.sandbox.default_mounts", Title: "Toolchains in the sandbox", Description: "Show the operator's toolchains (read-only) and package caches inside the sandbox.", Kind: KindBool, Class: ClassRisky, Mode: ModeRestart},
 	{Key: "agents.sandbox.scratch_dir", Title: "Sandbox scratch folder", Kind: KindString, Class: ClassRisky, Mode: ModeRestart},
+	{Key: "agents.sandbox.docker.enabled", Title: "Docker in the sandbox", Description: "Give sandboxed agents a filtered Docker socket: their own containers, mounting only what their sandbox sees.", Kind: KindBool, Class: ClassRisky, Mode: ModeRestart},
+	{Key: "agents.sandbox.docker.host", Title: "Docker daemon for sandboxed agents", Description: "unix:// or tcp://; Legato's DOCKER_HOST, Docker context, or /var/run/docker.sock when empty.", Kind: KindString, Class: ClassRisky, Mode: ModeRestart},
+	{Key: "agents.sandbox.docker.cap_add", Title: "Capabilities sandboxed containers may add", Description: "Such as SYS_PTRACE. Capabilities that reach the host are refused.", Kind: KindStrings, Class: ClassRisky, Mode: ModeRestart},
+	{Key: "agents.sandbox.docker.publish", Title: "Where sandboxed containers publish ports", Description: "loopback binds 127.0.0.1; any binds every address.", Kind: KindEnum, Enum: []string{"loopback", "any"}, Class: ClassRisky, Mode: ModeRestart},
 
 	// Notifications.
 	{Key: "notifications.ntfy.url", Title: "ntfy server", Kind: KindString, Class: ClassChange, Mode: ModeRestart},
@@ -221,9 +225,10 @@ var registry = []Setting{
 	{Key: "reeve.agent", Title: "The Reeve's agent tool", Description: "claude-code, codex or chimera; the default agent tool when empty.", Kind: KindString, Class: ClassChange, Mode: ModeLive},
 	{Key: "reeve.model", Title: "The Reeve's model or tier", Kind: KindString, Class: ClassChange, Mode: ModeLive},
 	{Key: "reeve.idle_timeout", Title: "Suspend the Reeve after", Description: "How long a session may be idle before its agent is stopped; the next message resumes it. 2h when empty.", Kind: KindDuration, Class: ClassChange, Mode: ModeLive},
-	{Key: "reeve.levels.change", Title: "What a change needs", Description: "approve (a tap), signed (an enrolled device) or verified (signed, with a fingerprint or a PIN). One of the Reeve's own rules: changed only with a signature.", Kind: KindEnum, Enum: []string{"", "approve", "signed", "verified"}, Class: ClassRisky, Mode: ModeLive, OwnRule: true},
-	{Key: "reeve.levels.risky", Title: "What a risky change needs", Description: "auto (signed once a device is enrolled, else approve), approve, signed or verified. One of the Reeve's own rules.", Kind: KindEnum, Enum: []string{"", "auto", "approve", "signed", "verified"}, Class: ClassRisky, Mode: ModeLive, OwnRule: true},
+	{Key: "reeve.levels.change", Title: "What a change needs", Description: "auto (runs at once, no approval asked), approve (a tap), signed (an enrolled device) or verified (signed, with a fingerprint or a PIN). One of the Reeve's own rules: changed only with a signature, though making it stricter needs none.", Kind: KindEnum, Enum: []string{"", "auto", "approve", "signed", "verified"}, Class: ClassRisky, Mode: ModeLive, OwnRule: true},
+	{Key: "reeve.levels.risky", Title: "What a risky change needs", Description: "default (signed once a device is enrolled, else approve), approve, signed or verified; or auto, which runs risky changes (restarts, agents stopped, settings that choose what runs on this machine) at once with no approval asked. One of the Reeve's own rules.", Kind: KindEnum, Enum: []string{"", "default", "auto", "approve", "signed", "verified"}, Class: ClassRisky, Mode: ModeLive, OwnRule: true},
 	{Key: "reeve.host_operations", Title: "Host operations", Description: "Offer the Reeve a shell, file edits and systemd services on this machine, each as a change you approve. One of the Reeve's own rules.", Kind: KindBool, Class: ClassRisky, Mode: ModeLive, OwnRule: true},
+	{Key: "reeve.host_operations_auto", Title: "Run host operations without asking", Description: "On, the Reeve's shell commands, file edits and service actions run at once, with no approval asked: it can then run any command as your user on this machine. Each is still audited. Commands as root still need a verified approval. Off by default; one of the Reeve's own rules: turning it on needs a signature, turning it off never does.", Kind: KindBool, Class: ClassRisky, Mode: ModeLive, OwnRule: true},
 	{Key: "reeve.host_timeout", Title: "Host command timeout", Description: "How long one host command may run. 10m when empty.", Kind: KindDuration, Class: ClassRisky, Mode: ModeLive},
 	{Key: "reeve.host_output_cap", Title: "Host command output (bytes)", Description: "How much of a host command's output the Reeve is given; the rest is kept in a file it can read. 65536 when 0.", Kind: KindInt, Class: ClassChange, Mode: ModeLive, Check: nonNegative},
 	{Key: "reeve.peer", Title: "When another Reeve messages", Description: "With no session running: start one (start, the default), ask a person first (ask), or refuse. One of the Reeve's own rules.", Kind: KindEnum, Enum: []string{"", "start", "ask", "refuse"}, Class: ClassRisky, Mode: ModeLive, OwnRule: true},
@@ -287,12 +292,15 @@ var secretRefPattern = regexp.MustCompile(`^(legato://[A-Za-z0-9][A-Za-z0-9._-]{
 
 // fileOnly are the settings that live only in config.yaml: what is needed
 // before the database opens, what unseals secrets, how the instance is
-// reached, and the signing trust root.
+// reached, and the signing trust root. agents.repository_resources is
+// file-only because it names resources of the file's resources block, which
+// load checks; a resource saved in the database is not there to check.
 var fileOnly = []string{
 	"db", "data_dir",
 	"secrets.master_key", "secrets.onepassword",
 	"web.enabled", "web.port", "web.tls", "web.public_url",
 	"approval_devices.android_app_digests",
+	"agents.repository_resources",
 }
 
 // EntryLists lists the keys of every list of named entries: those the

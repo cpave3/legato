@@ -42,6 +42,7 @@ func sandboxSettings(cfg *config.Config) *service.SandboxSettings {
 			GitIdentity: gitIdentity(), KnownHosts: cfg.CredentialChannels.SSHAgent.KnownHosts, ToolInstalls: installs,
 			Azure: service.SandboxAzureFor(cfg.Credentials),
 		},
+		Docker: sandboxDocker(cfg),
 	}
 }
 

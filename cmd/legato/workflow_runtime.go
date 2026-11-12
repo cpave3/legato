@@ -77,7 +77,7 @@ func buildWorkflowService(db *store.Store, cfg *config.Config, opts workflowRunt
 		if cfg.Learning.PromptEnabled {
 			promptProvider = learningSvc
 		}
-		agentSvc = service.NewAgentService(db, mgr, opts.WorkDir, service.AgentServiceOptions{Adapter: defaultAdapter, Adapters: adapters, PRService: prSvc, EventBus: service.AgentDiedPublisher{Bus: bus}, TmuxOptions: cfg.Agents.TmuxOptions, LearningPromptProvider: promptProvider, LearningPromptMaxItems: cfg.Learning.PromptMaxItems, LearningPromptMaxBytes: cfg.Learning.PromptMaxBytes, DisablePeerAwareness: !cfg.Agents.PeerAwareness, ReviewsOff: !cfg.Agents.Reviews, RepositoryGuidance: repositoryGuidance(cfg, db), Sandbox: sandboxSettings(cfg), SandboxScratch: sandboxScratch(cfg)})
+		agentSvc = service.NewAgentService(db, mgr, opts.WorkDir, service.AgentServiceOptions{Adapter: defaultAdapter, Adapters: adapters, PRService: prSvc, EventBus: service.AgentDiedPublisher{Bus: bus}, TmuxOptions: cfg.Agents.TmuxOptions, LearningPromptProvider: promptProvider, LearningPromptMaxItems: cfg.Learning.PromptMaxItems, LearningPromptMaxBytes: cfg.Learning.PromptMaxBytes, DisablePeerAwareness: !cfg.Agents.PeerAwareness, ReviewsOff: !cfg.Agents.Reviews, RepositoryGuidance: repositoryGuidance(cfg, db), RepositoryResources: repositoryResources(cfg), Sandbox: sandboxSettings(cfg), SandboxScratch: sandboxScratch(cfg)})
 		channels := attachCredentialChannels(cfg, db, agentSvc)
 		if opts.Repos == nil {
 			opts.Repos = newRepositoryService(cfg, db)
@@ -169,4 +169,10 @@ func workflowRepositoryPresets(cfg *config.Config) []workflowengine.RepositoryPr
 // in: config.yaml's agents.guidance, then what was saved in the web UI.
 func repositoryGuidance(cfg *config.Config, db *store.Store) *service.RepositoryGuidanceService {
 	return service.NewRepositoryGuidanceService(db, cfg.Agents.Guidance)
+}
+
+// repositoryResources is agents.repository_resources, resolved against the
+// configuration's resources.
+func repositoryResources(cfg *config.Config) *service.RepositoryResources {
+	return service.NewRepositoryResources(cfg.Agents.RepositoryResources, cfg.Resources)
 }

@@ -53,6 +53,8 @@ export function QuerySyncProvider({ children }: { children: ReactNode }) {
           break
         case "approvals_changed":
           invalidate(queryKeys.approvals(baseUrl))
+          // A set that ran without asking is an approval decided at once.
+          invalidate(queryKeys.reeveAuto(baseUrl))
           invalidate(queryKeys.peerApprovals(baseUrl))
           // A decided approval may enroll or remove a device.
           invalidate(queryKeys.devices(baseUrl))

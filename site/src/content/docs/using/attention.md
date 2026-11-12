@@ -75,6 +75,10 @@ While approvals wait, a tray at the bottom right of every page shows them as car
 
 The tray also lists the [Reeve](/legato/using/reeve/)'s change sets that wait on instances this one is paired with, marked with the instance. They are decided there, with a device enrolled there: **◈ Approve on legato-1** opens that instance's page on the change set, and **Open legato-1 ↗** opens its page.
 
+### Answering in the desktop app
+
+The [desktop app](/legato/running/desktop-app/) shows every server's approvals in the feed of its Legato widget, a line each, and you allow, deny or sign them there with a click and your security key, without opening the main window. A deny with a note, a question and a secret open the main window on the approval. See [Approvals in the widget's feed](/legato/running/desktop-app/#approvals-in-the-widgets-feed).
+
 ### Focus mode
 
 When agents ask questions, the button beside the tray's fold arrow opens **focus mode**: the questions one at a time, in the middle of the screen with nothing else on it. Each option has a number; the agent's recommendation is marked. An agent's questions are reviewed and sent together; a single question sends from the question itself.
@@ -120,6 +124,6 @@ notifications:
 
 ### Approvals that need your phone
 
-The Reeve's change sets are approvals too: one per step, at the level of its riskiest change. See [The Reeve](/legato/using/reeve/).
+The Reeve's change sets are approvals too: one per step, at the level of its riskiest change. A set you let run without asking never waits in the tray: it shows for a few seconds at the corner of the screen as already done. See [The Reeve](/legato/using/reeve/#running-without-asking).
 
 Some decisions are signed: only you, at an enrolled phone or with a passkey on your computer, can allow them. An agent that has the web token still cannot. The TUI and Attention can deny a signed approval but not allow it, and say to use your phone. Some also need a verification: a fingerprint or a PIN on the device, not only a touch of a security key; such an approval refuses a touch alone. Which credential requests need a signature is set by the credential's rules; see [The credential broker](/legato/security/credential-broker/).

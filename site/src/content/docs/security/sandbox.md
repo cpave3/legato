@@ -55,7 +55,7 @@ Agents never see:
 
 - Legato's configuration, database and data folder, and `~/.config/legato`.
 - `~/.ssh`, `~/.gnupg`, `~/.1password`, `~/.config/op`, `~/.config/gh`, `~/.gitconfig`, git credential stores and `~/.netrc`.
-- `~/.aws`, `~/.azure`, `~/.kube`, `~/.docker`, and the Docker and Podman sockets.
+- `~/.aws`, `~/.azure`, `~/.kube`, `~/.docker`, and the Docker and Podman sockets (with [Docker in the sandbox](#docker-in-the-sandbox) on, an agent gets a filtered socket of its own instead).
 - Package registry logins: `~/.npmrc`, `~/.pypirc`, `~/.yarnrc`, Gradle's `gradle.properties`, Maven's `settings.xml`, Composer's `auth.json`.
 - Password stores and keyrings, the session bus, and your runtime folder.
 
@@ -86,7 +86,7 @@ agents:
 
 Legato refuses a mount inside a path it hides, such as `~/.ssh`.
 
-To give one agent a folder, use a [resource](/legato/agent-tools/resources/) instead. A sandbox's mounts are fixed when it starts, so adding a resource to a running sandboxed agent restarts it, resuming its conversation. The web UI asks first.
+To give one agent a folder, use a [resource](/legato/agent-tools/resources/) instead. To give every agent that works in one repository a folder, use [resources for a repository](/legato/agent-tools/resources/#resources-for-a-repository). A sandbox's mounts are fixed when it starts, so adding a resource to a running sandboxed agent restarts it, resuming its conversation. The web UI asks first.
 
 To leave out your toolchains and caches:
 
@@ -110,6 +110,44 @@ agents:
 
 Nothing limits how much an agent writes there, so a runaway agent can fill that disk.
 
+## Docker in the sandbox
+
+The sandbox hides your Docker and Podman sockets. A Docker socket is root on your machine when the daemon runs as root: any container could mount `~/.ssh`, which would undo the sandbox. To let sandboxed agents run containers anyway, such as a project's development stack with `docker compose`, turn on Legato's filtered Docker socket:
+
+```yaml
+agents:
+  sandbox:
+    enabled: true
+    docker:
+      enabled: true
+      cap_add: [SYS_PTRACE]   # capabilities containers may add; none by default
+      publish: loopback       # published ports bind 127.0.0.1 (the default), or any
+```
+
+Restart Legato. Each sandboxed agent then gets a Docker socket of its own, with `DOCKER_HOST` set to it. Legato passes what the agent asks to your Docker daemon (your `DOCKER_HOST`, else your Docker context, else `/var/run/docker.sock`; `agents.sandbox.docker.host` names another), but only what keeps within the agent's sandbox:
+
+- **Its own things.** Every container, network and volume the agent makes is labelled with its run (`legato.execution`). `docker ps`, `docker network ls`, `docker volume ls`, events and prunes show it only its own. Inspecting, starting, stopping, removing, `exec`, logs, `cp` and joining a network work only on its own. Two agents can run stacks side by side without seeing each other's, as long as their compose project names and published ports differ.
+- **Only what its sandbox sees.** A bind mount (`-v`, `--mount type=bind`, a volume that binds a folder, `--volumes-from`) may name only a path the agent's sandbox shows, with no more access: something it sees read-only is mounted read-only, and anything hidden is refused, `~/.ssh` and the Docker socket among them. Links are resolved on the host first, so a link in the worktree to `~/.ssh` is refused too. The sandbox's `/tmp` and home are its own scratch folders, so a container mounting them gets those. Folders given as [resources](/legato/agent-tools/resources/), including [resources for a repository](/legato/agent-tools/resources/#resources-for-a-repository), can be mounted into the agent's containers at the same access.
+- **Nothing that is root on your machine.** Refused: `--privileged`, devices and GPUs, `--cap-add` beyond `cap_add`, the host's network, PID, IPC, UTS, user or cgroup namespace, another agent's container's namespace, security options that turn off seccomp, AppArmor or SELinux, a cgroup parent, sysctls that are not per container, other runtimes, and `systempaths=unconfined`. A build on the host network is refused. Swarm, services, secrets, configs, plugins and nodes are refused.
+- **Shared images.** Pulling, building and listing images work as usual. An agent may remove only images it built.
+- **Ports.** Published ports bind `127.0.0.1` unless `publish` is `any`. Agents share your network, so they reach their own services there.
+
+A refusal reads like any Docker error and starts with `legato:`, so the agent sees why:
+
+```text
+docker: Error response from daemon: legato: privileged containers are not allowed: they are root on the host
+```
+
+When the agent ends, however it ends, Legato removes its containers, networks and volumes. Reloading an agent starts a new run, so its containers go too; start the stack again after a reload. Things left by an agent that ended while Legato was not running are removed when Legato next checks its agents. Another Legato's containers are never touched.
+
+Agents run without the sandbox, and your own shells, are unchanged: they use Docker exactly as before, with nothing filtered.
+
+:::tip
+Run Docker rootless if you can. The filtered socket is the wall, but if anything ever got past it, a rootless daemon gives away only your user, not root. Point `agents.sandbox.docker.host` at the rootless socket (`unix:///run/user/1000/docker.sock`); Podman's socket works too.
+:::
+
+Private registries need a login, and `~/.docker` stays hidden, so agents can pull only public images for now.
+
 ## Run one agent outside
 
 You can start one agent without the sandbox:
@@ -126,7 +164,8 @@ To move a running agent, press `U` in the TUI's agents view, or in the web UI ch
 
 - What two sandboxes share is what both are given from your machine. All Claude Code agents share `~/.claude`, and all Codex agents share `~/.codex`, with each other's sessions in them.
 - A global hook of your agent tool that runs a program outside the mounts fails on every tool call. Add its folder with `agents.sandbox.mounts`, or remove the hook.
-- Inside Legato's sandbox, Legato drops Chimera's own `--sandbox` flags. Chimera's sandbox is a container, and the container socket it needs would undo Legato's.
+- Inside Legato's sandbox, Legato drops Chimera's own `--sandbox` flags. Chimera's sandbox is a container, and the container socket it needs would undo Legato's. This is so even with [Docker in the sandbox](#docker-in-the-sandbox) on.
+- With Docker in the sandbox, BuildKit's own settings for a build sent over its session (`docker buildx`, `compose build`) are applied by the Docker daemon, not by Legato. The daemon refuses insecure builds unless you allow them in its configuration; do not.
 - An agent that is running does not see a new SSH socket until it is reloaded, for example after another Legato on the machine takes over serving the credential channels.
 - bubblewrap runs on Linux only.
 

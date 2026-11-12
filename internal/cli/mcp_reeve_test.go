@@ -107,11 +107,29 @@ func TestTheReeveCallsTheAPIWithItsOwnToken(t *testing.T) {
 type fakeChangeSets struct {
 	reason string
 	calls  []service.ChangeCall
+	out    *service.ChangeSetOutcome
 }
 
 func (f *fakeChangeSets) Propose(_ context.Context, _ string, reason string, calls []service.ChangeCall) (service.ChangeSetOutcome, error) {
 	f.reason, f.calls = reason, calls
+	if f.out != nil {
+		return *f.out, nil
+	}
 	return service.ChangeSetOutcome{ID: "cs-1", ApprovalID: "ap-1", State: "pending", Level: service.LevelApprove}, nil
+}
+
+func TestAnAutoSetTellsTheReeveItRunsWithoutAnApproval(t *testing.T) {
+	s := newTestStore(t)
+	sets := &fakeChangeSets{out: &service.ChangeSetOutcome{ID: "cs-2", ApprovalID: "ap-2", State: "approved", Level: service.LevelAuto}}
+	taskID, executionID := seedReeve(t, s)
+	session := connectMCP(t, cli.MCPOptions{Store: s, TaskID: taskID, ExecutionID: executionID, Reeve: &cli.MCPReeve{ChangeSets: sets}})
+	got := mcpText(callMCP(t, session, "propose_changes", map[string]any{
+		"reason": "rename",
+		"calls":  []any{map[string]any{"kind": "api", "method": "PATCH", "path": "/api/tasks/T-1", "body": map[string]any{"title": "x"}}},
+	}))
+	if !strings.Contains(got, "runs now with no approval asked") || !strings.Contains(got, "before you propose the next step") {
+		t.Fatalf("result %q", got)
+	}
 }
 
 func TestTheReeveProposesAChangeSet(t *testing.T) {

@@ -5,4 +5,21 @@
 
 html, body, #root { margin: 0; padding: 0; background: transparent; overflow: hidden; }
 body { font-family: system-ui, sans-serif; -webkit-font-smoothing: antialiased; user-select: none; }
-.voice-widget { display: inline-block; }
+
+/* The widget is a column kept to what fits on the screen (Rust's
+   voice-widget-layout): the capsule or card keeps its size, and the feed
+   (data-widget-feed) scrolls in what is left. Children align to the side
+   of the screen the widget keeps to. */
+.voice-widget {
+  display: inline-flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 8px;
+  max-width: var(--widget-max-w, 480px);
+  max-height: var(--widget-max-h, 640px);
+  touch-action: none;
+}
+.voice-widget > * { flex: none; max-width: 100%; }
+.voice-widget > [data-widget-feed] { flex: 0 1 auto; min-height: 0; overflow-y: auto; }
+.voice-widget:is([data-anchor="top-right"], [data-anchor="bottom-right"], [data-anchor="right"]) { align-items: flex-end; }
+.voice-widget:is([data-anchor="top"], [data-anchor="bottom"]) { align-items: center; }

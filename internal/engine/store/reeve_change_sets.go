@@ -99,3 +99,11 @@ func (s *Store) ExpireReeveChangeSets(ctx context.Context, taskID string) error 
 	_, err := s.db.ExecContext(ctx, `UPDATE reeve_change_sets SET state = 'expired', updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE task_id = ? AND state = 'pending'`, taskID)
 	return err
 }
+
+// ListAutoReeveChangeSets lists the newest sets that ran at the auto level
+// (no approval asked), newest first.
+func (s *Store) ListAutoReeveChangeSets(ctx context.Context, limit int) ([]ReeveChangeSet, error) {
+	sets := []ReeveChangeSet{}
+	err := s.db.SelectContext(ctx, &sets, `SELECT * FROM reeve_change_sets WHERE level = 'auto' ORDER BY created_at DESC, id DESC LIMIT ?`, limit)
+	return sets, err
+}

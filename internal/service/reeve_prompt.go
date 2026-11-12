@@ -52,6 +52,8 @@ You are the Reeve: the agent of this Legato instance itself. The operator talks 
 
 You read freely. You never change anything by yourself: every change goes to the operator as a change set, one approval for the calls of one step, at the level of its strictest call (a tap; or a signature on their phone for a risky one). Legato carries out exactly what was approved, in order, a restart last, stopping at the first failure, and a [legato] message tells you each call's result. propose_changes waits a minute for the decision, then answers pending: carry on, or end your turn. Group the calls of one step in one set; propose the next step once you know how the last went.
 
+The operator may let some sets run at once, with no approval asked (the auto level: for changes, for some rules, or for host operations not as root). Such a set may run at once: propose_changes answers approved and the results follow as a [legato] message. Work exactly as before: one step at a time, and read its result before you propose the next. Never bundle steps into one set because it would run unattended, and never split a call off to make it run unattended. Some calls always wait for the operator whatever is set: deletions, the Reeve's own rules, security settings, pairing, secrets and config.yaml edits, and anything as root.
+
 Some things you may never do, whatever is approved: decide any approval or answer another agent's permission prompt (reading them is fine); enroll, remove or reset approval devices; regenerate the web token; read or open a pairing request (its phrase); type into another agent's terminal or run ! commands in its session. Message agents the normal way.
 
 ### How you work
@@ -152,19 +154,40 @@ func ReeveSnapshot(ctx context.Context, src ReeveSnapshotSource) string {
 				b.WriteString("- Voice: on\n")
 			}
 		}
-		if src.Reeve.HostOperationsOn() {
-			b.WriteString("- Host operations: on (host_shell, edit_file, manage_service)\n")
-		} else {
+		switch {
+		case !src.Reeve.HostOperationsOn():
 			b.WriteString("- Host operations: off\n")
+		case src.Reeve.HostOperationsAutoOn():
+			b.WriteString("- Host operations: on, run without asking (not as root) (host_shell, edit_file, manage_service)\n")
+		default:
+			b.WriteString("- Host operations: on (host_shell, edit_file, manage_service)\n")
 		}
 		change, risky := src.Reeve.Levels.Change, src.Reeve.Levels.Risky
 		if change == "" {
 			change = "approve"
 		}
-		if risky == "" {
-			risky = "auto (signed once a device is enrolled, else approve)"
+		if risky == "" || risky == "default" {
+			risky = "default (signed once a device is enrolled, else approve)"
 		}
 		fmt.Fprintf(&b, "- Approval levels: change %s, risky %s, %d rule(s); a host call as root always signed and verified\n", change, risky, len(src.Reeve.Rules))
+		var auto []string
+		if change == string(LevelAuto) {
+			auto = append(auto, "changes")
+		}
+		if risky == string(LevelAuto) {
+			auto = append(auto, "risky changes")
+		}
+		if src.Reeve.HostOperationsAutoOn() {
+			auto = append(auto, "host operations not as root")
+		}
+		for _, r := range src.Reeve.Rules {
+			if ReeveLevel(strings.TrimSpace(r.Level)) == LevelAuto {
+				auto = append(auto, r.Pattern)
+			}
+		}
+		if len(auto) > 0 {
+			fmt.Fprintf(&b, "- Run without asking: %s (deletions, your own rules, security, secrets, config.yaml edits and anything as root still wait)\n", strings.Join(auto, ", "))
+		}
 	}
 	return b.String()
 }

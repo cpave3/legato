@@ -123,6 +123,35 @@ func (s *Store) AddExecutionResources(ctx context.Context, executionID string, n
 	return tx.Commit()
 }
 
+// AddExecutionRepositoryResources records that an execution was given the
+// named resources because its repository gives them to every agent. A name it
+// already has keeps how it was given.
+func (s *Store) AddExecutionRepositoryResources(ctx context.Context, executionID string, names []string) error {
+	tx, err := s.db.BeginTxx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	for _, name := range names {
+		if _, err := tx.ExecContext(ctx,
+			`INSERT INTO execution_resources (execution_id, name, from_repository) VALUES (?, ?, 1)
+			 ON CONFLICT(execution_id, name) DO NOTHING`, executionID, name); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}
+
+// ListChosenExecutionResources returns the names of the resources an
+// execution was given by choice (ticked, or added while it ran), not by its
+// repository, in the order it was given them.
+func (s *Store) ListChosenExecutionResources(ctx context.Context, executionID string) ([]string, error) {
+	var names []string
+	err := s.db.SelectContext(ctx, &names,
+		`SELECT name FROM execution_resources WHERE execution_id = ? AND from_repository = 0 ORDER BY rowid`, executionID)
+	return names, err
+}
+
 // ListExecutionResources returns the names of the resources an execution was
 // given, in the order it was given them.
 func (s *Store) ListExecutionResources(ctx context.Context, executionID string) ([]string, error) {

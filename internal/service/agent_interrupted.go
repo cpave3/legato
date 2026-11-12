@@ -214,7 +214,9 @@ func (a *agentService) ResumeInterruptedAgent(ctx context.Context, taskID string
 	if !fresh {
 		opt.Prompt = InterruptedNote
 	}
-	opt.Resources = a.resolveResources(ctx, plan.resources)
+	// The repository's own resources are worked out again by the spawn.
+	chosen, _ := a.store.ListChosenExecutionResources(ctx, plan.executionID)
+	opt.Resources = a.resolveResources(ctx, chosen)
 	// The new agent replaces the interrupted one in the task's slot.
 	if err := a.SpawnAgent(ctx, taskID, 0, 0, opt); err != nil {
 		return err
@@ -258,6 +260,7 @@ func (a *agentService) DismissInterruptedAgent(ctx context.Context, taskID strin
 type interruptedResume struct {
 	opt         AgentSpawnOptions
 	workingDir  string
+	executionID string
 	resources   []string
 	err         error
 	canStartNew bool
@@ -274,6 +277,7 @@ func (a *agentService) planInterruptedResume(ctx context.Context, s store.AgentS
 			opt.Engram, opt.EngramSession = name, engramSession
 		}
 		plan.resources, _ = a.store.ListExecutionResources(ctx, s.ExecutionID)
+		plan.executionID = s.ExecutionID
 	}
 	plan.workingDir = opt.WorkingDir
 	plan.opt = opt

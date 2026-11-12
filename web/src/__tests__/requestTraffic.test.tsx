@@ -33,6 +33,7 @@ vi.mock("../hooks/useWebSocket", () => ({
 }))
 vi.mock("../components/PlanApprovalModal", () => ({ PlanApprovalModal: () => null }))
 vi.mock("../components/OfflineDialog", () => ({ OfflineDialog: () => null }))
+vi.mock("../components/AutoRunNotice", () => ({ AutoRunNotice: () => null }))
 vi.mock("../hooks/useAgentSelection", () => ({ AgentSelectionProvider: ({ children }: { children: React.ReactNode }) => children }))
 vi.mock("../hooks/useToast", () => ({ useToast: () => ({ addToast: vi.fn() }) }))
 vi.mock("../components/board/BoardGrid", () => ({ BoardGrid: () => null }))

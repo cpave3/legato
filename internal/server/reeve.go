@@ -44,6 +44,8 @@ func (s *Server) registerReeveRoutes(mux *routeMux) {
 	mux.HandleFunc("DELETE /api/reeve/sessions/{task_id}", s.reeveDeleteHandler())
 	mux.HandleFunc("POST /api/reeve/message", s.reeveMessageHandler())
 	mux.HandleFunc("GET /api/reeve/sessions/{task_id}/change-sets", s.reeveChangeSetsHandler())
+	mux.HandleFunc("GET /api/reeve/auto", s.reeveAutoHandler())
+	mux.HandleFunc("POST /api/reeve/auto/off", s.reeveAutoOffHandler())
 	mux.HandleFunc("POST /api/reeve/secrets/{approval_id}", s.reeveSecretHandler())
 	mux.HandleFunc("GET /api/reeve/voice", s.reeveVoiceStatusHandler())
 	mux.HandleFunc("GET "+voiceSessionPath, s.reeveVoiceSessionHandler())
@@ -234,6 +236,8 @@ type ChangeSetLine struct {
 	State  string `json:"state"`
 	Calls  int    `json:"calls"`
 	Ran    int    `json:"ran"`
+	// Auto: the set ran with no approval asked (the auto level).
+	Auto bool `json:"auto,omitempty"`
 }
 
 func (s *Server) reeveChangeSetsHandler() http.HandlerFunc {
@@ -255,7 +259,7 @@ func (s *Server) reeveChangeSetsHandler() http.HandlerFunc {
 				State string `json:"state"`
 			}
 			_ = json.Unmarshal([]byte(set.Results), &results)
-			line := ChangeSetLine{ID: set.ID, Reason: set.Reason, State: set.State, Calls: len(calls)}
+			line := ChangeSetLine{ID: set.ID, Reason: set.Reason, State: set.State, Calls: len(calls), Auto: set.Level == string(service.LevelAuto)}
 			for _, res := range results {
 				if res.State == "ran" {
 					line.Ran++

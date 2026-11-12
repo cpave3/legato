@@ -1,3 +1,4 @@
+import { ReeveAutoSettings } from "../components/settings/ReeveAutoSettings"
 import { useEffect, useRef, useState } from "react"
 import { ShieldCheck, Download, Zap, ScanSearch, Keyboard, QrCode, Server, Trash2, Plus, RefreshCw, Smartphone, Sparkles, FolderGit2, Palette, SquareTerminal } from "lucide-react"
 import { TintPicker } from "../components/TintPicker"
@@ -265,6 +266,7 @@ export function SettingsPage() {
 
           <SettingsGroup id="reeve" title="Reeve" description="The agent of this Legato itself: its sessions, its engram, the agent tool, model and launch arguments it starts with, and the transcription its voice and dictation use.">
             <ReeveSessions baseUrl={baseUrl} />
+            <ReeveAutoSettings baseUrl={baseUrl} />
             <ReeveEngramSettings baseUrl={baseUrl} />
             <ReevePairings baseUrl={baseUrl} />
             <RegistrySettings settings={registry} baseUrl={baseUrl} prefixes={["reeve", "voice"]} />

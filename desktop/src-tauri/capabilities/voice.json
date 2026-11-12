@@ -1,7 +1,7 @@
 {
   "$schema": "../gen/schemas/desktop-schema.json",
   "identifier": "voice",
-  "description": "The voice widget (voice.html, the app's own page) may hear the app's voice-* events and call the few commands it uses. It holds no token, and cannot move or focus windows, sign, pair or update.",
+  "description": "The voice widget (voice.html, the app's own page) may hear the app's voice-* events and call the few commands it uses: its own, and deciding approvals, signing them with the desktop's key as the main window's sheet does (a touch or a fingerprint each time). It holds no token, and cannot focus other windows; it can move only itself, through the drag commands, and cannot pair or update.",
   "windows": ["voice"],
   "webviews": ["voice"],
   "permissions": [
@@ -12,6 +12,16 @@
     "allow-voice-key-info",
     "allow-voice-open-settings",
     "allow-voice-widget-size",
-    "allow-voice-widget-menu"
+    "allow-voice-widget-menu",
+    "allow-voice-widget-drag-start",
+    "allow-voice-widget-drag-move",
+    "allow-voice-widget-drag-end",
+    "allow-voice-widget-layout",
+    "allow-voice-approvals",
+    "allow-voice-approval-decide",
+    "allow-voice-approval-open",
+    "allow-voice-approval-sheet",
+    "allow-prepare",
+    "allow-sign"
   ]
 }
