@@ -77,7 +77,7 @@ The tray also lists the [Reeve](/legato/using/reeve/)'s change sets that wait on
 
 ### Answering in the desktop app
 
-The [desktop app](/legato/running/desktop-app/) shows every server's approvals in its voice widget, a line each, and you allow, deny or sign them there with a click and your security key, without opening the main window. A deny with a note, a question and a secret open the main window on the approval. See [Approvals in the voice widget](/legato/running/desktop-app/#approvals-in-the-voice-widget).
+The [desktop app](/legato/running/desktop-app/) shows every server's approvals in the feed of its Legato widget, a line each, and you allow, deny or sign them there with a click and your security key, without opening the main window. A deny with a note, a question and a secret open the main window on the approval. See [Approvals in the widget's feed](/legato/running/desktop-app/#approvals-in-the-widgets-feed).
 
 ### Focus mode
 

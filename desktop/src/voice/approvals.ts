@@ -1,4 +1,4 @@
-// The approvals the voice widget shows: every paired server's pending
+// Approvals, the first kind of item in the Legato widget's feed (Feed.tsx): every paired server's pending
 // approvals, as Rust lists them (voice_approvals, the voice-approvals event;
 // src-tauri/src/widgetapprovals.rs). What a line says, what its detail
 // shows and how it is decided, as the web UI's tray has them
@@ -25,6 +25,7 @@ export type ChangeSetCall = {
 
 export type Approval = {
   id: string
+  created_at?: string
   source: string
   title: string
   summary?: string

@@ -24,7 +24,7 @@ vi.mock("@tauri-apps/api/core", () => ({
   },
 }))
 
-const { WidgetApprovals } = await import("./Approvals")
+const { Feed } = await import("./Feed")
 
 function emit(name: string, payload: unknown) {
   act(() => handlers.get(name)?.({ payload }))
@@ -35,6 +35,7 @@ const hostCommand: WidgetApproval = {
   server_name: "tessitura",
   approval: {
     id: "ap-1",
+    created_at: "2026-11-12T10:00:03Z",
     source: "reeve_change_set",
     title: "Run a command on the host",
     summary: "1 change",
@@ -49,6 +50,7 @@ const credential: WidgetApproval = {
   server_name: "tessitura",
   approval: {
     id: "ap-2",
+    created_at: "2026-11-12T10:00:01Z",
     source: "credential",
     title: "Use github",
     signed: false,
@@ -66,6 +68,7 @@ const permission: WidgetApproval = {
   server_name: "erebus",
   approval: {
     id: "ap-3",
+    created_at: "2026-11-12T10:00:02Z",
     source: "agent_permission",
     title: "Run a command",
     summary: "rm -rf build",
@@ -121,7 +124,7 @@ describe("what an approval says in the widget", () => {
   })
 })
 
-describe("the approvals in the widget", () => {
+describe("the feed under the voice", () => {
   beforeEach(() => {
     handlers.clear()
     invoked.length = 0
@@ -133,29 +136,40 @@ describe("the approvals in the widget", () => {
   const calls = (cmd: string) => invoked.filter((i) => i.cmd === cmd).map((i) => i.args)
 
   it("draws nothing while none waits, and each as it arrives", async () => {
-    render(<WidgetApprovals />)
+    render(<Feed />)
     await act(async () => {})
-    expect(screen.queryByTestId("widget-approvals")).not.toBeInTheDocument()
+    expect(screen.queryByTestId("widget-feed")).not.toBeInTheDocument()
     emit("voice-approvals", [hostCommand, credential])
-    const list = screen.getByTestId("widget-approvals")
+    const list = screen.getByTestId("widget-feed")
     expect(list).toHaveAttribute("data-no-drag")
+    expect(list).toHaveAttribute("data-widget-feed")
     expect(within(list).getByText("2 need you")).toBeInTheDocument()
     expect(within(list).getByText("Reeve:")).toBeInTheDocument()
     expect(within(list).getByText("Run a command on the host")).toBeInTheDocument()
     emit("voice-approvals", [])
-    expect(screen.queryByTestId("widget-approvals")).not.toBeInTheDocument()
+    expect(screen.queryByTestId("widget-feed")).not.toBeInTheDocument()
+  })
+
+  it("lists several items newest first, each with its kind", async () => {
+    pending = [credential, hostCommand, permission]
+    render(<Feed />)
+    await screen.findByText("Use github")
+    const ids = screen.getAllByTestId(/^feed-item-/).map((el) => el.getAttribute("data-testid"))
+    expect(ids).toEqual(["feed-item-approval-s1/ap-1", "feed-item-approval-s2/ap-3", "feed-item-approval-s1/ap-2"])
+    expect(screen.getByText("3 need you")).toBeInTheDocument()
+    expect(within(screen.getByTestId("feed-item-approval-s1/ap-1")).getByText(/approval/)).toBeInTheDocument()
   })
 
   it("reads those already waiting when it starts", async () => {
     pending = [permission]
-    render(<WidgetApprovals />)
+    render(<Feed />)
     expect(await screen.findByText("Run a command")).toBeInTheDocument()
     expect(screen.getByText("1 needs you")).toBeInTheDocument()
   })
 
   it("names the server only when approvals come from more than one", async () => {
     pending = [credential]
-    render(<WidgetApprovals />)
+    render(<Feed />)
     await screen.findByText("Use github")
     expect(screen.queryByText(/tessitura/)).not.toBeInTheDocument()
     emit("voice-approvals", [credential, permission])
@@ -165,7 +179,7 @@ describe("the approvals in the widget", () => {
 
   it("opens a line on its detail and decides it with the tray's options", async () => {
     pending = [credential]
-    render(<WidgetApprovals />)
+    render(<Feed />)
     fireEvent.click(await screen.findByText("Use github"))
     expect(screen.getByText("cpave3/legato")).toBeInTheDocument()
     expect(screen.getByText("Push the fix")).toBeInTheDocument()
@@ -177,7 +191,7 @@ describe("the approvals in the widget", () => {
 
   it("denies with no note, or opens the tray for one", async () => {
     pending = [permission]
-    render(<WidgetApprovals />)
+    render(<Feed />)
     fireEvent.click(await screen.findByText("Run a command"))
     fireEvent.click(screen.getByRole("button", { name: "Deny" }))
     await act(async () => {})
@@ -185,7 +199,7 @@ describe("the approvals in the widget", () => {
     expect(screen.getByText("Denied")).toBeInTheDocument()
 
     cleanup()
-    render(<WidgetApprovals />)
+    render(<Feed />)
     fireEvent.click(await screen.findByText("Run a command"))
     fireEvent.click(screen.getByRole("button", { name: "Deny with a note…" }))
     expect(calls("voice_approval_open")).toEqual([{ server: "s2", approval: "ap-3" }])
@@ -194,7 +208,7 @@ describe("the approvals in the widget", () => {
   it("says when another decision came first", async () => {
     pending = [permission]
     answers.voice_approval_decide = () => Promise.reject("approval is no longer pending")
-    render(<WidgetApprovals />)
+    render(<Feed />)
     fireEvent.click(await screen.findByText("Run a command"))
     fireEvent.click(screen.getByRole("button", { name: "Allow once" }))
     await act(async () => {})
@@ -203,7 +217,7 @@ describe("the approvals in the widget", () => {
 
   it("sends a question or a secret to the main window", async () => {
     pending = [question]
-    render(<WidgetApprovals />)
+    render(<Feed />)
     fireEvent.click(await screen.findByText("Which database?"))
     expect(screen.queryByRole("button", { name: "Deny" })).not.toBeInTheDocument()
     fireEvent.click(screen.getByRole("button", { name: "Answer in Legato" }))
@@ -215,7 +229,7 @@ describe("the approvals in the widget", () => {
     let touched: () => void = () => {}
     answers.prepare = () => Promise.resolve({ request: { options: hostCommand.approval.options }, device: "dev-1", with: "security-key" })
     answers.sign = () => new Promise((resolve) => { touched = () => resolve({ device: "dev-1", message_sha256: "ab", signature: "cd", verified: false, counter: 3 }) })
-    render(<WidgetApprovals />)
+    render(<Feed />)
     fireEvent.click(await screen.findByText("Run a command on the host"))
     expect(screen.getByText("$ dnf upgrade -y")).toBeInTheDocument()
     expect(screen.getByText("host as root")).toBeInTheDocument()
@@ -238,7 +252,7 @@ describe("the approvals in the widget", () => {
         ? Promise.resolve({ request: { options: hostCommand.approval.options }, device: "dev-1", with: "touch-id" })
         : Promise.reject("Plug in a key this server knows."))
       answers.sign = () => new Promise(() => {})
-      render(<WidgetApprovals />)
+      render(<Feed />)
       await act(async () => {})
       fireEvent.click(screen.getByText("Run a command on the host"))
       fireEvent.click(screen.getByRole("button", { name: "◈ Approve" }))
@@ -254,7 +268,7 @@ describe("the approvals in the widget", () => {
 
   it("can open the main window's sheet on a signed one", async () => {
     pending = [hostCommand]
-    render(<WidgetApprovals />)
+    render(<Feed />)
     fireEvent.click(await screen.findByText("Run a command on the host"))
     fireEvent.click(screen.getByRole("button", { name: "Open the sheet" }))
     expect(calls("voice_approval_sheet")).toEqual([{ server: "s1", approval: "ap-1" }])
@@ -262,7 +276,7 @@ describe("the approvals in the widget", () => {
 
   it("never takes focus: a press does not move focus into the widget", async () => {
     pending = [credential]
-    render(<WidgetApprovals />)
+    render(<Feed />)
     const line = await screen.findByText("Use github")
     const down = new MouseEvent("mousedown", { bubbles: true, cancelable: true })
     line.dispatchEvent(down)

@@ -238,8 +238,8 @@ pub fn showing(state: &str, reason: Option<&str>, written: bool, now: Instant) -
 }
 
 /// Whether the widget shows: unless the person hid it, and then still
-/// while it has something to show, or approvals wait (waiting) for the
-/// person (see widgetapprovals).
+/// while it has something to show, or while the feed under the voice has
+/// something (waiting; for now, approvals: see widgetapprovals).
 pub fn shows(hidden: bool, showing: Showing, waiting: bool, now: Instant) -> bool {
     !hidden
         || waiting

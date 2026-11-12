@@ -1,4 +1,5 @@
-//! The approvals the voice widget shows: every paired server's pending
+//! The approvals in the Legato widget's feed (src/voice/Feed.tsx), its
+//! first kind of item: every paired server's pending
 //! approvals, asked for every `EVERY`, so one shows within a second or two
 //! of being raised, with no conversation running. `app.rs` asks
 //! (`watch_approvals`), keeps the list, emits `voice-approvals` when it

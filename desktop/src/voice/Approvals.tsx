@@ -3,10 +3,11 @@ import { invoke } from "@tauri-apps/api/core"
 import { listen } from "@tauri-apps/api/event"
 import { VoiceRing } from "@web-voice/VoiceRing"
 import { approvalLine, detailOf, howToDecide, type ApprovalOption, type WidgetApproval } from "./approvals"
+import type { FeedEntry } from "./Feed"
 
-// The approvals waiting on every paired server, above the capsule or the
-// card: one line each, opening to what the tray shows, decided with a
-// click or signed with the desktop's key. Rust lists them (voice_approvals,
+// Approvals in the Legato widget's feed: every paired server's, one line
+// each, opening to what the tray shows, decided with a click or signed with
+// the desktop's key. Rust lists them (voice_approvals,
 // voice-approvals) and keeps the widget shown while any waits. The widget
 // never takes the keyboard, so what needs typing (a note, an answer, a
 // secret) is done in the main window.
@@ -28,11 +29,11 @@ const text = (e: unknown) => {
   return said.includes("no longer pending") ? "Already decided somewhere else." : said
 }
 
-// compact: the card is up too, so the list keeps to less height (the
-// window is at most 420 high).
-export function WidgetApprovals({ compact = false }: { compact?: boolean }) {
+// The approvals as feed entries: those listed now, and those decided here
+// kept for DECIDED_FOR after their server stops listing them. Newest first
+// is the feed's; each entry draws its own row.
+export function useApprovalEntries(): FeedEntry[] {
   const [list, setList] = useState<WidgetApproval[]>([])
-  const [open, setOpen] = useState<string | null>(null)
   // Lines decided here, kept a moment after the server stops listing them.
   const [decided, setDecided] = useState<Record<string, { item: WidgetApproval; at: number }>>({})
 
@@ -52,41 +53,21 @@ export function WidgetApprovals({ compact = false }: { compact?: boolean }) {
     return () => clearTimeout(timer)
   })
 
-  const rows = [...list, ...kept.map((d) => d.item)]
-  if (!rows.length) return null
-  const servers = new Set(rows.map((w) => w.server))
-  const count = list.length
-  return (
-    <section
-      data-testid="widget-approvals"
-      data-no-drag
-      aria-label="Approvals"
-      // A press never moves the focus, so typing elsewhere carries on.
-      onMouseDown={(e) => e.preventDefault()}
-      className="voice-ui mb-2 flex w-[412px] max-w-full flex-col overflow-hidden rounded-[20px] border border-[#E8B53A]/40 shadow-[0_18px_48px_rgba(0,0,0,0.5)]"
-      style={{ background: "var(--voice-surface)" }}
-    >
-      <header className="flex items-center gap-2 border-b border-[#26262D] px-[18px] py-2.5">
-        <span className="text-[#E8B53A]" aria-hidden="true">◆</span>
-        <span className="voice-kicker !text-[#E8B53A]">{count ? `${count} ${count === 1 ? "needs" : "need"} you` : "decided"}</span>
-      </header>
-      <ul className={`m-0 flex list-none flex-col overflow-y-auto p-1.5 ${compact ? "max-h-[110px]" : "max-h-[290px]"}`}>
-        {rows.map((w) => {
-          const k = keyOf(w)
-          return (
-            <Row
-              key={k}
-              item={w}
-              server={servers.size > 1 ? w.server_name : ""}
-              open={open === k}
-              onToggle={() => setOpen((o) => (o === k ? null : k))}
-              onDecided={() => setDecided((all) => ({ ...all, [k]: { item: w, at: Date.now() } }))}
-            />
-          )
-        })}
-      </ul>
-    </section>
-  )
+  const items = [...list.map((item) => ({ item, waiting: true })), ...kept.map((d) => ({ item: d.item, waiting: false }))]
+  const servers = new Set(items.map(({ item }) => item.server))
+  return items.map(({ item, waiting }) => {
+    const k = keyOf(item)
+    return {
+      kind: "approval",
+      key: k,
+      at: Date.parse(item.approval.created_at ?? "") || 0,
+      waiting,
+      render: ({ open, onToggle }) => (
+        <Row item={item} server={servers.size > 1 ? item.server_name : ""} open={open} onToggle={onToggle}
+          onDecided={() => setDecided((all) => ({ ...all, [k]: { item, at: Date.now() } }))} />
+      ),
+    }
+  })
 }
 
 type Phase =
@@ -150,13 +131,13 @@ function Row({ item, server, open, onToggle, onDecided }: { item: WidgetApproval
   const btn = "h-9 rounded-xl px-3 text-[13px] font-semibold disabled:opacity-50"
 
   return (
-    <li className={`rounded-xl ${open ? "bg-[#0D0D12]" : ""}`} data-testid={`widget-approval-${a.id}`}>
+    <div className={`rounded-xl ${open ? "bg-[#0D0D12]" : ""}`}>
       <button type="button" onClick={onToggle} aria-expanded={open}
         className="flex w-full items-center gap-2.5 rounded-xl bg-transparent px-2.5 py-2 text-left text-[#E6E5EB] hover:bg-[#15141C]">
         <span aria-hidden="true" className={a.signed ? "text-[#6D5EF6]" : "text-[#E8B53A]"}>{a.signed ? "◈" : "◆"}</span>
         <span className="flex min-w-0 flex-1 flex-col">
           <span className="truncate text-[13px] leading-snug"><span className="text-[#9A99A5]">{who}:</span> <span>{what}</span></span>
-          {meta && <span className="voice-mono truncate text-[11px] text-[#6E6D79]">{meta}</span>}
+          <span className="voice-mono truncate text-[11px] text-[#6E6D79]">approval{meta && ` · ${meta}`}</span>
         </span>
         {phase.kind === "done"
           ? <span className="voice-mono shrink-0 text-[11px] text-[#3ECF8E]">{phase.said}</span>
@@ -193,7 +174,7 @@ function Row({ item, server, open, onToggle, onDecided }: { item: WidgetApproval
           )}
         </div>
       )}
-    </li>
+    </div>
   )
 }
 

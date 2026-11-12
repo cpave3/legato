@@ -71,9 +71,9 @@ When a server knows Touch ID, the sheet asks for your fingerprint instead of a t
 - The app keeps no offline copy of a server's web UI. While a server is down, the app shows its own offline screen for it, with the address and the reason it could not be reached. It keeps checking every few seconds (**Try again** checks at once), and the server's page comes back by itself when the server answers.
 - Dictation works in every server's page, over HTTP too: the app records for the page with `parecord` (or `arecord` when there is no `parecord`), and the server transcribes it as usual. Linux only for now.
 
-### The voice widget
+### The Legato widget
 
-A small capsule at the edge of the screen shows the Reeve, whether your main can listen, and the key. It stays above your other windows and never takes the keyboard from the app you are in.
+A small capsule at the edge of the screen shows the Reeve, whether your main can listen, and the key. Under it, a feed shows what needs you, such as approvals, while the app is not in front. It stays above your other windows and never takes the keyboard from the app you are in.
 
 - Click the capsule to talk, as with the key.
 - While you talk, it grows into a card: your words, the pause bar, what the Reeve is doing, and what it says. Its buttons are **Send now**, **Cancel**, **Stop** and **Reply**. **Stop** stops the Reeve and keeps the card, so you can talk again or close it.
@@ -81,13 +81,13 @@ A small capsule at the edge of the screen shows the Reeve, whether your main can
 - A long message does not grow the card off the screen: it shows your latest words, after an ellipsis. The whole message still goes to the Reeve.
 - Drag the capsule to put it anywhere. It stays where you drop it, also after a restart: it keeps to the nearest corner, or to the middle of the nearest edge, as far from that edge as you dropped it. A click without a drag still talks.
 - Right-click the capsule to hide it, put it in a corner or the middle of an edge (**Place**), choose the screen it is on (**Screen**, with more than one screen), or open the app's settings. **Servers & keys** has the same choices.
-- With several screens, the app names each by its maker and model, as the desktop's display settings do, and adds the connector (such as DP-1) when two are the same model. It remembers the screen you chose. While that screen is not connected, the widget is on your primary screen (on Wayland, the first), and it goes back when the screen returns. The corner and where you dropped it apply on the chosen screen. Hidden, it still shows while you talk, and for a few seconds after to say how the conversation ended. **Servers & keys** › **Show the voice widget** brings it back.
+- With several screens, the app names each by its maker and model, as the desktop's display settings do, and adds the connector (such as DP-1) when two are the same model. It remembers the screen you chose. While that screen is not connected, the widget is on your primary screen (on Wayland, the first), and it goes back when the screen returns. The corner and where you dropped it apply on the chosen screen. Hidden, it still shows while you talk, and for a few seconds after to say how the conversation ended. It also shows while the feed has something. **Servers & keys** › **Show the Legato widget** brings it back.
 
 On KDE Plasma and other Wayland desktops (when the app runs on Wayland, not through XWayland), the AppImage brings its own `gtk-layer-shell`, so the widget stays where you put it and above other windows with nothing to install. On a desktop without layer shell (GNOME), the widget is an ordinary small window: your desktop decides where it goes, and a drag moves it only until the app restarts. On a Mac it is an ordinary window for now.
 
-### Approvals in the voice widget
+### Approvals in the widget's feed
 
-When an approval waits on any of your servers, the voice widget shows it above the capsule within a second or two, even while you are not talking to the Reeve and even if you hid the widget. It stays shown while approvals wait.
+When an approval waits on any of your servers, the Legato widget shows it in its feed, under the capsule, within a second or two. It does this even while you are not talking to the Reeve and even if you hid the widget, and stays shown while approvals wait. The newest is at the top. When the feed is longer than the room left on the screen, it scrolls; the capsule or the card above it stays whole.
 
 - Each approval is one line: who asks and what, such as **Reeve: Run a command on the host**. With more than one server, the line names the server.
 - Click a line to see what the approvals tray shows: the command and where it runs, each change of a Reeve change set (a host command run as root is marked), a credential's operations and resources, and the reason.

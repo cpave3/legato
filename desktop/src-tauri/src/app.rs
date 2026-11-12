@@ -739,7 +739,7 @@ fn make_voice_widget(app: &AppHandle) -> tauri::Result<()> {
     use tauri::WebviewWindowBuilder;
     let (w, h) = voicewidget::FIRST_SIZE;
     let builder = WebviewWindowBuilder::new(app, voicewidget::LABEL, WebviewUrl::App("voice.html".into()))
-        .title("Legato voice")
+        .title("Legato widget")
         .inner_size(w, h)
         .decorations(false)
         .transparent(true)
@@ -2312,7 +2312,7 @@ async fn deny(desktop: State<'_, Desktop>, server: String, approval: String) -> 
     c.post(&format!("/api/approvals/{approval}/decision"), json!({ "decision": "deny", "by": "desktop" })).await.map(|_| ())
 }
 
-// ---- Approvals in the voice widget ----
+// ---- Approvals in the Legato widget's feed ----
 
 /// Asks every server for its pending approvals every widgetapprovals::EVERY
 /// (or at once after a decision), keeps the list, tells the widget when it

@@ -116,7 +116,7 @@ export function VoiceSection() {
         <div className="row gap small">
           <label className="row gap">
             <input type="checkbox" checked={widget.shown} onChange={(e) => placeWidget({ ...widget, shown: e.target.checked })} />
-            Show the voice widget
+            Show the Legato widget
           </label>
           <select value={widget.anchor} onChange={(e) => placeWidget({ ...widget, anchor: e.target.value as Anchor, dropped: false })} aria-label="Place">
             {PLACES.map(([a, label]) => <option key={a} value={a}>{label}{widget.dropped && a === widget.anchor ? " (where you dropped it)" : ""}</option>)}

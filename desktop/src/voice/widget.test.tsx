@@ -234,17 +234,20 @@ describe("the widget page", () => {
     expect(invoked.map((i) => i.cmd)).toContain("voice_widget_menu")
   })
 
-  it("shows approvals as they arrive, above the capsule, with no conversation", async () => {
+  it("shows approvals as they arrive, in the feed under the capsule, with no conversation", async () => {
     render(<Widget />)
     await screen.findByText(/tessitura · ready/)
-    expect(screen.queryByTestId("widget-approvals")).not.toBeInTheDocument()
+    expect(screen.queryByTestId("widget-feed")).not.toBeInTheDocument()
     emit("voice-approvals", [{
       server: "s1",
       server_name: "tessitura",
       approval: { id: "ap-1", source: "reeve_change_set", title: "Run a command on the host", signed: true, options: [{ id: "allow", label: "Approve", kind: "allow" }], details: {} },
     }])
-    expect(screen.getByTestId("widget-approvals")).toHaveTextContent("Reeve: Run a command on the host")
-    expect(screen.getByTestId("voice-capsule")).toBeInTheDocument()
+    const feed = screen.getByTestId("widget-feed")
+    expect(feed).toHaveTextContent("Reeve: Run a command on the host")
+    // Voice on top, the feed under it.
+    const capsule = screen.getByTestId("voice-capsule")
+    expect(capsule.compareDocumentPosition(feed) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
   })
 })
 
