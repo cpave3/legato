@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 	"sort"
 	"strings"
 	"time"
@@ -66,6 +67,20 @@ type MCPLegato interface {
 	Run(ctx context.Context, args []string) (int, string, error)
 }
 
+// LegatoCommand is a legato subcommand the Reeve may run, by its path
+// (task list) and class (read, change or risky).
+type LegatoCommand struct {
+	Path        string
+	Class       string
+	Description string
+}
+
+// MCPLegatoCommands lists the commands the legato tool runs, for its
+// description. An MCPLegato may implement it.
+type MCPLegatoCommands interface {
+	Commands() []LegatoCommand
+}
+
 // MCPSecrets asks the person for a secret (service.ReeveSecrets).
 type MCPSecrets interface {
 	Request(ctx context.Context, taskID, name, purpose string) (service.SecretOutcome, error)
@@ -82,7 +97,7 @@ func (m *mcpTools) reeveSession() bool {
 }
 
 func (m *mcpTools) reeveTools() []mcpserver.Tool {
-	tools := []mcpserver.Tool{m.reeveDocs(), m.reeveStatus(), m.reeveLogs(), m.reeveAPI()}
+	tools := []mcpserver.Tool{m.reeveDocs(), m.reeveStatus(), m.reeveLogs(), m.reeveAPI(), m.watchAgent(), m.unwatchAgent(), m.listWatches()}
 	if m.opts.Reeve.ChangeSets != nil {
 		tools = append(tools, m.proposeChanges(), m.restartLegato(), m.proposeConfigEdit())
 	}
@@ -219,7 +234,7 @@ type reeveAPIInput struct {
 	Method string         `json:"method" jsonschema:"GET, POST, PUT, PATCH or DELETE"`
 	Path   string         `json:"path" jsonschema:"the route, starting /api/, with its query string"`
 	Body   map[string]any `json:"body,omitempty" jsonschema:"the JSON body, for a route that takes one"`
-	Reason string         `json:"reason,omitempty" jsonschema:"for a change: one line saying why, shown to the person with it"`
+	Reason string         `json:"reason,omitempty" jsonschema:"for a change: one line saying why, shown to the operator with it"`
 }
 
 func (m *mcpTools) reeveAPI() mcpserver.Tool {
@@ -230,50 +245,142 @@ func (m *mcpTools) reeveAPI() mcpserver.Tool {
 		if err := m.mustBeReeve(ctx); err != nil {
 			return mcpserver.Result{}, err
 		}
-		if m.opts.Reeve.APIBase == "" {
-			return mcpserver.Result{}, fmt.Errorf("this Legato runs no web server, so its API cannot be called")
-		}
 		if !strings.HasPrefix(in.Path, "/api/") {
 			return mcpserver.Result{}, fmt.Errorf("path %q: give a route starting /api/", in.Path)
-		}
-		session, err := m.opts.Store.GetReeveSession(ctx, m.opts.TaskID)
-		if err != nil || session.APIToken == "" {
-			return mcpserver.Result{}, fmt.Errorf("this session has no API token: it has ended")
 		}
 		method := strings.ToUpper(strings.TrimSpace(in.Method))
 		if method == "" {
 			method = http.MethodGet
 		}
-		var body io.Reader
 		raw := rawBody(in.Body)
-		if len(raw) > 0 {
-			body = strings.NewReader(string(raw))
-		}
-		req, err := http.NewRequestWithContext(ctx, method, strings.TrimRight(m.opts.Reeve.APIBase, "/")+in.Path, body)
+		status, out, err := m.callAPI(ctx, method, in.Path, raw)
 		if err != nil {
 			return mcpserver.Result{}, err
 		}
-		req.Header.Set("Authorization", "Bearer "+session.APIToken)
-		if body != nil {
-			req.Header.Set("Content-Type", "application/json")
-		}
-		client := m.opts.Reeve.HTTP
-		if client == nil {
-			client = &http.Client{Timeout: 60 * time.Second, Transport: &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true}}}
-		}
-		resp, err := client.Do(req)
-		if err != nil {
-			return mcpserver.Result{}, err
-		}
-		defer resp.Body.Close()
-		out, _ := io.ReadAll(io.LimitReader(resp.Body, 256<<10))
-		_ = m.opts.Store.TouchReeveSession(ctx, m.opts.TaskID)
 		// A change is not made with the Reeve's token: it becomes a change
 		// set of one, for the person to approve.
-		if resp.StatusCode == http.StatusForbidden && strings.Contains(string(out), "needs_approval") && m.opts.Reeve.ChangeSets != nil {
+		if status == http.StatusForbidden && strings.Contains(string(out), "needs_approval") && m.opts.Reeve.ChangeSets != nil {
 			return m.propose(ctx, in.Reason, []service.ChangeCall{{Kind: service.CallAPI, Method: method, Path: in.Path, Body: raw}})
 		}
-		return mcpserver.Result{Text: fmt.Sprintf("%s %s → %d\n\n%s", method, in.Path, resp.StatusCode, out)}, nil
+		return mcpserver.Result{Text: fmt.Sprintf("%s %s → %d\n\n%s", method, in.Path, status, out)}, nil
+	})
+}
+
+// callAPI calls a route of this Legato's API with the session's own token
+// and answers its status and body (cut at 256 KiB).
+func (m *mcpTools) callAPI(ctx context.Context, method, path string, raw json.RawMessage) (int, []byte, error) {
+	if m.opts.Reeve.APIBase == "" {
+		return 0, nil, fmt.Errorf("this Legato runs no web server, so its API cannot be called")
+	}
+	session, err := m.opts.Store.GetReeveSession(ctx, m.opts.TaskID)
+	if err != nil || session.APIToken == "" {
+		return 0, nil, fmt.Errorf("this session has no API token: it has ended")
+	}
+	var body io.Reader
+	if len(raw) > 0 {
+		body = strings.NewReader(string(raw))
+	}
+	req, err := http.NewRequestWithContext(ctx, method, strings.TrimRight(m.opts.Reeve.APIBase, "/")+path, body)
+	if err != nil {
+		return 0, nil, err
+	}
+	req.Header.Set("Authorization", "Bearer "+session.APIToken)
+	if body != nil {
+		req.Header.Set("Content-Type", "application/json")
+	}
+	client := m.opts.Reeve.HTTP
+	if client == nil {
+		client = &http.Client{Timeout: 60 * time.Second, Transport: &http.Transport{TLSClientConfig: &tls.Config{InsecureSkipVerify: true}}}
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return 0, nil, err
+	}
+	defer resp.Body.Close()
+	out, _ := io.ReadAll(io.LimitReader(resp.Body, 256<<10))
+	_ = m.opts.Store.TouchReeveSession(ctx, m.opts.TaskID)
+	return resp.StatusCode, out, nil
+}
+
+type watchAgentInput struct {
+	TaskID string   `json:"task_id" jsonschema:"the task whose agent to watch"`
+	Events []string `json:"events,omitempty" jsonschema:"what to be told of: waiting (a question or permission prompt), idle, background (only background work runs), error, exited, note (a task note added), pr (a pull request opened or changed); all when left out"`
+}
+
+type unwatchAgentInput struct {
+	TaskID string `json:"task_id" jsonschema:"the task whose agent to stop watching"`
+}
+
+func (m *mcpTools) watchAgent() mcpserver.Tool {
+	return mcpserver.NewTool(mcpserver.Definition{
+		Name: "watch_agent", Title: "Watch an agent",
+		Description: "Be told when an agent waits for the operator, goes idle, works only in the background, errors, exits, adds a task note or has a pull request opened or changed. A [legato agent] message arrives between your turns with what changed and the agent's last message; do not poll it. Watching asks no approval, outlives a restart, and ends when the agent exits. Agents you start or message through a change set are watched already, while reeve.watch.started is on.",
+	}, func(ctx context.Context, in watchAgentInput) (mcpserver.Result, error) {
+		if err := m.mustBeReeve(ctx); err != nil {
+			return mcpserver.Result{}, err
+		}
+		raw, _ := json.Marshal(map[string]any{"task_id": in.TaskID, "events": in.Events})
+		if len(in.Events) == 0 {
+			raw, _ = json.Marshal(map[string]any{"task_id": in.TaskID})
+		}
+		status, out, err := m.callAPI(ctx, http.MethodPost, "/api/reeve/watches", raw)
+		if err != nil {
+			return mcpserver.Result{}, err
+		}
+		if status != http.StatusCreated {
+			return mcpserver.Result{}, fmt.Errorf("watching %s: %d %s", in.TaskID, status, strings.TrimSpace(string(out)))
+		}
+		var watch service.ReeveWatchInfo
+		_ = json.Unmarshal(out, &watch)
+		return mcpserver.Result{Text: fmt.Sprintf("Watching %s for %s. Its agent is %s now.", in.TaskID, strings.Join(watch.Events, ", "), firstLine(watch.State, "not started yet"))}, nil
+	})
+}
+
+func (m *mcpTools) unwatchAgent() mcpserver.Tool {
+	return mcpserver.NewTool(mcpserver.Definition{
+		Name: "unwatch_agent", Title: "Stop watching an agent",
+		Description: "Stop being told what an agent does.",
+	}, func(ctx context.Context, in unwatchAgentInput) (mcpserver.Result, error) {
+		if err := m.mustBeReeve(ctx); err != nil {
+			return mcpserver.Result{}, err
+		}
+		status, out, err := m.callAPI(ctx, http.MethodDelete, "/api/reeve/watches/"+url.PathEscape(in.TaskID), nil)
+		if err != nil {
+			return mcpserver.Result{}, err
+		}
+		if status != http.StatusOK {
+			return mcpserver.Result{}, fmt.Errorf("unwatching %s: %d %s", in.TaskID, status, strings.TrimSpace(string(out)))
+		}
+		return mcpserver.Result{Text: in.TaskID + " is no longer watched."}, nil
+	})
+}
+
+func (m *mcpTools) listWatches() mcpserver.Tool {
+	return mcpserver.NewTool(mcpserver.Definition{
+		Name: "list_watches", Title: "List the agents you watch",
+		Description: "Lists the agents you watch, what you are told of for each, and how each stands.",
+	}, func(ctx context.Context, _ struct{}) (mcpserver.Result, error) {
+		if err := m.mustBeReeve(ctx); err != nil {
+			return mcpserver.Result{}, err
+		}
+		status, out, err := m.callAPI(ctx, http.MethodGet, "/api/reeve/watches", nil)
+		if err != nil {
+			return mcpserver.Result{}, err
+		}
+		var list struct {
+			Watches []service.ReeveWatchInfo `json:"watches"`
+		}
+		if status != http.StatusOK || json.Unmarshal(out, &list) != nil {
+			return mcpserver.Result{}, fmt.Errorf("listing watches: %d %s", status, strings.TrimSpace(string(out)))
+		}
+		if len(list.Watches) == 0 {
+			return mcpserver.Result{Text: "You watch no agents."}, nil
+		}
+		var b strings.Builder
+		for _, w := range list.Watches {
+			fmt.Fprintf(&b, "- %s (%s): %s; told of %s\n", w.TaskID, w.Title, firstLine(w.State, "not started yet"), strings.Join(w.Events, ", "))
+		}
+		return mcpserver.Result{Text: b.String()}, nil
 	})
 }
 
@@ -308,8 +415,8 @@ func rawBody(body map[string]any) json.RawMessage {
 func (m *mcpTools) proposeChanges() mcpserver.Tool {
 	return mcpserver.NewTool(mcpserver.Definition{
 		Name: "propose_changes", Title: "Propose a change set",
-		Description: "Puts changes to the person as one approval: a one-line reason and an ordered list of calls. Legato runs exactly these calls once they are approved, in order, a restart last, stopping at the first failure, and tells you each call's result. " +
-			"It waits up to a minute for the decision, then answers pending. A call you may never make refuses the whole set.",
+		Description: "Puts changes to the operator as one approval: a one-line reason and an ordered list of calls. Legato runs exactly these calls once they are approved, in order, a restart last, stopping at the first failure, and tells you each call's result. " +
+			"It waits up to a minute for the decision, then answers pending. A set the operator lets run without asking (auto) is approved at once. A call you may never make refuses the whole set.",
 	}, func(ctx context.Context, in proposeChangesInput) (mcpserver.Result, error) {
 		if err := m.mustBeReeve(ctx); err != nil {
 			return mcpserver.Result{}, err
@@ -335,10 +442,13 @@ func (m *mcpTools) propose(ctx context.Context, reason string, calls []service.C
 	switch out.State {
 	case "approved":
 		text = fmt.Sprintf("Change set %s was approved. Legato is running it now; a [legato] message will tell you each call's result.", out.ID)
+		if out.Level == service.LevelAuto {
+			text = fmt.Sprintf("Change set %s runs now with no approval asked (the operator set these calls to auto). A [legato] message will tell you each call's result: read it before you propose the next step.", out.ID)
+		}
 	case "denied":
-		text = fmt.Sprintf("Change set %s was denied. The person's note: %s\nDo not propose the same change again in this session unless they ask.", out.ID, noteOrNone(out.Note))
+		text = fmt.Sprintf("Change set %s was denied. The operator's note: %s\nDo not propose the same change again in this session unless they ask.", out.ID, noteOrNone(out.Note))
 	default:
-		text = fmt.Sprintf("Change set %s waits for the person's approval (%s, approval %s). A [legato] message will tell you the decision and the results; carry on meanwhile, or end your turn.", out.ID, out.Level, out.ApprovalID)
+		text = fmt.Sprintf("Change set %s waits for the operator's approval (%s, approval %s). A [legato] message will tell you the decision and the results; carry on meanwhile, or end your turn.", out.ID, out.Level, out.ApprovalID)
 	}
 	return mcpserver.Result{Text: text, Data: out}, nil
 }
@@ -357,7 +467,7 @@ type restartLegatoInput struct {
 func (m *mcpTools) restartLegato() mcpserver.Tool {
 	return mcpserver.NewTool(mcpserver.Definition{
 		Name: "restart_legato", Title: "Restart Legato",
-		Description: "Proposes a restart of every Legato process of this instance, as a change set for the person to approve. Agents keep running. A restart whose start fails is rolled back. When Legato is back, a [legato] message says so.",
+		Description: "Proposes a restart of every Legato process of this instance, as a change set for the operator to approve. Agents keep running. A restart whose start fails is rolled back. When Legato is back, a [legato] message says so.",
 	}, func(ctx context.Context, in restartLegatoInput) (mcpserver.Result, error) {
 		if err := m.mustBeReeve(ctx); err != nil {
 			return mcpserver.Result{}, err
@@ -372,14 +482,14 @@ func (m *mcpTools) restartLegato() mcpserver.Tool {
 
 type configEditInput struct {
 	Reason string         `json:"reason" jsonschema:"one line saying why"`
-	Set    map[string]any `json:"set,omitempty" jsonschema:"keys to give a value, dotted as in config.yaml (web.port, agents.sandbox.enabled), with their values"`
-	Remove []string       `json:"remove,omitempty" jsonschema:"dotted keys to take out of config.yaml"`
+	Set    map[string]any `json:"set,omitempty" jsonschema:"keys to give a value, dotted as in config.yaml (web.port, agents.sandbox.enabled), with their values. A key reaches into a list by an entry's index or field: credentials[name=github].policy[0].operation; [+] adds an entry at the end: credentials[name=github].policy[+] with the new rule as its value"`
+	Remove []string       `json:"remove,omitempty" jsonschema:"dotted keys to take out of config.yaml; a list entry too, as credentials[name=github].policy[2]"`
 }
 
 func (m *mcpTools) proposeConfigEdit() mcpserver.Tool {
 	return mcpserver.NewTool(mcpserver.Definition{
 		Name: "propose_config_edit", Title: "Propose an edit to config.yaml",
-		Description: "Proposes an edit to this instance's config.yaml (for a file-only setting, or one config.yaml pins): Legato checks the edited copy loads, shows the person a diff, and writes it with its comments kept and a backup, then restarts. The person may leave the restart out; the edit then waits for the next one.",
+		Description: "Proposes an edit to this instance's config.yaml (for a file-only setting, or one config.yaml pins): Legato checks the edited copy loads, shows the operator a diff, and writes it with its comments kept and a backup, then restarts. The operator may leave the restart out; the edit then waits for the next one.",
 	}, func(ctx context.Context, in configEditInput) (mcpserver.Result, error) {
 		if err := m.mustBeReeve(ctx); err != nil {
 			return mcpserver.Result{}, err
@@ -405,13 +515,13 @@ func (m *mcpTools) proposeConfigEdit() mcpserver.Tool {
 
 type requestSecretInput struct {
 	Name    string `json:"name" jsonschema:"the name to keep the secret under, as elevenlabs-key"`
-	Purpose string `json:"purpose" jsonschema:"what it is for, shown to the person"`
+	Purpose string `json:"purpose" jsonschema:"what it is for, shown to the operator"`
 }
 
 func (m *mcpTools) requestSecret() mcpserver.Tool {
 	return mcpserver.NewTool(mcpserver.Definition{
-		Name: "request_secret", Title: "Ask the person for a secret",
-		Description: "Asks the person to paste a secret (an API key, a token) into a form in Legato, which keeps it in its secret store. You get its name to use (legato://<name>, in a setting or a credential), never its value. Never ask for a secret in the conversation.",
+		Name: "request_secret", Title: "Ask the operator for a secret",
+		Description: "Asks the operator to paste a secret (an API key, a token) into a form in Legato, which keeps it in its secret store. You get its name to use (legato://<name>, in a setting or a credential), never its value. Never ask for a secret in the conversation.",
 	}, func(ctx context.Context, in requestSecretInput) (mcpserver.Result, error) {
 		if err := m.mustBeReeve(ctx); err != nil {
 			return mcpserver.Result{}, err
@@ -423,11 +533,11 @@ func (m *mcpTools) requestSecret() mcpserver.Tool {
 		var text string
 		switch out.State {
 		case "stored":
-			text = "The person stored the secret. Use it by its name: " + out.Ref
+			text = "The operator stored the secret. Use it by its name: " + out.Ref
 		case "declined":
-			text = "The person declined to give the secret."
+			text = "The operator declined to give the secret."
 		default:
-			text = "The request waits in the person's approval tray (" + out.ApprovalID + "). A [legato] message does not follow: call request_secret again later, or ask the person."
+			text = "The request waits in the operator's approval tray (" + out.ApprovalID + "). A [legato] message does not follow: call request_secret again later, or ask the operator."
 		}
 		return mcpserver.Result{Text: text, Data: out}, nil
 	})
@@ -491,10 +601,10 @@ type speakInput struct {
 func (m *mcpTools) speak() mcpserver.Tool {
 	return mcpserver.NewTool(mcpserver.Definition{
 		Name: "speak", Title: "Say something out loud",
-		Description: "Says a short line out loud to the person, in your voice, on the speakers of the machine Legato runs on. It returns at once, before the line is heard; lines are spoken in order, one at a time. " +
+		Description: "Says a short line out loud to the operator, in your voice, on the device they are listening on. It returns at once, before the line is heard; lines are spoken in order, one at a time. " +
 			"Write for the ear: one to three short sentences, the outcome first, in plain spoken words. Never say code, file paths, IDs, URLs, Markdown, tables or lists, and never read your written reply aloud: " +
-			"speech is the short version, and the screen has the detail. Over about 400 characters is refused, so say less. " +
-			"When the person asks for voice mode, call it once for each reply, beside the written one.",
+			"speech is the short version, and the screen has the detail; the conversation shows what you said, so do not write it again. Over about 400 characters is refused, so say less. " +
+			"Answer a message that starts with [legato voice] with it: that message was spoken. Otherwise speak only when the operator asks.",
 	}, func(ctx context.Context, in speakInput) (mcpserver.Result, error) {
 		if err := m.mustBeReeve(ctx); err != nil {
 			return mcpserver.Result{}, err
@@ -510,14 +620,29 @@ func (m *mcpTools) speak() mcpserver.Tool {
 }
 
 type legatoCommandInput struct {
-	Args   []string `json:"args" jsonschema:"the subcommand and its arguments, without legato: [integration, token, list]"`
+	Args   []string `json:"args" jsonschema:"the subcommand and its arguments as a list of words, without legato: [\"config\",\"show\"]; a single string is split as a shell would"`
 	Reason string   `json:"reason,omitempty" jsonschema:"for a change: one line saying why"`
 }
 
 func (m *mcpTools) legatoCommand() mcpserver.Tool {
+	description := "Runs a legato subcommand on this instance's host, with no shell: for what the CLI does and the API does not (integration tokens, Argus connect and disconnect, columns sync, hooks install). A command that only reads runs at once; one that changes something becomes a change set for the operator to approve. Some commands are never run: a refusal says what to use instead. " +
+		`args is a list of words, as ["config","show"].`
+	if lister, ok := m.opts.Reeve.Legato.(MCPLegatoCommands); ok {
+		description += "\n\nThe commands you may run, by group (\"asks\": a change set for the operator):\n" + legatoCommandList(lister.Commands())
+	}
 	return mcpserver.NewTool(mcpserver.Definition{
 		Name: "legato", Title: "Run a legato command on the host",
-		Description: "Runs a legato subcommand on this instance's host, with no shell: for what the CLI does and the API does not (integration tokens, Argus connect and disconnect, columns sync, hooks install). A command that only reads runs at once; one that changes something becomes a change set for the person to approve. Some commands are never run.",
+		Description: description,
+		Normalize: func(args map[string]any) {
+			if line, ok := args["args"].(string); ok {
+				words := splitShellWords(line)
+				list := make([]any, len(words))
+				for i, w := range words {
+					list[i] = w
+				}
+				args["args"] = list
+			}
+		},
 	}, func(ctx context.Context, in legatoCommandInput) (mcpserver.Result, error) {
 		if err := m.mustBeReeve(ctx); err != nil {
 			return mcpserver.Result{}, err
@@ -538,22 +663,22 @@ func (m *mcpTools) legatoCommand() mcpserver.Tool {
 			reason = description
 		}
 		if m.opts.Reeve.ChangeSets == nil {
-			return mcpserver.Result{}, fmt.Errorf("%s needs the person's approval, and change sets are not available here", description)
+			return mcpserver.Result{}, fmt.Errorf("%s needs the operator's approval, and change sets are not available here", description)
 		}
 		return m.propose(ctx, reason, []service.ChangeCall{{Kind: service.CallLegato, Args: in.Args}})
 	})
 }
 
 type hostShellInput struct {
-	Command string `json:"command" jsonschema:"the command, run with sh -c, word for word as the person will see it"`
-	AsRoot  bool   `json:"as_root,omitempty" jsonschema:"run it as root (with sudo); then it always needs the person's signature with a fingerprint or PIN"`
+	Command string `json:"command" jsonschema:"the command, run with sh -c, word for word as the operator will see it"`
+	AsRoot  bool   `json:"as_root,omitempty" jsonschema:"run it as root (with sudo); then it always needs the operator's signature with a fingerprint or PIN"`
 	Reason  string `json:"reason" jsonschema:"one line saying why"`
 }
 
 func (m *mcpTools) hostShell() mcpserver.Tool {
 	return mcpserver.NewTool(mcpserver.Definition{
 		Name: "host_shell", Title: "Run a command on the host",
-		Description: "Proposes a shell command on this machine, as Legato's user in its home folder, with a small fixed environment and no way to gain privileges (sudo fails) unless as_root. A last resort: use Legato's own tools first. It runs once the person approves; a [legato] message gives its exit code and output (cut at 64 KB, the rest in a file you can read).",
+		Description: "Proposes a shell command on this machine, as Legato's user in its home folder, with a small fixed environment and no way to gain privileges (sudo fails) unless as_root. A last resort: use Legato's own tools first. It runs once the operator approves; a [legato] message gives its exit code and output (cut at 64 KB, the rest in a file you can read).",
 	}, func(ctx context.Context, in hostShellInput) (mcpserver.Result, error) {
 		if err := m.mustBeReeve(ctx); err != nil {
 			return mcpserver.Result{}, err
@@ -571,7 +696,7 @@ type editFileInput struct {
 func (m *mcpTools) editFile() mcpserver.Tool {
 	return mcpserver.NewTool(mcpserver.Definition{
 		Name: "edit_file", Title: "Write a file on the host",
-		Description: "Proposes writing a file outside Legato, as Legato's user: the person sees a diff, and once approved the file is written atomically, the old one kept beside it as a backup.",
+		Description: "Proposes writing a file outside Legato, as Legato's user: the operator sees a diff, and once approved the file is written atomically, the old one kept beside it as a backup.",
 	}, func(ctx context.Context, in editFileInput) (mcpserver.Result, error) {
 		if err := m.mustBeReeve(ctx); err != nil {
 			return mcpserver.Result{}, err
@@ -591,7 +716,7 @@ type manageServiceInput struct {
 func (m *mcpTools) manageService() mcpserver.Tool {
 	return mcpserver.NewTool(mcpserver.Definition{
 		Name: "manage_service", Title: "Manage a systemd service",
-		Description: "Proposes starting, stopping or restarting a systemd unit (Legato's user's, or a system one), or reading its status or recent log, once the person approves.",
+		Description: "Proposes starting, stopping or restarting a systemd unit (Legato's user's, or a system one), or reading its status or recent log, once the operator approves.",
 	}, func(ctx context.Context, in manageServiceInput) (mcpserver.Result, error) {
 		if err := m.mustBeReeve(ctx); err != nil {
 			return mcpserver.Result{}, err
@@ -605,4 +730,74 @@ func firstLine(reason, fallback string) string {
 		return strings.TrimSpace(reason)
 	}
 	return fallback
+}
+
+// legatoCommandList writes the commands the legato tool runs one group to a
+// line: "task: list, show, create (asks)".
+func legatoCommandList(commands []LegatoCommand) string {
+	var groups []string
+	byGroup := map[string][]string{}
+	for _, c := range commands {
+		group, rest, ok := strings.Cut(c.Path, " ")
+		if !ok {
+			group, rest = c.Path, ""
+		}
+		name := rest
+		if name == "" {
+			name = group
+		}
+		if c.Class != "read" {
+			name += " (asks)"
+		}
+		if _, seen := byGroup[group]; !seen {
+			groups = append(groups, group)
+		}
+		byGroup[group] = append(byGroup[group], name)
+	}
+	var b strings.Builder
+	for _, g := range groups {
+		fmt.Fprintf(&b, "- %s: %s\n", g, strings.Join(byGroup[g], ", "))
+	}
+	return b.String()
+}
+
+// splitShellWords splits a command line as a shell would split words:
+// spaces between them, quotes and backslashes kept out. Nothing is
+// expanded.
+func splitShellWords(line string) []string {
+	var words []string
+	var word strings.Builder
+	inWord := false
+	var quote rune
+	escaped := false
+	for _, r := range line {
+		switch {
+		case escaped:
+			word.WriteRune(r)
+			escaped = false
+		case r == '\\' && quote != '\'':
+			escaped, inWord = true, true
+		case quote != 0:
+			if r == quote {
+				quote = 0
+			} else {
+				word.WriteRune(r)
+			}
+		case r == '"' || r == '\'':
+			quote, inWord = r, true
+		case r == ' ' || r == '\t' || r == '\n':
+			if inWord {
+				words = append(words, word.String())
+				word.Reset()
+				inWord = false
+			}
+		default:
+			word.WriteRune(r)
+			inWord = true
+		}
+	}
+	if inWord {
+		words = append(words, word.String())
+	}
+	return words
 }

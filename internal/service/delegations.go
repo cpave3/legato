@@ -536,7 +536,7 @@ func delegationText(d *store.Delegation, label string) string {
 }
 
 func delegationWrap(d *store.Delegation, label, body string) string {
-	return fmt.Sprintf("[%s case %s · delegation %s · %s]\n\n%s\n\n---\nFrom %s, not from the person. When you are done, have found something, have a question, or cannot do it, call the reply_case tool with delegation_id %s.",
+	return fmt.Sprintf("[%s case %s · delegation %s · %s]\n\n%s\n\n---\nFrom %s, not from the operator. When you are done, have found something, have a question, or cannot do it, call the reply_case tool with delegation_id %s.",
 		d.Integration, d.CaseID, d.ID, label, body, integrationTitle(d.Integration), d.ID)
 }
 

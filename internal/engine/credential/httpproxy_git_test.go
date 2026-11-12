@@ -14,6 +14,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"time"
 )
 
 // gitBackend is a fake Legato for pushes: it allows legato/ branches, says
@@ -27,6 +28,29 @@ type gitBackend struct {
 	readUses []ProxyUse
 	pending  bool
 	ready    []readyCall
+	pushed   []string
+}
+
+func (g *gitBackend) Pushed(_ context.Context, _ Execution, credential, repo string, refs []string) {
+	g.mu.Lock()
+	g.pushed = append(g.pushed, credential+" "+repo+" "+strings.Join(refs, ","))
+	g.mu.Unlock()
+}
+
+// pushedSoon waits a moment for the proxy to report a push it forwarded:
+// it reports once GitHub's answer is passed on, which git may see first.
+func (g *gitBackend) pushedSoon(t *testing.T, want int) []string {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		g.mu.Lock()
+		got := append([]string(nil), g.pushed...)
+		g.mu.Unlock()
+		if len(got) >= want || time.Now().After(deadline) {
+			return got
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
 }
 
 func (g *gitBackend) DefaultBranch(_ context.Context, credential, repo string) (string, error) {
@@ -426,5 +450,24 @@ func TestGHGetsADraftPullRequestTokenForOneBranch(t *testing.T) {
 		if status, _ := ask(bad); status != 400 {
 			t.Errorf("%s: status %d, want 400", bad, status)
 		}
+	}
+}
+
+// Legato hears of each push that reached GitHub, so it can fetch the
+// branch into its repository cache; a refused push is not reported.
+func TestAPushThatReachedGitHubIsReported(t *testing.T) {
+	github, _, _ := fakeGitHubGit(t)
+	backend := gitTestBackend()
+	proxy := gitProxy(t, backend, github)
+
+	if out, err := pushFrom(t, proxy.URL, "HEAD:refs/heads/main"); err == nil {
+		t.Fatalf("a push to main worked:\n%s", out)
+	}
+	if out, err := pushFrom(t, proxy.URL, "HEAD:refs/heads/legato/abc-fix"); err != nil {
+		t.Fatalf("push failed: %v\n%s", err, out)
+	}
+	got := backend.pushedSoon(t, 1)
+	if len(got) != 1 || got[0] != "github cpave3/legato refs/heads/legato/abc-fix" {
+		t.Fatalf("pushes reported = %q", got)
 	}
 }

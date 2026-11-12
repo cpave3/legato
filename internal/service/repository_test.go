@@ -344,6 +344,26 @@ func TestSweepKeepsTheCloneOfARunningAgent(t *testing.T) {
 	}
 }
 
+// An agent started again in a clone may name its folder through a link (a
+// /home that is var/home): the clone is still in use.
+func TestSweepKeepsACloneAnAgentWorksInThroughALink(t *testing.T) {
+	f, clone := jobFixture(t)
+	f.end(t, "ex-abc")
+	link := filepath.Join(t.TempDir(), "linked")
+	if err := os.Symlink(filepath.Dir(clone.Path), link); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.store.CreateExecution(context.Background(), store.Execution{ID: "ex-resumed", Kind: store.ExecutionInteractive, Status: store.ExecutionRunning,
+		TaskID: "task1", ExecutionTaskID: "task1", WorkingDir: filepath.Join(link, filepath.Base(clone.Path)), StartedAt: *f.now}); err != nil {
+		t.Fatal(err)
+	}
+	f.idle()
+	f.sweep(t)
+	if !exists(clone.Path) {
+		t.Fatal("the clone of a running agent that names it through a link was removed")
+	}
+}
+
 func TestSweepRemovesACloneWithNothingUnpushed(t *testing.T) {
 	f, clone := jobFixture(t)
 	f.end(t, "ex-abc")

@@ -197,7 +197,7 @@ export function ReportsPage() {
   return <div className="flex-1 overflow-y-auto p-4 sm:p-6" aria-busy={loading}>
     <div className="mx-auto max-w-7xl space-y-6">
       <header className="space-y-4">
-        <div className="flex flex-wrap items-start justify-between gap-4"><div><h1 className="text-xl font-semibold">Reports</h1><p className="mt-1 text-sm text-zinc-500">Agent activity and delivery trends</p></div><button onClick={copyMarkdown} className="inline-flex min-h-10 items-center gap-2 rounded-lg border border-zinc-700 px-3 text-sm text-zinc-300 hover:bg-zinc-800"><Clipboard size={16} />Copy Markdown</button></div>
+        <div className="flex flex-wrap items-start justify-between gap-4"><h1 className="text-xl font-semibold">Reports</h1><button onClick={copyMarkdown} className="inline-flex min-h-10 items-center gap-2 rounded-lg border border-zinc-700 px-3 text-sm text-zinc-300 hover:bg-zinc-800"><Clipboard size={16} />Copy Markdown</button></div>
         {copyStatus === "success" && <p role="status" className="flex items-center gap-1 text-sm text-emerald-400"><Check size={14} />Markdown copied</p>}
         {copyStatus === "error" && <InlineNotice variant="error">Could not copy Markdown</InlineNotice>}
         {error && <InlineNotice variant="error"><span>{error}</span><button onClick={() => setReload(value => value + 1)} className="ml-3 underline">Retry</button></InlineNotice>}

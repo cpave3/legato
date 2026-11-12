@@ -100,7 +100,7 @@ func HandoffBrief(in HandoffBriefInput) string {
 	line("## How to work")
 	line("")
 	line("- When the task leaves a choice open, pick what you can best defend, record it with add_task_note (what you chose, why, the alternative) and carry on. Stop only when going on would destroy something, needs access you lack, or the whole task hinges on it.")
-	line("- Also note findings the person would want. No progress notes.")
+	line("- Also note findings the operator would want. No progress notes.")
 	switch {
 	case findOut && given:
 		line("- You are on " + in.Branch + ", which already has commits: read them against " + base + " first.")
@@ -124,7 +124,7 @@ func HandoffBrief(in HandoffBriefInput) string {
 	} else {
 		line("- A final note: how it ended (done, partly done, or stopped and why), the PRs, what to check first.")
 	}
-	line("- Move the task to Done (`legato task update --status Done`) even if you stopped, then end your turn and stay: the person may talk to you here before taking the task back.")
+	line("- Move the task to Done (`legato task update --status Done`) even if you stopped, then end your turn and stay: the operator may talk to you here before taking the task back.")
 	return b.String()
 }
 

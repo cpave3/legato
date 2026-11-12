@@ -1,0 +1,39 @@
+/* The Reeve's voice widget: tokens and motion, shared by the web UI's
+   sheet and the desktop app's widget (docs/ai/reeve.md § Hands-free
+   voice). */
+.voice-ui {
+  --voice-accent: #6d5ef6;
+  --voice-accent-2: #8a6cff;
+  --voice-link: #a99cff;
+  --voice-green: #3ecf8e;
+  --voice-amber: #e8b53a;
+  --voice-text: #e6e5eb;
+  --voice-dim: #9a99a5;
+  --voice-faint: #6e6d79;
+  --voice-line: #31313a;
+  --voice-track: #26262d;
+  --voice-surface: linear-gradient(#15141c, #111114);
+  --voice-mono: "Geist Mono", ui-monospace, monospace;
+  color: var(--voice-text);
+}
+.voice-kicker { font-family: var(--voice-mono); font-size: 11px; letter-spacing: 2px; color: var(--voice-link); }
+.voice-mono { font-family: var(--voice-mono); }
+.voice-primary { background: linear-gradient(90deg, var(--voice-accent), var(--voice-accent-2)); color: #fff; border: 0; }
+.voice-secondary { background: #15141c; border: 1px solid var(--voice-line); color: var(--voice-text); }
+@keyframes voice-listen { 0%, 100% { transform: scaleY(0.5); opacity: 0.5 } 50% { transform: scaleY(1); opacity: 1 } }
+@keyframes voice-speak { 0%, 100% { transform: scaleY(0.55); opacity: 0.6 } 40% { transform: scaleY(1.12); opacity: 1 } }
+@keyframes voice-breathe { 0%, 100% { opacity: 0.45 } 50% { opacity: 1 } }
+@keyframes voice-spin { to { transform: rotate(360deg) } }
+@keyframes voice-caret { 0%, 49% { opacity: 1 } 50%, 100% { opacity: 0 } }
+@keyframes voice-glow { 0%, 100% { opacity: 0.55 } 50% { opacity: 1 } }
+@keyframes voice-rise { from { transform: translateY(24px); opacity: 0 } to { transform: none; opacity: 1 } }
+.voice-caret { display: inline-block; width: 2px; height: 1em; margin-left: 3px; vertical-align: -2px; background: var(--voice-link); animation: voice-caret 1s steps(1) infinite; }
+.voice-rise { animation: voice-rise 0.28s cubic-bezier(0.2, 0.9, 0.3, 1); }
+.voice-ring .tick { transform-box: fill-box; transform-origin: 50% 100%; }
+.voice-ring[data-motion="full"][data-mode="idle"] .tick { animation: voice-breathe 3.2s ease-in-out infinite; }
+.voice-ring[data-motion="full"][data-mode="speaking"] .tick { animation: voice-speak 0.9s ease-in-out infinite; }
+.voice-ring[data-motion="full"] .glow { animation: voice-glow 2.4s ease-in-out infinite; }
+.voice-ring[data-motion="full"] .arc { transform-box: view-box; transform-origin: 50% 50%; animation: voice-spin 1.3s linear infinite; }
+@media (prefers-reduced-motion: reduce) {
+  .voice-ui *, .voice-ring * { animation: none !important; }
+}

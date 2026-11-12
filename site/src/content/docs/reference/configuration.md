@@ -194,6 +194,8 @@ How Legato runs the agents it starts. See [Agents](/legato/using/agents/).
 | `agents.reviews` | bool | `true` | Tells agents to make a [review tour](/legato/using/reviews/) and a handoff packet at the end of their work. `false` leaves those instructions out and tells agents to skip both unless you ask for a review. The review pages and `legato review` commands still work. |
 | `agents.guidance[].repo` | string | none | The repository an entry of guidance is for: `owner/name` on GitHub, `host/owner/name`, or a Git remote address. Legato matches it against the origin remote of the folder an agent works in, so it applies in every checkout and worktree. One entry per repository. See [Guidance for a repository](/legato/using/agents/#guidance-for-a-repository). |
 | `agents.guidance[].text` | string | none | The guidance itself, added to the launch prompt of every agent that works in that repository. Must not be empty. |
+| `agents.repository_resources[].repo` | string | none | A repository whose agents all get some [resources](/legato/agent-tools/resources/), written as for `agents.guidance[].repo`. Legato matches it against the task's repository, else the origin remote of the folder an agent works in, so it applies in every checkout, worktree and fresh clone. One entry per repository. Only in this file. See [Resources for a repository](/legato/agent-tools/resources/#resources-for-a-repository). |
+| `agents.repository_resources[].resources` | list of strings | none | Names of resources in this file's `resources` block. Every agent working in the repository gets them as if they were ticked when it started: listed in its launch prompt, granted to Chimera, and mounted in its sandbox. A name that is not in `resources` stops Legato loading the file. |
 | `agents.mcp.enabled` | bool | `true` | Gives every agent session Legato's own tools, such as cards, artifacts and task notes. Nothing is written to the agent tool's own settings. See [Legato's tools for agents](/legato/agent-tools/mcp-tools/). |
 | `agents.mcp.resource_domains` | list of strings | `cdnjs.cloudflare.com`, `cdn.jsdelivr.net`, `unpkg.com`, `fonts.googleapis.com`, `fonts.gstatic.com` | The hosts that HTML an agent shows may load scripts, styles, fonts and images from. Write plain host names only. An empty list allows none. |
 | `agents.sandbox.enabled` | bool | `false` | Starts every agent tool inside a bubblewrap sandbox, unless you start it with **Run without sandbox**. Swarm and workflow agents cannot opt out. Needs `bwrap`. See [The sandbox](/legato/security/sandbox/). |
@@ -202,6 +204,10 @@ How Legato runs the agents it starts. See [Agents](/legato/using/agents/).
 | `agents.sandbox.mounts[].path` | path | none | Another file or folder every sandbox sees. Absolute, or starting with `~/`. |
 | `agents.sandbox.mounts[].access` | string | `read` | `read` or `write`. |
 | `agents.sandbox.scratch_dir` | path | `<data_dir>/sandbox` | Where each sandbox's `/tmp`, home folder and throwaway layer are kept on disk until its agent ends. Absolute, or starting with `~/`, and not your home folder, a folder that holds it, or a folder that overlaps Legato's `repos`, `claude-mod` or `jobs` folders, such as the data folder itself. A folder the sandbox would otherwise show, such as a cache, is then not shown. See [Scratch space](/legato/security/sandbox/#scratch-space). |
+| `agents.sandbox.docker.enabled` | bool | `false` | Gives every sandboxed agent a Docker socket of its own that passes its requests to your Docker daemon only when they keep within its sandbox: its own containers, networks and volumes, and bind mounts only of what its sandbox sees, read-only where it sees them read-only. Agents run without the sandbox are unchanged. See [Docker in the sandbox](/legato/security/sandbox/#docker-in-the-sandbox). |
+| `agents.sandbox.docker.host` | string | your `DOCKER_HOST`, else your Docker context, else `unix:///var/run/docker.sock` | The daemon the socket passes requests to: `unix:///path` or `tcp://host:port` without TLS. A rootless Docker's or Podman's socket works too. |
+| `agents.sandbox.docker.cap_add` | list of strings | none | Capabilities a container may add with `--cap-add`, such as `SYS_PTRACE`. Capabilities that reach the host, such as `SYS_ADMIN` and `ALL`, stop Legato loading the file. |
+| `agents.sandbox.docker.publish` | string | `loopback` | Where published ports bind: `loopback` puts every published port on `127.0.0.1`, which agents reach since they share your network; `any` binds what the agent asks for. |
 
 ```yaml
 agents:
@@ -302,7 +308,7 @@ macros:
 
 | Setting | Type | Default | What it does |
 | --- | --- | --- | --- |
-| `groups.defaults` | list of strings | none | Group names always offered when you set an agent's group (`g` in the TUI's agents view), beside the groups agents already have. |
+| `groups.defaults` | list of strings | none | Group names always offered when you set an agent's group (`g` in the TUI's agents view), beside the groups agents already have. The web UI's agent list shows these groups first, even when empty. |
 
 ## Voice
 
@@ -311,7 +317,7 @@ Dictate to an agent: press `v` in the TUI's agents view to start recording and a
 | Setting | Type | Default | What it does |
 | --- | --- | --- | --- |
 | `voice.enabled` | bool | `false` | Turns dictation on. Without `voice.whisper_url` it stays off. |
-| `voice.whisper_url` | string | none | The Wyoming address of the whisper server, such as `tcp://192.168.1.220:10300`. A bare `host:port` works too. |
+| `voice.whisper_url` | string | none | The Wyoming address of the whisper server, such as `tcp://192.168.1.220:10300`. A bare `host:port` works too. It can be the Whisper that Home Assistant Assist already uses; Legato's requests and Assist's then wait for each other. |
 | `voice.autosend` | bool | `false` | Sends the text as a message. When `false`, Legato types the text into the agent's terminal without pressing Enter, so you can finish it there. |
 | `voice.mic_device` | string | `default` | The ALSA device to record from, such as `hw:1,0`. |
 
@@ -337,14 +343,16 @@ The Reeve's defaults, read when a session starts. Usually set in Settings › Re
 
 | Setting | Type | Default | What it does |
 | --- | --- | --- | --- |
+| `reeve.name` | string | empty: "the Reeve" | What Legato calls the Reeve on this instance, in the web UI, the desktop app, the TUI, notifications and the Reeve's own prompt. One line of plain text, at most 40 characters. See [Give it a name](/legato/using/reeve/#give-it-a-name). |
 | `reeve.agent` | string | the default agent tool | The agent tool a session runs: `claude-code`, `codex` or `chimera`. |
 | `reeve.model` | string | the tool's default | The model or tier a session runs. |
 | `reeve.idle_timeout` | duration | `2h` | How long a session may be idle before its agent is stopped. The next message to it resumes it. |
-| `reeve.levels.change` | string | `approve` | What a change the Reeve proposes needs: `approve` (a tap), `signed` (an enrolled device) or `verified` (signed, with a fingerprint or a PIN). Changed only with a signed approval. |
-| `reeve.levels.risky` | string | `auto` | The same for a risky change; `auto` is `signed` once a device is enrolled, else `approve`. Changed only with a signed approval. |
-| `reeve.rules[].pattern` | string | none | A call a rule matches: `METHOD /path` or a `legato` subcommand, `*` for any run of characters. |
-| `reeve.rules[].level` | string | none | The level the rule gives the calls it matches, higher or lower than their class's (never below `approve`). |
-| `reeve.host_operations` | bool | `true` | Offers the Reeve a shell, file edits and systemd services on this machine, each as a change you approve. Changed only with a signed approval. |
+| `reeve.levels.change` | string | `approve` | What a change the Reeve proposes needs: `auto` (it runs at once, with no approval asked), `approve` (a tap), `signed` (an enrolled device) or `verified` (signed, with a fingerprint or a PIN). Making it stricter needs nothing; anything else needs a signed approval. See [What a change needs](/legato/using/reeve/#what-a-change-needs). |
+| `reeve.levels.risky` | string | `default` | The same for a risky change (restarts, stopping agents, settings that choose what runs on this machine). `default` is `signed` once a device is enrolled, else `approve`. `auto` runs risky changes with no approval asked; set it in Settings, where it carries a warning. In `config.yaml`, `auto` here is read as `default`, which is what it meant before `auto` was a level. |
+| `reeve.rules[].pattern` | string | none | A call a rule matches: `METHOD /path`, a `legato` subcommand, or a host operation (`host_shell:<command>`, `edit_file:<path>`, `manage_service:<action> <unit>`; `~` is your home folder), `*` for any run of characters. |
+| `reeve.rules[].level` | string | none | The level the rule gives the calls it matches, higher or lower than their class's: `auto`, `approve`, `signed` or `verified`. A rule never lowers a call below its floor (see [What a change needs](/legato/using/reeve/#what-a-change-needs)), and never makes a shell command with `;`, `|`, `&`, `$(`, a backquote or a redirect `auto`. |
+| `reeve.host_operations` | bool | `true` | Offers the Reeve a shell, file edits and systemd services on this machine, each as a change you approve. Turning it on needs a signed approval. |
+| `reeve.host_operations_auto` | bool | `false` | Runs the Reeve's host operations that are not as root at once, with no approval asked: **the Reeve can then run any command as your user on this machine.** Each is still audited. A command as root still needs a verified approval. Turning it on needs a signed approval; turning it off never does. See [Commands on the machine](/legato/using/reeve/#commands-on-the-machine). |
 | `reeve.host_timeout` | duration | `10m` | How long one host command may run. |
 | `reeve.host_output_cap` | int | `65536` | How many bytes of a host command's output the Reeve is given; the rest is kept in a file it can read. |
 | `reeve.peer` | string | `start` | What a message from another instance's Reeve does when no session runs here: `start` a session, `ask` you first in Attention, or `refuse` it. Changed only with a signed approval. |
@@ -354,6 +362,13 @@ The Reeve's defaults, read when a session starts. Usually set in Settings › Re
 | `reeve.voice.credential` | string | none | A credential Legato gives the command in an environment variable, as `elevenlabs`. Leave it empty for a local voice. |
 | `reeve.voice.credential_env` | string | `<NAME>_API_KEY` | The variable the command finds the credential in. When empty, the credential's name in capitals with `_API_KEY`, as `ELEVENLABS_API_KEY`. |
 | `reeve.voice.player` | string | `pw-play`, else `ffplay` | Plays a line's audio file, named after the command and its arguments. |
+| `reeve.voice.pause` | duration | `1s` | When you talk to the Reeve, how long you stay quiet before what you said is sent, from `0.3s` to `2s`. See [Talking to the Reeve](/legato/using/reeve/#talking-to-the-reeve). |
+| `reeve.voice.follow_up` | duration | `6s` | How long the voice listens for your reply after the Reeve has spoken. `0s` for a single turn. |
+| `reeve.voice.quiet_hours` | string | none | Hours when no line plays on this machine's speakers, as `22:00-07:00` in its local time; the Reeve replies in writing instead. A reply to something you said to it still plays on your device. |
+| `reeve.voice.partials` | bool | `true` | Shows the words so far while you speak, by transcribing about once a second. Turn it off when Whisper runs on a CPU or is shared with Home Assistant. |
+| `reeve.watch.settle` | duration | `30s` | How long an agent the Reeve watches must stay idle, or busy only in the background, before the Reeve is told, so brief pauses do not wake it. See [Watching agents](/legato/using/reeve/#watching-agents). |
+| `reeve.watch.started` | bool | `true` | Watches every agent the Reeve starts or messages. |
+| `reeve.watch.wake` | bool | `false` | When a watched agent needs the Reeve and no session is running, starts or resumes one to tell it. Off, the news waits for the next session. On costs tokens while you are away. |
 
 ## Updates
 

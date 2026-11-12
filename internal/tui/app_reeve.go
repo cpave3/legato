@@ -58,7 +58,9 @@ func (a App) askReeve(msg agents.AskReeveMsg) tea.Cmd {
 // showReeve opens the agents view on the Reeve's session.
 func (a App) showReeve(msg reeveOpenedMsg) (tea.Model, tea.Cmd) {
 	if msg.err != nil {
-		return a, func() tea.Msg { return statusbar.ErrorMsg{Text: "The Reeve: " + msg.err.Error()} }
+		return a, func() tea.Msg {
+			return statusbar.ErrorMsg{Text: a.agentView.ReeveName().Start() + ": " + msg.err.Error()}
+		}
 	}
 	a = a.setMode(viewAgents)
 	a.agentView.StartPolling()
@@ -82,11 +84,11 @@ func agentReeveBrief(msg agents.AskReeveMsg) string {
 	if title == "" {
 		title = msg.TaskID
 	}
-	lines := []string{fmt.Sprintf("The person asks you about the agent “%s”, which %s.", title, stateClause(msg.State)), "- task: " + msg.TaskID}
+	lines := []string{fmt.Sprintf("The operator asks you about the agent “%s”, which %s.", title, stateClause(msg.State)), "- task: " + msg.TaskID}
 	if msg.AgentKind != "" {
 		lines = append(lines, "- agent tool: "+msg.AgentKind)
 	}
-	lines = append(lines, "", "Find out what is wrong and what to do about it. Read first; any change goes to the person as a change set.")
+	lines = append(lines, "", "Find out what is wrong and what to do about it. Read first; any change goes to the operator as a change set.")
 	return strings.Join(lines, "\n")
 }
 

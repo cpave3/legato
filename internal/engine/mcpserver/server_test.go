@@ -252,3 +252,37 @@ func TestInputSchemasNameOneTypePerProperty(t *testing.T) {
 		t.Fatalf("decoded input = %#v", seen)
 	}
 }
+
+type wordsInput struct {
+	Words []string `json:"words" jsonschema:"the words"`
+}
+
+// A tool may put arguments a model commonly gets wrong into shape before
+// they are checked: here a string where a list belongs.
+func TestAToolCanNormalizeItsArgumentsBeforeTheyAreChecked(t *testing.T) {
+	var got []string
+	tool := mcpserver.NewTool(mcpserver.Definition{Name: "words", Normalize: func(args map[string]any) {
+		if s, ok := args["words"].(string); ok {
+			args["words"] = strings.Fields(s)
+		}
+	}}, func(_ context.Context, in wordsInput) (mcpserver.Result, error) {
+		got = in.Words
+		return mcpserver.Result{Text: strings.Join(in.Words, "|")}, nil
+	})
+	session := connect(t, mcpserver.Options{Name: "legato", Version: "1", Tools: []mcpserver.Tool{tool}})
+	for _, arguments := range []map[string]any{{"words": "config show"}, {"words": []string{"config", "show"}}} {
+		result, err := session.CallTool(context.Background(), &mcp.CallToolParams{Name: "words", Arguments: arguments})
+		if err != nil || result.IsError || strings.Join(got, "|") != "config|show" {
+			t.Fatalf("%v: result %#v, err %v, got %v", arguments, result, err, got)
+		}
+	}
+	// The same through a direct call, as a relay makes it.
+	if _, err := tool.Call(context.Background(), json.RawMessage(`{"words": "a b"}`)); err != nil || strings.Join(got, "|") != "a|b" {
+		t.Fatalf("direct: %v, got %v", err, got)
+	}
+	// What still does not fit is turned down, saying where.
+	result, err := session.CallTool(context.Background(), &mcp.CallToolParams{Name: "words", Arguments: map[string]any{"words": 7}})
+	if err == nil && (result == nil || !result.IsError || !strings.Contains(textOf(t, result), "words")) {
+		t.Fatalf("a number: %#v", result)
+	}
+}

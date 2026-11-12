@@ -85,7 +85,7 @@ func TestMCPShowStudioSaysWhenLibrettoCannotServeOne(t *testing.T) {
 			}
 			// The agent is told what to say to the person, since only they
 			// can install anything.
-			if !strings.Contains(mcpText(result), "Tell the person") {
+			if !strings.Contains(mcpText(result), "Tell the operator") {
 				t.Errorf("the agent is not told to pass it on: %q", mcpText(result))
 			}
 			if items, _ := ui.List(context.Background(), "task1"); len(items) != 0 {

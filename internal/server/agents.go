@@ -72,7 +72,9 @@ type AgentResponse struct {
 	Command           string `json:"command"`
 	AgentKind         string `json:"agent_kind"`
 	// Engram is the engram the agent runs as; absent for none.
-	Engram             string     `json:"engram,omitempty"`
+	Engram string `json:"engram,omitempty"`
+	// Group is the group the agent's task is in; absent for none.
+	Group              string     `json:"group,omitempty"`
 	Status             string     `json:"status"`
 	Activity           string     `json:"activity"`
 	Role               string     `json:"role,omitempty"`
@@ -105,7 +107,7 @@ func agentResponse(agent service.AgentSession) AgentResponse {
 		ID: agent.ID, TaskID: agent.TaskID, ExecutionID: agent.ExecutionID,
 		AttributionTaskID: agent.AttributionTaskID, ExecutionKind: agent.ExecutionKind,
 		WorkflowRunID: agent.WorkflowRunID, Title: agent.Title, TmuxSession: agent.TmuxSession,
-		Command: agent.Command, AgentKind: agent.AgentKind, Engram: agent.Engram, Status: agent.Status,
+		Command: agent.Command, AgentKind: agent.AgentKind, Engram: agent.Engram, Group: agent.Group, Status: agent.Status,
 		Activity: agent.Activity, Role: agent.Role, ParentTaskID: agent.ParentTaskID,
 		SubtaskID: agent.SubtaskID, StartedAt: agent.StartedAt, EndedAt: agent.EndedAt,
 		Sandboxed: agent.Sandboxed, CardTaskID: agent.CardTaskID, Slot: agent.Slot,
@@ -379,6 +381,15 @@ func (s *Server) agentsHandler() http.HandlerFunc {
 		agents, err := s.agents.ListAgents(context.Background())
 		if err != nil {
 			http.Error(w, "failed to list agents", http.StatusInternalServerError)
+			return
+		}
+		agents, err = s.filterAgents(r, agents)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		if r.URL.Query().Get("view") == "compact" {
+			json.NewEncoder(w).Encode(s.compactAgents(r.Context(), agents))
 			return
 		}
 
@@ -715,6 +726,9 @@ func (s *Server) taskAgentHandler() http.HandlerFunc {
 // spawnResult adds what a spawn reported to its answer: the engram the
 // agent started as, or why it started without the one asked for.
 func spawnResult(body map[string]any, report service.SpawnReport) map[string]any {
+	if report.TaskID != "" {
+		body["task_id"] = report.TaskID
+	}
 	if report.Engram != "" {
 		body["engram"] = report.Engram
 	}

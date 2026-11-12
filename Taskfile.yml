@@ -182,6 +182,7 @@ tasks:
       - pnpm exec tsc -b
       - pnpm exec vite build
       - node --test "tests/*.test.ts"
+      - pnpm exec vitest run
       - cd src-tauri && cargo test --lib
 
   desktop:dev:

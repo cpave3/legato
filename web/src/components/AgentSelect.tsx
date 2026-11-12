@@ -1,12 +1,14 @@
 import { useState, useRef, useEffect, type ReactNode } from "react"
 import type { AgentInfo } from "../hooks/useWebSocket"
 import { cn } from "../lib/utils"
-import { ChevronDown, Play, Pause, AlertTriangle, LayoutGrid, Plus } from "lucide-react"
+import { ChevronDown, ChevronRight, Play, Pause, AlertTriangle, LayoutGrid, Plus } from "lucide-react"
 import { AgentKindBadge, UnsandboxedBadge } from "./AgentKindBadge"
 import { agentToolLabel, isAgentToolInForeground } from "../lib/agentKind"
 import { ensembleSection } from "../lib/agentGlance"
 import { formatAgentTime, sectionLabels, stateSeconds } from "../lib/agentList"
 import { reeveWash } from "./ReeveEntry"
+import { agentGroupLayout } from "../lib/agentGroups"
+import type { AgentGrouping } from "../hooks/useAgentGroups"
 
 function formatDuration(seconds: number): string {
   if (seconds < 60) return "<1m"
@@ -70,9 +72,11 @@ interface AgentSelectProps {
   onSelect: (taskId: string) => void
   // Leads the list: the Reeve (ReeveEntry), whether or not it runs.
   reeve?: ReactNode
+  // Lists the agents by group (useAgentGroups) when its mode is group.
+  grouping?: AgentGrouping
 }
 
-export function AgentSelect({ agents: all, selectedId, onSelect, reeve }: AgentSelectProps) {
+export function AgentSelect({ agents: all, selectedId, onSelect, reeve, grouping }: AgentSelectProps) {
   // The Reeve leads the list; with its own entry it is not listed again.
   const agents = reeve ? all.filter((a) => !a.reeve) : [...all.filter((a) => a.reeve), ...all.filter((a) => !a.reeve)]
   const [open, setOpen] = useState(false)
@@ -97,54 +101,7 @@ export function AgentSelect({ agents: all, selectedId, onSelect, reeve }: AgentS
     setOpen(false)
   }
 
-  return (
-    // min-w-0: a flex item is never narrower than its content otherwise, and
-    // a long title would push the buttons beside it off a phone's screen.
-    <div ref={containerRef} className="relative min-w-0 flex-1">
-      <button
-        type="button"
-        onClick={() => setOpen((v) => !v)}
-        aria-label={selectedAgent ? `Agent: ${title}, ${state!.text.toLowerCase()}` : "Choose an agent"}
-        aria-expanded={open}
-        className={cn(
-          "flex min-h-11 w-full min-w-0 items-center gap-2 rounded-lg border bg-lw-surface py-1.5 pl-3 pr-2 text-left font-lw transition-colors",
-          open ? "border-lw-accent" : "border-lw-line hover:border-lw-line-strong",
-        )}
-      >
-        {selectedAgent ? (
-          <span className="@container flex min-w-0 flex-1 flex-col">
-            <span className="truncate text-sm font-semibold leading-5 text-lw-text">{title}</span>
-            {/* What the agent is doing always shows. Its ID and its tool
-                follow where there is room for them whole, the tool first to
-                go: a fragment of either says nothing. */}
-            <span className="flex min-w-0 items-center gap-1.5 overflow-hidden whitespace-nowrap text-xs leading-4 text-lw-text-2">
-              <ActivityDot activity={selectedAgent.activity} />
-              <span className={cn("shrink-0", state!.tone)}>{state!.text}</span>
-              <span className="hidden shrink-0 @min-[12.5rem]:inline">
-                <span aria-hidden="true" className="text-lw-faint">· </span>
-                <span className="font-lw-mono">{selectedAgent.task_id}</span>
-              </span>
-              <span title={`${agentToolLabel(selectedAgent.agent_kind, selectedAgent.engram)}, ${selectedAgent.has_chimera_endpoint ? "native" : "terminal"} session`} className="hidden shrink-0 @min-[18rem]:inline">
-                <span aria-hidden="true" className="text-lw-faint">· </span>
-                <span>{agentToolLabel(selectedAgent.agent_kind, selectedAgent.engram)}</span>
-              </span>
-            </span>
-          </span>
-        ) : (
-          <span className="flex-1 truncate text-sm text-lw-text-2">Choose an agent</span>
-        )}
-        <ChevronDown size={16} aria-hidden="true" className={cn("shrink-0 text-lw-text-2 transition-transform", open && "rotate-180")} />
-      </button>
-
-      {open && (
-        <div role="group" aria-label="Running agents" className="absolute left-0 right-0 top-full z-50 mt-1 max-h-[60vh] overflow-y-auto rounded-lg border border-lw-line-strong bg-lw-surface font-lw shadow-xl">
-          {reeve && <div className="border-b border-lw-line p-1" onClick={() => setOpen(false)}>{reeve}</div>}
-          {agents.length === 0 && !reeve && (
-            <div className="px-3 py-4 text-center text-sm text-lw-text-2">
-              No active agents
-            </div>
-          )}
-          {agents.map((agent) => {
+  const renderAgent = (agent: AgentInfo) => {
             const isSelected = selectedId === agent.task_id
             const isConductor = agent.role === "conductor"
             const isWorker = !!agent.parent_task_id && !isConductor
@@ -212,7 +169,80 @@ export function AgentSelect({ agents: all, selectedId, onSelect, reeve }: AgentS
                 </div>
               </button>
             )
-          })}
+  }
+
+  return (
+    // min-w-0: a flex item is never narrower than its content otherwise, and
+    // a long title would push the buttons beside it off a phone's screen.
+    <div ref={containerRef} className="relative min-w-0 flex-1">
+      <button
+        type="button"
+        onClick={() => setOpen((v) => !v)}
+        aria-label={selectedAgent ? `Agent: ${title}, ${state!.text.toLowerCase()}` : "Choose an agent"}
+        aria-expanded={open}
+        className={cn(
+          "flex min-h-11 w-full min-w-0 items-center gap-2 rounded-lg border bg-lw-surface py-1.5 pl-3 pr-2 text-left font-lw transition-colors",
+          open ? "border-lw-accent" : "border-lw-line hover:border-lw-line-strong",
+        )}
+      >
+        {selectedAgent ? (
+          <span className="@container flex min-w-0 flex-1 flex-col">
+            <span className="truncate text-sm font-semibold leading-5 text-lw-text">{title}</span>
+            {/* What the agent is doing always shows. Its ID and its tool
+                follow where there is room for them whole, the tool first to
+                go: a fragment of either says nothing. */}
+            <span className="flex min-w-0 items-center gap-1.5 overflow-hidden whitespace-nowrap text-xs leading-4 text-lw-text-2">
+              <ActivityDot activity={selectedAgent.activity} />
+              <span className={cn("shrink-0", state!.tone)}>{state!.text}</span>
+              <span className="hidden shrink-0 @min-[12.5rem]:inline">
+                <span aria-hidden="true" className="text-lw-faint">· </span>
+                <span className="font-lw-mono">{selectedAgent.task_id}</span>
+              </span>
+              <span title={`${agentToolLabel(selectedAgent.agent_kind, selectedAgent.engram)}, ${selectedAgent.has_chimera_endpoint ? "native" : "terminal"} session`} className="hidden shrink-0 @min-[18rem]:inline">
+                <span aria-hidden="true" className="text-lw-faint">· </span>
+                <span>{agentToolLabel(selectedAgent.agent_kind, selectedAgent.engram)}</span>
+              </span>
+            </span>
+          </span>
+        ) : (
+          <span className="flex-1 truncate text-sm text-lw-text-2">Choose an agent</span>
+        )}
+        <ChevronDown size={16} aria-hidden="true" className={cn("shrink-0 text-lw-text-2 transition-transform", open && "rotate-180")} />
+      </button>
+
+      {open && (
+        <div role="group" aria-label="Running agents" className="absolute left-0 right-0 top-full z-50 mt-1 max-h-[60vh] overflow-y-auto rounded-lg border border-lw-line-strong bg-lw-surface font-lw shadow-xl">
+          {reeve && <div className="border-b border-lw-line p-1" onClick={() => setOpen(false)}>{reeve}</div>}
+          {agents.length === 0 && !reeve && (
+            <div className="px-3 py-4 text-center text-sm text-lw-text-2">
+              No active agents
+            </div>
+          )}
+          {grouping?.mode === "group"
+            ? agentGroupLayout(agents, grouping.known).map((group) => {
+              const label = group.name ?? "Ungrouped"
+              const collapsed = grouping.isCollapsed(group.name)
+              return (
+                <div key={label} className="border-b border-lw-line last:border-b-0">
+                  <button
+                    type="button"
+                    aria-expanded={!collapsed}
+                    aria-label={`${label}, ${group.agents.length}${collapsed && group.needsYou > 0 ? `, ${group.needsYou} need you` : ""}`}
+                    onClick={() => grouping.toggle(group.name)}
+                    className="flex min-h-11 w-full items-center gap-2 bg-lw-ground/60 px-3 text-left text-xs font-semibold text-lw-text"
+                  >
+                    <ChevronRight size={14} aria-hidden="true" className={cn("shrink-0 text-lw-text-2 transition-transform", !collapsed && "rotate-90")} />
+                    <span className={cn("min-w-0 truncate", !group.name && "text-lw-text-2")}>{label}</span>
+                    <span className="font-normal text-lw-faint">{group.agents.length}</span>
+                    {collapsed && group.needsYou > 0 && (
+                      <span aria-hidden="true" className="ml-auto flex h-5 min-w-5 items-center justify-center rounded-full bg-lw-needs px-1.5 text-[11px] font-semibold text-black">{group.needsYou}</span>
+                    )}
+                  </button>
+                  {!collapsed && group.agents.map(renderAgent)}
+                </div>
+              )
+            })
+            : agents.map(renderAgent)}
         </div>
       )}
     </div>

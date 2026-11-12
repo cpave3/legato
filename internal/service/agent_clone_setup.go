@@ -104,7 +104,7 @@ func (c *cloneSetup) prompt(clonePath string) string {
 	}
 	return "## Your clone was set up\n\nBefore you started, Legato ran the setup in this repository's " + c.file +
 		" in your working directory (installing its dependencies, say). What it wrote is in " +
-		filepath.Join(clonePath, ".git", "legato-setup.log") + ". If that log ends in a failure, fix what you need of it before you rely on the setup, or tell the person."
+		filepath.Join(clonePath, ".git", "legato-setup.log") + ". If that log ends in a failure, fix what you need of it before you rely on the setup, or tell the operator."
 }
 
 // cloneSetupStatus is the file the pane's shell writes the setup's exit

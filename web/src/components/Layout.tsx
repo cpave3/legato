@@ -5,6 +5,7 @@ import { useServer } from "../hooks/useServer"
 import { PlanApprovalModal } from "./PlanApprovalModal"
 import { OfflineDialog } from "./OfflineDialog"
 import { ApprovalTray } from "./ApprovalTray"
+import { AutoRunNotice } from "./AutoRunNotice"
 import { useFocusMode } from "../lib/focusMode"
 import { ApprovalNotifier } from "./ApprovalNotifier"
 import { notificationsSupported } from "../lib/approvalNotifications"
@@ -16,6 +17,8 @@ import { MobileTabBar, MoreSheet } from "./MobileNav"
 import { TintBand } from "./TintBand"
 import { useSettings } from "../hooks/useSettings"
 import { UpdateNotice } from "./UpdateNotice"
+import { VoiceLauncher } from "../voice/VoiceLauncher"
+import { ReeveNameContext } from "../lib/reeveName"
 
 export function Layout() {
   const { connected: open, lost, updateRequired, retryUpdate } = useWebSocket()
@@ -37,6 +40,7 @@ export function Layout() {
   useEffect(() => { setMoreOpen(false) }, [location.pathname])
 
   return (
+    <ReeveNameContext.Provider value={settings?.reeve_name ?? ""}>
     <AgentSelectionProvider>
       <div className="flex h-dvh w-full overflow-hidden">
       <TintBand tint={tint} />
@@ -60,10 +64,13 @@ export function Layout() {
       )}
       {!updateRequired && <UpdateNotice status={settings?.updates} baseUrl={baseUrl} />}
       {((summary?.approvals ?? 0) > 0 || (summary?.peer_approvals ?? 0) > 0 || focusMode) && <ApprovalTray />}
+      <AutoRunNotice />
       {notificationsSupported() && <ApprovalNotifier />}
       <OfflineDialog />
       <PlanApprovalModal />
+      <VoiceLauncher baseUrl={baseUrl} />
       </div>
     </AgentSelectionProvider>
+    </ReeveNameContext.Provider>
   )
 }

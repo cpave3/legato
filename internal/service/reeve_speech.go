@@ -57,7 +57,53 @@ type ReeveSpeechOptions struct {
 	Dir string
 	// Logf records a line that was not said; log.Printf when nil.
 	Logf func(format string, args ...any)
+	// Spoke is told what became of each line (EventReeveSpoke); nil for
+	// no one.
+	Spoke func(SpokeEvent)
+	// Now is the time, for quiet hours; time.Now when nil.
+	Now func() time.Time
 }
+
+// LineRoute is where a made line goes.
+type LineRoute int
+
+const (
+	// RouteHost plays it on this machine's speakers.
+	RouteHost LineRoute = iota
+	// RouteDevice: the listening device has it, and its file.
+	RouteDevice
+	// RouteDrop: it answered a voice message nobody listens to any more.
+	RouteDrop
+)
+
+// SpeechOutput is the device the person listens on (ReeveVoice).
+type SpeechOutput interface {
+	// AnsweringVoice reports whether the Reeve is answering a spoken
+	// message, whose lines play even in quiet hours.
+	AnsweringVoice() bool
+	// Deliver takes a made line. With RouteDevice it owns path from then.
+	Deliver(line SpokenLine, path, contentType string) LineRoute
+}
+
+// The states of a line, in SpokeEvent.
+const (
+	SpokeMade    = "made"
+	SpokePlayed  = "played"
+	SpokeFailed  = "failed"
+	SpokeSent    = "sent"
+	SpokeDropped = "dropped"
+)
+
+// SpokeEvent is what became of a line: made, sent to the listening
+// device, played on the host, failed, or dropped.
+type SpokeEvent struct {
+	TaskID string `json:"task_id"`
+	Text   string `json:"text"`
+	State  string `json:"state"`
+}
+
+// errQuietHours is speak's answer in quiet hours.
+var errQuietHours = errors.New("quiet hours: reply in writing (reeve.voice.quiet_hours)")
 
 // ReeveSpeech says the Reeve's lines out loud on this machine, one at a
 // time and in order: a command makes each line's audio while the line
@@ -68,11 +114,46 @@ type ReeveSpeech struct {
 	lines chan SpokenLine
 	start sync.Once
 	seq   atomic.Int64
+
+	mu      sync.Mutex
+	lastErr string
+	// The line lastErr is about: only a newer line playing clears it.
+	lastErrLine int64
+	output      SpeechOutput
 }
 
-// madeLine is a line whose audio is ready to play.
+// SetOutput gives the voice the device the person listens on.
+func (s *ReeveSpeech) SetOutput(out SpeechOutput) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.output = out
+}
+
+func (s *ReeveSpeech) currentOutput() SpeechOutput {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.output
+}
+
+func (s *ReeveSpeech) now() time.Time {
+	if s.opts.Now != nil {
+		return s.opts.Now()
+	}
+	return time.Now()
+}
+
+func (s *ReeveSpeech) spoke(line SpokenLine, state string) {
+	if s.opts.Spoke != nil {
+		s.opts.Spoke(SpokeEvent{TaskID: line.TaskID, Text: line.Text, State: state})
+	}
+}
+
+// madeLine is a line whose audio is ready to play; n is its place in the
+// queue.
 type madeLine struct {
+	line SpokenLine
 	path string
+	n    int64
 }
 
 // NewReeveSpeech makes the Reeve's voice. Nothing runs until the first
@@ -99,12 +180,39 @@ func (s *ReeveSpeech) Say(_ context.Context, line SpokenLine) error {
 	if n := utf8.RuneCountInString(line.Text); n > MaxSpokenChars {
 		return fmt.Errorf("%d characters is too long to say: say less, in %d characters at most, and leave the detail to your written reply", n, MaxSpokenChars)
 	}
+	if s.opts.Settings(context.Background()).QuietAt(s.now()) {
+		if out := s.currentOutput(); out == nil || !out.AnsweringVoice() {
+			return errQuietHours
+		}
+	}
 	s.start.Do(s.run)
 	select {
 	case s.lines <- line:
 		return nil
 	default:
 		return errors.New("too many lines are waiting to be said: wait for them, or say less")
+	}
+}
+
+// LastError is why the last line was not said, "" once a line has played
+// since. It holds no text the Reeve said and no key.
+func (s *ReeveSpeech) LastError() string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	return s.lastErr
+}
+
+// failed records how line n went: an error, or nil when it played, which
+// clears an error about an older line only.
+func (s *ReeveSpeech) failed(n int64, err error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if err != nil {
+		s.lastErr, s.lastErrLine = err.Error(), n
+		return
+	}
+	if n >= s.lastErrLine {
+		s.lastErr = ""
 	}
 }
 
@@ -119,25 +227,59 @@ func (s *ReeveSpeech) run() {
 }
 
 func (s *ReeveSpeech) makeLines(ready chan<- madeLine) {
+	var n int64
 	for line := range s.lines {
+		n++
 		voice := s.opts.Settings(context.Background())
 		if !voice.Enabled {
 			continue
 		}
 		path, err := s.make(voice, line)
 		if err != nil {
+			s.failed(n, err)
+			s.spoke(line, SpokeFailed)
 			s.opts.Logf("reeve voice: a line of %d characters was not said: %v", utf8.RuneCountInString(line.Text), err)
 			continue
 		}
-		ready <- madeLine{path: path}
+		path, contentType := nameByType(path)
+		s.spoke(line, SpokeMade)
+		route := RouteHost
+		if out := s.currentOutput(); out != nil {
+			route = out.Deliver(line, path, contentType)
+		}
+		switch {
+		case route == RouteDevice:
+			s.failed(n, nil)
+			s.spoke(line, SpokeSent)
+			continue
+		case route == RouteDrop:
+			_ = os.Remove(path)
+			s.spoke(line, SpokeDropped)
+			continue
+		case voice.QuietAt(s.now()):
+			_ = os.Remove(path)
+			s.spoke(line, SpokeDropped)
+			s.opts.Logf("reeve voice: a line was not played on the host: quiet hours")
+			continue
+		}
+		ready <- madeLine{line: line, path: path, n: n}
 	}
 }
 
 func (s *ReeveSpeech) playLines(ready <-chan madeLine) {
 	for made := range ready {
-		if voice := s.opts.Settings(context.Background()); voice.Enabled {
+		voice := s.opts.Settings(context.Background())
+		if !voice.Enabled {
+			// Turned off since the line was made.
+			s.spoke(made.line, SpokeDropped)
+		} else {
 			if err := s.play(voice, made.path); err != nil {
+				s.failed(made.n, err)
+				s.spoke(made.line, SpokeFailed)
 				s.opts.Logf("reeve voice: a line was not played: %v", err)
+			} else {
+				s.failed(made.n, nil)
+				s.spoke(made.line, SpokePlayed)
 			}
 		}
 		_ = os.Remove(made.path)

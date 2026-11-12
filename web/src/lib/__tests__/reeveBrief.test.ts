@@ -5,17 +5,17 @@ describe("reeveBrief", () => {
   it("says what the person asks about, its IDs and its error line", () => {
     const brief = reeveBrief({ what: "the Attention item “Sync failed for Jira”", ids: { "Attention item": "att-1", task: "LEG-3" }, error: "Jira answered 401" })
     expect(brief).toBe([
-      "The person asks you about the Attention item “Sync failed for Jira”.",
+      "The operator asks you about the Attention item “Sync failed for Jira”.",
       "- Attention item: att-1",
       "- task: LEG-3",
       "- Error: Jira answered 401",
       "",
-      "Find out what is wrong and what to do about it. Read first; any change goes to the person as a change set.",
+      "Find out what is wrong and what to do about it. Read first; any change goes to the operator as a change set.",
     ].join("\n"))
   })
 
   it("leaves out what it was not given", () => {
-    expect(reeveBrief({ what: "agent T-1" })).toBe("The person asks you about agent T-1.\n\nFind out what is wrong and what to do about it. Read first; any change goes to the person as a change set.")
+    expect(reeveBrief({ what: "agent T-1" })).toBe("The operator asks you about agent T-1.\n\nFind out what is wrong and what to do about it. Read first; any change goes to the operator as a change set.")
   })
 })
 

@@ -64,3 +64,56 @@ func normalizeResources(cfg *Config) error {
 	}
 	return nil
 }
+
+// RepositoryResources gives the named resources to every agent that works in
+// one repository, whichever checkout, worktree or clone it is in, as if they
+// were ticked when it started. Nothing in the repository names Legato.
+type RepositoryResources struct {
+	// Repo names the repository as AgentGuidance.Repo does. Load keeps it
+	// normalised as host/owner/name.
+	Repo string `yaml:"repo" json:"repo"`
+	// Resources names resources of the resources block. Load keeps each
+	// once, spelled as that block spells it.
+	Resources []string `yaml:"resources" json:"resources"`
+}
+
+// normalizeRepositoryResources checks each entry names a repository once and
+// only resources the configuration defines. It runs after normalizeResources.
+func normalizeRepositoryResources(cfg *Config) error {
+	names := map[string]string{}
+	for _, resource := range cfg.Resources {
+		names[strings.ToLower(resource.Name)] = resource.Name
+	}
+	seen := map[string]bool{}
+	for i := range cfg.Agents.RepositoryResources {
+		entry := &cfg.Agents.RepositoryResources[i]
+		repo, ok := NormalizeRepository(entry.Repo)
+		if !ok {
+			return fmt.Errorf("agents.repository_resources[%d].repo %q: want owner/name, host/owner/name or a Git remote address", i, entry.Repo)
+		}
+		if seen[repo] {
+			return fmt.Errorf("agents.repository_resources[%d]: %s is already listed", i, repo)
+		}
+		seen[repo] = true
+		entry.Repo = repo
+		if len(entry.Resources) == 0 {
+			return fmt.Errorf("agents.repository_resources[%d]: %s needs at least one resource", i, repo)
+		}
+		var kept []string
+		given := map[string]bool{}
+		for _, name := range entry.Resources {
+			key := strings.ToLower(strings.TrimSpace(name))
+			resolved, ok := names[key]
+			if !ok {
+				return fmt.Errorf("agents.repository_resources[%d]: there is no resource named %q in resources", i, strings.TrimSpace(name))
+			}
+			if given[key] {
+				continue
+			}
+			given[key] = true
+			kept = append(kept, resolved)
+		}
+		entry.Resources = kept
+	}
+	return nil
+}

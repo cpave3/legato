@@ -48,7 +48,7 @@ func (s *Server) agentRestartHandler() http.HandlerFunc {
 			return
 		}
 		taskID := r.PathValue("task_id")
-		names, err := agents.AttachedResources(r.Context(), taskID)
+		names, err := restartResourceNames(r.Context(), agents, taskID)
 		if errors.Is(err, store.ErrNotFound) {
 			s.writeError(w, http.StatusNotFound, "no agent is running for "+taskID)
 			return
@@ -80,6 +80,18 @@ func (s *Server) agentRestartHandler() http.HandlerFunc {
 		s.hub.Broadcast(WSMessage{Type: MsgAgentsChanged})
 		s.writeJSON(w, http.StatusOK, answer)
 	}
+}
+
+// restartResourceNames names the resources a restart carries: those chosen
+// for the agent, when the service tells them from the ones its repository
+// gives (which the spawn works out again), else all it has.
+func restartResourceNames(ctx context.Context, agents agentRestartService, taskID string) ([]string, error) {
+	if chooser, ok := agents.(interface {
+		ChosenResources(ctx context.Context, taskID string) ([]string, error)
+	}); ok {
+		return chooser.ChosenResources(ctx, taskID)
+	}
+	return agents.AttachedResources(ctx, taskID)
 }
 
 // restartResources finds the resources an agent had, by name. One removed

@@ -17,8 +17,9 @@ import (
 var ErrAgentNotResumable = errors.New("interrupted agent cannot be resumed")
 
 // InterruptedNote is the first message a resumed interrupted agent gets: it
-// may have stopped in the middle of a step.
-const InterruptedNote = "Legato and this session were interrupted (the machine or tmux went down) while you were working, and your conversation has been resumed. Your last step may not have finished: check the state of what you were doing before you go on."
+// may have stopped in the middle of a step. Its tag marks it as Legato's own
+// message, which the conversation draws apart from what the person typed.
+const InterruptedNote = "[legato interrupted] Legato and this session were interrupted (the machine or tmux went down) while you were working, and your conversation has been resumed. Your last step may not have finished: check the state of what you were doing before you go on."
 
 // InterruptedAgent is an agent that was running when Legato last stopped and
 // whose tmux session was gone when it started again.
@@ -213,7 +214,9 @@ func (a *agentService) ResumeInterruptedAgent(ctx context.Context, taskID string
 	if !fresh {
 		opt.Prompt = InterruptedNote
 	}
-	opt.Resources = a.resolveResources(ctx, plan.resources)
+	// The repository's own resources are worked out again by the spawn.
+	chosen, _ := a.store.ListChosenExecutionResources(ctx, plan.executionID)
+	opt.Resources = a.resolveResources(ctx, chosen)
 	// The new agent replaces the interrupted one in the task's slot.
 	if err := a.SpawnAgent(ctx, taskID, 0, 0, opt); err != nil {
 		return err
@@ -257,6 +260,7 @@ func (a *agentService) DismissInterruptedAgent(ctx context.Context, taskID strin
 type interruptedResume struct {
 	opt         AgentSpawnOptions
 	workingDir  string
+	executionID string
 	resources   []string
 	err         error
 	canStartNew bool
@@ -273,6 +277,7 @@ func (a *agentService) planInterruptedResume(ctx context.Context, s store.AgentS
 			opt.Engram, opt.EngramSession = name, engramSession
 		}
 		plan.resources, _ = a.store.ListExecutionResources(ctx, s.ExecutionID)
+		plan.executionID = s.ExecutionID
 	}
 	plan.workingDir = opt.WorkingDir
 	plan.opt = opt

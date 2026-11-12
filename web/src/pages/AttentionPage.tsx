@@ -72,7 +72,7 @@ function AttentionDetail({ detail }: { detail: string }) {
 type AttentionSection = {
   id: "intervention" | "review" | "merge"
   title: string
-  description: string
+  description?: string
   emptyLabel: string
   icon: LucideIcon
   matches: (item: AttentionItem) => boolean
@@ -98,7 +98,6 @@ const sections: AttentionSection[] = [
   {
     id: "merge",
     title: "Merge blockers",
-    description: "Known actionable blockers from tracked pull requests",
     emptyLabel: "No known merge blockers",
     icon: GitPullRequest,
     matches: (item) => mergeSignals.has(item.signal_kind),
@@ -247,7 +246,6 @@ export function AttentionPage() {
           Attention dashboard
           <span className="text-sm font-normal text-zinc-500">{allItems.length} item{allItems.length === 1 ? "" : "s"}</span>
         </h1>
-        <p className="mt-1 text-sm text-zinc-500">Work that needs you across agents, reviews, and pull requests</p>
         {actionError && <p className="mt-2 text-sm text-red-400" role="alert">{actionError}</p>}
       </header>
       <main className="flex-1 overflow-y-auto px-4 py-5 sm:px-6">
@@ -255,7 +253,6 @@ export function AttentionPage() {
           <div className="mb-6 flex flex-col items-center gap-3 rounded-xl border border-emerald-900/60 bg-emerald-950/20 px-4 py-8 text-center">
             <CheckCircle size={42} className="text-emerald-500" />
             <p className="text-lg text-zinc-200">Nothing needs your attention right now</p>
-            <p className="text-sm text-zinc-500">No interventions, ready reviews, or known merge blockers.</p>
           </div>
         )}
         <div className="space-y-8">
@@ -271,7 +268,7 @@ export function AttentionPage() {
                       {section.title}
                       <span className="rounded-full bg-zinc-800 px-2 py-0.5 text-xs font-normal text-zinc-400">{sectionItems.length}</span>
                     </h2>
-                    <p className="mt-1 text-xs text-zinc-600">{section.description}</p>
+                    {section.description && <p className="mt-1 text-xs text-zinc-600">{section.description}</p>}
                   </div>
                 </div>
                 {sectionItems.length === 0 ? (

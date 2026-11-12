@@ -4,12 +4,12 @@ import type { LucideIcon } from "lucide-react"
 // The parts the Settings page is built from: groups of cards, cards of rows.
 
 // A group: one subject, with a heading the page's section list goes to.
-export function SettingsGroup({ id, title, description, children }: { id: string; title: string; description: string; children: ReactNode }) {
+export function SettingsGroup({ id, title, description, children }: { id: string; title: string; description?: string; children: ReactNode }) {
   return (
     <section id={id} aria-labelledby={`${id}-title`} className="scroll-mt-6">
       <div className="mb-3">
         <h2 id={`${id}-title`} className="text-base font-semibold text-lw-text">{title}</h2>
-        <p className="mt-0.5 text-sm text-lw-text-2">{description}</p>
+        {description && <p className="mt-0.5 text-sm text-lw-text-2">{description}</p>}
       </div>
       <div className="flex flex-col gap-4">{children}</div>
     </section>

@@ -28,7 +28,7 @@ type fakeBurnlite struct {
 func (f *fakeBurnlite) server(t *testing.T) *httptest.Server {
 	t.Helper()
 	srv := mcp.NewServer(&mcp.Implementation{Name: "burnlite", Version: "test"}, nil)
-	for _, name := range []string{"list_projects", "list_tasks", "get_task", "get_milestone"} {
+	for _, name := range []string{"list_projects", "list_tasks", "list_milestones", "get_task", "get_milestone"} {
 		srv.AddTool(&mcp.Tool{Name: name, InputSchema: map[string]any{"type": "object"}}, func(_ context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
 			var args map[string]any
 			_ = json.Unmarshal(req.Params.Arguments, &args)
@@ -244,5 +244,115 @@ func TestWithoutATokenNothingIsSent(t *testing.T) {
 	_, err := New(ts.URL, &tokens{err: errors.New("not connected")}, nil).ListProjects(context.Background())
 	if err == nil || len(fake.auth) != 0 {
 		t.Fatalf("err = %v, requests = %d", err, len(fake.auth))
+	}
+}
+
+func TestListTasksSinceAsksOnlyForWhatChanged(t *testing.T) {
+	fake := &fakeBurnlite{token: "t1", results: map[string]func(map[string]any) *mcp.CallToolResult{
+		"list_tasks": func(map[string]any) *mcp.CallToolResult { return structured(map[string]any{"tasks": []any{}}) },
+	}}
+	ts := fake.server(t)
+	c := New(ts.URL, &tokens{current: "t1"}, nil)
+	defer c.Close()
+
+	// The zone is Burnlite's (UTC), to the millisecond.
+	since := time.Date(2026, 11, 5, 11, 2, 3, 456_789_000, time.FixedZone("AEST", 10*3600))
+	rows, err := c.ListTasksSince(context.Background(), "EST", "any", since)
+	if err != nil || len(rows) != 0 {
+		t.Fatalf("rows = %v, %v", rows, err)
+	}
+	if got := fake.args[0]; got["projectId"] != "EST" || got["state"] != "any" || got["updated_since"] != "2026-11-05T01:02:03.456Z" {
+		t.Errorf("args = %v", got)
+	}
+}
+
+func TestListMilestonesReadsEachKeyAndWhenItChanged(t *testing.T) {
+	fake := &fakeBurnlite{token: "t1", results: map[string]func(map[string]any) *mcp.CallToolResult{
+		"list_milestones": func(map[string]any) *mcp.CallToolResult {
+			return structured(map[string]any{"milestones": []any{
+				map[string]any{"key": "EST-3", "name": "Sync", "updatedAt": "2026-11-05T01:02:03.456Z"},
+				// A Burnlite too old to date its Milestones.
+				map[string]any{"key": "EST-9", "name": "Old"},
+			}})
+		},
+	}}
+	ts := fake.server(t)
+	c := New(ts.URL, &tokens{current: "t1"}, nil)
+	defer c.Close()
+
+	rows, err := c.ListMilestones(context.Background(), "EST")
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Closed Milestones too: a tracked one that closed must still be listed.
+	if got := fake.args[0]; got["projectId"] != "EST" || got["state"] != "any" {
+		t.Errorf("args = %v", got)
+	}
+	if len(rows) != 2 || rows[0].Key != "EST-3" || !rows[0].UpdatedAt.Equal(time.Date(2026, 11, 5, 1, 2, 3, 456_000_000, time.UTC)) ||
+		rows[1].Key != "EST-9" || !rows[1].UpdatedAt.IsZero() {
+		t.Fatalf("rows = %+v", rows)
+	}
+}
+
+func TestAClientsCallsShareOneSession(t *testing.T) {
+	fake := &fakeBurnlite{token: "t1", results: map[string]func(map[string]any) *mcp.CallToolResult{
+		"list_projects": func(map[string]any) *mcp.CallToolResult { return structured(map[string]any{"projects": []any{}}) },
+	}}
+	ts := fake.server(t)
+	requests := func() int {
+		fake.mu.Lock()
+		defer fake.mu.Unlock()
+		return len(fake.auth)
+	}
+	ctx := context.Background()
+
+	c := New(ts.URL, &tokens{current: "t1"}, nil)
+	if _, err := c.ListProjects(ctx); err != nil {
+		t.Fatal(err)
+	}
+	first := requests()
+	for range 3 {
+		if _, err := c.ListProjects(ctx); err != nil {
+			t.Fatal(err)
+		}
+	}
+	// The handshake was the first call's: each later call is one request.
+	if got := requests() - first; got != 3 {
+		t.Errorf("3 more calls made %d requests, want 3", got)
+	}
+
+	// Closed, the client opens a new session for its next call.
+	c.Close()
+	before := requests()
+	if _, err := c.ListProjects(ctx); err != nil {
+		t.Fatalf("after Close: %v", err)
+	}
+	if got := requests() - before; got <= 1 {
+		t.Errorf("a call after Close made %d requests: it did not open a new session", got)
+	}
+	c.Close()
+}
+
+func TestATokenRefusedInMidSessionIsRefreshed(t *testing.T) {
+	fake := &fakeBurnlite{token: "t1", results: map[string]func(map[string]any) *mcp.CallToolResult{
+		"list_projects": func(map[string]any) *mcp.CallToolResult { return structured(map[string]any{"projects": []any{}}) },
+	}}
+	ts := fake.server(t)
+	src := &tokens{current: "t1", next: "t2"}
+	c := New(ts.URL, src, nil)
+	defer c.Close()
+	ctx := context.Background()
+	if _, err := c.ListProjects(ctx); err != nil {
+		t.Fatal(err)
+	}
+	// The token expires while the session is open.
+	fake.mu.Lock()
+	fake.token = "t2"
+	fake.mu.Unlock()
+	if _, err := c.ListProjects(ctx); err != nil {
+		t.Fatalf("after the token expired: %v", err)
+	}
+	if src.forced != 1 {
+		t.Errorf("forced %d refreshes", src.forced)
 	}
 }

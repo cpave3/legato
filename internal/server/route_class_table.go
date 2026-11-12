@@ -20,6 +20,10 @@ var routeClassTable = []routeClassEntry{
 	{"POST", "/api/agents/spawn", ClassChange, "Start an agent"},
 	{"POST", "/api/agents/kill", ClassRisky, "Stop an agent"},
 	{"PATCH", "/api/agents/{task_id}/notify", ClassChange, "Turn an agent's notifications on or off"},
+	{"PUT", "/api/agents/{task_id}/group", ClassChange, "Put an agent's task in a group, or take it out"},
+	{"GET", "/api/agent-groups", ClassRead, "List the agent groups"},
+	{"PUT", "/api/agent-groups/{name}", ClassChange, "Rename an agent group"},
+	{"DELETE", "/api/agent-groups/{name}", ClassChange, "Delete an agent group, leaving its agents ungrouped"},
 	{"GET", "/api/agents/{task_id}/terminal", ClassNever, "Type into an agent's terminal"},
 
 	// Tasks
@@ -291,6 +295,7 @@ var routeClassTable = []routeClassEntry{
 
 	// Web UI
 	{"GET", "/", ClassRead, "Load the web UI"},
+	{"GET", "/api/", ClassRead, "Answer 404 for a route Legato does not serve"},
 	// The Reeve's sessions.
 	{"GET", "/api/reeve", ClassRead, "List the Reeve's sessions"},
 	{"POST", "/api/reeve/sessions", ClassChange, "Start a Reeve session"},
@@ -299,11 +304,19 @@ var routeClassTable = []routeClassEntry{
 	{"DELETE", "/api/reeve/sessions/{task_id}", ClassRisky, "Delete a Reeve session"},
 	{"POST", "/api/reeve/message", ClassChange, "Send the Reeve a message"},
 	{"GET", "/api/reeve/sessions/{task_id}/change-sets", ClassRead, "List a Reeve session's change sets"},
-	{"POST", "/api/reeve/secrets/{approval_id}", ClassNever, "Store a secret the person pasted"},
+	{"GET", "/api/reeve/auto", ClassRead, "Show what the Reeve runs without asking, and the sets that ran so"},
+	{"POST", "/api/reeve/auto/off", ClassChange, "Turn off everything the Reeve runs without asking (only makes it ask more)"},
+	{"POST", "/api/reeve/secrets/{approval_id}", ClassNever, "Store a secret the operator pasted"},
+	{"GET", "/api/reeve/voice", ClassRead, "Check whether a spoken conversation with the Reeve will work here"},
+	{"GET", "/api/reeve/voice/lines/{id}", ClassRead, "Fetch the audio of a line the Reeve said, for the device listening"},
+	{"GET", "/api/reeve/voice/session", ClassNever, "Talk to the Reeve: stream the microphone, hear its answers"},
 	{"GET", "/api/reeve/engram", ClassRead, "Show the Reeve's engram: its seed, memories and open threads"},
 	{"PUT", "/api/reeve/engram/seed", ClassRisky, "Change the Reeve's seed (one of its own rules: needs a signature)"},
 	{"DELETE", "/api/reeve/engram/memories/{id}", ClassRisky, "Delete one of the Reeve's memories for good"},
 	{"DELETE", "/api/reeve/engram/threads/{id}", ClassRisky, "Close one of the Reeve's open threads"},
+	{"GET", "/api/reeve/watches", ClassRead, "List the agents the Reeve watches"},
+	{"POST", "/api/reeve/watches", ClassRead, "Watch an agent: the Reeve is told when it waits, goes idle, adds a note, opens a pull request or exits"},
+	{"DELETE", "/api/reeve/watches/{task_id}", ClassRead, "Stop watching an agent"},
 	{"POST", "/api/config/import", ClassRisky, "Import settings from a file, as a change set"},
 	// Reeve to Reeve.
 	{"POST", "/api/integrations/reeve/messages", ClassChange, "Message this instance's Reeve, as another instance's"},

@@ -218,15 +218,47 @@ describe("NativeAgentPanel and an image the person pastes", () => {
     expect(box.value).toBe("Look")
   })
 
-  it("leaves a paste of text to the message box, with or without a picture of that text", async () => {
+  it("leaves a paste of text to the message box", async () => {
     const fetchMock = mockSession([])
     render(<NativeAgentPanel agentId="task-1" />, { wrapper })
     const box = await messageBox()
 
-    // Text alone, and a copy from a spreadsheet: its text and a picture of it.
     expect(fireEvent.paste(box, pasteOf([], "plain words"))).toBe(true)
-    expect(fireEvent.paste(box, pasteOf([screenshot()], "a\tb"))).toBe(true)
 
     expect(fetchMock.mock.calls.some(([, init]) => init?.method === "POST")).toBe(false)
+  })
+
+  // Many apps put text beside an image (its file name; a copy of cells and
+  // a picture of them). The text is pasted and the image is added too.
+  it("adds an image that comes with text, and still pastes the text", async () => {
+    mockSession([], {}, [stored("pasted-1.png")])
+    render(<NativeAgentPanel agentId="task-1" />, { wrapper })
+    const box = await messageBox()
+
+    expect(fireEvent.paste(box, pasteOf([screenshot()], "a\tb"))).toBe(true)
+
+    await screen.findByRole("img", { name: "Pasted image pasted-1.png" })
+  })
+
+  it("adds an image chosen with the attach button", async () => {
+    mockSession([], {}, [stored("pasted-1.png")])
+    render(<NativeAgentPanel agentId="task-1" />, { wrapper })
+    const box = await messageBox()
+    fireEvent.change(box, { target: { value: "From my phone:" } })
+
+    fireEvent.change(screen.getByLabelText("Images to attach"), { target: { files: [screenshot()] } })
+
+    await waitFor(() => expect(box.value).toBe(`From my phone: ${stored("pasted-1.png")} `))
+    expect(screen.getByRole("button", { name: "Attach image" })).toBeTruthy()
+  })
+
+  it("adds an image dropped on the composer", async () => {
+    mockSession([], {}, [stored("pasted-1.png")])
+    render(<NativeAgentPanel agentId="task-1" />, { wrapper })
+    const box = await messageBox()
+
+    fireEvent.drop(screen.getByTestId("agent-composer"), { dataTransfer: { files: [screenshot()], types: ["Files"] } })
+
+    await waitFor(() => expect(box.value).toBe(`${stored("pasted-1.png")} `))
   })
 })

@@ -59,3 +59,62 @@ func TestALegatoCommandIsClassedByItsPath(t *testing.T) {
 		t.Errorf("a group = %s", class)
 	}
 }
+
+// A refused command says what to use instead.
+func TestARefusedCommandNamesItsAlternative(t *testing.T) {
+	for args, want := range map[string][]string{
+		"credential show":     {"legato credential list", "GET /api/credentials"},
+		"audit":               {"legato audit verify", "GET /api/credentials/audit"},
+		"audit log":           {"GET /api/credentials/audit"},
+		"credential get x":    {"legato://", "request_secret"},
+		"serve":               {"restart_legato"},
+		"auth token":          {"never"},
+		"task":                {"task list (read)", "task create (change)"},
+		"no-such-command":     {"legato_api", "reference/api"},
+		"agent state working": {"hooks"},
+	} {
+		class, description := classifyLegatoCommand(strings.Fields(args))
+		if class != "never" {
+			t.Errorf("legato %s = %s", args, class)
+		}
+		for _, w := range want {
+			if !strings.Contains(description, w) {
+				t.Errorf("legato %s: %q does not name %q", args, description, w)
+			}
+		}
+	}
+}
+
+// Every command the Reeve may never run names what to do instead.
+func TestEveryNeverCommandHasAnAlternative(t *testing.T) {
+	for path, entry := range legatoCommandClasses {
+		if entry.Class == "never" && legatoCommandAlternatives[path] == "" {
+			t.Errorf("legato %s is never run: say what to do instead in legatoCommandAlternatives", path)
+		}
+	}
+	for path := range legatoCommandAlternatives {
+		if _, ok := legatoCommandClasses[path]; ok && legatoCommandClasses[path].Class != "never" {
+			t.Errorf("legato %s runs, so needs no alternative", path)
+		}
+	}
+}
+
+// The tool's description lists the commands the Reeve may run, by class,
+// and none it may not.
+func TestTheLegatoToolListsTheCommandsItRuns(t *testing.T) {
+	var list []string
+	for _, c := range (legatoCommands{}).Commands() {
+		list = append(list, c.Path+" "+c.Class)
+	}
+	got := strings.Join(list, ",")
+	for _, want := range []string{"task list read", "task create change", "restart risky", "config show read"} {
+		if !strings.Contains(got, want) {
+			t.Errorf("the list lacks %q: %s", want, got)
+		}
+	}
+	for _, never := range []string{"serve never", "auth token", "credential get"} {
+		if strings.Contains(got, never) {
+			t.Errorf("the list has %q", never)
+		}
+	}
+}

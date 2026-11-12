@@ -53,7 +53,7 @@ func (s *DelegationService) Resolve(ctx context.Context, approval Approval, deci
 		return nil
 	}
 	if decision.Decision != ApprovalAllow {
-		if err := s.db.SetDelegationFailed(ctx, d.ID, "denied", "the person refused this delegation"); err != nil {
+		if err := s.db.SetDelegationFailed(ctx, d.ID, "denied", "the operator refused this delegation"); err != nil {
 			return err
 		}
 		s.changed(d.TaskID)

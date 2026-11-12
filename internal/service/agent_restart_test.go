@@ -224,3 +224,40 @@ func TestSwitchingTheSandboxWhenItIsOffLeavesTheAgentRunning(t *testing.T) {
 		t.Fatalf("agent after a refused switch = %#v, %v; want it still running", after, err)
 	}
 }
+
+// sentLineEventually waits for a line typed into a task's session that opens
+// with prefix: a launch message is sent after the launch returns.
+func sentLineEventually(t *testing.T, mt *mockTmux, taskID, prefix string) string {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		lines := mt.sentLinesFor("legato-" + taskID)
+		for _, line := range lines {
+			if strings.HasPrefix(line, prefix) {
+				return line
+			}
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("lines = %q, want one that opens with %q", lines, prefix)
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+}
+
+func TestRestartAgentTellsTheAgentItWasReloaded(t *testing.T) {
+	f := newRestartFixture(t)
+	ctx := context.Background()
+	createTask(t, f.store, "task-r")
+	cwd := t.TempDir()
+	if err := f.svc.SpawnAgent(ctx, "task-r", 0, 0, AgentSpawnOptions{AgentKind: "claude-code", WorkingDir: cwd}); err != nil {
+		t.Fatal(err)
+	}
+	f.reportConversation(t, "task-r", cwd)
+
+	if err := f.svc.(AgentRestarter).RestartAgent(ctx, "task-r", nil); err != nil {
+		t.Fatal(err)
+	}
+
+	// The tag is what makes the conversation draw it as Legato's message.
+	sentLineEventually(t, f.tmux, "task-r", "[legato reloaded] ")
+}

@@ -290,9 +290,9 @@ func checkKey(kd KeyDescription, p Policy) error {
 	case hw.Algorithm != algorithmEC || hw.ECCurve != curveP256:
 		return errors.New("the key is not an EC P-256 key")
 	case hw.NoAuthRequired || hw.UserAuthType == 0:
-		return errors.New("the key can be used without the person")
+		return errors.New("the key can be used without the operator")
 	case hw.HasAuthTimeout && hw.AuthTimeout != 0:
-		return errors.New("the key stays unlocked after the person proves who they are; it must ask each time")
+		return errors.New("the key stays unlocked after the operator proves who they are; it must ask each time")
 	}
 	app := kd.ApplicationID()
 	if app == nil {

@@ -98,3 +98,34 @@ describe("AgentPickerBar", () => {
     expect(screen.getByRole("button", { name: "Choose an agent" }).textContent).toContain("Choose an agent")
   })
 })
+
+describe("AgentSelect grouped", () => {
+  afterEach(cleanup)
+
+  const grouped = (task_id: string, activity: string, group?: string) =>
+    ({ ...errorAgent, task_id, task_title: `Task ${task_id}`, activity, ...(group ? { group } : {}) }) as AgentInfo
+
+  it("lists the agents by group, a collapsed group with its count and those that need the person", () => {
+    const toggle = vi.fn()
+    render(
+      <AgentSelect
+        agents={[grouped("a", "waiting", "Tooling"), grouped("b", "working", "Tooling"), grouped("c", "working")]}
+        selectedId="c"
+        onSelect={() => {}}
+        grouping={{
+          mode: "group", setMode: vi.fn(), known: [], defaults: [],
+          isCollapsed: (name) => name === "Tooling", toggle, collapseOthers: vi.fn(), move: vi.fn(),
+          newGroup: vi.fn(), renameGroup: vi.fn(), deleteGroup: vi.fn(),
+        }}
+      />,
+    )
+    fireEvent.click(screen.getByRole("button", { name: /^Agent:/ }))
+    const tooling = screen.getByRole("button", { name: "Tooling, 2, 1 need you" })
+    expect(tooling.getAttribute("aria-expanded")).toBe("false")
+    expect(screen.queryByText("Task a")).toBeNull()
+    expect(screen.getByRole("button", { name: "Ungrouped, 1" }).getAttribute("aria-expanded")).toBe("true")
+
+    fireEvent.click(tooling)
+    expect(toggle).toHaveBeenCalledWith("Tooling")
+  })
+})

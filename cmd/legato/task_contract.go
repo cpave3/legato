@@ -17,38 +17,6 @@ import (
 	"github.com/cpave3/legato/internal/service"
 )
 
-func runTaskContract(args []string) int {
-	if len(args) == 0 {
-		return renderCommandError("task", usageError("missing_argument", "usage: legato task <command> [options]"), false)
-	}
-	switch args[0] {
-	case "list":
-		return runTaskListContract(args[1:])
-	case "create":
-		return runTaskCreateContract(args[1:])
-	case "show":
-		return runTaskShowContract(args[1:])
-	case "update":
-		return runTaskUpdateContract(args[1:])
-	case "description":
-		return runTaskDescriptionContract(args[1:])
-	case "note":
-		return runTaskNoteContract(args[1:])
-	case "notes":
-		return runTaskNotesContract(args[1:])
-	case "link":
-		return runTaskLinkContract(args[1:])
-	case "unlink":
-		return runTaskUnlinkContract(args[1:])
-	case "worktree":
-		return runTaskWorktreeContract(args[1:])
-	case "github":
-		return runTaskGitHubContract(args[1:])
-	default:
-		return renderCommandError("task", usageError("unknown_command", fmt.Sprintf("unknown task command %q", args[0])), false)
-	}
-}
-
 func runTaskListContract(args []string) int {
 	const command = "task.list"
 	parsed, parseErr := parseCommandArgs(args, commandFlagSpecs("task", "list"))

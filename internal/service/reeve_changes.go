@@ -74,9 +74,12 @@ type ProposedCall struct {
 	Class       string     `json:"class"`
 	Description string     `json:"description"`
 	Level       ReeveLevel `json:"level"`
-	Setting     string     `json:"setting,omitempty"`
-	Before      any        `json:"before,omitempty"`
-	After       any        `json:"after,omitempty"`
+	// LevelBy is what set the level: the class's level, a rule, the host
+	// auto setting, a floor or "as root". An auto set is decided by it.
+	LevelBy string `json:"level_by,omitempty"`
+	Setting string `json:"setting,omitempty"`
+	Before  any    `json:"before,omitempty"`
+	After   any    `json:"after,omitempty"`
 	// AppliesAtRestart: a restart-mode setting, which takes effect when
 	// Legato restarts.
 	AppliesAtRestart bool `json:"applies_at_restart,omitempty"`
@@ -148,6 +151,9 @@ type ChangeSetOptions struct {
 	// Notify sends a message to a Reeve session ([legato] results, a
 	// denial's note).
 	Notify func(ctx context.Context, taskID, text string)
+	// Watch tells the Reeve session what an agent a set started or
+	// messaged does from now on (ReeveWatcher.Watch).
+	Watch func(ctx context.Context, reeveTaskID, taskID string)
 	// RunningAgents lists the task IDs of the agents running now, but the
 	// Reeve's.
 	RunningAgents func(ctx context.Context) []string
@@ -203,7 +209,7 @@ func (c *ChangeSetService) Describe(ctx context.Context, reason string, calls []
 			if call.Optional {
 				p.Description = "Restart Legato (you can leave this out: the change then waits for the next restart)"
 			}
-			p.Level = ReeveLevelFor(cfg.Reeve, p.Class, "restart", enrolled)
+			p.resolve(cfg, enrolled, LevelCall{Calls: []string{"restart"}})
 		case CallHostShell, CallEditFile, CallManageService:
 			if err := c.describeHost(cfg, enrolled, i, &p); err != nil {
 				return details, err
@@ -216,7 +222,8 @@ func (c *ChangeSetService) Describe(ctx context.Context, reason string, calls []
 			if p.Class == "never" {
 				return details, fmt.Errorf("call %d (legato %s): %w: %s", i+1, strings.Join(call.Args, " "), ErrNeverCall, p.Description)
 			}
-			p.Level = ReeveLevelFor(cfg.Reeve, p.Class, "legato "+strings.Join(call.Args, " "), enrolled)
+			floor, why := legatoFloor(call.Args)
+			p.resolve(cfg, enrolled, LevelCall{Calls: []string{"legato " + strings.Join(call.Args, " ")}, Floor: floor, FloorWhy: why})
 		case CallConfigEdit:
 			if len(call.Edits) == 0 {
 				return details, fmt.Errorf("call %d: a config.yaml edit needs edits", i+1)
@@ -230,14 +237,16 @@ func (c *ChangeSetService) Describe(ctx context.Context, reason string, calls []
 				return details, fmt.Errorf("call %d: the edited config.yaml does not load: %s", i+1, loadErr)
 			}
 			p.Diff, p.Check = diff, "loads"
-			p.Level = ReeveLevelFor(cfg.Reeve, p.Class, "config_edit", enrolled)
+			// config.yaml can change anything, and pins what it names.
+			level := LevelCall{Calls: []string{"config_edit"}, Floor: LevelApprove, FloorWhy: "an edit of config.yaml"}
 			if key := editsOwnRule(call.Edits); key != "" {
 				// One of the Reeve's own rules: a signature, as from Settings.
 				if !enrolled {
 					return details, fmt.Errorf("call %d (%s): %w", i+1, key, ErrNoDeviceEnrolled)
 				}
-				p.Level = StrictestLevel(p.Level, LevelSigned)
+				level.Floor, level.FloorWhy = LevelSigned, "one of the Reeve's own rules ("+key+")"
 			}
+			p.resolve(cfg, enrolled, level)
 		case CallAPI, "":
 			p.Kind = CallAPI
 			p.Method = strings.ToUpper(strings.TrimSpace(call.Method))
@@ -254,8 +263,9 @@ func (c *ChangeSetService) Describe(ctx context.Context, reason string, calls []
 			if p.Class == "never" {
 				return details, fmt.Errorf("call %d (%s %s): %w: %s", i+1, p.Method, call.Path, ErrNeverCall, p.Description)
 			}
-			p.Level = ReeveLevelFor(cfg.Reeve, p.Class, p.Method+" "+call.Path, enrolled)
 			c.describeSetting(ctx, cfg, &p)
+			floor, why := apiFloor(p.Method, call.Path)
+			p.resolve(cfg, enrolled, LevelCall{Calls: []string{p.Method + " " + call.Path}, Floor: floor, FloorWhy: why})
 		default:
 			return details, fmt.Errorf("call %d: unknown kind %q", i+1, call.Kind)
 		}
@@ -264,6 +274,22 @@ func (c *ChangeSetService) Describe(ctx context.Context, reason string, calls []
 	}
 	details.Level = StrictestLevel(levels...)
 	return details, nil
+}
+
+// resolve sets a call's level and what set it, from its class.
+func (p *ProposedCall) resolve(cfg *config.Config, enrolled bool, call LevelCall) {
+	call.Class = p.Class
+	d := ResolveReeveLevel(cfg.Reeve, call, enrolled)
+	p.Level, p.LevelBy = d.Level, d.By
+}
+
+// autoBy is what decided an auto set: what set each call's level.
+func autoBy(calls []ProposedCall) string {
+	var by []string
+	for _, call := range calls {
+		by = append(by, call.LevelBy)
+	}
+	return "auto: " + strings.Join(dedupe(by), ", ")
 }
 
 // approvalProducers are the Attention producers whose actions decide an
@@ -371,7 +397,7 @@ func (c *ChangeSetService) Propose(ctx context.Context, taskID, reason string, c
 	}
 	title := details.Reason
 	if title == "" {
-		title = fmt.Sprintf("%d changes from the Reeve", len(details.Calls))
+		title = fmt.Sprintf("%d changes from %s", len(details.Calls), c.opts.Approvals.ReeveName(ctx).Mid())
 	}
 	options := []ApprovalOption{{ID: "allow", Label: "Approve", Kind: ApprovalAllow}}
 	if optionalRestart(details.Calls) {
@@ -379,17 +405,30 @@ func (c *ChangeSetService) Propose(ctx context.Context, taskID, reason string, c
 			Description: "The change is made; it takes effect at the next restart."})
 	}
 	options = append(options, ApprovalOption{ID: "deny", Label: "Deny", Kind: ApprovalDeny})
+	auto := details.Level == LevelAuto
 	approval, _, err := c.opts.Approvals.Submit(ctx, ApprovalInput{
 		Source: ApprovalSourceReeveChangeSet, SourceKey: details.ID, TaskID: taskID,
 		Title: title, Summary: changeSetSummary(details), Details: details,
 		Signed: details.Level == LevelSigned || details.Level == LevelVerified, Verified: details.Level == LevelVerified,
 		Options: options,
+		// An auto set is decided as it is made: nobody is told to decide it.
+		Quiet: auto,
 	})
 	if err != nil {
 		return ChangeSetOutcome{}, err
 	}
 	_ = c.opts.Store.SetReeveChangeSetApproval(ctx, details.ID, approval.ID)
 	out := ChangeSetOutcome{ID: details.ID, ApprovalID: approval.ID, State: "pending", Level: details.Level}
+	if auto {
+		// The person chose to let these run at once: the approval is
+		// recorded as decided by what allowed it, and the set is queued.
+		_ = c.opts.Store.SetReeveChangeSetWaiting(context.Background(), details.ID, false)
+		if _, err := c.opts.Approvals.Decide(ctx, approval.ID, ApprovalDecision{Decision: ApprovalAllow, Option: "allow", By: autoBy(details.Calls)}); err != nil {
+			return out, err
+		}
+		out.State = "approved"
+		return out, nil
+	}
 	decided, err := c.opts.Approvals.Wait(ctx, approval.ID, c.opts.Wait)
 	_ = c.opts.Store.SetReeveChangeSetWaiting(context.Background(), details.ID, false)
 	if err != nil || decided == nil {
@@ -439,7 +478,7 @@ func (r changeSetResolver) Resolve(ctx context.Context, approval Approval, decis
 		if note == "" {
 			note = "(no note)"
 		}
-		r.c.opts.Notify(ctx, set.TaskID, fmt.Sprintf("[legato] The person denied change set %s (%s). Their note: %s\nDo not propose the same change again in this session unless they ask.", set.ID, set.Reason, note))
+		r.c.opts.Notify(ctx, set.TaskID, fmt.Sprintf("[legato] The operator denied change set %s (%s). Their note: %s\nDo not propose the same change again in this session unless they ask.", set.ID, set.Reason, note))
 	}
 	return nil
 }
@@ -497,10 +536,11 @@ func (c *ChangeSetService) run(ctx context.Context, set store.ReeveChangeSet, no
 		case failed:
 			results[i].State = "skipped"
 		case call.Kind == CallRestart && noRestart:
-			results[i].State, results[i].Detail = "skipped", "left out by the person: the change waits for the next restart"
+			results[i].State, results[i].Detail = "skipped", "left out by the operator: the change waits for the next restart"
 		case call.Kind == CallRestart:
 			results[i].State = "ran"
 			restart = true
+			c.auditAuto(ctx, set, decision, call, results[i])
 		case isHostCall(call.Kind):
 			res, _, output := c.runHost(ctx, cfg, set, i+1, call)
 			results[i] = res
@@ -516,7 +556,9 @@ func (c *ChangeSetService) run(ctx context.Context, set store.ReeveChangeSet, no
 				results[i].State, results[i].Detail, failed = "failed", clip(strings.TrimSpace(output), 500), true
 			default:
 				results[i].State, results[i].Detail = "ran", clip(strings.TrimSpace(output), 300)
+				c.watch(ctx, set.TaskID, call, "")
 			}
+			c.auditAuto(ctx, set, decision, call, results[i])
 		case call.Kind == CallConfigEdit:
 			if backup, err := WriteConfigEdit(c.configPath(), call.Edits); err != nil {
 				results[i].State, results[i].Detail, failed = "failed", err.Error(), true
@@ -539,7 +581,9 @@ func (c *ChangeSetService) run(ctx context.Context, set store.ReeveChangeSet, no
 				results[i].State, results[i].Detail, failed = "failed", "the route answered with a redirect", true
 			default:
 				results[i].State, results[i].Detail = "ran", clip(strings.TrimSpace(body), 300)
+				c.watch(ctx, set.TaskID, call, body)
 			}
+			c.auditAuto(ctx, set, decision, call, results[i])
 		}
 	}
 	state := store.ChangeSetDone
@@ -558,6 +602,49 @@ func (c *ChangeSetService) run(ctx context.Context, set store.ReeveChangeSet, no
 	if restart && !failed && c.opts.Restart != nil {
 		c.opts.Restart()
 	}
+}
+
+// watch watches the agent a call that ran started or messaged, for the
+// set's Reeve session.
+func (c *ChangeSetService) watch(ctx context.Context, reeveTaskID string, call ProposedCall, body string) {
+	if c.opts.Watch == nil {
+		return
+	}
+	if taskID := agentStartedBy(call.ChangeCall, body); taskID != "" {
+		c.opts.Watch(ctx, reeveTaskID, taskID)
+	}
+}
+
+// agentStartedBy is the task whose agent a call that ran started, resumed
+// or messaged: from its path, from the task_id an ephemeral spawn answers
+// with, or from legato agent message's task; "" for any other call.
+func agentStartedBy(call ChangeCall, body string) string {
+	if call.Kind == CallLegato {
+		if len(call.Args) >= 3 && call.Args[0] == "agent" && call.Args[1] == "message" && !strings.HasPrefix(call.Args[2], "-") {
+			return call.Args[2]
+		}
+		return ""
+	}
+	if call.Kind != CallAPI || !strings.EqualFold(call.Method, http.MethodPost) {
+		return ""
+	}
+	path, _, _ := strings.Cut(call.Path, "?")
+	parts := strings.Split(strings.Trim(path, "/"), "/")
+	switch {
+	case len(parts) == 3 && parts[0] == "api" && parts[1] == "agents" && parts[2] == "spawn":
+		var out struct {
+			TaskID string `json:"task_id"`
+		}
+		_ = json.Unmarshal([]byte(body), &out)
+		return out.TaskID
+	case len(parts) == 4 && parts[0] == "api" && parts[1] == "tasks" && parts[3] == "agent":
+		return parts[2]
+	case len(parts) == 4 && parts[0] == "api" && parts[1] == "agents" && (parts[3] == "restart" || parts[3] == "resume"):
+		return parts[2]
+	case len(parts) == 5 && parts[0] == "api" && parts[1] == "agents" && parts[3] == "chimera" && parts[4] == "send":
+		return parts[2]
+	}
+	return ""
 }
 
 // ChangeSetReport is the message that tells the Reeve what each call did.
@@ -682,9 +769,7 @@ func (c *ChangeSetService) backMessage(ctx context.Context, set store.ReeveChang
 		}
 		if c.opts.Settings != nil {
 			if pending, err := c.opts.Settings.PendingRestart(ctx); err == nil {
-				for _, key := range pending {
-					now = append(now, key)
-				}
+				now = append(now, pending...)
 			}
 		}
 		if len(now) > 0 {
@@ -805,7 +890,8 @@ func editsOwnRule(edits []ConfigEdit) string {
 		}
 	}
 	for _, e := range edits {
-		key := strings.TrimSpace(e.Key)
+		// A key into a list (reeve.rules[0].level) edits the list.
+		key := config.PlainKey(strings.TrimSpace(e.Key))
 		for _, rule := range rules {
 			if key == rule || strings.HasPrefix(rule, key+".") || strings.HasPrefix(key, rule+".") {
 				return rule

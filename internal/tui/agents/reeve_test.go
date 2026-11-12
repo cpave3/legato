@@ -57,3 +57,19 @@ func TestAAsksTheReeveAboutTheSelectedAgent(t *testing.T) {
 		t.Fatalf("a on the Reeve gave %#v", cmd())
 	}
 }
+
+// A named Reeve's row says its name where an unnamed one says Reeve.
+func TestANamedReevesRowSaysItsName(t *testing.T) {
+	m := New(theme.NewIcons("unicode"))
+	list := reeveAgents()
+	list[1].ReeveName, list[1].Title = "Tessitura", "Tessitura"
+	m.SetAgents(list)
+	m.SetSize(120, 40)
+	first := m.renderSidebarEntry(m.agents[0], true, 60)[0]
+	if !strings.Contains(first, "Tessitura") || strings.Contains(first, "Reeve") {
+		t.Fatalf("first line of the Reeve's row: %q", first)
+	}
+	if m.ReeveName() != "Tessitura" {
+		t.Fatalf("ReeveName = %q", m.ReeveName())
+	}
+}

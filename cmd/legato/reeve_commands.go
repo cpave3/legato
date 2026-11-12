@@ -8,6 +8,8 @@ import (
 	"os/exec"
 	"strings"
 	"time"
+
+	"github.com/cpave3/legato/internal/cli"
 )
 
 // legatoCommandClass is what running one legato subcommand on the host
@@ -29,13 +31,45 @@ func classifyLegatoCommand(args []string) (class, description string) {
 	}
 	node, path, _, err := resolveCommand(commandTree(), args)
 	if err != nil || node == nil || len(node.Children) > 0 {
-		return "never", "Not a legato command: legato " + strings.Join(args, " ")
+		return "never", "Not a legato command: legato " + strings.Join(args, " ") + ". " + legatoInstead(args, path, node)
 	}
 	entry, ok := legatoCommandClasses[strings.Join(path, " ")]
 	if !ok {
 		return "never", "A legato command the Reeve has no class for: " + strings.Join(path, " ")
 	}
-	return entry.Class, entry.Description + " (legato " + strings.Join(args, " ") + ")"
+	description = entry.Description + " (legato " + strings.Join(args, " ") + ")"
+	if entry.Class == "never" {
+		description += ": the Reeve never runs it. Instead: " + legatoCommandAlternatives[strings.Join(path, " ")]
+	}
+	return entry.Class, description
+}
+
+// legatoInstead says what to run instead of args, which name no command:
+// the alternative for what was asked, and the commands of the group it
+// reached.
+func legatoInstead(args, path []string, node *commandDef) string {
+	var out []string
+	for n := len(args); n > 0; n-- {
+		if alt := legatoCommandAlternatives[strings.Join(args[:n], " ")]; alt != "" {
+			out = append(out, "Instead: "+alt+".")
+			break
+		}
+	}
+	if node != nil && len(path) > 0 && len(node.Children) > 0 {
+		var runs []string
+		for _, c := range (legatoCommands{}).Commands() {
+			if strings.HasPrefix(c.Path, strings.Join(path, " ")+" ") {
+				runs = append(runs, c.Path+" ("+c.Class+")")
+			}
+		}
+		if len(runs) > 0 {
+			out = append(out, "Under legato "+strings.Join(path, " ")+" you may run: "+strings.Join(runs, ", ")+".")
+		}
+	}
+	if len(out) == 0 {
+		out = append(out, "The legato tool's description lists the commands it runs; for the API, legato_api, whose routes are on the manual page reference/api.")
+	}
+	return strings.Join(out, " ")
 }
 
 // runLegatoCommand runs one legato subcommand on the host, as this
@@ -88,6 +122,28 @@ func hostCommandEnv() []string {
 type legatoCommands struct{}
 
 func (legatoCommands) Classify(args []string) (string, string) { return classifyLegatoCommand(args) }
+
+// Commands lists the commands the Reeve may run, in the CLI's own order,
+// for the tool's description.
+func (legatoCommands) Commands() []cli.LegatoCommand {
+	var out []cli.LegatoCommand
+	var walk func(prefix []string, c *commandDef)
+	walk = func(prefix []string, c *commandDef) {
+		path := append(append([]string{}, prefix...), c.Name)
+		if len(c.Children) == 0 {
+			key := strings.Join(path[1:], " ")
+			if entry, ok := legatoCommandClasses[key]; ok && entry.Class != "never" {
+				out = append(out, cli.LegatoCommand{Path: key, Class: entry.Class, Description: entry.Description})
+			}
+			return
+		}
+		for _, child := range c.Children {
+			walk(path, child)
+		}
+	}
+	walk(nil, commandTree())
+	return out
+}
 
 func (legatoCommands) Run(ctx context.Context, args []string) (int, string, error) {
 	return runLegatoCommand(ctx, args)

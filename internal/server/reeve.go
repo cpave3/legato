@@ -44,7 +44,12 @@ func (s *Server) registerReeveRoutes(mux *routeMux) {
 	mux.HandleFunc("DELETE /api/reeve/sessions/{task_id}", s.reeveDeleteHandler())
 	mux.HandleFunc("POST /api/reeve/message", s.reeveMessageHandler())
 	mux.HandleFunc("GET /api/reeve/sessions/{task_id}/change-sets", s.reeveChangeSetsHandler())
+	mux.HandleFunc("GET /api/reeve/auto", s.reeveAutoHandler())
+	mux.HandleFunc("POST /api/reeve/auto/off", s.reeveAutoOffHandler())
 	mux.HandleFunc("POST /api/reeve/secrets/{approval_id}", s.reeveSecretHandler())
+	mux.HandleFunc("GET /api/reeve/voice", s.reeveVoiceStatusHandler())
+	mux.HandleFunc("GET "+voiceSessionPath, s.reeveVoiceSessionHandler())
+	mux.HandleFunc("GET /api/reeve/voice/lines/{id}", s.reeveVoiceLineHandler())
 	mux.HandleFunc("GET /api/reeve/engram", s.reeveEngramHandler())
 	mux.HandleFunc("PUT /api/reeve/engram/seed", s.reeveSeedHandler())
 	mux.HandleFunc("DELETE /api/reeve/engram/memories/{id}", s.reeveEngramRemoveHandler(ReeveEngramKeeper.RemoveMemory))
@@ -70,7 +75,7 @@ func (s *Server) serveReeveToken(w http.ResponseWriter, r *http.Request, next ht
 	case ClassNever:
 		writeIntegrationError(w, http.StatusForbidden, "never", "the Reeve may never "+lowerFirst(info.Description))
 	default:
-		writeIntegrationError(w, http.StatusForbidden, "needs_approval", info.Description+" is a "+string(info.Class)+" call: propose it as a change set for the person to approve")
+		writeIntegrationError(w, http.StatusForbidden, "needs_approval", info.Description+" is a "+string(info.Class)+" call: propose it as a change set for the operator to approve")
 	}
 }
 
@@ -101,6 +106,9 @@ func (s *Server) reeveError(w http.ResponseWriter, err error) {
 		s.writeError(w, http.StatusInternalServerError, err.Error())
 	}
 }
+
+// SetReeveName gives the server the Reeve's name, read for each request.
+func (s *Server) SetReeveName(name service.ReeveNameSource) { s.reeveName = name }
 
 func (s *Server) reeveOverviewHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
@@ -231,6 +239,8 @@ type ChangeSetLine struct {
 	State  string `json:"state"`
 	Calls  int    `json:"calls"`
 	Ran    int    `json:"ran"`
+	// Auto: the set ran with no approval asked (the auto level).
+	Auto bool `json:"auto,omitempty"`
 }
 
 func (s *Server) reeveChangeSetsHandler() http.HandlerFunc {
@@ -252,7 +262,7 @@ func (s *Server) reeveChangeSetsHandler() http.HandlerFunc {
 				State string `json:"state"`
 			}
 			_ = json.Unmarshal([]byte(set.Results), &results)
-			line := ChangeSetLine{ID: set.ID, Reason: set.Reason, State: set.State, Calls: len(calls)}
+			line := ChangeSetLine{ID: set.ID, Reason: set.Reason, State: set.State, Calls: len(calls), Auto: set.Level == string(service.LevelAuto)}
 			for _, res := range results {
 				if res.State == "ran" {
 					line.Ran++

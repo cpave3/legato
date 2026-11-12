@@ -12,6 +12,9 @@ import { WebSocketProvider } from './components/WebSocketProvider'
 import { QueryProvider } from './components/QueryProvider'
 import { QuerySyncProvider } from './components/QuerySyncProvider'
 import { ToastProvider } from './components/ToastProvider'
+import { keepFileDropsOnThePage } from './lib/fileDrop'
+
+keepFileDropsOnThePage()
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

@@ -205,7 +205,6 @@ export function HandOffModal({ baseUrl, open, card, repositories, onClose, onHan
               ) : (
                 <input aria-label="Repository" required value={repo} onChange={(event) => setRepo(event.target.value)} placeholder="owner/name on GitHub" className={`${control} font-lw-mono`} />
               )}
-              {repo.trim() === "" && <span className="text-xs text-lw-text-2">Choose a repository: the work goes to the one you pick, so none is picked for you.</span>}
             </label>
             <label className="flex flex-col gap-1.5">
               <span className={fieldLabel}>Agent tool</span>

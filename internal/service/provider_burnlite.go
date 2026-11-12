@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/cpave3/legato/internal/engine/burnlite"
@@ -39,13 +40,34 @@ type BurnliteSourceOptions struct {
 type burnliteReader interface {
 	ListProjects(ctx context.Context) ([]burnlite.Project, error)
 	ListTasks(ctx context.Context, project, state string) ([]burnlite.TaskRow, error)
+	ListTasksSince(ctx context.Context, project, state string, since time.Time) ([]burnlite.TaskRow, error)
+	ListMilestones(ctx context.Context, project string) ([]burnlite.MilestoneRow, error)
 	GetTask(ctx context.Context, key string) (*burnlite.Task, error)
 	GetMilestone(ctx context.Context, key string) (*burnlite.Milestone, error)
 }
 
 // burnliteOpener gives a reader of the connected Burnlite and its address,
-// or ErrNotConnected.
+// or ErrNotConnected. The reader is for one run of calls: closeBurnliteReader
+// ends it.
 type burnliteOpener func(ctx context.Context) (burnliteReader, string, error)
+
+// closeBurnliteReader ends a reader that keeps a session open.
+func closeBurnliteReader(reader burnliteReader) {
+	if c, ok := reader.(interface{ Close() }); ok {
+		c.Close()
+	}
+}
+
+// burnliteFullListEvery is how often a pull lists a project whole. Between
+// those it asks only for the tasks that changed, which costs Burnlite almost
+// nothing when none did; a whole list is what shows that a task was deleted.
+const burnliteFullListEvery = 15 * time.Minute
+
+// burnliteSinceOverlap is how far before the newest change Legato holds a
+// pull asks from. Burnlite dates a change when it is written, a moment
+// before it can be read, so a change dated just before the newest one may
+// appear after it.
+const burnliteSinceOverlap = 5 * time.Second
 
 // burnliteSource is Burnlite, read-only: tasks are imported and kept up to
 // date, and a card moved on the board never changes the task. A task's
@@ -53,6 +75,12 @@ type burnliteOpener func(ctx context.Context) (burnliteReader, string, error)
 type burnliteSource struct {
 	opts BurnliteSourceOptions
 	open burnliteOpener
+	now  func() time.Time
+
+	mu sync.Mutex
+	// fullListAt is when each project was last listed whole, by project key.
+	// It starts empty, so the first pull after a start lists every project.
+	fullListAt map[string]time.Time
 }
 
 // NewBurnliteSource is the Burnlite that Legato is connected to (the
@@ -71,7 +99,7 @@ func NewBurnliteSource(db *store.Store, tokens burnlite.TokenSource, opts Burnli
 }
 
 func newBurnliteSource(opts BurnliteSourceOptions, open burnliteOpener) *burnliteSource {
-	return &burnliteSource{opts: opts, open: open}
+	return &burnliteSource{opts: opts, open: open, now: time.Now, fullListAt: map[string]time.Time{}}
 }
 
 func (b *burnliteSource) Name() string            { return BurnliteIntegration }
@@ -187,83 +215,202 @@ func projectOf(key string) string {
 
 var burnliteKey = regexp.MustCompile(`^[A-Za-z]{2,6}[0-9]{0,4}-[1-9][0-9]*$`)
 
-// Pull lists each project of the tracked tasks once and fetches in full only
-// the tasks whose updatedAt is newer than the one Legato holds.
+// Pull brings the tracked tasks up to date at the least cost to Burnlite.
+// For each project it asks for the tasks that changed since the newest
+// change Legato holds, and fetches in full only those; every
+// burnliteFullListEvery it lists the project whole instead, which is what
+// shows that a task is gone. A tracked Milestone is read again only when
+// Burnlite's list of the project's Milestones says it changed. A task or
+// Milestone left out of the batch is unchanged.
 func (b *burnliteSource) Pull(ctx context.Context, tracked []store.Task) (PullBatch, error) {
 	reader, base, err := b.open(ctx)
 	if err != nil {
 		return PullBatch{}, err
 	}
-	byProject := map[string][]store.Task{}
+	defer closeBurnliteReader(reader)
+
+	type cards struct{ tasks, milestones []store.Task }
+	byProject := map[string]*cards{}
 	var projects []string
 	for _, task := range tracked {
 		p := projectOf(task.ID)
 		if _, ok := byProject[p]; !ok {
+			byProject[p] = &cards{}
 			projects = append(projects, p)
 		}
-		byProject[p] = append(byProject[p], task)
+		if parseRemoteMeta(task.RemoteMeta).IssueType == burnliteMilestone {
+			byProject[p].milestones = append(byProject[p].milestones, task)
+		} else {
+			byProject[p].tasks = append(byProject[p].tasks, task)
+		}
 	}
 	var batch PullBatch
 	for _, project := range projects {
-		rows, err := reader.ListTasks(ctx, project, "any")
-		if errors.Is(err, burnlite.ErrNotFound) {
-			// The project is gone, and its tasks with it.
-			for _, task := range byProject[project] {
-				batch.Missing = append(batch.Missing, task.ID)
-			}
-			continue
+		gone, err := b.pullTasks(ctx, reader, base, project, byProject[project].tasks, &batch)
+		if err == nil && !gone {
+			gone, err = b.pullMilestones(ctx, reader, base, project, byProject[project].milestones, &batch)
 		}
 		if err != nil {
 			return PullBatch{}, err
 		}
-		byKey := make(map[string]burnlite.TaskRow, len(rows))
-		for _, row := range rows {
-			byKey[row.Key] = row
-		}
-		for _, task := range byProject[project] {
-			row, ok := byKey[task.ID]
-			if !ok && parseRemoteMeta(task.RemoteMeta).IssueType == burnliteMilestone {
-				ticket, found, err := b.pullMilestone(ctx, reader, base, task)
-				if err != nil {
-					return PullBatch{}, err
-				}
-				if found {
-					batch.Tickets = append(batch.Tickets, ticket)
-				} else {
-					batch.Missing = append(batch.Missing, task.ID)
-				}
-				continue
-			}
-			if !ok {
+		if gone {
+			// The project is gone, and its tasks with it.
+			for _, task := range append(byProject[project].tasks, byProject[project].milestones...) {
 				batch.Missing = append(batch.Missing, task.ID)
-				continue
 			}
-			if row.UpdatedAt.IsZero() {
-				return PullBatch{}, errors.New("this Burnlite gives its tasks no updatedAt, which Legato needs to sync them: update Burnlite")
-			}
-			held, _ := time.Parse(time.RFC3339Nano, parseRemoteMeta(task.RemoteMeta).RemoteUpdatedAt)
-			if !row.UpdatedAt.After(held) {
-				// Unchanged: the service leaves it as it is.
-				batch.Tickets = append(batch.Tickets, rowTicket(row, base))
-				continue
-			}
-			full, err := reader.GetTask(ctx, row.Key)
-			if errors.Is(err, burnlite.ErrNotFound) {
-				batch.Missing = append(batch.Missing, task.ID)
-				continue
-			}
-			if err != nil {
-				return PullBatch{}, err
-			}
-			batch.Tickets = append(batch.Tickets, fullTicket(row, full, base))
 		}
 	}
 	return batch, nil
 }
 
-// pullMilestone reads a Milestone again. Burnlite gives it no updatedAt,
-// and a Task leaving it changes no timestamp it still lists, so the ticket
-// is dated now when what Legato shows of it has changed, and keeps the date
+// heldUpdatedAt is the remote updatedAt Legato holds for a task.
+func heldUpdatedAt(task store.Task) time.Time {
+	held, _ := time.Parse(time.RFC3339Nano, parseRemoteMeta(task.RemoteMeta).RemoteUpdatedAt)
+	return held
+}
+
+// fullListDue says whether the project's next list is a whole one, and when
+// it is, counts it as made.
+func (b *burnliteSource) fullListDue(project string, tasks []store.Task) bool {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	now := b.now()
+	due := now.Sub(b.fullListAt[project]) >= burnliteFullListEvery
+	for _, task := range tasks {
+		// Nothing held to ask from.
+		due = due || heldUpdatedAt(task).IsZero()
+	}
+	if due {
+		b.fullListAt[project] = now
+	}
+	return due
+}
+
+// pullTasks adds a project's tracked tasks that changed to the batch, and
+// on a whole list the ones Burnlite no longer has. gone says the project is
+// not there.
+func (b *burnliteSource) pullTasks(ctx context.Context, reader burnliteReader, base, project string, tasks []store.Task, batch *PullBatch) (gone bool, err error) {
+	if len(tasks) == 0 {
+		return false, nil
+	}
+	full := b.fullListDue(project, tasks)
+	var rows []burnlite.TaskRow
+	if full {
+		rows, err = reader.ListTasks(ctx, project, "any")
+	} else {
+		var newest time.Time
+		for _, task := range tasks {
+			if held := heldUpdatedAt(task); held.After(newest) {
+				newest = held
+			}
+		}
+		rows, err = reader.ListTasksSince(ctx, project, "any", newest.Add(-burnliteSinceOverlap))
+	}
+	if errors.Is(err, burnlite.ErrNotFound) {
+		return true, nil
+	}
+	if err != nil {
+		if full {
+			// Not made after all: the next pull lists the project whole.
+			b.mu.Lock()
+			delete(b.fullListAt, project)
+			b.mu.Unlock()
+		}
+		return false, err
+	}
+	byKey := make(map[string]burnlite.TaskRow, len(rows))
+	for _, row := range rows {
+		byKey[row.Key] = row
+	}
+	for _, task := range tasks {
+		row, ok := byKey[task.ID]
+		if !ok {
+			// Only a whole list says a task is gone; otherwise it is unchanged.
+			if full {
+				batch.Missing = append(batch.Missing, task.ID)
+			}
+			continue
+		}
+		if row.UpdatedAt.IsZero() {
+			return false, errors.New("this Burnlite gives its tasks no updatedAt, which Legato needs to sync them: update Burnlite")
+		}
+		if !row.UpdatedAt.After(heldUpdatedAt(task)) {
+			// Unchanged: the service leaves it as it is.
+			batch.Tickets = append(batch.Tickets, rowTicket(row, base))
+			continue
+		}
+		fetched, err := reader.GetTask(ctx, row.Key)
+		if errors.Is(err, burnlite.ErrNotFound) {
+			batch.Missing = append(batch.Missing, task.ID)
+			continue
+		}
+		if err != nil {
+			return false, err
+		}
+		batch.Tickets = append(batch.Tickets, fullTicket(row, fetched, base))
+	}
+	return false, nil
+}
+
+// pullMilestones adds a project's tracked Milestones that changed to the
+// batch, and the ones Burnlite no longer has. One list of the project's
+// Milestones says which changed: its updatedAt moves when the Milestone or
+// any of its Tasks does. gone says the project is not there.
+func (b *burnliteSource) pullMilestones(ctx context.Context, reader burnliteReader, base, project string, milestones []store.Task, batch *PullBatch) (gone bool, err error) {
+	if len(milestones) == 0 {
+		return false, nil
+	}
+	rows, err := reader.ListMilestones(ctx, project)
+	if errors.Is(err, burnlite.ErrNotFound) {
+		return true, nil
+	}
+	if err != nil {
+		return false, err
+	}
+	updatedAt := make(map[string]time.Time, len(rows))
+	for _, row := range rows {
+		updatedAt[row.Key] = row.UpdatedAt
+	}
+	for _, task := range milestones {
+		updated, listed := updatedAt[task.ID]
+		if !listed {
+			batch.Missing = append(batch.Missing, task.ID)
+			continue
+		}
+		if updated.IsZero() {
+			// A Burnlite too old to date its Milestones: read it and compare.
+			ticket, found, err := b.pullMilestone(ctx, reader, base, task)
+			if err != nil {
+				return false, err
+			}
+			if found {
+				batch.Tickets = append(batch.Tickets, ticket)
+			} else {
+				batch.Missing = append(batch.Missing, task.ID)
+			}
+			continue
+		}
+		if !updated.After(heldUpdatedAt(task)) {
+			// Unchanged: the service leaves it as it is.
+			batch.Tickets = append(batch.Tickets, RemoteTicket{ID: task.ID, IssueType: burnliteMilestone, UpdatedAt: updated})
+			continue
+		}
+		m, err := reader.GetMilestone(ctx, task.ID)
+		if errors.Is(err, burnlite.ErrNotFound) {
+			batch.Missing = append(batch.Missing, task.ID)
+			continue
+		}
+		if err != nil {
+			return false, err
+		}
+		batch.Tickets = append(batch.Tickets, milestoneTicket(m, base, updated))
+	}
+	return false, nil
+}
+
+// pullMilestone reads a Milestone of a Burnlite that gives it no updatedAt.
+// A Task leaving it changes no timestamp it still lists, so the ticket is
+// dated now when what Legato shows of it has changed, and keeps the date
 // Legato holds when it has not.
 func (b *burnliteSource) pullMilestone(ctx context.Context, reader burnliteReader, base string, task store.Task) (RemoteTicket, bool, error) {
 	m, err := reader.GetMilestone(ctx, task.ID)
@@ -296,6 +443,7 @@ func (b *burnliteSource) Search(ctx context.Context, text string) ([]RemoteTicke
 	if err != nil {
 		return nil, err
 	}
+	defer closeBurnliteReader(reader)
 	text = strings.TrimSpace(text)
 	var results []RemoteTicket
 	seen := map[string]bool{}
@@ -345,6 +493,7 @@ func (b *burnliteSource) Get(ctx context.Context, key string) (*RemoteTicket, er
 	if err != nil {
 		return nil, err
 	}
+	defer closeBurnliteReader(reader)
 	return b.get(ctx, reader, base, key)
 }
 
@@ -359,7 +508,12 @@ func (b *burnliteSource) get(ctx context.Context, reader burnliteReader, base, k
 		if err != nil {
 			return nil, err
 		}
-		t := milestoneTicket(m, base, time.Now())
+		// An old Burnlite gives a Milestone no updatedAt: date it now.
+		updated := m.UpdatedAt
+		if updated.IsZero() {
+			updated = time.Now()
+		}
+		t := milestoneTicket(m, base, updated)
 		return &t, nil
 	}
 	if err != nil {
@@ -421,8 +575,7 @@ func fullTicket(row burnlite.TaskRow, task *burnlite.Task, base string) RemoteTi
 const burnliteMilestone = "Milestone"
 
 // milestoneTicket is a Milestone as a ticket: its Description, then a line
-// for each of its Tasks. Burnlite gives a Milestone no updatedAt, so the
-// caller says when it was read.
+// for each of its Tasks, dated updated.
 func milestoneTicket(m *burnlite.Milestone, base string, updated time.Time) RemoteTicket {
 	base = strings.TrimRight(base, "/")
 	var b strings.Builder

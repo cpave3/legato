@@ -76,7 +76,7 @@ type PeerMessage struct {
 // PeerAnswer is what the receiving side answers: the replies that waited
 // for this connection.
 type PeerAnswer struct {
-	Status  string   `json:"status"` // delivered, waiting (for the person)
+	Status  string   `json:"status"` // delivered, waiting (for the operator)
 	Replies []string `json:"replies,omitempty"`
 }
 
@@ -94,7 +94,7 @@ type ReevePeerOptions struct {
 }
 
 // ErrPeerAsk: the message waits for the person (reeve.peer: ask).
-var ErrPeerAsk = errors.New("the message waits for the person to let the Reeve talk")
+var ErrPeerAsk = errors.New("the message waits for the operator to let the Reeve talk")
 
 // ReevePeerService messages other instances' Reeves and takes their
 // messages.

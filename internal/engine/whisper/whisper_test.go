@@ -255,6 +255,15 @@ func (s *wyomingTestServer) handle(conn net.Conn) {
 			s.inspect(event.Type, payload)
 		}
 
+		// A describe is answered with the server's info, as
+		// wyoming-faster-whisper does: the data after the header.
+		if event.Type == "describe" {
+			data, _ := json.Marshal(map[string]any{"asr": []map[string]any{{"name": "faster-whisper", "installed": true}}})
+			writeResponse(conn, wyomingEvent{Type: "info", DataLength: len(data)})
+			conn.Write(data)
+			continue
+		}
+
 		// When we receive audio-stop, send the response.
 		if event.Type == "audio-stop" {
 			if s.sendError {

@@ -73,6 +73,11 @@ func (rt *approvalRuntime) giveRepositories(repos *service.RepositoryService, pr
 	}
 	if rt.channels != nil {
 		repos.SetTokens(rt.channels)
+		// An agent's push through the proxy reaches the cache at once, so
+		// the Reeve (which sees the cache, not the job clones) has it.
+		rt.channels.SetPushListener(func(repo string) {
+			go repos.FetchPushed(context.Background(), repo)
+		})
 	}
 	if rt.brokerOwner == nil {
 		return

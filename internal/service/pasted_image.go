@@ -26,6 +26,17 @@ func PastedImageDir(taskID string) string {
 	return filepath.Join(os.TempDir(), fmt.Sprintf("legato-%d", os.Getuid()), "pasted-images", taskID)
 }
 
+// EnsurePastedImageDir makes the task's folder of pasted images, the user's
+// only, and returns it. A sandboxed agent's is made when it starts: the
+// sandbox mounts only what exists then, and the person may paste long after.
+func EnsurePastedImageDir(taskID string) (string, error) {
+	if !ValidPastedImageTaskID(taskID) {
+		return "", fmt.Errorf("task ID %q cannot name a folder", taskID)
+	}
+	dir := PastedImageDir(taskID)
+	return dir, os.MkdirAll(dir, 0o700)
+}
+
 // IsPastedImage reports whether path is a file in the task's folder of
 // pasted images. An agent tool is told it may read such a file without
 // asking the person, so the answer is about the file the path leads to: a

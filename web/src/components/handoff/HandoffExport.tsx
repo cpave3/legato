@@ -30,7 +30,7 @@ export function HandoffExport({ tourId, packet }: { tourId: string; packet: Hand
   }
   async function copy() {
     setError(""); setNotice("")
-    try { await navigator.clipboard.writeText(currentPreview!.markdown); setNotice("Markdown copied. Nothing was posted to GitHub.") }
+    try { await navigator.clipboard.writeText(currentPreview!.markdown); setNotice("Markdown copied.") }
     catch (cause) { setError(`Copy failed: ${cause instanceof Error ? cause.message : String(cause)}. Use the Markdown text below or download.`) }
   }
   function download() {
@@ -44,7 +44,7 @@ export function HandoffExport({ tourId, packet }: { tourId: string; packet: Hand
   }
   return <section aria-label="Export handoff brief" className="space-y-3 rounded border border-zinc-800 p-4">
     <h3 className="font-semibold">Export handoff brief</h3>
-    <p className="text-sm text-amber-300">Preview before sharing. Automatic secret detection cannot be guaranteed. Inspect code, personal notes, paths and sensitive details. This is an AI-authored snapshot; PR linkage is unverified. Compare base/head with the current PR. Nothing is posted or approved automatically.</p>
+    <p className="text-sm text-amber-300">Check the preview for secrets, personal notes and paths before sharing: secret detection can miss some.</p>
     <fieldset disabled={busy} className="space-y-3">
       <label className="block">Export format<select className="ml-2 rounded border border-zinc-700 bg-zinc-950 p-2" value={format} onChange={(e) => { setFormat(e.target.value); clearPreview() }}><option value="github">GitHub review brief</option><option value="maintenance">Maintenance brief</option></select></label>
       <label className="block"><input type="checkbox" checked={choose} onChange={(e) => { setChoose(e.target.checked); clearPreview() }} /> Choose concepts</label>
@@ -57,7 +57,7 @@ export function HandoffExport({ tourId, packet }: { tourId: string; packet: Hand
     {error && <p role="alert">{error}</p>}{notice && <p role="status">{notice}</p>}
     {currentPreview && <div className="space-y-3">
       {currentPreview.warnings?.map((warning, i) => <p role="alert" key={i} className="text-amber-300">{warning}</p>)}
-      <h4>Preview — inspect before sharing</h4><MarkdownBody disableImages skipHtml body={currentPreview.markdown} />
+      <h4>Preview</h4><MarkdownBody disableImages skipHtml body={currentPreview.markdown} />
       <details><summary>Markdown text</summary><textarea readOnly aria-label="Export Markdown" className="w-full bg-zinc-950 p-2 font-mono text-xs" rows={12} value={currentPreview.markdown} /></details>
       <div className="flex flex-wrap gap-2"><Button size="sm" onClick={() => void copy()}>Copy Markdown</Button><Button size="sm" variant="outline" onClick={download}>Download Markdown</Button></div>
     </div>}

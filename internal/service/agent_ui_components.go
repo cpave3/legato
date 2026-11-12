@@ -31,10 +31,10 @@ const UIComponentGuide = `Each component is an object with a "type" and the fiel
 - progress: fraction 0-1; label; detail
 - bar_chart: label; items of {label, number} with number 0 or more (1-30 bars)
 - code: text; language
-- image: path (an image file on disk); alt (what it shows); caption. The person can click it to see it full size.
+- image: path (an image file on disk); alt (what it shows); caption. The operator can click it to see it full size.
 - image_grid: items of {path, alt, caption} (1-24 images) as thumbnails. A click opens one full size, with the others to step through.
 - divider: no fields
-- actions: items of {label, message} (1-4 buttons). Pressing one puts its message in the person's message box for them to send; it sends nothing by itself.
+- actions: items of {label, message} (1-4 buttons). Pressing one puts its message in the operator's message box for them to send; it sends nothing by itself.
 tone is one of: neutral, positive, warning, negative, info.
 An image path is an absolute path to a PNG, JPEG, GIF, WebP or BMP file of up to 25 MB. Legato keeps its own copy, so the file may change afterwards.`
 
@@ -67,7 +67,7 @@ type UIComponentItem struct {
 	Tone    string   `json:"tone,omitempty" jsonschema:"stats and badges: neutral, positive, warning, negative or info"`
 	Text    string   `json:"text,omitempty" jsonschema:"list and badges: the entry's text"`
 	Number  *float64 `json:"number,omitempty" jsonschema:"bar_chart: the bar's value, 0 or more"`
-	Message string   `json:"message,omitempty" jsonschema:"actions: the text put in the person's message box when they press the button"`
+	Message string   `json:"message,omitempty" jsonschema:"actions: the text put in the operator's message box when they press the button"`
 	Path    string   `json:"path,omitempty" jsonschema:"image_grid: the image file on disk, as an absolute path"`
 	Alt     string   `json:"alt,omitempty" jsonschema:"image_grid: what the image shows, for someone who cannot see it"`
 	Caption string   `json:"caption,omitempty" jsonschema:"image_grid: a short line under the image"`

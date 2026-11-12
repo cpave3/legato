@@ -134,7 +134,7 @@ A finding is ` + "`blocking`" + ` only when it must be fixed before this merges,
 
 Not blocking (make these nits, or leave them out):
 
-- A setting only the person can choose: a problem they would meet only by configuring it so on purpose.
+- A setting only the operator can choose: a problem they would meet only by configuring it so on purpose.
 - Hardening beyond what the task asks, and races with no realistic order of events.
 - Style, naming, and how you would have written it.
 

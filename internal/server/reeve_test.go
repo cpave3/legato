@@ -83,6 +83,11 @@ func TestTheReevesTokenPassesOnlyReadRoutes(t *testing.T) {
 	if rec := callAs(srv, token, http.MethodGet, "/api/reeve", ""); rec.Code != http.StatusOK {
 		t.Fatalf("a read: %d %s", rec.Code, rec.Body)
 	}
+	// A route Legato does not serve answers 404 at once, naming the API
+	// reference, rather than asking the operator.
+	if rec := callAs(srv, token, http.MethodGet, "/api/columns", ""); rec.Code != http.StatusNotFound || !strings.Contains(rec.Body.String(), "reference/api") {
+		t.Fatalf("a route Legato does not serve: %d %s", rec.Code, rec.Body)
+	}
 	if rec := callAs(srv, token, http.MethodPost, "/api/restart", ""); rec.Code != http.StatusForbidden || !strings.Contains(rec.Body.String(), "needs_approval") {
 		t.Fatalf("a risky call: %d %s", rec.Code, rec.Body)
 	}
@@ -106,13 +111,14 @@ func TestAChangeSetShowsInTheConversationAsALineWithItsState(t *testing.T) {
 	srv.SetReeveChangeSets(listedSets{
 		{ID: "cs-1", Reason: "rename", State: "pending", Calls: `[{},{}]`, Results: `[]`},
 		{ID: "cs-2", Reason: "tidy", State: "failed", Calls: `[{},{},{}]`, Results: `[{"state":"ran"},{"state":"failed"},{"state":"skipped"}]`},
+		{ID: "cs-3", Reason: "new task", State: "done", Level: "auto", Calls: `[{}]`, Results: `[{"state":"ran"}]`},
 	})
 	rec := callAs(srv, "secret", http.MethodGet, "/api/reeve/sessions/T/change-sets", "")
 	var got struct {
 		ChangeSets []ChangeSetLine `json:"change_sets"`
 	}
 	json.Unmarshal(rec.Body.Bytes(), &got)
-	if len(got.ChangeSets) != 2 || got.ChangeSets[0].Calls != 2 || got.ChangeSets[1].Ran != 1 || got.ChangeSets[1].State != "failed" {
+	if len(got.ChangeSets) != 3 || got.ChangeSets[0].Calls != 2 || got.ChangeSets[1].Ran != 1 || got.ChangeSets[1].State != "failed" || got.ChangeSets[0].Auto || !got.ChangeSets[2].Auto {
 		t.Fatalf("lines = %+v", got.ChangeSets)
 	}
 }

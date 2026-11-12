@@ -2029,3 +2029,111 @@ func TestListAgentsMarksTheReeve(t *testing.T) {
 		t.Fatalf("marked %v", marked)
 	}
 }
+
+func TestSetTaskGroupTakesAnAgentIDAndTreatsABlankGroupAsNone(t *testing.T) {
+	svc, s, _ := newTestAgentService(t)
+	ctx := context.Background()
+	createTask(t, s, "REX-SLOT")
+
+	group := "  Tooling  "
+	if err := svc.SetTaskGroup(ctx, "REX-SLOT_reviewer", &group); err != nil {
+		t.Fatal(err)
+	}
+	task, err := s.GetTask(ctx, "REX-SLOT")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if task.Group == nil || *task.Group != "Tooling" {
+		t.Fatalf("group = %v, want Tooling", task.Group)
+	}
+
+	blank := " "
+	if err := svc.SetTaskGroup(ctx, "REX-SLOT", &blank); err != nil {
+		t.Fatal(err)
+	}
+	task, _ = s.GetTask(ctx, "REX-SLOT")
+	if task.Group != nil {
+		t.Fatalf("group = %q after a blank one, want none", *task.Group)
+	}
+}
+
+func TestTaskGroupsRenameAndList(t *testing.T) {
+	svc, s, _ := newTestAgentService(t)
+	ctx := context.Background()
+	groups, ok := svc.(TaskGroups)
+	if !ok {
+		t.Fatal("the agent service does not manage task groups")
+	}
+	createTask(t, s, "REX-A")
+	createTask(t, s, "REX-B")
+	tooling := "Tooling"
+	if err := groups.SetTaskGroup(ctx, "REX-A", &tooling); err != nil {
+		t.Fatal(err)
+	}
+	if err := groups.SetTaskGroup(ctx, "REX-B", &tooling); err != nil {
+		t.Fatal(err)
+	}
+
+	moved, err := groups.RenameTaskGroup(ctx, "Tooling", " Infra ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if moved != 2 {
+		t.Fatalf("moved = %d, want 2", moved)
+	}
+	names, err := groups.ListTaskGroups(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(names) != 1 || names[0] != "Infra" {
+		t.Fatalf("groups = %v, want [Infra]", names)
+	}
+
+	if _, err := groups.RenameTaskGroup(ctx, "Infra", ""); err != nil {
+		t.Fatal(err)
+	}
+	names, _ = groups.ListTaskGroups(ctx)
+	if len(names) != 0 {
+		t.Fatalf("groups after delete = %v, want none", names)
+	}
+}
+
+// A task away on a worker keeps its group, as it keeps its workspace: the
+// worker has it.
+func TestSetTaskGroupRefusesATaskAwayOnAWorker(t *testing.T) {
+	svc, s, _ := newTestAgentService(t)
+	ctx := context.Background()
+	createTask(t, s, "REX-AWAY")
+	if err := s.InsertAwayTask(ctx, store.AwayTask{HandoffID: "ho-1", TaskID: "REX-AWAY", WorkerInstanceID: "srv-1", WorkerTaskID: "w-1",
+		State: store.AwayAway, Purpose: HandoffMakeChange, Kind: "local", CreatedAt: "2026-11-12T00:00:00Z", UpdatedAt: "2026-11-12T00:00:00Z"}); err != nil {
+		t.Fatal(err)
+	}
+	group := "Tooling"
+	var away *TaskAwayError
+	if err := svc.SetTaskGroup(ctx, "REX-AWAY", &group); !errors.As(err, &away) {
+		t.Fatalf("err = %v, want a TaskAwayError", err)
+	}
+	if task, _ := s.GetTask(ctx, "REX-AWAY"); task.Group != nil {
+		t.Fatalf("group = %q", *task.Group)
+	}
+}
+
+// A group's name is one short line, set or renamed.
+func TestATaskGroupNameIsOneShortLine(t *testing.T) {
+	svc, s, _ := newTestAgentService(t)
+	ctx := context.Background()
+	createTask(t, s, "REX-NAME")
+	groups := svc.(TaskGroups)
+	for _, bad := range []string{"two\nlines", "tab\there", strings.Repeat("g", 61)} {
+		if err := groups.SetTaskGroup(ctx, "REX-NAME", &bad); !errors.Is(err, ErrInvalidTaskGroup) {
+			t.Errorf("set %q: err = %v", bad, err)
+		}
+		if _, err := groups.RenameTaskGroup(ctx, "Tooling", bad); !errors.Is(err, ErrInvalidTaskGroup) {
+			t.Errorf("rename to %q: err = %v", bad, err)
+		}
+	}
+	ok := strings.Repeat("g", 60)
+	if err := groups.SetTaskGroup(ctx, "REX-NAME", &ok); err != nil {
+		t.Fatal(err)
+	}
+}

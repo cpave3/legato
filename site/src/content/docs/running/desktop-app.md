@@ -69,7 +69,51 @@ When a server knows Touch ID, the sheet asks for your fingerprint instead of a t
 - To reorder the servers, press and hold a tile and drag it up or down; the order is kept until you change it again.
 - The dock's dot on each tile is green while the server answers and red while it does not.
 - The app keeps no offline copy of a server's web UI. While a server is down, the app shows its own offline screen for it, with the address and the reason it could not be reached. It keeps checking every few seconds (**Try again** checks at once), and the server's page comes back by itself when the server answers.
+- Images work in agent chats as in a browser: paste a screenshot (from Spectacle, say), drop an image file on the message box, or press **Attach image**.
 - Dictation works in every server's page, over HTTP too: the app records for the page with `parecord` (or `arecord` when there is no `parecord`), and the server transcribes it as usual. Linux only for now.
+
+### The Legato widget
+
+A small capsule at the edge of the screen shows the Reeve, whether your main can listen, and the key. Under it, a feed shows what needs you, such as approvals, while the app is not in front. It stays above your other windows and never takes the keyboard from the app you are in.
+
+- Click the capsule to talk, as with the key.
+- While you talk, it grows into a card: your words, the pause bar, what the Reeve is doing, and what it says. Its buttons are **Send now**, **Cancel**, **Stop** and **Reply**. **Stop** stops the Reeve and keeps the card, so you can talk again or close it.
+- If the main cannot listen, the capsule turns amber and says why. **Open settings** opens that setting on the main.
+- A long message does not grow the card off the screen: it shows your latest words, after an ellipsis. The whole message still goes to the Reeve.
+- Drag the capsule to put it anywhere. It stays where you drop it, also after a restart: it keeps to the nearest corner, or to the middle of the nearest edge, as far from that edge as you dropped it. A click without a drag still talks.
+- Right-click the capsule to hide it, put it in a corner or the middle of an edge (**Place**), choose the screen it is on (**Screen**, with more than one screen), or open the app's settings. **Servers & keys** has the same choices.
+- With several screens, the app names each by its maker and model, as the desktop's display settings do, and adds the connector (such as DP-1) when two are the same model. It remembers the screen you chose. While that screen is not connected, the widget is on your primary screen (on Wayland, the first), and it goes back when the screen returns. The corner and where you dropped it apply on the chosen screen. Hidden, it still shows while you talk, and for a few seconds after to say how the conversation ended. It also shows while the feed has something. **Servers & keys** › **Show the Legato widget** brings it back.
+
+On KDE Plasma and other Wayland desktops (when the app runs on Wayland, not through XWayland), the AppImage brings its own `gtk-layer-shell`, so the widget stays where you put it and above other windows with nothing to install. On a desktop without layer shell (GNOME), the widget is an ordinary small window: your desktop decides where it goes, and a drag moves it only until the app restarts. On a Mac it is an ordinary window for now.
+
+### Approvals in the widget's feed
+
+When an approval waits on any of your servers, the Legato widget shows it in its feed, under the capsule, within a second or two. It does this even while you are not talking to the Reeve and even if you hid the widget, and stays shown while approvals wait. The newest is at the top. When the feed is longer than the room left on the screen, it scrolls; the capsule or the card above it stays whole.
+
+- Each approval is one line: who asks and what, such as **Reeve: Run a command on the host**. With more than one server, the line names the server.
+- Click a line to see what the approvals tray shows: the command and where it runs, each change of a Reeve change set (a host command run as root is marked), a credential's operations and resources, and the reason.
+- Choose one of its options, such as **for 30 minutes** or **once** for a credential, or **Deny**. The first decision counts, wherever it is made.
+- An approval that needs a signature shows **◈** on its options. Click one and touch your security key (or use Touch ID on a Mac); plug the key in first if the widget asks. **Open the sheet** opens the main window's approval sheet on it instead.
+- The widget never takes the keyboard, so what needs typing opens the main window on the approval: **Deny with a note…**, an agent's question (**Answer in Legato**), a secret the Reeve asks for, and a plan.
+
+## Talk to the Reeve
+
+The app has a key that starts talking to the [Reeve](/legato/using/reeve/) from any app: **Ctrl+Alt+Space** (on a Mac **Ctrl+Shift+Space**), and **Ctrl+Alt+Shift+Space** to stop talking.
+
+- Open **Servers & keys** › **Talking to the Reeve** to see the keys. Click a key and press a new one to change it. A key needs Ctrl, Alt or Super with it, so it is not taken from every app. **Use the default keys** puts them back.
+- Press the key to start, and again to send. Select **Hold the key to talk** to talk only while you hold it.
+- On KDE Plasma with Wayland the key reaches the app through XWayland. That works when **System Settings** › **Application Permissions** › **Legacy X11 App Support** passes keys typed with Ctrl, Alt or Meta held, as it does by default. Instead, you can choose **The desktop binds it** under **How the app gets the key**: the desktop then asks which key to use, and keeps it. The change applies when the app restarts.
+- When you start the app from a terminal, lines that start with `[voice key]` say which way it got the key, which keys it took, and each press and release.
+- On a desktop where the key does not work, make a shortcut in the desktop's own settings that runs `xdg-open legato-desktop://voice` or `legato-desktop --voice`. It does what the key does. `legato-desktop://voice?action=cancel` or `legato-desktop --voice=cancel` stops talking.
+
+The app talks to the Reeve of your main server. When you have several servers and none of them is the only main, choose one under **The Reeve to talk to** in **Servers & keys**. The app remembers the server, also when its address changes.
+
+When you press the key, the app first asks the main whether it can listen. If it cannot, the app says why in one line and records nothing: for example, the Reeve's voice is off on the main, or this computer has no `parecord` or `arecord`. Otherwise it streams your voice to the main, which ends your turn when you pause. The app plays the Reeve's answer with `pw-play` (or `paplay`). It does not send your voice while it plays, so the Reeve does not hear itself. After the Reeve has spoken, you can just talk again to reply. If you say nothing, the conversation ends.
+
+- Press the key while the Reeve speaks to stop it and reply.
+- Press the key while you speak to send at once, without waiting for the pause.
+
+Linux only for now.
 
 ## Add a worker from another server
 

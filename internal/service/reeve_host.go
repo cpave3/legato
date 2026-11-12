@@ -95,11 +95,39 @@ func (c *ChangeSetService) describeHost(cfg *config.Config, enrolled bool, i int
 			p.Description += " as root"
 		}
 	}
-	p.Level = ReeveLevelFor(cfg.Reeve, "risky", p.Kind+" "+p.Command+p.File+p.Unit, enrolled)
-	if p.AsRoot {
-		p.Level = LevelVerified
-	}
+	target, compound := hostTarget(p.ChangeCall)
+	p.resolve(cfg, enrolled, LevelCall{
+		// Rules match host_shell:<command> (or the older host_shell <command>).
+		Calls:    []string{p.Kind + ":" + target, p.Kind + " " + p.Command + p.File + p.Unit},
+		Host:     true,
+		AsRoot:   p.AsRoot,
+		Compound: compound,
+	})
 	return nil
+}
+
+// shellOperators are what makes a shell command more than the one command
+// a rule names: a list (;, &&, ||, &, a new line), a pipe, a substitution
+// or a redirect.
+var shellOperators = []string{";", "&", "|", "`", "$(", ">", "<", "\n", "\r"}
+
+// hostTarget is what a host call's rule pattern is matched against after
+// its kind (the command, the file, or the action and unit), and whether it
+// is compound: a shell command with an operator, or a file path not in its
+// clean form, which a narrow rule never makes auto.
+func hostTarget(call ChangeCall) (string, bool) {
+	switch call.Kind {
+	case CallEditFile:
+		return call.File, filepath.Clean(call.File) != call.File
+	case CallManageService:
+		return call.Action + " " + call.Unit, false
+	}
+	for _, op := range shellOperators {
+		if strings.Contains(call.Command, op) {
+			return call.Command, true
+		}
+	}
+	return call.Command, false
 }
 
 // hostCommand is the argv a host call runs.
@@ -184,10 +212,42 @@ func (c *ChangeSetService) auditHost(ctx context.Context, set store.ReeveChangeS
 	}
 	detail, _ := json.Marshal(map[string]any{"root": p.AsRoot, "exit": res.Status, "state": res.State, "output_sha256": hex.EncodeToString(sum[:]), "change_set": set.ID})
 	entry := store.CredentialAuditEntry{Event: "host", TaskID: set.TaskID, Operation: p.Kind, Resource: resource, ApprovalID: set.ApprovalID, Detail: string(detail)}
-	if decision != nil {
-		entry.DecidedBy = decidedBy(*decision)
-		entry.Verification = decision.Verification
+	entry.DecidedBy, entry.Verification = callDecidedBy(set, decision, p)
+	if _, err := c.opts.Store.AppendCredentialAudit(ctx, entry); err != nil {
+		fmt.Fprintf(os.Stderr, "reeve: audit of %s: %v\n", set.ID, err)
 	}
+}
+
+// callDecidedBy is who decided one call of a set: in a set that ran at
+// the auto level, what set that call's level (auto: reeve.levels.change,
+// auto: rule …); else the person, with their device and verification.
+func callDecidedBy(set store.ReeveChangeSet, decision *ApprovalDecision, p ProposedCall) (string, string) {
+	if set.Level == string(LevelAuto) {
+		return "auto: " + p.LevelBy, ""
+	}
+	if decision == nil {
+		return "", ""
+	}
+	return decidedBy(*decision), decision.Verification
+}
+
+// auditAuto appends a call of a set that ran at the auto level to the
+// audit chain (event reeve_auto), so what ran without the person is on
+// record with what allowed it. Host calls are audited as host actions.
+func (c *ChangeSetService) auditAuto(ctx context.Context, set store.ReeveChangeSet, decision *ApprovalDecision, p ProposedCall, res CallResult) {
+	if set.Level != string(LevelAuto) {
+		return
+	}
+	resource := p.Method + " " + p.Path
+	switch p.Kind {
+	case CallRestart:
+		resource = "restart"
+	case CallLegato:
+		resource = "legato " + strings.Join(p.Args, " ")
+	}
+	detail, _ := json.Marshal(map[string]any{"state": res.State, "status": res.Status, "change_set": set.ID, "class": p.Class})
+	entry := store.CredentialAuditEntry{Event: "reeve_auto", TaskID: set.TaskID, Operation: p.Kind, Resource: resource, ApprovalID: set.ApprovalID, Detail: string(detail)}
+	entry.DecidedBy, _ = callDecidedBy(set, decision, p)
 	if _, err := c.opts.Store.AppendCredentialAudit(ctx, entry); err != nil {
 		fmt.Fprintf(os.Stderr, "reeve: audit of %s: %v\n", set.ID, err)
 	}

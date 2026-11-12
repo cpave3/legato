@@ -67,13 +67,33 @@ func reeveEngram(ctx context.Context, db *store.Store, folder string) (service.R
 	return service.ReeveEngramFor(id, folder), nil
 }
 
+// reeveNameFor reads the Reeve's name (reeve.name) from the effective
+// settings each time, so a change in Settings shows without a restart.
+func reeveNameFor(db *store.Store) service.ReeveNameSource {
+	return func(ctx context.Context) service.ReeveName {
+		cfg, err := settingsFor(db).Effective(ctx)
+		if err != nil {
+			return ""
+		}
+		return service.ReeveNameOf(cfg)
+	}
+}
+
+// engramAttention is the engram Attention producer, which names the Reeve.
+func engramAttention(db *store.Store) *service.EngramAttentionAdapter {
+	a := service.NewEngramAttentionAdapter(db)
+	a.SetReeveName(reeveNameFor(db))
+	return a
+}
+
 func reeveDefaults(cfg *config.Config) service.ReeveDefaults {
-	return service.ReeveDefaults{Agent: cfg.Reeve.Agent, Model: cfg.Reeve.Model, LaunchArgs: cfg.Reeve.LaunchArgs}
+	return service.ReeveDefaults{Agent: cfg.Reeve.Agent, Model: cfg.Reeve.Model, LaunchArgs: cfg.Reeve.LaunchArgs, Voice: cfg.Reeve.Voice.Enabled, Name: service.ReeveNameOf(cfg)}
 }
 
 // wireReeve serves the Reeve on a web server, and suspends its idle
 // sessions.
 func wireReeve(srv *server.Server, db *store.Store, agents service.AgentService, bus *events.Bus, approvals *service.ApprovalService) *service.ReeveService {
+	srv.SetReeveName(reeveNameFor(db))
 	reeve := newReeveService(db, agents, srv, approvals)
 	if reeve != nil {
 		srv.SetReeveService(reeve)

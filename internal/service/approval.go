@@ -58,6 +58,9 @@ type ApprovalInput struct {
 	// (fingerprint, PIN) may allow it; a touch alone is refused. It
 	// implies Signed.
 	Verified bool
+	// Quiet: nobody is notified that it was made (Created is not called),
+	// since it is decided at once (a Reeve change set at the auto level).
+	Quiet bool
 }
 
 // ApprovalDecision is what the person decided, and where.
@@ -153,6 +156,26 @@ type ApprovalService struct {
 	mu        sync.RWMutex
 	resolvers map[string]ApprovalResolver
 	verifier  SignatureVerifier
+	reeveName ReeveNameSource
+}
+
+// SetReeveName gives the service the Reeve's name: its approvals carry it
+// in their details (reeve_name), and its producers say it in their titles.
+func (s *ApprovalService) SetReeveName(name ReeveNameSource) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.reeveName = name
+}
+
+// ReeveName is the Reeve's name now, "" when it has none.
+func (s *ApprovalService) ReeveName(ctx context.Context) ReeveName {
+	if s == nil {
+		return ""
+	}
+	s.mu.RLock()
+	name := s.reeveName
+	s.mu.RUnlock()
+	return name.Of(ctx)
 }
 
 func NewApprovalService(db *store.Store, opts ApprovalServiceOptions) *ApprovalService {
@@ -185,6 +208,9 @@ func (s *ApprovalService) Submit(ctx context.Context, in ApprovalInput) (*Approv
 	if err != nil || in.Details == nil {
 		details = []byte("{}")
 	}
+	if IsReeveApprovalSource(in.Source) {
+		details = withReeveName(details, s.ReeveName(ctx))
+	}
 	options := in.Options
 	if options == nil {
 		options = []ApprovalOption{}
@@ -205,7 +231,7 @@ func (s *ApprovalService) Submit(ctx context.Context, in ApprovalInput) (*Approv
 	approval := decodeApproval(*row)
 	if created {
 		s.changed(approval, "created")
-		if s.opts.Created != nil {
+		if s.opts.Created != nil && !in.Quiet {
 			s.opts.Created(approval)
 		}
 	}

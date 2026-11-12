@@ -229,7 +229,7 @@ func resourcesPrompt(resources []Resource) string {
 	}
 	var b strings.Builder
 	b.WriteString("## Resources\n\n")
-	b.WriteString("The person gave you these files and folders to use beside your working directory. Read them when they bear on the work; change the ones marked read and write only when the work calls for it.\n")
+	b.WriteString("The operator gave you these files and folders to use beside your working directory. Read them when they bear on the work; change the ones marked read and write only when the work calls for it.\n")
 	for _, resource := range resources {
 		fmt.Fprintf(&b, "\n- %s\n", resource.Name)
 		for _, path := range resource.Paths {

@@ -9,5 +9,70 @@ fn main() {
             println!("cargo:rustc-link-lib=framework={framework}");
         }
     }
-    tauri_build::build()
+    // Each command gets allow-<command> and deny-<command>, and a webview
+    // may call only those its capability allows: the voice widget gets the
+    // few it uses (capabilities/voice.json), not pairing or updating. Keep
+    // this list as generate_handler! in app.rs has it.
+    let manifest = tauri_build::AppManifest::new().commands(COMMANDS);
+    tauri_build::try_build(tauri_build::Attributes::new().app_manifest(manifest)).expect("the Tauri build step")
 }
+
+const COMMANDS: &[&str] = &[
+    "servers",
+    "show_server",
+    "page_approval_done",
+    "open_approval_in_page",
+    "page_trusted",
+    "trust_server_certificate",
+    "save_server_certificate",
+    "open_certificate",
+    "set_content_visible",
+    "reload_server",
+    "load_server_page",
+    "pair_server",
+    "discovered",
+    "rename_server",
+    "remove_server",
+    "reorder_servers",
+    "poll",
+    "keys",
+    "add_key",
+    "touch_id",
+    "add_touch_id",
+    "enroll_key",
+    "revoke_key",
+    "prepare",
+    "sign",
+    "deny",
+    "check_update",
+    "apply_update",
+    "restart_app",
+    "take_import_requests",
+    "import_preference",
+    "set_import_preference",
+    "import_ticket",
+    "open_task_in_page",
+    "voice_key_info",
+    "change_voice_key",
+    "set_hold_to_talk",
+    "set_voice_keys",
+    "set_voice_key_backend",
+    "voice_targets",
+    "set_voice_server",
+    "voice_action",
+    "voice_status",
+    "voice_open_settings",
+    "voice_widget_size",
+    "voice_widget_menu",
+    "voice_widget_settings",
+    "set_voice_widget",
+    "set_voice_screen",
+    "voice_widget_drag_start",
+    "voice_widget_drag_move",
+    "voice_widget_drag_end",
+    "voice_widget_layout",
+    "voice_approvals",
+    "voice_approval_decide",
+    "voice_approval_open",
+    "voice_approval_sheet",
+];

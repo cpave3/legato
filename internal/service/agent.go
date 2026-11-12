@@ -82,6 +82,9 @@ type AgentSession struct {
 	CardTaskID string
 	// Reeve is true for the agent of this Legato itself.
 	Reeve bool
+	// ReeveName is the Reeve's name (reeve.name) on the Reeve's agent, ""
+	// when it has none; its Title is then the name.
+	ReeveName string
 }
 
 // AgentPeer describes one live, routable agent sharing a Git worktree.
@@ -324,6 +327,9 @@ type agentService struct {
 	prSvc                PRTrackingService
 	checkoutInspector    CheckoutInspector
 	guidance             RepositoryGuidanceSource
+	reeveName            ReeveNameSource
+	repoResources        RepositoryResourceSource
+	docker               *SandboxDocker
 	reviewsOff           bool
 	binaryPath           string
 	bus                  EventPublisher
@@ -514,6 +520,11 @@ type AgentServiceOptions struct {
 	// RepositoryGuidance adds the guidance of the repository an agent works
 	// in to its launch prompt. Nil: none.
 	RepositoryGuidance RepositoryGuidanceSource
+	// ReeveName names the Reeve's agent in ListAgents.
+	ReeveName ReeveNameSource
+	// RepositoryResources gives every agent working in a repository its
+	// resources, as if ticked at spawn. Nil: none.
+	RepositoryResources RepositoryResourceSource
 	// ReviewsOff tells agents to skip Legato's review tours and handoff
 	// packets unless the person asks for one.
 	ReviewsOff bool
@@ -606,6 +617,11 @@ func NewAgentService(s *store.Store, tmux TmuxManager, workDir string, opts ...A
 		svc.prSvc = opts[0].PRService
 		svc.checkoutInspector = opts[0].CheckoutInspector
 		svc.guidance = opts[0].RepositoryGuidance
+		svc.reeveName = opts[0].ReeveName
+		svc.repoResources = opts[0].RepositoryResources
+		if opts[0].Sandbox != nil {
+			svc.docker = opts[0].Sandbox.Docker
+		}
 		svc.reviewsOff = opts[0].ReviewsOff
 		svc.binaryPath = opts[0].BinaryPath
 		svc.bus = opts[0].EventBus
@@ -719,6 +735,7 @@ func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, hei
 
 	executionID := "ex-" + store.GenerateTaskID()
 	var freshClone *cloneSetup
+	cloneRepo := ""
 	if opt.Repo != "" || opt.Clone != 0 {
 		// A clone, made or joined before anything starts. One whose spawn
 		// fails below is swept with the other idle clones.
@@ -732,6 +749,7 @@ func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, hei
 			return err
 		}
 		workDir = clone.Path
+		cloneRepo = clone.Repo
 		if opt.SessionPolicy == "resume" && opt.ResumeWorkingDir != "" && !samePath(clone.Path, opt.ResumeWorkingDir) {
 			return fmt.Errorf("%w: the saved conversation is in %s, not in the clone at %s", ErrTaskResumeConflict, opt.ResumeWorkingDir, clone.Path)
 		}
@@ -873,23 +891,34 @@ func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, hei
 	} else if tp, ok := adapter.(ToolsPromptAdapter); ok {
 		rolePrompt = joinPromptSections(rolePrompt, tp.ToolsPrompt())
 	}
-	resources := usableResources(opt.Resources)
+	// The repository's own resources (agents.repository_resources), for
+	// every kind of agent, worked out again at each spawn.
+	needsProject := (a.learning != nil || a.guidance != nil) && adapter != nil && !nativeResume && !ownPrompt
+	identityKey := ""
+	if needsProject || a.repoResources != nil {
+		key, identityErr := a.spawnProjectKey(ctx, taskID, workDir, cloneRepo)
+		if identityErr != nil && needsProject {
+			return identityErr
+		}
+		identityKey = key
+	}
+	var repoResources []Resource
+	if repo, ok := strings.CutPrefix(identityKey, "repo:"); ok && a.repoResources != nil {
+		given, err := a.repoResources.ResourcesForRepository(ctx, repo)
+		if err != nil {
+			log.Printf("reading the resources of %s: %v", repo, err)
+		}
+		_, repoResources = mergeResources(opt.Resources, given)
+	}
+	resources := usableResources(append(append([]Resource(nil), opt.Resources...), repoResources...))
 	rolePrompt = joinPromptSections(rolePrompt, resourcesPrompt(resources))
 	rolePrompt = joinPromptSections(rolePrompt, freshClone.prompt(workDir))
 	if nativeResume {
 		rolePrompt = ""
 	}
 	projectKey := ""
-	if (a.learning != nil || a.guidance != nil) && adapter != nil && !nativeResume && !ownPrompt {
-		if task, taskErr := a.store.GetTask(ctx, taskID); taskErr == nil {
-			codeContext, parseErr := store.ParseCodeContext(task.CodeContext)
-			if parseErr != nil {
-				return fmt.Errorf("parsing task code context: %w", parseErr)
-			}
-			if identity, identityErr := ResolveProjectIdentity(codeContext, workDir, a.checkoutInspector); identityErr == nil {
-				projectKey = identity.Key
-			}
-		}
+	if needsProject {
+		projectKey = identityKey
 	}
 	// With reviews on, an adapter whose agents learn of them only from here
 	// (Claude Code, Codex) is told; swarm workers never review.
@@ -1166,6 +1195,15 @@ func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, hei
 			log.Printf("recording the resources of %s: %v", executionID, err)
 		}
 	}
+	if len(repoResources) > 0 {
+		names := make([]string, 0, len(repoResources))
+		for _, resource := range repoResources {
+			names = append(names, resource.Name)
+		}
+		if err := a.store.AddExecutionRepositoryResources(ctx, executionID, names); err != nil {
+			log.Printf("recording the repository resources of %s: %v", executionID, err)
+		}
+	}
 	if promptManifestID != "" {
 		if err := a.store.BindLearningPromptManifestSession(ctx, promptManifestID, sessionID); err != nil {
 			a.tmux.Kill(sessionName)
@@ -1395,7 +1433,7 @@ func (a *agentService) deliverLaunchMessages(ctx context.Context, executionID, t
 		}
 		typed := message
 		if promptFile != "" && strings.ContainsAny(message, "\n\r\"") {
-			typed = "Read " + promptFile + " in full: it is your task from the person. Then do it."
+			typed = "Read " + promptFile + " in full: it is your task from the operator. Then do it."
 		}
 		if err := a.tmux.SendKeysLine(session, typed); err != nil {
 			log.Printf("launch message failed for %s: %v", session, err)
@@ -1532,6 +1570,9 @@ func (a *agentService) SpawnEphemeralAgent(ctx context.Context, title string, wi
 	if err != nil {
 		return err
 	}
+	if report := spawnReportFrom(ctx); report != nil {
+		report.TaskID = taskID
+	}
 	var opt AgentSpawnOptions
 	if len(opts) > 0 {
 		opt = opts[0]
@@ -1631,15 +1672,6 @@ func (a *agentService) stopAgentInSlot(ctx context.Context, taskID, slot string,
 	return a.store.DeleteDeadAgentSessionsInSlot(ctx, taskID, slot)
 }
 
-func (a *agentService) SetTaskGroup(ctx context.Context, taskID string, group *string) error {
-	task, err := a.store.GetTask(ctx, taskID)
-	if err != nil {
-		return err
-	}
-	task.Group = group
-	return a.store.UpdateTask(ctx, *task)
-}
-
 func (a *agentService) ListAgents(ctx context.Context) ([]AgentSession, error) {
 	sessions, err := a.store.ListAgentSessions(ctx)
 	if err != nil {
@@ -1715,6 +1747,11 @@ func (a *agentService) ListAgents(ctx context.Context) ([]AgentSession, error) {
 			CardTaskID:        s.TaskID,
 			Reeve:             IsReeveTask(ctx, a.store, s.TaskID),
 		}
+		if result[i].Reeve {
+			if name := a.reeveName.Of(ctx); name != "" {
+				result[i].ReeveName, result[i].Title = string(name), name.Start()
+			}
+		}
 		if IsNamedSlot(s.Slot) {
 			result[i].TaskID = AgentSlotKey(s.TaskID, s.Slot)
 			result[i].Title = strings.TrimSpace(title + " · " + s.Slot)
@@ -1738,6 +1775,10 @@ func (a *agentService) ListAgents(ctx context.Context) ([]AgentSession, error) {
 func (a *agentService) EndExecution(ctx context.Context, executionID, status string) error {
 	if err := a.store.TerminalizeExecution(ctx, executionID, status); err != nil {
 		return err
+	}
+	// Asked before the scratch goes: the view is in the runtime folder.
+	if a.docker != nil && a.docker.HasProxy(executionID) {
+		a.docker.cleanLogged(executionID)
 	}
 	a.scratch.removeLogged(executionID)
 	a.endEngramSession(ctx, executionID)
@@ -1786,6 +1827,7 @@ func (a *agentService) ReconcileSessions(ctx context.Context) error {
 	} else if cleared > 0 {
 		log.Printf("sandbox: removed the scratch of %d ended execution(s)", cleared)
 	}
+	a.docker.sweepLogged(ctx, StoreExecutionStatus(a.store))
 	count, oldest, err := a.store.ExecutionHealth(ctx)
 	if err != nil {
 		return err

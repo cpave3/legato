@@ -5,6 +5,7 @@ import { deleteReeve, endReeve, fetchReeve, listReevePeers, pairReevePeer, remov
 import { PairDeviceDialog } from "../PairDeviceDialog"
 import { queryKeys } from "../../lib/query"
 import { SettingsCard, primaryButton, quietButton } from "./SettingsUI"
+import { useReeveName } from "../../lib/reeveName"
 
 const stateLabel: Record<ReeveSession["state"], string> = { running: "Running", suspended: "Suspended", ended: "Ended" }
 
@@ -13,6 +14,7 @@ const stateLabel: Record<ReeveSession["state"], string> = { running: "Running", 
 export function ReeveSessions({ baseUrl }: { baseUrl: string }) {
   const queryClient = useQueryClient()
   const overview = useQuery({ queryKey: queryKeys.reeve(baseUrl), queryFn: () => fetchReeve(baseUrl), retry: false })
+  const reeve = useReeveName()
   const [agent, setAgent] = useState("")
   const [model, setModel] = useState("")
   const [busy, setBusy] = useState("")
@@ -37,7 +39,7 @@ export function ReeveSessions({ baseUrl }: { baseUrl: string }) {
   const current = data.current
   const past = data.history.filter((s) => s.task_id !== current?.task_id)
   return (
-    <SettingsCard icon={Crown} title="The Reeve"
+    <SettingsCard icon={Crown} title={reeve.start}
       description={<>The agent of this Legato itself. It runs in Legato's sandbox, in <code>{data.folder}</code>, and reads freely; every change it proposes comes to you to approve.</>}>
       {current ? (
         <div className="flex flex-wrap items-center gap-2" data-testid="reeve-current">
@@ -56,13 +58,13 @@ export function ReeveSessions({ baseUrl }: { baseUrl: string }) {
           </label>
           <button type="button" className={primaryButton} disabled={busy !== ""}
             onClick={() => void run("start", () => startReeve(baseUrl, { agent: agent.trim() || undefined, model: model.trim() || undefined }))}>
-            Start the Reeve
+            Start {reeve.mid}
           </button>
         </div>
       )}
       {error && <p role="alert" className="mt-2 text-xs text-lw-error">{error}</p>}
       {past.length > 0 && (
-        <section className="mt-4 border-t border-lw-line pt-3" aria-label="The Reeve's history">
+        <section className="mt-4 border-t border-lw-line pt-3" aria-label={`${reeve.start}'s history`}>
           <h3 className="text-sm text-lw-text">History</h3>
           <ul className="mt-1 flex flex-col divide-y divide-lw-line">
             {past.map((s) => (

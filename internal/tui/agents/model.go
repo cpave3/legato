@@ -122,6 +122,17 @@ func (m *Model) SetVoiceEnabled(v bool) {
 	m.voiceEnabled = v
 }
 
+// ReeveName is the Reeve's name as the agents list last gave it, "" when
+// it has none or its agent is not listed.
+func (m Model) ReeveName() service.ReeveName {
+	for _, a := range m.agents {
+		if a.Reeve {
+			return service.ReeveName(a.ReeveName)
+		}
+	}
+	return ""
+}
+
 // SetReeveEnabled offers a, which asks the Reeve about the selected agent.
 func (m *Model) SetReeveEnabled(v bool) {
 	m.reeveEnabled = v

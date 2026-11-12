@@ -113,3 +113,42 @@ func TestAScratchFolderLinkedIntoTheDataFolderFailsToLoad(t *testing.T) {
 		t.Fatalf("err = %v", err)
 	}
 }
+
+func TestTheSandboxsDockerProxyIsOffByDefault(t *testing.T) {
+	cfg, err := loadAgentsConfig(t, "agents:\n  sandbox:\n    enabled: true\n")
+	if err != nil {
+		t.Fatal(err)
+	}
+	d := cfg.Agents.Sandbox.Docker
+	if d.Enabled || d.Publish != "loopback" || len(d.CapAdd) != 0 || d.Host != "" {
+		t.Fatalf("docker = %+v, want off, publishing on loopback, no capabilities", d)
+	}
+}
+
+func TestTheSandboxsDockerProxySettings(t *testing.T) {
+	cfg, err := loadAgentsConfig(t, `agents:
+  sandbox:
+    docker:
+      enabled: true
+      host: unix:///run/user/1000/docker.sock
+      cap_add: [sys_ptrace, CAP_NET_ADMIN, SYS_PTRACE]
+      publish: any
+`)
+	if err != nil {
+		t.Fatal(err)
+	}
+	d := cfg.Agents.Sandbox.Docker
+	if !d.Enabled || d.Host != "unix:///run/user/1000/docker.sock" || d.Publish != "any" || strings.Join(d.CapAdd, ",") != "SYS_PTRACE,NET_ADMIN" {
+		t.Fatalf("docker = %+v", d)
+	}
+	for _, tc := range []struct{ yaml, want string }{
+		{"agents:\n  sandbox:\n    docker:\n      publish: everywhere\n", "publish"},
+		{"agents:\n  sandbox:\n    docker:\n      cap_add: [ALL]\n", "ALL"},
+		{"agents:\n  sandbox:\n    docker:\n      cap_add: [SYS_ADMIN]\n", "SYS_ADMIN"},
+		{"agents:\n  sandbox:\n    docker:\n      host: ssh://box\n", "unix://"},
+	} {
+		if _, err := loadAgentsConfig(t, tc.yaml); err == nil || !strings.Contains(err.Error(), tc.want) {
+			t.Errorf("%q: error = %v, want one naming %q", tc.yaml, err, tc.want)
+		}
+	}
+}

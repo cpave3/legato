@@ -75,7 +75,7 @@ export function AuditPage() {
       <header className="flex flex-wrap items-center gap-3 border-b border-lw-line px-4 py-4 sm:px-6">
         <div className="min-w-0 flex-1">
           <h1 className="text-lg font-semibold">Audit log</h1>
-          <p className="text-sm text-lw-text-2">Every request, decision and use of a credential by an agent: GitHub, SSH keys and every other credential.</p>
+          <p className="text-sm text-lw-text-2">Every request, decision and use of a credential by an agent.</p>
         </div>
         {chain && (
           <span

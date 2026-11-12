@@ -48,6 +48,17 @@ On a phone, the board shows one column at a time. Swipe sideways, or tap a colum
 
 The **Agents** page lists your running agents on the left, by state, as the TUI does. Open one to see it on the right.
 
+### Groups
+
+Once any agent is in a group, the list shows agents by group: the groups in `groups.defaults`, then the other groups in use by name, then **Ungrouped**. Inside a group, agents keep the order by state, so one that needs you comes first. The Reeve stays pinned above the groups. A group belongs to the agent's task, so the TUI and the web UI show the same groups, and a change in either shows in the other.
+
+- **Move an agent:** drag it onto a group, or onto **Ungrouped** to take it out of its group. Or pick **Move to group…** in its right-click menu or the **More actions** menu in its header, which also has **New group…**. On a phone, use the header's menu.
+- **Collapse a group:** click its header. A collapsed group shows how many agents it holds and, in amber, how many of them need you. Your browser remembers which groups are collapsed.
+- **Manage groups:** **New group** under the list makes an empty group to drag agents into; your browser keeps it until you delete it. A group's `⋯` menu has **Rename group**, **Delete group** (its agents become ungrouped) and **Collapse all others**. A group in `groups.defaults` keeps its header after you delete or rename it; take it out of that setting to remove it.
+- **List by state:** the button beside **Ensemble** switches between the list by group and the list by state. Your browser remembers the choice.
+
+On a phone, the agent picker lists the same groups, and a tap on a group's header collapses it.
+
 An agent shows in one of two ways:
 
 - **Native panel.** Claude Code, Codex and Chimera, when Legato talks to them through its bridge, show as a conversation: your messages, the agent's replies, its tool calls as compact rows, and its thinking when the tool shares it. What the [Reeve](/legato/using/reeve/) said out loud is a bubble marked **◈ Said**, never folded with the tool calls. Permission requests and questions appear as cards you answer in place. A model menu and a settings dialog change the model and effort for this session; see [Model settings](/legato/agent-tools/model-settings/). You can queue a message while the agent works.
@@ -94,7 +105,9 @@ If the agent's branch carries a review briefing (HTML pages under `.review/` tha
 
 When an agent reads an image file, its row in the conversation opens to show the image. Click the image to see it full size.
 
-To give an agent an image, paste it into the message box. Legato stores the image in a temporary folder and puts the file's path in your message, where the agent can read it. A thumbnail above the box stands for each pasted image. Legato keeps a task's newest 20 pasted images, up to 10 MiB each, in PNG, JPEG, GIF, WebP or BMP.
+To give an agent an image, paste it into the message box, drop an image file on the box, or press **Attach image** (the picture icon under the box) and choose one. On a phone, **Attach image** opens your photos. Legato stores the image in a temporary folder and puts the file's path in your message, where the agent can read it. A thumbnail above the box stands for each image. Legato keeps a task's newest 20 images, up to 10 MiB each, in PNG, JPEG, GIF, WebP or BMP.
+
+If you copied text with the image, the text is pasted too. A task that is away on a worker takes images only from the worker's own page, where its agent runs.
 
 ### Context fill
 

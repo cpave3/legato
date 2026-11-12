@@ -191,7 +191,7 @@ func (r *RestartRollback) Settle(ctx context.Context, configPath string, healthy
 		return "", nil
 	}
 	deadline := time.Now().Add(timeout)
-	lastErr := errors.New("not healthy")
+	var lastErr error
 	for {
 		if lastErr = healthy(ctx); lastErr == nil {
 			db, _, done, err := r.pointerStore(p)

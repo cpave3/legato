@@ -196,7 +196,7 @@ func (p *HTTPProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if !decision.Allowed {
 		if decision.Pending {
 			writeJSON(w, http.StatusForbidden, map[string]string{"approval": decision.ApprovalID, "status": "pending",
-				"error": "the person has been asked to allow " + use.Operation + " on " + use.Resource + "; Legato will message you when they decide"})
+				"error": "the operator has been asked to allow " + use.Operation + " on " + use.Resource + "; Legato will message you when they decide"})
 			return
 		}
 		out := map[string]string{"error": firstOr(decision.Reason, "not allowed"), "operation": use.Operation, "resource": use.Resource, "status": "denied"}

@@ -83,8 +83,12 @@ var registry = []Setting{
 	{Key: "agents.mcp.enabled", Title: "Legato tools", Description: "Give agents Legato's tools (cards, artifacts, notes) through `legato mcp serve`.", Kind: KindBool, Class: ClassChange, Mode: ModeRestart},
 	{Key: "agents.sandbox.enabled", Title: "Sandbox", Description: "Run every agent in Legato's sandbox unless its spawn opts out.", Kind: KindBool, Class: ClassRisky, Mode: ModeRestart},
 	{Key: "agents.sandbox.backend", Title: "Sandbox backend", Description: "Only bwrap for now.", Kind: KindString, Class: ClassRisky, Mode: ModeRestart},
-	{Key: "agents.sandbox.default_mounts", Title: "Toolchains in the sandbox", Description: "Show the person's toolchains (read-only) and package caches inside the sandbox.", Kind: KindBool, Class: ClassRisky, Mode: ModeRestart},
+	{Key: "agents.sandbox.default_mounts", Title: "Toolchains in the sandbox", Description: "Show the operator's toolchains (read-only) and package caches inside the sandbox.", Kind: KindBool, Class: ClassRisky, Mode: ModeRestart},
 	{Key: "agents.sandbox.scratch_dir", Title: "Sandbox scratch folder", Kind: KindString, Class: ClassRisky, Mode: ModeRestart},
+	{Key: "agents.sandbox.docker.enabled", Title: "Docker in the sandbox", Description: "Give sandboxed agents a filtered Docker socket: their own containers, mounting only what their sandbox sees.", Kind: KindBool, Class: ClassRisky, Mode: ModeRestart},
+	{Key: "agents.sandbox.docker.host", Title: "Docker daemon for sandboxed agents", Description: "unix:// or tcp://; Legato's DOCKER_HOST, Docker context, or /var/run/docker.sock when empty.", Kind: KindString, Class: ClassRisky, Mode: ModeRestart},
+	{Key: "agents.sandbox.docker.cap_add", Title: "Capabilities sandboxed containers may add", Description: "Such as SYS_PTRACE. Capabilities that reach the host are refused.", Kind: KindStrings, Class: ClassRisky, Mode: ModeRestart},
+	{Key: "agents.sandbox.docker.publish", Title: "Where sandboxed containers publish ports", Description: "loopback binds 127.0.0.1; any binds every address.", Kind: KindEnum, Enum: []string{"loopback", "any"}, Class: ClassRisky, Mode: ModeRestart},
 
 	// Notifications.
 	{Key: "notifications.ntfy.url", Title: "ntfy server", Kind: KindString, Class: ClassChange, Mode: ModeRestart},
@@ -151,7 +155,7 @@ var registry = []Setting{
 
 	// Voice.
 	{Key: "voice.enabled", Title: "Voice dictation", Kind: KindBool, Class: ClassChange, Mode: ModeRestart},
-	{Key: "voice.whisper_url", Title: "Whisper server", Kind: KindString, Class: ClassChange, Mode: ModeRestart},
+	{Key: "voice.whisper_url", Title: "Whisper server", Description: "The Wyoming address of a Whisper server, such as tcp://192.168.1.220:10300. It can be the one Home Assistant Assist already uses; Legato's requests and Assist's then wait for each other.", Kind: KindString, Class: ClassChange, Mode: ModeRestart},
 	{Key: "voice.autosend", Title: "Send dictation at once", Kind: KindBool, Class: ClassChange, Mode: ModeRestart},
 	{Key: "voice.mic_device", Title: "Microphone", Kind: KindString, Class: ClassChange, Mode: ModeRestart},
 
@@ -218,12 +222,14 @@ var registry = []Setting{
 	{Key: "review_passes.required_checks", Title: "Checks a review pass waits for", Kind: KindStrings, Class: ClassChange, Mode: ModeRestart},
 
 	// The Reeve: read when a session starts.
+	{Key: "reeve.name", Title: "The Reeve's name", Description: "What Legato calls the Reeve on this instance: in the sidebar, its conversation, approvals, notifications and the TUI, and in its own prompt. \"the Reeve\" when empty.", Kind: KindString, Class: ClassChange, Mode: ModeLive, Check: func(v any) error { return CheckReeveName(v.(string)) }},
 	{Key: "reeve.agent", Title: "The Reeve's agent tool", Description: "claude-code, codex or chimera; the default agent tool when empty.", Kind: KindString, Class: ClassChange, Mode: ModeLive},
 	{Key: "reeve.model", Title: "The Reeve's model or tier", Kind: KindString, Class: ClassChange, Mode: ModeLive},
 	{Key: "reeve.idle_timeout", Title: "Suspend the Reeve after", Description: "How long a session may be idle before its agent is stopped; the next message resumes it. 2h when empty.", Kind: KindDuration, Class: ClassChange, Mode: ModeLive},
-	{Key: "reeve.levels.change", Title: "What a change needs", Description: "approve (a tap), signed (an enrolled device) or verified (signed, with a fingerprint or a PIN). One of the Reeve's own rules: changed only with a signature.", Kind: KindEnum, Enum: []string{"", "approve", "signed", "verified"}, Class: ClassRisky, Mode: ModeLive, OwnRule: true},
-	{Key: "reeve.levels.risky", Title: "What a risky change needs", Description: "auto (signed once a device is enrolled, else approve), approve, signed or verified. One of the Reeve's own rules.", Kind: KindEnum, Enum: []string{"", "auto", "approve", "signed", "verified"}, Class: ClassRisky, Mode: ModeLive, OwnRule: true},
+	{Key: "reeve.levels.change", Title: "What a change needs", Description: "auto (runs at once, no approval asked), approve (a tap), signed (an enrolled device) or verified (signed, with a fingerprint or a PIN). One of the Reeve's own rules: changed only with a signature, though making it stricter needs none.", Kind: KindEnum, Enum: []string{"", "auto", "approve", "signed", "verified"}, Class: ClassRisky, Mode: ModeLive, OwnRule: true},
+	{Key: "reeve.levels.risky", Title: "What a risky change needs", Description: "default (signed once a device is enrolled, else approve), approve, signed or verified; or auto, which runs risky changes (restarts, agents stopped, settings that choose what runs on this machine) at once with no approval asked. One of the Reeve's own rules.", Kind: KindEnum, Enum: []string{"", "default", "auto", "approve", "signed", "verified"}, Class: ClassRisky, Mode: ModeLive, OwnRule: true},
 	{Key: "reeve.host_operations", Title: "Host operations", Description: "Offer the Reeve a shell, file edits and systemd services on this machine, each as a change you approve. One of the Reeve's own rules.", Kind: KindBool, Class: ClassRisky, Mode: ModeLive, OwnRule: true},
+	{Key: "reeve.host_operations_auto", Title: "Run host operations without asking", Description: "On, the Reeve's shell commands, file edits and service actions run at once, with no approval asked: it can then run any command as your user on this machine. Each is still audited. Commands as root still need a verified approval. Off by default; one of the Reeve's own rules: turning it on needs a signature, turning it off never does.", Kind: KindBool, Class: ClassRisky, Mode: ModeLive, OwnRule: true},
 	{Key: "reeve.host_timeout", Title: "Host command timeout", Description: "How long one host command may run. 10m when empty.", Kind: KindDuration, Class: ClassRisky, Mode: ModeLive},
 	{Key: "reeve.host_output_cap", Title: "Host command output (bytes)", Description: "How much of a host command's output the Reeve is given; the rest is kept in a file it can read. 65536 when 0.", Kind: KindInt, Class: ClassChange, Mode: ModeLive, Check: nonNegative},
 	{Key: "reeve.peer", Title: "When another Reeve messages", Description: "With no session running: start one (start, the default), ask a person first (ask), or refuse. One of the Reeve's own rules.", Kind: KindEnum, Enum: []string{"", "start", "ask", "refuse"}, Class: ClassRisky, Mode: ModeLive, OwnRule: true},
@@ -232,7 +238,20 @@ var registry = []Setting{
 	{Key: "reeve.voice.command", Title: "Voice command", Description: "Makes a line's audio: run as <command> \"<text>\" <out-file>, it writes an audio file to <out-file>. A script such as reeve-say.sh, or one for Piper.", Kind: KindString, Class: ClassRisky, Mode: ModeLive},
 	{Key: "reeve.voice.credential", Title: "Voice credential", Description: "A credential Legato gives the voice command, as elevenlabs. Empty for a local voice.", Kind: KindString, Class: ClassRisky, Mode: ModeLive},
 	{Key: "reeve.voice.credential_env", Title: "Voice credential variable", Description: "The variable the command finds the credential in. The credential's name in capitals with _API_KEY when empty (ELEVENLABS_API_KEY).", Kind: KindString, Class: ClassRisky, Mode: ModeLive},
+	{Key: "reeve.voice.pause", Title: "Pause that ends a spoken turn", Description: "How long you stay quiet before what you said is sent to the Reeve, from 0.3s to 2s. 1s when empty.", Kind: KindDuration, Class: ClassChange, Mode: ModeLive, Check: voicePause},
+	{Key: "reeve.voice.follow_up", Title: "Listen for a reply for", Description: "How long the voice listens for your reply after the Reeve has spoken. 6s when empty; 0s for a single turn.", Kind: KindDuration, Class: ClassChange, Mode: ModeLive, Check: notNegativeDuration},
+	{Key: "reeve.voice.partials", Title: "Words as you speak", Description: "Show the words so far while you speak, by transcribing about once a second. Turn it off when Whisper runs on a CPU, or is shared with Home Assistant.", Kind: KindBool, Class: ClassChange, Mode: ModeLive},
+	{Key: "reeve.voice.quiet_hours", Title: "Quiet hours", Description: "No line plays on this machine's speakers then, as 22:00-07:00 in its local time; the Reeve replies in writing instead. A reply to something you said to it still plays on your device. Empty for none.", Kind: KindString, Class: ClassChange, Mode: ModeLive, Check: func(v any) error {
+		if s := v.(string); s != "" {
+			_, _, err := ParseQuietHours(s)
+			return err
+		}
+		return nil
+	}},
 	{Key: "reeve.voice.player", Title: "Voice player", Description: "Plays a line's audio file, named after it. pw-play, else ffplay, when empty.", Kind: KindString, Class: ClassRisky, Mode: ModeLive},
+	{Key: "reeve.watch.settle", Title: "Agent idle before the Reeve is told", Description: "How long an agent the Reeve watches must stay idle, or busy only in the background, before the Reeve is told, so brief pauses do not wake it. 30s when empty.", Kind: KindDuration, Class: ClassChange, Mode: ModeLive, Check: notNegativeDuration},
+	{Key: "reeve.watch.started", Title: "Watch the agents the Reeve starts", Description: "Watch every agent the Reeve starts or messages, so it is told when one waits, goes idle, adds a note, opens a pull request or exits.", Kind: KindBool, Class: ClassChange, Mode: ModeLive},
+	{Key: "reeve.watch.wake", Title: "Wake the Reeve for its agents", Description: "When an agent the Reeve watches needs it and no session is running, start or resume one to tell it. Off, the news waits for the next session. On costs tokens while you are away.", Kind: KindBool, Class: ClassChange, Mode: ModeLive},
 
 	// Burnlite's projects, read on each use.
 	{Key: "burnlite.projects", Title: "Burnlite projects", Description: "The projects searched for import; none is every project.", Kind: KindStrings, Class: ClassChange, Mode: ModeLive, Check: func(v any) error {
@@ -243,6 +262,25 @@ var registry = []Setting{
 		}
 		return nil
 	}},
+}
+
+// voicePause keeps reeve.voice.pause to 0.3–2s.
+func voicePause(v any) error {
+	if s := v.(string); s != "" {
+		if d, _ := time.ParseDuration(s); d < MinVoicePause || d > MaxVoicePause {
+			return errors.New("must be from 0.3s to 2s")
+		}
+	}
+	return nil
+}
+
+func notNegativeDuration(v any) error {
+	if s := v.(string); s != "" {
+		if d, _ := time.ParseDuration(s); d < 0 {
+			return errors.New("must not be negative")
+		}
+	}
+	return nil
 }
 
 func nonNegative(v any) error {
@@ -258,12 +296,15 @@ var secretRefPattern = regexp.MustCompile(`^(legato://[A-Za-z0-9][A-Za-z0-9._-]{
 
 // fileOnly are the settings that live only in config.yaml: what is needed
 // before the database opens, what unseals secrets, how the instance is
-// reached, and the signing trust root.
+// reached, and the signing trust root. agents.repository_resources is
+// file-only because it names resources of the file's resources block, which
+// load checks; a resource saved in the database is not there to check.
 var fileOnly = []string{
 	"db", "data_dir",
 	"secrets.master_key", "secrets.onepassword",
 	"web.enabled", "web.port", "web.tls", "web.public_url",
 	"approval_devices.android_app_digests",
+	"agents.repository_resources",
 }
 
 // EntryLists lists the keys of every list of named entries: those the
@@ -502,7 +543,7 @@ func SettingValue(cfg *Config, key string) (any, error) {
 // pointerDefault is the value an unset pointer setting means.
 func pointerDefault(key string, field reflect.Value) any {
 	switch key {
-	case "notifications.approvals", "notifications.handoff", "agents.sandbox.default_mounts", "reeve.host_operations",
+	case "notifications.approvals", "notifications.handoff", "agents.sandbox.default_mounts", "reeve.host_operations", "reeve.voice.partials", "reeve.watch.started",
 		"web.discovery", "credential_channels.gh.isolate_login":
 		return true
 	}

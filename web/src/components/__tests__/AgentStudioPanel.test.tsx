@@ -216,8 +216,8 @@ describe("AgentStudioPanel", () => {
     const alert = await screen.findByRole("alert")
     expect(alert.textContent).toContain("The studio cannot open on this machine")
     expect(alert.textContent).toContain("install libretto")
-    // The storyboard is safe, and the person is told so.
-    expect(alert.textContent).toContain("Nothing is lost")
+    expect(alert.textContent).toContain("The studio opens here as soon as this is put right.")
+    expect(alert.textContent).not.toContain("Nothing is lost")
     expect(screen.queryByRole("button", { name: /Record/ })).toBeNull()
     expect(screen.queryByRole("button", { name: /Line up/ })).toBeNull()
   })
@@ -344,7 +344,7 @@ describe("AgentStudioPanel", () => {
     render(<AgentUIItemView item={item()} fill />)
 
     const told = await screen.findByText(/You went your own way here/)
-    expect(told.textContent).toContain("That is fine")
+    expect(told.textContent).toBe("You went your own way here: the scene is changed to follow what you said.")
     expect(screen.getByText("Actually let me show you sync first.")).toBeTruthy()
     // Nothing on the panel calls it a problem.
     expect(screen.queryByRole("alert")).toBeNull()

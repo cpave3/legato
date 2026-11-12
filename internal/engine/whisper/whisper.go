@@ -285,3 +285,48 @@ func ExtractPCM(wavData []byte) (pcm []byte, sampleRate int, err error) {
 
 	return nil, 0, fmt.Errorf("unsupported channel count %d", channels)
 }
+
+// Describe asks the server for its info, Wyoming's describe, and succeeds
+// when an info event comes back before ctx ends: the server is up and
+// answering, not only listening.
+func (c *Client) Describe(ctx context.Context) error {
+	d := net.Dialer{Timeout: 10 * time.Second}
+	conn, err := d.DialContext(ctx, "tcp", net.JoinHostPort(c.host, c.port))
+	if err != nil {
+		return fmt.Errorf("whisper: connecting to %s:%s: %w", c.host, c.port, err)
+	}
+	defer conn.Close()
+	if deadline, ok := ctx.Deadline(); ok {
+		_ = conn.SetDeadline(deadline)
+	} else {
+		_ = conn.SetDeadline(time.Now().Add(5 * time.Second))
+	}
+	// A context cancelled without a deadline still ends the wait.
+	stop := context.AfterFunc(ctx, func() { _ = conn.SetDeadline(time.Now()) })
+	defer stop()
+
+	if err := writeEvent(conn, wyomingEvent{Type: "describe"}); err != nil {
+		return fmt.Errorf("whisper: sending describe: %w", err)
+	}
+	reader := bufio.NewReader(conn)
+	for {
+		line, err := reader.ReadBytes('\n')
+		if err != nil {
+			return fmt.Errorf("whisper: no answer to describe: %w", err)
+		}
+		var event wyomingEvent
+		if json.Unmarshal(bytes.TrimSpace(line), &event) != nil {
+			continue
+		}
+		if event.Type == "info" {
+			return nil
+		}
+		for _, n := range []int{event.DataLength, event.PayloadLength} {
+			if n > 0 {
+				if _, err := io.CopyN(io.Discard, reader, int64(n)); err != nil {
+					return fmt.Errorf("whisper: reading describe's answer: %w", err)
+				}
+			}
+		}
+	}
+}

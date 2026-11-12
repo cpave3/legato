@@ -69,10 +69,14 @@ func startApprovals(ctx context.Context, cfg *config.Config, db *store.Store, bu
 		giveSessionsChannels(agents, host.Channels())
 		rt.channels = host.Channels()
 	}
+	// Sandboxed agents' Docker sockets (agents.sandbox.docker).
+	if docker := startDockerHost(ctx, cfg, db, bus); docker != nil {
+		stops = append(stops, docker.Stop)
+	}
 	// The broker agent-side processes ask instead of the store.
 	rt.caseReplies = newCaseReplyService(cfg, db, bus, true)
 	changeSets := startChangeSets(ctx, cfg, db, rt.approvals, agents, nil)
-	processSpeech = newReeveVoice(cfg, db, rt.credentials)
+	processSpeech = newReeveVoice(cfg, db, rt.credentials, bus)
 	deps := hostBrokerDeps(cfg, db, agents, rt.credentials, rt.caseReplies, rt.reviewPasses)
 	broker := startBrokerHost(ctx, db, ipc.SocketDir(), brokerHostOptions{Deps: deps})
 	stops = append(stops, broker.Stop)
@@ -82,6 +86,10 @@ func startApprovals(ctx context.Context, cfg *config.Config, db *store.Store, bu
 		changeSets.RunQueued(ctx)
 		changeSets.ReportRestarts(ctx, processStart, version.String())
 	})
+	// So are the agents the Reeve watches: it is told what they did.
+	if processWatcher != nil {
+		go whileBrokerOwner(ctx, broker.Owner, service.ReeveWatchCheckEvery, func(ctx context.Context) { processWatcher.Check(ctx) })
+	}
 	if rt.caseReplies != nil {
 		// Replies are sent by the process that serves the broker.
 		repliesCtx, stopReplies := context.WithCancel(ctx)

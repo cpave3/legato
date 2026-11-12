@@ -7,7 +7,7 @@ export function HandoffEvidence({ packet, evidence, shownSourceIDs = [] }: { pac
     <p>{evidence.outcome || "No result attached"} · reporting source (unverified): {evidence.reporter || "Not supplied"}</p>
     <p className="break-all">Command: <code>{evidence.command || "Not supplied"}</code> · revision {evidence.head_sha || "Not supplied"} · recorded {evidence.recorded_at || "Not supplied"}</p>
     {(packet.outdated || evidence.head_sha !== packet.input.head_sha) && <p className="text-amber-300">Outdated check — rerun or inspect at the reviewed revision.</p>}
-    <p>Limitations: {evidence.limitations || "Not supplied; no general correctness claim."}</p>
+    <p>Limitations: {evidence.limitations || "Not supplied"}</p>
     <HandoffSources packet={packet} ids={evidence.source_ids.filter((id) => !shownSourceIDs.includes(id))} />
   </section>
 }

@@ -77,16 +77,16 @@ type MCPPeers interface {
 // Legato adds to the launch prompt of one that does not (Codex, Chimera). It
 // names each tool by its own name: every agent tool prefixes MCP tool names
 // in its own way.
-const MCPGuidance = `You are running inside Legato, the app the person uses to work with you, and you have tools from the MCP server named "legato" that act on your own Legato session. Legato found the session by itself, so none of them takes a session or task ID. Your agent tool may show their names with a prefix of its own, or keep them out of your tool list until you look them up by name.
+const MCPGuidance = `You are running inside Legato, the app the operator uses to work with you, and you have tools from the MCP server named "legato" that act on your own Legato session. Legato found the session by itself, so none of them takes a session or task ID. Your agent tool may show their names with a prefix of its own, or keep them out of your tool list until you look them up by name.
 
-Use these tools without being asked. They are how you give the person something better than a wall of text:
+Use these tools without being asked. They are how you give the operator something better than a wall of text:
 
 - When your answer is mainly data (figures, a status, a comparison of options, a ranking, progress, a small chart), prefer a card to a Markdown table or a list of numbers. show_components is the simplest way: you name ready-made parts and Legato draws them to match the app. When those parts cannot say it well, call show_card and design the card yourself.
 - When you have an image file to show (a screenshot you took, a chart you rendered, a photo, a design mock-up), show the image; do not describe it. The image and image_grid components take the file's path and need nothing else: show_components puts them in the conversation, and show_artifact takes the same components for a gallery in the side panel. In HTML or Markdown of your own, list the files in images and write legato-image:<name> where an image's address goes.
-- When your answer is long or has structure (an architecture, an explanation that needs a diagram, a design, a plan, a report, anything longer than about a screen), prefer an artifact to a long reply: call show_artifact and it opens beside the conversation, where the person can keep it open. Call it again with the same key to revise it.
-- Custom HTML is yours to use in full when it gives the person a better experience: your own layout and CSS, inline SVG, JavaScript for interaction, a diagram or chart library. An architecture or an explanation is a page the person explores, not a document they scroll: let a Mermaid diagram carry the structure, style it as your own, and show the detail of a part when they click it. Never draw boxes with arrows typed as text. Markdown is for plain prose.
-- When a walk-through is better watched than read (how a change works, a tour of code the person does not know, what you built and why) and the libretto command is installed, make a narrated video. libretto --help describes a storyboard and libretto schema gives every field; libretto voices lists the voices, of which the kokoro and piper ones are local and free. Check the storyboard with libretto validate, which also estimates its length, and fix what it warns about; render it with --no-captions (with a paid voice, check a free libretto render --silent first); look at the .contact.png beside the video, and at one moment full size with libretto frame; then call show_video with the manifest render wrote. The person can pause the video and ask you about what is on screen; such a question comes with the time and what the video showed then.
-- When the person wants to present something in their own voice (demo a feature, walk through their own work) and the libretto command is installed, open a studio with show_studio and plan it with them there. Write a first plan at once and call show_studio with it: the brief in their words, and scenes that each have notes and a shows line saying what the picture will be, with no pictures drawn yet. Shape it as you talk, and in the studio they can rewrite, move, add and remove scenes themselves. Draw the pictures only when they agree the plan, which a [legato studio] message tells you. Until then, when they say to add a part, drop one, or spend longer on something, change the storyboard file straight away, and the studio beside the conversation shows the change within a couple of seconds. Call show_studio again with scene to turn it to the part you are discussing. While they record, a message that starts [legato studio] tells you of each take: review it at once with libretto transcribe and libretto review, and bring that scene in line with what they said, without talking over them. They can leave you comments on a scene there, and remove a scene: both are written into the storyboard file as comments, so read it again before each edit, do what they ask, and delete each comment when it is done. The notes are talking points, two to four short lines starting with "- " that name the details to get across; they are not a script, and you never write the person sentences to read. They record each scene in the studio, speaking in their own words. When they ask you to line it up, read what they said in each take with libretto transcribe and edit the storyboard to follow them. Expect them to leave the plan, and treat that as direction, not as a mistake: add a picture for what they went into (a terminal for commands they named, a diagram, the code they mentioned), drop what they skipped, and put a marker before each word where something should happen. Do not ask for another take because they went off script. Then render it and call show_video.
+- When your answer is long or has structure (an architecture, an explanation that needs a diagram, a design, a plan, a report, anything longer than about a screen), prefer an artifact to a long reply: call show_artifact and it opens beside the conversation, where the operator can keep it open. Call it again with the same key to revise it.
+- Custom HTML is yours to use in full when it gives the operator a better experience: your own layout and CSS, inline SVG, JavaScript for interaction, a diagram or chart library. An architecture or an explanation is a page the operator explores, not a document they scroll: let a Mermaid diagram carry the structure, style it as your own, and show the detail of a part when they click it. Never draw boxes with arrows typed as text. Markdown is for plain prose.
+- When a walk-through is better watched than read (how a change works, a tour of code the operator does not know, what you built and why) and the libretto command is installed, make a narrated video. libretto --help describes a storyboard and libretto schema gives every field; libretto voices lists the voices, of which the kokoro and piper ones are local and free. Check the storyboard with libretto validate, which also estimates its length, and fix what it warns about; render it with --no-captions (with a paid voice, check a free libretto render --silent first); look at the .contact.png beside the video, and at one moment full size with libretto frame; then call show_video with the manifest render wrote. The operator can pause the video and ask you about what is on screen; such a question comes with the time and what the video showed then.
+- When the operator wants to present something in their own voice (demo a feature, walk through their own work) and the libretto command is installed, open a studio with show_studio and plan it with them there. Write a first plan at once and call show_studio with it: the brief in their words, and scenes that each have notes and a shows line saying what the picture will be, with no pictures drawn yet. Shape it as you talk, and in the studio they can rewrite, move, add and remove scenes themselves. Draw the pictures only when they agree the plan, which a [legato studio] message tells you. Until then, when they say to add a part, drop one, or spend longer on something, change the storyboard file straight away, and the studio beside the conversation shows the change within a couple of seconds. Call show_studio again with scene to turn it to the part you are discussing. While they record, a message that starts [legato studio] tells you of each take: review it at once with libretto transcribe and libretto review, and bring that scene in line with what they said, without talking over them. They can leave you comments on a scene there, and remove a scene: both are written into the storyboard file as comments, so read it again before each edit, do what they ask, and delete each comment when it is done. The notes are talking points, two to four short lines starting with "- " that name the details to get across; they are not a script, and you never write the operator sentences to read. They record each scene in the studio, speaking in their own words. When they ask you to line it up, read what they said in each take with libretto transcribe and edit the storyboard to follow them. Expect them to leave the plan, and treat that as direction, not as a mistake: add a picture for what they went into (a terminal for commands they named, a diagram, the code they mentioned), drop what they skipped, and put a marker before each word where something should happen. Do not ask for another take because they went off script. Then render it and call show_video.
 - After you show something, say in one sentence what it is, and do not repeat its content.
 - A short, plain answer stays plain text.
 
@@ -144,7 +144,7 @@ func MCPToolNames() []string {
 	}
 	// request_access is offered only with credentials and reply_case only
 	// with an integration; they are named always.
-	for _, always := range []string{"request_access", "reply_case", "submit_review", "docs", "instance_status", "read_logs", "legato_api", "propose_changes", "restart_legato", "propose_config_edit", "request_secret", "legato", "host_shell", "edit_file", "manage_service", "message_reeve", "speak"} {
+	for _, always := range []string{"request_access", "reply_case", "submit_review", "docs", "instance_status", "read_logs", "legato_api", "watch_agent", "unwatch_agent", "list_watches", "propose_changes", "restart_legato", "propose_config_edit", "request_secret", "legato", "host_shell", "edit_file", "manage_service", "message_reeve", "speak"} {
 		if !listHasName(names, always) {
 			names = append(names, always)
 		}
@@ -238,7 +238,7 @@ func (m *mcpTools) show(ctx context.Context, in service.AgentUIShowInput, shownA
 		// The marker is how Legato's own conversation view finds the item
 		// this call made; the rest is for the model. There is no structured
 		// content: a client that has it gives the model that instead of this.
-		Text: fmt.Sprintf("%s [legato-ui:%s:%d]. The person can see it in Legato now. Say in one sentence what you showed; do not repeat its content.", shownAs, item.ID, item.Revision),
+		Text: fmt.Sprintf("%s [legato-ui:%s:%d]. The operator can see it in Legato now. Say in one sentence what you showed; do not repeat its content.", shownAs, item.ID, item.Revision),
 	}, nil
 }
 
@@ -246,24 +246,24 @@ type showStudioInput struct {
 	Storyboard string `json:"storyboard" jsonschema:"the storyboard file, as an absolute path. Its scenes have notes, what each should get across, where a scene for a voice has narration"`
 	Title      string `json:"title" jsonschema:"a short name for what is being recorded, shown on the studio's tab"`
 	Key        string `json:"key,omitempty" jsonschema:"a name of your own for this studio; calling again with the same key shows the same studio, not another"`
-	Scene      string `json:"scene,omitempty" jsonschema:"the id of a scene to put in front of the person: the studio turns to it. Use it when the conversation moves to one part of the plan"`
+	Scene      string `json:"scene,omitempty" jsonschema:"the id of a scene to put in front of the operator: the studio turns to it. Use it when the conversation moves to one part of the plan"`
 }
 
 func (m *mcpTools) showStudio() mcpserver.Tool {
 	return mcpserver.NewTool(mcpserver.Definition{
 		Name:  "show_studio",
-		Title: "Open a studio for the person to record in",
-		Description: "Opens a libretto studio in a panel beside the conversation: the plan of a video the person will present in their own voice, and the place they record it, one scene at a time. " +
-			"Use it without being asked when the person wants to present something themselves: demo a feature, walk through their own work, narrate a video in their own voice. " +
+		Title: "Open a studio for the operator to record in",
+		Description: "Opens a libretto studio in a panel beside the conversation: the plan of a video the operator will present in their own voice, and the place they record it, one scene at a time. " +
+			"Use it without being asked when the operator wants to present something themselves: demo a feature, walk through their own work, narrate a video in their own voice. " +
 			"Open it early, with a first plan, and agree the plan with them before anything is drawn. A plan is a storyboard with a brief (what they want to cover, in their words) and scenes that each have notes and a shows line: " +
 			"a few words on what the scene's picture will be, such as \"A terminal running restack on a three-branch stack\". A scene with shows and no picture is planned: the studio draws a placeholder, and render waits. " +
 			"Draw no pictures at this stage, because they will change the plan: the studio's Plan view lets them rewrite a scene's points and its shows line, move and remove scenes, rename chapters and add a scene from one line, all of which land in the storyboard file. " +
 			"When they write or change the brief in the studio you are told, and draft the scenes from it. When they agree the plan you are told, and only then give each planned scene its picture (keep its shows line), after which they record. " +
-			"The notes are talking points, two to four short lines that each start with \"- \": the details to get across, not sentences to read out. Never write the person a script, and give such a scene no narration. " +
+			"The notes are talking points, two to four short lines that each start with \"- \": the details to get across, not sentences to read out. Never write the operator a script, and give such a scene no narration. " +
 			"Once the plan is agreed, draw each scene's picture in full (a terminal's commands, a diagram, the code) and leave out actions that wait for a marker; those come after the take. List the names they will say (products, commands, people) in the storyboard's vocabulary, so the transcript spells them right. libretto --help and libretto schema give the format; check with libretto validate. " +
-			"The storyboard file is the one copy, and the studio reads it again every couple of seconds. So when the person says to add a part, drop one, reorder, or go deeper on something, change the file there and then: they see it change, with what is new marked. " +
+			"The storyboard file is the one copy, and the studio reads it again every couple of seconds. So when the operator says to add a part, drop one, reorder, or go deeper on something, change the file there and then: they see it change, with what is new marked. " +
 			"Call this tool again with scene to turn the studio to the scene you are talking about. " +
-			"The person can also write to you in the studio. A scene's comments in the storyboard are what they want changed there, and the storyboard's own comments say what they did, such as removing a scene. " +
+			"The operator can also write to you in the studio. A scene's comments in the storyboard are what they want changed there, and the storyboard's own comments say what they did, such as removing a scene. " +
 			"Read the file again before every edit, do what each comment asks, and delete the comment when it is done; libretto validate lists the ones still waiting. " +
 			"While they record, Legato tells you of each take in a message that starts [legato studio]. Act on it without being asked, and keep out of the conversation while they present: " +
 			"read the take with libretto transcribe, write what you make of it with libretto review (where they covered each talking point, and each stretch that left the plan, with a note to them), " +
@@ -273,7 +273,7 @@ func (m *mcpTools) showStudio() mcpserver.Tool {
 			"they will have left the plan, which is direction and not a mistake. Add a picture for what they talked about (a terminal for commands they named, a diagram, the code), remove what they skipped, " +
 			"cut a take into more than one scene where the subject changes, leave out a false start or a stumble with the take's skip, and put a marker before each word where something should happen. " +
 			"Then render with --no-captions and show the result with show_video. " +
-			"The studio needs libretto on this machine; when it is missing or too old the tool says so, and you tell the person.",
+			"The studio needs libretto on this machine; when it is missing or too old the tool says so, and you tell the operator.",
 		ReadOnly: true,
 	}, func(ctx context.Context, in showStudioInput) (mcpserver.Result, error) {
 		storyboard := strings.TrimSpace(in.Storyboard)
@@ -294,12 +294,12 @@ func (m *mcpTools) showStudio() mcpserver.Tool {
 			probe = libretto.Runner{}
 		}
 		if _, err := probe.Probe(ctx); err != nil {
-			return mcpserver.Result{}, fmt.Errorf("the studio cannot open. %s Tell the person this; you cannot fix it for them", libretto.Explain(err))
+			return mcpserver.Result{}, fmt.Errorf("the studio cannot open. %s Tell the operator this; you cannot fix it for them", libretto.Explain(err))
 		}
 		return m.show(ctx, service.AgentUIShowInput{
 			Placement: service.AgentUIPanel, Format: service.AgentUIFormatStudio, Title: in.Title, Key: in.Key,
 			Content: service.AgentUIStudioContent(storyboard, in.Scene),
-		}, fmt.Sprintf("Opened the studio %q in Legato's side panel, for the person to record in", strings.TrimSpace(in.Title)))
+		}, fmt.Sprintf("Opened the studio %q in Legato's side panel, for the operator to record in", strings.TrimSpace(in.Title)))
 	})
 }
 
@@ -316,10 +316,10 @@ func (m *mcpTools) showArtifact() mcpserver.Tool {
 	return mcpserver.NewTool(mcpserver.Definition{
 		Name:  "show_artifact",
 		Title: "Show an artifact",
-		Description: "Shows a page of your own making in a panel beside the conversation in Legato, where the person can read it while you carry on. " +
+		Description: "Shows a page of your own making in a panel beside the conversation in Legato, where the operator can read it while you carry on. " +
 			"Use it without being asked for something worth more than a reply: an architecture, an explanation with diagrams, a design, a report, a comparison, a set of screenshots. " +
-			"Make it a page the person explores, not a document: a short summary at the top, a diagram that carries the structure (Mermaid for the layout, or SVG), " +
-			"your own styling, and scripts for tabs, sections that open and the detail of a part shown when the person clicks it. " +
+			"Make it a page the operator explores, not a document: a short summary at the top, a diagram that carries the structure (Mermaid for the layout, or SVG), " +
+			"your own styling, and scripts for tabs, sections that open and the detail of a part shown when the operator clicks it. " +
 			"The panel is narrow (about 500px, and a phone is narrower): use one column and short node labels, and keep the detail for what opens on a click. " +
 			"format markdown is for plain prose only; a ```mermaid fence in it is drawn as a diagram, and ![what it shows](legato-image:<name>) is an image from images. " +
 			"When ready-made parts say it well (a gallery of image files, figures, a table), pass components in place of content: the same components show_components takes, and no HTML to write. " +
@@ -365,7 +365,7 @@ func (m *mcpTools) showVideo() mcpserver.Tool {
 		Name:  "show_video",
 		Title: "Show a narrated video",
 		Description: "Shows a narrated video you rendered with libretto in a panel beside the conversation in Legato, with its chapters and captions. " +
-			"The person can pause it and ask you about that moment: the question then arrives with the time, the sentence being said and what was on screen, such as the file and the highlighted lines. " +
+			"The operator can pause it and ask you about that moment: the question then arrives with the time, the sentence being said and what was on screen, such as the file and the highlighted lines. " +
 			"Use it without being asked when a walk-through is better watched than read: how a change works, a tour of code, what you built and why. " +
 			"To make one: write a storyboard (run libretto --help and libretto schema for the format), check it with libretto validate, " +
 			"then render with a voice and --no-captions, because Legato draws the captions itself. A local voice is free; with a paid one, check a libretto render --silent first. " +
@@ -420,7 +420,7 @@ func (m *mcpTools) showCard() mcpserver.Tool {
 		Name:  "show_card",
 		Title: "Show a card",
 		Description: "Shows a card of your own design in the conversation in Legato, in place of text. Use it without being asked when an answer is better seen than read " +
-			"and show_components does not have the parts for it: a custom layout, an illustration or a small diagram in SVG, a chart, something the person can click through. " +
+			"and show_components does not have the parts for it: a custom layout, an illustration or a small diagram in SVG, a chart, something the operator can click through. " +
 			"Write the card as an HTML fragment sized by its content. " +
 			m.htmlGuide(),
 		ReadOnly: true,
@@ -548,7 +548,7 @@ func (m *mcpTools) addTaskNote() mcpserver.Tool {
 		Name:  "add_task_note",
 		Title: "Add a task note",
 		Description: "Records a durable Markdown note on the Legato task you are working on: a finding, a decision, what is left to do. " +
-			"The note stays with the task after this session ends and is shown to the person and to later agents. It is kept in Legato only and is not sent to a ticket provider.",
+			"The note stays with the task after this session ends and is shown to the operator and to later agents. It is kept in Legato only and is not sent to a ticket provider.",
 	}, func(ctx context.Context, in addTaskNoteInput) (mcpserver.Result, error) {
 		taskID, err := m.workTask(ctx)
 		if err != nil {
@@ -697,7 +697,7 @@ const diagramGuide = "Legato draws Mermaid for you: write <pre class=\"mermaid\"
 // need not write a lightbox to make a screenshot readable.
 const imageGuide = "To use an image file from disk (a screenshot, a chart you rendered), list it in images as {name, path} and write legato-image:<name> wherever its address goes: " +
 	"<img src=\"legato-image:board\" alt=\"The board\">, or a CSS url(). In a script, legato.image(name) returns the address. Legato keeps its own copy of the file. " +
-	"The person can click such an image to see it full size and step through the page's other images, so a small one is enough; put data-legato-zoom=\"off\" on an image that should not open. " +
+	"The operator can click such an image to see it full size and step through the page's other images, so a small one is enough; put data-legato-zoom=\"off\" on an image that should not open. " +
 	"A container with class=\"legato-image-grid\" lays its images, or its <figure>s with a <figcaption>, out as a grid of thumbnails. "
 
 // htmlGuide tells an agent what the frame its HTML is drawn in allows. Each
@@ -718,6 +718,6 @@ func (m *mcpTools) htmlGuide() string {
 	}
 	guide += imageGuide
 	guide += "The frame has no storage (localStorage and cookies throw), no workers, and cannot fetch, submit forms or open windows, so put the data in the page. " +
-		"Call legato.proposeMessage(text) from a script to put text in the person's message box for them to send, and legato.openLink(url) to offer a link."
+		"Call legato.proposeMessage(text) from a script to put text in the operator's message box for them to send, and legato.openLink(url) to offer a link."
 	return guide
 }

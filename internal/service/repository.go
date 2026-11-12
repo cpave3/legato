@@ -145,6 +145,21 @@ func (s *RepositoryService) Ensure(ctx context.Context, repo string) (string, er
 	return s.ensure(ctx, repo, false)
 }
 
+// FetchPushed fetches the repository's cache after an agent pushed to it,
+// so the cache has the agent's commits at once. A repository with no cache
+// is left alone: a push makes no copy. A failure is logged.
+func (s *RepositoryService) FetchPushed(ctx context.Context, repo string) {
+	if validRepo(repo) != nil {
+		return
+	}
+	if _, err := os.Stat(filepath.Join(s.CachePath(repo), "HEAD")); err != nil {
+		return
+	}
+	if _, err := s.Refresh(ctx, repo); err != nil {
+		log.Printf("repositories: fetching %s after a push: %v", repo, err)
+	}
+}
+
 // Refresh fetches the repository's cache now, making it when there is none.
 func (s *RepositoryService) Refresh(ctx context.Context, repo string) (string, error) {
 	return s.ensure(ctx, repo, true)
@@ -580,9 +595,23 @@ func (s *RepositoryService) SweepJobClones(ctx context.Context) error {
 	return nil
 }
 
+// inUse says whether a running execution is the clone's or works in it,
+// comparing the folders where they really are: a working folder read back
+// from a pane may not name the clone through the same links (a /home that
+// is var/home) as its record.
 func inUse(clone store.JobClone, running []store.Execution) bool {
+	realClone := ""
 	for _, e := range running {
 		if e.ID == clone.ExecutionID || within(e.WorkingDir, clone.Path) {
+			return true
+		}
+		if e.WorkingDir == "" {
+			continue
+		}
+		if realClone == "" {
+			realClone = HostFS{}.Real(clone.Path)
+		}
+		if within(HostFS{}.Real(e.WorkingDir), realClone) {
 			return true
 		}
 	}

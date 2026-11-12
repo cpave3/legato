@@ -190,6 +190,14 @@ type workerConn struct {
 	cancel    context.CancelFunc
 	reconnect chan struct{}
 
+	// reach makes a pull's "connected, then heard" and CheckReach's
+	// "still down, then marked unreachable" happen one at a time, so a
+	// CheckReach that saw the old drop time cannot mark the worker
+	// unreachable again after the pull has heard it. It is taken before mu,
+	// never while mu (or the connections' lock) is held, and is held across
+	// the database write.
+	reach sync.Mutex
+
 	mu        sync.Mutex
 	connected bool
 	droppedAt time.Time
@@ -547,13 +555,15 @@ func (c *WorkerConnections) session(ctx context.Context, id string, wc *workerCo
 			switch m.Type {
 			case HandoffStreamPull:
 				c.applyPull(ctx, worker, before, m.Handoffs)
-				// Connected before heard clears unreachable_since: a CheckReach
-				// between the two would otherwise mark it unreachable again,
-				// from the old outage's drop time.
+				// Connected before heard clears unreachable_since, under
+				// reach: a CheckReach between the two would otherwise mark it
+				// unreachable again, from the old outage's drop time.
+				wc.reach.Lock()
 				wc.mu.Lock()
 				wc.connected, wc.droppedAt = true, time.Time{}
 				wc.mu.Unlock()
 				c.heard(ctx, id)
+				wc.reach.Unlock()
 				pulled = true
 				wc.answer(session, nil)
 			case HandoffStreamRow:
@@ -707,24 +717,38 @@ func (c *WorkerConnections) refused(ctx context.Context, id string) {
 func (c *WorkerConnections) CheckReach(ctx context.Context) {
 	now := c.opts.Now()
 	c.mu.Lock()
-	down := map[string]time.Time{}
+	down := map[string]*workerConn{}
 	for id, wc := range c.conns {
 		wc.mu.Lock()
 		if !wc.droppedAt.IsZero() && now.Sub(wc.droppedAt) >= c.opts.UnreachableAfter {
-			down[id] = wc.droppedAt
+			down[id] = wc
 		}
 		wc.mu.Unlock()
 	}
 	c.mu.Unlock()
-	for id, since := range down {
-		marked, err := c.db.SetWorkerUnreachable(ctx, id, since.UTC().Format(time.RFC3339))
-		if err != nil {
-			log.Printf("worker %s: marking it unreachable: %v", id, err)
-			continue
-		}
-		if marked {
-			c.publish(events.EventCardsRefreshed)
-		}
+	for id, wc := range down {
+		c.markUnreachable(ctx, id, wc, now)
+	}
+}
+
+// markUnreachable marks a worker unreachable since its connection dropped,
+// if it is still down: a pull since CheckReach looked has heard it.
+func (c *WorkerConnections) markUnreachable(ctx context.Context, id string, wc *workerConn, now time.Time) {
+	wc.reach.Lock()
+	defer wc.reach.Unlock()
+	wc.mu.Lock()
+	since := wc.droppedAt
+	wc.mu.Unlock()
+	if since.IsZero() || now.Sub(since) < c.opts.UnreachableAfter {
+		return
+	}
+	marked, err := c.db.SetWorkerUnreachable(ctx, id, since.UTC().Format(time.RFC3339))
+	if err != nil {
+		log.Printf("worker %s: marking it unreachable: %v", id, err)
+		return
+	}
+	if marked {
+		c.publish(events.EventCardsRefreshed)
 	}
 }
 

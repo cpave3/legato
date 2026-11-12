@@ -1,6 +1,7 @@
 package service
 
 import (
+	"fmt"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -350,5 +351,43 @@ func TestACloneIsSetUpInsideTheSandbox(t *testing.T) {
 	}
 	if log, _ := os.ReadFile(filepath.Join(clone, ".git", "legato-setup.log")); !strings.Contains(string(log), "this clone is set up") {
 		t.Errorf("log = %q", log)
+	}
+}
+
+// Pasted images live under the host's /tmp, which the sandbox covers with its
+// own. The task's folder still shows through at the path the message names,
+// read only, and other tasks' folders beside it do not.
+func TestInsideTheSandboxAnAgentReadsItsTasksPastedImageAndNoOthers(t *testing.T) {
+	in := bwrapFixture(t)
+	root, err := os.MkdirTemp("/tmp", "lgpaste")
+	if err != nil {
+		t.Skip("no /tmp")
+	}
+	t.Cleanup(func() { _ = os.RemoveAll(root) })
+	own, other := filepath.Join(root, "pasted-images", "t1"), filepath.Join(root, "pasted-images", "t2")
+	for _, dir := range []string{own, other} {
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			t.Fatal(err)
+		}
+	}
+	image := filepath.Join(own, "pasted-1.png")
+	_ = os.WriteFile(image, []byte("PNG-OWN"), 0o600)
+	_ = os.WriteFile(filepath.Join(other, "pasted-1.png"), []byte("PNG-OTHER"), 0o600)
+	in.PastedImagesDir = own
+
+	script := fmt.Sprintf(`cat %q; echo; (echo x > %q) 2>/dev/null && echo WROTE; ls %q 2>/dev/null && echo LISTED; true`,
+		image, filepath.Join(own, "new.png"), other)
+	out, err := runInSandbox(t, in, script)
+	if err != nil {
+		t.Fatalf("%v: %s", err, out)
+	}
+	if !strings.Contains(out, "PNG-OWN") {
+		t.Errorf("the agent cannot read its pasted image at %s: %q", image, out)
+	}
+	if strings.Contains(out, "WROTE") {
+		t.Errorf("the pasted images folder is writable inside: %q", out)
+	}
+	if strings.Contains(out, "LISTED") || strings.Contains(out, "PNG-OTHER") {
+		t.Errorf("another task's pasted images show inside: %q", out)
 	}
 }

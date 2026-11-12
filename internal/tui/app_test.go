@@ -1422,6 +1422,22 @@ func TestAgentGroupSelectionPersistsAndRefreshes(t *testing.T) {
 	}
 }
 
+func TestAgentGroupSelectionTellsOtherProcesses(t *testing.T) {
+	agentSvc := &fakeAgentService{agents: []service.AgentSession{{TaskID: "TASK-1"}}}
+	app := newTestApp()
+	app.agentSvc = agentSvc
+	var told []string
+	app.SetTaskChangedNotifier(func(taskID string) { told = append(told, taskID) })
+
+	group := "Autopilot"
+	_, cmd := app.Update(overlay.GroupSelectedMsg{TaskID: "TASK-1", Group: &group})
+	cmd()
+
+	if len(told) != 1 || told[0] != "TASK-1" {
+		t.Fatalf("told other processes of %v, want [TASK-1]", told)
+	}
+}
+
 func runSpawnCommand(t *testing.T, cmd tea.Cmd) tea.Msg {
 	t.Helper()
 	if cmd == nil {

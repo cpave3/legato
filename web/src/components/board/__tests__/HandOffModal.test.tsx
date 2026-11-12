@@ -151,7 +151,6 @@ describe("HandOffModal", () => {
     await waitFor(() => expect(worker.value).toBe("srv-vm1"))
     const send = screen.getByRole("button", { name: "Hand off" }) as HTMLButtonElement
     expect(send.disabled).toBe(true)
-    expect(screen.getByText(/none is picked for you/i)).toBeTruthy()
     fireEvent.submit(send.closest("form")!)
     expect(posts.length).toBe(0)
     expect(onHandedOff).not.toHaveBeenCalled()

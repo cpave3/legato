@@ -82,7 +82,6 @@ type snapshotQuestion struct {
 const permissionTarget = "host"
 
 var (
-	errNoSuchRequest = errors.New("no such pending request")
 	errInvalidAnswer = errors.New("invalid answer")
 )
 

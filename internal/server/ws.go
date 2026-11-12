@@ -49,6 +49,7 @@ const (
 	MsgAttentionChanged    = "attention_changed"
 	MsgLearningChanged     = "learning_changed"
 	MsgAgentUIChanged      = "agent_ui_changed"
+	MsgReeveSpoke          = "reeve_spoke"
 	// MsgRepositoryCache says how a repository's copy in Legato's cache
 	// stands, with git's progress while it is copied or fetched.
 	MsgRepositoryCache = "repository_cache"

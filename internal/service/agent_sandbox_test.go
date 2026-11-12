@@ -182,6 +182,9 @@ func TestReloadingAnAgentWithoutTheSandboxTakesItOut(t *testing.T) {
 	if last := lines[len(lines)-1]; strings.HasPrefix(last, "SANDBOX") {
 		t.Fatalf("relaunched as %q", last)
 	}
+	if note := sentLineEventually(t, mt, "task-1", "[legato sandbox] "); !strings.Contains(note, "outside Legato's sandbox") {
+		t.Fatalf("note = %q, want it to say the agent now runs outside the sandbox", note)
+	}
 }
 
 func TestReloadingAnUnsandboxedAgentSwitchingTheSandboxPutsItBack(t *testing.T) {
@@ -207,6 +210,9 @@ func TestReloadingAnUnsandboxedAgentSwitchingTheSandboxPutsItBack(t *testing.T) 
 	lines := mt.sentLinesFor("legato-task-1")
 	if last := lines[len(lines)-1]; !strings.HasPrefix(last, "SANDBOX") {
 		t.Fatalf("relaunched as %q", last)
+	}
+	if note := sentLineEventually(t, mt, "task-1", "[legato sandbox] "); !strings.Contains(note, "inside Legato's sandbox") {
+		t.Fatalf("note = %q, want it to say the agent now runs inside the sandbox", note)
 	}
 }
 
@@ -450,6 +456,75 @@ func TestASandboxedAgentWorksInAJobCloneItsTaskJoined(t *testing.T) {
 	}
 }
 
+// linkedHome is a folder whose "home" is a link to "var/home", as on a host
+// whose /home is var/home (Fedora Atomic), with "me" in it. It returns home
+// as reached through the link and as it really is.
+func linkedHome(t *testing.T) (linked, real string) {
+	t.Helper()
+	root, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	real = filepath.Join(root, "var", "home", "me")
+	if err := os.MkdirAll(real, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join("var", "home"), filepath.Join(root, "home")); err != nil {
+		t.Fatal(err)
+	}
+	return filepath.Join(root, "home", "me"), real
+}
+
+// A job clone is the task's however its path is spelled: Legato's data
+// folder and the clone's record may name it through the link while the
+// agent's working folder, read back from its pane, is where it really is,
+// or the other way round. Another task's agent is still refused it.
+func TestASandboxedAgentFindsItsJobCloneThroughALinkedHome(t *testing.T) {
+	for _, tc := range []struct {
+		name               string
+		dataLinked, linked bool // data folder and clone record; working folder
+	}{
+		{"recorded through the link, resumed where it really is", true, false},
+		{"recorded where it really is, resumed through the link", false, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			linked, real := linkedHome(t)
+			homeFor := func(throughLink bool) string {
+				if throughLink {
+					return linked
+				}
+				return real
+			}
+			data := filepath.Join(homeFor(tc.dataLinked), ".local", "share", "legato")
+			clone := filepath.Join(data, "jobs", "ex-old", "widget")
+			if err := os.MkdirAll(clone, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			workDir := filepath.Join(homeFor(tc.linked), ".local", "share", "legato", "jobs", "ex-old", "widget")
+
+			backend := &fakeBackend{}
+			svc, s, _ := sandboxedService(t, backend, func(settings *SandboxSettings) { settings.Base.DataDir = data })
+			createTask(t, s, "task-1")
+			createTask(t, s, "task-2")
+			ctx := context.Background()
+			if _, err := s.CreateJobClone(ctx, store.JobClone{ExecutionID: "ex-old", TaskID: "task-1", Repo: "acme/widget", Path: clone, CreatedAt: time.Now()}); err != nil {
+				t.Fatal(err)
+			}
+
+			if err := svc.SpawnAgent(ctx, "task-1", 0, 0, AgentSpawnOptions{WorkingDir: workDir}); err != nil {
+				t.Fatalf("the task's own job clone: %v", err)
+			}
+			want := filepath.Join(real, ".local", "share", "legato", "jobs", "ex-old", "widget")
+			if got := backend.plans[len(backend.plans)-1].Chdir; got != want {
+				t.Fatalf("the agent works in %s, want %s", got, want)
+			}
+			if err := svc.SpawnAgent(ctx, "task-2", 0, 0, AgentSpawnOptions{WorkingDir: workDir}); err == nil {
+				t.Fatal("another task's agent was given the job clone")
+			}
+		})
+	}
+}
+
 // promptsOffAdapter is fakeAdapter whose tool can turn its prompts off.
 type promptsOffAdapter struct{ *fakeAdapter }
 
@@ -522,6 +597,41 @@ func TestAThrowawayCheckoutFallsBackToReadOnlyWithoutOverlays(t *testing.T) {
 		}
 		if kind != want {
 			t.Fatalf("overlay %v: the checkout's mount kind = %v, want %v", overlay, kind, want)
+		}
+	}
+}
+
+// The person may paste an image long after the agent started. Its folder is
+// made at the start, so it is in the sandbox from the first moment, read
+// only and the task's own: a folder made later would never show inside.
+func TestASandboxedAgentSeesItsTasksPastedImagesFolderFromTheStart(t *testing.T) {
+	t.Setenv("TMPDIR", t.TempDir())
+	backend := &fakeBackend{}
+	svc, s, _ := sandboxedService(t, backend)
+	createTask(t, s, "task-1")
+	if err := svc.SpawnAgent(context.Background(), "task-1", 0, 0); err != nil {
+		t.Fatal(err)
+	}
+	dir := PastedImageDir("task-1")
+	info, err := os.Stat(dir)
+	if err != nil || !info.IsDir() {
+		t.Fatalf("pasted images folder: %v", err)
+	}
+	// A pasted image may be private: the folders on the way are the user's only.
+	for _, d := range []string{dir, filepath.Dir(dir), filepath.Dir(filepath.Dir(dir))} {
+		info, err := os.Stat(d)
+		if err != nil {
+			t.Errorf("%s: %v", d, err)
+		} else if info.Mode().Perm() != 0o700 {
+			t.Errorf("%s: mode=%v", d, info.Mode().Perm())
+		}
+	}
+	if m, ok := mountOf(backend.plans[0], dir); !ok || m.Kind != sandbox.ReadOnly {
+		t.Fatalf("mount of %s = %+v, %v", dir, m, ok)
+	}
+	for _, m := range backend.plans[0].Mounts {
+		if m.Path == filepath.Dir(dir) || m.Path == filepath.Dir(filepath.Dir(dir)) {
+			t.Errorf("every task's pasted images are mounted: %+v", m)
 		}
 	}
 }

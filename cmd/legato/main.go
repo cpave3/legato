@@ -39,7 +39,6 @@ import (
 	"github.com/cpave3/legato/internal/setup"
 	"github.com/cpave3/legato/internal/tui"
 	"github.com/cpave3/legato/internal/tui/theme"
-	qrterminal "github.com/mdp/qrterminal/v3"
 )
 
 func main() {
@@ -125,47 +124,6 @@ func injectGlobalJSON(args []string) []string {
 	out = append(out, args...)
 	out = append(out, "--json")
 	return out
-}
-
-func runWorkspaceCmd(args []string) int {
-	if len(args) == 0 {
-		fmt.Fprintln(os.Stderr, "usage: legato workspace list [--format text|json]")
-		return 1
-	}
-	if args[0] != "list" {
-		fmt.Fprintf(os.Stderr, "unknown workspace command: %s\n", args[0])
-		return 1
-	}
-
-	format := "text"
-	for i := 1; i < len(args); i++ {
-		if args[i] != "--format" || i+1 >= len(args) {
-			fmt.Fprintln(os.Stderr, "usage: legato workspace list [--format text|json]")
-			return 1
-		}
-		format = args[i+1]
-		i++
-	}
-
-	cfg, err := config.Load()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "config: %v\n", err)
-		return 1
-	}
-	db, err := openStore(cfg)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "database: %v\n", err)
-		return 1
-	}
-	defer db.Close()
-
-	out, err := cli.WorkspaceList(db, format)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "error: %v\n", err)
-		return 1
-	}
-	writeCLIOutput(out)
-	return 0
 }
 
 func runPlanCmd(args []string) int {
@@ -882,341 +840,6 @@ func parseReviewArgs(args []string) (positional []string, flags map[string]strin
 	return positional, flags, listFlags, nil
 }
 
-func runTaskCmd(args []string) int {
-	if len(args) == 0 {
-		fmt.Fprintf(os.Stderr, "usage: legato task [create|show|update|description|note|link|unlink] ...\n")
-		return 1
-	}
-
-	cfg, err := config.Load()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "config: %v\n", err)
-		return 1
-	}
-	db, err := openStore(cfg)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "database: %v\n", err)
-		return 1
-	}
-	defer db.Close()
-
-	switch args[0] {
-	case "create":
-		return runTaskCreate(db, args[1:])
-	case "show":
-		return runTaskShow(db, args[1:])
-	case "update":
-		return runTaskUpdate(db, args[1:])
-	case "description":
-		return runTaskDescription(db, args[1:])
-	case "note":
-		return runTaskNote(db, args[1:])
-	case "link":
-		return runTaskLink(db, args[1:])
-	case "unlink":
-		return runTaskUnlink(db, args[1:])
-	case "worktree":
-		return runTaskWorktree(db, args[1:])
-	default:
-		fmt.Fprintf(os.Stderr, "unknown task command: %s\n", args[0])
-		fmt.Fprintf(os.Stderr, "usage: legato task [create|show|update|description|note|link|unlink|worktree] ...\n")
-		return 1
-	}
-}
-
-func runTaskCreate(db *store.Store, args []string) int {
-	const usage = "usage: legato task create <title> [--description <text>] [--status <status>] [--priority <priority>] [--workspace <name>]"
-	if len(args) < 1 || strings.HasPrefix(args[0], "--") {
-		fmt.Fprintln(os.Stderr, usage)
-		return 1
-	}
-
-	title := args[0]
-	values := map[string]string{}
-	for i := 1; i < len(args); i += 2 {
-		if i+1 >= len(args) {
-			fmt.Fprintf(os.Stderr, "missing value for %s\n", args[i])
-			fmt.Fprintln(os.Stderr, usage)
-			return 1
-		}
-		switch args[i] {
-		case "--description", "--status", "--priority", "--workspace":
-			values[args[i]] = args[i+1]
-		default:
-			fmt.Fprintf(os.Stderr, "unknown flag: %s\n", args[i])
-			fmt.Fprintln(os.Stderr, usage)
-			return 1
-		}
-	}
-
-	card, err := cli.TaskCreate(db, title, values["--description"], values["--status"], values["--priority"], values["--workspace"])
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "error: %v\n", err)
-		return 1
-	}
-	fmt.Println(card.ID)
-	return 0
-}
-
-func runTaskWorktree(db *store.Store, args []string) int {
-	if len(args) < 1 {
-		fmt.Fprintln(os.Stderr, "usage: legato task worktree [set|clear] <task-id> ...")
-		return 1
-	}
-	switch args[0] {
-	case "set":
-		return runTaskWorktreeSet(db, args[1:])
-	case "clear":
-		return runTaskWorktreeClear(db, args[1:])
-	default:
-		fmt.Fprintf(os.Stderr, "unknown worktree command: %s\n", args[0])
-		fmt.Fprintln(os.Stderr, "usage: legato task worktree [set|clear] <task-id> ...")
-		return 1
-	}
-}
-
-func runTaskWorktreeSet(db *store.Store, args []string) int {
-	values := map[string]string{
-		"--path": os.Getenv("YG_WORKTREE"), "--primary-dir": os.Getenv("YG_PRIMARY"),
-		"--branch": os.Getenv("YG_BRANCH"), "--base-branch": os.Getenv("YG_BASE"),
-	}
-	taskID := os.Getenv("LEGATO_TASK_ID")
-	start := 1
-	if len(args) > 0 && !strings.HasPrefix(args[0], "--") {
-		taskID = args[0]
-		start = 2
-	}
-	for i := start - 1; i < len(args); i += 2 {
-		if i+1 >= len(args) {
-			fmt.Fprintf(os.Stderr, "missing value for %s\n", args[i])
-			return 1
-		}
-		if _, ok := values[args[i]]; !ok {
-			fmt.Fprintf(os.Stderr, "unknown flag: %s\n", args[i])
-			return 1
-		}
-		values[args[i]] = args[i+1]
-	}
-	meta := store.TaskWorktree{Path: values["--path"], PrimaryDir: values["--primary-dir"], Branch: values["--branch"], BaseBranch: values["--base-branch"]}
-	recorder := service.NewWorktreeWorkflow(db, nil, checkoutInspector())
-	if err := cli.TaskWorktreeSet(db, taskID, meta, recorder); err != nil {
-		fmt.Fprintf(os.Stderr, "error: %v\n", err)
-		return 1
-	}
-	return 0
-}
-
-func runTaskWorktreeClear(db *store.Store, args []string) int {
-	taskID := os.Getenv("LEGATO_TASK_ID")
-	if len(args) > 0 && !strings.HasPrefix(args[0], "--") {
-		taskID = args[0]
-	}
-	if err := cli.TaskWorktreeClear(db, taskID); err != nil {
-		fmt.Fprintf(os.Stderr, "error: %v\n", err)
-		return 1
-	}
-	fmt.Printf("Cleared worktree metadata for task %s\n", taskID)
-	return 0
-}
-
-func runTaskShow(db *store.Store, args []string) int {
-	// Parse: legato task show <task-id> [--format description|full|json]
-	if len(args) < 1 {
-		fmt.Fprintf(os.Stderr, "usage: legato task show <task-id> [--format description|full|json]\n")
-		return 1
-	}
-
-	taskID := args[0]
-	format := "description"
-	for i := 1; i < len(args); i++ {
-		switch args[i] {
-		case "--format":
-			if i+1 >= len(args) {
-				fmt.Fprintf(os.Stderr, "usage: legato task show <task-id> [--format description|full|json]\n")
-				return 1
-			}
-			format = args[i+1]
-			i++
-		default:
-			fmt.Fprintf(os.Stderr, "unknown flag: %s\n", args[i])
-			fmt.Fprintf(os.Stderr, "usage: legato task show <task-id> [--format description|full|json]\n")
-			return 1
-		}
-	}
-
-	out, err := cli.TaskShow(db, taskID, format)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "error: %v\n", err)
-		return 1
-	}
-	writeCLIOutput(out)
-	return 0
-}
-
-func writeCLIOutput(out string) {
-	fmt.Print(out)
-	if !strings.HasSuffix(out, "\n") {
-		fmt.Println()
-	}
-}
-
-func runTaskUpdate(db *store.Store, args []string) int {
-	// Parse: legato task update <task-id> [--status <status>] [--title <title>] [--description <text>] [--workspace <name>]
-	if len(args) < 3 {
-		fmt.Fprintf(os.Stderr, "usage: legato task update <task-id> [--status <status>] [--title <title>] [--description <text>] [--workspace <name>]\n")
-		return 1
-	}
-
-	taskID := args[0]
-	var status, title, description, workspace string
-	hasTitle := false
-	hasDescription := false
-	hasWorkspace := false
-	for i := 1; i < len(args); i += 2 {
-		if i+1 >= len(args) {
-			fmt.Fprintf(os.Stderr, "missing value for %s\n", args[i])
-			return 1
-		}
-		switch args[i] {
-		case "--status":
-			status = args[i+1]
-		case "--title":
-			title = args[i+1]
-			hasTitle = true
-		case "--description":
-			description = args[i+1]
-			hasDescription = true
-		case "--workspace":
-			workspace = args[i+1]
-			hasWorkspace = true
-		default:
-			fmt.Fprintf(os.Stderr, "unknown flag: %s\n", args[i])
-			return 1
-		}
-	}
-	if status == "" && !hasTitle && !hasDescription && !hasWorkspace {
-		fmt.Fprintf(os.Stderr, "usage: legato task update <task-id> [--status <status>] [--title <title>] [--description <text>] [--workspace <name>]\n")
-		return 1
-	}
-
-	opts := cli.TaskUpdateOptions{}
-	if status != "" {
-		opts.Status = &status
-	}
-	if hasTitle {
-		opts.Title = &title
-	}
-	if hasDescription {
-		opts.Description = &description
-	}
-	if hasWorkspace {
-		opts.Workspace = &workspace
-	}
-	if err := cli.TaskUpdateFields(db, taskID, opts); err != nil {
-		fmt.Fprintf(os.Stderr, "error: %v\n", err)
-		return 1
-	}
-	return 0
-}
-
-func runTaskDescription(db *store.Store, args []string) int {
-	if len(args) != 2 {
-		fmt.Fprintln(os.Stderr, "usage: legato task description <task-id> <text>")
-		return 1
-	}
-	if err := cli.TaskDescription(db, args[0], args[1]); err != nil {
-		fmt.Fprintf(os.Stderr, "error: %v\n", err)
-		return 1
-	}
-	return 0
-}
-
-func runTaskNote(db *store.Store, args []string) int {
-	// Parse: legato task note <task-id> <message>
-	if len(args) < 2 {
-		fmt.Fprintf(os.Stderr, "usage: legato task note <task-id> <message>\n")
-		return 1
-	}
-
-	taskID := args[0]
-	message := args[1]
-
-	if err := cli.TaskNote(db, taskID, message); err != nil {
-		fmt.Fprintf(os.Stderr, "error: %v\n", err)
-		return 1
-	}
-	return 0
-}
-
-func runTaskLink(db *store.Store, args []string) int {
-	// Parse: legato task link <task-id> [--branch <branch>] [--repo <owner/repo>] [--sha <commit-sha>]
-	if len(args) < 1 {
-		fmt.Fprintf(os.Stderr, "usage: legato task link <task-id> [--branch <branch>] [--repo <owner/repo>] [--sha <commit-sha>]\n")
-		return 1
-	}
-
-	taskID := args[0]
-	var branch, repo, sha string
-	for i := 1; i < len(args)-1; i++ {
-		switch args[i] {
-		case "--branch":
-			branch = args[i+1]
-		case "--repo":
-			repo = args[i+1]
-		case "--sha":
-			sha = args[i+1]
-		}
-	}
-
-	if err := cli.TaskLink(db, taskID, branch, repo, sha); err != nil {
-		fmt.Fprintf(os.Stderr, "error: %v\n", err)
-		return 1
-	}
-	if branch == "" {
-		fmt.Println("Linked current branch to task", taskID)
-	} else {
-		fmt.Printf("Linked branch %q to task %s\n", branch, taskID)
-	}
-	return 0
-}
-
-func runTaskUnlink(db *store.Store, args []string) int {
-	// Parse: legato task unlink <task-id>
-	if len(args) < 1 {
-		fmt.Fprintf(os.Stderr, "usage: legato task unlink <task-id>\n")
-		return 1
-	}
-
-	taskID := args[0]
-	if err := cli.TaskUnlink(db, taskID); err != nil {
-		fmt.Fprintf(os.Stderr, "error: %v\n", err)
-		return 1
-	}
-	fmt.Println("Unlinked branch from task", taskID)
-	return 0
-}
-
-func runAgentCmd(args []string) int {
-	if len(args) == 0 {
-		fmt.Fprintf(os.Stderr, "usage: legato agent [state|summary] ...\n")
-		return 1
-	}
-
-	switch args[0] {
-	case "state":
-		return runAgentState(args[1:])
-	case "summary":
-		return runAgentSummary(args[1:])
-	case "status":
-		return runAgentStatus(args[1:])
-	case "session-created":
-		return runAgentSessionCreated(args[1:])
-	default:
-		fmt.Fprintf(os.Stderr, "unknown agent command: %s\n", args[0])
-		return 1
-	}
-}
-
 // wireTaskAgents makes deleting or archiving a task stop its agents, in
 // every slot.
 func wireTaskAgents(board service.BoardService, agents service.AgentService) {
@@ -1224,228 +847,6 @@ func wireTaskAgents(board service.BoardService, agents service.AgentService) {
 	stopper, stops := agents.(service.TaskAgentsStopper)
 	if ok && stops {
 		holder.SetTaskAgents(stopper)
-	}
-}
-
-func runAgentSessionCreated(args []string) int {
-	if len(args) != 2 {
-		fmt.Fprintln(os.Stderr, "usage: legato agent session-created <task-id> <session-id>")
-		return 1
-	}
-	cfg, err := config.Load()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "config: %v\n", err)
-		return 1
-	}
-	db, err := openStore(cfg)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "database: %v\n", err)
-		return 1
-	}
-	defer db.Close()
-	if err := cli.AgentSessionCreated(db, args[0], args[1]); err != nil {
-		fmt.Fprintf(os.Stderr, "error: %v\n", err)
-		return 1
-	}
-	return 0
-}
-
-func runAgentState(args []string) int {
-	// Parse: legato agent state <task-id> --execution-id <id> --activity <working|waiting|error|""> [--working-dir <dir>]
-	if len(args) < 1 {
-		fmt.Fprintf(os.Stderr, "usage: legato agent state <task-id> --execution-id <id> --activity <working|waiting|error|\"\"> [--working-dir <dir>]\n")
-		return 1
-	}
-
-	taskID := args[0]
-	activity := ""
-	executionID := ""
-	workingDir := ""
-	for i := 1; i < len(args)-1; i++ {
-		if args[i] == "--activity" {
-			activity = args[i+1]
-		} else if args[i] == "--execution-id" {
-			executionID = args[i+1]
-		} else if args[i] == "--working-dir" {
-			workingDir = args[i+1]
-		}
-	}
-
-	cfg, err := config.Load()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "config: %v\n", err)
-		return 1
-	}
-	db, err := openStore(cfg)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "database: %v\n", err)
-		return 1
-	}
-	defer db.Close()
-
-	var pushNotifier service.Notifier
-	if cfg.Notifications.Ntfy.Topic != "" {
-		pushNotifier = service.NewNtfyNotifier(cfg.Notifications.Ntfy.URL, cfg.Notifications.Ntfy.Topic, cfg.Notifications.Ntfy.Token)
-	}
-	var osNotifier service.Notifier
-	if cfg.Notifications.OS.Enabled {
-		osNotifier = service.NewOSNotifier()
-	}
-	if err := cli.AgentState(db, cli.AgentStateReport{TaskID: taskID, ExecutionID: executionID, Activity: activity, WorkingDir: workingDir}, pushNotifier, osNotifier); err != nil {
-		fmt.Fprintf(os.Stderr, "error: %v\n", err)
-		return 1
-	}
-	return 0
-}
-
-func runAgentSummary(args []string) int {
-	// Parse: legato agent summary [--exclude <task-id>]
-	var excludeTaskID string
-	for i := 0; i < len(args)-1; i++ {
-		if args[i] == "--exclude" {
-			excludeTaskID = args[i+1]
-			break
-		}
-	}
-
-	cfg, err := config.Load()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "config: %v\n", err)
-		return 1
-	}
-	db, err := openStore(cfg)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "database: %v\n", err)
-		return 1
-	}
-	defer db.Close()
-
-	out, err := cli.AgentSummary(db, excludeTaskID)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "error: %v\n", err)
-		return 1
-	}
-	fmt.Print(out)
-	return 0
-}
-
-func runAgentStatus(args []string) int {
-	// Parse: legato agent status <task-id> --format tmux
-	if len(args) < 1 {
-		fmt.Fprintf(os.Stderr, "usage: legato agent status <task-id> --format tmux\n")
-		return 1
-	}
-
-	taskID := args[0]
-	format := ""
-	for i := 1; i < len(args)-1; i++ {
-		if args[i] == "--format" {
-			format = args[i+1]
-			break
-		}
-	}
-	if format == "" {
-		fmt.Fprintf(os.Stderr, "usage: legato agent status <task-id> --format tmux\n")
-		return 1
-	}
-
-	cfg, err := config.Load()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "config: %v\n", err)
-		return 1
-	}
-	db, err := openStore(cfg)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "database: %v\n", err)
-		return 1
-	}
-	defer db.Close()
-
-	out, err := cli.AgentStatus(db, taskID, format)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "error: %v\n", err)
-		return 1
-	}
-	fmt.Print(out)
-	return 0
-}
-
-func runHooksCmd(args []string) int {
-	if len(args) == 0 {
-		fmt.Fprintf(os.Stderr, "usage: legato hooks [install|uninstall] --tool <name[,name...]>\n")
-		return 1
-	}
-
-	toolValue := ""
-	for i := 1; i < len(args)-1; i++ {
-		if args[i] == "--tool" {
-			toolValue = args[i+1]
-			break
-		}
-	}
-	if toolValue == "" {
-		fmt.Fprintf(os.Stderr, "error: hooks %s requires --tool <name[,name...]>\n", args[0])
-		return 1
-	}
-	tools, err := parseHookTools(toolValue)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "error: %v\n", err)
-		return 1
-	}
-
-	registry := service.NewAdapterRegistry()
-
-	// Register known adapters.
-	legatoBin, err := os.Executable()
-	if err != nil {
-		legatoBin = "legato" // fallback
-	}
-	registry.Register(hooks.NewClaudeCodeAdapter(legatoBin))
-	registry.Register(hooks.NewStaccatoAdapter(legatoBin))
-	registry.Register(hooks.NewChimeraAdapter(legatoBin))
-	registry.Register(hooks.NewCodexAdapter(legatoBin))
-	registry.Register(hooks.NewYggdrasilAdapter(legatoBin))
-
-	adapters := make([]service.AIToolAdapter, 0, len(tools))
-	for _, tool := range tools {
-		adapter, getErr := registry.Get(tool)
-		if getErr != nil {
-			fmt.Fprintf(os.Stderr, "error: %v\n", getErr)
-			fmt.Fprintf(os.Stderr, "available tools: %v\n", registry.List())
-			return 1
-		}
-		adapters = append(adapters, adapter)
-	}
-
-	wd, err := os.Getwd()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "error getting working directory: %v\n", err)
-		return 1
-	}
-
-	switch args[0] {
-	case "install":
-		for index, adapter := range adapters {
-			if err := adapter.InstallHooks(wd); err != nil {
-				fmt.Fprintf(os.Stderr, "error installing %s hooks: %v\n", tools[index], err)
-				return 1
-			}
-		}
-		fmt.Printf("Installed %s hooks in %s\n", strings.Join(tools, ", "), wd)
-		return 0
-	case "uninstall":
-		for index, adapter := range adapters {
-			if err := adapter.UninstallHooks(wd); err != nil {
-				fmt.Fprintf(os.Stderr, "error uninstalling %s hooks: %v\n", tools[index], err)
-				return 1
-			}
-		}
-		fmt.Printf("Uninstalled %s hooks from %s\n", strings.Join(tools, ", "), wd)
-		return 0
-	default:
-		fmt.Fprintf(os.Stderr, "unknown hooks command: %s\n", args[0])
-		fmt.Fprintf(os.Stderr, "usage: legato hooks [install|uninstall] --tool <name[,name...]>\n")
-		return 1
 	}
 }
 
@@ -1550,6 +951,8 @@ func runServeCmd(args []string) int {
 			DisablePeerAwareness: !cfg.Agents.PeerAwareness,
 			ReviewsOff:           !cfg.Agents.Reviews,
 			RepositoryGuidance:   repositoryGuidance(cfg, db),
+			ReeveName:            reeveNameFor(db),
+			RepositoryResources:  repositoryResources(cfg),
 		})
 		sweepInterruptedAgents(agentSvc, configuredResourceService(cfg, db))
 		recoverNativeEndpoints(agentSvc)
@@ -1634,15 +1037,18 @@ func runServeCmd(args []string) int {
 	srv.SetSettingsService(wireSettings(db, bus, serveAttention))
 	srv.SetSettingsMover(settingsMover(db), restartAll)
 	serveReeve := wireReeve(srv, db, agentSvc, bus, approvalsRT.approvals)
+	wireReeveVoice(srv, cfg, db, serveReeve, agentSvc, newVoiceService(cfg, tmuxMgr, agentSvc))
 	wireReevePeers(srv, cfg, db, serveReeve, serveAttention)
 	srv.SetReeveRules(reeveRules(db, approvalsRT.approvals))
 	wireReeveEngram(srv, db, approvalsRT.approvals)
 	srv.SetReeveChangeSets(processChangeSets)
+	wireReeveWatches(srv)
 	srv.SetReeveSecrets(processSecrets)
 	srv.SetSettingsImporter(processChangeSets)
 	wireUpdates(srv, updates)
 	srv.SetRestarter(restartAll)
 	srv.SetMacros(cfg.Macros)
+	srv.SetGroupDefaults(cfg.Groups.Defaults)
 	srv.SetTerminalAttacher(terminalAttacher(tmuxMgr))
 	srv.SetSandboxEnabled(cfg.Agents.Sandbox.Enabled)
 	srv.SetFreshClonesEnabled(cfg.RepositoryCache.Enabled)
@@ -1868,12 +1274,17 @@ func runTUI() int {
 			DisablePeerAwareness: !cfg.Agents.PeerAwareness,
 			ReviewsOff:           !cfg.Agents.Reviews,
 			RepositoryGuidance:   repositoryGuidance(cfg, db),
+			ReeveName:            reeveNameFor(db),
+			RepositoryResources:  repositoryResources(cfg),
 		})
 		sweepInterruptedAgents(agentSvc, configuredResourceService(cfg, db))
 		recoverNativeEndpoints(agentSvc)
 		wireTaskAgents(boardSvc, agentSvc)
 		giveAgentsEngrams(agentSvc, db)
 	}
+
+	// Transcription, shared by the TUI and its web server.
+	voiceSvc := newVoiceService(cfg, tmuxMgr, agentSvc)
 
 	icons := theme.NewIcons(cfg.Icons)
 	editor := config.ResolveEditor(cfg)
@@ -1971,15 +1382,18 @@ func runTUI() int {
 			webSrv.SetSettingsService(wireSettings(db, bus, webAttention))
 			webSrv.SetSettingsMover(settingsMover(db), restartAll)
 			webReeve := wireReeve(webSrv, db, agentSvc, bus, approvalsRT.approvals)
+			wireReeveVoice(webSrv, cfg, db, webReeve, agentSvc, voiceSvc)
 			wireReevePeers(webSrv, cfg, db, webReeve, webAttention)
 			webSrv.SetReeveRules(reeveRules(db, approvalsRT.approvals))
 			wireReeveEngram(webSrv, db, approvalsRT.approvals)
 			webSrv.SetReeveChangeSets(processChangeSets)
+			wireReeveWatches(webSrv)
 			webSrv.SetReeveSecrets(processSecrets)
 			webSrv.SetSettingsImporter(processChangeSets)
 			wireUpdates(webSrv, updates)
 			webSrv.SetRestarter(restartAll)
 			webSrv.SetMacros(cfg.Macros)
+			webSrv.SetGroupDefaults(cfg.Groups.Defaults)
 			webSrv.SetTerminalAttacher(terminalAttacher(tmuxMgr))
 			webSrv.SetSandboxEnabled(cfg.Agents.Sandbox.Enabled)
 			webSrv.SetFreshClonesEnabled(cfg.RepositoryCache.Enabled)
@@ -2092,7 +1506,7 @@ func runTUI() int {
 	}
 	registerApprovalAttention(attentionSvc, approvalsRT)
 	_ = attentionSvc.RegisterProducer(service.NewRestartAttentionAdapter(db))
-	_ = attentionSvc.RegisterProducerWithEvents(service.NewEngramAttentionAdapter(db), events.EventAgentStarted, events.EventAgentDied, events.EventAgentCompleted)
+	_ = attentionSvc.RegisterProducerWithEvents(engramAttention(db), events.EventAgentStarted, events.EventAgentDied, events.EventAgentCompleted)
 	if webSrv == nil {
 		wireSettings(db, bus, nil)
 	}
@@ -2114,6 +1528,9 @@ func runTUI() int {
 	// counts it and links to the web UI.
 	app.SetAgentUIService(service.NewAgentUIService(db, bus, service.AgentUIOptions{}), localWebURL(cfg))
 	app.SetGroupDefaults(cfg.Groups.Defaults)
+	app.SetTaskChangedNotifier(func(taskID string) {
+		ipc.Broadcast(ipc.Message{Type: "task_update", TaskID: taskID})
+	})
 	// R opens the Reeve; a in the agents view asks it about an agent.
 	if reeve := newReeveService(db, agentSvc, webSrv, approvalsRT.approvals); reeve != nil {
 		app.SetReeve(reeve)
@@ -2130,24 +1547,15 @@ func runTUI() int {
 	app.SetSparklineWindow(appWindow, appBuckets)
 	app.SetNtfyConfigured(cfg.Notifications.Ntfy.Topic != "")
 
-	// Wire voice dictation when enabled in config. The same service instance
-	// is shared between the TUI (recorder-based) and web (PCM-based) paths.
-	var voiceSvc *service.VoiceService
-	if cfg.Voice.Enabled && cfg.Voice.WhisperURL != "" {
-		voiceSvc = service.NewVoiceService(cfg.Voice.WhisperURL, tmuxMgr, agentSvc, service.VoiceServiceOptions{
-			AutoSend:  cfg.Voice.AutoSend,
-			MicDevice: cfg.Voice.MicDevice,
-		})
+	// Voice dictation: the same service (made with the web server above)
+	// serves the TUI (recorder-based) and web (PCM-based) paths.
+	if voiceSvc != nil {
 		app.SetVoiceService(voiceSvc, cfg.Voice.AutoSend, cfg.Voice.MicDevice)
 	}
 
 	// If the web server was auto-started, tell the TUI to show the indicator.
 	if webSrv != nil {
 		app.SetWebServerRunning(cfg.Web.Port)
-		// Wire voice service into the web server for the web UI voice button.
-		if voiceSvc != nil {
-			webSrv.SetVoiceService(voiceSvc, cfg.Voice.AutoSend)
-		}
 	}
 
 	p := tea.NewProgram(app, tea.WithAltScreen(), tea.WithoutSignalHandler())
@@ -2220,109 +1628,6 @@ func tlsEnabled(cfg *config.Config) bool {
 
 func resolveDataDir(cfg *config.Config) string {
 	return config.ResolveDataDir(cfg)
-}
-
-func runAuthCmd(args []string) int {
-	if len(args) == 0 {
-		fmt.Fprintf(os.Stderr, "usage: legato auth [token|regenerate]\n")
-		return 1
-	}
-
-	cfg, err := config.Load()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "config: %v\n", err)
-		return 1
-	}
-	dataDir := resolveDataDir(cfg)
-
-	switch args[0] {
-	case "token":
-		token, err := auth.ReadToken(dataDir)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "error: %v\n", err)
-			fmt.Fprintf(os.Stderr, "hint: start legato once to auto-generate a token\n")
-			return 1
-		}
-		fmt.Println(token)
-		return 0
-
-	case "regenerate":
-		token, err := auth.RegenerateToken(dataDir)
-		if err != nil {
-			fmt.Fprintf(os.Stderr, "error: %v\n", err)
-			return 1
-		}
-		fmt.Println(token)
-		fmt.Fprintln(os.Stderr, "Token regenerated. All paired devices must re-authenticate.")
-		return 0
-
-	default:
-		fmt.Fprintf(os.Stderr, "unknown auth command: %s\n", args[0])
-		fmt.Fprintf(os.Stderr, "usage: legato auth [token|regenerate]\n")
-		return 1
-	}
-}
-
-func runPairCmd(args []string) int {
-	cfg, err := config.Load()
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "config: %v\n", err)
-		return 1
-	}
-	dataDir := resolveDataDir(cfg)
-
-	token, err := auth.ReadToken(dataDir)
-	if err != nil {
-		fmt.Fprintf(os.Stderr, "error: %v\n", err)
-		fmt.Fprintf(os.Stderr, "hint: start legato once to auto-generate a token\n")
-		return 1
-	}
-
-	// Determine port.
-	port := cfg.Web.Port
-	for i := 0; i < len(args)-1; i++ {
-		if args[i] == "--port" {
-			port = args[i+1]
-			break
-		}
-	}
-	if port == "" {
-		port = "3080"
-	}
-
-	// Determine scheme.
-	scheme := "http"
-	if tlsEnabled(cfg) {
-		scheme = "https"
-	}
-
-	// Build hostname — try configured hostname, fall back to system hostname.
-	host := cfg.Web.TLS.Hostname
-	if host == "" {
-		host, _ = os.Hostname()
-	}
-	if host == "" {
-		host = "localhost"
-	}
-
-	serverURL := fmt.Sprintf("%s://%s:%s", scheme, host, port)
-	pairURI := fmt.Sprintf("legato://pair?url=%s&token=%s", serverURL, token)
-
-	// Render QR code to terminal.
-	qrterminal.GenerateWithConfig(pairURI, qrterminal.Config{
-		Level:     qrterminal.L,
-		Writer:    os.Stdout,
-		BlackChar: qrterminal.BLACK,
-		WhiteChar: qrterminal.WHITE,
-		QuietZone: 2,
-	})
-
-	fmt.Println()
-	fmt.Printf("Server: %s\n", serverURL)
-	fmt.Printf("Token:  %s\n", token)
-	fmt.Println()
-	fmt.Println("Scan the QR code with the Legato PWA to pair, or copy the token above.")
-	return 0
 }
 
 // buildAdapterRoleOverrides extracts the role overrides for a specific adapter
@@ -2587,6 +1892,7 @@ func loadSwarmServiceForCLI() (service.SwarmService, *store.Store, int) {
 		DisablePeerAwareness: !cfg.Agents.PeerAwareness,
 		ReviewsOff:           !cfg.Agents.Reviews,
 		RepositoryGuidance:   repositoryGuidance(cfg, db),
+		RepositoryResources:  repositoryResources(cfg),
 	})
 	attachCredentialChannels(cfg, db, agents)
 

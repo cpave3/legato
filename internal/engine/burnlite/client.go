@@ -12,6 +12,7 @@ import (
 	"net/http"
 	"sort"
 	"strings"
+	"sync"
 	"sync/atomic"
 	"time"
 
@@ -55,11 +56,34 @@ func (e *Error) Is(target error) bool {
 	return false
 }
 
-// Client calls one Burnlite's tools.
+// Client calls one Burnlite's tools. It keeps one MCP session for its calls,
+// so a run of them costs one handshake: Close it when the run is over.
 type Client struct {
 	endpoint string
 	tokens   TokenSource
 	http     *http.Client
+
+	// mu guards the session, and makes the calls of one client take turns.
+	mu      sync.Mutex
+	session *mcp.ClientSession
+	// refused is set when Burnlite answers 401 to a request of the session.
+	refused atomic.Bool
+}
+
+// Close ends the client's MCP session, if it has one. The client can be used
+// again: its next call opens a new session.
+func (c *Client) Close() {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	c.drop()
+}
+
+// drop ends the session. The caller holds mu.
+func (c *Client) drop() {
+	if c.session != nil {
+		_ = c.session.Close()
+		c.session = nil
+	}
 }
 
 // New is a client of the Burnlite at baseURL (https://burnlite.example.com).
@@ -167,13 +191,51 @@ type wireRow struct {
 // ListTasks lists a Project's Tasks (project is its key or id) in a state:
 // open, closed or any.
 func (c *Client) ListTasks(ctx context.Context, project, state string) ([]TaskRow, error) {
+	return c.listTasks(ctx, map[string]any{"projectId": project, "state": state})
+}
+
+// ListTasksSince lists the Tasks of a Project, in a state, whose updatedAt
+// is after since: what changed, and nothing when nothing did. A Task that
+// was deleted is not among them, so only ListTasks says a Task is gone.
+func (c *Client) ListTasksSince(ctx context.Context, project, state string, since time.Time) ([]TaskRow, error) {
+	return c.listTasks(ctx, map[string]any{"projectId": project, "state": state,
+		"updated_since": since.UTC().Format("2006-01-02T15:04:05.000Z")})
+}
+
+func (c *Client) listTasks(ctx context.Context, args map[string]any) ([]TaskRow, error) {
 	var out struct {
 		Tasks []wireRow `json:"tasks"`
 	}
-	if err := c.call(ctx, "list_tasks", map[string]any{"projectId": project, "state": state}, &out); err != nil {
+	if err := c.call(ctx, "list_tasks", args, &out); err != nil {
 		return nil, err
 	}
 	return readRows(out.Tasks), nil
+}
+
+// MilestoneRow is a Milestone as list_milestones gives it: no text and no
+// Tasks. UpdatedAt is when the Milestone or any of its Tasks last changed;
+// it is zero from a Burnlite too old to say.
+type MilestoneRow struct {
+	Key       string
+	UpdatedAt time.Time
+}
+
+// ListMilestones lists a Project's Milestones, open and closed.
+func (c *Client) ListMilestones(ctx context.Context, project string) ([]MilestoneRow, error) {
+	var out struct {
+		Milestones []struct {
+			Key       string `json:"key"`
+			UpdatedAt string `json:"updatedAt"`
+		} `json:"milestones"`
+	}
+	if err := c.call(ctx, "list_milestones", map[string]any{"projectId": project, "state": "any"}, &out); err != nil {
+		return nil, err
+	}
+	rows := make([]MilestoneRow, len(out.Milestones))
+	for i, m := range out.Milestones {
+		rows[i] = MilestoneRow{Key: m.Key, UpdatedAt: parseTime(m.UpdatedAt)}
+	}
+	return rows, nil
 }
 
 func readRows(wire []wireRow) []TaskRow {
@@ -202,6 +264,9 @@ type Milestone struct {
 	Description string
 	Labels      []string
 	Tasks       []TaskRow
+	// UpdatedAt is when the Milestone or any of its Tasks last changed;
+	// zero from a Burnlite too old to say.
+	UpdatedAt time.Time
 }
 
 // GetMilestone reads a Milestone by its key.
@@ -216,6 +281,7 @@ func (c *Client) GetMilestone(ctx context.Context, key string) (*Milestone, erro
 			Description *string   `json:"description"`
 			Labels      []string  `json:"labels"`
 			Tasks       []wireRow `json:"tasks"`
+			UpdatedAt   string    `json:"updatedAt"`
 		} `json:"milestone"`
 	}
 	if err := c.call(ctx, "get_milestone", map[string]any{"milestoneId": key}, &out); err != nil {
@@ -223,7 +289,7 @@ func (c *Client) GetMilestone(ctx context.Context, key string) (*Milestone, erro
 	}
 	w := out.Milestone
 	return &Milestone{Key: w.Key, URL: w.URL, Name: w.Name, State: w.State, CloseReason: deref(w.CloseReason),
-		Description: deref(w.Description), Labels: w.Labels, Tasks: readRows(w.Tasks)}, nil
+		Description: deref(w.Description), Labels: w.Labels, Tasks: readRows(w.Tasks), UpdatedAt: parseTime(w.UpdatedAt)}, nil
 }
 
 // GetTask gets one Task by key (EST-42) or id.
@@ -281,22 +347,17 @@ func (c *Client) GetTask(ctx context.Context, key string) (*Task, error) {
 // call runs a tool and decodes its structured result into out. A token
 // Burnlite refuses is replaced once.
 func (c *Client) call(ctx context.Context, tool string, args map[string]any, out any) error {
-	token, err := c.tokens.Token(ctx, false)
-	if err != nil {
-		return fmt.Errorf("burnlite: %w", err)
-	}
-	result, refused, err := c.callWith(ctx, token, tool, args)
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	result, refused, err := c.callWith(ctx, false, tool, args)
 	if refused {
-		if token, err = c.tokens.Token(ctx, true); err != nil {
-			return fmt.Errorf("burnlite: %w", err)
-		}
-		result, refused, err = c.callWith(ctx, token, tool, args)
+		result, refused, err = c.callWith(ctx, true, tool, args)
 		if refused {
 			return ErrUnauthorized
 		}
 	}
 	if err != nil {
-		return fmt.Errorf("burnlite: %s: %w", tool, err)
+		return err
 	}
 	if result.IsError {
 		return toolError(result)
@@ -311,10 +372,38 @@ func (c *Client) call(ctx context.Context, tool string, args map[string]any, out
 	return nil
 }
 
-// callWith runs a tool with a token. refused says Burnlite answered 401.
-// Burnlite's endpoint keeps no sessions, so each call is a session of its own.
-func (c *Client) callWith(ctx context.Context, token, tool string, args map[string]any) (*mcp.CallToolResult, bool, error) {
-	var status atomic.Int32
+// callWith runs a tool in the client's session, which it opens when there is
+// none; newToken opens a new one with a new token. refused says Burnlite
+// answered 401. A call that fails ends the session, so the next one starts
+// clean. The caller holds mu.
+func (c *Client) callWith(ctx context.Context, newToken bool, tool string, args map[string]any) (*mcp.CallToolResult, bool, error) {
+	if newToken {
+		c.drop()
+	}
+	c.refused.Store(false)
+	if c.session == nil {
+		token, err := c.tokens.Token(ctx, newToken)
+		if err != nil {
+			return nil, false, fmt.Errorf("burnlite: %w", err)
+		}
+		session, err := c.connect(ctx, token)
+		if err != nil {
+			return nil, c.refused.Load(), fmt.Errorf("burnlite: %s: %w", tool, err)
+		}
+		c.session = session
+	}
+	result, err := c.session.CallTool(ctx, &mcp.CallToolParams{Name: tool, Arguments: args})
+	if err != nil {
+		c.drop()
+		return nil, c.refused.Load(), fmt.Errorf("burnlite: %s: %w", tool, err)
+	}
+	return result, false, nil
+}
+
+// connect opens an MCP session that sends token. Burnlite's endpoint keeps
+// no sessions of its own, so the session is the handshake and nothing more:
+// it holds no stream open, and its calls are plain requests.
+func (c *Client) connect(ctx context.Context, token string) (*mcp.ClientSession, error) {
 	client := *c.http
 	base := client.Transport
 	if base == nil {
@@ -325,21 +414,12 @@ func (c *Client) callWith(ctx context.Context, token, tool string, args map[stri
 		r.Header.Set("Authorization", "Bearer "+token)
 		resp, err := base.RoundTrip(r)
 		if resp != nil && resp.StatusCode == http.StatusUnauthorized {
-			status.Store(http.StatusUnauthorized)
+			c.refused.Store(true)
 		}
 		return resp, err
 	})
 	mc := mcp.NewClient(&mcp.Implementation{Name: "legato", Version: "1"}, nil)
-	session, err := mc.Connect(ctx, &mcp.StreamableClientTransport{Endpoint: c.endpoint, HTTPClient: &client, MaxRetries: -1, DisableStandaloneSSE: true}, nil)
-	if err != nil {
-		return nil, status.Load() == http.StatusUnauthorized, err
-	}
-	defer session.Close()
-	result, err := session.CallTool(ctx, &mcp.CallToolParams{Name: tool, Arguments: args})
-	if err != nil {
-		return nil, status.Load() == http.StatusUnauthorized, err
-	}
-	return result, false, nil
+	return mc.Connect(ctx, &mcp.StreamableClientTransport{Endpoint: c.endpoint, HTTPClient: &client, MaxRetries: -1, DisableStandaloneSSE: true}, nil)
 }
 
 type roundTripper func(*http.Request) (*http.Response, error)

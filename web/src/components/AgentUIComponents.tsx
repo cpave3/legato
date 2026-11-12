@@ -217,7 +217,7 @@ function renderComponent(component: UIComponent, at: number, card: CardContext):
             <button
               key={index}
               type="button"
-              title="Puts this in your message box. Nothing is sent until you send it."
+              title="Puts this in your message box"
               onClick={() => item.message && onProposeMessage(item.message)}
               className="min-h-9 rounded border border-zinc-600 bg-zinc-800 px-3 py-1.5 text-xs font-medium text-zinc-200 transition-colors hover:border-zinc-500 hover:bg-zinc-700"
             >

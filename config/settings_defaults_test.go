@@ -15,6 +15,10 @@ func TestANilSettingReportsTheDefaultTheRuntimeUses(t *testing.T) {
 		"notifications.handoff":         true,
 		"agents.sandbox.default_mounts": true,
 		"reeve.host_operations":         true,
+		"reeve.host_operations_auto":    false,
+		// ReeveVoiceConfig.PartialsOn: nil is on.
+		"reeve.voice.partials": true,
+		"reeve.watch.started":  true,
 		// cmd/legato announceWebServer: off only when set to false.
 		"web.discovery": true,
 		// GHChannelConfig.IsolateLogin: nil is on.

@@ -5,6 +5,7 @@ import { moveSettings, resetConfigSetting, setConfigSetting, type ConfigSetting 
 import { queryKeys } from "../../lib/query"
 import { cn } from "../../lib/utils"
 import { SettingsRows, Toggle } from "./SettingsUI"
+import { useReeveName } from "../../lib/reeveName"
 
 // SettingSource says where a setting's value comes from: the default,
 // config.yaml (pinned, with a lock), or set here (with Reset), and whether it
@@ -37,6 +38,7 @@ export function SettingSource({ setting, onReset, busy }: { setting: ConfigSetti
 // useSettingActions sets and resets one setting, refetching the registry.
 function useSettingActions(baseUrl: string) {
   const queryClient = useQueryClient()
+  const reeve = useReeveName()
   const [busy, setBusy] = useState("")
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [notices, setNotices] = useState<Record<string, string>>({})
@@ -47,7 +49,7 @@ function useSettingActions(baseUrl: string) {
     try {
       const result = await action() as { status?: string } | undefined
       if (result?.status === "needs_signature") {
-        setNotices((n) => ({ ...n, [key]: "This is one of the Reeve's own rules: it changes once you approve it on your phone or with a passkey." }))
+        setNotices((n) => ({ ...n, [key]: `This is one of ${reeve.mid}'s own rules: it changes once you approve it on your phone or with a passkey.` }))
       }
       await queryClient.invalidateQueries({ queryKey: queryKeys.configSettings(baseUrl) })
       await queryClient.invalidateQueries({ queryKey: queryKeys.settings(baseUrl) })
@@ -108,7 +110,7 @@ export function RegistrySettingRow({ setting, baseUrl, actions }: { setting: Con
   const own = useSettingActions(baseUrl)
   const { busy, errors, notices, set, reset, move } = actions ?? own
   return (
-    <div className="flex min-h-16 flex-wrap items-center gap-3 px-4 py-3" data-testid={`setting-${setting.key}`}>
+    <div className="flex min-h-16 flex-wrap items-center gap-3 px-4 py-3" id={`setting-${setting.key}`} data-testid={`setting-${setting.key}`}>
       <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-lw-raised text-lw-link">
         {setting.pinned ? <Lock size={15} aria-label="Pinned by config.yaml" /> : <SlidersHorizontal size={15} aria-hidden />}
       </span>

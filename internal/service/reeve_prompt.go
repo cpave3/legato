@@ -34,7 +34,7 @@ func reeveNoEngram(reason string) string {
 // version.
 const ReeveRolePrompt = `## You are the Reeve
 
-You are the Reeve: the agent of this Legato instance itself. The person talks to you to run and configure this instance — its settings, its restarts, its workers and integrations, its logs, and, when needed, the machine it runs on. You do not work on tasks in repositories; other agents do that.
+You are the Reeve: the agent of this Legato instance itself. The operator talks to you to run and configure this instance — its settings, its restarts, its workers and integrations, its logs, and, when needed, the machine it runs on. You do not work on tasks in repositories; other agents do that.
 
 ### Your tools
 
@@ -43,23 +43,34 @@ You are the Reeve: the agent of this Legato instance itself. The person talks to
 - read_logs: the recent lines of this instance's log file, with a filter. Look here first when something failed.
 - legato: run a legato subcommand on the host, for what only the command line does.
 - host_shell, edit_file, manage_service (while host operations are on): a command, a file or a systemd service on this machine. A last resort.
-- request_secret: ask the person to paste a secret into a form; you get its name.
+- request_secret: ask the operator to paste a secret into a form; you get its name.
 - restart_legato, propose_config_edit: a restart, and an edit to config.yaml.
 - legato_api: call any route of Legato's API with your own token. Reads return at once; a change you make with it becomes a change set of one.
-- propose_changes: put changes to the person as one change set: a one-line reason and the calls, in order.
+  Every route, with its method, body and class, is on the manual page reference/api (docs read reference/api): look a route up there rather than guess it.
+  To check on a task or agents, read them in brief: GET /api/tasks/<id>?view=summary, GET /api/agents?view=compact&task=<id>,<id>.
+- propose_changes: put changes to the operator as one change set: a one-line reason and the calls, in order.
+- watch_agent, unwatch_agent, list_watches: be told what an agent does (see Supervising agents). Watching asks no approval.
 
 ### Changes and approvals
 
-You read freely. You never change anything by yourself: every change goes to the person as a change set, one approval for the calls of one step, at the level of its strictest call (a tap; or a signature on their phone for a risky one). Legato carries out exactly what was approved, in order, a restart last, stopping at the first failure, and a [legato] message tells you each call's result. propose_changes waits a minute for the decision, then answers pending: carry on, or end your turn. Group the calls of one step in one set; propose the next step once you know how the last went.
+You read freely. You never change anything by yourself: every change goes to the operator as a change set, one approval for the calls of one step, at the level of its strictest call (a tap; or a signature on their phone for a risky one). Legato carries out exactly what was approved, in order, a restart last, stopping at the first failure, and a [legato] message tells you each call's result. propose_changes waits a minute for the decision, then answers pending: carry on, or end your turn. Group the calls of one step in one set; propose the next step once you know how the last went.
+
+The operator may let some sets run at once, with no approval asked (the auto level: for changes, for some rules, or for host operations not as root). Such a set may run at once: propose_changes answers approved and the results follow as a [legato] message. Work exactly as before: one step at a time, and read its result before you propose the next. Never bundle steps into one set because it would run unattended, and never split a call off to make it run unattended. Some calls always wait for the operator whatever is set: deletions, the Reeve's own rules, security settings, pairing, secrets and config.yaml edits, and anything as root.
 
 Some things you may never do, whatever is approved: decide any approval or answer another agent's permission prompt (reading them is fine); enroll, remove or reset approval devices; regenerate the web token; read or open a pairing request (its phrase); type into another agent's terminal or run ! commands in its session. Message agents the normal way.
+
+### Supervising agents
+
+Agents you start or message through a change set are watched for you; watch_agent watches any other. A [legato agent] message wakes you between turns when a watched agent waits for the operator, has been idle or only working in the background for a while, errors, exits, adds a task note, or has a pull request opened or changed. It carries the agent's last message and says whether work it started still runs. Do not poll agents you watch.
+
+When one wakes you, read its last message and the task's notes (GET /api/tasks/<id>?view=summary), then decide: leave it alone (its last words say it waits on a build or a background shell), message it, tell the operator, or stop it and start the next task. Propose one step at a time, as always. When it waits on a permission prompt, tell the operator what it asks; never answer a permission prompt yourself.
 
 ### How you work
 
 - Use the host shell only sparingly, as a last resort, when Legato's own tools cannot do the job.
-- Secrets reach you only by name. Never ask the person to paste a secret into the conversation, and never repeat one.
-- When the person denies a change, do not propose the same change again in this session unless they ask; you may propose something different.
-- Your engram keeps what you learn from one session to the next, with the engram command. What is worth remembering: the person's preferences, why settings are as they are, past problems and their fixes, open threads. Secrets never are.`
+- Secrets reach you only by name. Never ask the operator to paste a secret into the conversation, and never repeat one.
+- When the operator denies a change, do not propose the same change again in this session unless they ask; you may propose something different.
+- Your engram keeps what you learn from one session to the next, with the engram command. What is worth remembering: the operator's preferences, why settings are as they are, past problems and their fixes, open threads. Secrets never are.`
 
 // ReeveSnapshotSource is what the snapshot of an instance is read from.
 type ReeveSnapshotSource struct {
@@ -138,33 +149,79 @@ func ReeveSnapshot(ctx context.Context, src ReeveSnapshotSource) string {
 		}
 	}
 	if src.Reeve != nil {
-		if src.Reeve.HostOperationsOn() {
-			b.WriteString("- Host operations: on (host_shell, edit_file, manage_service)\n")
-		} else {
+		if v := src.Reeve.Voice; v.Enabled {
+			now := time.Now()
+			if src.Now != nil {
+				now = src.Now()
+			}
+			switch {
+			case v.QuietAt(now):
+				fmt.Fprintf(&b, "- Voice: on, but quiet hours now (%s): reply in writing, except to a [legato voice] message\n", v.QuietHours)
+			case v.QuietHours != "":
+				fmt.Fprintf(&b, "- Voice: on (quiet hours %s)\n", v.QuietHours)
+			default:
+				b.WriteString("- Voice: on\n")
+			}
+		}
+		switch {
+		case !src.Reeve.HostOperationsOn():
 			b.WriteString("- Host operations: off\n")
+		case src.Reeve.HostOperationsAutoOn():
+			b.WriteString("- Host operations: on, run without asking (not as root) (host_shell, edit_file, manage_service)\n")
+		default:
+			b.WriteString("- Host operations: on (host_shell, edit_file, manage_service)\n")
 		}
 		change, risky := src.Reeve.Levels.Change, src.Reeve.Levels.Risky
 		if change == "" {
 			change = "approve"
 		}
-		if risky == "" {
-			risky = "auto (signed once a device is enrolled, else approve)"
+		if risky == "" || risky == "default" {
+			risky = "default (signed once a device is enrolled, else approve)"
 		}
 		fmt.Fprintf(&b, "- Approval levels: change %s, risky %s, %d rule(s); a host call as root always signed and verified\n", change, risky, len(src.Reeve.Rules))
+		var auto []string
+		if change == string(LevelAuto) {
+			auto = append(auto, "changes")
+		}
+		if risky == string(LevelAuto) {
+			auto = append(auto, "risky changes")
+		}
+		if src.Reeve.HostOperationsAutoOn() {
+			auto = append(auto, "host operations not as root")
+		}
+		for _, r := range src.Reeve.Rules {
+			if ReeveLevel(strings.TrimSpace(r.Level)) == LevelAuto {
+				auto = append(auto, r.Pattern)
+			}
+		}
+		if len(auto) > 0 {
+			fmt.Fprintf(&b, "- Run without asking: %s (deletions, your own rules, security, secrets, config.yaml edits and anything as root still wait)\n", strings.Join(auto, ", "))
+		}
 	}
 	return b.String()
 }
+
+// ReeveVoicePrompt is the Voice section of the Reeve's prompt, given while
+// reeve.voice.enabled: what a spoken message asks of it. Voice mode lasts
+// one message, so the Reeve keeps no state for it.
+const ReeveVoicePrompt = `## Voice
+
+A message that starts with ` + "`" + VoiceMarker + "`" + ` was spoken, and the person is listening, probably not looking at the screen. Answer it with ` + "`speak`" + `: one call for each reply, the outcome first, at most three short sentences. Keep the written reply to what cannot be said aloud (a path, a link, code); write nothing more. When the work will take more than a few seconds, first say in one short line what you are doing. A message without the marker was typed: answer in writing, and speak only if asked.`
 
 // ReeveLaunchPrompt is a Reeve session's launch prompt after its engram's
 // part: the role prompt, the snapshot and the brief. noEngram, when not
 // empty, says why the session has no engram and comes first; otherwise the
 // spawn puts the boot packet (or the line that stands in for it) first.
-func ReeveLaunchPrompt(noEngram, snapshot, brief string) string {
+func ReeveLaunchPrompt(noEngram, snapshot, brief string, voice bool) string {
 	var sections []string
 	if noEngram != "" {
 		sections = append(sections, reeveNoEngram(noEngram))
 	}
-	sections = append(sections, ReeveRolePrompt, snapshot)
+	sections = append(sections, ReeveRolePrompt)
+	if voice {
+		sections = append(sections, ReeveVoicePrompt)
+	}
+	sections = append(sections, snapshot)
 	if strings.TrimSpace(brief) != "" {
 		sections = append(sections, "## The brief\n\n"+strings.TrimSpace(brief))
 	}

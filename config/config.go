@@ -335,9 +335,12 @@ type AgentsConfig struct {
 	Reviews bool `yaml:"reviews"`
 	// Guidance is text for the launch prompt of agents working in a
 	// repository; see AgentGuidance.
-	Guidance []AgentGuidance    `yaml:"guidance"`
-	MCP      AgentMCPConfig     `yaml:"mcp"`
-	Sandbox  AgentSandboxConfig `yaml:"sandbox"`
+	Guidance []AgentGuidance `yaml:"guidance"`
+	// RepositoryResources gives named resources to every agent working in
+	// a repository; see RepositoryResources.
+	RepositoryResources []RepositoryResources `yaml:"repository_resources"`
+	MCP                 AgentMCPConfig        `yaml:"mcp"`
+	Sandbox             AgentSandboxConfig    `yaml:"sandbox"`
 }
 
 // AgentMCPConfig configures the tools Legato gives the agents it launches,
@@ -484,6 +487,11 @@ func LoadBytes(data []byte) (*Config, error) {
 	}
 
 	cfg.Macros = rawMacros
+	// Before auto was a level, risky's auto meant the default: a file
+	// written then keeps that meaning. Risky auto is chosen in Settings.
+	if strings.TrimSpace(cfg.Reeve.Levels.Risky) == "auto" {
+		cfg.Reeve.Levels.Risky = "default"
+	}
 	if len(cfg.Repositories) == 0 && len(cfg.Workflows.Repositories) > 0 {
 		cfg.Repositories = append([]RepositoryConfig(nil), cfg.Workflows.Repositories...)
 	}
@@ -505,6 +513,9 @@ func validate(cfg *Config) error {
 	}
 	if err := ValidateSwarmConfig(cfg); err != nil {
 		return err
+	}
+	if err := CheckReeveName(cfg.Reeve.Name); err != nil {
+		return fmt.Errorf("reeve.name: %w", err)
 	}
 	if err := ValidateRepositoryCache(cfg); err != nil {
 		return err
@@ -534,6 +545,9 @@ func validate(cfg *Config) error {
 		return err
 	}
 	if err := normalizeResources(cfg); err != nil {
+		return err
+	}
+	if err := normalizeRepositoryResources(cfg); err != nil {
 		return err
 	}
 	if err := normalizeAgentSandbox(cfg); err != nil {
@@ -1071,6 +1085,9 @@ type UpdatesConfig struct {
 // ReeveConfig is the Reeve's defaults: the agent tool a session runs, its
 // model or tier, and launch arguments. See docs/ai/reeve.md.
 type ReeveConfig struct {
+	// Name is what this instance's Reeve is called where the UI would say
+	// "the Reeve"; empty keeps "the Reeve". Plain text (CheckReeveName).
+	Name       string   `yaml:"name"`
 	Agent      string   `yaml:"agent"`
 	Model      string   `yaml:"model"`
 	LaunchArgs []string `yaml:"launch_args"`
@@ -1085,6 +1102,10 @@ type ReeveConfig struct {
 	// HostOperations offers the Reeve host_shell, edit_file and
 	// manage_service. On when unset; one of its own rules.
 	HostOperations *bool `yaml:"host_operations"`
+	// HostOperationsAuto runs host operations that are not as root at once,
+	// with no approval asked: the Reeve can then run any command as
+	// Legato's user. Off when unset; one of its own rules.
+	HostOperationsAuto *bool `yaml:"host_operations_auto"`
 	// HostTimeout bounds one host command (10m when empty);
 	// HostOutputCap is how much of its output the Reeve is given (64 KiB
 	// when 0), the rest kept in a file it can read.
@@ -1096,6 +1117,22 @@ type ReeveConfig struct {
 	Peer string `yaml:"peer"`
 	// Voice lets the Reeve speak out loud (its speak tool).
 	Voice ReeveVoiceConfig `yaml:"voice"`
+	// Watch is how the Reeve watches agents (docs/ai/reeve.md § Watching
+	// agents).
+	Watch ReeveWatchConfig `yaml:"watch"`
+}
+
+// ReeveWatchConfig is how the Reeve watches agents and is woken by them.
+type ReeveWatchConfig struct {
+	// Settle is how long an agent must stay idle or in the background
+	// before the Reeve is told: a Go duration, 30s when empty.
+	Settle string `yaml:"settle"`
+	// Started watches every agent the Reeve starts or messages. On when
+	// unset.
+	Started *bool `yaml:"started"`
+	// Wake starts or resumes the Reeve to tell it what a watched agent
+	// did; off, the events wait for its next session.
+	Wake bool `yaml:"wake"`
 }
 
 // ReeveVoiceConfig is the Reeve's voice: a command that makes a line's
@@ -1114,7 +1151,100 @@ type ReeveVoiceConfig struct {
 	// Player plays the file, named after it; pw-play, else ffplay, when
 	// empty.
 	Player string `yaml:"player"`
+	// Pause is the quiet that ends a spoken turn (1s when empty,
+	// 0.3–2s); FollowUp how long the voice listens for a reply after the
+	// Reeve has spoken (6s when empty, 0 for a single turn); Partials
+	// transcribes the words so far while the person speaks (on when unset).
+	Pause    string `yaml:"pause"`
+	FollowUp string `yaml:"follow_up"`
+	Partials *bool  `yaml:"partials"`
+	// QuietHours, as 22:00-07:00 in this machine's local time, keeps lines
+	// off the host's speakers; empty for none.
+	QuietHours string `yaml:"quiet_hours"`
 }
+
+// ParseQuietHours reads a range of hours, as 22:00-07:00, into minutes
+// after midnight.
+func ParseQuietHours(s string) (from, to int, err error) {
+	start, end, ok := strings.Cut(strings.TrimSpace(s), "-")
+	if !ok {
+		return 0, 0, errors.New("want a range such as 22:00-07:00")
+	}
+	minutes := func(v string) (int, error) {
+		t, err := time.Parse("15:04", strings.TrimSpace(v))
+		if err != nil {
+			return 0, fmt.Errorf("%q is not a time such as 07:00", strings.TrimSpace(v))
+		}
+		return t.Hour()*60 + t.Minute(), nil
+	}
+	if from, err = minutes(start); err != nil {
+		return 0, 0, err
+	}
+	if to, err = minutes(end); err != nil {
+		return 0, 0, err
+	}
+	if from == to {
+		return 0, 0, errors.New("the range starts and ends at the same time")
+	}
+	return from, to, nil
+}
+
+// QuietAt reports whether t, in local time, is in the quiet hours.
+func (c ReeveVoiceConfig) QuietAt(t time.Time) bool {
+	if strings.TrimSpace(c.QuietHours) == "" {
+		return false
+	}
+	from, to, err := ParseQuietHours(c.QuietHours)
+	if err != nil {
+		return false
+	}
+	t = t.Local()
+	now := t.Hour()*60 + t.Minute()
+	if from < to {
+		return now >= from && now < to
+	}
+	return now >= from || now < to
+}
+
+// Hands-free voice's pause bounds and defaults.
+const (
+	DefaultVoicePause    = time.Second
+	MinVoicePause        = 300 * time.Millisecond
+	MaxVoicePause        = 2 * time.Second
+	DefaultVoiceFollowUp = 6 * time.Second
+)
+
+// PauseDuration is the quiet that ends a spoken turn, kept to 0.3–2s.
+func (c ReeveVoiceConfig) PauseDuration() time.Duration {
+	d, err := time.ParseDuration(strings.TrimSpace(c.Pause))
+	switch {
+	case err != nil || d <= 0:
+		return DefaultVoicePause
+	case d < MinVoicePause:
+		return MinVoicePause
+	case d > MaxVoicePause:
+		return MaxVoicePause
+	}
+	return d
+}
+
+// FollowUpDuration is how long the voice listens for a reply; 0 is a
+// single turn.
+func (c ReeveVoiceConfig) FollowUpDuration() time.Duration {
+	v := strings.TrimSpace(c.FollowUp)
+	if v == "0" {
+		return 0
+	}
+	d, err := time.ParseDuration(v)
+	if err != nil || d < 0 {
+		return DefaultVoiceFollowUp
+	}
+	return d
+}
+
+// PartialsOn reports whether the words so far are transcribed while the
+// person speaks (the default).
+func (c ReeveVoiceConfig) PartialsOn() bool { return c.Partials == nil || *c.Partials }
 
 // CredentialVariable is the variable the voice command gets its
 // credential in: CredentialEnv, else the credential's name in capitals
@@ -1129,6 +1259,13 @@ func (c ReeveVoiceConfig) CredentialVariable() string {
 
 // HostOperationsOn reports whether host operations are on (the default).
 func (c ReeveConfig) HostOperationsOn() bool { return c.HostOperations == nil || *c.HostOperations }
+
+// HostOperationsAutoOn reports whether host operations not as root run
+// without an approval (off by default, and never while host operations
+// are off).
+func (c ReeveConfig) HostOperationsAutoOn() bool {
+	return c.HostOperationsOn() && c.HostOperationsAuto != nil && *c.HostOperationsAuto
+}
 
 // HostCommandTimeout is how long one host command may run.
 func (c ReeveConfig) HostCommandTimeout() time.Duration {
@@ -1146,9 +1283,12 @@ func (c ReeveConfig) HostOutputLimit() int {
 	return 64 << 10
 }
 
-// ReeveLevels is the level of each class: approve (a tap), signed (an
-// enrolled device), verified (signed, with a fingerprint or a PIN). Risky
-// may also be auto: signed once a device is enrolled, else approve.
+// ReeveLevels is the level of each class: auto (runs at once, no
+// approval asked), approve (a tap), signed (an enrolled device), verified
+// (signed, with a fingerprint or a PIN). Risky may also be default (the
+// default): signed once a device is enrolled, else approve. In
+// config.yaml, risky: auto is read as default, its meaning before auto
+// was a level.
 type ReeveLevels struct {
 	Change string `yaml:"change"`
 	Risky  string `yaml:"risky"`
@@ -1160,6 +1300,21 @@ type ReeveLevels struct {
 type ReeveRule struct {
 	Pattern string `yaml:"pattern"`
 	Level   string `yaml:"level"`
+}
+
+// WatchSettle is how long a watched agent must stay idle or in the
+// background before the Reeve is told: 30s when empty or not a duration.
+func (c ReeveConfig) WatchSettle() time.Duration {
+	if d, err := time.ParseDuration(c.Watch.Settle); err == nil && d > 0 {
+		return d
+	}
+	return 30 * time.Second
+}
+
+// WatchStarted says whether the agents the Reeve starts are watched: on
+// unless set off.
+func (c ReeveConfig) WatchStarted() bool {
+	return c.Watch.Started == nil || *c.Watch.Started
 }
 
 // ReeveIdleTimeout is the Reeve's idle time before a session is suspended.

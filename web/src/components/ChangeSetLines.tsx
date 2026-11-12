@@ -45,6 +45,7 @@ export function ChangeSetLines({ baseUrl, taskId, refresh }: { baseUrl: string; 
             <span className="min-w-0 truncate text-lw-text">{set.reason}</span>
             <span aria-hidden="true" className="text-lw-faint">·</span>
             <span className={cn("shrink-0", state.tone)}>{state.text}</span>
+            {set.auto && <span title="Ran without asking" className="shrink-0 rounded border border-lw-line px-1 text-[10px] uppercase tracking-wide text-lw-text-2">auto</span>}
           </li>
         )
       })}

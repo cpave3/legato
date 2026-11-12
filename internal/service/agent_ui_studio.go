@@ -65,14 +65,14 @@ func AgentUIStoryboard(item *AgentUIItem) (path string, ok bool) {
 func StudioNote(storyboard, method, rest string, answer []byte) (note string, ok bool) {
 	parts := strings.Split(strings.Trim(rest, "/"), "/")
 	asked := func(what string) (string, bool) {
-		return fmt.Sprintf("[legato studio] The person %s in the studio, on the storyboard %s. libretto validate lists the comments that wait for you. "+
+		return fmt.Sprintf("[legato studio] The operator %s in the studio, on the storyboard %s. libretto validate lists the comments that wait for you. "+
 			"Read the storyboard again, do what each comment asks, and delete it when it is done. Then say in a sentence what you changed.", what, storyboard), true
 	}
 	switch {
 	case len(parts) < 2 || parts[0] != "api":
 		return "", false
 	case method == http.MethodPost && len(parts) == 2 && parts[1] == "brief":
-		return fmt.Sprintf("[legato studio] The person wrote what they want the video to cover, in the brief of the storyboard %s. Draft the plan from it now. "+
+		return fmt.Sprintf("[legato studio] The operator wrote what they want the video to cover, in the brief of the storyboard %s. Draft the plan from it now. "+
 			"Give it chapters and scenes, and each scene talking points (notes: two to four short lines starting with \"- \") and a shows line that says in a few words what its picture will be. "+
 			"Draw no pictures yet: a scene with shows and no picture is planned, the studio shows it as a placeholder, and they will change the plan before they agree it. "+
 			"Keep any scene that is already recorded, and what they wrote by hand. Then tell them in a sentence or two what you propose.", storyboard), true
@@ -107,7 +107,7 @@ func StudioNote(storyboard, method, rest string, answer []byte) (note string, ok
 			if !filepath.IsAbs(take) {
 				take = filepath.Join(filepath.Dir(storyboard), take)
 			}
-			return fmt.Sprintf("[legato studio] The person recorded a take in the studio: scene %q, %s, of the storyboard %s. Review it now, without being asked.\n"+
+			return fmt.Sprintf("[legato studio] The operator recorded a take in the studio: scene %q, %s, of the storyboard %s. Review it now, without being asked.\n"+
 				"1. Read what they said: libretto transcribe %s\n"+
 				"2. Write what you make of it with libretto review (its --help has the format): where they covered each talking point, and each stretch that left the plan, with a note to them that says what they went into and what could be done with it. The studio shows it over their transcript, and they decide.\n"+
 				"3. Bring the scene in line with what they said: its narration, a marker before each word where something should happen, and a skip in the take for a false start or a stumble.\n"+

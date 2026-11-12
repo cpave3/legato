@@ -109,6 +109,8 @@ Reloading stops an agent and starts it again with the same tool, directory, reso
 - In the TUI, press `R` in the agents view.
 - In the web UI, choose **Reload agent** in the agent's **More actions** menu.
 
+Legato tells the reloaded agent that its session was reloaded. The web UI shows that as a message from Legato.
+
 Legato refuses to reload an agent that a swarm or a workflow runs, and one that has not reported its conversation yet. The agent keeps running.
 
 Press `U` to reload an agent on the other side of the sandbox: out of it when it runs inside, and back in when it runs outside. Use it when the sandbox blocks something the agent needs.
@@ -119,7 +121,7 @@ When the machine goes down, or tmux is killed, the agents' tmux sessions go with
 
 Interrupted agents are listed in their own group: **Interrupted** at the top of the web UI's Agents list, and **INTERRUPTED** in the TUI's agents view. Legato does not resume them by itself. An Attention item says how many there are, with **Resume all**.
 
-- **Resume** starts the agent again as it was: the same tool, folder, resources, sandbox choice and [engram](/legato/agent-tools/engrams/). Its conversation resumes, and its first message tells it that it was interrupted, since its last step may not have finished. In the TUI, select it and press `R`.
+- **Resume** starts the agent again as it was: the same tool, folder, resources, sandbox choice and [engram](/legato/agent-tools/engrams/). Its conversation resumes, and its first message tells it that it was interrupted, since its last step may not have finished. The web UI shows that message as one from Legato. In the TUI, select it and press `R`.
 - **Resume all** resumes every interrupted agent that can be resumed. In the TUI, press `A`.
 - **Dismiss** marks it ended. In the TUI, press `X`.
 
@@ -194,7 +196,7 @@ You can run `legato agent message` yourself to message any running agent. Peer m
 
 | Key | Action |
 | --- | --- |
-| `g` | Put the agent's task in a group |
+| `g` | Put the agent's task in a group. The web UI lists agents by these groups; see [Groups](/legato/using/web-ui/#groups) |
 | `n` | Turn notifications for the agent on or off, with [notifications](/legato/integrations/notifications/) set up |
 | `v` | Dictate a message, with voice input on |
 | `o` | Open the cards and artifacts the agent showed in the web UI |

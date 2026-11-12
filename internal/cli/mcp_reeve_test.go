@@ -2,6 +2,7 @@ package cli_test
 
 import (
 	"context"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -107,11 +108,29 @@ func TestTheReeveCallsTheAPIWithItsOwnToken(t *testing.T) {
 type fakeChangeSets struct {
 	reason string
 	calls  []service.ChangeCall
+	out    *service.ChangeSetOutcome
 }
 
 func (f *fakeChangeSets) Propose(_ context.Context, _ string, reason string, calls []service.ChangeCall) (service.ChangeSetOutcome, error) {
 	f.reason, f.calls = reason, calls
+	if f.out != nil {
+		return *f.out, nil
+	}
 	return service.ChangeSetOutcome{ID: "cs-1", ApprovalID: "ap-1", State: "pending", Level: service.LevelApprove}, nil
+}
+
+func TestAnAutoSetTellsTheReeveItRunsWithoutAnApproval(t *testing.T) {
+	s := newTestStore(t)
+	sets := &fakeChangeSets{out: &service.ChangeSetOutcome{ID: "cs-2", ApprovalID: "ap-2", State: "approved", Level: service.LevelAuto}}
+	taskID, executionID := seedReeve(t, s)
+	session := connectMCP(t, cli.MCPOptions{Store: s, TaskID: taskID, ExecutionID: executionID, Reeve: &cli.MCPReeve{ChangeSets: sets}})
+	got := mcpText(callMCP(t, session, "propose_changes", map[string]any{
+		"reason": "rename",
+		"calls":  []any{map[string]any{"kind": "api", "method": "PATCH", "path": "/api/tasks/T-1", "body": map[string]any{"title": "x"}}},
+	}))
+	if !strings.Contains(got, "runs now with no approval asked") || !strings.Contains(got, "before you propose the next step") {
+		t.Fatalf("result %q", got)
+	}
 }
 
 func TestTheReeveProposesAChangeSet(t *testing.T) {
@@ -123,7 +142,7 @@ func TestTheReeveProposesAChangeSet(t *testing.T) {
 		"reason": "turn reviews off",
 		"calls":  []any{map[string]any{"kind": "api", "method": "PUT", "path": "/api/config/settings/agents.reviews", "body": map[string]any{"value": false}}, map[string]any{"kind": "restart"}},
 	}))
-	if !strings.Contains(got, "waits for the person's approval") || sets.reason != "turn reviews off" || len(sets.calls) != 2 || sets.calls[1].Kind != "restart" {
+	if !strings.Contains(got, "waits for the operator's approval") || sets.reason != "turn reviews off" || len(sets.calls) != 2 || sets.calls[1].Kind != "restart" {
 		t.Fatalf("result %q, proposed %+v", got, sets)
 	}
 }
@@ -156,6 +175,10 @@ func (f *fakeLegato) Classify(args []string) (string, string) {
 		return "never", "Run the web server"
 	}
 	return "risky", "Create an integration token"
+}
+
+func (f *fakeLegato) Commands() []cli.LegatoCommand {
+	return []cli.LegatoCommand{{Path: "version", Class: "read"}, {Path: "task list", Class: "read"}, {Path: "task create", Class: "change"}, {Path: "integration token create", Class: "risky"}}
 }
 
 func (f *fakeLegato) Run(_ context.Context, args []string) (int, string, error) {
@@ -224,5 +247,76 @@ func TestTheReeveMessagesAnotherInstancesReeve(t *testing.T) {
 	listed := mcpText(callMCP(t, session, "message_reeve", map[string]any{}))
 	if !strings.Contains(listed, "erebus") {
 		t.Fatalf("listing %q", listed)
+	}
+}
+
+// The legato tool says which commands it runs, and takes its arguments as
+// a string too, split as a shell would.
+func TestTheLegatoToolListsItsCommandsAndTakesAString(t *testing.T) {
+	s := newTestStore(t)
+	legato := &fakeLegato{}
+	taskID, executionID := seedReeve(t, s)
+	session := connectMCP(t, cli.MCPOptions{Store: s, TaskID: taskID, ExecutionID: executionID, Reeve: &cli.MCPReeve{Legato: legato, ChangeSets: &fakeChangeSets{}}})
+	tools, err := session.ListTools(context.Background(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	description := ""
+	for _, tool := range tools.Tools {
+		if tool.Name == "legato" {
+			description = tool.Description
+		}
+	}
+	for _, want := range []string{"task: list, create", "integration: token create", `["config","show"]`} {
+		if !strings.Contains(description, want) {
+			t.Errorf("the description lacks %q:\n%s", want, description)
+		}
+	}
+	if got := mcpText(callMCP(t, session, "legato", map[string]any{"args": `version --json "a b"`})); !strings.Contains(got, "v1.2.3") {
+		t.Fatalf("a string: %q", got)
+	}
+	if len(legato.ran) != 1 || strings.Join(legato.ran[0], "|") != "version|--json|a b" {
+		t.Fatalf("ran %q", legato.ran)
+	}
+}
+
+// watch_agent, unwatch_agent and list_watches call the watch routes with
+// the Reeve's own token.
+func TestTheReeveWatchesAgentsThroughItsTools(t *testing.T) {
+	s := newTestStore(t)
+	var calls []string
+	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		calls = append(calls, r.Method+" "+r.URL.Path+" "+strings.TrimSpace(string(body))+" "+r.Header.Get("Authorization"))
+		switch r.Method {
+		case http.MethodPost:
+			w.WriteHeader(http.StatusCreated)
+			w.Write([]byte(`{"task_id":"T-1","events":["waiting","exited"],"state":"running"}`))
+		case http.MethodGet:
+			w.Write([]byte(`{"watches":[{"task_id":"T-1","title":"Docker","events":["waiting"],"state":"idle"}]}`))
+		default:
+			w.Write([]byte(`{"status":"ok"}`))
+		}
+	}))
+	defer api.Close()
+	taskID, executionID := seedReeve(t, s)
+	session := connectMCP(t, cli.MCPOptions{Store: s, TaskID: taskID, ExecutionID: executionID, Reeve: &cli.MCPReeve{APIBase: api.URL, HTTP: api.Client()}})
+
+	if got := mcpText(callMCP(t, session, "watch_agent", map[string]any{"task_id": "T-1", "events": []string{"waiting", "exited"}})); !strings.Contains(got, "Watching T-1") {
+		t.Fatalf("watch: %q", got)
+	}
+	if got := mcpText(callMCP(t, session, "list_watches", nil)); !strings.Contains(got, "T-1") || !strings.Contains(got, "idle") {
+		t.Fatalf("list: %q", got)
+	}
+	if got := mcpText(callMCP(t, session, "unwatch_agent", map[string]any{"task_id": "T-1"})); !strings.Contains(got, "no longer") {
+		t.Fatalf("unwatch: %q", got)
+	}
+	want := []string{
+		`POST /api/reeve/watches {"events":["waiting","exited"],"task_id":"T-1"} Bearer lgr_test`,
+		`GET /api/reeve/watches  Bearer lgr_test`,
+		`DELETE /api/reeve/watches/T-1  Bearer lgr_test`,
+	}
+	if strings.Join(calls, "\n") != strings.Join(want, "\n") {
+		t.Fatalf("calls:\n%s", strings.Join(calls, "\n"))
 	}
 }

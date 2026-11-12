@@ -64,6 +64,112 @@ pub struct State {
     /// Where a ticket the browser extension hands the app is imported.
     #[serde(default)]
     pub import_target: ImportTarget,
+    /// Talking to the Reeve: the key's mode and the Reeve chosen.
+    #[serde(default, skip_serializing_if = "VoiceSettings::is_default")]
+    pub voice: VoiceSettings,
+}
+
+/// The person's choices about talking to the Reeve.
+#[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
+pub struct VoiceSettings {
+    /// The instance ID of the Legato whose Reeve to talk to, when the person
+    /// chose one ("The Reeve to talk to"): kept by ID, so a new address
+    /// does not lose it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub server: Option<String>,
+    /// Listen while the key is held, and send when it is let go of.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub hold_to_talk: bool,
+    /// The person hid the widget: it shows only during a conversation.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub widget_hidden: bool,
+    /// The corner or edge of the screen the widget keeps to (`corner`
+    /// before edges existed).
+    #[serde(default, alias = "corner", skip_serializing_if = "Anchor::is_default")]
+    pub anchor: Anchor,
+    /// Where the person dropped the widget, from the edges it is anchored
+    /// to; none is the default margin.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub offset: Option<Offset>,
+    /// How the key is had on a Wayland desktop: grabbed through XWayland
+    /// (the default) or asked of the desktop's portal. Read at start.
+    #[serde(default, skip_serializing_if = "KeyBackend::is_default")]
+    pub key_backend: KeyBackend,
+    /// The grabbed key that talks, as the global-shortcut plugin reads it
+    /// (`Ctrl+Alt+Space`); none is the default (voicekey::default_keys).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub talk_key: Option<String>,
+    /// The grabbed key that cancels.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cancel_key: Option<String>,
+    /// The screen the widget goes on; none is where the desktop puts it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub screen: Option<ScreenId>,
+}
+
+/// A screen as the person chose it: its maker, model and connector, which
+/// find it again when the screens change (`screens::find`).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ScreenId {
+    #[serde(default)]
+    pub maker: String,
+    #[serde(default)]
+    pub model: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub connector: Option<String>,
+}
+
+/// How the key that talks to the Reeve is had on a Wayland desktop.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum KeyBackend {
+    /// `tauri-plugin-global-shortcut`, which grabs it through XWayland.
+    #[default]
+    Grab,
+    /// The XDG desktop portal's GlobalShortcuts.
+    Portal,
+}
+
+impl KeyBackend {
+    fn is_default(&self) -> bool {
+        *self == KeyBackend::default()
+    }
+}
+
+/// A corner of the screen, or an edge with the widget centred on it.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "kebab-case")]
+pub enum Anchor {
+    #[default]
+    BottomRight,
+    BottomLeft,
+    TopRight,
+    TopLeft,
+    Top,
+    Bottom,
+    Left,
+    Right,
+}
+
+impl Anchor {
+    fn is_default(&self) -> bool {
+        *self == Anchor::default()
+    }
+}
+
+/// How far the widget keeps from the edges it is anchored to, in logical
+/// pixels: x from the left or right edge, y from the top or bottom. An axis
+/// it is centred on has none.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Serialize, Deserialize)]
+pub struct Offset {
+    pub x: f64,
+    pub y: f64,
+}
+
+impl VoiceSettings {
+    fn is_default(&self) -> bool {
+        self == &VoiceSettings::default()
+    }
 }
 
 /// Where a ticket the browser extension hands the app is imported: the app
@@ -274,6 +380,67 @@ pub(crate) mod tests {
         let text = std::fs::read_to_string(dir.path().join("legato-desktop.json")).unwrap();
         assert!(text.contains(r#""import_target": "current""#), "{text}");
         assert_eq!(open(&dir, &secrets).state.import_target, ImportTarget::Current);
+    }
+
+    #[test]
+    fn the_voice_choices_are_kept_and_absent_until_made() {
+        let (dir, secrets) = (tempfile::tempdir().unwrap(), Memory::default());
+        let path = dir.path().join("legato-desktop.json");
+        std::fs::write(&path, r#"{"servers":[],"keys":[]}"#).unwrap();
+        let mut store = open(&dir, &secrets);
+        assert_eq!(store.state.voice, VoiceSettings::default());
+        store.save().unwrap();
+        assert!(!std::fs::read_to_string(&path).unwrap().contains("voice"));
+
+        store.state.voice = VoiceSettings { server: Some("inst-1".into()), hold_to_talk: true, widget_hidden: true, anchor: Anchor::Top, offset: Some(Offset { x: 0.0, y: 120.0 }), ..VoiceSettings::default() };
+        store.save().unwrap();
+        let text = std::fs::read_to_string(&path).unwrap();
+        assert!(text.contains(r#""server": "inst-1""#), "{text}");
+        assert!(text.contains(r#""anchor": "top""#), "{text}");
+        assert_eq!(open(&dir, &secrets).state.voice, store.state.voice);
+    }
+
+    #[test]
+    fn a_corner_saved_before_edges_existed_is_still_the_widgets_anchor() {
+        let (dir, secrets) = (tempfile::tempdir().unwrap(), Memory::default());
+        std::fs::write(dir.path().join("legato-desktop.json"), r#"{"servers":[],"keys":[],"voice":{"corner":"top-left"}}"#).unwrap();
+        let store = open(&dir, &secrets);
+        assert_eq!(store.state.voice.anchor, Anchor::TopLeft);
+        assert_eq!(store.state.voice.offset, None);
+    }
+
+    #[test]
+    fn the_key_is_grabbed_unless_the_portal_is_chosen_and_chosen_keys_are_kept() {
+        let (dir, secrets) = (tempfile::tempdir().unwrap(), Memory::default());
+        let mut store = open(&dir, &secrets);
+        assert_eq!(store.state.voice.key_backend, KeyBackend::Grab);
+        assert_eq!(store.state.voice.talk_key, None);
+        store.add_server("erebus", "https://erebus.local:3080", None, "t").unwrap();
+        store.save().unwrap();
+        // The default is not written.
+        assert!(!std::fs::read_to_string(dir.path().join("legato-desktop.json")).unwrap().contains("key_backend"));
+
+        store.state.voice.key_backend = KeyBackend::Portal;
+        store.state.voice.talk_key = Some("Ctrl+Alt+V".into());
+        store.state.voice.cancel_key = Some("Ctrl+Alt+Shift+V".into());
+        store.save().unwrap();
+        let text = std::fs::read_to_string(dir.path().join("legato-desktop.json")).unwrap();
+        assert!(text.contains(r#""key_backend":"portal""#) || text.contains(r#""key_backend": "portal""#), "{text}");
+        let again = open(&dir, &secrets);
+        assert_eq!(again.state.voice.key_backend, KeyBackend::Portal);
+        assert_eq!(again.state.voice.talk_key.as_deref(), Some("Ctrl+Alt+V"));
+        assert_eq!(again.state.voice.cancel_key.as_deref(), Some("Ctrl+Alt+Shift+V"));
+    }
+
+    #[test]
+    fn the_widgets_screen_is_kept_by_maker_model_and_connector() {
+        let (dir, secrets) = (tempfile::tempdir().unwrap(), Memory::default());
+        let mut store = open(&dir, &secrets);
+        assert_eq!(store.state.voice.screen, None);
+        let lg = ScreenId { maker: "LG".into(), model: "27GL850".into(), connector: Some("HDMI-A-1".into()) };
+        store.state.voice.screen = Some(lg.clone());
+        store.save().unwrap();
+        assert_eq!(open(&dir, &secrets).state.voice.screen, Some(lg));
     }
 
     #[test]

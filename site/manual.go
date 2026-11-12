@@ -71,45 +71,98 @@ func Read(p string) (string, bool) {
 }
 
 // Search finds the pages whose text holds every word of query, ignoring
-// case, with up to five matching lines each; at most limit pages.
+// case and small words (a, the, to, …) when others are given, best first:
+// pages with the query as a phrase on a line, its words in the title or
+// description, and lines that hold every word. Each hit has up to five
+// lines, those with every word first; at most limit pages.
 func Search(query string, limit int) []Hit {
-	words := strings.Fields(strings.ToLower(query))
+	phrase := strings.Join(strings.Fields(strings.ToLower(query)), " ")
+	words := searchWords(phrase)
 	if len(words) == 0 {
 		return nil
 	}
-	var hits []Hit
+	type scored struct {
+		hit   Hit
+		score int
+	}
+	var found []scored
 	for _, page := range Pages() {
 		text, _ := Read(page.Path)
 		lower := strings.ToLower(text)
-		all := true
-		for _, w := range words {
-			if !strings.Contains(lower, w) {
-				all = false
-				break
-			}
-		}
-		if !all {
+		if !containsAll(lower, words) {
 			continue
 		}
-		hit := Hit{Page: page}
+		var phraseLines, allLines, someLines []string
 		for _, line := range strings.Split(text, "\n") {
 			l := strings.ToLower(line)
-			for _, w := range words {
-				if strings.Contains(l, w) {
-					hit.Lines = append(hit.Lines, strings.TrimSpace(line))
-					break
-				}
-			}
-			if len(hit.Lines) == 5 {
-				break
+			switch {
+			case strings.Contains(l, phrase):
+				phraseLines = append(phraseLines, strings.TrimSpace(line))
+			case containsAll(l, words):
+				allLines = append(allLines, strings.TrimSpace(line))
+			case containsAny(l, words):
+				someLines = append(someLines, strings.TrimSpace(line))
 			}
 		}
-		hits = append(hits, hit)
+		meta := 0
+		head := strings.ToLower(page.Title + " " + page.Description)
+		for _, w := range words {
+			if strings.Contains(head, w) {
+				meta++
+			}
+		}
+		score := 4*min(len(phraseLines), 5) + 2*min(len(phraseLines)+len(allLines), 5) + 3*meta
+		lines := append(append(phraseLines, allLines...), someLines...)
+		if len(lines) > 5 {
+			lines = lines[:5]
+		}
+		found = append(found, scored{Hit{Page: page, Lines: lines}, score})
+	}
+	sort.SliceStable(found, func(i, j int) bool { return found[i].score > found[j].score })
+	var hits []Hit
+	for _, f := range found {
+		hits = append(hits, f.hit)
 		if limit > 0 && len(hits) == limit {
 			break
 		}
 	}
 	return hits
+}
+
+// smallWords are left out of a search that has other words: nearly every
+// page holds them.
+var smallWords = map[string]bool{"a": true, "an": true, "the": true, "to": true, "of": true, "how": true, "do": true, "i": true, "is": true, "in": true, "on": true, "for": true, "and": true, "or": true, "my": true, "can": true, "with": true}
+
+func searchWords(phrase string) []string {
+	all := strings.Fields(phrase)
+	var words []string
+	for _, w := range all {
+		if !smallWords[w] {
+			words = append(words, w)
+		}
+	}
+	if len(words) == 0 {
+		return all
+	}
+	return words
+}
+
+func containsAll(s string, words []string) bool {
+	for _, w := range words {
+		if !strings.Contains(s, w) {
+			return false
+		}
+	}
+	return true
+}
+
+func containsAny(s string, words []string) bool {
+	for _, w := range words {
+		if strings.Contains(s, w) {
+			return true
+		}
+	}
+	return false
 }
 
 // frontmatter reads a page's title and description.

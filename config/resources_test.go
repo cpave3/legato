@@ -45,3 +45,47 @@ func TestResourcesThatCannotBeUsedFailToLoad(t *testing.T) {
 		})
 	}
 }
+
+func TestRepositoryResourcesNameConfiguredResourcesForARepository(t *testing.T) {
+	writeTestConfig(t, `
+agents:
+  repository_resources:
+    - repo: git@github.com:Autopilot-Dev/Autopilot.git
+      resources: [nuget feed token, NuGet feed token, Specs]
+resources:
+  - name: NuGet feed token
+    paths: [{path: /creds}]
+  - name: Specs
+    paths: [{path: /specs}]
+`)
+	cfg, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	got := cfg.Agents.RepositoryResources
+	if len(got) != 1 || got[0].Repo != "github.com/autopilot-dev/autopilot" {
+		t.Fatalf("repository resources = %+v", got)
+	}
+	// Named as the resources block names them, each once.
+	if strings.Join(got[0].Resources, "|") != "NuGet feed token|Specs" {
+		t.Fatalf("resources = %q", got[0].Resources)
+	}
+}
+
+func TestRepositoryResourcesThatCannotBeGivenFailToLoad(t *testing.T) {
+	resources := "resources:\n  - name: Vault\n    paths: [{path: /a}]\n"
+	for _, tc := range []struct{ name, yaml, want string }{
+		{"unknown resource", "agents:\n  repository_resources:\n    - repo: acme/web\n      resources: [Missing]\n" + resources, `no resource named "Missing"`},
+		{"repository twice", "agents:\n  repository_resources:\n    - repo: acme/web\n      resources: [Vault]\n    - repo: https://github.com/Acme/web.git\n      resources: [Vault]\n" + resources, "already"},
+		{"not a repository", "agents:\n  repository_resources:\n    - repo: web\n      resources: [Vault]\n" + resources, "owner/name"},
+		{"no resources", "agents:\n  repository_resources:\n    - repo: acme/web\n" + resources, "at least one"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			writeTestConfig(t, tc.yaml)
+			_, err := Load()
+			if err == nil || !strings.Contains(err.Error(), tc.want) {
+				t.Fatalf("error = %v, want %q", err, tc.want)
+			}
+		})
+	}
+}

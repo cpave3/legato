@@ -8,6 +8,7 @@ use std::sync::Arc;
 use rustls::client::danger::ServerCertVerifier;
 use rustls::pki_types::{CertificateDer, ServerName, UnixTime};
 
+#[derive(Clone)]
 pub struct Pin {
     der: Vec<u8>,
 }
