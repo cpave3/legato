@@ -173,6 +173,28 @@ func scalarLength(s []rune, b *yaml.Node) int {
 	return 0
 }
 
+// onItsLine reports whether a scalar's whole text is on the line it starts
+// on. A quoted or plain scalar may wrap onto the next lines without a
+// newline in its value, and only its text on the line shows that it ends
+// there.
+func onItsLine(lines []string, n *yaml.Node) bool {
+	if n.Style&(yaml.LiteralStyle|yaml.FoldedStyle) != 0 || strings.Contains(n.Value, "\n") {
+		return false
+	}
+	if n.Line < 1 || n.Line > len(lines) {
+		return false
+	}
+	line := []rune(lines[n.Line-1])
+	col := n.Column - 1
+	if col < 0 || col > len(line) {
+		return false
+	}
+	if n.Value == "" && n.Style&(yaml.DoubleQuotedStyle|yaml.SingleQuotedStyle) == 0 {
+		return true
+	}
+	return scalarLength(line[col:], n) > 0
+}
+
 // patchAppend adds entries after the last of a block list, each written as
 // its siblings are: on one line in flow style when the last one is, else
 // as a block, at the last one's indent.
@@ -181,7 +203,7 @@ func patchAppend(lines []string, b *yaml.Node, added []*yaml.Node, patches *[]te
 		return false
 	}
 	last := b.Content[len(b.Content)-1]
-	end, ok := lastLine(last)
+	end, ok := lastLine(lines, last)
 	if !ok || last.Line < 1 || end > len(lines) {
 		return false
 	}
@@ -226,13 +248,13 @@ func patchAppend(lines []string, b *yaml.Node, added []*yaml.Node, patches *[]te
 
 // lastLine is the last line a node's text is on, as far as its children
 // tell; false for a block scalar, whose end they do not tell.
-func lastLine(n *yaml.Node) (int, bool) {
-	if n.Kind == yaml.ScalarNode && (n.Style&(yaml.LiteralStyle|yaml.FoldedStyle) != 0 || strings.Contains(n.Value, "\n")) {
+func lastLine(lines []string, n *yaml.Node) (int, bool) {
+	if n.Kind == yaml.ScalarNode && !onItsLine(lines, n) {
 		return 0, false
 	}
 	end := n.Line
 	for _, c := range n.Content {
-		l, ok := lastLine(c)
+		l, ok := lastLine(lines, c)
 		if !ok {
 			return 0, false
 		}

@@ -134,3 +134,29 @@ func TestPlainKeyLeavesOutTheSelectors(t *testing.T) {
 		t.Errorf("PlainKey = %q", got)
 	}
 }
+
+// An entry appended after one whose last value wraps over several lines
+// lands after that value, not inside it.
+func TestAnAppendAfterAWrappedValueKeepsTheValue(t *testing.T) {
+	for name, src := range map[string]string{
+		"double quoted": "a:\n  - x: 1\n    y: \"long text\n      continues\"\n",
+		"single quoted": "a:\n  - x: 1\n    y: 'long text\n      continues'\n",
+		"plain":         "a:\n  - x: 1\n    y: long text\n      continues\n",
+	} {
+		t.Run(name, func(t *testing.T) {
+			got, err := edit(t, src, func(doc *yaml.Node) error {
+				return SetKey(doc, "a[+]", map[string]any{"x": 2})
+			})
+			if err != nil {
+				t.Fatal(err)
+			}
+			var parsed struct{ A []map[string]any }
+			if err := yaml.Unmarshal([]byte(got), &parsed); err != nil {
+				t.Fatalf("%v\n%s", err, got)
+			}
+			if len(parsed.A) != 2 || parsed.A[0]["y"] != "long text continues" || parsed.A[1]["x"] != 2 {
+				t.Fatalf("a = %v\n%s", parsed.A, got)
+			}
+		})
+	}
+}
