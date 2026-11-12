@@ -192,47 +192,50 @@ type App struct {
 	approvalSvc    ApprovalService
 	// reeve opens the Reeve (R) and asks it about an agent (a); nil
 	// without one.
-	reeve                    ReeveOpener
-	approvals                []service.Approval
-	openURL                  func(string) error
-	statusBar                statusbar.Model
-	clip                     *clipboard.Clipboard
-	editor                   string
-	activeOverlay            tea.Model
-	overlayType              overlayKind
-	active                   viewType
-	width                    int
-	height                   int
-	pendingNav               string // card ID to navigate to after next board data load
-	pendingImport            string // remote ticket ID waiting to appear on the board
-	prSvc                    service.PRTrackingService
-	eventBus                 *events.Bus
-	eventSubs                []<-chan events.Event // sync lifecycle events (started/completed/failed/errors)
-	cardUpdateSub            <-chan events.Event
-	cardMoveSub              <-chan events.Event
-	prSub                    <-chan events.Event
-	swarmSub                 <-chan events.Event
-	planSub                  <-chan events.Event
-	durablePlanSub           <-chan events.Event
-	reviewSub                <-chan events.Event
-	tmux                     service.TmuxManager
-	swarmSvc                 service.SwarmService
-	workDir                  string
-	macros                   []macros.Macro
-	lastSparklineFetch       time.Time
-	sparklineWindow          time.Duration
-	sparklineBuckets         int
-	voiceSvc                 VoiceService
-	voiceEnabled             bool
-	voiceAutoSend            bool
-	voiceMicDevice           string
-	voiceRecording           bool
-	voiceTargetTask          string
-	voiceTargetSession       string
-	voiceTargetKind          string
-	worktreeSvc              WorktreeService
-	worktreesEnabled         bool
-	groupDefaults            []string
+	reeve              ReeveOpener
+	approvals          []service.Approval
+	openURL            func(string) error
+	statusBar          statusbar.Model
+	clip               *clipboard.Clipboard
+	editor             string
+	activeOverlay      tea.Model
+	overlayType        overlayKind
+	active             viewType
+	width              int
+	height             int
+	pendingNav         string // card ID to navigate to after next board data load
+	pendingImport      string // remote ticket ID waiting to appear on the board
+	prSvc              service.PRTrackingService
+	eventBus           *events.Bus
+	eventSubs          []<-chan events.Event // sync lifecycle events (started/completed/failed/errors)
+	cardUpdateSub      <-chan events.Event
+	cardMoveSub        <-chan events.Event
+	prSub              <-chan events.Event
+	swarmSub           <-chan events.Event
+	planSub            <-chan events.Event
+	durablePlanSub     <-chan events.Event
+	reviewSub          <-chan events.Event
+	tmux               service.TmuxManager
+	swarmSvc           service.SwarmService
+	workDir            string
+	macros             []macros.Macro
+	lastSparklineFetch time.Time
+	sparklineWindow    time.Duration
+	sparklineBuckets   int
+	voiceSvc           VoiceService
+	voiceEnabled       bool
+	voiceAutoSend      bool
+	voiceMicDevice     string
+	voiceRecording     bool
+	voiceTargetTask    string
+	voiceTargetSession string
+	voiceTargetKind    string
+	worktreeSvc        WorktreeService
+	worktreesEnabled   bool
+	groupDefaults      []string
+	// notifyTaskChanged tells the other Legato processes (a web server)
+	// that a task changed here.
+	notifyTaskChanged        func(taskID string)
 	workflowTriggers         *service.WorkflowTriggerCoordinator
 	workflowRepositories     []workflowengine.RepositoryPreset
 	taskWorkflows            TaskWorkflowLauncher
@@ -251,6 +254,12 @@ func (a *App) SetWorktreeService(svc WorktreeService) {
 // SetGroupDefaults configures the group choices always shown in the group modal.
 func (a *App) SetGroupDefaults(defaults []string) {
 	a.groupDefaults = append([]string(nil), defaults...)
+}
+
+// SetTaskChangedNotifier sets how the other Legato processes are told that
+// the TUI changed a task, such as its group.
+func (a *App) SetTaskChangedNotifier(notify func(taskID string)) {
+	a.notifyTaskChanged = notify
 }
 
 // SetReviewService enables the review queue and tour view.
@@ -1223,10 +1232,13 @@ func (a App) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		if a.agentSvc == nil {
 			return a, nil
 		}
-		svc := a.agentSvc
+		svc, notify := a.agentSvc, a.notifyTaskChanged
 		return a, func() tea.Msg {
 			if err := svc.SetTaskGroup(context.Background(), msg.TaskID, msg.Group); err != nil {
 				return statusbar.ErrorMsg{Text: "group failed: " + err.Error()}
+			}
+			if notify != nil {
+				notify(msg.TaskID)
 			}
 			agentList, err := svc.ListAgents(context.Background())
 			if err != nil {

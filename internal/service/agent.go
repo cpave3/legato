@@ -1672,15 +1672,6 @@ func (a *agentService) stopAgentInSlot(ctx context.Context, taskID, slot string,
 	return a.store.DeleteDeadAgentSessionsInSlot(ctx, taskID, slot)
 }
 
-func (a *agentService) SetTaskGroup(ctx context.Context, taskID string, group *string) error {
-	task, err := a.store.GetTask(ctx, taskID)
-	if err != nil {
-		return err
-	}
-	task.Group = group
-	return a.store.UpdateTask(ctx, *task)
-}
-
 func (a *agentService) ListAgents(ctx context.Context) ([]AgentSession, error) {
 	sessions, err := a.store.ListAgentSessions(ctx)
 	if err != nil {

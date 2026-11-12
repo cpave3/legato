@@ -20,6 +20,10 @@ var routeClassTable = []routeClassEntry{
 	{"POST", "/api/agents/spawn", ClassChange, "Start an agent"},
 	{"POST", "/api/agents/kill", ClassRisky, "Stop an agent"},
 	{"PATCH", "/api/agents/{task_id}/notify", ClassChange, "Turn an agent's notifications on or off"},
+	{"PUT", "/api/agents/{task_id}/group", ClassChange, "Put an agent's task in a group, or take it out"},
+	{"GET", "/api/agent-groups", ClassRead, "List the agent groups"},
+	{"PUT", "/api/agent-groups/{name}", ClassChange, "Rename an agent group"},
+	{"DELETE", "/api/agent-groups/{name}", ClassChange, "Delete an agent group, leaving its agents ungrouped"},
 	{"GET", "/api/agents/{task_id}/terminal", ClassNever, "Type into an agent's terminal"},
 
 	// Tasks

@@ -2029,3 +2029,71 @@ func TestListAgentsMarksTheReeve(t *testing.T) {
 		t.Fatalf("marked %v", marked)
 	}
 }
+
+func TestSetTaskGroupTakesAnAgentIDAndTreatsABlankGroupAsNone(t *testing.T) {
+	svc, s, _ := newTestAgentService(t)
+	ctx := context.Background()
+	createTask(t, s, "REX-SLOT")
+
+	group := "  Tooling  "
+	if err := svc.SetTaskGroup(ctx, "REX-SLOT_reviewer", &group); err != nil {
+		t.Fatal(err)
+	}
+	task, err := s.GetTask(ctx, "REX-SLOT")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if task.Group == nil || *task.Group != "Tooling" {
+		t.Fatalf("group = %v, want Tooling", task.Group)
+	}
+
+	blank := " "
+	if err := svc.SetTaskGroup(ctx, "REX-SLOT", &blank); err != nil {
+		t.Fatal(err)
+	}
+	task, _ = s.GetTask(ctx, "REX-SLOT")
+	if task.Group != nil {
+		t.Fatalf("group = %q after a blank one, want none", *task.Group)
+	}
+}
+
+func TestTaskGroupsRenameAndList(t *testing.T) {
+	svc, s, _ := newTestAgentService(t)
+	ctx := context.Background()
+	groups, ok := svc.(TaskGroups)
+	if !ok {
+		t.Fatal("the agent service does not manage task groups")
+	}
+	createTask(t, s, "REX-A")
+	createTask(t, s, "REX-B")
+	tooling := "Tooling"
+	if err := groups.SetTaskGroup(ctx, "REX-A", &tooling); err != nil {
+		t.Fatal(err)
+	}
+	if err := groups.SetTaskGroup(ctx, "REX-B", &tooling); err != nil {
+		t.Fatal(err)
+	}
+
+	moved, err := groups.RenameTaskGroup(ctx, "Tooling", " Infra ")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if moved != 2 {
+		t.Fatalf("moved = %d, want 2", moved)
+	}
+	names, err := groups.ListTaskGroups(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(names) != 1 || names[0] != "Infra" {
+		t.Fatalf("groups = %v, want [Infra]", names)
+	}
+
+	if _, err := groups.RenameTaskGroup(ctx, "Infra", ""); err != nil {
+		t.Fatal(err)
+	}
+	names, _ = groups.ListTaskGroups(ctx)
+	if len(names) != 0 {
+		t.Fatalf("groups after delete = %v, want none", names)
+	}
+}

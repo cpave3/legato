@@ -1048,6 +1048,7 @@ func runServeCmd(args []string) int {
 	wireUpdates(srv, updates)
 	srv.SetRestarter(restartAll)
 	srv.SetMacros(cfg.Macros)
+	srv.SetGroupDefaults(cfg.Groups.Defaults)
 	srv.SetTerminalAttacher(terminalAttacher(tmuxMgr))
 	srv.SetSandboxEnabled(cfg.Agents.Sandbox.Enabled)
 	srv.SetFreshClonesEnabled(cfg.RepositoryCache.Enabled)
@@ -1392,6 +1393,7 @@ func runTUI() int {
 			wireUpdates(webSrv, updates)
 			webSrv.SetRestarter(restartAll)
 			webSrv.SetMacros(cfg.Macros)
+			webSrv.SetGroupDefaults(cfg.Groups.Defaults)
 			webSrv.SetTerminalAttacher(terminalAttacher(tmuxMgr))
 			webSrv.SetSandboxEnabled(cfg.Agents.Sandbox.Enabled)
 			webSrv.SetFreshClonesEnabled(cfg.RepositoryCache.Enabled)
@@ -1526,6 +1528,9 @@ func runTUI() int {
 	// counts it and links to the web UI.
 	app.SetAgentUIService(service.NewAgentUIService(db, bus, service.AgentUIOptions{}), localWebURL(cfg))
 	app.SetGroupDefaults(cfg.Groups.Defaults)
+	app.SetTaskChangedNotifier(func(taskID string) {
+		ipc.Broadcast(ipc.Message{Type: "task_update", TaskID: taskID})
+	})
 	// R opens the Reeve; a in the agents view asks it about an agent.
 	if reeve := newReeveService(db, agentSvc, webSrv, approvalsRT.approvals); reeve != nil {
 		app.SetReeve(reeve)

@@ -65,6 +65,7 @@ type Server struct {
 	caCertPath               string
 	authToken                string
 	macros                   []macros.Macro
+	groupDefaults            []string
 	sparklineWindow          time.Duration
 	sparklineBuckets         int
 	ntfyConfigured           bool
@@ -168,6 +169,9 @@ func NewWithSwarm(board service.BoardService, agents service.AgentService, tmux 
 	mux.HandleFunc("/api/agents/spawn", s.spawnAgentHandler())
 	mux.HandleFunc("/api/agents/kill", s.killAgentHandler())
 	mux.HandleFunc("/api/agents/{task_id}/notify", s.agentNotifyHandler())
+	mux.HandleFunc("/api/agents/{task_id}/group", s.agentGroupHandler())
+	mux.HandleFunc("/api/agent-groups", s.agentGroupsHandler())
+	mux.HandleFunc("/api/agent-groups/{name}", s.agentGroupNameHandler())
 	mux.HandleFunc("/api/agents/{task_id}/terminal", s.terminalHandler())
 	mux.HandleFunc("/api/tasks", s.tasksHandler())
 	mux.HandleFunc("/api/tasks/search", s.searchTasksHandler())
