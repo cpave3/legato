@@ -238,9 +238,11 @@ pub fn showing(state: &str, reason: Option<&str>, written: bool, now: Instant) -
 }
 
 /// Whether the widget shows: unless the person hid it, and then still
-/// while it has something to show.
-pub fn shows(hidden: bool, showing: Showing, now: Instant) -> bool {
+/// while it has something to show, or approvals wait (waiting) for the
+/// person (see widgetapprovals).
+pub fn shows(hidden: bool, showing: Showing, waiting: bool, now: Instant) -> bool {
     !hidden
+        || waiting
         || match showing {
             Showing::Rest => false,
             Showing::Busy => true,
@@ -582,32 +584,41 @@ mod tests {
     #[test]
     fn a_hidden_widget_still_shows_during_a_conversation() {
         let now = Instant::now();
-        assert!(shows(false, Showing::Rest, now));
-        assert!(!shows(true, Showing::Rest, now));
+        assert!(shows(false, Showing::Rest, false, now));
+        assert!(!shows(true, Showing::Rest, false, now));
         for state in ["connecting", "listening", "thinking", "speaking"] {
             assert_eq!(showing(state, None, false, now), Showing::Busy, "{state}");
         }
-        assert!(shows(true, Showing::Busy, now));
+        assert!(shows(true, Showing::Busy, false, now));
         // Idle with nothing said: the person stopped the Reeve and the
         // conversation is still open.
         assert_eq!(showing("idle", None, false, now), Showing::Busy);
     }
 
     #[test]
+    fn a_hidden_widget_shows_while_approvals_wait() {
+        let now = Instant::now();
+        assert!(shows(true, Showing::Rest, true, now));
+        assert!(!shows(true, Showing::Rest, false, now));
+        // And whatever the conversation says.
+        assert!(shows(true, Showing::Until(now), true, now + ENDED_FOR));
+    }
+
+    #[test]
     fn a_hidden_widget_shows_why_for_a_while() {
         let now = Instant::now();
         let not_ready = showing("not_ready", Some("Voice is off"), false, now);
-        assert!(shows(true, not_ready, now + NOT_READY_FOR - Duration::from_millis(1)));
-        assert!(!shows(true, not_ready, now + NOT_READY_FOR));
+        assert!(shows(true, not_ready, false, now + NOT_READY_FOR - Duration::from_millis(1)));
+        assert!(!shows(true, not_ready, false, now + NOT_READY_FOR));
 
         // How a conversation ended, for as long as the page's card says it.
         for reason in ["no_speech", "nothing_heard", "no_answer", "failed", "taken over by Pixel 9", LOST_EXAMPLE] {
             let ended = showing("idle", Some(reason), false, now);
-            assert!(shows(true, ended, now + ENDED_FOR - Duration::from_millis(1)), "{reason}");
-            assert!(!shows(true, ended, now + ENDED_FOR), "{reason}");
+            assert!(shows(true, ended, false, now + ENDED_FOR - Duration::from_millis(1)), "{reason}");
+            assert!(!shows(true, ended, false, now + ENDED_FOR), "{reason}");
         }
         // Answered in writing: the card says so.
-        assert!(shows(true, showing("idle", Some("done"), true, now), now));
+        assert!(shows(true, showing("idle", Some("done"), true, now), false, now));
         // Ended by the person, or the Reeve said its piece: nothing to say.
         for reason in ["bye", "cancelled", "done"] {
             assert_eq!(showing("idle", Some(reason), false, now), Showing::Rest, "{reason}");

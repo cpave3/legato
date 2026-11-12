@@ -22,7 +22,7 @@ use crate::webauthn::{self, Attachment, ORIGIN, RP_ID};
 use crate::discovery::{Browser, Found};
 use crate::links;
 use crate::bridge::{self, PageMessage, VoiceAction, VoiceEvent};
-use crate::{fido, screens, systrust, touchid, voice, voiceclient, voicekey, voicemain, voicewidget, workers};
+use crate::{fido, screens, systrust, touchid, voice, voiceclient, voicekey, voicemain, voicewidget, widgetapprovals, workers};
 use crate::voiceclient::{Command, Ui};
 use crate::voicekey::{Backend, Input, KeyBackend, VoiceKey};
 
@@ -81,6 +81,10 @@ pub struct Desktop {
     screens: Mutex<Vec<screens::Screen>>,
     #[cfg(target_os = "linux")]
     layer_shell: Mutex<Option<std::sync::Arc<voicewidget::layer_shell::LayerShell>>>,
+    /// Every server's pending approvals, as the widget shows them.
+    widget_approvals: Mutex<Vec<widgetapprovals::Listed>>,
+    /// Asks the servers again now (a decision was made).
+    approvals_asked: tokio::sync::Notify,
 }
 
 fn webview_label(id: &str) -> String {
@@ -790,7 +794,8 @@ fn show_widget_as_it_should(app: &AppHandle) {
     let desktop = app.state::<Desktop>();
     let hidden = desktop.store.lock().unwrap().state.voice.widget_hidden;
     let showing = desktop.widget.lock().unwrap().showing;
-    if voicewidget::shows(hidden, showing, std::time::Instant::now()) {
+    let waiting = !desktop.widget_approvals.lock().unwrap().is_empty();
+    if voicewidget::shows(hidden, showing, waiting, std::time::Instant::now()) {
         let _ = window.show();
         place_widget(app);
     } else {
@@ -2307,6 +2312,97 @@ async fn deny(desktop: State<'_, Desktop>, server: String, approval: String) -> 
     c.post(&format!("/api/approvals/{approval}/decision"), json!({ "decision": "deny", "by": "desktop" })).await.map(|_| ())
 }
 
+// ---- Approvals in the voice widget ----
+
+/// Asks every server for its pending approvals every widgetapprovals::EVERY
+/// (or at once after a decision), keeps the list, tells the widget when it
+/// changes and keeps the widget shown while any waits. A server that does
+/// not answer keeps what it said last.
+async fn watch_approvals(app: AppHandle) {
+    let mut by_server: HashMap<String, Vec<widgetapprovals::Listed>> = HashMap::new();
+    loop {
+        let asks: Vec<(Server, Result<Client, String>)> = {
+            let desktop = app.state::<Desktop>();
+            let store = desktop.store.lock().unwrap();
+            store.state.servers.iter().map(|s| (s.clone(), client(&store, &s.id))).collect()
+        };
+        let answers = futures_util::future::join_all(asks.into_iter().map(|(server, c)| async move {
+            let body = match c {
+                Ok(c) => c.get_within(widgetapprovals::PATH, widgetapprovals::WITHIN).await,
+                Err(e) => Err(e),
+            };
+            (server, body)
+        }))
+        .await;
+        let order: Vec<String> = answers.iter().map(|(s, _)| s.id.clone()).collect();
+        by_server.retain(|id, _| order.contains(id));
+        for (server, body) in answers {
+            if let Ok(body) = body {
+                by_server.insert(server.id.clone(), widgetapprovals::listed(&server.id, &server.name, server.tint.as_deref(), &body));
+            }
+        }
+        let list: Vec<widgetapprovals::Listed> = order.iter().flat_map(|id| by_server.get(id).cloned().unwrap_or_default()).collect();
+        let changed = {
+            let desktop = app.state::<Desktop>();
+            let mut kept = desktop.widget_approvals.lock().unwrap();
+            let changed = !widgetapprovals::same(&kept, &list);
+            if changed {
+                println!("[approvals] {} waiting", list.len());
+                *kept = list.clone();
+            }
+            changed
+        };
+        if changed {
+            let _ = app.emit("voice-approvals", &list);
+            show_widget_as_it_should(&app);
+        }
+        let desktop = app.state::<Desktop>();
+        tokio::select! {
+            _ = tokio::time::sleep(widgetapprovals::EVERY) => {}
+            _ = desktop.approvals_asked.notified() => {}
+        }
+    }
+}
+
+/// The approvals the widget shows now.
+#[tauri::command]
+fn voice_approvals(desktop: State<'_, Desktop>) -> Vec<widgetapprovals::Listed> {
+    desktop.widget_approvals.lock().unwrap().clone()
+}
+
+/// Allows (with one of its options) or denies an approval from the widget,
+/// as the tray does; a signed one is signed with prepare and sign instead.
+/// The first decision counts: another made first is the server's 409.
+#[tauri::command]
+async fn voice_approval_decide(desktop: State<'_, Desktop>, server: String, approval: String, decision: String, option: Option<String>) -> Result<(), String> {
+    let body = widgetapprovals::decision(&decision, option.as_deref())?;
+    let c = {
+        let store = desktop.store.lock().unwrap();
+        client(&store, &server)?
+    };
+    let out = c.post(&format!("/api/approvals/{approval}/decision"), body).await.map(|_| ());
+    println!("[approvals] {server}: {decision} {approval} from the widget: {}", if out.is_ok() { "done" } else { "refused" });
+    desktop.approvals_asked.notify_one();
+    out
+}
+
+/// Opens the main window on an approval's server page, where its tray
+/// takes what the widget cannot: a note, an answer, a secret.
+#[tauri::command]
+fn voice_approval_open(app: AppHandle, desktop: State<'_, Desktop>, server: String, approval: String) -> Result<(), String> {
+    open_in_page(&app, &desktop, server.clone(), "/", ("approval", &approval))?;
+    let _ = app.emit_to("shell", "shell-show-server", json!({ "server": server }));
+    bring_to_front(&app);
+    Ok(())
+}
+
+/// Opens the main window's approval sheet on a signed approval.
+#[tauri::command]
+fn voice_approval_sheet(app: AppHandle, server: String, approval: String) {
+    let _ = app.emit_to("shell", "shell-open-approval", json!({ "server": server, "id": approval }));
+    bring_to_front(&app);
+}
+
 // ---- Updates ----
 
 fn github() -> reqwest::Client {
@@ -2463,6 +2559,8 @@ pub fn run() {
             #[cfg(target_os = "linux")]
             layer_shell: Mutex::default(),
             screens: Mutex::default(),
+            widget_approvals: Mutex::default(),
+            approvals_asked: tokio::sync::Notify::new(),
         })
         .on_menu_event(|app, event| voice_widget_menu_chosen(app, event.id().as_ref()))
         .setup(|app| {
@@ -2527,6 +2625,7 @@ pub fn run() {
             if let Err(e) = make_voice_widget(app.handle()) {
                 println!("[voice widget] the window was not made: {e}");
             }
+            tauri::async_runtime::spawn(watch_approvals(app.handle().clone()));
             // Started with --voice. No page hears the voice-key event this
             // early, but the press starts the conversation, which waits for
             // the first ask of the servers.
@@ -2589,7 +2688,11 @@ pub fn run() {
             voice_widget_drag_start,
             voice_widget_drag_move,
             voice_widget_drag_end,
-            voice_widget_layout
+            voice_widget_layout,
+            voice_approvals,
+            voice_approval_decide,
+            voice_approval_open,
+            voice_approval_sheet
         ])
         .run(tauri::generate_context!())
         .expect("the app did not start");

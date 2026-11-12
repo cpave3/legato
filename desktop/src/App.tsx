@@ -57,16 +57,25 @@ export function App() {
     return () => { off.then((f) => f()) }
   }, [])
 
-  // The voice widget opens a server's settings, or Servers & keys.
+  // The voice widget opens a server's settings, Servers & keys, or the
+  // sheet on an approval.
   useEffect(() => {
     const offServer = listen<{ server: string }>("shell-show-server", ({ payload }) => {
       setActive(payload.server)
       setPanel(null)
     })
     const offPanel = listen("shell-open-panel", () => setPanel({ kind: "manage", pairing: false }))
+    // A signed approval the widget hands to the sheet.
+    const offApproval = listen<{ server: string; id: string }>("shell-open-approval", ({ payload }) => {
+      const server = known.current.find((s) => s.id === payload.server)
+      if (!server) return
+      setPanel(null)
+      setSheet({ server, id: payload.id })
+    })
     return () => {
       offServer.then((f) => f())
       offPanel.then((f) => f())
+      offApproval.then((f) => f())
     }
   }, [])
 

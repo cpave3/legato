@@ -233,6 +233,19 @@ describe("the widget page", () => {
     fireEvent.contextMenu(screen.getByTestId("voice-capsule"))
     expect(invoked.map((i) => i.cmd)).toContain("voice_widget_menu")
   })
+
+  it("shows approvals as they arrive, above the capsule, with no conversation", async () => {
+    render(<Widget />)
+    await screen.findByText(/tessitura · ready/)
+    expect(screen.queryByTestId("widget-approvals")).not.toBeInTheDocument()
+    emit("voice-approvals", [{
+      server: "s1",
+      server_name: "tessitura",
+      approval: { id: "ap-1", source: "reeve_change_set", title: "Run a command on the host", signed: true, options: [{ id: "allow", label: "Approve", kind: "allow" }], details: {} },
+    }])
+    expect(screen.getByTestId("widget-approvals")).toHaveTextContent("Reeve: Run a command on the host")
+    expect(screen.getByTestId("voice-capsule")).toBeInTheDocument()
+  })
 })
 
 describe("dragging", () => {
