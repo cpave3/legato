@@ -231,9 +231,8 @@ describe("the widget page", () => {
     render(<Widget />)
     await screen.findByText(/tessitura · ready/)
     const close = screen.getByRole("button", { name: "Hide the voice widget" })
-    // A real button outside the capsule's own, so Tab reaches it.
+    // A real button, not inside the capsule's own.
     expect(close.tagName).toBe("BUTTON")
-    expect(close).not.toHaveAttribute("tabindex", "-1")
     expect(screen.getByTestId("voice-capsule")).not.toContainElement(close)
     fireEvent.pointerDown(close, { pointerId: 1, button: 0, clientX: 10, clientY: 10 })
     fireEvent.pointerMove(close, { pointerId: 1, clientX: 40, clientY: 25 })

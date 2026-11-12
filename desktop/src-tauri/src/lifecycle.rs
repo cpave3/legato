@@ -35,7 +35,9 @@ pub enum Relaunch {
     Key(VoiceKey),
     /// The main window, in front.
     ShowMain,
-    /// The main window is gone: make it again, in front.
+    /// The main window is gone: make it again, in front. Only a start
+    /// that arrives between the main window's end and the app's exit can
+    /// see this; the new window has the shell only, no server pages yet.
     MakeMain,
 }
 
