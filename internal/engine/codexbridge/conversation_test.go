@@ -120,6 +120,39 @@ func TestOtherToolsKeepTheirNameAndArguments(t *testing.T) {
 	}
 }
 
+func TestLegatosSpeakIsShownAsWhatWasSaid(t *testing.T) {
+	h := newHarness(t)
+	h.attach()
+	h.begin("turn-1")
+	events := h.subscribe("")
+
+	h.item("completed", map[string]any{
+		"type": "mcpToolCall", "id": "mcp-s", "server": "legato", "tool": "speak", "status": "completed",
+		"arguments": map[string]any{"text": "The tests pass.\nI pushed the branch."},
+		"result":    map[string]any{"content": []any{map[string]any{"type": "text", "text": "Queued."}}},
+	})
+
+	started := nextEvent(t, events)
+	if started["name"] != "speak" {
+		t.Fatalf("event = %v", started)
+	}
+	if args, _ := started["args"].(map[string]any); args["text"] != "The tests pass.\nI pushed the branch." {
+		t.Fatalf("args = %v", started["args"])
+	}
+	if display, _ := started["display"].(map[string]any); display["summary"] != "The tests pass." {
+		t.Fatalf("display = %v", started["display"])
+	}
+
+	// Another server's speak is not Legato's.
+	h.item("completed", map[string]any{
+		"type": "mcpToolCall", "id": "mcp-o", "server": "voice", "tool": "speak", "status": "completed",
+		"arguments": map[string]any{"text": "hi"},
+	})
+	if other := eventOf(t, events, "tool_call_start"); other["name"] != "voice.speak" {
+		t.Fatalf("event = %v", other)
+	}
+}
+
 func TestMessageToAnIdleSessionStartsATurnAndJoinsIt(t *testing.T) {
 	h := newHarness(t)
 	h.attach()

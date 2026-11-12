@@ -222,6 +222,24 @@ function stringArg(args: Record<string, unknown>, name: string): string {
   return typeof value === "string" ? value : ""
 }
 
+// Legato's speak tool, named as above. The Claude Code and Codex bridges
+// already name it `speak`.
+const LEGATO_SPEAK_TOOL = /(?:^|[^a-zA-Z0-9])legato(?:__|[._])speak$/
+
+// speakFailed reports whether a speak call came back with an error: the
+// words were not spoken.
+export function speakFailed(tool: NativeToolItem): boolean {
+  return tool.result?.error !== undefined && tool.result?.error !== null && tool.result?.error !== ""
+}
+
+// speakText returns what the agent said out loud when a tool call is
+// Legato's speak, and null for every other call.
+export function speakText(tool: NativeToolItem): string | null {
+  const name = tool.toolName
+  if (name !== "speak" && !LEGATO_SPEAK_TOOL.test(name) && !LEGATO_SPEAK_TOOL.test(decodedToolName(name))) return null
+  return stringArg(tool.args ?? {}, "text")
+}
+
 // legatoUICall recognises a tool call that asked Legato to show something,
 // whichever agent made it, and returns null for every other call.
 export function legatoUICall(tool: NativeToolItem): LegatoUICall | null {

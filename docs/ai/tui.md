@@ -100,10 +100,12 @@ Agents are listed by what they are doing: **NEEDS YOU** (waiting, or stopped on 
 | What the agent said | Plain text set in from the marks, without Markdown's marks. The newest gets up to half the tile and is bright; older ones get two lines. A message that is cut ends with `…` |
 | A tool call | One line: its state, the tool, and what the call is for. `●` done, `✗` failed, a spinner while the agent runs it |
 | A run of tool calls | Its newest three, under `⋮ N earlier calls`; more when the tile has room to spare |
+| A line said out loud (Legato's `speak`) | `◈ said "…"` with the line's first line. It is not a step of a run: it ends the run before it and is never folded away (`isSpeak`) |
 | An open request | `Wants to run:` with the command set apart, `Asks you to approve a plan:`, or `Asks:` with the question and its options |
 
 - A tool call is described by `service.ConversationTail`: the file name for `read`, `edit` and `write`; otherwise the agent's own description of the call when it gave one (Claude Code's `Bash`), then the endpoint's summary, then the command.
 - A plugin's tool is named without the plugin's prefix (`show_card`).
+- The Claude Code bridge names Legato's speak (`mcp__…legato__speak`) `speak`, and so does the Codex bridge (`legato.speak`), with the line's `text` as the summary. Chimera's own name (`mcp_legato_speak`) is matched too.
 - Claude Code raises a permission request in Legato only while a native viewer (the web panel) is attached, so the snapshot of a waiting session often has no open request. Its unfinished call is then marked `◆` and shows the command itself, since that is what waits to be allowed.
 - A snapshot holds the whole conversation (1 to 4 MB for a long Claude Code session; about 10 to 35 ms to fetch from the bridge and 5 to 20 ms to read). Only the entries that are kept are decoded past their name; tool arguments and results stay raw. That cost is why the ensemble reads every two seconds and not faster.
 

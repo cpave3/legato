@@ -2,6 +2,7 @@ package agents
 
 import (
 	"fmt"
+	"regexp"
 	"strings"
 
 	"github.com/charmbracelet/lipgloss"
@@ -77,10 +78,36 @@ func toolName(name string) string {
 	return name
 }
 
+// isSpeak reports whether a tool call is Legato's speak: a line said out
+// loud. The Claude Code and Codex bridges name it speak; Chimera names it
+// after its server (mcp_legato_speak).
+func isSpeak(tool string) bool {
+	if tool == "speak" {
+		return true
+	}
+	return legatoSpeak.MatchString(tool)
+}
+
+// legatoSpeak is Legato's speak under a server named legato, and not under
+// one whose name only ends in it (notlegato), as the web UI matches it.
+var legatoSpeak = regexp.MustCompile(`(?:^|[^a-zA-Z0-9])legato(?:__|[._])speak$`)
+
 // toolLine renders one tool call: how it stands, the tool, and what the call
 // is for. state is what the agent is doing, which says what a call with no
 // result yet is waiting for.
 func (m Model) toolLine(entry service.ConversationEntry, state string, width int) string {
+	if isSpeak(entry.Tool) {
+		// A line the agent said out loud: the words, not the call.
+		line := colored(theme.Accent, "◈") + " " + lipgloss.NewStyle().Foreground(theme.TextPrimary).Bold(true).Render("said")
+		if entry.State == service.ToolFailed {
+			// The call failed: the words were not spoken.
+			line = colored(theme.Red, m.icons.CIFail) + " " + lipgloss.NewStyle().Foreground(theme.TextPrimary).Bold(true).Render("not said")
+		}
+		if room := width - lipgloss.Width(line) - 3; entry.Text != "" && room >= 4 {
+			line += " " + colored(theme.TextPrimary, `"`+truncateID(entry.Text, room)+`"`)
+		}
+		return line
+	}
 	// A call that is over is quiet; the one in flight is what to look at.
 	mark, markColor, text, textColor := "●", theme.Green, entry.Text, theme.TextSecondary
 	switch entry.State {
@@ -200,6 +227,14 @@ func (m Model) conversationWithRuns(tail service.ConversationTail, state string,
 	newestSaid := true
 	for i := len(tail.Entries) - 1; i >= 0 && remaining > 0; i-- {
 		entry := tail.Entries[i]
+		if entry.Kind == service.EntryTool && isSpeak(entry.Tool) {
+			// What was said out loud is what was said, not a step of a run.
+			if endRun(false); remaining == 0 {
+				break
+			}
+			keep([]string{m.toolLine(entry, state, width)})
+			continue
+		}
 		if entry.Kind == service.EntryTool {
 			if shown < shownOfEachRun {
 				keep([]string{m.toolLine(entry, state, width)})

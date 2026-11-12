@@ -28,7 +28,8 @@ import { ContextGauge, ContextNotice, DictateButton, DictationBar, QueuedList, S
 import { CONTEXT_NEARLY_FULL, composerToolButton, currentStep, dictating, failQueuedByWords, formatElapsed, queueMessage, settleQueued, unreadQueued, type QueuedMessage } from "../lib/composer"
 import { useTurnClock } from "../hooks/useTurnClock"
 import { usePageInView } from "../hooks/usePageInView"
-import { appendProposal, legatoUICall, onComposerProposal } from "../lib/agentUi"
+import { appendProposal, legatoUICall, onComposerProposal, speakFailed, speakText } from "../lib/agentUi"
+import { SaidBubble } from "./SaidBubble"
 import { insertAtCursor, isImagePath } from "../lib/agentImage"
 import { rankSlashItems, type SlashItem } from "../lib/slashMenu"
 import { usePastedImages } from "../hooks/usePastedImages"
@@ -1062,6 +1063,8 @@ export function NativeAgentPanel({ agentId, reeve, sandboxed, onKill, onRename, 
             // Every other tool call is in a "tools" block.
             const uiCall = shownUICall(item.tool)
             if (uiCall) return <AgentUICallCard key={item.key} call={uiCall} agentId={agentId} onOpen={onOpenUIItem} />
+            const said = speakText(item.tool)
+            if (said !== null) return <SaidBubble key={item.key} text={said} status={speakFailed(item.tool) ? "not_spoken" : undefined} />
             const tile = showTiles ? tiles.find((each) => each.id === item.tool!.key) : undefined
             if (tile) {
               return <SubagentLink key={item.key} tile={tile} highlighted={highlightedTile === tile.id} onOpen={() => setFocusedTile(tile.id)} onHighlight={setHighlightedTile} />
@@ -1377,12 +1380,13 @@ function shownUICall(tool: ToolCallItem) {
 
 // Tool calls made back to back are drawn as one block, with what the agent
 // thought between them. A subagent spawn keeps its own card, and so does a
-// call that showed a card or an artifact, so each also ends the run before it.
+// call that showed a card or an artifact or said something out loud, so each
+// also ends the run before it.
 function conversationBlocks(items: NativeConversationItem[]): ConversationBlock[] {
   const blocks: ConversationBlock[] = []
   for (const item of items) {
     const step = item.role === "reasoning"
-      || (item.role === "tool" && item.tool && item.tool.toolName !== "spawn_agent" && !shownUICall(item.tool))
+      || (item.role === "tool" && item.tool && item.tool.toolName !== "spawn_agent" && !shownUICall(item.tool) && speakText(item.tool) === null)
     if (step) {
       const last = blocks[blocks.length - 1]
       if (last?.kind === "steps") last.rows.push(item)

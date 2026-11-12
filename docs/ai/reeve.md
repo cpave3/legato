@@ -160,6 +160,7 @@ The Reeve can speak out loud with the tool `speak` (`internal/cli/mcp_reeve.go`;
 - **`Spoke`** is told each line's fate (`made`, `sent`, `played`, `failed`, `dropped`); the runtime publishes it as `EventReeveSpoke`, and the web server forwards it as the `reeve_spoke` WebSocket message (`content` the text, `status` the state).
 - **The credential** is read with `CredentialBroker.UseForLegato`: Legato's own use, which the person allowed by naming it in a setting. No rule is asked and no approval raised; each use is audited (`use`, detail "Legato's own use · the Reeve's voice", the characters as its amount) against the Reeve's session. The Reeve never holds the value.
 - To switch from ElevenLabs (`reeve-say.sh`) to Piper, set `command` to a Piper script and clear `credential`; no code changes.
+- **The record.** The bridges name the call `speak` (`claudebridge`: `mcp__…legato__speak`; `codexbridge`: `legato.speak`) with its `text` as the summary. The web conversation draws it as a said bubble and the TUI's tiles as `◈ said "…"`, so the Reeve need not write the same words. See [Web UI](web-ui.md) § What the Reeve said out loud and [TUI](tui.md) § A conversation in a tile.
 - **`LastError`** is why the last line was not made or played, cleared when a line plays. The voice status gives it.
 
 ## Hands-free voice
