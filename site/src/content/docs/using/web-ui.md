@@ -105,7 +105,9 @@ If the agent's branch carries a review briefing (HTML pages under `.review/` tha
 
 When an agent reads an image file, its row in the conversation opens to show the image. Click the image to see it full size.
 
-To give an agent an image, paste it into the message box. Legato stores the image in a temporary folder and puts the file's path in your message, where the agent can read it. A thumbnail above the box stands for each pasted image. Legato keeps a task's newest 20 pasted images, up to 10 MiB each, in PNG, JPEG, GIF, WebP or BMP.
+To give an agent an image, paste it into the message box, drop an image file on the box, or press **Attach image** (the picture icon under the box) and choose one. On a phone, **Attach image** opens your photos. Legato stores the image in a temporary folder and puts the file's path in your message, where the agent can read it. A thumbnail above the box stands for each image. Legato keeps a task's newest 20 images, up to 10 MiB each, in PNG, JPEG, GIF, WebP or BMP.
+
+If you copied text with the image, the text is pasted too. A task that is away on a worker takes images only from the worker's own page, where its agent runs.
 
 ### Context fill
 
