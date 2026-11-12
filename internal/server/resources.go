@@ -189,7 +189,7 @@ func (s *Server) reloadWithResources(w http.ResponseWriter, r *http.Request, tas
 		s.writeError(w, http.StatusServiceUnavailable, "agent service not available")
 		return
 	}
-	have, err := agents.AttachedResources(r.Context(), taskID)
+	have, err := restartResourceNames(r.Context(), agents, taskID)
 	if err != nil {
 		s.writeResourceError(w, err)
 		return

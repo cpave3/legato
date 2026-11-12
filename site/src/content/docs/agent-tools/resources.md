@@ -53,6 +53,28 @@ Legato checks that each path exists when you save a resource. A saved resource c
 - **Web UI:** the spawn dialog lists the resources under **Resources**, when there are any. Tick the ones to give.
 - **TUI:** the spawn overlay has a **resources** line between **agent** and **where**, when there are any. Move with `h` and `l`, and tick with `space`. A resource that lets the agent write a path is marked `✎`.
 
+## Resources for a repository
+
+Some repositories need a folder in every agent that works on them, such as a package feed's sign-in cache. Name the repository and its resources in the configuration file, under `agents.repository_resources`:
+
+```yaml
+agents:
+  repository_resources:
+    - repo: autopilot-dev/autopilot
+      resources: [NuGet feed token]
+
+resources:
+  - name: NuGet feed token
+    paths:
+      - path: ~/.local/share/MicrosoftCredentialProvider   # read is the default
+```
+
+- Every agent working in that repository gets the resources as if you had ticked them when it started: manual agents, swarm workers, workflow agents, reviewers and handed-off tasks, in any checkout, worktree or fresh clone. Nothing in the repository mentions Legato.
+- Legato finds the repository the way it does for [guidance](/legato/using/agents/#guidance-for-a-repository): the task's repository, else the origin remote of the folder the agent works in. `repo` is `owner/name` on GitHub, `host/owner/name`, or a Git remote address, ssh or https.
+- A resource you tick as well is given once.
+- Reloading or restarting the agent works them out again from the configuration.
+- The names must be resources in the file's `resources` block, and each repository is listed once. Legato does not load a file that breaks either rule. These are set only in the file, not in Settings.
+
 ## Add a resource to a running agent
 
 In the web UI, open the agent's native panel and press **Resources** in its status bar, beside the model selector. The list marks the resources the agent already has. Tap one to give it.
@@ -83,6 +105,6 @@ Some details:
 
 ## Resources and the sandbox
 
-When agents run in [Legato's sandbox](/legato/security/sandbox/), the sandbox shows them only certain folders. Legato adds the paths of the agent's resources to those folders, read-only or writable as the resource says.
+When agents run in [Legato's sandbox](/legato/security/sandbox/), the sandbox shows them only certain folders. Legato adds the paths of the agent's resources, ticked or given by its repository, to those folders, read-only or writable as the resource says.
 
 The sandbox's folders are fixed when the agent starts. So when you add a resource to a running sandboxed agent, Legato asks first, then reloads the agent: it stops and starts again with the new resource, and its conversation resumes.

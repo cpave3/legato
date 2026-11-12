@@ -86,7 +86,7 @@ agents:
 
 Legato refuses a mount inside a path it hides, such as `~/.ssh`.
 
-To give one agent a folder, use a [resource](/legato/agent-tools/resources/) instead. A sandbox's mounts are fixed when it starts, so adding a resource to a running sandboxed agent restarts it, resuming its conversation. The web UI asks first.
+To give one agent a folder, use a [resource](/legato/agent-tools/resources/) instead. To give every agent that works in one repository a folder, use [resources for a repository](/legato/agent-tools/resources/#resources-for-a-repository). A sandbox's mounts are fixed when it starts, so adding a resource to a running sandboxed agent restarts it, resuming its conversation. The web UI asks first.
 
 To leave out your toolchains and caches:
 

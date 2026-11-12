@@ -336,6 +336,9 @@ type AgentsConfig struct {
 	// Guidance is text for the launch prompt of agents working in a
 	// repository; see AgentGuidance.
 	Guidance []AgentGuidance    `yaml:"guidance"`
+	// RepositoryResources gives named resources to every agent working in
+	// a repository; see RepositoryResources.
+	RepositoryResources []RepositoryResources `yaml:"repository_resources"`
 	MCP      AgentMCPConfig     `yaml:"mcp"`
 	Sandbox  AgentSandboxConfig `yaml:"sandbox"`
 }
@@ -534,6 +537,9 @@ func validate(cfg *Config) error {
 		return err
 	}
 	if err := normalizeResources(cfg); err != nil {
+		return err
+	}
+	if err := normalizeRepositoryResources(cfg); err != nil {
 		return err
 	}
 	if err := normalizeAgentSandbox(cfg); err != nil {

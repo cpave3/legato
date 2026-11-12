@@ -324,6 +324,7 @@ type agentService struct {
 	prSvc                PRTrackingService
 	checkoutInspector    CheckoutInspector
 	guidance             RepositoryGuidanceSource
+	repoResources        RepositoryResourceSource
 	reviewsOff           bool
 	binaryPath           string
 	bus                  EventPublisher
@@ -514,6 +515,9 @@ type AgentServiceOptions struct {
 	// RepositoryGuidance adds the guidance of the repository an agent works
 	// in to its launch prompt. Nil: none.
 	RepositoryGuidance RepositoryGuidanceSource
+	// RepositoryResources gives every agent working in a repository its
+	// resources, as if ticked at spawn. Nil: none.
+	RepositoryResources RepositoryResourceSource
 	// ReviewsOff tells agents to skip Legato's review tours and handoff
 	// packets unless the person asks for one.
 	ReviewsOff bool
@@ -606,6 +610,7 @@ func NewAgentService(s *store.Store, tmux TmuxManager, workDir string, opts ...A
 		svc.prSvc = opts[0].PRService
 		svc.checkoutInspector = opts[0].CheckoutInspector
 		svc.guidance = opts[0].RepositoryGuidance
+		svc.repoResources = opts[0].RepositoryResources
 		svc.reviewsOff = opts[0].ReviewsOff
 		svc.binaryPath = opts[0].BinaryPath
 		svc.bus = opts[0].EventBus
@@ -719,6 +724,7 @@ func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, hei
 
 	executionID := "ex-" + store.GenerateTaskID()
 	var freshClone *cloneSetup
+	cloneRepo := ""
 	if opt.Repo != "" || opt.Clone != 0 {
 		// A clone, made or joined before anything starts. One whose spawn
 		// fails below is swept with the other idle clones.
@@ -732,6 +738,7 @@ func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, hei
 			return err
 		}
 		workDir = clone.Path
+		cloneRepo = clone.Repo
 		if opt.SessionPolicy == "resume" && opt.ResumeWorkingDir != "" && !samePath(clone.Path, opt.ResumeWorkingDir) {
 			return fmt.Errorf("%w: the saved conversation is in %s, not in the clone at %s", ErrTaskResumeConflict, opt.ResumeWorkingDir, clone.Path)
 		}
@@ -873,23 +880,34 @@ func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, hei
 	} else if tp, ok := adapter.(ToolsPromptAdapter); ok {
 		rolePrompt = joinPromptSections(rolePrompt, tp.ToolsPrompt())
 	}
-	resources := usableResources(opt.Resources)
+	// The repository's own resources (agents.repository_resources), for
+	// every kind of agent, worked out again at each spawn.
+	needsProject := (a.learning != nil || a.guidance != nil) && adapter != nil && !nativeResume && !ownPrompt
+	identityKey := ""
+	if needsProject || a.repoResources != nil {
+		key, identityErr := a.spawnProjectKey(ctx, taskID, workDir, cloneRepo)
+		if identityErr != nil && needsProject {
+			return identityErr
+		}
+		identityKey = key
+	}
+	var repoResources []Resource
+	if repo, ok := strings.CutPrefix(identityKey, "repo:"); ok && a.repoResources != nil {
+		given, err := a.repoResources.ResourcesForRepository(ctx, repo)
+		if err != nil {
+			log.Printf("reading the resources of %s: %v", repo, err)
+		}
+		_, repoResources = mergeResources(opt.Resources, given)
+	}
+	resources := usableResources(append(append([]Resource(nil), opt.Resources...), repoResources...))
 	rolePrompt = joinPromptSections(rolePrompt, resourcesPrompt(resources))
 	rolePrompt = joinPromptSections(rolePrompt, freshClone.prompt(workDir))
 	if nativeResume {
 		rolePrompt = ""
 	}
 	projectKey := ""
-	if (a.learning != nil || a.guidance != nil) && adapter != nil && !nativeResume && !ownPrompt {
-		if task, taskErr := a.store.GetTask(ctx, taskID); taskErr == nil {
-			codeContext, parseErr := store.ParseCodeContext(task.CodeContext)
-			if parseErr != nil {
-				return fmt.Errorf("parsing task code context: %w", parseErr)
-			}
-			if identity, identityErr := ResolveProjectIdentity(codeContext, workDir, a.checkoutInspector); identityErr == nil {
-				projectKey = identity.Key
-			}
-		}
+	if needsProject {
+		projectKey = identityKey
 	}
 	// With reviews on, an adapter whose agents learn of them only from here
 	// (Claude Code, Codex) is told; swarm workers never review.
@@ -1164,6 +1182,15 @@ func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, hei
 		}
 		if err := a.store.AddExecutionResources(ctx, executionID, names); err != nil {
 			log.Printf("recording the resources of %s: %v", executionID, err)
+		}
+	}
+	if len(repoResources) > 0 {
+		names := make([]string, 0, len(repoResources))
+		for _, resource := range repoResources {
+			names = append(names, resource.Name)
+		}
+		if err := a.store.AddExecutionRepositoryResources(ctx, executionID, names); err != nil {
+			log.Printf("recording the repository resources of %s: %v", executionID, err)
 		}
 	}
 	if promptManifestID != "" {

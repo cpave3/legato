@@ -50,6 +50,12 @@ Nothing can be taken back from a running agent: Chimera has no call that narrows
 
 Checked on 2026-10-14 against Chimera with a scratch Legato: a resource whose path has a space was granted at launch (`GET /v1/sessions/:id/paths` listed it as writable) and the agent wrote a file in it with its own write tool; a second resource added to the running session was granted to read, and the agent answered the note.
 
+## Resources for a repository
+
+`agents.repository_resources` (see [Configuration](config.md)) gives named resources of the configuration to every agent working in a repository. `SpawnAgent` works out the project (`spawnProjectKey`: the repository of a job clone it was given, else `ResolveProjectIdentity`, the task's code context then the checkout's origin remote) for every spawn, whatever its kind or prompt, asks `RepositoryResourceSource.ResourcesForRepository`, and merges what is not already ticked (`mergeResources`, by name ignoring case) after the ticked ones. From there they are ordinary resources: the launch prompt, Chimera's grants, the sandbox's mounts. A resumed native conversation gets no launch prompt but still the grants and the mounts.
+
+`execution_resources.from_repository` (migration 107) marks those the repository gave. `AttachedResources` lists all of an execution's (the web control marks them); `ChosenResources` (`ListChosenExecutionResources`) only the chosen ones, which is what a restart, a reload with more resources (`restartResourceNames` in `internal/server`) and the resume of an interrupted agent carry: the spawn works the repository's out again, so a mapping removed from the file is gone after a restart of Legato and of the agent.
+
 ## Adding one to a running agent
 
 `POST /api/agents/{task_id}/resources {"names": ["Obsidian vault"]}` gives the agent the named resources and answers `{"attached": [...]}` with everything it now has; `GET` on the same address answers the same list. It needs the agent's native endpoint (a Chimera session, or Claude Code or Codex through its bridge); a session driven only through its terminal gets `409`.
@@ -62,7 +68,8 @@ Every route keeps a path with spaces as one path: the configuration and the API 
 
 ## Packages
 
-- `config/resources.go` — the `resources:` block and its checks.
+- `config/resources.go` — the `resources:` block and `agents.repository_resources`, and their checks.
+- `internal/service/repository_resources.go` — `RepositoryResources`, `mergeResources`, `spawnProjectKey`, `ChosenResources`.
 - `internal/engine/store/resource.go` — saved resources and the resources of an execution.
 - `internal/service/resource.go` — `ResourceService`: list, save, remove, resolve by name, attach; the launch prompt and grants. `agent_resources.go` — `AttachResources` on the agent service and `GrantPaths` on the native interaction.
 - `internal/engine/hooks/chimera_paths.go` — Chimera's flags (`service.PathGrantingAdapter`).

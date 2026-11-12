@@ -1550,6 +1550,7 @@ func runServeCmd(args []string) int {
 			DisablePeerAwareness: !cfg.Agents.PeerAwareness,
 			ReviewsOff:           !cfg.Agents.Reviews,
 			RepositoryGuidance:   repositoryGuidance(cfg, db),
+			RepositoryResources:  repositoryResources(cfg),
 		})
 		sweepInterruptedAgents(agentSvc, configuredResourceService(cfg, db))
 		recoverNativeEndpoints(agentSvc)
@@ -1869,6 +1870,7 @@ func runTUI() int {
 			DisablePeerAwareness: !cfg.Agents.PeerAwareness,
 			ReviewsOff:           !cfg.Agents.Reviews,
 			RepositoryGuidance:   repositoryGuidance(cfg, db),
+			RepositoryResources:  repositoryResources(cfg),
 		})
 		sweepInterruptedAgents(agentSvc, configuredResourceService(cfg, db))
 		recoverNativeEndpoints(agentSvc)
@@ -2583,6 +2585,7 @@ func loadSwarmServiceForCLI() (service.SwarmService, *store.Store, int) {
 		DisablePeerAwareness: !cfg.Agents.PeerAwareness,
 		ReviewsOff:           !cfg.Agents.Reviews,
 		RepositoryGuidance:   repositoryGuidance(cfg, db),
+		RepositoryResources:  repositoryResources(cfg),
 	})
 	attachCredentialChannels(cfg, db, agents)
 

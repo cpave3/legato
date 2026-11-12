@@ -287,12 +287,15 @@ var secretRefPattern = regexp.MustCompile(`^(legato://[A-Za-z0-9][A-Za-z0-9._-]{
 
 // fileOnly are the settings that live only in config.yaml: what is needed
 // before the database opens, what unseals secrets, how the instance is
-// reached, and the signing trust root.
+// reached, and the signing trust root. agents.repository_resources is
+// file-only because it names resources of the file's resources block, which
+// load checks; a resource saved in the database is not there to check.
 var fileOnly = []string{
 	"db", "data_dir",
 	"secrets.master_key", "secrets.onepassword",
 	"web.enabled", "web.port", "web.tls", "web.public_url",
 	"approval_devices.android_app_digests",
+	"agents.repository_resources",
 }
 
 // EntryLists lists the keys of every list of named entries: those the
