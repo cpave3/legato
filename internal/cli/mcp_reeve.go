@@ -375,8 +375,8 @@ func (m *mcpTools) restartLegato() mcpserver.Tool {
 
 type configEditInput struct {
 	Reason string         `json:"reason" jsonschema:"one line saying why"`
-	Set    map[string]any `json:"set,omitempty" jsonschema:"keys to give a value, dotted as in config.yaml (web.port, agents.sandbox.enabled), with their values"`
-	Remove []string       `json:"remove,omitempty" jsonschema:"dotted keys to take out of config.yaml"`
+	Set    map[string]any `json:"set,omitempty" jsonschema:"keys to give a value, dotted as in config.yaml (web.port, agents.sandbox.enabled), with their values. A key reaches into a list by an entry's index or field: credentials[name=github].policy[0].operation; [+] adds an entry at the end: credentials[name=github].policy[+] with the new rule as its value"`
+	Remove []string       `json:"remove,omitempty" jsonschema:"dotted keys to take out of config.yaml; a list entry too, as credentials[name=github].policy[2]"`
 }
 
 func (m *mcpTools) proposeConfigEdit() mcpserver.Tool {

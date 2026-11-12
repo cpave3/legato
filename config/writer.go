@@ -23,14 +23,7 @@ func EditFile(path string, edit func(doc *yaml.Node) error) (string, error) {
 	if err != nil && !os.IsNotExist(err) {
 		return "", err
 	}
-	doc, err := parseDocument(old)
-	if err != nil {
-		return "", err
-	}
-	if err := edit(doc); err != nil {
-		return "", err
-	}
-	out, err := encodeDocument(doc)
+	out, err := EditBytes(old, edit)
 	if err != nil {
 		return "", err
 	}
@@ -63,8 +56,13 @@ func EditBytes(data []byte, edit func(doc *yaml.Node) error) ([]byte, error) {
 	if err != nil {
 		return nil, err
 	}
+	before, _ := parseDocument(data)
 	if err := edit(doc); err != nil {
 		return nil, err
+	}
+	// Only the text that changed, when the change allows (writer_patch.go).
+	if patched, ok := patchDocument(data, before, doc); ok {
+		return patched, nil
 	}
 	return encodeDocument(doc)
 }
@@ -98,23 +96,32 @@ func encodeDocument(doc *yaml.Node) ([]byte, error) {
 	return buf.Bytes(), nil
 }
 
-// RemoveKey removes a dotted key from the document, and any section left
-// empty by it. It reports whether the key was there.
+// RemoveKey removes a key from the document (see writer_keys.go: a list
+// entry too), and any section or list left empty by it. It reports whether
+// the key was there.
 func RemoveKey(doc *yaml.Node, key string) bool {
-	return removeKey(doc.Content[0], strings.Split(key, "."))
+	segs, err := parseKey(key)
+	if err != nil {
+		return false
+	}
+	return removeKey(doc.Content[0], segs)
 }
 
-func removeKey(m *yaml.Node, parts []string) bool {
+func removeKey(m *yaml.Node, segs []keySegment) bool {
+	if m.Kind != yaml.MappingNode {
+		return false
+	}
+	seg := segs[0]
 	for i := 0; i+1 < len(m.Content); i += 2 {
-		if m.Content[i].Value != parts[0] {
+		if m.Content[i].Value != seg.name {
 			continue
 		}
-		if len(parts) == 1 {
+		child := m.Content[i+1]
+		if len(segs) == 1 && len(seg.selectors) == 0 {
 			m.Content = append(m.Content[:i], m.Content[i+2:]...)
 			return true
 		}
-		child := m.Content[i+1]
-		if child.Kind != yaml.MappingNode || !removeKey(child, parts[1:]) {
+		if !removeIn(child, seg.selectors, segs[1:]) {
 			return false
 		}
 		if len(child.Content) == 0 {
@@ -125,37 +132,107 @@ func removeKey(m *yaml.Node, parts []string) bool {
 	return false
 }
 
-// SetKey gives a dotted key a value, making sections as needed and keeping
-// the key's place (and comments) when it is there.
+// removeIn removes what selectors then the rest of a key name inside node.
+func removeIn(node *yaml.Node, selectors []keySelector, rest []keySegment) bool {
+	if len(selectors) == 0 {
+		if len(rest) == 0 {
+			return false
+		}
+		return removeKey(node, rest)
+	}
+	if node.Kind != yaml.SequenceNode || selectors[0].append {
+		return false
+	}
+	at, err := selectors[0].entry(node, "")
+	if err != nil {
+		return false
+	}
+	if len(selectors) == 1 && len(rest) == 0 {
+		node.Content = append(node.Content[:at], node.Content[at+1:]...)
+		return true
+	}
+	item := node.Content[at]
+	if !removeIn(item, selectors[1:], rest) {
+		return false
+	}
+	if len(item.Content) == 0 {
+		node.Content = append(node.Content[:at], node.Content[at+1:]...)
+	}
+	return true
+}
+
+// SetKey gives a key a value (see writer_keys.go: a list entry, or a key
+// inside one, too), making sections as needed and keeping the key's place
+// (and comments) when it is there. A list entry it names must exist, unless
+// it is [+], which adds one.
 func SetKey(doc *yaml.Node, key string, value any) error {
 	var v yaml.Node
 	if err := v.Encode(value); err != nil {
 		return err
 	}
+	segs, err := parseKey(key)
+	if err != nil {
+		return err
+	}
 	m := doc.Content[0]
-	parts := strings.Split(key, ".")
-	for depth, part := range parts {
-		var found *yaml.Node
-		for i := 0; i+1 < len(m.Content); i += 2 {
-			if m.Content[i].Value == part {
-				found = m.Content[i+1]
-				if depth == len(parts)-1 {
-					v.HeadComment, v.LineComment = found.HeadComment, found.LineComment
-					*found = v
-					return nil
-				}
-			}
+	where := ""
+	for depth, seg := range segs {
+		last := depth == len(segs)-1
+		if where != "" {
+			where += "."
 		}
-		if depth == len(parts)-1 {
-			m.Content = append(m.Content, &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: part}, &v)
-			return nil
+		where += seg.name
+		if m.Kind != yaml.MappingNode {
+			return fmt.Errorf("%s: %s is not a section", key, strings.TrimSuffix(where, "."+seg.name))
+		}
+		found := mapValue(m, seg.name)
+		if len(seg.selectors) == 0 {
+			if last {
+				if found != nil {
+					replaceKeeping(found, &v)
+				} else {
+					m.Content = append(m.Content, &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: seg.name}, &v)
+				}
+				return nil
+			}
+			if found == nil {
+				found = &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
+				m.Content = append(m.Content, &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: seg.name}, found)
+			}
+			m = found
+			continue
 		}
 		if found == nil {
-			found = &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
-			m.Content = append(m.Content, &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: part}, found)
+			if !seg.selectors[0].append {
+				return fmt.Errorf("%s: there is no list %s", key, where)
+			}
+			found = &yaml.Node{Kind: yaml.SequenceNode, Tag: "!!seq"}
+			m.Content = append(m.Content, &yaml.Node{Kind: yaml.ScalarNode, Tag: "!!str", Value: seg.name}, found)
 		}
-		if found.Kind != yaml.MappingNode {
-			return fmt.Errorf("%s: %s is not a section", key, part)
+		for i, sel := range seg.selectors {
+			lastSel := last && i == len(seg.selectors)-1
+			if found.Kind != yaml.SequenceNode {
+				return fmt.Errorf("%s: %s is not a list", key, where)
+			}
+			if sel.append {
+				if lastSel {
+					found.Content = append(found.Content, &v)
+					return nil
+				}
+				item := &yaml.Node{Kind: yaml.MappingNode, Tag: "!!map"}
+				found.Content = append(found.Content, item)
+				found, where = item, where+sel.String()
+				continue
+			}
+			at, err := sel.entry(found, where)
+			if err != nil {
+				return fmt.Errorf("%s: %w", key, err)
+			}
+			if lastSel {
+				replaceKeeping(found.Content[at], &v)
+				return nil
+			}
+			found, where = found.Content[at], where+sel.String()
 		}
 		m = found
 	}

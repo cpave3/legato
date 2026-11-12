@@ -842,7 +842,8 @@ func editsOwnRule(edits []ConfigEdit) string {
 		}
 	}
 	for _, e := range edits {
-		key := strings.TrimSpace(e.Key)
+		// A key into a list (reeve.rules[0].level) edits the list.
+		key := config.PlainKey(strings.TrimSpace(e.Key))
 		for _, rule := range rules {
 			if key == rule || strings.HasPrefix(rule, key+".") || strings.HasPrefix(key, rule+".") {
 				return rule
