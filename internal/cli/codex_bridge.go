@@ -114,6 +114,14 @@ func RunCodexBridge(ctx context.Context, s *store.Store, opts CodexBridgeOptions
 	bridge := codexbridge.New(codexbridge.Options{
 		TaskID: opts.TaskID, Token: token, AppServerURL: appServer.URL, AppServerToken: appServer.Token, CWD: cwd,
 		OnIdentity: nativeIdentityRecorder(runCtx, host, opts.TaskID, session, "codex"),
+		// A turn interrupted or failed may fire no Codex hook.
+		OnTurnEnded: func(status string) {
+			reportCtx, stop := context.WithTimeout(context.WithoutCancel(runCtx), 10*time.Second)
+			defer stop()
+			if err := host.TurnEnded(reportCtx, status); err != nil {
+				fmt.Fprintf(os.Stderr, "legato: the end of a %s turn was not reported: %v\n", status, err)
+			}
+		},
 	})
 	if err := bridge.Connect(runCtx); err != nil {
 		return err

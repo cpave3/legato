@@ -562,3 +562,33 @@ func TestAnExitSaysWhenItsLastMessageWasRead(t *testing.T) {
 	got := WatchMessage([]WatchEvent{{TaskID: "T-1", Title: "One", From: WatchIdle, To: WatchExited, LastMessage: "Waiting for the build."}})
 	mustContain(t, got, `The last message Legato read from it, before it exited: "Waiting for the build."`)
 }
+
+// An agent in the background is described by what it waits on, read from
+// its hooks, whether or not its conversation can be read (LEG-144).
+func TestTheMessageNamesTheBackgroundJobs(t *testing.T) {
+	for _, tail := range []*ConversationTail{nil, {Entries: []ConversationEntry{{Kind: EntryAssistant, Text: "Waiting on the build."}}}} {
+		f := newWatchFixture(t)
+		f.watchAll(t, f.task)
+		if tail != nil {
+			f.tails[f.task] = tail
+		}
+		session, err := f.db.GetAgentSessionByTaskID(context.Background(), f.task)
+		if err != nil {
+			t.Fatal(err)
+		}
+		jobs := store.BackgroundJobs{
+			{Kind: store.JobBash, ID: "b1", Label: "npm run build", StartedAt: f.now},
+			{Kind: store.JobSubagent, ID: "a1", Label: "Explore: find the callers", StartedAt: f.now},
+		}
+		if err := f.db.SetAgentHookState(context.Background(), session.ID, store.ActivityBackground, jobs, store.HookSourcePlugin); err != nil {
+			t.Fatal(err)
+		}
+
+		got := strings.Join(f.settle(t), "")
+
+		mustContain(t, got, "running → background", `Still running: bash "npm run build"; subagent "Explore: find the callers"`)
+		if strings.Contains(got, "cannot tell whether anything") {
+			t.Fatalf("the jobs were known, but the message says Legato cannot tell:\n%s", got)
+		}
+	}
+}

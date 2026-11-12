@@ -85,7 +85,14 @@ type AgentSession struct {
 	// ReeveName is the Reeve's name (reeve.name) on the Reeve's agent, ""
 	// when it has none; its Title is then the name.
 	ReeveName string
+	// BackgroundJobs is what a running agent started that still runs and
+	// will wake it (see docs/ai/agent-states.md); none for an ended one.
+	BackgroundJobs []BackgroundJob
 }
+
+// BackgroundJob is one thing an agent started that still runs and will wake
+// it: Kind bash, monitor, subagent or cron, with a Label saying what it is.
+type BackgroundJob = store.BackgroundJob
 
 // AgentPeer describes one live, routable agent sharing a Git worktree.
 type AgentPeer struct {
@@ -1746,6 +1753,9 @@ func (a *agentService) ListAgents(ctx context.Context) ([]AgentSession, error) {
 			Slot:              s.Slot,
 			CardTaskID:        s.TaskID,
 			Reeve:             IsReeveTask(ctx, a.store, s.TaskID),
+		}
+		if s.Status == "running" {
+			result[i].BackgroundJobs = s.BackgroundJobs
 		}
 		if result[i].Reeve {
 			if name := a.reeveName.Of(ctx); name != "" {

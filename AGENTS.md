@@ -76,6 +76,7 @@ The rest are not imported. Before changing an area, read its doc, and keep it cu
 - `docs/ai/cli.md` — subcommands, host broker, JSON contract and exit codes, hook integrations (Claude Code, Codex, Chimera, Staccato), tmux status line
 - `docs/ai/web-ui.md` — web UI pages, components, API endpoints, WebSocket sync, PWA, pairing
 - `docs/ai/tui.md` — TUI theme, board, agents view, spawn overlay
+- `docs/ai/agent-states.md` — agent states (working, waiting, background, idle, error), what each agent tool's hooks and bridge report, background jobs, the gaps
 - `docs/ai/sync.md` — ticket providers and the Jira sync algorithm
 - `docs/ai/pr-tracking.md` — GitHub PR discovery, code context, read-only client
 - `docs/ai/swarm.md` — conductor/worker orchestration, plans, tiers, adapter launch flags
@@ -115,6 +116,7 @@ The documentation for people who use Legato is the Starlight site in `site/`, pu
 | `docs/ai/reeve.md` | `using/reeve` |
 | `docs/ai/cli.md` | `reference/cli`, `agent-tools/*`, `integrations/staccato`, `integrations/tmux-status` |
 | `docs/ai/tui.md` | `using/board`, `using/agents`, `start/tour` |
+| `docs/ai/agent-states.md` | `agent-tools/claude-code`, `using/board`, `using/agents`, `using/reeve`, `start/tour` |
 | `docs/ai/web-ui.md` | `using/web-ui`, `running/devices`, `security/web-auth` |
 | `docs/ai/attention.md`, `docs/ai/approvals.md` | `using/attention` |
 | `docs/ai/swarm.md` | `using/swarms` |

@@ -131,7 +131,7 @@ func TestTheAgentsInCompactForm(t *testing.T) {
 		}
 	}
 	for k := range got[0] {
-		if _, ok := want[k]; !ok && k != "slot" && k != "card_task_id" && k != "reeve" {
+		if _, ok := want[k]; !ok && k != "slot" && k != "card_task_id" && k != "reeve" && k != "background_jobs" {
 			t.Errorf("the compact form has %s", k)
 		}
 	}
@@ -148,5 +148,33 @@ func TestTheCompactFormKeepsTheGroup(t *testing.T) {
 	}
 	if _, ok := got[1]["group"]; ok {
 		t.Fatalf("an agent in no group has a group: %v", got[1])
+	}
+}
+
+// What an agent in the background still runs, so the Reeve can tell a
+// build it waits on from an agent that stalled (LEG-144).
+func TestTheAgentsSayWhatStillRuns(t *testing.T) {
+	srv := agentsServer()
+	started := time.Date(2026, 11, 12, 3, 5, 0, 0, time.UTC)
+	agent := &srv.agents.(*manyAgents).list[1]
+	agent.Activity = store.ActivityBackground
+	agent.BackgroundJobs = []store.BackgroundJob{
+		{Kind: store.JobBash, ID: "b1", Label: "npm run build", StartedAt: started},
+		{Kind: store.JobSubagent, ID: "a1", Label: "Explore: find the callers", StartedAt: started},
+	}
+
+	for _, query := range []string{"?task=T-2", "?view=compact&task=T-2"} {
+		got := getAgents(t, srv, query)
+		jobs, _ := got[0]["background_jobs"].([]any)
+		if len(jobs) != 2 {
+			t.Fatalf("%s: background_jobs = %v", query, got[0]["background_jobs"])
+		}
+		first := jobs[0].(map[string]any)
+		if first["kind"] != "bash" || first["label"] != "npm run build" || first["started_at"] != "2026-11-12T03:05:00Z" {
+			t.Fatalf("%s: job = %v", query, first)
+		}
+	}
+	if _, ok := getAgents(t, srv, "?view=compact&task=T-1")[0]["background_jobs"]; ok {
+		t.Fatal("an agent with nothing running lists background jobs")
 	}
 }

@@ -1,0 +1,6 @@
+{
+  "name": "legato-state",
+  "version": "0.1.0",
+  "description": "Tells Legato what a Legato-launched Claude Code session is doing: working, waiting on the operator, idle, or waiting on work it started in the background.",
+  "author": { "name": "Legato" }
+}

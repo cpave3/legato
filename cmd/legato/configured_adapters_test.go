@@ -54,15 +54,40 @@ func TestConfiguredAdaptersGiveClaudeSessionsTheNativeBridge(t *testing.T) {
 
 	vars := adapters["claude-code"].EnvVars("task-1", "")
 	pluginDir := filepath.Join(dataDir, "claude-mod", "legato")
-	if vars["CLAUDE_CODE_PLUGIN_DIRS"] != pluginDir {
-		t.Fatalf("CLAUDE_CODE_PLUGIN_DIRS = %q, want %q", vars["CLAUDE_CODE_PLUGIN_DIRS"], pluginDir)
+	if want := pluginDirs(dataDir, pluginDir); vars["CLAUDE_CODE_PLUGIN_DIRS"] != want {
+		t.Fatalf("CLAUDE_CODE_PLUGIN_DIRS = %q, want %q", vars["CLAUDE_CODE_PLUGIN_DIRS"], want)
 	}
 	if _, err := os.Stat(filepath.Join(pluginDir, ".claude-plugin", "plugin.json")); err != nil {
 		t.Fatalf("the mod the session is pointed at is not installed: %v", err)
 	}
 }
 
+// pluginDirs is CLAUDE_CODE_PLUGIN_DIRS for a session given dirs: the state
+// plugin comes last, for every session.
+func pluginDirs(dataDir string, dirs ...string) string {
+	return strings.Join(append(dirs, filepath.Join(dataDir, "claude-mod", "legato-state")), string(os.PathListSeparator))
+}
+
+func TestConfiguredAdaptersGiveEveryClaudeSessionTheStatePlugin(t *testing.T) {
+	t.Setenv("CLAUDE_CODE_PLUGIN_DIRS", "")
+	dataDir := t.TempDir()
+	disabled := false
+	// Neither the bridge nor the tools: the state plugin does not need them.
+	cfg := &config.Config{DataDir: dataDir, Adapters: map[string]config.AdapterConfig{"claude-code": {NativeBridge: &disabled}}}
+
+	_, adapters := configuredAdapters(cfg, "/opt/legato")
+
+	vars := adapters["claude-code"].EnvVars("task-1", "")
+	if vars["CLAUDE_CODE_PLUGIN_DIRS"] != pluginDirs(dataDir) || vars["LEGATO_BIN"] != "/opt/legato" {
+		t.Fatalf("claude env = %v, want the state plugin", vars)
+	}
+	if _, err := os.Stat(filepath.Join(dataDir, "claude-mod", "legato-state", "hooks", "hooks.json")); err != nil {
+		t.Fatalf("the state plugin was not installed: %v", err)
+	}
+}
+
 func TestConfiguredAdaptersHonourTheNativeBridgeOptOut(t *testing.T) {
+	t.Setenv("CLAUDE_CODE_PLUGIN_DIRS", "")
 	disabled := false
 	dataDir := t.TempDir()
 	cfg := &config.Config{DataDir: dataDir, Adapters: map[string]config.AdapterConfig{
@@ -71,10 +96,10 @@ func TestConfiguredAdaptersHonourTheNativeBridgeOptOut(t *testing.T) {
 
 	_, adapters := configuredAdapters(cfg, "/opt/legato")
 
-	if dirs, ok := adapters["claude-code"].EnvVars("task-1", "")["CLAUDE_CODE_PLUGIN_DIRS"]; ok {
-		t.Fatalf("CLAUDE_CODE_PLUGIN_DIRS = %q, want it unset when the bridge is disabled", dirs)
+	if dirs := adapters["claude-code"].EnvVars("task-1", "")["CLAUDE_CODE_PLUGIN_DIRS"]; dirs != pluginDirs(dataDir) {
+		t.Fatalf("CLAUDE_CODE_PLUGIN_DIRS = %q, want only the state plugin when the bridge is disabled", dirs)
 	}
-	if _, err := os.Stat(filepath.Join(dataDir, "claude-mod")); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(dataDir, "claude-mod", "legato")); !os.IsNotExist(err) {
 		t.Fatalf("the mod was installed although the bridge is disabled: %v", err)
 	}
 }
@@ -124,8 +149,8 @@ func TestConfiguredAdaptersReportClaudeUsageToTheConfiguredManticore(t *testing.
 
 	vars := adapters["claude-code"].EnvVars("task-1", "")
 	pluginDir := filepath.Join(dataDir, "claude-mod", "legato-manticore")
-	if vars["CLAUDE_CODE_PLUGIN_DIRS"] != pluginDir {
-		t.Fatalf("CLAUDE_CODE_PLUGIN_DIRS = %q, want %q", vars["CLAUDE_CODE_PLUGIN_DIRS"], pluginDir)
+	if want := pluginDirs(dataDir, pluginDir); vars["CLAUDE_CODE_PLUGIN_DIRS"] != want {
+		t.Fatalf("CLAUDE_CODE_PLUGIN_DIRS = %q, want %q", vars["CLAUDE_CODE_PLUGIN_DIRS"], want)
 	}
 	if vars["LEGATO_MANTICORE_URL"] != "http://manticore.local:3456" || vars["LEGATO_MANTICORE_API_KEY"] != "mc_secret" {
 		t.Fatalf("Manticore variables = %q, %q", vars["LEGATO_MANTICORE_URL"], vars["LEGATO_MANTICORE_API_KEY"])
@@ -174,7 +199,7 @@ func TestConfiguredAdaptersGiveEverySessionLegatosMCPServer(t *testing.T) {
 
 	claude := adapters["claude-code"].EnvVars("task-1", "")
 	toolsDir := filepath.Join(dataDir, "claude-mod", "legato-tools")
-	if claude["CLAUDE_CODE_PLUGIN_DIRS"] != toolsDir || claude["LEGATO_BIN"] != "/opt/legato" {
+	if claude["CLAUDE_CODE_PLUGIN_DIRS"] != pluginDirs(dataDir, toolsDir) || claude["LEGATO_BIN"] != "/opt/legato" {
 		t.Fatalf("claude env = %v, want the tools plugin at %s", claude, toolsDir)
 	}
 	if _, err := os.Stat(filepath.Join(toolsDir, ".mcp.json")); err != nil {
@@ -221,8 +246,8 @@ func TestConfiguredAdaptersAddNoMCPServerWhenTheSettingIsOff(t *testing.T) {
 
 	_, adapters := configuredAdapters(cfg, "/opt/legato")
 
-	if dirs, ok := adapters["claude-code"].EnvVars("task-1", "")["CLAUDE_CODE_PLUGIN_DIRS"]; ok {
-		t.Fatalf("CLAUDE_CODE_PLUGIN_DIRS = %q, want none", dirs)
+	if dirs := adapters["claude-code"].EnvVars("task-1", "")["CLAUDE_CODE_PLUGIN_DIRS"]; dirs != pluginDirs(dataDir) {
+		t.Fatalf("CLAUDE_CODE_PLUGIN_DIRS = %q, want only the state plugin", dirs)
 	}
 	if _, err := os.Stat(filepath.Join(dataDir, "claude-mod", "legato-tools")); !os.IsNotExist(err) {
 		t.Fatalf("the tools plugin was installed with the setting off: %v", err)

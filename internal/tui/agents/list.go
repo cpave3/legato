@@ -443,6 +443,9 @@ func (m Model) renderHeader(width int) string {
 	if duration := m.stateDuration(*a); duration != "" && state != "dead" && state != "error" {
 		status += " " + colored(theme.TextSecondary, duration)
 	}
+	if waitsOn := backgroundSummary(a.BackgroundJobs); state == "background" && waitsOn != "" {
+		status += colored(theme.TextSecondary, " · "+truncateID(waitsOn, 40))
+	}
 
 	step := " " + colored(theme.TextFaint, "›") + " "
 	trail := lipgloss.NewStyle().Foreground(theme.TextPrimary).Bold(true).Render(a.TaskID) +
@@ -568,4 +571,16 @@ func firstNonEmpty(values ...string) string {
 		}
 	}
 	return ""
+}
+
+// backgroundSummary says what an agent in the background waits on: the one
+// job by kind and label, or how many there are; "" for none.
+func backgroundSummary(jobs []service.BackgroundJob) string {
+	switch len(jobs) {
+	case 0:
+		return ""
+	case 1:
+		return jobs[0].Kind + ": " + jobs[0].Label
+	}
+	return fmt.Sprintf("%d jobs", len(jobs))
 }

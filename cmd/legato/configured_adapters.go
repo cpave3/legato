@@ -36,6 +36,14 @@ func configuredAdapters(cfg *config.Config, legatoBin string) (service.AIToolAda
 		claude.SetLaunchArgs(configured.LaunchArgs)
 		claude.SetTiers(adapterTierLaunchArgs(configured))
 	}
+	// Every Claude Code session reports its state through the state plugin,
+	// written afresh at each start so its hooks match this binary. A failed
+	// install leaves the state to hook scripts installed by hand, if any.
+	if pluginDir, err := hooks.InstallClaudeStateMod(filepath.Join(config.ResolveDataDir(cfg), "claude-mod")); err != nil {
+		log.Printf("claude-code state plugin unavailable: %v", err)
+	} else {
+		claude.SetStateModDir(pluginDir)
+	}
 	if claudeNativeBridgeEnabled(cfg) {
 		// A failed install leaves Claude Code sessions tmux-only, as they
 		// were before the mod existed.

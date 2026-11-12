@@ -119,6 +119,7 @@ These commands tell Legato which repository and branch a task works on, so it ca
 - `legato agent message <task-or-execution-id> <text> [--json]`: send a message to a running agent.
 - `legato agent broadcast <text> [--task <task-id>] [--execution-id <id>] [--directory <path>] [--json]`: send a message to every other agent in the same Git worktree.
 - `legato agent state [<task-id>] --activity working|waiting|background|error|"" [--execution-id <id>] [--json]`: report what an agent is doing. The hooks Legato installs call it; an empty activity clears it.
+- `legato agent hook claude-code [<task-id>] [--execution-id <id>] [--working-dir <path>] [--json]`: report one Claude Code hook, its payload on stdin. Legato's `legato-state` plugin calls it; see [Claude Code](/legato/agent-tools/claude-code/).
 - `legato agent summary [--exclude <task-id>] [--json]`: count the agents that are working, waiting, in error and idle, formatted for a tmux status line.
 - `legato agent status [<task-id>] --format tmux [--json]`: a tmux status line for one task. A swarm task shows its progress; any other task shows the summary. See [tmux status line](/legato/integrations/tmux-status/).
 - `legato attention list [--producer <name>] [--category <category>] [--urgency <urgency>] [--json]`: list what waits for you in Attention. See [Attention](/legato/using/attention/).
@@ -132,11 +133,11 @@ Peer messages are hints between agents. They do not lock files. See [Agents](/le
 
 ## Hooks
 
-- `legato hooks install --tool <tool>[,<tool>...] [--json]`: install the hooks that tell Legato what an agent tool is doing. The tools are `claude-code`, `codex`, `chimera`, `staccato` and `yggdrasil`. `--tool` is required.
+- `legato hooks install --tool <tool>[,<tool>...] [--json]`: install the hooks that tell Legato what an agent tool is doing. The tools are `codex`, `chimera`, `staccato` and `yggdrasil`. `--tool` is required. For `claude-code` it installs nothing and removes the hooks earlier versions installed: Claude Code reports through the plugin Legato loads into each session.
 - `legato hooks uninstall --tool <tool>[,<tool>...] [--json]`: remove them.
 
 ```bash
-legato hooks install --tool claude-code,codex,chimera
+legato hooks install --tool codex,chimera
 ```
 
 See [Claude Code](/legato/agent-tools/claude-code/), [Codex](/legato/agent-tools/codex/), [Chimera](/legato/agent-tools/chimera/), [Staccato](/legato/integrations/staccato/) and [Yggdrasil](/legato/integrations/yggdrasil/).

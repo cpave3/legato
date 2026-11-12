@@ -40,6 +40,10 @@ type Options struct {
 	// OnIdentity records the provider conversation, independently of TaskID.
 	// It is called in event order when a nonempty identity or its cwd changes.
 	OnIdentity func(sessionID, cwd string) error
+	// OnTurnEnded is told when a main turn ends without an answer (an
+	// interrupt, an error), with the reason: Claude Code fires no hook for
+	// an interrupted turn. It is called after the batch is applied, in order.
+	OnTurnEnded func(reason string)
 	// Now overrides the clock in tests.
 	Now func() time.Time
 }
@@ -63,6 +67,7 @@ type Bridge struct {
 	// reads use only mu, which is never held during an identity callback.
 	eventMu     sync.Mutex
 	onIdentity  func(string, string) error
+	onTurnEnded func(string)
 	identityID  string
 	identityCWD string
 	// appliedSeq is the number of the newest mod event applied, so a batch
@@ -118,6 +123,7 @@ func New(opts Options) *Bridge {
 		commands:     commands,
 		onDisconnect: opts.OnDisconnect,
 		onIdentity:   opts.OnIdentity,
+		onTurnEnded:  opts.OnTurnEnded,
 		closed:       make(chan struct{}),
 		session:      newSession(),
 		subscribers:  map[chan envelope]struct{}{},
@@ -171,6 +177,7 @@ func (b *Bridge) handleModEvents(w http.ResponseWriter, r *http.Request) {
 	}
 	ended := false
 	var identityErr error
+	var turnsEnded []string
 	b.eventMu.Lock()
 	b.mu.Lock()
 	select {
@@ -190,6 +197,11 @@ func (b *Bridge) handleModEvents(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		b.publish(b.session.apply(event, b.now()))
+		if event.Type == "turn_complete" && event.AgentID == "" {
+			if reason := runFinishReason(event.Reason); reason != "stop" {
+				turnsEnded = append(turnsEnded, reason)
+			}
+		}
 		if (event.Type == "hello" || event.Type == "reset" || event.Type == "identity") && event.SessionID != "" && b.onIdentity != nil {
 			cwd := b.session.cwd
 			if event.SessionID != b.identityID || cwd != b.identityCWD {
@@ -212,6 +224,11 @@ func (b *Bridge) handleModEvents(w http.ResponseWriter, r *http.Request) {
 	b.releaseSettledWaiters()
 	b.mu.Unlock()
 	b.eventMu.Unlock()
+	if b.onTurnEnded != nil {
+		for _, reason := range turnsEnded {
+			b.onTurnEnded(reason)
+		}
+	}
 	if identityErr != nil {
 		http.Error(w, identityErr.Error(), http.StatusInternalServerError)
 		return

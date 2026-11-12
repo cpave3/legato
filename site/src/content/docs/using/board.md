@@ -55,8 +55,8 @@ The agent strip shows the agent's state and how long it has been in it:
 | --- | --- |
 | running | The agent is working. |
 | needs you | The agent waits for you: a permission, a question, or a plan to approve. |
-| background | The agent's turn ended, but a shell or a subagent it started still runs. |
-| idle | The agent is alive and not working. |
+| background | The agent's turn ended, but something it started still runs and will wake it: a shell, a Monitor, a subagent or a scheduled prompt. |
+| idle | The agent is alive, and nothing will wake it but a message. |
 | error | The agent stopped on an error. |
 | mixed (TUI), Agents disagree (web) | The task's agents are in different states. |
 

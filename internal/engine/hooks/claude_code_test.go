@@ -1,10 +1,8 @@
 package hooks_test
 
 import (
-	"bytes"
 	"encoding/json"
 	"os"
-	"os/exec"
 	"path/filepath"
 	"slices"
 	"strings"
@@ -31,252 +29,6 @@ func TestClaudeCodeAdapter_EnvVars(t *testing.T) {
 	}
 	if _, ok := vars["LEGATO_SOCKET"]; ok {
 		t.Error("LEGATO_SOCKET should not be set (CLI uses broadcast)")
-	}
-}
-
-func TestClaudeCodeAdapter_InstallHooks(t *testing.T) {
-	projectDir := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(projectDir, ".claude"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-
-	adapter := hooks.NewClaudeCodeAdapter("/usr/bin/legato")
-
-	if err := adapter.InstallHooks(projectDir); err != nil {
-		t.Fatalf("InstallHooks: %v", err)
-	}
-
-	// Check hook scripts exist and are executable.
-	for _, name := range []string{"legato-prompt-submit.sh", "legato-post-tool-use.sh", "legato-stop.sh", "legato-permission-request.sh", "legato-session-end.sh"} {
-		path := filepath.Join(projectDir, ".claude", "hooks", name)
-		info, err := os.Stat(path)
-		if err != nil {
-			t.Errorf("hook script %s not found: %v", name, err)
-			continue
-		}
-		if info.Mode()&0o111 == 0 {
-			t.Errorf("hook script %s is not executable", name)
-		}
-	}
-
-	// Check settings.json has hook entries.
-	settingsPath := filepath.Join(projectDir, ".claude", "settings.json")
-	data, err := os.ReadFile(settingsPath)
-	if err != nil {
-		t.Fatalf("reading settings.json: %v", err)
-	}
-
-	var settings map[string]interface{}
-	if err := json.Unmarshal(data, &settings); err != nil {
-		t.Fatalf("parsing settings.json: %v", err)
-	}
-
-	hooksMap, ok := settings["hooks"].(map[string]interface{})
-	if !ok {
-		t.Fatal("settings.json missing or invalid 'hooks' key")
-	}
-
-	for _, event := range []string{"UserPromptSubmit", "PostToolUse", "Stop", "PermissionRequest", "SessionEnd"} {
-		if _, ok := hooksMap[event]; !ok {
-			t.Errorf("settings.json missing %s hook", event)
-		}
-	}
-}
-
-func TestClaudeCodeAdapter_InstallHooks_PostToolUseConsumesStdin(t *testing.T) {
-	projectDir := t.TempDir()
-	if err := os.MkdirAll(filepath.Join(projectDir, ".claude"), 0o755); err != nil {
-		t.Fatal(err)
-	}
-
-	adapter := hooks.NewClaudeCodeAdapter("/usr/bin/legato")
-	if err := adapter.InstallHooks(projectDir); err != nil {
-		t.Fatalf("InstallHooks: %v", err)
-	}
-
-	payload := bytes.NewReader(bytes.Repeat([]byte("x"), 1<<20))
-	script := filepath.Join(projectDir, ".claude", "hooks", "legato-post-tool-use.sh")
-	cmd := exec.Command(script)
-	cmd.Env = envWithoutLegatoSession()
-	cmd.Stdin = payload
-	if err := cmd.Run(); err != nil {
-		t.Fatalf("running PostToolUse hook: %v", err)
-	}
-	if payload.Len() != 0 {
-		t.Fatalf("PostToolUse hook left %d of %d stdin bytes unread", payload.Len(), 1<<20)
-	}
-}
-
-func TestClaudeCodeAdapter_InstallHooksPreservesExisting(t *testing.T) {
-	projectDir := t.TempDir()
-	claudeDir := filepath.Join(projectDir, ".claude")
-	os.MkdirAll(claudeDir, 0o755)
-
-	existing := map[string]interface{}{
-		"hooks": map[string]interface{}{
-			"PreToolUse": []interface{}{
-				map[string]interface{}{
-					"matcher": "Bash",
-					"hooks": []interface{}{
-						map[string]interface{}{"type": "command", "command": "my-validator.sh"},
-					},
-				},
-			},
-		},
-		"permissions": map[string]interface{}{"allow": []string{"Read"}},
-	}
-	data, _ := json.MarshalIndent(existing, "", "  ")
-	os.WriteFile(filepath.Join(claudeDir, "settings.json"), data, 0o644)
-
-	adapter := hooks.NewClaudeCodeAdapter("/usr/bin/legato")
-	if err := adapter.InstallHooks(projectDir); err != nil {
-		t.Fatalf("InstallHooks: %v", err)
-	}
-
-	raw, _ := os.ReadFile(filepath.Join(claudeDir, "settings.json"))
-	var settings map[string]interface{}
-	json.Unmarshal(raw, &settings)
-
-	hooksMap := settings["hooks"].(map[string]interface{})
-	if _, ok := hooksMap["PreToolUse"]; !ok {
-		t.Error("user's PreToolUse hook was removed")
-	}
-	if _, ok := hooksMap["Stop"]; !ok {
-		t.Error("Legato Stop hook not added")
-	}
-	if _, ok := settings["permissions"]; !ok {
-		t.Error("permissions setting was removed")
-	}
-}
-
-func TestClaudeCodeAdapter_InstallHooksFailsWithoutClaudeDir(t *testing.T) {
-	projectDir := t.TempDir()
-
-	adapter := hooks.NewClaudeCodeAdapter("/usr/bin/legato")
-	err := adapter.InstallHooks(projectDir)
-	if err == nil {
-		t.Fatal("expected error when .claude/ doesn't exist")
-	}
-}
-
-func TestClaudeCodeAdapter_UninstallHooksPreservesUserHooks(t *testing.T) {
-	projectDir := t.TempDir()
-	claudeDir := filepath.Join(projectDir, ".claude")
-	os.MkdirAll(claudeDir, 0o755)
-
-	adapter := hooks.NewClaudeCodeAdapter("/usr/bin/legato")
-	adapter.InstallHooks(projectDir)
-
-	// Add a user hook.
-	raw, _ := os.ReadFile(filepath.Join(claudeDir, "settings.json"))
-	var settings map[string]interface{}
-	json.Unmarshal(raw, &settings)
-	hooksMap := settings["hooks"].(map[string]interface{})
-	hooksMap["PreToolUse"] = []interface{}{
-		map[string]interface{}{"matcher": "Bash", "hooks": []interface{}{
-			map[string]interface{}{"type": "command", "command": "user-hook.sh"},
-		}},
-	}
-	data, _ := json.MarshalIndent(settings, "", "  ")
-	os.WriteFile(filepath.Join(claudeDir, "settings.json"), data, 0o644)
-
-	if err := adapter.UninstallHooks(projectDir); err != nil {
-		t.Fatalf("UninstallHooks: %v", err)
-	}
-
-	// Hook scripts should be gone.
-	for _, name := range []string{"legato-prompt-submit.sh", "legato-post-tool-use.sh", "legato-stop.sh", "legato-permission-request.sh", "legato-session-end.sh"} {
-		path := filepath.Join(claudeDir, "hooks", name)
-		if _, err := os.Stat(path); err == nil {
-			t.Errorf("hook script %s should have been removed", name)
-		}
-	}
-
-	// Settings should have user's hook but not Legato's.
-	raw, _ = os.ReadFile(filepath.Join(claudeDir, "settings.json"))
-	json.Unmarshal(raw, &settings)
-	hooksMap = settings["hooks"].(map[string]interface{})
-
-	for _, event := range []string{"UserPromptSubmit", "PostToolUse", "Stop", "PermissionRequest", "SessionEnd"} {
-		if _, ok := hooksMap[event]; ok {
-			t.Errorf("Legato %s hook should have been removed", event)
-		}
-	}
-	if _, ok := hooksMap["PreToolUse"]; !ok {
-		t.Error("user's PreToolUse hook was removed during uninstall")
-	}
-}
-
-func TestClaudeCodeAdapter_ReinstallOverwrites(t *testing.T) {
-	projectDir := t.TempDir()
-	os.MkdirAll(filepath.Join(projectDir, ".claude"), 0o755)
-
-	adapter := hooks.NewClaudeCodeAdapter("/usr/bin/legato")
-	adapter.InstallHooks(projectDir)
-	if err := adapter.InstallHooks(projectDir); err != nil {
-		t.Fatalf("second install: %v", err)
-	}
-
-	path := filepath.Join(projectDir, ".claude", "hooks", "legato-stop.sh")
-	if _, err := os.Stat(path); err != nil {
-		t.Errorf("hook script missing after reinstall: %v", err)
-	}
-}
-
-func TestClaudeCodeAdapter_HookScriptChecksEnvVar(t *testing.T) {
-	projectDir := t.TempDir()
-	os.MkdirAll(filepath.Join(projectDir, ".claude"), 0o755)
-
-	adapter := hooks.NewClaudeCodeAdapter("/usr/bin/legato")
-	adapter.InstallHooks(projectDir)
-
-	data, err := os.ReadFile(filepath.Join(projectDir, ".claude", "hooks", "legato-stop.sh"))
-	if err != nil {
-		t.Fatal(err)
-	}
-	script := string(data)
-	if !strings.Contains(script, "LEGATO_TASK_ID") {
-		t.Error("hook script doesn't check LEGATO_TASK_ID")
-	}
-	if !strings.Contains(script, "legato agent stopped") {
-		t.Error("the Stop hook should hand its payload to 'legato agent stopped'")
-	}
-	if strings.Contains(script, "cat >/dev/null\n\n# Only act") {
-		t.Error("the Stop hook must not drain the payload it hands on")
-	}
-	if !strings.Contains(script, `--execution-id "$LEGATO_EXECUTION_ID"`) || !strings.Contains(script, `[ -z "$LEGATO_EXECUTION_ID" ] && exit 1`) {
-		t.Error("hook script must require and report the owning execution ID")
-	}
-}
-
-func TestClaudeCodeAdapter_HookScriptActivities(t *testing.T) {
-	projectDir := t.TempDir()
-	os.MkdirAll(filepath.Join(projectDir, ".claude"), 0o755)
-
-	adapter := hooks.NewClaudeCodeAdapter("/usr/bin/legato")
-	adapter.InstallHooks(projectDir)
-
-	tests := []struct {
-		script   string
-		activity string
-	}{
-		{"legato-prompt-submit.sh", "--activity \"working\""},
-		{"legato-post-tool-use.sh", "--activity \"working\""},
-		// Stop hands its payload on: it says whether a shell is still running.
-		{"legato-stop.sh", "agent stopped \"$LEGATO_TASK_ID\""},
-		{"legato-permission-request.sh", "--activity \"waiting\""},
-		{"legato-session-end.sh", "--activity \"\""},
-	}
-
-	for _, tt := range tests {
-		data, err := os.ReadFile(filepath.Join(projectDir, ".claude", "hooks", tt.script))
-		if err != nil {
-			t.Errorf("reading %s: %v", tt.script, err)
-			continue
-		}
-		if !strings.Contains(string(data), tt.activity) {
-			t.Errorf("%s should contain %q", tt.script, tt.activity)
-		}
 	}
 }
 
@@ -321,47 +73,110 @@ func eventCommands(t *testing.T, claudeDir, event string) []string {
 	return commands
 }
 
-// A person's own hooks on the events Legato also uses: Stop runs a sound,
-// UserPromptSubmit a logger with a timeout of its own.
+// oldScripts are the hook scripts `legato hooks install --tool claude-code`
+// wrote before the state plugin, each with the event it ran on.
+var oldScripts = map[string]string{
+	"UserPromptSubmit":  "legato-prompt-submit.sh",
+	"PostToolUse":       "legato-post-tool-use.sh",
+	"Stop":              "legato-stop.sh",
+	"PermissionRequest": "legato-permission-request.sh",
+	"SessionEnd":        "legato-session-end.sh",
+}
+
+// oldInstall leaves claudeDir as an old `legato hooks install` did, beside
+// the person's own settings and hooks.
+func oldInstall(t *testing.T, claudeDir, settings string) {
+	t.Helper()
+	hooksDir := filepath.Join(claudeDir, "hooks")
+	if err := os.MkdirAll(hooksDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	var config map[string]any
+	if err := json.Unmarshal([]byte(settings), &config); err != nil {
+		t.Fatal(err)
+	}
+	hooksMap, _ := config["hooks"].(map[string]any)
+	if hooksMap == nil {
+		hooksMap = map[string]any{}
+	}
+	for event, name := range oldScripts {
+		path := filepath.Join(hooksDir, name)
+		script := "#!/bin/sh\n# Generated by legato — do not edit manually.\ncat >/dev/null\n/usr/bin/legato agent state \"$LEGATO_TASK_ID\" --activity \"\"\n"
+		if err := os.WriteFile(path, []byte(script), 0o755); err != nil {
+			t.Fatal(err)
+		}
+		groups, _ := hooksMap[event].([]any)
+		hooksMap[event] = append(groups, map[string]any{"hooks": []any{map[string]any{"type": "command", "command": path}}})
+	}
+	config["hooks"] = hooksMap
+	raw, _ := json.MarshalIndent(config, "", "  ")
+	if err := os.WriteFile(filepath.Join(claudeDir, "settings.json"), raw, 0o644); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// A person's own hooks on the events Legato also used: Stop runs a sound,
+// UserPromptSubmit a logger with a timeout of its own; and a setting.
 const userHooksOnLegatoEvents = `{
+  "permissions": {"allow": ["Read"]},
   "hooks": {
     "Stop": [{"hooks": [{"type": "command", "command": "play-done-sound.sh"}]}],
     "UserPromptSubmit": [{"hooks": [{"type": "command", "command": "log-prompt.sh", "timeout": 5}]}]
   }
 }`
 
-func TestClaudeCodeAdapter_InstallKeepsUserHooksOnLegatoEvents(t *testing.T) {
-	projectDir := t.TempDir()
-	claudeDir := filepath.Join(projectDir, ".claude")
-	os.MkdirAll(claudeDir, 0o755)
-	os.WriteFile(filepath.Join(claudeDir, "settings.json"), []byte(userHooksOnLegatoEvents), 0o644)
+// Claude Code's state hooks now come with the plugin Legato loads into each
+// session. Installing them by hand would only add a second reporter that can
+// fall behind the binary, so install takes the old ones out instead.
+func TestClaudeCodeAdapter_InstallRemovesTheOldStateHooks(t *testing.T) {
+	for _, remove := range []struct {
+		name string
+		call func(*hooks.ClaudeCodeAdapter, string) error
+	}{
+		{"install", (*hooks.ClaudeCodeAdapter).InstallHooks},
+		{"uninstall", (*hooks.ClaudeCodeAdapter).UninstallHooks},
+	} {
+		t.Run(remove.name, func(t *testing.T) {
+			projectDir := t.TempDir()
+			claudeDir := filepath.Join(projectDir, ".claude")
+			oldInstall(t, claudeDir, userHooksOnLegatoEvents)
+			adapter := hooks.NewClaudeCodeAdapter("/usr/bin/legato")
 
-	adapter := hooks.NewClaudeCodeAdapter("/usr/bin/legato")
-	for range 2 { // installing again changes nothing
-		if err := adapter.InstallHooks(projectDir); err != nil {
-			t.Fatalf("InstallHooks: %v", err)
-		}
-	}
+			for range 2 { // doing it again changes nothing
+				if err := remove.call(adapter, projectDir); err != nil {
+					t.Fatal(err)
+				}
+			}
 
-	stop := filepath.Join(claudeDir, "hooks", "legato-stop.sh")
-	if got := eventCommands(t, claudeDir, "Stop"); !slices.Equal(got, []string{"play-done-sound.sh", stop}) {
-		t.Errorf("Stop runs %q, want the user's hook and Legato's once", got)
-	}
-	submit := filepath.Join(claudeDir, "hooks", "legato-prompt-submit.sh")
-	if got := eventCommands(t, claudeDir, "UserPromptSubmit"); !slices.Equal(got, []string{"log-prompt.sh", submit}) {
-		t.Errorf("UserPromptSubmit runs %q, want the user's hook and Legato's once", got)
-	}
-	raw, _ := os.ReadFile(filepath.Join(claudeDir, "settings.json"))
-	if !strings.Contains(string(raw), `"timeout": 5`) {
-		t.Errorf("the user's hook lost its timeout:\n%s", raw)
+			for _, name := range oldScripts {
+				if _, err := os.Stat(filepath.Join(claudeDir, "hooks", name)); !os.IsNotExist(err) {
+					t.Errorf("%s is still there", name)
+				}
+			}
+			if got := eventCommands(t, claudeDir, "Stop"); !slices.Equal(got, []string{"play-done-sound.sh"}) {
+				t.Errorf("Stop runs %q, want only the user's hook", got)
+			}
+			if got := eventCommands(t, claudeDir, "UserPromptSubmit"); !slices.Equal(got, []string{"log-prompt.sh"}) {
+				t.Errorf("UserPromptSubmit runs %q, want only the user's hook", got)
+			}
+			for _, event := range []string{"PostToolUse", "PermissionRequest", "SessionEnd"} {
+				if got := eventCommands(t, claudeDir, event); len(got) != 0 {
+					t.Errorf("%s still runs %q", event, got)
+				}
+			}
+			raw, _ := os.ReadFile(filepath.Join(claudeDir, "settings.json"))
+			if !strings.Contains(string(raw), `"timeout": 5`) || !strings.Contains(string(raw), `"permissions"`) {
+				t.Errorf("the user's settings changed:\n%s", raw)
+			}
+		})
 	}
 }
 
-func TestClaudeCodeAdapter_InstallReplacesLegatoHooksFromAnotherPath(t *testing.T) {
+// Installed before the project moved: the same script at its old path.
+func TestClaudeCodeAdapter_InstallRemovesOldStateHooksFromAnotherPath(t *testing.T) {
 	projectDir := t.TempDir()
 	claudeDir := filepath.Join(projectDir, ".claude")
 	os.MkdirAll(claudeDir, 0o755)
-	// Installed before the project moved: the same script at its old path.
 	os.WriteFile(filepath.Join(claudeDir, "settings.json"), []byte(`{"hooks": {"Stop": [
 	  {"hooks": [{"type": "command", "command": "/old/place/.claude/hooks/legato-stop.sh"}]}
 	]}}`), 0o644)
@@ -369,33 +184,18 @@ func TestClaudeCodeAdapter_InstallReplacesLegatoHooksFromAnotherPath(t *testing.
 	if err := hooks.NewClaudeCodeAdapter("/usr/bin/legato").InstallHooks(projectDir); err != nil {
 		t.Fatalf("InstallHooks: %v", err)
 	}
-	want := []string{filepath.Join(claudeDir, "hooks", "legato-stop.sh")}
-	if got := eventCommands(t, claudeDir, "Stop"); !slices.Equal(got, want) {
-		t.Errorf("Stop runs %q, want only %q", got, want)
+	if got := eventCommands(t, claudeDir, "Stop"); len(got) != 0 {
+		t.Errorf("Stop runs %q, want nothing", got)
 	}
 }
 
-func TestClaudeCodeAdapter_UninstallKeepsUserHooksOnLegatoEvents(t *testing.T) {
+func TestClaudeCodeAdapter_InstallWritesNothingWhereNothingWasInstalled(t *testing.T) {
 	projectDir := t.TempDir()
-	claudeDir := filepath.Join(projectDir, ".claude")
-	os.MkdirAll(claudeDir, 0o755)
-	os.WriteFile(filepath.Join(claudeDir, "settings.json"), []byte(userHooksOnLegatoEvents), 0o644)
 
-	adapter := hooks.NewClaudeCodeAdapter("/usr/bin/legato")
-	if err := adapter.InstallHooks(projectDir); err != nil {
+	if err := hooks.NewClaudeCodeAdapter("/usr/bin/legato").InstallHooks(projectDir); err != nil {
 		t.Fatalf("InstallHooks: %v", err)
 	}
-	if err := adapter.UninstallHooks(projectDir); err != nil {
-		t.Fatalf("UninstallHooks: %v", err)
-	}
-
-	if got := eventCommands(t, claudeDir, "Stop"); !slices.Equal(got, []string{"play-done-sound.sh"}) {
-		t.Errorf("Stop runs %q after uninstall, want only the user's hook", got)
-	}
-	if got := eventCommands(t, claudeDir, "UserPromptSubmit"); !slices.Equal(got, []string{"log-prompt.sh"}) {
-		t.Errorf("UserPromptSubmit runs %q after uninstall, want only the user's hook", got)
-	}
-	if got := eventCommands(t, claudeDir, "SessionEnd"); len(got) != 0 {
-		t.Errorf("SessionEnd still runs %q after uninstall", got)
+	if _, err := os.Stat(filepath.Join(projectDir, ".claude")); !os.IsNotExist(err) {
+		t.Fatalf(".claude was made: %v", err)
 	}
 }

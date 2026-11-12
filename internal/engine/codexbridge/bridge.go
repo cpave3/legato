@@ -42,6 +42,10 @@ type Options struct {
 	// OnIdentity records the selected top-level provider conversation in event
 	// order, off the RPC reader. A failure is returned by Run as IdentityError.
 	OnIdentity func(sessionID, cwd string) error
+	// OnTurnEnded is told the status of a turn of the session's thread that
+	// did not complete ("interrupted", "failed"). It runs off the RPC
+	// reader, so a slow report holds nothing up.
+	OnTurnEnded func(status string)
 	// RejoinEvery is how often joining a thread is retried while its first
 	// turn is starting. Zero means a sensible default.
 	RejoinEvery time.Duration
@@ -58,6 +62,7 @@ type Bridge struct {
 	rejoinEvery     time.Duration
 	now             func() time.Time
 	onIdentity      func(string, string) error
+	onTurnEnded     func(string)
 	identityID      string
 	identityCWD     string
 	identityErr     chan error
@@ -132,6 +137,7 @@ func New(opts Options) *Bridge {
 		rejoinEvery:  rejoinEvery,
 		now:          now,
 		onIdentity:   opts.OnIdentity,
+		onTurnEnded:  opts.OnTurnEnded,
 		identityErr:  make(chan error, 1),
 		identityWake: make(chan struct{}, 1),
 		identityDone: make(chan struct{}),
@@ -360,7 +366,14 @@ func (b *Bridge) handle(incoming frame) {
 		if params.Turn.Error != nil {
 			failure = params.Turn.Error.Message
 		}
-		b.onThread(params.ThreadID, func(s *session) []nativeEvent { return s.finishTurn(params.Turn.Status, failure) })
+		ours := false
+		b.onThread(params.ThreadID, func(s *session) []nativeEvent {
+			ours = true
+			return s.finishTurn(params.Turn.Status, failure)
+		})
+		if ours && b.onTurnEnded != nil && runFinishReason(params.Turn.Status) != "stop" {
+			go b.onTurnEnded(params.Turn.Status)
+		}
 	case "item/started", "item/completed":
 		var params struct {
 			ThreadID string     `json:"threadId"`

@@ -1,7 +1,9 @@
 package store
 
 import (
+	"database/sql/driver"
 	"encoding/json"
+	"fmt"
 	"time"
 )
 
@@ -413,6 +415,76 @@ type AgentSession struct {
 	// on purpose: Legato does not bind it to its native endpoint again on
 	// its own.
 	NativeOff bool `db:"native_off"`
+	// BackgroundJobs is what the agent started that still runs and will
+	// wake it; the state is ActivityBackground when its turn ended with any.
+	BackgroundJobs BackgroundJobs `db:"background_jobs"`
+	// HookSource is HookSourcePlugin once Legato's Claude Code state plugin
+	// reported for the session, "" otherwise.
+	HookSource string `db:"hook_source"`
+}
+
+// HookSourcePlugin marks a session whose state Legato's Claude Code plugin
+// reports: reports from hook scripts installed by hand are then ignored.
+const HookSourcePlugin = "plugin"
+
+// Kinds of BackgroundJob.
+const (
+	JobBash     = "bash"
+	JobMonitor  = "monitor"
+	JobSubagent = "subagent"
+	JobCron     = "cron"
+)
+
+// BackgroundJob is one thing an agent started that still runs and will wake
+// it: a shell, a Monitor, a subagent or a session cron.
+type BackgroundJob struct {
+	Kind string `json:"kind"`
+	// ID is the agent tool's own: a background task's, a subagent's, a cron's.
+	ID string `json:"id"`
+	// Label says what it is: a shell's description or command, a
+	// subagent's description and type, a cron's prompt.
+	Label string `json:"label"`
+	// Schedule is a cron's, as the agent tool gave it.
+	Schedule string `json:"schedule,omitempty"`
+	// StartedAt is when Legato first saw it.
+	StartedAt time.Time `json:"started_at"`
+}
+
+// BackgroundJobs is kept as a JSON list.
+type BackgroundJobs []BackgroundJob
+
+// Scan implements sql.Scanner.
+func (j *BackgroundJobs) Scan(value any) error {
+	var raw []byte
+	switch v := value.(type) {
+	case nil:
+		*j = nil
+		return nil
+	case string:
+		raw = []byte(v)
+	case []byte:
+		raw = v
+	default:
+		return fmt.Errorf("background jobs: cannot scan %T", value)
+	}
+	var jobs []BackgroundJob
+	if err := json.Unmarshal(raw, &jobs); err != nil {
+		return fmt.Errorf("background jobs: %w", err)
+	}
+	if len(jobs) == 0 {
+		jobs = nil
+	}
+	*j = jobs
+	return nil
+}
+
+// Value implements driver.Valuer.
+func (j BackgroundJobs) Value() (driver.Value, error) {
+	if len(j) == 0 {
+		return "[]", nil
+	}
+	raw, err := json.Marshal([]BackgroundJob(j))
+	return string(raw), err
 }
 
 // SwarmEvent is a single conductor-bound event written to the swarm_events

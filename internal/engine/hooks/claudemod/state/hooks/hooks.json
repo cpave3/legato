@@ -1,0 +1,103 @@
+{
+  "hooks": {
+    "SessionStart": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "payload=$(cat); [ -n \"$LEGATO_TASK_ID\" ] && [ -n \"$LEGATO_BIN\" ] || exit 0; printf '%s' \"$payload\" | \"$LEGATO_BIN\" agent hook claude-code \"$LEGATO_TASK_ID\" --execution-id \"$LEGATO_EXECUTION_ID\" --working-dir \"$PWD\" >/dev/null 2>&1; exit 0"
+          }
+        ]
+      }
+    ],
+    "UserPromptSubmit": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "payload=$(cat); [ -n \"$LEGATO_TASK_ID\" ] && [ -n \"$LEGATO_BIN\" ] || exit 0; printf '%s' \"$payload\" | \"$LEGATO_BIN\" agent hook claude-code \"$LEGATO_TASK_ID\" --execution-id \"$LEGATO_EXECUTION_ID\" --working-dir \"$PWD\" >/dev/null 2>&1; exit 0"
+          }
+        ]
+      }
+    ],
+    "PostToolUse": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "payload=$(cat); [ -n \"$LEGATO_TASK_ID\" ] && [ -n \"$LEGATO_BIN\" ] || exit 0; printf '%s' \"$payload\" | \"$LEGATO_BIN\" agent hook claude-code \"$LEGATO_TASK_ID\" --execution-id \"$LEGATO_EXECUTION_ID\" --working-dir \"$PWD\" >/dev/null 2>&1; exit 0"
+          }
+        ]
+      }
+    ],
+    "PermissionRequest": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "payload=$(cat); [ -n \"$LEGATO_TASK_ID\" ] && [ -n \"$LEGATO_BIN\" ] || exit 0; printf '%s' \"$payload\" | \"$LEGATO_BIN\" agent hook claude-code \"$LEGATO_TASK_ID\" --execution-id \"$LEGATO_EXECUTION_ID\" --working-dir \"$PWD\" >/dev/null 2>&1; exit 0"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "payload=$(cat); [ -n \"$LEGATO_TASK_ID\" ] && [ -n \"$LEGATO_BIN\" ] || exit 0; printf '%s' \"$payload\" | \"$LEGATO_BIN\" agent hook claude-code \"$LEGATO_TASK_ID\" --execution-id \"$LEGATO_EXECUTION_ID\" --working-dir \"$PWD\" >/dev/null 2>&1; exit 0"
+          }
+        ]
+      }
+    ],
+    "StopFailure": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "payload=$(cat); [ -n \"$LEGATO_TASK_ID\" ] && [ -n \"$LEGATO_BIN\" ] || exit 0; printf '%s' \"$payload\" | \"$LEGATO_BIN\" agent hook claude-code \"$LEGATO_TASK_ID\" --execution-id \"$LEGATO_EXECUTION_ID\" --working-dir \"$PWD\" >/dev/null 2>&1; exit 0"
+          }
+        ]
+      }
+    ],
+    "PreCompact": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "payload=$(cat); [ -n \"$LEGATO_TASK_ID\" ] && [ -n \"$LEGATO_BIN\" ] || exit 0; printf '%s' \"$payload\" | \"$LEGATO_BIN\" agent hook claude-code \"$LEGATO_TASK_ID\" --execution-id \"$LEGATO_EXECUTION_ID\" --working-dir \"$PWD\" >/dev/null 2>&1; exit 0"
+          }
+        ]
+      }
+    ],
+    "PostCompact": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "payload=$(cat); [ -n \"$LEGATO_TASK_ID\" ] && [ -n \"$LEGATO_BIN\" ] || exit 0; printf '%s' \"$payload\" | \"$LEGATO_BIN\" agent hook claude-code \"$LEGATO_TASK_ID\" --execution-id \"$LEGATO_EXECUTION_ID\" --working-dir \"$PWD\" >/dev/null 2>&1; exit 0"
+          }
+        ]
+      }
+    ],
+    "SessionEnd": [
+      {
+        "matcher": "",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "payload=$(cat); [ -n \"$LEGATO_TASK_ID\" ] && [ -n \"$LEGATO_BIN\" ] || exit 0; printf '%s' \"$payload\" | \"$LEGATO_BIN\" agent hook claude-code \"$LEGATO_TASK_ID\" --execution-id \"$LEGATO_EXECUTION_ID\" --working-dir \"$PWD\" >/dev/null 2>&1; exit 0"
+          }
+        ]
+      }
+    ]
+  }
+}

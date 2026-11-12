@@ -25,6 +25,9 @@ type BridgeHost interface {
 	// SaveIdentity records the provider's session ID, where it works and
 	// where the provider keeps it, to resume the task's conversation.
 	SaveIdentity(ctx context.Context, kind, providerSessionID, cwd, storageDir string) error
+	// TurnEnded reports a main turn that ended without an answer (an
+	// interrupt, an error), which no hook of the agent tool reports.
+	TurnEnded(ctx context.Context, reason string) error
 }
 
 // BridgeSession is the running agent session a bridge serves.
@@ -97,6 +100,11 @@ func (h *storeBridgeHost) SaveIdentity(ctx context.Context, kind, providerSessio
 	return nil
 }
 
+func (h *storeBridgeHost) TurnEnded(_ context.Context, reason string) error {
+	hook := ClaudeHook{Event: ClaudeTurnEnded, Reason: reason}
+	return ApplyClaudeHook(h.s, ClaudeHookReport{TaskID: h.taskID, ExecutionID: h.session.ExecutionID, Hook: hook}, nil, nil)
+}
+
 // recordsIdentity reports whether the task resumes this session's
 // conversation: not a swarm worker's, nor a child agent's.
 func recordsIdentity(session *store.AgentSession, taskID string) bool {
@@ -141,6 +149,10 @@ func (h *brokerBridgeHost) Unbind(ctx context.Context, endpoint string) error {
 
 func (h *brokerBridgeHost) SaveIdentity(ctx context.Context, kind, providerSessionID, cwd, storageDir string) error {
 	return h.call(ctx, "resume.save", map[string]string{"kind": kind, "provider_session_id": providerSessionID, "cwd": cwd, "storage_dir": storageDir}, nil)
+}
+
+func (h *brokerBridgeHost) TurnEnded(ctx context.Context, reason string) error {
+	return h.call(ctx, "agent.hook", map[string]any{"hook": ClaudeHook{Event: ClaudeTurnEnded, Reason: reason}}, nil)
 }
 
 // bridgeOps serve BridgeHost over the broker, through the store, for the

@@ -100,6 +100,10 @@ type AgentResponse struct {
 	// Reeve is true for the agent of this Legato itself, which the Agents
 	// page pins first.
 	Reeve bool `json:"reeve,omitempty"`
+	// BackgroundJobs is what the agent started that still runs and will
+	// wake it: kind (bash, monitor, subagent, cron), id, label, schedule
+	// for a cron, started_at.
+	BackgroundJobs []store.BackgroundJob `json:"background_jobs,omitempty"`
 }
 
 func agentResponse(agent service.AgentSession) AgentResponse {
@@ -111,6 +115,7 @@ func agentResponse(agent service.AgentSession) AgentResponse {
 		Activity: agent.Activity, Role: agent.Role, ParentTaskID: agent.ParentTaskID,
 		SubtaskID: agent.SubtaskID, StartedAt: agent.StartedAt, EndedAt: agent.EndedAt,
 		Sandboxed: agent.Sandboxed, CardTaskID: agent.CardTaskID, Slot: agent.Slot,
+		BackgroundJobs: agent.BackgroundJobs,
 	}
 }
 
