@@ -349,6 +349,10 @@ func NewWithSwarm(board service.BoardService, agents service.AgentService, tmux 
 	s.registerReeveRoutes(mux)
 	s.registerReevePeerRoutes(mux)
 
+	// A route under /api/ that nothing above serves answers 404 in JSON,
+	// never the web UI's page.
+	mux.HandleFunc(notServedPattern, s.notServedHandler())
+
 	// SPA fallback — serve embedded frontend for all non-API paths.
 	if fsys := static.DistFS(); fsys != nil {
 		mux.HandleFunc("/", spaHandler(fsys))

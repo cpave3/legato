@@ -291,6 +291,7 @@ var routeClassTable = []routeClassEntry{
 
 	// Web UI
 	{"GET", "/", ClassRead, "Load the web UI"},
+	{"GET", "/api/", ClassRead, "Answer 404 for a route Legato does not serve"},
 	// The Reeve's sessions.
 	{"GET", "/api/reeve", ClassRead, "List the Reeve's sessions"},
 	{"POST", "/api/reeve/sessions", ClassChange, "Start a Reeve session"},
