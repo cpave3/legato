@@ -17,6 +17,11 @@ pub const EVERY: Duration = Duration::from_millis(1500);
 /// How long one server may take to answer before it is asked again later.
 pub const WITHIN: Duration = Duration::from_secs(3);
 
+/// How long the widget stays after the last approval is decided, saying
+/// how it went: as long as the page keeps the line (`DECIDED_FOR` in
+/// src/voice/Approvals.tsx).
+pub const DECIDED_FOR: Duration = Duration::from_secs(3);
+
 /// The path that lists a server's pending approvals.
 pub const PATH: &str = "/api/approvals?status=pending";
 
