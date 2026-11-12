@@ -15,6 +15,7 @@
     "allow-voice-widget-menu",
     "allow-voice-widget-drag-start",
     "allow-voice-widget-drag-move",
-    "allow-voice-widget-drag-end"
+    "allow-voice-widget-drag-end",
+    "allow-voice-widget-layout"
   ]
 }

@@ -658,6 +658,47 @@ pub struct WidgetState {
     applied: Option<(Anchor, Offset)>,
     /// The widget being dragged.
     drag: Option<Drag>,
+    /// The layout the page was last told.
+    layout: Option<WidgetLayout>,
+}
+
+/// What the page needs to lay itself out: the most it may be (logical,
+/// `voicewidget::limits` of the monitor it is on), and the anchor, whose
+/// side it aligns to.
+#[derive(Debug, Clone, Copy, PartialEq, Serialize)]
+pub struct WidgetLayout {
+    width: f64,
+    height: f64,
+    anchor: Anchor,
+}
+
+fn widget_layout(app: &AppHandle) -> WidgetLayout {
+    let anchor = app.state::<Desktop>().store.lock().unwrap().state.voice.anchor;
+    let area = app.get_webview_window(voicewidget::LABEL).and_then(|w| widget_area(&w));
+    let (width, height) = area.map(|(area, scale)| voicewidget::limits(logical(area, scale))).unwrap_or(voicewidget::MAX_SIZE);
+    WidgetLayout { width, height, anchor }
+}
+
+/// Tells the page its layout (`voice-widget-layout`) when it changed.
+fn tell_layout(app: &AppHandle) {
+    let layout = widget_layout(app);
+    {
+        let desktop = app.state::<Desktop>();
+        let mut widget = desktop.widget.lock().unwrap();
+        if widget.layout == Some(layout) {
+            return;
+        }
+        widget.layout = Some(layout);
+    }
+    let _ = app.emit_to(voicewidget::LABEL, "voice-widget-layout", layout);
+}
+
+/// The page asks its layout at start.
+#[tauri::command]
+fn voice_widget_layout(app: AppHandle) -> WidgetLayout {
+    let layout = widget_layout(&app);
+    app.state::<Desktop>().widget.lock().unwrap().layout = Some(layout);
+    layout
 }
 
 /// A drag of the widget: its top-left within the work area it started on,
@@ -770,6 +811,7 @@ fn place_widget(app: &AppHandle) {
         let voice = &desktop.store.lock().unwrap().state.voice;
         (voice.anchor, voice.offset)
     };
+    tell_layout(app);
     let placement = *desktop.widget_placement.lock().unwrap();
     let (size, dragging) = {
         let widget = desktop.widget.lock().unwrap();
@@ -824,7 +866,8 @@ fn anchor_layer(app: &AppHandle, window: &tauri::WebviewWindow, anchor: Anchor, 
 #[tauri::command]
 fn voice_widget_size(app: AppHandle, width: f64, height: f64) {
     let Some(window) = app.get_webview_window(voicewidget::LABEL) else { return };
-    let (w, h) = voicewidget::clamp_size(width, height);
+    let layout = widget_layout(&app);
+    let (w, h) = voicewidget::clamp_size(width, height, (layout.width, layout.height));
     app.state::<Desktop>().widget.lock().unwrap().size = (w, h);
     let _ = window.set_size(tauri::LogicalSize::new(w, h));
     place_widget(&app);
@@ -2133,7 +2176,7 @@ pub fn run() {
             voice_targets: Mutex::default(),
             voice_session: Mutex::default(),
             voice_targets_known: tokio::sync::watch::Sender::new(false),
-            widget: Mutex::new(WidgetState { showing: voicewidget::Showing::Rest, written: false, size: voicewidget::FIRST_SIZE, applied: None, drag: None }),
+            widget: Mutex::new(WidgetState { showing: voicewidget::Showing::Rest, written: false, size: voicewidget::FIRST_SIZE, applied: None, drag: None, layout: None }),
             widget_placement: Mutex::new(voicewidget::Placement::Placed),
             #[cfg(target_os = "linux")]
             layer_shell: Mutex::default(),
@@ -2253,7 +2296,8 @@ pub fn run() {
             set_voice_widget,
             voice_widget_drag_start,
             voice_widget_drag_move,
-            voice_widget_drag_end
+            voice_widget_drag_end,
+            voice_widget_layout
         ])
         .run(tauri::generate_context!())
         .expect("the app did not start");

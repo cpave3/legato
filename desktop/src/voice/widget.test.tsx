@@ -20,6 +20,7 @@ vi.mock("@tauri-apps/api/core", () => ({
     invoked.push({ cmd, args })
     if (cmd === "voice_status") return Promise.resolve(status)
     if (cmd === "voice_key_info") return Promise.resolve({ key: "Meta+Alt+Space" })
+    if (cmd === "voice_widget_layout") return Promise.resolve({ width: 480, height: 600, anchor: "top-right" })
     return Promise.resolve(null)
   },
 }))
@@ -211,6 +212,19 @@ describe("the widget page", () => {
     // The next click talks again.
     fireEvent.click(capsule)
     expect(actions()).toEqual(["talk"])
+  })
+
+  it("keeps to the most Rust says fits on the screen, aligned to its anchor's side", async () => {
+    const { container } = render(<Widget />)
+    await screen.findByText(/tessitura · ready/)
+    const root = container.querySelector(".voice-widget") as HTMLElement
+    expect(root).toHaveAttribute("data-anchor", "top-right")
+    expect(root.style.getPropertyValue("--widget-max-h")).toBe("600px")
+    expect(root.style.getPropertyValue("--widget-max-w")).toBe("480px")
+    // Dropped at the bottom of a smaller screen.
+    emit("voice-widget-layout", { width: 400, height: 380, anchor: "bottom" })
+    expect(root).toHaveAttribute("data-anchor", "bottom")
+    expect(root.style.getPropertyValue("--widget-max-h")).toBe("380px")
   })
 
   it("asks Rust for its menu on a right click", async () => {

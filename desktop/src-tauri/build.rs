@@ -67,4 +67,5 @@ const COMMANDS: &[&str] = &[
     "voice_widget_drag_start",
     "voice_widget_drag_move",
     "voice_widget_drag_end",
+    "voice_widget_layout",
 ];

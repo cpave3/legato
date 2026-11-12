@@ -248,12 +248,28 @@ pub fn shows(hidden: bool, showing: Showing, now: Instant) -> bool {
         }
 }
 
-/// The widget's size before the page says, and the limits it is kept to
-/// (the card is 412 wide; the not-ready capsule 430).
+/// The widget's size before the page says.
 pub const FIRST_SIZE: (f64, f64) = (318.0, 64.0);
 
-pub fn clamp_size(width: f64, height: f64) -> (f64, f64) {
-    (width.clamp(40.0, 480.0), height.clamp(40.0, 420.0))
+/// The most the widget may be, logical, whatever the screen: the card is
+/// 412 wide, the not-ready capsule 430; the height holds the capsule or
+/// card and the feed under it, which scrolls in what is left.
+pub const MAX_SIZE: (f64, f64) = (480.0, 640.0);
+
+/// The least the widget may be, logical.
+pub const MIN_SIZE: (f64, f64) = (40.0, 40.0);
+
+/// The most the widget may be on a work area of this logical size: MAX_SIZE,
+/// less on a screen too small for it with MARGIN on both sides. The page
+/// keeps itself to it (`voice_widget_limits`), so all of it is on screen.
+pub fn limits(area: (f64, f64)) -> (f64, f64) {
+    let fit = |max: f64, span: f64, min: f64| max.min(span - 2.0 * MARGIN).max(min);
+    (fit(MAX_SIZE.0, area.0, MIN_SIZE.0), fit(MAX_SIZE.1, area.1, MIN_SIZE.1))
+}
+
+/// The size the page asked for, kept to the limits.
+pub fn clamp_size(width: f64, height: f64, limits: (f64, f64)) -> (f64, f64) {
+    (width.clamp(MIN_SIZE.0, limits.0), height.clamp(MIN_SIZE.1, limits.1))
 }
 
 /// The main's settings page at a setting, for Open settings:
@@ -590,7 +606,20 @@ mod tests {
 
     #[test]
     fn the_page_cannot_make_the_window_huge_or_nothing() {
-        assert_eq!(clamp_size(412.0, 220.0), (412.0, 220.0));
-        assert_eq!(clamp_size(0.0, 9999.0), (40.0, 420.0));
+        let big = limits((1920.0, 1040.0));
+        assert_eq!(big, MAX_SIZE);
+        assert_eq!(clamp_size(412.0, 220.0, big), (412.0, 220.0));
+        assert_eq!(clamp_size(0.0, 9999.0, big), (40.0, 640.0));
+    }
+
+    #[test]
+    fn on_a_small_screen_the_widget_is_kept_inside_its_margins() {
+        // 1366x768 at 1.25: 1093x614 logical.
+        assert_eq!(limits((1093.0, 614.0)), (480.0, 614.0 - 32.0));
+        let (w, h) = clamp_size(412.0, 9999.0, limits((1093.0, 614.0)));
+        assert_eq!((w, h), (412.0, 582.0));
+        // At its anchor it then fits whole, MARGIN in from both edges.
+        assert_eq!(origin(Anchor::BottomRight, margins(Anchor::BottomRight, None, (1093.0, 614.0), (w, h)), (1093.0, 614.0), (w, h)), (1093.0 - 16.0 - 412.0, 16.0));
+        assert_eq!(limits((10.0, 10.0)), MIN_SIZE);
     }
 }

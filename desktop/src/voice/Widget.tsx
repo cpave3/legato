@@ -11,6 +11,9 @@ import { useWidgetDrag } from "./drag"
 
 type Status = { ready: boolean; reason: string; setting: string; main: string }
 type KeyInfo = { key?: string | null }
+// The most the widget may be on the screen it is on, and the corner or edge
+// it keeps to (src-tauri/src/app.rs, WidgetLayout).
+type Layout = { width: number; height: number; anchor: string }
 
 // How often the capsule asks whether the main can listen, while at rest.
 export const STATUS_EVERY = 30_000
@@ -21,6 +24,7 @@ const act = (action: string) => () => { invoke("voice_action", { action }).catch
 
 export function Widget() {
   const [model, setModel] = useState<WidgetModel>(initialModel)
+  const [layout, setLayout] = useState<Layout | null>(null)
   const apply = (event: VoiceEvent) => setModel((m) => reduce(m, event))
 
   useEffect(() => {
@@ -35,10 +39,12 @@ export function Widget() {
     status()
     const timer = setInterval(status, STATUS_EVERY)
     const offTargets = listen("voice-targets-changed", status)
+    const offLayout = listen<Layout>("voice-widget-layout", (e) => setLayout(e.payload))
+    invoke<Layout>("voice_widget_layout").then(setLayout).catch(() => {})
     invoke<KeyInfo>("voice_key_info").then((k) => setModel((m) => ({ ...m, keyText: k.key ?? "" }))).catch(() => {})
     return () => {
       clearInterval(timer)
-      for (const off of [...offs, offTargets]) off.then((f) => f())
+      for (const off of [...offs, offTargets, offLayout]) off.then((f) => f())
     }
   }, [])
 
@@ -75,7 +81,17 @@ export function Widget() {
   const close = () => setModel((m) => ({ ...m, phase: "idle" }))
   const name = "The Reeve"
   return (
-    <div ref={box} className="voice-widget" onContextMenu={menu} {...drag}>
+    // A flex column kept to what fits on the screen: the capsule or card
+    // keeps its size, and an element marked data-widget-feed scrolls in
+    // what is left (widget.css). Children align to the anchor's side.
+    <div
+      ref={box}
+      className="voice-widget"
+      data-anchor={layout?.anchor}
+      style={layout ? ({ "--widget-max-w": `${layout.width}px`, "--widget-max-h": `${layout.height}px` } as React.CSSProperties) : undefined}
+      onContextMenu={menu}
+      {...drag}
+    >
       {surface(model) === "card" ? (
         <VoiceCard
           view={capped(model.view)}
