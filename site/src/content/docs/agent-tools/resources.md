@@ -107,4 +107,6 @@ Some details:
 
 When agents run in [Legato's sandbox](/legato/security/sandbox/), the sandbox shows them only certain folders. Legato adds the paths of the agent's resources, ticked or given by its repository, to those folders, read-only or writable as the resource says.
 
+With [Docker in the sandbox](/legato/security/sandbox/#docker-in-the-sandbox) on, the agent's containers may mount the same paths, at the same access: a read-only path is mounted read-only.
+
 The sandbox's folders are fixed when the agent starts. So when you add a resource to a running sandboxed agent, Legato asks first, then reloads the agent: it stops and starts again with the new resource, and its conversation resumes.

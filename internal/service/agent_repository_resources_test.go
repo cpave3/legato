@@ -164,3 +164,27 @@ func TestARepositorysResourceIsMountedInTheSandboxAtItsAccess(t *testing.T) {
 		t.Fatalf("mount of %s = %+v, %v; want read-only", feed, m, ok)
 	}
 }
+
+// Part of the sandbox, a repository's resource may be mounted into the
+// agent's containers too, read-only as the resource gives it.
+func TestARepositorysResourceMayBeMountedIntoTheAgentsContainersReadOnly(t *testing.T) {
+	backend := &fakeBackend{}
+	svc, s, mt, docker := dockerSandboxedService(t, backend, &fakeDockerCleaner{})
+	createTask(t, s, "task-1")
+	resources, feed := feedResources(t)
+	worktree := t.TempDir()
+	agents := svc.(*agentService)
+	agents.repoResources = resources
+	agents.checkoutInspector = originIs(worktree, "https://github.com/autopilot-dev/autopilot.git")
+	if err := svc.SpawnAgent(context.Background(), "task-1", 0, 0, AgentSpawnOptions{WorkingDir: worktree}); err != nil {
+		t.Fatal(err)
+	}
+	view, err := docker.View(mt.envVars["legato-task-1"]["LEGATO_EXECUTION_ID"])
+	if err != nil {
+		t.Fatal(err)
+	}
+	host, readOnly, err := view.Resolve(feed)
+	if err != nil || !readOnly {
+		t.Fatalf("the resource in the proxy's view = %s, read-only %v, %v; want it mountable read-only", host, readOnly, err)
+	}
+}

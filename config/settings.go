@@ -85,6 +85,10 @@ var registry = []Setting{
 	{Key: "agents.sandbox.backend", Title: "Sandbox backend", Description: "Only bwrap for now.", Kind: KindString, Class: ClassRisky, Mode: ModeRestart},
 	{Key: "agents.sandbox.default_mounts", Title: "Toolchains in the sandbox", Description: "Show the operator's toolchains (read-only) and package caches inside the sandbox.", Kind: KindBool, Class: ClassRisky, Mode: ModeRestart},
 	{Key: "agents.sandbox.scratch_dir", Title: "Sandbox scratch folder", Kind: KindString, Class: ClassRisky, Mode: ModeRestart},
+	{Key: "agents.sandbox.docker.enabled", Title: "Docker in the sandbox", Description: "Give sandboxed agents a filtered Docker socket: their own containers, mounting only what their sandbox sees.", Kind: KindBool, Class: ClassRisky, Mode: ModeRestart},
+	{Key: "agents.sandbox.docker.host", Title: "Docker daemon for sandboxed agents", Description: "unix:// or tcp://; Legato's DOCKER_HOST, Docker context, or /var/run/docker.sock when empty.", Kind: KindString, Class: ClassRisky, Mode: ModeRestart},
+	{Key: "agents.sandbox.docker.cap_add", Title: "Capabilities sandboxed containers may add", Description: "Such as SYS_PTRACE. Capabilities that reach the host are refused.", Kind: KindStrings, Class: ClassRisky, Mode: ModeRestart},
+	{Key: "agents.sandbox.docker.publish", Title: "Where sandboxed containers publish ports", Description: "loopback binds 127.0.0.1; any binds every address.", Kind: KindEnum, Enum: []string{"loopback", "any"}, Class: ClassRisky, Mode: ModeRestart},
 
 	// Notifications.
 	{Key: "notifications.ntfy.url", Title: "ntfy server", Kind: KindString, Class: ClassChange, Mode: ModeRestart},

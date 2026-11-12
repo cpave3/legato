@@ -393,18 +393,17 @@ func (p *Proxy) checkMounts(ctx context.Context, hc *object) error {
 			if err := bindOpts.normalize(bindOptionFields, "BindOptions."); err != nil {
 				return err
 			}
+			// CreateMountpoint is left as it is: Resolve requires the source
+			// to exist, so there is nothing for the daemon to make.
 			var propagation string
-			var create, nonRecursiveRO bool
-			for f, v := range map[string]any{"Propagation": &propagation, "CreateMountpoint": &create, "ReadOnlyNonRecursive": &nonRecursiveRO} {
+			var nonRecursiveRO bool
+			for f, v := range map[string]any{"Propagation": &propagation, "ReadOnlyNonRecursive": &nonRecursiveRO} {
 				if _, err := bindOpts.decode(f, v); err != nil {
 					return err
 				}
 			}
 			if propagation != "" && propagation != "private" && propagation != "rprivate" {
 				return refuse("the propagation %s is not allowed", propagation)
-			}
-			if create {
-				return refuse("BindOptions.CreateMountpoint is not allowed: make %s in the sandbox first", source)
 			}
 			if hostReadOnly && nonRecursiveRO {
 				return refuse("%s must be mounted read-only throughout", source)

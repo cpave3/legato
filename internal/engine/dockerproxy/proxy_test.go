@@ -281,7 +281,7 @@ func TestEscapesFromTheSandboxAreRefused(t *testing.T) {
 		{"another agent's volume", createBody(map[string]any{"Binds": []string{"theirvol:/data"}}), "not this agent's"},
 		{"a volume binding ~/.ssh in its options", createBody(map[string]any{"Mounts": []any{map[string]any{"Type": "volume", "Source": "keys", "Target": "/k",
 			"VolumeOptions": map[string]any{"DriverConfig": map[string]any{"Options": map[string]string{"type": "none", "o": "bind", "device": h.s.ssh}}}}}}), "does not exist"},
-		{"a mount that makes its source", createBody(map[string]any{"Mounts": []any{map[string]any{"Type": "bind", "Source": h.s.work, "Target": "/w", "BindOptions": map[string]any{"CreateMountpoint": true}}}}), "CreateMountpoint"},
+		{"a mount of a source that is missing", createBody(map[string]any{"Mounts": []any{map[string]any{"Type": "bind", "Source": filepath.Join(h.s.work, "missing"), "Target": "/w", "BindOptions": map[string]any{"CreateMountpoint": true}}}}), "does not exist"},
 		{"a field Legato does not know", createBody(map[string]any{"Future": true}), "HostConfig.Future is not allowed"},
 		{"another runtime", createBody(map[string]any{"Runtime": "nvidia"}), "runtime"},
 	} {

@@ -204,6 +204,10 @@ How Legato runs the agents it starts. See [Agents](/legato/using/agents/).
 | `agents.sandbox.mounts[].path` | path | none | Another file or folder every sandbox sees. Absolute, or starting with `~/`. |
 | `agents.sandbox.mounts[].access` | string | `read` | `read` or `write`. |
 | `agents.sandbox.scratch_dir` | path | `<data_dir>/sandbox` | Where each sandbox's `/tmp`, home folder and throwaway layer are kept on disk until its agent ends. Absolute, or starting with `~/`, and not your home folder, a folder that holds it, or a folder that overlaps Legato's `repos`, `claude-mod` or `jobs` folders, such as the data folder itself. A folder the sandbox would otherwise show, such as a cache, is then not shown. See [Scratch space](/legato/security/sandbox/#scratch-space). |
+| `agents.sandbox.docker.enabled` | bool | `false` | Gives every sandboxed agent a Docker socket of its own that passes its requests to your Docker daemon only when they keep within its sandbox: its own containers, networks and volumes, and bind mounts only of what its sandbox sees, read-only where it sees them read-only. Agents run without the sandbox are unchanged. See [Docker in the sandbox](/legato/security/sandbox/#docker-in-the-sandbox). |
+| `agents.sandbox.docker.host` | string | your `DOCKER_HOST`, else your Docker context, else `unix:///var/run/docker.sock` | The daemon the socket passes requests to: `unix:///path` or `tcp://host:port` without TLS. A rootless Docker's or Podman's socket works too. |
+| `agents.sandbox.docker.cap_add` | list of strings | none | Capabilities a container may add with `--cap-add`, such as `SYS_PTRACE`. Capabilities that reach the host, such as `SYS_ADMIN` and `ALL`, stop Legato loading the file. |
+| `agents.sandbox.docker.publish` | string | `loopback` | Where published ports bind: `loopback` puts every published port on `127.0.0.1`, which agents reach since they share your network; `any` binds what the agent asks for. |
 
 ```yaml
 agents:

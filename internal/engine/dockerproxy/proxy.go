@@ -71,11 +71,16 @@ func New(opts Options) *Proxy {
 	return p
 }
 
-// Serve answers on ln until it is closed. Streams (attach, exec, logs and
-// events that follow, BuildKit's session) have no time limit.
+// Server is an HTTP server of the proxy. Streams (attach, exec, logs and
+// events that follow, BuildKit's session) have no time limit. Close ends
+// the connections it serves too; hijacked streams end with their client.
+func (p *Proxy) Server() *http.Server {
+	return &http.Server{Handler: p, ReadHeaderTimeout: 10 * time.Second}
+}
+
+// Serve answers on ln until it is closed.
 func (p *Proxy) Serve(ln net.Listener) error {
-	server := &http.Server{Handler: p, ReadHeaderTimeout: 10 * time.Second}
-	err := server.Serve(ln)
+	err := p.Server().Serve(ln)
 	if errors.Is(err, net.ErrClosed) || errors.Is(err, http.ErrServerClosed) {
 		return nil
 	}

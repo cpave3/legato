@@ -20,6 +20,9 @@ type SandboxSettings struct {
 	// Base is the plan's input that does not change from agent to agent:
 	// home, runtime and data folders, toolchains, configured mounts.
 	Base SandboxPlanInput
+	// Docker gives each sandboxed agent a filtered Docker socket
+	// (agents.sandbox.docker). Nil: none, and Docker stays hidden.
+	Docker *SandboxDocker
 }
 
 // CheckoutOverlayProber says whether an agent's checkout can be shown
@@ -75,7 +78,7 @@ func (a *agentService) sandboxPrefix(ctx context.Context, taskID, executionID, a
 	in.Extra = append([]SandboxPath{}, in.Extra...)
 	for _, resource := range resources {
 		for _, p := range resource.Paths {
-			in.Extra = append(in.Extra, SandboxPath{Path: p.Path, Access: p.Access})
+			in.Extra = append(in.Extra, SandboxPath(p))
 		}
 	}
 	if in.RuntimeDir != "" {
@@ -115,6 +118,9 @@ func (a *agentService) sandboxPrefix(ctx context.Context, taskID, executionID, a
 		return "", err
 	}
 	in.Az = az
+	if a.sandbox.Docker != nil {
+		in.DockerSocket = a.sandbox.Docker.SocketPath(executionID)
+	}
 	// The scratch folder exists before the plan is made, so a plan whose
 	// mounts hold it covers it on the first spawn too.
 	if root := scratchFor(in).Root; root != "" {
@@ -125,6 +131,12 @@ func (a *agentService) sandboxPrefix(ctx context.Context, taskID, executionID, a
 	plan, err := BuildSandboxPlan(in)
 	if err != nil {
 		return "", err
+	}
+	if a.sandbox.Docker != nil {
+		// What the proxy lets this agent's containers mount.
+		if err := a.sandbox.Docker.WriteView(executionID, plan); err != nil {
+			return "", err
+		}
 	}
 	for k, v := range sandboxGitFetches(env) {
 		plan.Setenv[k] = v

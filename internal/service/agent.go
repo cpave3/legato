@@ -325,6 +325,7 @@ type agentService struct {
 	checkoutInspector    CheckoutInspector
 	guidance             RepositoryGuidanceSource
 	repoResources        RepositoryResourceSource
+	docker               *SandboxDocker
 	reviewsOff           bool
 	binaryPath           string
 	bus                  EventPublisher
@@ -611,6 +612,9 @@ func NewAgentService(s *store.Store, tmux TmuxManager, workDir string, opts ...A
 		svc.checkoutInspector = opts[0].CheckoutInspector
 		svc.guidance = opts[0].RepositoryGuidance
 		svc.repoResources = opts[0].RepositoryResources
+		if opts[0].Sandbox != nil {
+			svc.docker = opts[0].Sandbox.Docker
+		}
 		svc.reviewsOff = opts[0].ReviewsOff
 		svc.binaryPath = opts[0].BinaryPath
 		svc.bus = opts[0].EventBus
@@ -1766,6 +1770,10 @@ func (a *agentService) EndExecution(ctx context.Context, executionID, status str
 	if err := a.store.TerminalizeExecution(ctx, executionID, status); err != nil {
 		return err
 	}
+	// Asked before the scratch goes: the view is in the runtime folder.
+	if a.docker != nil && a.docker.HasProxy(executionID) {
+		a.docker.cleanLogged(executionID)
+	}
 	a.scratch.removeLogged(executionID)
 	a.endEngramSession(ctx, executionID)
 	return nil
@@ -1813,6 +1821,7 @@ func (a *agentService) ReconcileSessions(ctx context.Context) error {
 	} else if cleared > 0 {
 		log.Printf("sandbox: removed the scratch of %d ended execution(s)", cleared)
 	}
+	a.docker.sweepLogged(ctx, StoreExecutionStatus(a.store))
 	count, oldest, err := a.store.ExecutionHealth(ctx)
 	if err != nil {
 		return err

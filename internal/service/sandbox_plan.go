@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"slices"
 	"sort"
 	"strings"
 
@@ -88,9 +89,13 @@ type SandboxPlanInput struct {
 	BinaryPath          string
 	BrokerSocket        string
 	SSHSocket           string // the execution's own, when it has one
-	PastedImagesDir     string
-	AgentFilesDir       string // ~/.legato/agents/<task>: role prompt and brief
-	GitCommonDir        string // a worktree's main .git, written by commits
+	// DockerSocket is the execution's own Docker API socket, filtered by
+	// Legato's proxy (agents.sandbox.docker); its folder is mounted and
+	// DOCKER_HOST names it.
+	DockerSocket    string
+	PastedImagesDir string
+	AgentFilesDir   string // ~/.legato/agents/<task>: role prompt and brief
+	GitCommonDir    string // a worktree's main .git, written by commits
 	// JobDir is the job clone Legato made for the session's task, in its
 	// data folder: the one part of that folder the sandbox may see.
 	JobDir string
@@ -512,6 +517,12 @@ func BuildSandboxPlan(in SandboxPlanInput) (sandbox.Plan, error) {
 	if in.SSHSocket != "" {
 		mounts = append(mounts, sandbox.Mount{Kind: sandbox.ReadOnly, Path: in.SSHSocket})
 	}
+	if in.DockerSocket != "" {
+		// The folder, so a socket made again by another serving process is
+		// seen without a reload.
+		mounts = append(mounts, sandbox.Mount{Kind: sandbox.ReadOnly, Path: filepath.Dir(in.DockerSocket)})
+		plan.Setenv["DOCKER_HOST"] = "unix://" + in.DockerSocket
+	}
 	for _, w := range []struct {
 		SandboxWrapper
 		env string
@@ -611,6 +622,12 @@ func BuildSandboxPlan(in SandboxPlanInput) (sandbox.Plan, error) {
 		plan.Setenv["GIT_AUTHOR_EMAIL"], plan.Setenv["GIT_COMMITTER_EMAIL"] = in.GitIdentity[1], in.GitIdentity[1]
 	}
 	plan.Unsetenv = append(append([]string{}, secretVars...), plan.Unsetenv...)
+	if in.DockerSocket != "" {
+		// The execution's own socket stays; what points the docker command
+		// at another daemon, or at the person's contexts, goes.
+		plan.Unsetenv = slices.DeleteFunc(plan.Unsetenv, func(name string) bool { return name == "DOCKER_HOST" })
+		plan.Unsetenv = append(plan.Unsetenv, "DOCKER_CONTEXT", "DOCKER_TLS_VERIFY", "DOCKER_CERT_PATH", "DOCKER_CONFIG")
+	}
 	return plan, nil
 }
 
