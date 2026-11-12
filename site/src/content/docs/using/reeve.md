@@ -58,7 +58,7 @@ The conversation's status bar names the engram the Reeve runs as, or says **no e
 
 When the Reeve wants to change something, it proposes a **change set**: the calls of one step, with a one-line reason, put to you as one approval in the approval tray and on your phone. You see each call, and for a setting its value before and after. Approve it, and Legato runs exactly those calls, in order, a restart last, stopping at the first failure; the Reeve is told how each went. Deny it with a note, and the Reeve gets the note and does not propose the same change again unless you ask.
 
-The approval card says where the set comes from (the Reeve and the instance), its ID, how many changes and what it needs; each change with its kind (change, risky), the call it makes, and a setting's value before and after. In the Reeve's conversation, each change set is a line with its state: waiting, or done with how many of its calls ran.
+The approval card says where the set comes from (the Reeve and the instance), its ID, how many changes and what it needs; each change with its kind (change, risky), the call it makes, and a setting's value before and after. In the Reeve's conversation, each change set is a line with its state: waiting, or done with how many of its calls ran. A set that ran without asking (see [Running without asking](#running-without-asking)) is marked **auto**.
 
 Ending a session withdraws the change sets still waiting for you; a suspended session keeps them.
 
@@ -70,7 +70,15 @@ Ending a session withdraws the change sets still waiting for you; a suspended se
 
 ### Commands on the machine
 
-With host operations on (the default; Settings › Reeve, changed only with a signature), the Reeve can also propose, as a last resort, a shell command, writing a file outside Legato (you see a diff; the old file is kept as a backup), or starting, stopping or reading a systemd service. Each needs your approval. They run as Legato's user, in its home folder, with a small fixed environment, for at most ten minutes, and cannot gain privileges: `sudo` fails. Only a call the Reeve marks **as root** runs as root, and it always needs your signature with a fingerprint or PIN. Every host action is written to the audit log: what ran, whether as root, who approved it with which device, the exit code and a fingerprint of the output.
+With host operations on (the default; Settings › Reeve, changed only with a signature), the Reeve can also propose, as a last resort, a shell command, writing a file outside Legato (you see a diff; the old file is kept as a backup), or starting, stopping or reading a systemd service. Each needs your approval, unless you let them run without asking (below). They run as Legato's user, in its home folder, with a small fixed environment, for at most ten minutes, and cannot gain privileges: `sudo` fails. Only a call the Reeve marks **as root** runs as root, and it always needs your signature with a fingerprint or PIN. Every host action is written to the audit log: what ran, whether as root, who approved it with which device (or, for one that ran without asking, the setting or rule that let it), the exit code and a fingerprint of the output.
+
+**Run host operations without asking** (`reeve.host_operations_auto`, off by default) lets the Reeve's commands, file writes and service actions that are not as root run at once. Turned on, **the Reeve can run any command as your user on this machine without asking you**, as an agent outside the sandbox can. A command as root still needs your signature with a fingerprint or PIN. Turning it on needs a signed approval; turning it off never does.
+
+To let only some of them run, add a rule at `auto` instead (see [What a change needs](#what-a-change-needs)), written as the kind of call, a colon and what it acts on:
+
+- `host_shell:journalctl *`, `host_shell:coredumpctl list*`: a command that starts so. A command with `;`, `|`, `&`, `$(`, a backquote or a redirect is more than the command a rule names, and still asks.
+- `edit_file:~/Projects/**`: a file in that folder. `~` is your home folder; `*` matches any run of characters, slashes too. A path with `..` in it still asks.
+- `manage_service:status *`, `manage_service:restart legato.service`: an action and a unit.
 
 ## What a change needs
 
@@ -80,7 +88,29 @@ Each change the Reeve proposes needs your approval, at a level set in Settings �
 - **A risky change** (security, restarts and anything that stops work, anything that cannot be undone, any command on the machine): a decision signed on your phone, passkey or security key once one is enrolled; until then a tap.
 - **Rules** raise or lower the level of the calls they match, such as `POST /api/tasks*`.
 
-These levels and rules, and the seed of its engram, are the Reeve's own rules: they change only with a signed approval, even from Settings, and not at all while no device is enrolled.
+Each level is one of **auto** (it runs at once, with no approval asked), **approve** (a tap), **signed** (a decision signed on an enrolled device) or **verified** (signed, with a fingerprint or a PIN). A risky change's **default** is signed once a device is enrolled, else a tap.
+
+These levels and rules, host operations and whether they run without asking, the Reeve's peer setting and the seed of its engram, are the Reeve's own rules: they change only with a signed approval, even from Settings, and not at all while no device is enrolled. Making one stricter (a higher level, an `auto` rule raised or removed, host operations or running them without asking turned off) needs no signature.
+
+### Running without asking
+
+At **auto**, a change set runs as soon as the Reeve proposes it. It is still recorded as an approval, decided by the level or rule that allowed it, every call is written to the audit log, it shows for a few seconds at the corner of the screen as already done, and its line in the conversation is marked **auto**. If any call of a set needs more, the whole set waits for you.
+
+Use it for the changes you approve without reading: set **What a change needs** to `auto` for tasks, agents and their messages and ordinary settings, or add rules for narrow patterns while the class stays at approve, such as `POST /api/tasks*`, `PATCH /api/tasks/*` or `POST /api/tasks/*/agent`. A risky change at `auto` includes restarts, stopping agents and settings that choose what runs on this machine: choose it only on purpose. In `config.yaml`, `risky: auto` is read as `default`, which is what it meant before `auto` was a level.
+
+Some calls always wait for you, whatever is set to auto:
+
+- a command as root (signed, with a fingerprint or PIN);
+- a change to the Reeve's own rules or its seed (and, when it runs, its own signed approval);
+- an edit of `config.yaml`, which can change anything;
+- any deletion (`DELETE`, and `legato` commands that remove or discard);
+- security settings: credentials and credential sources, the sandbox, the SSH agent socket, GitHub credentials, approval notifications, agent tools and their launch arguments, integrations, and the Reeve's voice command, credential and player;
+- pairing, workers and mains, Reeve pairings and connecting integrations;
+- secrets, integration tokens and credentials through the `legato` command.
+
+Calls the Reeve may never make (deciding approvals, approval devices, the web token) stay refused.
+
+**Settings › Reeve › Runs without asking** lists what is at auto, with what each lets the Reeve do, and every set that ran without asking. **Ask for everything** puts every level, rule and host operation at auto back to approve at once, with no signature. A value `config.yaml` sets is named there; change it in the file.
 
 ## Talking to other instances' Reeves
 

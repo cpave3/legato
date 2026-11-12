@@ -124,6 +124,6 @@ notifications:
 
 ### Approvals that need your phone
 
-The Reeve's change sets are approvals too: one per step, at the level of its riskiest change. See [The Reeve](/legato/using/reeve/).
+The Reeve's change sets are approvals too: one per step, at the level of its riskiest change. A set you let run without asking never waits in the tray: it shows for a few seconds at the corner of the screen as already done. See [The Reeve](/legato/using/reeve/#running-without-asking).
 
 Some decisions are signed: only you, at an enrolled phone or with a passkey on your computer, can allow them. An agent that has the web token still cannot. The TUI and Attention can deny a signed approval but not allow it, and say to use your phone. Some also need a verification: a fingerprint or a PIN on the device, not only a touch of a security key; such an approval refuses a touch alone. Which credential requests need a signature is set by the credential's rules; see [The credential broker](/legato/security/credential-broker/).

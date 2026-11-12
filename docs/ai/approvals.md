@@ -21,7 +21,7 @@ An **approval** is a request that waits for the person: an agent's permission re
 
 `service.ApprovalService` (`internal/service/approval.go`):
 
-- `Submit` stores a request, or returns the one already stored for its source and source key. Only the call that stored it publishes `created` and runs the `Created` hook (the phone notification), so two Legato processes on one database notify once.
+- `Submit` stores a request, or returns the one already stored for its source and source key. Only the call that stored it publishes `created` and runs the `Created` hook (the phone notification), so two Legato processes on one database notify once. A `Quiet` request (a Reeve change set at the `auto` level, decided as it is made) never runs the hook.
 - `Decide` checks the decision against the approval (an allow must name one of its allow options, or takes the first), lets the source's `ApprovalValidator` refuse it, closes the row in one conditional update, then calls the source's `ApprovalResolver`. Only the first decision counts; the next gets `ErrApprovalDecided`. A resolver error leaves the approval `failed` with the error.
 - `Dismiss` is a decision of `dismiss`; the source says what that means for it.
 - `Withdraw`, `WithdrawExecution` and `ExpireTask` close pending approvals without asking the source.
