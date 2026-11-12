@@ -265,6 +265,10 @@ func (s *Server) taskHandler() http.HandlerFunc {
 				s.writeError(w, http.StatusNotFound, "task not found")
 				return
 			}
+			if r.URL.Query().Get("view") == "summary" {
+				s.writeJSON(w, http.StatusOK, taskSummary(detail))
+				return
+			}
 			s.writeJSON(w, http.StatusOK, cardDetailToResponse(detail))
 
 		case http.MethodPatch:

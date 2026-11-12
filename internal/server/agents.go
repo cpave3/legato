@@ -381,6 +381,15 @@ func (s *Server) agentsHandler() http.HandlerFunc {
 			http.Error(w, "failed to list agents", http.StatusInternalServerError)
 			return
 		}
+		agents, err = s.filterAgents(r, agents)
+		if err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		if r.URL.Query().Get("view") == "compact" {
+			json.NewEncoder(w).Encode(s.compactAgents(r.Context(), agents))
+			return
+		}
 
 		// Fetch durations for all agent tasks.
 		taskIDs := make([]string, len(agents))

@@ -22,13 +22,15 @@ A card on the board is a task: its ID is the task's. An agent is addressed by it
 | To | Call | Body |
 | --- | --- | --- |
 | Read the board: its columns and cards | `GET /api/board` |  |
-| Read a task | `GET /api/tasks/<id>` |  |
+| Read a task in brief: its column, pull requests and latest note | `GET /api/tasks/<id>?view=summary` |  |
+| Read a task in full, with its description and notes | `GET /api/tasks/<id>` |  |
 | Create a task (a card) | `POST /api/tasks` | `{"title": "…", "column": "Backlog"}` |
 | Move a card to another column | `PATCH /api/tasks/<id>` | `{"column": "Done"}` |
 | Rename a task or change its description | `PATCH /api/tasks/<id>` | `{"title": "…", "description": "…"}` |
 | Archive a done task | `POST /api/tasks/<id>/archive` |  |
 | Link a pull request to a task | `POST /api/tasks/<id>/link-pr` | `{"owner": "…", "repo": "…", "pr_number": 12}` |
 | List the agents | `GET /api/agents` |  |
+| Check on some agents in brief | `GET /api/agents?view=compact&status=running&task=<id>,<id>&workspace=<name>` |  |
 | Start an agent on a task | `POST /api/tasks/<id>/agent` | `{"agent_kind": "claude-code", "prompt": "…"}` |
 | Message an agent that is running | `POST /api/tasks/<id>/agent` | `{"prompt": "…"}` |
 | Read what an agent said and did last | `GET /api/agents/<id>/conversation` |  |

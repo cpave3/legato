@@ -25,7 +25,7 @@ The Reeve is the agent of a Legato instance itself (see `GLOSSARY.md`): the pers
   - the API page, `reference/api`, is written from the route table (`apiReference`, `internal/server/api_reference.go`: every route with its method, class and description, the bodies in `routeBodies`, and `everydayCalls` in everyday words at the top). `TestTheAPIReferencePageIsCurrent` fails when it is stale (`-update` rewrites it), and `site`'s `TestSearchFindsTheAPIPageForEverydayWords` when "move a card", "stop an agent" or "message an agent" does not find it. The role prompt names it;
   - `instance_status`: the snapshot, fresh;
   - `read_logs`: the last lines of the log file (`<data_dir>/logs/legato.log`, and `.1` before it), filtered by a regular expression (`ReadLogLines`), 100 by default, 1000 at most;
-  - `legato_api`: a call to this instance's API (`MCPReeve.APIBase`, the local web server) with the session's own token, answered with the status and body. Its token passes read routes only, so change and risky calls come back `403 needs_approval` until change sets exist.
+  - `legato_api`: a call to this instance's API (the role prompt points it at the brief reads, `GET /api/tasks/{id}?view=summary` and `GET /api/agents?view=compact&task=…`, which keep a status check small) (`MCPReeve.APIBase`, the local web server) with the session's own token, answered with the status and body. Its token passes read routes only, so change and risky calls come back `403 needs_approval` until change sets exist.
 
 ## Its engram
 
