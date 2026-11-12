@@ -39,3 +39,11 @@ func TestTheRolePromptPointsToTheAPIPage(t *testing.T) {
 		t.Error("the role prompt does not name the API page, reference/api")
 	}
 }
+
+// The role prompt says the Reeve hears from the agents it starts, so it
+// need not poll them.
+func TestTheRolePromptSaysAgentsItStartsReportBack(t *testing.T) {
+	if !strings.Contains(ReeveRolePrompt, "[legato agent]") {
+		t.Error("the role prompt does not mention [legato agent] messages")
+	}
+}

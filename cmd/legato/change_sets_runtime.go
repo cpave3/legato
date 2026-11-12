@@ -6,6 +6,7 @@ import (
 	"crypto/tls"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"os"
 	"path/filepath"
@@ -37,6 +38,10 @@ var processStart = time.Now()
 // approved sets in the background while it serves the broker.
 func startChangeSets(ctx context.Context, cfg *config.Config, db *store.Store, approvals *service.ApprovalService, agents service.AgentService, owner func() bool) *service.ChangeSetService {
 	reeve := newReeveService(db, agents, nil, approvals)
+	// The agents the Reeve's change sets start or message: it is told what
+	// they do.
+	watcher := service.NewReeveWatcher(service.ReeveWatcherOptions{Store: db,
+		Notify: func(ctx context.Context, taskID, text string) { notifyReeve(ctx, db, reeve, taskID, text) }})
 	changeSets := service.NewChangeSetService(service.ChangeSetOptions{
 		Store: db, Approvals: approvals, Settings: settingsFor(db),
 		Classify:       classifyCall,
@@ -48,6 +53,11 @@ func startChangeSets(ctx context.Context, cfg *config.Config, db *store.Store, a
 		Restart:        restartAll,
 		Notify: func(ctx context.Context, taskID, text string) {
 			notifyReeve(ctx, db, reeve, taskID, text)
+		},
+		Watch: func(ctx context.Context, reeveTaskID, taskID string) {
+			if err := watcher.Watch(ctx, reeveTaskID, taskID); err != nil {
+				log.Printf("reeve: watching %s: %v", taskID, err)
+			}
 		},
 		RunningAgents: func(ctx context.Context) []string {
 			var ids []string
@@ -68,6 +78,7 @@ func startChangeSets(ctx context.Context, cfg *config.Config, db *store.Store, a
 	processSecrets.Register()
 	if owner != nil {
 		go whileBrokerOwner(ctx, owner, 2*time.Second, func(ctx context.Context) { changeSets.RunQueued(ctx) })
+		go whileBrokerOwner(ctx, owner, service.ReeveWatchCheckEvery, func(ctx context.Context) { watcher.Check(ctx) })
 	}
 	processChangeSets = changeSets
 	return changeSets

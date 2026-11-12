@@ -151,3 +151,5 @@ Migration 106 adds `executions.engram_home` (`''` for the person's own store): t
 Migration 107 adds `execution_resources.from_repository` (`0` or `1`): a resource the execution was given by its repository (`agents.repository_resources`), not chosen. `AddExecutionRepositoryResources` sets it, `ListChosenExecutionResources` leaves those out. See [Resources](resources.md) § Resources for a repository.
 
 Migration 108 renames a saved `reeve.levels.risky` of `"auto"` to `"default"`: before `auto` was a level that runs a change at once, risky's `auto` meant the default (signed once a device is enrolled). See [The Reeve](reeve.md) § Levels and rules.
+
+Migration 109 adds `reeve_watches` (`task_id` primary key, `reeve_task_id`, `seen` JSON, `created_at`): the agents a Reeve session's change sets started or messaged, and what the watcher last told it of each (`WatchForReeve`, which keeps `seen` for a task already watched, `ListReeveWatches`, `SetReeveWatchSeen`, `DeleteReeveWatch`). `TaskWorkedSince` says whether one of a task's executions was working after a time. See [The Reeve](reeve.md) § Agents it started.
