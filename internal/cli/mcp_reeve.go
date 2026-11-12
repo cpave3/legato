@@ -66,6 +66,20 @@ type MCPLegato interface {
 	Run(ctx context.Context, args []string) (int, string, error)
 }
 
+// LegatoCommand is a legato subcommand the Reeve may run, by its path
+// (task list) and class (read, change or risky).
+type LegatoCommand struct {
+	Path        string
+	Class       string
+	Description string
+}
+
+// MCPLegatoCommands lists the commands the legato tool runs, for its
+// description. An MCPLegato may implement it.
+type MCPLegatoCommands interface {
+	Commands() []LegatoCommand
+}
+
 // MCPSecrets asks the person for a secret (service.ReeveSecrets).
 type MCPSecrets interface {
 	Request(ctx context.Context, taskID, name, purpose string) (service.SecretOutcome, error)
@@ -513,14 +527,29 @@ func (m *mcpTools) speak() mcpserver.Tool {
 }
 
 type legatoCommandInput struct {
-	Args   []string `json:"args" jsonschema:"the subcommand and its arguments, without legato: [integration, token, list]"`
+	Args   []string `json:"args" jsonschema:"the subcommand and its arguments as a list of words, without legato: [\"config\",\"show\"]; a single string is split as a shell would"`
 	Reason string   `json:"reason,omitempty" jsonschema:"for a change: one line saying why"`
 }
 
 func (m *mcpTools) legatoCommand() mcpserver.Tool {
+	description := "Runs a legato subcommand on this instance's host, with no shell: for what the CLI does and the API does not (integration tokens, Argus connect and disconnect, columns sync, hooks install). A command that only reads runs at once; one that changes something becomes a change set for the operator to approve. Some commands are never run: a refusal says what to use instead. " +
+		`args is a list of words, as ["config","show"].`
+	if lister, ok := m.opts.Reeve.Legato.(MCPLegatoCommands); ok {
+		description += "\n\nThe commands you may run, by group (\"asks\": a change set for the operator):\n" + legatoCommandList(lister.Commands())
+	}
 	return mcpserver.NewTool(mcpserver.Definition{
 		Name: "legato", Title: "Run a legato command on the host",
-		Description: "Runs a legato subcommand on this instance's host, with no shell: for what the CLI does and the API does not (integration tokens, Argus connect and disconnect, columns sync, hooks install). A command that only reads runs at once; one that changes something becomes a change set for the operator to approve. Some commands are never run.",
+		Description: description,
+		Normalize: func(args map[string]any) {
+			if line, ok := args["args"].(string); ok {
+				words := splitShellWords(line)
+				list := make([]any, len(words))
+				for i, w := range words {
+					list[i] = w
+				}
+				args["args"] = list
+			}
+		},
 	}, func(ctx context.Context, in legatoCommandInput) (mcpserver.Result, error) {
 		if err := m.mustBeReeve(ctx); err != nil {
 			return mcpserver.Result{}, err
@@ -608,4 +637,74 @@ func firstLine(reason, fallback string) string {
 		return strings.TrimSpace(reason)
 	}
 	return fallback
+}
+
+// legatoCommandList writes the commands the legato tool runs one group to a
+// line: "task: list, show, create (asks)".
+func legatoCommandList(commands []LegatoCommand) string {
+	var groups []string
+	byGroup := map[string][]string{}
+	for _, c := range commands {
+		group, rest, ok := strings.Cut(c.Path, " ")
+		if !ok {
+			group, rest = c.Path, ""
+		}
+		name := rest
+		if name == "" {
+			name = group
+		}
+		if c.Class != "read" {
+			name += " (asks)"
+		}
+		if _, seen := byGroup[group]; !seen {
+			groups = append(groups, group)
+		}
+		byGroup[group] = append(byGroup[group], name)
+	}
+	var b strings.Builder
+	for _, g := range groups {
+		fmt.Fprintf(&b, "- %s: %s\n", g, strings.Join(byGroup[g], ", "))
+	}
+	return b.String()
+}
+
+// splitShellWords splits a command line as a shell would split words:
+// spaces between them, quotes and backslashes kept out. Nothing is
+// expanded.
+func splitShellWords(line string) []string {
+	var words []string
+	var word strings.Builder
+	inWord := false
+	var quote rune
+	escaped := false
+	for _, r := range line {
+		switch {
+		case escaped:
+			word.WriteRune(r)
+			escaped = false
+		case r == '\\' && quote != '\'':
+			escaped, inWord = true, true
+		case quote != 0:
+			if r == quote {
+				quote = 0
+			} else {
+				word.WriteRune(r)
+			}
+		case r == '"' || r == '\'':
+			quote, inWord = r, true
+		case r == ' ' || r == '\t' || r == '\n':
+			if inWord {
+				words = append(words, word.String())
+				word.Reset()
+				inWord = false
+			}
+		default:
+			word.WriteRune(r)
+			inWord = true
+		}
+	}
+	if inWord {
+		words = append(words, word.String())
+	}
+	return words
 }

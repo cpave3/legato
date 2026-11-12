@@ -176,6 +176,10 @@ func (f *fakeLegato) Classify(args []string) (string, string) {
 	return "risky", "Create an integration token"
 }
 
+func (f *fakeLegato) Commands() []cli.LegatoCommand {
+	return []cli.LegatoCommand{{Path: "version", Class: "read"}, {Path: "task list", Class: "read"}, {Path: "task create", Class: "change"}, {Path: "integration token create", Class: "risky"}}
+}
+
 func (f *fakeLegato) Run(_ context.Context, args []string) (int, string, error) {
 	f.ran = append(f.ran, args)
 	return 0, "legato v1.2.3", nil
@@ -242,5 +246,35 @@ func TestTheReeveMessagesAnotherInstancesReeve(t *testing.T) {
 	listed := mcpText(callMCP(t, session, "message_reeve", map[string]any{}))
 	if !strings.Contains(listed, "erebus") {
 		t.Fatalf("listing %q", listed)
+	}
+}
+
+// The legato tool says which commands it runs, and takes its arguments as
+// a string too, split as a shell would.
+func TestTheLegatoToolListsItsCommandsAndTakesAString(t *testing.T) {
+	s := newTestStore(t)
+	legato := &fakeLegato{}
+	taskID, executionID := seedReeve(t, s)
+	session := connectMCP(t, cli.MCPOptions{Store: s, TaskID: taskID, ExecutionID: executionID, Reeve: &cli.MCPReeve{Legato: legato, ChangeSets: &fakeChangeSets{}}})
+	tools, err := session.ListTools(context.Background(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	description := ""
+	for _, tool := range tools.Tools {
+		if tool.Name == "legato" {
+			description = tool.Description
+		}
+	}
+	for _, want := range []string{"task: list, create", "integration: token create", `["config","show"]`} {
+		if !strings.Contains(description, want) {
+			t.Errorf("the description lacks %q:\n%s", want, description)
+		}
+	}
+	if got := mcpText(callMCP(t, session, "legato", map[string]any{"args": `version --json "a b"`})); !strings.Contains(got, "v1.2.3") {
+		t.Fatalf("a string: %q", got)
+	}
+	if len(legato.ran) != 1 || strings.Join(legato.ran[0], "|") != "version|--json|a b" {
+		t.Fatalf("ran %q", legato.ran)
 	}
 }
