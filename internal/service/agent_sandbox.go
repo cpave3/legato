@@ -352,12 +352,17 @@ func realCommands(name, skip string) []string {
 // it (Legato made it for the task, or the task joined it), "" otherwise.
 // Only such a clone of Legato's data folder can be a sandboxed agent's
 // work: also when the agent is started again in it.
+//
+// The paths are compared where they really are: the data folder and the
+// clone's record may name it through a link (a /home that is var/home)
+// while a working folder read back from the agent's pane does not.
 func (a *agentService) taskJobClone(ctx context.Context, taskID, dataDir, workDir string) string {
 	if dataDir == "" {
 		return ""
 	}
 	jobs := filepath.Join(dataDir, "jobs")
-	rel, err := filepath.Rel(jobs, workDir)
+	realJobs := HostFS{}.Real(jobs)
+	rel, err := filepath.Rel(realJobs, HostFS{}.Real(workDir))
 	if err != nil || rel == "." || strings.HasPrefix(rel, "..") {
 		return ""
 	}
@@ -365,10 +370,12 @@ func (a *agentService) taskJobClone(ctx context.Context, taskID, dataDir, workDi
 	if len(parts) < 2 {
 		return ""
 	}
-	path := filepath.Join(jobs, parts[0], parts[1])
-	clone, err := a.store.JobCloneByPath(ctx, path)
-	if err != nil || !slices.Contains(clone.TaskIDs, taskID) {
-		return ""
+	// The record names the clone as the data folder did when it was made.
+	for _, path := range []string{filepath.Join(jobs, parts[0], parts[1]), filepath.Join(realJobs, parts[0], parts[1])} {
+		clone, err := a.store.JobCloneByPath(ctx, path)
+		if err == nil && slices.Contains(clone.TaskIDs, taskID) {
+			return path
+		}
 	}
-	return path
+	return ""
 }
