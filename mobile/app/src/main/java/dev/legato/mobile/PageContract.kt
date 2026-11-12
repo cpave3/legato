@@ -21,7 +21,7 @@ fun bootstrapScript(baseUrl: String, token: String, shellKey: String): String {
     return "if(window===window.top){" +
         "localStorage.setItem(\"legato:token:local\",$value);" +
         "localStorage.setItem(${JSONObject.quote("legato:token:$baseUrl")},$value);" +
-        "window.legatoShell={voice:1,approval:1,enroll:1,workers:1,key:${JSONObject.quote(shellKey)}};" +
+        "window.legatoShell={voice:1,voiceStream:1,approval:1,enroll:1,workers:1,key:${JSONObject.quote(shellKey)}};" +
         "}"
 }
 
@@ -75,6 +75,13 @@ sealed interface PageMessage {
     // A request to start, stop or cancel a recording.
     data class Voice(val key: String, val action: String) : PageMessage
 
+    // A request to start or stop streaming the microphone for a
+    // conversation with the Reeve (ShellVoiceStream).
+    data class VoiceStream(val key: String, val action: String) : PageMessage
+
+    // A worker's page asks to open the main's page with the voice sheet open.
+    data class OpenVoice(val key: String) : PageMessage
+
     // A request to open the approval sheet on one approval. Only the ID is
     // read: the app fetches the request itself.
     data class Approval(val key: String, val id: String) : PageMessage
@@ -111,6 +118,12 @@ sealed interface PageMessage {
                     val action = message.opt("action") as? String
                     if (key != null && action != null) Voice(key, action) else Unknown
                 }
+                "voice-stream" -> {
+                    val key = message.opt("key") as? String
+                    val action = message.opt("action") as? String
+                    if (key != null && action != null) VoiceStream(key, action) else Unknown
+                }
+                "open-voice" -> (message.opt("key") as? String)?.let(::OpenVoice) ?: Unknown
                 "approval" -> {
                     val key = message.opt("key") as? String
                     val id = message.opt("id") as? String

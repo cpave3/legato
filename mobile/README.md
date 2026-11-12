@@ -56,14 +56,16 @@ All of it is in `app/src/main/java/dev/legato/mobile/`.
 | `PageContract.kt` | What the app and the web interface say to each other |
 | `PageKeeper.kt` | Getting the page back after Android reclaims it |
 | `ShellVoice.kt` | Recording for the page |
+| `ShellVoiceStream.kt` | Streaming the microphone to the page for a conversation with the Reeve |
+| `ReeveVoice.kt` | Which saved server is the main, from `/api/reeve/voice` |
 | `ConnectionStore.kt` | The saved servers |
 | `ServerProbe.kt` | `/health` and `/api/meta` |
 | `ShellWorkers.kt` | Pairing another saved server as a worker of the page's server |
-| `ServerPage.kt` | The WebView, wired to the five above |
+| `ServerPage.kt` | The WebView, wired to the files above |
 | `ApprovalSigning.kt` | Signed approvals: the server's endpoints, the key's parameters, enrollment, the signed message, what the sheet shows |
 | `AndroidApprovalKeys.kt` | The approval keys in the Keystore, the fingerprint prompt, calls to a server's API |
 | `ApprovalSheet.kt`, `ApprovalsScreen.kt` | The approval sheet with its seal, and the open approvals of every server |
-| `AndroidStorage.kt`, `AndroidMicrophone.kt` | Keystore, SQLite and `MediaRecorder` |
+| `AndroidStorage.kt`, `AndroidMicrophone.kt` | Keystore, SQLite, `MediaRecorder`, `AudioRecord` and audio focus |
 | `MainActivity.kt`, `Screens.kt` | The activity and its Compose screens |
 
 The logic is in plain Kotlin classes that tests drive with fakes
@@ -234,6 +236,40 @@ The app records in its place (`ShellVoice.kt`, `AndroidMicrophone.kt`):
 
 Inside the app the app always records, over HTTPS too. Outside it, a browser
 with a microphone of its own (over HTTPS, or on the desktop) uses that.
+
+## Talking with the Reeve
+
+The web UI's voice sheet holds a spoken conversation with the main's Reeve
+(see `docs/analysis/reeve-voice-conversation.md`). The page runs the session
+and plays the Reeve's lines with `<audio>`; the app only listens for it
+(`ShellVoiceStream.kt`, `AndroidAudioStream` and `AndroidAudioFocus` in
+`AndroidMicrophone.kt`). Dictation keeps its own `MediaRecorder`.
+
+- The app tells the page it can: `window.legatoShell.voiceStream === 1`.
+- `{legatoShell: "voice-stream", key, action: "start"}` asks for the
+  microphone as dictation does, takes the audio focus
+  (`AUDIOFOCUS_GAIN_TRANSIENT`, so music pauses), and records with
+  `AudioRecord` (`VOICE_RECOGNITION`, 16 kHz mono 16-bit). The app answers on
+  `legato:shell-voice`: `stream-started`, then a `frame` every 100 ms
+  (`data`: 3,200 bytes of little-endian samples, base64).
+- `action: "stop"` stops recording and gives the focus back, answered with
+  `stream-stopped`. The app stops by itself, with `stream-stopped` too, when
+  it leaves the foreground, when a call takes the focus
+  (`AUDIOFOCUS_LOSS_TRANSIENT`), and when the page loads another document,
+  or when the person answers the microphone dialog after the page stopped.
+  A loss of focus for good does not stop it, since the page's own `<audio>`
+  (a line of the Reeve's) takes the focus so in the WebView; nor does a loss
+  it may duck under. Anything that fails is an `error` with a `message`.
+- **Which server is the main.** The app asks each saved server
+  `GET /api/reeve/voice` with its token and keeps the instance's ID and role
+  with the connection. The main is the one server whose role is `main`; else,
+  with one server saved, that server; else none (`voiceMain` in
+  `ReeveVoice.kt`). It asks when the server list refreshes and when a page
+  asks for the main.
+- **From a worker's page.** `{legatoShell: "open-voice", key}` opens the
+  main's page at `/#reeve-voice`, which opens the sheet there. When the app
+  knows no main, it answers with an `error` and stays where it is.
+- Only requests with the page's key from its top frame are obeyed.
 
 ## Approval links
 

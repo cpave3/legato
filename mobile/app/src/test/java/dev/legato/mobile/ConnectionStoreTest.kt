@@ -130,4 +130,16 @@ class ConnectionStoreTest {
         store.rememberApprovalDevice("1", null)
         assertNull(store.load().single().approvalDevice)
     }
+
+    @Test
+    fun `remembers which instance each server is, leaving the others as they were`() {
+        val laptop = Connection(id = "2", name = "Laptop", baseUrl = "http://10.0.0.3:3080", createdAt = "t")
+        store.save(desk, "t")
+        store.save(laptop, "u")
+        store.rememberVoiceInstances(mapOf("2" to VoiceInstance("i-2", "laptop", "worker")))
+        store.rememberVoiceInstances(mapOf("1" to VoiceInstance("i-1", "desk", "main")))
+
+        val saved = store.load()
+        assertEquals(listOf("i-1" to "main", "i-2" to "worker"), saved.map { it.instanceId to it.role })
+    }
 }

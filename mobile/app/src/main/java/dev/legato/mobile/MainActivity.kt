@@ -194,6 +194,9 @@ class MainActivity : ComponentActivity() {
                 state.versions.value = state.versions.value + results.mapNotNull { (connection, health) -> health.version?.let { connection.id to it } }
                 done()
             }
+            // Then, which is the main: only servers that answered are asked.
+            learnVoiceRoles(results.filter { (_, health) -> health.online }.map { (connection, _) -> connection })
+            runOnUiThread { state.connections.value = store.load() }
         }
     }
 
@@ -201,7 +204,8 @@ class MainActivity : ComponentActivity() {
     fun open(connection: Connection, path: String = "") {
         state.error.value = ""
         val cached = page
-        if (cached != null && cached.connection == connection) {
+        // Learning a server's role does not make it another server.
+        if (cached != null && cached.connection.copy(instanceId = null, role = null) == connection.copy(instanceId = null, role = null)) {
             if (path.isNotEmpty()) cached.show(path)
             state.screen.value = Screen.Web(connection)
             pageVisibility()
@@ -227,6 +231,36 @@ class MainActivity : ComponentActivity() {
                     } else {
                         cause.message ?: cause.toString()
                     }
+                }
+            }
+        }
+    }
+
+    // The Reeve's voice: which server is the main (ReeveVoice.kt).
+
+    // learnVoiceRoles asks each server who it is and keeps the answers.
+    // Blocking, a few seconds at most for each server.
+    private fun learnVoiceRoles(connections: List<Connection>) {
+        val learned = learnVoiceRoles(connections) { connection ->
+            val token = store.token(connection.id) ?: throw IllegalStateException("No saved token.")
+            fetchVoiceInstance(AndroidServerHttp(connection.baseUrl, token, connection.caCertificate, timeoutMs = 5_000))
+        }
+        store.rememberVoiceInstances(learned)
+    }
+
+    // openVoice opens the main's page with the voice sheet open, for a
+    // worker's page whose ring the person tapped.
+    private fun openVoice(failed: (String) -> Unit) {
+        io.execute {
+            learnVoiceRoles(store.load())
+            val connections = store.load()
+            runOnUiThread {
+                state.connections.value = connections
+                val main = voiceMain(connections)
+                if (main == null) {
+                    failed("This app does not know which server is the main. Open the main's page and talk there.")
+                } else {
+                    open(main, VOICE_PATH)
                 }
             }
         }
@@ -395,7 +429,16 @@ class MainActivity : ComponentActivity() {
 
     private fun showPage(connection: Connection, token: String, path: String = "") {
         closePage()
-        page = ServerPage(this, connection, token, AndroidMicrophone(this, ::askForMicrophone), pageCallbacks, path)
+        page = ServerPage(
+            this,
+            connection,
+            token,
+            AndroidMicrophone(this, ::askForMicrophone),
+            AndroidAudioStream(::askForMicrophone),
+            AndroidAudioFocus(this),
+            pageCallbacks,
+            path,
+        )
         state.screen.value = Screen.Web(connection)
         pageVisibility()
     }
@@ -445,6 +488,10 @@ class MainActivity : ComponentActivity() {
 
         override fun openWorkerPairing(server: Connection, done: (Result<WorkerPairing>) -> Unit) =
             this@MainActivity.openWorkerPairing(server, done)
+
+        override fun openVoice(from: Connection, failed: (String) -> Unit) {
+            runOnUiThread { this@MainActivity.openVoice(failed) }
+        }
 
         override fun openApproval(connection: Connection, id: String, done: (String, String?, String?) -> Unit) {
             runOnUiThread { openApprovalSheet(store.load().firstOrNull { it.id == connection.id } ?: connection, id, done) }

@@ -61,6 +61,7 @@ The app is a native Android shell around the web UI, for Android 10 and later. O
 - A list of your Legato servers, each with its own name, and pairing by four words or a QR code. The app scans the code with its own camera, so it works without Google Play services, on GrapheneOS for example. It asks for the camera the first time you scan.
 - Tokens kept encrypted with a key in the Android Keystore.
 - Dictation: the app records for the page, over HTTP too, where a browser has no microphone.
+- Talking with the Reeve: the app listens for the page's voice sheet. Music pauses while you talk, and the conversation ends when you leave the app. On a worker's page, the voice button opens the main's page with the sheet open. The app learns which of your servers is the main by asking each one; with a single server, that server is the main.
 - The page kept alive when you switch apps, and brought back where it was when Android reclaims it.
 - Approval links: an approval notification from ntfy opens the app on that approval. See [Notifications](/legato/integrations/notifications/).
 - Signed approvals: the phone holds a key in its secure hardware and signs a decision after your fingerprint or PIN. See [How credentials reach agents](/legato/security/credential-broker/).
