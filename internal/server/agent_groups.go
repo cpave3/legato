@@ -61,8 +61,16 @@ func (s *Server) agentGroupHandler() http.HandlerFunc {
 		}
 		id := r.PathValue("task_id")
 		if err := groups.SetTaskGroup(r.Context(), id, req.Group); err != nil {
-			if errors.Is(err, store.ErrNotFound) {
+			var away *service.TaskAwayError
+			switch {
+			case errors.Is(err, store.ErrNotFound):
 				writeJSONError(w, http.StatusNotFound, "no task "+id)
+				return
+			case errors.Is(err, service.ErrInvalidTaskGroup):
+				writeJSONError(w, http.StatusBadRequest, err.Error())
+				return
+			case errors.As(err, &away):
+				writeJSONError(w, http.StatusConflict, err.Error())
 				return
 			}
 			writeJSONError(w, http.StatusInternalServerError, err.Error())
@@ -145,6 +153,10 @@ func (s *Server) agentGroupNameHandler() http.HandlerFunc {
 			return
 		}
 		moved, err := groups.RenameTaskGroup(context.WithoutCancel(r.Context()), name, to)
+		if errors.Is(err, service.ErrInvalidTaskGroup) {
+			writeJSONError(w, http.StatusBadRequest, err.Error())
+			return
+		}
 		if err != nil {
 			writeJSONError(w, http.StatusInternalServerError, err.Error())
 			return

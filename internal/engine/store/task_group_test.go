@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"errors"
 	"reflect"
 	"testing"
 )
@@ -88,5 +89,29 @@ func TestRenameTaskGroupMovesEveryTaskAndNilClearsThem(t *testing.T) {
 		if g := groupOf(t, s, id); g != nil {
 			t.Fatalf("task %s group = %q after delete, want none", id, *g)
 		}
+	}
+}
+
+// SetTaskGroup writes the group alone, so it never puts back what another
+// writer changed since the task was read.
+func TestSetTaskGroupWritesOnlyTheGroup(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	createTestTask(t, s, "G-1")
+	tooling := "Tooling"
+	if err := s.SetTaskGroup(ctx, "G-1", &tooling); err != nil {
+		t.Fatal(err)
+	}
+	if g := groupOf(t, s, "G-1"); g == nil || *g != "Tooling" {
+		t.Fatalf("group = %v", g)
+	}
+	if err := s.SetTaskGroup(ctx, "G-1", nil); err != nil {
+		t.Fatal(err)
+	}
+	if g := groupOf(t, s, "G-1"); g != nil {
+		t.Fatalf("group = %q after clearing", *g)
+	}
+	if err := s.SetTaskGroup(ctx, "NOPE", &tooling); !errors.Is(err, ErrNotFound) {
+		t.Fatalf("unknown task: %v", err)
 	}
 }

@@ -2,7 +2,11 @@ package service
 
 import (
 	"context"
+	"errors"
+	"fmt"
 	"strings"
+	"unicode"
+	"unicode/utf8"
 )
 
 // TaskGroups manages the groups agents are listed in. A group belongs to the
@@ -18,26 +22,44 @@ type TaskGroups interface {
 	RenameTaskGroup(ctx context.Context, from, to string) (int64, error)
 }
 
-// groupName is a group as stored: trimmed, and nil for none.
-func groupName(group string) *string {
+// ErrInvalidTaskGroup is a group name that is not one short line.
+var ErrInvalidTaskGroup = errors.New("invalid group name")
+
+// maxTaskGroupName is the longest a group's name may be, in characters.
+const maxTaskGroupName = 60
+
+// groupName is a group as stored: trimmed, and nil for none. A name longer
+// than maxTaskGroupName or with a control character (a line break, a tab)
+// is ErrInvalidTaskGroup: it heads a section of every agent list.
+func groupName(group string) (*string, error) {
 	group = strings.TrimSpace(group)
 	if group == "" {
-		return nil
+		return nil, nil
 	}
-	return &group
+	if utf8.RuneCountInString(group) > maxTaskGroupName {
+		return nil, fmt.Errorf("%w: at most %d characters", ErrInvalidTaskGroup, maxTaskGroupName)
+	}
+	if strings.ContainsFunc(group, unicode.IsControl) {
+		return nil, fmt.Errorf("%w: one line, with no tabs or control characters", ErrInvalidTaskGroup)
+	}
+	return &group, nil
 }
 
+// SetTaskGroup writes the group alone, after RefuseAway: a task away on a
+// worker keeps its group, as it keeps its workspace.
 func (a *agentService) SetTaskGroup(ctx context.Context, id string, group *string) error {
 	taskID, _ := SplitAgentID(id)
-	task, err := a.store.GetTask(ctx, taskID)
-	if err != nil {
+	var name *string
+	if group != nil {
+		var err error
+		if name, err = groupName(*group); err != nil {
+			return err
+		}
+	}
+	if err := RefuseAway(ctx, a.store, taskID); err != nil {
 		return err
 	}
-	task.Group = nil
-	if group != nil {
-		task.Group = groupName(*group)
-	}
-	return a.store.UpdateTask(ctx, *task)
+	return a.store.SetTaskGroup(ctx, taskID, name)
 }
 
 func (a *agentService) ListTaskGroups(ctx context.Context) ([]string, error) {
@@ -45,5 +67,9 @@ func (a *agentService) ListTaskGroups(ctx context.Context) ([]string, error) {
 }
 
 func (a *agentService) RenameTaskGroup(ctx context.Context, from, to string) (int64, error) {
-	return a.store.RenameTaskGroup(ctx, strings.TrimSpace(from), groupName(to))
+	name, err := groupName(to)
+	if err != nil {
+		return 0, err
+	}
+	return a.store.RenameTaskGroup(ctx, strings.TrimSpace(from), name)
 }

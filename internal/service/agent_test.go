@@ -2097,3 +2097,43 @@ func TestTaskGroupsRenameAndList(t *testing.T) {
 		t.Fatalf("groups after delete = %v, want none", names)
 	}
 }
+
+// A task away on a worker keeps its group, as it keeps its workspace: the
+// worker has it.
+func TestSetTaskGroupRefusesATaskAwayOnAWorker(t *testing.T) {
+	svc, s, _ := newTestAgentService(t)
+	ctx := context.Background()
+	createTask(t, s, "REX-AWAY")
+	if err := s.InsertAwayTask(ctx, store.AwayTask{HandoffID: "ho-1", TaskID: "REX-AWAY", WorkerInstanceID: "srv-1", WorkerTaskID: "w-1",
+		State: store.AwayAway, Purpose: HandoffMakeChange, Kind: "local", CreatedAt: "2026-11-12T00:00:00Z", UpdatedAt: "2026-11-12T00:00:00Z"}); err != nil {
+		t.Fatal(err)
+	}
+	group := "Tooling"
+	var away *TaskAwayError
+	if err := svc.SetTaskGroup(ctx, "REX-AWAY", &group); !errors.As(err, &away) {
+		t.Fatalf("err = %v, want a TaskAwayError", err)
+	}
+	if task, _ := s.GetTask(ctx, "REX-AWAY"); task.Group != nil {
+		t.Fatalf("group = %q", *task.Group)
+	}
+}
+
+// A group's name is one short line, set or renamed.
+func TestATaskGroupNameIsOneShortLine(t *testing.T) {
+	svc, s, _ := newTestAgentService(t)
+	ctx := context.Background()
+	createTask(t, s, "REX-NAME")
+	groups := svc.(TaskGroups)
+	for _, bad := range []string{"two\nlines", "tab\there", strings.Repeat("g", 61)} {
+		if err := groups.SetTaskGroup(ctx, "REX-NAME", &bad); !errors.Is(err, ErrInvalidTaskGroup) {
+			t.Errorf("set %q: err = %v", bad, err)
+		}
+		if _, err := groups.RenameTaskGroup(ctx, "Tooling", bad); !errors.Is(err, ErrInvalidTaskGroup) {
+			t.Errorf("rename to %q: err = %v", bad, err)
+		}
+	}
+	ok := strings.Repeat("g", 60)
+	if err := groups.SetTaskGroup(ctx, "REX-NAME", &ok); err != nil {
+		t.Fatal(err)
+	}
+}
