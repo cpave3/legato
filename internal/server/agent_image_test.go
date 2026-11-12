@@ -2,6 +2,7 @@ package server
 
 import (
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	"image"
@@ -16,6 +17,7 @@ import (
 	"testing"
 
 	"github.com/cpave3/legato/internal/engine/store"
+	"github.com/cpave3/legato/internal/service"
 )
 
 // pngBytes is a real, small PNG image.
@@ -326,4 +328,41 @@ func TestAgentImageKeepsOnlyATasksNewestPastes(t *testing.T) {
 	if _, err := os.Stat(other); err != nil {
 		t.Errorf("another task's paste was removed: %v", err)
 	}
+}
+
+// awayBoard is a board whose task "task-1" is away on the worker vm-1.
+type awayBoard struct{ *mockBoardService }
+
+func (awayBoard) RefuseAway(_ context.Context, taskID string) error {
+	if taskID == "task-1" {
+		return &service.TaskAwayError{TaskID: taskID, Worker: "vm-1"}
+	}
+	return nil
+}
+
+// A task away on a worker has its agent there. A path on this machine would
+// name nothing the agent can open, so the paste is refused and says where to
+// send it from.
+func TestAgentImageRefusesAPasteForATaskAwayOnAWorker(t *testing.T) {
+	temp := t.TempDir()
+	t.Setenv("TMPDIR", temp)
+	server := New(awayBoard{&mockBoardService{}}, &promptAgentService{}, nil, ":0")
+
+	response := postAgentImage(t, server, "task-1", pngBytes(t))
+
+	if response.Code != http.StatusConflict {
+		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+	}
+	var body struct {
+		Error string `json:"error"`
+	}
+	_ = json.Unmarshal(response.Body.Bytes(), &body)
+	if !strings.Contains(body.Error, "vm-1") || !strings.Contains(body.Error, "image") {
+		t.Errorf("error=%q does not say the image cannot reach the agent on vm-1", body.Error)
+	}
+	if entries, _ := os.ReadDir(temp); len(entries) != 0 {
+		t.Errorf("a refused paste left files behind: %v", entries)
+	}
+	// A task that is here is not refused.
+	pastedPath(t, postAgentImage(t, server, "task-2", pngBytes(t)))
 }

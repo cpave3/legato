@@ -531,3 +531,38 @@ func TestAThrowawayCheckoutFallsBackToReadOnlyWithoutOverlays(t *testing.T) {
 		}
 	}
 }
+
+// The person may paste an image long after the agent started. Its folder is
+// made at the start, so it is in the sandbox from the first moment, read
+// only and the task's own: a folder made later would never show inside.
+func TestASandboxedAgentSeesItsTasksPastedImagesFolderFromTheStart(t *testing.T) {
+	t.Setenv("TMPDIR", t.TempDir())
+	backend := &fakeBackend{}
+	svc, s, _ := sandboxedService(t, backend)
+	createTask(t, s, "task-1")
+	if err := svc.SpawnAgent(context.Background(), "task-1", 0, 0); err != nil {
+		t.Fatal(err)
+	}
+	dir := PastedImageDir("task-1")
+	info, err := os.Stat(dir)
+	if err != nil || !info.IsDir() {
+		t.Fatalf("pasted images folder: %v", err)
+	}
+	// A pasted image may be private: the folders on the way are the user's only.
+	for _, d := range []string{dir, filepath.Dir(dir), filepath.Dir(filepath.Dir(dir))} {
+		info, err := os.Stat(d)
+		if err != nil {
+			t.Errorf("%s: %v", d, err)
+		} else if info.Mode().Perm() != 0o700 {
+			t.Errorf("%s: mode=%v", d, info.Mode().Perm())
+		}
+	}
+	if m, ok := mountOf(backend.plans[0], dir); !ok || m.Kind != sandbox.ReadOnly {
+		t.Fatalf("mount of %s = %+v, %v", dir, m, ok)
+	}
+	for _, m := range backend.plans[0].Mounts {
+		if m.Path == filepath.Dir(dir) || m.Path == filepath.Dir(filepath.Dir(dir)) {
+			t.Errorf("every task's pasted images are mounted: %+v", m)
+		}
+	}
+}
