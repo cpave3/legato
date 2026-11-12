@@ -52,6 +52,8 @@ var routeBodies = map[string]string{
 	"POST /api/agents/kill":                   `{"task_id": "<id>"}`,
 	"POST /api/agents/{task_id}/restart":      `{"switch_sandbox": false}`,
 	"PATCH /api/agents/{task_id}/notify":      `{"enabled": true}`,
+	"PUT /api/agents/{task_id}/group":         `{"group": "…"}`,
+	"PUT /api/agent-groups/{name}":            `{"name": "…"}`,
 	"POST /api/agents/{task_id}/chimera/send": `{"content": "…"}`,
 	"PUT /api/config/settings/{key}":          `{"value": …}`,
 	"PUT /api/config/lists/{list}/{name}":     `{"value": {…}}`,

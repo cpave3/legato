@@ -78,7 +78,7 @@ A card on the board is a task: its ID is the task's. An agent is addressed by it
 | `POST` | `/api/agents/spawn` | change | Start an agent | `{"title": "…", "agent_kind": "claude-code", "working_dir": "…", "prompt": "…"}` |
 | `POST` | `/api/agents/kill` | risky | Stop an agent | `{"task_id": "<id>"}` |
 | `PATCH` | `/api/agents/{task_id}/notify` | change | Turn an agent's notifications on or off | `{"enabled": true}` |
-| `PUT` | `/api/agents/{task_id}/group` | change | Put an agent's task in a group, or take it out |  |
+| `PUT` | `/api/agents/{task_id}/group` | change | Put an agent's task in a group, or take it out | `{"group": "…"}` |
 | `GET` | `/api/agents/{task_id}/terminal` | never | Type into an agent's terminal |  |
 | `GET` | `/api/preparing-agents` | read | List the agents being prepared |  |
 | `DELETE` | `/api/preparing-agents/{task_id}` | change | Dismiss an agent that failed to start |  |
@@ -372,7 +372,7 @@ A card on the board is a task: its ID is the task's. An agent is addressed by it
 | `GET` | `/frontend-meta` | read | Read the web UI's build details |  |
 | `GET` | `/api/meta` | read | Read this Legato's version and abilities |  |
 | `GET` | `/api/agent-groups` | read | List the agent groups |  |
-| `PUT` | `/api/agent-groups/{name}` | change | Rename an agent group |  |
+| `PUT` | `/api/agent-groups/{name}` | change | Rename an agent group | `{"name": "…"}` |
 | `DELETE` | `/api/agent-groups/{name}` | change | Delete an agent group, leaving its agents ungrouped |  |
 | `GET` | `/api/ca-cert` | read | Download the CA certificate |  |
 | `GET` | `/ws` | never | Open the live connection that can type into agents |  |
