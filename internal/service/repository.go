@@ -580,9 +580,23 @@ func (s *RepositoryService) SweepJobClones(ctx context.Context) error {
 	return nil
 }
 
+// inUse says whether a running execution is the clone's or works in it,
+// comparing the folders where they really are: a working folder read back
+// from a pane may not name the clone through the same links (a /home that
+// is var/home) as its record.
 func inUse(clone store.JobClone, running []store.Execution) bool {
+	realClone := ""
 	for _, e := range running {
 		if e.ID == clone.ExecutionID || within(e.WorkingDir, clone.Path) {
+			return true
+		}
+		if e.WorkingDir == "" {
+			continue
+		}
+		if realClone == "" {
+			realClone = HostFS{}.Real(clone.Path)
+		}
+		if within(HostFS{}.Real(e.WorkingDir), realClone) {
 			return true
 		}
 	}

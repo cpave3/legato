@@ -456,6 +456,75 @@ func TestASandboxedAgentWorksInAJobCloneItsTaskJoined(t *testing.T) {
 	}
 }
 
+// linkedHome is a folder whose "home" is a link to "var/home", as on a host
+// whose /home is var/home (Fedora Atomic), with "me" in it. It returns home
+// as reached through the link and as it really is.
+func linkedHome(t *testing.T) (linked, real string) {
+	t.Helper()
+	root, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	real = filepath.Join(root, "var", "home", "me")
+	if err := os.MkdirAll(real, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.Symlink(filepath.Join("var", "home"), filepath.Join(root, "home")); err != nil {
+		t.Fatal(err)
+	}
+	return filepath.Join(root, "home", "me"), real
+}
+
+// A job clone is the task's however its path is spelled: Legato's data
+// folder and the clone's record may name it through the link while the
+// agent's working folder, read back from its pane, is where it really is,
+// or the other way round. Another task's agent is still refused it.
+func TestASandboxedAgentFindsItsJobCloneThroughALinkedHome(t *testing.T) {
+	for _, tc := range []struct {
+		name               string
+		dataLinked, linked bool // data folder and clone record; working folder
+	}{
+		{"recorded through the link, resumed where it really is", true, false},
+		{"recorded where it really is, resumed through the link", false, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			linked, real := linkedHome(t)
+			homeFor := func(throughLink bool) string {
+				if throughLink {
+					return linked
+				}
+				return real
+			}
+			data := filepath.Join(homeFor(tc.dataLinked), ".local", "share", "legato")
+			clone := filepath.Join(data, "jobs", "ex-old", "widget")
+			if err := os.MkdirAll(clone, 0o700); err != nil {
+				t.Fatal(err)
+			}
+			workDir := filepath.Join(homeFor(tc.linked), ".local", "share", "legato", "jobs", "ex-old", "widget")
+
+			backend := &fakeBackend{}
+			svc, s, _ := sandboxedService(t, backend, func(settings *SandboxSettings) { settings.Base.DataDir = data })
+			createTask(t, s, "task-1")
+			createTask(t, s, "task-2")
+			ctx := context.Background()
+			if _, err := s.CreateJobClone(ctx, store.JobClone{ExecutionID: "ex-old", TaskID: "task-1", Repo: "acme/widget", Path: clone, CreatedAt: time.Now()}); err != nil {
+				t.Fatal(err)
+			}
+
+			if err := svc.SpawnAgent(ctx, "task-1", 0, 0, AgentSpawnOptions{WorkingDir: workDir}); err != nil {
+				t.Fatalf("the task's own job clone: %v", err)
+			}
+			want := filepath.Join(real, ".local", "share", "legato", "jobs", "ex-old", "widget")
+			if got := backend.plans[len(backend.plans)-1].Chdir; got != want {
+				t.Fatalf("the agent works in %s, want %s", got, want)
+			}
+			if err := svc.SpawnAgent(ctx, "task-2", 0, 0, AgentSpawnOptions{WorkingDir: workDir}); err == nil {
+				t.Fatal("another task's agent was given the job clone")
+			}
+		})
+	}
+}
+
 // promptsOffAdapter is fakeAdapter whose tool can turn its prompts off.
 type promptsOffAdapter struct{ *fakeAdapter }
 
