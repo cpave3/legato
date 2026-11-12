@@ -34,13 +34,7 @@ fn talk_text(shortcuts: &[Shortcut]) -> Option<String> {
 fn write_desktop_file() -> Result<(), String> {
     let exec = std::env::var_os("APPIMAGE").map(std::path::PathBuf::from).or_else(|| std::env::current_exe().ok()).ok_or("no program path")?;
     let dir = dirs::data_dir().ok_or("no data folder")?.join("applications");
-    std::fs::create_dir_all(&dir).map_err(|e| e.to_string())?;
-    let path = dir.join(format!("{}.desktop", voicekey::APP_ID));
-    let entry = voicekey::desktop_entry(&exec.to_string_lossy());
-    if std::fs::read_to_string(&path).ok().as_deref() != Some(entry.as_str()) {
-        std::fs::write(&path, entry).map_err(|e| e.to_string())?;
-    }
-    Ok(())
+    voicekey::install_desktop_file(&dir, &exec.to_string_lossy())
 }
 
 impl Portal {

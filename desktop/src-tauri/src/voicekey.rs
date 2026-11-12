@@ -357,8 +357,30 @@ pub fn needs_binding<S: AsRef<str>>(listed: &[S]) -> bool {
 }
 
 /// The app ID the portal knows the app by, and the name of the desktop file
-/// that says what it is called (`dev.legato.desktop.desktop`).
-pub const APP_ID: &str = "dev.legato.desktop";
+/// that says what it is called (`dev.legato.LegatoDesktop.desktop`). Not
+/// the bundle identifier `dev.legato.desktop`: KDE's kglobalaccel takes a
+/// component whose name ends in `.desktop` for an installed app's launcher
+/// file, finds none by that name, and drops the shortcuts.
+pub const APP_ID: &str = "dev.legato.LegatoDesktop";
+
+/// The desktop file earlier versions wrote, under the bundle identifier
+/// that KDE drops shortcuts for.
+const OLD_DESKTOP_FILE: &str = "dev.legato.desktop.desktop";
+
+/// Writes `<APP_ID>.desktop` into `dir` (the user's `applications` folder)
+/// when it is not already so, and removes the file earlier versions wrote.
+pub fn install_desktop_file(dir: &std::path::Path, exec: &str) -> Result<(), String> {
+    std::fs::create_dir_all(dir).map_err(|e| e.to_string())?;
+    let path = dir.join(format!("{APP_ID}.desktop"));
+    let entry = desktop_entry(exec);
+    if std::fs::read_to_string(&path).ok().as_deref() != Some(entry.as_str()) {
+        std::fs::write(&path, entry).map_err(|e| e.to_string())?;
+    }
+    match std::fs::remove_file(dir.join(OLD_DESKTOP_FILE)) {
+        Err(e) if e.kind() != std::io::ErrorKind::NotFound => Err(e.to_string()),
+        _ => Ok(()),
+    }
+}
 
 /// The desktop file a host app needs for the portal to know its name, so
 /// KDE lists its shortcuts under "Legato". exec is the program (or the
@@ -596,6 +618,43 @@ mod tests {
         assert!(needs_binding(&["talk"]));
         assert!(!needs_binding(&["cancel", "talk"]));
         assert!(!needs_binding(&["talk", "cancel", "other"]));
+    }
+
+    #[test]
+    fn the_portal_app_id_is_one_kde_keeps_shortcuts_for() {
+        // KDE's kglobalaccel takes a component named *.desktop for an
+        // installed app's launcher file, and drops the shortcuts of one it
+        // cannot find: the key never fires and is forgotten on restart.
+        assert!(!APP_ID.ends_with(".desktop"), "{APP_ID}");
+        let parts: Vec<&str> = APP_ID.split('.').collect();
+        assert!(parts.len() >= 3, "{APP_ID} is not a reverse-DNS ID");
+        assert!(parts.iter().all(|p| !p.is_empty() && p.chars().all(|c| c.is_ascii_alphanumeric() || c == '_')), "{APP_ID}");
+    }
+
+    #[test]
+    fn installing_the_desktop_file_writes_it_under_the_app_id_and_removes_the_old_one() {
+        let dir = tempfile::tempdir().unwrap();
+        let old = dir.path().join("dev.legato.desktop.desktop");
+        std::fs::write(&old, "[Desktop Entry]\nName=Legato\n").unwrap();
+        let other = dir.path().join("legato.desktop");
+        std::fs::write(&other, "the person's own launcher").unwrap();
+
+        install_desktop_file(dir.path(), "/apps/legato.appimage").unwrap();
+
+        let written = std::fs::read_to_string(dir.path().join("dev.legato.LegatoDesktop.desktop")).unwrap();
+        assert_eq!(written, desktop_entry("/apps/legato.appimage"));
+        assert!(!old.exists(), "the old file, named for an ID KDE drops, is left behind");
+        assert_eq!(std::fs::read_to_string(&other).unwrap(), "the person's own launcher");
+        // Again, with the folder already right.
+        install_desktop_file(dir.path(), "/apps/legato.appimage").unwrap();
+    }
+
+    #[test]
+    fn installing_the_desktop_file_makes_its_folder() {
+        let dir = tempfile::tempdir().unwrap();
+        let apps = dir.path().join("share/applications");
+        install_desktop_file(&apps, "/apps/legato").unwrap();
+        assert!(apps.join(format!("{APP_ID}.desktop")).is_file());
     }
 
     #[test]
