@@ -136,3 +136,17 @@ func TestTheAgentsInCompactForm(t *testing.T) {
 		}
 	}
 }
+
+// An agent's group stays in the compact form, so the Reeve can tell the
+// operator's groups apart (LEG-134).
+func TestTheCompactFormKeepsTheGroup(t *testing.T) {
+	srv := agentsServer()
+	srv.agents.(*manyAgents).list[0].Group = "Reviews"
+	got := getAgents(t, srv, "?view=compact")
+	if got[0]["group"] != "Reviews" {
+		t.Fatalf("group = %v, want Reviews", got[0]["group"])
+	}
+	if _, ok := got[1]["group"]; ok {
+		t.Fatalf("an agent in no group has a group: %v", got[1])
+	}
+}

@@ -18,6 +18,7 @@ type AgentCompact struct {
 	CardTaskID string    `json:"card_task_id,omitempty"`
 	Slot       string    `json:"slot,omitempty"`
 	Title      string    `json:"title"`
+	Group      string    `json:"group,omitempty"`
 	Status     string    `json:"status"`
 	Activity   string    `json:"activity"`
 	Sandboxed  bool      `json:"sandboxed"`
@@ -31,7 +32,7 @@ func (s *Server) compactAgents(ctx context.Context, agents []service.AgentSessio
 	for _, a := range agents {
 		resp := agentResponse(a)
 		out = append(out, AgentCompact{
-			TaskID: a.TaskID, CardTaskID: resp.CardTaskID, Slot: resp.Slot, Title: a.Title,
+			TaskID: a.TaskID, CardTaskID: resp.CardTaskID, Slot: resp.Slot, Title: a.Title, Group: a.Group,
 			Status: a.Status, Activity: a.Activity, Sandboxed: a.Sandboxed, StartedAt: a.StartedAt,
 			Reeve: reeveTask != "" && a.TaskID == reeveTask,
 		})
