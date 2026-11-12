@@ -655,7 +655,7 @@ pub struct WidgetState {
     /// The logical size the page last asked for.
     size: (f64, f64),
     /// The anchor and margins a layer surface has now.
-    applied: Option<(Anchor, Offset)>,
+    applied: Option<(Anchor, Offset, (f64, f64))>,
     /// The widget being dragged.
     drag: Option<Drag>,
     /// The layout the page was last told.
@@ -742,7 +742,7 @@ fn make_voice_widget(app: &AppHandle) -> tauri::Result<()> {
     #[cfg(target_os = "linux")]
     if wayland {
         layered = match voicewidget::layer_shell::LayerShell::load() {
-            Ok(shell) => match window.gtk_window().map_err(|e| e.to_string()).and_then(|gtk| shell.attach(&gtk)) {
+            Ok(shell) => match window.gtk_window().map_err(|e| e.to_string()).and_then(|gtk| shell.attach(&gtk, voicewidget::FIRST_SIZE)) {
                 Ok(()) => {
                     *app.state::<Desktop>().layer_shell.lock().unwrap() = Some(std::sync::Arc::new(shell));
                     true
@@ -837,26 +837,28 @@ fn place_widget(app: &AppHandle) {
     }
 }
 
-/// Anchors the layer surface with these margins, when they changed; on
-/// GTK's main thread, where this may not be (a conversation runs on
-/// tokio's).
+/// Anchors the layer surface with these margins, at the widget's size,
+/// when either changed; on GTK's main thread, where this may not be (a
+/// conversation runs on tokio's).
 #[allow(unused_variables)]
 fn anchor_layer(app: &AppHandle, window: &tauri::WebviewWindow, anchor: Anchor, m: Offset) {
     #[cfg(target_os = "linux")]
     {
         let desktop = app.state::<Desktop>();
-        {
+        let size = {
             let mut widget = desktop.widget.lock().unwrap();
-            if widget.applied == Some((anchor, m)) {
+            let applied = Some((anchor, m, widget.size));
+            if widget.applied == applied {
                 return;
             }
-            widget.applied = Some((anchor, m));
-        }
+            widget.applied = applied;
+            widget.size
+        };
         let shell = desktop.layer_shell.lock().unwrap().clone();
         let window = window.clone();
         let _ = app.run_on_main_thread(move || {
             if let (Some(shell), Ok(gtk)) = (shell, window.gtk_window()) {
-                shell.place(&gtk, anchor, m);
+                shell.place(&gtk, anchor, m, size);
             }
         });
     }

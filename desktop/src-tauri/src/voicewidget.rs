@@ -327,6 +327,14 @@ pub mod layer_shell {
         set_keyboard_mode: unsafe extern "C" fn(Win, c_int),
     }
 
+    /// A layer surface is the size the window asks for, not the size it was
+    /// given: GTK sends the request after the first configure, and a window
+    /// holding only a web view asks for none, so it is never drawn. The
+    /// window asks for the widget's size.
+    fn request(window: &gtk::ApplicationWindow, (width, height): (f64, f64)) {
+        window.set_size_request(width.round() as i32, height.round() as i32);
+    }
+
     impl LayerShell {
         /// The library, when it is installed (or carried) and the
         /// compositor has layer shell.
@@ -361,16 +369,17 @@ pub mod layer_shell {
             Ok(shell)
         }
 
-        /// Makes the window a layer surface. It must not have been shown
-        /// yet: layer shell is set before GTK realizes a window. `place`
-        /// then anchors it.
-        pub fn attach(&self, window: &gtk::ApplicationWindow) -> Result<(), String> {
+        /// Makes the window a layer surface of this size (logical). It must
+        /// not have been shown yet: layer shell is set before GTK realizes
+        /// a window. `place` then anchors it.
+        pub fn attach(&self, window: &gtk::ApplicationWindow, size: (f64, f64)) -> Result<(), String> {
             if window.is_realized() {
                 return Err("the window was realized before layer shell".into());
             }
             // tao gives an undecorated Wayland window an empty title bar
             // (client-side decorations); a layer surface has none.
             window.set_titlebar(None::<&gtk::Widget>);
+            request(window, size);
             let w: Win = window.upcast_ref::<gtk::Window>().to_glib_none().0;
             // SAFETY: w is a live, unrealized GtkWindow, on the main thread.
             unsafe {
@@ -383,9 +392,10 @@ pub mod layer_shell {
             Ok(())
         }
 
-        /// Anchors the surface and sets its margins (logical) from the
-        /// edges it is anchored to; the others have none.
-        pub fn place(&self, window: &gtk::ApplicationWindow, anchor: Anchor, m: Offset) {
+        /// Sizes the surface (logical), anchors it and sets its margins
+        /// from the edges it is anchored to; the others have none.
+        pub fn place(&self, window: &gtk::ApplicationWindow, anchor: Anchor, m: Offset, size: (f64, f64)) {
+            request(window, size);
             let w: Win = window.upcast_ref::<gtk::Window>().to_glib_none().0;
             let (left, right, top, bottom) = anchors(anchor);
             let px = |on: bool, v: f64| if on { v.round() as c_int } else { 0 };
