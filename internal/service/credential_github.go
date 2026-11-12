@@ -590,6 +590,11 @@ func (c *CredentialChannels) SetPushListener(listen func(repo string)) {
 	c.mu.Unlock()
 }
 
+// The proxy finds the push listener by asserting its backend to
+// credential.GitPushListener, so a change to Pushed would otherwise stop the
+// cache fetch without a compile error.
+var _ credential.GitPushListener = (*CredentialChannels)(nil)
+
 // Pushed passes a push GitHub accepted to the push listener
 // (credential.GitPushListener).
 func (c *CredentialChannels) Pushed(_ context.Context, _ credential.Execution, _, repo string, _ []string) {
