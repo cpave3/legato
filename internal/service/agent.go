@@ -1563,6 +1563,9 @@ func (a *agentService) SpawnEphemeralAgent(ctx context.Context, title string, wi
 	if err != nil {
 		return err
 	}
+	if report := spawnReportFrom(ctx); report != nil {
+		report.TaskID = taskID
+	}
 	var opt AgentSpawnOptions
 	if len(opts) > 0 {
 		opt = opts[0]

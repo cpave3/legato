@@ -80,6 +80,10 @@ To let only some of them run, add a rule at `auto` instead (see [What a change n
 - `edit_file:~/Projects/**`: a file in that folder. `~` is your home folder; `*` matches any run of characters, slashes too. A path with `..` in it still asks.
 - `manage_service:status *`, `manage_service:restart legato.service`: an action and a unit.
 
+### Agents it starts
+
+When the Reeve starts an agent or sends one a message through a change set, it hears back without asking: a note the agent adds, a pull request it opens or that changes state, the end of a turn of work, a wait for you, an error, and the end of its session. These come into its conversation as `[legato agent]` messages. Agents it did not start or message are not reported.
+
 ## What a change needs
 
 Each change the Reeve proposes needs your approval, at a level set in Settings › Reeve:

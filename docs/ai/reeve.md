@@ -93,6 +93,16 @@ One engram per instance, the Reeve's own, in a store apart from the person's, so
 - **Denial**: the set is `denied`; when `propose_changes` is no longer waiting (`waiting` is 0) the Reeve is sent the person's note and told not to propose the same change again in the session unless asked.
 - **Ending a session** expires its pending approvals (`ApprovalService.ExpireTask`) and its pending sets; suspending it does not. Messages reach the set's own session only while it is the current one (`notifyReeve`), resuming it when suspended.
 
+## Agents it started
+
+The Reeve is told what the agents it starts or messages do, so it never has to poll them or wait for the person to say (`ReeveWatcher`, `internal/service/reeve_watch.go`).
+
+- **Which agents.** Only those a change set of the session started, resumed or messaged, by a call that ran (`agentStartedBy`): `POST /api/tasks/{id}/agent`, `POST /api/agents/spawn` (the `task_id` it answers with: `SpawnReport.TaskID`, which `spawnResult` now gives), `POST /api/agents/{id}/restart` and `…/resume`, `POST /api/agents/{id}/chimera/send`, and `legato agent message <task>`. `ChangeSetOptions.Watch` records each (`ReeveWatcher.Watch`), with what there is to see now, so earlier notes and pull requests are not reported. Nothing else is watched, and nothing is opt-in beyond that.
+- **What it is told**, one `[legato agent]` message per agent per check, listing: each note added (cut at 400 characters; notes are matched by ID, since notes made in the same second do not sort in the order made), a pull request of the task's tracked branches opened or changed (state, draft, checks, review), a turn of work ended (`working` seen, or `TaskWorkedSince` the last check, then neither working nor `background`), a wait for the operator, an error, and the end of its session.
+- **When.** The process that serves the broker checks every 5 s (`ReeveWatchCheckEvery`, `whileBrokerOwner` in `startChangeSets`). Messages go through `notifyReeve`, as change-set reports do: into the current session, resuming it when suspended.
+- **Dropped**: a watch whose session is no longer the current one, silently; an agent that ended, after its last message; an agent never seen running (still being prepared) after 15 minutes (`reeveWatchStartWait`), silently.
+- The role prompt says these messages come and not to poll.
+
 ## The change-set card, and the line in the conversation
 
 - **The card** (`web/src/components/ChangeSetCard.tsx`, in `ApprovalTray` for source `reeve_change_set`): the source and instance, the set's ID, its number of changes and the level it needs; the reason as the title; each change with its kind (`change`, `risky`, `host as root`), its route or tool, written out in full: the method and path, `legato` with every argument (quoted where it has spaces), the shell command, the file written, or the service with its action and whether it is a system one, its description, a before-and-after for a setting, "Applies at restart", the running agents a new-agents setting does not reach, and its body; and "Legato runs exactly this, in order, stopping at the first failure." The tray's own buttons decide it: one approve button at the set's level (**◈ Approve and sign** through the phone or a passkey when signed, **Approve** otherwise) and **Deny…** with a note.

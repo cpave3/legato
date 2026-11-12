@@ -724,6 +724,9 @@ func (s *Server) taskAgentHandler() http.HandlerFunc {
 // spawnResult adds what a spawn reported to its answer: the engram the
 // agent started as, or why it started without the one asked for.
 func spawnResult(body map[string]any, report service.SpawnReport) map[string]any {
+	if report.TaskID != "" {
+		body["task_id"] = report.TaskID
+	}
 	if report.Engram != "" {
 		body["engram"] = report.Engram
 	}
