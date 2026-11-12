@@ -2,6 +2,7 @@ import { describe, expect, it, vi } from "vitest"
 import "@testing-library/jest-dom/vitest"
 import { fireEvent, render, screen } from "@testing-library/react"
 import { VoiceRing } from "../VoiceRing"
+import { ReeveNameContext } from "../../lib/reeveName"
 import { dialTicks } from "../ring"
 import { VoiceCapsule, VoiceCard, VoiceSheet } from "../VoiceWidgets"
 import { initialVoiceView, type VoiceView } from "../session"
@@ -35,6 +36,11 @@ describe("the voice ring", () => {
     rerender(<VoiceRing mode="blocked" />)
     expect(screen.getByRole("img", { name: /not ready/ })).toHaveAttribute("data-mode", "blocked")
     expect(screen.queryByTestId("voice-arc")).toBeNull()
+  })
+
+  it("names this server's Reeve in its label", () => {
+    render(<ReeveNameContext.Provider value="Tessitura"><VoiceRing mode="listening" /></ReeveNameContext.Provider>)
+    expect(screen.getByRole("img", { name: "Tessitura's voice: listening" })).toBeInTheDocument()
   })
 
   it("keeps still when the person asks for reduced motion", () => {

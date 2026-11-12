@@ -1,4 +1,5 @@
 import { useMediaQuery } from "../hooks/useMediaQuery"
+import { useReeveName } from "../lib/reeveName"
 import "./voice.css"
 import { dialTicks, type RingMode } from "./ring"
 
@@ -17,6 +18,7 @@ const LOOK: Record<RingMode, { fill: string; stroke: string; glyph: string; glow
 // asks for reduced motion, and keeps its colours.
 export function VoiceRing({ mode, size = 88, level = 0, label }: { mode: RingMode; size?: number; level?: number; label?: string }) {
   const reduced = useMediaQuery("(prefers-reduced-motion: reduce)")
+  const reeve = useReeveName()
   const look = LOOK[mode]
   const c = size / 2
   const hr = c * 0.4
@@ -28,7 +30,7 @@ export function VoiceRing({ mode, size = 88, level = 0, label }: { mode: RingMod
   const circ = 2 * Math.PI * arcR
   return (
     <svg className="voice-ring" data-mode={mode} data-motion={reduced ? "reduced" : "full"} viewBox={`0 0 ${size} ${size}`}
-      width={size} height={size} role="img" aria-label={label ?? `The Reeve's voice: ${mode === "blocked" ? "not ready" : mode}`}
+      width={size} height={size} role="img" aria-label={label ?? `${reeve.start}'s voice: ${mode === "blocked" ? "not ready" : mode}`}
       style={{ overflow: "visible", flex: "none" }}>
       <defs>
         <radialGradient id={`voice-glow-${mode}`}><stop offset="0" stopColor={look.glow || "transparent"} /><stop offset="0.68" stopColor="transparent" /></radialGradient>
