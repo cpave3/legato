@@ -85,6 +85,16 @@ A small capsule at the edge of the screen shows the Reeve, whether your main can
 
 On KDE Plasma and other Wayland desktops (when the app runs on Wayland, not through XWayland), the AppImage brings its own `gtk-layer-shell`, so the widget stays where you put it and above other windows with nothing to install. On a desktop without layer shell (GNOME), the widget is an ordinary small window: your desktop decides where it goes, and a drag moves it only until the app restarts. On a Mac it is an ordinary window for now.
 
+### Approvals in the voice widget
+
+When an approval waits on any of your servers, the voice widget shows it above the capsule within a second or two, even while you are not talking to the Reeve and even if you hid the widget. It stays shown while approvals wait.
+
+- Each approval is one line: who asks and what, such as **Reeve: Run a command on the host**. With more than one server, the line names the server.
+- Click a line to see what the approvals tray shows: the command and where it runs, each change of a Reeve change set (a host command run as root is marked), a credential's operations and resources, and the reason.
+- Choose one of its options, such as **for 30 minutes** or **once** for a credential, or **Deny**. The first decision counts, wherever it is made.
+- An approval that needs a signature shows **◈** on its options. Click one and touch your security key (or use Touch ID on a Mac); plug the key in first if the widget asks. **Open the sheet** opens the main window's approval sheet on it instead.
+- The widget never takes the keyboard, so what needs typing opens the main window on the approval: **Deny with a note…**, an agent's question (**Answer in Legato**), a secret the Reeve asks for, and a plan.
+
 ## Talk to the Reeve
 
 The app has a key that starts talking to the [Reeve](/legato/using/reeve/) from any app: **Ctrl+Alt+Space** (on a Mac **Ctrl+Shift+Space**), and **Ctrl+Alt+Shift+Space** to stop talking.
