@@ -26,7 +26,7 @@ A session that has been idle for two hours is suspended: its agent stops, and it
 
 ## Give it a name
 
-Each instance's Reeve can have a name. Set it in Settings › Reeve (`reeve.name`), such as Tessitura, and Legato says it wherever it would say "the Reeve": its entry in the Agents list, its conversation, Ask buttons, approvals and the approval tray, notifications, the audit log, the desktop app's list of approvals and the TUI. The Reeve is told its name too, from its next session or the next time it resumes. Everywhere else shows a change at once.
+Each instance's Reeve can have a name. Set it in Settings › Reeve (`reeve.name`), such as Tessitura, and Legato says it wherever it would say "the Reeve": its entry in the Agents list, its conversation, Ask buttons, approvals and the approval tray, notifications, the audit log, the desktop app's list of approvals and the TUI. The Reeve is told its name too, from its next session or the next time it resumes. Everywhere else shows a change at once. The desktop app's voice capsule and the TUI's key help still say "the Reeve".
 
 A name is one line of plain text, at most 40 characters: letters, digits, spaces, apostrophes, hyphens and dots. Leave it empty and Legato keeps saying "the Reeve". The name changes only what you see: the Reeve may do no more or less, and the manual, settings and the API still call the role the Reeve.
 
