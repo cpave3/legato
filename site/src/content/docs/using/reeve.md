@@ -30,10 +30,10 @@ A session starts with what it needs to know about this instance: a short snapsho
 
 While it runs, it has tools of its own:
 
-- **docs**: Legato's user manual, these pages, built into Legato.
+- **docs**: Legato's user manual, these pages, built into Legato. Its search puts first the pages with your words together on a line, so "move a card" or "stop an agent" finds the [API reference](/legato/reference/api/).
 - **instance_status**: a fresh snapshot of the instance.
 - **read_logs**: the recent lines of Legato's [log file](/legato/running/agent-server/#the-log-file).
-- **legato_api**: any of Legato's API calls; a change becomes a change set for you to approve.
+- **legato_api**: any of Legato's API calls, listed on the [API reference](/legato/reference/api/); a change becomes a change set for you to approve. Every `GET` reads without asking, except the few that page marks otherwise, and a route Legato does not serve answers 404 at once.
 - **legato**: a `legato` command on the machine, for what only the command line does (integration tokens, connecting Argus, `columns sync`, `hooks install`). A command that only reads runs at once; one that changes something is a change set. Some commands it never runs, such as those that hand out secrets or reset your devices.
 
 ## Its memory

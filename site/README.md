@@ -14,6 +14,7 @@ task docs:build   # build it into site/dist; fails on a broken link
 - `src/styles/legato.css`: Legato's colours, from the web app's palette.
 - Generated pages; do not edit them by hand:
   - `reference/keyboard.md` is written from the TUI's hotkey registry: `go test ./internal/tui/hotkey -update`.
+  - `reference/api.md` is written from the web server's route table (`internal/server/route_class_table.go`, with the everyday calls and bodies in `api_reference.go`): `go test ./internal/server -run TestTheAPIReferencePageIsCurrent -update`.
   - `reference/glossary.md` is written from `GLOSSARY.md` at each build (`src/glossary.mjs`), and is not committed.
 - `reference/configuration.md` is written by hand, but `go test ./config` fails when a setting of `config.yaml` is not named on it.
 
@@ -27,7 +28,7 @@ task docs:build   # build it into site/dist; fails on a broken link
 | `agent-tools` | `claude-code`, `codex`, `chimera`, `model-settings`, `mcp-tools`, `resources` |
 | `integrations` | `jira`, `github`, `staccato`, `yggdrasil`, `argus`, `notifications`, `manticore`, `tmux-status`, `stream-deck`, `browser-extension` |
 | `security` | `credentials-setup`, `credential-broker`, `sandbox`, `web-auth` |
-| `reference` | `configuration`, `cli`, `keyboard`, `glossary` |
+| `reference` | `configuration`, `cli`, `api`, `keyboard`, `glossary` |
 | `contributing` | `build`, `architecture` |
 
 ## Writing a page

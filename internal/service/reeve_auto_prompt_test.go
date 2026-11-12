@@ -31,3 +31,11 @@ func TestTheSnapshotSaysWhatRunsWithoutAsking(t *testing.T) {
 		}
 	}
 }
+
+// The role prompt points to the manual's API page rather than leaving the
+// Reeve to guess routes.
+func TestTheRolePromptPointsToTheAPIPage(t *testing.T) {
+	if !strings.Contains(ReeveRolePrompt, "reference/api") {
+		t.Error("the role prompt does not name the API page, reference/api")
+	}
+}
