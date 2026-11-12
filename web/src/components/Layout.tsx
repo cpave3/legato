@@ -18,6 +18,7 @@ import { TintBand } from "./TintBand"
 import { useSettings } from "../hooks/useSettings"
 import { UpdateNotice } from "./UpdateNotice"
 import { VoiceLauncher } from "../voice/VoiceLauncher"
+import { ReeveNameContext } from "../lib/reeveName"
 
 export function Layout() {
   const { connected: open, lost, updateRequired, retryUpdate } = useWebSocket()
@@ -39,6 +40,7 @@ export function Layout() {
   useEffect(() => { setMoreOpen(false) }, [location.pathname])
 
   return (
+    <ReeveNameContext.Provider value={settings?.reeve_name ?? ""}>
     <AgentSelectionProvider>
       <div className="flex h-dvh w-full overflow-hidden">
       <TintBand tint={tint} />
@@ -69,5 +71,6 @@ export function Layout() {
       <VoiceLauncher baseUrl={baseUrl} />
       </div>
     </AgentSelectionProvider>
+    </ReeveNameContext.Provider>
   )
 }

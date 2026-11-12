@@ -1,6 +1,7 @@
 import { useState } from "react"
 import type { Approval } from "../lib/approvals"
 import { storeReeveSecret } from "../lib/reeve"
+import { reeveName } from "../lib/reeveName"
 
 // SecretRequestForm is the Reeve's request for a secret: the person pastes
 // the value here, it goes to Legato's secret store, and the Reeve gets
@@ -31,7 +32,7 @@ export function SecretRequestForm({ approval, baseUrl, onDone }: { approval: App
         <input type="password" autoComplete="off" aria-label={`Value of ${name}`} value={value} onChange={(e) => setValue(e.target.value)}
           className="min-h-10 rounded-lg border border-lw-line bg-lw-ground px-2 text-base text-lw-text md:min-h-8 md:text-xs" />
       </label>
-      <p className="text-lw-faint">Kept in Legato's secret store. The Reeve gets its name, never its value.</p>
+      <p className="text-lw-faint">Kept in Legato's secret store. {reeveName(approval.details.reeve_name).start} gets its name, never its value.</p>
       <button type="button" disabled={busy || value === ""} onClick={() => void save()}
         className="inline-flex min-h-10 items-center rounded-lg bg-lw-accent px-3 font-semibold text-white disabled:opacity-50 md:min-h-8">
         Store the secret

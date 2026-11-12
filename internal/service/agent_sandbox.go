@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -64,7 +65,12 @@ func (a *agentService) sandboxPrefix(ctx context.Context, taskID, executionID, a
 			break
 		}
 	}
-	in.PastedImagesDir = PastedImageDir(taskID)
+	if dir, err := EnsurePastedImageDir(taskID); err == nil {
+		in.PastedImagesDir = dir
+	} else {
+		// The agent still starts; only images pasted for it will not show.
+		log.Printf("sandbox: the pasted images folder of %s: %v", taskID, err)
+	}
 	in.ToolState = toolStateDirs(agentKind, env, in.Home)
 	for _, dir := range in.ToolState {
 		// Made when missing, so what the tool writes there lands on the host

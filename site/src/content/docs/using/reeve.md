@@ -24,17 +24,25 @@ Settings › **Reeve** has **Start the Reeve**. A session runs with the agent to
 
 A session that has been idle for two hours is suspended: its agent stops, and it picks up where it left off the next time you send it a message. Change the time in Settings › Reeve (`reeve.idle_timeout`).
 
+## Give it a name
+
+Each instance's Reeve can have a name. Set it in Settings › Reeve (`reeve.name`), such as Tessitura, and Legato says it wherever it would say "the Reeve": its entry in the Agents list, its conversation, Ask buttons, approvals and the approval tray, notifications, the audit log, the desktop app's list of approvals and the TUI. The Reeve is told its name too, from its next session or the next time it resumes. Everywhere else shows a change at once. The desktop app's voice capsule and the TUI's key help still say "the Reeve".
+
+A name is one line of plain text, at most 40 characters: letters, digits, spaces, apostrophes, hyphens and dots. Leave it empty and Legato keeps saying "the Reeve". The name changes only what you see: the Reeve may do no more or less, and the manual, settings and the API still call the role the Reeve.
+
+An approval keeps the name the Reeve had when it asked.
+
 ## What it knows
 
 A session starts with what it needs to know about this instance: a short snapshot (version and updates, how Legato runs, its workers, open Attention items, running agents, recent errors in the log) and how it is meant to work. "Ask the Reeve" adds a brief about what you asked about. A session you resume is told what changed since it was last here.
 
 While it runs, it has tools of its own:
 
-- **docs**: Legato's user manual, these pages, built into Legato.
+- **docs**: Legato's user manual, these pages, built into Legato. Its search puts first the pages with your words together on a line, so "move a card" or "stop an agent" finds the [API reference](/legato/reference/api/).
 - **instance_status**: a fresh snapshot of the instance.
 - **read_logs**: the recent lines of Legato's [log file](/legato/running/agent-server/#the-log-file).
-- **legato_api**: any of Legato's API calls; a change becomes a change set for you to approve.
-- **legato**: a `legato` command on the machine, for what only the command line does (integration tokens, connecting Argus, `columns sync`, `hooks install`). A command that only reads runs at once; one that changes something is a change set. Some commands it never runs, such as those that hand out secrets or reset your devices.
+- **legato_api**: any of Legato's API calls, listed on the [API reference](/legato/reference/api/); a change becomes a change set for you to approve. Every `GET` reads without asking, except the few that page marks otherwise, and a route Legato does not serve answers 404 at once. To check on a task or an agent it reads them in brief (`?view=summary`, `?view=compact`), which keeps its conversation short.
+- **legato**: a `legato` command on the machine, for what only the command line does (integration tokens, connecting Argus, `columns sync`, `hooks install`). A command that only reads runs at once; one that changes something is a change set. Some commands it never runs, such as those that hand out secrets or reset your devices; when it asks for one, it is told what to use instead.
 
 ## Its memory
 
@@ -65,7 +73,7 @@ Ending a session withdraws the change sets still waiting for you; a suspended se
 ### Restarts, config.yaml and secrets
 
 - The Reeve can propose a **restart** of Legato. When Legato is back, the Reeve is told: when it restarted, on which version, how each step went, and which settings now apply.
-- It can propose an **edit to `config.yaml`**, for a setting that lives only in the file or one the file pins. Legato checks the edited file loads before it asks you, and shows you the change as a diff. Approved, it writes the file with its comments kept and the old one beside it as a backup, then restarts. **Approve without the restart** writes the file and leaves the restart for later.
+- It can propose an **edit to `config.yaml`**, for a setting that lives only in the file or one the file pins. It can change an entry of a list too, such as one rule of a credential, or add one. Legato checks the edited file loads before it asks you, and shows you the change as a diff. Only the lines it changes are rewritten. Approved, it writes the file with its comments kept and the old one beside it as a backup, then restarts. **Approve without the restart** writes the file and leaves the restart for later.
 - When it needs a **secret** (an API key, a token), it asks for it by name, and a form in the approval tray takes the value. Legato keeps it in its own secret store, and the Reeve only ever gets the name. Never paste a secret into the conversation.
 
 ### Commands on the machine
@@ -79,6 +87,29 @@ To let only some of them run, add a rule at `auto` instead (see [What a change n
 - `host_shell:journalctl *`, `host_shell:coredumpctl list*`: a command that starts so. A command with `;`, `|`, `&`, `$(`, a backquote or a redirect is more than the command a rule names, and still asks.
 - `edit_file:~/Projects/**`: a file in that folder. `~` is your home folder; `*` matches any run of characters, slashes too. A path with `..` in it still asks.
 - `manage_service:status *`, `manage_service:restart legato.service`: an action and a unit.
+
+### Watching agents
+
+The Reeve can look after agents while you are away: start one on a task, hear back when it needs something, and decide what comes next. It watches every agent it starts or messages, and you can ask it to watch any other.
+
+A watched agent wakes the Reeve with a `[legato agent]` message in its conversation when it:
+
+- waits for you: a question or a permission prompt;
+- has been idle for a while (30 seconds), or busy only with work it left running in the background;
+- stops with an error, or exits;
+- adds a note to its task, or has a pull request opened, or its checks or review change.
+
+The message has the agent's last words, which often say what it waits on ("waiting for the build"), and whether anything it started still runs. The Reeve then reads the task's notes and decides: leave the agent alone, message it, tell you, or stop it and start the next task, still one change at a time for you to approve. It never answers a permission prompt: it tells you what the agent asks.
+
+A short pause doesn't wake it, and news that comes close together arrives as one message, only between the Reeve's turns. When no Reeve session is running, the news waits for the next one. Turn on `reeve.watch.wake` to have Legato resume or start the Reeve instead, which costs tokens while you are away. Watching asks no approval, and outlasts a restart of Legato or of the Reeve. A watch ends when its agent exits.
+
+| Setting | What it does |
+| --- | --- |
+| `reeve.watch.settle` | How long an agent must stay idle before the Reeve is told. `30s` by default. |
+| `reeve.watch.started` | Watch every agent the Reeve starts or messages. On by default. |
+| `reeve.watch.wake` | Resume or start the Reeve to tell it. Off by default. |
+
+A [swarm](/legato/using/swarms/) is another way to run many agents: a conductor agent splits one task among workers, with a plan you approve. Watching is the Reeve running ordinary agents on ordinary tasks, each step a change you approve.
 
 ## What a change needs
 
@@ -157,5 +188,7 @@ Before it listens, an app asks the main whether a conversation will work. If not
 ## Where it runs
 
 The Reeve always runs in Legato's [sandbox](/legato/security/sandbox/): it cannot be started without it, and **Run without sandbox** and the switch out of the sandbox are refused for it. It works in a folder of its own, `~/.local/state/legato/reeve` (or under `$XDG_STATE_HOME`), outside your repositories and Legato's data folder. The folder also holds its engram's store.
+
+It reads your agents' work from Legato's copy of each repository, which it can see but not change. Legato fetches that copy each time an agent pushes, so the Reeve has an agent's latest commits within seconds of the push. It cannot see the agents' own clones, which hold files copied from your checkout (such as `.env`) and the key each agent pushes with.
 
 Each session gets a token of its own for Legato's API that can only read. It stops working when the session ends.

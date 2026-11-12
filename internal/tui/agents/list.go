@@ -317,7 +317,7 @@ func (m Model) renderSidebarEntry(a service.AgentSession, selected bool, width i
 	idWidth := text - 2 - lipgloss.Width(marks) - lipgloss.Width(note) - 1
 	name := a.TaskID
 	if a.Reeve {
-		name = "Reeve"
+		name = service.ReeveName(a.ReeveName).Label()
 	}
 	id := lipgloss.NewStyle().Foreground(theme.TextPrimary).Bold(selected).Render(truncateID(name, idWidth))
 	first := theme.Spread(colored(theme.StateColor(stateOf(a)), m.stateMark(a))+" "+id+marks, note, text)

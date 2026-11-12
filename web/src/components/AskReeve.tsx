@@ -5,6 +5,7 @@ import { useInRouterContext, useNavigate } from "react-router-dom"
 import { useServer } from "../hooks/useServer"
 import { endReeve, fetchReeve, messageReeve, startReeve, type ReeveSession } from "../lib/reeve"
 import { cn } from "../lib/utils"
+import { useReeveName } from "../lib/reeveName"
 
 interface AskReeveProps { brief: string; className?: string; label?: string }
 
@@ -16,7 +17,9 @@ export function AskReeve(props: AskReeveProps) {
   return useInRouterContext() ? <AskReeveButton {...props} /> : null
 }
 
-function AskReeveButton({ brief, className, label = "Ask the Reeve" }: AskReeveProps) {
+function AskReeveButton({ brief, className, label: given }: AskReeveProps) {
+  const reeve = useReeveName()
+  const label = given ?? `Ask ${reeve.mid}`
   const { baseUrl } = useServer()
   const navigate = useNavigate()
   const [busy, setBusy] = useState(false)
@@ -62,7 +65,7 @@ function AskReeveButton({ brief, className, label = "Ask the Reeve" }: AskReeveP
         <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 sm:items-center" onClick={() => setCurrent(null)}>
           <div role="dialog" aria-modal="true" aria-labelledby="ask-reeve-title" onClick={(e) => e.stopPropagation()}
             className="flex w-full flex-col gap-3 rounded-t-2xl border border-lw-line-strong bg-lw-surface p-5 font-lw text-lw-text sm:w-[420px] sm:rounded-xl">
-            <h2 id="ask-reeve-title" className="text-base font-semibold sm:text-sm">The Reeve is already {current.state === "suspended" ? "suspended in a conversation" : "in a conversation"}</h2>
+            <h2 id="ask-reeve-title" className="text-base font-semibold sm:text-sm">{reeve.start} is already {current.state === "suspended" ? "suspended in a conversation" : "in a conversation"}</h2>
             <p className="text-sm text-lw-text-2 sm:text-xs">Add this to what it is doing, or end that conversation and start a fresh one about this.</p>
             <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
               <button type="button" disabled={busy} onClick={() => setCurrent(null)} className="min-h-11 rounded-lg px-3 text-sm text-lw-text-2 hover:bg-lw-raised sm:min-h-8 sm:text-xs">Cancel</button>

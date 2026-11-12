@@ -1,5 +1,6 @@
 import type { Approval, ChangeSetCall } from "../lib/approvals"
 import { cn } from "../lib/utils"
+import { reeveName } from "../lib/reeveName"
 
 const levelLabel: Record<string, string> = { approve: "a tap", signed: "a signature", verified: "a signature with your fingerprint or PIN" }
 
@@ -46,7 +47,7 @@ export function ChangeSetCard({ approval }: { approval: Approval }) {
   return (
     <div className="mt-2 space-y-2 text-sm md:text-xs" data-testid="change-set">
       <p className="text-lw-text-2">
-        The Reeve on {details.instance || "this Legato"} · <span className="font-lw-mono">{details.id}</span> · {calls.length} change{calls.length === 1 ? "" : "s"} · needs {levelLabel[details.level ?? "approve"] ?? details.level}
+        {reeveName(details.reeve_name).start} on {details.instance || "this Legato"} · <span className="font-lw-mono">{details.id}</span> · {calls.length} change{calls.length === 1 ? "" : "s"} · needs {levelLabel[details.level ?? "approve"] ?? details.level}
       </p>
       <ol className="space-y-1.5">
         {calls.map((call, i) => {

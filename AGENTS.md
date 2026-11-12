@@ -104,6 +104,7 @@ The documentation for people who use Legato is the Starlight site in `site/`, pu
 
 - A change a user can see (a key, a setting, a command, a screen, a default) updates its site page in the same commit, as well as its `docs/ai/` doc.
 - `site/src/content/docs/reference/keyboard.md` is generated from the hotkey registry: run `go test ./internal/tui/hotkey -update` after changing a binding.
+- `site/src/content/docs/reference/api.md` is generated from the route table: run `go test ./internal/server -run TestTheAPIReferencePageIsCurrent -update` after changing a route.
 - `go test ./config` fails when a `config.yaml` setting is not named on `site/src/content/docs/reference/configuration.md`.
 - The glossary page is written from `GLOSSARY.md` at build time; edit `GLOSSARY.md` only.
 

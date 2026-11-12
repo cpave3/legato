@@ -222,6 +222,7 @@ var registry = []Setting{
 	{Key: "review_passes.required_checks", Title: "Checks a review pass waits for", Kind: KindStrings, Class: ClassChange, Mode: ModeRestart},
 
 	// The Reeve: read when a session starts.
+	{Key: "reeve.name", Title: "The Reeve's name", Description: "What Legato calls the Reeve on this instance: in the sidebar, its conversation, approvals, notifications and the TUI, and in its own prompt. \"the Reeve\" when empty.", Kind: KindString, Class: ClassChange, Mode: ModeLive, Check: func(v any) error { return CheckReeveName(v.(string)) }},
 	{Key: "reeve.agent", Title: "The Reeve's agent tool", Description: "claude-code, codex or chimera; the default agent tool when empty.", Kind: KindString, Class: ClassChange, Mode: ModeLive},
 	{Key: "reeve.model", Title: "The Reeve's model or tier", Kind: KindString, Class: ClassChange, Mode: ModeLive},
 	{Key: "reeve.idle_timeout", Title: "Suspend the Reeve after", Description: "How long a session may be idle before its agent is stopped; the next message resumes it. 2h when empty.", Kind: KindDuration, Class: ClassChange, Mode: ModeLive},
@@ -248,6 +249,9 @@ var registry = []Setting{
 		return nil
 	}},
 	{Key: "reeve.voice.player", Title: "Voice player", Description: "Plays a line's audio file, named after it. pw-play, else ffplay, when empty.", Kind: KindString, Class: ClassRisky, Mode: ModeLive},
+	{Key: "reeve.watch.settle", Title: "Agent idle before the Reeve is told", Description: "How long an agent the Reeve watches must stay idle, or busy only in the background, before the Reeve is told, so brief pauses do not wake it. 30s when empty.", Kind: KindDuration, Class: ClassChange, Mode: ModeLive, Check: notNegativeDuration},
+	{Key: "reeve.watch.started", Title: "Watch the agents the Reeve starts", Description: "Watch every agent the Reeve starts or messages, so it is told when one waits, goes idle, adds a note, opens a pull request or exits.", Kind: KindBool, Class: ClassChange, Mode: ModeLive},
+	{Key: "reeve.watch.wake", Title: "Wake the Reeve for its agents", Description: "When an agent the Reeve watches needs it and no session is running, start or resume one to tell it. Off, the news waits for the next session. On costs tokens while you are away.", Kind: KindBool, Class: ClassChange, Mode: ModeLive},
 
 	// Burnlite's projects, read on each use.
 	{Key: "burnlite.projects", Title: "Burnlite projects", Description: "The projects searched for import; none is every project.", Kind: KindStrings, Class: ClassChange, Mode: ModeLive, Check: func(v any) error {
@@ -539,7 +543,7 @@ func SettingValue(cfg *Config, key string) (any, error) {
 // pointerDefault is the value an unset pointer setting means.
 func pointerDefault(key string, field reflect.Value) any {
 	switch key {
-	case "notifications.approvals", "notifications.handoff", "agents.sandbox.default_mounts", "reeve.host_operations", "reeve.voice.partials",
+	case "notifications.approvals", "notifications.handoff", "agents.sandbox.default_mounts", "reeve.host_operations", "reeve.voice.partials", "reeve.watch.started",
 		"web.discovery", "credential_channels.gh.isolate_login":
 		return true
 	}

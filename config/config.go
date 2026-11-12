@@ -335,12 +335,12 @@ type AgentsConfig struct {
 	Reviews bool `yaml:"reviews"`
 	// Guidance is text for the launch prompt of agents working in a
 	// repository; see AgentGuidance.
-	Guidance []AgentGuidance    `yaml:"guidance"`
+	Guidance []AgentGuidance `yaml:"guidance"`
 	// RepositoryResources gives named resources to every agent working in
 	// a repository; see RepositoryResources.
 	RepositoryResources []RepositoryResources `yaml:"repository_resources"`
-	MCP      AgentMCPConfig     `yaml:"mcp"`
-	Sandbox  AgentSandboxConfig `yaml:"sandbox"`
+	MCP                 AgentMCPConfig        `yaml:"mcp"`
+	Sandbox             AgentSandboxConfig    `yaml:"sandbox"`
 }
 
 // AgentMCPConfig configures the tools Legato gives the agents it launches,
@@ -513,6 +513,9 @@ func validate(cfg *Config) error {
 	}
 	if err := ValidateSwarmConfig(cfg); err != nil {
 		return err
+	}
+	if err := CheckReeveName(cfg.Reeve.Name); err != nil {
+		return fmt.Errorf("reeve.name: %w", err)
 	}
 	if err := ValidateRepositoryCache(cfg); err != nil {
 		return err
@@ -1082,6 +1085,9 @@ type UpdatesConfig struct {
 // ReeveConfig is the Reeve's defaults: the agent tool a session runs, its
 // model or tier, and launch arguments. See docs/ai/reeve.md.
 type ReeveConfig struct {
+	// Name is what this instance's Reeve is called where the UI would say
+	// "the Reeve"; empty keeps "the Reeve". Plain text (CheckReeveName).
+	Name       string   `yaml:"name"`
 	Agent      string   `yaml:"agent"`
 	Model      string   `yaml:"model"`
 	LaunchArgs []string `yaml:"launch_args"`
@@ -1111,6 +1117,22 @@ type ReeveConfig struct {
 	Peer string `yaml:"peer"`
 	// Voice lets the Reeve speak out loud (its speak tool).
 	Voice ReeveVoiceConfig `yaml:"voice"`
+	// Watch is how the Reeve watches agents (docs/ai/reeve.md § Watching
+	// agents).
+	Watch ReeveWatchConfig `yaml:"watch"`
+}
+
+// ReeveWatchConfig is how the Reeve watches agents and is woken by them.
+type ReeveWatchConfig struct {
+	// Settle is how long an agent must stay idle or in the background
+	// before the Reeve is told: a Go duration, 30s when empty.
+	Settle string `yaml:"settle"`
+	// Started watches every agent the Reeve starts or messages. On when
+	// unset.
+	Started *bool `yaml:"started"`
+	// Wake starts or resumes the Reeve to tell it what a watched agent
+	// did; off, the events wait for its next session.
+	Wake bool `yaml:"wake"`
 }
 
 // ReeveVoiceConfig is the Reeve's voice: a command that makes a line's
@@ -1278,6 +1300,21 @@ type ReeveLevels struct {
 type ReeveRule struct {
 	Pattern string `yaml:"pattern"`
 	Level   string `yaml:"level"`
+}
+
+// WatchSettle is how long a watched agent must stay idle or in the
+// background before the Reeve is told: 30s when empty or not a duration.
+func (c ReeveConfig) WatchSettle() time.Duration {
+	if d, err := time.ParseDuration(c.Watch.Settle); err == nil && d > 0 {
+		return d
+	}
+	return 30 * time.Second
+}
+
+// WatchStarted says whether the agents the Reeve starts are watched: on
+// unless set off.
+func (c ReeveConfig) WatchStarted() bool {
+	return c.Watch.Started == nil || *c.Watch.Started
 }
 
 // ReeveIdleTimeout is the Reeve's idle time before a session is suspended.

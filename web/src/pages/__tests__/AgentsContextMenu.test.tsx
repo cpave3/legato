@@ -226,6 +226,32 @@ describe("AgentsPage sidebar context menu", () => {
     ))
   })
 
+  it("moves the right-clicked agent to a group from its context menu", async () => {
+    mockFetch.mockImplementation((input: RequestInfo | URL, init?: RequestInit) => {
+      const path = String(input)
+      if (path === "/api/agents") {
+        return Promise.resolve({ ok: true, status: 200, json: async () => [agent("TASK-1"), { ...agent("TASK-2"), group: "Tooling" }] })
+      }
+      if (path === "/api/agent-groups") {
+        return Promise.resolve({ ok: true, status: 200, json: async () => ({ defaults: ["Tickets"], groups: ["Tickets", "Tooling"] }) })
+      }
+      if (path === "/api/agents/TASK-2/group" && init?.method === "PUT") {
+        return Promise.resolve({ ok: true, status: 200, json: async () => ({ group: "Tickets" }) })
+      }
+      throw new Error(`unexpected request: ${path}`)
+    })
+
+    render(<MemoryRouter><AgentsPage /></MemoryRouter>)
+    fireEvent.contextMenu(await screen.findByRole("button", { name: /TASK-2/ }))
+    fireEvent.click(screen.getByRole("menuitem", { name: "Move to group…" }))
+    fireEvent.click(await screen.findByRole("button", { name: "Tickets" }))
+
+    await waitFor(() => expect(mockFetch).toHaveBeenCalledWith(
+      "/api/agents/TASK-2/group",
+      expect.objectContaining({ method: "PUT", body: JSON.stringify({ group: "Tickets" }) }),
+    ))
+  })
+
   it("gives the selected agent the same entries as its dot menu", async () => {
     mockFetch.mockImplementation((input: RequestInfo | URL) => {
       if (String(input) === "/api/agents") {

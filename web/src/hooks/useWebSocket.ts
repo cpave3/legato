@@ -78,6 +78,8 @@ export interface AgentInfo {
   agent_kind: string
   // The engram the agent runs as; absent for none.
   engram?: string
+  // The group the agent's task is in; absent for none.
+  group?: string
   status: string
   activity: string
   role?: string

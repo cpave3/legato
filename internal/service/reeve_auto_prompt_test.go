@@ -31,3 +31,22 @@ func TestTheSnapshotSaysWhatRunsWithoutAsking(t *testing.T) {
 		}
 	}
 }
+
+// The role prompt points to the manual's API page rather than leaving the
+// Reeve to guess routes.
+func TestTheRolePromptPointsToTheAPIPage(t *testing.T) {
+	if !strings.Contains(ReeveRolePrompt, "reference/api") {
+		t.Error("the role prompt does not name the API page, reference/api")
+	}
+}
+
+// The role prompt says how the Reeve supervises the agents it watches: it
+// is woken by [legato agent] messages rather than polling, reads before it
+// decides, and never answers a permission prompt.
+func TestTheRolePromptSaysHowToSuperviseAgents(t *testing.T) {
+	for _, want := range []string{"### Supervising agents", "[legato agent]", "watch_agent", "Do not poll", "task's notes", "one step at a time", "permission prompt"} {
+		if !strings.Contains(ReeveRolePrompt, want) {
+			t.Errorf("the role prompt lacks %q", want)
+		}
+	}
+}

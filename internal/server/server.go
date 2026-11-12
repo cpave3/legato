@@ -39,6 +39,7 @@ type Server struct {
 	routes                   []string // every pattern the mux was given
 	settingsRegistry         SettingsRegistry
 	reeve                    ReeveSessions
+	reeveWatches             ReeveWatches
 	reeveRules               ReeveRuleProposer
 	reeveChangeSets          ReeveChangeSets
 	reeveSecrets             ReeveSecretKeeper
@@ -64,6 +65,7 @@ type Server struct {
 	caCertPath               string
 	authToken                string
 	macros                   []macros.Macro
+	groupDefaults            []string
 	sparklineWindow          time.Duration
 	sparklineBuckets         int
 	ntfyConfigured           bool
@@ -96,6 +98,7 @@ type Server struct {
 	taskStacks               TaskStackService
 	preparing                preparingAgents
 	tints                    TintService
+	reeveName                service.ReeveNameSource
 	engrams                  EngramService
 	builtInWorkflows         []*workflowengine.Definition
 	worktrees                WorktreeService
@@ -166,6 +169,9 @@ func NewWithSwarm(board service.BoardService, agents service.AgentService, tmux 
 	mux.HandleFunc("/api/agents/spawn", s.spawnAgentHandler())
 	mux.HandleFunc("/api/agents/kill", s.killAgentHandler())
 	mux.HandleFunc("/api/agents/{task_id}/notify", s.agentNotifyHandler())
+	mux.HandleFunc("/api/agents/{task_id}/group", s.agentGroupHandler())
+	mux.HandleFunc("/api/agent-groups", s.agentGroupsHandler())
+	mux.HandleFunc("/api/agent-groups/{name}", s.agentGroupNameHandler())
 	mux.HandleFunc("/api/agents/{task_id}/terminal", s.terminalHandler())
 	mux.HandleFunc("/api/tasks", s.tasksHandler())
 	mux.HandleFunc("/api/tasks/search", s.searchTasksHandler())
@@ -347,7 +353,12 @@ func NewWithSwarm(board service.BoardService, agents service.AgentService, tmux 
 	s.registerInstanceRoutes(mux)
 	s.registerBurnliteRoutes(mux)
 	s.registerReeveRoutes(mux)
+	s.registerReeveWatchRoutes(mux)
 	s.registerReevePeerRoutes(mux)
+
+	// A route under /api/ that nothing above serves answers 404 in JSON,
+	// never the web UI's page.
+	mux.HandleFunc(notServedPattern, s.notServedHandler())
 
 	// SPA fallback — serve embedded frontend for all non-API paths.
 	if fsys := static.DistFS(); fsys != nil {
@@ -580,6 +591,8 @@ func (s *Server) settingsHandler() http.HandlerFunc {
 			Repositories             []workflowengine.RepositoryPreset `json:"repositories"`
 			// Tint is this Legato's colour, "" for none (service.Tints).
 			Tint string `json:"tint"`
+			// ReeveName is reeve.name, "" when the Reeve has none.
+			ReeveName string `json:"reeve_name"`
 			// Updates is where this Legato's updates stand; absent when it
 			// has no updater. Here so the web UI's update bar costs no
 			// request of its own.
@@ -598,6 +611,7 @@ func (s *Server) settingsHandler() http.HandlerFunc {
 			DefaultImportWorkspaceID: s.defaultImportWorkspaceID,
 			Repositories:             s.repositories(r.Context()),
 			Tint:                     s.tint(r.Context()),
+			ReeveName:                string(s.reeveName.Of(r.Context())),
 		}
 		if s.updates != nil {
 			status := s.updates.Status(r.Context())

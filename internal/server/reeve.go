@@ -107,6 +107,9 @@ func (s *Server) reeveError(w http.ResponseWriter, err error) {
 	}
 }
 
+// SetReeveName gives the server the Reeve's name, read for each request.
+func (s *Server) SetReeveName(name service.ReeveNameSource) { s.reeveName = name }
+
 func (s *Server) reeveOverviewHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if !s.haveReeve(w) {

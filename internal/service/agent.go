@@ -82,6 +82,9 @@ type AgentSession struct {
 	CardTaskID string
 	// Reeve is true for the agent of this Legato itself.
 	Reeve bool
+	// ReeveName is the Reeve's name (reeve.name) on the Reeve's agent, ""
+	// when it has none; its Title is then the name.
+	ReeveName string
 }
 
 // AgentPeer describes one live, routable agent sharing a Git worktree.
@@ -324,6 +327,7 @@ type agentService struct {
 	prSvc                PRTrackingService
 	checkoutInspector    CheckoutInspector
 	guidance             RepositoryGuidanceSource
+	reeveName            ReeveNameSource
 	repoResources        RepositoryResourceSource
 	docker               *SandboxDocker
 	reviewsOff           bool
@@ -516,6 +520,8 @@ type AgentServiceOptions struct {
 	// RepositoryGuidance adds the guidance of the repository an agent works
 	// in to its launch prompt. Nil: none.
 	RepositoryGuidance RepositoryGuidanceSource
+	// ReeveName names the Reeve's agent in ListAgents.
+	ReeveName ReeveNameSource
 	// RepositoryResources gives every agent working in a repository its
 	// resources, as if ticked at spawn. Nil: none.
 	RepositoryResources RepositoryResourceSource
@@ -611,6 +617,7 @@ func NewAgentService(s *store.Store, tmux TmuxManager, workDir string, opts ...A
 		svc.prSvc = opts[0].PRService
 		svc.checkoutInspector = opts[0].CheckoutInspector
 		svc.guidance = opts[0].RepositoryGuidance
+		svc.reeveName = opts[0].ReeveName
 		svc.repoResources = opts[0].RepositoryResources
 		if opts[0].Sandbox != nil {
 			svc.docker = opts[0].Sandbox.Docker
@@ -1563,6 +1570,9 @@ func (a *agentService) SpawnEphemeralAgent(ctx context.Context, title string, wi
 	if err != nil {
 		return err
 	}
+	if report := spawnReportFrom(ctx); report != nil {
+		report.TaskID = taskID
+	}
 	var opt AgentSpawnOptions
 	if len(opts) > 0 {
 		opt = opts[0]
@@ -1662,15 +1672,6 @@ func (a *agentService) stopAgentInSlot(ctx context.Context, taskID, slot string,
 	return a.store.DeleteDeadAgentSessionsInSlot(ctx, taskID, slot)
 }
 
-func (a *agentService) SetTaskGroup(ctx context.Context, taskID string, group *string) error {
-	task, err := a.store.GetTask(ctx, taskID)
-	if err != nil {
-		return err
-	}
-	task.Group = group
-	return a.store.UpdateTask(ctx, *task)
-}
-
 func (a *agentService) ListAgents(ctx context.Context) ([]AgentSession, error) {
 	sessions, err := a.store.ListAgentSessions(ctx)
 	if err != nil {
@@ -1745,6 +1746,11 @@ func (a *agentService) ListAgents(ctx context.Context) ([]AgentSession, error) {
 			Slot:              s.Slot,
 			CardTaskID:        s.TaskID,
 			Reeve:             IsReeveTask(ctx, a.store, s.TaskID),
+		}
+		if result[i].Reeve {
+			if name := a.reeveName.Of(ctx); name != "" {
+				result[i].ReeveName, result[i].Title = string(name), name.Start()
+			}
 		}
 		if IsNamedSlot(s.Slot) {
 			result[i].TaskID = AgentSlotKey(s.TaskID, s.Slot)

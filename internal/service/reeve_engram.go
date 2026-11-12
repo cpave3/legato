@@ -216,7 +216,7 @@ func (s *ReeveEngramService) ProposeSeed(ctx context.Context, seed, by string) (
 	_, _ = rand.Read(b)
 	approval, _, err := s.opts.Approvals.Submit(ctx, ApprovalInput{
 		Source: ApprovalSourceReeveSeed, SourceKey: hex.EncodeToString(b),
-		Title: "Change the Reeve's seed", Summary: seed,
+		Title: "Change " + s.opts.Approvals.ReeveName(ctx).Mid() + "'s seed", Summary: seed,
 		Details: reeveSeedChange{Engram: e.Name, Seed: seed}, Signed: true,
 		Options: []ApprovalOption{{ID: "allow", Label: "Allow", Kind: ApprovalAllow}, {ID: "deny", Label: "Deny", Kind: ApprovalDeny}},
 	})

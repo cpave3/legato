@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useMemo, useRef } from "react"
+import { useState, useEffect, useLayoutEffect, useCallback, useMemo, useRef } from "react"
 import { useSearchParams } from "react-router-dom"
 import { useServer } from "../hooks/useServer"
 import { useBoard } from "../hooks/useBoard"
@@ -358,8 +358,10 @@ export function BoardPage() {
     [baseUrl, addToast]
   )
 
-  // Keyboard navigation
-  useEffect(() => {
+  // Keyboard navigation. A layout effect, so the handler that knows of the
+  // detail dialog is in place in the same commit that shows it: an Escape
+  // pressed the moment it shows would otherwise reach the old handler.
+  useLayoutEffect(() => {
     const handler = async (e: KeyboardEvent) => {
       // Ignore when modal inputs are focused
       const target = e.target as HTMLElement

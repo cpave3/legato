@@ -1488,6 +1488,10 @@ func (b *CredentialBroker) AuditRows(ctx context.Context, filter store.Credentia
 			if task, err := b.db.GetTask(ctx, e.TaskID); err == nil {
 				title = task.Title
 			}
+			// The Reeve's rows show its name; the row keeps its task ID.
+			if IsReeveTask(ctx, b.db, e.TaskID) {
+				title = b.approvals.ReeveName(ctx).Start()
+			}
 			titles[e.TaskID] = title
 		}
 		rows[i] = AuditRow{CredentialAuditEntry: e, TaskTitle: title}

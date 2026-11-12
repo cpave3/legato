@@ -3,7 +3,7 @@ import { AskReeve } from "./AskReeve"
 import { parseReeveMessage, reeveBrief } from "../lib/reeve"
 import { ChangeSetLines } from "./ChangeSetLines"
 import { useState, useEffect, useLayoutEffect, useCallback, useRef, useMemo, useId, memo } from "react"
-import { ArrowDown, ArrowLeftRight, Bell, BellOff, Check, Pencil, RefreshCw, RotateCw, Shield, Skull, Terminal, Unplug, Zap } from "lucide-react"
+import { ArrowDown, ArrowLeftRight, Bell, BellOff, Check, FolderInput, Pencil, RefreshCw, RotateCw, Shield, Skull, Terminal, Unplug, Zap } from "lucide-react"
 import type { SandboxSwitch } from "../lib/agentReload"
 import { useWebSocket, type PromptState, type WSMessage } from "../hooks/useWebSocket"
 import { useServer } from "../hooks/useServer"
@@ -21,6 +21,7 @@ import { NativeSlashMenu } from "./NativeSlashMenu"
 import { AgentUICallCard } from "./AgentUICallCard"
 import { ReadImageRow } from "./ReadImageRow"
 import { PastedImageStrip } from "./PastedImageStrip"
+import { AttachImageButton } from "./AttachImageButton"
 import { AgentChatHeader, type AgentChatState, type AgentMenuEntry, type SidePanelsProps } from "./AgentChatHeader"
 import { ResourcesButton } from "./ResourcesButton"
 import { ContextGauge, ContextNotice, DictateButton, DictationBar, QueuedList, SendButton, WorkingStrip, type QueuedEntry } from "./Composer"
@@ -206,6 +207,8 @@ interface NativeAgentPanelProps {
   onKill?: () => void
   // Names the agent: opens the rename dialog.
   onRename?: () => void
+  // Opens the dialog that puts the agent in a group.
+  onMoveToGroup?: () => void
   // Set to this panel's refresh from the snapshot, for a menu outside it.
   resyncRef?: { current: (() => void) | null }
   // Stops the agent and starts it again, resuming its conversation.
@@ -236,7 +239,7 @@ interface NativeAgentPanelProps {
   pullRequest?: number
 }
 
-export function NativeAgentPanel({ agentId, reeve, sandboxed, onKill, onRename, resyncRef, onReload, switchSandbox, onDisconnect, onDowngradeChimera, ntfyConfigured, notifyEnabled, onToggleNotify, voiceEnabled, agentKind, engram, composerEnabled = true, onOpenUIItem, panels, title, activity, stateTime, pullRequest }: NativeAgentPanelProps) {
+export function NativeAgentPanel({ agentId, reeve, sandboxed, onKill, onRename, onMoveToGroup, resyncRef, onReload, switchSandbox, onDisconnect, onDowngradeChimera, ntfyConfigured, notifyEnabled, onToggleNotify, voiceEnabled, agentKind, engram, composerEnabled = true, onOpenUIItem, panels, title, activity, stateTime, pullRequest }: NativeAgentPanelProps) {
   const { send, subscribe, connected } = useWebSocket()
   // Out of view the panel stops following the agent and catches up from its
   // cursor on return, so a phone with its screen off does not keep receiving
@@ -919,6 +922,7 @@ export function NativeAgentPanel({ agentId, reeve, sandboxed, onKill, onRename, 
     : "idle"
   const menu: AgentMenuEntry[] = [
     ...(onRename ? [{ label: "Rename", icon: <Pencil size={12} />, onSelect: onRename }] : []),
+    ...(onMoveToGroup ? [{ label: "Move to group…", icon: <FolderInput size={12} />, onSelect: onMoveToGroup }] : []),
     { label: loading ? "Refreshing…" : "Refresh from snapshot", icon: <RefreshCw size={12} className={loading ? "animate-spin" : ""} />, onSelect: () => { void resync() }, disabled: loading },
     ...(ntfyConfigured && onToggleNotify ? [{ label: notifyEnabled ? "Disable notify" : "Enable notify", icon: notifyEnabled ? <Bell size={12} /> : <BellOff size={12} />, onSelect: onToggleNotify }] : []),
     ...(onDowngradeChimera ? [{
@@ -1127,7 +1131,8 @@ export function NativeAgentPanel({ agentId, reeve, sandboxed, onKill, onRename, 
           the agent works (model, effort, mode, resources, macros) beside
           how full its context is and the buttons that send and interrupt. */}
       <div className="px-3 pb-3 md:px-6 md:pb-[18px]">
-        <div className={`relative mx-auto flex w-full max-w-[820px] flex-col rounded-[10px] border bg-lw-surface max-sm:rounded-xl ${dictating(voice) ? "border-lw-danger-line" : "border-lw-line-strong"}`}>
+        {/* An image dropped anywhere on the composer joins the message. */}
+        <div {...(composerEnabled ? pasted.dropTarget : {})} className={`relative mx-auto flex w-full max-w-[820px] flex-col rounded-[10px] border bg-lw-surface max-sm:rounded-xl ${dictating(voice) ? "border-lw-danger-line" : pasted.dragging ? "border-lw-accent" : "border-lw-line-strong"}`}>
           {slashOpen && (
             <NativeSlashMenu
               listId={slashListId}
@@ -1172,6 +1177,7 @@ export function NativeAgentPanel({ agentId, reeve, sandboxed, onKill, onRename, 
           {dictating(voice) ? <DictationBar recorder={voice} /> : (
           <div data-testid="composer-actions" className="flex min-w-0 items-center gap-1 px-2 pb-2 pt-1.5 text-xs text-lw-text-2 max-sm:gap-0.5 max-sm:px-1.5">
             <div className="flex min-w-0 flex-1 items-center gap-1 max-sm:gap-0.5">
+            {composerEnabled && <AttachImageButton onFiles={pasted.attach} />}
             {models.length > 0 && (
               <ComposerModelMenu
                 models={models}

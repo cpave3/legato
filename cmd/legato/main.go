@@ -951,6 +951,7 @@ func runServeCmd(args []string) int {
 			DisablePeerAwareness: !cfg.Agents.PeerAwareness,
 			ReviewsOff:           !cfg.Agents.Reviews,
 			RepositoryGuidance:   repositoryGuidance(cfg, db),
+			ReeveName:            reeveNameFor(db),
 			RepositoryResources:  repositoryResources(cfg),
 		})
 		sweepInterruptedAgents(agentSvc, configuredResourceService(cfg, db))
@@ -1041,11 +1042,13 @@ func runServeCmd(args []string) int {
 	srv.SetReeveRules(reeveRules(db, approvalsRT.approvals))
 	wireReeveEngram(srv, db, approvalsRT.approvals)
 	srv.SetReeveChangeSets(processChangeSets)
+	wireReeveWatches(srv)
 	srv.SetReeveSecrets(processSecrets)
 	srv.SetSettingsImporter(processChangeSets)
 	wireUpdates(srv, updates)
 	srv.SetRestarter(restartAll)
 	srv.SetMacros(cfg.Macros)
+	srv.SetGroupDefaults(cfg.Groups.Defaults)
 	srv.SetTerminalAttacher(terminalAttacher(tmuxMgr))
 	srv.SetSandboxEnabled(cfg.Agents.Sandbox.Enabled)
 	srv.SetFreshClonesEnabled(cfg.RepositoryCache.Enabled)
@@ -1271,6 +1274,7 @@ func runTUI() int {
 			DisablePeerAwareness: !cfg.Agents.PeerAwareness,
 			ReviewsOff:           !cfg.Agents.Reviews,
 			RepositoryGuidance:   repositoryGuidance(cfg, db),
+			ReeveName:            reeveNameFor(db),
 			RepositoryResources:  repositoryResources(cfg),
 		})
 		sweepInterruptedAgents(agentSvc, configuredResourceService(cfg, db))
@@ -1383,11 +1387,13 @@ func runTUI() int {
 			webSrv.SetReeveRules(reeveRules(db, approvalsRT.approvals))
 			wireReeveEngram(webSrv, db, approvalsRT.approvals)
 			webSrv.SetReeveChangeSets(processChangeSets)
+			wireReeveWatches(webSrv)
 			webSrv.SetReeveSecrets(processSecrets)
 			webSrv.SetSettingsImporter(processChangeSets)
 			wireUpdates(webSrv, updates)
 			webSrv.SetRestarter(restartAll)
 			webSrv.SetMacros(cfg.Macros)
+			webSrv.SetGroupDefaults(cfg.Groups.Defaults)
 			webSrv.SetTerminalAttacher(terminalAttacher(tmuxMgr))
 			webSrv.SetSandboxEnabled(cfg.Agents.Sandbox.Enabled)
 			webSrv.SetFreshClonesEnabled(cfg.RepositoryCache.Enabled)
@@ -1500,7 +1506,7 @@ func runTUI() int {
 	}
 	registerApprovalAttention(attentionSvc, approvalsRT)
 	_ = attentionSvc.RegisterProducer(service.NewRestartAttentionAdapter(db))
-	_ = attentionSvc.RegisterProducerWithEvents(service.NewEngramAttentionAdapter(db), events.EventAgentStarted, events.EventAgentDied, events.EventAgentCompleted)
+	_ = attentionSvc.RegisterProducerWithEvents(engramAttention(db), events.EventAgentStarted, events.EventAgentDied, events.EventAgentCompleted)
 	if webSrv == nil {
 		wireSettings(db, bus, nil)
 	}
@@ -1522,6 +1528,9 @@ func runTUI() int {
 	// counts it and links to the web UI.
 	app.SetAgentUIService(service.NewAgentUIService(db, bus, service.AgentUIOptions{}), localWebURL(cfg))
 	app.SetGroupDefaults(cfg.Groups.Defaults)
+	app.SetTaskChangedNotifier(func(taskID string) {
+		ipc.Broadcast(ipc.Message{Type: "task_update", TaskID: taskID})
+	})
 	// R opens the Reeve; a in the agents view asks it about an agent.
 	if reeve := newReeveService(db, agentSvc, webSrv, approvalsRT.approvals); reeve != nil {
 		app.SetReeve(reeve)

@@ -463,3 +463,49 @@ it("says above the message box that the agent works, and interrupts it from ther
   fireEvent.click(within(screen.getByRole("status", { name: "Agent working" })).getByRole("button", { name: "Interrupt" }))
   expect(onSendKeys).toHaveBeenCalledWith("Escape")
 })
+
+function renderPromptBarForImages() {
+  mockFetch.mockImplementation(async (input: string, init?: RequestInit) => {
+    if (init?.method === "POST" && input === "/api/agents/agent-1/image") {
+      return new Response(JSON.stringify({ path: "/tmp/legato-1000/pasted-images/agent-1/pasted-1.png" }), { status: 201 })
+    }
+    return new Response(JSON.stringify({ macros: [] }), { status: 200 })
+  })
+  URL.createObjectURL = vi.fn(() => "blob:image-1")
+  URL.revokeObjectURL = vi.fn()
+  render(<PromptBar
+    promptState={null}
+    onSendKeys={vi.fn()}
+    onSubmitMessage={vi.fn()}
+    onDismissPrompt={vi.fn()}
+    onDetectPrompt={vi.fn()}
+    onDisconnect={vi.fn()}
+    onKill={vi.fn()}
+    onRefresh={vi.fn()}
+    onTogglePromptDetection={vi.fn()}
+    promptDetectionEnabled
+    agentId="agent-1"
+  />)
+  return screen.getByPlaceholderText("Type a message...") as HTMLTextAreaElement
+}
+
+// The phone has no paste of an image: the person picks one (or takes one)
+// with the attach button.
+it("puts the path of an image chosen with the attach button in the message", async () => {
+  const box = renderPromptBarForImages()
+  const image = new File([new Uint8Array([0x89, 0x50, 0x4e, 0x47])], "photo.png", { type: "image/png" })
+
+  fireEvent.change(screen.getByLabelText("Images to attach"), { target: { files: [image] } })
+
+  await waitFor(() => expect(box.value).toBe("/tmp/legato-1000/pasted-images/agent-1/pasted-1.png "))
+  expect(screen.getByRole("button", { name: "Attach image" })).toBeTruthy()
+})
+
+it("puts the path of an image dropped on the message box in the message", async () => {
+  const box = renderPromptBarForImages()
+  const image = new File([new Uint8Array([0x89, 0x50, 0x4e, 0x47])], "photo.png", { type: "image/png" })
+
+  fireEvent.drop(box, { dataTransfer: { files: [image], types: ["Files"] } })
+
+  await waitFor(() => expect(box.value).toBe("/tmp/legato-1000/pasted-images/agent-1/pasted-1.png "))
+})

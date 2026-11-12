@@ -16,6 +16,8 @@ import (
 type SpawnReport struct {
 	Engram        string
 	EngramWarning string
+	// TaskID is the task an ephemeral spawn made for its agent.
+	TaskID string
 }
 
 type spawnReportKey struct{}

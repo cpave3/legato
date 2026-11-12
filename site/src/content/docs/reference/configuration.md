@@ -308,7 +308,7 @@ macros:
 
 | Setting | Type | Default | What it does |
 | --- | --- | --- | --- |
-| `groups.defaults` | list of strings | none | Group names always offered when you set an agent's group (`g` in the TUI's agents view), beside the groups agents already have. |
+| `groups.defaults` | list of strings | none | Group names always offered when you set an agent's group (`g` in the TUI's agents view), beside the groups agents already have. The web UI's agent list shows these groups first, even when empty. |
 
 ## Voice
 
@@ -343,6 +343,7 @@ The Reeve's defaults, read when a session starts. Usually set in Settings › Re
 
 | Setting | Type | Default | What it does |
 | --- | --- | --- | --- |
+| `reeve.name` | string | empty: "the Reeve" | What Legato calls the Reeve on this instance, in the web UI, the desktop app, the TUI, notifications and the Reeve's own prompt. One line of plain text, at most 40 characters. See [Give it a name](/legato/using/reeve/#give-it-a-name). |
 | `reeve.agent` | string | the default agent tool | The agent tool a session runs: `claude-code`, `codex` or `chimera`. |
 | `reeve.model` | string | the tool's default | The model or tier a session runs. |
 | `reeve.idle_timeout` | duration | `2h` | How long a session may be idle before its agent is stopped. The next message to it resumes it. |
@@ -365,6 +366,9 @@ The Reeve's defaults, read when a session starts. Usually set in Settings › Re
 | `reeve.voice.follow_up` | duration | `6s` | How long the voice listens for your reply after the Reeve has spoken. `0s` for a single turn. |
 | `reeve.voice.quiet_hours` | string | none | Hours when no line plays on this machine's speakers, as `22:00-07:00` in its local time; the Reeve replies in writing instead. A reply to something you said to it still plays on your device. |
 | `reeve.voice.partials` | bool | `true` | Shows the words so far while you speak, by transcribing about once a second. Turn it off when Whisper runs on a CPU or is shared with Home Assistant. |
+| `reeve.watch.settle` | duration | `30s` | How long an agent the Reeve watches must stay idle, or busy only in the background, before the Reeve is told, so brief pauses do not wake it. See [Watching agents](/legato/using/reeve/#watching-agents). |
+| `reeve.watch.started` | bool | `true` | Watches every agent the Reeve starts or messages. |
+| `reeve.watch.wake` | bool | `false` | When a watched agent needs the Reeve and no session is running, starts or resumes one to tell it. Off, the news waits for the next session. On costs tokens while you are away. |
 
 ## Updates
 

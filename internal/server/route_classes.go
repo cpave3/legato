@@ -74,7 +74,16 @@ func ClassifyRequest(r *http.Request) RouteInfo {
 	if ok && e.Pattern == "/" && strings.HasPrefix(r.URL.Path, "/api/") {
 		ok = false
 	}
+	// The API's catch-all answers 404: a GET there reads nothing, unless
+	// the path is a route served for other methods, whose handler would
+	// decide what a GET does.
+	if ok && e.Pattern == notServedPattern {
+		ok = false
+	}
 	if !ok || pattern == "" {
+		if (r.Method == http.MethodGet || r.Method == http.MethodHead) && !servedForAnotherMethod(r) {
+			return RouteInfo{Method: r.Method, Pattern: r.URL.Path, Class: ClassRead, Description: "Read a route Legato does not serve (it answers 404)", Known: false}
+		}
 		return RouteInfo{Method: r.Method, Pattern: r.URL.Path, Class: ClassRisky, Description: "A call Legato has no class for", Known: false}
 	}
 	info := RouteInfo{Method: e.Method, Pattern: e.Pattern, Class: e.Class, Description: e.Description, Known: true}
@@ -99,6 +108,23 @@ func ClassifyRequest(r *http.Request) RouteInfo {
 		}
 	}
 	return info
+}
+
+// notServedPattern is the API's catch-all, which answers 404 for a route
+// Legato does not serve (notServedHandler).
+const notServedPattern = "/api/"
+
+// servedForAnotherMethod reports whether the table classes r's path for a
+// method other than GET.
+func servedForAnotherMethod(r *http.Request) bool {
+	for _, method := range []string{http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete} {
+		probe := r.Clone(r.Context())
+		probe.Method = method
+		if _, pattern := classMux.Handler(probe); pattern != "" {
+			return true
+		}
+	}
+	return false
 }
 
 func settingVerb(method string) string {

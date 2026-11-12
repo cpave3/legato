@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"crypto/rand"
 	"encoding/hex"
 	"encoding/json"
@@ -74,6 +75,22 @@ func (s *Server) storePastedImage(w http.ResponseWriter, r *http.Request) {
 		s.writeError(w, http.StatusBadRequest, "the task ID is not valid")
 		return
 	}
+	// A task away on a worker has its agent there, where a path on this
+	// machine names nothing. The person sends the image from the worker's
+	// own page instead.
+	if away, ok := s.board.(interface {
+		RefuseAway(ctx context.Context, taskID string) error
+	}); ok {
+		if err := away.RefuseAway(r.Context(), taskID); err != nil {
+			var onWorker *service.TaskAwayError
+			if errors.As(err, &onWorker) {
+				s.writeError(w, http.StatusConflict, fmt.Sprintf("images can't reach the agent from here: task %s is away on %s, so send the image from %s's own page", taskID, onWorker.Worker, onWorker.Worker))
+				return
+			}
+			s.writeError(w, taskErrorStatus(err), err.Error())
+			return
+		}
+	}
 	content, err := io.ReadAll(http.MaxBytesReader(w, r.Body, pastedImageMaxBytes))
 	if err != nil {
 		var tooLarge *http.MaxBytesError
@@ -91,9 +108,9 @@ func (s *Server) storePastedImage(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	dir := service.PastedImageDir(taskID)
 	// A pasted image may be private: the folder and the file are the user's only.
-	if err := os.MkdirAll(dir, 0o700); err != nil {
+	dir, err := service.EnsurePastedImageDir(taskID)
+	if err != nil {
 		s.writeError(w, http.StatusInternalServerError, "the image could not be stored: "+err.Error())
 		return
 	}

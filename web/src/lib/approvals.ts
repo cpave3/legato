@@ -1,4 +1,5 @@
 import { apiFetch } from "./api"
+import { reeveName } from "./reeveName"
 
 /** One way to decide an approval: allow it a certain way, or deny it. */
 export type ApprovalOption = { id: string; label: string; kind: "allow" | "deny"; description?: string }
@@ -37,6 +38,8 @@ export type ApprovalDetails = {
   instance?: string
   level?: "approve" | "signed" | "verified"
   calls?: ChangeSetCall[]
+  // The name of the Reeve that asked, as it was then; absent when unnamed.
+  reeve_name?: string
   [key: string]: unknown
 }
 
@@ -102,7 +105,16 @@ async function errorText(resp: Response): Promise<string> {
 }
 
 /** Who asks: the task's title (or ID) and the agent tool. */
+const reeveSources = new Set(["reeve_change_set", "reeve_rules", "reeve_secret", "reeve_seed"])
+
+// isReeveApproval says whether the Reeve asked: its task is hidden, so it is
+// named rather than its task.
+export function isReeveApproval(approval: Approval): boolean {
+  return reeveSources.has(approval.source)
+}
+
 export function approvalAsker(approval: Approval): string {
+  if (isReeveApproval(approval)) return reeveName(approval.details.reeve_name).start
   const who = approval.details.task_title || approval.task_id || ""
   return [who, approval.details.agent_kind].filter(Boolean).join(" · ")
 }
@@ -140,11 +152,13 @@ export interface ChangeSetCall {
 }
 
 export function approvalKind(approval: Approval): string {
+  // The Reeve that asked, by the name it had then (details.reeve_name).
+  const reeve = reeveName(approval.details.reeve_name)
   switch (approval.source) {
     case "reeve_change_set": return "Change set"
-    case "reeve_rules": return "The Reeve's rules"
-    case "reeve_secret": return "Secret for the Reeve"
-    case "reeve_seed": return "The Reeve's seed"
+    case "reeve_rules": return `${reeve.start}'s rules`
+    case "reeve_secret": return `Secret for ${reeve.mid}`
+    case "reeve_seed": return `${reeve.start}'s seed`
     case "agent_permission": return approval.details.plan ? "Plan" : "Permission"
     case "agent_question": return "Question"
     case "credential": return "Credential"

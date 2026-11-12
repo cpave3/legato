@@ -159,6 +159,26 @@ describe("Board layout", () => {
       expect(await screen.findByRole("dialog", { name: "CMA selector view" })).toBeTruthy()
     })
 
+    // Escape pressed the moment the details show (before React's effects have
+    // run, as on a slow machine) still closes them.
+    it("closes the details with Escape pressed as soon as they show", async () => {
+      renderBoard()
+      let pressed = false
+      const observer = new MutationObserver(() => {
+        if (pressed || !screen.queryByRole("dialog", { name: "CMA selector view" })) return
+        pressed = true
+        fireEvent.keyDown(window, { key: "Escape" })
+      })
+      observer.observe(document.body, { childList: true, subtree: true })
+      try {
+        fireEvent.keyDown(window, { key: "Enter" })
+        await waitFor(() => expect(pressed).toBe(true))
+        await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull(), { timeout: 1000 })
+      } finally {
+        observer.disconnect()
+      }
+    })
+
     it("starts an agent on the selected card with s", async () => {
       renderBoard()
       await within(panel()).findByRole("button", { name: "Open agent" })

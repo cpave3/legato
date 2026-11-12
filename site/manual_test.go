@@ -43,3 +43,32 @@ func TestSearchFindsPagesWithEveryWord(t *testing.T) {
 		t.Fatalf("hits for nonsense = %+v", hits)
 	}
 }
+
+// The Reeve's everyday questions about the API find the API page among the
+// first few hits, in the words a person would use.
+func TestSearchFindsTheAPIPageForEverydayWords(t *testing.T) {
+	for _, query := range []string{"move a card", "stop an agent", "message an agent", "kill agent", "move task column api"} {
+		hits := Search(query, 3)
+		found := false
+		for _, h := range hits {
+			if h.Path == "reference/api" {
+				found = true
+			}
+		}
+		if !found {
+			var paths []string
+			for _, h := range hits {
+				paths = append(paths, h.Path)
+			}
+			t.Errorf("search %q: reference/api not in the first 3 hits %v", query, paths)
+		}
+	}
+}
+
+// The lines shown first are those that hold every word.
+func TestSearchShowsTheLinesWithEveryWordFirst(t *testing.T) {
+	hits := Search("stop an agent", 1)
+	if len(hits) == 0 || len(hits[0].Lines) == 0 || !strings.Contains(strings.ToLower(hits[0].Lines[0]), "stop an agent") {
+		t.Fatalf("hits = %+v", hits)
+	}
+}

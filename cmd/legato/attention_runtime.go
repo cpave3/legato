@@ -51,7 +51,7 @@ func wireAttention(ctx context.Context, db *store.Store, bus *events.Bus, srv *s
 
 	registerApprovalAttention(attention, approvals)
 	mustRegister(attention.RegisterProducer(service.NewRestartAttentionAdapter(db)))
-	mustRegister(attention.RegisterProducerWithEvents(service.NewEngramAttentionAdapter(db), events.EventAgentStarted, events.EventAgentDied, events.EventAgentCompleted))
+	mustRegister(attention.RegisterProducerWithEvents(engramAttention(db), events.EventAgentStarted, events.EventAgentDied, events.EventAgentCompleted))
 	if handoffs != nil {
 		handoffs.registerAttention(attention, approvals.config(), approvals.serverURL())
 	}

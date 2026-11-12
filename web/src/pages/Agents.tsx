@@ -6,6 +6,7 @@ import { useWebSocket, type AgentInfo, type WSMessage, type PromptState } from "
 import { usePageInView } from "../hooks/usePageInView"
 import { AgentSidebar } from "../components/AgentSidebar"
 import { AgentContextMenu } from "../components/AgentContextMenu"
+import { useAgentGroups } from "../hooks/useAgentGroups"
 import { TerminalPanel } from "../components/TerminalPanel"
 import { LiveTerminal } from "../components/LiveTerminal"
 import { TerminalKeys } from "../components/TerminalKeys"
@@ -39,9 +40,9 @@ import { useToast } from "../hooks/useToast"
 import { useConfirm } from "../hooks/useConfirm"
 import { RenameAgentDialog } from "../components/RenameAgentDialog"
 import { useAgentContexts } from "../hooks/useAgentContexts"
-import { agentListOrder, formatAgentTime, stateSeconds } from "../lib/agentList"
+import { formatAgentTime, stateSeconds } from "../lib/agentList"
 import { AgentChatHeader, type AgentChatState, type AgentMenuEntry, type SidePanel, type SidePanelsProps } from "../components/AgentChatHeader"
-import { Bell, BellOff, Pencil, RefreshCw, RotateCw, Shield, Skull, Sparkles, Terminal, Unplug } from "lucide-react"
+import { Bell, BellOff, FolderInput, Pencil, RefreshCw, RotateCw, Shield, Skull, Sparkles, Terminal, Unplug } from "lucide-react"
 import { useTerminalMenu } from "../hooks/useTerminalMenu"
 import { canReloadAgent, reloadAgent, sandboxSwitchLabel, switchAgentSandbox, type SandboxSwitch } from "../lib/agentReload"
 
@@ -422,6 +423,11 @@ export function AgentsPage() {
   }, [selectedId, promptDetectionOverrides])
 
   const runningAgents = useMemo(() => agents.filter((a) => a.status === "running"), [agents])
+  // The Reeve is pinned above the list, apart from its groups and numbers.
+  const listedAgents = useMemo(() => runningAgents.filter((a) => !a.reeve), [runningAgents])
+  const refreshAgents = useCallback(() => { void fetchAgents() }, [fetchAgents])
+  const agentGroups = useAgentGroups({ agents: listedAgents, onChanged: refreshAgents })
+  const listOrder = agentGroups.listOrder
 
   const selectedAgent = agents.find((a) => a.task_id === selectedId)
   const selectedParentId = selectedAgent?.parent_task_id ?? activeSwarmParentId
@@ -496,7 +502,7 @@ export function AgentsPage() {
         const digit = parseInt(e.key, 10)
         if (digit >= 1 && digit <= 9) {
           e.preventDefault()
-          const agent = agentListOrder(runningAgents)[digit - 1]
+          const agent = listOrder(listedAgents)[digit - 1]
           if (agent && agent.task_id !== selectedId) {
             handleSelect(agent.task_id)
             triggerGlitch()
@@ -519,7 +525,7 @@ export function AgentsPage() {
       window.removeEventListener("keyup", onKeyUp)
       window.removeEventListener("blur", onBlur)
     }
-  }, [runningAgents, selectedId, handleSelect, triggerGlitch])
+  }, [listedAgents, listOrder, selectedId, handleSelect, triggerGlitch])
 
   // Mobile: use select dropdown on narrow screens
   const [isMobile, setIsMobile] = useState(false)
@@ -602,6 +608,7 @@ export function AgentsPage() {
   }, [selectedAgent, openRename])
   const terminalMenu = useTerminalMenu({
     onRename: handleRename,
+    onMoveToGroup: selectedAgent && !selectedAgent.reeve ? () => agentGroups.openMove(selectedAgent) : undefined,
     agentKind: selectedAgent?.agent_kind,
     onUpgradeChimera: canBeNative(selectedAgent?.agent_kind) ? handleUpgradeChimera : undefined,
     onRefresh: handleRefresh,
@@ -629,6 +636,7 @@ export function AgentsPage() {
     const icon = (Icon: typeof Pencil) => <Icon size={14} />
     const fail = (error: unknown) => addToast(error instanceof Error ? error.message : String(error), "error")
     const entries: AgentMenuEntry[] = [{ label: "Rename", icon: icon(Pencil), onSelect: () => openRename(agent) }]
+    if (!agent.reeve) entries.push({ label: "Move to group…", icon: icon(FolderInput), onSelect: () => agentGroups.openMove(agent) })
     if (isSelected && native) {
       entries.push({ label: "Refresh from snapshot", icon: icon(RefreshCw), onSelect: () => nativeResyncRef.current?.() })
     }
@@ -752,6 +760,7 @@ export function AgentsPage() {
           agents={runningAgents}
           selectedId={selectedId}
           onSelect={handleSelect}
+          grouping={agentGroups.grouping}
           reeve={<ReeveEntry baseUrl={baseUrl} compact agent={runningAgents.find((a) => a.reeve)} selected={Boolean(selectedAgent?.reeve)} onSelect={handleSelect} />}
           onEnsemble={() => showEnsemble(true)}
           onSpawn={handleSpawn}
@@ -768,6 +777,7 @@ export function AgentsPage() {
           modifierHeld={modifierHeld}
           unseenArtifacts={artifacts.unseen}
           contexts={contexts}
+          grouping={agentGroups.grouping}
           preparing={<><InterruptedAgents /><PreparingAgents /></>}
           reeve={<ReeveEntry baseUrl={baseUrl} agent={runningAgents.find((a) => a.reeve)} selected={Boolean(selectedAgent?.reeve)} onSelect={handleSelect} />}
         />
@@ -842,6 +852,7 @@ export function AgentsPage() {
                   sandboxed={selectedAgent?.sandboxed}
                   onKill={handleKill}
                   onRename={handleRename}
+                  onMoveToGroup={selectedAgent && !selectedAgent.reeve ? () => agentGroups.openMove(selectedAgent) : undefined}
                   resyncRef={nativeResyncRef}
                   onReload={canReload ? () => { void handleReload() } : undefined}
                   switchSandbox={selectedSandboxSwitch}
@@ -946,6 +957,7 @@ export function AgentsPage() {
         />
       )}
       {confirmDialog}
+      {agentGroups.dialogs}
 
       {/* Right sidebar: swarm event log for swarm participants */}
       {selectedParentId && (isMobile ? (

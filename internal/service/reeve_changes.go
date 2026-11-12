@@ -151,6 +151,9 @@ type ChangeSetOptions struct {
 	// Notify sends a message to a Reeve session ([legato] results, a
 	// denial's note).
 	Notify func(ctx context.Context, taskID, text string)
+	// Watch tells the Reeve session what an agent a set started or
+	// messaged does from now on (ReeveWatcher.Watch).
+	Watch func(ctx context.Context, reeveTaskID, taskID string)
 	// RunningAgents lists the task IDs of the agents running now, but the
 	// Reeve's.
 	RunningAgents func(ctx context.Context) []string
@@ -394,7 +397,7 @@ func (c *ChangeSetService) Propose(ctx context.Context, taskID, reason string, c
 	}
 	title := details.Reason
 	if title == "" {
-		title = fmt.Sprintf("%d changes from the Reeve", len(details.Calls))
+		title = fmt.Sprintf("%d changes from %s", len(details.Calls), c.opts.Approvals.ReeveName(ctx).Mid())
 	}
 	options := []ApprovalOption{{ID: "allow", Label: "Approve", Kind: ApprovalAllow}}
 	if optionalRestart(details.Calls) {
@@ -553,6 +556,7 @@ func (c *ChangeSetService) run(ctx context.Context, set store.ReeveChangeSet, no
 				results[i].State, results[i].Detail, failed = "failed", clip(strings.TrimSpace(output), 500), true
 			default:
 				results[i].State, results[i].Detail = "ran", clip(strings.TrimSpace(output), 300)
+				c.watch(ctx, set.TaskID, call, "")
 			}
 			c.auditAuto(ctx, set, decision, call, results[i])
 		case call.Kind == CallConfigEdit:
@@ -577,6 +581,7 @@ func (c *ChangeSetService) run(ctx context.Context, set store.ReeveChangeSet, no
 				results[i].State, results[i].Detail, failed = "failed", "the route answered with a redirect", true
 			default:
 				results[i].State, results[i].Detail = "ran", clip(strings.TrimSpace(body), 300)
+				c.watch(ctx, set.TaskID, call, body)
 			}
 			c.auditAuto(ctx, set, decision, call, results[i])
 		}
@@ -597,6 +602,49 @@ func (c *ChangeSetService) run(ctx context.Context, set store.ReeveChangeSet, no
 	if restart && !failed && c.opts.Restart != nil {
 		c.opts.Restart()
 	}
+}
+
+// watch watches the agent a call that ran started or messaged, for the
+// set's Reeve session.
+func (c *ChangeSetService) watch(ctx context.Context, reeveTaskID string, call ProposedCall, body string) {
+	if c.opts.Watch == nil {
+		return
+	}
+	if taskID := agentStartedBy(call.ChangeCall, body); taskID != "" {
+		c.opts.Watch(ctx, reeveTaskID, taskID)
+	}
+}
+
+// agentStartedBy is the task whose agent a call that ran started, resumed
+// or messaged: from its path, from the task_id an ephemeral spawn answers
+// with, or from legato agent message's task; "" for any other call.
+func agentStartedBy(call ChangeCall, body string) string {
+	if call.Kind == CallLegato {
+		if len(call.Args) >= 3 && call.Args[0] == "agent" && call.Args[1] == "message" && !strings.HasPrefix(call.Args[2], "-") {
+			return call.Args[2]
+		}
+		return ""
+	}
+	if call.Kind != CallAPI || !strings.EqualFold(call.Method, http.MethodPost) {
+		return ""
+	}
+	path, _, _ := strings.Cut(call.Path, "?")
+	parts := strings.Split(strings.Trim(path, "/"), "/")
+	switch {
+	case len(parts) == 3 && parts[0] == "api" && parts[1] == "agents" && parts[2] == "spawn":
+		var out struct {
+			TaskID string `json:"task_id"`
+		}
+		_ = json.Unmarshal([]byte(body), &out)
+		return out.TaskID
+	case len(parts) == 4 && parts[0] == "api" && parts[1] == "tasks" && parts[3] == "agent":
+		return parts[2]
+	case len(parts) == 4 && parts[0] == "api" && parts[1] == "agents" && (parts[3] == "restart" || parts[3] == "resume"):
+		return parts[2]
+	case len(parts) == 5 && parts[0] == "api" && parts[1] == "agents" && parts[3] == "chimera" && parts[4] == "send":
+		return parts[2]
+	}
+	return ""
 }
 
 // ChangeSetReport is the message that tells the Reeve what each call did.
@@ -842,7 +890,8 @@ func editsOwnRule(edits []ConfigEdit) string {
 		}
 	}
 	for _, e := range edits {
-		key := strings.TrimSpace(e.Key)
+		// A key into a list (reeve.rules[0].level) edits the list.
+		key := config.PlainKey(strings.TrimSpace(e.Key))
 		for _, rule := range rules {
 			if key == rule || strings.HasPrefix(rule, key+".") || strings.HasPrefix(key, rule+".") {
 				return rule

@@ -69,6 +69,7 @@ When a server knows Touch ID, the sheet asks for your fingerprint instead of a t
 - To reorder the servers, press and hold a tile and drag it up or down; the order is kept until you change it again.
 - The dock's dot on each tile is green while the server answers and red while it does not.
 - The app keeps no offline copy of a server's web UI. While a server is down, the app shows its own offline screen for it, with the address and the reason it could not be reached. It keeps checking every few seconds (**Try again** checks at once), and the server's page comes back by itself when the server answers.
+- Images work in agent chats as in a browser: paste a screenshot (from Spectacle, say), drop an image file on the message box, or press **Attach image**.
 - Dictation works in every server's page, over HTTP too: the app records for the page with `parecord` (or `arecord` when there is no `parecord`), and the server transcribes it as usual. Linux only for now.
 
 ### The Legato widget

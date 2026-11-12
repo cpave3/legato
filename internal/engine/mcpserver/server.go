@@ -22,6 +22,10 @@ type Definition struct {
 	// ReadOnly marks a tool that changes nothing the person would have to
 	// undo. Clients use it to decide whether a call needs approval.
 	ReadOnly bool
+	// Normalize, when set, puts a call's arguments into shape before they
+	// are checked against the schema: a string where a list belongs, say,
+	// which models often send.
+	Normalize func(args map[string]any) `json:"-"`
 }
 
 // Result is what a tool call hands back.
@@ -107,6 +111,12 @@ func NewTool[In any](def Definition, handler func(context.Context, In) (Result, 
 		if err := json.Unmarshal(raw, &value); err != nil {
 			return Result{}, fmt.Errorf("the arguments are not a JSON object: %w", err)
 		}
+		if def.Normalize != nil && value != nil {
+			def.Normalize(value)
+			if raw, err = json.Marshal(value); err != nil {
+				return Result{}, err
+			}
+		}
 		if err := resolved.Validate(value); err != nil {
 			return Result{}, fmt.Errorf("the arguments do not fit the tool's schema: %w", err)
 		}
@@ -116,16 +126,16 @@ func NewTool[In any](def Definition, handler func(context.Context, In) (Result, 
 		}
 		return handler(ctx, in)
 	}
+	// The tool is served through call, which checks the arguments itself,
+	// so a client's call and a direct one are checked alike (Normalize
+	// first) and a misfit reaches the model as the call's result.
 	return Tool{Name: def.Name, spec: Spec{Definition: def, InputSchema: rawSchema}, call: call, add: func(server *mcp.Server) {
-		mcp.AddTool(server, tool, func(ctx context.Context, _ *mcp.CallToolRequest, in In) (*mcp.CallToolResult, any, error) {
-			result, err := handler(ctx, in)
+		server.AddTool(tool, func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {
+			result, err := call(ctx, req.Params.Arguments)
 			if err != nil {
-				return nil, nil, err
+				return &mcp.CallToolResult{IsError: true, Content: []mcp.Content{&mcp.TextContent{Text: err.Error()}}}, nil
 			}
-			return &mcp.CallToolResult{
-				Content:           []mcp.Content{&mcp.TextContent{Text: result.Text}},
-				StructuredContent: result.Data,
-			}, nil, nil
+			return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: result.Text}}, StructuredContent: result.Data}, nil
 		})
 	}}
 }

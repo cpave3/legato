@@ -1,8 +1,12 @@
 package service
 
 import (
+	"context"
+	"path/filepath"
 	"testing"
 	"time"
+
+	"github.com/cpave3/legato/internal/engine/store"
 )
 
 func TestReconnectsBackOffFromASecondDoublingToAMinute(t *testing.T) {
@@ -47,5 +51,38 @@ func TestTheMainShowsItsOwnViewOfTheWorkerFirst(t *testing.T) {
 		if got := awayView(c.away); got != c.want {
 			t.Errorf("%+v: %s, want %s", c.away, got, c.want)
 		}
+	}
+}
+
+// A reach check marks a worker unreachable from the drop it saw only if the
+// connection is still down when it writes: a pull in between heard the
+// worker, and marking it then would undo that from the old outage's time.
+func TestAReachCheckDoesNotMarkAWorkerAPullHeardSinceItLooked(t *testing.T) {
+	ctx := context.Background()
+	db, err := store.New(filepath.Join(t.TempDir(), "legato.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Close() })
+	if err := db.SaveWorker(ctx, store.Worker{InstanceID: "srv-1", Name: "vm-1", Address: "https://vm-1:3080", PairedAt: "2026-11-12T00:00:00Z"}); err != nil {
+		t.Fatal(err)
+	}
+	now := time.Date(2026, 11, 12, 9, 0, 0, 0, time.UTC)
+	c := NewWorkerConnections(db, WorkerConnectionsOptions{Now: func() time.Time { return now }})
+	wc := &workerConn{droppedAt: now.Add(-time.Minute)}
+	c.conns["srv-1"] = wc
+
+	// CheckReach saw it down; then a pull reconnected it.
+	wc.droppedAt, wc.connected = time.Time{}, true
+	c.markUnreachable(ctx, "srv-1", wc, now)
+	if w, err := db.GetWorker(ctx, "srv-1"); err != nil || w.UnreachableSince != nil {
+		t.Fatalf("marked after the pull: %+v, %v", w, err)
+	}
+
+	// Still down when it writes: marked, from when it dropped.
+	wc.droppedAt, wc.connected = now.Add(-time.Minute), false
+	c.markUnreachable(ctx, "srv-1", wc, now)
+	if w, err := db.GetWorker(ctx, "srv-1"); err != nil || w.UnreachableSince == nil || *w.UnreachableSince != "2026-11-12T08:59:00Z" {
+		t.Fatalf("not marked from its drop: %+v, %v", w, err)
 	}
 }

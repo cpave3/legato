@@ -13,8 +13,12 @@ const AttentionSignalEngramBootFailed = "engram_boot_failed"
 // EngramAttentionAdapter shows the running agents whose engram did not
 // boot, on their tasks.
 type EngramAttentionAdapter struct {
-	db *store.Store
+	db   *store.Store
+	name ReeveNameSource
 }
+
+// SetReeveName gives the adapter the Reeve's name, for the Reeve's item.
+func (a *EngramAttentionAdapter) SetReeveName(name ReeveNameSource) { a.name = name }
 
 func NewEngramAttentionAdapter(db *store.Store) *EngramAttentionAdapter {
 	return &EngramAttentionAdapter{db: db}
@@ -36,14 +40,15 @@ func (a *EngramAttentionAdapter) Snapshot(ctx context.Context) ([]AttentionInput
 		// The Reeve's task is hidden: its item leads to its engram in
 		// Settings.
 		if kind, err := a.db.TaskKind(ctx, f.TaskID); err == nil && kind == store.TaskKindReeve {
+			reeve := a.name.Of(ctx)
 			items = append(items, AttentionInput{
 				SignalKind: AttentionSignalEngramBootFailed, SourceKey: "engram:" + f.ExecutionID, SourceRevision: f.ExecutionID,
 				TaskID: f.TaskID, Category: "agent", Urgency: "normal",
-				Title:      "The Reeve's engram did not boot",
-				Reason:     "The Reeve started without " + f.Engram + ": it remembers nothing of earlier sessions, and keeps nothing from this one.",
+				Title:      reeve.Start() + "'s engram did not boot",
+				Reason:     reeve.Start() + " started without " + f.Engram + ": it remembers nothing of earlier sessions, and keeps nothing from this one.",
 				Detail:     f.Reason,
 				Navigation: AttentionNavigation{Kind: "settings", Target: "reeve-engram"},
-				Actions:    []AttentionAction{{ID: "open", Label: "Open the Reeve's engram", Kind: "navigate"}},
+				Actions:    []AttentionAction{{ID: "open", Label: "Open " + reeve.Mid() + "'s engram", Kind: "navigate"}},
 			})
 			continue
 		}

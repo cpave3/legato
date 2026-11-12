@@ -94,6 +94,8 @@ const question: WidgetApproval = {
 describe("what an approval says in the widget", () => {
   it("is one line: who asks, and what", () => {
     expect(approvalLine(hostCommand.approval)).toEqual({ who: "Reeve", what: "Run a command on the host" })
+    // A named Reeve is shown by the name it had when it asked.
+    expect(approvalLine({ ...hostCommand.approval, details: { ...hostCommand.approval.details, reeve_name: "Tessitura" } })).toEqual({ who: "Tessitura", what: "Run a command on the host" })
     expect(approvalLine(credential.approval)).toEqual({ who: "Claude Code", what: "Use github" })
     expect(approvalLine({ ...permission.approval, details: {} })).toEqual({ who: "An agent", what: "Run a command" })
   })

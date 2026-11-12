@@ -83,6 +83,11 @@ func TestTheReevesTokenPassesOnlyReadRoutes(t *testing.T) {
 	if rec := callAs(srv, token, http.MethodGet, "/api/reeve", ""); rec.Code != http.StatusOK {
 		t.Fatalf("a read: %d %s", rec.Code, rec.Body)
 	}
+	// A route Legato does not serve answers 404 at once, naming the API
+	// reference, rather than asking the operator.
+	if rec := callAs(srv, token, http.MethodGet, "/api/columns", ""); rec.Code != http.StatusNotFound || !strings.Contains(rec.Body.String(), "reference/api") {
+		t.Fatalf("a route Legato does not serve: %d %s", rec.Code, rec.Body)
+	}
 	if rec := callAs(srv, token, http.MethodPost, "/api/restart", ""); rec.Code != http.StatusForbidden || !strings.Contains(rec.Body.String(), "needs_approval") {
 		t.Fatalf("a risky call: %d %s", rec.Code, rec.Body)
 	}

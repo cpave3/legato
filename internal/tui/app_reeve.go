@@ -58,7 +58,9 @@ func (a App) askReeve(msg agents.AskReeveMsg) tea.Cmd {
 // showReeve opens the agents view on the Reeve's session.
 func (a App) showReeve(msg reeveOpenedMsg) (tea.Model, tea.Cmd) {
 	if msg.err != nil {
-		return a, func() tea.Msg { return statusbar.ErrorMsg{Text: "The Reeve: " + msg.err.Error()} }
+		return a, func() tea.Msg {
+			return statusbar.ErrorMsg{Text: a.agentView.ReeveName().Start() + ": " + msg.err.Error()}
+		}
 	}
 	a = a.setMode(viewAgents)
 	a.agentView.StartPolling()

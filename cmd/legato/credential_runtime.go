@@ -39,7 +39,9 @@ func newApprovalService(cfg *config.Config, db *store.Store, bus *events.Bus, se
 			go service.ApprovalNotifications(notifier, url)(approval)
 		}
 	}
-	return service.NewApprovalService(db, opts)
+	approvals := service.NewApprovalService(db, opts)
+	approvals.SetReeveName(reeveNameFor(db))
+	return approvals
 }
 
 // configuredSecretStore is Legato's own secret store, legato://name.

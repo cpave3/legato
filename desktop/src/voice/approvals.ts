@@ -56,7 +56,8 @@ const REEVE = new Set(["reeve_change_set", "reeve_rules", "reeve_secret", "reeve
 // approvalLine is the approval's one line: who asks, and what.
 export function approvalLine(a: Approval): { who: string; what: string } {
   let who: string
-  if (REEVE.has(a.source)) who = "Reeve"
+  // The Reeve by the name it had when it asked (reeve.name), else Reeve.
+  if (REEVE.has(a.source)) who = (typeof a.details.reeve_name === "string" && a.details.reeve_name.trim()) || "Reeve"
   else if (a.source === "devices") who = "Legato"
   else who = a.details.agent_kind || a.details.task_title || "An agent"
   return { who, what: a.title }

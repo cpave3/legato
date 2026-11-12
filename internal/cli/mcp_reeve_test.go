@@ -2,6 +2,7 @@ package cli_test
 
 import (
 	"context"
+	"io"
 	"net/http"
 	"net/http/httptest"
 	"os"
@@ -176,6 +177,10 @@ func (f *fakeLegato) Classify(args []string) (string, string) {
 	return "risky", "Create an integration token"
 }
 
+func (f *fakeLegato) Commands() []cli.LegatoCommand {
+	return []cli.LegatoCommand{{Path: "version", Class: "read"}, {Path: "task list", Class: "read"}, {Path: "task create", Class: "change"}, {Path: "integration token create", Class: "risky"}}
+}
+
 func (f *fakeLegato) Run(_ context.Context, args []string) (int, string, error) {
 	f.ran = append(f.ran, args)
 	return 0, "legato v1.2.3", nil
@@ -242,5 +247,76 @@ func TestTheReeveMessagesAnotherInstancesReeve(t *testing.T) {
 	listed := mcpText(callMCP(t, session, "message_reeve", map[string]any{}))
 	if !strings.Contains(listed, "erebus") {
 		t.Fatalf("listing %q", listed)
+	}
+}
+
+// The legato tool says which commands it runs, and takes its arguments as
+// a string too, split as a shell would.
+func TestTheLegatoToolListsItsCommandsAndTakesAString(t *testing.T) {
+	s := newTestStore(t)
+	legato := &fakeLegato{}
+	taskID, executionID := seedReeve(t, s)
+	session := connectMCP(t, cli.MCPOptions{Store: s, TaskID: taskID, ExecutionID: executionID, Reeve: &cli.MCPReeve{Legato: legato, ChangeSets: &fakeChangeSets{}}})
+	tools, err := session.ListTools(context.Background(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	description := ""
+	for _, tool := range tools.Tools {
+		if tool.Name == "legato" {
+			description = tool.Description
+		}
+	}
+	for _, want := range []string{"task: list, create", "integration: token create", `["config","show"]`} {
+		if !strings.Contains(description, want) {
+			t.Errorf("the description lacks %q:\n%s", want, description)
+		}
+	}
+	if got := mcpText(callMCP(t, session, "legato", map[string]any{"args": `version --json "a b"`})); !strings.Contains(got, "v1.2.3") {
+		t.Fatalf("a string: %q", got)
+	}
+	if len(legato.ran) != 1 || strings.Join(legato.ran[0], "|") != "version|--json|a b" {
+		t.Fatalf("ran %q", legato.ran)
+	}
+}
+
+// watch_agent, unwatch_agent and list_watches call the watch routes with
+// the Reeve's own token.
+func TestTheReeveWatchesAgentsThroughItsTools(t *testing.T) {
+	s := newTestStore(t)
+	var calls []string
+	api := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		body, _ := io.ReadAll(r.Body)
+		calls = append(calls, r.Method+" "+r.URL.Path+" "+strings.TrimSpace(string(body))+" "+r.Header.Get("Authorization"))
+		switch r.Method {
+		case http.MethodPost:
+			w.WriteHeader(http.StatusCreated)
+			w.Write([]byte(`{"task_id":"T-1","events":["waiting","exited"],"state":"running"}`))
+		case http.MethodGet:
+			w.Write([]byte(`{"watches":[{"task_id":"T-1","title":"Docker","events":["waiting"],"state":"idle"}]}`))
+		default:
+			w.Write([]byte(`{"status":"ok"}`))
+		}
+	}))
+	defer api.Close()
+	taskID, executionID := seedReeve(t, s)
+	session := connectMCP(t, cli.MCPOptions{Store: s, TaskID: taskID, ExecutionID: executionID, Reeve: &cli.MCPReeve{APIBase: api.URL, HTTP: api.Client()}})
+
+	if got := mcpText(callMCP(t, session, "watch_agent", map[string]any{"task_id": "T-1", "events": []string{"waiting", "exited"}})); !strings.Contains(got, "Watching T-1") {
+		t.Fatalf("watch: %q", got)
+	}
+	if got := mcpText(callMCP(t, session, "list_watches", nil)); !strings.Contains(got, "T-1") || !strings.Contains(got, "idle") {
+		t.Fatalf("list: %q", got)
+	}
+	if got := mcpText(callMCP(t, session, "unwatch_agent", map[string]any{"task_id": "T-1"})); !strings.Contains(got, "no longer") {
+		t.Fatalf("unwatch: %q", got)
+	}
+	want := []string{
+		`POST /api/reeve/watches {"events":["waiting","exited"],"task_id":"T-1"} Bearer lgr_test`,
+		`GET /api/reeve/watches  Bearer lgr_test`,
+		`DELETE /api/reeve/watches/T-1  Bearer lgr_test`,
+	}
+	if strings.Join(calls, "\n") != strings.Join(want, "\n") {
+		t.Fatalf("calls:\n%s", strings.Join(calls, "\n"))
 	}
 }
