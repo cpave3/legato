@@ -193,7 +193,9 @@ type workerConn struct {
 	// reach makes a pull's "connected, then heard" and CheckReach's
 	// "still down, then marked unreachable" happen one at a time, so a
 	// CheckReach that saw the old drop time cannot mark the worker
-	// unreachable again after the pull has heard it.
+	// unreachable again after the pull has heard it. It is taken before mu,
+	// never while mu (or the connections' lock) is held, and is held across
+	// the database write.
 	reach sync.Mutex
 
 	mu        sync.Mutex
