@@ -149,3 +149,5 @@ Migration 104 adds `executions.engram` and `executions.engram_session` (both `''
 Migration 106 adds `executions.engram_home` (`''` for the person's own store): the store (`ENGRAM_HOME`) of an engram kept apart, the Reeve's, so its session is ended and restarted there. `SetExecutionEngramHome`, `ExecutionEngramHome`. The Reeve's seed keeps one value in `instance_values`: `reeve_seed_template`, the hash of the built-in seed current when a signed edit last wrote the seed. See [The Reeve](reeve.md) § Its engram.
 
 Migration 107 adds `execution_resources.from_repository` (`0` or `1`): a resource the execution was given by its repository (`agents.repository_resources`), not chosen. `AddExecutionRepositoryResources` sets it, `ListChosenExecutionResources` leaves those out. See [Resources](resources.md) § Resources for a repository.
+
+Migration 108 renames a saved `reeve.levels.risky` of `"auto"` to `"default"`: before `auto` was a level that runs a change at once, risky's `auto` meant the default (signed once a device is enrolled). See [The Reeve](reeve.md) § Levels and rules.
