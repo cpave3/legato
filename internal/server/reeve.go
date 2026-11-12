@@ -44,6 +44,8 @@ func (s *Server) registerReeveRoutes(mux *routeMux) {
 	mux.HandleFunc("DELETE /api/reeve/sessions/{task_id}", s.reeveDeleteHandler())
 	mux.HandleFunc("POST /api/reeve/message", s.reeveMessageHandler())
 	mux.HandleFunc("GET /api/reeve/sessions/{task_id}/change-sets", s.reeveChangeSetsHandler())
+	mux.HandleFunc("GET /api/reeve/auto", s.reeveAutoHandler())
+	mux.HandleFunc("POST /api/reeve/auto/off", s.reeveAutoOffHandler())
 	mux.HandleFunc("POST /api/reeve/secrets/{approval_id}", s.reeveSecretHandler())
 	mux.HandleFunc("GET /api/reeve/voice", s.reeveVoiceStatusHandler())
 	mux.HandleFunc("GET "+voiceSessionPath, s.reeveVoiceSessionHandler())

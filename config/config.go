@@ -487,6 +487,11 @@ func LoadBytes(data []byte) (*Config, error) {
 	}
 
 	cfg.Macros = rawMacros
+	// Before auto was a level, risky's auto meant the default: a file
+	// written then keeps that meaning. Risky auto is chosen in Settings.
+	if strings.TrimSpace(cfg.Reeve.Levels.Risky) == "auto" {
+		cfg.Reeve.Levels.Risky = "default"
+	}
 	if len(cfg.Repositories) == 0 && len(cfg.Workflows.Repositories) > 0 {
 		cfg.Repositories = append([]RepositoryConfig(nil), cfg.Workflows.Repositories...)
 	}
@@ -1091,6 +1096,10 @@ type ReeveConfig struct {
 	// HostOperations offers the Reeve host_shell, edit_file and
 	// manage_service. On when unset; one of its own rules.
 	HostOperations *bool `yaml:"host_operations"`
+	// HostOperationsAuto runs host operations that are not as root at once,
+	// with no approval asked: the Reeve can then run any command as
+	// Legato's user. Off when unset; one of its own rules.
+	HostOperationsAuto *bool `yaml:"host_operations_auto"`
 	// HostTimeout bounds one host command (10m when empty);
 	// HostOutputCap is how much of its output the Reeve is given (64 KiB
 	// when 0), the rest kept in a file it can read.
@@ -1229,6 +1238,13 @@ func (c ReeveVoiceConfig) CredentialVariable() string {
 // HostOperationsOn reports whether host operations are on (the default).
 func (c ReeveConfig) HostOperationsOn() bool { return c.HostOperations == nil || *c.HostOperations }
 
+// HostOperationsAutoOn reports whether host operations not as root run
+// without an approval (off by default, and never while host operations
+// are off).
+func (c ReeveConfig) HostOperationsAutoOn() bool {
+	return c.HostOperationsOn() && c.HostOperationsAuto != nil && *c.HostOperationsAuto
+}
+
 // HostCommandTimeout is how long one host command may run.
 func (c ReeveConfig) HostCommandTimeout() time.Duration {
 	if d, err := time.ParseDuration(c.HostTimeout); err == nil && d > 0 {
@@ -1245,9 +1261,12 @@ func (c ReeveConfig) HostOutputLimit() int {
 	return 64 << 10
 }
 
-// ReeveLevels is the level of each class: approve (a tap), signed (an
-// enrolled device), verified (signed, with a fingerprint or a PIN). Risky
-// may also be auto: signed once a device is enrolled, else approve.
+// ReeveLevels is the level of each class: auto (runs at once, no
+// approval asked), approve (a tap), signed (an enrolled device), verified
+// (signed, with a fingerprint or a PIN). Risky may also be default (the
+// default): signed once a device is enrolled, else approve. In
+// config.yaml, risky: auto is read as default, its meaning before auto
+// was a level.
 type ReeveLevels struct {
 	Change string `yaml:"change"`
 	Risky  string `yaml:"risky"`

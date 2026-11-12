@@ -74,9 +74,12 @@ type ProposedCall struct {
 	Class       string     `json:"class"`
 	Description string     `json:"description"`
 	Level       ReeveLevel `json:"level"`
-	Setting     string     `json:"setting,omitempty"`
-	Before      any        `json:"before,omitempty"`
-	After       any        `json:"after,omitempty"`
+	// LevelBy is what set the level: the class's level, a rule, the host
+	// auto setting, a floor or "as root". An auto set is decided by it.
+	LevelBy string `json:"level_by,omitempty"`
+	Setting string `json:"setting,omitempty"`
+	Before  any    `json:"before,omitempty"`
+	After   any    `json:"after,omitempty"`
 	// AppliesAtRestart: a restart-mode setting, which takes effect when
 	// Legato restarts.
 	AppliesAtRestart bool `json:"applies_at_restart,omitempty"`
@@ -203,7 +206,7 @@ func (c *ChangeSetService) Describe(ctx context.Context, reason string, calls []
 			if call.Optional {
 				p.Description = "Restart Legato (you can leave this out: the change then waits for the next restart)"
 			}
-			p.Level = ReeveLevelFor(cfg.Reeve, p.Class, "restart", enrolled)
+			p.resolve(cfg, enrolled, LevelCall{Calls: []string{"restart"}})
 		case CallHostShell, CallEditFile, CallManageService:
 			if err := c.describeHost(cfg, enrolled, i, &p); err != nil {
 				return details, err
@@ -216,7 +219,8 @@ func (c *ChangeSetService) Describe(ctx context.Context, reason string, calls []
 			if p.Class == "never" {
 				return details, fmt.Errorf("call %d (legato %s): %w: %s", i+1, strings.Join(call.Args, " "), ErrNeverCall, p.Description)
 			}
-			p.Level = ReeveLevelFor(cfg.Reeve, p.Class, "legato "+strings.Join(call.Args, " "), enrolled)
+			floor, why := legatoFloor(call.Args)
+			p.resolve(cfg, enrolled, LevelCall{Calls: []string{"legato " + strings.Join(call.Args, " ")}, Floor: floor, FloorWhy: why})
 		case CallConfigEdit:
 			if len(call.Edits) == 0 {
 				return details, fmt.Errorf("call %d: a config.yaml edit needs edits", i+1)
@@ -230,14 +234,16 @@ func (c *ChangeSetService) Describe(ctx context.Context, reason string, calls []
 				return details, fmt.Errorf("call %d: the edited config.yaml does not load: %s", i+1, loadErr)
 			}
 			p.Diff, p.Check = diff, "loads"
-			p.Level = ReeveLevelFor(cfg.Reeve, p.Class, "config_edit", enrolled)
+			// config.yaml can change anything, and pins what it names.
+			level := LevelCall{Calls: []string{"config_edit"}, Floor: LevelApprove, FloorWhy: "an edit of config.yaml"}
 			if key := editsOwnRule(call.Edits); key != "" {
 				// One of the Reeve's own rules: a signature, as from Settings.
 				if !enrolled {
 					return details, fmt.Errorf("call %d (%s): %w", i+1, key, ErrNoDeviceEnrolled)
 				}
-				p.Level = StrictestLevel(p.Level, LevelSigned)
+				level.Floor, level.FloorWhy = LevelSigned, "one of the Reeve's own rules ("+key+")"
 			}
+			p.resolve(cfg, enrolled, level)
 		case CallAPI, "":
 			p.Kind = CallAPI
 			p.Method = strings.ToUpper(strings.TrimSpace(call.Method))
@@ -254,8 +260,9 @@ func (c *ChangeSetService) Describe(ctx context.Context, reason string, calls []
 			if p.Class == "never" {
 				return details, fmt.Errorf("call %d (%s %s): %w: %s", i+1, p.Method, call.Path, ErrNeverCall, p.Description)
 			}
-			p.Level = ReeveLevelFor(cfg.Reeve, p.Class, p.Method+" "+call.Path, enrolled)
 			c.describeSetting(ctx, cfg, &p)
+			floor, why := apiFloor(p.Method, call.Path)
+			p.resolve(cfg, enrolled, LevelCall{Calls: []string{p.Method + " " + call.Path}, Floor: floor, FloorWhy: why})
 		default:
 			return details, fmt.Errorf("call %d: unknown kind %q", i+1, call.Kind)
 		}
@@ -264,6 +271,22 @@ func (c *ChangeSetService) Describe(ctx context.Context, reason string, calls []
 	}
 	details.Level = StrictestLevel(levels...)
 	return details, nil
+}
+
+// resolve sets a call's level and what set it, from its class.
+func (p *ProposedCall) resolve(cfg *config.Config, enrolled bool, call LevelCall) {
+	call.Class = p.Class
+	d := ResolveReeveLevel(cfg.Reeve, call, enrolled)
+	p.Level, p.LevelBy = d.Level, d.By
+}
+
+// autoBy is what decided an auto set: what set each call's level.
+func autoBy(calls []ProposedCall) string {
+	var by []string
+	for _, call := range calls {
+		by = append(by, call.LevelBy)
+	}
+	return "auto: " + strings.Join(dedupe(by), ", ")
 }
 
 // approvalProducers are the Attention producers whose actions decide an
@@ -379,17 +402,30 @@ func (c *ChangeSetService) Propose(ctx context.Context, taskID, reason string, c
 			Description: "The change is made; it takes effect at the next restart."})
 	}
 	options = append(options, ApprovalOption{ID: "deny", Label: "Deny", Kind: ApprovalDeny})
+	auto := details.Level == LevelAuto
 	approval, _, err := c.opts.Approvals.Submit(ctx, ApprovalInput{
 		Source: ApprovalSourceReeveChangeSet, SourceKey: details.ID, TaskID: taskID,
 		Title: title, Summary: changeSetSummary(details), Details: details,
 		Signed: details.Level == LevelSigned || details.Level == LevelVerified, Verified: details.Level == LevelVerified,
 		Options: options,
+		// An auto set is decided as it is made: nobody is told to decide it.
+		Quiet: auto,
 	})
 	if err != nil {
 		return ChangeSetOutcome{}, err
 	}
 	_ = c.opts.Store.SetReeveChangeSetApproval(ctx, details.ID, approval.ID)
 	out := ChangeSetOutcome{ID: details.ID, ApprovalID: approval.ID, State: "pending", Level: details.Level}
+	if auto {
+		// The person chose to let these run at once: the approval is
+		// recorded as decided by what allowed it, and the set is queued.
+		_ = c.opts.Store.SetReeveChangeSetWaiting(context.Background(), details.ID, false)
+		if _, err := c.opts.Approvals.Decide(ctx, approval.ID, ApprovalDecision{Decision: ApprovalAllow, Option: "allow", By: autoBy(details.Calls)}); err != nil {
+			return out, err
+		}
+		out.State = "approved"
+		return out, nil
+	}
 	decided, err := c.opts.Approvals.Wait(ctx, approval.ID, c.opts.Wait)
 	_ = c.opts.Store.SetReeveChangeSetWaiting(context.Background(), details.ID, false)
 	if err != nil || decided == nil {
@@ -501,6 +537,7 @@ func (c *ChangeSetService) run(ctx context.Context, set store.ReeveChangeSet, no
 		case call.Kind == CallRestart:
 			results[i].State = "ran"
 			restart = true
+			c.auditAuto(ctx, set, decision, call, results[i])
 		case isHostCall(call.Kind):
 			res, _, output := c.runHost(ctx, cfg, set, i+1, call)
 			results[i] = res
@@ -517,6 +554,7 @@ func (c *ChangeSetService) run(ctx context.Context, set store.ReeveChangeSet, no
 			default:
 				results[i].State, results[i].Detail = "ran", clip(strings.TrimSpace(output), 300)
 			}
+			c.auditAuto(ctx, set, decision, call, results[i])
 		case call.Kind == CallConfigEdit:
 			if backup, err := WriteConfigEdit(c.configPath(), call.Edits); err != nil {
 				results[i].State, results[i].Detail, failed = "failed", err.Error(), true
@@ -540,6 +578,7 @@ func (c *ChangeSetService) run(ctx context.Context, set store.ReeveChangeSet, no
 			default:
 				results[i].State, results[i].Detail = "ran", clip(strings.TrimSpace(body), 300)
 			}
+			c.auditAuto(ctx, set, decision, call, results[i])
 		}
 	}
 	state := store.ChangeSetDone

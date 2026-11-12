@@ -58,6 +58,9 @@ type ApprovalInput struct {
 	// (fingerprint, PIN) may allow it; a touch alone is refused. It
 	// implies Signed.
 	Verified bool
+	// Quiet: nobody is notified that it was made (Created is not called),
+	// since it is decided at once (a Reeve change set at the auto level).
+	Quiet bool
 }
 
 // ApprovalDecision is what the person decided, and where.
@@ -205,7 +208,7 @@ func (s *ApprovalService) Submit(ctx context.Context, in ApprovalInput) (*Approv
 	approval := decodeApproval(*row)
 	if created {
 		s.changed(approval, "created")
-		if s.opts.Created != nil {
+		if s.opts.Created != nil && !in.Quiet {
 			s.opts.Created(approval)
 		}
 	}

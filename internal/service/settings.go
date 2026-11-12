@@ -322,7 +322,7 @@ func (s *SettingsService) Check(ctx context.Context, key string, raw json.RawMes
 // Set keeps a setting's value in the database, once Check takes it. by
 // says who changed it.
 func (s *SettingsService) Set(ctx context.Context, key string, raw json.RawMessage, by string) error {
-	if err := ownRuleAllowed(ctx, key); err != nil {
+	if err := ownRuleAllowed(ctx, key); err != nil && !s.tightensSetting(ctx, key, raw, false) {
 		return err
 	}
 	canonical, err := s.Check(ctx, key, raw)
@@ -338,7 +338,7 @@ func (s *SettingsService) Set(ctx context.Context, key string, raw json.RawMessa
 
 // Reset deletes a setting's database value, so the default applies.
 func (s *SettingsService) Reset(ctx context.Context, key string) error {
-	if err := ownRuleAllowed(ctx, key); err != nil {
+	if err := ownRuleAllowed(ctx, key); err != nil && !s.tightensSetting(ctx, key, nil, true) {
 		return err
 	}
 	if _, ok := config.LookupSetting(key); !ok {
@@ -487,7 +487,7 @@ func redactEntry(v any) any {
 // file has an entry of that name, or when the whole configuration would be
 // invalid with it.
 func (s *SettingsService) SetEntry(ctx context.Context, list, name string, raw json.RawMessage, by string) error {
-	if err := ownRuleAllowed(ctx, list); err != nil {
+	if err := ownRuleAllowed(ctx, list); err != nil && !s.tightensRule(ctx, list, name, raw) {
 		return err
 	}
 	if _, err := s.CheckEntry(ctx, list, name, raw); err != nil {
@@ -540,7 +540,7 @@ func (s *SettingsService) CheckEntry(ctx context.Context, list, name string, raw
 
 // DeleteEntry removes one database entry of a list.
 func (s *SettingsService) DeleteEntry(ctx context.Context, list, name string) error {
-	if err := ownRuleAllowed(ctx, list); err != nil {
+	if err := ownRuleAllowed(ctx, list); err != nil && !s.tightensRule(ctx, list, name, nil) {
 		return err
 	}
 	if _, ok := config.LookupEntryList(list); !ok {
