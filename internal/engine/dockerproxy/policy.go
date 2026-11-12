@@ -49,7 +49,7 @@ var (
 	}
 	execFields    = []string{"AttachStdin", "AttachStdout", "AttachStderr", "ConsoleSize", "DetachKeys", "Tty", "Env", "Cmd", "Privileged", "User", "WorkingDir"}
 	volumeFields  = []string{"Name", "Driver", "DriverOpts", "Labels"}
-	networkFields = []string{"Name", "CheckDuplicate", "Driver", "Scope", "EnableIPv4", "EnableIPv6", "IPAM", "Internal", "Attachable", "Ingress", "ConfigOnly", "Options", "Labels"}
+	networkFields = []string{"Name", "CheckDuplicate", "Driver", "Scope", "EnableIPv4", "EnableIPv6", "IPAM", "Internal", "Attachable", "Ingress", "ConfigOnly", "ConfigFrom", "Options", "Labels"}
 )
 
 // Sysctls a container may set: those Linux keeps per namespace, so they
@@ -705,6 +705,22 @@ func (p *Proxy) createNetwork(r *http.Request) error {
 	if ingress || configOnly {
 		return refuse("ingress and config-only networks are not allowed")
 	}
+	// Compose sends ConfigFrom naming no network; it goes no further.
+	from, err := body.child("ConfigFrom")
+	if err != nil {
+		return err
+	}
+	if err := from.normalize([]string{"Network"}, "ConfigFrom."); err != nil {
+		return err
+	}
+	var fromNetwork string
+	if _, err := from.decode("Network", &fromNetwork); err != nil {
+		return err
+	}
+	if fromNetwork != "" {
+		return refuse("a network made from a config-only network is not allowed")
+	}
+	body.drop("ConfigFrom")
 	for k := range options {
 		if !slices.Contains(networkOptions, k) {
 			return refuse("the network option %s is not allowed", k)

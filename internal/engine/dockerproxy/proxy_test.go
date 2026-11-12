@@ -507,3 +507,23 @@ func TestStreamsPassThrough(t *testing.T) {
 		t.Fatalf("second line %q", second)
 	}
 }
+
+// Compose sends a network's ConfigFrom even when it names no network. That
+// passes, without the field; a network made from a config-only one does not.
+func TestANetworkMayNotBeMadeFromAConfigOnlyOne(t *testing.T) {
+	h := newHarness(t)
+	for _, from := range []any{nil, map[string]any{}, map[string]any{"Network": ""}} {
+		status, body := h.call(t, "POST", "/networks/create", map[string]any{"Name": "app_default", "Driver": "bridge", "ConfigFrom": from})
+		if status != http.StatusOK {
+			t.Fatalf("ConfigFrom %v = %d %s", from, status, body)
+		}
+	}
+	for _, got := range h.daemon.requests("POST", "/networks/create") {
+		if strings.Contains(strings.ToLower(string(got.Body)), "configfrom") {
+			t.Fatalf("the daemon was sent ConfigFrom: %s", got.Body)
+		}
+	}
+	if status, body := h.call(t, "POST", "/networks/create", map[string]any{"Name": "app_default", "ConfigFrom": map[string]any{"Network": "hostcfg"}}); status != http.StatusForbidden || !strings.Contains(body, "config-only") {
+		t.Fatalf("ConfigFrom naming a network = %d %s", status, body)
+	}
+}

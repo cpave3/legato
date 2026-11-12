@@ -4,6 +4,7 @@ import (
 	"bytes"
 	"encoding/json"
 	"fmt"
+	"slices"
 	"strings"
 )
 
@@ -133,6 +134,11 @@ func (o *object) set(key string, v any) error {
 	}
 	o.fields = append(o.fields, field{key: key, val: raw})
 	return nil
+}
+
+// drop removes a field.
+func (o *object) drop(key string) {
+	o.fields = slices.DeleteFunc(o.fields, func(f field) bool { return f.key == key })
 }
 
 func (o *object) MarshalJSON() ([]byte, error) {

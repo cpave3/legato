@@ -77,6 +77,11 @@ func dockerFixture(t *testing.T) (SandboxPlanInput, dockerproxy.Cleaner, string)
 // containers are not seen; a bind of ~/.ssh is refused; and everything the
 // execution made is gone once it is cleaned.
 func TestDockerWorksInsideTheSandboxThroughItsOwnSocket(t *testing.T) {
+	// docker compose exec needs a terminal, which util-linux's script gives
+	// it; the sandbox shows /usr, not a copy kept elsewhere (Homebrew's).
+	if _, err := os.Stat("/usr/bin/script"); err != nil {
+		t.Skip("needs util-linux's script in /usr/bin")
+	}
 	in, cleaner, execution := dockerFixture(t)
 	work := in.WorkDir
 	files := map[string]string{
