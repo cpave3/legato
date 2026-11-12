@@ -3,7 +3,7 @@ import { AskReeve } from "./AskReeve"
 import { parseReeveMessage, reeveBrief } from "../lib/reeve"
 import { ChangeSetLines } from "./ChangeSetLines"
 import { useState, useEffect, useLayoutEffect, useCallback, useRef, useMemo, useId, memo } from "react"
-import { ArrowDown, ArrowLeftRight, Bell, BellOff, Check, Pencil, RefreshCw, RotateCw, Shield, Skull, Terminal, Unplug, Zap } from "lucide-react"
+import { ArrowDown, ArrowLeftRight, Bell, BellOff, Check, FolderInput, Pencil, RefreshCw, RotateCw, Shield, Skull, Terminal, Unplug, Zap } from "lucide-react"
 import type { SandboxSwitch } from "../lib/agentReload"
 import { useWebSocket, type PromptState, type WSMessage } from "../hooks/useWebSocket"
 import { useServer } from "../hooks/useServer"
@@ -206,6 +206,8 @@ interface NativeAgentPanelProps {
   onKill?: () => void
   // Names the agent: opens the rename dialog.
   onRename?: () => void
+  // Opens the dialog that puts the agent in a group.
+  onMoveToGroup?: () => void
   // Set to this panel's refresh from the snapshot, for a menu outside it.
   resyncRef?: { current: (() => void) | null }
   // Stops the agent and starts it again, resuming its conversation.
@@ -236,7 +238,7 @@ interface NativeAgentPanelProps {
   pullRequest?: number
 }
 
-export function NativeAgentPanel({ agentId, reeve, sandboxed, onKill, onRename, resyncRef, onReload, switchSandbox, onDisconnect, onDowngradeChimera, ntfyConfigured, notifyEnabled, onToggleNotify, voiceEnabled, agentKind, engram, composerEnabled = true, onOpenUIItem, panels, title, activity, stateTime, pullRequest }: NativeAgentPanelProps) {
+export function NativeAgentPanel({ agentId, reeve, sandboxed, onKill, onRename, onMoveToGroup, resyncRef, onReload, switchSandbox, onDisconnect, onDowngradeChimera, ntfyConfigured, notifyEnabled, onToggleNotify, voiceEnabled, agentKind, engram, composerEnabled = true, onOpenUIItem, panels, title, activity, stateTime, pullRequest }: NativeAgentPanelProps) {
   const { send, subscribe, connected } = useWebSocket()
   // Out of view the panel stops following the agent and catches up from its
   // cursor on return, so a phone with its screen off does not keep receiving
@@ -919,6 +921,7 @@ export function NativeAgentPanel({ agentId, reeve, sandboxed, onKill, onRename, 
     : "idle"
   const menu: AgentMenuEntry[] = [
     ...(onRename ? [{ label: "Rename", icon: <Pencil size={12} />, onSelect: onRename }] : []),
+    ...(onMoveToGroup ? [{ label: "Move to group…", icon: <FolderInput size={12} />, onSelect: onMoveToGroup }] : []),
     { label: loading ? "Refreshing…" : "Refresh from snapshot", icon: <RefreshCw size={12} className={loading ? "animate-spin" : ""} />, onSelect: () => { void resync() }, disabled: loading },
     ...(ntfyConfigured && onToggleNotify ? [{ label: notifyEnabled ? "Disable notify" : "Enable notify", icon: notifyEnabled ? <Bell size={12} /> : <BellOff size={12} />, onSelect: onToggleNotify }] : []),
     ...(onDowngradeChimera ? [{

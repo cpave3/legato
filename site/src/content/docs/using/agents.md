@@ -196,7 +196,7 @@ You can run `legato agent message` yourself to message any running agent. Peer m
 
 | Key | Action |
 | --- | --- |
-| `g` | Put the agent's task in a group |
+| `g` | Put the agent's task in a group. The web UI lists agents by these groups; see [Groups](/legato/using/web-ui/#groups) |
 | `n` | Turn notifications for the agent on or off, with [notifications](/legato/integrations/notifications/) set up |
 | `v` | Dictate a message, with voice input on |
 | `o` | Open the cards and artifacts the agent showed in the web UI |

@@ -308,7 +308,7 @@ macros:
 
 | Setting | Type | Default | What it does |
 | --- | --- | --- | --- |
-| `groups.defaults` | list of strings | none | Group names always offered when you set an agent's group (`g` in the TUI's agents view), beside the groups agents already have. |
+| `groups.defaults` | list of strings | none | Group names always offered when you set an agent's group (`g` in the TUI's agents view), beside the groups agents already have. The web UI's agent list shows these groups first, even when empty. |
 
 ## Voice
 
