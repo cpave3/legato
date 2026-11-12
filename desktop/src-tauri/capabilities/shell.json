@@ -48,6 +48,8 @@
     "allow-voice-key-info",
     "allow-change-voice-key",
     "allow-set-hold-to-talk",
+    "allow-set-voice-keys",
+    "allow-set-voice-key-backend",
     "allow-voice-targets",
     "allow-set-voice-server",
     "allow-voice-action",

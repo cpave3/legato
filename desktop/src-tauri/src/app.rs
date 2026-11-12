@@ -24,7 +24,7 @@ use crate::links;
 use crate::bridge::{self, PageMessage, VoiceAction, VoiceEvent};
 use crate::{fido, systrust, touchid, voice, voiceclient, voicekey, voicemain, voicewidget, workers};
 use crate::voiceclient::{Command, Ui};
-use crate::voicekey::{Backend, Input, VoiceKey};
+use crate::voicekey::{Backend, Input, KeyBackend, VoiceKey};
 
 // The shell's chrome, in logical pixels: the title bar across the top and
 // the dock down the left. Server pages fill the rest.
@@ -63,6 +63,8 @@ pub struct Desktop {
     /// The key that starts talking to the Reeve.
     keys: Mutex<voicekey::Keys>,
     key: Mutex<KeyInfo>,
+    /// The keys the app grabbed (`Backend::Grab`), to tell talk from cancel.
+    grabbed: Mutex<Vec<(tauri_plugin_global_shortcut::Shortcut, voicekey::Shortcut, String)>>,
     #[cfg(target_os = "linux")]
     portal: Mutex<Option<std::sync::Arc<crate::voicekey_portal::Portal>>>,
     /// The instance each server last said it is (`/api/reeve/voice`), by
@@ -562,9 +564,18 @@ fn open_in_page(app: &AppHandle, desktop: &Desktop, server: String, path: &str, 
 /// The key as the settings show it, and the widget will.
 #[derive(Clone, Debug, Serialize)]
 pub struct KeyInfo {
+    /// The way the key is had now.
     backend: Backend,
+    /// The way chosen for a Wayland desktop (`voice.key_backend`), which
+    /// applies from the next start.
+    choice: KeyBackend,
+    /// This desktop can choose: Wayland with XWayland.
+    can_choose: bool,
     /// The bound key as the person reads it; None when none is bound.
     key: Option<String>,
+    /// The grabbed keys, as the plugin reads them (`Backend::Grab`).
+    talk: Option<String>,
+    cancel: Option<String>,
     hold_to_talk: bool,
     /// The desktop can show its own dialog to change the key.
     can_change: bool,
@@ -595,7 +606,7 @@ fn voice_key_input(app: &AppHandle, input: Input, from: &'static str) {
 }
 
 /// Tells the app the key asked something: the `voice-key` event,
-/// `{key: "talk" | "hold" | "release" | "cancel", from: "portal" | "shortcut" | "link"}`.
+/// `{key: "talk" | "hold" | "release" | "cancel", from: "grab" | "portal" | "link"}`.
 /// The press is also handed to the conversation, which it starts when
 /// there is none.
 fn voice_key(app: &AppHandle, key: VoiceKey, from: &'static str) {
@@ -1338,38 +1349,54 @@ fn voice_action(app: AppHandle, action: String) -> Result<(), String> {
     Ok(())
 }
 
-/// Starts listening for the key the way this computer has it.
+/// Starts listening for the key the way this computer has it, and says so
+/// on the app's output.
 fn start_voice_key(app: &AppHandle) {
-    let backend = app.state::<Desktop>().key.lock().unwrap().backend;
+    let (backend, choice, can_choose) = {
+        let desktop = app.state::<Desktop>();
+        let key = desktop.key.lock().unwrap();
+        (key.backend, key.choice, key.can_choose)
+    };
+    let why = if can_choose { format!(" (voice.key_backend {}, set in Servers & keys)", if choice == KeyBackend::Portal { "portal" } else { "grab" }) } else { String::new() };
     match backend {
         Backend::Link => println!("[voice key] no global key here; {VOICE_LINK} does what it would"),
-        Backend::Shortcut => {
-            use tauri_plugin_global_shortcut::GlobalShortcutExt;
-            // The plugin is added only here, where the app grabs the key.
+        Backend::Grab => {
+            println!("[voice key] the app grabs the key itself{why}");
+            // The plugin is added only here, where the app grabs the key, so
+            // the portal and the grab are never both bound.
             let plugin = tauri_plugin_global_shortcut::Builder::new()
-                .with_handler(|app, _shortcut, event| {
-                    let input = match event.state() {
-                        tauri_plugin_global_shortcut::ShortcutState::Pressed => Input::Pressed(voicekey::Shortcut::Talk),
-                        tauri_plugin_global_shortcut::ShortcutState::Released => Input::Released(voicekey::Shortcut::Talk),
-                    };
-                    voice_key_input(app, input, "shortcut");
+                .with_handler(|app, shortcut, event| {
+                    let found = app.state::<Desktop>().grabbed.lock().unwrap().iter().find(|(s, ..)| s == shortcut).map(|(_, w, t)| (*w, t.clone()));
+                    let Some((which, text)) = found else { return };
+                    let pressed = event.state() == tauri_plugin_global_shortcut::ShortcutState::Pressed;
+                    println!("[voice key] grab: {text} {}", if pressed { "pressed" } else { "released" });
+                    voice_key_input(app, if pressed { Input::Pressed(which) } else { Input::Released(which) }, "grab");
                 })
                 .build();
             if let Err(e) = app.plugin(plugin) {
-                println!("[voice key] the global-shortcut plugin did not start: {e}");
+                println!("[voice key] grab: the global-shortcut plugin did not start: {e}");
                 return key_changed(app, |k| k.problem = Some(format!("Could not grab a global key: {e}")));
             }
-            let accelerator = voicekey::shortcut_accelerator(std::env::consts::OS);
-            match app.global_shortcut().register(accelerator) {
-                Ok(()) => key_changed(app, |k| k.key = voicekey::key_text(accelerator, cfg!(target_os = "macos"))),
+            let (talk, cancel) = {
+                let desktop = app.state::<Desktop>();
+                let store = desktop.store.lock().unwrap();
+                (store.state.voice.talk_key.clone(), store.state.voice.cancel_key.clone())
+            };
+            let defaults = voicekey::default_keys(std::env::consts::OS);
+            let (talk, cancel) = match voicekey::chosen_keys(talk.as_deref().unwrap_or(defaults.talk), cancel.as_deref().unwrap_or(defaults.cancel)) {
+                Ok(keys) => keys,
                 Err(e) => {
-                    println!("[voice key] could not take {accelerator}: {e}");
-                    key_changed(app, |k| k.problem = Some(format!("Could not take {accelerator}: {e}")));
+                    println!("[voice key] grab: the saved keys do not read ({e}); the defaults instead");
+                    (defaults.talk.to_string(), defaults.cancel.to_string())
                 }
+            };
+            if let Err(e) = grab_keys(app, &talk, &cancel) {
+                key_changed(app, |k| k.problem = Some(e));
             }
         }
         #[cfg(target_os = "linux")]
         Backend::Portal => {
+            println!("[voice key] the key is the desktop's GlobalShortcuts portal{why}");
             let app = app.clone();
             tauri::async_runtime::spawn(async move {
                 let (on_input, on_text, on_lost) = (app.clone(), app.clone(), app.clone());
@@ -1400,7 +1427,7 @@ fn start_voice_key(app: &AppHandle) {
                         println!("[voice key] the portal did not give a key: {e}");
                         key_changed(&app, |k| {
                             k.backend = Backend::Link;
-                            k.problem = Some(format!("The desktop gave no global key ({e}). Bind {VOICE_LINK} in its own shortcut settings."));
+                            k.problem = Some(format!("The desktop gave no global key ({e}). Let the app grab the key (below), or bind {VOICE_LINK} in the desktop's own shortcut settings."));
                         });
                     }
                 }
@@ -1409,6 +1436,89 @@ fn start_voice_key(app: &AppHandle) {
         #[cfg(not(target_os = "linux"))]
         Backend::Portal => {}
     }
+}
+
+/// Grabs these keys (as the plugin reads them) in place of any grabbed
+/// before, and says so on the output and in the settings. A key the
+/// desktop or another app has already is not taken: the error says which.
+fn grab_keys(app: &AppHandle, talk: &str, cancel: &str) -> Result<(), String> {
+    use tauri_plugin_global_shortcut::{GlobalShortcutExt, Shortcut};
+    let parse = |k: &str| k.parse::<Shortcut>().map_err(|e| format!("{k} is not a key the app can take: {e}"));
+    let wanted = [(parse(talk)?, voicekey::Shortcut::Talk), (parse(cancel)?, voicekey::Shortcut::Cancel)];
+    let shortcuts = app.global_shortcut();
+    let old: Vec<_> = std::mem::take(&mut *app.state::<Desktop>().grabbed.lock().unwrap());
+    for (s, ..) in &old {
+        let _ = shortcuts.unregister(*s);
+    }
+    let display = std::env::var("DISPLAY").map(|d| format!(" on X display {d}")).unwrap_or_default();
+    let mut problems = Vec::new();
+    let mut grabbed = Vec::new();
+    for ((shortcut, which), text) in wanted.into_iter().zip([talk, cancel]) {
+        let what = if which == voicekey::Shortcut::Talk { "talk" } else { "cancel" };
+        match shortcuts.register(shortcut) {
+            Ok(()) => {
+                println!("[voice key] grab: registered {text} ({what}){display}");
+                grabbed.push((shortcut, which, text.to_string()));
+            }
+            Err(e) => {
+                println!("[voice key] grab: could not register {text} ({what}){display}: {e}");
+                problems.push(format!("Could not take {text}: {e}. Another app or the desktop may have it; choose another key."));
+            }
+        }
+    }
+    let talk_taken = grabbed.iter().any(|(_, w, _)| *w == voicekey::Shortcut::Talk);
+    *app.state::<Desktop>().grabbed.lock().unwrap() = grabbed;
+    let mac = cfg!(target_os = "macos");
+    let problem = (!problems.is_empty()).then(|| problems.join(" "));
+    key_changed(app, |k| {
+        k.key = if talk_taken { voicekey::key_text(talk, mac) } else { None };
+        k.talk = Some(talk.to_string());
+        k.cancel = Some(cancel.to_string());
+        k.problem = problem.clone();
+    });
+    problem.map_or(Ok(()), Err)
+}
+
+/// The keys the person chose in Servers & keys, as the page records them
+/// (`Ctrl+Alt+KeyV`), grabbed at once and kept; none is the defaults.
+#[tauri::command]
+fn set_voice_keys(app: AppHandle, desktop: State<'_, Desktop>, talk: Option<String>, cancel: Option<String>) -> Result<(), String> {
+    let defaults = voicekey::default_keys(std::env::consts::OS);
+    let (talk_key, cancel_key) = voicekey::chosen_keys(talk.as_deref().unwrap_or(defaults.talk), cancel.as_deref().unwrap_or(defaults.cancel))?;
+    let saved = |k: &String, default: &str| (k != default).then(|| k.clone());
+    if desktop.key.lock().unwrap().backend == Backend::Grab {
+        let before = desktop.key.lock().unwrap().clone();
+        if let Err(e) = grab_keys(&app, &talk_key, &cancel_key) {
+            // Back to the keys that worked.
+            if let (Some(t), Some(c)) = (before.talk, before.cancel) {
+                let _ = grab_keys(&app, &t, &c);
+            }
+            return Err(e);
+        }
+    } else {
+        key_changed(&app, |k| {
+            k.talk = Some(talk_key.clone());
+            k.cancel = Some(cancel_key.clone());
+        });
+    }
+    let mut store = desktop.store.lock().unwrap();
+    store.state.voice.talk_key = saved(&talk_key, defaults.talk);
+    store.state.voice.cancel_key = saved(&cancel_key, defaults.cancel);
+    store.save()
+}
+
+/// Grab the key or ask the portal, on a Wayland desktop: from the next
+/// start, so the two are never bound at once.
+#[tauri::command]
+fn set_voice_key_backend(app: AppHandle, desktop: State<'_, Desktop>, backend: KeyBackend) -> Result<(), String> {
+    {
+        let mut store = desktop.store.lock().unwrap();
+        store.state.voice.key_backend = backend;
+        store.save()?;
+    }
+    println!("[voice key] voice.key_backend is now {backend:?}; it applies when the app next starts");
+    key_changed(&app, |k| k.choice = backend);
+    Ok(())
 }
 
 #[tauri::command]
@@ -2149,7 +2259,10 @@ fn state_path() -> std::path::PathBuf {
 pub fn run() {
     let store = Store::open(state_path(), Box::new(Keyring)).expect("the app's saved state does not read");
     let hold_to_talk = store.state.voice.hold_to_talk;
-    let backend = voicekey::backend(&voicekey::Platform::this());
+    let platform = voicekey::Platform::this();
+    let choice = store.state.voice.key_backend;
+    let backend = voicekey::backend(&platform, choice);
+    let can_choose = voicekey::can_choose(&platform);
     tauri::Builder::default()
         // A second start (the system opening a link) hands its link to the
         // app that runs and ends; the deep-link plugin reads the link.
@@ -2172,7 +2285,8 @@ pub fn run() {
             recordings: Default::default(),
             imports: Mutex::default(),
             keys: Mutex::new(voicekey::Keys::new(hold_to_talk)),
-            key: Mutex::new(KeyInfo { backend, key: None, hold_to_talk, can_change: false, problem: None, link: VOICE_LINK }),
+            key: Mutex::new(KeyInfo { backend, choice, can_choose, key: None, talk: None, cancel: None, hold_to_talk, can_change: false, problem: None, link: VOICE_LINK }),
+            grabbed: Mutex::default(),
             #[cfg(target_os = "linux")]
             portal: Mutex::default(),
             voice_targets: Mutex::default(),
@@ -2287,6 +2401,8 @@ pub fn run() {
             voice_key_info,
             change_voice_key,
             set_hold_to_talk,
+            set_voice_keys,
+            set_voice_key_backend,
             voice_targets,
             set_voice_server,
             voice_action,

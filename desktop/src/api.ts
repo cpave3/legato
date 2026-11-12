@@ -83,9 +83,18 @@ export type ImportTarget = "ask" | "current"
 // The key that starts talking to the Reeve (src-tauri/src/voicekey.rs).
 // key is the bound key as the person reads it; problem says why it does not
 // work, when it does not, and link then still does what it would.
+// backend is the way the key is had now: grabbed by the app, or the
+// desktop's portal; choice is the way chosen for a Wayland desktop, which
+// applies from the next start (can_choose: this desktop can). talk and
+// cancel are the grabbed keys, as the plugin reads them.
+export type KeyBackend = "grab" | "portal"
 export type VoiceKeyInfo = {
-  backend: "portal" | "shortcut" | "link"
+  backend: KeyBackend | "link"
+  choice: KeyBackend
+  can_choose: boolean
   key?: string | null
+  talk?: string | null
+  cancel?: string | null
   hold_to_talk: boolean
   can_change: boolean
   problem?: string | null
@@ -149,6 +158,9 @@ export const api = {
   voiceKeyInfo: () => invoke<VoiceKeyInfo>("voice_key_info"),
   changeVoiceKey: () => invoke<void>("change_voice_key"),
   setHoldToTalk: (on: boolean) => invoke<void>("set_hold_to_talk", { on }),
+  // A key as recordedKey writes it; null is the default.
+  setVoiceKeys: (talk: string | null, cancel: string | null) => invoke<void>("set_voice_keys", { talk, cancel }),
+  setVoiceKeyBackend: (backend: KeyBackend) => invoke<void>("set_voice_key_backend", { backend }),
   voiceTargets: () => invoke<VoiceTargets>("voice_targets"),
   setVoiceServer: (instance: string | null) => invoke<void>("set_voice_server", { instance }),
   // The widget's buttons: talk (the key), stop, reply, send, cancel, end.

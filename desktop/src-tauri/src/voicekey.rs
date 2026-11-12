@@ -1,11 +1,15 @@
 //! The key that starts talking to the Reeve from any app.
 //!
-//! - On a Wayland desktop (KDE Plasma first) the key is the XDG desktop
-//!   portal's GlobalShortcuts (`voicekey_portal`): two shortcuts, `talk` and
-//!   `cancel`, that the desktop's own dialog binds and keeps.
-//! - On X11, macOS and Windows it is `tauri-plugin-global-shortcut`, which grabs the
-//!   key itself (on Wayland it would see keys only while an XWayland window
-//!   has focus).
+//! - Everywhere it can, the app grabs the key itself with
+//!   `tauri-plugin-global-shortcut` (`Backend::Grab`): a key that talks and
+//!   one that cancels, which the person can change in Servers & keys. On
+//!   Linux the plugin grabs through X11, so on a Wayland desktop it is
+//!   XWayland's: KDE passes X11 apps keys typed with Ctrl, Alt or Meta held
+//!   (its default "Legacy X11 App Support"), whatever window has focus.
+//! - On a Wayland desktop the person may choose the XDG desktop portal's
+//!   GlobalShortcuts instead (`voicekey_portal`, `voice.key_backend:
+//!   portal`): two shortcuts, `talk` and `cancel`, that the desktop's own
+//!   dialog binds and keeps. Never both: one press would count twice.
 //! - Everywhere, `legato-desktop://voice` (or `legato-desktop --voice`) does
 //!   what the key does, for a desktop where neither works: the person binds
 //!   that in the desktop's own custom shortcuts.
@@ -15,14 +19,17 @@
 
 use serde::Serialize;
 
+pub use crate::store::KeyBackend;
+
 /// How this computer's key is had.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize)]
 #[serde(rename_all = "lowercase")]
 pub enum Backend {
-    /// The XDG desktop portal's GlobalShortcuts (Wayland).
+    /// `tauri-plugin-global-shortcut`, which grabs the key (X11 or XWayland,
+    /// macOS, Windows): talk and cancel.
+    Grab,
+    /// The XDG desktop portal's GlobalShortcuts (Wayland, when chosen).
     Portal,
-    /// `tauri-plugin-global-shortcut` (X11, macOS, Windows): talk only, no cancel.
-    Shortcut,
     /// Only the `legato-desktop://voice` link.
     Link,
 }
@@ -36,7 +43,7 @@ pub struct Platform {
     pub session_type: Option<String>,
     /// `WAYLAND_DISPLAY` is set.
     pub wayland_display: bool,
-    /// `DISPLAY` is set.
+    /// `DISPLAY` is set: an X server, or on Wayland XWayland.
     pub x_display: bool,
 }
 
@@ -50,29 +57,126 @@ impl Platform {
             x_display: set("DISPLAY"),
         }
     }
-}
 
-/// Which way this computer has the key. When the portal fails at run time
-/// the app falls back to the link, not to grabbing the key through X11.
-pub fn backend(p: &Platform) -> Backend {
-    match p.os {
-        "macos" | "windows" => Backend::Shortcut,
-        "linux" => {
-            let wayland = match p.session_type.as_deref() {
+    /// A Linux Wayland session (the session type wins over the variables:
+    /// Plasma on X11 sometimes sets WAYLAND_DISPLAY too).
+    fn wayland(&self) -> bool {
+        self.os == "linux"
+            && match self.session_type.as_deref() {
                 Some("wayland") => true,
                 Some("x11") => false,
-                _ => p.wayland_display,
-            };
-            if wayland {
+                _ => self.wayland_display,
+            }
+    }
+}
+
+/// Which way this computer has the key, given the person's choice. A Wayland
+/// desktop grabs it through XWayland unless the portal is chosen, or there
+/// is no XWayland. When the way fails at run time the app falls back to the
+/// link, never to the other way.
+pub fn backend(p: &Platform, choice: KeyBackend) -> Backend {
+    match p.os {
+        "macos" | "windows" => Backend::Grab,
+        "linux" if p.wayland() => {
+            if choice == KeyBackend::Portal || !p.x_display {
                 Backend::Portal
-            } else if p.x_display {
-                Backend::Shortcut
             } else {
-                Backend::Link
+                Backend::Grab
             }
         }
+        "linux" if p.x_display => Backend::Grab,
         _ => Backend::Link,
     }
+}
+
+/// Whether the person can choose between grabbing the key and the portal:
+/// a Wayland desktop with XWayland.
+pub fn can_choose(p: &Platform) -> bool {
+    p.wayland() && p.x_display
+}
+
+/// The keys the app grabs unless the person chose others, as the plugin
+/// reads them. Not Super: KWin and GNOME keep many Meta keys for
+/// themselves. On a Mac Option+Cmd+Space is Finder's search and
+/// Ctrl+Option+Space switches the input source.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct GrabKeys {
+    pub talk: &'static str,
+    pub cancel: &'static str,
+}
+
+pub fn default_keys(os: &str) -> GrabKeys {
+    if os == "macos" {
+        GrabKeys { talk: "Ctrl+Shift+Space", cancel: "Ctrl+Alt+Shift+Space" }
+    } else {
+        GrabKeys { talk: "Ctrl+Alt+Space", cancel: "Ctrl+Alt+Shift+Space" }
+    }
+}
+
+/// A key the person chose, as the page records it (`Ctrl+Alt+KeyV`, the
+/// DOM's code for the key), written as the plugin reads it: the modifiers in
+/// one order (Ctrl, Alt, Shift, Super), then the key (`Ctrl+Alt+V`). Refused
+/// when it is not modifiers and one key, or has no Ctrl, Alt or Super: such
+/// a key would be taken from every app, and KDE passes X11 apps only keys
+/// typed with Ctrl, Alt or Meta.
+pub fn accelerator(raw: &str) -> Result<String, String> {
+    let tokens: Vec<&str> = raw.split('+').map(str::trim).collect();
+    if tokens.iter().any(|t| t.is_empty()) {
+        return Err(format!("“{}” is not a key.", raw.trim()));
+    }
+    let (key, modifiers) = tokens.split_last().ok_or_else(|| "No key was given.".to_string())?;
+    let (mut ctrl, mut alt, mut shift, mut sup) = (false, false, false, false);
+    for m in modifiers {
+        match m.to_ascii_lowercase().as_str() {
+            "ctrl" | "control" => ctrl = true,
+            "alt" | "option" => alt = true,
+            "shift" => shift = true,
+            "super" | "meta" | "cmd" | "command" | "logo" => sup = true,
+            _ => return Err(format!("“{}” is not one key with modifiers.", raw.trim())),
+        }
+    }
+    let lower = key.to_ascii_lowercase();
+    let modifier_key = ["control", "ctrl", "alt", "option", "shift", "super", "meta", "cmd", "command", "logo", "os"]
+        .iter()
+        .any(|m| lower == *m || lower.strip_prefix(m).is_some_and(|rest| rest == "left" || rest == "right"));
+    if modifier_key {
+        return Err("Press a key with the modifiers, not only modifiers.".into());
+    }
+    let key = if let Some(letter) = key.strip_prefix("Key").filter(|k| k.len() == 1) {
+        letter.to_ascii_uppercase()
+    } else if let Some(digit) = key.strip_prefix("Digit").filter(|k| k.len() == 1) {
+        digit.to_string()
+    } else if key.len() == 1 {
+        key.to_ascii_uppercase()
+    } else {
+        let mut chars = key.chars();
+        chars.next().map(|c| c.to_ascii_uppercase().to_string() + chars.as_str()).unwrap_or_default()
+    };
+    if !(ctrl || alt || sup) {
+        return Err(format!("{} needs Ctrl, Alt or Super with it, or it would be taken from every app.", if shift { format!("Shift+{key}") } else { key }));
+    }
+    let mut parts: Vec<&str> = Vec::new();
+    for (on, name) in [(ctrl, "Ctrl"), (alt, "Alt"), (shift, "Shift"), (sup, "Super")] {
+        if on {
+            parts.push(name);
+        }
+    }
+    parts.push(&key);
+    let written = parts.join("+");
+    written
+        .parse::<tauri_plugin_global_shortcut::Shortcut>()
+        .map_err(|e| format!("“{}” is not a key the app can take: {e}", raw.trim()))?;
+    Ok(written)
+}
+
+/// The talk and cancel keys the person chose, written as the plugin reads
+/// them; refused when either is, or when they are the same key.
+pub fn chosen_keys(talk: &str, cancel: &str) -> Result<(String, String), String> {
+    let (talk, cancel) = (accelerator(talk)?, accelerator(cancel)?);
+    if talk == cancel {
+        return Err(format!("{talk} cannot both talk and cancel."));
+    }
+    Ok((talk, cancel))
 }
 
 /// The portal's shortcut IDs.
@@ -82,17 +186,6 @@ pub const CANCEL: &str = "cancel";
 /// The key the app asks the portal for, in the XDG shortcuts
 /// specification's words (Meta+Alt+Space); the desktop may give another.
 pub const PORTAL_TRIGGER: &str = "LOGO+ALT+space";
-
-/// The key the app grabs on X11 and macOS, as the global-shortcut plugin
-/// reads it. On a Mac Option+Cmd+Space is Finder's search and
-/// Ctrl+Option+Space switches the input source.
-pub fn shortcut_accelerator(os: &str) -> &'static str {
-    if os == "macos" {
-        "Ctrl+Shift+Space"
-    } else {
-        "Super+Alt+Space"
-    }
-}
 
 /// One of the two shortcuts.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -300,15 +393,77 @@ mod tests {
     }
 
     #[test]
-    fn a_wayland_desktop_uses_the_portal_and_x11_and_a_mac_grab_the_key() {
-        assert_eq!(backend(&linux(Some("wayland"), true, true)), Backend::Portal);
-        assert_eq!(backend(&linux(None, true, true)), Backend::Portal);
-        assert_eq!(backend(&linux(Some("x11"), false, true)), Backend::Shortcut);
+    fn a_wayland_desktop_grabs_the_key_through_xwayland_unless_the_portal_is_chosen() {
+        use KeyBackend::{Grab, Portal};
+        assert_eq!(backend(&linux(Some("wayland"), true, true), Grab), Backend::Grab);
+        assert_eq!(backend(&linux(None, true, true), Grab), Backend::Grab);
+        assert_eq!(backend(&linux(Some("wayland"), true, true), Portal), Backend::Portal);
+        assert_eq!(backend(&linux(None, true, true), Portal), Backend::Portal);
+        // No XWayland to grab through: the portal.
+        assert_eq!(backend(&linux(Some("wayland"), true, false), Grab), Backend::Portal);
+        // The portal is for Wayland; X11 always grabs.
+        assert_eq!(backend(&linux(Some("x11"), false, true), Portal), Backend::Grab);
         // Plasma on X11 also sets WAYLAND_DISPLAY sometimes; the session type wins.
-        assert_eq!(backend(&linux(Some("x11"), true, true)), Backend::Shortcut);
-        assert_eq!(backend(&linux(Some("tty"), false, false)), Backend::Link);
-        assert_eq!(backend(&Platform { os: "macos", ..Platform::default() }), Backend::Shortcut);
-        assert_eq!(backend(&Platform { os: "freebsd", ..Platform::default() }), Backend::Link);
+        assert_eq!(backend(&linux(Some("x11"), true, true), Portal), Backend::Grab);
+        assert_eq!(backend(&linux(Some("tty"), false, false), Grab), Backend::Link);
+        assert_eq!(backend(&Platform { os: "macos", ..Platform::default() }, Portal), Backend::Grab);
+        assert_eq!(backend(&Platform { os: "freebsd", ..Platform::default() }, Grab), Backend::Link);
+    }
+
+    #[test]
+    fn only_a_wayland_desktop_can_choose_the_portal() {
+        assert!(can_choose(&linux(Some("wayland"), true, true)));
+        assert!(!can_choose(&linux(Some("wayland"), true, false)));
+        assert!(!can_choose(&linux(Some("x11"), false, true)));
+        assert!(!can_choose(&Platform { os: "macos", ..Platform::default() }));
+    }
+
+    #[test]
+    fn the_grabbed_keys_are_ctrl_alt_space_and_with_shift_to_cancel() {
+        let linux_keys = default_keys("linux");
+        assert_eq!((linux_keys.talk, linux_keys.cancel), ("Ctrl+Alt+Space", "Ctrl+Alt+Shift+Space"));
+        assert_eq!(default_keys("windows"), linux_keys);
+        let mac = default_keys("macos");
+        assert_eq!((mac.talk, mac.cancel), ("Ctrl+Shift+Space", "Ctrl+Alt+Shift+Space"));
+        for keys in [linux_keys, mac] {
+            assert_eq!(accelerator(keys.talk).as_deref(), Ok(keys.talk));
+            assert_eq!(accelerator(keys.cancel).as_deref(), Ok(keys.cancel));
+        }
+    }
+
+    #[test]
+    fn a_chosen_key_is_written_as_the_plugin_reads_it() {
+        // As the page records a key: the DOM's code for it.
+        assert_eq!(accelerator("Ctrl+Alt+KeyV").as_deref(), Ok("Ctrl+Alt+V"));
+        assert_eq!(accelerator("Alt+Ctrl+Digit1").as_deref(), Ok("Ctrl+Alt+1"));
+        assert_eq!(accelerator("Meta+Shift+Space").as_deref(), Ok("Shift+Super+Space"));
+        assert_eq!(accelerator("control+option+space").as_deref(), Ok("Ctrl+Alt+Space"));
+        assert_eq!(accelerator("Ctrl+Alt+F5").as_deref(), Ok("Ctrl+Alt+F5"));
+        assert_eq!(accelerator(" Ctrl + Alt + KeyP ").as_deref(), Ok("Ctrl+Alt+P"));
+    }
+
+    #[test]
+    fn a_key_with_no_ctrl_alt_or_super_is_refused() {
+        // It would be taken from every app, and KDE passes X11 apps only
+        // keys typed with Ctrl, Alt or Meta.
+        for raw in ["KeyA", "Space", "Shift+KeyA", "Shift+Space", "F5"] {
+            assert!(accelerator(raw).is_err(), "{raw}");
+        }
+    }
+
+    #[test]
+    fn a_key_that_is_not_one_key_is_refused() {
+        for raw in ["", "Ctrl+Alt", "Ctrl+ControlLeft", "Ctrl+Alt+ShiftLeft", "Ctrl+A+B", "Ctrl+Alt+Nonsense", "Ctrl++A"] {
+            assert!(accelerator(raw).is_err(), "{raw:?}");
+        }
+    }
+
+    #[test]
+    fn talk_and_cancel_must_be_different_keys() {
+        assert!(chosen_keys("Ctrl+Alt+KeyV", "Ctrl+Alt+Shift+KeyV").is_ok());
+        assert_eq!(chosen_keys("Ctrl+Alt+KeyV", "Ctrl+Alt+KeyB").unwrap(), ("Ctrl+Alt+V".to_string(), "Ctrl+Alt+B".to_string()));
+        assert!(chosen_keys("Ctrl+Alt+KeyV", "Alt+Ctrl+V").is_err());
+        assert!(chosen_keys("KeyV", "Ctrl+Alt+KeyB").is_err());
     }
 
     #[test]

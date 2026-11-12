@@ -86,10 +86,12 @@ On KDE Plasma and other Wayland desktops (when the app runs on Wayland, not thro
 
 ## Talk to the Reeve
 
-The app has a key that starts talking to the [Reeve](/legato/using/reeve/) from any app. On Linux with Wayland, such as KDE Plasma, the desktop asks the first time which key to use, and offers **Meta+Alt+Space**. It keeps your choice, and also gives a second key to stop talking. On X11 and Windows the key is **Meta+Alt+Space**, and on a Mac **Ctrl+Shift+Space**. These have no key to stop.
+The app has a key that starts talking to the [Reeve](/legato/using/reeve/) from any app: **Ctrl+Alt+Space** (on a Mac **Ctrl+Shift+Space**), and **Ctrl+Alt+Shift+Space** to stop talking.
 
-- Open **Servers & keys** › **Talking to the Reeve** to see the key. **Change the key…** opens the desktop's own shortcut settings, where the desktop has them.
+- Open **Servers & keys** › **Talking to the Reeve** to see the keys. Click a key and press a new one to change it. A key needs Ctrl, Alt or Super with it, so it is not taken from every app. **Use the default keys** puts them back.
 - Press the key to start, and again to send. Select **Hold the key to talk** to talk only while you hold it.
+- On KDE Plasma with Wayland the key reaches the app through XWayland. That works when **System Settings** › **Application Permissions** › **Legacy X11 App Support** passes keys typed with Ctrl, Alt or Meta held, as it does by default. Instead, you can choose **The desktop binds it** under **How the app gets the key**: the desktop then asks which key to use, and keeps it. The change applies when the app restarts.
+- When you start the app from a terminal, lines that start with `[voice key]` say which way it got the key, which keys it took, and each press and release.
 - On a desktop where the key does not work, make a shortcut in the desktop's own settings that runs `xdg-open legato-desktop://voice` or `legato-desktop --voice`. It does what the key does. `legato-desktop://voice?action=cancel` or `legato-desktop --voice=cancel` stops talking.
 
 The app talks to the Reeve of your main server. When you have several servers and none of them is the only main, choose one under **The Reeve to talk to** in **Servers & keys**. The app remembers the server, also when its address changes.

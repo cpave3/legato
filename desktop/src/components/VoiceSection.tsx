@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react"
 import { listen } from "@tauri-apps/api/event"
-import { api, errorText, type Anchor, type VoiceKeyInfo, type VoiceTargets, type VoiceWidgetSettings } from "../api"
+import { api, errorText, type Anchor, type KeyBackend, type VoiceKeyInfo, type VoiceTargets, type VoiceWidgetSettings } from "../api"
+import { recordedKey } from "../keys"
 
 // Corners, then edges (the widget centred on them), as the widget's menu has them.
 const PLACES: [Anchor, string][] = [
@@ -38,6 +39,10 @@ export function VoiceSection() {
     setError("")
     api.changeVoiceKey().catch((e) => setError(errorText(e)))
   }
+  const chooseBackend = (backend: KeyBackend) => {
+    setError("")
+    api.setVoiceKeyBackend(backend).catch((e) => setError(errorText(e)))
+  }
   const placeWidget = (next: VoiceWidgetSettings) => {
     setError("")
     setWidget(next)
@@ -61,6 +66,34 @@ export function VoiceSection() {
             {key.can_change && <> <button className="link" onClick={change}>Change the key…</button></>}
           </p>
           {key.problem && <p className="dim small">{key.problem}</p>}
+          {key.backend === "grab" && key.talk && key.cancel && (
+            <div className="row gap small">
+              <KeyField label="Talk" value={key.talk} onRecorded={(k) => api.setVoiceKeys(k, key.cancel ?? null)} onError={setError} />
+              <KeyField label="Cancel" value={key.cancel} onRecorded={(k) => api.setVoiceKeys(key.talk ?? null, k)} onError={setError} />
+              <button className="link" onClick={() => { setError(""); api.setVoiceKeys(null, null).catch((e) => setError(errorText(e))) }}>Use the default keys</button>
+            </div>
+          )}
+          {key.can_choose && (
+            <>
+              <label className="row gap small">
+                How the app gets the key
+                <select value={key.choice} onChange={(e) => chooseBackend(e.target.value as KeyBackend)} aria-label="How the app gets the key">
+                  <option value="grab">The app grabs it (through XWayland)</option>
+                  <option value="portal">The desktop binds it (shortcut portal)</option>
+                </select>
+              </label>
+              {key.choice === "grab" && (
+                <p className="hint">
+                  On KDE the key reaches the app through XWayland: System Settings, Application Permissions, Legacy X11 App Support must pass keys typed with Ctrl, Alt or Meta held, as it does by default.
+                </p>
+              )}
+              {key.choice !== key.backend && (
+                <p className="hint">
+                  This applies when the app next starts. <button className="link" onClick={() => api.restartApp().catch((e) => setError(errorText(e)))}>Restart now</button>
+                </p>
+              )}
+            </>
+          )}
           <label className="row gap small">
             <input type="checkbox" checked={key.hold_to_talk} onChange={(e) => hold(e.target.checked)} />
             Hold the key to talk
@@ -112,5 +145,31 @@ export function VoiceSection() {
       )}
       {error && <p className="error">{error}</p>}
     </div>
+  )
+}
+
+// A key the person sets by pressing it: click, then press the new key with
+// its modifiers; Escape alone gives up. The app checks it and says why it
+// cannot take one.
+function KeyField({ label, value, onRecorded, onError }: { label: string; value: string; onRecorded: (key: string) => Promise<void>; onError: (e: string) => void }) {
+  const [recording, setRecording] = useState(false)
+  const onKeyDown = (e: React.KeyboardEvent<HTMLButtonElement>) => {
+    if (!recording) return
+    e.preventDefault()
+    e.stopPropagation()
+    if (e.code === "Escape" && !e.ctrlKey && !e.altKey && !e.metaKey && !e.shiftKey) return setRecording(false)
+    const key = recordedKey(e)
+    if (!key) return
+    setRecording(false)
+    onError("")
+    onRecorded(key).catch((err) => onError(errorText(err)))
+  }
+  return (
+    <label className="row gap">
+      {label}
+      <button className="key-field" aria-label={`${label} key`} onClick={() => setRecording(true)} onKeyDown={onKeyDown} onBlur={() => setRecording(false)}>
+        {recording ? "Press the new key…" : <kbd>{value}</kbd>}
+      </button>
+    </label>
   )
 }

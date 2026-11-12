@@ -55,6 +55,8 @@ const COMMANDS: &[&str] = &[
     "voice_key_info",
     "change_voice_key",
     "set_hold_to_talk",
+    "set_voice_keys",
+    "set_voice_key_backend",
     "voice_targets",
     "set_voice_server",
     "voice_action",

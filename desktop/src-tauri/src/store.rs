@@ -91,6 +91,34 @@ pub struct VoiceSettings {
     /// to; none is the default margin.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub offset: Option<Offset>,
+    /// How the key is had on a Wayland desktop: grabbed through XWayland
+    /// (the default) or asked of the desktop's portal. Read at start.
+    #[serde(default, skip_serializing_if = "KeyBackend::is_default")]
+    pub key_backend: KeyBackend,
+    /// The grabbed key that talks, as the global-shortcut plugin reads it
+    /// (`Ctrl+Alt+Space`); none is the default (voicekey::default_keys).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub talk_key: Option<String>,
+    /// The grabbed key that cancels.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub cancel_key: Option<String>,
+}
+
+/// How the key that talks to the Reeve is had on a Wayland desktop.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum KeyBackend {
+    /// `tauri-plugin-global-shortcut`, which grabs it through XWayland.
+    #[default]
+    Grab,
+    /// The XDG desktop portal's GlobalShortcuts.
+    Portal,
+}
+
+impl KeyBackend {
+    fn is_default(&self) -> bool {
+        *self == KeyBackend::default()
+    }
 }
 
 /// A corner of the screen, or an edge with the widget centred on it.
@@ -349,7 +377,7 @@ pub(crate) mod tests {
         store.save().unwrap();
         assert!(!std::fs::read_to_string(&path).unwrap().contains("voice"));
 
-        store.state.voice = VoiceSettings { server: Some("inst-1".into()), hold_to_talk: true, widget_hidden: true, anchor: Anchor::Top, offset: Some(Offset { x: 0.0, y: 120.0 }) };
+        store.state.voice = VoiceSettings { server: Some("inst-1".into()), hold_to_talk: true, widget_hidden: true, anchor: Anchor::Top, offset: Some(Offset { x: 0.0, y: 120.0 }), ..VoiceSettings::default() };
         store.save().unwrap();
         let text = std::fs::read_to_string(&path).unwrap();
         assert!(text.contains(r#""server": "inst-1""#), "{text}");
@@ -364,6 +392,29 @@ pub(crate) mod tests {
         let store = open(&dir, &secrets);
         assert_eq!(store.state.voice.anchor, Anchor::TopLeft);
         assert_eq!(store.state.voice.offset, None);
+    }
+
+    #[test]
+    fn the_key_is_grabbed_unless_the_portal_is_chosen_and_chosen_keys_are_kept() {
+        let (dir, secrets) = (tempfile::tempdir().unwrap(), Memory::default());
+        let mut store = open(&dir, &secrets);
+        assert_eq!(store.state.voice.key_backend, KeyBackend::Grab);
+        assert_eq!(store.state.voice.talk_key, None);
+        store.add_server("erebus", "https://erebus.local:3080", None, "t").unwrap();
+        store.save().unwrap();
+        // The default is not written.
+        assert!(!std::fs::read_to_string(dir.path().join("legato-desktop.json")).unwrap().contains("key_backend"));
+
+        store.state.voice.key_backend = KeyBackend::Portal;
+        store.state.voice.talk_key = Some("Ctrl+Alt+V".into());
+        store.state.voice.cancel_key = Some("Ctrl+Alt+Shift+V".into());
+        store.save().unwrap();
+        let text = std::fs::read_to_string(dir.path().join("legato-desktop.json")).unwrap();
+        assert!(text.contains(r#""key_backend":"portal""#) || text.contains(r#""key_backend": "portal""#), "{text}");
+        let again = open(&dir, &secrets);
+        assert_eq!(again.state.voice.key_backend, KeyBackend::Portal);
+        assert_eq!(again.state.voice.talk_key.as_deref(), Some("Ctrl+Alt+V"));
+        assert_eq!(again.state.voice.cancel_key.as_deref(), Some("Ctrl+Alt+Shift+V"));
     }
 
     #[test]
