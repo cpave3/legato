@@ -582,13 +582,16 @@ func WatchMessage(events []WatchEvent) string {
 	}
 	asks := false
 	for _, e := range events {
+		// What an agent or a ticket wrote (a title, a note, a question) is
+		// quoted or kept to one line, so it never starts a line of its own
+		// and passes for Legato's words.
 		name := e.TaskID
 		if e.Title != "" {
-			name += " (" + e.Title + ")"
+			name += " (" + oneLine(e.Title) + ")"
 		}
 		switch e.Kind {
 		case WatchNote:
-			fmt.Fprintf(&b, "- %s added a note: %s\n", name, e.Detail)
+			fmt.Fprintf(&b, "- %s added a note: %q\n", name, e.Detail)
 			continue
 		case WatchPR:
 			fmt.Fprintf(&b, "- %s %s\n", name, e.Detail)
@@ -603,9 +606,14 @@ func WatchMessage(events []WatchEvent) string {
 			b.WriteString(" Its watch has ended.")
 		}
 		b.WriteString("\n")
-		if e.LastMessage != "" {
+		switch {
+		case e.LastMessage != "" && e.To == WatchExited:
+			// An ended agent's conversation cannot be read: this is the last
+			// message read at an earlier event, perhaps turns ago.
+			fmt.Fprintf(&b, "  The last message Legato read from it, before it exited: %q\n", e.LastMessage)
+		case e.LastMessage != "":
 			fmt.Fprintf(&b, "  Its last message: %q\n", e.LastMessage)
-		} else if e.To != WatchExited {
+		case e.To != WatchExited:
 			b.WriteString("  Its last message: Legato cannot read its conversation.\n")
 		}
 		if e.To != WatchExited {
@@ -621,7 +629,7 @@ func WatchMessage(events []WatchEvent) string {
 		if e.To == WatchWaiting {
 			asks = true
 			if e.Asks != "" {
-				fmt.Fprintf(&b, "  It waits on the operator for %s\n", e.Asks)
+				fmt.Fprintf(&b, "  It waits on the operator for %s\n", oneLine(e.Asks))
 			} else {
 				b.WriteString("  It waits on the operator: open the agent to see what it asks.\n")
 			}
@@ -633,6 +641,11 @@ func WatchMessage(events []WatchEvent) string {
 	}
 	b.WriteString("\n")
 	return b.String()
+}
+
+// oneLine is s with its line breaks and tabs as spaces.
+func oneLine(s string) string {
+	return strings.Join(strings.Fields(s), " ")
 }
 
 func clipRunes(s string, n int) string {
