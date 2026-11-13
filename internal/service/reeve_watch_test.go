@@ -2,7 +2,9 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -670,4 +672,26 @@ func TestMessageReeveRefusesTheReeveAndEmptyOrLongText(t *testing.T) {
 	if _, err := MessageReeve(ctx, f.db, f.task, strings.Repeat("x", ReeveMessageMax+1), f.now); err == nil {
 		t.Error("an overlong message was queued")
 	}
+}
+
+// An agent's message behind a full batch of older events still resumes a
+// suspended Reeve: the older events go first, the message after.
+func TestAnAgentsMessageBehindAFullBatchStillWakesTheReeve(t *testing.T) {
+	f := newWatchFixture(t)
+	ctx := context.Background()
+	if err := f.db.SetReeveSessionState(ctx, f.reeve, store.ReeveSuspended); err != nil {
+		t.Fatal(err)
+	}
+	for i := 0; i < reeveWatchPerMessage; i++ {
+		raw, _ := json.Marshal(WatchEvent{TaskID: f.task, Kind: WatchNote, At: f.now, Detail: fmt.Sprintf("note %d", i)})
+		if err := f.db.QueueReeveWatchEvent(ctx, f.task, string(raw)); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := MessageReeve(ctx, f.db, f.task, "Blocked: which branch?", f.now); err != nil {
+		t.Fatal(err)
+	}
+	first := f.after(t, 15*time.Second)
+	mustContain(t, first, "note 39")
+	mustContain(t, f.after(t, ReeveWatchCheckEvery), "Blocked: which branch?")
 }

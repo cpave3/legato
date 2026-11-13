@@ -563,10 +563,10 @@ func (w *ReeveWatcher) deliver(ctx context.Context, settings ReeveWatchSettings)
 	}
 	// An agent's message resumes a suspended session, as the operator's
 	// does: the agent asked, and may wait on the answer.
-	urgent := false
-	for _, e := range events {
-		urgent = urgent || e.Kind == WatchAgentMessage
-	}
+	// It is looked for in the whole queue, not only this batch: one behind
+	// a full batch must still wake the Reeve, which then takes the batches
+	// in order.
+	urgent, _ := w.opts.Store.HasReeveWatchEventKind(ctx, WatchAgentMessage)
 	if !w.reeveCanHear(ctx, settings, urgent) {
 		return 0
 	}
