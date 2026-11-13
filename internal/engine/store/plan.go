@@ -20,7 +20,7 @@ func (s *Store) GetPlan(ctx context.Context, id string) (*Plan, error) {
 
 func (s *Store) ListPlansByTask(ctx context.Context, taskID string) ([]Plan, error) {
 	var plans []Plan
-	err := s.db.SelectContext(ctx, &plans, "SELECT * FROM plans WHERE task_id = ? ORDER BY updated_at DESC", taskID)
+	err := s.db.SelectContext(ctx, &plans, "SELECT * FROM plans WHERE task_id = ? ORDER BY updated_at DESC, rowid DESC", taskID)
 	return plans, err
 }
 

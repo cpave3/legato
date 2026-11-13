@@ -210,6 +210,14 @@ func runPlanCmd(args []string) int {
 		}
 		return plan.ID, nil
 	}
+	// A read with no --name finds the task's latest plan.
+	resolveForRead := func() (string, error) {
+		plan, err := svc.ResolveForRead(context.Background(), taskID, name)
+		if err != nil {
+			return "", err
+		}
+		return plan.ID, nil
+	}
 	fail := func(err error) int {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		return 1
@@ -263,7 +271,7 @@ func runPlanCmd(args []string) int {
 		if len(positional) != 0 {
 			return fail(fmt.Errorf("usage: legato plan %s [--json] [--task <id>] [--name <name>]", verb))
 		}
-		planID, err := resolve()
+		planID, err := resolveForRead()
 		if err != nil {
 			return fail(err)
 		}
@@ -271,7 +279,7 @@ func runPlanCmd(args []string) int {
 			return fail(err)
 		}
 	case "status":
-		planID, err := resolve()
+		planID, err := resolveForRead()
 		if err != nil {
 			return fail(err)
 		}

@@ -664,7 +664,7 @@ func (m *mcpTools) legatoCommand() mcpserver.Tool {
 	description := "Runs a legato subcommand on this instance's host, with no shell: for what the CLI does and the API does not (integration tokens, Argus connect and disconnect, columns sync, hooks install). A command that only reads runs at once; one that changes something becomes a change set for the operator to approve. Some commands are never run: a refusal says what to use instead. " +
 		`args is a list of words, as ["config","show"].`
 	if lister, ok := m.opts.Reeve.Legato.(MCPLegatoCommands); ok {
-		description += "\n\nThe commands you may run, by group (\"asks\": a change set for the operator):\n" + legatoCommandList(lister.Commands())
+		description += "\n\nThe commands you may run, by group, reads apart from changes (\"asks\": a change set for the operator). Mind the difference between a read and a change of a similar name: task notes reads a task's notes, task note writes one.\n" + legatoCommandList(lister.Commands())
 	}
 	return mcpserver.NewTool(mcpserver.Definition{
 		Name: "legato", Title: "Run a legato command on the host",
@@ -769,30 +769,41 @@ func firstLine(reason, fallback string) string {
 }
 
 // legatoCommandList writes the commands the legato tool runs one group to a
-// line: "task: list, show, create (asks)".
+// line, its reads apart from its changes: "task: reads list, show;
+// changes (asks) create".
 func legatoCommandList(commands []LegatoCommand) string {
-	var groups []string
-	byGroup := map[string][]string{}
+	type group struct{ reads, changes []string }
+	var order []string
+	byGroup := map[string]*group{}
 	for _, c := range commands {
-		group, rest, ok := strings.Cut(c.Path, " ")
+		// A command of one word (version) is its own group.
+		name, rest, ok := strings.Cut(c.Path, " ")
 		if !ok {
-			group, rest = c.Path, ""
+			rest = name
 		}
-		name := rest
-		if name == "" {
-			name = group
+		g := byGroup[name]
+		if g == nil {
+			g = &group{}
+			byGroup[name] = g
+			order = append(order, name)
 		}
-		if c.Class != "read" {
-			name += " (asks)"
+		if c.Class == "read" {
+			g.reads = append(g.reads, rest)
+		} else {
+			g.changes = append(g.changes, rest)
 		}
-		if _, seen := byGroup[group]; !seen {
-			groups = append(groups, group)
-		}
-		byGroup[group] = append(byGroup[group], name)
 	}
 	var b strings.Builder
-	for _, g := range groups {
-		fmt.Fprintf(&b, "- %s: %s\n", g, strings.Join(byGroup[g], ", "))
+	for _, name := range order {
+		g := byGroup[name]
+		var parts []string
+		if len(g.reads) > 0 {
+			parts = append(parts, "reads "+strings.Join(g.reads, ", "))
+		}
+		if len(g.changes) > 0 {
+			parts = append(parts, "changes (asks) "+strings.Join(g.changes, ", "))
+		}
+		fmt.Fprintf(&b, "- %s: %s\n", name, strings.Join(parts, "; "))
 	}
 	return b.String()
 }

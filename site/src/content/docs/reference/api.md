@@ -24,6 +24,9 @@ A card on the board is a task: its ID is the task's. An agent is addressed by it
 | Read the board: its columns and cards | `GET /api/board` |  |
 | Read a task in brief: its column, pull requests and latest note | `GET /api/tasks/<id>?view=summary` |  |
 | Read a task in full, with its description and notes | `GET /api/tasks/<id>` |  |
+| Read a task's notes, each in full, with its source and time | `GET /api/tasks/<id>/notes` |  |
+| List a task's plans, newest first | `GET /api/tasks/<id>/plans` |  |
+| Read a plan: its text, revision and status | `GET /api/plans/<plan_id>` |  |
 | Create a task (a card) | `POST /api/tasks` | `{"title": "…", "column": "Backlog"}` |
 | Move a card to another column | `PATCH /api/tasks/<id>` | `{"column": "Done"}` |
 | Put a card just above another in its column (`null` for last) | `PATCH /api/tasks/<id>` | `{"before": "LEG-12"}` |
@@ -65,6 +68,8 @@ A card on the board is a task: its ID is the task's. An agent is addressed by it
 | `POST` | `/api/tasks/{id}/restore` | change | Restore an archived task |  |
 | `GET` | `/api/tasks/archived` | read | List the archived tasks |  |
 | `GET` | `/api/tasks/{id}/activity` | read | Read a task's activity |  |
+| `GET` | `/api/tasks/{id}/notes` | read | Read a task's notes in full |  |
+| `GET` | `/api/tasks/{id}/plans` | read | List a task's plans |  |
 | `GET` | `/api/tasks/{id}/stacks` | read | List a task's branch stacks |  |
 | `GET` | `/api/tasks/{id}/stacks/{clone}/document` | read | Read a branch stack's import file |  |
 | `POST` | `/api/tasks/{id}/agent` | change | Start, resume or message a task's agent | `{"agent_kind": "claude-code", "prompt": "…", "working_dir": "…", "repo": "owner/name", "resources": ["…"]}` |

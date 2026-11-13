@@ -179,6 +179,8 @@ func NewWithSwarm(board service.BoardService, agents service.AgentService, tmux 
 	mux.HandleFunc("/api/tasks/{id}/restore", s.restoreTaskHandler())
 	mux.HandleFunc("/api/tasks/archived", s.archivedTasksHandler())
 	mux.HandleFunc("/api/tasks/{id}/activity", s.taskActivityHandler())
+	mux.HandleFunc("/api/tasks/{id}/notes", s.taskNotesHandler())
+	mux.HandleFunc("/api/tasks/{id}/plans", s.taskPlansHandler())
 	mux.HandleFunc("/api/tasks/{id}/stacks", s.taskStacksHandler())
 	mux.HandleFunc("/api/tasks/{id}/stacks/{clone}/document", s.taskStackDocumentHandler())
 	mux.HandleFunc("/api/tasks/{id}/agent", s.taskAgentHandler())
