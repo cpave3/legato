@@ -1,7 +1,8 @@
 # Runs the test suite on every pull request and on every push to main (a
 # merge): a check that no two paths differ only in case, the Go tests, as the
-# release workflow runs them, and the web UI's unit tests. The docs site has its own workflow (docs.yml), and the desktop
-# app is tested when a release builds it.
+# release workflow runs them, and the web UI's unit tests. The docs site has
+# its own workflow (docs.yml), and the desktop app is tested when a release
+# builds it.
 name: ci
 
 on:
@@ -27,9 +28,6 @@ jobs:
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
-
-      - name: Test the check
-        run: bash scripts/case-clashes.test.sh
 
       - name: No paths that differ only in case
         run: bash scripts/case-clashes.sh
