@@ -49,7 +49,7 @@ const (
 	// payload.
 	EventSettingsChanged
 	// EventReeveSpoke: a line the Reeve said was made, sent to the
-	// listening device, played, failed or dropped. Payload:
+	// listening device, playing or played, failed or dropped. Payload:
 	// ReeveSpokePayload.
 	EventReeveSpoke
 )
@@ -58,8 +58,10 @@ const (
 type ReeveSpokePayload struct {
 	TaskID string
 	Text   string
-	// State is made, sent, played, failed or dropped.
+	// State is made, sent, playing, played, failed or dropped.
 	State string
+	// Line numbers the line, the same in every event about it.
+	Line int64
 }
 
 // ErrorPayload carries structured error information for error events.

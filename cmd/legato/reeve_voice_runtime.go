@@ -31,7 +31,7 @@ func newReeveVoice(cfg *config.Config, db *store.Store, credentials *service.Cre
 	}
 	if bus != nil {
 		opts.Spoke = func(e service.SpokeEvent) {
-			bus.Publish(events.Event{Type: events.EventReeveSpoke, Payload: events.ReeveSpokePayload{TaskID: e.TaskID, Text: e.Text, State: e.State}})
+			bus.Publish(events.Event{Type: events.EventReeveSpoke, Payload: events.ReeveSpokePayload{TaskID: e.TaskID, Text: e.Text, State: e.State, Line: e.Line}})
 		}
 	}
 	if credentials != nil {

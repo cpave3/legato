@@ -98,6 +98,8 @@ type WSMessage struct {
 	Queue          bool                `json:"queue,omitempty"`
 	Decision       string              `json:"decision,omitempty"`
 	Feedback       *string             `json:"feedback,omitempty"`
+	// Line numbers a line the Reeve said (reeve_spoke).
+	Line int64 `json:"line,omitempty"`
 	// Option names which of a permission request's options an allow takes.
 	Option string `json:"option,omitempty"`
 	// Answers and Dismissed answer a question the agent asked (agent_question).

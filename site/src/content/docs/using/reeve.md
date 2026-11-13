@@ -154,7 +154,7 @@ The Reeve can message the Reeve of another Legato this one is paired with: its w
 
 ## The Reeve's voice
 
-The Reeve can talk out loud on the speakers of the machine Legato runs on. It speaks a short line, one to three sentences with the outcome first, and leaves the detail to its written reply. To a typed message it answers in writing, unless you ask it to say something out loud. When you talk to it (see [Talking to the Reeve](#talking-to-the-reeve)), it answers out loud by itself.
+The Reeve can talk out loud on the speakers of the machine Legato runs on. It speaks a short line, one to three sentences with the outcome first, and leaves the detail to its written reply. To a typed message it answers in writing, unless you ask it to say something out loud. When you talk to it (see [Talking to the Reeve](#talking-to-the-reeve)), it answers out loud by itself. While a line it says by itself plays, the desktop app's widget shows it speaking (see [The Legato widget](/legato/running/desktop-app/#the-legato-widget)).
 
 To turn it on, in **Settings › Reeve**:
 
