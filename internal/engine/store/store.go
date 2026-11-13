@@ -545,7 +545,7 @@ var ErrConflict = fmt.Errorf("state conflict")
 func (s *Store) ListTasksByStatus(ctx context.Context, status string) ([]Task, error) {
 	var tasks []Task
 	err := s.db.SelectContext(ctx, &tasks,
-		"SELECT * FROM tasks WHERE status = ? AND archived_at IS NULL AND ephemeral = 0 ORDER BY sort_order ASC", status)
+		"SELECT * FROM tasks WHERE status = ? AND archived_at IS NULL AND ephemeral = 0 ORDER BY "+boardOrder, status)
 	return tasks, err
 }
 
@@ -713,15 +713,15 @@ func (s *Store) ListTasksByStatusAndWorkspace(ctx context.Context, status string
 			LEFT JOIN workspaces ON workspaces.id = tasks.workspace_id
 			WHERE tasks.status = ? AND tasks.archived_at IS NULL AND tasks.ephemeral = 0
 				AND (workspaces.name IS NULL OR workspaces.name <> ?)
-			ORDER BY tasks.sort_order ASC`, status, WorkflowWorkspaceName)
+			ORDER BY `+boardOrder, status, WorkflowWorkspaceName)
 		return tasks, err
 	case ViewUnassigned:
 		err := s.db.SelectContext(ctx, &tasks,
-			"SELECT * FROM tasks WHERE status = ? AND workspace_id IS NULL AND archived_at IS NULL AND ephemeral = 0 ORDER BY sort_order ASC", status)
+			"SELECT * FROM tasks WHERE status = ? AND workspace_id IS NULL AND archived_at IS NULL AND ephemeral = 0 ORDER BY "+boardOrder, status)
 		return tasks, err
 	case ViewWorkspace:
 		err := s.db.SelectContext(ctx, &tasks,
-			"SELECT * FROM tasks WHERE status = ? AND workspace_id = ? AND archived_at IS NULL AND ephemeral = 0 ORDER BY sort_order ASC", status, view.WorkspaceID)
+			"SELECT * FROM tasks WHERE status = ? AND workspace_id = ? AND archived_at IS NULL AND ephemeral = 0 ORDER BY "+boardOrder, status, view.WorkspaceID)
 		return tasks, err
 	default:
 		return s.ListTasksByStatus(ctx, status)
