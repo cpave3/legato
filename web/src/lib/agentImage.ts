@@ -46,3 +46,14 @@ export function insertAtCursor(text: string, addition: string, cursor?: number |
   const trail = /^\s/.test(after) ? "" : " "
   return `${before}${lead}${addition}${trail}${after}`
 }
+
+// insertImagePath puts the path of an image the person pasted, attached or
+// dropped into the message where the cursor is. A path that would start the
+// message is named "Image: ", because Claude Code takes no message from
+// Legato that starts with "/": it would run it as a command, so it refuses it
+// (LEG-151).
+export function insertImagePath(text: string, path: string, cursor?: number | null): string {
+  const at = typeof cursor === "number" && cursor >= 0 && cursor <= text.length ? cursor : text.length
+  const startsMessage = text.slice(0, at).trim() === ""
+  return insertAtCursor(text, startsMessage ? `Image: ${path}` : path, at)
+}

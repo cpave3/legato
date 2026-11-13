@@ -46,6 +46,10 @@ import { Bell, BellOff, FolderInput, Pencil, RefreshCw, RotateCw, Shield, Skull,
 import { useTerminalMenu } from "../hooks/useTerminalMenu"
 import { canReloadAgent, reloadAgent, sandboxSwitchLabel, switchAgentSandbox, type SandboxSwitch } from "../lib/agentReload"
 
+// The request IDs of messages sent from a terminal agent's message box, so
+// the server's answer about one is known as such.
+const TERMINAL_MESSAGE_REQUEST = "terminal-message-"
+
 const GLITCH_DURATION_MS = 500
 
 // The state the header of a terminal session shows: what its hooks report.
@@ -150,6 +154,13 @@ export function AgentsPage() {
 
   // Track dismissed prompt type to suppress re-detection of the same prompt.
   const dismissedPromptTypeRef = useRef<string | null>(null)
+  // Messages sent from the terminal's message box that the server has not
+  // answered yet, by request ID.
+  const sentMessagesRef = useRef(new Set<string>())
+  // The toast for a message that was not sent, read when the answer comes so
+  // the subscription does not follow it.
+  const addToastRef = useRef(addToast)
+  addToastRef.current = addToast
 
   const isPromptDetectionEnabled = selectedId
     ? (promptDetectionOverrides[selectedId] ?? getPromptDetectionDefault())
@@ -194,6 +205,12 @@ export function AgentsPage() {
       if (msg.type === "swarm_changed" && msg.parent_task_id) {
         // Refresh agents list in case new workers appeared.
         fetchAgents()
+      }
+      // A message from the terminal's message box that the agent never got
+      // (LEG-151): the server says why.
+      if (msg.type === "agent_message_sent" && msg.request_id) sentMessagesRef.current.delete(msg.request_id)
+      if (msg.type === "error" && msg.request_id && sentMessagesRef.current.delete(msg.request_id)) {
+        addToastRef.current(msg.error || "The message could not be sent", "error")
       }
     })
   }, [fetchAgents, subscribe, selectedId, baseUrl])
@@ -270,12 +287,18 @@ export function AgentsPage() {
   const handleSubmitMessage = useCallback(
     (content: string) => {
       if (selectedId) {
-        send({ type: "agent_message", agent_id: selectedId, content })
+        const requestId = `${TERMINAL_MESSAGE_REQUEST}${crypto.randomUUID()}`
+        sentMessagesRef.current.add(requestId)
+        if (send({ type: "agent_message", agent_id: selectedId, content, request_id: requestId }) === false) {
+          sentMessagesRef.current.delete(requestId)
+          addToast("Not connected to Legato: the message was not sent", "error")
+          return
+        }
         // User submitted input — clear dismissed state so future prompts show.
         dismissedPromptTypeRef.current = null
       }
     },
-    [selectedId, send]
+    [selectedId, send, addToast]
   )
 
   const handleDetectPrompt = useCallback(() => {

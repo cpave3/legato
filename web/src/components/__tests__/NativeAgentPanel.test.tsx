@@ -814,6 +814,98 @@ describe("NativeAgentPanel", () => {
     expect(within(second).getByText("sent")).not.toBeNull()
   })
 
+  // LEG-151: a message that starts with a path (a pasted image at the start of
+  // the box) is a message, not a command. Claude Code would not take it; the
+  // panel showed it nowhere and stayed Working with nothing running.
+  it("lists a message that starts with a path, and shows it not sent when the session refuses it", async () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => String(input).includes("/snapshot")
+      ? new Response(JSON.stringify({ id: "session-1", status: "idle", messages: [], toolCalls: [] }), { status: 200 })
+      : new Response("[]", { status: 200 }))
+
+    render(<NativeAgentPanel agentId="task-1" />)
+    const box = await screen.findByRole("textbox", { name: "Message" })
+    const words = "/tmp/legato-1000/pasted-images/task-1/pasted-1.png what is this?"
+    fireEvent.change(box, { target: { value: words } })
+    fireEvent.keyDown(box, { key: "Enter" })
+    const [sent] = send.mock.calls.map(([message]) => message).filter((message) => message.type === "agent_message")
+    expect(sent.content).toBe(words)
+    expect(screen.getByRole("status", { name: "Agent working" })).not.toBeNull()
+    act(() => websocketHandler?.({ type: "agent_message_sent", agent_id: "task-1", request_id: sent.request_id }))
+
+    act(() => websocketHandler?.({
+      type: "chimera_event",
+      agent_id: "task-1",
+      content: JSON.stringify({ eventId: "failed-1", type: "message_failed", content: words, error: "a text beginning with / would run a command as the user" }),
+    }))
+
+    const [failed] = within(screen.getByRole("list", { name: "Queued messages" })).getAllByRole("listitem")
+    expect(within(failed).getByText(/not sent/i)).not.toBeNull()
+    expect(failed.textContent).toContain("would run a command")
+    expect(screen.queryByRole("status", { name: "Agent working" })).toBeNull()
+  })
+
+  it("stops showing Working when the message that started it was not sent", async () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => String(input).includes("/snapshot")
+      ? new Response(JSON.stringify({ id: "session-1", status: "idle", messages: [], toolCalls: [] }), { status: 200 })
+      : new Response("[]", { status: 200 }))
+
+    render(<NativeAgentPanel agentId="task-1" />)
+    const box = await screen.findByRole("textbox", { name: "Message" })
+    fireEvent.change(box, { target: { value: "also update the docs" } })
+    fireEvent.keyDown(box, { key: "Enter" })
+    const [sent] = send.mock.calls.map(([message]) => message).filter((message) => message.type === "agent_message")
+    expect(screen.getByRole("status", { name: "Agent working" })).not.toBeNull()
+
+    act(() => websocketHandler?.({ type: "error", agent_id: "task-1", request_id: sent.request_id, error: "send message failed: the bridge is gone" }))
+
+    expect(screen.queryByRole("status", { name: "Agent working" })).toBeNull()
+  })
+
+  it("keeps Working for a turn that started, though a later message was not sent", async () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => String(input).includes("/snapshot")
+      ? new Response(JSON.stringify({ id: "session-1", status: "idle", messages: [], toolCalls: [] }), { status: 200 })
+      : new Response("[]", { status: 200 }))
+
+    render(<NativeAgentPanel agentId="task-1" />)
+    const box = await screen.findByRole("textbox", { name: "Message" })
+    fireEvent.change(box, { target: { value: "also update the docs" } })
+    fireEvent.keyDown(box, { key: "Enter" })
+    act(() => websocketHandler?.({
+      type: "chimera_event",
+      agent_id: "task-1",
+      content: JSON.stringify({ eventId: "started-1", type: "session_started" }),
+    }))
+    fireEvent.change(box, { target: { value: "and the changelog" } })
+    fireEvent.keyDown(box, { key: "Enter" })
+    const sent = send.mock.calls.map(([message]) => message).filter((message) => message.type === "agent_message")
+
+    act(() => websocketHandler?.({ type: "error", agent_id: "task-1", request_id: sent[1].request_id, error: "send message failed: busy" }))
+
+    expect(screen.getByRole("status", { name: "Agent working" })).not.toBeNull()
+  })
+
+  it("shows a command the session would not take as an error", async () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => String(input).includes("/snapshot")
+      ? new Response(JSON.stringify({ id: "session-1", status: "idle", messages: [], toolCalls: [] }), { status: 200 })
+      : new Response("[]", { status: 200 }))
+
+    render(<NativeAgentPanel agentId="task-1" />)
+    const box = await screen.findByRole("textbox", { name: "Message" })
+    fireEvent.change(box, { target: { value: "/compact keep the plan" } })
+    fireEvent.keyDown(box, { key: "Enter" })
+    expect(screen.queryByRole("list", { name: "Queued messages" })).toBeNull()
+
+    act(() => websocketHandler?.({
+      type: "chimera_event",
+      agent_id: "task-1",
+      content: JSON.stringify({ eventId: "failed-1", type: "message_failed", content: "/compact keep the plan", error: "the session dropped it: no" }),
+    }))
+
+    expect(screen.getByRole("alert").textContent).toContain("/compact keep the plan")
+    expect(screen.getByRole("alert").textContent).toContain("the session dropped it: no")
+    expect(screen.queryByRole("status", { name: "Agent working" })).toBeNull()
+  })
+
   it("lets a queued shell command be edited or taken out before it runs", async () => {
     vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => String(input).includes("/snapshot")
       ? new Response(JSON.stringify({ id: "session-1", status: "running", messages: [], toolCalls: [] }), { status: 200 })

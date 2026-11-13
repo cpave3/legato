@@ -230,6 +230,9 @@ func (m *chimeraStreamManager) publish(stream *chimeraStream, event chimera.Even
 		}
 		stream.lastEvent = event.EventID
 	}
+	if event.Type == "message_failed" {
+		logMessageFailed(stream.taskID, event)
+	}
 	stream.events = append(stream.events, event)
 	if len(stream.events) > chimeraReplayLimit {
 		stream.events = append([]chimera.EventEnvelope(nil), stream.events[len(stream.events)-chimeraReplayLimit:]...)
@@ -258,6 +261,22 @@ func (m *chimeraStreamManager) requireSync(stream *chimeraStream) {
 		default:
 		}
 	}
+}
+
+// logMessageFailed writes to Legato's log a message the agent's session would
+// not take. The Claude Code mod reports it as a live event only, and the page
+// that sent it may be gone (LEG-151).
+func logMessageFailed(taskID string, event chimera.EventEnvelope) {
+	var failed struct {
+		Content string `json:"content"`
+		Error   string `json:"error"`
+	}
+	_ = json.Unmarshal(event.Data, &failed)
+	words := failed.Content
+	if len(words) > 200 {
+		words = words[:200] + "…"
+	}
+	log.Printf("agent %s: message not delivered: %s (message: %q)", taskID, failed.Error, words)
 }
 
 func chimeraWSMessage(taskID string, event chimera.EventEnvelope) WSMessage {

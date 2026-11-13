@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { currentStep, formatElapsed, queueMessage, shortModelName, unreadQueued } from "../composer"
+import { currentStep, formatElapsed, isCommandText, queueMessage, shortModelName, unreadQueued } from "../composer"
 import type { NativeConversationItem } from "../nativeAgentSync"
 
 const tool = (key: string, toolName: string, args: Record<string, unknown>, done: boolean, summary?: string): NativeConversationItem => ({
@@ -48,6 +48,21 @@ describe("unreadQueued", () => {
     const queued = queueMessage([], "go on", before, "m-1")
     expect(unreadQueued(queued, before)).toHaveLength(1)
     expect(unreadQueued(queued, [...before, user("u2", "go on")])).toEqual([])
+  })
+})
+
+// The shape the Claude Code mod runs as a command (register.ts, submit).
+describe("isCommandText", () => {
+  it("is a slash and a name, alone or before arguments", () => {
+    expect(isCommandText("/compact")).toBe(true)
+    expect(isCommandText("/compact keep the plan")).toBe(true)
+    expect(isCommandText("  /plugin:skill-name args")).toBe(true)
+  })
+
+  it("is not a path, nor text that does not start with a slash", () => {
+    expect(isCommandText("/tmp/legato-1000/pasted-images/t/pasted-1.png what is this?")).toBe(false)
+    expect(isCommandText("/")).toBe(false)
+    expect(isCommandText("see /tmp/x.png")).toBe(false)
   })
 })
 

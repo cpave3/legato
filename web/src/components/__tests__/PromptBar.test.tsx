@@ -497,7 +497,7 @@ it("puts the path of an image chosen with the attach button in the message", asy
 
   fireEvent.change(screen.getByLabelText("Images to attach"), { target: { files: [image] } })
 
-  await waitFor(() => expect(box.value).toBe("/tmp/legato-1000/pasted-images/agent-1/pasted-1.png "))
+  await waitFor(() => expect(box.value).toBe("Image: /tmp/legato-1000/pasted-images/agent-1/pasted-1.png "))
   expect(screen.getByRole("button", { name: "Attach image" })).toBeTruthy()
 })
 
@@ -507,5 +507,5 @@ it("puts the path of an image dropped on the message box in the message", async 
 
   fireEvent.drop(box, { dataTransfer: { files: [image], types: ["Files"] } })
 
-  await waitFor(() => expect(box.value).toBe("/tmp/legato-1000/pasted-images/agent-1/pasted-1.png "))
+  await waitFor(() => expect(box.value).toBe("Image: /tmp/legato-1000/pasted-images/agent-1/pasted-1.png "))
 })

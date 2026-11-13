@@ -2,7 +2,7 @@ import { useState, useRef, useEffect, useCallback, useImperativeHandle, forwardR
 import type { PromptState } from "../hooks/useWebSocket"
 import { useServer } from "../hooks/useServer"
 import { usePastedImages } from "../hooks/usePastedImages"
-import { insertAtCursor } from "../lib/agentImage"
+import { insertImagePath } from "../lib/agentImage"
 import { PastedImageStrip } from "./PastedImageStrip"
 import { AttachImageButton } from "./AttachImageButton"
 import { useMacroHotkeys } from "../hooks/useMacroHotkeys"
@@ -221,7 +221,7 @@ export const PromptBar = forwardRef<PromptBarHandle, PromptBarProps>(function Pr
   // An image pasted into the message box is stored by Legato, and its path
   // goes into the message where the cursor is.
   const pasted = usePastedImages(agentId, input, (path) => {
-    handleInputChange(insertAtCursor(inputRef.current, path, textareaRef.current?.selectionStart))
+    handleInputChange(insertImagePath(inputRef.current, path, textareaRef.current?.selectionStart))
   })
 
   // Something the agent showed in the side panel may put text in the input.
