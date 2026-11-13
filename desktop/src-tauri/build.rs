@@ -64,6 +64,7 @@ const COMMANDS: &[&str] = &[
     "voice_open_settings",
     "voice_widget_size",
     "voice_widget_menu",
+    "voice_widget_hide",
     "voice_widget_settings",
     "set_voice_widget",
     "set_voice_screen",

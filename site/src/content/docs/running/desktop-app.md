@@ -65,6 +65,7 @@ When a server knows Touch ID, the sheet asks for your fingerprint instead of a t
 ## The window
 
 - The title bar is the app's own: drag it to move the window, double-click it to maximize. It names the server in front and has a button to reload its page.
+- Closing the window quits the app, and the Legato widget closes with it. The app does not keep running in the background. Starting the app while it runs brings its window to the front.
 - When the server in front has a [tint](/legato/using/web-ui/), the title bar, the dock and the window's edges take its colour.
 - To reorder the servers, press and hold a tile and drag it up or down; the order is kept until you change it again.
 - The dock's dot on each tile is green while the server answers and red while it does not.
@@ -81,6 +82,7 @@ A small capsule at the edge of the screen shows the Reeve, whether your main can
 - If the main cannot listen, the capsule turns amber and says why. **Open settings** opens that setting on the main.
 - A long message does not grow the card off the screen: it shows your latest words, after an ellipsis. The whole message still goes to the Reeve.
 - Drag the capsule to put it anywhere. It stays where you drop it, also after a restart: it keeps to the nearest corner, or to the middle of the nearest edge, as far from that edge as you dropped it. A click without a drag still talks.
+- To close the widget, hover over the capsule and click the small **×** at its corner. This hides only the widget: the app, the key and approvals keep working, and the widget comes back for a conversation or an approval. Turn it on again in **Servers & keys** (**Show the Legato widget**).
 - Right-click the capsule to hide it, put it in a corner or the middle of an edge (**Place**), choose the screen it is on (**Screen**, with more than one screen), or open the app's settings. **Servers & keys** has the same choices.
 - With several screens, the app names each by its maker and model, as the desktop's display settings do, and adds the connector (such as DP-1) when two are the same model. It remembers the screen you chose. While that screen is not connected, the widget is on your primary screen (on Wayland, the first), and it goes back when the screen returns. The corner and where you dropped it apply on the chosen screen. Hidden, it still shows while you talk, and for a few seconds after to say how the conversation ended. It also shows while the feed has something. **Servers & keys** › **Show the Legato widget** brings it back.
 

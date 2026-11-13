@@ -13,6 +13,7 @@
     "allow-voice-open-settings",
     "allow-voice-widget-size",
     "allow-voice-widget-menu",
+    "allow-voice-widget-hide",
     "allow-voice-widget-drag-start",
     "allow-voice-widget-drag-move",
     "allow-voice-widget-drag-end",
