@@ -724,20 +724,25 @@ export function BoardPage() {
     }
   }
 
-  const handleDragMove = async (cardId: string, targetColumn: string) => {
+  // A card dropped on a column: within its own, placed before the card
+  // named (null: last); into another, moved there and placed the same way.
+  // A drop on a rail names no place, and the card goes last.
+  const handleDragMove = async (cardId: string, targetColumn: string, before?: string | null) => {
     const card = allCards.find((candidate) => candidate.id === cardId)
-    if (!card || card.status === targetColumn || pendingAction) return
+    if (!card || pendingAction) return
+    const reorder = card.status === targetColumn
+    if (reorder && before === undefined) return
     if (refuseAway(card)) return
     setPendingAction("move")
     try {
-      const result = await patchTask(baseUrl, card.id, { column: targetColumn })
+      const result = await patchTask(baseUrl, card.id, reorder ? { before } : { column: targetColumn, before })
       const waiting = result.triggers?.find(trigger => trigger.status === "waiting_input" || trigger.status === "waiting_confirmation")
       if (waiting) setOverlay({ kind: "workflowInput", request: waiting })
       movedCardIdRef.current = card.id
       refresh()
-      addToast(`Moved task to ${targetColumn}`, "success")
+      if (!reorder) addToast(`Moved task to ${targetColumn}`, "success")
     } catch (error) {
-      addToast(errorMessage(error, "Could not move the task"), "error")
+      addToast(errorMessage(error, reorder ? "Could not reorder the task" : "Could not move the task"), "error")
     } finally {
       setPendingAction(null)
     }

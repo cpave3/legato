@@ -1,6 +1,7 @@
-import { useEffect, useRef } from "react"
+import { useEffect, useRef, useState, type DragEvent } from "react"
 import { cn } from "../../lib/utils"
 import type { BoardCard as BoardCardType } from "../../lib/board-types"
+import { dropPlacement, dropSlot } from "../../lib/boardOrder"
 import { BoardCard } from "./BoardCard"
 import { useDropTarget } from "./useDropTarget"
 
@@ -21,7 +22,10 @@ interface BoardColumnProps {
   onCardDoubleClick?: (colIndex: number, cardIndex: number) => void
   onCardContextMenu?: (card: BoardCardType, position: { x: number; y: number }) => void
   colIndex: number
-  onCardDrop?: (cardId: string, column: string) => void
+  // A card dropped on the column: its ID, the column's name and the card it
+  // goes before (null for the end). A rail has no places, so it gives no
+  // before. A card dropped where it already is is not reported.
+  onCardDrop?: (cardId: string, column: string, before?: string | null) => void
 }
 
 // The rule under each column's name, in the color of where work stands.
@@ -59,8 +63,42 @@ export function BoardColumn({
   colIndex,
   onCardDrop,
 }: BoardColumnProps) {
-  const { dragOver, handlers } = useDropTarget(name, onCardDrop)
   const cardRefs = useRef<(HTMLDivElement | null)[]>([])
+  // The card of this column being dragged, if one is: dropping it just above
+  // or below itself changes nothing.
+  const draggingId = useRef<string | null>(null)
+  // The slot under the pointer while a card is dragged over the column.
+  const [slot, setSlot] = useState<number | null>(null)
+
+  const placementAt = (event: DragEvent<HTMLElement>, cardId: string) => {
+    const boxes = cards.map((_, i) => cardRefs.current[i]?.getBoundingClientRect() ?? { top: 0, height: 0 })
+    const at = dropSlot(boxes, event.clientY)
+    return { slot: at, ...dropPlacement(cards.map((card) => card.id), cardId, at) }
+  }
+
+  const { dragOver, handlers } = useDropTarget(name, onCardDrop && ((cardId, column, event) => {
+    setSlot(null)
+    draggingId.current = null
+    if (collapsed) {
+      onCardDrop(cardId, column)
+      return
+    }
+    const placement = placementAt(event, cardId)
+    if (!placement.unchanged) onCardDrop(cardId, column, placement.before)
+  }))
+
+  const columnHandlers = {
+    ...handlers,
+    onDragOver: (event: DragEvent<HTMLElement>) => {
+      handlers.onDragOver(event)
+      if (!onCardDrop) return
+      // The dragged card's ID cannot be read until the drop; only this
+      // column's own card is known, from its dragstart.
+      const placement = placementAt(event, draggingId.current ?? "")
+      setSlot(placement.unchanged ? null : placement.slot)
+    },
+  }
+  const showSlot = dragOver && slot !== null ? slot : null
 
   useEffect(() => {
     if (!isActive) return
@@ -94,7 +132,7 @@ export function BoardColumn({
         "flex h-full min-h-0 min-w-[260px] flex-1 basis-0 flex-col gap-2 rounded-lg font-lw transition-colors",
         dragOver && "bg-lw-surface ring-1 ring-inset ring-lw-accent-ring"
       )}
-      {...handlers}
+      {...columnHandlers}
     >
       <div
         data-column-header
@@ -110,8 +148,13 @@ export function BoardColumn({
             key={card.id}
             ref={(element) => { cardRefs.current[i] = element }}
             data-board-column-card
-            className="min-w-0 w-full"
+            className="relative min-w-0 w-full"
+            onDragEnd={() => { draggingId.current = null }}
           >
+            {/* Where a dragged card will land: drawn over the gap between
+                cards, so drawing it moves nothing under the pointer. */}
+            {showSlot === i && <DropLine at={i === 0 ? "top-0" : "-top-[5px]"} />}
+            {showSlot === cards.length && i === cards.length - 1 && <DropLine at="-bottom-[5px]" />}
             <BoardCard
               card={card}
               selected={isActive && selectedIndex === i}
@@ -125,6 +168,7 @@ export function BoardColumn({
               onDragStart={(event) => {
                 event.dataTransfer.effectAllowed = "move"
                 event.dataTransfer.setData("text/plain", card.id)
+                draggingId.current = card.id
               }}
             />
           </div>
@@ -132,4 +176,8 @@ export function BoardColumn({
       </div>
     </section>
   )
+}
+
+function DropLine({ at }: { at: string }) {
+  return <div data-drop-indicator aria-hidden className={cn("pointer-events-none absolute inset-x-0 z-10 h-0.5 rounded-full bg-lw-accent", at)} />
 }

@@ -88,6 +88,9 @@ export async function patchTask(
     description?: string
     workspace_id?: number | null
     column?: string
+    // The card this one goes before in its column (after any move); null
+    // for the end.
+    before?: string | null
     metadata?: Record<string, unknown>
   }
 ): Promise<PatchTaskResult> {
