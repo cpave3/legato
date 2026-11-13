@@ -878,9 +878,10 @@ fn place_widget(app: &AppHandle) {
 
 /// Anchors the layer surface with these margins, at the widget's size,
 /// when either changed; on GTK's main thread, where this may not be (a
-/// conversation runs on tokio's).
-#[allow(unused_variables)]
-fn anchor_layer(app: &AppHandle, window: &tauri::WebviewWindow, anchor: Anchor, m: Offset) {
+/// conversation runs on tokio's). When it changed, the receiver is told
+/// once the frame carrying the change is committed (`voicewidget::moved`).
+#[allow(unused_variables, unreachable_code)]
+fn anchor_layer(app: &AppHandle, window: &tauri::WebviewWindow, anchor: Anchor, m: Offset) -> Option<tokio::sync::oneshot::Receiver<()>> {
     #[cfg(target_os = "linux")]
     {
         let monitor = widget_screen(app).map(|s| s.index);
@@ -889,19 +890,25 @@ fn anchor_layer(app: &AppHandle, window: &tauri::WebviewWindow, anchor: Anchor, 
             let mut widget = desktop.widget.lock().unwrap();
             let applied = Some((monitor, anchor, m, widget.size));
             if widget.applied == applied {
-                return;
+                return None;
             }
             widget.applied = applied;
             widget.size
         };
         let shell = desktop.layer_shell.lock().unwrap().clone();
         let window = window.clone();
+        let (moved, moving) = tokio::sync::oneshot::channel();
         let _ = app.run_on_main_thread(move || {
             if let (Some(shell), Ok(gtk)) = (shell, window.gtk_window()) {
                 shell.place(&gtk, monitor, anchor, m, size);
+                voicewidget::layer_shell::after_next_paint(&gtk, move || {
+                    let _ = moved.send(());
+                });
             }
         });
+        return Some(moving);
     }
+    None
 }
 
 /// The page's size, so the window is the size of what it draws.
@@ -939,16 +946,24 @@ fn voice_widget_drag_start(app: AppHandle) {
 }
 
 /// The pointer moved by dx, dy (logical) from where it took hold of the
-/// widget: the widget moves as much, kept on the screen.
+/// widget: the widget moves as much, kept on the screen. Answers once a
+/// layer surface has moved, since the page measures its next step from
+/// where the window is then (`voicewidget::moved`, LEG-148).
 #[tauri::command]
-fn voice_widget_drag_move(app: AppHandle, dx: f64, dy: f64) {
-    let Some(window) = app.get_webview_window(voicewidget::LABEL) else { return };
+async fn voice_widget_drag_move(app: AppHandle, dx: f64, dy: f64) {
+    voicewidget::moved(drag_step(&app, dx, dy)).await;
+}
+
+/// Moves the dragged widget by dx, dy; for a layer surface, the receiver
+/// told when the move is on screen.
+fn drag_step(app: &AppHandle, dx: f64, dy: f64) -> Option<tokio::sync::oneshot::Receiver<()>> {
+    let window = app.get_webview_window(voicewidget::LABEL)?;
     let desktop = app.state::<Desktop>();
     let placement = *desktop.widget_placement.lock().unwrap();
     let (drag, size) = {
         let mut widget = desktop.widget.lock().unwrap();
         let size = widget.size;
-        let Some(drag) = widget.drag.as_mut() else { return };
+        let drag = widget.drag.as_mut()?;
         drag.pos = voicewidget::drag_to(drag.pos, (dx, dy), logical(drag.area, drag.scale), size);
         (*drag, size)
     };
@@ -956,12 +971,13 @@ fn voice_widget_drag_move(app: AppHandle, dx: f64, dy: f64) {
         voicewidget::Placement::Placed => {
             let (x, y) = (drag.area.x + drag.pos.0 * drag.scale, drag.area.y + drag.pos.1 * drag.scale);
             let _ = window.set_position(tauri::PhysicalPosition::new(x.round() as i32, y.round() as i32));
+            None
         }
         voicewidget::Placement::LayerShell => {
             let m = voicewidget::margins_for(drag.corner, drag.pos, logical(drag.area, drag.scale), size);
-            anchor_layer(&app, &window, drag.corner, m);
+            anchor_layer(app, &window, drag.corner, m)
         }
-        voicewidget::Placement::Floating => {}
+        voicewidget::Placement::Floating => None,
     }
 }
 
