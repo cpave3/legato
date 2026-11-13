@@ -156,7 +156,7 @@ journalctl --user -u legato -f        # its log
 
 `PATH` must hold every agent tool and toolchain: a service does not read your shell's profile.
 
-On a Mac that stays on, run Legato as a launchd user agent instead: see [Web server only](/legato/running/web-server/#macos-a-launchd-user-agent). It has no sandbox, since bubblewrap runs on Linux only, so the Mac is the boundary.
+On a Mac that stays on, run Legato as a launchd user agent instead: see [Web server only](/legato/running/web-server/#macos-a-launchd-user-agent). It has no sandbox, since bubblewrap runs on Linux only, so the Mac is the boundary, and a Mac cannot be a worker instance: a worker without the sandbox refuses every handoff. What this guide keeps in `~/.config/legato/env` goes in the plist's `EnvironmentVariables` instead.
 
 ### The log file
 
