@@ -142,7 +142,7 @@ export function BoardColumn({
         <span className={cn("text-xs font-semibold uppercase tracking-[1px]", isActive ? "text-lw-text" : "text-lw-text-2")}>{name}</span>
         <span className="font-lw-mono text-xs text-lw-text-2">{cards.length}</span>
       </div>
-      <div data-board-column-cards className="board-column-scrollbar flex min-h-0 min-w-0 flex-1 flex-col gap-2 overflow-x-hidden overflow-y-auto pb-2">
+      <div data-board-column-cards className="board-column-scrollbar flex min-h-0 min-w-0 flex-1 flex-col gap-2 overflow-x-hidden overflow-y-auto pb-2 pt-1">
         {cards.map((card, i) => (
           <div
             key={card.id}
@@ -151,9 +151,10 @@ export function BoardColumn({
             className="relative min-w-0 w-full"
             onDragEnd={() => { draggingId.current = null }}
           >
-            {/* Where a dragged card will land: drawn over the gap between
-                cards, so drawing it moves nothing under the pointer. */}
-            {showSlot === i && <DropLine at={i === 0 ? "top-0" : "-top-[5px]"} />}
+            {/* Where a dragged card will land: drawn in the gap above the
+                card (the list's top padding, for the first), so drawing it
+                moves nothing under the pointer. */}
+            {showSlot === i && <DropLine at={i === 0 ? "-top-[3px]" : "-top-[5px]"} />}
             {showSlot === cards.length && i === cards.length - 1 && <DropLine at="-bottom-[5px]" />}
             <BoardCard
               card={card}
