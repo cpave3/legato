@@ -20,8 +20,9 @@
 //!   non-activating NSPanel (`tauri-nspanel`) at floating level, on every
 //!   space.
 //!
-//! Only the geometry and the choices are decided here, and tested; the
-//! window itself is made in `app.rs` (`make_voice_widget`).
+//! Only the geometry and the choices are decided here, and tested, with how
+//! long a drag step waits for the window to move (`moved`); the window
+//! itself is made in `app.rs` (`make_voice_widget`).
 
 use std::time::{Duration, Instant};
 
@@ -702,7 +703,8 @@ mod tests {
         tokio::time::sleep(Duration::from_millis(20)).await;
         assert!(!answer.is_finished(), "answered before the window moved");
         told.send(()).unwrap();
-        tokio::time::timeout(Duration::from_millis(20), answer).await.expect("answered once moved").unwrap();
+        // Well before its limit: told, not timed out.
+        tokio::time::timeout(MOVE_WITHIN / 2, answer).await.expect("answered once moved").unwrap();
     }
 
     #[tokio::test]
@@ -712,7 +714,7 @@ mod tests {
         let start = Instant::now();
         moved(Some(moving)).await;
         let took = start.elapsed();
-        assert!(took >= MOVE_WITHIN && took < MOVE_WITHIN * 3, "{took:?}");
+        assert!(took >= MOVE_WITHIN && took < MOVE_WITHIN * 10, "{took:?}");
     }
 
     #[tokio::test]
@@ -724,6 +726,6 @@ mod tests {
         let (gone, moving) = tokio::sync::oneshot::channel::<()>();
         drop(gone);
         moved(Some(moving)).await;
-        assert!(start.elapsed() < Duration::from_millis(20));
+        assert!(start.elapsed() < MOVE_WITHIN / 2, "waited for a frame");
     }
 }

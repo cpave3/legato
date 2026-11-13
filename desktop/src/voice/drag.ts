@@ -9,7 +9,9 @@ import { invoke } from "@tauri-apps/api/core"
 // The window moves under the pointer, so where the pointer is in the page,
 // less where it took hold, is how far the window still has to go. One move
 // is sent at a time: what the pointer does while the window is moving is
-// measured from where the window was, and dropped.
+// measured from where the window was, and dropped. So the move command
+// answers only once the window is there (voicewidget::moved in Rust), or the
+// next move would count the same distance twice (LEG-148).
 export const DRAG_FROM = 4
 
 type Grip = { id: number; x: number; y: number; dragging: boolean; moving: boolean; queue: Promise<unknown> }
