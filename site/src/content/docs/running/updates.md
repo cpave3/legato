@@ -51,6 +51,7 @@ If any step fails, the running binary stays as it was. The web UI says why, and 
 A new binary takes effect when Legato starts again. How that happens depends on how Legato runs:
 
 - **As a systemd service**: Legato stops by itself a second later and exits with status 75. A unit with `Restart=on-failure` and `RestartForceExitStatus=75` starts it again on the new binary. With `KillMode=process`, tmux and your agents keep running and Legato finds them again. See [Web server only](/legato/running/web-server/) for the unit.
+- **As a launchd agent on macOS**: Legato does not stop by itself, since it exits with 75 only as a systemd service. The bar says the new version is installed and asks you to restart Legato. **Restart Legato** or `legato restart` (see below) starts it again on the new binary in the same process. See [Web server only](/legato/running/web-server/#macos-a-launchd-user-agent).
 - **In a terminal**, the TUI or `legato serve` you started by hand: Legato does not quit from under you. The bar says the new version is installed and asks you to restart Legato.
 - **Under `--hot-reload`**, the development mode: the supervisor sees the new binary and restarts Legato.
 

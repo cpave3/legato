@@ -43,7 +43,11 @@ To pair a phone instead, run `legato pair` while the server runs. See [Web acces
 
 ## Run it as a service
 
-On Linux, a systemd user service keeps Legato running after you log out and starts it again when it stops. Save this as `~/.config/systemd/user/legato.service`:
+A service starts `legato serve` for you and starts it again when it stops. Use systemd on Linux and launchd on macOS.
+
+### Linux: a systemd user service
+
+A systemd user service keeps Legato running after you log out. Save this as `~/.config/systemd/user/legato.service`:
 
 ```ini
 [Unit]
@@ -75,6 +79,83 @@ journalctl --user -u legato -f     # follow its log
 ```
 
 For a whole machine set up for agents, with Tailscale, logins for the agent tools, GitHub and the sandbox, follow [Agents on a server of their own](/legato/running/agent-server/).
+
+### macOS: a launchd user agent
+
+A launchd user agent starts Legato when you log in to your Mac and starts it again when it fails. It runs while you are logged in; it does not run before you log in, and it sleeps when the Mac sleeps.
+
+launchd does not expand `~` or `$HOME` in a property list, so every path in it must be absolute. This command writes the file with your home folder filled in:
+
+```bash
+mkdir -p ~/Library/LaunchAgents ~/Library/Logs
+cat > ~/Library/LaunchAgents/com.legato.serve.plist <<EOF
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.legato.serve</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>$HOME/.local/bin/legato</string>
+    <string>serve</string>
+    <string>--port</string>
+    <string>3080</string>
+  </array>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>PATH</key>
+    <string>$HOME/.local/bin:/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin</string>
+  </dict>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <dict>
+    <key>SuccessfulExit</key>
+    <false/>
+  </dict>
+  <key>AbandonProcessGroup</key>
+  <true/>
+  <key>StandardOutPath</key>
+  <string>$HOME/Library/Logs/legato-serve.log</string>
+  <key>StandardErrorPath</key>
+  <string>$HOME/Library/Logs/legato-serve.log</string>
+</dict>
+</plist>
+EOF
+plutil -lint ~/Library/LaunchAgents/com.legato.serve.plist
+```
+
+- `PATH` must hold tmux, every agent tool and every toolchain your agents use. A launchd agent does not read your shell's profile. Keep `/usr/bin` in it: Legato runs `security`, which is in `/usr/bin`, to reach the keychain.
+- If your shell profile sets `LEGATO_CONFIG`, `XDG_CONFIG_HOME` or `XDG_DATA_HOME`, add them to `EnvironmentVariables` too. Without them, the service reads a different configuration and database from the one your terminal uses.
+- `RunAtLoad` starts Legato when the agent is loaded, and so at every login.
+- `KeepAlive` with `SuccessfulExit` set to false starts Legato again when it exits with an error or is killed. launchd waits at least 10 seconds between starts. When you stop the agent, or Legato exits cleanly, launchd leaves it stopped.
+- `AbandonProcessGroup` stops launchd from killing the processes Legato started when Legato stops. tmux and the agents in it keep running, and Legato finds them again when it starts. This does what `KillMode=process` does on Linux.
+- launchd writes Legato's output to `~/Library/Logs/legato-serve.log`. Legato also keeps its own log in its data folder, `~/.local/share/legato/logs/legato.log` unless `data_dir` says otherwise.
+
+Load and start it, then manage it:
+
+```bash
+launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.legato.serve.plist   # load and start it
+launchctl kickstart -k gui/$(id -u)/com.legato.serve   # stop it and start it again
+launchctl bootout gui/$(id -u)/com.legato.serve        # stop it and unload it
+tail -f ~/Library/Logs/legato-serve.log                # follow its log
+```
+
+After you edit the property list, run `bootout`, then `bootstrap` again. launchd reads the file only when it loads the agent.
+
+On a Mac, also note:
+
+- **No sandbox.** Legato's sandbox is bubblewrap, which runs on Linux only. Leave `agents.sandbox.enabled` off. With it on, every agent that would start in the sandbox fails to start, saying that bwrap is not installed, and swarm and workflow agents always start in it. See [The sandbox](/legato/security/sandbox/).
+- **The SSH agent.** macOS gives every process in your login session, launchd agents included, an `SSH_AUTH_SOCK` for its own ssh-agent. Legato uses 1Password's agent by itself only when `SSH_AUTH_SOCK` is empty and `~/.1password/agent.sock` exists, so on a Mac it keeps the macOS agent. To use 1Password's SSH agent, name its socket in `config.yaml`:
+
+  ```yaml
+  ssh_agent_socket: "${HOME}/Library/Group Containers/2BUA8C4S2C.com.1password/t/agent.sock"
+  ```
+
+- **The secret store's key.** With `secrets.master_key: auto`, the default, Legato keeps the key of its secret store in your keychain on macOS. A launchd agent runs in your login session, so it reads the same keychain item as a Legato you start in a terminal. Legato makes the key the first time it uses its store and records where it put it, and from then on it reads the key from that place only. If `security` is not on `PATH` when the key is made, `auto` keeps the key in a file in the data folder instead. If `security` is missing later, Legato cannot read the secrets in its store. See `secrets.master_key` in the [configuration reference](/legato/reference/configuration/).
+- **The TUI beside it.** The TUI and the service share the configuration, the database and the agents. Leave `web.enabled` off (the default) so the TUI does not take the service's port. If a TUI with `web.enabled: true` holds the port, `legato serve` exits with an error, and launchd tries again every 10 seconds until the port is free.
+- **Updates.** Legato exits with status 75 to restart on an update only as a systemd service. Under launchd, an update installs the new binary and the web UI says "Legato v… is installed. Restart Legato to use it." This is so in the Automatic mode too. Choose **Restart Legato** in Settings › Updates, or run `legato restart`: Legato starts again in place on the new binary, in the same process, so launchd sees no change. `launchctl kickstart -k` also works. See [Updates](/legato/running/updates/).
 
 ## Check that it runs
 

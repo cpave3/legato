@@ -156,6 +156,8 @@ journalctl --user -u legato -f        # its log
 
 `PATH` must hold every agent tool and toolchain: a service does not read your shell's profile.
 
+On a Mac that stays on, run Legato as a launchd user agent instead: see [Web server only](/legato/running/web-server/#macos-a-launchd-user-agent). It has no sandbox, since bubblewrap runs on Linux only, so the Mac is the boundary.
+
 ### The log file
 
 Legato also writes its log to a file in its data folder, `~/.local/share/legato/logs/legato.log` unless `data_dir` says otherwise, whether it runs as `legato serve`, as the TUI, or under hot reload. `legato serve` still logs to stderr too, so `journalctl` shows the same lines; the TUI, which owns its terminal, writes only to the file. The file is rotated at 10 MB, and the three files before it are kept as `legato.log.1` (the newest) to `legato.log.3`.
