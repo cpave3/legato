@@ -45,6 +45,9 @@ task docs:dev              # serve the docs site (site/) with live reload
 task docs:build            # build the docs site; fails on a broken link
 task desktop:test          # the desktop app's Rust tests and TypeScript check
 task desktop:dev           # run the desktop app (desktop/)
+task packages:check        # lint, typecheck and test the apps under packages/
+task even-hub:dev          # the Even G2 glasses app (packages/even-hub/) on its fixture
+task even-hub:sim          # the Even Hub simulator, open on it
 ```
 
 ## Build Plan
@@ -98,6 +101,7 @@ The rest are not imported. Before changing an area, read its doc, and keep it cu
 - `docs/ai/workflows.md` — workflow runs, completion and artifact collection, API, live updates
 - `docs/ai/model-settings.md` — native model settings: proxy, API, vision metadata, rollout
 - `docs/ai/desktop.md` — the desktop app (`desktop/`, Tauri): window and webviews, pairing, pinned TLS, security keys, its releases and updater
+- `docs/ai/even-hub.md` — the Even Realities G2 glasses app (`packages/even-hub/`, Even Hub SDK): the SDK's limits, the dev proxy and token, the simulator, packing; and the `packages/` workspace
 
 ## User documentation site
 
@@ -131,6 +135,7 @@ The documentation for people who use Legato is the Starlight site in `site/`, pu
 | `docs/ai/integrations.md` | `integrations/argus` |
 | `docs/ai/updates.md` | `running/updates`, `start/install` |
 | `docs/ai/desktop.md` | `running/desktop-app` |
+| `docs/ai/even-hub.md` | `integrations/even-g2`, `contributing/build` |
 
 ## Agent skills
 

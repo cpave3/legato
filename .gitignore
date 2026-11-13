@@ -31,3 +31,10 @@ browser-extension/coverage/
 # Release binaries (task release:dist)
 /dist/
 .task/
+
+# Apps under packages/: dependencies, builds, packed .ehpk files, local
+# settings (a Legato address and token), and pack scratch
+/packages/**/node_modules/
+/packages/**/dist/
+/packages/**/.pack/
+/packages/**/.env.local

@@ -217,6 +217,57 @@ tasks:
     cmds:
       - pnpm lint
 
+  packages:install:
+    desc: Install the dependencies of the apps under packages/ (one pnpm workspace)
+    dir: packages
+    sources: [package.json, pnpm-lock.yaml, pnpm-workspace.yaml, "*/package.json"]
+    cmds:
+      - pnpm install --frozen-lockfile
+
+  packages:check:
+    desc: Lint, typecheck and test every app under packages/
+    dir: packages
+    deps: [packages:install]
+    cmds:
+      - pnpm run check
+
+  even-hub:dev:
+    desc: Serve the Even G2 glasses app at http://127.0.0.1:5173 (the fixture, or LEGATO_URL with LEGATO_TOKEN)
+    dir: packages/even-hub
+    deps: [packages:install]
+    cmds:
+      - pnpm run dev
+
+  even-hub:sim:
+    desc: Open the Even Hub simulator on the glasses app (run even-hub:dev first)
+    dir: packages/even-hub
+    deps: [packages:install]
+    cmds:
+      - pnpm run sim
+
+  even-hub:test:
+    desc: Run the glasses app's tests
+    dir: packages/even-hub
+    deps: [packages:install]
+    cmds:
+      - pnpm run test
+
+  even-hub:screenshots:
+    desc: Run the glasses app in the simulator on the fixture and save screenshots (-- --headless for xvfb-run)
+    dir: packages/even-hub
+    deps: [packages:install]
+    cmds:
+      - pnpm run screenshots {{.CLI_ARGS}}
+
+  even-hub:pack:
+    desc: Build the glasses app as an .ehpk for the Legato at LEGATO_URL
+    dir: packages/even-hub
+    deps: [packages:install]
+    requires:
+      vars: [LEGATO_URL]
+    cmds:
+      - pnpm run pack
+
   streamdeck:build:
     desc: Build the Stream Deck plugin binary
     dir: streamdeck

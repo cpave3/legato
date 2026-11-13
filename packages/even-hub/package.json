@@ -1,0 +1,27 @@
+{
+  "name": "legato-even-hub",
+  "private": true,
+  "version": "0.1.0",
+  "type": "module",
+  "scripts": {
+    "dev": "vite --host 127.0.0.1 --port 5173 --strictPort",
+    "build": "tsc && vite build",
+    "typecheck": "tsc",
+    "test": "vitest run",
+    "sim": "evenhub-simulator http://127.0.0.1:5173/",
+    "pack": "node scripts/pack.mjs",
+    "screenshots": "node scripts/screenshots.mjs"
+  },
+  "dependencies": {
+    "@evenrealities/even_hub_sdk": "0.0.16",
+    "@evenrealities/pretext": "0.1.4"
+  },
+  "devDependencies": {
+    "@evenrealities/evenhub-cli": "0.2.0",
+    "@evenrealities/evenhub-simulator": "0.9.5",
+    "@types/node": "^24.12.0",
+    "typescript": "~5.9.3",
+    "vite": "^8.0.1",
+    "vitest": "^4.1.2"
+  }
+}

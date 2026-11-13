@@ -30,6 +30,30 @@ checks:
     output_format: raw
     tags: [build, typescript, slow]
 
+  # The apps under packages/ (one pnpm workspace).
+  - id: packages-lint
+    match: ["packages/**/*.ts", "packages/**/*.mjs", "packages/**/*.js"]
+    cmd: ".cerberus/run-packages-check.sh pnpm exec eslint --format=json {files}"
+    scope: files
+    output_format: eslint-json
+    tags: [lint, typescript, fast]
+
+  - id: packages-typecheck
+    match: ["packages/**/*.ts"]
+    cmd: ".cerberus/run-packages-check.sh pnpm run typecheck"
+    scope: project
+    concurrency_group: packages
+    output_format: raw
+    tags: [build, typescript]
+
+  - id: packages-test
+    match: ["packages/**/*.ts", "packages/**/*.json"]
+    cmd: ".cerberus/run-packages-check.sh pnpm run test"
+    scope: project
+    concurrency_group: packages
+    output_format: raw
+    tags: [test, typescript, slow]
+
   # Go
   - id: go-vet
     match: ["**/*.go"]
@@ -80,6 +104,8 @@ profiles:
       - ts-typecheck
       - ts-test
       - ts-build
+      - packages-typecheck
+      - packages-test
       - go-build
       - go-test
     timeout_seconds: 300
