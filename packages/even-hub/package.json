@@ -5,8 +5,8 @@
   "type": "module",
   "scripts": {
     "dev": "vite --host 127.0.0.1 --port 5173 --strictPort",
-    "build": "tsc && vite build",
-    "typecheck": "tsc",
+    "build": "pnpm run typecheck && vite build",
+    "typecheck": "tsc -p tsconfig.json && tsc -p tsconfig.node.json",
     "test": "vitest run",
     "sim": "evenhub-simulator http://127.0.0.1:5173/",
     "pack": "node scripts/pack.mjs",
@@ -23,5 +23,8 @@
     "typescript": "~5.9.3",
     "vite": "^8.0.1",
     "vitest": "^4.1.2"
+  },
+  "engines": {
+    "node": ">=22.13"
   }
 }

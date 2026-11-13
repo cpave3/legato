@@ -82,19 +82,25 @@ export async function answerLegato(
 
   let body: Record<string, unknown> | undefined
   if (method === "POST") {
+    let sent: Record<string, unknown>
     try {
-      body = JSON.parse(rawBody ?? "")
+      sent = JSON.parse(rawBody ?? "")
     } catch {
       return json(400, { error: "the body is not JSON" })
     }
+    // Only the field each call needs goes on, rebuilt here: Go's JSON decoder
+    // matches keys without regard to case and keeps the last, so a body passed
+    // on as sent could turn transcription_only off and have Legato type the
+    // text into an agent's pane.
+    const field = found.route === "transcribe" ? "pcm" : "content"
+    if (typeof sent?.[field] !== "string") return json(400, { error: `${field} must be a string` })
+    body = found.route === "transcribe" ? { transcription_only: true, pcm: sent.pcm } : { content: sent.content }
   }
   if (settings.kind === "fixture") return fromFixtures(settings, found.route, found.taskId, body)
 
   if (found.route === "send" && !settings.allowSend) {
     return json(403, { error: "sending is off: set LEGATO_ALLOW_SEND=1 for a scratch Legato" })
   }
-  // Transcription only: never let Legato type the text into a pane.
-  if (found.route === "transcribe") body = { ...body, transcription_only: true }
 
   try {
     const response = await fetchFn(`${settings.url}${pathname}${search}`, {
@@ -114,9 +120,26 @@ export async function answerLegato(
   }
 }
 
+// Why a request is refused before it is read, or undefined. The app calls
+// this path from its own page, with JSON. A page on another site can make a
+// browser send a POST of plain text without asking first, so a POST must be
+// JSON (which makes the browser ask, and Vite answers only its own origins),
+// and a request the browser marks as from another site is refused.
+export function crossSiteRefusal(request: { method: string; contentType?: string; fetchSite?: string }): string | undefined {
+  if (request.fetchSite === "cross-site") return "refused: the request came from another site"
+  if (request.method === "POST" && request.contentType?.split(";")[0].trim().toLowerCase() !== "application/json") {
+    return "refused: the body must be JSON (Content-Type: application/json)"
+  }
+  return undefined
+}
+
 // A recording of a minute is about 2.6 MB as base64.
 const MAX_BODY = 8 << 20
 
+class TooLarge extends Error {}
+
+// The body of a POST; past MAX_BODY it is read to its end and dropped, and
+// the request is answered 413.
 function readBody(req: IncomingMessage): Promise<string | undefined> {
   if (req.method !== "POST") return Promise.resolve(undefined)
   return new Promise((done, fail) => {
@@ -124,14 +147,9 @@ function readBody(req: IncomingMessage): Promise<string | undefined> {
     let size = 0
     req.on("data", (chunk: Buffer) => {
       size += chunk.length
-      if (size > MAX_BODY) {
-        fail(new Error("body too large"))
-        req.destroy()
-        return
-      }
-      chunks.push(chunk)
+      if (size <= MAX_BODY) chunks.push(chunk)
     })
-    req.on("end", () => done(Buffer.concat(chunks).toString("utf8")))
+    req.on("end", () => (size > MAX_BODY ? fail(new TooLarge()) : done(Buffer.concat(chunks).toString("utf8"))))
     req.on("error", fail)
   })
 }
@@ -145,6 +163,17 @@ export function legatoDev(settings: DevSettings): Plugin {
       const sending = settings.kind === "proxy" ? (settings.allowSend ? ", messages sent" : ", messages refused") : ""
       server.config.logger.info(`  Legato: ${settings.kind} ${from}${sending}`)
       server.middlewares.use(DEV_PATH, (req, res) => {
+        const refused = crossSiteRefusal({
+          method: req.method ?? "GET",
+          contentType: req.headers["content-type"],
+          fetchSite: req.headers["sec-fetch-site"] as string | undefined,
+        })
+        if (refused) {
+          res.statusCode = 403
+          res.setHeader("Content-Type", "application/json")
+          res.end(JSON.stringify({ error: refused }))
+          return
+        }
         readBody(req)
           .then((body) => answerLegato(req.method ?? "GET", req.url ?? "/", body, settings))
           .then(
@@ -155,8 +184,9 @@ export function legatoDev(settings: DevSettings): Plugin {
               res.end(answer.body)
             },
             (err: unknown) => {
-              res.statusCode = 500
-              res.end(JSON.stringify({ error: String(err) }))
+              res.statusCode = err instanceof TooLarge ? 413 : 500
+              res.setHeader("Content-Type", "application/json")
+              res.end(JSON.stringify({ error: err instanceof TooLarge ? "the body is too large" : String(err) }))
             },
           )
       })

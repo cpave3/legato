@@ -265,6 +265,9 @@ tasks:
     deps: [packages:install]
     requires:
       vars: [LEGATO_URL]
+    # Given as `task even-hub:pack LEGATO_URL=…` too, which Task does not export.
+    env:
+      LEGATO_URL: "{{.LEGATO_URL}}"
     cmds:
       - pnpm run pack
 

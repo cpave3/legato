@@ -37,19 +37,27 @@ function fakeBridge() {
       draw(page)
       return StartUpPageCreateResult.success
     },
+    refuseRebuild: false,
+    failUpgrades: 0,
     async rebuildPageContainer(page: Page) {
+      if (bridge.refuseRebuild) return false
       bridge.rebuilt++
       draw(page)
       return true
     },
     async textContainerUpgrade(u: { containerName?: string; content?: string }) {
+      if (bridge.failUpgrades > 0) {
+        bridge.failUpgrades--
+        throw new Error("bluetooth dropped")
+      }
       bridge.upgrades++
       shown.set(u.containerName!, u.content ?? "")
       return true
     },
+    micWorks: true,
     async audioControl(open: boolean) {
       bridge.mic.push(open)
-      return true
+      return open ? bridge.micWorks : true
     },
     onEvenHubEvent(cb: (e: EvenHubEvent) => void) {
       listener = cb
@@ -233,6 +241,37 @@ describe("startGlance", () => {
     expect(bridge.text("body")).toBe("Working on it.")
   })
 
+  it("keeps a message the agent was too busy for, and sends it again on a tap", async () => {
+    const bridge = fakeBridge()
+    const legato = fakeLegato(someAgents)
+    const answers = [{ ok: false as const, problem: "The agent is busy. Try again when it stops." }, { ok: true as const }]
+    legato.client.send = async (taskId, text) => {
+      legato.calls.send.push([taskId, text])
+      return answers.shift()!
+    }
+    await startGlance(bridge as unknown as GlassesBridge, legato.client)
+    bridge.send(select(1, "▶ running  RUN-1 Build"))
+    await settle()
+    bridge.send(click)
+    await settle()
+    bridge.send(audio(1))
+    bridge.send(click)
+    await settle()
+
+    bridge.send(click)
+    await settle()
+    expect(bridge.text("body")).toBe("The agent is busy. Try again when it stops.\n\n“Run the tests again.”")
+    expect(bridge.mic).toEqual([true, false])
+
+    bridge.send(click)
+    await settle()
+    expect(legato.calls.send).toEqual([
+      ["RUN-1", "Run the tests again."],
+      ["RUN-1", "Run the tests again."],
+    ])
+    expect(bridge.text("body")).toBe("Sent to RUN-1.")
+  })
+
   it("cancels a message on a double tap, closing the microphone, and sends nothing", async () => {
     const bridge = fakeBridge()
     const legato = fakeLegato(someAgents)
@@ -297,5 +336,154 @@ describe("startGlance", () => {
     expect(legato.calls.agents).toBe(2)
     await vi.advanceTimersByTimeAsync(POLL_MS)
     expect(legato.calls.agents).toBe(3)
+  })
+
+  it("closes the microphone and drops the message when the app goes to the background while listening", async () => {
+    const bridge = fakeBridge()
+    const legato = fakeLegato(someAgents)
+    await startGlance(bridge as unknown as GlassesBridge, legato.client)
+    bridge.send(select(1, "▶ running  RUN-1 Build"))
+    await settle()
+    bridge.send(click)
+    await settle()
+    bridge.send(audio(1))
+
+    bridge.send(system(OsEventTypeList.FOREGROUND_EXIT_EVENT))
+    await settle()
+    expect(bridge.mic).toEqual([true, false])
+
+    bridge.send(system(OsEventTypeList.FOREGROUND_ENTER_EVENT))
+    await settle()
+    expect(bridge.text("body")).toBe("Working on it.")
+    expect(legato.calls.transcribe).toEqual([])
+  })
+
+  it("does not take a scroll of an agent's page for a tap", async () => {
+    const bridge = fakeBridge()
+    await startGlance(bridge as unknown as GlassesBridge, fakeLegato(someAgents).client)
+    bridge.send(select(1, "▶ running  RUN-1 Build"))
+    await settle()
+
+    bridge.send({ textEvent: { containerID: 2, containerName: "body", eventType: OsEventTypeList.SCROLL_BOTTOM_EVENT } } as EvenHubEvent)
+    bridge.send({ textEvent: { containerID: 2, containerName: "body", eventType: OsEventTypeList.SCROLL_TOP_EVENT } } as EvenHubEvent)
+    await settle()
+
+    expect(bridge.mic).toEqual([])
+  })
+
+  it("says so when the microphone does not start, and tries again on a tap", async () => {
+    const bridge = fakeBridge()
+    bridge.micWorks = false
+    await startGlance(bridge as unknown as GlassesBridge, fakeLegato(someAgents).client)
+    bridge.send(select(1, "▶ running  RUN-1 Build"))
+    await settle()
+
+    bridge.send(click)
+    await settle()
+    expect(bridge.text("body")).toBe("The microphone didn't start.")
+
+    bridge.micWorks = true
+    bridge.send(click)
+    await settle()
+    expect(bridge.text("title")).toBe("● Listening · RUN-1")
+  })
+
+  it("shows why a transcription failed, and records again on a tap", async () => {
+    const bridge = fakeBridge()
+    const legato = fakeLegato(someAgents)
+    legato.client.transcribe = async () => ({ ok: false, problem: "Transcription is off in Legato." })
+    await startGlance(bridge as unknown as GlassesBridge, legato.client)
+    bridge.send(select(1, "▶ running  RUN-1 Build"))
+    await settle()
+    bridge.send(click)
+    await settle()
+    bridge.send(audio(1))
+    bridge.send(click)
+    await settle()
+
+    expect(bridge.text("body")).toBe("Transcription is off in Legato.")
+    bridge.send(click)
+    await settle()
+    expect(bridge.mic).toEqual([true, false, true])
+  })
+
+  it("finds the chosen item by its index when the SDK gives no name", async () => {
+    const bridge = fakeBridge()
+    const legato = fakeLegato(someAgents)
+    await startGlance(bridge as unknown as GlassesBridge, legato.client)
+
+    bridge.send(select(1, ""))
+    await settle()
+
+    expect(legato.calls.conversation).toEqual(["RUN-1"])
+  })
+
+  it("does not send a transcript the operator has not seen: a tap while transcribing is dropped", async () => {
+    const bridge = fakeBridge()
+    const legato = fakeLegato(someAgents)
+    let finish: (r: { ok: true; text: string }) => void = () => {}
+    legato.client.transcribe = () => new Promise((done) => (finish = done))
+    await startGlance(bridge as unknown as GlassesBridge, legato.client)
+    bridge.send(select(1, "▶ running  RUN-1 Build"))
+    await settle()
+    bridge.send(click)
+    await settle()
+    bridge.send(audio(1))
+    bridge.send(click)
+    await settle()
+    expect(bridge.text("body")).toBe("Transcribing…")
+
+    bridge.send(click)
+    await settle()
+    finish({ ok: true, text: "delete the branch" })
+    await settle()
+
+    expect(bridge.text("body")).toBe("“delete the branch”")
+    expect(legato.calls.send).toEqual([])
+  })
+
+  it("opens the agent the operator chose even when a refresh re-sorted the list meanwhile", async () => {
+    const bridge = fakeBridge()
+    const before: AgentsResult = { ok: true, agents: [agent("A", "working", "Alpha"), agent("B", "working", "Beta")] }
+    const after: AgentsResult = { ok: true, agents: [agent("A", "working", "Alpha"), agent("B", "waiting", "Beta")] }
+    const legato = fakeLegato(before)
+    let answer: (r: AgentsResult) => void = () => {}
+    await startGlance(bridge as unknown as GlassesBridge, legato.client)
+    legato.client.agents = () => new Promise((done) => (answer = done))
+
+    await vi.advanceTimersByTimeAsync(POLL_MS)
+    bridge.send(select(1, "▶ running  B Beta"))
+    answer(after)
+    await settle()
+
+    expect(legato.calls.conversation).not.toContain("A")
+  })
+
+  it("keeps polling after a call to the glasses fails", async () => {
+    const changed: AgentsResult = { ok: true, agents: [agent("RUN-1", "waiting", "Build")] }
+    const bridge = fakeBridge()
+    const legato = fakeLegato(someAgents, someAgents, changed)
+    await startGlance(bridge as unknown as GlassesBridge, legato.client)
+
+    vi.setSystemTime(new Date(2026, 10, 13, 9, 6))
+    bridge.failUpgrades = 1
+    await vi.advanceTimersByTimeAsync(POLL_MS)
+    await vi.advanceTimersByTimeAsync(POLL_MS)
+
+    expect(legato.calls.agents).toBe(3)
+    expect(bridge.items()).toEqual(["● needs you  RUN-1 Build"])
+  })
+
+  it("draws a page again when the glasses refused it", async () => {
+    const changed: AgentsResult = { ok: true, agents: [agent("RUN-1", "waiting", "Build")] }
+    const bridge = fakeBridge()
+    await startGlance(bridge as unknown as GlassesBridge, fakeLegato(someAgents, changed).client)
+
+    bridge.refuseRebuild = true
+    await vi.advanceTimersByTimeAsync(POLL_MS)
+    bridge.refuseRebuild = false
+    await vi.advanceTimersByTimeAsync(POLL_MS)
+
+    expect(bridge.items()).toEqual(["● needs you  RUN-1 Build"])
   })
 })

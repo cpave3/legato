@@ -178,8 +178,9 @@ export async function startGlance(bridge: GlassesBridge, legato: LegatoClient): 
       if (first) {
         const result = await bridge.createStartUpPageContainer(new CreateStartUpPageContainer(page))
         if (result !== StartUpPageCreateResult.success) throw new Error(`the glasses refused the page (result ${result})`)
-      } else {
-        await bridge.rebuildPageContainer(new RebuildPageContainer(page))
+      } else if (!(await bridge.rebuildPageContainer(new RebuildPageContainer(page)))) {
+        // Left undrawn, so the next refresh draws it again.
+        throw new Error("the glasses refused the page")
       }
       drawnKey = key
       drawnText = new Map(layout.textObject.map((t) => [t.containerName!, t.content ?? ""]))
@@ -211,21 +212,25 @@ export async function startGlance(bridge: GlassesBridge, legato: LegatoClient): 
 
   async function refresh(): Promise<void> {
     clearTimeout(timer)
-    const answer = await legato.agents()
-    if (answer.ok) {
-      agents = answer.agents
-      updatedAt = new Date()
-      problem = undefined
-    } else {
-      problem = answer.problem
+    try {
+      const answer = await legato.agents()
+      if (answer.ok) {
+        agents = answer.agents
+        updatedAt = new Date()
+        problem = undefined
+      } else {
+        problem = answer.problem
+      }
+      if (view.kind === "agent") {
+        const open = view
+        open.agent = agents.find((a) => a.task_id === open.agent.task_id) ?? open.agent
+        if (!open.dictation) open.read = await legato.conversation(open.agent.task_id)
+      }
+      await show()
+    } finally {
+      // Polling goes on whatever went wrong this time.
+      if (inFront) timer = setTimeout(() => void enqueue(refresh), POLL_MS)
     }
-    if (view.kind === "agent") {
-      const open = view
-      open.agent = agents.find((a) => a.task_id === open.agent.task_id) ?? open.agent
-      if (!open.dictation) open.read = await legato.conversation(open.agent.task_id)
-    }
-    await show()
-    if (inFront) timer = setTimeout(() => void enqueue(refresh), POLL_MS)
   }
 
   // Dictation: the microphone's sound while listening, and the clock of it.
@@ -288,7 +293,7 @@ export async function startGlance(bridge: GlassesBridge, legato: LegatoClient): 
     const sent = await legato.send(open.agent.task_id, text)
     if (view !== open) return
     if (!sent.ok) {
-      open.dictation = { step: "problem", problem: sent.problem }
+      open.dictation = { step: "problem", problem: sent.problem, text }
       return show()
     }
     open.dictation = { step: "sent" }
@@ -305,7 +310,19 @@ export async function startGlance(bridge: GlassesBridge, legato: LegatoClient): 
     )
   }
 
-  async function onPress(kind: "click" | "double", event: EvenHubEvent): Promise<void> {
+  // A press is judged against what was on the glasses when it came, not when
+  // its turn in the queue does: a tap made while "Transcribing…" showed must
+  // not send the transcript that replaced it, nor a tap on a row open the
+  // agent a refresh has since moved there.
+  type Seen = { view: View; step?: Dictation["step"]; items: Screen["items"] }
+  const seen = (): Seen => ({
+    view,
+    step: view.kind === "agent" ? view.dictation?.step : undefined,
+    items: screen.items,
+  })
+
+  async function onPress(kind: "click" | "double", event: EvenHubEvent, at: Seen): Promise<void> {
+    if (view !== at.view || (view.kind === "agent" && view.dictation?.step !== at.step)) return
     if (view.kind === "list") {
       if (kind === "double") {
         if (tab === "idle") {
@@ -317,8 +334,10 @@ export async function startGlance(bridge: GlassesBridge, legato: LegatoClient): 
       }
       const chosen = event.listEvent
       if (!chosen) return
-      const item =
-        screen.items.find((i) => i.text === chosen.currentSelectItemName) ?? screen.items[chosen.currentSelectItemIndex ?? 0]
+      // By name, as the glasses showed it; by index only when the SDK gave no name.
+      const item = chosen.currentSelectItemName
+        ? at.items.find((i) => i.text === chosen.currentSelectItemName)
+        : at.items[chosen.currentSelectItemIndex ?? 0]
       if (item?.go) {
         tab = item.go
         return show()
@@ -346,8 +365,10 @@ export async function startGlance(bridge: GlassesBridge, legato: LegatoClient): 
       return show()
     }
     switch (step) {
-      case undefined:
       case "problem":
+        if (open.dictation?.step === "problem" && open.dictation.text) return sendDictated(open, open.dictation.text)
+        return listen(open)
+      case undefined:
         return listen(open)
       case "listening":
         return finishListening(open)
@@ -386,7 +407,9 @@ export async function startGlance(bridge: GlassesBridge, legato: LegatoClient): 
         return
     }
     const kind = press(event)
-    if (kind) void enqueue(() => onPress(kind, event))
+    if (!kind) return
+    const at = seen()
+    void enqueue(() => onPress(kind, event, at))
   })
 
   await enqueue(refresh)

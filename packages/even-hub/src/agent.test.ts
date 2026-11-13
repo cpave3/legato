@@ -71,6 +71,27 @@ describe("agentPage", () => {
     expect(page.body).toBe("› request_access")
   })
 
+  it("shows what Legato or another agent sent as theirs, not the operator's", () => {
+    const page = agentPage(agent, {
+      ok: true,
+      conversation: conversation({
+        entries: [
+          { kind: "user", text: "Fix the tabs." },
+          { kind: "user", text: "[legato interrupted] Legato restarted while you worked." },
+          { kind: "user", text: "[legato peer LEG-150] I changed glance.ts too.\n\n---\nAgent-to-agent message: reply with legato agent message" },
+          { kind: "user", text: "[legato] Your swarm inbox has 2 messages." },
+        ],
+      }),
+    })
+
+    expect(page.body.split("\n\n")).toEqual([
+      "Legato: Your swarm inbox has 2 messages.",
+      "Agent LEG-150: I changed glance.ts too.",
+      "Legato interrupted: Legato restarted while you worked.",
+      "You: Fix the tabs.",
+    ])
+  })
+
   it("shows a question with its options", () => {
     const page = agentPage(agent, {
       ok: true,
@@ -122,6 +143,13 @@ describe("dictationPage", () => {
     expect(dictationPage(agent, { step: "review", text: "Run the tests again." })).toMatchObject({
       body: "“Run the tests again.”",
       hint: "Tap: send · Double tap: cancel",
+    })
+  })
+
+  it("keeps a message that failed to send, to send again", () => {
+    expect(dictationPage(agent, { step: "problem", problem: "The agent is busy.", text: "Run the tests." })).toMatchObject({
+      body: "The agent is busy.\n\n“Run the tests.”",
+      hint: "Tap: send again · Double tap: drop it",
     })
   })
 

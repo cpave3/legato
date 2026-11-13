@@ -1,0 +1,9 @@
+{
+  // What runs in Node: the dev server's /legato path and the Vite config.
+  "extends": "../tsconfig.base.json",
+  "compilerOptions": {
+    "lib": ["ES2023"],
+    "types": ["node"]
+  },
+  "include": ["dev", "vite.config.ts"]
+}

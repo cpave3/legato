@@ -32,9 +32,11 @@ browser-extension/coverage/
 /dist/
 .task/
 
-# Apps under packages/: dependencies, builds, packed .ehpk files, local
-# settings (a Legato address and token), and pack scratch
+# Apps under packages/: dependencies, builds, packed .ehpk files, pack
+# scratch, and local settings (a Legato address and token): every .env file
+# Vite reads, but the example
 /packages/**/node_modules/
 /packages/**/dist/
 /packages/**/.pack/
-/packages/**/.env.local
+/packages/**/.env*
+!/packages/**/.env.example

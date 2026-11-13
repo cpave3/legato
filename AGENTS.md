@@ -28,6 +28,8 @@ internal/engine/  → infrastructure (imports only stdlib + 3rd-party)
 config/           → configuration (standalone, no internal imports)
 ```
 
+`packages/` holds TypeScript apps outside the Go binary (the first is `even-hub/`, the Even G2 glasses app), one pnpm workspace rooted at `packages/`, not at the repository root: a root workspace would take over `pnpm install` in `web/`, `site/` and `browser-extension/`, which keep their own lockfiles until they move in. Each package has `typecheck` and `test` scripts; `task packages:check` runs lint, types and tests for all of them. Run pnpm there with `-C packages/...` from the repository root rather than after `cd`. See `docs/ai/even-hub.md` § The `packages/` workspace.
+
 Import rules are enforced by architecture tests. Engine packages must not import sibling engine packages, service, or TUI; service must never import TUI. Production database callers use store behavior rather than `Store.DB()`/`sqlx`, command entry points open databases through `openStore`, and filesystem state resolves from `config.ResolveDataDir` rather than the database path.
 
 ## Commands

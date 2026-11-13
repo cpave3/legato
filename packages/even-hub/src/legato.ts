@@ -41,12 +41,19 @@ export type SendResult = { ok: true } | Problem
 // How many conversation entries the agent page asks for.
 export const CONVERSATION_ENTRIES = 20
 
+// How long a call may take before the app gives up on it: a read or a send,
+// and a transcription, which carries up to a minute of sound. Without a limit
+// one call that never answers would hold every press behind it.
+export const CALL_TIMEOUT_MS = 10_000
+export const TRANSCRIBE_TIMEOUT_MS = 30_000
+
 type Answer = { response: Response } | Problem
 
 async function call(
   source: Source,
   path: string,
   fetchFn: typeof fetch,
+  timeoutMs: number,
   body?: unknown,
 ): Promise<Answer> {
   const headers: Record<string, string> = { Accept: "application/json" }
@@ -57,23 +64,37 @@ async function call(
       method: body === undefined ? "GET" : "POST",
       headers,
       body: body === undefined ? undefined : JSON.stringify(body),
+      signal: AbortSignal.timeout(timeoutMs),
     })
     if (response.status === 401) return { ok: false, problem: "Legato refused the token" }
     return { response }
-  } catch {
+  } catch (err) {
+    if (err instanceof DOMException && err.name === "TimeoutError") return { ok: false, problem: "Legato took too long to answer" }
     return { ok: false, problem: "Can't reach Legato" }
   }
 }
 
-const failed = (response: Response): Problem => ({ ok: false, problem: `Legato answered ${response.status}` })
+// A failed answer in Legato's words when it gave them as {"error": "…"}, as
+// most refusals are (browser-extension/src/legato.ts does the same); the dev
+// server's 502 means it could not reach Legato.
+async function failed(response: Response): Promise<Problem> {
+  if (response.status === 502) return { ok: false, problem: "Can't reach Legato" }
+  const body = (await response.json().catch(() => undefined)) as { error?: unknown } | undefined
+  const said = typeof body?.error === "string" ? body.error.trim() : ""
+  return { ok: false, problem: said ? `Legato: ${said}` : `Legato answered ${response.status}` }
+}
 
 const agentPath = (taskId: string) => `/api/agents/${encodeURIComponent(taskId)}`
 
 // The agents running now.
-export async function fetchAgents(source: Source, fetchFn: typeof fetch = fetch): Promise<AgentsResult> {
-  const answer = await call(source, "/api/agents?view=compact&status=running", fetchFn)
+export async function fetchAgents(
+  source: Source,
+  fetchFn: typeof fetch = fetch,
+  timeoutMs = CALL_TIMEOUT_MS,
+): Promise<AgentsResult> {
+  const answer = await call(source, "/api/agents?view=compact&status=running", fetchFn, timeoutMs)
   if (!("response" in answer)) return answer
-  if (!answer.response.ok) return failed(answer.response)
+  if (!answer.response.ok) return await failed(answer.response)
   const body: unknown = await answer.response.json().catch(() => undefined)
   if (!Array.isArray(body)) return { ok: false, problem: "Legato's answer was not a list of agents" }
   return { ok: true, agents: body as Agent[] }
@@ -85,13 +106,13 @@ export async function fetchConversation(
   taskId: string,
   fetchFn: typeof fetch = fetch,
 ): Promise<ConversationResult> {
-  const answer = await call(source, `${agentPath(taskId)}/conversation?limit=${CONVERSATION_ENTRIES}`, fetchFn)
+  const answer = await call(source, `${agentPath(taskId)}/conversation?limit=${CONVERSATION_ENTRIES}`, fetchFn, CALL_TIMEOUT_MS)
   if (!("response" in answer)) return answer
   const { response } = answer
   if (response.status === 409)
     return { ok: false, problem: "This agent runs in a terminal, so Legato can't read its conversation." }
   if (response.status === 404) return { ok: false, problem: "The agent is no longer running." }
-  if (!response.ok) return failed(response)
+  if (!response.ok) return await failed(response)
   const body = (await response.json().catch(() => undefined)) as Conversation | undefined
   if (!body || !Array.isArray(body.entries)) return { ok: false, problem: "Legato's answer was not a conversation" }
   return { ok: true, conversation: body }
@@ -109,11 +130,14 @@ function base64(bytes: Uint8Array): string {
 // the glasses' microphone gives it. Transcription only: Legato does not
 // deliver the text anywhere itself.
 export async function transcribe(source: Source, pcm: Uint8Array, fetchFn: typeof fetch = fetch): Promise<TranscriptResult> {
-  const answer = await call(source, "/api/voice/transcribe", fetchFn, { transcription_only: true, pcm: base64(pcm) })
+  const answer = await call(source, "/api/voice/transcribe", fetchFn, TRANSCRIBE_TIMEOUT_MS, {
+    transcription_only: true,
+    pcm: base64(pcm),
+  })
   if (!("response" in answer)) return answer
   const { response } = answer
   if (response.status === 404) return { ok: false, problem: "Transcription is off in Legato." }
-  if (!response.ok) return failed(response)
+  if (!response.ok) return await failed(response)
   const body = (await response.json().catch(() => ({}))) as { text?: string; error?: string }
   if (body.error) return { ok: false, problem: `Transcription failed: ${body.error}` }
   const text = body.text?.trim() ?? ""
@@ -128,13 +152,13 @@ export async function sendMessage(
   text: string,
   fetchFn: typeof fetch = fetch,
 ): Promise<SendResult> {
-  const answer = await call(source, `${agentPath(taskId)}/chimera/send`, fetchFn, { content: text })
+  const answer = await call(source, `${agentPath(taskId)}/chimera/send`, fetchFn, CALL_TIMEOUT_MS, { content: text })
   if (!("response" in answer)) return answer
   const { response } = answer
   if (response.status === 409) return { ok: false, problem: "The agent is busy. Try again when it stops." }
   if (response.status === 503) return { ok: false, problem: "This agent can't take messages from the glasses." }
   // The dev server (dev/legato-dev.ts) refuses sends unless told to pass them on.
   if (response.status === 403) return { ok: false, problem: "Sending is off. Set LEGATO_ALLOW_SEND=1 for the dev server." }
-  if (!response.ok) return failed(response)
+  if (!response.ok) return await failed(response)
   return { ok: true }
 }

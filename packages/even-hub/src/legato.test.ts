@@ -60,10 +60,22 @@ describe("fetchAgents", () => {
     })
   })
 
-  it("names the status of any other failed answer", async () => {
-    const fake = fakeFetch(() => new Response("boom", { status: 502 }))
+  it("passes on Legato's own words for a refusal it gives as {error}", async () => {
+    const fake = fakeFetch(() => Response.json({ error: "workspace not found" }, { status: 400 }))
 
-    expect(await fetchAgents({ url: "/legato" }, fake.fn)).toEqual({ ok: false, problem: "Legato answered 502" })
+    expect(await fetchAgents({ url: "/legato" }, fake.fn)).toEqual({ ok: false, problem: "Legato: workspace not found" })
+  })
+
+  it("says it can't reach Legato when the dev server could not", async () => {
+    const fake = fakeFetch(() => Response.json({ error: "can't reach Legato" }, { status: 502 }))
+
+    expect(await fetchAgents({ url: "/legato" }, fake.fn)).toEqual({ ok: false, problem: "Can't reach Legato" })
+  })
+
+  it("names the status of any other failed answer", async () => {
+    const fake = fakeFetch(() => new Response("boom", { status: 500 }))
+
+    expect(await fetchAgents({ url: "/legato" }, fake.fn)).toEqual({ ok: false, problem: "Legato answered 500" })
   })
 
   it("says it can't reach Legato when the request fails", async () => {
@@ -202,5 +214,14 @@ describe("sendMessage", () => {
       ok: false,
       problem: "This agent can't take messages from the glasses.",
     })
+  })
+})
+
+describe("a call that never answers", () => {
+  it("gives up after a while and says Legato took too long", async () => {
+    const hang = ((_: RequestInfo | URL, init?: RequestInit) =>
+      new Promise<Response>((_, fail) => init?.signal?.addEventListener("abort", () => fail(init.signal!.reason)))) as typeof fetch
+
+    expect(await fetchAgents({ url: "/legato" }, hang, 20)).toEqual({ ok: false, problem: "Legato took too long to answer" })
   })
 })

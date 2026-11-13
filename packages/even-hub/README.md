@@ -13,7 +13,9 @@ A proof of concept: an [Even Hub](https://hub.evenrealities.com/docs) app for Ev
 
 **An agent.** Its state and title, then what it asks for (a permission or a question), then what it said and did, newest first. A failed tool call is marked `▲`. The page is read again every 5 seconds. It works for agents Legato drives natively (Claude Code, Codex, native Chimera); one driven through its terminal has no conversation to read, and the page says so.
 
-**A message.** Tap on an agent's page to start recording from the glasses' microphone (at most a minute). Tap again to stop. Legato transcribes it (its Whisper, `voice.whisper_url`), and the page shows what it heard. Tap to send it to the agent, or double tap to drop it.
+**A message.** Tap on an agent's page to start recording from the glasses' microphone (at most a minute). Tap again to stop. Legato transcribes it (its Whisper, `voice.whisper_url`), and the page shows what it heard. Tap to send it to the agent, or double tap to drop it. A message the agent could not take (it is busy, say) stays on the page, and a tap sends it again.
+
+What Legato or another agent sent the agent shows as theirs (`Legato interrupted: …`, `Agent LEG-150: …`), not as yours: their messages open with a `[legato …]` tag.
 
 | Where | Up, down | Tap | Double tap |
 | --- | --- | --- | --- |
@@ -22,6 +24,7 @@ A proof of concept: an [Even Hub](https://hub.evenrealities.com/docs) app for Ev
 | An agent | Scroll | Record a message | Back to the list |
 | Recording | | Stop, and transcribe | Drop it |
 | The transcript | | Send it | Drop it |
+| A problem | | Try again (send again, for a message that failed to send) | Back to the agent |
 
 ## Why `packages/even-hub/`
 
@@ -29,7 +32,7 @@ It is named for the platform it targets, as `streamdeck/` is: the Even Hub SDK, 
 
 ## Run it in the simulator
 
-You need Node 20.17 or later and pnpm. The SDK, simulator and packer come from npm with the workspace; none needs an Even account.
+You need Node 22.13 or later and pnpm 11. The SDK, simulator and packer come from npm with the workspace; none needs an Even account.
 
 ```bash
 task even-hub:dev     # terminal 1: the app at http://127.0.0.1:5173, on the fixtures
@@ -66,10 +69,12 @@ LEGATO_URL=https://127.0.0.1:3080 NODE_EXTRA_CA_CERTS=~/.local/share/legato/cert
 
 Two ways, both untested here (no hardware):
 
-- **Sideload the dev server.** Run `pnpm dev --host 0.0.0.0`, then `pnpm exec evenhub qr --url http://<lan-ip>:5173` and scan the code in the Even Realities app (Even Hub tab, developer mode). The phone loads the page from your machine, and the dev server calls Legato for it. Anyone on that network can then read your agents through the dev server, so do this on a network you trust, such as your tailnet.
+- **Sideload the dev server.** Run `pnpm dev --host 0.0.0.0`, then `pnpm exec evenhub qr --url http://<lan-ip>:5173` and scan the code in the Even Realities app (Even Hub tab, developer mode). The phone loads the page from your machine, and the dev server calls Legato for it with your token. The dev server checks no one: anyone who can reach it can read every running agent's conversation, and with `LEGATO_ALLOW_SEND=1` send any of them instructions. Do this only on a network you trust, such as your tailnet, and never with `LEGATO_ALLOW_SEND=1` against a Legato whose agents matter.
 - **A private build.** `LEGATO_URL=https://<your legato> task even-hub:pack` builds `dist/legato.ehpk` with that Legato's origin in the manifest's network whitelist. The whitelist is fixed when the package is made, so the package calls only that Legato. Upload it with `evenhub login` then `evenhub create`, or through the developer portal, and enter the web token in the app on the phone.
 
-For a packed build, the phone must reach Legato over HTTPS with a certificate it trusts. Legato's own generated certificate is not one, unless you install its CA on the phone. Over Tailscale, `tailscale serve` can put Legato behind a `*.ts.net` certificate. Legato already answers CORS for any origin and allows the `Authorization` header.
+The package has that Legato's address built in, never the token; the form on the phone needs only the token. The web token is Legato's whole API (starting agents and shells, changing settings), and here it is kept in the Even app's storage on the phone. `legato auth regenerate` revokes it, and every device paired with it.
+
+For a packed build, the phone must reach Legato over HTTPS with a certificate it trusts. The form refuses a plain `http://` address other than this device's own, and drops the saved token when the address moves to another server. Legato's own generated certificate is not one, unless you install its CA on the phone. Over Tailscale, `tailscale serve` can put Legato behind a `*.ts.net` certificate. Legato already answers CORS for any origin and allows the `Authorization` header.
 
 ## Why it polls
 
@@ -99,9 +104,9 @@ These come from the SDK's [display docs](https://hub.evenrealities.com/docs/buil
 | `src/agent.ts` | An agent's page, and the pages of a dictated message |
 | `src/legato.ts` | The four calls to Legato, and what their failures say |
 | `src/app.ts` | The pages on the glasses, polling, the touchpad and the microphone |
-| `src/settings.ts` | Legato's address and token, kept on the phone |
+| `src/settings.ts` | Legato's address and token, kept on the phone: HTTPS only, the token never following an address elsewhere |
 | `src/main.ts`, `index.html` | The entry point, and the phone-side page with the form |
-| `dev/legato-dev.ts` | The dev server's `/legato` path: the fixtures, or a pass-through of the four calls that adds the token |
+| `dev/legato-dev.ts` | The dev server's `/legato` path: the fixtures, or a pass-through of the four calls that adds the token. It rebuilds what it passes on from the fields each call needs, and refuses a request from another site or a POST that is not JSON |
 | `scripts/screenshots.mjs` | Runs the app in the simulator, walks its pages and saves screenshots |
 | `scripts/pack.mjs` | Builds the `.ehpk` for one Legato |
 

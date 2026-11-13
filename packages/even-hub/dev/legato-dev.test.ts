@@ -2,7 +2,7 @@ import { mkdtempSync, writeFileSync } from "node:fs"
 import { tmpdir } from "node:os"
 import { join } from "node:path"
 import { describe, expect, it } from "vitest"
-import { answerLegato, devSettings, type DevSettings } from "./legato-dev"
+import { answerLegato, crossSiteRefusal, devSettings, type DevSettings } from "./legato-dev"
 
 const fixtures = (() => {
   const dir = mkdtempSync(join(tmpdir(), "even-hub-fixture-"))
@@ -116,6 +116,32 @@ describe("answerLegato passing reads on to Legato", () => {
     })
   })
 
+  it("forwards only the recording, so no other key can turn transcription-only off", async () => {
+    const legato = fakeLegato(() => Response.json({ text: "Hi" }))
+    // Go's JSON decoder matches keys without case and keeps the last one.
+    const body = '{"transcription_only":false,"TRANSCRIPTION_ONLY":false,"agent_id":"LEG-7","pcm":"AQ=="}'
+
+    await answerLegato("POST", "/api/voice/transcribe", body, proxy(), legato.fn)
+
+    expect(legato.asked[0].body).toEqual({ transcription_only: true, pcm: "AQ==" })
+  })
+
+  it("forwards only a message's content", async () => {
+    const legato = fakeLegato(() => new Response(null, { status: 202 }))
+
+    await answerLegato("POST", "/api/agents/LEG-7/chimera/send", '{"content":"Hi","extra":1}', proxy(true), legato.fn)
+
+    expect(legato.asked[0].body).toEqual({ content: "Hi" })
+  })
+
+  it("refuses a recording or a message that is not a string", async () => {
+    const legato = fakeLegato()
+
+    expect((await answerLegato("POST", "/api/voice/transcribe", '{"pcm":1}', proxy(), legato.fn)).status).toBe(400)
+    expect((await answerLegato("POST", "/api/agents/A/chimera/send", '{"content":[]}', proxy(true), legato.fn)).status).toBe(400)
+    expect(legato.asked).toEqual([])
+  })
+
   it("refuses to send a message unless sending is allowed", async () => {
     const legato = fakeLegato()
 
@@ -168,5 +194,23 @@ describe("answerLegato passing reads on to Legato", () => {
     }) as unknown as typeof fetch
 
     expect((await answerLegato("GET", "/api/agents", undefined, proxy(), fn)).status).toBe(502)
+  })
+})
+
+describe("crossSiteRefusal", () => {
+  it("lets the app's own requests through", () => {
+    expect(crossSiteRefusal({ method: "GET", fetchSite: "same-origin" })).toBeUndefined()
+    expect(crossSiteRefusal({ method: "POST", contentType: "application/json", fetchSite: "same-origin" })).toBeUndefined()
+    expect(crossSiteRefusal({ method: "POST", contentType: "application/json; charset=utf-8" })).toBeUndefined()
+  })
+
+  it("refuses a POST that is not JSON, which a page elsewhere could send without asking", () => {
+    expect(crossSiteRefusal({ method: "POST", contentType: "text/plain" })).toMatch(/JSON/)
+    expect(crossSiteRefusal({ method: "POST" })).toMatch(/JSON/)
+  })
+
+  it("refuses requests the browser says come from another site", () => {
+    expect(crossSiteRefusal({ method: "GET", fetchSite: "cross-site" })).toMatch(/another site/)
+    expect(crossSiteRefusal({ method: "POST", contentType: "application/json", fetchSite: "cross-site" })).toMatch(/another site/)
   })
 })

@@ -27,7 +27,7 @@ The list has two tabs. **Active**, where the app opens, holds every agent that i
 
 The time at the top right is when the list was last read; the app reads it every 5 seconds while it is open. When Legato can't be reached, a note beside the tabs says so, and the last list stays on screen.
 
-Open an agent to see what it asks you for, then what it said and did, newest first.
+Open an agent to see what it asks you for, then what it said and did, newest first. A message that Legato or another agent sent it is shown as theirs, not as yours.
 
 ![An agent's page: what it asks for, then its conversation](../../../assets/even-g2-agent.png)
 
@@ -40,6 +40,8 @@ This works for agents that Legato drives natively, such as Claude Code and Codex
 3. Tap again. Legato transcribes what you said, and the glasses show it.
 4. Tap to send it to the agent, or double tap to drop it.
 
+If the agent can't take the message, because it is busy for example, the glasses say so and keep the message. Tap to send it again.
+
 Legato does the transcription, so it needs `voice.enabled` and `voice.whisper_url` set (see the [configuration reference](/legato/reference/configuration/)). A message reaches only an agent that is running natively; the app never starts an agent.
 
 ## The touchpad
@@ -51,17 +53,18 @@ Legato does the transcription, so it needs `voice.enabled` and `voice.whisper_ur
 | An agent | Scroll | Record a message | Back to the list |
 | Recording | | Stop | Drop it |
 | The transcript | | Send it | Drop it |
+| A problem | | Try again | Back to the agent |
 
 ## Try it in the simulator
 
-You need Node 20.17 or later and pnpm. In the Legato repository:
+You need Node 22.13 or later and pnpm 11. In the Legato repository:
 
 ```bash
-task even-hub:dev   # serves the app on recorded agents and a recorded conversation
+task even-hub:dev   # serves the app on a sample list of agents and a sample conversation
 task even-hub:sim   # opens the Even Hub simulator on it
 ```
 
-On the recorded data, any recording "transcribes" to one sentence, and a sent message goes nowhere.
+On the sample data, any recording "transcribes" to one sentence, and a sent message goes nowhere.
 
 To use your own Legato instead, set its address and [web token](/legato/security/web-auth/) before `task even-hub:dev`:
 
@@ -77,8 +80,14 @@ The token stays in the dev server. It passes on the app's four calls to Legato a
 
 There are two ways to get the app onto real glasses. Neither has been tried yet.
 
-- **From your machine.** Run the dev server where your phone can reach it, and scan the QR code that `evenhub qr` prints in the Even Realities app's developer mode. The phone loads the app from your machine. Anyone on that network can then reach your agents through the dev server, so do this only on a network you trust, such as your tailnet.
+- **From your machine.** Run the dev server where your phone can reach it, and scan the QR code that `evenhub qr` prints in the Even Realities app's developer mode. The phone loads the app from your machine.
 - **As a private build.** `LEGATO_URL=https://<your Legato> task even-hub:pack` builds `dist/legato.ehpk`, which can reach only that Legato. Upload it to the Even Hub developer portal, install it from the Even Realities app, and enter the web token in the app on your phone.
+
+:::danger
+The dev server checks no one. Anyone who can reach it can read every running agent's conversation through it, and with `LEGATO_ALLOW_SEND=1` send any of your agents instructions. Run it where others can reach it only on a network you trust, such as your tailnet, and never with `LEGATO_ALLOW_SEND=1` for a Legato whose agents matter.
+:::
+
+The web token gives the whole of Legato's API, not only what the glasses use. In a private build it is kept in the Even Realities app's storage on your phone. To revoke it, run `legato auth regenerate`; that also signs out every device paired with the old token.
 
 The phone must reach Legato over HTTPS with a certificate it trusts. Legato's own certificate is not one, unless you install its CA on the phone (see [Devices](/legato/running/devices/)).
 

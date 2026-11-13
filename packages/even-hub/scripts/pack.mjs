@@ -22,6 +22,8 @@ writeFileSync(`${root}.pack/app.json`, `${JSON.stringify(manifest, null, 2)}\n`)
 
 const sdk = JSON.parse(readFileSync(`${root}node_modules/@evenrealities/even_hub_sdk/package.json`, "utf8")).version
 const run = (cmd, args) => execFileSync(cmd, args, { cwd: root, stdio: "inherit" })
-run("pnpm", ["exec", "vite", "build"])
+// The origin, never the token, is built in: the app reads it when nothing is
+// saved on the phone (src/main.ts).
+execFileSync("pnpm", ["exec", "vite", "build"], { cwd: root, stdio: "inherit", env: { ...process.env, VITE_LEGATO_URL: origin } })
 run("pnpm", ["exec", "evenhub", "pack", ".pack/app.json", "dist", "-o", "dist/legato.ehpk", "--sdk-ver", sdk])
 console.log(`Packed dist/legato.ehpk for ${origin}`)

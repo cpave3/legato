@@ -16,7 +16,8 @@ export type Dictation =
   | { step: "review"; text: string }
   | { step: "sending"; text: string }
   | { step: "sent" }
-  | { step: "problem"; problem: string }
+  // A problem; with the text of a message that failed to send, which a tap sends again.
+  | { step: "problem"; problem: string; text?: string }
 
 function title(agent: Agent): string {
   const s = stateOf(agent)
@@ -30,10 +31,29 @@ function prose(text: string): string {
   return flat.length > ENTRY_CHARS ? `${flat.slice(0, ENTRY_CHARS - 1).trimEnd()}…` : flat
 }
 
+// A user turn that opens with a [legato …] or [swarm event] tag is Legato's
+// own message, or another agent's relayed by it, not the operator's
+// (docs/ai/dev-notes.md); the web UI reads it the same way
+// (web/src/lib/legatoMessage.ts).
+const tagPattern = /^\[(legato|swarm event)([^\]]*)\]\s*/
+const peerPattern = /^ peer(?: (\S+))?$/
+const peerFooterPattern = /\n+---\nAgent-to-agent message[^\n]*$/
+
+function speaker(text: string): string {
+  const tag = tagPattern.exec(text)
+  if (!tag) return `You: ${prose(text)}`
+  const [whole, family, rest] = tag
+  const body = text.slice(whole.length)
+  const peer = family === "legato" ? peerPattern.exec(rest) : null
+  if (peer) return `${peer[1] ? `Agent ${peer[1]}` : "Agent"}: ${prose(body.replace(peerFooterPattern, ""))}`
+  const kind = family === "legato" ? rest.trim() : family
+  return `${kind ? `Legato ${kind}` : "Legato"}: ${prose(body)}`
+}
+
 function entry(e: { kind: string; text: string; tool?: string; command?: string; state?: string }): string {
   switch (e.kind) {
     case "user":
-      return `You: ${prose(e.text)}`
+      return `${speaker(e.text)}`
     case "tool": {
       const mark = e.state === "failed" ? "▲" : e.state === "running" ? "▶" : "›"
       // An MCP tool is named mcp__<server>__<tool>: the tool's own name says enough.
@@ -100,6 +120,8 @@ export function dictationPage(agent: Agent, d: Dictation): Page {
     case "sent":
       return { title: `Message · ${agent.task_id}`, body: `Sent to ${agent.task_id}.`, hint: "" }
     case "problem":
-      return { title: `Message · ${agent.task_id}`, body: d.problem, hint: "Tap: try again · Double tap: back" }
+      return d.text
+        ? { title: `Message · ${agent.task_id}`, body: `${d.problem}\n\n“${d.text}”`, hint: "Tap: send again · Double tap: drop it" }
+        : { title: `Message · ${agent.task_id}`, body: d.problem, hint: "Tap: try again · Double tap: back" }
   }
 }
