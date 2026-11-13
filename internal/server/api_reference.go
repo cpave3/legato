@@ -27,6 +27,7 @@ var everydayCalls = []everydayCall{
 	{"Read a task in full, with its description and notes", "GET", "/api/tasks/{id}", "", ""},
 	{"Create a task (a card)", "POST", "/api/tasks", "", `{"title": "…", "column": "Backlog"}`},
 	{"Move a card to another column", "PATCH", "/api/tasks/{id}", "", `{"column": "Done"}`},
+	{"Put a card just above another in its column (`null` for last)", "PATCH", "/api/tasks/{id}", "", `{"before": "LEG-12"}`},
 	{"Rename a task or change its description", "PATCH", "/api/tasks/{id}", "", `{"title": "…", "description": "…"}`},
 	{"Archive a done task", "POST", "/api/tasks/{id}/archive", "", ""},
 	{"Link a pull request to a task", "POST", "/api/tasks/{id}/link-pr", "", `{"owner": "…", "repo": "…", "pr_number": 12}`},
@@ -45,7 +46,7 @@ var everydayCalls = []everydayCall{
 // "METHOD pattern"; … stands for a value of your own.
 var routeBodies = map[string]string{
 	"POST /api/tasks":                         `{"title": "…", "description": "…", "column": "Backlog", "priority": "", "workspace_id": 1}`,
-	"PATCH /api/tasks/{id}":                   `{"title": "…", "description": "…", "column": "Done", "workspace_id": 1}`,
+	"PATCH /api/tasks/{id}":                   `{"title": "…", "description": "…", "column": "Done", "before": "LEG-12", "workspace_id": 1}`,
 	"POST /api/tasks/{id}/agent":              `{"agent_kind": "claude-code", "prompt": "…", "working_dir": "…", "repo": "owner/name", "resources": ["…"]}`,
 	"POST /api/tasks/{id}/link-pr":            `{"owner": "…", "repo": "…", "pr_number": 12}`,
 	"POST /api/agents/spawn":                  `{"title": "…", "agent_kind": "claude-code", "working_dir": "…", "prompt": "…"}`,

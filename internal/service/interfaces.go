@@ -215,7 +215,7 @@ type BoardService interface {
 	ListCardsByWorkspace(ctx context.Context, column string, view store.WorkspaceView) ([]Card, error)
 	GetCard(ctx context.Context, id string) (*CardDetail, error)
 	MoveCard(ctx context.Context, id string, targetColumn string) error
-	ReorderCard(ctx context.Context, id string, newPosition int) error
+	PlaceCard(ctx context.Context, id, beforeID string) error
 	SearchCards(ctx context.Context, query string) ([]Card, error)
 	ExportCardContext(ctx context.Context, id string, format ExportFormat) (string, error)
 	CreateTask(ctx context.Context, title, description, column, priority string, workspaceID *int) (*Card, error)

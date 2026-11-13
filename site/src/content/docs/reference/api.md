@@ -26,6 +26,7 @@ A card on the board is a task: its ID is the task's. An agent is addressed by it
 | Read a task in full, with its description and notes | `GET /api/tasks/<id>` |  |
 | Create a task (a card) | `POST /api/tasks` | `{"title": "…", "column": "Backlog"}` |
 | Move a card to another column | `PATCH /api/tasks/<id>` | `{"column": "Done"}` |
+| Put a card just above another in its column (`null` for last) | `PATCH /api/tasks/<id>` | `{"before": "LEG-12"}` |
 | Rename a task or change its description | `PATCH /api/tasks/<id>` | `{"title": "…", "description": "…"}` |
 | Archive a done task | `POST /api/tasks/<id>/archive` |  |
 | Link a pull request to a task | `POST /api/tasks/<id>/link-pr` | `{"owner": "…", "repo": "…", "pr_number": 12}` |
@@ -62,7 +63,7 @@ A card on the board is a task: its ID is the task's. An agent is addressed by it
 | `POST` | `/api/tasks/{id}/refresh-pr` | change | Refresh a task's pull request |  |
 | `POST` | `/api/tasks/{id}/rediscover-pr` | change | Find a task's pull request again |  |
 | `GET` | `/api/tasks/{id}` | read | Read a task |  |
-| `PATCH` | `/api/tasks/{id}` | change | Edit or move a task | `{"title": "…", "description": "…", "column": "Done", "workspace_id": 1}` |
+| `PATCH` | `/api/tasks/{id}` | change | Edit or move a task | `{"title": "…", "description": "…", "column": "Done", "before": "LEG-12", "workspace_id": 1}` |
 | `DELETE` | `/api/tasks/{id}` | risky | Delete a task |  |
 | `POST` | `/api/tasks/{id}/handoff` | change | Hand a task to a worker |  |
 | `POST` | `/api/tasks/{id}/return` | change | Return a finished task from its worker |  |

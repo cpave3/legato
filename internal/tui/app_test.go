@@ -110,7 +110,7 @@ func (f *fakeBoardService) GetCard(_ context.Context, id string) (*service.CardD
 	}, nil
 }
 func (f *fakeBoardService) MoveCard(_ context.Context, _ string, _ string) error { return nil }
-func (f *fakeBoardService) ReorderCard(_ context.Context, _ string, _ int) error { return nil }
+func (f *fakeBoardService) PlaceCard(_ context.Context, _, _ string) error       { return nil }
 func (f *fakeBoardService) SearchCards(_ context.Context, query string) ([]service.Card, error) {
 	// Simple filter for testing
 	all := []service.Card{

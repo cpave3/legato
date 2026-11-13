@@ -278,11 +278,14 @@ func (s *Server) taskHandler() http.HandlerFunc {
 				return
 			}
 			var req struct {
-				Title       *string        `json:"title,omitempty"`
-				Description *string        `json:"description,omitempty"`
-				WorkspaceID *int           `json:"workspace_id,omitempty"`
-				Column      *string        `json:"column,omitempty"`
-				Metadata    map[string]any `json:"metadata,omitempty"`
+				Title       *string `json:"title,omitempty"`
+				Description *string `json:"description,omitempty"`
+				WorkspaceID *int    `json:"workspace_id,omitempty"`
+				Column      *string `json:"column,omitempty"`
+				// Before places the card, in its column (after any move),
+				// just before that card; null or "" places it last.
+				Before   *string        `json:"before,omitempty"`
+				Metadata map[string]any `json:"metadata,omitempty"`
 			}
 			if err := json.Unmarshal(body, &req); err != nil {
 				s.writeError(w, http.StatusBadRequest, "invalid JSON")
@@ -357,6 +360,24 @@ func (s *Server) taskHandler() http.HandlerFunc {
 						return
 					}
 					s.writeError(w, taskErrorStatus(err), err.Error())
+					return
+				}
+				mutated = true
+			}
+			if _, ok := raw["before"]; ok {
+				before := ""
+				if req.Before != nil {
+					before = *req.Before
+				}
+				if err := s.board.PlaceCard(ctx, id, before); err != nil {
+					switch {
+					case errors.Is(err, store.ErrNotFound):
+						s.writeError(w, http.StatusNotFound, "task not found")
+					case errors.Is(err, store.ErrConflict):
+						s.writeError(w, http.StatusConflict, "the board changed: "+err.Error())
+					default:
+						s.writeError(w, taskErrorStatus(err), err.Error())
+					}
 					return
 				}
 				mutated = true

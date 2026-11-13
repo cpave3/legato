@@ -33,7 +33,7 @@ func TestAnAwayTaskIsReadOnlyOnTheMainFromEverySurface(t *testing.T) {
 	refused("title", main.Board.UpdateTaskTitle(ctx, taskID, "New title"))
 	refused("description", main.Board.UpdateTaskDescription(ctx, taskID, "New details"))
 	refused("move", main.Board.MoveCard(ctx, taskID, "Doing"))
-	refused("reorder", main.Board.ReorderCard(ctx, taskID, 0))
+	refused("reorder", main.Board.PlaceCard(ctx, taskID, ""))
 	refused("workspace", main.Board.UpdateTaskWorkspace(ctx, taskID, nil))
 	refused("delete", main.Board.DeleteTask(ctx, taskID))
 	refused("archive", main.Board.ArchiveTask(ctx, taskID))

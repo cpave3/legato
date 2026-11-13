@@ -91,8 +91,8 @@ func TestIntegration_BoardServiceEndToEnd(t *testing.T) {
 		t.Errorf("expected 2 doing cards after move, got %d", len(doing))
 	}
 
-	// 5. ReorderCard — move INT-1 to position 0 in Doing
-	if err := svc.ReorderCard(ctx, "INT-1", 0); err != nil {
+	// 5. PlaceCard — move INT-1 to the top of Doing
+	if err := svc.PlaceCard(ctx, "INT-1", doing[0].ID); err != nil {
 		t.Fatal(err)
 	}
 	doing, _ = svc.ListCards(ctx, "Doing")
