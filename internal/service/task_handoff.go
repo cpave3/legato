@@ -235,6 +235,11 @@ func (s *TaskHandoffService) HandOff(ctx context.Context, req TaskHandoffRequest
 	if meta.Sandbox == nil || !*meta.Sandbox {
 		return AwayTask{}, &handoffWorkerError{ErrWorkerRefused, fmt.Sprintf("%s cannot run agents in Legato's sandbox, which a handed-off agent needs", name)}
 	}
+	// Review passes turned off, to a worker that runs none, is what the
+	// worker does anyway: the override is left out.
+	if req.Review != nil && meta.ReviewPasses == nil && req.Review.OnlyOff() {
+		req.Review = nil
+	}
 	if req.Review != nil && meta.ReviewPasses == nil {
 		return AwayTask{}, &handoffWorkerError{ErrWorkerRefused, fmt.Sprintf("%s does not run review passes", name)}
 	}

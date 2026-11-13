@@ -39,6 +39,20 @@ A card on the board is a task: its ID is the task's. An agent is addressed by it
 | Restart an agent, keeping its conversation | `POST /api/agents/<id>/restart` |  |
 | List what needs attention | `GET /api/attention` |  |
 | Change a setting | `PUT /api/config/settings/<key>` | `{"value": …}` |
+| List the workers this Legato hands tasks to | `GET /api/settings/workers` |  |
+| Read what a worker's review passes can do | `GET /api/settings/workers/<instance_id>/review-passes` |  |
+| Hand a task to a worker, with its review passes | `POST /api/tasks/<id>/handoff` | `{"worker": "<instance_id>", "purpose": "make-change", "kind": "new-branch", "branch": "…", "repo": "owner/name", "agent_kind": "claude-code", "review": {"enabled": true, "agent": "codex", "model": "…", "tier": "…", "skill": "…", "max_passes": 3}}` |
+
+## Handing a task to a worker
+
+`POST /api/tasks/<id>/handoff` sends a task to a worker, as the board's **Hand off** form does, and answers `201` with `{"away": …}`. Its body:
+
+- `worker`: the worker's instance ID, from `GET /api/settings/workers`.
+- `purpose`: `make-change` or `find-out`.
+- `kind`: `new-branch`, or `pushed-branch` with the branch on GitHub in `branch`.
+- `repo`: the repository, `owner/name`.
+- `agent_kind`: the author's agent tool; empty for the worker's default.
+- `review` (make-change only, optional): what changes of the worker's review passes for this handoff. Leave it out to keep the worker's settings. `enabled` turns them on or off; `agent` is the reviewer's tool, with `model` or one of its `tier`s; `skill` and `max_passes` (at least 1). A field left out keeps the worker's. `GET /api/settings/workers/<instance_id>/review-passes` says the worker's settings and the tools, tiers and skills it has; anything else is refused with `422` in the worker's words.
 
 ## Tasks and cards
 
@@ -65,7 +79,7 @@ A card on the board is a task: its ID is the task's. An agent is addressed by it
 | `GET` | `/api/tasks/{id}` | read | Read a task |  |
 | `PATCH` | `/api/tasks/{id}` | change | Edit or move a task | `{"title": "…", "description": "…", "column": "Done", "before": "LEG-12", "workspace_id": 1}` |
 | `DELETE` | `/api/tasks/{id}` | risky | Delete a task |  |
-| `POST` | `/api/tasks/{id}/handoff` | change | Hand a task to a worker |  |
+| `POST` | `/api/tasks/{id}/handoff` | change | Hand a task to a worker | `{"worker": "<instance_id>", "purpose": "make-change", "kind": "new-branch", "branch": "…", "repo": "owner/name", "agent_kind": "claude-code", "review": {"enabled": true, "agent": "codex", "model": "…", "tier": "…", "skill": "…", "max_passes": 3}}` |
 | `POST` | `/api/tasks/{id}/return` | change | Return a finished task from its worker |  |
 | `POST` | `/api/tasks/{id}/recall` | risky | Recall a task from its worker, stopping its agents |  |
 | `POST` | `/api/tasks/{id}/take-back` | risky | Take a task back without its results |  |

@@ -17,6 +17,11 @@ type ReviewPassOptions struct {
 	MaxConcurrent int
 	// MaxPasses is the pass limit (3 when 0).
 	MaxPasses int
+	// Runtime, when set, gives the review loop its configuration and the
+	// advert a main's override is checked against, as a worker's runtime
+	// does, in place of the harness's codex defaults. The advert is also
+	// what the worker's /api/meta says.
+	Runtime func(service.ReviewPassOptions) service.ReviewPassOptions
 }
 
 // FakeReviewGitHub is GitHub as review passes see it: open pull requests by
