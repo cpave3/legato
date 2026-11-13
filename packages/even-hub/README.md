@@ -1,19 +1,19 @@
 # Legato on Even Realities G2 glasses
 
-A proof of concept: an [Even Hub](https://hub.evenrealities.com/docs) app for Even Realities G2 glasses. It shows the agents running now, the ones that need you first. Tap one to read what it has been doing, and tap again to dictate a message to it.
+A proof of concept: an [Even Hub](https://hub.evenrealities.com/docs) app for Even Realities G2 glasses. It shows the agents running now, the ones that need you first. Tap one to see what it has been doing, and hold to dictate a message to it.
 
 | | |
 | --- | --- |
 | ![The active tab: agents that are not idle, needs-you first, and the way to the idle ones](docs/screenshots/agents.png) | ![An agent's page: what it asks for, then its conversation, newest first](docs/screenshots/agent.png) |
-| ![Listening to a message for the agent](docs/screenshots/listening.png) | ![The transcribed message, before it is sent](docs/screenshots/message.png) |
+| ![One entry of the feed in full](docs/screenshots/entry.png) | ![Listening to a message for the agent, while held](docs/screenshots/listening.png) |
 
 ## What it shows
 
 **The list.** Two tabs. **Active** is the default: every agent that is not idle, the ones that need you first (`● needs you`, `▲ error`), then `▶ running` and `▷ background`. It ends with "Idle agents (N) →", which opens the **Idle** tab (`○`). Each line is the agent's task ID and as much of its title as fits. At the top right is when the list was last read, and beside the tabs is any problem reaching Legato. The list is read every 5 seconds while the app is in front.
 
-**An agent.** Its state and title, then what it asks for (a permission or a question), then what it said and did, newest first. A failed tool call is marked `▲`. The page is read again every 5 seconds. It works for agents Legato drives natively (Claude Code, Codex, native Chimera); one driven through its terminal has no conversation to read, and the page says so.
+**An agent.** Its state in a bordered badge at the top left, and its task and title beside it, dimmer. Under them, in a frame, the feed: what it asks for (a permission or a question, `● Asks: …`), then what it said and did, newest first, one line each (`Agent: …`, `You: …`, a tool call as `<tool>: <what>` marked `▶` running, `▲` failed or `·` done). Tap a line to read that entry in full. The page is read again every 5 seconds. It works for agents Legato drives natively (Claude Code, Codex, native Chimera); one driven through its terminal has no conversation to read, and the page says so.
 
-**A message.** Tap on an agent's page to start recording from the glasses' microphone (at most a minute). Tap again to stop. Legato transcribes it (its Whisper, `voice.whisper_url`), and the page shows what it heard. Tap to send it to the agent, or double tap to drop it. A message the agent could not take (it is busy, say) stays on the page, and a tap sends it again.
+**A message.** On an agent's page, hold the touchpad and speak; the glasses' microphone records while you hold (at most a minute), and letting go stops it. Legato transcribes it (its Whisper, `voice.whisper_url`), and the page shows what it heard. Tap to send it to the agent, or double tap to drop it. A message the agent could not take (it is busy, say) stays on the page, and a tap sends it again. What the touchpad does is centred at the foot of each of these pages.
 
 What Legato or another agent sent the agent shows as theirs (`Legato interrupted: …`, `Agent LEG-150: …`), not as yours: their messages open with a `[legato …]` tag.
 
@@ -21,10 +21,13 @@ What Legato or another agent sent the agent shows as theirs (`Legato interrupted
 | --- | --- | --- | --- |
 | Active tab | Move through the list | Open the agent, or the Idle tab | The system's "exit?" dialog |
 | Idle tab | Move through the list | Open the agent | Back to Active |
-| An agent | Scroll | Record a message | Back to the list |
-| Recording | | Stop, and transcribe | Drop it |
+| An agent's feed | Move through the feed | Open the entry | Back to the list |
+| An entry | Scroll | | Back to the feed |
+| Recording | | Stop (as letting go does) | Drop it |
 | The transcript | | Send it | Drop it |
-| A problem | | Try again (send again, for a message that failed to send) | Back to the agent |
+| A problem | | Send again, for a message that failed to send | Back to the agent |
+
+Hold, on an agent's feed, an entry or a problem: record a message while held, and transcribe it when let go.
 
 ## Why `packages/even-hub/`
 
@@ -100,8 +103,9 @@ These come from the SDK's [display docs](https://hub.evenrealities.com/docs/buil
 
 | File | What it is |
 | --- | --- |
+| `src/layout.ts` | The spacing scale every page uses, and centring |
 | `src/glance.ts` | The list page for a list of agents: tabs, order, marks, cutting to fit |
-| `src/agent.ts` | An agent's page, and the pages of a dictated message |
+| `src/agent.ts` | An agent's feed, one entry in full, and the pages of a dictated message |
 | `src/legato.ts` | The four calls to Legato, and what their failures say |
 | `src/app.ts` | The pages on the glasses, polling, the touchpad and the microphone |
 | `src/settings.ts` | Legato's address and token, kept on the phone: HTTPS only, the token never following an address elsewhere |

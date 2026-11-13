@@ -1,14 +1,16 @@
-import { CANVAS_WIDTH, TEXT_UPDATE_LIMIT, fitItem, stateOf } from "./glance"
-import type { Agent, ConversationResult } from "./legato"
+import { LIST_ITEMS, TEXT_UPDATE_LIMIT, fitItem, stateOf } from "./glance"
+import { CANVAS_WIDTH, ITEM_TEXT_WIDTH, TITLE_WIDTH, center, inner } from "./layout"
+import type { Agent, Conversation, ConversationResult } from "./legato"
 
-// The width of the agent page's title line, inside its padding.
-export const TITLE_TEXT_WIDTH = CANVAS_WIDTH - 16
-// The most characters one message takes on the page.
-const ENTRY_CHARS = 360
-
-// What the agent page shows: a title line, the body (which scrolls) and a
-// line that says what the touchpad does.
-export type Page = { title: string; body: string; hint: string }
+// An agent's pages share a header: the state in a badge of its own, so it
+// reads first, and the task and title beside it, dimmer. Under it, the feed
+// (one line an entry, in a frame) or one entry in full, and the touchpad's
+// keys centred at the foot.
+export type Header = { badge: string; title: string }
+// A line of the feed, and the entry in full for when it is opened.
+export type FeedItem = { text: string; detail?: string }
+export type FeedPage = Header & { items: FeedItem[]; hint: string }
+export type TextPage = Header & { body: string; hint: string }
 
 export type Dictation =
   | { step: "listening"; seconds: number }
@@ -19,17 +21,19 @@ export type Dictation =
   // A problem; with the text of a message that failed to send, which a tap sends again.
   | { step: "problem"; problem: string; text?: string }
 
-function title(agent: Agent): string {
+type Entry = Conversation["entries"][number]
+
+const hint = (keys: string) => center(keys, CANVAS_WIDTH)
+
+function header(agent: Agent): Header {
   const s = stateOf(agent)
   const name = agent.title.trim()
-  return fitItem(`${s.mark} ${s.word}  ${agent.task_id}${name ? ` ${name}` : ""}`, TITLE_TEXT_WIDTH, Infinity)
+  return { badge: `${s.mark} ${s.word}`, title: fitItem(`${agent.task_id}${name ? ` ${name}` : ""}`, inner(TITLE_WIDTH), Infinity) }
 }
 
-// One line of prose: newlines become spaces, and a long message is cut.
-function prose(text: string): string {
-  const flat = text.replace(/\s+/g, " ").trim()
-  return flat.length > ENTRY_CHARS ? `${flat.slice(0, ENTRY_CHARS - 1).trimEnd()}…` : flat
-}
+const flat = (text: string) => text.replace(/\s+/g, " ").trim()
+const line = (text: string): FeedItem["text"] => fitItem(flat(text), ITEM_TEXT_WIDTH)
+const whole = (text: string) => (text.length > TEXT_UPDATE_LIMIT ? `${text.slice(0, TEXT_UPDATE_LIMIT - 1).trimEnd()}…` : text)
 
 // A user turn that opens with a [legato …] or [swarm event] tag is Legato's
 // own message, or another agent's relayed by it, not the operator's
@@ -39,89 +43,90 @@ const tagPattern = /^\[(legato|swarm event)([^\]]*)\]\s*/
 const peerPattern = /^ peer(?: (\S+))?$/
 const peerFooterPattern = /\n+---\nAgent-to-agent message[^\n]*$/
 
-function speaker(text: string): string {
+// Who said a user turn, and what.
+function speaker(text: string): { who: string; said: string } {
   const tag = tagPattern.exec(text)
-  if (!tag) return `You: ${prose(text)}`
-  const [whole, family, rest] = tag
-  const body = text.slice(whole.length)
+  if (!tag) return { who: "You", said: text.trim() }
+  const [all, family, rest] = tag
+  const body = text.slice(all.length)
   const peer = family === "legato" ? peerPattern.exec(rest) : null
-  if (peer) return `${peer[1] ? `Agent ${peer[1]}` : "Agent"}: ${prose(body.replace(peerFooterPattern, ""))}`
+  if (peer) return { who: peer[1] ? `Agent ${peer[1]}` : "Agent", said: body.replace(peerFooterPattern, "").trim() }
   const kind = family === "legato" ? rest.trim() : family
-  return `${kind ? `Legato ${kind}` : "Legato"}: ${prose(body)}`
+  return { who: kind ? `Legato ${kind}` : "Legato", said: body.trim() }
 }
 
-function entry(e: { kind: string; text: string; tool?: string; command?: string; state?: string }): string {
+// Each entry is "<label>: <what>", a tool call marked by how it stands (▶
+// running, ▲ failed, · done) and named without an MCP server's prefix.
+function item(e: Entry): FeedItem {
   switch (e.kind) {
-    case "user":
-      return `${speaker(e.text)}`
+    case "user": {
+      const { who, said } = speaker(e.text)
+      return { text: line(`${who}: ${said}`), detail: `${who}\n\n${said}` }
+    }
     case "tool": {
-      const mark = e.state === "failed" ? "▲" : e.state === "running" ? "▶" : "›"
-      // An MCP tool is named mcp__<server>__<tool>: the tool's own name says enough.
-      const tool = (e.tool ?? "tool").split("__").pop()
-      const what = prose(e.text || e.command || "")
-      return what ? `${mark} ${tool}: ${what}` : `${mark} ${tool}`
+      const mark = e.state === "failed" ? "▲" : e.state === "running" ? "▶" : "·"
+      const tool = (e.tool ?? "tool").split("__").pop()!
+      const what = flat(e.text || e.command || "")
+      const state = e.state ? ` (${e.state})` : ""
+      return {
+        text: line(what ? `${mark} ${tool}: ${what}` : `${mark} ${tool}`),
+        detail: [`${tool}${state}`, e.text.trim(), e.command?.trim() ?? ""].filter(Boolean).join("\n\n"),
+      }
     }
     default:
-      return prose(e.text)
+      return { text: line(`Agent: ${e.text}`), detail: `Agent\n\n${e.text.trim()}` }
   }
 }
 
-// Blocks joined with blank lines, as many as one text update takes.
-function within(blocks: string[]): string {
-  let body = ""
-  for (const block of blocks) {
-    const next = body ? `${body}\n\n${block}` : block
-    if (next.length > TEXT_UPDATE_LIMIT) break
-    body = next
-  }
-  return body
-}
-
-// The agent page: what the agent asks for, then what it said and did,
-// newest first. `read` is undefined until the first answer.
-export function agentPage(agent: Agent, read: ConversationResult | undefined): Page {
-  const hint = "Tap: dictate a message · Double tap: back"
-  if (!read) return { title: title(agent), body: "Reading the conversation…", hint }
-  if (!read.ok) return { title: title(agent), body: read.problem, hint }
+// The agent's feed: what it asks for, then what it said and did, newest
+// first. `read` is undefined until the first answer.
+export function agentPage(agent: Agent, read: ConversationResult | undefined): FeedPage {
+  const page = (items: FeedItem[]) => ({ ...header(agent), items, hint: hint("Tap: expand · Hold: dictate · Double tap: back") })
+  if (!read) return page([{ text: "Reading the conversation…" }])
+  if (!read.ok) return page([{ text: line(read.problem), detail: read.problem }])
 
   const { permission, question, entries } = read.conversation
-  const blocks: string[] = []
+  const items: FeedItem[] = []
   if (permission) {
-    const what = permission.command ? `${permission.tool}: ${prose(permission.command)}` : permission.tool
-    blocks.push([`● Asks to use ${what}`, permission.reason ? prose(permission.reason) : ""].filter(Boolean).join("\n"))
+    const what = [permission.tool, permission.command?.trim()].filter(Boolean).join(" ")
+    const detail = [`Asks to use ${permission.tool}`, permission.command?.trim(), permission.reason?.trim(), permission.plan?.trim()]
+    items.push({ text: line(`● Asks: ${what}`), detail: detail.filter(Boolean).join("\n\n") })
   }
   if (question) {
-    blocks.push([`● Asks: ${prose(question.text)}`, ...question.options.map((o, i) => `  ${i + 1}. ${prose(o)}`)].join("\n"))
+    const options = question.options.map((o, i) => `${i + 1}. ${o.trim()}`).join("\n")
+    items.push({ text: line(`● Asks: ${question.text}`), detail: [`Asks: ${question.text.trim()}`, options].filter(Boolean).join("\n\n") })
   }
-  blocks.push(...entries.slice().reverse().map(entry))
-  return { title: title(agent), body: within(blocks) || "Nothing said yet.", hint }
+  items.push(...entries.slice().reverse().map(item))
+  return page(items.length ? items.slice(0, LIST_ITEMS) : [{ text: "Nothing said yet." }])
+}
+
+// One entry of the feed in full.
+export function entryPage(agent: Agent, entry: FeedItem): TextPage {
+  return { ...header(agent), body: whole(entry.detail ?? entry.text), hint: hint("Hold: dictate · Double tap: back") }
 }
 
 function minutes(seconds: number): string {
   return `${Math.floor(seconds / 60)}:${String(seconds % 60).padStart(2, "0")}`
 }
 
-// The agent page while the operator dictates a message to the agent.
-export function dictationPage(agent: Agent, d: Dictation): Page {
-  const cancel = "Double tap: cancel"
+// The pages of a message the operator dictates to the agent.
+export function dictationPage(agent: Agent, d: Dictation): TextPage {
+  const { title } = header(agent)
+  const page = (badge: string, body: string, keys: string) => ({ badge, title, body, hint: keys ? hint(keys) : "" })
   switch (d.step) {
     case "listening":
-      return {
-        title: `● Listening · ${agent.task_id}`,
-        body: `Speak your message to the agent.\n\n${minutes(d.seconds)}`,
-        hint: `Tap: stop · ${cancel}`,
-      }
+      return page("● Listening", `Speak your message to the agent.\n\n${minutes(d.seconds)}`, "Release: stop · Double tap: cancel")
     case "transcribing":
-      return { title: `Message · ${agent.task_id}`, body: "Transcribing…", hint: cancel }
+      return page("Message", "Transcribing…", "Double tap: cancel")
     case "review":
-      return { title: `Message · ${agent.task_id}`, body: `“${d.text}”`, hint: `Tap: send · ${cancel}` }
+      return page("Message", `“${d.text}”`, "Tap: send · Double tap: drop it")
     case "sending":
-      return { title: `Message · ${agent.task_id}`, body: `“${d.text}”\n\nSending…`, hint: "" }
+      return page("Sending", `“${d.text}”`, "")
     case "sent":
-      return { title: `Message · ${agent.task_id}`, body: `Sent to ${agent.task_id}.`, hint: "" }
+      return page("Sent", `Sent to ${agent.task_id}.`, "")
     case "problem":
       return d.text
-        ? { title: `Message · ${agent.task_id}`, body: `${d.problem}\n\n“${d.text}”`, hint: "Tap: send again · Double tap: drop it" }
-        : { title: `Message · ${agent.task_id}`, body: d.problem, hint: "Tap: try again · Double tap: back" }
+        ? page("▲ Not sent", `${d.problem}\n\n“${d.text}”`, "Tap: send again · Double tap: drop it")
+        : page("▲ Problem", d.problem, "Hold: try again · Double tap: back")
   }
 }

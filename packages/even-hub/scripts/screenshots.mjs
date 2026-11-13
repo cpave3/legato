@@ -5,8 +5,8 @@
 //   node scripts/screenshots.mjs             the simulator on your display
 //   node scripts/screenshots.mjs --headless  under xvfb-run, with no window
 //
-// It walks the pages: the active tab, the idle tab, an agent, and a message
-// dictated to it (the fixtures transcribe any recording to one sentence).
+// It walks the pages: the active tab, the idle tab, an agent's feed, one
+// entry in full, and a message dictated to it (held to talk) (the fixtures transcribe any recording to one sentence).
 import { spawn } from "node:child_process"
 import { mkdirSync, writeFileSync } from "node:fs"
 import { fileURLToPath } from "node:url"
@@ -126,13 +126,17 @@ try {
   await shot("idle.png")
   await step("double_click")
 
-  // The second agent, then a message to it.
+  // The second agent's feed, one entry in full, then a message to it, held
+  // to talk.
   await step("down")
   await step("click", 1200)
   await shot("agent.png")
-  await step("click", 2500)
+  await step("click")
+  await shot("entry.png")
+  await step("double_click")
+  await step("long_press", 2500)
   await shot("listening.png")
-  await step("click", 1500)
+  await step("long_press_release", 1500)
   await shot("message.png")
   await step("double_click")
   await step("double_click")
@@ -140,7 +144,7 @@ try {
   const errors = (await console_()).filter((e) => e.level === "error" || /^\[(uncaught|unhandledrejection|fetch)\]/.test(e.message))
   if (errors.length) throw new Error(`the app logged errors:\n${errors.map((e) => e.message).join("\n")}`)
 
-  console.log(`Saved agents, idle, agent, listening, message and phone screenshots to ${out}`)
+  console.log(`Saved agents, idle, agent, entry, listening, message and phone screenshots to ${out}`)
 } catch (err) {
   console.error(String(err))
   process.exitCode = 1

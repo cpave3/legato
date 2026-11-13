@@ -1,16 +1,12 @@
 import { getTextWidth } from "@evenrealities/pretext"
+import { ITEM_TEXT_WIDTH } from "./layout"
 import type { Agent } from "./legato"
 
-// The glasses' canvas.
-export const CANVAS_WIDTH = 576
-export const CANVAS_HEIGHT = 288
+export { ITEM_TEXT_WIDTH }
 // The firmware's limits on a list container (the SDK's Display docs and the
 // simulator's changelog): items, and bytes of UTF-8 to an item.
 export const LIST_ITEMS = 20
 export const LIST_ITEM_BYTES = 63
-// The width an item's text may take on the list, inside the firmware's
-// highlight of the selected item.
-export const ITEM_TEXT_WIDTH = CANVAS_WIDTH - 40
 // The most characters textContainerUpgrade takes (the SDK's Display docs).
 export const TEXT_UPDATE_LIMIT = 2000
 

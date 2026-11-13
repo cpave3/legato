@@ -9,7 +9,7 @@ sidebar:
 This is a proof of concept. It runs in the Even Hub simulator; it has not yet run on real glasses. You build it from source.
 :::
 
-The glasses app puts your agents on the display of Even Realities G2 glasses. The ones that need you come first, so a glance tells you whether to go back to your desk. Tap an agent to read what it has been doing, and tap again to dictate a message to it.
+The glasses app puts your agents on the display of Even Realities G2 glasses. The ones that need you come first, so a glance tells you whether to go back to your desk. Tap an agent to see what it has been doing, and hold to dictate a message to it.
 
 ![The active tab: agents that are not idle, needs-you first, and the way to the idle ones](../../../assets/even-g2-agents.png)
 
@@ -27,17 +27,17 @@ The list has two tabs. **Active**, where the app opens, holds every agent that i
 
 The time at the top right is when the list was last read; the app reads it every 5 seconds while it is open. When Legato can't be reached, a note beside the tabs says so, and the last list stays on screen.
 
-Open an agent to see what it asks you for, then what it said and did, newest first. A message that Legato or another agent sent it is shown as theirs, not as yours.
+Open an agent to see its state in a badge at the top, then its feed: what it asks you for, then what it said and did, newest first, one line each. Tap a line to read it in full. A message that Legato or another agent sent it is shown as theirs, not as yours.
 
-![An agent's page: what it asks for, then its conversation](../../../assets/even-g2-agent.png)
+![An agent's page: its state in a badge, then its feed, one line an entry](../../../assets/even-g2-agent.png)
 
 This works for agents that Legato drives natively, such as Claude Code and Codex. For an agent driven through its terminal, the page says there is no conversation to read.
 
 ## Dictate a message
 
 1. Open the agent.
-2. Tap, and say your message. The app records from the glasses' microphone for up to a minute.
-3. Tap again. Legato transcribes what you said, and the glasses show it.
+2. Hold the touchpad and say your message. The app records from the glasses' microphone while you hold, for up to a minute.
+3. Let go. Legato transcribes what you said, and the glasses show it.
 4. Tap to send it to the agent, or double tap to drop it.
 
 If the agent can't take the message, because it is busy for example, the glasses say so and keep the message. Tap to send it again.
@@ -50,10 +50,13 @@ Legato does the transcription, so it needs `voice.enabled` and `voice.whisper_ur
 | --- | --- | --- | --- |
 | Active tab | Move through the list | Open the agent, or the Idle tab | Ask to leave the app |
 | Idle tab | Move through the list | Open the agent | Back to Active |
-| An agent | Scroll | Record a message | Back to the list |
+| An agent's feed | Move through the feed | Open the entry | Back to the list |
+| An entry | Scroll | | Back to the feed |
 | Recording | | Stop | Drop it |
 | The transcript | | Send it | Drop it |
-| A problem | | Try again | Back to the agent |
+| A problem | | Send it again, if it failed to send | Back to the agent |
+
+On an agent's feed or an entry, hold to record a message; letting go stops the recording.
 
 ## Try it in the simulator
 

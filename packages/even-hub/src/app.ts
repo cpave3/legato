@@ -11,8 +11,27 @@ import {
   type EvenAppBridge,
   type EvenHubEvent,
 } from "@evenrealities/even_hub_sdk"
-import { agentPage, dictationPage, type Dictation, type Page } from "./agent"
-import { CANVAS_HEIGHT, CANVAS_WIDTH, glance, type Screen, type Tab } from "./glance"
+import { agentPage, dictationPage, entryPage, type Dictation, type FeedItem, type FeedPage, type TextPage } from "./agent"
+import { glance, type Screen, type Tab } from "./glance"
+import {
+  BADGE_WIDTH,
+  BORDER,
+  CANVAS_WIDTH,
+  FRAME_HEIGHT,
+  FRAME_HEIGHT_WITH_HINT,
+  FRAME_WIDTH,
+  FRAME_X,
+  FRAME_Y,
+  GAP,
+  HEADER_HEIGHT,
+  HEADER_Y,
+  HINT_HEIGHT,
+  HINT_Y,
+  MARGIN,
+  PADDING,
+  TITLE_WIDTH,
+  TITLE_X,
+} from "./layout"
 import type { Agent, AgentsResult, ConversationResult, SendResult, TranscriptResult } from "./legato"
 
 // How often the app reads Legato while it is in front.
@@ -54,24 +73,50 @@ type TextBox = {
   capture?: boolean
 }
 
-const HEADER = 36
+// Every page uses the spacing of layout.ts: the header row at the top, a
+// bordered frame under it, and on an agent's pages the touchpad's keys
+// centred at the foot.
+const header = { y: HEADER_Y, height: HEADER_HEIGHT, padding: PADDING }
+const TAB_WIDTH = 104
+const CLOCK_WIDTH = 64
 
 // The list page: the two tabs, a problem, the time, and the list.
 const listBoxes = {
-  "tab-active": { id: 1, name: "tab-active", x: 0, y: 0, width: 112, height: HEADER, padding: 2, brightness: 4 },
-  "tab-idle": { id: 2, name: "tab-idle", x: 116, y: 0, width: 100, height: HEADER, padding: 2, brightness: 4 },
-  status: { id: 3, name: "status", x: 220, y: 0, width: 276, height: HEADER, padding: 4, brightness: 3 },
-  clock: { id: 4, name: "clock", x: CANVAS_WIDTH - 80, y: 0, width: 80, height: HEADER, padding: 4, brightness: 2 },
+  "tab-active": { id: 1, name: "tab-active", x: MARGIN, width: TAB_WIDTH, brightness: 4, ...header },
+  "tab-idle": { id: 2, name: "tab-idle", x: MARGIN + TAB_WIDTH + GAP, width: TAB_WIDTH, brightness: 4, ...header },
+  status: {
+    id: 3,
+    name: "status",
+    x: MARGIN + 2 * (TAB_WIDTH + GAP),
+    width: CANVAS_WIDTH - MARGIN - CLOCK_WIDTH - GAP - (MARGIN + 2 * (TAB_WIDTH + GAP)),
+    brightness: 3,
+    ...header,
+  },
+  clock: { id: 4, name: "clock", x: CANVAS_WIDTH - MARGIN - CLOCK_WIDTH, width: CLOCK_WIDTH, brightness: 2, ...header },
 } satisfies Record<string, TextBox>
-const LIST = { id: 5, name: "agents", y: HEADER + 4 }
+const LIST = { id: 5, name: "agents" }
 
-// The agent page: its title, what it said (which scrolls), and what the
-// touchpad does.
+// An agent's pages: the state in a bordered badge, bright, and the task and
+// title beside it, dim; then the feed (a list) or one entry or a message
+// (text) in the frame; then the touchpad's keys.
 const agentBoxes = {
-  title: { id: 1, name: "title", x: 0, y: 0, width: CANVAS_WIDTH, height: HEADER, padding: 4, brightness: 4 },
-  body: { id: 2, name: "body", x: 0, y: HEADER, width: CANVAS_WIDTH, height: CANVAS_HEIGHT - 2 * HEADER, padding: 8, brightness: 4, capture: true },
-  hint: { id: 3, name: "hint", x: 0, y: CANVAS_HEIGHT - HEADER, width: CANVAS_WIDTH, height: HEADER, padding: 4, brightness: 2 },
+  badge: { id: 1, name: "badge", x: MARGIN, width: BADGE_WIDTH, brightness: 4, border: true, ...header },
+  title: { id: 2, name: "title", x: TITLE_X, width: TITLE_WIDTH, brightness: 2, ...header },
+  body: {
+    id: 3,
+    name: "body",
+    x: FRAME_X,
+    y: FRAME_Y,
+    width: FRAME_WIDTH,
+    height: FRAME_HEIGHT_WITH_HINT,
+    padding: PADDING,
+    brightness: 4,
+    border: true,
+    capture: true,
+  },
+  hint: { id: 4, name: "hint", x: 0, y: HINT_Y, width: CANVAS_WIDTH, height: HINT_HEIGHT, padding: 0, brightness: 2 },
 } satisfies Record<string, TextBox>
+const FEED = { id: 3, name: "feed" }
 
 // The most characters a text container takes when a page is drawn; more
 // goes in with an update after.
@@ -86,7 +131,7 @@ function textBox(box: TextBox, content: string): TextContainerProperty {
     width: box.width,
     height: box.height,
     paddingLength: box.padding,
-    borderWidth: box.border ? 1 : 0,
+    borderWidth: box.border ? BORDER : 0,
     borderColor: box.border ? 15 : 0,
     borderRadius: box.border ? 6 : 0,
     content: content.length > DRAW_LIMIT ? "" : content,
@@ -97,6 +142,24 @@ function textBox(box: TextBox, content: string): TextContainerProperty {
 
 type Layout = { textObject: TextContainerProperty[]; listObject: ListContainerProperty[] }
 
+// A bordered list in the frame, which takes the touchpad.
+function frameList(id: number, name: string, height: number, items: string[]): ListContainerProperty {
+  return new ListContainerProperty({
+    containerID: id,
+    containerName: name,
+    xPosition: FRAME_X,
+    yPosition: FRAME_Y,
+    width: FRAME_WIDTH,
+    height,
+    borderWidth: BORDER,
+    borderColor: 15,
+    borderRadius: 6,
+    paddingLength: PADDING,
+    isEventCapture: 1,
+    itemContainer: new ListItemContainerProperty({ itemCount: items.length, isItemSelectBorderEn: 1, itemName: items }),
+  })
+}
+
 function listLayout(screen: Screen): Layout {
   const selected = (tab: Tab) => ({ border: screen.tab === tab, brightness: screen.tab === tab ? 4 : 2 })
   return {
@@ -106,35 +169,30 @@ function listLayout(screen: Screen): Layout {
       textBox(listBoxes.status, screen.status),
       textBox(listBoxes.clock, screen.clock),
     ],
-    listObject: [
-      new ListContainerProperty({
-        containerID: LIST.id,
-        containerName: LIST.name,
-        xPosition: 0,
-        yPosition: LIST.y,
-        width: CANVAS_WIDTH,
-        height: CANVAS_HEIGHT - LIST.y,
-        borderWidth: 0,
-        paddingLength: 4,
-        isEventCapture: 1,
-        itemContainer: new ListItemContainerProperty({
-          itemCount: screen.items.length,
-          isItemSelectBorderEn: 1,
-          itemName: screen.items.map((i) => i.text),
-        }),
-      }),
-    ],
+    listObject: [frameList(LIST.id, LIST.name, FRAME_HEIGHT, screen.items.map((i) => i.text))],
   }
 }
 
-function agentLayout(page: Page): Layout {
+function feedLayout(page: FeedPage): Layout {
   return {
-    textObject: [textBox(agentBoxes.title, page.title), textBox(agentBoxes.body, page.body), textBox(agentBoxes.hint, page.hint)],
+    textObject: [textBox(agentBoxes.badge, page.badge), textBox(agentBoxes.title, page.title), textBox(agentBoxes.hint, page.hint)],
+    listObject: [frameList(FEED.id, FEED.name, FRAME_HEIGHT_WITH_HINT, page.items.map((i) => i.text))],
+  }
+}
+
+function textLayout(page: TextPage): Layout {
+  return {
+    textObject: [
+      textBox(agentBoxes.badge, page.badge),
+      textBox(agentBoxes.title, page.title),
+      textBox(agentBoxes.body, page.body),
+      textBox(agentBoxes.hint, page.hint),
+    ],
     listObject: [],
   }
 }
 
-type Click = "click" | "double" | undefined
+type Click = "click" | "double" | "hold" | "release" | undefined
 
 // A touchpad press, wherever the SDK put it: a list's or a text container's
 // event, or a system event. A click is type 0, which the SDK may leave out;
@@ -144,10 +202,16 @@ function press(event: EvenHubEvent): Click {
   if (!event.listEvent && !event.textEvent && !event.sysEvent) return undefined
   if (type === undefined || type === OsEventTypeList.CLICK_EVENT) return "click"
   if (type === OsEventTypeList.DOUBLE_CLICK_EVENT) return "double"
+  if (type === OsEventTypeList.LONG_PRESS_EVENT) return "hold"
+  if (type === OsEventTypeList.LONG_PRESS_RELEASE_EVENT) return "release"
   return undefined
 }
 
-type View = { kind: "list" } | { kind: "agent"; agent: Agent; read?: ConversationResult; dictation?: Dictation }
+// An agent's view shows its feed, or one entry of it in full, or a message
+// being dictated.
+type View =
+  | { kind: "list" }
+  | { kind: "agent"; agent: Agent; read?: ConversationResult; entry?: FeedItem; dictation?: Dictation }
 
 // Starts the app: draws the list, reads Legato now and every POLL_MS while
 // the app is in front, and answers the touchpad. Resolves once the first
@@ -159,6 +223,8 @@ export async function startGlance(bridge: GlassesBridge, legato: LegatoClient): 
   let tab: Tab = "active"
   let view: View = { kind: "list" }
   let screen: Screen = { ...glance([]), items: [{ text: "Reading Legato…" }] }
+  // The open agent's feed, as last drawn.
+  let feed: FeedItem[] = []
 
   // What is on the glasses: the page's layout key and each text's content.
   let drawnKey = ""
@@ -172,7 +238,7 @@ export async function startGlance(bridge: GlassesBridge, legato: LegatoClient): 
     return queue
   }
 
-  async function draw(key: string, layout: Layout, texts: Record<string, string>, first = false): Promise<void> {
+  async function draw(key: string, layout: Layout, texts: Partial<Record<string, unknown>>, first = false): Promise<void> {
     if (key !== drawnKey) {
       const page = { containerTotalNum: layout.textObject.length + layout.listObject.length, ...layout }
       if (first) {
@@ -187,11 +253,10 @@ export async function startGlance(bridge: GlassesBridge, legato: LegatoClient): 
     }
     for (const t of layout.textObject) {
       const name = t.containerName!
-      if (drawnText.get(name) === texts[name]) continue
-      await bridge.textContainerUpgrade(
-        new TextContainerUpgrade({ containerID: t.containerID, containerName: name, content: texts[name] }),
-      )
-      drawnText.set(name, texts[name])
+      const content = String(texts[name] ?? "")
+      if (drawnText.get(name) === content) continue
+      await bridge.textContainerUpgrade(new TextContainerUpgrade({ containerID: t.containerID, containerName: name, content }))
+      drawnText.set(name, content)
     }
   }
 
@@ -200,9 +265,13 @@ export async function startGlance(bridge: GlassesBridge, legato: LegatoClient): 
       if (!first) screen = glance(agents, { tab, updatedAt, problem })
       const texts = { "tab-active": screen.tabs.active, "tab-idle": screen.tabs.idle, status: screen.status, clock: screen.clock }
       await draw(`list ${JSON.stringify([screen.tab, screen.items])}`, listLayout(screen), texts, first)
+    } else if (view.dictation || view.entry) {
+      const page = view.dictation ? dictationPage(view.agent, view.dictation) : entryPage(view.agent, view.entry!)
+      await draw(`text ${view.agent.task_id}`, textLayout(page), page)
     } else {
-      const page = view.dictation ? dictationPage(view.agent, view.dictation) : agentPage(view.agent, view.read)
-      await draw(`agent ${view.agent.task_id}`, agentLayout(page), { title: page.title, body: page.body, hint: page.hint })
+      const page = agentPage(view.agent, view.read)
+      feed = page.items
+      await draw(`feed ${view.agent.task_id} ${JSON.stringify(feed)}`, feedLayout(page), page)
     }
   }
 
@@ -303,6 +372,7 @@ export async function startGlance(bridge: GlassesBridge, legato: LegatoClient): 
         void enqueue(async () => {
           if (view !== open || open.dictation?.step !== "sent") return
           open.dictation = undefined
+          open.entry = undefined
           open.read = await legato.conversation(open.agent.task_id)
           await show()
         }),
@@ -314,16 +384,20 @@ export async function startGlance(bridge: GlassesBridge, legato: LegatoClient): 
   // its turn in the queue does: a tap made while "Transcribing…" showed must
   // not send the transcript that replaced it, nor a tap on a row open the
   // agent a refresh has since moved there.
-  type Seen = { view: View; step?: Dictation["step"]; items: Screen["items"] }
+  type Seen = { view: View; step?: Dictation["step"]; entry?: FeedItem; items: Screen["items"]; feed: FeedItem[] }
   const seen = (): Seen => ({
     view,
     step: view.kind === "agent" ? view.dictation?.step : undefined,
+    entry: view.kind === "agent" ? view.entry : undefined,
     items: screen.items,
+    feed,
   })
 
-  async function onPress(kind: "click" | "double", event: EvenHubEvent, at: Seen): Promise<void> {
-    if (view !== at.view || (view.kind === "agent" && view.dictation?.step !== at.step)) return
+  async function onPress(kind: "click" | "double" | "hold", event: EvenHubEvent, at: Seen): Promise<void> {
+    if (view !== at.view) return
+    if (view.kind === "agent" && (view.dictation?.step !== at.step || view.entry !== at.entry)) return
     if (view.kind === "list") {
+      if (kind === "hold") return
       if (kind === "double") {
         if (tab === "idle") {
           tab = "active"
@@ -354,26 +428,45 @@ export async function startGlance(bridge: GlassesBridge, legato: LegatoClient): 
 
     const open = view
     const step = open.dictation?.step
+    // Double tap goes back one step: a message is dropped, an entry closed,
+    // the feed left for the list.
     if (kind === "double") {
       if (step === "listening") await stopMicrophone()
       if (open.dictation) {
         open.dictation = undefined
         open.read = await legato.conversation(open.agent.task_id)
+      } else if (open.entry) {
+        open.entry = undefined
       } else {
         view = { kind: "list" }
       }
       return show()
     }
+    // Hold to talk: from the feed, an entry, or a problem.
+    if (kind === "hold") {
+      if (step === undefined || step === "problem") return listen(open)
+      return
+    }
     switch (step) {
       case "problem":
         if (open.dictation?.step === "problem" && open.dictation.text) return sendDictated(open, open.dictation.text)
-        return listen(open)
-      case undefined:
-        return listen(open)
+        return
       case "listening":
+        // The release stops it; a tap does too, should a release not come.
         return finishListening(open)
       case "review":
         return sendDictated(open, (open.dictation as { text: string }).text)
+      case undefined: {
+        // A tap on a line of the feed opens it, by its name as shown.
+        const chosen = event.listEvent
+        if (open.entry || !chosen) return
+        const entry = chosen.currentSelectItemName
+          ? at.feed.find((i) => i.text === chosen.currentSelectItemName)
+          : at.feed[chosen.currentSelectItemIndex ?? 0]
+        if (!entry?.detail) return
+        open.entry = entry
+        return show()
+      }
     }
   }
 
@@ -408,6 +501,14 @@ export async function startGlance(bridge: GlassesBridge, legato: LegatoClient): 
     }
     const kind = press(event)
     if (!kind) return
+    // A release ends whatever recording is going when its turn comes: the
+    // hold that started it is ahead of it in the queue.
+    if (kind === "release") {
+      void enqueue(async () => {
+        if (view.kind === "agent" && view.dictation?.step === "listening") await finishListening(view)
+      })
+      return
+    }
     const at = seen()
     void enqueue(() => onPress(kind, event, at))
   })

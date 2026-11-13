@@ -76,6 +76,9 @@ function fakeBridge() {
     items() {
       return shown.get("agents") as string[] | undefined
     },
+    feed() {
+      return shown.get("feed") as string[] | undefined
+    },
   }
   return bridge
 }
@@ -111,6 +114,11 @@ function fakeLegato(...answers: AgentsResult[]) {
 
 const click = { sysEvent: {} } as EvenHubEvent
 const doubleClick = { sysEvent: { eventType: OsEventTypeList.DOUBLE_CLICK_EVENT } } as EvenHubEvent
+const hold = { sysEvent: { eventType: OsEventTypeList.LONG_PRESS_EVENT } } as EvenHubEvent
+const release = { sysEvent: { eventType: OsEventTypeList.LONG_PRESS_RELEASE_EVENT } } as EvenHubEvent
+const pick = (index: number, name: string): EvenHubEvent => ({
+  listEvent: { containerID: 3, containerName: "feed", currentSelectItemIndex: index, currentSelectItemName: name },
+} as EvenHubEvent)
 const select = (index: number, name: string): EvenHubEvent => ({
   listEvent: { containerID: 5, containerName: "agents", currentSelectItemIndex: index, currentSelectItemName: name },
 } as EvenHubEvent)
@@ -187,20 +195,21 @@ describe("startGlance", () => {
     expect(bridge.items()?.[0]).toBe("● needs you  ASK-1 Approve")
   })
 
-  it("opens an agent on a tap: its conversation, kept fresh, until a double tap goes back", async () => {
+  it("opens an agent on a tap: its state in a badge, its feed kept fresh, until a double tap goes back", async () => {
     const bridge = fakeBridge()
     const legato = fakeLegato(someAgents)
     await startGlance(bridge as unknown as GlassesBridge, legato.client)
 
     bridge.send(select(0, "● needs you  ASK-1 Approve"))
     await settle()
-    expect(bridge.text("title")).toBe("● needs you  ASK-1 Approve")
-    expect(bridge.text("body")).toBe("Working on it.")
+    expect(bridge.text("badge")).toBe("● needs you")
+    expect(bridge.text("title")).toBe("ASK-1 Approve")
+    expect(bridge.feed()).toEqual(["Agent: Working on it."])
     expect(legato.calls.conversation).toEqual(["ASK-1"])
 
     legato.conversation.entries.push({ kind: "assistant", text: "Done." })
     await vi.advanceTimersByTimeAsync(POLL_MS)
-    expect(bridge.text("body")).toBe("Done.\n\nWorking on it.")
+    expect(bridge.feed()).toEqual(["Agent: Done.", "Agent: Working on it."])
 
     bridge.send(doubleClick)
     await settle()
@@ -208,24 +217,57 @@ describe("startGlance", () => {
     expect(bridge.exits).toEqual([])
   })
 
-  it("takes a dictated message: listens, transcribes, shows it, and sends it on a tap", async () => {
+  it("opens one entry of the feed in full on a tap, and goes back to the feed on a double tap", async () => {
+    const bridge = fakeBridge()
+    const legato = fakeLegato(someAgents)
+    legato.conversation.entries.push({ kind: "tool", text: "Run the tests", tool: "Bash", command: "pnpm test", state: "failed" })
+    await startGlance(bridge as unknown as GlassesBridge, legato.client)
+    bridge.send(select(1, "▶ running  RUN-1 Build"))
+    await settle()
+
+    bridge.send(pick(0, "▲ Bash: Run the tests"))
+    await settle()
+    expect(bridge.text("body")).toBe("Bash (failed)\n\nRun the tests\n\npnpm test")
+    expect(bridge.text("badge")).toBe("▶ running")
+
+    bridge.send(doubleClick)
+    await settle()
+    expect(bridge.feed()).toEqual(["▲ Bash: Run the tests", "Agent: Working on it."])
+  })
+
+  it("dictates from an opened entry too", async () => {
+    const bridge = fakeBridge()
+    await startGlance(bridge as unknown as GlassesBridge, fakeLegato(someAgents).client)
+    bridge.send(select(1, "▶ running  RUN-1 Build"))
+    await settle()
+    bridge.send(pick(0, "Agent: Working on it."))
+    await settle()
+
+    bridge.send(hold)
+    await settle()
+
+    expect(bridge.mic).toEqual([true])
+    expect(bridge.text("badge")).toBe("● Listening")
+  })
+
+  it("takes a dictated message: listens while held, transcribes on release, shows it, and sends it on a tap", async () => {
     const bridge = fakeBridge()
     const legato = fakeLegato(someAgents)
     await startGlance(bridge as unknown as GlassesBridge, legato.client)
     bridge.send(select(1, "▶ running  RUN-1 Build"))
     await settle()
 
-    bridge.send(click)
+    bridge.send(hold)
     await settle()
     expect(bridge.mic).toEqual([true])
-    expect(bridge.text("title")).toBe("● Listening · RUN-1")
+    expect(bridge.text("badge")).toBe("● Listening")
 
     bridge.send(audio(1, 2))
     bridge.send(audio(3))
     await vi.advanceTimersByTimeAsync(2000)
     expect(bridge.text("body")).toContain("0:02")
 
-    bridge.send(click)
+    bridge.send(release)
     await settle()
     expect(bridge.mic).toEqual([true, false])
     expect(legato.calls.transcribe).toEqual([[1, 2, 3]])
@@ -238,7 +280,7 @@ describe("startGlance", () => {
     expect(bridge.text("body")).toBe("Sent to RUN-1.")
 
     await vi.advanceTimersByTimeAsync(1500)
-    expect(bridge.text("body")).toBe("Working on it.")
+    expect(bridge.feed()).toEqual(["Agent: Working on it."])
   })
 
   it("keeps a message the agent was too busy for, and sends it again on a tap", async () => {
@@ -252,10 +294,10 @@ describe("startGlance", () => {
     await startGlance(bridge as unknown as GlassesBridge, legato.client)
     bridge.send(select(1, "▶ running  RUN-1 Build"))
     await settle()
-    bridge.send(click)
+    bridge.send(hold)
     await settle()
     bridge.send(audio(1))
-    bridge.send(click)
+    bridge.send(release)
     await settle()
 
     bridge.send(click)
@@ -279,7 +321,7 @@ describe("startGlance", () => {
     bridge.send(select(1, "▶ running  RUN-1 Build"))
     await settle()
 
-    bridge.send(click)
+    bridge.send(hold)
     await settle()
     bridge.send(audio(1))
     bridge.send(doubleClick)
@@ -287,7 +329,7 @@ describe("startGlance", () => {
 
     expect(bridge.mic).toEqual([true, false])
     expect(legato.calls.transcribe).toEqual([])
-    expect(bridge.text("body")).toBe("Working on it.")
+    expect(bridge.feed()).toEqual(["Agent: Working on it."])
   })
 
   it("says it heard nothing when no sound came, without asking Legato", async () => {
@@ -297,9 +339,9 @@ describe("startGlance", () => {
     bridge.send(select(1, "▶ running  RUN-1 Build"))
     await settle()
 
-    bridge.send(click)
+    bridge.send(hold)
     await settle()
-    bridge.send(click)
+    bridge.send(release)
     await settle()
 
     expect(legato.calls.transcribe).toEqual([])
@@ -312,7 +354,7 @@ describe("startGlance", () => {
     await startGlance(bridge as unknown as GlassesBridge, legato.client)
     bridge.send(select(1, "▶ running  RUN-1 Build"))
     await settle()
-    bridge.send(click)
+    bridge.send(hold)
     await settle()
     bridge.send(audio(9))
 
@@ -344,7 +386,7 @@ describe("startGlance", () => {
     await startGlance(bridge as unknown as GlassesBridge, legato.client)
     bridge.send(select(1, "▶ running  RUN-1 Build"))
     await settle()
-    bridge.send(click)
+    bridge.send(hold)
     await settle()
     bridge.send(audio(1))
 
@@ -354,7 +396,7 @@ describe("startGlance", () => {
 
     bridge.send(system(OsEventTypeList.FOREGROUND_ENTER_EVENT))
     await settle()
-    expect(bridge.text("body")).toBe("Working on it.")
+    expect(bridge.feed()).toEqual(["Agent: Working on it."])
     expect(legato.calls.transcribe).toEqual([])
   })
 
@@ -364,45 +406,45 @@ describe("startGlance", () => {
     bridge.send(select(1, "▶ running  RUN-1 Build"))
     await settle()
 
-    bridge.send({ textEvent: { containerID: 2, containerName: "body", eventType: OsEventTypeList.SCROLL_BOTTOM_EVENT } } as EvenHubEvent)
-    bridge.send({ textEvent: { containerID: 2, containerName: "body", eventType: OsEventTypeList.SCROLL_TOP_EVENT } } as EvenHubEvent)
+    bridge.send({ listEvent: { containerID: 3, containerName: "feed", eventType: OsEventTypeList.SCROLL_BOTTOM_EVENT } } as EvenHubEvent)
+    bridge.send({ listEvent: { containerID: 3, containerName: "feed", eventType: OsEventTypeList.SCROLL_TOP_EVENT } } as EvenHubEvent)
     await settle()
 
     expect(bridge.mic).toEqual([])
   })
 
-  it("says so when the microphone does not start, and tries again on a tap", async () => {
+  it("says so when the microphone does not start, and tries again on a hold", async () => {
     const bridge = fakeBridge()
     bridge.micWorks = false
     await startGlance(bridge as unknown as GlassesBridge, fakeLegato(someAgents).client)
     bridge.send(select(1, "▶ running  RUN-1 Build"))
     await settle()
 
-    bridge.send(click)
+    bridge.send(hold)
     await settle()
     expect(bridge.text("body")).toBe("The microphone didn't start.")
 
     bridge.micWorks = true
-    bridge.send(click)
+    bridge.send(hold)
     await settle()
-    expect(bridge.text("title")).toBe("● Listening · RUN-1")
+    expect(bridge.text("badge")).toBe("● Listening")
   })
 
-  it("shows why a transcription failed, and records again on a tap", async () => {
+  it("shows why a transcription failed, and records again on a hold", async () => {
     const bridge = fakeBridge()
     const legato = fakeLegato(someAgents)
     legato.client.transcribe = async () => ({ ok: false, problem: "Transcription is off in Legato." })
     await startGlance(bridge as unknown as GlassesBridge, legato.client)
     bridge.send(select(1, "▶ running  RUN-1 Build"))
     await settle()
-    bridge.send(click)
+    bridge.send(hold)
     await settle()
     bridge.send(audio(1))
-    bridge.send(click)
+    bridge.send(release)
     await settle()
 
     expect(bridge.text("body")).toBe("Transcription is off in Legato.")
-    bridge.send(click)
+    bridge.send(hold)
     await settle()
     expect(bridge.mic).toEqual([true, false, true])
   })
@@ -426,10 +468,10 @@ describe("startGlance", () => {
     await startGlance(bridge as unknown as GlassesBridge, legato.client)
     bridge.send(select(1, "▶ running  RUN-1 Build"))
     await settle()
-    bridge.send(click)
+    bridge.send(hold)
     await settle()
     bridge.send(audio(1))
-    bridge.send(click)
+    bridge.send(release)
     await settle()
     expect(bridge.text("body")).toBe("Transcribing…")
 
