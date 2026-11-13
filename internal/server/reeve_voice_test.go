@@ -6,6 +6,8 @@ import (
 	"fmt"
 	"net"
 	"net/http"
+	"os"
+	"reflect"
 	"testing"
 	"time"
 
@@ -50,8 +52,19 @@ func TestTheVoiceStatusSaysWhenThisServerHasNoVoice(t *testing.T) {
 
 // The desktop widget shows a line playing on the main's speakers from
 // reeve_spoke: playing starts it, and the end it waits for is the one under
-// the same line number.
-func TestWhatBecameOfALineIsBroadcastWithItsNumber(t *testing.T) {
+// the same line number. The desktop app's tests read the same messages
+// (testdata/reeve-spoke/messages.json, in desktop/src-tauri/src/hostline.rs),
+// so the two keep to one shape.
+func TestWhatBecameOfALineIsBroadcastAsTheFixtureHasIt(t *testing.T) {
+	data, err := os.ReadFile("testdata/reeve-spoke/messages.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var fixture []map[string]any
+	if err := json.Unmarshal(data, &fixture); err != nil {
+		t.Fatal(err)
+	}
+
 	bus := events.New()
 	srv := NewWithSwarm(nil, nil, nil, "", nil, bus, "")
 	srv.StartReeveSpokeEvents()
@@ -75,17 +88,20 @@ func TestWhatBecameOfALineIsBroadcastWithItsNumber(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	bus.Publish(events.Event{Type: events.EventReeveSpoke, Payload: events.ReeveSpokePayload{TaskID: "reeve-1", Text: "The build passed.", State: "playing", Line: 7}})
-
-	_, data, err := conn.Read(ctx)
-	if err != nil {
-		t.Fatal(err)
-	}
-	var got map[string]any
-	if err := json.Unmarshal(data, &got); err != nil {
-		t.Fatal(err)
-	}
-	if got["type"] != "reeve_spoke" || got["status"] != "playing" || got["content"] != "The build passed." || got["task_id"] != "reeve-1" || got["line"] != float64(7) {
-		t.Fatalf("broadcast %s", data)
+	for _, want := range fixture {
+		bus.Publish(events.Event{Type: events.EventReeveSpoke, Payload: events.ReeveSpokePayload{
+			TaskID: want["task_id"].(string), Text: want["content"].(string), State: want["status"].(string), Line: int64(want["line"].(float64)),
+		}})
+		_, data, err := conn.Read(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var got map[string]any
+		if err := json.Unmarshal(data, &got); err != nil {
+			t.Fatal(err)
+		}
+		if !reflect.DeepEqual(got, want) {
+			t.Fatalf("broadcast %s\nwant %v", data, want)
+		}
 	}
 }

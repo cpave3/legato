@@ -31,13 +31,18 @@ func newReeveVoice(cfg *config.Config, db *store.Store, credentials *service.Cre
 	}
 	if bus != nil {
 		opts.Spoke = func(e service.SpokeEvent) {
-			bus.Publish(events.Event{Type: events.EventReeveSpoke, Payload: events.ReeveSpokePayload{TaskID: e.TaskID, Text: e.Text, State: e.State, Line: e.Line}})
+			bus.Publish(events.Event{Type: events.EventReeveSpoke, Payload: spokePayload(e)})
 		}
 	}
 	if credentials != nil {
 		opts.Credentials = credentials
 	}
 	return service.NewReeveSpeech(opts)
+}
+
+// spokePayload is what became of a line, as EventReeveSpoke carries it.
+func spokePayload(e service.SpokeEvent) events.ReeveSpokePayload {
+	return events.ReeveSpokePayload{TaskID: e.TaskID, Text: e.Text, State: e.State, Line: e.Line}
 }
 
 // newVoiceService is transcription, and dictation's delivery to agents,

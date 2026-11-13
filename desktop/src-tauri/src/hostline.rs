@@ -10,6 +10,7 @@
 //! each message here, and emits `voice-host-line` with what changed. Only
 //! the choices are here, and tested.
 
+use std::collections::VecDeque;
 use std::time::{Duration, Instant};
 
 use serde::Serialize;
@@ -18,9 +19,9 @@ use serde_json::Value;
 /// The path the app listens on.
 pub const PATH: &str = "/ws";
 
-/// How long a line is shown at most when its end never comes (a message
-/// lost, a main that stopped). The Reeve says 400 characters at most,
-/// well under this.
+/// How long a line is shown when its end never comes (a message lost, a
+/// main that stopped), checked every CHECK, so up to LONGEST + CHECK. The
+/// Reeve says 400 characters at most, well under this.
 pub const LONGEST: Duration = Duration::from_secs(90);
 
 /// How long to wait before opening the socket again after it closed or
@@ -40,10 +41,21 @@ pub struct Change {
     pub status: &'static str,
 }
 
+/// How many ended lines are remembered, so a `playing` that arrives after
+/// its own end is not shown.
+const ENDS_KEPT: usize = 64;
+
 /// The line playing on the main's speakers, if any.
+///
+/// The main sends each broadcast on a goroutine of its own
+/// (`Hub.Broadcast`), so messages can arrive out of order: a line's end
+/// before its `playing`, or an earlier line's `playing` after a later
+/// one's. The host plays lines one at a time, in their numbers' order.
 #[derive(Debug, Default)]
 pub struct HostLine {
     playing: Option<(i64, Instant)>,
+    /// The lines whose end has come, newest last.
+    ended: VecDeque<i64>,
 }
 
 impl HostLine {
@@ -58,10 +70,23 @@ impl HostLine {
         let line = message["line"].as_i64()?;
         match message["status"].as_str()? {
             "playing" => {
+                if self.ended.contains(&line) || self.playing.is_some_and(|(n, _)| n >= line) {
+                    return None;
+                }
                 self.playing = Some((line, now));
                 Some(Change { id: line.to_string(), text: message["content"].as_str().unwrap_or_default().into(), status: "playing" })
             }
-            "played" | "failed" | "dropped" if self.playing.is_some_and(|(n, _)| n == line) => self.end(),
+            "played" | "failed" | "dropped" => {
+                if self.ended.len() == ENDS_KEPT {
+                    self.ended.pop_front();
+                }
+                self.ended.push_back(line);
+                if self.playing.is_some_and(|(n, _)| n == line) {
+                    self.end()
+                } else {
+                    None
+                }
+            }
             _ => None,
         }
     }
@@ -74,8 +99,10 @@ impl HostLine {
         }
     }
 
-    /// The socket closed: nothing says the line is still playing.
+    /// The socket closed: nothing says the line is still playing, and the
+    /// next socket may reach a main restarted with its numbers from 1.
     pub fn lost(&mut self) -> Option<Change> {
+        self.ended.clear();
         self.end()
     }
 
@@ -89,6 +116,19 @@ impl HostLine {
 mod tests {
     use super::*;
     use serde_json::json;
+
+    /// reeve_spoke as the main writes it (internal/server's test reads the
+    /// same file): a line playing, then played.
+    const MESSAGES: &str = include_str!(concat!(env!("CARGO_MANIFEST_DIR"), "/../../internal/server/testdata/reeve-spoke/messages.json"));
+
+    #[test]
+    fn the_mains_messages_show_a_line_and_end_it() {
+        let messages: Vec<Value> = serde_json::from_str(MESSAGES).unwrap();
+        let now = Instant::now();
+        let mut h = HostLine::default();
+        assert_eq!(h.on_message(&messages[0], now), playing(7, "The build on LEG-160 passed."));
+        assert_eq!(h.on_message(&messages[1], now), ended(7));
+    }
 
     fn spoke(status: &str, line: i64, text: &str) -> Value {
         json!({ "type": "reeve_spoke", "task_id": "reeve-1", "content": text, "status": status, "line": line })
@@ -143,6 +183,40 @@ mod tests {
         assert_eq!(h.on_message(&spoke("playing", 2, "two"), now), playing(2, "two"));
         assert_eq!(h.on_message(&spoke("played", 1, "one"), now), None);
         assert_eq!(h.on_message(&spoke("played", 2, "two"), now), ended(2));
+    }
+
+    // The main sends each broadcast on its own goroutine (Hub.Broadcast),
+    // so a line's end can overtake its playing.
+    #[test]
+    fn an_end_that_overtakes_its_playing_keeps_the_line_from_showing() {
+        let now = Instant::now();
+        let mut h = HostLine::default();
+        for end in ["failed", "played", "dropped"] {
+            assert_eq!(h.on_message(&spoke(end, 3, "a"), now), None, "{end}");
+        }
+        assert_eq!(h.on_message(&spoke("playing", 3, "a"), now), None);
+        // A later line made and failed while an earlier one waited to play
+        // does not keep the earlier one from showing.
+        assert_eq!(h.on_message(&spoke("failed", 6, "b"), now), None);
+        assert_eq!(h.on_message(&spoke("playing", 5, "c"), now), playing(5, "c"));
+    }
+
+    #[test]
+    fn an_earlier_lines_late_playing_does_not_replace_a_later_one() {
+        let now = Instant::now();
+        let mut h = HostLine::default();
+        h.on_message(&spoke("playing", 8, "later"), now);
+        assert_eq!(h.on_message(&spoke("playing", 7, "earlier"), now), None);
+        assert_eq!(h.on_message(&spoke("played", 8, "later"), now), ended(8));
+    }
+
+    #[test]
+    fn a_new_socket_forgets_the_old_mains_numbers() {
+        let now = Instant::now();
+        let mut h = HostLine::default();
+        h.on_message(&spoke("played", 1, "before a restart"), now);
+        h.lost();
+        assert_eq!(h.on_message(&spoke("playing", 1, "after"), now), playing(1, "after"));
     }
 
     #[test]

@@ -12,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/cpave3/legato/config"
+	"github.com/cpave3/legato/internal/engine/events"
 	"github.com/cpave3/legato/internal/engine/store"
 	"github.com/cpave3/legato/internal/server"
 	"github.com/cpave3/legato/internal/service"
@@ -101,5 +102,15 @@ func TestServeHasNoTranscriptionWhenVoiceIsOff(t *testing.T) {
 	cfg.Voice.WhisperURL = "tcp://127.0.0.1:1"
 	if newVoiceService(cfg, nil, nil) != nil {
 		t.Fatal("a voice service with voice.enabled off")
+	}
+}
+
+// The desktop widget pairs a line's playing with its end by the line's
+// number, so the number must reach the bus.
+func TestALinesFateReachesTheBusWithItsNumber(t *testing.T) {
+	got := spokePayload(service.SpokeEvent{TaskID: "reeve-1", Text: "Done.", State: service.SpokePlaying, Line: 7})
+	want := events.ReeveSpokePayload{TaskID: "reeve-1", Text: "Done.", State: "playing", Line: 7}
+	if got != want {
+		t.Fatalf("payload %+v, want %+v", got, want)
 	}
 }

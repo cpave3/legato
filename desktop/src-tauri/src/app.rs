@@ -2468,6 +2468,8 @@ async fn watch_host_lines(app: AppHandle) {
         }
     };
     let mut line = hostline::HostLine::default();
+    // Said once until it changes, not every RETRY.
+    let mut failing = String::new();
     loop {
         let chosen = {
             let desktop = app.state::<Desktop>();
@@ -2486,11 +2488,16 @@ async fn watch_host_lines(app: AppHandle) {
         let mut socket = match c.websocket(hostline::PATH).await {
             Ok(s) => s,
             Err(e) => {
-                println!("[voice] host lines: {server} did not open /ws: {e}");
+                let why = format!("{server} did not open /ws: {e}");
+                if why != failing {
+                    println!("[voice] host lines: {why}");
+                    failing = why;
+                }
                 tokio::time::sleep(hostline::RETRY).await;
                 continue;
             }
         };
+        failing.clear();
         let mut checks = tokio::time::interval_at(tokio::time::Instant::now() + hostline::CHECK, hostline::CHECK);
         loop {
             tokio::select! {
