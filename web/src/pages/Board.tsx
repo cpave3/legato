@@ -743,6 +743,9 @@ export function BoardPage() {
       if (!reorder) addToast(`Moved task to ${targetColumn}`, "success")
     } catch (error) {
       addToast(errorMessage(error, reorder ? "Could not reorder the task" : "Could not move the task"), "error")
+      // A drop is refused mostly when the board changed under it: show the
+      // board as it is now.
+      refresh()
     } finally {
       setPendingAction(null)
     }

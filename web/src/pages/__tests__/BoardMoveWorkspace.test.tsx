@@ -75,7 +75,7 @@ describe("Board workspace movement", () => {
     mockFetch.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
       const url = String(input)
       if (url.includes("/api/settings")) return { ok: true, json: async () => ({ repositories: [] }) }
-      if (url === "/api/tasks/TASK-2" && init?.method === "PATCH") return { ok: false, status: 500 }
+      if (url === "/api/tasks/TASK-2" && init?.method === "PATCH") return { ok: false, status: 500, json: async () => ({}) }
       throw new Error(`unexpected fetch: ${url}`)
     })
     renderBoard()

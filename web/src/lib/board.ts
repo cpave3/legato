@@ -99,7 +99,7 @@ export async function patchTask(
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   })
-  if (!res.ok) throw new Error(`patchTask failed: ${res.status}`)
+  if (!res.ok) throw await refusedWith(res, "patchTask")
   return res.json() as Promise<PatchTaskResult>
 }
 

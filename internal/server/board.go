@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"log"
 	"net/http"
 	"strconv"
 	"strings"
@@ -369,18 +370,25 @@ func (s *Server) taskHandler() http.HandlerFunc {
 				if req.Before != nil {
 					before = *req.Before
 				}
-				if err := s.board.PlaceCard(ctx, id, before); err != nil {
-					switch {
-					case errors.Is(err, store.ErrNotFound):
-						s.writeError(w, http.StatusNotFound, "task not found")
-					case errors.Is(err, store.ErrConflict):
-						s.writeError(w, http.StatusConflict, "the board changed: "+err.Error())
-					default:
-						s.writeError(w, taskErrorStatus(err), err.Error())
-					}
+				err := s.board.PlaceCard(ctx, id, before)
+				switch {
+				case err == nil:
+					mutated = true
+				case errors.Is(err, store.ErrConflict) && req.Column != nil:
+					// The move is made; a neighbour that left the column
+					// since the board was drawn only costs the card its
+					// place, and it stays last, where the move put it.
+					log.Printf("task %s: moved to %s, left last: %v", id, *req.Column, err)
+				case errors.Is(err, store.ErrNotFound):
+					s.writeError(w, http.StatusNotFound, "task not found")
+					return
+				case errors.Is(err, store.ErrConflict):
+					s.writeError(w, http.StatusConflict, err.Error())
+					return
+				default:
+					s.writeError(w, taskErrorStatus(err), err.Error())
 					return
 				}
-				mutated = true
 			}
 			response := struct {
 				Status   string                         `json:"status"`

@@ -16,6 +16,7 @@ function card(id: string, title: string, status: string): BoardCard {
 }
 
 const mockFetch = vi.fn()
+const { addToast, refresh } = vi.hoisted(() => ({ addToast: vi.fn(), refresh: vi.fn() }))
 vi.stubGlobal("fetch", mockFetch)
 vi.mock("../../hooks/useServer", () => ({ useServer: () => ({ baseUrl: "" }) }))
 vi.mock("../../hooks/useSettings", () => ({ useSettings: () => ({ data: { repositories: [], working_dir: "", worktrees_enabled: false } }) }))
@@ -29,14 +30,16 @@ vi.mock("../../hooks/useBoard", () => ({
     workers: [],
     loading: false,
     error: null,
-    refresh: vi.fn(),
+    refresh,
   }),
 }))
-vi.mock("../../hooks/useToast", () => ({ useToast: () => ({ addToast: vi.fn() }) }))
+vi.mock("../../hooks/useToast", () => ({ useToast: () => ({ addToast }) }))
 vi.mock("../../hooks/useWorkflow", () => ({ useWorkflows: () => ({ data: null, loading: false, error: null }) }))
 vi.mock("../../hooks/useMediaQuery", () => ({ useMediaQuery: () => true }))
 
 beforeEach(() => {
+  addToast.mockReset()
+  refresh.mockReset()
   mockFetch.mockReset()
   mockFetch.mockImplementation(async () => new Response(JSON.stringify({ status: "ok" }), { status: 200, headers: { "Content-Type": "application/json" } }))
 })
@@ -78,6 +81,21 @@ describe("Dragging cards on the board", () => {
     renderBoard()
     dragTo("Tidy the logs", "Ready", "Ready", 10)
     await waitFor(() => expect(patches()).toEqual([["/api/tasks/T-2", { before: "T-1" }]]))
+  })
+
+  it("reorders without a toast: the card's new place says it", async () => {
+    renderBoard()
+    dragTo("Tidy the logs", "Ready", "Ready", 10)
+    await waitFor(() => expect(refresh).toHaveBeenCalled())
+    expect(addToast).not.toHaveBeenCalled()
+  })
+
+  it("says why a reorder was refused, in the server's words, and redraws the board", async () => {
+    mockFetch.mockImplementation(async () => new Response(JSON.stringify({ error: "T-1 is not a card in Ready: state conflict" }), { status: 409, headers: { "Content-Type": "application/json" } }))
+    renderBoard()
+    dragTo("Tidy the logs", "Ready", "Ready", 10)
+    await waitFor(() => expect(addToast).toHaveBeenCalledWith("T-1 is not a card in Ready: state conflict", "error"))
+    expect(refresh).toHaveBeenCalled()
   })
 
   it("sends nothing for a card dropped where it already is", async () => {

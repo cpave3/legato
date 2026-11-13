@@ -2081,10 +2081,31 @@ func TestPatchTaskRoutesEdits(t *testing.T) {
 	})
 
 	t.Run("a neighbour no longer in the column is a conflict", func(t *testing.T) {
-		svc := &mockBoardService{placeErr: fmt.Errorf("%w: t2 is not a card in Doing", store.ErrConflict)}
+		svc := &mockBoardService{placeErr: fmt.Errorf("t2 is not a card in Doing: %w", store.ErrConflict)}
 		w := patch(t, svc, `{"before":"t2"}`)
 		if w.Code != http.StatusConflict {
 			t.Fatalf("status = %d, want 409", w.Code)
+		}
+	})
+
+	// The move is made and kept; a neighbour that has left the column since
+	// the board was drawn only costs the card its place, which stays last.
+	// The request succeeds, so the move's workflow triggers still come back.
+	t.Run("a stale neighbour after a move leaves the card last and succeeds", func(t *testing.T) {
+		svc := &mockBoardService{placeErr: fmt.Errorf("t9 is not a card in Doing: %w", store.ErrConflict)}
+		w := patch(t, svc, `{"column":"Doing","before":"t9"}`)
+		if w.Code != http.StatusOK {
+			t.Fatalf("status = %d, want 200: %s", w.Code, w.Body)
+		}
+		if svc.movedTo != "Doing" || strings.Join(svc.calls, ",") != "move,place" {
+			t.Fatalf("movedTo = %q, calls = %v", svc.movedTo, svc.calls)
+		}
+	})
+
+	t.Run("another placement failure after a move is still an error", func(t *testing.T) {
+		svc := &mockBoardService{placeErr: errors.New("disk on fire")}
+		if w := patch(t, svc, `{"column":"Doing","before":"t9"}`); w.Code != http.StatusInternalServerError {
+			t.Fatalf("status = %d, want 500", w.Code)
 		}
 	})
 

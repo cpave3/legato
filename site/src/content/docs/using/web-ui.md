@@ -34,7 +34,7 @@ When the connection drops, the UI first says "Reconnecting…" and keeps the pag
 
 ## Board
 
-The board works as it does in the TUI, with the same keys: `h`/`j`/`k`/`l` to move, `n` to create, `m` to move, `/` to search, `?` for the key list. You can also drag a card to another column, or within its column to reorder it; it lands where you let it go. Dragging needs a mouse or trackpad: the phone layout has no drag. Press `enter` or double-click a card to open its detail. From 1280 pixels of width, a panel beside the board describes the selected card, with buttons for its agent, its details and its ticket or pull request.
+The board works as it does in the TUI, with the same keys: `h`/`j`/`k`/`l` to move, `n` to create, `m` to move, `/` to search, `?` for the key list. You can also drag a card to another column, or within its column to reorder it; it lands where you let it go. The phone layout has no drag: **Move** in a card's menu moves it to another column, at the end, and a column cannot be reordered there. Press `enter` or double-click a card to open its detail. From 1280 pixels of width, a panel beside the board describes the selected card, with buttons for its agent, its details and its ticket or pull request.
 
 **Import** in the header searches your ticket providers and imports a ticket, as `i` does; see [Board](/legato/using/board/#local-tasks-and-remote-tickets). **Sync providers** in the header syncs Jira and GitHub now, and pulls every [worker](/legato/using/handoff/#staying-up-to-date) this Legato hands tasks to.
 

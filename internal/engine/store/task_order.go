@@ -51,10 +51,10 @@ func (s *Store) PlaceTask(ctx context.Context, id, beforeID string) error {
 			order = append(order, other)
 		}
 		if !onBoard {
-			return fmt.Errorf("%w: %s is not on the board", ErrConflict, id)
+			return fmt.Errorf("%s is not on the board: %w", id, ErrConflict)
 		}
 		if !placed {
-			return fmt.Errorf("%w: %s is not a card in %s", ErrConflict, beforeID, status)
+			return fmt.Errorf("%s is not a card in %s: %w", beforeID, status, ErrConflict)
 		}
 		if beforeID == "" {
 			order = append(order, id)
