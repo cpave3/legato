@@ -17,7 +17,9 @@ const workflowRunSelect = `SELECT id, workflow_name, workflow_title, definition_
 	definition_digest, definition_json, inputs_json, status, current_step_id,
 	COALESCE(task_id, '') AS task_id, error, created_at, started_at, completed_at,
 	COALESCE(related_task_id, '') AS related_task_id,
-	COALESCE(trigger_request_id, '') AS trigger_request_id FROM workflow_runs`
+	COALESCE(trigger_request_id, '') AS trigger_request_id,
+	COALESCE((SELECT title FROM tasks WHERE tasks.id = workflow_runs.related_task_id), '') AS related_task_title
+	FROM workflow_runs`
 
 type WorkflowRun struct {
 	ID               string  `db:"id" json:"id"`
@@ -31,6 +33,7 @@ type WorkflowRun struct {
 	CurrentStepID    string  `db:"current_step_id" json:"current_step_id"`
 	TaskID           string  `db:"task_id" json:"task_id,omitempty"`
 	RelatedTaskID    string  `db:"related_task_id" json:"related_task_id,omitempty"`
+	RelatedTaskTitle string  `db:"related_task_title" json:"related_task_title,omitempty"`
 	TriggerRequestID string  `db:"trigger_request_id" json:"trigger_request_id,omitempty"`
 	Error            string  `db:"error" json:"error,omitempty"`
 	CreatedAt        string  `db:"created_at" json:"created_at"`
@@ -38,6 +41,18 @@ type WorkflowRun struct {
 	CompletedAt      *string `db:"completed_at" json:"completed_at,omitempty"`
 	NeedsAttention   bool    `db:"-" json:"needs_attention,omitempty"`
 	AttentionReason  string  `db:"-" json:"attention_reason,omitempty"`
+	// Steps is filled by ListWorkflowRuns with WithSteps only (the runs list
+	// of the API): each step's place and state, so a list of runs can say how
+	// far each one is.
+	Steps []WorkflowStepSummary `db:"-" json:"steps,omitempty"`
+}
+
+// WorkflowStepSummary is one step of a run as the runs list shows it.
+type WorkflowStepSummary struct {
+	StepID  string `db:"step_id" json:"step_id"`
+	Title   string `db:"title" json:"title"`
+	Status  string `db:"status" json:"status"`
+	Trigger string `db:"step_trigger" json:"trigger,omitempty"`
 }
 
 type WorkflowStepRun struct {
@@ -435,6 +450,9 @@ type WorkflowRunFilter struct {
 	WorkflowName string
 	Inputs       map[string]string
 	Limit        int
+	// WithSteps fills each run's Steps. The runs list asks for it; callers
+	// that only count or scan runs do not.
+	WithSteps bool
 }
 
 func (s *Store) ListWorkflowRuns(ctx context.Context, filter WorkflowRunFilter) ([]WorkflowRun, error) {
@@ -475,7 +493,42 @@ func (s *Store) ListWorkflowRuns(ctx context.Context, filter WorkflowRunFilter) 
 	if err := s.db.SelectContext(ctx, &runs, query, args...); err != nil {
 		return nil, err
 	}
+	if filter.WithSteps {
+		if err := s.attachStepSummaries(ctx, runs); err != nil {
+			return nil, err
+		}
+	}
 	return runs, nil
+}
+
+func (s *Store) attachStepSummaries(ctx context.Context, runs []WorkflowRun) error {
+	if len(runs) == 0 {
+		return nil
+	}
+	ids := make([]string, len(runs))
+	index := make(map[string]int, len(runs))
+	for i, run := range runs {
+		ids[i] = run.ID
+		index[run.ID] = i
+	}
+	query, args, err := sqlx.In(`SELECT run_id, step_id, title, status,
+		COALESCE(json_extract(definition_json, '$.trigger'), '') AS step_trigger
+		FROM workflow_step_runs WHERE run_id IN (?) ORDER BY run_id, step_order`, ids)
+	if err != nil {
+		return err
+	}
+	var rows []struct {
+		RunID string `db:"run_id"`
+		WorkflowStepSummary
+	}
+	if err := s.db.SelectContext(ctx, &rows, s.db.Rebind(query), args...); err != nil {
+		return err
+	}
+	for _, row := range rows {
+		i := index[row.RunID]
+		runs[i].Steps = append(runs[i].Steps, row.WorkflowStepSummary)
+	}
+	return nil
 }
 
 func (s *Store) CancelWorkflowRun(ctx context.Context, runID, reason string) error {

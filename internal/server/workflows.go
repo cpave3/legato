@@ -144,6 +144,7 @@ func (s *Server) workflowRunsHandler() http.HandlerFunc {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
+		filter.WithSteps = true
 		runs, err := s.workflows.ListRuns(r.Context(), filter)
 		if err != nil {
 			http.Error(w, err.Error(), 500)

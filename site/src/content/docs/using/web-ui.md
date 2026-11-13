@@ -23,7 +23,7 @@ On a phone, a tab bar along the bottom holds **Attention**, **Board**, **Agents*
 | **Board** | The kanban board. See [Board and tasks](/legato/using/board/). |
 | **Review** | Review tours of what agents changed. See [Reviews](/legato/using/reviews/). |
 | **Plans** | Plans agents proposed, waiting for your decision. See [Plans](/legato/using/plans/). |
-| **Flows** | Workflow definitions and runs. See [Workflows](/legato/using/workflows/). |
+| **Flows** | Workflow runs and the workflows you can run. See [Workflows](/legato/using/workflows/#runs-and-workflows-in-the-web-ui). |
 | **Learning** | The Legato Learn ledger. See [Legato Learn](/legato/using/learn/). |
 | **Reports** | Where agent time went. See [Reports](/legato/using/reports/). |
 | **Remote** | Clones Legato made for agents. |
@@ -126,7 +126,7 @@ Select any agent of a [swarm](/legato/using/swarms/) and the page shows the swar
 - **Attention** groups what needs you under **Needs intervention**, **Ready for review** and **Merge blockers**. See [Attention and approvals](/legato/using/attention/).
 - **Plans** is the queue of plans waiting for your decision; open one to read it, comment, answer its questions and approve it. See [Plans](/legato/using/plans/).
 - **Review** is the queue of review tours; open one to step through the changes and ask the agent about them. See [Reviews](/legato/using/reviews/).
-- **Flows** lists workflow definitions and runs, and starts runs. See [Workflows](/legato/using/workflows/).
+- **Flows** shows workflow runs, those that need you first, and the workflows you can run. See [Workflows](/legato/using/workflows/#runs-and-workflows-in-the-web-ui).
 
 Requests from agents that wait for you (permissions, questions, credentials) appear in a tray at the bottom right of every page. See [Approvals](/legato/using/attention/#approvals).
 

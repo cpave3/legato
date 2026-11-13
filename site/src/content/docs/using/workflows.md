@@ -70,6 +70,23 @@ Set `after_start` to control web navigation after a manual launch: `workflow` (t
 
 Workflow definitions do not support `notify_on_complete`. Successful runs remain in workflow history and do not create Attention items; Attention is reserved for manual gates, waiting agents, and failures. Remove this field from older workflow YAML because schema parsing is strict.
 
+### Runs and workflows in the web UI
+
+**Flows** opens on **Runs**, with the number of runs that need you on its tab. Runs in progress come first, those that need you at the top, then finished runs, newest first. Each run says its state (**Running**, **Needs you**, **Done**, **Failed** or **Cancelled**), the task it is for, what it is doing in a sentence, and a bar with one segment per step that shows how far through it is and where it stopped.
+
+A run's page says the same at the top, and under it what you can do now:
+
+- an agent at work: **Open agent**
+- an agent that went idle, is waiting for an answer or ended before finishing its step: **Open agent** and **Prompt to continue**
+- a manual step: what it will do (such as "Moves LEG-42 to Ready") and **Run step**
+- a step that waits for the agent to end: **Open agent**, and **End now** to run the step without waiting
+- a failed step: its error and **Retry step**
+- a finished run: the files it produced, with **Preview** and **Download**, and the values its agents reported
+
+The steps are listed one to a line with how long each took; open one to see its inputs, outputs and agent. **Cancel run** stops a run in progress.
+
+The **Workflows** tab lists each workflow with its steps (✋ marks one that waits for you or for its agent to end), what it takes, when it starts on its own (a column trigger), and how its last run went. The values of secret inputs are never shown. **Run** opens the form for its inputs. Flows remembers the tab you used last.
+
 ### Run from a board card
 
 Press `c` on a selected TUI board card, or right-click a web board card, and open **Workflows** to list the definitions with exactly one `task` input. On a web card you can also use its action button, from the keyboard or on a touch screen. The input key can have any name and receives the selected card automatically. Definitions with zero task inputs are unrelated to the card, while definitions with multiple task inputs are ambiguous, so neither is shown. Column-entry triggers do not exclude an otherwise eligible workflow.
