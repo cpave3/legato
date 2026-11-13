@@ -59,28 +59,97 @@ func TestAgentMessageThatFailsIsLogged(t *testing.T) {
 	}
 }
 
-// The Claude Code mod reports a prompt its session would not take as a live
-// message_failed event; Legato logs it as it passes it on.
-func TestNativeMessageFailedIsLogged(t *testing.T) {
-	logged := captureLog(t)
-	manager, emit := newTestChimeraStreamManager(t)
-	client := newRecordingWSClient()
-	manager.subscribe(client.wsClient, "task-1", "")
-	data, _ := json.Marshal(map[string]string{
-		"eventId": "failed-1",
-		"type":    "message_failed",
-		"content": "/tmp/a.png what is this?",
-		"error":   "a text beginning with / would run a command as the user",
-	})
+// fakeAgentEvents stands for the approval watcher, which follows every
+// running native agent whether or not a page does.
+type fakeAgentEvents struct {
+	listeners []func(taskID string, event chimera.EventEnvelope)
+}
 
-	emit(chimera.EventEnvelope{EventID: "failed-1", Type: "message_failed", Data: data})
-	emit(chimera.EventEnvelope{EventID: "said-1", Type: "user_message"})
+func (f *fakeAgentEvents) AddListener(fn func(taskID string, event chimera.EventEnvelope)) {
+	f.listeners = append(f.listeners, fn)
+}
+
+func (f *fakeAgentEvents) emit(taskID string, event chimera.EventEnvelope) {
+	for _, listener := range f.listeners {
+		listener(taskID, event)
+	}
+}
+
+func messageFailed(t *testing.T, content, reason string) chimera.EventEnvelope {
+	t.Helper()
+	data, err := json.Marshal(map[string]string{"eventId": "failed-1", "type": "message_failed", "content": content, "error": reason})
+	if err != nil {
+		t.Fatal(err)
+	}
+	return chimera.EventEnvelope{EventID: "failed-1", Type: "message_failed", Data: data}
+}
+
+// The Claude Code mod reports a prompt its session would not take as a live
+// message_failed event. Legato logs it from the agents' own event streams, so
+// it is logged with no page open on the agent.
+func TestNativeMessageFailedIsLoggedWithNoPageOpen(t *testing.T) {
+	logged := captureLog(t)
+	s := New(nil, nil, nil, "")
+	events := &fakeAgentEvents{}
+	s.UseAgentEvents(events)
+
+	events.emit("task-1", messageFailed(t, "/tmp/a.png what is this?", "a text beginning with / would run a command as the user"))
+	events.emit("task-1", chimera.EventEnvelope{EventID: "said-1", Type: "user_message"})
 
 	got := logged.String()
-	if !strings.Contains(got, "task-1") || !strings.Contains(got, "would run a command") {
-		t.Fatalf("log = %q, want the task and the session's reason", got)
+	if !strings.Contains(got, "task-1") || !strings.Contains(got, "would run a command") || !strings.Contains(got, "/tmp/a.png") {
+		t.Fatalf("log = %q, want the task, the session's reason and the start of the message", got)
 	}
 	if strings.Count(got, "\n") != 1 {
 		t.Fatalf("log = %q, want one line, for the failure only", got)
+	}
+}
+
+// What the agent's side says is quoted and cut, so it can neither write lines
+// of its own into the log nor fill it; the message is cut at a character.
+func TestNativeMessageFailedLogLineIsQuotedAndCut(t *testing.T) {
+	logged := captureLog(t)
+	s := New(nil, nil, nil, "")
+	events := &fakeAgentEvents{}
+	s.UseAgentEvents(events)
+
+	words := strings.Repeat("é", 300)
+	reason := "refused\n2026/11/13 12:00:00 forged line" + strings.Repeat("x", 2000)
+	events.emit("task-1", messageFailed(t, words, reason))
+
+	got := logged.String()
+	if strings.Count(got, "\n") != 1 {
+		t.Fatalf("log = %q, want one line", got)
+	}
+	if len(got) > 1000 {
+		t.Fatalf("log line is %d bytes, want it cut", len(got))
+	}
+	if strings.Contains(got, "\\x") {
+		t.Fatalf("log = %q, want the message cut between characters", got)
+	}
+	if !strings.Contains(got, "éé…") {
+		t.Fatalf("log = %q, want the cut message to end in an ellipsis", got)
+	}
+}
+
+// Without the approval watcher the context watcher holds the server's own
+// stream of each native agent, and it logs a refused message too.
+func TestNativeMessageFailedIsLoggedFromTheContextWatchersOwnStream(t *testing.T) {
+	logged := captureLog(t)
+	h := newContextHarness(t)
+	h.watcher.Reconcile([]string{"task-a"})
+	h.waitFor(func() bool {
+		h.mu.Lock()
+		defer h.mu.Unlock()
+		return h.handlers["http://task-a"] != nil
+	})
+	h.mu.Lock()
+	handler := h.handlers["http://task-a"]
+	h.mu.Unlock()
+
+	handler(messageFailed(t, "/tmp/a.png what is this?", "a text beginning with / would run a command as the user"))
+
+	if got := logged.String(); !strings.Contains(got, "task-a") || !strings.Contains(got, "would run a command") {
+		t.Fatalf("log = %q, want the task and the session's reason", got)
 	}
 }

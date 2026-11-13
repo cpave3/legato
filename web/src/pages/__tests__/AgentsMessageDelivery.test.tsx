@@ -138,3 +138,38 @@ it("shows a message the server could not deliver to a terminal agent as an error
   })
   expect(addToast).toHaveBeenCalledWith(expect.stringContaining("can't find session"), "error")
 })
+
+it("says a message to a terminal agent was not sent when Legato is not connected", async () => {
+  mockSend.mockImplementation((message: { type: string }) => message.type !== "agent_message")
+  render(
+    <MemoryRouter>
+      <AgentSelectionProvider>
+        <AgentsPage />
+      </AgentSelectionProvider>
+    </MemoryRouter>,
+  )
+  fireEvent.click(await screen.findByRole("button", { name: "Agent A" }))
+  fireEvent.click(await screen.findByRole("button", { name: "Send" }))
+
+  expect(addToast).toHaveBeenCalledWith(expect.stringMatching(/not sent/i), "error")
+})
+
+it("takes no error for a message the agent already got as its own", async () => {
+  render(
+    <MemoryRouter>
+      <AgentSelectionProvider>
+        <AgentsPage />
+      </AgentSelectionProvider>
+    </MemoryRouter>,
+  )
+  fireEvent.click(await screen.findByRole("button", { name: "Agent A" }))
+  fireEvent.click(await screen.findByRole("button", { name: "Send" }))
+  const sent = mockSend.mock.calls.map(([message]) => message).find((message) => message.type === "agent_message")
+
+  act(() => {
+    for (const handler of handlers) handler({ type: "agent_message_sent", agent_id: "agent-a", request_id: sent.request_id })
+    for (const handler of handlers) handler({ type: "error", agent_id: "agent-a", request_id: sent.request_id, error: "late" })
+  })
+
+  expect(addToast).not.toHaveBeenCalled()
+})

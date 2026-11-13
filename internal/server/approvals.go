@@ -20,12 +20,14 @@ func (s *Server) SetApprovalService(approvals *service.ApprovalService) {
 
 // UseAgentEvents takes native agents' events from watcher, which holds one
 // stream per agent, so the server opens no stream of its own to read how
-// full each agent's context is.
+// full each agent's context is, or to log a message an agent's session would
+// not take.
 func (s *Server) UseAgentEvents(watcher interface {
 	AddListener(func(taskID string, event chimera.EventEnvelope))
 }) {
 	s.agentContexts.UseExternalEvents()
 	watcher.AddListener(s.agentContexts.Observe)
+	watcher.AddListener(logDeliveryFailure)
 }
 
 func (s *Server) requireApprovalService(w http.ResponseWriter) bool {

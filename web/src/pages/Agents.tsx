@@ -46,8 +46,9 @@ import { Bell, BellOff, FolderInput, Pencil, RefreshCw, RotateCw, Shield, Skull,
 import { useTerminalMenu } from "../hooks/useTerminalMenu"
 import { canReloadAgent, reloadAgent, sandboxSwitchLabel, switchAgentSandbox, type SandboxSwitch } from "../lib/agentReload"
 
-// The request IDs of messages sent from a terminal agent's message box, so
-// the server's answer about one is known as such.
+// The prefix of the request IDs of messages sent from a terminal agent's
+// message box, which keeps them apart from the native panel's ("message-"):
+// both read the same socket.
 const TERMINAL_MESSAGE_REQUEST = "terminal-message-"
 
 const GLITCH_DURATION_MS = 500
@@ -285,18 +286,19 @@ export function AgentsPage() {
   }, [promptState])
 
   const handleSubmitMessage = useCallback(
-    (content: string) => {
+    (content: string): boolean => {
       if (selectedId) {
         const requestId = `${TERMINAL_MESSAGE_REQUEST}${crypto.randomUUID()}`
         sentMessagesRef.current.add(requestId)
         if (send({ type: "agent_message", agent_id: selectedId, content, request_id: requestId }) === false) {
           sentMessagesRef.current.delete(requestId)
-          addToast("Not connected to Legato: the message was not sent", "error")
-          return
+          addToast("Not connected to Legato: the message was not sent. It is still in the box.", "error")
+          return false
         }
         // User submitted input — clear dismissed state so future prompts show.
         dismissedPromptTypeRef.current = null
       }
+      return true
     },
     [selectedId, send, addToast]
   )

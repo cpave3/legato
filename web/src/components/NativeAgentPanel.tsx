@@ -116,6 +116,8 @@ const TERMINAL_PROMPT_POLL_MS = 2000
 // How the request_id of a message from the box starts, so Legato's answer
 // about it is told from one about a permission or a question.
 const MESSAGE_REQUEST = "message-"
+// How many of the commands it sent a panel remembers, to know a refusal of one.
+const SENT_COMMANDS_KEPT = 20
 
 // The prompt types that ask the person to pick something.
 const terminalPromptTypes = new Set<PromptState["type"]>(["menu", "tool_approval", "plan_approval", "question"])
@@ -257,6 +259,10 @@ export function NativeAgentPanel({ agentId, reeve, sandboxed, onKill, onRename, 
   // to an idle session, before the session says a turn started. A message
   // that was not sent then takes it back: nothing is running (LEG-151).
   const workingUnconfirmedRef = useRef(false)
+  // Commands this panel sent, by their words, whose refusal it would show.
+  // Legato's stream replays the refusals it kept to a panel that opens; those
+  // are not this panel's to show.
+  const sentCommandsRef = useRef<string[]>([])
   const syncGenerationRef = useRef(0)
   const runFinishTimerRef = useRef<number | null>(null)
   const hydratedAgentRef = useRef<string | null>(null)
@@ -648,8 +654,14 @@ export function NativeAgentPanel({ agentId, reeve, sandboxed, onKill, onRename, 
           const words = event.content ?? ""
           const reason = event.error || "The agent's session would not take it"
           // A command is not listed, so its failure has no row to mark.
-          if (isCommandText(words)) setSendError(`Not sent: ${words.trim()}: ${reason}`)
-          else setQueued((current) => failQueuedByWords(current, words, reason))
+          if (isCommandText(words)) {
+            const at = sentCommandsRef.current.indexOf(words.trim())
+            if (at < 0) return
+            sentCommandsRef.current.splice(at, 1)
+            setSendError(`Not sent: ${words.trim()}: ${reason}`)
+          } else {
+            setQueued((current) => failQueuedByWords(current, words, reason))
+          }
           stopUnconfirmedWorking()
           return
         }
@@ -745,6 +757,7 @@ export function NativeAgentPanel({ agentId, reeve, sandboxed, onKill, onRename, 
     // listed; it is only answered, and an error for it shows as one. A path
     // at the start (/tmp/a.png what is this?) is a message, not a command.
     if (!isCommandText(trimmed)) setQueued((current) => queueMessage(current, trimmed, syncStateRef.current.items, requestId))
+    else sentCommandsRef.current = [...sentCommandsRef.current.slice(-(SENT_COMMANDS_KEPT - 1)), trimmed]
     setDraft("")
     if (!busy) {
       workingUnconfirmedRef.current = true

@@ -105,7 +105,8 @@ function ActionList({ actions, type, onSelect, onDismiss }: ActionListProps) {
 interface PromptBarProps {
   promptState: PromptState | null
   onSendKeys: (keys: string) => void
-  onSubmitMessage: (content: string) => void
+  // Returns false when the message did not go out, so it stays in the box.
+  onSubmitMessage: (content: string) => boolean | void
   onDismissPrompt: () => void
   onDetectPrompt: () => void
   onDisconnect: () => void
@@ -248,7 +249,7 @@ export const PromptBar = forwardRef<PromptBarHandle, PromptBarProps>(function Pr
   const handleSubmit = () => {
     const trimmed = input.trim()
     if (trimmed) {
-      onSubmitMessage(trimmed)
+      if (onSubmitMessage(trimmed) === false) return
       setInput("")
       localStorage.removeItem(draftKey(agentId))
     }

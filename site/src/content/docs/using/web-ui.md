@@ -105,9 +105,9 @@ If the agent's branch carries a review briefing (HTML pages under `.review/` tha
 
 When an agent reads an image file, its row in the conversation opens to show the image. Click the image to see it full size.
 
-To give an agent an image, paste it into the message box, drop an image file on the box, or press **Attach image** (the picture icon under the box) and choose one. On a phone, **Attach image** opens your photos. Legato stores the image in a temporary folder and puts the file's path in your message, where the agent can read it. An image at the very start of the message comes in as `Image: <path>`, because Claude Code turns away a message from Legato that starts with `/`. A thumbnail above the box stands for each image. Legato keeps a task's newest 20 images, up to 10 MiB each, in PNG, JPEG, GIF, WebP or BMP.
+To give an agent an image, paste it into the message box, drop an image file on the box, or press **Attach image** (the picture icon under the box) and choose one. On a phone, **Attach image** opens your photos. Legato stores the image in a temporary folder and puts the file's path in your message, where the agent can read it. An image at the very start of the message comes in as `Image: <path>`, because Claude Code, in its conversation view, turns away a message from Legato that starts with `/`. A thumbnail above the box stands for each image. Legato keeps a task's newest 20 images, up to 10 MiB each, in PNG, JPEG, GIF, WebP or BMP.
 
-If the agent's session would not take a message, the message is marked **not sent** with the reason, and the agent no longer shows as working. A message to an agent on its terminal that could not be typed into the terminal shows as an error.
+If the agent's session would not take a message, the message is marked **not sent** with the reason, and the agent no longer shows as working. A message to an agent on its terminal that could not be typed into the terminal shows as an error; one that could not leave the page because it had lost its connection stays in the box.
 
 If you copied text with the image, the text is pasted too. A task that is away on a worker takes images only from the worker's own page, where its agent runs.
 

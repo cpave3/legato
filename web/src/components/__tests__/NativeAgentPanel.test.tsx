@@ -906,6 +906,70 @@ describe("NativeAgentPanel", () => {
     expect(screen.queryByRole("status", { name: "Agent working" })).toBeNull()
   })
 
+  // Legato's stream replays what it kept to a panel that opens, a refusal of
+  // a command sent long ago with it.
+  it("does not show a refusal of a command this panel did not send", async () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => String(input).includes("/snapshot")
+      ? new Response(JSON.stringify({ id: "session-1", status: "idle", messages: [], toolCalls: [] }), { status: 200 })
+      : new Response("[]", { status: 200 }))
+
+    render(<NativeAgentPanel agentId="task-1" />)
+    await screen.findByRole("textbox", { name: "Message" })
+
+    act(() => websocketHandler?.({
+      type: "chimera_event",
+      agent_id: "task-1",
+      content: JSON.stringify({ eventId: "failed-old", type: "message_failed", content: "/reviw", error: "a text beginning with / would run a command as the user" }),
+    }))
+
+    expect(screen.queryByRole("alert")).toBeNull()
+  })
+
+  it("keeps Working once the session reports the message, though a later one was not sent", async () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => String(input).includes("/snapshot")
+      ? new Response(JSON.stringify({ id: "session-1", status: "idle", messages: [], toolCalls: [] }), { status: 200 })
+      : new Response("[]", { status: 200 }))
+
+    render(<NativeAgentPanel agentId="task-1" />)
+    const box = await screen.findByRole("textbox", { name: "Message" })
+    fireEvent.change(box, { target: { value: "also update the docs" } })
+    fireEvent.keyDown(box, { key: "Enter" })
+    act(() => websocketHandler?.({
+      type: "chimera_event",
+      agent_id: "task-1",
+      content: JSON.stringify({ eventId: "said-1", type: "user_message", content: "also update the docs" }),
+    }))
+    fireEvent.change(box, { target: { value: "and the changelog" } })
+    fireEvent.keyDown(box, { key: "Enter" })
+    const sent = send.mock.calls.map(([message]) => message).filter((message) => message.type === "agent_message")
+
+    act(() => websocketHandler?.({ type: "error", agent_id: "task-1", request_id: sent[1].request_id, error: "send message failed: busy" }))
+
+    expect(screen.getByRole("status", { name: "Agent working" })).not.toBeNull()
+  })
+
+  it("keeps Working once a snapshot says a turn runs, though a later message was not sent", async () => {
+    let status = "idle"
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => String(input).includes("/snapshot")
+      ? new Response(JSON.stringify({ id: "session-1", status, messages: [], toolCalls: [] }), { status: 200 })
+      : new Response("[]", { status: 200 }))
+
+    render(<NativeAgentPanel agentId="task-1" />)
+    const box = await screen.findByRole("textbox", { name: "Message" })
+    fireEvent.change(box, { target: { value: "also update the docs" } })
+    fireEvent.keyDown(box, { key: "Enter" })
+    status = "running"
+    await act(async () => { websocketHandler?.({ type: "chimera_sync_required", agent_id: "task-1" }) })
+    await waitFor(() => expect(screen.getByRole("status", { name: "Agent working" })).not.toBeNull())
+    fireEvent.change(box, { target: { value: "and the changelog" } })
+    fireEvent.keyDown(box, { key: "Enter" })
+    const sent = send.mock.calls.map(([message]) => message).filter((message) => message.type === "agent_message")
+
+    act(() => websocketHandler?.({ type: "error", agent_id: "task-1", request_id: sent[1].request_id, error: "send message failed: busy" }))
+
+    expect(screen.getByRole("status", { name: "Agent working" })).not.toBeNull()
+  })
+
   it("lets a queued shell command be edited or taken out before it runs", async () => {
     vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => String(input).includes("/snapshot")
       ? new Response(JSON.stringify({ id: "session-1", status: "running", messages: [], toolCalls: [] }), { status: 200 })

@@ -509,3 +509,29 @@ it("puts the path of an image dropped on the message box in the message", async 
 
   await waitFor(() => expect(box.value).toBe("Image: /tmp/legato-1000/pasted-images/agent-1/pasted-1.png "))
 })
+
+// LEG-151: a message that did not go out stays in the box to send again.
+it("keeps the message in the box when it was not sent", async () => {
+  mockFetch.mockResolvedValue({ ok: true, json: async () => ({ macros: [] }) })
+  const onSubmitMessage = vi.fn(() => false)
+  render(<PromptBar
+    promptState={null}
+    onSendKeys={vi.fn()}
+    onSubmitMessage={onSubmitMessage}
+    onDismissPrompt={vi.fn()}
+    onDetectPrompt={vi.fn()}
+    onDisconnect={vi.fn()}
+    onKill={vi.fn()}
+    onRefresh={vi.fn()}
+    onTogglePromptDetection={vi.fn()}
+    promptDetectionEnabled
+    agentId="agent-1"
+  />)
+  const box = screen.getByPlaceholderText("Type a message...") as HTMLTextAreaElement
+  fireEvent.change(box, { target: { value: "also update the docs" } })
+
+  fireEvent.click(screen.getByRole("button", { name: "Send" }))
+
+  expect(onSubmitMessage).toHaveBeenCalledWith("also update the docs")
+  expect(box.value).toBe("also update the docs")
+})
