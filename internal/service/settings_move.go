@@ -202,7 +202,7 @@ func (m *SettingsMover) Move(ctx context.Context, req SettingsMove, by string) (
 		if err != nil {
 			return store.RestartRecord{}, err
 		}
-		rs := RestartSetting{Key: key}
+		rs := RestartSetting{Key: key, New: raw}
 		if had {
 			rs.Old = old
 		}
@@ -222,8 +222,11 @@ func (m *SettingsMover) Move(ctx context.Context, req SettingsMove, by string) (
 		}
 		raw, _ := json.Marshal(value)
 		// An entry the file shadowed is kept, so a rollback restores it.
-		olds = append(olds, RestartSetting{List: e.List, Key: e.Name, Old: stored[e.List][e.Name]})
-		if err := db.SetSettingEntry(ctx, e.List, e.Name, raw, by); err != nil {
+		// The database's entry of that name, whatever its case, is the one
+		// replaced: a second row would leave the older one in the list.
+		name := storedEntryName(stored[e.List], e.Name)
+		olds = append(olds, RestartSetting{List: e.List, Key: name, Old: stored[e.List][name], New: raw})
+		if err := db.SetSettingEntry(ctx, e.List, name, raw, by); err != nil {
 			return store.RestartRecord{}, err
 		}
 	}
@@ -241,6 +244,20 @@ func (m *SettingsMover) Move(ctx context.Context, req SettingsMove, by string) (
 	}
 	m.Settings.changed()
 	return rec, nil
+}
+
+// storedEntryName is the name the database keeps an entry under, matched
+// ignoring case as entry names are; name itself when it has none.
+func storedEntryName(entries map[string]json.RawMessage, name string) string {
+	if _, ok := entries[name]; ok {
+		return name
+	}
+	for n := range entries {
+		if strings.EqualFold(n, name) {
+			return n
+		}
+	}
+	return name
 }
 
 func containsEntry(list []EntryRef, e EntryRef) bool {

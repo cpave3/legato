@@ -75,6 +75,11 @@ export function ChangeSetCard({ approval }: { approval: Approval }) {
                     ))}
                   </pre>
                   {call.check && <p className="mt-1 text-lw-text-2">The edited config.yaml {call.check === "loads" ? "loads" : `does not load: ${call.check}`}.</p>}
+                  {call.keeps && call.keeps.length > 0 && (
+                    <ul className="mt-1 text-lw-text-2" data-testid="config-keeps">
+                      {call.keeps.map((line, n) => <li key={n} className="font-lw-mono text-[11px]">{line}</li>)}
+                    </ul>
+                  )}
                 </>
               )}
               {call.applies_at_restart && <p className="mt-1 text-lw-needs">Applies at restart.</p>}

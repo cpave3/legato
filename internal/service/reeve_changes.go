@@ -90,6 +90,10 @@ type ProposedCall struct {
 	// edited copy said ("loads", or the error).
 	Diff  string `json:"diff,omitempty"`
 	Check string `json:"check,omitempty"`
+	// Keeps says, for a config_edit that takes pinned settings out of
+	// config.yaml, the file's values it keeps in the database (and those it
+	// cannot), one line each.
+	Keeps []string `json:"keeps,omitempty"`
 }
 
 // ChangeSetDetails is what the approval of a set holds: everything Legato
@@ -237,6 +241,13 @@ func (c *ChangeSetService) Describe(ctx context.Context, reason string, calls []
 				return details, fmt.Errorf("call %d: the edited config.yaml does not load: %s", i+1, loadErr)
 			}
 			p.Diff, p.Check = diff, "loads"
+			if c.opts.Store != nil {
+				keep, err := ConfigEditKeeps(ctx, c.opts.Store, c.configPath(), call.Edits)
+				if err != nil {
+					return details, fmt.Errorf("call %d: %w", i+1, err)
+				}
+				p.Keeps = keep.Lines()
+			}
 			// config.yaml can change anything, and pins what it names.
 			level := LevelCall{Calls: []string{"config_edit"}, Floor: LevelApprove, FloorWhy: "an edit of config.yaml"}
 			if key := editsOwnRule(call.Edits); key != "" {
@@ -364,6 +375,20 @@ func (c *ChangeSetService) configPath() string {
 		return c.opts.ConfigPath()
 	}
 	return config.ResolveConfigPath()
+}
+
+// writeConfigEdit writes a set's config.yaml edit, keeping in the database
+// the values it takes out of the file (ConfigEditKeeps).
+func (c *ChangeSetService) writeConfigEdit(ctx context.Context, set store.ReeveChangeSet, edits []ConfigEdit) (string, ConfigEditKeep, error) {
+	if c.opts.Store == nil {
+		backup, err := WriteConfigEdit(c.configPath(), edits)
+		return backup, ConfigEditKeep{}, err
+	}
+	backup, keep, err := WriteConfigEditKeeping(ctx, c.opts.Store, c.configPath(), edits, "reeve change set "+set.ID)
+	if err == nil && len(keep.Keep) > 0 && c.opts.Settings != nil {
+		c.opts.Settings.changed()
+	}
+	return backup, keep, err
 }
 
 // optionalRestart reports whether a set's restart may be left out.
@@ -560,10 +585,10 @@ func (c *ChangeSetService) run(ctx context.Context, set store.ReeveChangeSet, no
 			}
 			c.auditAuto(ctx, set, decision, call, results[i])
 		case call.Kind == CallConfigEdit:
-			if backup, err := WriteConfigEdit(c.configPath(), call.Edits); err != nil {
+			if backup, keep, err := c.writeConfigEdit(ctx, set, call.Edits); err != nil {
 				results[i].State, results[i].Detail, failed = "failed", err.Error(), true
 			} else {
-				results[i].State, results[i].Detail = "ran", "config.yaml written; the old file is "+backup
+				results[i].State, results[i].Detail = "ran", keptReport(backup, keep)
 			}
 		case c.decidesApproval(ctx, strings.ToUpper(call.Method), call.Path) != "":
 			// Checked again as it runs: never decide an approval.
@@ -681,7 +706,7 @@ func ChangeSetReport(id, reason string, calls []ProposedCall, results []CallResu
 		// A failure says why. A host call's output is reported when it
 		// ran too: it is what the Reeve asked for. Other calls' output is
 		// not (a legato command's may hold a token).
-		if r.Detail != "" && (r.State == "failed" || (i < len(calls) && isHostCall(calls[i].Kind))) {
+		if r.Detail != "" && (r.State == "failed" || (i < len(calls) && (isHostCall(calls[i].Kind) || calls[i].Kind == CallConfigEdit))) {
 			fmt.Fprintf(&b, ": %s", r.Detail)
 		}
 		b.WriteString("\n")

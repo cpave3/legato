@@ -138,6 +138,9 @@ export interface ChangeSetCall {
   // A config.yaml edit's diff, and what loading the edited copy said.
   diff?: string
   check?: string
+  // A config edit that takes pinned settings out of config.yaml: the
+  // file's values it keeps in the database, one line each.
+  keeps?: string[]
   optional?: boolean
   // A legato command's arguments (kind legato).
   args?: string[]

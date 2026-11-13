@@ -489,7 +489,7 @@ type configEditInput struct {
 func (m *mcpTools) proposeConfigEdit() mcpserver.Tool {
 	return mcpserver.NewTool(mcpserver.Definition{
 		Name: "propose_config_edit", Title: "Propose an edit to config.yaml",
-		Description: "Proposes an edit to this instance's config.yaml (for a file-only setting, or one config.yaml pins): Legato checks the edited copy loads, shows the operator a diff, and writes it with its comments kept and a backup, then restarts. The operator may leave the restart out; the edit then waits for the next one.",
+		Description: "Proposes an edit to this instance's config.yaml (for a file-only setting, or one config.yaml pins): Legato checks the edited copy loads, shows the operator a diff, and writes it with its comments kept and a backup, then restarts. The operator may leave the restart out; the edit then waits for the next one. Removing a setting the file pins (or a whole list entry) moves it: the file's value is kept in the database, replacing any older value there, and the approval says so. To move many settings out of config.yaml, prefer POST /api/config/move. To change a value, set it; to go back to a default, remove it here and then reset it with DELETE /api/config/settings/{key}.",
 	}, func(ctx context.Context, in configEditInput) (mcpserver.Result, error) {
 		if err := m.mustBeReeve(ctx); err != nil {
 			return mcpserver.Result{}, err
