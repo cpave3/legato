@@ -171,3 +171,25 @@ func TestPlaceTaskRefusesATaskOffTheBoard(t *testing.T) {
 	}
 	assertOrder(t, columnOrder(t, s, "Done"), "B")
 }
+
+// An edit made from a copy of a task read before it was placed (a title
+// change, a sync push) writes the task back whole; it must not put the card
+// back where it was.
+func TestUpdateTaskFromAnOlderCopyKeepsTheCardsPlace(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	seedColumnOrder(t, s, "Doing", "A", "B", "C")
+	stale, err := s.GetTask(ctx, "C")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	if err := s.PlaceTask(ctx, "C", "A"); err != nil {
+		t.Fatal(err)
+	}
+	stale.Title = "C, renamed"
+	if err := s.UpdateTask(ctx, *stale); err != nil {
+		t.Fatal(err)
+	}
+	assertOrder(t, columnOrder(t, s, "Doing"), "C", "A", "B")
+}

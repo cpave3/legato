@@ -567,12 +567,15 @@ func (s *Store) UpdateTaskRemoteMeta(ctx context.Context, taskID string, remoteM
 	return err
 }
 
+// UpdateTask writes a task's fields back. It leaves sort_order alone: a card's place in its column is written only by
+// the moves (RecordTaskTransition) and PlaceTask, so an edit made from a copy
+// read before the card was placed does not put it back.
 func (s *Store) UpdateTask(ctx context.Context, t Task) error {
 	_, err := s.db.NamedExecContext(ctx, `
 		UPDATE tasks SET
 			title = :title, description = :description, description_md = :description_md,
 			remote_description_md = :remote_description_md,
-			status = :status, priority = :priority, sort_order = :sort_order,
+			status = :status, priority = :priority,
 			provider = :provider, remote_id = :remote_id, remote_meta = :remote_meta,
 			metadata = COALESCE(:metadata, tasks.metadata), workspace_id = :workspace_id, swarm_working_dir = :swarm_working_dir,
 			task_group = :task_group, updated_at = :updated_at
