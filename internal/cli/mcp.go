@@ -94,6 +94,7 @@ Also yours to use without being asked:
 - task_context: read the task you are working on, with its notes, when you need the brief or what earlier work left behind.
 - add_task_note: record a finding or a decision that should outlast this session.
 - list_peers, message_peer, broadcast_peers: see and coordinate with other agents working in the same Git worktree.
+- message_reeve (unless you are the Reeve yourself): ask or tell this Legato's Reeve (the agent that runs this instance) something, such as when the Reeve started you and asked you to report to it, or you need its answer before going on.
 - session_info: which session, task and working directory you are in.
 - request_access: when the task needs a credential Legato holds (an API key, a login), ask for exactly the scope you need, with your reason, before you need it. If the answer is pending, carry on with other work, or stop and end your turn when you are blocked; a [legato approvals] message tells you the decision. Never look for the secret another way.`
 
@@ -199,6 +200,10 @@ func (m *mcpTools) all() []mcpserver.Tool {
 	}
 	if m.reeveSession() {
 		tools = append(tools, m.reeveTools()...)
+	} else if !m.isReeve() {
+		// Every other agent can ask this instance's Reeve (LEG-143); the
+		// Reeve's own message_reeve reaches other instances' Reeves.
+		tools = append(tools, m.messageOwnReeve())
 	}
 	return tools
 }

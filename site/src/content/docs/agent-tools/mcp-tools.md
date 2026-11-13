@@ -38,6 +38,7 @@ Each agent tool runs Legato's tools without asking you first. Legato also tells 
 | `list_peers` | Lists the other agents in the same Git worktree. |
 | `message_peer` | Sends a message to one of those agents. |
 | `broadcast_peers` | Sends a message to all of them, and says which ones it reached. |
+| `message_reeve` | Sends a message to this Legato's [Reeve](/legato/using/reeve/): a report it asked for, or a question. Every agent but the Reeve has it. |
 | `request_access` | Asks you for a credential that Legato holds. See [Credential broker](/legato/security/credential-broker/). |
 | `reply_case` | Answers a case from Argus. See [Argus](/legato/integrations/argus/). |
 
