@@ -4,6 +4,7 @@ import type { AgentInfo } from "../hooks/useWebSocket"
 import type { AgentContext } from "../hooks/useAgentContexts"
 import { useAgentGlance } from "../hooks/useAgentGlance"
 import {
+  backgroundSummary,
   ensembleSection,
   glanceItems,
   orderForEnsemble,
@@ -46,8 +47,10 @@ function stateOf(agent: AgentInfo): { label: string; glyph: string; chip: string
       return { label: "error", glyph: "✕", chip: "bg-lw-error-soft text-lw-error", frame: "border-[#4a2a2e]", ground: "bg-lw-surface" }
     case "working":
       return { label: "running", glyph: "●", chip: "bg-lw-live-soft text-lw-live", frame: "border-[#2d3a33]", ground: "bg-lw-surface" }
-    case "background":
-      return { label: "background", glyph: "◌", chip: "bg-lw-done-soft text-lw-done", frame: "border-lw-line", ground: "bg-lw-surface" }
+    case "background": {
+      const waitsOn = backgroundSummary(agent.background_jobs)
+      return { label: waitsOn ? `background · ${waitsOn}` : "background", glyph: "◌", chip: "bg-lw-done-soft text-lw-done", frame: "border-lw-line", ground: "bg-lw-surface" }
+    }
     default:
       return { label: "idle", glyph: "○", chip: "bg-lw-idle-soft text-lw-text-2", frame: "border-lw-line", ground: "bg-[#141417]" }
   }

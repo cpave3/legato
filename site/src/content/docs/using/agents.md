@@ -69,8 +69,8 @@ Press `A` on the board to open the agents view. Agents are listed under what the
 
 - **Needs you**: waiting for you, or stopped on an error.
 - **Running**: working.
-- **Background**: the turn ended, but a shell or a subagent it started still runs.
-- **Idle**: alive and not working.
+- **Background**: the turn ended, but something it started still runs and will wake it: a shell, a Monitor, a subagent or a scheduled prompt. The line over the terminal says what: `background · 2 jobs`, or the one job by name.
+- **Idle**: alive, and nothing will wake it but a message.
 - **Ended**: the session is over.
 
 Inside one state, a swarm's agents stay together with the conductor first, then grouped agents, then the rest. Each entry shows the agent's ID and the time in its state, its tool and task, and a bar of its recent activity.

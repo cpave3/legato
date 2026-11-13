@@ -224,7 +224,7 @@ Checked against Claude Code 2.1.296 with a probe mod in a live session; none of 
 - `updatedPermissions` given the request's own `permission_suggestions` behaves as the terminal's "don't ask again" choice: a second matching call is not prompted. The suggestions carry their own destinations, so they may be written to settings files.
 - A `deny` message is shown to the model as the tool's error. A model given only the feedback text treated it as coming from the tool and disregarded it, which is why the bridge words denials as the person's.
 - `turn.step` yields `thinking` chunks beside `text` ones, each with the index of its content block; a response's thinking block is index 0 and its reply the next. The stored thinking block has `thinking` and `signature`; the three current models left `thinking` empty.
-- The `Stop` hook's payload lists in-flight work under `background_tasks` (`type: "shell"`, `status`, `command`). When that work finishes the session is woken by a prompt that fires `UserPromptSubmit`. The shell hooks use this for the `background` activity; see [CLI](cli.md).
+- The `Stop` hook's payload lists in-flight work under `background_tasks` (`type` `shell` or `subagent`, `status`, `description`, `command` or `agent_type`) and `session_crons`. When that work finishes the session is woken by a prompt that is a `<task-notification>` naming it, which fires `UserPromptSubmit`. The `legato-state` plugin uses this for the `background` state and its jobs; an interrupted turn fires no hook, so the bridge reports it (`Options.OnTurnEnded`). Recorded against Claude Code 2.1.322; see [Agent states](agent-states.md).
 
 ## Trying it without touching real state
 
@@ -311,7 +311,7 @@ The `X-Session-Id` header is the Legato task ID, so a task's requests stay group
 
 - Thinking is shown as far as the model lets it be read, which for current Claude models is seldom (see Thinking above). A resumed session's earlier thinking is not shown: the transcript read back at start carries text and tool calls only.
 - The mod API is early access. A hook that fails is skipped by the engine, so a breaking change degrades the session to tmux-only behaviour rather than stopping it.
-- The shell hooks from `legato hooks install --tool claude-code` still own activity (working, waiting, background, idle). The mod does not report it, so a session without those hooks shows no activity however well the native panel works.
+- Activity (working, waiting, background, idle, error) comes from the `legato-state` plugin's hooks, loaded with or without the mod. The mod's bridge adds one thing: a main turn that ended without an answer (an interrupt, which fires no hook), reported as `TurnEnded` (`Options.OnTurnEnded`, after `TurnEndedDelay` and only when no new turn has begun). See [Agent states](agent-states.md).
 - MCP elicitation dialogs, the workspace trust prompt and Claude Code's own pickers (`/resume`, `/model`) do not reach the mod as requests. The panel shows the ones drawn as a numbered menu with a cursor through its terminal-prompt card (see [web UI](web-ui.md) § Terminal prompts in the native panel), which presses the keys for the chosen option; anything else (a form, free text) is answered at the terminal.
 - A question's free-form "Chat about this" has no card equivalent: dismiss the card and reply in the composer.
 - A resumed session hydrates the panel from a transcript read back, which carries no provenance, so engine-injected user rows are filtered by their opening tag.

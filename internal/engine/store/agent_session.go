@@ -366,3 +366,14 @@ func (s *Store) EndInterruptedAgentSession(ctx context.Context, taskID, slot str
 	}
 	return err
 }
+
+// SetAgentHookState sets one running session's activity and background jobs
+// together, and marks where its state comes from (HookSourcePlugin, or ""
+// to leave the mark as it is).
+func (s *Store) SetAgentHookState(ctx context.Context, id int, activity string, jobs BackgroundJobs, source string) error {
+	_, err := s.db.ExecContext(ctx, `
+		UPDATE agent_sessions SET activity = ?, background_jobs = ?,
+			hook_source = CASE WHEN ? = '' THEN hook_source ELSE ? END
+		WHERE id = ? AND status = 'running'`, activity, jobs, source, source, id)
+	return err
+}

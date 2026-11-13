@@ -42,6 +42,7 @@ func refuse(code, message string) error { return &broker.Error{Code: code, Messa
 func NewBrokerHandler(db *store.Store, deps BrokerDeps) broker.Handler {
 	ops := map[string]BrokerOp{
 		"agent.state":           brokerAgentState(db, deps),
+		"agent.hook":            brokerAgentHook(db, deps),
 		"agent.session_created": brokerSessionCreated(db),
 	}
 	for name, op := range bridgeOps(db, deps) {
@@ -100,6 +101,24 @@ func brokerAgentState(db *store.Store, deps BrokerDeps) BrokerOp {
 		}
 		if err := AgentState(db, AgentStateReport{TaskID: caller.TaskID, ExecutionID: caller.ExecutionID, Activity: args.Activity,
 			WorkingDir: args.WorkingDir, SessionID: args.SessionID, Event: args.Event}, deps.Push, deps.OS); err != nil {
+			return nil, refuse("rejected", err.Error())
+		}
+		return map[string]bool{"ok": true}, nil
+	}
+}
+
+// brokerAgentHook is `legato agent hook claude-code`: one Claude Code hook,
+// read on the agent's side by ParseClaudeHook.
+func brokerAgentHook(db *store.Store, deps BrokerDeps) BrokerOp {
+	return func(_ context.Context, caller BrokerCaller, raw json.RawMessage) (any, error) {
+		var args struct {
+			Hook       ClaudeHook `json:"hook"`
+			WorkingDir string     `json:"working_dir"`
+		}
+		if err := json.Unmarshal(raw, &args); err != nil || args.Hook.Event == "" {
+			return nil, refuse("bad_request", "a hook with its event is required")
+		}
+		if err := ApplyClaudeHook(db, ClaudeHookReport{TaskID: caller.TaskID, ExecutionID: caller.ExecutionID, WorkingDir: args.WorkingDir, Hook: args.Hook}, deps.Push, deps.OS); err != nil {
 			return nil, refuse("rejected", err.Error())
 		}
 		return map[string]bool{"ok": true}, nil

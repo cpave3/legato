@@ -2,12 +2,14 @@ package cli_test
 
 import (
 	"context"
+	"net/http"
 	"os"
 	"path/filepath"
 	"testing"
 
 	"github.com/cpave3/legato/internal/cli"
 	"github.com/cpave3/legato/internal/engine/broker"
+	"github.com/cpave3/legato/internal/engine/store"
 	"github.com/cpave3/legato/internal/service"
 )
 
@@ -37,6 +39,18 @@ func TestTheClaudeBridgeBindsThroughTheBroker(t *testing.T) {
 	if bound.ChimeraEndpoint == nil || *bound.ChimeraEndpoint != endpoint {
 		t.Fatalf("endpoint = %v, want %s", bound.ChimeraEndpoint, endpoint)
 	}
+
+	// An interrupted turn, which no hook reports, reaches the host too.
+	if err := s.UpdateAgentActivityForSession(context.Background(), session.ID, store.ActivityWorking); err != nil {
+		t.Fatal(err)
+	}
+	if code, body := postClaudeIdentity(t, endpoint, `[{"type":"hello","sessionId":"claude-1","cwd":"/repo"},{"type":"turn_start","turnId":"t1"},{"type":"turn_complete","turnId":"t1","reason":"aborted"}]`); code != http.StatusNoContent {
+		t.Fatalf("events = %d %s", code, body)
+	}
+	waitFor(t, "the interrupt reported through the broker", func() bool {
+		after, err := s.GetAgentSessionByTaskID(context.Background(), "task1")
+		return err == nil && after.Activity == "" && after.HookSource == ""
+	})
 	if err := stop(); err != nil {
 		t.Fatal(err)
 	}

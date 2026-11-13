@@ -87,13 +87,13 @@ Legato keeps its settings in `~/.config/legato/config.yaml` and its data in `~/.
 
 ## 3. Let your agent tools report to Legato
 
-Legato shows on each card what its agent is doing: running, waiting for you, or idle. The agent tools report this through hooks. Install them once.
+Legato shows on each card what its agent is doing: running, waiting for you, or idle. The agent tools report this through hooks. Claude Code needs nothing from you: Legato loads its own plugin into every Claude Code session it starts. Install the hooks of the others once.
 
-Claude Code and Codex read hooks from the project, so run this in each repository where agents work:
+Codex reads hooks from the project, so run this in each repository where agents work:
 
 ```bash
 cd ~/code/my-project
-legato hooks install --tool claude-code,codex
+legato hooks install --tool codex
 ```
 
 Chimera reads hooks from your home folder, so run this once:

@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/signal"
 	"path/filepath"
+	"slices"
 	"strings"
 	"syscall"
 	"time"
@@ -77,6 +78,10 @@ func runHooksContract(args []string) int {
 		}
 	}
 	text := fmt.Sprintf("%sed %s hooks in %s", map[bool]string{true: "Install", false: "Uninstall"}[args[0] == "install"], strings.Join(tools, ", "), wd)
+	if args[0] == "install" && slices.Contains(tools, "claude-code") {
+		// ClaudeCodeAdapter.InstallHooks removes the old state hooks.
+		text += "\nClaude Code's state is reported by the plugin Legato loads into each session it launches; any state hooks an earlier install left here were removed."
+	}
 	data := map[string]any{"tools": tools, "directory": wd}
 	if len(tools) == 1 {
 		data["tool"] = tools[0]

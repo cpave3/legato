@@ -40,9 +40,22 @@ type Options struct {
 	// OnIdentity records the provider conversation, independently of TaskID.
 	// It is called in event order when a nonempty identity or its cwd changes.
 	OnIdentity func(sessionID, cwd string) error
+	// OnTurnEnded is told when a main turn ends without an answer (an
+	// interrupt, an error), with the reason: Claude Code fires no hook for
+	// an interrupted turn. It is called TurnEndedDelay after the turn ended,
+	// off the request, and not at all when another turn has started by then:
+	// that turn's own prompt reaches Legato on another path, and the end of
+	// the one before must not undo it.
+	OnTurnEnded func(reason string)
+	// TurnEndedDelay is that wait; zero means DefaultTurnEndedDelay.
+	TurnEndedDelay time.Duration
 	// Now overrides the clock in tests.
 	Now func() time.Time
 }
+
+// DefaultTurnEndedDelay is how long the bridge waits after a turn ended
+// without an answer before it says so, to see whether another has begun.
+const DefaultTurnEndedDelay = 1500 * time.Millisecond
 
 // Bridge holds one Claude Code session's conversation state and serves it.
 type Bridge struct {
@@ -61,10 +74,12 @@ type Bridge struct {
 
 	// eventMu orders whole mod batches and identity saves with Close. Panel
 	// reads use only mu, which is never held during an identity callback.
-	eventMu     sync.Mutex
-	onIdentity  func(string, string) error
-	identityID  string
-	identityCWD string
+	eventMu        sync.Mutex
+	onIdentity     func(string, string) error
+	onTurnEnded    func(string)
+	turnEndedDelay time.Duration
+	identityID     string
+	identityCWD    string
 	// appliedSeq is the number of the newest mod event applied, so a batch
 	// sent again is not applied twice. Held under mu.
 	appliedSeq int64
@@ -118,14 +133,21 @@ func New(opts Options) *Bridge {
 		commands:     commands,
 		onDisconnect: opts.OnDisconnect,
 		onIdentity:   opts.OnIdentity,
-		closed:       make(chan struct{}),
-		session:      newSession(),
-		subscribers:  map[chan envelope]struct{}{},
-		waiters:      map[string]chan permissionAnswer{},
-		detached:     map[string]*time.Timer{},
-		parked:       map[string]permissionAnswer{},
-		grace:        permissionGrace,
-		holdFor:      permissionHold,
+		onTurnEnded:  opts.OnTurnEnded,
+		turnEndedDelay: func() time.Duration {
+			if opts.TurnEndedDelay > 0 {
+				return opts.TurnEndedDelay
+			}
+			return DefaultTurnEndedDelay
+		}(),
+		closed:      make(chan struct{}),
+		session:     newSession(),
+		subscribers: map[chan envelope]struct{}{},
+		waiters:     map[string]chan permissionAnswer{},
+		detached:    map[string]*time.Timer{},
+		parked:      map[string]permissionAnswer{},
+		grace:       permissionGrace,
+		holdFor:     permissionHold,
 	}
 }
 
@@ -171,6 +193,7 @@ func (b *Bridge) handleModEvents(w http.ResponseWriter, r *http.Request) {
 	}
 	ended := false
 	var identityErr error
+	var turnsEnded []string
 	b.eventMu.Lock()
 	b.mu.Lock()
 	select {
@@ -190,6 +213,11 @@ func (b *Bridge) handleModEvents(w http.ResponseWriter, r *http.Request) {
 			continue
 		}
 		b.publish(b.session.apply(event, b.now()))
+		if event.Type == "turn_complete" && event.AgentID == "" {
+			if reason := runFinishReason(event.Reason); reason != "stop" {
+				turnsEnded = append(turnsEnded, reason)
+			}
+		}
 		if (event.Type == "hello" || event.Type == "reset" || event.Type == "identity") && event.SessionID != "" && b.onIdentity != nil {
 			cwd := b.session.cwd
 			if event.SessionID != b.identityID || cwd != b.identityCWD {
@@ -212,6 +240,11 @@ func (b *Bridge) handleModEvents(w http.ResponseWriter, r *http.Request) {
 	b.releaseSettledWaiters()
 	b.mu.Unlock()
 	b.eventMu.Unlock()
+	if b.onTurnEnded != nil {
+		for _, reason := range turnsEnded {
+			go b.reportTurnEnded(reason)
+		}
+	}
 	if identityErr != nil {
 		http.Error(w, identityErr.Error(), http.StatusInternalServerError)
 		return
@@ -250,4 +283,20 @@ func randomHex(bytes int) string {
 		return "0"
 	}
 	return hex.EncodeToString(buf)
+}
+
+// reportTurnEnded tells OnTurnEnded that a turn ended without an answer,
+// once TurnEndedDelay has passed with no other turn begun.
+func (b *Bridge) reportTurnEnded(reason string) {
+	select {
+	case <-time.After(b.turnEndedDelay):
+	case <-b.closed:
+		return
+	}
+	b.mu.Lock()
+	busy := b.session.busy
+	b.mu.Unlock()
+	if !busy {
+		b.onTurnEnded(reason)
+	}
 }

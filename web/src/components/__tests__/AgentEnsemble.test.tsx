@@ -58,6 +58,14 @@ describe("AgentEnsemble", () => {
   })
   afterEach(cleanup)
 
+  it("says what an agent in the background waits on", () => {
+    show([
+      agent({ task_id: "LEG-1", activity: "background", background_jobs: [{ kind: "bash", id: "b1", label: "npm run build", started_at: "2026-11-12T03:00:00Z" }] }),
+    ])
+
+    expect(within(tile("LEG-1")).getByText(/background · bash: npm run build/)).toBeTruthy()
+  })
+
   it("shows every agent as a tile, the ones that need the person first", () => {
     show([
       agent({ task_id: "idle-1" }),

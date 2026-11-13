@@ -150,3 +150,45 @@ func TestASandboxedProcessNeverOpensTheStore(t *testing.T) {
 		t.Fatalf("the database was opened: %v", err)
 	}
 }
+
+// The legato-state plugin runs `legato agent hook claude-code` with each
+// payload as Claude Code gave it; through the broker, as from a sandbox, and
+// straight to the store outside one.
+func TestAgentHookReportsClaudeCodePayloadsThroughTheBrokerAndTheStore(t *testing.T) {
+	payloads := []string{
+		`{"hook_event_name":"UserPromptSubmit","prompt":"build it"}`,
+		`{"hook_event_name":"PostToolUse","tool_name":"Bash","tool_input":{"command":"npm run build","description":"Build","run_in_background":true},"tool_response":{"backgroundTaskId":"b1"}}`,
+		`{"hook_event_name":"Stop","background_tasks":[{"id":"b1","type":"shell","status":"running","description":"Build","command":"npm run build"}],"session_crons":[]}`,
+	}
+	for _, viaBroker := range []bool{true, false} {
+		db, dbPath, socket, token := brokerFixture(t)
+		if viaBroker {
+			bad := filepath.Join(t.TempDir(), "config.yaml")
+			_ = os.WriteFile(bad, []byte("db: [not a map\n"), 0o600)
+			t.Setenv("LEGATO_CONFIG", bad)
+			t.Setenv("LEGATO_BROKER_SOCKET", socket)
+		} else {
+			cfg := filepath.Join(t.TempDir(), "config.yaml")
+			_ = os.WriteFile(cfg, []byte("db:\n  path: "+dbPath+"\n"), 0o600)
+			t.Setenv("LEGATO_CONFIG", cfg)
+			t.Setenv("LEGATO_BROKER_SOCKET", filepath.Join(shortDir(t), "none.sock"))
+		}
+		t.Setenv("LEGATO_BROKER_TOKEN", token)
+		for _, payload := range payloads {
+			stdin(t, payload)
+			if code := runCLI([]string{"agent", "hook", "claude-code", "task1", "--execution-id", "ex-1", "--working-dir", "/repo"}); code != 0 {
+				t.Fatalf("broker=%v: exit %d for %s", viaBroker, code, payload)
+			}
+		}
+		session, err := db.GetAgentSessionByTaskID(context.Background(), "task1")
+		if err != nil {
+			t.Fatal(err)
+		}
+		if session.Activity != store.ActivityBackground || len(session.BackgroundJobs) != 1 || session.BackgroundJobs[0].Kind != store.JobBash || session.BackgroundJobs[0].Label != "Build" {
+			t.Fatalf("broker=%v: %q %+v, want background with the build", viaBroker, session.Activity, session.BackgroundJobs)
+		}
+	}
+	if code := runCLI([]string{"agent", "hook", "codex", "task1"}); code == 0 {
+		t.Fatal("agent hook took a tool it does not know")
+	}
+}

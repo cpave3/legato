@@ -7,43 +7,33 @@ sidebar:
 
 Legato starts Claude Code in a tmux session for a task, shows on the card whether it is working or needs you, and connects the session to Legato directly. With that connection you read and drive the conversation in the web UI's native panel, and you answer Claude Code's permission prompts and questions from Legato, your phone or the terminal.
 
-Three parts make this work:
+Three parts make this work. Legato installs all of them by itself and loads them into every Claude Code session it starts:
 
-- **Activity hooks** that you install once. They set the state on the card.
-- **The Legato mod**, which Legato loads into every Claude Code session it starts. It gives the native panel and lets Legato send messages and answer prompts.
+- **The `legato-state` plugin**, which tells Legato what the session is doing. It sets the state on the card.
+- **The Legato mod**, which gives the native panel and lets Legato send messages and answer prompts.
 - **The `legato-tools` plugin**, which gives the agent [Legato's tools](/legato/agent-tools/mcp-tools/) while `agents.mcp.enabled` is on, as it is by default. It also lets the agent read images you paste for it without asking you.
 
-Legato installs the mod and the plugin by itself. Only the hooks need a command from you.
+## What the card shows
 
-## Install the activity hooks
-
-The hooks tell Legato when Claude Code starts work, waits for you, and stops. Without them a card shows no activity, even when the native panel works.
-
-1. Go to the folder whose `.claude/` folder should hold the hooks. A project folder gives the hooks to that project. Your home folder gives them to every project, because Claude Code reads `~/.claude/settings.json` everywhere.
-2. Run:
-
-   ```bash
-   legato hooks install --tool claude-code
-   ```
-
-The command writes five scripts to `.claude/hooks/legato-*.sh` and adds them to `.claude/settings.json`. It fails when the folder has no `.claude/` folder.
-
-Legato adds its scripts to the `UserPromptSubmit`, `PostToolUse`, `Stop`, `PermissionRequest` and `SessionEnd` events. Your own hooks, on those events or others, and the rest of `settings.json` stay as they are. Running the command again replaces Legato's entries and does not add a second copy. `legato hooks uninstall --tool claude-code` removes only Legato's entries and scripts.
-
-The scripts do nothing outside a session that Legato started. Inside one, they report to every running Legato.
-
-### What the card shows
+The `legato-state` plugin hooks Claude Code's `SessionStart`, `UserPromptSubmit`, `PostToolUse`, `PermissionRequest`, `Stop`, `StopFailure`, `PreCompact`, `PostCompact` and `SessionEnd` events and passes each to `legato agent hook claude-code`. Legato writes the plugin again each time it starts, so it always matches the Legato that reads it. It does nothing in a `claude` that Legato did not start.
 
 | Card | Meaning | Set by |
 | --- | --- | --- |
-| `⠹ running` (green) | Claude is working. | `UserPromptSubmit`, `PostToolUse` |
-| `◆ needs you` (amber) | Claude waits for your approval. | `PermissionRequest` |
-| `◐ background` (cyan) | The turn ended, but a shell or subagent it started still runs. The session wakes by itself when that finishes. | `Stop` |
-| `○ idle` (dim) | The session is alive and not working. | `Stop`, `SessionEnd` |
+| `⠹ running` (green) | Claude is working. | `UserPromptSubmit`, `PostToolUse`, a manual `/compact` |
+| `◆ needs you` (amber) | Claude waits for you: a permission or a question. | `PermissionRequest` |
+| `◐ background` (cyan) | The turn ended, but something it started still runs and will wake it: a background shell, a Monitor, a subagent, or a scheduled prompt (a session cron). | `Stop` |
+| `○ idle` (dim) | The session is alive, and nothing will wake it but a message. | `Stop`, `SessionEnd` |
+| `error` (red) | The turn stopped on an error, such as an API error or a rate limit. | `StopFailure` |
 
 A card shows `ready for review` in place of `idle` when the agent marked its [review](/legato/using/reviews/) ready.
 
-If you installed the hooks before the `background` state existed, run `legato hooks install --tool claude-code` again. Until you do, the card goes to idle at every stop.
+When the agent is in the background, Legato lists what still runs: the agents list and the web UI's ensemble say `background · 2 jobs` or `background · subagent: Explore: find the callers`, and `GET /api/agents` has it under `background_jobs`. When a job ends and wakes the agent, the card goes back to `running`.
+
+Claude Code tells no hook when you press Escape in the terminal or answer **No** to a permission prompt there. With the Legato mod loaded (`adapters.claude-code.native_bridge`, on by default), Legato sees the turn end and sets the card to `idle`. Without the mod, the card stays on `running` or `needs you` until the agent's next turn.
+
+### Hooks you installed before
+
+Earlier versions of Legato asked you to run `legato hooks install --tool claude-code`. Those scripts can be older than your Legato and report the wrong state, so Legato ignores them in a session the plugin reports for. To remove them, run the same command again, or `legato hooks uninstall --tool claude-code`, in the folder where you installed them (often your home folder). Both now remove Legato's scripts and leave your own hooks and settings as they are.
 
 ## How Legato starts Claude Code
 
@@ -144,7 +134,7 @@ With a `manticore:` block in the configuration, Legato loads a second mod, `lega
 ## Limits
 
 - The mod uses an early-access interface of Claude Code, which changes between releases. Legato was checked against Claude Code 2.1.296. If a hook of the mod fails, Claude Code skips it, and the session works through its terminal.
-- The mod does not report activity. A session without the activity hooks shows no state on its card.
+- Without the mod, Escape in the terminal and **No** to a permission prompt leave the card on `running` or `needs you` until the next turn: Claude Code tells no hook about them.
 - A session that you send to the background with `/background` keeps its task. A `/fork` serves no task.
 - Legato's tools in a backgrounded session can act for another task, or offer nothing.
 - The panel shows thinking only when the model gives text for it, which current Claude models seldom do.

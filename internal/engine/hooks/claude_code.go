@@ -2,7 +2,6 @@ package hooks
 
 import (
 	"encoding/json"
-	"fmt"
 	"log"
 	"os"
 	"path/filepath"
@@ -10,10 +9,8 @@ import (
 	"strings"
 )
 
-// legatoHookEvents lists the Claude Code hook events managed by Legato.
-var legatoHookEvents = []string{"UserPromptSubmit", "PostToolUse", "Stop", "PermissionRequest", "SessionEnd"}
-
-// legatoScriptNames maps hook events to their script filenames.
+// legatoScriptNames are the hook scripts earlier versions of `legato hooks
+// install --tool claude-code` wrote, which install and uninstall now remove.
 var legatoScriptNames = []string{
 	"legato-prompt-submit.sh",
 	"legato-post-tool-use.sh",
@@ -32,6 +29,7 @@ type ClaudeCodeAdapter struct {
 	tiers         map[string][]string // tier name → extra launch args (typically `--model <id>`)
 	modDir        string              // installed Legato mod (see InstallClaudeMod); "" leaves sessions tmux-only
 	toolsModDir   string              // installed tools plugin (see InstallClaudeToolsMod); "" gives sessions no Legato tools
+	stateModDir   string              // installed state plugin (see InstallClaudeStateMod); "" leaves the state to installed hooks
 	// usage names the usage mod and the Manticore instance it reports to;
 	// zero when no instance is configured.
 	usage claudeUsageReporting
@@ -75,6 +73,12 @@ func (a *ClaudeCodeAdapter) SetModDir(pluginDir string) {
 // through `legato mcp serve`. It works with or without the bridge mod.
 func (a *ClaudeCodeAdapter) SetToolsModDir(pluginDir string) {
 	a.toolsModDir = pluginDir
+}
+
+// SetStateModDir names the installed state plugin's directory. Sessions the
+// adapter launches then load it, and it reports their state to Legato.
+func (a *ClaudeCodeAdapter) SetStateModDir(pluginDir string) {
+	a.stateModDir = pluginDir
 }
 
 // claudeUsageReporting is what a session needs to report its usage: the
@@ -187,40 +191,24 @@ func (a *ClaudeCodeAdapter) EnvVars(taskID, socketPath string) map[string]string
 		// The plugin starts `legato mcp serve` by this path.
 		vars["LEGATO_BIN"] = a.legatoBin
 	}
-	if a.modDir != "" || a.usage.modDir != "" || a.toolsModDir != "" {
+	if a.stateModDir != "" {
+		dirs = append(dirs, a.stateModDir)
+		// The plugin's hooks run `legato agent hook` by this path.
+		vars["LEGATO_BIN"] = a.legatoBin
+	}
+	if a.modDir != "" || a.usage.modDir != "" || a.toolsModDir != "" || a.stateModDir != "" {
 		vars["CLAUDE_CODE_PLUGIN_DIRS"] = strings.Join(dirs, string(os.PathListSeparator))
 	}
 	return vars
 }
 
+// InstallHooks takes out the state hooks an earlier `legato hooks install
+// --tool claude-code` wrote, and writes none. Claude Code's state is now
+// reported by the plugin Legato loads into each session it launches (see
+// InstallClaudeStateMod); a script installed by hand only falls behind the
+// binary and reports beside it.
 func (a *ClaudeCodeAdapter) InstallHooks(projectDir string) error {
-	claudeDir := filepath.Join(projectDir, ".claude")
-	if _, err := os.Stat(claudeDir); os.IsNotExist(err) {
-		return fmt.Errorf("Claude Code is not configured for this project (no .claude/ directory)")
-	}
-
-	hooksDir := filepath.Join(claudeDir, "hooks")
-	if err := os.MkdirAll(hooksDir, 0o755); err != nil {
-		return fmt.Errorf("creating hooks directory: %w", err)
-	}
-
-	// Write hook scripts.
-	scripts := map[string]string{
-		"legato-prompt-submit.sh":      agentStateScript(a.legatoBin, "working"),
-		"legato-post-tool-use.sh":      agentStateScript(a.legatoBin, "working"),
-		"legato-stop.sh":               claudeStopScript(a.legatoBin),
-		"legato-permission-request.sh": agentStateScript(a.legatoBin, "waiting"),
-		"legato-session-end.sh":        agentStateScript(a.legatoBin, ""),
-	}
-	for name, content := range scripts {
-		path := filepath.Join(hooksDir, name)
-		if err := os.WriteFile(path, []byte(content), 0o755); err != nil {
-			return fmt.Errorf("writing %s: %w", name, err)
-		}
-	}
-
-	// Merge into settings.json.
-	return a.mergeSettings(claudeDir)
+	return a.UninstallHooks(projectDir)
 }
 
 func (a *ClaudeCodeAdapter) UninstallHooks(projectDir string) error {
@@ -234,40 +222,6 @@ func (a *ClaudeCodeAdapter) UninstallHooks(projectDir string) error {
 
 	// Remove Legato entries from settings.json.
 	return a.removeSettings(claudeDir)
-}
-
-// mergeSettings adds Legato's hooks to settings.json. It changes only
-// Legato's own entries: other settings, and a person's own hooks on the same
-// events, stay as they are. A Legato hook already there (at this path or
-// another, from before the project moved) is replaced, never doubled.
-func (a *ClaudeCodeAdapter) mergeSettings(claudeDir string) error {
-	settingsPath := filepath.Join(claudeDir, "settings.json")
-
-	settings := make(map[string]interface{})
-	if data, err := os.ReadFile(settingsPath); err == nil {
-		if err := json.Unmarshal(data, &settings); err != nil {
-			return fmt.Errorf("parsing existing settings.json: %w", err)
-		}
-	}
-
-	hooksMap, _ := settings["hooks"].(map[string]interface{})
-	if hooksMap == nil {
-		hooksMap = make(map[string]interface{})
-	}
-	withoutLegatoHooks(hooksMap)
-
-	hooksDir := filepath.Join(claudeDir, "hooks")
-	for i, event := range legatoHookEvents {
-		groups, _ := hooksMap[event].([]interface{})
-		hooksMap[event] = append(groups, hookEntry(filepath.Join(hooksDir, legatoScriptNames[i]))...)
-	}
-	settings["hooks"] = hooksMap
-
-	data, err := json.MarshalIndent(settings, "", "  ")
-	if err != nil {
-		return fmt.Errorf("marshalling settings: %w", err)
-	}
-	return os.WriteFile(settingsPath, data, 0o644)
 }
 
 // removeSettings takes Legato's hooks out of settings.json and leaves
@@ -351,53 +305,6 @@ func isLegatoHook(entry interface{}) bool {
 	}
 	command, _ := hook["command"].(string)
 	return slices.Contains(legatoScriptNames, filepath.Base(command))
-}
-
-func hookEntry(scriptPath string) []interface{} {
-	return []interface{}{
-		map[string]interface{}{
-			"hooks": []interface{}{
-				map[string]interface{}{
-					"type":    "command",
-					"command": scriptPath,
-				},
-			},
-		},
-	}
-}
-
-// claudeStopScript reports the end of a turn. The Stop payload says whether
-// work the turn started (a shell, a subagent) is still running and will wake
-// the session, so the script hands it on instead of clearing the activity
-// itself.
-func claudeStopScript(legatoBin string) string {
-	var b strings.Builder
-	b.WriteString("#!/bin/sh\n")
-	b.WriteString("# Generated by legato — do not edit manually.\n")
-	b.WriteString("# Called by Claude Code's Stop hook to update agent activity state.\n\n")
-	b.WriteString("# Consume the hook payload before the script can exit.\n")
-	b.WriteString("payload=$(cat)\n\n")
-	b.WriteString("# Only act inside Legato-spawned tmux sessions.\n")
-	b.WriteString("[ -z \"$LEGATO_TASK_ID\" ] && exit 0\n")
-	b.WriteString("[ -z \"$LEGATO_EXECUTION_ID\" ] && exit 1\n\n")
-	b.WriteString(fmt.Sprintf("printf '%%s' \"$payload\" | %s agent stopped \"$LEGATO_TASK_ID\" --execution-id \"$LEGATO_EXECUTION_ID\" --working-dir \"$PWD\"\n", legatoBin))
-	b.WriteString("exit 0\n")
-	return b.String()
-}
-
-func agentStateScript(legatoBin, activity string) string {
-	var b strings.Builder
-	b.WriteString("#!/bin/sh\n")
-	b.WriteString("# Generated by legato — do not edit manually.\n")
-	b.WriteString("# Called by an AI tool's hook system to update agent activity state.\n\n")
-	b.WriteString("# Consume the hook payload before the script can exit.\n")
-	b.WriteString("cat >/dev/null\n\n")
-	b.WriteString("# Only act inside Legato-spawned tmux sessions.\n")
-	b.WriteString("[ -z \"$LEGATO_TASK_ID\" ] && exit 0\n")
-	b.WriteString("[ -z \"$LEGATO_EXECUTION_ID\" ] && exit 1\n\n")
-	b.WriteString(fmt.Sprintf("%s agent state \"$LEGATO_TASK_ID\" --execution-id \"$LEGATO_EXECUTION_ID\" --activity \"%s\" --working-dir \"$PWD\"\n", legatoBin, activity))
-	b.WriteString("exit 0\n")
-	return b.String()
 }
 
 // SetReviews says whether agents are told to capture Legato's review tours

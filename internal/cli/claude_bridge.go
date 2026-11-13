@@ -7,6 +7,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net"
 	"net/http"
 	"os"
@@ -115,6 +116,14 @@ func RunClaudeBridge(ctx context.Context, s *store.Store, opts ClaudeBridgeOptio
 		Commands: trace.commands(opts.Stdout),
 		// The mod stopped reading: its Claude session is gone.
 		OnDisconnect: cancel,
+		// No hook fires for an interrupted turn: the state moves on here.
+		OnTurnEnded: func(reason string) {
+			reportCtx, stop := context.WithTimeout(context.WithoutCancel(runCtx), 10*time.Second)
+			defer stop()
+			if err := host.TurnEnded(reportCtx, reason); err != nil {
+				log.Printf("claude bridge: the end of an interrupted turn was not reported: %v", err)
+			}
+		},
 		OnIdentity: func(sessionID, cwd string) error {
 			err := recordIdentity(sessionID, cwd)
 			if err != nil {

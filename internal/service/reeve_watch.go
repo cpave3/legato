@@ -315,6 +315,20 @@ func (w *ReeveWatcher) agentState(ctx context.Context, taskID string) (string, b
 	return WatchIdle, true
 }
 
+// backgroundJobs names what a task's running agent started that still runs
+// and will wake it, as its hooks reported; "" when none is known.
+func (w *ReeveWatcher) backgroundJobs(ctx context.Context, taskID string) string {
+	a, err := w.opts.Store.LatestAgentSessionForTask(ctx, taskID)
+	if err != nil || a == nil || a.Status != "running" || len(a.BackgroundJobs) == 0 {
+		return ""
+	}
+	names := make([]string, len(a.BackgroundJobs))
+	for i, job := range a.BackgroundJobs {
+		names[i] = fmt.Sprintf("%s %q", job.Kind, oneLine(clipRunes(job.Label, 120)))
+	}
+	return clipRunes(strings.Join(names, "; "), 300)
+}
+
 func (w *ReeveWatcher) pullRequests(ctx context.Context, taskID string) map[string]store.PRMeta {
 	out := map[string]store.PRMeta{}
 	branches, err := w.opts.Store.ListTaskBranches(ctx, taskID)
@@ -471,8 +485,14 @@ func (w *ReeveWatcher) news(ctx context.Context, taskID string, before watchSeen
 // describe adds to a change of state what the agent's conversation says:
 // its last message, what still runs, and what it asks.
 func (w *ReeveWatcher) describe(ctx context.Context, e *WatchEvent, seen *watchSeen) {
+	// The hooks' list of background jobs is the whole of what still runs;
+	// the conversation is read for it only when they listed none.
+	fromHooks := false
 	if e.To == WatchBackground {
 		e.Running = "work it started in the background"
+		if jobs := w.backgroundJobs(ctx, e.TaskID); jobs != "" {
+			e.Running, fromHooks = jobs, true
+		}
 	}
 	if w.opts.Conversation == nil {
 		e.LastMessage = seen.LastMessage
@@ -494,6 +514,7 @@ func (w *ReeveWatcher) describe(ctx context.Context, e *WatchEvent, seen *watchS
 	}
 	e.LastMessage = seen.LastMessage
 	switch {
+	case fromHooks:
 	case len(running) > 0:
 		e.Running = clipRunes(strings.Join(running, "; "), 300)
 	case e.Running == "":
@@ -621,7 +642,7 @@ func WatchMessage(events []WatchEvent) string {
 			case e.Running != "":
 				fmt.Fprintf(&b, "  Still running: %s\n", e.Running)
 			case e.NothingRunning:
-				b.WriteString("  Nothing it started still runs, as far as Legato can see.\n")
+				b.WriteString("  Nothing it started still runs, as far as Legato can see: only a message will wake it.\n")
 			default:
 				b.WriteString("  Legato cannot tell whether anything it started still runs.\n")
 			}

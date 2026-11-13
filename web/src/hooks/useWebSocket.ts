@@ -103,6 +103,18 @@ export interface AgentInfo {
   context_window?: number
   // The agent of this Legato itself, pinned first.
   reeve?: boolean
+  // What the agent started that still runs and will wake it; absent for
+  // none. See docs/ai/agent-states.md.
+  background_jobs?: BackgroundJob[]
+}
+
+export interface BackgroundJob {
+  kind: "bash" | "monitor" | "subagent" | "cron" | string
+  id: string
+  label: string
+  // A cron's schedule.
+  schedule?: string
+  started_at: string
 }
 
 export interface PromptState {

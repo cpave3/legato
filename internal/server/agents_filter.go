@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/cpave3/legato/internal/engine/store"
 	"github.com/cpave3/legato/internal/service"
 )
 
@@ -24,6 +25,8 @@ type AgentCompact struct {
 	Sandboxed  bool      `json:"sandboxed"`
 	StartedAt  time.Time `json:"started_at"`
 	Reeve      bool      `json:"reeve,omitempty"`
+	// BackgroundJobs is what the agent started that still runs.
+	BackgroundJobs []store.BackgroundJob `json:"background_jobs,omitempty"`
 }
 
 func (s *Server) compactAgents(ctx context.Context, agents []service.AgentSession) []AgentCompact {
@@ -34,7 +37,8 @@ func (s *Server) compactAgents(ctx context.Context, agents []service.AgentSessio
 		out = append(out, AgentCompact{
 			TaskID: a.TaskID, CardTaskID: resp.CardTaskID, Slot: resp.Slot, Title: a.Title, Group: a.Group,
 			Status: a.Status, Activity: a.Activity, Sandboxed: a.Sandboxed, StartedAt: a.StartedAt,
-			Reeve: reeveTask != "" && a.TaskID == reeveTask,
+			Reeve:          reeveTask != "" && a.TaskID == reeveTask,
+			BackgroundJobs: a.BackgroundJobs,
 		})
 	}
 	return out
