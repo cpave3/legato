@@ -20,7 +20,7 @@ pub const WITHIN: Duration = Duration::from_secs(3);
 
 /// How long the widget stays after the last approval is decided, saying
 /// how it went: as long as the page keeps the line (`DECIDED_FOR` in
-/// src/voice/Approvals.tsx).
+/// src/voice/ApprovalEntries.tsx).
 pub const DECIDED_FOR: Duration = Duration::from_secs(3);
 
 /// The path that lists a server's pending approvals.

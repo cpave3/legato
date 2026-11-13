@@ -2435,7 +2435,7 @@ async fn watch_approvals(app: AppHandle) {
             let _ = app.emit("voice-approvals", &list);
             if list.is_empty() {
                 // The page says how the last one went for a moment
-                // (DECIDED_FOR in Approvals.tsx) before a hidden widget goes.
+                // (DECIDED_FOR in ApprovalEntries.tsx) before a hidden widget goes.
                 let app = app.clone();
                 tauri::async_runtime::spawn(async move {
                     tokio::time::sleep(widgetapprovals::DECIDED_FOR).await;

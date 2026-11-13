@@ -1,9 +1,9 @@
 import { useState, type ReactNode } from "react"
-import { useApprovalEntries } from "./Approvals"
+import { useApprovalEntries } from "./ApprovalEntries"
 
 // The Legato widget's feed, under the voice: what needs the person while
 // the desktop app is not in front. Each kind of item is a source of
-// entries (approvals, Approvals.tsx, are the first); the feed puts them
+// entries (approvals, ApprovalEntries.tsx, are the first); the feed puts them
 // newest first, opens one at a time, and counts those still waiting. It is
 // the root's one element that scrolls (data-widget-feed, widget.css): the
 // capsule or the card above it keeps its size, and the feed gets the
