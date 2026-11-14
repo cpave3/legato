@@ -43,7 +43,9 @@ func sandboxSettings(cfg *config.Config, db *store.Store) *service.SandboxSettin
 	backend := sandboxBackend(cfg)
 	var login func(context.Context, string) (map[string]string, error)
 	var endProcesses func(context.Context, string)
+	var copyCheckout func(string, string) error
 	if backend.Name() == "seatbelt" {
+		copyCheckout = sandbox.CloneTree
 		endProcesses = service.EndSandboxProcesses(service.DarwinProcessTable, syscall.Kill, 2*time.Second)
 		var resolve service.SecretResolver
 		if db != nil {
@@ -55,6 +57,7 @@ func sandboxSettings(cfg *config.Config, db *store.Store) *service.SandboxSettin
 		Backend:      backend,
 		ToolLogin:    login,
 		EndProcesses: endProcesses,
+		CopyCheckout: copyCheckout,
 		GitConfig:    &service.SandboxGitConfig{Dir: filepath.Join(config.ResolveDataDir(cfg), "sandbox-git-config")},
 		Base: service.SandboxPlanInput{
 			Layout: &layout,

@@ -22,6 +22,10 @@ type SandboxSettings struct {
 	// Docker gives each sandboxed agent a filtered Docker socket
 	// (agents.sandbox.docker). Nil: none, and Docker stays hidden.
 	Docker *SandboxDocker
+	// CopyCheckout makes a copy-on-write copy of a checkout (clonefile on
+	// APFS), a reviewer's throwaway checkout where the backend has no
+	// overlays (Seatbelt). Nil: none; such a checkout is read-only.
+	CopyCheckout func(src, dst string) error
 	// GitConfig notes the git config keys of the checkout that run a
 	// command at spawn, and reports those an agent added when it ends. Nil:
 	// not watched.
@@ -48,7 +52,7 @@ func (a *agentService) CheckoutOverlayAvailable() bool {
 	if a.sandbox == nil {
 		return false
 	}
-	return a.sandbox.Backend.Capabilities().Overlay
+	return a.sandbox.Backend.Capabilities().Overlay || a.sandbox.CopyCheckout != nil
 }
 
 // sandboxPrefix is the command line that starts an agent's launch command
@@ -63,8 +67,18 @@ func (a *agentService) sandboxPrefix(ctx context.Context, taskID, executionID, a
 	caps := backend.Capabilities()
 	in.Capabilities = &caps
 	in.ReadOnlyCheckout = readOnly
-	// Without overlays, a throwaway checkout is the plain read-only one.
-	in.ThrowawayCheckout = readOnly && throwaway && a.CheckoutOverlayAvailable()
+	// A throwaway checkout is an overlay where the backend has them, else a
+	// copy in the scratch folder, else the plain read-only checkout.
+	in.ThrowawayCheckout = readOnly && throwaway && caps.Overlay
+	if readOnly && throwaway && !caps.Overlay && a.sandbox.CopyCheckout != nil {
+		if copied, err := a.copyCheckout(in, workDir); err != nil {
+			log.Printf("sandbox: copying %s for a throwaway checkout, read-only instead: %v", workDir, err)
+		} else {
+			// The agent works in the copy; the author's checkout is seen
+			// read-only. The execution stays read-only to the broker.
+			in.CheckoutCopyOf, in.WorkDir, in.ReadOnlyCheckout = workDir, copied, false
+		}
+	}
 	in.BrokerSocket = env["LEGATO_BROKER_SOCKET"]
 	if sock := env["SSH_AUTH_SOCK"]; sock != "" && in.RuntimeDir != "" && strings.HasPrefix(sock, filepath.Join(in.RuntimeDir, "ssh")+"/") {
 		in.SSHSocket = sock
@@ -90,7 +104,7 @@ func (a *agentService) sandboxPrefix(ctx context.Context, taskID, executionID, a
 			return "", err
 		}
 	}
-	in.GitCommonDir = gitCommonDir(ctx, workDir)
+	in.GitCommonDir = gitCommonDir(ctx, in.WorkDir)
 	if a.sandbox.GitConfig != nil && in.GitCommonDir != "" && in.RuntimeDir != "" && !readOnly {
 		// What the person's git would run before the agent starts.
 		if err := a.sandbox.GitConfig.Baseline(ctx, filepath.Join(in.RuntimeDir, "sandbox", executionID), taskID, filepath.Join(in.GitCommonDir, "config")); err != nil {
@@ -375,4 +389,23 @@ func (a *agentService) taskJobClone(ctx context.Context, taskID, dataDir, workDi
 		}
 	}
 	return ""
+}
+
+// copyCheckout copies a checkout into the execution's scratch folder,
+// <scratch>/<execution>/checkout/<name>, where it goes with the execution.
+func (a *agentService) copyCheckout(in SandboxPlanInput, workDir string) (string, error) {
+	scratch := scratchFor(in)
+	if scratch.Root == "" {
+		return "", errors.New("no scratch folder")
+	}
+	dir := filepath.Join(scratch.Dir(in.ExecutionID), "checkout")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		return "", err
+	}
+	dst := filepath.Join(dir, filepath.Base(workDir))
+	if err := a.sandbox.CopyCheckout(workDir, dst); err != nil {
+		_ = os.RemoveAll(dst)
+		return "", err
+	}
+	return dst, nil
 }

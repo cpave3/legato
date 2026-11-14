@@ -19,6 +19,8 @@ import (
 	"unsafe"
 
 	"golang.org/x/sys/unix"
+
+	"github.com/cpave3/legato/internal/engine/sandbox"
 )
 
 // macOS's own walls: what Seatbelt must close that bwrap's namespaces close
@@ -321,5 +323,35 @@ func TestWallsOnAMacWhatAnAgentDetachedEndsWithItsExecution(t *testing.T) {
 	if running() {
 		_ = exec.Command("/usr/bin/pkill", "-f", "sleep 61239").Run()
 		t.Fatal("the detached process outlived its execution")
+	}
+}
+
+// A reviewer's throwaway checkout on macOS is a clonefile copy in the
+// scratch folder: what it builds lands there, and the author's checkout,
+// readable beside it, is never written.
+func TestWallsOnAMacAThrowawayCheckoutIsACopyThatGoesWithTheExecution(t *testing.T) {
+	w := wallFixture(t)
+	if err := os.WriteFile(filepath.Join(w.in.WorkDir, "main.go"), []byte("package main\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	dir := filepath.Join(scratchFor(w.in).Dir(w.in.ExecutionID), "checkout")
+	if err := os.MkdirAll(dir, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	copy := filepath.Join(dir, filepath.Base(w.in.WorkDir))
+	if err := sandbox.CloneTree(w.in.WorkDir, copy); err != nil {
+		t.Skipf("no clonefile here: %v", err)
+	}
+	author := w.in.WorkDir
+	w.in.CheckoutCopyOf, w.in.WorkDir = author, copy
+	out, _ := w.run(t, fmt.Sprintf(`echo built > out.bin && echo BUILT; cat %[1]q/main.go; echo x > %[1]q/main.go && echo WROTE-AUTHOR`, author))
+	if !strings.Contains(out, "BUILT") || !strings.Contains(out, "package main") || strings.Contains(out, "WROTE-AUTHOR") {
+		t.Fatalf("build in the copy, read the author's, never write it:\n%s", out)
+	}
+	if _, err := os.Stat(filepath.Join(copy, "out.bin")); err != nil {
+		t.Errorf("the build is not in the copy: %v", err)
+	}
+	if _, err := os.Stat(filepath.Join(author, "out.bin")); err == nil {
+		t.Error("the build reached the author's checkout")
 	}
 }

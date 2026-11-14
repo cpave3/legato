@@ -108,7 +108,11 @@ type SandboxPlanInput struct {
 	// git folder beneath a throwaway layer instead (a reviewer's): builds
 	// and tests can write, and none of it reaches the host. Only for a
 	// backend with overlays.
-	ThrowawayCheckout    bool
+	ThrowawayCheckout bool
+	// CheckoutCopyOf is the author's checkout when WorkDir is a throwaway
+	// copy of it (a backend without overlays): it, and a git folder
+	// outside the copy, are seen read-only.
+	CheckoutCopyOf       string
 	GitIdentity          [2]string
 	DefaultMounts        bool
 	Extra                []SandboxPath // agents.sandbox.mounts and resources
@@ -425,7 +429,11 @@ func inOthersScratch(in SandboxPlanInput, root, path string) bool {
 // allowedInside are mounts that may sit inside a forbidden folder: the parts
 // of Legato's runtime and data folders a session needs.
 func allowedInside(in SandboxPlanInput, path string) bool {
-	for _, ok := range []string{filepath.Dir(in.BrokerSocket), in.SSHSocket, in.CredentialWrapperDir, in.GHConfigDir, in.JobDir,
+	own := ""
+	if in.ExecutionID != "" && scratchFor(in).Root != "" {
+		own = scratchFor(in).Dir(in.ExecutionID)
+	}
+	for _, ok := range []string{own, filepath.Dir(in.BrokerSocket), in.SSHSocket, in.CredentialWrapperDir, in.GHConfigDir, in.JobDir,
 		filepath.Join(in.DataDir, "claude-mod"), filepath.Join(in.DataDir, "repos"), filepath.Join(in.RuntimeDir, "sandbox", in.ExecutionID)} {
 		if ok != "" && ok != "." && within(path, ok) {
 			return true
@@ -454,7 +462,7 @@ func BuildSandboxPlan(in SandboxPlanInput) (sandbox.Plan, error) {
 		in.Home, in.WorkDir, in.DataDir, in.ConfigPath = real(in.Home), real(in.WorkDir), real(in.DataDir), real(in.ConfigPath)
 		in.ScratchDir, in.RuntimeDir = real(in.ScratchDir), real(in.RuntimeDir)
 		in.BrokerSocket, in.SSHSocket, in.DockerSocket = real(in.BrokerSocket), real(in.SSHSocket), real(in.DockerSocket)
-		in.JobDir = real(in.JobDir)
+		in.JobDir, in.CheckoutCopyOf = real(in.JobDir), real(in.CheckoutCopyOf)
 		in.BinaryPath, in.GitCommonDir, in.AgentFilesDir, in.PastedImagesDir = real(in.BinaryPath), real(in.GitCommonDir), real(in.AgentFilesDir), real(in.PastedImagesDir)
 		in.CredentialWrapperDir, in.GHConfigDir = real(in.CredentialWrapperDir), real(in.GHConfigDir)
 		in.SSHConfigDir, in.KnownHosts = real(in.SSHConfigDir), real(in.KnownHosts)
@@ -616,12 +624,22 @@ func BuildSandboxPlan(in SandboxPlanInput) (sandbox.Plan, error) {
 			checkout = sandbox.Overlay
 		}
 	}
+	gitKind := checkout
+	if in.CheckoutCopyOf != "" {
+		// The author's checkout, read-only beside the copy; so is a git
+		// folder outside the copy (a worktree's main .git).
+		if err := check(in.CheckoutCopyOf); err != nil {
+			return sandbox.Plan{}, err
+		}
+		add(in.CheckoutCopyOf, sandbox.ReadOnly)
+		gitKind = sandbox.ReadOnly
+	}
 	add(in.WorkDir, checkout)
 	if in.GitCommonDir != "" && !within(in.GitCommonDir, in.WorkDir) {
 		if err := check(in.GitCommonDir); err != nil {
 			return sandbox.Plan{}, err
 		}
-		add(in.GitCommonDir, checkout)
+		add(in.GitCommonDir, gitKind)
 	}
 	if checkout == sandbox.ReadWrite {
 		// The person's own git runs the checkout's hooks, outside the

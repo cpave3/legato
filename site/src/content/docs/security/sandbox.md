@@ -39,7 +39,7 @@ From then on every agent Legato starts runs inside the sandbox. If `bwrap` is mi
 | Inside the sandbox | Access |
 | --- | --- |
 | The system: `/usr`, `/etc`, `/opt` | read-only |
-| The working directory, and a worktree's main `.git` | read and write. An agent that may only look (a find-out delegation) gets them read-only; a reviewer gets them beneath a throwaway layer: it can build and run tests, and what it writes is gone when it ends. That layer is on disk, and needs bubblewrap 0.10 or later; with an older one the reviewer's checkout is read-only |
+| The working directory, and a worktree's main `.git` | read and write. An agent that may only look (a find-out delegation) gets them read-only; a reviewer gets them beneath a throwaway layer: it can build and run tests, and what it writes is gone when it ends. That layer is on disk, and needs bubblewrap 0.10 or later; with an older one the reviewer's checkout is read-only. On macOS the reviewer works in a copy-on-write copy of the checkout instead, made in its scratch folder (APFS), with your checkout read-only beside it |
 | The agent tool's own state, such as `~/.claude`, `~/.codex` or `~/.chimera`, so sessions resume inside and out | read and write |
 | The agent tool's installation | read-only |
 | Your toolchains, such as `~/.local/bin`, mise, `~/go/bin`, Rust and Bun | read-only |
