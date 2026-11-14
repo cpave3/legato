@@ -3,7 +3,6 @@ package service
 import (
 	"context"
 	"encoding/json"
-	"fmt"
 	"os"
 	"reflect"
 	"strings"
@@ -30,6 +29,9 @@ type KeptSetting struct {
 	Value json.RawMessage `json:"value"`
 	// Replaced is the database's value it replaces, when it had another.
 	Replaced json.RawMessage `json:"replaced,omitempty"`
+	// prior is the database's row before, whatever its value (nil: none),
+	// which a failed write puts back.
+	prior json.RawMessage
 }
 
 // String says it in a line: `key: value (the database had old)`.
@@ -48,7 +50,8 @@ func (k KeptSetting) String() string {
 // ConfigEditKeep is what an edit takes out of config.yaml: Keep is kept in
 // the database; Lost are settings it cannot keep there (a secret, or a value
 // that reads an environment variable), which go back to the database's value
-// or their default.
+// or their default. An entry of an ordered list (the Reeve's rules) is
+// neither: removing it from the file removes it.
 type ConfigEditKeep struct {
 	Keep []KeptSetting `json:"keep,omitempty"`
 	Lost []string      `json:"lost,omitempty"`
@@ -99,7 +102,7 @@ func WriteConfigEditKeeping(ctx context.Context, db *store.Store, path string, e
 			_ = NewSettingsService(db, nil).RestoreSettings(ctx, olds)
 			return "", keep, err
 		}
-		olds = append(olds, RestartSetting{List: k.List, Key: k.Key, Old: k.Replaced})
+		olds = append(olds, RestartSetting{List: k.List, Key: k.Key, Old: k.prior})
 	}
 	backup, err := config.EditFile(path, applyConfigEdits(edits))
 	if err != nil {
@@ -141,8 +144,11 @@ func pinsLeaving(ctx context.Context, db *store.Store, old, edited []byte, edits
 		k := KeptSetting{Key: s.Key, Value: raw}
 		if stored, had, err := db.GetSetting(ctx, s.Key); err != nil {
 			return out, err
-		} else if had && !sameJSON(stored, raw) {
-			k.Replaced = stored
+		} else if had {
+			k.prior = stored
+			if !sameJSON(stored, raw) {
+				k.Replaced = stored
+			}
 		}
 		out.Keep = append(out.Keep, k)
 	}
@@ -151,6 +157,11 @@ func pinsLeaving(ctx context.Context, db *store.Store, old, edited []byte, edits
 		return out, err
 	}
 	for _, l := range config.EntryListDefs() {
+		if l.Ordered {
+			// Kept in the database, an entry would come after the file's
+			// and win over them: removing one from the file removes it.
+			continue
+		}
 		for _, name := range before.FileEntries(l.Key) {
 			if after.PinnedEntry(l.Key, name) || !removesEntry(edits, l, name) {
 				continue
@@ -169,8 +180,11 @@ func pinsLeaving(ctx context.Context, db *store.Store, old, edited []byte, edits
 			raw, _ := json.Marshal(value)
 			at := storedEntryName(stored[l.Key], name)
 			k := KeptSetting{List: l.Key, Key: at, Value: raw}
-			if old, had := stored[l.Key][at]; had && !sameJSON(old, raw) {
-				k.Replaced = old
+			if old, had := stored[l.Key][at]; had {
+				k.prior = old
+				if !sameJSON(old, raw) {
+					k.Replaced = old
+				}
 			}
 			out.Keep = append(out.Keep, k)
 		}
@@ -225,11 +239,24 @@ func sameJSON(a, b []byte) bool {
 	return reflect.DeepEqual(x, y)
 }
 
-// keptReport is a config edit's result detail with what it kept.
+// keptReport is a config edit's result detail, which the Reeve is told:
+// what it kept, by name. The values are left out: the database's older ones
+// are not the Reeve's to read (the operator's card shows them).
 func keptReport(backup string, keep ConfigEditKeep) string {
 	detail := "config.yaml written; the old file is " + backup
-	if lines := keep.Lines(); len(lines) > 0 {
-		detail += fmt.Sprintf("; %s", strings.Join(lines, "; "))
+	var kept []string
+	for _, k := range keep.Keep {
+		name := k.Key
+		if k.List != "" {
+			name = k.List + " " + k.Key
+		}
+		kept = append(kept, name)
+	}
+	if len(kept) > 0 {
+		detail += "; kept config.yaml's values in the database: " + strings.Join(kept, ", ")
+	}
+	if len(keep.Lost) > 0 {
+		detail += "; not kept (a secret, or it reads an environment variable): " + strings.Join(keep.Lost, ", ")
 	}
 	return detail
 }

@@ -55,7 +55,8 @@ func (m *SettingsMover) path() string {
 // Movable is every setting and list entry config.yaml pins that can move:
 // not one holding a secret, not one whose value in the file reads an
 // environment variable (moving it would freeze the variable's value), and
-// not one the file cannot load without (keepFileLoadable).
+// not an entry of an ordered list (the Reeve's rules), and not one the file
+// cannot load without (keepFileLoadable).
 func (m *SettingsMover) Movable(ctx context.Context) (SettingsMove, error) {
 	cfg, err := m.Settings.load()
 	if err != nil {
@@ -72,6 +73,11 @@ func (m *SettingsMover) Movable(ctx context.Context) (SettingsMove, error) {
 		out.Settings = append(out.Settings, s.Key)
 	}
 	for _, l := range config.EntryListDefs() {
+		if l.Ordered {
+			// Moved, its entries would come after the file's, in another
+			// order, and another would win.
+			continue
+		}
 		for _, name := range cfg.FileEntries(l.Key) {
 			if readsEnv(lookupNode(&doc, l.Key)) {
 				continue

@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 	"testing"
@@ -129,7 +130,88 @@ func TestAReeveConfigEditThatRemovesAPinShowsAndKeepsTheFilesValue(t *testing.T)
 	if v, _, _ := db.GetSetting(ctx, "swarm.worker.agent"); string(v) != `"claude-code"` {
 		t.Fatalf("swarm.worker.agent in the database = %s", v)
 	}
-	if len(f.notes) == 0 || !strings.Contains(f.notes[0], `kept in the database: swarm.worker.agent: "claude-code"`) {
+	if len(f.notes) == 0 || !strings.Contains(f.notes[0], "kept config.yaml's values in the database: swarm.worker.agent") || strings.Contains(f.notes[0], "chimera") {
 		t.Fatalf("notes = %q", f.notes)
+	}
+}
+
+const rulesFile = `reeve:
+  rules:
+    - { pattern: "POST /api/*", level: auto }
+    - { pattern: "POST /api/agents/*", level: approve }
+`
+
+// The Reeve's rules are ordered: the last that matches decides, and the
+// database's are added after the file's. Removing one from the file
+// removes it; it is never moved behind the rules left in the file, where
+// it would win (review of #81).
+func TestRemovingAReeveRuleDoesNotMoveItBehindTheOthers(t *testing.T) {
+	mover, db, path := newMoveFixture(t, rulesFile)
+	ctx := context.Background()
+	keep, err := ConfigEditKeeps(ctx, db, path, []ConfigEdit{{Key: "reeve.rules[0]", Remove: true}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(keep.Keep) != 0 {
+		t.Fatalf("kept %+v", keep.Keep)
+	}
+	if _, _, err := WriteConfigEditKeeping(ctx, db, path, []ConfigEdit{{Key: "reeve.rules[0]", Remove: true}}, "reeve"); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := mover.Settings.Effective(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(cfg.Reeve.Rules) != 1 || cfg.Reeve.Rules[0].Level != "approve" {
+		t.Fatalf("rules = %+v", cfg.Reeve.Rules)
+	}
+}
+
+// Nor does the move offer them: moved, they would come after the file's
+// and in another order.
+func TestTheMoveDoesNotOfferTheReeveRules(t *testing.T) {
+	mover, _, _ := newMoveFixture(t, rulesFile+"icons: nerdfonts\n")
+	got, err := mover.Movable(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, e := range got.Entries {
+		if e.List == "reeve.rules" {
+			t.Fatalf("offered %+v", e)
+		}
+	}
+}
+
+// A file that cannot be written leaves the database as it was, a row that
+// already held the file's value included (review of #81).
+func TestAFailedConfigEditWriteLeavesTheDatabaseAsItWas(t *testing.T) {
+	mover, path, _, _ := staleFixture(t)
+	db := mover.Settings.db
+	ctx := context.Background()
+	if err := db.SetSetting(ctx, "swarm.worker.agent", []byte(`"claude-code"`), "web"); err != nil {
+		t.Fatal(err)
+	}
+	// A folder it cannot write in makes the write fail.
+	dir := filepath.Dir(path)
+	os.Chmod(dir, 0o500)
+	t.Cleanup(func() { os.Chmod(dir, 0o700) })
+	if _, _, err := WriteConfigEditKeeping(ctx, db, path, []ConfigEdit{{Key: "swarm", Remove: true}, {Key: "adapters", Remove: true}}, "reeve"); err == nil {
+		t.Fatal("the write did not fail")
+	}
+	if v, had, _ := db.GetSetting(ctx, "swarm.worker.agent"); !had || string(v) != `"claude-code"` {
+		t.Fatalf("swarm.worker.agent = %s (had %v), want the row kept", v, had)
+	}
+	if entries, _ := db.SettingEntries(ctx); string(entries["adapters"]["chimera"]) != `{"launch_args":[]}` {
+		t.Fatalf("adapters chimera = %s, want the row as it was", entries["adapters"]["chimera"])
+	}
+}
+
+// What the Reeve is told after the edit names what was kept, never the
+// database's older values, which it could not read before.
+func TestTheReeveIsToldWhatWasKeptWithoutTheOlderValues(t *testing.T) {
+	keep := ConfigEditKeep{Keep: []KeptSetting{{Key: "swarm.worker.agent", Value: []byte(`"claude-code"`), Replaced: []byte(`"chimera"`)}}}
+	got := keptReport("config.yaml.bak", keep)
+	if !strings.Contains(got, "swarm.worker.agent") || strings.Contains(got, "chimera") {
+		t.Fatalf("report = %q", got)
 	}
 }
