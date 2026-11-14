@@ -5,8 +5,11 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"runtime"
 	"strings"
 	"testing"
+
+	"github.com/cpave3/legato/config"
 )
 
 func TestOnAMacSandboxedClaudeCodeLogsInWithTheConfiguredToken(t *testing.T) {
@@ -58,5 +61,27 @@ func TestOnAMacSandboxedCodexIsRefusedWhenItsLoginIsInTheKeychain(t *testing.T) 
 	}
 	if env, err := login(context.Background(), "chimera"); err != nil || len(env) != 0 {
 		t.Fatalf("chimera: %v %v", env, err)
+	}
+}
+
+// A worker accepts handed-off tasks only when its own sandbox can run: the
+// configured backend, not bwrap by name.
+func TestAWorkerAsksItsOwnBackendWhetherTheSandboxCanRun(t *testing.T) {
+	cfg := &config.Config{}
+	cfg.Agents.Sandbox.Enabled = true
+	cfg.Agents.Sandbox.Backend = "seatbelt"
+	if got := sandboxBackend(cfg).Name(); got != "seatbelt" {
+		t.Fatalf("backend %s", got)
+	}
+	if runtime.GOOS != "darwin" && sandboxAvailable(cfg) {
+		t.Error("Seatbelt is said to run on " + runtime.GOOS)
+	}
+	cfg.Agents.Sandbox.Backend = "bwrap"
+	if got := sandboxBackend(cfg).Name(); got != "bwrap" {
+		t.Fatalf("backend %s", got)
+	}
+	cfg.Agents.Sandbox.Enabled = false
+	if sandboxAvailable(cfg) {
+		t.Error("available with the sandbox off")
 	}
 }

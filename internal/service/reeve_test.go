@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"errors"
+	"github.com/cpave3/legato/internal/engine/sandbox"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -168,6 +169,29 @@ func TestAReeveTaskIsRefusedOutsideTheSandbox(t *testing.T) {
 	}
 	if err := svc.SpawnAgent(ctx, taskID, 0, 0, AgentSpawnOptions{}); !errors.Is(err, ErrReeveSandboxed) {
 		t.Fatalf("with the sandbox off: %v", err)
+	}
+}
+
+// The Reeve runs in any sandbox Legato has: also one that can neither
+// remap a path nor show an empty home (Seatbelt, on macOS).
+func TestAReeveTaskStartsInASandboxThatOnlyAllowsAndDenies(t *testing.T) {
+	backend := &fakeBackend{caps: &sandbox.Capabilities{}}
+	svc, db, _ := sandboxedService(t, backend, func(settings *SandboxSettings) {
+		settings.Base.ScratchDir = realTempDir(t)
+	})
+	ctx := context.Background()
+	taskID, _ := db.CreateReeveTask(ctx, "The Reeve")
+	if err := svc.SpawnAgent(ctx, taskID, 0, 0, AgentSpawnOptions{}); err != nil {
+		t.Fatal(err)
+	}
+	plan := backend.plans[0]
+	if plan.Setenv["HOME"] != plan.HomeSource || plan.HomeSource == "" {
+		t.Fatalf("HOME %q, home source %q", plan.Setenv["HOME"], plan.HomeSource)
+	}
+	for _, m := range plan.Mounts {
+		if m.Dest != "" && m.Dest != m.Path {
+			t.Errorf("%s is shown at %s", m.Path, m.Dest)
+		}
 	}
 }
 

@@ -19,10 +19,16 @@ import (
 type fakeBackend struct {
 	missing bool
 	overlay bool
-	plans   []sandbox.Plan
+	// caps, when set, are the backend's capabilities (a Seatbelt-like
+	// backend has none).
+	caps  *sandbox.Capabilities
+	plans []sandbox.Plan
 }
 
 func (f *fakeBackend) Capabilities() sandbox.Capabilities {
+	if f.caps != nil {
+		return *f.caps
+	}
 	c := sandbox.Full()
 	c.Overlay = f.overlay
 	return c
