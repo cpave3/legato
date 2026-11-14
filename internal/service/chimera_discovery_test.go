@@ -380,3 +380,96 @@ func TestTheLaunchDiscoveryLoopStopsWhenItsAgentIsGone(t *testing.T) {
 		t.Fatal("the discovery loop kept polling for an agent that is gone")
 	}
 }
+
+func TestLaunchDiscoveryStopsAtAnExistingBinding(t *testing.T) {
+	svc, s, _ := newDiscoveryTestService(t)
+	ctx := context.Background()
+	createTask(t, s, "bound")
+	id, err := s.InsertAgentSessionReturningID(ctx, store.AgentSession{TaskID: "bound", AgentKind: "chimera", Status: "running"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.UpdateChimeraDiscoveryForSession(ctx, id, "mod", "http://127.0.0.1:1/secret"); err != nil {
+		t.Fatal(err)
+	}
+	done := make(chan struct{})
+	go func() { svc.(*agentService).discoverChimeraLockfile(ctx, "bound", "bound", nil); close(done) }()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("poll did not stop at native binding")
+	}
+}
+
+func TestModLaunchWaitsBeforeLockfileFallback(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	dir := filepath.Join(os.Getenv("HOME"), ".chimera", "instances")
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	server := newChimeraDiscoveryServer(t, "fallback", "wait")
+	svc, s, _ := newDiscoveryTestService(t)
+	a := svc.(*agentService)
+	a.adapter = &nativeLaunchAdapter{fakeAdapter: fakeAdapter{name: "chimera"}}
+	a.chimeraModWait = 200 * time.Millisecond
+	createTask(t, s, "wait")
+	if err := s.InsertAgentSession(context.Background(), store.AgentSession{TaskID: "wait", AgentKind: "chimera", Status: "running"}); err != nil {
+		t.Fatal(err)
+	}
+	writeChimeraLockfile(t, dir, "new.json", "fallback", server.URL)
+	done := make(chan struct{})
+	go func() { a.discoverChimeraLockfile(context.Background(), "wait", "wait", nil); close(done) }()
+	select {
+	case <-done:
+		t.Fatal("lockfile fallback ran before mod wait")
+	case <-time.After(80 * time.Millisecond):
+	}
+	select {
+	case <-done:
+	case <-time.After(2 * time.Second):
+		t.Fatal("fallback did not bind")
+	}
+	got, _ := s.GetAgentSessionByTaskID(context.Background(), "wait")
+	if got.ChimeraSessionID == nil || *got.ChimeraSessionID != "fallback" {
+		t.Fatalf("binding=%+v", got)
+	}
+}
+
+func TestLateLockfileVerificationCannotReplaceModBinding(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	dir := filepath.Join(os.Getenv("HOME"), ".chimera", "instances")
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	started, release := make(chan struct{}), make(chan struct{})
+	var once sync.Once
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/v1/instance" {
+			once.Do(func() { close(started) })
+			<-release
+			fmt.Fprint(w, `{"pid":123}`)
+			return
+		}
+		fmt.Fprint(w, `{"id":"legacy","name":"race"}`)
+	}))
+	defer server.Close()
+	svc, s, _ := newDiscoveryTestService(t)
+	createTask(t, s, "race")
+	id, err := s.InsertAgentSessionReturningID(context.Background(), store.AgentSession{TaskID: "race", AgentKind: "chimera", Status: "running"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	writeChimeraLockfile(t, dir, "new.json", "legacy", server.URL)
+	done := make(chan error, 1)
+	go func() { done <- svc.DiscoverChimera(context.Background(), "race") }()
+	<-started
+	if err := s.UpdateChimeraDiscoveryForSession(context.Background(), id, "mod", "http://127.0.0.1:1/secret"); err != nil {
+		t.Fatal(err)
+	}
+	close(release)
+	<-done
+	got, _ := s.GetAgentSessionByTaskID(context.Background(), "race")
+	if got.ChimeraSessionID == nil || *got.ChimeraSessionID != "mod" {
+		t.Fatalf("binding=%+v", got)
+	}
+}

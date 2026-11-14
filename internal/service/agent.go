@@ -350,6 +350,7 @@ type agentService struct {
 	// nativeBindTimeout bounds how long a launch message waits for the
 	// session's native endpoint before it is typed into the pane instead.
 	nativeBindTimeout time.Duration
+	chimeraModWait    time.Duration
 	// launchOwner names this service as the deliverer of the launch
 	// messages it keeps in launch_messages (launch_messages.go).
 	launchOwner string
@@ -615,7 +616,7 @@ func (a *agentService) credentialEnv() SessionEnvProvider {
 
 // NewAgentService creates an AgentService.
 func NewAgentService(s *store.Store, tmux TmuxManager, workDir string, opts ...AgentServiceOptions) AgentService {
-	svc := &agentService{store: s, tmux: tmux, workDir: workDir, briefKickoffDelay: briefKickoffDelay, peerAwareness: true, nativeBindTimeout: nativeBindTimeout, launchOwner: newLaunchOwner()}
+	svc := &agentService{store: s, tmux: tmux, workDir: workDir, briefKickoffDelay: briefKickoffDelay, peerAwareness: true, nativeBindTimeout: nativeBindTimeout, chimeraModWait: 10 * time.Second, launchOwner: newLaunchOwner()}
 	if len(opts) > 0 {
 		svc.adapter = opts[0].Adapter
 		svc.adapters = opts[0].Adapters
@@ -2330,7 +2331,7 @@ const chimeraDiscoveryRequestTimeout = 2 * time.Second
 // Codex agent is bound to the bridge its session started (see
 // discoverClaudeBridge and discoverCodexBridge).
 func (a *agentService) DiscoverChimera(ctx context.Context, taskID string) error {
-	session, err := a.store.GetAgentSessionByTaskID(ctx, taskID)
+	session, err := slotSession(ctx, a.store, taskID)
 	if err != nil {
 		return err
 	}
@@ -2340,7 +2341,7 @@ func (a *agentService) DiscoverChimera(ctx context.Context, taskID string) error
 	if session.AgentKind == codexAgentKind {
 		return a.discoverCodexBridge(ctx, taskID, session.ID)
 	}
-	return a.discoverChimeraFromLockfiles(ctx, taskID, session.ID, taskID, nil)
+	return a.discoverChimeraFromLockfiles(ctx, taskID, session.ID, AgentSlotKey(session.TaskID, session.Slot), nil)
 }
 
 func (a *agentService) discoverChimeraFromLockfiles(ctx context.Context, taskID string, agentSessionID int, expectedSessionName string, excluded map[string]bool) error {
@@ -2387,8 +2388,10 @@ func (a *agentService) discoverChimeraFromLockfiles(ctx context.Context, taskID 
 	if len(valid) > 1 {
 		return ErrChimeraDiscoveryAmbiguous
 	}
-	if err := a.store.UpdateChimeraDiscoveryForSession(ctx, agentSessionID, valid[0].sessionID, valid[0].endpoint); err != nil {
+	if bound, err := a.store.BindChimeraDiscoveryIfUnbound(ctx, agentSessionID, valid[0].sessionID, valid[0].endpoint); err != nil {
 		return fmt.Errorf("persisting Chimera discovery: %w", err)
+	} else if !bound {
+		return store.ErrNotFound
 	}
 	if a.bus != nil {
 		a.bus.PublishAgentChimeraDiscovered(taskID)
@@ -2411,7 +2414,7 @@ func nativeEndpointServes(ctx context.Context, endpoint, sessionID, expectedSess
 		return false
 	}
 	snapshot, err := client.GetSession(requestCtx, sessionID)
-	return err == nil && snapshot.Name == expectedSessionName
+	return err == nil && (expectedSessionName == "" || snapshot.Name == expectedSessionName)
 }
 
 func isLoopbackHTTPURL(raw string) bool {
@@ -2428,22 +2431,30 @@ func isLoopbackHTTPURL(raw string) bool {
 }
 
 func (a *agentService) discoverChimeraLockfile(ctx context.Context, taskID, expectedSessionName string, preExisting map[string]bool) {
-	// Ephemeral sessions have no stable task-bound identity. Preserve their
-	// existing launch-time behavior separately from verified manual discovery.
-	if expectedSessionName == "" {
-		a.discoverEphemeralChimeraLockfile(ctx, taskID, preExisting)
-		return
-	}
-
 	activeSession, err := slotSession(ctx, a.store, taskID)
 	if err != nil {
 		return
+	}
+	// Give the mod first refusal. Legacy adapters start discovery immediately.
+	if binder, ok := a.resolveAdapter(activeSession.AgentKind).(NativeBindingAdapter); ok && binder.BindsNativeEndpoint() {
+		deadline := time.Now().Add(a.chimeraModWait)
+		for time.Now().Before(deadline) {
+			current, err := slotSession(ctx, a.store, taskID)
+			if err != nil || current.ID != activeSession.ID || current.Status != "running" || current.NativeOff || current.ChimeraEndpoint != nil || current.ChimeraSessionID != nil {
+				return
+			}
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(nativeBindPoll):
+			}
+		}
 	}
 	// Poll for up to 30 seconds — Chimera may take a few seconds to boot.
 	for i := 0; i < 60; i++ {
 		// Stop once the agent is gone or replaced: its endpoint is no one's
 		// to find now, and every poll asks each instance on the machine.
-		if current, err := slotSession(ctx, a.store, taskID); err != nil || current.ID != activeSession.ID || current.Status != "running" {
+		if current, err := slotSession(ctx, a.store, taskID); err != nil || current.ID != activeSession.ID || current.Status != "running" || current.NativeOff || current.ChimeraEndpoint != nil || current.ChimeraSessionID != nil {
 			return
 		}
 		if err := a.discoverChimeraFromLockfiles(ctx, taskID, activeSession.ID, expectedSessionName, preExisting); err == nil {
@@ -2460,36 +2471,4 @@ func (a *agentService) discoverChimeraLockfile(ctx context.Context, taskID, expe
 		}
 	}
 	log.Printf("chimera lockfile discovery for %s: timed out after 30s", taskID)
-}
-
-func (a *agentService) discoverEphemeralChimeraLockfile(ctx context.Context, taskID string, preExisting map[string]bool) {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return
-	}
-	instancesDir := filepath.Join(home, ".chimera", "instances")
-	for i := 0; i < 60; i++ {
-		entries, err := os.ReadDir(instancesDir)
-		if err == nil {
-			for _, entry := range entries {
-				if !strings.HasSuffix(entry.Name(), ".json") || preExisting[entry.Name()] {
-					continue
-				}
-				data, readErr := os.ReadFile(filepath.Join(instancesDir, entry.Name()))
-				lf, parseErr := chimera.ParseLockfile(data)
-				if readErr != nil || parseErr != nil {
-					continue
-				}
-				if err := a.store.UpdateChimeraDiscovery(ctx, taskID, lf.SessionID, lf.URL); err == nil && a.bus != nil {
-					a.bus.PublishAgentChimeraDiscovered(taskID)
-				}
-				return
-			}
-		}
-		select {
-		case <-ctx.Done():
-			return
-		case <-time.After(500 * time.Millisecond):
-		}
-	}
 }
