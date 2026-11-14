@@ -177,3 +177,22 @@ func TestTheProxysViewIsTheSandboxsMounts(t *testing.T) {
 		t.Fatalf("view =\n%s\nwant\n%s", got, want)
 	}
 }
+
+// On macOS the agent's HOME is its scratch home, where it is: a container
+// may bind that, never the person's home under its name.
+func TestTheProxysViewOfAHomeThatIsNotRemapped(t *testing.T) {
+	plan := sandbox.Plan{
+		Home: "/Users/me", HomeSource: "/scratch/ex-1/home",
+		Setenv: map[string]string{"HOME": "/scratch/ex-1/home"},
+		Mounts: []sandbox.Mount{{Kind: sandbox.ReadWrite, Path: "/Users/me/Projects/app"}},
+	}
+	view := dockerViewOf(plan)
+	if len(view.Mounts) == 0 || view.Mounts[0] != (dockerproxy.Mount{Kind: dockerproxy.ReadWrite, Source: "/scratch/ex-1/home", Dest: "/scratch/ex-1/home"}) {
+		t.Fatalf("view %+v", view.Mounts)
+	}
+	for _, m := range view.Mounts {
+		if m.Dest == "/Users/me" {
+			t.Fatalf("the person's home is in the view: %+v", m)
+		}
+	}
+}

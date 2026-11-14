@@ -224,3 +224,56 @@ func TestAMacPlanRendersAsASeatbeltProfileThatAllowsNoCredential(t *testing.T) {
 		t.Error("nothing is covered, though a resource holds Chrome's profile")
 	}
 }
+
+// ssh reads the person's ~/.ssh by their passwd entry, whatever HOME says,
+// and nothing can be put over /etc/ssh: git's ssh is given the copy of the
+// system configuration, which names Legato's known_hosts.
+func TestOnAMacGitsSSHReadsTheConfigurationCopy(t *testing.T) {
+	in := macInput()
+	fs := macFS()
+	dir := "/private/tmp/legato-501/sandbox/ex-1/ssh"
+	fs[dir] = "dir"
+	fs[dir+"/ssh_config"] = "file"
+	fs["/private/etc/ssh/ssh_config"] = "file"
+	fs["/Users/me/.config/legato/known_hosts"] = "file"
+	in.FS = fs
+	in.SSHConfigDir, in.KnownHosts = dir, "/Users/me/.config/legato/known_hosts"
+	in.SSHConfig = []SSHConfigCopy{{Original: "/private/etc/ssh/ssh_config", Copy: dir + "/ssh_config"}}
+	plan, err := BuildSandboxPlan(in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := plan.Setenv["GIT_SSH_COMMAND"]; got != "ssh -F "+dir+"/ssh_config" {
+		t.Fatalf("GIT_SSH_COMMAND = %q", got)
+	}
+	linked := false
+	for _, l := range plan.Links {
+		linked = linked || (l.Path == dir+"/known_hosts" && l.Target == in.KnownHosts)
+	}
+	if !linked {
+		t.Fatalf("known_hosts is not where the copy names it: %+v", plan.Links)
+	}
+}
+
+// The az wrapper cannot cover the real az: it is linked into the
+// execution's own bin folder, which goes first on PATH.
+func TestOnAMacTheAzWrapperIsLinkedIntoTheExecutionsBin(t *testing.T) {
+	in := macInput()
+	fs := macFS()
+	run := "/private/tmp/legato-501/sandbox/ex-1"
+	fs[run+"/az"] = "file"
+	fs["/opt/homebrew/bin/az"] = "file"
+	in.FS = fs
+	in.Az = SandboxWrapper{Wrapper: run + "/az", Real: "/opt/homebrew/bin/az", RealMount: run + "/az-real", Overlays: []string{"/opt/homebrew/bin/az"}}
+	plan, err := BuildSandboxPlan(in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	linked := false
+	for _, l := range plan.Links {
+		linked = linked || (l.Path == run+"/bin/az" && l.Target == run+"/az")
+	}
+	if !linked || plan.Setenv["LEGATO_AZ_REAL"] != "/opt/homebrew/bin/az" {
+		t.Fatalf("links %+v, LEGATO_AZ_REAL %q", plan.Links, plan.Setenv["LEGATO_AZ_REAL"])
+	}
+}

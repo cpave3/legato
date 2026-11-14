@@ -665,6 +665,12 @@ func BuildSandboxPlan(in SandboxPlanInput) (sandbox.Plan, error) {
 			// the real one where it is.
 			mounts = append(mounts, sandbox.Mount{Kind: sandbox.ReadOnly, Path: w.Wrapper}, sandbox.Mount{Kind: sandbox.ReadOnly, Path: w.Real})
 			plan.Setenv[w.env] = w.Real
+			if w.env == "LEGATO_AZ_REAL" && in.RuntimeDir != "" {
+				// gh's wrapper folder is first on the session's PATH; az's
+				// is linked into the execution's bin, which the launch line
+				// puts first.
+				plan.Links = append(plan.Links, sandbox.Link{Path: filepath.Join(sandboxBinDir(in.RuntimeDir, in.ExecutionID), "az"), Target: w.Wrapper})
+			}
 		}
 		if w.env == "LEGATO_AZ_REAL" {
 			// az keeps its account in the sandbox's own ~/.azure.
@@ -748,9 +754,19 @@ func BuildSandboxPlan(in SandboxPlanInput) (sandbox.Plan, error) {
 			n++
 		}
 	}
-	if !caps.Remap && in.SSHConfigDir != "" && len(in.SSHConfig) > 0 && in.KnownHosts != "" && in.FS.Probe(in.KnownHosts).Exists {
-		// The ssh configuration copies name known_hosts in their folder.
-		plan.Links = append(plan.Links, sandbox.Link{Path: filepath.Join(in.SSHConfigDir, "known_hosts"), Target: in.KnownHosts})
+	if !caps.Remap && in.SSHConfigDir != "" && len(in.SSHConfig) > 0 {
+		if in.KnownHosts != "" && in.FS.Probe(in.KnownHosts).Exists {
+			// The ssh configuration copies name known_hosts in their folder.
+			plan.Links = append(plan.Links, sandbox.Link{Path: filepath.Join(in.SSHConfigDir, "known_hosts"), Target: in.KnownHosts})
+		}
+		// ssh finds ~/.ssh by the person's passwd entry, whatever HOME
+		// says, and nothing covers /etc/ssh: git's ssh reads the copy of
+		// the system configuration, which names that known_hosts.
+		for _, c := range in.SSHConfig {
+			if filepath.Base(c.Original) == "ssh_config" && filepath.Base(filepath.Dir(c.Original)) == "ssh" {
+				plan.Setenv["GIT_SSH_COMMAND"] = "ssh -F " + shellWord(c.Copy)
+			}
+		}
 	}
 	if !caps.EmptyHome {
 		plan.Links = append(plan.Links, homeLinks(plan)...)
@@ -884,11 +900,13 @@ func mainCheckout(gitCommonDir string) string {
 
 // homeLinks are the links of the agent's own home (plan.HomeSource) to
 // what the plan shows of the real home, for a backend that cannot show it
-// empty: each mount in the home that no other such mount holds.
+// empty: each mount in the home that no other such mount holds, but the
+// execution's own scratch folders.
 func homeLinks(plan sandbox.Plan) []sandbox.Link {
+	own := filepath.Dir(plan.HomeSource)
 	var shown []string
 	for _, m := range plan.Mounts {
-		if binds(m.Kind) && m.Dest == "" && m.Path != plan.Home && within(m.Path, plan.Home) {
+		if binds(m.Kind) && m.Dest == "" && m.Path != plan.Home && within(m.Path, plan.Home) && !within(m.Path, own) {
 			shown = append(shown, m.Path)
 		}
 	}
@@ -909,4 +927,10 @@ func homeLinks(plan sandbox.Plan) []sandbox.Link {
 		links = append(links, sandbox.Link{Path: filepath.Join(plan.HomeSource, rel), Target: path})
 	}
 	return links
+}
+
+// sandboxBinDir is the execution's own folder of commands, first on the
+// launch line's PATH: the engram binary, and on macOS the az wrapper.
+func sandboxBinDir(runtimeDir, executionID string) string {
+	return filepath.Join(runtimeDir, "sandbox", executionID, "bin")
 }

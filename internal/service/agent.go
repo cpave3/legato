@@ -1787,6 +1787,10 @@ func (a *agentService) EndExecution(ctx context.Context, executionID, status str
 	if err := a.store.TerminalizeExecution(ctx, executionID, status); err != nil {
 		return err
 	}
+	if a.sandbox != nil && a.sandbox.EndProcesses != nil {
+		// Before the scratch goes, which they may still be writing.
+		a.sandbox.EndProcesses(ctx, executionID)
+	}
 	// Asked before the scratch goes: the view is in the runtime folder.
 	if a.docker != nil && a.docker.HasProxy(executionID) {
 		a.docker.cleanLogged(executionID)

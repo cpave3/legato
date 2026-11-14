@@ -94,7 +94,13 @@ func (d *SandboxDocker) WriteView(executionID string, plan sandbox.Plan) error {
 func dockerViewOf(plan sandbox.Plan) dockerproxy.View {
 	var view dockerproxy.View
 	if plan.Home != "" && plan.HomeSource != "" {
-		view.Mounts = append(view.Mounts, dockerproxy.Mount{Kind: dockerproxy.ReadWrite, Source: plan.HomeSource, Dest: plan.Home})
+		home := plan.Home
+		if plan.Setenv["HOME"] == plan.HomeSource {
+			// A backend that cannot remap (Seatbelt): HOME is the scratch
+			// home where it is, and the person's home is not shown.
+			home = plan.HomeSource
+		}
+		view.Mounts = append(view.Mounts, dockerproxy.Mount{Kind: dockerproxy.ReadWrite, Source: plan.HomeSource, Dest: home})
 	}
 	for _, m := range plan.Mounts {
 		dest := m.Dest

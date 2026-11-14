@@ -4,6 +4,7 @@ package service
 
 import (
 	"bytes"
+	"context"
 	"errors"
 	"fmt"
 	"os"
@@ -290,4 +291,35 @@ func openDarwinPTY() (master, slave *os.File, err error) {
 		return nil, nil, err
 	}
 	return master, slave, nil
+}
+
+// What an agent detached is ended with its execution, though there is no
+// process namespace to end it with the pane.
+func TestWallsOnAMacWhatAnAgentDetachedEndsWithItsExecution(t *testing.T) {
+	w := wallFixture(t)
+	out, err := w.run(t, `nohup /bin/sleep 61239 >/dev/null 2>&1 & echo started`, "LEGATO_EXECUTION_ID=ex-wall-1")
+	if err != nil || !strings.Contains(out, "started") {
+		t.Fatalf("%v: %s", err, out)
+	}
+	running := func() bool {
+		procs, _ := DarwinProcessTable(context.Background())
+		for _, p := range procs {
+			if len(p.Words) > 1 && p.Words[0] == "/bin/sleep" && p.Words[1] == "61239" {
+				return true
+			}
+		}
+		return false
+	}
+	if !running() {
+		t.Fatal("the detached process did not outlive its shell, so this proves nothing")
+	}
+	EndSandboxProcesses(DarwinProcessTable, syscall.Kill, 2*time.Second)(context.Background(), "ex-wall-1")
+	deadline := time.Now().Add(5 * time.Second)
+	for running() && time.Now().Before(deadline) {
+		time.Sleep(100 * time.Millisecond)
+	}
+	if running() {
+		_ = exec.Command("/usr/bin/pkill", "-f", "sleep 61239").Run()
+		t.Fatal("the detached process outlived its execution")
+	}
 }

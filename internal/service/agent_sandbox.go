@@ -26,6 +26,10 @@ type SandboxSettings struct {
 	// sandbox where it cannot reach its own login (Claude Code's is in the
 	// macOS Keychain), or why it cannot start there. Nil: none needed.
 	ToolLogin func(ctx context.Context, agentKind string) (map[string]string, error)
+	// EndProcesses ends what an execution left running, for a backend with
+	// no process namespace (EndSandboxProcesses). Nil: the backend's own
+	// namespace ends everything with the pane.
+	EndProcesses func(ctx context.Context, executionID string)
 }
 
 // CheckoutOverlayProber says whether an agent's checkout can be shown
@@ -111,7 +115,7 @@ func (a *agentService) sandboxPrefix(ctx context.Context, taskID, executionID, a
 		return "", errors.New("an engram session needs Legato's runtime folder for its engram binary")
 	}
 	if engram.Store != "" {
-		binDir := filepath.Join(in.RuntimeDir, "sandbox", executionID, "bin")
+		binDir := sandboxBinDir(in.RuntimeDir, executionID)
 		engram.BinMount = filepath.Join(binDir, "engram")
 		if err := os.MkdirAll(binDir, 0o700); err != nil {
 			return "", err
@@ -199,6 +203,13 @@ func (a *agentService) sandboxPrefix(ctx context.Context, taskID, executionID, a
 	dir := ""
 	if in.RuntimeDir != "" {
 		dir = filepath.Join(in.RuntimeDir, "sandbox", executionID)
+	}
+	for _, l := range plan.Links {
+		if in.RuntimeDir != "" && filepath.Dir(l.Path) == sandboxBinDir(in.RuntimeDir, executionID) {
+			// A command linked into the execution's bin (az's wrapper on
+			// macOS) is found before any other of its name.
+			pathFirst = filepath.Dir(l.Path)
+		}
 	}
 	line, err := backend.Prefix(plan, dir)
 	if err != nil {

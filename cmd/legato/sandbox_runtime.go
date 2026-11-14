@@ -11,6 +11,8 @@ import (
 	"regexp"
 	"runtime"
 	"strings"
+	"syscall"
+	"time"
 
 	"github.com/cpave3/legato/config"
 	"github.com/cpave3/legato/internal/engine/ipc"
@@ -40,7 +42,9 @@ func sandboxSettings(cfg *config.Config, db *store.Store) *service.SandboxSettin
 	layout := service.LayoutFor(runtime.GOOS, os.Getuid())
 	backend := sandboxBackend(cfg)
 	var login func(context.Context, string) (map[string]string, error)
+	var endProcesses func(context.Context, string)
 	if backend.Name() == "seatbelt" {
+		endProcesses = service.EndSandboxProcesses(service.DarwinProcessTable, syscall.Kill, 2*time.Second)
 		var resolve service.SecretResolver
 		if db != nil {
 			resolve = settingSecrets(cfg, db)
@@ -48,8 +52,9 @@ func sandboxSettings(cfg *config.Config, db *store.Store) *service.SandboxSettin
 		login = sandboxToolLogin(cfg.Agents.Sandbox.ClaudeCodeToken, resolve, home, os.Getenv)
 	}
 	return &service.SandboxSettings{
-		Backend:   backend,
-		ToolLogin: login,
+		Backend:      backend,
+		ToolLogin:    login,
+		EndProcesses: endProcesses,
 		Base: service.SandboxPlanInput{
 			Layout: &layout,
 			Home:   home, RuntimeDir: runtimeDir, ScratchDir: config.ResolveSandboxScratchDir(cfg),
