@@ -92,10 +92,11 @@ type SandboxPlanInput struct {
 	// DockerSocket is the execution's own Docker API socket, filtered by
 	// Legato's proxy (agents.sandbox.docker); its folder is mounted and
 	// DOCKER_HOST names it.
-	DockerSocket    string
-	PastedImagesDir string
-	AgentFilesDir   string // ~/.legato/agents/<task>: role prompt and brief
-	GitCommonDir    string // a worktree's main .git, written by commits
+	DockerSocket     string
+	PastedImagesDir  string
+	AgentFilesDir    string // ~/.legato/agents/<task>: role prompt and brief
+	ChimeraSecretDir string // host bootstrap material, hidden even during clone setup
+	GitCommonDir     string // a worktree's main .git, written by commits
 	// JobDir is the job clone Legato made for the session's task, in its
 	// data folder: the one part of that folder the sandbox may see.
 	JobDir string
@@ -378,6 +379,7 @@ func BuildSandboxPlan(in SandboxPlanInput) (sandbox.Plan, error) {
 		in.ScratchDir = real(in.ScratchDir)
 		in.JobDir = real(in.JobDir)
 		in.BinaryPath, in.GitCommonDir, in.AgentFilesDir, in.PastedImagesDir = real(in.BinaryPath), real(in.GitCommonDir), real(in.AgentFilesDir), real(in.PastedImagesDir)
+		in.ChimeraSecretDir = real(in.ChimeraSecretDir)
 		in.CredentialWrapperDir, in.GHConfigDir = real(in.CredentialWrapperDir), real(in.GHConfigDir)
 		in.SSHConfigDir, in.KnownHosts = real(in.SSHConfigDir), real(in.KnownHosts)
 		installs := make(map[string][]string, len(in.ToolInstalls))
@@ -619,6 +621,9 @@ func BuildSandboxPlan(in SandboxPlanInput) (sandbox.Plan, error) {
 				break
 			}
 		}
+	}
+	if in.ChimeraSecretDir != "" {
+		hides = append(hides, sandbox.Mount{Kind: sandbox.HideDir, Path: in.ChimeraSecretDir})
 	}
 	// bwrap mounts in order and a later mount covers an earlier one, so
 	// every mount and cover goes after everything that holds it: ordered by

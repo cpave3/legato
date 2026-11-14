@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 
@@ -27,10 +28,10 @@ func AgentSessionCreatedFromHook(s *store.Store, taskID, sessionID string, reade
 // session of executionID: the session is kept in that agent's slot, and is
 // its own when it carries that slot's name ("" means the main slot's).
 func AgentSessionCreatedFromHookFor(s *store.Store, taskID, executionID, sessionID string, reader io.Reader) (bool, error) {
-	if session, err := s.GetRunningAgentSession(context.Background(), taskID, executionID); err == nil && session.HookSource == store.HookSourceMod {
-		return false, nil
+	slot, mod, err := chimeraHookSlot(s, taskID, executionID)
+	if err != nil || mod {
+		return false, err
 	}
-	slot := callerSlot(s, taskID, executionID)
 	register, err := SessionCreatedPayloadNamesTask(service.AgentSlotKey(taskID, slot), sessionID, reader)
 	if err != nil || !register {
 		return false, err
@@ -50,26 +51,30 @@ func AgentSessionCreatedFor(s *store.Store, taskID, executionID, sessionID strin
 	if sessionID == "" {
 		return fmt.Errorf("session ID is required")
 	}
-	if session, err := s.GetRunningAgentSession(context.Background(), taskID, executionID); err == nil && session.HookSource == store.HookSourceMod {
-		return nil
+	slot, mod, err := chimeraHookSlot(s, taskID, executionID)
+	if err != nil || mod {
+		return err
 	}
-	if err := s.SetChimeraResumeInSlot(context.Background(), taskID, callerSlot(s, taskID, executionID), sessionID); err != nil {
+	if err := s.SetChimeraResumeInSlot(context.Background(), taskID, slot, sessionID); err != nil {
 		return fmt.Errorf("linking Chimera session: %w", err)
 	}
 	return nil
 }
 
-// callerSlot is the slot of the running agent of executionID on the task,
-// the main slot when there is none.
-func callerSlot(s *store.Store, taskID, executionID string) string {
-	if executionID == "" {
-		return store.SlotMain
-	}
+func chimeraHookSlot(s *store.Store, taskID, executionID string) (string, bool, error) {
 	session, err := s.GetRunningAgentSession(context.Background(), taskID, executionID)
-	if err != nil || session.ExecutionID != executionID {
-		return store.SlotMain
+	if err != nil {
+		// The no-execution form also supports administrative repair without
+		// a running session; a supplied execution must own the report.
+		if executionID == "" && errors.Is(err, store.ErrNotFound) {
+			return store.SlotMain, false, nil
+		}
+		return "", false, err
 	}
-	return session.Slot
+	if executionID != "" && session.ExecutionID != executionID {
+		return "", false, fmt.Errorf("execution %s does not own this Chimera session", executionID)
+	}
+	return session.Slot, session.HookSource == store.HookSourceMod, nil
 }
 
 // SessionCreatedPayloadNamesTask checks a Chimera SessionCreated payload and

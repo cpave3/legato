@@ -62,7 +62,9 @@ func (h *storeBridgeHost) Session(ctx context.Context, taskID, executionID strin
 	}
 	h.taskID, h.session = taskID, session
 	out := BridgeSession{RecordsIdentity: recordsIdentity(session, taskID)}
-	if session.ChimeraEndpoint != nil {
+	// Chimera pushes its binding instead of reattaching from this reply;
+	// its secret-bearing URL must not cross the agent's broker.
+	if session.ChimeraEndpoint != nil && session.AgentKind != "chimera" {
 		out.Endpoint = *session.ChimeraEndpoint
 	}
 	if out.RecordsIdentity {

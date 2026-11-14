@@ -1322,7 +1322,14 @@ func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, hei
 		}
 	}
 	if launcher, ok := adapter.(LaunchCommandAdapter); ok {
-		if cmd := launcher.LaunchCommand(launchEnv, opt.Brief, opt.Model, opt.Tier); cmd != "" {
+		var cmd string
+		wrapped, ownsPrefix := adapter.(SandboxLaunchCommandAdapter)
+		if sandboxed && ownsPrefix {
+			cmd = wrapped.LaunchCommandWithSandbox(launchEnv, opt.Brief, opt.Model, opt.Tier, sandboxPrefix)
+		} else {
+			cmd = launcher.LaunchCommand(launchEnv, opt.Brief, opt.Model, opt.Tier)
+		}
+		if cmd != "" {
 			if off, ok := adapter.(PromptsOffAdapter); ok && opt.Unattended {
 				for _, arg := range off.PromptsOffArgs() {
 					cmd += " " + shellWord(arg)
@@ -1335,7 +1342,7 @@ func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, hei
 			for _, arg := range opt.LaunchArgs {
 				cmd += " " + shellWord(arg)
 			}
-			if sandboxed {
+			if sandboxed && !ownsPrefix {
 				cmd = sandboxPrefix + " " + cmd
 			}
 			cmd = thenLaunch(cmd)
@@ -2237,6 +2244,9 @@ func gitWorktreeRoot(directory string) (string, error) {
 // interaction adapter. For Chimera agents with a discovered endpoint, this
 // uses the HTTP API; for all others, it uses tmux send-keys.
 func (a *agentService) SendMessage(ctx context.Context, taskID, message string) error {
+	if err := a.awaitChimeraMessageBinding(ctx, taskID); err != nil {
+		return err
+	}
 	adapter := a.resolveInteractionAdapter(ctx, taskID)
 	return adapter.SendMessage(ctx, taskID, message)
 }
@@ -2244,7 +2254,32 @@ func (a *agentService) SendMessage(ctx context.Context, taskID, message string) 
 // InterruptAgent sends an interrupt to the agent's active turn.
 // QueueMessage delegates step-boundary delivery to the active interaction adapter.
 func (a *agentService) QueueMessage(ctx context.Context, taskID, message string) error {
+	if err := a.awaitChimeraMessageBinding(ctx, taskID); err != nil {
+		return err
+	}
 	return a.resolveInteractionAdapter(ctx, taskID).QueueMessage(ctx, taskID, message)
+}
+
+func (a *agentService) awaitChimeraMessageBinding(ctx context.Context, taskID string) error {
+	session, err := slotSession(ctx, a.store, taskID)
+	if err != nil {
+		return err
+	}
+	if session.AgentKind != "chimera" || session.NativeOff || (session.ChimeraEndpoint != nil && session.ChimeraSessionID != nil) {
+		return nil
+	}
+	adapter := a.resolveAdapter("chimera")
+	binder, ok := adapter.(NativeBindingAdapter)
+	if !ok || !binder.BindsNativeEndpoint() {
+		return nil
+	}
+	if a.awaitNativeEndpoint(ctx, taskID, adapter) {
+		return nil
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	return fmt.Errorf("Chimera agent %s has not bound its native endpoint; message was not typed into the starting terminal", taskID)
 }
 
 func (a *agentService) InterruptAgent(ctx context.Context, taskID string) error {
@@ -2383,7 +2418,15 @@ func (a *agentService) DiscoverChimera(ctx context.Context, taskID string) error
 	if session.AgentKind == codexAgentKind {
 		return a.discoverCodexBridge(ctx, taskID, session.ID)
 	}
-	return a.discoverChimeraFromLockfiles(ctx, taskID, session.ID, AgentSlotKey(session.TaskID, session.Slot), nil)
+	task, err := a.store.GetTask(ctx, session.TaskID)
+	if err != nil {
+		return err
+	}
+	expectedName := AgentSlotKey(session.TaskID, session.Slot)
+	if task.Ephemeral {
+		expectedName = ""
+	}
+	return a.discoverChimeraFromLockfiles(ctx, taskID, session.ID, expectedName, nil)
 }
 
 func (a *agentService) discoverChimeraFromLockfiles(ctx context.Context, taskID string, agentSessionID int, expectedSessionName string, excluded map[string]bool) error {

@@ -57,6 +57,9 @@ func (a *agentService) sandboxPrefix(ctx context.Context, taskID, attributionTas
 	// Without overlays, a throwaway checkout is the plain read-only one.
 	in.ThrowawayCheckout = readOnly && throwaway && a.CheckoutOverlayAvailable()
 	in.BrokerSocket = env["LEGATO_BROKER_SOCKET"]
+	if file := env["LEGATO_CHIMERA_SECRET_FILE"]; file != "" {
+		in.ChimeraSecretDir = filepath.Dir(file)
+	}
 	if sock := env["SSH_AUTH_SOCK"]; sock != "" && in.RuntimeDir != "" && strings.HasPrefix(sock, filepath.Join(in.RuntimeDir, "ssh")+"/") {
 		in.SSHSocket = sock
 	}

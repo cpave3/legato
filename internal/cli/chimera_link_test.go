@@ -55,6 +55,12 @@ func TestChimeraLinkBindsSwitchesAndReleases(t *testing.T) {
 	if err := cli.AgentSessionCreatedFor(s, "link-task", "native-link-task", "stale-hook"); err != nil {
 		t.Fatal(err)
 	}
+	if err := cli.AgentSessionCreatedFor(s, "link-task", "ended-execution", "stale-execution"); err == nil {
+		t.Fatal("accepted an identity report from a different execution")
+	}
+	if _, err := cli.AgentSessionCreatedFromHookFor(s, "link-task", "ended-execution", "stale-execution", strings.NewReader(`{"session_id":"stale-execution","session_name":"link-task"}`)); err == nil {
+		t.Fatal("accepted a hook identity from a different execution")
+	}
 	write(`{"seq":5,"type":"session.end","sessionId":"chimera-two","reason":"exit"}`)
 	if err := <-done; err != nil {
 		t.Fatal(err)
@@ -78,7 +84,16 @@ func TestChimeraLinkRefusesNonLoopback(t *testing.T) {
 	}
 }
 
-// Synthetic v1 shapes, pending a mod-capable Chimera recording.
+func TestChimeraLinkRequiresAnEventSequence(t *testing.T) {
+	s := newTestStore(t)
+	seedChimeraLinkAgent(t, s)
+	err := cli.RunChimeraLink(context.Background(), s, cli.ChimeraLinkOptions{TaskID: "link-task", Stdin: strings.NewReader(`{"type":"session.start","sessionId":"s","cwd":"/repo","serverUrl":"http://127.0.0.1:4444","apiVersion":1}` + "\n")})
+	if err == nil {
+		t.Fatal("accepted an unordered event stream")
+	}
+}
+
+// Synthetic overlap and duplicate-sequence cases complement runtime recordings.
 func TestChimeraLinkKeepsStateOrderedThroughStoreAndBroker(t *testing.T) {
 	for _, remote := range []bool{false, true} {
 		t.Run(fmt.Sprint("broker=", remote), func(t *testing.T) {

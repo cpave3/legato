@@ -86,6 +86,7 @@ The rest are not imported. Before changing an area, read its doc, and keep it cu
 - `docs/ai/credentials.md` — credential broker, rules, HTTP proxy, SSH agent, GitHub App, stores, audit log
 - `docs/ai/learning.md` — Legato Learn ledger, curation workflow, prompt eligibility
 - `docs/ai/claude-code-native.md` — Claude Code mod and bridge, permissions, scratch-instance setup
+- `docs/ai/chimera-native.md` — Chimera mod and link, state events, server secrets, fallback and host-test evidence
 - `docs/ai/codex-native.md` — Codex app-server bridge and launcher
 - `docs/ai/agent-mcp.md` — `legato mcp serve` tools, artifacts/cards, images, videos, studios, HTML sandbox
 - `docs/ai/integrations.md` — Argus: scoped tokens, owner lookup, delegations, replies, the OAuth connection, cases in Attention
@@ -126,7 +127,7 @@ The documentation for people who use Legato is the Starlight site in `site/`, pu
 | `docs/ai/workflows.md` | `using/workflows` |
 | `docs/ai/model-settings.md` | `agent-tools/model-settings` |
 | `docs/ai/sync.md`, `docs/ai/pr-tracking.md` | `integrations/jira`, `integrations/github` |
-| `docs/ai/claude-code-native.md`, `docs/ai/codex-native.md`, `docs/ai/agent-mcp.md`, `docs/ai/resources.md` | `agent-tools/*` |
+| `docs/ai/claude-code-native.md`, `docs/ai/chimera-native.md`, `docs/ai/codex-native.md`, `docs/ai/agent-mcp.md`, `docs/ai/resources.md` | `agent-tools/*` |
 | `docs/ai/credentials.md`, `docs/ai/sandbox.md` | `security/*`, `running/agent-server` |
 | `docs/ai/engram.md` | `agent-tools/engrams` |
 | `docs/ai/integrations.md` | `integrations/argus` |

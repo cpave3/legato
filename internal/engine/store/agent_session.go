@@ -165,18 +165,18 @@ func (s *Store) UpdateAgentSessionSwarmRole(ctx context.Context, taskID, role, p
 	return nil
 }
 
-// UpdateAgentActivity sets the activity of the task's main slot's session.
+// UpdateAgentActivity sets legacy activity unless the mod owns the session.
 func (s *Store) UpdateAgentActivity(ctx context.Context, taskID string, activity string) error {
 	_, err := s.db.ExecContext(ctx, `
 		UPDATE agent_sessions SET activity = ?
-		WHERE task_id = ? AND slot = 'main' AND status = 'running'`, activity, taskID)
+		WHERE task_id = ? AND slot = 'main' AND status = 'running' AND hook_source <> 'mod'`, activity, taskID)
 	return err
 }
 
-// UpdateAgentActivityForSession sets the activity of one running session.
+// UpdateAgentActivityForSession sets one session's legacy activity unless the mod owns it.
 func (s *Store) UpdateAgentActivityForSession(ctx context.Context, id int, activity string) error {
 	_, err := s.db.ExecContext(ctx, `
-		UPDATE agent_sessions SET activity = ? WHERE id = ? AND status = 'running'`, activity, id)
+		UPDATE agent_sessions SET activity = ? WHERE id = ? AND status = 'running' AND hook_source <> 'mod'`, activity, id)
 	return err
 }
 
@@ -368,7 +368,7 @@ func (s *Store) EndInterruptedAgentSession(ctx context.Context, taskID, slot str
 }
 
 // SetAgentHookState sets one running session's activity and background jobs
-// together, and marks where its state comes from (HookSourcePlugin, or ""
+// together, and marks where its state comes from (HookSourcePlugin, HookSourceMod, or ""
 // to leave the mark as it is).
 func (s *Store) SetAgentHookState(ctx context.Context, id int, activity string, jobs BackgroundJobs, source string) error {
 	_, err := s.db.ExecContext(ctx, `

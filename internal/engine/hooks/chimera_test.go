@@ -404,7 +404,20 @@ func TestChimeraLaunchReadsSecretFileAtExecutionTime(t *testing.T) {
 	if err != nil || string(out) != "server-secret-value:--late-flag" {
 		t.Fatalf("launch output %q: %v", out, err)
 	}
-	if _, err := os.Stat(secretFile); err != nil {
-		t.Fatalf("adapter removed parent's secret file: %v", err)
+	if _, err := os.Stat(secretFile); !os.IsNotExist(err) {
+		t.Fatalf("bootstrap secret was not consumed: %v", err)
+	}
+}
+
+func TestChimeraModDoesNotInstallLegacyHooks(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	a := hooks.NewChimeraAdapter("/bin/legato")
+	a.SetModDir("/data/mod")
+	if err := a.InstallHooks(""); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(home, ".chimera", "hooks")); !os.IsNotExist(err) {
+		t.Fatalf("mod mode installed legacy scripts: %v", err)
 	}
 }

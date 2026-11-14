@@ -8,7 +8,7 @@ import (
 	"github.com/cpave3/legato/internal/engine/store"
 )
 
-// All Chimera payloads here are synthetic until upstream recordings exist.
+// These synthetic boundary cases complement the pinned runtime recordings.
 func sendChimera(t *testing.T, a *hookAgent, payload string) step {
 	t.Helper()
 	hook, err := cli.ParseChimeraHook([]byte(payload))

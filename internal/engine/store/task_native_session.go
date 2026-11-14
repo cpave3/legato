@@ -64,9 +64,11 @@ func (s *Store) TaskChimeraSessionID(ctx context.Context, taskID string) (string
 }
 
 // SetChimeraResumeInSlot records the Chimera session a slot resumes, and an
-// empty one forgets it. Chimera's hook reports it; it has no directory or
-// owner to check.
+// empty one forgets it. Legacy hooks have no directory/owner to check; they
+// cannot replace a selector while the slot's current session is mod-owned.
 func (s *Store) SetChimeraResumeInSlot(ctx context.Context, taskID, slot, sessionID string) error {
+	const legacyOwnsSelector = `COALESCE((SELECT hook_source FROM agent_sessions
+		WHERE task_id = ? AND slot = ? AND status = 'running' ORDER BY id DESC LIMIT 1), '') <> 'mod'`
 	var exists int
 	if err := s.db.GetContext(ctx, &exists, `SELECT COUNT(*) FROM tasks WHERE id = ?`, taskID); err != nil {
 		return err
@@ -75,15 +77,16 @@ func (s *Store) SetChimeraResumeInSlot(ctx context.Context, taskID, slot, sessio
 		return ErrNotFound
 	}
 	if strings.TrimSpace(sessionID) == "" {
-		_, err := s.db.ExecContext(ctx, `DELETE FROM task_native_sessions WHERE task_id = ? AND slot = ? AND agent_kind = 'chimera'`, taskID, slotOrMain(slot))
+		_, err := s.db.ExecContext(ctx, `DELETE FROM task_native_sessions WHERE task_id = ? AND slot = ? AND agent_kind = 'chimera' AND `+legacyOwnsSelector,
+			taskID, slotOrMain(slot), taskID, slotOrMain(slot))
 		return err
 	}
 	_, err := s.db.ExecContext(ctx, `
 		INSERT INTO task_native_sessions (task_id, slot, agent_kind, provider_session_id, updated_at)
-		VALUES (?, ?, 'chimera', ?, ?)
+		SELECT ?, ?, 'chimera', ?, ? WHERE `+legacyOwnsSelector+`
 		ON CONFLICT(task_id, slot, agent_kind) DO UPDATE SET
 			provider_session_id = excluded.provider_session_id, updated_at = excluded.updated_at`,
-		taskID, slotOrMain(slot), sessionID, formatExecutionTime(time.Now()))
+		taskID, slotOrMain(slot), sessionID, formatExecutionTime(time.Now()), taskID, slotOrMain(slot))
 	return err
 }
 

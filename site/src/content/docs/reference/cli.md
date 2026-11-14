@@ -133,7 +133,7 @@ Peer messages are hints between agents. They do not lock files. See [Agents](/le
 
 ## Hooks
 
-- `legato hooks install --tool <tool>[,<tool>...] [--json]`: install the hooks that tell Legato what an agent tool is doing. The tools are `codex`, `chimera`, `staccato` and `yggdrasil`. `--tool` is required. For `claude-code` it installs nothing and removes the hooks earlier versions installed: Claude Code reports through the plugin Legato loads into each session.
+- `legato hooks install --tool <tool>[,<tool>...] [--json]`: install the hooks that tell Legato what an agent tool is doing. `--tool` is required. For `claude-code` and `chimera` it removes Legato's old scripts instead: the plugin or mod reports state. To install legacy Chimera scripts, first set `adapters.chimera.native_bridge: false`. Your own hooks are left alone. Other tools are `codex`, `staccato` and `yggdrasil`.
 - `legato hooks uninstall --tool <tool>[,<tool>...] [--json]`: remove them.
 
 ```bash

@@ -57,6 +57,13 @@ type LaunchCommandAdapter interface {
 	LaunchCommand(env map[string]string, brief, model, tier string) string
 }
 
+// SandboxLaunchCommandAdapter keeps a host-only bootstrap outside the sandbox
+// prefix while placing the tool and its arguments inside it.
+type SandboxLaunchCommandAdapter interface {
+	LaunchCommandAdapter
+	LaunchCommandWithSandbox(env map[string]string, brief, model, tier, sandboxPrefix string) string
+}
+
 // SessionLaunchValidator rejects configured arguments that override an exact
 // conversation selector or the saved workspace before a terminal is started.
 type SessionLaunchValidator interface {

@@ -1,6 +1,9 @@
 ---
 title: Chimera
-description: How Legato starts Chimera in a tmux session and connects it to the web UI's native panel. With a Chimera that supports mods v1, Legato's mod connects as soon as the session starts, reports its state and saves the conversation for resume. You do not need activity hook scripts.
+description: How Legato connects Chimera sessions, state and tools through its mod.
+---
+
+Legato starts Chimera in a tmux session and connects it to the web UI's native panel. With a Chimera that supports mods v1, Legato's mod connects as soon as the session starts, reports its state and saves the conversation for resume. You do not need activity hook scripts. Running `legato hooks install --tool chimera` now removes Legato's old scripts and leaves your own hooks alone. Set `native_bridge: false` first if you still need to install scripts for an older Chimera.
 
 ## The Legato mod
 
@@ -106,13 +109,16 @@ Chimera has a sandbox of its own, and Legato has [one for every agent](/legato/s
 
 ## Local server security
 
-Legato gives each Chimera launch its own server secret. It reads the secret from a private file at launch, never from typed text or tmux's environment, and removes that file once connected. The panel, messages and permissions use the authenticated local endpoint. An old Chimera without secret support cannot provide this protection.
+Legato gives each Chimera launch its own server secret. It reads the secret from a private file at launch, never from typed text or tmux's environment, and deletes that file before Chimera starts. The bootstrap stays outside the sandbox and is hidden from the agent. The panel, messages and permissions use the authenticated local endpoint. An old Chimera without secret support cannot provide this protection.
 
 Inside Legato's sandbox, the installed mod and your Chimera `mods` and `hooks` folders are read-only; conversation state stays writable.
+
+Chimera's own unsandboxed commands can still read the server secret from its process environment (`/proc/<pid>/environ`). Passing the secret by file descriptor or pipe is a pending Chimera fix (CHIM-86).
 
 ## Limits
 
 - Legato connects to Chimera's endpoint only on the same machine.
 - The mod needs Chimera mods v1. With the mod disabled, tools need a Chimera that accepts `--mcp-config`.
+- Answering a question from Legato's native panel has a known protocol mismatch with current Chimera. Answer it in Chimera's terminal instead; its waiting/working state is still reported correctly.
 
 For implementation details and the current verification limits, see [Chimera native integration on GitHub](https://github.com/cpave3/legato/blob/main/docs/ai/chimera-native.md).

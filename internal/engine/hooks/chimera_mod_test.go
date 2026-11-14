@@ -77,22 +77,30 @@ func TestChimeraModNode(t *testing.T) {
 	if err != nil {
 		t.Skip("node not installed")
 	}
-	cmd := exec.Command(node, "--test", "chimeramod/legato/tests/index.test.mjs")
+	cmd := exec.Command(node, "--test", "chimeramod/mock.test.mjs")
 	if out, err := cmd.CombinedOutput(); err != nil {
 		t.Fatalf("node mod tests: %v\n%s", err, out)
 	}
 }
 
 func TestChimeraModNative(t *testing.T) {
-	chimera, err := exec.LookPath("chimera")
-	if err != nil {
-		t.Skip("chimera not installed")
+	chimera := os.Getenv("CHIMERA_MOD_TEST_BIN")
+	pinned := chimera != ""
+	if !pinned {
+		var err error
+		chimera, err = exec.LookPath("chimera")
+		if err != nil {
+			t.Skip("chimera not installed")
+		}
 	}
 	help, err := exec.Command(chimera, "--help").CombinedOutput()
 	if err != nil {
 		t.Fatalf("chimera help: %v\n%s", err, help)
 	}
 	if !strings.Contains(string(help), "mod ") && !strings.Contains(string(help), "mod\n") {
+		if pinned {
+			t.Fatal("CHIMERA_MOD_TEST_BIN does not support mods")
+		}
 		t.Skip("installed Chimera predates mod support")
 	}
 	cmd := exec.Command(chimera, "mod", "test", "chimeramod/legato")

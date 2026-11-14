@@ -403,6 +403,12 @@ const chimeraSandboxPreamble = "## Chimera-specific guidance for legato\n" +
 //
 // Returns empty string when no role prompt file is set.
 func (a *ChimeraAdapter) LaunchCommand(env map[string]string, brief, model, tier string) string {
+	return a.LaunchCommandWithSandbox(env, brief, model, tier, "")
+}
+
+// LaunchCommandWithSandbox consumes host-only bootstrap material before
+// entering the sandbox; ordinary tool arguments still run inside it.
+func (a *ChimeraAdapter) LaunchCommandWithSandbox(env map[string]string, brief, model, tier, sandboxPrefix string) string {
 	if env == nil {
 		return ""
 	}
@@ -458,11 +464,18 @@ func (a *ChimeraAdapter) LaunchCommand(env map[string]string, brief, model, tier
 			cmd += " " + shellQuote(arg)
 		}
 	}
+	if sandboxPrefix != "" {
+		cmd = sandboxPrefix + " " + cmd
+	}
 	if secretFile := env["LEGATO_CHIMERA_SECRET_FILE"]; secretFile != "" {
 		// A shell-local assignment keeps the expanded value out of argv,
-		// unlike `env KEY=value`. The shell is executable behind bwrap;
-		// "$@" carries flags the agent service appends after this command.
-		cmd = "sh -c " + shellQuote(`CHIMERA_SERVER_SECRET="$(cat `+shellQuote(secretFile)+`)" || exit; export CHIMERA_SERVER_SECRET; exec `+cmd+` "$@"`) + " sh"
+		// unlike `env KEY=value`. "$@" carries the service's later flags.
+		run := cmd
+		if sandboxPrefix == "" {
+			run = "exec " + cmd
+		}
+		// The sandbox prefix may start with a PATH assignment, not an executable.
+		cmd = "sh -c " + shellQuote(`CHIMERA_SERVER_SECRET="$(cat `+shellQuote(secretFile)+`)" || exit; rm -- `+shellQuote(secretFile)+` || exit; export CHIMERA_SERVER_SECRET; `+run+` "$@"`) + " sh"
 	}
 	return cmd
 }
@@ -550,7 +563,7 @@ func (a *ChimeraAdapter) EnvVars(taskID, socketPath string) map[string]string {
 // Mod-backed sessions report state themselves and install no scripts.
 func (a *ChimeraAdapter) InstallHooks(projectDir string) error {
 	if a.modDir != "" {
-		return nil
+		return a.UninstallHooks(projectDir)
 	}
 	for _, s := range chimeraScripts {
 		dir := chimeraHookDir(s.event)

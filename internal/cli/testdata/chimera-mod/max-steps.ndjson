@@ -1,0 +1,4 @@
+{"type":"session.start","cwd":"/repo","seq":1,"sessionId":"fixture-max-steps","reason":"new","name":"fixture-task","serverUrl":"http://127.0.0.1:4444/fixture-secret","version":"v0.0.0-local","apiVersion":1}
+{"type":"turn.start","cwd":"/repo","seq":2,"sessionId":"fixture-max-steps","turnId":"9ba45934-4ebe-40eb-8f39-6516563becbb","source":"user"}
+{"type":"turn.complete","cwd":"/repo","seq":3,"sessionId":"fixture-max-steps","reason":"max_steps","turnId":"9ba45934-4ebe-40eb-8f39-6516563becbb"}
+{"type":"session.end","cwd":"/repo","seq":4,"sessionId":"fixture-max-steps","reason":"exit"}

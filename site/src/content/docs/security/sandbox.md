@@ -53,6 +53,8 @@ From then on every agent Legato starts runs inside the sandbox. If `bwrap` is mi
 | For an agent started as an [engram](/legato/agent-tools/engrams/): the engram binary, first on `PATH`, and engram's store, so the agent's own engram notes and memories are written | binary read-only, store read and write |
 | Your `known_hosts` and the system's ssh configuration | read-only |
 
+Chimera's server-secret bootstrap is consumed outside the sandbox before the tool starts and is hidden from the agent.
+
 Legato creates Chimera's `~/.chimera/mods` and `~/.chimera/hooks` directories when missing, even with `default_mounts: false`, so they are read-only from the first launch. If either directory is itself a symlink (including a broken one), the spawn fails: replace that symlink with a real directory. Individual mod entries inside `mods` may still be symlinks; their allowed targets are read-only. Protecting only a directory symlink's target would let an agent replace the symlink through Chimera's writable state folder.
 
 Agents never see:

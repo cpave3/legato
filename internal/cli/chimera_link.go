@@ -78,11 +78,17 @@ func RunChimeraLink(ctx context.Context, s *store.Store, opts ChimeraLinkOptions
 		if err := json.Unmarshal(raw, &e); err != nil {
 			return fmt.Errorf("reading Chimera event: %w", err)
 		}
-		if e.IsSubagent || (e.Seq != 0 && e.Seq <= applied) {
+		if e.IsSubagent {
+			continue
+		}
+		if e.Seq == 0 {
+			return fmt.Errorf("Chimera event sequence is required")
+		}
+		if e.Seq <= applied {
 			continue
 		}
 		switch e.Type {
-		case "session.start", "session.switch":
+		case "session.start":
 			if e.APIVersion != 1 {
 				return fmt.Errorf("unsupported Chimera mod API %d", e.APIVersion)
 			}
@@ -90,6 +96,11 @@ func RunChimeraLink(ctx context.Context, s *store.Store, opts ChimeraLinkOptions
 				return fmt.Errorf("Chimera session ID is required")
 			}
 			if err := validateChimeraLinkURL(e.ServerURL); err != nil {
+				return err
+			}
+			// Claim authority before saving identity, so a hook already in
+			// flight cannot replace the mod's selector after it is written.
+			if err := retryChimeraReport(ctx, func() error { return h.reportChimera(ctx, raw, e.Cwd) }); err != nil {
 				return err
 			}
 			if session.RecordsIdentity {
@@ -103,6 +114,8 @@ func RunChimeraLink(ctx context.Context, s *store.Store, opts ChimeraLinkOptions
 			endpoint, id = e.ServerURL, e.SessionID
 			cwd = e.Cwd
 			clear(pending)
+			applied = e.Seq
+			continue
 		case "session.end":
 			if e.SessionID != id {
 				continue

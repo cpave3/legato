@@ -1,12 +1,12 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { register } from '../index.mjs';
+import { register } from './legato/index.mjs';
 
 const tick = () => new Promise(resolve => setImmediate(resolve));
 
 async function host({ task = 'task-1', subagent = false, write, spawn, output } = {}) {
   const hooks = new Map();
-  const records = [], spawns = [];
+  const records = [], spawns = [], logs = [];
   let closed = false;
   const child = {
     async write(text) { if (write) await write(text); records.push(JSON.parse(text)); },
@@ -20,16 +20,17 @@ async function host({ task = 'task-1', subagent = false, write, spawn, output } 
     session: { isSubagent: subagent, cwd: '/work' },
     server: { url: () => 'http://127.0.0.1:7777/secret-token' },
     chimera: { version: '1.2.3' }, api: { version: 1 },
+    ui: { log: (text, options) => { logs.push({ text, ...options }); } },
     process: { spawn: options => { spawns.push(options); if (spawn) spawn(); return child; } },
   };
   await register((type, hook) => hooks.set(type, hook));
   return {
-    records, spawns, get closed() { return closed; },
-    async emit(type, fields = {}) {
+    records, spawns, logs, context: $, get closed() { return closed; },
+    async emit(type, fields = {}, context = $) {
       const hook = hooks.get(type);
       assert.ok(hook, `registered ${type}`);
       let nextCalls = 0;
-      const result = await hook($, { type, sessionId: 'session-1', ...fields }, async () => { nextCalls++; return 'continued'; });
+      const result = await hook(context, { type, sessionId: 'session-1', ...fields }, async () => { nextCalls++; return 'continued'; });
       assert.equal(nextCalls, 1);
       assert.equal(result, 'continued');
     },
@@ -58,7 +59,7 @@ async function host({ task = 'task-1', subagent = false, write, spawn, output } 
   assert.equal(h.records.length, 14);
   assert.deepEqual(h.records.map(r => r.seq), Array.from({ length: 14 }, (_, i) => i + 1));
   assert.deepEqual(h.records[0], { type: 'session.start', sessionId: 'session-1', reason: 'new', name: 'first', serverUrl: 'http://127.0.0.1:7777/secret-token', version: '1.2.3', apiVersion: 1, cwd: '/work', seq: 1 });
-  assert.equal(h.records[10].error, 'failure');
+  assert.equal(h.records[10].reason, 'error');
   assert.equal(h.records[12].parentSessionId, 'session-1');
 });
 
@@ -142,6 +143,7 @@ test('child output is consumed so its pipe cannot block event delivery', async (
   await h.emit('session.start', { reason: 'new', name: 'test' });
   await h.emit('session.end', { reason: 'exit' });
   assert.equal(consumed, true);
+  assert.deepEqual(h.logs, [{ text: 'diagnostic', to: 'debug' }]);
 });
 
 test('permanent write failure is surfaced at final drain without closing or losing the head', async () => {
@@ -190,4 +192,33 @@ test('message observers do not forward conversation payloads', async () => {
   await h.emit('session.end', { reason: 'exit' });
   assert.equal(h.records[1].messageId, 'm1');
   assert.equal(h.records[1].message, undefined);
+});
+
+
+test('child diagnostics use the current session context after switching', async () => {
+  let release;
+  const gate = new Promise(resolve => { release = resolve; });
+  const h = await host({ output: (async function* () { await gate; yield { stream: 'stderr', text: 'after switch' }; })() });
+  await h.emit('session.start', { reason: 'new' });
+  await h.emit('session.end', { reason: 'switch' });
+  h.context.ui.log = () => { throw new Error('SessionEnded'); };
+  const logs = [];
+  const current = { ...h.context, ui: { log: (text, options) => logs.push({ text, ...options }) } };
+  await h.emit('session.start', { reason: 'switch', sessionId: 'session-2' }, current);
+  release();
+  await h.emit('session.end', { reason: 'exit', sessionId: 'session-2' }, current);
+  assert.deepEqual(logs, [{ text: 'after switch', to: 'debug' }]);
+});
+
+
+test('state reports keep large permission arguments and error text out of the pipe', async () => {
+  const h = await host();
+  await h.emit('session.start', { reason: 'new' });
+  await h.emit('permission.request', { requestId: 'p', toolName: 'write', args: { content: 'x'.repeat(2 * 1024 * 1024) } });
+  await h.emit('turn.complete', { reason: 'error', error: 'x'.repeat(2 * 1024 * 1024) });
+  await h.emit('session.end', { reason: 'exit' });
+  assert.equal(h.records[1].requestId, 'p');
+  assert.equal(Object.hasOwn(h.records[1], 'args'), false);
+  assert.equal(h.records[2].reason, 'error');
+  assert.equal(Object.hasOwn(h.records[2], 'error'), false);
 });

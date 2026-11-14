@@ -13,6 +13,8 @@ The sandbox keeps secrets from agents. It does not filter the network, and it do
 - `bwrap` runs with the host's network and user, fresh PID, IPC, UTS and cgroup namespaces, and `--die-with-parent`: everything inside ends with the pane.
 - `agent_sessions.sandboxed` (migration 075) records which sessions run inside.
 
+Chimera's secret bootstrap folder is masked even if a role-prompt mount holds it, including during clone setup. `SandboxLaunchCommandAdapter` keeps secret loading and consumption on the host before bwrap; the tool and its later flags still run inside.
+
 ## What a sandbox sees
 
 Built by `service.BuildSandboxPlan` from the host's real paths (links resolved first: on a host whose `/home` is a link to `var/home`, every path is checked and mounted where it really is).

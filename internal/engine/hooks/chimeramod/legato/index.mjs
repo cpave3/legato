@@ -4,6 +4,10 @@ const stateEvents = [
   'background.start', 'background.exit', 'agent.spawn', 'agent.finish',
 ];
 const observerEvents = new Set(['message.append']);
+const stateFields = [
+  'sessionId', 'reason', 'name', 'parentSessionId', 'turnId', 'source',
+  'requestId', 'toolName', 'decision', 'messageId', 'jobId', 'exitCode', 'agentId', 'background',
+];
 const hookTimeout = 10_000;
 
 function beforeDeadline(promise, deadline) {
@@ -24,13 +28,14 @@ export async function register(on) {
   let pump;
   let failure;
   let inFlight;
+  let activeContext;
 
   async function drain($) {
     if (!child) {
       child = $.process.spawn({ argv: [$.env.get('LEGATO_BIN'), 'agent', 'link', 'chimera'] });
       output = (async () => {
         for await (const chunk of child.output) {
-          if (chunk.stream === 'stderr') console.error(chunk.text);
+          if (chunk.stream === 'stderr') await activeContext.ui.log(chunk.text.trimEnd(), { to: 'debug' });
         }
       })().catch(error => { failure = error; });
       // Observe rejection immediately, even if the session is still open.
@@ -73,12 +78,18 @@ export async function register(on) {
   for (const type of [...stateEvents, ...observerEvents]) {
     on(type, async ($, event, next) => {
       if (!$.env.get('LEGATO_TASK_ID') || $.session.isSubagent) return next();
+      activeContext = $;
       if (failure) throw failure;
       const deadline = Date.now() + hookTimeout;
-      const observed = type === 'message.append'
-        ? { sessionId: event.sessionId, messageId: event.messageId }
-        : event;
-      const record = { ...observed, type, cwd: $.session.cwd, seq: ++seq };
+      // Message bodies, permission args and error text can exceed the pipe's
+      // line limit; the link needs only lifecycle and activity metadata.
+      const record = { type, cwd: $.session.cwd, seq: ++seq };
+      for (const field of stateFields) {
+        if (event[field] !== undefined) record[field] = event[field];
+      }
+      for (const field of ['command', 'description']) {
+        if (event[field] !== undefined) record[field] = event[field].slice(0, 4096);
+      }
       if (type === 'session.start') {
         record.serverUrl = await beforeDeadline($.server.url(), deadline);
         record.version = $.chimera.version;

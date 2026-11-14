@@ -51,7 +51,7 @@ new session with none: its background work ended with the old process.
   report sets `hook_source = 'mod'`; stale `agent state` scripts then do
   nothing. Activity, reporting spans, notifications and job cleaning reuse
   Claude Code's state machinery.
-- **Chimera without the mod:** the scripts `legato hooks install --tool chimera` writes
+- **Chimera without the mod:** with `adapters.chimera.native_bridge: false`, `legato hooks install --tool chimera` writes scripts
   (`UserPromptSubmit` → `working`; `PermissionRequest`, `UserInputRequired` →
   `waiting`; `PermissionResolved` → from its payload; `OnError` → `error`; `Stop`,
   `Interrupt`, `Timeout`, `SessionEnd` → idle) into `legato agent state`, with
@@ -163,11 +163,15 @@ where the repository's current scripts differ, it says so.
 | Subagents | no hook carries one | — | — | Codex hooks or app-server events for them |
 | Compaction, `/clear`, resume | not hooked | unchanged | as Claude Code | — |
 
-## Chimera with the mod (from the CHIM69 spec; not recorded fixtures)
+## Chimera with the mod (recorded from `859884e7`)
 
-Tests use synthetic payloads of the spec's shapes in
-`internal/cli/chimera_hook_test.go` and `chimera_hook_broker_test.go`, through
-both the store and the real SQLite broker harness.
+Sixteen real private-tmux streams in `internal/cli/testdata/chimera-mod` replay
+through `RunChimeraLink` against both SQLite and the broker (32 cases). They
+cover requests, background work, run endings, append-without-turn, new/fork/
+switch/resume and exit/Ctrl+C/TERM/HUP. The pinned binary, normalization and
+remaining limits are in that folder's README. Synthetic mapping and authority
+tests in `chimera_hook_test.go` and `chimera_hook_broker_test.go` complement
+them for overlapping requests, malformed input and other hard-to-record cases.
 
 | Signal | Activity and jobs |
 | --- | --- |
