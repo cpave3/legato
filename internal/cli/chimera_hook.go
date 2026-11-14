@@ -126,8 +126,16 @@ func ApplyChimeraHook(s *store.Store, report ChimeraHookReport, pushNotifier, os
 		activity, decided = "", true
 	case "turn.start":
 		activity, decided = store.ActivityWorking, true
-	case "permission.request", "question.request":
+	case "question.request":
 		activity, decided = store.ActivityWaiting, true
+	case "permission.pending":
+		if h.PendingRequests != nil {
+			if *h.PendingRequests > 0 {
+				activity, decided = store.ActivityWaiting, true
+			} else if activity == store.ActivityWaiting {
+				activity, decided = store.ActivityWorking, true
+			}
+		}
 	case "permission.resolved", "question.resolved":
 		if h.PendingRequests != nil && *h.PendingRequests == 0 {
 			activity, decided = store.ActivityWorking, true

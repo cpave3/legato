@@ -6,12 +6,15 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/cpave3/legato/internal/engine/broker"
 	"io"
+	"log"
 	"net"
+	"net/http"
 	"net/url"
 	"time"
 
+	"github.com/cpave3/legato/internal/engine/broker"
+	"github.com/cpave3/legato/internal/engine/chimera"
 	"github.com/cpave3/legato/internal/engine/ipc"
 	"github.com/cpave3/legato/internal/engine/store"
 )
@@ -33,6 +36,8 @@ type chimeraLinkHost interface {
 // RunChimeraLink consumes the mod's ordered NDJSON stream until it ends.
 // The host owns the binding; no Chimera server is polled during startup.
 func RunChimeraLink(ctx context.Context, s *store.Store, opts ChimeraLinkOptions) (err error) {
+	ctx, cancel := context.WithCancel(ctx)
+	defer cancel()
 	host := opts.Host
 	if host == nil {
 		host = StoreBridgeHost(s)
@@ -47,7 +52,11 @@ func RunChimeraLink(ctx context.Context, s *store.Store, opts ChimeraLinkOptions
 	}
 	var endpoint, id string
 	var cwd string
-	pending := make(map[string]bool)
+	questions := make(map[string]bool)
+	permissions := make(map[string]bool)
+	// Interceptions precede automatic arbitration. Only pendingPermissions in
+	// the snapshot proves that Chimera has actually asked the operator.
+	candidates := make(map[string]bool)
 	defer func() {
 		if endpoint != "" {
 			cleanupErr := h.unbindChimera(context.WithoutCancel(ctx), id, endpoint)
@@ -56,14 +65,62 @@ func RunChimeraLink(ctx context.Context, s *store.Store, opts ChimeraLinkOptions
 			}
 		}
 	}()
-	scanner := bufio.NewScanner(opts.Stdin)
-	scanner.Buffer(make([]byte, 4096), 1024*1024)
+	records := readChimeraRecords(ctx, opts.Stdin)
+	ticker := time.NewTicker(250 * time.Millisecond)
+	defer ticker.Stop()
 	var applied uint64
-	for scanner.Scan() {
-		if err := ctx.Err(); err != nil {
-			return err
+	probeFailed := false
+	httpClient := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error {
+		return http.ErrUseLastResponse
+	}}
+	for {
+		var raw []byte
+		select {
+		case <-ctx.Done():
+			return ctx.Err()
+		case record := <-records:
+			if record.err != nil {
+				if errors.Is(record.err, io.EOF) {
+					return nil
+				}
+				return record.err
+			}
+			raw = record.raw
+		case <-ticker.C:
+			if len(candidates) == 0 {
+				continue
+			}
+			probeCtx, stop := context.WithTimeout(ctx, 2*time.Second)
+			snapshot, probeErr := chimera.NewClientWithHTTPClient(endpoint, httpClient).GetSession(probeCtx, id)
+			stop()
+			if probeErr != nil {
+				// Client errors can contain the secret URL; do not log them.
+				if !probeFailed {
+					log.Print("Chimera link: cannot confirm pending permissions; retrying")
+				}
+				probeFailed = true
+				continue
+			}
+			probeFailed = false
+			if snapshot.PendingPermissions == nil {
+				continue
+			}
+			previous := len(permissions)
+			clear(permissions)
+			for _, p := range *snapshot.PendingPermissions {
+				if candidates[p.RequestID] {
+					permissions[p.RequestID] = true
+				}
+			}
+			if len(permissions) == previous {
+				continue
+			}
+			raw, _ = json.Marshal(map[string]any{"type": "permission.pending", "pendingRequests": len(questions) + len(permissions)})
+			if err := retryChimeraReport(ctx, func() error { return h.reportChimera(ctx, raw, cwd) }); err != nil {
+				return err
+			}
+			continue
 		}
-		raw := append([]byte(nil), scanner.Bytes()...)
 		var e struct {
 			Seq        uint64 `json:"seq"`
 			Type       string `json:"type"`
@@ -113,7 +170,9 @@ func RunChimeraLink(ctx context.Context, s *store.Store, opts ChimeraLinkOptions
 			}
 			endpoint, id = e.ServerURL, e.SessionID
 			cwd = e.Cwd
-			clear(pending)
+			clear(questions)
+			clear(permissions)
+			clear(candidates)
 			applied = e.Seq
 			continue
 		case "session.end":
@@ -134,17 +193,24 @@ func RunChimeraLink(ctx context.Context, s *store.Store, opts ChimeraLinkOptions
 		}
 		switch e.Type {
 		case "turn.start", "turn.complete":
-			clear(pending)
-		case "permission.request", "question.request":
-			pending[e.RequestID] = true
-		case "permission.resolved", "question.resolved":
-			delete(pending, e.RequestID)
+			clear(questions)
+			clear(permissions)
+			clear(candidates)
+		case "permission.request":
+			candidates[e.RequestID] = true
+		case "permission.resolved":
+			delete(candidates, e.RequestID)
+			delete(permissions, e.RequestID)
+		case "question.request":
+			questions[e.RequestID] = true
+		case "question.resolved":
+			delete(questions, e.RequestID)
 		}
 		var record map[string]any
 		if err := json.Unmarshal(raw, &record); err != nil {
 			return err
 		}
-		record["pendingRequests"] = len(pending)
+		record["pendingRequests"] = len(questions) + len(permissions)
 		raw, err = json.Marshal(record)
 		if err != nil {
 			return err
@@ -154,7 +220,37 @@ func RunChimeraLink(ctx context.Context, s *store.Store, opts ChimeraLinkOptions
 		}
 		applied = e.Seq
 	}
-	return scanner.Err()
+}
+
+type chimeraRecord struct {
+	raw []byte
+	err error
+}
+
+// The caller owns stdin and closes it when the link ends. A separate reader
+// lets the link confirm prompts while a long tool call emits no events.
+func readChimeraRecords(ctx context.Context, input io.Reader) <-chan chimeraRecord {
+	records := make(chan chimeraRecord)
+	go func() {
+		scanner := bufio.NewScanner(input)
+		scanner.Buffer(make([]byte, 4096), 1024*1024)
+		for scanner.Scan() {
+			select {
+			case records <- chimeraRecord{raw: append([]byte(nil), scanner.Bytes()...)}:
+			case <-ctx.Done():
+				return
+			}
+		}
+		err := scanner.Err()
+		if err == nil {
+			err = io.EOF
+		}
+		select {
+		case records <- chimeraRecord{err: err}:
+		case <-ctx.Done():
+		}
+	}()
+	return records
 }
 
 // A short broker outage pauses the same stream; refusals still reach stderr.

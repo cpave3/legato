@@ -92,7 +92,7 @@ The mod reports the session's endpoint directly; startup messages wait for that 
 - Switch the model and the Chimera mode, and change the model's settings. See [Model settings](/legato/agent-tools/model-settings/).
 - See how full the context window is, and what the model reasoned.
 
-When Chimera asks for a permission or asks a question, Legato raises it as an approval: in the web UI's tray, in [Attention](/legato/using/attention/), in the TUI (press `!`), and on your phone. The first answer, here or in the terminal, settles it.
+When Chimera asks for a permission or asks a question, Legato raises it as an approval: in the web UI's tray, in [Attention](/legato/using/attention/), in the TUI (press `!`), and on your phone. The first answer, here or in the terminal, settles it. Automatic permission checks (including System One) keep the agent **working**; **waiting** means a permission prompt or question needs your answer. Legato confirms permission prompts from Chimera’s live session, so they can take a moment to appear.
 
 For a question, choose an option or type an answer of your own, then **Send answer**. You can answer from the native panel, the approvals tray or focus mode. **Dismiss** tells Chimera you declined to answer.
 

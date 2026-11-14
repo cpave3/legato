@@ -24,7 +24,7 @@ func TestChimeraHook_BrokerAndStoreAgree(t *testing.T) {
 		jobs              int
 	}{
 		{`{"type":"turn.start"}`, "working", 0},
-		{`{"type":"permission.request","requestId":"p1","pendingRequests":1}`, "waiting", 0},
+		{`{"type":"permission.pending","pendingRequests":1}`, "waiting", 0},
 		{`{"type":"question.request","requestId":"q1","pendingRequests":2}`, "waiting", 0},
 		{`{"type":"message.append"}`, "waiting", 0},
 		{`{"type":"permission.resolved","requestId":"p1","pendingRequests":1}`, "waiting", 0},
@@ -91,7 +91,7 @@ func TestChimeraHook_BrokerIgnoresOtherHookWritersAfterModClaim(t *testing.T) {
 	h := cli.NewBrokerHandler(s, cli.BrokerDeps{OS: notifier})
 	for _, payload := range []string{
 		`{"type":"background.start","jobId":"job","command":"sleep 60"}`,
-		`{"type":"permission.request","requestId":"p"}`,
+		`{"type":"permission.pending","pendingRequests":1}`,
 	} {
 		hook, err := cli.ParseChimeraHook([]byte(payload))
 		if err != nil {
