@@ -194,10 +194,16 @@ it("spawns an agent from the ensemble", async () => {
 
 it("switches with a number key in the order the agent list shows", async () => {
   open("/agents")
-  await screen.findByText("Terminal of TASK-1")
-  // TASK-2 waits on the person, so the list shows it first.
-  fireEvent.keyDown(window, { key: "Control", ctrlKey: true })
-  fireEvent.keyDown(window, { key: "1", ctrlKey: true })
+  await new Promise<void>((resolve) => {
+    const observer = new MutationObserver(() => {
+      if (!screen.queryByText("Terminal of TASK-1")) return
+      observer.disconnect()
+      // TASK-2 waits on the person, so the list shows it first.
+      fireEvent.keyDown(window, { key: "1", ctrlKey: true })
+      resolve()
+    })
+    observer.observe(document.body, { childList: true, subtree: true })
+  })
   await screen.findByText("Terminal of TASK-2")
 })
 

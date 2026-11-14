@@ -494,7 +494,7 @@ export function AgentsPage() {
 
   // Keyboard agent switching: modifier + digit
   const [modifierHeld, setModifierHeld] = useState(false)
-  useEffect(() => {
+  useLayoutEffect(() => {
     const onKeyDown = (e: globalThis.KeyboardEvent) => {
       const mod = getSwitchModifier()
       if (isModifierActive(e, mod)) {
