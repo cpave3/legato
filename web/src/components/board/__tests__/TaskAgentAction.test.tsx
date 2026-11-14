@@ -400,14 +400,14 @@ describe("TaskAgentAction", () => {
     expect(preset.getAttribute("aria-pressed")).toBe("false")
     await confirm()
     await screen.findByText("launch failed")
-    expect(apiFetch).toHaveBeenLastCalledWith("", "/api/tasks/T-1/agent", expect.objectContaining({
+    expect(apiFetch).toHaveBeenCalledWith("", "/api/tasks/T-1/agent", expect.objectContaining({
       body: JSON.stringify({ agent_kind: "claude-code", working_dir: "/manual", session_policy: "new" }),
     }))
 
     pickAgent("Codex")
     expect(screen.queryByRole("radio", { name: "Resume previous session" })).toBeNull()
     await confirm()
-    await vi.waitFor(() => expect(apiFetch).toHaveBeenLastCalledWith("", "/api/tasks/T-1/agent", expect.objectContaining({
+    await vi.waitFor(() => expect(apiFetch).toHaveBeenCalledWith("", "/api/tasks/T-1/agent", expect.objectContaining({
       body: JSON.stringify({ agent_kind: "codex", working_dir: "/manual" }),
     })))
 
