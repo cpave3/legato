@@ -144,3 +144,7 @@ With a `manticore:` block in the config, the agents view shows how many tokens w
 Tests assert text and sizes, not colors: lipgloss adds no escape sequences without a terminal. A view test should check that the view is exactly the size it was given (every line as wide as the width), which is what keeps panels side by side.
 
 To see colors, run a build with a path of its own against a throwaway config (see [Claude Code native integration](claude-code-native.md) § Trying it without touching real state) inside a tmux session with `COLORTERM=truecolor`, and read the pane with `tmux capture-pane -e -N -p`. Two things about that output: tmux writes only what changes from one cell to the next, across lines too, so a converter must carry colors from line to line; and without `-N` it drops trailing cells, which makes a filled panel look unpainted.
+
+## Macro delivery safety
+
+Terminal macros pass the foreground guard ([Agent states](agent-states.md)); a shell never receives them. A bound native agent accepts only message-submitting macros (ending in a newline), through `SendMessage`, not raw keys.

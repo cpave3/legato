@@ -280,9 +280,17 @@ func (f *contractTmux) SendKeysShellCommand(string, string) error { return nil }
 func (f *contractTmux) PipeOutput(string) (io.Reader, func(), error) {
 	return strings.NewReader(""), func() {}, nil
 }
-func (f *contractTmux) SetEnv(string, string, string) error      { return nil }
-func (f *contractTmux) SetOption(string, string, string) error   { return nil }
-func (f *contractTmux) PaneCommands() (map[string]string, error) { return nil, nil }
+func (f *contractTmux) SetEnv(string, string, string) error    { return nil }
+func (f *contractTmux) SetOption(string, string, string) error { return nil }
+func (f *contractTmux) PaneCommands() (map[string]string, error) {
+	commands := map[string]string{}
+	for name, alive := range f.alive {
+		if alive {
+			commands[name] = "claude"
+		}
+	}
+	return commands, nil
+}
 
 func TestTaskCommandRejectsUnsupportedConfiguredDatabaseDriver(t *testing.T) {
 	configPath := filepath.Join(t.TempDir(), "config.yaml")
@@ -718,7 +726,7 @@ func TestTaskDescriptionConflictingInputRejectsBothFlags(t *testing.T) {
 		t.Fatalf("expected nonzero exit, got %d", code)
 	}
 	var errEnvelope struct {
-		OK    bool   `json:"ok"`
+		OK    bool `json:"ok"`
 		Error struct {
 			Code string `json:"code"`
 		} `json:"error"`
@@ -759,7 +767,7 @@ func TestTaskDescriptionMissingArgumentWithOnlyTaskID(t *testing.T) {
 		t.Fatalf("expected nonzero exit, got %d", code)
 	}
 	var errEnvelope struct {
-		OK    bool   `json:"ok"`
+		OK    bool `json:"ok"`
 		Error struct {
 			Code string `json:"code"`
 		} `json:"error"`

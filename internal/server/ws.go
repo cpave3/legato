@@ -436,6 +436,21 @@ func (s *Server) handleSendKeys(client *wsClient, msg WSMessage) {
 		return
 	}
 
+	if s.agents != nil && s.agents.HasChimeraEndpoint(context.Background(), msg.AgentID) {
+		var err error
+		if strings.HasSuffix(msg.Keys, "\n") {
+			err = s.agents.SendMessage(context.Background(), msg.AgentID, strings.TrimSuffix(msg.Keys, "\n"))
+		} else if msg.Keys == "C-c" {
+			err = s.agents.InterruptAgent(context.Background(), msg.AgentID)
+		} else {
+			err = fmt.Errorf("native agent keys are unavailable; use its native controls")
+		}
+		if err != nil {
+			client.send(WSMessage{Type: MsgError, Error: err.Error()})
+		}
+		return
+	}
+
 	sessionName := "legato-" + msg.AgentID
 	keys := msg.Keys
 	if s.streams != nil {

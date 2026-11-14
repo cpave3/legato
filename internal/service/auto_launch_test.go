@@ -54,6 +54,7 @@ func TestSpawnAgent_AutoLaunchHappyPath(t *testing.T) {
 
 	workDir := t.TempDir()
 	mt := newMockTmux()
+	mt.paneCommands = map[string]string{"legato-parent-1": "fake"}
 	adapter := &fakeAdapter{
 		name:        "fake",
 		rolePrompts: map[string]string{"conductor": "you are the conductor"},
@@ -603,3 +604,5 @@ func TestKillAgent_PublishesEventAgentDied(t *testing.T) {
 		t.Errorf("payload = %+v", got)
 	}
 }
+
+func (r *recordingPublisher) PublishWorkflowChanged(string) {}

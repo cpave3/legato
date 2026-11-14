@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"log"
 	"net"
 	"sync"
 	"time"
@@ -81,6 +82,13 @@ func startApprovals(ctx context.Context, cfg *config.Config, db *store.Store, bu
 	broker := startBrokerHost(ctx, db, ipc.SocketDir(), brokerHostOptions{Deps: deps})
 	stops = append(stops, broker.Stop)
 	rt.brokerOwner = broker.Owner
+	if agents != nil {
+		go whileBrokerOwner(ctx, broker.Owner, 2*time.Second, func(ctx context.Context) {
+			if err := agents.ReconcileSessions(ctx); err != nil {
+				log.Printf("reconciling agent exits: %v", err)
+			}
+		})
+	}
 	// Approved change sets are run by the process that serves the broker.
 	go whileBrokerOwner(ctx, broker.Owner, 2*time.Second, func(ctx context.Context) {
 		changeSets.RunQueued(ctx)

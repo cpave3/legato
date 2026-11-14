@@ -4,7 +4,6 @@ import (
 	"context"
 	"errors"
 	"fmt"
-	"log"
 	"os"
 	"time"
 
@@ -132,19 +131,18 @@ func (v *VoiceService) TranscribePCM(ctx context.Context, pcmData []byte, sample
 // default, 2 for Codex).
 //
 // Without autoSend the text is a draft the person finishes at the terminal.
-// It is always typed, with no Enter: an endpoint has no prompt box to leave
-// it in.
+// Terminal agents receive it without Enter. Native drafts are refused: their
+// composer must own an unsent draft.
 func (v *VoiceService) Deliver(ctx context.Context, taskID, tmuxSession, agentKind, text string, autoSend bool) error {
 	if text == "" {
 		return nil
 	}
 
-	if autoSend && taskID != "" && v.agents != nil && v.agents.HasChimeraEndpoint(ctx, taskID) {
-		err := v.sendNative(ctx, taskID, text)
-		if err == nil {
-			return nil
+	if taskID != "" && v.agents != nil && v.agents.HasChimeraEndpoint(ctx, taskID) {
+		if !autoSend {
+			return errors.New("native agent drafts cannot be typed into the terminal; enable auto-send or use the native composer")
 		}
-		log.Printf("voice: native delivery to %s failed, typing into its pane instead: %v", taskID, err)
+		return v.sendNative(ctx, taskID, text)
 	}
 
 	if v.tmux == nil {

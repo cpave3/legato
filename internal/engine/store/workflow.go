@@ -224,6 +224,15 @@ func (s *Store) ListActiveWorkflowAgentAttemptsByTask(ctx context.Context, taskI
 	return attempts, err
 }
 
+// ListWaitingWorkflowAttemptsByAgentSession includes both owned agent.run
+// sessions and borrowed agent.interview sessions, whose task IDs may differ.
+func (s *Store) ListWaitingWorkflowAttemptsByAgentSession(ctx context.Context, sessionID int) ([]WorkflowStepAttempt, error) {
+	attempts := []WorkflowStepAttempt{}
+	err := s.db.SelectContext(ctx, &attempts, `SELECT * FROM workflow_step_attempts
+  WHERE agent_session_id = ? AND status = 'waiting_agent' ORDER BY started_at,id`, sessionID)
+	return attempts, err
+}
+
 func (s *Store) StartWorkflowStepAttempt(ctx context.Context, attempt WorkflowStepAttempt, resolvedInputsJSON string) error {
 	return withTx(ctx, s.db, func(tx *sqlx.Tx) error {
 		result, err := tx.ExecContext(ctx, `UPDATE workflow_step_runs

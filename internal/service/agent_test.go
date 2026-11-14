@@ -160,10 +160,17 @@ func (m *mockTmux) IsAlive(name string) (bool, error) {
 func (m *mockTmux) PaneCommands() (map[string]string, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
+	if m.paneCommandsErr != nil {
+		return nil, m.paneCommandsErr
+	}
 	if m.paneCommands != nil {
 		return m.paneCommands, m.paneCommandsErr
 	}
-	return map[string]string{}, m.paneCommandsErr
+	commands := map[string]string{}
+	for name := range m.sessions {
+		commands[name] = "claude"
+	}
+	return commands, m.paneCommandsErr
 }
 
 func (m *mockTmux) SetOption(sessionName, key, value string) error {
