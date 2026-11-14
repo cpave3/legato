@@ -37,6 +37,7 @@ type ChimeraAdapter struct {
 	// reviewsOff leaves Legato's review packet out of its prompts.
 	reviewsOff    bool
 	legatoBin     string
+	modDir        string
 	roleOverrides RolePromptOverrides
 	launchArgs    []string
 	// modes maps swarm role labels to Chimera mode names. nil or empty
@@ -70,6 +71,13 @@ type ChimeraAdapter struct {
 func NewChimeraAdapter(legatoBin string) *ChimeraAdapter {
 	return &ChimeraAdapter{legatoBin: legatoBin}
 }
+
+// SetModDir makes launched sessions load Legato's Chimera mod.
+func (a *ChimeraAdapter) SetModDir(dir string) { a.modDir = dir }
+
+// BindsNativeEndpoint implements service.NativeBindingAdapter: the mod links
+// the session before Legato delivers launch-time messages.
+func (a *ChimeraAdapter) BindsNativeEndpoint() bool { return a.modDir != "" }
 
 // SetMCPTools gives the sessions the adapter launches Legato's own tools:
 // LaunchCommand then passes `legato mcp serve` to Chimera as a server for that
@@ -506,13 +514,23 @@ func (a *ChimeraAdapter) EnvVars(taskID, socketPath string) map[string]string {
 	// exit early and activity never gets reported back to legato. We set
 	// it ourselves so swarms running Chimera as their only adapter still
 	// see RUNNING / WAITING / IDLE state changes on the agents view.
-	return map[string]string{
+	vars := map[string]string{
 		"LEGATO_TASK_ID": taskID,
 	}
+	if a.modDir != "" {
+		dirs := os.Getenv("CHIMERA_MOD_DIRS")
+		if dirs != "" {
+			dirs += string(os.PathListSeparator)
+		}
+		vars["CHIMERA_MOD_DIRS"] = dirs + a.modDir
+		vars["LEGATO_BIN"] = a.legatoBin
+	}
+	return vars
 }
 
 // InstallHooks writes the Legato activity-update scripts into Chimera's global
 // hook directories. projectDir is unused: Chimera hooks are per-user, not per-project.
+// Mod-backed sessions report state themselves and install no scripts.
 func (a *ChimeraAdapter) InstallHooks(projectDir string) error {
 	for _, s := range chimeraScripts {
 		dir := chimeraHookDir(s.event)

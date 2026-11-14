@@ -333,3 +333,34 @@ func TestASandboxedChimeraDropsItsOwnDockerSandbox(t *testing.T) {
 		t.Fatalf("unsandboxed command = %s", cmd)
 	}
 }
+
+func TestChimeraModLaunchEnvironmentAndBinding(t *testing.T) {
+	a := hooks.NewChimeraAdapter("/opt/legato")
+	if a.BindsNativeEndpoint() {
+		t.Fatal("unconfigured adapter waits for a native binding")
+	}
+	for _, inherited := range []string{"", "/user/one" + string(os.PathListSeparator) + "/user/two"} {
+		t.Run(inherited, func(t *testing.T) {
+			t.Setenv("CHIMERA_MOD_DIRS", inherited)
+			a.SetModDir("/data/chimera-mod/legato")
+			vars := a.EnvVars("task-1", "")
+			want := "/data/chimera-mod/legato"
+			if inherited != "" {
+				want = inherited + string(os.PathListSeparator) + want
+			}
+			if vars["CHIMERA_MOD_DIRS"] != want || vars["LEGATO_BIN"] != "/opt/legato" || vars["LEGATO_TASK_ID"] != "task-1" {
+				t.Fatalf("environment = %v", vars)
+			}
+			if !a.BindsNativeEndpoint() {
+				t.Fatal("mod-backed launches must wait for binding")
+			}
+		})
+	}
+	a.SetModDir("")
+	if a.BindsNativeEndpoint() {
+		t.Fatal("clearing the mod did not clear native binding")
+	}
+	if _, ok := a.EnvVars("task-1", "")["CHIMERA_MOD_DIRS"]; ok {
+		t.Fatal("adapter without a mod overrides inherited mods")
+	}
+}

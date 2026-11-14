@@ -315,3 +315,36 @@ func TestConfiguredAdaptersTrustTheFolderAClaudeSessionStartsIn(t *testing.T) {
 		t.Fatal("Claude Code sessions would stop at the trust dialog")
 	}
 }
+
+func TestConfiguredAdaptersInstallChimeraModUnlessOptedOut(t *testing.T) {
+	for _, optOut := range []bool{false, true} {
+		t.Run(map[bool]string{false: "default", true: "opt out"}[optOut], func(t *testing.T) {
+			t.Setenv("CHIMERA_MOD_DIRS", "")
+			cfg := &config.Config{DataDir: t.TempDir()}
+			if optOut {
+				enabled := false
+				cfg.Adapters = map[string]config.AdapterConfig{"chimera": {NativeBridge: &enabled}}
+			}
+			_, adapters := configuredAdapters(cfg, "/opt/legato")
+			a := adapters["chimera"]
+			binder, ok := a.(service.NativeBindingAdapter)
+			if !ok || binder.BindsNativeEndpoint() == optOut {
+				t.Fatalf("native binding does not match opt out %v", optOut)
+			}
+			dir := filepath.Join(cfg.DataDir, "chimera-mod", "legato")
+			if optOut {
+				if _, err := os.Stat(dir); !os.IsNotExist(err) {
+					t.Fatalf("opted-out mod installed: %v", err)
+				}
+				return
+			}
+			vars := a.EnvVars("task-1", "")
+			if vars["CHIMERA_MOD_DIRS"] != dir || vars["LEGATO_BIN"] != "/opt/legato" {
+				t.Fatalf("environment = %v", vars)
+			}
+			if _, err := os.Stat(dir); err != nil {
+				t.Fatalf("session mod missing: %v", err)
+			}
+		})
+	}
+}

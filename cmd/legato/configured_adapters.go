@@ -69,6 +69,14 @@ func configuredAdapters(cfg *config.Config, legatoBin string) (service.AIToolAda
 		}
 		chimera.SetTiers(adapterTierLaunchArgs(configured))
 	}
+	if nativeBridgeEnabled(cfg, chimera.Name()) {
+		modDir, err := hooks.InstallChimeraMod(filepath.Join(config.ResolveDataDir(cfg), "chimera-mod"))
+		if err != nil {
+			log.Printf("chimera native mod unavailable: %v", err)
+		} else {
+			chimera.SetModDir(modDir)
+		}
+	}
 	if configured, ok := cfg.Adapters[codex.Name()]; ok {
 		codex.SetLaunchArgs(configured.LaunchArgs)
 		codex.SetTiers(adapterTierLaunchArgs(configured))
