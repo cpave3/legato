@@ -6,6 +6,24 @@ import fixture from "../../../../contracts/model-settings-v1.json"
 import type { ModelSettingsState } from "../modelSettings"
 
 describe("native agent synchronization", () => {
+  it("does not start a turn for context-only appends, or stop an existing turn", () => {
+    let state = reduceNativeEvent(createNativeSyncState(), { eventId: "idle-append", type: "user_message", content: "context only", append: true })
+    expect(state.items.at(-1)?.text).toBe("context only")
+    expect(state.busy).toBe(false)
+    state = reduceNativeEvent(state, { eventId: "turn", type: "user_message", content: "start work" })
+    expect(state.busy).toBe(true)
+    state = reduceNativeEvent(state, { eventId: "busy-append", type: "user_message", content: "steering", append: true })
+    expect(state.busy).toBe(true)
+  })
+  it("recovers an in-flight foreground child's exact identity from the canonical snapshot", () => {
+    const state = stateFromNativeSnapshot({
+      id: "parent",
+      messages: [{ role: "assistant", content: [{ type: "tool-call" }] }],
+      toolCalls: [{ callId: "spawn", name: "spawn_agent", args: { purpose: "check" }, startedAt: 1 }],
+      subagentStates: [{ sessionId: "parent", subagentId: "child", parentCallId: "spawn", childSessionId: "exact-session", status: "running" }],
+    })
+    expect(state.items.find(item => item.tool?.key === "spawn")?.tool?.subagent).toMatchObject({ subagentId: "child", childSessionId: "exact-session", status: "running" })
+  })
   it("replays foreground and idle-background success, failure and interruption through snapshot repair", () => {
     let state = createNativeSyncState()
     for (const stage of subagentFixture.stages) {

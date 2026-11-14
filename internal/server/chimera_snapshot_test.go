@@ -81,6 +81,24 @@ func TestChimeraSnapshotPreservesPendingPermissions(t *testing.T) {
 	}
 }
 
+func TestUnavailableChimeraSnapshotDoesNotExposeEndpointCanary(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(http.ResponseWriter, *http.Request) {}))
+	upstream.Close()
+	endpoint, id := upstream.URL+"/nonsecret-endpoint-canary", "parent"
+	agents := &chimeraSnapshotAgentFake{session: &store.AgentSession{ChimeraSessionID: &id, ChimeraEndpoint: &endpoint}}
+	response := httptest.NewRecorder()
+	New(nil, agents, nil, ":0").Handler().ServeHTTP(response, httptest.NewRequest("GET", "/api/agents/task/chimera/snapshot", nil))
+	if response.Code != http.StatusBadGateway {
+		t.Fatalf("status=%d", response.Code)
+	}
+	if strings.Contains(response.Body.String(), "nonsecret-endpoint-canary") {
+		t.Fatal("unavailable endpoint disclosed its credential path")
+	}
+	if !strings.Contains(response.Body.String(), "connection refused") {
+		t.Fatalf("operator lost the actionable failure: %s", response.Body.String())
+	}
+}
+
 func TestChimeraSnapshotPreservesExplicitEmptyPendingPermissions(t *testing.T) {
 	chimeraServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		switch r.URL.Path {
@@ -271,6 +289,32 @@ func TestChimeraSnapshotIncludesModSubagentCompletions(t *testing.T) {
 	}
 	if string(body.SubagentStates) != metadata {
 		t.Fatalf("mod completion lost: %s", response.Body.String())
+	}
+}
+
+func TestChimeraSnapshotPrefersCanonicalChildrenOverLaggingMod(t *testing.T) {
+	canonical := `[{"subagentId":"child","sessionId":"parent","childSessionId":"exact-child","parentCallId":"call","status":"finished","reason":"stop"}]`
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/context") {
+			fmt.Fprint(w, `{"contextWindow":200000}`)
+			return
+		}
+		fmt.Fprintf(w, `{"id":"parent","subagentStates":%s}`, canonical)
+	}))
+	defer upstream.Close()
+	id, endpoint := "parent", upstream.URL
+	agents := &chimeraSnapshotAgentFake{session: &store.AgentSession{ChimeraSessionID: &id, ChimeraEndpoint: &endpoint,
+		ChimeraSubagents: `[{"subagentId":"child","sessionId":"parent","status":"running"}]`}}
+	response := httptest.NewRecorder()
+	New(nil, agents, nil, ":0").Handler().ServeHTTP(response, httptest.NewRequest("GET", "/api/agents/task/chimera/snapshot", nil))
+	var body struct {
+		SubagentStates json.RawMessage `json:"subagentStates"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if string(body.SubagentStates) != canonical {
+		t.Fatalf("canonical child state replaced: %s", response.Body.String())
 	}
 }
 
