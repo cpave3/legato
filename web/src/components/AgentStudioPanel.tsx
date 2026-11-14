@@ -152,6 +152,7 @@ export function AgentStudioPanel({ item, fill = false, pollMs = 2000, testHoldMs
   const stream = useRef<MediaStream | null>(null)
   // The take being recorded: its sound, and its film when the camera is on.
   const recorder = useRef<{ finish: () => void } | null>(null)
+  const recordingTimer = useRef<ReturnType<typeof setInterval> | null>(null)
   const meter = useRef<{ context: AudioContext; analyser: AnalyserNode; timer: ReturnType<typeof setInterval> } | null>(null)
   // The count before a take starts: 3, 2, 1, and 0 when nothing is counting.
   const [counting, setCounting] = useState(0)
@@ -217,6 +218,7 @@ export function AgentStudioPanel({ item, fill = false, pollMs = 2000, testHoldMs
 
   const close = useCallback(() => {
     if (tested.current) { clearTimeout(tested.current); tested.current = null }
+    if (recordingTimer.current) { clearInterval(recordingTimer.current); recordingTimer.current = null }
     if (meter.current) { clearInterval(meter.current.timer); void meter.current.context.close().catch(() => {}); meter.current = null }
     stream.current?.getTracks().forEach((track) => track.stop())
     stream.current = null
@@ -406,6 +408,7 @@ export function AgentStudioPanel({ item, fill = false, pollMs = 2000, testHoldMs
       setSeconds(Math.floor((Date.now() - began) / 1000))
       setQuiet(samples ? samples.heard().silentMs : 0)
     }, 250)
+    recordingTimer.current = tick
     let finishing = false
     const finish = async () => {
       if (finishing) return

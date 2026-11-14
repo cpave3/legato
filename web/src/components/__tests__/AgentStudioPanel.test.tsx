@@ -435,6 +435,22 @@ describe("AgentStudioPanel", () => {
     expect(screen.getByText("Hello, this is restack.")).toBeTruthy()
   })
 
+  it("stops recording timers when the studio is closed", async () => {
+    vi.useFakeTimers()
+    try {
+      await act(async () => { render(<AgentUIItemView item={item()} fill />) })
+      await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Record" })) })
+      expect(screen.getByRole("button", { name: "Stop" })).toBeTruthy()
+      expect(vi.getTimerCount()).toBeGreaterThan(0)
+
+      cleanup()
+      expect(vi.getTimerCount()).toBe(0)
+    } finally {
+      cleanup()
+      vi.useRealTimers()
+    }
+  })
+
   it("lets the microphone go by itself a while after a test", async () => {
     // Observing the open stream must not race its real-time release deadline.
     vi.useFakeTimers()
