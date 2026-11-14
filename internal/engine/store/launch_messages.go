@@ -41,9 +41,15 @@ func (s *Store) ListLaunchMessages(ctx context.Context) ([]LaunchMessage, error)
 	return messages, err
 }
 
-// TakeLaunchMessage removes one message for delivery by owner, reporting
-// false when it is gone or another owner has it.
-func (s *Store) TakeLaunchMessage(ctx context.Context, executionID string, position int, owner string) (bool, error) {
+// OwnsLaunchMessage checks whether a pending message still belongs to its deliverer.
+func (s *Store) OwnsLaunchMessage(ctx context.Context, executionID string, position int, owner string) (bool, error) {
+	var owned bool
+	err := s.db.GetContext(ctx, &owned, `SELECT EXISTS (SELECT 1 FROM launch_messages WHERE execution_id = ? AND position = ? AND owner = ?)`, executionID, position, owner)
+	return owned, err
+}
+
+// CompleteLaunchMessage removes an accepted message only for its deliverer.
+func (s *Store) CompleteLaunchMessage(ctx context.Context, executionID string, position int, owner string) (bool, error) {
 	res, err := s.db.ExecContext(ctx, `DELETE FROM launch_messages WHERE execution_id = ? AND position = ? AND owner = ?`, executionID, position, owner)
 	if err != nil {
 		return false, err

@@ -80,7 +80,7 @@ With `native_bridge: false`, Legato uses the older `--mcp-config` path, first ch
 
 ## The native panel
 
-The mod reports the session's endpoint directly; startup messages wait for that connection instead of being typed into a TUI that is not ready. A session switch inside Chimera moves the panel to the new conversation. Exiting Chimera releases the panel. Legato keeps live native bindings across its own restarts. The web UI then shows the agent in the native panel. In the panel you can:
+The mod reports the session's endpoint directly; startup messages wait for that connection instead of being typed into a TUI that is not ready. A task message sent at launch also waits for the initial role turn to finish, then starts its own turn with the original text. If binding or delivery fails, Legato keeps the message and records the failure in its log instead of typing it into the composer. Pending launch messages for live agents are retried when Legato next starts; a role turn that stays busy beyond the 30-second delivery budget leaves the message pending. A session switch inside Chimera moves the panel to the new conversation. Exiting Chimera releases the panel. Legato keeps live native bindings across its own restarts. The web UI then shows the agent in the native panel. In the panel you can:
 
 - Read the conversation as it streams, with a card for each tool call. A `spawn_agent` call has a card that shows each subagent's work.
 - Send a message, or queue one during a turn.

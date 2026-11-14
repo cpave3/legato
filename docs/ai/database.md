@@ -120,7 +120,7 @@ Migration 095 adds `restart_records`: a restart of Legato that can be rolled bac
 
 ### Launch messages
 
-Migration 096 adds `launch_messages` (`execution_id`, `position`: the key; `task_id`, `slot`, `tmux_session`, `agent_kind`, `prompt_file`, `message`, `owner`, `created_at`): the messages an agent was launched with that are not delivered yet. `owner` is the agent service delivering them (a random token per process); `TakeLaunchMessage` deletes one row only for its owner, and `AdoptLaunchMessages` moves an execution's rows from one owner to another only if the first still holds them, so a message is sent once. See [Releases and updates](updates.md) § Restarting in place.
+Migration 096 adds `launch_messages` (`execution_id`, `position`: the key; `task_id`, `slot`, `tmux_session`, `agent_kind`, `prompt_file`, `message`, `owner`, `created_at`): the messages an agent was launched with that are not delivered yet. `owner` is the agent service delivering them (a random token per process); `OwnsLaunchMessage` checks the deliverer before sending, `CompleteLaunchMessage` removes the row only after acceptance and only for that owner, and `AdoptLaunchMessages` moves an execution's pending rows from one owner to another. Failed delivery stays pending. A crash between remote acceptance and local acknowledgement can replay a message; delivery is at least once. See [Releases and updates](updates.md) § Restarting in place.
 
 ### Agents kept on their terminal
 

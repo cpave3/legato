@@ -2,8 +2,11 @@ package service
 
 import (
 	"context"
+	"fmt"
 	"testing"
 	"time"
+
+	"github.com/cpave3/legato/internal/engine/store"
 )
 
 func TestLaunchMessagesAreKeptUntilDelivered(t *testing.T) {
@@ -20,6 +23,7 @@ func TestLaunchMessagesAreKeptUntilDelivered(t *testing.T) {
 	}
 	commands := bindBridge(t, s, "parent-1")
 	awaitBridgeCommand(t, commands)
+	awaitLaunchMessagesDelivered(t, s)
 	if kept, _ := s.ListLaunchMessages(context.Background()); len(kept) != 0 {
 		t.Fatalf("kept after delivery = %+v", kept)
 	}
@@ -70,5 +74,46 @@ func TestLaunchMessagesOfAnAgentThatEndedAreDropped(t *testing.T) {
 	}
 	if kept, _ := s.ListLaunchMessages(context.Background()); len(kept) != 0 {
 		t.Fatalf("kept = %+v, want them dropped", kept)
+	}
+}
+
+func awaitLaunchMessagesDelivered(t *testing.T, s *store.Store) {
+	t.Helper()
+	deadline := time.Now().Add(2 * time.Second)
+	for {
+		kept, err := s.ListLaunchMessages(context.Background())
+		if err != nil {
+			t.Fatal(err)
+		}
+		if len(kept) == 0 {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("launch messages still pending: %+v", kept)
+		}
+		time.Sleep(5 * time.Millisecond)
+	}
+}
+
+type unavailableLaunchTmux struct{ *mockTmux }
+
+func (m unavailableLaunchTmux) IsAlive(string) (bool, error) {
+	return false, fmt.Errorf("tmux probe failed")
+}
+
+func TestLaunchRecoveryKeepsMessagesWhenThePaneCannotBeChecked(t *testing.T) {
+	before, s, mt := newNativeLaunchService(t, t.TempDir())
+	ctx := context.Background()
+	message := store.LaunchMessage{ExecutionID: "ex-kept", TaskID: "task", TmuxSession: "legato-task", Message: "do the task", Owner: "previous-process"}
+	if err := s.InsertLaunchMessages(ctx, []store.LaunchMessage{message}); err != nil {
+		t.Fatal(err)
+	}
+	after := NewAgentService(s, unavailableLaunchTmux{mt}, t.TempDir(), AgentServiceOptions{Adapter: before.(*agentService).adapter})
+	if n := after.(LaunchMessageResumer).ResumeLaunchMessages(ctx); n != 0 {
+		t.Fatalf("resumed=%d", n)
+	}
+	kept, err := s.ListLaunchMessages(ctx)
+	if err != nil || len(kept) != 1 || kept[0].Message != message.Message {
+		t.Fatalf("pending after tmux probe failure=%+v, %v", kept, err)
 	}
 }
