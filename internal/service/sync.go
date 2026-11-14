@@ -29,6 +29,7 @@ type syncService struct {
 	last     time.Time
 	lastPull map[string]time.Time
 	subs     []chan SyncEvent
+	pushes   sync.WaitGroup
 }
 
 // remoteMeta is the JSON shape stored in task.remote_meta for synced tasks.
@@ -342,6 +343,12 @@ func (s *syncService) isWithinConflictWindow(meta remoteMeta) bool {
 	return time.Since(moveAt) < conflictWindow
 }
 
+// waitForPushes joins remote moves before their store is closed.
+// Callers must stop moving cards before waiting.
+func (s *syncService) waitForPushes() {
+	s.pushes.Wait()
+}
+
 // PushMove updates the local task immediately and queues an async remote transition.
 func (s *syncService) PushMove(ctx context.Context, taskID, targetColumn string) error {
 	if err := moveCard(ctx, s.store, s.bus, taskID, targetColumn, true); err != nil {
@@ -381,7 +388,11 @@ func (s *syncService) PushMove(ctx context.Context, taskID, targetColumn string)
 	}
 
 	// Queue async remote transition
-	go s.executePush(taskID, transitionID, targetColumn)
+	s.pushes.Add(1)
+	go func() {
+		defer s.pushes.Done()
+		s.executePush(taskID, transitionID, targetColumn)
+	}()
 	return nil
 }
 

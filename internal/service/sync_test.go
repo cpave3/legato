@@ -11,6 +11,7 @@ import (
 	"strings"
 	"sync"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/cpave3/legato/internal/engine/attachments"
@@ -28,6 +29,7 @@ type mockProvider struct {
 	searchQueries []string
 	transErr      error
 	doTransErr    error
+	doTransFn     func()
 	doTransCalls  []doTransCall
 	doTransEvents chan doTransCall
 	downloads     map[string]string
@@ -67,6 +69,9 @@ func (m *mockProvider) ListTransitions(_ context.Context, _ string) ([]RemoteTra
 }
 
 func (m *mockProvider) DoTransition(_ context.Context, id string, transitionID string) error {
+	if m.doTransFn != nil {
+		m.doTransFn()
+	}
 	m.mu.Lock()
 	defer m.mu.Unlock()
 	call := doTransCall{ID: id, TransitionID: transitionID}
@@ -108,6 +113,7 @@ func newTestSync(t *testing.T) (*syncService, *store.Store, *mockProvider, *even
 	}
 
 	svc := NewSyncService(s, bus, provider, "project = TEST", []string{"TEST"}, 60*time.Second, true).(*syncService)
+	t.Cleanup(svc.waitForPushes)
 	return svc, s, provider, bus
 }
 
@@ -979,6 +985,54 @@ func TestPushSyncCardMove(t *testing.T) {
 	if meta["local_move_at"] == "" {
 		t.Error("local_move_at should be set in remote_meta")
 	}
+}
+
+func TestPushSyncCardMoveFixtureWaitsForPush(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		svc, s, provider, _ := newTestSync(t)
+		ctx := context.Background()
+		createSyncedTask(t, s, "TEST-1", "Test", "Backlog", "To Do", time.Now(), nil)
+		mappings, err := s.ListColumnMappings(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, m := range mappings {
+			if m.ColumnName == "Doing" {
+				m.RemoteTransition = "21"
+				if err := s.UpdateColumnMapping(ctx, m); err != nil {
+					t.Fatal(err)
+				}
+			}
+		}
+		entered, release := make(chan struct{}), make(chan struct{})
+		provider.doTransFn = func() { close(entered); <-release }
+		if err := svc.PushMove(ctx, "TEST-1", "Doing"); err != nil {
+			t.Fatal(err)
+		}
+		<-entered
+		task, err := s.GetTask(ctx, "TEST-1")
+		if err != nil || task.Status != "Doing" {
+			t.Fatalf("local move = %#v, err = %v", task, err)
+		}
+		cleaned := make(chan struct{})
+		go func() { svc.waitForPushes(); close(cleaned) }()
+		synctest.Wait()
+		select {
+		case <-cleaned:
+			t.Error("fixture cleanup returned while the remote push was still using its store")
+		default:
+		}
+		close(release)
+		synctest.Wait()
+		<-cleaned
+		if meta := getRemoteMeta(t, s, "TEST-1"); meta["remote_status"] != "In Progress" {
+			t.Errorf("remote status after push = %q", meta["remote_status"])
+		}
+		logs, err := s.ListSyncLogs(ctx, "TEST-1")
+		if err != nil || len(logs) != 1 || logs[0].Action != "push_success" {
+			t.Fatalf("push logs = %#v, err = %v", logs, err)
+		}
+	})
 }
 
 func TestPushMoveIntoLocalOnlyColumnDoesNotTransitionJira(t *testing.T) {
