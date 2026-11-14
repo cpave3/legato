@@ -177,6 +177,22 @@ func TestAVoiceSessionCarriesATurnFromTheMicrophoneToTheReeve(t *testing.T) {
 			}
 		}
 	}
+	// "heard" confirms transcription, not delivery by the send goroutine.
+	tick := time.NewTicker(5 * time.Millisecond)
+	defer tick.Stop()
+	for {
+		reeve.mu.Lock()
+		delivered := len(reeve.sent) > 0
+		reeve.mu.Unlock()
+		if delivered {
+			break
+		}
+		select {
+		case <-ctx.Done():
+			t.Fatalf("the turn was not delivered to the Reeve: %v", ctx.Err())
+		case <-tick.C:
+		}
+	}
 	reeve.mu.Lock()
 	defer reeve.mu.Unlock()
 	if len(reeve.sent) != 1 || !strings.HasSuffix(reeve.sent[0], fixture.Transcript) {
