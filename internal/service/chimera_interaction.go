@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strings"
+	"time"
 
 	"github.com/cpave3/legato/internal/engine/chimera"
 	"github.com/cpave3/legato/internal/engine/store"
@@ -106,6 +108,32 @@ func (a *ChimeraInteractionAdapter) QueueMessage(ctx context.Context, taskID, me
 		return err
 	}
 	return client.PostMessageAppend(ctx, sessionID, message)
+}
+
+// A launch task must start its own turn. Appending to the role prompt's run
+// can be acknowledged before that run is ready to consume injected messages.
+func (a *ChimeraInteractionAdapter) startLaunchMessage(ctx context.Context, taskID, message string) error {
+	endpoint, sessionID, err := a.getEndpointAndSession(ctx, taskID)
+	if err != nil {
+		return err
+	}
+	client := a.clientFactory(endpoint)
+	for {
+		err := client.PostMessage(ctx, sessionID, message)
+		if err == nil {
+			return nil
+		}
+		if !errors.Is(err, chimera.ErrBusy) {
+			// Endpoint URLs include the server secret; transport errors include
+			// the request URL and must not expose it in the delivery log.
+			return fmt.Errorf("starting launch turn: %s", strings.ReplaceAll(err.Error(), endpoint, "[Chimera endpoint]"))
+		}
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("waiting for the role turn to finish: %w", ctx.Err())
+		case <-time.After(nativeBindPoll):
+		}
+	}
 }
 
 func (a *ChimeraInteractionAdapter) Interrupt(ctx context.Context, taskID string) error {

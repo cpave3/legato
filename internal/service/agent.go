@@ -355,10 +355,11 @@ type agentService struct {
 	chimeraModWait    time.Duration
 	// launchOwner names this service as the deliverer of the launch
 	// messages it keeps in launch_messages (launch_messages.go).
-	launchOwner string
+	launchOwner      string
+	launchDeliveries sync.Map
 
 	sendKeysAdapter AgentInteraction
-	chimeraAdapter  AgentInteraction
+	chimeraAdapter  *ChimeraInteractionAdapter
 
 	conflictsMu   sync.Mutex
 	lastConflicts []AgentSpawnConflict
@@ -1459,20 +1460,16 @@ func (a *agentService) notifyPeerJoin(taskID, executionID, workDir string, adapt
 	}
 }
 
-// awaitNativeEndpoint gives a freshly launched agent time to become reachable
-// and reports whether it bound a native endpoint.
-//
-// A session whose adapter binds one (see NativeBindingAdapter) is waited for
-// until the binding appears: a message delivered over it is a prompt, while
-// the same text typed into a tool that is still starting lands in its prompt
-// box with the Enter lost. False means the message has to be typed: the
-// adapter binds nothing, the agent is gone, or nothing was bound in time. An
-// adapter that binds nothing gets the fixed kickoff delay instead.
-// deliverLaunchMessages sends the messages a launch starts an agent with,
-// in order, once it can take them: over its native endpoint, else typed into
-// the pane. A message of more than one line is typed as a pointer to its
-// file, since the pane takes one line.
+// deliverLaunchMessages keeps each message until its transport accepts it.
+// Chimera launch tasks require a new native turn; only other terminal agents
+// use the prompt-file pointer fallback.
 func (a *agentService) deliverLaunchMessages(ctx context.Context, executionID, taskID, session string, adapter AIToolAdapter, messages []store.LaunchMessage, promptFile string) {
+	if _, active := a.launchDeliveries.LoadOrStore(executionID, struct{}{}); active {
+		log.Printf("launch messages for %s (%s) skipped: delivery already in progress", taskID, executionID)
+		return
+	}
+	defer a.launchDeliveries.Delete(executionID)
+
 	// The agent tool starts once its clone is set up, which takes minutes
 	// the first time the dependencies are fetched.
 	if err := a.AwaitCloneSetup(ctx, taskID); err != nil {
@@ -1480,29 +1477,52 @@ func (a *agentService) deliverLaunchMessages(ctx context.Context, executionID, t
 	}
 	native := a.awaitNativeEndpoint(ctx, taskID, adapter)
 	for _, kept := range messages {
-		// A message is taken from the store as it is sent; one another
-		// process has taken over (after a restart) is left to it.
-		if taken, err := a.store.TakeLaunchMessage(context.Background(), executionID, kept.Position, a.launchOwner); err != nil || !taken {
+		owned, err := a.store.OwnsLaunchMessage(ctx, executionID, kept.Position, a.launchOwner)
+		if err != nil {
+			log.Printf("launch message %s/%d for %s retained: checking ownership: %v", executionID, kept.Position, taskID, err)
+			return
+		}
+		if !owned {
+			log.Printf("launch message %s/%d for %s skipped: no longer pending for this owner", executionID, kept.Position, taskID)
 			return
 		}
 		message := kept.Message
-		if native {
-			err := a.QueueMessage(ctx, taskID, message)
-			if err == nil {
-				continue
+		if adapter != nil && adapter.Name() == "chimera" {
+			if !native {
+				err = fmt.Errorf("native binding not ready; launch message was not typed into the composer")
+			} else {
+				deliveryCtx, cancel := context.WithTimeout(ctx, a.nativeBindTimeout)
+				err = a.chimeraAdapter.startLaunchMessage(deliveryCtx, taskID, message)
+				cancel()
 			}
-			log.Printf("launch message over the native endpoint failed for %s: %v", session, err)
+		} else if native {
+			err = a.QueueMessage(ctx, taskID, message)
+		} else {
+			typed := message
+			if promptFile != "" && strings.ContainsAny(message, "\n\r\"") {
+				typed = "Read " + promptFile + " in full: it is your task from the operator. Then do it."
+			}
+			err = a.tmux.SendKeysLine(session, typed)
 		}
-		typed := message
-		if promptFile != "" && strings.ContainsAny(message, "\n\r\"") {
-			typed = "Read " + promptFile + " in full: it is your task from the operator. Then do it."
+		if err != nil {
+			log.Printf("launch message %s/%d for %s retained: delivery failed: %v", executionID, kept.Position, taskID, err)
+			return
 		}
-		if err := a.tmux.SendKeysLine(session, typed); err != nil {
-			log.Printf("launch message failed for %s: %v", session, err)
+		completed, err := a.store.CompleteLaunchMessage(ctx, executionID, kept.Position, a.launchOwner)
+		if err != nil {
+			log.Printf("launch message %s/%d for %s accepted but acknowledgement failed; retained message may replay: %v", executionID, kept.Position, taskID, err)
+			return
 		}
+		if !completed {
+			log.Printf("launch message %s/%d for %s accepted but ownership changed before acknowledgement", executionID, kept.Position, taskID)
+			return
+		}
+		log.Printf("launch message %s/%d for %s delivered (native: %t)", executionID, kept.Position, taskID, native)
 	}
 }
 
+// awaitNativeEndpoint waits for adapters that bind natively; other tools get
+// the fixed kickoff delay. False leaves the caller to choose its failure path.
 func (a *agentService) awaitNativeEndpoint(ctx context.Context, taskID string, adapter AIToolAdapter) bool {
 	binder, ok := adapter.(NativeBindingAdapter)
 	if !ok || !binder.BindsNativeEndpoint() {

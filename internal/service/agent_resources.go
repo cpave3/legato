@@ -28,8 +28,7 @@ func (a *agentService) AttachResources(ctx context.Context, taskID string, resou
 	if session, err := a.store.GetAgentSessionByTaskID(ctx, taskID); err == nil && session.Sandboxed {
 		return ErrSandboxFixed
 	}
-	granter, ok := a.chimeraAdapter.(pathGranter)
-	if !a.HasChimeraEndpoint(ctx, taskID) || !ok {
+	if !a.HasChimeraEndpoint(ctx, taskID) || a.chimeraAdapter == nil {
 		return fmt.Errorf("resources can be added to a running agent only through its native panel: %w", ErrNoNativeEndpoint)
 	}
 	session, err := a.store.GetAgentSessionByTaskID(ctx, taskID)
@@ -44,7 +43,7 @@ func (a *agentService) AttachResources(ctx context.Context, taskID string, resou
 	// Tagged as Legato's own, so the conversation shows it apart from what the
 	// person typed and the agent knows who added the paths.
 	note := "[legato resources] " + resourcesPrompt(usable)
-	if err := granter.GrantPaths(ctx, taskID, read, write, note); err != nil {
+	if err := a.chimeraAdapter.GrantPaths(ctx, taskID, read, write, note); err != nil {
 		return err
 	}
 	names := make([]string, 0, len(usable))
@@ -55,12 +54,6 @@ func (a *agentService) AttachResources(ctx context.Context, taskID string, resou
 		return nil
 	}
 	return a.store.AddExecutionResources(ctx, session.ExecutionID, names)
-}
-
-// pathGranter is the native interaction that can grant a running session
-// files and folders.
-type pathGranter interface {
-	GrantPaths(ctx context.Context, taskID string, read, write []string, note string) error
 }
 
 // GrantPaths grants a native session files and folders, then appends note to

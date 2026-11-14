@@ -14,7 +14,13 @@ State travels through `ParseChimeraHook` / `ApplyChimeraHook`, via broker `agent
 
 ## Launch messages and fallback
 
-A fresh session keeps `--prompt` as turn one. The adapter is a `NativeBindingAdapter` while the mod is configured: later launch messages (including a resumed reviewer's brief and peer notices) wait for the native binding and go over HTTP, rather than being typed into a TUI that is still starting.
+A fresh session keeps `--prompt` as turn one. The adapter is a `NativeBindingAdapter` while the mod is configured: later launch messages (including a resumed reviewer's brief) wait for the native binding and go over HTTP, rather than being typed into a TUI that is still starting. Native delivery uses the actual bound conversation ID and original message, including multiline prompts; the `prompt.md` pointer is only for non-Chimera terminal delivery.
+
+Launch tasks require an ordinary message POST accepted as a fresh turn. If the role turn is still busy (409), Legato retries the ordinary POST for up to 30 seconds; it never substitutes `append=true`, which can acknowledge an injection that Chimera's starting run later discards. Missing binding, timeout and HTTP errors keep the launch message in `launch_messages` and log its execution, position and task; they never fall back to typing into Chimera's composer. The row is removed only after HTTP acceptance. Recovery on the next Legato startup retries retained messages for live agents. There is no automatic retry after the delivery budget expires in the current process.
+
+Every launch-message outcome (delivered, retained on failure, or skipped because ownership changed) is logged without message text or the secret endpoint URL. Overlapping startup recovery in one process does not send a second copy while delivery is in progress. A crash after HTTP acceptance but before the database acknowledgement can still replay a message: the protocol does not provide an idempotency key, so this is at-least-once delivery, not exactly-once.
+
+Later bound follow-ups and peer notices continue through the native interaction adapter; queued messages use its existing busy/append semantics. The fresh-turn rule applies specifically to launch messages.
 
 If the mod has not bound after ten seconds, Legato begins legacy lockfile discovery. Discovery stops once either path binds and cannot replace a binding that arrived during its HTTP probe. Old Chimera builds keep existing hook reports and the manual **Upgrade to native panel** path with the mod disabled (or MCP tools disabled). Discovery cannot add MCP flags to a process already running: the MCP launch preflight refuses unsupported hosts and asks for an upgrade or `native_bridge: false`. Native endpoint recovery on Legato startup keeps a live binding, rediscovers a missing one, and respects an intentional downgrade to tmux.
 
