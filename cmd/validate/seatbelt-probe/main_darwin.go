@@ -103,6 +103,8 @@ func main() {
 	probeHomeKeychain(tmp)
 	probeToolLogins()
 	probeProcArgs(self)
+	probeSignals()
+	probeFirmlink(tmp)
 	probeLinks(self, tmp)
 	probeTIOCSTI(self)
 	probeShells()
@@ -387,6 +389,12 @@ raw = buf.raw[:size.value]
 print("arguments visible:", b"` + argMarker + `" in raw, "; environment visible:", b"` + secretMarker + `" in raw)
 `
 	python := lookPath("python3")
+	if python != "" {
+		out, code := run(30*time.Second, nil, python, "-I", "-c", procargs, pid)
+		s.add("outside the sandbox", "sysctl {CTL_KERN, KERN_PROCARGS2, pid}", short(out, code))
+	}
+	out, code := run(30*time.Second, nil, "/usr/bin/pgrep", "-lf", argMarker)
+	s.add("outside the sandbox", "pgrep -lf (lists it with its arguments?)", short(out, code))
 	for _, v := range variants {
 		if python != "" {
 			out, code := sbx(allowDefault+v.rules, nil, python, "-I", "-c", procargs, pid)
@@ -405,6 +413,59 @@ print("arguments visible:", b"` + argMarker + `" in raw, "; environment visible:
 		}
 		s.add(v.name, "ps -ax lists it", fmt.Sprintf("%v (exit %d)", listed, code))
 	}
+}
+
+// probeSignals asks, under (deny default) as Legato's profile is, whether a
+// sandboxed process can signal one outside it.
+func probeSignals() {
+	s := newSection("Signals under deny-default", "Under `(deny default)` with `(allow signal (target same-sandbox))`, can a sandboxed process end a process outside it?")
+	base := "(version 1)\n(deny default)\n(allow process-exec)(allow process-fork)(allow file-read*)(allow file-map-executable)\n" + codexSysctls +
+		`(allow mach-lookup (global-name "com.apple.system.opendirectoryd.libinfo"))` + "\n"
+	variants := []struct{ name, rules string }{
+		{"no signal rule", ""},
+		{"signal same-sandbox", "(allow signal (target same-sandbox))"},
+		{"signal others allowed", "(allow signal)"},
+	}
+	for _, v := range variants {
+		victim := exec.Command("/bin/sleep", "300")
+		if err := victim.Start(); err != nil {
+			s.note("could not start a process: %v", err)
+			return
+		}
+		pid := strconv.Itoa(victim.Process.Pid)
+		out, code := sbx(base+v.rules, nil, "/bin/kill", "-TERM", pid)
+		done := make(chan error, 1)
+		go func() { done <- victim.Wait() }()
+		alive := true
+		select {
+		case <-done:
+			alive = false
+		case <-time.After(time.Second):
+			_ = victim.Process.Kill()
+			<-done
+		}
+		s.add(v.name, "kill -TERM <outside pid>", fmt.Sprintf("outside process %s; %s", map[bool]string{true: "survived", false: "**was ended**"}[alive], short(out, code)))
+	}
+	out, code := sbx(base+"(allow signal (target same-sandbox))", nil, "/bin/sh", "-c", "sleep 30 & kill -TERM $! && echo ended-own-child")
+	s.add("signal same-sandbox", "kill -TERM <its own child>", short(out, code))
+}
+
+// probeFirmlink asks whether a denied file can be read through the Data
+// volume's path, which an allowed /System would hold.
+func probeFirmlink(tmp string) {
+	s := newSection("Firmlinks", "With `/System` allowed and a folder denied, can its file be read through `/System/Volumes/Data/…`?")
+	dir := filepath.Join(tmp, "firm")
+	_ = os.MkdirAll(dir, 0o700)
+	key := filepath.Join(dir, "key")
+	_ = os.WriteFile(key, []byte(secretMarker+"\n"), 0o600)
+	profile := allowDefault + `(deny file-read* (subpath "/System/Volumes/Data"))(allow file-read* (subpath "/System"))(deny file-read* (subpath (param "D")))`
+	for _, path := range []string{key, "/System/Volumes/Data" + key} {
+		out, code := sbx(profile, []string{"D=" + dir}, "/bin/cat", path)
+		s.add("allow /System, deny the folder", "cat "+strings.Replace(path, tmp, "<tmp>", 1), secretOutcome(out, code))
+	}
+	profile = allowDefault + `(allow file-read* (subpath "/System"))(deny file-read* (subpath (param "D")))`
+	out, code := sbx(profile, []string{"D=" + dir}, "/bin/cat", "/System/Volumes/Data"+key)
+	s.add("same, without denying /System/Volumes/Data", "cat /System/Volumes/Data<tmp>/firm/key", secretOutcome(out, code))
 }
 
 func probeLinks(self, tmp string) {
