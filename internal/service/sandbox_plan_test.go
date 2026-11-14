@@ -214,6 +214,41 @@ func TestChimeraLinkedModsFollowSafeTargetsReadOnly(t *testing.T) {
 	}
 }
 
+func TestChimeraRefusesHookAliasesIntoWritableCheckout(t *testing.T) {
+	for _, directory := range []bool{false, true} {
+		t.Run(map[bool]string{false: "script", true: "event-directory"}[directory], func(t *testing.T) {
+			root := t.TempDir()
+			in := baseInput()
+			in.Home, in.WorkDir, in.DataDir = root+"/home", root+"/work", root+"/data"
+			in.AgentKind, in.DefaultMounts, in.FS = "chimera", false, HostFS{}
+			hooks := filepath.Join(in.Home, ".chimera/hooks")
+			source := filepath.Join(in.WorkDir, "hooks")
+			for _, dir := range []string{hooks, source} {
+				if err := os.MkdirAll(dir, 0700); err != nil {
+					t.Fatal(err)
+				}
+			}
+			link, target := filepath.Join(hooks, "Stop"), source
+			if !directory {
+				if err := os.Mkdir(link, 0700); err != nil {
+					t.Fatal(err)
+				}
+				link, target = filepath.Join(link, "custom.sh"), filepath.Join(source, "custom.sh")
+				if err := os.WriteFile(target, []byte("#!/bin/sh\n"), 0700); err != nil {
+					t.Fatal(err)
+				}
+			}
+			if err := os.Symlink(target, link); err != nil {
+				t.Fatal(err)
+			}
+			_, err := BuildSandboxPlan(in)
+			if err == nil || !strings.Contains(err.Error(), link) || !strings.Contains(err.Error(), "symlink") {
+				t.Fatalf("want actionable hook alias refusal, got %v", err)
+			}
+		})
+	}
+}
+
 func TestAMountThatHoldsACredentialHidesIt(t *testing.T) {
 	in := baseInput()
 	in.Extra = []SandboxPath{{Path: "/var/home/me", Access: "read"}}

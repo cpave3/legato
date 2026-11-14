@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"fmt"
 	"sort"
 )
@@ -68,6 +69,12 @@ type SandboxLaunchCommandAdapter interface {
 // conversation selector or the saved workspace before a terminal is started.
 type SessionLaunchValidator interface {
 	ValidateSessionLaunch(policy, tier string) error
+}
+
+// LaunchValidator checks required host capabilities before a spawn has any
+// terminal or execution side effects. It is also called for ephemeral agents.
+type LaunchValidator interface {
+	ValidateLaunch(ctx context.Context, tier string, extraArgs []string) error
 }
 
 // LaunchSelfKickoff is an optional adapter capability for tools whose launch

@@ -8,6 +8,7 @@ import (
 	"os"
 	"os/exec"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -79,6 +80,37 @@ func (a *ChimeraAdapter) SetModDir(dir string) { a.modDir = dir }
 // BindsNativeEndpoint implements service.NativeBindingAdapter: the mod links
 // the session before Legato delivers launch-time messages.
 func (a *ChimeraAdapter) BindsNativeEndpoint() bool { return a.modDir != "" }
+
+// ValidateLaunch refuses silent loss of bundled MCP tools on an old host.
+// The binary can update independently, so capability is checked at each spawn;
+// the first mod event still decides binding and state ownership.
+func (a *ChimeraAdapter) ValidateLaunch(ctx context.Context, tier string, extraArgs []string) error {
+	if a.modDir == "" || !a.mcpTools {
+		return nil
+	}
+	for _, args := range [][]string{a.launchArgs, a.tiers[tier], extraArgs} {
+		if launchArgsContain(args, "--no-mods") {
+			return fmt.Errorf("Chimera's Legato MCP tools require mods; remove --no-mods or set adapters.chimera.native_bridge: false for legacy --mcp-config tools")
+		}
+	}
+	ctx, cancel := context.WithTimeout(ctx, 10*time.Second)
+	defer cancel()
+	out, err := exec.CommandContext(ctx, "chimera", "version", "--json").Output()
+	var version struct {
+		ModAPI []int `json:"modApi"`
+	}
+	if err == nil {
+		err = json.Unmarshal(out, &version)
+	}
+	if err == nil && slices.Contains(version.ModAPI, 1) {
+		return nil
+	}
+	const action = "Legato's MCP tools require Chimera mods v1: upgrade Chimera or set adapters.chimera.native_bridge: false for legacy --mcp-config tools"
+	if err != nil {
+		return fmt.Errorf("%s (checking chimera version --json: %w)", action, err)
+	}
+	return fmt.Errorf("%s", action)
+}
 
 // SetMCPTools configures the legacy --mcp-config path. Mod sessions instead
 // receive their server and trusted tools from the installed manifest.

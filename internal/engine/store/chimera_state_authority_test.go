@@ -2,6 +2,7 @@ package store
 
 import (
 	"context"
+	"errors"
 	"testing"
 )
 
@@ -27,8 +28,8 @@ func TestLegacyActivityWritesCannotOverwriteModState(t *testing.T) {
 			} else {
 				err = s.UpdateAgentActivity(ctx, "mod-task", ActivityWorking)
 			}
-			if err != nil {
-				t.Fatal(err)
+			if !errors.Is(err, ErrAgentStateIgnored) {
+				t.Fatalf("ignored update must be distinguishable so callers skip side effects: %v", err)
 			}
 			a, err = s.GetAgentSessionByTaskID(ctx, "mod-task")
 			if err != nil {
@@ -36,6 +37,33 @@ func TestLegacyActivityWritesCannotOverwriteModState(t *testing.T) {
 			}
 			if a.Activity != ActivityWaiting || a.HookSource != HookSourceMod {
 				t.Fatalf("stale writer won: %+v", a)
+			}
+		})
+	}
+}
+
+func TestOtherHookSourcesCannotReplaceModAuthority(t *testing.T) {
+	for _, source := range []string{HookSourcePlugin, ""} {
+		t.Run("source="+source, func(t *testing.T) {
+			s := newTestStore(t)
+			ctx := context.Background()
+			createTestTask(t, s, "mod-task")
+			if err := s.InsertAgentSession(ctx, AgentSession{TaskID: "mod-task", Status: "running"}); err != nil {
+				t.Fatal(err)
+			}
+			a, err := s.GetAgentSessionByTaskID(ctx, "mod-task")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := s.SetAgentHookState(ctx, a.ID, ActivityWaiting, nil, HookSourceMod); err != nil {
+				t.Fatal(err)
+			}
+			if err := s.SetAgentHookState(ctx, a.ID, "", nil, source); !errors.Is(err, ErrAgentStateIgnored) {
+				t.Fatalf("other hook writer was not reported as ignored: %v", err)
+			}
+			a, err = s.GetAgentSessionByTaskID(ctx, "mod-task")
+			if err != nil || a.Activity != ActivityWaiting || a.HookSource != HookSourceMod {
+				t.Fatalf("other hook writer won: %+v %v", a, err)
 			}
 		})
 	}

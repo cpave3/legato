@@ -672,6 +672,12 @@ func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, hei
 	if err := ValidateAgentSlot(opt.Slot); err != nil {
 		return err
 	}
+	adapter := a.resolveAdapter(opt.AgentKind)
+	if validator, ok := adapter.(LaunchValidator); ok {
+		if err := validator.ValidateLaunch(ctx, opt.Tier, opt.LaunchArgs); err != nil {
+			return err
+		}
+	}
 	slot := opt.Slot
 	if slot == "" {
 		slot = store.SlotMain
@@ -781,7 +787,6 @@ func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, hei
 	// Kill any orphaned tmux session with the same name
 	a.tmux.Kill(sessionName)
 
-	adapter := a.resolveAdapter(opt.AgentKind)
 	agentKind := "shell"
 	if adapter != nil {
 		agentKind = adapter.Name()
@@ -2001,6 +2006,9 @@ func (a *agentService) SetAgentActivity(ctx context.Context, taskID, activity, w
 	oldActivity := sess.Activity
 
 	if err := a.store.UpdateAgentActivity(ctx, taskID, activity); err != nil {
+		if errors.Is(err, store.ErrAgentStateIgnored) {
+			return nil
+		}
 		return fmt.Errorf("updating agent activity: %w", err)
 	}
 	if err := a.store.RecordExecutionActivity(ctx, sess.ExecutionID, activity, workingDir); err != nil {

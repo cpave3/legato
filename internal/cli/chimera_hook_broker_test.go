@@ -83,6 +83,42 @@ func TestChimeraHook_BrokerAndStoreAgree(t *testing.T) {
 	}
 }
 
+func TestChimeraHook_BrokerIgnoresOtherHookWritersAfterModClaim(t *testing.T) {
+	s := newTestStore(t)
+	seedColumns(t, s)
+	_, token := brokerSession(t, s, "abc123")
+	notifier := &recordingNotifier{}
+	h := cli.NewBrokerHandler(s, cli.BrokerDeps{OS: notifier})
+	for _, payload := range []string{
+		`{"type":"background.start","jobId":"job","command":"sleep 60"}`,
+		`{"type":"permission.request","requestId":"p"}`,
+	} {
+		hook, err := cli.ParseChimeraHook([]byte(payload))
+		if err != nil {
+			t.Fatal(err)
+		}
+		if _, err := call(h, token, "agent.hook", map[string]any{"kind": "chimera", "hook": hook}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	beforeNotices := len(notifier.calls)
+	for _, source := range []string{"claude-code", ""} {
+		if _, err := call(h, token, "agent.hook", map[string]any{"kind": source, "hook": cli.ClaudeHook{Event: cli.ClaudeSessionEnd}}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := call(h, token, "agent.state", map[string]any{"activity": ""}); err != nil {
+		t.Fatal(err)
+	}
+	after, err := s.GetAgentSessionByTaskID(context.Background(), "abc123")
+	if err != nil || after.Activity != "waiting" || after.HookSource != "mod" || len(after.BackgroundJobs) != 1 {
+		t.Fatalf("other writer replaced mod state/jobs: %+v %v", after, err)
+	}
+	if len(notifier.calls) != beforeNotices {
+		t.Fatalf("ignored hook emitted a notice: %+v", notifier.calls[beforeNotices:])
+	}
+}
+
 func TestChimeraHook_BrokerRefusesAnotherTaskOrExecution(t *testing.T) {
 	s := newTestStore(t)
 	seedColumns(t, s)

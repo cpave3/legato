@@ -37,7 +37,7 @@ These are **real runtime events**, not calls to the fake mod harness: `record.py
 
 ## Follow-up, not a passing claim
 
-`CHIMERA_SERVER_SECRET` remains readable from `/proc/<pid>/environ` by Chimera's own unsandboxed commands. CHIM-86 tracks a file-descriptor/pipe handoff; the argv/tmux checks do not claim to close this environment exposure.
+`CHIMERA_SERVER_SECRET` remains readable from `/proc/<pid>/environ` by Chimera's own commands, including inside Legato's bwrap namespace. CHIM-86 tracks a file-descriptor/pipe handoff; the argv/tmux checks do not claim to close this environment exposure.
 
 Legato's pre-existing Chimera question-answer transport sends the shared `{answers: map, dismissed}` format; this host requires `{status: "answered", answers: [{question, answer, custom}]}` or `{status: "cancelled"}`. Its raw question items also lack the per-question IDs Legato's native UI expects. The capture driver answers through Chimera's own endpoint so it can verify waiting/resolved state. **It does not prove that the native panel can answer a question.** That protocol adapter/UI migration remains a separate follow-up; the Claude bridge is unchanged.
 

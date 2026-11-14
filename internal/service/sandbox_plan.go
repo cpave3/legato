@@ -2,6 +2,7 @@ package service
 
 import (
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
@@ -193,6 +194,24 @@ func (HostFS) Links(dir string) []string {
 	return out
 }
 
+// CheckHookTree rejects aliases in executable global hooks, including linked
+// event directories. A read-only link does not protect its writable target
+// or intermediate aliases. Mod entries have their separate target mounts.
+func (HostFS) CheckHookTree(dir string) error {
+	return filepath.WalkDir(dir, func(path string, entry fs.DirEntry, err error) error {
+		if os.IsNotExist(err) && path == dir {
+			return nil
+		}
+		if err != nil {
+			return fmt.Errorf("inspecting Chimera hooks at %s: %w", path, err)
+		}
+		if entry.Type()&os.ModeSymlink != 0 {
+			return fmt.Errorf("cannot sandbox Chimera: hook %s is a symlink; replace it with a real file or directory so its executable code cannot be changed through another path", path)
+		}
+		return nil
+	})
+}
+
 func (HostFS) Chain(link string) (linkChain, bool) {
 	var chain linkChain
 	path := link
@@ -363,6 +382,13 @@ func BuildSandboxPlan(in SandboxPlanInput) (sandbox.Plan, error) {
 	for _, path := range chimeraProtectedDirs(in) {
 		if err := checkProtectedDir(in.FS, path); err != nil {
 			return sandbox.Plan{}, err
+		}
+	}
+	if in.AgentKind == "chimera" {
+		if tree, ok := in.FS.(interface{ CheckHookTree(string) error }); ok {
+			if err := tree.CheckHookTree(filepath.Join(in.Home, ".chimera/hooks")); err != nil {
+				return sandbox.Plan{}, err
+			}
 		}
 	}
 	// Every path is checked and mounted where it really is, so a link (a

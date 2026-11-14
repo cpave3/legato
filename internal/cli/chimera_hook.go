@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"time"
 
@@ -146,6 +147,9 @@ func ApplyChimeraHook(s *store.Store, report ChimeraHookReport, pushNotifier, os
 		}
 	}
 	if err := s.SetAgentHookState(ctx, session.ID, activity, jobs, store.HookSourceMod); err != nil {
+		if errors.Is(err, store.ErrAgentStateIgnored) {
+			return nil
+		}
 		return fmt.Errorf("updating agent state: %w", err)
 	}
 	if !decided {

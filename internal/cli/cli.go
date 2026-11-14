@@ -440,6 +440,9 @@ func AgentState(s *store.Store, report AgentStateReport, pushNotifier, osNotifie
 	}
 
 	if err := s.UpdateAgentActivityForSession(ctx, session.ID, report.Activity); err != nil {
+		if errors.Is(err, store.ErrAgentStateIgnored) {
+			return nil
+		}
 		return fmt.Errorf("updating agent activity: %w", err)
 	}
 	return settleActivity(ctx, s, session, report.TaskID, report.ExecutionID, report.Activity, report.WorkingDir, pushNotifier, osNotifier)

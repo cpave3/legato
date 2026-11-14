@@ -3,8 +3,24 @@ package store
 import (
 	"context"
 	"database/sql"
+	"errors"
 	"fmt"
 )
+
+// ErrAgentStateIgnored means the report did not update a running session;
+// callers must not publish activity, reporting spans or notifications for it.
+var ErrAgentStateIgnored = errors.New("agent state report ignored")
+
+func agentStateResult(result sql.Result, err error) error {
+	if err != nil {
+		return err
+	}
+	n, err := result.RowsAffected()
+	if err == nil && n == 0 {
+		return ErrAgentStateIgnored
+	}
+	return err
+}
 
 const agentSessionSelect = `SELECT a.*,
 	COALESCE(e.id, '') AS execution_id,
@@ -165,19 +181,17 @@ func (s *Store) UpdateAgentSessionSwarmRole(ctx context.Context, taskID, role, p
 	return nil
 }
 
-// UpdateAgentActivity sets legacy activity unless the mod owns the session.
+// UpdateAgentActivity sets legacy activity unless a plugin/mod owns the session.
 func (s *Store) UpdateAgentActivity(ctx context.Context, taskID string, activity string) error {
-	_, err := s.db.ExecContext(ctx, `
+	return agentStateResult(s.db.ExecContext(ctx, `
 		UPDATE agent_sessions SET activity = ?
-		WHERE task_id = ? AND slot = 'main' AND status = 'running' AND hook_source <> 'mod'`, activity, taskID)
-	return err
+		WHERE task_id = ? AND slot = 'main' AND status = 'running' AND hook_source NOT IN ('mod', 'plugin')`, activity, taskID))
 }
 
-// UpdateAgentActivityForSession sets one session's legacy activity unless the mod owns it.
+// UpdateAgentActivityForSession sets legacy activity unless a plugin/mod owns it.
 func (s *Store) UpdateAgentActivityForSession(ctx context.Context, id int, activity string) error {
-	_, err := s.db.ExecContext(ctx, `
-		UPDATE agent_sessions SET activity = ? WHERE id = ? AND status = 'running' AND hook_source <> 'mod'`, activity, id)
-	return err
+	return agentStateResult(s.db.ExecContext(ctx, `
+		UPDATE agent_sessions SET activity = ? WHERE id = ? AND status = 'running' AND hook_source NOT IN ('mod', 'plugin')`, activity, id))
 }
 
 // GetAgentActivityCounts returns the count of running agent sessions grouped by activity state.
@@ -371,9 +385,8 @@ func (s *Store) EndInterruptedAgentSession(ctx context.Context, taskID, slot str
 // together, and marks where its state comes from (HookSourcePlugin, HookSourceMod, or ""
 // to leave the mark as it is).
 func (s *Store) SetAgentHookState(ctx context.Context, id int, activity string, jobs BackgroundJobs, source string) error {
-	_, err := s.db.ExecContext(ctx, `
+	return agentStateResult(s.db.ExecContext(ctx, `
 		UPDATE agent_sessions SET activity = ?, background_jobs = ?,
 			hook_source = CASE WHEN ? = '' THEN hook_source ELSE ? END
-		WHERE id = ? AND status = 'running'`, activity, jobs, source, source, id)
-	return err
+		WHERE id = ? AND status = 'running' AND (hook_source <> 'mod' OR ? = 'mod')`, activity, jobs, source, source, id, source))
 }

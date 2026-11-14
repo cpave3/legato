@@ -1,6 +1,6 @@
 # Chimera native integration
 
-Legato loads its embedded Chimera v1 mod by default (`adapters.chimera.native_bridge`). It connects the main session without lockfile discovery, saves its actual conversation ID for resume, reports activity and background jobs, and bundles Legato's MCP server. This requires a Chimera that reports `modApi: [1]`; older builds ignore the mod directory and use lockfile discovery instead.
+Legato loads its embedded Chimera v1 mod by default (`adapters.chimera.native_bridge`). It connects the main session without lockfile discovery, saves its actual conversation ID for resume, reports activity and background jobs, and bundles Legato's MCP server. With MCP enabled, every spawn checks `chimera version --json` for `modApi: [1]` and fails before starting a terminal if unsupported, rather than silently losing tools. The error asks the operator to upgrade Chimera or set `adapters.chimera.native_bridge: false` for legacy MCP injection. Disabling mods with launch arguments is also refused when bundled tools are required. This capability check is not cached across binary updates; binding/state capability is still decided by the first mod event.
 
 ## Lifecycle
 
@@ -10,13 +10,13 @@ The module's `register(on)` observes ordered v1 events. It does nothing without 
 
 `RunChimeraLink` chooses the same store or broker `BridgeHost` as the Claude Code bridge. It validates a numeric loopback HTTP URL, binds the exact running session, and saves the actual Chimera conversation identity. `session.end` with reason `switch` keeps the child alive for the next `session.start`; a final end or stdin EOF releases only the binding it owns. A switched or subagent session cannot clear a replacement's binding. Repeated and older sequence numbers are ignored. A short broker outage pauses consumption and retries the current event rather than running later state ahead of it; a refusal is an error on stderr.
 
-State travels through `ParseChimeraHook` / `ApplyChimeraHook`, via broker `agent.hook` with `kind: chimera` when sandboxed. The link counts open permission and question requests; resolving one leaves `waiting` until the last is resolved. See [Agent states](agent-states.md) for mappings and evidence. `hook_source = 'mod'` prevents old scripts and terminal prompt detection from overriding the mod.
+State travels through `ParseChimeraHook` / `ApplyChimeraHook`, via broker `agent.hook` with `kind: chimera` when sandboxed. The link counts open permission and question requests; resolving one leaves `waiting` until the last is resolved. See [Agent states](agent-states.md) for mappings and evidence. `hook_source = 'mod'` prevents old scripts, Claude-shaped hook reports and terminal prompt detection from overriding the mod. SQL guards return `ErrAgentStateIgnored` when a report loses authority; callers then skip reporting spans, notifications and broadcasts.
 
 ## Launch messages and fallback
 
 A fresh session keeps `--prompt` as turn one. The adapter is a `NativeBindingAdapter` while the mod is configured: later launch messages (including a resumed reviewer's brief and peer notices) wait for the native binding and go over HTTP, rather than being typed into a TUI that is still starting.
 
-If the mod has not bound after ten seconds, Legato begins legacy lockfile discovery. Discovery stops once either path binds and cannot replace a binding that arrived during its HTTP probe. Old Chimera builds keep existing hook reports and the manual **Upgrade to native panel** path. Discovery cannot add MCP flags to a process already running: set `native_bridge: false` for legacy launch-time MCP injection. Native endpoint recovery on Legato startup keeps a live binding, rediscovers a missing one, and respects an intentional downgrade to tmux.
+If the mod has not bound after ten seconds, Legato begins legacy lockfile discovery. Discovery stops once either path binds and cannot replace a binding that arrived during its HTTP probe. Old Chimera builds keep existing hook reports and the manual **Upgrade to native panel** path with the mod disabled (or MCP tools disabled). Discovery cannot add MCP flags to a process already running: the MCP launch preflight refuses unsupported hosts and asks for an upgrade or `native_bridge: false`. Native endpoint recovery on Legato startup keeps a live binding, rediscovers a missing one, and respects an intentional downgrade to tmux.
 
 ## Server authentication
 
@@ -24,7 +24,7 @@ Each Chimera launch gets a random secret stored privately with the agent session
 
 The sandbox mounts the installed mod and `~/.chimera/mods` and `~/.chimera/hooks` read-only. Other Chimera session state stays writable. The mod's link and MCP server use the host broker, without exposing Legato's database or configuration. See [Sandbox](sandbox.md).
 
-Known limit: Chimera's own unsandboxed commands can still read `CHIMERA_SERVER_SECRET` from `/proc/<pid>/environ`. CHIM-86 tracks passing the secret by file descriptor or pipe instead; the current environment handoff is not protection from unsandboxed commands.
+Known limit: Chimera's own commands can still read `CHIMERA_SERVER_SECRET` from `/proc/<pid>/environ`, including inside Legato's bwrap PID namespace. CHIM-86 tracks passing the secret by file descriptor or pipe instead; the current environment handoff does not protect the credential from those commands.
 
 ## Tools
 

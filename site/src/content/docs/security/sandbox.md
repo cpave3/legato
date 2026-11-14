@@ -57,6 +57,8 @@ Chimera's server-secret bootstrap is consumed outside the sandbox before the too
 
 Legato creates Chimera's `~/.chimera/mods` and `~/.chimera/hooks` directories when missing, even with `default_mounts: false`, so they are read-only from the first launch. If either directory is itself a symlink (including a broken one), the spawn fails: replace that symlink with a real directory. Individual mod entries inside `mods` may still be symlinks; their allowed targets are read-only. Protecting only a directory symlink's target would let an agent replace the symlink through Chimera's writable state folder.
 
+Symlinks anywhere inside Chimera's global `hooks` folder, including event directories and scripts, also refuse the spawn with an error naming the link. Copy the hook into a real file or directory instead: a read-only link alone cannot protect executable code reached through a writable checkout.
+
 Agents never see:
 
 - Legato's configuration, database and data folder, and `~/.config/legato`.
