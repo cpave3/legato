@@ -25,6 +25,7 @@ func Run(run func() int) int {
 		"XDG_CONFIG_HOME": filepath.Join(root, "config"),
 		"XDG_DATA_HOME":   filepath.Join(root, "data"),
 		"XDG_RUNTIME_DIR": filepath.Join(root, "run"),
+		"TMUX_TMPDIR":     filepath.Join(root, "tmux"),
 		"LEGATO_HOME":     filepath.Join(root, "legato"),
 	}
 	for key, value := range env {
@@ -89,5 +90,7 @@ func removeAll(root string) {
 var sessionVars = []string{
 	"LEGATO_TASK_ID", "LEGATO_EXECUTION_ID", "LEGATO_SOCKET", "LEGATO_BIN",
 	"LEGATO_BROKER_SOCKET", "LEGATO_BROKER_TOKEN", "LEGATO_SANDBOXED",
+	"CHIMERA_MOD_DIRS", "CHIMERA_SERVER_SECRET", "CLAUDE_CODE_PLUGIN_DIRS",
+	"BASH_ENV", "ZDOTDIR", "LEGATO_USER_BASH_ENV", "LEGATO_USER_ZDOTDIR", "TMUX",
 	"LEGATO_GITHUB_API_URL", "LEGATO_GITHUB_TOKEN", "LEGATO_GH_REAL", "GH_TOKEN", "GH_CONFIG_DIR",
 }

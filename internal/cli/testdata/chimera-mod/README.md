@@ -70,6 +70,22 @@ python3 internal/cli/testdata/chimera-mod/end_to_end.py --legato "$LEGATO" \
 
 Run heavy builds/full suites through the worker's shared lock. When running Go tests from a Legato-launched shell, clear `BASH_ENV`, `ZDOTDIR`, `LEGATO_USER_BASH_ENV` and `LEGATO_USER_ZDOTDIR`: the existing credential tests create their own shell wrappers, and nesting the launcher's wrappers makes their bash startup recurse. Use writable scratch Go/npm caches inside an OS sandbox.
 
+For the cross-repository investigation, `isolated_run.py` also removes inherited
+agent identity, broker and mod paths from **all** test-runner subprocesses, while
+pinning the configured toolchain and Go caches. It uses temporary HOME, XDG and
+tmux folders. Acquire the shared lock before that HOME changes:
+
+```sh
+flock "$HOME/.nuget/packages/.legato-heavy.lock" python3 \
+  internal/cli/testdata/chimera-mod/isolated_run.py go test -short ./internal/...
+```
+
+`internal/testenv.Run` independently clears extension and shell-hook environment
+variables and gives Go fixture children private tmux sockets. Chimera's Vitest
+runner has its own shared isolation setup and a portable synthetic-mod canary
+probe (`node scripts/check-test-isolation.mjs`). These are test-only protections;
+normal production environment-driven mod discovery is unchanged.
+
 ## LEG-194 automatic arbitration regression
 
 `TestChimeraLinkAutomaticApprovalAndHumanPrompt` is a **faithfully copied,
