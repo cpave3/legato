@@ -15,6 +15,8 @@ The card shows **working** during a turn, **needs you** for a permission prompt 
 
 Subagent cards and tiles follow the same lifecycle: spawning, running, finished or error, and interrupted. The mod keeps completion status even when a background child finishes while the parent is idle, or you reopen the panel. Only background children appear in the parent's background jobs; they leave that list when they finish.
 
+On newer Chimera builds, the native snapshot supplies exact child and parent-tool identities, including a foreground child whose tool has not returned yet. Legato prefers that canonical state and uses the mod's retained status for older builds.
+
 To use the legacy integration instead:
 
 ```yaml
@@ -92,6 +94,11 @@ The mod reports the session's endpoint directly; startup messages wait for that 
 - Switch the model and the Chimera mode, and change the model's settings. See [Model settings](/legato/agent-tools/model-settings/).
 - See how full the context window is, and what the model reasoned.
 
+Context-only appends do not make an idle panel look busy. A queued message that
+arrives during Chimera's final checkpoint is retried until it can be accepted,
+for at most 30 seconds; a failure remains visible rather than silently waiting
+for another prompt.
+
 When Chimera asks for a permission or asks a question, Legato raises it as an approval: in the web UI's tray, in [Attention](/legato/using/attention/), in the TUI (press `!`), and on your phone. The first answer, here or in the terminal, settles it. Automatic permission checks (including System One) keep the agent **working**; **waiting** means a permission prompt or question needs your answer. Legato confirms permission prompts from Chimera’s live session, so they can take a moment to appear.
 
 For a question, choose an option or type an answer of your own, then **Send answer**. You can answer from the native panel, the approvals tray or focus mode. **Dismiss** tells Chimera you declined to answer.
@@ -116,6 +123,8 @@ Chimera has a sandbox of its own, and Legato has [one for every agent](/legato/s
 ## Local server security
 
 Legato gives each Chimera launch its own server secret. It reads the secret from a private file at launch, never from typed text or tmux's environment, and deletes that file before Chimera starts. The bootstrap stays outside the sandbox and is hidden from the agent. The panel, messages and permissions use the authenticated local endpoint. An old Chimera without secret support cannot provide this protection.
+
+If the local endpoint is unavailable, connection errors still identify the operation and failure, but omit the credential-bearing endpoint URL. The same protection applies to event-stream reconnect logs.
 
 Inside Legato's sandbox, the installed mod and your Chimera `mods` and `hooks` folders are read-only; conversation state stays writable.
 
