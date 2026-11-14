@@ -31,7 +31,8 @@ for name in ('go', 'node', 'pnpm', 'bun'):
 if command[0] in tools:
     command[0] = tools[command[0]]
 allowed = ('PATH', 'LANG', 'LC_ALL', 'TERM', 'TZ', 'CI', 'TMPDIR',
-           'CHIMERA_TEST_DOCKER', 'CHIMERA_TEST_TMUX', 'CHIMERA_TEST_E2E', 'CHIMERA_TEST_SANDBOX_IMAGE')
+           'CHIMERA_TEST_DOCKER', 'CHIMERA_TEST_TMUX', 'CHIMERA_TEST_E2E',
+           'CHIMERA_TEST_MOD_BINARY', 'CHIMERA_TEST_RELEASE_BIN', 'CHIMERA_TEST_SANDBOX_IMAGE')
 env = {key: os.environ[key] for key in allowed if key in os.environ}
 env['PATH'] = os.pathsep.join(dict.fromkeys(str(pathlib.Path(path).parent) for path in tools.values())) + os.pathsep + os.environ.get('PATH', '')
 if 'go' in tools:
