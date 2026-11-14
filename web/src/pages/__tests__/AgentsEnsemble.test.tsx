@@ -1,5 +1,5 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react"
-import { useState } from "react"
+import { useImperativeHandle, useState, type Ref } from "react"
 import { afterEach, beforeEach, expect, it, vi } from "vitest"
 import { MemoryRouter, useLocation } from "react-router-dom"
 import { AgentsPage } from "../Agents"
@@ -10,8 +10,10 @@ vi.mock("../../components/InterruptedAgents", () => ({ InterruptedAgents: () => 
 
 // The socket's functions keep their identity between renders, as the real
 // ones do: the page reloads its agents whenever subscribe changes.
-const { mockFetch, socket } = vi.hoisted(() => ({
+const { mockFetch, socket, voice, selection } = vi.hoisted(() => ({
   mockFetch: vi.fn(),
+  voice: { enabled: false, start: vi.fn() },
+  selection: { initial: "TASK-1" as string | null },
   socket: { send: vi.fn(), subscribe: () => () => {}, connected: true },
 }))
 
@@ -20,13 +22,13 @@ vi.mock("../../hooks/useWebSocket", () => ({ useWebSocket: () => socket }))
 vi.mock("../../hooks/useServer", () => ({ useServer: () => ({ baseUrl: "" }) }))
 vi.mock("../../hooks/useAgentSelection", () => ({
   useAgentSelection: () => {
-    const [selectedAgentId, setSelectedAgentId] = useState<string | null>("TASK-1")
+    const [selectedAgentId, setSelectedAgentId] = useState<string | null>(selection.initial)
     return { selectedAgentId, setSelectedAgentId }
   },
   useAgentReselected: () => {},
 }))
 vi.mock("../../hooks/useSettings", () => ({
-  useSettings: () => ({ data: { ntfy_configured: false, voice_enabled: false } }),
+  useSettings: () => ({ data: { ntfy_configured: false, voice_enabled: voice.enabled } }),
 }))
 vi.mock("../../hooks/useSwarmEvents", () => ({ useSwarmEvents: () => ({ fetchState: vi.fn(), states: {} }) }))
 vi.mock("../../hooks/useTaskActivity", () => ({ useTaskActivity: () => ({ items: [] }) }))
@@ -47,7 +49,12 @@ vi.mock("../../components/TerminalPanel", () => ({
 vi.mock("../../components/LiveTerminal", () => ({
   LiveTerminal: ({ agentId }: { agentId: string }) => <div>Terminal of {agentId}<textarea aria-label="Terminal input" /></div>,
 }))
-vi.mock("../../components/PromptBar", () => ({ PromptBar: () => <textarea aria-label="Message" /> }))
+vi.mock("../../components/PromptBar", () => ({
+  PromptBar: ({ ref }: { ref: Ref<unknown> }) => {
+    useImperativeHandle(ref, () => ({ voiceStart: voice.start, voiceIsRecording: () => false }))
+    return <textarea aria-label="Message" />
+  },
+}))
 vi.mock("../../hooks/useTaskCard", () => ({
   useTaskCard: (id: string | null) => id ? {
     id, title: `${id} title`, status: "Doing",
@@ -81,6 +88,9 @@ function open(address: string) {
 const address = () => screen.getByTestId("location").textContent
 
 beforeEach(() => {
+  selection.initial = "TASK-1"
+  voice.enabled = false
+  voice.start.mockReset()
   mockFetch.mockReset()
   socket.send.mockReset()
   mockFetch.mockImplementation((input: RequestInfo | URL) => {
@@ -205,6 +215,23 @@ it("switches with a number key in the order the agent list shows", async () => {
     observer.observe(document.body, { childList: true, subtree: true })
   })
   await screen.findByText("Terminal of TASK-2")
+})
+
+it("takes v as soon as a selected agent is shown", async () => {
+  selection.initial = null
+  voice.enabled = true
+  Object.defineProperty(window, "innerWidth", { value: 390, configurable: true })
+  open("/agents?task=TASK-2")
+  await new Promise<void>((resolve) => {
+    const observer = new MutationObserver(() => {
+      if (!screen.queryByText("Terminal of TASK-2")) return
+      observer.disconnect()
+      fireEvent.keyDown(window, { key: "v" })
+      resolve()
+    })
+    observer.observe(document.body, { childList: true, subtree: true })
+  })
+  expect(voice.start).toHaveBeenCalledOnce()
 })
 
 it("sends a message typed into a tile to that agent", async () => {

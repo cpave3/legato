@@ -139,11 +139,6 @@ export function AgentsPage() {
   const ntfyConfigured = Boolean(settings.data?.ntfy_configured)
   const swarmEnabled = Boolean(settings.data?.swarm_enabled)
   const voiceEnabled = Boolean(settings.data?.voice_enabled)
-  const voiceEnabledRef = useRef(false)
-
-  useEffect(() => {
-    voiceEnabledRef.current = voiceEnabled
-  }, [voiceEnabled])
 
   // Per-agent prompt detection override. If not in the map, uses the global default.
   const [promptDetectionOverrides, setPromptDetectionOverrides] = useState<Record<string, boolean>>({})
@@ -218,9 +213,9 @@ export function AgentsPage() {
   // Global keyboard handler for voice dictation: 'v' toggles record/send,
   // Escape cancels recording. Only active when the textarea is not focused
   // and voice is enabled.
-  useEffect(() => {
+  useLayoutEffect(() => {
     const onKeyDown = (e: globalThis.KeyboardEvent) => {
-      if (!voiceEnabledRef.current || !selectedId) return
+      if (!voiceEnabled || !selectedId) return
       const target = e.target as HTMLElement
       const isTyping = target.tagName === "TEXTAREA" || target.tagName === "INPUT" || target.isContentEditable
       if (isTyping) return
@@ -239,7 +234,7 @@ export function AgentsPage() {
     }
     window.addEventListener("keydown", onKeyDown)
     return () => window.removeEventListener("keydown", onKeyDown)
-  }, [selectedId])
+  }, [selectedId, voiceEnabled])
 
   const handleSelect = useCallback(
     (taskId: string) => {

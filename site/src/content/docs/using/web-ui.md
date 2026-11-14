@@ -82,6 +82,8 @@ To switch agents from the keyboard, hold the switch key and press `1` to `9`. Th
 
 An agent that runs in tmux opens on the Agents page as a real terminal on its tmux session, set in a frame. Type straight into it (menus, arrow keys, Ctrl keys), scroll with the wheel or a drag to read tmux's own history; it resizes with the window. The strip along the top of the frame names the session. If the connection drops, it says **Reconnecting** and when it will try again, and **Retry now** tries at once. **Refresh terminal** in the agent's menu reconnects it too. Agents with a native panel keep their panel.
 
+When voice is enabled, press `v` outside a text field to start dictation in a terminal session with a message box, as soon as the selected agent appears; `Esc` cancels it.
+
 On a computer there is no message box: the terminal is where you type, and the agent's menu is in the header. A phone keeps the message box, with a row of the keys its keyboard lacks: **Esc**, **⇧Tab**, **↑** and **↓**, and **Ctrl**, which sends the next character you type, in the box or the terminal, with Ctrl. When the agent asks something, such as a yes-or-no menu, its answers appear as buttons above the box.
 
 The terminal's colours are set in **Settings › Appearance › Terminal theme**, for this browser: **Legato** (the default, Legato's own colours), **Night** (the same on black), **Solarized Dark** or **Classic**.

@@ -2,6 +2,8 @@
 
 Remote web interface for monitoring and interacting with agent sessions from any device (mobile, tablet, second screen). Built with React 19 + Vite + xterm.js + TailwindCSS. Compiled to `internal/server/static/dist/` and embedded in the Go binary via `embed.FS`. Installable as a PWA with offline support.
 
+**Voice keyboard readiness**: The Agents page binds `v`/Escape in a layout effect using the current selection and voice setting directly, without a passive-effect mirror ref. A terminal session with a prompt bar can start dictation as soon as its selection is shown.
+
 **Agent switching readiness**: The Agents page installs its modifier-plus-digit listener in a layout effect, so the displayed list order and key mapping change together. Its regression presses the shortcut at the first terminal commit.
 
 **Search keyboard readiness**: `SearchModal` installs its result-navigation listener in a layout effect, so Enter selects the visible result in the same commit that displays it, including archived tasks. The BoardSearch regression presses Enter from a MutationObserver before passive effects run.
