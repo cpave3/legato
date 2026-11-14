@@ -119,6 +119,12 @@ func (m *mcpTools) reeveTools() []mcpserver.Tool {
 	return tools
 }
 
+// isReeve reports whether the calling session is the Reeve's, whether or
+// not the Reeve's tools are wired here.
+func (m *mcpTools) isReeve() bool {
+	return m.opts.Store != nil && service.IsReeveTask(context.Background(), m.opts.Store, m.opts.TaskID)
+}
+
 // mustBeReeve refuses a call from any session but the Reeve's: the tools
 // are listed only to it, and checked again on each call.
 func (m *mcpTools) mustBeReeve(ctx context.Context) error {
@@ -589,6 +595,36 @@ func (m *mcpTools) messageReeve() mcpserver.Tool {
 		}
 		for _, r := range out.Replies {
 			text += "\n\nA reply that waited for you: " + r
+		}
+		return mcpserver.Result{Text: text, Data: out}, nil
+	})
+}
+
+type messageOwnReeveInput struct {
+	Text string `json:"text" jsonschema:"the message: what you ask or report, in a few sentences; put long detail in a task note and point to it"`
+}
+
+// messageOwnReeve is message_reeve for every session but the Reeve's: a
+// message to this instance's own Reeve, queued and told between its turns
+// (service.MessageReeve).
+func (m *mcpTools) messageOwnReeve() mcpserver.Tool {
+	return mcpserver.NewTool(mcpserver.Definition{
+		Name: "message_reeve", Title: "Message this Legato's Reeve",
+		Description: "Sends a message to this Legato's Reeve: the agent that runs this Legato instance and may have started you. " +
+			"Use it when the Reeve asked you to report to it (say what you finished, the pull requests, what is left), or to ask it something you need answered. " +
+			"It is told between its own turns, within a minute or so, and a suspended Reeve is woken for it. Its answer, if any, comes as a message in this conversation; do not wait idle for one unless you are blocked. " +
+			"Record findings that should last in a task note as well (add_task_note): the Reeve and the operator read those.",
+	}, func(ctx context.Context, in messageOwnReeveInput) (mcpserver.Result, error) {
+		if _, err := m.session(ctx); err != nil {
+			return mcpserver.Result{}, err
+		}
+		out, err := service.MessageReeve(ctx, m.opts.Store, m.opts.TaskID, in.Text, time.Now().UTC())
+		if err != nil {
+			return mcpserver.Result{}, err
+		}
+		text := "Queued for the Reeve; it is told between its turns."
+		if out.State == service.ReeveMessageWaiting {
+			text = "No Reeve session runs now: your message waits for the next one. If the operator needs to know now, say so in your reply or a task note."
 		}
 		return mcpserver.Result{Text: text, Data: out}, nil
 	})

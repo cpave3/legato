@@ -2,6 +2,7 @@ package cli_test
 
 import (
 	"context"
+	"encoding/json"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -11,6 +12,7 @@ import (
 	"testing"
 
 	"github.com/cpave3/legato/internal/cli"
+	"github.com/cpave3/legato/internal/engine/mcpserver"
 	"github.com/cpave3/legato/internal/engine/store"
 	"github.com/cpave3/legato/internal/service"
 	"github.com/modelcontextprotocol/go-sdk/mcp"
@@ -319,4 +321,102 @@ func TestTheReeveWatchesAgentsThroughItsTools(t *testing.T) {
 	if strings.Join(calls, "\n") != strings.Join(want, "\n") {
 		t.Fatalf("calls:\n%s", strings.Join(calls, "\n"))
 	}
+}
+
+// Every agent but the Reeve gets message_reeve, which reaches this
+// instance's Reeve: one the Reeve spawned (an ephemeral task), a task's own
+// agent, and one resumed in a new execution, each served through the host's
+// broker as a sandboxed agent's tools are (LEG-143).
+func TestEveryAgentTheReeveStartsCanMessageIt(t *testing.T) {
+	s := newTestStore(t)
+	seedColumns(t, s)
+	ctx := context.Background()
+	reeveTask, reeveExec := seedReeve(t, s)
+
+	spawned, err := s.CreateEphemeralTask(ctx, "Stack owner")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.InsertAgentSession(ctx, store.AgentSession{TaskID: spawned, TmuxSession: "legato-" + spawned, AgentKind: "claude-code", Status: "running"}); err != nil {
+		t.Fatal(err)
+	}
+	spawnedExec := linkTestExecution(t, s, spawned)
+
+	taskExec := seedMCPAgent(t, s, "work-1")
+
+	// A resumed agent: its first session ended, a new one runs under a new
+	// execution.
+	seedTask(t, s, "work-2", "Doing")
+	if err := s.InsertAgentSession(ctx, store.AgentSession{TaskID: "work-2", TmuxSession: "legato-work-2-before", AgentKind: "claude-code", Status: "dead"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.InsertAgentSessionReturningID(ctx, store.AgentSession{TaskID: "work-2", TmuxSession: "legato-work-2", AgentKind: "claude-code", Status: "running"}); err != nil {
+		t.Fatal(err)
+	}
+	resumedExec := linkTestExecution(t, s, "work-2")
+
+	reeve := &cli.MCPReeve{Peers: &fakeReevePeers{}}
+	tokens := map[string]string{}
+	for task, exec := range map[string]string{reeveTask: reeveExec, spawned: spawnedExec, "work-1": taskExec, "work-2": resumedExec} {
+		tokens[task] = "lgb_token_for_" + task
+		if err := s.SetExecutionBrokerToken(ctx, exec, service.HashBrokerToken(tokens[task])); err != nil {
+			t.Fatal(err)
+		}
+	}
+	h := cli.NewBrokerHandler(s, cli.BrokerDeps{Ops: cli.MCPBrokerOps(func(cli.BrokerCaller) cli.MCPOptions {
+		return cli.MCPOptions{Store: s, Reeve: reeve}
+	})})
+
+	for _, task := range []string{spawned, "work-1", "work-2"} {
+		listed, err := call(h, tokens[task], "mcp.list", nil)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got := listedDescription(t, listed, "message_reeve"); !strings.Contains(got, "this Legato's Reeve") {
+			t.Fatalf("%s is not offered message_reeve for its own Reeve: %q", task, got)
+		}
+		got, err := call(h, tokens[task], "mcp.call", map[string]any{"name": "message_reeve", "arguments": map[string]any{"text": "Report from " + task}})
+		if err != nil {
+			t.Fatal(err)
+		}
+		raw, _ := json.Marshal(got)
+		if strings.Contains(string(raw), `"is_error":true`) {
+			t.Fatalf("%s: message_reeve = %s", task, raw)
+		}
+	}
+	queued, err := s.ListReeveWatchEvents(ctx, 10)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(queued) != 3 {
+		t.Fatalf("queued %d messages for the Reeve, want 3", len(queued))
+	}
+
+	// The Reeve's own message_reeve is still the one for other instances.
+	listed, err := call(h, tokens[reeveTask], "mcp.list", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := listedDescription(t, listed, "message_reeve"); !strings.Contains(got, "another Legato instance") {
+		t.Fatalf("the Reeve's message_reeve: %q", got)
+	}
+}
+
+// listedDescription is the description of the tool named name in an
+// mcp.list answer, "" when it is not listed.
+func listedDescription(t *testing.T, listed any, name string) string {
+	t.Helper()
+	raw, _ := json.Marshal(listed)
+	var list struct {
+		Tools []mcpserver.Spec `json:"tools"`
+	}
+	if err := json.Unmarshal(raw, &list); err != nil {
+		t.Fatal(err)
+	}
+	for _, tool := range list.Tools {
+		if tool.Name == name {
+			return tool.Description
+		}
+	}
+	return ""
 }

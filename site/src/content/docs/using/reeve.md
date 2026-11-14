@@ -101,6 +101,8 @@ A watched agent wakes the Reeve with a `[legato agent]` message in its conversat
 
 The message has the agent's last words, which often say what it waits on ("waiting for the build"), and whether anything it started still runs. For a Claude Code agent in the background it names each job, such as `bash "npm run build"` or `subagent "Explore: find the callers"`, so the Reeve can tell an agent waiting on a build from one that has stalled. An idle agent has nothing that will wake it but a message. The Reeve then reads the task's notes and decides: leave the agent alone, message it, tell you, or stop it and start the next task, still one change at a time for you to approve. It never answers a permission prompt: it tells you what the agent asks.
 
+An agent can also write to the Reeve itself with its `message_reeve` tool, to report what it finished or ask a question, whether or not it is watched. Its message arrives the same way, and wakes a suspended Reeve.
+
 A short pause doesn't wake it, and news that comes close together arrives as one message, only between the Reeve's turns. When no Reeve session is running, the news waits for the next one. Turn on `reeve.watch.wake` to have Legato resume or start the Reeve instead, which costs tokens while you are away. Watching asks no approval, and outlasts a restart of Legato or of the Reeve. A watch ends when its agent exits.
 
 | Setting | What it does |
