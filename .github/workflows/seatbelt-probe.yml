@@ -1,0 +1,42 @@
+# Runs the Seatbelt probe (cmd/validate/seatbelt-probe) on macOS: the facts
+# Legato's macOS sandbox depends on, as a Markdown report in the run's
+# summary and as an artifact. It runs when the probe changes, and by hand for
+# a new macOS (LEG-168).
+name: seatbelt-probe
+
+on:
+  workflow_dispatch:
+  pull_request:
+    paths:
+      - cmd/validate/seatbelt-probe/**
+      - .github/workflows/seatbelt-probe.yml
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-15, macos-26]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Probe
+        run: |
+          go build -o "$RUNNER_TEMP/seatbelt-probe" ./cmd/validate/seatbelt-probe
+          "$RUNNER_TEMP/seatbelt-probe" > seatbelt-probe.md
+          cat seatbelt-probe.md >> "$GITHUB_STEP_SUMMARY"
+
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: seatbelt-probe-${{ matrix.os }}
+          path: seatbelt-probe.md
