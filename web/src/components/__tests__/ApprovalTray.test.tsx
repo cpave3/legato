@@ -2,6 +2,7 @@ import { describe, it, expect, vi, beforeEach, afterEach } from "vitest"
 import { render, screen, waitFor, fireEvent, cleanup, within } from "@testing-library/react"
 import { MemoryRouter, useLocation } from "react-router-dom"
 import type { Approval } from "../../lib/approvals"
+import chimeraQuestion from "../../../../contracts/chimera-question-panel.json"
 
 const mockDecide = vi.fn()
 const mockDismiss = vi.fn()
@@ -86,6 +87,38 @@ describe("ApprovalTray", () => {
     mockData = []
     mockDecide.mockResolvedValue({})
     mockDismiss.mockResolvedValue({})
+  })
+
+  // Go's client contract test verifies this is the normalized output of the
+  // faithfully copied Chimera request, not the Claude Code question shape.
+  it.each([false, true])("sends a Chimera choice with focus=%s", async (focus) => {
+    mockData = [permission({
+      source: "agent_question", options: [],
+      details: { request_id: chimeraQuestion.requestId, agent_kind: "chimera", questions: chimeraQuestion.questions },
+    })]
+    setFocusMode(focus)
+    renderTray()
+    const surface = focus ? screen.getByRole("dialog") : screen.getByRole("region", { name: "Approvals" })
+    fireEvent.click(within(surface).getByRole(focus ? "button" : "radio", { name: "vitest" }))
+    fireEvent.click(within(surface).getByRole("button", { name: "Send answer" }))
+    await waitFor(() => expect(mockDecide).toHaveBeenCalledWith("http://legato", "ap-11111111", {
+      decision: "answer", answers: { q1: ["vitest"] },
+    }))
+  })
+
+  it.each([false, true])("sends Chimera free text with focus=%s", async (focus) => {
+    mockData = [permission({
+      source: "agent_question", options: [],
+      details: { request_id: chimeraQuestion.requestId, agent_kind: "chimera", questions: chimeraQuestion.questions },
+    })]
+    setFocusMode(focus)
+    renderTray()
+    const surface = focus ? screen.getByRole("dialog") : screen.getByRole("region", { name: "Approvals" })
+    fireEvent.change(within(surface).getByRole("textbox", { name: focus ? "Or answer in your own words" : "Your own answer" }), { target: { value: "use bun test" } })
+    fireEvent.click(within(surface).getByRole("button", { name: "Send answer" }))
+    await waitFor(() => expect(mockDecide).toHaveBeenCalledWith("http://legato", "ap-11111111", {
+      decision: "answer", answers: { q1: ["use bun test"] },
+    }))
   })
 
   it("shows a credential request's scope, the agent's reason and a broader mark", async () => {

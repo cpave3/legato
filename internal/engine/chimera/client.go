@@ -191,6 +191,7 @@ func (c *Client) GetSession(ctx context.Context, sessionID string) (*SessionSnap
 	if err := c.getJSON(ctx, "/v1/sessions/"+url.PathEscape(sessionID), &snap); err != nil {
 		return nil, err
 	}
+	snap.PendingQuestions = normalizePendingQuestions(snap.PendingQuestions)
 	return &snap, nil
 }
 
@@ -519,6 +520,9 @@ func parseSSE(reader io.Reader, onEvent func(EventEnvelope)) error {
 		}
 		if eventID != "" {
 			env.EventID = eventID
+		}
+		if env.Type == "question_request" {
+			env.Data = NormalizeQuestionRequest(env.Data)
 		}
 		onEvent(env)
 		eventID = ""
