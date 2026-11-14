@@ -86,6 +86,22 @@ Legato also keeps [Staccato](/legato/integrations/staccato/)'s `st` up to date, 
 
 `st` downloads and checks its own release; Legato only runs `st update`. An `st` built from source is left alone, and Legato never installs `st` where there is none. A Legato built from source still keeps a release of `st` up to date.
 
+## Chimera
+
+Legato keeps a release of [Chimera](/legato/agent-tools/chimera/) current in the same way as `st`. It finds `chimera` on Legato's `PATH` and shows its version and state beside `st` in Settings › Updates:
+
+- **Automatic** runs `chimera update` when a newer release is found, without waiting for agents.
+- **Ask** offers **Update chimera to …** in Settings and an update action in Attention. Checks alone never install anything.
+- **Off** disables Legato's background checks.
+
+Chimera downloads and verifies its own release. Running agents keep the binary they started with; the next start uses the new version. A checkout build is **unmanaged** (“Not a release build, so Legato leaves it alone”): rebuild it from its checkout instead. A missing Chimera is shown as **Not installed on this server**; Legato does not install it for you.
+
+### Chimera's own background updates
+
+Chimera's TUI and `chimera serve` also check for updates themselves, controlled by Chimera's own `updates.mode`. Legato does not change that setting. To let Legato manage updates alone, set `updates.mode: off` in Chimera's configuration; Legato can still run `chimera update`. Turning updates off in Legato does not turn them off in Chimera.
+
+If both background updaters stay enabled, they may both check or install; they do not share an install lock. Installs replace the binary in place without restarting agents, and an install that finds the current version already up to date does nothing. Legato sees a version installed by Chimera at its next check.
+
 ## The desktop app
 
 The desktop app updates itself from the same releases, when a release carries a new desktop build. See [The desktop app](/legato/running/desktop-app/#updates).
