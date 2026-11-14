@@ -2691,6 +2691,16 @@ func (a App) handleMacroSelected(msg overlay.MacroSelectedMsg) (tea.Model, tea.C
 	keys := msg.Macro.Keys
 	tmuxer := a.tmux
 	return a, func() tea.Msg {
+		if a.agentSvc.HasChimeraEndpoint(context.Background(), sel.TaskID) {
+			if !strings.HasSuffix(keys, "\n") {
+				return statusbar.ErrorMsg{Text: "Native agent macros must submit a message"}
+			}
+			if err := a.agentSvc.SendMessage(context.Background(), sel.TaskID, strings.TrimSuffix(keys, "\n")); err != nil {
+				return statusbar.ErrorMsg{Text: err.Error()}
+			}
+			return statusbar.InfoMsg{Text: "Sent macro: " + msg.Macro.Name}
+		}
+
 		var err error
 		if len(keys) > 0 && keys[len(keys)-1] == '\n' {
 			err = tmuxer.SendKeysLine(session, keys[:len(keys)-1])

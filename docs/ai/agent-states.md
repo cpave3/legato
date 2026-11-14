@@ -62,6 +62,35 @@ new session with none: its background work ended with the old process.
   agent that reports nothing itself. It leaves a session the plugin reports for
   alone (`hook_source = 'plugin'` or `'mod'`), whose events already report the dialog.
 
+## Foreground safety and exit detection
+
+`tmux.Manager` fails closed for all agent `SendKeys`, `SendKey`, line and
+multiline deliveries until `NewAgentService` installs its delivery guard. Each
+text/key invocation probes the target's `pane_id` and `pane_current_command`,
+checks the running session and tool identity, then sends to that exact pane ID.
+It rechecks before Enter, including after the line-delivery gap. Missing probes,
+shells and other programs receive nothing; refusal is returned and logged without
+message text. A confirmed non-agent program marks terminal delivery interrupted;
+a failed probe alone never proves exit. Known tools must match their executable name (`claude`, `chimera`,
+`codex`); an unrecognized wrapper/runtime is refused, not guessed to be an agent.
+The base64 swarm envelope does not grant permission to type into a shell.
+
+A confirmed shell return terminalizes the session/execution and fails its exact
+unfinished workflow agent attempt. The broker owner reconciles every two seconds,
+even without an open UI. Initial startup gets 30 seconds (and clone setup its
+existing completion gate); after the tool has been observed, shell return is
+immediate. Probe failures are not proof of exit. Shell-only sessions cannot
+receive automated messages. Deliberate operator terminal attachment is separate
+from automated key delivery.
+
+Bound sessions and adapters expecting a native binding never fall back to keys.
+Native errors are reported; launch messages stay pending until accepted and
+artifact interactions keep their existing outbox. Raw native prompt-bar keys
+are refused (text submissions and interrupts use the native route); TUI native
+macros submit text only. Native voice drafts cannot be typed into the terminal.
+Only `SendKeysShellCommand` may bypass the agent guard, for the three controlled
+spawn/setup bootstrap sites, after verifying a shell receiver.
+
 ## Evidence
 
 The Claude Code sequences were recorded on 2026-11-12 from Claude Code 2.1.322,

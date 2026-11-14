@@ -350,27 +350,31 @@ func (m *mockSyncService) Sync(_ context.Context) (*service.SyncResult, error) {
 func (m *mockSyncService) Status() service.SyncStatus                          { return service.SyncStatus{} }
 
 type promptAgentService struct {
-	agent            service.AgentSession
-	setActivities    []string
-	setWorkingDirs   []string
-	queuedTaskID     string
-	queuedMessage    string
-	queueErr         error
-	chimeraEndpoint  string
-	chimeraSessionID string
-	agentEnvironment []string
-	permissionTaskID string
-	permissionReqID  string
-	permissionAction service.PermissionAction
-	permissionErr    error
-	questionTaskID   string
-	questionReqID    string
-	questionAnswer   service.QuestionAnswer
-	questionErr      error
-	captureOutput    string
-	captureErr       error
-	capturedTaskID   string
-	killedTaskID     string
+	sentTaskID        string
+	sentMessage       string
+	sendMessageErr    error
+	interruptedTaskID string
+	agent             service.AgentSession
+	setActivities     []string
+	setWorkingDirs    []string
+	queuedTaskID      string
+	queuedMessage     string
+	queueErr          error
+	chimeraEndpoint   string
+	chimeraSessionID  string
+	agentEnvironment  []string
+	permissionTaskID  string
+	permissionReqID   string
+	permissionAction  service.PermissionAction
+	permissionErr     error
+	questionTaskID    string
+	questionReqID     string
+	questionAnswer    service.QuestionAnswer
+	questionErr       error
+	captureOutput     string
+	captureErr        error
+	capturedTaskID    string
+	killedTaskID      string
 }
 
 func (p *promptAgentService) SpawnAgent(context.Context, string, int, int, ...service.AgentSpawnOptions) error {
@@ -437,15 +441,18 @@ func (p *promptAgentService) SendPeerMessage(context.Context, string, string, st
 func (p *promptAgentService) BroadcastToPeers(context.Context, string, string, string, string) (service.AgentBroadcastResult, error) {
 	return service.AgentBroadcastResult{}, nil
 }
-func (p *promptAgentService) SendMessage(context.Context, string, string) error {
-	return nil
+func (p *promptAgentService) SendMessage(_ context.Context, taskID, message string) error {
+	p.sentTaskID = taskID
+	p.sentMessage = message
+	return p.sendMessageErr
 }
 func (p *promptAgentService) QueueMessage(_ context.Context, taskID, message string) error {
 	p.queuedTaskID = taskID
 	p.queuedMessage = message
 	return p.queueErr
 }
-func (p *promptAgentService) InterruptAgent(context.Context, string) error {
+func (p *promptAgentService) InterruptAgent(_ context.Context, taskID string) error {
+	p.interruptedTaskID = taskID
 	return nil
 }
 func (p *promptAgentService) ResolvePermission(_ context.Context, taskID, requestID string, action service.PermissionAction) error {
@@ -2342,5 +2349,36 @@ func TestKillAgentHandlerKillsOrdinaryAgentOnly(t *testing.T) {
 	}
 	if cancelled {
 		t.Fatal("ordinary agent kill cancelled a swarm")
+	}
+}
+
+func TestNativePromptKeysDoNotFallBackToTyping(t *testing.T) {
+	agents := &promptAgentService{chimeraEndpoint: "http://127.0.0.1:1", chimeraSessionID: "native"}
+	tmux := &mockTmuxManager{}
+	server := New(nil, agents, tmux, ":0")
+	var answers []WSMessage
+	client := &wsClient{ctx: context.Background(), sendFn: func(m WSMessage) { answers = append(answers, m) }}
+	server.handleWSMessage(client, WSMessage{Type: MsgSendKeys, AgentID: "native-agent", Keys: "Down Enter"})
+	if len(tmux.sentKeys) != 0 {
+		t.Fatalf("typed native keys: %v", tmux.sentKeys)
+	}
+	if len(answers) != 1 || answers[0].Type != MsgError {
+		t.Fatalf("answers = %+v; want refusal", answers)
+	}
+	server.handleWSMessage(client, WSMessage{Type: MsgSendKeys, AgentID: "native-agent", Keys: "hello\n"})
+	if agents.sentTaskID != "native-agent" || agents.sentMessage != "hello" {
+		t.Fatalf("native submission = %q, %q", agents.sentTaskID, agents.sentMessage)
+	}
+	server.handleWSMessage(client, WSMessage{Type: MsgSendKeys, AgentID: "native-agent", Keys: "C-c"})
+	if agents.interruptedTaskID != "native-agent" {
+		t.Fatal("interrupt bypassed native route")
+	}
+	agents.sendMessageErr = errors.New("native offline")
+	server.handleWSMessage(client, WSMessage{Type: MsgSendKeys, AgentID: "native-agent", Keys: "retry\n"})
+	if len(answers) != 2 || !strings.Contains(answers[1].Error, "native offline") {
+		t.Fatalf("native failure = %+v", answers)
+	}
+	if len(tmux.sentKeys) != 0 {
+		t.Fatalf("typed after native failure: %v", tmux.sentKeys)
 	}
 }

@@ -77,7 +77,7 @@ Workflow definitions do not support `notify_on_complete`. Successful runs remain
 A run's page says the same at the top, and under it what you can do now:
 
 - an agent at work: **Open agent**
-- an agent that went idle, is waiting for an answer or ended before finishing its step: **Open agent** and **Prompt to continue**
+- an agent that went idle or is waiting for an answer: **Open agent** and **Prompt to continue**
 - a manual step: what it will do (such as "Moves LEG-42 to Ready") and **Run step**
 - a step that waits for the agent to end: **Open agent**, and **End now** to run the step without waiting
 - a failed step: its error and **Retry step**
@@ -371,7 +371,7 @@ Report an unrecoverable failure:
 legato workflow step fail "review tool unavailable" --json
 ```
 
-An agent that exits, or whose terminal closes, has not succeeded: only `legato workflow step complete` completes a step. Missing or invalid outputs leave the step incomplete or failed. Learn's interview follows the same rule through `legato learn reflection submit`; see [Legato Learn](/legato/using/learn/). Legato saves the outputs and moves the run on before it removes the agent. If a completion is interrupted and the agent runs the command again, a file that has not changed is accepted again, and a file that changed is refused.
+An agent that exits, including one whose pane is back at a shell, fails its unfinished step with **agent exited before step completion**. Use **Retry step** to try again. Exit has not succeeded: only `legato workflow step complete` completes a step. Missing or invalid outputs leave the step incomplete or failed. Learn's interview follows the same rule through `legato learn reflection submit`; see [Legato Learn](/legato/using/learn/). Legato saves the outputs and moves the run on before it removes the agent. If a completion is interrupted and the agent runs the command again, a file that has not changed is accepted again, and a file that changed is refused.
 
 ## Artifacts and security
 
@@ -397,7 +397,7 @@ The **Workflows** destination includes:
 
 A board task's detail also shows the runs that took it as their `task` input, with the files they produced to download.
 
-Runs update on the page as they progress. When the agent of an unfinished `agent.run` step stops to wait for you, goes idle or disappears, the step is marked as needing attention: the Workflows item in the navigation shows a red count, the run's card says why it stalled, and the run page offers **Prompt to continue** while the agent is still running. Legato never prompts the agent by itself, so it cannot start the same work twice.
+Runs update on the page as they progress. When the agent of an unfinished `agent.run` step stops to wait for you, goes idle, the step is marked as needing attention: the Workflows item in the navigation shows a red count, the run's card says why it stalled, and the run page offers **Prompt to continue** while the agent is still running. Legato never prompts the agent by itself, so it cannot start the same work twice.
 
 ## Limits
 

@@ -100,28 +100,19 @@ func TestLaunchKickoffWaitsForTheSessionsBridgeAndIsSubmittedDirectly(t *testing
 	}
 }
 
-func TestLaunchKickoffIsTypedWhenNoBridgeAppears(t *testing.T) {
+func TestLaunchKickoffIsRetainedWhenNoBridgeAppears(t *testing.T) {
 	svc, s, mt := newNativeLaunchService(t, t.TempDir())
-	// A session that never loads the mod (an older Claude Code, a failed
-	// load) still gets its kickoff the way it always did.
 	svc.(*agentService).nativeBindTimeout = 40 * time.Millisecond
 	createTask(t, s, "parent-1")
-
-	if err := svc.SpawnAgent(context.Background(), "parent-1", 0, 0, AgentSpawnOptions{
-		Role: "conductor", ParentTaskID: "parent-1", Brief: "kick off the swarm",
-	}); err != nil {
+	if err := svc.SpawnAgent(context.Background(), "parent-1", 0, 0, AgentSpawnOptions{Role: "conductor", ParentTaskID: "parent-1", Brief: "kick off the swarm"}); err != nil {
 		t.Fatal(err)
 	}
-
-	deadline := time.Now().Add(3 * time.Second)
-	for len(mt.sentLinesFor("legato-parent-1")) < 2 {
-		if time.Now().After(deadline) {
-			t.Fatalf("kickoff never typed; lines = %v", mt.sentLinesFor("legato-parent-1"))
-		}
-		time.Sleep(5 * time.Millisecond)
+	time.Sleep(100 * time.Millisecond)
+	if lines := mt.sentLinesFor("legato-parent-1"); len(lines) != 1 {
+		t.Fatalf("typed native kickoff: %v", lines)
 	}
-	if got := mt.sentLinesFor("legato-parent-1")[1]; got != briefKickoffMessage {
-		t.Fatalf("typed line = %q, want the kickoff", got)
+	if kept, err := s.ListLaunchMessages(context.Background()); err != nil || len(kept) != 1 {
+		t.Fatalf("kept = %v, %v", kept, err)
 	}
 }
 
