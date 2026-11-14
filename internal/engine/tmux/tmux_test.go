@@ -565,6 +565,7 @@ func TestAgentDeliveryRefusesUnverifiedPane(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { m.Kill(name) })
+	awaitShellPane(t, m, name)
 	payload := "touch " + filepath.Join(t.TempDir(), "must-not-run")
 	sends := []func() error{
 		func() error { return m.SendKeys(name, payload) },
@@ -614,6 +615,7 @@ func TestBootstrapShellCommandIsSeparateFromAgentMessages(t *testing.T) {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { m.Kill(name) })
+	awaitShellPane(t, m, name)
 	marker := filepath.Join(dir, "booted")
 	if err := m.SendKeysShellCommand(name, "touch "+marker); err != nil {
 		t.Fatal(err)
@@ -630,5 +632,25 @@ func TestBootstrapShellCommandIsSeparateFromAgentMessages(t *testing.T) {
 	}
 	if err := m.SendKeysLine(name, "echo not-an-agent"); err == nil {
 		t.Fatal("bootstrap authorized subsequent agent messages")
+	}
+}
+
+func awaitShellPane(t *testing.T, m *Manager, name string) {
+	t.Helper()
+	// new-session can return while the child is still tmux, before execing
+	// its shell. Exercise delivery only once that receiver actually exists.
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		commands, err := m.PaneCommands()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if IsShellCommand(commands[name]) {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("pane %s did not start its shell: foreground = %q", name, commands[name])
+		}
+		time.Sleep(5 * time.Millisecond)
 	}
 }
