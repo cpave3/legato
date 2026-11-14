@@ -4,6 +4,7 @@ import (
 	"context"
 	"encoding/json"
 	"fmt"
+	"log"
 	"net/http"
 	"os/exec"
 	"strings"
@@ -330,6 +331,7 @@ func (s *Server) handleAgentMessage(client *wsClient, msg WSMessage) {
 		err = s.agents.SendMessage(context.Background(), msg.AgentID, msg.Content)
 	}
 	if err != nil {
+		log.Printf("agent %s: message not delivered: %q", msg.AgentID, cutRunes(err.Error(), deliveryLogReason))
 		sendError("send message failed: " + err.Error())
 		return
 	}

@@ -189,7 +189,7 @@ describe("NativeAgentPanel and an image the person pastes", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Send" }))
 
-    expect(send).toHaveBeenCalledWith(expect.objectContaining({ type: "agent_message", agent_id: "task-1", content: stored("pasted-1.png") }))
+    expect(send).toHaveBeenCalledWith(expect.objectContaining({ type: "agent_message", agent_id: "task-1", content: `Image: ${stored("pasted-1.png")}` }))
     await waitFor(() => expect(screen.queryByRole("img", { name: /Pasted image/ })).toBeNull())
     expect(revoked).toEqual(["blob:image-1"])
   })
@@ -259,6 +259,6 @@ describe("NativeAgentPanel and an image the person pastes", () => {
 
     fireEvent.drop(screen.getByTestId("agent-composer"), { dataTransfer: { files: [screenshot()], types: ["Files"] } })
 
-    await waitFor(() => expect(box.value).toBe(`${stored("pasted-1.png")} `))
+    await waitFor(() => expect(box.value).toBe(`Image: ${stored("pasted-1.png")} `))
   })
 })

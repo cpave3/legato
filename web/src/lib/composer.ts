@@ -55,6 +55,14 @@ function userMessagesWith(items: NativeConversationItem[], text: string): number
   return count
 }
 
+// isCommandText says whether a message is a command for the agent's session:
+// a slash and a name, alone or before its arguments, the shape the Claude Code
+// mod runs as one (`submit` in its register.ts). A path such as /tmp/a.png is
+// not one: it is a message.
+export function isCommandText(text: string): boolean {
+  return /^\/[\w:.-]+(?:\s|$)/.test(text.trim())
+}
+
 export function queueMessage(queued: QueuedMessage[], text: string, items: NativeConversationItem[], id: string): QueuedMessage[] {
   const earlier = queued.filter((entry) => entry.text === text && entry.state !== "failed").length
   return [...queued, { id, text, before: userMessagesWith(items, text) + earlier, state: "sending" }]

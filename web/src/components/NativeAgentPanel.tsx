@@ -25,12 +25,12 @@ import { AttachImageButton } from "./AttachImageButton"
 import { AgentChatHeader, type AgentChatState, type AgentMenuEntry, type SidePanelsProps } from "./AgentChatHeader"
 import { ResourcesButton } from "./ResourcesButton"
 import { ContextGauge, ContextNotice, DictateButton, DictationBar, QueuedList, SendButton, WorkingStrip, type QueuedEntry } from "./Composer"
-import { CONTEXT_NEARLY_FULL, composerToolButton, currentStep, dictating, failQueuedByWords, formatElapsed, queueMessage, settleQueued, unreadQueued, type QueuedMessage } from "../lib/composer"
+import { CONTEXT_NEARLY_FULL, composerToolButton, currentStep, dictating, failQueuedByWords, formatElapsed, isCommandText, queueMessage, settleQueued, unreadQueued, type QueuedMessage } from "../lib/composer"
 import { useTurnClock } from "../hooks/useTurnClock"
 import { usePageInView } from "../hooks/usePageInView"
 import { appendProposal, legatoUICall, onComposerProposal, speakFailed, speakText } from "../lib/agentUi"
 import { SaidBubble } from "./SaidBubble"
-import { insertAtCursor, isImagePath } from "../lib/agentImage"
+import { insertImagePath, isImagePath } from "../lib/agentImage"
 import { rankSlashItems, type SlashItem } from "../lib/slashMenu"
 import { usePastedImages } from "../hooks/usePastedImages"
 import { nativeToolName } from "../lib/agentKind"
@@ -116,6 +116,8 @@ const TERMINAL_PROMPT_POLL_MS = 2000
 // How the request_id of a message from the box starts, so Legato's answer
 // about it is told from one about a permission or a question.
 const MESSAGE_REQUEST = "message-"
+// How many of the commands it sent a panel remembers, to know a refusal of one.
+const SENT_COMMANDS_KEPT = 20
 
 // The prompt types that ask the person to pick something.
 const terminalPromptTypes = new Set<PromptState["type"]>(["menu", "tool_approval", "plan_approval", "question"])
@@ -253,6 +255,14 @@ export function NativeAgentPanel({ agentId, reeve, sandboxed, onKill, onRename, 
   const modelRequestRef = useRef(0)
   const invalidateModelRequests = useCallback(() => { modelRequestRef.current++ }, [])
   const queuedEventsRef = useRef<ChimeraEvent[] | null>(null)
+  // True while the panel shows Working only because the person sent a message
+  // to an idle session, before the session says a turn started. A message
+  // that was not sent then takes it back: nothing is running (LEG-151).
+  const workingUnconfirmedRef = useRef(false)
+  // Commands this panel sent, by their words, whose refusal it would show.
+  // Legato's stream replays the refusals it kept to a panel that opens; those
+  // are not this panel's to show.
+  const sentCommandsRef = useRef<string[]>([])
   const syncGenerationRef = useRef(0)
   const runFinishTimerRef = useRef<number | null>(null)
   const hydratedAgentRef = useRef<string | null>(null)
@@ -316,13 +326,21 @@ export function NativeAgentPanel({ agentId, reeve, sandboxed, onKill, onRename, 
   // An image pasted into the message box is stored by Legato, and its path
   // goes into the message where the cursor is.
   const pasted = usePastedImages(agentId, draft, useCallback((path: string) => {
-    setDraft((current) => insertAtCursor(current, path, textareaRef.current?.selectionStart))
+    setDraft((current) => insertImagePath(current, path, textareaRef.current?.selectionStart))
   }, []))
 
   const replaceSyncState = useCallback((next: NativeSyncState) => {
     syncStateRef.current = next
     setSyncState(next)
   }, [])
+
+  // The message that showed Working was not sent and no turn has started:
+  // the session is idle.
+  const stopUnconfirmedWorking = useCallback(() => {
+    if (!workingUnconfirmedRef.current) return
+    workingUnconfirmedRef.current = false
+    replaceSyncState({ ...syncStateRef.current, busy: false })
+  }, [replaceSyncState])
 
   const applyEvent = useCallback((event: ChimeraEvent) => {
     if (event.type === "model_changed" || event.type === "mode_changed") modelRequestRef.current++
@@ -480,6 +498,8 @@ export function NativeAgentPanel({ agentId, reeve, sandboxed, onKill, onRename, 
       const snapshot: SessionSnapshot = await response.json()
       if (generation !== syncGenerationRef.current) return
       setMode(snapshot.mode || "")
+      // The session says a turn runs: Working is no longer only the panel's guess.
+      if (snapshot.status === "running" || snapshot.status === "waiting_for_permission" || snapshot.status === "waiting_for_input") workingUnconfirmedRef.current = false
       replaceSyncState(reconcileNativeSnapshot(snapshot, syncStateRef.current, eventQueue))
       if (scrollAfterSync || scrollAnchor?.atBottom) {
         isScrolledUpRef.current = false
@@ -607,6 +627,7 @@ export function NativeAgentPanel({ agentId, reeve, sandboxed, onKill, onRename, 
       }
       if (msg.type === "error" && msg.request_id?.startsWith(MESSAGE_REQUEST)) {
         setQueued((current) => settleQueued(current, msg.request_id!, msg.error || "The message could not be sent"))
+        stopUnconfirmedWorking()
         return
       }
       if (msg.type === "error" && msg.request_id) {
@@ -631,9 +652,20 @@ export function NativeAgentPanel({ agentId, reeve, sandboxed, onKill, onRename, 
         const event: ChimeraEvent = JSON.parse(msg.content || "{}")
         if (event.type === "message_failed") {
           const words = event.content ?? ""
-          setQueued((current) => failQueuedByWords(current, words, event.error || "The agent's session would not take it"))
+          const reason = event.error || "The agent's session would not take it"
+          // A command is not listed, so its failure has no row to mark.
+          if (isCommandText(words)) {
+            const at = sentCommandsRef.current.indexOf(words.trim())
+            if (at < 0) return
+            sentCommandsRef.current.splice(at, 1)
+            setSendError(`Not sent: ${words.trim()}: ${reason}`)
+          } else {
+            setQueued((current) => failQueuedByWords(current, words, reason))
+          }
+          stopUnconfirmedWorking()
           return
         }
+        if (event.type === "session_started" || event.type === "user_message") workingUnconfirmedRef.current = false
         applyEvent(event)
         if (event.type === "run_finished") {
           if (runFinishTimerRef.current != null) window.clearTimeout(runFinishTimerRef.current)
@@ -670,7 +702,7 @@ export function NativeAgentPanel({ agentId, reeve, sandboxed, onKill, onRename, 
       unsubscribe()
       if (following) send({ type: "unsubscribe_agent", agent_id: agentId })
     }
-  }, [subscribe, agentId, applyEvent, replaceSyncState, resync, executeBang, following, send])
+  }, [subscribe, agentId, applyEvent, replaceSyncState, resync, executeBang, following, send, stopUnconfirmedWorking])
 
   const handleBuiltinSlash = useCallback(async (raw: string) => {
     const parts = raw.split(/\s+/)
@@ -722,10 +754,15 @@ export function NativeAgentPanel({ agentId, reeve, sandboxed, onKill, onRename, 
     }
     setSendError(null)
     // A command the agent runs is never shown as a message, so it is not
-    // listed; it is only answered, and an error for it shows as one.
-    if (!trimmed.startsWith("/")) setQueued((current) => queueMessage(current, trimmed, syncStateRef.current.items, requestId))
+    // listed; it is only answered, and an error for it shows as one. A path
+    // at the start (/tmp/a.png what is this?) is a message, not a command.
+    if (!isCommandText(trimmed)) setQueued((current) => queueMessage(current, trimmed, syncStateRef.current.items, requestId))
+    else sentCommandsRef.current = [...sentCommandsRef.current.slice(-(SENT_COMMANDS_KEPT - 1)), trimmed]
     setDraft("")
-    if (!busy) replaceSyncState({ ...syncStateRef.current, busy: true, error: null })
+    if (!busy) {
+      workingUnconfirmedRef.current = true
+      replaceSyncState({ ...syncStateRef.current, busy: true, error: null })
+    }
     scrollToBottomAfterRender()
   }, [draft, busy, agentId, send, replaceSyncState, scrollToBottomAfterRender, executeBang, handleBuiltinSlash])
 
