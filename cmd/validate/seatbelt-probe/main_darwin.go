@@ -374,9 +374,28 @@ func probeProcArgs(self string) {
 		{"process-info and signal same-sandbox", same},
 		{"… and deny sysctl kern.procargs*", same + `(deny sysctl-read (sysctl-name-prefix "kern.procargs"))`},
 	}
+	// KERN_PROCARGS2 by its MIB, as ps reads it (ps itself is setuid, and a
+	// sandbox runs no setuid program).
+	procargs := `import ctypes, sys
+libc = ctypes.CDLL(None, use_errno=True)
+mib = (ctypes.c_int * 3)(1, 49, int(sys.argv[1]))
+size = ctypes.c_size_t(1 << 20)
+buf = ctypes.create_string_buffer(1 << 20)
+if libc.sysctl(mib, 3, buf, ctypes.byref(size), None, 0) != 0:
+    print("refused, errno", ctypes.get_errno()); sys.exit(1)
+raw = buf.raw[:size.value]
+print("arguments visible:", b"` + argMarker + `" in raw, "; environment visible:", b"` + secretMarker + `" in raw)
+`
+	python := lookPath("python3")
 	for _, v := range variants {
-		out, code := sbx(allowDefault+v.rules, nil, self, "helper", "procargs", pid)
-		s.add(v.name, "sysctl kern.procargs2", short(out, code))
+		if python != "" {
+			out, code := sbx(allowDefault+v.rules, nil, python, "-I", "-c", procargs, pid)
+			s.add(v.name, "sysctl {CTL_KERN, KERN_PROCARGS2, pid}", short(out, code))
+		}
+		out, code := sbx(allowDefault+v.rules, nil, "/usr/bin/pgrep", "-lf", argMarker)
+		s.add(v.name, "pgrep -lf (lists it with its arguments?)", short(out, code))
+		out, code = sbx(allowDefault+v.rules, nil, "/bin/kill", "-CONT", pid)
+		s.add(v.name, "kill -CONT (a real signal)", short(out, code))
 		out, code = sbx(allowDefault+v.rules, nil, "/bin/ps", "-E", "-ww", "-o", "command=", "-p", pid)
 		s.add(v.name, "ps -E -p", map[bool]string{true: "**environment visible**", false: "environment hidden; "}[strings.Contains(out, secretMarker)]+short(out, code))
 		out, code = sbx(allowDefault+v.rules, nil, "/bin/ps", "-ax", "-o", "pid=")
@@ -385,8 +404,6 @@ func probeProcArgs(self string) {
 			listed = listed || f == pid
 		}
 		s.add(v.name, "ps -ax lists it", fmt.Sprintf("%v (exit %d)", listed, code))
-		out, code = sbx(allowDefault+v.rules, nil, "/bin/kill", "-0", pid)
-		s.add(v.name, "kill -0", short(out, code))
 	}
 }
 
@@ -710,13 +727,6 @@ func helper(name string, args []string) int {
 		}
 		resp.Body.Close()
 		fmt.Println(resp.Status)
-	case "procargs":
-		pid, _ := strconv.Atoi(args[0])
-		raw, err := unix.SysctlRaw("kern.procargs2", pid)
-		if err != nil {
-			return fail(err)
-		}
-		fmt.Printf("arguments visible: %v; environment visible: %v\n", bytes.Contains(raw, []byte(argMarker)), bytes.Contains(raw, []byte(secretMarker)))
 	case "clonefile":
 		if err := unix.Clonefile(args[0], args[1], 0); err != nil {
 			return fail(err)
