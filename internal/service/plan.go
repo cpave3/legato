@@ -309,6 +309,45 @@ func (p *PlanService) Resolve(ctx context.Context, taskID, name string) (*store.
 	return p.store.GetPlanByTaskName(ctx, taskID, name)
 }
 
+// ResolveForRead finds the plan a read names: the task's plan of that
+// name, or with no name the task's unnamed plan, else its latest plan.
+// Only reads fall back to the latest plan: a change names its plan.
+func (p *PlanService) ResolveForRead(ctx context.Context, taskID, name string) (*store.Plan, error) {
+	plan, err := p.store.GetPlanByTaskName(ctx, taskID, name)
+	if name != "" || !errors.Is(err, store.ErrNotFound) {
+		return plan, err
+	}
+	plans, err := p.store.ListPlansByTask(ctx, taskID)
+	if err != nil {
+		return nil, err
+	}
+	if len(plans) == 0 {
+		return nil, store.ErrNotFound
+	}
+	return &plans[0], nil
+}
+
+// TaskPlans lists a task's plans, newest first, whatever their status:
+// each in brief, its text read with Plan.
+func (p *PlanService) TaskPlans(ctx context.Context, taskID string) ([]PlanQueueItem, error) {
+	if _, err := p.store.GetTask(ctx, taskID); err != nil {
+		return nil, err
+	}
+	plans, err := p.store.ListPlansByTask(ctx, taskID)
+	if err != nil {
+		return nil, err
+	}
+	out := []PlanQueueItem{}
+	for _, plan := range plans {
+		item, err := p.queueItem(ctx, plan)
+		if err != nil {
+			return nil, err
+		}
+		out = append(out, item)
+	}
+	return out, nil
+}
+
 func (p *PlanService) Plan(ctx context.Context, planID string) (*PlanView, error) {
 	plan, err := p.store.GetPlan(ctx, planID)
 	if err != nil {
@@ -390,22 +429,31 @@ func (p *PlanService) Queue(ctx context.Context) ([]PlanQueueItem, error) {
 		if plan.Status != "proposed" && plan.Status != "changes_requested" {
 			continue
 		}
-		revision, err := p.store.GetPlanRevision(ctx, plan.ID, plan.LatestRevision)
+		item, err := p.queueItem(ctx, plan)
 		if err != nil {
 			return nil, err
 		}
-		count, err := p.store.CountUnansweredRequiredPlanQuestions(ctx, revision.ID)
-		if err != nil {
-			return nil, err
-		}
-		out = append(out, PlanQueueItem{PlanID: plan.ID, TaskID: plan.TaskID, Name: plan.Name,
-			Title: plan.Title, Summary: plan.Summary, Status: plan.Status, Revision: plan.LatestRevision,
-			UnansweredRequired: count, UpdatedAt: plan.UpdatedAt})
+		out = append(out, item)
 	}
 	if out == nil {
 		out = []PlanQueueItem{}
 	}
 	return out, nil
+}
+
+// queueItem is a plan in brief, with its unanswered required questions.
+func (p *PlanService) queueItem(ctx context.Context, plan store.Plan) (PlanQueueItem, error) {
+	revision, err := p.store.GetPlanRevision(ctx, plan.ID, plan.LatestRevision)
+	if err != nil {
+		return PlanQueueItem{}, err
+	}
+	count, err := p.store.CountUnansweredRequiredPlanQuestions(ctx, revision.ID)
+	if err != nil {
+		return PlanQueueItem{}, err
+	}
+	return PlanQueueItem{PlanID: plan.ID, TaskID: plan.TaskID, Name: plan.Name,
+		Title: plan.Title, Summary: plan.Summary, Status: plan.Status, Revision: plan.LatestRevision,
+		UnansweredRequired: count, UpdatedAt: plan.UpdatedAt}, nil
 }
 
 var ErrPlanQuestionsUnanswered = errors.New("required plan questions must be answered before approval")

@@ -287,6 +287,9 @@ func runTaskNoteContract(args []string) int {
 	default:
 		return renderCommandError(command, usageError("missing_argument", "task note requires a message and task context"), jsonMode)
 	}
+	if err := cli.CheckTaskNoteArgs(parsed.Positionals...); err != nil {
+		return renderCommandError(command, usageError("reads_like_a_read", err.Error()), jsonMode)
+	}
 	db, code := openCommandStore(command, jsonMode)
 	if db == nil {
 		return code

@@ -269,7 +269,9 @@ func TestTheLegatoToolListsItsCommandsAndTakesAString(t *testing.T) {
 			description = tool.Description
 		}
 	}
-	for _, want := range []string{"task: list, create", "integration: token create", `["config","show"]`} {
+	// Reads are listed apart from changes, so a write is never taken
+	// for a read.
+	for _, want := range []string{"- task: reads list; changes (asks) create", "- integration: changes (asks) token create", "- version: reads version", `["config","show"]`} {
 		if !strings.Contains(description, want) {
 			t.Errorf("the description lacks %q:\n%s", want, description)
 		}

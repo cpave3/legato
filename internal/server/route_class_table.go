@@ -34,6 +34,8 @@ var routeClassTable = []routeClassEntry{
 	{"POST", "/api/tasks/{id}/restore", ClassChange, "Restore an archived task"},
 	{"GET", "/api/tasks/archived", ClassRead, "List the archived tasks"},
 	{"GET", "/api/tasks/{id}/activity", ClassRead, "Read a task's activity"},
+	{"GET", "/api/tasks/{id}/notes", ClassRead, "Read a task's notes in full"},
+	{"GET", "/api/tasks/{id}/plans", ClassRead, "List a task's plans"},
 	{"GET", "/api/tasks/{id}/stacks", ClassRead, "List a task's branch stacks"},
 	{"GET", "/api/tasks/{id}/stacks/{clone}/document", ClassRead, "Read a branch stack's import file"},
 	{"POST", "/api/tasks/{id}/agent", ClassChange, "Start, resume or message a task's agent"},

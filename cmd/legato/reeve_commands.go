@@ -29,13 +29,18 @@ func classifyLegatoCommand(args []string) (class, description string) {
 	if len(args) == 0 {
 		return "never", "No command"
 	}
-	node, path, _, err := resolveCommand(commandTree(), args)
+	node, path, rest, err := resolveCommand(commandTree(), args)
 	if err != nil || node == nil || len(node.Children) > 0 {
 		return "never", "Not a legato command: legato " + strings.Join(args, " ") + ". " + legatoInstead(args, path, node)
 	}
 	entry, ok := legatoCommandClasses[strings.Join(path, " ")]
 	if !ok {
 		return "never", "A legato command the Reeve has no class for: " + strings.Join(path, " ")
+	}
+	if key := strings.Join(path, " "); key == "task note" {
+		if err := cli.CheckTaskNoteArgs(positionalArgs(rest)...); err != nil {
+			return "never", "Refused: legato " + strings.Join(args, " ") + " would write a note. Instead: legato task notes <task-id>, or GET /api/tasks/<task-id>/notes, to read a task's notes"
+		}
 	}
 	description = entry.Description + " (legato " + strings.Join(args, " ") + ")"
 	if entry.Class == "never" {
@@ -147,4 +152,15 @@ func (legatoCommands) Commands() []cli.LegatoCommand {
 
 func (legatoCommands) Run(ctx context.Context, args []string) (int, string, error) {
 	return runLegatoCommand(ctx, args)
+}
+
+// positionalArgs is args without its flags (a word that starts with "-").
+func positionalArgs(args []string) []string {
+	var out []string
+	for _, a := range args {
+		if !strings.HasPrefix(a, "-") {
+			out = append(out, a)
+		}
+	}
+	return out
 }

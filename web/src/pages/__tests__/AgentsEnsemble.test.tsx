@@ -244,3 +244,20 @@ it("closes the related work when Related is pressed again", async () => {
   fireEvent.click(related)
   expect(screen.queryByRole("complementary", { name: "Related work" })).toBeNull()
 })
+
+it("takes e as soon as the agents are shown", async () => {
+  open("/agents")
+  // Press e in the same moment the terminal appears, before anything after
+  // the render has had a turn.
+  await new Promise<void>((resolve) => {
+    const observer = new MutationObserver(() => {
+      if (!screen.queryByText("Terminal of TASK-1")) return
+      observer.disconnect()
+      fireEvent.keyDown(window, { key: "e" })
+      resolve()
+    })
+    observer.observe(document.body, { childList: true, subtree: true })
+  })
+
+  await waitFor(() => expect(address()).toBe("/agents?view=ensemble"))
+})

@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef, useMemo } from "react"
+import { useState, useEffect, useLayoutEffect, useCallback, useRef, useMemo } from "react"
 import { PreparingAgents } from "../components/PreparingAgents"
 import { InterruptedAgents } from "../components/InterruptedAgents"
 import { Link, useSearchParams } from "react-router-dom"
@@ -676,9 +676,10 @@ export function AgentsPage() {
   }, [selectedParentId])
 
   // e changes between the list and the ensemble, unless the key is being
-  // typed somewhere or a dialog is open.
+  // typed somewhere or a dialog is open. A layout effect, so the key works
+  // from the moment the agents are shown, not one turn later.
   const hasAgents = runningAgents.length > 0
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!hasAgents) return
     const onKeyDown = (event: globalThis.KeyboardEvent) => {
       if (event.defaultPrevented || event.repeat || event.ctrlKey || event.altKey || event.metaKey || event.shiftKey) return
