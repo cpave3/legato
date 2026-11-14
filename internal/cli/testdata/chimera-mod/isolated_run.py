@@ -17,6 +17,7 @@ if len(sys.argv) < 2:
     raise SystemExit('usage: isolated_run.py <command> [args...]')
 command = sys.argv[1:]
 tools = {}
+tools['python3'] = sys.executable
 for name in ('go', 'node', 'pnpm', 'bun'):
     found = shutil.which(name)
     if not found:
@@ -44,5 +45,6 @@ with tempfile.TemporaryDirectory(prefix='integration-test-env-') as directory:
         folder = pathlib.Path(directory) / name
         folder.mkdir(mode=0o700, exist_ok=True)
         env[key] = str(folder)
+    (pathlib.Path(env['HOME']) / '.zshrc').write_text('')
     result = subprocess.run(command, env=env)
     raise SystemExit(result.returncode)

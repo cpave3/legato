@@ -38,6 +38,12 @@ func Run(run func() int) int {
 			return 1
 		}
 	}
+	// A fresh home otherwise opens zsh-newuser-install instead of the shell
+	// the PTY/tmux fixtures are exercising.
+	if err := os.WriteFile(filepath.Join(env["HOME"], ".zshrc"), nil, 0o600); err != nil {
+		fmt.Fprintf(os.Stderr, "prepare isolated shell startup: %v\n", err)
+		return 1
+	}
 	os.Unsetenv("LEGATO_CONFIG")
 	// A suite run from inside an agent session must not act as that session
 	// or reach the Legato that runs it.
