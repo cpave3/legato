@@ -1,4 +1,4 @@
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
 import { ArrowDown, ArrowUp, ChevronLeft, ChevronRight, Circle, MessageCircleQuestion, Pause, Play, Settings2, Sparkles, Square, Trash2, X } from "lucide-react"
 import { useServer } from "../hooks/useServer"
 import { proposeComposerText, type AgentUIItem } from "../lib/agentUi"
@@ -249,8 +249,8 @@ export function AgentStudioPanel({ item, fill = false, pollMs = 2000, testHoldMs
   const scene: StudioScene | null = scenes[index] ?? null
   const sceneId = scene?.id ?? null
 
-  // A scene the person is looking at is no longer news.
-  useEffect(() => {
+  // Reset scene-local state before the new scene can be edited.
+  useLayoutEffect(() => {
     viewing.current = sceneId
     if (!sceneId) return
     setMarks((current) => {

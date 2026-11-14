@@ -221,6 +221,8 @@ Checked in a browser against a scratch Legato, with a 2:46 video shown through `
 
 ## Studios
 
+The scene-local draft reset in `AgentStudioPanel` runs in a layout effect: a comment typed as soon as a scene appears must not be erased by its pending passive effect. The comment regression submits from a MutationObserver at that first visible commit.
+
 A person can say a video's words themselves. `show_studio` opens a studio on a storyboard in the side panel: the person records each scene with their microphone, and their camera if they like, beside the conversation in which they and the agent agreed what the scenes are. The studio is [libretto](https://github.com/cpave3/libretto)'s: libretto keeps the takes, transcribes them and draws the scenes. Legato adds the conversation.
 
 **A tool, not an artifact.** An artifact is something the agent made for the person to read. A studio is a place the person works in. It shares the side column and nothing else: it is not among the artifact tabs and is not counted with them, it has its own button in the session's toolbar and its own heading, and it has no revisions to step through, no source to copy, no download and no remove. `AgentArtifactPanel` draws the column either way; an item of format `studio` puts it in that mode.

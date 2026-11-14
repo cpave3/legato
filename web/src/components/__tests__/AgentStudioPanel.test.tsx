@@ -667,11 +667,18 @@ describe("AgentStudioPanel", () => {
       }
     }
     render(<AgentUIItemView item={item()} fill />)
-    const box = await screen.findByRole("textbox", { name: "A comment for the agent on this scene" })
-    // Nothing to send yet.
-    expect((screen.getByRole("button", { name: "Add comment" }) as HTMLButtonElement).disabled).toBe(true)
-    fireEvent.change(box, { target: { value: "Show the real log here, not a made-up one." } })
-    fireEvent.click(screen.getByRole("button", { name: "Add comment" }))
+    const box = await new Promise<HTMLElement>((resolve) => {
+      const observer = new MutationObserver(() => {
+        const field = screen.queryByRole("textbox", { name: "A comment for the agent on this scene" })
+        if (!field) return
+        observer.disconnect()
+        expect((screen.getByRole("button", { name: "Add comment" }) as HTMLButtonElement).disabled).toBe(true)
+        fireEvent.change(field, { target: { value: "Show the real log here, not a made-up one." } })
+        fireEvent.click(screen.getByRole("button", { name: "Add comment" }))
+        resolve(field)
+      })
+      observer.observe(document.body, { childList: true, subtree: true })
+    })
 
     const comments = within(await screen.findByRole("list", { name: "Comments for the agent" }))
     expect(comments.getByText("Show the real log here, not a made-up one.")).toBeTruthy()
