@@ -65,7 +65,18 @@ type Plan struct {
 	Setenv     map[string]string
 	Unsetenv   []string
 	Chdir      string
+	// Sockets are the Unix sockets, or folders of them, the command may
+	// connect to. bwrap shows them through Mounts; a backend that only
+	// allows and denies (Seatbelt) allows connecting to these alone.
+	Sockets []string
+	// Links are links a backend that cannot remap makes before it starts
+	// the command, in folders of the execution's own (its home): each to a
+	// host path the plan shows where it is.
+	Links []Link
 }
+
+// Link is a symbolic link at Path to Target.
+type Link struct{ Path, Target string }
 
 // Backend builds a sandbox around a command.
 type Backend interface {
