@@ -92,6 +92,8 @@ The mod reports the session's endpoint directly; startup messages wait for that 
 
 When Chimera asks for a permission or asks a question, Legato raises it as an approval: in the web UI's tray, in [Attention](/legato/using/attention/), in the TUI (press `!`), and on your phone. The first answer, here or in the terminal, settles it.
 
+For a question, choose an option or type an answer of your own, then **Send answer**. You can answer from the native panel, the approvals tray or focus mode. **Dismiss** tells Chimera you declined to answer.
+
 If the panel did not connect, **Upgrade to native Chimera** in the terminal view's menu looks for the endpoint again. **Downgrade to tmux** in the panel's menu shows the agent through its terminal, without stopping it.
 
 ## Resume a conversation
@@ -121,6 +123,5 @@ Chimera's own commands can still read the server secret from its process environ
 
 - Legato connects to Chimera's endpoint only on the same machine.
 - The mod needs Chimera mods v1. With the mod disabled, tools need a Chimera that accepts `--mcp-config`.
-- Answering a question from Legato's native panel has a known protocol mismatch with current Chimera. Answer it in Chimera's terminal instead; its waiting/working state is still reported correctly.
 
 For implementation details and the current verification limits, see [Chimera native integration on GitHub](https://github.com/cpave3/legato/blob/main/docs/ai/chimera-native.md).

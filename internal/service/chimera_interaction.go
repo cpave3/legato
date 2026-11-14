@@ -160,5 +160,12 @@ func (a *ChimeraInteractionAdapter) AnswerQuestion(ctx context.Context, taskID, 
 		return err
 	}
 	client := a.clientFactory(endpoint)
+	session, err := slotSession(ctx, a.store, taskID)
+	if err != nil {
+		return err
+	}
+	if session.AgentKind == "chimera" {
+		return client.AnswerChimeraQuestion(ctx, sessionID, requestID, chimera.QuestionAnswer(answer))
+	}
 	return client.AnswerQuestion(ctx, sessionID, requestID, chimera.QuestionAnswer(answer))
 }
