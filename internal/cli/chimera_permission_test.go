@@ -37,6 +37,10 @@ func TestChimeraLinkAutomaticApprovalAndHumanPrompt(t *testing.T) {
 				mu.Lock()
 				defer mu.Unlock()
 				snapshots++
+				if snapshots == 1 {
+					http.Redirect(w, r, "/must-not-follow", http.StatusFound)
+					return
+				}
 				_ = json.NewEncoder(w).Encode(map[string]any{"id": "chimera", "pendingPermissions": pending})
 			}))
 			defer server.Close()
@@ -134,6 +138,16 @@ func TestChimeraLinkAutomaticApprovalAndHumanPrompt(t *testing.T) {
 			time.Sleep(350 * time.Millisecond)
 			activity("waiting")
 			emit("question.resolved", map[string]any{"requestId": "question"})
+			activity("working")
+			// The snapshot also repairs a missing human resolution event.
+			mu.Lock()
+			pending = []map[string]string{{"requestId": "snapshot-only", "tool": "bash"}}
+			mu.Unlock()
+			emit("permission.request", map[string]any{"requestId": "snapshot-only", "toolName": "bash"})
+			activity("waiting")
+			mu.Lock()
+			pending = []map[string]string{}
+			mu.Unlock()
 			activity("working")
 			emit("turn.complete", map[string]any{"reason": "stop", "turnId": "turn-1"})
 			activity("")

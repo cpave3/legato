@@ -83,7 +83,8 @@ not recorded** sequence from cpave3/chimera
 4. `permission.request(orphan)` from an automatic retry probe returns without
    a resolved event; `permission.request(human)` then appears in the snapshot.
 5. `question.request`, `permission.resolved(human, allow)`, `question.resolved`.
-6. `turn.complete(stop)`.
+6. A second human permission disappears from the snapshot without a mod
+   resolution; the snapshot alone clears waiting. Then `turn.complete(stop)`.
 
 Provenance: `packages/cli/src/factory.ts:731-752` dispatches the mod interception;
 `packages/permissions/src/gate.ts:355-364,381-419,459-462` implements the retry
@@ -94,7 +95,9 @@ request; `packages/cli/src/mod-runtime.ts:219-223` drops it from the mod stream.
 
 The test drives `RunChimeraLink`, a scratch HTTP snapshot server, real SQLite
 and the actual broker, checks state during the long call, and asserts automatic
-arbitration creates no waiting reporting span. No live Legato is contacted.
+arbitration creates no waiting reporting span. Its first snapshot response is a
+redirect: the link refuses to follow it, logs the failure, and recovers on the
+next probe. No live Legato is contacted.
 The historical `permission.ndjson` capture remains unchanged; its replay now
 supplies the separately known human-pending snapshot and substitutes a scratch
 HTTP endpoint. The mod interception itself is no longer treated as evidence

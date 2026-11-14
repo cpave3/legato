@@ -9,6 +9,7 @@ import (
 	"io"
 	"log"
 	"net"
+	"net/http"
 	"net/url"
 	"time"
 
@@ -69,6 +70,9 @@ func RunChimeraLink(ctx context.Context, s *store.Store, opts ChimeraLinkOptions
 	defer ticker.Stop()
 	var applied uint64
 	probeFailed := false
+	httpClient := &http.Client{CheckRedirect: func(*http.Request, []*http.Request) error {
+		return http.ErrUseLastResponse
+	}}
 	for {
 		var raw []byte
 		select {
@@ -87,7 +91,7 @@ func RunChimeraLink(ctx context.Context, s *store.Store, opts ChimeraLinkOptions
 				continue
 			}
 			probeCtx, stop := context.WithTimeout(ctx, 2*time.Second)
-			snapshot, probeErr := chimera.NewClient(endpoint).GetSession(probeCtx, id)
+			snapshot, probeErr := chimera.NewClientWithHTTPClient(endpoint, httpClient).GetSession(probeCtx, id)
 			stop()
 			if probeErr != nil {
 				// Client errors can contain the secret URL; do not log them.
