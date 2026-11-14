@@ -623,6 +623,12 @@ func BuildSandboxPlan(in SandboxPlanInput) (sandbox.Plan, error) {
 		}
 		add(in.GitCommonDir, checkout)
 	}
+	if checkout == sandbox.ReadWrite {
+		// The person's own git runs the checkout's hooks, outside the
+		// sandbox: they are read-only (its config is checked when the agent
+		// ends, SandboxGitConfig).
+		add(gitHooksDir(in.WorkDir, in.GitCommonDir), sandbox.ReadOnly)
+	}
 	for _, p := range []string{in.AgentFilesDir, in.PastedImagesDir, in.CredentialWrapperDir, in.GHConfigDir, in.BinaryPath} {
 		if p != "" {
 			add(p, sandbox.ReadOnly)
@@ -933,4 +939,13 @@ func homeLinks(plan sandbox.Plan) []sandbox.Link {
 // launch line's PATH: the engram binary, and on macOS the az wrapper.
 func sandboxBinDir(runtimeDir, executionID string) string {
 	return filepath.Join(runtimeDir, "sandbox", executionID, "bin")
+}
+
+// gitHooksDir is the hooks folder of a checkout: in its common .git (a
+// worktree's main one), else in its own .git.
+func gitHooksDir(workDir, gitCommonDir string) string {
+	if gitCommonDir != "" {
+		return filepath.Join(gitCommonDir, "hooks")
+	}
+	return filepath.Join(workDir, ".git", "hooks")
 }

@@ -47,18 +47,18 @@ func (f *fakeBackend) Prefix(plan sandbox.Plan, dir string) (string, error) {
 
 func sandboxedService(t *testing.T, backend *fakeBackend, adjust ...func(*SandboxSettings)) (AgentService, *store.Store, *mockTmux) {
 	t.Helper()
-	s, err := store.New(filepath.Join(t.TempDir(), "test.db"))
+	s, err := store.New(filepath.Join(realTempDir(t), "test.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { s.Close() })
 	mt := newMockTmux()
-	home := t.TempDir()
-	settings := &SandboxSettings{Backend: backend, Base: SandboxPlanInput{Home: home, RuntimeDir: filepath.Join(t.TempDir(), "legato"), DefaultMounts: true}}
+	home := realTempDir(t)
+	settings := &SandboxSettings{Backend: backend, Base: SandboxPlanInput{Home: home, RuntimeDir: filepath.Join(realTempDir(t), "legato"), DefaultMounts: true}}
 	for _, f := range adjust {
 		f(settings)
 	}
-	svc := NewAgentService(s, mt, t.TempDir(), AgentServiceOptions{
+	svc := NewAgentService(s, mt, realTempDir(t), AgentServiceOptions{
 		Adapter: &fakeAdapter{name: "claude-code", launchFn: func(env map[string]string, _, _, _ string) string {
 			if env["LEGATO_SANDBOXED"] == "1" {
 				return "fake-tool --in-sandbox"
@@ -159,7 +159,7 @@ func TestReloadingAnAgentKeepsItsSandboxChoice(t *testing.T) {
 	// A conversation to resume, as a Claude Code session reports.
 	running, _ := s.GetAgentSessionByTaskID(context.Background(), "task-1")
 	execution, _ := s.GetExecution(context.Background(), running.ExecutionID)
-	if _, err := s.RecordTaskNativeSession(context.Background(), "task-1", running.ID, running.ExecutionID, "claude-code", "conv-1", execution.WorkingDir, t.TempDir()); err != nil {
+	if _, err := s.RecordTaskNativeSession(context.Background(), "task-1", running.ID, running.ExecutionID, "claude-code", "conv-1", execution.WorkingDir, realTempDir(t)); err != nil {
 		t.Fatal(err)
 	}
 	if err := svc.(AgentRestarter).RestartAgent(context.Background(), "task-1", nil); err != nil {
@@ -184,7 +184,7 @@ func TestReloadingAnAgentWithoutTheSandboxTakesItOut(t *testing.T) {
 	}
 	running, _ := s.GetAgentSessionByTaskID(context.Background(), "task-1")
 	execution, _ := s.GetExecution(context.Background(), running.ExecutionID)
-	if _, err := s.RecordTaskNativeSession(context.Background(), "task-1", running.ID, running.ExecutionID, "claude-code", "conv-1", execution.WorkingDir, t.TempDir()); err != nil {
+	if _, err := s.RecordTaskNativeSession(context.Background(), "task-1", running.ID, running.ExecutionID, "claude-code", "conv-1", execution.WorkingDir, realTempDir(t)); err != nil {
 		t.Fatal(err)
 	}
 	sandboxed, err := svc.(SandboxSwitcher).RestartAgentSwitchingSandbox(context.Background(), "task-1", nil)
@@ -213,7 +213,7 @@ func TestReloadingAnUnsandboxedAgentSwitchingTheSandboxPutsItBack(t *testing.T) 
 	}
 	running, _ := s.GetAgentSessionByTaskID(context.Background(), "task-1")
 	execution, _ := s.GetExecution(context.Background(), running.ExecutionID)
-	if _, err := s.RecordTaskNativeSession(context.Background(), "task-1", running.ID, running.ExecutionID, "claude-code", "conv-1", execution.WorkingDir, t.TempDir()); err != nil {
+	if _, err := s.RecordTaskNativeSession(context.Background(), "task-1", running.ID, running.ExecutionID, "claude-code", "conv-1", execution.WorkingDir, realTempDir(t)); err != nil {
 		t.Fatal(err)
 	}
 	sandboxed, err := svc.(SandboxSwitcher).RestartAgentSwitchingSandbox(context.Background(), "task-1", nil)
@@ -233,7 +233,19 @@ func TestReloadingAnUnsandboxedAgentSwitchingTheSandboxPutsItBack(t *testing.T) 
 	}
 }
 
+// realTempDir is a test's temporary folder where it really is: on macOS
+// /var/folders is /private/var/folders, and plans name paths resolved.
+func realTempDir(t *testing.T) string {
+	t.Helper()
+	dir, err := filepath.EvalSymlinks(t.TempDir())
+	if err != nil {
+		t.Fatal(err)
+	}
+	return dir
+}
+
 func mountOf(plan sandbox.Plan, path string) (sandbox.Mount, bool) {
+	path = HostFS{}.Real(path)
 	for _, m := range plan.Mounts {
 		if m.Path == path && m.Dest == "" {
 			return m, true
@@ -243,7 +255,7 @@ func mountOf(plan sandbox.Plan, path string) (sandbox.Mount, bool) {
 }
 
 func TestAToolsStateFolderSetInTheEnvironmentIsMounted(t *testing.T) {
-	state := filepath.Join(t.TempDir(), "claude-elsewhere")
+	state := filepath.Join(realTempDir(t), "claude-elsewhere")
 	t.Setenv("CLAUDE_CONFIG_DIR", state)
 	backend := &fakeBackend{}
 	svc, s, _ := sandboxedService(t, backend)
@@ -270,7 +282,7 @@ func TestAResumedSessionsStorageFolderIsMounted(t *testing.T) {
 	}
 	running, _ := s.GetAgentSessionByTaskID(context.Background(), "task-1")
 	execution, _ := s.GetExecution(context.Background(), running.ExecutionID)
-	storage := t.TempDir()
+	storage := realTempDir(t)
 	if _, err := s.RecordTaskNativeSession(context.Background(), "task-1", running.ID, running.ExecutionID, "claude-code", "conv-1", execution.WorkingDir, storage); err != nil {
 		t.Fatal(err)
 	}
@@ -289,13 +301,13 @@ func (f fixedSessionEnv) SessionEnv(context.Context, string, string) (map[string
 }
 
 func TestASandboxWithLegatosGHWrapperCoversEveryRealGH(t *testing.T) {
-	cellar, bin := t.TempDir(), t.TempDir()
+	cellar, bin := realTempDir(t), realTempDir(t)
 	realGH := filepath.Join(cellar, "gh")
 	_ = os.WriteFile(realGH, []byte("#!/bin/sh\n"), 0o755)
 	_ = os.Symlink(realGH, filepath.Join(bin, "gh"))
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
 
-	wrapperDir := filepath.Join(t.TempDir(), "legato-bin")
+	wrapperDir := filepath.Join(realTempDir(t), "legato-bin")
 	backend := &fakeBackend{}
 	svc, s, _ := sandboxedService(t, backend, func(settings *SandboxSettings) { settings.Base.CredentialWrapperDir = wrapperDir })
 	_ = os.MkdirAll(wrapperDir, 0o700)
@@ -321,7 +333,7 @@ func TestASandboxWithLegatosGHWrapperCoversEveryRealGH(t *testing.T) {
 }
 
 func TestASandboxWithAnAzureCredentialPutsLegatosAzWrapperOverEveryRealAz(t *testing.T) {
-	cellar, bin := t.TempDir(), t.TempDir()
+	cellar, bin := realTempDir(t), realTempDir(t)
 	realAz := filepath.Join(cellar, "az")
 	_ = os.WriteFile(realAz, []byte("#!/bin/sh\n"), 0o755)
 	_ = os.Symlink(realAz, filepath.Join(bin, "az"))
@@ -366,7 +378,7 @@ func TestASandboxWithAnAzureCredentialPutsLegatosAzWrapperOverEveryRealAz(t *tes
 
 // Without an azure credential, or outside the sandbox, az is untouched.
 func TestWithoutAnAzureCredentialOrASandboxAzIsTheRealOne(t *testing.T) {
-	bin := t.TempDir()
+	bin := realTempDir(t)
 	_ = os.WriteFile(filepath.Join(bin, "az"), []byte("#!/bin/sh\n"), 0o755)
 	t.Setenv("PATH", bin+string(os.PathListSeparator)+os.Getenv("PATH"))
 
@@ -399,7 +411,7 @@ func TestWithoutAnAzureCredentialOrASandboxAzIsTheRealOne(t *testing.T) {
 func TestAnAgentOutsideTheSandboxIsSignedOutOfThePersonsGHLogin(t *testing.T) {
 	backend := &fakeBackend{}
 	svc, s, mt := sandboxedService(t, backend)
-	isolation := fixedSessionEnv{"GH_TOKEN": GHSignedOut, "GH_CONFIG_DIR": filepath.Join(t.TempDir(), "gh-config")}
+	isolation := fixedSessionEnv{"GH_TOKEN": GHSignedOut, "GH_CONFIG_DIR": filepath.Join(realTempDir(t), "gh-config")}
 	svc.(interface{ SetSessionEnv(SessionEnvProvider) }).SetSessionEnv(isolation)
 	createTask(t, s, "task-1")
 	createTask(t, s, "task-2")
@@ -423,7 +435,7 @@ func TestAnAgentOutsideTheSandboxIsSignedOutOfThePersonsGHLogin(t *testing.T) {
 // Legato's data folder, also when it is started again in it; another
 // task's agent cannot be given it.
 func TestASandboxedAgentWorksInItsTasksJobCloneAndNoOther(t *testing.T) {
-	data := t.TempDir()
+	data := realTempDir(t)
 	backend := &fakeBackend{}
 	svc, s, _ := sandboxedService(t, backend, func(settings *SandboxSettings) { settings.Base.DataDir = data })
 	createTask(t, s, "task-1")
@@ -451,7 +463,7 @@ func TestASandboxedAgentWorksInItsTasksJobCloneAndNoOther(t *testing.T) {
 // A task that joined a job clone, for the next branch of a stack, works in
 // it in the sandbox too.
 func TestASandboxedAgentWorksInAJobCloneItsTaskJoined(t *testing.T) {
-	data := t.TempDir()
+	data := realTempDir(t)
 	backend := &fakeBackend{}
 	svc, s, _ := sandboxedService(t, backend, func(settings *SandboxSettings) { settings.Base.DataDir = data })
 	createTask(t, s, "task-1")
@@ -478,7 +490,7 @@ func TestASandboxedAgentWorksInAJobCloneItsTaskJoined(t *testing.T) {
 // as reached through the link and as it really is.
 func linkedHome(t *testing.T) (linked, real string) {
 	t.Helper()
-	root, err := filepath.EvalSymlinks(t.TempDir())
+	root, err := filepath.EvalSymlinks(realTempDir(t))
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -559,9 +571,9 @@ func TestAnUnattendedAgentRunsInTheSandboxWithItsPromptsOff(t *testing.T) {
 		t.Fatalf("launched %v", lines)
 	}
 
-	svc = NewAgentService(s, mt, t.TempDir(), AgentServiceOptions{
+	svc = NewAgentService(s, mt, realTempDir(t), AgentServiceOptions{
 		Adapter: promptsOffAdapter{&fakeAdapter{name: "claude-code", launchFn: func(map[string]string, string, string, string) string { return "fake-tool" }}},
-		Sandbox: &SandboxSettings{Backend: backend, Base: SandboxPlanInput{Home: t.TempDir(), DefaultMounts: true}},
+		Sandbox: &SandboxSettings{Backend: backend, Base: SandboxPlanInput{Home: realTempDir(t), DefaultMounts: true}},
 	})
 	if err := svc.SpawnAgent(context.Background(), "task-1", 0, 0, AgentSpawnOptions{Unattended: true, Unsandboxed: true}); err != nil {
 		t.Fatal(err)
@@ -572,13 +584,13 @@ func TestAnUnattendedAgentRunsInTheSandboxWithItsPromptsOff(t *testing.T) {
 }
 
 func TestAnUnattendedAgentIsRefusedWithoutTheSandbox(t *testing.T) {
-	s, err := store.New(filepath.Join(t.TempDir(), "test.db"))
+	s, err := store.New(filepath.Join(realTempDir(t), "test.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { s.Close() })
 	mt := newMockTmux()
-	svc := NewAgentService(s, mt, t.TempDir(), AgentServiceOptions{
+	svc := NewAgentService(s, mt, realTempDir(t), AgentServiceOptions{
 		Adapter: promptsOffAdapter{&fakeAdapter{name: "claude-code", launchFn: func(map[string]string, string, string, string) string { return "fake-tool" }}},
 	})
 	createTask(t, s, "task-1")
@@ -595,7 +607,7 @@ func TestAThrowawayCheckoutFallsBackToReadOnlyWithoutOverlays(t *testing.T) {
 		backend := &fakeBackend{overlay: overlay}
 		svc, s, _ := sandboxedService(t, backend)
 		createTask(t, s, "task-1")
-		dir := t.TempDir()
+		dir := realTempDir(t)
 		if got := svc.(CheckoutOverlayProber).CheckoutOverlayAvailable(); got != overlay {
 			t.Fatalf("overlay available = %v, want %v", got, overlay)
 		}
@@ -622,7 +634,7 @@ func TestAThrowawayCheckoutFallsBackToReadOnlyWithoutOverlays(t *testing.T) {
 // made at the start, so it is in the sandbox from the first moment, read
 // only and the task's own: a folder made later would never show inside.
 func TestASandboxedAgentSeesItsTasksPastedImagesFolderFromTheStart(t *testing.T) {
-	t.Setenv("TMPDIR", t.TempDir())
+	t.Setenv("TMPDIR", realTempDir(t))
 	backend := &fakeBackend{}
 	svc, s, _ := sandboxedService(t, backend)
 	createTask(t, s, "task-1")
@@ -659,19 +671,19 @@ func TestASandboxedAgentSeesItsTasksPastedImagesFolderFromTheStart(t *testing.T)
 func TestASandboxedToolKnowsItsBackendAndGetsItsLogin(t *testing.T) {
 	backend := &fakeBackend{}
 	var asked []string
-	s, err := store.New(filepath.Join(t.TempDir(), "test.db"))
+	s, err := store.New(filepath.Join(realTempDir(t), "test.db"))
 	if err != nil {
 		t.Fatal(err)
 	}
 	t.Cleanup(func() { s.Close() })
 	mt := newMockTmux()
 	var launchEnv map[string]string
-	svc := NewAgentService(s, mt, t.TempDir(), AgentServiceOptions{
+	svc := NewAgentService(s, mt, realTempDir(t), AgentServiceOptions{
 		Adapter: &fakeAdapter{name: "claude-code", launchFn: func(env map[string]string, _, _, _ string) string {
 			launchEnv = env
 			return "fake-tool"
 		}},
-		Sandbox: &SandboxSettings{Backend: backend, Base: SandboxPlanInput{Home: t.TempDir(), RuntimeDir: filepath.Join(t.TempDir(), "legato")},
+		Sandbox: &SandboxSettings{Backend: backend, Base: SandboxPlanInput{Home: realTempDir(t), RuntimeDir: filepath.Join(realTempDir(t), "legato")},
 			ToolLogin: func(_ context.Context, agentKind string) (map[string]string, error) {
 				asked = append(asked, agentKind)
 				return map[string]string{"CLAUDE_CODE_OAUTH_TOKEN": "sk-ant-oat-test"}, nil

@@ -11,7 +11,7 @@ func TestAReadOnlySpawnIsSandboxedWithItsCheckoutReadOnly(t *testing.T) {
 	backend := &fakeBackend{}
 	svc, s, _ := sandboxedService(t, backend)
 	createTask(t, s, "task-1")
-	dir := t.TempDir()
+	dir := realTempDir(t)
 	// Asked to run outside the sandbox, it runs inside it all the same.
 	if err := svc.SpawnAgent(context.Background(), "task-1", 0, 0, AgentSpawnOptions{WorkingDir: dir, Unsandboxed: true, ReadOnlyCheckout: true}); err != nil {
 		t.Fatal(err)

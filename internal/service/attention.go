@@ -50,6 +50,7 @@ const (
 	AttentionSignalApproval                    = "approval"
 	AttentionSignalDevicesReset                = "devices_reset"
 	AttentionSignalAgentsInterrupted           = "agents_interrupted"
+	AttentionSignalSandboxGitConfig            = "sandbox_git_config"
 )
 
 var defaultAttentionSignals = []string{
@@ -67,6 +68,7 @@ var defaultAttentionSignals = []string{
 	AttentionSignalApproval,
 	AttentionSignalDevicesReset,
 	AttentionSignalAgentsInterrupted,
+	AttentionSignalSandboxGitConfig,
 	AttentionSignalDelegationFailed,
 	AttentionSignalCaseReplyFailed,
 	AttentionSignalIntegrationDisconnected,
@@ -103,6 +105,7 @@ var knownAttentionSignals = map[string]bool{
 	AttentionSignalApproval:                    true,
 	AttentionSignalDevicesReset:                true,
 	AttentionSignalAgentsInterrupted:           true,
+	AttentionSignalSandboxGitConfig:            true,
 	AttentionSignalDelegationFailed:            true,
 	AttentionSignalCaseReplyFailed:             true,
 	AttentionSignalIntegrationDisconnected:     true,

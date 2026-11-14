@@ -22,6 +22,10 @@ type SandboxSettings struct {
 	// Docker gives each sandboxed agent a filtered Docker socket
 	// (agents.sandbox.docker). Nil: none, and Docker stays hidden.
 	Docker *SandboxDocker
+	// GitConfig notes the git config keys of the checkout that run a
+	// command at spawn, and reports those an agent added when it ends. Nil:
+	// not watched.
+	GitConfig *SandboxGitConfig
 	// ToolLogin is the environment an agent tool logs in with inside a
 	// sandbox where it cannot reach its own login (Claude Code's is in the
 	// macOS Keychain), or why it cannot start there. Nil: none needed.
@@ -87,6 +91,12 @@ func (a *agentService) sandboxPrefix(ctx context.Context, taskID, executionID, a
 		}
 	}
 	in.GitCommonDir = gitCommonDir(ctx, workDir)
+	if a.sandbox.GitConfig != nil && in.GitCommonDir != "" && in.RuntimeDir != "" && !readOnly {
+		// What the person's git would run before the agent starts.
+		if err := a.sandbox.GitConfig.Baseline(ctx, filepath.Join(in.RuntimeDir, "sandbox", executionID), taskID, filepath.Join(in.GitCommonDir, "config")); err != nil {
+			log.Printf("sandbox: noting %s's git config: %v", workDir, err)
+		}
+	}
 	in.JobDir = a.taskJobClone(ctx, taskID, in.DataDir, workDir)
 	in.Extra = append([]SandboxPath{}, in.Extra...)
 	for _, resource := range resources {

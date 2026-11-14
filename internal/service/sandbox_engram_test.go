@@ -96,7 +96,7 @@ func TestASandboxedEngramSessionHasItsBinaryFirstOnPathAndItsStore(t *testing.T)
 	var runtime string
 	svc, s, mt := sandboxedService(t, backend, func(settings *SandboxSettings) { runtime = settings.Base.RuntimeDir })
 	createTask(t, s, "task-1")
-	dir := t.TempDir()
+	dir := realTempDir(t)
 	binary := filepath.Join(dir, "engram")
 	_ = os.WriteFile(binary, []byte("#!/bin/sh\n"), 0o755)
 	storeDir := filepath.Join(dir, "store")

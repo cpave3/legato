@@ -31,6 +31,7 @@ func wireAttention(ctx context.Context, db *store.Store, bus *events.Bus, srv *s
 	}
 	if agentSvc != nil {
 		registerInterruptedAttention(attention, agentSvc)
+		registerSandboxGitConfigAttention(attention, agentSvc)
 	}
 	if workflowSvc != nil {
 		adapter := service.NewWorkflowAttentionAdapter(workflowSvc)

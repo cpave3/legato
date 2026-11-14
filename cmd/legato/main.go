@@ -1492,6 +1492,9 @@ func runTUI() int {
 	_ = attentionSvc.RegisterProducerWithEvents(prAttentionAdapter, events.EventPRStatusUpdated)
 	registerInterruptedAttention(attentionSvc, agentSvc)
 	if agentSvc != nil {
+		registerSandboxGitConfigAttention(attentionSvc, agentSvc)
+	}
+	if agentSvc != nil {
 		agentAttentionAdapter := service.NewAgentAttentionAdapter(agentSvc)
 		_ = attentionSvc.RegisterProducerWithEvents(agentAttentionAdapter, events.EventAgentActivityChanged, events.EventAgentStarted, events.EventAgentDied, events.EventAgentCompleted)
 	}

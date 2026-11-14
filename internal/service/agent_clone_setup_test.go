@@ -58,10 +58,10 @@ func spawnInClone(t *testing.T, cloner *seedingCloner, primary string, opts Agen
 const setupToml = "[setup]\nrun = [\"bun install\"]\ncopy = [\".env.local\"]\nlink = [\"local.settings.json\"]\n"
 
 func TestAFreshCloneIsSetUpInTheSandboxBeforeTheAgentStarts(t *testing.T) {
-	primary := t.TempDir()
+	primary := realTempDir(t)
 	_ = os.WriteFile(filepath.Join(primary, ".env.local"), []byte("SECRET=1"), 0o600)
 	_ = os.WriteFile(filepath.Join(primary, "local.settings.json"), []byte("{}"), 0o644)
-	cloner := &seedingCloner{root: t.TempDir(), files: map[string]string{".legato.toml": setupToml}}
+	cloner := &seedingCloner{root: realTempDir(t), files: map[string]string{".legato.toml": setupToml}}
 
 	backend, lines := spawnInClone(t, cloner, primary, AgentSpawnOptions{Ref: "release/2"})
 
@@ -106,7 +106,7 @@ func TestOnlyAFreshCloneIsSetUp(t *testing.T) {
 	}
 	for name, cloner := range cases {
 		t.Run(name, func(t *testing.T) {
-			cloner.root = t.TempDir()
+			cloner.root = realTempDir(t)
 			_, lines := spawnInClone(t, cloner, "", AgentSpawnOptions{})
 			if len(lines) == 0 || strings.Contains(lines[0], "clone setup") {
 				t.Errorf("launch = %v", lines)
@@ -118,7 +118,7 @@ func TestOnlyAFreshCloneIsSetUp(t *testing.T) {
 func TestTheAgentIsToldWhereTheSetupLogIs(t *testing.T) {
 	backend := &fakeBackend{}
 	svc, s, mt := sandboxedService(t, backend)
-	cloner := &seedingCloner{root: t.TempDir(), files: map[string]string{".legato.toml": "[setup]\nrun = [\"bun install\"]\n"}}
+	cloner := &seedingCloner{root: realTempDir(t), files: map[string]string{".legato.toml": "[setup]\nrun = [\"bun install\"]\n"}}
 	svc.(*agentService).SetRepositories(cloner)
 	createTask(t, s, "task-1")
 	if err := svc.SpawnAgent(context.Background(), "task-1", 0, 0, AgentSpawnOptions{Repo: "acme/widget"}); err != nil {
@@ -145,7 +145,7 @@ func freshClonePath(t *testing.T, root string) string {
 }
 
 func TestTheShellRecordsHowTheSetupEndedBeforeTheAgentStarts(t *testing.T) {
-	cloner := &seedingCloner{root: t.TempDir(), files: map[string]string{".legato.toml": "[setup]\nrun = [\"bun install\"]\n"}}
+	cloner := &seedingCloner{root: realTempDir(t), files: map[string]string{".legato.toml": "[setup]\nrun = [\"bun install\"]\n"}}
 
 	_, lines := spawnInClone(t, cloner, "", AgentSpawnOptions{})
 
@@ -159,7 +159,7 @@ func TestTheShellRecordsHowTheSetupEndedBeforeTheAgentStarts(t *testing.T) {
 func TestTheFirstMessagesWaitForTheSetup(t *testing.T) {
 	backend := &fakeBackend{}
 	svc, s, mt := sandboxedService(t, backend)
-	cloner := &seedingCloner{root: t.TempDir(), files: map[string]string{".legato.toml": "[setup]\nrun = [\"bun install\"]\n"}}
+	cloner := &seedingCloner{root: realTempDir(t), files: map[string]string{".legato.toml": "[setup]\nrun = [\"bun install\"]\n"}}
 	svc.(*agentService).SetRepositories(cloner)
 	svc.(*agentService).briefKickoffDelay = time.Millisecond
 	createTask(t, s, "task-1")
@@ -191,7 +191,7 @@ func TestTheFirstMessagesWaitForTheSetup(t *testing.T) {
 func TestAwaitingASetupEndsWithTheSetupOrWithTheAgent(t *testing.T) {
 	backend := &fakeBackend{}
 	svc, s, mt := sandboxedService(t, backend)
-	cloner := &seedingCloner{root: t.TempDir(), files: map[string]string{".legato.toml": "[setup]\nrun = [\"bun install\"]\n"}}
+	cloner := &seedingCloner{root: realTempDir(t), files: map[string]string{".legato.toml": "[setup]\nrun = [\"bun install\"]\n"}}
 	svc.(*agentService).SetRepositories(cloner)
 	createTask(t, s, "task-1")
 	createTask(t, s, "task-2")

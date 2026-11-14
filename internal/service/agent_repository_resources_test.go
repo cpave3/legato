@@ -16,7 +16,7 @@ import (
 // NuGet feed token's folder, as autopilot's do.
 func feedResources(t *testing.T) (*RepositoryResources, string) {
 	t.Helper()
-	feed := t.TempDir()
+	feed := realTempDir(t)
 	return NewRepositoryResources(
 		[]config.RepositoryResources{{Repo: "github.com/autopilot-dev/autopilot", Resources: []string{"NuGet feed token"}}},
 		[]config.ResourceConfig{{Name: "NuGet feed token", Paths: []config.ResourcePathConfig{{Path: feed, Access: "read"}}}},
@@ -29,7 +29,7 @@ func repositoryResourceService(t *testing.T, adapter AIToolAdapter, inspector Ch
 	createTask(t, db, "task-1")
 	resources, feed := feedResources(t)
 	mt := newMockTmux()
-	svc := NewAgentService(db, mt, t.TempDir(), AgentServiceOptions{
+	svc := NewAgentService(db, mt, realTempDir(t), AgentServiceOptions{
 		Adapter:              adapter,
 		CheckoutInspector:    inspector,
 		RepositoryResources:  resources,
@@ -50,7 +50,7 @@ func originIs(dir, remote string) CheckoutInspectFunc {
 func TestARepositorysResourcesReachAnAgentInAnyWorktreeOfIt(t *testing.T) {
 	for _, remote := range []string{"git@github.com:autopilot-dev/autopilot.git", "https://github.com/Autopilot-Dev/autopilot.git"} {
 		t.Run(remote, func(t *testing.T) {
-			worktree := t.TempDir()
+			worktree := realTempDir(t)
 			svc, _, mt, feed := repositoryResourceService(t, grantingAdapter{&fakeAdapter{name: "chimera"}}, originIs(worktree, remote))
 			if err := svc.SpawnAgent(context.Background(), "task-1", 0, 0, AgentSpawnOptions{WorkingDir: worktree}); err != nil {
 				t.Fatal(err)
@@ -68,7 +68,7 @@ func TestARepositorysResourcesReachAnAgentInAnyWorktreeOfIt(t *testing.T) {
 
 func TestARepositorysResourcesReachAnAgentInAFreshCloneOfIt(t *testing.T) {
 	svc, _, mt, feed := repositoryResourceService(t, &fakeAdapter{name: "claude-code"}, nil)
-	svc.(*agentService).SetRepositories(&recordingCloner{root: t.TempDir()})
+	svc.(*agentService).SetRepositories(&recordingCloner{root: realTempDir(t)})
 	if err := svc.SpawnAgent(context.Background(), "task-1", 0, 0, AgentSpawnOptions{Repo: "Autopilot-Dev/autopilot"}); err != nil {
 		t.Fatal(err)
 	}
@@ -78,7 +78,7 @@ func TestARepositorysResourcesReachAnAgentInAFreshCloneOfIt(t *testing.T) {
 }
 
 func TestAnAgentInAnotherRepositoryDoesNotGetThem(t *testing.T) {
-	worktree := t.TempDir()
+	worktree := realTempDir(t)
 	svc, _, mt, _ := repositoryResourceService(t, &fakeAdapter{name: "claude-code"}, originIs(worktree, "git@github.com:acme/web.git"))
 	if err := svc.SpawnAgent(context.Background(), "task-1", 0, 0, AgentSpawnOptions{WorkingDir: worktree}); err != nil {
 		t.Fatal(err)
@@ -89,9 +89,9 @@ func TestAnAgentInAnotherRepositoryDoesNotGetThem(t *testing.T) {
 }
 
 func TestRepositoryResourcesMergeWithTickedOnesWithoutDuplicates(t *testing.T) {
-	worktree := t.TempDir()
+	worktree := realTempDir(t)
 	svc, _, mt, feed := repositoryResourceService(t, &fakeAdapter{name: "claude-code"}, originIs(worktree, "autopilot-dev/autopilot"))
-	notes := t.TempDir()
+	notes := realTempDir(t)
 	ticked := []Resource{
 		{Name: "nuget feed token", Paths: []ResourcePath{{Path: feed, Access: "read"}}},
 		{Name: "Notes", Paths: []ResourcePath{{Path: notes, Access: "write"}}},
@@ -113,9 +113,9 @@ func TestRepositoryResourcesMergeWithTickedOnesWithoutDuplicates(t *testing.T) {
 // A restart starts from the resources the person chose; the repository's are
 // worked out again by the spawn, so a mapping removed meanwhile is gone.
 func TestTheResourcesARestartCarriesAreOnlyTheChosenOnes(t *testing.T) {
-	worktree := t.TempDir()
+	worktree := realTempDir(t)
 	svc, _, _, _ := repositoryResourceService(t, &fakeAdapter{name: "claude-code"}, originIs(worktree, "autopilot-dev/autopilot"))
-	notes := t.TempDir()
+	notes := realTempDir(t)
 	ctx := context.Background()
 	if err := svc.SpawnAgent(ctx, "task-1", 0, 0, AgentSpawnOptions{WorkingDir: worktree,
 		Resources: []Resource{{Name: "Notes", Paths: []ResourcePath{{Path: notes, Access: "read"}}}}}); err != nil {
@@ -135,7 +135,7 @@ func TestTheResourcesARestartCarriesAreOnlyTheChosenOnes(t *testing.T) {
 func TestRepositoryResourcesAreOnlyForTheirRepository(t *testing.T) {
 	resources := NewRepositoryResources(
 		[]config.RepositoryResources{{Repo: "github.com/acme/web", Resources: []string{"Gone"}}},
-		[]config.ResourceConfig{{Name: "Gone", Paths: []config.ResourcePathConfig{{Path: filepath.Join(t.TempDir(), "missing"), Access: "read"}}}},
+		[]config.ResourceConfig{{Name: "Gone", Paths: []config.ResourcePathConfig{{Path: filepath.Join(realTempDir(t), "missing"), Access: "read"}}}},
 	)
 	got, err := resources.ResourcesForRepository(context.Background(), "github.com/acme/web")
 	if err != nil || len(got) != 1 {
@@ -153,7 +153,7 @@ func TestARepositorysResourceIsMountedInTheSandboxAtItsAccess(t *testing.T) {
 	svc, s, _ := sandboxedService(t, backend)
 	createTask(t, s, "task-1")
 	resources, feed := feedResources(t)
-	worktree := t.TempDir()
+	worktree := realTempDir(t)
 	agents := svc.(*agentService)
 	agents.repoResources = resources
 	agents.checkoutInspector = originIs(worktree, "git@github.com:autopilot-dev/autopilot.git")
@@ -172,7 +172,7 @@ func TestARepositorysResourceMayBeMountedIntoTheAgentsContainersReadOnly(t *test
 	svc, s, mt, docker := dockerSandboxedService(t, backend, &fakeDockerCleaner{})
 	createTask(t, s, "task-1")
 	resources, feed := feedResources(t)
-	worktree := t.TempDir()
+	worktree := realTempDir(t)
 	agents := svc.(*agentService)
 	agents.repoResources = resources
 	agents.checkoutInspector = originIs(worktree, "https://github.com/autopilot-dev/autopilot.git")

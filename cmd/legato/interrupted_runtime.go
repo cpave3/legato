@@ -51,6 +51,18 @@ func addInterruptedResumeRoute(agents service.AgentService, route service.Interr
 
 // registerInterruptedAttention shows the interrupted agents in Attention,
 // reconciled each time they change.
+// registerSandboxGitConfigAttention shows the git config keys sandboxed
+// agents added that run a command, once their executions end.
+func registerSandboxGitConfigAttention(attention *service.AttentionService, agents service.AgentService) {
+	watcher, ok := agents.(service.SandboxGitConfigWatcher)
+	if !ok || watcher.SandboxGitConfig() == nil {
+		return
+	}
+	adapter := watcher.SandboxGitConfig()
+	mustRegister(attention.RegisterProducerWithEvents(adapter, events.EventAgentDied, events.EventAgentCompleted))
+	mustRegister(attention.RegisterHandler(adapter.Producer(), adapter))
+}
+
 func registerInterruptedAttention(attention *service.AttentionService, agents service.AgentService) {
 	svc, ok := agents.(interruptedAgentService)
 	if !ok {

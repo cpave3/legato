@@ -1791,6 +1791,12 @@ func (a *agentService) EndExecution(ctx context.Context, executionID, status str
 		// Before the scratch goes, which they may still be writing.
 		a.sandbox.EndProcesses(ctx, executionID)
 	}
+	if a.sandbox != nil && a.sandbox.GitConfig != nil && a.sandbox.Base.RuntimeDir != "" {
+		// Before the runtime folder, which holds the baseline, goes.
+		if err := a.sandbox.GitConfig.Check(ctx, filepath.Join(a.sandbox.Base.RuntimeDir, "sandbox", executionID), executionID); err != nil {
+			log.Printf("sandbox: checking %s's git config: %v", executionID, err)
+		}
+	}
 	// Asked before the scratch goes: the view is in the runtime folder.
 	if a.docker != nil && a.docker.HasProxy(executionID) {
 		a.docker.cleanLogged(executionID)

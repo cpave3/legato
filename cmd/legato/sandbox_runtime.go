@@ -55,6 +55,7 @@ func sandboxSettings(cfg *config.Config, db *store.Store) *service.SandboxSettin
 		Backend:      backend,
 		ToolLogin:    login,
 		EndProcesses: endProcesses,
+		GitConfig:    &service.SandboxGitConfig{Dir: filepath.Join(config.ResolveDataDir(cfg), "sandbox-git-config")},
 		Base: service.SandboxPlanInput{
 			Layout: &layout,
 			Home:   home, RuntimeDir: runtimeDir, ScratchDir: config.ResolveSandboxScratchDir(cfg),

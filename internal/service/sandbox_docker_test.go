@@ -58,7 +58,7 @@ func TestASandboxedAgentGetsItsOwnDockerSocket(t *testing.T) {
 	backend := &fakeBackend{}
 	svc, s, mt, docker := dockerSandboxedService(t, backend, &fakeDockerCleaner{})
 	createTask(t, s, "task-1")
-	work := t.TempDir()
+	work := realTempDir(t)
 	if err := svc.SpawnAgent(context.Background(), "task-1", 0, 0, AgentSpawnOptions{WorkingDir: work}); err != nil {
 		t.Fatal(err)
 	}
@@ -148,7 +148,7 @@ func TestTheSweepCleansEndedExecutionsAndLeavesOthersAlone(t *testing.T) {
 }
 
 func TestTheProxysViewIsTheSandboxsMounts(t *testing.T) {
-	work, gone := t.TempDir(), filepath.Join(t.TempDir(), "gone")
+	work, gone := realTempDir(t), filepath.Join(realTempDir(t), "gone")
 	plan := sandbox.Plan{
 		Home: "/home/me", HomeSource: "/scratch/ex-1/home",
 		Mounts: []sandbox.Mount{
