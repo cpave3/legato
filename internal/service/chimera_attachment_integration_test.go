@@ -9,6 +9,7 @@ import (
 	"os"
 	"path/filepath"
 	"slices"
+	"sync/atomic"
 	"testing"
 
 	"github.com/cpave3/legato/internal/engine/chimera"
@@ -216,6 +217,54 @@ func TestChimeraQueueMessageAppendsWhenSessionIsBusy(t *testing.T) {
 	want := []string{"/v1/sessions/sess-busy/messages", "/v1/sessions/sess-busy/messages?append=true"}
 	if !slices.Equal(requestURIs, want) {
 		t.Fatalf("request URIs = %#v, want %#v", requestURIs, want)
+	}
+}
+
+func TestChimeraQueueMessageRetriesASealedTurnWithoutLosingTheMessage(t *testing.T) {
+	var calls atomic.Int32
+	accepted := make(chan string, 1)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if calls.Add(1) < 3 {
+			w.WriteHeader(http.StatusConflict)
+			return
+		}
+		if r.URL.Query().Get("append") != "" {
+			t.Error("retry did not start a fresh turn")
+		}
+		var body struct {
+			Content string `json:"content"`
+		}
+		if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+			t.Error(err)
+		}
+		accepted <- body.Content
+		w.WriteHeader(http.StatusAccepted)
+	}))
+	defer srv.Close()
+	s, err := store.New(filepath.Join(t.TempDir(), "sealed.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer s.Close()
+	ctx := context.Background()
+	if err := s.CreateTask(ctx, store.Task{ID: "sealed", Title: "Sealed", Status: "Todo"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.InsertAgentSession(ctx, store.AgentSession{TaskID: "sealed", Status: "running", AgentKind: "chimera"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.UpdateChimeraDiscovery(ctx, "sealed", "session", srv.URL); err != nil {
+		t.Fatal(err)
+	}
+	adapter := NewChimeraInteractionAdapter(s, nil)
+	if err := adapter.QueueMessage(ctx, "sealed", "commit-boundary-canary"); err != nil {
+		t.Fatalf("message rejected instead of retried: %v", err)
+	}
+	if calls.Load() != 3 {
+		t.Fatalf("requests=%d", calls.Load())
+	}
+	if got := <-accepted; got != "commit-boundary-canary" {
+		t.Fatalf("accepted message=%q", got)
 	}
 }
 
