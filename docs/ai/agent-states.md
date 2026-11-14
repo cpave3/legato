@@ -177,7 +177,9 @@ them for overlapping requests, malformed input and other hard-to-record cases.
 | --- | --- |
 | `turn.start` | `working` |
 | `message.append` | unchanged |
-| `permission.request` / `question.request` (`requestId`) | `waiting` |
+| `permission.request` (`requestId`) | unchanged: interception before automatic arbitration |
+| Session snapshot `pendingPermissions` for intercepted requests | link reports `permission.pending`: `waiting` only while human-pending permissions or questions remain |
+| `question.request` (`requestId`) | `waiting` |
 | `permission.resolved` / `question.resolved` | `working` only when the link-supplied `pendingRequests` is zero; a missing or positive count leaves state unchanged |
 | `background.start` (`jobId`, `command`) | add a `bash` job; activity unchanged |
 | `background.exit` (`jobId`, `command`) | remove the job; `background` becomes idle if no jobs remain |
@@ -193,8 +195,16 @@ them for overlapping requests, malformed input and other hard-to-record cases.
 
 `agentId` on spawn/finish is the **subject**, not the emitter: it must not be
 used to ignore the parent's report. Only `isSubagent` identifies a child
-emitter. The link maintains the pending-request count; the state handler does
-not reconstruct it from request IDs. Job text uses the same one-line cleaning
+emitter. The link maintains the human-pending request count; the state handler does
+not reconstruct it from request IDs. While permission interceptions remain
+open, it polls the authenticated snapshot every 250 ms. Failed snapshots are
+logged and retried, not interpreted as a prompt. CHIM-69 does not expose the
+actual human permission prompt as a separate mod event. Automatic rules return
+before interception; System One/reviewer approvals emit resolutions, but a
+failed automatic retry probe can leave an interception unresolved. Such a probe
+never counts as a human request. `TestChimeraLinkAutomaticApprovalAndHumanPrompt`
+covers this faithfully copied sequence through SQLite and the broker; the old
+permission recording now supplies a separate human-pending snapshot. Job text uses the same one-line cleaning
 and bounds as Claude Code (200-rune labels, 64-rune IDs, at most 32 jobs).
 
 ## Chimera without the mod (from code)

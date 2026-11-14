@@ -25,7 +25,7 @@ func TestChimeraHook_TurnStartsAndMessagesDoNotResumeAWaitingTurn(t *testing.T) 
 	a := newHookAgent(t)
 	for _, tc := range []struct{ payload, want string }{
 		{`{"type":"turn.start"}`, "working"},
-		{`{"type":"permission.request","requestId":"p1","pendingRequests":1}`, "waiting"},
+		{`{"type":"permission.pending","pendingRequests":1}`, "waiting"},
 		{`{"type":"message.append"}`, "waiting"},
 	} {
 		if got := sendChimera(t, a, tc.payload); got.activity != tc.want {
@@ -54,7 +54,7 @@ func TestChimeraHook_OnlyTheLastResolutionResumesTheTurn(t *testing.T) {
 	a := newHookAgent(t)
 	for _, tc := range []struct{ payload, want string }{
 		{`{"type":"turn.start"}`, "working"},
-		{`{"type":"permission.request","requestId":"p1","pendingRequests":1}`, "waiting"},
+		{`{"type":"permission.pending","pendingRequests":1}`, "waiting"},
 		{`{"type":"question.request","requestId":"q1","pendingRequests":2}`, "waiting"},
 		{`{"type":"permission.resolved","requestId":"p1","pendingRequests":1}`, "waiting"},
 		{`{"type":"question.resolved","requestId":"q1"}`, "waiting"},

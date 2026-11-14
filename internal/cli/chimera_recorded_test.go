@@ -6,9 +6,12 @@ import (
 	"encoding/json"
 	"fmt"
 	"io"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"reflect"
+	"sync"
 	"testing"
 	"time"
 
@@ -38,6 +41,21 @@ func TestRecordedChimeraModEventsThroughStoreAndBroker(t *testing.T) {
 			t.Run(fmt.Sprintf("%s/broker=%v", fixture.Name, remote), func(t *testing.T) {
 				s := newTestStore(t)
 				seedChimeraLinkAgent(t, s)
+				// The permission recording was manually answered. CHIM-69's
+				// interception alone does not say when its dialog appeared;
+				// faithfully supply that human-pending snapshot separately.
+				var mu sync.Mutex
+				var permissionID string
+				endpointServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+					mu.Lock()
+					defer mu.Unlock()
+					pending := []map[string]string{}
+					if permissionID != "" {
+						pending = append(pending, map[string]string{"requestId": permissionID})
+					}
+					_ = json.NewEncoder(w).Encode(map[string]any{"pendingPermissions": pending})
+				}))
+				defer endpointServer.Close()
 				var host cli.BridgeHost
 				if remote {
 					const token = "lgb_recorded_chimera"
@@ -90,12 +108,23 @@ func TestRecordedChimeraModEventsThroughStoreAndBroker(t *testing.T) {
 						SessionID string `json:"sessionId"`
 						ServerURL string `json:"serverUrl"`
 						Reason    string `json:"reason"`
+						RequestID string `json:"requestId"`
 					}
 					if err := json.Unmarshal([]byte(line), &event); err != nil {
 						t.Fatal(err)
 					}
 					if event.Type == "session.start" {
-						sessionID, endpoint = event.SessionID, event.ServerURL
+						sessionID, endpoint = event.SessionID, endpointServer.URL
+						var record map[string]any
+						if err := json.Unmarshal([]byte(line), &record); err != nil {
+							t.Fatal(err)
+						}
+						record["serverUrl"] = endpoint
+						raw, err := json.Marshal(record)
+						if err != nil {
+							t.Fatal(err)
+						}
+						line = string(raw)
 					}
 					if event.Type == "session.end" && event.Reason != "switch" {
 						sessionID, endpoint = "", ""
@@ -104,6 +133,14 @@ func TestRecordedChimeraModEventsThroughStoreAndBroker(t *testing.T) {
 						t.Fatal("recording has no expected observation")
 					}
 					activity, kinds := fixture.Activities[index], fixture.JobKinds[index]
+					mu.Lock()
+					if event.Type == "permission.request" {
+						permissionID = event.RequestID
+					}
+					if event.Type == "permission.resolved" {
+						permissionID = ""
+					}
+					mu.Unlock()
 					if _, err := io.WriteString(writer, line+"\n"); err != nil {
 						t.Fatal(err)
 					}
