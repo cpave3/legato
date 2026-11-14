@@ -1,7 +1,9 @@
 // Package sandbox wraps a command so that it runs with a chosen view of the
-// filesystem: bubblewrap, with the host's network and user, in a fresh PID
-// namespace that ends with the command's parent. What the view holds (the
-// plan) is decided by the caller; this package only renders it.
+// filesystem: bubblewrap on Linux, with the host's network and user, in a
+// fresh PID namespace that ends with the command's parent; Seatbelt
+// (sandbox-exec) on macOS. What the view holds (the plan) is decided by the
+// caller; this package only renders it, with what each backend can do
+// (Capabilities).
 package sandbox
 
 import (
@@ -70,8 +72,34 @@ type Backend interface {
 	Name() string
 	// Available says why the backend cannot be used, or nil.
 	Available() error
-	// Wrap returns the command line that runs command in a sandbox with plan.
-	Wrap(plan Plan, command []string) ([]string, error)
+	// Capabilities says what the backend can show, so a plan is made of
+	// only what it can render.
+	Capabilities() Capabilities
+	// Prefix writes what the backend needs into dir, a folder of the
+	// execution's own, and returns the shell words that start a command,
+	// which follows them, in a sandbox with plan. It is typed into a
+	// terminal, so it stays short.
+	Prefix(plan Plan, dir string) (string, error)
+}
+
+// Capabilities is what a backend can do beyond allowing and denying paths.
+type Capabilities struct {
+	// Remap shows a host path at another path (Mount.Dest): /tmp, the gh
+	// wrapper over every real gh, the ssh configuration copies.
+	Remap bool
+	// EmptyHome shows the home folder as an empty one (Plan.HomeSource);
+	// without it the agent's HOME is that folder instead.
+	EmptyHome bool
+	// Overlay shows a path beneath a throwaway layer (Overlay mounts).
+	Overlay bool
+	// ProcessNamespace hides the host's processes and ends everything
+	// inside with the sandbox.
+	ProcessNamespace bool
+}
+
+// Full is what bwrap can do.
+func Full() Capabilities {
+	return Capabilities{Remap: true, EmptyHome: true, Overlay: true, ProcessNamespace: true}
 }
 
 var errNotFound = errors.New("not found")
@@ -84,12 +112,6 @@ type Bwrap struct {
 	LookPath func(string) (string, error)
 	// Help returns the binary's --help; running it when nil.
 	Help func(binary string) (string, error)
-}
-
-// OverlaySupporter is a backend that may show a path beneath a throwaway
-// layer (Overlay mounts).
-type OverlaySupporter interface {
-	SupportsOverlay() bool
 }
 
 // SupportsOverlay says whether this bwrap has overlays (--tmp-overlay,
@@ -111,6 +133,32 @@ func (b Bwrap) SupportsOverlay() bool {
 }
 
 func (b Bwrap) Name() string { return "bwrap" }
+
+// Capabilities are all of them; overlays need bubblewrap 0.10.0 or later.
+func (b Bwrap) Capabilities() Capabilities {
+	c := Full()
+	c.Overlay = b.SupportsOverlay()
+	return c
+}
+
+// Prefix writes bwrap's options to dir/bwrap.args and the terminal filter
+// to dir/seccomp.bpf, and returns the line that reads them (ArgsFileLine).
+// Without dir, the options are on the line, and there is no filter.
+func (b Bwrap) Prefix(plan Plan, dir string) (string, error) {
+	args, err := b.Wrap(plan, []string{"true"})
+	if err != nil {
+		return "", err
+	}
+	args = args[:len(args)-1] // bwrap, its options, "--"
+	if dir == "" {
+		quoted := make([]string, len(args))
+		for i, arg := range args {
+			quoted[i] = ShellWord(arg)
+		}
+		return strings.Join(quoted, " "), nil
+	}
+	return ArgsFileLine(args[0], args[1:len(args)-1], dir)
+}
 
 func (b Bwrap) binary() (string, error) {
 	if b.Path != "" {

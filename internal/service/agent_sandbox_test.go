@@ -22,7 +22,11 @@ type fakeBackend struct {
 	plans   []sandbox.Plan
 }
 
-func (f *fakeBackend) SupportsOverlay() bool { return f.overlay }
+func (f *fakeBackend) Capabilities() sandbox.Capabilities {
+	c := sandbox.Full()
+	c.Overlay = f.overlay
+	return c
+}
 
 func (f *fakeBackend) Name() string { return "fake" }
 func (f *fakeBackend) Available() error {
@@ -31,9 +35,14 @@ func (f *fakeBackend) Available() error {
 	}
 	return nil
 }
-func (f *fakeBackend) Wrap(plan sandbox.Plan, command []string) ([]string, error) {
+
+// Prefix is bwrap's, with one option.
+func (f *fakeBackend) Prefix(plan sandbox.Plan, dir string) (string, error) {
 	f.plans = append(f.plans, plan)
-	return append([]string{"SANDBOX", "--ro-bind", "/a path", "/a path", "--"}, command...), nil
+	if dir == "" {
+		return "SANDBOX --ro-bind '/a path' '/a path' --", nil
+	}
+	return sandbox.ArgsFileLine("SANDBOX", []string{"--ro-bind", "/a path", "/a path"}, dir)
 }
 
 func sandboxedService(t *testing.T, backend *fakeBackend, adjust ...func(*SandboxSettings)) (AgentService, *store.Store, *mockTmux) {

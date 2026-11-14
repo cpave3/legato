@@ -144,11 +144,10 @@ func (f *FakeRepos) JobClone(_ context.Context, req service.JobCloneRequest) (st
 // command as "SANDBOX ... --".
 type fakeSandbox struct{}
 
-func (fakeSandbox) Name() string     { return "fake" }
-func (fakeSandbox) Available() error { return nil }
-func (fakeSandbox) Wrap(_ sandbox.Plan, command []string) ([]string, error) {
-	return append([]string{"SANDBOX", "--"}, command...), nil
-}
+func (fakeSandbox) Name() string                                { return "fake" }
+func (fakeSandbox) Available() error                            { return nil }
+func (fakeSandbox) Capabilities() sandbox.Capabilities          { return sandbox.Full() }
+func (fakeSandbox) Prefix(sandbox.Plan, string) (string, error) { return "SANDBOX --", nil }
 
 // FakeAgentTool is an agent tool a worker knows: its launch command is its
 // name, and it can be launched with its permission prompts off.

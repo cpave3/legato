@@ -34,12 +34,7 @@ func TestInsideTheSandboxNothingCanBeTypedIntoThePane(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	args, err := sandbox.Bwrap{}.Wrap(plan, []string{"true"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	args = args[:len(args)-1]
-	line, err := argsFileCommand(args[0], args[1:len(args)-1], filepath.Join(in.RuntimeDir, "sandbox", "ex-1", "bwrap.args"))
+	line, err := sandbox.Bwrap{}.Prefix(plan, filepath.Join(in.RuntimeDir, "sandbox", "ex-1"))
 	if err != nil {
 		t.Fatal(err)
 	}

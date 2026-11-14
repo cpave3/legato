@@ -3,13 +3,10 @@ package service
 import (
 	"context"
 	"errors"
-	"fmt"
 	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
-	"regexp"
-	"runtime"
 	"slices"
 	"strings"
 
@@ -39,8 +36,7 @@ func (a *agentService) CheckoutOverlayAvailable() bool {
 	if a.sandbox == nil {
 		return false
 	}
-	overlays, ok := a.sandbox.Backend.(sandbox.OverlaySupporter)
-	return ok && overlays.SupportsOverlay()
+	return a.sandbox.Backend.Capabilities().Overlay
 }
 
 // sandboxPrefix is the command line that starts an agent's launch command
@@ -184,60 +180,20 @@ func (a *agentService) sandboxPrefix(ctx context.Context, taskID, executionID, a
 			return "", err
 		}
 	}
-	args, err := backend.Wrap(plan, []string{"true"})
+	dir := ""
+	if in.RuntimeDir != "" {
+		dir = filepath.Join(in.RuntimeDir, "sandbox", executionID)
+	}
+	line, err := backend.Prefix(plan, dir)
 	if err != nil {
 		return "", err
 	}
-	args = args[:len(args)-1] // the backend's command, then its options, then "--"
 	// The shell that runs the line expands $PATH, so what the session's
 	// shell put on it stays, after the engram's folder.
-	withPath := func(line string) string {
-		if pathFirst == "" {
-			return line
-		}
-		return "PATH=" + shellWord(pathFirst) + `:"$PATH" ` + line
+	if pathFirst != "" {
+		line = "PATH=" + shellWord(pathFirst) + `:"$PATH" ` + line
 	}
-	if in.RuntimeDir != "" && len(args) >= 2 && args[len(args)-1] == "--" {
-		file := filepath.Join(in.RuntimeDir, "sandbox", executionID, "bwrap.args")
-		line, err := argsFileCommand(args[0], args[1:len(args)-1], file)
-		return withPath(line), err
-	}
-	quoted := make([]string, len(args))
-	for i, arg := range args {
-		quoted[i] = shellWord(arg)
-	}
-	return withPath(strings.Join(quoted, " ")), nil
-}
-
-// argsFileCommand writes a backend's options to file, NUL-separated, and
-// returns the short command line that reads them from it: a launch command
-// is typed into a terminal, which cuts a line at 4096 bytes before the shell
-// reads it. The seccomp program that keeps the agent from typing into the
-// pane (sandbox.TerminalFilter) is written beside it, and read from fd 4.
-func argsFileCommand(backend string, options []string, file string) (string, error) {
-	filter, err := sandbox.TerminalFilter(runtime.GOARCH)
-	if err != nil {
-		return "", err
-	}
-	seccomp := filepath.Join(filepath.Dir(file), "seccomp.bpf")
-	options = append(append([]string{}, options...), "--seccomp", "4")
-	var data []byte
-	for _, option := range options {
-		if strings.ContainsRune(option, 0) {
-			return "", fmt.Errorf("sandbox option %q holds a NUL byte", option)
-		}
-		data = append(append(data, option...), 0)
-	}
-	if err := os.MkdirAll(filepath.Dir(file), 0o700); err != nil {
-		return "", err
-	}
-	if err := os.WriteFile(file, data, 0o600); err != nil {
-		return "", err
-	}
-	if err := os.WriteFile(seccomp, filter, 0o600); err != nil {
-		return "", err
-	}
-	return shellWord(backend) + " --args 3 3<" + shellWord(file) + " 4<" + shellWord(seccomp) + " --", nil
+	return line, nil
 }
 
 // gitCommonDir is the .git a worktree's commits are written to, when it is
@@ -250,15 +206,8 @@ func gitCommonDir(ctx context.Context, dir string) string {
 	return strings.TrimSpace(string(out))
 }
 
-var plainWord = regexp.MustCompile(`^[A-Za-z0-9_@%+=:,./-]+$`)
-
 // shellWord quotes a word for the shell only when it needs it.
-func shellWord(s string) string {
-	if plainWord.MatchString(s) {
-		return s
-	}
-	return shellQuote(s)
-}
+func shellWord(s string) string { return sandbox.ShellWord(s) }
 
 // toolStateVars name the variables that move an agent tool's state, and so
 // its sessions, out of the folders the sandbox mounts for it.
