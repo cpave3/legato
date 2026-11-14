@@ -1,0 +1,52 @@
+# Legato's sandbox on macOS (Seatbelt): its walls, run for real on GitHub's
+# macOS runners, on every pull request and on any push that changes the
+# sandbox (LEG-172). The Linux tests run in ci.yml.
+name: sandbox-macos
+
+on:
+  workflow_dispatch:
+  pull_request:
+  push:
+    paths:
+      - internal/engine/sandbox/**
+      - internal/service/sandbox_*
+      - internal/service/agent_sandbox*
+      - internal/service/main_test.go
+      - cmd/legato/sandbox_*
+      - config/sandbox*
+      - go.mod
+      - .github/workflows/sandbox-macos.yml
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sandbox-macos-${{ github.ref }}
+  cancel-in-progress: ${{ github.event_name == 'pull_request' }}
+
+jobs:
+  walls:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [macos-15, macos-26]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: go.mod
+
+      - name: Vet
+        run: go vet ./internal/engine/sandbox ./internal/service ./cmd/legato ./config
+
+      - name: The Seatbelt backend
+        run: go test -count=1 ./internal/engine/sandbox
+
+      - name: The walls
+        run: go test -count=1 -v -run 'Walls|Sandbox|Seatbelt|Bwrap|OnAMac|ThePlanNames|AMacPlan' ./internal/service
+
+      - name: The launcher and the setting
+        run: go test -count=1 -run 'SandboxExec|Sandbox' ./cmd/legato ./config
