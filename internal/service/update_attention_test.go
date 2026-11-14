@@ -126,3 +126,30 @@ func TestAnSTReleaseAsksThePersonInAttentionInAskMode(t *testing.T) {
 		t.Errorf("items once st is current = %+v", items)
 	}
 }
+
+func TestAChimeraReleaseAsksTheOperatorInAttentionInAskMode(t *testing.T) {
+	newFakeChimeraTool(t, "v1.1.0", true)
+	chimera := NewChimeraUpdater(ToolUpdaterOptions{})
+	f := newUpdater(t, "v1.3.0", func(o *UpdateOptions) { o.Tools = []*ToolUpdater{chimera} })
+	ctx := context.Background()
+	if _, err := f.svc.Check(ctx); err != nil {
+		t.Fatal(err)
+	}
+
+	attention, items := updateItems(t, f)
+	if len(items) != 1 || items[0].Title != "chimera v1.2.0 is available" || items[0].SourceRevision != "chimera:v1.2.0" || items[0].SourceKey != "tool-update:chimera" {
+		t.Fatalf("items = %+v", items)
+	}
+	if err := attention.Execute(ctx, items[0].ID, AttentionActionRequest{ActionID: "update", ExpectedRevision: items[0].SourceRevision}); err != nil {
+		t.Fatal(err)
+	}
+	if got := chimera.Status(); got.Version != "v1.2.0" {
+		t.Fatalf("chimera after the action = %+v", got)
+	}
+	if err := f.svc.SetMode(ctx, UpdateModeAuto); err != nil {
+		t.Fatal(err)
+	}
+	if items, _ := attention.List(ctx, AttentionFilter{}); len(items) != 0 {
+		t.Errorf("items once chimera is current = %+v", items)
+	}
+}

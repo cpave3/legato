@@ -57,7 +57,7 @@ type ToolUpdaterOptions struct {
 // ToolUpdater keeps a command-line tool that updates itself current: it
 // finds it on Legato's PATH, asks it its version and whether a newer
 // release exists, and has it install that release. The tool downloads and
-// checks its release itself; Legato only runs it. Only st is known.
+// checks its release itself; Legato only runs it.
 type ToolUpdater struct {
 	name    string
 	timeout time.Duration
@@ -70,10 +70,19 @@ type ToolUpdater struct {
 // NewSTUpdater looks after Staccato's st, which updates itself with
 // `st update`.
 func NewSTUpdater(opts ToolUpdaterOptions) *ToolUpdater {
+	return newToolUpdater("st", opts)
+}
+
+// NewChimeraUpdater looks after release builds of Chimera with `chimera update`.
+func NewChimeraUpdater(opts ToolUpdaterOptions) *ToolUpdater {
+	return newToolUpdater("chimera", opts)
+}
+
+func newToolUpdater(name string, opts ToolUpdaterOptions) *ToolUpdater {
 	if opts.Timeout <= 0 {
 		opts.Timeout = toolTimeout
 	}
-	return &ToolUpdater{name: "st", timeout: opts.Timeout, status: ToolStatus{Name: "st", State: UpdateUnchecked}}
+	return &ToolUpdater{name: name, timeout: opts.Timeout, status: ToolStatus{Name: name, State: UpdateUnchecked}}
 }
 
 // Name is the tool's command.
