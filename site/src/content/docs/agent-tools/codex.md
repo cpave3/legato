@@ -67,6 +67,8 @@ Legato's `developer_instructions` replaces a `developer_instructions` of your ow
 
 Codex opens with a menu when a newer version is out, and nothing gets past it until someone answers. An agent may have nobody at its terminal, so Legato starts Codex with `-c check_for_update_on_startup=false`. To keep the check, add `["-c", "check_for_update_on_startup=true"]` to `launch_args`: a later override wins.
 
+In [Legato's sandbox on macOS](/legato/security/sandbox/#on-macos), Codex starts with `sandbox_mode = "danger-full-access"`, since it cannot start its own sandbox inside Legato's; its approvals stay as you set them. Keep its login in `~/.codex/auth.json` (the default): a login in the Keychain (`cli_auth_credentials_store = "keyring"`) cannot be read there, and Legato does not start it.
+
 ## The native panel
 
 The web UI shows a Codex agent in the same native panel it uses for Chimera and Claude Code, from the moment its pane starts. In the panel you can:

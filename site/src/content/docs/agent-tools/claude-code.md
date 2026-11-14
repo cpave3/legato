@@ -65,6 +65,8 @@ The session's environment holds `LEGATO_TASK_ID` and `LEGATO_EXECUTION_ID`, whic
 
 Claude Code asks whether you trust a folder the first time it starts there. An agent may have nobody at its terminal, so Legato answers for it: before it types `claude`, it marks the folder as trusted in `~/.claude.json`, as accepting the dialog does. If that fails, Legato logs why and Claude Code asks as usual.
 
+In [Legato's sandbox on macOS](/legato/security/sandbox/#on-macos), Claude Code starts with its own sandbox off, since it cannot start one inside Legato's, and logs in with the token `agents.sandbox.claude_code_token` names: its usual login is in the Keychain, which the sandbox closes. Make one with `claude setup-token`.
+
 ## The native panel
 
 With the mod loaded, the web UI shows a Claude Code agent in the same native panel it uses for Chimera and Codex, a few seconds after Claude Code starts. In the panel you can:

@@ -1,11 +1,11 @@
 ---
 title: Sandbox
-description: Run agents inside bubblewrap, so they see their work and their tools but not your credentials or Legato's files.
+description: Run agents inside a sandbox (bubblewrap on Linux, Seatbelt on macOS), so they see their work and their tools but not your credentials or Legato's files.
 sidebar:
   order: 30
 ---
 
-Legato can start each agent inside a sandbox made with [bubblewrap](https://github.com/containers/bubblewrap). Inside, the agent sees its work, its agent tool, your toolchains and Legato's sockets for it. It does not see your SSH keys, your logins, your password stores, or Legato's database and configuration.
+Legato can start each agent inside a sandbox: made with [bubblewrap](https://github.com/containers/bubblewrap) on Linux, and with Seatbelt (`sandbox-exec`, built into macOS) on a Mac. Inside, the agent sees its work, its agent tool, your toolchains and Legato's sockets for it. It does not see your SSH keys, your logins, your password stores, or Legato's database and configuration.
 
 Use it when agents should not be able to reach your credentials, for example when you let them run without permission prompts. Together with the [credential broker](/legato/security/credential-broker/), it makes the approved way to use a key the only way.
 
@@ -15,12 +15,14 @@ The sandbox keeps secrets from agents. It does not filter the network, and it do
 
 ## Turn it on
 
-1. Install bubblewrap, which needs a Linux system that allows unprivileged user namespaces (most do):
+1. On Linux, install bubblewrap, which needs a system that allows unprivileged user namespaces (most do):
 
    ```bash
    sudo dnf install bubblewrap    # Fedora
    sudo apt install bubblewrap    # Debian, Ubuntu
    ```
+
+   On macOS there is nothing to install. If you use Claude Code, give it a login it can use inside the sandbox (see [On macOS](#on-macos)).
 
 2. Turn the sandbox on in `config.yaml`:
 
@@ -32,7 +34,7 @@ The sandbox keeps secrets from agents. It does not filter the network, and it do
 
 3. Restart Legato.
 
-From then on every agent Legato starts runs inside the sandbox. If `bwrap` is missing, or the sandbox cannot be built, the spawn fails with the reason. Legato never falls back to starting the agent outside.
+From then on every agent Legato starts runs inside the sandbox. If `bwrap` (or, on macOS, `/usr/bin/sandbox-exec`) is missing, or the sandbox cannot be built, the spawn fails with the reason. Legato never falls back to starting the agent outside.
 
 ## What an agent sees
 
@@ -160,6 +162,40 @@ Such an agent is marked unsandboxed, in the web UI and in the TUI's agents view.
 
 To move a running agent, press `U` in the TUI's agents view, or in the web UI choose **Reload without sandbox** (or **Reload in sandbox**) in the agent's **More actions** menu or its right-click menu in the sidebar. Legato restarts it on the other side of the sandbox, resuming its conversation. **Reload agent** keeps whichever side the agent is on. Legato tells the agent that the sandbox was added or removed, and the web UI shows that as a message from Legato.
 
+## On macOS
+
+On a Mac the sandbox is Seatbelt, the same mechanism Claude Code and Codex use for their own sandboxes there. Legato writes a profile for each agent from the same list of what it may see, and starts the agent with `sandbox-exec`. Seatbelt can allow or deny each path and system service; it cannot show a folder somewhere else, an empty home folder, or a separate set of processes. So some things differ from Linux:
+
+- **The agent's home folder.** `HOME` is a folder of the agent's own in its scratch space, with links to what the sandbox shows of your home (`~/.claude`, your toolchains, your caches). What an agent writes to its home lands there. Programs that find your home without `HOME`, as `ssh` does, are refused your files instead.
+- **Hidden means refused, not absent.** A hidden file still exists: its name and size can be seen, its content cannot be read or written. Hard links, copy-on-write copies and renames cannot get round this.
+- **`/tmp`.** The agent's `TMPDIR` is its own scratch folder. The shared `/tmp` is closed: it holds the tmux server's socket, macOS's SSH agent and every Legato's sockets. A tool that writes to `/tmp` by name, not through `TMPDIR`, fails.
+- **The Keychain** is closed, so nothing inside can read an item from it, including `gh`'s token. Claude Code keeps its login there, so sandboxed Claude Code agents log in with a token instead:
+
+  ```bash
+  claude setup-token                        # prints a token that lasts a year
+  legato secret add claude-code-token       # paste the token
+  ```
+
+  ```yaml
+  agents:
+    sandbox:
+      claude_code_token: legato://claude-code-token
+  ```
+
+  Without it, a sandboxed Claude Code agent is not started, so an agent left to run unattended never waits on a login. Codex works when its login is in `~/.codex/auth.json`, the default; with `cli_auth_credentials_store = "keyring"` it is not started.
+- **Their own sandboxes.** A program in a Seatbelt sandbox cannot start a sandbox of its own, so inside Legato's, Claude Code's sandbox is off and Codex runs with `sandbox_mode = "danger-full-access"`. Legato's sandbox holds them; Codex still asks for approvals as you set it.
+- **Processes.** An agent cannot signal, inspect or debug a process outside its sandbox, but it can see that one runs (its name and number, not its arguments or environment). `ps` does not run inside at all, as no setuid program does; agents can use `pgrep`. A process an agent starts and detaches keeps running when the pane ends; Legato ends every process that still carries the agent's run when the agent ends.
+- **Starting things outside.** `open`, `osascript`, `launchctl`, the pasteboard (`pbcopy`, `pbpaste`) and `sudo` do not work inside: each would start something outside the sandbox or reach your session.
+- **Reviewers** work in a copy-on-write copy of the checkout, made in their scratch folder; your checkout is read-only beside it.
+
+To see what the sandbox refused, while an agent runs:
+
+```bash
+log stream --style compact --predicate 'eventMessage CONTAINS "legato:"'
+```
+
+Each line names the run, the operation and the path or service. Apple marks `sandbox-exec` as deprecated, but it is still part of macOS and is what these tools rely on; if a future macOS removes it, Legato refuses to start sandboxed agents rather than start them outside.
+
 ## Limits
 
 - What two sandboxes share is what both are given from your machine. All Claude Code agents share `~/.claude`, and all Codex agents share `~/.codex`, with each other's sessions in them.
@@ -169,6 +205,6 @@ To move a running agent, press `U` in the TUI's agents view, or in the web UI ch
 - An agent cannot change the hooks of its checkout's git folder, which your own git runs outside the sandbox. It can change the checkout's git config, as setting an upstream needs; when the agent ends, Legato looks for config it added that makes git run a command (`core.fsmonitor`, `core.hooksPath`, an alias starting with `!`, a filter, an include) and shows each such change in [Attention](/legato/using/attention/), with **Remove them**. Hooks the repository itself tracks, such as a `.husky` folder, are files like any other.
 - An agent keeps your terminal pane as its own, but it cannot type into it. The sandbox refuses the `TIOCSTI` and `TIOCLINUX` requests, which push input into a terminal. Without this, an agent could leave a command that your shell in the pane would run, outside the sandbox, after the agent exits.
 - An agent that is running does not see a new SSH socket until it is reloaded, for example after another Legato on the machine takes over serving the credential channels.
-- bubblewrap runs on Linux only.
+- bubblewrap runs on Linux only, and Seatbelt on macOS only: `agents.sandbox.backend` is the host's own unless you name one.
 
 For how the sandbox is built, see [`docs/ai/sandbox.md`](https://github.com/cpave3/legato/blob/main/docs/ai/sandbox.md).
