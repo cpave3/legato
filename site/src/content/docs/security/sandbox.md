@@ -166,6 +166,7 @@ To move a running agent, press `U` in the TUI's agents view, or in the web UI ch
 - A global hook of your agent tool that runs a program outside the mounts fails on every tool call. Add its folder with `agents.sandbox.mounts`, or remove the hook.
 - Inside Legato's sandbox, Legato drops Chimera's own `--sandbox` flags. Chimera's sandbox is a container, and the container socket it needs would undo Legato's. This is so even with [Docker in the sandbox](#docker-in-the-sandbox) on.
 - With Docker in the sandbox, BuildKit's own settings for a build sent over its session (`docker buildx`, `compose build`) are applied by the Docker daemon, not by Legato. The daemon refuses insecure builds unless you allow them in its configuration; do not.
+- An agent keeps your terminal pane as its own, but it cannot type into it. The sandbox refuses the `TIOCSTI` and `TIOCLINUX` requests, which push input into a terminal. Without this, an agent could leave a command that your shell in the pane would run, outside the sandbox, after the agent exits.
 - An agent that is running does not see a new SSH socket until it is reloaded, for example after another Legato on the machine takes over serving the credential channels.
 - bubblewrap runs on Linux only.
 

@@ -9,6 +9,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"slices"
 	"strings"
 
@@ -211,8 +212,15 @@ func (a *agentService) sandboxPrefix(ctx context.Context, taskID, executionID, a
 // argsFileCommand writes a backend's options to file, NUL-separated, and
 // returns the short command line that reads them from it: a launch command
 // is typed into a terminal, which cuts a line at 4096 bytes before the shell
-// reads it.
+// reads it. The seccomp program that keeps the agent from typing into the
+// pane (sandbox.TerminalFilter) is written beside it, and read from fd 4.
 func argsFileCommand(backend string, options []string, file string) (string, error) {
+	filter, err := sandbox.TerminalFilter(runtime.GOARCH)
+	if err != nil {
+		return "", err
+	}
+	seccomp := filepath.Join(filepath.Dir(file), "seccomp.bpf")
+	options = append(append([]string{}, options...), "--seccomp", "4")
 	var data []byte
 	for _, option := range options {
 		if strings.ContainsRune(option, 0) {
@@ -226,7 +234,10 @@ func argsFileCommand(backend string, options []string, file string) (string, err
 	if err := os.WriteFile(file, data, 0o600); err != nil {
 		return "", err
 	}
-	return shellWord(backend) + " --args 3 3<" + shellWord(file) + " --", nil
+	if err := os.WriteFile(seccomp, filter, 0o600); err != nil {
+		return "", err
+	}
+	return shellWord(backend) + " --args 3 3<" + shellWord(file) + " 4<" + shellWord(seccomp) + " --", nil
 }
 
 // gitCommonDir is the .git a worktree's commits are written to, when it is

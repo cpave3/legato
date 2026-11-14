@@ -22,9 +22,16 @@ func bwrapFixture(t *testing.T) (in SandboxPlanInput) {
 	if err := exec.Command("bwrap", "--ro-bind", "/", "/", "--unshare-pid", "true").Run(); err != nil {
 		t.Skipf("bwrap cannot run here: %v", err)
 	}
-	base, err := os.MkdirTemp("/var/tmp", "lgsbx")
+	// Outside /tmp, which the sandbox replaces; LEGATO_BWRAP_TEST_DIR names
+	// another folder where there is no /var/tmp (inside Legato's own
+	// sandbox).
+	parent := "/var/tmp"
+	if dir := os.Getenv("LEGATO_BWRAP_TEST_DIR"); dir != "" {
+		parent = dir
+	}
+	base, err := os.MkdirTemp(parent, "lgsbx")
 	if err != nil {
-		t.Skip("no /var/tmp")
+		t.Skipf("no %s", parent)
 	}
 	t.Cleanup(func() { _ = os.RemoveAll(base) })
 	home := filepath.Join(base, "home")

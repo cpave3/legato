@@ -74,10 +74,18 @@ func TestASandboxedSpawnWrapsTheLaunchCommand(t *testing.T) {
 	if len(lines) == 0 || !strings.HasPrefix(lines[0], "SANDBOX --args 3 3<") || !strings.Contains(lines[0], "bwrap.args") || !strings.Contains(lines[0], " -- fake-tool --in-sandbox") {
 		t.Fatalf("launch = %v", lines)
 	}
-	file := strings.TrimPrefix(strings.Split(lines[0], " -- ")[0], "SANDBOX --args 3 3<")
+	files := strings.TrimPrefix(strings.Split(lines[0], " -- ")[0], "SANDBOX --args 3 3<")
+	file, seccomp, ok := strings.Cut(files, " 4<")
+	if !ok {
+		t.Fatalf("no seccomp program on fd 4: %s", lines[0])
+	}
 	args, err := os.ReadFile(strings.Trim(file, "'"))
-	if err != nil || string(args) != "--ro-bind\x00/a path\x00/a path\x00" {
+	if err != nil || string(args) != "--ro-bind\x00/a path\x00/a path\x00--seccomp\x004\x00" {
 		t.Fatalf("args file %s = %q, %v", file, args, err)
+	}
+	// The program that keeps the agent from typing into the pane.
+	if program, err := os.ReadFile(strings.Trim(seccomp, "'")); err != nil || len(program) == 0 || len(program)%8 != 0 {
+		t.Fatalf("seccomp program %s: %d bytes, %v", seccomp, len(program), err)
 	}
 	// The pane's own shell is the person's: it is not told it is sandboxed.
 	if mt.envVarsFor("legato-task-1")["LEGATO_SANDBOXED"] != "" {
