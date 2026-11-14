@@ -26,7 +26,7 @@ task docs:build   # build it into site/dist; fails on a broken link
 | `running` | `workstation`, `web-server`, `devices`, `desktop-app`, `agent-server`, `instances`, `updates` |
 | `using` | `board`, `agents`, `web-ui`, `handoff`, `attention`, `plans`, `reviews`, `review-handoff`, `workflows`, `swarms`, `reports`, `learn` |
 | `agent-tools` | `claude-code`, `codex`, `chimera`, `model-settings`, `mcp-tools`, `resources` |
-| `integrations` | `jira`, `github`, `staccato`, `yggdrasil`, `argus`, `notifications`, `manticore`, `tmux-status`, `stream-deck`, `browser-extension` |
+| `integrations` | `jira`, `github`, `staccato`, `yggdrasil`, `argus`, `notifications`, `manticore`, `tmux-status`, `stream-deck`, `even-g2`, `browser-extension` |
 | `security` | `credentials-setup`, `credential-broker`, `sandbox`, `web-auth` |
 | `reference` | `configuration`, `cli`, `api`, `keyboard`, `glossary` |
 | `contributing` | `build`, `architecture` |
