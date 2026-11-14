@@ -746,6 +746,7 @@ func (s *Server) NotifyAgentChanged(taskID string) {
 
 // NotifyAgentsChanged broadcasts global agent and card refresh messages.
 func (s *Server) NotifyAgentsChanged() {
+	s.chimeraStreams.refreshBindings()
 	s.hub.Broadcast(WSMessage{Type: MsgAgentsChanged})
 	s.hub.Broadcast(WSMessage{Type: MsgCardsChanged})
 }
@@ -809,6 +810,7 @@ func (s *Server) StartAgentLifecycleEvents() {
 		ch := s.bus.Subscribe(eventType)
 		go func() {
 			for range ch {
+				s.chimeraStreams.refreshBindings()
 				s.hub.Broadcast(WSMessage{Type: MsgAgentsChanged})
 			}
 		}()
@@ -825,6 +827,7 @@ func (s *Server) StartChimeraDiscoveryEvents() {
 	ch := s.bus.Subscribe(events.EventAgentChimeraDiscovered)
 	go func() {
 		for range ch {
+			s.chimeraStreams.refreshBindings()
 			s.hub.Broadcast(WSMessage{Type: MsgAgentsChanged})
 		}
 	}()
