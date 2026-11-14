@@ -76,9 +76,9 @@ func TestRestartAgentStartsItAgainResumingItsConversation(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if launch := f.lastLaunch(t, "task-r"); !strings.HasPrefix(launch, "claude --resume conversation-1") {
-		t.Fatalf("launch = %q, want claude --resume conversation-1", launch)
-	}
+	// The asynchronous reload notice may already follow the launch command.
+	sentLineEventually(t, f.tmux, "task-r", "[legato reloaded] ")
+	sentLineEventually(t, f.tmux, "task-r", "claude --resume conversation-1")
 	after, err := f.store.GetAgentSessionByTaskID(ctx, "task-r")
 	if err != nil || after.ExecutionID == before.ExecutionID {
 		t.Fatalf("session after restart = %#v, %v; want a new execution", after, err)
@@ -135,9 +135,7 @@ func TestRestartAgentResumesAnEphemeralAgentsConversation(t *testing.T) {
 		t.Fatal(err)
 	}
 
-	if launch := f.lastLaunch(t, taskID); !strings.HasPrefix(launch, "claude --resume conversation-1") {
-		t.Fatalf("launch = %q, want claude --resume conversation-1", launch)
-	}
+	sentLineEventually(t, f.tmux, taskID, "claude --resume conversation-1")
 	if env := f.tmux.envVarsFor("legato-" + taskID); env["LEGATO_TASK_EPHEMERAL"] != "1" {
 		t.Fatalf("restarted agent is no longer ephemeral: %v", env)
 	}
