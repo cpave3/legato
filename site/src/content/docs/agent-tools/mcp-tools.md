@@ -21,7 +21,7 @@ agents:
 
 With `enabled: false`, no session gets the server or the guidance about it. An agent tool reads its MCP servers when it starts, so a change applies to sessions you start, or reload, afterwards.
 
-Each agent tool runs Legato's tools without asking you first. Legato also tells each agent to use them without being asked: Claude Code reads the server's own instructions, and Codex and Chimera get the same text in their launch prompt.
+Each agent tool runs Legato's tools without asking you first. Legato also tells each agent to use them without being asked: Claude Code and mod-capable Chimera read the server's own instructions. Codex and legacy Chimera get the same text in their launch prompt.
 
 ## The tools
 
@@ -135,6 +135,6 @@ A studio needs libretto on the machine that runs Legato's web server, as well as
 - Only the web UI draws cards and artifacts.
 - A card or an artifact can propose a message. It cannot send one, call a tool, or read anything from Legato.
 - A small model may ignore the guidance and answer in text.
-- Chimera subagents do not get the tools.
+- Legacy Chimera subagents do not get launch-only MCP tools. Chimera mods v1 carries the bundled server into subagents too; they never take over the parent's Legato connection.
 
 For how the server works inside, see [Agent tools on GitHub](https://github.com/cpave3/legato/blob/main/docs/ai/agent-mcp.md).

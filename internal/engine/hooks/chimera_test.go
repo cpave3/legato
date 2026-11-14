@@ -365,6 +365,24 @@ func TestChimeraModLaunchEnvironmentAndBinding(t *testing.T) {
 	}
 }
 
+func TestChimeraModUsesBundledToolsWithoutProbingOrReplacingOperatorFlags(t *testing.T) {
+	a := hooks.NewChimeraAdapter("/bin/legato")
+	a.SetModDir("/data/mod")
+	a.SetMCPTools(true, []string{"task_context"})
+	a.SetToolsPrompt("MCP guidance")
+	a.SetMCPConfigProbe(func() bool { t.Fatal("mod mode probed help"); return false })
+	if cmd := a.LaunchCommand(map[string]string{}, "", "", ""); cmd != "chimera" {
+		t.Fatalf("mod launch = %q", cmd)
+	}
+	if prompt := a.ToolsPrompt(); prompt != "" {
+		t.Fatalf("mod tools prompt = %q", prompt)
+	}
+	a.SetLaunchArgs([]string{"--mcp-config", "@/operator/mcp.json"})
+	if cmd := a.LaunchCommand(map[string]string{}, "", "", ""); !strings.Contains(cmd, "--mcp-config @/operator/mcp.json") {
+		t.Fatalf("operator flag lost: %q", cmd)
+	}
+}
+
 func TestChimeraLaunchReadsSecretFileAtExecutionTime(t *testing.T) {
 	dir := t.TempDir()
 	secretFile := filepath.Join(dir, "secret ' file")

@@ -16,7 +16,7 @@ adapters:
     native_bridge: false
 ```
 
-Older Chimera builds ignore the mod. Legato starts lockfile discovery after ten seconds without a mod binding. Existing hook scripts still work for these sessions; the mod's reports take precedence when it is present.
+Older Chimera builds ignore the mod. Legato starts lockfile discovery after ten seconds without a mod binding. Existing hook scripts still work for these sessions; the mod's reports take precedence when it is present. Discovery cannot add tools to an already-running old Chimera: set `native_bridge: false` to use legacy MCP launch flags.
 
 ## How Legato starts Chimera
 

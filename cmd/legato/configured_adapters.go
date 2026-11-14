@@ -70,7 +70,14 @@ func configuredAdapters(cfg *config.Config, legatoBin string) (service.AIToolAda
 		chimera.SetTiers(adapterTierLaunchArgs(configured))
 	}
 	if nativeBridgeEnabled(cfg, chimera.Name()) {
-		modDir, err := hooks.InstallChimeraMod(filepath.Join(config.ResolveDataDir(cfg), "chimera-mod"))
+		root := filepath.Join(config.ResolveDataDir(cfg), "chimera-mod")
+		var modDir string
+		var err error
+		if cfg.Agents.MCP.Enabled {
+			modDir, err = hooks.InstallChimeraModWithTools(root, legatoBin, cli.MCPToolNames())
+		} else {
+			modDir, err = hooks.InstallChimeraMod(root)
+		}
 		if err != nil {
 			log.Printf("chimera native mod unavailable: %v", err)
 		} else {
@@ -96,19 +103,21 @@ func configuredAdapters(cfg *config.Config, legatoBin string) (service.AIToolAda
 		}
 		codex.SetMCPTools(true)
 		chimera.SetMCPTools(true, cli.MCPToolNames())
-		// Claude Code gives its model the server's own instructions. Codex
-		// and Chimera do not, so the same guidance goes in their launch
-		// prompt, where it tells the agent to use the tools unasked.
+		// Mod-enabled Chimera receives the server's instructions itself.
+		// Keep credential/branch guidance separate so it still reaches the
+		// launch prompt without repeating the MCP tools instructions.
 		toolsPrompt := "## Legato tools\n\n" + cli.MCPGuidance + credentialPromptGuidance(cfg, hostStackSupport(), service.SessionBranches{})
 		codex.SetToolsPrompt(toolsPrompt)
-		chimera.SetToolsPrompt(toolsPrompt)
+		chimera.SetToolsPrompt("## Legato tools\n\n" + cli.MCPGuidance)
+		chimera.SetCredentialPrompt(credentialPromptGuidance(cfg, hostStackSupport(), service.SessionBranches{}), func(base, given string, granted bool) string {
+			return credentialPromptGuidance(cfg, hostStackSupport(), service.SessionBranches{Base: base, Given: given, Granted: granted})
+		})
 		// A handed-off task's session names its branches after the main's
 		// task (see docs/ai/credentials.md § Handed-off sessions).
 		toolsPromptFor := func(base, given string, granted bool) string {
 			return "## Legato tools\n\n" + cli.MCPGuidance + credentialPromptGuidance(cfg, hostStackSupport(), service.SessionBranches{Base: base, Given: given, Granted: granted})
 		}
 		codex.SetToolsPromptFor(toolsPromptFor)
-		chimera.SetToolsPromptFor(toolsPromptFor)
 		if chimeraMCPConfigProbe != nil {
 			chimera.SetMCPConfigProbe(chimeraMCPConfigProbe)
 		}

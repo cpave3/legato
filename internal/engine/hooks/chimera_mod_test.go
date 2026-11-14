@@ -100,3 +100,54 @@ func TestChimeraModNative(t *testing.T) {
 		t.Fatalf("chimera mod test: %v\n%s", err, out)
 	}
 }
+
+func TestInstallChimeraModToolsManifest(t *testing.T) {
+	root := t.TempDir()
+	for _, enabled := range []bool{true, false, true} {
+		var dir string
+		var err error
+		if enabled {
+			dir, err = hooks.InstallChimeraModWithTools(root, "/opt/legato", []string{"task_context", "show_card"})
+		} else {
+			dir, err = hooks.InstallChimeraMod(root)
+		}
+		if err != nil {
+			t.Fatal(err)
+		}
+		var manifest struct {
+			MCPServers map[string]struct {
+				Transport    string            `json:"transport"`
+				Command      string            `json:"command"`
+				Args         []string          `json:"args"`
+				Env          map[string]string `json:"env"`
+				TrustedTools []string          `json:"trustedTools"`
+			} `json:"mcpServers"`
+		}
+		path := filepath.Join(dir, "chimera-mod.json")
+		readJSON(t, path, &manifest)
+		if !enabled {
+			if len(manifest.MCPServers) != 0 {
+				t.Fatalf("MCP disabled: %+v", manifest)
+			}
+			continue
+		}
+		server := manifest.MCPServers["legato"]
+		if server.Transport != "stdio" || server.Command != "/opt/legato" || strings.Join(server.Args, " ") != "mcp serve" || strings.Join(server.TrustedTools, " ") != "task_context show_card" || server.Env["LEGATO_TASK_ID"] != "env:LEGATO_TASK_ID" {
+			t.Fatalf("server = %+v", server)
+		}
+		old := time.Now().Add(-time.Hour)
+		if err := os.Chtimes(path, old, old); err != nil {
+			t.Fatal(err)
+		}
+		if _, err := hooks.InstallChimeraModWithTools(root, "/opt/legato", []string{"task_context", "show_card"}); err != nil {
+			t.Fatal(err)
+		}
+		info, err := os.Stat(path)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !info.ModTime().Equal(old) {
+			t.Fatal("unchanged MCP manifest rewritten")
+		}
+	}
+}

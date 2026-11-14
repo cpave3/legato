@@ -16,7 +16,7 @@ State travels through `ParseChimeraHook` / `ApplyChimeraHook`, via broker `agent
 
 A fresh session keeps `--prompt` as turn one. The adapter is a `NativeBindingAdapter` while the mod is configured: later launch messages (including a resumed reviewer's brief and peer notices) wait for the native binding and go over HTTP, rather than being typed into a TUI that is still starting.
 
-If the mod has not bound after ten seconds, Legato begins legacy lockfile discovery. Discovery stops once either path binds and cannot replace a binding that arrived during its HTTP probe. Old Chimera builds keep the existing hook reports and manual **Upgrade to native panel** path. Native endpoint recovery on Legato startup keeps a live binding, rediscovers a missing one, and respects an intentional downgrade to tmux.
+If the mod has not bound after ten seconds, Legato begins legacy lockfile discovery. Discovery stops once either path binds and cannot replace a binding that arrived during its HTTP probe. Old Chimera builds keep existing hook reports and the manual **Upgrade to native panel** path. Discovery cannot add MCP flags to a process already running: set `native_bridge: false` for legacy launch-time MCP injection. Native endpoint recovery on Legato startup keeps a live binding, rediscovers a missing one, and respects an intentional downgrade to tmux.
 
 ## Server authentication
 
@@ -26,7 +26,7 @@ The sandbox mounts the installed mod and `~/.chimera/mods` and `~/.chimera/hooks
 
 ## Tools
 
-With `agents.mcp.enabled`, the mod manifest bundles `${LEGATO_BIN} mcp serve`, its trusted tool names and an explicit Legato environment map. A tools-disabled installation has no `mcpServers`. A mod launch neither probes `chimera --help` nor adds `--mcp-config`; an operator's own flag remains untouched. MCP server instructions supply the tool guidance instead of the launch prompt. With the mod disabled, the legacy flag/probe/guidance path remains. See [Agent tools](agent-mcp.md).
+With `agents.mcp.enabled`, the mod manifest bundles `legato mcp serve` using the concrete binary path from `LEGATO_BIN`, its trusted tool names and an explicit Legato environment map. A tools-disabled installation has no `mcpServers`. A mod launch neither probes `chimera --help` nor adds `--mcp-config`; an operator's own flag remains untouched. MCP server instructions supply the tool guidance instead of the launch prompt. With the mod disabled, the legacy flag/probe/guidance path remains. See [Agent tools](agent-mcp.md).
 
 ## Testing and evidence
 

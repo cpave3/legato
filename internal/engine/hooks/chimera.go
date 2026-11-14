@@ -54,12 +54,13 @@ type ChimeraAdapter struct {
 	// mcpTrustedTools callable without a prompt.
 	mcpTools        bool
 	mcpTrustedTools []string
-	// toolsPrompt tells a session's agent about those tools. Chimera does
-	// not pass an MCP server's own instructions to its model.
+	// toolsPrompt supplies MCP instructions on the legacy, non-mod path.
 	toolsPrompt string
 	// toolsPromptFor writes that guidance for a handed-off task's
 	// branches; nil gives the ordinary guidance.
-	toolsPromptFor func(base, given string, granted bool) string
+	toolsPromptFor      func(base, given string, granted bool) string
+	credentialPrompt    string
+	credentialPromptFor func(base, given string, granted bool) string
 	// mcpConfigProbe reports whether the installed Chimera accepts
 	// --mcp-config. It is asked once, at the first launch that needs it.
 	mcpConfigProbe  func() bool
@@ -79,10 +80,8 @@ func (a *ChimeraAdapter) SetModDir(dir string) { a.modDir = dir }
 // the session before Legato delivers launch-time messages.
 func (a *ChimeraAdapter) BindsNativeEndpoint() bool { return a.modDir != "" }
 
-// SetMCPTools gives the sessions the adapter launches Legato's own tools:
-// LaunchCommand then passes `legato mcp serve` to Chimera as a server for that
-// session only (--mcp-config), so nothing is written to the person's Chimera
-// config. trustedTools are the tool names Chimera runs without asking.
+// SetMCPTools configures the legacy --mcp-config path. Mod sessions instead
+// receive their server and trusted tools from the installed manifest.
 func (a *ChimeraAdapter) SetMCPTools(enabled bool, trustedTools []string) {
 	a.mcpTools = enabled
 	a.mcpTrustedTools = trustedTools
@@ -101,24 +100,36 @@ func (a *ChimeraAdapter) SetToolsPromptFor(write func(base, given string, grante
 	a.toolsPromptFor = write
 }
 
+// SetCredentialPrompt keeps credential and branch guidance independent of MCP
+// instructions, which mod-enabled Chimera receives from the server itself.
+func (a *ChimeraAdapter) SetCredentialPrompt(prompt string, write func(base, given string, granted bool) string) {
+	a.credentialPrompt = prompt
+	a.credentialPromptFor = write
+}
+
 // ToolsPromptFor implements service.BranchToolsPromptAdapter: ToolsPrompt
 // written for a handed-off task's branches.
 func (a *ChimeraAdapter) ToolsPromptFor(base, given string, granted bool) string {
-	if a.ToolsPrompt() == "" || a.toolsPromptFor == nil {
-		return a.ToolsPrompt()
+	credentials := a.credentialPrompt
+	if a.credentialPromptFor != nil {
+		credentials = a.credentialPromptFor(base, given, granted)
 	}
-	return a.toolsPromptFor(base, given, granted)
+	if a.mcpConfigFlag() == "" {
+		return credentials
+	}
+	if a.toolsPromptFor != nil {
+		return a.toolsPromptFor(base, given, granted) + credentials
+	}
+	return a.toolsPrompt + credentials
 }
 
-// ToolsPrompt implements service.ToolsPromptAdapter: the guidance belongs in
-// the launch prompt of a session whose launch adds the server, and of no
-// other (the tools are off, Chimera is too old for the flag, or the person's
-// own --mcp-config replaced Legato's).
+// ToolsPrompt implements service.ToolsPromptAdapter. MCP instructions belong
+// only to legacy launches that add the server; credential guidance is separate.
 func (a *ChimeraAdapter) ToolsPrompt() string {
 	if a.mcpConfigFlag() == "" {
-		return ""
+		return a.credentialPrompt
 	}
-	return a.toolsPrompt
+	return a.toolsPrompt + a.credentialPrompt
 }
 
 // SetMCPConfigProbe replaces how the adapter learns whether the installed
@@ -140,7 +151,7 @@ func chimeraAcceptsMCPConfig() bool {
 // mcpConfigFlag returns the --mcp-config argument that adds Legato's server
 // to a session, or "" when the session gets none.
 func (a *ChimeraAdapter) mcpConfigFlag() string {
-	if !a.mcpTools || launchArgsContain(a.launchArgs, "--mcp-config") {
+	if a.modDir != "" || !a.mcpTools || launchArgsContain(a.launchArgs, "--mcp-config") {
 		// With a flag of their own in launch_args, the person's wins:
 		// Chimera takes the flag once.
 		return ""
@@ -538,6 +549,9 @@ func (a *ChimeraAdapter) EnvVars(taskID, socketPath string) map[string]string {
 // hook directories. projectDir is unused: Chimera hooks are per-user, not per-project.
 // Mod-backed sessions report state themselves and install no scripts.
 func (a *ChimeraAdapter) InstallHooks(projectDir string) error {
+	if a.modDir != "" {
+		return nil
+	}
 	for _, s := range chimeraScripts {
 		dir := chimeraHookDir(s.event)
 		if err := os.MkdirAll(dir, 0o755); err != nil {

@@ -1,12 +1,14 @@
 package main
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/cpave3/legato/config"
+	"github.com/cpave3/legato/internal/cli"
 	"github.com/cpave3/legato/internal/service"
 )
 
@@ -189,7 +191,7 @@ func TestConfiguredAdaptersGiveEverySessionLegatosMCPServer(t *testing.T) {
 		DataDir: dataDir,
 		Agents:  config.AgentsConfig{MCP: config.AgentMCPConfig{Enabled: true}},
 		// The tools must not depend on the native bridge.
-		Adapters: map[string]config.AdapterConfig{"claude-code": {NativeBridge: &disabled}, "codex": {NativeBridge: &disabled}},
+		Adapters: map[string]config.AdapterConfig{"claude-code": {NativeBridge: &disabled}, "codex": {NativeBridge: &disabled}, "chimera": {NativeBridge: &disabled}},
 	}
 	oldProbe := chimeraMCPConfigProbe
 	chimeraMCPConfigProbe = func() bool { return true }
@@ -346,5 +348,76 @@ func TestConfiguredAdaptersInstallChimeraModUnlessOptedOut(t *testing.T) {
 				t.Fatalf("session mod missing: %v", err)
 			}
 		})
+	}
+}
+
+func TestConfiguredChimeraModBundlesToolsOnlyWhenEnabled(t *testing.T) {
+	oldProbe := chimeraMCPConfigProbe
+	chimeraMCPConfigProbe = func() bool { t.Fatal("mod mode probed help"); return false }
+	t.Cleanup(func() { chimeraMCPConfigProbe = oldProbe })
+	for _, enabled := range []bool{true, false} {
+		cfg := &config.Config{DataDir: t.TempDir(), Agents: config.AgentsConfig{MCP: config.AgentMCPConfig{Enabled: enabled}}}
+		_, adapters := configuredAdapters(cfg, "/opt/legato")
+		a := adapters["chimera"]
+		cmd := a.(service.LaunchCommandAdapter).LaunchCommand(map[string]string{}, "", "", "")
+		if strings.Contains(cmd, "--mcp-config") {
+			t.Fatalf("mod launch repeats MCP config: %q", cmd)
+		}
+		if prompt := a.(service.ToolsPromptAdapter).ToolsPrompt(); strings.Contains(prompt, "## Legato tools") || strings.Contains(prompt, "show_artifact") {
+			t.Fatalf("mod repeats tools instructions: %q", prompt)
+		}
+		data, err := os.ReadFile(filepath.Join(cfg.DataDir, "chimera-mod", "legato", "chimera-mod.json"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		var manifest struct {
+			MCPServers map[string]struct {
+				Command      string   `json:"command"`
+				TrustedTools []string `json:"trustedTools"`
+			} `json:"mcpServers"`
+		}
+		if err := json.Unmarshal(data, &manifest); err != nil {
+			t.Fatal(err)
+		}
+		if !enabled {
+			if len(manifest.MCPServers) != 0 {
+				t.Fatalf("tools disabled but manifest bundles server: %s", data)
+			}
+			continue
+		}
+		server := manifest.MCPServers["legato"]
+		if server.Command != "/opt/legato" || strings.Join(server.TrustedTools, ",") != strings.Join(cli.MCPToolNames(), ",") {
+			t.Fatalf("server does not trust registry tools: %s", data)
+		}
+	}
+}
+
+func TestConfiguredChimeraModPreservesHandoffBranchGuidance(t *testing.T) {
+	cfg := &config.Config{
+		DataDir: t.TempDir(),
+		Agents:  config.AgentsConfig{MCP: config.AgentMCPConfig{Enabled: true}},
+		Credentials: []config.CredentialConfig{{
+			Name: "github", Secret: "legato://github-key", Profile: "github",
+			Settings: config.CredentialSettings{ClientID: "123", Repositories: []string{"owner/repo"}},
+		}},
+	}
+	_, adapters := configuredAdapters(cfg, "/opt/legato")
+	a := adapters["chimera"].(service.BranchToolsPromptAdapter)
+	for _, granted := range []bool{false, true} {
+		prompt := a.ToolsPromptFor("legato/main-task", "fix/already-pushed", granted)
+		for _, want := range []string{"Work on fix/already-pushed", "never rebase, amend or force-push", "legato/main-task-<a few words>"} {
+			if !strings.Contains(prompt, want) {
+				t.Errorf("handoff prompt missing %q: %s", want, prompt)
+			}
+		}
+		if granted && !strings.Contains(prompt, "are already allowed") {
+			t.Errorf("granted handoff lost approval: %s", prompt)
+		}
+		if !granted && !strings.Contains(prompt, "Before your first push, ask") {
+			t.Errorf("ungranted handoff lost request: %s", prompt)
+		}
+		if strings.Contains(prompt, "## Legato tools") || strings.Contains(prompt, "show_artifact") {
+			t.Errorf("handoff repeats MCP guidance: %s", prompt)
+		}
 	}
 }
