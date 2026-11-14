@@ -1,11 +1,14 @@
 package tmux
 
 import (
+	"context"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 )
 
 // TestMain gives the tests a tmux server of their own, never the one they
@@ -126,27 +129,40 @@ func TestSpawnGivesThePaneThePATHAmongItsVariables(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// Keep this private server alive while configuring the shell it starts.
+	control := "legato-test-path-control"
+	if out, err := exec.Command("tmux", "new-session", "-d", "-s", control, "sleep 3600").CombinedOutput(); err != nil {
+		t.Fatalf("start private tmux server: %v\n%s", err, out)
+	}
+	t.Cleanup(func() { m.Kill(control) })
+	dir := t.TempDir()
+	envFile := filepath.Join(dir, "pane-path")
+	shell := filepath.Join(dir, "shell")
+	script := "#!/bin/sh\nprintf '%s' \"$PATH\" > \"$LEGATO_TEST_ENV_FILE\"\n\"$LEGATO_TEST_TMUX\" wait-for -S path-started\nexec /bin/sh\n"
+	if err := os.WriteFile(shell, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if out, err := exec.Command("tmux", "set-option", "-g", "default-shell", shell).CombinedOutput(); err != nil {
+		t.Fatalf("configure controlled shell: %v\n%s", err, out)
+	}
 	name := "legato-test-path"
 	t.Cleanup(func() { m.Kill(name) })
 	path := t.TempDir() + string(os.PathListSeparator) + os.Getenv("PATH")
-	if err := m.Spawn(name, t.TempDir(), 0, 0, "PATH="+path); err != nil {
+	if err := m.Spawn(name, t.TempDir(), 0, 0, "PATH="+path, "LEGATO_TEST_ENV_FILE="+envFile, "LEGATO_TEST_TMUX="+m.tmuxPath); err != nil {
 		t.Fatal(err)
 	}
-	// What tmux started the pane's shell with, before its profile runs.
-	pid, err := exec.Command("tmux", "display-message", "-p", "-t", name, "#{pane_pid}").Output()
+	// The controlled shell records its inherited environment before any
+	// profile can rebuild PATH, then signals that it has started.
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	if out, err := exec.CommandContext(ctx, "tmux", "wait-for", "path-started").CombinedOutput(); err != nil {
+		t.Fatalf("waiting for the pane to record its PATH: %v\n%s", err, out)
+	}
+	environ, err := os.ReadFile(envFile)
 	if err != nil {
 		t.Fatal(err)
 	}
-	environ, err := os.ReadFile("/proc/" + strings.TrimSpace(string(pid)) + "/environ")
-	if err != nil {
-		t.Skipf("no /proc to read the pane's environment: %v", err)
-	}
-	got := ""
-	for _, kv := range strings.Split(string(environ), "\x00") {
-		if v, ok := strings.CutPrefix(kv, "PATH="); ok {
-			got = v
-		}
-	}
+	got := string(environ)
 	if got != path {
 		t.Fatalf("the pane's PATH = %q, want %q", got, path)
 	}
