@@ -303,7 +303,7 @@ func DarwinLayout(uid int) HostLayout {
 	return HostLayout{
 		SystemPaths: []string{"/System/Library", "/System/Cryptexes", "/System/iOSSupport", "/System/DriverKit", "/System/Volumes/Preboot/Cryptexes",
 			"/usr", "/bin", "/sbin", "/Library", "/Applications", "/opt", "/nix", "/private/etc", "/etc", "/tmp", "/var",
-			"/private/var/db/timezone", "/private/var/select", "/private/var/db/xcode_select_link"},
+			"/private/var/db/timezone", "/private/var/db/dyld", "/private/var/select", "/private/var/db/xcode_select_link"},
 		ToolchainsRO: linuxToolchainsRO,
 		ToolchainsRW: append(append([]string{}, linuxToolchainsRW...),
 			"Library/Caches/go-build", "Library/Caches/pip", "Library/Caches/pypoetry", "Library/Caches/ms-playwright", "Library/Caches/Yarn",
@@ -748,6 +748,10 @@ func BuildSandboxPlan(in SandboxPlanInput) (sandbox.Plan, error) {
 			n++
 		}
 	}
+	if !caps.Remap && in.SSHConfigDir != "" && len(in.SSHConfig) > 0 && in.KnownHosts != "" && in.FS.Probe(in.KnownHosts).Exists {
+		// The ssh configuration copies name known_hosts in their folder.
+		plan.Links = append(plan.Links, sandbox.Link{Path: filepath.Join(in.SSHConfigDir, "known_hosts"), Target: in.KnownHosts})
+	}
 	if !caps.EmptyHome {
 		plan.Links = append(plan.Links, homeLinks(plan)...)
 	}
@@ -781,6 +785,7 @@ func sshConfigMounts(in SandboxPlanInput, remap bool) []sandbox.Mount {
 	}
 	mounts := []sandbox.Mount{{Kind: sandbox.ReadOnly, Path: in.SSHConfigDir}}
 	if !remap {
+		// knownHostsLink names it where the copies say.
 		if in.KnownHosts != "" && in.FS.Probe(in.KnownHosts).Exists {
 			mounts = append(mounts, sandbox.Mount{Kind: sandbox.ReadOnly, Path: in.KnownHosts})
 		}

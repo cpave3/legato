@@ -199,7 +199,7 @@ How Legato runs the agents it starts. See [Agents](/legato/using/agents/).
 | `agents.mcp.enabled` | bool | `true` | Gives every agent session Legato's own tools, such as cards, artifacts and task notes. Nothing is written to the agent tool's own settings. See [Legato's tools for agents](/legato/agent-tools/mcp-tools/). |
 | `agents.mcp.resource_domains` | list of strings | `cdnjs.cloudflare.com`, `cdn.jsdelivr.net`, `unpkg.com`, `fonts.googleapis.com`, `fonts.gstatic.com` | The hosts that HTML an agent shows may load scripts, styles, fonts and images from. Write plain host names only. An empty list allows none. |
 | `agents.sandbox.enabled` | bool | `false` | Starts every agent tool inside a bubblewrap sandbox, unless you start it with **Run without sandbox**. Swarm and workflow agents cannot opt out. Needs `bwrap`. See [The sandbox](/legato/security/sandbox/). |
-| `agents.sandbox.backend` | string | `bwrap` | What builds the sandbox. `bwrap` is the only one. |
+| `agents.sandbox.backend` | string | this host's | What builds the sandbox: `bwrap` (bubblewrap) on Linux, `seatbelt` (`sandbox-exec`) on macOS. Leave it empty for the host's own; naming the other host's fails to load. |
 | `agents.sandbox.default_mounts` | bool | `true` | Shows your toolchains inside the sandbox read-only, and your package and build caches read-write. |
 | `agents.sandbox.mounts[].path` | path | none | Another file or folder every sandbox sees. Absolute, or starting with `~/`. |
 | `agents.sandbox.mounts[].access` | string | `read` | `read` or `write`. |

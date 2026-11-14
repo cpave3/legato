@@ -52,6 +52,11 @@ func main() {
 	if isHostExec(os.Getenv) {
 		os.Exit(hostExec(os.Args[1:]))
 	}
+	// A sandboxed spawn on macOS starts its agent through this binary,
+	// which becomes sandbox-exec.
+	if isSandboxExec(os.Args[1:]) {
+		os.Exit(sandboxExec(os.Args[3:]))
+	}
 	launch, err := parseLaunch(os.Args[1:], os.Getenv(hotReloadChildEnv) == "1")
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n\n%s", err, helpText(nil))

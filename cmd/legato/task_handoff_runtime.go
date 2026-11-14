@@ -5,7 +5,6 @@ import (
 	"time"
 
 	"github.com/cpave3/legato/config"
-	"github.com/cpave3/legato/internal/engine/sandbox"
 	"github.com/cpave3/legato/internal/server"
 	"github.com/cpave3/legato/internal/service"
 )
@@ -16,9 +15,10 @@ import (
 const handoffReconcileEvery = 30 * time.Second
 
 // sandboxAvailable says whether this Legato's agents can run in its sandbox:
-// the configuration and bwrap on PATH, not the whole sandbox plan.
+// the configuration and its backend (bwrap on PATH, sandbox-exec), not the
+// whole sandbox plan.
 func sandboxAvailable(cfg *config.Config) bool {
-	return cfg.Agents.Sandbox.Enabled && (sandbox.Bwrap{}).Available() == nil
+	return cfg.Agents.Sandbox.Enabled && sandboxBackend(cfg).Available() == nil
 }
 
 // wireTaskHandoffs lets the main instances paired with this Legato hand it

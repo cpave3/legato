@@ -5,6 +5,7 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
+	"runtime"
 	"strings"
 
 	"github.com/cpave3/legato/config"
@@ -32,9 +33,11 @@ func sandboxSettings(cfg *config.Config) *service.SandboxSettings {
 	for kind, command := range map[string]string{"claude-code": "claude", "codex": "codex", "chimera": "chimera"} {
 		installs[kind] = toolInstallPaths([]string{command})
 	}
+	layout := service.LayoutFor(runtime.GOOS, os.Getuid())
 	return &service.SandboxSettings{
-		Backend: sandbox.Bwrap{},
+		Backend: sandboxBackend(cfg),
 		Base: service.SandboxPlanInput{
+			Layout: &layout,
 			Home: home, RuntimeDir: runtimeDir, ScratchDir: config.ResolveSandboxScratchDir(cfg),
 			DataDir: config.ResolveDataDir(cfg), ConfigPath: config.ResolveConfigPath(),
 			BinaryPath: legatoBinary(), DefaultMounts: cfg.Agents.Sandbox.DefaultMountsOn(), Extra: extra,
@@ -44,6 +47,15 @@ func sandboxSettings(cfg *config.Config) *service.SandboxSettings {
 		},
 		Docker: sandboxDocker(cfg),
 	}
+}
+
+// sandboxBackend is the configured backend: Seatbelt on macOS, which starts
+// agents through this binary's `sandbox exec`, bubblewrap elsewhere.
+func sandboxBackend(cfg *config.Config) sandbox.Backend {
+	if cfg.Agents.Sandbox.Backend == "seatbelt" {
+		return sandbox.Seatbelt{Launcher: legatoBinary()}
+	}
+	return sandbox.Bwrap{}
 }
 
 // sandboxScratch is where sandboxes keep their scratch, also when the

@@ -182,3 +182,45 @@ func TestOnAMacTheSharedTmpIsNeverShown(t *testing.T) {
 		t.Fatal("the tmux server's folder was given to the sandbox")
 	}
 }
+
+// A Mac's plan renders as a Seatbelt profile, and nothing it allows is a
+// credential or Legato's own state, but the parts a session needs.
+func TestAMacPlanRendersAsASeatbeltProfileThatAllowsNoCredential(t *testing.T) {
+	in := macInput()
+	fs := macFS()
+	fs["/Users/me/.local/share/legato/repos"] = "dir"
+	in.FS = fs
+	in.Extra = []SandboxPath{{Path: "/Users/me/Library/Application Support", Access: "read"}}
+	plan, err := BuildSandboxPlan(in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	profile, params, err := sandbox.Seatbelt{}.Profile(plan, "ex-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	value := map[string]string{}
+	for _, p := range params {
+		k, v, _ := strings.Cut(p, "=")
+		value[k] = v
+	}
+	forbiddenPaths := forbidden(in)
+	for _, line := range strings.Split(profile, "\n") {
+		if !strings.HasPrefix(line, "(allow file-read*") {
+			continue
+		}
+		for name, path := range value {
+			if !strings.Contains(line, `(param "`+name+`")`) {
+				continue
+			}
+			for _, f := range forbiddenPaths {
+				if within(path, f) && !allowedInside(in, path) && !within(path, scratchFor(in).Dir("ex-1")) {
+					t.Errorf("the profile allows %s, inside %s", path, f)
+				}
+			}
+		}
+	}
+	if !strings.Contains(profile, "(deny file-read* file-write* (subpath (param") {
+		t.Error("nothing is covered, though a resource holds Chrome's profile")
+	}
+}

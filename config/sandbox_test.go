@@ -14,7 +14,7 @@ func TestTheSandboxIsOffWithToolchainMountsUnlessConfigured(t *testing.T) {
 		t.Fatal(err)
 	}
 	sb := cfg.Agents.Sandbox
-	if sb.Enabled || sb.Backend != "bwrap" || !sb.DefaultMountsOn() || len(sb.Mounts) != 0 {
+	if sb.Enabled || sb.Backend != DefaultSandboxBackend(sandboxGOOS) || !sb.DefaultMountsOn() || len(sb.Mounts) != 0 {
 		t.Fatalf("sandbox = %+v", sb)
 	}
 }
@@ -46,7 +46,7 @@ agents:
 
 func TestASandboxThatCannotWorkFailsToLoad(t *testing.T) {
 	for _, tc := range []struct{ name, yaml, want string }{
-		{"backend", "agents:\n  sandbox:\n    backend: podman\n", "bwrap"},
+		{"backend", "agents:\n  sandbox:\n    backend: podman\n", "bwrap or seatbelt"},
 		{"relative mount", "agents:\n  sandbox:\n    mounts: [{path: notes}]\n", "absolute"},
 		{"access", "agents:\n  sandbox:\n    mounts: [{path: /a, access: admin}]\n", "read or write"},
 		{"relative scratch", "agents:\n  sandbox:\n    scratch_dir: scratch\n", "absolute"},
@@ -150,5 +150,34 @@ func TestTheSandboxsDockerProxySettings(t *testing.T) {
 		if _, err := loadAgentsConfig(t, tc.yaml); err == nil || !strings.Contains(err.Error(), tc.want) {
 			t.Errorf("%q: error = %v, want one naming %q", tc.yaml, err, tc.want)
 		}
+	}
+}
+
+// The backend is the host's own unless one is named: bubblewrap on Linux,
+// Seatbelt on macOS. One that cannot run on this host fails to load.
+func TestTheSandboxBackendIsTheHostsOwn(t *testing.T) {
+	for _, tc := range []struct{ goos, yaml, want, refused string }{
+		{"linux", "", "bwrap", ""},
+		{"darwin", "", "seatbelt", ""},
+		{"darwin", "agents:\n  sandbox:\n    backend: seatbelt\n", "seatbelt", ""},
+		{"linux", "agents:\n  sandbox:\n    backend: seatbelt\n", "", "macOS only"},
+		{"darwin", "agents:\n  sandbox:\n    backend: bwrap\n", "", "Linux only"},
+	} {
+		t.Run(tc.goos+" "+tc.want+tc.refused, func(t *testing.T) {
+			old := sandboxGOOS
+			sandboxGOOS = tc.goos
+			t.Cleanup(func() { sandboxGOOS = old })
+			writeTestConfig(t, tc.yaml)
+			cfg, err := Load()
+			if tc.refused != "" {
+				if err == nil || !strings.Contains(err.Error(), tc.refused) {
+					t.Fatalf("err = %v, want %q", err, tc.refused)
+				}
+				return
+			}
+			if err != nil || cfg.Agents.Sandbox.Backend != tc.want {
+				t.Fatalf("backend %q, %v; want %q", cfg.Agents.Sandbox.Backend, err, tc.want)
+			}
+		})
 	}
 }

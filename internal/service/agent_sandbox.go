@@ -48,6 +48,8 @@ func (a *agentService) sandboxPrefix(ctx context.Context, taskID, executionID, a
 	}
 	in := a.sandbox.Base
 	in.WorkDir, in.ExecutionID, in.TaskID, in.AgentKind = workDir, executionID, taskID, agentKind
+	caps := backend.Capabilities()
+	in.Capabilities = &caps
 	in.ReadOnlyCheckout = readOnly
 	// Without overlays, a throwaway checkout is the plain read-only one.
 	in.ThrowawayCheckout = readOnly && throwaway && a.CheckoutOverlayAvailable()

@@ -4,6 +4,12 @@ With `agents.sandbox.enabled`, Legato starts each agent tool inside bubblewrap. 
 
 The sandbox keeps secrets from agents. It does not filter the network, and it does not hide the agent tool's own model login, which the tool needs.
 
+## Backends
+
+`agents.sandbox.backend` is `bwrap` on Linux and `seatbelt` on macOS (`sandboxBackend`, `cmd/legato/sandbox_runtime.go`). `BuildSandboxPlan` makes one plan for either, from the host's `HostLayout` (`LayoutFor`) and the backend's `Capabilities`: bwrap has them all; Seatbelt (`sandbox-exec` with a profile, `internal/engine/sandbox/seatbelt.go`) only allows and denies, so for it the plan shows every path where it is. `TMPDIR` and `HOME` name the execution's scratch `tmp` and `home`, the home holds links to what the plan shows of the real one (`Plan.Links`, `homeLinks`), the `gh` and `az` wrappers run the real command where it is (they are first on `PATH` instead of covering it), and `Plan.Sockets` names the Unix sockets an agent may connect to. On macOS the line typed into the pane is `<legato> sandbox exec <runtime>/legato/sandbox/<execution>/seatbelt.json --`: the launcher (`ExecLaunchSpec`, before anything else in `main`) applies the spec's environment and working directory and becomes `/usr/bin/sandbox-exec -f seatbelt.sb -D… -DTTY=<the pane's terminal>`. The facts the profile relies on were measured on macOS 15.8 and 26.7 by `cmd/validate/seatbelt-probe` (LEG-168; the `seatbelt-probe` workflow runs it). The macOS backend is being built in the LEG-167 milestone; the sections below describe bwrap unless they say otherwise.
+
+`TestBwrapArgumentsOfKnownPlansDoNotChange` keeps the bwrap arguments of four plans in `internal/service/testdata/bwrap` (`-update-bwrap` rewrites them); `TestTheSeatbeltProfileOfAKnownPlanDoesNotChange` keeps a profile in `internal/engine/sandbox/testdata/seatbelt` (`-update-seatbelt`).
+
 ## How a spawn is wrapped
 
 - `SpawnAgent` decides before any tmux session exists: a sandbox that cannot be built (no `bwrap`, a forbidden path) fails the spawn and never leaves an unsandboxed agent.

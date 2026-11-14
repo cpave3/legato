@@ -4,17 +4,19 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+	"runtime"
 	"slices"
 	"strings"
 )
 
-// AgentSandboxConfig runs agents in Legato's sandbox: bubblewrap around the
-// agent tool, which then sees no credential of the person's. See
-// docs/ai/sandbox.md.
+// AgentSandboxConfig runs agents in Legato's sandbox: bubblewrap (Linux) or
+// Seatbelt (macOS) around the agent tool, which then sees no credential of
+// the person's. See docs/ai/sandbox.md.
 type AgentSandboxConfig struct {
 	// Enabled sandboxes every agent unless its spawn opts out. Default false.
 	Enabled bool `yaml:"enabled"`
-	// Backend builds the sandbox. Only "bwrap" for now.
+	// Backend builds the sandbox: "bwrap" on Linux, "seatbelt" on macOS;
+	// empty is this host's own.
 	Backend string `yaml:"backend"`
 	// DefaultMounts shows the person's toolchains (read-only) and package
 	// caches (read-write) inside. Default true.
@@ -77,6 +79,19 @@ func normalizeSandboxDocker(d *SandboxDockerConfig) error {
 	return nil
 }
 
+// sandboxGOOS is the host's OS, which chooses the sandbox backend; tests
+// change it.
+var sandboxGOOS = runtime.GOOS
+
+// DefaultSandboxBackend is the sandbox of a host running goos: Seatbelt
+// (sandbox-exec) on macOS, bubblewrap elsewhere.
+func DefaultSandboxBackend(goos string) string {
+	if goos == "darwin" {
+		return "seatbelt"
+	}
+	return "bwrap"
+}
+
 // ResolveSandboxScratchDir is where sandboxes keep their scratch.
 func ResolveSandboxScratchDir(cfg *Config) string {
 	if dir := cfg.Agents.Sandbox.ScratchDir; dir != "" {
@@ -93,11 +108,17 @@ func normalizeAgentSandbox(cfg *Config) error {
 	if err := normalizeSandboxDocker(&sb.Docker); err != nil {
 		return err
 	}
-	switch strings.TrimSpace(sb.Backend) {
-	case "", "bwrap":
-		sb.Backend = "bwrap"
+	switch backend := strings.TrimSpace(sb.Backend); backend {
+	case "":
+		sb.Backend = DefaultSandboxBackend(sandboxGOOS)
+	case "bwrap", "seatbelt":
+		if want := DefaultSandboxBackend(sandboxGOOS); backend != want {
+			where := map[string]string{"bwrap": "Linux", "seatbelt": "macOS"}[backend]
+			return fmt.Errorf("agents.sandbox.backend: %s runs on %s only; this host's is %s (or leave it empty)", backend, where, want)
+		}
+		sb.Backend = backend
 	default:
-		return fmt.Errorf("agents.sandbox.backend: only bwrap is supported, got %q", sb.Backend)
+		return fmt.Errorf("agents.sandbox.backend: want bwrap or seatbelt (or empty, for this host's own), got %q", sb.Backend)
 	}
 	home, _ := os.UserHomeDir()
 	if dir := strings.TrimSpace(sb.ScratchDir); dir != "" {
