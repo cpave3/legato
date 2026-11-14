@@ -71,6 +71,8 @@ The environment loses the variables secrets come from, such as `GITHUB_TOKEN`, `
 
 The sandbox shares the host's network and your user. It has its own process, IPC and hostname namespaces, and everything in it ends when the agent's pane closes.
 
+An agent may work in a job clone inside Legato's data folder when that clone belongs to its task, including a task that joined the clone for a stacked branch. Workflow agents about that task, such as learning curators, can use it too. This works whether the clone was recorded through `/home` or `/var/home`; the rest of Legato's state stays hidden. An unrelated task cannot use the clone.
+
 ## How agents still get their work done
 
 - **Legato commands.** Commands an agent runs, such as `legato task note` or `legato credential exec`, and Legato's own tools and hooks reach the host Legato through a socket called the host broker. The host runs them for the agent's own task, and nothing else.
