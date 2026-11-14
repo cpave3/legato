@@ -306,12 +306,19 @@ func commandTree() *commandDef {
 			[]argumentDef{optionalArg("task-id", "Defaults to LEGATO_TASK_ID")},
 			[]commandFlag{valueFlag("execution-id", "id", "Owning Legato execution ID; defaults to LEGATO_EXECUTION_ID")},
 			"legato agent bridge <task-id> --execution-id <id>"),
+		group("link", "Connect an agent tool's mod to Legato", []string{"legato agent link chimera"},
+			leaf("chimera", "Connect a Chimera session to Legato", runAgentLinkChimeraContract,
+				[]argumentDef{optionalArg("task-id", "Defaults to LEGATO_TASK_ID")},
+				[]commandFlag{valueFlag("execution-id", "id", "Owning Legato execution ID; defaults to LEGATO_EXECUTION_ID")},
+				"legato agent link chimera")),
 	)
 	agent.Children[1].Capabilities.Integration = true
-	agent.Children[len(agent.Children)-1].Capabilities = commandCapabilities{Integration: true, LongRunning: true}
 	for _, child := range agent.Children {
-		if child.Name == "codex" || child.Name == "codex-bridge" {
+		if child.Name == "bridge" || child.Name == "codex" || child.Name == "codex-bridge" {
 			child.Capabilities = commandCapabilities{Integration: true, LongRunning: true}
+		}
+		if child.Name == "link" {
+			child.Children[0].Capabilities = commandCapabilities{Integration: true, LongRunning: true}
 		}
 	}
 

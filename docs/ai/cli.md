@@ -85,6 +85,7 @@ See [Workflows](../../site/src/content/docs/using/workflows.md) for the schema a
 - `legato audit [--credential <name>] [--task <id>] [--execution <id>] [--limit <n>]`, `legato audit verify` — read the credential audit log, newest first, and check its hash chain.
 - `legato workspace list [--format text|json]` — list configured workspaces. Text output prints exact names suitable for `--workspace`; JSON includes IDs, names, and colors.
 - `legato agent state <task-id> --activity <working|waiting|background|error|"">` — update agent activity state on a card
+- `legato agent link chimera [<task-id>] [--execution-id <id>]` — the Chimera mod's long-lived child: ordered NDJSON on stdin pushes the loopback endpoint, conversation identity and state through `BridgeHost` (broker or store). Session switches rebind; final end or EOF releases the binding. See [Chimera native integration](chimera-native.md).
 - `legato agent hook claude-code [<task-id>] [--execution-id <id>] [--working-dir <path>]` — integration command the `legato-state` plugin pipes every Claude Code hook payload into. It reads the payload (`cli.ParseClaudeHook`) and reports it through the broker op `agent.hook`, or applies it to the database when no broker is reachable outside a sandbox. The plugin's command discards its output and always exits 0. See [Agent states](agent-states.md).
 - `legato agent stopped [<task-id>] [--execution-id <id>] [--working-dir <path>]` — integration command the Claude Code `Stop` hook of old `legato hooks install` scripts pipes its JSON payload into; ignored for a session the `legato-state` plugin reports for. It reports `background` when the payload's `background_tasks` lists work still in flight (a shell, a subagent) that will wake the session, and clears the activity otherwise. A payload it cannot read also clears it, so the hook never fails a turn.
 - `legato agent allow-read [<task-id>]` — integration command the Claude Code `legato-tools` plugin pipes a `PreToolUse` payload for `Read` into. It prints the hook output that allows the read when the file is an image the person pasted for this session, and nothing otherwise. It reads no configuration and no database, and exits 0 whatever it is given.
@@ -102,7 +103,7 @@ See [Workflows](../../site/src/content/docs/using/workflows.md) for the schema a
 - `legato task github refresh <task-id>` — refetch the currently linked PR without reconsidering its association.
 - `legato task github rediscover <task-id>` — retain repository context, clear cached/pinned PR identity, and immediately rerun conservative discovery.
 - `legato task unlink <task-id>` — clear both the PR cache and repository context.
-- `legato hooks install --tool <tool[,tool...]>` — install hooks for one or more explicitly selected AI tools; for example `--tool codex,chimera` (claude-code: removes the state hooks earlier versions wrote in `.claude/` and installs nothing, since the `legato-state` plugin reports instead; staccato: `~/.config/staccato/hooks/`, chimera: `~/.chimera/hooks/`, codex: `.codex/hooks/`, yggdrasil: `.yggdrasil.toml`)
+- `legato hooks install --tool <tool[,tool...]>` — install hooks for one or more explicitly selected AI tools; for example `--tool codex,chimera` (claude-code: removes the state hooks earlier versions wrote in `.claude/` and installs nothing, since the `legato-state` plugin reports instead; staccato: `~/.config/staccato/hooks/`, chimera: removes its managed scripts by default (with `adapters.chimera.native_bridge: false`, installs legacy scripts under `~/.chimera/hooks/`), codex: `.codex/hooks/`, yggdrasil: `.yggdrasil.toml`)
 - `legato hooks uninstall --tool <tool[,tool...]>` — remove hooks for one or more explicitly selected tools
 - `legato auth token` — print the web UI auth token to stdout
 - `legato auth regenerate` — generate a new auth token (invalidates all paired devices)
@@ -253,7 +254,11 @@ Legato-spawned tmux sessions get a custom status bar showing live context. Solo 
 
 ## Chimera Integration
 
-`ChimeraAdapter` in `internal/engine/hooks/chimera.go` implements `AIToolAdapter`. It installs ten managed hooks under `~/.chimera/hooks/<EventName>/legato-*.sh` (Chimera uses directory-based hooks, not a settings file — drop a script and it runs).
+`ChimeraAdapter` in `internal/engine/hooks/chimera.go` loads Legato's mod by default. `legato agent link chimera` receives its ordered lifecycle and state stream; launch messages wait for binding, and each server has private authentication. See [Chimera native integration](chimera-native.md). `legato hooks install --tool chimera` removes managed scripts and reports `chimera_state_hooks: removed` in JSON; operator-written hooks remain.
+
+### Legacy hooks (`native_bridge: false`)
+
+With the mod explicitly disabled, `hooks install` installs ten managed hooks under `~/.chimera/hooks/<EventName>/legato-*.sh` (Chimera uses directory-based hooks, not a settings file — drop a script and it runs).
 
 **Event → activity mapping** (per Chimera's documented integration recipe):
 
@@ -270,7 +275,7 @@ Legato-spawned tmux sessions get a custom status bar showing live context. Solo 
 | `Interrupt`          | `legato-interrupt.sh`                   | (clear)   |
 | `Timeout`            | `legato-timeout.sh`                     | (clear)   |
 
-**Flow**: `SessionCreated` pipes Chimera's JSON payload into `legato agent session-created`. The CLI stores the session ID only when `session_name` matches `LEGATO_TASK_ID`, which identifies the durable task parent created with `--session-name`; unnamed or differently named `spawn_agent` children are valid no-ops and cannot replace the task's resume ID. Malformed payloads and session-ID mismatches fail without mutating the stored binding. The direct `legato agent session-created <task-id> <session-id>` form remains available for administrative repair. Existing installations must run `legato hooks install --tool chimera` to receive this payload-aware script.
+**Flow**: `SessionCreated` pipes Chimera's JSON payload into `legato agent session-created`. The CLI stores the session ID only when `session_name` matches `LEGATO_TASK_ID`, which identifies the durable task parent created with `--session-name`; unnamed or differently named `spawn_agent` children are valid no-ops and cannot replace the task's resume ID. Malformed payloads and session-ID mismatches fail without mutating the stored binding. The direct `legato agent session-created <task-id> <session-id>` form remains available for administrative repair. Legacy installations must set `adapters.chimera.native_bridge: false` before running `legato hooks install --tool chimera` to receive this payload-aware script.
 
 Each activity script gates on `LEGATO_TASK_ID`, `LEGATO_EXECUTION_ID`, and `CHIMERA_SESSION_ID`; outside a Legato-managed execution it exits without reporting activity. Inside one, it calls `legato agent state` with the task, execution, working directory, Chimera session, activity, and event. Scripts propagate that command's exit status so Chimera can warn on failed state publication. The command updates `agent_sessions.activity`, records execution activity, and broadcasts IPC through the shared state path.
 

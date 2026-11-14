@@ -133,7 +133,7 @@ Peer messages are hints between agents. They do not lock files. See [Agents](/le
 
 ## Hooks
 
-- `legato hooks install --tool <tool>[,<tool>...] [--json]`: install the hooks that tell Legato what an agent tool is doing. The tools are `codex`, `chimera`, `staccato` and `yggdrasil`. `--tool` is required. For `claude-code` it installs nothing and removes the hooks earlier versions installed: Claude Code reports through the plugin Legato loads into each session.
+- `legato hooks install --tool <tool>[,<tool>...] [--json]`: install the hooks that tell Legato what an agent tool is doing. `--tool` is required. For `claude-code` and `chimera` it removes Legato's old scripts instead: the plugin or mod reports state. To install legacy Chimera scripts, first set `adapters.chimera.native_bridge: false`. Your own hooks are left alone. Other tools are `codex`, `staccato` and `yggdrasil`.
 - `legato hooks uninstall --tool <tool>[,<tool>...] [--json]`: remove them.
 
 ```bash
@@ -347,6 +347,7 @@ legato integration connect burnlite https://burnlite.example.com
 
 Legato, its hooks and the agent tools it launches run these. You do not need to run them.
 
+- `legato agent link chimera`: connects the Chimera mod to Legato. It reads ordered session and state events from stdin; the mod starts it automatically.
 - `legato agent bridge`: serves a Claude Code session to Legato's native panel. The Legato mod inside Claude Code starts it.
 - `legato agent codex -- <codex arguments>`: starts Codex with its bridge. Legato types it into the agent's terminal in place of `codex`.
 - `legato agent codex-bridge`: serves a Codex session to Legato's native panel. `legato agent codex` starts it.

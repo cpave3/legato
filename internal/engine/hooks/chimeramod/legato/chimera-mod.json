@@ -1,0 +1,6 @@
+{
+  "name": "legato",
+  "version": "1.0.0",
+  "apiVersion": 1,
+  "module": "index.mjs"
+}

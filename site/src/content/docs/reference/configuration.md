@@ -232,7 +232,7 @@ Settings for each agent tool, keyed by its name: `claude-code`, `codex` or `chim
 | `adapters.<tool>.tiers.<tier>.description` | string | none | What the tier is for. A swarm's conductor reads it to pick a tier for each sub-task. |
 | `adapters.<tool>.tiers.<tier>.launch_args` | list of strings | none | Flags added after the tool's own `launch_args` for a sub-task of this tier, so a tier's `--model` wins. |
 | `adapters.<tool>.modes` | map of strings | none | Chimera only. Maps a swarm role (`conductor`, `worker`, or a role of your own) to a Chimera mode, passed as `--mode`. A role with no entry of its own takes the `worker` entry. Legato ships no modes. |
-| `adapters.<tool>.native_bridge` | bool | `true` | Claude Code and Codex only. Connects each session to Legato beyond its terminal, so Legato can message it, interrupt it and answer its permission requests directly, and the web UI can show its conversation. `false` keeps the tool's sessions in tmux only. |
+| `adapters.<tool>.native_bridge` | bool | `true` | Claude Code, Codex and Chimera. Connects each session to Legato beyond its terminal, so Legato can message it, interrupt it and answer its permission requests directly, and the web UI can show its conversation. `false` keeps Claude Code and Codex in tmux; Chimera uses legacy hooks and endpoint discovery instead of its mod. |
 | `adapters.<tool>.models` | list of strings | none | Claude Code only. Model IDs the web UI offers for a session, beside the model it runs. Write full IDs, such as `claude-sonnet-5-5`, not aliases. |
 
 Tier names are yours to choose. A swarm plan that names a tier its tool does not have is refused.

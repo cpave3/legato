@@ -57,6 +57,9 @@ func (a *agentService) sandboxPrefix(ctx context.Context, taskID, attributionTas
 	// Without overlays, a throwaway checkout is the plain read-only one.
 	in.ThrowawayCheckout = readOnly && throwaway && a.CheckoutOverlayAvailable()
 	in.BrokerSocket = env["LEGATO_BROKER_SOCKET"]
+	if file := env["LEGATO_CHIMERA_SECRET_FILE"]; file != "" {
+		in.ChimeraSecretDir = filepath.Dir(file)
+	}
 	if sock := env["SSH_AUTH_SOCK"]; sock != "" && in.RuntimeDir != "" && strings.HasPrefix(sock, filepath.Join(in.RuntimeDir, "ssh")+"/") {
 		in.SSHSocket = sock
 	}
@@ -134,6 +137,16 @@ func (a *agentService) sandboxPrefix(ctx context.Context, taskID, attributionTas
 	if root := scratchFor(in).Root; root != "" {
 		if err := os.MkdirAll(root, 0o700); err != nil {
 			return "", err
+		}
+	}
+	// These mounts must exist even on the first spawn: their writable
+	// parent would otherwise let the agent install its own mods or hooks.
+	for _, dir := range chimeraProtectedDirs(in) {
+		if err := checkProtectedDir(HostFS{}, dir); err != nil {
+			return "", err
+		}
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			return "", fmt.Errorf("prepare Chimera sandbox directory %s: %w", dir, err)
 		}
 	}
 	plan, err := BuildSandboxPlan(in)

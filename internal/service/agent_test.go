@@ -2142,30 +2142,89 @@ func TestATaskGroupNameIsOneShortLine(t *testing.T) {
 // state: the web stream's prompt detector must not set it beside them, or
 // an agent with background jobs could show idle (LEG-144).
 func TestSetAgentActivity_LeavesASessionThePluginReportsAlone(t *testing.T) {
-	svc, s, _ := newTestAgentServiceWithNotifier(t, &fakeNotifier{})
+	for _, source := range []string{store.HookSourcePlugin, store.HookSourceMod} {
+		t.Run(source, func(t *testing.T) {
+			svc, s, _ := newTestAgentServiceWithNotifier(t, &fakeNotifier{})
+			ctx := context.Background()
+			createTask(t, s, "REX-1238")
+			if err := svc.SpawnAgent(ctx, "REX-1238", 0, 0); err != nil {
+				t.Fatal(err)
+			}
+			session, err := s.GetAgentSessionByTaskID(ctx, "REX-1238")
+			if err != nil {
+				t.Fatal(err)
+			}
+			jobs := store.BackgroundJobs{{Kind: store.JobBash, ID: "b1", Label: "npm run build"}}
+			if err := s.SetAgentHookState(ctx, session.ID, store.ActivityBackground, jobs, source); err != nil {
+				t.Fatal(err)
+			}
+
+			if err := svc.SetAgentActivity(ctx, "REX-1238", "", ""); err != nil {
+				t.Fatal(err)
+			}
+
+			after, err := s.GetAgentSessionByTaskID(ctx, "REX-1238")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if after.Activity != store.ActivityBackground || len(after.BackgroundJobs) != 1 {
+				t.Fatalf("after the detector: %q %+v, want background with its job", after.Activity, after.BackgroundJobs)
+			}
+		})
+	}
+}
+
+func TestChimeraSpawnWritesPrivateSecretBeforeTmux(t *testing.T) {
+	t.Setenv("LEGATO_HOME", t.TempDir())
+	svc, s, mt := newNativeLaunchService(t, t.TempDir())
+	a := svc.(*agentService)
+	a.adapter = &fakeAdapter{name: "chimera"}
 	ctx := context.Background()
-	createTask(t, s, "REX-1238")
-	if err := svc.SpawnAgent(ctx, "REX-1238", 0, 0); err != nil {
+	createTask(t, s, "secret-launch")
+	var path, secret string
+	mt.onSpawn = func(name string) {
+		paths, err := filepath.Glob(filepath.Join(os.Getenv("LEGATO_HOME"), "agents", "secret-launch", "chimera-launch-*", "server-secret"))
+		if err != nil || len(paths) != 1 {
+			t.Fatalf("secret not created before tmux: %v %v", paths, err)
+		}
+		path = paths[0]
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatalf("secret must exist before tmux: %v", err)
+		}
+		secret = string(data)
+		if len(secret) < 32 {
+			t.Fatalf("short secret %q", secret)
+		}
+		info, _ := os.Stat(path)
+		dir, _ := os.Stat(filepath.Dir(path))
+		if info.Mode().Perm() != 0600 || dir.Mode().Perm() != 0700 {
+			t.Fatalf("permissions file=%v dir=%v", info.Mode(), dir.Mode())
+		}
+
+	}
+	if err := svc.SpawnAgent(ctx, "secret-launch", 0, 0); err != nil {
 		t.Fatal(err)
 	}
-	session, err := s.GetAgentSessionByTaskID(ctx, "REX-1238")
+	env := mt.envVarsFor("legato-secret-launch")
+	if env["LEGATO_CHIMERA_SECRET_FILE"] != path {
+		t.Fatal("missing secret path")
+	}
+	for k, v := range env {
+		if strings.Contains(v, secret) || k == "CHIMERA_SERVER_SECRET" {
+			t.Fatalf("tmux secret leak: %s", k)
+		}
+	}
+	session, err := s.GetAgentSessionByTaskID(ctx, "secret-launch")
 	if err != nil {
 		t.Fatal(err)
 	}
-	jobs := store.BackgroundJobs{{Kind: store.JobBash, ID: "b1", Label: "npm run build"}}
-	if err := s.SetAgentHookState(ctx, session.ID, store.ActivityBackground, jobs, store.HookSourcePlugin); err != nil {
-		t.Fatal(err)
+	kept, file, err := s.GetChimeraLaunchSecret(ctx, session.ID)
+	if err != nil || kept != secret || file != path {
+		t.Fatalf("private record mismatch file=%q err=%v", file, err)
 	}
-
-	if err := svc.SetAgentActivity(ctx, "REX-1238", "", ""); err != nil {
+	// Stop only this test's database-backed discovery, not a real process.
+	if err := s.UpdateAgentSessionStatus(ctx, "secret-launch", "dead"); err != nil {
 		t.Fatal(err)
-	}
-
-	after, err := s.GetAgentSessionByTaskID(ctx, "REX-1238")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if after.Activity != store.ActivityBackground || len(after.BackgroundJobs) != 1 {
-		t.Fatalf("after the detector: %q %+v, want background with its job", after.Activity, after.BackgroundJobs)
 	}
 }

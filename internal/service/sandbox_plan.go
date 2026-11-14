@@ -2,6 +2,7 @@ package service
 
 import (
 	"fmt"
+	"io/fs"
 	"os"
 	"path/filepath"
 	"slices"
@@ -92,10 +93,11 @@ type SandboxPlanInput struct {
 	// DockerSocket is the execution's own Docker API socket, filtered by
 	// Legato's proxy (agents.sandbox.docker); its folder is mounted and
 	// DOCKER_HOST names it.
-	DockerSocket    string
-	PastedImagesDir string
-	AgentFilesDir   string // ~/.legato/agents/<task>: role prompt and brief
-	GitCommonDir    string // a worktree's main .git, written by commits
+	DockerSocket     string
+	PastedImagesDir  string
+	AgentFilesDir    string // ~/.legato/agents/<task>: role prompt and brief
+	ChimeraSecretDir string // host bootstrap material, hidden even during clone setup
+	GitCommonDir     string // a worktree's main .git, written by commits
 	// JobDir is the job clone Legato made for the session's task, in its
 	// data folder: the one part of that folder the sandbox may see.
 	JobDir string
@@ -149,13 +151,13 @@ type SandboxEngram struct {
 // their links are mounted read-only, when the folder is.
 var linkDirs = []string{".local/bin", "go/bin", ".cargo/bin", ".bun/bin", ".deno/bin", ".volta/bin"}
 
-// skillDirs are an agent tool's folders of skills, commands and agents,
+// skillDirs are an agent tool's folders of skills, commands, agents and mods,
 // whose entries are often links to a shared folder (~/.agents/skills) that
 // links on again (a registry's checkout). Only the agent's own tool's.
 var skillDirs = map[string][]string{
 	"claude-code": {".claude/skills", ".claude/commands", ".claude/agents"},
 	"codex":       {".codex/skills", ".codex/prompts"},
-	"chimera":     {".chimera/skills", ".chimera/commands", ".chimera/agents"},
+	"chimera":     {".chimera/skills", ".chimera/commands", ".chimera/agents", ".chimera/mods"},
 }
 
 // linkStep is one link of a chain: the link at Path (its folder resolved)
@@ -190,6 +192,24 @@ func (HostFS) Links(dir string) []string {
 		}
 	}
 	return out
+}
+
+// CheckHookTree rejects aliases in executable global hooks, including linked
+// event directories. A read-only link does not protect its writable target
+// or intermediate aliases. Mod entries have their separate target mounts.
+func (HostFS) CheckHookTree(dir string) error {
+	return filepath.WalkDir(dir, func(path string, entry fs.DirEntry, err error) error {
+		if os.IsNotExist(err) && path == dir {
+			return nil
+		}
+		if err != nil {
+			return fmt.Errorf("inspecting Chimera hooks at %s: %w", path, err)
+		}
+		if entry.Type()&os.ModeSymlink != 0 {
+			return fmt.Errorf("cannot sandbox Chimera: hook %s is a symlink; replace it with a real file or directory so its executable code cannot be changed through another path", path)
+		}
+		return nil
+	})
 }
 
 func (HostFS) Chain(link string) (linkChain, bool) {
@@ -328,12 +348,28 @@ func inOthersScratch(in SandboxPlanInput, root, path string) bool {
 // of Legato's runtime and data folders a session needs.
 func allowedInside(in SandboxPlanInput, path string) bool {
 	for _, ok := range []string{filepath.Dir(in.BrokerSocket), in.SSHSocket, in.CredentialWrapperDir, in.GHConfigDir, in.JobDir,
-		filepath.Join(in.DataDir, "claude-mod"), filepath.Join(in.DataDir, "repos"), filepath.Join(in.RuntimeDir, "sandbox", in.ExecutionID)} {
+		filepath.Join(in.DataDir, "claude-mod"), filepath.Join(in.DataDir, "chimera-mod"), filepath.Join(in.DataDir, "repos"), filepath.Join(in.RuntimeDir, "sandbox", in.ExecutionID)} {
 		if ok != "" && ok != "." && within(path, ok) {
 			return true
 		}
 	}
 	return false
+}
+
+func chimeraProtectedDirs(in SandboxPlanInput) []string {
+	if in.AgentKind != "chimera" {
+		return nil
+	}
+	return []string{filepath.Join(in.Home, ".chimera/mods"), filepath.Join(in.Home, ".chimera/hooks")}
+}
+
+func checkProtectedDir(fs FSProbe, path string) error {
+	// A link can be replaced through the writable parent even when its
+	// target is read-only. The protected directory must be a mount point.
+	if fs.Probe(path).Link != "" {
+		return fmt.Errorf("cannot sandbox Chimera: %s is a symlink; replace it with a real directory (individual mod entries may be symlinks)", path)
+	}
+	return nil
 }
 
 // BuildSandboxPlan makes the plan of one agent's sandbox. It refuses a
@@ -342,6 +378,18 @@ func allowedInside(in SandboxPlanInput, path string) bool {
 func BuildSandboxPlan(in SandboxPlanInput) (sandbox.Plan, error) {
 	if in.FS == nil {
 		in.FS = HostFS{}
+	}
+	for _, path := range chimeraProtectedDirs(in) {
+		if err := checkProtectedDir(in.FS, path); err != nil {
+			return sandbox.Plan{}, err
+		}
+	}
+	if in.AgentKind == "chimera" {
+		if tree, ok := in.FS.(interface{ CheckHookTree(string) error }); ok {
+			if err := tree.CheckHookTree(filepath.Join(in.Home, ".chimera/hooks")); err != nil {
+				return sandbox.Plan{}, err
+			}
+		}
 	}
 	// Every path is checked and mounted where it really is, so a link (a
 	// /home that is var/home) can neither hide a credential from the check
@@ -357,6 +405,7 @@ func BuildSandboxPlan(in SandboxPlanInput) (sandbox.Plan, error) {
 		in.ScratchDir = real(in.ScratchDir)
 		in.JobDir = real(in.JobDir)
 		in.BinaryPath, in.GitCommonDir, in.AgentFilesDir, in.PastedImagesDir = real(in.BinaryPath), real(in.GitCommonDir), real(in.AgentFilesDir), real(in.PastedImagesDir)
+		in.ChimeraSecretDir = real(in.ChimeraSecretDir)
 		in.CredentialWrapperDir, in.GHConfigDir = real(in.CredentialWrapperDir), real(in.GHConfigDir)
 		in.SSHConfigDir, in.KnownHosts = real(in.SSHConfigDir), real(in.KnownHosts)
 		installs := make(map[string][]string, len(in.ToolInstalls))
@@ -447,6 +496,9 @@ func BuildSandboxPlan(in SandboxPlanInput) (sandbox.Plan, error) {
 	for _, rel := range agentState[in.AgentKind] {
 		add(filepath.Join(in.Home, rel), sandbox.ReadWrite)
 	}
+	for _, path := range chimeraProtectedDirs(in) {
+		add(path, sandbox.ReadOnly)
+	}
 	for _, path := range in.ToolState {
 		path = filepath.Clean(path)
 		usual := false
@@ -470,6 +522,7 @@ func BuildSandboxPlan(in SandboxPlanInput) (sandbox.Plan, error) {
 	}
 	if in.DataDir != "" {
 		add(filepath.Join(in.DataDir, "claude-mod"), sandbox.ReadOnly)
+		add(filepath.Join(in.DataDir, "chimera-mod"), sandbox.ReadOnly)
 		add(filepath.Join(in.DataDir, "repos"), sandbox.ReadOnly)
 	}
 	for _, extra := range in.Extra {
@@ -595,6 +648,9 @@ func BuildSandboxPlan(in SandboxPlanInput) (sandbox.Plan, error) {
 			}
 		}
 	}
+	if in.ChimeraSecretDir != "" {
+		hides = append(hides, sandbox.Mount{Kind: sandbox.HideDir, Path: in.ChimeraSecretDir})
+	}
 	// bwrap mounts in order and a later mount covers an earlier one, so
 	// every mount and cover goes after everything that holds it: ordered by
 	// the depth of its path inside, the order above kept between equals. A
@@ -702,7 +758,10 @@ func linkTargetMounts(in SandboxPlanInput, mounts []sandbox.Mount, forbiddenPath
 					out = append(out, sandbox.Mount{Kind: sandbox.Symlink, Path: step.Path, Target: step.Target})
 				}
 			}
-			if !covered(chain.Real) {
+			// Mod code must stay read-only even when its source is inside the
+			// writable checkout; protecting only the link leaves that alias open.
+			protectMod := in.AgentKind == "chimera" && dir == filepath.Join(in.Home, ".chimera/mods")
+			if !covered(chain.Real) || protectMod {
 				out = append(out, sandbox.Mount{Kind: sandbox.ReadOnly, Path: chain.Real})
 			}
 		}

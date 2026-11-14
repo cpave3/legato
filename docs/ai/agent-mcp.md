@@ -68,11 +68,11 @@ A session of the Reeve (a task of kind `reeve`) also gets `docs`, `instance_stat
 | --- | --- | --- | --- |
 | Claude Code | A third plugin, `legato-tools` (`internal/engine/hooks/claudemod/tools/`), installed to `<data_dir>/claude-mod/legato-tools` and added to the pane's `CLAUDE_CODE_PLUGIN_DIRS`. Its `.mcp.json` starts `${LEGATO_BIN} mcp serve`. | Claude Code gives a plugin's MCP server the session's whole environment. | `mcp__plugin_legato-tools_legato__show_card` |
 | Codex | Launch overrides: `-c mcp_servers.legato.command=…`, `….args=["mcp","serve"]`, `….env_vars=[…]`. `legato agent codex` passes every `-c` to the session's app server, which is the process that starts MCP servers. | Codex starts an MCP server with a short list of variables; `env_vars` adds the ones in `mcpServerEnv` (session IDs, `LEGATO_CONFIG`, `LEGATO_HOME`, the XDG directories, tmux). | `mcp__legato__show_card` (`legato.show_card` in the native panel) |
-| Chimera | `--mcp-config '{"mcpServers":{"legato":{…}}}'`: servers for that session only, merged over the global config (see Chimera's `docs/mcp.md`). | The entry's `env` map (`LEGATO_TASK_ID: env:LEGATO_TASK_ID`) makes Chimera pass its whole environment. | `mcp_legato_show_x00005f_card` |
+| Chimera | Legato's v1 mod manifest bundles `legato mcp serve`; with `native_bridge: false`, legacy `--mcp-config` injection remains. | A nonempty `env` map (`LEGATO_TASK_ID: env:LEGATO_TASK_ID`) inherits Chimera's full secret-scrubbed environment, including optional broker variables. | `mcp_legato_show_x00005f_card` |
 
 - The plugin is separate from the bridge mod, so the tools do not depend on `native_bridge`, and a change to it reloads no bridge. Because it is loaded from the pane's environment, a `claude` the person starts by hand in the pane gets the tools too.
 - The overrides come before the person's `launch_args`, so an entry of their own for a server named `legato` wins.
-- A Chimera from before the flag would refuse to start at all, so the adapter reads `chimera --help` once, at the first launch that needs it, and leaves an older Chimera alone. A `--mcp-config` in the person's own `launch_args` replaces Legato's: Chimera takes the flag once.
+- A Chimera mod launch adds no `--mcp-config` and performs no help probe. The manifest uses the concrete `LEGATO_BIN` path captured by the installer, because v1 command expansion only guarantees `${MOD_DIR}`. `agents.mcp.enabled: false` installs a manifest without servers. With the mod disabled, the legacy help probe and flag remain; an operator's own flag replaces Legato's only on that path. See [Chimera native integration](chimera-native.md).
 
 **No approval prompt.** Each agent tool is told to run these tools without asking:
 
@@ -88,7 +88,7 @@ An agent should reach for the tools by itself. One text says so, `cli.MCPGuidanc
 | --- | --- | --- |
 | Claude Code | The server's own MCP `instructions`. | Claude Code puts a server's instructions in the model's context for every session that loads the server, including one started by hand, after `/clear`, and on resume. |
 | Codex | The launch prompt: `-c developer_instructions=…`. | Codex does not pass server instructions to its model, and it keeps MCP tools out of the model's tool list until they are looked up, so tool descriptions cannot do the job either. |
-| Chimera | The launch prompt: the first turn (`--prompt`). | Chimera does not read server instructions. |
+| Chimera | The MCP server's instructions when using the mod. | Mods v1 passes server instructions to the model; the legacy launch path still puts guidance in `--prompt`. |
 
 Adapters whose tool needs the launch prompt implement `service.ToolsPromptAdapter`. `AgentService.SpawnAgent` adds `ToolsPrompt()` to the prompt every launch injects, after the role or general prompt, so a plain Codex session that had no launch prompt now gets one. An adapter returns the text only when its session really gets the server: not when the setting is off, Chimera is too old, or the person's own `--mcp-config` replaced Legato's.
 
@@ -440,7 +440,7 @@ A session must be started again to gain or lose the server: agent tools read the
 - A page saved with **Download** holds each image twice when a script may ask for it (in the HTML and in what `legato.image` answers), so a page with large images is a large file.
 - Image files are not shown again from their original path: Legato's copy is what every revision draws. A task's 101st image removes its oldest.
 - Legato draws the UI of its own server only. It is not a general MCP Apps host for other servers' `ui://` resources.
-- Chimera subagents (`spawn_agent`) read the global Chimera config and do not get the server.
+- Legacy Chimera subagents read the global configuration and do not get a launch-only `--mcp-config` server. Mods are inherited by v1 subagents; Legato's mod never starts a second link for them.
 - A sandboxed frame can navigate *itself* to another page. That page gets nothing from Legato and keeps the **Made by the agent** label, but it is no longer the agent's content.
 - For Codex, the guidance is the session's `developer_instructions`, which replaces a `developer_instructions` of the person's own in `~/.codex/config.toml` for Legato-launched sessions (as a role prompt or learned context already did).
 - A small model may ignore the guidance and answer in text.

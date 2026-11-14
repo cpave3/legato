@@ -1,0 +1,326 @@
+{
+  "binary_sha256": "c1586c10f13ba850d76870262098ae7bd036c547e6fcc72e8aad43186144cbd7",
+  "version": "v0.0.0-local",
+  "source_revision": "859884e7a69943df79124bed58f87c9f6f89a99f",
+  "cases": [
+    {
+      "name": "basic",
+      "source": "captured",
+      "activities": [
+        "",
+        "working",
+        "",
+        "",
+        ""
+      ],
+      "job_kinds": [
+        [],
+        [],
+        [],
+        [],
+        []
+      ],
+      "end": "session.end"
+    },
+    {
+      "name": "permission",
+      "source": "captured",
+      "activities": [
+        "",
+        "working",
+        "waiting",
+        "working",
+        "",
+        ""
+      ],
+      "job_kinds": [
+        [],
+        [],
+        [],
+        [],
+        [],
+        []
+      ],
+      "end": "session.end"
+    },
+    {
+      "name": "question",
+      "source": "captured",
+      "activities": [
+        "",
+        "working",
+        "waiting",
+        "working",
+        "",
+        ""
+      ],
+      "job_kinds": [
+        [],
+        [],
+        [],
+        [],
+        [],
+        []
+      ],
+      "end": "session.end"
+    },
+    {
+      "name": "background",
+      "source": "captured",
+      "activities": [
+        "",
+        "working",
+        "working",
+        "background",
+        "",
+        ""
+      ],
+      "job_kinds": [
+        [],
+        [],
+        [
+          "bash"
+        ],
+        [
+          "bash"
+        ],
+        [],
+        []
+      ],
+      "end": "session.end"
+    },
+    {
+      "name": "subagent",
+      "source": "captured",
+      "activities": [
+        "",
+        "working",
+        "working",
+        "background",
+        "",
+        "working",
+        "",
+        ""
+      ],
+      "job_kinds": [
+        [],
+        [],
+        [
+          "subagent"
+        ],
+        [
+          "subagent"
+        ],
+        [],
+        [],
+        [],
+        []
+      ],
+      "end": "session.end"
+    },
+    {
+      "name": "max-steps",
+      "source": "captured",
+      "activities": [
+        "",
+        "working",
+        "",
+        ""
+      ],
+      "job_kinds": [
+        [],
+        [],
+        [],
+        []
+      ],
+      "end": "session.end"
+    },
+    {
+      "name": "output-limit",
+      "source": "captured",
+      "activities": [
+        "",
+        "working",
+        "working",
+        "working",
+        "",
+        ""
+      ],
+      "job_kinds": [
+        [],
+        [],
+        [],
+        [],
+        [],
+        []
+      ],
+      "end": "session.end"
+    },
+    {
+      "name": "error",
+      "source": "captured",
+      "activities": [
+        "",
+        "working",
+        "error",
+        ""
+      ],
+      "job_kinds": [
+        [],
+        [],
+        [],
+        []
+      ],
+      "end": "session.end"
+    },
+    {
+      "name": "interrupt",
+      "source": "captured",
+      "activities": [
+        "",
+        "working",
+        "",
+        ""
+      ],
+      "job_kinds": [
+        [],
+        [],
+        [],
+        []
+      ],
+      "end": "session.end"
+    },
+    {
+      "name": "switch",
+      "source": "captured",
+      "activities": [
+        "",
+        "working",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        "",
+        ""
+      ],
+      "job_kinds": [
+        [],
+        [],
+        [],
+        [],
+        [],
+        [],
+        [],
+        [],
+        [],
+        []
+      ],
+      "end": "session.end"
+    },
+    {
+      "name": "ctrl-c",
+      "source": "captured",
+      "activities": [
+        "",
+        "working",
+        "",
+        ""
+      ],
+      "job_kinds": [
+        [],
+        [],
+        [],
+        []
+      ],
+      "end": "session.end"
+    },
+    {
+      "name": "resume",
+      "source": "captured",
+      "activities": [
+        "",
+        "working",
+        "",
+        ""
+      ],
+      "job_kinds": [
+        [],
+        [],
+        [],
+        []
+      ],
+      "end": "session.end"
+    },
+    {
+      "name": "resume-initial",
+      "source": "captured",
+      "activities": [
+        "",
+        "working",
+        "",
+        ""
+      ],
+      "job_kinds": [
+        [],
+        [],
+        [],
+        []
+      ],
+      "end": "session.end"
+    },
+    {
+      "name": "waiting-input",
+      "source": "captured",
+      "activities": [
+        "",
+        "working",
+        "waiting",
+        ""
+      ],
+      "job_kinds": [
+        [],
+        [],
+        [],
+        []
+      ],
+      "end": "session.end"
+    },
+    {
+      "name": "signal",
+      "source": "captured",
+      "activities": [
+        "",
+        "working",
+        "",
+        ""
+      ],
+      "job_kinds": [
+        [],
+        [],
+        [],
+        []
+      ],
+      "end": "session.end"
+    },
+    {
+      "name": "hup",
+      "source": "captured",
+      "activities": [
+        "",
+        "working",
+        "",
+        ""
+      ],
+      "job_kinds": [
+        [],
+        [],
+        [],
+        []
+      ],
+      "end": "session.end"
+    }
+  ],
+  "protocol_api_version": 1
+}

@@ -76,6 +76,7 @@ var legatoCommandClasses = map[string]legatoCommandClass{
 	"agent codex":               {"never", "Start Codex with its bridge"},
 	"agent codex-bridge":        {"never", "Serve a Codex session"},
 	"agent bridge":              {"never", "Serve a Claude Code session"},
+	"agent link chimera":        {"never", "Connect a Chimera mod"},
 
 	// Plans.
 	"plan validate": {"read", "Validate a plan"},

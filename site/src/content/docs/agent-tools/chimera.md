@@ -1,36 +1,27 @@
 ---
 title: Chimera
-description: How Legato starts Chimera, reports what it is doing on the board, and shows it in the web UI's native panel.
-sidebar:
-  order: 30
+description: How Legato connects Chimera sessions, state and tools through its mod.
 ---
 
-Legato starts Chimera in a tmux session for a task, shows on the card whether it is working or needs you, and shows the session in the web UI's native panel. Chimera serves its sessions over a local HTTP endpoint of its own, so Legato needs no bridge for it: it finds the endpoint and connects.
+Legato starts Chimera in a tmux session and connects it to the web UI's native panel. With a Chimera that supports mods v1, Legato's mod connects as soon as the session starts, reports its state and saves the conversation for resume. You do not need activity hook scripts. Running `legato hooks install --tool chimera` now removes Legato's old scripts and leaves your own hooks alone. Set `native_bridge: false` first if you still need to install scripts for an older Chimera.
 
-## Install the activity hooks
+With Legato's MCP tools enabled, each launch checks Chimera's mod capability. An unsupported build fails before starting a terminal, with an error asking you to upgrade Chimera or set `adapters.chimera.native_bridge: false` for legacy tools. Launch arguments that disable mods are also refused in this mode.
 
-The hooks tell Legato when Chimera starts work, waits for you, fails and stops. They also save the Chimera session ID, which Legato needs to resume a conversation.
+## The Legato mod
 
-```bash
-legato hooks install --tool chimera
+Legato loads its mod into every Chimera it starts, including a `chimera` you start by hand in the same pane. It updates the installed copy at Legato startup only when its content changed. Subagents do not take over the parent session's panel or activity.
+
+The card shows **working** during a turn, **needs you** for a permission prompt or question, **background** while shells or background subagents continue after a turn, and **error** when a turn fails. Attaching a file or running `!command` does not start a turn. The background jobs are listed with the agent.
+
+To use the legacy integration instead:
+
+```yaml
+adapters:
+  chimera:
+    native_bridge: false
 ```
 
-Chimera's hooks are per user, so it does not matter which folder you run this in. The command writes one script for each event to `~/.chimera/hooks/<Event>/legato-*.sh`. `legato hooks uninstall --tool chimera` removes them.
-
-The scripts do nothing outside a session that Legato started.
-
-### What the card shows
-
-| Event | Card |
-| --- | --- |
-| `UserPromptSubmit` | `⠹ running` |
-| `PermissionRequest`, `UserInputRequired` | `◆ needs you` |
-| `PermissionResolved` | `◆ needs you` while another permission waits, else `⠹ running` |
-| `OnError` | `error` |
-| `Stop`, `SessionEnd`, `Interrupt`, `Timeout` | `○ idle` |
-| `SessionCreated` | No change: saves the session ID for resume |
-
-If you installed the hooks with an older Legato, run `legato hooks install --tool chimera` again to get the current scripts.
+Older Chimera builds need `native_bridge: false` when Legato's MCP tools are enabled. With tools disabled, an old build can still ignore the mod and use lockfile discovery, which starts after ten seconds without a mod binding. Existing hook scripts still work for legacy sessions; the mod's reports take precedence when it is present.
 
 ## How Legato starts Chimera
 
@@ -39,7 +30,7 @@ When you start an agent on a task with `a` in the TUI or **Open agent** in the w
 - `--session-name <task ID>` for a task's agent, so that Legato can find the session again.
 - `--prompt` with Legato's launch prompt. Chimera takes it as the first message of the conversation, so the agent starts work at once.
 - `--mode <name>` for a swarm role, when you map roles to modes.
-- `--mcp-config`, which adds [Legato's tools](/legato/agent-tools/mcp-tools/) for this session only.
+- Legato's mod, loaded through the pane's environment, which bundles [Legato's tools](/legato/agent-tools/mcp-tools/) for the session.
 - `--add-read-path` and `--add-write-path` for each path of the [resources](/legato/agent-tools/resources/) you gave the agent.
 - Your `adapters.chimera.launch_args`.
 - `--model`, when the spawn names a model, such as `swarm.worker.model` for a swarm.
@@ -49,7 +40,7 @@ The launch prompt depends on the agent:
 
 - A plain agent gets a short prompt: it is a standalone agent, and it learns how Legato's plans, reviews and peer messages work.
 - A [swarm](/legato/using/swarms/) conductor or worker gets its role prompt.
-- Both get the guidance about Legato's tools, the resources, and notes for a fresh clone. Chimera does not read an MCP server's own instructions, so the guidance goes in the prompt.
+- Both get the resources and notes for a fresh clone. A mod-capable Chimera reads Legato's tools guidance from the MCP server's instructions.
 
 ```yaml
 adapters:
@@ -83,13 +74,13 @@ adapters:
 
 ### Legato's tools
 
-Legato adds its tools with `--mcp-config`, which older Chimera releases do not have. At the first launch that needs it, Legato reads `chimera --help`. If the flag is not there, sessions start without the tools, and Legato logs that you should update Chimera.
+The mod bundles `legato mcp serve` and lets Chimera run Legato's tools without asking. The launch command adds no `--mcp-config`, and your own MCP configuration remains untouched. `agents.mcp.enabled: false` leaves the tools out of the mod.
 
-If your own `launch_args` hold a `--mcp-config`, yours replaces Legato's, because Chimera takes the flag once. Chimera runs Legato's tools without asking. Subagents that Chimera starts with `spawn_agent` read only the global Chimera configuration, so they do not get Legato's tools.
+With `native_bridge: false`, Legato uses the older `--mcp-config` path, first checking that Chimera accepts the flag. A flag of your own in `launch_args` replaces Legato's on that path.
 
 ## The native panel
 
-After launch, Legato looks for the session's endpoint in `~/.chimera/instances/` for up to 30 seconds, and connects when exactly one live endpoint serves the task's session. The web UI then shows the agent in the native panel. In the panel you can:
+The mod reports the session's endpoint directly; startup messages wait for that connection instead of being typed into a TUI that is not ready. A session switch inside Chimera moves the panel to the new conversation. Exiting Chimera releases the panel. Legato keeps live native bindings across its own restarts. The web UI then shows the agent in the native panel. In the panel you can:
 
 - Read the conversation as it streams, with a card for each tool call. A `spawn_agent` call has a card that shows each subagent's work.
 - Send a message, or queue one during a turn.
@@ -105,7 +96,7 @@ If the panel did not connect, **Upgrade to native Chimera** in the terminal view
 
 ## Resume a conversation
 
-The `SessionCreated` hook saves the Chimera session ID of each task's agent. When you start an agent on a task that has a saved conversation, the web dialog and the TUI offer to resume it or start a new one. Resume types `chimera --session <id>`, and does not send the launch prompt again.
+The mod saves the actual Chimera session ID on every start, resume, fork or switch. When you start an agent on a task that has a saved conversation, the web dialog and the TUI offer to resume it or start a new one. Resume types `chimera --session <id>`, and does not send the launch prompt again.
 
 **Reload agent** in the web UI, or `R` in the TUI's agents view, stops an agent and starts it again with the same folder and resources, resuming its conversation.
 
@@ -118,10 +109,18 @@ Chimera has a sandbox of its own, and Legato has [one for every agent](/legato/s
 - **Inside Legato's sandbox,** Legato removes Chimera's `--sandbox`, `--sandbox-*` and `--apply-on-success` flags from the launch command and logs that it did. Chimera's sandbox is a Docker container, and access to Docker would undo Legato's sandbox.
 - **In Chimera's own sandbox,** tool calls cannot see the `legato` command, Legato's files or its environment. The role prompts tell the agent to run `legato` commands, and reads of Legato's files, in host mode.
 
+## Local server security
+
+Legato gives each Chimera launch its own server secret. It reads the secret from a private file at launch, never from typed text or tmux's environment, and deletes that file before Chimera starts. The bootstrap stays outside the sandbox and is hidden from the agent. The panel, messages and permissions use the authenticated local endpoint. An old Chimera without secret support cannot provide this protection.
+
+Inside Legato's sandbox, the installed mod and your Chimera `mods` and `hooks` folders are read-only; conversation state stays writable.
+
+Chimera's own commands can still read the server secret from its process environment (`/proc/<pid>/environ`), including inside Legato's sandbox. Passing the secret by file descriptor or pipe is a pending Chimera fix (CHIM-86).
+
 ## Limits
 
 - Legato connects to Chimera's endpoint only on the same machine.
-- Legato's tools need a Chimera that accepts `--mcp-config`.
-- Chimera subagents do not get Legato's tools.
+- The mod needs Chimera mods v1. With the mod disabled, tools need a Chimera that accepts `--mcp-config`.
+- Answering a question from Legato's native panel has a known protocol mismatch with current Chimera. Answer it in Chimera's terminal instead; its waiting/working state is still reported correctly.
 
-For more about Chimera's hooks and how Legato reads them, see the [CLI notes on GitHub](https://github.com/cpave3/legato/blob/main/docs/ai/cli.md#chimera-integration).
+For implementation details and the current verification limits, see [Chimera native integration on GitHub](https://github.com/cpave3/legato/blob/main/docs/ai/chimera-native.md).

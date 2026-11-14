@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"regexp"
 	"strings"
@@ -273,6 +274,9 @@ func applyClaudeHookAt(s *store.Store, report ClaudeHookReport, now time.Time, p
 		return nil
 	}
 	if err := s.SetAgentHookState(ctx, session.ID, activity, jobs, source); err != nil {
+		if errors.Is(err, store.ErrAgentStateIgnored) {
+			return nil
+		}
 		return fmt.Errorf("updating agent state: %w", err)
 	}
 	if !decided {

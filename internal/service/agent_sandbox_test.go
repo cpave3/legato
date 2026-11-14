@@ -51,6 +51,7 @@ func sandboxedService(t *testing.T, backend *fakeBackend, adjust ...func(*Sandbo
 		f(settings)
 	}
 	svc := NewAgentService(s, mt, t.TempDir(), AgentServiceOptions{
+		Adapters: map[string]AIToolAdapter{"chimera": &fakeAdapter{name: "chimera"}},
 		Adapter: &fakeAdapter{name: "claude-code", launchFn: func(env map[string]string, _, _, _ string) string {
 			if env["LEGATO_SANDBOXED"] == "1" {
 				return "fake-tool --in-sandbox"
@@ -90,6 +91,81 @@ func TestASandboxedSpawnWrapsTheLaunchCommand(t *testing.T) {
 	session, _ := s.GetAgentSessionByTaskID(context.Background(), "task-1")
 	if !session.Sandboxed {
 		t.Fatal("the session is not recorded as sandboxed")
+	}
+}
+
+func TestChimeraSpawnProtectsMissingModsAndHooks(t *testing.T) {
+	for _, defaults := range []bool{true, false} {
+		backend := &fakeBackend{}
+		var home string
+		svc, s, _ := sandboxedService(t, backend, func(settings *SandboxSettings) {
+			home = settings.Base.Home
+			settings.Base.DefaultMounts = defaults
+		})
+		createTask(t, s, "task-1")
+		if err := svc.SpawnAgent(context.Background(), "task-1", 0, 0, AgentSpawnOptions{AgentKind: "chimera"}); err != nil {
+			t.Fatal(err)
+		}
+		if len(backend.plans) != 1 {
+			t.Fatalf("plans = %v", backend.plans)
+		}
+		m := mounted(backend.plans[0])
+		for _, name := range []string{"mods", "hooks"} {
+			path := filepath.Join(home, ".chimera", name)
+			if info, err := os.Lstat(path); err != nil || !info.IsDir() {
+				t.Errorf("default_mounts=%v: %s is not a real directory: %v", defaults, path, err)
+			}
+			if got, ok := m[path]; !ok || got.Kind != sandbox.ReadOnly {
+				t.Errorf("default_mounts=%v: %s mount = %+v (present %v), want read-only", defaults, path, got, ok)
+			}
+		}
+		if got := m[filepath.Join(home, ".chimera")]; got.Kind != sandbox.ReadWrite {
+			t.Errorf("Chimera state mount = %+v, want writable", got)
+		}
+	}
+}
+
+func TestChimeraSpawnRefusesSymlinkedProtectedDirectories(t *testing.T) {
+	for _, name := range []string{"mods", "hooks"} {
+		for _, dangling := range []bool{false, true} {
+			for _, linkedRoot := range []bool{false, true} {
+				backend := &fakeBackend{}
+				var path, target string
+				svc, s, mt := sandboxedService(t, backend, func(settings *SandboxSettings) {
+					root := filepath.Join(settings.Base.Home, ".chimera")
+					if linkedRoot {
+						if err := os.Symlink(t.TempDir(), root); err != nil {
+							t.Fatal(err)
+						}
+					} else if err := os.MkdirAll(root, 0o700); err != nil {
+						t.Fatal(err)
+					}
+					path = filepath.Join(root, name)
+					target = filepath.Join(t.TempDir(), "target")
+					if !dangling {
+						if err := os.Mkdir(target, 0o700); err != nil {
+							t.Fatal(err)
+						}
+					}
+					if err := os.Symlink(target, path); err != nil {
+						t.Fatal(err)
+					}
+				})
+				createTask(t, s, "task-1")
+				err := svc.SpawnAgent(context.Background(), "task-1", 0, 0, AgentSpawnOptions{AgentKind: "chimera"})
+				if err == nil || !strings.Contains(err.Error(), path) || !strings.Contains(err.Error(), "symlink") || !strings.Contains(err.Error(), "real directory") {
+					t.Fatalf("dangling=%v linkedRoot=%v: want actionable refusal of %s, got %v", dangling, linkedRoot, path, err)
+				}
+				if len(backend.plans) != 0 || mt.sessions["legato-task-1"] || len(mt.sentLinesFor("legato-task-1")) != 0 {
+					t.Fatal("a refused sandbox launched an agent")
+				}
+				if dangling {
+					if _, err := os.Lstat(target); !os.IsNotExist(err) {
+						t.Fatalf("refused launch created symlink target: %v", err)
+					}
+				}
+			}
+		}
 	}
 }
 

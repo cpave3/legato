@@ -1,0 +1,4 @@
+{"type":"session.start","cwd":"/repo","seq":1,"sessionId":"fixture-hup","reason":"new","name":"fixture-task","serverUrl":"http://127.0.0.1:4444/fixture-secret","version":"v0.0.0-local","apiVersion":1}
+{"type":"turn.start","cwd":"/repo","seq":2,"sessionId":"fixture-hup","turnId":"6fd03fe9-91bf-4549-8bab-37db2fc6cbf8","source":"user"}
+{"type":"turn.complete","cwd":"/repo","seq":3,"sessionId":"fixture-hup","reason":"stop","turnId":"6fd03fe9-91bf-4549-8bab-37db2fc6cbf8"}
+{"type":"session.end","cwd":"/repo","seq":4,"sessionId":"fixture-hup","reason":"signal"}

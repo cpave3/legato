@@ -187,8 +187,9 @@ type AdapterConfig struct {
 	// approve directly and show the session in the native panel. `claude-code`
 	// sessions load the Legato mod; `codex` sessions are started through
 	// `legato agent codex`, sharing a Codex app server with Legato's bridge.
-	// Unset means enabled; set `native_bridge: false` to keep an adapter's
-	// sessions tmux-only. Other adapters ignore it.
+	// Chimera loads Legato's v1 mod; false keeps its legacy discovery/hooks.
+	// Unset means enabled; false keeps Claude Code and Codex tmux-only.
+	// Other adapters ignore it.
 	NativeBridge *bool `yaml:"native_bridge"`
 	// Models are the model IDs the native panel offers for sessions of this
 	// adapter, beside the model each session already runs. Only `claude-code`
