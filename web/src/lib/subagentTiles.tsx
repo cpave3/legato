@@ -1,5 +1,5 @@
-import type { NativeConversationItem, NativeSubagentState, NativeToolItem } from "./nativeAgentSync"
-import type { DeckTile, TileState } from "../components/TileDeck"
+import { subagentStatus, type NativeConversationItem, type NativeToolItem } from "./nativeAgentSync"
+import type { DeckTile } from "../components/TileDeck"
 import { SubagentActivity } from "../components/SubagentParts"
 
 // How the native panel shows its subagents in a TileDeck: one tile for each
@@ -36,6 +36,7 @@ export function subagentTiles(items: NativeConversationItem[]): DeckTile[] {
 
 function subagentTile(tool: NativeToolItem): DeckTile {
   const subagent = tool.subagent
+  const status = subagentStatus(tool)
   const args = tool.args || {}
   const purpose = subagent?.purpose || String(args.purpose || "Subagent")
   const prompt = String(args.prompt || "")
@@ -48,19 +49,12 @@ function subagentTile(tool: NativeToolItem): DeckTile {
     id: tool.key,
     title: purpose,
     meta: meta || undefined,
-    state: subagentState(tool, subagent),
+    state: status === "finished" ? "done" : status,
     startedAt: subagent?.startedAt,
     endedAt: subagent?.endedAt,
     count: tools > 0 ? `${tools} ${tools === 1 ? "tool" : "tools"}` : undefined,
-    summary: last ? last.text : subagent ? "Starting…" : "Spawning…",
+    summary: tool.error || (last ? last.text : status === "spawning" ? "Spawning…" : status === "running" ? "Starting…" : "No live activity captured"),
     detail: prompt ? <p className="m-0 whitespace-pre-wrap rounded-md border border-lw-line bg-[#121216] px-2.5 py-1.5 text-xs text-lw-text-2">{prompt}</p> : undefined,
-    body: <SubagentActivity subagent={subagent} />,
+    body: tool.error ? <p className="m-0 text-xs text-lw-error">{tool.error}</p> : <SubagentActivity subagent={subagent} />,
   }
-}
-
-function subagentState(tool: NativeToolItem, subagent?: NativeSubagentState): TileState {
-  if (subagent) return subagent.status === "running" ? "running" : subagent.status === "finished" ? "done" : "error"
-  const reason = tool.result?.reason
-  if (typeof reason === "string") return reason === "stop" ? "done" : "error"
-  return "running"
 }

@@ -2,6 +2,8 @@ package cli_test
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
 	"testing"
 
 	"github.com/cpave3/legato/internal/cli"
@@ -148,5 +150,37 @@ func TestChimeraHook_NormalizedJobReportsRemainSupported(t *testing.T) {
 	got = sendChimera(t, a, `{"type":"turn.complete","reason":"stop","running":[]}`)
 	if got.activity != "" || len(got.jobs) != 0 {
 		t.Fatalf("empty running: %+v", got)
+	}
+}
+
+func TestChimeraHook_SubagentOutcomes(t *testing.T) {
+	for _, background := range []bool{false, true} {
+		for _, reason := range []string{"stop", "error", "interrupted"} {
+			t.Run(fmt.Sprintf("background=%v/%s", background, reason), func(t *testing.T) {
+				a := newHookAgent(t)
+				sendChimera(t, a, `{"type":"session.start","sessionId":"parent"}`)
+				sendChimera(t, a, fmt.Sprintf(`{"type":"agent.spawn","sessionId":"parent","agentId":"subject","description":"Investigate","background":%v}`, background))
+				sendChimera(t, a, fmt.Sprintf(`{"type":"agent.finish","sessionId":"parent","agentId":"subject","background":%v,"reason":%q}`, background, reason))
+				session, err := a.s.GetAgentSessionByTaskID(context.Background(), a.taskID)
+				if err != nil {
+					t.Fatal(err)
+				}
+				var children []struct {
+					Status  string `json:"status"`
+					Reason  string `json:"reason"`
+					EndedAt int64  `json:"endedAt"`
+				}
+				if err := json.Unmarshal([]byte(session.ChimeraSubagents), &children); err != nil {
+					t.Fatal(err)
+				}
+				want := reason
+				if reason == "stop" {
+					want = "finished"
+				}
+				if len(children) != 1 || children[0].Status != want || children[0].Reason != reason || children[0].EndedAt == 0 || len(session.BackgroundJobs) != 0 {
+					t.Fatalf("session=%+v children=%+v", session, children)
+				}
+			})
+		}
 	}
 }

@@ -1,9 +1,75 @@
 import { describe, expect, it, vi } from "vitest"
-import { createNativeSyncState, reconcileNativeSnapshot, reduceNativeEvent, stateFromNativeSnapshot } from "../nativeAgentSync"
+import { createNativeSyncState, reconcileNativeSnapshot, reduceNativeEvent, stateFromNativeSnapshot, subagentStatus } from "../nativeAgentSync"
+import subagentFixture from "../../../../contracts/chimera-subagents.json"
+import type { NativeEvent, NativeSnapshot } from "../nativeAgentSync"
 import fixture from "../../../../contracts/model-settings-v1.json"
 import type { ModelSettingsState } from "../modelSettings"
 
 describe("native agent synchronization", () => {
+  it("replays foreground and idle-background success, failure and interruption through snapshot repair", () => {
+    let state = createNativeSyncState()
+    for (const stage of subagentFixture.stages) {
+      for (const event of stage.nativeEvents) state = reduceNativeEvent(state, event as NativeEvent)
+      state = reconcileNativeSnapshot(stage.snapshot as NativeSnapshot, state, [])
+      const statuses = Object.fromEntries(state.items.flatMap(item => item.tool?.subagent ? [[item.tool.subagent.subagentId, item.tool.subagent.status]] : []))
+      expect(statuses, stage.label).toEqual(stage.states)
+      const reloaded = stateFromNativeSnapshot(stage.snapshot as NativeSnapshot)
+      expect(Object.fromEntries(reloaded.items.flatMap(item => item.tool?.subagent ? [[item.tool.subagent.subagentId, item.tool.subagent.status]] : [])), stage.label + " reload").toEqual(Object.fromEntries(Object.entries(stage.states).filter(([id]) => (stage.snapshot as NativeSnapshot).toolCalls?.some(call => call.result?.subagent_id === id))))
+      for (const item of reloaded.items) if (item.tool) expect(subagentStatus(item.tool)).not.toBe("spawning")
+    }
+  })
+  it("finishes a failed launch without spawned SSE and a tool exception without a result", () => {
+    let state = reduceNativeEvent(createNativeSyncState(), { eventId: "start", type: "tool_call_start", callId: "spawn", name: "spawn_agent", args: { purpose: "Fail" } })
+    expect(subagentStatus(state.items[0].tool!)).toBe("spawning")
+    state = reduceNativeEvent(state, { eventId: "error", type: "tool_call_result", callId: "spawn", result: { subagent_id: "bad", session_id: "", reason: "error", result: "handshake failed" } })
+    expect(subagentStatus(state.items[0].tool!)).toBe("error")
+    state = reduceNativeEvent(state, { eventId: "start2", type: "tool_call_start", callId: "spawn2", name: "spawn_agent", args: {} })
+    state = reduceNativeEvent(state, { eventId: "error2", type: "tool_call_error", callId: "spawn2", error: "cancelled before handshake" })
+    expect(subagentStatus(state.items[1].tool!)).toBe("error")
+  })
+  it("does not resurrect a completed child when snapshot repair replays its spawn", () => {
+    const final = subagentFixture.stages.at(-1)!.snapshot as NativeSnapshot
+    const spawn = subagentFixture.stages[2].nativeEvents.find(event => event.type === "subagent_spawned")! as NativeEvent
+    const repaired = reconcileNativeSnapshot(final, createNativeSyncState(), [spawn])
+    expect(repaired.items.find(item => item.tool?.key === "spawn-bg")?.tool?.subagent?.status).toBe("finished")
+  })
+  it.each([false, true].flatMap(background => [
+    { background, reason: "stop", status: "finished" },
+    { background, reason: "error", status: "error" },
+    { background, reason: "interrupted", status: "interrupted" },
+  ]))("settles $background background child as $status", ({ background, reason, status }) => {
+    let state = reduceNativeEvent(createNativeSyncState(), { eventId: "start", type: "tool_call_start", callId: "spawn", name: "spawn_agent", args: { background } })
+    state = reduceNativeEvent(state, { eventId: "spawned", type: "subagent_spawned", parentCallId: "spawn", subagentId: "child" })
+    expect(subagentStatus(state.items[0].tool!)).toBe("running")
+    state = reduceNativeEvent(state, { eventId: "finish", type: "subagent_finished", parentCallId: "spawn", subagentId: "child", reason })
+    state = reduceNativeEvent(state, { eventId: "result", type: "tool_call_result", callId: "spawn", result: background ? { subagent_id: "child", status: "running" } : { subagent_id: "child", reason } })
+    expect(subagentStatus(state.items[0].tool!)).toBe(status)
+  })
+  it("joins mod completion to a live child before the parent tool result is saved", () => {
+    let state = reduceNativeEvent(createNativeSyncState(), { eventId: "start", type: "tool_call_start", callId: "spawn", name: "spawn_agent", args: {} })
+    state = reduceNativeEvent(state, { eventId: "spawned", type: "subagent_spawned", parentCallId: "spawn", subagentId: "child" })
+    state = reconcileNativeSnapshot({ id: "parent", messages: [{ role: "assistant", content: [{ type: "tool-call" }] }], toolCalls: [{ callId: "spawn", name: "spawn_agent", args: {} }], subagentStates: [{ sessionId: "parent", subagentId: "child", status: "interrupted", reason: "interrupted" }] }, state, [])
+    expect(subagentStatus(state.items[0].tool!)).toBe("interrupted")
+  })
+  it.each([true, false])("keeps a child interrupt distinct from its parent tool exception (finish first: %s)", finishFirst => {
+    let state = reduceNativeEvent(createNativeSyncState(), { eventId: "start", type: "tool_call_start", callId: "spawn", name: "spawn_agent", args: {} })
+    state = reduceNativeEvent(state, { eventId: "spawned", type: "subagent_spawned", parentCallId: "spawn", subagentId: "child" })
+    const finish: NativeEvent = { eventId: "finish", type: "subagent_finished", subagentId: "child", reason: "interrupted" }
+    const error: NativeEvent = { eventId: "error", type: "tool_call_error", callId: "spawn", error: "Aborted" }
+    for (const event of finishFirst ? [finish, error] : [error, finish]) state = reduceNativeEvent(state, event)
+    expect(subagentStatus(state.items[0].tool!)).toBe("interrupted")
+  })
+  it("recovers a background launch from the tool result when spawned SSE was missed", () => {
+    let state = createNativeSyncState()
+    state = reduceNativeEvent(state, { eventId: "start", type: "tool_call_start", callId: "spawn-bg", name: "spawn_agent", args: { purpose: "Check docs", background: true } })
+    state = reduceNativeEvent(state, { eventId: "result", type: "tool_call_result", callId: "spawn-bg", result: { subagent_id: "bg-1", session_id: "child-bg", status: "running" } })
+    expect(state.items[0]?.tool?.subagent).toMatchObject({ subagentId: "bg-1", childSessionId: "child-bg", status: "running" })
+    const repaired = reconcileNativeSnapshot({
+      messages: [{ role: "assistant", content: [{ type: "tool-call" }] }],
+      toolCalls: [{ callId: "spawn-bg", name: "spawn_agent", args: { purpose: "Check docs", background: true }, result: { subagent_id: "bg-1", session_id: "child-bg", status: "running" } }],
+    }, createNativeSyncState(), [])
+    expect(repaired.items[0]?.tool?.subagent?.status).toBe("running")
+  })
   it("preserves shared settings on reconnect and rejects stale model settings events", () => {
     const settings = fixture.state as ModelSettingsState
     let state = stateFromNativeSnapshot({ model: { providerId: "manticore", modelId: "sol", settings: settings.effective, settingsDefaults: settings.defaults, capabilities: settings.capabilities }, modelSettingsOverrides: { "manticore/sol": settings.overrides }, status: "waiting_for_permission" })

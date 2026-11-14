@@ -1,5 +1,6 @@
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import subagentFixture from "../../../../contracts/chimera-subagents.json"
 import { NativeAgentPanel } from "../NativeAgentPanel"
 
 const send = vi.fn()
@@ -2071,6 +2072,45 @@ describe("NativeAgentPanel sub-agent tiles", () => {
   afterEach(() => {
     cleanup()
     vi.restoreAllMocks()
+  })
+
+  it("repairs idle mod completions in inline cards and tiles without SSE finish events", async () => {
+    let stage = subagentFixture.stages[0]
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => String(input).includes("/snapshot")
+      ? new Response(JSON.stringify(stage.snapshot), { status: 200 })
+      : new Response("[]", { status: 200 }))
+    const view = render(<NativeAgentPanel agentId="agent-1" />)
+    await waitFor(() => expect(view.container.textContent).not.toContain("Loading Chimera"))
+    for (const next of subagentFixture.stages.slice(1)) {
+      stage = next
+      act(() => {
+        for (const event of stage.nativeEvents) websocketHandler?.({ type: "chimera_event", agent_id: "agent-1", content: JSON.stringify(event) })
+        websocketHandler?.({ type: "agents_changed" })
+      })
+      for (const [id, status] of Object.entries(stage.states)) {
+        const card = await within(view.container).findByTestId(`subagent-card-spawn-${id}`)
+        await waitFor(() => expect(card.textContent).toContain(status))
+      }
+    }
+    fireEvent.click(within(view.container).getByRole("button", { name: /^Tiles/ }))
+    fireEvent.click(within(view.container).getByRole("button", { name: /Show 1 more/ }))
+    for (const [id, status] of Object.entries(stage.states)) {
+      const tileStatus = status === "finished" ? "done" : status
+      expect(within(view.container).getByRole("button", { name: new RegExp(`${tileStatus}.*${id}`) })).not.toBeNull()
+    }
+  })
+
+  it("shows launch exceptions as failed in both cards and tiles", async () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => String(input).includes("/snapshot") ? new Response(JSON.stringify({
+      messages: [{ role: "assistant", content: [{ type: "tool-call" }] }],
+      toolCalls: [{ callId: "failed", name: "spawn_agent", args: { purpose: "Check" }, error: "Depth limit exceeded", startedAt: 100 }],
+    }), { status: 200 }) : new Response("[]", { status: 200 }))
+    const view = render(<NativeAgentPanel agentId="agent-1" />)
+    const card = await within(view.container).findByTestId("subagent-card-failed")
+    expect(card.textContent).toContain("error")
+    expect(card.textContent).toContain("Depth limit exceeded")
+    fireEvent.click(within(view.container).getByRole("button", { name: /^Tiles/ }))
+    expect(within(view.container).getByRole("button", { name: /error.*Check.*Depth limit exceeded/ })).not.toBeNull()
   })
 
   it("offers the switch only once the session has sub-agents", async () => {

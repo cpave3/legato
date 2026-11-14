@@ -248,3 +248,46 @@ func containsAll(value string, parts ...string) bool {
 	}
 	return true
 }
+
+func TestChimeraSnapshotIncludesModSubagentCompletions(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/context") {
+			fmt.Fprint(w, `{"contextWindow":200000}`)
+			return
+		}
+		fmt.Fprint(w, `{"id":"parent","messages":[],"toolCalls":[]}`)
+	}))
+	defer upstream.Close()
+	id, endpoint := "parent", upstream.URL
+	metadata := `[{"subagentId":"bg","sessionId":"parent","status":"finished","reason":"stop","endedAt":1234}]`
+	agents := &chimeraSnapshotAgentFake{session: &store.AgentSession{ChimeraSessionID: &id, ChimeraEndpoint: &endpoint, ChimeraSubagents: metadata}}
+	response := httptest.NewRecorder()
+	New(nil, agents, nil, ":0").Handler().ServeHTTP(response, httptest.NewRequest("GET", "/api/agents/task/chimera/snapshot", nil))
+	var body struct {
+		SubagentStates json.RawMessage `json:"subagentStates"`
+	}
+	if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	if string(body.SubagentStates) != metadata {
+		t.Fatalf("mod completion lost: %s", response.Body.String())
+	}
+}
+
+func TestChimeraSnapshotDoesNotReplaceNativeChildrenWithEmptyModMetadata(t *testing.T) {
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/context") {
+			fmt.Fprint(w, `{"contextWindow":200000}`)
+			return
+		}
+		fmt.Fprint(w, `{"id":"parent","subagentStates":[{"subagentId":"native-child","status":"finished"}]}`)
+	}))
+	defer upstream.Close()
+	id, endpoint := "parent", upstream.URL
+	agents := &chimeraSnapshotAgentFake{session: &store.AgentSession{ChimeraSessionID: &id, ChimeraEndpoint: &endpoint, ChimeraSubagents: "[]"}}
+	response := httptest.NewRecorder()
+	New(nil, agents, nil, ":0").Handler().ServeHTTP(response, httptest.NewRequest("GET", "/api/agents/task/chimera/snapshot", nil))
+	if !strings.Contains(response.Body.String(), "native-child") {
+		t.Fatalf("upstream state erased: %s", response.Body.String())
+	}
+}

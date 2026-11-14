@@ -70,6 +70,7 @@ type SessionSnapshot struct {
 	Status                 string          `json:"status"`
 	Messages               json.RawMessage `json:"messages"`
 	ToolCalls              json.RawMessage `json:"toolCalls"`
+	SubagentStates         json.RawMessage `json:"subagentStates,omitempty"`
 	Usage                  json.RawMessage `json:"usage"`
 	Tasks                  json.RawMessage `json:"tasks"`
 	ContextWindow          int             `json:"contextWindow,omitempty"`

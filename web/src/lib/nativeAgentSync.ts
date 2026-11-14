@@ -24,7 +24,7 @@ export interface NativeSubagentState {
   subagentId: string
   childSessionId?: string
   purpose: string
-  status: "running" | "finished" | "error"
+  status: "running" | "finished" | "error" | "interrupted"
   reason?: string
   // When it started and ended, in milliseconds since the epoch.
   startedAt?: number
@@ -37,7 +37,9 @@ export interface NativeToolItem {
   toolName: string
   args: Record<string, unknown>
   result?: Record<string, unknown>
+  error?: string
   summary?: string
+  startedAt?: number
   durationMs?: number
   skillName?: string
   skillSource?: "project" | "user" | "claude-compat"
@@ -131,6 +133,7 @@ export interface NativeSnapshotToolCall {
   name: string
   args: Record<string, unknown>
   result?: Record<string, unknown>
+  error?: string
   startedAt?: number
   endedAt?: number
   display?: { summary?: string }
@@ -167,6 +170,8 @@ export interface NativeSnapshotQuestion {
 }
 
 export interface NativeSnapshot {
+  id?: string
+  subagentStates?: Array<NativeSnapshotSubagent & { sessionId: string }>
   mode?: string
   model?: { providerId?: string; modelId?: string; settings?: ModelSettings; settingsDefaults?: ModelSettings; capabilities?: ModelCapabilities }
   modelSettingsOverrides?: Record<string, ModelSettings>
@@ -343,13 +348,16 @@ export function stateFromNativeSnapshot(snapshot: NativeSnapshot): NativeSyncSta
           toolName: call.name,
           args: call.args,
           result: call.result,
+          error: call.error,
           summary: call.display?.summary,
+          startedAt: call.startedAt,
           durationMs: call.startedAt && call.endedAt ? call.endedAt - call.startedAt : undefined,
-          ...(call.subagent ? { subagent: subagentFromSnapshot(call.subagent, call.args) } : {}),
+          subagent: call.subagent ? subagentFromSnapshot(call.subagent, call.args) : subagentFromResult(call.name, call.args, call.result),
         },
       })
     }
   }
+  applySnapshotSubagents(items, snapshot)
   for (const permission of snapshot.pendingPermissions ?? []) {
     items.push(permissionConversationItem(permission))
   }
@@ -389,15 +397,19 @@ export function reconcileNativeSnapshot(
       tool: {
         ...item.tool,
         ...(preserved.skillName ? { skillName: preserved.skillName, skillSource: preserved.skillSource } : {}),
-        ...(preserved.subagent && !item.tool.subagent ? {
+        ...(preserved.subagent ? {
           subagent: {
             ...preserved.subagent,
+            ...item.tool.subagent,
+            ...(preserved.subagent.status !== "running" && item.tool.subagent?.status === "running" ? { status: preserved.subagent.status, reason: preserved.subagent.reason, endedAt: preserved.subagent.endedAt } : {}),
+            activities: item.tool.subagent?.activities.length ? item.tool.subagent.activities : preserved.subagent.activities,
             ...subagentCompletionFromResult(item.tool.result),
           },
         } : {}),
       },
     }
   })
+  applySnapshotSubagents(next.items, snapshot)
   const previousPermissionItems = previous.items.filter((item) => item.permission)
   if (snapshot.pendingPermissions === undefined) {
     next.items.push(...previousPermissionItems)
@@ -545,10 +557,18 @@ export function reduceNativeEvent(state: NativeSyncState, event: NativeEvent): N
           if (!item.tool || item.tool.key !== event.callId) return item
           return {
             ...item,
-            tool: { ...item.tool, result: event.result, summary: event.display?.summary || item.tool.summary },
+            tool: { ...item.tool, result: event.result, summary: event.display?.summary || item.tool.summary,
+              subagent: subagentFromResult(item.tool.toolName, item.tool.args, event.result, item.tool.subagent) },
           }
         })
       }
+      break
+    case "tool_call_error":
+      if (event.callId) updateTool(next.items, event.callId, tool => ({
+        ...tool,
+        error: event.error,
+        subagent: tool.subagent?.status === "running" ? { ...tool.subagent, status: "error", reason: "error", endedAt: Date.now() } : tool.subagent,
+      }))
       break
     case "subagent_spawned":
       if (event.parentCallId && event.subagentId) {
@@ -559,7 +579,8 @@ export function reduceNativeEvent(state: NativeSyncState, event: NativeEvent): N
             childSessionId: event.childSessionId,
             purpose: event.purpose || String(tool.args.purpose || "Subagent"),
             status: "running",
-            startedAt: event.startedAt ?? tool.subagent?.startedAt ?? Date.now(),
+            ...tool.subagent,
+            startedAt: tool.subagent?.startedAt ?? event.startedAt ?? Date.now(),
             activities: tool.subagent?.activities ?? [],
           },
         }))
@@ -574,7 +595,7 @@ export function reduceNativeEvent(state: NativeSyncState, event: NativeEvent): N
       if (event.subagentId) {
         updateSubagent(next.items, event.subagentId, (subagent) => ({
           ...subagent,
-          status: event.reason === "stop" ? "finished" : "error",
+          status: completionStatus(event.reason),
           reason: event.reason,
           endedAt: event.endedAt ?? Date.now(),
         }))
@@ -728,10 +749,53 @@ function updateSubagent(
   }
 }
 
+function applySnapshotSubagents(items: NativeConversationItem[], snapshot: NativeSnapshot) {
+  for (const item of items) {
+    const tool = item.tool
+    if (!tool) continue
+    const id = tool.subagent?.subagentId ?? tool.result?.subagent_id
+    const child = snapshot.subagentStates?.find(child => child.subagentId === id && child.sessionId === snapshot.id)
+    if (!child || (child.status === "running" && tool.subagent && tool.subagent.status !== "running")) continue
+    tool.subagent = {
+      ...subagentFromSnapshot(child, tool.args),
+      childSessionId: tool.subagent?.childSessionId,
+      startedAt: child.startedAt ?? tool.subagent?.startedAt,
+      activities: tool.subagent?.activities ?? [],
+    }
+  }
+}
+
+function completionStatus(reason?: string): NativeSubagentState["status"] {
+  return reason === "stop" ? "finished" : reason === "interrupted" ? "interrupted" : "error"
+}
+
+export function subagentStatus(tool: NativeToolItem): NativeSubagentState["status"] | "spawning" {
+  if (tool.subagent && tool.subagent.status !== "running") return tool.subagent.status
+  if (tool.error) return "error"
+  if (tool.subagent) return tool.subagent.status
+  if (typeof tool.result?.reason === "string") return completionStatus(tool.result.reason)
+  if (tool.result?.status === "running" || tool.startedAt) return "running"
+  return "spawning"
+}
+
 function subagentCompletionFromResult(result?: Record<string, unknown>): Pick<NativeSubagentState, "status" | "reason"> | Record<string, never> {
   const reason = typeof result?.reason === "string" ? result.reason : undefined
   if (!reason) return {}
-  return { status: reason === "stop" ? "finished" : "error", reason }
+  return { status: completionStatus(reason), reason }
+}
+
+function subagentFromResult(name: string, args: Record<string, unknown>, result?: Record<string, unknown>, previous?: NativeSubagentState): NativeSubagentState | undefined {
+  if (name !== "spawn_agent") return previous
+  const id = typeof result?.subagent_id === "string" ? result.subagent_id : previous?.subagentId
+  if (!id) return previous
+  const child: NativeSubagentState = previous ?? {
+    subagentId: id,
+    purpose: String(args.purpose || "Subagent"),
+    childSessionId: typeof result?.session_id === "string" ? result.session_id : undefined,
+    status: "running",
+    activities: [],
+  }
+  return { ...child, ...subagentCompletionFromResult(result) }
 }
 
 function subagentFromSnapshot(snapshot: NativeSnapshotSubagent, args: Record<string, unknown>): NativeSubagentState {

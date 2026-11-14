@@ -418,6 +418,8 @@ type AgentSession struct {
 	// BackgroundJobs is what the agent started that still runs and will
 	// wake it; the state is ActivityBackground when its turn ended with any.
 	BackgroundJobs BackgroundJobs `db:"background_jobs"`
+	// ChimeraSubagents is lifecycle metadata from the ordered mod stream, not transcripts.
+	ChimeraSubagents string `db:"chimera_subagents" json:"-"`
 	// HookSource is HookSourcePlugin or HookSourceMod once native state
 	// reporting owns the session, "" otherwise.
 	HookSource string `db:"hook_source"`

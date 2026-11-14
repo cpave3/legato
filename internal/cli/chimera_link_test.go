@@ -1,11 +1,14 @@
 package cli_test
 
 import (
+	"bytes"
 	"context"
+	"encoding/json"
 	"fmt"
 	"io"
 	"os"
 	"path/filepath"
+	"reflect"
 	"strings"
 	"testing"
 
@@ -170,6 +173,96 @@ func TestChimeraLinkKeepsStateOrderedThroughStoreAndBroker(t *testing.T) {
 			}
 			if secret, _, err := s.GetChimeraLaunchSecret(context.Background(), owner.ID); err != nil || secret != "secret" {
 				t.Fatalf("recovery secret lost: %q %v", secret, err)
+			}
+		})
+	}
+}
+
+func TestChimeraLinkRetainsSubagentLifecycle(t *testing.T) {
+	raw, err := os.ReadFile("../../contracts/chimera-subagents.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var fixture struct {
+		Stages []struct {
+			Label  string
+			Mod    json.RawMessage
+			Jobs   []string
+			States map[string]string
+		}
+	}
+	if err := json.Unmarshal(raw, &fixture); err != nil {
+		t.Fatal(err)
+	}
+	for _, remote := range []bool{false, true} {
+		t.Run(fmt.Sprint("broker=", remote), func(t *testing.T) {
+			s := newTestStore(t)
+			seedChimeraLinkAgent(t, s)
+			var host cli.BridgeHost
+			if remote {
+				token := "lgb_subagents"
+				if err := s.SetExecutionBrokerToken(context.Background(), "native-link-task", service.HashBrokerToken(token)); err != nil {
+					t.Fatal(err)
+				}
+				socket := filepath.Join(t.TempDir(), "broker.sock")
+				srv, err := broker.Listen(socket, cli.NewBrokerHandler(s, cli.BrokerDeps{}))
+				if err != nil {
+					t.Fatal(err)
+				}
+				defer srv.Close()
+				host = cli.BrokerBridgeHost(socket, token)
+			}
+			r, w := io.Pipe()
+			done := make(chan error, 1)
+			go func() {
+				done <- cli.RunChimeraLink(context.Background(), s, cli.ChimeraLinkOptions{TaskID: "link-task", ExecutionID: "native-link-task", Stdin: r, Host: host})
+			}()
+			defer w.Close()
+			for _, stage := range fixture.Stages {
+				var compact bytes.Buffer
+				if err := json.Compact(&compact, stage.Mod); err != nil {
+					t.Fatal(err)
+				}
+				if _, err := fmt.Fprintln(w, compact.String()); err != nil {
+					t.Fatal(err)
+				}
+				waitFor(t, stage.Label, func() bool {
+					a, err := s.GetAgentSessionByTaskID(context.Background(), "link-task")
+					if err != nil || a.ChimeraSessionID == nil {
+						return false
+					}
+					var children []struct {
+						ID        string `json:"subagentId"`
+						Status    string `json:"status"`
+						SessionID string `json:"sessionId"`
+					}
+					if err := json.Unmarshal([]byte(a.ChimeraSubagents), &children); err != nil {
+						return false
+					}
+					got := map[string]string{}
+					for _, child := range children {
+						if child.SessionID != "parent" {
+							return false
+						}
+						got[child.ID] = child.Status
+					}
+					var jobs []string
+					for _, job := range a.BackgroundJobs {
+						jobs = append(jobs, job.ID)
+					}
+					if stage.Label == "parent idle" && a.Activity != store.ActivityBackground {
+						return false
+					}
+					return reflect.DeepEqual(got, stage.States) && strings.Join(jobs, ",") == strings.Join(stage.Jobs, ",")
+				})
+			}
+			w.Close()
+			if err := <-done; err != nil {
+				t.Fatal(err)
+			}
+			a, _ := s.GetAgentSessionByTaskID(context.Background(), "link-task")
+			if !strings.Contains(a.ChimeraSubagents, `"interrupted"`) {
+				t.Fatal("EOF discarded terminal child evidence")
 			}
 		})
 	}
