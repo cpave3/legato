@@ -38,6 +38,8 @@ The board works as it does in the TUI, with the same keys: `h`/`j`/`k`/`l` to mo
 
 **Import** in the header searches your ticket providers and imports a ticket, as `i` does; see [Board](/legato/using/board/#local-tasks-and-remote-tickets). **Sync providers** in the header syncs Jira and GitHub now, and pulls every [worker](/legato/using/handoff/#staying-up-to-date) this Legato hands tasks to.
 
+In `/` search, press `Enter` as soon as a result appears to open it, including an archived task.
+
 Once this Legato is paired with a [worker instance](/legato/running/instances/), a card's menu and its panel offer **Hand off…**, a card dragged onto the **Away** lane opens the same form, and the lane, after the columns, lists the tasks away on each worker. On a phone they are in an **Away** section above the columns. See [Hand off tasks to a worker](/legato/using/handoff/).
 
 A card's detail has the task's notes, reviews, plans and workflow runs in tabs. When the task's agents built a stack of branches with Staccato, a **Stacks** tab shows it, with **Download stack** once every branch is pushed; see [Staccato](/legato/integrations/staccato/#taking-a-stack-home).
@@ -76,11 +78,13 @@ When a native agent's terminal shows a numbered menu (an update notice, a trust 
 
 The **More actions** menu in the agent's header holds **Rename**, **Refresh from snapshot**, notifications, **Reload agent**, **Reload without sandbox** (or **Reload in sandbox**, for an agent you started outside it), **Disconnect** and **Kill agent**. The sandbox entry is there only while Legato's sandbox is on; see [Sandbox](/legato/security/sandbox/). Right-click an agent in the sidebar for the same actions. For an agent you have not opened, the actions that act on the open terminal (refreshing it, prompt detection) are left out. **Rename** renames the agent's task, so it works for local tasks; a task from a provider keeps its title. Asking before **Kill agent**, **Reload agent** and similar actions uses a small dialog in the app, not the browser's. See [Agents](/legato/using/agents/) for reloading and stopping.
 
-To switch agents from the keyboard, hold the switch key and press `1` to `9`. The key is Control on Linux and Alt on a Mac unless you change it in **Settings › Agents**. Press `M` for the agent's macros. A draft you type for one agent is kept when you switch to another.
+To switch agents from the keyboard, hold the switch key and press `1` to `9`. The numbers follow the visible list order, ready as soon as the agents appear. The key is Control on Linux and Alt on a Mac unless you change it in **Settings › Agents**. Press `M` for the agent's macros. A draft you type for one agent is kept when you switch to another.
 
 ### Terminal mode
 
 An agent that runs in tmux opens on the Agents page as a real terminal on its tmux session, set in a frame. Type straight into it (menus, arrow keys, Ctrl keys), scroll with the wheel or a drag to read tmux's own history; it resizes with the window. The strip along the top of the frame names the session. If the connection drops, it says **Reconnecting** and when it will try again, and **Retry now** tries at once. **Refresh terminal** in the agent's menu reconnects it too. Agents with a native panel keep their panel.
+
+When voice is enabled, press `v` outside a text field to start dictation in a terminal session with a message box, as soon as the selected agent appears; `Esc` cancels it.
 
 On a computer there is no message box: the terminal is where you type, and the agent's menu is in the header. A phone keeps the message box, with a row of the keys its keyboard lacks: **Esc**, **⇧Tab**, **↑** and **↓**, and **Ctrl**, which sends the next character you type, in the box or the terminal, with Ctrl. When the agent asks something, such as a yes-or-no menu, its answers appear as buttons above the box.
 

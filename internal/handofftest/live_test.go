@@ -10,6 +10,7 @@ import (
 	"sync"
 	"sync/atomic"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/cpave3/legato/internal/engine/events"
@@ -185,68 +186,86 @@ func (s *streamMessages) rows() []service.HandoffSummary {
 }
 
 func TestTheEventsStreamSendsAPullThenEachChangeWithActivityDebounced(t *testing.T) {
-	ctx, cancel := context.WithCancel(context.Background())
-	defer cancel()
 	worker := StartWorker(t, WorkerOptions{Name: "vm-1"})
 	main := NewMain(t, MainOptions{Clock: worker.Clock})
 	paired := Pair(t, main, worker)
 	_, away := awayOn(t, main, worker, paired.InstanceID, "Fix it")
 
-	got := &streamMessages{}
-	done := make(chan error, 1)
-	go func() { done <- worker.Handoffs.Stream(ctx, main.InstanceID(), got.send) }()
-	eventually(t, "the pull", func() bool {
-		got.mu.Lock()
-		defer got.mu.Unlock()
-		return len(got.msgs) == 1
-	})
-	first := got.msgs[0]
-	if first.Type != service.HandoffStreamPull || first.WorkerInstanceID != paired.InstanceID || len(first.Handoffs) != 1 ||
-		first.Handoffs[0].Activity != service.HandoffActivityIdle {
-		t.Fatalf("first message %+v", first)
-	}
+	synctest.Test(t, func(t *testing.T) {
+		ctx, cancel := context.WithCancel(context.Background())
+		defer cancel()
+		// Keep the real server and its event loop outside virtual time. The
+		// stream rescans the same database on its own deterministic ticker.
+		stream := service.NewHandoffWorkerService(worker.Store, service.HandoffWorkerOptions{StreamRescan: 50 * time.Millisecond})
+		got := &streamMessages{}
+		done := make(chan error, 1)
+		go func() { done <- stream.Stream(ctx, main.InstanceID(), got.send) }()
+		synctest.Wait()
+		if len(got.msgs) != 1 {
+			t.Fatalf("initial messages %+v", got.msgs)
+		}
+		first := got.msgs[0]
+		if first.Type != service.HandoffStreamPull || first.WorkerInstanceID != paired.InstanceID || len(first.Handoffs) != 1 ||
+			first.Handoffs[0].Activity != service.HandoffActivityIdle {
+			t.Fatalf("first message %+v", first)
+		}
 
-	// The first change of activity after the pull goes at once.
-	if err := worker.Agents.SetAgentActivity(ctx, away.WorkerTaskID, "working", ""); err != nil {
-		t.Fatal(err)
-	}
-	eventually(t, "the first activity row", func() bool { return len(got.rows()) == 1 })
-	if rows := got.rows(); rows[0].Activity != service.HandoffActivityWorking {
-		t.Fatalf("first row %+v", rows[0])
-	}
-	// Then it flips three times in a moment: nothing goes within the
-	// second, then the last state.
-	for _, a := range []string{"waiting", "working", "waiting"} {
-		if err := worker.Agents.SetAgentActivity(ctx, away.WorkerTaskID, a, ""); err != nil {
+		// The first change of activity after the pull goes at once.
+		if err := worker.Agents.SetAgentActivity(ctx, away.WorkerTaskID, "working", ""); err != nil {
 			t.Fatal(err)
 		}
-		time.Sleep(20 * time.Millisecond)
-	}
-	time.Sleep(300 * time.Millisecond)
-	if rows := got.rows(); len(rows) != 1 {
-		t.Fatalf("rows within the second: %+v", rows)
-	}
-	waitUp(t, 2*time.Second, "the debounced row", func() bool { return len(got.rows()) == 2 })
-	if rows := got.rows(); rows[1].Activity != service.HandoffActivityWaiting {
-		t.Fatalf("debounced row %+v", rows[1])
-	}
-
-	// A change of state goes at once, whatever the activity did.
-	if err := worker.Board.MoveCard(ctx, away.WorkerTaskID, "Done"); err != nil {
-		t.Fatal(err)
-	}
-	eventually(t, "the done row", func() bool {
-		rows := got.rows()
-		last := rows[len(rows)-1]
-		return last.State == store.HandoffDone && last.Column == "Done"
-	})
-	for _, m := range got.msgs {
-		if m.WorkerInstanceID != paired.InstanceID {
-			t.Fatalf("a message without the worker's instance ID: %+v", m)
+		time.Sleep(50 * time.Millisecond)
+		synctest.Wait()
+		if rows := got.rows(); len(rows) != 1 {
+			t.Fatalf("first activity rows %+v", rows)
 		}
-	}
-	cancel()
-	<-done
+		debounceEnds := time.Now().Add(time.Second)
+		if rows := got.rows(); rows[0].Activity != service.HandoffActivityWorking {
+			t.Fatalf("first row %+v", rows[0])
+		}
+		// Then it flips three times in a moment: nothing goes within the
+		// second, then the last state.
+		for _, a := range []string{"waiting", "working", "waiting"} {
+			if err := worker.Agents.SetAgentActivity(ctx, away.WorkerTaskID, a, ""); err != nil {
+				t.Fatal(err)
+			}
+			time.Sleep(20 * time.Millisecond)
+		}
+		time.Sleep(time.Until(debounceEnds) - time.Nanosecond)
+		synctest.Wait()
+		if rows := got.rows(); len(rows) != 1 {
+			t.Fatalf("rows within the second: %+v", rows)
+		}
+		time.Sleep(time.Nanosecond)
+		synctest.Wait()
+		if rows := got.rows(); len(rows) != 2 {
+			t.Fatalf("debounced rows %+v", rows)
+		}
+		if rows := got.rows(); rows[1].Activity != service.HandoffActivityWaiting {
+			t.Fatalf("debounced row %+v", rows[1])
+		}
+
+		// A change of state goes at once, whatever the activity did.
+		if err := worker.Board.MoveCard(ctx, away.WorkerTaskID, "Done"); err != nil {
+			t.Fatal(err)
+		}
+		if err := worker.Handoffs.Reconcile(ctx); err != nil {
+			t.Fatal(err)
+		}
+		time.Sleep(50 * time.Millisecond)
+		synctest.Wait()
+		rows := got.rows()
+		if last := rows[len(rows)-1]; last.State != store.HandoffDone || last.Column != "Done" {
+			t.Fatalf("done row %+v", last)
+		}
+		for _, m := range got.msgs {
+			if m.WorkerInstanceID != paired.InstanceID {
+				t.Fatalf("a message without the worker's instance ID: %+v", m)
+			}
+		}
+		cancel()
+		<-done
+	})
 }
 
 // waitUp waits up to d for ok.

@@ -33,12 +33,12 @@ func TestAgentServiceComposesLearningForAdaptersAndBindsManifest(t *testing.T) {
 				opt.Assignment = "KEEP THIS ASSIGNMENT"
 			}
 			if err := svc.SpawnAgent(ctx, "task-1", 0, 0, opt); err != nil {
-				t.Fatal(err)
+				t.Fatalf("spawn %s with learned context: %v", name, err)
 			}
 			env := mt.envVarsFor("legato-task-1")
 			data, err := os.ReadFile(env["LEGATO_ROLE_PROMPT_FILE"])
 			if err != nil {
-				t.Fatal(err)
+				t.Fatalf("read %s role prompt %q: %v", name, env["LEGATO_ROLE_PROMPT_FILE"], err)
 			}
 			prompt := string(data)
 			if !strings.Contains(prompt, "STANDING ROLE") || !strings.Contains(prompt, "Prefer focused changes.") {
@@ -52,16 +52,16 @@ func TestAgentServiceComposesLearningForAdaptersAndBindsManifest(t *testing.T) {
 			}
 			session, err := db.GetAgentSessionByTaskID(ctx, "task-1")
 			if err != nil {
-				t.Fatal(err)
+				t.Fatalf("read %s spawned session for task-1: %v", name, err)
 			}
 			manifests, err := db.ListLearningPromptManifestsBySession(ctx, session.ID)
 			if err != nil || len(manifests) != 1 {
-				t.Fatalf("manifests=%+v err=%v", manifests, err)
+				t.Fatalf("%s session %d: want one bound manifest, got %+v err=%v", name, session.ID, manifests, err)
 			}
 			learned := "## Learned context\n- Prefer focused changes."
 			digest := sha256.Sum256([]byte(learned))
 			if manifests[0].ProjectKey != "repo:github.com/acme/widget" || manifests[0].RenderedDigest != "sha256:"+hex.EncodeToString(digest[:]) {
-				t.Fatalf("manifest does not match rendered learning: %+v", manifests[0])
+				t.Fatalf("%s session %d: want project repo:github.com/acme/widget and digest sha256:%s, got %+v", name, session.ID, hex.EncodeToString(digest[:]), manifests[0])
 			}
 		})
 	}

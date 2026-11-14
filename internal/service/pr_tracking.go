@@ -68,6 +68,7 @@ type prTrackingService struct {
 	mu               sync.Mutex // protects lastResolvedPoll
 	lastResolvedPoll time.Time  // tracks when resolved PRs were last polled
 	pollMu           sync.Mutex // serializes scheduled and forced polling
+	discovery        sync.WaitGroup
 }
 
 // NewPRTrackingService creates a new PR tracking service.
@@ -97,6 +98,12 @@ func newPRTrackingService(s *store.Store, bus *events.Bus, gh GitHubClient, inte
 	}
 }
 
+// waitForDiscovery joins branch-link work before its store is closed.
+// Callers must stop linking branches before waiting.
+func (p *prTrackingService) waitForDiscovery() {
+	p.discovery.Wait()
+}
+
 func (p *prTrackingService) LinkBranch(ctx context.Context, taskID, branch, repo string) error {
 	now := time.Now().UTC().Format(time.RFC3339)
 	codeContext := &store.CodeContext{
@@ -111,7 +118,11 @@ func (p *prTrackingService) LinkBranch(ctx context.Context, taskID, branch, repo
 	if err := p.store.UpdatePRMeta(ctx, taskID, nil); err != nil {
 		return err
 	}
-	go func() { _ = p.RediscoverPR(context.Background(), taskID) }()
+	p.discovery.Add(1)
+	go func() {
+		defer p.discovery.Done()
+		_ = p.RediscoverPR(context.Background(), taskID)
+	}()
 	return nil
 }
 

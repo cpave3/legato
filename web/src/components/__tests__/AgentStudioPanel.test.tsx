@@ -1,4 +1,4 @@
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react"
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { AgentStudioPanel } from "../AgentStudioPanel"
 import { AgentUIItemView } from "../AgentUIItemView"
@@ -435,21 +435,48 @@ describe("AgentStudioPanel", () => {
     expect(screen.getByText("Hello, this is restack.")).toBeTruthy()
   })
 
-  it("lets the microphone go by itself a while after a test", async () => {
-    const stream = fakeStream({ audio: "Desk microphone", video: "Laptop camera" })
-    getUserMedia.mockReset()
-    getUserMedia.mockResolvedValue(stream)
-    render(<AgentStudioPanel item={item()} fill testHoldMs={50} />)
-    fireEvent.click(await screen.findByRole("button", { name: "Microphone and camera" }))
-    fireEvent.click(screen.getByRole("button", { name: "Test" }))
-    expect(await screen.findByText("Using Desk microphone and Laptop camera")).toBeTruthy()
-    expect(stream.getTracks().some((track) => track.stop.mock.calls.length > 0)).toBe(false)
+  it("stops recording timers when the studio is closed", async () => {
+    vi.useFakeTimers()
+    try {
+      await act(async () => { render(<AgentUIItemView item={item()} fill />) })
+      await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Record" })) })
+      expect(screen.getByRole("button", { name: "Stop" })).toBeTruthy()
+      expect(vi.getTimerCount()).toBeGreaterThan(0)
 
-    // A browser gives every page the same feed from a microphone. A page
-    // that keeps one open that it is not using spoils the takes of every
-    // other, so a test does not last.
-    await waitFor(() => expect(stream.getTracks().every((track) => track.stop.mock.calls.length > 0)).toBe(true))
-    expect(screen.queryByText("Using Desk microphone and Laptop camera")).toBeNull()
+      cleanup()
+      expect(vi.getTimerCount()).toBe(0)
+    } finally {
+      cleanup()
+      vi.useRealTimers()
+    }
+  })
+
+  it("lets the microphone go by itself a while after a test", async () => {
+    // Observing the open stream must not race its real-time release deadline.
+    vi.useFakeTimers()
+    try {
+      const stream = fakeStream({ audio: "Desk microphone", video: "Laptop camera" })
+      getUserMedia.mockReset()
+      getUserMedia.mockResolvedValue(stream)
+      await act(async () => { render(<AgentStudioPanel item={item()} fill testHoldMs={50} />) })
+      fireEvent.click(screen.getByRole("button", { name: "Microphone and camera" }))
+      await act(async () => { fireEvent.click(screen.getByRole("button", { name: "Test" })) })
+      expect(screen.getByText("Using Desk microphone and Laptop camera")).toBeTruthy()
+      for (const track of stream.getTracks()) expect(track.stop).not.toHaveBeenCalled()
+
+      await act(async () => { await vi.advanceTimersByTimeAsync(49) })
+      for (const track of stream.getTracks()) expect(track.stop).not.toHaveBeenCalled()
+
+      // A browser gives every page the same feed from a microphone. A page
+      // that keeps one open that it is not using spoils the takes of every
+      // other, so a test does not last.
+      await act(async () => { await vi.advanceTimersByTimeAsync(1) })
+      for (const track of stream.getTracks()) expect(track.stop).toHaveBeenCalledTimes(1)
+      expect(screen.queryByText("Using Desk microphone and Laptop camera")).toBeNull()
+    } finally {
+      cleanup()
+      vi.useRealTimers()
+    }
   })
 
   it("opens the microphone afresh for each take, and lets it go between them", async () => {
@@ -656,11 +683,18 @@ describe("AgentStudioPanel", () => {
       }
     }
     render(<AgentUIItemView item={item()} fill />)
-    const box = await screen.findByRole("textbox", { name: "A comment for the agent on this scene" })
-    // Nothing to send yet.
-    expect((screen.getByRole("button", { name: "Add comment" }) as HTMLButtonElement).disabled).toBe(true)
-    fireEvent.change(box, { target: { value: "Show the real log here, not a made-up one." } })
-    fireEvent.click(screen.getByRole("button", { name: "Add comment" }))
+    const box = await new Promise<HTMLElement>((resolve) => {
+      const observer = new MutationObserver(() => {
+        const field = screen.queryByRole("textbox", { name: "A comment for the agent on this scene" })
+        if (!field) return
+        observer.disconnect()
+        expect((screen.getByRole("button", { name: "Add comment" }) as HTMLButtonElement).disabled).toBe(true)
+        fireEvent.change(field, { target: { value: "Show the real log here, not a made-up one." } })
+        fireEvent.click(screen.getByRole("button", { name: "Add comment" }))
+        resolve(field)
+      })
+      observer.observe(document.body, { childList: true, subtree: true })
+    })
 
     const comments = within(await screen.findByRole("list", { name: "Comments for the agent" }))
     expect(comments.getByText("Show the real log here, not a made-up one.")).toBeTruthy()
