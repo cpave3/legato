@@ -157,6 +157,10 @@ export function AgentsPage() {
     glitchTimer.current = setTimeout(() => setGlitching(false), GLITCH_DURATION_MS)
   }, [])
 
+  useEffect(() => () => {
+    if (glitchTimer.current) clearTimeout(glitchTimer.current)
+  }, [])
+
   // Fetch agents on mount and on agents_changed
   const fetchAgents = useCallback(async () => {
     try {

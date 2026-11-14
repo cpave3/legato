@@ -294,3 +294,20 @@ it("takes e as soon as the agents are shown", async () => {
 
   await waitFor(() => expect(address()).toBe("/agents?view=ensemble"))
 })
+
+it("cancels the switching animation when the page unmounts", async () => {
+  open("/agents")
+  await screen.findByText("Terminal of TASK-1")
+  vi.useFakeTimers()
+  try {
+    fireEvent.keyDown(window, { key: "1", ctrlKey: true })
+    expect(screen.getByText("Terminal of TASK-2")).toBeTruthy()
+    expect(document.querySelector(".terminal-glitch-overlay")).toBeTruthy()
+    expect(vi.getTimerCount()).toBeGreaterThan(0)
+
+    cleanup()
+    expect(vi.getTimerCount()).toBe(0)
+  } finally {
+    vi.useRealTimers()
+  }
+})
