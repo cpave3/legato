@@ -173,6 +173,11 @@ func (a *CodexAdapter) LaunchCommand(env map[string]string, brief, model, tier s
 	if _, ok := env["LEGATO_ROLE_PROMPT_FILE"]; ok && env["LEGATO_SESSION_POLICY"] != "resume" {
 		cmd += ` -c developer_instructions="$(cat $LEGATO_ROLE_PROMPT_FILE)"`
 	}
+	if inSeatbelt(env) {
+		// Codex's own sandbox is Seatbelt too, and cannot start inside
+		// Legato's; its approval policy stays the person's.
+		cmd += " -c " + shellQuote(`sandbox_mode="danger-full-access"`)
+	}
 	for _, arg := range a.launchArgs {
 		cmd += " " + shellQuote(arg)
 	}

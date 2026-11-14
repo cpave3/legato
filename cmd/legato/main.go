@@ -944,7 +944,7 @@ func runServeCmd(args []string) int {
 			osNotifier = service.NewOSNotifier()
 		}
 		agentSvc = service.NewAgentService(db, mgr, wd, service.AgentServiceOptions{
-			Sandbox:        sandboxSettings(cfg),
+			Sandbox:        sandboxSettings(cfg, db),
 			SandboxScratch: sandboxScratch(cfg),
 			Adapter:        defaultAdapter, Adapters: adapters,
 			Notifier: notifier, OSNotifier: osNotifier,
@@ -1262,7 +1262,7 @@ func runTUI() int {
 			osNotifier = service.NewOSNotifier()
 		}
 		agentSvc = service.NewAgentService(db, tmuxMgr, wd, service.AgentServiceOptions{
-			Sandbox:           sandboxSettings(cfg),
+			Sandbox:           sandboxSettings(cfg, db),
 			SandboxScratch:    sandboxScratch(cfg),
 			Adapter:           defaultAdapter,
 			Adapters:          adapters,
@@ -1886,7 +1886,7 @@ func loadSwarmServiceForCLI() (service.SwarmService, *store.Store, int) {
 	}
 	defaultAdapter, adapters := configuredAdapters(cfg, legatoBin)
 	agents := service.NewAgentService(db, tmuxMgr, wd, service.AgentServiceOptions{
-		Sandbox:                sandboxSettings(cfg),
+		Sandbox:                sandboxSettings(cfg, db),
 		SandboxScratch:         sandboxScratch(cfg),
 		Adapter:                defaultAdapter,
 		Adapters:               adapters,

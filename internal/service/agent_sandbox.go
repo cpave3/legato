@@ -22,6 +22,10 @@ type SandboxSettings struct {
 	// Docker gives each sandboxed agent a filtered Docker socket
 	// (agents.sandbox.docker). Nil: none, and Docker stays hidden.
 	Docker *SandboxDocker
+	// ToolLogin is the environment an agent tool logs in with inside a
+	// sandbox where it cannot reach its own login (Claude Code's is in the
+	// macOS Keychain), or why it cannot start there. Nil: none needed.
+	ToolLogin func(ctx context.Context, agentKind string) (map[string]string, error)
 }
 
 // CheckoutOverlayProber says whether an agent's checkout can be shown
@@ -145,6 +149,16 @@ func (a *agentService) sandboxPrefix(ctx context.Context, taskID, executionID, a
 	}
 	for k, v := range sandboxGitFetches(env) {
 		plan.Setenv[k] = v
+	}
+	if a.sandbox.ToolLogin != nil {
+		// Inside the sandbox only: the pane's own shell never holds it.
+		login, err := a.sandbox.ToolLogin(ctx, agentKind)
+		if err != nil {
+			return "", err
+		}
+		for k, v := range login {
+			plan.Setenv[k] = v
+		}
 	}
 	if in.SSHSocket == "" {
 		// The person's own agent (1Password's) is not this session's.

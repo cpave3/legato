@@ -77,7 +77,7 @@ func buildWorkflowService(db *store.Store, cfg *config.Config, opts workflowRunt
 		if cfg.Learning.PromptEnabled {
 			promptProvider = learningSvc
 		}
-		agentSvc = service.NewAgentService(db, mgr, opts.WorkDir, service.AgentServiceOptions{Adapter: defaultAdapter, Adapters: adapters, PRService: prSvc, EventBus: service.AgentDiedPublisher{Bus: bus}, TmuxOptions: cfg.Agents.TmuxOptions, LearningPromptProvider: promptProvider, LearningPromptMaxItems: cfg.Learning.PromptMaxItems, LearningPromptMaxBytes: cfg.Learning.PromptMaxBytes, DisablePeerAwareness: !cfg.Agents.PeerAwareness, ReviewsOff: !cfg.Agents.Reviews, RepositoryGuidance: repositoryGuidance(cfg, db), RepositoryResources: repositoryResources(cfg), Sandbox: sandboxSettings(cfg), SandboxScratch: sandboxScratch(cfg)})
+		agentSvc = service.NewAgentService(db, mgr, opts.WorkDir, service.AgentServiceOptions{Adapter: defaultAdapter, Adapters: adapters, PRService: prSvc, EventBus: service.AgentDiedPublisher{Bus: bus}, TmuxOptions: cfg.Agents.TmuxOptions, LearningPromptProvider: promptProvider, LearningPromptMaxItems: cfg.Learning.PromptMaxItems, LearningPromptMaxBytes: cfg.Learning.PromptMaxBytes, DisablePeerAwareness: !cfg.Agents.PeerAwareness, ReviewsOff: !cfg.Agents.Reviews, RepositoryGuidance: repositoryGuidance(cfg, db), RepositoryResources: repositoryResources(cfg), Sandbox: sandboxSettings(cfg, db), SandboxScratch: sandboxScratch(cfg)})
 		channels := attachCredentialChannels(cfg, db, agentSvc)
 		if opts.Repos == nil {
 			opts.Repos = newRepositoryService(cfg, db)

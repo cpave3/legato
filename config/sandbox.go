@@ -28,6 +28,11 @@ type AgentSandboxConfig struct {
 	ScratchDir string `yaml:"scratch_dir"`
 	// Docker gives each sandboxed agent a filtered Docker API socket.
 	Docker SandboxDockerConfig `yaml:"docker"`
+	// ClaudeCodeToken names the secret (legato:// or op://) holding a
+	// `claude setup-token` token, which sandboxed Claude Code sessions log
+	// in with on macOS, where Claude Code keeps its own login in the
+	// Keychain that the sandbox closes.
+	ClaudeCodeToken string `yaml:"claude_code_token"`
 }
 
 // SandboxDockerConfig is the Docker API proxy of sandboxed agents: a socket

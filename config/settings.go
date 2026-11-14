@@ -83,6 +83,7 @@ var registry = []Setting{
 	{Key: "agents.mcp.enabled", Title: "Legato tools", Description: "Give agents Legato's tools (cards, artifacts, notes) through `legato mcp serve`.", Kind: KindBool, Class: ClassChange, Mode: ModeRestart},
 	{Key: "agents.sandbox.enabled", Title: "Sandbox", Description: "Run every agent in Legato's sandbox unless its spawn opts out.", Kind: KindBool, Class: ClassRisky, Mode: ModeRestart},
 	{Key: "agents.sandbox.backend", Title: "Sandbox backend", Description: "bwrap on Linux, seatbelt on macOS; empty is this host's own.", Kind: KindString, Class: ClassRisky, Mode: ModeRestart},
+	{Key: "agents.sandbox.claude_code_token", Title: "Claude Code's login in the macOS sandbox", Description: "The name of a secret holding a `claude setup-token` token.", Kind: KindString, Secret: true, Class: ClassRisky, Mode: ModeRestart},
 	{Key: "agents.sandbox.default_mounts", Title: "Toolchains in the sandbox", Description: "Show the operator's toolchains (read-only) and package caches inside the sandbox.", Kind: KindBool, Class: ClassRisky, Mode: ModeRestart},
 	{Key: "agents.sandbox.scratch_dir", Title: "Sandbox scratch folder", Kind: KindString, Class: ClassRisky, Mode: ModeRestart},
 	{Key: "agents.sandbox.docker.enabled", Title: "Docker in the sandbox", Description: "Give sandboxed agents a filtered Docker socket: their own containers, mounting only what their sandbox sees.", Kind: KindBool, Class: ClassRisky, Mode: ModeRestart},

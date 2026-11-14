@@ -1243,6 +1243,7 @@ func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, hei
 		// drops its own Docker sandbox); the pane's shell is not.
 		launchEnv = maps.Clone(envMap)
 		launchEnv["LEGATO_SANDBOXED"] = "1"
+		launchEnv["LEGATO_SANDBOX_BACKEND"] = a.sandbox.Backend.Name()
 	}
 	// A clone this spawn made is set up first, where the agent will be: in
 	// its sandbox. The agent starts whether or not the setup succeeds.

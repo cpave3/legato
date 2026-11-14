@@ -1,6 +1,10 @@
 package main
 
 import (
+	"context"
+	"errors"
+	"fmt"
+	"github.com/cpave3/legato/internal/engine/store"
 	"os"
 	"os/exec"
 	"path/filepath"
@@ -15,8 +19,8 @@ import (
 )
 
 // sandboxSettings is Legato's sandbox for the agents a process spawns, or
-// nil when agents.sandbox is off.
-func sandboxSettings(cfg *config.Config) *service.SandboxSettings {
+// nil when agents.sandbox is off. db reads the secrets settings name.
+func sandboxSettings(cfg *config.Config, db *store.Store) *service.SandboxSettings {
 	if !cfg.Agents.Sandbox.Enabled {
 		return nil
 	}
@@ -34,11 +38,21 @@ func sandboxSettings(cfg *config.Config) *service.SandboxSettings {
 		installs[kind] = toolInstallPaths([]string{command})
 	}
 	layout := service.LayoutFor(runtime.GOOS, os.Getuid())
+	backend := sandboxBackend(cfg)
+	var login func(context.Context, string) (map[string]string, error)
+	if backend.Name() == "seatbelt" {
+		var resolve service.SecretResolver
+		if db != nil {
+			resolve = settingSecrets(cfg, db)
+		}
+		login = sandboxToolLogin(cfg.Agents.Sandbox.ClaudeCodeToken, resolve, home, os.Getenv)
+	}
 	return &service.SandboxSettings{
-		Backend: sandboxBackend(cfg),
+		Backend:   backend,
+		ToolLogin: login,
 		Base: service.SandboxPlanInput{
 			Layout: &layout,
-			Home: home, RuntimeDir: runtimeDir, ScratchDir: config.ResolveSandboxScratchDir(cfg),
+			Home:   home, RuntimeDir: runtimeDir, ScratchDir: config.ResolveSandboxScratchDir(cfg),
 			DataDir: config.ResolveDataDir(cfg), ConfigPath: config.ResolveConfigPath(),
 			BinaryPath: legatoBinary(), DefaultMounts: cfg.Agents.Sandbox.DefaultMountsOn(), Extra: extra,
 			CredentialWrapperDir: filepath.Join(runtimeDir, wrapperDirName), GHConfigDir: ghConfigDir(cfg, runtimeDir),
@@ -141,4 +155,51 @@ func gitRoot(dir string) string {
 		}
 	}
 	return dir
+}
+
+// sandboxToolLogin is how agent tools log in inside the macOS sandbox,
+// which closes the Keychain: Claude Code with the token
+// agents.sandbox.claude_code_token names (CLAUDE_CODE_OAUTH_TOKEN), unless
+// it has a login it can reach there (a credentials file, a key in the
+// environment); Codex only with its login in a file. A tool that could not
+// log in is not started, so an unattended agent never waits on a login.
+func sandboxToolLogin(token string, resolve service.SecretResolver, home string, getenv func(string) string) func(context.Context, string) (map[string]string, error) {
+	return func(ctx context.Context, agentKind string) (map[string]string, error) {
+		switch agentKind {
+		case "claude-code":
+			if token == "" {
+				if getenv("CLAUDE_CODE_OAUTH_TOKEN") != "" || getenv("ANTHROPIC_API_KEY") != "" {
+					return nil, nil
+				}
+				if _, err := os.Stat(filepath.Join(home, ".claude", ".credentials.json")); err == nil {
+					return nil, nil
+				}
+				return nil, errors.New("the macOS Keychain, where Claude Code keeps its login, is closed in Legato's sandbox: run `claude setup-token`, keep the token with `legato secret add claude-code-token`, and set agents.sandbox.claude_code_token to legato://claude-code-token")
+			}
+			if strings.HasPrefix(token, "legato://") || strings.HasPrefix(token, "op://") {
+				if resolve == nil {
+					return nil, fmt.Errorf("agents.sandbox.claude_code_token names %s, which cannot be read here", token)
+				}
+				value, err := resolve(ctx, token)
+				if err != nil {
+					return nil, fmt.Errorf("agents.sandbox.claude_code_token: %w", err)
+				}
+				token = value
+			}
+			return map[string]string{"CLAUDE_CODE_OAUTH_TOKEN": strings.TrimSpace(token)}, nil
+		case "codex":
+			dir := getenv("CODEX_HOME")
+			if dir == "" {
+				dir = filepath.Join(home, ".codex")
+			}
+			data, _ := os.ReadFile(filepath.Join(dir, "config.toml"))
+			for _, line := range strings.Split(string(data), "\n") {
+				key, value, ok := strings.Cut(line, "=")
+				if ok && strings.TrimSpace(key) == "cli_auth_credentials_store" && strings.Trim(strings.TrimSpace(value), `"'`) == "keyring" {
+					return nil, errors.New("the macOS Keychain, where Codex keeps its login (cli_auth_credentials_store = \"keyring\"), is closed in Legato's sandbox: set it to \"file\" in ~/.codex/config.toml and run `codex login` again")
+				}
+			}
+		}
+		return nil, nil
+	}
 }

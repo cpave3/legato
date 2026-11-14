@@ -652,3 +652,60 @@ func TestASandboxedAgentSeesItsTasksPastedImagesFolderFromTheStart(t *testing.T)
 		}
 	}
 }
+
+// The tool is told which sandbox it runs in (Claude Code and Codex turn
+// their own off inside Seatbelt), and gets the login environment the
+// runtime gives a tool that cannot reach its own login there.
+func TestASandboxedToolKnowsItsBackendAndGetsItsLogin(t *testing.T) {
+	backend := &fakeBackend{}
+	var asked []string
+	s, err := store.New(filepath.Join(t.TempDir(), "test.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { s.Close() })
+	mt := newMockTmux()
+	var launchEnv map[string]string
+	svc := NewAgentService(s, mt, t.TempDir(), AgentServiceOptions{
+		Adapter: &fakeAdapter{name: "claude-code", launchFn: func(env map[string]string, _, _, _ string) string {
+			launchEnv = env
+			return "fake-tool"
+		}},
+		Sandbox: &SandboxSettings{Backend: backend, Base: SandboxPlanInput{Home: t.TempDir(), RuntimeDir: filepath.Join(t.TempDir(), "legato")},
+			ToolLogin: func(_ context.Context, agentKind string) (map[string]string, error) {
+				asked = append(asked, agentKind)
+				return map[string]string{"CLAUDE_CODE_OAUTH_TOKEN": "sk-ant-oat-test"}, nil
+			}},
+	})
+	createTask(t, s, "task-1")
+	if err := svc.SpawnAgent(context.Background(), "task-1", 0, 0); err != nil {
+		t.Fatal(err)
+	}
+	if launchEnv["LEGATO_SANDBOX_BACKEND"] != "fake" {
+		t.Errorf("the adapter was not told the backend: %q", launchEnv["LEGATO_SANDBOX_BACKEND"])
+	}
+	if len(asked) != 1 || asked[0] != "claude-code" || len(backend.plans) != 1 || backend.plans[0].Setenv["CLAUDE_CODE_OAUTH_TOKEN"] != "sk-ant-oat-test" {
+		t.Fatalf("asked %q, plans %+v", asked, backend.plans)
+	}
+	if mt.envVarsFor("legato-task-1")["CLAUDE_CODE_OAUTH_TOKEN"] != "" {
+		t.Error("the login is in the pane's own environment, outside the sandbox")
+	}
+}
+
+// A tool that cannot log in inside the sandbox is not started there: the
+// spawn says why, before anything runs.
+func TestASandboxedToolWithoutALoginIsNotStarted(t *testing.T) {
+	backend := &fakeBackend{}
+	svc, s, mt := sandboxedService(t, backend, func(settings *SandboxSettings) {
+		settings.ToolLogin = func(context.Context, string) (map[string]string, error) {
+			return nil, errors.New("no login for Claude Code in the sandbox")
+		}
+	})
+	createTask(t, s, "task-1")
+	if err := svc.SpawnAgent(context.Background(), "task-1", 0, 0); err == nil || !strings.Contains(err.Error(), "no login") {
+		t.Fatalf("err %v", err)
+	}
+	if lines := mt.sentLinesFor("legato-task-1"); len(lines) != 0 {
+		t.Fatalf("launched %v", lines)
+	}
+}

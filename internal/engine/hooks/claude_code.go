@@ -133,6 +133,11 @@ func (a *ClaudeCodeAdapter) LaunchCommand(env map[string]string, brief, model, t
 	if _, ok := env["LEGATO_ROLE_PROMPT_FILE"]; ok && env["LEGATO_SESSION_POLICY"] != "resume" {
 		cmd += ` --append-system-prompt "$(cat $LEGATO_ROLE_PROMPT_FILE)"`
 	}
+	if inSeatbelt(env) {
+		// A process in a Seatbelt sandbox cannot apply one of its own, so
+		// Claude Code's sandbox would fail every command: Legato's holds it.
+		cmd += ` --settings '{"sandbox":{"enabled":false}}'`
+	}
 	for _, arg := range a.launchArgs {
 		cmd += " " + shellQuote(arg)
 	}
@@ -314,3 +319,9 @@ func (a *ClaudeCodeAdapter) SetReviews(on bool) { a.reviewsOff = !on }
 // NeedsReviewsPrompt implements service.ReviewsPromptAdapter: nothing in
 // this tool's own prompts asks for a review tour, so the launch prompt does.
 func (a *ClaudeCodeAdapter) NeedsReviewsPrompt() bool { return true }
+
+// inSeatbelt says whether the tool will run in Legato's macOS sandbox
+// (Seatbelt), inside which it cannot start a sandbox of its own.
+func inSeatbelt(env map[string]string) bool {
+	return env["LEGATO_SANDBOXED"] == "1" && env["LEGATO_SANDBOX_BACKEND"] == "seatbelt"
+}
