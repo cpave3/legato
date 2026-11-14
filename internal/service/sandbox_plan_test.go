@@ -1,6 +1,8 @@
 package service
 
 import (
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -108,6 +110,107 @@ func TestEachAgentToolSeesItsOwnState(t *testing.T) {
 	}
 	if _, ok := m["/var/home/me/.claude"]; ok {
 		t.Error("codex sees ~/.claude")
+	}
+}
+
+func TestChimeraModsAndHooksAreReadOnlyWhileStateStaysWritable(t *testing.T) {
+	for _, defaults := range []bool{true, false} {
+		in := baseInput()
+		in.AgentKind, in.DefaultMounts = "chimera", defaults
+		fs := hostFS()
+		fs["/var/home/me/.local/share"] = "dir"
+		for _, path := range []string{"/var/home/me/.chimera", "/var/home/me/.chimera/mods", "/var/home/me/.chimera/hooks", in.DataDir + "/chimera-mod"} {
+			fs[path] = "dir"
+		}
+		in.FS = fs
+		in.Extra = []SandboxPath{{Path: "/var/home/me/.local/share", Access: "read"}}
+		plan, err := BuildSandboxPlan(in)
+		if err != nil {
+			t.Fatal(err)
+		}
+		m := mounted(plan)
+		for path, kind := range map[string]sandbox.Kind{
+			"/var/home/me/.chimera":       sandbox.ReadWrite,
+			"/var/home/me/.chimera/mods":  sandbox.ReadOnly,
+			"/var/home/me/.chimera/hooks": sandbox.ReadOnly,
+			in.DataDir + "/chimera-mod":   sandbox.ReadOnly,
+			in.DataDir:                    sandbox.HideDir,
+		} {
+			if got, ok := m[path]; !ok || got.Kind != kind {
+				t.Errorf("default_mounts=%v: %s = %+v (present %v), want %v", defaults, path, got, ok, kind)
+			}
+		}
+		for i, mount := range plan.Mounts {
+			if mount.Path != "/var/home/me/.chimera/mods" && mount.Path != "/var/home/me/.chimera/hooks" && mount.Path != in.DataDir+"/chimera-mod" {
+				continue
+			}
+			for _, later := range plan.Mounts[i+1:] {
+				if within(mount.Path, later.Path) && mount.Path != later.Path {
+					t.Errorf("%s is covered by later mount %+v", mount.Path, later)
+				}
+			}
+		}
+	}
+}
+
+func TestChimeraRefusesSymlinkedProtectedDirectories(t *testing.T) {
+	for _, name := range []string{"mods", "hooks"} {
+		for _, target := range []string{"../shared", "../missing", "../.ssh"} {
+			t.Run(name+target, func(t *testing.T) {
+				in := baseInput()
+				in.AgentKind = "chimera"
+				path := filepath.Join(in.Home, ".chimera", name)
+				in.FS.(fakeFS)[path] = "link:" + target
+				_, err := BuildSandboxPlan(in)
+				if err == nil || !strings.Contains(err.Error(), path) || !strings.Contains(err.Error(), "symlink") || !strings.Contains(err.Error(), "real directory") {
+					t.Fatalf("want actionable refusal of %s, got %v", path, err)
+				}
+			})
+		}
+	}
+}
+
+func TestChimeraLinkedModsFollowSafeTargetsReadOnly(t *testing.T) {
+	root := t.TempDir()
+	in := baseInput()
+	in.Home, in.WorkDir, in.DataDir = root+"/home", root+"/work", root+"/data"
+	in.AgentKind, in.DefaultMounts, in.FS = "chimera", false, HostFS{}
+	mods := filepath.Join(in.Home, ".chimera/mods")
+	shared := filepath.Join(in.Home, ".agents/mods")
+	target := filepath.Join(root, "registry/example")
+	workspaceMod := filepath.Join(in.WorkDir, "mod")
+	secret := filepath.Join(in.Home, ".ssh")
+	for _, dir := range []string{mods, shared, target, secret, in.WorkDir, workspaceMod} {
+		if err := os.MkdirAll(dir, 0o755); err != nil {
+			t.Fatal(err)
+		}
+	}
+	for link, dest := range map[string]string{
+		filepath.Join(mods, "example"):   "../../.agents/mods/example",
+		filepath.Join(shared, "example"): target,
+		filepath.Join(mods, "keys"):      secret,
+		filepath.Join(mods, "workspace"): workspaceMod,
+	} {
+		if err := os.Symlink(dest, link); err != nil {
+			t.Fatal(err)
+		}
+	}
+	plan, err := BuildSandboxPlan(in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	m := mounted(plan)
+	if got, ok := m[target]; !ok || got.Kind != sandbox.ReadOnly {
+		t.Errorf("linked mod target = %+v (present %v), want read-only", got, ok)
+	}
+	if got, ok := m[workspaceMod]; !ok || got.Kind != sandbox.ReadOnly {
+		t.Errorf("linked mod inside writable checkout = %+v (present %v), want read-only", got, ok)
+	}
+	if got, ok := m[filepath.Join(shared, "example")]; !ok || got.Kind != sandbox.Symlink || got.Target != target {
+		t.Errorf("intermediate link = %+v (present %v)", got, ok)
+	}
+	if _, ok := m[secret]; ok {
+		t.Error("a mod link exposed credentials")
 	}
 }
 

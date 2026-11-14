@@ -136,6 +136,16 @@ func (a *agentService) sandboxPrefix(ctx context.Context, taskID, attributionTas
 			return "", err
 		}
 	}
+	// These mounts must exist even on the first spawn: their writable
+	// parent would otherwise let the agent install its own mods or hooks.
+	for _, dir := range chimeraProtectedDirs(in) {
+		if err := checkProtectedDir(HostFS{}, dir); err != nil {
+			return "", err
+		}
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			return "", fmt.Errorf("prepare Chimera sandbox directory %s: %w", dir, err)
+		}
+	}
 	plan, err := BuildSandboxPlan(in)
 	if err != nil {
 		return "", err
