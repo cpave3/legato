@@ -1943,9 +1943,9 @@ func (a *agentService) SetAgentActivity(ctx context.Context, taskID, activity, w
 	if sess.ExecutionID == "" {
 		return errors.New("running agent session has no execution identity")
 	}
-	// Legato's Claude Code plugin reports this session; its hooks own the
+	// Legato's plugin or mod reports this session; its events own the
 	// state and its background jobs (docs/ai/agent-states.md).
-	if sess.HookSource == store.HookSourcePlugin {
+	if sess.HookSource == store.HookSourcePlugin || sess.HookSource == store.HookSourceMod {
 		return nil
 	}
 	oldActivity := sess.Activity

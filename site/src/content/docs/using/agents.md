@@ -73,6 +73,8 @@ Press `A` on the board to open the agents view. Agents are listed under what the
 - **Idle**: alive, and nothing will wake it but a message.
 - **Ended**: the session is over.
 
+Chimera sessions using Legato's mod report their state directly: permission prompts and questions show **Needs you** until the last open request is answered. A normal turn ending with background shells or background subagents still running shows **Background**, with those jobs listed. Errors show **Needs you**; an interrupted, timed-out or otherwise cancelled turn shows **Idle**, even if jobs remain. Old hook scripts and terminal prompt detection cannot override a session after its first mod report. These mappings follow Chimera's event spec; recorded fixtures are not available yet.
+
 Inside one state, a swarm's agents stay together with the conductor first, then grouped agents, then the rest. Each entry shows the agent's ID and the time in its state, its tool and task, and a bar of its recent activity.
 
 The selected agent's terminal is beside the list. When another agent needs you, a line above the foot names it; press `w` to select it.

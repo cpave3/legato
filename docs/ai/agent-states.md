@@ -45,7 +45,13 @@ new session with none: its background work ended with the old process.
   reports a turn that ended `interrupted` or `failed` as `TurnEnded`
   (`codexbridge.Options.OnTurnEnded`), which moves a session still `working` or
   `waiting` to idle or `error`.
-- **Chimera:** the scripts `legato hooks install --tool chimera` writes
+- **Chimera with the mod:** the ordered mod stream reaches `ParseChimeraHook`
+  and `ApplyChimeraHook`, through broker op `agent.hook` with `kind: chimera`
+  inside the sandbox, or directly through the store outside it. The first main
+  report sets `hook_source = 'mod'`; stale `agent state` scripts then do
+  nothing. Activity, reporting spans, notifications and job cleaning reuse
+  Claude Code's state machinery.
+- **Chimera without the mod:** the scripts `legato hooks install --tool chimera` writes
   (`UserPromptSubmit` → `working`; `PermissionRequest`, `UserInputRequired` →
   `waiting`; `PermissionResolved` → from its payload; `OnError` → `error`; `Stop`,
   `Interrupt`, `Timeout`, `SessionEnd` → idle) into `legato agent state`, with
@@ -54,7 +60,7 @@ new session with none: its background work ended with the old process.
   prompt detector (`internal/server/stream.go`) sets `waiting` while it sees a
   dialog and clears it after, through `AgentService.SetAgentActivity`, for an
   agent that reports nothing itself. It leaves a session the plugin reports for
-  alone (`hook_source = 'plugin'`), whose hooks already report the dialog.
+  alone (`hook_source = 'plugin'` or `'mod'`), whose events already report the dialog.
 
 ## Evidence
 
@@ -157,7 +163,37 @@ where the repository's current scripts differ, it says so.
 | Subagents | no hook carries one | — | — | Codex hooks or app-server events for them |
 | Compaction, `/clear`, resume | not hooked | unchanged | as Claude Code | — |
 
-## Chimera (from code)
+## Chimera with the mod (from the CHIM69 spec; not recorded fixtures)
+
+Tests use synthetic payloads of the spec's shapes in
+`internal/cli/chimera_hook_test.go` and `chimera_hook_broker_test.go`, through
+both the store and the real SQLite broker harness.
+
+| Signal | Activity and jobs |
+| --- | --- |
+| `turn.start` | `working` |
+| `message.append` | unchanged |
+| `permission.request` / `question.request` (`requestId`) | `waiting` |
+| `permission.resolved` / `question.resolved` | `working` only when the link-supplied `pendingRequests` is zero; a missing or positive count leaves state unchanged |
+| `background.start` (`jobId`, `command`) | add a `bash` job; activity unchanged |
+| `background.exit` (`jobId`, `command`) | remove the job; `background` becomes idle if no jobs remain |
+| Background `agent.spawn` (`agentId`, `description`, `background: true`) | add a `subagent` job; activity unchanged |
+| Foreground `agent.spawn` (`background: false`) | unchanged, no background job |
+| `agent.finish` (`agentId`, `description`, `background`) | remove the job if listed; `background` becomes idle if no jobs remain |
+| `turn.complete`, reason `stop` | idle, or `background` while listed jobs remain |
+| `turn.complete`, reason `error` | `error` |
+| `turn.complete`, reason `waiting_for_input` | `waiting` |
+| `turn.complete`, any other reason (including interrupted, timeout, cancelled) | idle, even if jobs remain |
+| Any event with `isSubagent: true` | ignored; an emitter's own events never change its parent |
+| Stale hook script or pane prompt detector after a mod report | unchanged (`hook_source = 'mod'`) |
+
+`agentId` on spawn/finish is the **subject**, not the emitter: it must not be
+used to ignore the parent's report. Only `isSubagent` identifies a child
+emitter. The link maintains the pending-request count; the state handler does
+not reconstruct it from request IDs. Job text uses the same one-line cleaning
+and bounds as Claude Code (200-rune labels, 64-rune IDs, at most 32 jobs).
+
+## Chimera without the mod (from code)
 
 | Case | Signals | Today | Correct | What it would need |
 | --- | --- | --- | --- | --- |
@@ -178,7 +214,8 @@ where the repository's current scripts differ, it says so.
   for something, having started nothing that will wake it, is `idle`, which is
   correct. Flagging its last words is not done.
 - **Codex and Chimera** as listed above. Neither could be recorded here, so
-  their payloads are read from Legato's code, not from a run.
+  their legacy payloads are read from Legato's code, not from a run; the
+  Chimera mod table is from the CHIM69 spec until fixtures are recorded.
 - **The "No" in the terminal** is reported only as the end of the turn: with
   the bridge the agent goes idle, which is right, since Claude Code then waits
   for a message.

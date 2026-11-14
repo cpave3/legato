@@ -411,6 +411,14 @@ func AgentState(s *store.Store, report AgentStateReport, pushNotifier, osNotifie
 	if err != nil {
 		return fmt.Errorf("getting agent session: %w", err)
 	}
+	if report.ExecutionID != "" && session.ExecutionID != report.ExecutionID {
+		return fmt.Errorf("execution %q does not own running task session %s", report.ExecutionID, report.TaskID)
+	}
+	// The plugin or mod owns this session, including child events. Stale
+	// installed scripts must not undo its reports or send duplicate notices.
+	if session.HookSource == store.HookSourcePlugin || session.HookSource == store.HookSourceMod {
+		return nil
+	}
 	if report.SessionID != "" && session.ChimeraSessionID == nil {
 		return fmt.Errorf("resolving Chimera session %q for task %s: parent session ID is unavailable", report.SessionID, report.TaskID)
 	}
@@ -431,15 +439,6 @@ func AgentState(s *store.Store, report AgentStateReport, pushNotifier, osNotifie
 		return nil
 	}
 
-	if report.ExecutionID != "" && session.ExecutionID != report.ExecutionID {
-		return fmt.Errorf("execution %q does not own running task session %s", report.ExecutionID, report.TaskID)
-	}
-	// Legato's Claude Code plugin reports this session (ApplyClaudeHook).
-	// Scripts `legato hooks install` wrote earlier may still fire beside it,
-	// and an old one would undo what the plugin reported.
-	if session.HookSource == store.HookSourcePlugin {
-		return nil
-	}
 	if err := s.UpdateAgentActivityForSession(ctx, session.ID, report.Activity); err != nil {
 		return fmt.Errorf("updating agent activity: %w", err)
 	}

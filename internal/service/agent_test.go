@@ -2142,30 +2142,34 @@ func TestATaskGroupNameIsOneShortLine(t *testing.T) {
 // state: the web stream's prompt detector must not set it beside them, or
 // an agent with background jobs could show idle (LEG-144).
 func TestSetAgentActivity_LeavesASessionThePluginReportsAlone(t *testing.T) {
-	svc, s, _ := newTestAgentServiceWithNotifier(t, &fakeNotifier{})
-	ctx := context.Background()
-	createTask(t, s, "REX-1238")
-	if err := svc.SpawnAgent(ctx, "REX-1238", 0, 0); err != nil {
-		t.Fatal(err)
-	}
-	session, err := s.GetAgentSessionByTaskID(ctx, "REX-1238")
-	if err != nil {
-		t.Fatal(err)
-	}
-	jobs := store.BackgroundJobs{{Kind: store.JobBash, ID: "b1", Label: "npm run build"}}
-	if err := s.SetAgentHookState(ctx, session.ID, store.ActivityBackground, jobs, store.HookSourcePlugin); err != nil {
-		t.Fatal(err)
-	}
+	for _, source := range []string{store.HookSourcePlugin, store.HookSourceMod} {
+		t.Run(source, func(t *testing.T) {
+			svc, s, _ := newTestAgentServiceWithNotifier(t, &fakeNotifier{})
+			ctx := context.Background()
+			createTask(t, s, "REX-1238")
+			if err := svc.SpawnAgent(ctx, "REX-1238", 0, 0); err != nil {
+				t.Fatal(err)
+			}
+			session, err := s.GetAgentSessionByTaskID(ctx, "REX-1238")
+			if err != nil {
+				t.Fatal(err)
+			}
+			jobs := store.BackgroundJobs{{Kind: store.JobBash, ID: "b1", Label: "npm run build"}}
+			if err := s.SetAgentHookState(ctx, session.ID, store.ActivityBackground, jobs, source); err != nil {
+				t.Fatal(err)
+			}
 
-	if err := svc.SetAgentActivity(ctx, "REX-1238", "", ""); err != nil {
-		t.Fatal(err)
-	}
+			if err := svc.SetAgentActivity(ctx, "REX-1238", "", ""); err != nil {
+				t.Fatal(err)
+			}
 
-	after, err := s.GetAgentSessionByTaskID(ctx, "REX-1238")
-	if err != nil {
-		t.Fatal(err)
-	}
-	if after.Activity != store.ActivityBackground || len(after.BackgroundJobs) != 1 {
-		t.Fatalf("after the detector: %q %+v, want background with its job", after.Activity, after.BackgroundJobs)
+			after, err := s.GetAgentSessionByTaskID(ctx, "REX-1238")
+			if err != nil {
+				t.Fatal(err)
+			}
+			if after.Activity != store.ActivityBackground || len(after.BackgroundJobs) != 1 {
+				t.Fatalf("after the detector: %q %+v, want background with its job", after.Activity, after.BackgroundJobs)
+			}
+		})
 	}
 }

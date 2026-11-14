@@ -418,14 +418,18 @@ type AgentSession struct {
 	// BackgroundJobs is what the agent started that still runs and will
 	// wake it; the state is ActivityBackground when its turn ended with any.
 	BackgroundJobs BackgroundJobs `db:"background_jobs"`
-	// HookSource is HookSourcePlugin once Legato's Claude Code state plugin
-	// reported for the session, "" otherwise.
+	// HookSource is HookSourcePlugin or HookSourceMod once native state
+	// reporting owns the session, "" otherwise.
 	HookSource string `db:"hook_source"`
 }
 
 // HookSourcePlugin marks a session whose state Legato's Claude Code plugin
 // reports: reports from hook scripts installed by hand are then ignored.
 const HookSourcePlugin = "plugin"
+
+// HookSourceMod marks a session whose ordered Chimera mod reports own its
+// state, instead of legacy scripts or pane detection.
+const HookSourceMod = "mod"
 
 // Kinds of BackgroundJob.
 const (
