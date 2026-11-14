@@ -1104,7 +1104,7 @@ func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, hei
 		if booted.booted() {
 			engramMounts = SandboxEngram{Binary: booted.Binary, Store: booted.Store}
 		}
-		prefix, err := a.sandboxPrefix(ctx, taskID, executionID, agentKind, workDir, envMap, append(resources, freshClone.sandboxResources()...), opt.ReadOnlyCheckout, opt.ThrowawayCheckout, engramMounts)
+		prefix, err := a.sandboxPrefix(ctx, taskID, attributionTaskID, executionID, agentKind, workDir, envMap, append(resources, freshClone.sandboxResources()...), opt.ReadOnlyCheckout, opt.ThrowawayCheckout, engramMounts)
 		if err != nil {
 			failExecution()
 			return fmt.Errorf("Legato's sandbox: %w", err)

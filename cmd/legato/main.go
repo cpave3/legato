@@ -12,6 +12,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"syscall"
@@ -109,8 +110,11 @@ func runCLI(args []string) int {
 	}
 	// In Legato's sandbox an agent's own commands run on the host, for its
 	// session, through the broker.
-	if sandboxed() && forwardable(args) && !asksHostItself(args) {
+	if forwardsToHost(args) {
 		return forwardToHost(args)
+	}
+	if sandboxed() && forwardable(args) && scratchInstance() {
+		return renderCommandError(strings.Join(args[:2], "."), errScratchInSandbox(), slices.Contains(args, "--json"))
 	}
 	node, path, remaining, resolveErr := resolveCommand(commandTree(), args)
 	if resolveErr != nil {

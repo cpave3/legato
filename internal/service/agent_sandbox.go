@@ -43,8 +43,10 @@ func (a *agentService) CheckoutOverlayAvailable() bool {
 }
 
 // sandboxPrefix is the command line that starts an agent's launch command
-// in its sandbox, ending in "--".
-func (a *agentService) sandboxPrefix(ctx context.Context, taskID, executionID, agentKind, workDir string, env map[string]string, resources []Resource, readOnly, throwaway bool, engram SandboxEngram) (string, error) {
+// in its sandbox, ending in "--". attributionTaskID is the task the agent's
+// execution concerns: a workflow agent's may differ from taskID, and that
+// task's job clone is the agent's to work in too.
+func (a *agentService) sandboxPrefix(ctx context.Context, taskID, attributionTaskID, executionID, agentKind, workDir string, env map[string]string, resources []Resource, readOnly, throwaway bool, engram SandboxEngram) (string, error) {
 	backend := a.sandbox.Backend
 	if err := backend.Available(); err != nil {
 		return "", err
@@ -80,7 +82,7 @@ func (a *agentService) sandboxPrefix(ctx context.Context, taskID, executionID, a
 		}
 	}
 	in.GitCommonDir = gitCommonDir(ctx, workDir)
-	in.JobDir = a.taskJobClone(ctx, taskID, in.DataDir, workDir)
+	in.JobDir = a.taskJobClone(ctx, in.DataDir, workDir, taskID, attributionTaskID)
 	in.Extra = append([]SandboxPath{}, in.Extra...)
 	for _, resource := range resources {
 		for _, p := range resource.Paths {
@@ -348,15 +350,17 @@ func realCommands(name, skip string) []string {
 	return out
 }
 
-// taskJobClone is the job clone that holds workDir when the task works in
-// it (Legato made it for the task, or the task joined it), "" otherwise.
-// Only such a clone of Legato's data folder can be a sandboxed agent's
-// work: also when the agent is started again in it.
+// taskJobClone is the job clone that holds workDir when one of taskIDs
+// works in it (Legato made it for the task, or the task joined it), ""
+// otherwise. Only such a clone of Legato's data folder can be a sandboxed
+// agent's work: also when the agent is started again in it, and for a
+// workflow agent about the task, such as the learning workflow's curator,
+// which starts in the task's working folder (LEG-156).
 //
 // The paths are compared where they really are: the data folder and the
 // clone's record may name it through a link (a /home that is var/home)
 // while a working folder read back from the agent's pane does not.
-func (a *agentService) taskJobClone(ctx context.Context, taskID, dataDir, workDir string) string {
+func (a *agentService) taskJobClone(ctx context.Context, dataDir, workDir string, taskIDs ...string) string {
 	if dataDir == "" {
 		return ""
 	}
@@ -373,8 +377,13 @@ func (a *agentService) taskJobClone(ctx context.Context, taskID, dataDir, workDi
 	// The record names the clone as the data folder did when it was made.
 	for _, path := range []string{filepath.Join(jobs, parts[0], parts[1]), filepath.Join(realJobs, parts[0], parts[1])} {
 		clone, err := a.store.JobCloneByPath(ctx, path)
-		if err == nil && slices.Contains(clone.TaskIDs, taskID) {
-			return path
+		if err != nil {
+			continue
+		}
+		for _, taskID := range taskIDs {
+			if taskID != "" && slices.Contains(clone.TaskIDs, taskID) {
+				return path
+			}
 		}
 	}
 	return ""

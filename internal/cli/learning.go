@@ -3,6 +3,7 @@ package cli
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 
@@ -270,12 +271,26 @@ func LearningReflectionSubmit(ctx context.Context, learn ReflectionCLIService, w
 		"available":  "true",
 		"request_id": request.ID,
 	}
-	view, err := workflows.Complete(ctx, request.WorkflowRunID, request.StepID, request.AttemptID, values, nil)
-	if err != nil {
-		return fmt.Errorf("complete reflection workflow: %w", err)
-	}
-	return json.NewEncoder(w).Encode(struct {
+	type result struct {
 		Submission *service.ReflectionSubmission `json:"submission"`
 		Workflow   *store.WorkflowRunView        `json:"workflow"`
-	}{Submission: submission, Workflow: view})
+		Recorded   bool                          `json:"recorded"`
+		Note       string                        `json:"note,omitempty"`
+	}
+	view, err := workflows.Complete(ctx, request.WorkflowRunID, request.StepID, request.AttemptID, values, nil)
+	var recorded *service.StepRecordedError
+	switch {
+	case errors.As(err, &recorded):
+		// The reflection and its step are in; only what follows failed, which
+		// the run shows. Submitting again could not change that.
+		return json.NewEncoder(w).Encode(result{Submission: submission, Recorded: true,
+			Note: "reflection " + request.ID + " was recorded and its workflow step completed; do not submit it again. The workflow could not go on: " + recorded.Error()})
+	case err != nil && submission.Replayed && errors.Is(err, store.ErrWorkflowStateConflict):
+		// A retry of the same reflection after a completion that was recorded.
+		return json.NewEncoder(w).Encode(result{Submission: submission, Recorded: true,
+			Note: "reflection " + request.ID + " was already recorded and its workflow step is no longer waiting; nothing more to submit"})
+	case err != nil:
+		return fmt.Errorf("complete reflection workflow: %w", err)
+	}
+	return json.NewEncoder(w).Encode(result{Submission: submission, Workflow: view, Recorded: true})
 }

@@ -13,7 +13,7 @@ The user guide, with the YAML schema, executors, templates, triggers and CLI, is
 
 ### Agent completion
 
-Completion is persisted and downstream steps are advanced before Legato removes the completed agent session, because the callback (`legato workflow step complete`) may be running inside that session. Learn's borrowed-agent interview completes through `legato learn reflection submit`, which persists the typed reflection before completing its exact waiting attempt ([Legato Learn](learning.md)).
+Completion is persisted and downstream steps are advanced before Legato removes the completed agent session, because the callback (`legato workflow step complete`) may be running inside that session. When the step is recorded but the next step cannot start, `Complete` returns a `*StepRecordedError` (matched by `ErrWorkflowStepRecorded`) that says the step was completed and why the next one failed, so a caller does not retry a completion that already took; the run is failed at the next step as before. Learn's borrowed-agent interview completes through `legato learn reflection submit`, which persists the typed reflection before completing its exact waiting attempt ([Legato Learn](learning.md)).
 
 Managed artifact collection is replay-safe: rerunning an interrupted completion callback reuses an existing `(attempt, output)` artifact only when its source path and SHA-256 digest still match; changed content is rejected. Accepted files are copied atomically into managed storage so worktree cleanup does not destroy them.
 

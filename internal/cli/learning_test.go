@@ -135,3 +135,45 @@ func TestLearningReflectionSubmitReportsWorkflowCompletionError(t *testing.T) {
 		t.Fatalf("error = %v", err)
 	}
 }
+
+// A retry of a reflection whose step was already completed is answered as
+// recorded, not as a workflow state conflict (LEG-156).
+func TestLearningReflectionSubmitRetryOfARecordedReflectionSaysItWasRecorded(t *testing.T) {
+	learn := &fakeReflectionService{submission: &service.ReflectionSubmission{
+		Request:  &store.LearningReflectionRequest{ID: "lrq-1", WorkflowRunID: "run", StepID: "step", AttemptID: "attempt"},
+		Replayed: true,
+	}}
+	workflow := &fakeWorkflowCompletion{err: store.ErrWorkflowStateConflict}
+	var out strings.Builder
+	if err := LearningReflectionSubmit(context.Background(), learn, workflow, "lrq-1", []byte(`{}`), &out); err != nil {
+		t.Fatalf("a retry of a recorded reflection: %v", err)
+	}
+	if !strings.Contains(out.String(), `"recorded":true`) || !strings.Contains(out.String(), "already recorded") {
+		t.Fatalf("output %s does not say the reflection was recorded", out.String())
+	}
+}
+
+// A new submission that meets a step no longer waiting is still refused.
+func TestLearningReflectionSubmitConflictOnAFirstSubmissionIsAnError(t *testing.T) {
+	learn := &fakeReflectionService{submission: &service.ReflectionSubmission{Request: &store.LearningReflectionRequest{ID: "lrq-1", WorkflowRunID: "run", StepID: "step", AttemptID: "attempt"}}}
+	workflow := &fakeWorkflowCompletion{err: store.ErrWorkflowStateConflict}
+	if err := LearningReflectionSubmit(context.Background(), learn, workflow, "lrq-1", []byte(`{}`), &strings.Builder{}); err == nil {
+		t.Fatal("a conflict on a first submission was not reported")
+	}
+}
+
+// A reflection recorded whose workflow could not go on is reported as
+// recorded, with what went wrong after it: submitting again cannot help.
+func TestLearningReflectionSubmitRecordedButTheNextStepFailedSaysSo(t *testing.T) {
+	learn := &fakeReflectionService{submission: &service.ReflectionSubmission{Request: &store.LearningReflectionRequest{ID: "lrq-1", WorkflowRunID: "run", StepID: "step", AttemptID: "attempt"}}}
+	workflow := &fakeWorkflowCompletion{err: &service.StepRecordedError{StepID: "interview", NextStepID: "curator", Err: errors.New("Legato's sandbox: refused")}}
+	var out strings.Builder
+	if err := LearningReflectionSubmit(context.Background(), learn, workflow, "lrq-1", []byte(`{}`), &out); err != nil {
+		t.Fatalf("a recorded reflection: %v", err)
+	}
+	for _, want := range []string{`"recorded":true`, "Legato's sandbox: refused", "do not submit it again"} {
+		if !strings.Contains(out.String(), want) {
+			t.Errorf("output %s does not say %s", out.String(), want)
+		}
+	}
+}

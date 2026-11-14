@@ -5,6 +5,7 @@
 - For all work in this project, use the tdd skill, if present: tests first.
 - Never stop, kill, restart, or replace a running Legato process unless the user explicitly asks for that process action. A request to change, build, validate, or deploy Legato does not imply permission to disrupt a running process.
 - Do not perform browser or end-to-end testing against a running Legato unless the user explicitly asks for it. Such tests are fine against scratch instances (their own config, database, data and runtime folders, tmux server and port) that do not disrupt running ones; stop them and remove their folders afterwards.
+- Inside Legato's sandbox, `legato` commands go to the real Legato through the broker: to run a scratch instance from there, follow `docs/agents/scratch-instance.md`.
 
 AI Agent Orchestration TUI — a keyboard-driven kanban board for tracking tasks, built for developers who work with AI coding agents. Supports local tasks and pluggable ticket providers (Jira first, others planned).
 
