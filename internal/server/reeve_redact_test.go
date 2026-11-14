@@ -38,6 +38,8 @@ func TestTheReeveReadsItsChangeSetsWithoutWhatItReadFromTheHost(t *testing.T) {
 	details := service.ChangeSetDetails{ID: "cs-1", Reason: "edit a file", Calls: []service.ProposedCall{
 		{ChangeCall: service.ChangeCall{Kind: "edit_file", File: "/home/me/auth-token"}, Diff: "- SECRET-ORIGINAL\n"},
 		{ChangeCall: service.ChangeCall{Kind: "api", Method: "PUT", Path: "/api/config/settings/jira.url"}, Setting: "jira.url", Before: "SECRET-BEFORE", After: "x"},
+		// The database's older values a config edit's move replaces.
+		{ChangeCall: service.ChangeCall{Kind: "config_edit"}, Keeps: []string{`kept in the database: adapters chimera: {} (the database had "SECRET-SHADOWED")`}},
 	}}
 	approval, _, err := approvals.Submit(context.Background(), service.ApprovalInput{Source: service.ApprovalSourceReeveChangeSet, SourceKey: "cs-1", Title: "edit a file", Details: details})
 	if err != nil {
@@ -48,7 +50,7 @@ func TestTheReeveReadsItsChangeSetsWithoutWhatItReadFromTheHost(t *testing.T) {
 		if rec.Code != http.StatusOK || strings.Contains(rec.Body.String(), "SECRET-") || !strings.Contains(rec.Body.String(), "auth-token") {
 			t.Fatalf("the Reeve read %s: %d %s", path, rec.Code, rec.Body)
 		}
-		if rec := callAs(srv, "secret", http.MethodGet, path, ""); !strings.Contains(rec.Body.String(), "SECRET-ORIGINAL") || !strings.Contains(rec.Body.String(), "SECRET-BEFORE") {
+		if rec := callAs(srv, "secret", http.MethodGet, path, ""); !strings.Contains(rec.Body.String(), "SECRET-ORIGINAL") || !strings.Contains(rec.Body.String(), "SECRET-BEFORE") || !strings.Contains(rec.Body.String(), "SECRET-SHADOWED") {
 			t.Fatalf("the person's view of %s lost the diff: %s", path, rec.Body)
 		}
 	}
