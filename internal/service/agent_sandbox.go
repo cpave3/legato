@@ -9,7 +9,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
-	"slices"
 	"strings"
 
 	"github.com/cpave3/legato/internal/engine/sandbox"
@@ -85,7 +84,11 @@ func (a *agentService) sandboxPrefix(ctx context.Context, taskID, attributionTas
 		}
 	}
 	in.GitCommonDir = gitCommonDir(ctx, workDir)
-	in.JobDir = a.taskJobClone(ctx, in.DataDir, workDir, taskID, attributionTaskID)
+	jobDir, err := a.taskJobClone(ctx, in.DataDir, workDir, taskID, attributionTaskID)
+	if err != nil {
+		return "", err
+	}
+	in.JobDir = jobDir
 	in.Extra = append([]SandboxPath{}, in.Extra...)
 	for _, resource := range resources {
 		for _, p := range resource.Paths {
@@ -373,31 +376,34 @@ func realCommands(name, skip string) []string {
 // The paths are compared where they really are: the data folder and the
 // clone's record may name it through a link (a /home that is var/home)
 // while a working folder read back from the agent's pane does not.
-func (a *agentService) taskJobClone(ctx context.Context, dataDir, workDir string, taskIDs ...string) string {
+func (a *agentService) taskJobClone(ctx context.Context, dataDir, workDir string, taskIDs ...string) (string, error) {
 	if dataDir == "" {
-		return ""
+		return "", nil
 	}
 	jobs := filepath.Join(dataDir, "jobs")
 	realJobs := HostFS{}.Real(jobs)
 	rel, err := filepath.Rel(realJobs, HostFS{}.Real(workDir))
 	if err != nil || rel == "." || strings.HasPrefix(rel, "..") {
-		return ""
+		return "", nil
 	}
 	parts := strings.Split(rel, string(filepath.Separator))
 	if len(parts) < 2 {
-		return ""
+		return "", nil
 	}
-	// The record names the clone as the data folder did when it was made.
-	for _, path := range []string{filepath.Join(jobs, parts[0], parts[1]), filepath.Join(realJobs, parts[0], parts[1])} {
-		clone, err := a.store.JobCloneByPath(ctx, path)
-		if err != nil {
+	cloneRoot := filepath.Join(realJobs, parts[0], parts[1])
+	for _, taskID := range taskIDs {
+		if taskID == "" {
 			continue
 		}
-		for _, taskID := range taskIDs {
-			if taskID != "" && slices.Contains(clone.TaskIDs, taskID) {
-				return path
+		clones, err := a.store.ListLiveTaskJobClones(ctx, taskID)
+		if err != nil {
+			return "", fmt.Errorf("finding task %s's job clone: %w", taskID, err)
+		}
+		for _, clone := range clones {
+			if (HostFS{}).Real(clone.Path) == cloneRoot {
+				return cloneRoot, nil
 			}
 		}
 	}
-	return ""
+	return "", nil
 }
