@@ -28,6 +28,15 @@ func reviewPassConfig(cfg *config.Config) func() service.ReviewPassConfig {
 	}
 }
 
+// workerReviewPassOptions gives the review loop what it reads from the
+// configuration: review_passes, and the advert a main's Hand off override is
+// checked against, which is the one /api/meta gives (reviewPassesAdvert).
+// Without the advert every override is refused.
+func workerReviewPassOptions(cfg *config.Config, opts service.ReviewPassOptions) service.ReviewPassOptions {
+	opts.Config, opts.Advert = reviewPassConfig(cfg), reviewPassesAdvert(cfg)
+	return opts
+}
+
 // wireReviewPasses starts the review loop of a worker with review_passes
 // on: it gates its handoffs' Done on a clean review, takes submit_review
 // through the broker, and ticks while this process serves the broker. It
@@ -40,15 +49,15 @@ func wireReviewPasses(deps integrationDeps, handoffs *service.HandoffWorkerServi
 	if !ok || deps.board == nil {
 		return func() {}
 	}
-	opts := service.ReviewPassOptions{
-		Config: reviewPassConfig(deps.cfg), Agents: agents, Board: deps.board, Bus: deps.bus,
+	opts := workerReviewPassOptions(deps.cfg, service.ReviewPassOptions{
+		Agents: agents, Board: deps.board, Bus: deps.bus,
 		GitHub:   service.NewReviewPublisher(deps.approvals.channels, deps.cfg.ReviewPasses.GitHubCredential),
 		Checkout: service.GitReviewCheckout{Store: deps.db},
 		Run:      func(f func()) { go f() },
 		// A dead author is resumed, with everything it had, to hear of its
 		// feedback.
 		ResumeAuthor: handoffs.ResumeAuthor,
-	}
+	})
 	if prober, ok := deps.agents.(service.CheckoutOverlayProber); ok {
 		opts.Overlay = prober.CheckoutOverlayAvailable
 	}
