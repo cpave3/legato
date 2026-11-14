@@ -505,6 +505,10 @@ func TestGHRunsWithAReadTokenThroughLegatosWrapper(t *testing.T) {
 // session's ZDOTDIR and BASH_ENV run those files, then put the wrapper back
 // first; what else the files set up (a tool mise adds, say) stays reachable.
 func TestTheShellsStartupFilesDoNotPutAnotherGHBeforeLegatos(t *testing.T) {
+	// The fixture owns the startup files; do not chain through the shell
+	// wrappers of an agent session running this test.
+	t.Setenv("BASH_ENV", "")
+	t.Setenv("ZDOTDIR", "")
 	bin := t.TempDir()
 	_ = os.WriteFile(filepath.Join(bin, "gh"), []byte("#!/bin/sh\necho \"gh token=$GH_TOKEN\"\n"), 0o755)
 	legato := filepath.Join(t.TempDir(), "legato")
@@ -532,30 +536,32 @@ func TestTheShellsStartupFilesDoNotPutAnotherGHBeforeLegatos(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	ran := 0
 	for _, shell := range [][]string{{"zsh", "-c"}, {"zsh", "-lc"}, {"bash", "-c"}, {"bash", "-lc"}} {
-		path, err := exec.LookPath(shell[0])
-		if err != nil {
-			continue
-		}
-		ran++
-		cmd := exec.Command(path, shell[1], "gh pr list -R cpave3/legato; mytool || true")
-		cmd.Env = []string{"HOME=" + home, "LEGATO_SANDBOXED=1"}
-		for k, v := range env {
-			cmd.Env = append(cmd.Env, k+"="+v)
-		}
-		out, err := cmd.Output()
-		got := strings.TrimSpace(string(out))
-		want := "gh token=ghs_read_for_gh"
-		if shell[1] == "-lc" {
-			want += "\nmytool" // the login files ran
-		}
-		if err != nil || got != want {
-			t.Errorf("%s %s: %v\n got %q\nwant %q", shell[0], shell[1], err, got, want)
-		}
-	}
-	if ran == 0 {
-		t.Skip("neither zsh nor bash is installed")
+		t.Run(shell[0]+shell[1], func(t *testing.T) {
+			path, err := exec.LookPath(shell[0])
+			if err != nil {
+				t.Skipf("real shell unavailable: %v", err)
+			}
+			probe := exec.Command(path, shell[1], "exit 0")
+			probe.Env = []string{"HOME=" + home, "PATH=" + os.Getenv("PATH")}
+			if out, err := probe.CombinedOutput(); err != nil {
+				t.Skipf("real %s %s cannot run in this environment: %v\n%s", shell[0], shell[1], err, out)
+			}
+			cmd := exec.Command(path, shell[1], "gh pr list -R cpave3/legato; mytool || true")
+			cmd.Env = []string{"HOME=" + home, "LEGATO_SANDBOXED=1"}
+			for k, v := range env {
+				cmd.Env = append(cmd.Env, k+"="+v)
+			}
+			out, err := cmd.Output()
+			got := strings.TrimSpace(string(out))
+			want := "gh token=ghs_read_for_gh"
+			if shell[1] == "-lc" {
+				want += "\nmytool" // the login files ran
+			}
+			if err != nil || got != want {
+				t.Errorf("%s %s: %v\n got %q\nwant %q", shell[0], shell[1], err, got, want)
+			}
+		})
 	}
 }
 
