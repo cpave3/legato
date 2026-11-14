@@ -13,6 +13,8 @@ Legato loads its mod into every Chimera it starts, including a `chimera` you sta
 
 The card shows **working** during a turn, **needs you** for a permission prompt or question, **background** while shells or background subagents continue after a turn, and **error** when a turn fails. Attaching a file or running `!command` does not start a turn. The background jobs are listed with the agent.
 
+Subagent cards and tiles follow the same lifecycle: spawning, running, finished or error, and interrupted. The mod keeps completion status even when a background child finishes while the parent is idle, or you reopen the panel. Only background children appear in the parent's background jobs; they leave that list when they finish.
+
 To use the legacy integration instead:
 
 ```yaml

@@ -6,7 +6,7 @@ import { cn } from "../lib/utils"
 // can be opened in full. It knows nothing of what a tile stands for; the
 // native panel uses it for subagents.
 
-export type TileState = "running" | "waiting" | "done" | "error"
+export type TileState = "spawning" | "running" | "waiting" | "done" | "error" | "interrupted"
 
 export interface DeckTile {
   id: string
@@ -43,13 +43,15 @@ export interface TileDeckProps {
 }
 
 const looks: Record<TileState, { label: string; glyph: string; chip: string; frame: string }> = {
+  spawning: { label: "spawning", glyph: "○", chip: "bg-lw-live-soft text-lw-live", frame: "border-[#2d3a33]" },
+  interrupted: { label: "interrupted", glyph: "■", chip: "bg-lw-idle-soft text-lw-text-2", frame: "border-lw-line" },
   running: { label: "running", glyph: "●", chip: "bg-lw-live-soft text-lw-live", frame: "border-[#2d3a33]" },
   waiting: { label: "needs you", glyph: "◆", chip: "bg-lw-needs-soft text-lw-needs", frame: "border-[#4a3a1a]" },
   done: { label: "done", glyph: "✓", chip: "bg-lw-done-soft text-lw-done", frame: "border-lw-line" },
   error: { label: "error", glyph: "✕", chip: "bg-lw-error-soft text-lw-error", frame: "border-[#4a2a2e]" },
 }
 
-const live = (tile: DeckTile) => tile.state === "running" || tile.state === "waiting"
+const live = (tile: DeckTile) => tile.state === "spawning" || tile.state === "running" || tile.state === "waiting"
 
 export function TileDeck(props: TileDeckProps) {
   const { tiles, focused, onFocus } = props
@@ -329,7 +331,7 @@ function Sheet({ tile, now, onClose, onStep, position }: {
 
 function Counts({ tiles }: { tiles: DeckTile[] }) {
   const count = (state: TileState) => tiles.filter((tile) => tile.state === state).length
-  const parts: Array<[TileState, string]> = [["waiting", "text-lw-needs"], ["running", "text-lw-live"], ["done", "text-lw-done"], ["error", "text-lw-error"]]
+  const parts: Array<[TileState, string]> = [["spawning", "text-lw-live"], ["interrupted", "text-lw-text-2"], ["waiting", "text-lw-needs"], ["running", "text-lw-live"], ["done", "text-lw-done"], ["error", "text-lw-error"]]
   return (
     <ul aria-label="By state" className="m-0 flex list-none flex-wrap gap-x-3 p-0 text-xs">
       {parts.map(([state, tone]) => count(state) > 0 && (

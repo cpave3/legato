@@ -390,3 +390,11 @@ func (s *Store) SetAgentHookState(ctx context.Context, id int, activity string, 
 			hook_source = CASE WHEN ? = '' THEN hook_source ELSE ? END
 		WHERE id = ? AND status = 'running' AND (hook_source <> 'mod' OR ? = 'mod')`, activity, jobs, source, source, id, source))
 }
+
+// SetChimeraHookState atomically saves activity, active jobs and child lifecycle
+// evidence from the same ordered mod record.
+func (s *Store) SetChimeraHookState(ctx context.Context, id int, activity string, jobs BackgroundJobs, children string) error {
+	return agentStateResult(s.db.ExecContext(ctx, `
+		UPDATE agent_sessions SET activity = ?, background_jobs = ?, chimera_subagents = ?, hook_source = 'mod'
+		WHERE id = ? AND status = 'running'`, activity, jobs, children, id))
+}

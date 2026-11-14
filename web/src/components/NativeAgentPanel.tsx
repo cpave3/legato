@@ -41,6 +41,7 @@ import {
   createNativeSyncState,
   reconcileNativeSnapshot,
   reduceNativeEvent,
+  subagentStatus,
   updatePermissionState,
   updateQuestionState,
   type NativeConversationItem,
@@ -596,6 +597,15 @@ export function NativeAgentPanel({ agentId, reeve, sandboxed, onKill, onRename, 
 
   useEffect(() => {
     const unsubscribe = subscribe((msg: WSMessage) => {
+      if (msg.type === "agents_changed" && following && syncStateRef.current.items.some(item => item.tool?.toolName === "spawn_agent" && ["spawning", "running"].includes(subagentStatus(item.tool)))) {
+        if (runFinishTimerRef.current == null) {
+          runFinishTimerRef.current = window.setTimeout(() => {
+            runFinishTimerRef.current = null
+            void resync()
+          }, 100)
+        }
+        return
+      }
       if (msg.agent_id !== agentId) return
       if (msg.type === "prompt_state") {
         setTerminalPrompt(msg.prompt ?? null)
@@ -1297,7 +1307,7 @@ const SubagentCard = memo(function SubagentCard({ tool }: { tool: ToolCallItem }
   const agent = String(args.agent || "default")
   const model = String(args.model || "inherited")
   const mode = String(args.mode || "default")
-  const status = subagent?.status || (result.reason ? (result.reason === "stop" ? "finished" : "error") : "spawning")
+  const status = subagentStatus(tool)
   const steps = result.steps as number | undefined
   const toolCalls = result.tool_calls_count as number | undefined
 
@@ -1317,6 +1327,7 @@ const SubagentCard = memo(function SubagentCard({ tool }: { tool: ToolCallItem }
             <span className="rounded bg-zinc-800 px-1.5 py-0.5 text-zinc-300">mode <span className="font-mono text-zinc-100">{mode}</span></span>
           </div>
           {prompt && <div className="mb-2 whitespace-pre-wrap rounded bg-zinc-900/70 px-2 py-1.5 text-xs text-zinc-300">{prompt}</div>}
+          {tool.error && <div className="text-xs text-red-300">{tool.error}</div>}
           {subagent?.activities.length ? (
             <div className="space-y-1 border-l border-indigo-700/50 pl-3">
               {subagent.activities.map((activity) => <div key={activity.key} className="text-xs text-zinc-300">{activity.text}</div>)}

@@ -1,0 +1,1138 @@
+{
+  "upstream": "cpave3/chimera@4c7489363843d665a5e821adc9c2f911ddbfad3c",
+  "provenance": "Faithfully copied CHIM-69 mod payloads from packages/cli/src/mod-runtime.ts:240-258 and packages/subagents/src/spawn-tool.ts:298-362. IDs and labels normalized. Background finish is lifecycle-only while parent idle. Child session lifecycle callbacks are observed in the child context and are intentionally not forwarded by Legato (session.start before parent spawn; session.end before parent finish). Snapshot subagentStates are Legato augmentation, not upstream snapshot fields. At this SHA SessionEnd has no parentSessionId (agent-registry.ts:356-358); child identity comes from context, not a fabricated parent field.",
+  "stages": [
+    {
+      "label": "parent starts",
+      "mod": {
+        "type": "session.start",
+        "sessionId": "parent",
+        "apiVersion": 1,
+        "serverUrl": "http://127.0.0.1:4444/secret",
+        "cwd": "/repo",
+        "seq": 1
+      },
+      "jobs": [],
+      "states": {},
+      "nativeEvents": [],
+      "snapshot": {
+        "id": "parent",
+        "status": "running",
+        "messages": [
+          {
+            "role": "assistant",
+            "content": []
+          }
+        ],
+        "toolCalls": [],
+        "subagentStates": []
+      },
+      "childLifecycle": []
+    },
+    {
+      "label": "fg starts",
+      "mod": {
+        "type": "agent.spawn",
+        "sessionId": "parent",
+        "agentId": "fg",
+        "description": "fg",
+        "background": false,
+        "seq": 2
+      },
+      "jobs": [],
+      "states": {
+        "fg": "running"
+      },
+      "nativeEvents": [
+        {
+          "eventId": "2-0",
+          "type": "tool_call_start",
+          "callId": "spawn-fg",
+          "name": "spawn_agent",
+          "args": {
+            "purpose": "fg",
+            "prompt": "Investigate fg",
+            "background": false
+          }
+        },
+        {
+          "eventId": "2-1",
+          "type": "subagent_spawned",
+          "subagentId": "fg",
+          "parentCallId": "spawn-fg",
+          "childSessionId": "child-fg",
+          "purpose": "fg",
+          "background": false
+        }
+      ],
+      "snapshot": {
+        "id": "parent",
+        "status": "running",
+        "messages": [
+          {
+            "role": "assistant",
+            "content": [
+              {
+                "type": "tool-call"
+              }
+            ]
+          }
+        ],
+        "toolCalls": [
+          {
+            "callId": "spawn-fg",
+            "name": "spawn_agent",
+            "args": {
+              "purpose": "fg",
+              "prompt": "Investigate fg",
+              "background": false
+            },
+            "startedAt": 1000
+          }
+        ],
+        "subagentStates": [
+          {
+            "subagentId": "fg",
+            "sessionId": "parent",
+            "purpose": "fg",
+            "status": "running",
+            "startedAt": 2000
+          }
+        ]
+      },
+      "childLifecycle": [
+        {
+          "type": "session.start",
+          "sessionId": "child-fg",
+          "parentSessionId": "parent",
+          "reason": "new"
+        }
+      ]
+    },
+    {
+      "label": "bg starts",
+      "mod": {
+        "type": "agent.spawn",
+        "sessionId": "parent",
+        "agentId": "bg",
+        "description": "bg",
+        "background": true,
+        "seq": 3
+      },
+      "jobs": [
+        "bg"
+      ],
+      "states": {
+        "fg": "running",
+        "bg": "running"
+      },
+      "nativeEvents": [
+        {
+          "eventId": "3-0",
+          "type": "tool_call_start",
+          "callId": "spawn-bg",
+          "name": "spawn_agent",
+          "args": {
+            "purpose": "bg",
+            "prompt": "Investigate bg",
+            "background": true
+          }
+        },
+        {
+          "eventId": "3-1",
+          "type": "subagent_spawned",
+          "subagentId": "bg",
+          "parentCallId": "spawn-bg",
+          "childSessionId": "child-bg",
+          "purpose": "bg",
+          "background": true
+        },
+        {
+          "eventId": "3-2",
+          "type": "tool_call_result",
+          "callId": "spawn-bg",
+          "result": {
+            "subagent_id": "bg",
+            "session_id": "child-bg",
+            "status": "running"
+          }
+        }
+      ],
+      "snapshot": {
+        "id": "parent",
+        "status": "running",
+        "messages": [
+          {
+            "role": "assistant",
+            "content": [
+              {
+                "type": "tool-call"
+              },
+              {
+                "type": "tool-call"
+              }
+            ]
+          }
+        ],
+        "toolCalls": [
+          {
+            "callId": "spawn-fg",
+            "name": "spawn_agent",
+            "args": {
+              "purpose": "fg",
+              "prompt": "Investigate fg",
+              "background": false
+            },
+            "startedAt": 1000
+          },
+          {
+            "callId": "spawn-bg",
+            "name": "spawn_agent",
+            "args": {
+              "purpose": "bg",
+              "prompt": "Investigate bg",
+              "background": true
+            },
+            "result": {
+              "subagent_id": "bg",
+              "session_id": "child-bg",
+              "status": "running"
+            },
+            "startedAt": 2000
+          }
+        ],
+        "subagentStates": [
+          {
+            "subagentId": "fg",
+            "sessionId": "parent",
+            "purpose": "fg",
+            "status": "running",
+            "startedAt": 2000
+          },
+          {
+            "subagentId": "bg",
+            "sessionId": "parent",
+            "purpose": "bg",
+            "status": "running",
+            "startedAt": 3000
+          }
+        ]
+      },
+      "childLifecycle": [
+        {
+          "type": "session.start",
+          "sessionId": "child-bg",
+          "parentSessionId": "parent",
+          "reason": "new"
+        }
+      ]
+    },
+    {
+      "label": "foreground done",
+      "mod": {
+        "type": "agent.finish",
+        "sessionId": "parent",
+        "agentId": "fg",
+        "background": false,
+        "reason": "stop",
+        "seq": 4
+      },
+      "jobs": [
+        "bg"
+      ],
+      "states": {
+        "fg": "finished",
+        "bg": "running"
+      },
+      "nativeEvents": [
+        {
+          "eventId": "4-0",
+          "type": "subagent_finished",
+          "subagentId": "fg",
+          "parentCallId": "spawn-fg",
+          "reason": "stop"
+        },
+        {
+          "eventId": "4-1",
+          "type": "tool_call_result",
+          "callId": "spawn-fg",
+          "result": {
+            "subagent_id": "fg",
+            "session_id": "child-fg",
+            "reason": "stop",
+            "result": "Finished"
+          }
+        }
+      ],
+      "snapshot": {
+        "id": "parent",
+        "status": "running",
+        "messages": [
+          {
+            "role": "assistant",
+            "content": [
+              {
+                "type": "tool-call"
+              },
+              {
+                "type": "tool-call"
+              }
+            ]
+          }
+        ],
+        "toolCalls": [
+          {
+            "callId": "spawn-fg",
+            "name": "spawn_agent",
+            "args": {
+              "purpose": "fg",
+              "prompt": "Investigate fg",
+              "background": false
+            },
+            "result": {
+              "subagent_id": "fg",
+              "session_id": "child-fg",
+              "reason": "stop",
+              "result": "Finished"
+            },
+            "startedAt": 1000
+          },
+          {
+            "callId": "spawn-bg",
+            "name": "spawn_agent",
+            "args": {
+              "purpose": "bg",
+              "prompt": "Investigate bg",
+              "background": true
+            },
+            "result": {
+              "subagent_id": "bg",
+              "session_id": "child-bg",
+              "status": "running"
+            },
+            "startedAt": 2000
+          }
+        ],
+        "subagentStates": [
+          {
+            "subagentId": "fg",
+            "sessionId": "parent",
+            "purpose": "fg",
+            "status": "finished",
+            "startedAt": 2000,
+            "reason": "stop",
+            "endedAt": 4000
+          },
+          {
+            "subagentId": "bg",
+            "sessionId": "parent",
+            "purpose": "bg",
+            "status": "running",
+            "startedAt": 3000
+          }
+        ]
+      },
+      "childLifecycle": [
+        {
+          "type": "session.end",
+          "sessionId": "child-fg",
+          "reason": "delete"
+        }
+      ]
+    },
+    {
+      "label": "parent idle",
+      "mod": {
+        "type": "turn.complete",
+        "sessionId": "parent",
+        "reason": "stop",
+        "seq": 5
+      },
+      "jobs": [
+        "bg"
+      ],
+      "states": {
+        "fg": "finished",
+        "bg": "running"
+      },
+      "nativeEvents": [
+        {
+          "eventId": "5-0",
+          "type": "run_finished",
+          "reason": "stop"
+        }
+      ],
+      "snapshot": {
+        "id": "parent",
+        "status": "idle",
+        "messages": [
+          {
+            "role": "assistant",
+            "content": [
+              {
+                "type": "tool-call"
+              },
+              {
+                "type": "tool-call"
+              }
+            ]
+          }
+        ],
+        "toolCalls": [
+          {
+            "callId": "spawn-fg",
+            "name": "spawn_agent",
+            "args": {
+              "purpose": "fg",
+              "prompt": "Investigate fg",
+              "background": false
+            },
+            "result": {
+              "subagent_id": "fg",
+              "session_id": "child-fg",
+              "reason": "stop",
+              "result": "Finished"
+            },
+            "startedAt": 1000
+          },
+          {
+            "callId": "spawn-bg",
+            "name": "spawn_agent",
+            "args": {
+              "purpose": "bg",
+              "prompt": "Investigate bg",
+              "background": true
+            },
+            "result": {
+              "subagent_id": "bg",
+              "session_id": "child-bg",
+              "status": "running"
+            },
+            "startedAt": 2000
+          }
+        ],
+        "subagentStates": [
+          {
+            "subagentId": "fg",
+            "sessionId": "parent",
+            "purpose": "fg",
+            "status": "finished",
+            "startedAt": 2000,
+            "reason": "stop",
+            "endedAt": 4000
+          },
+          {
+            "subagentId": "bg",
+            "sessionId": "parent",
+            "purpose": "bg",
+            "status": "running",
+            "startedAt": 3000
+          }
+        ]
+      },
+      "childLifecycle": []
+    },
+    {
+      "label": "background done while idle",
+      "mod": {
+        "type": "agent.finish",
+        "sessionId": "parent",
+        "agentId": "bg",
+        "background": true,
+        "reason": "stop",
+        "seq": 6
+      },
+      "jobs": [],
+      "states": {
+        "fg": "finished",
+        "bg": "finished"
+      },
+      "nativeEvents": [],
+      "snapshot": {
+        "id": "parent",
+        "status": "idle",
+        "messages": [
+          {
+            "role": "assistant",
+            "content": [
+              {
+                "type": "tool-call"
+              },
+              {
+                "type": "tool-call"
+              }
+            ]
+          }
+        ],
+        "toolCalls": [
+          {
+            "callId": "spawn-fg",
+            "name": "spawn_agent",
+            "args": {
+              "purpose": "fg",
+              "prompt": "Investigate fg",
+              "background": false
+            },
+            "result": {
+              "subagent_id": "fg",
+              "session_id": "child-fg",
+              "reason": "stop",
+              "result": "Finished"
+            },
+            "startedAt": 1000
+          },
+          {
+            "callId": "spawn-bg",
+            "name": "spawn_agent",
+            "args": {
+              "purpose": "bg",
+              "prompt": "Investigate bg",
+              "background": true
+            },
+            "result": {
+              "subagent_id": "bg",
+              "session_id": "child-bg",
+              "status": "running"
+            },
+            "startedAt": 2000
+          }
+        ],
+        "subagentStates": [
+          {
+            "subagentId": "fg",
+            "sessionId": "parent",
+            "purpose": "fg",
+            "status": "finished",
+            "startedAt": 2000,
+            "reason": "stop",
+            "endedAt": 4000
+          },
+          {
+            "subagentId": "bg",
+            "sessionId": "parent",
+            "purpose": "bg",
+            "status": "finished",
+            "startedAt": 3000,
+            "reason": "stop",
+            "endedAt": 6000
+          }
+        ]
+      },
+      "childLifecycle": [
+        {
+          "type": "session.end",
+          "sessionId": "child-bg",
+          "reason": "delete"
+        }
+      ]
+    },
+    {
+      "label": "bad starts",
+      "mod": {
+        "type": "agent.spawn",
+        "sessionId": "parent",
+        "agentId": "bad",
+        "description": "bad",
+        "background": true,
+        "seq": 7
+      },
+      "jobs": [
+        "bad"
+      ],
+      "states": {
+        "fg": "finished",
+        "bg": "finished",
+        "bad": "running"
+      },
+      "nativeEvents": [
+        {
+          "eventId": "7-0",
+          "type": "tool_call_start",
+          "callId": "spawn-bad",
+          "name": "spawn_agent",
+          "args": {
+            "purpose": "bad",
+            "prompt": "Investigate bad",
+            "background": true
+          }
+        },
+        {
+          "eventId": "7-1",
+          "type": "subagent_spawned",
+          "subagentId": "bad",
+          "parentCallId": "spawn-bad",
+          "childSessionId": "child-bad",
+          "purpose": "bad",
+          "background": true
+        },
+        {
+          "eventId": "7-2",
+          "type": "tool_call_result",
+          "callId": "spawn-bad",
+          "result": {
+            "subagent_id": "bad",
+            "session_id": "child-bad",
+            "status": "running"
+          }
+        }
+      ],
+      "snapshot": {
+        "id": "parent",
+        "status": "idle",
+        "messages": [
+          {
+            "role": "assistant",
+            "content": [
+              {
+                "type": "tool-call"
+              },
+              {
+                "type": "tool-call"
+              },
+              {
+                "type": "tool-call"
+              }
+            ]
+          }
+        ],
+        "toolCalls": [
+          {
+            "callId": "spawn-fg",
+            "name": "spawn_agent",
+            "args": {
+              "purpose": "fg",
+              "prompt": "Investigate fg",
+              "background": false
+            },
+            "result": {
+              "subagent_id": "fg",
+              "session_id": "child-fg",
+              "reason": "stop",
+              "result": "Finished"
+            },
+            "startedAt": 1000
+          },
+          {
+            "callId": "spawn-bg",
+            "name": "spawn_agent",
+            "args": {
+              "purpose": "bg",
+              "prompt": "Investigate bg",
+              "background": true
+            },
+            "result": {
+              "subagent_id": "bg",
+              "session_id": "child-bg",
+              "status": "running"
+            },
+            "startedAt": 2000
+          },
+          {
+            "callId": "spawn-bad",
+            "name": "spawn_agent",
+            "args": {
+              "purpose": "bad",
+              "prompt": "Investigate bad",
+              "background": true
+            },
+            "result": {
+              "subagent_id": "bad",
+              "session_id": "child-bad",
+              "status": "running"
+            },
+            "startedAt": 3000
+          }
+        ],
+        "subagentStates": [
+          {
+            "subagentId": "fg",
+            "sessionId": "parent",
+            "purpose": "fg",
+            "status": "finished",
+            "startedAt": 2000,
+            "reason": "stop",
+            "endedAt": 4000
+          },
+          {
+            "subagentId": "bg",
+            "sessionId": "parent",
+            "purpose": "bg",
+            "status": "finished",
+            "startedAt": 3000,
+            "reason": "stop",
+            "endedAt": 6000
+          },
+          {
+            "subagentId": "bad",
+            "sessionId": "parent",
+            "purpose": "bad",
+            "status": "running",
+            "startedAt": 7000
+          }
+        ]
+      },
+      "childLifecycle": [
+        {
+          "type": "session.start",
+          "sessionId": "child-bad",
+          "parentSessionId": "parent",
+          "reason": "new"
+        }
+      ]
+    },
+    {
+      "label": "bad ends",
+      "mod": {
+        "type": "agent.finish",
+        "sessionId": "parent",
+        "agentId": "bad",
+        "background": true,
+        "reason": "error",
+        "seq": 8
+      },
+      "jobs": [],
+      "states": {
+        "fg": "finished",
+        "bg": "finished",
+        "bad": "error"
+      },
+      "nativeEvents": [],
+      "snapshot": {
+        "id": "parent",
+        "status": "idle",
+        "messages": [
+          {
+            "role": "assistant",
+            "content": [
+              {
+                "type": "tool-call"
+              },
+              {
+                "type": "tool-call"
+              },
+              {
+                "type": "tool-call"
+              }
+            ]
+          }
+        ],
+        "toolCalls": [
+          {
+            "callId": "spawn-fg",
+            "name": "spawn_agent",
+            "args": {
+              "purpose": "fg",
+              "prompt": "Investigate fg",
+              "background": false
+            },
+            "result": {
+              "subagent_id": "fg",
+              "session_id": "child-fg",
+              "reason": "stop",
+              "result": "Finished"
+            },
+            "startedAt": 1000
+          },
+          {
+            "callId": "spawn-bg",
+            "name": "spawn_agent",
+            "args": {
+              "purpose": "bg",
+              "prompt": "Investigate bg",
+              "background": true
+            },
+            "result": {
+              "subagent_id": "bg",
+              "session_id": "child-bg",
+              "status": "running"
+            },
+            "startedAt": 2000
+          },
+          {
+            "callId": "spawn-bad",
+            "name": "spawn_agent",
+            "args": {
+              "purpose": "bad",
+              "prompt": "Investigate bad",
+              "background": true
+            },
+            "result": {
+              "subagent_id": "bad",
+              "session_id": "child-bad",
+              "status": "running"
+            },
+            "startedAt": 3000
+          }
+        ],
+        "subagentStates": [
+          {
+            "subagentId": "fg",
+            "sessionId": "parent",
+            "purpose": "fg",
+            "status": "finished",
+            "startedAt": 2000,
+            "reason": "stop",
+            "endedAt": 4000
+          },
+          {
+            "subagentId": "bg",
+            "sessionId": "parent",
+            "purpose": "bg",
+            "status": "finished",
+            "startedAt": 3000,
+            "reason": "stop",
+            "endedAt": 6000
+          },
+          {
+            "subagentId": "bad",
+            "sessionId": "parent",
+            "purpose": "bad",
+            "status": "error",
+            "startedAt": 7000,
+            "reason": "error",
+            "endedAt": 8000
+          }
+        ]
+      },
+      "childLifecycle": [
+        {
+          "type": "session.end",
+          "sessionId": "child-bad",
+          "reason": "delete"
+        }
+      ]
+    },
+    {
+      "label": "cancelled starts",
+      "mod": {
+        "type": "agent.spawn",
+        "sessionId": "parent",
+        "agentId": "cancelled",
+        "description": "cancelled",
+        "background": true,
+        "seq": 9
+      },
+      "jobs": [
+        "cancelled"
+      ],
+      "states": {
+        "fg": "finished",
+        "bg": "finished",
+        "bad": "error",
+        "cancelled": "running"
+      },
+      "nativeEvents": [
+        {
+          "eventId": "9-0",
+          "type": "tool_call_start",
+          "callId": "spawn-cancelled",
+          "name": "spawn_agent",
+          "args": {
+            "purpose": "cancelled",
+            "prompt": "Investigate cancelled",
+            "background": true
+          }
+        },
+        {
+          "eventId": "9-1",
+          "type": "subagent_spawned",
+          "subagentId": "cancelled",
+          "parentCallId": "spawn-cancelled",
+          "childSessionId": "child-cancelled",
+          "purpose": "cancelled",
+          "background": true
+        },
+        {
+          "eventId": "9-2",
+          "type": "tool_call_result",
+          "callId": "spawn-cancelled",
+          "result": {
+            "subagent_id": "cancelled",
+            "session_id": "child-cancelled",
+            "status": "running"
+          }
+        }
+      ],
+      "snapshot": {
+        "id": "parent",
+        "status": "idle",
+        "messages": [
+          {
+            "role": "assistant",
+            "content": [
+              {
+                "type": "tool-call"
+              },
+              {
+                "type": "tool-call"
+              },
+              {
+                "type": "tool-call"
+              },
+              {
+                "type": "tool-call"
+              }
+            ]
+          }
+        ],
+        "toolCalls": [
+          {
+            "callId": "spawn-fg",
+            "name": "spawn_agent",
+            "args": {
+              "purpose": "fg",
+              "prompt": "Investigate fg",
+              "background": false
+            },
+            "result": {
+              "subagent_id": "fg",
+              "session_id": "child-fg",
+              "reason": "stop",
+              "result": "Finished"
+            },
+            "startedAt": 1000
+          },
+          {
+            "callId": "spawn-bg",
+            "name": "spawn_agent",
+            "args": {
+              "purpose": "bg",
+              "prompt": "Investigate bg",
+              "background": true
+            },
+            "result": {
+              "subagent_id": "bg",
+              "session_id": "child-bg",
+              "status": "running"
+            },
+            "startedAt": 2000
+          },
+          {
+            "callId": "spawn-bad",
+            "name": "spawn_agent",
+            "args": {
+              "purpose": "bad",
+              "prompt": "Investigate bad",
+              "background": true
+            },
+            "result": {
+              "subagent_id": "bad",
+              "session_id": "child-bad",
+              "status": "running"
+            },
+            "startedAt": 3000
+          },
+          {
+            "callId": "spawn-cancelled",
+            "name": "spawn_agent",
+            "args": {
+              "purpose": "cancelled",
+              "prompt": "Investigate cancelled",
+              "background": true
+            },
+            "result": {
+              "subagent_id": "cancelled",
+              "session_id": "child-cancelled",
+              "status": "running"
+            },
+            "startedAt": 4000
+          }
+        ],
+        "subagentStates": [
+          {
+            "subagentId": "fg",
+            "sessionId": "parent",
+            "purpose": "fg",
+            "status": "finished",
+            "startedAt": 2000,
+            "reason": "stop",
+            "endedAt": 4000
+          },
+          {
+            "subagentId": "bg",
+            "sessionId": "parent",
+            "purpose": "bg",
+            "status": "finished",
+            "startedAt": 3000,
+            "reason": "stop",
+            "endedAt": 6000
+          },
+          {
+            "subagentId": "bad",
+            "sessionId": "parent",
+            "purpose": "bad",
+            "status": "error",
+            "startedAt": 7000,
+            "reason": "error",
+            "endedAt": 8000
+          },
+          {
+            "subagentId": "cancelled",
+            "sessionId": "parent",
+            "purpose": "cancelled",
+            "status": "running",
+            "startedAt": 9000
+          }
+        ]
+      },
+      "childLifecycle": [
+        {
+          "type": "session.start",
+          "sessionId": "child-cancelled",
+          "parentSessionId": "parent",
+          "reason": "new"
+        }
+      ]
+    },
+    {
+      "label": "cancelled ends",
+      "mod": {
+        "type": "agent.finish",
+        "sessionId": "parent",
+        "agentId": "cancelled",
+        "background": true,
+        "reason": "interrupted",
+        "seq": 10
+      },
+      "jobs": [],
+      "states": {
+        "fg": "finished",
+        "bg": "finished",
+        "bad": "error",
+        "cancelled": "interrupted"
+      },
+      "nativeEvents": [],
+      "snapshot": {
+        "id": "parent",
+        "status": "idle",
+        "messages": [
+          {
+            "role": "assistant",
+            "content": [
+              {
+                "type": "tool-call"
+              },
+              {
+                "type": "tool-call"
+              },
+              {
+                "type": "tool-call"
+              },
+              {
+                "type": "tool-call"
+              }
+            ]
+          }
+        ],
+        "toolCalls": [
+          {
+            "callId": "spawn-fg",
+            "name": "spawn_agent",
+            "args": {
+              "purpose": "fg",
+              "prompt": "Investigate fg",
+              "background": false
+            },
+            "result": {
+              "subagent_id": "fg",
+              "session_id": "child-fg",
+              "reason": "stop",
+              "result": "Finished"
+            },
+            "startedAt": 1000
+          },
+          {
+            "callId": "spawn-bg",
+            "name": "spawn_agent",
+            "args": {
+              "purpose": "bg",
+              "prompt": "Investigate bg",
+              "background": true
+            },
+            "result": {
+              "subagent_id": "bg",
+              "session_id": "child-bg",
+              "status": "running"
+            },
+            "startedAt": 2000
+          },
+          {
+            "callId": "spawn-bad",
+            "name": "spawn_agent",
+            "args": {
+              "purpose": "bad",
+              "prompt": "Investigate bad",
+              "background": true
+            },
+            "result": {
+              "subagent_id": "bad",
+              "session_id": "child-bad",
+              "status": "running"
+            },
+            "startedAt": 3000
+          },
+          {
+            "callId": "spawn-cancelled",
+            "name": "spawn_agent",
+            "args": {
+              "purpose": "cancelled",
+              "prompt": "Investigate cancelled",
+              "background": true
+            },
+            "result": {
+              "subagent_id": "cancelled",
+              "session_id": "child-cancelled",
+              "status": "running"
+            },
+            "startedAt": 4000
+          }
+        ],
+        "subagentStates": [
+          {
+            "subagentId": "fg",
+            "sessionId": "parent",
+            "purpose": "fg",
+            "status": "finished",
+            "startedAt": 2000,
+            "reason": "stop",
+            "endedAt": 4000
+          },
+          {
+            "subagentId": "bg",
+            "sessionId": "parent",
+            "purpose": "bg",
+            "status": "finished",
+            "startedAt": 3000,
+            "reason": "stop",
+            "endedAt": 6000
+          },
+          {
+            "subagentId": "bad",
+            "sessionId": "parent",
+            "purpose": "bad",
+            "status": "error",
+            "startedAt": 7000,
+            "reason": "error",
+            "endedAt": 8000
+          },
+          {
+            "subagentId": "cancelled",
+            "sessionId": "parent",
+            "purpose": "cancelled",
+            "status": "interrupted",
+            "startedAt": 9000,
+            "reason": "interrupted",
+            "endedAt": 10000
+          }
+        ]
+      },
+      "childLifecycle": [
+        {
+          "type": "session.end",
+          "sessionId": "child-cancelled",
+          "reason": "delete"
+        }
+      ]
+    }
+  ]
+}

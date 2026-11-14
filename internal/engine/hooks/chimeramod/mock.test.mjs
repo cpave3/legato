@@ -222,3 +222,20 @@ test('state reports keep large permission arguments and error text out of the pi
   assert.equal(h.records[2].reason, 'error');
   assert.equal(Object.hasOwn(h.records[2], 'error'), false);
 });
+
+test('CHIM-69 fixture keeps child session lifecycles out of the parent link', async () => {
+  const { readFile } = await import('node:fs/promises');
+  const fixture = JSON.parse(await readFile(new URL('../../../../contracts/chimera-subagents.json', import.meta.url), 'utf8'));
+  const h = await host();
+  for (const stage of fixture.stages) {
+    for (const event of stage.childLifecycle) {
+      await h.emit(event.type, event, { ...h.context, session: { ...h.context.session, isSubagent: true } });
+    }
+    await h.emit(stage.mod.type, stage.mod);
+  }
+  await tick();
+  assert.equal(h.spawns.length, 1);
+  assert.equal(h.closed, false);
+  assert.deepEqual(h.records.map(({ type, sessionId, agentId, background, reason }) => ({ type, sessionId, agentId, background, reason })),
+    fixture.stages.map(({ mod: { type, sessionId, agentId, background, reason } }) => ({ type, sessionId, agentId, background, reason })));
+});

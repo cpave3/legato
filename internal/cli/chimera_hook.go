@@ -15,11 +15,13 @@ import (
 // ChimeraHook is the state-only report carried from the ordered mod stream
 // to the host. AgentID on agent.spawn/finish identifies the subject, not the emitter.
 type ChimeraHook struct {
-	Event      string `json:"event"`
-	AgentID    string `json:"agent_id,omitempty"`
-	IsSubagent bool   `json:"is_subagent,omitempty"`
-	Reason     string `json:"reason,omitempty"`
-	RequestID  string `json:"request_id,omitempty"`
+	Event       string `json:"event"`
+	SessionID   string `json:"session_id,omitempty"`
+	Description string `json:"description,omitempty"`
+	AgentID     string `json:"agent_id,omitempty"`
+	IsSubagent  bool   `json:"is_subagent,omitempty"`
+	Reason      string `json:"reason,omitempty"`
+	RequestID   string `json:"request_id,omitempty"`
 	// PendingRequests is the number still open AFTER this event. A resolution
 	// without a count cannot prove that the last request was answered.
 	PendingRequests *int                 `json:"pending_requests,omitempty"`
@@ -41,6 +43,7 @@ type ChimeraHookReport struct {
 func ParseChimeraHook(raw []byte) (ChimeraHook, error) {
 	var p struct {
 		Type            string                `json:"type"`
+		SessionID       string                `json:"sessionId"`
 		AgentID         string                `json:"agentId"`
 		JobID           string                `json:"jobId"`
 		Command         string                `json:"command"`
@@ -63,7 +66,7 @@ func ParseChimeraHook(raw []byte) (ChimeraHook, error) {
 	if p.PendingRequests != nil && *p.PendingRequests < 0 {
 		return ChimeraHook{}, fmt.Errorf("Chimera pendingRequests cannot be negative")
 	}
-	h := ChimeraHook{Event: p.Type, AgentID: p.AgentID, IsSubagent: p.IsSubagent, Reason: p.Reason, RequestID: p.RequestID, PendingRequests: p.PendingRequests, Started: p.Started, Running: p.Running, Woke: p.Woke}
+	h := ChimeraHook{Event: p.Type, SessionID: p.SessionID, Description: p.Description, AgentID: p.AgentID, IsSubagent: p.IsSubagent, Reason: p.Reason, RequestID: p.RequestID, PendingRequests: p.PendingRequests, Started: p.Started, Running: p.Running, Woke: p.Woke}
 	switch p.Type {
 	case "background.start":
 		if p.JobID != "" {
@@ -146,17 +149,98 @@ func ApplyChimeraHook(s *store.Store, report ChimeraHookReport, pushNotifier, os
 			activity, decided = "", true
 		}
 	}
-	if err := s.SetAgentHookState(ctx, session.ID, activity, jobs, store.HookSourceMod); err != nil {
+	children, err := chimeraChildren(session.ChimeraSubagents, h, now.UnixMilli())
+	if err != nil {
+		return err
+	}
+	if err := s.SetChimeraHookState(ctx, session.ID, activity, jobs, children); err != nil {
 		if errors.Is(err, store.ErrAgentStateIgnored) {
 			return nil
 		}
 		return fmt.Errorf("updating agent state: %w", err)
 	}
 	if !decided {
-		if !sameJobs(jobs, session.BackgroundJobs) {
+		if !sameJobs(jobs, session.BackgroundJobs) || children != session.ChimeraSubagents {
 			ipc.Broadcast(ipc.Message{Type: "agent_state", TaskID: report.TaskID, Status: activity})
 		}
 		return nil
 	}
 	return settleActivity(ctx, s, session, report.TaskID, report.ExecutionID, activity, report.WorkingDir, pushNotifier, osNotifier)
+}
+
+type chimeraChild struct {
+	ID        string `json:"subagentId"`
+	SessionID string `json:"sessionId"`
+	Purpose   string `json:"purpose,omitempty"`
+	Status    string `json:"status"`
+	Reason    string `json:"reason,omitempty"`
+	StartedAt int64  `json:"startedAt,omitempty"`
+	EndedAt   int64  `json:"endedAt,omitempty"`
+}
+
+func chimeraChildren(raw string, h ChimeraHook, now int64) (string, error) {
+	children := []chimeraChild{}
+	if raw != "" {
+		if err := json.Unmarshal([]byte(raw), &children); err != nil {
+			return "", fmt.Errorf("reading Chimera children: %w", err)
+		}
+	}
+	if h.Event == "session.start" {
+		kept := children[:0]
+		for _, child := range children {
+			if child.SessionID == h.SessionID {
+				kept = append(kept, child)
+			}
+		}
+		children = kept
+	}
+	if (h.Event == "agent.spawn" || h.Event == "agent.finish") && h.AgentID != "" {
+		index := -1
+		for i := range children {
+			if children[i].ID == h.AgentID && children[i].SessionID == h.SessionID {
+				index = i
+				break
+			}
+		}
+		if index < 0 {
+			children = append(children, chimeraChild{ID: h.AgentID, SessionID: h.SessionID, Purpose: cleanText(h.Description, maxJobLabel), Status: "running"})
+			index = len(children) - 1
+		}
+		child := &children[index]
+		if h.Event == "agent.spawn" && child.StartedAt == 0 {
+			child.StartedAt = now
+		}
+		if h.Event == "agent.finish" {
+			child.Status, child.Reason, child.EndedAt = "error", h.Reason, now
+			if h.Reason == "stop" {
+				child.Status = "finished"
+			}
+			if h.Reason == "interrupted" {
+				child.Status = "interrupted"
+			}
+		}
+	}
+	if h.Event == "session.end" {
+		for i := range children {
+			if children[i].Status == "running" {
+				children[i].Status, children[i].Reason, children[i].EndedAt = "interrupted", "interrupted", now
+			}
+		}
+	}
+	// Bound completion history without discarding active children.
+	for len(children) > 1000 {
+		removed := false
+		for i := range children {
+			if children[i].Status != "running" {
+				children = append(children[:i], children[i+1:]...)
+				removed = true
+				break
+			}
+		}
+		if !removed {
+			break
+		}
+	}
+	encoded, err := json.Marshal(children)
+	return string(encoded), err
 }
