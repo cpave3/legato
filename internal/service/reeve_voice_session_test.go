@@ -407,7 +407,11 @@ func TestSpeechLongAfterASendIsNotListenedTo(t *testing.T) {
 
 func TestWhileTheReeveThinksTheDeviceIsToldWhatItIsDoingThenThatItAnsweredInWriting(t *testing.T) {
 	f := newVoiceFixture(t)
+	// Every poll that can see the tool must also see the Reeve working,
+	// before the device's activity message lets us move it to waiting.
+	f.setActivity(t, "working")
 	d := f.open("desk")
+	defer d.session.Close()
 	d.session.Handle(VoiceIn{Type: "listen"})
 	d.speak(1000)
 	d.quiet(1100)
@@ -416,7 +420,6 @@ func TestWhileTheReeveThinksTheDeviceIsToldWhatItIsDoingThenThatItAnsweredInWrit
 	f.agents.mu.Lock()
 	f.agents.tool = "Reading config.yaml\nmore"
 	f.agents.mu.Unlock()
-	f.setActivity(t, "working")
 	if got := d.expectType(t, "activity"); got.Text != "Reading config.yaml" {
 		t.Fatalf("activity %q", got.Text)
 	}
