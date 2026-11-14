@@ -79,6 +79,7 @@ A small capsule at the edge of the screen shows the Reeve, whether your main can
 
 - Click the capsule to talk, as with the key.
 - While you talk, it grows into a card: your words, the pause bar, what the Reeve is doing, and what it says. Its buttons are **Send now**, **Cancel**, **Stop** and **Reply**. **Stop** stops the Reeve and keeps the card, so you can talk again or close it.
+- When the Reeve speaks without being asked, for example to say an agent finished, the widget shows it speaking, with its words, while the line plays on your main's speakers, then goes back to what it showed. It does not break a conversation you are having: while you talk or the Reeve answers you, the conversation stays on the card. A hidden widget stays hidden.
 - If the main cannot listen, the capsule turns amber and says why. **Open settings** opens that setting on the main.
 - A long message does not grow the card off the screen: it shows your latest words, after an ellipsis. The whole message still goes to the Reeve.
 - Drag the capsule to put it anywhere. It stays where you drop it, also after a restart: it keeps to the nearest corner, or to the middle of the nearest edge, as far from that edge as you dropped it. A click without a drag still talks.

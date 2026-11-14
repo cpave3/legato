@@ -399,9 +399,81 @@ func TestTheVoiceSaysWhatBecameOfEachLine(t *testing.T) {
 	waitUntil(t, func() bool {
 		mu.Lock()
 		defer mu.Unlock()
-		return len(states) == 3
+		return len(states) == 4
 	})
-	if got := strings.Join(states, ","); got != "fail:failed,ok:made,ok:played" {
+	if got := strings.Join(states, ","); got != "fail:failed,ok:made,ok:playing,ok:played" {
+		t.Fatalf("events %s", got)
+	}
+}
+
+// A line played on the host says when it starts, while the player runs,
+// and every event about one line carries that line's number, so a device
+// can tell the end of the line it shows from another line's.
+func TestAHostLineSaysWhenItStartsPlayingUnderItsOwnNumber(t *testing.T) {
+	f := newSpeechFixture(t)
+	var mu sync.Mutex
+	var got []SpokeEvent
+	var playerAtStart []string
+	f.speech.opts.Spoke = func(e SpokeEvent) {
+		mu.Lock()
+		defer mu.Unlock()
+		got = append(got, e)
+		if e.State == SpokePlaying {
+			playerAtStart = readLines(f.played)
+		}
+	}
+	f.say(t, "fail")
+	f.say(t, "one")
+	f.say(t, "two")
+	f.waitForPlayed(t, 4)
+	waitUntil(t, func() bool {
+		mu.Lock()
+		defer mu.Unlock()
+		return len(got) == 7
+	})
+	mu.Lock()
+	defer mu.Unlock()
+	lines := map[string]int64{}
+	for _, e := range got {
+		if e.Line == 0 {
+			t.Fatalf("an event with no line number: %+v", e)
+		}
+		if n, ok := lines[e.Text]; ok && n != e.Line {
+			t.Fatalf("%q under two numbers: %d and %d", e.Text, n, e.Line)
+		}
+		lines[e.Text] = e.Line
+	}
+	if lines["fail"] == lines["one"] || lines["one"] == lines["two"] {
+		t.Fatalf("lines share a number: %v", lines)
+	}
+	for _, played := range playerAtStart {
+		if strings.HasPrefix(played, "end_two") {
+			t.Fatalf("two said playing after it ended: %v", playerAtStart)
+		}
+	}
+}
+
+func TestALineSentToTheDeviceIsNeverSaidToPlayOnTheHost(t *testing.T) {
+	f := newSpeechFixture(t)
+	var mu sync.Mutex
+	var states []string
+	f.speech.opts.Spoke = func(e SpokeEvent) {
+		mu.Lock()
+		defer mu.Unlock()
+		states = append(states, e.State)
+	}
+	out := &fakeSpeechOutput{route: RouteDevice}
+	f.speech.SetOutput(out)
+	f.say(t, "hello")
+	waitUntil(t, func() bool {
+		mu.Lock()
+		defer mu.Unlock()
+		return len(states) == 2
+	})
+	time.Sleep(100 * time.Millisecond)
+	mu.Lock()
+	defer mu.Unlock()
+	if got := strings.Join(states, ","); got != "made,sent" {
 		t.Fatalf("events %s", got)
 	}
 }

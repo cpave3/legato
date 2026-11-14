@@ -2,7 +2,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react"
 import { invoke } from "@tauri-apps/api/core"
 import { listen } from "@tauri-apps/api/event"
 import { VoiceCapsule, VoiceCard } from "@web-voice/VoiceWidgets"
-import { capped, EVENT_NAMES, initialModel, keyCaps, reduce, surface, type VoiceEvent, type WidgetModel } from "./model"
+import { capped, EVENT_NAMES, initialModel, keyCaps, reduce, shown, type VoiceEvent, type WidgetModel } from "./model"
 import { useWidgetDrag } from "./drag"
 import { Feed } from "./Feed"
 
@@ -85,6 +85,7 @@ export function Widget() {
   // widget's own menu brings it back.
   const hide = () => { invoke("voice_widget_hide").catch(() => {}) }
   const name = "The Reeve"
+  const drawn = shown(model)
   return (
     // A flex column kept to what fits on the screen: the capsule or card
     // keeps its size, and an element marked data-widget-feed scrolls in
@@ -97,9 +98,13 @@ export function Widget() {
       onContextMenu={menu}
       {...drag}
     >
-      {surface(model) === "card" ? (
+      {drawn.host ? (
+        // A line on the main's speakers: no conversation to stop or reply
+        // in, so no buttons; the key still starts one.
+        <VoiceCard view={capped(drawn.view)} main={model.readiness.main} />
+      ) : drawn.surface === "card" ? (
         <VoiceCard
-          view={capped(model.view)}
+          view={capped(drawn.view)}
           main={model.readiness.main}
           keyLabel={model.keyText || undefined}
           onListen={act("talk")}

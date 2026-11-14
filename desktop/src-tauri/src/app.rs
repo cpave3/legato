@@ -22,7 +22,7 @@ use crate::webauthn::{self, Attachment, ORIGIN, RP_ID};
 use crate::discovery::{Browser, Found};
 use crate::links;
 use crate::bridge::{self, PageMessage, VoiceAction, VoiceEvent};
-use crate::{fido, lifecycle, screens, systrust, touchid, voice, voiceclient, voicekey, voicemain, voicewidget, widgetapprovals, workers};
+use crate::{fido, hostline, lifecycle, screens, systrust, touchid, voice, voiceclient, voicekey, voicemain, voicewidget, widgetapprovals, workers};
 use crate::voiceclient::{Command, Ui};
 use crate::voicekey::{Backend, Input, KeyBackend, VoiceKey};
 
@@ -2453,6 +2453,78 @@ async fn watch_approvals(app: AppHandle) {
     }
 }
 
+/// Keeps a WebSocket to the voice main's `/ws` and tells the widget when a
+/// line of the Reeve's plays on the main's speakers (`voice-host-line`,
+/// `hostline::Change`): the lines it says unprompted, which no
+/// conversation carries. Opens it again after RETRY when it closes, and
+/// when the voice main changes. The log has line numbers, never the text.
+async fn watch_host_lines(app: AppHandle) {
+    use futures_util::{SinkExt, StreamExt};
+    use tokio_tungstenite::tungstenite::Message;
+    let tell = |change: Option<hostline::Change>| {
+        if let Some(change) = change {
+            println!("[voice] host line {} {}", change.id, change.status);
+            let _ = app.emit("voice-host-line", &change);
+        }
+    };
+    let mut line = hostline::HostLine::default();
+    // Said once until it changes, not every RETRY.
+    let mut failing = String::new();
+    loop {
+        let chosen = {
+            let desktop = app.state::<Desktop>();
+            match voice_choice(&desktop) {
+                voicemain::Choice::Server(id) => {
+                    let store = desktop.store.lock().unwrap();
+                    client(&store, &id).ok().map(|c| (id, c))
+                }
+                _ => None,
+            }
+        };
+        let Some((server, c)) = chosen else {
+            tokio::time::sleep(hostline::RETRY).await;
+            continue;
+        };
+        let mut socket = match c.websocket(hostline::PATH).await {
+            Ok(s) => s,
+            Err(e) => {
+                let why = format!("{server} did not open /ws: {e}");
+                if why != failing {
+                    println!("[voice] host lines: {why}");
+                    failing = why;
+                }
+                tokio::time::sleep(hostline::RETRY).await;
+                continue;
+            }
+        };
+        failing.clear();
+        let mut checks = tokio::time::interval_at(tokio::time::Instant::now() + hostline::CHECK, hostline::CHECK);
+        loop {
+            tokio::select! {
+                message = socket.next() => match message {
+                    Some(Ok(Message::Text(text))) => {
+                        if let Ok(v) = serde_json::from_str::<Value>(&text) {
+                            tell(line.on_message(&v, std::time::Instant::now()));
+                        }
+                    }
+                    Some(Ok(Message::Close(_))) | None | Some(Err(_)) => break,
+                    Some(Ok(_)) => {}
+                },
+                _ = checks.tick() => {
+                    tell(line.check(std::time::Instant::now()));
+                    let same = matches!(voice_choice(&app.state::<Desktop>()), voicemain::Choice::Server(id) if id == server);
+                    if !same || socket.send(Message::Ping(Vec::new().into())).await.is_err() {
+                        break;
+                    }
+                }
+            }
+        }
+        let _ = socket.close(None).await;
+        tell(line.lost());
+        tokio::time::sleep(hostline::RETRY).await;
+    }
+}
+
 /// The approvals the widget shows now.
 #[tauri::command]
 fn voice_approvals(desktop: State<'_, Desktop>) -> Vec<widgetapprovals::Listed> {
@@ -2704,6 +2776,7 @@ pub fn run() {
                 println!("[voice widget] the window was not made: {e}");
             }
             tauri::async_runtime::spawn(watch_approvals(app.handle().clone()));
+            tauri::async_runtime::spawn(watch_host_lines(app.handle().clone()));
             // Started with --voice. No page hears the voice-key event this
             // early, but the press starts the conversation, which waits for
             // the first ask of the servers.
