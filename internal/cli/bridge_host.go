@@ -192,6 +192,18 @@ func bridgeOps(db *store.Store, deps BrokerDeps) map[string]BrokerOp {
 			if err != nil {
 				return nil, err
 			}
+			var args struct {
+				SessionID string `json:"session_id"`
+			}
+			if err := json.Unmarshal(raw, &args); err != nil {
+				return nil, refuse("bad_request", err.Error())
+			}
+			if args.SessionID != "" {
+				if err := validateChimeraLinkURL(endpoint); err != nil {
+					return nil, refuse("bad_request", err.Error())
+				}
+				return map[string]bool{"ok": true}, h.bindChimera(ctx, args.SessionID, endpoint)
+			}
 			return map[string]bool{"ok": true}, h.Bind(ctx, endpoint)
 		},
 		"endpoint.unbind": func(ctx context.Context, caller BrokerCaller, raw json.RawMessage) (any, error) {
@@ -202,6 +214,15 @@ func bridgeOps(db *store.Store, deps BrokerDeps) map[string]BrokerOp {
 			h, err := host(ctx, caller)
 			if err != nil {
 				return nil, err
+			}
+			var args struct {
+				SessionID string `json:"session_id"`
+			}
+			if err := json.Unmarshal(raw, &args); err != nil {
+				return nil, refuse("bad_request", err.Error())
+			}
+			if args.SessionID != "" {
+				return map[string]bool{"ok": true}, h.unbindChimera(ctx, args.SessionID, endpoint)
 			}
 			return map[string]bool{"ok": true}, h.Unbind(ctx, endpoint)
 		},

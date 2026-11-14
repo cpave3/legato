@@ -347,6 +347,7 @@ legato integration connect burnlite https://burnlite.example.com
 
 Legato, its hooks and the agent tools it launches run these. You do not need to run them.
 
+- `legato agent link chimera`: connects the Chimera mod to Legato. It reads ordered session and state events from stdin; the mod starts it automatically.
 - `legato agent bridge`: serves a Claude Code session to Legato's native panel. The Legato mod inside Claude Code starts it.
 - `legato agent codex -- <codex arguments>`: starts Codex with its bridge. Legato types it into the agent's terminal in place of `codex`.
 - `legato agent codex-bridge`: serves a Codex session to Legato's native panel. `legato agent codex` starts it.

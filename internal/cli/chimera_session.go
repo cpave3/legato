@@ -27,6 +27,9 @@ func AgentSessionCreatedFromHook(s *store.Store, taskID, sessionID string, reade
 // session of executionID: the session is kept in that agent's slot, and is
 // its own when it carries that slot's name ("" means the main slot's).
 func AgentSessionCreatedFromHookFor(s *store.Store, taskID, executionID, sessionID string, reader io.Reader) (bool, error) {
+	if session, err := s.GetRunningAgentSession(context.Background(), taskID, executionID); err == nil && session.HookSource == store.HookSourceMod {
+		return false, nil
+	}
 	slot := callerSlot(s, taskID, executionID)
 	register, err := SessionCreatedPayloadNamesTask(service.AgentSlotKey(taskID, slot), sessionID, reader)
 	if err != nil || !register {
@@ -46,6 +49,9 @@ func AgentSessionCreatedFor(s *store.Store, taskID, executionID, sessionID strin
 	}
 	if sessionID == "" {
 		return fmt.Errorf("session ID is required")
+	}
+	if session, err := s.GetRunningAgentSession(context.Background(), taskID, executionID); err == nil && session.HookSource == store.HookSourceMod {
+		return nil
 	}
 	if err := s.SetChimeraResumeInSlot(context.Background(), taskID, callerSlot(s, taskID, executionID), sessionID); err != nil {
 		return fmt.Errorf("linking Chimera session: %w", err)

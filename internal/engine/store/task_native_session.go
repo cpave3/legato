@@ -102,13 +102,15 @@ func slotOrMain(slot string) string {
 // input returns a descriptive error. An identical record returns false, nil and
 // leaves UpdatedAt unchanged; ownership changes count as record changes.
 func (s *Store) RecordTaskNativeSession(ctx context.Context, taskID string, agentSessionID int, executionID, agentKind, providerSessionID, cwd, storageDir string) (bool, error) {
-	if agentKind != "claude-code" && agentKind != "codex" {
+	if agentKind != "claude-code" && agentKind != "codex" && agentKind != "chimera" {
 		return false, fmt.Errorf("unsupported native session agent kind %q", agentKind)
 	}
 	if strings.TrimSpace(taskID) == "" || agentSessionID <= 0 || strings.TrimSpace(executionID) == "" || strings.TrimSpace(providerSessionID) == "" || strings.TrimSpace(cwd) == "" {
 		return false, fmt.Errorf("native session requires task ID, agent session ID, execution ID, provider session ID, and cwd")
 	}
-	if providerSessionID == taskID {
+	// Chimera accepts a caller-chosen conversation ID; its fresh launches use
+	// the task ID. Claude Code and Codex bindings use it only as a proxy ID.
+	if providerSessionID == taskID && agentKind != "chimera" {
 		return false, fmt.Errorf("native provider session ID must be the actual conversation ID, not task ID %q", taskID)
 	}
 	tx, err := s.db.BeginTxx(ctx, nil)
