@@ -364,3 +364,29 @@ func TestChimeraModLaunchEnvironmentAndBinding(t *testing.T) {
 		t.Fatal("adapter without a mod overrides inherited mods")
 	}
 }
+
+func TestChimeraLaunchReadsSecretFileAtExecutionTime(t *testing.T) {
+	dir := t.TempDir()
+	secretFile := filepath.Join(dir, "secret ' file")
+	if err := os.WriteFile(secretFile, []byte("server-secret-value"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	// An executable named chimera observes the actual child environment.
+	if err := os.WriteFile(filepath.Join(dir, "chimera"), []byte("#!/bin/sh\nprintf '%s:%s' \"$CHIMERA_SERVER_SECRET\" \"$*\"\n"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	a := hooks.NewChimeraAdapter("legato")
+	vars := map[string]string{"LEGATO_CHIMERA_SECRET_FILE": secretFile, "LEGATO_SANDBOXED": "1"}
+	cmd := a.LaunchCommand(vars, "", "", "")
+	if !strings.HasPrefix(cmd, "sh -c ") || !strings.Contains(cmd, "CHIMERA_SERVER_SECRET=") || strings.Contains(cmd, "env CHIMERA_SERVER_SECRET=") || strings.Contains(cmd, "server-secret-value") || vars["CHIMERA_SERVER_SECRET"] != "" {
+		t.Fatalf("secret exposed or not loaded by executable prefix: %q, %v", cmd, vars)
+	}
+	out, err := exec.Command("sh", "-c", cmd+" --late-flag").CombinedOutput()
+	if err != nil || string(out) != "server-secret-value:--late-flag" {
+		t.Fatalf("launch output %q: %v", out, err)
+	}
+	if _, err := os.Stat(secretFile); err != nil {
+		t.Fatalf("adapter removed parent's secret file: %v", err)
+	}
+}

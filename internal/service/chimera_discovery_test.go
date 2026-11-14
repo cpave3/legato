@@ -473,3 +473,83 @@ func TestLateLockfileVerificationCannotReplaceModBinding(t *testing.T) {
 		t.Fatalf("binding=%+v", got)
 	}
 }
+
+func TestChimeraDiscoveryUsesPrivateSecretAndSupportsOlderServers(t *testing.T) {
+	for _, prefix := range []string{"/launch-secret", ""} {
+		t.Run("prefix="+prefix, func(t *testing.T) {
+			t.Setenv("HOME", t.TempDir())
+			dir := filepath.Join(os.Getenv("HOME"), ".chimera", "instances")
+			if err := os.MkdirAll(dir, 0700); err != nil {
+				t.Fatal(err)
+			}
+			delivered := make(chan string, 1)
+			server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+				switch r.URL.Path {
+				case prefix + "/v1/instance":
+					fmt.Fprint(w, `{"pid":123}`)
+				case prefix + "/v1/sessions/conversation":
+					fmt.Fprint(w, `{"id":"conversation","name":"private"}`)
+				case prefix + "/v1/sessions/conversation/messages":
+					delivered <- r.URL.Path
+					fmt.Fprint(w, `{}`)
+				default:
+					http.NotFound(w, r)
+				}
+			}))
+			defer server.Close()
+			svc, s, _ := newDiscoveryTestService(t)
+			ctx := context.Background()
+			createTask(t, s, "private")
+			id, err := s.InsertAgentSessionReturningID(ctx, store.AgentSession{TaskID: "private", AgentKind: "chimera", Status: "running"})
+			if err != nil {
+				t.Fatal(err)
+			}
+			path := filepath.Join(t.TempDir(), "secret")
+			if err := os.WriteFile(path, []byte("launch-secret"), 0600); err != nil {
+				t.Fatal(err)
+			}
+			if err := s.SetChimeraLaunchSecret(ctx, id, "launch-secret", path); err != nil {
+				t.Fatal(err)
+			}
+			writeChimeraLockfile(t, dir, "instance.json", "conversation", server.URL)
+			if err := svc.DiscoverChimera(ctx, "private"); err != nil {
+				t.Fatal(err)
+			}
+			got, _ := s.GetAgentSessionByTaskID(ctx, "private")
+			if got.ChimeraEndpoint == nil || *got.ChimeraEndpoint != server.URL+prefix {
+				t.Fatalf("binding=%+v", got)
+			}
+			if _, err := os.Stat(path); !os.IsNotExist(err) {
+				t.Fatalf("bootstrap file remains: %v", err)
+			}
+			secret, _, err := s.GetChimeraLaunchSecret(ctx, id)
+			if err != nil || secret != "launch-secret" {
+				t.Fatal("secret not retained for recovery")
+			}
+			if err := svc.(*agentService).QueueMessage(ctx, "private", "continue"); err != nil {
+				t.Fatal(err)
+			}
+			select {
+			case got := <-delivered:
+				if got != prefix+"/v1/sessions/conversation/messages" {
+					t.Fatal(got)
+				}
+			case <-time.After(time.Second):
+				t.Fatal("message missed secret endpoint")
+			}
+			if changed, err := svc.(NativeDowngrader).DowngradeToTmux(ctx, id, "conversation", server.URL+prefix); err != nil || !changed {
+				t.Fatalf("downgrade changed=%v err=%v", changed, err)
+			}
+			if n := svc.(NativeEndpointRecoverer).RecoverNativeEndpoints(ctx); n != 0 {
+				t.Fatalf("recovery undid a deliberate downgrade: %d", n)
+			}
+			if err := svc.DiscoverChimera(ctx, "private"); err != nil {
+				t.Fatalf("upgrade failed: %v", err)
+			}
+			upgraded, _ := s.GetAgentSessionByTaskID(ctx, "private")
+			if upgraded.NativeOff || upgraded.ChimeraEndpoint == nil || *upgraded.ChimeraEndpoint != server.URL+prefix {
+				t.Fatalf("upgrade binding=%+v", upgraded)
+			}
+		})
+	}
+}

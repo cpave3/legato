@@ -52,7 +52,9 @@ func TestChimeraLinkBindsSwitchesAndReleases(t *testing.T) {
 		a, e := s.GetAgentSessionByTaskID(context.Background(), "link-task")
 		return e == nil && a.ChimeraSessionID != nil && *a.ChimeraSessionID == "chimera-two" && a.Activity == ""
 	})
-	if err := cli.AgentSessionCreatedFor(s, "link-task", "native-link-task", "stale-hook"); err != nil { t.Fatal(err) }
+	if err := cli.AgentSessionCreatedFor(s, "link-task", "native-link-task", "stale-hook"); err != nil {
+		t.Fatal(err)
+	}
 	write(`{"seq":5,"type":"session.end","sessionId":"chimera-two","reason":"exit"}`)
 	if err := <-done; err != nil {
 		t.Fatal(err)
@@ -82,6 +84,14 @@ func TestChimeraLinkKeepsStateOrderedThroughStoreAndBroker(t *testing.T) {
 		t.Run(fmt.Sprint("broker=", remote), func(t *testing.T) {
 			s := newTestStore(t)
 			seedChimeraLinkAgent(t, s)
+			owner, _ := s.GetAgentSessionByTaskID(context.Background(), "link-task")
+			secretPath := filepath.Join(t.TempDir(), "secret")
+			if err := os.WriteFile(secretPath, []byte("secret"), 0600); err != nil {
+				t.Fatal(err)
+			}
+			if err := s.SetChimeraLaunchSecret(context.Background(), owner.ID, "secret", secretPath); err != nil {
+				t.Fatal(err)
+			}
 			var host cli.BridgeHost
 			if remote {
 				token := "lgb_chimera_link"
@@ -139,6 +149,12 @@ func TestChimeraLinkKeepsStateOrderedThroughStoreAndBroker(t *testing.T) {
 			saved, err := s.GetTaskNativeSession(context.Background(), "link-task", "chimera")
 			if err != nil || saved == nil || saved.ProviderSessionID != "chimera" {
 				t.Fatalf("saved=%+v error=%v", saved, err)
+			}
+			if _, err := os.Stat(secretPath); !os.IsNotExist(err) {
+				t.Fatalf("bootstrap secret remains: %v", err)
+			}
+			if secret, _, err := s.GetChimeraLaunchSecret(context.Background(), owner.ID); err != nil || secret != "secret" {
+				t.Fatalf("recovery secret lost: %q %v", secret, err)
 			}
 		})
 	}

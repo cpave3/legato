@@ -2173,3 +2173,58 @@ func TestSetAgentActivity_LeavesASessionThePluginReportsAlone(t *testing.T) {
 		})
 	}
 }
+
+func TestChimeraSpawnWritesPrivateSecretBeforeTmux(t *testing.T) {
+	t.Setenv("LEGATO_HOME", t.TempDir())
+	svc, s, mt := newNativeLaunchService(t, t.TempDir())
+	a := svc.(*agentService)
+	a.adapter = &fakeAdapter{name: "chimera"}
+	ctx := context.Background()
+	createTask(t, s, "secret-launch")
+	var path, secret string
+	mt.onSpawn = func(name string) {
+		paths, err := filepath.Glob(filepath.Join(os.Getenv("LEGATO_HOME"), "agents", "secret-launch", "chimera-launch-*", "server-secret"))
+		if err != nil || len(paths) != 1 {
+			t.Fatalf("secret not created before tmux: %v %v", paths, err)
+		}
+		path = paths[0]
+		data, err := os.ReadFile(path)
+		if err != nil {
+			t.Fatalf("secret must exist before tmux: %v", err)
+		}
+		secret = string(data)
+		if len(secret) < 32 {
+			t.Fatalf("short secret %q", secret)
+		}
+		info, _ := os.Stat(path)
+		dir, _ := os.Stat(filepath.Dir(path))
+		if info.Mode().Perm() != 0600 || dir.Mode().Perm() != 0700 {
+			t.Fatalf("permissions file=%v dir=%v", info.Mode(), dir.Mode())
+		}
+
+	}
+	if err := svc.SpawnAgent(ctx, "secret-launch", 0, 0); err != nil {
+		t.Fatal(err)
+	}
+	env := mt.envVarsFor("legato-secret-launch")
+	if env["LEGATO_CHIMERA_SECRET_FILE"] != path {
+		t.Fatal("missing secret path")
+	}
+	for k, v := range env {
+		if strings.Contains(v, secret) || k == "CHIMERA_SERVER_SECRET" {
+			t.Fatalf("tmux secret leak: %s", k)
+		}
+	}
+	session, err := s.GetAgentSessionByTaskID(ctx, "secret-launch")
+	if err != nil {
+		t.Fatal(err)
+	}
+	kept, file, err := s.GetChimeraLaunchSecret(ctx, session.ID)
+	if err != nil || kept != secret || file != path {
+		t.Fatalf("private record mismatch file=%q err=%v", file, err)
+	}
+	// Stop only this test's database-backed discovery, not a real process.
+	if err := s.UpdateAgentSessionStatus(ctx, "secret-launch", "dead"); err != nil {
+		t.Fatal(err)
+	}
+}

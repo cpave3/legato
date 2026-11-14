@@ -2,13 +2,18 @@ package service
 
 import (
 	"context"
+	"encoding/json"
+	"fmt"
+	"net/http"
 	"net/http/httptest"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 	"time"
 
 	"github.com/cpave3/legato/internal/engine/claudebridge"
+	"github.com/cpave3/legato/internal/engine/hooks"
 	"github.com/cpave3/legato/internal/engine/store"
 )
 
@@ -151,5 +156,73 @@ func TestPeerNoticeToANewClaudeSessionWaitsForItsBridge(t *testing.T) {
 	defer mt.mu.Unlock()
 	if typed := mt.sentMultiline["legato-second"]; len(typed) != 0 {
 		t.Fatalf("the notice was also typed into the terminal: %v", typed)
+	}
+}
+
+func TestResumedChimeraReviewerBriefWaitsForBindingAndUsesSecretHTTP(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	t.Setenv("LEGATO_HOME", t.TempDir())
+	svc, s, mt := newNativeLaunchService(t, t.TempDir())
+	adapter := hooks.NewChimeraAdapter("legato")
+	adapter.SetModDir(t.TempDir())
+	svc.(*agentService).adapter = adapter
+	ctx := context.Background()
+	createTask(t, s, "review")
+	brief := "Review pass two.\nCheck the revised diff."
+	if err := svc.SpawnAgent(ctx, "review", 0, 0, AgentSpawnOptions{Slot: SlotReviewer, SessionPolicy: "resume", ResumeSessionID: "reviewer-id", Prompt: brief}); err != nil {
+		t.Fatal(err)
+	}
+	time.Sleep(80 * time.Millisecond)
+	lines := mt.sentLinesFor("legato-review_reviewer")
+	if len(lines) != 1 || !strings.Contains(lines[0], "--session reviewer-id") || strings.Contains(lines[0], "--prompt") {
+		t.Fatalf("launch lines=%v", lines)
+	}
+	session, err := s.GetAgentSessionInSlot(ctx, "review", SlotReviewer)
+	if err != nil {
+		t.Fatal(err)
+	}
+	secret, path, err := s.GetChimeraLaunchSecret(ctx, session.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(lines[0], path) || strings.Contains(lines[0], secret) {
+		t.Fatal("launch must name file, never its secret")
+	}
+	received := make(chan string, 1)
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.Method == http.MethodPost && r.URL.Path == "/"+secret+"/v1/sessions/reviewer-id/messages" {
+			var body struct {
+				Text string `json:"content"`
+			}
+			if err := json.NewDecoder(r.Body).Decode(&body); err != nil {
+				t.Error(err)
+			}
+			received <- body.Text
+			fmt.Fprint(w, `{}`)
+			return
+		}
+		http.NotFound(w, r)
+	}))
+	defer server.Close()
+	if err := s.UpdateChimeraDiscoveryForSession(ctx, session.ID, "reviewer-id", server.URL+"/"+secret); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case got := <-received:
+		if got != brief {
+			t.Fatalf("brief=%q", got)
+		}
+	case <-time.After(2 * time.Second):
+		t.Fatal("resumed brief did not reach HTTP")
+	}
+	if lines := mt.sentLinesFor("legato-review_reviewer"); len(lines) != 1 {
+		t.Fatalf("brief was typed: %v", lines)
+	}
+	// The mod link's binding handler calls this cleanup after persisting its URL.
+	if err := s.RemoveChimeraLaunchSecretFile(ctx, session.ID); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(path); !os.IsNotExist(err) {
+		t.Fatalf("secret file remains: %v", err)
 	}
 }

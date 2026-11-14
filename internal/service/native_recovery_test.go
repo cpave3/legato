@@ -222,3 +222,48 @@ func TestADeliberateDowngradeToTmuxSurvivesARestart(t *testing.T) {
 		t.Fatal("still marked as kept on tmux after an upgrade")
 	}
 }
+
+func TestRecoveryUsesStoredChimeraSecretForAReviewerSlot(t *testing.T) {
+	t.Setenv("HOME", t.TempDir())
+	dir := filepath.Join(os.Getenv("HOME"), ".chimera", "instances")
+	if err := os.MkdirAll(dir, 0700); err != nil {
+		t.Fatal(err)
+	}
+	server := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		switch r.URL.Path {
+		case "/kept-secret/v1/instance":
+			fmt.Fprint(w, `{"pid":123}`)
+		case "/kept-secret/v1/sessions/reviewer-conversation":
+			fmt.Fprint(w, `{"id":"reviewer-conversation","name":"task_reviewer"}`)
+		default:
+			http.NotFound(w, r)
+		}
+	}))
+	defer server.Close()
+	_, s, _ := newDiscoveryTestService(t)
+	ctx := context.Background()
+	createTask(t, s, "task")
+	id, err := s.InsertAgentSessionReturningID(ctx, store.AgentSession{TaskID: "task", Slot: SlotReviewer, AgentKind: "chimera", Status: "running"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.SetChimeraLaunchSecret(ctx, id, "kept-secret", ""); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.UpdateChimeraDiscoveryForSession(ctx, id, "old", "http://127.0.0.1:1/kept-secret"); err != nil {
+		t.Fatal(err)
+	}
+	writeChimeraLockfile(t, dir, "reviewer.json", "reviewer-conversation", server.URL)
+	// A new service uses the persisted private record, not launch-time memory.
+	restarted := NewAgentService(s, newMockTmux(), t.TempDir())
+	if n := restarted.(NativeEndpointRecoverer).RecoverNativeEndpoints(ctx); n != 1 {
+		t.Fatalf("recovered=%d", n)
+	}
+	got, err := s.GetAgentSessionInSlot(ctx, "task", SlotReviewer)
+	if err != nil || got.ChimeraEndpoint == nil || *got.ChimeraEndpoint != server.URL+"/kept-secret" {
+		t.Fatalf("binding=%+v err=%v", got, err)
+	}
+	if n := restarted.(NativeEndpointRecoverer).RecoverNativeEndpoints(ctx); n != 0 {
+		t.Fatalf("live secret binding was rebound: %d", n)
+	}
+}

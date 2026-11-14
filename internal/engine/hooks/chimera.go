@@ -447,6 +447,12 @@ func (a *ChimeraAdapter) LaunchCommand(env map[string]string, brief, model, tier
 			cmd += " " + shellQuote(arg)
 		}
 	}
+	if secretFile := env["LEGATO_CHIMERA_SECRET_FILE"]; secretFile != "" {
+		// A shell-local assignment keeps the expanded value out of argv,
+		// unlike `env KEY=value`. The shell is executable behind bwrap;
+		// "$@" carries flags the agent service appends after this command.
+		cmd = "sh -c " + shellQuote(`CHIMERA_SERVER_SECRET="$(cat `+shellQuote(secretFile)+`)" || exit; export CHIMERA_SERVER_SECRET; exec `+cmd+` "$@"`) + " sh"
+	}
 	return cmd
 }
 

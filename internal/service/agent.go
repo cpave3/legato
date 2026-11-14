@@ -2,6 +2,8 @@ package service
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -1096,6 +1098,38 @@ func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, hei
 		}
 	}
 
+	// The bootstrap secret is read by the launch command, never tmux's environment.
+	var chimeraSecret, chimeraSecretPath string
+	if agentKind == "chimera" {
+		dir, err := swarm.AgentDir(agentKey)
+		if err != nil {
+			failExecution()
+			return fmt.Errorf("locating Chimera secret folder: %w", err)
+		}
+		privateDir, err := os.MkdirTemp(dir, "chimera-launch-")
+		if err != nil {
+			failExecution()
+			return fmt.Errorf("creating Chimera secret folder: %w", err)
+		}
+		random := make([]byte, 32)
+		if _, err := rand.Read(random); err != nil {
+			failExecution()
+			return fmt.Errorf("generating Chimera secret: %w", err)
+		}
+		chimeraSecret = hex.EncodeToString(random)
+		chimeraSecretPath = filepath.Join(privateDir, "server-secret")
+		if err := os.WriteFile(chimeraSecretPath, []byte(chimeraSecret), 0600); err != nil {
+			failExecution()
+			return fmt.Errorf("writing Chimera secret: %w", err)
+		}
+		envMap["LEGATO_CHIMERA_SECRET_FILE"] = chimeraSecretPath
+		defer func() {
+			if spawnErr != nil {
+				_ = os.Remove(chimeraSecretPath)
+			}
+		}()
+	}
+
 	// Legato's sandbox: decided and checked before any tmux session exists,
 	// so a sandbox that cannot be built never leaves an unsandboxed agent.
 	sandboxPrefix := ""
@@ -1187,6 +1221,14 @@ func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, hei
 		a.tmux.Kill(sessionName)
 		failExecution()
 		return fmt.Errorf("recording agent session: %w", err)
+	}
+	if chimeraSecret != "" {
+		if err := a.store.SetChimeraLaunchSecret(ctx, sessionID, chimeraSecret, chimeraSecretPath); err != nil {
+			a.tmux.Kill(sessionName)
+			_ = a.store.UpdateAgentSessionStatusInSlot(ctx, taskID, slot, "dead")
+			failExecution()
+			return fmt.Errorf("recording Chimera launch authentication: %w", err)
+		}
 	}
 	if err := a.store.LinkExecutionAgentSession(ctx, executionID, sessionID); err != nil {
 		a.tmux.Kill(sessionName)
@@ -2345,6 +2387,10 @@ func (a *agentService) DiscoverChimera(ctx context.Context, taskID string) error
 }
 
 func (a *agentService) discoverChimeraFromLockfiles(ctx context.Context, taskID string, agentSessionID int, expectedSessionName string, excluded map[string]bool) error {
+	secret, _, err := a.store.GetChimeraLaunchSecret(ctx, agentSessionID)
+	if err != nil {
+		return fmt.Errorf("reading Chimera launch authentication: %w", err)
+	}
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return fmt.Errorf("locating Chimera instances: %w", err)
@@ -2376,10 +2422,18 @@ func (a *agentService) discoverChimeraFromLockfiles(ctx context.Context, taskID 
 			continue
 		}
 		seenEndpoints[lf.URL] = true
-		if !nativeEndpointServes(ctx, lf.URL, lf.SessionID, expectedSessionName) {
-			continue
+		endpoint := lf.URL
+		if secret != "" {
+			endpoint = strings.TrimRight(lf.URL, "/") + "/" + url.PathEscape(secret)
 		}
-		valid = append(valid, candidate{sessionID: lf.SessionID, endpoint: lf.URL})
+		if !nativeEndpointServes(ctx, endpoint, lf.SessionID, expectedSessionName) {
+			// Older Chimera ignores the secret variable and still serves a bare URL.
+			if secret == "" || !nativeEndpointServes(ctx, lf.URL, lf.SessionID, expectedSessionName) {
+				continue
+			}
+			endpoint = lf.URL
+		}
+		valid = append(valid, candidate{sessionID: lf.SessionID, endpoint: endpoint})
 	}
 
 	if len(valid) == 0 {
@@ -2392,6 +2446,9 @@ func (a *agentService) discoverChimeraFromLockfiles(ctx context.Context, taskID 
 		return fmt.Errorf("persisting Chimera discovery: %w", err)
 	} else if !bound {
 		return store.ErrNotFound
+	}
+	if err := a.store.RemoveChimeraLaunchSecretFile(ctx, agentSessionID); err != nil {
+		return fmt.Errorf("removing Chimera bootstrap secret: %w", err)
 	}
 	if a.bus != nil {
 		a.bus.PublishAgentChimeraDiscovered(taskID)

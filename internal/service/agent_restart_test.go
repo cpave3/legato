@@ -196,7 +196,7 @@ func TestRestartAgentResumesAChimeraAgentsOwnSession(t *testing.T) {
 	}
 
 	lines := mt.sentLinesFor("legato-" + taskID)
-	if launch := lines[len(lines)-1]; !strings.HasPrefix(launch, "chimera --session 'chimera-session-7'") && !strings.HasPrefix(launch, "chimera --session chimera-session-7") {
+	if launch := lines[len(lines)-1]; !strings.Contains(launch, "chimera --session 'chimera-session-7'") && !strings.Contains(launch, "chimera --session chimera-session-7") {
 		t.Fatalf("launch = %q, want chimera --session chimera-session-7", launch)
 	}
 }

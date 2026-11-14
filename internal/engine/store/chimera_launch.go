@@ -1,6 +1,44 @@
 package store
 
-import "context"
+import (
+	"context"
+	"database/sql"
+	"errors"
+	"os"
+)
+
+// SetChimeraLaunchSecret keeps launch authentication outside public session records.
+func (s *Store) SetChimeraLaunchSecret(ctx context.Context, id int, secret, path string) error {
+	_, err := s.db.ExecContext(ctx, `INSERT INTO chimera_launch_secrets (agent_session_id, secret, file_path) VALUES (?, ?, ?)`, id, secret, path)
+	return err
+}
+
+// GetChimeraLaunchSecret returns private authentication for discovery and recovery.
+// Sessions launched before authentication was introduced have empty values.
+func (s *Store) GetChimeraLaunchSecret(ctx context.Context, id int) (string, string, error) {
+	var record struct {
+		Secret string `db:"secret"`
+		Path   string `db:"file_path"`
+	}
+	err := s.db.GetContext(ctx, &record, `SELECT secret, file_path FROM chimera_launch_secrets WHERE agent_session_id = ?`, id)
+	if errors.Is(err, sql.ErrNoRows) {
+		return "", "", nil
+	}
+	return record.Secret, record.Path, err
+}
+
+// RemoveChimeraLaunchSecretFile removes the bootstrap file after binding. The
+// stored secret remains available for rediscovery if the native endpoint dies.
+func (s *Store) RemoveChimeraLaunchSecretFile(ctx context.Context, id int) error {
+	_, path, err := s.GetChimeraLaunchSecret(ctx, id)
+	if err != nil || path == "" {
+		return err
+	}
+	if err := os.Remove(path); err != nil && !os.IsNotExist(err) {
+		return err
+	}
+	return nil
+}
 
 // BindChimeraDiscoveryIfUnbound prevents lockfile verification racing a native
 // mod binding from replacing it with a legacy endpoint.

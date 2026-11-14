@@ -175,6 +175,9 @@ func (h *storeBridgeHost) bindChimera(ctx context.Context, id, endpoint string) 
 	if err := h.s.UpdateChimeraDiscoveryForSession(ctx, h.session.ID, id, endpoint); err != nil {
 		return err
 	}
+	if err := h.s.RemoveChimeraLaunchSecretFile(ctx, h.session.ID); err != nil {
+		return fmt.Errorf("removing Chimera bootstrap secret: %w", err)
+	}
 	ipc.Broadcast(ipc.Message{Type: "agents_changed", TaskID: h.taskID})
 	return nil
 }
