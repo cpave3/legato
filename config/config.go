@@ -57,7 +57,7 @@ type Config struct {
 	Learning           LearningConfig           `yaml:"learning"`
 	SSHAgentSocket     string                   `yaml:"ssh_agent_socket"`
 	Manticore          ManticoreConfig          `yaml:"manticore"`
-	// Integrations are services outside Legato that hand work to agents.
+	// Integrations are optional connections to services outside Legato.
 	Integrations IntegrationsConfig `yaml:"integrations"`
 	// ReviewPasses are a worker's review loop for make-a-change handoffs.
 	ReviewPasses ReviewPassesConfig `yaml:"review_passes"`
@@ -858,6 +858,7 @@ func defaults() *Config {
 			Columns:             defaultBurnliteColumns,
 		},
 		ReviewPasses: defaultReviewPasses(),
+		Integrations: IntegrationsConfig{MQTT: MQTTConfig{DiscoveryPrefix: "homeassistant"}},
 		Board: BoardConfig{
 			Columns: DefaultColumns(),
 		},

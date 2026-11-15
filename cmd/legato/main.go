@@ -1046,6 +1046,7 @@ func runServeCmd(args []string) int {
 	approvalsRT.attach(srv)
 	updates := newUpdateService(db, bus, agentSvc, serveRestarter())
 	serveAttention := wireAttention(context.Background(), db, bus, srv, planSvc, reviewSvc, agentSvc, workflowSvc, approvalsRT, updates, mainSide, triggerCoordinator)
+	defer startMQTT(cfg, db, bus, agentSvc, serveAttention, approvalsRT)()
 	srv.SetSettingsService(wireSettings(db, bus, serveAttention))
 	srv.SetSettingsMover(settingsMover(db), restartAll)
 	serveReeve := wireReeve(srv, db, agentSvc, bus, approvalsRT.approvals)
@@ -1535,6 +1536,7 @@ func runTUI() int {
 		log.Printf("attention: startup signal counts: %v", counts)
 	}
 	app.SetAttentionService(attentionSvc)
+	defer startMQTT(cfg, db, bus, agentSvc, attentionSvc, approvalsRT)()
 	app.SetApprovalService(approvalsRT.approvals)
 	// The TUI cannot draw what agents show through their Legato tools; it
 	// counts it and links to the web UI.

@@ -83,3 +83,7 @@ A list of named entries is the file's entries, each pinned and matched by name i
 ## Import
 
 `ChangeSetService.ProposeImport(ctx, data, by)` loads a file shaped like `config.yaml` (`config.LoadBytes`; one that does not load is refused) and turns it into one change set, proposed without waiting: a `PUT /api/config/settings/{key}` for each registered setting the file gives (`Config.PinnedSettingsAndOthers`), and a `PUT /api/config/lists/{list}/{name}` for each list entry. File-only keys are left out and listed (`skipped`). The set has no Reeve session (`task_id` `""`), so its results are not messaged; the person sees it in the tray as a change set at its strictest call's level, and the broker's process runs it once approved. `legato config import <file> [--json]` proposes it (and broadcasts `approval_changed`); `POST /api/config/import` (the file as the body; `202` with `{id, approval_id, level, calls, skipped}`) serves Settings › Lists › **Import settings…**.
+
+## MQTT restart settings
+
+All eight `integrations.mqtt.*` settings use `ModeRestart`; normal pins and database overlays apply. `enabled`, `broker`, `credential`, `discovery_prefix`, `base_topic`, and `attention_details` use `ClassRisky` for network access, publication scope, or retained detail. `device_name` and `include_reeve` use `ClassChange`. The credential setting names a credential, not a secret reference; generic settings loading never resolves the broker login. Runtime-derived topic/name defaults are not stored as settings. See [Configuration](config.md) § Home Assistant MQTT.

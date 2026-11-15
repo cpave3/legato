@@ -52,6 +52,9 @@ const (
 	// listening device, played, failed or dropped. Payload:
 	// ReeveSpokePayload.
 	EventReeveSpoke
+	// EventMQTTInvalidated asks the publisher to reread shared state after
+	// another host process changed it. It carries no source content.
+	EventMQTTInvalidated
 )
 
 // ReeveSpokePayload is what became of one line the Reeve said.
@@ -171,13 +174,38 @@ type Event struct {
 }
 
 type Bus struct {
-	mu   sync.RWMutex
-	subs map[EventType][]chan Event
+	mu            sync.RWMutex
+	subs          map[EventType][]chan Event
+	invalidations map[chan struct{}]map[EventType]bool
 }
 
 func New() *Bus {
 	return &Bus{
-		subs: make(map[EventType][]chan Event),
+		subs:          make(map[EventType][]chan Event),
+		invalidations: make(map[chan struct{}]map[EventType]bool),
+	}
+}
+
+// SubscribeInvalidations coalesces changes into a pending snapshot request.
+// Consume before reading authoritative state: a mutation during the read then
+// leaves another request pending, even if ordinary event buffers are saturated.
+func (b *Bus) SubscribeInvalidations(types ...EventType) (<-chan struct{}, func()) {
+	b.mu.Lock()
+	ch := make(chan struct{}, 1)
+	selected := make(map[EventType]bool, len(types))
+	for _, typ := range types {
+		selected[typ] = true
+	}
+	b.invalidations[ch] = selected
+	b.mu.Unlock()
+	var once sync.Once
+	return ch, func() {
+		once.Do(func() {
+			b.mu.Lock()
+			defer b.mu.Unlock()
+			delete(b.invalidations, ch)
+			close(ch)
+		})
 	}
 }
 
@@ -192,6 +220,14 @@ func (b *Bus) Subscribe(eventType EventType) <-chan Event {
 func (b *Bus) Publish(event Event) {
 	b.mu.RLock()
 	defer b.mu.RUnlock()
+	for ch, types := range b.invalidations {
+		if types[event.Type] {
+			select {
+			case ch <- struct{}{}:
+			default:
+			}
+		}
+	}
 	for _, ch := range b.subs[event.Type] {
 		select {
 		case ch <- event:

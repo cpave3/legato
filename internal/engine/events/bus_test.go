@@ -198,3 +198,35 @@ func TestConcurrentPublishSubscribeUnsubscribe(t *testing.T) {
 		t.Fatal("concurrent operations timed out")
 	}
 }
+
+func TestInvalidationsPreservePendingWorkAcrossSaturation(t *testing.T) {
+	bus := New()
+	ch, cancel := bus.SubscribeInvalidations(EventAgentActivityChanged, EventAttentionChanged)
+	defer cancel()
+	bus.Publish(Event{Type: EventCardMoved})
+	select {
+	case <-ch:
+		t.Fatal("unrelated event invalidated")
+	default:
+	}
+	for range 10000 {
+		bus.Publish(Event{Type: EventAgentActivityChanged})
+	}
+	<-ch                                            // Start a snapshot after the burst.
+	bus.Publish(Event{Type: EventAttentionChanged}) // A mutation during that snapshot.
+	select {
+	case <-ch:
+	default:
+		t.Fatal("lost mutation during snapshot")
+	}
+	select {
+	case <-ch:
+		t.Fatal("burst did not coalesce")
+	default:
+	}
+	cancel()
+	bus.Publish(Event{Type: EventAgentActivityChanged})
+	if _, open := <-ch; open {
+		t.Fatal("cancel did not close subscription")
+	}
+}

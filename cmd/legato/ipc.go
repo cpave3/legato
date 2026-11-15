@@ -40,7 +40,7 @@ func handleServeIPCMessage(msg ipc.Message, bus *events.Bus, srv serveNotifier) 
 		case "task_update":
 			bus.Publish(events.Event{Type: events.EventCardUpdated, At: time.Now()})
 		}
-	case "review_changed", "plan_changed", "agent_ui_changed", "approval_changed":
+	case "review_changed", "plan_changed", "agent_ui_changed", "approval_changed", "mqtt_changed":
 		handleIPCMessage(msg, bus, nil)
 	case "workflow_changed":
 		srv.NotifyWorkflowChanged(msg.WorkflowRunID, msg.WorkflowStepID)
@@ -52,6 +52,8 @@ func handleServeIPCMessage(msg ipc.Message, bus *events.Bus, srv serveNotifier) 
 
 func handleIPCMessage(msg ipc.Message, bus *events.Bus, wn webNotifier) {
 	switch msg.Type {
+	case "mqtt_changed":
+		bus.Publish(events.Event{Type: events.EventMQTTInvalidated, At: time.Now()})
 	case "task_update", "task_note", "worktree_changed":
 		bus.Publish(events.Event{Type: events.EventCardUpdated, At: time.Now()})
 		if wn != nil {
