@@ -34,7 +34,7 @@ export function SecretRequestForm({ approval, baseUrl, onDone }: { approval: App
       </label>
       <p className="text-lw-faint">Kept in Legato's secret store. {reeveName(approval.details.reeve_name).start} gets its name, never its value.</p>
       <button type="button" disabled={busy || value === ""} onClick={() => void save()}
-        className="inline-flex min-h-10 items-center rounded-lg bg-lw-accent px-3 font-semibold text-white disabled:opacity-50 md:min-h-8">
+        className="inline-flex min-h-10 items-center rounded-lg bg-lw-accent px-3 font-semibold text-[var(--theme-canvas,#fff)] disabled:opacity-50 md:min-h-8">
         Store the secret
       </button>
       {error && <p role="alert" className="text-lw-error">{error}</p>}

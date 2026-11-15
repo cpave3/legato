@@ -2,24 +2,25 @@
    sheet and the desktop app's widget (docs/ai/reeve.md § Hands-free
    voice). */
 .voice-ui {
-  --voice-accent: #6d5ef6;
-  --voice-accent-2: #8a6cff;
-  --voice-link: #a99cff;
-  --voice-green: #3ecf8e;
-  --voice-amber: #e8b53a;
-  --voice-text: #e6e5eb;
-  --voice-dim: #9a99a5;
-  --voice-faint: #6e6d79;
-  --voice-line: #31313a;
-  --voice-track: #26262d;
-  --voice-surface: linear-gradient(#15141c, #111114);
+  --voice-accent: var(--theme-focus, #6d5ef6);
+  --voice-accent-2: var(--theme-focus, #8a6cff);
+  --voice-link: var(--theme-link, #a99cff);
+  --voice-green: var(--theme-success, #3ecf8e);
+  --voice-amber: var(--theme-warning, #e8b53a);
+  --voice-text: var(--theme-text, #e6e5eb);
+  --voice-dim: var(--theme-muted, #9a99a5);
+  --voice-faint: var(--theme-muted, #6e6d79);
+  --voice-line: var(--theme-border, #31313a);
+  --voice-track: var(--theme-selection, #26262d);
+  --voice-surface: var(--theme-surface, linear-gradient(#15141c, #111114));
   --voice-mono: "Geist Mono", ui-monospace, monospace;
   color: var(--voice-text);
 }
 .voice-kicker { font-family: var(--voice-mono); font-size: 11px; letter-spacing: 2px; color: var(--voice-link); }
 .voice-mono { font-family: var(--voice-mono); }
-.voice-primary { background: linear-gradient(90deg, var(--voice-accent), var(--voice-accent-2)); color: #fff; border: 0; }
-.voice-secondary { background: #15141c; border: 1px solid var(--voice-line); color: var(--voice-text); }
+.voice-primary { background: linear-gradient(90deg, var(--voice-accent), var(--voice-accent-2)); color: var(--theme-canvas, #fff); border: 0; }
+.voice-secondary { background: var(--theme-canvas, #15141c); border: 1px solid var(--voice-line); color: var(--voice-text); }
+.voice-ui button:focus-visible, button.voice-ui:focus-visible { outline: 2px solid var(--voice-accent); outline-offset: 2px; }
 @keyframes voice-listen { 0%, 100% { transform: scaleY(0.5); opacity: 0.5 } 50% { transform: scaleY(1); opacity: 1 } }
 @keyframes voice-speak { 0%, 100% { transform: scaleY(0.55); opacity: 0.6 } 40% { transform: scaleY(1.12); opacity: 1 } }
 @keyframes voice-breathe { 0%, 100% { opacity: 0.45 } 50% { opacity: 1 } }

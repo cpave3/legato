@@ -20,7 +20,7 @@ interface MarkdownBodyProps {
   images?: ItemImage[]
 }
 
-const compactPreClassName = "my-2 max-w-full overflow-x-auto rounded border border-zinc-700 bg-black/40 p-2 font-mono text-xs leading-5 text-zinc-200"
+const compactPreClassName = "my-2 max-w-full overflow-x-auto rounded border border-zinc-700 bg-[var(--theme-canvas,rgba(0,0,0,0.4))] p-2 font-mono text-xs leading-5 text-zinc-200"
 
 export const MarkdownBody = memo(function MarkdownBody({ body, disableImages = false, skipHtml = false, renderMermaid = false, renderPlanVisuals = false, images }: MarkdownBodyProps) {
   const drawn = (
@@ -48,7 +48,7 @@ export const MarkdownBody = memo(function MarkdownBody({ body, disableImages = f
               ? <MermaidMarkdownPre fallbackClassName={compactPreClassName}>{children}</MermaidMarkdownPre>
               : <CopyablePre className={compactPreClassName}>{children}</CopyablePre>,
           code: ({ children, className, ...props }) => (
-            <code {...props} className={cn(className, !className && "rounded bg-black/30 px-1 py-0.5 font-mono text-[0.9em] text-zinc-100")}>{children}</code>
+            <code {...props} className={cn(className, !className && "rounded bg-[var(--theme-surface,rgba(0,0,0,0.3))] px-1 py-0.5 font-mono text-[0.9em] text-zinc-100")}>{children}</code>
           ),
           table: ({ children }) => <div className="my-2 overflow-x-auto"><table className="w-full border-collapse text-xs">{children}</table></div>,
           th: ({ children }) => <th className="border border-zinc-700 bg-zinc-900 px-2 py-1 text-left">{children}</th>,

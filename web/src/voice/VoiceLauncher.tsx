@@ -171,7 +171,7 @@ export function VoiceLauncher({ baseUrl, audio: givenAudio, socket }: VoiceLaunc
   const main = readiness?.main ?? ""
   const client = clientRef.current
   return (
-    <div className="fixed inset-0 z-[80] flex flex-col justify-end bg-[rgba(7,7,9,0.8)]" onClick={(e) => { if (e.target === e.currentTarget) close() }}>
+    <div className="fixed inset-0 z-[80] flex flex-col justify-end bg-[color-mix(in_srgb,var(--theme-canvas,#070709)_80%,transparent)]" onClick={(e) => { if (e.target === e.currentTarget) close() }}>
       <div className="mx-auto w-full max-w-[440px]">
         {readiness === null ? (
           <VoiceSheet view={initialVoiceView} main="" onClose={close} />

@@ -2,6 +2,7 @@ import { ReeveAutoSettings } from "../components/settings/ReeveAutoSettings"
 import { useEffect, useRef, useState } from "react"
 import { ShieldCheck, Download, Zap, ScanSearch, Keyboard, QrCode, Server, Trash2, Plus, RefreshCw, Smartphone, Sparkles, FolderGit2, Palette, SquareTerminal } from "lucide-react"
 import { TintPicker } from "../components/TintPicker"
+import { AppThemePicker } from "../components/settings/AppThemePicker"
 import { TerminalThemePicker } from "../components/settings/TerminalThemePicker"
 import { setToken } from "../lib/auth"
 import { useServer } from "../hooks/useServer"
@@ -374,7 +375,7 @@ export function SettingsPage() {
             </SettingsCard>
           </SettingsGroup>
 
-          <SettingsGroup id="appearance" title="Appearance" description="This server's tint, saved on the server; motion and effects, saved in this browser only.">
+          <SettingsGroup id="appearance" title="Appearance" description="This server's tint is shared. Theme, motion and effects are saved on this device.">
             <SettingsRows>
               <SettingsRow
                 icon={Palette}
@@ -387,10 +388,11 @@ export function SettingsPage() {
                   </div>
                 }
               />
+              <SettingsRow icon={Palette} title="App theme" description="Colours for this device. Terminals follow unless you choose a separate theme." browser control={<AppThemePicker />} />
               <SettingsRow
                 icon={SquareTerminal}
                 title="Terminal theme"
-                description="The colours of agents' terminals. The frame around them stays Legato's."
+                description="Follow the app theme, or choose separate colours for agents' terminals."
                 browser
                 control={<TerminalThemePicker />}
               />

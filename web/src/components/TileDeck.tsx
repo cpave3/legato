@@ -43,12 +43,12 @@ export interface TileDeckProps {
 }
 
 const looks: Record<TileState, { label: string; glyph: string; chip: string; frame: string }> = {
-  spawning: { label: "spawning", glyph: "○", chip: "bg-lw-live-soft text-lw-live", frame: "border-[#2d3a33]" },
+  spawning: { label: "spawning", glyph: "○", chip: "bg-lw-live-soft text-lw-live", frame: "border-[var(--theme-border,#2d3a33)]" },
   interrupted: { label: "interrupted", glyph: "■", chip: "bg-lw-idle-soft text-lw-text-2", frame: "border-lw-line" },
-  running: { label: "running", glyph: "●", chip: "bg-lw-live-soft text-lw-live", frame: "border-[#2d3a33]" },
-  waiting: { label: "needs you", glyph: "◆", chip: "bg-lw-needs-soft text-lw-needs", frame: "border-[#4a3a1a]" },
+  running: { label: "running", glyph: "●", chip: "bg-lw-live-soft text-lw-live", frame: "border-[var(--theme-border,#2d3a33)]" },
+  waiting: { label: "needs you", glyph: "◆", chip: "bg-lw-needs-soft text-lw-needs", frame: "border-[var(--theme-border,#4a3a1a)]" },
   done: { label: "done", glyph: "✓", chip: "bg-lw-done-soft text-lw-done", frame: "border-lw-line" },
-  error: { label: "error", glyph: "✕", chip: "bg-lw-error-soft text-lw-error", frame: "border-[#4a2a2e]" },
+  error: { label: "error", glyph: "✕", chip: "bg-lw-error-soft text-lw-error", frame: "border-[var(--theme-border,#4a2a2e)]" },
 }
 
 const live = (tile: DeckTile) => tile.state === "spawning" || tile.state === "running" || tile.state === "waiting"
@@ -76,8 +76,8 @@ function Grid({ title, tiles, focused, onFocus, highlighted, onHighlight, now }:
   const opened = focused ? tiles.find((tile) => tile.id === focused) : undefined
 
   return (
-    <section aria-label={title} className="flex min-h-0 min-w-0 flex-1 flex-col bg-[#0e0e11] font-lw text-[13px] leading-5 text-lw-text">
-      <header className="flex shrink-0 flex-wrap items-center justify-between gap-x-4 gap-y-1 border-b border-[#222228] px-4 py-2.5">
+    <section aria-label={title} className="flex min-h-0 min-w-0 flex-1 flex-col bg-[var(--theme-canvas,#0e0e11)] font-lw text-[13px] leading-5 text-lw-text">
+      <header className="flex shrink-0 flex-wrap items-center justify-between gap-x-4 gap-y-1 border-b border-[var(--theme-border,#222228)] px-4 py-2.5">
         <h2 className="m-0 text-[13px] font-semibold">{title}</h2>
         <Counts tiles={tiles} />
       </header>
@@ -88,7 +88,7 @@ function Grid({ title, tiles, focused, onFocus, highlighted, onHighlight, now }:
             <button
               type="button"
               onClick={() => onFocus(null)}
-              className="h-7 shrink-0 rounded-md border border-lw-line-strong bg-lw-raised px-2.5 text-xs text-lw-text hover:border-[#4a4955]"
+              className="h-7 shrink-0 rounded-md border border-lw-line-strong bg-lw-raised px-2.5 text-xs text-lw-text hover:border-[var(--theme-border,#4a4955)]"
             >
               <span aria-hidden="true">← </span>All tiles
             </button>
@@ -161,7 +161,7 @@ function Shelf({ tiles, now, onFocus, highlighted, onHighlight }: {
   const hidden = newest.length - shown.length
 
   return (
-    <div className="shrink-0 border-t border-[#222228] px-3 pb-2.5 pt-1.5 sm:px-4">
+    <div className="shrink-0 border-t border-[var(--theme-border,#222228)] px-3 pb-2.5 pt-1.5 sm:px-4">
       <button
         type="button"
         aria-expanded={open}
@@ -219,7 +219,7 @@ function TileCard({ tile, now, open = false, highlighted = false, onOpen }: {
         onOpen && "cursor-pointer hover:border-lw-accent",
         highlighted ? "border-lw-accent" : look.frame)}
     >
-      <div className="flex shrink-0 flex-col gap-0.5 border-b border-[#222228] px-3 pb-2 pt-2.5">
+      <div className="flex shrink-0 flex-col gap-0.5 border-b border-[var(--theme-border,#222228)] px-3 pb-2 pt-2.5">
         <div className="flex items-center justify-between gap-2">
           <StateChip tile={tile} now={now} />
           {tile.count && <span className="font-lw-mono text-[11px] text-lw-faint">{tile.count}</span>}
@@ -252,7 +252,7 @@ function Strip({ title, tiles, focused, onFocus, now }: TileDeckProps & { now: n
   const step = (by: number) => onFocus(ordered[(index + by + ordered.length) % ordered.length].id)
 
   return (
-    <section aria-label={title} className="shrink-0 border-b border-[#222228] bg-[#0e0e11] font-lw text-[13px] leading-5 text-lw-text">
+    <section aria-label={title} className="shrink-0 border-b border-[var(--theme-border,#222228)] bg-[var(--theme-canvas,#0e0e11)] font-lw text-[13px] leading-5 text-lw-text">
       <ul aria-label={title} className="m-0 flex list-none gap-2 overflow-x-auto px-3 py-2 [scrollbar-width:none]">
         {ordered.map((tile) => (
           <li key={tile.id} className="flex w-[9.75rem] shrink-0">
@@ -303,8 +303,8 @@ function Sheet({ tile, now, onClose, onStep, position }: {
         }}
         className="fixed inset-x-0 bottom-0 z-50 flex h-[82dvh] flex-col rounded-t-2xl border-t border-lw-line-strong bg-lw-surface pb-[env(safe-area-inset-bottom)] font-lw text-[13px] leading-5 text-lw-text shadow-[0_-12px_30px_rgba(0,0,0,.5)]"
       >
-        <div aria-hidden="true" className="mx-auto mb-1 mt-2 h-1 w-9 shrink-0 rounded-full bg-[#3a3a44]" />
-        <div className="flex shrink-0 flex-col gap-0.5 border-b border-[#222228] px-3.5 pb-2.5">
+        <div aria-hidden="true" className="mx-auto mb-1 mt-2 h-1 w-9 shrink-0 rounded-full bg-[var(--theme-border,#3a3a44)]" />
+        <div className="flex shrink-0 flex-col gap-0.5 border-b border-[var(--theme-border,#222228)] px-3.5 pb-2.5">
           <div className="flex items-center justify-between gap-2">
             <StateChip tile={tile} now={now} />
             {tile.count && <span className="font-lw-mono text-[11px] text-lw-faint">{tile.count}</span>}
@@ -314,7 +314,7 @@ function Sheet({ tile, now, onClose, onStep, position }: {
         </div>
         {tile.detail && <div className="shrink-0 px-3.5 pt-2.5">{tile.detail}</div>}
         <div ref={body} data-tile-body className="flex min-h-0 flex-1 flex-col overflow-y-auto px-3.5 py-2.5">{tile.body}</div>
-        <div className="flex shrink-0 items-center justify-between gap-2 border-t border-[#222228] px-3.5 py-2.5">
+        <div className="flex shrink-0 items-center justify-between gap-2 border-t border-[var(--theme-border,#222228)] px-3.5 py-2.5">
           <button type="button" onClick={onClose} className="h-8 rounded-md border border-lw-line-strong bg-lw-raised px-3 text-xs text-lw-text">Close</button>
           {onStep && (
             <div className="flex items-center gap-2">

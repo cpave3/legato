@@ -1,4 +1,6 @@
 @import "tailwindcss";
+@import "./theme.css";
+@import "./theme-utilities.css";
 
 /* The new look of Legato's web app: one ground, one accent, five states.
    The studio panel is the first to use it; the rest follows. Colours are

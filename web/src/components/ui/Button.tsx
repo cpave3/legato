@@ -9,13 +9,13 @@ const buttonVariants = cva(
   {
     variants: {
       variant: {
-        primary: "bg-indigo-600 text-white hover:bg-indigo-500",
+        primary: "bg-indigo-600 text-[var(--theme-canvas,#fff)] hover:bg-indigo-500",
         secondary: "bg-zinc-800 text-zinc-100 hover:bg-zinc-700",
-        outline: "border border-zinc-700 bg-transparent text-zinc-300 hover:bg-zinc-800 hover:text-white",
+        outline: "border border-zinc-700 bg-transparent text-zinc-300 hover:bg-zinc-800 hover:text-[var(--theme-text,#fff)]",
         ghost: "text-zinc-400 hover:bg-zinc-800 hover:text-zinc-100",
-        success: "bg-emerald-600 text-white hover:bg-emerald-500",
-        warning: "bg-amber-600 text-white hover:bg-amber-500",
-        destructive: "bg-red-600 text-white hover:bg-red-500",
+        success: "bg-emerald-600 text-[var(--theme-canvas,#fff)] hover:bg-emerald-500",
+        warning: "bg-amber-600 text-[var(--theme-canvas,#fff)] hover:bg-amber-500",
+        destructive: "bg-red-600 text-[var(--theme-canvas,#fff)] hover:bg-red-500",
       },
       size: {
         sm: "min-h-9 px-3 text-xs",

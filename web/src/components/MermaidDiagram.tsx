@@ -1,19 +1,28 @@
-import { isValidElement, useEffect, useRef, useState, type ReactNode } from "react"
+import { isValidElement, useEffect, useRef, useState, useSyncExternalStore, type ReactNode } from "react"
+
+import { appTheme, subscribeTheme } from "../lib/appTheme"
+import { mermaidConfig } from "../lib/agentUi"
 
 let nextDiagramID = 0
 let mermaidPromise: Promise<typeof import("mermaid").default> | undefined
 
+let initializedTheme: string | undefined
+
 function loadMermaid() {
-  mermaidPromise ??= import("mermaid").then(({ default: mermaid }) => {
-    mermaid.initialize({
-      startOnLoad: false,
-      theme: "dark",
-      securityLevel: "strict",
-      suppressErrorRendering: true,
-    })
+  mermaidPromise ??= import("mermaid").then(({ default: mermaid }) => mermaid)
+  return mermaidPromise.then(mermaid => {
+    const theme = appTheme()
+    if (initializedTheme !== theme.id) {
+      mermaid.initialize(theme.tokens ? { ...mermaidConfig(), securityLevel: "strict" } : {
+        startOnLoad: false,
+        theme: "dark",
+        securityLevel: "strict",
+        suppressErrorRendering: true,
+      })
+      initializedTheme = theme.id
+    }
     return mermaid
   })
-  return mermaidPromise
 }
 
 function mermaidCodeSource(children: ReactNode) {
@@ -23,7 +32,7 @@ function mermaidCodeSource(children: ReactNode) {
   return typeof source === "string" ? source : null
 }
 
-export function MermaidMarkdownPre({ children, fallbackClassName = "my-3 overflow-x-auto rounded bg-black/40 p-3" }: { children?: ReactNode; fallbackClassName?: string }) {
+export function MermaidMarkdownPre({ children, fallbackClassName = "my-3 overflow-x-auto rounded bg-[var(--theme-canvas,rgba(0,0,0,0.4))] p-3" }: { children?: ReactNode; fallbackClassName?: string }) {
   const source = mermaidCodeSource(children)
   return source === null
     ? <pre className={fallbackClassName}>{children}</pre>
@@ -31,6 +40,7 @@ export function MermaidMarkdownPre({ children, fallbackClassName = "my-3 overflo
 }
 
 export function MermaidDiagram({ source }: { source: string }) {
+  const theme = useSyncExternalStore(subscribeTheme, () => appTheme().id)
   const containerRef = useRef<HTMLDivElement>(null)
   const [failed, setFailed] = useState(false)
   const [expanded, setExpanded] = useState(false)
@@ -59,7 +69,7 @@ export function MermaidDiagram({ source }: { source: string }) {
     return () => {
       current = false
     }
-  }, [source])
+  }, [source, theme])
 
   useEffect(() => {
     if (!expanded) return
@@ -81,7 +91,7 @@ export function MermaidDiagram({ source }: { source: string }) {
       aria-label={expanded ? "Collapse Mermaid diagram" : "Expand Mermaid diagram"}
       aria-pressed={expanded}
       onClick={() => setExpanded(current => !current)}
-      className={`block max-h-full max-w-full cursor-zoom-in overflow-auto rounded bg-black/60 p-3 text-left ${expanded ? "h-full w-full cursor-zoom-out" : "w-full"}`}
+      className={`block max-h-full max-w-full cursor-zoom-in overflow-auto rounded bg-[var(--theme-surface,rgba(0,0,0,0.6))] p-3 text-left ${expanded ? "h-full w-full cursor-zoom-out" : "w-full"}`}
     >
       <div ref={containerRef} role="img" aria-label="Mermaid diagram" className={`[&_svg]:mx-auto [&_svg]:max-w-none ${expanded ? "min-h-full min-w-full [&_svg]:h-auto [&_svg]:min-w-full" : "min-w-max"}`} />
     </button>

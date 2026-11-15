@@ -1,0 +1,94 @@
+import { renderedThemes, type ThemeTokens } from "../../../themes/render"
+export type { ThemeTokens } from "../../../themes/render"
+
+export type AppThemeId = "legato" | "dracula" | "ocular-light" | "ocular-dark"
+export const APP_THEME_KEY = "legato:app-theme"
+export const THEME_CHANGED = "legato:theme-changed"
+export const appThemes = [{ id: "legato", name: "Legato", polarity: "dark", tokens: null }, ...renderedThemes]
+
+export function appTheme() {
+  let id: string | null = null
+  try { id = localStorage.getItem(APP_THEME_KEY) } catch { /* Storage unavailable. */ }
+  return appThemes.find(theme => theme.id === id) ?? appThemes[0]
+}
+
+// These are role mappings, not another palette. Platform adapters use the same source.
+export function themeVariables(t: ThemeTokens): Record<string, string> {
+  const roles: Record<string, string> = {
+    rail: t.canvas, ground: t.canvas, surface: t.surface, raised: t.surface,
+    selected: t.selection, line: t.border, "line-strong": t.border,
+    text: t.text, "text-2": t.muted, faint: t.muted,
+    accent: t.focus, "accent-ring": t.focus, link: t.link,
+    "accent-soft": t.selection, "accent-text": t.link,
+    live: t.success, "live-soft": t.surface, needs: t.warning, "needs-soft": t.surface,
+    done: t.info, "done-soft": t.surface, error: t.error, "error-soft": t.surface,
+    "idle-soft": t.surface, danger: t.error, "danger-line": t.border, record: t.error,
+  }
+  const vars = Object.fromEntries(Object.entries(roles).map(([role, value]) => [`--color-lw-${role}`, value]))
+  for (const [role, value] of Object.entries(t)) vars[`--theme-${role}`] = value
+  // Older screens still use Tailwind's neutral scales. Keep their semantics in
+  // both polarities without changing the incumbent Legato palette.
+  for (const scale of ["zinc", "gray", "slate", "neutral"]) {
+    for (const n of [50, 100, 200, 300]) vars[`--color-${scale}-${n}`] = t.text
+    for (const n of [400, 500, 600]) vars[`--color-${scale}-${n}`] = t.muted
+    vars[`--color-${scale}-700`] = t.border
+    vars[`--color-${scale}-800`] = t.surface
+    vars[`--color-${scale}-900`] = t.surface
+    vars[`--color-${scale}-950`] = t.canvas
+  }
+  return vars
+}
+
+const applied = new Set<string>()
+export function applyAppTheme(): void {
+  const theme = appTheme()
+  const root = document.documentElement
+  for (const key of applied) root.style.removeProperty(key)
+  applied.clear()
+  if (theme.tokens) for (const [key, value] of Object.entries(themeVariables(theme.tokens))) {
+    root.style.setProperty(key, value)
+    applied.add(key)
+  }
+  root.dataset.theme = theme.id
+  root.style.colorScheme = theme.polarity
+}
+
+export async function setAppTheme(id: AppThemeId): Promise<void> {
+  const shell = (window as { legatoShell?: { theme?: number; key?: string } }).legatoShell
+  const bridge = window.ReactNativeWebView
+  if (shell?.theme === 1 && shell.key && bridge?.postMessage) {
+    await new Promise<void>((resolve, reject) => {
+      const finish = (error?: string) => {
+        clearTimeout(timer)
+        window.removeEventListener("legato:shell-theme", answer)
+        if (error) reject(new Error(error)); else resolve()
+      }
+      const answer = (event: Event) => {
+        const result = (event as CustomEvent<{ id: string; error?: string }>).detail
+        if (result?.id === id) finish(result.error)
+      }
+      const timer = setTimeout(() => finish("The app did not save the theme. Try again in the app's Appearance settings."), 10_000)
+      window.addEventListener("legato:shell-theme", answer)
+      bridge.postMessage!(JSON.stringify({ legatoShell: "theme", type: "theme", key: shell.key, id }))
+    })
+  } else {
+    localStorage.setItem(APP_THEME_KEY, id)
+  }
+  applyAppTheme()
+  window.dispatchEvent(new Event(THEME_CHANGED))
+}
+
+export function subscribeTheme(handler: () => void): () => void {
+  const storage = (event: StorageEvent) => {
+    if (event.key === null || event.key === APP_THEME_KEY || event.key === "legato:terminal-theme") {
+      applyAppTheme()
+      handler()
+    }
+  }
+  window.addEventListener(THEME_CHANGED, handler)
+  window.addEventListener("storage", storage)
+  return () => {
+    window.removeEventListener(THEME_CHANGED, handler)
+    window.removeEventListener("storage", storage)
+  }
+}

@@ -1,4 +1,5 @@
-import { describe, expect, it, vi } from "vitest"
+/// <reference types="node" />
+import { afterEach, describe, expect, it, vi } from "vitest"
 import "@testing-library/jest-dom/vitest"
 import { fireEvent, render, screen } from "@testing-library/react"
 import { VoiceRing } from "../VoiceRing"
@@ -6,6 +7,9 @@ import { ReeveNameContext } from "../../lib/reeveName"
 import { dialTicks } from "../ring"
 import { VoiceCapsule, VoiceCard, VoiceSheet } from "../VoiceWidgets"
 import { initialVoiceView, type VoiceView } from "../session"
+import { applyAppTheme, setAppTheme } from "../../lib/appTheme"
+import { readFileSync } from "node:fs"
+const voiceCSS = readFileSync("src/voice/voice.css", "utf8")
 
 const view = (v: Partial<VoiceView>): VoiceView => ({ ...initialVoiceView, ...v })
 const ready = { ready: true, reason: "", setting: "", main: "tessitura" }
@@ -94,8 +98,8 @@ describe("the card", () => {
 
   it("speaking lights the line being said and dims those to come", () => {
     render(<VoiceCard view={view({ state: "speaking", speaking: "a", lines: [{ id: "a", text: "It failed.", url: "" }, { id: "b", text: "Nothing is lost.", url: "" }] })} main="main" onStop={() => {}} onReply={() => {}} />)
-    expect(screen.getByText("It failed.")).toHaveClass("text-[#E6E5EB]")
-    expect(screen.getByText(/Nothing is lost/)).toHaveClass("text-[#6E6D79]")
+    expect(screen.getByText("It failed.")).toHaveClass("text-[var(--voice-text)]")
+    expect(screen.getByText(/Nothing is lost/)).toHaveClass("text-[var(--voice-faint)]")
     expect(screen.getByRole("button", { name: "Reply" })).toBeInTheDocument()
   })
 
@@ -119,5 +123,46 @@ describe("the phone sheet", () => {
     expect(screen.getByTestId("voice-sheet")).toHaveAttribute("data-state", "blocked")
     expect(screen.getByText("Whisper isn't answering on main")).toBeInTheDocument()
     expect(screen.getByRole("button", { name: "Open settings" })).toBeInTheDocument()
+  })
+})
+
+// jsdom does not compute stylesheet custom properties or paint SVG. Inspect
+// the rules matching the rendered surface; native/browser contrast is visual.
+describe("voice surface theme bindings", () => {
+  afterEach(() => {
+    document.getElementById("voice-test-css")?.remove()
+    localStorage.removeItem("legato:app-theme")
+    applyAppTheme()
+  })
+  it("binds sheet text, surface and action ink to semantic roles, retaining default fallbacks", async () => {
+    localStorage.setItem("legato:app-theme", "ocular-light")
+    applyAppTheme()
+    const style = document.createElement("style")
+    style.id = "voice-test-css"
+    style.textContent = voiceCSS
+    document.head.append(style)
+    const { rerender } = render(<VoiceSheet view={view({ state: "listening", partial: "Check the build" })} main="main" onSend={() => {}} onCancel={() => {}} />)
+    const sheet = screen.getByRole("dialog")
+    const css = Array.from(style.sheet!.cssRules).find(rule => rule.type === 1 && sheet.matches((rule as CSSStyleRule).selectorText)) as CSSStyleRule
+    expect(css.style.getPropertyValue("--voice-text")).toBe("var(--theme-text,#e6e5eb)")
+    expect(css.style.getPropertyValue("--voice-surface")).toBe("var(--theme-surface,linear-gradient(#15141c,#111114))")
+    expect(getComputedStyle(screen.getByRole("button", { name: "Send now" })).color).toBe("var(--theme-canvas, #fff)")
+    expect(screen.getByText("Check the build")).toBeInTheDocument()
+    expect(document.documentElement.style.getPropertyValue("--theme-surface")).toBe("#EAE7DF")
+    await setAppTheme("dracula")
+    expect(document.documentElement.style.getPropertyValue("--theme-surface")).toBe("#282A36")
+    expect(screen.getByRole("dialog")).toBe(sheet)
+    expect(sheet.className).not.toMatch(/(?:text|border|bg)-\[#[0-9a-f]+/i)
+    rerender(<VoiceCard view={view({ state: "thinking", heard: "Check the build", activity: "reading logs" })} main="main" />)
+    expect(screen.getByText("reading logs…")).toHaveClass("text-[var(--voice-link)]")
+    expect(screen.getByText("“Check the build”")).toHaveClass("text-[var(--voice-dim)]")
+  })
+
+  it.each(["idle", "blocked", "listening", "thinking", "speaking"] as const)("binds the %s gauge and ticks to semantic roles", mode => {
+    render(<VoiceRing mode={mode} />)
+    const ring = screen.getByRole("img")
+    const role = mode === "speaking" ? "success" : mode === "blocked" ? "warning" : "focus"
+    expect(ring.querySelector("text")?.getAttribute("fill")).toContain(`var(--theme-${role},`)
+    for (const tick of ring.querySelectorAll(".tick")) expect(tick.getAttribute("stroke")).toMatch(/^var\(--theme-/)
   })
 })

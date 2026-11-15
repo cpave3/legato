@@ -1,3 +1,4 @@
+import { appTheme } from "./appTheme"
 import { apiFetch } from "./api"
 import type { NativeToolItem } from "./nativeAgentSync"
 
@@ -291,6 +292,29 @@ const THEME_VARIABLES: Record<string, string> = {
   "--shadow-sm": "0 1px 2px rgba(0, 0, 0, 0.4)",
 }
 
+function currentThemeVariables(): Record<string, string> {
+  const tokens = appTheme().tokens
+  if (!tokens) return THEME_VARIABLES
+  return {
+    ...THEME_VARIABLES,
+    "--color-background-primary": tokens.surface,
+    "--color-background-secondary": tokens.canvas,
+    "--color-background-tertiary": tokens.selection,
+    "--color-background-inverse": tokens.text,
+    "--color-text-primary": tokens.text,
+    "--color-text-secondary": tokens.muted,
+    "--color-text-tertiary": tokens.muted,
+    "--color-text-inverse": tokens.canvas,
+    "--color-border-primary": tokens.border,
+    "--color-border-secondary": tokens.border,
+    "--color-ring-primary": tokens.focus,
+    ...Object.fromEntries(["info", "success", "warning", "danger"].flatMap(role => [
+      [`--color-background-${role}`, tokens.selection],
+      [`--color-text-${role}`, tokens[role === "danger" ? "error" : role as "info" | "success" | "warning"]],
+    ])),
+  }
+}
+
 const HOST_NAME = /^[a-z0-9]([a-z0-9-]*[a-z0-9])?(\.[a-z0-9]([a-z0-9-]*[a-z0-9])?)+$/
 
 // The script every frame starts with. It runs inside the sandbox, with no
@@ -361,7 +385,7 @@ const DIAGRAM_HUES: Record<string, string> = {
 // tint is a hue laid thinly over the page's background: a node's fill.
 function tint(hue: string, amount: number): string {
   const channels = (color: string) => [1, 3, 5].map((at) => parseInt(color.slice(at, at + 2), 16))
-  const [from, to] = [channels(THEME_VARIABLES["--color-background-primary"]), channels(hue)]
+  const [from, to] = [channels(currentThemeVariables()["--color-background-primary"]), channels(hue)]
   return `#${from.map((channel, index) => Math.round(channel + (to[index] - channel) * amount).toString(16).padStart(2, "0")).join("")}`
 }
 
@@ -370,7 +394,9 @@ function tint(hue: string, amount: number): string {
 // shows it. Mermaid scopes it to the diagram, ahead of its own rules.
 function diagramStyle(): string {
   const shape = (node: string) => `${node} .label-container, ${node} .label-container path, ${node} > rect, ${node} > circle, ${node} > ellipse, ${node} > polygon, ${node} > path`
-  const hues = Object.entries(DIAGRAM_HUES).map(([name, hue]) =>
+  const tokens = appTheme().tokens
+  const palette = tokens ? { blue: tokens.info, cyan: tokens.type, green: tokens.success, amber: tokens.warning, red: tokens.error, pink: tokens.keyword, purple: tokens.function, gray: tokens.muted } : DIAGRAM_HUES
+  const hues = Object.entries(palette).map(([name, hue]) =>
     `${shape(`.node.${name}`)} { fill: ${tint(hue, 0.16)} !important; stroke: ${hue} !important; } .node.${name} { color: ${hue}; }`).join(" ")
   return `.node rect { rx: 8px; ry: 8px; } .cluster rect { rx: 12px; ry: 12px; stroke-dasharray: 4 4; } .nodeLabel { font-weight: 600; } .cluster-label .nodeLabel { font-weight: 500; }
 ${hues}
@@ -382,26 +408,26 @@ ${shape('.node[aria-pressed="true"]')} { stroke: currentColor !important; stroke
 
 // mermaidConfig is how a frame sets Mermaid up: Legato's colors and font in
 // place of Mermaid's own look.
-function mermaidConfig() {
-  const theme = THEME_VARIABLES
+export function mermaidConfig() {
+  const theme = currentThemeVariables()
   const [page, raised, line] = [theme["--color-background-primary"], theme["--color-background-secondary"], theme["--color-background-tertiary"]]
   const [text, quiet, faint] = [theme["--color-text-primary"], theme["--color-text-secondary"], theme["--color-text-tertiary"]]
   return {
     startOnLoad: false,
     // The frame is the sandbox, and the agent's own script already runs in
     // it: a label may hold markup, and a diagram's own click lines work.
-    securityLevel: "loose",
+    securityLevel: "loose" as const,
     // A diagram Mermaid cannot read must not leave its error drawing behind.
     suppressErrorRendering: true,
-    theme: "base",
+    theme: "base" as const,
     fontFamily: theme["--font-sans"],
     themeVariables: {
-      darkMode: true,
+      darkMode: appTheme().polarity !== "light",
       background: page,
       fontSize: "14px",
       primaryColor: raised,
       primaryTextColor: text,
-      primaryBorderColor: "#52525b",
+      primaryBorderColor: appTheme().tokens?.border ?? "#52525b",
       secondaryColor: line,
       tertiaryColor: raised,
       lineColor: faint,
@@ -411,17 +437,17 @@ function mermaidConfig() {
       clusterBorder: line,
       edgeLabelBackground: page,
       actorBkg: raised,
-      actorBorder: "#52525b",
+      actorBorder: appTheme().tokens?.border ?? "#52525b",
       actorTextColor: text,
       actorLineColor: line,
       signalColor: quiet,
       signalTextColor: text,
       labelBoxBkgColor: raised,
-      labelBoxBorderColor: "#52525b",
+      labelBoxBorderColor: appTheme().tokens?.border ?? "#52525b",
       labelTextColor: text,
       loopTextColor: quiet,
       noteBkgColor: line,
-      noteBorderColor: "#52525b",
+      noteBorderColor: appTheme().tokens?.border ?? "#52525b",
       noteTextColor: text,
       activationBkgColor: line,
       activationBorderColor: faint,
@@ -657,11 +683,11 @@ export function contentPolicy(resourceDomains: string[], images: ItemImage[] = [
 // whole view (the side panel, a saved file); otherwise a card that is as tall
 // as its content.
 function themeStyle(fill: boolean): string {
-  const variables = Object.entries(THEME_VARIABLES).map(([name, value]) => `${name}: ${value};`).join(" ")
-  return `:root { color-scheme: dark; ${variables} }
+  const variables = Object.entries(currentThemeVariables()).map(([name, value]) => `${name}: ${value};`).join(" ")
+  return `:root { color-scheme: ${appTheme().polarity}; ${variables} }
 html { background: var(--color-background-primary); }
 body { margin: 0; padding: ${fill ? "20px" : "12px"}; color: var(--color-text-primary); font-family: var(--font-sans); font-size: 14px; line-height: 1.5; overflow-wrap: anywhere; ${fill ? "" : "overflow-x: auto;"} }
-a { color: #a5b4fc; }
+a { color: ${appTheme().tokens?.link ?? "#a5b4fc"}; }
 img, svg, video, canvas { max-width: 100%; }
 table { border-collapse: collapse; }
 pre, code { font-family: var(--font-mono); }

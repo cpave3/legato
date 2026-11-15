@@ -1,22 +1,27 @@
-import { useState } from "react"
+import { useState, useSyncExternalStore } from "react"
 import { cn } from "../../lib/utils"
-import { setTerminalTheme, terminalTheme, terminalThemes } from "../../lib/terminalTheme"
+import { subscribeTheme } from "../../lib/appTheme"
+import { setTerminalTheme, terminalThemePreference, terminalThemes } from "../../lib/terminalTheme"
+import { themePickerKeys } from "./themePickerKeys"
 
-// Chooses the colours of agents' terminals in this browser. A terminal takes
-// the choice the next time it opens.
 export function TerminalThemePicker() {
-  const [chosen, setChosen] = useState(() => terminalTheme().id)
+  const chosen = useSyncExternalStore(subscribeTheme, terminalThemePreference)
+  const [error, setError] = useState("")
+  const options = [{ id: "app" as const, name: "Follow app", theme: { background: undefined as string | undefined } }, ...terminalThemes]
   return (
-    <div role="radiogroup" aria-label="Terminal theme" className="flex flex-wrap gap-0.5 rounded-md border border-lw-line bg-lw-ground p-0.5">
-      {terminalThemes.map((option) => (
+    <div>
+    <div role="radiogroup" aria-label="Terminal theme" onKeyDown={themePickerKeys} className="flex flex-wrap gap-0.5 rounded-md border border-lw-line bg-lw-ground p-0.5">
+      {options.map((option) => (
         <button
           key={option.id}
           type="button"
           role="radio"
           aria-checked={chosen === option.id}
+          tabIndex={chosen === option.id ? 0 : -1}
           onClick={() => {
-            setChosen(option.id)
-            setTerminalTheme(option.id)
+            setError("")
+            try { setTerminalTheme(option.id) }
+            catch (e) { setError(e instanceof Error ? e.message : "Could not save terminal theme") }
           }}
           className={cn(
             "flex h-8 items-center gap-1.5 rounded px-2.5 text-xs transition-colors",
@@ -27,6 +32,8 @@ export function TerminalThemePicker() {
           {option.name}
         </button>
       ))}
+    </div>
+    {error && <p role="alert" className="mt-2 text-sm text-lw-error">{error}</p>}
     </div>
   )
 }

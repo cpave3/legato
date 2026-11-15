@@ -56,7 +56,7 @@ function AskReeveButton({ brief, className, label: given }: AskReeveProps) {
   return (
     <>
       <button type="button" disabled={busy} onClick={() => void ask()}
-        className={cn("inline-flex min-h-11 items-center gap-1.5 rounded-lg border border-[#8b5cf6]/50 px-3 text-sm text-[#c4b5fd] hover:bg-[#8b5cf6]/10 disabled:opacity-50 md:min-h-8 md:text-xs", className)}>
+        className={cn("inline-flex min-h-11 items-center gap-1.5 rounded-lg border border-[#8b5cf6]/50 px-3 text-sm text-[var(--theme-keyword,#c4b5fd)] hover:bg-[#8b5cf6]/10 disabled:opacity-50 md:min-h-8 md:text-xs", className)}>
         <Crown size={13} aria-hidden="true" />
         {label}
       </button>
@@ -73,7 +73,7 @@ function AskReeveButton({ brief, className, label: given }: AskReeveProps) {
                 onClick={() => void run(async () => { await endReeve(baseUrl, current.task_id); return (await startReeve(baseUrl, { brief })).task_id })}>
                 End it and start fresh
               </button>
-              <button type="button" disabled={busy} className="min-h-11 rounded-lg border border-[#8b5cf6]/60 bg-[#8b5cf6]/20 px-3 text-sm text-[#ddd6fe] hover:bg-[#8b5cf6]/30 sm:min-h-8 sm:text-xs"
+              <button type="button" disabled={busy} className="min-h-11 rounded-lg border border-[#8b5cf6]/60 bg-[#8b5cf6]/20 px-3 text-sm text-[var(--theme-keyword,#ddd6fe)] hover:bg-[#8b5cf6]/30 sm:min-h-8 sm:text-xs"
                 onClick={() => void run(async () => { await messageReeve(baseUrl, brief); return current.task_id })}>
                 Add to the current conversation
               </button>

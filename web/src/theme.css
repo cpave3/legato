@@ -1,0 +1,40 @@
+/* Named themes adapt the existing utility-based UI to semantic roles.
+   Palette values come only from themes/palettes.json via appTheme.ts. */
+:root[data-theme]:not([data-theme="legato"]) body {
+  background: var(--theme-canvas);
+  color: var(--theme-text);
+  caret-color: var(--theme-text);
+}
+:root[data-theme]:not([data-theme="legato"]) {
+  scrollbar-color: var(--theme-border) var(--theme-canvas);
+}
+:root[data-theme]:not([data-theme="legato"]) ::selection {
+  background: var(--theme-selection);
+  color: var(--theme-text);
+}
+:root[data-theme]:not([data-theme="legato"]) :focus-visible {
+  outline: 2px solid var(--theme-focus);
+  outline-offset: 3px;
+}
+:root[data-theme]:not([data-theme="legato"]) :is(input, textarea)::placeholder {
+  color: var(--theme-muted);
+  opacity: 1;
+}
+:root[data-theme]:not([data-theme="legato"]) .board-column-scrollbar {
+  scrollbar-color: var(--theme-border) transparent;
+}
+:root[data-theme]:not([data-theme="legato"]) .board-column-scrollbar::-webkit-scrollbar-thumb {
+  background: var(--theme-border);
+}
+/* Filled action buttons use the canvas as their on-accent ink. */
+:root[data-theme]:not([data-theme="legato"]) .bg-lw-accent {
+  color: var(--theme-canvas);
+}
+:root[data-theme]:not([data-theme="legato"]) .bg-lw-accent:hover {
+  background-color: var(--theme-focus);
+}
+:root[data-theme]:not([data-theme="legato"]) .bg-lw-accent :is(.text-white, .text-lw-text) {
+  color: var(--theme-canvas);
+}
+/* Older screens use chromatic Tailwind utilities. Map their foregrounds and
+   washes independently: light-mode text must not inherit a dark-mode wash. */

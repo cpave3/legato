@@ -64,7 +64,7 @@ export function ReadImageRow({ agentId, path, grouped }: ReadImageRowProps) {
         className={`flex w-full items-center gap-2 text-left transition-colors hover:text-zinc-200 ${grouped ? "px-3 py-1" : "px-1 py-0.5"}`}
         onClick={() => setOpen(!open)}
       >
-        <span className="rounded bg-blue-700/40 px-1.5 py-0.5 font-mono text-white">read</span>
+        <span className="rounded bg-[var(--theme-selection,color-mix(in_oklab,var(--color-blue-700)_40%,transparent))] px-1.5 py-0.5 font-mono text-[var(--theme-text,white)]">read</span>
         <ImageIcon aria-hidden className="h-3.5 w-3.5 shrink-0 text-blue-300" />
         <span className="min-w-0 truncate font-mono">{filename}</span>
         <span className="ml-auto shrink-0 text-zinc-500">{open ? "▼" : "▶"}</span>
@@ -94,7 +94,7 @@ export function ReadImageRow({ agentId, path, grouped }: ReadImageRowProps) {
         >
           <div className="flex shrink-0 items-center gap-3 px-4 py-2 text-xs text-zinc-300">
             <span className="min-w-0 truncate font-mono">{path}</span>
-            <button aria-label="Close image" className="ml-auto rounded p-1 text-zinc-400 hover:text-white" onClick={() => setLarge(false)}>
+            <button aria-label="Close image" className="ml-auto rounded p-1 text-zinc-400 hover:text-[var(--theme-text,white)]" onClick={() => setLarge(false)}>
               <X className="h-4 w-4" />
             </button>
           </div>

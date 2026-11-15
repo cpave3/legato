@@ -27,7 +27,7 @@ function RailLink({ section }: { section: NavSection }) {
       aria-current={active ? "page" : undefined}
       className={cn(
         "relative flex w-[54px] flex-col items-center gap-[3px] rounded-lg pb-[5px] pt-[7px] no-underline transition-colors",
-        active ? "bg-lw-selected text-lw-text" : "text-[#8a8994] hover:bg-lw-raised hover:text-lw-text",
+        active ? "bg-lw-selected text-lw-text" : "text-[var(--theme-muted,#8a8994)] hover:bg-lw-raised hover:text-lw-text",
       )}
     >
       <NavIcon d={section.icon} />
@@ -61,7 +61,7 @@ export function NavRail({ sections, connected, servers, activeServerName, baseUr
   const tinted = color ? { backgroundImage: `linear-gradient(${tintWash(color, 0.16)}, ${tintWash(color, 0.16)})`, borderRightColor: tintWash(color, 0.45) } : undefined
   return (
     <nav aria-label="Primary" data-tint={color ? tint : undefined} style={tinted}
-      className="hidden w-16 shrink-0 flex-col items-center gap-0.5 border-r border-[#222228] bg-lw-rail pb-3.5 pt-3 font-lw md:flex">
+      className="hidden w-16 shrink-0 flex-col items-center gap-0.5 border-r border-[var(--theme-border,#222228)] bg-lw-rail pb-3.5 pt-3 font-lw md:flex">
       {railOrder.map((key) => (
         <Fragment key={key}>
           {sections[key].separated && <div role="separator" className="my-1.5 h-px w-7 bg-lw-line" />}
@@ -114,7 +114,7 @@ function ServerSwitcher({ servers, activeServerName, baseUrl, onSwitch, color }:
         onClick={() => setOpen((value) => !value)}
         aria-label={`Server: ${activeServerName}`}
         title={`Server: ${activeServerName}`}
-        className={cn("flex size-9 items-center justify-center rounded-lg hover:bg-lw-raised", baseUrl ? "text-lw-link" : "text-[#8a8994] hover:text-lw-text")}
+        className={cn("flex size-9 items-center justify-center rounded-lg hover:bg-lw-raised", baseUrl ? "text-lw-link" : "text-[var(--theme-muted,#8a8994)] hover:text-lw-text")}
         style={color ? { color } : undefined}
       >
         <Server size={16} />

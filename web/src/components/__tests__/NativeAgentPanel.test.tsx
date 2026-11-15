@@ -319,7 +319,7 @@ describe("NativeAgentPanel", () => {
     const block = await screen.findByLabelText("Message from the Reeve on vm-1")
     expect(block.textContent).toContain("From the Reeve on vm-1 · worker")
     expect(within(block).getByText("Jira answered 401 here too.")).not.toBeNull()
-    expect(block.className).toContain("border-l-[#8b5cf6]")
+    expect(block.className).toContain("border-l-[var(--theme-keyword,#8b5cf6)]")
   })
 
   it("sets another agent's messages apart from Legato's and from what the person typed", async () => {

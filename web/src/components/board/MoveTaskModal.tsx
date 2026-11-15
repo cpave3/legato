@@ -80,7 +80,7 @@ export function MoveTaskModal({
       {current ? (
         <span className="rounded bg-zinc-800 px-1.5 py-0.5 text-[10px] text-zinc-500">current</span>
       ) : shortcut ? (
-        <kbd className="min-w-[1.5rem] rounded bg-zinc-800 px-1.5 py-0.5 text-center text-[10px] font-bold text-[#AFA9EC]">{shortcut}</kbd>
+        <kbd className="min-w-[1.5rem] rounded bg-zinc-800 px-1.5 py-0.5 text-center text-[10px] font-bold text-[var(--theme-focus,#AFA9EC)]">{shortcut}</kbd>
       ) : (
         <span className="min-w-[1.5rem]" />
       )}

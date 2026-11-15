@@ -31,7 +31,7 @@ function ActivityDot({ activity }: { activity: string }) {
     case "error":
       return <span className="inline-flex size-2 shrink-0 rounded-full bg-lw-error" title="Error" />
     default:
-      return <span className="inline-flex size-2 shrink-0 rounded-full bg-[#4a4955]" title="Idle" />
+      return <span className="inline-flex size-2 shrink-0 rounded-full bg-[var(--theme-border,#4a4955)]" title="Idle" />
   }
 }
 
@@ -133,7 +133,7 @@ export function AgentSelect({ agents: all, selectedId, onSelect, reeve, grouping
                 </div>
 
                 {agent.task_title && (
-                  <span className="truncate pl-4 text-xs text-[#c9c8d0]">{agent.task_title}</span>
+                  <span className="truncate pl-4 text-xs text-[var(--theme-text,#c9c8d0)]">{agent.task_title}</span>
                 )}
                 <span className="flex min-w-0 items-center gap-1.5 pl-4">
                   <AgentKindBadge kind={agent.agent_kind} engram={agent.engram} isNative={!!agent.has_chimera_endpoint} />
@@ -260,12 +260,12 @@ interface AgentPickerBarProps extends AgentSelectProps {
 export function AgentPickerBar({ onEnsemble, onSpawn, ...picker }: AgentPickerBarProps) {
   const square = "flex size-11 shrink-0 items-center justify-center rounded-lg transition-colors"
   return (
-    <div className="flex shrink-0 items-center gap-1.5 border-b border-[#222228] bg-lw-ground p-2">
+    <div className="flex shrink-0 items-center gap-1.5 border-b border-[var(--theme-border,#222228)] bg-lw-ground p-2">
       <AgentSelect {...picker} />
-      <button type="button" onClick={onEnsemble} aria-label="Ensemble" title="Ensemble: every agent at once" className={cn(square, "text-[#c9c8d0] hover:bg-lw-raised hover:text-lw-text")}>
+      <button type="button" onClick={onEnsemble} aria-label="Ensemble" title="Ensemble: every agent at once" className={cn(square, "text-[var(--theme-text,#c9c8d0)] hover:bg-lw-raised hover:text-lw-text")}>
         <LayoutGrid size={18} aria-hidden="true" />
       </button>
-      <button type="button" onClick={onSpawn} aria-label="Spawn agent" title="Spawn agent" className={cn(square, "bg-lw-accent text-white hover:brightness-110")}>
+      <button type="button" onClick={onSpawn} aria-label="Spawn agent" title="Spawn agent" className={cn(square, "bg-lw-accent text-[var(--theme-canvas,#fff)] hover:brightness-110")}>
         <Plus size={18} aria-hidden="true" />
       </button>
     </div>

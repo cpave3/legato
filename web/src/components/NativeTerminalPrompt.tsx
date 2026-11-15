@@ -31,7 +31,7 @@ export function NativeTerminalPrompt({ prompt, askedBy, onChoose, onOpenTerminal
         )}
       </div>
       {prompt.context && (
-        <pre className="mt-2 max-h-48 overflow-auto whitespace-pre-wrap break-words rounded bg-black/30 p-2 font-mono text-xs text-zinc-100">{prompt.context}</pre>
+        <pre className="mt-2 max-h-48 overflow-auto whitespace-pre-wrap break-words rounded bg-[var(--theme-canvas,rgba(0,0,0,0.3))] p-2 font-mono text-xs text-zinc-100">{prompt.context}</pre>
       )}
       <div className="mt-3 flex flex-col items-start gap-1.5">
         {actions.map((action, index) => (
@@ -39,7 +39,7 @@ export function NativeTerminalPrompt({ prompt, askedBy, onChoose, onOpenTerminal
             key={`${index}-${action.keys}`}
             className={isWayOut(action.keys)
               ? "rounded px-2 py-1 text-left text-xs text-zinc-300 hover:bg-zinc-800"
-              : "max-w-full break-words rounded bg-amber-700/50 px-2 py-1 text-left text-xs text-white hover:bg-amber-600/50"}
+              : "max-w-full break-words rounded bg-[var(--theme-selection,color-mix(in_oklab,var(--color-amber-700)_50%,transparent))] px-2 py-1 text-left text-xs text-[var(--theme-text,white)] hover:bg-[var(--theme-selection,color-mix(in_oklab,var(--color-amber-600)_50%,transparent))]"}
             onClick={() => onChoose(action.keys)}
           >
             {action.label}

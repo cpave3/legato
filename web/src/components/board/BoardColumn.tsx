@@ -43,7 +43,7 @@ function columnRule(name: string): string {
     case "away":
       return "border-lw-accent-ring"
     default:
-      return "border-[#4a4955]"
+      return "border-[var(--theme-border,#4a4955)]"
   }
 }
 
