@@ -1,3 +1,4 @@
+import { Dialog, DialogPanel, DialogHeader, DialogBody } from "../ui/Dialog"
 import { cn } from "../../lib/utils"
 import { useState, useEffect, useLayoutEffect, useRef, useCallback } from "react"
 import { useServer } from "../../hooks/useServer"
@@ -56,7 +57,6 @@ export function SearchModal({ open, onClose, onSelect }: SearchModalProps) {
     setQuery("")
     setResults([])
     setCursor(0)
-    setTimeout(() => inputRef.current?.focus(), 50)
   }, [open])
 
   useEffect(() => {
@@ -92,23 +92,27 @@ export function SearchModal({ open, onClose, onSelect }: SearchModalProps) {
   if (!open) return null
 
   return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/60 p-4 pt-20" onClick={onClose}>
-      <div className="w-full max-w-lg rounded-lg border border-zinc-700 bg-zinc-900 shadow-2xl" onClick={(e) => e.stopPropagation()}>
-        <div className="flex items-center gap-2 border-b border-zinc-800 px-4 py-2">
+    <Dialog open={open} onClose={onClose}>
+      <DialogPanel aria-label="Search tasks" aria-labelledby={undefined} className="w-full max-w-lg rounded-lg border border-zinc-700 bg-zinc-900 shadow-2xl">
+        <DialogHeader className="flex items-center gap-2 border-b border-zinc-800 px-4 py-2">
           <SearchIcon size={14} className="text-zinc-500" />
+          <label className="flex min-w-0 flex-1 items-center gap-2 text-xs text-zinc-400">Search tasks
           <input
             ref={inputRef}
+            data-autofocus
+            aria-label="Search"
             type="text"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="Search..."
-            className="flex-1 bg-transparent text-sm text-zinc-200 outline-none placeholder:text-zinc-600"
+            className="min-w-0 flex-1 bg-transparent text-sm text-zinc-200 outline-none placeholder:text-zinc-600"
           />
-          <button onClick={onClose} className="rounded p-1 text-zinc-500 transition-colors hover:bg-zinc-800 hover:text-zinc-200">
+          </label>
+          <button aria-label="Close" onClick={onClose} className="rounded p-1 text-zinc-500 transition-colors hover:bg-zinc-800 hover:text-zinc-200">
             <X size={14} />
           </button>
-        </div>
-        <div className="max-h-80 overflow-y-auto px-2 py-2">
+        </DialogHeader>
+        <DialogBody className="space-y-0 max-h-80 overflow-y-auto px-2 py-2">
           {loading && (
             <div className="px-3 py-6 text-center text-xs text-zinc-500">Searching...</div>
           )}
@@ -133,8 +137,8 @@ export function SearchModal({ open, onClose, onSelect }: SearchModalProps) {
               </div>
             </div>
           ))}
-        </div>
-      </div>
-    </div>
+        </DialogBody>
+      </DialogPanel>
+    </Dialog>
   )
 }

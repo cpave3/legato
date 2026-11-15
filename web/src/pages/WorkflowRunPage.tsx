@@ -187,33 +187,51 @@ function formatBytes(size: number): string {
 
 function Artifact({ artifact, step }: { artifact: WorkflowArtifact; step?: string }) {
   const { baseUrl } = useServer()
-  const [text, setText] = useState("")
+  const [text, setText] = useState<string | null>(null)
   const [error, setError] = useState("")
+  const [loading, setLoading] = useState(false)
+  const [downloadError, setDownloadError] = useState("")
+  const [downloading, setDownloading] = useState(false)
   const filename = workflowArtifactFilename(artifact.original_path, artifact.output_key)
-  async function load() { try { const blob = await fetchWorkflowArtifact(baseUrl, artifact.id); setText(await blob.text()) } catch (c) { setError(c instanceof Error ? c.message : String(c)) } }
-  async function download() { try { const blob = await fetchWorkflowArtifact(baseUrl, artifact.id); const url = URL.createObjectURL(blob); const link = document.createElement("a"); link.href = url; link.download = filename; link.click(); URL.revokeObjectURL(url) } catch (c) { setError(c instanceof Error ? c.message : String(c)) } }
+  async function load() {
+    setError("")
+    setLoading(true)
+    try { const blob = await fetchWorkflowArtifact(baseUrl, artifact.id); setText(await blob.text()) }
+    catch (c) { setError(c instanceof Error ? c.message : String(c)) }
+    finally { setLoading(false) }
+  }
+  async function download() {
+    setDownloadError("")
+    setDownloading(true)
+    try { const blob = await fetchWorkflowArtifact(baseUrl, artifact.id); const url = URL.createObjectURL(blob); const link = document.createElement("a"); link.href = url; link.download = filename; link.click(); URL.revokeObjectURL(url) }
+    catch (c) { setDownloadError(c instanceof Error ? c.message : String(c)) }
+    finally { setDownloading(false) }
+  }
   const markdown = artifact.media_type === "text/markdown"
   return <div className="rounded-lg border border-lw-line bg-lw-surface">
     <div className="flex flex-wrap items-center gap-3 px-3 py-2.5">
       <FileText size={16} aria-hidden="true" className="shrink-0 text-lw-text-2" />
       <div className="min-w-0 flex-1 basis-40"><p className="break-all font-medium">{filename}</p><p className="text-xs text-lw-faint">{step && `from ${step} · `}{markdown ? "Markdown" : artifact.media_type} · {formatBytes(artifact.size_bytes)}</p></div>
-      <Button variant="outline" size="sm" onClick={download}><Download size={14} />Download</Button>
+      <Button variant="outline" size="sm" disabled={downloading} onClick={download}><Download size={14} />Download</Button>
     </div>
-    {markdown && <details className="border-t border-lw-line" onToggle={event => { if (event.currentTarget.open && !text) void load() }}>
+    {markdown && <details className="border-t border-lw-line" onToggle={event => { if (event.currentTarget.open && text === null && !loading) void load() }}>
       <summary className="min-h-11 cursor-pointer content-center px-3 text-sm text-lw-link">Preview</summary>
-      {error ? <p className="px-3 pb-3 text-sm text-lw-error">{error}</p> : <div className="overflow-x-auto px-4 pb-4 sm:px-6"><WorkflowMarkdownPreview markdown={text} /></div>}
+      {loading ? <LoadingState label="Loading preview…" size="inline" className="px-3 pb-3" /> : error ? <div role="alert" className="space-y-2 px-3 pb-3 text-sm text-lw-error"><p>{error}</p><Button variant="outline" size="sm" onClick={() => { void load() }}>Retry preview</Button></div> : <div className="overflow-x-auto px-4 pb-4 sm:px-6"><WorkflowMarkdownPreview markdown={text ?? ""} /></div>}
     </details>}
-    {!markdown && error && <p className="px-3 pb-3 text-sm text-lw-error">{error}</p>}
+    {downloadError && <p role="alert" className="px-3 pb-3 text-sm text-lw-error">Download failed: {downloadError}</p>}
   </div>
 }
 
 export function WorkflowRunPage() {
   const { runId = "" } = useParams()
-  const { data, loading, error, refresh } = useWorkflowRun(runId)
+  const { data, loading, refreshing, error, refresh } = useWorkflowRun(runId)
   const { baseUrl } = useServer()
   const now = useNow(15_000)
   if (loading) return <main className="flex min-h-0 flex-1 flex-col"><LoadingState label="Loading the workflow run…" /></main>
-  if (error || !data) return <main className="p-6 font-lw text-lw-error">{error || "Run not found"}</main>
+  if (!data) return <main className="p-6 font-lw text-lw-text">
+    <Link to="/workflows?tab=runs" className="text-sm text-lw-link">← Runs</Link>
+    <div role="alert" className="mt-4 space-y-2 text-sm text-lw-error"><p>{error || "Run not found"}</p><Button variant="outline" disabled={refreshing} onClick={() => { void refresh() }}>Retry</Button></div>
+  </main>
   const steps = data.steps ?? []
   const attempts = data.attempts ?? []
   const artifacts = data.artifacts ?? []
@@ -249,10 +267,14 @@ export function WorkflowRunPage() {
       <div className="mt-4 flex flex-wrap items-center gap-3 text-[13px] text-lw-text-2"><StatePill tone={state.tone} label={state.label} />{where && <span>{where}</span>}</div>
       {steps.length > 0 && <StepBar segments={stepSegments(run, stepLikes)} label={where || state.label} className="mt-2" />}
       {run.status === "cancelled" && run.error && <p className="mt-3 text-[13px] text-lw-text-2">{redact(run.error, secrets)}</p>}
-      <Now view={data} runId={runId} refresh={refresh} now={now} secrets={secrets} />
+      {error && <div role="alert" className="mt-4 rounded-lg border border-lw-line bg-lw-surface p-3 text-sm">
+        <p className="text-lw-needs">Showing saved run. Refresh failed: {error}</p>
+        <Button variant="outline" size="sm" className="mt-2" disabled={refreshing} onClick={() => { void refresh() }}>Retry</Button>
+      </div>}
+      <Now key={`${baseUrl}:${runId}`} view={data} runId={runId} refresh={refresh} now={now} secrets={secrets} />
       <h2 className="mb-2 mt-7 text-xs font-semibold uppercase tracking-wide text-lw-text-2">Steps</h2>
       <ul aria-label="Steps" className="overflow-hidden rounded-xl border border-lw-line bg-lw-surface">
-        {steps.map(step => <StepRow key={step.step_id} step={step} run={run} attempts={attempts.filter(attempt => attempt.step_id === step.step_id)} artifacts={artifacts.filter(artifact => artifact.step_id === step.step_id)} now={now} secrets={secrets} />)}
+        {steps.map(step => <StepRow key={`${baseUrl}:${runId}:${step.step_id}`} step={step} run={run} attempts={attempts.filter(attempt => attempt.step_id === step.step_id)} artifacts={artifacts.filter(artifact => artifact.step_id === step.step_id)} now={now} secrets={secrets} />)}
       </ul>
       {inputs.length > 0 && <>
         <h2 className="mb-2 mt-7 text-xs font-semibold uppercase tracking-wide text-lw-text-2">Inputs</h2>

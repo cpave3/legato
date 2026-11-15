@@ -16,11 +16,11 @@
   --color-lw-raised: #1d1d22;
   --color-lw-selected: #23222c;
   --color-lw-line: #26262d;
-  --color-lw-line-strong: #31313a;
+  --color-lw-line-strong: #777681;
 
   --color-lw-text: #e6e5eb;
   --color-lw-text-2: #9a99a5;
-  --color-lw-faint: #66656f;
+  --color-lw-faint: #9a99a5;
 
   --color-lw-accent: #6d5ef6;
   --color-lw-accent-ring: #4f46b8;
@@ -47,6 +47,19 @@
 
 :root {
   color-scheme: dark;
+}
+
+:is(:root:not([data-theme]), :root[data-theme="legato"]) :is(.text-zinc-500, .text-zinc-600) {
+  color: var(--color-lw-text-2);
+}
+
+:is(:root:not([data-theme]), :root[data-theme="legato"]) :is(input, textarea, select) {
+  border-color: var(--color-lw-line-strong);
+}
+
+[role^="menuitem"]:focus-visible {
+  outline: 2px solid var(--theme-focus, var(--color-lw-accent));
+  outline-offset: -2px;
 }
 
 body {

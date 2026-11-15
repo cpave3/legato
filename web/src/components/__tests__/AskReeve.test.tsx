@@ -74,3 +74,18 @@ describe("AskReeve", () => {
     expect((await screen.findByRole("alert")).textContent).toContain("sandbox")
   })
 })
+
+it("keeps focus in the conversation choice and restores Ask on Escape", async () => {
+  mockFetch.mockResolvedValue({current:running,history:[running],folder:"/r"})
+  show()
+  const trigger = screen.getByRole("button", {name:"Ask the Reeve"})
+  trigger.focus()
+  fireEvent.click(trigger)
+  const last = await screen.findByRole("button", {name:"Add to the current conversation"})
+  last.focus()
+  fireEvent.keyDown(last, {key:"Tab"})
+  expect(document.activeElement).toBe(screen.getByRole("button", {name:"Cancel"}))
+  fireEvent.keyDown(document.activeElement!, {key:"Escape"})
+  expect(screen.queryByRole("dialog")).toBeNull()
+  expect(document.activeElement).toBe(trigger)
+})

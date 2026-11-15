@@ -17,9 +17,10 @@ import type { BoardCard, BoardColumn, CardDetail } from "../lib/board-types"
 import { BoardGrid } from "../components/board/BoardGrid"
 import { isColumnCollapsed } from "../lib/boardColumns"
 import { MobileBoardList } from "../components/board/MobileBoardList"
-import { Download, Plus, RefreshCw, Search } from "lucide-react"
+import { CircleHelp, Download, Plus, RefreshCw, Search } from "lucide-react"
 import { WorkspaceFilter } from "../components/board/WorkspaceFilter"
 import { DetailPanel } from "../components/board/DetailPanel"
+import { TaskAgentAction } from "../components/board/TaskAgentAction"
 import { BoardTaskPanel } from "../components/board/BoardTaskPanel"
 import { useMediaQuery } from "../hooks/useMediaQuery"
 import { CreateTaskModal } from "../components/board/CreateTaskModal"
@@ -235,7 +236,7 @@ export function BoardPage() {
   const currentCard = columns[cursorCol]?.cards?.[cursorRow] ?? null
   const activeColumn = columns[cursorCol]
   const panelCard = wide && !panelHidden ? currentCard : null
-  const panelCardId = panelCard?.id ?? null
+  const panelCardId = currentCard?.id ?? null
   const doneColumn = boardColumns.find((c) => !c.away && c.name.toLowerCase() === "done")
   // A task away on a worker changes only there: what refuses it here.
   const awayOf = useCallback((id: string) => allCards.find((card) => card.id === id)?.away, [allCards])
@@ -363,14 +364,42 @@ export function BoardPage() {
   // pressed the moment it shows would otherwise reach the old handler.
   useLayoutEffect(() => {
     const handler = async (e: KeyboardEvent) => {
-      // Ignore when modal inputs are focused
+      if (e.defaultPrevented || e.ctrlKey || e.metaKey || e.altKey) return
+      // Native controls keep their activation keys; typing never moves the cursor.
       const target = e.target as HTMLElement
-      if (target.tagName === "INPUT" || target.tagName === "TEXTAREA" || target.tagName === "SELECT") {
+      if (target instanceof HTMLElement && (target.isContentEditable || target.closest("input, textarea, select, [contenteditable=true]") || (["Enter", " "].includes(e.key) && target.closest("button, a, summary")))) {
         return
       }
 
+      // Overlays consume Esc
+      if (e.key === "Escape") {
+        if (overlay.kind !== "none") {
+          e.preventDefault()
+          setOverlay({ kind: "none" })
+          return
+        }
+      }
+
+      // Don't process board nav when an overlay is open
+      if (overlay.kind !== "none") {
+        if (e.key === "?") {
+          setOverlay(overlay.kind === "help" ? { kind: "none" } : { kind: "help" })
+        }
+        return
+      }
+
+      if (document.querySelector('[role="dialog"]:not([aria-labelledby="task-detail-title"])')) return
+
       // Detail panel overrides board keys
       if (detailCard) {
+        if (e.key === "s") {
+          e.preventDefault()
+          if (refuseAway(detailCard)) return
+          const placement = window.matchMedia("(min-width: 1024px)").matches ? "desktop" : "mobile"
+          const action = document.querySelector<HTMLButtonElement>(`[data-task-agent-action="${placement}"] [data-task-primary-action]`)
+          action?.click()
+          return
+        }
         if (e.key === "Escape") {
           e.preventDefault()
           setDetailCard(null)
@@ -439,23 +468,6 @@ export function BoardPage() {
             addToast(errorMessage(error, "Could not copy the full task context"), "error")
           }
           return
-        }
-        return
-      }
-
-      // Overlays consume Esc
-      if (e.key === "Escape") {
-        if (overlay.kind !== "none") {
-          e.preventDefault()
-          setOverlay({ kind: "none" })
-          return
-        }
-      }
-
-      // Don't process board nav when an overlay is open
-      if (overlay.kind !== "none") {
-        if (e.key === "?") {
-          setOverlay(overlay.kind === "help" ? { kind: "none" } : { kind: "help" })
         }
         return
       }
@@ -565,6 +577,7 @@ export function BoardPage() {
         return
       }
       if (e.key === "s") {
+        if (refuseAway(currentCard)) { e.preventDefault(); return }
         // The panel's own agent button: open, resume or go to the agent.
         const start = panelRef.current?.querySelector<HTMLButtonElement>("[data-task-primary-action]")
         if (start && !start.disabled) {
@@ -903,10 +916,14 @@ export function BoardPage() {
       className="flex h-full flex-col overflow-hidden bg-lw-ground font-lw text-[13px] leading-5 text-lw-text outline-none"
       tabIndex={0}
     >
+      <div role="status" aria-label="Board cursor" aria-live="polite" aria-atomic="true" className="sr-only">
+        {currentCard ? `${currentCard.title}, ${activeColumn?.name}` : activeColumn ? `${activeColumn.name}, no cards` : ""}
+      </div>
       <header data-testid="board-header-mobile" className="flex flex-col gap-3 px-4 pb-2.5 pt-4 md:hidden">
         <div className="flex items-center justify-between">
           <h1 className="m-0 text-2xl font-semibold leading-[30px]">Board</h1>
           <div className="flex gap-1">
+            <button type="button" aria-label="Keyboard shortcuts" onClick={() => setOverlay({ kind: "help" })} className="flex h-11 w-11 items-center justify-center rounded-full border border-lw-line-strong bg-lw-raised text-lw-text"><CircleHelp size={17} aria-hidden="true" /></button>
             <button
               type="button"
               aria-label="Filter"
@@ -948,7 +965,8 @@ export function BoardPage() {
           <h1 className="m-0 text-lg font-semibold leading-6">Board</h1>
           <span className="truncate text-[13px] text-lw-text-2">{cardCountLabel(allCards, shownCards)}</span>
         </div>
-        <div className="flex min-w-0 items-center gap-2">
+        <div className="flex min-w-0 flex-wrap items-center justify-end gap-2">
+          <button type="button" aria-label="Keyboard shortcuts" onClick={() => setOverlay({ kind: "help" })} className="flex h-11 w-11 shrink-0 items-center justify-center rounded-md text-lw-text-2 hover:bg-lw-raised hover:text-lw-text"><CircleHelp size={17} aria-hidden="true" /></button>
           <WorkspaceFilter
             className="max-w-[40vw]"
             workspaces={workspaces}
@@ -1002,8 +1020,9 @@ export function BoardPage() {
             <LoadingState label="Loading the board…" />
           )}
           {error && columns.length === 0 && (
-            <div className="flex h-full items-center justify-center">
+            <div role="alert" className="flex h-full flex-col items-center justify-center gap-3">
               <p className="text-sm text-lw-error">{error}</p>
+              <button type="button" onClick={() => void refresh()} className="min-h-11 rounded-md border border-lw-line-strong bg-lw-raised px-4 text-lw-text">Retry</button>
             </div>
           )}
           {columns.length > 0 && (
@@ -1055,8 +1074,20 @@ export function BoardPage() {
         )}
       </div>
 
+      {!panelCard && currentCard && !currentCard.away && (
+        <div ref={panelRef} className="flex shrink-0 flex-wrap items-center gap-2 border-t border-lw-line px-4 py-2">
+          <span className="min-w-0 flex-1 truncate">Agent for {currentCard.title}</span>
+          <TaskAgentAction
+            key={currentCard.id}
+            taskId={currentCard.id}
+            worktreePath={panelDetail?.id === currentCard.id ? panelDetail.worktree?.path : undefined}
+            rememberedWorkingDir={panelDetail?.id === currentCard.id ? panelDetail.code_context?.working_dir : undefined}
+            resumableAgentKinds={panelDetail?.id === currentCard.id ? panelDetail.resumable_agent_kinds : undefined}
+          />
+        </div>
+      )}
       <footer data-testid="board-keys" className="hidden gap-[18px] border-t border-[var(--theme-border,#222228)] px-5 py-1.5 text-xs text-lw-faint md:flex">
-        {boardKeys(showEmpty, Boolean(panelCard)).map(([key, label]) => (
+        {boardKeys(showEmpty, Boolean(currentCard && !currentCard.away)).map(([key, label]) => (
           <span key={key}><span className="text-[var(--theme-muted,#b4b3bd)]">{key}</span> {label}</span>
         ))}
       </footer>
@@ -1229,6 +1260,7 @@ export function BoardPage() {
       {/* Detail panel */}
       {detailCard && (
         <DetailPanel
+          suspended={overlay.kind !== "none"}
           card={detailCard}
           away={awayOf(detailCard.id)}
           onClose={() => {

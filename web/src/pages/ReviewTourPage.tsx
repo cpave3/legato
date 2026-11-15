@@ -1,4 +1,6 @@
-import { useEffect, useMemo, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from "react"
+import { useModalLayer } from "../hooks/useModalLayer"
+import { useMediaQuery } from "../hooks/useMediaQuery"
+import { useEffect, useMemo, useRef, useState, type CSSProperties, type PointerEvent as ReactPointerEvent } from "react"
 import { ArrowLeft, Check, Circle, Flag, List, Loader2, MessageSquare, RefreshCw, Send, X } from "lucide-react"
 import { Link, useNavigate, useParams } from "react-router-dom"
 import { HandoffView } from "../components/handoff/HandoffView"
@@ -72,6 +74,13 @@ export function ReviewTourPage() {
   const [selectedFindingIDs, setSelectedFindingIDs] = useState<string[]>([])
   const [stepsOpen, setStepsOpen] = useState(false)
   const [qaOpen, setQAOpen] = useState(false)
+  const phone = useMediaQuery("(max-width: 1023px)")
+  const stepsRef = useRef<HTMLElement>(null)
+  const qaRef = useRef<HTMLElement>(null)
+  const stepsModal = phone && stepsOpen && view === "diff" && !!data
+  const qaModal = phone && qaOpen && view === "diff" && !!data
+  useModalLayer({ open: stepsModal, onClose: () => setStepsOpen(false), containerRef: stepsRef })
+  useModalLayer({ open: qaModal, onClose: () => setQAOpen(false), containerRef: qaRef })
   const voiceEnabled = useVoiceEnabled(baseUrl)
 
   const passViews = useMemo(() => data?.passes ?? [], [data?.passes])
@@ -302,7 +311,7 @@ export function ReviewTourPage() {
         style={{ "--qa-width": `${qaWidthRem}rem` } as CSSProperties}
         className="grid min-h-0 flex-1 grid-cols-1 lg:grid-cols-[18rem_minmax(0,1fr)_var(--qa-width)]"
       >
-        <aside className={`${stepsOpen ? "fixed inset-2 z-50 block rounded-lg border shadow-2xl" : "hidden"} overflow-y-auto border-zinc-800 bg-zinc-950 p-3 lg:static lg:block lg:rounded-none lg:border-y-0 lg:border-l-0 lg:border-r`}>
+        <aside ref={stepsRef} role={stepsModal ? "dialog" : undefined} aria-modal={stepsModal || undefined} aria-label="Review steps" tabIndex={-1} className={`${stepsOpen ? "fixed inset-2 z-50 block rounded-lg border shadow-2xl" : "hidden"} overflow-y-auto border-zinc-800 bg-zinc-950 p-3 lg:static lg:block lg:rounded-none lg:border-y-0 lg:border-l-0 lg:border-r`}>
           <button aria-label="Close chapters" onClick={() => setStepsOpen(false)} className="absolute right-2 top-2 flex h-11 w-11 items-center justify-center lg:hidden"><X size={18}/></button>
           {passViews.length > 0 && <div className="mb-3 space-y-3">
             {passViews.map((passView) => <section key={passView.pass.id} aria-label={`Pass ${passView.pass.number}`}>
@@ -395,7 +404,7 @@ export function ReviewTourPage() {
           )}
         </main>
 
-        <aside className={`${qaOpen ? "fixed inset-2 z-50 flex rounded-lg border shadow-2xl" : "hidden"} relative min-h-0 flex-col border-zinc-800 bg-zinc-950 p-3 lg:static lg:flex lg:rounded-none lg:border-y-0 lg:border-r-0 lg:border-l`}>
+        <aside ref={qaRef} role={qaModal ? "dialog" : undefined} aria-modal={qaModal || undefined} aria-label="Review feedback" tabIndex={-1} className={`${qaOpen ? "fixed inset-2 z-50 flex rounded-lg border shadow-2xl" : "hidden"} min-h-0 flex-col border-zinc-800 bg-zinc-950 p-3 lg:relative lg:flex lg:rounded-none lg:border-y-0 lg:border-r-0 lg:border-l`}>
           <div className="-mx-3 -mt-3 mb-4 flex min-h-14 shrink-0 items-center justify-between border-b border-zinc-800 px-3 lg:hidden">
             <h2 className="text-sm font-semibold text-zinc-200">Review feedback</h2>
             <button aria-label="Close notes" onClick={() => setQAOpen(false)} className="flex h-11 w-11 items-center justify-center rounded text-zinc-400 hover:bg-zinc-900 hover:text-zinc-200"><X size={18}/></button>

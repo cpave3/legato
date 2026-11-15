@@ -1,3 +1,4 @@
+import { useModalLayer } from "../hooks/useModalLayer"
 import { useEffect, useRef, useState } from "react"
 import { Html5Qrcode } from "html5-qrcode"
 import { Camera, X } from "lucide-react"
@@ -33,6 +34,9 @@ export function QRScanner({ onScan, onClose }: QRScannerProps) {
   const scannerRef = useRef<Html5Qrcode | null>(null)
   const containerRef = useRef<HTMLDivElement>(null)
 
+  const dialogRef = useRef<HTMLDivElement>(null)
+  useModalLayer({ open: true, onClose, containerRef: dialogRef })
+
   useEffect(() => {
     const scanner = new Html5Qrcode("qr-reader")
     scannerRef.current = scanner
@@ -67,14 +71,15 @@ export function QRScanner({ onScan, onClose }: QRScannerProps) {
   }, [onScan])
 
   return (
-    <div className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-zinc-950/95 backdrop-blur-sm">
-      <div className="w-full max-w-sm">
+    <div ref={dialogRef} className="fixed inset-0 z-50 flex flex-col items-center justify-center bg-zinc-950/95 backdrop-blur-sm">
+      <div role="dialog" aria-modal="true" aria-label="Scan Pairing QR Code" className="max-h-[calc(100dvh-2rem)] w-full max-w-sm overflow-y-auto p-4">
         <div className="flex items-center justify-between mb-4 px-2">
           <div className="flex items-center gap-2 text-zinc-200">
             <Camera size={20} />
             <span className="text-sm font-medium">Scan Pairing QR Code</span>
           </div>
           <button
+            aria-label="Close scanner"
             onClick={onClose}
             className="rounded p-1 text-zinc-500 hover:bg-zinc-800 hover:text-zinc-300 transition-colors"
           >
@@ -87,7 +92,7 @@ export function QRScanner({ onScan, onClose }: QRScannerProps) {
           className="rounded-lg overflow-hidden bg-black"
         />
         {error && (
-          <p className="mt-3 text-sm text-red-400 text-center">{error}</p>
+          <p role="alert" className="mt-3 text-sm text-red-400 text-center">{error}</p>
         )}
         <p className="mt-3 text-xs text-zinc-500 text-center">
           Run <code className="text-zinc-400 bg-zinc-800 px-1 rounded">legato pair</code> on the server to show the QR code

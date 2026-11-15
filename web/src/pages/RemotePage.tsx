@@ -51,8 +51,8 @@ function RemoteInventory({ baseUrl, serverName }: { baseUrl: string; serverName:
   const busy = selectedClone?.busy
 
   return <main className="mx-auto w-full max-w-5xl space-y-5 p-4 text-lw-text md:p-8">
-    <div className="flex items-center justify-between gap-4">
-      <h1 className="text-2xl font-semibold">Remote</h1>
+    <div className="flex flex-wrap items-center justify-between gap-4">
+      <h1 className="text-xl font-semibold">Remote</h1>
       <Button asChild variant="outline"><button ref={refresh} type="button" disabled={clones.isFetching} onClick={() => void clones.refetch()}>{clones.isFetching ? "Refreshing…" : "Refresh"}</button></Button>
     </div>
     <h2 className="text-lg">Managed clones on {serverName}</h2>

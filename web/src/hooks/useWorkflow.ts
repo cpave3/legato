@@ -7,6 +7,7 @@ function queryState<T>(query: UseQueryResult<T, Error>) {
   return {
     data: query.data ?? null,
     loading: query.isPending,
+    refreshing: query.isFetching,
     error: query.error?.message ?? null,
     refresh: async () => { await query.refetch() },
   }

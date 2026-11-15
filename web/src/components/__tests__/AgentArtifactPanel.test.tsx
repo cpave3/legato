@@ -1,6 +1,7 @@
+import "@testing-library/jest-dom/vitest"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react"
-import type { ReactNode } from "react"
+import { useState, type ReactNode } from "react"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { AgentArtifactPanel } from "../AgentArtifactPanel"
 import type { AgentUIItem } from "../../lib/agentUi"
@@ -73,6 +74,35 @@ describe("AgentArtifactPanel", () => {
     expect(tabs.map((tab) => tab.textContent)).toEqual(["Sync designr2", "API table", "Weather"])
     expect(screen.getByRole("tab", { selected: true }).textContent).toBe("API table")
     expect(await screen.findByRole("heading", { name: "The API table" })).toBeTruthy()
+  })
+
+  it("roves across artifacts and review pages without losing a pinned revision", async () => {
+    mockAPI([design, table, weather], briefing)
+    function Panel() {
+      const [focus, setFocus] = useState({ itemId: design.id, revision: 1 })
+      return <AgentArtifactPanel agentId="task-1" focus={focus} onFocus={(itemId, revision) => setFocus({ itemId, revision })} onClose={() => {}} mobile={false} />
+    }
+    render(<Panel />, { wrapper })
+    await screen.findByRole("heading", { name: "Design, first draft" })
+    const first = screen.getByRole("tab", { name: /Sync design/ })
+    expect(screen.getAllByRole("tab").filter(tab => tab.tabIndex === 0)).toEqual([first])
+    first.focus()
+    fireEvent.keyDown(first, { key: "ArrowRight" })
+    expect(screen.getByRole("tab", { name: "API table" })).toHaveFocus()
+    expect(await screen.findByRole("tabpanel", { name: "API table" })).toHaveAttribute("id", screen.getByRole("tab", { name: "API table" }).getAttribute("aria-controls"))
+    fireEvent.keyDown(document.activeElement!, { key: "ArrowRight" })
+    expect(screen.getByRole("tab", { name: "Review" })).toHaveFocus()
+    fireEvent.keyDown(document.activeElement!, { key: "End" })
+    expect(screen.getByRole("tab", { name: "Weather" })).toHaveFocus()
+    fireEvent.keyDown(document.activeElement!, { key: "ArrowRight" })
+    expect(first).toHaveFocus()
+    expect(await screen.findByRole("heading", { name: "Design, first draft" })).toBeTruthy()
+    fireEvent.keyDown(first, { key: "ArrowLeft" })
+    expect(screen.getByRole("tab", { name: "Weather" })).toHaveFocus()
+    fireEvent.keyDown(document.activeElement!, { key: "Home" })
+    expect(first).toHaveFocus()
+    fireEvent.click(first)
+    expect(screen.getByText("Revision 1 of 2")).toBeTruthy()
   })
 
   it("draws the newest artifact when nothing is in focus", async () => {
@@ -310,6 +340,56 @@ describe("AgentArtifactPanel", () => {
 
     fireEvent.keyDown(dialog, { key: "Escape" })
     expect(onClose).toHaveBeenCalledTimes(2)
+  })
+
+  it("contains phone focus and restores the opener, without trapping a desktop column", async () => {
+    mockAPI([design])
+    function Workspace({ mobile }: { mobile: boolean }) {
+      const [open, setOpen] = useState(false)
+      return <><button onClick={() => setOpen(true)}>Open artifacts</button>{open && <AgentArtifactPanel agentId="task-1" focus={null} onFocus={() => {}} onClose={() => setOpen(false)} mobile={mobile} />}</>
+    }
+    const view = render(<Workspace mobile />, { wrapper })
+    const opener = screen.getByRole("button", { name: "Open artifacts" })
+    opener.focus()
+    fireEvent.click(opener)
+    await screen.findByRole("heading", { name: "Design, second draft" })
+    const last = screen.getByRole("button", { name: "Remove" })
+    last.focus()
+    fireEvent.keyDown(last, { key: "Tab" })
+    expect(document.activeElement).not.toBe(last)
+    expect(screen.getByRole("dialog", { name: "Artifacts" }).contains(document.activeElement)).toBe(true)
+    fireEvent.keyDown(document.activeElement!, { key: "Escape" })
+    expect(screen.queryByRole("dialog")).toBeNull()
+    expect(opener).toHaveFocus()
+    view.rerender(<Workspace mobile={false} />)
+    fireEvent.click(opener)
+    await screen.findByRole("heading", { name: "Design, second draft" })
+    expect(opener).toHaveFocus()
+    fireEvent.keyDown(opener, { key: "Escape" })
+    expect(screen.getByRole("complementary", { name: "Artifacts" })).toBeTruthy()
+  })
+
+  it.each(["pointercancel", "blur", "unmount"])("ends pointer resizing on %s and releases capture", async (ending) => {
+    mockAPI([design])
+    const { unmount } = render(<AgentArtifactPanel agentId="task-1" focus={null} onFocus={() => {}} onClose={() => {}} mobile={false} />, { wrapper })
+    const panel = screen.getByRole("complementary", { name: "Artifacts" })
+    const separator = screen.getByRole("separator")
+    const capture = vi.fn()
+    const release = vi.fn()
+    separator.setPointerCapture = capture
+    separator.releasePointerCapture = release
+    separator.hasPointerCapture = () => true
+    fireEvent.pointerDown(separator, { pointerId: 3, clientX: 600 })
+    expect(capture).toHaveBeenCalledWith(3)
+    const initialWidth = panel.style.width
+    fireEvent.pointerMove(window, { pointerId: 3, clientX: 560 })
+    expect(panel.style.width).not.toBe(initialWidth)
+    const width = panel.style.width
+    if (ending === "unmount") unmount()
+    else fireEvent(window, new Event(ending))
+    expect(release).toHaveBeenCalledWith(3)
+    fireEvent.pointerMove(window, { pointerId: 3, clientX: 100 })
+    expect(panel.style.width).toBe(width)
   })
 
   it("is a resizable column beside the conversation on a wide screen", async () => {

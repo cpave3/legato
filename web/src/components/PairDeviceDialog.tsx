@@ -1,4 +1,5 @@
-import { useCallback, useEffect, useState } from "react"
+import { useModalLayer } from "../hooks/useModalLayer"
+import { useCallback, useEffect, useRef, useState } from "react"
 import { Check, Eye, X } from "lucide-react"
 import { encode } from "uqr"
 import { apiFetch } from "../lib/api"
@@ -153,24 +154,20 @@ export function PairDeviceDialog({ baseUrl, purpose = "phone", onClose }: { base
     onClose()
   }, [onClose, request, status?.state])
 
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") close()
-    }
-    window.addEventListener("keydown", onKey)
-    return () => window.removeEventListener("keydown", onKey)
-  }, [close])
+  const dialogRef = useRef<HTMLDivElement>(null)
+  useModalLayer({ open: true, onClose: close, containerRef: dialogRef })
 
   return (
     <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 sm:items-center sm:p-4" onClick={close}>
       <div
+        ref={dialogRef}
         role="dialog"
         aria-modal="true"
         aria-labelledby="pair-device-title"
         onClick={(e) => e.stopPropagation()}
-        className="flex w-full flex-col rounded-t-2xl border-t border-lw-line-strong bg-lw-surface font-lw text-[15px] leading-5 text-lw-text shadow-[0_24px_60px_rgba(0,0,0,.5)] sm:w-[480px] sm:rounded-xl sm:border sm:text-[13px]"
+        className="flex max-h-[calc(100dvh-1rem)] w-full flex-col overflow-hidden rounded-t-2xl border-t border-lw-line-strong bg-lw-surface font-lw text-[15px] leading-5 text-lw-text shadow-[0_24px_60px_rgba(0,0,0,.5)] sm:w-[480px] sm:rounded-xl sm:border sm:text-[13px]"
       >
-        <div className="flex items-center justify-between gap-3 border-b border-lw-line px-5 py-3.5">
+        <div className="flex shrink-0 items-center justify-between gap-3 border-b border-lw-line px-5 py-3.5">
           <div>
             <h2 id="pair-device-title" className="text-base font-semibold sm:text-sm">{purpose === "main" ? "Pair a main instance" : purpose === "reeve" ? "Pair another Reeve" : "Pair a device"}</h2>
             <p className="text-xs text-lw-text-2">
@@ -190,7 +187,7 @@ export function PairDeviceDialog({ baseUrl, purpose = "phone", onClose }: { base
           </button>
         </div>
 
-        <div className="flex flex-col gap-4 px-5 py-5">
+        <div className="flex min-h-0 flex-col gap-4 overflow-y-auto overscroll-contain px-5 py-5">
           {error && (
             <div role="alert" className="rounded-md border border-lw-danger-line bg-lw-error-soft px-3 py-2 text-xs text-lw-danger">
               {error}
@@ -251,7 +248,7 @@ export function PairDeviceDialog({ baseUrl, purpose = "phone", onClose }: { base
           {!error && !status && <p className="text-sm text-lw-text-2">Asking the server for a phrase…</p>}
         </div>
 
-        <div className="flex justify-end gap-2 border-t border-lw-line px-5 py-3">
+        <div className="flex shrink-0 justify-end gap-2 border-t border-lw-line px-5 py-3">
           {status && ended[status.state] && (
             <button
               onClick={() => void request("POST")}

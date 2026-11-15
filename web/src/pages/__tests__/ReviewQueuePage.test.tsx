@@ -98,4 +98,19 @@ describe("ReviewQueuePage", () => {
     expect((screen.getByRole("checkbox", { name: "Select Review auth flow" }) as HTMLInputElement).checked).toBe(true)
     expect(mocks.refresh).not.toHaveBeenCalled()
   })
+
+ it("focuses Cancel and restores Remove selected after Escape", async () => {
+    mocks.bulkDeleteReviews.mockClear()
+    renderPage()
+    fireEvent.click(screen.getByRole("checkbox", {name: "Select Review auth flow"}))
+    const trigger = screen.getByRole("button", {name: "Remove selected"})
+    trigger.focus()
+    fireEvent.click(trigger)
+    expect(document.activeElement).toBe(screen.getByRole("button", {name: "Cancel"}))
+    fireEvent.keyDown(document, {key: "Escape"})
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull())
+    expect(document.activeElement).toBe(trigger)
+    expect(mocks.bulkDeleteReviews).not.toHaveBeenCalled()
+ })
+
 })

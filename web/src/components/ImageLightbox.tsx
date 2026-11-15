@@ -1,4 +1,5 @@
-import { useEffect, useRef, useState } from "react"
+import { useModalLayer } from "../hooks/useModalLayer"
+import { useRef, useState } from "react"
 import { createPortal } from "react-dom"
 import { ChevronLeft, ChevronRight, X } from "lucide-react"
 
@@ -28,15 +29,7 @@ export function ImageLightbox({ images, index, onIndex, onClose }: ImageLightbox
   const several = images.length > 1
   const size = actual === index ? "actual" : "fit"
 
-  // The keyboard goes to the dialog while it is open and back to where it
-  // was afterwards.
-  useEffect(() => {
-    const before = document.activeElement
-    dialogRef.current?.focus()
-    return () => {
-      if (before instanceof HTMLElement) before.focus()
-    }
-  }, [])
+  useModalLayer({ open: !!image, onClose, containerRef: dialogRef })
 
   if (!image) return null
   const name = image.alt || `Image ${index + 1}`
@@ -57,12 +50,11 @@ export function ImageLightbox({ images, index, onIndex, onClose }: ImageLightbox
       // edges, which does not suit an image the person asked to see whole.
       style={{ maxWidth: "none", maxHeight: "none", paddingTop: "env(safe-area-inset-top)", paddingBottom: "env(safe-area-inset-bottom)" }}
       onKeyDown={(event) => {
-        // Handled here and no further: a sheet behind this would close on
-        // the same Escape.
-        event.stopPropagation()
-        if (event.key === "Escape") onClose()
-        else if (several && event.key === "ArrowRight") step(1)
-        else if (several && event.key === "ArrowLeft") step(-1)
+        if (several && (event.key === "ArrowRight" || event.key === "ArrowLeft")) {
+          event.preventDefault()
+          event.stopPropagation()
+          step(event.key === "ArrowRight" ? 1 : -1)
+        }
       }}
     >
       <div className="flex shrink-0 items-center gap-3 bg-[var(--theme-surface,transparent)] px-4 py-2 text-sm text-zinc-200">

@@ -1,3 +1,4 @@
+import "@testing-library/jest-dom/vitest"
 import { handoffPacket } from "./handoffFixture"
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react"
 import { QueryClientProvider } from "@tanstack/react-query"
@@ -644,4 +645,39 @@ it("keeps the selected revision and unsaved note when a newer packet arrives", a
   await screen.findByRole("option", { name: /Revision 2/ })
   expect(screen.getByLabelText("Revision history")).toHaveProperty("value", packet.id)
   expect(screen.getByLabelText("Explain it back / human note")).toHaveProperty("value", "Still investigating this revision")
+})
+
+it("opens phone steps and notes as dismissible modal panels without losing context", async () => {
+  vi.stubGlobal("matchMedia", vi.fn(() => ({matches: true, addEventListener: vi.fn(), removeEventListener: vi.fn()})))
+  try {
+    renderPage()
+    const trigger = screen.getByRole("button", {name: "Steps"})
+    trigger.focus()
+    fireEvent.click(trigger)
+    const steps = screen.getByRole("dialog", {name: "Review steps"})
+    expect(steps.contains(document.activeElement)).toBe(true)
+    fireEvent.keyDown(document, {key: "Escape"})
+    expect(screen.queryByRole("dialog")).toBeNull()
+    await waitFor(() => expect(document.activeElement).toBe(trigger))
+    fireEvent.click(screen.getByRole("button", {name: "Notes"}))
+    const notes = screen.getByRole("dialog", {name: "Review feedback"})
+    fireEvent.change(within(notes).getByLabelText("Requested change"), {target: {value: "Keep this draft"}})
+    fireEvent.keyDown(document, {key: "Escape"})
+    fireEvent.click(screen.getByRole("button", {name: "Notes"}))
+    expect(within(screen.getByRole("dialog")).getByLabelText("Requested change")).toHaveValue("Keep this draft")
+  } finally {
+    cleanup()
+    vi.unstubAllGlobals()
+    vi.stubGlobal("fetch", mockFetch)
+  }
+})
+
+it("leaves desktop steps and feedback nonmodal", async () => {
+  renderPage()
+  fireEvent.click(screen.getByRole("button", {name: "Steps"}))
+  fireEvent.click(screen.getByRole("button", {name: "Notes"}))
+  expect(screen.queryByRole("dialog")).toBeNull()
+  expect(document.body.style.overflow).not.toBe("hidden")
+  fireEvent.click(screen.getByRole("button", {name: "Step 1: Refresh expired tokens"}))
+  await waitFor(() => expect(screen.getByText("Retries once after refreshing.")).toBeTruthy())
 })

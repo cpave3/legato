@@ -1,3 +1,4 @@
+import { Dialog, DialogPanel, DialogHeader, DialogTitle, DialogBody, DialogFooter } from "../ui/Dialog"
 import { useEffect, useMemo } from "react"
 import { cn } from "../../lib/utils"
 import type { Workspace } from "../../lib/board-types"
@@ -98,16 +99,16 @@ export function MoveTaskModal({
   )
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={() => !loading && onClose()}>
-      <div role="dialog" aria-modal="true" aria-label={`Move ${taskId}`} className="w-full max-w-sm rounded-lg border border-zinc-700 bg-zinc-900 shadow-2xl" onClick={(event) => event.stopPropagation()}>
-        <div className="flex items-center justify-between border-b border-zinc-800 px-5 py-3">
-          <h2 className="text-sm font-semibold text-zinc-200">Move {taskId}</h2>
+    <Dialog open={open} onClose={onClose} dismissible={!loading}>
+      <DialogPanel className="w-full max-w-sm rounded-lg border border-zinc-700 bg-zinc-900 shadow-2xl">
+        <DialogHeader className="flex items-center justify-between border-b border-zinc-800 px-5 py-3">
+          <DialogTitle className="text-sm font-semibold text-zinc-200">Move {taskId}</DialogTitle>
           <button aria-label="Close" disabled={loading} onClick={onClose} className="rounded p-1 text-zinc-500 transition-colors hover:bg-zinc-800 hover:text-zinc-200 disabled:cursor-not-allowed">
             <X size={16} />
           </button>
-        </div>
+        </DialogHeader>
         {taskTitle && <div className="border-b border-zinc-800 px-5 py-2 text-xs text-zinc-500">{taskTitle}</div>}
-        <div className="max-h-[70vh] space-y-4 overflow-y-auto px-5 py-3">
+        <DialogBody className="max-h-[70vh] space-y-4 overflow-y-auto px-5 py-3">
           <section className="space-y-1">
             <h3 className="text-[10px] font-bold uppercase tracking-wider text-zinc-500">Column</h3>
             {columns.map((column) => destinationButton(column, column === currentColumn, () => onMoveColumn(column), shortcutFor(column)))}
@@ -117,9 +118,9 @@ export function MoveTaskModal({
             {destinationButton("Unassigned", currentWorkspaceId === null, () => onMoveWorkspace(null))}
             {workspaces.map((workspace) => destinationButton(workspace.name, workspace.id === currentWorkspaceId, () => onMoveWorkspace(workspace.id)))}
           </section>
-        </div>
-        <div className="border-t border-zinc-800 px-5 py-2 text-[10px] text-zinc-600">Press column key to move · esc cancel</div>
-      </div>
-    </div>
+        </DialogBody>
+        <DialogFooter className="border-t border-zinc-800 px-5 py-2 text-[10px] text-zinc-600">Press column key to move · esc cancel</DialogFooter>
+      </DialogPanel>
+    </Dialog>
   )
 }

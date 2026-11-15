@@ -1,5 +1,6 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import userEvent from "@testing-library/user-event"
 import { MemoryRouter } from "react-router-dom"
 import { AgentSelectionProvider } from "../../hooks/useAgentSelection"
 import { BoardPage } from "../Board"
@@ -58,6 +59,77 @@ beforeEach(() => {
 })
 
 describe("Board layout", () => {
+  it("shows an initial load failure and retries the board", () => {
+    const refresh = vi.fn()
+    useBoard.mockReturnValue({ columns: [], workspaces: [], loading: false, error: "Board unavailable", refresh })
+    renderBoard()
+    expect(screen.getByRole("alert").textContent).toContain("Board unavailable")
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }))
+    expect(refresh).toHaveBeenCalledTimes(1)
+  })
+
+  it("announces the cursor task and column without moving keyboard focus", () => {
+    renderBoard()
+    const focus = document.activeElement
+    const cursor = screen.getByRole("status", { name: "Board cursor" })
+    expect(cursor.textContent).toContain("CMA selector view, Backlog")
+    fireEvent.keyDown(window, { key: "j" })
+    expect(cursor.textContent).toContain("Package registry, Backlog")
+    fireEvent.keyDown(window, { key: "l" })
+    expect(cursor.textContent).toContain("Record video, Doing")
+    expect(document.activeElement).toBe(focus)
+  })
+
+  it.each([false, true])("opens the selected task agent with s at wide=%s, even with the panel closed", async (wide) => {
+    wideScreen(wide)
+    renderBoard()
+    if (wide) fireEvent.click(screen.getByRole("button", { name: "Close task panel" }))
+    await screen.findByRole("button", { name: "Open agent" })
+    fireEvent.keyDown(window, { key: "s" })
+    expect(await screen.findByRole("dialog", { name: "Open task agent" })).toBeTruthy()
+  })
+
+  it.each(["board-header-mobile", "board-header"])("opens keyboard help from %s", (header) => {
+    renderBoard()
+    fireEvent.click(within(screen.getByTestId(header)).getByRole("button", { name: "Keyboard shortcuts" }))
+    expect(screen.getByRole("heading", { name: /Keyboard/ })).toBeTruthy()
+  })
+
+  it("lets Enter activate a focused toolbar button instead of opening the cursor task", async () => {
+    const user = userEvent.setup()
+    renderBoard()
+    within(desktopHeader()).getByRole("button", { name: "Keyboard shortcuts" }).focus()
+    await user.keyboard("{Enter}")
+    expect(screen.getByRole("heading", { name: /Keyboard/ })).toBeTruthy()
+    expect(screen.queryByRole("dialog", { name: "CMA selector view" })).toBeNull()
+  })
+
+  it.each([false, true])("closes an edit overlay without also closing the task details at wide=%s", async (wide) => {
+    const user = userEvent.setup()
+    wideScreen(wide)
+    renderBoard()
+    fireEvent.keyDown(window, { key: "Enter" })
+    const detail = await screen.findByRole("dialog", { name: "CMA selector view" })
+    fireEvent.click(within(detail).getByRole("button", { name: "Move task" }))
+    expect(screen.getAllByRole("dialog")).toHaveLength(2)
+    await user.keyboard("{Escape}")
+    expect(screen.getByRole("dialog", { name: "CMA selector view" })).toBeTruthy()
+    expect(screen.getAllByRole("dialog")).toHaveLength(1)
+  })
+
+  it.each([false, true])("opens the task agent from details with s at wide=%s and keeps details under it", async (wide) => {
+    const user = userEvent.setup()
+    wideScreen(wide)
+    renderBoard()
+    fireEvent.keyDown(window, { key: "Enter" })
+    const details = await screen.findByRole("dialog", { name: "CMA selector view" })
+    await waitFor(() => expect(within(details).getAllByRole("button", { name: "Open agent" }).length).toBeGreaterThan(0))
+    fireEvent.keyDown(window, { key: "s" })
+    expect(await screen.findByRole("dialog", { name: "Open task agent" })).toBeTruthy()
+    await user.keyboard("{Escape}")
+    expect(screen.getByRole("dialog", { name: "CMA selector view" })).toBeTruthy()
+  })
+
   it("counts the cards and those with live agents", () => {
     renderBoard()
     expect(within(desktopHeader()).getByRole("heading", { name: "Board" })).toBeTruthy()

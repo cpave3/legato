@@ -1,8 +1,9 @@
 import { ChangeSetCard } from "./ChangeSetCard"
 import { SecretRequestForm } from "./SecretRequestForm"
-import { useEffect, useRef, useState } from "react"
+import { useEffect, useLayoutEffect, useRef, useState } from "react"
 import { createPortal } from "react-dom"
 import { Link, useSearchParams } from "react-router-dom"
+import { useModalLayer } from "../hooks/useModalLayer"
 import { useApprovals } from "../hooks/useApprovals"
 import { usePeerApprovals } from "../hooks/usePeerApprovals"
 import type { PeerApproval } from "../lib/reeve"
@@ -63,6 +64,8 @@ export function ApprovalTray() {
     setFocusMode(false)
     setFolded(false)
   }
+  const focusRef = useRef<HTMLDivElement>(null)
+  useModalLayer({ open: focusOpen && fade.mounted, onClose: leaveFocus, containerRef: focusRef })
   const [focused, setFocused] = useState<string | null>(null)
   const [params, setParams] = useSearchParams()
   const seen = useRef<Set<string>>(new Set())
@@ -90,6 +93,9 @@ export function ApprovalTray() {
     <>
       {fade.mounted && createPortal(
         <div
+          ref={focusRef}
+          tabIndex={-1}
+          inert={!focusOpen}
           aria-hidden={!focusOpen}
           className={`fixed inset-0 z-50 transition-[opacity,transform] duration-300 ease-out motion-reduce:transition-none ${fade.visible ? "scale-100 opacity-100" : "pointer-events-none scale-[0.985] opacity-0"}`}
         >
@@ -203,6 +209,14 @@ function ApprovalCard({ approval, focused, onDone }: { approval: Approval; focus
   const [denying, setDenying] = useState(false)
   const [note, setNote] = useState("")
   const ref = useRef<HTMLElement>(null)
+  const noteRef = useRef<HTMLTextAreaElement>(null)
+  const denyRef = useRef<HTMLButtonElement>(null)
+  const wasDenying = useRef(false)
+  useLayoutEffect(() => {
+    if (denying) noteRef.current?.focus()
+    else if (wasDenying.current) denyRef.current?.focus()
+    wasDenying.current = denying
+  }, [denying])
 
   useEffect(() => {
     if (focused) ref.current?.scrollIntoView?.({ block: "nearest" })
@@ -288,6 +302,7 @@ function ApprovalCard({ approval, focused, onDone }: { approval: Approval; focus
           {denying ? (
             <div className="mt-3 space-y-2 md:mt-2">
               <textarea
+                ref={noteRef}
                 aria-label="Note for the agent"
                 value={note}
                 onChange={(event) => setNote(event.target.value)}
@@ -344,7 +359,7 @@ function ApprovalCard({ approval, focused, onDone }: { approval: Approval; focus
                   {option.label}
                 </button>
               ))}
-              <button disabled={busy} onClick={() => setDenying(true)} className={`${choiceSize} border border-lw-line text-lw-text-2 hover:bg-lw-selected disabled:opacity-50 md:border-transparent`}>
+              <button ref={denyRef} disabled={busy} onClick={() => setDenying(true)} className={`${choiceSize} border border-lw-line text-lw-text-2 hover:bg-lw-selected disabled:opacity-50 md:border-transparent`}>
                 Deny…
               </button>
             </div>

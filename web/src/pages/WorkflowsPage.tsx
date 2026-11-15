@@ -84,6 +84,13 @@ function RunList({ label, runs }: { label: string; runs: WorkflowRun[] }) {
   </ul>
 }
 
+function LoadFailure({ error, saved, label, refreshing, refresh }: { error: string; saved: boolean; label: string; refreshing: boolean; refresh: () => Promise<void> }) {
+  return <div role="alert" className="mt-4 rounded-lg border border-lw-line bg-lw-surface p-3 text-sm">
+    <p className={saved ? "text-lw-needs" : "text-lw-error"}>{saved ? `Showing saved ${label}. Refresh failed: ` : `Could not load ${label}: `}{error}</p>
+    <Button variant="outline" size="sm" className="mt-2" disabled={refreshing} onClick={() => { void refresh() }}>Retry</Button>
+  </div>
+}
+
 function RunsTab({ setTab }: { setTab: (tab: WorkflowTab) => void }) {
   const runs = useWorkflowRuns()
   const all = runs.data ?? []
@@ -92,7 +99,7 @@ function RunsTab({ setTab }: { setTab: (tab: WorkflowTab) => void }) {
   const needsYou = all.filter(run => run.needs_attention).length
   return <PageFrame tab="runs" setTab={setTab} needsYou={needsYou} refresh={runs.refresh}>
     {runs.loading && <LoadingState label="Loading runs…" size="inline" className="mt-6" />}
-    {runs.error && <p className="mt-6 text-sm text-lw-error">{runs.error}</p>}
+    {runs.error && <LoadFailure error={runs.error} saved={runs.data !== null} label="runs" refreshing={runs.refreshing} refresh={runs.refresh} />}
     {inProgress.length > 0 && <><SectionHeading count={inProgress.length}>In progress</SectionHeading><RunList label="Runs in progress" runs={inProgress} /></>}
     {finished.length > 0 && <><SectionHeading>Finished</SectionHeading><RunList label="Finished runs" runs={finished} /></>}
     {!runs.loading && !runs.error && all.length === 0 && <p className="mt-6 text-sm text-lw-text-2">No runs yet. <button onClick={() => setTab("workflows")} className="text-lw-link">Run a workflow</button></p>}
@@ -128,6 +135,8 @@ function WorkflowsTab({ setTab }: { setTab: (tab: WorkflowTab) => void }) {
   const needsYou = (runs.data ?? []).filter(run => run.needs_attention).length
   return <PageFrame tab="workflows" setTab={setTab} needsYou={needsYou} refresh={async () => { await Promise.all([definitions.refresh(), runs.refresh()]) }}>
     {definitions.loading && <LoadingState label="Loading workflows…" size="inline" className="mt-6" />}
+    {definitions.error && <LoadFailure error={definitions.error} saved={definitions.data !== null} label="workflows" refreshing={definitions.refreshing} refresh={definitions.refresh} />}
+    {runs.error && <LoadFailure error={runs.error} saved={runs.data !== null} label="runs" refreshing={runs.refreshing} refresh={runs.refresh} />}
     {(definitions.data?.errors ?? []).map(error => <p key={error.path} className="mt-4 break-words rounded-lg border border-lw-danger-line bg-lw-error-soft p-3 text-sm text-lw-danger"><span className="font-lw-mono">{sourceLabel(error.path)}</span>: {error.error}</p>)}
     {list.length > 0 && <ul aria-label="Workflows" className="mt-5 overflow-hidden rounded-xl border border-lw-line bg-lw-surface">
       {list.map(definition => {
@@ -151,7 +160,7 @@ function WorkflowsTab({ setTab }: { setTab: (tab: WorkflowTab) => void }) {
         </li>
       })}
     </ul>}
-    {!definitions.loading && list.length === 0 && <p className="mt-6 text-sm text-lw-text-2">No workflow definitions found</p>}
+    {!definitions.loading && !definitions.error && list.length === 0 && <p className="mt-6 text-sm text-lw-text-2">No workflow definitions found</p>}
     {selected && <RunWorkflowDialog definition={selected} repositories={definitions.data?.repositories ?? []} onClose={() => setSelected(null)} />}
   </PageFrame>
 }

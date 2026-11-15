@@ -1,4 +1,6 @@
-import { useEffect, useState } from "react"
+import { createPortal } from "react-dom"
+import { useModalLayer } from "../hooks/useModalLayer"
+import { useEffect, useRef, useState } from "react"
 import { Image as ImageIcon, X } from "lucide-react"
 import { useServer } from "../hooks/useServer"
 import { fetchAgentImage } from "../lib/agentImage"
@@ -48,14 +50,8 @@ export function ReadImageRow({ agentId, path, grouped }: ReadImageRowProps) {
     }
   }, [open, baseUrl, agentId, path])
 
-  useEffect(() => {
-    if (!large) return
-    const onKey = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setLarge(false)
-    }
-    window.addEventListener("keydown", onKey)
-    return () => window.removeEventListener("keydown", onKey)
-  }, [large])
+  const dialogRef = useRef<HTMLDivElement>(null)
+  useModalLayer({ open: large && !!shown && "address" in shown, onClose: () => setLarge(false), containerRef: dialogRef })
 
   return (
     <div className="text-xs text-zinc-400">
@@ -81,10 +77,11 @@ export function ReadImageRow({ agentId, path, grouped }: ReadImageRowProps) {
           )}
         </div>
       )}
-      {large && shown && "address" in shown && (
+      {large && shown && "address" in shown && createPortal(
         // The global rule that keeps dialogs inside a margin on a phone does
         // not suit an image the person asked to see whole.
         <div
+          ref={dialogRef}
           role="dialog"
           aria-modal="true"
           aria-label={`${filename}, full size`}
@@ -101,7 +98,8 @@ export function ReadImageRow({ agentId, path, grouped }: ReadImageRowProps) {
           <div className="min-h-0 flex-1 overflow-auto p-4">
             <img src={shown.address} alt={`${filename}, full size`} className="mx-auto max-w-none" />
           </div>
-        </div>
+        </div>,
+        document.body,
       )}
     </div>
   )

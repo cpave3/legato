@@ -1,10 +1,11 @@
-import { useEffect, useState, type ReactNode } from "react"
+import { useEffect, useId, useRef, useState, type ReactNode } from "react"
 import { Link, useLocation } from "react-router-dom"
 import { ChevronRight, X } from "lucide-react"
 import { cn } from "../lib/utils"
 import { badgeText, badgeTone, navIcons, sectionActive, sectionName, type NavSection } from "../lib/navSections"
 import { animatedAgentActivityEnabled, setAnimatedAgentActivityEnabled } from "../lib/appearancePreferences"
 import { NavIcon } from "./NavRail"
+import { useModalLayer } from "../hooks/useModalLayer"
 
 function Badge({ count, tone, className }: { count: number; tone: NavSection["tone"]; className?: string }) {
   return (
@@ -38,13 +39,13 @@ export function MobileTabBar({ sections, connected, moreOpen, onMore }: {
 
   return (
     <nav aria-label="Primary navigation" className="fixed inset-x-0 bottom-0 z-40 grid grid-cols-5 border-t border-[var(--theme-border,#222228)] bg-lw-rail px-1 pb-[env(safe-area-inset-bottom)] pt-1.5 font-lw md:hidden">
+      <span role="status" aria-label="Connection" className={cn("absolute right-2 bottom-full rounded-t px-2 text-[10px] bg-lw-rail", connected ? "text-lw-faint" : "text-lw-error")}>{connected ? "sync" : "offline"}</span>
       {tabs.map((section) => {
         const active = section.key === "agents" ? pathname.startsWith("/agents") : sectionActive(section, pathname, search)
         return (
           <Link key={section.key} to={section.to} aria-label={sectionName(section)} aria-current={active ? "page" : undefined} className={tabClass(active)}>
             <NavIcon d={section.icon} size={22} />
             <span>{section.label}</span>
-            {section.key === "attention" && !connected && <span aria-label="Disconnected" className="absolute right-[22%] top-1 size-2 rounded-full bg-lw-error" />}
             {!!section.count && <Badge count={section.count} tone={section.tone} className="absolute left-1/2 top-0 ml-1.5" />}
           </Link>
         )
@@ -70,8 +71,9 @@ function Group({ label, children }: { label: string; children: ReactNode }) {
 const row = "flex min-h-[52px] items-center justify-between gap-3 px-3.5 text-[15px] text-lw-text no-underline"
 
 function SectionRow({ section, label, onClick }: { section: NavSection; label?: string; onClick?: () => void }) {
+  const { pathname, search } = useLocation()
   return (
-    <Link to={section.to} onClick={onClick} className={row}>
+    <Link to={section.to} onClick={onClick} aria-label={sectionName({ ...section, label: label ?? section.label })} aria-current={sectionActive(section, pathname, search) ? "page" : undefined} className={row}>
       <span>{label ?? section.label}</span>
       <span className="flex items-center gap-2">
         {!!section.count && <Badge count={section.count} tone={section.tone} />}
@@ -113,30 +115,39 @@ export function MoreSheet({ sections, connected, servers, activeServerName, base
   onClose: () => void
 }) {
   const [switching, setSwitching] = useState(false)
+  const serverTrigger = useRef<HTMLButtonElement>(null)
+  const serverChoices = useRef<HTMLDivElement>(null)
+  const serverChoicesId = useId()
+  const closeServers = () => { setSwitching(false); serverTrigger.current?.focus() }
+
+  useEffect(() => {
+    if (!switching) return
+    const current = serverChoices.current?.querySelector<HTMLButtonElement>('[aria-current="true"]')
+    const first = current ?? serverChoices.current?.querySelector("button")
+    first?.focus()
+  }, [switching])
   const [promptDetection, setPromptDetection] = useState(() => localStorage.getItem(PROMPT_DETECTION_KEY) !== "false")
   const [animated, setAnimated] = useState(animatedAgentActivityEnabled)
 
-  useEffect(() => {
-    const escape = (event: KeyboardEvent) => { if (event.key === "Escape") onClose() }
-    document.addEventListener("keydown", escape)
-    return () => document.removeEventListener("keydown", escape)
-  }, [onClose])
+  const containerRef = useRef<HTMLDivElement>(null)
+  useModalLayer({ open: true, onClose, containerRef })
 
   const address = baseUrl ? baseUrl.replace(/^https?:\/\//, "") : window.location.host
   const server = (label: string, url: string) => (
-    <button key={url || "local"} type="button" onClick={() => { onSwitchServer(url); setSwitching(false) }}
+    <button key={url || "local"} type="button" onClick={() => { onSwitchServer(url); closeServers() }}
+      aria-current={baseUrl === url ? "true" : undefined}
       className={cn(row, "w-full text-left", baseUrl === url && "text-lw-link")}>
       {label}
     </button>
   )
 
   return (
-    // It opens above the tab bar, which stays in reach: More closes it again.
+    // It opens above the tab bar; keyboard focus stays inside the sheet.
     // A sheet spans the screen, so it sets aside index.css's margin for
     // dialogs on a phone.
     <div className="fixed inset-x-0 top-0 bottom-[calc(3.5rem+env(safe-area-inset-bottom))] z-30 md:hidden">
       <div aria-hidden="true" className="absolute inset-0 bg-black/50" onClick={onClose} />
-      <div role="dialog" aria-label="More" style={{ maxWidth: "none" }} className="absolute inset-x-0 bottom-0 flex max-h-[85%] flex-col rounded-t-2xl border-t border-lw-line-strong bg-lw-ground font-lw text-lw-text shadow-2xl">
+      <div ref={containerRef} role="dialog" aria-modal="true" tabIndex={-1} aria-label="More" style={{ maxWidth: "none" }} className="absolute inset-x-0 bottom-0 flex max-h-[85%] flex-col rounded-t-2xl border-t border-lw-line-strong bg-lw-ground font-lw text-lw-text shadow-2xl">
         <div className="flex items-center justify-between px-4 pb-3 pt-4">
           <h2 className="m-0 text-2xl font-semibold leading-[30px]">More</h2>
           <button type="button" onClick={onClose} aria-label="Close" className="flex size-11 items-center justify-center rounded-full text-lw-text-2 hover:text-lw-text">
@@ -144,7 +155,9 @@ export function MoreSheet({ sections, connected, servers, activeServerName, base
           </button>
         </div>
         <div className="flex flex-col gap-[18px] overflow-y-auto px-4 pb-4">
-          <div className="rounded-xl border border-lw-line bg-lw-surface">
+          <div className="rounded-xl border border-lw-line bg-lw-surface" onKeyDown={(event) => {
+            if (switching && event.key === "Escape") { event.preventDefault(); event.stopPropagation(); closeServers() }
+          }}>
             <div className="flex items-center gap-3 px-3.5 py-3">
               <span className={cn("size-2.5 shrink-0 rounded-full", connected ? "bg-lw-live" : "bg-lw-error")} />
               <div className="flex min-w-0 flex-1 flex-col">
@@ -152,13 +165,13 @@ export function MoreSheet({ sections, connected, servers, activeServerName, base
                 <span className="truncate font-lw-mono text-xs text-lw-text-2">{address} · {connected ? "synced" : "offline"}</span>
               </div>
               {servers.length > 0 && (
-                <button type="button" onClick={() => setSwitching((value) => !value)} aria-label="Switch server" aria-expanded={switching} className="min-h-11 shrink-0 text-[13px] text-lw-text-2">
+                <button ref={serverTrigger} aria-controls={switching ? serverChoicesId : undefined} type="button" onClick={() => setSwitching((value) => !value)} aria-label="Switch server" aria-expanded={switching} className="min-h-11 shrink-0 text-[13px] text-lw-text-2">
                   Switch ›
                 </button>
               )}
             </div>
             {switching && (
-              <div className="divide-y divide-[var(--theme-border,#222228)] border-t border-[var(--theme-border,#222228)]">
+              <div ref={serverChoices} id={serverChoicesId} role="group" aria-label="Servers" className="divide-y divide-[var(--theme-border,#222228)] border-t border-[var(--theme-border,#222228)]">
                 {server("Local", "")}
                 {servers.map((entry) => server(entry.name, entry.url))}
               </div>

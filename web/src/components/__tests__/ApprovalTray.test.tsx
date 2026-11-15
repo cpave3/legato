@@ -1,5 +1,6 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest"
 import { render, screen, waitFor, fireEvent, cleanup, within } from "@testing-library/react"
+import userEvent from "@testing-library/user-event"
 import { MemoryRouter, useLocation } from "react-router-dom"
 import type { Approval } from "../../lib/approvals"
 import chimeraQuestion from "../../../../contracts/chimera-question-panel.json"
@@ -167,6 +168,21 @@ describe("ApprovalTray", () => {
     expect(mockRefresh).toHaveBeenCalled()
   })
 
+  it("moves focus into denial feedback and restores it on Back without deciding", () => {
+    mockData = [permission()]
+    renderTray()
+    const deny = screen.getByRole("button", { name: "Deny…" })
+    deny.focus()
+    fireEvent.click(deny)
+    expect(document.activeElement).toBe(screen.getByRole("textbox", { name: "Note for the agent" }))
+    fireEvent.change(document.activeElement!, { target: { value: "Use a safer command" } })
+    fireEvent.click(screen.getByRole("button", { name: "Back" }))
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Deny…" }))
+    expect(mockDecide).not.toHaveBeenCalled()
+    fireEvent.click(document.activeElement!)
+    expect((screen.getByRole("textbox", { name: "Note for the agent" }) as HTMLTextAreaElement).value).toBe("Use a safer command")
+  })
+
   it("denies with a note for the agent", async () => {
     mockData = [permission()]
     renderTray()
@@ -279,6 +295,24 @@ describe("ApprovalTray", () => {
   })
 
   describe("focus mode", () => {
+    it("contains keyboard focus and restores the tray trigger when leaving", async () => {
+      mockData = [questionnaire()]
+      renderTray()
+      const user = userEvent.setup()
+      const trigger = screen.getByRole("button", { name: "Answer in focus mode" })
+      trigger.focus()
+      fireEvent.click(trigger)
+      const focus = screen.getByRole("dialog", { name: "Focus mode" })
+      const leave = within(focus).getByRole("button", { name: /Leave focus/ })
+      leave.focus()
+      await user.tab({ shift: true })
+      expect(document.activeElement).toBe(within(focus).getByRole("button", { name: "Next question" }))
+      await user.keyboard("{Escape}")
+      expect(document.activeElement).toBe(trigger)
+      expect(focus.closest("[aria-hidden]")?.hasAttribute("inert")).toBe(true)
+      expect(mockDecide).not.toHaveBeenCalled()
+    })
+
     it("opens the waiting questions one at a time", () => {
       mockData = [questionnaire()]
       renderTray()

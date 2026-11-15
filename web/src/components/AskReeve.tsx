@@ -1,3 +1,4 @@
+import { Dialog, DialogPanel, DialogHeader, DialogTitle, DialogBody, DialogFooter } from "./ui/Dialog"
 import { useState } from "react"
 import { createPortal } from "react-dom"
 import { Crown } from "lucide-react"
@@ -60,14 +61,13 @@ function AskReeveButton({ brief, className, label: given }: AskReeveProps) {
         <Crown size={13} aria-hidden="true" />
         {label}
       </button>
-      {error && <span role="alert" className="text-xs text-lw-error">{error}</span>}
+      {error && !current && <span role="alert" className="text-xs text-lw-error">{error}</span>}
       {current && createPortal(
-        <div className="fixed inset-0 z-50 flex items-end justify-center bg-black/60 sm:items-center" onClick={() => setCurrent(null)}>
-          <div role="dialog" aria-modal="true" aria-labelledby="ask-reeve-title" onClick={(e) => e.stopPropagation()}
-            className="flex w-full flex-col gap-3 rounded-t-2xl border border-lw-line-strong bg-lw-surface p-5 font-lw text-lw-text sm:w-[420px] sm:rounded-xl">
-            <h2 id="ask-reeve-title" className="text-base font-semibold sm:text-sm">{reeve.start} is already {current.state === "suspended" ? "suspended in a conversation" : "in a conversation"}</h2>
+        <Dialog open={!!current} onClose={() => setCurrent(null)}><DialogPanel className="max-w-[420px] font-lw text-lw-text"><DialogHeader>
+            <DialogTitle className="text-base font-semibold sm:text-sm">{reeve.start} is already {current.state === "suspended" ? "suspended in a conversation" : "in a conversation"}</DialogTitle></DialogHeader><DialogBody>
             <p className="text-sm text-lw-text-2 sm:text-xs">Add this to what it is doing, or end that conversation and start a fresh one about this.</p>
-            <div className="flex flex-col gap-2 sm:flex-row sm:justify-end">
+            {error && <p role="alert" className="text-xs text-lw-error">{error}</p>}
+            </DialogBody><DialogFooter className="flex-col sm:flex-row">
               <button type="button" disabled={busy} onClick={() => setCurrent(null)} className="min-h-11 rounded-lg px-3 text-sm text-lw-text-2 hover:bg-lw-raised sm:min-h-8 sm:text-xs">Cancel</button>
               <button type="button" disabled={busy} className="min-h-11 rounded-lg border border-lw-line-strong px-3 text-sm hover:bg-lw-raised sm:min-h-8 sm:text-xs"
                 onClick={() => void run(async () => { await endReeve(baseUrl, current.task_id); return (await startReeve(baseUrl, { brief })).task_id })}>
@@ -77,10 +77,9 @@ function AskReeveButton({ brief, className, label: given }: AskReeveProps) {
                 onClick={() => void run(async () => { await messageReeve(baseUrl, brief); return current.task_id })}>
                 Add to the current conversation
               </button>
-            </div>
-            {error && <p role="alert" className="text-xs text-lw-error">{error}</p>}
-          </div>
-        </div>,
+            </DialogFooter>
+          </DialogPanel>
+        </Dialog>,
         document.body,
       )}
     </>

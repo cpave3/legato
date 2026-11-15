@@ -1,3 +1,4 @@
+import { Dialog, DialogPanel, DialogHeader, DialogTitle, DialogBody, DialogFooter } from "../ui/Dialog"
 import { useEffect } from "react"
 import { X } from "lucide-react"
 import { providerItem, providerLabel } from "../../lib/providers"
@@ -22,9 +23,7 @@ export function OpenURLPicker({ open, providerURL, provider = "", prURL, onSelec
       } else if (e.key === "g" && prURL) {
         e.preventDefault()
         onSelect(prURL)
-      } else if (e.key === "Escape") {
-        e.preventDefault()
-        onClose()
+
       }
     }
     window.addEventListener("keydown", handler)
@@ -34,15 +33,15 @@ export function OpenURLPicker({ open, providerURL, provider = "", prURL, onSelec
   if (!open) return null
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={onClose}>
-      <div className="w-full max-w-sm rounded-lg border border-zinc-700 bg-zinc-900 shadow-2xl" onClick={(e) => e.stopPropagation()}>
-        <div className="flex items-center justify-between border-b border-zinc-800 px-5 py-3">
-          <h2 className="text-sm font-semibold text-zinc-200">Open Link</h2>
-          <button onClick={onClose} className="rounded p-1 text-zinc-500 transition-colors hover:bg-zinc-800 hover:text-zinc-200">
+    <Dialog open={open} onClose={onClose}>
+      <DialogPanel className="w-full max-w-sm rounded-lg border border-zinc-700 bg-zinc-900 shadow-2xl">
+        <DialogHeader className="flex items-center justify-between border-b border-zinc-800 px-5 py-3">
+          <DialogTitle className="text-sm font-semibold text-zinc-200">Open Link</DialogTitle>
+          <button aria-label="Close" onClick={onClose} className="rounded p-1 text-zinc-500 transition-colors hover:bg-zinc-800 hover:text-zinc-200">
             <X size={16} />
           </button>
-        </div>
-        <div className="px-5 py-4 space-y-2">
+        </DialogHeader>
+        <DialogBody className="px-5 py-4 space-y-2">
           {providerURL && (
             <button
               onClick={() => onSelect(providerURL)}
@@ -63,9 +62,9 @@ export function OpenURLPicker({ open, providerURL, provider = "", prURL, onSelec
               <div className="mt-1 truncate text-[10px] text-zinc-600">{prURL}</div>
             </button>
           )}
-        </div>
-        <div className="border-t border-zinc-800 px-5 py-2 text-[10px] text-zinc-600">esc = cancel</div>
-      </div>
-    </div>
+        </DialogBody>
+        <DialogFooter className="border-t border-zinc-800 px-5 py-2 text-[10px] text-zinc-600">esc = cancel</DialogFooter>
+      </DialogPanel>
+    </Dialog>
   )
 }

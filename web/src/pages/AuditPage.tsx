@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
 import { Link } from "react-router-dom"
 import { useServer } from "../hooks/useServer"
 import { apiFetch } from "../lib/api"
@@ -15,6 +15,10 @@ const REFRESH_MS = 15_000
 // writes to the same log, so GitHub, SSH and every other credential are here.
 export function AuditPage() {
   const { baseUrl } = useServer()
+  return <AuditServer key={baseUrl} baseUrl={baseUrl} />
+}
+
+function AuditServer({ baseUrl }: { baseUrl: string }) {
   const [credentials, setCredentials] = useState<string[]>([])
   const [filter, setFilter] = useState<AuditFilter>({})
   const [rows, setRows] = useState<AuditRow[] | null>(null)
@@ -23,47 +27,78 @@ export function AuditPage() {
   const [error, setError] = useState("")
   const [loadingOlder, setLoadingOlder] = useState(false)
   const pagedBack = useRef(false)
+  const request = useRef({ sequence: 0 })
 
-  useEffect(() => {
-    apiFetch(baseUrl, "/api/credentials")
-      .then(async (resp) => (resp.ok ? resp.json() : { credentials: [] }))
-      .then((body: { credentials?: { name: string }[] }) => setCredentials((body.credentials ?? []).map((c) => c.name)))
-      .catch(() => {})
-    verifyAudit(baseUrl).then(setChain).catch(() => setChain(null))
+  const [metadataErrors, setMetadataErrors] = useState<string[]>([])
+  const metadataRequest = useRef({ sequence: 0 })
+  const loadMetadata = useCallback(async () => {
+    const id = ++metadataRequest.current.sequence
+    const results = await Promise.allSettled([
+      apiFetch(baseUrl, "/api/credentials").then(async (resp) => {
+        if (!resp.ok) throw new Error(await resp.text())
+        const body: { credentials?: { name: string }[] } = await resp.json()
+        return (body.credentials ?? []).map((c) => c.name)
+      }),
+      verifyAudit(baseUrl),
+    ])
+    if (id !== metadataRequest.current.sequence) return
+    const [names, verification] = results
+    if (names.status === "fulfilled") setCredentials(names.value)
+    if (verification.status === "fulfilled") setChain(verification.value)
+    else setChain(null)
+    setMetadataErrors(results.flatMap((result, index) => result.status === "rejected"
+      ? [`Could not ${index === 0 ? "load credentials" : "verify audit chain"}: ${result.reason instanceof Error ? result.reason.message : String(result.reason)}`]
+      : []))
   }, [baseUrl])
 
+  useEffect(() => {
+    const pending = metadataRequest.current
+    void loadMetadata()
+    return () => { pending.sequence++ }
+  }, [loadMetadata])
+
   const load = useCallback(async () => {
+    const id = ++request.current.sequence
+    setLoadingOlder(false)
+    setError("")
     try {
       const page = await fetchAudit(baseUrl, { ...filter, limit: PAGE })
+      if (id !== request.current.sequence) return
       setRows(page)
       setMore(page.length === PAGE)
       setError("")
       pagedBack.current = false
     } catch (reason) {
+      if (id !== request.current.sequence) return
       setError(reason instanceof Error ? reason.message : String(reason))
     }
   }, [baseUrl, filter])
 
   useEffect(() => {
+    const pending = request.current
     setRows(null)
     void load()
     // New rows arrive while an agent works; older pages are left alone.
     const timer = window.setInterval(() => { if (!pagedBack.current) void load() }, REFRESH_MS)
-    return () => window.clearInterval(timer)
+    return () => { window.clearInterval(timer); pending.sequence++ }
   }, [load])
 
   const loadOlder = async () => {
     if (!rows?.length) return
+    const id = ++request.current.sequence
+    pagedBack.current = true
     setLoadingOlder(true)
     try {
       const page = await fetchAudit(baseUrl, { ...filter, limit: PAGE, before: rows[rows.length - 1].seq })
-      pagedBack.current = true
+      if (id !== request.current.sequence) return
+      setError("")
       setRows([...rows, ...page])
       setMore(page.length === PAGE)
     } catch (reason) {
+      if (id !== request.current.sequence) return
       setError(reason instanceof Error ? reason.message : String(reason))
     } finally {
-      setLoadingOlder(false)
+      if (id === request.current.sequence) setLoadingOlder(false)
     }
   }
 
@@ -85,10 +120,12 @@ export function AuditPage() {
             {chain.intact ? "✓ Chain intact" : `✕ Chain broken at #${chain.broken_at}`}
           </span>
         )}
-        <button type="button" onClick={() => void load()} className="h-8 rounded-md border border-lw-line-strong px-3 text-[13px] text-lw-text-2 hover:text-lw-text">
+        <button type="button" onClick={() => { void load(); void loadMetadata() }} className="h-8 rounded-md border border-lw-line-strong px-3 text-[13px] text-lw-text-2 hover:text-lw-text">
           Refresh
         </button>
       </header>
+
+      {metadataErrors.map((message) => <p key={message} role="alert" className="mx-4 text-sm text-lw-danger sm:mx-6">{message}</p>)}
 
       <StandingGrants baseUrl={baseUrl} onRevoked={() => void load()} />
 
@@ -109,7 +146,7 @@ export function AuditPage() {
 
       <div className="px-4 pb-6 sm:px-6">
         {rows === null ? (
-          <LoadingState label="Loading the audit log…" />
+          !error && <LoadingState label="Loading the audit log…" />
         ) : folded.length === 0 ? (
           <p className="rounded-lg border border-dashed border-lw-line-strong p-8 text-center text-sm text-lw-text-2">Nothing recorded{filter.credential || filter.event || filter.task ? " for these filters" : " yet"}.</p>
         ) : (
@@ -165,28 +202,40 @@ function StandingGrants({ baseUrl, onRevoked }: { baseUrl: string; onRevoked: ()
   const [grants, setGrants] = useState<CredentialGrant[] | null>(null)
   const [error, setError] = useState("")
   const [ending, setEnding] = useState("")
+  const active = useRef(false)
+  const onRevokedRef = useRef(onRevoked)
+  useLayoutEffect(() => { onRevokedRef.current = onRevoked }, [onRevoked])
+  const request = useRef({ sequence: 0 })
 
   const load = useCallback(async () => {
+    const id = ++request.current.sequence
+    setError("")
     try {
-      setGrants((await listCredentialGrants(baseUrl)).filter((g) => g.mode !== "auto"))
+      const next = await listCredentialGrants(baseUrl)
+      if (id !== request.current.sequence) return
+      setGrants(next.filter((g) => g.mode !== "auto"))
       setError("")
     } catch (reason) {
+      if (id !== request.current.sequence) return
       setError(reason instanceof Error ? reason.message : String(reason))
     }
   }, [baseUrl])
 
   useEffect(() => {
+    const pending = request.current
+    active.current = true
     void load()
     const timer = window.setInterval(() => void load(), REFRESH_MS)
-    return () => window.clearInterval(timer)
+    return () => { active.current = false; pending.sequence++; window.clearInterval(timer) }
   }, [load])
 
   const revoke = async (grant: CredentialGrant) => {
     setEnding(grant.id)
     try {
       await endCredentialGrant(baseUrl, grant.id)
+      if (!active.current) return
       await load()
-      onRevoked()
+      if (active.current) onRevokedRef.current()
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : String(reason))
     } finally {
@@ -198,9 +247,9 @@ function StandingGrants({ baseUrl, onRevoked }: { baseUrl: string; onRevoked: ()
     <section aria-label="Standing grants" className="border-b border-lw-line px-4 py-3 sm:px-6">
       <h2 className="text-sm font-medium">Standing grants</h2>
       <p className="mb-2 text-xs text-lw-text-2">What you allowed that an agent may still do without asking. Revoke one and the agent must ask again.</p>
-      {error && <p role="alert" className="mb-2 text-xs text-lw-danger">{error}</p>}
+      {error && <div role="alert" className="mb-2 text-xs text-lw-danger">{error} <button type="button" onClick={() => void load()} className="h-8 rounded-md border border-lw-line-strong px-3 text-lw-text-2 hover:text-lw-text">Retry grants</button></div>}
       {grants === null ? (
-        <LoadingState size="inline" label="Loading grants…" />
+        !error && <LoadingState size="inline" label="Loading grants…" />
       ) : grants.length === 0 ? (
         <p className="text-xs text-lw-faint">No standing grants.</p>
       ) : (

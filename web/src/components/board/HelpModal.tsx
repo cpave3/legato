@@ -1,3 +1,4 @@
+import { Dialog, DialogPanel, DialogHeader, DialogTitle, DialogBody, DialogFooter } from "../ui/Dialog"
 
 import { X } from "lucide-react"
 
@@ -58,15 +59,15 @@ export function HelpModal({ open, onClose }: HelpModalProps) {
   if (!open) return null
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={onClose}>
-      <div className="w-full max-w-xl rounded-lg border border-zinc-700 bg-zinc-900 shadow-2xl" onClick={(e) => e.stopPropagation()}>
-        <div className="flex items-center justify-between border-b border-zinc-800 px-5 py-3">
-          <h2 className="text-sm font-semibold text-zinc-200">Keyboard Reference</h2>
-          <button onClick={onClose} className="rounded p-1 text-zinc-500 transition-colors hover:bg-zinc-800 hover:text-zinc-200">
+    <Dialog open={open} onClose={onClose}>
+      <DialogPanel className="w-full max-w-xl rounded-lg border border-zinc-700 bg-zinc-900 shadow-2xl">
+        <DialogHeader className="flex items-center justify-between border-b border-zinc-800 px-5 py-3">
+          <DialogTitle className="text-sm font-semibold text-zinc-200">Keyboard Reference</DialogTitle>
+          <button aria-label="Close" onClick={onClose} className="rounded p-1 text-zinc-500 transition-colors hover:bg-zinc-800 hover:text-zinc-200">
             <X size={16} />
           </button>
-        </div>
-        <div className="grid grid-cols-2 gap-4 px-5 py-4">
+        </DialogHeader>
+        <DialogBody className="space-y-0 grid grid-cols-1 sm:grid-cols-2 gap-4 px-5 py-4">
           {sections.map((sec) => (
             <div key={sec.title}>
               <h3 className="mb-2 text-xs font-bold uppercase tracking-wider text-[var(--theme-focus,#AFA9EC)]">{sec.title}</h3>
@@ -82,9 +83,9 @@ export function HelpModal({ open, onClose }: HelpModalProps) {
               </div>
             </div>
           ))}
-        </div>
-        <div className="border-t border-zinc-800 px-5 py-2 text-[10px] text-zinc-600">Press ? or esc to close</div>
-      </div>
-    </div>
+        </DialogBody>
+        <DialogFooter className="border-t border-zinc-800 px-5 py-2 text-[10px] text-zinc-600">Press ? or esc to close</DialogFooter>
+      </DialogPanel>
+    </Dialog>
   )
 }

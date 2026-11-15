@@ -16,14 +16,14 @@ describe("OpenURLPicker", () => {
       />
     )
 
-    fireEvent.keyDown(window, { key: "j" })
+    fireEvent.keyDown(document.activeElement!, { key: "j" })
     expect(onSelect).toHaveBeenCalledWith("https://jira.example.com/T-1")
 
     onSelect.mockClear()
-    fireEvent.keyDown(window, { key: "g" })
+    fireEvent.keyDown(document.activeElement!, { key: "g" })
     expect(onSelect).toHaveBeenCalledWith("https://github.com/org/repo/pull/1")
 
-    fireEvent.keyDown(window, { key: "Escape" })
+    fireEvent.keyDown(document.activeElement!, { key: "Escape" })
     expect(onClose).toHaveBeenCalled()
   })
 

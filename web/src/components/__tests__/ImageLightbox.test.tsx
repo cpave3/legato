@@ -1,3 +1,4 @@
+import { Dialog, DialogPanel, DialogTitle } from "../ui/Dialog"
 import { cleanup, fireEvent, render, screen } from "@testing-library/react"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { ImageLightbox } from "../ImageLightbox"
@@ -20,7 +21,7 @@ describe("ImageLightbox", () => {
     expect(screen.getByText("Before the restyle")).toBeTruthy()
     expect(screen.getByText("1 of 3")).toBeTruthy()
     // The keyboard goes to it, so Escape and the arrows work at once.
-    expect(document.activeElement).toBe(dialog)
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Close image" }))
   })
 
   it("steps to the next and the previous image, around the ends", () => {
@@ -51,13 +52,10 @@ describe("ImageLightbox", () => {
   it("closes on Escape, on its button and on a click beside the image, and keeps Escape from what is behind it", () => {
     const onClose = vi.fn()
     const behind = vi.fn()
-    render(
-      <div onKeyDown={behind}>
-        <ImageLightbox images={IMAGES} index={0} onIndex={vi.fn()} onClose={onClose} />
-      </div>,
-    )
+    const view = render(<Dialog open onClose={behind}><DialogPanel><DialogTitle>Image gallery</DialogTitle></DialogPanel></Dialog>)
+    view.rerender(<Dialog open onClose={behind}><DialogPanel><DialogTitle>Image gallery</DialogTitle><ImageLightbox images={IMAGES} index={0} onIndex={vi.fn()} onClose={onClose} /></DialogPanel></Dialog>)
 
-    fireEvent.keyDown(screen.getByRole("dialog"), { key: "Escape" })
+    fireEvent.keyDown(screen.getByRole("dialog", { name: "The board, full size" }), { key: "Escape" })
     fireEvent.click(screen.getByRole("button", { name: "Close image" }))
     fireEvent.click(screen.getByTestId("lightbox-stage"))
     expect(onClose).toHaveBeenCalledTimes(3)
@@ -77,4 +75,17 @@ describe("ImageLightbox", () => {
     expect(image.getAttribute("data-size")).toBe("fit")
     expect(onClose).not.toHaveBeenCalled()
   })
+})
+
+it("wraps image controls and restores the opener", () => {
+  const opener = document.createElement("button")
+  document.body.append(opener)
+  opener.focus()
+  const view = render(<ImageLightbox images={IMAGES} index={0} onIndex={vi.fn()} onClose={vi.fn()} />)
+  screen.getByRole("button", {name:"Next image"}).focus()
+  fireEvent.keyDown(document.activeElement!, {key:"Tab"})
+  expect(document.activeElement).toBe(screen.getByRole("button", {name:"Close image"}))
+  view.unmount()
+  expect(document.activeElement).toBe(opener)
+  opener.remove()
 })

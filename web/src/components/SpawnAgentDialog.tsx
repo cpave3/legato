@@ -1,3 +1,4 @@
+import { useModalLayer } from "../hooks/useModalLayer"
 import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from "react"
 import { ChevronDown, X } from "lucide-react"
 import { accessLabel, listResources, type Resource } from "../lib/resources"
@@ -193,6 +194,7 @@ export function SpawnAgentDialog({
   }
 
   const formRef = useRef<HTMLFormElement>(null)
+  useModalLayer({ open, onClose, containerRef: formRef, dismissible: !loading })
   const titleRef = useRef<HTMLInputElement>(null)
   const pathFieldRef = useRef<HTMLDivElement>(null)
   const listRef = useRef<HTMLDivElement>(null)
@@ -241,8 +243,6 @@ export function SpawnAgentDialog({
           if (current) setJobClonesError(`Could not load clones: ${reason instanceof Error ? reason.message : String(reason)}`)
         })
     }
-    // Not the path field: its suggestions open with its focus.
-    ;(titleRef.current ?? formRef.current)?.focus()
 
     apiFetch(baseUrl, "/api/adapters")
       .then(async (response) => {
@@ -465,7 +465,7 @@ export function SpawnAgentDialog({
 
   const onPathKeyDown = (event: React.KeyboardEvent<HTMLInputElement>) => {
     if (event.key === "Escape" && shown.length > 0) {
-      // Escape closes the suggestions first, and the dialog after.
+      event.preventDefault()
       event.stopPropagation()
       setListOpen(false)
       return
@@ -503,7 +503,6 @@ export function SpawnAgentDialog({
         aria-label={name}
         onSubmit={(event) => { event.preventDefault(); void submit() }}
         onKeyDown={(event) => {
-          if (event.key === "Escape") close()
           if (event.key === "Enter" && (event.metaKey || event.ctrlKey)) { event.preventDefault(); void submit() }
         }}
         // index.css keeps every dialog a margin away from a phone's screen
@@ -514,7 +513,7 @@ export function SpawnAgentDialog({
         <div aria-hidden="true" className="flex justify-center pb-1 pt-2 sm:hidden">
           <span className="h-1 w-9 rounded-full bg-lw-line-strong" />
         </div>
-        <div className="flex items-center justify-between py-1 pl-4 pr-2 sm:px-5 sm:pb-3 sm:pt-4">
+        <div className="flex shrink-0 items-center justify-between py-1 pl-4 pr-2 sm:px-5 sm:pb-3 sm:pt-4">
           <div className="flex flex-col">
             <h2 className="text-lg font-semibold sm:text-base">{name}</h2>
             <p className="hidden text-xs text-lw-text-2 sm:block">{description}</p>
@@ -547,6 +546,7 @@ export function SpawnAgentDialog({
               <span className={fieldLabel}>Title</span>
               <input
                 ref={titleRef}
+                data-autofocus
                 type="text"
                 aria-label="Title"
                 value={title}
@@ -957,7 +957,7 @@ export function SpawnAgentDialog({
           )}
         </div>
 
-        <div className="flex flex-col gap-3 border-t border-lw-line px-4 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-3 sm:flex-row sm:items-center sm:gap-2 sm:px-5 sm:pb-3">
+        <div className="flex shrink-0 flex-col gap-3 border-t border-lw-line px-4 pb-[max(0.75rem,env(safe-area-inset-bottom))] pt-3 sm:flex-row sm:items-center sm:gap-2 sm:px-5 sm:pb-3">
           <label className={`${inClone ? "hidden" : customPathShown ? "flex" : "hidden sm:flex"} items-center gap-2 text-xs text-lw-text-2 ${canSave ? "" : "opacity-50"}`}>
             <input
               type="checkbox"

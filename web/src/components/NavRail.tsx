@@ -1,4 +1,4 @@
-import { Fragment, useEffect, useRef, useState } from "react"
+import { Fragment, useEffect, useId, useRef, useState } from "react"
 import { Link, useLocation } from "react-router-dom"
 import { Server } from "lucide-react"
 import { cn } from "../lib/utils"
@@ -71,7 +71,7 @@ export function NavRail({ sections, connected, servers, activeServerName, baseUr
       <div className="mt-auto flex flex-col items-center gap-2.5">
         <RailLink section={sections.settings} />
         {servers.length > 0 && <ServerSwitcher servers={servers} activeServerName={activeServerName} baseUrl={baseUrl} onSwitch={onSwitchServer} color={color} />}
-        <div title={connected ? "Connected" : "Disconnected"} className={cn("flex items-center gap-1 text-[10px]", connected ? "text-lw-faint" : "text-lw-error")}>
+        <div role="status" aria-label="Connection" title={connected ? "Connected" : "Disconnected"} className={cn("flex items-center gap-1 text-[10px]", connected ? "text-lw-faint" : "text-lw-error")}>
           <span className={cn("size-[7px] rounded-full", connected ? "bg-lw-live" : "bg-lw-error")} />
           {connected ? "sync" : "offline"}
         </div>
@@ -92,9 +92,15 @@ function ServerSwitcher({ servers, activeServerName, baseUrl, onSwitch, color }:
 }) {
   const [open, setOpen] = useState(false)
   const box = useRef<HTMLDivElement>(null)
+  const trigger = useRef<HTMLButtonElement>(null)
+  const choices = useRef<HTMLDivElement>(null)
+  const choicesId = useId()
 
   useEffect(() => {
     if (!open) return
+    const current = choices.current?.querySelector<HTMLButtonElement>('[aria-current="true"]')
+    const first = current ?? choices.current?.querySelector("button")
+    first?.focus()
     const outside = (event: MouseEvent) => {
       if (box.current && !box.current.contains(event.target as Node)) setOpen(false)
     }
@@ -102,16 +108,24 @@ function ServerSwitcher({ servers, activeServerName, baseUrl, onSwitch, color }:
     return () => document.removeEventListener("click", outside, true)
   }, [open])
 
-  const choose = (url: string) => { onSwitch(url); setOpen(false) }
+  const close = () => { setOpen(false); trigger.current?.focus() }
+  const choose = (url: string) => { onSwitch(url); close() }
   const item = (label: string, url: string) => (
     <ServerItem key={url || "local"} label={label} url={url} current={baseUrl === url} onChoose={choose} />
   )
 
   return (
-    <div ref={box} className="relative">
+    <div ref={box} className="relative" onBlur={(event) => {
+      if (!event.currentTarget.contains(event.relatedTarget as Node)) setOpen(false)
+    }} onKeyDown={(event) => {
+      if (open && event.key === "Escape") { event.preventDefault(); event.stopPropagation(); close() }
+    }}>
       <button
         type="button"
         onClick={() => setOpen((value) => !value)}
+        ref={trigger}
+        aria-expanded={open}
+        aria-controls={open ? choicesId : undefined}
         aria-label={`Server: ${activeServerName}`}
         title={`Server: ${activeServerName}`}
         className={cn("flex size-9 items-center justify-center rounded-lg hover:bg-lw-raised", baseUrl ? "text-lw-link" : "text-[var(--theme-muted,#8a8994)] hover:text-lw-text")}
@@ -120,7 +134,7 @@ function ServerSwitcher({ servers, activeServerName, baseUrl, onSwitch, color }:
         <Server size={16} />
       </button>
       {open && (
-        <div className="absolute bottom-0 left-full z-50 ml-2 min-w-[180px] rounded-md border border-lw-line-strong bg-lw-surface py-1 shadow-xl">
+        <div ref={choices} id={choicesId} role="group" aria-label="Servers" className="absolute bottom-0 left-full z-50 ml-2 min-w-[180px] rounded-md border border-lw-line-strong bg-lw-surface py-1 shadow-xl">
           {item("Local", "")}
           {servers.map((server) => item(server.name, server.url))}
         </div>
@@ -134,7 +148,7 @@ function ServerItem({ label, url, current, onChoose }: { label: string; url: str
   const tint = useServerTint(url)
   const color = tintColor(tint)
   return (
-    <button type="button" onClick={() => onChoose(url)}
+    <button type="button" aria-current={current ? "true" : undefined} onClick={() => onChoose(url)}
       className={cn("flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs", current ? "bg-lw-selected text-lw-link" : "text-lw-text hover:bg-lw-raised")}>
       <span className="truncate">{label}</span>
       {color && <span title={tint} className="ml-auto size-2 shrink-0 rounded-full" style={{ backgroundColor: color }} />}

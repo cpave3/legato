@@ -1,10 +1,11 @@
-import { useEffect, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent } from "react"
+import { useEffect, useId, useRef, useState, type KeyboardEvent as ReactKeyboardEvent, type PointerEvent as ReactPointerEvent } from "react"
 import { ChevronLeft, ChevronRight, ClipboardCheck, Copy, Download, LayoutGrid, Mic, PanelRight, Trash2, X } from "lucide-react"
 import { useAgentUIItem, useAgentUIItems } from "../hooks/useAgentUI"
 import { useReviewBriefing } from "../hooks/useReviewBriefing"
 import { useProposeMessage } from "../hooks/useProposeMessage"
 import { useServer } from "../hooks/useServer"
 import { useToast } from "../hooks/useToast"
+import { useModalLayer } from "../hooks/useModalLayer"
 import { useConfirm } from "../hooks/useConfirm"
 import { buildStandaloneDocument, deleteAgentUIItem, inlineImages, itemImages, type AgentUIItem } from "../lib/agentUi"
 import { briefingPathOf, briefingTabId, briefingTabLabel } from "../lib/reviewBriefing"
@@ -100,6 +101,33 @@ export function AgentArtifactPanel({ agentId, focus, onFocus, onClose, mobile }:
   const [widthRem, setWidthRem] = useState(storedWidth)
   const [busy, setBusy] = useState(false)
   const containerRef = useRef<HTMLElement>(null)
+  const tabPrefix = useId()
+  const revisions = useRef(new Map<string, number>())
+  useEffect(() => {
+    if (focus) revisions.current.set(`${agentId}:${focus.itemId}`, focus.revision)
+  }, [agentId, focus])
+  const tabs = [...artifacts, ...briefing.pages, ...cards]
+  const tabKey = (entry: typeof tabs[number]) => "path" in entry ? briefingTabId(entry.path) : entry.id
+  const activeTab = briefingPage ? briefingTabId(briefingPage.path) : selected?.id
+  const tabId = (id: string) => `${tabPrefix}-tab-${encodeURIComponent(id)}`
+  const panelId = `${tabPrefix}-panel`
+  function activateTab(id: string) {
+    onFocus(id, revisions.current.get(`${agentId}:${id}`) ?? 0)
+  }
+  function navigateTabs(event: ReactKeyboardEvent<HTMLButtonElement>, index: number) {
+    let next: number
+    switch (event.key) {
+      case "ArrowRight": next = (index + 1) % tabs.length; break
+      case "ArrowLeft": next = (index + tabs.length - 1) % tabs.length; break
+      case "Home": next = 0; break
+      case "End": next = tabs.length - 1; break
+      default: return
+    }
+    event.preventDefault()
+    const id = tabKey(tabs[next])
+    document.getElementById(tabId(id))?.focus()
+    activateTab(id)
+  }
 
   useEffect(() => {
     try {
@@ -109,21 +137,36 @@ export function AgentArtifactPanel({ agentId, focus, onFocus, onClose, mobile }:
     }
   }, [widthRem])
 
-  // A sheet that covers the page takes the keyboard with it.
-  useEffect(() => {
-    if (mobile) containerRef.current?.focus()
-  }, [mobile])
+  useModalLayer({ open: mobile, onClose, containerRef })
+
+  const stopResize = useRef<(() => void) | null>(null)
+  useEffect(() => () => stopResize.current?.(), [mobile])
 
   function resizeFromPointer(event: ReactPointerEvent<HTMLDivElement>) {
     event.preventDefault()
+    stopResize.current?.()
+    const handle = event.currentTarget
+    const pointerId = event.pointerId
+    handle.setPointerCapture(pointerId)
     const startX = event.clientX
     const startWidth = widthRem
     const rootSize = parseFloat(getComputedStyle(document.documentElement).fontSize) || 16
-    const move = (moveEvent: PointerEvent) => setWidthRem(clampWidth(startWidth + (startX - moveEvent.clientX) / rootSize))
+    const move = (moveEvent: PointerEvent) => {
+      if (moveEvent.pointerId === pointerId) setWidthRem(clampWidth(startWidth + (startX - moveEvent.clientX) / rootSize))
+    }
     const stop = () => {
       window.removeEventListener("pointermove", move)
       window.removeEventListener("pointerup", stop)
+      window.removeEventListener("pointercancel", stop)
+      window.removeEventListener("blur", stop)
+      handle.removeEventListener("lostpointercapture", stop)
+      if (handle.hasPointerCapture(pointerId)) handle.releasePointerCapture(pointerId)
+      stopResize.current = null
     }
+    stopResize.current = stop
+    window.addEventListener("pointercancel", stop)
+    window.addEventListener("blur", stop)
+    handle.addEventListener("lostpointercapture", stop)
     window.addEventListener("pointermove", move)
     window.addEventListener("pointerup", stop)
   }
@@ -222,7 +265,7 @@ export function AgentArtifactPanel({ agentId, focus, onFocus, onClose, mobile }:
           </>
         ) : (
         <div role="tablist" aria-label="Shown by the agent" className="flex min-w-0 flex-1 gap-1 overflow-x-auto py-1.5">
-          {[...artifacts, ...briefing.pages, ...cards].map((entry) => {
+          {tabs.map((entry, index) => {
             if ("path" in entry) {
               const active = entry.path === briefingPage?.path
               return (
@@ -231,8 +274,12 @@ export function AgentArtifactPanel({ agentId, focus, onFocus, onClose, mobile }:
                   role="tab"
                   type="button"
                   aria-selected={active}
+                  id={tabId(briefingTabId(entry.path))}
+                  aria-controls={panelId}
+                  tabIndex={active ? 0 : -1}
+                  onKeyDown={(event) => navigateTabs(event, index)}
                   title={entry.path}
-                  onClick={() => onFocus(briefingTabId(entry.path), 0)}
+                  onClick={() => activateTab(briefingTabId(entry.path))}
                   className={`flex min-h-9 max-w-[14rem] shrink-0 items-center gap-1.5 rounded px-2.5 py-1 text-xs transition-colors ${active ? "bg-zinc-800 text-zinc-100" : "text-zinc-400 hover:bg-zinc-900 hover:text-zinc-200"}`}
                 >
                   <ClipboardCheck size={13} aria-hidden="true" className="shrink-0" />
@@ -248,7 +295,11 @@ export function AgentArtifactPanel({ agentId, focus, onFocus, onClose, mobile }:
                 role="tab"
                 type="button"
                 aria-selected={active}
-                onClick={() => onFocus(entry.id, 0)}
+                id={tabId(entry.id)}
+                aria-controls={panelId}
+                tabIndex={active ? 0 : -1}
+                onKeyDown={(event) => navigateTabs(event, index)}
+                onClick={() => activateTab(entry.id)}
                 className={`flex min-h-9 max-w-[14rem] shrink-0 items-center gap-1.5 rounded px-2.5 py-1 text-xs transition-colors ${active ? "bg-zinc-800 text-zinc-100" : "text-zinc-400 hover:bg-zinc-900 hover:text-zinc-200"}`}
               >
                 <Icon size={13} aria-hidden="true" className="shrink-0" />
@@ -281,7 +332,7 @@ export function AgentArtifactPanel({ agentId, focus, onFocus, onClose, mobile }:
         </button>
       </div>
 
-      <div className="flex min-h-0 flex-1 flex-col bg-zinc-900">
+      <div role={!studio && activeTab ? "tabpanel" : undefined} id={panelId} aria-labelledby={!studio && activeTab ? tabId(activeTab) : undefined} tabIndex={!studio && activeTab ? 0 : undefined} className="flex min-h-0 flex-1 flex-col bg-zinc-900">
         {briefingPage ? (
           <ReviewBriefingView key={briefingPage.path} agentId={agentId} page={briefingPage} onOpenPage={(path) => onFocus(briefingTabId(path), 0)} />
         ) : listError ? (
@@ -343,7 +394,6 @@ export function AgentArtifactPanel({ agentId, focus, onFocus, onClose, mobile }:
         aria-modal="true"
         aria-label={panelName}
         tabIndex={-1}
-        onKeyDown={(event) => { if (event.key === "Escape") onClose() }}
         // Above the app's bottom navigation (z-40), which a sheet that is
         // the whole screen must cover.
         className="fixed inset-0 z-50 flex flex-col bg-zinc-950 outline-none"
