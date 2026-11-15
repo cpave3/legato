@@ -1,0 +1,2 @@
+Own browser exited; own Vite closed; runtime root removed: /tmp/legato-ui-runtime-lKjszk
+No running Legato used.
