@@ -1,5 +1,7 @@
 # LEG-199: scenario investigation
 
+**Callback scope superseded:** Cameron now limits OAuth setup to the native app, or a browser on the Go server’s machine. See [the current decision](leg-199-app-local-callbacks.md) and proposal revision 3. The direct HTTPS callback scenarios below remain historical evidence, not verification or requirements for the new app-forwarding path.
+
 Date: 2026-11-15. Baseline: `c8aafd13` plus research-only scenario files. No feature implementation or live setup.
 
 ## Result

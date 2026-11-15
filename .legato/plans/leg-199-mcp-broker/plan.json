@@ -1,7 +1,7 @@
 {
   "schema_version": 1,
-  "title": "LEG-199: server-owned MCP OAuth and controlled tools",
-  "summary": "Automatic MCP callback declaration via usable CIMD/DCR, phone-manageable instance address, sealed credentials and default-deny tools. Scenario-tested proposal; no implementation before approval.",
+  "title": "LEG-199: MCP broker with app or local-web OAuth",
+  "summary": "Native apps receive and forward authorization responses to their paired server; no-app web mode starts a Go loopback listener and assumes a local browser. Tokens remain server-owned. No public callback or topology detection.",
   "questions": [
     {
       "id": "release-scope",
@@ -23,28 +23,6 @@
       ],
       "recommended_options": [
         "local-http"
-      ]
-    },
-    {
-      "id": "callback-origin",
-      "kind": "single_choice",
-      "prompt": "Reuse web.public_url when pinned, with once-per-instance phone Settings setup when absent?",
-      "rationale": "Legato generates every MCP redirect. The operator approves one trusted server address only if no canonical address exists; no untrusted Host/forwarded-header inference.",
-      "required": true,
-      "options": [
-        {
-          "id": "public-url",
-          "label": "Reuse URL, onboard once if absent",
-          "description": "Read pinned web.public_url; otherwise save an operator-approved HTTPS callback origin in Settings without a host-file edit/restart. No per-MCP redirect editor."
-        },
-        {
-          "id": "dedicated",
-          "label": "Always use a dedicated origin setting",
-          "description": "Revise precedence and migration behavior before building."
-        }
-      ],
-      "recommended_options": [
-        "public-url"
       ]
     },
     {

@@ -1,6 +1,6 @@
 # LEG-199: instance-owned MCP broker and phone-safe OAuth
 
-Status: research and proposed design; not implemented or approved.
+Status: historical investigation; its direct public HTTPS callback recommendation is superseded by [the app/local-web decision](leg-199-app-local-callbacks.md) and proposal revision 3. No implementation or approval.
 Evidence date: 2026-11-15. Repository baseline: `8e577f8f6051f03aa2a06857dd43a27c405973d9`.
 
 Scenario follow-up: [executed observations and design corrections](leg-199-mcp-scenarios.md). The revised plan makes callback declaration automatic through usable CIMD/DCR. Manual provider registration is an advanced compatibility branch. Canonical-address setup is once per instance, available from phone Settings when no pinned address exists. No feature implementation has started.
