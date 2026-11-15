@@ -388,7 +388,7 @@ export function SettingsPage() {
                   </div>
                 }
               />
-              <SettingsRow icon={Palette} title="App theme" description="Colours for this device. Terminals follow unless you choose a separate theme." browser control={<AppThemePicker />} />
+              <SettingsRow icon={Palette} title="App theme" description="Colours for this device. Terminals follow unless you choose a separate theme." browser={(window as { legatoShell?: { theme?: number } }).legatoShell?.theme !== 1} control={<AppThemePicker />} />
               <SettingsRow
                 icon={SquareTerminal}
                 title="Terminal theme"

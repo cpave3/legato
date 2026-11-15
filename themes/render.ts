@@ -7,7 +7,7 @@ function luminance(hex: string): number {
     .map(v => v <= .04045 ? v / 12.92 : ((v + .055) / 1.055) ** 2.4)
   return r * .2126 + g * .7152 + b * .0722
 }
-function contrast(a: string, b: string): number {
+export function themeContrast(a: string, b: string): number {
   const values = [luminance(a), luminance(b)].sort((a, b) => a - b)
   return (values[1] + .05) / (values[0] + .05)
 }
@@ -18,9 +18,9 @@ function contrast(a: string, b: string): number {
 export function readableTokens(tokens: ThemeTokens): ThemeTokens {
   const t = { ...tokens }
   for (const role of ["muted", "comment"] as const) {
-    if (contrast(t[role], t.canvas) < 4.5) t[role] = t.text
+    if (themeContrast(t[role], t.canvas) < 4.5) t[role] = t.text
   }
-  if (contrast(t.border, t.selection) < 3) t.border = t.focus
+  if (themeContrast(t.border, t.selection) < 3) t.border = t.focus
   return t
 }
 

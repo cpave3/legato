@@ -117,7 +117,7 @@ export function RegistrySettingRow({ setting, baseUrl, actions }: { setting: Con
       <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-center gap-2">
           <p className="text-sm text-lw-text">{setting.title}</p>
-          {setting.own_rule && <span className="rounded bg-[#8b5cf6]/20 px-1.5 text-[10px] text-[#c4b5fd]" title="Changed only with a signed approval">signed</span>}
+          {setting.own_rule && <span className="rounded bg-[var(--theme-selection,rgba(139,92,246,0.2))] px-1.5 text-[10px] text-[var(--theme-keyword,#c4b5fd)]" title="Changed only with a signed approval">signed</span>}
           <code className="text-[11px] text-lw-faint">{setting.key}</code>
           <SettingSource setting={setting} busy={busy === setting.key} onReset={() => void reset(setting.key)} />
         </div>

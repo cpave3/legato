@@ -48,6 +48,13 @@ beforeEach(()=>{
 function renderPage(){return render(<MemoryRouter initialEntries={["/plans/pl-1"]}><Routes><Route path="/plans/:planId" element={<PlanPage/>}/><Route path="/plans" element={<div>queue</div>}/></Routes></MemoryRouter>)}
 
 describe("PlanPage block comments",()=>{
+  it("binds the page canvas and Markdown code surface to runtime theme roles",()=>{
+    planData.revision.markdown="Use `planAction` to approve."
+    const { container }=renderPage()
+    expect(container.firstElementChild?.className).toContain("bg-[var(--theme-canvas,#0a0a0f)]")
+    expect(screen.getByText("planAction").className).toContain("bg-[var(--theme-surface,rgba(0,0,0,0.4))]")
+  })
+
   it("anchors a comment to the selected occurrence and shows its draft thread",async()=>{
     renderPage()
     const repeated=screen.getAllByRole("button",{name:/Comment on paragraph beginning Repeat this paragraph/})

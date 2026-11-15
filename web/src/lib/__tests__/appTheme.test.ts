@@ -24,7 +24,13 @@ it.each<AppThemeId>(["ocular-light", "ocular-dark", "dracula"])("renders readabl
   for (const role of ["foreground", "black", "red", "green", "yellow", "blue", "magenta", "cyan", "white", "brightBlack", "brightRed", "brightGreen", "brightYellow", "brightBlue", "brightMagenta", "brightCyan", "brightWhite"] as const) {
     expect(contrast(terminal[role]!, terminal.background!), `ANSI ${role}`).toBeGreaterThanOrEqual(4.5)
   }
-  expect(contrast(terminal.selectionForeground!, terminal.selectionBackground!)).toBeGreaterThanOrEqual(4.5)
+  if (terminal.selectionForeground) {
+    expect(contrast(terminal.selectionForeground, terminal.selectionBackground!)).toBeGreaterThanOrEqual(4.5)
+  } else {
+    for (const ink of [terminal.foreground, terminal.black, terminal.red, terminal.green, terminal.yellow, terminal.blue, terminal.magenta, terminal.cyan]) {
+      expect(contrast(ink!, terminal.selectionBackground!)).toBeGreaterThanOrEqual(4.5)
+    }
+  }
   expect(contrast(terminal.cursor!, terminal.cursorAccent!)).toBeGreaterThanOrEqual(4.5)
 })
 

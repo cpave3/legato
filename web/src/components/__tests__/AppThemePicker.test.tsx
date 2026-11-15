@@ -4,7 +4,7 @@ import { AppThemePicker } from "../settings/AppThemePicker"
 import { applyAppTheme, appTheme, APP_THEME_KEY } from "../../lib/appTheme"
 import { terminalTheme, TERMINAL_THEME_KEY } from "../../lib/terminalTheme"
 
-afterEach(() => { cleanup(); vi.restoreAllMocks(); localStorage.clear(); applyAppTheme(); delete (window as { legatoShell?: unknown }).legatoShell; delete window.ReactNativeWebView })
+afterEach(() => { cleanup(); vi.useRealTimers(); vi.restoreAllMocks(); localStorage.clear(); applyAppTheme(); delete (window as { legatoShell?: unknown }).legatoShell; delete window.ReactNativeWebView })
 
 it("changes the rendered page immediately, persists on reload and follows in terminals without overwriting a saved terminal choice", () => {
   localStorage.setItem(TERMINAL_THEME_KEY, "night")
@@ -58,4 +58,24 @@ it("supports radio keyboard selection and reports unavailable persistence", asyn
   fireEvent.click(screen.getByRole("radio", { name: "Dracula" }))
   expect((await screen.findByRole("alert")).textContent).toBe("Storage is disabled")
   expect(appTheme().id).toBe("ocular-light")
+})
+
+it("does not save a page-only choice when a native app cannot receive it", async () => {
+  ;(window as { legatoShell?: unknown }).legatoShell = { theme: 1, key: "page-key" }
+  render(<AppThemePicker />)
+  fireEvent.click(screen.getByRole("radio", { name: "Ocular Dark" }))
+  expect((await screen.findByRole("alert")).textContent).toContain("Use Appearance in the app's settings")
+  expect(localStorage.getItem(APP_THEME_KEY)).toBeNull()
+})
+
+it("reports an unresponsive native app without pretending the theme was saved", async () => {
+  vi.useFakeTimers()
+  ;(window as { legatoShell?: unknown }).legatoShell = { theme: 1, key: "page-key" }
+  window.ReactNativeWebView = { postMessage: () => {} }
+  render(<AppThemePicker />)
+  fireEvent.click(screen.getByRole("radio", { name: "Ocular Dark" }))
+  await act(async () => { await vi.advanceTimersByTimeAsync(10_000) })
+  expect(screen.getByRole("alert").textContent).toContain("The app did not save the theme")
+  expect(localStorage.getItem(APP_THEME_KEY)).toBeNull()
+  expect((screen.getByRole("radio", { name: "Ocular Dark" }) as HTMLButtonElement).disabled).toBe(false)
 })

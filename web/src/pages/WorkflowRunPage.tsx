@@ -101,7 +101,7 @@ function Now({ view, runId, refresh, now, secrets }: { view: WorkflowRunView; ru
     const failed = steps.find(step => step.status === "failed")
     return <NowPanel tone="error" heading={failed ? `${failed.title} failed` : "The run failed"}
       actions={failed && <WorkflowStepRetryAction step={failed} onRetry={async force => { await retryWorkflowStep(baseUrl, runId, failed.step_id, force); await refresh() }} />}>
-      {(failed?.error || run.error) && <p className="mt-1 whitespace-pre-wrap break-words rounded-lg bg-black/25 px-2.5 py-2 font-lw-mono text-xs text-lw-danger">{redact(failed?.error || run.error || "", secrets)}</p>}
+      {(failed?.error || run.error) && <p className="mt-1 whitespace-pre-wrap break-words rounded-lg bg-[var(--theme-surface,rgba(0,0,0,0.25))] px-2.5 py-2 font-lw-mono text-xs text-lw-danger">{redact(failed?.error || run.error || "", secrets)}</p>}
     </NowPanel>
   }
   if (run.status === "cancelled") return null

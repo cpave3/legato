@@ -1,5 +1,5 @@
 import type { ITheme } from "@xterm/xterm"
-import { renderedThemes } from "../../../themes/render"
+import { renderedThemes, themeContrast } from "../../../themes/render"
 import { appTheme, THEME_CHANGED, type ThemeTokens } from "./appTheme"
 
 // Terminal overrides stay independent; without one the terminal follows
@@ -16,10 +16,12 @@ export interface TerminalThemeOption {
 export const TERMINAL_THEME_KEY = "legato:terminal-theme"
 
 export function tokenTerminalTheme(t: ThemeTokens): ITheme {
+  const preserveSelectionInk = [t.text, t.muted, t.error, t.success, t.warning, t.info, t.keyword, t.type]
+    .every(ink => themeContrast(ink, t.selection) >= 4.5)
   return {
     background: t.canvas, foreground: t.text, cursor: t.text, cursorAccent: t.canvas,
     selectionBackground: t.selection, selectionInactiveBackground: t.selection,
-    selectionForeground: t.text,
+    selectionForeground: preserveSelectionInk ? undefined : t.text,
     black: t.muted, red: t.error, green: t.success, yellow: t.warning,
     blue: t.info, magenta: t.keyword, cyan: t.type, white: t.text,
     brightBlack: t.muted, brightRed: t.error, brightGreen: t.success,

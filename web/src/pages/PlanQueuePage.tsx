@@ -5,7 +5,7 @@ import { LoadingState } from "../components/ui/LoadingState"
 
 export function PlanQueuePage() {
   const {data,loading,error,refresh}=usePlanQueue()
-  return <div className="flex h-full flex-col overflow-hidden bg-[#0a0a0f] text-zinc-200">
+  return <div className="flex h-full flex-col overflow-hidden bg-[var(--theme-canvas,#0a0a0f)] text-zinc-200">
     <header className="flex items-center justify-between border-b border-zinc-800 px-6 py-4"><h1 className="text-lg font-semibold">Plan queue</h1><button onClick={()=>void refresh()} className="rounded p-2 text-zinc-500 hover:bg-zinc-900"><RefreshCw size={16}/></button></header>
     <div className="flex-1 overflow-y-auto p-6">
       {loading&&!data&&<LoadingState label="Loading plans…" />}

@@ -97,6 +97,6 @@ export function Toggle({ label, on, onChange }: { label: string; on: boolean; on
 
 // The page's primary button style.
 export const primaryButton =
-  "inline-flex min-h-10 items-center justify-center gap-2 rounded-lg bg-lw-accent px-3.5 text-sm font-medium text-white transition-colors hover:bg-[#7c6ef7] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-lw-accent-ring disabled:opacity-50"
+  "inline-flex min-h-10 items-center justify-center gap-2 rounded-lg bg-lw-accent px-3.5 text-sm font-medium text-white transition-colors hover:bg-[var(--theme-focus,#7c6ef7)] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-lw-accent-ring disabled:opacity-50"
 export const quietButton =
   "inline-flex min-h-10 items-center justify-center gap-2 rounded-lg border border-lw-line-strong px-3.5 text-sm text-lw-text transition-colors hover:bg-lw-raised focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-lw-accent-ring disabled:opacity-50"

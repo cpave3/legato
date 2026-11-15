@@ -699,7 +699,7 @@ export function AgentsPage() {
         <p className="text-lw-text-2">No active agents</p>
         <button
           onClick={handleSpawn}
-          className="rounded bg-lw-accent px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-indigo-500"
+          className="rounded bg-lw-accent px-4 py-2 text-sm font-medium text-[var(--theme-canvas,#fff)] transition-colors hover:bg-indigo-500"
         >
           Spawn Agent
         </button>
@@ -962,7 +962,7 @@ export function AgentsPage() {
       {/* Right sidebar: swarm event log for swarm participants */}
       {selectedParentId && (isMobile ? (
         <details className="fixed inset-x-2 bottom-2 z-30 max-h-[45vh] overflow-y-auto rounded-lg border border-lw-line-strong bg-lw-ground shadow-2xl">
-          <summary className="cursor-pointer px-3 py-2 text-xs font-medium text-[#c9c8d0]">Swarm events</summary>
+          <summary className="cursor-pointer px-3 py-2 text-xs font-medium text-[var(--theme-text,#c9c8d0)]">Swarm events</summary>
           <div className="max-h-[38vh] overflow-y-auto border-t border-lw-line">
             <SwarmEventLog parentId={selectedParentId} />
           </div>

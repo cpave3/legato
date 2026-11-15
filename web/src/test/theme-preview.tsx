@@ -10,6 +10,7 @@ import { StatePill } from "../components/WorkflowRunStatus"
 import { AgentUIComponents } from "../components/AgentUIComponents"
 import type { DiffSelection, FileDiff } from "../lib/review"
 import { Button } from "../components/ui/Button"
+import { ImageLightbox } from "../components/ImageLightbox"
 
 applyAppTheme()
 subscribeTheme(applyAppTheme)
@@ -20,6 +21,7 @@ const files: FileDiff[] = [{ old_path: "example.ts", new_path: "example.ts", sta
 ] }] }]
 export function Preview() {
   const [selection, setSelection] = useState<DiffSelection | null>(null)
+  const [image, setImage] = useState(false)
   return <main className="mx-auto w-full max-w-3xl space-y-6 bg-lw-ground p-4 text-lw-text">
     <h1 className="text-xl font-semibold">Theme component verification</h1>
     <AppThemePicker />
@@ -31,6 +33,8 @@ export function Preview() {
     <div data-contrast="markdown"><MarkdownBody body={'A [link](#), `inline code` and body text.\n\n```ts\n// Keep comments readable\nconst count = 42\n```'} /></div>
     <div data-contrast="diff"><DiffView files={files} selection={selection} onSelectionChange={setSelection} /></div>
     <div data-contrast="components"><AgentUIComponents components={[{ type: "text", text: "Error: the task could not be saved", tone: "negative" }, { type: "badges", items: [{ text: "Success", tone: "positive" }, { text: "Warning", tone: "warning" }, { text: "Info", tone: "info" }] }]} /></div>
+    <Button onClick={() => setImage(true)}>View sample image</Button>
+    {image && <ImageLightbox images={[{ src: "data:image/gif;base64,R0lGODlhAQABAIAAAAAAAP///ywAAAAAAQABAAACAUwAOw==", alt: "Sample image", caption: "Image preview controls" }]} index={0} onIndex={() => {}} onClose={() => setImage(false)} />}
   </main>
 }
 createRoot(document.getElementById("root")!).render(<Preview />)

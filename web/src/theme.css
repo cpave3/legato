@@ -10,6 +10,8 @@
 }
 :root[data-theme]:not([data-theme="legato"]) ::selection {
   background: var(--theme-selection);
+}
+:root[data-theme="dracula"] ::selection {
   color: var(--theme-text);
 }
 :root[data-theme]:not([data-theme="legato"]) :focus-visible {

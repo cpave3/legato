@@ -14,7 +14,7 @@ function scan(dir) {
     const path = `${dir}/${entry.name}`
     if (entry.isDirectory()) { if (!entry.name.includes("test")) scan(path) }
     else if (/\.(tsx?|css)$/.test(path) && !path.includes("theme-utilities.css")) {
-      for (const match of readFileSync(path, "utf8").matchAll(/(?<![\w-])(?:(?:hover|focus-visible|active):)?(?:text|bg|border|ring|accent|decoration|fill|stroke)-(?:red|rose|green|emerald|amber|yellow|orange|blue|cyan|teal|sky|purple|violet|indigo|pink|fuchsia)-\d+(?:\/(?:\d+|\[[\d.]+\]))?/g)) used.add(match[0])
+      for (const match of readFileSync(path, "utf8").matchAll(/(?<![\w-])(?:(?:hover|focus-visible|active):)?(?:text|bg|border|ring|accent|decoration|fill|stroke)-(?:zinc|gray|slate|neutral|red|rose|green|emerald|amber|yellow|orange|blue|cyan|teal|sky|purple|violet|indigo|pink|fuchsia)-\d+(?:\/(?:\d+|\[[\d.]+\]))?/g)) used.add(match[0])
     }
   }
 }
@@ -26,17 +26,25 @@ function rule(classes, declarations) {
     const selected = classes.filter(name => used.has((variant ? variant + ":" : "") + name))
     if (!selected.length) continue
     const selectors = selected.map(name => root + "." + (variant ? variant + "\\:" : "") + name.replaceAll("/", "\\/").replaceAll("[", "\\[").replaceAll("]", "\\]").replaceAll(".", "\\.") + (variant ? ":" + variant : ""))
-    css += selectors.join(",\n") + " { " + declarations + " }\n"
+    css += selectors.join(",\n") + " { " + (typeof declarations === "function" ? declarations(variant) : declarations) + " }\n"
   }
 }
 for (const [role, colors] of Object.entries(groups)) {
   rule(colors.flatMap(color => shades.map(n => `text-${color}-${n}`)), `color: var(--theme-${role});`)
   rule([...used].map(name => name.replace(/^(hover|focus-visible|active):/, "")).filter(name => colors.some(color => name.startsWith(`bg-${color}-`)) && /-(800|900|950)/.test(name)), "background-color: var(--theme-surface);")
-  rule(colors.flatMap(color => [500, 600, 700].map(n => `bg-${color}-${n}`)), "background-color: var(--theme-focus); color: var(--theme-canvas);")
+  const fill = ["error", "success", "warning"].includes(role) ? role : "focus"
+  rule(colors.flatMap(color => [500, 600, 700].map(n => `bg-${color}-${n}`)), `background-color: var(--theme-${fill}); color: var(--theme-canvas);`)
   rule(colors.flatMap(color => shades.map(n => `border-${color}-${n}`)), "border-color: var(--theme-border);")
   for (const [utility, property] of [["ring", "--tw-ring-color"], ["accent", "accent-color"], ["decoration", "text-decoration-color"], ["fill", "fill"], ["stroke", "stroke"]]) {
     rule(colors.flatMap(color => shades.map(n => `${utility}-${color}-${n}`)), `${property}: var(--theme-${utility === "ring" || utility === "accent" ? "focus" : role});`)
   }
+}
+for (const scale of ["zinc", "gray", "slate", "neutral"]) {
+  const backgrounds = [...new Set([...used].map(name => name.replace(/^(hover|focus-visible|active):/, "")).filter(name => name.startsWith(`bg-${scale}-`)))]
+  for (const canvas of [true, false]) rule(backgrounds.filter(name => name.includes("-950") === canvas), variant =>
+    `background-color: var(--theme-${variant ? "selection" : canvas ? "canvas" : "surface"});`)
+  rule(shades.map(n => `border-${scale}-${n}`), "border-color: var(--theme-border);")
+  rule([400, 500, 600, 700, 800, 900, 950].map(n => `text-${scale}-${n}`), "color: var(--theme-muted);")
 }
 const path = "web/src/theme-utilities.css"
 if (process.argv.includes("--check")) {

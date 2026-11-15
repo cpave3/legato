@@ -192,7 +192,7 @@ export function LiveTerminal({ agentId }: LiveTerminalProps) {
               <button
                 type="button"
                 onClick={() => retryNow.current()}
-                className="h-[26px] rounded-md border border-lw-line-strong bg-lw-raised px-2.5 text-xs text-lw-text hover:border-[#4a4955]"
+                className="h-[26px] rounded-md border border-lw-line-strong bg-lw-raised px-2.5 text-xs text-lw-text hover:border-[var(--theme-border,#4a4955)]"
               >
                 Retry now
               </button>

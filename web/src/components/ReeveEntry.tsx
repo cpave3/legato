@@ -85,7 +85,7 @@ export function ReeveStatus({ baseUrl }: { baseUrl: string }) {
   if (!overview.data) return null
   return (
     <span data-testid="reeve-status" className="flex min-w-0 items-center gap-1.5 truncate">
-      <span className="rounded bg-[#8b5cf6]/20 px-1.5 text-[var(--theme-keyword,#c4b5fd)]">{reeve.label}</span>
+      <span className="rounded bg-[var(--theme-selection,rgba(139,92,246,0.2))] px-1.5 text-[var(--theme-keyword,#c4b5fd)]">{reeve.label}</span>
       <span>sandboxed</span>
       <span aria-hidden="true" className="text-lw-faint">·</span>
       <span className="truncate">{overview.data.instance} ({overview.data.role})</span>

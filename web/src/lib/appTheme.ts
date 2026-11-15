@@ -56,7 +56,8 @@ export function applyAppTheme(): void {
 export async function setAppTheme(id: AppThemeId): Promise<void> {
   const shell = (window as { legatoShell?: { theme?: number; key?: string } }).legatoShell
   const bridge = window.ReactNativeWebView
-  if (shell?.theme === 1 && shell.key && bridge?.postMessage) {
+  if (shell?.theme === 1) {
+    if (!shell.key || !bridge?.postMessage) throw new Error("This app cannot save a theme from the page. Use Appearance in the app's settings.")
     await new Promise<void>((resolve, reject) => {
       const finish = (error?: string) => {
         clearTimeout(timer)
