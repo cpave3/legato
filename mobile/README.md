@@ -174,6 +174,71 @@ editing or removing this one, closes it.
 The WebView's engine is loaded while the server list is on screen, so the first
 server opens without that wait.
 
+## Appearance
+
+On the server list, **Appearance › Theme** selects **Legato**, **Dracula**,
+**Ocular Light**, or **Ocular Dark**. The choice applies to the native screens,
+system bars and the open server page. It is kept across app restarts, for all
+saved servers. Legato remains the existing dark default; this does not add or
+change an Android system-theme mode.
+
+Gradle packages the repository's `themes/palettes.json` directly as an Android
+asset and JVM test resource. Alternate palettes are not copied into Kotlin;
+native roles use the same readability derivation as `themes/render.ts`: muted
+and comment fall back to text below 4.5:1 against canvas; border falls back to
+focus below 3:1 against selection. Ocular's exact tokens stay unchanged. The installed app needs no
+repository files or palette download. The launch splash keeps its existing
+Legato background; the saved theme takes effect when the activity starts.
+
+Depth is separate from those readable tokens: `AppTheme.materials` resolves
+the canonical light/dark `materials.colors` recipes against the readable
+tokens or literal hex colors, blending encoded sRGB bytes and rounding each
+channel with `Math.round`. Native chrome uses rail, grouped content uses
+panel, menus and sheets use raised, and decorative lines use divider. Error
+containers use errorSurface; the HTTPS badge uses successSurface. Reading
+ground and page backgrounds stay canvas. Required input/control boundaries
+keep the readable border (`Lw.lineStrong`), not the decorative divider.
+Material3 containers map lowest to ground, low to rail, regular to panel,
+and high/highest to raised. Android keeps native Material3 elevation rather
+than copying web shadow recipes. Legato's existing default stays unchanged.
+`AppThemeTest` selects each alternate theme through the real catalog/settings
+and checks distinct layers and shared-recipe parity.
+
+Native text uses a separate `AppTheme.inks` copy of the readable tokens.
+For each `material_ink_contract.roles` entry, it starts from the original
+canonical ink and takes the first bytewise blend
+toward text, in `blend_step` increments, that meets `minimum_contrast` (4.5:1)
+on canvas, selection and every material color except divider. This matches
+`themeMaterial().inks`; material colors themselves do not change. Focus,
+boundaries and backgrounds keep their readable values. Canonical/readable
+`tokens`, terminal colors, body foreground and reading/page canvas stay unchanged.
+The catalog/settings tests check semantic error/link/success/warning/keyword
+contrast on these backgrounds and preserve the source tokens and page canvas.
+
+The app sets `localStorage['legato:app-theme']` before each page loads, with
+the stable ID `legato`, `dracula`, `ocular-light`, or `ocular-dark`. A native
+change updates that key and dispatches `legato:theme-changed` immediately;
+future loads and renderer recovery use the latest choice too. Servers with
+the app-theme web support apply it to the page.
+
+Changing Theme in web Settings uses an explicit request, not an event listener:
+`window.legatoShell.theme === 1` advertises support, and the page posts
+`{legatoShell: "theme", type: "theme", key, id: "ocular-light"}` through
+`ReactNativeWebView.postMessage`. The origin-restricted, main-frame bridge
+and the page's session key protect the request. Only the four stable IDs are
+accepted; an invalid keyed ID receives an error, never success.
+
+Both pickers use the same serialized, off-main-thread persistence path. The
+app checks SharedPreferences `commit()` before changing its native appearance
+or delivering the storage key and `legato:theme-changed` event. The requester
+then receives `legato:shell-theme` with detail `{id}` on success, or
+`{id, error: string}` on failure. Failed saves leave the applied theme unchanged
+and surface an error in the native server list as well. Repeated selections
+also check persistence. All theme scripts check the server origin and top frame;
+there is no event-to-native listener to echo native updates back to the app.
+On WebViews without the message-listener feature, the native picker still
+controls the page but web-to-native synchronization is unavailable.
+
 ## Returning from the background
 
 Android reclaims the memory of a WebView's page while the app is in the

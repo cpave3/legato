@@ -17,7 +17,7 @@ export function WorkingStrip({ elapsed, step, onInterrupt }: {
   return (
     <div role="status" aria-label="Agent working" className="flex min-w-0 items-center gap-2 border-b border-lw-line py-1.5 pl-3.5 pr-2 text-xs">
       <span aria-hidden="true" className="text-lw-live">●</span>
-      <span className="shrink-0 text-[#b4b3bd]">Working{elapsed && ` ${elapsed}`}</span>
+      <span className="shrink-0 text-[var(--theme-muted,#b4b3bd)]">Working{elapsed && ` ${elapsed}`}</span>
       <span className="min-w-0 flex-1 truncate font-lw-mono text-lw-faint">{step}</span>
       <button
         type="button"
@@ -28,7 +28,7 @@ export function WorkingStrip({ elapsed, step, onInterrupt }: {
       >
         <Square size={9} fill="currentColor" aria-hidden="true" />
         Interrupt
-        <span aria-hidden="true" className="hidden text-[#8a5a5e] sm:inline">esc</span>
+        <span aria-hidden="true" className="hidden text-[var(--theme-error,#8a5a5e)] sm:inline">esc</span>
       </button>
     </div>
   )
@@ -88,9 +88,9 @@ export function QueuedList({ entries }: { entries: QueuedEntry[] }) {
 // is nearly full, so the person knows before the agent stops or forgets.
 export function ContextNotice({ used, window }: { used: string; window: string }) {
   return (
-    <div role="status" aria-label="Context nearly full" className="flex min-w-0 items-center gap-2 rounded-t-[10px] border-b border-[#3d2a20] bg-[#1f1814] py-1.5 pl-3.5 pr-2 text-xs">
+    <div role="status" aria-label="Context nearly full" className="flex min-w-0 items-center gap-2 rounded-t-[10px] border-b border-[var(--theme-border,#3d2a20)] bg-[var(--theme-surface,#1f1814)] py-1.5 pl-3.5 pr-2 text-xs">
       <span aria-hidden="true" className="text-lw-danger">●</span>
-      <span className="min-w-0 flex-1 text-[#e6c8b8]">Context nearly full: {used} of {window} used.</span>
+      <span className="min-w-0 flex-1 text-[var(--theme-warning,#e6c8b8)]">Context nearly full: {used} of {window} used.</span>
     </div>
   )
 }
@@ -178,11 +178,11 @@ export function SendButton({ label, queue, disabled, onClick }: { label: string;
       aria-label={label}
       className={cn(
         "flex h-8 shrink-0 items-center gap-1.5 rounded-lg px-3.5 text-[13px] font-medium disabled:opacity-50 max-sm:size-11 max-sm:justify-center max-sm:rounded-full max-sm:px-0",
-        queue ? "border border-lw-accent-ring bg-lw-accent-soft text-lw-accent-text" : "bg-lw-accent text-white hover:brightness-110",
+        queue ? "border border-lw-accent-ring bg-lw-accent-soft text-lw-accent-text" : "bg-lw-accent text-[var(--theme-canvas,#fff)] hover:brightness-110",
       )}
     >
       <span className="max-sm:hidden">{label}</span>
-      <span aria-hidden="true" className={cn("max-sm:hidden", queue ? "text-[#8a82c8]" : "text-[#cfc8ff]")}>↵</span>
+      <span aria-hidden="true" className={cn("max-sm:hidden", queue ? "text-[var(--theme-muted,#8a82c8)]" : "text-[var(--theme-canvas,#cfc8ff)]")}>↵</span>
       <span aria-hidden="true" className="text-lg leading-none sm:hidden">↑</span>
     </button>
   )

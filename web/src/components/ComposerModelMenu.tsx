@@ -71,7 +71,7 @@ export function ComposerModelMenu({ models, model, window, effort, efforts, onMo
         aria-expanded={view !== "closed"}
         onClick={() => setView((current) => current === "closed" ? "menu" : "closed")}
         className={cn(
-          "flex h-7 min-w-0 max-w-full items-center gap-1 overflow-hidden whitespace-nowrap rounded-md px-2 text-xs text-[#b4b3bd] transition-colors hover:bg-lw-raised hover:text-lw-text max-sm:h-9",
+          "flex h-7 min-w-0 max-w-full items-center gap-1 overflow-hidden whitespace-nowrap rounded-md px-2 text-xs text-[var(--theme-muted,#b4b3bd)] transition-colors hover:bg-lw-raised hover:text-lw-text max-sm:h-9",
           view !== "closed" && "bg-lw-raised text-lw-text",
         )}
       >
@@ -92,7 +92,7 @@ export function ComposerModelMenu({ models, model, window, effort, efforts, onMo
                 role="menuitemradio"
                 aria-checked={entry.ref === model}
                 onClick={() => { setView("closed"); onModel(entry.ref) }}
-                className={cn("flex w-full min-w-0 items-center gap-2 rounded-md px-2 py-1.5 text-left", entry.ref === model ? "bg-lw-selected text-lw-text" : "text-[#b4b3bd] hover:bg-lw-selected")}
+                className={cn("flex w-full min-w-0 items-center gap-2 rounded-md px-2 py-1.5 text-left", entry.ref === model ? "bg-lw-selected text-lw-text" : "text-[var(--theme-muted,#b4b3bd)] hover:bg-lw-selected")}
               >
                 <span className="min-w-0 break-all font-lw-mono">{entry.ref}</span>
                 {entry.isDefault && <span className="shrink-0 rounded bg-lw-accent-soft px-1 text-[10px] text-lw-accent-text">default</span>}

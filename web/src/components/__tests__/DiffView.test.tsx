@@ -100,7 +100,7 @@ describe("DiffView", () => {
 
   it("selects and extends a contiguous line range from the gutter", () => {
     const selections: unknown[] = []
-    const { rerender } = render(<DiffView files={files} onSelectionChange={(selection) => selections.push(selection)} />)
+    const { rerender, container } = render(<DiffView files={files} onSelectionChange={(selection) => selections.push(selection)} />)
 
     fireEvent.click(screen.getByRole("button", { name: "Select old line 1" }))
     expect(selections.at(-1)).toEqual({
@@ -109,6 +109,7 @@ describe("DiffView", () => {
 
     const selection = selections.at(-1) as { file_path: string; hunk_anchor: string; start: number; end: number }
     rerender(<DiffView files={files} selection={selection} onSelectionChange={(next) => selections.push(next)} />)
+    expect(container.querySelector('[data-diff-block="selection"]')?.className).toContain("bg-[var(--theme-selection,")
     fireEvent.click(screen.getByRole("button", { name: "Select new line 1" }))
     expect(selections.at(-1)).toEqual({
       file_path: "src/new.ts", hunk_anchor: "auth-refresh-anchor", start: 0, end: 1,

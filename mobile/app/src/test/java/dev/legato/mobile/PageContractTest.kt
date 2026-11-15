@@ -7,6 +7,64 @@ import org.junit.Test
 
 class PageContractTest {
     @Test
+    fun `theme bootstrap delivery and acknowledgement run only on the server top frame without echo`() {
+        org.junit.Assume.assumeTrue(runCatching { ProcessBuilder("node", "--version").start().waitFor() == 0 }.getOrDefault(false))
+        for (top in listOf(true, false)) for (origin in listOf("https://mac.example", "https://other.example")) {
+            val scripts = listOf(
+                bootstrapScript("https://mac.example:443", "token", "secret") + themeBootstrapScript("https://mac.example", "ocular-light"),
+                themeScript("https://mac.example", "dracula") + themeResultScript("https://mac.example", "dracula", null),
+                themeResultScript("https://mac.example", "ocular-light", "Disk \"full\" </script>"),
+            )
+            for ((index, script) in scripts.withIndex()) {
+                val program = """
+                    const calls = [];
+                    const location = {origin: '$origin'};
+                    const window = {dispatchEvent(e) { calls.push([e.type, e.detail]); },
+                        addEventListener() { throw Error('must not install an echo listener'); }};
+                    window.top = ${if (top) "window" else "{}"};
+                    const localStorage = {setItem(k,v) {calls.push([k,v]);}};
+                    class CustomEvent {constructor(type, options) {this.type=type; this.detail=options.detail;}}
+                    $script
+                    console.log(JSON.stringify({calls, theme: window.legatoShell?.theme ?? null}));
+                """.trimIndent()
+                val process = ProcessBuilder("node", "-e", program).redirectErrorStream(true).start()
+                val output = process.inputStream.bufferedReader().readText()
+                assertEquals(output, 0, process.waitFor())
+                val result = org.json.JSONObject(output)
+                val calls = result.getJSONArray("calls")
+                if (!top || origin != "https://mac.example") {
+                    assertEquals(0, calls.length())
+                    assertTrue(result.isNull("theme"))
+                } else when (index) {
+                    0 -> {
+                        assertEquals(1, result.getInt("theme"))
+                        assertEquals("legato:app-theme", calls.getJSONArray(2).getString(0))
+                        assertEquals("ocular-light", calls.getJSONArray(2).getString(1))
+                        assertEquals(3, calls.length())
+                    }
+                    1 -> {
+                        assertEquals("legato:app-theme", calls.getJSONArray(0).getString(0))
+                        assertEquals("dracula", calls.getJSONArray(0).getString(1))
+                        assertEquals("legato:theme-changed", calls.getJSONArray(1).getString(0))
+                        assertEquals("legato:shell-theme", calls.getJSONArray(2).getString(0))
+                        val detail = calls.getJSONArray(2).getJSONObject(1)
+                        assertEquals("dracula", detail.getString("id"))
+                        assertFalse(detail.has("error"))
+                        assertEquals(3, calls.length())
+                    }
+                    2 -> {
+                        assertEquals(1, calls.length())
+                        assertEquals("legato:shell-theme", calls.getJSONArray(0).getString(0))
+                        val detail = calls.getJSONArray(0).getJSONObject(1)
+                        assertEquals("ocular-light", detail.getString("id"))
+                        assertEquals("Disk \"full\" </script>", detail.getString("error"))
+                    }
+                }
+            }
+        }
+    }
+
+    @Test
     fun `signs the page in with the token, escaped`() {
         val script = bootstrapScript("https://mac.example", "a\"b", shellKey = "k1")
         assertTrue(script.contains("legato:token:local"))
@@ -17,8 +75,8 @@ class PageContractTest {
     @Test
     fun `tells only the top frame it can record, with the page's key`() {
         val script = bootstrapScript("https://mac.example", "t", shellKey = "k1")
-        assertTrue(script.contains("window.legatoShell={voice:1,voiceStream:1,approval:1,enroll:1,workers:1,key:\"k1\"}"))
-        assertTrue(script.startsWith("if(window===window.top)"))
+        assertTrue(script.contains("window.legatoShell={voice:1,voiceStream:1,approval:1,enroll:1,workers:1,theme:1,key:\"k1\"}"))
+        assertTrue(script.startsWith("if(window===window.top&&location.origin===" ))
     }
 
     @Test

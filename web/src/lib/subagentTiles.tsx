@@ -54,7 +54,7 @@ function subagentTile(tool: NativeToolItem): DeckTile {
     endedAt: subagent?.endedAt,
     count: tools > 0 ? `${tools} ${tools === 1 ? "tool" : "tools"}` : undefined,
     summary: tool.error || (last ? last.text : status === "spawning" ? "Spawning…" : status === "running" ? "Starting…" : "No live activity captured"),
-    detail: prompt ? <p className="m-0 whitespace-pre-wrap rounded-md border border-lw-line bg-[#121216] px-2.5 py-1.5 text-xs text-lw-text-2">{prompt}</p> : undefined,
+    detail: prompt ? <p className="m-0 whitespace-pre-wrap rounded-md border border-lw-line bg-[var(--theme-canvas,#121216)] px-2.5 py-1.5 text-xs text-lw-text-2">{prompt}</p> : undefined,
     body: tool.error ? <p className="m-0 text-xs text-lw-error">{tool.error}</p> : <SubagentActivity subagent={subagent} />,
   }
 }

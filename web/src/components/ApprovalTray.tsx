@@ -177,7 +177,7 @@ const choiceSize = "flex min-h-12 w-full items-center justify-center rounded-xl 
 function PeerApprovalCard({ approval }: { approval: PeerApproval }) {
   const link = "inline-flex min-h-11 items-center justify-center rounded-lg px-3 text-sm md:min-h-0 md:py-1 md:text-xs"
   return (
-    <article data-testid={`peer-approval-${approval.id}`} className="rounded-lg border border-lw-line border-l-2 border-l-[#8b5cf6] bg-lw-ground p-3">
+    <article data-testid={`peer-approval-${approval.id}`} className="rounded-lg border border-lw-line border-l-2 border-l-[var(--theme-keyword,#8b5cf6)] bg-lw-ground p-3">
       <div className="flex items-center gap-2 text-xs text-lw-text-2">
         <span className="rounded-full border border-lw-line-strong px-2 py-0.5 text-lw-text">{approval.instance}</span>
         <span>Reeve change set</span>
@@ -308,7 +308,7 @@ function ApprovalCard({ approval, focused, onDone }: { approval: Approval; focus
                 <button
                   disabled={busy}
                   onClick={() => { setError(null); setBusy(true); phone.open(approval.id) }}
-                  className={`${choiceSize} gap-2 bg-lw-accent font-semibold text-white hover:brightness-110 disabled:opacity-50`}
+                  className={`${choiceSize} gap-2 bg-lw-accent font-semibold text-[var(--theme-canvas,#fff)] hover:brightness-110 disabled:opacity-50`}
                 >
                   <span aria-hidden>◈</span> Approve and sign
                 </button>
@@ -320,7 +320,7 @@ function ApprovalCard({ approval, focused, onDone }: { approval: Approval; focus
                   aria-label={`Sign with passkey: ${option.label}`}
                   onClick={() => run(() => signWithPasskey(baseUrl, approval.id, passkey, option.id))}
                   className={index === 0
-                    ? `${choiceSize} gap-2 bg-lw-accent font-semibold text-white hover:brightness-110 disabled:opacity-50`
+                    ? `${choiceSize} gap-2 bg-lw-accent font-semibold text-[var(--theme-canvas,#fff)] hover:brightness-110 disabled:opacity-50`
                     : `${choiceSize} gap-2 border border-lw-line-strong font-medium text-lw-text hover:bg-lw-selected disabled:opacity-50`}
                 >
                   <span aria-hidden>◈</span> {option.label}
@@ -338,7 +338,7 @@ function ApprovalCard({ approval, focused, onDone }: { approval: Approval; focus
                   title={option.description}
                   onClick={() => decide({ decision: "allow", option: option.id })}
                   className={index === 0
-                    ? `${choiceSize} bg-lw-accent font-semibold text-white hover:brightness-110 disabled:opacity-50`
+                    ? `${choiceSize} bg-lw-accent font-semibold text-[var(--theme-canvas,#fff)] hover:brightness-110 disabled:opacity-50`
                     : `${choiceSize} border border-lw-line-strong font-medium text-lw-text hover:bg-lw-selected disabled:opacity-50`}
                 >
                   {option.label}

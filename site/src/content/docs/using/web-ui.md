@@ -88,7 +88,7 @@ When voice is enabled, press `v` outside a text field to start dictation in a te
 
 On a computer there is no message box: the terminal is where you type, and the agent's menu is in the header. A phone keeps the message box, with a row of the keys its keyboard lacks: **Esc**, **⇧Tab**, **↑** and **↓**, and **Ctrl**, which sends the next character you type, in the box or the terminal, with Ctrl. When the agent asks something, such as a yes-or-no menu, its answers appear as buttons above the box.
 
-The terminal's colours are set in **Settings › Appearance › Terminal theme**, for this browser: **Legato** (the default, Legato's own colours), **Night** (the same on black), **Solarized Dark** or **Classic**.
+Choose terminal colours in **Settings › Appearance › Terminal theme**: **Follow app**, **Legato**, **Night**, **Solarized Dark**, **Classic**, **Dracula**, **Ocular Light** or **Ocular Dark**. The default follows your app theme; an existing saved terminal choice stays as it was. A change updates open terminals without reconnecting or clearing their screens. Programs that emit their own truecolour backgrounds can override the terminal palette.
 
 While a terminal is open in the web UI, the session has mouse mode on and no tmux status line, which a desktop `tmux attach` sees too. Hold Shift to select text with the mouse there.
 
@@ -155,7 +155,7 @@ Requests from agents that wait for you (permissions, questions, credentials) app
 - **Integrations**: [Argus](/legato/integrations/argus/) and integration tokens.
 - **Handoff**: **Workers**, the Legatos this one hands tasks to, with **Add a worker** (with none paired yet, it explains handing off); and **Main instances**, the Legatos that hand tasks to this one, with **Pair a main instance** and **Unpair**. See [Main and worker instances](/legato/running/instances/) and [Hand off tasks to a worker](/legato/using/handoff/).
 - **Connection**: servers, **Pair a phone**, and the TLS certificate.
-- **Appearance**: the tint, the terminal theme, the glitch effect, and the moving light round a working agent.
+- **Appearance**: the app theme, tint, terminal theme, glitch effect, and moving light round a working agent.
 - **Where a setting comes from.** Settings that can be kept on the server show where their value comes from: **default**, **config.yaml** with a lock (change it in the file), or **set here** with **Reset**, which goes back to the default. One marked **applies at restart** waits for Legato to restart.
 - **Export and import settings** (in Lists): download the settings kept on the server as a file shaped like `config.yaml`, secrets as names; or import such a file, which becomes one change set for you to approve.
 - **Lists**: workspaces, macros, agent tools, credentials and the other lists kept on the server. Entries from `config.yaml` are locked; add, edit or remove the others.
@@ -163,9 +163,13 @@ Requests from agents that wait for you (permissions, questions, credentials) app
 
 A setting kept in this browser only is marked `this browser`.
 
-### Tint
+### App theme and tint
 
-To tell your Legatos apart at a glance, give each a tint in **Settings › Appearance › Tint**: red, orange, yellow, green, teal, blue, purple or pink. The tint is saved on the server, so every browser and phone that uses it shows it: a band across the top of the window, a wash on the rail, and a dot beside the server in the switcher.
+Choose **Legato**, **Dracula**, **Ocular Light** or **Ocular Dark** in **Settings › Appearance › App theme**. Legato keeps the original dark appearance. Changes apply immediately to the page, conversations, diffs and theme-aware artifacts, and stay after reload. In a browser this preference belongs to that browser; in a compatible desktop or Android app, the app saves the choice for its shell and server pages. There is no automatic system-appearance mode.
+
+Terminals follow the app unless you choose a separate terminal theme. Server tints remain independent. Ocular uses the Work Light and Work Dark research candidates; these colours have not been shown to reduce fatigue or treat eye strain. Dracula uses the [Dracula OSS palette](https://github.com/dracula/dracula-theme), with readable text mappings for this application. Named themes distinguish recessed navigation, panels and raised controls, with softer separators and subtle depth; text contrast, focus and terminal colours remain readable.
+
+To tell your Legatos apart at a glance, give each a tint in **Settings › Appearance › Tint**: red, orange, yellow, green, teal, blue, purple or pink. The tint is saved on the server, so every browser and phone that uses it shows it: a band across the top of the window, a wash on the rail, and a dot beside the server in the switcher. A tint takes priority over the app canvas for the browser's address-bar colour.
 
 ### Updates
 

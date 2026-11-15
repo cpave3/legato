@@ -15,6 +15,7 @@ describe("Button", () => {
     const button = screen.getByRole("button", { name: "Delete task" })
     expect(button.getAttribute("type")).toBe("button")
     expect(button.className).toContain("size-11")
+    expect(button.className).toContain("text-[var(--theme-canvas,#fff)]")
     fireEvent.click(button)
     expect(onClick).toHaveBeenCalledOnce()
 
@@ -37,5 +38,6 @@ describe("Button", () => {
     const link = screen.getByRole("link", { name: "View plans" })
     expect(link.getAttribute("href")).toBe("/plans")
     expect(link.className).toContain("min-h-9")
+    expect(link.className).toContain("hover:text-[var(--theme-text,#fff)]")
   })
 })

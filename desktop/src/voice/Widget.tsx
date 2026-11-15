@@ -5,6 +5,8 @@ import { VoiceCapsule, VoiceCard } from "@web-voice/VoiceWidgets"
 import { capped, EVENT_NAMES, initialModel, keyCaps, reduce, surface, type VoiceEvent, type WidgetModel } from "./model"
 import { useWidgetDrag } from "./drag"
 import { Feed } from "./Feed"
+import { initializeTheme } from "../theme"
+import { errorText } from "../api"
 
 // The voice window's page: the capsule at rest, the card in a
 // conversation. Rust tells it what to draw (voice-* events) and does what
@@ -25,6 +27,12 @@ const act = (action: string) => () => { invoke("voice_action", { action }).catch
 
 export function Widget() {
   const [model, setModel] = useState<WidgetModel>(initialModel)
+  const [themeError, setThemeError] = useState("")
+  useEffect(() => {
+    let active = true
+    const initialized = initializeTheme().catch(error => { if (active) setThemeError(errorText(error)) })
+    return () => { active = false; void initialized.then(stop => stop?.()) }
+  }, [])
   const [layout, setLayout] = useState<Layout | null>(null)
   const apply = (event: VoiceEvent) => setModel((m) => reduce(m, event))
 
@@ -125,6 +133,7 @@ export function Widget() {
           </button>
         </div>
       )}
+      {themeError && <p className="voice-ui rounded-xl p-3" style={{ background: "var(--voice-surface)" }} role="alert">Could not load widget theme: {themeError}</p>}
       <Feed />
     </div>
   )

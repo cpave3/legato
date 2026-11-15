@@ -194,7 +194,7 @@ export function QuestionFocus({ approvals, waiting, onLeave, onDone }: Props) {
                       onClick={() => choose(i)}
                       className={`flex w-full items-start gap-3.5 rounded-xl border px-4 py-3.5 text-left transition-colors md:px-[18px] md:py-4 ${chosen ? "border-lw-accent bg-lw-accent-soft" : "border-lw-line-strong bg-lw-surface hover:border-lw-faint"}`}
                     >
-                      <span aria-hidden className={`grid h-[26px] w-[26px] shrink-0 place-items-center rounded-md border font-lw-mono text-[13px] font-semibold ${chosen ? "border-lw-accent bg-lw-accent text-white" : "border-lw-line-strong text-lw-text-2"}`}>
+                      <span aria-hidden className={`grid h-[26px] w-[26px] shrink-0 place-items-center rounded-md border font-lw-mono text-[13px] font-semibold ${chosen ? "border-lw-accent bg-lw-accent text-[var(--theme-canvas,#fff)]" : "border-lw-line-strong text-lw-text-2"}`}>
                         {i < 9 ? i + 1 : ""}
                       </span>
                       <span className="min-w-0 flex-1">
@@ -273,7 +273,7 @@ export function QuestionFocus({ approvals, waiting, onLeave, onDone }: Props) {
             <button
               onClick={next}
               disabled={busy}
-              className="flex min-h-12 flex-[2] items-center justify-center gap-2.5 rounded-xl bg-lw-accent px-5 text-sm font-semibold text-white hover:brightness-110 disabled:opacity-50 md:min-h-11 md:flex-none"
+              className="flex min-h-12 flex-[2] items-center justify-center gap-2.5 rounded-xl bg-lw-accent px-5 text-sm font-semibold text-[var(--theme-canvas,#fff)] hover:brightness-110 disabled:opacity-50 md:min-h-11 md:flex-none"
             >
               {nextLabel}
               <kbd aria-hidden className="hidden rounded bg-white/20 px-1.5 font-lw-mono text-xs md:inline">{screen === "review" ? "⌘↵" : "↵"}</kbd>

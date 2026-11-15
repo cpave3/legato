@@ -1,0 +1,195 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-11-15T04:00:09.668077Z",
+  "title": "Design System: Legato",
+  "extensions": {
+    "colorMeta": {
+      "primary": {
+        "role": "primary",
+        "displayName": "Action accent"
+      },
+      "canvas": {
+        "role": "neutral",
+        "displayName": "Reading canvas"
+      },
+      "panel": {
+        "role": "neutral",
+        "displayName": "Grouped panel"
+      },
+      "raised": {
+        "role": "neutral",
+        "displayName": "Raised control"
+      },
+      "secondary-ink": {
+        "role": "neutral",
+        "displayName": "Secondary ink"
+      }
+    },
+    "typographyMeta": {
+      "page-title": {
+        "displayName": "Page title",
+        "purpose": "Compact operational headings; preserve Board and native variants."
+      },
+      "body": {
+        "displayName": "Operational body",
+        "purpose": "Themed web UI convention; native and legacy stacks remain platform-specific."
+      },
+      "code": {
+        "displayName": "Code and measurement",
+        "purpose": "Code, IDs, durations and measurements—not general task titles."
+      }
+    },
+    "shadows": [
+      {
+        "name": "contact-control",
+        "value": "var(--shadow-lw-control)",
+        "purpose": "Fine top edge and offset contact shadow, derived by the canonical material recipe."
+      },
+      {
+        "name": "grouped-panel",
+        "value": "var(--shadow-lw-panel)",
+        "purpose": "Contact plus restrained ambient falloff for grouped operational content."
+      }
+    ],
+    "motion": [
+      {
+        "name": "control-colour",
+        "value": "150ms",
+        "purpose": "Observed Tailwind colour transition; no decorative entrance choreography."
+      },
+      {
+        "name": "working-agent-trace",
+        "value": "4s linear infinite",
+        "purpose": "Existing border trace for real agent activity; disabled by reduced-motion preference."
+      },
+      {
+        "name": "idle-agent-trace",
+        "value": "10s linear infinite",
+        "purpose": "Existing slower trace variant; do not invent another activity animation."
+      }
+    ],
+    "breakpoints": [
+      {
+        "name": "sm",
+        "value": "640px"
+      },
+      {
+        "name": "md",
+        "value": "768px"
+      },
+      {
+        "name": "xl",
+        "value": "1280px"
+      }
+    ]
+  },
+  "components": [
+    {
+      "name": "Primary action",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "Role-based web preview; use the production Button or host settings/native primitive.",
+      "html": "<button class=\"ds-primary\" type=\"button\">Save</button>",
+      "css": ".ds-primary{font-family:var(--font-lw,system-ui,sans-serif);font-size:0.875rem;line-height:1.25rem;font-weight:500;display:inline-flex;align-items:center;justify-content:center;gap:0.5rem;min-height:44px;padding:0 1rem;border-radius:0.375rem;cursor:pointer;transition:background-color 150ms,color 150ms,border-color 150ms;background:var(--color-lw-accent);color:var(--theme-canvas,white);border:0;box-shadow:var(--shadow-lw-control,none)}.ds-primary:hover:not(:disabled){background:var(--theme-focus,var(--color-lw-accent));}.ds-primary:focus-visible{outline:2px solid var(--theme-focus,var(--color-lw-accent));outline-offset:3px;}.ds-primary:disabled{opacity:0.5;cursor:not-allowed}"
+    },
+    {
+      "name": "Secondary action",
+      "kind": "button",
+      "refersTo": "button-secondary",
+      "description": "Role-based web preview; use the production Button or host settings/native primitive.",
+      "html": "<button class=\"ds-secondary\" type=\"button\">Cancel</button>",
+      "css": ".ds-secondary{font-family:var(--font-lw,system-ui,sans-serif);font-size:0.875rem;line-height:1.25rem;font-weight:500;display:inline-flex;align-items:center;justify-content:center;gap:0.5rem;min-height:44px;padding:0 1rem;border-radius:0.375rem;cursor:pointer;transition:background-color 150ms,color 150ms,border-color 150ms;background:var(--color-lw-raised);color:var(--color-lw-text);border:0;box-shadow:var(--shadow-lw-control,none)}.ds-secondary:hover:not(:disabled){background:var(--color-lw-selected);}.ds-secondary:focus-visible{outline:2px solid var(--theme-focus,var(--color-lw-accent));outline-offset:3px;}.ds-secondary:disabled{opacity:0.5;cursor:not-allowed}"
+    },
+    {
+      "name": "Outline action",
+      "kind": "button",
+      "refersTo": "button-outline",
+      "description": "Role-based web preview; use the production Button or host settings/native primitive.",
+      "html": "<button class=\"ds-outline\" type=\"button\">Add task</button>",
+      "css": ".ds-outline{font-family:var(--font-lw,system-ui,sans-serif);font-size:0.875rem;line-height:1.25rem;font-weight:500;display:inline-flex;align-items:center;justify-content:center;gap:0.5rem;min-height:44px;padding:0 1rem;border-radius:0.375rem;cursor:pointer;transition:background-color 150ms,color 150ms,border-color 150ms;background:transparent;color:var(--color-lw-text-2);border:1px solid var(--color-lw-line-strong);box-shadow:var(--shadow-lw-control,none)}.ds-outline:hover:not(:disabled){background:var(--color-lw-raised);color:var(--color-lw-text);}.ds-outline:focus-visible{outline:2px solid var(--theme-focus,var(--color-lw-accent));outline-offset:3px;}.ds-outline:disabled{opacity:0.5;cursor:not-allowed}"
+    },
+    {
+      "name": "Compact settings field",
+      "kind": "input",
+      "refersTo": "input-compact",
+      "description": "The compact web settings variant, not a universal phone input size.",
+      "html": "<label class=\"ds-field\">Task title<input class=\"ds-input\" placeholder=\"Task title\" /></label>",
+      "css": ".ds-field{font-family:var(--font-lw,system-ui,sans-serif);font-size:0.875rem;line-height:1.25rem;display:inline-flex;flex-direction:column;gap:0.375rem;color:var(--color-lw-text-2)}.ds-input{font:inherit;font-size:0.75rem;height:2rem;padding:0 0.5rem;border-radius:0.375rem;border:1px solid var(--color-lw-line-strong);background:var(--color-lw-raised);color:var(--color-lw-text)}.ds-input::placeholder{color:var(--color-lw-text-2);opacity:1}.ds-input:focus-visible{outline:2px solid var(--theme-focus,var(--color-lw-accent));outline-offset:3px;}.ds-input:disabled{opacity:0.5;cursor:not-allowed}"
+    },
+    {
+      "name": "Current navigation item",
+      "kind": "nav",
+      "refersTo": "navigation-item-active",
+      "description": "A location is selected, not assigned an activity state. The real rail and phone bar retain their own geometry.",
+      "html": "<nav class=\"ds-nav\" aria-label=\"Navigation preview\"><a class=\"ds-nav-item\" href=\"#board\" aria-current=\"page\"><svg aria-hidden=\"true\" width=\"18\" height=\"18\" viewBox=\"0 0 24 24\" fill=\"none\" stroke=\"currentColor\" stroke-width=\"1.5\"><path d=\"M4 4h6v16H4zM14 4h6v10h-6z\"/></svg>Board</a><a class=\"ds-nav-item\" href=\"#agents\">Agents</a></nav>",
+      "css": ".ds-nav{font-family:var(--font-lw,system-ui,sans-serif);font-size:0.875rem;line-height:1.25rem;display:inline-flex;gap:0.25rem;padding:0.5rem;background:var(--color-lw-rail)}.ds-nav-item{display:inline-flex;align-items:center;gap:0.5rem;min-height:44px;padding:0 0.75rem;border-radius:0.5rem;color:var(--color-lw-text-2);text-decoration:none}.ds-nav-item[aria-current=page]{background:var(--color-lw-selected);color:var(--color-lw-text)}.ds-nav-item:hover{background:var(--color-lw-raised);color:var(--color-lw-text)}.ds-nav-item:focus-visible{outline:2px solid var(--theme-focus,var(--color-lw-accent));outline-offset:3px;}"
+    },
+    {
+      "name": "Running state",
+      "kind": "chip",
+      "refersTo": "status-running",
+      "description": "Label, icon and wash carry the same state; colour alone is insufficient.",
+      "html": "<span class=\"ds-state\"><svg aria-hidden=\"true\" width=\"12\" height=\"12\" viewBox=\"0 0 12 12\" fill=\"currentColor\"><circle cx=\"6\" cy=\"6\" r=\"3\"/></svg>Running</span>",
+      "css": ".ds-state{font-family:var(--font-lw,system-ui,sans-serif);font-size:0.875rem;line-height:1.25rem;display:inline-flex;align-items:center;gap:0.375rem;padding:0.125rem 0.5rem;border-radius:0.375rem;font-size:0.75rem;font-weight:500;color:var(--color-lw-live);background:var(--color-lw-live-soft)}"
+    },
+    {
+      "name": "Grouped panel",
+      "kind": "card",
+      "refersTo": "group-panel",
+      "description": "One material groups related content; subordinate rows do not need competing elevation.",
+      "html": "<section class=\"ds-panel\" aria-label=\"Appearance\"><h3>Appearance</h3><p>Colours for this device.</p></section>",
+      "css": ".ds-panel{font-family:var(--font-lw,system-ui,sans-serif);font-size:0.875rem;line-height:1.25rem;padding:1rem;border:1px solid var(--color-lw-line);border-radius:0.75rem;background:var(--color-lw-surface);color:var(--color-lw-text);box-shadow:var(--shadow-lw-panel,none)}.ds-panel h3{margin:0 0 0.25rem;font-size:0.875rem;font-weight:500}.ds-panel p{margin:0;font-size:0.75rem;color:var(--color-lw-text-2)}"
+    },
+    {
+      "name": "Task card",
+      "kind": "card",
+      "refersTo": "task-card",
+      "description": "Compact work item with title and metadata. Production BoardCard owns selection, drag and activity behaviour.",
+      "html": "<article class=\"ds-task\"><div class=\"ds-task-meta\">local · task-id</div><h3>Theme depth and readable states</h3><p>Backlog</p></article>",
+      "css": ".ds-task{font-family:var(--font-lw,system-ui,sans-serif);font-size:0.875rem;line-height:1.25rem;padding:0.625rem 0.75rem;border:1px solid var(--color-lw-line);border-radius:0.5rem;background:var(--color-lw-surface);color:var(--color-lw-text);box-shadow:var(--shadow-lw-panel,none)}.ds-task:hover{border-color:var(--color-lw-line-strong)}.ds-task-meta{font-family:var(--font-lw-mono,ui-monospace,monospace);font-size:11px;color:var(--color-lw-text-2)}.ds-task h3{margin:0.25rem 0;font-size:0.875rem;line-height:19px;font-weight:600}.ds-task p{margin:0;font-size:0.75rem;color:var(--color-lw-text-2)}"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Control Room",
+    "overview": "Legato is clear, operational and state-led. Its interface helps a person scan work, distinguish agent activity from requests that need attention, and act without losing their place. Hierarchy comes from meaningful state, typography and surface roles—not from decoration competing with the work.\n\nThe approved component feel is **tactile and confident**: layered surfaces and subtly raised controls make actions feel tangible, without decorative effects. This is a record of the accepted application system, not a redesign brief for the documentation site, terminal TUI or unrelated packages.",
+    "keyCharacteristics": [
+      "Functional colour roles rather than atmospheric palette names.",
+      "Dense, legible operational content with a clear active location and current state.",
+      "Distinct structural, reading, panel and raised-control planes.",
+      "Shared recipes across web, desktop, Android and theme-aware artifacts, with native conventions retained."
+    ],
+    "rules": [
+      {
+        "name": "The Shared Roles Rule",
+        "body": "New surfaces use the shared roles and recipes. Do not add a screen-specific palette or copy derived RGB values out of a screenshot.",
+        "section": "colors"
+      },
+      {
+        "name": "The Readable State Rule",
+        "body": "Ordinary UI text targets at least 4.5:1; required control and focus boundaries target at least 3:1. Check default, hover, selected, error and focus states. The named-theme ink contract adapts original hues across the material surfaces; it does not change canonical research or terminal ANSI values. Do not assume every legacy/default combination already meets these targets.",
+        "section": "colors"
+      },
+      {
+        "name": "The Tactile Hierarchy Rule",
+        "body": "A control should feel actionable and a panel should feel grouped; neither should compete with the content through ornamental glow, arbitrary gradients or a new motion effect.",
+        "section": "elevation"
+      }
+    ],
+    "dos": [
+      "Do make the current state and the next action easy to scan.",
+      "Do use shared material roles across web and native adapters, with platform-appropriate geometry and elevation.",
+      "Do keep primary content, secondary metadata, selection and focus distinct and readable.",
+      "Do use structural depth to make panels grouped and controls tactile.",
+      "Do verify actual rendered states and small screens; report native and accessibility verification limits honestly.",
+      "Do keep canonical palette data, derived UI ink and terminal ANSI responsibilities separate."
+    ],
+    "donts": [
+      "Don't solve a new screen with another palette or pasted derived colour values.",
+      "Don't flatten rail, canvas, panel and raised control into one paint value.",
+      "Don't use quiet dividers as required control boundaries or colour alone as status.",
+      "Don't manufacture hierarchy with unreadable opacity, decorative glow or motion on every surface.",
+      "Don't turn legacy/platform exceptions into new global rules or silently change saved theme, terminal or motion preferences.",
+      "Don't claim Ocular fatigue superiority, native-device verification or full accessibility conformance from the current evidence."
+    ]
+  }
+}

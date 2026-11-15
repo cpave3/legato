@@ -36,7 +36,7 @@ function Group({ label, children }: { label: string; children: ReactNode }) {
   )
 }
 
-const row = "flex flex-col gap-0.5 border-b border-[#222228] px-3 py-2.5 text-lw-text no-underline last:border-b-0 hover:bg-lw-raised"
+const row = "flex flex-col gap-0.5 border-b border-[var(--theme-border,#222228)] px-3 py-2.5 text-lw-text no-underline last:border-b-0 hover:bg-lw-raised"
 const rowHead = "flex items-center justify-between gap-2 text-xs text-lw-text-2"
 
 // RelatedWorkPanel is the column beside an agent's chat that lists the work
@@ -54,7 +54,7 @@ export function RelatedWorkPanel({ items, card, cardId, onClose, mobile }: Relat
 
   const body = (
     <>
-      <div className="flex shrink-0 items-center justify-between border-b border-[#222228] py-2.5 pl-4 pr-2.5">
+      <div className="flex shrink-0 items-center justify-between border-b border-[var(--theme-border,#222228)] py-2.5 pl-4 pr-2.5">
         <h2 className="m-0 text-[13px] font-semibold">Related work</h2>
         <button type="button" onClick={onClose} aria-label="Close related work" className="flex size-7 items-center justify-center rounded-md text-lw-text-2 hover:bg-lw-raised hover:text-lw-text">
           <X size={16} />
@@ -66,7 +66,7 @@ export function RelatedWorkPanel({ items, card, cardId, onClose, mobile }: Relat
             {inProgress.map((item) => {
               const note = relatedStatusNote(item)
               return (
-                <Link key={`${item.kind}:${item.id}`} to={item.href} className="flex flex-col gap-1.5 rounded-lg border border-[#2d3a33] bg-lw-surface px-3 py-2.5 text-lw-text no-underline hover:bg-lw-raised">
+                <Link key={`${item.kind}:${item.id}`} to={item.href} className="flex flex-col gap-1.5 rounded-lg border border-[var(--theme-border,#2d3a33)] bg-lw-surface px-3 py-2.5 text-lw-text no-underline hover:bg-lw-raised">
                   <span className="flex items-center justify-between gap-2">
                     <span className="min-w-0 truncate font-medium">{item.title}</span>
                     <span className={cn("shrink-0 rounded px-[7px] font-lw-mono text-[11px] uppercase", relatedStatusChip(item.status))}>
@@ -136,7 +136,7 @@ export function RelatedWorkPanel({ items, card, cardId, onClose, mobile }: Relat
   }
 
   return (
-    <aside ref={container} aria-label="Related work" className="flex w-80 shrink-0 flex-col border-l border-[#222228] bg-[#141417] font-lw text-[13px] text-lw-text">
+    <aside ref={container} aria-label="Related work" className="flex w-80 shrink-0 flex-col border-l border-[var(--theme-border,#222228)] bg-[var(--theme-surface,#141417)] font-lw text-[13px] text-lw-text">
       {body}
     </aside>
   )

@@ -42,17 +42,17 @@ const sections: Array<{ section: EnsembleSection; count: (n: number) => string; 
 function stateOf(agent: AgentInfo): { label: string; glyph: string; chip: string; frame: string; ground: string } {
   switch (agent.activity) {
     case "waiting":
-      return { label: "needs you", glyph: "◆", chip: "bg-lw-needs-soft text-lw-needs", frame: "border-[#4a3a1a]", ground: "bg-lw-surface" }
+      return { label: "needs you", glyph: "◆", chip: "bg-lw-needs-soft text-lw-needs", frame: "border-[var(--theme-border,#4a3a1a)]", ground: "bg-lw-surface" }
     case "error":
-      return { label: "error", glyph: "✕", chip: "bg-lw-error-soft text-lw-error", frame: "border-[#4a2a2e]", ground: "bg-lw-surface" }
+      return { label: "error", glyph: "✕", chip: "bg-lw-error-soft text-lw-error", frame: "border-[var(--theme-border,#4a2a2e)]", ground: "bg-lw-surface" }
     case "working":
-      return { label: "running", glyph: "●", chip: "bg-lw-live-soft text-lw-live", frame: "border-[#2d3a33]", ground: "bg-lw-surface" }
+      return { label: "running", glyph: "●", chip: "bg-lw-live-soft text-lw-live", frame: "border-[var(--theme-border,#2d3a33)]", ground: "bg-lw-surface" }
     case "background": {
       const waitsOn = backgroundSummary(agent.background_jobs)
       return { label: waitsOn ? `background · ${waitsOn}` : "background", glyph: "◌", chip: "bg-lw-done-soft text-lw-done", frame: "border-lw-line", ground: "bg-lw-surface" }
     }
     default:
-      return { label: "idle", glyph: "○", chip: "bg-lw-idle-soft text-lw-text-2", frame: "border-lw-line", ground: "bg-[#141417]" }
+      return { label: "idle", glyph: "○", chip: "bg-lw-idle-soft text-lw-text-2", frame: "border-lw-line", ground: "bg-[var(--theme-surface,#141417)]" }
   }
 }
 
@@ -63,7 +63,7 @@ export function AgentEnsemble({ agents, contexts = {}, onOpen, onSpawn, onShowLi
 
   return (
     <section aria-label="Ensemble" className="flex h-full min-h-0 min-w-0 flex-1 flex-col bg-lw-ground font-lw text-[13px] leading-5 text-lw-text">
-      <header className="flex shrink-0 flex-wrap items-center justify-between gap-x-4 gap-y-2 border-b border-[#222228] px-5 py-3.5">
+      <header className="flex shrink-0 flex-wrap items-center justify-between gap-x-4 gap-y-2 border-b border-[var(--theme-border,#222228)] px-5 py-3.5">
         <div className="flex flex-wrap items-center gap-x-3.5 gap-y-1">
           <h1 className="m-0 text-lg font-semibold leading-6">Ensemble</h1>
           <ul aria-label="Agents by state" className="m-0 flex list-none flex-wrap items-center gap-x-3 gap-y-1 p-0">
@@ -82,7 +82,7 @@ export function AgentEnsemble({ agents, contexts = {}, onOpen, onSpawn, onShowLi
             type="button"
             aria-label="Spawn agent"
             onClick={onSpawn}
-            className="h-8 rounded-md bg-lw-accent px-3.5 text-[13px] font-medium text-white hover:brightness-110"
+            className="h-8 rounded-md bg-lw-accent px-3.5 text-[13px] font-medium text-[var(--theme-canvas,#fff)] hover:brightness-110"
           >
             + Spawn agent
           </button>
@@ -142,7 +142,7 @@ function AgentTile({ agent, context, onOpen, onSend }: {
       aria-label={`${agent.task_id}, ${state.label}`}
       className={cn("flex min-h-0 min-w-0 flex-col overflow-hidden rounded-[10px] border", state.frame, state.ground)}
     >
-      <div className="flex flex-col gap-1 border-b border-[#222228] px-3.5 pb-2.5 pt-3">
+      <div className="flex flex-col gap-1 border-b border-[var(--theme-border,#222228)] px-3.5 pb-2.5 pt-3">
         <div className="flex items-center justify-between gap-2">
           <span className={cn("rounded px-2 font-lw-mono text-[11px] uppercase", state.chip)}>
             <span aria-hidden="true">{state.glyph}</span> {state.label}{time && ` ${time}`}
@@ -157,7 +157,7 @@ function AgentTile({ agent, context, onOpen, onSend }: {
           row, taller; the newest is kept in view and the rest cut. */}
       <div data-tile-body className="flex min-h-0 flex-1 flex-col overflow-hidden px-3.5 py-2.5 [contain:size]">{shown}</div>
 
-      <div className="flex flex-col gap-2.5 border-t border-[#222228] px-3.5 py-2.5">
+      <div className="flex flex-col gap-2.5 border-t border-[var(--theme-border,#222228)] px-3.5 py-2.5">
         <div className="flex min-h-3 items-center justify-between gap-2">
           <ActivityBar states={agent.state_timeline} />
           {context && <ContextMeter share={context.share} width="w-[60px]" />}
@@ -204,7 +204,7 @@ function TileComposer({ agent, idle, onOpen, onSend }: {
         type="button"
         aria-label={`Open ${agent.task_id}`}
         onClick={() => onOpen(agent.task_id)}
-        className={cn("h-[30px] shrink-0 rounded-md border border-lw-line-strong bg-lw-raised px-3 text-xs text-lw-text hover:border-[#4a4955]", !onSend && "flex-1")}
+        className={cn("h-[30px] shrink-0 rounded-md border border-lw-line-strong bg-lw-raised px-3 text-xs text-lw-text hover:border-[var(--theme-border,#4a4955)]", !onSend && "flex-1")}
       >
         Open
       </button>
@@ -223,7 +223,7 @@ function LastReply({ text, onRead }: { text: string; onRead: () => void }) {
     <div className="flex min-h-0 flex-1 flex-col gap-2">
       <span className="text-[11px] font-semibold uppercase tracking-[1px] text-lw-faint">Last reply</span>
       <p className="m-0 min-h-0 overflow-hidden whitespace-pre-line text-[13px] leading-5 text-lw-text [display:-webkit-box] [-webkit-box-orient:vertical] [-webkit-line-clamp:9]">{text}</p>
-      <button type="button" onClick={onRead} className="self-start text-xs text-lw-link hover:text-[#c8c0ff]">Read full reply</button>
+      <button type="button" onClick={onRead} className="self-start text-xs text-lw-link hover:text-[var(--theme-link,#c8c0ff)]">Read full reply</button>
     </div>
   )
 }

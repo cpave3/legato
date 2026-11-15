@@ -131,22 +131,22 @@ function Row({ item, server, open, onToggle, onDecided }: { item: WidgetApproval
   const btn = "h-9 rounded-xl px-3 text-[13px] font-semibold disabled:opacity-50"
 
   return (
-    <div className={`rounded-xl ${open ? "bg-[#0D0D12]" : ""}`}>
+    <div className={`rounded-xl ${open ? "bg-[var(--theme-canvas,#0D0D12)]" : ""}`}>
       <button type="button" onClick={onToggle} aria-expanded={open}
-        className="flex w-full items-center gap-2.5 rounded-xl bg-transparent px-2.5 py-2 text-left text-[#E6E5EB] hover:bg-[#15141C]">
-        <span aria-hidden="true" className={a.signed ? "text-[#6D5EF6]" : "text-[#E8B53A]"}>{a.signed ? "◈" : "◆"}</span>
+        className="flex w-full items-center gap-2.5 rounded-xl bg-transparent px-2.5 py-2 text-left text-[var(--voice-text)] hover:bg-[var(--theme-surface,#15141C)]">
+        <span aria-hidden="true" className={a.signed ? "text-[var(--voice-accent)]" : "text-[var(--voice-amber)]"}>{a.signed ? "◈" : "◆"}</span>
         <span className="flex min-w-0 flex-1 flex-col">
-          <span className="truncate text-[13px] leading-snug"><span className="text-[#9A99A5]">{who}:</span> <span>{what}</span></span>
-          <span className="voice-mono truncate text-[11px] text-[#6E6D79]">approval{meta && ` · ${meta}`}</span>
+          <span className="truncate text-[13px] leading-snug"><span className="text-[var(--voice-dim)]">{who}:</span> <span>{what}</span></span>
+          <span className="voice-mono truncate text-[11px] text-[var(--voice-faint)]">approval{meta && ` · ${meta}`}</span>
         </span>
         {phase.kind === "done"
-          ? <span className="voice-mono shrink-0 text-[11px] text-[#3ECF8E]">{phase.said}</span>
-          : <span aria-hidden="true" className="voice-mono shrink-0 text-[11px] text-[#6E6D79]">{open ? "▴" : "▾"}</span>}
+          ? <span className="voice-mono shrink-0 text-[11px] text-[var(--theme-success,#3ECF8E)]">{phase.said}</span>
+          : <span aria-hidden="true" className="voice-mono shrink-0 text-[11px] text-[var(--voice-faint)]">{open ? "▴" : "▾"}</span>}
       </button>
       {open && (
         <div className="flex flex-col gap-2.5 px-2.5 pb-3 pt-0.5">
           <Detail item={item} />
-          {phase.kind === "failed" && <p role="alert" className="m-0 text-[12px] text-[#F87171]">{phase.error}</p>}
+          {phase.kind === "failed" && <p role="alert" className="m-0 text-[12px] text-[var(--theme-error,#F87171)]">{phase.error}</p>}
           {phase.kind === "plug-in" && <Waiting label="Plug in your key" />}
           {phase.kind === "touch" && <Waiting label={phase.touchId ? "Use Touch ID" : "Touch your key"} />}
           {phase.kind === "done" ? (
@@ -166,9 +166,9 @@ function Row({ item, server, open, onToggle, onDecided }: { item: WidgetApproval
                 </button>
               ))}
               <button type="button" disabled={busy} onClick={() => decide("deny", null)} className={`voice-secondary ${btn}`}>Deny</button>
-              <button type="button" onClick={openInMain} className={`${btn} bg-transparent text-[#9A99A5] hover:text-[#E6E5EB]`}>Deny with a note…</button>
+              <button type="button" onClick={openInMain} className={`${btn} bg-transparent text-[var(--voice-dim)] hover:text-[var(--voice-text)]`}>Deny with a note…</button>
               {how.kind === "sign" && (
-                <button type="button" onClick={openSheet} className={`${btn} bg-transparent text-[#A99CFF] hover:text-[#C9C0FF]`}>Open the sheet</button>
+                <button type="button" onClick={openSheet} className={`${btn} bg-transparent text-[var(--voice-link)] hover:text-[var(--theme-link,#C9C0FF)]`}>Open the sheet</button>
               )}
             </div>
           )}
@@ -185,9 +185,9 @@ function Detail({ item }: { item: WidgetApproval }) {
     <dl className="m-0 flex flex-col gap-1.5">
       {lines.map((l, i) => (
         <div key={i} className="flex min-w-0 flex-col gap-0.5">
-          <dt className={`voice-mono text-[10px] uppercase tracking-[1.5px] ${l.warn ? "text-[#F87171]" : "text-[#6E6D79]"}`}>{l.label}</dt>
-          <dd className={`m-0 break-words ${l.code ? "voice-mono max-h-24 overflow-y-auto whitespace-pre-wrap rounded-lg bg-[#111114] px-2 py-1 text-[12px]" : "text-[13px] text-[#C9C8D1]"}`}>{l.value}</dd>
-          {l.note && <dd className="m-0 text-[12px] text-[#9A99A5]">{l.note}</dd>}
+          <dt className={`voice-mono text-[10px] uppercase tracking-[1.5px] ${l.warn ? "text-[var(--theme-error,#F87171)]" : "text-[var(--voice-faint)]"}`}>{l.label}</dt>
+          <dd className={`m-0 break-words ${l.code ? "voice-mono max-h-24 overflow-y-auto whitespace-pre-wrap rounded-lg bg-[var(--theme-canvas,#111114)] px-2 py-1 text-[12px]" : "text-[13px] text-[var(--theme-text,#C9C8D1)]"}`}>{l.value}</dd>
+          {l.note && <dd className="m-0 text-[12px] text-[var(--voice-dim)]">{l.note}</dd>}
         </div>
       ))}
     </dl>
@@ -199,7 +199,7 @@ function Waiting({ label }: { label: string }) {
   return (
     <div className="flex items-center gap-2.5">
       <VoiceRing mode="thinking" size={32} label={label} />
-      <span className="text-[13px] text-[#A99CFF]">{label}</span>
+      <span className="text-[13px] text-[var(--voice-link)]">{label}</span>
     </div>
   )
 }

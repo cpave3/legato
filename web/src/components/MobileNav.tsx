@@ -16,7 +16,7 @@ function Badge({ count, tone, className }: { count: number; tone: NavSection["to
 
 const tabClass = (active: boolean) => cn(
   "relative flex min-h-12 flex-col items-center justify-center gap-[3px] text-[10px] font-medium leading-3 no-underline",
-  active ? "text-lw-text" : "text-[#7d7c87]",
+  active ? "text-lw-text" : "text-[var(--theme-muted,#7d7c87)]",
 )
 
 // MobileTabBar is the bar along the foot of a phone: the four sections used
@@ -37,7 +37,7 @@ export function MobileTabBar({ sections, connected, moreOpen, onMore }: {
   const restActive = moreOpen || [...rest, sections.reports, sections.remote, sections.audit, sections.settings].some((section) => sectionActive(section, pathname, search))
 
   return (
-    <nav aria-label="Primary navigation" className="fixed inset-x-0 bottom-0 z-40 grid grid-cols-5 border-t border-[#222228] bg-lw-rail px-1 pb-[env(safe-area-inset-bottom)] pt-1.5 font-lw md:hidden">
+    <nav aria-label="Primary navigation" className="fixed inset-x-0 bottom-0 z-40 grid grid-cols-5 border-t border-[var(--theme-border,#222228)] bg-lw-rail px-1 pb-[env(safe-area-inset-bottom)] pt-1.5 font-lw md:hidden">
       {tabs.map((section) => {
         const active = section.key === "agents" ? pathname.startsWith("/agents") : sectionActive(section, pathname, search)
         return (
@@ -62,7 +62,7 @@ function Group({ label, children }: { label: string; children: ReactNode }) {
   return (
     <div role="group" aria-label={label} className="flex flex-col gap-1.5">
       <span aria-hidden="true" className="pl-1 text-xs font-semibold tracking-[1px] text-lw-text-2 uppercase">{label}</span>
-      <div className="divide-y divide-[#222228] rounded-xl border border-lw-line bg-lw-surface">{children}</div>
+      <div className="divide-y divide-[var(--theme-border,#222228)] rounded-xl border border-lw-line bg-lw-surface">{children}</div>
     </div>
   )
 }
@@ -158,7 +158,7 @@ export function MoreSheet({ sections, connected, servers, activeServerName, base
               )}
             </div>
             {switching && (
-              <div className="divide-y divide-[#222228] border-t border-[#222228]">
+              <div className="divide-y divide-[var(--theme-border,#222228)] border-t border-[var(--theme-border,#222228)]">
                 {server("Local", "")}
                 {servers.map((entry) => server(entry.name, entry.url))}
               </div>

@@ -31,7 +31,7 @@ function Property({ label, children }: { label: string; children: ReactNode }) {
   </>
 }
 
-const secondaryButton = "h-8 flex-1 basis-0 truncate rounded-md border border-lw-line-strong bg-lw-raised px-2 text-[13px] text-lw-text hover:border-[#4a4955]"
+const secondaryButton = "h-8 flex-1 basis-0 truncate rounded-md border border-lw-line-strong bg-lw-raised px-2 text-[13px] text-lw-text hover:border-[var(--theme-border,#4a4955)]"
 
 // The selected card beside the board, as the TUI's task panel: where it
 // stands, the start of its description, and what can be done with it.
@@ -41,7 +41,7 @@ function AwayProperties({ card, actions }: { card: BoardCard; actions?: ReactNod
   const away = card.away!
   const look = awayLook(away)
   return (
-    <section aria-label="Away" className="flex flex-col gap-2.5 border-b border-[#222228] px-[18px] py-3.5">
+    <section aria-label="Away" className="flex flex-col gap-2.5 border-b border-[var(--theme-border,#222228)] px-[18px] py-3.5">
       <div className={cn("flex items-center gap-1.5 rounded-md px-2.5 py-1.5 text-xs", look.tint, look.tone)}>
         <span aria-hidden="true">{look.glyph}</span><span className="min-w-0 truncate">{look.label}</span>
       </div>
@@ -79,8 +79,8 @@ export function BoardTaskPanel({ card, column, detail, onClose, onOpenDetails, o
   const prURL = pullRequests[0]?.pr_url || ready?.pr_meta?.pr_url || ""
 
   return (
-    <aside aria-label="Selected task" className="flex w-[360px] shrink-0 flex-col border-l border-[#222228] bg-[#141417] font-lw">
-      <div className="flex flex-col gap-1.5 border-b border-[#222228] px-[18px] py-4">
+    <aside aria-label="Selected task" className="flex w-[360px] shrink-0 flex-col border-l border-[var(--theme-border,#222228)] bg-[var(--theme-surface,#141417)] font-lw">
+      <div className="flex flex-col gap-1.5 border-b border-[var(--theme-border,#222228)] px-[18px] py-4">
         <div className="flex items-center justify-between font-lw-mono text-xs text-lw-faint">
           <span className="truncate">{card.provider || "local"} · {card.id}</span>
           <button type="button" aria-label="Close task panel" onClick={onClose} className="-mr-1.5 flex h-7 w-7 items-center justify-center rounded-md text-lw-text-2 hover:bg-lw-raised hover:text-lw-text"><X size={15} /></button>
@@ -90,7 +90,7 @@ export function BoardTaskPanel({ card, column, detail, onClose, onOpenDetails, o
 
       {card.away && <AwayProperties card={card} actions={awayActions} />}
 
-      <dl className="m-0 grid grid-cols-[96px_minmax(0,1fr)] gap-y-2 border-b border-[#222228] px-[18px] py-3.5">
+      <dl className="m-0 grid grid-cols-[96px_minmax(0,1fr)] gap-y-2 border-b border-[var(--theme-border,#222228)] px-[18px] py-3.5">
         {!card.away && <Property label="Column">{column}</Property>}
         {card.priority && <Property label="Priority"><span className={priorityTone(card.priority)}>{card.priority}</span></Property>}
         {card.issue_type && <Property label="Type">{card.issue_type}</Property>}
@@ -120,7 +120,7 @@ export function BoardTaskPanel({ card, column, detail, onClose, onOpenDetails, o
             : <p className="m-0 italic text-lw-faint">No description</p>}
       </div>
 
-      <div className="flex flex-col gap-2 border-t border-[#222228] px-[18px] py-3.5">
+      <div className="flex flex-col gap-2 border-t border-[var(--theme-border,#222228)] px-[18px] py-3.5">
         {card.away
           ? <p className="m-0 text-xs text-lw-text-2">Changes come from {card.away.worker} when the task comes back. Talk to its agent there.</p>
           : <TaskAgentAction

@@ -1,4 +1,6 @@
-import { useEffect, useId, useRef, useState } from "react"
+import { useEffect, useId, useRef, useState, useSyncExternalStore } from "react"
+
+import { appTheme, subscribeTheme } from "../lib/appTheme"
 
 let wiremarkPromise: Promise<typeof import("@wiremark/core")> | undefined
 
@@ -29,6 +31,7 @@ function namespaceSVG(svg: string, namespace: string) {
 }
 
 export function WiremarkDiagram({ source }: { source: string }) {
+  const theme = useSyncExternalStore(subscribeTheme, () => appTheme().polarity)
   const namespace = `wiremark-${useId().replace(/[^a-zA-Z0-9_-]/g, "")}`
   const containerRef = useRef<HTMLDivElement>(null)
   const [error, setError] = useState<string | null>(null)
@@ -44,7 +47,7 @@ export function WiremarkDiagram({ source }: { source: string }) {
     setExpanded(false)
 
     void loadWiremark()
-      .then(({ render }) => render(source, { theme: "dark", interactive: true }))
+      .then(({ render }) => render(source, { theme: theme as "light" | "dark", interactive: true }))
       .then(({ svg }) => {
         if (current) container.innerHTML = namespaceSVG(svg, namespace)
       })
@@ -55,7 +58,7 @@ export function WiremarkDiagram({ source }: { source: string }) {
     return () => {
       current = false
     }
-  }, [namespace, source])
+  }, [namespace, source, theme])
 
   useEffect(() => {
     if (!expanded) return
@@ -78,11 +81,11 @@ export function WiremarkDiagram({ source }: { source: string }) {
       aria-pressed={expanded}
       aria-hidden={!!error || undefined}
       onClick={() => setExpanded(current => !current)}
-      className={`block max-h-full max-w-full cursor-zoom-in overflow-auto rounded bg-black/60 p-3 text-left ${expanded ? "h-full w-full cursor-zoom-out" : "w-full"} ${error ? "hidden" : ""}`}
+      className={`block max-h-full max-w-full cursor-zoom-in overflow-auto rounded bg-[var(--theme-surface,rgba(0,0,0,0.6))] p-3 text-left ${expanded ? "h-full w-full cursor-zoom-out" : "w-full"} ${error ? "hidden" : ""}`}
     >
       <div ref={containerRef} role="img" aria-label="Wiremark mockup" className={`[&_svg]:mx-auto [&_svg]:h-auto [&_svg]:max-w-none ${expanded ? "min-h-full min-w-full [&_svg]:min-w-full" : "min-w-max"}`} />
     </button>
-    {error && <div role="alert" className="rounded bg-black/60 p-3 text-sm text-amber-200">
+    {error && <div role="alert" className="rounded bg-[var(--theme-surface,rgba(0,0,0,0.6))] p-3 text-sm text-amber-200">
       <p className="mb-1 font-medium">Mockup could not be rendered. Wiremark source:</p>
       <p className="mb-2 text-xs">{error}</p>
       <pre className="overflow-x-auto whitespace-pre font-mono text-xs text-zinc-300"><code>{source}</code></pre>

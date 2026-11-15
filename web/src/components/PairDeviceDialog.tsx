@@ -260,7 +260,7 @@ export function PairDeviceDialog({ baseUrl, purpose = "phone", onClose }: { base
               New phrase
             </button>
           )}
-          <button onClick={close} className="h-11 rounded-md bg-lw-accent px-4 text-sm font-medium text-white hover:opacity-90 sm:h-8 sm:px-3">
+          <button onClick={close} className="h-11 rounded-md bg-lw-accent px-4 text-sm font-medium text-[var(--theme-canvas,#fff)] hover:opacity-90 sm:h-8 sm:px-3">
             Done
           </button>
         </div>

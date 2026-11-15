@@ -99,8 +99,8 @@ sealed interface SheetState {
     data class Failed(override val connection: Connection, override val approvalId: String, val message: String) : SheetState
 }
 
-private val mono = TextStyle(fontFamily = GeistMono, fontSize = 12.sp, color = Lw.text2)
-private val signedGreen = Color(0xFF3ECF8E)
+private val mono: TextStyle @Composable get() = TextStyle(fontFamily = GeistMono, fontSize = 12.sp, color = Lw.text2)
+private val signedGreen: Color @Composable get() = Lw.live
 
 @Composable
 fun ApprovalSheet(activity: MainActivity, state: SheetState) {
@@ -114,7 +114,7 @@ fun ApprovalSheet(activity: MainActivity, state: SheetState) {
         Column(
             Modifier.fillMaxWidth().heightIn(max = 760.dp)
                 .clip(RoundedCornerShape(topStart = 22.dp, topEnd = 22.dp))
-                .background(Brush.verticalGradient(listOf(Color(0xFF15141C), Lw.ground)))
+                .background(Brush.verticalGradient(listOf(Lw.sheetStart, Lw.ground)))
                 .border(BorderStroke(1.dp, Brush.verticalGradient(listOf(Lw.accent.copy(alpha = 0.55f), Lw.line))), RoundedCornerShape(topStart = 22.dp, topEnd = 22.dp))
                 .clickable(remember { MutableInteractionSource() }, null) {}
                 .padding(horizontal = 20.dp, vertical = 18.dp)
@@ -172,7 +172,7 @@ private fun Request(activity: MainActivity, state: SheetState.Ready) {
     }
     Spacer(Modifier.height(16.dp))
     // What is signed, in Legato's words.
-    Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(Color(0xFF0D0D12)).border(1.dp, Lw.line, RoundedCornerShape(12.dp)).padding(14.dp)) {
+    Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(12.dp)).background(Lw.quoteBackground).border(1.dp, Lw.line, RoundedCornerShape(12.dp)).padding(14.dp)) {
         m.credential?.let { ScopeLine("credential", it) }
         if (m.operations.isNotEmpty()) ScopeLine("operation", m.operations.joinToString(", "), Lw.link)
         m.resources.forEach { ScopeLine("resource", it, Lw.text) }
@@ -223,14 +223,14 @@ private fun BigButton(label: String, primary: Boolean, enabled: Boolean = true, 
     val shape = RoundedCornerShape(14.dp)
     val base = Modifier.fillMaxWidth().height(54.dp).clip(shape)
     val styled = when {
-        primary -> base.background(Brush.horizontalGradient(listOf(Lw.accent, Color(0xFF8A6CFF))))
+        primary -> base.background(Brush.horizontalGradient(listOf(Lw.accent, Lw.gradientEnd)))
         danger -> base.border(1.dp, Lw.dangerLine, shape)
         else -> base.border(1.dp, Lw.lineStrong, shape)
     }
     Box(styled.alpha(if (enabled) 1f else 0.5f).clickable(enabled = enabled, onClick = onClick), contentAlignment = Alignment.Center) {
         Row(verticalAlignment = Alignment.CenterVertically) {
-            glyph?.let { Text(it, color = Color.White.copy(alpha = 0.9f), fontSize = 15.sp); Spacer(Modifier.width(10.dp)) }
-            Text(label, color = if (danger) Lw.danger else if (primary) Color.White else Lw.text, fontSize = 16.sp, fontWeight = if (primary) FontWeight.SemiBold else FontWeight.Medium)
+            glyph?.let { Text(it, color = Lw.onAccent.copy(alpha = 0.9f), fontSize = 15.sp); Spacer(Modifier.width(10.dp)) }
+            Text(label, color = if (danger) Lw.danger else if (primary) Lw.onAccent else Lw.text, fontSize = 16.sp, fontWeight = if (primary) FontWeight.SemiBold else FontWeight.Medium)
         }
     }
 }
@@ -252,6 +252,11 @@ private fun hex(bytes: ByteArray, count: Int) = bytes.take(count).joinToString("
 @Composable
 private fun SignedSeal(activity: MainActivity, state: SheetState.Signed) {
     val view = LocalView.current
+    val accent = Lw.accent
+    val line = Lw.line
+    val lineStrong = Lw.lineStrong
+    val gradientEnd = Lw.gradientEnd
+    val green = signedGreen
     val sweep = remember { Animatable(0f) }
     val check = remember { Animatable(0f) }
     var typed by remember { mutableIntStateOf(0) }
@@ -279,7 +284,7 @@ private fun SignedSeal(activity: MainActivity, state: SheetState.Signed) {
             Canvas(Modifier.fillMaxSize()) {
                 val c = center
                 val r = size.minDimension / 2
-                drawCircle(Brush.radialGradient(listOf(Lw.accent.copy(alpha = 0.32f * pulse), Color.Transparent), c, r), r, c)
+                drawCircle(Brush.radialGradient(listOf(accent.copy(alpha = 0.32f * pulse), Color.Transparent), c, r), r, c)
                 // The dial: 60 ticks, lit as the sweep passes them.
                 for (i in 0 until 60) {
                     val lit = i / 60f <= sweep.value
@@ -288,7 +293,7 @@ private fun SignedSeal(activity: MainActivity, state: SheetState.Signed) {
                     val inner = r * (if (long) 0.80f else 0.84f)
                     val outer = r * 0.90f
                     drawLine(
-                        if (lit) lerpColor(Lw.accent, signedGreen, i / 60f) else Lw.line,
+                        if (lit) lerpColor(accent, green, i / 60f) else line,
                         Offset(c.x + inner * cos(a), c.y + inner * sin(a)), Offset(c.x + outer * cos(a), c.y + outer * sin(a)),
                         strokeWidth = if (long) 3f else 2f, cap = StrokeCap.Round,
                     )
@@ -296,7 +301,7 @@ private fun SignedSeal(activity: MainActivity, state: SheetState.Signed) {
                 // The sweep.
                 rotate(-90f, c) {
                     drawArc(
-                        Brush.sweepGradient(listOf(Lw.accent, Color(0xFF8A6CFF), signedGreen, Lw.accent), c),
+                        Brush.sweepGradient(listOf(accent, gradientEnd, green, accent), c),
                         0f, 360f * sweep.value, false,
                         topLeft = Offset(c.x - r * 0.72f, c.y - r * 0.72f), size = androidx.compose.ui.geometry.Size(r * 1.44f, r * 1.44f),
                         style = Stroke(width = 6f, cap = StrokeCap.Round),
@@ -311,8 +316,8 @@ private fun SignedSeal(activity: MainActivity, state: SheetState.Signed) {
                     }
                     close()
                 }
-                drawPath(hexagon, signedGreen.copy(alpha = 0.16f * check.value))
-                drawPath(hexagon, lerpColor(Lw.lineStrong, signedGreen, check.value), style = Stroke(width = 3f))
+                drawPath(hexagon, green.copy(alpha = 0.16f * check.value))
+                drawPath(hexagon, lerpColor(lineStrong, green, check.value), style = Stroke(width = 3f))
             }
             Text("✓", color = signedGreen, fontSize = 44.sp, fontWeight = FontWeight.Bold, modifier = Modifier.scale(check.value).alpha(check.value))
         }
@@ -322,7 +327,7 @@ private fun SignedSeal(activity: MainActivity, state: SheetState.Signed) {
         Text(state.model.title, color = Lw.text, fontSize = 16.sp, fontWeight = FontWeight.Medium, textAlign = TextAlign.Center)
         Spacer(Modifier.height(14.dp))
         // The readout, typed out.
-        Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).background(Color(0xFF0B0B10)).border(1.dp, Lw.line, RoundedCornerShape(10.dp)).padding(12.dp)) {
+        Column(Modifier.fillMaxWidth().clip(RoundedCornerShape(10.dp)).background(Lw.sealBackground).border(1.dp, Lw.line, RoundedCornerShape(10.dp)).padding(12.dp)) {
             var left = typed
             readout.forEach { line ->
                 val shown = line.take(left.coerceAtLeast(0))

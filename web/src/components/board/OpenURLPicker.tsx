@@ -48,7 +48,7 @@ export function OpenURLPicker({ open, providerURL, provider = "", prURL, onSelec
               onClick={() => onSelect(providerURL)}
               className="w-full rounded border border-zinc-700 px-3 py-2 text-left text-xs text-zinc-300 transition-colors hover:bg-zinc-800 hover:text-zinc-100"
             >
-              <kbd className="mr-2 rounded bg-zinc-800 px-1.5 py-0.5 text-[10px] font-bold text-[#AFA9EC]">j</kbd>
+              <kbd className="mr-2 rounded bg-zinc-800 px-1.5 py-0.5 text-[10px] font-bold text-[var(--theme-focus,#AFA9EC)]">j</kbd>
               {provider ? `${providerLabel(provider)} ${providerItem(provider)}` : "Provider URL"}
               <div className="mt-1 truncate text-[10px] text-zinc-600">{providerURL}</div>
             </button>
@@ -58,7 +58,7 @@ export function OpenURLPicker({ open, providerURL, provider = "", prURL, onSelec
               onClick={() => onSelect(prURL)}
               className="w-full rounded border border-zinc-700 px-3 py-2 text-left text-xs text-zinc-300 transition-colors hover:bg-zinc-800 hover:text-zinc-100"
             >
-              <kbd className="mr-2 rounded bg-zinc-800 px-1.5 py-0.5 text-[10px] font-bold text-[#AFA9EC]">g</kbd>
+              <kbd className="mr-2 rounded bg-zinc-800 px-1.5 py-0.5 text-[10px] font-bold text-[var(--theme-focus,#AFA9EC)]">g</kbd>
               GitHub PR
               <div className="mt-1 truncate text-[10px] text-zinc-600">{prURL}</div>
             </button>
