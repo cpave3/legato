@@ -3,11 +3,13 @@
 Status: research and proposed design; not implemented or approved.
 Evidence date: 2026-11-15. Repository baseline: `8e577f8f6051f03aa2a06857dd43a27c405973d9`.
 
+Scenario follow-up: [executed observations and design corrections](leg-199-mcp-scenarios.md). The revised plan makes callback declaration automatic through usable CIMD/DCR. Manual provider registration is an advanced compatibility branch. Canonical-address setup is once per instance, available from phone Settings when no pinned address exists. No feature implementation has started.
+
 ## Recommendation
 
 Legato should act as the OAuth client and MCP broker. The phone is only the operator interface and consent browser. Legato creates each OAuth transaction, receives the callback, exchanges the code, and keeps credentials in its existing host secret store. Agents receive permitted tool definitions and execution-bound broker access, never upstream credentials.
 
-Use an explicit, operator-configured HTTPS callback origin, normally `web.public_url`. Do not infer this origin from `Host`, `Forwarded`, or `X-Forwarded-*`. Start with remote Streamable HTTP MCP servers and local controlled agents. Keep worker forwarding and arbitrary subprocess servers disabled until their separate security work is approved.
+Use a trusted canonical HTTPS callback origin once per instance, normally a pinned `web.public_url`. If none exists, the revised plan adds operator-approved origin setup through Settings, not a required host-file edit. Legato generates each redirect URI and declares it through CIMD or DCR; normal setup has no manual per-MCP redirect field. Do not infer authority from `Host`, `Forwarded`, or `X-Forwarded-*`. Start with remote Streamable HTTP MCP servers and local controlled agents. Keep worker forwarding and arbitrary subprocess servers disabled until their separate security work is approved.
 
 **A phone can complete this flow without copying codes or callback URLs.** The phone browser must reach the configured Legato callback. The provider redirects the browser; it does not deliver the callback through a provider-to-Legato network connection. CIMD has a separate requirement: the provider must fetch a public HTTPS client metadata document.
 
@@ -63,6 +65,7 @@ Do not enable SDK defaults without checking them:
 - `oauthex/auth_meta.go:161` checks for a nonempty PKCE method list, not specifically S256. Enforce S256 at the boundary.
 - DCR registration persistence and no-refresh expiry need explicit tests. Official issues #1416 and #1417 describe v1.8.0 failure paths; they now show closed, but that does not patch the repository's pinned version [S7].
 - The SDK's code fetcher owns verifier state inside an authorization call. It is not by itself a durable cross-process transaction store. Use its discovery/registration primitives behind a service-owned transaction engine, or add a persistence adapter with verified guarantees. Do not keep only a goroutine waiting for consent.
+- The pinned SDK falls back to guessed `/authorize`, `/token` and `/register` endpoints when authorization-server metadata is absent (`auth/authorization_code.go:310-338`). The follow-up scenario reproduces this behavior. Strict discovery preflight must prevent this legacy downgrade; using the SDK alone does not enforce the proposed policy.
 - Negotiate protocol revisions. July 2026 uses stateless discovery and request metadata; 2025 clients use initialization/session behavior. Keep transport lifecycle separate from durable OAuth connection state [S5,S6].
 
 ## Phone → provider → Legato sequence
@@ -249,7 +252,7 @@ A–F total **48 story points**, roughly **18 nominal engineering days** under t
 ## Decisions required before implementation
 
 1. **First release:** recommend remote Streamable HTTP and local controlled agents only; defer subprocesses, relay and cross-instance forwarding.
-2. **Origin contract:** recommend explicit `web.public_url` as the root HTTPS callback origin, with strict OAuth-specific validation. Loopback-only mode is same-machine only. No networking/DNS/proxy setup is implied.
+2. **Origin contract:** recommend a trusted canonical root HTTPS address once per instance, reusing pinned `web.public_url` or adding operator-approved phone Settings setup when absent. Legato automatically declares the callback through usable CIMD/DCR; static-only providers get advanced client setup. Loopback-only mode is same-machine only. No networking/DNS/proxy setup is implied.
 3. **Activation:** recommend authenticated account/resource confirmation after callback, including external-browser and cross-device flows. Current identity is the shared instance operator authority, not separate people.
 4. **Catalog:** recommend explicit operator reload for additions, immediate host denial for revocation. No automatic running-agent restart.
 5. **Secret lifecycle:** recommend versioned sealed records plus single-owner/fenced exchange and refresh. Reuse the credential broker's storage/grant/approval/audit behavior, not raw read/exec.
@@ -269,4 +272,5 @@ Official pages and cached official SDK source were read on 2026-11-15. Current w
 - **S8:** RFC 8252, external browsers and loopback redirects (§7.3, §8): https://www.rfc-editor.org/rfc/rfc8252.html
 - **S9:** RFC 8628, device grant, verification URI and polling (§3–4): https://www.rfc-editor.org/rfc/rfc8628.html
 - **S10:** Official Notion MCP client guide, discovery/registration/callback/token/storage/refresh: https://developers.notion.com/guides/mcp/build-mcp-client
-- **S11:** Official GitHub MCP setup, OAuth App policy restrictions: https://docs.github.com/en/copilot/how-tos/copilot-in-your-ide/customize-copilot/extend-copilot-with-tools-and-context/set-up-the-github-mcp-server
+- **S11:** Official GitHub MCP setup, OAuth App policy restrictions: https://docs.github.com/en/copilot/how-tos/provide-context/use-mcp-in-your-ide/set-up-the-github-mcp-server
+- **S12:** CIMD draft cited by MCP, including exact redirect declaration, metadata fetch failures and provider origin/trust restrictions: https://datatracker.ietf.org/doc/html/draft-ietf-oauth-client-id-metadata-document-00 . This work-in-progress draft is not a guarantee that providers support every permitted configuration.

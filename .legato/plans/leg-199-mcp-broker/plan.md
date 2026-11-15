@@ -4,17 +4,20 @@
 
 Legato will own MCP connections and OAuth credentials. An operator can add a server from a phone, authorize in the provider browser, and return to a callback on the running Legato server. Agents can use only explicitly granted tools through the existing host broker. Agents receive no upstream tokens or per-session login prompts.
 
-**This is a proposal for approval. No feature implementation has started.** The later request, “Let's build it”, starts the build-planning workflow. Implementation still waits for this plan's approval.
+**This is a revised proposal for approval. No feature implementation has started.** Cameron selected authenticated account/resource confirmation on revision 1. That decision is preserved. Overall plan approval still waits.
 
 ## Recommended first release
 
 - Remote Streamable HTTP upstreams and controlled agents on the owning instance.
+- Normal setup asks for the MCP URL, not a manually entered redirect. Legato generates and declares its callback through usable CIMD or DCR. Anonymous upstreams skip OAuth entirely.
 - Operator-only Settings: add, inspect, enable, disable and remove named connections; Connect, confirm account/resource, re-authenticate and disconnect.
 - Existing Claude plugin, Chimera mod and Codex MCP injection, with execution-authenticated host dispatch.
 - Default-deny execution/task/repository/tool grants, host operation approvals and audit attribution.
 - Existing sealed host secret store, not a parallel token vault.
 - Explicit reload for tool additions; immediate denial for removal or revoked permission.
 - No arbitrary subprocess MCPs, hosted callback relay, device grant adapter or cross-instance forwarding in this release.
+
+Scenario results and revisions are in `docs/analysis/leg-199-mcp-scenarios.md`: 11 executed baseline/SDK scenarios with two CIMD branches. Passing characterization tests confirm both working paths and existing failures; they are not acceptance of the unimplemented broker.
 
 The committed research document is `docs/analysis/leg-199-mcp-broker-oauth.md`. It contains the sequence diagram, exact repository evidence, official source links, deployment comparison and detailed acceptance procedure. An interactive architecture/sequence artifact accompanies this proposal in Legato. This plan uses prose rather than embedded diagram fences so validation does not install diagram dependencies.
 
@@ -29,11 +32,21 @@ The committed research document is `docs/analysis/leg-199-mcp-broker-oauth.md`. 
 7. Legato seals pending credentials and redirects to a clean completion page. The original UI or another authenticated device resumes from server status and confirms the account/resource before activation.
 8. The operator grants selected tools separately. Two granted agents can use the connection without upstream credentials or another OAuth flow.
 
-No normal or fallback path asks an operator to copy a callback URL or authorization code into a conversation.
+No normal or fallback path asks an operator to copy a returned code-bearing callback URL or authorization code into Legato or conversation. A static-registration-only provider may require its generated bare redirect URI in the provider console; this is an advanced setup branch, not callback capture.
 
-Use the explicit `web.public_url` as the root HTTPS callback origin. Apply stricter OAuth validation than the current URL setting. Do not derive redirects from request Host or forwarded headers. First version rejects subpath deployment for this flow rather than claiming unsupported prefix behavior. If the URL is absent or cannot support a phone callback, show the missing requirement before authorization. Do not modify network or TLS settings automatically.
+Use a trusted canonical root HTTPS address once per instance, not a redirect setting for each MCP. Reuse a valid pinned `web.public_url` when supplied. If absent, add operator-only Settings to approve/save the instance callback origin without a host-file edit or restart. This is new proposed behavior, not an existing use of the file-only setting. Show any pinned source as read-only. Apply strict OAuth URL validation and never derive authority automatically from Host or forwarded headers. Browser location may be a suggestion for explicit approval, never implicit trust. Do not send operator tokens to an untrusted suggested address. First version rejects subpath deployment. An address change invalidates pending attempts and requires compatible client metadata/registration. Do not modify network or TLS settings automatically.
 
 For LAN/VPN deployments, the provider must permit the exact redirect, and the external phone browser must trust TLS and reach that address. App certificate pinning is not browser trust. CIMD additionally requires the provider to fetch its HTTPS metadata document; private-only callback reachability does not satisfy that separate requirement. Pre-registration/DCR may be alternatives only when the provider supports them. Loopback-only mode is same-machine only, never the phone solution.
+
+## Automatic registration and exceptional setup
+
+The normal form asks for a name/MCP URL and offers Connect. Legato generates the callback from the trusted instance address; no editable redirect field or client-secret form appears on this path.
+
+- Reuse a compatible supplied registration first. Otherwise prefer advertised CIMD with a usable publication origin, then advertised DCR. A private-only metadata origin is not usable CIMD for an Internet-only provider; show the limitation and use supported DCR rather than knowingly failing consent. A nominally public origin can still fail provider fetch/trust policy; explain that failure and offer an explicit supported alternative. Never fall back across issuer, PKCE or security validation failures.
+- For CIMD, generate a public, bounded JSON document at proposed `GET /oauth/mcp/client-metadata/<profile>.json`. Its exact HTTPS URL is `client_id`. Include client name, exact redirect list, grant/response types and public-client auth method `none`, never secrets or transaction/grant data. Prefer same-origin metadata and callbacks. Keep profiles stable/versioned across metadata changes and define bounded cache headers. The provider must fetch and accept the document; a server self-fetch is not proof. No hosted metadata service is included.
+- DCR sends the generated redirect and correct application type automatically. Save/reuse registration per issuer/redirect/client-auth configuration. Handle provider refusal explicitly; do not repeatedly register or change application type to bypass policy.
+- If neither automatic method is usable, show **Advanced: pre-registered OAuth client**. Display the generated bare redirect read-only, provider-console instructions, client ID and sealed client-secret input if required. Do not presume a packaged desktop app registration accepts this server callback. If the provider does not permit registration, mark unsupported.
+- Before consent, identify the owning instance and strategy. A non-secret browser reachability check to the approved address can catch immediate route/TLS problems; it cannot prove provider metadata access or future network availability.
 
 ## Authorization and secret boundaries
 
@@ -63,14 +76,14 @@ Existing Burnlite ticket-source auth is not assumed to authorize broker mutation
 
 Create implementation tickets only after plan approval. Split each Large phase into vertical TDD slices before starting it.
 
-1. **A — callback origin and transaction:** configured origin, durable transaction, authenticated activation, concurrent/restart HTTP acceptance. Large / High uncertainty.
-2. **B — registration and credential lifecycle:** current MCP discovery, registration options, issuer/resource/S256 validation, sealed versioned tokens, refresh/re-auth/disconnect. Depends on A. Large / High.
+1. **A — callback origin and transaction:** pinned-origin reuse or once-per-instance phone Settings onboarding, durable transaction, authenticated activation, concurrent/restart HTTP acceptance. Large / High uncertainty.
+2. **B — registration and credential lifecycle:** strict current MCP discovery with no guessed legacy endpoints, generated CIMD publication and usable-strategy selection, automatic DCR reuse, advanced static-client setup, issuer/resource/S256 validation, sealed versioned tokens, refresh/re-auth/disconnect. Depends on A. Large / High.
 3. **C — broker tracer:** one authorized fake upstream, two granted controlled executions, denial/approval/audit and read-only boundaries. Depends on B. Large / Medium.
 4. **D — upstream security gate:** egress/SSRF at every hop, bounded JSON Schema 2020-12 validation, local-only references, result validation, untrusted instructions and schema-change handling. Depends on B/C. Large / High. Complete before any real upstream is used.
 5. **E — operator Settings:** administration, Connect/confirmation, status/recovery and grant controls; phone/external-browser return and cache exclusions. Depends on A–D. Large / Medium.
 6. **F — adapters and acceptance:** Claude/Chimera/Codex discovery/reload contract, scratch phone/proxy/restart evidence, user/agent docs and regression checks. Depends on C–E. Large / High.
 
-Total: 48 points, roughly 18 nominal engineering days under the repository's estimate guide. This is provisional, not a delivery commitment. Provider registration policy, SDK behavior, cross-process persistence and installed-client compatibility remain estimate risks.
+Total: 48 points, roughly 18 nominal engineering days under the repository's estimate guide. This is provisional, not a delivery commitment. Canonical-address onboarding and CIMD publication are now explicit scope; split and re-estimate A/B before implementation. Provider registration policy, SDK behavior, cross-process persistence and installed-client compatibility remain estimate risks.
 
 Defer worker delegation and subprocess launches to separately approved designs. Existing paired main/worker scopes grant no MCP calls or administration. Secrets and callbacks stay on the owning instance. Worker forwarding would need an explicit delegation capability and routing protocol; current pairing is insufficient.
 
@@ -80,10 +93,16 @@ Follow TDD through public service/HTTP/MCP entry points, one vertical behavior a
 
 Required acceptance outcomes:
 
-- Phone browser reaches the configured server callback, not phone localhost. Server alone exchanges code/verifier. No pasted-code workflow.
+- Automatic DCR/CIMD flow: operator supplies only MCP URL; Legato declares the generated callback without manual redirect definition. Anonymous servers do not start OAuth.
+- Generated CIMD is provider-readable, contains no secrets and matches its exact URL and redirect. Cover unreachable metadata and provider same-origin/domain restrictions. VPN-only callback with supported DCR does not require provider inbound access.
+- Static-only flow: reuse or explicitly supply a registered client, show the bare redirect for provider-console setup, seal secrets, and never request returned callbacks/codes.
+- Missing public_url can be resolved once from operator phone Settings, without editing host config. Pinned addresses cannot be overridden and untrusted headers cannot establish authority.
+- Phone browser reaches the configured server callback, not phone localhost. Server alone exchanges code/verifier. No pasted-code workflow. Inject phone route loss after consent and show recovery without automatic fallback to loopback.
+- Desktop/PWA initiation survives an external browser without Legato login and resumes on foreground. Actual system-browser TLS trust remains an installed-client acceptance requirement.
+- Missing AS metadata fails closed before guessed OAuth endpoints. No legacy SDK downgrade.
 - Original UI and another authenticated device can resume; unauthenticated callbacks cannot activate connections or disclose status.
 - Two granted agents call one connection without tokens/login; ungranted callers, tools, repositories and forged identities are denied and audited.
-- Denial/cancel/expiry/reload/replay/wrong issuer/concurrent attempts/restart are deterministic and cannot replace newer credentials.
+- Denial/cancel/expiry/reload/replay/wrong issuer/concurrent attempts/restart are deterministic. Specifically, an old callback cannot replace a newer activation, a pending callback cannot reactivate after disconnect, and another web process can settle the same durable attempt.
 - Refresh rotation, no-refresh expiry, secret-store failure, upstream outage and schema incompatibility show safe recovery states.
 - Disable/disconnect prevents new dispatch and late activation. Provider revocation status is distinct from local disconnect.
 - Spoofed Host/forwarded headers cannot alter redirects. Private egress, DNS rebinding and credential-forwarding redirects fail policy.
