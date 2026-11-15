@@ -99,6 +99,14 @@ arrives during Chimera's final checkpoint is retried until it can be accepted,
 for at most 30 seconds; a failure remains visible rather than silently waiting
 for another prompt.
 
+### Compaction recovery
+
+When Chimera uses a recovery excerpt instead of a model summary, the panel shows
+**Compaction recovery**, collapsed by default. Open it to read the recovered
+messages, tool calls and file/task context. If Chimera truncated the excerpt,
+the view marks the gap and keeps incomplete records under **Partial record**.
+Use **Download original excerpt** for the complete text that Chimera supplied.
+
 When Chimera asks for a permission or asks a question, Legato raises it as an approval: in the web UI's tray, in [Attention](/legato/using/attention/), in the TUI (press `!`), and on your phone. The first answer, here or in the terminal, settles it. Automatic permission checks (including System One) keep the agent **working**; **waiting** means a permission prompt or question needs your answer. Legato confirms permission prompts from Chimera’s live session, so they can take a moment to appear.
 
 For a question, choose an option or type an answer of your own, then **Send answer**. You can answer from the native panel, the approvals tray or focus mode. **Dismiss** tells Chimera you declined to answer.

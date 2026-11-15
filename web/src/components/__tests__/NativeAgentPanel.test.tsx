@@ -1,6 +1,7 @@
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import subagentFixture from "../../../../contracts/chimera-subagents.json"
+import recoveryFixture from "../../../../contracts/chimera-recovery/fixture.json"
 import { NativeAgentPanel } from "../NativeAgentPanel"
 
 const send = vi.fn()
@@ -32,6 +33,88 @@ describe("NativeAgentPanel", () => {
   afterEach(() => {
     cleanup()
     vi.restoreAllMocks()
+  })
+
+  it("folds a historical Chimera recovery excerpt and expands it as readable records", async () => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => String(input).includes("/snapshot")
+      ? new Response(JSON.stringify({ id: "recovery", status: "idle", messages: [
+          { role: "assistant", content: recoveryFixture.full.summary },
+          { role: "user", content: "Continue with the regression" },
+          { role: "assistant", content: "Running the regression now." },
+        ], toolCalls: [] }), { status: 200 })
+      : new Response("[]", { status: 200 }))
+    render(<NativeAgentPanel agentId="agent-1" agentKind="chimera" />)
+    const toggle = await screen.findByRole("button", { name: "Compaction recovery" })
+    expect(toggle.getAttribute("aria-expanded")).toBe("false")
+    expect(screen.queryByText("Fix the build.", { exact: false })).toBeNull()
+    expect(screen.getByText("Continue with the regression")).not.toBeNull()
+    expect(screen.getByText("Running the regression now.")).not.toBeNull()
+
+    fireEvent.click(toggle)
+    expect(toggle.getAttribute("aria-expanded")).toBe("true")
+    const context = screen.getByRole("region", { name: "Recovery excerpt" })
+    expect(within(context).getByText("Fix the build.", { exact: false }).textContent).toContain("\nKeep the existing theme semantics.")
+    expect(within(context).getByText("I will inspect the failing test.")).not.toBeNull()
+    expect(within(context).getByText("Tool call · read")).not.toBeNull()
+    expect(within(context).queryByText("tool-call")).toBeNull()
+    expect(within(context).getAllByText("src/build.ts", { exact: true })).toHaveLength(2)
+    expect(within(context).getByRole("button", { name: "Download original excerpt" })).not.toBeNull()
+    expect(context.textContent).not.toContain('{"role":')
+    fireEvent.click(toggle)
+    expect(screen.queryByRole("region", { name: "Recovery excerpt" })).toBeNull()
+  })
+
+  it("refreshes on compaction completion, keeps truncated context folded across replay and reconnect, and downloads the exact source", async () => {
+    let compacted = false
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => String(input).includes("/snapshot")
+      ? new Response(JSON.stringify({ id: "recovery", status: "idle", messages: compacted
+          ? [{ role: "assistant", content: [{ type: "text", text: recoveryFixture.truncated.summary }] }]
+          : [{ role: "assistant", content: "Before compaction" }], toolCalls: [] }), { status: 200 })
+      : new Response("[]", { status: 200 }))
+    const blobs: Blob[] = []
+    const createURL = vi.spyOn(URL, "createObjectURL").mockImplementation((blob) => { blobs.push(blob as Blob); return "blob:excerpt" })
+    vi.spyOn(URL, "revokeObjectURL").mockImplementation(() => {})
+    const download = vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(() => {})
+    render(<NativeAgentPanel agentId="agent-1" agentKind="chimera" />)
+    await screen.findByText("Before compaction")
+    compacted = true
+    const finished = { type: "chimera_event", agent_id: "agent-1", content: JSON.stringify({ eventId: "compact-1", type: "compaction_finished", ...recoveryFixture.truncated }) }
+    act(() => websocketHandler?.(finished))
+    const toggle = await screen.findByRole("button", { name: "Compaction recovery" })
+    expect(toggle.getAttribute("aria-expanded")).toBe("false")
+    fireEvent.click(toggle)
+    expect(screen.getByText("Older context was truncated by Chimera.")).not.toBeNull()
+    expect(screen.getByText("I will inspect the failing test.")).not.toBeNull()
+    expect(screen.getByText("The test expects the build to return true.", { exact: false })).not.toBeNull()
+    const partials = screen.getAllByText("Partial record")
+    expect(partials.length).toBeGreaterThan(0)
+    expect(partials.every((summary) => !summary.closest("details")?.open)).toBe(true)
+    fireEvent.click(screen.getByRole("button", { name: "Download original excerpt" }))
+    expect(createURL).toHaveBeenCalledOnce()
+    expect(download).toHaveBeenCalledOnce()
+    expect(await blobs[0].text()).toBe(recoveryFixture.truncated.summary)
+    fireEvent.click(toggle)
+    act(() => { websocketHandler?.(finished); websocketHandler?.({ type: "chimera_sync_required", agent_id: "agent-1" }) })
+    await waitFor(() => expect(screen.getAllByRole("button", { name: "Compaction recovery" })).toHaveLength(1))
+    expect(toggle.getAttribute("aria-expanded")).toBe("false")
+    expect(screen.queryByText("Before compaction")).toBeNull()
+  })
+
+  it.each([
+    { agentKind: "chimera", role: "user", content: recoveryFixture.full.summary },
+    { agentKind: "claude-code", role: "assistant", content: recoveryFixture.full.summary },
+    { agentKind: "codex", role: "assistant", content: recoveryFixture.full.summary },
+    { agentKind: "chimera", role: "assistant", content: "Discussing recovery:\n" + recoveryFixture.full.summary },
+  ])("does not fold ordinary or other-provider messages ($agentKind, $role)", async ({ agentKind, role, content }) => {
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => String(input).includes("/snapshot")
+      ? new Response(JSON.stringify({ id: "ordinary", status: "idle", messages: [
+          { role: "assistant", content: "Earlier reply" }, { role, content },
+        ], toolCalls: [] }), { status: 200 })
+      : new Response("[]", { status: 200 }))
+    render(<NativeAgentPanel agentId="agent-1" agentKind={agentKind} />)
+    await screen.findByText("Earlier reply")
+    expect(screen.queryByRole("button", { name: "Compaction recovery" })).toBeNull()
+    expect(screen.getByText("Recovery excerpt (not a model summary):", { exact: false })).not.toBeNull()
   })
 
   it("fills its host when snapshot history contains only an assistant message", async () => {
