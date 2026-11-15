@@ -36,6 +36,16 @@ class MainActivity : ComponentActivity() {
     // The open server's page, kept while the person looks at the server list.
     private var page: ServerPage? = null
     private var started = false
+    private var openGeneration = 0L
+    private var destroyed = false
+    private val themeHandler = android.os.Handler(Looper.getMainLooper())
+    private var themeConnection: String? = null
+    private val themePoll = object : Runnable {
+        override fun run() {
+            refreshServerTheme()
+            if (themeConnection != null) themeHandler.postDelayed(this, 15_000)
+        }
+    }
 
     private var micAnswer: ((Boolean) -> Unit)? = null
     private val micPermission = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
@@ -71,10 +81,18 @@ class MainActivity : ComponentActivity() {
         super.onCreate(savedInstanceState)
         themeCatalog = ThemeCatalog(assets.open("palettes.json").bufferedReader().use { it.readText() })
         val preferences = getSharedPreferences("legato.appearance", MODE_PRIVATE)
-        themeSettings = ThemeSettings(themeCatalog,
-            { preferences.getString("theme", null) },
-            { preferences.edit().putString("theme", it).commit() })
+        themeSettings = ThemeSettings(themeCatalog, PreferenceAppearanceStore(
+            { preferences.getString(it, null) },
+            { changes ->
+                val editor = preferences.edit()
+                changes.forEach { (key, value) ->
+                    if (value == null) editor.remove(key) else editor.putString(key, value)
+                }
+                editor.commit()
+            }))
         state.theme.value = themeSettings.current
+        state.followServer.value = themeSettings.followServer
+        state.localThemeId.value = themeSettings.local.id
         applySystemBars(themeSettings.current)
         store = connectionStore(this)
         state.connections.value = store.load()
@@ -108,6 +126,9 @@ class MainActivity : ComponentActivity() {
     }
 
     override fun onDestroy() {
+        destroyed = true
+        themeHandler.removeCallbacks(themePoll)
+        themeSettings.activate(null)
         page?.destroy()
         io.shutdown()
         themeIo.shutdown()
@@ -115,30 +136,79 @@ class MainActivity : ComponentActivity() {
     }
 
     fun pageVisibility() {
-        page?.setInFront(started && state.screen.value is Screen.Web)
+        val visible = started && state.screen.value is Screen.Web
+        page?.setInFront(visible)
+        val connection = if (visible) page?.connection?.id else null
+        if (connection != themeConnection) {
+            themeHandler.removeCallbacks(themePoll)
+            themeConnection = connection
+            themeSettings.activate(connection)
+            deliverTheme()
+            if (connection != null) themeHandler.post(themePoll)
+        }
+    }
+
+    private fun refreshServerTheme() {
+        val connection = page?.connection ?: return
+        val ticket = themeSettings.refreshTicket() ?: return
+        io.execute {
+            val result = runCatching { probeServer(connection.baseUrl, connection.caCertificate).themePreference }
+            runOnUiThread {
+                if (destroyed || !themeSettings.isCurrent(ticket)) return@runOnUiThread
+                themeIo.execute {
+                    val applied = runCatching { themeSettings.completeRefresh(ticket, result) }
+                    runOnUiThread apply@{
+                        if (destroyed || !themeSettings.isCurrent(ticket)) return@apply
+                        applied.onSuccess { if (it) deliverTheme() }.onFailure {
+                            state.error.value = it.message ?: it.toString()
+                        }
+                    }
+                }
+            }
+        }
+    }
+
+    private fun deliverTheme() {
+        val appearance = themeSettings.appearance()
+        state.theme.value = appearance.effective
+        state.followServer.value = appearance.followServer
+        state.localThemeId.value = appearance.local.id
+        applySystemBars(appearance.effective)
+        page?.let {
+            val delivered = themeSettings.appearanceFor(it.connection.id)
+            it.setTheme(delivered.effective, delivered.local.id, delivered.followServer)
+        }
     }
 
     // Actions the screens call.
 
     fun currentPage(): ServerPage? = page
 
-    fun selectTheme(id: String, done: (String?) -> Unit = {}) {
+    fun selectTheme(id: String, done: (String?) -> Unit = {}, source: String? = null) {
         themeIo.execute {
             val outcome = runCatching {
-                check(themeSettings.select(id)) { "Invalid theme ID" }
-                themeSettings.current
+                check(if (source == null) themeSettings.select(id) else themeSettings.selectFromPage(source, id)) { "Invalid theme ID" }
             }
             runOnUiThread {
-                outcome.onSuccess { theme ->
-                    state.theme.value = theme
-                    applySystemBars(theme)
-                    page?.setTheme(theme)
+                outcome.onSuccess {
+                    deliverTheme()
                     done(null)
                 }.onFailure { cause ->
                     val error = cause.message ?: cause.toString()
                     state.error.value = error
                     done(error)
                 }
+            }
+        }
+    }
+
+    private fun clearThemeCache(connection: String, done: () -> Unit) {
+        themeIo.execute {
+            val result = runCatching { themeSettings.forget(connection) }
+            runOnUiThread {
+                if (destroyed) return@runOnUiThread
+                result.mapCatching { deliverTheme(); done() }
+                    .onFailure { state.error.value = it.message ?: it.toString() }
             }
         }
     }
@@ -150,6 +220,8 @@ class MainActivity : ComponentActivity() {
     }
 
     fun showServers() {
+        openGeneration++
+        state.opening.value = null
         state.screen.value = Screen.Connections
         discovery.stop()
         pageVisibility()
@@ -197,10 +269,12 @@ class MainActivity : ComponentActivity() {
                 outcome.onSuccess { paired ->
                     val name = paired.name.ifBlank { draft.name }.ifBlank { baseUrl.substringAfter("://") }
                     val saved = store.save(Connection(UUID.randomUUID().toString(), name, baseUrl, Instant.now().toString(), caCertificate = paired.caCertificate), paired.token)
-                    if (page?.connection?.id == saved.id) closePage()
-                    state.connections.value = store.load()
-                    showServers()
-                    open(saved)
+                    clearThemeCache(saved.id) {
+                        if (page?.connection?.id == saved.id) closePage()
+                        state.connections.value = store.load()
+                        showServers()
+                        open(saved)
+                    }
                 }.onFailure { cause ->
                     state.error.value = when (cause) {
                         is PairingFailure -> cause.message.orEmpty()
@@ -240,6 +314,7 @@ class MainActivity : ComponentActivity() {
 
     // Opens a server's page, at path when one is given (an approval).
     fun open(connection: Connection, path: String = "") {
+        val opening = ++openGeneration
         state.error.value = ""
         val cached = page
         // Learning a server's role does not make it another server.
@@ -259,6 +334,7 @@ class MainActivity : ComponentActivity() {
                 token
             }
             runOnUiThread {
+                if (destroyed || opening != openGeneration) return@runOnUiThread
                 state.opening.value = null
                 outcome.onSuccess { token ->
                     state.reachability.value = state.reachability.value + (connection.id to Reachability.ONLINE)
@@ -467,6 +543,8 @@ class MainActivity : ComponentActivity() {
 
     private fun showPage(connection: Connection, token: String, path: String = "") {
         closePage()
+        if (started) themeSettings.activate(connection.id)
+        deliverTheme()
         page = ServerPage(
             this,
             connection,
@@ -477,6 +555,8 @@ class MainActivity : ComponentActivity() {
             pageCallbacks,
             path,
             requireNotNull(state.theme.value),
+            themeSettings.local.id,
+            themeSettings.followServer,
         )
         state.screen.value = Screen.Web(connection)
         pageVisibility()
@@ -487,6 +567,7 @@ class MainActivity : ComponentActivity() {
         answerWorkerConfirm(false)
         page?.destroy()
         page = null
+        pageVisibility()
         state.canGoBack.value = false
     }
 
@@ -515,7 +596,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private val pageCallbacks = object : ServerPage.Callbacks {
-        override fun themeChanged(id: String, done: (String?) -> Unit) = selectTheme(id, done)
+        override fun themeChanged(connection: String, id: String, done: (String?) -> Unit) = selectTheme(id, done, connection)
         override fun servers(): List<Connection> = store.load()
 
         override fun confirmWorker(message: String, answer: (Boolean) -> Unit) {
@@ -597,6 +678,7 @@ class MainActivity : ComponentActivity() {
         state.error.value = ""
         state.draft.value = Draft(connection.name, connection.baseUrl, "", connection.caCertificate)
         state.screen.value = Screen.Edit(connection)
+        pageVisibility()
     }
 
     fun saveDraft(target: Connection?) {
@@ -606,29 +688,35 @@ class MainActivity : ComponentActivity() {
             require(name.isNotEmpty()) { "Give this connection a name" }
             val baseUrl = normalizeServerUrl(draft.url)
             if (target != null) {
-                store.update(target.id, name, baseUrl, draft.token)
-                if (page?.connection?.id == target.id) closePage()
-                state.connections.value = store.load()
-                showServers()
+                clearThemeCache(target.id) {
+                    store.update(target.id, name, baseUrl, draft.token)
+                    if (page?.connection?.id == target.id) closePage()
+                    state.connections.value = store.load()
+                    showServers()
+                }
                 return
             }
             val token = draft.token.trim()
             require(token.isNotEmpty()) { "Token is required" }
             val saved = store.save(Connection(UUID.randomUUID().toString(), name, baseUrl, Instant.now().toString(), caCertificate = draft.caCertificate), token)
-            if (page?.connection?.id == saved.id) closePage()
-            state.connections.value = store.load()
-            showServers()
-            open(saved)
+            clearThemeCache(saved.id) {
+                if (page?.connection?.id == saved.id) closePage()
+                state.connections.value = store.load()
+                showServers()
+                open(saved)
+            }
         } catch (cause: IllegalArgumentException) {
             state.error.value = cause.message ?: cause.toString()
         }
     }
 
     fun remove(connection: Connection) {
-        runCatching { keys.delete(approvalKeyAlias(connection.id)) }
-        store.remove(connection.id)
-        if (page?.connection?.id == connection.id) closePage()
-        state.connections.value = store.load()
+        clearThemeCache(connection.id) {
+            runCatching { keys.delete(approvalKeyAlias(connection.id)) }
+            store.remove(connection.id)
+            if (page?.connection?.id == connection.id) closePage()
+            state.connections.value = store.load()
+        }
     }
 
     // Scans a pairing QR code with the app's own camera (QrScanner), asking
@@ -732,6 +820,8 @@ data class Draft(val name: String = "", val url: String = "", val token: String 
 
 class AppState {
     val theme = mutableStateOf<AppTheme?>(null)
+    val followServer = mutableStateOf(false)
+    val localThemeId = mutableStateOf("legato")
     val screen = mutableStateOf<Screen>(Screen.Connections)
     val connections = mutableStateOf<List<Connection>>(emptyList())
     val reachability = mutableStateOf<Map<String, Reachability>>(emptyMap())

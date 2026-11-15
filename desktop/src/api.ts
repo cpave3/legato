@@ -29,6 +29,7 @@ export type Status = {
   id: string
   online: boolean
   error?: string | null
+  theme_error?: string | null
   version?: string | null
   tint?: string | null
   approvals: Approval[]
@@ -136,7 +137,7 @@ export const api = {
   setImportPreference: (target: ImportTarget) => invoke<void>("set_import_preference", { target }),
   importTicket: (server: string, provider: string, key: string) => invoke<{ id: string; title?: string }>("import_ticket", { server, provider, key }),
   openTaskInPage: (server: string, task: string) => invoke<void>("open_task_in_page", { server, task }),
-  showServer: (id: string) => invoke<void>("show_server", { id }),
+  showServer: (id?: string, load = true) => invoke<void>("show_server", { id: id ?? null, load }),
   pageApprovalDone: (server: string, id: string, outcome: SheetOutcome) => invoke<void>("page_approval_done", { server, detail: { id, ...outcome } }),
   openApprovalInPage: (server: string, approval: string) => invoke<void>("open_approval_in_page", { server, approval }),
   // Whether this computer's web view will load the server's page: on a Mac,

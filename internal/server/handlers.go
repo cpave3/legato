@@ -33,10 +33,19 @@ func frontendMetaHandler() http.HandlerFunc {
 func (s *Server) mobileMetaHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		meta := MobileMetaResponse{Version: version.String(), MobileShellAPI: 1, AuthBootstrap: "local_storage_v1", Tint: s.tint(r.Context())}
+		if s.themes != nil {
+			preference, err := s.themes.Current(r.Context())
+			if err != nil {
+				s.writeError(w, http.StatusServiceUnavailable, "could not read server theme")
+				return
+			}
+			meta.ThemePreference = &preference
+		}
 		if s.pairing != nil {
 			meta.PhrasePairing = 1
 		}
 		s.handoffMeta(&meta)
+		w.Header().Set("Cache-Control", "no-store")
 		w.Header().Set("Content-Type", "application/json")
 		_ = json.NewEncoder(w).Encode(meta)
 	}

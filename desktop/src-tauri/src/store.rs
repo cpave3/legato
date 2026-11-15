@@ -29,6 +29,8 @@ pub struct Server {
     /// The device each key is enrolled as on this server, by key ID.
     #[serde(default)]
     pub devices: BTreeMap<String, String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub theme_preference: Option<crate::theme::Preference>,
 }
 
 /// A key's credential, made once for the app's origin: a security key's,
@@ -59,6 +61,8 @@ impl Key {
 pub struct State {
     #[serde(default, deserialize_with = "crate::theme::saved_theme")]
     pub app_theme: crate::theme::AppTheme,
+    #[serde(default)]
+    pub follow_server_theme: bool,
     #[serde(default)]
     pub servers: Vec<Server>,
     #[serde(default)]

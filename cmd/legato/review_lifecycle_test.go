@@ -487,11 +487,17 @@ func captureStdout(t *testing.T, run func() int) string {
 		t.Fatal(err)
 	}
 	os.Stdout = w
+	var out []byte
+	readDone := make(chan error, 1)
+	go func() {
+		data, err := io.ReadAll(r)
+		out = data
+		readDone <- err
+	}()
 	code := run()
 	w.Close()
 	os.Stdout = old
-	out, err := io.ReadAll(r)
-	if err != nil {
+	if err := <-readDone; err != nil {
 		t.Fatal(err)
 	}
 	r.Close()

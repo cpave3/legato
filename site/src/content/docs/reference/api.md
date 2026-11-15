@@ -304,6 +304,8 @@ A card on the board is a task: its ID is the task's. An agent is addressed by it
 | --- | --- | --- | --- | --- |
 | `GET` | `/api/settings` | read | Read the settings |  |
 | `PUT` | `/api/settings/tint` | change | Set this Legato's tint |  |
+| `GET` | `/api/settings/theme` | read | Read this server's preferred theme |  |
+| `PUT` | `/api/settings/theme` | change | Set this server's preferred theme | `{"id": "ocular-dark-vivid", "expected_revision": 0}` |
 | `GET` | `/api/engrams` | read | List the engrams agents can be started as |  |
 | `GET` | `/api/engram-bindings` | read | List the engrams bound to repositories and folders |  |
 | `DELETE` | `/api/engram-bindings` | change | Unbind an engram from a repository or folder |  |

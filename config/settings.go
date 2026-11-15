@@ -202,6 +202,7 @@ var registry = []Setting{
 	{Key: "manticore.url", Title: "Manticore address", Kind: KindString, Class: ClassChange, Mode: ModeRestart},
 	{Key: "manticore.api_key", Title: "Manticore key", Description: "The name of a secret holding the key.", Kind: KindString, Secret: true, Class: ClassRisky, Mode: ModeRestart},
 	{Key: "integrations.mqtt.enabled", Title: "MQTT publisher", Description: "Publish read-only Home Assistant entities to an MQTT broker.", Kind: KindBool, Class: ClassRisky, Mode: ModeRestart},
+	{Key: "integrations.mqtt.theme_control", Title: "Allow MQTT theme control", Description: "Delegate server theme authority to broker ACL writers of the exact theme/set topic; independent of read-only aggregates. No Legato token is required.", Kind: KindBool, Class: ClassRisky, Mode: ModeRestart},
 	{Key: "integrations.mqtt.broker", Title: "MQTT broker", Description: "mqtt:// or mqtts:// TCP broker address without credentials.", Kind: KindString, Class: ClassRisky, Mode: ModeRestart},
 	{Key: "integrations.mqtt.credential", Title: "MQTT credential", Description: "Name of a host-only mqtt userpass credential; empty selects anonymous access.", Kind: KindString, Class: ClassRisky, Mode: ModeRestart},
 	{Key: "integrations.mqtt.discovery_prefix", Title: "MQTT discovery prefix", Description: "Home Assistant discovery topic root; homeassistant when empty.", Kind: KindString, Class: ClassRisky, Mode: ModeRestart},

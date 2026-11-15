@@ -1,4 +1,5 @@
 import { createContext, useContext, useState, useCallback, useMemo } from "react"
+import { forgetServerTheme } from "../lib/serverTheme"
 
 export interface ServerEntry {
   name: string
@@ -87,6 +88,7 @@ export function useServerProvider() {
     setServersState((prev) => {
       const next = prev.filter((s) => s.url !== url)
       writeServers(next)
+      forgetServerTheme(url)
       return next
     })
     // If removing the active server, revert to origin.

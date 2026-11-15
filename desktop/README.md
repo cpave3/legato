@@ -49,3 +49,31 @@ cp -R src-tauri/target/release/bundle/macos/Legato.app /Applications/
 | `src/` | The shell: title bar, dock, panels, the approval sheet |
 
 `tests/fixtures/pairing-exchange.json` is a copy of the server's recorded exchange: `go test ./internal/engine/pairing` fails when it differs, and `-update` rewrites it. `resources/pairing-words.txt` is the server's word list; a test here checks its digest against the one the Go test holds. `tests/fixtures/touch-id-key.json` is what the app builds for a known Touch ID key: `LEGATO_UPDATE_FIXTURES=1 cargo test --lib` rewrites it, and `go test ./internal/service` enrolls and signs with it.
+
+## Follow server appearance
+
+Servers & keys → Appearance → **App theme** offers **Follow server** as well as
+named themes. Follow server preserves the saved local choice as fallback. The
+picker shows the resolved theme; selecting a named theme exits Follow server.
+
+Native code reads `theme_preference: {id, revision}` from the existing pinned
+`GET /api/meta` poll. Each saved server keeps its own nonsecret snapshot in
+`state.json`. An offline server keeps only its own cache. Missing metadata
+(older servers), no preference (`id: ""`), unknown IDs and no active server use
+the local choice. Removing a server removes its cache. Mode is persisted in
+`follow_server_theme`, separately from local `app_theme`.
+
+The shell and widget resolve from the active server. A retained or newly loaded
+server page resolves from its own server, not the page in front. Native delivery
+writes `legato:theme-mode` (`server` or `local`), `legato:app-theme` (the preserved
+local ID), and `legato:effective-app-theme`, then sends `legato:theme-changed`.
+The keyed, top-frame, origin-guarded bridge advertises `legatoShell.theme = 2`;
+`id: "server"` selects Follow server, and named IDs keep working for v1 callers.
+`legato:shell-theme` replies with the requested `{id, error?}`, including `server`.
+Remote pages have no additional Tauri capability and cannot set server preferences.
+
+Headless checks exercise native polling against a local HTTP fixture, saved-state
+reopen/failures, selection/switch/late-response behavior, and the actual guard and
+delivery scripts in Node. They do not prove native WebKit/WKWebView load timing,
+visible repaint, platform chrome or native picker rendering. No GUI or live
+Legato instance is required by these checks.

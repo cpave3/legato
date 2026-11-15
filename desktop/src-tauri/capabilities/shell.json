@@ -42,6 +42,7 @@
     "allow-restart-app",
     "allow-take-import-requests",
     "allow-app-theme",
+    "allow-app-theme-selection",
     "allow-set-app-theme",
     "allow-import-preference",
     "allow-set-import-preference",

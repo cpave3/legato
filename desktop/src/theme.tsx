@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react"
+import { useEffect, useRef, useState } from "react"
 import { invoke } from "@tauri-apps/api/core"
 import { listen } from "@tauri-apps/api/event"
 import { renderedThemes } from "../../themes/render"
@@ -66,43 +66,55 @@ export async function initializeTheme() {
   return unlisten
 }
 
+type ThemeChoice = AppTheme | "server"
+type Appearance = { id: ThemeChoice, effective: AppTheme }
+
 export function ThemeSection() {
-  const [theme, setTheme] = useState<AppTheme | null>(null)
+  const [appearance, setAppearance] = useState<Appearance | null>(null)
+  const revision = useRef(0)
+  const mounted = useRef(false)
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState("")
   useEffect(() => {
     let active = true
+    mounted.current = true
     let changed = false
-    const unlisten = listen<AppTheme>("app-theme-changed", event => {
+    const unlisten = listen<Appearance>("app-theme-selection-changed", event => {
+      revision.current++
       changed = true
-      if (active) setTheme(event.payload)
+      if (active) setAppearance(event.payload)
     })
-    unlisten.then(() => invoke<AppTheme>("app_theme")).then(saved => {
-      if (active && !changed) setTheme(saved)
+    unlisten.then(() => invoke<Appearance>("app_theme_selection")).then(saved => {
+      if (active && !changed) setAppearance(saved)
     }).catch(e => { if (active) setError(errorText(e)) })
-    return () => { active = false; void unlisten.then(stop => stop()).catch(() => {}) }
+    return () => { active = false; mounted.current = false; void unlisten.then(stop => stop()).catch(() => {}) }
   }, [])
+  const readSaved = async () => {
+    const before = revision.current
+    const saved = await invoke<Appearance>("app_theme_selection")
+    if (mounted.current && revision.current === before) { setAppearance(saved); applyTheme(saved.effective) }
+  }
   return <div className="panel-section">
     <div className="section-head"><h2>Appearance</h2></div>
     <label className="field">App theme
-      <select value={theme ?? "legato"} disabled={theme === null || busy} onChange={async e => {
-        const next = e.target.value as AppTheme
+      <select value={appearance?.id ?? "legato"} disabled={appearance === null || busy} onChange={async e => {
+        const next = e.target.value as ThemeChoice
         setBusy(true); setError("")
         try {
           await invoke("set_app_theme", { theme: next })
-          setTheme(next); applyTheme(next)
+          await readSaved()
         } catch (e) {
           setError(errorText(e))
-          // Delivery can fail after saving; keep the shell on the saved choice.
-          try {
-            const saved = await invoke<AppTheme>("app_theme")
-            setTheme(saved); applyTheme(saved)
-          } catch (readError) { setError(`${errorText(e)}; ${errorText(readError)}`) }
+          // Delivery can fail after saving; reread both mode and effective theme.
+          try { await readSaved() }
+          catch (readError) { setError(`${errorText(e)}; ${errorText(readError)}`) }
         } finally { setBusy(false) }
       }}>
+        <option value="server">Follow server</option>
         {themes.map(t => <option key={t.id} value={t.id}>{t.name}</option>)}
       </select>
     </label>
+    {appearance?.id === "server" && <p role="status">Using {themes.find(t => t.id === appearance.effective)?.name}</p>}
     {error && <p className="error" role="alert">{error}</p>}
   </div>
 }

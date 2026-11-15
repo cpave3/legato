@@ -19,7 +19,8 @@ type MobileMetaResponse struct {
 	PhrasePairing int `json:"phrase_pairing,omitempty"`
 	// Tint is this Legato's colour, so a switcher shows it before it has
 	// a token for the server.
-	Tint string `json:"tint,omitempty"`
+	Tint            string                   `json:"tint,omitempty"`
+	ThemePreference *service.ThemePreference `json:"theme_preference,omitempty"`
 	HandoffMeta
 }
 

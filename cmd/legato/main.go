@@ -907,6 +907,7 @@ func runServeCmd(args []string) int {
 	}
 
 	bus := events.New()
+	defer startServerThemeIPC(bus)()
 	attachmentCache := attachments.NewCache(attachmentRoot(cfg), cfg.Jira.AttachmentMaxSizeBytes)
 	boardSvc := service.NewBoardService(db, bus, attachmentCache)
 	wd, _ := os.Getwd()
@@ -1023,6 +1024,7 @@ func runServeCmd(args []string) int {
 	srv.SetRepositoryPresetService(repoPresets)
 	srv.SetRepositoryGuidanceService(repositoryGuidance(cfg, db))
 	srv.SetTintService(service.NewTintService(service.StringSetting{Settings: settingsFor(db)}))
+	defer wireServerTheme(srv, db, bus)()
 	srv.SetEngramService(engramsFor(db))
 	srv.SetJobCloneService(repos)
 	srv.SetTaskStackService(wireTaskStacks(db, bus, repos))
@@ -1196,6 +1198,7 @@ func runTUI() int {
 	}
 
 	bus := events.New()
+	defer startServerThemeIPC(bus)()
 	attachmentCache := attachments.NewCache(attachmentRoot(cfg), cfg.Jira.AttachmentMaxSizeBytes)
 	boardSvc := service.NewBoardService(db, bus, attachmentCache)
 
@@ -1413,6 +1416,7 @@ func runTUI() int {
 			webSrv.SetRepositoryPresetService(repoPresets)
 			webSrv.SetRepositoryGuidanceService(repositoryGuidance(cfg, db))
 			webSrv.SetTintService(service.NewTintService(service.StringSetting{Settings: settingsFor(db)}))
+			defer wireServerTheme(webSrv, db, bus)()
 			webSrv.SetEngramService(engramsFor(db))
 			webSrv.SetJobCloneService(repos)
 			webSrv.SetTaskStackService(taskStacks)

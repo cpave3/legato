@@ -22,4 +22,20 @@ class ServerProbeTest {
         assertEquals(ServerMeta(Compatibility.LEGACY, null), readMeta(404, ""))
         assertThrows(IllegalStateException::class.java) { readMeta(500, "") }
     }
+    @Test fun `metadata exposes theme snapshot and distinguishes older servers from malformed snapshots`() {
+        assertEquals(ThemePreference("ocular-light", 8), readMeta(200,
+            """{"mobile_shell_api":1,"theme_preference":{"id":"ocular-light","revision":8}}""").themePreference)
+        assertEquals(ThemePreference("", 9), readMeta(200,
+            """{"mobile_shell_api":1,"theme_preference":{"id":"","revision":9}}""").themePreference)
+        assertEquals(ThemePreference("future", 10), readMeta(200,
+            """{"mobile_shell_api":1,"theme_preference":{"id":"future","revision":10}}""").themePreference)
+        assertEquals(null, readMeta(200, """{"mobile_shell_api":1}""").themePreference)
+        for (preference in listOf("null", "{}", "{\"id\":3,\"revision\":1}",
+            "{\"id\":\"legato\",\"revision\":-1}", "{\"id\":\"legato\",\"revision\":1.5}")) {
+            assertThrows(IllegalStateException::class.java) {
+                readMeta(200, """{"mobile_shell_api":1,"theme_preference":$preference}""")
+            }
+        }
+    }
+
 }

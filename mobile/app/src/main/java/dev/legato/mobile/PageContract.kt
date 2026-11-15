@@ -21,22 +21,25 @@ fun bootstrapScript(baseUrl: String, token: String, shellKey: String): String {
     return pageScript(baseUrl,
         "localStorage.setItem(\"legato:token:local\",$value);" +
         "localStorage.setItem(${JSONObject.quote("legato:token:$baseUrl")},$value);" +
-        "window.legatoShell={voice:1,voiceStream:1,approval:1,enroll:1,workers:1,theme:1,key:${JSONObject.quote(shellKey)}};"
+        "window.legatoShell={voice:1,voiceStream:1,approval:1,enroll:1,workers:1,theme:2,key:${JSONObject.quote(shellKey)}};"
         )
 }
 
 private fun pageScript(baseUrl: String, body: String): String =
     "if(window===window.top&&location.origin===${JSONObject.quote(requireNotNull(origin(baseUrl)))}){$body}"
 
-fun themeScript(baseUrl: String, id: String): String {
-    require(validThemeId(id)) { "Invalid theme ID" }
-    return pageScript(baseUrl, "localStorage.setItem('legato:app-theme',${JSONObject.quote(id)});" +
+fun themeScript(baseUrl: String, localId: String, effectiveId: String, followServer: Boolean): String =
+    pageScript(baseUrl, themeStorage(localId, effectiveId, followServer) +
         "window.dispatchEvent(new Event('legato:theme-changed'));")
-}
 
-fun themeBootstrapScript(baseUrl: String, id: String): String {
-    require(validThemeId(id)) { "Invalid theme ID" }
-    return pageScript(baseUrl, "localStorage.setItem('legato:app-theme',${JSONObject.quote(id)});")
+fun themeBootstrapScript(baseUrl: String, localId: String, effectiveId: String, followServer: Boolean): String =
+    pageScript(baseUrl, themeStorage(localId, effectiveId, followServer))
+
+private fun themeStorage(localId: String, effectiveId: String, followServer: Boolean): String {
+    require(validThemeId(localId) && validThemeId(effectiveId)) { "Invalid theme ID" }
+    return "localStorage.setItem('legato:app-theme',${JSONObject.quote(localId)});" +
+        "localStorage.setItem('legato:theme-mode',${JSONObject.quote(if (followServer) "server" else "local")});" +
+        "localStorage.setItem('legato:effective-app-theme',${JSONObject.quote(effectiveId)});"
 }
 
 fun themeResultScript(baseUrl: String, id: String, error: String?): String {

@@ -1,0 +1,66 @@
+panic: test timed out after 10m0s
+	running tests:
+		TestConfigShowJSON (9m12s)
+
+goroutine 4539 [running]:
+testing.(*M).startAlarm.func1()
+	/home/cameron/.local/share/mise/installs/go/1.26.0/src/testing/testing.go:2802 +0x34b
+created by time.goFunc
+	/home/cameron/.local/share/mise/installs/go/1.26.0/src/time/sleep.go:215 +0x2d
+
+goroutine 1 [chan receive, 9 minutes]:
+testing.(*T).Run(0x17ece4452d88, {0x1c9c28b?, 0x17ece487f700?}, 0x267e0e8)
+	/home/cameron/.local/share/mise/installs/go/1.26.0/src/testing/testing.go:2109 +0x4e5
+testing.runTests.func1(0x17ece4452d88)
+	/home/cameron/.local/share/mise/installs/go/1.26.0/src/testing/testing.go:2585 +0x37
+testing.tRunner(0x17ece4452d88, 0x17ece487f828)
+	/home/cameron/.local/share/mise/installs/go/1.26.0/src/testing/testing.go:2036 +0xea
+testing.runTests({0x1cb09b5, 0x18}, {0x1cd44ae, 0x23}, 0x17ece4786360, {0x3fc07e0, 0x102, 0x102}, {0xc2b67edd10dba90e, 0x8bb3fc5ba2, ...})
+	/home/cameron/.local/share/mise/installs/go/1.26.0/src/testing/testing.go:2583 +0x505
+testing.(*M).Run(0x17ece46d39a0)
+	/home/cameron/.local/share/mise/installs/go/1.26.0/src/testing/testing.go:2443 +0x6ac
+github.com/cpave3/legato/internal/testenv.Run(0x17ece487fe98)
+	/var/home/cameron/.local/share/legato/jobs/ex-a8kd43fm/legato/internal/testenv/testenv.go:54 +0x9b2
+github.com/cpave3/legato/cmd/legato.TestMain(0x4017500?)
+	/var/home/cameron/.local/share/legato/jobs/ex-a8kd43fm/legato/cmd/legato/testmain_test.go:11 +0x29
+main.main()
+	_testmain.go:562 +0xa5
+
+goroutine 4491 [IO wait, 9 minutes]:
+internal/poll.runtime_pollWait(0x7feb2ce52e00, 0x77)
+	/home/cameron/.local/share/mise/installs/go/1.26.0/src/runtime/netpoll.go:351 +0x85
+internal/poll.(*pollDesc).wait(0x17ece48fe3c0?, 0x17ece4832000?, 0x1)
+	/home/cameron/.local/share/mise/installs/go/1.26.0/src/internal/poll/fd_poll_runtime.go:84 +0x27
+internal/poll.(*pollDesc).waitWrite(...)
+	/home/cameron/.local/share/mise/installs/go/1.26.0/src/internal/poll/fd_poll_runtime.go:93
+internal/poll.(*FD).Write(0x17ece48fe3c0, {0x17ece4830000, 0x7a5a, 0x8000})
+	/home/cameron/.local/share/mise/installs/go/1.26.0/src/internal/poll/fd_unix.go:390 +0x334
+os.(*File).write(...)
+	/home/cameron/.local/share/mise/installs/go/1.26.0/src/os/file_posix.go:46
+os.(*File).Write(0x17ece4182040, {0x17ece4830000?, 0x7a5a, 0x7feae635b3d8?})
+	/home/cameron/.local/share/mise/installs/go/1.26.0/src/os/file.go:215 +0x4e
+encoding/json.(*Encoder).Encode(0x17ece4a07978, {0x1a5c820, 0x17ece44f7b90})
+	/home/cameron/.local/share/mise/installs/go/1.26.0/src/encoding/json/stream.go:233 +0x1f0
+github.com/cpave3/legato/cmd/legato.writeCommandSuccess({0x1c856d8, 0xb}, {0x1a5c820, 0x17ece44f7b60}, {0x17ece47c9500?, 0x2?}, 0x2?)
+	/var/home/cameron/.local/share/legato/jobs/ex-a8kd43fm/legato/cmd/legato/cli_contract.go:113 +0x275
+github.com/cpave3/legato/cmd/legato.runConfigShowCmd({0x17ece4373b80, 0x1, 0x1})
+	/var/home/cameron/.local/share/legato/jobs/ex-a8kd43fm/legato/cmd/legato/config_cmd.go:46 +0x7f9
+github.com/cpave3/legato/cmd/legato.runCLI({0x17ece4373b60?, 0x17ece4452fc8?, 0x17ece4182038?})
+	/var/home/cameron/.local/share/legato/jobs/ex-a8kd43fm/legato/cmd/legato/main.go:123 +0x6d9
+github.com/cpave3/legato/cmd/legato.TestConfigShowJSON.func1()
+	/var/home/cameron/.local/share/legato/jobs/ex-a8kd43fm/legato/cmd/legato/config_cmd_test.go:57 +0x5f
+github.com/cpave3/legato/cmd/legato.captureStdout(0x17ece4452fc8, 0x267e938)
+	/var/home/cameron/.local/share/legato/jobs/ex-a8kd43fm/legato/cmd/legato/review_lifecycle_test.go:490 +0xb3
+github.com/cpave3/legato/cmd/legato.TestConfigShowJSON(0x17ece4452fc8)
+	/var/home/cameron/.local/share/legato/jobs/ex-a8kd43fm/legato/cmd/legato/config_cmd_test.go:57 +0x3b
+testing.tRunner(0x17ece4452fc8, 0x267e0e8)
+	/home/cameron/.local/share/mise/installs/go/1.26.0/src/testing/testing.go:2036 +0xea
+created by testing.(*T).Run in goroutine 1
+	/home/cameron/.local/share/mise/installs/go/1.26.0/src/testing/testing.go:2101 +0x4c5
+
+goroutine 4642 [select, 9 minutes]:
+database/sql.(*DB).connectionOpener(0x17ece4d16820, {0x26a3820, 0x17ece49e6640})
+	/home/cameron/.local/share/mise/installs/go/1.26.0/src/database/sql/sql.go:1261 +0x89
+created by database/sql.OpenDB in goroutine 4491
+	/home/cameron/.local/share/mise/installs/go/1.26.0/src/database/sql/sql.go:841 +0x130
+FAIL	github.com/cpave3/legato/cmd/legato	600.128s

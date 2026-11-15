@@ -1,0 +1,62 @@
+{
+  "browser": "Chrome/155.0.8059.12",
+  "checks": [
+    {
+      "name": "explicit local choice ignores authoritative MQTT change",
+      "passed": true
+    },
+    {
+      "name": "follow preserves local fallback and explicit terminal selection",
+      "passed": true
+    },
+    {
+      "name": "MQTT command to persisted preference to event to opted-in browser",
+      "passed": true
+    },
+    {
+      "name": "reload retains follow mode and local choice",
+      "passed": true
+    },
+    {
+      "name": "switch to server with no preference uses local fallback",
+      "passed": true
+    },
+    {
+      "name": "inactive server event cannot override active browser",
+      "passed": true
+    },
+    {
+      "name": "offline remote reload restores only its own cached preference",
+      "passed": true
+    },
+    {
+      "name": "switch back adopts that servers latest preference",
+      "passed": true
+    },
+    {
+      "name": "retained live command cannot change browser or server",
+      "passed": true
+    },
+    {
+      "name": "manual preferred theme shares MQTT authority and acknowledgement",
+      "passed": true
+    },
+    {
+      "name": "settings fits 1440px",
+      "passed": true
+    },
+    {
+      "name": "settings fits 390px",
+      "passed": true
+    },
+    {
+      "name": "settings fits 320px",
+      "passed": true
+    },
+    {
+      "name": "explicit no preference restores local fallback without exiting follow",
+      "passed": true
+    }
+  ],
+  "limitations": "Isolated Chromium and two scratch serve entrypoints with scratch Mochi broker. No native GUI or Android device claims."
+}

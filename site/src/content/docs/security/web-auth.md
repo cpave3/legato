@@ -41,13 +41,15 @@ Every browser and phone must then sign in again. A Legato that is running reads 
 A few things answer without the token:
 
 - `GET /health`, which says the server is up and its version, for monitoring.
-- `GET /api/meta`, which says the version, the server's tint, whether it pairs by phrase, and whether a main instance can pair with it, so the app or a main can check a server before it pairs.
+- `GET /api/meta`, which says the version, the server's tint and nonsecret preferred theme (`theme_preference: {id, revision}`, empty ID for no preference), whether it pairs by phrase, and whether a main instance can pair with it, so the app or a main can check a server before it pairs.
 - `GET /api/ca-cert`, the server's CA certificate, which is public, so a device can install it before it has the token.
 - The web UI's own files, so the page can load and ask for the token. The page shows nothing of yours until it has one.
 - The two steps of pairing by phrase. The phrase is their check: it lasts five minutes and allows five tries.
 - The image files agents, plans and reviews show. Each address is the hash of the image's content, so it cannot be guessed.
 
 Everything else under `/api/`, and the live connection the page uses for updates, needs the token.
+
+Reading or changing the preferred theme through `/api/settings/theme` requires the web token. Public metadata does not change a browser’s local theme unless you choose **Follow server**. [MQTT theme control](/legato/integrations/home-assistant/#control-the-server-theme) is a separate, restart-only broker grant: it trusts writers allowed by the broker’s command-topic ACL, not a web or integration token.
 
 ## Integration tokens
 

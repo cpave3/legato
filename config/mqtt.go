@@ -8,8 +8,9 @@ import (
 	"strings"
 )
 
-// MQTTConfig controls the optional read-only Home Assistant publisher.
+// MQTTConfig controls the optional Home Assistant integrations.
 type MQTTConfig struct {
+	ThemeControl    bool   `yaml:"theme_control"`
 	Enabled         bool   `yaml:"enabled"`
 	Broker          string `yaml:"broker"`
 	Credential      string `yaml:"credential"`
@@ -44,7 +45,7 @@ func normalizeMQTT(m *MQTTConfig) error {
 			return fmt.Errorf("integrations.mqtt.%s: topic roots need nonempty segments without wildcards, NUL or trailing slash", key)
 		}
 	}
-	if m.Enabled || m.Broker != "" {
+	if m.Enabled || m.ThemeControl || m.Broker != "" {
 		if err := validateMQTTBroker(m.Broker); err != nil {
 			return err
 		}

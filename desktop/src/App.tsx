@@ -32,6 +32,7 @@ export function App() {
   const [sheet, setSheet] = useState<Sheet>(null)
   const [importing, setImporting] = useState<Importing>(null)
   const updates = useUpdates()
+  const [themeError, setThemeError] = useState("")
   // Whether each server's page will load here (see api.pageTrusted).
   const [pages, setPages] = useState<Record<string, "trusted" | "untrusted">>({})
 
@@ -118,7 +119,8 @@ export function App() {
       failedRef.current = now
       setFailed(now)
       setStatuses(next)
-    } catch { /* the next tick tries again */ }
+      setThemeError(list.filter(s => s.theme_error).map(s => `${known.current.find(server => server.id === s.id)?.name ?? s.id}: ${s.theme_error}`).join("; "))
+    } catch (e) { setThemeError(errorText(e)) }
   }, [])
   useEffect(() => {
     refresh()
@@ -128,6 +130,11 @@ export function App() {
 
   // The server in front: the remembered one, else the first.
   const current = useMemo(() => servers?.find((s) => s.id === active) ?? servers?.[0], [servers, active])
+
+  // Selection owns appearance even when its page is offline or covered.
+  useEffect(() => {
+    if (servers !== null) api.showServer(current?.id, false).catch(e => setThemeError(errorText(e)))
+  }, [servers === null, current?.id])
 
   // Tickets the browser extension hands the app (src-tauri/src/applink.rs):
   // into the server in front when the person chose that, else a sheet asks
@@ -241,6 +248,7 @@ export function App() {
         onManage={() => setPanel(panel?.kind === "manage" ? null : { kind: "manage", pairing: false })}
       />
       <main className="content">
+        {themeError && <p className="error" role="alert">{themeError}</p>}
         {panel?.kind === "approvals" ? (
           <ApprovalsPanel
             servers={servers}

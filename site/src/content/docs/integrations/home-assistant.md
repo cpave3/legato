@@ -5,7 +5,7 @@ sidebar:
   order: 65
 ---
 
-Legato can publish ten read-only aggregate entities through Home Assistant MQTT discovery. Use these entities for dashboards, lights, or phone notifications. The integration is off by default. It accepts no commands from Home Assistant.
+Legato can publish ten read-only aggregate entities through Home Assistant MQTT discovery. Use these entities for dashboards, lights, or phone notifications. The aggregate publisher is off by default. A separate opt-in adds a **Server theme** select that changes the preferred theme for clients using **Follow server**.
 
 ## Set up the broker
 
@@ -28,7 +28,7 @@ Legato can publish ten read-only aggregate entities through Home Assistant MQTT 
    `mqtt://` uses TCP without encryption; `mqtts://` verifies the server certificate and hostname against the system trust store. Default ports are 1883 and 8883. WebSockets, client certificates, and insecure TLS are not supported.
 6. Set **MQTT discovery prefix** to match Home Assistant (`homeassistant` by default). **MQTT base topic** and **MQTT device name** are optional. Leave **Include Reeve in MQTT counts** and **MQTT Attention details** off unless you need them. Open **Broker, credentials and privacy** for defaults and retained-data consequences.
 7. Turn on **MQTT publisher** after setting the broker and credential. Text fields save on blur or Enter; toggles save when clicked. Save errors appear beside the setting. A lock means `config.yaml` pins the value: edit the file or use **Move to the database (restarts Legato)** when ready for a restart.
-8. Restart Legato when you choose from **Settings → Updates**. All eight MQTT settings and credential entries take effect at the next restart; saving does not connect to the broker. Changed values show **applies at restart**. Configuration loading does not read the credential.
+8. Restart Legato when you choose from **Settings → Updates**. All nine MQTT settings and credential entries take effect at the next restart; saving does not connect to the broker. Changed values show **applies at restart**. Configuration loading does not read the credential.
 9. Open Home Assistant's MQTT integration. Find the device named **Legato <hostname>**, or your configured device name.
 
 ### Configure through a file instead
@@ -45,6 +45,7 @@ credentials:
 integrations:
   mqtt:
     enabled: true
+    theme_control: false
     broker: mqtts://mqtt.example.net:8883
     credential: mqtt
     discovery_prefix: homeassistant
@@ -75,6 +76,37 @@ Agent counts include named slots, swarm agents, and workflow agents. They exclud
 
 Legato publishes changed values after events, normally within two seconds. It republishes discovery and current state after reconnecting or receiving Home Assistant's `online` birth message. Custom birth topics are not supported.
 
+## Control the server theme
+
+1. Complete broker and credential setup above. Use dedicated broker accounts and `mqtts://` on an untrusted network.
+2. Add broker ACLs for theme control. In the table below, `<base>` is your MQTT base topic, `<discovery>` is the discovery prefix, and `<instance-id>` is Legato's persistent identity from its discovery topics. Keep existing aggregate permissions if you use the publisher too.
+
+   | Account | Subscribe/read | Publish/write |
+   | --- | --- | --- |
+   | Legato | Exact `<base>/theme/set`, `<discovery>/status` | `<discovery>/select/<instance-id>/theme/config`, `<base>/theme/state`, `<base>/theme/result`, `<base>/theme/availability` |
+   | Home Assistant | That select discovery path and theme state/result/availability | Exact `<base>/theme/set`, plus its existing `<discovery>/status` birth topic |
+
+3. In **Settings → Integrations → Home Assistant over MQTT**, turn on **Allow MQTT theme control** (`integrations.mqtt.theme_control`). This grants theme changes to **every publisher your broker allows on the exact command topic**. Legato cannot identify the sender or revoke an individual publisher. Restrict writers through broker ACLs; avoid anonymous or wildcard write access. No Legato application token is used.
+4. Restart Legato when you choose. Saving does not enable control live. **MQTT publisher** can stay off if you want only theme control. Find the automatically discovered **Server theme** select on the Legato device; do not create a manual select.
+5. Choose `none`, `legato`, `dracula`, `ocular-light`, `ocular-dark`, `ocular-light-vivid` or `ocular-dark-vivid`. `none` clears the server preference. Each browser or app must separately choose **Follow server** in its app theme picker; existing local choices stay local.
+
+The select waits for saved state rather than assuming a command succeeded. It uses state attributes for the current revision, a connection nonce from discovery, and the command time. Home Assistant must support MQTT select `command_template`, JSON state attributes and `this.attributes` in that template. Keep Home Assistant and Legato clocks synchronized.
+
+### Topics and command limits
+
+| Topic under `<base>/theme/` | Payload | Delivery |
+| --- | --- | --- |
+| `set` | `{"id":"dracula","session":"<current discovery nonce>","expected_revision":3,"issued_at":1794744000}` | QoS 0, not retained |
+| `state` | `{"id":"dracula","revision":4}` (`none` when cleared) | Retained, authoritative |
+| `result` | `{"code":"ok"}` | Not retained |
+| `availability` | `online` or `offline` | Retained, separate from aggregates |
+
+Custom controllers must replace the example nonce with the current discovery nonce and `issued_at` with integer Unix seconds at send time. Commands must be UTF-8 JSON of at most 2 KiB with exactly those four fields. Commands expire after 30 seconds; Legato allows five seconds of future clock skew. A fresh nonce on every broker connection rejects old-session commands. Revision conflicts reject stale or duplicate writes; every saved change advances the revision. Results report `ok`, `conflict`, `retained`, `invalid`, `session`, `expired`, `unknown_theme` or `unavailable`.
+
+Legato uses clean MQTT v5 sessions, no offline command queue, no retained-command replay, and rejects retained commands sent while connected. It accepts at most five commands per second, burst five, with a five-entry queue; excess traffic can be dropped without a result. Oversized messages that reach the controller return `invalid` without retaining their payload bytes. Reconnect refreshes discovery and current state, not commands. Logs do not print raw command payloads. This grants no other settings or command execution.
+
+To revoke a controller, remove its broker write permission. Turning off theme control in Legato takes effect at your next chosen restart. Old retained select discovery, state and command messages are not automatically deleted: remove only this instance's topics with your broker administration tools. Home Assistant history needs separate cleanup.
+
 ## Notify your phone
 
 Home Assistant assigns entity IDs when it discovers the device. Find the **Needs attention** entity, then replace the example entity ID and phone action below:
@@ -97,7 +129,7 @@ The explicit `from: "off"` prevents a notification when availability changes fro
 
 ## Availability and ownership
 
-The device becomes available only after Legato publishes a usable snapshot. On graceful shutdown, Legato publishes `offline`. After an unexpected loss, the broker publishes the retained Last Will. The keepalive is 15 seconds; loss detection is not instantaneous.
+The aggregate entities become available only after Legato publishes a usable snapshot. The theme select has separate availability. On graceful shutdown, Legato publishes `offline`. After an unexpected loss, the broker publishes the retained Last Will. The keepalive is 15 seconds; loss detection is not instantaneous.
 
 Availability describes the publisher's source snapshot and broker connection. It does not claim that every agent or external integration is healthy.
 

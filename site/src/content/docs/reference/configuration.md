@@ -650,12 +650,13 @@ integrations:
 
 ### Home Assistant MQTT
 
-The publisher exposes ten aggregate entities. All settings apply at restart. See [Home Assistant](/legato/integrations/home-assistant/) for broker credentials, retention, and automations.
+The publisher exposes ten aggregate entities. Independent theme control adds a discovered select for the server’s preferred theme. All nine settings apply at restart. See [Home Assistant](/legato/integrations/home-assistant/) for broker credentials, retention, and automations.
 
 | Setting | Type | Default | What it does |
 | --- | --- | --- | --- |
-| `integrations.mqtt.enabled` | bool | `false` | Enables the read-only publisher. Disabled means no network or credential access. |
-| `integrations.mqtt.broker` | URL | none | Required when enabled: `mqtt://` or `mqtts://` TCP address, without credentials, paths, query, or fragment. |
+| `integrations.mqtt.enabled` | bool | `false` | Enables the read-only aggregate publisher. Both this and `theme_control` must be false to stop MQTT network and credential access. |
+| `integrations.mqtt.theme_control` | bool | `false` | Allows broker-authorized publishers to change the server’s preferred theme. Independent of `enabled`; applies at restart. |
+| `integrations.mqtt.broker` | URL | none | Required when either switch is enabled: `mqtt://` or `mqtts://` TCP address, without credentials, paths, query, or fragment. |
 | `integrations.mqtt.credential` | string | none | Name of a `mqtt` profile credential with type `userpass`; empty selects anonymous access. |
 | `integrations.mqtt.discovery_prefix` | string | `homeassistant` | Discovery root and root for the HA birth status subscription. |
 | `integrations.mqtt.base_topic` | string | `legato/<persistent-instance-id>` | Retained state root. Each independent instance needs its own root. |

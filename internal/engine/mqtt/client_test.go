@@ -527,3 +527,159 @@ func TestRetainedBirthCanRepublishFromCallback(t *testing.T) {
 		t.Fatalf("birth republish not retained QoS1: %+v", p)
 	}
 }
+
+func TestCommandsSkipReplayPreserveLiveRetainAndBoundPayload(t *testing.T) {
+	_, address := startBroker(t)
+	sender, _ := observer(t, address, "unused-command")
+	send := func(payload string, retained bool) {
+		t.Helper()
+		if _, err := sender.Publish(testContext(t), &paho.Publish{Topic: "legato/theme/set", Payload: []byte(payload), Retain: retained, QoS: 1}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	send("replay", true)
+	c, err := transport.Dial(testContext(t), transport.Options{Broker: address, ClientID: "control", AvailabilityTopic: "legato/theme/availability", CommandTopic: "legato/theme/set"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close(context.Background())
+	select {
+	case <-c.Commands():
+		t.Fatal("replayed retained command")
+	case <-time.After(50 * time.Millisecond):
+	}
+	send("live retained", true)
+	select {
+	case command := <-c.Commands():
+		if !command.Retained || string(command.Payload) != "live retained" {
+			t.Fatalf("lost retain flag: %+v", command)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("command missing")
+	}
+	send(strings.Repeat("x", 2049), false)
+	select {
+	case command := <-c.Commands():
+		if command.Retained || len(command.Payload) != 0 {
+			t.Fatalf("oversized command retained payload bytes: %+v", command)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("oversized command refusal missing")
+	}
+	send("valid", false)
+	select {
+	case command := <-c.Commands():
+		if command.Retained || string(command.Payload) != "valid" {
+			t.Fatalf("unexpected command: %+v", command)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("valid command missing")
+	}
+	if err := c.PublishTransient(testContext(t), "legato/theme/result", []byte(`{"code":"ok"}`)); err != nil {
+		t.Fatal(err)
+	}
+	_, results := observer(t, address, "legato/theme/result")
+	select {
+	case <-results:
+		t.Fatal("result retained")
+	case <-time.After(50 * time.Millisecond):
+	}
+}
+
+func TestCommandQueueCannotBlockNetworkReader(t *testing.T) {
+	_, address := startBroker(t)
+	birth := make(chan struct{}, 1)
+	c, err := transport.Dial(testContext(t), transport.Options{Broker: address, ClientID: "bounded-reader", AvailabilityTopic: "test/theme/availability", CommandTopic: "test/theme/set", BirthTopic: "ha/status", OnBirth: func() { birth <- struct{}{} }})
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer c.Close(context.Background())
+	sender, _ := observer(t, address, "unused-queue")
+	// Deliberately never consume commands while the broker sends the burst.
+	for i := 0; i < 30; i++ {
+		if _, err := sender.Publish(testContext(t), &paho.Publish{Topic: "test/theme/set", Payload: []byte("command"), QoS: 1}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if _, err := sender.Publish(testContext(t), &paho.Publish{Topic: "ha/status", Payload: []byte("online"), QoS: 1}); err != nil {
+		t.Fatal(err)
+	}
+	select {
+	case <-birth:
+	case <-time.After(time.Second):
+		t.Fatal("commands blocked birth processing on reader")
+	}
+	count := 0
+	for {
+		select {
+		case <-c.Commands():
+			count++
+		default:
+			if count != 5 {
+				t.Fatalf("queue size: %d", count)
+			}
+			return
+		}
+	}
+}
+
+func TestPublishConnectionLossDoesNotWaitForMissingAcknowledgement(t *testing.T) {
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer listener.Close()
+	serverDone := make(chan error, 1)
+	go func() {
+		conn, err := listener.Accept()
+		if err != nil {
+			serverDone <- err
+			return
+		}
+		defer conn.Close()
+		if _, err := pahopackets.ReadPacket(conn); err != nil {
+			serverDone <- err
+			return
+		}
+		if _, err := (&pahopackets.Connack{Properties: &pahopackets.Properties{}}).WriteTo(conn); err != nil {
+			serverDone <- err
+			return
+		}
+		for {
+			packet, err := pahopackets.ReadPacket(conn)
+			if err != nil {
+				serverDone <- err
+				return
+			}
+			switch packet.Type {
+			case pahopackets.PINGREQ:
+				if _, err := (&pahopackets.Pingresp{}).WriteTo(conn); err != nil {
+					serverDone <- err
+					return
+				}
+			case pahopackets.PUBLISH:
+				// Drop only after the QoS1 publish, without sending PUBACK.
+				conn.Close()
+				serverDone <- nil
+				return
+			default:
+				serverDone <- errors.New("expected PUBLISH or PINGREQ")
+				return
+			}
+		}
+	}()
+	client, err := transport.Dial(testContext(t), transport.Options{Broker: "mqtt://" + listener.Addr().String(), ClientID: "publisher", AvailabilityTopic: "test/availability"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = client.Close(context.Background()) })
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	err = client.Publish(ctx, "test/state", []byte("current"))
+	if err == nil || errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("publish must fail on connection loss, not wait for caller deadline: %v", err)
+	}
+	if err := <-serverDone; err != nil {
+		t.Fatal(err)
+	}
+}

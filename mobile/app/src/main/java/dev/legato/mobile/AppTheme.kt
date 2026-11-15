@@ -103,19 +103,6 @@ private val THEME_IDS = setOf("legato", "dracula", "ocular-light", "ocular-dark"
 
 fun validThemeId(id: String): Boolean = id in THEME_IDS
 
-class ThemeSettings(private val catalog: ThemeCatalog, read: () -> String?, private val write: (String) -> Boolean) {
-    var current: AppTheme = catalog.find(read()) ?: catalog.themes.first()
-        private set
-
-    fun select(id: String): Boolean {
-        if (!validThemeId(id)) return false
-        val theme = catalog.find(id) ?: return false
-        check(write(id)) { "Could not save the appearance choice. Try again." }
-        current = theme
-        return true
-    }
-}
-
 class ThemeBridge(
     private val key: String,
     private val select: (String, (String?) -> Unit) -> Unit,
@@ -123,7 +110,7 @@ class ThemeBridge(
 ) {
     fun handle(message: PageMessage) {
         if (message !is PageMessage.Theme || message.key != key) return
-        if (!validThemeId(message.id)) {
+        if (message.id != "server" && !validThemeId(message.id)) {
             tell(message.id, "Invalid theme ID")
             return
         }

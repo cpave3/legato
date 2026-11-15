@@ -26,7 +26,7 @@ pub const SCHEME: &str = "legato-desktop";
 /// What a page asks of the app.
 #[derive(Debug, PartialEq)]
 pub enum PageMessage {
-    Theme(crate::theme::AppTheme),
+    Theme(crate::theme::Choice),
     /// Open the sheet on this approval.
     Approval(String),
     /// Enrol this computer to sign: the app's keys.
@@ -60,7 +60,7 @@ pub fn script(key: &str, voice: bool, origin: &str) -> String {
         r#"(() => {{
   if (window !== window.top || location.origin !== {origin}) return;
   const key = {key};
-  window.legatoShell = {{ approval: 1, enroll: 1, workers: 1, theme: 1,{voice} key }};
+  window.legatoShell = {{ approval: 1, enroll: 1, workers: 1, theme: 2,{voice} key }};
   window.ReactNativeWebView = {{
     postMessage(text) {{
       let m;
@@ -71,7 +71,7 @@ pub fn script(key: &str, voice: bool, origin: &str) -> String {
       const id = typeof m.id === "string" ? "&id=" + encodeURIComponent(m.id) : null;
       const wid = typeof m.id === "string" || typeof m.id === "number" ? "&id=" + encodeURIComponent(JSON.stringify(m.id)) : null;
       if (kind === "approval" && id) ask("approval", id);
-      else if (kind === "theme" && id && ["legato", "dracula", "ocular-light", "ocular-dark", "ocular-light-vivid", "ocular-dark-vivid"].includes(m.id)) ask("theme", id);
+      else if (kind === "theme" && id && ["server", "legato", "dracula", "ocular-light", "ocular-dark", "ocular-light-vivid", "ocular-dark-vivid"].includes(m.id)) ask("theme", id);
       else if (kind === "enroll") ask("enroll", "");
       else if (kind === "voice" && typeof m.action === "string") ask("voice", "&action=" + encodeURIComponent(m.action));
       else if (kind === "workerCandidates" && wid) ask("workers", wid);
@@ -266,9 +266,9 @@ console.log(JSON.stringify({{ sent, shell: window.legatoShell || null }}));
         assert!(out.status.success(), "node: {}", String::from_utf8_lossy(&out.stderr));
         let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
         if top && voice {
-            assert_eq!(v["shell"], json!({ "approval": 1, "enroll": 1, "workers": 1, "theme": 1, "voice": 1, "key": key }));
+            assert_eq!(v["shell"], json!({ "approval": 1, "enroll": 1, "workers": 1, "theme": 2, "voice": 1, "key": key }));
         } else if top {
-            assert_eq!(v["shell"], json!({ "approval": 1, "enroll": 1, "workers": 1, "theme": 1, "key": key }), "not told it can record");
+            assert_eq!(v["shell"], json!({ "approval": 1, "enroll": 1, "workers": 1, "theme": 2, "key": key }), "not told it can record");
         } else {
             assert!(v["shell"].is_null(), "a frame is not told");
         }
@@ -299,6 +299,7 @@ console.log(JSON.stringify(sent));
     fn theme_requests_use_the_key_and_strict_theme_ids() {
         let posts = [
             r#"{"legatoShell":"theme","type":"theme","key":"k1","id":"dracula"}"#,
+            r#"{"legatoShell":"theme","type":"theme","key":"k1","id":"server"}"#,
             r#"{"legatoShell":"theme","key":"k1","id":"ocular-light-vivid"}"#,
             r#"{"legatoShell":"theme","key":"k1","id":"ocular-dark-vivid"}"#,
             r#"{"legatoShell":"theme","key":"wrong","id":"legato"}"#,
@@ -306,8 +307,8 @@ console.log(JSON.stringify(sent));
             r#"{"legatoShell":"theme","key":"k1","id":1}"#,
         ];
         let sent = in_node("k1", false, true, &posts).unwrap();
-        assert_eq!(sent.len(), 3);
-        for (url, id) in sent.iter().zip(["dracula", "ocular-light-vivid", "ocular-dark-vivid"]) {
+        assert_eq!(sent.len(), 4);
+        for (url, id) in sent.iter().zip(["dracula", "server", "ocular-light-vivid", "ocular-dark-vivid"]) {
             let Some(PageMessage::Theme(theme)) = read(url, "k1") else { panic!("theme request not read: {url}") };
             assert_eq!(serde_json::to_value(theme).unwrap(), id);
         }
