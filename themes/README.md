@@ -8,7 +8,7 @@ Ocular Light and Ocular Dark are the **unchanged** Work Light and Work Dark cand
 
 These exact colours have not demonstrated fatigue, comfort, sleep or clinical superiority. They are engineering proposals with checked contrast pairs, not medical interventions. No human fatigue study has been performed. Display, room light, vision, typography and personal preference still matter.
 
-Dracula uses the official OSS palette, created by Zeno Rocha and maintained by Dracula Theme and contributors: <https://github.com/dracula/dracula-theme>. The representative semantic mapping was supplied with the research source; Legato's application/ANSI mapping is not an official Dracula port. Copyright and MIT permission notice are in `LICENSE-Dracula`, verified against <https://github.com/dracula/dracula-theme/blob/main/LICENSE>. No PRO/Alucard assets are used.
+Dracula uses the official OSS palette, created by Zeno Rocha and maintained by Dracula Theme and contributors: <https://github.com/dracula/dracula-theme>. The representative semantic mapping was supplied with the research source; Legato's application/ANSI mapping is not an official Dracula port. Copyright and MIT permission notice are in `LICENSE-Dracula`, verified against <https://github.com/dracula/dracula-theme/blob/main/LICENSE>. The same permission notice is included in the Dracula entry of `palettes.json`, so it travels with bundled client data; the compiled web asset was checked for the notice. No PRO/Alucard assets are used.
 
 ## Rendering contract
 
