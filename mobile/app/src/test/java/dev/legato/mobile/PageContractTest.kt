@@ -9,11 +9,12 @@ class PageContractTest {
     @Test
     fun `theme bootstrap delivery and acknowledgement run only on the server top frame without echo`() {
         org.junit.Assume.assumeTrue(runCatching { ProcessBuilder("node", "--version").start().waitFor() == 0 }.getOrDefault(false))
+        for (id in listOf("legato", "dracula", "ocular-light", "ocular-dark", "ocular-light-vivid", "ocular-dark-vivid"))
         for (top in listOf(true, false)) for (origin in listOf("https://mac.example", "https://other.example")) {
             val scripts = listOf(
-                bootstrapScript("https://mac.example:443", "token", "secret") + themeBootstrapScript("https://mac.example", "ocular-light"),
-                themeScript("https://mac.example", "dracula") + themeResultScript("https://mac.example", "dracula", null),
-                themeResultScript("https://mac.example", "ocular-light", "Disk \"full\" </script>"),
+                bootstrapScript("https://mac.example:443", "token", "secret") + themeBootstrapScript("https://mac.example", id),
+                themeScript("https://mac.example", id) + themeResultScript("https://mac.example", id, null),
+                themeResultScript("https://mac.example", id, "Disk \"full\" </script>"),
             )
             for ((index, script) in scripts.withIndex()) {
                 val program = """
@@ -39,16 +40,16 @@ class PageContractTest {
                     0 -> {
                         assertEquals(1, result.getInt("theme"))
                         assertEquals("legato:app-theme", calls.getJSONArray(2).getString(0))
-                        assertEquals("ocular-light", calls.getJSONArray(2).getString(1))
+                        assertEquals(id, calls.getJSONArray(2).getString(1))
                         assertEquals(3, calls.length())
                     }
                     1 -> {
                         assertEquals("legato:app-theme", calls.getJSONArray(0).getString(0))
-                        assertEquals("dracula", calls.getJSONArray(0).getString(1))
+                        assertEquals(id, calls.getJSONArray(0).getString(1))
                         assertEquals("legato:theme-changed", calls.getJSONArray(1).getString(0))
                         assertEquals("legato:shell-theme", calls.getJSONArray(2).getString(0))
                         val detail = calls.getJSONArray(2).getJSONObject(1)
-                        assertEquals("dracula", detail.getString("id"))
+                        assertEquals(id, detail.getString("id"))
                         assertFalse(detail.has("error"))
                         assertEquals(3, calls.length())
                     }
@@ -56,7 +57,7 @@ class PageContractTest {
                         assertEquals(1, calls.length())
                         assertEquals("legato:shell-theme", calls.getJSONArray(0).getString(0))
                         val detail = calls.getJSONArray(0).getJSONObject(1)
-                        assertEquals("ocular-light", detail.getString("id"))
+                        assertEquals(id, detail.getString("id"))
                         assertEquals("Disk \"full\" </script>", detail.getString("error"))
                     }
                 }

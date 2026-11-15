@@ -438,6 +438,44 @@ func (m *Manager) PaneCommands() (map[string]string, error) {
 	return result, nil
 }
 
+// ShellReturned distinguishes an idle pane shell from a foreground shell
+// wrapper waiting for an agent (for example sh -> bwrap -> chimera). A shell
+// name alone is not evidence of exit. Probe failures never confirm a return.
+func (m *Manager) ShellReturned(name string) (bool, error) {
+	out, err := exec.Command(m.tmuxPath, "display-message", "-p", "-t", name, "#{pane_pid} #{pane_current_command}").Output()
+	if err != nil {
+		return false, fmt.Errorf("shell return pane probe: %w", err)
+	}
+	pid, command, ok := strings.Cut(strings.TrimSpace(string(out)), " ")
+	if !ok || pid == "" {
+		return false, fmt.Errorf("shell return probe: missing pane identity")
+	}
+	if !IsShellCommand(command) {
+		return false, nil
+	}
+	// Both Linux and macOS ps provide these fields. Inspect the pane's root
+	// shell, not tmux's chosen foreground process, and keep it while it has
+	// children even when a non-job-control wrapper shares its process group.
+	out, err = exec.Command("ps", "-ax", "-o", "pid=,ppid=,comm=").Output()
+	if err != nil {
+		return false, fmt.Errorf("shell return process probe: %w", err)
+	}
+	rootShell := false
+	for _, line := range strings.Split(string(out), "\n") {
+		fields := strings.Fields(line)
+		if len(fields) < 3 {
+			continue
+		}
+		if fields[1] == pid {
+			return false, nil
+		}
+		if fields[0] == pid {
+			rootShell = IsShellCommand(fields[2])
+		}
+	}
+	return rootShell, nil
+}
+
 // SetOption sets a tmux option on the given session.
 func (m *Manager) SetOption(sessionName, key, value string) error {
 	cmd := exec.Command(m.tmuxPath, "set-option", "-t", sessionName, key, value)

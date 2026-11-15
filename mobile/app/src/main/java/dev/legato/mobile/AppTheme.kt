@@ -94,7 +94,7 @@ private fun contrast(a: String, b: String): Double {
     return (maxOf(first, second) + .05) / (minOf(first, second) + .05)
 }
 
-private val THEME_IDS = setOf("legato", "dracula", "ocular-light", "ocular-dark")
+private val THEME_IDS = setOf("legato", "dracula", "ocular-light", "ocular-dark", "ocular-light-vivid", "ocular-dark-vivid")
 
 fun validThemeId(id: String): Boolean = id in THEME_IDS
 

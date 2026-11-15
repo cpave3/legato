@@ -16,6 +16,7 @@ import { EngramBindingsSettings } from "../components/EngramBindingsSettings"
 import { CredentialsSettings } from "../components/CredentialsSettings"
 import { DevicesSettings } from "../components/DevicesSettings"
 import { IntegrationsSettings } from "../components/IntegrationsSettings"
+import { MQTTSettings } from "../components/settings/MQTTSettings"
 import { MainInstancesSettings, WorkersSettings } from "../components/InstancePairingSettings"
 import { ApprovalNotificationSettings } from "../components/ApprovalNotificationSettings"
 import { UpdatesSettings } from "../components/UpdatesSettings"
@@ -280,7 +281,8 @@ export function SettingsPage() {
             <CredentialsSettings baseUrl={baseUrl} />
           </SettingsGroup>
 
-          <SettingsGroup id="integrations" title="Integrations" description="Services outside Legato that look up and hand work to agents, and the tokens they use.">
+          <SettingsGroup id="integrations" title="Integrations" description="External services, Home Assistant publishing, and integration tokens.">
+            <MQTTSettings settings={registry} baseUrl={baseUrl} loading={configSettings.isPending} error={configSettings.error} onRetry={() => void configSettings.refetch()} />
             <IntegrationsSettings baseUrl={baseUrl} />
           </SettingsGroup>
 

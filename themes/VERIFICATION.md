@@ -2,6 +2,22 @@
 
 Initial port: `fd1fd9b7`, followed by license metadata and documentation at `5db3018e`. The shared material-depth follow-up below supersedes the initial visual captures/results; current screenshots and JSON reflect the refinement. Canonical palette and terminal ANSI values remain unchanged. No live Legato binary, running operator session, theme preference, broker, MQTT topic, Home Assistant configuration or installed app was changed.
 
+## Additive Ocular Vivid variants — 15 November 2026
+
+Ocular Light Vivid and Ocular Dark Vivid add stronger accents without replacing the original themes. All three pre-existing palette entries, the shared material recipes and the material-ink contract were compared with the base commit and are unchanged. No composer CSS, live binary, preference or installed app was changed.
+
+- Web: **1,677 tests in 226 files**, TypeScript, ESLint, generated theme-utility check and production build passed. The build output went to an isolated temporary directory, not the running app's assets. These counts precede the concurrent MQTT Settings change.
+- Browser: **129 checks passed** against an isolated scratch backend and the frozen production frontend, plus the fixture importing production components. All five named palettes were exercised at desktop, 390px and 320px. Picker/reload, saved terminal override, real hover, selected diff, keyboard focus, material depth, image controls and the deliberately unreadable contrast control passed. No real terminal session was created in this run; mounted-terminal tests cover both adapters updating to Vivid without reconnecting. Earlier retained tmux/xterm results below remain historical, not new Vivid evidence.
+- Vivid fixture text: **35 pairs per state**, checked at default, hover and selected. Minimum contrast was **4.8705:1 Light Vivid** and **5.2177:1 Dark Vivid**. This is a bounded component check, not full accessibility conformance or fatigue evidence. Screenshots wait for finite transitions to settle; cancelled transitions are normal animation lifecycle, not a failed application request.
+- Desktop Rust: **201 tests passed**, including actual Node execution of the injected bridge, strict IDs/key/frame/origin guards, native selection, delivery, serialization and state reopen for all six IDs. This does not launch a native window.
+- Desktop UI/typecheck: **blocked** by missing local Vitest/Testing Library dependencies. No dependencies were installed. Android JVM/Gradle validation is **blocked** by the missing Android SDK. No emulator/device/native visual verification is claimed.
+- Documentation site: **57 pages built**, all internal links valid. Output was isolated under the dependency cache to avoid cross-filesystem asset renames and live site output.
+- Static Go scratch binary built. No backend production code changed; no full Go suite run.
+
+Machine-readable results and the two Vivid desktop/320px captures are in [`vivid/`](vivid/). Earlier `verification.json`, `component-contrast.json` and captures remain the historical original-port/depth evidence. Neither the research resource nor the original palette provenance was rewritten.
+
+Test audit: **16 added/changed declarations retained**, using public pickers, theme application, artifact serialization, mounted terminal adapters, native bridge/storage and the independent Android adapter. The bridge allowlist regression was observed red before its production change; the Vivid picker was observed red before the palette entries existed. No test-only production seams were added. Focused web tests (26 cases) and the Rust suite passed after the audit; desktop UI/Android execution limits remain above.
+
 ## Shared depth refinement — follow-up
 
 Cameron asked for more depth **in the theme system**, not individual screens. The canonical JSON now carries polarity-specific material recipes and a UI-ink contrast contract. Web, desktop, Android, sandboxed/downloaded HTML and Mermaid consume these roles. Reading canvas/foreground and terminal ANSI stay unchanged; panels, raised controls, recessed chrome, softer decorative separators, state washes and offset shadows give the interface its hierarchy. No layout, copy, IDs, preferences or native command contract was redesigned.

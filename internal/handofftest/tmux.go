@@ -97,6 +97,7 @@ func (f *FakeTmux) PipeOutput(string) (io.Reader, func(), error) {
 
 func (f *FakeTmux) SetEnv(string, string, string) error    { return nil }
 func (f *FakeTmux) SetOption(string, string, string) error { return nil }
+func (f *FakeTmux) ShellReturned(string) (bool, error)     { return false, nil }
 
 func (f *FakeTmux) PaneCommands() (map[string]string, error) {
 	f.mu.Lock()

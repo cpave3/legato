@@ -2311,3 +2311,4 @@ func (c *cliNoopTmux) PipeOutput(name string) (io.Reader, func(), error) { retur
 func (c *cliNoopTmux) SetEnv(sessionName, key, value string) error       { return nil }
 func (c *cliNoopTmux) SetOption(sessionName, key, value string) error    { return nil }
 func (c *cliNoopTmux) PaneCommands() (map[string]string, error)          { return nil, nil }
+func (c *cliNoopTmux) ShellReturned(string) (bool, error)                { return false, nil }

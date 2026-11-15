@@ -12,6 +12,30 @@ vi.mock("@tauri-apps/api/event", () => ({ listen: vi.fn(async (_name: string, ca
 vi.mock("@tauri-apps/api/core", () => ({ invoke }))
 afterEach(() => { cleanup(); listeners.clear(); vi.clearAllMocks() })
 
+it.each([
+  ["ocular-light-vivid", "Ocular Light Vivid"], ["ocular-dark-vivid", "Ocular Dark Vivid"],
+])("restores and selects %s through the native picker", async (id, name) => {
+  invoke.mockResolvedValue(id)
+  await initializeTheme()
+  const root = document.documentElement
+  const palette = palettes.themes.find(t => t.id === id)
+  expect(root.dataset.theme).toBe(id)
+  expect(root.style.colorScheme).toBe(palette?.polarity ?? "dark")
+  expect(root.style.getPropertyValue("--ground")).toBe(palette?.tokens.canvas ?? "")
+  expect(root.style.getPropertyValue("--accent")).toBe(palette?.tokens.focus ?? "")
+  render(<ThemeSection />)
+  const picker = screen.getByLabelText("App theme")
+  await waitFor(() => expect(picker).toBeEnabled())
+  expect(screen.getByRole("option", { name })).toHaveValue(id)
+  expect(picker).toHaveValue(id)
+  fireEvent.change(picker, { target: { value: "legato" } })
+  await waitFor(() => expect(picker).toHaveValue("legato"))
+  fireEvent.change(picker, { target: { value: id } })
+  await waitFor(() => expect(invoke).toHaveBeenLastCalledWith("set_app_theme", { theme: id }))
+  await waitFor(() => expect(picker).toHaveValue(id))
+  expect(root.dataset.theme).toBe(id)
+})
+
 it("restores the saved shell appearance, changes it through settings and restores Legato defaults", async () => {
   invoke.mockImplementation((command: string) => Promise.resolve(command === "app_theme" ? "ocular-light" : undefined))
   await initializeTheme()
@@ -76,7 +100,7 @@ it("updates an already open picker when the native theme event arrives", async (
   await waitFor(() => expect(picker).toHaveValue("ocular-dark"))
 })
 
-it.each(["ocular-light", "ocular-dark", "dracula"])("restores %s with distinct chrome, panel and raised materials", async id => {
+it.each(["ocular-light", "ocular-dark", "ocular-light-vivid", "ocular-dark-vivid", "dracula"])("restores %s with distinct chrome, panel and raised materials", async id => {
   invoke.mockResolvedValue(id)
   await initializeTheme()
   const style = document.documentElement.style

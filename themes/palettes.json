@@ -116,6 +116,62 @@
         "source": "https://github.com/dracula/dracula-theme/blob/main/LICENSE",
         "notice": "The MIT License (MIT)\n\nCopyright (c) 2023 Dracula Theme\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE.\n"
       }
+    },
+    {
+      "id": "ocular-light-vivid",
+      "name": "Ocular Light Vivid",
+      "kind": "candidate",
+      "polarity": "light",
+      "provenance": "Legato accent variant of Ocular Light; approved Vivid colour proposal, 2026-11-15. Original neutral tokens and shared material recipes retained. Not a research-tested fatigue intervention.",
+      "tokens": {
+        "canvas": "#F5F3ED",
+        "surface": "#EAE7DF",
+        "selection": "#DCE6EE",
+        "text": "#252B33",
+        "muted": "#505965",
+        "border": "#737B85",
+        "focus": "#075FAD",
+        "link": "#075FAD",
+        "info": "#075FAD",
+        "success": "#167347",
+        "warning": "#825500",
+        "error": "#B42F43",
+        "comment": "#505965",
+        "keyword": "#7533A8",
+        "string": "#167347",
+        "number": "#87431F",
+        "function": "#075FAD",
+        "type": "#286169",
+        "variable": "#252B33"
+      }
+    },
+    {
+      "id": "ocular-dark-vivid",
+      "name": "Ocular Dark Vivid",
+      "kind": "candidate",
+      "polarity": "dark",
+      "provenance": "Legato accent variant of Ocular Dark; approved Vivid colour proposal, 2026-11-15. Original neutral tokens and shared material recipes retained. Not a research-tested fatigue intervention.",
+      "tokens": {
+        "canvas": "#20252B",
+        "surface": "#292F37",
+        "selection": "#354351",
+        "text": "#E2E5E9",
+        "muted": "#B2BBC6",
+        "border": "#8995A4",
+        "focus": "#75BFFF",
+        "link": "#75BFFF",
+        "info": "#75BFFF",
+        "success": "#61DD8A",
+        "warning": "#F2C45E",
+        "error": "#FF929E",
+        "comment": "#B2BBC6",
+        "keyword": "#CFABFF",
+        "string": "#61DD8A",
+        "number": "#DDB491",
+        "function": "#75BFFF",
+        "type": "#8FC9CC",
+        "variable": "#E2E5E9"
+      }
     }
   ],
   "materials": {

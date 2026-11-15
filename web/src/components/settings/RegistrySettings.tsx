@@ -118,7 +118,7 @@ export function RegistrySettingRow({ setting, baseUrl, actions }: { setting: Con
         <div className="flex flex-wrap items-center gap-2">
           <p className="text-sm text-lw-text">{setting.title}</p>
           {setting.own_rule && <span className="rounded bg-[var(--theme-selection,rgba(139,92,246,0.2))] px-1.5 text-[10px] text-[var(--theme-keyword,#c4b5fd)]" title="Changed only with a signed approval">signed</span>}
-          <code className="text-[11px] text-lw-faint">{setting.key}</code>
+          <code className="break-all text-[11px] text-lw-faint">{setting.key}</code>
           <SettingSource setting={setting} busy={busy === setting.key} onReset={() => void reset(setting.key)} />
         </div>
         {setting.description && <p className="mt-0.5 text-xs text-lw-text-2">{setting.description}</p>}
@@ -131,7 +131,7 @@ export function RegistrySettingRow({ setting, baseUrl, actions }: { setting: Con
         {errors[setting.key] && <p role="alert" className="mt-1 text-xs text-lw-error">{errors[setting.key]}</p>}
         {notices[setting.key] && <p role="status" className="mt-1 text-xs text-lw-text-2">{notices[setting.key]}</p>}
       </div>
-      <div className={cn("shrink-0", busy === setting.key && "opacity-60")}>
+      <div className={cn("w-full min-w-0 sm:w-auto sm:max-w-[60%]", busy === setting.key && "opacity-60")}>
         <SettingControl setting={setting} disabled={setting.pinned || busy === setting.key} onSet={(value) => void set(setting.key, value)} />
       </div>
     </div>

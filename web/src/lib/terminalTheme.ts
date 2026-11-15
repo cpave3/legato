@@ -5,7 +5,7 @@ import { appTheme, THEME_CHANGED, type ThemeTokens } from "./appTheme"
 // Terminal overrides stay independent; without one the terminal follows
 // the app. Its frame always uses the app's semantic UI roles.
 
-export type TerminalThemeId = "app" | "legato" | "night" | "solarized" | "classic" | "dracula" | "ocular-light" | "ocular-dark"
+export type TerminalThemeId = "app" | "legato" | "night" | "solarized" | "classic" | "dracula" | "ocular-light" | "ocular-dark" | "ocular-light-vivid" | "ocular-dark-vivid"
 
 export interface TerminalThemeOption {
   id: TerminalThemeId

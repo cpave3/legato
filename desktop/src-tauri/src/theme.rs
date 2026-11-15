@@ -10,6 +10,8 @@ pub enum AppTheme {
     Dracula,
     OcularLight,
     OcularDark,
+    OcularLightVivid,
+    OcularDarkVivid,
 }
 
 // Tolerant only at the persisted-state boundary; bridge/IPC IDs stay strict.
@@ -73,6 +75,40 @@ pub fn deliver(theme: AppTheme, servers: &[crate::store::Server], mut eval: impl
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn every_theme_crosses_the_page_bridge_and_survives_restart() {
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("state.json");
+        let mut store = crate::store::Store::open(path.clone(), Box::new(crate::store::tests::Memory::default())).unwrap();
+        store.add_server("one", "https://one.local", None, "token").unwrap();
+        for id in ["legato", "dracula", "ocular-light", "ocular-dark", "ocular-light-vivid", "ocular-dark-vivid"] {
+            let script = crate::bridge::script("secret", false, "https://one.local");
+            let program = format!(r#"
+const location = {{ origin: "https://one.local", href: "" }};
+const window = {{}}; window.top = window;
+{script}
+window.ReactNativeWebView.postMessage(JSON.stringify({{type: "theme", key: "secret", id: {id:?}}}));
+console.log(location.href);"#);
+            let out = std::process::Command::new("node").arg("-e").arg(program).output().expect("Node runs theme request");
+            assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+            let url = String::from_utf8(out.stdout).unwrap();
+            let Some(crate::bridge::PageMessage::Theme(theme)) = crate::bridge::read(url.trim(), "secret") else {
+                panic!("{id} did not cross the keyed page bridge: {url}");
+            };
+            assert_eq!(serde_json::to_value(theme).unwrap(), id);
+            assert!(crate::bridge::read(url.trim(), "wrong").is_none());
+            let mut notified = Vec::new();
+            let mut delivered = Vec::new();
+            select(&mut store, theme, |theme| { notified.push(theme); Ok(()) }, |server, script| {
+                delivered.push((server.to_string(), script)); Ok(())
+            }).unwrap();
+            assert_eq!(notified, [theme]);
+            assert_eq!(delivered, [(store.state.servers[0].id.clone(), page_script("https://one.local", theme))]);
+            let reopened = crate::store::Store::open(path.clone(), Box::new(crate::store::tests::Memory::default())).unwrap();
+            assert_eq!(reopened.state.app_theme, theme);
+        }
+    }
 
     #[test]
     fn a_page_selection_is_saved_broadcast_and_reported_even_when_delivery_fails() {
@@ -146,21 +182,24 @@ console.log(JSON.stringify(calls));"#);
 
     #[test]
     fn pages_receive_storage_and_public_event_only_on_their_own_top_frame() {
-        for (origin, top, expected) in [("https://one.local", true, true), ("https://other.local", true, false), ("https://one.local", false, false)] {
-            let script = page_script("https://one.local", AppTheme::OcularLight);
-            let program = format!(r#"
-const calls = [];
-global.location = {{ origin: {origin:?} }};
-global.window = {{ dispatchEvent(e) {{ calls.push([e.type, e.detail]); }} }};
-window.top = {top} ? window : {{}};
-global.localStorage = {{ setItem(k, v) {{ calls.push([k, v]); }} }};
-global.CustomEvent = class {{ constructor(type, options) {{ this.type = type; this.detail = options.detail; }} }};
-{script}
-console.log(JSON.stringify(calls));"#);
-            let out = std::process::Command::new("node").arg("-e").arg(program).output().expect("Node runs theme delivery");
-            assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
-            let calls: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
-            assert_eq!(calls, if expected { serde_json::json!([["legato:app-theme", "ocular-light"], ["legato:theme-changed", "ocular-light"]]) } else { serde_json::json!([]) });
+        for id in ["legato", "dracula", "ocular-light", "ocular-dark", "ocular-light-vivid", "ocular-dark-vivid"] {
+            let theme = serde_json::from_value(serde_json::json!(id)).unwrap();
+            for (origin, top, expected) in [("https://one.local", true, true), ("https://other.local", true, false), ("https://one.local", false, false)] {
+                let script = page_script("https://one.local", theme);
+                let program = format!(r#"
+    const calls = [];
+    global.location = {{ origin: {origin:?} }};
+    global.window = {{ dispatchEvent(e) {{ calls.push([e.type, e.detail]); }} }};
+    window.top = {top} ? window : {{}};
+    global.localStorage = {{ setItem(k, v) {{ calls.push([k, v]); }} }};
+    global.CustomEvent = class {{ constructor(type, options) {{ this.type = type; this.detail = options.detail; }} }};
+    {script}
+    console.log(JSON.stringify(calls));"#);
+                let out = std::process::Command::new("node").arg("-e").arg(program).output().expect("Node runs theme delivery");
+                assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+                let calls: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
+                assert_eq!(calls, if expected { serde_json::json!([["legato:app-theme", id], ["legato:theme-changed", id]]) } else { serde_json::json!([]) });
+            }
         }
     }
 }

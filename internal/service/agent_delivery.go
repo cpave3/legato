@@ -47,6 +47,13 @@ func (a *agentService) verifyPaneCommand(name, command string) (err error) {
 			if command != "" && a.agentStartupOver(session) {
 				status := store.AgentSessionInterrupted
 				if enginetmux.IsShellCommand(command) {
+					returned, err := a.tmux.ShellReturned(name)
+					if err != nil {
+						return fmt.Errorf("message not delivered: verifying shell return: %w", err)
+					}
+					if !returned {
+						return fmt.Errorf("message not delivered: %s foreground shell may still be running the agent", name)
+					}
 					status = "dead"
 				}
 				if err := a.endGoneSession(ctx, session, status); err != nil {

@@ -11,34 +11,48 @@ Legato can publish ten read-only aggregate entities through Home Assistant MQTT 
 
 1. Configure the MQTT integration in Home Assistant for your broker. Enable discovery with the default `homeassistant` prefix, or use the same prefix in both applications.
 2. Create a broker login for Legato. Give it permission to publish its state root and discovery configurations. Allow subscriptions only to `homeassistant/status` (or your discovery prefix followed by `/status`).
-3. Store the login through [Legato's credential store](/legato/security/credential-broker/). The secret must be a JSON object with `username` and `password` strings. Both strings must be nonempty. Do not put the password in `config.yaml` or the broker URL.
-4. Add the credential and publisher configuration:
+3. Store the login through [Legato's credential store](/legato/security/credential-broker/). The secret must be a JSON object with nonempty `username` and `password` strings. Ask the Reeve to open a secure secret form, then paste the JSON into that form, not the conversation. Alternatively, supply the JSON through standard input to `legato secret add mqtt-login --type userpass`. Use a secure input source; do not put the login in shell history, `config.yaml`, or the broker URL.
+4. Open **Settings → Lists → Credentials**, choose **Add to credentials**, and name the entry `mqtt`. In **Fields, as in config.yaml (JSON)**, enter references only:
 
-   ```yaml
-   credentials:
-     - name: mqtt
-       profile: mqtt          # host-only: agents cannot request this login
-       type: userpass         # required for env/file/op-backed login values
-       secret: legato://mqtt-login
-
-   integrations:
-     mqtt:
-       enabled: true
-       broker: mqtts://mqtt.example.net:8883
-       credential: mqtt
-       discovery_prefix: homeassistant
-       base_topic: legato/workstation
-       device_name: Legato workstation
-       include_reeve: false
-       attention_details: false
+   ```json
+   {
+     "profile": "mqtt",
+     "type": "userpass",
+     "secret": "legato://mqtt-login"
+   }
    ```
 
-   Use your broker's address. `mqtt://` uses TCP without encryption; `mqtts://` verifies the server certificate and hostname against the system trust store. Default ports are 1883 and 8883. WebSockets, client certificates, and insecure TLS are not supported. An empty `credential` explicitly selects anonymous access.
+   Replace the secret reference with the name used in step 3. The `mqtt` profile is host-only: agents cannot request this login. Set `type: userpass` explicitly, including when using the secure form or an existing `env://`, `file://`, or `op://` secret.
+5. Open **Settings → Integrations → Home Assistant over MQTT**. Set **MQTT broker** to your broker's address and **MQTT credential** to `mqtt` (the credential entry's name, not its secret reference or password). Empty credential explicitly selects anonymous access; in that case, skip steps 2–4.
 
-   To store the login, supply the JSON through standard input to `legato secret add mqtt-login --type userpass`. Use a secure input source; do not put the login in shell history. For an existing `env://`, `file://`, or `op://` secret, set `type: userpass` explicitly.
+   `mqtt://` uses TCP without encryption; `mqtts://` verifies the server certificate and hostname against the system trust store. Default ports are 1883 and 8883. WebSockets, client certificates, and insecure TLS are not supported.
+6. Set **MQTT discovery prefix** to match Home Assistant (`homeassistant` by default). **MQTT base topic** and **MQTT device name** are optional. Leave **Include Reeve in MQTT counts** and **MQTT Attention details** off unless you need them. Open **Broker, credentials and privacy** for defaults and retained-data consequences.
+7. Turn on **MQTT publisher** after setting the broker and credential. Text fields save on blur or Enter; toggles save when clicked. Save errors appear beside the setting. A lock means `config.yaml` pins the value: edit the file or use **Move to the database (restarts Legato)** when ready for a restart.
+8. Restart Legato when you choose from **Settings → Updates**. All eight MQTT settings and credential entries take effect at the next restart; saving does not connect to the broker. Changed values show **applies at restart**. Configuration loading does not read the credential.
+9. Open Home Assistant's MQTT integration. Find the device named **Legato <hostname>**, or your configured device name.
 
-5. Restart Legato when you choose. All eight MQTT settings take effect at the next restart. Configuration loading does not read the credential.
-6. Open Home Assistant's MQTT integration. Find the device named **Legato workstation**, or your configured device name.
+### Configure through a file instead
+
+These are the equivalent file settings. File values pin the controls in Settings.
+
+```yaml
+credentials:
+  - name: mqtt
+    profile: mqtt
+    type: userpass
+    secret: legato://mqtt-login
+
+integrations:
+  mqtt:
+    enabled: true
+    broker: mqtts://mqtt.example.net:8883
+    credential: mqtt
+    discovery_prefix: homeassistant
+    base_topic: legato/workstation
+    device_name: Legato workstation
+    include_reeve: false
+    attention_details: false
+```
 
 If `base_topic` is empty, Legato uses `legato/<persistent-instance-id>`. The default device name is `Legato <hostname>`. Identity does not change when the device name changes. Independent instances must have different state roots.
 

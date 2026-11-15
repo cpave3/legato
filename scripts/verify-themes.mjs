@@ -52,9 +52,12 @@ async function check(name, expression) {
 }
 async function navigate(path) { await evaluate("window.themeNavigating=true"); await send("Page.navigate", { url: new URL(path, url).href }); await wait('!window.themeNavigating&&!!document.querySelector("nav")') }
 async function viewport(width, height = 1000) { await send("Emulation.setDeviceMetricsOverride", { width, height, deviceScaleFactor: 1, mobile: width < 600 }) }
-async function screenshot(name) { const { data } = await send("Page.captureScreenshot", { format: "png", captureBeyondViewport: false }); await writeFile(resolve(output, name), Buffer.from(data, "base64")) }
+async function screenshot(name) {
+  await evaluate("new Promise(requestAnimationFrame)")
+  await evaluate("Promise.allSettled(document.getAnimations().filter(a => Number.isFinite(a.effect.getComputedTiming().endTime)).map(a => a.finished))")
+  const { data } = await send("Page.captureScreenshot", { format: "png", captureBeyondViewport: false }); await writeFile(resolve(output, name), Buffer.from(data, "base64")) }
 const clickRadio = (group, name) => `(()=>{const g=document.querySelector('[role="radiogroup"][aria-label="${group}"]');const b=[...g.querySelectorAll('button')].find(b=>b.textContent.trim()==='${name}');b.click();return true})()`
-const expected = { "ocular-light": ["Ocular Light", "rgb(245, 243, 237)", "rgb(37, 43, 51)"], "ocular-dark": ["Ocular Dark", "rgb(32, 37, 43)", "rgb(226, 229, 233)"], dracula: ["Dracula", "rgb(40, 42, 54)", "rgb(248, 248, 242)"] }
+const expected = { "ocular-light-vivid": ["Ocular Light Vivid", "rgb(245, 243, 237)", "rgb(37, 43, 51)"], "ocular-dark-vivid": ["Ocular Dark Vivid", "rgb(32, 37, 43)", "rgb(226, 229, 233)"], "ocular-light": ["Ocular Light", "rgb(245, 243, 237)", "rgb(37, 43, 51)"], "ocular-dark": ["Ocular Dark", "rgb(32, 37, 43)", "rgb(226, 229, 233)"], dracula: ["Dracula", "rgb(40, 42, 54)", "rgb(248, 248, 242)"] }
 try {
   const { targetId } = await send("Target.createTarget", { url: "about:blank" }, null)
   session = (await send("Target.attachToTarget", { targetId, flatten: true }, null)).sessionId
@@ -130,7 +133,7 @@ try {
   }
   await check("all original terminal choices remain", `['Legato','Night','Solarized Dark','Classic'].every(name=>[...document.querySelectorAll('[aria-label="Terminal theme"] button')].some(b=>b.textContent.trim()===name))`)
   await evaluate(clickRadio("Terminal theme", "Night"))
-  await evaluate(clickRadio("App theme", "Ocular Light"))
+  await evaluate(clickRadio("App theme", "Ocular Light Vivid"))
   await check("app change preserves explicit terminal preference", "localStorage.getItem('legato:terminal-theme')==='night'")
   await evaluate(clickRadio("Terminal theme", "Follow app"))
   await check("Follow app is selected", `!![...document.querySelectorAll('[aria-label="Terminal theme"] button')].find(b=>b.textContent.trim()==='Follow app'&&b.getAttribute('aria-checked')==='true')`)

@@ -71,7 +71,7 @@ pub fn script(key: &str, voice: bool, origin: &str) -> String {
       const id = typeof m.id === "string" ? "&id=" + encodeURIComponent(m.id) : null;
       const wid = typeof m.id === "string" || typeof m.id === "number" ? "&id=" + encodeURIComponent(JSON.stringify(m.id)) : null;
       if (kind === "approval" && id) ask("approval", id);
-      else if (kind === "theme" && id && ["legato", "dracula", "ocular-light", "ocular-dark"].includes(m.id)) ask("theme", id);
+      else if (kind === "theme" && id && ["legato", "dracula", "ocular-light", "ocular-dark", "ocular-light-vivid", "ocular-dark-vivid"].includes(m.id)) ask("theme", id);
       else if (kind === "enroll") ask("enroll", "");
       else if (kind === "voice" && typeof m.action === "string") ask("voice", "&action=" + encodeURIComponent(m.action));
       else if (kind === "workerCandidates" && wid) ask("workers", wid);
@@ -299,13 +299,18 @@ console.log(JSON.stringify(sent));
     fn theme_requests_use_the_key_and_strict_theme_ids() {
         let posts = [
             r#"{"legatoShell":"theme","type":"theme","key":"k1","id":"dracula"}"#,
+            r#"{"legatoShell":"theme","key":"k1","id":"ocular-light-vivid"}"#,
+            r#"{"legatoShell":"theme","key":"k1","id":"ocular-dark-vivid"}"#,
             r#"{"legatoShell":"theme","key":"wrong","id":"legato"}"#,
             r#"{"legatoShell":"theme","key":"k1","id":"unknown"}"#,
             r#"{"legatoShell":"theme","key":"k1","id":1}"#,
         ];
         let sent = in_node("k1", false, true, &posts).unwrap();
-        assert_eq!(sent.len(), 1);
-        assert_eq!(read(&sent[0], "k1"), Some(PageMessage::Theme(crate::theme::AppTheme::Dracula)));
+        assert_eq!(sent.len(), 3);
+        for (url, id) in sent.iter().zip(["dracula", "ocular-light-vivid", "ocular-dark-vivid"]) {
+            let Some(PageMessage::Theme(theme)) = read(url, "k1") else { panic!("theme request not read: {url}") };
+            assert_eq!(serde_json::to_value(theme).unwrap(), id);
+        }
         assert_eq!(read("legato-desktop://theme?key=wrong&id=dracula", "k1"), None);
         assert_eq!(read("legato-desktop://theme?key=k1&id=unknown", "k1"), None);
         assert!(in_node("k1", false, false, &posts).unwrap().is_empty());

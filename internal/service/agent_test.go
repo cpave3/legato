@@ -157,6 +157,11 @@ func (m *mockTmux) IsAlive(name string) (bool, error) {
 	return m.sessions[name], nil
 }
 
+func (m *mockTmux) ShellReturned(name string) (bool, error) {
+	commands, err := m.PaneCommands()
+	return commands[name] == "bash" || commands[name] == "zsh", err
+}
+
 func (m *mockTmux) PaneCommands() (map[string]string, error) {
 	m.mu.Lock()
 	defer m.mu.Unlock()

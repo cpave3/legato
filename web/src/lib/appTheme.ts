@@ -1,7 +1,7 @@
 import { renderedThemes, type ThemeTokens, type ThemeMaterial } from "../../../themes/render"
 export type { ThemeTokens } from "../../../themes/render"
 
-export type AppThemeId = "legato" | "dracula" | "ocular-light" | "ocular-dark"
+export type AppThemeId = "legato" | "dracula" | "ocular-light" | "ocular-dark" | "ocular-light-vivid" | "ocular-dark-vivid"
 export const APP_THEME_KEY = "legato:app-theme"
 export const THEME_CHANGED = "legato:theme-changed"
 export const appThemes = [{ id: "legato", name: "Legato", polarity: "dark", tokens: null }, ...renderedThemes]

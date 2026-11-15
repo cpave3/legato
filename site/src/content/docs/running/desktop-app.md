@@ -36,7 +36,7 @@ A phrase lasts five minutes and five tries. Servers are found on the network as 
 
 ## Choose an app theme
 
-Open **Servers & keys** from the key icon at the foot of the dock. Under **Appearance**, choose **App theme**: **Legato**, **Dracula**, **Ocular Light** or **Ocular Dark**.
+Open **Servers & keys** from the key icon at the foot of the dock. Under **Appearance**, choose **App theme**: **Legato**, **Dracula**, **Ocular Light**, **Ocular Dark**, **Ocular Light Vivid** or **Ocular Dark Vivid**.
 
 The choice applies to the desktop shell and every open server page, including pages behind other tiles. You can also choose **App theme** in a server page’s web Settings; a compatible page asks the desktop app to save the same choice. The shell updates even when Servers & keys is closed. It is kept when you close and reopen the app. **Legato** restores the original appearance. The app does not follow your system's light/dark setting. The floating Legato widget uses the same theme for its voice capsule, conversation card and approvals feed. Its native menu keeps the operating system’s appearance.
 
