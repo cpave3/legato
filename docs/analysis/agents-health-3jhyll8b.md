@@ -73,15 +73,15 @@ updated with evidence, root cause, owner and regression paths.
 | A0 | Provider canary uses real CLI with no real auth/config | Pass: isolated `claude -p`, one loopback model call, canary reply, exit0 | claude-provider-probe.log; transport prerequisite only |
 | A1 | Actual launch binds once; correct saved identity/MCP task | Pass: actual CLI launch, native binding, real task_context result | claude-steering-reload-baseline.log; launcher/mod/bridge |
 | A2 | Native snapshot/events/list agree across clean turn and idle append | Pass for final reply/idle and subsequent input | Same live driver; state hooks + shared projection |
-| A3 | Supported child lifecycle; parent independent | Confirmed false live completion for always-async Agent; bridge fix passes race suite and real child assertion. 2.1.322 schema no longer offers foreground execution. Child failure/stop not yet exercised | claude-background-red.log, claude-background-contract-red.log, claude-background-green-build.log; bridge-owned |
+| A3 | Supported child lifecycle; parent independent | Pass after fixes: real async success and TaskStop, parent idle/background independently, live launch not completion, canonical interrupted snapshot. 2.1.322 schema no longer offers foreground execution; Claude child failure/nesting not claimed | claude-final-2.log; before: claude-background-red.log, claude-full-green snapshot; bridge-owned |
 | A4 | Concurrent messages and steering across tool/clean-stop boundaries exactly once | Pass: 3 cycles × 4 concurrent messages at clean-stop, exactly once in native history and actual provider input; tool-boundary timing remains plugin-host coverage | claude-steering-reload-baseline.log; mod held/folded queues |
 | A5 | Permission allow/deny/cancel and multiple/custom/dismissed questions via UI payloads | Pass: allow/deny control actual canary execution; two questions with choice/custom answer and dismissal via native WS/tray HTTP. Permission dismissal and multiselect not claimed | claude-requests-baseline.log; requests/approval service |
 | A6 | Disconnect/replay/expired cursor, no silent loss or stale callbacks | Pass: 3 live reconnect/replay cycles, no duplicate IDs. Cursor eviction/long outage not yet exercised | claude-steering-reload-baseline.log; bridge + shared stream manager |
 | A7 | Reload/resume and scratch-server restart retain identity/MCP, fence old execution | Pass: reload creates new execution, retains conversation/history/MCP, persistent viewer follows it. Scratch-server restart not yet exercised for Claude | Same live driver; BridgeHost / restart |
-| A8 | Interrupt/failed startup/error/cleanup visibly reconcile | Pass: active interrupt→native/aggregate idle and scratch cleanup. Confirmed missing native explanation for completed API400 error; investigating. API401 was still retrying at timeout, not a stuck-turn defect | claude-background-green/{scratch-native-pane.txt,snapshot-diagnostic.json}; CLI/mod/bridge |
-| A9 | Endpoint/credential canaries never appear in diagnostics | Pending | Shared client / bridge logs |
-| A10 | Unsupported modes/elicitation/pickers remain explicitly unsupported | Pending | Capability/terminal paths |
-| C1 | Merged Chimera full smoke remains green | Pass: 20 full scenario checks + 14 bootstrap/authentication/recovery outcomes | chimera-main-smoke.log; existing full scratch runner |
+| A8 | Interrupt/failed startup/error/cleanup visibly reconcile | Pass after fix: completed API400 explanation in live native errors and snapshot, aggregate error then next-turn recovery; interrupt and cleanup pass. Failed startup/crash not claimed. API401 was still retrying, not stuck | claude-final-2.log; before: claude-background-green pane/snapshot; CLI/mod/bridge |
+| A9 | Endpoint/credential canaries never appear in diagnostics | Pass for nonsecret provider-URL redaction in actual plugin host; scratch API tokens/URLs redacted from retained diagnostics. No broader credential-exposure security claim | claude-error-contract-green-build.log; no real credentials used/read |
+| A10 | Unsupported modes/elicitation/pickers remain explicitly unsupported | Pass for modes: empty list, mutation explicitly rejected. Proxy currently returns 502 with upstream 409 Conflict, not body-specific explanation. Elicitation/pickers not exercised | claude-final-2.log; capability/terminal paths |
+| C1 | Merged Chimera full smoke remains green | Pass again with final rebuilt Legato: 20 full scenario checks + 14 bootstrap/authentication/recovery outcomes | chimera-final-green.log; existing full scratch runner |
 | X1 | Codex health | Deferred by operator; no live result | Static mapping only |
 
 ## Initial evidence and limitations
@@ -113,6 +113,59 @@ own lifecycle. Aggregate state hooks already correctly reported background.
 The first child probe used an obsolete input flag and looked for a top-level
 snapshot child list; those were harness mistakes, corrected from the actual
 advertised schema and `toolCalls[].subagent`, not product defects.
+
+## Confirmed fix: completed API error explanation
+
+A loopback API400 response completes the real Claude turn. Its terminal shows
+`API Error: 400 CLAUDE-NONSECRET-API-ERROR-CANARY`, but the baseline native
+snapshot is idle and ends with only the operator's prompt. A real-engine shape
+probe establishes that `turn.step` does **not** throw: it yields an opaque
+`{kind: engine, ref: 1}`, returns an empty answer, then ends with reason `error`.
+The supported `classic.StopFailure` event carries `last_assistant_message`.
+
+The mod now forwards that explanation (bounded and provider URLs redacted).
+The bridge emits a native error and retains explanation text in current-bridge
+snapshot history. No opaque engine reference is decoded. Before: the real
+runner's visibility assertion, plugin-host test and bridge HTTP/SSE test fail.
+After: bridge race suite, 52 plugin-host tests and rebuilt live validation pass.
+This retention does not
+promise that Claude's own transcript persists an API error across process reload.
+
+## Confirmed fix: intentional child stop is not failure
+
+The real `TaskStop` tool successfully stops the scratch child; Claude's terminal
+says stopped. The native bridge forwards `reason: aborted` and retains
+`status: error`. The shared web protocol recognizes `interrupted`, not `aborted`,
+so an intentional cancellation is rendered as an error. Before: real runner
+and both canonical parent/child bridge boundary tests fail. The fix normalizes
+the reason and retains interrupted child status in snapshots. Targeted bridge
+tests and rebuilt live validation pass.
+
+## Final validation
+
+- `claude-final-2.log`: all **15 groups pass**, 43 real Claude model requests;
+  test names are emitted in the JSON result. Engine version: 2.1.322.
+- `chimera-final-green.log`: **20 full scenarios + 14 launch/auth/recovery
+  outcomes pass** against the final rebuilt Legato and Chimera `0733a563`.
+- `claude-error-contract-green-build.log`: **52 plugin-host tests pass**,
+  including URL-redacted failure forwarding; bridge race suite also passes.
+- `final-validation.log`: final bridge race suite passes and binary built.
+- `legato-web-full-green.log`: **1,616 tests pass** across the full web suite;
+  focused native sync/panel boundaries separately pass 51 tests.
+- `legato-full-short-green.log`: full Go short suite passes (service package
+  takes 495s on this worker). `legato-final-full-short-green.log` is the final
+  rerun after canonical interruption normalization; pending at this revision.
+
+Heavy validation runs under `flock ~/.nuget/packages/.legato-heavy.lock`.
+The final Go rerun uses a bounded 12-minute package timeout after measuring
+the successful initial service run; no test is disabled. Both real scratch
+drivers clean up their own instances. No production agents/configuration or
+shared installations were touched. No new Chimera code change or PR is needed.
+
+Remaining limits: Codex deferred; no live Claude daemon handoff, foreground
+child (not advertised), nested/failing child, long cursor eviction, automatic
+compaction, failed startup/crash or fully sandboxed pass. Documented daemon MCP
+ownership limits, CHIM-86 and unreproduced LEG-157 are not declared resolved.
 
 ## Repeatable live command
 

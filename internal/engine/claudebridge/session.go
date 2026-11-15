@@ -33,7 +33,7 @@ type modEvent struct {
 	// settings
 	Effort string `json:"effort"`
 
-	// message_failed: why the session would not take the message in Text.
+	// message_failed or request_error: a delivery or provider failure.
 	Error string `json:"error"`
 
 	// turn_start, turn_complete, text_delta, thinking_delta
@@ -333,6 +333,9 @@ func (s *session) apply(event modEvent, now time.Time) []nativeEvent {
 		return []nativeEvent{s.settingsChanged()}
 	case "agent_spawn":
 		return s.applyAgentSpawn(event, now)
+	case "request_error":
+		s.items = append(s.items, item{kind: itemAssistant, text: event.Error})
+		return []nativeEvent{{"type": "error", "error": event.Error}}
 	case "user_note":
 		// A message the mod folded into the running turn. Its stored row is
 		// framed for the model, so the mod reports the words as sent.
@@ -357,8 +360,11 @@ func (s *session) apply(event modEvent, now time.Time) []nativeEvent {
 			reason := runFinishReason(event.Reason)
 			record.reason = reason
 			record.status = "error"
-			if reason == "stop" {
+			switch reason {
+			case "stop":
 				record.status = "finished"
+			case "interrupted":
+				record.status = "interrupted"
 			}
 			record.endedAt = now.UnixMilli()
 			return []nativeEvent{{"type": "subagent_finished", "subagentId": event.AgentID, "reason": reason, "endedAt": record.endedAt}}
@@ -658,6 +664,8 @@ func runFinishReason(reason string) string {
 	switch reason {
 	case "", "answer":
 		return "stop"
+	case "aborted":
+		return "interrupted"
 	}
 	return reason
 }

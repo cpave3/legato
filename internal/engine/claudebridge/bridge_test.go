@@ -457,7 +457,7 @@ func TestInterruptedTurnReportsItsReason(t *testing.T) {
 
 	h.mod(map[string]any{"type": "turn_complete", "turnId": "turn-1", "reason": "aborted"})
 
-	if event := nextEvent(t, events); event["type"] != "run_finished" || event["reason"] != "aborted" {
+	if event := nextEvent(t, events); event["type"] != "run_finished" || event["reason"] != "interrupted" {
 		t.Fatalf("event = %v", event)
 	}
 }
@@ -1167,6 +1167,37 @@ func TestABackgroundSubagentIsStillRunningAfterItsCallReturns(t *testing.T) {
 	h.mod(map[string]any{"type": "turn_complete", "turnId": "turn-9", "reason": "answer", "agentId": "agent-7"})
 	if done := h.snapshot().ToolCalls[0].Subagent; done.Status != "finished" {
 		t.Fatalf("subagent = %+v, want finished once its turn ends", done)
+	}
+}
+
+func TestAStoppedChildIsInterruptedInLiveAndReopenedPanels(t *testing.T) {
+	h := newHarness(t)
+	h.mod(hello(nil), assistantRow("row-a", toolUse("toolu_agent", "Agent", map[string]any{"prompt": "Check."})))
+	h.mod(map[string]any{"type": "agent_spawn", "toolUseId": "toolu_agent", "agentId": "agent-7"})
+	events := h.subscribe("")
+	h.mod(map[string]any{"type": "turn_complete", "turnId": "child-turn", "agentId": "agent-7", "reason": "aborted"})
+	if stopped := nextEvent(t, events); stopped["type"] != "subagent_finished" || stopped["reason"] != "interrupted" {
+		t.Fatalf("stopped child = %v, want a canonical interruption", stopped)
+	}
+	child := h.snapshot().ToolCalls[0].Subagent
+	if child == nil || child.Status != "interrupted" || child.Reason != "interrupted" {
+		t.Fatalf("reopened child = %+v, want interrupted rather than error", child)
+	}
+}
+
+func TestAProviderFailureReachesLiveAndReopenedPanels(t *testing.T) {
+	h := newHarness(t)
+	h.mod(hello(nil), map[string]any{"type": "turn_start", "turnId": "turn-1"})
+	events := h.subscribe("")
+	h.mod(map[string]any{"type": "request_error", "error": "API Error: 400 provider-canary"})
+	failed := nextEvent(t, events)
+	if failed["type"] != "error" || failed["error"] != "API Error: 400 provider-canary" {
+		t.Fatalf("provider failure = %v", failed)
+	}
+	h.mod(map[string]any{"type": "turn_complete", "turnId": "turn-1", "reason": "error"})
+	snap := h.snapshot()
+	if snap.Status != "idle" || len(snap.Messages) != 2 || snap.Messages[1].Role != "assistant" || !strings.Contains(fmt.Sprint(snap.Messages[1].Content), "API Error: 400 provider-canary") {
+		t.Fatalf("reopened panel = %+v, want the completed failure's explanation", snap)
 	}
 }
 
