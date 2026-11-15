@@ -4,13 +4,13 @@ Verified in an isolated Legato clone on 2026-11-15. No live credentials, product
 
 ## Actual entrypoints
 
-Two scratch `legato serve` instances, each with separate config/database/data/runtime, and a scratch Mochi MQTT broker drove Chromium. `verification.json` records 14 passing checks: MQTT and manual Settings share one persisted preference; only opted-in clients follow it; switching, reload, offline cache and inactive-server events preserve active-server ownership; retained commands cannot mutate state; local fallback and explicit terminal selection survive. Settings fit 320, 390 and 1440 px; screenshots are alongside this report.
+Two scratch `legato serve` instances, each with separate config/database/data/runtime, and a scratch Mochi MQTT broker drove Chromium. `verification.json` records 14 passing checks: MQTT and manual Settings share one persisted preference; only opted-in clients follow it; switching, reload, offline cache and inactive-server events preserve active-server ownership; retained commands cannot mutate state; local fallback and explicit terminal selection survive. Settings fit 320, 390 and 1440 px; screenshots are alongside this report. Scratch servers and broker were stopped, and their instance folders removed afterward.
 
 The broker integration tests exercise discovery, strict payload validation, revision conflicts, nonce rotation/reconnect, retained replay and live retained rejection, bounded queues/rate, disabled control, unchanged aggregate-only ACLs, and actual CLI entrypoints. They use synthetic scratch credentials, not the operator's broker.
 
 ## Checks
 
-- `CGO_ENABLED=0 go test ./...`: passed (isolated writable Go cache).
+- `npm_config_cache=/tmp/legato-npm-cache CGO_ENABLED=0 GOCACHE=$PWD/.git/go-cache go test ./...`: passed. The default home npm cache is read-only in this sandbox; an initial final rerun failed only while installing the diagram parser there, then the writable-cache rerun passed.
 - Relevant event/service/command race tests: passed.
 - Go vet and targeted lint: passed.
 - Web: 228 files / 1,698 tests passed; TypeScript, ESLint and production/PWA build passed.
@@ -27,3 +27,11 @@ Mutation checks caught forced-local Android resolution and removal of the MQTT r
 ## Limits
 
 No native GUI, Android device/emulator or installed Home Assistant was tested. Android Gradle tests/APK build are blocked by the missing Android SDK. HA discovery templates were inspected and broker-tested, but not executed inside Home Assistant. Native tests and browser tests are not claims of device verification. Existing Vite chunk-size/Browserslist-age warnings remain.
+
+## Review and integration limits
+
+Recommended merge order: **PR #102 first, then rebase PR #103 onto its result before merging #103**. Neither merge has been performed. The combined layout has not been tested in this branch; the screenshots show this branch's pre-#102 Settings layout.
+
+When resolving `web/src/pages/Settings.tsx`, preserve #102's categories, search, wrappers and navigation. Keep `AppThemePicker` in **Preferences**; import and mount the no-props `ServerThemeSettings` in **Server**, beside instance tint/server appearance, not in browser-local preferences. The component already includes its Preferred theme label/helper. Preserve the mounted SettingsPage preference regression and adapt its navigation to the Server category. Keep MQTT `theme_control` registry semantics and the broker-authority helper when combining #102's MQTTSettings wrapper styling. Preserve #103's native-v2 ownership behavior, new canonical UI role adapters, palettes and stable IDs. Re-run mounted Settings tests, types and browser checks against the combined layout; the separate PR checks do not prove that integration.
+
+No external code-review approval is claimed. The optional independent final test auditor timed out; worker audits and the parent's applied test audit are documented above. No review tour/handoff packet was created because reviews are disabled for this task.
