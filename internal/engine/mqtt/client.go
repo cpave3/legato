@@ -157,6 +157,15 @@ func (c *Client) Commands() <-chan Command { return c.commands }
 func (c *Client) publish(ctx context.Context, topic string, payload []byte, qos byte, retain bool) error {
 	ctx, cancel := context.WithTimeout(ctx, operationTimeout)
 	defer cancel()
+	// Paho's clean session can discard a pending PUBACK waiter on disconnect.
+	// This connection never resumes, so end the operation with it.
+	go func() {
+		select {
+		case <-c.Done():
+			cancel()
+		case <-ctx.Done():
+		}
+	}()
 	if err := ctx.Err(); err != nil {
 		return err
 	}

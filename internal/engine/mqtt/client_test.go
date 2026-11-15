@@ -622,3 +622,64 @@ func TestCommandQueueCannotBlockNetworkReader(t *testing.T) {
 		}
 	}
 }
+
+func TestPublishConnectionLossDoesNotWaitForMissingAcknowledgement(t *testing.T) {
+	listener, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer listener.Close()
+	serverDone := make(chan error, 1)
+	go func() {
+		conn, err := listener.Accept()
+		if err != nil {
+			serverDone <- err
+			return
+		}
+		defer conn.Close()
+		if _, err := pahopackets.ReadPacket(conn); err != nil {
+			serverDone <- err
+			return
+		}
+		if _, err := (&pahopackets.Connack{Properties: &pahopackets.Properties{}}).WriteTo(conn); err != nil {
+			serverDone <- err
+			return
+		}
+		for {
+			packet, err := pahopackets.ReadPacket(conn)
+			if err != nil {
+				serverDone <- err
+				return
+			}
+			switch packet.Type {
+			case pahopackets.PINGREQ:
+				if _, err := (&pahopackets.Pingresp{}).WriteTo(conn); err != nil {
+					serverDone <- err
+					return
+				}
+			case pahopackets.PUBLISH:
+				// Drop only after the QoS1 publish, without sending PUBACK.
+				conn.Close()
+				serverDone <- nil
+				return
+			default:
+				serverDone <- errors.New("expected PUBLISH or PINGREQ")
+				return
+			}
+		}
+	}()
+	client, err := transport.Dial(testContext(t), transport.Options{Broker: "mqtt://" + listener.Addr().String(), ClientID: "publisher", AvailabilityTopic: "test/availability"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = client.Close(context.Background()) })
+	ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+	defer cancel()
+	err = client.Publish(ctx, "test/state", []byte("current"))
+	if err == nil || errors.Is(err, context.DeadlineExceeded) {
+		t.Fatalf("publish must fail on connection loss, not wait for caller deadline: %v", err)
+	}
+	if err := <-serverDone; err != nil {
+		t.Fatal(err)
+	}
+}
