@@ -18,6 +18,17 @@
   outline: 2px solid var(--theme-focus);
   outline-offset: 3px;
 }
+/* The textarea is only the upper part of this rounded compound control.
+   Transfer its cue to the boundary, not to the toolbar's individual buttons.
+   Match the named-theme rule's specificity so it cannot restore a square ring. */
+:root[data-theme] .native-agent-composer textarea:focus-visible,
+.native-agent-composer textarea:focus-visible {
+  outline: none;
+}
+.native-agent-composer:has(textarea:focus-visible) {
+  outline: 2px solid var(--theme-focus, var(--color-lw-accent));
+  outline-offset: -2px;
+}
 :root[data-theme]:not([data-theme="legato"]) :is(input, textarea)::placeholder {
   color: var(--theme-muted);
   opacity: 1;

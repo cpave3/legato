@@ -28,7 +28,7 @@ export function RecoveryPreview() {
   const ws = useWebSocketProvider(`ws://${location.host}/scratch-recovery-ws`)
   return <server.Provider value={server}><ws.Provider value={{ ...ws, connected: true, send: () => true, subscribe: () => () => {} }}>
     <main className="flex h-dvh w-full flex-col bg-lw-ground font-lw text-lw-text">
-      <NativeAgentPanel agentId="scratch-recovery" agentKind="chimera" title="Build regression" composerEnabled={false} />
+      <NativeAgentPanel agentId="scratch-recovery" agentKind="chimera" title="Build regression" composerEnabled={params.has("composer")} />
     </main>
   </ws.Provider></server.Provider>
 }
