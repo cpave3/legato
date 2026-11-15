@@ -68,18 +68,20 @@ it("refetches on server-theme events and reconnect, falls back for older/unsuppo
   socket.generation++
   page.rerender(<Page />)
   await waitFor(() => expect(document.documentElement.dataset.theme).toBe("dracula"))
-  for (const next of [undefined, { id: "future-theme", revision: 4 }]) {
-    preference = next
-    const count = request.mock.calls.length
+  let revision = 3
+  for (const id of [undefined, "future-theme"]) {
+    preference = { id: "ocular-light", revision: ++revision }
     act(() => socket.handlers.forEach(handler => handler({ type: "server_theme_changed" })))
-    await waitFor(() => expect(request.mock.calls.length).toBeGreaterThan(count))
-    expect(document.documentElement.dataset.theme).toBe("dracula")
+    await waitFor(() => expect(document.documentElement.dataset.theme).toBe("ocular-light"))
+    preference = id === undefined ? undefined : { id, revision: ++revision }
+    act(() => socket.handlers.forEach(handler => handler({ type: "server_theme_changed" })))
+    await waitFor(() => expect(document.documentElement.dataset.theme).toBe("dracula"))
   }
   fireEvent.click(screen.getByRole("radio", { name: "Ocular Light" }))
   await waitFor(() => expect(document.documentElement.dataset.theme).toBe("ocular-light"))
-  preference = { id: "ocular-dark", revision: 5 }
+  preference = { id: "ocular-dark", revision: ++revision }
   act(() => socket.handlers.forEach(handler => handler({ type: "server_theme_changed" })))
-  await waitFor(() => expect(localStorage.getItem("legato:server-theme-cache")).toContain('"revision":5'))
+  await waitFor(() => expect(localStorage.getItem("legato:server-theme-cache")).toContain(`"revision":${revision}`))
   expect(document.documentElement.dataset.theme).toBe("ocular-light")
 })
 
@@ -90,7 +92,7 @@ it("does not independently resolve the server in a native-owned page", async () 
   localStorage.setItem("legato:effective-app-theme", "ocular-dark")
   vi.stubGlobal("fetch", vi.fn(async () => Response.json({ theme_preference: { id: "ocular-light", revision: 1 } })))
   render(<Page />)
-  await waitFor(() => expect(fetch).toHaveBeenCalled())
+  await waitFor(() => expect(localStorage.getItem("legato:server-theme-cache")).toContain('"id":"ocular-light"'))
   expect(document.documentElement.dataset.theme).toBe("ocular-dark")
   expect(localStorage.getItem("legato:app-theme")).toBe("dracula")
 })

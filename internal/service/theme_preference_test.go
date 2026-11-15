@@ -11,8 +11,8 @@ import (
 )
 
 // The service is the shared caller for manual settings and MQTT; listeners
-// must observe the committed snapshot, including through another opener.
-func TestServerThemeCommitsBeforeNotificationAndSurvivesReopen(t *testing.T) {
+// can reread the saved snapshot, including through another opener.
+func TestServerThemeChangeNotifiesAndSurvivesReopen(t *testing.T) {
 	ctx := context.Background()
 	path := filepath.Join(t.TempDir(), "themes.db")
 	db, err := store.New(path)
@@ -69,7 +69,7 @@ func TestServerThemeRejectsStaleAndUnknownChoicesWithoutNotification(t *testing.
 		id       string
 		want     error
 	}{{0, "ocular-light", ErrThemeConflict}, {1, "shell-command", ErrUnknownTheme}} {
-		if _, err := service.Change(ctx, input.revision, input.id, "mqtt:broker-acl"); !errors.Is(err, input.want) {
+		if _, err := service.Change(ctx, input.revision, input.id, "mqtt:broker-grant"); !errors.Is(err, input.want) {
 			t.Fatalf("error %v want %v", err, input.want)
 		}
 		actual, err := service.Current(ctx)

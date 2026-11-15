@@ -57,7 +57,9 @@ func TestServerThemeIPCRefreshesOtherRuntimeWithoutEcho(t *testing.T) {
 		var metadata struct {
 			ThemePreference service.ThemePreference `json:"theme_preference"`
 		}
-		json.Unmarshal(rec.Body.Bytes(), &metadata)
+		if err := json.Unmarshal(rec.Body.Bytes(), &metadata); err != nil {
+			t.Fatal(err)
+		}
 		if rec.Code != 200 || metadata.ThemePreference != saved {
 			t.Fatalf("other runtime metadata: %d %s", rec.Code, rec.Body)
 		}

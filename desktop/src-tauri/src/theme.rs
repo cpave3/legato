@@ -198,7 +198,11 @@ mod tests {
         let path = dir.path().join("state.json");
         let mut store = crate::store::Store::open(path.clone(), Box::new(crate::store::tests::Memory::default())).unwrap();
         store.add_server("one", "https://one.local", None, "token").unwrap();
-        for id in ["legato", "dracula", "ocular-light", "ocular-dark", "ocular-light-vivid", "ocular-dark-vivid", "server"] {
+        let source: serde_json::Value = serde_json::from_str(include_str!("../../../themes/palettes.json")).unwrap();
+        let mut ids = vec!["legato".to_string()];
+        ids.extend(source["themes"].as_array().unwrap().iter().map(|entry| entry["id"].as_str().unwrap().to_string()));
+        ids.push("server".into());
+        for id in ids {
             let script = crate::bridge::script("secret", false, "https://one.local");
             let program = format!(r#"
 const location = {{ origin: "https://one.local", href: "" }};
