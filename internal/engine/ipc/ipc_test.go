@@ -1,11 +1,13 @@
 package ipc_test
 
 import (
+	"context"
 	"errors"
 	"fmt"
 	"net"
 	"os"
 	"path/filepath"
+	"strings"
 	"sync"
 	"syscall"
 	"testing"
@@ -13,6 +15,44 @@ import (
 
 	"github.com/cpave3/legato/internal/engine/ipc"
 )
+
+func TestBroadcastContextCancelsStalledSocketWrite(t *testing.T) {
+	t.Setenv("XDG_RUNTIME_DIR", shortSocketDir(t))
+	if err := os.MkdirAll(ipc.SocketDir(), 0o700); err != nil {
+		t.Fatal(err)
+	}
+	listener, err := net.Listen("unix", filepath.Join(ipc.SocketDir(), "stalled.sock"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = listener.Close() })
+	accepted := make(chan net.Conn, 1)
+	go func() {
+		conn, err := listener.Accept()
+		if err == nil {
+			accepted <- conn
+		}
+	}()
+	ctx, cancel := context.WithCancel(context.Background())
+	t.Cleanup(cancel)
+	done := make(chan struct{})
+	go func() {
+		ipc.BroadcastContext(ctx, ipc.Message{Content: strings.Repeat("x", 4<<20)})
+		close(done)
+	}()
+	select {
+	case conn := <-accepted:
+		t.Cleanup(func() { _ = conn.Close() })
+	case <-time.After(time.Second):
+		t.Fatal("broadcast did not reach isolated socket")
+	}
+	cancel()
+	select {
+	case <-done:
+	case <-time.After(time.Second):
+		t.Fatal("cancel did not release stalled broadcast")
+	}
+}
 
 func TestSocketDir_UsesXDGRuntimeDir(t *testing.T) {
 	t.Setenv("XDG_RUNTIME_DIR", "/run/user/1000")
