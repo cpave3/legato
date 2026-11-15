@@ -40,8 +40,8 @@ func TestAMainTurnThatEndsWithoutAnAnswerIsReported(t *testing.T) {
 
 	select {
 	case reason := <-ended:
-		if reason != "aborted" {
-			t.Fatalf("reported %q, want aborted", reason)
+		if reason != "interrupted" {
+			t.Fatalf("reported %q, want interrupted", reason)
 		}
 	case <-time.After(2 * time.Second):
 		t.Fatal("the interrupted turn was never reported")
