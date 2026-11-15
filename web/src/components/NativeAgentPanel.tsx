@@ -13,6 +13,8 @@ import { apiFetch } from "../lib/api"
 import { dispatchAgentInput } from "../lib/agentInput"
 import { useVoiceRecorder } from "../hooks/useVoiceRecorder"
 import { ReviewMessageBody } from "./ReviewMessageBody"
+import { ChimeraRecovery } from "./ChimeraRecovery"
+import { isChimeraRecovery } from "../lib/chimeraRecovery"
 import { NativeModelSettingsForm } from "./NativeModelSettings"
 import { ComposerModelMenu } from "./ComposerModelMenu"
 import { NativeQuestionCard } from "./NativeQuestionCard"
@@ -645,12 +647,14 @@ export function NativeAgentPanel({ agentId, reeve, sandboxed, onKill, onRename, 
           return
         }
         applyEvent(event)
-        if (event.type === "run_finished") {
+        if (event.type === "run_finished" || ((!agentKind || agentKind === "chimera") && event.type === "compaction_finished")) {
           if (runFinishTimerRef.current != null) window.clearTimeout(runFinishTimerRef.current)
           runFinishTimerRef.current = window.setTimeout(() => {
             runFinishTimerRef.current = null
             void resync()
           }, 100)
+        }
+        if (event.type === "run_finished") {
           setBangQueue((prev) => {
             if (prev.length > 0) void executeBang(prev[0])
             return prev.slice(1)
@@ -680,7 +684,7 @@ export function NativeAgentPanel({ agentId, reeve, sandboxed, onKill, onRename, 
       unsubscribe()
       if (following) send({ type: "unsubscribe_agent", agent_id: agentId })
     }
-  }, [subscribe, agentId, applyEvent, replaceSyncState, resync, executeBang, following, send])
+  }, [subscribe, agentId, agentKind, applyEvent, replaceSyncState, resync, executeBang, following, send])
 
   const handleBuiltinSlash = useCallback(async (raw: string) => {
     const parts = raw.split(/\s+/)
@@ -999,6 +1003,9 @@ export function NativeAgentPanel({ agentId, reeve, sandboxed, onKill, onRename, 
         {blocks.map((block) => {
           if (block.kind === "steps") return <StepGroup key={block.key} agentId={agentId} rows={block.rows} />
           const item = block.item
+          if ((!agentKind || agentKind === "chimera") && item.role === "assistant" && !item.isStreaming && isChimeraRecovery(item.text)) {
+            return <ChimeraRecovery key={item.key} text={item.text} />
+          }
           if (item.role === "user") {
             // Legato's own messages arrive as user turns; they are drawn
             // apart from what the person typed.

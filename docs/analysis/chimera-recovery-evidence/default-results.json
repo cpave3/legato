@@ -1,0 +1,56 @@
+[
+  {
+    "theme": "legato",
+    "width": 1280,
+    "bounds": {
+      "height": 540,
+      "width": 746,
+      "scrollWidth": 746
+    },
+    "contrast": {
+      "body": 14.276233696312028,
+      "muted": 6.361691763301625,
+      "link": 7.564066307922516,
+      "focus": 3.9002581161753502,
+      "overflow": false
+    },
+    "download": "exact",
+    "keyboardToggle": "passed"
+  },
+  {
+    "theme": "legato",
+    "width": 390,
+    "bounds": {
+      "height": 540,
+      "width": 332,
+      "scrollWidth": 332
+    },
+    "contrast": {
+      "body": 14.276233696312028,
+      "muted": 6.361691763301625,
+      "link": 7.564066307922516,
+      "focus": 3.9002581161753502,
+      "overflow": false
+    },
+    "download": "exact",
+    "keyboardToggle": "passed"
+  },
+  {
+    "theme": "legato",
+    "width": 320,
+    "bounds": {
+      "height": 540,
+      "width": 262,
+      "scrollWidth": 262
+    },
+    "contrast": {
+      "body": 14.276233696312028,
+      "muted": 6.361691763301625,
+      "link": 7.564066307922516,
+      "focus": 3.9002581161753502,
+      "overflow": false
+    },
+    "download": "exact",
+    "keyboardToggle": "passed"
+  }
+]
