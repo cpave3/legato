@@ -2,6 +2,8 @@
 
 `palettes.json` is the authoritative design source for Dracula, Ocular Light and Ocular Dark. Web, desktop and Android mappings derive from this tracked file; no installed app reads the research folder.
 
+Visual guidelines are in [`DESIGN.md`](../DESIGN.md). Its semantic role bindings and Impeccable preview sidecar reference this system rather than maintaining another palette. Refresh `DESIGN.md` and `.impeccable/design.json` together when the documented system changes.
+
 ## Provenance
 
 Ocular Light and Ocular Dark are the **unchanged** Work Light and Work Dark candidates from `eye-strain/prototypes/palettes.json`, prepared 15 November 2026 (research task `ay42i4o5`). Only their IDs and display names changed. The original source SHA-256, semantic/syntax role definitions, provenance and research limitations are recorded in the JSON. The research report, comparison and validation were inspected before integration. Its six tests and 23 Chromium checks concern the research prototype, **not this Legato port**.
