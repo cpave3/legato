@@ -31,7 +31,8 @@ type Metadata struct {
 	TokenEndpoint         string
 	RegistrationEndpoint  string
 	// CodeChallengeMethods is empty when the server did not list them.
-	CodeChallengeMethods []string
+	CodeChallengeMethods    []string
+	ResponseIssuerSupported bool
 }
 
 // Discover reads the protected-resource metadata at the origin of
@@ -70,11 +71,12 @@ func Discover(ctx context.Context, client *http.Client, resourceURL string) (*Me
 	wellKnown.RawPath, wellKnown.RawQuery, wellKnown.Fragment = "", "", ""
 
 	var asm struct {
-		Issuer                string   `json:"issuer"`
-		AuthorizationEndpoint string   `json:"authorization_endpoint"`
-		TokenEndpoint         string   `json:"token_endpoint"`
-		RegistrationEndpoint  string   `json:"registration_endpoint"`
-		CodeChallengeMethods  []string `json:"code_challenge_methods_supported"`
+		Issuer                  string   `json:"issuer"`
+		AuthorizationEndpoint   string   `json:"authorization_endpoint"`
+		TokenEndpoint           string   `json:"token_endpoint"`
+		RegistrationEndpoint    string   `json:"registration_endpoint"`
+		CodeChallengeMethods    []string `json:"code_challenge_methods_supported"`
+		ResponseIssuerSupported bool     `json:"authorization_response_iss_parameter_supported"`
 	}
 	if err := getJSON(ctx, client, wellKnown.String(), &asm); err != nil {
 		return nil, fmt.Errorf("oauth: authorization server metadata: %w", err)
@@ -104,12 +106,13 @@ func Discover(ctx context.Context, client *http.Client, resourceURL string) (*Me
 	}
 
 	return &Metadata{
-		Resource:              prm.Resource,
-		Issuer:                asm.Issuer,
-		AuthorizationEndpoint: asm.AuthorizationEndpoint,
-		TokenEndpoint:         asm.TokenEndpoint,
-		RegistrationEndpoint:  asm.RegistrationEndpoint,
-		CodeChallengeMethods:  asm.CodeChallengeMethods,
+		Resource:                prm.Resource,
+		Issuer:                  asm.Issuer,
+		AuthorizationEndpoint:   asm.AuthorizationEndpoint,
+		TokenEndpoint:           asm.TokenEndpoint,
+		RegistrationEndpoint:    asm.RegistrationEndpoint,
+		CodeChallengeMethods:    asm.CodeChallengeMethods,
+		ResponseIssuerSupported: asm.ResponseIssuerSupported,
 	}, nil
 }
 

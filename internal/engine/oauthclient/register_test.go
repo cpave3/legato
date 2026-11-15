@@ -34,6 +34,7 @@ func TestRegisterAsAPublicClient(t *testing.T) {
 	}
 	want := map[string]any{
 		"client_name":                "Legato (host)",
+		"application_type":           "native",
 		"redirect_uris":              []any{"http://127.0.0.1/callback"},
 		"token_endpoint_auth_method": "none",
 		"grant_types":                []any{"authorization_code", "refresh_token"},

@@ -150,19 +150,14 @@ func TestWaitClosesTheListener(t *testing.T) {
 }
 
 func TestWaitRefusesAStateMismatchFromTheBrowser(t *testing.T) {
-	a, _ := startAuthorization(t)
-	done := make(chan string)
-	go func() {
-		_, page := browse(a, url.Values{"code": {"the-code"}, "state": {"forged"}}.Encode())
-		done <- page
-	}()
-
-	code, err := wait(t, a)
-	if !errors.Is(err, oauthclient.ErrStateMismatch) || code != "" {
-		t.Fatalf("Wait = %q, %v; want ErrStateMismatch and no code", code, err)
+	a, q := startAuthorization(t)
+	status, page := browse(a, url.Values{"code": {"the-code"}, "state": {"forged"}}.Encode())
+	if status != http.StatusBadRequest || strings.Contains(page, "the-code") {
+		t.Fatal("forged callback was accepted or echoed")
 	}
-	if page := <-done; strings.Contains(page, "the-code") {
-		t.Fatalf("page echoes the code: %q", page)
+	go browse(a, url.Values{"code": {"legitimate"}, "state": {q.Get("state")}}.Encode())
+	if code, err := wait(t, a); err != nil || code != "legitimate" {
+		t.Fatalf("forged callback consumed the attempt: %v", err)
 	}
 }
 
@@ -174,7 +169,7 @@ func TestWaitSurfacesTheRedirectsError(t *testing.T) {
 
 	_, err := wait(t, a)
 	var oerr *oauthclient.Error
-	if !errors.As(err, &oerr) || oerr.Code != "access_denied" || oerr.Description != "the person said no" {
+	if !errors.As(err, &oerr) || oerr.Code != "access_denied" || oerr.Description != "" {
 		t.Fatalf("err = %v, want access_denied", err)
 	}
 }
@@ -205,13 +200,16 @@ func TestPasteAcceptsTheAddressOnAnotherPort(t *testing.T) {
 }
 
 func TestPasteRefusesAStateMismatch(t *testing.T) {
-	a, _ := startAuthorization(t)
+	a, q := startAuthorization(t)
 	err := a.Paste(a.RedirectURI() + "?code=c&state=forged")
 	if !errors.Is(err, oauthclient.ErrStateMismatch) {
 		t.Fatalf("Paste = %v, want ErrStateMismatch", err)
 	}
-	if code, err := wait(t, a); !errors.Is(err, oauthclient.ErrStateMismatch) || code != "" {
-		t.Fatalf("Wait = %q, %v; want ErrStateMismatch and no code", code, err)
+	if err := a.Paste(a.RedirectURI() + "?code=legitimate&state=" + url.QueryEscape(q.Get("state"))); err != nil {
+		t.Fatal(err)
+	}
+	if code, err := wait(t, a); err != nil || code != "legitimate" {
+		t.Fatalf("forged response consumed the attempt: %v", err)
 	}
 }
 

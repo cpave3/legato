@@ -84,6 +84,8 @@ Migration 069 adds `approval_requests`: each request that waits for the person (
 
 Migration 070 adds `secrets` (Legato's own store: values sealed under a master key kept outside the database), `credential_grants` (what an execution may do with a credential, until an expiry, a number of uses or its end) and `credential_audit` (append-only and hash-chained; the time is TEXT because it is part of the hash). See [Credentials](credentials.md).
 
+Migration 118 adds the LEG-199 OAuth transaction foundation, not yet wired into Settings or agent tools: `oauth_connections` keeps a connection generation and active attempt; `oauth_attempts` keeps hashed operator/state/receiver bindings, initiating instance, expiry and exchange/confirmation state. Exchange claims and activation are conditional database transitions shared across processes. Activation requires confirmation and supersedes competing attempts; disconnect advances the generation before credentials are removed. Verifiers, client secrets and tokens belong in the existing sealed `secrets` store, not these transaction rows.
+
 Migration 071 adds `credential_placeholders` (the SHA-256 of each placeholder key the `http-proxy` channel gave an execution, with its credential; a placeholder resolves only while its execution runs) and `credential_meter_totals` (each amount a channel measured, by credential and meter, for the limits of rules; the time is TEXT like the audit log's).
 
 ### Broker tokens

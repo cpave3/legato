@@ -61,6 +61,8 @@ If Argus uses Legato's own TLS certificate, Argus must trust Legato's certificat
 `legato integration connect` refuses when Legato's secret store is unlocked by a passphrase, because Legato must store a new refresh token while nobody is there to type it.
 :::
 
+A malformed callback, or one with the wrong state or issuer, does not consume a pending sign-in. Provider denial messages use a safe error code instead of showing the provider's free-form description.
+
 ## Tokens
 
 An integration token starts with `lgi_` and works only on Legato's integration API. Each token has scopes:

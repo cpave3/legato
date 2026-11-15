@@ -7,13 +7,14 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"net/url"
 )
 
 // RegistrationRequest is what a public client tells the server about itself.
 type RegistrationRequest struct {
 	ClientName string
-	// RedirectURI is registered as given. A loopback redirect is usually
-	// registered without a port (RFC 8252 §7.3).
+	// RedirectURI is registered as given, including a receiver's bound port.
+	// Whether later loopback ports can vary depends on provider policy.
 	RedirectURI string
 }
 
@@ -32,8 +33,17 @@ func Register(ctx context.Context, client *http.Client, md *Metadata, r Registra
 	if md.RegistrationEndpoint == "" {
 		return Registration{}, fmt.Errorf("oauth: the authorization server offers no registration")
 	}
+	redirect, err := url.Parse(r.RedirectURI)
+	if err != nil || redirect.Host == "" || redirect.User != nil || redirect.RawQuery != "" || redirect.Fragment != "" || (redirect.Scheme != "https" && !(redirect.Scheme == "http" && isLoopback(redirect.Hostname()))) {
+		return Registration{}, fmt.Errorf("oauth: invalid client redirect URI")
+	}
+	applicationType := "web"
+	if isLoopback(redirect.Hostname()) {
+		applicationType = "native"
+	}
 	body, err := json.Marshal(map[string]any{
 		"client_name":                r.ClientName,
+		"application_type":           applicationType,
 		"redirect_uris":              []string{r.RedirectURI},
 		"token_endpoint_auth_method": "none",
 		"grant_types":                []string{"authorization_code", "refresh_token"},
