@@ -31,7 +31,7 @@ Integration routes answer errors as `{"error": "<code>", "message": "<text>"}`. 
 
 A main instance pairs with a worker instance by phrase, as a phone does, and gets a token that can only hand off ([GLOSSARY](../../GLOSSARY.md) § Instances and handoff). The spec is Burnlite LEG-15; this section covers pairing (LEG-18). Every Legato can be both.
 
-**On the worker.** The person opens a pairing request for a main: Settings › Handoff › Main instances › **Pair a main instance**, `legato pair --main`, or `POST /api/pairing {"purpose":"main"}`. It differs from a phone's request (see [Web UI](web-ui.md) § Pairing by phrase) in four ways:
+**On the worker.** The person opens a pairing request for a main: Settings › Connections and handoff › Main instances › **Pair a main instance**, `legato pair --main`, or `POST /api/pairing {"purpose":"main"}`. It differs from a phone's request (see [Web UI](web-ui.md) § Pairing by phrase) in four ways:
 
 - **Its own SPAKE2 identity.** The main is party A as `legato-main` (`pairing.MainProtocol`), so a phone cannot complete a main's request, nor a main a phone's: each gets 403 and uses an attempt. The phone's identities, labels, AAD and `testdata/exchange.json` are unchanged.
 - **The main must say who it is.** Its sealed field (the `phone` field of `/api/pair/confirm`, sealed under `pairing.LabelMain`) is `{"name", "instance_id"}`. A field that is missing or does not open, a name with nothing left after normalising, or an instance ID that is not `srv-` and 16 hex digits fails the confirm with 400 (`ErrPairingClient`). The name is lowercased and every run of other characters becomes one dash, at most 40 (`service.NormaliseMainName`).
@@ -42,7 +42,7 @@ A main is known by its instance ID, never its name. Settings › Main instances 
 
 **Handoff routes.** They live under `/api/integrations/handoff/` and act only for a paired main: a handler calls `requireHandoffMain(w, r)` (`internal/server/instance_pairing.go`), which returns the scoped identity (kind `main`, scope `handoff`, its `InstanceID`) or answers 403 `not_a_main` itself, for the full web token too. Handlers then act only on that main's records and answer `not_found` for another's. The first route is `GET /api/integrations/handoff/pairing` → `{worker_instance_id, main_instance_id, main_name, handoff}`: how the worker sees the pairing.
 
-**On the main.** Settings › Handoff › Workers › **Add a worker** takes the worker's address (https assumed without a scheme), the four words and this main's name on the worker (`POST /api/settings/workers {address, phrase, name}`; `GET` lists `{workers, instance_id, main_name}`, the last being the suggested name). `service.WorkerService.Pair`:
+**On the main.** Settings › Connections and handoff › Workers › **Add a worker** takes the worker's address (https assumed without a scheme), the four words and this main's name on the worker (`POST /api/settings/workers {address, phrase, name}`; `GET` lists `{workers, instance_id, main_name}`, the last being the suggested name). `service.WorkerService.Pair`:
 
 1. reads the worker's `/api/meta` and refuses one without `handoff_pairing` or with an older `handoff` (`ErrWorkerTooOld`, "update the worker", 409);
 2. runs SPAKE2 as `legato-main` with its normalised name and instance ID sealed; until then it does not check the worker's certificate, since the phrase authenticates the exchange and the certificate to trust arrives sealed;
@@ -364,7 +364,7 @@ Argus trusts Legato's self-signed CA through `NODE_EXTRA_CA_CERTS=<data_dir>/cer
 | `internal/cli/mcp_reply.go` | `reply_case` |
 | `cmd/legato/integration_runtime.go`, `integration_contract.go` | Wiring in both runtimes, the commands |
 | `internal/engine/pairing` (`MainProtocol`, `LabelMain`), `internal/service/pairing.go`, `workers.go`, `internal/engine/store/workers.go`, migration `083_handoff_pairing.sql` | Pairing a main with a worker: the main's identity, minting its token, the main's workers |
-| `internal/server/instance_pairing.go`, `web/src/components/InstancePairingSettings.tsx`, `web/src/lib/workers.ts` | Settings › Handoff (Workers, Main instances), `requireHandoffMain`, the pairing route, `/api/meta`'s handoff fields |
+| `internal/server/instance_pairing.go`, `web/src/components/InstancePairingSettings.tsx`, `web/src/lib/workers.ts` | Settings › Connections and handoff (Workers, Main instances), `requireHandoffMain`, the pairing route, `/api/meta`'s handoff fields |
 | `cmd/legato/pairing_runtime.go`, `pair_phrase.go` | Wiring in both runtimes, `legato pair --main` |
 | `internal/service/task_handoff_pull.go`, `internal/server/handoff_events.go`, `internal/engine/stackgraph/remote.go` | A worker's Pull and Events, summary rows, pushed branches |
 | `internal/service/worker_connections.go`, `cmd/legato/worker_connections_runtime.go`, migration `085_worker_connections.sql` | The main's live connections, reach, lost, the manual sync |

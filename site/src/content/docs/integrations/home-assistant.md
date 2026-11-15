@@ -12,7 +12,7 @@ Legato can publish ten read-only aggregate entities through Home Assistant MQTT 
 1. Configure the MQTT integration in Home Assistant for your broker. Enable discovery with the default `homeassistant` prefix, or use the same prefix in both applications.
 2. Create a broker login for Legato. Give it permission to publish its state root and discovery configurations. Allow subscriptions only to `homeassistant/status` (or your discovery prefix followed by `/status`).
 3. Store the login through [Legato's credential store](/legato/security/credential-broker/). The secret must be a JSON object with nonempty `username` and `password` strings. Ask the Reeve to open a secure secret form, then paste the JSON into that form, not the conversation. Alternatively, supply the JSON through standard input to `legato secret add mqtt-login --type userpass`. Use a secure input source; do not put the login in shell history, `config.yaml`, or the broker URL.
-4. Open **Settings → Lists → Credentials**, choose **Add to credentials**, and name the entry `mqtt`. In **Fields, as in config.yaml (JSON)**, enter references only:
+4. Open **Settings → Security → Credentials**, choose **Add to credentials**, and name the entry `mqtt`. In **Advanced JSON · fields as in config.yaml**, enter references only:
 
    ```json
    {

@@ -22,14 +22,14 @@ Each Legato has an **instance ID**. Legato makes it once and never changes it. O
 
 You pair a main instance with a worker once, by four words, as you pair a phone. The main gets a token that can only hand tasks off, check on them and bring them back. It never gets the worker's own web token, so a stolen main cannot drive the worker's web UI.
 
-1. On the worker, open Settings › Handoff › Main instances and choose **Pair a main instance**. Or run:
+1. On the worker, open Settings › Connections and handoff › Main instances and choose **Pair a main instance**. Or run:
 
    ```bash
    legato pair --main
    ```
 
    It shows the worker's address, four words and how long they last. The worker's web server must be running.
-2. On the main, open Settings › Handoff › Workers and choose **Add a worker**.
+2. On the main, open Settings › Connections and handoff › Workers and choose **Add a worker**.
 3. Enter the worker's address, the four words, and this main's name on the worker. The name starts as the main's host name; the worker keeps it in lowercase letters, digits and dashes.
 4. Choose **Pair**.
 

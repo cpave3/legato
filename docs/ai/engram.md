@@ -103,7 +103,7 @@ Bindings live in `engram_bindings` (see [Database](database.md) § Engram sessio
 
 ## Settings
 
-`EngramService.Bindings` lists every binding by place (`EngramBindingsView{Status, Places}`), sorted by label, whether engram is found or not; an engram `identity list` does not list is `missing` (never while engram cannot be asked). `Unbind` and `SetDefault` (an empty name clears the default) change them. The web UI's Settings › Agents › **Engram bindings** shows them; see [Web UI](web-ui.md).
+`EngramService.Bindings` lists every binding by place (`EngramBindingsView{Status, Places}`), sorted by label, whether engram is found or not; an engram `identity list` does not list is `missing` (never while engram cannot be asked). `Unbind` and `SetDefault` (an empty name clears the default) change them. The web UI's Settings › Agents and workspaces › **Engram bindings** shows them; see [Web UI](web-ui.md).
 
 ## In the TUI
 
