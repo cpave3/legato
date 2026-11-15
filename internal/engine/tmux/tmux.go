@@ -282,8 +282,19 @@ func (m *Manager) SendKeysShellCommand(name, command string) error {
 	if err != nil {
 		return fmt.Errorf("verifying bootstrap shell: %w", err)
 	}
+	// new-session can return before its child execs the shell, and shell
+	// startup files may briefly run another program. Wait before writing
+	// anything, pinned to the original pane; never retry a partial send.
+	deadline := time.Now().Add(3 * time.Second)
+	for !IsShellCommand(current) && time.Now().Before(deadline) {
+		time.Sleep(25 * time.Millisecond)
+		_, current, err = m.foregroundPane(pane)
+		if err != nil {
+			return fmt.Errorf("waiting for bootstrap shell: %w", err)
+		}
+	}
 	if !IsShellCommand(current) {
-		return fmt.Errorf("bootstrap target %s is not a shell", name)
+		return fmt.Errorf("bootstrap target %s did not become a shell (foreground %q)", name, current)
 	}
 	if err := m.sendKeys(pane, command, true); err != nil {
 		return err

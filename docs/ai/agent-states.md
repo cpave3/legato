@@ -97,6 +97,10 @@ are refused (text submissions and interrupts use the native route); TUI native
 macros submit text only. Native voice drafts cannot be typed into the terminal.
 Only `SendKeysShellCommand` may bypass the agent guard, for the three controlled
 spawn/setup bootstrap sites, after verifying a shell receiver.
+It pins the initial pane and waits up to three seconds for its shell before
+writing launch text: `new-session` can return before the shell has started.
+Probe failure or timeout refuses bootstrap; the pre-Enter recheck still applies,
+and a partial send is never retried.
 
 ## Evidence
 

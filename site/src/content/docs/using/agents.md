@@ -15,6 +15,10 @@ Messages are never typed into that shell. Once the original shell has no childre
 Legato can mark the session ended; a failed process check does not mark it ended.
 In a native web conversation, focusing the message field highlights the rounded composer boundary in the current theme. Use `tab` to move to its toolbar buttons; each button has its own focus indicator.
 
+At launch, Legato waits up to three seconds for the new terminal's shell before
+it types the agent's launch command. If the shell is not ready, it refuses the
+launch and logs the failure instead of sending the command to another program.
+
 ## Starting an agent on a task
 
 1. Select the task's card on the board.

@@ -635,6 +635,96 @@ func TestBootstrapShellCommandIsSeparateFromAgentMessages(t *testing.T) {
 	}
 }
 
+func TestSpawnWaitsForShellBeforeBootstrap(t *testing.T) {
+	skipWithoutTmux(t)
+	t.Setenv("TMUX", "")
+	t.Setenv("TMUX_TMPDIR", t.TempDir())
+	m, err := New(Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Keep this private server alive while configuring a delayed shell.
+	control := "legato-test-delayed-control"
+	if out, err := exec.Command("tmux", "new-session", "-d", "-s", control, "sleep 3600").CombinedOutput(); err != nil {
+		t.Fatalf("private tmux: %s: %v", out, err)
+	}
+	t.Cleanup(func() { m.Kill(control) })
+	dir := t.TempDir()
+	shell := filepath.Join(dir, "starting-shell")
+	if err := os.WriteFile(shell, []byte("#!/bin/sh\nsleep 0.3\nexec /bin/sh -i\n"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	// Set the default for the fresh session Spawn is about to make.
+	if out, err := exec.Command("tmux", "set-option", "-g", "default-shell", shell).CombinedOutput(); err != nil {
+		t.Fatalf("default shell: %s: %v", out, err)
+	}
+	name := "legato-test-delayed-bootstrap"
+	if err := m.Spawn(name, dir, 0, 0); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { m.Kill(name) })
+	marker := filepath.Join(dir, "booted")
+	if err := m.SendKeysShellCommand(name, "touch "+marker); err != nil {
+		t.Fatalf("bootstrap did not wait for its shell: %v", err)
+	}
+	deadline := time.Now().Add(time.Second)
+	for {
+		if _, err := os.Stat(marker); err == nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("bootstrap command was not executed")
+		}
+		time.Sleep(time.Millisecond)
+	}
+	if err := m.SendKeysLine(name, "echo not-an-agent"); err == nil {
+		t.Fatal("waiting for bootstrap shell enabled ordinary agent input")
+	}
+}
+
+func TestBootstrapRefusesNonShellWithoutRetryingPartialSend(t *testing.T) {
+	for _, tc := range []struct {
+		name       string
+		initial    string
+		wantWrites int
+	}{
+		{name: "never a shell", initial: "vim", wantWrites: 0},
+		{name: "changed before Enter", initial: "zsh", wantWrites: 1},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			dir := t.TempDir()
+			sent := filepath.Join(dir, "sent")
+			fake := filepath.Join(dir, "tmux")
+			script := fmt.Sprintf(`#!/bin/sh
+case "$1" in
+ display-message)
+  if [ -f %q ]; then printf '%%s\n' '%%7 vim'; else printf '%%s\n' '%%7 %s'; fi ;;
+ send-keys) printf '%%s\n' "$*" >> %q ;;
+ *) exit 1 ;;
+esac
+`, sent, tc.initial, sent)
+			if err := os.WriteFile(fake, []byte(script), 0700); err != nil {
+				t.Fatal(err)
+			}
+			m, err := New(Options{LookPath: func(string) (string, error) { return fake, nil }})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if err := m.SendKeysShellCommand("legato-bootstrap", "echo launch"); err == nil {
+				t.Fatal("bootstrap accepted a non-shell receiver")
+			}
+			data, err := os.ReadFile(sent)
+			if err != nil && !os.IsNotExist(err) {
+				t.Fatal(err)
+			}
+			lines := strings.FieldsFunc(string(data), func(r rune) bool { return r == '\n' })
+			if len(lines) != tc.wantWrites || strings.Contains(string(data), "Enter") {
+				t.Fatalf("writes = %q; want %d text writes and no Enter", data, tc.wantWrites)
+			}
+		})
+	}
+}
+
 func awaitShellPane(t *testing.T, m *Manager, name string) {
 	t.Helper()
 	// new-session can return while the child is still tmux, before execing
