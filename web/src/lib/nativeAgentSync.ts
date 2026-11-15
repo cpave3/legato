@@ -311,6 +311,24 @@ export function stateFromNativeSnapshot(snapshot: NativeSnapshot): NativeSyncSta
   const items: NativeConversationItem[] = []
   const calls = snapshot.toolCalls ?? []
   let callIndex = 0
+  function appendCall(call: NativeSnapshotToolCall, index: number) {
+    items.push({
+      key: call.callId || `snap-call-${index}`,
+      role: "tool",
+      text: "",
+      tool: {
+        key: call.callId || `snap-call-${index}`,
+        toolName: call.name,
+        args: call.args,
+        result: call.result,
+        error: call.error,
+        summary: call.display?.summary,
+        startedAt: call.startedAt,
+        durationMs: call.startedAt && call.endedAt ? call.endedAt - call.startedAt : undefined,
+        subagent: call.subagent ? subagentFromSnapshot(call.subagent, call.args) : subagentFromResult(call.name, call.args, call.result),
+      },
+    })
+  }
   for (let index = 0; index < (snapshot.messages ?? []).length; index++) {
     const message = snapshot.messages![index]
     if (index === 0 && message.role === "user") continue
@@ -341,25 +359,11 @@ export function stateFromNativeSnapshot(snapshot: NativeSnapshot): NativeSyncSta
     if (text) items.push({ key: `snap-msg-${index}`, role: message.role as NativeItemRole, text })
     const toolCount = message.content.filter((part) => part.type === "tool-call").length
     for (let offset = 0; offset < toolCount && callIndex < calls.length; offset++, callIndex++) {
-      const call = calls[callIndex]
-      items.push({
-        key: call.callId || `snap-call-${callIndex}`,
-        role: "tool",
-        text: "",
-        tool: {
-          key: call.callId || `snap-call-${callIndex}`,
-          toolName: call.name,
-          args: call.args,
-          result: call.result,
-          error: call.error,
-          summary: call.display?.summary,
-          startedAt: call.startedAt,
-          durationMs: call.startedAt && call.endedAt ? call.endedAt - call.startedAt : undefined,
-          subagent: call.subagent ? subagentFromSnapshot(call.subagent, call.args) : subagentFromResult(call.name, call.args, call.result),
-        },
-      })
+      appendCall(calls[callIndex], callIndex)
     }
   }
+  // Active tools enter the snapshot before their assistant message is committed.
+  for (; callIndex < calls.length; callIndex++) appendCall(calls[callIndex], callIndex)
   applySnapshotSubagents(items, snapshot)
   for (const permission of snapshot.pendingPermissions ?? []) {
     items.push(permissionConversationItem(permission))

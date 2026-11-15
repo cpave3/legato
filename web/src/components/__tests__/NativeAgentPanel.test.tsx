@@ -2339,6 +2339,28 @@ describe("NativeAgentPanel sub-agent tiles", () => {
     }
   })
 
+  it.each([false, true])("shows a child before its assistant message is committed, then repairs completion (background: %s)", async background => {
+    let finished = false
+    vi.spyOn(globalThis, "fetch").mockImplementation(async input => String(input).includes("/snapshot")
+      ? new Response(JSON.stringify({
+        id: "parent", status: "running",
+        messages: [{ role: "user", content: "Launch prompt" }],
+        toolCalls: [{ callId: "spawn", name: "spawn_agent", args: { purpose: "Check integration", background }, startedAt: 1 }],
+        subagentStates: [{ sessionId: "parent", subagentId: "child", parentCallId: "spawn", childSessionId: "exact-child", status: finished ? "finished" : "running", ...(finished ? { reason: "stop", endedAt: 2 } : {}) }],
+      }), { status: 200 })
+      : new Response("[]", { status: 200 }))
+    const view = render(<NativeAgentPanel agentId="agent-1" />)
+    const card = await within(view.container).findByTestId("subagent-card-spawn")
+    expect(card.textContent).toContain("running")
+    fireEvent.click(within(view.container).getByRole("button", { name: /^Tiles/ }))
+    expect(within(view.container).getByRole("article", { name: "Check integration, running" })).not.toBeNull()
+    finished = true
+    act(() => { websocketHandler?.({ type: "agents_changed" }) })
+    await within(view.container).findByRole("button", { name: /done.*Check integration/ })
+    fireEvent.click(within(view.container).getByRole("button", { name: /^Inline/ }))
+    expect(within(view.container).getByTestId("subagent-card-spawn").textContent).toContain("finished")
+  })
+
   it("shows launch exceptions as failed in both cards and tiles", async () => {
     vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => String(input).includes("/snapshot") ? new Response(JSON.stringify({
       messages: [{ role: "assistant", content: [{ type: "tool-call" }] }],

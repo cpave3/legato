@@ -6,6 +6,36 @@ import fixture from "../../../../contracts/model-settings-v1.json"
 import type { ModelSettingsState } from "../modelSettings"
 
 describe("native agent synchronization", () => {
+  it.each([false, true])("repairs an uncommitted spawn tool after missed SSE (background: %s)", background => {
+    const snapshot: NativeSnapshot = {
+      id: "parent", status: "running",
+      messages: [
+        { role: "user", content: "system" },
+        { role: "assistant", content: [{ type: "tool-call" }] },
+        { role: "user", content: "Continue" },
+      ],
+      toolCalls: [
+        { callId: "read", name: "read", args: {}, result: { content: "earlier" } },
+        { callId: "during", name: "read", args: {}, startedAt: 1 },
+        { callId: "spawn", name: "spawn_agent", args: { purpose: "Check", background }, startedAt: 1 },
+      ],
+      subagentStates: [{ sessionId: "parent", subagentId: "child", parentCallId: "spawn", childSessionId: "exact-child", status: "running" }],
+    }
+    let state = reconcileNativeSnapshot(snapshot, createNativeSyncState(), [])
+    expect(state.items.map(item => item.tool?.key ?? item.text)).toEqual(["read", "Continue", "during", "spawn"])
+    expect(state.items.at(-1)?.tool?.subagent).toMatchObject({ subagentId: "child", childSessionId: "exact-child", status: "running" })
+    // A replayed start must not be suppressed for a tool that was never rendered.
+    state = reduceNativeEvent(state, { eventId: "start", type: "tool_call_start", callId: "spawn", name: "spawn_agent", args: {} })
+    expect(state.items.filter(item => item.tool?.key === "spawn")).toHaveLength(1)
+    state = reconcileNativeSnapshot({ ...snapshot, subagentStates: [{ ...snapshot.subagentStates![0], status: "finished", reason: "stop" }] }, state, [])
+    expect(state.items.at(-1)?.tool?.subagent?.status).toBe("finished")
+    state = reconcileNativeSnapshot({ ...snapshot, messages: [
+      ...snapshot.messages!,
+      { role: "assistant", content: [{ type: "text", text: "Checking" }, { type: "tool-call" }, { type: "tool-call" }] },
+    ] }, state, [])
+    expect(state.items.map(item => item.tool?.key ?? item.text)).toEqual(["read", "Continue", "Checking", "during", "spawn"])
+    expect(state.items.at(-1)?.tool?.subagent).toMatchObject({ subagentId: "child", childSessionId: "exact-child", status: "finished" })
+  })
   it("does not start a turn for context-only appends, or stop an existing turn", () => {
     let state = reduceNativeEvent(createNativeSyncState(), { eventId: "idle-append", type: "user_message", content: "context only", append: true })
     expect(state.items.at(-1)?.text).toBe("context only")

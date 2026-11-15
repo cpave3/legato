@@ -17,6 +17,8 @@ Subagent cards and tiles follow the same lifecycle: spawning, running, finished 
 
 On newer Chimera builds, the native snapshot supplies exact child and parent-tool identities, including a foreground child whose tool has not returned yet. Legato prefers that canonical state and uses the mod's retained status for older builds.
 
+Reopening or refreshing the panel also shows active spawn calls before Chimera saves their assistant message. The same child stays visible when the message is saved, without a second card or tile.
+
 To use the legacy integration instead:
 
 ```yaml
