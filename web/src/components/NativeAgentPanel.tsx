@@ -1189,7 +1189,7 @@ export function NativeAgentPanel({ agentId, reeve, sandboxed, onKill, onRename, 
           how full its context is and the buttons that send and interrupt. */}
       <div className="px-3 pb-3 md:px-6 md:pb-[18px]">
         {/* An image dropped anywhere on the composer joins the message. */}
-        <div {...(composerEnabled ? pasted.dropTarget : {})} className={`relative mx-auto flex w-full max-w-[820px] flex-col rounded-[10px] border bg-lw-surface max-sm:rounded-xl ${dictating(voice) ? "border-lw-danger-line" : pasted.dragging ? "border-lw-accent" : "border-lw-line-strong"}`}>
+        <div {...(composerEnabled ? pasted.dropTarget : {})} className={`native-agent-composer relative mx-auto flex w-full max-w-[820px] flex-col rounded-[10px] border bg-lw-surface max-sm:rounded-xl ${dictating(voice) ? "border-lw-danger-line" : pasted.dragging ? "border-lw-accent" : "border-lw-line-strong"}`}>
           {slashOpen && (
             <NativeSlashMenu
               listId={slashListId}

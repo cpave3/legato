@@ -9,6 +9,8 @@ An agent is an AI coding tool, such as Claude Code, Codex or Chimera, that Legat
 
 Each tool has its own page under Agent tools: [Claude Code](/legato/agent-tools/claude-code/), [Codex](/legato/agent-tools/codex/) and [Chimera](/legato/agent-tools/chimera/). Agents need tmux.
 
+In a native web conversation, focusing the message field highlights the rounded composer boundary in the current theme. Use `tab` to move to its toolbar buttons; each button has its own focus indicator.
+
 ## Starting an agent on a task
 
 1. Select the task's card on the board.
