@@ -149,6 +149,9 @@ func (w *contextWatcher) follow(ctx context.Context, taskID string, watch *conte
 		received := false
 		err := w.subscribeEvents(ctx, watch.endpoint, watch.sessionID, "", func(event chimera.EventEnvelope) {
 			received = true
+			// Without an external watcher this is the server's only stream
+			// that follows the agent whether or not a page is open on it.
+			logDeliveryFailure(taskID, event)
 			if reading, ok := contextFromEvent(event); ok {
 				w.record(taskID, watch, reading)
 			}
