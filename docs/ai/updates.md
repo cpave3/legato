@@ -114,6 +114,12 @@ rerunning **only the failed Android job**, never all jobs (the CLI job computes
 another version). `stage` downloads and verifies an existing immutable APK
 instead of rebuilding; `publish` regenerates a missing checksum from that APK.
 Neither asset is clobbered; conflicting bytes/checksums fail for investigation.
+Empty `starter` assets left by failed GitHub uploads are not completed assets.
+`stage` rebuilds when the APK is such a placeholder; `publish` rechecks the exact
+asset ID/name/state/size and deletes only canonical, zero-byte `starter`
+placeholders before retrying. A completed APK is reused when only its checksum
+upload failed. Unexpected states, empty `uploaded` assets, changed placeholders
+and cleanup errors fail visibly without replacing completed or unrelated assets.
 
 Android has no in-app updater. Obtainium setup is documented on
 [Devices](../../site/src/content/docs/running/devices.md#android-updates-with-obtainium):

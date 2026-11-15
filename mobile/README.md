@@ -126,6 +126,14 @@ The helper's `stage` reuses an immutable existing APK and checks its signature
 and version instead of rebuilding it. Publication regenerates a missing
 checksum from those exact bytes; existing APKs/checksums are never clobbered.
 A conflicting APK or checksum fails and requires investigation.
+An upload returning HTTP 502 can leave an empty asset in GitHub's `starter`
+state. Recovery treats that placeholder as unpublished: it rebuilds a missing
+APK or regenerates the checksum from the completed original APK. Only during
+publication, after verifying the local APK, it rechecks the placeholder's exact
+asset ID, canonical name, `starter` state and zero size before deleting that
+failed placeholder and retrying the upload. A changed state, cleanup error,
+empty `uploaded` asset or any other unexpected state fails for investigation;
+completed assets and unrelated platform assets are never deleted or replaced.
 
 ### Obtainium (after first publication)
 

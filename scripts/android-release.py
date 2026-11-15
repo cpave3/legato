@@ -94,9 +94,31 @@ def verify(tag, apk):
     return dict(**expected, applicationId="dev.legato.mobile", certificateSHA256=digest)
 
 
-def asset_names(tag):
+def release_assets(tag):
     release = json.loads(run("gh", "release", "view", tag, "--json", "assets"))
-    return {asset["name"] for asset in release["assets"]}
+    return {asset["name"]: asset for asset in release["assets"]}
+
+
+def failed_placeholder(asset):
+    return asset["state"] == "starter" and asset["size"] == 0
+
+
+def completed(asset):
+    if asset is None or failed_placeholder(asset):
+        return False
+    if asset["state"] != "uploaded" or asset["size"] <= 0:
+        raise ValueError(f"release asset {asset['name']} has unexpected state/size; manual investigation required")
+    return True
+
+
+def discard_failed_placeholder(asset):
+    # Address the exact failed upload, never delete a completed asset by name.
+    endpoint = f"repos/{{owner}}/{{repo}}/releases/assets/{asset['id']}"
+    current = json.loads(run("gh", "api", endpoint))
+    if current["name"] != asset["name"] or not failed_placeholder(current):
+        raise ValueError("upload placeholder changed; retry discovery without deleting it")
+    run("gh", "api", "--method", "DELETE", endpoint)
+    print(f"Removed empty failed-upload placeholder: {asset['name']}", file=sys.stderr)
 
 
 def download(tag, name, directory):
@@ -106,7 +128,7 @@ def download(tag, name, directory):
 def stage(tag, directory):
     version(tag)
     directory.mkdir(parents=True, exist_ok=True)
-    if APK not in asset_names(tag):
+    if not completed(release_assets(tag).get(APK)):
         return dict(build=True, reason="no published APK at this tag")
     download(tag, APK, directory)
     metadata = verify(tag, directory / APK)
@@ -116,20 +138,24 @@ def stage(tag, directory):
 def publish(tag, directory):
     verify(tag, directory / APK)
     checksum = f"{hashlib.sha256((directory / APK).read_bytes()).hexdigest()}  {APK}\n"
-    names = asset_names(tag)
+    assets = release_assets(tag)
     with tempfile.TemporaryDirectory() as scratch:
         remote = Path(scratch)
-        if APK in names:
+        if completed(assets.get(APK)):
             download(tag, APK, remote)
             if (remote / APK).read_bytes() != (directory / APK).read_bytes():
                 raise ValueError("refusing to replace an immutable published APK; stage the original first")
         else:
+            if APK in assets:
+                discard_failed_placeholder(assets[APK])
             run("gh", "release", "upload", tag, str(directory / APK))
-        if CHECKSUM in names:
+        if completed(assets.get(CHECKSUM)):
             download(tag, CHECKSUM, remote)
             if (remote / CHECKSUM).read_text() != checksum:
                 raise ValueError("published Android checksum does not match APK; manual investigation required")
         else:
+            if CHECKSUM in assets:
+                discard_failed_placeholder(assets[CHECKSUM])
             (directory / CHECKSUM).write_text(checksum)
             run("gh", "release", "upload", tag, str(directory / CHECKSUM))
     return dict(published=True, apk=APK, checksum=CHECKSUM)

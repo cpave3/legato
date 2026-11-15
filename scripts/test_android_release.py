@@ -29,17 +29,35 @@ class AndroidReleaseTest(unittest.TestCase):
 import json, os, sys
 from pathlib import Path
 pages = json.loads(Path(os.environ["TEST_PAGES"]).read_text())
+assets = Path(os.environ["TEST_ASSETS"])
+states = json.loads(Path(os.environ["TEST_ASSET_STATES"]).read_text())
+def asset_info(file):
+    return {"id": 1 if file.name == "legato-android.apk" else 2,
+            "name": file.name, "state": states.get(file.name, "uploaded"), "size": file.stat().st_size}
 if pages == "error":
     sys.exit(1)
-if sys.argv[1] == "api":
+if sys.argv[1] == "api" and "/releases/assets/" in sys.argv[-1]:
+    asset_id = int(sys.argv[-1].split("/")[-1])
+    file = assets / ("legato-android.apk" if asset_id == 1 else "legato-android-SHA256SUMS")
+    info = asset_info(file)
+    if "DELETE" in sys.argv:
+        if info["state"] != "starter" or info["size"] != 0 or os.environ.get("TEST_FAIL_DELETE"):
+            sys.exit(1)
+        file.unlink()
+        states.pop(file.name, None)
+        Path(os.environ["TEST_ASSET_STATES"]).write_text(json.dumps(states))
+    else:
+        if os.environ.get("TEST_PLACEHOLDER_CHANGED"):
+            info.update(state="uploaded", size=7)
+        print(json.dumps(info))
+elif sys.argv[1] == "api":
     page = int(sys.argv[-1].split("page=")[-1])
     print(json.dumps(pages[page - 1] if page <= len(pages) else []))
 else:
     import shutil
-    assets = Path(os.environ["TEST_ASSETS"])
     action = sys.argv[2]
     if action == "view":
-        print(json.dumps({"assets": [{"name": p.name} for p in assets.iterdir()]}))
+        print(json.dumps({"assets": [asset_info(p) for p in assets.iterdir()]}))
     elif action == "download":
         pattern = sys.argv[sys.argv.index("--pattern") + 1]
         directory = Path(sys.argv[sys.argv.index("--dir") + 1])
@@ -47,6 +65,10 @@ else:
     elif action == "upload":
         file = Path(sys.argv[4])
         if file.name == os.environ.get("TEST_FAIL_UPLOAD") or (assets / file.name).exists():
+            if os.environ.get("TEST_LEAVE_STARTER"):
+                (assets / file.name).touch()
+                states[file.name] = "starter"
+                Path(os.environ["TEST_ASSET_STATES"]).write_text(json.dumps(states))
             sys.exit(1)
         shutil.copyfile(file, assets / file.name)
     else:
@@ -56,6 +78,9 @@ else:
         self.assets = self.root / "assets"
         self.assets.mkdir()
         self.env["TEST_ASSETS"] = str(self.assets)
+        self.states = self.root / "asset-states.json"
+        self.states.write_text("{}")
+        self.env["TEST_ASSET_STATES"] = str(self.states)
 
     def git(self, *args):
         return subprocess.check_output(["git", *args], cwd=self.root, stderr=subprocess.DEVNULL, text=True).strip()
@@ -123,7 +148,7 @@ else:
         draft = self.release("v0.2.0")
         draft["draft"] = True
         failed = self.release("v0.3.0")
-        failed["assets"][0]["state"] = "new"
+        failed["assets"][0].update(state="starter", size=0)
         self.releases([draft, failed, self.release("v0.1.0")])
         self.assertFalse(self.command("decide", "auto", "v0.1.0")["build"])
         self.assertTrue(self.command("decide", "auto")["build"])
@@ -190,6 +215,70 @@ else:
         self.env["TEST_FAIL_UPLOAD"] = "legato-android.apk"
         self.command("publish", "v1.0.1", str(dist), ok=False)
         self.assertEqual(list(self.assets.iterdir()), [])
+
+    def test_failed_apk_placeholder_can_be_rebuilt_and_published(self):
+        self.package_tools()
+        dist = self.root / "dist"
+        dist.mkdir()
+        (dist / "legato-android.apk").write_bytes(b"signed APK")
+        self.env.update(TEST_FAIL_UPLOAD="legato-android.apk", TEST_LEAVE_STARTER="1")
+        self.command("publish", "v1.0.1", str(dist), ok=False)
+        self.assertEqual((self.assets / "legato-android.apk").stat().st_size, 0)
+        retry = self.root / "retry"
+        self.assertTrue(self.command("stage", "v1.0.1", str(retry))["build"])
+        (retry / "legato-android.apk").write_bytes(b"rebuilt signed APK")
+        del self.env["TEST_FAIL_UPLOAD"]
+        self.command("publish", "v1.0.1", str(retry))
+        self.assertEqual((self.assets / "legato-android.apk").read_bytes(), b"rebuilt signed APK")
+
+    def test_failed_checksum_placeholder_recovers_without_replacing_original_apk(self):
+        self.package_tools()
+        dist = self.root / "dist"
+        dist.mkdir()
+        (dist / "legato-android.apk").write_bytes(b"original signed APK")
+        (self.assets / "SHA256SUMS").write_bytes(b"unrelated platform checksums")
+        self.env.update(TEST_FAIL_UPLOAD="legato-android-SHA256SUMS", TEST_LEAVE_STARTER="1")
+        self.command("publish", "v1.0.1", str(dist), ok=False)
+        self.assertEqual((self.assets / "legato-android-SHA256SUMS").stat().st_size, 0)
+        retry = self.root / "retry"
+        self.assertFalse(self.command("stage", "v1.0.1", str(retry))["build"])
+        del self.env["TEST_FAIL_UPLOAD"]
+        self.command("publish", "v1.0.1", str(retry))
+        self.assertEqual((self.assets / "legato-android.apk").read_bytes(), b"original signed APK")
+        checksum = hashlib.sha256(b"original signed APK").hexdigest()
+        self.assertEqual((self.assets / "legato-android-SHA256SUMS").read_text(), f"{checksum}  legato-android.apk\n")
+        self.assertEqual((self.assets / "SHA256SUMS").read_bytes(), b"unrelated platform checksums")
+
+    def test_placeholder_cleanup_failure_or_changed_state_stops_publication(self):
+        self.package_tools()
+        dist = self.root / "dist"
+        dist.mkdir()
+        (dist / "legato-android.apk").write_bytes(b"signed APK")
+        apk = self.assets / "legato-android.apk"
+        apk.touch()
+        self.states.write_text(json.dumps({apk.name: "starter"}))
+        for flag in ["TEST_FAIL_DELETE", "TEST_PLACEHOLDER_CHANGED"]:
+            with self.subTest(flag=flag):
+                self.env[flag] = "1"
+                self.command("publish", "v1.0.1", str(dist), ok=False)
+                self.assertEqual(apk.read_bytes(), b"")
+                self.assertFalse((self.assets / "legato-android-SHA256SUMS").exists())
+                del self.env[flag]
+
+    def test_unknown_or_completed_empty_assets_are_not_deleted(self):
+        self.package_tools()
+        apk = self.assets / "legato-android.apk"
+        for state, content in [("uploaded", b""), ("starter", b"nonempty"), ("new", b"")]:
+            with self.subTest(state=state, content=content):
+                apk.write_bytes(content)
+                self.states.write_text(json.dumps({apk.name: state}))
+                self.command("stage", "v1.0.1", str(self.root / "retry"), ok=False)
+                self.assertEqual(apk.read_bytes(), content)
+                dist = self.root / "dist"
+                dist.mkdir(exist_ok=True)
+                (dist / apk.name).write_bytes(b"signed APK")
+                self.command("publish", "v1.0.1", str(dist), ok=False)
+                self.assertEqual(apk.read_bytes(), content)
 
 
 if __name__ == "__main__":
