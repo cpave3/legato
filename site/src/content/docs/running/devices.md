@@ -91,6 +91,12 @@ Both the web UI and the Legato app keep a list of servers.
 
 Give each Legato a tint in Settings › Appearance › Tint, so you can tell at a glance which one a page is on. The tint is saved on the server, so every device shows it.
 
+### App colours
+
+On the Android app's server list, open **Appearance › Theme** and choose **Legato**, **Dracula**, **Ocular Light** or **Ocular Dark**. The app keeps the choice across restarts and applies it to its native screens, system bars and server pages. You can also choose **App theme** in a compatible server page's Settings; it asks the app to save the same choice. The launch splash keeps Legato's original background until the activity starts. Android's keyboard, file picker and fingerprint prompt use the system's appearance.
+
+In a browser or installed PWA, choose **Settings › Appearance › App theme**. That browser keeps the choice. Terminals follow the app unless you saved a separate **Terminal theme**. Changing an app theme does not overwrite that terminal choice or a server's tint. Ocular colours are research candidates, not a proven treatment for eye strain. Theme switching through MQTT or Home Assistant is not available in this release.
+
 ## HTTPS with Legato's own certificate
 
 Turn on TLS and Legato makes its own certificate authority and a server certificate:
