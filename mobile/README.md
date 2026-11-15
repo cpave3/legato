@@ -215,6 +215,8 @@ boundaries and backgrounds keep their readable values. Canonical/readable
 The catalog/settings tests check semantic error/link/success/warning/keyword
 contrast on these backgrounds and preserve the source tokens and page canvas.
 
+Each theme's `ui` role references and surface recipes come from the same JSON. Identity/notice surfaces join the material backgrounds before ink contrast derivation; native primary/focus uses the derived UI accent instead of the independent source focus token. Ocular action/signing identity is purple, success remains green, and real links remain blue. Dracula keeps its previous mappings; Legato's fallbacks are unchanged. The web voice widget consumes the same shared roles when embedded.
+
 The app sets `localStorage['legato:app-theme']` before each page loads, with
 the stable ID `legato`, `dracula`, `ocular-light`, or `ocular-dark`. A native
 change updates that key and dispatches `legato:theme-changed` immediately;

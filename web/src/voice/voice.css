@@ -2,9 +2,9 @@
    sheet and the desktop app's widget (docs/ai/reeve.md § Hands-free
    voice). */
 .voice-ui {
-  --voice-accent: var(--theme-focus, #6d5ef6);
-  --voice-accent-2: var(--theme-focus, #8a6cff);
-  --voice-link: var(--theme-link, #a99cff);
+  --voice-accent: var(--theme-accent, #6d5ef6);
+  --voice-accent-2: var(--theme-accent, #8a6cff);
+  --voice-link: var(--theme-identity, var(--theme-link, #a99cff));
   --voice-green: var(--theme-success, #3ecf8e);
   --voice-amber: var(--theme-warning, #e8b53a);
   --voice-text: var(--theme-text, #e6e5eb);

@@ -22,7 +22,7 @@ export function VoiceRing({ mode, size = 88, level = 0, label }: { mode: RingMod
   const base = LOOK[mode]
   const role = mode === "speaking" ? "success" : mode === "blocked" ? "warning" : "focus"
   const look = {
-    fill: base.fill === "none" ? "none" : `var(--theme-selection, ${base.fill})`,
+    fill: base.fill === "none" ? "none" : `var(--${mode === "blocked" ? "theme-selection" : "material-identitySurface"}, ${base.fill})`,
     stroke: `var(--theme-${mode === "idle" ? "border" : role}, ${base.stroke})`,
     glyph: `var(--theme-${role}, ${base.glyph})`,
     glow: base.glow,
@@ -44,7 +44,9 @@ export function VoiceRing({ mode, size = 88, level = 0, label }: { mode: RingMod
       </defs>
       {look.glow && <circle className="glow" cx={c} cy={c} r={c * 1.1} fill={`url(#voice-glow-${mode})`} />}
       {dialTicks(mode, size, level).map((t, i) => (
-        <line key={i} className="tick" x1={t.x1} y1={t.y1} x2={t.x2} y2={t.y2} stroke={`var(--theme-${mode === "idle" || mode === "thinking" ? "border" : role}, ${t.color})`} strokeOpacity={t.opacity}
+        <line key={i} className="tick" x1={t.x1} y1={t.y1} x2={t.x2} y2={t.y2} stroke={mode === "speaking"
+            ? `color-mix(in srgb, var(--theme-voice-start, ${t.color}) ${(1 - i / 59) * 100}%, var(--theme-success, ${t.color}))`
+            : `var(--theme-${mode === "idle" || mode === "thinking" ? "border" : role}, ${t.color})`} strokeOpacity={t.opacity}
           strokeWidth={t.width} strokeLinecap="round" style={t.delay ? { animationDelay: `${t.delay.toFixed(2)}s` } : undefined} />
       ))}
       {mode === "thinking" && (

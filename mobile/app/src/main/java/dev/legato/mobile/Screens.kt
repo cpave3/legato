@@ -89,6 +89,10 @@ private fun materialColor(role: String, fallback: Color): Color =
 
 // The existing Legato colours stay the default; alternate depth uses the shared materials.
 internal object Lw {
+    @Composable
+    private fun uiColor(role: String, fallback: Color): Color =
+        LocalAppTheme.current?.ui?.get(role)?.let { Color(android.graphics.Color.parseColor(it)) } ?: fallback
+
     val rail: Color @Composable get() = materialColor("rail", Color(0xFF0C0C0F))
     val ground: Color @Composable get() = themeColor("canvas", Color(0xFF111114))
     val surface: Color @Composable get() = materialColor("panel", Color(0xFF17171B))
@@ -100,8 +104,9 @@ internal object Lw {
     val text: Color @Composable get() = themeColor("text", Color(0xFFE6E5EB))
     val text2: Color @Composable get() = themeColor("muted", Color(0xFF9A99A5))
     val faint: Color @Composable get() = themeColor("muted", Color(0xFF66656F))
-    val accent: Color @Composable get() = themeColor("focus", Color(0xFF6D5EF6))
-    val accentRing: Color @Composable get() = themeColor("focus", Color(0xFF4F46B8))
+    val accent: Color @Composable get() = uiColor("accent", Color(0xFF6D5EF6))
+    val accentRing: Color @Composable get() = uiColor("accent", Color(0xFF4F46B8))
+    val identity: Color @Composable get() = uiColor("identity", link)
     val link: Color @Composable get() = themeColor("link", Color(0xFFA99CFF))
     val live: Color @Composable get() = themeColor("success", Color(0xFF3ECF8E))
     val successSurface: Color @Composable get() = materialColor("successSurface", live.copy(alpha = 0.12f))
@@ -113,7 +118,7 @@ internal object Lw {
     val sheetStart: Color @Composable get() = materialColor("raised", Color(0xFF15141C))
     val quoteBackground: Color @Composable get() = materialColor("panel", Color(0xFF0D0D12))
     val sealBackground: Color @Composable get() = materialColor("rail", Color(0xFF0B0B10))
-    val gradientEnd: Color @Composable get() = themeColor("focus", Color(0xFF8A6CFF))
+    val gradientEnd: Color @Composable get() = uiColor("accent", Color(0xFF8A6CFF))
     val onAccent: Color @Composable get() = themeColor("canvas", Color.White)
     val webPage: Color @Composable get() = themeColor("canvas", Color(0xFF0A0A0F))
 }

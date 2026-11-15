@@ -173,6 +173,8 @@ Choose **Legato**, **Dracula**, **Ocular Light**, **Ocular Dark**, **Ocular Ligh
 
 Terminals follow the app unless you choose a separate terminal theme. Server tints remain independent. Ocular uses the Work Light and Work Dark research candidates; these colours have not been shown to reduce fatigue or treat eye strain. Dracula uses the [Dracula OSS palette](https://github.com/dracula/dracula-theme), with readable text mappings for this application. Named themes distinguish recessed navigation, panels and raised controls, with softer separators and subtle depth; text contrast, focus and terminal colours remain readable.
 
+All Ocular themes use purple for actions and identity, green for activity and success, and blue for links. Agent-to-agent messages have a purple-tinted interior; Legato notices have a teal-tinted interior. Voice and signing keep the purple-and-green character. Text selection and the reading background remain separate, and the message box keeps its rounded inset focus indicator.
+
 To tell your Legatos apart at a glance, give each a tint in **Settings › Appearance › Tint**: red, orange, yellow, green, teal, blue, purple or pink. The tint is saved on the server, so every browser and phone that uses it shows it: a band across the top of the window, a wash on the rail, and a dot beside the server in the switcher. A tint takes priority over the app canvas for the browser's address-bar colour.
 
 ### Updates

@@ -214,6 +214,101 @@ try {
       await evaluate(`document.querySelector('[aria-label="Close image"]').click()`)
     }
   }
+  const characterUrl = process.env.LEGATO_THEME_CHARACTER_URL
+  if (characterUrl) {
+    const fixture = new URL(characterUrl)
+    if (!["localhost", "127.0.0.1"].includes(fixture.hostname) || !fixture.port || fixture.port === "3080") throw new Error("Character fixture must use an isolated loopback port")
+    const themes = [...Object.keys(expected), "legato"]
+    for (const id of themes) {
+      for (const view of ["voice", "card", "messages"]) {
+        await send("Page.navigate", { url: `${characterUrl}?view=${view}` })
+        await wait(view !== "messages" ? "!!document.querySelector('.voice-ring')" : "!!document.querySelector('[aria-label=\"Message from agent other-agent\"]')")
+        await evaluate(`import('/src/lib/appTheme.ts').then(m => m.setAppTheme(${JSON.stringify(id)}))`)
+        await evaluate(`window.characterColors = (() => {
+          const canvas = document.createElement('canvas'), ctx = canvas.getContext('2d');
+          const rgb = color => { ctx.clearRect(0,0,1,1); ctx.fillStyle=color;ctx.fillRect(0,0,1,1);return [...ctx.getImageData(0,0,1,1).data].slice(0,3); };
+          const luminance = values => values.map(c=>c/255).map(c=>c<=.04045?c/12.92:((c+.055)/1.055)**2.4).reduce((sum,c,i)=>sum+c*[.2126,.7152,.0722][i],0);
+          const contrast = (a,b) => { const x=luminance(rgb(a)),y=luminance(rgb(b));return (Math.max(x,y)+.05)/(Math.min(x,y)+.05); };
+          return {rgb,contrast};
+        })()`)
+        for (const width of view === "card" ? [1000] : [1000, 390, 320]) {
+          await viewport(width, 1000)
+          await check(`${id} ${view} character fixture fits ${width}px`, "document.documentElement.scrollWidth<=innerWidth")
+          await screenshot(`${id}-${view}-${width}.png`)
+        }
+        await viewport(1000, 1000)
+        if (view !== "messages") {
+          if (id !== "legato") await check(`${id} ${view} action and identity use shared inks`, `(() => {
+            const style=getComputedStyle(document.documentElement), button=document.querySelector('.voice-primary'), card=document.querySelector('.voice-ui');
+            const probe=document.createElement('span');probe.style.color=style.getPropertyValue('--theme-accent');
+            return getComputedStyle(button).backgroundImage.includes(probe.style.color) && getComputedStyle(card).getPropertyValue('--voice-link').trim()===style.getPropertyValue('--theme-identity').trim();
+          })()`)
+          for (const mode of ["listening", "thinking", "speaking", "idle", ...(view === "card" ? [] : ["blocked"])]) {
+            await evaluate(`(() => {const select=document.getElementById('voice-mode');select.value=${JSON.stringify(mode)};select.dispatchEvent(new Event('change',{bubbles:true}));})()`)
+            await wait(`document.querySelector('.voice-ring').dataset.mode===${JSON.stringify(mode)}`)
+            const text = await evaluate(`(() => {
+              const failures=[];let pairs=0,minimum=Infinity;
+              for(const el of document.querySelectorAll('[data-contrast="voice"] *')) {
+                if(el.closest('svg') || ![...el.childNodes].some(n=>n.nodeType===3&&n.textContent.trim()) || !el.getBoundingClientRect().width) continue;
+                const ancestors=[];for(let node=el;node;node=node.parentElement)ancestors.unshift(node);
+                let backgrounds=[[255,255,255]];
+                for(const node of ancestors) {
+                  const style=getComputedStyle(node), canvas=document.createElement('canvas'),ctx=canvas.getContext('2d');
+                  const composite=(color,bg)=>{ctx.clearRect(0,0,1,1);ctx.fillStyle=color;ctx.fillRect(0,0,1,1);const rgba=[...ctx.getImageData(0,0,1,1).data];return bg.map((c,i)=>rgba[i]*rgba[3]/255+c*(1-rgba[3]/255));};
+                  backgrounds=backgrounds.map(bg=>composite(style.backgroundColor,bg));
+                  if(style.backgroundImage!=='none') {
+                    const stops=style.backgroundImage.match(/rgba?\([^)]*\)/g);
+                    if(!stops?.length)throw Error('Unsupported fixture gradient: '+style.backgroundImage);
+                    backgrounds=backgrounds.flatMap(bg=>stops.map(stop=>composite(stop,bg)));
+                  }
+                }
+                const fg=getComputedStyle(el).color, ratio=Math.min(...backgrounds.map(bg=>characterColors.contrast(fg,'rgb('+bg.join(',')+')')));pairs++;minimum=Math.min(minimum,ratio);
+                if(ratio<4.5)failures.push({text:el.textContent.slice(0,60),ratio});
+              }
+              return {pairs,minimum,failures};
+            })()`)
+            await writeFile(resolve(output, `${id}-${view}-${mode}-contrast.json`), JSON.stringify(text, null, 2))
+            // Legato's legacy secondary ink is outside this Ocular refinement.
+            if (id !== "legato" && (!text.pairs || text.failures.length)) throw new Error(`${id} ${mode} voice contrast: `+JSON.stringify(text))
+            checks.push({ name: `${id} ${mode} ${view} text inspected${id === "legato" ? " (legacy contrast not changed)" : " and readable"}`, passed: true })
+            if (mode === "speaking") {
+              await check(`${id} ${view} speaking keeps the spectrum and success glyph`, `(() => {
+                const ring=document.querySelector('.voice-ring'), ticks=ring.querySelectorAll('.tick');
+                const a=characterColors.rgb(getComputedStyle(ticks[0]).stroke), b=characterColors.rgb(getComputedStyle(ticks[59]).stroke);
+                if(${JSON.stringify(id)}==='dracula')return JSON.stringify(a)===JSON.stringify(b);
+                return ticks.length===60 && JSON.stringify(a)!==JSON.stringify(b);
+              })()`)
+              await screenshot(`${id}-${view}-speaking.png`)
+            }
+          }
+          await send("Emulation.setEmulatedMedia", { features: [{name:"prefers-reduced-motion",value:"reduce"}] })
+          await wait("document.querySelector('.voice-ring').dataset.motion==='reduced'")
+          await check(`${id} ${view} retains reduced motion`, "document.querySelector('.voice-ring').dataset.motion==='reduced'")
+          await send("Emulation.setEmulatedMedia", { features: [] })
+          await wait("document.querySelector('.voice-ring').dataset.motion==='full'")
+        } else {
+          if (id !== "legato") await check(`${id} peer and system message interiors use distinct shared surfaces`, `(() => {
+            const style=getComputedStyle(document.documentElement), peer=document.querySelector('[aria-label="Message from agent other-agent"]'), notice=document.querySelector('[aria-label="Message from Legato: coordination"]');
+            const rgb=characterColors.rgb, same=(a,b)=>JSON.stringify(rgb(a))===JSON.stringify(rgb(b));
+            return same(getComputedStyle(peer).backgroundColor, style.getPropertyValue('--material-identitySurface')) && same(getComputedStyle(notice).backgroundColor,style.getPropertyValue('--material-noticeSurface')) && (${JSON.stringify(id)}==='dracula' || !same(getComputedStyle(peer).backgroundColor,style.getPropertyValue('--theme-selection')));
+          })()`)
+          for (const selector of ['[aria-label="Message from agent other-agent"]','[aria-label="Message from Legato: coordination"]']) {
+            await check(`${id} ${selector} text remains readable`, `(() => {const el=document.querySelector(${JSON.stringify(selector)}), bg=getComputedStyle(el).backgroundColor;return [...el.querySelectorAll('div')].every(node=>characterColors.contrast(getComputedStyle(node).color,bg)>=4.5)})()`)
+          }
+          await evaluate("document.querySelector('textarea[aria-label=\"Message\"]').focus()")
+          for (const modifiers of [0, 8]) {
+            await send("Input.dispatchKeyEvent", {type:"keyDown",key:"Tab",code:"Tab",windowsVirtualKeyCode:9,modifiers})
+            await send("Input.dispatchKeyEvent", {type:"keyUp",key:"Tab",code:"Tab",windowsVirtualKeyCode:9,modifiers})
+          }
+          await check(`${id} composer retains its rounded inset keyboard focus`, `(() => {
+            const input=document.querySelector('textarea[aria-label="Message"]'),box=input.closest('.native-agent-composer'),style=getComputedStyle(box);
+            return input===document.activeElement && input.matches(':focus-visible') && getComputedStyle(input).outlineStyle==='none' && style.outlineWidth==='2px' && style.outlineOffset==='-2px' && parseFloat(style.borderTopLeftRadius)>=10 && characterColors.contrast(style.outlineColor,style.backgroundColor)>=3;
+          })()`)
+          await screenshot(`${id}-composer-focus.png`)
+        }
+      }
+    }
+  }
   if (exceptions.length) throw new Error("Browser exceptions: " + JSON.stringify(exceptions))
   checks.push({ name: "no browser JavaScript exceptions", passed: true })
   await writeFile(resolve(output, "verification.json"), JSON.stringify({ browser: (await send("Browser.getVersion", {}, null)).product, checks, limitations: "Isolated Chromium on Linux. Not native WebKit/Android/device execution or a full accessibility audit." }, null, 2) + "\n")

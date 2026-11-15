@@ -18,6 +18,14 @@ Dracula uses the official OSS palette, created by Zeno Rocha and maintained by D
 
 The research source hash above describes the original candidates only. Vivid provenance is recorded in each new entry. Neither variant has evidence of fatigue superiority. Existing themes, defaults and saved terminal overrides remain unchanged; Follow app uses Vivid ANSI when a Vivid app theme is selected, and both variants are also explicit terminal choices.
 
+## Ocular family character
+
+All four Ocular choices share purple action/focus and identity roles, green activity/success, and blue links. Each theme's `ui` record references its existing palette roles rather than duplicating colours: `accent`, `identity`, `voice_start` and `surfaces`. The renderer merges those surface recipes with the polarity material recipes **before** checking readable UI inks. Peer-agent/identity washes are purple; teal notice washes distinguish Legato-carried messages. These are shared application materials, not page-local colours or edits to research/terminal tokens.
+
+The speaking voice dial interpolates from the shared voice-start ink to success; the signing dial already uses accent-to-success. Labels remain explicit in every state and reduced-motion behaviour is retained. Dracula explicitly keeps its previous focus accent, link identity, selection-backed identity wash, info-backed notice wash and flat-success speaking ticks. Legato uses its unchanged CSS fallbacks. The rounded inset composer focus geometry is unchanged; Ocular now uses its purple UI focus ink.
+
+UI identity surfaces are intentionally separate from text selection. Neither these UI mappings nor Vivid's accents claim fatigue superiority. The original research-token palettes, neutral reading/material planes, terminal ANSI and saved preferences remain unchanged.
+
 ## Rendering contract
 
 - Source values are opaque sRGB hex. Platforms map roles, not independent hand-picked palettes.
@@ -30,7 +38,7 @@ The research source hash above describes the original candidates only. Vivid pro
 
 Cameron requested refinement in the **shared theme system**, not one-off page colours. `materials` in the same JSON owns polarity-specific finishes: recessed rail, unchanged reading canvas, panel, raised control, decorative divider and restrained status washes. Each finish blends encoded sRGB channels from canonical roles or neutral endpoints, rounded per channel with `Math.round`; these are application finishes, not edits to the research palette. Web and desktop use `themeMaterial()`, Android's asset adapter follows the same recipe; sandboxed/downloaded HTML and Mermaid map to these same materials and UI inks. Named themes gain contact/ambient shadows with a vertical offset and a fine top edge; Android retains platform-native elevation. Legato's existing default is untouched.
 
-`material_ink_contract` keeps UI text at least 4.5:1 on canvas, selection and every material except decorative divider. Starting from the **original** canonical ink, choose the first 5% blend toward foreground that passes on every surface. This retains readable secondary hierarchy and colour instead of making Dracula metadata pure white or allowing its red/pink to fail on raised/selected surfaces. UI ink is separate from canonical/terminal tokens. Required control outlines retain the strong boundary; decorative separators use the quieter divider. Focus, persistence, IDs, geometry and terminal ANSI are unchanged.
+`material_ink_contract` keeps UI text at least 4.5:1 on canvas, selection and every material except decorative divider. Starting from the **original** canonical ink, choose the first 5% blend toward foreground that passes on every surface. This retains readable secondary hierarchy and colour instead of making Dracula metadata pure white or allowing its red/pink to fail on raised/selected surfaces. UI ink is separate from canonical/terminal tokens. Required control outlines retain the strong boundary; decorative separators use the quieter divider. Persistence, IDs, geometry and terminal ANSI are unchanged; UI focus follows the application accent role.
 
 Stable app IDs: `legato`, `dracula`, `ocular-light`, `ocular-dark`, `ocular-light-vivid`, `ocular-dark-vivid`. Names are presentation, not identifiers. Browser persistence is `legato:app-theme`; the public in-page change signal is `legato:theme-changed`. Native apps persist their own application selection and deliver it to retained/new top-frame server pages. A capable native shell exposes `legatoShell.theme = 1`; a web picker asks the key-bound bridge to save and waits for `legato:shell-theme {id, error?}`. Storage and render changes do not grant command authority.
 

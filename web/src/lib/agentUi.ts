@@ -309,7 +309,7 @@ function currentThemeVariables(): Record<string, string> {
     "--color-text-inverse": tokens.canvas,
     "--color-border-primary": tokens.border,
     "--color-border-secondary": material.divider,
-    "--color-ring-primary": tokens.focus,
+    "--color-ring-primary": theme.material.accent,
     "--shadow-sm": theme.material.controlShadow,
     "--shadow-md": theme.material.panelShadow,
     ...Object.fromEntries(["info", "success", "warning", "danger"].flatMap(role => [
