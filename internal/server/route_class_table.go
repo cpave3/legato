@@ -60,6 +60,8 @@ var routeClassTable = []routeClassEntry{
 	// Settings, updates and restart
 	{"GET", "/api/settings", ClassRead, "Read the settings"},
 	{"PUT", "/api/settings/tint", ClassChange, "Set this Legato's tint"},
+	{"GET", "/api/settings/theme", ClassRead, "Read this server's preferred theme"},
+	{"PUT", "/api/settings/theme", ClassChange, "Set this server's preferred theme"},
 	{"GET", "/api/engrams", ClassRead, "List the engrams agents can be started as"},
 	{"GET", "/api/engram-bindings", ClassRead, "List the engrams bound to repositories and folders"},
 	{"DELETE", "/api/engram-bindings", ClassChange, "Unbind an engram from a repository or folder"},

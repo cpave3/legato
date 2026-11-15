@@ -98,6 +98,7 @@ type Server struct {
 	taskStacks               TaskStackService
 	preparing                preparingAgents
 	tints                    TintService
+	themes                   ThemePreferenceService
 	reeveName                service.ReeveNameSource
 	engrams                  EngramService
 	builtInWorkflows         []*workflowengine.Definition
@@ -199,6 +200,7 @@ func NewWithSwarm(board service.BoardService, agents service.AgentService, tmux 
 	mux.HandleFunc("/api/workspaces", s.workspacesHandler())
 	mux.HandleFunc("/api/settings", s.settingsHandler())
 	mux.HandleFunc("/api/settings/tint", s.tintHandler())
+	mux.HandleFunc("/api/settings/theme", s.themePreferenceHandler())
 	mux.HandleFunc("/api/engrams", s.engramsHandler())
 	mux.HandleFunc("/api/engram-bindings", s.engramBindingsHandler())
 	mux.HandleFunc("/api/engram-bindings/default", s.engramDefaultHandler())

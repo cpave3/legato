@@ -55,6 +55,11 @@ const (
 	// EventMQTTInvalidated asks the publisher to reread shared state after
 	// another host process changed it. It carries no source content.
 	EventMQTTInvalidated
+	// EventServerThemeChanged follows a committed server preference change.
+	EventServerThemeChanged
+	// EventServerThemeInvalidated is a content-free cross-process refresh,
+	// kept distinct so IPC never echoes the same change indefinitely.
+	EventServerThemeInvalidated
 )
 
 // ReeveSpokePayload is what became of one line the Reeve said.
