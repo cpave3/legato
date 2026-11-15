@@ -227,6 +227,8 @@ cause remains unconfirmed and no speculative production patch was made.
   large concurrent request sets and long-running real-provider sessions remain
   non-exhaustive. Existing registry shutdown/interruption contracts supplement
   the live reload/restart/child-stop scenarios.
-- Push/PR delivery remains **blocked on Cameron's credential approval**. Intended
-  branch is `legato/3jhyll8b-integration` in each repository; one consolidated
-  draft PR per repository, linked once created. No merges/deployments/CI edits.
+- Cameron approved `ap-2bbd90a1`; both `legato/3jhyll8b-integration` branches
+  were pushed through the configured credential broker. Consolidated draft PRs:
+  [Legato #93](https://github.com/cpave3/legato/pull/93) and
+  [Chimera #7](https://github.com/cpave3/chimera/pull/7), paired in their bodies.
+  No merges, deployments or CI edits.
