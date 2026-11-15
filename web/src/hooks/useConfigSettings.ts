@@ -8,6 +8,7 @@ export function useConfigSettings(baseUrl: string) {
   return useQuery({
     queryKey: queryKeys.configSettings(baseUrl),
     queryFn: () => fetchConfigSettings(baseUrl),
+    select: (catalog) => catalog.settings,
     retry: false,
   })
 }

@@ -4,6 +4,7 @@ export type SlashItem = {
   type: "command" | "skill"
   name: string
   description: string
+  source?: string
   body?: string
 }
 

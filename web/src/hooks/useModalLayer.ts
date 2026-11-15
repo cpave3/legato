@@ -1,6 +1,6 @@
-import { useInsertionEffect, useLayoutEffect, useRef, type RefObject } from "react"
+import { useEffect, useInsertionEffect, useLayoutEffect, useRef, type RefObject } from "react"
 
-type Layer = { container: HTMLElement }
+type Layer = { container: HTMLElement; branches: Set<HTMLElement> }
 const layers: Layer[] = []
 const isolated = new Map<HTMLElement, string | null>()
 let bodyOverflow = ""
@@ -11,20 +11,35 @@ function isolateBackground() {
     else element.setAttribute("inert", value)
   }
   isolated.clear()
-  let branch = layers.at(-1)?.container
-  while (branch && branch !== document.body) {
-    const parent = branch.parentElement
-    if (!parent) break
-    for (const sibling of parent.children) {
-      if (sibling === branch || !(sibling instanceof HTMLElement)) continue
-      isolated.set(sibling, sibling.getAttribute("inert"))
+  const top = layers.at(-1)
+  const paths = new Set<HTMLElement>()
+  for (const root of top ? [top.container, ...top.branches] : []) {
+    for (let branch: HTMLElement | null = root; branch && branch !== document.body; branch = branch.parentElement) paths.add(branch)
+  }
+  for (const branch of paths) {
+    if (branch === document.body) continue
+    for (const sibling of branch.parentElement?.children ?? []) {
+      if (paths.has(sibling as HTMLElement) || !(sibling instanceof HTMLElement)) continue
+      if (!isolated.has(sibling)) isolated.set(sibling, sibling.getAttribute("inert"))
       sibling.setAttribute("inert", "")
     }
-    branch = parent
   }
 }
 
-const focusSelector = 'button:not([disabled]),a[href],input:not([disabled]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex="-1"])'
+function contains(layer: Layer, target: Node | null) {
+  return layer.container.contains(target) || Array.from(layer.branches).some(branch => branch.contains(target))
+}
+
+// A portaled picker belongs to the modal containing its trigger, not to the background.
+export function registerModalBranch(container: HTMLElement, trigger: HTMLElement | null) {
+  const owner = layers.at(-1)
+  if (!owner || !contains(owner, trigger)) return () => {}
+  owner.branches.add(container)
+  isolateBackground()
+  return () => { owner.branches.delete(container); isolateBackground() }
+}
+
+const focusSelector = 'button:not([disabled]),a[href],input:not([disabled]),select:not([disabled]),textarea:not([disabled]),summary,[tabindex]:not([tabindex="-1"])'
 
 export function useModalLayer({ open, onClose, containerRef, dismissible = true }: {
   open: boolean
@@ -34,6 +49,13 @@ export function useModalLayer({ open, onClose, containerRef, dismissible = true 
 }) {
   const latest = useRef({ onClose, dismissible })
   const opener = useRef<HTMLElement | null>(null)
+  const pendingRestore = useRef<HTMLElement | null>(null)
+  const restore = () => {
+    const target = pendingRestore.current
+    pendingRestore.current = null
+    if (target?.isConnected && (!layers.length || contains(layers.at(-1)!, target))) target.focus({ preventScroll: true })
+  }
+  useEffect(() => () => restore(), [])
   useInsertionEffect(() => {
     if (open) opener.current = document.activeElement instanceof HTMLElement ? document.activeElement : null
   }, [open])
@@ -42,7 +64,7 @@ export function useModalLayer({ open, onClose, containerRef, dismissible = true 
   useLayoutEffect(() => {
     const container = containerRef.current
     if (!open || !container) return
-    const layer = { container }
+    const layer = { container, branches: new Set<HTMLElement>() }
     if (layers.length === 0) {
       bodyOverflow = document.body.style.overflow
       document.body.style.overflow = "hidden"
@@ -53,6 +75,7 @@ export function useModalLayer({ open, onClose, containerRef, dismissible = true 
     const controls = () => Array.from(container.querySelectorAll<HTMLElement>(focusSelector)).filter(element => {
       if (element.matches(':disabled') || element.closest('[inert],[hidden],[aria-hidden="true"]')) return false
       for (let node: HTMLElement | null = element; node && node !== container; node = node.parentElement) {
+        if (node instanceof HTMLDetailsElement && !node.open && !node.querySelector(":scope > summary")?.contains(element)) return false
         const style = getComputedStyle(node)
         if (style.display === "none" || style.visibility === "hidden") return false
       }
@@ -87,7 +110,7 @@ export function useModalLayer({ open, onClose, containerRef, dismissible = true 
       }
     }
     const focusin = (event: FocusEvent) => {
-      if (topmost() && !container.contains(event.target as Node)) focusFirst()
+      if (topmost() && !contains(layer, event.target as Node)) focusFirst()
     }
     const observer = new MutationObserver(() => { if (topmost()) isolateBackground() })
     observer.observe(document.body, { childList: true, subtree: true })
@@ -101,7 +124,8 @@ export function useModalLayer({ open, onClose, containerRef, dismissible = true 
       layers.splice(layers.indexOf(layer), 1)
       isolateBackground()
       if (layers.length === 0) document.body.style.overflow = bodyOverflow
-      if (wasTop && opener.current?.isConnected) opener.current.focus({ preventScroll: true })
+      if (wasTop) pendingRestore.current = opener.current
     }
   }, [open, containerRef])
+  useLayoutEffect(() => { if (!open) restore() }, [open])
 }

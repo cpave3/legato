@@ -316,8 +316,14 @@ export function NativeAgentPanel({ agentId, reeve, sandboxed, onKill, onRename, 
     agentId, agentKind, baseUrl, transcriptionOnly: true,
     onTranscription: (text) => setDraft((current) => current ? current + " " + text : text),
   })
-  const [commands, setCommands] = useState<CommandInfo[]>([])
-  const [skills, setSkills] = useState<SkillInfo[]>([])
+  const [browserOpen, setBrowserOpen] = useState(false)
+  const [browserQuery, setBrowserQuery] = useState("")
+  const [browserFilter, setBrowserFilter] = useState<"all" | "skill" | "command">("all")
+  const catalogKey = JSON.stringify([baseUrl, agentId])
+  const [catalog, setCatalog] = useState<{
+    key: string; commands: CommandInfo[]; skills: SkillInfo[]; loading: boolean; errors: string[]
+  }>({ key: catalogKey, commands: [], skills: [], loading: true, errors: [] })
+  const [catalogAttempt, setCatalogAttempt] = useState(0)
   // The draft the slash menu was closed on (Escape, or an item completed);
   // typing again reopens it.
   const [slashClosedOn, setSlashClosedOn] = useState<string | null>(null)
@@ -425,29 +431,55 @@ export function NativeAgentPanel({ agentId, reeve, sandboxed, onKill, onRename, 
       .catch(() => {})
   }, [agentId, baseUrl])
 
-  // Fetch commands and skills for slash autocomplete
+  useLayoutEffect(() => {
+    setBrowserOpen(false)
+    setBrowserQuery("")
+    setBrowserFilter("all")
+    setSlashClosedOn(null)
+  }, [catalogKey])
+
   useEffect(() => {
-    Promise.all([
-      apiFetch(baseUrl, `/api/agents/${agentId}/chimera/commands`).then((r) => r.ok ? r.json() : []).catch(() => []),
-      apiFetch(baseUrl, `/api/agents/${agentId}/chimera/skills`).then((r) => r.ok ? r.json() : []).catch(() => []),
-    ]).then(([cmds, skls]) => {
-      setCommands(Array.isArray(cmds) ? cmds : [])
-      setSkills(Array.isArray(skls) ? skls : [])
-    })
-  }, [agentId, baseUrl])
+    let current = true
+    setCatalog((previous) => ({
+      key: catalogKey,
+      commands: previous.key === catalogKey ? previous.commands : [],
+      skills: previous.key === catalogKey ? previous.skills : [],
+      loading: true, errors: [],
+    }))
+    let pending = 2
+    for (const kind of ["commands", "skills"] as const) {
+      apiFetch(baseUrl, `/api/agents/${agentId}/chimera/${kind}`)
+        .then(async (response) => {
+          if (!response.ok) throw new Error(`HTTP ${response.status}`)
+          const items = await response.json()
+          if (!Array.isArray(items)) throw new Error("Invalid catalog response")
+          if (current) setCatalog((previous) => ({ ...previous, [kind]: items }))
+        })
+        .catch((error: unknown) => {
+          if (current) setCatalog((previous) => ({ ...previous, errors: [...previous.errors,
+            `${kind === "commands" ? "Commands" : "Skills"} unavailable: ${error instanceof Error ? error.message : String(error)}`],
+          }))
+        })
+        .finally(() => {
+          pending--
+          if (current && pending === 0) setCatalog((previous) => ({ ...previous, loading: false }))
+        })
+    }
+    return () => { current = false }
+  }, [agentId, baseUrl, catalogKey, catalogAttempt])
 
   // The slash menu: open while the draft is a slash and a name, until it is
   // closed on this draft.
   const slashItems: SlashItem[] = useMemo(() => [
-    ...commands.map((c) => ({ type: "command" as const, name: c.name, description: c.description || "", body: c.body })),
-    ...skills.map((s) => ({ type: "skill" as const, name: s.name, description: s.description || "" })),
-  ], [commands, skills])
-  const slashQuery = /^\/(\S*)$/.exec(draft)?.[1]
+    ...(catalog.key === catalogKey ? catalog.commands : []).map((c) => ({ type: "command" as const, name: c.name, description: c.description || "", body: c.body, source: c.source })),
+    ...(catalog.key === catalogKey ? catalog.skills : []).map((s) => ({ type: "skill" as const, name: s.name, description: s.description || "", source: s.source })),
+  ], [catalog, catalogKey])
+  const slashQuery = browserOpen ? browserQuery : /^\/(\S*)$/.exec(draft)?.[1]
   const slashMatches = useMemo(
-    () => slashQuery === undefined ? [] : rankSlashItems(slashItems, slashQuery),
-    [slashItems, slashQuery],
+    () => slashQuery === undefined ? [] : rankSlashItems(browserOpen && browserFilter !== "all" ? slashItems.filter((item) => item.type === browserFilter) : slashItems, slashQuery),
+    [slashItems, slashQuery, browserOpen, browserFilter],
   )
-  const slashOpen = slashQuery !== undefined && slashItems.length > 0 && slashClosedOn !== draft
+  const slashOpen = browserOpen || slashQuery !== undefined && slashClosedOn !== draft
   const slashList = useMemo(() => slashMatches.map((m) => m.item.type + ":" + m.item.name).join("\n"), [slashMatches])
   const slashIndex = slashActive.list === slashList ? Math.min(slashActive.index, Math.max(slashMatches.length - 1, 0)) : 0
   const setSlashIndex = useCallback((index: number) => setSlashActive({ list: slashList, index }), [slashList])
@@ -848,15 +880,21 @@ export function NativeAgentPanel({ agentId, reeve, sandboxed, onKill, onRename, 
   // Completing an item fills the box and never sends: a command with a body
   // expands to it, anything else becomes "/name ", ready for arguments.
   const handleSlashSelect = useCallback((item: SlashItem) => {
-    const next = item.type === "command" && item.body ? item.body : `/${item.name} `
+    const completion = item.type === "command" && item.body ? item.body : `/${item.name} `
+    const next = browserOpen && draft
+      ? item.type === "skill" || !item.body ? `${completion}${draft}` : `${draft}\n${completion}`
+      : completion
+    setBrowserOpen(false)
     caretToEnd.current = true
     setSlashClosedOn(next)
     setDraft(next)
-  }, [])
+  }, [browserOpen, draft])
 
   const handleKeyDown = useCallback(
     (e: React.KeyboardEvent) => {
-      if (slashOpen && !e.nativeEvent.isComposing) {
+      if (e.nativeEvent.isComposing || e.nativeEvent.keyCode === 229) return
+      if (slashOpen) {
+        e.stopPropagation()
         const count = slashMatches.length
         if ((e.key === "ArrowDown" || e.key === "ArrowUp") && count > 0) {
           e.preventDefault()
@@ -871,6 +909,12 @@ export function NativeAgentPanel({ agentId, reeve, sandboxed, onKill, onRename, 
         if (e.key === "Escape") {
           e.preventDefault()
           setSlashClosedOn(draft)
+          setBrowserOpen(false)
+          textareaRef.current?.focus()
+          return
+        }
+        if (e.key === "Enter" && !e.shiftKey) {
+          e.preventDefault()
           return
         }
       }
@@ -1192,6 +1236,18 @@ export function NativeAgentPanel({ agentId, reeve, sandboxed, onKill, onRename, 
         <div {...(composerEnabled ? pasted.dropTarget : {})} className={`native-agent-composer relative mx-auto flex w-full max-w-[820px] flex-col rounded-[10px] border bg-lw-surface max-sm:rounded-xl ${dictating(voice) ? "border-lw-danger-line" : pasted.dragging ? "border-lw-accent" : "border-lw-line-strong"}`}>
           {slashOpen && (
             <NativeSlashMenu
+              anchorRef={textareaRef}
+              onClose={() => { setBrowserOpen(false); setSlashClosedOn(draft) }}
+              loading={catalog.key !== catalogKey || catalog.loading}
+              errors={catalog.key === catalogKey ? catalog.errors : []}
+              empty={slashItems.length === 0}
+              onRetry={() => setCatalogAttempt((attempt) => attempt + 1)}
+              browser={browserOpen ? {
+                query: browserQuery, onQuery: setBrowserQuery,
+                filter: browserFilter, onFilter: setBrowserFilter,
+                onKeyDown: handleKeyDown,
+                onClose: () => { setBrowserOpen(false); setSlashClosedOn(draft); textareaRef.current?.focus() },
+              } : undefined}
               listId={slashListId}
               optionId={slashOptionId}
               matches={slashMatches}
@@ -1200,6 +1256,10 @@ export function NativeAgentPanel({ agentId, reeve, sandboxed, onKill, onRename, 
               onPick={handleSlashSelect}
             />
           )}
+          {composerEnabled && <button type="button" className="self-start min-h-11 px-3.5 text-sm text-lw-text-2 hover:text-lw-text focus-visible:outline-2 focus-visible:outline-lw-accent" aria-expanded={slashOpen} aria-controls={slashOpen ? slashListId : undefined}
+            onClick={() => { setBrowserOpen((open) => !open); setBrowserQuery(""); setBrowserFilter("all"); setSlashClosedOn(draft) }}>
+            Commands and skills
+          </button>}
           {contextUsage && contextShareOf !== null && contextShareOf >= CONTEXT_NEARLY_FULL && (
             <ContextNotice used={formatTokens(contextUsage.used)} window={formatTokens(contextUsage.window)} />
           )}

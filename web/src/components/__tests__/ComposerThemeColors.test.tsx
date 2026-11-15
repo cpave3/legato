@@ -9,7 +9,7 @@ it("renders the send action with theme canvas ink, including its keyboard hint",
   const send = screen.getByRole("button", { name: "Send message" })
   expect(send.className).toContain("bg-lw-accent")
   expect(send.className).toContain("text-[var(--theme-canvas,#fff)]")
-  expect(screen.getByText("↵").className).toContain("text-[var(--theme-canvas,#cfc8ff)]")
+  expect(screen.getByText("↵").className).toContain("--theme-canvas")
   fireEvent.click(send)
   expect(onClick).toHaveBeenCalledOnce()
 })

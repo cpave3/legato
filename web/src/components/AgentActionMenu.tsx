@@ -1,4 +1,7 @@
-import { useState, useRef, useEffect } from "react"
+import { createPortal } from "react-dom"
+import { useMenuLayer } from "../hooks/useMenuLayer"
+import { Dialog, DialogPanel, DialogTitle } from "./ui/Dialog"
+import { useState, useRef } from "react"
 import { useServer } from "../hooks/useServer"
 import { useToast } from "../hooks/useToast"
 import { useConfirm } from "../hooks/useConfirm"
@@ -30,17 +33,10 @@ export function AgentActionMenu({
   const menuRef = useRef<HTMLDivElement>(null)
   const isWorker = role !== "conductor"
 
-  useEffect(() => {
-    if (!menuOpen) return
-    const onClick = (e: MouseEvent) => {
-      if (menuRef.current && !menuRef.current.contains(e.target as Node)) {
-        setMenuOpen(false)
-      }
-    }
-    document.addEventListener("click", onClick, true)
-    return () => document.removeEventListener("click", onClick, true)
-  }, [menuOpen])
-
+  const trigger = useRef<HTMLButtonElement>(null)
+  useMenuLayer({ open: menuOpen, onOpen: () => setMenuOpen(true), onClose: () => setMenuOpen(false), containerRef: menuRef, triggerRef: trigger, align: "right" })
+  const closeSend = () => { setSendOpen(false); setText(""); setError(""); trigger.current?.focus() }
+  const closeFinish = () => { setFinishOpen(false); setSummary(""); setError(""); trigger.current?.focus() }
   const handleSendMessage = async () => {
     if (!text.trim()) return
     setSending(true)
@@ -49,8 +45,7 @@ export function AgentActionMenu({
       // messageWorker accepts task_id (subtaskID or parentID); server routes it.
       await messageWorker(baseUrl, agentTaskId, text.trim())
       addToast("Message sent", "success")
-      setSendOpen(false)
-      setText("")
+      closeSend()
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to send message")
     } finally {
@@ -76,8 +71,7 @@ export function AgentActionMenu({
     try {
       await finishSwarm(baseUrl, parentTaskId, summary.trim())
       addToast("Swarm finished", "success")
-      setFinishOpen(false)
-      setSummary("")
+      closeFinish()
     } catch (err) {
       setError(err instanceof Error ? err.message : "Failed to finish swarm")
     } finally {
@@ -87,8 +81,13 @@ export function AgentActionMenu({
 
   return (
     <>
-      <div className="relative" ref={menuRef}>
+      <div className="relative">
         <button
+          ref={trigger}
+          type="button"
+          aria-label="Actions"
+          aria-haspopup="menu"
+          aria-expanded={menuOpen}
           onClick={() => setMenuOpen((v) => !v)}
           className={cn(
             "rounded p-1 text-zinc-500 transition-colors hover:bg-zinc-800 hover:text-zinc-200",
@@ -98,33 +97,33 @@ export function AgentActionMenu({
         >
           <MoreHorizontal size={14} />
         </button>
-        {menuOpen && (
-          <div className="absolute right-0 top-full mt-1 rounded border border-zinc-700 bg-zinc-900 shadow-xl py-1 min-w-[180px] z-50">
-            <button
-              onClick={() => { setMenuOpen(false); setSendOpen(true); setError("") }}
+        {menuOpen && createPortal(
+          <div ref={menuRef} role="menu" aria-label="Agent actions" className="absolute right-0 top-full mt-1 rounded border border-zinc-700 bg-zinc-900 shadow-xl py-1 min-w-[180px] z-50">
+            <button type="button" role="menuitem"
+              onClick={() => { setMenuOpen(false); trigger.current?.focus(); setSendOpen(true); setError("") }}
               className="flex w-full items-center gap-2 px-3 py-1.5 text-xs text-zinc-300 hover:bg-zinc-800 transition-colors"
             >
               <MessageSquare size={12} />
               Send message
             </button>
             {isWorker ? (
-              <button
-                onClick={() => { setMenuOpen(false); handleCloseWorker() }}
+              <button type="button" role="menuitem"
+                onClick={() => { setMenuOpen(false); trigger.current?.focus(); handleCloseWorker() }}
                 className="flex w-full items-center gap-2 px-3 py-1.5 text-xs text-red-400 hover:bg-red-950 transition-colors"
               >
                 <X size={12} />
                 Close worker
               </button>
             ) : (
-              <button
-                onClick={() => { setMenuOpen(false); setFinishOpen(true); setError("") }}
+              <button type="button" role="menuitem"
+                onClick={() => { setMenuOpen(false); trigger.current?.focus(); setFinishOpen(true); setError("") }}
                 className="flex w-full items-center gap-2 px-3 py-1.5 text-xs text-indigo-300 hover:bg-zinc-800 transition-colors"
               >
                 <Send size={12} />
                 Finish swarm
               </button>
             )}
-          </div>
+          </div>, document.body
         )}
       </div>
 
@@ -132,12 +131,12 @@ export function AgentActionMenu({
 
       {/* Send message modal */}
       {sendOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
-          <div className="w-full max-w-md rounded-lg border border-zinc-700 bg-zinc-900 shadow-2xl">
+        <Dialog open={sendOpen} onClose={closeSend} dismissible={!sending}>
+          <DialogPanel>
             <div className="flex items-center justify-between border-b border-zinc-800 px-5 py-3">
-              <h2 className="text-sm font-semibold text-zinc-200">Send Message</h2>
+              <DialogTitle>Send Message</DialogTitle>
               <button
-                onClick={() => { setSendOpen(false); setText(""); setError("") }}
+                aria-label="Close message" disabled={sending} onClick={closeSend}
                 className="rounded p-1 text-zinc-500 transition-colors hover:bg-zinc-800 hover:text-zinc-200"
               >
                 <X size={16} />
@@ -150,6 +149,7 @@ export function AgentActionMenu({
                 </div>
               )}
               <textarea
+                aria-label="Message"
                 value={text}
                 onChange={(e) => setText(e.target.value)}
                 placeholder="Type your message..."
@@ -167,18 +167,18 @@ export function AgentActionMenu({
                 </button>
               </div>
             </div>
-          </div>
-        </div>
+          </DialogPanel>
+        </Dialog>
       )}
 
       {/* Finish swarm modal */}
       {finishOpen && (
-        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
-          <div className="w-full max-w-md rounded-lg border border-zinc-700 bg-zinc-900 shadow-2xl">
+        <Dialog open={finishOpen} onClose={closeFinish} dismissible={!sending}>
+          <DialogPanel>
             <div className="flex items-center justify-between border-b border-zinc-800 px-5 py-3">
-              <h2 className="text-sm font-semibold text-zinc-200">Finish Swarm</h2>
+              <DialogTitle>Finish Swarm</DialogTitle>
               <button
-                onClick={() => { setFinishOpen(false); setSummary(""); setError("") }}
+                aria-label="Close finish swarm" disabled={sending} onClick={closeFinish}
                 className="rounded p-1 text-zinc-500 transition-colors hover:bg-zinc-800 hover:text-zinc-200"
               >
                 <X size={16} />
@@ -190,8 +190,9 @@ export function AgentActionMenu({
                   {error}
                 </div>
               )}
-              <label className="text-xs text-zinc-500 block">Summary</label>
+              <label htmlFor="swarm-summary" className="text-xs text-zinc-500 block">Summary</label>
               <textarea
+                id="swarm-summary"
                 value={summary}
                 onChange={(e) => setSummary(e.target.value)}
                 placeholder="Describe the outcome of the swarm..."
@@ -209,8 +210,8 @@ export function AgentActionMenu({
                 </button>
               </div>
             </div>
-          </div>
-        </div>
+          </DialogPanel>
+        </Dialog>
       )}
     </>
   )

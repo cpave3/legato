@@ -1,4 +1,6 @@
-import { useEffect, useRef, type ReactNode } from "react"
+import { createPortal } from "react-dom"
+import { useMenuLayer } from "../../hooks/useMenuLayer"
+import { useLayoutEffect, useId, useRef, type ReactNode } from "react"
 import { cn } from "../../lib/utils"
 
 interface DropdownProps {
@@ -9,35 +11,39 @@ interface DropdownProps {
   align?: "left" | "right"
   minWidth?: number
   className?: string
+  kind?: "menu" | "dialog"
 }
 
-export function Dropdown({ trigger, children, open, onOpenChange, align = "right", minWidth = 160, className }: DropdownProps) {
+export function Dropdown({ trigger, children, open, onOpenChange, align = "right", minWidth = 160, className, kind = "menu" }: DropdownProps) {
   const ref = useRef<HTMLDivElement>(null)
 
-  useEffect(() => {
-    if (!open) return
-    const handler = (e: MouseEvent) => {
-      if (ref.current && !ref.current.contains(e.target as Node)) {
-        onOpenChange(false)
-      }
-    }
-    document.addEventListener("mousedown", handler)
-    return () => document.removeEventListener("mousedown", handler)
-  }, [open, onOpenChange])
+  const panel = useRef<HTMLDivElement>(null)
+  const anchor = useRef<HTMLElement | null>(null)
+  const id = useId()
+  useLayoutEffect(() => {
+    anchor.current = ref.current?.querySelector<HTMLElement>('button,[role="button"]') ?? null
+    anchor.current?.setAttribute('aria-haspopup', kind)
+    anchor.current?.setAttribute('aria-expanded', String(open))
+    anchor.current?.setAttribute('aria-controls', id)
+  }, [open, kind, id])
+  useMenuLayer({ open, onOpen: () => onOpenChange(true), onClose: () => onOpenChange(false), containerRef: panel, triggerRef: anchor, align, placement: "above", keyboard: kind === "menu" })
 
   return (
     <div className={cn("relative", className)} ref={ref}>
       {trigger}
-      {open && (
+      {open && createPortal(
         <div
+          ref={panel}
+          id={id}
+          role={kind === "menu" ? "menu" : undefined}
           className={cn(
             "absolute bottom-full mb-1 rounded border border-zinc-700 bg-zinc-900 shadow-xl py-1 z-10",
             align === "right" ? "right-0" : "left-0",
           )}
-          style={{ minWidth }}
+          style={{ minWidth: `min(${minWidth}px, calc(100vw - 16px))` }}
         >
           {children}
-        </div>
+        </div>, document.body
       )}
     </div>
   )
@@ -53,6 +59,8 @@ interface DropdownItemProps {
 export function DropdownItem({ children, onClick, active, className }: DropdownItemProps) {
   return (
     <button
+      type="button"
+      role="menuitem"
       onClick={onClick}
       className={cn(
         "flex w-full items-center gap-2 px-3 py-1.5 text-xs transition-colors",

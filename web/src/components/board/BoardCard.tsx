@@ -115,7 +115,17 @@ export function BoardCard({ card, selected, highlighted = false, column, showWor
           {card.has_warning && <Mark glyph="⚠" tone="mr-auto shrink-0 font-lw text-lw-error">sync failed</Mark>}
           {agentTime && <span title="Time agents spent on this task" className="shrink-0">{agentTime}</span>}
         </div>
-        <div className="text-sm font-semibold leading-[19px]">{card.title}</div>
+        <button
+          type="button"
+          aria-pressed={selected}
+          onKeyDown={(event) => {
+            if (event.key !== "Enter") return
+            event.preventDefault()
+            event.stopPropagation()
+            ;(onDoubleClick ?? onClick)()
+          }}
+          className="rounded-sm text-left text-sm font-semibold leading-[19px] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-lw-accent"
+        >{card.title}</button>
         {card.handoff_from && <div data-testid="handoff-from" className="truncate text-xs text-lw-text-2">{`from ${card.handoff_from.main} · ${card.handoff_from.main_task_id}`}</div>}
         <MetaLine card={card} showWorkspace={showWorkspace} />
         {card.review_ready && !card.review_unreviewed && <Mark glyph="✓" tone="text-xs text-lw-done">Reviewed</Mark>}

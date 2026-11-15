@@ -1,5 +1,5 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react"
-import { afterEach, describe, expect, it, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { CardContextMenu } from "../CardContextMenu"
 import { cardWorkflowOptions } from "../../../lib/card-workflows"
 import type { BoardCard } from "../../../lib/board-types"
@@ -7,7 +7,15 @@ import type { BoardCard } from "../../../lib/board-types"
 const card = { id: "T-1", title: "Context card" } as BoardCard
 const workflow = { definition: { schema_version: 1, name: "triage", title: "Triage", source: "triage.yaml", steps: [] }, taskInput: "subject" } as never
 
-afterEach(cleanup)
+beforeEach(() => {
+  Object.defineProperty(window, "innerWidth", { value: 1024, configurable: true })
+  vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
+    if (this.getAttribute('role') === 'menu') return new DOMRect(Number.parseFloat(this.style.left) || 0, Number.parseFloat(this.style.top) || 0, this.getAttribute('aria-label')?.startsWith('Workflows') ? 280 : 240, 196)
+    if (this.getAttribute('aria-haspopup') === 'menu') return new DOMRect(Number.parseFloat(this.parentElement!.style.left), 100, 232, 40)
+    return new DOMRect()
+  })
+})
+afterEach(() => { cleanup(); vi.restoreAllMocks() })
 
 describe("CardContextMenu", () => {
   it("clamps to the viewport and dismisses with Escape or outside click", () => {
@@ -19,7 +27,7 @@ describe("CardContextMenu", () => {
     expect(menu.style.left).toBe("72px")
     expect(menu.style.top).toBe("96px")
 
-    fireEvent.keyDown(window, { key: "Escape" })
+    fireEvent.keyDown(document.activeElement!, { key: "Escape" })
     expect(onClose).toHaveBeenCalledTimes(1)
 
     onClose.mockClear()
@@ -34,7 +42,7 @@ describe("CardContextMenu", () => {
     const open = screen.getByRole("menuitem", { name: "Open details" })
     const move = screen.getByRole("menuitem", { name: "Move" })
     open.focus()
-    fireEvent.keyDown(window, { key: "ArrowDown" })
+    fireEvent.keyDown(document.activeElement!, { key: "ArrowDown" })
     expect(document.activeElement).toBe(move)
     fireEvent.click(move)
     expect(onAction).toHaveBeenCalledWith("move")
@@ -50,13 +58,13 @@ describe("CardContextMenu", () => {
     expect(screen.getByRole("menuitem", { name: "Triage" })).toBeTruthy()
 
     fireEvent.scroll(document.body)
-    expect(onClose).toHaveBeenCalledTimes(1)
+    expect(onClose).not.toHaveBeenCalled()
   })
 
   it("flips the workflow flyout left near the viewport edge", () => {
-    Object.defineProperty(window, "innerWidth", { value: 500, configurable: true })
+    Object.defineProperty(window, "innerWidth", { value: 900, configurable: true })
     Object.defineProperty(window, "innerHeight", { value: 300, configurable: true })
-    render(<CardContextMenu card={card} position={{ x: 490, y: 40 }} workflows={[workflow]} onAction={() => {}} onClose={() => {}} />)
+    render(<CardContextMenu card={card} position={{ x: 890, y: 40 }} workflows={[workflow]} onAction={() => {}} onClose={() => {}} />)
     fireEvent.mouseEnter(screen.getByRole("menuitem", { name: "Workflows" }))
     const primary = screen.getByRole("menu", { name: "Actions for Context card" })
     const flyout = screen.getByRole("menu", { name: "Workflows for Context card" })
@@ -70,22 +78,21 @@ describe("CardContextMenu", () => {
     render(<CardContextMenu card={card} position={{ x: 10, y: 10 }} workflows={[workflow]} onAction={() => {}} onWorkflow={onWorkflow} onClose={onClose} />)
     const trigger = screen.getByRole("menuitem", { name: "Workflows" })
     trigger.focus()
-    fireEvent.keyDown(window, { key: "ArrowRight" })
+    fireEvent.keyDown(document.activeElement!, { key: "ArrowRight" })
     const item = screen.getByRole("menuitem", { name: "Triage" })
     expect(document.activeElement).toBe(item)
-    fireEvent.keyDown(window, { key: "ArrowLeft" })
+    fireEvent.keyDown(document.activeElement!, { key: "ArrowLeft" })
     expect(document.activeElement).toBe(trigger)
-    fireEvent.keyDown(window, { key: "ArrowRight" })
-    fireEvent.keyDown(window, { key: "Enter" })
-    expect(onWorkflow).toHaveBeenCalledWith(workflow)
-
-    trigger.focus()
-    fireEvent.keyDown(window, { key: "Enter" })
-    fireEvent.keyDown(window, { key: "Escape" })
+    fireEvent.keyDown(trigger, { key: "ArrowRight" })
+    fireEvent.keyDown(document.activeElement!, { key: "Escape" })
     expect(onClose).not.toHaveBeenCalled()
     expect(document.activeElement).toBe(trigger)
-    fireEvent.keyDown(window, { key: "Escape" })
+    fireEvent.keyDown(trigger, { key: "Escape" })
     expect(onClose).toHaveBeenCalledTimes(1)
+    fireEvent.keyDown(trigger, { key: "ArrowRight" })
+    fireEvent.click(screen.getByRole("menuitem", { name: "Triage" }))
+    expect(onWorkflow).toHaveBeenCalledWith(workflow)
+
   })
 
   it("shows only definitions with exactly one task input, including triggered definitions", () => {

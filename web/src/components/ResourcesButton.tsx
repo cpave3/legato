@@ -1,3 +1,6 @@
+import { createPortal } from "react-dom"
+import { Dialog } from "./ui/Dialog"
+import { useMenuLayer } from "../hooks/useMenuLayer"
 import { useCallback, useEffect, useRef, useState } from "react"
 import { Link } from "react-router-dom"
 import { Check, FolderLock, Plus } from "lucide-react"
@@ -14,8 +17,8 @@ export interface ResourcesButtonProps {
 
 // ResourcesButton gives a running agent more of the person's files and
 // folders without typing their paths: a vault, a folder of specs. It sits in
-// the native panel's status bar. On a wide screen it opens a list above
-// itself; on a phone, a sheet from the bottom with rows sized for a thumb.
+// the native panel's status bar. Its anchored dialog stays inside the
+// viewport and scrolls, with rows sized for a thumb on a phone.
 // Nothing can be taken away again once given: Chimera has no way to narrow
 // what a session may touch.
 export function ResourcesButton({ agentId, baseUrl, sandboxed = false }: ResourcesButtonProps) {
@@ -26,7 +29,7 @@ export function ResourcesButton({ agentId, baseUrl, sandboxed = false }: Resourc
   // A resource waiting for the person to agree to reload the agent.
   const [confirming, setConfirming] = useState<string | null>(null)
   const [error, setError] = useState<string | null>(null)
-  const ref = useRef<HTMLDivElement>(null)
+  const panel = useRef<HTMLDivElement>(null)
   const trigger = useRef<HTMLButtonElement>(null)
 
   const load = useCallback(async () => {
@@ -53,19 +56,7 @@ export function ResourcesButton({ agentId, baseUrl, sandboxed = false }: Resourc
     trigger.current?.focus()
   }, [])
 
-  useEffect(() => {
-    if (!open) return
-    const onKey = (event: KeyboardEvent) => { if (event.key === "Escape") close() }
-    const onDown = (event: MouseEvent) => {
-      if (ref.current && !ref.current.contains(event.target as Node)) setOpen(false)
-    }
-    document.addEventListener("keydown", onKey)
-    document.addEventListener("mousedown", onDown)
-    return () => {
-      document.removeEventListener("keydown", onKey)
-      document.removeEventListener("mousedown", onDown)
-    }
-  }, [open, close])
+  useMenuLayer({ open, onClose: close, containerRef: panel, triggerRef: trigger, placement: "above", align: "right", keyboard: false })
 
   const toggle = () => {
     if (open) { close(); return }
@@ -93,11 +84,12 @@ export function ResourcesButton({ agentId, baseUrl, sandboxed = false }: Resourc
   const isAttached = (name: string) => attached.some((given) => given.toLowerCase() === name.toLowerCase())
 
   return (
-    <div ref={ref} className="relative shrink-0">
+    <div className="relative shrink-0">
       <button
         ref={trigger}
         type="button"
         onClick={toggle}
+        aria-haspopup="dialog"
         aria-expanded={open}
         aria-label={attached.length > 0 ? `Resources (${attached.length} attached)` : "Resources"}
         title="Files and folders this agent may use"
@@ -109,14 +101,14 @@ export function ResourcesButton({ agentId, baseUrl, sandboxed = false }: Resourc
         <span className="hidden sm:inline">Resources</span>
         {attached.length > 0 && <span className="tabular-nums">{attached.length}</span>}
       </button>
-      {open && (
-        <>
-          {/* On a phone the sheet covers the conversation; a tap beside it closes it. */}
-          <div aria-hidden="true" className="fixed inset-0 z-40 bg-black/50 sm:hidden" onClick={close} />
+      {open && createPortal(
+        <Dialog open={open} onClose={close}>
           <div
+            ref={panel}
             role="dialog"
+            aria-modal="true"
             aria-label="Resources"
-            className="fixed inset-x-0 bottom-0 z-50 max-h-[70dvh] overflow-y-auto rounded-t-xl border-t border-zinc-700 bg-zinc-900 pb-[env(safe-area-inset-bottom)] shadow-2xl sm:absolute sm:inset-x-auto sm:bottom-full sm:right-0 sm:mb-1 sm:max-h-96 sm:w-80 sm:rounded-lg sm:border sm:pb-0"
+            className="fixed z-50 w-80 overflow-y-auto rounded-lg border border-zinc-700 bg-zinc-900 pb-[env(safe-area-inset-bottom)] shadow-2xl sm:pb-0"
           >
             <div className="flex items-center justify-between gap-2 border-b border-zinc-800 px-4 py-3 sm:px-3 sm:py-2">
               <span className="text-sm font-medium text-zinc-200 sm:text-xs">Give this agent</span>
@@ -179,7 +171,7 @@ export function ResourcesButton({ agentId, baseUrl, sandboxed = false }: Resourc
               </ul>
             )}
           </div>
-        </>
+        </Dialog>, document.body
       )}
     </div>
   )

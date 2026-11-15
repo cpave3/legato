@@ -1,8 +1,13 @@
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react"
+import "@testing-library/jest-dom/vitest"
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { NativeAgentPanel } from "../NativeAgentPanel"
 
+// The global voice sheet is outside the composer interaction under test.
+vi.mock("../../voice/VoiceLauncher", () => ({ VoiceLauncher: () => null }))
+
 const send = vi.fn()
+let serverUrl = ""
 
 vi.mock("../../hooks/useWebSocket", () => ({
   useWebSocket: () => ({
@@ -13,17 +18,17 @@ vi.mock("../../hooks/useWebSocket", () => ({
 }))
 
 vi.mock("../../hooks/useServer", () => ({
-  useServer: () => ({ baseUrl: "" }),
+  useServer: () => ({ baseUrl: serverUrl }),
 }))
 
 type Command = { name: string; description?: string; body: string }
 type Skill = { name: string; description: string }
 
-function serve(commands: Command[], skills: Skill[]) {
+function serve(commands: Command[], skills: Skill[], status = "idle") {
   vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
     const path = String(input)
     if (path.includes("/snapshot")) {
-      return new Response(JSON.stringify({ id: "session-1", status: "idle", messages: [], toolCalls: [] }), { status: 200 })
+      return new Response(JSON.stringify({ id: "session-1", status, messages: [], toolCalls: [] }), { status: 200 })
     }
     if (path.endsWith("/chimera/commands")) {
       return new Response(JSON.stringify(commands.map((c) => ({ ...c, path: `/c/${c.name}.md`, source: "user" }))), { status: 200 })
@@ -67,11 +72,162 @@ function highlighted(): string | null {
 describe("NativeAgentPanel slash menu", () => {
   beforeEach(() => {
     send.mockReset()
+    serverUrl = ""
   })
 
   afterEach(() => {
     cleanup()
     vi.restoreAllMocks()
+  })
+
+  it("browses commands and skills without replacing the draft or sending", async () => {
+    serve([{ name: "standup", description: "Write a full account of today’s work and tomorrow’s plans.", body: "Write my standup notes" }], [skill("plugin:review", "Review the entire change, including tests and documentation.")])
+    render(<NativeAgentPanel agentId="agent-1" />)
+    const box = await screen.findByRole("textbox", { name: "Message" }) as HTMLTextAreaElement
+    type(box, "Keep these notes")
+    fireEvent.click(screen.getByRole("button", { name: "Commands and skills" }))
+    const search = screen.getByRole("combobox", { name: "Search commands and skills" })
+    expect(box.value).toBe("Keep these notes")
+    await screen.findByRole("option", { name: /standup/ })
+    fireEvent.click(screen.getByRole("button", { name: "Skills" }))
+    expect(optionNames()).toEqual(["plugin:review"])
+    expect(screen.getByText("Review the entire change, including tests and documentation.")).toBeVisible()
+    expect(screen.getByText(/Source: user.*Plugin: plugin/)).toBeVisible()
+    fireEvent.click(screen.getByRole("button", { name: "Commands" }))
+    fireEvent.change(search, { target: { value: "stand" } })
+    expect(optionNames()).toEqual(["standup"])
+    fireEvent.click(screen.getByRole("option", { name: /standup/ }))
+    expect(box.value).toBe("Keep these notes\nWrite my standup notes")
+    expect(screen.queryByRole("listbox")).toBeNull()
+    expect(box).toHaveFocus()
+    expect(sentMessages()).toEqual([])
+  })
+
+  it("keeps a browsed skill invocation at the start of the preserved draft", async () => {
+    serve([], [skill("review")])
+    render(<NativeAgentPanel agentId="agent-1" />)
+    const box = await screen.findByRole("textbox", { name: "Message" }) as HTMLTextAreaElement
+    type(box, "Review the current branch")
+    fireEvent.click(screen.getByRole("button", { name: "Commands and skills" }))
+    fireEvent.click(await screen.findByRole("option", { name: /review/ }))
+    expect(box.value).toBe("/review Review the current branch")
+    expect(sentMessages()).toEqual([])
+  })
+
+  it("retains successful catalogs during a partial failure and retry", async () => {
+    serve([{ name: "standup", body: "Write notes" }], [])
+    const fallback = vi.mocked(fetch).getMockImplementation()!
+    let recover: ((response: Response) => void) | undefined
+    let attempts = 0
+    vi.mocked(fetch).mockImplementation((input, init) => {
+      if (String(input).endsWith("/skills")) {
+        attempts++
+        return attempts === 1 ? Promise.resolve(new Response("offline", { status: 503 })) : new Promise((resolve) => { recover = resolve })
+      }
+      return fallback(input, init)
+    })
+    render(<NativeAgentPanel agentId="agent-1" />)
+    fireEvent.click(await screen.findByRole("button", { name: "Commands and skills" }))
+    expect(await screen.findByRole("alert")).toHaveTextContent(/Skills unavailable/)
+    expect(optionNames()).toEqual(["standup"])
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }))
+    expect(screen.getByRole("status")).toHaveTextContent(/Loading/)
+    expect(optionNames()).toEqual(["standup"])
+    await act(async () => { recover!(new Response(JSON.stringify([skill("review")]), { status: 200 })) })
+    await screen.findByRole("option", { name: /review/ })
+    expect(screen.queryByRole("alert")).toBeNull()
+    expect(optionNames()).toContain("standup")
+    expect(sentMessages()).toEqual([])
+  })
+
+  it.each(["agent", "server", "unmount"])("clears catalogs on %s switch and ignores late responses", async (changed) => {
+    serve([], [])
+    const fallback = vi.mocked(fetch).getMockImplementation()!
+    let oldSkills: ((response: Response) => void) | undefined
+    vi.mocked(fetch).mockImplementation((input, init) => {
+      const path = String(input)
+      const current = changed !== "server" ? path.includes("agent-2") : path.startsWith("https://second.example")
+      if (path.endsWith("/skills")) return current
+        ? Promise.resolve(new Response(JSON.stringify([skill("new-skill")]), { status: 200 }))
+        : new Promise((resolve) => { oldSkills = resolve })
+      if (path.endsWith("/commands")) return Promise.resolve(new Response(JSON.stringify(current ? [] : [{ name: "old-command", body: "old" }]), { status: 200 }))
+      return fallback(input, init)
+    })
+    const panel = render(<NativeAgentPanel agentId="agent-1" />)
+    fireEvent.click(await screen.findByRole("button", { name: "Commands and skills" }))
+    await screen.findByRole("option", { name: /old-command/ })
+    if (changed === "server") serverUrl = "https://second.example"
+    if (changed === "unmount") {
+      panel.unmount()
+      render(<NativeAgentPanel agentId="agent-2" />)
+    } else panel.rerender(<NativeAgentPanel agentId={changed === "agent" ? "agent-2" : "agent-1"} />)
+    expect(screen.queryByRole("option", { name: /old-command/ })).toBeNull()
+    fireEvent.click(await screen.findByRole("button", { name: "Commands and skills" }))
+    await screen.findByRole("option", { name: /new-skill/ })
+    await act(async () => { oldSkills!(new Response(JSON.stringify([skill("stale-skill")]), { status: 200 })) })
+    expect(optionNames()).toEqual(["new-skill"])
+    panel.unmount()
+  })
+
+  it("consumes Enter and Escape with no matches and does not complete during IME", async () => {
+    serve([], [skill("review")], "running")
+    const box = await openPanel("review")
+    type(box, "/rev")
+    fireEvent.keyDown(box, { key: "Enter", isComposing: true })
+    expect(box.value).toBe("/rev")
+    expect(sentMessages()).toEqual([])
+    type(box, "/missing")
+    fireEvent.keyDown(box, { key: "Enter" })
+    expect(box.value).toBe("/missing")
+    expect(sentMessages()).toEqual([])
+    fireEvent.keyDown(box, { key: "Escape" })
+    expect(screen.queryByRole("listbox")).toBeNull()
+    expect(send.mock.calls.some(([message]) => message.type === "agent_interrupt")).toBe(false)
+    fireEvent.click(screen.getByRole("button", { name: "Commands and skills" }))
+    const search = screen.getByRole("combobox", { name: "Search commands and skills" })
+    fireEvent.keyDown(search, { key: "Escape" })
+    expect(box.value).toBe("/missing")
+    expect(box).toHaveFocus()
+    expect(screen.queryByRole("listbox")).toBeNull()
+  })
+
+  it("distinguishes an empty catalog from a search with no matches", async () => {
+    serve([], [])
+    render(<NativeAgentPanel agentId="agent-1" />)
+    fireEvent.click(await screen.findByRole("button", { name: "Commands and skills" }))
+    expect(await screen.findByText("No commands or skills available for this agent")).toBeVisible()
+    expect(screen.queryByRole("alert")).toBeNull()
+  })
+
+  it.each(["Tab", "Enter"])("%s chooses a browsed skill and keeps the existing draft", async (key) => {
+    serve([], [skill("review")])
+    render(<NativeAgentPanel agentId="agent-1" />)
+    const box = await screen.findByRole("textbox", { name: "Message" }) as HTMLTextAreaElement
+    type(box, "Check the tests")
+    fireEvent.click(screen.getByRole("button", { name: "Commands and skills" }))
+    await screen.findByRole("option", { name: /review/ })
+    const search = screen.getByRole("combobox", { name: "Search commands and skills" })
+    fireEvent.change(search, { target: { value: "rev" } })
+    fireEvent.keyDown(search, { key })
+    expect(box.value).toBe("/review Check the tests")
+    expect(sentMessages()).toEqual([])
+  })
+
+  it("shows unavailable catalogs with Retry instead of reporting them as empty", async () => {
+    serve([], [])
+    const fallback = vi.mocked(fetch).getMockImplementation()!
+    let failed = true
+    vi.mocked(fetch).mockImplementation((input, init) =>
+      failed && /\/(commands|skills)$/.test(String(input))
+        ? Promise.reject(new Error("Network offline")) : fallback(input, init))
+    render(<NativeAgentPanel agentId="agent-1" />)
+    fireEvent.click(await screen.findByRole("button", { name: "Commands and skills" }))
+    expect(await screen.findByRole("alert")).toHaveTextContent("Network offline")
+    expect(screen.getByText("Catalog unavailable")).toBeVisible()
+    failed = false
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }))
+    expect(await screen.findByText("No commands or skills available for this agent")).toBeVisible()
+    expect(screen.queryByRole("alert")).toBeNull()
   })
 
   it("puts a prefix match above a name that only contains the query", async () => {
@@ -132,7 +288,7 @@ describe("NativeAgentPanel slash menu", () => {
     expect(sentMessages()).toEqual([])
 
     type(box, "/stand")
-    fireEvent.mouseDown(screen.getByRole("option", { name: /standup/ }))
+    fireEvent.click(screen.getByRole("option", { name: /standup/ }))
     expect(box.value).toBe("Write my standup notes")
     expect(sentMessages()).toEqual([])
   })

@@ -1,6 +1,8 @@
 import { cleanup, fireEvent, render, screen } from "@testing-library/react"
 import { useState } from "react"
 import { afterEach, describe, expect, it, vi } from "vitest"
+import userEvent from "@testing-library/user-event"
+import { AgentMoreMenu } from "../../AgentChatHeader"
 
 import { Button } from "../Button"
 import { Dialog, DialogBody, DialogClose, DialogFooter, DialogHeader, DialogPanel, DialogTitle } from "../Dialog"
@@ -32,6 +34,40 @@ function DialogHarness({ onClose = () => undefined }: { onClose?: () => void }) 
 afterEach(cleanup)
 
 describe("Dialog", () => {
+  it("skips closed disclosure fields while keeping the summary in keyboard order", async () => {
+    const user = userEvent.setup()
+    render(<Dialog open onClose={() => {}}><DialogPanel><DialogTitle>Model options</DialogTitle>
+      <details><summary>Advanced</summary><input aria-label="Additional option" /></details>
+      <Button>Apply</Button>
+    </DialogPanel></Dialog>)
+    const summary = screen.getByText("Advanced")
+    expect(document.activeElement).toBe(summary)
+    await user.tab({ shift: true })
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Apply" }))
+    await user.tab()
+    expect(document.activeElement).toBe(summary)
+    await user.click(summary)
+    await user.tab()
+    expect(document.activeElement).toBe(screen.getByRole("textbox", { name: "Additional option" }))
+  })
+
+  it("allows a portaled menu owned by the dialog and closes that menu first", async () => {
+    const user = userEvent.setup()
+    const onClose = vi.fn()
+    render(<Dialog open onClose={onClose}><DialogPanel><DialogTitle>Agent</DialogTitle>
+      <AgentMoreMenu entries={[{ label: "Rename", onSelect: vi.fn() }]} />
+    </DialogPanel></Dialog>)
+    await user.click(screen.getByRole("button", { name: "More actions" }))
+    expect(screen.getByRole("menuitem", { name: "Rename" })).toBe(document.activeElement)
+    expect(document.activeElement?.closest("[inert]")).toBeNull()
+    await user.keyboard("{Escape}")
+    expect(screen.queryByRole("menu")).toBeNull()
+    expect(onClose).not.toHaveBeenCalled()
+    expect(screen.getByRole("button", { name: "More actions" })).toBe(document.activeElement)
+    await user.keyboard("{Escape}")
+    expect(onClose).toHaveBeenCalledOnce()
+  })
+
   it("isolates background content and dismisses only the topmost dialog", () => {
     function NestedDialogs() {
       const [parent, setParent] = useState(false)

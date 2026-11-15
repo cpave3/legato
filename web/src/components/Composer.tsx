@@ -182,7 +182,7 @@ export function SendButton({ label, queue, disabled, onClick }: { label: string;
       )}
     >
       <span className="max-sm:hidden">{label}</span>
-      <span aria-hidden="true" className={cn("max-sm:hidden", queue ? "text-[var(--theme-muted,#8a82c8)]" : "text-[var(--theme-canvas,#cfc8ff)]")}>↵</span>
+      <span aria-hidden="true" className={cn("max-sm:hidden", queue ? "text-[var(--theme-muted,#8a82c8)]" : "text-[var(--theme-canvas,#fff)]")}>↵</span>
       <span aria-hidden="true" className="text-lg leading-none sm:hidden">↑</span>
     </button>
   )

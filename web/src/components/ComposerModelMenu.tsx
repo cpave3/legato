@@ -1,4 +1,6 @@
-import { useEffect, useRef, useState, type ReactNode } from "react"
+import { createPortal } from "react-dom"
+import { useMenuLayer } from "../hooks/useMenuLayer"
+import { useRef, useState, type ReactNode } from "react"
 import { Check, ChevronDown } from "lucide-react"
 import { cn } from "../lib/utils"
 import { shortModelName } from "../lib/composer"
@@ -33,36 +35,16 @@ const heading = "px-2 pb-1 pt-1.5 text-[11px] font-semibold uppercase tracking-[
 // choose from, the effort, and the session's other settings.
 export function ComposerModelMenu({ models, model, window, effort, efforts, onModel, onEffort, effortLocked, settings }: ComposerModelMenuProps) {
   const [view, setView] = useState<"closed" | "menu" | "settings">("closed")
-  const box = useRef<HTMLDivElement>(null)
+  const menuRef = useRef<HTMLDivElement>(null)
+  const settingsRef = useRef<HTMLDivElement>(null)
   const chip = useRef<HTMLButtonElement>(null)
 
-  useEffect(() => {
-    if (view === "closed") return
-    const outside = (event: MouseEvent) => {
-      if (box.current && !box.current.contains(event.target as Node)) setView("closed")
-    }
-    const escape = (event: KeyboardEvent) => {
-      if (event.key === "Escape") { setView("closed"); chip.current?.focus() }
-    }
-    document.addEventListener("mousedown", outside)
-    document.addEventListener("keydown", escape)
-    return () => {
-      document.removeEventListener("mousedown", outside)
-      document.removeEventListener("keydown", escape)
-    }
-  }, [view])
-
-  // Closing the settings gives the focus back to the chip, once it is drawn.
-  const [refocus, setRefocus] = useState(false)
-  useEffect(() => {
-    if (!refocus) return
-    chip.current?.focus()
-    setRefocus(false)
-  }, [refocus])
-  const close = () => { setView("closed"); setRefocus(true) }
+  const close = () => setView("closed")
+  useMenuLayer({ open: view === "menu", onOpen: () => setView("menu"), onClose: close, containerRef: menuRef, triggerRef: chip, placement: "above" })
+  useMenuLayer({ open: view === "settings", onClose: close, containerRef: settingsRef, triggerRef: chip, placement: "above", keyboard: false })
 
   return (
-    <div ref={box} className="relative min-w-0">
+    <div className="relative min-w-0">
       <button
         ref={chip}
         type="button"
@@ -81,10 +63,10 @@ export function ComposerModelMenu({ models, model, window, effort, efforts, onMo
         {effort && <><span aria-hidden="true" className="text-lw-faint">·</span><span className="min-w-0 truncate text-lw-faint">{effort}</span></>}
         <ChevronDown size={12} aria-hidden="true" className="shrink-0 text-lw-faint" />
       </button>
-      {view === "menu" && (
-        <div role="menu" aria-label="Model" className="absolute bottom-full left-0 z-30 mb-1 flex w-[340px] max-w-[calc(100vw-2rem)] flex-col gap-0.5 rounded-[10px] border border-lw-line-strong bg-lw-raised p-1.5 text-xs shadow-[0_12px_30px_rgba(0,0,0,.45)]">
+      {view === "menu" && createPortal(
+        <div ref={menuRef} role="menu" aria-label="Model" className="absolute bottom-full left-0 z-30 mb-1 flex w-[340px] max-w-[calc(100vw-2rem)] flex-col gap-0.5 rounded-[10px] border border-lw-line-strong bg-lw-raised p-1.5 text-xs shadow-[0_12px_30px_rgba(0,0,0,.45)]">
           <span className={heading}>Model</span>
-          <div className="max-h-[40vh] overflow-y-auto">
+          <div role="group" aria-label="Models">
             {models.map((entry) => (
               <button
                 key={entry.ref}
@@ -107,12 +89,13 @@ export function ComposerModelMenu({ models, model, window, effort, efforts, onMo
           {efforts.length > 0 && (
             <>
               <span className={heading}>Effort</span>
-              <div className="flex flex-wrap gap-1 px-2 pb-1.5" title={effortLocked}>
+              <div role="group" aria-label="Effort" className="flex flex-wrap gap-1 px-2 pb-1.5" title={effortLocked}>
                 {efforts.map((value) => (
                   <button
                     key={value}
                     type="button"
-                    aria-pressed={value === effort}
+                    role="menuitemradio"
+                    aria-checked={value === effort}
                     disabled={effortLocked !== undefined}
                     onClick={() => { setView("closed"); onEffort(value) }}
                     className={cn("rounded px-2 py-0.5 disabled:opacity-50", value === effort ? "bg-lw-selected text-lw-text" : "text-lw-text-2 hover:bg-lw-selected hover:text-lw-text")}
@@ -124,16 +107,16 @@ export function ComposerModelMenu({ models, model, window, effort, efforts, onMo
             </>
           )}
           {settings && (
-            <button type="button" onClick={() => setView("settings")} className="border-t border-lw-line-strong px-2 pb-0.5 pt-1.5 text-left text-lw-text-2 hover:text-lw-text">
+            <button type="button" role="menuitem" onClick={() => { chip.current?.focus(); setView("settings") }} className="border-t border-lw-line-strong px-2 pb-0.5 pt-1.5 text-left text-lw-text-2 hover:text-lw-text">
               More session settings…
             </button>
           )}
-        </div>
+        </div>, document.body
       )}
-      {view === "settings" && settings && (
-        <div className="absolute bottom-full left-0 z-30 mb-1 rounded-[10px] border border-lw-line-strong bg-lw-raised shadow-[0_12px_30px_rgba(0,0,0,.45)]">
+      {view === "settings" && settings && createPortal(
+        <div ref={settingsRef} className="absolute bottom-full left-0 z-30 mb-1 rounded-[10px] border border-lw-line-strong bg-lw-raised shadow-[0_12px_30px_rgba(0,0,0,.45)]">
           {settings(close)}
-        </div>
+        </div>, document.body
       )}
     </div>
   )

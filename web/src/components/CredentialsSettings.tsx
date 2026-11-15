@@ -1,6 +1,6 @@
 import { Link } from "react-router-dom"
-import { useCallback, useEffect, useState } from "react"
-import { SettingsCard } from "./settings/SettingsUI"
+import { useCallback, useEffect, useRef, useState } from "react"
+import { SettingsCard, quietButton } from "./settings/SettingsUI"
 import { KeyRound } from "lucide-react"
 import { endCredentialGrant, grantLasts, listCredentialAudit, listCredentialGrants, listCredentials, type Credential, type CredentialAuditEntry, type CredentialGrant } from "../lib/credentials"
 
@@ -13,19 +13,29 @@ export function CredentialsSettings({ baseUrl }: { baseUrl: string }) {
   const [audit, setAudit] = useState<CredentialAuditEntry[]>([])
   const [error, setError] = useState<string | null>(null)
 
+  const request = useRef(0)
+  const [loading, setLoading] = useState(true)
   const load = useCallback(async () => {
+    const id = ++request.current
+    setLoading(true)
+    setError(null)
     try {
       const [c, g, a] = await Promise.all([listCredentials(baseUrl), listCredentialGrants(baseUrl), listCredentialAudit(baseUrl)])
+      if (request.current !== id) return
       setCredentials(c)
       setGrants(g)
       setAudit(a)
     } catch (reason) {
-      setCredentials([])
+      if (request.current !== id) return
       setError(reason instanceof Error ? reason.message : String(reason))
-    }
+    } finally { if (request.current === id) setLoading(false) }
   }, [baseUrl])
 
-  useEffect(() => { void load() }, [load])
+  useEffect(() => {
+    const requests = request
+    void load()
+    return () => { requests.current++ }
+  }, [load])
 
   const end = async (id: string) => {
     setError(null)
@@ -38,11 +48,12 @@ export function CredentialsSettings({ baseUrl }: { baseUrl: string }) {
   }
 
   return (
-    <SettingsCard id="credentials" label="Credentials" icon={KeyRound} title="Credentials" description="Secrets Legato holds for agents. Agents ask for them with request_access; your rules in config.yaml decide how often you are asked.">
+    <SettingsCard id="credentials" label="Credentials" icon={KeyRound} title="Credentials" description="Secrets Legato holds for agents, their access rules, and current grants.">
       <div className="flex flex-col gap-3">
-        {error && <p role="alert" className="rounded border border-red-900 bg-red-950/60 px-2 py-1.5 text-xs text-red-300">{error}</p>}
+        {loading && <p role="status" className="text-sm text-lw-text-2">Loading credentials…</p>}
+        {error && <div><p role="alert" className="text-sm text-lw-error">{error}{credentials ? " Showing last loaded credentials and grants." : ""}</p><button className={quietButton + " mt-2"} onClick={() => void load()}>Retry credentials</button></div>}
         {credentials && credentials.length === 0 && !error && (
-          <p className="text-xs text-zinc-500">None are configured. Add one under credentials: in config.yaml, and store its value with legato secret add.</p>
+          <p className="text-xs text-zinc-500">No credentials configured. Add a credential below; store its secret with legato secret add.</p>
         )}
         {credentials && credentials.length > 0 && (
           <ul className="divide-y divide-zinc-800 rounded border border-zinc-800">
@@ -92,6 +103,7 @@ export function CredentialsSettings({ baseUrl }: { baseUrl: string }) {
             </ul>
           </details>
         )}
+        <Link to="/settings#list-credentials" className={quietButton + " w-fit"}>Edit credentials</Link>
         <Link to="/audit" className="text-xs text-lw-link hover:underline">Open the audit log →</Link>
       </div>
     </SettingsCard>

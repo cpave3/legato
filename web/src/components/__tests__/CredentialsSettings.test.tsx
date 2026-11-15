@@ -39,6 +39,17 @@ describe("CredentialsSettings", () => {
     await waitFor(() => expect(within(section).getByText("legato://eleven-key")).toBeTruthy())
     expect(within(section).getByText("this session")).toBeTruthy()
     expect(within(section).getByText("use")).toBeTruthy()
+    expect(within(section).getByRole("link", { name: "Edit credentials" }).getAttribute("href")).toBe("/settings#list-credentials")
+  })
+
+  it("shows a failed overview load and retries without losing configured credentials", async () => {
+    const fetch = vi.mocked(globalThis.fetch)
+    fetch.mockRejectedValueOnce(new Error("Offline"))
+    render(<MemoryRouter><CredentialsSettings baseUrl="http://legato" /></MemoryRouter>)
+    expect((await screen.findByRole("alert")).textContent).toContain("Offline")
+    fireEvent.click(screen.getByRole("button", { name: "Retry credentials" }))
+    expect(await screen.findByText("legato://eleven-key")).toBeTruthy()
+    expect(screen.queryByRole("alert")).toBeNull()
   })
 
   it("ends a grant early", async () => {
