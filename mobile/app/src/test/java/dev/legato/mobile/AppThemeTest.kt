@@ -7,6 +7,89 @@ class AppThemeTest {
     private fun catalog() = ThemeCatalog(javaClass.getResource("/palettes.json")!!.readText())
 
     @Test
+    fun `selected themes keep semantic inks readable on every material and selection`() {
+        val settings = ThemeSettings(catalog(), { null }, { true })
+        for (id in listOf("dracula", "ocular-light", "ocular-dark")) {
+            assertTrue(settings.select(id))
+            val theme = settings.current
+            val backgrounds = listOf(theme.pageBackground, theme.tokens.getValue("selection")) +
+                theme.materials.filterKeys { it != "divider" }.values
+            fun luminance(hex: String): Double {
+                val channels = listOf(1, 3, 5).map { offset ->
+                    val byte = hex.substring(offset, offset + 2).toInt(16) / 255.0
+                    if (byte <= .04045) byte / 12.92 else Math.pow((byte + .055) / 1.055, 2.4)
+                }
+                return channels[0] * .2126 + channels[1] * .7152 + channels[2] * .0722
+            }
+            for (role in listOf("muted", "comment", "error", "link", "success", "warning", "keyword")) {
+                val ink = luminance(theme.inks.getValue(role))
+                for (background in backgrounds) {
+                    val surface = luminance(background)
+                    assertTrue("$id $role on $background (${theme.inks.getValue(role)})",
+                        (maxOf(ink, surface) + .05) / (minOf(ink, surface) + .05) >= 4.5)
+                }
+            }
+            for (role in listOf("canvas", "surface", "selection", "border", "focus")) {
+                assertEquals("$id $role", theme.tokens.getValue(role), theme.inks.getValue(role))
+            }
+            assertEquals(theme.tokens.getValue("canvas"), theme.pageBackground)
+            assertNotEquals(theme.inks.getValue("text"), theme.inks.getValue("muted"))
+        }
+        assertTrue(settings.select("legato"))
+        assertTrue(settings.current.inks.isEmpty())
+    }
+
+    @Test
+    fun `selected themes expose distinct materials from the shared readable recipe`() {
+        val json = org.json.JSONObject(javaClass.getResource("/palettes.json")!!.readText())
+        val settings = ThemeSettings(catalog(), { null }, { true })
+        assertTrue(settings.current.materials.isEmpty())
+        for (id in listOf("dracula", "ocular-light", "ocular-dark")) {
+            assertTrue(settings.select(id))
+            val theme = settings.current
+            val recipe = json.getJSONObject("materials")
+                .getJSONObject(if (theme.light) "light" else "dark").getJSONObject("colors")
+            val expected = recipe.keys().asSequence().associateWith { role ->
+                val mix = recipe.getJSONObject(role)
+                fun resolve(key: String): Int {
+                    val reference = mix.getString(key)
+                    return (theme.tokens[reference] ?: reference).removePrefix("#").toInt(16)
+                }
+                val base = resolve("base")
+                val tint = resolve("tint")
+                val amount = mix.getDouble("amount")
+                val rgb = listOf(16, 8, 0).fold(0) { color, shift ->
+                    val a = (base shr shift) and 255
+                    val b = (tint shr shift) and 255
+                    val channel = kotlin.math.floor(a * (1 - amount) + b * amount + 0.5).toInt()
+                    (color shl 8) or channel
+                }
+                "#%06X".format(rgb)
+            }
+            assertEquals(id, expected, theme.materials)
+            assertEquals(4, listOf(theme.pageBackground, theme.materials.getValue("rail"),
+                theme.materials.getValue("panel"), theme.materials.getValue("raised")).toSet().size)
+            assertNotEquals(theme.tokens.getValue("border"), theme.materials.getValue("divider"))
+            assertNotEquals(theme.materials.getValue("panel"), theme.materials.getValue("errorSurface"))
+            fun luminance(hex: String): Double {
+                val channels = listOf(1, 3, 5).map { offset ->
+                    val byte = hex.substring(offset, offset + 2).toInt(16) / 255.0
+                    if (byte <= .04045) byte / 12.92 else Math.pow((byte + .055) / 1.055, 2.4)
+                }
+                return channels[0] * .2126 + channels[1] * .7152 + channels[2] * .0722
+            }
+            val boundary = luminance(theme.tokens.getValue("border"))
+            for (background in listOf(theme.pageBackground, theme.materials.getValue("panel"), theme.materials.getValue("raised"))) {
+                val surface = luminance(background)
+                assertTrue("$id control boundary on $background",
+                    (maxOf(boundary, surface) + .05) / (minOf(boundary, surface) + .05) >= 3)
+            }
+        }
+        assertTrue(settings.select("legato"))
+        assertTrue(settings.current.materials.isEmpty())
+    }
+
+    @Test
     fun `choosing a canonical theme survives a new settings owner`() {
         var saved: String? = null
         val settings = ThemeSettings(catalog(), { saved }, { saved = it; true })

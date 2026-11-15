@@ -62,8 +62,9 @@ it("updates the live shell with settings closed when a server page chooses a the
   for (const callback of listeners) callback({ payload: "dracula" })
   const root = document.documentElement
   expect(root.dataset.theme).toBe("dracula")
-  expect(root.style.getPropertyValue("--text2")).toBe("#F8F8F2")
-  expect(root.style.getPropertyValue("--line")).toBe("#BD93F9")
+  expect(root.style.getPropertyValue("--text2")).not.toBe("")
+  expect(root.style.getPropertyValue("--text2")).not.toBe(root.style.getPropertyValue("--text"))
+  expect(root.style.getPropertyValue("--line-strong")).toBe("#BD93F9")
 })
 
 it("updates an already open picker when the native theme event arrives", async () => {
@@ -73,4 +74,15 @@ it("updates an already open picker when the native theme event arrives", async (
   await waitFor(() => expect(picker).toBeEnabled())
   for (const callback of listeners) callback({ payload: "ocular-dark" })
   await waitFor(() => expect(picker).toHaveValue("ocular-dark"))
+})
+
+it.each(["ocular-light", "ocular-dark", "dracula"])("restores %s with distinct chrome, panel and raised materials", async id => {
+  invoke.mockResolvedValue(id)
+  await initializeTheme()
+  const style = document.documentElement.style
+  const planes = ["chrome", "ground", "panel", "raised"].map(role => style.getPropertyValue(`--${role}`))
+  expect(planes.every(Boolean)).toBe(true)
+  expect(new Set(planes).size).toBe(4)
+  expect(style.getPropertyValue("--line")).not.toBe(style.getPropertyValue("--line-strong"))
+  expect(style.getPropertyValue("--shadow-panel")).toContain("1px 2px")
 })

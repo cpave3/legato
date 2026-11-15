@@ -38,5 +38,22 @@
 :root[data-theme]:not([data-theme="legato"]) .bg-lw-accent :is(.text-white, .text-lw-text) {
   color: var(--theme-canvas);
 }
+/* Material roles carry the depth, not page-specific palette overrides. */
+:root[data-theme]:not([data-theme="legato"]) :is(.bg-lw-surface, .bg-zinc-900)[class*="rounded"]:not(input, textarea, select, button) {
+  box-shadow: var(--shadow-lw-panel);
+}
+:root[data-theme]:not([data-theme="legato"]) :is(.bg-lw-raised, button.bg-lw-accent, button.bg-lw-selected) {
+  box-shadow: var(--shadow-lw-control);
+}
+:root[data-theme]:not([data-theme="legato"]) [role="radio"][aria-checked="true"] {
+  font-weight: 600;
+}
+:root[data-theme]:not([data-theme="legato"]) [role="radio"][aria-checked="true"]:not([class*="border-"]) {
+  box-shadow: inset 0 0 0 1px var(--theme-focus), var(--shadow-lw-control);
+}
+/* Decorative dividers can be quiet; a required control outline cannot. */
+:root[data-theme]:not([data-theme="legato"]) :is(button, input, textarea, select, [role="radio"]):is([class*="border-lw-line"], [class*="border-zinc-"], [class*="border-gray-"], [class*="border-slate-"], [class*="border-neutral-"]) {
+  border-color: var(--theme-border);
+}
 /* Older screens use chromatic Tailwind utilities. Map their foregrounds and
    washes independently: light-mode text must not inherit a dark-mode wash. */

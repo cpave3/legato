@@ -117,5 +117,127 @@
         "notice": "The MIT License (MIT)\n\nCopyright (c) 2023 Dracula Theme\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE.\n"
       }
     }
-  ]
+  ],
+  "materials": {
+    "light": {
+      "colors": {
+        "rail": {
+          "base": "surface",
+          "tint": "surface",
+          "amount": 0
+        },
+        "panel": {
+          "base": "canvas",
+          "tint": "#FFFFFF",
+          "amount": 0.45
+        },
+        "raised": {
+          "base": "canvas",
+          "tint": "#FFFFFF",
+          "amount": 0.85
+        },
+        "divider": {
+          "base": "canvas",
+          "tint": "border",
+          "amount": 0.25
+        },
+        "successSurface": {
+          "base": "canvas",
+          "tint": "success",
+          "amount": 0.06
+        },
+        "warningSurface": {
+          "base": "canvas",
+          "tint": "warning",
+          "amount": 0.06
+        },
+        "infoSurface": {
+          "base": "canvas",
+          "tint": "info",
+          "amount": 0.06
+        },
+        "errorSurface": {
+          "base": "canvas",
+          "tint": "error",
+          "amount": 0.06
+        }
+      },
+      "shadow": {
+        "ink": "text",
+        "contact": 0.1,
+        "ambient": 0.08,
+        "highlight": 0.9
+      }
+    },
+    "dark": {
+      "colors": {
+        "rail": {
+          "base": "canvas",
+          "tint": "#000000",
+          "amount": 0.15
+        },
+        "panel": {
+          "base": "surface",
+          "tint": "text",
+          "amount": 0.025
+        },
+        "raised": {
+          "base": "surface",
+          "tint": "text",
+          "amount": 0.06
+        },
+        "divider": {
+          "base": "canvas",
+          "tint": "border",
+          "amount": 0.28
+        },
+        "successSurface": {
+          "base": "canvas",
+          "tint": "success",
+          "amount": 0.08
+        },
+        "warningSurface": {
+          "base": "canvas",
+          "tint": "warning",
+          "amount": 0.08
+        },
+        "infoSurface": {
+          "base": "canvas",
+          "tint": "info",
+          "amount": 0.08
+        },
+        "errorSurface": {
+          "base": "canvas",
+          "tint": "error",
+          "amount": 0.08
+        }
+      },
+      "shadow": {
+        "ink": "#000000",
+        "contact": 0.28,
+        "ambient": 0.22,
+        "highlight": 0.045
+      }
+    }
+  },
+  "material_ink_contract": {
+    "minimum_contrast": 4.5,
+    "blend_step": 0.05,
+    "roles": [
+      "text",
+      "muted",
+      "link",
+      "info",
+      "success",
+      "warning",
+      "error",
+      "comment",
+      "keyword",
+      "string",
+      "number",
+      "function",
+      "type",
+      "variable"
+    ]
+  }
 }

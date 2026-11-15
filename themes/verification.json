@@ -18,6 +18,10 @@
       "passed": true
     },
     {
+      "name": "ocular-light settings uses distinct panel and raised materials with physical depth",
+      "passed": true
+    },
+    {
       "name": "reload persists ocular-light",
       "passed": true
     },
@@ -86,6 +90,10 @@
       "passed": true
     },
     {
+      "name": "ocular-dark settings uses distinct panel and raised materials with physical depth",
+      "passed": true
+    },
+    {
       "name": "reload persists ocular-dark",
       "passed": true
     },
@@ -151,6 +159,10 @@
     },
     {
       "name": "picker renders dracula canvas and foreground",
+      "passed": true
+    },
+    {
+      "name": "dracula settings uses distinct panel and raised materials with physical depth",
       "passed": true
     },
     {
@@ -234,6 +246,10 @@
       "passed": true
     },
     {
+      "name": "ocular-light input keeps the required boundary separate from decorative dividers",
+      "passed": true
+    },
+    {
       "name": "ocular-light contrast guard catches deliberately unreadable component",
       "passed": true
     },
@@ -270,6 +286,10 @@
       "passed": true
     },
     {
+      "name": "ocular-dark input keeps the required boundary separate from decorative dividers",
+      "passed": true
+    },
+    {
       "name": "ocular-dark contrast guard catches deliberately unreadable component",
       "passed": true
     },
@@ -303,6 +323,10 @@
     },
     {
       "name": "dracula actual component text contrast (35 pairs)",
+      "passed": true
+    },
+    {
+      "name": "dracula input keeps the required boundary separate from decorative dividers",
       "passed": true
     },
     {

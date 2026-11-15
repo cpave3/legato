@@ -190,6 +190,31 @@ focus below 3:1 against selection. Ocular's exact tokens stay unchanged. The ins
 repository files or palette download. The launch splash keeps its existing
 Legato background; the saved theme takes effect when the activity starts.
 
+Depth is separate from those readable tokens: `AppTheme.materials` resolves
+the canonical light/dark `materials.colors` recipes against the readable
+tokens or literal hex colors, blending encoded sRGB bytes and rounding each
+channel with `Math.round`. Native chrome uses rail, grouped content uses
+panel, menus and sheets use raised, and decorative lines use divider. Error
+containers use errorSurface; the HTTPS badge uses successSurface. Reading
+ground and page backgrounds stay canvas. Required input/control boundaries
+keep the readable border (`Lw.lineStrong`), not the decorative divider.
+Material3 containers map lowest to ground, low to rail, regular to panel,
+and high/highest to raised. Android keeps native Material3 elevation rather
+than copying web shadow recipes. Legato's existing default stays unchanged.
+`AppThemeTest` selects each alternate theme through the real catalog/settings
+and checks distinct layers and shared-recipe parity.
+
+Native text uses a separate `AppTheme.inks` copy of the readable tokens.
+For each `material_ink_contract.roles` entry, it starts from the original
+canonical ink and takes the first bytewise blend
+toward text, in `blend_step` increments, that meets `minimum_contrast` (4.5:1)
+on canvas, selection and every material color except divider. This matches
+`themeMaterial().inks`; material colors themselves do not change. Focus,
+boundaries and backgrounds keep their readable values. Canonical/readable
+`tokens`, terminal colors, body foreground and reading/page canvas stay unchanged.
+The catalog/settings tests check semantic error/link/success/warning/keyword
+contrast on these backgrounds and preserve the source tokens and page canvas.
+
 The app sets `localStorage['legato:app-theme']` before each page loads, with
 the stable ID `legato`, `dracula`, `ocular-light`, or `ocular-dark`. A native
 change updates that key and dispatches `legato:theme-changed` immediately;

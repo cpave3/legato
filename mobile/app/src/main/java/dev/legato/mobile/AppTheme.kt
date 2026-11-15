@@ -4,22 +4,73 @@ import org.json.JSONObject
 import kotlin.math.pow
 
 // Tokens come from the repository's canonical palettes.json, packaged as an asset.
-data class AppTheme(val id: String, val name: String, val light: Boolean, val tokens: Map<String, String>) {
+data class AppTheme(
+    val id: String,
+    val name: String,
+    val light: Boolean,
+    val tokens: Map<String, String>,
+    val materials: Map<String, String> = emptyMap(),
+    val inks: Map<String, String> = tokens,
+) {
     val pageBackground: String get() = tokens["canvas"] ?: "#0A0A0F"
 }
 
 class ThemeCatalog(json: String) {
+    private val source = JSONObject(json)
     val themes: List<AppTheme> = listOf(AppTheme("legato", "Legato", false, emptyMap())) +
-        JSONObject(json).getJSONArray("themes").let { entries ->
+        source.getJSONArray("themes").let { entries ->
             (0 until entries.length()).map { index ->
                 val entry = entries.getJSONObject(index)
                 val tokens = entry.getJSONObject("tokens")
-                AppTheme(entry.getString("id"), entry.getString("name"), entry.getString("polarity") == "light",
-                    readableTokens(tokens.keys().asSequence().associateWith { tokens.getString(it) }))
+                val original = tokens.keys().asSequence().associateWith { tokens.getString(it) }
+                val readable = readableTokens(original)
+                val polarity = entry.getString("polarity")
+                val recipe = source.getJSONObject("materials").getJSONObject(polarity).getJSONObject("colors")
+                val materials = materialColors(recipe, readable)
+                AppTheme(entry.getString("id"), entry.getString("name"), polarity == "light",
+                    readable, materials, materialInks(source.getJSONObject("material_ink_contract"), readable, materials, original))
             }
         }
 
     fun find(id: String?): AppTheme? = themes.find { it.id == id }
+}
+
+// Blend encoded sRGB bytes, matching Math.round in the shared recipe (not linear-light interpolation).
+private fun materialColors(recipe: JSONObject, tokens: Map<String, String>): Map<String, String> =
+    recipe.keys().asSequence().associateWith { role ->
+        val mix = recipe.getJSONObject(role)
+        fun resolve(key: String): String = mix.getString(key).let { tokens[it] ?: it }
+        mixColor(resolve("base"), resolve("tint"), mix.getDouble("amount"))
+    }
+
+private fun mixColor(base: String, tint: String, amount: Double): String =
+    "#" + listOf(1, 3, 5).joinToString("") { offset ->
+        val a = base.substring(offset, offset + 2).toInt(16)
+        val b = tint.substring(offset, offset + 2).toInt(16)
+        "%02X".format(java.lang.Math.round(a + (b - a) * amount))
+    }
+
+private fun materialInks(
+    contract: JSONObject,
+    tokens: Map<String, String>,
+    materials: Map<String, String>,
+    original: Map<String, String>,
+): Map<String, String> = tokens.toMutableMap().apply {
+    val backgrounds = listOf(tokens.getValue("canvas"), tokens.getValue("selection")) +
+        materials.filterKeys { it != "divider" }.values
+    val roles = contract.getJSONArray("roles")
+    val blendStep = contract.getDouble("blend_step")
+    val minimumContrast = contract.getDouble("minimum_contrast")
+    for (index in 0 until roles.length()) {
+        val role = roles.getString(index)
+        for (step in 0..java.lang.Math.round(1 / blendStep).toInt()) {
+            val ink = mixColor(original.getValue(role), tokens.getValue("text"), minOf(1.0, step * blendStep))
+            if (backgrounds.all { contrast(ink, it) >= minimumContrast }) {
+                put(role, ink)
+                break
+            }
+        }
+    }
 }
 
 // Match themes/render.ts without changing the canonical palette values.

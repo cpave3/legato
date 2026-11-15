@@ -84,7 +84,7 @@ try {
       session = terminalSession
       await wait(`document.documentElement.dataset.theme===${JSON.stringify(id)}`)
       await check(`${id} changes a retained live terminal without remounting`, 'window.themeTerminal===document.querySelector(".xterm-screen")')
-      await check(`${id} terminal chrome uses the app surface`, `getComputedStyle(document.querySelector('section[aria-label="Terminal"] > div')).backgroundColor===${JSON.stringify({"ocular-light":"rgb(234, 231, 223)","ocular-dark":"rgb(41, 47, 55)",dracula:"rgb(40, 42, 54)"}[id])}`)
+      await check(`${id} terminal chrome uses the app surface`, `(()=>{const probe=document.createElement('span');probe.style.backgroundColor=getComputedStyle(document.documentElement).getPropertyValue('--theme-surface');return getComputedStyle(document.querySelector('section[aria-label="Terminal"] > div')).backgroundColor===probe.style.backgroundColor})()`)
       await send("Page.bringToFront")
       await new Promise(r => setTimeout(r, 300))
       await screenshot(`${id}-terminal-desktop.png`)
@@ -96,6 +96,12 @@ try {
       await send("Page.bringToFront")
     }
     await check(`picker renders ${id} canvas and foreground`, `getComputedStyle(document.body).backgroundColor===${JSON.stringify(background)}&&getComputedStyle(document.body).color===${JSON.stringify(foreground)}`)
+    await check(`${id} settings uses distinct panel and raised materials with physical depth`, `(()=>{
+      const scope=document.getElementById('appearance');
+      const panel=getComputedStyle(scope.querySelector('.bg-lw-surface'));
+      const raised=getComputedStyle(scope.querySelector('.bg-lw-raised'));
+      return new Set([getComputedStyle(document.body).backgroundColor,panel.backgroundColor,raised.backgroundColor]).size===3&&panel.boxShadow!=='none'&&raised.boxShadow!=='none';
+    })()`)
     await evaluate('document.getElementById("appearance").scrollIntoView()')
     await screenshot(`${id}-settings-desktop.png`)
     await evaluate("window.themeNavigating=true"); await send("Page.reload"); await wait(`!window.themeNavigating&&!!document.querySelector('[role="radiogroup"][aria-label="App theme"]')&&document.documentElement.dataset.theme===${JSON.stringify(id)}`)
@@ -162,6 +168,12 @@ try {
       await writeFile(resolve(output, `${id}-component-contrast.json`), JSON.stringify(initial, null, 2))
       if (initial.failures.length) throw new Error(`Contrast failures ${id}: `+JSON.stringify(initial.failures))
       checks.push({name:`${id} actual component text contrast (${initial.pairs} pairs)`,passed:true})
+      await check(`${id} input keeps the required boundary separate from decorative dividers`, `(()=>{
+        const input=document.querySelector('[data-contrast="input"] input');
+        const style=getComputedStyle(input), root=getComputedStyle(document.documentElement);
+        const probe=document.createElement('span');probe.style.color=root.getPropertyValue('--theme-border');
+        return style.borderTopStyle==='solid'&&parseFloat(style.borderTopWidth)>=1&&style.borderTopColor===probe.style.color&&root.getPropertyValue('--color-lw-line')!==root.getPropertyValue('--theme-border');
+      })()`)
       await evaluate(`(()=>{const style=document.createElement('style');style.id='contrast-positive-control';style.textContent='[data-contrast="buttons"] button:last-child{transition:none!important;color:var(--theme-text)!important;background:var(--theme-text)!important}';document.head.append(style)})()`)
       const poisoned = await evaluate(contrastCheck)
       if (!poisoned.failures.some(item => item.text === "Cancel")) throw new Error("Contrast guard missed deliberate unreadable text")

@@ -1,47 +1,47 @@
 {
   "ocular-light-component-contrast.json": {
     "pairs": 35,
-    "minimum": 5.518602801792207,
-    "failures": []
-  },
-  "ocular-dark-component-contrast.json": {
-    "pairs": 35,
-    "minimum": 6.442512662198154,
-    "failures": []
-  },
-  "dracula-component-contrast.json": {
-    "pairs": 35,
-    "minimum": 4.531550766258277,
+    "minimum": 5.610774356199553,
     "failures": []
   },
   "ocular-light-hover-component-contrast.json": {
     "pairs": 35,
-    "minimum": 5.518602801792207,
+    "minimum": 5.610774356199553,
     "failures": []
   },
   "ocular-light-selected-component-contrast.json": {
     "pairs": 35,
-    "minimum": 5.518602801792207,
+    "minimum": 5.610774356199553,
+    "failures": []
+  },
+  "ocular-dark-component-contrast.json": {
+    "pairs": 35,
+    "minimum": 5.04603203551383,
     "failures": []
   },
   "ocular-dark-hover-component-contrast.json": {
     "pairs": 35,
-    "minimum": 6.442512662198154,
+    "minimum": 5.04603203551383,
     "failures": []
   },
   "ocular-dark-selected-component-contrast.json": {
     "pairs": 35,
-    "minimum": 5.217695024644528,
+    "minimum": 5.04603203551383,
+    "failures": []
+  },
+  "dracula-component-contrast.json": {
+    "pairs": 35,
+    "minimum": 4.6427047710232205,
     "failures": []
   },
   "dracula-hover-component-contrast.json": {
     "pairs": 35,
-    "minimum": 4.531550766258277,
+    "minimum": 4.6427047710232205,
     "failures": []
   },
   "dracula-selected-component-contrast.json": {
     "pairs": 35,
-    "minimum": 4.531550766258277,
+    "minimum": 4.6427047710232205,
     "failures": []
   }
 }

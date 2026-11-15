@@ -15,21 +15,26 @@ function applyTheme(id: AppTheme) {
   const theme = renderedThemes.find(t => t.id === id)
   if (theme) {
     const t = theme.tokens
+    const material = theme.material
+    const m = material.colors
+    const ink = material.inks
     const variables = {
       "theme-selection": t.selection,
-      ground: t.canvas, raised: t.surface, sunk: t.canvas, chrome: t.canvas,
-      line: t.border, "line-strong": t.border,
-      text: t.text, text2: t.muted, faint: t.muted,
-      accent: t.focus, accent2: t.focus, link: t.link, green: t.success, amber: t.warning,
-      danger: t.error, "danger-line": t.border, error: t.error, "error-soft": t.surface,
+      ground: t.canvas, panel: m.panel, raised: m.raised, sunk: m.rail, chrome: m.rail,
+      line: m.divider, "line-strong": t.border,
+      text: ink.text, text2: ink.muted, faint: ink.muted,
+      accent: t.focus, accent2: t.focus, link: ink.link, green: ink.success, amber: ink.warning,
+      danger: ink.error, "danger-line": t.border, error: ink.error, "error-soft": m.errorSurface,
       "on-accent": t.canvas, "on-warning": t.canvas,
       scrim: `color-mix(in srgb, ${t.canvas} 88%, transparent)`,
-      "key-body": t.surface, "key-plug": t.border, readout: t.canvas,
+      "key-body": m.raised, "key-plug": t.border, readout: t.canvas,
       "accent-glow": `color-mix(in srgb, ${t.focus} 45%, transparent)`,
       "accent-glow-soft": `color-mix(in srgb, ${t.focus} 20%, transparent)`,
       "close-hover": t.error, "on-close": t.canvas,
+      "theme-surface": m.panel,
+      "shadow-panel": material.panelShadow, "shadow-control": material.controlShadow,
     }
-    for (const [role, value] of Object.entries(t)) {
+    for (const [role, value] of Object.entries(ink)) {
       root.style.setProperty(`--theme-${role}`, value)
       applied.add(`--theme-${role}`)
     }

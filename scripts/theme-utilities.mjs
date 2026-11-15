@@ -31,7 +31,8 @@ function rule(classes, declarations) {
 }
 for (const [role, colors] of Object.entries(groups)) {
   rule(colors.flatMap(color => shades.map(n => `text-${color}-${n}`)), `color: var(--theme-${role});`)
-  rule([...used].map(name => name.replace(/^(hover|focus-visible|active):/, "")).filter(name => colors.some(color => name.startsWith(`bg-${color}-`)) && /-(800|900|950)/.test(name)), "background-color: var(--theme-surface);")
+  const wash = ["error", "success", "warning", "info"].includes(role) ? `--material-${role}Surface` : "--color-lw-accent-soft"
+  rule([...used].map(name => name.replace(/^(hover|focus-visible|active):/, "")).filter(name => colors.some(color => name.startsWith(`bg-${color}-`)) && /-(800|900|950)/.test(name)), `background-color: var(${wash});`)
   const fill = ["error", "success", "warning"].includes(role) ? role : "focus"
   rule(colors.flatMap(color => [500, 600, 700].map(n => `bg-${color}-${n}`)), `background-color: var(--theme-${fill}); color: var(--theme-canvas);`)
   rule(colors.flatMap(color => shades.map(n => `border-${color}-${n}`)), "border-color: var(--theme-border);")
@@ -41,9 +42,10 @@ for (const [role, colors] of Object.entries(groups)) {
 }
 for (const scale of ["zinc", "gray", "slate", "neutral"]) {
   const backgrounds = [...new Set([...used].map(name => name.replace(/^(hover|focus-visible|active):/, "")).filter(name => name.startsWith(`bg-${scale}-`)))]
-  for (const canvas of [true, false]) rule(backgrounds.filter(name => name.includes("-950") === canvas), variant =>
-    `background-color: var(--theme-${variant ? "selection" : canvas ? "canvas" : "surface"});`)
-  rule(shades.map(n => `border-${scale}-${n}`), "border-color: var(--theme-border);")
+  const layer = name => name.includes("-950") ? "--theme-canvas" : name.includes("-800") ? "--material-raised" : "--material-panel"
+  for (const role of ["--theme-canvas", "--material-raised", "--material-panel"]) rule(backgrounds.filter(name => layer(name) === role), variant =>
+    `background-color: var(${variant ? "--theme-selection" : role});`)
+  rule(shades.map(n => `border-${scale}-${n}`), "border-color: var(--material-divider);")
   rule([400, 500, 600, 700, 800, 900, 950].map(n => `text-${scale}-${n}`), "color: var(--theme-muted);")
 }
 const path = "web/src/theme-utilities.css"

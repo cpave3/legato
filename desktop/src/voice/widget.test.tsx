@@ -152,7 +152,7 @@ describe("the widget page", () => {
     savedTheme = "ocular-light"
     const first = render(<Widget />)
     await waitFor(() => expect(document.documentElement.dataset.theme).toBe("ocular-light"))
-    expect(document.documentElement.style.getPropertyValue("--theme-surface")).toBe("#EAE7DF")
+    expect(document.documentElement.style.getPropertyValue("--theme-surface")).toBe(document.documentElement.style.getPropertyValue("--panel"))
     expect(document.documentElement.style.getPropertyValue("--theme-text")).toBe("#252B33")
     expect(document.documentElement.style.colorScheme).toBe("light")
     expect(screen.getByTestId("voice-capsule")).toBeInTheDocument()

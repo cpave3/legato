@@ -293,23 +293,27 @@ const THEME_VARIABLES: Record<string, string> = {
 }
 
 function currentThemeVariables(): Record<string, string> {
-  const tokens = appTheme().tokens
-  if (!tokens) return THEME_VARIABLES
+  const theme = appTheme()
+  if (!theme.tokens) return THEME_VARIABLES
+  const tokens = theme.material.inks
+  const material = theme.material.colors
   return {
     ...THEME_VARIABLES,
-    "--color-background-primary": tokens.surface,
+    "--color-background-primary": material.panel,
     "--color-background-secondary": tokens.canvas,
-    "--color-background-tertiary": tokens.selection,
+    "--color-background-tertiary": material.raised,
     "--color-background-inverse": tokens.text,
     "--color-text-primary": tokens.text,
     "--color-text-secondary": tokens.muted,
     "--color-text-tertiary": tokens.muted,
     "--color-text-inverse": tokens.canvas,
     "--color-border-primary": tokens.border,
-    "--color-border-secondary": tokens.border,
+    "--color-border-secondary": material.divider,
     "--color-ring-primary": tokens.focus,
+    "--shadow-sm": theme.material.controlShadow,
+    "--shadow-md": theme.material.panelShadow,
     ...Object.fromEntries(["info", "success", "warning", "danger"].flatMap(role => [
-      [`--color-background-${role}`, tokens.selection],
+      [`--color-background-${role}`, material[`${role === "danger" ? "error" : role}Surface`]],
       [`--color-text-${role}`, tokens[role === "danger" ? "error" : role as "info" | "success" | "warning"]],
     ])),
   }
@@ -394,10 +398,13 @@ function tint(hue: string, amount: number): string {
 // shows it. Mermaid scopes it to the diagram, ahead of its own rules.
 function diagramStyle(): string {
   const shape = (node: string) => `${node} .label-container, ${node} .label-container path, ${node} > rect, ${node} > circle, ${node} > ellipse, ${node} > polygon, ${node} > path`
-  const tokens = appTheme().tokens
+  const theme = appTheme()
+  const tokens = theme.tokens ? theme.material.inks : null
   const palette = tokens ? { blue: tokens.info, cyan: tokens.type, green: tokens.success, amber: tokens.warning, red: tokens.error, pink: tokens.keyword, purple: tokens.function, gray: tokens.muted } : DIAGRAM_HUES
+  const material = theme.tokens ? theme.material.colors : null
+  const fills: Record<string, string> | null = material ? { blue: material.infoSurface, cyan: material.infoSurface, green: material.successSurface, amber: material.warningSurface, red: material.errorSurface, pink: theme.tokens!.selection, purple: theme.tokens!.selection, gray: material.raised } : null
   const hues = Object.entries(palette).map(([name, hue]) =>
-    `${shape(`.node.${name}`)} { fill: ${tint(hue, 0.16)} !important; stroke: ${hue} !important; } .node.${name} { color: ${hue}; }`).join(" ")
+    `${shape(`.node.${name}`)} { fill: ${fills?.[name] ?? tint(hue, 0.16)} !important; stroke: ${hue} !important; } .node.${name} { color: ${hue}; }`).join(" ")
   return `.node rect { rx: 8px; ry: 8px; } .cluster rect { rx: 12px; ry: 12px; stroke-dasharray: 4 4; } .nodeLabel { font-weight: 600; } .cluster-label .nodeLabel { font-weight: 500; }
 ${hues}
 .node[role="button"] { cursor: pointer; outline: none; }
@@ -410,7 +417,8 @@ ${shape('.node[aria-pressed="true"]')} { stroke: currentColor !important; stroke
 // place of Mermaid's own look.
 export function mermaidConfig() {
   const theme = currentThemeVariables()
-  const [page, raised, line] = [theme["--color-background-primary"], theme["--color-background-secondary"], theme["--color-background-tertiary"]]
+  const named = appTheme().tokens !== null
+  const [page, raised, line] = [theme["--color-background-primary"], theme[named ? "--color-background-tertiary" : "--color-background-secondary"], theme[named ? "--color-border-secondary" : "--color-background-tertiary"]]
   const [text, quiet, faint] = [theme["--color-text-primary"], theme["--color-text-secondary"], theme["--color-text-tertiary"]]
   return {
     startOnLoad: false,
@@ -684,10 +692,12 @@ export function contentPolicy(resourceDomains: string[], images: ItemImage[] = [
 // as its content.
 function themeStyle(fill: boolean): string {
   const variables = Object.entries(currentThemeVariables()).map(([name, value]) => `${name}: ${value};`).join(" ")
+  const theme = appTheme()
+  const link = theme.tokens ? theme.material.inks.link : "#a5b4fc"
   return `:root { color-scheme: ${appTheme().polarity}; ${variables} }
 html { background: var(--color-background-primary); }
 body { margin: 0; padding: ${fill ? "20px" : "12px"}; color: var(--color-text-primary); font-family: var(--font-sans); font-size: 14px; line-height: 1.5; overflow-wrap: anywhere; ${fill ? "" : "overflow-x: auto;"} }
-a { color: ${appTheme().tokens?.link ?? "#a5b4fc"}; }
+a { color: ${link}; }
 img, svg, video, canvas { max-width: 100%; }
 table { border-collapse: collapse; }
 pre, code { font-family: var(--font-mono); }

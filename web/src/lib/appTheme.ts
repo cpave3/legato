@@ -1,4 +1,4 @@
-import { renderedThemes, type ThemeTokens } from "../../../themes/render"
+import { renderedThemes, type ThemeTokens, type ThemeMaterial } from "../../../themes/render"
 export type { ThemeTokens } from "../../../themes/render"
 
 export type AppThemeId = "legato" | "dracula" | "ocular-light" | "ocular-dark"
@@ -13,27 +13,33 @@ export function appTheme() {
 }
 
 // These are role mappings, not another palette. Platform adapters use the same source.
-export function themeVariables(t: ThemeTokens): Record<string, string> {
+export function themeVariables(t: ThemeTokens, material: ThemeMaterial): Record<string, string> {
+  const m = material.colors
+  const ink = material.inks
   const roles: Record<string, string> = {
-    rail: t.canvas, ground: t.canvas, surface: t.surface, raised: t.surface,
-    selected: t.selection, line: t.border, "line-strong": t.border,
-    text: t.text, "text-2": t.muted, faint: t.muted,
-    accent: t.focus, "accent-ring": t.focus, link: t.link,
-    "accent-soft": t.selection, "accent-text": t.link,
-    live: t.success, "live-soft": t.surface, needs: t.warning, "needs-soft": t.surface,
-    done: t.info, "done-soft": t.surface, error: t.error, "error-soft": t.surface,
-    "idle-soft": t.surface, danger: t.error, "danger-line": t.border, record: t.error,
+    rail: m.rail, ground: t.canvas, surface: m.panel, raised: m.raised,
+    selected: t.selection, line: m.divider, "line-strong": t.border,
+    text: ink.text, "text-2": ink.muted, faint: ink.muted,
+    accent: t.focus, "accent-ring": t.focus, link: ink.link,
+    "accent-soft": t.selection, "accent-text": ink.link,
+    live: ink.success, "live-soft": m.successSurface, needs: ink.warning, "needs-soft": m.warningSurface,
+    done: ink.info, "done-soft": m.infoSurface, error: ink.error, "error-soft": m.errorSurface,
+    "idle-soft": m.panel, danger: ink.error, "danger-line": t.border, record: ink.error,
   }
   const vars = Object.fromEntries(Object.entries(roles).map(([role, value]) => [`--color-lw-${role}`, value]))
-  for (const [role, value] of Object.entries(t)) vars[`--theme-${role}`] = value
+  vars["--shadow-lw-panel"] = material.panelShadow
+  vars["--shadow-lw-control"] = material.controlShadow
+  for (const [role, value] of Object.entries(m)) vars[`--material-${role}`] = value
+  for (const [role, value] of Object.entries(ink)) vars[`--theme-${role}`] = value
+  vars["--theme-surface"] = m.panel
   // Older screens still use Tailwind's neutral scales. Keep their semantics in
   // both polarities without changing the incumbent Legato palette.
   for (const scale of ["zinc", "gray", "slate", "neutral"]) {
     for (const n of [50, 100, 200, 300]) vars[`--color-${scale}-${n}`] = t.text
     for (const n of [400, 500, 600]) vars[`--color-${scale}-${n}`] = t.muted
     vars[`--color-${scale}-700`] = t.border
-    vars[`--color-${scale}-800`] = t.surface
-    vars[`--color-${scale}-900`] = t.surface
+    vars[`--color-${scale}-800`] = m.raised
+    vars[`--color-${scale}-900`] = m.panel
     vars[`--color-${scale}-950`] = t.canvas
   }
   return vars
@@ -45,7 +51,7 @@ export function applyAppTheme(): void {
   const root = document.documentElement
   for (const key of applied) root.style.removeProperty(key)
   applied.clear()
-  if (theme.tokens) for (const [key, value] of Object.entries(themeVariables(theme.tokens))) {
+  if (theme.tokens) for (const [key, value] of Object.entries(themeVariables(theme.tokens, theme.material))) {
     root.style.setProperty(key, value)
     applied.add(key)
   }

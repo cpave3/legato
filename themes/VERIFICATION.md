@@ -1,8 +1,24 @@
 # Theme verification — 15 November 2026
 
-Functional implementation: `fd1fd9b7` (palette, web, native desktop/Android and final surface fixes). Final additions contain only license metadata, documentation and captured evidence; web/desktop builds and Android packaged assets were rechecked after embedding the license notice. No live Legato binary, running operator session, theme preference, broker, MQTT topic, Home Assistant configuration or installed app was changed.
+Initial port: `fd1fd9b7`, followed by license metadata and documentation at `5db3018e`. The shared material-depth follow-up below supersedes the initial visual captures/results; current screenshots and JSON reflect the refinement. Canonical palette and terminal ANSI values remain unchanged. No live Legato binary, running operator session, theme preference, broker, MQTT topic, Home Assistant configuration or installed app was changed.
 
-## Automated checks
+## Shared depth refinement — follow-up
+
+Cameron asked for more depth **in the theme system**, not individual screens. The canonical JSON now carries polarity-specific material recipes and a UI-ink contrast contract. Web, desktop, Android, sandboxed/downloaded HTML and Mermaid consume these roles. Reading canvas/foreground and terminal ANSI stay unchanged; panels, raised controls, recessed chrome, softer decorative separators, state washes and offset shadows give the interface its hierarchy. No layout, copy, IDs, preferences or native command contract was redesigned.
+
+- **Web:** 1,646 tests in 224 files, TypeScript, ESLint and production build passed. The final artifact/diagram adapters and their existing tests were included. The shipped Dracula notice remains in the compiled web asset.
+- **Desktop:** 51 UI tests, TypeScript and production build passed. Native Rust/IPC code did not change; the earlier 189 Rust and 6 Node results below belong to the initial port.
+- **Android:** 122 JVM tests passed; supplementary all-source Android/Compose compilation passed with compiler/deprecation warnings, and the Gradle-generated palette asset matched the canonical JSON. A focused AppThemeTest run passed all five tests. The missing-SDK/native-device limits below still apply.
+- **Browser:** 88 checks passed on the final frozen scratch build. This includes the original 82 paths plus real rendered panel/raised shadows and distinct planes, and required input boundaries kept separate from decorative dividers, for all three themes. `verification.json` and `component-contrast.json` contain the latest evidence; screenshots are still Chromium, not native captures. Retained real tmux/xterm, reload, 320px/390px layouts, focus, actual hover, selected diff, image controls and the deliberate unreadable negative control were rechecked.
+- **Site:** all 56 pages built and internal links passed again. Static Go build passed using a writable task cache. No new server code; no full Go suite rerun.
+
+Rendered checks caught Dracula red/pink failing 4.5:1 on new washes/raised/selected backgrounds. UI inks now start from original canonical hues and move toward foreground only as far as the shared contrast contract requires; this also avoids turning all secondary Dracula text into primary white. The source/ANSI palette is not changed to hide the failure. Original research values remain in `palettes.json`.
+
+`themes/screenshots/before-depth/` preserves the corresponding pre-refinement captures from `5db3018e`; sibling images are the refined versions. The task artifact provides a before/refined toggle. Native runtime/device validation remains outstanding: compilation, unit tests and generated-data parity do not establish native rendering or restart behaviour.
+
+**Follow-up test audit:** eight added/changed declarations reviewed and kept (four new declarations: web layer/contrast table, desktop restore/material table, Android material parity and semantic-ink tests; four existing binding/lifecycle declarations extended for desktop events/widget, shared voice and open/saved artifacts). They protect distinct app, shell, serialization and independent native-adapter boundaries. No redundant test or test-only production seam added; an unused renderer export was removed. Red→green was observed for collapsed layers, Dracula error on raised/selected surfaces, secondary ink flattening and artifact material propagation. Focused audit runs passed: 35 web cases, 33 desktop cases, 5 Android AppTheme cases, plus 33 artifact/Mermaid cases. The full web suite passed afterwards.
+
+## Initial port checks
 
 - **Web:** TypeScript and ESLint passed. Full Vitest suite: **1,643 tests, 224 files passed**. Production Vite/PWA build passed; existing large-chunk/Browserslist-age warnings remain. `node scripts/theme-utilities.mjs --check` passed; the web build script also checks generated role mappings.
 - **Desktop:** **48 UI tests**, **6 Node tests**, **189 Rust library tests** passed. TypeScript and production Vite build passed. Rust/Node tests execute the real page bridge scripts, check strict IDs, origin/top-frame/key guards, save-before-delivery, error replies, invalid persisted-state fallback and retained-page delivery. UI tests go through the shell picker and widget initialization/live events. These tests do **not** start native webviews.

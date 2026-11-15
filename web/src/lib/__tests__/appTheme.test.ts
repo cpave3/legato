@@ -41,3 +41,19 @@ it("keeps defaults and falls back safely from an invalid persisted app selection
   expect(document.documentElement.style.getPropertyValue("--color-lw-ground")).toBe("")
   expect(terminalTheme().id).toBe("legato")
 })
+
+it.each<AppThemeId>(["ocular-light", "ocular-dark", "dracula"])("gives %s distinct structural, reading, panel and raised layers without weakening text or control boundaries", async id => {
+  await setAppTheme(id)
+  const style = document.documentElement.style
+  const layers = ["rail", "ground", "surface", "raised"].map(role => style.getPropertyValue(`--color-lw-${role}`))
+  expect(new Set(layers).size).toBe(4)
+  expect(style.getPropertyValue("--color-lw-text-2")).not.toBe(style.getPropertyValue("--color-lw-text"))
+  for (const background of layers) {
+    for (const ink of ["text", "text-2", "error", "live", "needs", "link"]) {
+      expect(contrast(style.getPropertyValue(`--color-lw-${ink}`), background), `${ink} on ${background}`).toBeGreaterThanOrEqual(4.5)
+    }
+    expect(contrast(style.getPropertyValue("--color-lw-line-strong"), background)).toBeGreaterThanOrEqual(3)
+  }
+  expect(style.getPropertyValue("--color-lw-line")).not.toBe(style.getPropertyValue("--color-lw-line-strong"))
+  expect(style.getPropertyValue("--shadow-lw-panel")).toContain("1px 2px")
+})
