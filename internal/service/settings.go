@@ -509,8 +509,15 @@ func (s *SettingsService) CheckEntry(ctx context.Context, list, name string, raw
 	if name == "" {
 		return nil, errors.New("an entry needs a name")
 	}
-	var probe map[string]any
-	if json.Unmarshal(raw, &probe) != nil {
+	var probe any
+	if err := json.Unmarshal(raw, &probe); err != nil {
+		return nil, fmt.Errorf("%s %q: invalid JSON: %w", list, name, err)
+	}
+	if list == "agents.tmux_options" {
+		if _, ok := probe.(string); !ok {
+			return nil, fmt.Errorf("%s %q: want a string", list, name)
+		}
+	} else if _, ok := probe.(map[string]any); !ok {
 		return nil, fmt.Errorf("%s %q: want an object", list, name)
 	}
 	cfg, err := s.load()

@@ -43,6 +43,24 @@ func TestASettingSetHereAppliesAndSaysSo(t *testing.T) {
 	}
 }
 
+func TestTmuxOptionEntryKeepsItsStringValue(t *testing.T) {
+	settings, _ := newSettingsFixture(t, "")
+	ctx := context.Background()
+	if err := settings.SetEntry(ctx, "agents.tmux_options", "history-limit", json.RawMessage(`"50000"`), "web"); err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := settings.Effective(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := cfg.Agents.TmuxOptions["history-limit"]; got != "50000" {
+		t.Fatalf("history-limit = %q, want 50000", got)
+	}
+	if err := settings.SetEntry(ctx, "agents.tmux_options", "history-limit", json.RawMessage(`{"value":"1"}`), "web"); err == nil {
+		t.Fatal("accepted an object in place of a tmux option string")
+	}
+}
+
 func TestAPinnedSettingCannotBeSetAndKeepsTheFilesValue(t *testing.T) {
 	settings, _ := newSettingsFixture(t, "agents:\n  reviews: true\n")
 	ctx := context.Background()
