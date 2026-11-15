@@ -814,9 +814,10 @@ func (s *session) applyToolResults(event modEvent, now time.Time) []nativeEvent 
 		// result for the call being decided means the person answered there.
 		out = append(out, s.expirePermissionsFor(call.key)...)
 		call.result = nativeToolResult(call.name, block.resultText(), block.IsError)
-		if call.name == nativeSpawnAgent && call.args["background"] == true && !block.IsError {
+		if call.name == nativeSpawnAgent && !block.IsError && (call.args["background"] == true || (call.subagent != nil && call.subagent.status == "running")) {
 			// The call returned when the subagent was launched; it has not
-			// stopped. Its own turn says when it does.
+			// stopped. Newer engines launch agents asynchronously without an
+			// input flag. Its own turn says when it stops.
 			delete(call.result, "reason")
 		}
 		call.endedAt = now.UnixMilli()

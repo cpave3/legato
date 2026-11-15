@@ -29,6 +29,8 @@ A card shows `ready for review` in place of `idle` when the agent marked its [re
 
 When the agent is in the background, Legato lists what still runs: the agents list and the web UI's ensemble say `background · 2 jobs` or `background · subagent: Explore: find the callers`, and `GET /api/agents` has it under `background_jobs`. When a job ends and wakes the agent, the card goes back to `running`.
 
+An asynchronously launched subagent stays running in the native panel until its own turn ends, even though its launch tool has already returned. This includes newer Claude Code versions whose `Agent` tool always runs asynchronously, without a background flag.
+
 Claude Code tells no hook when you press Escape in the terminal or answer **No** to a permission prompt there. With the Legato mod loaded (`adapters.claude-code.native_bridge`, on by default), Legato sees the turn end and sets the card to `idle`. Without the mod, the card stays on `running` or `needs you` until the agent's next turn.
 
 ### Hooks you installed before

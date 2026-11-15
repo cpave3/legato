@@ -1170,6 +1170,30 @@ func TestABackgroundSubagentIsStillRunningAfterItsCallReturns(t *testing.T) {
 	}
 }
 
+func TestAnImplicitlyBackgroundSubagentLaunchIsNotItsCompletion(t *testing.T) {
+	h := newHarness(t)
+	h.mod(hello(nil), assistantRow("row-a", toolUse("toolu_agent", "Agent", map[string]any{
+		"description": "Audit the tests", "prompt": "Find gaps.", "subagent_type": "general-purpose",
+	})))
+	h.mod(map[string]any{"type": "agent_spawn", "toolUseId": "toolu_agent", "agentId": "agent-7", "description": "Audit the tests"})
+	events := h.subscribe("")
+	h.mod(toolResultRow("row-r", "toolu_agent", "Async agent launched successfully. agentId: agent-7", false))
+
+	launched := nextEvent(t, events)
+	result, _ := launched["result"].(map[string]any)
+	if launched["type"] != "tool_call_result" || result["reason"] != nil {
+		t.Fatalf("launch event = %v, want no completion reason while the child runs", launched)
+	}
+	call := h.snapshot().ToolCalls[0]
+	if call.Result["reason"] != nil || call.Subagent == nil || call.Subagent.Status != "running" {
+		t.Fatalf("launched child = %+v, want a running child without a completion reason", call)
+	}
+	h.mod(map[string]any{"type": "turn_complete", "turnId": "turn-9", "reason": "answer", "agentId": "agent-7"})
+	if done := h.snapshot().ToolCalls[0].Subagent; done.Status != "finished" {
+		t.Fatalf("child = %+v, want finished after its own turn ends", done)
+	}
+}
+
 // A resumed session runs in a new process: background subagents of the old
 // one are gone, so their calls read as finished.
 func TestABackgroundSubagentFromAResumedSessionReadsAsFinished(t *testing.T) {
