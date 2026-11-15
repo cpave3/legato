@@ -118,7 +118,7 @@ Neither asset is clobbered; conflicting bytes/checksums fail for investigation.
 Android has no in-app updater. Obtainium setup is documented on
 [Devices](../../site/src/content/docs/running/devices.md#android-updates-with-obtainium):
 GitHub source `https://github.com/cpave3/legato`, link regex
-`^legato-android\.apk$` not inverted, fallback ON, prereleases/drafts OFF,
+`(^|/)legato-android\.apk$` not inverted, fallback ON, prereleases/drafts OFF,
 track-only OFF, explicit Release date sort, release title as version OFF.
 Upstream [wiki](https://wiki.obtainium.imranr.dev/sources/) and
 [source](https://github.com/ImranR98/Obtainium/blob/main/lib/app_sources/github.dart)

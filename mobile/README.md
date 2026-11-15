@@ -132,7 +132,7 @@ A conflicting APK or checksum fails and requires investigation.
 There is no in-app Android updater. In Obtainium, add
 `https://github.com/cpave3/legato` as a **GitHub** source and set:
 
-- **Filter links by regex:** `^legato-android\.apk$`; inversion **OFF**.
+- **Filter links by regex:** `(^|/)legato-android\.apk$`; inversion **OFF**.
 - **Fallback to older releases:** **ON**.
 - **Include prereleases** and **Include drafts:** **OFF**.
 - **Track-only:** **OFF**.

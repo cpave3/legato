@@ -93,7 +93,7 @@ gh attestation verify legato-android.apk --repo cpave3/legato
 Legato has no in-app Android updater. To follow APK updates with Obtainium:
 
 1. Add `https://github.com/cpave3/legato` as a **GitHub** source.
-2. Set **Filter links by regex** to `^legato-android\.apk$`, with inversion **OFF**.
+2. Set **Filter links by regex** to `(^|/)legato-android\.apk$`, with inversion **OFF**.
 3. Turn **Fallback to older releases ON**.
 4. Leave **Include prereleases**, **Include drafts** and **Track-only OFF**.
 5. Explicitly select **Release date** for sorting and leave **Release title as version OFF**, so the tag supplies the version.
