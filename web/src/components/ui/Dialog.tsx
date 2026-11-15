@@ -4,13 +4,13 @@ import {
   type HTMLAttributes,
   type ReactNode,
   useContext,
-  useEffect,
   useId,
   useRef,
 } from "react"
 
 import { cn } from "../../lib/utils"
 import { Button } from "./Button"
+import { useModalLayer } from "../../hooks/useModalLayer"
 
 interface DialogContextValue {
   onClose: () => void
@@ -32,62 +32,10 @@ interface DialogProps {
   dismissible?: boolean
 }
 
-const focusableSelector = [
-  "button:not([disabled])",
-  "a[href]",
-  "input:not([disabled])",
-  "select:not([disabled])",
-  "textarea:not([disabled])",
-  '[tabindex]:not([tabindex="-1"])',
-].join(",")
-
 export function Dialog({ open, onClose, children, dismissible = true }: DialogProps) {
   const titleId = useId()
   const containerRef = useRef<HTMLDivElement>(null)
-  const restoreFocusRef = useRef<HTMLElement | null>(null)
-  const onCloseRef = useRef(onClose)
-  const dismissibleRef = useRef(dismissible)
-
-  useEffect(() => {
-    onCloseRef.current = onClose
-    dismissibleRef.current = dismissible
-  }, [dismissible, onClose])
-
-  useEffect(() => {
-    if (!open) return
-
-    restoreFocusRef.current = document.activeElement instanceof HTMLElement ? document.activeElement : null
-    const container = containerRef.current
-    const focusable = Array.from(container?.querySelectorAll<HTMLElement>(focusableSelector) ?? [])
-    focusable[0]?.focus()
-
-    const handleKeyDown = (event: KeyboardEvent) => {
-      if (event.key === "Escape" && dismissibleRef.current) {
-        event.preventDefault()
-        onCloseRef.current()
-        return
-      }
-      if (event.key !== "Tab") return
-
-      const elements = Array.from(container?.querySelectorAll<HTMLElement>(focusableSelector) ?? [])
-      if (elements.length === 0) return
-      const first = elements[0]
-      const last = elements[elements.length - 1]
-      if (event.shiftKey && document.activeElement === first) {
-        event.preventDefault()
-        last.focus()
-      } else if (!event.shiftKey && document.activeElement === last) {
-        event.preventDefault()
-        first.focus()
-      }
-    }
-
-    document.addEventListener("keydown", handleKeyDown)
-    return () => {
-      document.removeEventListener("keydown", handleKeyDown)
-      restoreFocusRef.current?.focus()
-    }
-  }, [open])
+  useModalLayer({ open, onClose, containerRef, dismissible })
 
   if (!open) return null
 
@@ -114,14 +62,14 @@ export function DialogPanel({ className, ...props }: HTMLAttributes<HTMLDivEleme
       role="dialog"
       aria-modal="true"
       aria-labelledby={titleId}
-      className={cn("w-full max-w-md overflow-hidden rounded-lg border border-zinc-700 bg-zinc-900 shadow-2xl", className)}
+      className={cn("flex max-h-[calc(100dvh-2rem)] w-full max-w-md flex-col overflow-hidden rounded-lg border border-zinc-700 bg-zinc-900 shadow-2xl", className)}
       {...props}
     />
   )
 }
 
 export function DialogHeader({ className, ...props }: HTMLAttributes<HTMLDivElement>) {
-  return <div className={cn("flex items-center justify-between gap-4 border-b border-zinc-800 px-5 py-3", className)} {...props} />
+  return <div className={cn("flex shrink-0 items-center justify-between gap-4 border-b border-zinc-800 px-5 py-3", className)} {...props} />
 }
 
 export function DialogTitle({ className, ...props }: HTMLAttributes<HTMLHeadingElement>) {
@@ -147,9 +95,9 @@ export function DialogClose({ className, ...props }: Omit<React.ComponentProps<t
 }
 
 export function DialogBody({ className, ...props }: HTMLAttributes<HTMLDivElement>) {
-  return <div className={cn("space-y-4 px-5 py-4", className)} {...props} />
+  return <div className={cn("min-h-0 flex-1 space-y-4 overflow-y-auto overscroll-contain px-5 py-4", className)} {...props} />
 }
 
 export function DialogFooter({ className, ...props }: HTMLAttributes<HTMLDivElement>) {
-  return <div className={cn("flex items-center justify-end gap-2 border-t border-zinc-800 px-5 py-3", className)} {...props} />
+  return <div className={cn("flex shrink-0 flex-wrap items-center justify-end gap-2 border-t border-zinc-800 px-5 py-3", className)} {...props} />
 }

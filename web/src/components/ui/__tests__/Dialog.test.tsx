@@ -32,6 +32,37 @@ function DialogHarness({ onClose = () => undefined }: { onClose?: () => void }) 
 afterEach(cleanup)
 
 describe("Dialog", () => {
+  it("isolates background content and dismisses only the topmost dialog", () => {
+    function NestedDialogs() {
+      const [parent, setParent] = useState(false)
+      const [child, setChild] = useState(false)
+      return <>
+        <button onClick={() => setParent(true)}>Open parent</button>
+        <Dialog open={parent} onClose={() => setParent(false)}>
+          <DialogPanel><DialogTitle>Parent</DialogTitle><button onClick={() => setChild(true)}>Open child</button></DialogPanel>
+        </Dialog>
+        <Dialog open={child} onClose={() => setChild(false)}>
+          <DialogPanel><DialogTitle>Child</DialogTitle><button onClick={() => setChild(false)}>Cancel child</button></DialogPanel>
+        </Dialog>
+      </>
+    }
+    render(<NestedDialogs />)
+    const opener = screen.getByRole("button", { name: "Open parent" })
+    opener.focus()
+    fireEvent.click(opener)
+    expect(opener.closest("[inert]")).not.toBeNull()
+    expect(document.body.style.overflow).toBe("hidden")
+    fireEvent.click(screen.getByRole("button", { name: "Open child" }))
+    fireEvent.keyDown(document, { key: "Escape" })
+    expect(screen.queryByRole("dialog", { name: "Child" })).toBeNull()
+    expect(screen.getByRole("dialog", { name: "Parent" })).toBeTruthy()
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Open child" }))
+    fireEvent.keyDown(document, { key: "Escape" })
+    expect(document.activeElement).toBe(opener)
+    expect(opener.closest("[inert]")).toBeNull()
+    expect(document.body.style.overflow).toBe("")
+  })
+
   it("is named, contains focus, dismisses with Escape, and restores focus", () => {
     const onClose = vi.fn()
     render(<DialogHarness onClose={onClose} />)

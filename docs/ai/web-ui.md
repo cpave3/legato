@@ -6,6 +6,8 @@ Remote web interface for monitoring and interacting with agent sessions from any
 
 **Terminal prompt choices**: `PromptBar` lets native buttons handle Enter when a choice has keyboard focus. Its container handles Enter only when the container itself is focused. Arrow navigation moves focus with the highlighted choice, so Tab, arrows and Enter cannot activate a different approval; Dismiss never sends terminal keys.
 
+**Modal contract**: `hooks/useModalLayer.ts` owns the modal stack, background `inert`, body scroll lock, focus containment and restoration, and topmost-only Escape. Its named API is `{open, onClose, containerRef, dismissible?}`. Nested pickers consume Escape with `preventDefault` before the document handler. Keep desktop side columns nonmodal; each phone sheet uses its actual layout breakpoint. `ui/Dialog` uses the same hook and provides a bounded panel, scrolling body, and stable wrapping footer.
+
 **Agent switching readiness**: The Agents page installs its modifier-plus-digit listener in a layout effect, so the displayed list order and key mapping change together. Its regression presses the shortcut at the first terminal commit.
 
 **Search keyboard readiness**: `SearchModal` installs its result-navigation listener in a layout effect, so Enter selects the visible result in the same commit that displays it, including archived tasks. The BoardSearch regression presses Enter from a MutationObserver before passive effects run.

@@ -32,6 +32,8 @@ On a phone, a tab bar along the bottom holds **Attention**, **Board**, **Agents*
 
 When the connection drops, the UI first says "Reconnecting…" and keeps the page as it is. After 10 seconds without a connection, a **Connection Lost** dialog offers **Retry** and a way to switch servers.
 
+Dialogs keep keyboard focus inside their controls and return focus to the control that opened them. Escape closes the top dialog or picker first. A dialog cannot close while an operation that requires waiting is in progress.
+
 ## Board
 
 The board works as it does in the TUI, with the same keys: `h`/`j`/`k`/`l` to move, `n` to create, `m` to move, `/` to search, `?` for the key list. You can also drag a card to another column, or within its column to reorder it; it lands where you let it go. The phone layout has no drag: **Move** in a card's menu moves it to another column, at the end, and a column cannot be reordered there. Press `enter` or double-click a card to open its detail. From 1280 pixels of width, a panel beside the board describes the selected card, with buttons for its agent, its details and its ticket or pull request.
