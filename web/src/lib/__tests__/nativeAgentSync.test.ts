@@ -6,6 +6,109 @@ import fixture from "../../../../contracts/model-settings-v1.json"
 import type { ModelSettingsState } from "../modelSettings"
 
 describe("native agent synchronization", () => {
+  it.each(["idle", "resumed-running"])("keeps the latest exchange last after dropped old tool slots (%s)", host => {
+    const snapshot: NativeSnapshot = {
+      id: "parent", status: host === "idle" ? "idle" : "running",
+      messages: [
+        { role: "assistant", content: "Earlier context" },
+        { role: "assistant", content: [{ type: "tool-call" }] },
+        { role: "user", content: "done?" },
+        { role: "assistant", content: "Implementation is done." },
+      ],
+      toolCalls: [
+        { callId: "old", name: "read", args: {}, result: {}, startedAt: 1, endedAt: 2 },
+        { callId: "recent", name: "bash", args: {}, result: {}, startedAt: 3, endedAt: 4 },
+      ].map(call => host === "idle" ? call : { ...call, pendingMessage: false }),
+    }
+    const state = reconcileNativeSnapshot(snapshot, createNativeSyncState(), [])
+    expect(state.items.map(item => item.tool?.key ?? item.text)).toEqual([
+      "Earlier context", "recent", "done?", "Implementation is done.",
+    ])
+    expect(stateFromNativeSnapshot(snapshot).items).toEqual(state.items)
+  })
+  it("joins canonical tool identities and keeps only actual uncommitted calls after dialogue", () => {
+    const snapshot: NativeSnapshot = {
+      id: "parent", status: "running",
+      messages: [
+        { role: "assistant", content: "Earlier context" },
+        { role: "assistant", content: [{ type: "tool-call", toolCallId: "provider-recent" }] },
+        { role: "user", content: "done?" },
+        { role: "assistant", content: "Implementation is done." },
+      ],
+      toolCalls: [
+        { callId: "old", toolCallId: "provider-old", messageCommitted: true, name: "read", args: {}, result: {}, startedAt: 1, endedAt: 2 },
+        { callId: "recent", toolCallId: "provider-recent", messageCommitted: true, name: "read", args: {}, result: {}, startedAt: 3, endedAt: 4 },
+        { callId: "pending", toolCallId: "provider-pending", messageCommitted: false, pendingMessage: true, name: "spawn_agent", args: { background: true }, result: { subagent_id: "child" }, startedAt: 5, endedAt: 6 },
+      ],
+      subagentStates: [{ sessionId: "parent", subagentId: "child", parentCallId: "pending", childSessionId: "exact-child", status: "running" }],
+    }
+    let state = stateFromNativeSnapshot(snapshot)
+    expect(state.items.map(item => item.tool?.key ?? item.text)).toEqual([
+      "Earlier context", "recent", "done?", "Implementation is done.", "pending",
+    ])
+    expect(state.items.at(-1)?.tool?.subagent).toMatchObject({ subagentId: "child", childSessionId: "exact-child" })
+    state = reduceNativeEvent(state, { eventId: "replayed", type: "tool_call_start", callId: "pending", name: "spawn_agent", args: {} })
+    expect(state.items.filter(item => item.tool?.key === "pending")).toHaveLength(1)
+    const committed: NativeSnapshot = { ...snapshot, status: "idle", messages: [
+      ...snapshot.messages!,
+      { role: "assistant", content: [{ type: "tool-call", toolCallId: "provider-pending" }] },
+      { role: "assistant", content: "Verified." },
+    ], toolCalls: snapshot.toolCalls!.map(call => ({ ...call, messageCommitted: true, pendingMessage: false })) }
+    const repaired = reconcileNativeSnapshot(committed, state, [])
+    expect(repaired.items.map(item => item.tool?.key ?? item.text)).toEqual([
+      "Earlier context", "recent", "done?", "Implementation is done.", "pending", "Verified.",
+    ])
+    expect(stateFromNativeSnapshot(committed).items).toEqual(repaired.items)
+  })
+  it("keeps distinct retained occurrences of a reused provider ID without joining failed or pending steps", () => {
+    const state = stateFromNativeSnapshot({
+      id: "parent", status: "running",
+      messages: [
+        { role: "assistant", content: "Earlier context" },
+        { role: "assistant", content: [{ type: "tool-call", toolCallId: "reused" }] },
+        { role: "user", content: "again" },
+        { role: "assistant", content: [{ type: "tool-call", toolCallId: "reused" }] },
+        { role: "assistant", content: "Ready." },
+      ],
+      toolCalls: [
+        { callId: "compacted", toolCallId: "reused", messageCommitted: true, name: "read", args: {} },
+        { callId: "first", toolCallId: "reused", messageCommitted: true, name: "read", args: {} },
+        { callId: "failed", toolCallId: "reused", messageCommitted: false, name: "read", args: {}, error: "unattached" },
+        { callId: "second", toolCallId: "reused", messageCommitted: true, name: "read", args: {} },
+        { callId: "active", toolCallId: "reused", messageCommitted: false, pendingMessage: true, name: "read", args: {} },
+      ],
+    })
+    expect(state.items.map(item => item.tool?.key ?? item.text)).toEqual([
+      "Earlier context", "first", "again", "second", "Ready.", "active",
+    ])
+  })
+  it("aligns older settled records before identified occurrences when a resumed provider reuses an ID", () => {
+    const state = stateFromNativeSnapshot({
+      id: "parent", status: "running",
+      messages: [
+        { role: "assistant", content: "Earlier context" },
+        { role: "assistant", content: [{ type: "tool-call", toolCallId: "reused" }] },
+        { role: "user", content: "again" },
+        { role: "assistant", content: [{ type: "tool-call", toolCallId: "reused" }] },
+      ],
+      toolCalls: [
+        { callId: "old", pendingMessage: false, name: "read", args: {} },
+        { callId: "legacy", pendingMessage: false, name: "read", args: {} },
+        { callId: "new", toolCallId: "reused", messageCommitted: true, name: "read", args: {} },
+      ],
+    })
+    expect(state.items.map(item => item.tool?.key ?? item.text)).toEqual(["Earlier context", "legacy", "again", "new"])
+  })
+  it("keeps an active child's compacted parent before retained dialogue with its exact identity", () => {
+    const state = stateFromNativeSnapshot({
+      id: "parent", status: "idle",
+      messages: [{ role: "assistant", content: "Earlier context" }, { role: "user", content: "done?" }, { role: "assistant", content: "Done." }],
+      toolCalls: [{ callId: "archived-parent", toolCallId: "provider-parent", messageCommitted: true, name: "spawn_agent", args: { background: true } }],
+      subagentStates: [{ sessionId: "parent", subagentId: "child", parentCallId: "archived-parent", childSessionId: "exact-child", status: "running" }],
+    })
+    expect(state.items.map(item => item.tool?.key ?? item.text)).toEqual(["archived-parent", "Earlier context", "done?", "Done."])
+    expect(state.items[0].tool?.subagent).toMatchObject({ subagentId: "child", childSessionId: "exact-child", status: "running" })
+  })
   it.each([false, true])("repairs an uncommitted spawn tool after missed SSE (background: %s)", background => {
     const snapshot: NativeSnapshot = {
       id: "parent", status: "running",

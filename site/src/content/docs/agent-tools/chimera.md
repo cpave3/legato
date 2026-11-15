@@ -19,6 +19,8 @@ On newer Chimera builds, the native snapshot supplies exact child and parent-too
 
 Reopening or refreshing the panel also shows active spawn calls before Chimera saves their assistant message. The same child stays visible when the message is saved, without a second card or tile.
 
+When a turn finishes, older tool records do not move below its latest message and reply. This completion-order correction also works with older Chimera hosts. Exact repair during an active step needs the paired Chimera update, including when a finished tool waits for a sibling. Apply upgrades and resume sessions when convenient; this fix does not restart running agents. It does not restore dialogue already removed from model context by compaction.
+
 To use the legacy integration instead:
 
 ```yaml
