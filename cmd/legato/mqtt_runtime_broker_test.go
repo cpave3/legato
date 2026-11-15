@@ -93,6 +93,44 @@ func mqttRuntimeFixture(t *testing.T) (*config.Config, *store.Store, *events.Bus
 	return cfg, db, bus, attention, approvals
 }
 
+func TestMQTTRuntimeAttentionCLIReconciliationConverges(t *testing.T) {
+	t.Setenv("XDG_RUNTIME_DIR", shortDir(t))
+	dbPath, db := reviewCLITestStore(t)
+	t.Cleanup(func() { _ = db.Close() })
+	configureReviewCLITest(t, dbPath)
+	bus := events.New()
+	attention := service.NewAttentionService(db, bus)
+	if _, err := attention.Upsert(context.Background(), service.AttentionInput{Producer: "plans", SourceKey: "gone", SourceRevision: "1", SignalKind: service.AttentionSignalPlanDecision, Title: "private stale plan", Reason: "Decision", Category: "plan", Urgency: "normal", Navigation: service.AttentionNavigation{Kind: "task", Target: "gone"}}); err != nil {
+		t.Fatal(err)
+	}
+	server, err := ipc.NewServer(filepath.Join(ipc.SocketDir(), "mqtt-cli.sock"), func(msg ipc.Message) {
+		handleServeIPCMessage(msg, bus, &recordingServeNotifier{})
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { _ = server.Close() })
+	cfg := &config.Config{DataDir: t.TempDir(), Integrations: config.IntegrationsConfig{MQTT: config.MQTTConfig{Enabled: true, Broker: mqttRuntimeBroker(t), BaseTopic: "legato/cli"}}}
+	_, messages := mqttRuntimeObserver(t, cfg.Integrations.MQTT.Broker, "legato/cli/attention_items/state")
+	approvals := &approvalRuntime{approvals: service.NewApprovalService(db, service.ApprovalServiceOptions{Bus: bus})}
+	stop := startMQTT(cfg, db, bus, nil, attention, approvals)
+	t.Cleanup(stop)
+	if got := string(mqttRuntimeReceive(t, messages).Payload); got != "1" {
+		t.Fatalf("initial attention count = %s", got)
+	}
+	var code int
+	output := captureStdout(t, func() int {
+		code = runCLI([]string{"attention", "list", "--json"})
+		return code
+	})
+	if code != 0 || strings.TrimSpace(output) != "[]" {
+		t.Fatalf("attention list exit=%d output=%q", code, output)
+	}
+	if got := string(mqttRuntimeReceive(t, messages).Payload); got != "0" {
+		t.Fatalf("CLI reconciliation did not converge: %s", got)
+	}
+}
+
 func TestMQTTRuntimeBrokerDiscoveryDurableStateAndStop(t *testing.T) {
 	cfg, db, bus, attention, approvals := mqttRuntimeFixture(t)
 	ctx := context.Background()

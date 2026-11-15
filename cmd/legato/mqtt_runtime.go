@@ -8,7 +8,6 @@ import (
 	"log"
 	"os"
 	"path/filepath"
-	"strings"
 	"sync"
 	"time"
 
@@ -123,7 +122,7 @@ func mqttLogin(ctx context.Context, broker *service.CredentialBroker, name, reso
 		return "", "", errors.New("MQTT: credential broker unavailable; fix credential configuration")
 	}
 	for _, info := range broker.Credentials() {
-		if strings.EqualFold(info.Name, name) && info.Profile != "mqtt" {
+		if info.Name == name && info.Profile != "mqtt" {
 			return "", "", errors.New("MQTT: broker credential must use the host-only mqtt profile")
 		}
 	}
