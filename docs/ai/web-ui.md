@@ -4,6 +4,8 @@ Remote web interface for monitoring and interacting with agent sessions from any
 
 **Voice keyboard readiness**: The Agents page binds `v`/Escape in a layout effect using the current selection and voice setting directly, without a passive-effect mirror ref. A terminal session with a prompt bar can start dictation as soon as its selection is shown.
 
+**Terminal prompt choices**: `PromptBar` lets native buttons handle Enter when a choice has keyboard focus. Its container handles Enter only when the container itself is focused. Arrow navigation moves focus with the highlighted choice, so Tab, arrows and Enter cannot activate a different approval; Dismiss never sends terminal keys.
+
 **Agent switching readiness**: The Agents page installs its modifier-plus-digit listener in a layout effect, so the displayed list order and key mapping change together. Its regression presses the shortcut at the first terminal commit.
 
 **Search keyboard readiness**: `SearchModal` installs its result-navigation listener in a layout effect, so Enter selects the visible result in the same commit that displays it, including archived tasks. The BoardSearch regression presses Enter from a MutationObserver before passive effects run.

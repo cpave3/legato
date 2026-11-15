@@ -1,4 +1,5 @@
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react"
+import userEvent from "@testing-library/user-event"
 import { afterEach, beforeEach, expect, it, vi } from "vitest"
 import { PromptBar } from "../PromptBar"
 
@@ -336,6 +337,40 @@ it("offers the options of a menu the tool is showing in its terminal", () => {
   fireEvent.click(screen.getByText("Skip"))
 
   expect(onSendKeys).toHaveBeenCalledWith("Down Enter")
+})
+
+it.each([
+  { label: "Reject", tabs: 2, navigate: "", keys: "n" },
+  { label: "Dismiss", tabs: 3, navigate: "", keys: null },
+  { label: "Reject", tabs: 1, navigate: "{ArrowDown}", keys: "n" },
+])("activates the focused $label choice after $navigate with Enter, not another terminal action", async ({ label, tabs, navigate, keys }) => {
+  const user = userEvent.setup()
+  mockFetch.mockResolvedValue({ ok: true, json: async () => ({ macros: [] }) })
+  const onSendKeys = vi.fn()
+  const onDismissPrompt = vi.fn()
+  render(<PromptBar
+    promptState={{ type: "menu", context: "Allow changes?", actions: [{ label: "Accept", keys: "y" }, { label: "Reject", keys: "n" }] }}
+    onSendKeys={onSendKeys}
+    onSubmitMessage={vi.fn()}
+    onDismissPrompt={onDismissPrompt}
+    onDetectPrompt={vi.fn()}
+    onDisconnect={vi.fn()}
+    onKill={vi.fn()}
+    onRefresh={vi.fn()}
+    onTogglePromptDetection={vi.fn()}
+    promptDetectionEnabled
+    agentId="TASK-42"
+    agentActivity="waiting"
+  />)
+
+  for (let i = 0; i < tabs; i++) await user.tab()
+  if (navigate) await user.keyboard(navigate)
+  expect(document.activeElement).toBe(screen.getByRole("button", { name: new RegExp(`^${label}`) }))
+  await user.keyboard("{Enter}")
+
+  if (keys) expect(onSendKeys.mock.calls).toEqual([[keys]])
+  else expect(onSendKeys).not.toHaveBeenCalled()
+  expect(onDismissPrompt).toHaveBeenCalledOnce()
 })
 
 // A terminal session has no conversation feed, but what its agent shows in
