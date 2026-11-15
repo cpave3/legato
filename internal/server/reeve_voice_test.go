@@ -3,9 +3,17 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"fmt"
+	"net"
 	"net/http"
+	"os"
+	"reflect"
 	"testing"
+	"time"
 
+	"nhooyr.io/websocket"
+
+	"github.com/cpave3/legato/internal/engine/events"
 	"github.com/cpave3/legato/internal/service"
 )
 
@@ -39,5 +47,61 @@ func TestTheVoiceStatusSaysWhenThisServerHasNoVoice(t *testing.T) {
 	rec := callAs(srv, "secret", http.MethodGet, "/api/reeve/voice", "")
 	if rec.Code != http.StatusServiceUnavailable {
 		t.Fatalf("got %d %s", rec.Code, rec.Body)
+	}
+}
+
+// The desktop widget shows a line playing on the main's speakers from
+// reeve_spoke: playing starts it, and the end it waits for is the one under
+// the same line number. The desktop app's tests read the same messages
+// (testdata/reeve-spoke/messages.json, in desktop/src-tauri/src/hostline.rs),
+// so the two keep to one shape.
+func TestWhatBecameOfALineIsBroadcastAsTheFixtureHasIt(t *testing.T) {
+	data, err := os.ReadFile("testdata/reeve-spoke/messages.json")
+	if err != nil {
+		t.Fatal(err)
+	}
+	var fixture []map[string]any
+	if err := json.Unmarshal(data, &fixture); err != nil {
+		t.Fatal(err)
+	}
+
+	bus := events.New()
+	srv := NewWithSwarm(nil, nil, nil, "", nil, bus, "")
+	srv.StartReeveSpokeEvents()
+
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+	go func() { _ = srv.Serve(ln) }()
+	defer srv.Stop(context.Background())
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	conn, _, err := websocket.Dial(ctx, fmt.Sprintf("ws://%s/ws", ln.Addr()), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close(websocket.StatusNormalClosure, "")
+	if _, _, err := conn.Read(ctx); err != nil { // initial agent_list
+		t.Fatal(err)
+	}
+
+	for _, want := range fixture {
+		bus.Publish(events.Event{Type: events.EventReeveSpoke, Payload: events.ReeveSpokePayload{
+			TaskID: want["task_id"].(string), Text: want["content"].(string), State: want["status"].(string), Line: int64(want["line"].(float64)),
+		}})
+		_, data, err := conn.Read(ctx)
+		if err != nil {
+			t.Fatal(err)
+		}
+		var got map[string]any
+		if err := json.Unmarshal(data, &got); err != nil {
+			t.Fatal(err)
+		}
+		if !reflect.DeepEqual(got, want) {
+			t.Fatalf("broadcast %s\nwant %v", data, want)
+		}
 	}
 }

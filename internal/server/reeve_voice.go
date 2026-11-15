@@ -71,7 +71,8 @@ func (s *Server) reeveVoiceLineHandler() http.HandlerFunc {
 }
 
 // StartReeveSpokeEvents tells web clients what became of each line the
-// Reeve said, for the said bubbles.
+// Reeve said: the line's text, its state and its number. The desktop
+// widget shows the speaking card from playing until that line's end.
 func (s *Server) StartReeveSpokeEvents() {
 	if s.bus == nil {
 		return
@@ -80,7 +81,7 @@ func (s *Server) StartReeveSpokeEvents() {
 	go func() {
 		for ev := range ch {
 			if p, ok := ev.Payload.(events.ReeveSpokePayload); ok {
-				s.hub.Broadcast(WSMessage{Type: MsgReeveSpoke, TaskID: p.TaskID, Content: p.Text, Status: p.State})
+				s.hub.Broadcast(WSMessage{Type: MsgReeveSpoke, TaskID: p.TaskID, Content: p.Text, Status: p.State, Line: p.Line})
 			}
 		}
 	}()

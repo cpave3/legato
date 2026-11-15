@@ -24,6 +24,9 @@ export interface WidgetModel {
   readiness: Readiness
   // The bound key as the person reads it (Meta+Alt+Space), "" when none.
   keyText: string
+  // A line of the Reeve's playing on the main's speakers, outside any
+  // conversation (voice-host-line, src-tauri/src/hostline.rs); null when none.
+  host: { id: string; text: string } | null
 }
 
 export const initialModel: WidgetModel = {
@@ -31,6 +34,7 @@ export const initialModel: WidgetModel = {
   view: initialVoiceView,
   readiness: { ready: true, reason: "", setting: "", main: "" },
   keyText: "",
+  host: null,
 }
 
 export type VoiceEvent =
@@ -40,8 +44,9 @@ export type VoiceEvent =
   | { name: "voice-pause"; payload: { ms: number; of: number } }
   | { name: "voice-level"; payload: { level: number } }
   | { name: "voice-key-changed"; payload: { key?: string | null } }
+  | { name: "voice-host-line"; payload: { id: string; text: string; status: "playing" | "ended" } }
 
-export const EVENT_NAMES = ["voice-state", "voice-caption", "voice-line", "voice-pause", "voice-level", "voice-key-changed"] as const
+export const EVENT_NAMES = ["voice-state", "voice-caption", "voice-line", "voice-pause", "voice-level", "voice-key-changed", "voice-host-line"] as const
 
 // The main's own reasons for going idle, which idleLine says for a person.
 const IDLE_REASONS = new Set(["no_speech", "nothing_heard", "no_answer", "failed", "cancelled"])
@@ -97,16 +102,38 @@ export function reduce(model: WidgetModel, event: VoiceEvent): WidgetModel {
       return { ...model, view: { ...view, level: event.payload.level } }
     case "voice-key-changed":
       return { ...model, keyText: event.payload.key ?? "" }
+    case "voice-host-line": {
+      const { id, text, status } = event.payload
+      if (status === "playing") return { ...model, host: { id, text } }
+      return model.host?.id === id ? { ...model, host: null } : model
+    }
   }
   return model
 }
 
+// Whether a turn is under way: the key asking the main, or the Reeve
+// listening, thinking or answering. A turn wins over a line playing on the
+// main's speakers, which never breaks it.
+function inTurn(model: WidgetModel): boolean {
+  return model.phase === "connecting" || (model.phase === "talking" && model.view.state !== "idle")
+}
+
 // What the window shows: the capsule at rest, the card in a conversation
-// and after one that ended with something to say.
+// and after one that ended with something to say; and, out of a turn, the
+// card speaking while a line plays on the main's speakers (host), the
+// widget's own state kept underneath to come back to.
+export function shown(model: WidgetModel): { surface: "capsule" | "card"; view: VoiceView; host: boolean } {
+  if (model.host && !inTurn(model)) {
+    const line = { id: `host-${model.host.id}`, text: model.host.text, url: "" }
+    return { surface: "card", view: { ...initialVoiceView, state: "speaking", lines: [line], speaking: line.id }, host: true }
+  }
+  let card = model.phase === "talking"
+  if (model.phase === "ended" && (idleLine(model.view) || model.view.written)) card = true
+  return { surface: card ? "card" : "capsule", view: model.view, host: false }
+}
+
 export function surface(model: WidgetModel): "capsule" | "card" {
-  if (model.phase === "talking") return "card"
-  if (model.phase === "ended" && (idleLine(model.view) || model.view.written)) return "card"
-  return "capsule"
+  return shown(model).surface
 }
 
 // The key as the capsule's key caps: Meta+Alt+Space is three, ⌃⇧Space one.
