@@ -18,11 +18,31 @@ const val PAGE_BRIDGE ="ReactNativeWebView"
 // must not start the microphone. Only the top frame gets either.
 fun bootstrapScript(baseUrl: String, token: String, shellKey: String): String {
     val value = JSONObject.quote(token)
-    return "if(window===window.top){" +
+    return pageScript(baseUrl,
         "localStorage.setItem(\"legato:token:local\",$value);" +
         "localStorage.setItem(${JSONObject.quote("legato:token:$baseUrl")},$value);" +
-        "window.legatoShell={voice:1,voiceStream:1,approval:1,enroll:1,workers:1,key:${JSONObject.quote(shellKey)}};" +
-        "}"
+        "window.legatoShell={voice:1,voiceStream:1,approval:1,enroll:1,workers:1,theme:1,key:${JSONObject.quote(shellKey)}};"
+        )
+}
+
+private fun pageScript(baseUrl: String, body: String): String =
+    "if(window===window.top&&location.origin===${JSONObject.quote(requireNotNull(origin(baseUrl)))}){$body}"
+
+fun themeScript(baseUrl: String, id: String): String {
+    require(validThemeId(id)) { "Invalid theme ID" }
+    return pageScript(baseUrl, "localStorage.setItem('legato:app-theme',${JSONObject.quote(id)});" +
+        "window.dispatchEvent(new Event('legato:theme-changed'));")
+}
+
+fun themeBootstrapScript(baseUrl: String, id: String): String {
+    require(validThemeId(id)) { "Invalid theme ID" }
+    return pageScript(baseUrl, "localStorage.setItem('legato:app-theme',${JSONObject.quote(id)});")
+}
+
+fun themeResultScript(baseUrl: String, id: String, error: String?): String {
+    val detail = JSONObject().put("id", id)
+    error?.let { detail.put("error", it) }
+    return pageScript(baseUrl, "window.dispatchEvent(new CustomEvent('legato:shell-theme',{detail:$detail}));")
 }
 
 // allowNavigation keeps the page on its own server; anything else is handed
@@ -33,7 +53,11 @@ private fun origin(url: String): String? = try {
     val uri = URI(url)
     val scheme = uri.scheme?.lowercase()
     val host = uri.host?.lowercase()
-    if (scheme == null || host == null) null else "$scheme://$host:${if (uri.port != -1) uri.port else if (scheme == "https") 443 else 80}"
+    if (scheme == null || host == null) null else {
+        val port = uri.port
+        val suffix = if (port == -1 || port == (if (scheme == "https") 443 else 80)) "" else ":$port"
+        "$scheme://$host$suffix"
+    }
 } catch (cause: Exception) {
     null
 }
@@ -69,6 +93,8 @@ fun voiceEventScript(event: JSONObject): String =
 // What the page posts. Anything in the page can post, so nothing about a
 // message is assumed.
 sealed interface PageMessage {
+    data class Theme(val key: String, val id: String) : PageMessage
+
     // Where the page wants to be brought back to if it has to be reopened.
     data class Restore(val url: String) : PageMessage
 
@@ -112,6 +138,11 @@ sealed interface PageMessage {
             // desktop app shares; the app's own messages name their kind
             // `legatoShell`. Either is read.
             return when (message.opt("legatoShell") ?: message.opt("type")) {
+                "theme" -> {
+                    val key = message.opt("key") as? String
+                    val id = message.opt("id") as? String
+                    if (key != null && id != null) Theme(key, id) else Unknown
+                }
                 "restore" -> (message.opt("url") as? String)?.let(::Restore) ?: Unknown
                 "voice" -> {
                     val key = message.opt("key") as? String

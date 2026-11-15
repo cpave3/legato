@@ -25,7 +25,11 @@ import java.util.concurrent.Executors
 
 class MainActivity : ComponentActivity() {
     private val io = Executors.newCachedThreadPool()
+    private val themeIo = Executors.newSingleThreadExecutor()
     private lateinit var store: ConnectionStore
+    private lateinit var themeCatalog: ThemeCatalog
+    private lateinit var themeSettings: ThemeSettings
+    val themes: List<AppTheme> get() = themeCatalog.themes
     val state = AppState()
     private val discovery by lazy { AndroidDiscovery(this) { state.discovered.value = it } }
 
@@ -65,7 +69,13 @@ class MainActivity : ComponentActivity() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        enableEdgeToEdge(SystemBarStyle.dark(android.graphics.Color.TRANSPARENT), SystemBarStyle.dark(android.graphics.Color.TRANSPARENT))
+        themeCatalog = ThemeCatalog(assets.open("palettes.json").bufferedReader().use { it.readText() })
+        val preferences = getSharedPreferences("legato.appearance", MODE_PRIVATE)
+        themeSettings = ThemeSettings(themeCatalog,
+            { preferences.getString("theme", null) },
+            { preferences.edit().putString("theme", it).commit() })
+        state.theme.value = themeSettings.current
+        applySystemBars(themeSettings.current)
         store = connectionStore(this)
         state.connections.value = store.load()
         setContent { LegatoApp(this) }
@@ -100,6 +110,7 @@ class MainActivity : ComponentActivity() {
     override fun onDestroy() {
         page?.destroy()
         io.shutdown()
+        themeIo.shutdown()
         super.onDestroy()
     }
 
@@ -110,6 +121,33 @@ class MainActivity : ComponentActivity() {
     // Actions the screens call.
 
     fun currentPage(): ServerPage? = page
+
+    fun selectTheme(id: String, done: (String?) -> Unit = {}) {
+        themeIo.execute {
+            val outcome = runCatching {
+                check(themeSettings.select(id)) { "Invalid theme ID" }
+                themeSettings.current
+            }
+            runOnUiThread {
+                outcome.onSuccess { theme ->
+                    state.theme.value = theme
+                    applySystemBars(theme)
+                    page?.setTheme(theme)
+                    done(null)
+                }.onFailure { cause ->
+                    val error = cause.message ?: cause.toString()
+                    state.error.value = error
+                    done(error)
+                }
+            }
+        }
+    }
+
+    private fun applySystemBars(theme: AppTheme) {
+        val transparent = android.graphics.Color.TRANSPARENT
+        val style = if (theme.light) SystemBarStyle.light(transparent, transparent) else SystemBarStyle.dark(transparent)
+        enableEdgeToEdge(style, style)
+    }
 
     fun showServers() {
         state.screen.value = Screen.Connections
@@ -438,6 +476,7 @@ class MainActivity : ComponentActivity() {
             AndroidAudioFocus(this),
             pageCallbacks,
             path,
+            requireNotNull(state.theme.value),
         )
         state.screen.value = Screen.Web(connection)
         pageVisibility()
@@ -476,6 +515,7 @@ class MainActivity : ComponentActivity() {
     }
 
     private val pageCallbacks = object : ServerPage.Callbacks {
+        override fun themeChanged(id: String, done: (String?) -> Unit) = selectTheme(id, done)
         override fun servers(): List<Connection> = store.load()
 
         override fun confirmWorker(message: String, answer: (Boolean) -> Unit) {
@@ -691,6 +731,7 @@ data class PairDraft(val name: String = "", val address: String = "", val phrase
 data class Draft(val name: String = "", val url: String = "", val token: String = "", val caCertificate: String? = null)
 
 class AppState {
+    val theme = mutableStateOf<AppTheme?>(null)
     val screen = mutableStateOf<Screen>(Screen.Connections)
     val connections = mutableStateOf<List<Connection>>(emptyList())
     val reachability = mutableStateOf<Map<String, Reachability>>(emptyMap())
