@@ -96,6 +96,9 @@ Give each Legato a tint in Settings › Server and maintenance › Tint, so you 
 On the Android app's server list, open **Appearance › Theme** and choose **Legato**, **Dracula**, **Ocular Light**, **Ocular Dark**, **Ocular Light Vivid** or **Ocular Dark Vivid**. The app keeps the choice across restarts and applies it to its native screens, system bars and server pages. You can also choose **App theme** in a compatible server page's Settings; it asks the app to save the same choice. The launch splash keeps Legato's original background until the activity starts. Android's keyboard, file picker and fingerprint prompt use the system's appearance.
 
 In a browser or installed PWA, choose **Settings › Preferences › Appearance › App theme**. That browser keeps the choice. Terminals follow the app unless you saved a separate **Terminal theme**. Changing an app theme does not overwrite that terminal choice or a server's tint. Ocular colours are research candidates, not a proven treatment for eye strain. Theme switching through MQTT or Home Assistant is not available in this release.
+All Ocular themes use purple actions and identity with green activity/success; Vivid keeps stronger accents. Their reading bases stay the same.
+
+In a browser or installed PWA, choose **Settings › Appearance › App theme**. That browser keeps the choice. Terminals follow the app unless you saved a separate **Terminal theme**. Changing an app theme does not overwrite that terminal choice or a server's tint. Ocular colours are research candidates, not a proven treatment for eye strain. Theme switching through MQTT or Home Assistant is not available in this release.
 
 ## HTTPS with Legato's own certificate
 

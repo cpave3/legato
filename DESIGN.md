@@ -134,7 +134,7 @@ The role references resolve in the selected application theme; a standalone cons
 
 ### Primary
 
-- **Action accent:** primary actions, current selection boundaries and focus—not every inactive surface.
+- **Action accent:** primary actions, current selection boundaries and focus—not every inactive surface. All Ocular themes use purple application identity, green activity/success and blue links; the original/Vivid distinction remains accent strength.
 - **On-action ink:** paired with the action fill by the theme, never assumed to be white in every polarity.
 - **Link ink:** interactive text, with an underline or another visible affordance where needed; a link is not a second brand accent.
 
@@ -208,7 +208,7 @@ Hover, keyboard focus, selected, busy, disabled and error states must remain dis
 
 ### Chips / State indicators
 
-Compact, labelled operational metadata. A state wash supports its ink and icon; it is not a saturated decoration. A selected choice is not the same as a running state. Checked theme options retain their visible selection treatment and accessible radio state.
+Compact, labelled operational metadata. A state wash supports its ink and icon; it is not a saturated decoration. A selected choice is not the same as a running state. Identity/message washes carry a visible tint inside the surface, not only along its border, and remain separate from text selection. Checked theme options retain their visible selection treatment and accessible radio state.
 
 ### Cards / Containers
 
@@ -228,7 +228,7 @@ Existing working-agent traces communicate actual activity; reduced-motion settin
 
 ### Theme-aware artifacts
 
-Sandboxed and downloaded HTML and Mermaid consume the same functional surfaces, readable inks and depth roles. Authored content can override them, so arbitrary custom HTML is not automatically contrast-safe. External media is not recoloured as a UI surface. The terminal palette remains independently selectable and is not rewritten by a UI-depth refinement.
+Sandboxed and downloaded HTML and Mermaid consume the same functional surfaces, readable inks and depth roles. Authored content can override them, so arbitrary custom HTML is not automatically contrast-safe. External media is not recoloured as a UI surface. The terminal palette remains independently selectable and is not rewritten by an application-identity or UI-depth refinement.
 
 ## Do's and Don'ts
 

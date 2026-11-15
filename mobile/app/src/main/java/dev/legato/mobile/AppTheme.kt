@@ -11,6 +11,7 @@ data class AppTheme(
     val tokens: Map<String, String>,
     val materials: Map<String, String> = emptyMap(),
     val inks: Map<String, String> = tokens,
+    val ui: Map<String, String> = emptyMap(),
 ) {
     val pageBackground: String get() = tokens["canvas"] ?: "#0A0A0F"
 }
@@ -26,9 +27,13 @@ class ThemeCatalog(json: String) {
                 val readable = readableTokens(original)
                 val polarity = entry.getString("polarity")
                 val recipe = source.getJSONObject("materials").getJSONObject(polarity).getJSONObject("colors")
-                val materials = materialColors(recipe, readable)
+                val ui = entry.getJSONObject("ui")
+                val materials = materialColors(recipe, readable) +
+                    materialColors(ui.getJSONObject("surfaces"), readable)
+                val inks = materialInks(source.getJSONObject("material_ink_contract"), readable, materials, original)
                 AppTheme(entry.getString("id"), entry.getString("name"), polarity == "light",
-                    readable, materials, materialInks(source.getJSONObject("material_ink_contract"), readable, materials, original))
+                    readable, materials, inks,
+                    listOf("accent", "identity", "voice_start").associateWith { inks.getValue(ui.getString(it)) })
             }
         }
 

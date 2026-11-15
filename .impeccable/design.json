@@ -153,7 +153,7 @@
     "northStar": "The Control Room",
     "overview": "Legato is clear, operational and state-led. Its interface helps a person scan work, distinguish agent activity from requests that need attention, and act without losing their place. Hierarchy comes from meaningful state, typography and surface roles—not from decoration competing with the work.\n\nThe approved component feel is **tactile and confident**: layered surfaces and subtly raised controls make actions feel tangible, without decorative effects. This is a record of the accepted application system, not a redesign brief for the documentation site, terminal TUI or unrelated packages.",
     "keyCharacteristics": [
-      "Functional colour roles rather than atmospheric palette names.",
+      "Functional colour roles rather than atmospheric palette names. All Ocular themes use purple application identity, green activity/success and blue links; identity/message washes remain separate from text selection.",
       "Dense, legible operational content with a clear active location and current state.",
       "Distinct structural, reading, panel and raised-control planes.",
       "Shared recipes across web, desktop, Android and theme-aware artifacts, with native conventions retained. Ocular Vivid variants strengthen functional accents while preserving the original neutral bases and material recipes; original themes remain available."

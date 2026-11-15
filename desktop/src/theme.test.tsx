@@ -2,6 +2,7 @@ import { afterEach, expect, it, vi } from "vitest"
 import "@testing-library/jest-dom/vitest"
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import palettes from "../../themes/palettes.json"
+import { renderedThemes } from "../../themes/render"
 import { ThemeSection, initializeTheme } from "./theme"
 
 const { invoke, listeners } = vi.hoisted(() => ({ invoke: vi.fn(), listeners: new Set<(event: { payload: string }) => void>() }))
@@ -13,16 +14,33 @@ vi.mock("@tauri-apps/api/core", () => ({ invoke }))
 afterEach(() => { cleanup(); listeners.clear(); vi.clearAllMocks() })
 
 it.each([
+  ["ocular-light", "Ocular Light"], ["ocular-dark", "Ocular Dark"],
   ["ocular-light-vivid", "Ocular Light Vivid"], ["ocular-dark-vivid", "Ocular Dark Vivid"],
+  ["dracula", "Dracula"],
 ])("restores and selects %s through the native picker", async (id, name) => {
   invoke.mockResolvedValue(id)
   await initializeTheme()
   const root = document.documentElement
   const palette = palettes.themes.find(t => t.id === id)
+  const { material } = renderedThemes.find(t => t.id === id)!
+  const accent = material.inks[id === "dracula" ? "focus" : "keyword"]
+  const identity = material.inks[id === "dracula" ? "link" : "keyword"]
   expect(root.dataset.theme).toBe(id)
   expect(root.style.colorScheme).toBe(palette?.polarity ?? "dark")
   expect(root.style.getPropertyValue("--ground")).toBe(palette?.tokens.canvas ?? "")
-  expect(root.style.getPropertyValue("--accent")).toBe(palette?.tokens.focus ?? "")
+  for (const role of ["accent", "accent2", "theme-accent", "theme-focus"]) {
+    expect(root.style.getPropertyValue(`--${role}`)).toBe(accent)
+  }
+  expect(root.style.getPropertyValue("--accent-glow")).toBe(`color-mix(in srgb, ${accent} 45%, transparent)`)
+  expect(root.style.getPropertyValue("--accent-glow-soft")).toBe(`color-mix(in srgb, ${accent} 20%, transparent)`)
+  expect(root.style.getPropertyValue("--theme-identity")).toBe(identity)
+  expect(root.style.getPropertyValue("--theme-voice-start")).toBe(id === "dracula" ? material.inks.success : accent)
+  expect(root.style.getPropertyValue("--link")).toBe(material.inks.link)
+  expect(root.style.getPropertyValue("--green")).toBe(material.inks.success)
+  expect(root.style.getPropertyValue("--text")).toBe(material.inks.text)
+  for (const [role, value] of Object.entries(material.colors)) {
+    expect(root.style.getPropertyValue(`--material-${role}`)).toBe(value)
+  }
   render(<ThemeSection />)
   const picker = screen.getByLabelText("App theme")
   await waitFor(() => expect(picker).toBeEnabled())
@@ -30,10 +48,15 @@ it.each([
   expect(picker).toHaveValue(id)
   fireEvent.change(picker, { target: { value: "legato" } })
   await waitFor(() => expect(picker).toHaveValue("legato"))
+  for (const role of ["accent", "theme-accent", "theme-focus", "theme-identity", "theme-voice-start", ...Object.keys(material.colors).map(role => `material-${role}`)]) {
+    expect(root.style.getPropertyValue(`--${role}`)).toBe("")
+  }
   fireEvent.change(picker, { target: { value: id } })
   await waitFor(() => expect(invoke).toHaveBeenLastCalledWith("set_app_theme", { theme: id }))
   await waitFor(() => expect(picker).toHaveValue(id))
   expect(root.dataset.theme).toBe(id)
+  expect(root.style.getPropertyValue("--accent")).toBe(accent)
+  expect(root.style.getPropertyValue("--theme-identity")).toBe(identity)
 })
 
 it("restores the saved shell appearance, changes it through settings and restores Legato defaults", async () => {

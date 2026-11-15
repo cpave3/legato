@@ -9,6 +9,8 @@ class AppThemeTest {
     @Test
     fun `selected themes keep semantic inks readable on every material and selection`() {
         val settings = ThemeSettings(catalog(), { null }, { true })
+        val roles = org.json.JSONObject(javaClass.getResource("/palettes.json")!!.readText())
+            .getJSONObject("material_ink_contract").getJSONArray("roles")
         for (id in listOf("dracula", "ocular-light", "ocular-dark", "ocular-light-vivid", "ocular-dark-vivid")) {
             assertTrue(settings.select(id))
             val theme = settings.current
@@ -21,7 +23,8 @@ class AppThemeTest {
                 }
                 return channels[0] * .2126 + channels[1] * .7152 + channels[2] * .0722
             }
-            for (role in listOf("muted", "comment", "error", "link", "success", "warning", "keyword")) {
+            for (index in 0 until roles.length()) {
+                val role = roles.getString(index)
                 val ink = luminance(theme.inks.getValue(role))
                 for (background in backgrounds) {
                     val surface = luminance(background)
@@ -49,8 +52,13 @@ class AppThemeTest {
             val theme = settings.current
             val recipe = json.getJSONObject("materials")
                 .getJSONObject(if (theme.light) "light" else "dark").getJSONObject("colors")
-            val expected = recipe.keys().asSequence().associateWith { role ->
-                val mix = recipe.getJSONObject(role)
+            val entries = json.getJSONArray("themes")
+            val ui = (0 until entries.length()).map { entries.getJSONObject(it) }
+                .first { it.getString("id") == id }.getJSONObject("ui")
+            val surfaces = ui.getJSONObject("surfaces")
+            val roles = recipe.keys().asSequence().toSet() + surfaces.keys().asSequence().toSet()
+            val expected = roles.associateWith { role ->
+                val mix = if (surfaces.has(role)) surfaces.getJSONObject(role) else recipe.getJSONObject(role)
                 fun resolve(key: String): Int {
                     val reference = mix.getString(key)
                     return (theme.tokens[reference] ?: reference).removePrefix("#").toInt(16)
@@ -172,6 +180,7 @@ class AppThemeTest {
         assertEquals("legato", settings.current.id)
         assertFalse(settings.current.light)
         assertTrue(settings.current.tokens.isEmpty())
+        assertTrue(settings.current.ui.isEmpty())
         assertEquals(setOf("legato", "dracula", "ocular-light", "ocular-dark", "ocular-light-vivid", "ocular-dark-vivid"), catalog().themes.map { it.id }.toSet())
         for (i in 0 until entries.length()) {
             val entry = entries.getJSONObject(i)
@@ -186,9 +195,21 @@ class AppThemeTest {
             }
             assertEquals(expected, settings.current.tokens)
             assertEquals(tokens.getString("canvas"), settings.current.pageBackground)
+            val theme = settings.current
+            val dracula = theme.id == "dracula"
+            assertEquals(theme.inks.getValue(if (dracula) "focus" else "keyword"), theme.ui.getValue("accent"))
+            assertEquals(theme.inks.getValue(if (dracula) "link" else "keyword"), theme.ui.getValue("identity"))
+            assertEquals(theme.inks.getValue(if (dracula) "success" else "keyword"), theme.ui.getValue("voice_start"))
+            assertEquals(tokens.getString("focus"), theme.tokens.getValue("focus"))
+            assertEquals(tokens.getString("link"), theme.tokens.getValue("link"))
+            if (!dracula) {
+                assertNotEquals(theme.tokens.getValue("focus"), theme.ui.getValue("accent"))
+                assertEquals(theme.tokens.getValue("link"), theme.inks.getValue("link"))
+            }
         }
         assertTrue(settings.select("legato"))
         assertTrue(settings.current.tokens.isEmpty())
+        assertTrue(settings.current.ui.isEmpty())
         assertEquals("#0A0A0F", settings.current.pageBackground)
     }
 }

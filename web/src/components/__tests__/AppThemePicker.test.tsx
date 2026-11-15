@@ -7,9 +7,10 @@ import { terminalTheme, TERMINAL_THEME_KEY } from "../../lib/terminalTheme"
 afterEach(() => { cleanup(); vi.useRealTimers(); vi.restoreAllMocks(); localStorage.clear(); applyAppTheme(); delete (window as { legatoShell?: unknown }).legatoShell; delete window.ReactNativeWebView })
 
 it.each([
-  { name: "Ocular Light", id: "ocular-light", canvas: "#F5F3ED", polarity: "light", accent: "#17578A", green: "#235D45" },
-  { name: "Ocular Light Vivid", id: "ocular-light-vivid", canvas: "#F5F3ED", polarity: "light", accent: "#075FAD", green: "#167347" },
-  { name: "Ocular Dark Vivid", id: "ocular-dark-vivid", canvas: "#20252B", polarity: "dark", accent: "#75BFFF", green: "#61DD8A" },
+  { name: "Ocular Light", id: "ocular-light", canvas: "#F5F3ED", polarity: "light", accent: "#68418A", green: "#235D45" },
+  { name: "Ocular Dark", id: "ocular-dark", canvas: "#20252B", polarity: "dark", accent: "#C5ADE3", green: "#A3C9A8" },
+  { name: "Ocular Light Vivid", id: "ocular-light-vivid", canvas: "#F5F3ED", polarity: "light", accent: "#7533A8", green: "#167347" },
+  { name: "Ocular Dark Vivid", id: "ocular-dark-vivid", canvas: "#20252B", polarity: "dark", accent: "#CFABFF", green: "#61DD8A" },
 ])("selects $name, persists on reload and follows in terminals without overwriting a saved terminal choice", async ({ name, id, canvas, polarity, accent, green }) => {
   localStorage.setItem(TERMINAL_THEME_KEY, "night")
   render(<AppThemePicker />)
@@ -19,6 +20,8 @@ it.each([
   expect(style.getPropertyValue("--color-lw-ground")).toBe(canvas)
   expect(style.getPropertyValue("--color-lw-accent")).toBe(accent)
   expect(style.getPropertyValue("--color-lw-live")).toBe(green)
+  expect(style.getPropertyValue("--theme-focus")).toBe(accent)
+  expect(style.getPropertyValue("--color-lw-accent-soft")).not.toBe(style.getPropertyValue("--color-lw-selected"))
   expect(style.colorScheme).toBe(polarity)
   expect(localStorage.getItem(APP_THEME_KEY)).toBe(id)
   expect(terminalTheme().id).toBe("night")
