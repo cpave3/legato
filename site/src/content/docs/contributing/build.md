@@ -131,7 +131,27 @@ task mobile:apk       # release APK
 task mobile:install   # build, install on the connected device, and start
 ```
 
-See [`mobile/README.md`](https://github.com/cpave3/legato/blob/main/mobile/README.md) for signing.
+For a real packaging check, use JDK 21 and Android SDK platform 36 with build-tools 36.0.0:
+
+```bash
+bash scripts/test-android-apk.sh
+```
+
+It generates a disposable signing key and builds two versions with real Gradle, checking the packaged version, certificate and palette. It never installs or uploads an APK and does not prove phone data survives an upgrade.
+
+:::caution
+Official Android release support is implemented, but no official APK is published yet. No production signing setup has been performed. Cameron must choose the durable private signer first; fresh-install, same-signer upgrade preserving servers, pairing and approval keys, and real Obtainium skipped-release checks remain operator acceptance work.
+:::
+
+The release workflow accepts `android=auto|always|never`, default `auto`. `auto` compares against the most recently published stable APK-bearing release across all pages of GitHub releases. It builds on changes to exactly `mobile/`, `themes/palettes.json`, `scripts/mobile-android.sh`, `scripts/android-release.py` or `.github/workflows/release.yml`; unrelated server changes do not need a new shell APK. Missing baseline tags are fetched from `origin`, and lookup or comparison failures fail visibly rather than skip Android.
+
+Official versions use stable `vMAJOR.MINOR.PATCH` tags without leading zeros. The APK's version name omits `v`; its version code is `(major + 1) * 1,000,000 + minor * 1,000 + patch` (major <= 2098, minor/patch <= 999). Publication below an already published Android version code is rejected.
+
+The operator owns the `android-release` environment: secrets `ANDROID_KEYSTORE_BASE64`, `ANDROID_STORE_PASSWORD`, `ANDROID_KEY_ALIAS`, `ANDROID_KEY_PASSWORD`, and public variable `ANDROID_CERT_SHA256`. The helper requires the approved private certificate pin and rejects the bundled debug certificate. Signing changes and server trust in `approval_devices.android_app_digests` require explicit operator decisions, not automatic setup.
+
+The canonical release assets are `legato-android.apk` and `legato-android-SHA256SUMS`, with GitHub build provenance. If Android fails after the CLI release is published, fix the prerequisite and rerun **only the failed Android job** at the same tag, never all jobs. Recovery stages and verifies the immutable existing APK's signature/version and regenerates a missing checksum without clobbering either asset.
+
+See [`mobile/README.md`](https://github.com/cpave3/legato/blob/main/mobile/README.md#official-android-releases) for signing, certificate inspection and recovery, and [Devices](/legato/running/devices/#android-updates-with-obtainium) for Obtainium's bounded release discovery.
 
 ### Desktop app
 

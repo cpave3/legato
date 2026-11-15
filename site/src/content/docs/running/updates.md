@@ -107,6 +107,10 @@ If both background updaters stay enabled, they may both check or install; they d
 
 The desktop app updates itself from the same releases, when a release carries a new desktop build. See [The desktop app](/legato/running/desktop-app/#updates).
 
+## The Android app
+
+The Android app has no in-app updater; server update settings do not update the phone. Official APK publication is implemented but not yet available in production. After first publication, use Obtainium or download from an APK-bearing release. See [Android updates with Obtainium](/legato/running/devices/#android-updates-with-obtainium) for the exact settings, its 100-release discovery limit and signing/data-loss precautions.
+
 ## Limits
 
 - Agents also run the `legato` binary, for their hooks and Legato's tools. After an update, new calls use the new binary while processes already running keep the old one, until the agent is reloaded.
