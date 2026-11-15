@@ -99,6 +99,7 @@ func mqttDelay(ctx context.Context, delay time.Duration) bool {
 func (p *MQTTPublisher) connected(ctx context.Context, conn MQTTConnection, changes <-chan struct{}) {
 	previous := map[string]string{}
 	full := true
+	backoff := time.Second
 	for {
 		payloads, err := p.snapshot(ctx)
 		if err != nil {
@@ -106,12 +107,14 @@ func (p *MQTTPublisher) connected(ctx context.Context, conn MQTTConnection, chan
 			publishCtx, stop := context.WithTimeout(ctx, 2*time.Second)
 			e := conn.Publish(publishCtx, p.opts.BaseTopic+"/availability", []byte("offline"))
 			stop()
-			if e != nil || !mqttDelay(ctx, time.Second) {
+			if e != nil || !mqttDelay(ctx, backoff) {
 				return
 			}
+			backoff = min(backoff*2, 30*time.Second)
 			full = true
 			continue
 		}
+		backoff = time.Second
 		if full {
 			for topic, payload := range p.discovery() {
 				payloads[topic] = payload
@@ -135,6 +138,7 @@ func (p *MQTTPublisher) connected(ctx context.Context, conn MQTTConnection, chan
 			err = conn.Publish(publishCtx, p.opts.BaseTopic+"/availability", []byte("online"))
 			stop()
 			if err != nil {
+				log.Print("MQTT: online publication failed; reconnecting")
 				return
 			}
 		}

@@ -1,10 +1,14 @@
 package service
 
 import (
+	"bytes"
 	"context"
 	"errors"
+	"log"
+	"strings"
 	"sync"
 	"testing"
+	"testing/synctest"
 	"time"
 
 	"github.com/cpave3/legato/internal/engine/events"
@@ -14,6 +18,87 @@ func mqttMessages(c *mqttTestTransport) []mqttTestMessage {
 	c.mu.Lock()
 	defer c.mu.Unlock()
 	return append([]mqttTestMessage(nil), c.history...)
+}
+
+type mqttRetryAgents struct {
+	attempts chan time.Time
+	calls    int
+}
+
+func (s *mqttRetryAgents) ListAgents(context.Context) ([]AgentSession, error) {
+	s.calls++
+	s.attempts <- time.Now()
+	if s.calls <= 8 || s.calls == 10 {
+		return nil, errors.New("source unavailable")
+	}
+	return nil, nil
+}
+
+func TestMQTTPublisherSourceRetriesBackOffAndResetAfterSnapshot(t *testing.T) {
+	synctest.Test(t, func(t *testing.T) {
+		agents := &mqttRetryAgents{attempts: make(chan time.Time, 16)}
+		src := &mqttTestSources{}
+		transport := mqttNewTestTransport()
+		p := NewMQTTPublisher(mqttTestOptions(), agents, src, mqttTestApprovals{src}, events.New(), func(context.Context) (MQTTConnection, error) { return transport, nil })
+		ctx, cancel := context.WithCancel(context.Background())
+		stopped := make(chan struct{})
+		go func() { defer close(stopped); p.Run(ctx) }()
+		defer func() { cancel(); <-stopped }()
+
+		start := time.Now()
+		awaitAttempt := func(want time.Duration) {
+			t.Helper()
+			select {
+			case at := <-agents.attempts:
+				if got := at.Sub(start); got != want {
+					t.Fatalf("source attempt at %s, want %s", got, want)
+				}
+			case <-time.After(40 * time.Second):
+				t.Fatal("source retry not observed")
+			}
+		}
+		for _, seconds := range []time.Duration{0, 1, 3, 7, 15, 31, 61, 91, 121} {
+			awaitAttempt(seconds * time.Second)
+		}
+		synctest.Wait()
+		if got := transport.get("legato/test/availability"); got != "online" {
+			t.Fatalf("recovered availability = %q", got)
+		}
+		p.HomeAssistantOnline()
+		awaitAttempt(121 * time.Second)
+		awaitAttempt(122 * time.Second)
+		synctest.Wait()
+		if got := transport.get("legato/test/availability"); got != "online" {
+			t.Fatalf("availability after reset retry = %q", got)
+		}
+	})
+}
+
+func TestMQTTPublisherLogsOnlinePublicationFailureWithoutRawError(t *testing.T) {
+	var logs bytes.Buffer
+	previous := log.Writer()
+	log.SetOutput(&logs)
+	defer log.SetOutput(previous)
+	synctest.Test(t, func(t *testing.T) {
+		src := &mqttTestSources{}
+		transport := mqttNewTestTransport()
+		transport.beforePublish = func(_ context.Context, topic string) error {
+			if topic == "legato/test/availability" {
+				return errors.New("secret broker credentials and payload")
+			}
+			return nil
+		}
+		p := NewMQTTPublisher(mqttTestOptions(), src, src, mqttTestApprovals{src}, events.New(), func(context.Context) (MQTTConnection, error) { return transport, nil })
+		ctx, cancel := context.WithCancel(context.Background())
+		stopped := make(chan struct{})
+		go func() { defer close(stopped); p.Run(ctx) }()
+		synctest.Wait()
+		cancel()
+		<-stopped
+	})
+	if got := logs.String(); !strings.Contains(got, "MQTT: online publication failed; reconnecting") || strings.Contains(got, "secret") {
+		t.Fatalf("expected safe online failure diagnostic, got %q", got)
+	}
 }
 
 func TestMQTTPublisherHABirthRepublishesClearedRetainedData(t *testing.T) {
