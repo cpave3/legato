@@ -17,6 +17,14 @@ import (
 	"github.com/eclipse/paho.golang/paho"
 )
 
+// Command is copied off the reader into a bounded queue. Oversized messages
+// carry no payload bytes so the controller can report an invalid envelope.
+// Excess traffic is dropped; no application work runs in the network callback.
+type Command struct {
+	Payload  []byte
+	Retained bool
+}
+
 const operationTimeout = 5 * time.Second
 
 // Options configures one connection. Credentials are not retained for retries.
@@ -27,6 +35,7 @@ type Options struct {
 	Password          string
 	AvailabilityTopic string
 	BirthTopic        string
+	CommandTopic      string
 	// OnBirth coalesces online birth messages off the network reader. It must return promptly.
 	OnBirth func()
 }
@@ -35,6 +44,7 @@ type Options struct {
 type Client struct {
 	protocol *paho.Client
 	conn     net.Conn
+	commands chan Command
 }
 
 // Dial opens a clean session. Its context bounds setup, not the connection lifetime.
@@ -49,7 +59,7 @@ func Dial(ctx context.Context, opts Options) (*Client, error) {
 	if opts.ClientID == "" || !validString(opts.ClientID) {
 		return nil, errors.New("mqtt: invalid client ID")
 	}
-	if !validTopic(opts.AvailabilityTopic) || (opts.BirthTopic != "" && !validTopic(opts.BirthTopic)) {
+	if !validTopic(opts.AvailabilityTopic) || (opts.BirthTopic != "" && !validTopic(opts.BirthTopic)) || (opts.CommandTopic != "" && !validTopic(opts.CommandTopic)) {
 		return nil, errors.New("mqtt: invalid availability or birth topic")
 	}
 	if err := ctx.Err(); err != nil {
@@ -66,13 +76,24 @@ func Dial(ctx context.Context, opts Options) (*Client, error) {
 	}
 	stop := context.AfterFunc(ctx, func() { _ = conn.Close() })
 	defer stop()
-	c := &Client{conn: conn}
+	c := &Client{conn: conn, commands: make(chan Command, 5)}
+	commandTopic := opts.CommandTopic
 	birth := make(chan struct{}, 1)
 	birthTopic, onBirth := opts.BirthTopic, opts.OnBirth
 	c.protocol = paho.NewClient(paho.ClientConfig{
 		Conn:          packets.NewThreadSafeConn(conn),
 		PacketTimeout: operationTimeout,
 		OnPublishReceived: []func(paho.PublishReceived) (bool, error){func(p paho.PublishReceived) (bool, error) {
+			if commandTopic != "" && p.Packet.Topic == commandTopic {
+				var payload []byte
+				if len(p.Packet.Payload) <= 2048 {
+					payload = append([]byte(nil), p.Packet.Payload...)
+				}
+				select {
+				case c.commands <- Command{Payload: payload, Retained: p.Packet.Retain}:
+				default:
+				}
+			}
 			if birthTopic != "" && p.Packet.Topic == birthTopic && string(p.Packet.Payload) == "online" {
 				select {
 				case birth <- struct{}{}:
@@ -100,6 +121,13 @@ func Dial(ctx context.Context, opts Options) (*Client, error) {
 			return nil, operationError(ctx, "birth subscription refused or failed")
 		}
 	}
+	if commandTopic != "" {
+		ack, err := c.protocol.Subscribe(ctx, &paho.Subscribe{Subscriptions: []paho.SubscribeOptions{{Topic: commandTopic, QoS: 0, RetainAsPublished: true, RetainHandling: 2}}})
+		if err != nil || len(ack.Reasons) != 1 || ack.Reasons[0] != 0 {
+			_ = conn.Close()
+			return nil, operationError(ctx, "command subscription refused or failed")
+		}
+	}
 	if onBirth != nil {
 		go func() {
 			for {
@@ -118,6 +146,15 @@ func Dial(ctx context.Context, opts Options) (*Client, error) {
 // Publish sends retained QoS1 state and waits for the broker's acknowledgement.
 // Cancellation of in-flight I/O closes the connection, discarding pending state.
 func (c *Client) Publish(ctx context.Context, topic string, payload []byte) error {
+	return c.publish(ctx, topic, payload, 1, true)
+}
+
+// PublishTransient sends a nonretained QoS0 result, with no offline queue.
+func (c *Client) PublishTransient(ctx context.Context, topic string, payload []byte) error {
+	return c.publish(ctx, topic, payload, 0, false)
+}
+func (c *Client) Commands() <-chan Command { return c.commands }
+func (c *Client) publish(ctx context.Context, topic string, payload []byte, qos byte, retain bool) error {
 	ctx, cancel := context.WithTimeout(ctx, operationTimeout)
 	defer cancel()
 	if err := ctx.Err(); err != nil {
@@ -128,7 +165,7 @@ func (c *Client) Publish(ctx context.Context, topic string, payload []byte) erro
 	if !validTopic(topic) {
 		return errors.New("mqtt: invalid publish topic")
 	}
-	_, err := c.protocol.Publish(ctx, &paho.Publish{Topic: topic, Payload: payload, QoS: 1, Retain: true})
+	_, err := c.protocol.Publish(ctx, &paho.Publish{Topic: topic, Payload: payload, QoS: qos, Retain: retain})
 	if err != nil {
 		if ctx.Err() != nil {
 			_ = c.conn.Close()

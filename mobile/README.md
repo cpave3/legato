@@ -176,11 +176,27 @@ server opens without that wait.
 
 ## Appearance
 
-On the server list, **Appearance › Theme** selects **Legato**, **Dracula**,
+On the server list, **Appearance › Theme** selects **Follow server**, **Legato**, **Dracula**,
 **Ocular Light**, **Ocular Dark**, **Ocular Light Vivid**, or **Ocular Dark Vivid**. The choice applies to the native screens,
-system bars and the open server page. It is kept across app restarts, for all
-saved servers. Legato remains the existing dark default; this does not add or
-change an Android system-theme mode.
+system bars and the open server page. Named choices are kept across app restarts,
+for all saved servers, and exit Follow server. Existing installs stay in local mode.
+Legato remains the existing dark default; this does not add or change an Android
+system-theme mode.
+
+**Follow server** preserves that named local choice as fallback. While a server
+is open, its public `/api/meta` `theme_preference: {id, revision}` resolves the
+appearance. An empty ID, missing field (older server), or unknown ID uses the
+local fallback without exiting Follow server. With no active server, native
+screens use the local fallback. The picker shows the mode and effective theme.
+
+The app stores only the nonsecret preference snapshot for each saved connection.
+An offline server keeps its own last-known choice; switching or reopening never
+borrows another server's cache. Removing, replacing or editing a connection clears
+its cache. Metadata is fetched through the existing pinned native HTTP probe,
+every 15 seconds while its page is visible and the activity is started, and on
+return. Responses belong to a connection and refresh generation; late or inactive
+responses cannot change the shell. The retained page keeps its own effective
+choice while the native server list uses the local fallback.
 
 Gradle packages the repository's `themes/palettes.json` directly as an Android
 asset and JVM test resource. Alternate palettes are not copied into Kotlin;
@@ -217,29 +233,39 @@ contrast on these backgrounds and preserve the source tokens and page canvas.
 
 Each theme's `ui` role references and surface recipes come from the same JSON. Identity/notice surfaces join the material backgrounds before ink contrast derivation; native primary/focus uses the derived UI accent instead of the independent source focus token. Ocular action/signing identity is purple, success remains green, and real links remain blue. Dracula keeps its previous mappings; Legato's fallbacks are unchanged. The web voice widget consumes the same shared roles when embedded.
 
-The app sets `localStorage['legato:app-theme']` before each page loads, with
-the stable ID `legato`, `dracula`, `ocular-light`, or `ocular-dark`. A native
-change updates that key and dispatches `legato:theme-changed` immediately;
-future loads and renderer recovery use the latest choice too. Servers with
-the app-theme web support apply it to the page.
+The app seeds and updates three page storage keys:
+
+- `legato:theme-mode`: `server` or `local`.
+- `legato:app-theme`: the named **local fallback**, never the followed preference.
+- `legato:effective-app-theme`: the resolved theme for this server page.
+
+Updates dispatch `legato:theme-changed`; new documents and renderer recovery
+receive the latest values before application scripts run. Terminal preferences
+remain separate and are not rewritten.
 
 Changing Theme in web Settings uses an explicit request, not an event listener:
-`window.legatoShell.theme === 1` advertises support, and the page posts
-`{legatoShell: "theme", type: "theme", key, id: "ocular-light"}` through
-`ReactNativeWebView.postMessage`. The origin-restricted, main-frame bridge
-and the page's session key protect the request. Only the four stable IDs are
-accepted; an invalid keyed ID receives an error, never success.
+`window.legatoShell.theme === 2` advertises Follow server support, and the page
+posts `{legatoShell: "theme", type: "theme", key, id}` through
+`ReactNativeWebView.postMessage`. ID `server` enables Follow server; one of the
+six named stable IDs saves the local choice and disables Follow server. The
+origin-restricted, main-frame bridge and session key still protect requests;
+a hidden page cannot change the native choice. An invalid keyed ID receives
+an error, never success. No additional remote capability is exposed.
 
 Both pickers use the same serialized, off-main-thread persistence path. The
 app checks SharedPreferences `commit()` before changing its native appearance
-or delivering the storage key and `legato:theme-changed` event. The requester
-then receives `legato:shell-theme` with detail `{id}` on success, or
-`{id, error: string}` on failure. Failed saves leave the applied theme unchanged
-and surface an error in the native server list as well. Repeated selections
-also check persistence. All theme scripts check the server origin and top frame;
-there is no event-to-native listener to echo native updates back to the app.
-On WebViews without the message-listener feature, the native picker still
-controls the page but web-to-native synchronization is unavailable.
+or delivering storage and `legato:theme-changed`. The requester then receives
+`legato:shell-theme` with detail `{id}` (the requested ID, including `server`)
+on success, or `{id, error: string}` on failure. Failed saves leave mode, fallback
+and applied appearance unchanged and surface an error in the native server list.
+Repeated selections also check persistence. Metadata read/cache-save errors are
+reported; a network failure preserves the last-known preference. All theme
+scripts check the server origin and top frame; there is no event-to-native
+listener to echo native updates back to the app. On WebViews without the
+message-listener feature, the native picker still controls the page but
+web-to-native synchronization is unavailable.
+
+A retained page can request a theme selection only while its server is active. The native owner checks the source again on its serialized save path.
 
 ## Returning from the background
 

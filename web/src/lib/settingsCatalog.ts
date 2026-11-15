@@ -50,6 +50,7 @@ export const settingsCards: { id: string; title: string; category: SettingsCateg
   { id: "main-instances", title: "Main instances", category: "connections", terms: "handoff pairing" },
   { id: "move", title: "Move settings into the database", category: "server", terms: "config.yaml pins migration" },
   { id: "export", title: "Export and import settings", category: "server", terms: "backup restore" },
+  { id: "server-theme", title: "Preferred theme", category: "server", terms: "server appearance default theme follow server", scope: "This server" },
   { id: "updates", title: "Updates", category: "server", terms: "release version restart" },
   { id: "development", title: "Development", category: "server", terms: "rebuild hot reload" },
   { id: "list-board.columns", title: "Board columns", category: "server", terms: "board.columns mapping" },

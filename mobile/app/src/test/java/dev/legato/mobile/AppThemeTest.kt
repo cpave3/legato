@@ -6,9 +6,15 @@ import org.junit.Test
 class AppThemeTest {
     private fun catalog() = ThemeCatalog(javaClass.getResource("/palettes.json")!!.readText())
 
+    private fun testSettings(catalog: ThemeCatalog, read: () -> String?, write: (String) -> Boolean) =
+        ThemeSettings(catalog, object : AppearanceStore by MemoryAppearance() {
+            override fun readChoice() = ThemeChoice(read() ?: "legato", false)
+            override fun saveChoice(value: ThemeChoice) = write(value.localId)
+        })
+
     @Test
     fun `selected themes keep semantic inks readable on every material and selection`() {
-        val settings = ThemeSettings(catalog(), { null }, { true })
+        val settings = testSettings(catalog(), { null }, { true })
         val roles = org.json.JSONObject(javaClass.getResource("/palettes.json")!!.readText())
             .getJSONObject("material_ink_contract").getJSONArray("roles")
         for (id in listOf("dracula", "ocular-light", "ocular-dark", "ocular-light-vivid", "ocular-dark-vivid")) {
@@ -45,7 +51,7 @@ class AppThemeTest {
     @Test
     fun `selected themes expose distinct materials from the shared readable recipe`() {
         val json = org.json.JSONObject(javaClass.getResource("/palettes.json")!!.readText())
-        val settings = ThemeSettings(catalog(), { null }, { true })
+        val settings = testSettings(catalog(), { null }, { true })
         assertTrue(settings.current.materials.isEmpty())
         for (id in listOf("dracula", "ocular-light", "ocular-dark", "ocular-light-vivid", "ocular-dark-vivid")) {
             assertTrue(settings.select(id))
@@ -100,10 +106,10 @@ class AppThemeTest {
     @Test
     fun `choosing a canonical theme survives a new settings owner`() {
         var saved: String? = null
-        val settings = ThemeSettings(catalog(), { saved }, { saved = it; true })
+        val settings = testSettings(catalog(), { saved }, { saved = it; true })
         assertEquals("legato", settings.current.id)
         assertTrue(settings.select("ocular-light"))
-        val restarted = ThemeSettings(catalog(), { saved }, { saved = it; true })
+        val restarted = testSettings(catalog(), { saved }, { saved = it; true })
         assertEquals("ocular-light", restarted.current.id)
         assertTrue(restarted.current.light)
         assertEquals("#F5F3ED", restarted.current.tokens["canvas"])
@@ -117,7 +123,7 @@ class AppThemeTest {
         var canSave = true
         var writeError: Exception? = null
         val events = mutableListOf<String>()
-        val settings = ThemeSettings(catalog(), { saved }, {
+        val settings = testSettings(catalog(), { saved }, {
             events += "save:$it"
             writeError?.let { throw it }
             if (canSave) saved = it
@@ -148,7 +154,7 @@ class AppThemeTest {
             request("secret", id)
             assertEquals(listOf("save:$id", "apply:$id", "reply:$id"), events)
             assertEquals(id to null, replies.last())
-            assertEquals(id, ThemeSettings(catalog(), { saved }, { true }).current.id)
+            assertEquals(id, testSettings(catalog(), { saved }, { true }).current.id)
             events.clear()
         }
         request("secret", "arbitrary")
@@ -176,7 +182,7 @@ class AppThemeTest {
     fun `every picker choice resolves the packaged canonical tokens and polarity`() {
         val json = javaClass.getResource("/palettes.json")!!.readText()
         val entries = org.json.JSONObject(json).getJSONArray("themes")
-        val settings = ThemeSettings(ThemeCatalog(json), { "retired-theme" }, { true })
+        val settings = testSettings(ThemeCatalog(json), { "retired-theme" }, { true })
         assertEquals("legato", settings.current.id)
         assertFalse(settings.current.light)
         assertTrue(settings.current.tokens.isEmpty())

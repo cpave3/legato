@@ -411,6 +411,7 @@ describe("SettingsPage version", () => {
 describe("SettingsPage MQTT", () => {
   const mqttSettings = () => [
     ["enabled", "MQTT publisher", false],
+    ["theme_control", "Allow MQTT theme control", false],
     ["broker", "MQTT broker", ""],
     ["credential", "MQTT credential", ""],
     ["discovery_prefix", "MQTT discovery prefix", "homeassistant"],
@@ -447,6 +448,10 @@ describe("SettingsPage MQTT", () => {
     const mqtt = within(await integrations.findByRole("region", { name: "Home Assistant over MQTT" }))
     expect(await mqtt.findByRole("textbox", { name: "MQTT discovery prefix" })).toHaveValue("homeassistant")
     expect(mqtt.getAllByRole("textbox")).toHaveLength(5)
+    expect(mqtt.getByRole("button", { name: "MQTT publisher" })).toHaveAttribute("aria-pressed", "false")
+    expect(mqtt.getByText(/every broker-authorized writer/i)).toBeTruthy()
+    fireEvent.click(mqtt.getByRole("button", { name: "Allow MQTT theme control" }))
+    await waitFor(() => expect(mqtt.getByRole("button", { name: "Allow MQTT theme control" })).toHaveAttribute("aria-pressed", "true"))
     expect(mqtt.getByRole("button", { name: "MQTT publisher" })).toHaveAttribute("aria-pressed", "false")
     const broker = mqtt.getByRole("textbox", { name: "MQTT broker" })
     fireEvent.change(broker, { target: { value: "mqtts://broker.example:8883" } })
@@ -507,4 +512,29 @@ describe("SettingsPage MQTT", () => {
     expect(mqtt.queryByRole("alert")).toBeNull()
   })
 
+})
+
+describe("SettingsPage server theme", () => {
+  afterEach(() => cleanup())
+  it("mounts the server preference editor separately from the browser picker", async () => {
+    useSettings.mockReturnValue(settings(false))
+    localStorage.setItem("legato:app-theme", "dracula")
+    mockedApiFetch.mockImplementation(async (_base, path, init) => {
+      if (path === "/api/settings/theme") return Response.json({ id: init?.method === "PUT" ? "ocular-dark" : "", revision: init?.method === "PUT" ? 1 : 0 })
+      return new Response("{}", { status: 404 })
+    })
+    renderPage("/settings#server")
+    const preference = await screen.findByRole("combobox", { name: "Preferred theme" })
+    expect(screen.queryByRole("radiogroup", { name: "App theme" })).toBeNull()
+    fireEvent.change(preference, { target: { value: "ocular-dark" } })
+    await waitFor(() => expect(mockedApiFetch).toHaveBeenCalledWith("https://remote.example", "/api/settings/theme", expect.objectContaining({ method: "PUT", body: JSON.stringify({ id: "ocular-dark", expected_revision: 0 }) })))
+    expect(localStorage.getItem("legato:app-theme")).toBe("dracula")
+    fireEvent.click(screen.getByRole("link", { name: "Preferences" }))
+    expect(screen.getByRole("radiogroup", { name: "App theme" })).toBeTruthy()
+    expect(screen.queryByRole("combobox", { name: "Preferred theme" })).toBeNull()
+    fireEvent.change(screen.getByRole("searchbox", { name: "Search settings" }), { target: { value: "Preferred theme" } })
+    fireEvent.click(await screen.findByRole("link", { name: /Preferred theme/ }))
+    expect(await screen.findByRole("combobox", { name: "Preferred theme" })).toBeTruthy()
+    localStorage.clear()
+  })
 })

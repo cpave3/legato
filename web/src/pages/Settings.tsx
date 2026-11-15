@@ -6,6 +6,7 @@ import { useEffect, useRef, useState } from "react"
 import { ShieldCheck, Download, Zap, ScanSearch, Keyboard, QrCode, Server, Trash2, Plus, RefreshCw, Smartphone, Sparkles, FolderGit2, Palette, SquareTerminal } from "lucide-react"
 import { TintPicker } from "../components/TintPicker"
 import { AppThemePicker } from "../components/settings/AppThemePicker"
+import { ServerThemeSettings } from "../components/settings/ServerThemeSettings"
 import { TerminalThemePicker } from "../components/settings/TerminalThemePicker"
 import { setToken } from "../lib/auth"
 import { useServer } from "../hooks/useServer"
@@ -362,7 +363,7 @@ export function SettingsPage() {
             </SettingsRows></div>
             <div id="browser-notifications"><ApprovalNotificationSettings /></div>
             <SettingsRows>
-              <SettingsRow icon={Palette} title="App theme" description="Colours for this device. Terminals follow unless you choose a separate theme." browser={(window as { legatoShell?: { theme?: number } }).legatoShell?.theme !== 1} control={<AppThemePicker />} />
+              <SettingsRow icon={Palette} title="App theme" description="Colours for this device. Terminals follow unless you choose a separate theme." browser={((window as { legatoShell?: { theme?: number } }).legatoShell?.theme ?? 0) < 1} control={<AppThemePicker />} />
               <SettingsRow
                 icon={SquareTerminal}
                 title="Terminal theme"
@@ -404,6 +405,9 @@ export function SettingsPage() {
                 }
               />
 </div></SettingsRows>
+            <SettingsCard id="server-theme" icon={Palette} title="Server appearance" description="Server preferences apply to devices that choose Follow server.">
+              <ServerThemeSettings />
+            </SettingsCard>
             <div id="updates">
             <div id="setting-updates.mode"><UpdatesSettings status={settings.data ? settings.data.updates ?? null : undefined} baseUrl={baseUrl} modeSetting={registered("updates.mode")}
               onChanged={() => { void settings.refetch(); void configSettings.refetch() }} /></div>

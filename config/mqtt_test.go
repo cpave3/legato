@@ -176,3 +176,24 @@ func TestMQTTSettingsOverlayHonorsPinsAndRestartRisks(t *testing.T) {
 		t.Fatalf("invalid broker overlay = %v", err)
 	}
 }
+
+func TestMQTTThemeControlIndependentOptIn(t *testing.T) {
+	cfg := Defaults()
+	if cfg.Integrations.MQTT.ThemeControl {
+		t.Fatal("control enabled by default")
+	}
+	if err := Overlay(cfg, map[string]json.RawMessage{"integrations.mqtt.theme_control": json.RawMessage(`true`)}); err == nil {
+		t.Fatal("theme control accepted without broker")
+	}
+	cfg = Defaults()
+	if err := Overlay(cfg, map[string]json.RawMessage{"integrations.mqtt.theme_control": json.RawMessage(`true`), "integrations.mqtt.broker": json.RawMessage(`"mqtt://broker"`)}); err != nil {
+		t.Fatal(err)
+	}
+	if !cfg.Integrations.MQTT.ThemeControl || cfg.Integrations.MQTT.Enabled {
+		t.Fatal("theme control depends on aggregate opt-in")
+	}
+	setting, ok := LookupSetting("integrations.mqtt.theme_control")
+	if !ok || setting.Class != ClassRisky || setting.Mode != ModeRestart {
+		t.Fatal("theme authority not a risky restart setting")
+	}
+}

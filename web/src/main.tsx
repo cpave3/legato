@@ -7,6 +7,7 @@ import '@fontsource/geist-sans/600.css'
 import '@fontsource/geist-mono/400.css'
 import './index.css'
 import App from './App'
+import { ServerThemeProvider } from './components/ServerThemeProvider'
 import { ServerProvider } from './components/ServerProvider'
 import { WebSocketProvider } from './components/WebSocketProvider'
 import { QueryProvider } from './components/QueryProvider'
@@ -25,9 +26,11 @@ createRoot(document.getElementById('root')!).render(
       <QueryProvider>
         <WebSocketProvider>
           <QuerySyncProvider>
-            <ToastProvider>
-              <App />
-            </ToastProvider>
+            <ServerThemeProvider>
+              <ToastProvider>
+                <App />
+              </ToastProvider>
+            </ServerThemeProvider>
           </QuerySyncProvider>
         </WebSocketProvider>
       </QueryProvider>

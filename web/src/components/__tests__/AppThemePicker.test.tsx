@@ -90,3 +90,58 @@ it("reports an unresponsive native app without pretending the theme was saved", 
   expect(localStorage.getItem(APP_THEME_KEY)).toBeNull()
   expect((screen.getByRole("radio", { name: "Ocular Dark" }) as HTMLButtonElement).disabled).toBe(false)
 })
+
+it("follows a cached active server without overwriting the local fallback, then exits follow on a named choice", async () => {
+  localStorage.setItem(APP_THEME_KEY, "dracula")
+  localStorage.setItem("legato:server-theme-cache", JSON.stringify({ [window.location.origin]: { id: "ocular-light", revision: 4 } }))
+  render(<AppThemePicker />)
+  fireEvent.click(screen.getByRole("radio", { name: "Follow server" }))
+  await waitFor(() => expect(document.documentElement.dataset.theme).toBe("ocular-light"))
+  expect(localStorage.getItem(APP_THEME_KEY)).toBe("dracula")
+  expect(localStorage.getItem("legato:theme-mode")).toBe("server")
+  expect(localStorage.getItem("legato:effective-app-theme")).toBe("ocular-light")
+  expect(screen.getByRole("status").textContent).toContain("Ocular Light")
+  cleanup()
+  applyAppTheme()
+  render(<AppThemePicker />)
+  expect(screen.getByRole("radio", { name: "Follow server" }).getAttribute("aria-checked")).toBe("true")
+  fireEvent.click(screen.getByRole("radio", { name: "Ocular Dark" }))
+  await waitFor(() => expect(document.documentElement.dataset.theme).toBe("ocular-dark"))
+  expect(localStorage.getItem("legato:theme-mode")).toBe("local")
+})
+
+it("delegates follow to a v2 native owner and keeps v1 named-only", async () => {
+  ;(window as { legatoShell?: unknown }).legatoShell = { theme: 2, key: "top-key" }
+  localStorage.setItem(APP_THEME_KEY, "dracula")
+  const messages: string[] = []
+  window.ReactNativeWebView = { postMessage: message => messages.push(message) }
+  render(<AppThemePicker />)
+  fireEvent.click(screen.getByRole("radio", { name: "Follow server" }))
+  expect(JSON.parse(messages[0])).toEqual({ legatoShell: "theme", type: "theme", key: "top-key", id: "server" })
+  expect(localStorage.getItem("legato:theme-mode")).toBeNull()
+  await act(async () => {
+    localStorage.setItem("legato:theme-mode", "server")
+    localStorage.setItem("legato:effective-app-theme", "ocular-dark")
+    window.dispatchEvent(new Event("legato:theme-changed"))
+    // The reply ID is the request, not the effective palette.
+    window.dispatchEvent(new CustomEvent("legato:shell-theme", { detail: { id: "server" } }))
+  })
+  expect(document.documentElement.dataset.theme).toBe("ocular-dark")
+  expect(localStorage.getItem(APP_THEME_KEY)).toBe("dracula")
+  expect((screen.getByRole("radio", { name: "Dracula" }) as HTMLButtonElement).disabled).toBe(false)
+  fireEvent.click(screen.getByRole("radio", { name: "Dracula" }))
+  expect(JSON.parse(messages[1]).id).toBe("dracula")
+  await act(async () => {
+    localStorage.setItem("legato:theme-mode", "local")
+    localStorage.setItem("legato:effective-app-theme", "dracula")
+    window.dispatchEvent(new Event("legato:theme-changed"))
+    window.dispatchEvent(new CustomEvent("legato:shell-theme", { detail: { id: "dracula" } }))
+  })
+  expect(screen.getByRole("radio", { name: "Follow server" }).getAttribute("aria-checked")).toBe("false")
+  expect(appTheme().id).toBe("dracula")
+  cleanup()
+  ;(window as { legatoShell?: unknown }).legatoShell = { theme: 1, key: "top-key" }
+  render(<AppThemePicker />)
+  expect(screen.queryByRole("radio", { name: "Follow server" })).toBeNull()
+  expect(appTheme().id).toBe("dracula")
+})

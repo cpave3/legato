@@ -67,6 +67,7 @@ var routeBodies = map[string]string{
 	"PUT /api/agent-groups/{name}":            `{"name": "…"}`,
 	"POST /api/agents/{task_id}/chimera/send": `{"content": "…"}`,
 	"PUT /api/config/settings/{key}":          `{"value": …}`,
+	"PUT /api/settings/theme":                 `{"id": "ocular-dark-vivid", "expected_revision": 0}`,
 	"PUT /api/config/lists/{list}/{name}":     `{"value": {…}}`,
 	"POST /api/reeve/message":                 `{"text": "…"}`,
 	"POST /api/tasks/{id}/handoff":            handOffBody,

@@ -1,4 +1,5 @@
 import { renderedThemes, type ThemeTokens, type ThemeMaterial } from "../../../themes/render"
+import { activeThemeConnection, cachedServerTheme, SERVER_THEME_CACHE_KEY } from "./serverTheme"
 export type { ThemeTokens } from "../../../themes/render"
 
 export type AppThemeId = "legato" | "dracula" | "ocular-light" | "ocular-dark" | "ocular-light-vivid" | "ocular-dark-vivid"
@@ -6,10 +7,34 @@ export const APP_THEME_KEY = "legato:app-theme"
 export const THEME_CHANGED = "legato:theme-changed"
 export const appThemes = [{ id: "legato", name: "Legato", polarity: "dark", tokens: null }, ...renderedThemes]
 
+export const THEME_MODE_KEY = "legato:theme-mode"
+export const EFFECTIVE_THEME_KEY = "legato:effective-app-theme"
+
+function stored(key: string): string | null {
+  try { return localStorage.getItem(key) } catch { return null }
+}
+
+export function shellThemeCapability(): number {
+  return (window as { legatoShell?: { theme?: number } }).legatoShell?.theme ?? 0
+}
+
+export function themeMode(): "server" | "local" {
+  return shellThemeCapability() !== 1 && stored(THEME_MODE_KEY) === "server" ? "server" : "local"
+}
+
+export function appThemeChoice(): string {
+  return themeMode() === "server" ? "server" : localAppTheme().id
+}
+
+function localAppTheme() {
+  return appThemes.find(theme => theme.id === stored(APP_THEME_KEY)) ?? appThemes[0]
+}
+
 export function appTheme() {
-  let id: string | null = null
-  try { id = localStorage.getItem(APP_THEME_KEY) } catch { /* Storage unavailable. */ }
-  return appThemes.find(theme => theme.id === id) ?? appThemes[0]
+  const shell = shellThemeCapability()
+  const id = shell >= 2 ? stored(EFFECTIVE_THEME_KEY)
+    : themeMode() === "server" ? cachedServerTheme(activeThemeConnection())?.id : null
+  return appThemes.find(theme => theme.id === id) ?? localAppTheme()
 }
 
 // These are role mappings, not another palette. Platform adapters use the same source.
@@ -60,14 +85,18 @@ export function applyAppTheme(): void {
     root.style.setProperty(key, value)
     applied.add(key)
   }
+  if (!shellThemeCapability()) {
+    try { localStorage.setItem(EFFECTIVE_THEME_KEY, theme.id) } catch { /* Rendering does not require storage. */ }
+  }
   root.dataset.theme = theme.id
   root.style.colorScheme = theme.polarity
 }
 
-export async function setAppTheme(id: AppThemeId): Promise<void> {
+export async function setAppTheme(id: AppThemeId | "server"): Promise<void> {
   const shell = (window as { legatoShell?: { theme?: number; key?: string } }).legatoShell
   const bridge = window.ReactNativeWebView
-  if (shell?.theme === 1) {
+  if (shell?.theme === 1 && id === "server") throw new Error("Update the app to follow the server theme.")
+  if (shell && (shell.theme ?? 0) >= 1) {
     if (!shell.key || !bridge?.postMessage) throw new Error("This app cannot save a theme from the page. Use Appearance in the app's settings.")
     await new Promise<void>((resolve, reject) => {
       const finish = (error?: string) => {
@@ -84,7 +113,8 @@ export async function setAppTheme(id: AppThemeId): Promise<void> {
       bridge.postMessage!(JSON.stringify({ legatoShell: "theme", type: "theme", key: shell.key, id }))
     })
   } else {
-    localStorage.setItem(APP_THEME_KEY, id)
+    if (id !== "server") localStorage.setItem(APP_THEME_KEY, id)
+    localStorage.setItem(THEME_MODE_KEY, id === "server" ? "server" : "local")
   }
   applyAppTheme()
   window.dispatchEvent(new Event(THEME_CHANGED))
@@ -92,7 +122,7 @@ export async function setAppTheme(id: AppThemeId): Promise<void> {
 
 export function subscribeTheme(handler: () => void): () => void {
   const storage = (event: StorageEvent) => {
-    if (event.key === null || event.key === APP_THEME_KEY || event.key === "legato:terminal-theme") {
+    if (event.key === null || event.key === APP_THEME_KEY || event.key === "legato:terminal-theme" || event.key === THEME_MODE_KEY || event.key === EFFECTIVE_THEME_KEY || event.key === SERVER_THEME_CACHE_KEY || event.key === "legato:active-server") {
       applyAppTheme()
       handler()
     }

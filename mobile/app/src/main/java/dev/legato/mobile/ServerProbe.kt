@@ -8,7 +8,7 @@ data class Health(val online: Boolean, val version: String?)
 
 enum class Compatibility { LEGACY, COMPATIBLE, UNSUPPORTED }
 
-data class ServerMeta(val compatibility: Compatibility, val version: String?)
+data class ServerMeta(val compatibility: Compatibility, val version: String?, val themePreference: ThemePreference? = null)
 
 // readHealth reads the answer to `GET /health`, which needs no token.
 fun readHealth(status: Int, body: String?): Health {
@@ -35,7 +35,12 @@ fun readMeta(status: Int, body: String?): ServerMeta {
     }
     val version = json.opt("version") as? String
     val compatibility = if (json.opt("mobile_shell_api") == 1) Compatibility.COMPATIBLE else Compatibility.UNSUPPORTED
-    return ServerMeta(compatibility, version)
+    val preference = if (json.has("theme_preference")) {
+        val snapshot = json.opt("theme_preference") as? JSONObject
+            ?: throw IllegalStateException("The server's theme preference could not be read")
+        readThemePreference(snapshot)
+    } else null
+    return ServerMeta(compatibility, version, preference)
 }
 
 // Blocking; call off the main thread.

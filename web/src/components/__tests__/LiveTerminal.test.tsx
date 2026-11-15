@@ -112,3 +112,26 @@ it.each([
   expect(terminals[0].theme?.green).toBe("#167347")
   expect(terminals[1].theme?.green).toBe("#167347")
 })
+
+it("updates both mounted xterm options when following the server, retaining an explicit terminal override", async () => {
+  localStorage.setItem("legato:app-theme", "dracula")
+  localStorage.setItem("legato:server-theme-cache", JSON.stringify({ [window.location.origin]: { id: "ocular-light", revision: 1 } }))
+  const { AppThemePicker } = await import("../settings/AppThemePicker")
+  render(<><AppThemePicker /><LiveTerminal agentId="abc" /><TerminalPanel agentId="def" /></>)
+  await act(async () => { fireEvent.click(screen.getByRole("radio", { name: "Follow server" })) })
+  expect(terminals.map(term => term.theme?.background)).toEqual(["#F5F3ED", "#F5F3ED"])
+  act(() => {
+    localStorage.setItem("legato:server-theme-cache", JSON.stringify({ [window.location.origin]: { id: "ocular-dark", revision: 2 } }))
+    window.dispatchEvent(new StorageEvent("storage", { key: "legato:server-theme-cache" }))
+  })
+  expect(terminals.map(term => term.theme?.background)).toEqual(["#20252B", "#20252B"])
+  act(() => {
+    localStorage.setItem("legato:terminal-theme", "night")
+    window.dispatchEvent(new StorageEvent("storage", { key: "legato:terminal-theme" }))
+    localStorage.setItem("legato:server-theme-cache", JSON.stringify({ [window.location.origin]: { id: "ocular-light", revision: 3 } }))
+    window.dispatchEvent(new StorageEvent("storage", { key: "legato:server-theme-cache" }))
+  })
+  expect(terminals.map(term => term.theme?.background)).toEqual(["#000000", "#000000"])
+  expect(terminals).toHaveLength(2)
+  expect(FakeSocket.made).toHaveLength(1)
+})

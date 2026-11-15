@@ -83,6 +83,11 @@ export function QuerySyncProvider({ children }: { children: ReactNode }) {
           invalidate(queryKeys.preparingAgents(baseUrl))
           invalidate(queryKeys.interruptedAgents(baseUrl))
           break
+        case "server_theme_changed":
+          invalidate(queryKeys.meta(baseUrl), false)
+          invalidate(queryKeys.themePreference(baseUrl))
+          invalidate(queryKeys.settings(baseUrl))
+          break
         case "settings_changed":
           // Another browser changed this server's settings.
           invalidate(queryKeys.settings(baseUrl))

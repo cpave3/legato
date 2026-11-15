@@ -49,6 +49,7 @@ const COMMANDS: &[&str] = &[
     "restart_app",
     "take_import_requests",
     "app_theme",
+    "app_theme_selection",
     "set_app_theme",
     "import_preference",
     "set_import_preference",

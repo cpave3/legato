@@ -164,10 +164,14 @@ Choose a category, or search by task, title or configuration key. On a wide scre
 - **Connections and handoff**: browser servers, pairing, TLS, workers and main instances.
 - **Server and maintenance**: tint, updates/restart, configuration sources, migration, import/export and conditional development controls.
 
+Choose **Follow server** to use the active server’s **Preferred theme**. Set that preference in Settings › Server and maintenance › Server appearance, or use the [Home Assistant select](/legato/integrations/home-assistant/#control-the-server-theme). **No preference**, an older server or an unsupported theme uses your saved local choice. A lost connection keeps that server’s last known preference; switching to another offline server uses only its own cached preference, otherwise your local choice. Selecting a named theme leaves Follow server. Older native apps may need an update before they offer it.
+
+**Ocular Light Vivid** and **Ocular Dark Vivid** keep the matching original backgrounds and surface depth, with stronger action, focus and status highlights. Dark Vivid uses brighter, clearer accents; Light Vivid uses richer, deeper accents. The originals remain available. Vivid is a visual alternative, not a proven eye-strain treatment.
+
 Settings show their scope: this browser/device or the selected server. A server value shows **default**, **config.yaml** with a lock, or **set here** with **Reset**. File-only settings explain where to edit them. **Applies at restart** means the saved change waits for a restart.
 All Ocular themes use purple for actions and identity, green for activity and success, and blue for links. Agent-to-agent messages have a purple-tinted interior; Legato notices have a teal-tinted interior. Voice and signing keep the purple-and-green character. Text selection and the reading background remain separate, and the message box keeps its rounded inset focus indicator.
 
-To tell your Legatos apart at a glance, give each a tint in **Settings › Appearance › Tint**: red, orange, yellow, green, teal, blue, purple or pink. The tint is saved on the server, so every browser and phone that uses it shows it: a band across the top of the window, a wash on the rail, and a dot beside the server in the switcher. A tint takes priority over the app canvas for the browser's address-bar colour.
+To tell your Legatos apart at a glance, give each a tint in **Settings › Server and maintenance › Tint**: red, orange, yellow, green, teal, blue, purple or pink. The tint is saved on the server, so every browser and phone that uses it shows it: a band across the top of the window, a wash on the rail, and a dot beside the server in the switcher. A tint takes priority over the app canvas for the browser's address-bar colour.
 
 Toggles and choices save immediately. Text and multi-field edits use **Apply** or **Save** and **Cancel**; leaving a field does not save it. If saving fails, the draft stays for retry. When another client changes the value, choose **Reload value** or **Keep my edit** before saving. An approval request is not a completed change.
 

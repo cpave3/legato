@@ -217,8 +217,8 @@ fn make_server_view(app: &AppHandle, server: &Server, token: Option<String>, pat
         rand::rngs::OsRng.fill_bytes(&mut b);
         hex::encode(b)
     };
-    let initial_theme = app.state::<Desktop>().store.lock().unwrap().state.app_theme;
-    let theme_seed = crate::theme::page_script(&origin, initial_theme);
+    let theme_seed = crate::theme::page_script(&origin, &app.state::<Desktop>().store.lock().unwrap().state, Some(&server.id));
+    let theme_server = server.id.clone();
     let theme_origin = origin.clone();
     let shell_bridge = bridge::script(&key, voice::system_recorder().is_some(), &origin);
     let (handle, server_id) = (app.clone(), server.id.clone());
@@ -230,8 +230,8 @@ fn make_server_view(app: &AppHandle, server: &Server, token: Option<String>, pat
         .on_page_load(move |view, _| {
             // Read again: a retained page may reload long after it was made,
             // or a selection may change while its navigation is in flight.
-            let theme = view.app_handle().state::<Desktop>().store.lock().unwrap().state.app_theme;
-            if let Err(error) = view.eval(crate::theme::page_script(&theme_origin, theme)) {
+            let script = crate::theme::page_script(&theme_origin, &view.app_handle().state::<Desktop>().store.lock().unwrap().state, Some(&theme_server));
+            if let Err(error) = view.eval(script) {
                 eprintln!("[theme] page load: {error}");
             }
         })
@@ -260,7 +260,7 @@ fn make_server_view(app: &AppHandle, server: &Server, token: Option<String>, pat
             let payload = match bridge::read(url.as_str(), &key) {
                 Some(PageMessage::Approval(id)) => Some(json!({ "server": server_id, "kind": "approval", "id": id })),
                 Some(PageMessage::Theme(theme)) => {
-                    let result = set_app_theme(handle.clone(), handle.state::<Desktop>(), theme);
+                    let result = set_page_theme(handle.clone(), handle.state::<Desktop>(), &server_id, theme);
                     let origin = reqwest::Url::parse(&server_url).unwrap().origin().ascii_serialization();
                     if let Some(view) = handle.get_webview(&webview_label(&server_id)) {
                         if let Err(error) = view.eval(crate::theme::result_script(&origin, theme, result.err().as_deref())) {
@@ -531,7 +531,12 @@ fn servers(desktop: State<'_, Desktop>) -> Vec<ServerView> {
 }
 
 #[tauri::command]
-fn show_server(app: AppHandle, desktop: State<'_, Desktop>, id: String) -> Result<(), String> {
+fn show_server(app: AppHandle, desktop: State<'_, Desktop>, id: Option<String>, load: Option<bool>) -> Result<(), String> {
+    let Some(id) = id else { return activate_theme(&app, &desktop, None) };
+    if desktop.store.lock().unwrap().server(&id).is_none() { return Err("no such server".into()); }
+    activate_theme(&app, &desktop, Some(id.clone()))?;
+    // Offline and trust-blocked selections still own the shell, without a page.
+    if load == Some(false) { return Ok(()); }
     let label = webview_label(&id);
     if app.get_webview(&label).is_none() {
         let (server, token) = {
@@ -540,7 +545,6 @@ fn show_server(app: AppHandle, desktop: State<'_, Desktop>, id: String) -> Resul
         };
         make_server_view(&app, &server, token, "")?;
     }
-    *desktop.active.lock().unwrap() = Some(id);
     show_only_active(&app, &desktop);
     Ok(())
 }
@@ -586,7 +590,7 @@ fn open_in_page(app: &AppHandle, desktop: &Desktop, server: String, path: &str, 
             make_server_view(&app, &s, token, &path)?;
         }
     }
-    *desktop.active.lock().unwrap() = Some(server);
+    activate_theme(&app, desktop, Some(server))?;
     show_only_active(&app, desktop);
     Ok(())
 }
@@ -1293,7 +1297,7 @@ fn voice_open_settings(app: AppHandle, desktop: State<'_, Desktop>, setting: Str
             make_server_view(&app, &s, token, &path)?;
         }
     }
-    *desktop.active.lock().unwrap() = Some(server.clone());
+    activate_theme(&app, &desktop, Some(server.clone()))?;
     show_only_active(&app, &desktop);
     let _ = app.emit_to("shell", "shell-show-server", json!({ "server": server }));
     bring_to_front(&app);
@@ -1856,21 +1860,49 @@ fn take_import_requests(desktop: State<'_, Desktop>) -> Vec<ImportLink> {
     std::mem::take(&mut *desktop.imports.lock().unwrap())
 }
 
-#[tauri::command]
-fn app_theme(desktop: State<'_, Desktop>) -> crate::theme::AppTheme {
-    desktop.store.lock().unwrap().state.app_theme
+fn notify_theme(app: &AppHandle, appearance: crate::theme::Appearance) -> Result<(), String> {
+    let effective = app.emit("app-theme-changed", appearance.effective).map_err(|e| e.to_string());
+    let selection = app.emit("app-theme-selection-changed", appearance).map_err(|e| e.to_string());
+    effective.and(selection)
+}
+
+fn eval_theme(app: &AppHandle, id: &str, script: String) -> Result<(), String> {
+    match app.get_webview(&webview_label(id)) {
+        Some(view) => view.eval(script).map_err(|e| e.to_string()),
+        None => Ok(()),
+    }
+}
+
+fn activate_theme(app: &AppHandle, desktop: &Desktop, server: Option<String>) -> Result<(), String> {
+    let mut active = desktop.active.lock().unwrap();
+    crate::theme::switch(&desktop.store.lock().unwrap().state, &mut active, server, |value| notify_theme(app, value), |id, script| eval_theme(app, id, script))
 }
 
 #[tauri::command]
-fn set_app_theme(app: AppHandle, desktop: State<'_, Desktop>, theme: crate::theme::AppTheme) -> Result<(), String> {
+fn app_theme(desktop: State<'_, Desktop>) -> crate::theme::AppTheme {
+    let active = desktop.active.lock().unwrap();
+    crate::theme::effective(&desktop.store.lock().unwrap().state, active.as_deref())
+}
+
+#[tauri::command]
+fn app_theme_selection(desktop: State<'_, Desktop>) -> crate::theme::Appearance {
+    let active = desktop.active.lock().unwrap();
+    crate::theme::appearance(&desktop.store.lock().unwrap().state, active.as_deref())
+}
+
+fn set_page_theme(app: AppHandle, desktop: State<'_, Desktop>, server: &str, theme: crate::theme::Choice) -> Result<(), String> {
+    let active = desktop.active.lock().unwrap();
+    crate::theme::select_page(&mut desktop.store.lock().unwrap(), theme, server, active.as_deref(),
+        |value| notify_theme(&app, value), |id, script| eval_theme(&app, id, script))
+}
+
+#[tauri::command]
+fn set_app_theme(app: AppHandle, desktop: State<'_, Desktop>, theme: crate::theme::Choice) -> Result<(), String> {
+    let active = desktop.active.lock().unwrap();
     crate::theme::select(
-        &mut desktop.store.lock().unwrap(),
-        theme,
-        |theme| app.emit("app-theme-changed", theme).map_err(|e| e.to_string()),
-        |id, script| match app.get_webview(&webview_label(id)) {
-            Some(view) => view.eval(script).map_err(|e| e.to_string()),
-            None => Ok(()), // A server not opened yet receives it at creation.
-        },
+        &mut desktop.store.lock().unwrap(), theme, active.as_deref(),
+        |value| notify_theme(&app, value),
+        |id, script| eval_theme(&app, id, script),
     )
 }
 
@@ -2052,6 +2084,11 @@ fn remove_server(app: AppHandle, desktop: State<'_, Desktop>, id: String) -> Res
         store.remove_server(&id)?;
         store.save()?;
     }
+    {
+        let mut active = desktop.active.lock().unwrap();
+        if active.as_deref() == Some(&id) { *active = None; }
+        crate::theme::publish(&desktop.store.lock().unwrap().state, active.as_deref(), |value| notify_theme(&app, value), |id, script| eval_theme(&app, id, script))?;
+    }
     refresh_voice_targets_soon(&app);
     Ok(())
 }
@@ -2061,6 +2098,7 @@ pub struct Status {
     id: String,
     online: bool,
     error: Option<String>,
+    theme_error: Option<String>,
     version: Option<String>,
     tint: Option<String>,
     approvals: Vec<Value>,
@@ -2069,30 +2107,17 @@ pub struct Status {
 /// Each server's state: answering, its tint, and its open approvals that
 /// need a signature.
 #[tauri::command]
-async fn poll(desktop: State<'_, Desktop>) -> Result<Vec<Status>, String> {
+async fn poll(app: AppHandle, desktop: State<'_, Desktop>) -> Result<Vec<Status>, String> {
     let clients: Vec<(String, Result<Client, String>)> = {
         let store = desktop.store.lock().unwrap();
         store.state.servers.iter().map(|s| (s.id.clone(), client(&store, &s.id))).collect()
     };
     let mut out = Vec::new();
     for (id, c) in clients {
-        let status = match c {
-            Err(e) => Status { id, online: false, error: Some(e), version: None, tint: None, approvals: vec![] },
-            Ok(c) => match c.get("/api/meta").await {
-                Err(e) => Status { id, online: false, error: Some(e), version: None, tint: None, approvals: vec![] },
-                Ok(meta) => {
-                    let approvals = c.get("/api/approvals?status=pending").await.ok().and_then(|v| v["approvals"].as_array().cloned()).unwrap_or_default();
-                    Status {
-                        id,
-                        online: true,
-                        error: None,
-                        version: meta["version"].as_str().map(String::from),
-                        tint: meta["tint"].as_str().filter(|t| !t.is_empty()).map(String::from),
-                        approvals,
-                    }
-                }
-            },
-        };
+        let status = poll_server(id.clone(), c, |meta| {
+            crate::theme::refresh_current(&desktop.store, &desktop.active, &id, meta,
+                |value| notify_theme(&app, value), |id, script| eval_theme(&app, id, script))
+        }).await;
         out.push(status);
     }
     // Keep each tint, so the dock has it while a server is down.
@@ -2110,6 +2135,21 @@ async fn poll(desktop: State<'_, Desktop>) -> Result<Vec<Status>, String> {
         let _ = store.save();
     }
     Ok(out)
+}
+
+/// The native poll transport, including the metadata handoff before approvals.
+async fn poll_server(id: String, connection: Result<Client, String>, mut metadata: impl FnMut(&Value) -> Result<(), String>) -> Status {
+    let offline = |error| Status { id: id.clone(), online: false, error: Some(error), theme_error: None, version: None, tint: None, approvals: vec![] };
+    let c = match connection { Ok(c) => c, Err(error) => return offline(error) };
+    let meta = match c.get("/api/meta").await { Ok(meta) => meta, Err(error) => return offline(error) };
+    let theme_error = metadata(&meta).err();
+    let approvals = c.get("/api/approvals?status=pending").await.ok().and_then(|v| v["approvals"].as_array().cloned()).unwrap_or_default();
+    Status {
+        id, online: true, error: None, theme_error,
+        version: meta["version"].as_str().map(String::from),
+        tint: meta["tint"].as_str().filter(|t| !t.is_empty()).map(String::from),
+        approvals,
+    }
 }
 
 // ---- Keys ----
@@ -2858,6 +2898,7 @@ pub fn run() {
             restart_app,
             take_import_requests,
             app_theme,
+            app_theme_selection,
             set_app_theme,
             import_preference,
             set_import_preference,
@@ -2894,6 +2935,100 @@ pub fn run() {
 
 #[cfg(test)]
 mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn native_poll_persists_follow_snapshots_and_offline_keeps_only_own_cache() {
+        use crate::theme::{self, AppTheme, Choice};
+        use tokio::io::{AsyncReadExt, AsyncWriteExt};
+        let dir = tempfile::tempdir().unwrap();
+        let path = dir.path().join("state.json");
+        let mut store = crate::store::Store::open(path.clone(), Box::new(crate::store::tests::Memory::default())).unwrap();
+        let a = store.add_server("a", "http://a.local", None, "token").unwrap();
+        let b = store.add_server("b", "http://b.local", None, "token").unwrap();
+        theme::select(&mut store, AppTheme::Dracula.into(), None, |_| Ok(()), |_, _| Ok(())).unwrap();
+        theme::select(&mut store, Choice::Server, Some(&a.id), |_| Ok(()), |_, _| Ok(())).unwrap();
+        let store = std::sync::Arc::new(Mutex::new(store));
+        let active = std::sync::Arc::new(Mutex::new(Some(a.id.clone())));
+        for (body, expected) in [
+            (json!({"theme_preference":{"id":"ocular-light","revision":1}}), AppTheme::OcularLight),
+            (json!({"theme_preference":{"id":"future-theme","revision":2}}), AppTheme::Dracula),
+            (json!({"theme_preference":{"id":"","revision":3}}), AppTheme::Dracula),
+            (json!({}), AppTheme::Dracula),
+            (json!({"theme_preference":{"id":"ocular-dark","revision":4}}), AppTheme::OcularDark),
+            (json!({"theme_preference":{"id":9,"revision":5}}), AppTheme::OcularDark),
+        ] {
+            let invalid = body["theme_preference"]["id"].is_number();
+            let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+            let url = format!("http://{}", listener.local_addr().unwrap());
+            let switch_during_request = body["theme_preference"]["revision"] == 1;
+            let (fixture_store, fixture_active, b_id) = (store.clone(), active.clone(), b.id.clone());
+            let fixture = tokio::spawn(async move {
+                for (route, body) in [("/api/meta", body.to_string()), ("/api/approvals?status=pending", "{\"approvals\":[{\"id\":\"waiting\"}]}".into())] {
+                    let (mut stream, _) = listener.accept().await.unwrap();
+                    let mut request = vec![0; 8192];
+                    let n = stream.read(&mut request).await.unwrap();
+                    let request = String::from_utf8_lossy(&request[..n]);
+                    assert!(request.starts_with(&format!("GET {route} ")), "{request}");
+                    if route == "/api/meta" && switch_during_request {
+                        let mut active = fixture_active.lock().unwrap();
+                        theme::switch(&fixture_store.lock().unwrap().state, &mut active, Some(b_id.clone()), |_| Ok(()), |_, _| Ok(())).unwrap();
+                    }
+                    let reply = format!("HTTP/1.1 200 OK\r\nContent-Length: {}\r\nConnection: close\r\n\r\n{body}", body.len());
+                    stream.write_all(reply.as_bytes()).await.unwrap();
+                }
+            });
+            let c = Client::new(&url, None, None).unwrap();
+            let mut events = Vec::new();
+            let mut scripts = Vec::new();
+            let status = poll_server(a.id.clone(), Ok(c), |meta| theme::refresh_current(&store, &active, &a.id, meta,
+                |value| { events.push(value.effective); Ok(()) }, |id, script| { scripts.push((id.to_string(), script)); Ok(()) })).await;
+            fixture.await.unwrap();
+            assert!(status.online);
+            assert_eq!(status.approvals[0]["id"], "waiting");
+            assert_eq!(status.theme_error.is_some(), invalid);
+            if switch_during_request {
+                assert_eq!(events, [AppTheme::Dracula]);
+                assert_eq!(scripts.len(), 2);
+                for (id, script) in scripts {
+                    let (origin, expected) = if id == a.id { ("http://a.local", "ocular-light") } else { ("http://b.local", "dracula") };
+                    let program = format!(r#"
+const storage = {{}};
+const location = {{ origin: {origin:?} }};
+const window = {{ dispatchEvent(e) {{storage.event = e.detail;}} }}; window.top = window;
+const localStorage = {{setItem(k,v) {{storage[k]=v;}}}};
+class CustomEvent {{constructor(type, options) {{this.detail=options.detail;}}}}
+{script}
+console.log(JSON.stringify(storage));"#);
+                    let out = std::process::Command::new("node").arg("-e").arg(program).output().unwrap();
+                    assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+                    assert_eq!(serde_json::from_slice::<Value>(&out.stdout).unwrap(), json!({
+                        "legato:theme-mode":"server", "legato:app-theme":"dracula",
+                        "legato:effective-app-theme":expected, "event":expected,
+                    }));
+                }
+                let mut active = active.lock().unwrap();
+                theme::switch(&store.lock().unwrap().state, &mut active, Some(a.id.clone()), |_| Ok(()), |_, _| Ok(())).unwrap();
+            }
+            let reopened = crate::store::Store::open(path.clone(), Box::new(crate::store::tests::Memory::default())).unwrap();
+            assert_eq!(theme::choice(&reopened.state), Choice::Server);
+            assert_eq!(theme::effective(&reopened.state, Some(&a.id)), expected);
+            assert_eq!(theme::effective(&reopened.state, Some(&b.id)), AppTheme::Dracula);
+        }
+        let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+        let offline_url = format!("http://{}", listener.local_addr().unwrap());
+        drop(listener);
+        let down = poll_server(a.id.clone(), Client::new(&offline_url, None, None), |_| panic!("offline must not clear metadata")).await;
+        assert!(!down.online);
+        let mut store = store.lock().unwrap();
+        assert_eq!(theme::effective(&store.state, Some(&a.id)), AppTheme::OcularDark);
+        theme::select(&mut store, AppTheme::Legato.into(), Some(&a.id), |_| Ok(()), |_, _| Ok(())).unwrap();
+        theme::refresh(&mut store, &a.id, &json!({"theme_preference":{"id":"ocular-light","revision":5}}), Some(&a.id), |_| Ok(()), |_, _| Ok(())).unwrap();
+        assert_eq!(theme::effective(&store.state, Some(&a.id)), AppTheme::Legato);
+        store.remove_server(&a.id).unwrap();
+        assert_eq!(theme::effective(&store.state, Some(&a.id)), AppTheme::Legato);
+    }
+
     /// The commands build.rs makes permissions for are generate_handler!'s,
     /// and each capability allows only commands that exist.
     #[test]

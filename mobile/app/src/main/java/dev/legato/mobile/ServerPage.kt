@@ -48,9 +48,11 @@ class ServerPage(
     // Where on the server to open first, such as an approval: "/?approval=…".
     startPath: String = "",
     private var theme: AppTheme,
+    private var localThemeId: String,
+    private var followServer: Boolean,
 ) : PageKeeper.Host {
     interface Callbacks {
-        fun themeChanged(id: String, done: (String?) -> Unit)
+        fun themeChanged(connection: String, id: String, done: (String?) -> Unit)
         fun canGoBackChanged(canGoBack: Boolean)
         fun unavailable(reason: String)
         fun openExternally(url: String)
@@ -89,7 +91,7 @@ class ServerPage(
 
     // The key the page sends with a request to record; only its top frame has it.
     private val shellKey = UUID.randomUUID().toString()
-    private val themeBridge = ThemeBridge(shellKey, callbacks::themeChanged) { id, error ->
+    private val themeBridge = ThemeBridge(shellKey, { id, done -> callbacks.themeChanged(connection.id, id, done) }) { id, error ->
         evaluate(themeResultScript(baseUrl, id, error))
     }
     private val keeper = PageKeeper(baseUrl, this)
@@ -145,18 +147,20 @@ class ServerPage(
 
     fun reload() = webView?.reload()
 
-    fun setTheme(value: AppTheme) {
+    fun setTheme(value: AppTheme, localId: String, follow: Boolean) {
         theme = value
+        localThemeId = localId
+        followServer = follow
         val background = Color.parseColor(theme.pageBackground)
         view.setBackgroundColor(background)
         webView?.let { page ->
             page.setBackgroundColor(background)
             installBootstrap(page)
-            if (page.url?.let { allowNavigation(baseUrl, it) } == true) evaluate(themeScript(baseUrl, theme.id))
+            if (page.url?.let { allowNavigation(baseUrl, it) } == true) evaluate(themeScript(baseUrl, localThemeId, theme.id, followServer))
         }
     }
 
-    private fun bootstrap() = bootstrapScript(baseUrl, token, shellKey) + themeBootstrapScript(baseUrl, theme.id)
+    private fun bootstrap() = bootstrapScript(baseUrl, token, shellKey) + themeBootstrapScript(baseUrl, localThemeId, theme.id, followServer)
 
     private fun installBootstrap(page: WebView) {
         startScript?.remove()
@@ -170,6 +174,7 @@ class ServerPage(
     fun goBack() = webView?.goBack()
 
     fun destroy() {
+        inFront = false
         voice.release()
         stream.release()
         handler.removeCallbacksAndMessages(null)
@@ -303,7 +308,7 @@ class ServerPage(
 
             override fun onPageFinished(view: WebView, url: String?) {
                 if (view === webView && url != null && allowNavigation(baseUrl, url)) {
-                    view.evaluateJavascript(themeScript(baseUrl, theme.id), null)
+                    view.evaluateJavascript(themeScript(baseUrl, localThemeId, theme.id, followServer), null)
                 }
             }
 
@@ -354,7 +359,7 @@ class ServerPage(
 
     private fun heard(data: String) {
         when (val message = PageMessage.parse(data)) {
-            is PageMessage.Theme -> themeBridge.handle(message)
+            is PageMessage.Theme -> if (inFront) themeBridge.handle(message)
             is PageMessage.Restore -> keeper.pageAsksToReturnTo(message.url)
             is PageMessage.Voice -> voice.handle(message)
             is PageMessage.VoiceStream -> stream.handle(message)

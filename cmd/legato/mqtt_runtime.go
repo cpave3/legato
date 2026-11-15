@@ -44,7 +44,7 @@ func claimMQTTPublisher(dataDir string) (func(), error) {
 // with web.enabled false; short-lived CLI commands never call it.
 func startMQTT(cfg *config.Config, db *store.Store, bus *events.Bus, agents service.AgentService, attention *service.AttentionService, approvals *approvalRuntime) func() {
 	m := cfg.Integrations.MQTT
-	if !m.Enabled {
+	if !m.Enabled && !m.ThemeControl {
 		return func() {}
 	}
 	stopBridge := startMQTTInvalidations(bus)
@@ -70,25 +70,49 @@ func startMQTT(cfg *config.Config, db *store.Store, bus *events.Bus, agents serv
 		m.DeviceName = "Legato " + hostname
 	}
 	opts := service.MQTTOptions{InstanceID: id, BaseTopic: m.BaseTopic, DeviceName: m.DeviceName, DiscoveryPrefix: m.DiscoveryPrefix, SoftwareVersion: version.String(), IncludeReeve: m.IncludeReeve, AttentionDetails: m.AttentionDetails}
-	var publisher *service.MQTTPublisher
-	dial := func(ctx context.Context) (service.MQTTConnection, error) {
-		username, password, err := mqttLogin(ctx, approvals.credentials, m.Credential, m.Broker)
-		if err != nil {
-			log.Print(err)
-			return nil, err
-		}
-		return mqtt.Dial(ctx, mqtt.Options{Broker: m.Broker, ClientID: "legato-" + id, Username: username, Password: password, AvailabilityTopic: m.BaseTopic + "/availability", BirthTopic: m.DiscoveryPrefix + "/status", OnBirth: publisher.HomeAssistantOnline})
+	var credentials *service.CredentialBroker
+	if approvals != nil {
+		credentials = approvals.credentials
 	}
-	if agents == nil {
-		publisher = service.NewMQTTPublisher(opts, mqttStoredAgents{db}, attention, approvals.approvals, bus, dial)
-	} else {
-		publisher = service.NewMQTTPublisher(opts, agents, attention, approvals.approvals, bus, dial)
+	login := func(ctx context.Context) (string, string, error) {
+		return mqttLogin(ctx, credentials, m.Credential, m.Broker)
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	done := make(chan struct{})
-	go func() { defer close(done); publisher.Run(ctx) }()
+	var workers sync.WaitGroup
+	if m.ThemeControl {
+		var controller *service.MQTTThemeController
+		dialTheme := func(ctx context.Context) (service.MQTTThemeConnection, error) {
+			username, password, err := login(ctx)
+			if err != nil {
+				log.Print(err)
+				return nil, err
+			}
+			return mqtt.Dial(ctx, mqtt.Options{Broker: m.Broker, ClientID: "legato-" + id + "-theme", Username: username, Password: password, AvailabilityTopic: m.BaseTopic + "/theme/availability", CommandTopic: m.BaseTopic + "/theme/set", BirthTopic: m.DiscoveryPrefix + "/status", OnBirth: controller.HomeAssistantOnline})
+		}
+		controller = service.NewMQTTThemeController(opts, service.NewThemePreferenceService(db, bus), bus, dialTheme)
+		workers.Add(1)
+		go func() { defer workers.Done(); controller.Run(ctx) }()
+	}
+	if m.Enabled {
+		var publisher *service.MQTTPublisher
+		dial := func(ctx context.Context) (service.MQTTConnection, error) {
+			username, password, err := login(ctx)
+			if err != nil {
+				log.Print(err)
+				return nil, err
+			}
+			return mqtt.Dial(ctx, mqtt.Options{Broker: m.Broker, ClientID: "legato-" + id, Username: username, Password: password, AvailabilityTopic: m.BaseTopic + "/availability", BirthTopic: m.DiscoveryPrefix + "/status", OnBirth: publisher.HomeAssistantOnline})
+		}
+		if agents == nil {
+			publisher = service.NewMQTTPublisher(opts, mqttStoredAgents{db}, attention, approvals.approvals, bus, dial)
+		} else {
+			publisher = service.NewMQTTPublisher(opts, agents, attention, approvals.approvals, bus, dial)
+		}
+		workers.Add(1)
+		go func() { defer workers.Done(); publisher.Run(ctx) }()
+	}
 	var once sync.Once
-	return func() { once.Do(func() { cancel(); <-done; release(); stopBridge() }) }
+	return func() { once.Do(func() { cancel(); workers.Wait(); release(); stopBridge() }) }
 }
 
 // Non-owners still forward local source changes to the lock owner. Incoming

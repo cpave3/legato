@@ -62,6 +62,8 @@ import androidx.compose.ui.graphics.vector.ImageVector
 import androidx.compose.ui.semantics.Role
 import androidx.compose.ui.semantics.contentDescription
 import androidx.compose.ui.semantics.semantics
+import androidx.compose.ui.semantics.selected
+import androidx.compose.ui.semantics.role
 import androidx.compose.ui.text.TextStyle
 import androidx.compose.ui.text.font.Font
 import androidx.compose.ui.text.font.FontFamily
@@ -277,13 +279,28 @@ private fun ThemePicker(activity: MainActivity) {
             Row(Modifier.fillMaxWidth().heightIn(min = 48.dp).clickable(role = Role.Button) { expanded = true }
                 .padding(horizontal = 16.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
                 Text("Theme", Modifier.weight(1f))
-                Text(activity.state.theme.value?.name ?: "Legato", color = Lw.text2)
+                Column(horizontalAlignment = Alignment.End) {
+                    if (activity.state.followServer.value) Text("Follow server", color = Lw.text2)
+                    Text(activity.state.theme.value?.name ?: "Legato", color = Lw.text2)
+                }
             }
             DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+                DropdownMenuItem(
+                    text = { Text("Follow server" + if (activity.state.followServer.value) " ✓" else "") },
+                    onClick = { activity.selectTheme("server"); expanded = false },
+                    modifier = Modifier.semantics {
+                        role = Role.RadioButton
+                        selected = activity.state.followServer.value
+                    },
+                )
                 activity.themes.forEach { theme ->
                     DropdownMenuItem(
-                        text = { Text(theme.name + if (activity.state.theme.value?.id == theme.id) " ✓" else "") },
+                        text = { Text(theme.name + if (!activity.state.followServer.value && activity.state.localThemeId.value == theme.id) " ✓" else "") },
                         onClick = { activity.selectTheme(theme.id); expanded = false },
+                        modifier = Modifier.semantics {
+                            role = Role.RadioButton
+                            selected = !activity.state.followServer.value && activity.state.localThemeId.value == theme.id
+                        },
                     )
                 }
             }
