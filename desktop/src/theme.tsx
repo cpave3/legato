@@ -4,7 +4,7 @@ import { listen } from "@tauri-apps/api/event"
 import { renderedThemes } from "../../themes/render"
 import { errorText } from "./api"
 
-export type AppTheme = "legato" | "dracula" | "ocular-light" | "ocular-dark"
+export type AppTheme = "legato" | "dracula" | "ocular-light" | "ocular-dark" | "ocular-light-vivid" | "ocular-dark-vivid"
 const themes = [{ id: "legato", name: "Legato" }, ...renderedThemes]
 const applied = new Set<string>()
 

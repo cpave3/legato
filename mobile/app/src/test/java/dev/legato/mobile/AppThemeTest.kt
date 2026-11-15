@@ -9,7 +9,7 @@ class AppThemeTest {
     @Test
     fun `selected themes keep semantic inks readable on every material and selection`() {
         val settings = ThemeSettings(catalog(), { null }, { true })
-        for (id in listOf("dracula", "ocular-light", "ocular-dark")) {
+        for (id in listOf("dracula", "ocular-light", "ocular-dark", "ocular-light-vivid", "ocular-dark-vivid")) {
             assertTrue(settings.select(id))
             val theme = settings.current
             val backgrounds = listOf(theme.pageBackground, theme.tokens.getValue("selection")) +
@@ -44,7 +44,7 @@ class AppThemeTest {
         val json = org.json.JSONObject(javaClass.getResource("/palettes.json")!!.readText())
         val settings = ThemeSettings(catalog(), { null }, { true })
         assertTrue(settings.current.materials.isEmpty())
-        for (id in listOf("dracula", "ocular-light", "ocular-dark")) {
+        for (id in listOf("dracula", "ocular-light", "ocular-dark", "ocular-light-vivid", "ocular-dark-vivid")) {
             assertTrue(settings.select(id))
             val theme = settings.current
             val recipe = json.getJSONObject("materials")
@@ -135,11 +135,14 @@ class AppThemeTest {
             """{"legatoShell":"theme","key":"secret","theme":"dracula"}""",
         )) bridge.handle(PageMessage.parse(data))
         assertTrue(events.isEmpty())
-        request("secret", "dracula")
-        assertEquals(listOf("save:dracula", "apply:dracula", "reply:dracula"), events)
-        assertEquals("dracula" to null, replies.last())
-        assertEquals("dracula", ThemeSettings(catalog(), { saved }, { true }).current.id)
-        events.clear()
+        for (id in listOf("legato", "ocular-light", "ocular-dark", "ocular-light-vivid", "ocular-dark-vivid", "dracula")) {
+            assertTrue(id, validThemeId(id))
+            request("secret", id)
+            assertEquals(listOf("save:$id", "apply:$id", "reply:$id"), events)
+            assertEquals(id to null, replies.last())
+            assertEquals(id, ThemeSettings(catalog(), { saved }, { true }).current.id)
+            events.clear()
+        }
         request("secret", "arbitrary")
         assertEquals(listOf("reply:arbitrary"), events)
         assertNotNull(replies.last().second)
@@ -169,7 +172,7 @@ class AppThemeTest {
         assertEquals("legato", settings.current.id)
         assertFalse(settings.current.light)
         assertTrue(settings.current.tokens.isEmpty())
-        assertEquals(setOf("legato", "dracula", "ocular-light", "ocular-dark"), catalog().themes.map { it.id }.toSet())
+        assertEquals(setOf("legato", "dracula", "ocular-light", "ocular-dark", "ocular-light-vivid", "ocular-dark-vivid"), catalog().themes.map { it.id }.toSet())
         for (i in 0 until entries.length()) {
             val entry = entries.getJSONObject(i)
             assertTrue(settings.select(entry.getString("id")))

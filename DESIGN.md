@@ -122,7 +122,7 @@ The approved component feel is **tactile and confident**: layered surfaces and s
 - Functional colour roles rather than atmospheric palette names.
 - Dense, legible operational content with a clear active location and current state.
 - Distinct structural, reading, panel and raised-control planes.
-- Shared recipes across web, desktop, Android and theme-aware artifacts, with native conventions retained.
+- Shared recipes across web, desktop, Android and theme-aware artifacts, with native conventions retained. Ocular Vivid variants strengthen functional accents while preserving the original neutral bases and material recipes; original themes remain available.
 
 ## Colors
 
@@ -156,7 +156,7 @@ Running, needs attention, complete, error and idle use labelled state, iconograp
 
 **The Readable State Rule.** Ordinary UI text targets at least 4.5:1; required control and focus boundaries target at least 3:1. Check default, hover, selected, error and focus states. The named-theme ink contract adapts original hues across the material surfaces; it does not change canonical research or terminal ANSI values. Do not assume every legacy/default combination already meets these targets.
 
-Choices remain Legato, Dracula, Ocular Light and Ocular Dark. Legato's existing default and saved terminal overrides are preserved. Ocular is not a proven fatigue or medical intervention. Dracula attribution and its MIT notice remain with the canonical assets.
+Choices are Legato, Dracula, Ocular Light, Ocular Dark, Ocular Light Vivid and Ocular Dark Vivid. Vivid is an additive accent refinement: retain the original neutral base and shared depth recipes, with clearer, stronger functional highlights. The original Ocular themes remain unchanged. Legato's existing default and saved terminal overrides are preserved. Ocular is not a proven fatigue or medical intervention. Dracula attribution and its MIT notice remain with the canonical assets.
 
 ## Typography
 

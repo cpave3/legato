@@ -6,22 +6,30 @@ import { terminalTheme, TERMINAL_THEME_KEY } from "../../lib/terminalTheme"
 
 afterEach(() => { cleanup(); vi.useRealTimers(); vi.restoreAllMocks(); localStorage.clear(); applyAppTheme(); delete (window as { legatoShell?: unknown }).legatoShell; delete window.ReactNativeWebView })
 
-it("changes the rendered page immediately, persists on reload and follows in terminals without overwriting a saved terminal choice", () => {
+it.each([
+  { name: "Ocular Light", id: "ocular-light", canvas: "#F5F3ED", polarity: "light", accent: "#17578A", green: "#235D45" },
+  { name: "Ocular Light Vivid", id: "ocular-light-vivid", canvas: "#F5F3ED", polarity: "light", accent: "#075FAD", green: "#167347" },
+  { name: "Ocular Dark Vivid", id: "ocular-dark-vivid", canvas: "#20252B", polarity: "dark", accent: "#75BFFF", green: "#61DD8A" },
+])("selects $name, persists on reload and follows in terminals without overwriting a saved terminal choice", async ({ name, id, canvas, polarity, accent, green }) => {
   localStorage.setItem(TERMINAL_THEME_KEY, "night")
   render(<AppThemePicker />)
-  fireEvent.click(screen.getByRole("radio", { name: "Ocular Light" }))
-  expect(document.documentElement.dataset.theme).toBe("ocular-light")
-  expect(document.documentElement.style.getPropertyValue("--color-lw-ground")).toBe("#F5F3ED")
-  expect(document.documentElement.style.colorScheme).toBe("light")
-  expect(localStorage.getItem(APP_THEME_KEY)).toBe("ocular-light")
+  fireEvent.click(screen.getByRole("radio", { name }))
+  await waitFor(() => expect(document.documentElement.dataset.theme).toBe(id))
+  const style = document.documentElement.style
+  expect(style.getPropertyValue("--color-lw-ground")).toBe(canvas)
+  expect(style.getPropertyValue("--color-lw-accent")).toBe(accent)
+  expect(style.getPropertyValue("--color-lw-live")).toBe(green)
+  expect(style.colorScheme).toBe(polarity)
+  expect(localStorage.getItem(APP_THEME_KEY)).toBe(id)
   expect(terminalTheme().id).toBe("night")
   localStorage.removeItem(TERMINAL_THEME_KEY)
-  expect(terminalTheme().theme.background).toBe("#F5F3ED")
+  expect(terminalTheme().theme.background).toBe(canvas)
+  expect(terminalTheme().theme.green).toBe(green)
   cleanup()
   applyAppTheme()
   render(<AppThemePicker />)
-  expect(appTheme().id).toBe("ocular-light")
-  expect(screen.getByRole("radio", { name: "Ocular Light" }).getAttribute("aria-checked")).toBe("true")
+  expect(appTheme().id).toBe(id)
+  expect(screen.getByRole("radio", { name }).getAttribute("aria-checked")).toBe("true")
 })
 
 it("asks a capable native shell to persist before changing the page, and surfaces a refused save", async () => {

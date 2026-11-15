@@ -1,0 +1,36 @@
+{
+  "ocular-light-vivid": {
+    "default": {
+      "pairs": 35,
+      "minimum": 4.870500905098023,
+      "failures": []
+    },
+    "hover": {
+      "pairs": 35,
+      "minimum": 4.870500905098023,
+      "failures": []
+    },
+    "selected": {
+      "pairs": 35,
+      "minimum": 4.870500905098023,
+      "failures": []
+    }
+  },
+  "ocular-dark-vivid": {
+    "default": {
+      "pairs": 35,
+      "minimum": 5.217695024644528,
+      "failures": []
+    },
+    "hover": {
+      "pairs": 35,
+      "minimum": 5.217695024644528,
+      "failures": []
+    },
+    "selected": {
+      "pairs": 35,
+      "minimum": 5.217695024644528,
+      "failures": []
+    }
+  }
+}

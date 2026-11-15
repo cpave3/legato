@@ -6,13 +6,13 @@ import { TerminalPanel } from "../TerminalPanel"
 
 // jsdom cannot draw a terminal: these stand in for xterm and record how it
 // was made.
-const { terminals, stream } = vi.hoisted(() => ({ terminals: [] as Array<{ theme?: { background?: string } }>, stream: { connected: false, send: () => {}, subscribe: () => () => {} } }))
+const { terminals, stream } = vi.hoisted(() => ({ terminals: [] as Array<{ theme?: { background?: string; green?: string } }>, stream: { connected: false, send: () => {}, subscribe: () => () => {} } }))
 vi.mock("@xterm/xterm", () => ({
   Terminal: class {
     cols = 80
     rows = 24
-    options: { theme?: { background?: string } }
-    constructor(options: { theme?: { background?: string } }) { this.options = options; terminals.push(options) }
+    options: { theme?: { background?: string; green?: string } }
+    constructor(options: { theme?: { background?: string; green?: string } }) { this.options = options; terminals.push(options) }
     loadAddon() {}
     open() {}
     write() {}
@@ -89,19 +89,26 @@ it("says it is reconnecting when the connection drops, and retries at once when 
   expect(FakeSocket.made).toHaveLength(2)
 })
 
-it("updates a mounted terminal through the picker without reconnecting or losing its screen", () => {
+it.each([
+  { name: "Ocular Dark", id: "ocular-dark", green: "#A3C9A8" },
+  { name: "Ocular Dark Vivid", id: "ocular-dark-vivid", green: "#61DD8A" },
+])("updates mounted terminals to $name without reconnecting or losing their screens", ({ name, id, green }) => {
   render(<><TerminalThemePicker /><LiveTerminal agentId="abc" /><TerminalPanel agentId="def" /></>)
-  fireEvent.click(screen.getByRole("radio", { name: "Ocular Dark" }))
+  fireEvent.click(screen.getByRole("radio", { name }))
   expect(terminals).toHaveLength(2)
   expect(FakeSocket.made).toHaveLength(1)
   expect(terminals[0].theme?.background).toBe("#20252B")
   expect(terminals[1].theme?.background).toBe("#20252B")
-  expect(localStorage.getItem("legato:terminal-theme")).toBe("ocular-dark")
+  expect(terminals[0].theme?.green).toBe(green)
+  expect(terminals[1].theme?.green).toBe(green)
+  expect(localStorage.getItem("legato:terminal-theme")).toBe(id)
   act(() => {
-    localStorage.setItem("legato:terminal-theme", "ocular-light")
+    localStorage.setItem("legato:terminal-theme", "ocular-light-vivid")
     window.dispatchEvent(new StorageEvent("storage", { key: "legato:terminal-theme" }))
   })
   expect(terminals).toHaveLength(2)
   expect(terminals[0].theme?.background).toBe("#F5F3ED")
   expect(terminals[1].theme?.background).toBe("#F5F3ED")
+  expect(terminals[0].theme?.green).toBe("#167347")
+  expect(terminals[1].theme?.green).toBe("#167347")
 })

@@ -177,7 +177,7 @@ server opens without that wait.
 ## Appearance
 
 On the server list, **Appearance › Theme** selects **Legato**, **Dracula**,
-**Ocular Light**, or **Ocular Dark**. The choice applies to the native screens,
+**Ocular Light**, **Ocular Dark**, **Ocular Light Vivid**, or **Ocular Dark Vivid**. The choice applies to the native screens,
 system bars and the open server page. It is kept across app restarts, for all
 saved servers. Legato remains the existing dark default; this does not add or
 change an Android system-theme mode.
@@ -186,7 +186,7 @@ Gradle packages the repository's `themes/palettes.json` directly as an Android
 asset and JVM test resource. Alternate palettes are not copied into Kotlin;
 native roles use the same readability derivation as `themes/render.ts`: muted
 and comment fall back to text below 4.5:1 against canvas; border falls back to
-focus below 3:1 against selection. Ocular's exact tokens stay unchanged. The installed app needs no
+focus below 3:1 against selection. Original Ocular tokens stay unchanged. The additive Vivid variants keep their neutral bases and use stronger shared accents. The installed app needs no
 repository files or palette download. The launch splash keeps its existing
 Legato background; the saved theme takes effect when the activity starts.
 

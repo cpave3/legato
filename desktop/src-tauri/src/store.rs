@@ -361,9 +361,12 @@ pub(crate) mod tests {
         std::fs::write(dir.path().join("legato-desktop.json"), r#"{"servers":[],"keys":[]}"#).unwrap();
         let mut store = open(&dir, &secrets);
         assert_eq!(store.state.app_theme, crate::theme::AppTheme::Legato);
-        for theme in [crate::theme::AppTheme::Dracula, crate::theme::AppTheme::OcularLight, crate::theme::AppTheme::OcularDark, crate::theme::AppTheme::Legato] {
+        for id in ["legato", "dracula", "ocular-light", "ocular-dark", "ocular-light-vivid", "ocular-dark-vivid"] {
+            let theme = serde_json::from_value(serde_json::json!(id)).unwrap();
             store.state.app_theme = theme;
             store.save().unwrap();
+            let saved: serde_json::Value = serde_json::from_slice(&std::fs::read(dir.path().join("legato-desktop.json")).unwrap()).unwrap();
+            assert_eq!(saved["app_theme"], id);
             assert_eq!(open(&dir, &secrets).state.app_theme, theme);
         }
     }
