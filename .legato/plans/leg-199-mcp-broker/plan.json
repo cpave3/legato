@@ -1,0 +1,55 @@
+{
+  "schema_version": 1,
+  "title": "LEG-199: server-owned MCP OAuth and controlled tools",
+  "summary": "Phone-safe server callbacks, sealed credentials and default-deny tools through the existing host broker. Remote HTTP and local agents first; no live setup or implementation before approval.",
+  "questions": [
+    {
+      "id": "release-scope",
+      "kind": "single_choice",
+      "prompt": "Build remote Streamable HTTP connections and local controlled agents first?",
+      "rationale": "Worker forwarding, subprocess launches and hosted relays require separate trust and routing designs.",
+      "required": true,
+      "options": [
+        {"id": "local-http", "label": "HTTP and local agents first", "description": "Defer worker forwarding, subprocesses, relay and device grant adapters."},
+        {"id": "revise", "label": "Revise the release scope", "description": "Request changes before implementation."}
+      ],
+      "recommended_options": ["local-http"]
+    },
+    {
+      "id": "callback-origin",
+      "kind": "single_choice",
+      "prompt": "Use explicit web.public_url as the root HTTPS callback origin?",
+      "rationale": "The phone browser must reach it. The implementation must not infer redirects from request headers or configure networking.",
+      "required": true,
+      "options": [
+        {"id": "public-url", "label": "Use configured web.public_url", "description": "Require strict OAuth validation. Explain missing reachability; no phone-loopback or pasted-code fallback."},
+        {"id": "dedicated", "label": "Use a separate callback setting", "description": "Revise the plan to define its relation to web.public_url before building."}
+      ],
+      "recommended_options": ["public-url"]
+    },
+    {
+      "id": "activation",
+      "kind": "single_choice",
+      "prompt": "Require authenticated account/resource confirmation after the provider callback?",
+      "rationale": "This supports external-browser and cross-device return without making callback state an activation capability. Current auth is one shared instance operator authority.",
+      "required": true,
+      "options": [
+        {"id": "confirm", "label": "Confirm in authenticated Legato", "description": "Stage server-owned credentials, show account/resource, then activate. Grants remain separate."},
+        {"id": "revise", "label": "Revise the activation design", "description": "Settle callback and operator trust before implementation."}
+      ],
+      "recommended_options": ["confirm"]
+    },
+    {
+      "id": "catalog-lifecycle",
+      "kind": "single_choice",
+      "prompt": "Use explicit agent reload for tool additions and immediate host denial for revocation?",
+      "rationale": "Existing agent tools discover MCP servers at session start. No running agent will be restarted automatically.",
+      "required": true,
+      "options": [
+        {"id": "reload", "label": "Explicit reload for additions", "description": "New/resumed executions reevaluate grants without another OAuth login."},
+        {"id": "live", "label": "Require live injection first", "description": "Revise scope and estimate to prove each adapter updates its model tool catalog."}
+      ],
+      "recommended_options": ["reload"]
+    }
+  ]
+}
