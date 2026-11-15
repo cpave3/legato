@@ -104,10 +104,23 @@ func (a *ChimeraInteractionAdapter) QueueMessage(ctx context.Context, taskID, me
 		return err
 	}
 	client := a.clientFactory(endpoint)
-	if err := client.PostMessage(ctx, sessionID, message); !errors.Is(err, chimera.ErrBusy) {
-		return err
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	for {
+		if err := client.PostMessage(ctx, sessionID, message); !errors.Is(err, chimera.ErrBusy) {
+			return err
+		}
+		if err := client.PostMessageAppend(ctx, sessionID, message); !errors.Is(err, chimera.ErrBusy) {
+			return err
+		}
+		// A completing run has sealed its injection buffer, but has not
+		// released the next turn yet. Neither 409 accepted the message.
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("waiting for Chimera's finishing turn: %w", ctx.Err())
+		case <-time.After(nativeBindPoll):
+		}
 	}
-	return client.PostMessageAppend(ctx, sessionID, message)
 }
 
 // A launch task must start its own turn. Appending to the role prompt's run

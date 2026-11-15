@@ -39,7 +39,13 @@ These are **real runtime events**, not calls to the fake mod harness: `record.py
 
 `CHIMERA_SERVER_SECRET` remains readable from `/proc/<pid>/environ` by Chimera's own commands, including inside Legato's bwrap namespace. CHIM-86 tracks a file-descriptor/pipe handoff; the argv/tmux checks do not claim to close this environment exposure.
 
-Legato's pre-existing Chimera question-answer transport sends the shared `{answers: map, dismissed}` format; this host requires `{status: "answered", answers: [{question, answer, custom}]}` or `{status: "cancelled"}`. Its raw question items also lack the per-question IDs Legato's native UI expects. The capture driver answers through Chimera's own endpoint so it can verify waiting/resolved state. **It does not prove that the native panel can answer a question.** That protocol adapter/UI migration remains a separate follow-up; the Claude bridge is unchanged.
+The historical recording driver answers through Chimera's own endpoint, not
+the native panel, so those recordings alone do not prove the UI transport.
+The protocol adapter is now present: it translates shared keyed answers into
+canonical answered/cancelled requests and supplies IDs for raw question items.
+The `--scenario full` scratch run below verifies actual tray HTTP and native-panel
+WebSocket payloads, multiple questions, custom answers and dismissal end to end.
+The Claude bridge is unchanged.
 
 The old 06:32 pre-publication build exposed two host bugs: write-promise injection was ignored, and a legacy signal listener bypassed async shutdown. Both were fixed upstream; native queue/retry and fresh TERM/HUP captures pass against the pinned published revision above. No old-build captures remain here.
 
@@ -68,7 +74,42 @@ python3 internal/cli/testdata/chimera-mod/end_to_end.py --legato "$LEGATO" \
   --chimera "$CHIMERA" --artifacts "$RAW"
 ```
 
+## Task 3jhyll8b: full cross-repository scenario run
+
+Build the local Chimera clone and this Legato, then use the isolated runner:
+
+```sh
+python3 internal/cli/testdata/chimera-mod/isolated_run.py python3 \
+  internal/cli/testdata/chimera-mod/end_to_end.py --legato "$LEGATO" \
+  --chimera "$CHIMERA" --artifacts "$RAW" --scenario full
+```
+
+This adds real child success/failure/timeout/stop/nesting, tray and native-panel
+question/permission payloads, 5×4 concurrent appends, queued steering, five
+live reconnect/replay cycles, compaction recovery and a persistent subscriber
+across agent reload/resume. MCP tool use, resource grants and context readings
+are checked after reload. It still uses disposable unsandboxed agents and a
+loopback model, not the full Docker matrix or a manual browser tour.
+The architecture, before/after evidence, scenario matrix and limitations are
+in `docs/analysis/chimera-integration-3jhyll8b.md`.
+
 Run heavy builds/full suites through the worker's shared lock. When running Go tests from a Legato-launched shell, clear `BASH_ENV`, `ZDOTDIR`, `LEGATO_USER_BASH_ENV` and `LEGATO_USER_ZDOTDIR`: the existing credential tests create their own shell wrappers, and nesting the launcher's wrappers makes their bash startup recurse. Use writable scratch Go/npm caches inside an OS sandbox.
+
+For the cross-repository investigation, `isolated_run.py` also removes inherited
+agent identity, broker and mod paths from **all** test-runner subprocesses, while
+pinning the configured toolchain and Go caches. It uses temporary HOME, XDG and
+tmux folders. Acquire the shared lock before that HOME changes:
+
+```sh
+flock "$HOME/.nuget/packages/.legato-heavy.lock" python3 \
+  internal/cli/testdata/chimera-mod/isolated_run.py go test -short ./internal/...
+```
+
+`internal/testenv.Run` independently clears extension and shell-hook environment
+variables and gives Go fixture children private tmux sockets. Chimera's Vitest
+runner has its own shared isolation setup and a portable synthetic-mod canary
+probe (`node scripts/check-test-isolation.mjs`). These are test-only protections;
+normal production environment-driven mod discovery is unchanged.
 
 ## LEG-194 automatic arbitration regression
 

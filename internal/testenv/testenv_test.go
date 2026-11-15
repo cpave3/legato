@@ -2,9 +2,44 @@ package testenv
 
 import (
 	"os"
+	"os/exec"
 	"path/filepath"
 	"testing"
 )
+
+func TestRunIsolatesInheritedExtensionAndBrokerEnvironment(t *testing.T) {
+	forbidden := []string{"CHIMERA_MOD_DIRS", "CHIMERA_SERVER_SECRET", "CLAUDE_CODE_PLUGIN_DIRS", "LEGATO_TASK_ID", "LEGATO_EXECUTION_ID", "LEGATO_BROKER_SOCKET", "LEGATO_BROKER_TOKEN", "BASH_ENV", "ZDOTDIR", "LEGATO_USER_BASH_ENV", "LEGATO_USER_ZDOTDIR", "TMUX"}
+	if os.Getenv("TESTENV_FIXTURE_CHILD") == "1" {
+		for _, key := range forbidden {
+			if _, exists := os.LookupEnv(key); exists {
+				t.Fatalf("fixture inherited %s", key)
+			}
+		}
+		return
+	}
+	for _, key := range forbidden {
+		t.Setenv(key, "nonsecret-canary")
+	}
+	for _, key := range []string{"HOME", "XDG_CONFIG_HOME", "XDG_DATA_HOME", "XDG_RUNTIME_DIR", "TMUX_TMPDIR", "LEGATO_HOME"} {
+		t.Setenv(key, os.Getenv(key))
+	}
+	status := Run(func() int {
+		if os.Getenv("TMUX_TMPDIR") != filepath.Join(filepath.Dir(os.Getenv("HOME")), "tmux") {
+			t.Error("fixture does not have a private tmux socket directory")
+			return 1
+		}
+		child := exec.Command(os.Args[0], "-test.run=^TestRunIsolatesInheritedExtensionAndBrokerEnvironment$")
+		child.Env = append(os.Environ(), "TESTENV_FIXTURE_CHILD=1")
+		if output, err := child.CombinedOutput(); err != nil {
+			t.Errorf("fixture child: %s", output)
+			return 1
+		}
+		return 0
+	})
+	if status != 0 {
+		t.Fatal("test fixture inherited launching extension environment")
+	}
+}
 
 // A suite that builds Go code must keep using the person's Go caches. With
 // HOME moved into the test root, Go would fill a fresh module cache there on

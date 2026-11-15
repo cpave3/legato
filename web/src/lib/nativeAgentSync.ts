@@ -144,6 +144,8 @@ export interface NativeSnapshotToolCall {
 // carried live, replayed to rebuild its activity.
 export interface NativeSnapshotSubagent {
   subagentId: string
+  parentCallId?: string
+  childSessionId?: string
   purpose?: string
   status?: NativeSubagentState["status"]
   reason?: string
@@ -185,6 +187,7 @@ export interface NativeSnapshot {
 }
 
 export interface NativeEvent {
+  append?: boolean
   settingsState?: ModelSettingsState
   eventId: string
   type: string
@@ -489,7 +492,7 @@ export function reduceNativeEvent(state: NativeSyncState, event: NativeEvent): N
       next.busy = true
       break
     case "user_message":
-      next.busy = true
+      if (!event.append) next.busy = true
       if (event.content) next.items.push({ key: event.eventId, role: "user", text: event.content })
       break
     case "assistant_text_delta": {
@@ -754,11 +757,11 @@ function applySnapshotSubagents(items: NativeConversationItem[], snapshot: Nativ
     const tool = item.tool
     if (!tool) continue
     const id = tool.subagent?.subagentId ?? tool.result?.subagent_id
-    const child = snapshot.subagentStates?.find(child => child.subagentId === id && child.sessionId === snapshot.id)
+    const child = snapshot.subagentStates?.find(child => child.sessionId === snapshot.id && (child.subagentId === id || child.parentCallId === tool.key))
     if (!child || (child.status === "running" && tool.subagent && tool.subagent.status !== "running")) continue
     tool.subagent = {
       ...subagentFromSnapshot(child, tool.args),
-      childSessionId: tool.subagent?.childSessionId,
+      childSessionId: child.childSessionId ?? tool.subagent?.childSessionId,
       startedAt: child.startedAt ?? tool.subagent?.startedAt,
       activities: tool.subagent?.activities ?? [],
     }
@@ -801,6 +804,7 @@ function subagentFromResult(name: string, args: Record<string, unknown>, result?
 function subagentFromSnapshot(snapshot: NativeSnapshotSubagent, args: Record<string, unknown>): NativeSubagentState {
   let subagent: NativeSubagentState = {
     subagentId: snapshot.subagentId,
+    childSessionId: snapshot.childSessionId,
     purpose: snapshot.purpose || String(args.purpose || "Subagent"),
     status: snapshot.status ?? "running",
     reason: snapshot.reason,
