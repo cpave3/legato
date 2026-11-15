@@ -1,3 +1,4 @@
+import "@testing-library/jest-dom/vitest"
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react"
 import { MemoryRouter } from "react-router-dom"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
@@ -236,4 +237,107 @@ describe("SettingsPage version", () => {
     expect((await screen.findByTestId("settings-version")).textContent).toContain("v9.9.9")
     vi.unstubAllGlobals()
   })
+})
+
+
+describe("SettingsPage MQTT", () => {
+  const mqttSettings = () => [
+    ["enabled", "MQTT publisher", false],
+    ["broker", "MQTT broker", ""],
+    ["credential", "MQTT credential", ""],
+    ["discovery_prefix", "MQTT discovery prefix", "homeassistant"],
+    ["base_topic", "MQTT base topic", ""],
+    ["device_name", "MQTT device name", ""],
+    ["include_reeve", "Include Reeve in MQTT counts", false],
+    ["attention_details", "MQTT Attention details", false],
+  ].map(([key, title, value]) => ({
+    key: `integrations.mqtt.${key}`, title, value,
+    kind: typeof value === "boolean" ? "bool" : "string",
+    class: "risky", mode: "restart", source: "default", pinned: false,
+    pending_restart: false,
+  }))
+
+  beforeEach(() => {
+    vi.clearAllMocks()
+    useSettings.mockReturnValue(settings(false))
+  })
+  afterEach(() => cleanup())
+
+  it("opens MQTT under Integrations and saves through the registry with restart feedback", async () => {
+    const values = mqttSettings()
+    mockedApiFetch.mockImplementation(async (_base, path, init) => {
+      if (path === "/api/config/settings") return Response.json({ settings: values })
+      const item = values.find((s) => path === `/api/config/settings/${s.key}`)
+      if (item && init?.method === "PUT") {
+        Object.assign(item, { value: JSON.parse(String(init.body)).value, source: "database", pending_restart: true })
+        return Response.json(item)
+      }
+      return new Response("{}", { status: 404 })
+    })
+    renderPage()
+    const integrations = within(screen.getByRole("region", { name: "Integrations" }))
+    const mqtt = within(await integrations.findByRole("region", { name: "Home Assistant over MQTT" }))
+    expect(await mqtt.findByRole("textbox", { name: "MQTT discovery prefix" })).toHaveValue("homeassistant")
+    expect(mqtt.getAllByRole("textbox")).toHaveLength(5)
+    expect(mqtt.getByRole("button", { name: "MQTT publisher" })).toHaveAttribute("aria-pressed", "false")
+    const broker = mqtt.getByRole("textbox", { name: "MQTT broker" })
+    fireEvent.change(broker, { target: { value: "mqtts://broker.example:8883" } })
+    fireEvent.blur(broker)
+    await waitFor(() => expect(mockedApiFetch).toHaveBeenCalledWith("https://remote.example", "/api/config/settings/integrations.mqtt.broker", expect.objectContaining({
+      method: "PUT", body: JSON.stringify({ value: "mqtts://broker.example:8883" }),
+    })))
+    expect(await mqtt.findByText("applies at restart")).toBeTruthy()
+    fireEvent.click(mqtt.getByRole("button", { name: "MQTT publisher" }))
+    await waitFor(() => expect(mqtt.getByRole("button", { name: "MQTT publisher" })).toHaveAttribute("aria-pressed", "true"))
+    expect(mqtt.getByText(/anonymous access/i)).toBeTruthy()
+    expect(mockedApiFetch.mock.calls.some(([, path]) => path.includes("restart") || path.includes("hot-reload"))).toBe(false)
+  })
+
+  it("keeps file pins locked and surfaces broker validation and save refusals", async () => {
+    const values = mqttSettings()
+    Object.assign(values.find((s) => s.key.endsWith(".credential"))!, { value: "mqtt", pinned: true, source: "config.yaml" })
+    mockedApiFetch.mockImplementation(async (_base, path, init) => {
+      if (path === "/api/config/settings") return Response.json({ settings: values })
+      if (init?.method === "PUT") return Response.json({ error: "integrations.mqtt.broker: want mqtt:// or mqtts:// without credentials" }, { status: 400 })
+      return new Response("{}", { status: 404 })
+    })
+    renderPage()
+    const mqtt = within(screen.getByRole("region", { name: "Home Assistant over MQTT" }))
+    const credential = await screen.findByRole("textbox", { name: "MQTT credential" })
+    expect(credential).toBeDisabled()
+    expect(credential).toHaveValue("mqtt")
+    const broker = screen.getByRole("textbox", { name: "MQTT broker" })
+    fireEvent.change(broker, { target: { value: "https://wrong" } })
+    fireEvent.blur(broker)
+    expect(await mqtt.findByRole("alert")).toHaveTextContent("want mqtt:// or mqtts://")
+    expect(broker).toHaveValue("https://wrong")
+    expect(screen.queryByText("applies at restart")).toBeNull()
+
+    mockedApiFetch.mockImplementation(async (_base, path, init) => {
+      if (path === "/api/config/settings") return Response.json({ settings: values })
+      if (init?.method === "PUT") return Response.json({ error: "MQTT broker is pinned by config.yaml" }, { status: 409 })
+      return new Response("{}", { status: 404 })
+    })
+    fireEvent.change(broker, { target: { value: "mqtts://broker.example" } })
+    fireEvent.blur(broker)
+    expect(await mqtt.findByRole("alert")).toHaveTextContent("pinned by config.yaml")
+  })
+
+  it("shows registry load failures and retries from the MQTT section", async () => {
+    let refused = true
+    mockedApiFetch.mockImplementation(async (_base, path) => {
+      if (path === "/api/config/settings") return refused
+        ? Response.json({ error: "Settings access denied" }, { status: 403 })
+        : Response.json({ settings: mqttSettings() })
+      return new Response("{}", { status: 404 })
+    })
+    renderPage()
+    const mqtt = within(screen.getByRole("region", { name: "Home Assistant over MQTT" }))
+    expect(await mqtt.findByRole("alert")).toHaveTextContent("Settings access denied")
+    refused = false
+    fireEvent.click(screen.getByRole("button", { name: "Retry settings" }))
+    expect(await screen.findByRole("textbox", { name: "MQTT broker" })).toBeTruthy()
+    expect(mqtt.queryByRole("alert")).toBeNull()
+  })
+
 })
