@@ -54,7 +54,21 @@ func startBrokerTLS(t *testing.T, hook broker.Hook, config *tls.Config) (*broker
 	if err := s.Serve(); err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { _ = s.Close() })
+	t.Cleanup(func() {
+		// Mochi's Close nests read locks while disconnects delete clients.
+		// Drain them first so a pending writer cannot deadlock that close.
+		for _, client := range s.Clients.GetAll() {
+			client.Stop(net.ErrClosed)
+		}
+		deadline := time.Now().Add(5 * time.Second)
+		for s.Clients.Len() != 0 {
+			if time.Now().After(deadline) {
+				t.Fatal("broker clients did not exit before close")
+			}
+			time.Sleep(time.Millisecond)
+		}
+		_ = s.Close()
+	})
 	return s, "mqtt://" + l.Address()
 }
 

@@ -74,7 +74,7 @@ func mqttScratchEntrypoint(t *testing.T, mode string) {
 	if err := server.Serve(); err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { _ = server.Close() })
+	t.Cleanup(func() { closeMQTTTestBroker(t, server) })
 	connection, err := net.Dial("tcp", listener.Address())
 	if err != nil {
 		t.Fatal(err)

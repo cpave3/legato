@@ -38,8 +38,24 @@ func mqttRuntimeBroker(t *testing.T) string {
 	if err := b.Serve(); err != nil {
 		t.Fatal(err)
 	}
-	t.Cleanup(func() { _ = b.Close() })
+	t.Cleanup(func() { closeMQTTTestBroker(t, b) })
 	return "mqtt://" + listener.Address()
+}
+
+func closeMQTTTestBroker(t *testing.T, b *mochi.Server) {
+	t.Helper()
+	// Avoid Mochi's nested read lock in Close racing client-map deletion.
+	for _, client := range b.Clients.GetAll() {
+		client.Stop(net.ErrClosed)
+	}
+	deadline := time.Now().Add(5 * time.Second)
+	for b.Clients.Len() != 0 {
+		if time.Now().After(deadline) {
+			t.Fatal("broker clients did not exit before close")
+		}
+		time.Sleep(time.Millisecond)
+	}
+	_ = b.Close()
 }
 
 func mqttRuntimeContext(t *testing.T) context.Context {
