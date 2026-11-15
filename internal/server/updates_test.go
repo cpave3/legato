@@ -197,34 +197,38 @@ func TestTheSettingsCarryTheUpdates(t *testing.T) {
 }
 
 func TestAToolUpdateStartsInTheBackground(t *testing.T) {
-	status := availableUpdate
-	status.Tools = []service.ToolStatus{{Name: "st", Managed: true, Version: "v0.1.0", Latest: "v0.2.0", Available: true, State: service.UpdateAvailable}}
-	srv, updates := updateServer(t, status)
+	for _, toolName := range []string{"st", "chimera"} {
+		t.Run(toolName, func(t *testing.T) {
+			status := availableUpdate
+			status.Tools = []service.ToolStatus{{Name: toolName, Managed: true, Version: "v0.1.0", Latest: "v0.2.0", Available: true, State: service.UpdateAvailable}}
+			srv, updates := updateServer(t, status)
 
-	if rec := callUpdates(srv, http.MethodPost, "/api/updates/tools/st/apply", ""); rec.Code != http.StatusAccepted {
-		t.Fatalf("status %d %s", rec.Code, rec.Body.String())
-	}
-	select {
-	case <-updates.applied:
-	case <-time.After(2 * time.Second):
-		t.Fatal("st was not updated")
-	}
-	if updates.appliedTools[0] != "st" {
-		t.Fatalf("updated %v", updates.appliedTools)
-	}
+			if rec := callUpdates(srv, http.MethodPost, "/api/updates/tools/"+toolName+"/apply", ""); rec.Code != http.StatusAccepted {
+				t.Fatalf("status %d %s", rec.Code, rec.Body.String())
+			}
+			select {
+			case <-updates.applied:
+			case <-time.After(2 * time.Second):
+				t.Fatalf("%s was not updated", toolName)
+			}
+			if updates.appliedTools[0] != toolName {
+				t.Fatalf("updated %v", updates.appliedTools)
+			}
 
-	for name, tool := range map[string]service.ToolStatus{
-		"built from source": {Name: "st", State: service.ToolUnmanaged},
-		"up to date":        {Name: "st", Managed: true, State: service.UpdateUpToDate},
-	} {
-		updates.mu.Lock()
-		updates.status.Tools = []service.ToolStatus{tool}
-		updates.mu.Unlock()
-		if rec := callUpdates(srv, http.MethodPost, "/api/updates/tools/st/apply", ""); rec.Code != http.StatusConflict {
-			t.Errorf("%s: status %d", name, rec.Code)
-		}
-	}
-	if rec := callUpdates(srv, http.MethodPost, "/api/updates/tools/nope/apply", ""); rec.Code != http.StatusConflict {
-		t.Errorf("an unknown tool: status %d", rec.Code)
+			for name, tool := range map[string]service.ToolStatus{
+				"built from source": {Name: toolName, State: service.ToolUnmanaged},
+				"up to date":        {Name: toolName, Managed: true, State: service.UpdateUpToDate},
+			} {
+				updates.mu.Lock()
+				updates.status.Tools = []service.ToolStatus{tool}
+				updates.mu.Unlock()
+				if rec := callUpdates(srv, http.MethodPost, "/api/updates/tools/"+toolName+"/apply", ""); rec.Code != http.StatusConflict {
+					t.Errorf("%s: status %d", name, rec.Code)
+				}
+			}
+			if rec := callUpdates(srv, http.MethodPost, "/api/updates/tools/nope/apply", ""); rec.Code != http.StatusConflict {
+				t.Errorf("an unknown tool: status %d", rec.Code)
+			}
+		})
 	}
 }

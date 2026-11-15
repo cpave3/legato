@@ -1,0 +1,3 @@
+{"cwd": "/work", "hook_event_name": "SessionEnd", "prompt_id": "7b9fc804-1b1f-40c5-9a25-80d81a0d4ad3", "reason": "clear", "scratchpad_dir": "/redacted", "session_id": "11111111-2222-3333-4444-555555555555", "transcript_path": "/redacted"}
+{"cwd": "/work", "hook_event_name": "SessionStart", "scratchpad_dir": "/redacted", "session_id": "11111111-2222-3333-4444-555555555555", "source": "clear", "transcript_path": "/redacted"}
+{"cwd": "/work", "hook_event_name": "Notification", "message": "Claude is waiting for your input", "notification_type": "idle_prompt", "scratchpad_dir": "/redacted", "session_id": "11111111-2222-3333-4444-555555555555", "transcript_path": "/redacted"}

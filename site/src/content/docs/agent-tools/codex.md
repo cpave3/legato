@@ -11,7 +11,7 @@ Codex needs no plugin for this. Codex can run its conversation in an app server 
 
 ## Install the activity hooks
 
-The hooks tell Legato when Codex starts work, waits for you, and stops. The bridge does not report activity, so without the hooks a card shows none.
+The hooks tell Legato when Codex starts work, waits for you, and stops. Without them a card shows no activity. The bridge adds only what no hook reports: a turn that was interrupted or failed.
 
 1. Go to the folder that should hold the hooks. Your home folder installs them for every project, in `~/.codex/`. A project folder installs them for that project, in `<project>/.codex/`.
 2. Run:
@@ -32,7 +32,8 @@ The scripts do nothing outside a session that Legato started.
 | --- | --- | --- |
 | `⠹ running` (green) | Codex is working. | `UserPromptSubmit`, `PostToolUse` |
 | `◆ needs you` (amber) | Codex waits for your approval. | `PermissionRequest` |
-| `○ idle` (dim) | The session is alive and not working. | `Stop` |
+| `○ idle` (dim) | The session is alive, and nothing will wake it but a message. | `Stop`; the bridge, for an interrupted turn |
+| `error` (red) | The turn failed. | The bridge, for a failed turn |
 
 ## How Legato starts Codex
 

@@ -5,6 +5,7 @@
 - For all work in this project, use the tdd skill, if present: tests first.
 - Never stop, kill, restart, or replace a running Legato process unless the user explicitly asks for that process action. A request to change, build, validate, or deploy Legato does not imply permission to disrupt a running process.
 - Do not perform browser or end-to-end testing against a running Legato unless the user explicitly asks for it. Such tests are fine against scratch instances (their own config, database, data and runtime folders, tmux server and port) that do not disrupt running ones; stop them and remove their folders afterwards.
+- Inside Legato's sandbox, `legato` commands go to the real Legato through the broker: to run a scratch instance from there, follow `docs/agents/scratch-instance.md`.
 
 AI Agent Orchestration TUI — a keyboard-driven kanban board for tracking tasks, built for developers who work with AI coding agents. Supports local tasks and pluggable ticket providers (Jira first, others planned).
 
@@ -28,6 +29,8 @@ internal/engine/  → infrastructure (imports only stdlib + 3rd-party)
 config/           → configuration (standalone, no internal imports)
 ```
 
+`packages/` holds TypeScript apps outside the Go binary (the first is `even-hub/`, the Even G2 glasses app), one pnpm workspace rooted at `packages/`, not at the repository root: a root workspace would take over `pnpm install` in `web/`, `site/` and `browser-extension/`, which keep their own lockfiles until they move in. Each package has `typecheck` and `test` scripts; `task packages:check` runs lint, types and tests for all of them. Run pnpm there with `-C packages/...` from the repository root rather than after `cd`. See `docs/ai/even-hub.md` § The `packages/` workspace.
+
 Import rules are enforced by architecture tests. Engine packages must not import sibling engine packages, service, or TUI; service must never import TUI. Production database callers use store behavior rather than `Store.DB()`/`sqlx`, command entry points open databases through `openStore`, and filesystem state resolves from `config.ResolveDataDir` rather than the database path.
 
 ## Commands
@@ -45,6 +48,9 @@ task docs:dev              # serve the docs site (site/) with live reload
 task docs:build            # build the docs site; fails on a broken link
 task desktop:test          # the desktop app's Rust tests and TypeScript check
 task desktop:dev           # run the desktop app (desktop/)
+task packages:check        # lint, typecheck and test the apps under packages/
+task even-hub:dev          # the Even G2 glasses app (packages/even-hub/) on its fixture
+task even-hub:sim          # the Even Hub simulator, open on it
 ```
 
 ## Build Plan
@@ -76,6 +82,7 @@ The rest are not imported. Before changing an area, read its doc, and keep it cu
 - `docs/ai/cli.md` — subcommands, host broker, JSON contract and exit codes, hook integrations (Claude Code, Codex, Chimera, Staccato), tmux status line
 - `docs/ai/web-ui.md` — web UI pages, components, API endpoints, WebSocket sync, PWA, pairing
 - `docs/ai/tui.md` — TUI theme, board, agents view, spawn overlay
+- `docs/ai/agent-states.md` — agent states (working, waiting, background, idle, error), what each agent tool's hooks and bridge report, background jobs, the gaps
 - `docs/ai/sync.md` — ticket providers and the Jira sync algorithm
 - `docs/ai/pr-tracking.md` — GitHub PR discovery, code context, read-only client
 - `docs/ai/swarm.md` — conductor/worker orchestration, plans, tiers, adapter launch flags
@@ -84,6 +91,7 @@ The rest are not imported. Before changing an area, read its doc, and keep it cu
 - `docs/ai/credentials.md` — credential broker, rules, HTTP proxy, SSH agent, GitHub App, stores, audit log
 - `docs/ai/learning.md` — Legato Learn ledger, curation workflow, prompt eligibility
 - `docs/ai/claude-code-native.md` — Claude Code mod and bridge, permissions, scratch-instance setup
+- `docs/ai/chimera-native.md` — Chimera mod and link, state events, server secrets, fallback and host-test evidence
 - `docs/ai/codex-native.md` — Codex app-server bridge and launcher
 - `docs/ai/agent-mcp.md` — `legato mcp serve` tools, artifacts/cards, images, videos, studios, HTML sandbox
 - `docs/ai/integrations.md` — Argus: scoped tokens, owner lookup, delegations, replies, the OAuth connection, cases in Attention
@@ -97,6 +105,7 @@ The rest are not imported. Before changing an area, read its doc, and keep it cu
 - `docs/ai/workflows.md` — workflow runs, completion and artifact collection, API, live updates
 - `docs/ai/model-settings.md` — native model settings: proxy, API, vision metadata, rollout
 - `docs/ai/desktop.md` — the desktop app (`desktop/`, Tauri): window and webviews, pairing, pinned TLS, security keys, its releases and updater
+- `docs/ai/even-hub.md` — the Even Realities G2 glasses app (`packages/even-hub/`, Even Hub SDK): the SDK's limits, the dev proxy and token, the simulator, packing; and the `packages/` workspace
 
 ## User documentation site
 
@@ -115,6 +124,7 @@ The documentation for people who use Legato is the Starlight site in `site/`, pu
 | `docs/ai/reeve.md` | `using/reeve` |
 | `docs/ai/cli.md` | `reference/cli`, `agent-tools/*`, `integrations/staccato`, `integrations/tmux-status` |
 | `docs/ai/tui.md` | `using/board`, `using/agents`, `start/tour` |
+| `docs/ai/agent-states.md` | `agent-tools/claude-code`, `using/board`, `using/agents`, `using/reeve`, `start/tour` |
 | `docs/ai/web-ui.md` | `using/web-ui`, `running/devices`, `security/web-auth` |
 | `docs/ai/attention.md`, `docs/ai/approvals.md` | `using/attention` |
 | `docs/ai/swarm.md` | `using/swarms` |
@@ -123,12 +133,13 @@ The documentation for people who use Legato is the Starlight site in `site/`, pu
 | `docs/ai/workflows.md` | `using/workflows` |
 | `docs/ai/model-settings.md` | `agent-tools/model-settings` |
 | `docs/ai/sync.md`, `docs/ai/pr-tracking.md` | `integrations/jira`, `integrations/github` |
-| `docs/ai/claude-code-native.md`, `docs/ai/codex-native.md`, `docs/ai/agent-mcp.md`, `docs/ai/resources.md` | `agent-tools/*` |
+| `docs/ai/claude-code-native.md`, `docs/ai/chimera-native.md`, `docs/ai/codex-native.md`, `docs/ai/agent-mcp.md`, `docs/ai/resources.md` | `agent-tools/*` |
 | `docs/ai/credentials.md`, `docs/ai/sandbox.md` | `security/*`, `running/agent-server` |
 | `docs/ai/engram.md` | `agent-tools/engrams` |
 | `docs/ai/integrations.md` | `integrations/argus` |
 | `docs/ai/updates.md` | `running/updates`, `start/install` |
 | `docs/ai/desktop.md` | `running/desktop-app` |
+| `docs/ai/even-hub.md` | `integrations/even-g2`, `contributing/build` |
 
 ## Agent skills
 

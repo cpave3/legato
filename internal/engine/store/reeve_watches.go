@@ -88,3 +88,11 @@ func (s *Store) TaskWorkedSince(ctx context.Context, taskID string, since time.T
 		taskID, formatExecutionTime(since))
 	return worked, err
 }
+
+// HasReeveWatchEventKind reports whether any queued event, however far
+// down the queue, is of kind (the "kind" of its JSON body).
+func (s *Store) HasReeveWatchEventKind(ctx context.Context, kind string) (bool, error) {
+	var found bool
+	err := s.db.GetContext(ctx, &found, `SELECT EXISTS(SELECT 1 FROM reeve_watch_events WHERE json_extract(body, '$.kind') = ?)`, kind)
+	return found, err
+}

@@ -1,15 +1,18 @@
 import { act, cleanup, fireEvent, render, screen } from "@testing-library/react"
 import { afterEach, beforeEach, expect, it, vi } from "vitest"
 import { LiveTerminal } from "../LiveTerminal"
+import { TerminalThemePicker } from "../settings/TerminalThemePicker"
+import { TerminalPanel } from "../TerminalPanel"
 
 // jsdom cannot draw a terminal: these stand in for xterm and record how it
 // was made.
-const { terminals } = vi.hoisted(() => ({ terminals: [] as Array<{ theme?: { background?: string } }> }))
+const { terminals, stream } = vi.hoisted(() => ({ terminals: [] as Array<{ theme?: { background?: string } }>, stream: { connected: false, send: () => {}, subscribe: () => () => {} } }))
 vi.mock("@xterm/xterm", () => ({
   Terminal: class {
     cols = 80
     rows = 24
-    constructor(options: { theme?: { background?: string } }) { terminals.push(options) }
+    options: { theme?: { background?: string } }
+    constructor(options: { theme?: { background?: string } }) { this.options = options; terminals.push(options) }
     loadAddon() {}
     open() {}
     write() {}
@@ -18,11 +21,13 @@ vi.mock("@xterm/xterm", () => ({
     dispose() {}
     onData() { return { dispose() {} } }
     onBinary() { return { dispose() {} } }
+    onScroll() { return { dispose() {} } }
   },
 }))
 vi.mock("@xterm/addon-fit", () => ({ FitAddon: class { fit() {} } }))
 vi.mock("@xterm/xterm/css/xterm.css", () => ({}))
 vi.mock("../../hooks/useServer", () => ({ useServer: () => ({ baseUrl: "" }) }))
+vi.mock("../../hooks/useWebSocket", () => ({ useWebSocket: () => stream }))
 
 class FakeSocket {
   static OPEN = 1
@@ -82,4 +87,21 @@ it("says it is reconnecting when the connection drops, and retries at once when 
 
   fireEvent.click(screen.getByRole("button", { name: "Retry now" }))
   expect(FakeSocket.made).toHaveLength(2)
+})
+
+it("updates a mounted terminal through the picker without reconnecting or losing its screen", () => {
+  render(<><TerminalThemePicker /><LiveTerminal agentId="abc" /><TerminalPanel agentId="def" /></>)
+  fireEvent.click(screen.getByRole("radio", { name: "Ocular Dark" }))
+  expect(terminals).toHaveLength(2)
+  expect(FakeSocket.made).toHaveLength(1)
+  expect(terminals[0].theme?.background).toBe("#20252B")
+  expect(terminals[1].theme?.background).toBe("#20252B")
+  expect(localStorage.getItem("legato:terminal-theme")).toBe("ocular-dark")
+  act(() => {
+    localStorage.setItem("legato:terminal-theme", "ocular-light")
+    window.dispatchEvent(new StorageEvent("storage", { key: "legato:terminal-theme" }))
+  })
+  expect(terminals).toHaveLength(2)
+  expect(terminals[0].theme?.background).toBe("#F5F3ED")
+  expect(terminals[1].theme?.background).toBe("#F5F3ED")
 })

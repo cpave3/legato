@@ -1,5 +1,5 @@
 import { cn } from "../../lib/utils"
-import { useState, useEffect, useRef, useCallback } from "react"
+import { useState, useEffect, useLayoutEffect, useRef, useCallback } from "react"
 import { useServer } from "../../hooks/useServer"
 import { searchTasks } from "../../lib/board"
 import type { BoardCard } from "../../lib/board-types"
@@ -68,7 +68,8 @@ export function SearchModal({ open, onClose, onSelect }: SearchModalProps) {
     }
   }, [open, query, doSearch])
 
-  useEffect(() => {
+  // Visible results must be selectable before passive effects run.
+  useLayoutEffect(() => {
     if (!open) return
     const handler = (e: KeyboardEvent) => {
       if (e.key === "j") {

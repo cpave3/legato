@@ -2,6 +2,8 @@ package service
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
 	"errors"
 	"fmt"
 	"io"
@@ -22,6 +24,7 @@ import (
 	gitpkg "github.com/cpave3/legato/internal/engine/git"
 	"github.com/cpave3/legato/internal/engine/store"
 	"github.com/cpave3/legato/internal/engine/swarm"
+	enginetmux "github.com/cpave3/legato/internal/engine/tmux"
 )
 
 // TmuxManager abstracts tmux operations for testability.
@@ -85,7 +88,14 @@ type AgentSession struct {
 	// ReeveName is the Reeve's name (reeve.name) on the Reeve's agent, ""
 	// when it has none; its Title is then the name.
 	ReeveName string
+	// BackgroundJobs is what a running agent started that still runs and
+	// will wake it (see docs/ai/agent-states.md); none for an ended one.
+	BackgroundJobs []BackgroundJob
 }
+
+// BackgroundJob is one thing an agent started that still runs and will wake
+// it: Kind bash, monitor, subagent or cron, with a Label saying what it is.
+type BackgroundJob = store.BackgroundJob
 
 // AgentPeer describes one live, routable agent sharing a Git worktree.
 type AgentPeer struct {
@@ -343,12 +353,15 @@ type agentService struct {
 	// nativeBindTimeout bounds how long a launch message waits for the
 	// session's native endpoint before it is typed into the pane instead.
 	nativeBindTimeout time.Duration
+	chimeraModWait    time.Duration
 	// launchOwner names this service as the deliverer of the launch
 	// messages it keeps in launch_messages (launch_messages.go).
-	launchOwner string
+	launchOwner      string
+	launchDeliveries sync.Map
+	foregroundAgents sync.Map
 
 	sendKeysAdapter AgentInteraction
-	chimeraAdapter  AgentInteraction
+	chimeraAdapter  *ChimeraInteractionAdapter
 
 	conflictsMu   sync.Mutex
 	lastConflicts []AgentSpawnConflict
@@ -490,6 +503,7 @@ type EventPublisher interface {
 	PublishSlotAgentDied(taskID, slot string)
 	PublishAgentActivityChanged(taskID, activity string)
 	PublishAgentChimeraDiscovered(taskID string)
+	PublishWorkflowChanged(runID string)
 }
 
 // AgentServiceOptions configures optional AI tool integration for agent sessions.
@@ -608,7 +622,7 @@ func (a *agentService) credentialEnv() SessionEnvProvider {
 
 // NewAgentService creates an AgentService.
 func NewAgentService(s *store.Store, tmux TmuxManager, workDir string, opts ...AgentServiceOptions) AgentService {
-	svc := &agentService{store: s, tmux: tmux, workDir: workDir, briefKickoffDelay: briefKickoffDelay, peerAwareness: true, nativeBindTimeout: nativeBindTimeout, launchOwner: newLaunchOwner()}
+	svc := &agentService{store: s, tmux: tmux, workDir: workDir, briefKickoffDelay: briefKickoffDelay, peerAwareness: true, nativeBindTimeout: nativeBindTimeout, chimeraModWait: 10 * time.Second, launchOwner: newLaunchOwner()}
 	if len(opts) > 0 {
 		svc.adapter = opts[0].Adapter
 		svc.adapters = opts[0].Adapters
@@ -645,7 +659,12 @@ func NewAgentService(s *store.Store, tmux TmuxManager, workDir string, opts ...A
 	// Wire the interaction adapters. The send-keys adapter is always
 	// available (it wraps the tmux manager). The Chimera adapter is only
 	// used for agents with a discovered endpoint.
-	svc.sendKeysAdapter = NewSendKeysAdapter(tmux, s)
+	svc.sendKeysAdapter = NewSendKeysAdapter(tmux, s, svc.verifyPaneDelivery)
+	if guarded, ok := tmux.(interface {
+		SetDeliveryGuard(func(string, string) error)
+	}); ok {
+		guarded.SetDeliveryGuard(svc.verifyPaneCommand)
+	}
 	svc.chimeraAdapter = NewChimeraInteractionAdapter(s, nil)
 	return svc
 }
@@ -661,6 +680,12 @@ func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, hei
 	}
 	if err := ValidateAgentSlot(opt.Slot); err != nil {
 		return err
+	}
+	adapter := a.resolveAdapter(opt.AgentKind)
+	if validator, ok := adapter.(LaunchValidator); ok {
+		if err := validator.ValidateLaunch(ctx, opt.Tier, opt.LaunchArgs); err != nil {
+			return err
+		}
 	}
 	slot := opt.Slot
 	if slot == "" {
@@ -771,7 +796,6 @@ func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, hei
 	// Kill any orphaned tmux session with the same name
 	a.tmux.Kill(sessionName)
 
-	adapter := a.resolveAdapter(opt.AgentKind)
 	agentKind := "shell"
 	if adapter != nil {
 		agentKind = adapter.Name()
@@ -1088,6 +1112,38 @@ func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, hei
 		}
 	}
 
+	// The bootstrap secret is read by the launch command, never tmux's environment.
+	var chimeraSecret, chimeraSecretPath string
+	if agentKind == "chimera" {
+		dir, err := swarm.AgentDir(agentKey)
+		if err != nil {
+			failExecution()
+			return fmt.Errorf("locating Chimera secret folder: %w", err)
+		}
+		privateDir, err := os.MkdirTemp(dir, "chimera-launch-")
+		if err != nil {
+			failExecution()
+			return fmt.Errorf("creating Chimera secret folder: %w", err)
+		}
+		random := make([]byte, 32)
+		if _, err := rand.Read(random); err != nil {
+			failExecution()
+			return fmt.Errorf("generating Chimera secret: %w", err)
+		}
+		chimeraSecret = hex.EncodeToString(random)
+		chimeraSecretPath = filepath.Join(privateDir, "server-secret")
+		if err := os.WriteFile(chimeraSecretPath, []byte(chimeraSecret), 0600); err != nil {
+			failExecution()
+			return fmt.Errorf("writing Chimera secret: %w", err)
+		}
+		envMap["LEGATO_CHIMERA_SECRET_FILE"] = chimeraSecretPath
+		defer func() {
+			if spawnErr != nil {
+				_ = os.Remove(chimeraSecretPath)
+			}
+		}()
+	}
+
 	// Legato's sandbox: decided and checked before any tmux session exists,
 	// so a sandbox that cannot be built never leaves an unsandboxed agent.
 	sandboxPrefix := ""
@@ -1097,7 +1153,7 @@ func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, hei
 		if booted.booted() {
 			engramMounts = SandboxEngram{Binary: booted.Binary, Store: booted.Store}
 		}
-		prefix, err := a.sandboxPrefix(ctx, taskID, executionID, agentKind, workDir, envMap, append(resources, freshClone.sandboxResources()...), opt.ReadOnlyCheckout, opt.ThrowawayCheckout, engramMounts)
+		prefix, err := a.sandboxPrefix(ctx, taskID, attributionTaskID, executionID, agentKind, workDir, envMap, append(resources, freshClone.sandboxResources()...), opt.ReadOnlyCheckout, opt.ThrowawayCheckout, engramMounts)
 		if err != nil {
 			failExecution()
 			return fmt.Errorf("Legato's sandbox: %w", err)
@@ -1179,6 +1235,14 @@ func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, hei
 		a.tmux.Kill(sessionName)
 		failExecution()
 		return fmt.Errorf("recording agent session: %w", err)
+	}
+	if chimeraSecret != "" {
+		if err := a.store.SetChimeraLaunchSecret(ctx, sessionID, chimeraSecret, chimeraSecretPath); err != nil {
+			a.tmux.Kill(sessionName)
+			_ = a.store.UpdateAgentSessionStatusInSlot(ctx, taskID, slot, "dead")
+			failExecution()
+			return fmt.Errorf("recording Chimera launch authentication: %w", err)
+		}
 	}
 	if err := a.store.LinkExecutionAgentSession(ctx, executionID, sessionID); err != nil {
 		a.tmux.Kill(sessionName)
@@ -1272,7 +1336,14 @@ func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, hei
 		}
 	}
 	if launcher, ok := adapter.(LaunchCommandAdapter); ok {
-		if cmd := launcher.LaunchCommand(launchEnv, opt.Brief, opt.Model, opt.Tier); cmd != "" {
+		var cmd string
+		wrapped, ownsPrefix := adapter.(SandboxLaunchCommandAdapter)
+		if sandboxed && ownsPrefix {
+			cmd = wrapped.LaunchCommandWithSandbox(launchEnv, opt.Brief, opt.Model, opt.Tier, sandboxPrefix)
+		} else {
+			cmd = launcher.LaunchCommand(launchEnv, opt.Brief, opt.Model, opt.Tier)
+		}
+		if cmd != "" {
 			if off, ok := adapter.(PromptsOffAdapter); ok && opt.Unattended {
 				for _, arg := range off.PromptsOffArgs() {
 					cmd += " " + shellWord(arg)
@@ -1285,7 +1356,7 @@ func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, hei
 			for _, arg := range opt.LaunchArgs {
 				cmd += " " + shellWord(arg)
 			}
-			if sandboxed {
+			if sandboxed && !ownsPrefix {
 				cmd = sandboxPrefix + " " + cmd
 			}
 			cmd = thenLaunch(cmd)
@@ -1397,20 +1468,16 @@ func (a *agentService) notifyPeerJoin(taskID, executionID, workDir string, adapt
 	}
 }
 
-// awaitNativeEndpoint gives a freshly launched agent time to become reachable
-// and reports whether it bound a native endpoint.
-//
-// A session whose adapter binds one (see NativeBindingAdapter) is waited for
-// until the binding appears: a message delivered over it is a prompt, while
-// the same text typed into a tool that is still starting lands in its prompt
-// box with the Enter lost. False means the message has to be typed: the
-// adapter binds nothing, the agent is gone, or nothing was bound in time. An
-// adapter that binds nothing gets the fixed kickoff delay instead.
-// deliverLaunchMessages sends the messages a launch starts an agent with,
-// in order, once it can take them: over its native endpoint, else typed into
-// the pane. A message of more than one line is typed as a pointer to its
-// file, since the pane takes one line.
+// deliverLaunchMessages keeps each message until its transport accepts it.
+// Chimera launch tasks require a new native turn; only other terminal agents
+// use the prompt-file pointer fallback.
 func (a *agentService) deliverLaunchMessages(ctx context.Context, executionID, taskID, session string, adapter AIToolAdapter, messages []store.LaunchMessage, promptFile string) {
+	if _, active := a.launchDeliveries.LoadOrStore(executionID, struct{}{}); active {
+		log.Printf("launch messages for %s (%s) skipped: delivery already in progress", taskID, executionID)
+		return
+	}
+	defer a.launchDeliveries.Delete(executionID)
+
 	// The agent tool starts once its clone is set up, which takes minutes
 	// the first time the dependencies are fetched.
 	if err := a.AwaitCloneSetup(ctx, taskID); err != nil {
@@ -1418,29 +1485,55 @@ func (a *agentService) deliverLaunchMessages(ctx context.Context, executionID, t
 	}
 	native := a.awaitNativeEndpoint(ctx, taskID, adapter)
 	for _, kept := range messages {
-		// A message is taken from the store as it is sent; one another
-		// process has taken over (after a restart) is left to it.
-		if taken, err := a.store.TakeLaunchMessage(context.Background(), executionID, kept.Position, a.launchOwner); err != nil || !taken {
+		owned, err := a.store.OwnsLaunchMessage(ctx, executionID, kept.Position, a.launchOwner)
+		if err != nil {
+			log.Printf("launch message %s/%d for %s retained: checking ownership: %v", executionID, kept.Position, taskID, err)
+			return
+		}
+		if !owned {
+			log.Printf("launch message %s/%d for %s skipped: no longer pending for this owner", executionID, kept.Position, taskID)
 			return
 		}
 		message := kept.Message
-		if native {
-			err := a.QueueMessage(ctx, taskID, message)
-			if err == nil {
-				continue
+		if adapter != nil && adapter.Name() == "chimera" {
+			if !native {
+				err = fmt.Errorf("native binding not ready; launch message was not typed into the composer")
+			} else {
+				deliveryCtx, cancel := context.WithTimeout(ctx, a.nativeBindTimeout)
+				err = a.chimeraAdapter.startLaunchMessage(deliveryCtx, taskID, message)
+				cancel()
 			}
-			log.Printf("launch message over the native endpoint failed for %s: %v", session, err)
+		} else if native {
+			err = a.QueueMessage(ctx, taskID, message)
+		} else {
+			err = a.verifyPaneDelivery(session)
+			if err == nil {
+				typed := message
+				if promptFile != "" && strings.ContainsAny(message, "\n\r\"") {
+					typed = "Read " + promptFile + " in full: it is your task from the operator. Then do it."
+				}
+				err = a.tmux.SendKeysLine(session, typed)
+			}
 		}
-		typed := message
-		if promptFile != "" && strings.ContainsAny(message, "\n\r\"") {
-			typed = "Read " + promptFile + " in full: it is your task from the operator. Then do it."
+		if err != nil {
+			log.Printf("launch message %s/%d for %s retained: delivery failed: %v", executionID, kept.Position, taskID, err)
+			return
 		}
-		if err := a.tmux.SendKeysLine(session, typed); err != nil {
-			log.Printf("launch message failed for %s: %v", session, err)
+		completed, err := a.store.CompleteLaunchMessage(ctx, executionID, kept.Position, a.launchOwner)
+		if err != nil {
+			log.Printf("launch message %s/%d for %s accepted but acknowledgement failed; retained message may replay: %v", executionID, kept.Position, taskID, err)
+			return
 		}
+		if !completed {
+			log.Printf("launch message %s/%d for %s accepted but ownership changed before acknowledgement", executionID, kept.Position, taskID)
+			return
+		}
+		log.Printf("launch message %s/%d for %s delivered (native: %t)", executionID, kept.Position, taskID, native)
 	}
 }
 
+// awaitNativeEndpoint waits for adapters that bind natively; other tools get
+// the fixed kickoff delay. False leaves the caller to choose its failure path.
 func (a *agentService) awaitNativeEndpoint(ctx context.Context, taskID string, adapter AIToolAdapter) bool {
 	binder, ok := adapter.(NativeBindingAdapter)
 	if !ok || !binder.BindsNativeEndpoint() {
@@ -1747,6 +1840,9 @@ func (a *agentService) ListAgents(ctx context.Context) ([]AgentSession, error) {
 			CardTaskID:        s.TaskID,
 			Reeve:             IsReeveTask(ctx, a.store, s.TaskID),
 		}
+		if s.Status == "running" {
+			result[i].BackgroundJobs = s.BackgroundJobs
+		}
 		if result[i].Reeve {
 			if name := a.reeveName.Of(ctx); name != "" {
 				result[i].ReeveName, result[i].Title = string(name), name.Start()
@@ -1807,8 +1903,14 @@ func (a *agentService) ReconcileSessions(ctx context.Context) error {
 		live[s] = true
 	}
 
+	commands, _ := a.tmux.PaneCommands()
 	for _, s := range sessions {
-		if s.Status == "running" && !live[s.TmuxSession] {
+		if agentForeground(s.AgentKind, commands[s.TmuxSession]) {
+			a.foregroundAgents.Store(s.ID, struct{}{})
+		}
+		exited := enginetmux.IsShellCommand(commands[s.TmuxSession]) && a.agentStartupOver(s)
+		if s.Status == "running" && (!live[s.TmuxSession] || exited) {
+			log.Printf("agent ended task=%s session=%s foreground=%q", s.TaskID, s.TmuxSession, commands[s.TmuxSession])
 			if err := a.endGoneSession(ctx, s, "dead"); err != nil {
 				return err
 			}
@@ -1855,6 +1957,21 @@ func (a *agentService) endGoneSession(ctx context.Context, s store.AgentSession,
 	}
 	if err := a.store.UpdateAgentSessionStatusInSlot(ctx, s.TaskID, s.Slot, status); err != nil {
 		return err
+	}
+	a.foregroundAgents.Delete(s.ID)
+	log.Printf("agent ended task=%s session=%s status=%s", s.TaskID, s.TmuxSession, status)
+	attempts, err := a.store.ListWaitingWorkflowAttemptsByAgentSession(ctx, s.ID)
+	if err != nil {
+		return err
+	}
+	for _, attempt := range attempts {
+		if err := a.store.FailWorkflowStep(ctx, attempt.RunID, attempt.StepID, attempt.ID, "agent exited before step completion"); err != nil && !errors.Is(err, store.ErrWorkflowStateConflict) {
+			return err
+		}
+		log.Printf("workflow agent exited run=%s step=%s attempt=%s", attempt.RunID, attempt.StepID, attempt.ID)
+		if a.bus != nil {
+			a.bus.PublishWorkflowChanged(attempt.RunID)
+		}
 	}
 	if a.bus != nil && IsNamedSlot(s.Slot) {
 		a.bus.PublishSlotAgentDied(s.TaskID, s.Slot)
@@ -1933,9 +2050,17 @@ func (a *agentService) SetAgentActivity(ctx context.Context, taskID, activity, w
 	if sess.ExecutionID == "" {
 		return errors.New("running agent session has no execution identity")
 	}
+	// Legato's plugin or mod reports this session; its events own the
+	// state and its background jobs (docs/ai/agent-states.md).
+	if sess.HookSource == store.HookSourcePlugin || sess.HookSource == store.HookSourceMod {
+		return nil
+	}
 	oldActivity := sess.Activity
 
 	if err := a.store.UpdateAgentActivity(ctx, taskID, activity); err != nil {
+		if errors.Is(err, store.ErrAgentStateIgnored) {
+			return nil
+		}
 		return fmt.Errorf("updating agent activity: %w", err)
 	}
 	if err := a.store.RecordExecutionActivity(ctx, sess.ExecutionID, activity, workingDir); err != nil {
@@ -2179,6 +2304,9 @@ func gitWorktreeRoot(directory string) (string, error) {
 // interaction adapter. For Chimera agents with a discovered endpoint, this
 // uses the HTTP API; for all others, it uses tmux send-keys.
 func (a *agentService) SendMessage(ctx context.Context, taskID, message string) error {
+	if err := a.awaitMessageBinding(ctx, taskID); err != nil {
+		return err
+	}
 	adapter := a.resolveInteractionAdapter(ctx, taskID)
 	return adapter.SendMessage(ctx, taskID, message)
 }
@@ -2186,7 +2314,32 @@ func (a *agentService) SendMessage(ctx context.Context, taskID, message string) 
 // InterruptAgent sends an interrupt to the agent's active turn.
 // QueueMessage delegates step-boundary delivery to the active interaction adapter.
 func (a *agentService) QueueMessage(ctx context.Context, taskID, message string) error {
+	if err := a.awaitMessageBinding(ctx, taskID); err != nil {
+		return err
+	}
 	return a.resolveInteractionAdapter(ctx, taskID).QueueMessage(ctx, taskID, message)
+}
+
+func (a *agentService) awaitMessageBinding(ctx context.Context, taskID string) error {
+	session, err := slotSession(ctx, a.store, taskID)
+	if err != nil {
+		return err
+	}
+	if session.NativeOff || (session.ChimeraEndpoint != nil && session.ChimeraSessionID != nil) {
+		return nil
+	}
+	adapter := a.resolveAdapter(session.AgentKind)
+	binder, ok := adapter.(NativeBindingAdapter)
+	if !ok || !binder.BindsNativeEndpoint() {
+		return nil
+	}
+	if a.awaitNativeEndpoint(ctx, taskID, adapter) {
+		return nil
+	}
+	if err := ctx.Err(); err != nil {
+		return err
+	}
+	return fmt.Errorf("Agent %s has not bound its native endpoint; message was not typed into the starting terminal", taskID)
 }
 
 func (a *agentService) InterruptAgent(ctx context.Context, taskID string) error {
@@ -2315,7 +2468,7 @@ const chimeraDiscoveryRequestTimeout = 2 * time.Second
 // Codex agent is bound to the bridge its session started (see
 // discoverClaudeBridge and discoverCodexBridge).
 func (a *agentService) DiscoverChimera(ctx context.Context, taskID string) error {
-	session, err := a.store.GetAgentSessionByTaskID(ctx, taskID)
+	session, err := slotSession(ctx, a.store, taskID)
 	if err != nil {
 		return err
 	}
@@ -2325,10 +2478,22 @@ func (a *agentService) DiscoverChimera(ctx context.Context, taskID string) error
 	if session.AgentKind == codexAgentKind {
 		return a.discoverCodexBridge(ctx, taskID, session.ID)
 	}
-	return a.discoverChimeraFromLockfiles(ctx, taskID, session.ID, taskID, nil)
+	task, err := a.store.GetTask(ctx, session.TaskID)
+	if err != nil {
+		return err
+	}
+	expectedName := AgentSlotKey(session.TaskID, session.Slot)
+	if task.Ephemeral {
+		expectedName = ""
+	}
+	return a.discoverChimeraFromLockfiles(ctx, taskID, session.ID, expectedName, nil)
 }
 
 func (a *agentService) discoverChimeraFromLockfiles(ctx context.Context, taskID string, agentSessionID int, expectedSessionName string, excluded map[string]bool) error {
+	secret, _, err := a.store.GetChimeraLaunchSecret(ctx, agentSessionID)
+	if err != nil {
+		return fmt.Errorf("reading Chimera launch authentication: %w", err)
+	}
 	home, err := os.UserHomeDir()
 	if err != nil {
 		return fmt.Errorf("locating Chimera instances: %w", err)
@@ -2360,10 +2525,18 @@ func (a *agentService) discoverChimeraFromLockfiles(ctx context.Context, taskID 
 			continue
 		}
 		seenEndpoints[lf.URL] = true
-		if !nativeEndpointServes(ctx, lf.URL, lf.SessionID, expectedSessionName) {
-			continue
+		endpoint := lf.URL
+		if secret != "" {
+			endpoint = strings.TrimRight(lf.URL, "/") + "/" + url.PathEscape(secret)
 		}
-		valid = append(valid, candidate{sessionID: lf.SessionID, endpoint: lf.URL})
+		if !nativeEndpointServes(ctx, endpoint, lf.SessionID, expectedSessionName) {
+			// Older Chimera ignores the secret variable and still serves a bare URL.
+			if secret == "" || !nativeEndpointServes(ctx, lf.URL, lf.SessionID, expectedSessionName) {
+				continue
+			}
+			endpoint = lf.URL
+		}
+		valid = append(valid, candidate{sessionID: lf.SessionID, endpoint: endpoint})
 	}
 
 	if len(valid) == 0 {
@@ -2372,8 +2545,13 @@ func (a *agentService) discoverChimeraFromLockfiles(ctx context.Context, taskID 
 	if len(valid) > 1 {
 		return ErrChimeraDiscoveryAmbiguous
 	}
-	if err := a.store.UpdateChimeraDiscoveryForSession(ctx, agentSessionID, valid[0].sessionID, valid[0].endpoint); err != nil {
+	if bound, err := a.store.BindChimeraDiscoveryIfUnbound(ctx, agentSessionID, valid[0].sessionID, valid[0].endpoint); err != nil {
 		return fmt.Errorf("persisting Chimera discovery: %w", err)
+	} else if !bound {
+		return store.ErrNotFound
+	}
+	if err := a.store.RemoveChimeraLaunchSecretFile(ctx, agentSessionID); err != nil {
+		return fmt.Errorf("removing Chimera bootstrap secret: %w", err)
 	}
 	if a.bus != nil {
 		a.bus.PublishAgentChimeraDiscovered(taskID)
@@ -2396,7 +2574,7 @@ func nativeEndpointServes(ctx context.Context, endpoint, sessionID, expectedSess
 		return false
 	}
 	snapshot, err := client.GetSession(requestCtx, sessionID)
-	return err == nil && snapshot.Name == expectedSessionName
+	return err == nil && (expectedSessionName == "" || snapshot.Name == expectedSessionName)
 }
 
 func isLoopbackHTTPURL(raw string) bool {
@@ -2413,22 +2591,30 @@ func isLoopbackHTTPURL(raw string) bool {
 }
 
 func (a *agentService) discoverChimeraLockfile(ctx context.Context, taskID, expectedSessionName string, preExisting map[string]bool) {
-	// Ephemeral sessions have no stable task-bound identity. Preserve their
-	// existing launch-time behavior separately from verified manual discovery.
-	if expectedSessionName == "" {
-		a.discoverEphemeralChimeraLockfile(ctx, taskID, preExisting)
-		return
-	}
-
 	activeSession, err := slotSession(ctx, a.store, taskID)
 	if err != nil {
 		return
+	}
+	// Give the mod first refusal. Legacy adapters start discovery immediately.
+	if binder, ok := a.resolveAdapter(activeSession.AgentKind).(NativeBindingAdapter); ok && binder.BindsNativeEndpoint() {
+		deadline := time.Now().Add(a.chimeraModWait)
+		for time.Now().Before(deadline) {
+			current, err := slotSession(ctx, a.store, taskID)
+			if err != nil || current.ID != activeSession.ID || current.Status != "running" || current.NativeOff || current.ChimeraEndpoint != nil || current.ChimeraSessionID != nil {
+				return
+			}
+			select {
+			case <-ctx.Done():
+				return
+			case <-time.After(nativeBindPoll):
+			}
+		}
 	}
 	// Poll for up to 30 seconds — Chimera may take a few seconds to boot.
 	for i := 0; i < 60; i++ {
 		// Stop once the agent is gone or replaced: its endpoint is no one's
 		// to find now, and every poll asks each instance on the machine.
-		if current, err := slotSession(ctx, a.store, taskID); err != nil || current.ID != activeSession.ID || current.Status != "running" {
+		if current, err := slotSession(ctx, a.store, taskID); err != nil || current.ID != activeSession.ID || current.Status != "running" || current.NativeOff || current.ChimeraEndpoint != nil || current.ChimeraSessionID != nil {
 			return
 		}
 		if err := a.discoverChimeraFromLockfiles(ctx, taskID, activeSession.ID, expectedSessionName, preExisting); err == nil {
@@ -2445,36 +2631,4 @@ func (a *agentService) discoverChimeraLockfile(ctx context.Context, taskID, expe
 		}
 	}
 	log.Printf("chimera lockfile discovery for %s: timed out after 30s", taskID)
-}
-
-func (a *agentService) discoverEphemeralChimeraLockfile(ctx context.Context, taskID string, preExisting map[string]bool) {
-	home, err := os.UserHomeDir()
-	if err != nil {
-		return
-	}
-	instancesDir := filepath.Join(home, ".chimera", "instances")
-	for i := 0; i < 60; i++ {
-		entries, err := os.ReadDir(instancesDir)
-		if err == nil {
-			for _, entry := range entries {
-				if !strings.HasSuffix(entry.Name(), ".json") || preExisting[entry.Name()] {
-					continue
-				}
-				data, readErr := os.ReadFile(filepath.Join(instancesDir, entry.Name()))
-				lf, parseErr := chimera.ParseLockfile(data)
-				if readErr != nil || parseErr != nil {
-					continue
-				}
-				if err := a.store.UpdateChimeraDiscovery(ctx, taskID, lf.SessionID, lf.URL); err == nil && a.bus != nil {
-					a.bus.PublishAgentChimeraDiscovered(taskID)
-				}
-				return
-			}
-		}
-		select {
-		case <-ctx.Done():
-			return
-		case <-time.After(500 * time.Millisecond):
-		}
-	}
 }

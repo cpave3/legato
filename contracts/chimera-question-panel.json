@@ -1,0 +1,10 @@
+{
+  "requestId": "q-1",
+  "questions": [{
+    "id": "q1",
+    "question": "Which test runner?",
+    "options": [{"label": "vitest"}, {"label": "jest"}],
+    "multiSelect": false,
+    "allowOther": true
+  }]
+}

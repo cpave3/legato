@@ -78,7 +78,7 @@ type UpdateOptions struct {
 	// and asks its version.
 	Verify func(want string) func(ctx context.Context, binary string) error
 
-	// Tools are command-line tools kept current beside Legato (st), under
+	// Tools are command-line tools kept current beside Legato (st and chimera), under
 	// the same mode: checked with Legato, installed at once in auto mode
 	// (nothing holds them open), and on the person's word in ask mode.
 	Tools []*ToolUpdater

@@ -12,6 +12,7 @@ import (
 
 type PlanService interface {
 	Queue(context.Context) ([]service.PlanQueueItem, error)
+	TaskPlans(context.Context, string) ([]service.PlanQueueItem, error)
 	Plan(context.Context, string) (*service.PlanView, error)
 	Revisions(context.Context, string) ([]store.PlanRevision, error)
 	Respond(context.Context, string, string, service.PlanResponseInput) error

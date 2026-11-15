@@ -9,7 +9,7 @@ vi.mock("../../hooks/useServer",()=>({useServer:()=>({baseUrl:""})}))
 vi.mock("../../hooks/useBoard",()=>({useBoard:()=>({columns:[{name:"Backlog",cards:[{id:"LEG-42",title:"Investigate timeout",status:"Backlog",workspace_name:"Platform"},{id:"LEG-45",title:"Unassigned task",status:"Backlog",workspace_name:""}]},{name:"Done",cards:[{id:"LEG-43",title:"Already fixed",status:"Done",workspace_name:"Platform"}]}]})}))
 vi.mock("../../lib/board",()=>({fetchArchivedTasks:(...args:unknown[])=>fetchArchivedTasks(...args)}))
 
-function openPicker(){cleanup();render(<MemoryRouter><WorkflowsPage/></MemoryRouter>);fireEvent.click(screen.getByRole("button",{name:"Run"}));fireEvent.click(screen.getByRole("combobox",{name:/select a task/i}))}
+function openPicker(){cleanup();render(<MemoryRouter><WorkflowsPage/></MemoryRouter>);fireEvent.click(screen.getByRole("tab",{name:"Workflows"}));fireEvent.click(screen.getByRole("button",{name:"Run Triage task"}));fireEvent.click(screen.getByRole("combobox",{name:/select a task/i}))}
 
 describe("workflow task input",()=>{
   it("groups active tasks by workspace and hides done and archived tasks by default",()=>{fetchArchivedTasks.mockClear();openPicker();const list=screen.getByRole("listbox",{name:/task/i});const platform=within(list).getByRole("group",{name:"Platform"});const unassigned=within(list).getByRole("group",{name:"Unassigned"});expect(within(platform).getByRole("option",{name:/LEG-42.*Investigate timeout/})).toBeTruthy();expect(within(unassigned).getByRole("option",{name:/LEG-45.*Unassigned task/})).toBeTruthy();expect(within(list).queryByRole("option",{name:/LEG-43|LEG-44/})).toBeNull();expect(fetchArchivedTasks).not.toHaveBeenCalled()})

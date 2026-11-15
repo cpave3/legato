@@ -5,7 +5,9 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc -b && vite build",
+    "build": "node ../scripts/theme-utilities.mjs --check && tsc -b && vite build",
+    "themes:generate": "node ../scripts/theme-utilities.mjs",
+    "themes:check": "node ../scripts/theme-utilities.mjs --check",
     "lint": "eslint .",
     "preview": "vite preview",
     "test": "vitest run",

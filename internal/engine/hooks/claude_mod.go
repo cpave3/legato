@@ -47,6 +47,20 @@ const (
 	claudeToolsModName   = "legato-tools"
 )
 
+// claudeStateModFS holds the state plugin for Claude Code: an ordinary
+// plugin whose hooks hand each payload to `legato agent hook claude-code`,
+// which reports what the session is doing and what it started still runs.
+// Legato writes it each time it starts, so the hooks are never older than
+// the binary that reads them. See docs/ai/agent-states.md.
+//
+//go:embed all:claudemod/state
+var claudeStateModFS embed.FS
+
+const (
+	claudeStateModSource = "claudemod/state"
+	claudeStateModName   = "legato-state"
+)
+
 // InstallClaudeMod writes the mod under root and returns its plugin
 // directory, the path Claude Code loads it from.
 //
@@ -79,6 +93,17 @@ func InstallClaudeToolsMod(root string) (string, error) {
 	pluginDir := filepath.Join(root, claudeToolsModName)
 	if err := installEmbeddedMod(claudeToolsModFS, claudeToolsModSource, pluginDir); err != nil {
 		return "", fmt.Errorf("installing the Claude Code tools plugin: %w", err)
+	}
+	return pluginDir, nil
+}
+
+// InstallClaudeStateMod writes the state plugin under root, beside the
+// mods, and returns its plugin directory. Like InstallClaudeMod it leaves an
+// up-to-date install untouched.
+func InstallClaudeStateMod(root string) (string, error) {
+	pluginDir := filepath.Join(root, claudeStateModName)
+	if err := installEmbeddedMod(claudeStateModFS, claudeStateModSource, pluginDir); err != nil {
+		return "", fmt.Errorf("installing the Claude Code state plugin: %w", err)
 	}
 	return pluginDir, nil
 }

@@ -1,0 +1,8 @@
+{"type":"session.start","cwd":"/repo","seq":1,"sessionId":"fixture-subagent","reason":"new","name":"fixture-task","serverUrl":"http://127.0.0.1:4444/fixture-secret","version":"v0.0.0-local","apiVersion":1}
+{"type":"turn.start","cwd":"/repo","seq":2,"sessionId":"fixture-subagent","turnId":"0dfaca43-d2c1-44e4-a906-ee6dd9124382","source":"user"}
+{"type":"agent.spawn","cwd":"/repo","seq":3,"sessionId":"fixture-subagent","agentId":"01M7CM2RH2AP9Q5TNWQ3CTCW1D","background":true,"description":"fixture-child"}
+{"type":"turn.complete","cwd":"/repo","seq":4,"sessionId":"fixture-subagent","reason":"stop","turnId":"0dfaca43-d2c1-44e4-a906-ee6dd9124382"}
+{"type":"agent.finish","cwd":"/repo","seq":5,"sessionId":"fixture-subagent","reason":"stop","agentId":"01M7CM2RH2AP9Q5TNWQ3CTCW1D","background":true,"description":"fixture-child"}
+{"type":"turn.start","cwd":"/repo","seq":6,"sessionId":"fixture-subagent","turnId":"57359e0b-edb6-4fb7-93e6-0f6a4f03fc23","source":"background"}
+{"type":"turn.complete","cwd":"/repo","seq":7,"sessionId":"fixture-subagent","reason":"stop","turnId":"57359e0b-edb6-4fb7-93e6-0f6a4f03fc23"}
+{"type":"session.end","cwd":"/repo","seq":8,"sessionId":"fixture-subagent","reason":"exit"}

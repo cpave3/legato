@@ -1,0 +1,6 @@
+{"type":"session.start","cwd":"/repo","seq":1,"sessionId":"fixture-background","reason":"new","name":"fixture-task","serverUrl":"http://127.0.0.1:4444/fixture-secret","version":"v0.0.0-local","apiVersion":1}
+{"type":"turn.start","cwd":"/repo","seq":2,"sessionId":"fixture-background","turnId":"adcfc411-8e1a-4b05-a38c-036473c7c5f4","source":"user"}
+{"type":"background.start","cwd":"/repo","seq":3,"sessionId":"fixture-background","jobId":"shell_1","command":"sleep 2; printf background-fixture"}
+{"type":"turn.complete","cwd":"/repo","seq":4,"sessionId":"fixture-background","reason":"stop","turnId":"adcfc411-8e1a-4b05-a38c-036473c7c5f4"}
+{"type":"background.exit","cwd":"/repo","seq":5,"sessionId":"fixture-background","jobId":"shell_1","exitCode":0,"command":"sleep 2; printf background-fixture"}
+{"type":"session.end","cwd":"/repo","seq":6,"sessionId":"fixture-background","reason":"exit"}

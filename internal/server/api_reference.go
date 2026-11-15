@@ -25,8 +25,12 @@ var everydayCalls = []everydayCall{
 	{"Read the board: its columns and cards", "GET", "/api/board", "", ""},
 	{"Read a task in brief: its column, pull requests and latest note", "GET", "/api/tasks/{id}", "?view=summary", ""},
 	{"Read a task in full, with its description and notes", "GET", "/api/tasks/{id}", "", ""},
+	{"Read a task's notes, each in full, with its source and time", "GET", "/api/tasks/{id}/notes", "", ""},
+	{"List a task's plans, newest first", "GET", "/api/tasks/{id}/plans", "", ""},
+	{"Read a plan: its text, revision and status", "GET", "/api/plans/{plan_id}", "", ""},
 	{"Create a task (a card)", "POST", "/api/tasks", "", `{"title": "…", "column": "Backlog"}`},
 	{"Move a card to another column", "PATCH", "/api/tasks/{id}", "", `{"column": "Done"}`},
+	{"Put a card just above another in its column (`null` for last)", "PATCH", "/api/tasks/{id}", "", `{"before": "LEG-12"}`},
 	{"Rename a task or change its description", "PATCH", "/api/tasks/{id}", "", `{"title": "…", "description": "…"}`},
 	{"Archive a done task", "POST", "/api/tasks/{id}/archive", "", ""},
 	{"Link a pull request to a task", "POST", "/api/tasks/{id}/link-pr", "", `{"owner": "…", "repo": "…", "pr_number": 12}`},
@@ -39,13 +43,20 @@ var everydayCalls = []everydayCall{
 	{"Restart an agent, keeping its conversation", "POST", "/api/agents/{task_id}/restart", "", ""},
 	{"List what needs attention", "GET", "/api/attention", "", ""},
 	{"Change a setting", "PUT", "/api/config/settings/{key}", "", `{"value": …}`},
+	{"List the workers this Legato hands tasks to", "GET", "/api/settings/workers", "", ""},
+	{"Read what a worker's review passes can do", "GET", "/api/settings/workers/{instance_id}/review-passes", "", ""},
+	{"Hand a task to a worker, with its review passes", "POST", "/api/tasks/{id}/handoff", "", handOffBody},
 }
+
+// handOffBody is the Hand off form's request: see "Handing a task to a
+// worker" on the page.
+const handOffBody = `{"worker": "<instance_id>", "purpose": "make-change", "kind": "new-branch", "branch": "…", "repo": "owner/name", "agent_kind": "claude-code", "review": {"enabled": true, "agent": "codex", "model": "…", "tier": "…", "skill": "…", "max_passes": 3}}`
 
 // routeBodies is the request body of the routes most called, by
 // "METHOD pattern"; … stands for a value of your own.
 var routeBodies = map[string]string{
 	"POST /api/tasks":                         `{"title": "…", "description": "…", "column": "Backlog", "priority": "", "workspace_id": 1}`,
-	"PATCH /api/tasks/{id}":                   `{"title": "…", "description": "…", "column": "Done", "workspace_id": 1}`,
+	"PATCH /api/tasks/{id}":                   `{"title": "…", "description": "…", "column": "Done", "before": "LEG-12", "workspace_id": 1}`,
 	"POST /api/tasks/{id}/agent":              `{"agent_kind": "claude-code", "prompt": "…", "working_dir": "…", "repo": "owner/name", "resources": ["…"]}`,
 	"POST /api/tasks/{id}/link-pr":            `{"owner": "…", "repo": "…", "pr_number": 12}`,
 	"POST /api/agents/spawn":                  `{"title": "…", "agent_kind": "claude-code", "working_dir": "…", "prompt": "…"}`,
@@ -58,6 +69,7 @@ var routeBodies = map[string]string{
 	"PUT /api/config/settings/{key}":          `{"value": …}`,
 	"PUT /api/config/lists/{list}/{name}":     `{"value": {…}}`,
 	"POST /api/reeve/message":                 `{"text": "…"}`,
+	"POST /api/tasks/{id}/handoff":            handOffBody,
 }
 
 // apiGroups are the page's sections, each the routes whose pattern starts
@@ -121,6 +133,18 @@ A card on the board is a task: its ID is the task's. An agent is addressed by it
 	for _, c := range everydayCalls {
 		fmt.Fprintf(&b, "| %s | `%s %s%s` | %s |\n", c.To, c.Method, displayPath(c.Pattern), c.Query, code(c.Body))
 	}
+	b.WriteString(`
+## Handing a task to a worker
+
+` + "`POST /api/tasks/<id>/handoff`" + ` sends a task to a worker, as the board's **Hand off** form does, and answers ` + "`201`" + ` with ` + "`{\"away\": …}`" + `. Its body:
+
+- ` + "`worker`" + `: the worker's instance ID, from ` + "`GET /api/settings/workers`" + `.
+- ` + "`purpose`" + `: ` + "`make-change`" + ` or ` + "`find-out`" + `.
+- ` + "`kind`" + `: ` + "`new-branch`" + `, or ` + "`pushed-branch`" + ` with the branch on GitHub in ` + "`branch`" + `.
+- ` + "`repo`" + `: the repository, ` + "`owner/name`" + `.
+- ` + "`agent_kind`" + `: the author's agent tool; empty for the worker's default.
+- ` + "`review`" + ` (make-change only, optional): what changes of the worker's review passes for this handoff. Leave it out to keep the worker's settings. ` + "`enabled`" + ` turns them on or off; ` + "`agent`" + ` is the reviewer's tool, with ` + "`model`" + ` or one of its ` + "`tier`" + `s; ` + "`skill`" + ` and ` + "`max_passes`" + ` (at least 1). A field left out keeps the worker's. ` + "`GET /api/settings/workers/<instance_id>/review-passes`" + ` says the worker's settings and the tools, tiers and skills it has; anything else is refused with ` + "`422`" + ` in the worker's words.
+`)
 	groups := make([][]routeClassEntry, len(apiGroups))
 	for _, e := range routeClassTable {
 		if e.Pattern == notServedPattern {

@@ -48,6 +48,9 @@ type mockBoardService struct {
 	updatedWorkspaceCalled bool
 	movedTo                string
 	moveErr                error
+	placed                 []string // "id<before", in call order
+	placeErr               error
+	calls                  []string
 }
 
 func (m *mockBoardService) ListColumns(_ context.Context) ([]service.Column, error) {
@@ -82,9 +85,14 @@ func (m *mockBoardService) GetCard(_ context.Context, id string) (*service.CardD
 }
 func (m *mockBoardService) MoveCard(_ context.Context, _ string, col string) error {
 	m.movedTo = col
+	m.calls = append(m.calls, "move")
 	return m.moveErr
 }
-func (m *mockBoardService) ReorderCard(_ context.Context, _ string, _ int) error { return nil }
+func (m *mockBoardService) PlaceCard(_ context.Context, id, before string) error {
+	m.placed = append(m.placed, id+"<"+before)
+	m.calls = append(m.calls, "place")
+	return m.placeErr
+}
 func (m *mockBoardService) SearchCards(_ context.Context, query string) ([]service.Card, error) {
 	return m.searchResults, nil
 }
@@ -342,27 +350,31 @@ func (m *mockSyncService) Sync(_ context.Context) (*service.SyncResult, error) {
 func (m *mockSyncService) Status() service.SyncStatus                          { return service.SyncStatus{} }
 
 type promptAgentService struct {
-	agent            service.AgentSession
-	setActivities    []string
-	setWorkingDirs   []string
-	queuedTaskID     string
-	queuedMessage    string
-	queueErr         error
-	chimeraEndpoint  string
-	chimeraSessionID string
-	agentEnvironment []string
-	permissionTaskID string
-	permissionReqID  string
-	permissionAction service.PermissionAction
-	permissionErr    error
-	questionTaskID   string
-	questionReqID    string
-	questionAnswer   service.QuestionAnswer
-	questionErr      error
-	captureOutput    string
-	captureErr       error
-	capturedTaskID   string
-	killedTaskID     string
+	sentTaskID        string
+	sentMessage       string
+	sendMessageErr    error
+	interruptedTaskID string
+	agent             service.AgentSession
+	setActivities     []string
+	setWorkingDirs    []string
+	queuedTaskID      string
+	queuedMessage     string
+	queueErr          error
+	chimeraEndpoint   string
+	chimeraSessionID  string
+	agentEnvironment  []string
+	permissionTaskID  string
+	permissionReqID   string
+	permissionAction  service.PermissionAction
+	permissionErr     error
+	questionTaskID    string
+	questionReqID     string
+	questionAnswer    service.QuestionAnswer
+	questionErr       error
+	captureOutput     string
+	captureErr        error
+	capturedTaskID    string
+	killedTaskID      string
 }
 
 func (p *promptAgentService) SpawnAgent(context.Context, string, int, int, ...service.AgentSpawnOptions) error {
@@ -429,15 +441,18 @@ func (p *promptAgentService) SendPeerMessage(context.Context, string, string, st
 func (p *promptAgentService) BroadcastToPeers(context.Context, string, string, string, string) (service.AgentBroadcastResult, error) {
 	return service.AgentBroadcastResult{}, nil
 }
-func (p *promptAgentService) SendMessage(context.Context, string, string) error {
-	return nil
+func (p *promptAgentService) SendMessage(_ context.Context, taskID, message string) error {
+	p.sentTaskID = taskID
+	p.sentMessage = message
+	return p.sendMessageErr
 }
 func (p *promptAgentService) QueueMessage(_ context.Context, taskID, message string) error {
 	p.queuedTaskID = taskID
 	p.queuedMessage = message
 	return p.queueErr
 }
-func (p *promptAgentService) InterruptAgent(context.Context, string) error {
+func (p *promptAgentService) InterruptAgent(_ context.Context, taskID string) error {
+	p.interruptedTaskID = taskID
 	return nil
 }
 func (p *promptAgentService) ResolvePermission(_ context.Context, taskID, requestID string, action service.PermissionAction) error {
@@ -2014,6 +2029,100 @@ func TestPatchTaskRoutesEdits(t *testing.T) {
 		}
 	})
 
+	patch := func(t *testing.T, svc *mockBoardService, body string) *httptest.ResponseRecorder {
+		t.Helper()
+		req := httptest.NewRequest("PATCH", "/api/tasks/t1", strings.NewReader(body))
+		req.Header.Set("Content-Type", "application/json")
+		w := httptest.NewRecorder()
+		New(svc, nil, nil, ":0").Handler().ServeHTTP(w, req)
+		return w
+	}
+
+	t.Run("before places the card in its column", func(t *testing.T) {
+		svc := &mockBoardService{}
+		w := patch(t, svc, `{"before":"t2"}`)
+		if w.Code != http.StatusOK {
+			t.Fatalf("status = %d, want 200: %s", w.Code, w.Body)
+		}
+		if len(svc.placed) != 1 || svc.placed[0] != "t1<t2" || svc.movedTo != "" {
+			t.Fatalf("placed = %v, movedTo = %q", svc.placed, svc.movedTo)
+		}
+	})
+
+	t.Run("before null puts the card last", func(t *testing.T) {
+		svc := &mockBoardService{}
+		if w := patch(t, svc, `{"before":null}`); w.Code != http.StatusOK {
+			t.Fatalf("status = %d, want 200: %s", w.Code, w.Body)
+		}
+		if len(svc.placed) != 1 || svc.placed[0] != "t1<" {
+			t.Fatalf("placed = %v, want [t1<]", svc.placed)
+		}
+	})
+
+	t.Run("no before leaves the card's place to the move", func(t *testing.T) {
+		svc := &mockBoardService{}
+		if w := patch(t, svc, `{"column":"Doing"}`); w.Code != http.StatusOK {
+			t.Fatalf("status = %d", w.Code)
+		}
+		if len(svc.placed) != 0 {
+			t.Fatalf("placed = %v, want none", svc.placed)
+		}
+	})
+
+	t.Run("column and before move the card, then place it", func(t *testing.T) {
+		svc := &mockBoardService{}
+		if w := patch(t, svc, `{"column":"Doing","before":"t9"}`); w.Code != http.StatusOK {
+			t.Fatalf("status = %d: %s", w.Code, w.Body)
+		}
+		if strings.Join(svc.calls, ",") != "move,place" || svc.placed[0] != "t1<t9" {
+			t.Fatalf("calls = %v, placed = %v", svc.calls, svc.placed)
+		}
+	})
+
+	t.Run("a failed move does not place", func(t *testing.T) {
+		svc := &mockBoardService{moveErr: errors.New("move failed")}
+		patch(t, svc, `{"column":"Doing","before":"t9"}`)
+		if len(svc.placed) != 0 {
+			t.Fatalf("placed = %v, want none", svc.placed)
+		}
+	})
+
+	t.Run("a neighbour no longer in the column is a conflict", func(t *testing.T) {
+		svc := &mockBoardService{placeErr: fmt.Errorf("t2 is not a card in Doing: %w", store.ErrConflict)}
+		w := patch(t, svc, `{"before":"t2"}`)
+		if w.Code != http.StatusConflict {
+			t.Fatalf("status = %d, want 409", w.Code)
+		}
+	})
+
+	// The move is made and kept; a neighbour that has left the column since
+	// the board was drawn only costs the card its place, which stays last.
+	// The request succeeds, so the move's workflow triggers still come back.
+	t.Run("a stale neighbour after a move leaves the card last and succeeds", func(t *testing.T) {
+		svc := &mockBoardService{placeErr: fmt.Errorf("t9 is not a card in Doing: %w", store.ErrConflict)}
+		w := patch(t, svc, `{"column":"Doing","before":"t9"}`)
+		if w.Code != http.StatusOK {
+			t.Fatalf("status = %d, want 200: %s", w.Code, w.Body)
+		}
+		if svc.movedTo != "Doing" || strings.Join(svc.calls, ",") != "move,place" {
+			t.Fatalf("movedTo = %q, calls = %v", svc.movedTo, svc.calls)
+		}
+	})
+
+	t.Run("another placement failure after a move is still an error", func(t *testing.T) {
+		svc := &mockBoardService{placeErr: errors.New("disk on fire")}
+		if w := patch(t, svc, `{"column":"Doing","before":"t9"}`); w.Code != http.StatusInternalServerError {
+			t.Fatalf("status = %d, want 500", w.Code)
+		}
+	})
+
+	t.Run("a card away on a worker is not placed", func(t *testing.T) {
+		svc := &mockBoardService{placeErr: &service.TaskAwayError{TaskID: "t1", Worker: "w"}}
+		if w := patch(t, svc, `{"before":"t2"}`); w.Code != http.StatusConflict {
+			t.Fatalf("status = %d, want 409", w.Code)
+		}
+	})
+
 	t.Run("column uses sync-aware move when available", func(t *testing.T) {
 		board := &mockBoardService{columns: []service.Column{}, cards: map[string][]service.Card{}}
 		syncSvc := &mockSyncService{}
@@ -2240,5 +2349,36 @@ func TestKillAgentHandlerKillsOrdinaryAgentOnly(t *testing.T) {
 	}
 	if cancelled {
 		t.Fatal("ordinary agent kill cancelled a swarm")
+	}
+}
+
+func TestNativePromptKeysDoNotFallBackToTyping(t *testing.T) {
+	agents := &promptAgentService{chimeraEndpoint: "http://127.0.0.1:1", chimeraSessionID: "native"}
+	tmux := &mockTmuxManager{}
+	server := New(nil, agents, tmux, ":0")
+	var answers []WSMessage
+	client := &wsClient{ctx: context.Background(), sendFn: func(m WSMessage) { answers = append(answers, m) }}
+	server.handleWSMessage(client, WSMessage{Type: MsgSendKeys, AgentID: "native-agent", Keys: "Down Enter"})
+	if len(tmux.sentKeys) != 0 {
+		t.Fatalf("typed native keys: %v", tmux.sentKeys)
+	}
+	if len(answers) != 1 || answers[0].Type != MsgError {
+		t.Fatalf("answers = %+v; want refusal", answers)
+	}
+	server.handleWSMessage(client, WSMessage{Type: MsgSendKeys, AgentID: "native-agent", Keys: "hello\n"})
+	if agents.sentTaskID != "native-agent" || agents.sentMessage != "hello" {
+		t.Fatalf("native submission = %q, %q", agents.sentTaskID, agents.sentMessage)
+	}
+	server.handleWSMessage(client, WSMessage{Type: MsgSendKeys, AgentID: "native-agent", Keys: "C-c"})
+	if agents.interruptedTaskID != "native-agent" {
+		t.Fatal("interrupt bypassed native route")
+	}
+	agents.sendMessageErr = errors.New("native offline")
+	server.handleWSMessage(client, WSMessage{Type: MsgSendKeys, AgentID: "native-agent", Keys: "retry\n"})
+	if len(answers) != 2 || !strings.Contains(answers[1].Error, "native offline") {
+		t.Fatalf("native failure = %+v", answers)
+	}
+	if len(tmux.sentKeys) != 0 {
+		t.Fatalf("typed after native failure: %v", tmux.sentKeys)
 	}
 }

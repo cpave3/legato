@@ -99,6 +99,8 @@ type WSMessage struct {
 	Queue          bool                `json:"queue,omitempty"`
 	Decision       string              `json:"decision,omitempty"`
 	Feedback       *string             `json:"feedback,omitempty"`
+	// Line numbers a line the Reeve said (reeve_spoke).
+	Line int64 `json:"line,omitempty"`
 	// Option names which of a permission request's options an allow takes.
 	Option string `json:"option,omitempty"`
 	// Answers and Dismissed answer a question the agent asked (agent_question).
@@ -435,6 +437,21 @@ func (s *Server) handleSendKeys(client *wsClient, msg WSMessage) {
 
 	if msg.AgentID == "" || msg.Keys == "" {
 		client.send(WSMessage{Type: MsgError, Error: "agent_id and keys are required"})
+		return
+	}
+
+	if s.agents != nil && s.agents.HasChimeraEndpoint(context.Background(), msg.AgentID) {
+		var err error
+		if strings.HasSuffix(msg.Keys, "\n") {
+			err = s.agents.SendMessage(context.Background(), msg.AgentID, strings.TrimSuffix(msg.Keys, "\n"))
+		} else if msg.Keys == "C-c" {
+			err = s.agents.InterruptAgent(context.Background(), msg.AgentID)
+		} else {
+			err = fmt.Errorf("native agent keys are unavailable; use its native controls")
+		}
+		if err != nil {
+			client.send(WSMessage{Type: MsgError, Error: err.Error()})
+		}
 		return
 	}
 

@@ -1,0 +1,38 @@
+Sanitized integration evidence — task 3jhyll8b
+Baselines: Legato d9536f87402ac93a6b14eebd45cc1a8e98d95d08; Chimera 99d44f9d3c4b75ab14132534fc0414c84402e5c5.
+
+FINAL BUILT-CLI/MOD/HTTP/WEBSOCKET SCRATCH RUN (exit 0)
+{"scenario": "full", "passed": ["idle-append-through-real-native-stream", "resource-with-space-granted-and-used", "background-snapshot-list-result", "foreground-snapshot-list-result", "fail-child-result", "timeout-child-result", "nested-child-result", "stop-child-without-auto-result", "question-answer-through-ui-payload", "question-dismiss-through-ui-payload", "question-ws-answer-through-ui-payload", "question-ws-dismiss-through-ui-payload", "permission-allow-through-ui-payload", "permission-deny-through-ui-payload", "permission-dismiss-through-ui-payload", "five-cycles-four-concurrent-appends", "queued-message-through-ui-websocket", "five-live-reconnect-replays-no-loss-duplicates-reordering", "manual-compaction-and-summary-unavailable-recovery", "reload-resume-mcp-resource-context-agreement"]}
+{"spawn": true, "mod_binding": true, "saved_identity": true, "mcp_tool": "mcp_legato_task_x00005f_context", "mcp_round_trip": true, "mod_mcp_no_flag": true, "secret_not_in_argv": true, "secret_not_in_tmux": true, "bootstrap_consumed": true, "anonymous_http": 404, "authenticated_http": 200, "restart_recovery": true, "message_after_restart": true, "exit_unbind": true}
+
+BEFORE: ISOLATED BASELINE REGRESSIONS
+isolated-baseline-cli-red.log:
+ FAIL  test/background-lifecycle.test.ts > publishes a real background shell start and idle exit on SSE and the lifecycle source
+AssertionError: expected [] to have a length of 1 but got +0
+ FAIL  test/mod-runtime.test.ts > preserves exact child and parent tool identities in mod lifecycle events
+AssertionError: expected [ { type: 'agent.spawn', …(4) }, …(1) ] to deeply equal [ ObjectContaining{…}, …(1) ]
+isolated-baseline-snapshot-red.log:
+ FAIL  test/app.test.ts > server app > retains exact child lifecycle in snapshots after idle completion and resume
+AssertionError: expected { …(22) } to match object { subagentStates: [ { …(4) } ] }
+isolated-baseline-legato-red.log:
+--- FAIL: TestUnavailableChimeraSnapshotDoesNotExposeEndpointCanary (0.01s)
+    chimera_snapshot_test.go:95: unavailable endpoint disclosed its credential path
+--- FAIL: TestChimeraSnapshotPrefersCanonicalChildrenOverLaggingMod (0.01s)
+--- FAIL: TestTransportFailuresKeepDiagnosticsWithoutEndpointCredentials (0.00s)
+isolated-baseline-stop-window-red.log:
+ FAIL  test/app.test.ts > server app > refuses late injection at the commit boundary and permits an idle retry
+AssertionError: expected 'injected' to be 'already-running' // Object.is equality
+ FAIL  test/app.test.ts > server app > consumes an accepted HTTP append while a clean stop hook is finishing
+AssertionError: expected { beforeNextTurn: +0, …(2) } to deeply equal { beforeNextTurn: 1, …(2) }
+stream-replacement-red.log:
+--- FAIL: TestChimeraStreamFollowsReplacementExecution (2.00s)
+        chimera_stream_test.go:80: replacement subscription never started
+        chimera_stream_test.go:80: replacement subscription never started
+
+AFTER: BOUNDED RACE AND ISOLATION
+ok  	github.com/cpave3/legato/internal/server	2.307s
+{"fixtureTestExit":0,"syntheticHelperCalls":0}
+Full Go short suite exit0; service package 482.035s.
+Chimera recursive suite exit0: 2628 passed / 6 default skips. Compiled-host opt-in separately passed.
+Chimera typecheck exit0. Legato web exit0: 219 files / 1616 tests. Web typecheck/bundle exit0.
+No raw endpoint URLs, broker tokens, environment values or conversation bodies are included.

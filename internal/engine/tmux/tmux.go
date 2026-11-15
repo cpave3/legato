@@ -4,10 +4,12 @@ import (
 	"encoding/base64"
 	"fmt"
 	"io"
+	"log"
 	"os"
 	"os/exec"
 	"path/filepath"
 	"strings"
+	"sync"
 	"syscall"
 	"time"
 )
@@ -22,8 +24,10 @@ type Options struct {
 
 // Manager wraps tmux CLI operations.
 type Manager struct {
-	tmuxPath  string
-	escapeKey string
+	tmuxPath      string
+	escapeKey     string
+	guardMu       sync.RWMutex
+	deliveryGuard func(string, string) error
 }
 
 // New creates a Manager, verifying tmux is available.
@@ -168,10 +172,66 @@ func (m *Manager) IsAlive(name string) (bool, error) {
 	return false, fmt.Errorf("tmux has-session: %w", err)
 }
 
+// SetDeliveryGuard installs the agent owner's foreground/lifecycle check. All
+// agent input fails closed until an owner supplies it, including raw UI keys.
+func (m *Manager) SetDeliveryGuard(guard func(string, string) error) {
+	m.guardMu.Lock()
+	defer m.guardMu.Unlock()
+	m.deliveryGuard = guard
+}
+
+func (m *Manager) checkDelivery(name string) (paneID string, err error) {
+	defer func() {
+		if err != nil {
+			log.Printf("tmux agent input refused session=%s: %v", name, err)
+		}
+	}()
+	m.guardMu.RLock()
+	guard := m.deliveryGuard
+	m.guardMu.RUnlock()
+	if guard == nil {
+		return "", fmt.Errorf("agent input to %s not delivered: no foreground verifier", name)
+	}
+	// Pin the active pane: a later focus change must not redirect these keys.
+	pane, command, err := m.foregroundPane(name)
+	if err != nil {
+		return "", fmt.Errorf("agent input to %s not delivered: %w", name, err)
+	}
+	if err := guard(name, command); err != nil {
+		return "", err
+	}
+	return pane, nil
+}
+
+func (m *Manager) foregroundPane(name string) (string, string, error) {
+	out, err := exec.Command(m.tmuxPath, "display-message", "-p", "-t", name, "#{pane_id} #{pane_current_command}").Output()
+	if err != nil {
+		return "", "", fmt.Errorf("foreground probe: %w", err)
+	}
+	pane, command, ok := strings.Cut(strings.TrimSpace(string(out)), " ")
+	if !ok || pane == "" || command == "" {
+		return "", "", fmt.Errorf("missing foreground identity")
+	}
+	return pane, command, nil
+}
+
 // SendKeys sends literal text to the named tmux session's active pane.
-// The text is sent verbatim (using -- to prevent key name interpretation).
+// The payload follows -- to separate it from tmux options.
 func (m *Manager) SendKeys(name, keys string) error {
-	cmd := exec.Command(m.tmuxPath, "send-keys", "-t", name, "--", keys)
+	pane, err := m.checkDelivery(name)
+	if err != nil {
+		return err
+	}
+	return m.sendKeys(pane, keys, true)
+}
+
+func (m *Manager) sendKeys(name, keys string, literal bool) error {
+	args := []string{"send-keys", "-t", name}
+	if literal {
+		args = append(args, "--")
+	}
+	args = append(args, keys)
+	cmd := exec.Command(m.tmuxPath, args...)
 	if out, err := cmd.CombinedOutput(); err != nil {
 		return fmt.Errorf("tmux send-keys: %s: %w", strings.TrimSpace(string(out)), err)
 	}
@@ -181,11 +241,11 @@ func (m *Manager) SendKeys(name, keys string) error {
 // SendKey sends a named key (e.g. "Enter", "Escape") to the session.
 // Unlike SendKeys, this does NOT use -- so tmux interprets key names.
 func (m *Manager) SendKey(name, key string) error {
-	cmd := exec.Command(m.tmuxPath, "send-keys", "-t", name, key)
-	if out, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("tmux send-keys: %s: %w", strings.TrimSpace(string(out)), err)
+	pane, err := m.checkDelivery(name)
+	if err != nil {
+		return err
 	}
-	return nil
+	return m.sendKeys(pane, key, false)
 }
 
 // SendKeysLine sends a line of text followed by Enter as two separate
@@ -200,7 +260,8 @@ func (m *Manager) SendKey(name, key string) error {
 // against Chimera's input handler.
 //
 // Use this for any send-keys that should result in an executed/submitted
-// input — shell commands, agent prompts, conductor wake-ups, all of it.
+// input to an agent — prompts and conductor wake-ups. Bootstrap commands
+// must instead use SendKeysShellCommand.
 //
 // Higher-level callers that fire multiple SendKeysLine calls in rapid
 // succession to the same target should serialize them (e.g. SwarmService's
@@ -214,14 +275,37 @@ func (m *Manager) SendKeysLine(name, line string) error {
 	return m.SendKey(name, "Enter")
 }
 
-// SendKeysShellCommand is retained as a name-clear alias for SendKeysLine.
-// Both have identical semantics now that SendKeysLine uses the split + gap
-// approach universally — the distinction was never about the receiver, it
-// was about whether bracketed paste would trap the input. All callers should
-// prefer SendKeysLine; this alias exists to avoid churning existing call
-// sites that explicitly chose "Shell" for clarity.
+// SendKeysShellCommand is exclusively for bootstrap commands in a fresh shell,
+// never agent messages. It deliberately does not use the agent delivery guard.
 func (m *Manager) SendKeysShellCommand(name, command string) error {
-	return m.SendKeysLine(name, command)
+	pane, current, err := m.foregroundPane(name)
+	if err != nil {
+		return fmt.Errorf("verifying bootstrap shell: %w", err)
+	}
+	if !IsShellCommand(current) {
+		return fmt.Errorf("bootstrap target %s is not a shell", name)
+	}
+	if err := m.sendKeys(pane, command, true); err != nil {
+		return err
+	}
+	time.Sleep(sendKeysInterCallGap)
+	_, current, err = m.foregroundPane(pane)
+	if err != nil {
+		return fmt.Errorf("rechecking bootstrap shell: %w", err)
+	}
+	if !IsShellCommand(current) {
+		return fmt.Errorf("bootstrap target %s is no longer a shell", name)
+	}
+	return m.sendKeys(pane, "Enter", false)
+}
+
+// IsShellCommand identifies shells, which can execute arbitrary message text.
+func IsShellCommand(command string) bool {
+	switch strings.TrimPrefix(filepath.Base(command), "-") {
+	case "sh", "bash", "zsh", "fish", "dash", "ksh", "nu", "csh", "tcsh":
+		return true
+	}
+	return false
 }
 
 // sendKeysInterCallGap is the pause between the text and Enter halves of a
@@ -331,7 +415,7 @@ func (m *Manager) SessionEnvironment(sessionName string) ([]string, error) {
 func (m *Manager) PaneCommands() (map[string]string, error) {
 	cmd := exec.Command(m.tmuxPath, "list-panes", "-a",
 		"-F", "#{session_name} #{pane_current_command}",
-		"-f", "#{m:legato-*,#{session_name}}")
+		"-f", "#{&&:#{m:legato-*,#{session_name}},#{&&:#{window_active},#{pane_active}}}")
 	out, err := cmd.CombinedOutput()
 	if err != nil {
 		if noServer(string(out)) {

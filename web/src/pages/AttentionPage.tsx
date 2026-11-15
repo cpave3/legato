@@ -148,7 +148,7 @@ function AttentionCard({ item, pending, onAction, onDismiss }: AttentionCardProp
                 if (action.confirmation && !window.confirm(action.confirmation)) return
                 onAction(item, action.id, action.requires_confirmation ?? false)
               }}
-              className="min-h-11 rounded-lg bg-indigo-500 px-3 text-sm font-medium text-white hover:bg-indigo-400 disabled:opacity-50"
+              className="min-h-11 rounded-lg bg-indigo-500 px-3 text-sm font-medium text-[var(--theme-canvas,#fff)] hover:bg-indigo-400 disabled:opacity-50"
             >
               {action.label}
             </button>

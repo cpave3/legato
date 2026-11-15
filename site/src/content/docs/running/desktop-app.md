@@ -34,6 +34,12 @@ The words are never sent. The app and the server each prove they know them, and 
 
 A phrase lasts five minutes and five tries. Servers are found on the network as described in [Your phone and other devices](/legato/running/devices/#found-on-the-network); some networks block that, and then you type the address.
 
+## Choose an app theme
+
+Open **Servers & keys** from the key icon at the foot of the dock. Under **Appearance**, choose **App theme**: **Legato**, **Dracula**, **Ocular Light** or **Ocular Dark**.
+
+The choice applies to the desktop shell and every open server page, including pages behind other tiles. You can also choose **App theme** in a server page’s web Settings; a compatible page asks the desktop app to save the same choice. The shell updates even when Servers & keys is closed. It is kept when you close and reopen the app. **Legato** restores the original appearance. The app does not follow your system's light/dark setting. The floating Legato widget uses the same theme for its voice capsule, conversation card and approvals feed. Its native menu keeps the operating system’s appearance.
+
 ## Sign approvals with a security key
 
 A [signed approval](/legato/security/credential-broker/#signed-approvals) needs a signature from a device you enrolled. In the app that device is a security key: you touch it to sign, and no agent can do that for you.
@@ -65,6 +71,7 @@ When a server knows Touch ID, the sheet asks for your fingerprint instead of a t
 ## The window
 
 - The title bar is the app's own: drag it to move the window, double-click it to maximize. It names the server in front and has a button to reload its page.
+- Closing the window quits the app, and the Legato widget closes with it. The app does not keep running in the background. Starting the app while it runs brings its window to the front.
 - When the server in front has a [tint](/legato/using/web-ui/), the title bar, the dock and the window's edges take its colour.
 - To reorder the servers, press and hold a tile and drag it up or down; the order is kept until you change it again.
 - The dock's dot on each tile is green while the server answers and red while it does not.
@@ -78,9 +85,11 @@ A small capsule at the edge of the screen shows the Reeve, whether your main can
 
 - Click the capsule to talk, as with the key.
 - While you talk, it grows into a card: your words, the pause bar, what the Reeve is doing, and what it says. Its buttons are **Send now**, **Cancel**, **Stop** and **Reply**. **Stop** stops the Reeve and keeps the card, so you can talk again or close it.
+- When the Reeve speaks without being asked, for example to say an agent finished, the widget shows it speaking, with its words, while the line plays on your main's speakers, then goes back to what it showed. It does not break a conversation you are having: while you talk or the Reeve answers you, the conversation stays on the card. A hidden widget stays hidden.
 - If the main cannot listen, the capsule turns amber and says why. **Open settings** opens that setting on the main.
 - A long message does not grow the card off the screen: it shows your latest words, after an ellipsis. The whole message still goes to the Reeve.
 - Drag the capsule to put it anywhere. It stays where you drop it, also after a restart: it keeps to the nearest corner, or to the middle of the nearest edge, as far from that edge as you dropped it. A click without a drag still talks.
+- To close the widget, hover over the capsule and click the small **×** at its corner. This hides only the widget: the app, the key and approvals keep working, and the widget comes back for a conversation or an approval. Turn it on again in **Servers & keys** (**Show the Legato widget**).
 - Right-click the capsule to hide it, put it in a corner or the middle of an edge (**Place**), choose the screen it is on (**Screen**, with more than one screen), or open the app's settings. **Servers & keys** has the same choices.
 - With several screens, the app names each by its maker and model, as the desktop's display settings do, and adds the connector (such as DP-1) when two are the same model. It remembers the screen you chose. While that screen is not connected, the widget is on your primary screen (on Wayland, the first), and it goes back when the screen returns. The corner and where you dropped it apply on the chosen screen. Hidden, it still shows while you talk, and for a few seconds after to say how the conversation ended. It also shows while the feed has something. **Servers & keys** › **Show the Legato widget** brings it back.
 

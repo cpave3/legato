@@ -44,7 +44,7 @@ Most settings can also be kept in Legato's database, and changed from the web UI
 
 Some settings are **file-only**: they live only in this file, and nothing else changes them. They are what Legato needs before its database opens (`db.*`, `data_dir`), what unseals its secrets (`secrets.master_key`, `secrets.onepassword`), how it is reached (`web.enabled`, `web.port`, `web.tls`, `web.public_url`), and the signing trust root (`approval_devices.android_app_digests`). They are marked *file-only* below.
 
-**Moving settings out of the file.** After the upgrade that brought settings into the database, Attention offers once to move every setting `config.yaml` pins into the database, listed in Settings › Lists with a tick each; untick any to keep it in the file. Each pinned setting in Settings also has **Move to the database**. A move copies the values into the database, rewrites `config.yaml` without them (its comments and order kept, the old file kept beside it as `config.yaml.<time>.bak`), and restarts Legato; if Legato does not start on the result, it puts the old file and values back. A setting that holds a secret, or whose value reads an environment variable, stays in the file. So does a setting the file needs beside a secret it keeps, such as `manticore.url` beside `manticore.api_key`: Legato reads `config.yaml` before the database when it starts, so a move never leaves a file that does not load by itself.
+**Moving settings out of the file.** After the upgrade that brought settings into the database, Attention offers once to move every setting `config.yaml` pins into the database, listed in Settings › Lists with a tick each; untick any to keep it in the file. Each pinned setting in Settings also has **Move to the database**. A move copies the values into the database, rewrites `config.yaml` without them (its comments and order kept, the old file kept beside it as `config.yaml.<time>.bak`), and restarts Legato; if Legato does not start on the result, it puts the old file and values back. A setting that holds a secret, or whose value reads an environment variable, stays in the file, and so do the Reeve's rules, whose order decides which applies. So does a setting the file needs beside a secret it keeps, such as `manticore.url` beside `manticore.api_key`: Legato reads `config.yaml` before the database when it starts, so a move never leaves a file that does not load by itself.
 
 **Export and import.** `legato config export` writes the settings kept in the database as a file shaped like `config.yaml`; `legato config import` turns such a file into one change set to approve, so one instance can set up another.
 
@@ -232,7 +232,7 @@ Settings for each agent tool, keyed by its name: `claude-code`, `codex` or `chim
 | `adapters.<tool>.tiers.<tier>.description` | string | none | What the tier is for. A swarm's conductor reads it to pick a tier for each sub-task. |
 | `adapters.<tool>.tiers.<tier>.launch_args` | list of strings | none | Flags added after the tool's own `launch_args` for a sub-task of this tier, so a tier's `--model` wins. |
 | `adapters.<tool>.modes` | map of strings | none | Chimera only. Maps a swarm role (`conductor`, `worker`, or a role of your own) to a Chimera mode, passed as `--mode`. A role with no entry of its own takes the `worker` entry. Legato ships no modes. |
-| `adapters.<tool>.native_bridge` | bool | `true` | Claude Code and Codex only. Connects each session to Legato beyond its terminal, so Legato can message it, interrupt it and answer its permission requests directly, and the web UI can show its conversation. `false` keeps the tool's sessions in tmux only. |
+| `adapters.<tool>.native_bridge` | bool | `true` | Claude Code, Codex and Chimera. Connects each session to Legato beyond its terminal, so Legato can message it, interrupt it and answer its permission requests directly, and the web UI can show its conversation. `false` keeps Claude Code and Codex in tmux; Chimera uses legacy hooks and endpoint discovery instead of its mod. |
 | `adapters.<tool>.models` | list of strings | none | Claude Code only. Model IDs the web UI offers for a session, beside the model it runs. Write full IDs, such as `claude-sonnet-5-5`, not aliases. |
 
 Tier names are yours to choose. A swarm plan that names a tier its tool does not have is refused.
@@ -440,7 +440,7 @@ Legato's own copy of each GitHub repository, which fresh clones for jobs are mad
 | --- | --- | --- | --- |
 | `repository_cache.enabled` | bool | `false` | Offers **Clone** beside **Folder** in the web UI's spawn dialogs: a fresh clone of a repository, on a branch of its own. Jobs and the API can clone without it. |
 | `repository_cache.max_age` | duration | `5m` | How long Legato trusts its copy before a job fetches it again. `0s` fetches for every job. |
-| `repository_cache.keep_idle` | duration or days | `7d` | How long a clone that no agent works in is kept, so the next agent can carry on in it. Write a duration (`36h`) or days (`7d`). `0` keeps clones until you remove them. A clone with commits the cache does not have is kept 7 days more. |
+| `repository_cache.keep_idle` | duration or days | `7d` | How long a clone that no agent works in is kept, so the next agent can carry on in it. Write a duration (`36h`) or days (`7d`). `0` keeps clones until you remove them. A clone with commits the cache does not have is kept 7 days more. An undismissed interrupted agent protects its own clone and contents from automatic cleanup, even past those deadlines. Dismissal releases its hold without resetting retention; a shared clone stays protected by its other holders. Explicit removal is unchanged. |
 
 ## Worktrees
 
@@ -645,6 +645,23 @@ integrations:
     url: https://argus.example.net
     delivery: ask
 ```
+
+### Home Assistant MQTT
+
+The publisher exposes ten aggregate entities. All settings apply at restart. See [Home Assistant](/legato/integrations/home-assistant/) for broker credentials, retention, and automations.
+
+| Setting | Type | Default | What it does |
+| --- | --- | --- | --- |
+| `integrations.mqtt.enabled` | bool | `false` | Enables the read-only publisher. Disabled means no network or credential access. |
+| `integrations.mqtt.broker` | URL | none | Required when enabled: `mqtt://` or `mqtts://` TCP address, without credentials, paths, query, or fragment. |
+| `integrations.mqtt.credential` | string | none | Name of a `mqtt` profile credential with type `userpass`; empty selects anonymous access. |
+| `integrations.mqtt.discovery_prefix` | string | `homeassistant` | Discovery root and root for the HA birth status subscription. |
+| `integrations.mqtt.base_topic` | string | `legato/<persistent-instance-id>` | Retained state root. Each independent instance needs its own root. |
+| `integrations.mqtt.device_name` | string | `Legato <hostname>` | Device display name; identity stays stable when renamed. |
+| `integrations.mqtt.include_reeve` | bool | `false` | Includes the Reeve in agent counts. Attention and approvals are always instance-wide. |
+| `integrations.mqtt.attention_details` | bool | `false` | Exports at most 20 generated safe signal labels, never source titles or details. |
+
+Topic roots must have nonempty segments, without MQTT wildcards, NUL, or a trailing slash. Discovery roots can be at most 65,456 bytes and state roots 65,508 bytes, to leave room for topic suffixes. TLS verifies certificates and hostnames. Retained data and HA history can outlive Legato.
 
 ## Review passes
 

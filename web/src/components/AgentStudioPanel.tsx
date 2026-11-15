@@ -1,4 +1,4 @@
-import { Fragment, useCallback, useEffect, useMemo, useRef, useState } from "react"
+import { Fragment, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react"
 import { ArrowDown, ArrowUp, ChevronLeft, ChevronRight, Circle, MessageCircleQuestion, Pause, Play, Settings2, Sparkles, Square, Trash2, X } from "lucide-react"
 import { useServer } from "../hooks/useServer"
 import { proposeComposerText, type AgentUIItem } from "../lib/agentUi"
@@ -152,6 +152,7 @@ export function AgentStudioPanel({ item, fill = false, pollMs = 2000, testHoldMs
   const stream = useRef<MediaStream | null>(null)
   // The take being recorded: its sound, and its film when the camera is on.
   const recorder = useRef<{ finish: () => void } | null>(null)
+  const recordingTimer = useRef<ReturnType<typeof setInterval> | null>(null)
   const meter = useRef<{ context: AudioContext; analyser: AnalyserNode; timer: ReturnType<typeof setInterval> } | null>(null)
   // The count before a take starts: 3, 2, 1, and 0 when nothing is counting.
   const [counting, setCounting] = useState(0)
@@ -217,6 +218,7 @@ export function AgentStudioPanel({ item, fill = false, pollMs = 2000, testHoldMs
 
   const close = useCallback(() => {
     if (tested.current) { clearTimeout(tested.current); tested.current = null }
+    if (recordingTimer.current) { clearInterval(recordingTimer.current); recordingTimer.current = null }
     if (meter.current) { clearInterval(meter.current.timer); void meter.current.context.close().catch(() => {}); meter.current = null }
     stream.current?.getTracks().forEach((track) => track.stop())
     stream.current = null
@@ -249,8 +251,8 @@ export function AgentStudioPanel({ item, fill = false, pollMs = 2000, testHoldMs
   const scene: StudioScene | null = scenes[index] ?? null
   const sceneId = scene?.id ?? null
 
-  // A scene the person is looking at is no longer news.
-  useEffect(() => {
+  // Reset scene-local state before the new scene can be edited.
+  useLayoutEffect(() => {
     viewing.current = sceneId
     if (!sceneId) return
     setMarks((current) => {
@@ -406,6 +408,7 @@ export function AgentStudioPanel({ item, fill = false, pollMs = 2000, testHoldMs
       setSeconds(Math.floor((Date.now() - began) / 1000))
       setQuiet(samples ? samples.heard().silentMs : 0)
     }, 250)
+    recordingTimer.current = tick
     let finishing = false
     const finish = async () => {
       if (finishing) return
@@ -634,7 +637,7 @@ export function AgentStudioPanel({ item, fill = false, pollMs = 2000, testHoldMs
     setTimeout(() => setCopied(""), 2000)
   }
   const secondary = "h-8 shrink-0 rounded-md border border-lw-line-strong bg-lw-raised px-3.5 text-[13px] text-lw-text transition-colors hover:border-lw-faint disabled:cursor-not-allowed disabled:opacity-40"
-  const primary = "h-8 shrink-0 rounded-md bg-lw-accent px-3.5 text-[13px] font-medium text-white transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
+  const primary = "h-8 shrink-0 rounded-md bg-lw-accent px-3.5 text-[13px] font-medium text-[var(--theme-canvas,#fff)] transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-40"
   const quietButton = "h-8 shrink-0 rounded-md px-2 text-[13px] text-lw-text-2 transition-colors hover:text-lw-text disabled:cursor-not-allowed disabled:opacity-40"
   const field = "min-w-0 flex-1 rounded-md border border-lw-line-strong bg-lw-surface px-2 py-1.5 text-lw-text"
   const input = "w-full min-w-0 rounded-md border border-lw-line-strong bg-lw-surface px-2.5 py-1.5 text-[13px] text-lw-text placeholder:text-lw-faint focus:border-lw-accent-ring focus:outline-none"
@@ -677,7 +680,7 @@ export function AgentStudioPanel({ item, fill = false, pollMs = 2000, testHoldMs
       {removing ? (
         <div className="mt-2 flex flex-wrap items-center gap-2 rounded-lg border border-lw-danger-line bg-lw-error-soft px-3 py-2 text-xs">
           <span className="min-w-0 flex-1">Remove {scene.id} from the video? Its takes are kept.</span>
-          <button type="button" onClick={() => change(removeScene(baseUrl, item.id, scene.id, notify), () => setSelectedId(null))} className="h-8 rounded-md bg-lw-record px-3 font-medium text-white hover:opacity-90">Remove {scene.id}</button>
+          <button type="button" onClick={() => change(removeScene(baseUrl, item.id, scene.id, notify), () => setSelectedId(null))} className="h-8 rounded-md bg-lw-record px-3 font-medium text-[var(--theme-canvas,#fff)] hover:opacity-90">Remove {scene.id}</button>
           <button type="button" onClick={() => setRemoving(false)} className={secondary}>Keep it</button>
         </div>
       ) : (
@@ -731,7 +734,7 @@ export function AgentStudioPanel({ item, fill = false, pollMs = 2000, testHoldMs
           <ol className="flex h-[26px] gap-[3px]">
             {blocks.map((block, n) => {
               const current = scene?.id === block.id
-              const look = current ? "bg-lw-accent text-white"
+              const look = current ? "bg-lw-accent text-[var(--theme-canvas,#fff)]"
                 : block.decide ? "border border-dashed border-lw-needs bg-lw-needs-soft"
                   : block.status === "recorded" ? "bg-lw-live-soft"
                     : block.status === "waiting" ? "border border-lw-line-strong bg-lw-raised"
@@ -827,7 +830,7 @@ export function AgentStudioPanel({ item, fill = false, pollMs = 2000, testHoldMs
               )}
               {/* Over the picture, where a person who is presenting is looking. */}
               {recording && quiet >= QUIET_TOLD_MS && (
-                <p role="alert" className="absolute inset-x-0 top-0 bg-lw-record px-3 py-2 text-center text-sm font-semibold text-white">
+                <p role="alert" className="absolute inset-x-0 top-0 bg-lw-record px-3 py-2 text-center text-sm font-semibold text-[var(--theme-canvas,#fff)]">
                   The microphone is giving no sound, and has not for {Math.floor(quiet / 1000)} s. If you are speaking, cancel the take: another page or program may have the microphone.
                 </p>
               )}
@@ -924,7 +927,7 @@ export function AgentStudioPanel({ item, fill = false, pollMs = 2000, testHoldMs
                 disabled={phase === "opening" || phase === "counting" || phase === "saving" || phase === "stopping" || phase === "changing"}
                 onClick={recording ? stop : start}
                 className={presenting || scene.status !== "recorded"
-                  ? `flex h-10 min-w-36 items-center justify-center gap-2 rounded-md px-4 text-sm font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${recording ? "border border-lw-record bg-lw-raised text-lw-danger" : "bg-lw-record text-white hover:opacity-90"}`
+                  ? `flex h-10 min-w-36 items-center justify-center gap-2 rounded-md px-4 text-sm font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-50 ${recording ? "border border-lw-record bg-lw-raised text-lw-danger" : "bg-lw-record text-[var(--theme-canvas,#fff)] hover:opacity-90"}`
                   : "flex h-6 items-center gap-1.5 rounded-md border border-lw-danger-line px-2.5 text-xs text-lw-danger transition-colors hover:border-lw-danger disabled:cursor-not-allowed disabled:opacity-50"}
               >
                 {recording ? <Square size={13} /> : <Circle size={presenting || scene.status !== "recorded" ? 13 : 8} fill="currentColor" className={presenting || scene.status !== "recorded" ? "" : "text-lw-record"} />}
@@ -984,7 +987,7 @@ export function AgentStudioPanel({ item, fill = false, pollMs = 2000, testHoldMs
                           {run.at !== undefined && <span className="font-lw-mono text-[11px] text-lw-faint">{clock(run.at)} </span>}
                           <span
                             title={run.offPlan ? "Off the plan" : run.point ? `Covers: ${points[run.point - 1] ?? `talking point ${run.point}`}` : undefined}
-                            className={`${run.offPlan ? "bg-lw-needs-soft text-lw-needs" : run.point && run.point <= points.length ? "border-b-2 border-lw-live" : ""} ${playing && heardMs >= run.startMs && heardMs < run.endMs ? "text-white" : ""}`}
+                            className={`${run.offPlan ? "bg-lw-needs-soft text-lw-needs" : run.point && run.point <= points.length ? "border-b-2 border-lw-live" : ""} ${playing && heardMs >= run.startMs && heardMs < run.endMs ? "text-[var(--theme-text,#fff)]" : ""}`}
                           >
                             {run.text}
                           </span>{" "}

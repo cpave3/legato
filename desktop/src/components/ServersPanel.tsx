@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useState } from "react"
 import { api, errorText, initials, tintColor, type Key, type Server, type Status, type TouchId } from "../api"
+import { ThemeSection } from "../theme"
 import { PairForm } from "./PairForm"
 import { Fingerprint, KeyIcon, Lock, Plus, Servers } from "./Icons"
 import { ImportTargetSection } from "./importTarget"
@@ -82,6 +83,7 @@ export function ServersPanel({ servers, statuses, startPairing, updates, onChang
         {touchId?.mac && !touchId.available && <p className="dim small">Touch ID can't sign here: {touchId.reason}</p>}
       </div>
 
+      <ThemeSection />
       <VoiceSection />
       <ImportTargetSection />
       <UpdatesSection updates={updates} />

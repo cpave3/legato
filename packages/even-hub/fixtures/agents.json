@@ -1,0 +1,96 @@
+[
+  {
+    "task_id": "LEG-158",
+    "title": "Workflow screens: state first, the next action under it",
+    "status": "running",
+    "activity": "working",
+    "sandboxed": true,
+    "started_at": "2026-11-13T06:12:40Z"
+  },
+  {
+    "task_id": "LEG-163",
+    "title": "POC: an Even Realities G2 glasses app that shows the agents working now",
+    "status": "running",
+    "activity": "waiting",
+    "sandboxed": true,
+    "started_at": "2026-11-13T07:24:57Z"
+  },
+  {
+    "task_id": "reeve",
+    "title": "The Reeve",
+    "status": "running",
+    "activity": "",
+    "sandboxed": false,
+    "started_at": "2026-11-13T05:01:12Z",
+    "reeve": true
+  },
+  {
+    "task_id": "LEG-150",
+    "title": "Board drops: keep a move whose neighbour went",
+    "status": "running",
+    "activity": "background",
+    "sandboxed": true,
+    "started_at": "2026-11-13T06:40:03Z",
+    "background_jobs": [
+      { "kind": "bash", "id": "b1", "label": "go test ./internal/service/...", "started_at": "2026-11-13T07:30:11Z" }
+    ]
+  },
+  {
+    "task_id": "LEG-149",
+    "title": "Fail a pull request whose paths differ only in case",
+    "status": "running",
+    "activity": "error",
+    "sandboxed": true,
+    "started_at": "2026-11-13T06:55:20Z"
+  },
+  {
+    "task_id": "LEG-161",
+    "title": "Review pass: credential broker grants",
+    "card_task_id": "LEG-161",
+    "slot": "reviewer",
+    "status": "running",
+    "activity": "working",
+    "sandboxed": true,
+    "started_at": "2026-11-13T07:02:44Z"
+  },
+  {
+    "task_id": "LEG-155",
+    "title": "Stream Deck: show the Reeve's state on a key",
+    "status": "running",
+    "activity": "",
+    "sandboxed": true,
+    "started_at": "2026-11-13T05:47:09Z"
+  },
+  {
+    "task_id": "LEG-160",
+    "title": "Docs: a page for handing tasks to a worker instance",
+    "status": "running",
+    "activity": "working",
+    "sandboxed": true,
+    "started_at": "2026-11-13T07:11:30Z"
+  },
+  {
+    "task_id": "LEG-157",
+    "title": "Plans: show image files beside the Markdown",
+    "status": "running",
+    "activity": "waiting",
+    "sandboxed": true,
+    "started_at": "2026-11-13T07:18:02Z"
+  },
+  {
+    "task_id": "LEG-162",
+    "title": "Settings: tint picker",
+    "status": "running",
+    "activity": "working",
+    "sandboxed": false,
+    "started_at": "2026-11-13T07:20:15Z"
+  },
+  {
+    "task_id": "LEG-140",
+    "title": "Codex bridge: hold messages until a thread exists",
+    "status": "dead",
+    "activity": "",
+    "sandboxed": true,
+    "started_at": "2026-11-13T03:10:00Z"
+  }
+]

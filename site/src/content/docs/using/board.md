@@ -55,8 +55,8 @@ The agent strip shows the agent's state and how long it has been in it:
 | --- | --- |
 | running | The agent is working. |
 | needs you | The agent waits for you: a permission, a question, or a plan to approve. |
-| background | The agent's turn ended, but a shell or a subagent it started still runs. |
-| idle | The agent is alive and not working. |
+| background | The agent's turn ended, but something it started still runs and will wake it: a shell, a Monitor, a subagent or a scheduled prompt. |
+| idle | The agent is alive, and nothing will wake it but a message. |
 | error | The agent stopped on an error. |
 | mixed (TUI), Agents disagree (web) | The task's agents are in different states. |
 
@@ -85,7 +85,7 @@ You can rename only a local task. For any task you can edit the details that bel
 
 ## Moving and deleting tasks
 
-Press `m` to move the selected task. Each column has a letter, usually the first letter of its name, so `m` then `d` moves a card to Doing. In the web UI you can also drag a card to another column.
+Press `m` to move the selected task. Each column has a letter, usually the first letter of its name, so `m` then `d` moves a card to Doing. In the web UI you can also drag a card to another column, or up and down its own to change the order: a line shows where it will land. The order is saved, so the TUI and every browser show it too.
 
 With a ticket provider, moving a card also moves its ticket. If Legato cannot send the move, the card stays where you put it and shows a warning. A move you make wins over the provider's status for five minutes; after that, the next sync takes the provider's status.
 

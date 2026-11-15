@@ -86,7 +86,7 @@ export function AgentSidebar({
   };
 
   return (
-    <div aria-label="Agent sessions" className="flex w-[264px] max-w-full shrink-0 flex-col overflow-x-hidden overflow-y-auto border-r border-[#222228] bg-[#141417] font-lw text-[13px] leading-5 text-lw-text">
+    <div aria-label="Agent sessions" className="flex w-[264px] max-w-full shrink-0 flex-col overflow-x-hidden overflow-y-auto border-r border-[var(--theme-border,#222228)] bg-[var(--theme-surface,#141417)] font-lw text-[13px] leading-5 text-lw-text">
       <div className="flex items-center justify-between px-3.5 pb-2.5 pt-3.5">
         <span className="font-semibold">
           Agents <span className="font-normal text-lw-faint">{agents.length}</span>
@@ -125,7 +125,7 @@ export function AgentSidebar({
           <button
             onClick={onSpawn}
             aria-label="Spawn agent"
-            className="flex h-7 w-7 items-center justify-center rounded-md border border-lw-line-strong bg-lw-raised text-lw-text hover:border-[#4a4955]"
+            className="flex h-7 w-7 items-center justify-center rounded-md border border-lw-line-strong bg-lw-raised text-lw-text hover:border-[var(--theme-border,#4a4955)]"
             title="Spawn new agent"
           >
             <Plus size={14} />
@@ -359,7 +359,7 @@ function AgentEntry({
       <button
         data-agent={agent.task_id}
         onClick={() => onSelect(agent.task_id)}
-        className={cn("flex min-w-0 max-w-full flex-1 flex-col gap-[3px] overflow-hidden px-2.5 py-2 text-left", selected ? "text-lw-text" : agent.activity ? "text-lw-text" : "text-[#b4b3bd]")}
+        className={cn("flex min-w-0 max-w-full flex-1 flex-col gap-[3px] overflow-hidden px-2.5 py-2 text-left", selected ? "text-lw-text" : agent.activity ? "text-lw-text" : "text-[var(--theme-muted,#b4b3bd)]")}
       >
         <div className="flex min-w-0 items-center gap-1.5">
           {agent.notify_enabled && <Bell size={10} aria-label="Notifications on" className="shrink-0 text-lw-link" />}
@@ -374,13 +374,13 @@ function AgentEntry({
             <span
               aria-label={`${unseen} new artifact${unseen === 1 ? "" : "s"}`}
               title="New artifacts from this agent"
-              className="flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full bg-lw-accent px-1 text-[10px] font-semibold text-white"
+              className="flex h-4 min-w-4 shrink-0 items-center justify-center rounded-full bg-lw-accent px-1 text-[10px] font-semibold text-[var(--theme-canvas,#fff)]"
             >
               {unseen}
             </span>
           )}
           {modifierHeld && index < 9
-            ? <span className="ml-auto flex h-5 w-5 shrink-0 items-center justify-center rounded bg-lw-accent text-[10px] font-bold text-white">{index + 1}</span>
+            ? <span className="ml-auto flex h-5 w-5 shrink-0 items-center justify-center rounded bg-lw-accent text-[10px] font-bold text-[var(--theme-canvas,#fff)]">{index + 1}</span>
             : time && <span className="ml-auto shrink-0 text-xs text-lw-text-2">{time}</span>}
         </div>
         {agent.task_title && <span className="truncate">{agent.task_title}</span>}

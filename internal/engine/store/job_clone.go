@@ -60,6 +60,19 @@ func (r jobCloneRow) clone() (JobClone, error) {
 
 const jobCloneColumns = `id, execution_id, task_id, repo, ref, branch, path, created_at, remove_after, last_used_at`
 
+// ListJobCloneHolds returns the execution identities and working folders
+// held by undismissed sessions. Running sessions bridge the startup window
+// between ending a lost execution and marking its session interrupted.
+// These holds are for automatic cleanup, not explicit clone removal.
+func (s *Store) ListJobCloneHolds(ctx context.Context) ([]Execution, error) {
+	var holds []Execution
+	err := s.db.SelectContext(ctx, &holds, `
+		SELECT e.id, e.working_dir FROM agent_sessions a
+		JOIN executions e ON e.agent_session_id = a.id
+		WHERE a.status IN ('running', 'interrupted')`)
+	return holds, err
+}
+
 // CreateJobClone records a clone made for a job, with its task as the
 // first that works in it, and returns its ID.
 func (s *Store) CreateJobClone(ctx context.Context, c JobClone) (int64, error) {

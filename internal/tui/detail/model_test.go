@@ -25,7 +25,7 @@ func (f *fakeBoardService) GetCard(_ context.Context, _ string) (*service.CardDe
 	return f.card, nil
 }
 func (f *fakeBoardService) MoveCard(_ context.Context, _ string, _ string) error { return nil }
-func (f *fakeBoardService) ReorderCard(_ context.Context, _ string, _ int) error { return nil }
+func (f *fakeBoardService) PlaceCard(_ context.Context, _, _ string) error       { return nil }
 func (f *fakeBoardService) SearchCards(_ context.Context, _ string) ([]service.Card, error) {
 	return nil, nil
 }

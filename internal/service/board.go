@@ -323,58 +323,17 @@ func moveCard(ctx context.Context, taskStore *store.Store, bus *events.Bus, id s
 	return nil
 }
 
-func (b *boardService) ReorderCard(ctx context.Context, id string, newPosition int) error {
-	t, err := b.store.GetTask(ctx, id)
-	if err != nil {
-		return err
-	}
+// PlaceCard moves a card within its column to just before the card
+// beforeID, or to the end when beforeID is empty. A beforeID that is not a
+// card in the same column is store.ErrConflict: the board changed since it
+// was drawn.
+func (b *boardService) PlaceCard(ctx context.Context, id, beforeID string) error {
 	if err := RefuseAway(ctx, b.store, id); err != nil {
 		return err
 	}
-
-	cards, err := b.store.ListTasksByStatus(ctx, t.Status)
-	if err != nil {
+	if err := b.store.PlaceTask(ctx, id, beforeID); err != nil {
 		return err
 	}
-
-	// Clamp position
-	if newPosition < 0 {
-		newPosition = 0
-	}
-	if newPosition >= len(cards) {
-		newPosition = len(cards) - 1
-	}
-
-	// Rebuild sort order: remove the card, insert at new position
-	filtered := make([]store.Task, 0, len(cards)-1)
-	for _, c := range cards {
-		if c.ID != id {
-			filtered = append(filtered, c)
-		}
-	}
-
-	// Insert at new position
-	reordered := make([]store.Task, 0, len(cards))
-	for i, c := range filtered {
-		if i == newPosition {
-			reordered = append(reordered, *t)
-		}
-		reordered = append(reordered, c)
-	}
-	// If newPosition is at the end
-	if newPosition >= len(filtered) {
-		reordered = append(reordered, *t)
-	}
-
-	// Update sort orders
-	for i, c := range reordered {
-		c.SortOrder = i
-		c.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
-		if err := b.store.UpdateTask(ctx, c); err != nil {
-			return err
-		}
-	}
-
 	b.bus.Publish(events.Event{
 		Type:    events.EventCardUpdated,
 		Payload: map[string]string{"id": id},

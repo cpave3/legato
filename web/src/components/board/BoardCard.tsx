@@ -68,7 +68,7 @@ function ReviewStrip({ card }: { card: BoardCardType }) {
   return (
     <div data-testid="review-strip" className="flex items-center justify-between gap-2 bg-lw-needs-soft px-3 py-[5px] text-xs">
       <span className="flex min-w-0 items-center gap-1.5 text-lw-needs"><span aria-hidden="true">◆</span><span className="truncate">{count} {count === 1 ? "change" : "changes"} to review</span></span>
-      {card.review_tour_id && <Link to={`/review/${encodeURIComponent(card.review_tour_id)}`} onClick={event => event.stopPropagation()} className="shrink-0 text-[#c9b78f] hover:text-lw-needs">Review →</Link>}
+      {card.review_tour_id && <Link to={`/review/${encodeURIComponent(card.review_tour_id)}`} onClick={event => event.stopPropagation()} className="shrink-0 text-[var(--theme-warning,#c9b78f)] hover:text-lw-needs">Review →</Link>}
     </div>
   )
 }

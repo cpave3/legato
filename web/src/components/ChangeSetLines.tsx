@@ -35,12 +35,12 @@ export function ChangeSetLines({ baseUrl, taskId, refresh }: { baseUrl: string; 
   }, [baseUrl, taskId, refresh])
   if (sets.length === 0) return null
   return (
-    <ul aria-label="Change sets" className="flex shrink-0 flex-col gap-0.5 border-b border-[#222228] bg-lw-ground px-4 py-1.5 text-xs">
+    <ul aria-label="Change sets" className="flex shrink-0 flex-col gap-0.5 border-b border-[var(--theme-border,#222228)] bg-lw-ground px-4 py-1.5 text-xs">
       {sets.slice(-4).map((set) => {
         const state = lineState(set)
         return (
           <li key={set.id} className="flex min-w-0 items-center gap-1.5">
-            <span aria-hidden="true" className="text-[#a78bfa]">◆</span>
+            <span aria-hidden="true" className="text-[var(--theme-keyword,#a78bfa)]">◆</span>
             <span className="shrink-0 text-lw-text-2">Change set</span>
             <span className="min-w-0 truncate text-lw-text">{set.reason}</span>
             <span aria-hidden="true" className="text-lw-faint">·</span>

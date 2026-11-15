@@ -224,6 +224,28 @@ const COMPLETE = { reason: 'answer', answer: 'Done.', durationMs: 10, isAborted:
 
 const READY = JSON.stringify({ type: 'ready', url: 'http://bridge.test/secret' })
 
+test('a failed model request reports its explanation without exposing the provider endpoint', async ($, on) => {
+  const clock = mock.clock(on)
+  mock.env(on, LEGATO_SESSION)
+  const { events, exit } = world(on, { lines: [READY] })
+  on('classic.StopFailure', () => ({}))
+
+  await $.session.start(INTERACTIVE)
+  await clock.settle()
+  await $.classic.StopFailure({
+    error: 'unknown',
+    last_assistant_message: 'API Error: 400 provider-canary at https://provider.test/nonsecret-endpoint-canary',
+  })
+  await clock.settle()
+
+  expect(events()).toContainEqual(expect.objectContaining({
+    type: 'request_error',
+    error: 'API Error: 400 provider-canary at [provider endpoint]',
+  }))
+  exit()
+  await clock.settle()
+})
+
 test('outside a Legato session no bridge is started', async ($, on) => {
   const clock = mock.clock(on)
   mock.env(on, {})

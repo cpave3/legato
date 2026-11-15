@@ -1,5 +1,6 @@
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react"
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { afterEach, describe, expect, it, vi } from "vitest"
+import { setAppTheme } from "../../lib/appTheme"
 import { MermaidDiagram } from "../MermaidDiagram"
 
 const { initialize, mermaidConfig, renderDiagram } = vi.hoisted(() => {
@@ -18,6 +19,7 @@ vi.mock("mermaid", () => ({
 afterEach(() => {
   cleanup()
   renderDiagram.mockReset()
+  setAppTheme("legato")
 })
 
 function deferred<T>() {
@@ -140,4 +142,17 @@ describe("MermaidDiagram", () => {
     expect(bindFunctions).not.toHaveBeenCalled()
     expect(screen.queryByText("Late diagram")).toBeNull()
   })
+})
+
+it("redraws an open diagram with readable colors when the app theme changes", async () => {
+  renderDiagram.mockResolvedValue({ svg: "<svg><text>Flow</text></svg>" })
+  render(<MermaidDiagram source="graph LR; A-->B" />)
+  await screen.findByText("Flow")
+  const count = renderDiagram.mock.calls.length
+  await act(() => setAppTheme("ocular-light"))
+  await waitFor(() => expect(renderDiagram.mock.calls.length).toBe(count + 1))
+  expect(initialize).toHaveBeenLastCalledWith(expect.objectContaining({
+    theme: "base", securityLevel: "strict",
+    themeVariables: expect.objectContaining({ darkMode: false, primaryTextColor: "#252B33" }),
+  }))
 })

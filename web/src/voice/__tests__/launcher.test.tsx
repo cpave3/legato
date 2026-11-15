@@ -59,6 +59,7 @@ describe("the voice sheet in the web UI", () => {
     expect(await screen.findByText("The Reeve's voice is off on tessitura")).toBeInTheDocument()
     expect(screen.getByRole("button", { name: "Open settings" })).toBeInTheDocument()
     expect(Socket.last).toBeNull()
+    expect(screen.getByRole("dialog").parentElement?.parentElement).toHaveClass("bg-[color-mix(in_srgb,var(--theme-canvas,#070709)_80%,transparent)]")
   })
 
   it("on a worker's page says the voice is on the main", async () => {

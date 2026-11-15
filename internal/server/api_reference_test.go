@@ -22,6 +22,9 @@ func TestTheAPIReferenceAnswersTheEverydayQuestions(t *testing.T) {
 		"| `GET` | `/api/agents` | read | List the agents |",
 		"| `POST` | `/api/agents/kill` | risky | Stop an agent | `{\"task_id\": \"<id>\"}` |",
 		"| `POST` | `/api/approvals/{id}/decision` | never | Decide an approval request |",
+		"| Hand a task to a worker, with its review passes | `POST /api/tasks/<id>/handoff` | `{\"worker\": \"<instance_id>\"",
+		"| Read what a worker's review passes can do | `GET /api/settings/workers/<instance_id>/review-passes` |",
+		"\"review\": {\"enabled\": true, \"agent\": \"codex\", \"model\": \"…\", \"tier\": \"…\", \"skill\": \"…\", \"max_passes\": 3}",
 	} {
 		if !strings.Contains(page, want) {
 			t.Errorf("the API page lacks %q", want)

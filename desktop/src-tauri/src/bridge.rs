@@ -26,6 +26,7 @@ pub const SCHEME: &str = "legato-desktop";
 /// What a page asks of the app.
 #[derive(Debug, PartialEq)]
 pub enum PageMessage {
+    Theme(crate::theme::AppTheme),
     /// Open the sheet on this approval.
     Approval(String),
     /// Enrol this computer to sign: the app's keys.
@@ -51,24 +52,26 @@ pub enum VoiceAction {
 /// The script, run first in the page's top frame, that tells the page it
 /// runs in the app and turns what it posts into a `legato-desktop:` address.
 /// voice says whether the app records for the page.
-pub fn script(key: &str, voice: bool) -> String {
+pub fn script(key: &str, voice: bool, origin: &str) -> String {
     let key = serde_json::to_string(key).expect("a string encodes");
+    let origin = serde_json::to_string(origin).expect("origin encodes");
     let voice = if voice { " voice: 1," } else { "" };
     format!(
         r#"(() => {{
-  if (window !== window.top) return;
+  if (window !== window.top || location.origin !== {origin}) return;
   const key = {key};
-  window.legatoShell = {{ approval: 1, enroll: 1, workers: 1,{voice} key }};
+  window.legatoShell = {{ approval: 1, enroll: 1, workers: 1, theme: 1,{voice} key }};
   window.ReactNativeWebView = {{
     postMessage(text) {{
       let m;
       try {{ m = JSON.parse(text); }} catch (e) {{ return; }}
-      if (!m || m.key !== key) return;
+      if (window !== window.top || location.origin !== {origin} || !m || m.key !== key) return;
       const ask = (kind, rest) => {{ location.href = "{SCHEME}://" + kind + "?key=" + encodeURIComponent(key) + rest; }};
       const kind = m.legatoShell || m.type;
       const id = typeof m.id === "string" ? "&id=" + encodeURIComponent(m.id) : null;
       const wid = typeof m.id === "string" || typeof m.id === "number" ? "&id=" + encodeURIComponent(JSON.stringify(m.id)) : null;
       if (kind === "approval" && id) ask("approval", id);
+      else if (kind === "theme" && id && ["legato", "dracula", "ocular-light", "ocular-dark"].includes(m.id)) ask("theme", id);
       else if (kind === "enroll") ask("enroll", "");
       else if (kind === "voice" && typeof m.action === "string") ask("voice", "&action=" + encodeURIComponent(m.action));
       else if (kind === "workerCandidates" && wid) ask("workers", wid);
@@ -93,6 +96,7 @@ pub fn read(url: &str, key: &str) -> Option<PageMessage> {
     }
     match url.host_str()? {
         "approval" => param("id").filter(|id| !id.is_empty()).map(PageMessage::Approval),
+        "theme" => serde_json::from_value(serde_json::Value::String(param("id")?)).ok().map(PageMessage::Theme),
         "enroll" => Some(PageMessage::Enroll),
         "voice" => match param("action").as_deref() {
             Some("start") => Some(PageMessage::Voice(VoiceAction::Start)),
@@ -247,7 +251,7 @@ console.log(JSON.stringify(heard));
         let program = format!(
             r#"
 const sent = [];
-const location = {{ set href(v) {{ sent.push(v); }} }};
+const location = {{ origin: "https://one.local", set href(v) {{ sent.push(v); }} }};
 const window = {{}};
 window.top = {top} ? window : {{}};
 (function (window, location) {{ {script} }})(window, location);
@@ -255,20 +259,56 @@ for (const p of {posts}) window.ReactNativeWebView && window.ReactNativeWebView.
 console.log(JSON.stringify({{ sent, shell: window.legatoShell || null }}));
 "#,
             top = top,
-            script = script(key, voice),
+            script = script(key, voice, "https://one.local"),
             posts = serde_json::to_string(posts).unwrap(),
         );
         let out = std::process::Command::new("node").arg("-e").arg(&program).output().ok()?;
         assert!(out.status.success(), "node: {}", String::from_utf8_lossy(&out.stderr));
         let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
         if top && voice {
-            assert_eq!(v["shell"], json!({ "approval": 1, "enroll": 1, "workers": 1, "voice": 1, "key": key }));
+            assert_eq!(v["shell"], json!({ "approval": 1, "enroll": 1, "workers": 1, "theme": 1, "voice": 1, "key": key }));
         } else if top {
-            assert_eq!(v["shell"], json!({ "approval": 1, "enroll": 1, "workers": 1, "key": key }), "not told it can record");
+            assert_eq!(v["shell"], json!({ "approval": 1, "enroll": 1, "workers": 1, "theme": 1, "key": key }), "not told it can record");
         } else {
             assert!(v["shell"].is_null(), "a frame is not told");
         }
         Some(v["sent"].as_array().unwrap().iter().map(|s| s.as_str().unwrap().to_string()).collect())
+    }
+
+    #[test]
+    fn an_off_origin_document_cannot_install_or_reuse_the_theme_bridge() {
+        let script = script("k1", false, "https://one.local");
+        for start_allowed in [false, true] {
+            let program = format!(r#"
+const sent = [];
+const window = {{}}; window.top = window;
+const location = {{ origin: {start:?}, set href(v) {{ sent.push(v); }} }};
+{script}
+if (Boolean(window.legatoShell) !== {start_allowed}) throw new Error("bridge installation origin guard");
+location.origin = "https://other.local";
+if (window.ReactNativeWebView) window.ReactNativeWebView.postMessage(JSON.stringify({{legatoShell:"theme", key:"k1", id:"dracula"}}));
+console.log(JSON.stringify(sent));
+"#, start = if start_allowed { "https://one.local" } else { "https://other.local" });
+            let out = std::process::Command::new("node").arg("-e").arg(program).output().expect("Node runs bridge");
+            assert!(out.status.success(), "{}", String::from_utf8_lossy(&out.stderr));
+            assert_eq!(String::from_utf8_lossy(&out.stdout).trim(), "[]");
+        }
+    }
+
+    #[test]
+    fn theme_requests_use_the_key_and_strict_theme_ids() {
+        let posts = [
+            r#"{"legatoShell":"theme","type":"theme","key":"k1","id":"dracula"}"#,
+            r#"{"legatoShell":"theme","key":"wrong","id":"legato"}"#,
+            r#"{"legatoShell":"theme","key":"k1","id":"unknown"}"#,
+            r#"{"legatoShell":"theme","key":"k1","id":1}"#,
+        ];
+        let sent = in_node("k1", false, true, &posts).unwrap();
+        assert_eq!(sent.len(), 1);
+        assert_eq!(read(&sent[0], "k1"), Some(PageMessage::Theme(crate::theme::AppTheme::Dracula)));
+        assert_eq!(read("legato-desktop://theme?key=wrong&id=dracula", "k1"), None);
+        assert_eq!(read("legato-desktop://theme?key=k1&id=unknown", "k1"), None);
+        assert!(in_node("k1", false, false, &posts).unwrap().is_empty());
     }
 
     // What web/src/lib/mobileShell.ts posts.

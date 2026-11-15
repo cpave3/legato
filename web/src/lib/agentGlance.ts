@@ -1,4 +1,4 @@
-import type { AgentInfo } from "../hooks/useWebSocket"
+import type { AgentInfo, BackgroundJob } from "../hooks/useWebSocket"
 import { apiFetch } from "./api"
 import { parseLegatoMessage } from "./legatoMessage"
 
@@ -162,4 +162,12 @@ export async function fetchAgentConversation(baseUrl: string, taskId: string): P
   const response = await apiFetch(baseUrl, `/api/agents/${encodeURIComponent(taskId)}/conversation?limit=${GLANCE_ENTRIES}`)
   if (!response.ok) throw new Error((await response.text()).trim() || "Could not read the agent's conversation")
   return await response.json() as AgentConversation
+}
+
+// What an agent in the background waits on: its one job by kind and label,
+// or how many there are; "" for none.
+export function backgroundSummary(jobs: BackgroundJob[] | undefined): string {
+  if (!jobs || jobs.length === 0) return ""
+  if (jobs.length === 1) return `${jobs[0].kind}: ${jobs[0].label}`
+  return `${jobs.length} jobs`
 }

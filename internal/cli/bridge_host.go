@@ -25,6 +25,9 @@ type BridgeHost interface {
 	// SaveIdentity records the provider's session ID, where it works and
 	// where the provider keeps it, to resume the task's conversation.
 	SaveIdentity(ctx context.Context, kind, providerSessionID, cwd, storageDir string) error
+	// TurnEnded reports a main turn that ended without an answer (an
+	// interrupt, an error), which no hook of the agent tool reports.
+	TurnEnded(ctx context.Context, reason string) error
 }
 
 // BridgeSession is the running agent session a bridge serves.
@@ -59,7 +62,9 @@ func (h *storeBridgeHost) Session(ctx context.Context, taskID, executionID strin
 	}
 	h.taskID, h.session = taskID, session
 	out := BridgeSession{RecordsIdentity: recordsIdentity(session, taskID)}
-	if session.ChimeraEndpoint != nil {
+	// Chimera pushes its binding instead of reattaching from this reply;
+	// its secret-bearing URL must not cross the agent's broker.
+	if session.ChimeraEndpoint != nil && session.AgentKind != "chimera" {
 		out.Endpoint = *session.ChimeraEndpoint
 	}
 	if out.RecordsIdentity {
@@ -95,6 +100,10 @@ func (h *storeBridgeHost) SaveIdentity(ctx context.Context, kind, providerSessio
 		ipc.Broadcast(ipc.Message{Type: "agents_changed", TaskID: h.taskID})
 	}
 	return nil
+}
+
+func (h *storeBridgeHost) TurnEnded(_ context.Context, reason string) error {
+	return ApplyTurnEnded(h.s, h.taskID, h.session.ExecutionID, reason, nil, nil)
 }
 
 // recordsIdentity reports whether the task resumes this session's
@@ -143,6 +152,10 @@ func (h *brokerBridgeHost) SaveIdentity(ctx context.Context, kind, providerSessi
 	return h.call(ctx, "resume.save", map[string]string{"kind": kind, "provider_session_id": providerSessionID, "cwd": cwd, "storage_dir": storageDir}, nil)
 }
 
+func (h *brokerBridgeHost) TurnEnded(ctx context.Context, reason string) error {
+	return h.call(ctx, "agent.hook", map[string]any{"hook": ClaudeHook{Event: HookTurnEnded, Reason: reason}}, nil)
+}
+
 // bridgeOps serve BridgeHost over the broker, through the store, for the
 // caller's own task.
 func bridgeOps(db *store.Store, deps BrokerDeps) map[string]BrokerOp {
@@ -181,6 +194,18 @@ func bridgeOps(db *store.Store, deps BrokerDeps) map[string]BrokerOp {
 			if err != nil {
 				return nil, err
 			}
+			var args struct {
+				SessionID string `json:"session_id"`
+			}
+			if err := json.Unmarshal(raw, &args); err != nil {
+				return nil, refuse("bad_request", err.Error())
+			}
+			if args.SessionID != "" {
+				if err := validateChimeraLinkURL(endpoint); err != nil {
+					return nil, refuse("bad_request", err.Error())
+				}
+				return map[string]bool{"ok": true}, h.bindChimera(ctx, args.SessionID, endpoint)
+			}
 			return map[string]bool{"ok": true}, h.Bind(ctx, endpoint)
 		},
 		"endpoint.unbind": func(ctx context.Context, caller BrokerCaller, raw json.RawMessage) (any, error) {
@@ -191,6 +216,15 @@ func bridgeOps(db *store.Store, deps BrokerDeps) map[string]BrokerOp {
 			h, err := host(ctx, caller)
 			if err != nil {
 				return nil, err
+			}
+			var args struct {
+				SessionID string `json:"session_id"`
+			}
+			if err := json.Unmarshal(raw, &args); err != nil {
+				return nil, refuse("bad_request", err.Error())
+			}
+			if args.SessionID != "" {
+				return map[string]bool{"ok": true}, h.unbindChimera(ctx, args.SessionID, endpoint)
 			}
 			return map[string]bool{"ok": true}, h.Unbind(ctx, endpoint)
 		},

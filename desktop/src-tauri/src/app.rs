@@ -22,7 +22,7 @@ use crate::webauthn::{self, Attachment, ORIGIN, RP_ID};
 use crate::discovery::{Browser, Found};
 use crate::links;
 use crate::bridge::{self, PageMessage, VoiceAction, VoiceEvent};
-use crate::{fido, screens, systrust, touchid, voice, voiceclient, voicekey, voicemain, voicewidget, widgetapprovals, workers};
+use crate::{fido, hostline, lifecycle, screens, systrust, touchid, voice, voiceclient, voicekey, voicemain, voicewidget, widgetapprovals, workers};
 use crate::voiceclient::{Command, Ui};
 use crate::voicekey::{Backend, Input, KeyBackend, VoiceKey};
 
@@ -217,12 +217,24 @@ fn make_server_view(app: &AppHandle, server: &Server, token: Option<String>, pat
         rand::rngs::OsRng.fill_bytes(&mut b);
         hex::encode(b)
     };
-    let shell_bridge = format!("if (location.origin === {origin:?}) {}", bridge::script(&key, voice::system_recorder().is_some()));
+    let initial_theme = app.state::<Desktop>().store.lock().unwrap().state.app_theme;
+    let theme_seed = crate::theme::page_script(&origin, initial_theme);
+    let theme_origin = origin.clone();
+    let shell_bridge = bridge::script(&key, voice::system_recorder().is_some(), &origin);
     let (handle, server_id) = (app.clone(), server.id.clone());
     let (server_url, new_window_server_url) = (server.url.clone(), server.url.clone());
     let builder = WebviewBuilder::new(webview_label(&server.id), WebviewUrl::External("about:blank".parse().unwrap()))
         .initialization_script(&seed)
         .initialization_script(&shell_bridge)
+        .initialization_script(&theme_seed)
+        .on_page_load(move |view, _| {
+            // Read again: a retained page may reload long after it was made,
+            // or a selection may change while its navigation is in flight.
+            let theme = view.app_handle().state::<Desktop>().store.lock().unwrap().state.app_theme;
+            if let Err(error) = view.eval(crate::theme::page_script(&theme_origin, theme)) {
+                eprintln!("[theme] page load: {error}");
+            }
+        })
         // Files dropped on the page are the page's: an image dropped on an
         // agent's chat. Tauri's own handler would finish the drop itself
         // (wry returns true to GTK), and WebKit would never fire `drop`.
@@ -247,6 +259,16 @@ fn make_server_view(app: &AppHandle, server: &Server, token: Option<String>, pat
             }
             let payload = match bridge::read(url.as_str(), &key) {
                 Some(PageMessage::Approval(id)) => Some(json!({ "server": server_id, "kind": "approval", "id": id })),
+                Some(PageMessage::Theme(theme)) => {
+                    let result = set_app_theme(handle.clone(), handle.state::<Desktop>(), theme);
+                    let origin = reqwest::Url::parse(&server_url).unwrap().origin().ascii_serialization();
+                    if let Some(view) = handle.get_webview(&webview_label(&server_id)) {
+                        if let Err(error) = view.eval(crate::theme::result_script(&origin, theme, result.err().as_deref())) {
+                            eprintln!("[theme] answer: {error}");
+                        }
+                    }
+                    None
+                }
                 Some(PageMessage::Enroll) => Some(json!({ "server": server_id, "kind": "enroll" })),
                 Some(PageMessage::Voice(action)) => {
                     record_for_page(&handle, &server_id, action);
@@ -870,7 +892,7 @@ fn place_widget(app: &AppHandle) {
                 Some((area, scale)) => voicewidget::margins(anchor, offset, logical(area, scale), size),
                 None => voicewidget::margins(anchor, offset, (f64::MAX, f64::MAX), size),
             };
-            anchor_layer(app, &window, anchor, m);
+            anchor_layer(app, &window, anchor, m, false);
         }
         voicewidget::Placement::Floating => {}
     }
@@ -878,30 +900,46 @@ fn place_widget(app: &AppHandle) {
 
 /// Anchors the layer surface with these margins, at the widget's size,
 /// when either changed; on GTK's main thread, where this may not be (a
-/// conversation runs on tokio's).
-#[allow(unused_variables)]
-fn anchor_layer(app: &AppHandle, window: &tauri::WebviewWindow, anchor: Anchor, m: Offset) {
-    #[cfg(target_os = "linux")]
-    {
-        let monitor = widget_screen(app).map(|s| s.index);
-        let desktop = app.state::<Desktop>();
-        let size = {
-            let mut widget = desktop.widget.lock().unwrap();
-            let applied = Some((monitor, anchor, m, widget.size));
-            if widget.applied == applied {
-                return;
+/// conversation runs on tokio's). Only the last placement asked is applied:
+/// one overtaken while it waited for the main thread is skipped. With
+/// `tell`, a change returns a receiver told once the frame carrying it is
+/// committed (`voicewidget::moved`).
+#[cfg(target_os = "linux")]
+fn anchor_layer(app: &AppHandle, window: &tauri::WebviewWindow, anchor: Anchor, m: Offset, tell: bool) -> Option<tokio::sync::oneshot::Receiver<()>> {
+    let monitor = widget_screen(app).map(|s| s.index);
+    let desktop = app.state::<Desktop>();
+    let (applied, size) = {
+        let mut widget = desktop.widget.lock().unwrap();
+        let applied = Some((monitor, anchor, m, widget.size));
+        if widget.applied == applied {
+            return None;
+        }
+        widget.applied = applied;
+        (applied, widget.size)
+    };
+    let shell = desktop.layer_shell.lock().unwrap().clone();
+    let window = window.clone();
+    let handle = app.clone();
+    let (moved, moving) = tokio::sync::oneshot::channel();
+    let _ = app.run_on_main_thread(move || {
+        if handle.state::<Desktop>().widget.lock().unwrap().applied != applied {
+            return;
+        }
+        if let (Some(shell), Ok(gtk)) = (shell, window.gtk_window()) {
+            shell.place(&gtk, monitor, anchor, m, size);
+            if tell {
+                voicewidget::layer_shell::after_next_paint(&gtk, move || {
+                    let _ = moved.send(());
+                });
             }
-            widget.applied = applied;
-            widget.size
-        };
-        let shell = desktop.layer_shell.lock().unwrap().clone();
-        let window = window.clone();
-        let _ = app.run_on_main_thread(move || {
-            if let (Some(shell), Ok(gtk)) = (shell, window.gtk_window()) {
-                shell.place(&gtk, monitor, anchor, m, size);
-            }
-        });
-    }
+        }
+    });
+    tell.then_some(moving)
+}
+
+#[cfg(not(target_os = "linux"))]
+fn anchor_layer(_app: &AppHandle, _window: &tauri::WebviewWindow, _anchor: Anchor, _m: Offset, _tell: bool) -> Option<tokio::sync::oneshot::Receiver<()>> {
+    None
 }
 
 /// The page's size, so the window is the size of what it draws.
@@ -939,29 +977,44 @@ fn voice_widget_drag_start(app: AppHandle) {
 }
 
 /// The pointer moved by dx, dy (logical) from where it took hold of the
-/// widget: the widget moves as much, kept on the screen.
+/// widget: the widget moves as much, kept on the screen. The page measures
+/// its next step from where the window is when this answers, so it answers
+/// once a layer surface has moved (`voicewidget::moved`, LEG-148), and an
+/// X11 window once its move was asked on the main thread, as before.
 #[tauri::command]
-fn voice_widget_drag_move(app: AppHandle, dx: f64, dy: f64) {
-    let Some(window) = app.get_webview_window(voicewidget::LABEL) else { return };
+async fn voice_widget_drag_move(app: AppHandle, dx: f64, dy: f64) {
+    voicewidget::moved(drag_step(&app, dx, dy)).await;
+}
+
+/// Moves the dragged widget by dx, dy; the receiver told when the move is
+/// done (see `voice_widget_drag_move`).
+fn drag_step(app: &AppHandle, dx: f64, dy: f64) -> Option<tokio::sync::oneshot::Receiver<()>> {
+    let window = app.get_webview_window(voicewidget::LABEL)?;
     let desktop = app.state::<Desktop>();
     let placement = *desktop.widget_placement.lock().unwrap();
     let (drag, size) = {
         let mut widget = desktop.widget.lock().unwrap();
         let size = widget.size;
-        let Some(drag) = widget.drag.as_mut() else { return };
+        let drag = widget.drag.as_mut()?;
         drag.pos = voicewidget::drag_to(drag.pos, (dx, dy), logical(drag.area, drag.scale), size);
         (*drag, size)
     };
     match placement {
         voicewidget::Placement::Placed => {
             let (x, y) = (drag.area.x + drag.pos.0 * drag.scale, drag.area.y + drag.pos.1 * drag.scale);
-            let _ = window.set_position(tauri::PhysicalPosition::new(x.round() as i32, y.round() as i32));
+            let at = tauri::PhysicalPosition::new(x.round() as i32, y.round() as i32);
+            let (moved, moving) = tokio::sync::oneshot::channel();
+            let _ = app.run_on_main_thread(move || {
+                let _ = window.set_position(at);
+                let _ = moved.send(());
+            });
+            Some(moving)
         }
         voicewidget::Placement::LayerShell => {
             let m = voicewidget::margins_for(drag.corner, drag.pos, logical(drag.area, drag.scale), size);
-            anchor_layer(&app, &window, drag.corner, m);
+            anchor_layer(app, &window, drag.corner, m, true)
         }
-        voicewidget::Placement::Floating => {}
+        voicewidget::Placement::Floating => None,
     }
 }
 
@@ -1203,6 +1256,13 @@ fn voice_widget_settings(desktop: State<'_, Desktop>) -> WidgetSettings {
         screens::names(&[alone]).remove(0)
     });
     WidgetSettings { shown: !v.widget_hidden, anchor: v.anchor, dropped: v.offset.is_some(), screens, screen: v.screen, chosen, missing }
+}
+
+/// The widget's close button: hides the widget, as its menu's Hide does.
+/// The app and the main window go on; Servers & keys shows it again.
+#[tauri::command]
+fn voice_widget_hide(app: AppHandle, desktop: State<'_, Desktop>) -> Result<(), String> {
+    set_widget(&app, &desktop, Some(true), None)
 }
 
 /// Servers & keys: show or hide the widget, and where it keeps to.
@@ -1745,8 +1805,45 @@ fn handle_link(app: &AppHandle, url: &str) {
     bring_to_front(app);
 }
 
+/// Makes the main window, with the shell in it. Closing it quits the app,
+/// the voice widget with it (lifecycle::quits_when): Tauri would otherwise
+/// keep running while the widget's window is open, with no window to come
+/// back to.
+fn make_main_window(app: &AppHandle) -> tauri::Result<()> {
+    let window = WindowBuilder::new(app, lifecycle::MAIN)
+        .title("Legato")
+        .inner_size(1360.0, 880.0)
+        .min_inner_size(820.0, 560.0)
+        .decorations(false)
+        .build()?;
+    #[cfg(target_os = "linux")]
+    overlay::install(&window)?;
+    let size = window.inner_size()?.to_logical::<f64>(window.scale_factor()?);
+    let shell = window.add_child(WebviewBuilder::new("shell", WebviewUrl::App("index.html".into())), LogicalPosition::new(0.0, 0.0), size)?;
+    #[cfg(target_os = "linux")]
+    shell.with_webview(|platform| overlay::adopt(&platform.inner(), None))?;
+    #[cfg(not(target_os = "linux"))]
+    let _ = shell;
+    let handle = app.clone();
+    window.on_window_event(move |e| {
+        if matches!(e, WindowEvent::Resized(_) | WindowEvent::ScaleFactorChanged { .. }) {
+            relayout(&handle);
+        }
+        let closed = match e {
+            WindowEvent::CloseRequested { .. } => Some(lifecycle::Closed::Requested),
+            WindowEvent::Destroyed => Some(lifecycle::Closed::Destroyed),
+            _ => None,
+        };
+        if closed.is_some_and(|c| lifecycle::quits_when(lifecycle::MAIN, c)) {
+            println!("[start] the main window closed; quitting");
+            handle.exit(0);
+        }
+    });
+    Ok(())
+}
+
 fn bring_to_front(app: &AppHandle) {
-    if let Some(window) = app.get_window("main") {
+    if let Some(window) = app.get_window(lifecycle::MAIN) {
         let _ = window.unminimize();
         let _ = window.show();
         let _ = window.set_focus();
@@ -1757,6 +1854,24 @@ fn bring_to_front(app: &AppHandle) {
 #[tauri::command]
 fn take_import_requests(desktop: State<'_, Desktop>) -> Vec<ImportLink> {
     std::mem::take(&mut *desktop.imports.lock().unwrap())
+}
+
+#[tauri::command]
+fn app_theme(desktop: State<'_, Desktop>) -> crate::theme::AppTheme {
+    desktop.store.lock().unwrap().state.app_theme
+}
+
+#[tauri::command]
+fn set_app_theme(app: AppHandle, desktop: State<'_, Desktop>, theme: crate::theme::AppTheme) -> Result<(), String> {
+    crate::theme::select(
+        &mut desktop.store.lock().unwrap(),
+        theme,
+        |theme| app.emit("app-theme-changed", theme).map_err(|e| e.to_string()),
+        |id, script| match app.get_webview(&webview_label(id)) {
+            Some(view) => view.eval(script).map_err(|e| e.to_string()),
+            None => Ok(()), // A server not opened yet receives it at creation.
+        },
+    )
 }
 
 #[tauri::command]
@@ -2360,7 +2475,7 @@ async fn watch_approvals(app: AppHandle) {
             let _ = app.emit("voice-approvals", &list);
             if list.is_empty() {
                 // The page says how the last one went for a moment
-                // (DECIDED_FOR in Approvals.tsx) before a hidden widget goes.
+                // (DECIDED_FOR in ApprovalEntries.tsx) before a hidden widget goes.
                 let app = app.clone();
                 tauri::async_runtime::spawn(async move {
                     tokio::time::sleep(widgetapprovals::DECIDED_FOR).await;
@@ -2375,6 +2490,78 @@ async fn watch_approvals(app: AppHandle) {
             _ = tokio::time::sleep(widgetapprovals::EVERY) => {}
             _ = desktop.approvals_asked.notified() => {}
         }
+    }
+}
+
+/// Keeps a WebSocket to the voice main's `/ws` and tells the widget when a
+/// line of the Reeve's plays on the main's speakers (`voice-host-line`,
+/// `hostline::Change`): the lines it says unprompted, which no
+/// conversation carries. Opens it again after RETRY when it closes, and
+/// when the voice main changes. The log has line numbers, never the text.
+async fn watch_host_lines(app: AppHandle) {
+    use futures_util::{SinkExt, StreamExt};
+    use tokio_tungstenite::tungstenite::Message;
+    let tell = |change: Option<hostline::Change>| {
+        if let Some(change) = change {
+            println!("[voice] host line {} {}", change.id, change.status);
+            let _ = app.emit("voice-host-line", &change);
+        }
+    };
+    let mut line = hostline::HostLine::default();
+    // Said once until it changes, not every RETRY.
+    let mut failing = String::new();
+    loop {
+        let chosen = {
+            let desktop = app.state::<Desktop>();
+            match voice_choice(&desktop) {
+                voicemain::Choice::Server(id) => {
+                    let store = desktop.store.lock().unwrap();
+                    client(&store, &id).ok().map(|c| (id, c))
+                }
+                _ => None,
+            }
+        };
+        let Some((server, c)) = chosen else {
+            tokio::time::sleep(hostline::RETRY).await;
+            continue;
+        };
+        let mut socket = match c.websocket(hostline::PATH).await {
+            Ok(s) => s,
+            Err(e) => {
+                let why = format!("{server} did not open /ws: {e}");
+                if why != failing {
+                    println!("[voice] host lines: {why}");
+                    failing = why;
+                }
+                tokio::time::sleep(hostline::RETRY).await;
+                continue;
+            }
+        };
+        failing.clear();
+        let mut checks = tokio::time::interval_at(tokio::time::Instant::now() + hostline::CHECK, hostline::CHECK);
+        loop {
+            tokio::select! {
+                message = socket.next() => match message {
+                    Some(Ok(Message::Text(text))) => {
+                        if let Ok(v) = serde_json::from_str::<Value>(&text) {
+                            tell(line.on_message(&v, std::time::Instant::now()));
+                        }
+                    }
+                    Some(Ok(Message::Close(_))) | None | Some(Err(_)) => break,
+                    Some(Ok(_)) => {}
+                },
+                _ = checks.tick() => {
+                    tell(line.check(std::time::Instant::now()));
+                    let same = matches!(voice_choice(&app.state::<Desktop>()), voicemain::Choice::Server(id) if id == server);
+                    if !same || socket.send(Message::Ping(Vec::new().into())).await.is_err() {
+                        break;
+                    }
+                }
+            }
+        }
+        let _ = socket.close(None).await;
+        tell(line.lost());
+        tokio::time::sleep(hostline::RETRY).await;
     }
 }
 
@@ -2542,10 +2729,18 @@ pub fn run() {
     tauri::Builder::default()
         // A second start (the system opening a link) hands its link to the
         // app that runs and ends; the deep-link plugin reads the link.
-        // `legato-desktop --voice` is the key, as the link is.
-        .plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| match voicekey::read_args(&argv) {
-            Some(key) => voice_key(app, key, "link"),
-            None => bring_to_front(app),
+        // `legato-desktop --voice` is the key, as the link is. Any other
+        // start brings the main window to the front, made again if it is
+        // gone (lifecycle::relaunch), so a start never does nothing.
+        .plugin(tauri_plugin_single_instance::init(|app, argv, _cwd| {
+            match lifecycle::relaunch(&argv, app.get_window(lifecycle::MAIN).is_some()) {
+                lifecycle::Relaunch::Key(key) => voice_key(app, key, "link"),
+                lifecycle::Relaunch::ShowMain => bring_to_front(app),
+                lifecycle::Relaunch::MakeMain => match make_main_window(app) {
+                    Ok(()) => bring_to_front(app),
+                    Err(e) => println!("[start] the main window was not made again: {e}"),
+                },
+            }
         }))
         .plugin(tauri_plugin_deep_link::init())
         // The confirm before one of the app's servers becomes a worker.
@@ -2610,26 +2805,7 @@ pub fn run() {
                     tokio::time::sleep(voicemain::REFRESH).await;
                 }
             });
-            let window = WindowBuilder::new(app, "main")
-                .title("Legato")
-                .inner_size(1360.0, 880.0)
-                .min_inner_size(820.0, 560.0)
-                .decorations(false)
-                .build()?;
-            #[cfg(target_os = "linux")]
-            overlay::install(&window)?;
-            let size = window.inner_size()?.to_logical::<f64>(window.scale_factor()?);
-            let shell = window.add_child(WebviewBuilder::new("shell", WebviewUrl::App("index.html".into())), LogicalPosition::new(0.0, 0.0), size)?;
-            #[cfg(target_os = "linux")]
-            shell.with_webview(|platform| overlay::adopt(&platform.inner(), None))?;
-            #[cfg(not(target_os = "linux"))]
-            let _ = shell;
-            let handle = app.handle().clone();
-            window.on_window_event(move |e| {
-                if matches!(e, WindowEvent::Resized(_) | WindowEvent::ScaleFactorChanged { .. }) {
-                    relayout(&handle);
-                }
-            });
+            make_main_window(app.handle())?;
             // The screens before the widget, so it goes on the chosen one.
             #[cfg(target_os = "linux")]
             {
@@ -2640,6 +2816,7 @@ pub fn run() {
                 println!("[voice widget] the window was not made: {e}");
             }
             tauri::async_runtime::spawn(watch_approvals(app.handle().clone()));
+            tauri::async_runtime::spawn(watch_host_lines(app.handle().clone()));
             // Started with --voice. No page hears the voice-key event this
             // early, but the press starts the conversation, which waits for
             // the first ask of the servers.
@@ -2680,6 +2857,8 @@ pub fn run() {
             apply_update,
             restart_app,
             take_import_requests,
+            app_theme,
+            set_app_theme,
             import_preference,
             set_import_preference,
             import_ticket,
@@ -2696,6 +2875,7 @@ pub fn run() {
             voice_open_settings,
             voice_widget_size,
             voice_widget_menu,
+            voice_widget_hide,
             voice_widget_settings,
             set_voice_widget,
             set_voice_screen,

@@ -411,6 +411,14 @@ func AgentState(s *store.Store, report AgentStateReport, pushNotifier, osNotifie
 	if err != nil {
 		return fmt.Errorf("getting agent session: %w", err)
 	}
+	if report.ExecutionID != "" && session.ExecutionID != report.ExecutionID {
+		return fmt.Errorf("execution %q does not own running task session %s", report.ExecutionID, report.TaskID)
+	}
+	// The plugin or mod owns this session, including child events. Stale
+	// installed scripts must not undo its reports or send duplicate notices.
+	if session.HookSource == store.HookSourcePlugin || session.HookSource == store.HookSourceMod {
+		return nil
+	}
 	if report.SessionID != "" && session.ChimeraSessionID == nil {
 		return fmt.Errorf("resolving Chimera session %q for task %s: parent session ID is unavailable", report.SessionID, report.TaskID)
 	}
@@ -431,30 +439,38 @@ func AgentState(s *store.Store, report AgentStateReport, pushNotifier, osNotifie
 		return nil
 	}
 
-	if report.ExecutionID != "" && session.ExecutionID != report.ExecutionID {
-		return fmt.Errorf("execution %q does not own running task session %s", report.ExecutionID, report.TaskID)
-	}
 	if err := s.UpdateAgentActivityForSession(ctx, session.ID, report.Activity); err != nil {
+		if errors.Is(err, store.ErrAgentStateIgnored) {
+			return nil
+		}
 		return fmt.Errorf("updating agent activity: %w", err)
 	}
+	return settleActivity(ctx, s, session, report.TaskID, report.ExecutionID, report.Activity, report.WorkingDir, pushNotifier, osNotifier)
+}
+
+// settleActivity follows a session's new activity, already written, with
+// what goes with it: the execution's reporting span, a notification when
+// the agent stops for the person or errs, and the IPC broadcast. session is
+// the session as it was before.
+func settleActivity(ctx context.Context, s *store.Store, session *store.AgentSession, taskID, executionID, activity, workingDir string, pushNotifier, osNotifier service.Notifier) error {
 	// Legacy hooks omit execution identity. Keep the live operational status
 	// useful, but never infer an execution or write reporting activity.
-	if report.ExecutionID != "" {
+	if executionID != "" {
 		// Waiting on background work is not a turn of the agent's own: for
 		// reporting it ends the span in progress, as going idle does.
-		reported := report.Activity
+		reported := activity
 		if reported == store.ActivityBackground {
 			reported = ""
 		}
-		if err := s.RecordExecutionActivity(ctx, report.ExecutionID, reported, report.WorkingDir); err != nil {
+		if err := s.RecordExecutionActivity(ctx, executionID, reported, workingDir); err != nil {
 			return fmt.Errorf("recording execution activity: %w", err)
 		}
 	}
-	if (session.Activity == store.ActivityWorking && (report.Activity == store.ActivityWaiting || report.Activity == "")) ||
-		(report.Activity == store.ActivityError && session.Activity != store.ActivityError) {
-		service.MaybeNotify(s, pushNotifier, osNotifier, report.TaskID, report.Activity)
+	if (session.Activity == store.ActivityWorking && (activity == store.ActivityWaiting || activity == "")) ||
+		(activity == store.ActivityError && session.Activity != store.ActivityError) {
+		service.MaybeNotify(s, pushNotifier, osNotifier, taskID, activity)
 	}
-	ipc.Broadcast(ipc.Message{Type: "agent_state", TaskID: report.TaskID, Status: report.Activity})
+	ipc.Broadcast(ipc.Message{Type: "agent_state", TaskID: taskID, Status: activity})
 	return nil
 }
 

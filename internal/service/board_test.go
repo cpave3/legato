@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"path/filepath"
 	"testing"
 	"time"
@@ -398,19 +399,17 @@ func TestMoveCard_PlacedAtEnd(t *testing.T) {
 	}
 }
 
-// ReorderCard tests
+// PlaceCard tests
 
-func TestReorderCard_MoveToPosition(t *testing.T) {
+func TestPlaceCard_PutsItBeforeItsNeighbour(t *testing.T) {
 	s, bus, svc := setupTestBoard(t)
 	seedColumns(t, s)
 	seedTasks(t, s)
 
 	ch := bus.Subscribe(events.EventCardUpdated)
 
-	// Move T-2 to position 0 (before T-1)
-	err := svc.ReorderCard(context.Background(), "T-2", 0)
-	if err != nil {
-		t.Fatalf("ReorderCard: %v", err)
+	if err := svc.PlaceCard(context.Background(), "T-2", "T-1"); err != nil {
+		t.Fatalf("PlaceCard: %v", err)
 	}
 
 	cards, _ := svc.ListCards(context.Background(), "Backlog")
@@ -428,19 +427,56 @@ func TestReorderCard_MoveToPosition(t *testing.T) {
 	}
 }
 
-func TestReorderCard_OutOfRange_PlacesAtEnd(t *testing.T) {
+func TestPlaceCard_NoNeighbourPutsItLast(t *testing.T) {
 	s, _, svc := setupTestBoard(t)
 	seedColumns(t, s)
 	seedTasks(t, s)
 
-	err := svc.ReorderCard(context.Background(), "T-1", 100)
-	if err != nil {
-		t.Fatalf("ReorderCard: %v", err)
+	if err := svc.PlaceCard(context.Background(), "T-1", ""); err != nil {
+		t.Fatalf("PlaceCard: %v", err)
 	}
 
 	cards, _ := svc.ListCards(context.Background(), "Backlog")
 	if cards[len(cards)-1].ID != "T-1" {
 		t.Errorf("expected T-1 at end, got %s", cards[len(cards)-1].ID)
+	}
+}
+
+func TestPlaceCard_NeighbourInAnotherColumnIsAConflict(t *testing.T) {
+	s, bus, svc := setupTestBoard(t)
+	seedColumns(t, s)
+	seedTasks(t, s)
+	ch := bus.Subscribe(events.EventCardUpdated)
+
+	err := svc.PlaceCard(context.Background(), "T-1", "T-3")
+	if !errors.Is(err, store.ErrConflict) {
+		t.Fatalf("err = %v, want store.ErrConflict", err)
+	}
+	select {
+	case evt := <-ch:
+		t.Errorf("unexpected event %+v", evt)
+	default:
+	}
+}
+
+// A card dropped into another column lands where it was let go: moved,
+// then placed before the card under it.
+func TestPlaceCard_AfterAMoveLandsAmongTheTargetColumnsCards(t *testing.T) {
+	s, _, svc := setupTestBoard(t)
+	seedColumns(t, s)
+	seedTasks(t, s)
+	ctx := context.Background()
+
+	if err := svc.MoveCard(ctx, "T-1", "In Progress"); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.PlaceCard(ctx, "T-1", "T-3"); err != nil {
+		t.Fatal(err)
+	}
+
+	cards, _ := svc.ListCards(ctx, "In Progress")
+	if len(cards) != 2 || cards[0].ID != "T-1" || cards[1].ID != "T-3" {
+		t.Fatalf("In Progress = %+v, want T-1, T-3", cards)
 	}
 }
 

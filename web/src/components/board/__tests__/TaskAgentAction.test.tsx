@@ -365,13 +365,13 @@ describe("TaskAgentAction", () => {
     expect(screen.getByText(`Continue with the previous ${label} context.`)).toBeTruthy()
     await confirm()
     expect(await screen.findByText("saved conversation is unavailable")).toBeTruthy()
-    expect(apiFetch).toHaveBeenLastCalledWith("", "/api/tasks/T-1/agent", expect.objectContaining({
+    expect(apiFetch).toHaveBeenCalledWith("", "/api/tasks/T-1/agent", expect.objectContaining({
       body: JSON.stringify({ agent_kind: "", working_dir: "/default", session_policy: "resume" }),
     }))
 
     fireEvent.click(screen.getByRole("radio", { name: "Start new session" }))
     await confirm()
-    await vi.waitFor(() => expect(apiFetch).toHaveBeenLastCalledWith("", "/api/tasks/T-1/agent", expect.objectContaining({
+    await vi.waitFor(() => expect(apiFetch).toHaveBeenCalledWith("", "/api/tasks/T-1/agent", expect.objectContaining({
       body: JSON.stringify({ agent_kind: "", working_dir: "/default", session_policy: "new" }),
     })))
   })
@@ -400,14 +400,14 @@ describe("TaskAgentAction", () => {
     expect(preset.getAttribute("aria-pressed")).toBe("false")
     await confirm()
     await screen.findByText("launch failed")
-    expect(apiFetch).toHaveBeenLastCalledWith("", "/api/tasks/T-1/agent", expect.objectContaining({
+    expect(apiFetch).toHaveBeenCalledWith("", "/api/tasks/T-1/agent", expect.objectContaining({
       body: JSON.stringify({ agent_kind: "claude-code", working_dir: "/manual", session_policy: "new" }),
     }))
 
     pickAgent("Codex")
     expect(screen.queryByRole("radio", { name: "Resume previous session" })).toBeNull()
     await confirm()
-    await vi.waitFor(() => expect(apiFetch).toHaveBeenLastCalledWith("", "/api/tasks/T-1/agent", expect.objectContaining({
+    await vi.waitFor(() => expect(apiFetch).toHaveBeenCalledWith("", "/api/tasks/T-1/agent", expect.objectContaining({
       body: JSON.stringify({ agent_kind: "codex", working_dir: "/manual" }),
     })))
 

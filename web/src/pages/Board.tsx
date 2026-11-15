@@ -724,20 +724,28 @@ export function BoardPage() {
     }
   }
 
-  const handleDragMove = async (cardId: string, targetColumn: string) => {
+  // A card dropped on a column: within its own, placed before the card
+  // named (null: last); into another, moved there and placed the same way.
+  // A drop on a rail names no place, and the card goes last.
+  const handleDragMove = async (cardId: string, targetColumn: string, before?: string | null) => {
     const card = allCards.find((candidate) => candidate.id === cardId)
-    if (!card || card.status === targetColumn || pendingAction) return
+    if (!card || pendingAction) return
+    const reorder = card.status === targetColumn
+    if (reorder && before === undefined) return
     if (refuseAway(card)) return
     setPendingAction("move")
     try {
-      const result = await patchTask(baseUrl, card.id, { column: targetColumn })
+      const result = await patchTask(baseUrl, card.id, reorder ? { before } : { column: targetColumn, before })
       const waiting = result.triggers?.find(trigger => trigger.status === "waiting_input" || trigger.status === "waiting_confirmation")
       if (waiting) setOverlay({ kind: "workflowInput", request: waiting })
       movedCardIdRef.current = card.id
       refresh()
-      addToast(`Moved task to ${targetColumn}`, "success")
+      if (!reorder) addToast(`Moved task to ${targetColumn}`, "success")
     } catch (error) {
-      addToast(errorMessage(error, "Could not move the task"), "error")
+      addToast(errorMessage(error, reorder ? "Could not reorder the task" : "Could not move the task"), "error")
+      // A drop is refused mostly when the board changed under it: show the
+      // board as it is now.
+      refresh()
     } finally {
       setPendingAction(null)
     }
@@ -921,7 +929,7 @@ export function BoardPage() {
               type="button"
               aria-label="New card"
               onClick={() => setOverlay({ kind: "create" })}
-              className="flex h-11 w-11 items-center justify-center rounded-full bg-lw-accent text-white"
+              className="flex h-11 w-11 items-center justify-center rounded-full bg-lw-accent text-[var(--theme-canvas,#fff)]"
             >
               <Plus size={20} aria-hidden="true" />
             </button>
@@ -935,7 +943,7 @@ export function BoardPage() {
         )}
       </header>
 
-      <header data-testid="board-header" className="hidden items-center justify-between gap-4 border-b border-[#222228] px-5 py-3.5 md:flex">
+      <header data-testid="board-header" className="hidden items-center justify-between gap-4 border-b border-[var(--theme-border,#222228)] px-5 py-3.5 md:flex">
         <div className="flex min-w-0 items-baseline gap-3">
           <h1 className="m-0 text-lg font-semibold leading-6">Board</h1>
           <span className="truncate text-[13px] text-lw-text-2">{cardCountLabel(allCards, shownCards)}</span>
@@ -973,7 +981,7 @@ export function BoardPage() {
           </button>
           <button
             onClick={() => setOverlay({ kind: "create" })}
-            className="h-8 rounded-md bg-lw-accent px-3.5 text-[13px] font-medium text-white hover:brightness-110"
+            className="h-8 rounded-md bg-lw-accent px-3.5 text-[13px] font-medium text-[var(--theme-canvas,#fff)] hover:brightness-110"
           >
             + New card
           </button>
@@ -1047,9 +1055,9 @@ export function BoardPage() {
         )}
       </div>
 
-      <footer data-testid="board-keys" className="hidden gap-[18px] border-t border-[#222228] px-5 py-1.5 text-xs text-lw-faint md:flex">
+      <footer data-testid="board-keys" className="hidden gap-[18px] border-t border-[var(--theme-border,#222228)] px-5 py-1.5 text-xs text-lw-faint md:flex">
         {boardKeys(showEmpty, Boolean(panelCard)).map(([key, label]) => (
-          <span key={key}><span className="text-[#b4b3bd]">{key}</span> {label}</span>
+          <span key={key}><span className="text-[var(--theme-muted,#b4b3bd)]">{key}</span> {label}</span>
         ))}
       </footer>
 

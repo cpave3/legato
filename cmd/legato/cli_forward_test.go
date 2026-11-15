@@ -103,6 +103,34 @@ func TestASandboxedCommandRunsOnTheHostThroughTheBroker(t *testing.T) {
 	}
 }
 
+// An agent that points legato at a scratch instance with LEGATO_CONFIG, which
+// a sandbox never inherits, is refused, with the way to reach it, instead of
+// having the command run on the real Legato through the broker (LEG-156).
+func TestASandboxedCommandForAScratchInstanceIsRefusedNotForwarded(t *testing.T) {
+	db, _, _, token := brokerFixture(t)
+	runtime := shortDir(t)
+	ops := map[string]cli.BrokerOp{"cli.run": cliRunOp(fakeLegato(t), service.SandboxScratch{Root: filepath.Join(runtime, "scratch"), RuntimeDir: runtime}, nil)}
+	host := startBrokerHost(context.Background(), db, shortDir(t), brokerHostOptions{Deps: cli.BrokerDeps{Ops: ops}})
+	t.Cleanup(host.Stop)
+	t.Setenv("LEGATO_SANDBOXED", "1")
+	t.Setenv("LEGATO_BROKER_SOCKET", host.SocketPath())
+	t.Setenv("LEGATO_BROKER_TOKEN", token)
+	t.Setenv("LEGATO_CONFIG", filepath.Join(t.TempDir(), "config.yaml"))
+	out, code := captureStderrWithCode(t, func() int { return runCLI([]string{"task", "create", "Test card", "--json"}) })
+	if code == 0 || strings.Contains(out, "args=") {
+		t.Fatalf("a command for the scratch instance went to the host: exit %d\n%s", code, out)
+	}
+	for _, want := range []string{"scratch_instance_in_sandbox", "env -u LEGATO_SANDBOXED"} {
+		if !strings.Contains(out, want) {
+			t.Errorf("the refusal does not say %s:\n%s", want, out)
+		}
+	}
+	t.Setenv("LEGATO_CONFIG", "")
+	if !forwardsToHost([]string{"task", "show", "task1"}) {
+		t.Fatal("a sandboxed agent command is not forwarded")
+	}
+}
+
 // The Reeve's session runs only commands that read; a change goes to the
 // person through the legato tool or propose_changes.
 func TestTheReevesSessionRunsOnlyReadCommandsThroughTheBroker(t *testing.T) {

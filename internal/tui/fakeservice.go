@@ -67,7 +67,7 @@ func (f *FakeBoardService) MoveCard(_ context.Context, _ string, _ string) error
 	return nil
 }
 
-func (f *FakeBoardService) ReorderCard(_ context.Context, _ string, _ int) error {
+func (f *FakeBoardService) PlaceCard(_ context.Context, _, _ string) error {
 	return nil
 }
 

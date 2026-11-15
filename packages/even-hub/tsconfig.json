@@ -1,0 +1,10 @@
+{
+  // The app: it runs in the Even app's WebView on the phone, so it gets the
+  // browser's types and not Node's. dev/, scripts and the Vite config run in
+  // Node: tsconfig.node.json.
+  "extends": "../tsconfig.base.json",
+  "compilerOptions": {
+    "types": ["vite/client"]
+  },
+  "include": ["src"]
+}

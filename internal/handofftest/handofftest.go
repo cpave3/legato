@@ -200,13 +200,18 @@ func (w *Worker) start() {
 	w.Credentials = w.credentialBroker(db)
 	var reviews *service.ReviewPassService
 	if rp := w.opts.ReviewPasses; rp != nil {
-		reviews = service.NewReviewPassService(db, service.ReviewPassOptions{
-			Config: rp.config, Agents: w.Agents.(service.ReviewAgents), Board: w.Board, GitHub: w.ReviewGitHub,
+		opts := service.ReviewPassOptions{
+			Agents: w.Agents.(service.ReviewAgents), Board: w.Board, GitHub: w.ReviewGitHub,
 			Checkout: w.Checkout, Bus: w.Bus, Now: w.Clock.Now, Run: w.run, Overlay: func() bool { return false },
 			ResumeAuthor: func(ctx context.Context, taskID string) error { return w.Handoffs.ResumeAuthor(ctx, taskID) },
-			Advert:       rp.advert,
-		})
-		srv.SetReviewPasses(rp.advert)
+		}
+		if rp.Runtime != nil {
+			opts = rp.Runtime(opts)
+		} else {
+			opts.Config, opts.Advert = rp.config, rp.advert
+		}
+		reviews = service.NewReviewPassService(db, opts)
+		srv.SetReviewPasses(opts.Advert)
 	}
 	w.Reviews = reviews
 	w.Handoffs = service.NewHandoffWorkerService(db, service.HandoffWorkerOptions{

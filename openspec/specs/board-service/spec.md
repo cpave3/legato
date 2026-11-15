@@ -2,7 +2,7 @@
 
 ### Requirement: BoardService interface definition
 
-The system SHALL define a `BoardService` interface in `internal/service/interfaces.go` with the following methods: `ListColumns`, `ListCards`, `GetCard`, `MoveCard`, `ReorderCard`, `SearchCards`, `ExportCardContext`, `CreateTask`, and `DeleteTask`. All methods MUST accept a `context.Context` as the first parameter. The interface MUST NOT import any presentation-layer packages. The `BoardService` interface SHALL operate on tasks. The `Card` type SHALL have a `Title` field (replacing `Summary`). The `CardDetail` type SHALL include `Provider` and `RemoteID` fields.
+The system SHALL define a `BoardService` interface in `internal/service/interfaces.go` with the following methods: `ListColumns`, `ListCards`, `GetCard`, `MoveCard`, `PlaceCard`, `SearchCards`, `ExportCardContext`, `CreateTask`, and `DeleteTask`. All methods MUST accept a `context.Context` as the first parameter. The interface MUST NOT import any presentation-layer packages. The `BoardService` interface SHALL operate on tasks. The `Card` type SHALL have a `Title` field (replacing `Summary`). The `CardDetail` type SHALL include `Provider` and `RemoteID` fields.
 
 #### Scenario: Interface is consumable by presentation layer
 
@@ -90,19 +90,24 @@ The `GetCard` method SHALL return full detail for a task, including provider met
 - **WHEN** `MoveCard` is called with a column name that does not exist
 - **THEN** it SHALL return an error and not modify the card
 
-### Requirement: ReorderCard changes position within a column
+### Requirement: PlaceCard changes position within a column
 
-`BoardService.ReorderCard` SHALL update the card's `sort_order` to the specified position and adjust the sort_order of other cards in the same column to maintain a consistent ordering. It MUST publish an `EventCardUpdated` event on success.
+`BoardService.PlaceCard(ctx, id, beforeID)` SHALL place the card just before the card `beforeID` in its own column, or last when `beforeID` is empty, and number the column's cards again from 0 in one transaction, writing only `sort_order` (not `updated_at`). It MUST refuse a task away on a worker, and MUST publish an `EventCardUpdated` event on success. (Replaces the index-based `ReorderCard`, LEG-150: naming a neighbour keeps a drop in a filtered view right in the whole column.)
 
-#### Scenario: Reorder within column
+#### Scenario: Place before a neighbour
 
-- **WHEN** `ReorderCard` is called with a valid card ID and a new position
-- **THEN** the card SHALL be placed at the specified position and other cards' sort_orders SHALL be adjusted to avoid gaps or duplicates
+- **WHEN** `PlaceCard` is called with a card and a neighbour in the same column
+- **THEN** the card SHALL come just before the neighbour, and the column's sort_orders SHALL run from 0 without gaps or duplicates
 
-#### Scenario: Position out of range
+#### Scenario: Place last
 
-- **WHEN** `ReorderCard` is called with a position greater than the number of cards in the column
+- **WHEN** `PlaceCard` is called with an empty `beforeID`
 - **THEN** the card SHALL be placed at the end of the column
+
+#### Scenario: Neighbour no longer in the column
+
+- **WHEN** `beforeID` is not an active card in the card's column
+- **THEN** it SHALL return an error that is `store.ErrConflict` and change nothing
 
 ### Requirement: SearchCards performs text search
 

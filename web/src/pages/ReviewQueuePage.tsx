@@ -96,7 +96,7 @@ export function ReviewQueuePage() {
   const reviewNoun = selectedCount === 1 ? "review" : "reviews"
 
   return (
-    <div className="flex h-full flex-col overflow-hidden bg-[#0a0a0f] text-zinc-200">
+    <div className="flex h-full flex-col overflow-hidden bg-[var(--theme-canvas,#0a0a0f)] text-zinc-200">
       <header className="flex items-center justify-between border-b border-zinc-800 px-4 py-3 md:px-6 md:py-4">
         <h1 className="text-lg font-semibold">Review queue</h1>
         <div className="flex items-center gap-3">
@@ -134,7 +134,7 @@ export function ReviewQueuePage() {
               type="button"
               disabled={selectedCount === 0 || removing}
               onClick={() => setConfirming(true)}
-              className="flex min-h-10 items-center gap-2 rounded bg-red-600 px-3 text-sm font-medium text-white disabled:cursor-not-allowed disabled:opacity-40"
+              className="flex min-h-10 items-center gap-2 rounded bg-red-600 px-3 text-sm font-medium text-[var(--theme-canvas,#fff)] disabled:cursor-not-allowed disabled:opacity-40"
             >
               <Trash2 size={15} /> Remove selected
             </button>
@@ -179,13 +179,13 @@ export function ReviewQueuePage() {
       </div>
 
       {confirming && (
-        <div className="fixed inset-0 z-50 flex items-end bg-black/70 p-2 sm:items-center sm:justify-center">
+        <div className="fixed inset-0 z-50 flex items-end bg-[var(--theme-canvas,#000)]/70 p-2 sm:items-center sm:justify-center">
           <div role="dialog" aria-modal="true" aria-labelledby="bulk-remove-title" className="w-full rounded-xl border border-zinc-700 bg-zinc-900 p-5 shadow-xl sm:max-w-md">
             <h2 id="bulk-remove-title" className="text-lg font-semibold">Remove {selectedCount} {reviewNoun}?</h2>
             <p className="mt-3 text-sm text-zinc-300">The selected review packets and their comments will be permanently removed. Tasks and code will remain.</p>
             <div className="mt-5 flex gap-2">
               <button type="button" onClick={() => setConfirming(false)} disabled={removing} className="min-h-11 flex-1 rounded border border-zinc-700 text-sm">Cancel</button>
-              <button type="button" onClick={() => void removeSelected()} disabled={removing} className="min-h-11 flex-1 rounded bg-red-600 text-sm font-medium text-white disabled:opacity-60">
+              <button type="button" onClick={() => void removeSelected()} disabled={removing} className="min-h-11 flex-1 rounded bg-red-600 text-sm font-medium text-[var(--theme-canvas,#fff)] disabled:opacity-60">
                 {removing ? "Removing…" : `Remove ${selectedCount} ${reviewNoun}`}
               </button>
             </div>

@@ -272,21 +272,16 @@ func TestVoiceService_DeliverGoesOverTheNativeEndpointWhenTheAgentHasOne(t *test
 	}
 }
 
-func TestVoiceService_DeliverTypesTheMessageWhenTheNativeEndpointFails(t *testing.T) {
+func TestVoiceService_DeliverReportsNativeFailureWithoutTyping(t *testing.T) {
 	mt := newMockTmux()
 	mt.sessions["legato-TASK-1"] = true
 	agents := &fakeVoiceAgents{native: true, queueErr: fmt.Errorf("connection refused")}
 	vs := &VoiceService{tmux: mt, agents: agents, autoSend: true}
-
-	if err := vs.Deliver(context.Background(), "TASK-1", "legato-TASK-1", "claude-code", "hello agent", true); err != nil {
-		t.Fatal(err)
+	if err := vs.Deliver(context.Background(), "TASK-1", "legato-TASK-1", "claude-code", "hello agent", true); err == nil {
+		t.Fatal("want native failure")
 	}
-
-	if raw := mt.sentRawFor("legato-TASK-1"); len(raw) != 1 || raw[0] != "hello agent" {
-		t.Errorf("typed = %v, want [hello agent]", raw)
-	}
-	if keys := mt.sentKeysFor("legato-TASK-1"); len(keys) != 1 || keys[0] != "Enter" {
-		t.Errorf("keys = %v, want [Enter]", keys)
+	if len(mt.sentRawFor("legato-TASK-1")) != 0 || len(mt.sentKeysFor("legato-TASK-1")) != 0 {
+		t.Fatal("native failure fell back to typing")
 	}
 }
 
@@ -308,23 +303,16 @@ func TestVoiceService_DeliverTypesTheMessageForAnAgentWithNoNativeEndpoint(t *te
 	}
 }
 
-func TestVoiceService_DeliverLeavesAnUnsentDraftInThePane(t *testing.T) {
+func TestVoiceService_DeliverRefusesNativeTerminalDraft(t *testing.T) {
 	mt := newMockTmux()
 	mt.sessions["legato-TASK-1"] = true
-	// Without autosend the person finishes the message at the terminal, and
-	// a native endpoint has no prompt box to leave a draft in.
 	agents := &fakeVoiceAgents{native: true}
 	vs := &VoiceService{tmux: mt, agents: agents}
-
-	if err := vs.Deliver(context.Background(), "TASK-1", "legato-TASK-1", "claude-code", "hello agent", false); err != nil {
-		t.Fatal(err)
+	if err := vs.Deliver(context.Background(), "TASK-1", "legato-TASK-1", "claude-code", "hello agent", false); err == nil {
+		t.Fatal("want native draft refusal")
 	}
-
-	if len(agents.queued) != 0 {
-		t.Errorf("sent a message the person had not finished: %v", agents.queued)
-	}
-	if raw, keys := mt.sentRawFor("legato-TASK-1"), mt.sentKeysFor("legato-TASK-1"); len(raw) != 1 || len(keys) != 0 {
-		t.Errorf("typed %v with keys %v, want the text and no Enter", raw, keys)
+	if len(agents.queued) != 0 || len(mt.sentRawFor("legato-TASK-1")) != 0 {
+		t.Fatal("draft was sent or typed")
 	}
 }
 

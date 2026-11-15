@@ -3,6 +3,7 @@ import { ArrowDown } from "lucide-react"
 import { Terminal } from "@xterm/xterm"
 import { FitAddon } from "@xterm/addon-fit"
 import { useWebSocket, type WSMessage } from "../hooks/useWebSocket"
+import { subscribeTheme } from "../lib/appTheme"
 import { terminalTheme } from "../lib/terminalTheme"
 import "@xterm/xterm/css/xterm.css"
 
@@ -25,6 +26,7 @@ export function TerminalPanel({ agentId, onGlitch, onClickTerminal }: TerminalPa
     agentIdRef.current = agentId
     onGlitchRef.current = onGlitch
   })
+  const [theme, setTheme] = useState(() => terminalTheme().theme)
   const [isScrolledUp, setIsScrolledUp] = useState(false)
 
   useEffect(() => {
@@ -40,6 +42,11 @@ export function TerminalPanel({ agentId, onGlitch, onClickTerminal }: TerminalPa
       scrollback: 10000,
     })
 
+    const stopTheme = subscribeTheme(() => {
+      const next = terminalTheme().theme
+      term.options.theme = next
+      setTheme(next)
+    })
     const fit = new FitAddon()
     term.loadAddon(fit)
     term.open(container)
@@ -77,6 +84,7 @@ export function TerminalPanel({ agentId, onGlitch, onClickTerminal }: TerminalPa
     return () => {
       clearInterval(heartbeat)
       resizeObserver.disconnect()
+      stopTheme()
       term.dispose()
       termRef.current = null
       fitRef.current = null
@@ -171,7 +179,7 @@ export function TerminalPanel({ agentId, onGlitch, onClickTerminal }: TerminalPa
   }
 
   return (
-    <div className="absolute inset-0" style={{ background: terminalTheme().theme.background }}>
+    <div className="absolute inset-0" style={{ background: theme.background }}>
       <div
         ref={containerRef}
         onClick={onClickTerminal}

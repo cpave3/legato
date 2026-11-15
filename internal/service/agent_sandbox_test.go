@@ -12,6 +12,7 @@ import (
 
 	"github.com/cpave3/legato/internal/engine/sandbox"
 	"github.com/cpave3/legato/internal/engine/store"
+	workflowengine "github.com/cpave3/legato/internal/engine/workflow"
 )
 
 // fakeBackend renders a plan as one word per mount, so tests can read what
@@ -50,6 +51,7 @@ func sandboxedService(t *testing.T, backend *fakeBackend, adjust ...func(*Sandbo
 		f(settings)
 	}
 	svc := NewAgentService(s, mt, t.TempDir(), AgentServiceOptions{
+		Adapters: map[string]AIToolAdapter{"chimera": &fakeAdapter{name: "chimera"}},
 		Adapter: &fakeAdapter{name: "claude-code", launchFn: func(env map[string]string, _, _, _ string) string {
 			if env["LEGATO_SANDBOXED"] == "1" {
 				return "fake-tool --in-sandbox"
@@ -89,6 +91,81 @@ func TestASandboxedSpawnWrapsTheLaunchCommand(t *testing.T) {
 	session, _ := s.GetAgentSessionByTaskID(context.Background(), "task-1")
 	if !session.Sandboxed {
 		t.Fatal("the session is not recorded as sandboxed")
+	}
+}
+
+func TestChimeraSpawnProtectsMissingModsAndHooks(t *testing.T) {
+	for _, defaults := range []bool{true, false} {
+		backend := &fakeBackend{}
+		var home string
+		svc, s, _ := sandboxedService(t, backend, func(settings *SandboxSettings) {
+			home = settings.Base.Home
+			settings.Base.DefaultMounts = defaults
+		})
+		createTask(t, s, "task-1")
+		if err := svc.SpawnAgent(context.Background(), "task-1", 0, 0, AgentSpawnOptions{AgentKind: "chimera"}); err != nil {
+			t.Fatal(err)
+		}
+		if len(backend.plans) != 1 {
+			t.Fatalf("plans = %v", backend.plans)
+		}
+		m := mounted(backend.plans[0])
+		for _, name := range []string{"mods", "hooks"} {
+			path := filepath.Join(home, ".chimera", name)
+			if info, err := os.Lstat(path); err != nil || !info.IsDir() {
+				t.Errorf("default_mounts=%v: %s is not a real directory: %v", defaults, path, err)
+			}
+			if got, ok := m[path]; !ok || got.Kind != sandbox.ReadOnly {
+				t.Errorf("default_mounts=%v: %s mount = %+v (present %v), want read-only", defaults, path, got, ok)
+			}
+		}
+		if got := m[filepath.Join(home, ".chimera")]; got.Kind != sandbox.ReadWrite {
+			t.Errorf("Chimera state mount = %+v, want writable", got)
+		}
+	}
+}
+
+func TestChimeraSpawnRefusesSymlinkedProtectedDirectories(t *testing.T) {
+	for _, name := range []string{"mods", "hooks"} {
+		for _, dangling := range []bool{false, true} {
+			for _, linkedRoot := range []bool{false, true} {
+				backend := &fakeBackend{}
+				var path, target string
+				svc, s, mt := sandboxedService(t, backend, func(settings *SandboxSettings) {
+					root := filepath.Join(settings.Base.Home, ".chimera")
+					if linkedRoot {
+						if err := os.Symlink(t.TempDir(), root); err != nil {
+							t.Fatal(err)
+						}
+					} else if err := os.MkdirAll(root, 0o700); err != nil {
+						t.Fatal(err)
+					}
+					path = filepath.Join(root, name)
+					target = filepath.Join(t.TempDir(), "target")
+					if !dangling {
+						if err := os.Mkdir(target, 0o700); err != nil {
+							t.Fatal(err)
+						}
+					}
+					if err := os.Symlink(target, path); err != nil {
+						t.Fatal(err)
+					}
+				})
+				createTask(t, s, "task-1")
+				err := svc.SpawnAgent(context.Background(), "task-1", 0, 0, AgentSpawnOptions{AgentKind: "chimera"})
+				if err == nil || !strings.Contains(err.Error(), path) || !strings.Contains(err.Error(), "symlink") || !strings.Contains(err.Error(), "real directory") {
+					t.Fatalf("dangling=%v linkedRoot=%v: want actionable refusal of %s, got %v", dangling, linkedRoot, path, err)
+				}
+				if len(backend.plans) != 0 || mt.sessions["legato-task-1"] || len(mt.sentLinesFor("legato-task-1")) != 0 {
+					t.Fatal("a refused sandbox launched an agent")
+				}
+				if dangling {
+					if _, err := os.Lstat(target); !os.IsNotExist(err) {
+						t.Fatalf("refused launch created symlink target: %v", err)
+					}
+				}
+			}
+		}
 	}
 }
 
@@ -456,6 +533,38 @@ func TestASandboxedAgentWorksInAJobCloneItsTaskJoined(t *testing.T) {
 	}
 }
 
+// A workflow agent about a task works in that task's job clone: the
+// learning workflow's curator starts there once the task's agent submits its
+// reflection (LEG-156). A workflow agent about another task is refused it.
+func TestAWorkflowAgentWorksInTheJobCloneOfTheTaskItConcerns(t *testing.T) {
+	data := t.TempDir()
+	backend := &fakeBackend{}
+	svc, s, _ := sandboxedService(t, backend, func(settings *SandboxSettings) { settings.Base.DataDir = data })
+	for _, id := range []string{"task-1", "task-2", "wf-1", "wf-2"} {
+		createTask(t, s, id)
+	}
+	clone := filepath.Join(data, "jobs", "ex-old", "widget")
+	if err := os.MkdirAll(clone, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	if _, err := s.CreateJobClone(ctx, store.JobClone{ExecutionID: "ex-old", TaskID: "task-1", Repo: "acme/widget", Path: clone, CreatedAt: time.Now()}); err != nil {
+		t.Fatal(err)
+	}
+
+	curator := AgentSpawnOptions{WorkingDir: clone, ExecutionKind: store.ExecutionWorkflowAgent, AttributionTaskID: "task-1", WorkflowRunID: "wr-1"}
+	if err := svc.SpawnAgent(ctx, "wf-1", 0, 0, curator); err != nil {
+		t.Fatalf("a workflow agent about the clone's task: %v", err)
+	}
+	if got := backend.plans[len(backend.plans)-1].Chdir; got != clone {
+		t.Fatalf("the agent works in %s, want %s", got, clone)
+	}
+	other := AgentSpawnOptions{WorkingDir: clone, ExecutionKind: store.ExecutionWorkflowAgent, AttributionTaskID: "task-2", WorkflowRunID: "wr-2"}
+	if err := svc.SpawnAgent(ctx, "wf-2", 0, 0, other); err == nil {
+		t.Fatal("a workflow agent about another task was given the job clone")
+	}
+}
+
 // linkedHome is a folder whose "home" is a link to "var/home", as on a host
 // whose /home is var/home (Fedora Atomic), with "me" in it. It returns home
 // as reached through the link and as it really is.
@@ -633,5 +742,59 @@ func TestASandboxedAgentSeesItsTasksPastedImagesFolderFromTheStart(t *testing.T)
 		if m.Path == filepath.Dir(dir) || m.Path == filepath.Dir(filepath.Dir(dir)) {
 			t.Errorf("every task's pasted images are mounted: %+v", m)
 		}
+	}
+}
+
+// The task's agent, working in its job clone, completes the reflection step
+// of the learning workflow, and the curator that the completion starts in
+// the task's working folder runs in its sandbox there (LEG-156).
+func TestCompletingAWorkflowStepFromAJobCloneStartsTheNextAgentThere(t *testing.T) {
+	data := t.TempDir()
+	backend := &fakeBackend{}
+	agents, s, _ := sandboxedService(t, backend, func(settings *SandboxSettings) { settings.Base.DataDir = data })
+	createTask(t, s, "task-1")
+	clone := filepath.Join(data, "jobs", "ex-old", "widget")
+	if err := os.MkdirAll(clone, 0o700); err != nil {
+		t.Fatal(err)
+	}
+	ctx := context.Background()
+	if _, err := s.CreateJobClone(ctx, store.JobClone{ExecutionID: "ex-old", TaskID: "task-1", Repo: "acme/widget", Path: clone, CreatedAt: time.Now()}); err != nil {
+		t.Fatal(err)
+	}
+	definition, err := workflowengine.Parse("learning.yaml", []byte(`
+schema_version: 1
+name: learning
+title: Learning
+inputs:
+  task: {type: task, required: true}
+  working_dir: {type: string, default: ""}
+steps:
+  - id: interview
+    title: Request task reflection
+    type: agent.interview
+    with: {task: "${{ workflow.inputs.task }}"}
+  - id: curator
+    title: Curate task learning
+    type: agent.run
+    with: {prompt: curate, working_dir: "${{ workflow.inputs.working_dir }}"}
+`))
+	if err != nil {
+		t.Fatal(err)
+	}
+	interview := &fakeWorkflowExecutor{typeName: "agent.interview", result: WorkflowExecutionResult{Status: "waiting_agent"}}
+	workflows := NewWorkflowService(s, []WorkflowExecutor{interview, NewAgentRunExecutor(NewWorkflowAgentRunner(agents, s))})
+	view, err := workflows.Start(ctx, definition, map[string]string{"task": "task-1", "working_dir": clone})
+	if err != nil {
+		t.Fatal(err)
+	}
+	view, err = workflows.Complete(ctx, view.Run.ID, "interview", view.Attempts[0].ID, nil, nil)
+	if err != nil {
+		t.Fatalf("completing the reflection step: %v", err)
+	}
+	if view.Run.CurrentStepID != "curator" || view.Run.Status != "running" {
+		t.Fatalf("run %+v, want the curator running", view.Run)
+	}
+	if got := backend.plans[len(backend.plans)-1].Chdir; got != clone {
+		t.Fatalf("the curator works in %s, want %s", got, clone)
 	}
 }

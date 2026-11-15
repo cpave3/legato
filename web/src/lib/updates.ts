@@ -13,7 +13,7 @@ export interface UpdateStatus {
   latest_url?: string
   checked_at?: string
   error?: string
-  // Command-line tools kept current beside Legato (st).
+  // Command-line tools kept current beside Legato (st and chimera).
   tools?: ToolStatus[]
 }
 
@@ -60,7 +60,7 @@ export async function setUpdateMode(baseUrl: string, mode: UpdateMode): Promise<
   return response.json()
 }
 
-// applyToolUpdate starts a tool's update (st update); update_changed says how it goes.
+// applyToolUpdate starts a tool's update (st update or chimera update); update_changed says how it goes.
 export async function applyToolUpdate(baseUrl: string, name: string): Promise<void> {
   const response = await apiFetch(baseUrl, `/api/updates/tools/${encodeURIComponent(name)}/apply`, { method: "POST" })
   if (!response.ok) throw await failed(response)

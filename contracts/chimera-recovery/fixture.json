@@ -1,0 +1,32 @@
+{
+  "full": {
+    "summary": "## Goal\nRecovery excerpt (not a model summary):\n[{\"role\":\"user\",\"content\":\"Fix the build.\\nKeep the existing theme semantics.\"},{\"role\":\"assistant\",\"content\":[{\"type\":\"text\",\"text\":\"I will inspect the failing test.\"},{\"type\":\"tool-call\",\"toolCallId\":\"read-1\",\"toolName\":\"read\",\"input\":{\"path\":\"src/build.ts\"}}]},{\"role\":\"tool\",\"content\":[{\"type\":\"tool-result\",\"toolCallId\":\"read-1\",\"toolName\":\"read\",\"output\":{\"type\":\"text\",\"value\":\"export const build = () => true\\n\"}}]},{\"role\":\"assistant\",\"content\":\"The test expects the build to return true.\\nNext: run the focused regression.\"}]\n\n<files>\n  <read>src/build.ts</read>\n</files>\n<tasks>\n  <task status=\"in_progress\">Run the regression</task>\n</tasks>",
+    "tokensBefore": 168,
+    "tokensAfter": 221,
+    "messagesReplaced": 4,
+    "strategy": "summarize",
+    "prunedCount": 0,
+    "prunedTokensSaved": 0,
+    "warnings": [
+      "Retrying compaction model fixture/unavailable after 250ms: Fixture summary model unavailable",
+      "Summary unavailable (fixture/unavailable): Fixture summary model unavailable",
+      "Used lossy context recovery because no summary model succeeded",
+      "Latest user input was truncated for context recovery"
+    ]
+  },
+  "truncated": {
+    "summary": "## Goal\nRecovery excerpt (not a model summary):\n[{\"role\":\"user\",\"content\":\"Fix the build.\\nKeep the existing theme semantics.\"},{\"role\":\"user\",\"content\":\"Older diagnostic output.\\nOlder diagnostic output.\\nOlder diagnostic output.\\nOlder diagnostic output.\\nOlder diagnostic output.\\nOlder diagnostic output.\\nOlder diagnostic output.\\nOlder diagnostic output.\\nOlder diagnostic output.\\nOlder diagnostic output.\\nOlder diagnostic output.\\nOlder diagnostic output.\\nOlder diagnostic output.\\nOlder diagnostic output.\\nOlder diagnostic output.\\nOlder diagnostic output.\\nOlder diagnostic output.\\nOlder diagnostic output.\\nOlder diagnostic output.\\nOlder diagnostic output.\\nOlder diagnostic output.\\nOlder diagnostic output.\\nOlder diagnostic output.\\nOlder diagnostic output.\\nOlder diagnostic output.\\nOlder diagnostic output.\\nOlder diagnostic output.\\nOlder diagnostic output.\\nOlder diagnostic output.\\nOlder diagnostic output.\\nOlder diagnostic output.\\nOlder diagnostic output.\\nOlder diagnostic output.\\nOlder diagnostic output.\\nOlder diagnostic output.\\nOlder diagnostic output.\\nOlder diagnostic output.\\nOlder diagnostic output.\\nOlder diagnostic output.\\nOlder diagnostic output.\\nOlder diagnostic output.\\nOlder diagnostic output.\\nOlder diagnostic output.\\nOlder diagnostic output.\\nOlder diagnostic output.\\nOlder diagnostic output.\\nOlder diagnostic output.\\nOlder diagnostic output.\\nOlder diagnostic output.\\nOlder diagnostic output.\\nOlder diagnostic output.\\nOlder diagnostic output.\\nOlder diagnostic output.\\nOlder diagnostic output.\\nOlder diagnostic output.\\nOlder diagnostic output.\\nOlder diagnostic output.\\nOlder diagnostic output.\\nOlder diagnostic output.\\nOlder diagnostic output.\\nOlder diagnostic output.\\nOlder diagnostic output.\\nOlder diagnostic output.\\nOlder diagnostic output.\\nOlder diagnostic output.\\nOlder diagnostic output.\\nOlder diagnostic output.\\nOlder diagnostic output.\\nOlder diagnostic output.\\nOlder diagnostic output.\\nOlder diagnostic output.\\nOlder diagnostic output.\\nOl\n[Older context truncated for recovery]\nstic output.\\nOlder diagnostic output.\\nOlder diagnostic output.\\nOlder diagnostic output.\\nOlder diagnostic output.\\nOlder diagnostic output.\\nOlder diagnostic output.\\nOlder diagnostic output.\\nOlder diagnostic output.\\nOlder diagnostic output.\\nOlder diagnostic output.\\nOlder diagnostic output.\\nOlder diagnostic output.\\nOlder diagnostic output.\\nOlder diagnostic output.\\nOlder diagnostic output.\\nOlder diagnostic output.\\nOlder diagnostic output.\\nOlder diagnostic output.\\nOlder diagnostic output.\\nOlder diagnostic output.\\nOlder diagnostic output.\\nOlder diagnostic output.\\nOlder diagnostic output.\\nOlder diagnostic output.\\nOlder diagnostic output.\\nOlder diagnostic output.\\nOlder diagnostic output.\\nOlder diagnostic output.\\nOlder diagnostic output.\\nOlder diagnostic output.\\nOlder diagnostic output.\\nOlder diagnostic output.\\nOlder diagnostic output.\\nOlder diagnostic output.\\nOlder diagnostic output.\\nOlder diagnostic output.\\nOlder diagnostic output.\\nOlder diagnostic output.\\nOlder diagnostic output.\\nOlder diagnostic output.\\nOlder diagnostic output.\\nOlder diagnostic output.\\nOlder diagnostic output.\\nOlder diagnostic output.\\nOlder diagnostic output.\\nOlder diagnostic output.\\nOlder diagnostic output.\\nOlder diagnostic output.\\nOlder diagnostic output.\\nOlder diagnostic output.\\nOlder diagnostic output.\\nOlder diagnostic output.\\nOlder diagnostic output.\\nOlder diagnostic output.\\nOlder diagnostic output.\\nOlder diagnostic output.\\nOlder diagnostic output.\\nOlder diagnostic output.\\n\"},{\"role\":\"assistant\",\"content\":[{\"type\":\"text\",\"text\":\"I will inspect the failing test.\"},{\"type\":\"tool-call\",\"toolCallId\":\"read-1\",\"toolName\":\"read\",\"input\":{\"path\":\"src/build.ts\"}}]},{\"role\":\"tool\",\"content\":[{\"type\":\"tool-result\",\"toolCallId\":\"read-1\",\"toolName\":\"read\",\"output\":{\"type\":\"text\",\"value\":\"export const build = () => true\\n\"}}]},{\"role\":\"assistant\",\"content\":\"The test expects the build to return true.\\nNext: run the focused regression.\"}]\n\n<files>\n  <read>src/build.ts</read>\n</files>\n<tasks>\n  <task status=\"in_progress\">Run the regression</task>\n</tasks>",
+    "tokensBefore": 3309,
+    "tokensAfter": 1949,
+    "messagesReplaced": 5,
+    "strategy": "summarize",
+    "prunedCount": 0,
+    "prunedTokensSaved": 0,
+    "warnings": [
+      "Retrying compaction model fixture/unavailable after 250ms: Fixture summary model unavailable",
+      "Summary unavailable (fixture/unavailable): Fixture summary model unavailable",
+      "Used lossy context recovery because no summary model succeeded",
+      "Latest user input was truncated for context recovery"
+    ]
+  }
+}

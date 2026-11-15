@@ -12,12 +12,132 @@ import (
 )
 
 type chimeraStreamAgents struct {
+	mu      sync.Mutex
 	session store.AgentSession
 }
 
 func (a *chimeraStreamAgents) HasChimeraEndpoint(context.Context, string) bool { return true }
 func (a *chimeraStreamAgents) GetAgentSession(context.Context, string) (*store.AgentSession, error) {
-	return &a.session, nil
+	a.mu.Lock()
+	defer a.mu.Unlock()
+	session := a.session
+	return &session, nil
+}
+
+func TestChimeraStreamFollowsReplacementExecution(t *testing.T) {
+	for _, sameEndpoint := range []bool{false, true} {
+		t.Run(map[bool]string{false: "new endpoint", true: "reused endpoint"}[sameEndpoint], func(t *testing.T) {
+			endpoint, sessionID := "http://old", "conversation"
+			agents := &chimeraStreamAgents{session: store.AgentSession{ExecutionID: "old", ChimeraEndpoint: &endpoint, ChimeraSessionID: &sessionID}}
+			manager := newChimeraStreamManager()
+			manager.agents = agents
+			type subscription struct {
+				ctx             context.Context
+				endpoint, since string
+				emit            func(chimera.EventEnvelope)
+			}
+			started := make(chan subscription, 4)
+			manager.subscribeEvents = func(ctx context.Context, endpoint, _, since string, emit func(chimera.EventEnvelope)) error {
+				started <- subscription{ctx, endpoint, since, emit}
+				<-ctx.Done()
+				return ctx.Err()
+			}
+			next := func() subscription {
+				t.Helper()
+				select {
+				case sub := <-started:
+					return sub
+				case <-time.After(time.Second):
+					t.Fatal("replacement subscription never started")
+					return subscription{}
+				}
+			}
+			client := newRecordingWSClient()
+			manager.subscribe(client.wsClient, "task", "")
+			t.Cleanup(func() {
+				manager.unsubscribeAll(client.wsClient)
+				manager.mu.Lock()
+				for _, stream := range manager.streams {
+					stream.cancel()
+				}
+				manager.mu.Unlock()
+			})
+			old := next()
+			old.emit(chimera.EventEnvelope{EventID: "reused-id", Type: "run_finished"})
+			if len(client.messages(1)) != 1 {
+				t.Fatal("old event not delivered")
+			}
+			newEndpoint := endpoint
+			if !sameEndpoint {
+				newEndpoint = "http://new"
+			}
+			agents.mu.Lock()
+			agents.session.ExecutionID = "replacement"
+			agents.session.ChimeraEndpoint = &newEndpoint
+			agents.mu.Unlock()
+			server := &Server{chimeraStreams: manager, hub: newHub()}
+			server.NotifyAgentsChanged()
+			replacement := next()
+			if replacement.endpoint != newEndpoint || replacement.since != "" {
+				t.Fatalf("replacement = %+v", replacement)
+			}
+			select {
+			case <-old.ctx.Done():
+			default:
+				t.Fatal("old upstream still active")
+			}
+			old.emit(chimera.EventEnvelope{EventID: "stale", Type: "user_message"})
+			replacement.emit(chimera.EventEnvelope{EventID: "reused-id", Type: "user_message"})
+			messages := client.messages(3)
+			if len(messages) != 3 || messages[1].Type != MsgChimeraSyncRequired || eventID(t, messages[2]) != "reused-id" {
+				t.Fatalf("replacement messages = %+v", messages)
+			}
+		})
+	}
+}
+
+func TestChimeraStreamRefreshesBindingOnReconnect(t *testing.T) {
+	endpoint, sessionID := "http://old", "conversation"
+	agents := &chimeraStreamAgents{session: store.AgentSession{ChimeraEndpoint: &endpoint, ChimeraSessionID: &sessionID}}
+	manager := newChimeraStreamManager()
+	manager.agents = agents
+	connected := make(chan string, 1)
+	manager.subscribeEvents = func(ctx context.Context, endpoint, _, since string, emit func(chimera.EventEnvelope)) error {
+		if endpoint == "http://old" {
+			emit(chimera.EventEnvelope{EventID: "same-id", Type: "run_finished"})
+			newEndpoint := "http://replacement"
+			agents.mu.Lock()
+			agents.session.ChimeraEndpoint = &newEndpoint
+			agents.mu.Unlock()
+			return nil
+		}
+		connected <- since
+		emit(chimera.EventEnvelope{EventID: "same-id", Type: "user_message"})
+		<-ctx.Done()
+		return ctx.Err()
+	}
+	client := newRecordingWSClient()
+	manager.subscribe(client.wsClient, "task", "")
+	t.Cleanup(func() {
+		manager.unsubscribeAll(client.wsClient)
+		manager.mu.Lock()
+		for _, stream := range manager.streams {
+			stream.cancel()
+		}
+		manager.mu.Unlock()
+	})
+	select {
+	case since := <-connected:
+		if since != "" {
+			t.Fatalf("old execution cursor forwarded: %q", since)
+		}
+	case <-time.After(time.Second):
+		t.Fatal("upstream reconnect did not discover replacement binding")
+	}
+	messages := client.messages(3)
+	if len(messages) != 3 || messages[1].Type != MsgChimeraSyncRequired || eventID(t, messages[2]) != "same-id" {
+		t.Fatalf("replacement messages = %+v", messages)
+	}
 }
 
 func TestChimeraStreamReplaysMissedEventsFromCursor(t *testing.T) {

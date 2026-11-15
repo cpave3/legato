@@ -28,6 +28,11 @@ type EntryList struct {
 	// OwnRule marks a list of the Reeve's own rules: changed only with a
 	// signed approval.
 	OwnRule bool `json:"own_rule,omitempty"`
+	// Ordered marks a list whose order decides (the Reeve's rules: the
+	// last that matches wins). The database's entries are added after the
+	// file's, sorted by name, so an entry never moves out of the file by
+	// itself: that would change which one wins.
+	Ordered bool `json:"ordered,omitempty"`
 }
 
 var entryListDefs = []EntryList{
@@ -39,7 +44,7 @@ var entryListDefs = []EntryList{
 	{Key: "agents.tmux_options", Title: "tmux options for agents", Class: ClassChange, Mode: ModeNewAgents},
 	{Key: "agents.sandbox.mounts", Title: "Sandbox mounts", Class: ClassRisky, Mode: ModeRestart, NameField: "path"},
 	{Key: "swarm.prompts", Title: "Swarm role prompts", Class: ClassChange, Mode: ModeRestart},
-	{Key: "reeve.rules", Title: "The Reeve's rules", Class: ClassRisky, Mode: ModeLive, NameField: "pattern", OwnRule: true},
+	{Key: "reeve.rules", Title: "The Reeve's rules", Class: ClassRisky, Mode: ModeLive, NameField: "pattern", OwnRule: true, Ordered: true},
 }
 
 // tabledLists are lists that had tables of their own before the registry

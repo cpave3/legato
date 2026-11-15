@@ -15,6 +15,25 @@ plugins {
     id("org.jetbrains.kotlin.plugin.compose")
 }
 
+abstract class GenerateThemeAssets : DefaultTask() {
+    @get:InputFile abstract val palette: RegularFileProperty
+    @get:OutputDirectory abstract val output: DirectoryProperty
+
+    @TaskAction fun generate() {
+        val directory = output.get().asFile.apply { mkdirs() }
+        palette.get().asFile.copyTo(directory.resolve("palettes.json"), overwrite = true)
+    }
+}
+
+val themeAssets = tasks.register<GenerateThemeAssets>("generateThemeAssets") {
+    palette.set(layout.projectDirectory.file("../../themes/palettes.json"))
+    output.set(layout.buildDirectory.dir("generated/themeAssets"))
+}
+
+androidComponents.onVariants { variant ->
+    variant.sources.assets?.addGeneratedSourceDirectory(themeAssets, GenerateThemeAssets::output)
+}
+
 android {
     namespace = "dev.legato.mobile"
     compileSdk = 36
@@ -80,6 +99,9 @@ android {
     testOptions {
         unitTests.isReturnDefaultValues = false
     }
+    // Package the canonical palettes, not an Android-maintained copy. No
+    // repository files or network are needed at runtime.
+    sourceSets.getByName("test").resources.srcDir(themeAssets.flatMap { it.output })
 }
 
 dependencies {

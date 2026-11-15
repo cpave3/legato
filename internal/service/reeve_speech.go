@@ -87,7 +87,10 @@ type SpeechOutput interface {
 
 // The states of a line, in SpokeEvent.
 const (
-	SpokeMade    = "made"
+	SpokeMade = "made"
+	// SpokePlaying: the host's player has started the line; played,
+	// failed or dropped under the same Line ends it.
+	SpokePlaying = "playing"
 	SpokePlayed  = "played"
 	SpokeFailed  = "failed"
 	SpokeSent    = "sent"
@@ -95,11 +98,14 @@ const (
 )
 
 // SpokeEvent is what became of a line: made, sent to the listening
-// device, played on the host, failed, or dropped.
+// device, playing or played on the host, failed, or dropped.
 type SpokeEvent struct {
 	TaskID string `json:"task_id"`
 	Text   string `json:"text"`
 	State  string `json:"state"`
+	// Line numbers the line, the same in every event about it and
+	// different for each line this process says, from 1.
+	Line int64 `json:"line"`
 }
 
 // errQuietHours is speak's answer in quiet hours.
@@ -142,9 +148,9 @@ func (s *ReeveSpeech) now() time.Time {
 	return time.Now()
 }
 
-func (s *ReeveSpeech) spoke(line SpokenLine, state string) {
+func (s *ReeveSpeech) spoke(line SpokenLine, n int64, state string) {
 	if s.opts.Spoke != nil {
-		s.opts.Spoke(SpokeEvent{TaskID: line.TaskID, Text: line.Text, State: state})
+		s.opts.Spoke(SpokeEvent{TaskID: line.TaskID, Text: line.Text, State: state, Line: n})
 	}
 }
 
@@ -237,12 +243,12 @@ func (s *ReeveSpeech) makeLines(ready chan<- madeLine) {
 		path, err := s.make(voice, line)
 		if err != nil {
 			s.failed(n, err)
-			s.spoke(line, SpokeFailed)
+			s.spoke(line, n, SpokeFailed)
 			s.opts.Logf("reeve voice: a line of %d characters was not said: %v", utf8.RuneCountInString(line.Text), err)
 			continue
 		}
 		path, contentType := nameByType(path)
-		s.spoke(line, SpokeMade)
+		s.spoke(line, n, SpokeMade)
 		route := RouteHost
 		if out := s.currentOutput(); out != nil {
 			route = out.Deliver(line, path, contentType)
@@ -250,15 +256,15 @@ func (s *ReeveSpeech) makeLines(ready chan<- madeLine) {
 		switch {
 		case route == RouteDevice:
 			s.failed(n, nil)
-			s.spoke(line, SpokeSent)
+			s.spoke(line, n, SpokeSent)
 			continue
 		case route == RouteDrop:
 			_ = os.Remove(path)
-			s.spoke(line, SpokeDropped)
+			s.spoke(line, n, SpokeDropped)
 			continue
 		case voice.QuietAt(s.now()):
 			_ = os.Remove(path)
-			s.spoke(line, SpokeDropped)
+			s.spoke(line, n, SpokeDropped)
 			s.opts.Logf("reeve voice: a line was not played on the host: quiet hours")
 			continue
 		}
@@ -271,15 +277,16 @@ func (s *ReeveSpeech) playLines(ready <-chan madeLine) {
 		voice := s.opts.Settings(context.Background())
 		if !voice.Enabled {
 			// Turned off since the line was made.
-			s.spoke(made.line, SpokeDropped)
+			s.spoke(made.line, made.n, SpokeDropped)
 		} else {
+			s.spoke(made.line, made.n, SpokePlaying)
 			if err := s.play(voice, made.path); err != nil {
 				s.failed(made.n, err)
-				s.spoke(made.line, SpokeFailed)
+				s.spoke(made.line, made.n, SpokeFailed)
 				s.opts.Logf("reeve voice: a line was not played: %v", err)
 			} else {
 				s.failed(made.n, nil)
-				s.spoke(made.line, SpokePlayed)
+				s.spoke(made.line, made.n, SpokePlayed)
 			}
 		}
 		_ = os.Remove(made.path)

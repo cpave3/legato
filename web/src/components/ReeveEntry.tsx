@@ -12,7 +12,7 @@ import { useReeveName } from "../lib/reeveName"
 
 // The Reeve's violet: a wash from the left edge and a faint border, apart
 // from the selection accent.
-export const reeveWash = "bg-gradient-to-r from-[#8b5cf6]/20 via-[#8b5cf6]/[0.06] to-transparent shadow-[inset_0_0_0_1px_rgba(167,139,250,0.28)]"
+export const reeveWash = "bg-gradient-to-r from-[var(--theme-keyword,#8b5cf6)]/20 via-[var(--theme-keyword,#8b5cf6)]/[0.06] to-transparent shadow-[inset_0_0_0_1px_color-mix(in_srgb,var(--theme-keyword,#a78bfa)_28%,transparent)]"
 
 // ReeveEntry is the Reeve pinned first in the agents list: its session's
 // state and time, agent tool and activity, this instance's name, and how
@@ -57,7 +57,7 @@ export function ReeveEntry({ baseUrl, agent, selected, onSelect, compact }: {
       <button type="button" onClick={() => void pick()} disabled={starting} aria-label={live ? reeve.start : `Start ${reeve.mid}`}
         className={cn("flex w-full min-w-0 flex-col gap-[3px] px-2.5 py-2 text-left", live ? "text-lw-text" : "text-lw-text-2")}>
         <span className="flex min-w-0 items-center gap-1.5">
-          <Crown size={12} aria-hidden="true" className="shrink-0 text-[#a78bfa]" />
+          <Crown size={12} aria-hidden="true" className="shrink-0 text-[var(--theme-keyword,#a78bfa)]" />
           <span className="font-semibold">{reeve.label}</span>
           <span className="min-w-0 truncate text-xs text-lw-text-2">{data.instance}</span>
           {data.to_approve > 0 && (
@@ -85,7 +85,7 @@ export function ReeveStatus({ baseUrl }: { baseUrl: string }) {
   if (!overview.data) return null
   return (
     <span data-testid="reeve-status" className="flex min-w-0 items-center gap-1.5 truncate">
-      <span className="rounded bg-[#8b5cf6]/20 px-1.5 text-[#c4b5fd]">{reeve.label}</span>
+      <span className="rounded bg-[var(--theme-selection,rgba(139,92,246,0.2))] px-1.5 text-[var(--theme-keyword,#c4b5fd)]">{reeve.label}</span>
       <span>sandboxed</span>
       <span aria-hidden="true" className="text-lw-faint">·</span>
       <span className="truncate">{overview.data.instance} ({overview.data.role})</span>

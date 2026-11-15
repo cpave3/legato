@@ -30,6 +30,8 @@ func runAgentContract(args []string) int {
 		return runAgentPermissionResolvedContract(args[1:])
 	case "stopped":
 		return runAgentStoppedContract(args[1:])
+	case "hook":
+		return runAgentHookContract(args[1:])
 	case "allow-read":
 		return runAgentAllowReadContract(args[1:])
 	case "codex":
@@ -287,6 +289,60 @@ func runAgentStoppedContract(args []string) int {
 		stateArgs = append(stateArgs, "--json")
 	}
 	return runAgentStateContract(stateArgs)
+}
+
+// runAgentHookContract reads one hook payload of an agent tool from stdin
+// and reports it: the agent's state and what it started that still runs.
+// Legato's Claude Code state plugin calls it for every hook it registers.
+func runAgentHookContract(args []string) int {
+	const command = "agent.hook"
+	parsed, parseErr := parseCommandArgs(args, commandFlagSpecs("agent", "hook"))
+	jsonMode := parsed.Present["json"]
+	if parseErr != nil {
+		return renderCommandError(command, parseErr, jsonMode)
+	}
+	if len(parsed.Positionals) == 0 {
+		return renderCommandError(command, usageError("missing_argument", "agent hook requires the agent tool: claude-code"), jsonMode)
+	}
+	if tool := parsed.Positionals[0]; tool != "claude-code" {
+		return renderCommandError(command, usageError("invalid_tool", fmt.Sprintf("agent hook knows claude-code, not %q", tool)), jsonMode)
+	}
+	taskID, rest, idErr := resolveTaskID(parsed.Positionals[1:])
+	if idErr != nil {
+		return renderCommandError(command, idErr, jsonMode)
+	}
+	if len(rest) != 0 {
+		return renderCommandError(command, usageError("unexpected_argument", "agent hook accepts the tool and one task ID"), jsonMode)
+	}
+	payload, err := io.ReadAll(os.Stdin)
+	if err != nil {
+		return renderCommandError(command, &commandError{Code: "invalid_input", Message: err.Error(), Exit: exitUsage}, jsonMode)
+	}
+	hook, err := cli.ParseClaudeHook(payload)
+	if err != nil {
+		return renderCommandError(command, &commandError{Code: "invalid_input", Message: err.Error(), Exit: exitUsage}, jsonMode)
+	}
+	executionID, workingDir := parsed.Values["execution-id"], parsed.Values["working-dir"]
+	data := map[string]any{"task_id": taskID, "event": hook.Event}
+	if code, done := viaBroker(command, jsonMode, "agent.hook", map[string]any{
+		"task_id": taskID, "execution_id": executionID, "working_dir": workingDir, "hook": hook,
+	}, data); done {
+		return code
+	}
+	cfg, err := config.Load()
+	if err != nil {
+		return renderCommandError(command, &commandError{Code: "config_invalid", Message: err.Error(), Exit: exitEnvironment}, jsonMode)
+	}
+	db, code := openCommandStore(command, jsonMode)
+	if db == nil {
+		return code
+	}
+	defer db.Close()
+	report := cli.ClaudeHookReport{TaskID: taskID, ExecutionID: executionID, WorkingDir: workingDir, Hook: hook}
+	if err := cli.ApplyClaudeHook(db, report, agentPushNotifier(cfg), agentOSNotifier(cfg)); err != nil {
+		return renderCommandError(command, commandDomainError(err), jsonMode)
+	}
+	return writeCommandSuccess(command, data, "", jsonMode)
 }
 
 // runAgentAllowReadContract answers the Claude Code plugin's hook before a

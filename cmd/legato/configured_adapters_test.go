@@ -1,12 +1,14 @@
 package main
 
 import (
+	"encoding/json"
 	"os"
 	"path/filepath"
 	"strings"
 	"testing"
 
 	"github.com/cpave3/legato/config"
+	"github.com/cpave3/legato/internal/cli"
 	"github.com/cpave3/legato/internal/service"
 )
 
@@ -54,15 +56,40 @@ func TestConfiguredAdaptersGiveClaudeSessionsTheNativeBridge(t *testing.T) {
 
 	vars := adapters["claude-code"].EnvVars("task-1", "")
 	pluginDir := filepath.Join(dataDir, "claude-mod", "legato")
-	if vars["CLAUDE_CODE_PLUGIN_DIRS"] != pluginDir {
-		t.Fatalf("CLAUDE_CODE_PLUGIN_DIRS = %q, want %q", vars["CLAUDE_CODE_PLUGIN_DIRS"], pluginDir)
+	if want := pluginDirs(dataDir, pluginDir); vars["CLAUDE_CODE_PLUGIN_DIRS"] != want {
+		t.Fatalf("CLAUDE_CODE_PLUGIN_DIRS = %q, want %q", vars["CLAUDE_CODE_PLUGIN_DIRS"], want)
 	}
 	if _, err := os.Stat(filepath.Join(pluginDir, ".claude-plugin", "plugin.json")); err != nil {
 		t.Fatalf("the mod the session is pointed at is not installed: %v", err)
 	}
 }
 
+// pluginDirs is CLAUDE_CODE_PLUGIN_DIRS for a session given dirs: the state
+// plugin comes last, for every session.
+func pluginDirs(dataDir string, dirs ...string) string {
+	return strings.Join(append(dirs, filepath.Join(dataDir, "claude-mod", "legato-state")), string(os.PathListSeparator))
+}
+
+func TestConfiguredAdaptersGiveEveryClaudeSessionTheStatePlugin(t *testing.T) {
+	t.Setenv("CLAUDE_CODE_PLUGIN_DIRS", "")
+	dataDir := t.TempDir()
+	disabled := false
+	// Neither the bridge nor the tools: the state plugin does not need them.
+	cfg := &config.Config{DataDir: dataDir, Adapters: map[string]config.AdapterConfig{"claude-code": {NativeBridge: &disabled}}}
+
+	_, adapters := configuredAdapters(cfg, "/opt/legato")
+
+	vars := adapters["claude-code"].EnvVars("task-1", "")
+	if vars["CLAUDE_CODE_PLUGIN_DIRS"] != pluginDirs(dataDir) || vars["LEGATO_BIN"] != "/opt/legato" {
+		t.Fatalf("claude env = %v, want the state plugin", vars)
+	}
+	if _, err := os.Stat(filepath.Join(dataDir, "claude-mod", "legato-state", "hooks", "hooks.json")); err != nil {
+		t.Fatalf("the state plugin was not installed: %v", err)
+	}
+}
+
 func TestConfiguredAdaptersHonourTheNativeBridgeOptOut(t *testing.T) {
+	t.Setenv("CLAUDE_CODE_PLUGIN_DIRS", "")
 	disabled := false
 	dataDir := t.TempDir()
 	cfg := &config.Config{DataDir: dataDir, Adapters: map[string]config.AdapterConfig{
@@ -71,10 +98,10 @@ func TestConfiguredAdaptersHonourTheNativeBridgeOptOut(t *testing.T) {
 
 	_, adapters := configuredAdapters(cfg, "/opt/legato")
 
-	if dirs, ok := adapters["claude-code"].EnvVars("task-1", "")["CLAUDE_CODE_PLUGIN_DIRS"]; ok {
-		t.Fatalf("CLAUDE_CODE_PLUGIN_DIRS = %q, want it unset when the bridge is disabled", dirs)
+	if dirs := adapters["claude-code"].EnvVars("task-1", "")["CLAUDE_CODE_PLUGIN_DIRS"]; dirs != pluginDirs(dataDir) {
+		t.Fatalf("CLAUDE_CODE_PLUGIN_DIRS = %q, want only the state plugin when the bridge is disabled", dirs)
 	}
-	if _, err := os.Stat(filepath.Join(dataDir, "claude-mod")); !os.IsNotExist(err) {
+	if _, err := os.Stat(filepath.Join(dataDir, "claude-mod", "legato")); !os.IsNotExist(err) {
 		t.Fatalf("the mod was installed although the bridge is disabled: %v", err)
 	}
 }
@@ -124,8 +151,8 @@ func TestConfiguredAdaptersReportClaudeUsageToTheConfiguredManticore(t *testing.
 
 	vars := adapters["claude-code"].EnvVars("task-1", "")
 	pluginDir := filepath.Join(dataDir, "claude-mod", "legato-manticore")
-	if vars["CLAUDE_CODE_PLUGIN_DIRS"] != pluginDir {
-		t.Fatalf("CLAUDE_CODE_PLUGIN_DIRS = %q, want %q", vars["CLAUDE_CODE_PLUGIN_DIRS"], pluginDir)
+	if want := pluginDirs(dataDir, pluginDir); vars["CLAUDE_CODE_PLUGIN_DIRS"] != want {
+		t.Fatalf("CLAUDE_CODE_PLUGIN_DIRS = %q, want %q", vars["CLAUDE_CODE_PLUGIN_DIRS"], want)
 	}
 	if vars["LEGATO_MANTICORE_URL"] != "http://manticore.local:3456" || vars["LEGATO_MANTICORE_API_KEY"] != "mc_secret" {
 		t.Fatalf("Manticore variables = %q, %q", vars["LEGATO_MANTICORE_URL"], vars["LEGATO_MANTICORE_API_KEY"])
@@ -164,7 +191,7 @@ func TestConfiguredAdaptersGiveEverySessionLegatosMCPServer(t *testing.T) {
 		DataDir: dataDir,
 		Agents:  config.AgentsConfig{MCP: config.AgentMCPConfig{Enabled: true}},
 		// The tools must not depend on the native bridge.
-		Adapters: map[string]config.AdapterConfig{"claude-code": {NativeBridge: &disabled}, "codex": {NativeBridge: &disabled}},
+		Adapters: map[string]config.AdapterConfig{"claude-code": {NativeBridge: &disabled}, "codex": {NativeBridge: &disabled}, "chimera": {NativeBridge: &disabled}},
 	}
 	oldProbe := chimeraMCPConfigProbe
 	chimeraMCPConfigProbe = func() bool { return true }
@@ -174,7 +201,7 @@ func TestConfiguredAdaptersGiveEverySessionLegatosMCPServer(t *testing.T) {
 
 	claude := adapters["claude-code"].EnvVars("task-1", "")
 	toolsDir := filepath.Join(dataDir, "claude-mod", "legato-tools")
-	if claude["CLAUDE_CODE_PLUGIN_DIRS"] != toolsDir || claude["LEGATO_BIN"] != "/opt/legato" {
+	if claude["CLAUDE_CODE_PLUGIN_DIRS"] != pluginDirs(dataDir, toolsDir) || claude["LEGATO_BIN"] != "/opt/legato" {
 		t.Fatalf("claude env = %v, want the tools plugin at %s", claude, toolsDir)
 	}
 	if _, err := os.Stat(filepath.Join(toolsDir, ".mcp.json")); err != nil {
@@ -221,8 +248,8 @@ func TestConfiguredAdaptersAddNoMCPServerWhenTheSettingIsOff(t *testing.T) {
 
 	_, adapters := configuredAdapters(cfg, "/opt/legato")
 
-	if dirs, ok := adapters["claude-code"].EnvVars("task-1", "")["CLAUDE_CODE_PLUGIN_DIRS"]; ok {
-		t.Fatalf("CLAUDE_CODE_PLUGIN_DIRS = %q, want none", dirs)
+	if dirs := adapters["claude-code"].EnvVars("task-1", "")["CLAUDE_CODE_PLUGIN_DIRS"]; dirs != pluginDirs(dataDir) {
+		t.Fatalf("CLAUDE_CODE_PLUGIN_DIRS = %q, want only the state plugin", dirs)
 	}
 	if _, err := os.Stat(filepath.Join(dataDir, "claude-mod", "legato-tools")); !os.IsNotExist(err) {
 		t.Fatalf("the tools plugin was installed with the setting off: %v", err)
@@ -288,5 +315,109 @@ func TestConfiguredAdaptersTrustTheFolderAClaudeSessionStartsIn(t *testing.T) {
 
 	if _, ok := adapters["claude-code"].(service.WorkspaceTrustAdapter); !ok {
 		t.Fatal("Claude Code sessions would stop at the trust dialog")
+	}
+}
+
+func TestConfiguredAdaptersInstallChimeraModUnlessOptedOut(t *testing.T) {
+	for _, optOut := range []bool{false, true} {
+		t.Run(map[bool]string{false: "default", true: "opt out"}[optOut], func(t *testing.T) {
+			t.Setenv("CHIMERA_MOD_DIRS", "")
+			cfg := &config.Config{DataDir: t.TempDir()}
+			if optOut {
+				enabled := false
+				cfg.Adapters = map[string]config.AdapterConfig{"chimera": {NativeBridge: &enabled}}
+			}
+			_, adapters := configuredAdapters(cfg, "/opt/legato")
+			a := adapters["chimera"]
+			binder, ok := a.(service.NativeBindingAdapter)
+			if !ok || binder.BindsNativeEndpoint() == optOut {
+				t.Fatalf("native binding does not match opt out %v", optOut)
+			}
+			dir := filepath.Join(cfg.DataDir, "chimera-mod", "legato")
+			if optOut {
+				if _, err := os.Stat(dir); !os.IsNotExist(err) {
+					t.Fatalf("opted-out mod installed: %v", err)
+				}
+				return
+			}
+			vars := a.EnvVars("task-1", "")
+			if vars["CHIMERA_MOD_DIRS"] != dir || vars["LEGATO_BIN"] != "/opt/legato" {
+				t.Fatalf("environment = %v", vars)
+			}
+			if _, err := os.Stat(dir); err != nil {
+				t.Fatalf("session mod missing: %v", err)
+			}
+		})
+	}
+}
+
+func TestConfiguredChimeraModBundlesToolsOnlyWhenEnabled(t *testing.T) {
+	oldProbe := chimeraMCPConfigProbe
+	chimeraMCPConfigProbe = func() bool { t.Fatal("mod mode probed help"); return false }
+	t.Cleanup(func() { chimeraMCPConfigProbe = oldProbe })
+	for _, enabled := range []bool{true, false} {
+		cfg := &config.Config{DataDir: t.TempDir(), Agents: config.AgentsConfig{MCP: config.AgentMCPConfig{Enabled: enabled}}}
+		_, adapters := configuredAdapters(cfg, "/opt/legato")
+		a := adapters["chimera"]
+		cmd := a.(service.LaunchCommandAdapter).LaunchCommand(map[string]string{}, "", "", "")
+		if strings.Contains(cmd, "--mcp-config") {
+			t.Fatalf("mod launch repeats MCP config: %q", cmd)
+		}
+		if prompt := a.(service.ToolsPromptAdapter).ToolsPrompt(); strings.Contains(prompt, "## Legato tools") || strings.Contains(prompt, "show_artifact") {
+			t.Fatalf("mod repeats tools instructions: %q", prompt)
+		}
+		data, err := os.ReadFile(filepath.Join(cfg.DataDir, "chimera-mod", "legato", "chimera-mod.json"))
+		if err != nil {
+			t.Fatal(err)
+		}
+		var manifest struct {
+			MCPServers map[string]struct {
+				Command      string   `json:"command"`
+				TrustedTools []string `json:"trustedTools"`
+			} `json:"mcpServers"`
+		}
+		if err := json.Unmarshal(data, &manifest); err != nil {
+			t.Fatal(err)
+		}
+		if !enabled {
+			if len(manifest.MCPServers) != 0 {
+				t.Fatalf("tools disabled but manifest bundles server: %s", data)
+			}
+			continue
+		}
+		server := manifest.MCPServers["legato"]
+		if server.Command != "/opt/legato" || strings.Join(server.TrustedTools, ",") != strings.Join(cli.MCPToolNames(), ",") {
+			t.Fatalf("server does not trust registry tools: %s", data)
+		}
+	}
+}
+
+func TestConfiguredChimeraModPreservesHandoffBranchGuidance(t *testing.T) {
+	cfg := &config.Config{
+		DataDir: t.TempDir(),
+		Agents:  config.AgentsConfig{MCP: config.AgentMCPConfig{Enabled: true}},
+		Credentials: []config.CredentialConfig{{
+			Name: "github", Secret: "legato://github-key", Profile: "github",
+			Settings: config.CredentialSettings{ClientID: "123", Repositories: []string{"owner/repo"}},
+		}},
+	}
+	_, adapters := configuredAdapters(cfg, "/opt/legato")
+	a := adapters["chimera"].(service.BranchToolsPromptAdapter)
+	for _, granted := range []bool{false, true} {
+		prompt := a.ToolsPromptFor("legato/main-task", "fix/already-pushed", granted)
+		for _, want := range []string{"Work on fix/already-pushed", "never rebase, amend or force-push", "legato/main-task-<a few words>"} {
+			if !strings.Contains(prompt, want) {
+				t.Errorf("handoff prompt missing %q: %s", want, prompt)
+			}
+		}
+		if granted && !strings.Contains(prompt, "are already allowed") {
+			t.Errorf("granted handoff lost approval: %s", prompt)
+		}
+		if !granted && !strings.Contains(prompt, "Before your first push, ask") {
+			t.Errorf("ungranted handoff lost request: %s", prompt)
+		}
+		if strings.Contains(prompt, "## Legato tools") || strings.Contains(prompt, "show_artifact") {
+			t.Errorf("handoff repeats MCP guidance: %s", prompt)
+		}
 	}
 }

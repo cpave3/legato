@@ -235,7 +235,7 @@ export function ReviewTourPage() {
   const unmatchedHunkNotes = hunkNotes.filter((note) => !matchedNoteIDs.has(note.id))
 
   return (
-    <div className="flex h-full min-h-0 flex-col bg-[#0a0a0f] text-zinc-200">
+    <div className="flex h-full min-h-0 flex-col bg-[var(--theme-canvas,#0a0a0f)] text-zinc-200">
       <header className="flex flex-wrap items-center justify-between gap-2 border-b border-zinc-800 px-3 py-2 md:px-5 md:py-3">
         <div className="min-w-0">
           <div className="flex items-center gap-2 text-xs text-zinc-500">
@@ -359,7 +359,7 @@ export function ReviewTourPage() {
                 <summary className="cursor-pointer text-sm font-semibold text-indigo-200">Plan context: {activePass.captured_plan.title} · revision {activePass.captured_plan.revision}</summary>
                 <div className="mt-4 text-zinc-300"><DocumentMarkdown body={activePass.captured_plan.markdown} images={data.plan_images?.[activePass.pass.id]} renderPlanVisuals /></div>
               </details>}
-              <div data-sticky-review-action className="sticky -top-5 z-20 -mx-5 flex justify-end border-b border-zinc-800/80 bg-[#0a0a0f]/95 px-5 py-2 backdrop-blur">
+              <div data-sticky-review-action className="sticky -top-5 z-20 -mx-5 flex justify-end border-b border-zinc-800/80 bg-[var(--theme-canvas,#0a0a0f)]/95 px-5 py-2 backdrop-blur">
                 <button disabled={busy} onClick={() => void toggleReviewed(selectedStep)} className={cn("rounded border px-3 py-1.5 text-xs shadow-lg", selectedStep.reviewed_at ? "border-zinc-700 bg-zinc-900 text-zinc-400 hover:text-zinc-200" : "border-emerald-800 bg-emerald-950 text-emerald-300 hover:bg-emerald-900")}>
                   {selectedStep.reviewed_at ? "Mark unreviewed" : "Mark step reviewed"}
                 </button>

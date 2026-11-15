@@ -981,11 +981,11 @@ export function SpawnAgentDialog({
             type="submit"
             disabled={loading || !ready}
             aria-label={where ? `${action} in ${where}` : action}
-            className="h-[52px] w-full rounded-xl bg-lw-accent px-4 text-base font-semibold text-white transition-opacity hover:opacity-90 disabled:opacity-40 sm:h-[34px] sm:w-auto sm:rounded-md sm:text-[13px] sm:font-medium"
+            className="h-[52px] w-full rounded-xl bg-lw-accent px-4 text-base font-semibold text-[var(--theme-canvas,#fff)] transition-opacity hover:opacity-90 disabled:opacity-40 sm:h-[34px] sm:w-auto sm:rounded-md sm:text-[13px] sm:font-medium"
           >
             <span className="sm:hidden">{loading || !ready ? busyLabel : where ? `${action} in ${where}` : action}</span>
             <span className="hidden sm:inline">
-              {loading || !ready ? busyLabel : <>{action} <span className="text-white/75">{spawnKeys}</span></>}
+              {loading || !ready ? busyLabel : <>{action} <span className="text-[var(--theme-canvas,#fff)]/75">{spawnKeys}</span></>}
             </span>
           </button>
         </div>

@@ -56,9 +56,15 @@ describe("Board search", () => {
     fireEvent.keyDown(window, { key: "/" })
     const input = await screen.findByPlaceholderText("Search...")
     fireEvent.change(input, { target: { value: "archived" } })
-    await screen.findByText("Archived ticket")
-
-    fireEvent.keyDown(window, { key: "Enter" })
+    await new Promise<void>((resolve) => {
+      const observer = new MutationObserver(() => {
+        if (!screen.queryByText("Archived ticket")) return
+        observer.disconnect()
+        fireEvent.keyDown(window, { key: "Enter" })
+        resolve()
+      })
+      observer.observe(document.body, { childList: true, subtree: true })
+    })
 
     await waitFor(() => expect(screen.getByText("Completed work")).toBeTruthy())
     expect(mockFetch).toHaveBeenCalledWith(expect.stringContaining("/api/tasks/ARCHIVED-1"), expect.anything())

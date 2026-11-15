@@ -2,6 +2,7 @@ import { describe, expect, it } from "vitest"
 import type { AgentInfo } from "../../hooks/useWebSocket"
 import {
   GLANCE_ENTRIES,
+  backgroundSummary,
   contextShare,
   ensembleSection,
   glanceItems,
@@ -118,5 +119,15 @@ describe("how full a context is", () => {
     expect(contextShare({ context_used: 138_000, context_window: 200_000 })).toBe(69)
     expect(contextShare({ context_used: 300_000, context_window: 200_000 })).toBe(100)
     expect(contextShare({ context_used: 0, context_window: 0 })).toBeNull()
+  })
+})
+
+describe("backgroundSummary", () => {
+  const job = (kind: string, label: string) => ({ kind, id: label, label, started_at: "2026-11-12T03:00:00Z" })
+
+  it("names the one job an agent waits on, and counts several", () => {
+    expect(backgroundSummary(undefined)).toBe("")
+    expect(backgroundSummary([job("subagent", "Explore: find the callers")])).toBe("subagent: Explore: find the callers")
+    expect(backgroundSummary([job("bash", "npm run build"), job("monitor", "watch the deploy")])).toBe("2 jobs")
   })
 })

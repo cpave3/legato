@@ -1,5 +1,5 @@
 import { QueryClientProvider } from "@tanstack/react-query"
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react"
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react"
 import { MemoryRouter } from "react-router-dom"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { createQueryClient } from "../../lib/query"
@@ -8,6 +8,7 @@ import { tintColor } from "../../lib/tints"
 import { NavRail } from "../NavRail"
 import { TintBand } from "../TintBand"
 import { TintPicker } from "../TintPicker"
+import { setAppTheme, applyAppTheme } from "../../lib/appTheme"
 
 vi.mock("../../hooks/useServer", () => ({ useServer: () => ({ baseUrl: "" }) }))
 
@@ -31,12 +32,26 @@ beforeEach(() => {
 
 afterEach(() => {
   cleanup()
+  localStorage.clear()
+  applyAppTheme()
   vi.unstubAllGlobals()
 })
 
 const themeColor = () => document.querySelector('meta[name="theme-color"]')?.getAttribute("content")
 
 describe("a server's tint", () => {
+  it("uses the app canvas for browser chrome without a tint, and restores it after removing a tint", async () => {
+    const { rerender } = render(<TintBand />)
+    await act(() => setAppTheme("ocular-light"))
+    expect(themeColor()).toBe("#F5F3ED")
+    rerender(<TintBand tint="purple" />)
+    expect(themeColor()).toBe(tintColor("purple"))
+    await act(() => setAppTheme("ocular-dark"))
+    expect(themeColor()).toBe(tintColor("purple"))
+    rerender(<TintBand />)
+    expect(themeColor()).toBe("#20252B")
+  })
+
   it("is a band across the window and the browser's theme colour", () => {
     const { rerender } = render(<TintBand tint="purple" />)
     expect(screen.getByTestId("tint-band").dataset.tint).toBe("purple")

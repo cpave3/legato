@@ -39,10 +39,13 @@ import androidx.compose.material3.MaterialTheme
 import androidx.compose.material3.ProvideTextStyle
 import androidx.compose.material3.Text
 import androidx.compose.material3.TextButton
+import androidx.compose.material3.lightColorScheme
 import androidx.compose.material3.darkColorScheme
 import androidx.compose.material3.pulltorefresh.PullToRefreshBox
 import androidx.compose.material3.pulltorefresh.PullToRefreshDefaults
 import androidx.compose.material3.pulltorefresh.rememberPullToRefreshState
+import androidx.compose.runtime.CompositionLocalProvider
+import androidx.compose.runtime.staticCompositionLocalOf
 import androidx.compose.runtime.Composable
 import androidx.compose.runtime.LaunchedEffect
 import androidx.compose.runtime.getValue
@@ -74,29 +77,49 @@ import androidx.compose.ui.unit.sp
 import androidx.compose.ui.viewinterop.AndroidView
 import kotlinx.coroutines.delay
 
-// The colours of the web interface's new look (web/src/index.css, `--color-lw-*`).
+private val LocalAppTheme = staticCompositionLocalOf<AppTheme?> { null }
+
+@Composable
+private fun themeColor(role: String, fallback: Color): Color =
+    LocalAppTheme.current?.inks?.get(role)?.let { Color(android.graphics.Color.parseColor(it)) } ?: fallback
+
+@Composable
+private fun materialColor(role: String, fallback: Color): Color =
+    LocalAppTheme.current?.materials?.get(role)?.let { Color(android.graphics.Color.parseColor(it)) } ?: fallback
+
+// The existing Legato colours stay the default; alternate depth uses the shared materials.
 internal object Lw {
-    val rail = Color(0xFF0C0C0F)
-    val ground = Color(0xFF111114)
-    val surface = Color(0xFF17171B)
-    val raised = Color(0xFF1D1D22)
-    val line = Color(0xFF26262D)
-    val lineStrong = Color(0xFF31313A)
-    val divider = Color(0xFF222228)
-    val text = Color(0xFFE6E5EB)
-    val text2 = Color(0xFF9A99A5)
-    val faint = Color(0xFF66656F)
-    val accent = Color(0xFF6D5EF6)
-    val accentRing = Color(0xFF4F46B8)
-    val link = Color(0xFFA99CFF)
-    val live = Color(0xFF3ECF8E)
-    val needs = Color(0xFFF0B44C)
-    val error = Color(0xFFF0646B)
-    val errorSoft = Color(0xFF33181B)
-    val danger = Color(0xFFF0868C)
-    val dangerLine = Color(0xFF5A2A2E)
-    val webPage = Color(0xFF0A0A0F)
+    val rail: Color @Composable get() = materialColor("rail", Color(0xFF0C0C0F))
+    val ground: Color @Composable get() = themeColor("canvas", Color(0xFF111114))
+    val surface: Color @Composable get() = materialColor("panel", Color(0xFF17171B))
+    val raised: Color @Composable get() = materialColor("raised", Color(0xFF1D1D22))
+    val selected: Color @Composable get() = themeColor("selection", Color(0xFF1D1D22))
+    val line: Color @Composable get() = materialColor("divider", Color(0xFF26262D))
+    val lineStrong: Color @Composable get() = themeColor("border", Color(0xFF31313A))
+    val divider: Color @Composable get() = materialColor("divider", Color(0xFF222228))
+    val text: Color @Composable get() = themeColor("text", Color(0xFFE6E5EB))
+    val text2: Color @Composable get() = themeColor("muted", Color(0xFF9A99A5))
+    val faint: Color @Composable get() = themeColor("muted", Color(0xFF66656F))
+    val accent: Color @Composable get() = themeColor("focus", Color(0xFF6D5EF6))
+    val accentRing: Color @Composable get() = themeColor("focus", Color(0xFF4F46B8))
+    val link: Color @Composable get() = themeColor("link", Color(0xFFA99CFF))
+    val live: Color @Composable get() = themeColor("success", Color(0xFF3ECF8E))
+    val successSurface: Color @Composable get() = materialColor("successSurface", live.copy(alpha = 0.12f))
+    val needs: Color @Composable get() = themeColor("warning", Color(0xFFF0B44C))
+    val error: Color @Composable get() = themeColor("error", Color(0xFFF0646B))
+    val errorSoft: Color @Composable get() = materialColor("errorSurface", Color(0xFF33181B))
+    val danger: Color @Composable get() = themeColor("error", Color(0xFFF0868C))
+    val dangerLine: Color @Composable get() = themeColor("border", Color(0xFF5A2A2E))
+    val sheetStart: Color @Composable get() = materialColor("raised", Color(0xFF15141C))
+    val quoteBackground: Color @Composable get() = materialColor("panel", Color(0xFF0D0D12))
+    val sealBackground: Color @Composable get() = materialColor("rail", Color(0xFF0B0B10))
+    val gradientEnd: Color @Composable get() = themeColor("focus", Color(0xFF8A6CFF))
+    val onAccent: Color @Composable get() = themeColor("canvas", Color.White)
+    val webPage: Color @Composable get() = themeColor("canvas", Color(0xFF0A0A0F))
 }
+
+private val controlOutline: Color @Composable get() =
+    if (LocalAppTheme.current?.tokens.isNullOrEmpty()) Lw.line else Lw.lineStrong
 
 // Geist is one variable font file; each weight is a setting of it.
 @OptIn(androidx.compose.ui.text.ExperimentalTextApi::class)
@@ -106,32 +129,52 @@ private fun geist(resource: Int, weight: Int) =
 internal val GeistSans = FontFamily(geist(R.font.geist, 400), geist(R.font.geist, 500), geist(R.font.geist, 600))
 internal val GeistMono = FontFamily(geist(R.font.geist_mono, 400))
 
-private val mono = TextStyle(fontFamily = GeistMono, fontSize = 12.sp, color = Lw.text2)
+private val mono: TextStyle @Composable get() = TextStyle(fontFamily = GeistMono, fontSize = 12.sp, color = Lw.text2)
 
 @Composable
 fun LegatoApp(activity: MainActivity) {
     val state = activity.state
-    MaterialTheme(colorScheme = darkColorScheme(primary = Lw.accent, background = Lw.ground, surface = Lw.raised, onSurface = Lw.text)) {
-        ProvideTextStyle(TextStyle(fontFamily = GeistSans, color = Lw.text, fontSize = 15.sp)) {
-            val screen = state.screen.value
-            val web = screen is Screen.Web
-            Box(Modifier.fillMaxSize().background(if (web) Lw.rail else Lw.ground).windowInsetsPadding(WindowInsets.safeDrawing)) {
-                BackHandler(enabled = screen != Screen.Connections) { activity.back() }
-                when (screen) {
-                    Screen.Connections -> ConnectionsScreen(activity)
-                    Screen.Pair -> PairScreen(activity)
-                    is Screen.Edit -> EditScreen(activity, screen.target)
-                    is Screen.Web -> WebScreen(activity, screen.connection)
-                    Screen.Approvals -> ApprovalsScreen(activity)
-                }
-                state.sheet.value?.let { sheet ->
-                    BackHandler { if (!(sheet is SheetState.Ready && sheet.busy)) activity.closeSheet() }
-                    ApprovalSheet(activity, sheet)
-                }
-                state.workerConfirm.value?.let { ask -> WorkerConfirmDialog(activity, ask) }
-                if (state.scanning.value) {
-                    BackHandler { activity.stopScanning() }
-                    QrScanner(onCode = { activity.scanned(it) }, onCancel = { activity.stopScanning() }, onError = { activity.stopScanning(it) })
+    CompositionLocalProvider(LocalAppTheme provides state.theme.value) {
+        val scheme = if (state.theme.value?.light == true) lightColorScheme() else darkColorScheme()
+        val colors = if (state.theme.value?.tokens.isNullOrEmpty()) {
+            darkColorScheme(primary = Lw.accent, background = Lw.ground, surface = Lw.raised, onSurface = Lw.text)
+        } else scheme.copy(
+            primary = Lw.accent, onPrimary = Lw.onAccent, secondary = Lw.link, onSecondary = Lw.onAccent,
+            primaryContainer = Lw.selected, onPrimaryContainer = Lw.text,
+            secondaryContainer = Lw.selected, onSecondaryContainer = Lw.text,
+            tertiary = Lw.link, onTertiary = Lw.onAccent,
+            tertiaryContainer = Lw.selected, onTertiaryContainer = Lw.text,
+            background = Lw.ground, onBackground = Lw.text, surface = Lw.surface, onSurface = Lw.text,
+            surfaceVariant = Lw.surface, onSurfaceVariant = Lw.text2, surfaceTint = Lw.accent,
+            outline = Lw.lineStrong, outlineVariant = Lw.line, error = Lw.error, onError = Lw.onAccent,
+            errorContainer = Lw.errorSoft, onErrorContainer = Lw.error,
+            surfaceDim = Lw.rail, surfaceBright = Lw.raised,
+            surfaceContainerLowest = Lw.ground, surfaceContainerLow = Lw.rail,
+            surfaceContainer = Lw.surface, surfaceContainerHigh = Lw.raised, surfaceContainerHighest = Lw.raised,
+            inverseSurface = Lw.text, inverseOnSurface = Lw.ground, inversePrimary = Lw.accent,
+        )
+        MaterialTheme(colorScheme = colors) {
+            ProvideTextStyle(TextStyle(fontFamily = GeistSans, color = Lw.text, fontSize = 15.sp)) {
+                val screen = state.screen.value
+                val web = screen is Screen.Web
+                Box(Modifier.fillMaxSize().background(if (web) Lw.rail else Lw.ground).windowInsetsPadding(WindowInsets.safeDrawing)) {
+                    BackHandler(enabled = screen != Screen.Connections) { activity.back() }
+                    when (screen) {
+                        Screen.Connections -> ConnectionsScreen(activity)
+                        Screen.Pair -> PairScreen(activity)
+                        is Screen.Edit -> EditScreen(activity, screen.target)
+                        is Screen.Web -> WebScreen(activity, screen.connection)
+                        Screen.Approvals -> ApprovalsScreen(activity)
+                    }
+                    state.sheet.value?.let { sheet ->
+                        BackHandler { if (!(sheet is SheetState.Ready && sheet.busy)) activity.closeSheet() }
+                        ApprovalSheet(activity, sheet)
+                    }
+                    state.workerConfirm.value?.let { ask -> WorkerConfirmDialog(activity, ask) }
+                    if (state.scanning.value) {
+                        BackHandler { activity.stopScanning() }
+                        QrScanner(onCode = { activity.scanned(it) }, onCancel = { activity.stopScanning() }, onError = { activity.stopScanning(it) })
+                    }
                 }
             }
         }
@@ -205,6 +248,7 @@ private fun ConnectionsScreen(activity: MainActivity) {
                     LinkRow("Approvals", LucideIcons.ShieldCheck) { activity.showApprovals() }
                 }
             }
+            item { ThemePicker(activity) }
             item {
                 Group("Pairing") {
                     LinkRow("Pair with phrase", LucideIcons.KeyRound) { activity.startPairing() }
@@ -214,6 +258,28 @@ private fun ConnectionsScreen(activity: MainActivity) {
                     LinkRow("Add by address and token", LucideIcons.Link) { activity.startAdding() }
                     Divider()
                     LinkRow("Certificate settings", LucideIcons.Shield) { activity.openCertificateSettings() }
+                }
+            }
+        }
+    }
+}
+
+@Composable
+private fun ThemePicker(activity: MainActivity) {
+    var expanded by remember { mutableStateOf(false) }
+    Group("Appearance") {
+        Box {
+            Row(Modifier.fillMaxWidth().heightIn(min = 48.dp).clickable(role = Role.Button) { expanded = true }
+                .padding(horizontal = 16.dp, vertical = 12.dp), verticalAlignment = Alignment.CenterVertically) {
+                Text("Theme", Modifier.weight(1f))
+                Text(activity.state.theme.value?.name ?: "Legato", color = Lw.text2)
+            }
+            DropdownMenu(expanded = expanded, onDismissRequest = { expanded = false }) {
+                activity.themes.forEach { theme ->
+                    DropdownMenuItem(
+                        text = { Text(theme.name + if (activity.state.theme.value?.id == theme.id) " ✓" else "") },
+                        onClick = { activity.selectTheme(theme.id); expanded = false },
+                    )
                 }
             }
         }
@@ -373,11 +439,11 @@ internal fun RoundButton(icon: ImageVector, description: String, filled: Boolean
     Box(
         Modifier.size(44.dp).clip(CircleShape)
             .background(if (filled) Lw.accent else Lw.raised)
-            .border(1.dp, if (filled) Lw.accentRing else Lw.line, CircleShape)
+            .border(1.dp, if (filled) Lw.accentRing else controlOutline, CircleShape)
             .clickable(role = Role.Button, onClickLabel = description, onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
-        Icon(icon, contentDescription = description, tint = if (filled) Color.White else Lw.text, modifier = Modifier.size(20.dp))
+        Icon(icon, contentDescription = description, tint = if (filled) Lw.onAccent else Lw.text, modifier = Modifier.size(20.dp))
     }
 }
 
@@ -442,7 +508,7 @@ private fun isHttps(connection: Connection) = connection.baseUrl.startsWith("htt
 @Composable
 private fun HttpsBadge() {
     Row(
-        Modifier.clip(RoundedCornerShape(6.dp)).background(Lw.live.copy(alpha = 0.12f))
+        Modifier.clip(RoundedCornerShape(6.dp)).background(Lw.successSurface)
             .border(1.dp, Lw.live.copy(alpha = 0.35f), RoundedCornerShape(6.dp))
             .padding(horizontal = 5.dp, vertical = 1.dp)
             .semantics(mergeDescendants = true) { contentDescription = "Encrypted connection (HTTPS)" },
@@ -608,7 +674,7 @@ private fun PrimaryButton(label: String, onClick: () -> Unit) {
             .clickable(role = Role.Button, onClick = onClick),
         contentAlignment = Alignment.Center,
     ) {
-        Text(label, color = Color.White, fontWeight = FontWeight.SemiBold)
+        Text(label, color = Lw.onAccent, fontWeight = FontWeight.SemiBold)
     }
 }
 
@@ -616,7 +682,7 @@ private fun PrimaryButton(label: String, onClick: () -> Unit) {
 private fun SecondaryButton(label: String, icon: ImageVector, onClick: () -> Unit) {
     Row(
         Modifier.fillMaxWidth().height(48.dp).clip(RoundedCornerShape(12.dp)).background(Lw.surface)
-            .border(1.dp, Lw.line, RoundedCornerShape(12.dp))
+            .border(1.dp, controlOutline, RoundedCornerShape(12.dp))
             .clickable(role = Role.Button, onClick = onClick),
         horizontalArrangement = Arrangement.Center,
         verticalAlignment = Alignment.CenterVertically,

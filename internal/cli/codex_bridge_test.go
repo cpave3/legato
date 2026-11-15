@@ -429,3 +429,41 @@ func TestCodexBridgeReportsRejectedOwnershipRatherThanReplacingSavedIdentity(t *
 	}
 	assertNativeIdentity(t, s, "codex", "thr-1", "/work/repo")
 }
+
+// notify sends the bridge a notification as the app server would.
+func (s *codexAppServer) notify(method string, params map[string]any) {
+	s.t.Helper()
+	encoded, _ := json.Marshal(map[string]any{"method": method, "params": params})
+	s.mu.Lock()
+	conn := s.conn
+	s.mu.Unlock()
+	if err := conn.Write(context.Background(), websocket.MessageText, encoded); err != nil {
+		s.t.Fatal(err)
+	}
+}
+
+// An interrupted Codex turn may fire no hook; the bridge sees it end, and the
+// agent stops working (LEG-144).
+func TestCodexBridgeEndsAnInterruptedTurn(t *testing.T) {
+	s := newTestStore(t)
+	seedRunningCodexAgent(t, s, "task1")
+	if err := s.UpdateAgentActivity(context.Background(), "task1", store.ActivityWorking); err != nil {
+		t.Fatal(err)
+	}
+	codex := newCodexAppServer(t)
+	codex.history = map[string]any{"thr-1": map[string]any{"id": "thr-1", "cwd": "/work/repo", "turns": []any{}}}
+	runningCodexBridge(t, s, cli.CodexBridgeOptions{TaskID: "task1", RuntimeDir: t.TempDir(), StartServer: codex.start})
+	codex.terminalOpensThread()
+	waitFor(t, "the thread saved for resume", func() bool {
+		record, err := s.GetTaskNativeSession(context.Background(), "task1", "codex")
+		return err == nil && record != nil && record.ProviderSessionID == "thr-1"
+	})
+
+	codex.notify("turn/started", map[string]any{"threadId": "thr-1", "turn": map[string]any{"id": "t1", "status": "inProgress", "items": []any{}}})
+	codex.notify("turn/completed", map[string]any{"threadId": "thr-1", "turn": map[string]any{"id": "t1", "status": "interrupted", "items": []any{}}})
+
+	waitFor(t, "the agent idle", func() bool {
+		session, err := s.GetAgentSessionByTaskID(context.Background(), "task1")
+		return err == nil && session.Activity == ""
+	})
+}

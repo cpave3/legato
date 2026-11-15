@@ -88,6 +88,9 @@ export async function patchTask(
     description?: string
     workspace_id?: number | null
     column?: string
+    // The card this one goes before in its column (after any move); null
+    // for the end.
+    before?: string | null
     metadata?: Record<string, unknown>
   }
 ): Promise<PatchTaskResult> {
@@ -96,7 +99,7 @@ export async function patchTask(
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(body),
   })
-  if (!res.ok) throw new Error(`patchTask failed: ${res.status}`)
+  if (!res.ok) throw await refusedWith(res, "patchTask")
   return res.json() as Promise<PatchTaskResult>
 }
 

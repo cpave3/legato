@@ -41,7 +41,7 @@ export function ImageLightbox({ images, index, onIndex, onClose }: ImageLightbox
   if (!image) return null
   const name = image.alt || `Image ${index + 1}`
   const step = (by: number) => onIndex((index + by + images.length) % images.length)
-  const stepButton = "absolute top-1/2 z-10 flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full bg-zinc-900/80 text-zinc-200 transition-colors hover:bg-zinc-800 hover:text-white"
+  const stepButton = "absolute top-1/2 z-10 flex h-11 w-11 -translate-y-1/2 items-center justify-center rounded-full bg-zinc-900/80 text-zinc-200 transition-colors hover:bg-zinc-800 hover:text-[var(--theme-text,white)]"
 
   // Drawn at the top of the page: inside a card or a panel it could be cut
   // off by what holds it.
@@ -65,10 +65,10 @@ export function ImageLightbox({ images, index, onIndex, onClose }: ImageLightbox
         else if (several && event.key === "ArrowLeft") step(-1)
       }}
     >
-      <div className="flex shrink-0 items-center gap-3 px-4 py-2 text-sm text-zinc-200">
+      <div className="flex shrink-0 items-center gap-3 bg-[var(--theme-surface,transparent)] px-4 py-2 text-sm text-zinc-200">
         <span className="min-w-0 flex-1 truncate">{image.caption || image.alt}</span>
         {several && <span className="shrink-0 text-xs tabular-nums text-zinc-400">{index + 1} of {images.length}</span>}
-        <button type="button" aria-label="Close image" className="flex h-11 w-11 shrink-0 items-center justify-center rounded text-zinc-400 hover:text-white" onClick={onClose}>
+        <button type="button" aria-label="Close image" className="flex h-11 w-11 shrink-0 items-center justify-center rounded text-zinc-400 hover:text-[var(--theme-text,white)]" onClick={onClose}>
           <X className="h-5 w-5" />
         </button>
       </div>

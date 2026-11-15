@@ -423,3 +423,25 @@ func TestClaudeBridgeReportsRejectedOwnershipRatherThanReplacingSavedIdentity(t 
 	}
 	assertNativeIdentity(t, s, "claude-code", "owned", "/repo")
 }
+
+// Escape in the terminal fires no Claude Code hook; the bridge sees the turn
+// end and the agent stops working.
+func TestClaudeBridgeEndsAnInterruptedTurn(t *testing.T) {
+	s := newTestStore(t)
+	owner := seedRunningClaudeAgent(t, s, "task1")
+	linkNativeTestExecution(t, s, owner)
+	if err := s.UpdateAgentActivityForSession(context.Background(), owner.ID, store.ActivityWorking); err != nil {
+		t.Fatal(err)
+	}
+	endpoint, _ := runningBridge(t, s, cli.ClaudeBridgeOptions{TaskID: "task1", ExecutionID: "native-task1", RuntimeDir: t.TempDir()})
+
+	if code, body := postClaudeIdentity(t, endpoint, `[{"type":"hello","sessionId":"claude-1","cwd":"/repo"},{"type":"turn_start","turnId":"t1"},{"type":"turn_complete","turnId":"t1","reason":"aborted"}]`); code != http.StatusNoContent {
+		t.Fatalf("events = %d %s", code, body)
+	}
+
+	// The bridge waits a moment to see that no new turn began.
+	waitFor(t, "the agent idle after the interrupt", func() bool {
+		session, err := s.GetAgentSessionByTaskID(context.Background(), "task1")
+		return err == nil && session.Activity == ""
+	})
+}

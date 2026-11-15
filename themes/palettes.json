@@ -1,0 +1,243 @@
+{
+  "schema_version": 1,
+  "source": {
+    "path": "eye-strain/prototypes/palettes.json",
+    "sha256": "b0a39192845e2776086eb23046207e29b7590494db818e4a7b1f75b965442c17",
+    "date": "2026-11-15",
+    "limitations": "Research candidates, not proven fatigue interventions; sRGB opaque tokens only."
+  },
+  "role_contract": {
+    "canvas": "Main reading/code background",
+    "surface": "Raised panel or sidebar background",
+    "selection": "Opaque selection/current-row background; keep all text colors unchanged",
+    "text": "Body text, identifiers, punctuation and caret",
+    "muted": "Secondary metadata and line numbers; still readable text",
+    "border": "Required input/control boundary, not decorative divider",
+    "focus": "Keyboard focus outline, at least 2 CSS px plus offset in preview",
+    "link": "Underlined links; never hue alone",
+    "info": "Information text plus explicit Info label",
+    "success": "Success text plus check/Success label",
+    "warning": "Warning text plus Warning label",
+    "error": "Error text plus !/Error label",
+    "comment": "Code comments, no opacity reduction",
+    "keyword": "Control flow, declarations and operators",
+    "string": "String literals; quote punctuation remains present",
+    "number": "Numeric and boolean literals",
+    "function": "Functions/callable identifiers",
+    "type": "Type/class names",
+    "variable": "Variable names; neutral by default"
+  },
+  "themes": [
+    {
+      "id": "ocular-light",
+      "name": "Ocular Light",
+      "kind": "candidate",
+      "polarity": "light",
+      "provenance": "New engineering proposal; exact colors extrapolated from contrast constraints, not clinical experiments.",
+      "tokens": {
+        "canvas": "#F5F3ED",
+        "surface": "#EAE7DF",
+        "selection": "#DCE6EE",
+        "text": "#252B33",
+        "muted": "#505965",
+        "border": "#737B85",
+        "focus": "#17578A",
+        "link": "#17578A",
+        "info": "#17578A",
+        "success": "#235D45",
+        "warning": "#765000",
+        "error": "#993C42",
+        "comment": "#505965",
+        "keyword": "#68418A",
+        "string": "#235D45",
+        "number": "#87431F",
+        "function": "#17578A",
+        "type": "#286169",
+        "variable": "#252B33"
+      }
+    },
+    {
+      "id": "ocular-dark",
+      "name": "Ocular Dark",
+      "kind": "candidate",
+      "polarity": "dark",
+      "provenance": "New engineering proposal; exact colors extrapolated from contrast constraints, not clinical experiments.",
+      "tokens": {
+        "canvas": "#20252B",
+        "surface": "#292F37",
+        "selection": "#354351",
+        "text": "#E2E5E9",
+        "muted": "#B2BBC6",
+        "border": "#8995A4",
+        "focus": "#8ABBE8",
+        "link": "#8ABBE8",
+        "info": "#8ABBE8",
+        "success": "#A3C9A8",
+        "warning": "#E2C17A",
+        "error": "#E8A0A8",
+        "comment": "#B2BBC6",
+        "keyword": "#C5ADE3",
+        "string": "#A3C9A8",
+        "number": "#DDB491",
+        "function": "#8ABBE8",
+        "type": "#8FC9CC",
+        "variable": "#E2E5E9"
+      }
+    },
+    {
+      "id": "dracula",
+      "name": "Dracula",
+      "kind": "baseline",
+      "polarity": "dark",
+      "provenance": "Official palette https://github.com/dracula/dracula-theme ; representative role mapping for this prototype, not a verified editor port. Border/focus use official comment/purple.",
+      "tokens": {
+        "canvas": "#282A36",
+        "surface": "#282A36",
+        "selection": "#44475A",
+        "text": "#F8F8F2",
+        "muted": "#6272A4",
+        "border": "#6272A4",
+        "focus": "#BD93F9",
+        "link": "#8BE9FD",
+        "info": "#8BE9FD",
+        "success": "#50FA7B",
+        "warning": "#F1FA8C",
+        "error": "#FF5555",
+        "comment": "#6272A4",
+        "keyword": "#FF79C6",
+        "string": "#F1FA8C",
+        "number": "#BD93F9",
+        "function": "#50FA7B",
+        "type": "#8BE9FD",
+        "variable": "#F8F8F2"
+      },
+      "license": {
+        "name": "MIT",
+        "source": "https://github.com/dracula/dracula-theme/blob/main/LICENSE",
+        "notice": "The MIT License (MIT)\n\nCopyright (c) 2023 Dracula Theme\n\nPermission is hereby granted, free of charge, to any person obtaining a copy\nof this software and associated documentation files (the \"Software\"), to deal\nin the Software without restriction, including without limitation the rights\nto use, copy, modify, merge, publish, distribute, sublicense, and/or sell\ncopies of the Software, and to permit persons to whom the Software is\nfurnished to do so, subject to the following conditions:\n\nThe above copyright notice and this permission notice shall be included in all\ncopies or substantial portions of the Software.\n\nTHE SOFTWARE IS PROVIDED \"AS IS\", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR\nIMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,\nFITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE\nAUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER\nLIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,\nOUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE\nSOFTWARE.\n"
+      }
+    }
+  ],
+  "materials": {
+    "light": {
+      "colors": {
+        "rail": {
+          "base": "surface",
+          "tint": "surface",
+          "amount": 0
+        },
+        "panel": {
+          "base": "canvas",
+          "tint": "#FFFFFF",
+          "amount": 0.45
+        },
+        "raised": {
+          "base": "canvas",
+          "tint": "#FFFFFF",
+          "amount": 0.85
+        },
+        "divider": {
+          "base": "canvas",
+          "tint": "border",
+          "amount": 0.25
+        },
+        "successSurface": {
+          "base": "canvas",
+          "tint": "success",
+          "amount": 0.06
+        },
+        "warningSurface": {
+          "base": "canvas",
+          "tint": "warning",
+          "amount": 0.06
+        },
+        "infoSurface": {
+          "base": "canvas",
+          "tint": "info",
+          "amount": 0.06
+        },
+        "errorSurface": {
+          "base": "canvas",
+          "tint": "error",
+          "amount": 0.06
+        }
+      },
+      "shadow": {
+        "ink": "text",
+        "contact": 0.1,
+        "ambient": 0.08,
+        "highlight": 0.9
+      }
+    },
+    "dark": {
+      "colors": {
+        "rail": {
+          "base": "canvas",
+          "tint": "#000000",
+          "amount": 0.15
+        },
+        "panel": {
+          "base": "surface",
+          "tint": "text",
+          "amount": 0.025
+        },
+        "raised": {
+          "base": "surface",
+          "tint": "text",
+          "amount": 0.06
+        },
+        "divider": {
+          "base": "canvas",
+          "tint": "border",
+          "amount": 0.28
+        },
+        "successSurface": {
+          "base": "canvas",
+          "tint": "success",
+          "amount": 0.08
+        },
+        "warningSurface": {
+          "base": "canvas",
+          "tint": "warning",
+          "amount": 0.08
+        },
+        "infoSurface": {
+          "base": "canvas",
+          "tint": "info",
+          "amount": 0.08
+        },
+        "errorSurface": {
+          "base": "canvas",
+          "tint": "error",
+          "amount": 0.08
+        }
+      },
+      "shadow": {
+        "ink": "#000000",
+        "contact": 0.28,
+        "ambient": 0.22,
+        "highlight": 0.045
+      }
+    }
+  },
+  "material_ink_contract": {
+    "minimum_contrast": 4.5,
+    "blend_step": 0.05,
+    "roles": [
+      "text",
+      "muted",
+      "link",
+      "info",
+      "success",
+      "warning",
+      "error",
+      "comment",
+      "keyword",
+      "string",
+      "number",
+      "function",
+      "type",
+      "variable"
+    ]
+  }
+}

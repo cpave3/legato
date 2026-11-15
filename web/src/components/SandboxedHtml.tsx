@@ -1,5 +1,6 @@
-import { useEffect, useMemo, useRef, useState } from "react"
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react"
 import { buildSandboxDocument, proposedMessageText, type ItemImage } from "../lib/agentUi"
+import { appTheme, subscribeTheme } from "../lib/appTheme"
 import { cn } from "../lib/utils"
 import { ImageLightbox, type LightboxImage } from "./ImageLightbox"
 
@@ -78,7 +79,10 @@ export function SandboxedHtml({ html, title, resourceDomains, fill = false, maxH
   const frameRef = useRef<HTMLIFrameElement>(null)
   const [height, setHeight] = useState<number | null>(null)
   const [lightbox, setLightbox] = useState<{ shown: LightboxImage[]; index: number } | null>(null)
-  const frameDocument = useMemo(() => givenDocument ?? buildSandboxDocument({ html, resourceDomains, fill, images }), [givenDocument, html, resourceDomains, fill, images])
+  const theme = useSyncExternalStore(subscribeTheme, () => appTheme().id)
+  // The builder reads the app theme; iframe documents cannot inherit host CSS.
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const frameDocument = useMemo(() => givenDocument ?? buildSandboxDocument({ html, resourceDomains, fill, images }), [givenDocument, html, resourceDomains, fill, images, theme])
   const handlers = useRef({ onOverflow, onProposeMessage, onOpenPage })
   useEffect(() => {
     handlers.current = { onOverflow, onProposeMessage, onOpenPage }

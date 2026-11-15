@@ -23,8 +23,8 @@ A card shows where its task comes from (Jira, GitHub or local), its linked pull 
 | --- | --- |
 | running (green) | The agent is working. |
 | needs you (amber) | The agent waits for you to allow something or to answer a question. |
-| background (cyan) | The turn ended, but a shell or a subagent it started still runs. |
-| idle | The agent's session is alive and not working. |
+| background (cyan) | The turn ended, but something it started still runs and will wake it. |
+| idle | The agent's session is alive, and nothing will wake it but a message. |
 
 ## A task
 

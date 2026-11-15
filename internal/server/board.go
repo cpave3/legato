@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"io"
+	"log"
 	"net/http"
 	"strconv"
 	"strings"
@@ -278,11 +279,14 @@ func (s *Server) taskHandler() http.HandlerFunc {
 				return
 			}
 			var req struct {
-				Title       *string        `json:"title,omitempty"`
-				Description *string        `json:"description,omitempty"`
-				WorkspaceID *int           `json:"workspace_id,omitempty"`
-				Column      *string        `json:"column,omitempty"`
-				Metadata    map[string]any `json:"metadata,omitempty"`
+				Title       *string `json:"title,omitempty"`
+				Description *string `json:"description,omitempty"`
+				WorkspaceID *int    `json:"workspace_id,omitempty"`
+				Column      *string `json:"column,omitempty"`
+				// Before places the card, in its column (after any move),
+				// just before that card; null or "" places it last.
+				Before   *string        `json:"before,omitempty"`
+				Metadata map[string]any `json:"metadata,omitempty"`
 			}
 			if err := json.Unmarshal(body, &req); err != nil {
 				s.writeError(w, http.StatusBadRequest, "invalid JSON")
@@ -360,6 +364,31 @@ func (s *Server) taskHandler() http.HandlerFunc {
 					return
 				}
 				mutated = true
+			}
+			if _, ok := raw["before"]; ok {
+				before := ""
+				if req.Before != nil {
+					before = *req.Before
+				}
+				err := s.board.PlaceCard(ctx, id, before)
+				switch {
+				case err == nil:
+					mutated = true
+				case errors.Is(err, store.ErrConflict) && req.Column != nil:
+					// The move is made; a neighbour that left the column
+					// since the board was drawn only costs the card its
+					// place, and it stays last, where the move put it.
+					log.Printf("task %s: moved to %s, left last: %v", id, *req.Column, err)
+				case errors.Is(err, store.ErrNotFound):
+					s.writeError(w, http.StatusNotFound, "task not found")
+					return
+				case errors.Is(err, store.ErrConflict):
+					s.writeError(w, http.StatusConflict, err.Error())
+					return
+				default:
+					s.writeError(w, taskErrorStatus(err), err.Error())
+					return
+				}
 			}
 			response := struct {
 				Status   string                         `json:"status"`

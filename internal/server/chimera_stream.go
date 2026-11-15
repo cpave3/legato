@@ -32,11 +32,13 @@ type chimeraStreamManager struct {
 }
 
 type chimeraStream struct {
-	taskID    string
-	endpoint  string
-	sessionID string
-	ctx       context.Context
-	cancel    context.CancelFunc
+	taskID         string
+	endpoint       string
+	sessionID      string
+	executionID    string
+	agentSessionID int
+	ctx            context.Context
+	cancel         context.CancelFunc
 
 	mu           sync.Mutex
 	clients      map[*wsClient]*chimeraSubscriber
@@ -66,6 +68,10 @@ func (m *chimeraStreamManager) subscribe(client *wsClient, taskID, cursor string
 	m.mu.Lock()
 	stream, exists := m.streams[taskID]
 	created := false
+	if exists {
+		m.refreshBindingLocked(taskID)
+		stream = m.streams[taskID]
+	}
 	if !exists {
 		session, err := m.agents.GetAgentSession(context.Background(), taskID)
 		if err != nil || session.ChimeraEndpoint == nil || session.ChimeraSessionID == nil {
@@ -75,15 +81,22 @@ func (m *chimeraStreamManager) subscribe(client *wsClient, taskID, cursor string
 		}
 		ctx, cancel := context.WithCancel(context.Background())
 		stream = &chimeraStream{
-			taskID:    taskID,
-			endpoint:  *session.ChimeraEndpoint,
-			sessionID: *session.ChimeraSessionID,
-			ctx:       ctx,
-			cancel:    cancel,
-			clients:   make(map[*wsClient]*chimeraSubscriber),
+			taskID:         taskID,
+			endpoint:       *session.ChimeraEndpoint,
+			sessionID:      *session.ChimeraSessionID,
+			executionID:    session.ExecutionID,
+			agentSessionID: session.ID,
+			ctx:            ctx,
+			cancel:         cancel,
+			clients:        make(map[*wsClient]*chimeraSubscriber),
 		}
 		m.streams[taskID] = stream
 		created = true
+	}
+	if stream.endpoint == "" || stream.sessionID == "" {
+		m.mu.Unlock()
+		client.send(WSMessage{Type: MsgError, Error: "no chimera endpoint"})
+		return
 	}
 
 	subscriber := &chimeraSubscriber{messages: make(chan WSMessage, chimeraReplayLimit+16)}
@@ -188,6 +201,14 @@ func (m *chimeraStreamManager) runSSELoop(stream *chimeraStream) {
 	retryDelay := 100 * time.Millisecond
 	failures := 0
 	for stream.ctx.Err() == nil {
+		m.mu.Lock()
+		if m.streams[stream.taskID] == stream {
+			m.refreshBindingLocked(stream.taskID)
+		}
+		m.mu.Unlock()
+		if stream.ctx.Err() != nil || stream.endpoint == "" || stream.sessionID == "" {
+			return
+		}
 		stream.mu.Lock()
 		since := stream.lastEvent
 		stream.mu.Unlock()
@@ -224,6 +245,9 @@ func (m *chimeraStreamManager) runSSELoop(stream *chimeraStream) {
 func (m *chimeraStreamManager) publish(stream *chimeraStream, event chimera.EventEnvelope) {
 	stream.mu.Lock()
 	defer stream.mu.Unlock()
+	if stream.ctx.Err() != nil {
+		return
+	}
 	if event.EventID != "" {
 		if event.EventID == stream.lastEvent {
 			return
@@ -244,6 +268,51 @@ func (m *chimeraStreamManager) publish(stream *chimeraStream, event chimera.Even
 			client.cancel()
 		}
 	}
+}
+
+// An open panel belongs to the task, but its replay history and upstream
+// connection belong to one execution. Keep its writers, not the old cursor.
+func (m *chimeraStreamManager) refreshBindings() {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	for taskID := range m.streams {
+		m.refreshBindingLocked(taskID)
+	}
+}
+
+func (m *chimeraStreamManager) refreshBindingLocked(taskID string) {
+	stream := m.streams[taskID]
+	session, err := m.agents.GetAgentSession(stream.ctx, taskID)
+	if err != nil {
+		log.Printf("refresh chimera stream binding for %s: %v", taskID, err)
+		return
+	}
+	endpoint, sessionID := "", ""
+	if session.ChimeraEndpoint != nil && session.ChimeraSessionID != nil {
+		endpoint, sessionID = *session.ChimeraEndpoint, *session.ChimeraSessionID
+	}
+	if stream.endpoint == endpoint && stream.sessionID == sessionID && stream.executionID == session.ExecutionID && stream.agentSessionID == session.ID {
+		return
+	}
+	stream.mu.Lock()
+	defer stream.mu.Unlock()
+	stream.cancel()
+	if stream.cleanupTimer != nil {
+		stream.cleanupTimer.Stop()
+	}
+	ctx, cancel := context.WithCancel(context.Background())
+	replacement := &chimeraStream{
+		taskID: taskID, endpoint: endpoint, sessionID: sessionID,
+		executionID: session.ExecutionID, agentSessionID: session.ID,
+		ctx: ctx, cancel: cancel, clients: stream.clients,
+	}
+	stream.clients = make(map[*wsClient]*chimeraSubscriber)
+	m.streams[taskID] = replacement
+	m.requireSync(replacement)
+	if len(replacement.clients) == 0 {
+		replacement.cleanupTimer = time.AfterFunc(m.gracePeriod, func() { m.removeIfIdle(taskID, replacement) })
+	}
+	go m.runSSELoop(replacement)
 }
 
 func (m *chimeraStreamManager) requireSync(stream *chimeraStream) {

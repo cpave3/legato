@@ -1,0 +1,22 @@
+{
+  "package_id": "dev.legato.glance",
+  "edition": "202601",
+  "name": "Legato",
+  "version": "0.1.0",
+  "min_sdk_version": "0.0.16",
+  "entrypoint": "index.html",
+  "permissions": [
+    {
+      "name": "network",
+      "desc": "Reads your agents and their conversations from your own Legato server, and sends the messages you dictate to them.",
+      "whitelist": []
+    },
+    {
+      "name": "g2-microphone",
+      "desc": "Records a message you dictate to one of your agents, only while you are dictating."
+    }
+  ],
+  "supported_languages": [
+    "en"
+  ]
+}

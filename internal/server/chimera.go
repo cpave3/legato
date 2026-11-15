@@ -176,6 +176,9 @@ func (s *Server) chimeraSnapshotHandler() http.HandlerFunc {
 			return
 		}
 		snap.ContextWindow = sessionContext.ContextWindow
+		if (len(snap.SubagentStates) == 0 || string(snap.SubagentStates) == "null") && agentSession.ChimeraSubagents != "" && agentSession.ChimeraSubagents != "[]" && sessionID == snap.ID {
+			snap.SubagentStates = json.RawMessage(agentSession.ChimeraSubagents)
+		}
 		if sessionContext.LastPromptTokens != nil {
 			snap.UsedContextTokens = *sessionContext.LastPromptTokens
 		}

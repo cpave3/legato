@@ -41,6 +41,8 @@ From then on every agent Legato starts runs inside the sandbox. If `bwrap` is mi
 | The system: `/usr`, `/etc`, `/opt` | read-only |
 | The working directory, and a worktree's main `.git` | read and write. An agent that may only look (a find-out delegation) gets them read-only; a reviewer gets them beneath a throwaway layer: it can build and run tests, and what it writes is gone when it ends. That layer is on disk, and needs bubblewrap 0.10 or later; with an older one the reviewer's checkout is read-only |
 | The agent tool's own state, such as `~/.claude`, `~/.codex` or `~/.chimera`, so sessions resume inside and out | read and write |
+| Chimera's `~/.chimera/mods` and `~/.chimera/hooks` (the rest of its state stays writable); linked mod targets outside forbidden paths | read-only |
+| Legato's installed mods in `<data_dir>/claude-mod` and `<data_dir>/chimera-mod` | read-only |
 | The agent tool's installation | read-only |
 | Your toolchains, such as `~/.local/bin`, mise, `~/go/bin`, Rust and Bun | read-only |
 | Package and build caches for Go, npm, pnpm, Yarn, Bun, pip, uv, Cargo, Gradle, Maven and others | read and write |
@@ -50,6 +52,12 @@ From then on every agent Legato starts runs inside the sandbox. If `bwrap` is mi
 | The `legato` binary | read-only |
 | For an agent started as an [engram](/legato/agent-tools/engrams/): the engram binary, first on `PATH`, and engram's store, so the agent's own engram notes and memories are written | binary read-only, store read and write |
 | Your `known_hosts` and the system's ssh configuration | read-only |
+
+Chimera's server-secret bootstrap is consumed outside the sandbox before the tool starts and is hidden from the agent.
+
+Legato creates Chimera's `~/.chimera/mods` and `~/.chimera/hooks` directories when missing, even with `default_mounts: false`, so they are read-only from the first launch. If either directory is itself a symlink (including a broken one), the spawn fails: replace that symlink with a real directory. Individual mod entries inside `mods` may still be symlinks; their allowed targets are read-only. Protecting only a directory symlink's target would let an agent replace the symlink through Chimera's writable state folder.
+
+Symlinks anywhere inside Chimera's global `hooks` folder, including event directories and scripts, also refuse the spawn with an error naming the link. Copy the hook into a real file or directory instead: a read-only link alone cannot protect executable code reached through a writable checkout.
 
 Agents never see:
 
@@ -62,6 +70,8 @@ Agents never see:
 The environment loses the variables secrets come from, such as `GITHUB_TOKEN`, `OP_SERVICE_ACCOUNT_TOKEN`, cloud and registry tokens, and `DOCKER_HOST`. It gains your git name and email address, since `~/.gitconfig` is not there.
 
 The sandbox shares the host's network and your user. It has its own process, IPC and hostname namespaces, and everything in it ends when the agent's pane closes.
+
+An agent may work in a job clone inside Legato's data folder when that clone belongs to its task, including a task that joined the clone for a stacked branch. Workflow agents about that task, such as learning curators, can use it too. This works whether the clone was recorded through `/home` or `/var/home`; the rest of Legato's state stays hidden. An unrelated task cannot use the clone.
 
 ## How agents still get their work done
 

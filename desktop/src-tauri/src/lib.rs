@@ -5,6 +5,7 @@
 pub mod pairing;
 pub mod pin;
 pub mod store;
+pub mod theme;
 pub mod webauthn;
 pub mod app;
 pub mod fido;
@@ -25,6 +26,8 @@ pub mod voiceclient;
 pub mod voicewidget;
 pub mod screens;
 pub mod widgetapprovals;
+pub mod hostline;
+pub mod lifecycle;
 #[cfg(target_os = "linux")]
 pub mod voicekey_portal;
 #[cfg(target_os = "linux")]

@@ -32,8 +32,9 @@ sha256sum --check --ignore-missing SHA256SUMS
 install -m 755 legato-linux-amd64 ~/.local/bin/legato
 
 legato                                     # first run: sets up the board
-legato hooks install --tool claude-code    # in each project, so cards show agent state
 ```
+
+Claude Code agents report what they are doing by themselves. For Codex or Chimera, run `legato hooks install --tool codex` (or `chimera`) once so their cards show it too.
 
 On the board, press `n` to make a task, `a` to start an agent on it, and `?` for all the keys. [Install and first use](https://cpave3.github.io/legato/start/install/) has every step, including the web UI and your phone.
 

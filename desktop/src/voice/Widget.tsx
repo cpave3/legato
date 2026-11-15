@@ -2,9 +2,11 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react"
 import { invoke } from "@tauri-apps/api/core"
 import { listen } from "@tauri-apps/api/event"
 import { VoiceCapsule, VoiceCard } from "@web-voice/VoiceWidgets"
-import { capped, EVENT_NAMES, initialModel, keyCaps, reduce, surface, type VoiceEvent, type WidgetModel } from "./model"
+import { capped, EVENT_NAMES, initialModel, keyCaps, reduce, shown, type VoiceEvent, type WidgetModel } from "./model"
 import { useWidgetDrag } from "./drag"
 import { Feed } from "./Feed"
+import { initializeTheme } from "../theme"
+import { errorText } from "../api"
 
 // The voice window's page: the capsule at rest, the card in a
 // conversation. Rust tells it what to draw (voice-* events) and does what
@@ -25,6 +27,12 @@ const act = (action: string) => () => { invoke("voice_action", { action }).catch
 
 export function Widget() {
   const [model, setModel] = useState<WidgetModel>(initialModel)
+  const [themeError, setThemeError] = useState("")
+  useEffect(() => {
+    let active = true
+    const initialized = initializeTheme().catch(error => { if (active) setThemeError(errorText(error)) })
+    return () => { active = false; void initialized.then(stop => stop?.()) }
+  }, [])
   const [layout, setLayout] = useState<Layout | null>(null)
   const apply = (event: VoiceEvent) => setModel((m) => reduce(m, event))
 
@@ -80,7 +88,12 @@ export function Widget() {
   const drag = useWidgetDrag()
 
   const close = () => setModel((m) => ({ ...m, phase: "idle" }))
+  // Hides the widget only: the app and its main window go on, the voice key
+  // still talks (the widget shows for the conversation), and Settings or the
+  // widget's own menu brings it back.
+  const hide = () => { invoke("voice_widget_hide").catch(() => {}) }
   const name = "The Reeve"
+  const drawn = shown(model)
   return (
     // A flex column kept to what fits on the screen: the capsule or card
     // keeps its size, and an element marked data-widget-feed scrolls in
@@ -93,9 +106,13 @@ export function Widget() {
       onContextMenu={menu}
       {...drag}
     >
-      {surface(model) === "card" ? (
+      {drawn.host ? (
+        // A line on the main's speakers: no conversation to stop or reply
+        // in, so no buttons; the key still starts one.
+        <VoiceCard view={capped(drawn.view)} main={model.readiness.main} />
+      ) : drawn.surface === "card" ? (
         <VoiceCard
-          view={capped(model.view)}
+          view={capped(drawn.view)}
           main={model.readiness.main}
           keyLabel={model.keyText || undefined}
           onListen={act("talk")}
@@ -106,14 +123,22 @@ export function Widget() {
           onClose={model.phase === "ended" ? close : act("end")}
         />
       ) : (
-        <VoiceCapsule
-          name={name}
-          readiness={model.phase === "not_ready" ? model.readiness : { ...model.readiness, ready: true }}
-          keys={keyCaps(model.keyText)}
-          onListen={act("talk")}
-          onOpenSettings={() => { invoke("voice_open_settings", { setting: model.readiness.setting }).catch(() => {}) }}
-        />
+        // The capsule is a button itself, so its close button sits beside
+        // it, over its corner, rather than inside it.
+        <div className="voice-capsule-box">
+          <VoiceCapsule
+            name={name}
+            readiness={model.phase === "not_ready" ? model.readiness : { ...model.readiness, ready: true }}
+            keys={keyCaps(model.keyText)}
+            onListen={act("talk")}
+            onOpenSettings={() => { invoke("voice_open_settings", { setting: model.readiness.setting }).catch(() => {}) }}
+          />
+          <button type="button" className="voice-widget-close" data-no-drag aria-label="Hide the voice widget" title="Hide the widget (Settings shows it again)" onClick={hide}>
+            <svg viewBox="0 0 10 10" width="10" height="10" aria-hidden="true"><path d="M2 2l6 6M8 2l-6 6" stroke="currentColor" strokeWidth="1.6" strokeLinecap="round" /></svg>
+          </button>
+        </div>
       )}
+      {themeError && <p className="voice-ui rounded-xl p-3" style={{ background: "var(--voice-surface)" }} role="alert">Could not load widget theme: {themeError}</p>}
       <Feed />
     </div>
   )

@@ -7,7 +7,7 @@ export function HandoffSources({ packet, ids }: { packet: HandoffPacket; ids: st
     return <details key={id} className="rounded border border-zinc-700 p-2">
       <summary className="cursor-pointer break-all">Pinned source: {source.path}:{source.line_start}–{source.line_end}</summary>
       <p className="my-2 break-all text-xs text-zinc-400">{source.side} · commit {source.commit_sha} · digest {source.digest}</p>
-      <pre className="overflow-x-auto bg-black/30 p-3 text-xs"><code>{source.text}</code></pre>
+      <pre className="overflow-x-auto bg-[var(--theme-canvas,rgba(0,0,0,0.3))] p-3 text-xs"><code>{source.text}</code></pre>
       <p className="text-xs text-zinc-400">Source reference only.</p>
     </details>
   })}</>

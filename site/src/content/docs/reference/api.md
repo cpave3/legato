@@ -24,8 +24,12 @@ A card on the board is a task: its ID is the task's. An agent is addressed by it
 | Read the board: its columns and cards | `GET /api/board` |  |
 | Read a task in brief: its column, pull requests and latest note | `GET /api/tasks/<id>?view=summary` |  |
 | Read a task in full, with its description and notes | `GET /api/tasks/<id>` |  |
+| Read a task's notes, each in full, with its source and time | `GET /api/tasks/<id>/notes` |  |
+| List a task's plans, newest first | `GET /api/tasks/<id>/plans` |  |
+| Read a plan: its text, revision and status | `GET /api/plans/<plan_id>` |  |
 | Create a task (a card) | `POST /api/tasks` | `{"title": "…", "column": "Backlog"}` |
 | Move a card to another column | `PATCH /api/tasks/<id>` | `{"column": "Done"}` |
+| Put a card just above another in its column (`null` for last) | `PATCH /api/tasks/<id>` | `{"before": "LEG-12"}` |
 | Rename a task or change its description | `PATCH /api/tasks/<id>` | `{"title": "…", "description": "…"}` |
 | Archive a done task | `POST /api/tasks/<id>/archive` |  |
 | Link a pull request to a task | `POST /api/tasks/<id>/link-pr` | `{"owner": "…", "repo": "…", "pr_number": 12}` |
@@ -38,6 +42,20 @@ A card on the board is a task: its ID is the task's. An agent is addressed by it
 | Restart an agent, keeping its conversation | `POST /api/agents/<id>/restart` |  |
 | List what needs attention | `GET /api/attention` |  |
 | Change a setting | `PUT /api/config/settings/<key>` | `{"value": …}` |
+| List the workers this Legato hands tasks to | `GET /api/settings/workers` |  |
+| Read what a worker's review passes can do | `GET /api/settings/workers/<instance_id>/review-passes` |  |
+| Hand a task to a worker, with its review passes | `POST /api/tasks/<id>/handoff` | `{"worker": "<instance_id>", "purpose": "make-change", "kind": "new-branch", "branch": "…", "repo": "owner/name", "agent_kind": "claude-code", "review": {"enabled": true, "agent": "codex", "model": "…", "tier": "…", "skill": "…", "max_passes": 3}}` |
+
+## Handing a task to a worker
+
+`POST /api/tasks/<id>/handoff` sends a task to a worker, as the board's **Hand off** form does, and answers `201` with `{"away": …}`. Its body:
+
+- `worker`: the worker's instance ID, from `GET /api/settings/workers`.
+- `purpose`: `make-change` or `find-out`.
+- `kind`: `new-branch`, or `pushed-branch` with the branch on GitHub in `branch`.
+- `repo`: the repository, `owner/name`.
+- `agent_kind`: the author's agent tool; empty for the worker's default.
+- `review` (make-change only, optional): what changes of the worker's review passes for this handoff. Leave it out to keep the worker's settings. `enabled` turns them on or off; `agent` is the reviewer's tool, with `model` or one of its `tier`s; `skill` and `max_passes` (at least 1). A field left out keeps the worker's. `GET /api/settings/workers/<instance_id>/review-passes` says the worker's settings and the tools, tiers and skills it has; anything else is refused with `422` in the worker's words.
 
 ## Tasks and cards
 
@@ -50,6 +68,8 @@ A card on the board is a task: its ID is the task's. An agent is addressed by it
 | `POST` | `/api/tasks/{id}/restore` | change | Restore an archived task |  |
 | `GET` | `/api/tasks/archived` | read | List the archived tasks |  |
 | `GET` | `/api/tasks/{id}/activity` | read | Read a task's activity |  |
+| `GET` | `/api/tasks/{id}/notes` | read | Read a task's notes in full |  |
+| `GET` | `/api/tasks/{id}/plans` | read | List a task's plans |  |
 | `GET` | `/api/tasks/{id}/stacks` | read | List a task's branch stacks |  |
 | `GET` | `/api/tasks/{id}/stacks/{clone}/document` | read | Read a branch stack's import file |  |
 | `POST` | `/api/tasks/{id}/agent` | change | Start, resume or message a task's agent | `{"agent_kind": "claude-code", "prompt": "…", "working_dir": "…", "repo": "owner/name", "resources": ["…"]}` |
@@ -62,9 +82,9 @@ A card on the board is a task: its ID is the task's. An agent is addressed by it
 | `POST` | `/api/tasks/{id}/refresh-pr` | change | Refresh a task's pull request |  |
 | `POST` | `/api/tasks/{id}/rediscover-pr` | change | Find a task's pull request again |  |
 | `GET` | `/api/tasks/{id}` | read | Read a task |  |
-| `PATCH` | `/api/tasks/{id}` | change | Edit or move a task | `{"title": "…", "description": "…", "column": "Done", "workspace_id": 1}` |
+| `PATCH` | `/api/tasks/{id}` | change | Edit or move a task | `{"title": "…", "description": "…", "column": "Done", "before": "LEG-12", "workspace_id": 1}` |
 | `DELETE` | `/api/tasks/{id}` | risky | Delete a task |  |
-| `POST` | `/api/tasks/{id}/handoff` | change | Hand a task to a worker |  |
+| `POST` | `/api/tasks/{id}/handoff` | change | Hand a task to a worker | `{"worker": "<instance_id>", "purpose": "make-change", "kind": "new-branch", "branch": "…", "repo": "owner/name", "agent_kind": "claude-code", "review": {"enabled": true, "agent": "codex", "model": "…", "tier": "…", "skill": "…", "max_passes": 3}}` |
 | `POST` | `/api/tasks/{id}/return` | change | Return a finished task from its worker |  |
 | `POST` | `/api/tasks/{id}/recall` | risky | Recall a task from its worker, stopping its agents |  |
 | `POST` | `/api/tasks/{id}/take-back` | risky | Take a task back without its results |  |

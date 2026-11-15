@@ -1,12 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import "@testing-library/jest-dom/vitest"
-import { act, cleanup, fireEvent, render, screen } from "@testing-library/react"
-import { CAP, capped, initialModel, keyCaps, reduce, surface, tail, type VoiceEvent, type WidgetModel } from "./model"
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react"
+import { CAP, capped, initialModel, keyCaps, reduce, shown, surface, tail, type VoiceEvent, type WidgetModel } from "./model"
 import { DRAG_FROM, useWidgetDrag } from "./drag"
 
 // The app's events, as Rust emits them, and what the page asks of Rust.
 const handlers = new Map<string, (e: { payload: unknown }) => void>()
 const invoked: { cmd: string; args?: unknown }[] = []
+let savedTheme = "legato"
 let status = { ready: true, reason: "", setting: "", main: "tessitura" }
 
 vi.mock("@tauri-apps/api/event", () => ({
@@ -18,6 +19,7 @@ vi.mock("@tauri-apps/api/event", () => ({
 vi.mock("@tauri-apps/api/core", () => ({
   invoke: (cmd: string, args?: unknown) => {
     invoked.push({ cmd, args })
+    if (cmd === "app_theme") return Promise.resolve(savedTheme)
     if (cmd === "voice_status") return Promise.resolve(status)
     if (cmd === "voice_key_info") return Promise.resolve({ key: "Meta+Alt+Space" })
     if (cmd === "voice_widget_layout") return Promise.resolve({ width: 480, height: 600, anchor: "top-right" })
@@ -99,6 +101,58 @@ describe("what the widget draws", () => {
   })
 })
 
+// A line the Reeve says unprompted plays on the main's speakers, outside any
+// conversation; the app tells the widget (voice-host-line, LEG-161).
+describe("a line playing on the main's speakers", () => {
+  const host = (id: string, status: "playing" | "ended", text = ""): VoiceEvent => ({ name: "voice-host-line", payload: { id, text, status } })
+
+  it("shows the speaking card while it plays, then the capsule again", () => {
+    const playing = run(host("3", "playing", "The build passed."))
+    expect(surface(playing)).toBe("card")
+    const view = shown(playing).view
+    expect(view.state).toBe("speaking")
+    expect(view.lines.map((l) => l.text)).toEqual(["The build passed."])
+    expect(view.speaking).toBe(view.lines[0].id)
+    expect(shown(playing).host).toBe(true)
+    // Another line's end is not this one's.
+    expect(surface(reduce(playing, host("2", "ended")))).toBe("card")
+    const after = reduce(playing, host("3", "ended"))
+    expect(surface(after)).toBe("capsule")
+    expect(shown(after).host).toBe(false)
+  })
+
+  it("shows over the not-ready capsule, a kept conversation and an ended card, and gives each back", () => {
+    for (const before of [
+      run(state("not_ready", "Whisper isn't answering on tessitura", "voice.whisper_url")),
+      run(state("speaking"), state("idle")),
+      run(state("listening"), state("idle", "no_speech")),
+    ]) {
+      const during = reduce(before, host("1", "playing", "Done."))
+      expect(shown(during).view.state).toBe("speaking")
+      const after = reduce(during, host("1", "ended"))
+      expect(after.phase).toBe(before.phase)
+      expect(surface(after)).toBe(surface(before))
+      expect(shown(after).view).toEqual(shown(before).view)
+    }
+  })
+
+  it("leaves a turn as it is: listening, thinking and the Reeve's answer win", () => {
+    for (const turn of [state("connecting", "tessitura"), state("listening"), state("thinking"), state("speaking")]) {
+      const before = run(turn)
+      const during = reduce(before, host("1", "playing", "Agent finished."))
+      expect(surface(during)).toBe(surface(before))
+      expect(shown(during).view).toEqual(shown(before).view)
+      expect(shown(during).host).toBe(false)
+    }
+  })
+
+  it("shows when the turn ends while the line still plays", () => {
+    const m = run(state("listening"), host("1", "playing", "Agent finished."), state("idle", "bye"))
+    expect(shown(m).view.state).toBe("speaking")
+    expect(surface(m)).toBe("card")
+  })
+})
+
 describe("a long transcript", () => {
   const words = (n: number) => Array.from({ length: n }, (_, i) => `word${i}`).join(" ")
 
@@ -146,6 +200,31 @@ describe("the widget page", () => {
 
   const actions = () => invoked.filter((i) => i.cmd === "voice_action").map((i) => (i.args as { action: string }).action)
 
+  it("restores the widget theme, follows changes while open, and restores it on reload", async () => {
+    savedTheme = "ocular-light"
+    const first = render(<Widget />)
+    await waitFor(() => expect(document.documentElement.dataset.theme).toBe("ocular-light"))
+    expect(document.documentElement.style.getPropertyValue("--theme-surface")).toBe(document.documentElement.style.getPropertyValue("--panel"))
+    expect(document.documentElement.style.getPropertyValue("--theme-text")).toBe("#252B33")
+    expect(document.documentElement.style.colorScheme).toBe("light")
+    expect(screen.getByTestId("voice-capsule")).toBeInTheDocument()
+    emit("voice-state", { state: "listening" })
+    emit("app-theme-changed", "dracula")
+    expect(screen.getByTestId("voice-card")).toBeInTheDocument()
+    expect(document.documentElement.style.getPropertyValue("--theme-canvas")).toBe("#282A36")
+    first.unmount()
+    await act(async () => {})
+    expect(handlers.has("app-theme-changed")).toBe(false)
+    savedTheme = "ocular-dark"
+    const reloaded = render(<Widget />)
+    await waitFor(() => expect(document.documentElement.dataset.theme).toBe("ocular-dark"))
+    emit("app-theme-changed", "legato")
+    expect(document.documentElement.style.getPropertyValue("--theme-surface")).toBe("")
+    expect(document.documentElement.style.colorScheme).toBe("dark")
+    reloaded.unmount()
+    savedTheme = "legato"
+  })
+
   it("shows the ready capsule with the main and the key, and a click talks", async () => {
     render(<Widget />)
     expect(await screen.findByText(/tessitura · ready/)).toBeInTheDocument()
@@ -177,6 +256,18 @@ describe("the widget page", () => {
     fireEvent.click(screen.getByText("Stop"))
     expect(actions()).toEqual(["send", "reply", "stop"])
     emit("voice-state", { state: "idle", reason: "bye" })
+    expect(screen.getByTestId("voice-capsule")).toBeInTheDocument()
+  })
+
+  it("shows the speaking card while a line plays on the main's speakers, with no buttons, then the capsule", async () => {
+    render(<Widget />)
+    await screen.findByText(/tessitura · ready/)
+    emit("voice-host-line", { id: "7", text: "The build on LEG-160 passed.", status: "playing" })
+    expect(screen.getByTestId("voice-card")).toHaveAttribute("data-state", "speaking")
+    expect(screen.getByTestId("voice-caption")).toHaveTextContent("The build on LEG-160 passed.")
+    expect(screen.queryByText("Stop")).not.toBeInTheDocument()
+    expect(screen.queryByText("Reply")).not.toBeInTheDocument()
+    emit("voice-host-line", { id: "7", text: "", status: "ended" })
     expect(screen.getByTestId("voice-capsule")).toBeInTheDocument()
   })
 
@@ -227,6 +318,39 @@ describe("the widget page", () => {
     expect(root.style.getPropertyValue("--widget-max-h")).toBe("380px")
   })
 
+  it("has a close button on the capsule that hides the widget, and does not talk", async () => {
+    render(<Widget />)
+    await screen.findByText(/tessitura · ready/)
+    const close = screen.getByRole("button", { name: "Hide the voice widget" })
+    // A real button, not inside the capsule's own.
+    expect(close.tagName).toBe("BUTTON")
+    expect(screen.getByTestId("voice-capsule")).not.toContainElement(close)
+    fireEvent.pointerDown(close, { pointerId: 1, button: 0, clientX: 10, clientY: 10 })
+    fireEvent.pointerMove(close, { pointerId: 1, clientX: 40, clientY: 25 })
+    fireEvent.pointerUp(close, { pointerId: 1, clientX: 40, clientY: 25 })
+    fireEvent.click(close)
+    await act(async () => {})
+    expect(invoked.map((i) => i.cmd)).toContain("voice_widget_hide")
+    // Pressing it neither drags the widget nor talks.
+    expect(invoked.filter((i) => i.cmd.startsWith("voice_widget_drag"))).toEqual([])
+    expect(actions()).toEqual([])
+  })
+
+  it("has the close button when voice is not ready too", async () => {
+    status = { ready: false, reason: "The Reeve's voice is off on tessitura", setting: "reeve.voice.enabled", main: "tessitura" }
+    render(<Widget />)
+    await screen.findByText("The Reeve's voice is off on tessitura")
+    fireEvent.click(screen.getByRole("button", { name: "Hide the voice widget" }))
+    expect(invoked.map((i) => i.cmd)).toContain("voice_widget_hide")
+  })
+
+  it("has no close button on the card, whose own close ends the conversation", async () => {
+    render(<Widget />)
+    await screen.findByText(/tessitura · ready/)
+    emit("voice-state", { state: "listening" })
+    expect(screen.queryByRole("button", { name: "Hide the voice widget" })).not.toBeInTheDocument()
+  })
+
   it("asks Rust for its menu on a right click", async () => {
     render(<Widget />)
     await screen.findByText(/tessitura · ready/)
@@ -245,6 +369,11 @@ describe("the widget page", () => {
     }])
     const feed = screen.getByTestId("widget-feed")
     expect(feed).toHaveTextContent("Reeve: Run a command on the host")
+    expect(feed.className).toContain("border-[var(--theme-warning,rgba(232,181,58,0.4))]")
+    fireEvent.click(screen.getByRole("button", { name: /Reeve: Run a command/ }))
+    expect(screen.getByText("Reeve:")).toHaveClass("text-[var(--voice-dim)]")
+    expect(screen.getByRole("button", { name: /Reeve: Run a command/ })).toHaveClass("text-[var(--voice-text)]")
+    expect(screen.getByRole("button", { name: "◈ Approve" })).toHaveClass("voice-primary")
     // Voice on top, the feed under it.
     const capsule = screen.getByTestId("voice-capsule")
     expect(capsule.compareDocumentPosition(feed) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()

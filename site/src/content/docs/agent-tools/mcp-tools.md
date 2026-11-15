@@ -21,7 +21,7 @@ agents:
 
 With `enabled: false`, no session gets the server or the guidance about it. An agent tool reads its MCP servers when it starts, so a change applies to sessions you start, or reload, afterwards.
 
-Each agent tool runs Legato's tools without asking you first. Legato also tells each agent to use them without being asked: Claude Code reads the server's own instructions, and Codex and Chimera get the same text in their launch prompt.
+Each agent tool runs Legato's tools without asking you first. Legato also tells each agent to use them without being asked: Claude Code and mod-capable Chimera read the server's own instructions. Codex and legacy Chimera get the same text in their launch prompt.
 
 ## The tools
 
@@ -38,6 +38,7 @@ Each agent tool runs Legato's tools without asking you first. Legato also tells 
 | `list_peers` | Lists the other agents in the same Git worktree. |
 | `message_peer` | Sends a message to one of those agents. |
 | `broadcast_peers` | Sends a message to all of them, and says which ones it reached. |
+| `message_reeve` | Sends a message to this Legato's [Reeve](/legato/using/reeve/): a report it asked for, or a question. Every agent but the Reeve has it. |
 | `request_access` | Asks you for a credential that Legato holds. See [Credential broker](/legato/security/credential-broker/). |
 | `reply_case` | Answers a case from Argus. See [Argus](/legato/integrations/argus/). |
 
@@ -127,6 +128,8 @@ Videos and studios use [libretto](https://github.com/cpave3/libretto), a separat
 - **Videos.** An agent renders a video with libretto, then calls `show_video`. You watch it in the side panel, with chapters and captions. **Ask about this moment** pauses the video and puts a description of that moment in your message box, for a question to the agent. Legato keeps MP4 and WebM files up to 1 GiB, and the 12 videos a task showed most recently.
 - **Studios.** When you want to present something in your own voice, an agent opens a studio with `show_studio`. You and the agent plan the scenes, then you record each scene with your microphone, and your camera if you like. The agent lines the video up with what you said and renders it.
 
+You can add a comment for the agent as soon as a studio scene appears, and take it back from that scene.
+
 A studio needs libretto on the machine that runs Legato's web server, as well as on the agent's. When it is missing or too old, `show_studio` fails and the agent tells you what to install.
 
 ## Limits
@@ -134,6 +137,6 @@ A studio needs libretto on the machine that runs Legato's web server, as well as
 - Only the web UI draws cards and artifacts.
 - A card or an artifact can propose a message. It cannot send one, call a tool, or read anything from Legato.
 - A small model may ignore the guidance and answer in text.
-- Chimera subagents do not get the tools.
+- Legacy Chimera subagents do not get launch-only MCP tools. Chimera mods v1 carries the bundled server into subagents too; they never take over the parent's Legato connection.
 
 For how the server works inside, see [Agent tools on GitHub](https://github.com/cpave3/legato/blob/main/docs/ai/agent-mcp.md).

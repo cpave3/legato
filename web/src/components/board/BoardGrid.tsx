@@ -17,7 +17,9 @@ interface BoardGridProps {
   onCardClick: (colIndex: number, cardIndex: number) => void
   onCardDoubleClick?: (colIndex: number, cardIndex: number) => void
   onCardContextMenu?: (card: BoardColumn["cards"][number], position: { x: number; y: number }) => void
-  onCardMove?: (cardId: string, targetColumn: string) => void
+  // A card dropped on a column: before is the card it goes before there
+  // (null for the end), absent for a drop on a rail.
+  onCardMove?: (cardId: string, targetColumn: string, before?: string | null) => void
   // A card dropped on the Away lane or its rail, to hand off.
   onCardHandOff?: (cardId: string) => void
   // The workers this main is paired with: the groups of the Away lane, a

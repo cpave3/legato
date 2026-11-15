@@ -1,0 +1,10 @@
+{"type":"session.start","cwd":"/repo","seq":1,"sessionId":"fixture-switch","reason":"new","name":"fixture-task","serverUrl":"http://127.0.0.1:4444/fixture-secret","version":"v0.0.0-local","apiVersion":1}
+{"type":"turn.start","cwd":"/repo","seq":2,"sessionId":"fixture-switch","turnId":"62774c36-2976-46f8-8a13-eb5038aef5a1","source":"user"}
+{"type":"turn.complete","cwd":"/repo","seq":3,"sessionId":"fixture-switch","reason":"stop","turnId":"62774c36-2976-46f8-8a13-eb5038aef5a1"}
+{"type":"session.end","cwd":"/repo","seq":4,"sessionId":"fixture-switch","reason":"switch"}
+{"type":"session.start","cwd":"/repo","seq":5,"sessionId":"01M7CM2GRD3EV637V5JV57HXQ6","reason":"switch","serverUrl":"http://127.0.0.1:4444/fixture-secret","version":"v0.0.0-local","apiVersion":1}
+{"type":"session.end","cwd":"/repo","seq":6,"sessionId":"01M7CM2GRD3EV637V5JV57HXQ6","reason":"switch"}
+{"type":"session.start","cwd":"/repo","seq":7,"sessionId":"01M7CM2GSNJANSDNABE8DMHF8Q","reason":"fork","parentSessionId":"01M7CM2GRD3EV637V5JV57HXQ6","serverUrl":"http://127.0.0.1:4444/fixture-secret","version":"v0.0.0-local","apiVersion":1}
+{"type":"session.end","cwd":"/repo","seq":8,"sessionId":"01M7CM2GSNJANSDNABE8DMHF8Q","reason":"switch"}
+{"type":"session.start","cwd":"/repo","seq":9,"sessionId":"fixture-switch","reason":"switch","name":"fixture-task","serverUrl":"http://127.0.0.1:4444/fixture-secret","version":"v0.0.0-local","apiVersion":1}
+{"type":"session.end","cwd":"/repo","seq":10,"sessionId":"fixture-switch","reason":"exit"}

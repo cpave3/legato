@@ -20,8 +20,9 @@
 //!   non-activating NSPanel (`tauri-nspanel`) at floating level, on every
 //!   space.
 //!
-//! Only the geometry and the choices are decided here, and tested; the
-//! window itself is made in `app.rs` (`make_voice_widget`).
+//! Only the geometry and the choices are decided here, and tested, with how
+//! long a drag step waits for the window to move (`moved`); the window
+//! itself is made in `app.rs` (`make_voice_widget`).
 
 use std::time::{Duration, Instant};
 
@@ -127,6 +128,23 @@ pub fn place(anchor: Anchor, offset: Option<Offset>, area: Rect, size: (f64, f64
 pub fn drag_to(pos: (f64, f64), delta: (f64, f64), area: (f64, f64), size: (f64, f64)) -> (f64, f64) {
     let keep = |v: f64, room: f64| v.min(room.max(0.0)).max(0.0);
     (keep(pos.0 + delta.0, area.0 - size.0), keep(pos.1 + delta.1, area.1 - size.1))
+}
+
+/// The longest a drag step waits for the window to move: a frame that is
+/// never painted (the window gone, the compositor stalled) only slows the
+/// drag.
+pub const MOVE_WITHIN: Duration = Duration::from_millis(100);
+
+/// Waits for a drag step to reach the screen. The page measures the
+/// pointer from the window as it is when a step answers, so a step that
+/// answers before the window moved is counted twice, and the widget
+/// overshoots the pointer and swings back (LEG-148). `moving` is told when
+/// the frame carrying the move is committed; none is a step that moved
+/// nothing.
+pub async fn moved(moving: Option<tokio::sync::oneshot::Receiver<()>>) {
+    if let Some(moving) = moving {
+        let _ = tokio::time::timeout(MOVE_WITHIN, moving).await;
+    }
 }
 
 /// The corner a layer surface is anchored to while it is dragged: its own,
@@ -336,6 +354,30 @@ pub mod layer_shell {
     /// window asks for the widget's size.
     fn request(window: &gtk::ApplicationWindow, (width, height): (f64, f64)) {
         window.set_size_request(width.round() as i32, height.round() as i32);
+    }
+
+    /// Calls `then` once, after GTK next paints the window. A layer
+    /// surface's new margins reach the compositor with that frame:
+    /// gtk-layer-shell only asks GDK for a repaint, and GDK commits the
+    /// surface in the frame clock's after-paint, before handlers connected
+    /// later, such as this one. A draw is queued so the frame comes even
+    /// when nothing else changed. An unrealized window has no frame to wait
+    /// for. On GTK's main thread.
+    pub fn after_next_paint(window: &gtk::ApplicationWindow, then: impl FnOnce() + 'static) {
+        use std::{cell::Cell, rc::Rc};
+        let Some(clock) = window.frame_clock() else { return then() };
+        let then = Cell::new(Some(then));
+        let handler: Rc<Cell<Option<gtk::glib::SignalHandlerId>>> = Rc::default();
+        let held = handler.clone();
+        handler.set(Some(clock.connect_after_paint(move |clock| {
+            if let Some(id) = held.take() {
+                clock.disconnect(id);
+            }
+            if let Some(then) = then.take() {
+                then();
+            }
+        })));
+        window.queue_draw();
     }
 
     impl LayerShell {
@@ -650,5 +692,40 @@ mod tests {
         // At its anchor it then fits whole, MARGIN in from both edges.
         assert_eq!(origin(Anchor::BottomRight, margins(Anchor::BottomRight, None, (1093.0, 614.0), (w, h)), (1093.0, 614.0), (w, h)), (1093.0 - 16.0 - 412.0, 16.0));
         assert_eq!(limits((10.0, 10.0)), MIN_SIZE);
+    }
+
+    // LEG-148: the page measures its next drag step from where the window is
+    // once a move answers, so a move answers only once the window has moved.
+    #[tokio::test]
+    async fn a_drag_move_answers_once_the_window_has_moved() {
+        let (told, moving) = tokio::sync::oneshot::channel();
+        let answer = tokio::spawn(moved(Some(moving)));
+        tokio::time::sleep(Duration::from_millis(20)).await;
+        assert!(!answer.is_finished(), "answered before the window moved");
+        told.send(()).unwrap();
+        // Well before its limit: told, not timed out.
+        tokio::time::timeout(MOVE_WITHIN / 2, answer).await.expect("answered once moved").unwrap();
+    }
+
+    #[tokio::test]
+    async fn a_drag_move_never_waits_past_its_limit() {
+        // No frame is painted: the drag goes on, a little late.
+        let (_never, moving) = tokio::sync::oneshot::channel();
+        let start = Instant::now();
+        moved(Some(moving)).await;
+        let took = start.elapsed();
+        assert!(took >= MOVE_WITHIN && took < MOVE_WITHIN * 10, "{took:?}");
+    }
+
+    #[tokio::test]
+    async fn a_drag_move_with_nothing_to_wait_for_answers_at_once() {
+        let start = Instant::now();
+        // Nothing changed, so nothing is painted.
+        moved(None).await;
+        // The window went away before it moved.
+        let (gone, moving) = tokio::sync::oneshot::channel::<()>();
+        drop(gone);
+        moved(Some(moving)).await;
+        assert!(start.elapsed() < MOVE_WITHIN / 2, "waited for a frame");
     }
 }

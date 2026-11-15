@@ -72,7 +72,7 @@ Agents are listed by what they are doing: **NEEDS YOU** (waiting, or stopped on 
 
 - **Sidebar** (28, 34 or 40 columns by terminal width, on `Surface`). The brand and the count; each agent as two lines: its mark and ID with the time that goes with its state, then the tool it runs and its task with its recent activity (`▰` for a stretch it worked or waited, `▱` for none). With `agents.sandbox.enabled`, an agent outside the sandbox has the `Unsandboxed` icon (`⊘`, or nf-fa-unlock with Nerd Fonts) in amber after its ID (`SetSandboxEnabled`). A swarm worker adds `↳ swarm <parent>`, a grouped agent `● <group>`. The selected agent has an accent bar down its left side.
 - **Foot of the sidebar.** The tokens used today when known (see below), then the sync state and the web server.
-- **Header.** `<id> › <tool> › <task>`, with `› unsandboxed` after the tool for an agent outside the sandbox, and at the far end the state and its time.
+- **Header.** `<id> › <tool> › <task>`, with `› unsandboxed` after the tool for an agent outside the sandbox, and at the far end the state and its time. An agent in the background adds what still runs (`backgroundSummary`): `· bash: npm run build` for one job, `· 2 jobs` for more. See [Agent states](agent-states.md).
 - **Banner.** When an agent other than the selected one needs the person, a line above the foot names it. `w` selects the next such agent, around.
 - **Foot.** How to talk to the selected agent (`↵ attaches`, `m` sends a macro, `v` dictates).
 - **Agent groups.** `g` opens the group overlay (`overlay.NewGroup`: `groups.defaults` from `App.SetGroupDefaults`, then the groups agents have). The choice is saved with `AgentService.SetTaskGroup` on the task, then the app calls the notifier from `App.SetTaskChangedNotifier` (`cmd/legato` broadcasts IPC `task_update`), so the web UI, which lists agents by group, shows it. A change made in the web UI reaches the TUI as `task_update` too. See [Web UI](web-ui.md) § Agent groups.
@@ -144,3 +144,7 @@ With a `manticore:` block in the config, the agents view shows how many tokens w
 Tests assert text and sizes, not colors: lipgloss adds no escape sequences without a terminal. A view test should check that the view is exactly the size it was given (every line as wide as the width), which is what keeps panels side by side.
 
 To see colors, run a build with a path of its own against a throwaway config (see [Claude Code native integration](claude-code-native.md) § Trying it without touching real state) inside a tmux session with `COLORTERM=truecolor`, and read the pane with `tmux capture-pane -e -N -p`. Two things about that output: tmux writes only what changes from one cell to the next, across lines too, so a converter must carry colors from line to line; and without `-N` it drops trailing cells, which makes a filled panel look unpainted.
+
+## Macro delivery safety
+
+Terminal macros pass the foreground guard ([Agent states](agent-states.md)); a shell never receives them. A bound native agent accepts only message-submitting macros (ending in a newline), through `SendMessage`, not raw keys.

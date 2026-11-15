@@ -83,7 +83,7 @@ legato pair --host 192.168.1.20
 - `legato task show [<task-id>] [--format description|full|json] [--json]`: print a task. `full` and `json` include the task's notes and its pull requests in stack order; `json` also lists the branches it tracks (`tracked_branches`).
 - `legato task update [<task-id>] [--status <column>] [--title <title>] [--description <text> | --description-file <path|->] [--workspace <name>] [--json]`: change a task. `--status` moves it to another column; `--workspace none` clears its workspace. You cannot change the title of a task that comes from Jira. A description you set is Legato's own text, kept beside the ticket's description; Jira does not change.
 - `legato task description [<task-id>] (--description <text> | --description-file <path|->) [--json]`: replace a task's Legato-owned description. The same as `task update --description`.
-- `legato task note [<task-id>] <message> [--json]`: add a timestamped line to the end of a local task's description. Tasks from Jira are refused.
+- `legato task note [<task-id>] <message> [--json]`: add a timestamped line to the end of a local task's description. Tasks from Jira are refused. It writes: a task ID or message that is only a word asking to read (`list`, `ls`, `show`, `get`, `read`, `view`, `notes`) is refused, and the error points to `legato task notes`.
 - `legato task notes [<task-id>] [--json]`: list a task's notes, such as the reports a workflow wrote.
 - `legato task archive list [--json]`: list archived tasks.
 - `legato task archive restore <task-id> [--json]`: bring back an archived task, into the first column.
@@ -118,7 +118,8 @@ These commands tell Legato which repository and branch a task works on, so it ca
 - `legato agent peers [--task <task-id>] [--execution-id <id>] [--directory <path>] [--json]`: list the other Legato agents working in the same Git worktree.
 - `legato agent message <task-or-execution-id> <text> [--json]`: send a message to a running agent.
 - `legato agent broadcast <text> [--task <task-id>] [--execution-id <id>] [--directory <path>] [--json]`: send a message to every other agent in the same Git worktree.
-- `legato agent state [<task-id>] --activity working|waiting|background|error|"" [--execution-id <id>] [--json]`: report what an agent is doing. The hooks Legato installs call it; an empty activity clears it.
+- `legato agent state [<task-id>] --activity working|waiting|background|error|"" [--execution-id <id>] [--json]`: report what an agent is doing. The Codex and Chimera hooks Legato installs call it; an empty activity clears it.
+- `legato agent hook claude-code [<task-id>] [--execution-id <id>] [--working-dir <path>] [--json]`: report one Claude Code hook, its payload on stdin. Legato's `legato-state` plugin calls it; see [Claude Code](/legato/agent-tools/claude-code/).
 - `legato agent summary [--exclude <task-id>] [--json]`: count the agents that are working, waiting, in error and idle, formatted for a tmux status line.
 - `legato agent status [<task-id>] --format tmux [--json]`: a tmux status line for one task. A swarm task shows its progress; any other task shows the summary. See [tmux status line](/legato/integrations/tmux-status/).
 - `legato attention list [--producer <name>] [--category <category>] [--urgency <urgency>] [--json]`: list what waits for you in Attention. See [Attention](/legato/using/attention/).
@@ -132,11 +133,11 @@ Peer messages are hints between agents. They do not lock files. See [Agents](/le
 
 ## Hooks
 
-- `legato hooks install --tool <tool>[,<tool>...] [--json]`: install the hooks that tell Legato what an agent tool is doing. The tools are `claude-code`, `codex`, `chimera`, `staccato` and `yggdrasil`. `--tool` is required.
+- `legato hooks install --tool <tool>[,<tool>...] [--json]`: install the hooks that tell Legato what an agent tool is doing. `--tool` is required. For `claude-code` and `chimera` it removes Legato's old scripts instead: the plugin or mod reports state. To install legacy Chimera scripts, first set `adapters.chimera.native_bridge: false`. Your own hooks are left alone. Other tools are `codex`, `staccato` and `yggdrasil`.
 - `legato hooks uninstall --tool <tool>[,<tool>...] [--json]`: remove them.
 
 ```bash
-legato hooks install --tool claude-code,codex,chimera
+legato hooks install --tool codex,chimera
 ```
 
 See [Claude Code](/legato/agent-tools/claude-code/), [Codex](/legato/agent-tools/codex/), [Chimera](/legato/agent-tools/chimera/), [Staccato](/legato/integrations/staccato/) and [Yggdrasil](/legato/integrations/yggdrasil/).
@@ -147,9 +148,9 @@ An agent uses these commands to propose a plan and act on your feedback. `--task
 
 - `legato plan validate <markdown-file>`: check a plan's Markdown, its diagrams and the image files it names, without a task or a database. Exit `2` means the plan has errors.
 - `legato plan submit <bundle-dir> [--task <id>] [--name <name>] [--json]`: submit the `plan.md` and `plan.json` in a folder as a new revision.
-- `legato plan show [--task <id>] [--name <name>] [--json]`: print the current revision with its comments and questions.
+- `legato plan show [--task <id>] [--name <name>] [--json]`: print the current revision with its comments and questions. Without a name, it shows the task's unnamed plan, else its latest one.
 - `legato plan feedback [--task <id>] [--name <name>] [--json]`: print the same, for reading your feedback.
-- `legato plan status [--task <id>] [--name <name>] [--json]`: print the plan's state and revision.
+- `legato plan status [--task <id>] [--name <name>] [--json]`: print the plan's state and revision. Without a name, as `plan show`. The commands that change a plan still need its name, unless it is the unnamed one.
 - `legato plan answer <thread-id> (<markdown> | --file <path|->) [--task <id>] [--name <name>] [--json]`: answer a question on the plan.
 - `legato plan claim --task <plan-task-id> [--name <name>] [--json]`: take over a plan from another agent session.
 - `legato plan inbox [--json]`: print and acknowledge the plan and review feedback waiting for this agent.
@@ -346,6 +347,7 @@ legato integration connect burnlite https://burnlite.example.com
 
 Legato, its hooks and the agent tools it launches run these. You do not need to run them.
 
+- `legato agent link chimera`: connects the Chimera mod to Legato. It reads ordered session and state events from stdin; the mod starts it automatically.
 - `legato agent bridge`: serves a Claude Code session to Legato's native panel. The Legato mod inside Claude Code starts it.
 - `legato agent codex -- <codex arguments>`: starts Codex with its bridge. Legato types it into the agent's terminal in place of `codex`.
 - `legato agent codex-bridge`: serves a Codex session to Legato's native panel. `legato agent codex` starts it.

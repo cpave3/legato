@@ -19,7 +19,7 @@ export function WorkflowMarkdownPreview({ markdown }: { markdown: string }) {
           blockquote: ({ children }) => <blockquote className="my-5 border-l-4 border-zinc-700 py-1 pl-5 text-zinc-400">{children}</blockquote>,
           hr: () => <hr className="my-8 border-zinc-800" />,
           a: ({ children, href }) => <a href={href} target="_blank" rel="noreferrer" className="text-indigo-300 underline decoration-indigo-500/60 underline-offset-4">{children}</a>,
-          pre: ({ children }) => <pre className="my-5 max-w-full overflow-x-auto rounded-lg border border-zinc-800 bg-black/40 p-4 font-mono text-sm leading-6 text-zinc-200">{children}</pre>,
+          pre: ({ children }) => <pre className="my-5 max-w-full overflow-x-auto rounded-lg border border-zinc-800 bg-[var(--theme-canvas,rgba(0,0,0,0.4))] p-4 font-mono text-sm leading-6 text-zinc-200">{children}</pre>,
           code: ({ children, className, ...props }) => <code {...props} className={cn(className, !className && "rounded bg-zinc-800 px-1.5 py-0.5 font-mono text-[0.9em] text-zinc-100")}>{children}</code>,
           table: ({ children }) => <div className="my-5 overflow-x-auto rounded-lg border border-zinc-800"><table className="w-full border-collapse text-sm">{children}</table></div>,
           th: ({ children }) => <th className="border-b border-r border-zinc-700 bg-zinc-900 px-4 py-3 text-left font-semibold last:border-r-0">{children}</th>,

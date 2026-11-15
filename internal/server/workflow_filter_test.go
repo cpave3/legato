@@ -2,6 +2,7 @@ package server
 
 import (
 	"context"
+	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"testing"
@@ -75,5 +76,43 @@ func TestWorkflowRunsEndpointRejectsMalformedFilters(t *testing.T) {
 				t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
 			}
 		})
+	}
+}
+
+// The runs list asks the store for each run's steps, and the web UI reads them
+// and the related task's title under these names.
+func TestWorkflowRunsEndpointSummarisesStepsUnderTheirWireNames(t *testing.T) {
+	workflows := &filteringWorkflowService{runs: []store.WorkflowRun{{
+		ID: "wr-1", RelatedTaskID: "gpri1ycr", RelatedTaskTitle: "Board search ignores workspace filter",
+		Steps: []store.WorkflowStepSummary{{StepID: "approve", Title: "Move to Ready", Status: "waiting_manual", Trigger: "manual"}},
+	}}}
+	s := New(nil, nil, nil, "")
+	s.SetWorkflowService(workflows, "", "")
+	rec := httptest.NewRecorder()
+	s.server.Handler.ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/workflow-runs", nil))
+
+	if rec.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", rec.Code, rec.Body.String())
+	}
+	if !workflows.filter.WithSteps {
+		t.Errorf("the runs list did not ask for steps: %+v", workflows.filter)
+	}
+	var runs []struct {
+		RelatedTaskTitle string `json:"related_task_title"`
+		Steps            []struct {
+			StepID  string `json:"step_id"`
+			Title   string `json:"title"`
+			Status  string `json:"status"`
+			Trigger string `json:"trigger"`
+		} `json:"steps"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &runs); err != nil {
+		t.Fatal(err)
+	}
+	if len(runs) != 1 || runs[0].RelatedTaskTitle != "Board search ignores workspace filter" || len(runs[0].Steps) != 1 {
+		t.Fatalf("body=%s", rec.Body.String())
+	}
+	if step := runs[0].Steps[0]; step.StepID != "approve" || step.Title != "Move to Ready" || step.Status != "waiting_manual" || step.Trigger != "manual" {
+		t.Fatalf("step=%+v", step)
 	}
 }

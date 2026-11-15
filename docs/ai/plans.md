@@ -14,6 +14,8 @@ Lifecycle statuses: `proposed`, `changes_requested`, `approved`, `rejected` (reo
 
 CLI mutations broadcast `plan_changed` over the IPC bus; the web server forwards it as the `plan_changed` WebSocket message. Q&A and verdict notifications reach the agent by the same delivery as review tours (`[legato plan] …` messages through the agent service). Messages are persisted even when the agent is offline; the web API then answers with a warning rather than losing the question. `legato plan claim` and `legato plan inbox` use the shared artifact claim and interaction queue (`ArtifactClaim`, `ArtifactInteraction`) that review tours also use.
 
+**Reading by task.** `GET /api/tasks/{id}/plans` (`PlanService.TaskPlans`) lists a task's plans newest first, whatever their status, each as a `PlanQueueItem` (`plan_id`, `name`, `title`, `summary`, `status`, `revision`, `unanswered_required`, `updated_at`); `404` for a task that does not exist. `GET /api/plans/{plan_id}` reads one: `revision.markdown`, `plan.status`, `plan.latest_revision`. Both are classed `read`, so the Reeve reads them without asking. A plan an agent submitted on a worker instance stays in the worker's database: the main does not see the plans of a task while it is away.
+
 Review-origin submissions record `--review-pass` and `--finding` (or `LEGATO_REVIEW_PASS_ID`, comma-separated `LEGATO_REVIEW_FINDING_IDS`) as the plan's origin. `GET /api/tasks/{id}/artifacts` returns the lineage edges; see [Reviews](reviews.md).
 
 ### Visual checks

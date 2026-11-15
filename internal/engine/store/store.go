@@ -399,7 +399,7 @@ func prepareMigration(queryer migrationQueryer, name, migrationSQL string) (stri
 			migrationSQL = migrationSQL[:strings.Index(migrationSQL, "-- The tint, the update mode")]
 		}
 	}
-	if name == "075_agent_session_sandboxed.sql" || name == "097_agent_native_off.sql" {
+	if name == "075_agent_session_sandboxed.sql" || name == "097_agent_native_off.sql" || name == "110_agent_background_jobs.sql" || name == "112_chimera_subagents.sql" {
 		var tables int
 		if err := queryer.Get(&tables, `SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'agent_sessions'`); err != nil {
 			return "", err
@@ -545,7 +545,7 @@ var ErrConflict = fmt.Errorf("state conflict")
 func (s *Store) ListTasksByStatus(ctx context.Context, status string) ([]Task, error) {
 	var tasks []Task
 	err := s.db.SelectContext(ctx, &tasks,
-		"SELECT * FROM tasks WHERE status = ? AND archived_at IS NULL AND ephemeral = 0 ORDER BY sort_order ASC", status)
+		"SELECT * FROM tasks WHERE status = ? AND archived_at IS NULL AND ephemeral = 0 ORDER BY "+boardOrder, status)
 	return tasks, err
 }
 
@@ -567,12 +567,15 @@ func (s *Store) UpdateTaskRemoteMeta(ctx context.Context, taskID string, remoteM
 	return err
 }
 
+// UpdateTask writes a task's fields back. It leaves sort_order alone: a card's place in its column is written only by
+// the moves (RecordTaskTransition) and PlaceTask, so an edit made from a copy
+// read before the card was placed does not put it back.
 func (s *Store) UpdateTask(ctx context.Context, t Task) error {
 	_, err := s.db.NamedExecContext(ctx, `
 		UPDATE tasks SET
 			title = :title, description = :description, description_md = :description_md,
 			remote_description_md = :remote_description_md,
-			status = :status, priority = :priority, sort_order = :sort_order,
+			status = :status, priority = :priority,
 			provider = :provider, remote_id = :remote_id, remote_meta = :remote_meta,
 			metadata = COALESCE(:metadata, tasks.metadata), workspace_id = :workspace_id, swarm_working_dir = :swarm_working_dir,
 			task_group = :task_group, updated_at = :updated_at
@@ -713,15 +716,15 @@ func (s *Store) ListTasksByStatusAndWorkspace(ctx context.Context, status string
 			LEFT JOIN workspaces ON workspaces.id = tasks.workspace_id
 			WHERE tasks.status = ? AND tasks.archived_at IS NULL AND tasks.ephemeral = 0
 				AND (workspaces.name IS NULL OR workspaces.name <> ?)
-			ORDER BY tasks.sort_order ASC`, status, WorkflowWorkspaceName)
+			ORDER BY `+boardOrder, status, WorkflowWorkspaceName)
 		return tasks, err
 	case ViewUnassigned:
 		err := s.db.SelectContext(ctx, &tasks,
-			"SELECT * FROM tasks WHERE status = ? AND workspace_id IS NULL AND archived_at IS NULL AND ephemeral = 0 ORDER BY sort_order ASC", status)
+			"SELECT * FROM tasks WHERE status = ? AND workspace_id IS NULL AND archived_at IS NULL AND ephemeral = 0 ORDER BY "+boardOrder, status)
 		return tasks, err
 	case ViewWorkspace:
 		err := s.db.SelectContext(ctx, &tasks,
-			"SELECT * FROM tasks WHERE status = ? AND workspace_id = ? AND archived_at IS NULL AND ephemeral = 0 ORDER BY sort_order ASC", status, view.WorkspaceID)
+			"SELECT * FROM tasks WHERE status = ? AND workspace_id = ? AND archived_at IS NULL AND ephemeral = 0 ORDER BY "+boardOrder, status, view.WorkspaceID)
 		return tasks, err
 	default:
 		return s.ListTasksByStatus(ctx, status)

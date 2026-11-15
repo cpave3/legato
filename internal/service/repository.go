@@ -536,7 +536,8 @@ func (s *RepositoryService) recordCodeContext(ctx context.Context, clone store.J
 // later.
 const jobCloneGrace = 10 * time.Minute
 
-// SweepJobClones removes the job clones no running agent has worked in for
+// SweepJobClones keeps clones held by undismissed interrupted agents, and
+// removes the job clones no running agent has worked in for
 // KeepIdle and whose branches hold nothing unpushed. A clone with unpushed commits is
 // kept for KeepFor, with a note on its task, and then removed. The cache
 // is fetched first, so commits pushed since are known to be pushed.
@@ -549,6 +550,10 @@ func (s *RepositoryService) SweepJobClones(ctx context.Context) error {
 	if err != nil {
 		return err
 	}
+	holds, err := s.opts.Store.ListJobCloneHolds(ctx)
+	if err != nil {
+		return err
+	}
 	fetched := map[string]error{}
 	now := s.opts.Now()
 	for _, clone := range clones {
@@ -556,6 +561,11 @@ func (s *RepositoryService) SweepJobClones(ctx context.Context) error {
 			if err := s.opts.Store.TouchJobClone(ctx, clone.ID, now); err != nil {
 				log.Printf("repositories: recording the use of %s: %v", clone.Path, err)
 			}
+			continue
+		}
+		// A hold is not activity: dismissal leaves the existing retention
+		// clocks in force, including an unpushed-work removal deadline.
+		if inUse(clone, holds) {
 			continue
 		}
 		if clone.RemoveAfter != nil {
@@ -595,13 +605,13 @@ func (s *RepositoryService) SweepJobClones(ctx context.Context) error {
 	return nil
 }
 
-// inUse says whether a running execution is the clone's or works in it,
+// inUse says whether an execution is the clone's or works in it,
 // comparing the folders where they really are: a working folder read back
 // from a pane may not name the clone through the same links (a /home that
 // is var/home) as its record.
-func inUse(clone store.JobClone, running []store.Execution) bool {
+func inUse(clone store.JobClone, executions []store.Execution) bool {
 	realClone := ""
-	for _, e := range running {
+	for _, e := range executions {
 		if e.ID == clone.ExecutionID || within(e.WorkingDir, clone.Path) {
 			return true
 		}
