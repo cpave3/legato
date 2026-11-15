@@ -13,6 +13,7 @@ Legato keeps an agent listed while its launch shell still has child processes,
 including a sandboxed agent. A shell name alone does not mean the agent exited.
 Messages are never typed into that shell. Once the original shell has no children,
 Legato can mark the session ended; a failed process check does not mark it ended.
+In a native web conversation, focusing the message field highlights the rounded composer boundary in the current theme. Use `tab` to move to its toolbar buttons; each button has its own focus indicator.
 
 ## Starting an agent on a task
 
