@@ -24,6 +24,7 @@ import (
 	gitpkg "github.com/cpave3/legato/internal/engine/git"
 	"github.com/cpave3/legato/internal/engine/store"
 	"github.com/cpave3/legato/internal/engine/swarm"
+	enginetmux "github.com/cpave3/legato/internal/engine/tmux"
 )
 
 // TmuxManager abstracts tmux operations for testability.
@@ -357,6 +358,7 @@ type agentService struct {
 	// messages it keeps in launch_messages (launch_messages.go).
 	launchOwner      string
 	launchDeliveries sync.Map
+	foregroundAgents sync.Map
 
 	sendKeysAdapter AgentInteraction
 	chimeraAdapter  *ChimeraInteractionAdapter
@@ -501,6 +503,7 @@ type EventPublisher interface {
 	PublishSlotAgentDied(taskID, slot string)
 	PublishAgentActivityChanged(taskID, activity string)
 	PublishAgentChimeraDiscovered(taskID string)
+	PublishWorkflowChanged(runID string)
 }
 
 // AgentServiceOptions configures optional AI tool integration for agent sessions.
@@ -656,7 +659,12 @@ func NewAgentService(s *store.Store, tmux TmuxManager, workDir string, opts ...A
 	// Wire the interaction adapters. The send-keys adapter is always
 	// available (it wraps the tmux manager). The Chimera adapter is only
 	// used for agents with a discovered endpoint.
-	svc.sendKeysAdapter = NewSendKeysAdapter(tmux, s)
+	svc.sendKeysAdapter = NewSendKeysAdapter(tmux, s, svc.verifyPaneDelivery)
+	if guarded, ok := tmux.(interface {
+		SetDeliveryGuard(func(string, string) error)
+	}); ok {
+		guarded.SetDeliveryGuard(svc.verifyPaneCommand)
+	}
 	svc.chimeraAdapter = NewChimeraInteractionAdapter(s, nil)
 	return svc
 }
@@ -1498,11 +1506,14 @@ func (a *agentService) deliverLaunchMessages(ctx context.Context, executionID, t
 		} else if native {
 			err = a.QueueMessage(ctx, taskID, message)
 		} else {
-			typed := message
-			if promptFile != "" && strings.ContainsAny(message, "\n\r\"") {
-				typed = "Read " + promptFile + " in full: it is your task from the operator. Then do it."
+			err = a.verifyPaneDelivery(session)
+			if err == nil {
+				typed := message
+				if promptFile != "" && strings.ContainsAny(message, "\n\r\"") {
+					typed = "Read " + promptFile + " in full: it is your task from the operator. Then do it."
+				}
+				err = a.tmux.SendKeysLine(session, typed)
 			}
-			err = a.tmux.SendKeysLine(session, typed)
 		}
 		if err != nil {
 			log.Printf("launch message %s/%d for %s retained: delivery failed: %v", executionID, kept.Position, taskID, err)
@@ -1892,8 +1903,14 @@ func (a *agentService) ReconcileSessions(ctx context.Context) error {
 		live[s] = true
 	}
 
+	commands, _ := a.tmux.PaneCommands()
 	for _, s := range sessions {
-		if s.Status == "running" && !live[s.TmuxSession] {
+		if agentForeground(s.AgentKind, commands[s.TmuxSession]) {
+			a.foregroundAgents.Store(s.ID, struct{}{})
+		}
+		exited := enginetmux.IsShellCommand(commands[s.TmuxSession]) && a.agentStartupOver(s)
+		if s.Status == "running" && (!live[s.TmuxSession] || exited) {
+			log.Printf("agent ended task=%s session=%s foreground=%q", s.TaskID, s.TmuxSession, commands[s.TmuxSession])
 			if err := a.endGoneSession(ctx, s, "dead"); err != nil {
 				return err
 			}
@@ -1940,6 +1957,21 @@ func (a *agentService) endGoneSession(ctx context.Context, s store.AgentSession,
 	}
 	if err := a.store.UpdateAgentSessionStatusInSlot(ctx, s.TaskID, s.Slot, status); err != nil {
 		return err
+	}
+	a.foregroundAgents.Delete(s.ID)
+	log.Printf("agent ended task=%s session=%s status=%s", s.TaskID, s.TmuxSession, status)
+	attempts, err := a.store.ListWaitingWorkflowAttemptsByAgentSession(ctx, s.ID)
+	if err != nil {
+		return err
+	}
+	for _, attempt := range attempts {
+		if err := a.store.FailWorkflowStep(ctx, attempt.RunID, attempt.StepID, attempt.ID, "agent exited before step completion"); err != nil && !errors.Is(err, store.ErrWorkflowStateConflict) {
+			return err
+		}
+		log.Printf("workflow agent exited run=%s step=%s attempt=%s", attempt.RunID, attempt.StepID, attempt.ID)
+		if a.bus != nil {
+			a.bus.PublishWorkflowChanged(attempt.RunID)
+		}
 	}
 	if a.bus != nil && IsNamedSlot(s.Slot) {
 		a.bus.PublishSlotAgentDied(s.TaskID, s.Slot)
@@ -2272,7 +2304,7 @@ func gitWorktreeRoot(directory string) (string, error) {
 // interaction adapter. For Chimera agents with a discovered endpoint, this
 // uses the HTTP API; for all others, it uses tmux send-keys.
 func (a *agentService) SendMessage(ctx context.Context, taskID, message string) error {
-	if err := a.awaitChimeraMessageBinding(ctx, taskID); err != nil {
+	if err := a.awaitMessageBinding(ctx, taskID); err != nil {
 		return err
 	}
 	adapter := a.resolveInteractionAdapter(ctx, taskID)
@@ -2282,21 +2314,21 @@ func (a *agentService) SendMessage(ctx context.Context, taskID, message string) 
 // InterruptAgent sends an interrupt to the agent's active turn.
 // QueueMessage delegates step-boundary delivery to the active interaction adapter.
 func (a *agentService) QueueMessage(ctx context.Context, taskID, message string) error {
-	if err := a.awaitChimeraMessageBinding(ctx, taskID); err != nil {
+	if err := a.awaitMessageBinding(ctx, taskID); err != nil {
 		return err
 	}
 	return a.resolveInteractionAdapter(ctx, taskID).QueueMessage(ctx, taskID, message)
 }
 
-func (a *agentService) awaitChimeraMessageBinding(ctx context.Context, taskID string) error {
+func (a *agentService) awaitMessageBinding(ctx context.Context, taskID string) error {
 	session, err := slotSession(ctx, a.store, taskID)
 	if err != nil {
 		return err
 	}
-	if session.AgentKind != "chimera" || session.NativeOff || (session.ChimeraEndpoint != nil && session.ChimeraSessionID != nil) {
+	if session.NativeOff || (session.ChimeraEndpoint != nil && session.ChimeraSessionID != nil) {
 		return nil
 	}
-	adapter := a.resolveAdapter("chimera")
+	adapter := a.resolveAdapter(session.AgentKind)
 	binder, ok := adapter.(NativeBindingAdapter)
 	if !ok || !binder.BindsNativeEndpoint() {
 		return nil
@@ -2307,7 +2339,7 @@ func (a *agentService) awaitChimeraMessageBinding(ctx context.Context, taskID st
 	if err := ctx.Err(); err != nil {
 		return err
 	}
-	return fmt.Errorf("Chimera agent %s has not bound its native endpoint; message was not typed into the starting terminal", taskID)
+	return fmt.Errorf("Agent %s has not bound its native endpoint; message was not typed into the starting terminal", taskID)
 }
 
 func (a *agentService) InterruptAgent(ctx context.Context, taskID string) error {

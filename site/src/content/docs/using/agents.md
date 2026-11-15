@@ -89,6 +89,19 @@ From 120 columns of width, a panel lists what changed among the agents, newest f
 
 The web UI has the same ensemble at **Ensemble** in the navigation, or `e` on the Agents page. Each web tile has a message box and **Open**.
 
+## When an agent exits
+
+Legato checks that the agent tool is in the foreground before sending terminal
+messages, macros or keys. If the pane is back at a shell, it sends nothing and
+reports the failure; messages are never run as shell commands. The agent is
+marked ended once exit is confirmed. Starting tools have a short grace period,
+but receive no keys until verified. A shell-only session is not a message target.
+
+Native agents use their native connection only: a failed connection does not
+fall back to typing. Launch messages remain pending until accepted. Native TUI
+macros must submit text (end in a newline); raw key macros are refused. To work
+in the shell yourself, attach to the terminal deliberately.
+
 ## Attaching to an agent
 
 Press `enter` (or `tab`) in the agents view to attach your terminal to the agent's tmux session. Press the escape key to detach and come back to Legato. The key is `ctrl+]` unless you set another:

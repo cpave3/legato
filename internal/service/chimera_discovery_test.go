@@ -142,6 +142,7 @@ func TestInvalidateChimeraBindingRoutesSubsequentMessagesThroughTmux(t *testing.
 	mt := svc.(*agentService).tmux.(*mockTmux)
 	mt.mu.Lock()
 	mt.sessions["legato-TASK-42"] = true
+	mt.paneCommands = map[string]string{"legato-TASK-42": "chimera"}
 	mt.mu.Unlock()
 	if err := svc.SendMessage(ctx, "TASK-42", "continue in tmux"); err != nil {
 		t.Fatal(err)

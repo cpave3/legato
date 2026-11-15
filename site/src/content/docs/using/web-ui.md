@@ -170,3 +170,13 @@ To tell your Legatos apart at a glance, give each a tint in **Settings › Appea
 ### Updates
 
 When a new release is out and the update mode is `ask`, a bar across the top says so, with **Update and restart** and **Later**. See [Updates](/legato/running/updates/).
+
+## Message delivery safety
+
+Terminal messages and keys are refused unless Legato can verify the agent tool
+is in the foreground. A pane back at a shell receives nothing. Native agents
+never fall back to terminal typing when their connection fails; use their
+native message and approval controls. A terminal-only dialog in a native
+session needs deliberate terminal attachment, not a raw-key action button.
+Voice with auto-send uses the native connection; without auto-send, use the
+native composer's dictation rather than asking the server to type a draft.

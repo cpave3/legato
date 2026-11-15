@@ -49,20 +49,24 @@ type AgentInteraction interface {
 // SendKeysAdapter wraps the existing tmux send-keys behavior as the
 // default AgentInteraction implementation. This is a thin adapter — it
 // delegates to the agent service's TmuxManager, so all non-Chimera agents
-// (Claude Code, Codex, shell) keep their current behavior unchanged.
+// use a verified foreground tool; a shell is never a message receiver.
 type SendKeysAdapter struct {
-	tmux  TmuxManager
-	store *store.Store
+	tmux   TmuxManager
+	store  *store.Store
+	verify func(string) error
 }
 
 // NewSendKeysAdapter creates the default send-keys interaction adapter.
-func NewSendKeysAdapter(tmux TmuxManager, store *store.Store) *SendKeysAdapter {
-	return &SendKeysAdapter{tmux: tmux, store: store}
+func NewSendKeysAdapter(tmux TmuxManager, store *store.Store, verify func(string) error) *SendKeysAdapter {
+	return &SendKeysAdapter{tmux: tmux, store: store, verify: verify}
 }
 
 func (a *SendKeysAdapter) SendMessage(ctx context.Context, taskID, message string) error {
 	session, err := slotSession(ctx, a.store, taskID)
 	if err != nil {
+		return err
+	}
+	if err := a.verify(session.TmuxSession); err != nil {
 		return err
 	}
 	return a.tmux.SendKeysMultiline(session.TmuxSession, message)
@@ -75,6 +79,9 @@ func (a *SendKeysAdapter) QueueMessage(ctx context.Context, taskID, message stri
 func (a *SendKeysAdapter) Interrupt(ctx context.Context, taskID string) error {
 	session, err := slotSession(ctx, a.store, taskID)
 	if err != nil {
+		return err
+	}
+	if err := a.verify(session.TmuxSession); err != nil {
 		return err
 	}
 	return a.tmux.SendKey(session.TmuxSession, "C-c")
