@@ -94,6 +94,15 @@ func receive(t *testing.T, messages <-chan *paho.Publish) *paho.Publish {
 	}
 }
 
+func publishBarrier(t *testing.T, c *transport.Client) {
+	t.Helper()
+	// Mochi sends PUBACK before broadcasting to subscribers. A subsequent
+	// packet on the same connection ensures that broadcast has finished.
+	if err := c.Publish(testContext(t), "test/publish-barrier", []byte("complete")); err != nil {
+		t.Fatal(err)
+	}
+}
+
 func TestPublishRetainedQoS1(t *testing.T) {
 	_, address := startBroker(t)
 	ctx := testContext(t)
@@ -106,6 +115,7 @@ func TestPublishRetainedQoS1(t *testing.T) {
 		if err := c.Publish(ctx, topic, []byte(payload)); err != nil {
 			t.Fatal(err)
 		}
+		publishBarrier(t, c)
 		_, messages := observer(t, address, topic)
 		p := receive(t, messages)
 		if p.Topic != topic || string(p.Payload) != payload || !p.Retain || p.QoS != 1 {
@@ -466,6 +476,7 @@ func TestPublishEmptyClearsRetainedState(t *testing.T) {
 	if err := c.Publish(testContext(t), "legato/attributes", nil); err != nil {
 		t.Fatal(err)
 	}
+	publishBarrier(t, c)
 	_, messages := observer(t, address, "legato/attributes")
 	select {
 	case p := <-messages:
