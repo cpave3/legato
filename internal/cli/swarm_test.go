@@ -523,6 +523,7 @@ func (m *noopTmux) Attach(name string) *exec.Cmd                   { return exec
 func (m *noopTmux) ListSessions() ([]string, error)                { return nil, nil }
 func (m *noopTmux) IsAlive(name string) (bool, error)              { return m.sessions[name], nil }
 func (m *noopTmux) PaneCommands() (map[string]string, error)       { return nil, nil }
+func (m *noopTmux) ShellReturned(string) (bool, error)             { return false, nil }
 func (m *noopTmux) SetOption(s, k, v string) error                 { return nil }
 func (m *noopTmux) SendKeys(name, keys string) error               { return nil }
 func (m *noopTmux) SendKey(name, key string) error                 { return nil }

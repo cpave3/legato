@@ -9,6 +9,11 @@ An agent is an AI coding tool, such as Claude Code, Codex or Chimera, that Legat
 
 Each tool has its own page under Agent tools: [Claude Code](/legato/agent-tools/claude-code/), [Codex](/legato/agent-tools/codex/) and [Chimera](/legato/agent-tools/chimera/). Agents need tmux.
 
+Legato keeps an agent listed while its launch shell still has child processes,
+including a sandboxed agent. A shell name alone does not mean the agent exited.
+Messages are never typed into that shell. Once the original shell has no children,
+Legato can mark the session ended; a failed process check does not mark it ended.
+
 ## Starting an agent on a task
 
 1. Select the task's card on the board.

@@ -45,6 +45,7 @@ type TmuxManager interface {
 	SetEnv(sessionName, key, value string) error
 	SetOption(sessionName, key, value string) error
 	PaneCommands() (map[string]string, error)
+	ShellReturned(name string) (bool, error)
 }
 
 // AgentSession represents a running or completed agent session.
@@ -1908,7 +1909,13 @@ func (a *agentService) ReconcileSessions(ctx context.Context) error {
 		if agentForeground(s.AgentKind, commands[s.TmuxSession]) {
 			a.foregroundAgents.Store(s.ID, struct{}{})
 		}
-		exited := enginetmux.IsShellCommand(commands[s.TmuxSession]) && a.agentStartupOver(s)
+		exited := false
+		if s.Status == "running" && live[s.TmuxSession] && enginetmux.IsShellCommand(commands[s.TmuxSession]) && a.agentStartupOver(s) {
+			exited, err = a.tmux.ShellReturned(s.TmuxSession)
+			if err != nil {
+				return err
+			}
+		}
 		if s.Status == "running" && (!live[s.TmuxSession] || exited) {
 			log.Printf("agent ended task=%s session=%s foreground=%q", s.TaskID, s.TmuxSession, commands[s.TmuxSession])
 			if err := a.endGoneSession(ctx, s, "dead"); err != nil {

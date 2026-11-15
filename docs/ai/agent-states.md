@@ -75,6 +75,13 @@ a failed probe alone never proves exit. Known tools must match their executable 
 `codex`); an unrecognized wrapper/runtime is refused, not guessed to be an agent.
 The base64 swarm envelope does not grant permission to type into a shell.
 
+A shell name from `pane_current_command` alone does not confirm exit: sandbox
+launchers can leave `sh` in the foreground while `bwrap` and the agent run below
+it. `TmuxManager.ShellReturned` checks the pane's original process is a shell
+with no child processes, using `ps` on Linux and macOS. A wrapper or failed
+probe keeps the session running while terminal input remains refused. Shells
+with remaining background children are conservatively kept too.
+
 A confirmed shell return terminalizes the session/execution and fails its exact
 unfinished workflow agent attempt. The broker owner reconciles every two seconds,
 even without an open UI. Initial startup gets 30 seconds (and clone setup its

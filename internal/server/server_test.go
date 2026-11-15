@@ -1045,6 +1045,7 @@ func (m *mockTmuxManager) PipeOutput(name string) (io.Reader, func(), error) {
 func (m *mockTmuxManager) SetEnv(sessionName, key, value string) error    { return nil }
 func (m *mockTmuxManager) SetOption(sessionName, key, value string) error { return nil }
 func (m *mockTmuxManager) PaneCommands() (map[string]string, error)       { return nil, nil }
+func (m *mockTmuxManager) ShellReturned(string) (bool, error)             { return false, nil }
 
 func TestHandleSendKeysNamedSequence(t *testing.T) {
 	mock := &mockTmuxManager{}

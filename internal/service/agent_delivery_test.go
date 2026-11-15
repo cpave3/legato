@@ -196,7 +196,9 @@ esac
 		t.Fatalf("keys emitted after exit: %s, %v", after, err)
 	}
 	session, err = s.GetAgentSessionByTmuxName(ctx, "legato-raw-target")
-	if err != nil || session.Status != "dead" {
+	// This fixture supplies a pane ID, not a root process identity. A shell
+	// name still refuses input, but cannot by itself prove that the tool exited.
+	if err != nil || session.Status != "running" {
 		t.Fatalf("session = %+v, %v", session, err)
 	}
 }
