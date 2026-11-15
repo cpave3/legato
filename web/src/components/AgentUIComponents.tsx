@@ -77,7 +77,7 @@ function Picture({ entry, at, card, thumbnail }: { entry: { alt?: string; captio
         type="button"
         aria-label={`Show ${entry.alt || "image"} full size`}
         onClick={() => card.openPicture(at)}
-        className="block max-w-full cursor-zoom-in overflow-hidden rounded-md border border-zinc-700 bg-black/40 focus-visible:outline focus-visible:outline-2 focus-visible:outline-indigo-400"
+        className="block max-w-full cursor-zoom-in overflow-hidden rounded-md border border-zinc-700 bg-[var(--theme-canvas,rgba(0,0,0,0.4))] focus-visible:outline focus-visible:outline-2 focus-visible:outline-indigo-400"
       >
         <img
           src={image.src}
@@ -191,7 +191,7 @@ function renderComponent(component: UIComponent, at: number, card: CardContext):
     }
     case "code":
       return (
-        <pre className="max-w-full overflow-x-auto rounded border border-zinc-700 bg-black/40 p-2 font-mono text-xs leading-5 text-zinc-200">
+        <pre className="max-w-full overflow-x-auto rounded border border-zinc-700 bg-[var(--theme-canvas,rgba(0,0,0,0.4))] p-2 font-mono text-xs leading-5 text-zinc-200">
           <code>{component.text}</code>
         </pre>
       )

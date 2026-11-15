@@ -266,7 +266,7 @@ function DiffLine({ lineIndex, line, hunkAnchor, selectionPath, selection, onSel
         inRange && !selected && line.kind === "del" && "range-tinted-del bg-red-950/[0.25] text-red-100",
         inRange && !selected && line.kind === "ctx" && "bg-amber-950/20 text-amber-100",
         line.kind === "ctx" && !inRange && "text-zinc-400",
-        selected && !inRange && "bg-indigo-900/60 text-indigo-100",
+        selected && !inRange && "bg-[var(--theme-selection,color-mix(in_oklab,var(--color-indigo-900)_60%,transparent))] text-[var(--theme-text,var(--color-indigo-100))]",
       )}
     >
       {gutter("old", line.old_no)}
@@ -292,7 +292,7 @@ type SelectionBlockProps = BaseBlockProps
 
 function SelectionBlock({ lines, startIndex, endIndex, hunkAnchor, selectionPath, selection, onSelectionChange, dragOriginRef, suppressClickRef }: SelectionBlockProps) {
   return (
-    <div data-diff-block="selection" className="border-x border-y border-indigo-600 bg-indigo-900/40">
+    <div data-diff-block="selection" className="border-x border-y border-indigo-600 bg-[var(--theme-selection,color-mix(in_oklab,var(--color-indigo-900)_40%,transparent))]">
       {lines.slice(startIndex, endIndex + 1).map((line, offset) => {
         const lineIndex = startIndex + offset
         return (

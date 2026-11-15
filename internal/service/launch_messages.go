@@ -34,6 +34,7 @@ func (a *agentService) launchWith(ctx context.Context, executionID, taskID, slot
 		log.Printf("keeping launch messages for %s: %v", session, err)
 		return
 	}
+	log.Printf("kept %d launch message(s) for %s (%s), waiting for delivery", len(kept), taskID, executionID)
 	go a.deliverLaunchMessages(WithAgentSlot(context.Background(), slot), executionID, taskID, session, adapter, kept, promptFile)
 }
 
@@ -58,13 +59,28 @@ func (a *agentService) ResumeLaunchMessages(ctx context.Context) int {
 	for _, executionID := range order {
 		messages := byExecution[executionID]
 		first := messages[0]
-		if alive, err := a.tmux.IsAlive(first.TmuxSession); err != nil || !alive {
-			_ = a.store.DeleteLaunchMessages(ctx, executionID)
+		alive, err := a.tmux.IsAlive(first.TmuxSession)
+		if err != nil {
+			log.Printf("launch messages for %s (%s) retained: checking pane: %v", first.TaskID, executionID, err)
+			continue
+		}
+		if !alive {
+			if err := a.store.DeleteLaunchMessages(ctx, executionID); err != nil {
+				log.Printf("launch messages for %s (%s) retained: removing ended agent's messages: %v", first.TaskID, executionID, err)
+			} else {
+				log.Printf("launch messages for %s (%s) dropped: agent ended", first.TaskID, executionID)
+			}
 			continue
 		}
 		// Every Legato process resumes at start; the first to adopt an
 		// agent's messages delivers them.
-		if adopted, err := a.store.AdoptLaunchMessages(ctx, executionID, first.Owner, a.launchOwner); err != nil || !adopted {
+		adopted, err := a.store.AdoptLaunchMessages(ctx, executionID, first.Owner, a.launchOwner)
+		if err != nil {
+			log.Printf("launch messages for %s (%s) retained: adopting delivery: %v", first.TaskID, executionID, err)
+			continue
+		}
+		if !adopted {
+			log.Printf("launch messages for %s (%s) skipped: ownership changed", first.TaskID, executionID)
 			continue
 		}
 		for i := range messages {

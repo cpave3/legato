@@ -76,7 +76,7 @@ export function NativeQuestionCard({ question, askedBy, onAnswer, onDismiss, tou
                     </span>
                   </label>
                 ))}
-                {preview && <pre className="max-h-48 overflow-auto whitespace-pre-wrap break-words rounded bg-black/30 p-2 font-mono text-xs text-zinc-200">{preview}</pre>}
+                {preview && <pre className="max-h-48 overflow-auto whitespace-pre-wrap break-words rounded bg-[var(--theme-canvas,rgba(0,0,0,0.3))] p-2 font-mono text-xs text-zinc-200">{preview}</pre>}
                 {one.allowOther !== false && (
                   <input
                     type="text"
@@ -95,7 +95,7 @@ export function NativeQuestionCard({ question, askedBy, onAnswer, onDismiss, tou
           <div className={`flex gap-2 ${t("flex-col md:flex-row md:flex-wrap md:items-center", "flex-row flex-wrap items-center")}`}>
             <button
               disabled={submitting || !complete}
-              className={`bg-sky-700/70 text-white hover:bg-sky-600/70 disabled:cursor-not-allowed disabled:opacity-40 ${t("min-h-12 w-full rounded-xl px-4 text-base font-semibold md:min-h-0 md:w-auto md:rounded md:px-2 md:py-1 md:text-xs md:font-normal", "min-h-0 w-auto rounded px-2 py-1 text-xs font-normal")}`}
+              className={`bg-[var(--theme-selection,color-mix(in_oklab,var(--color-sky-700)_70%,transparent))] text-[var(--theme-text,white)] hover:bg-[var(--theme-selection,color-mix(in_oklab,var(--color-sky-600)_70%,transparent))] disabled:cursor-not-allowed disabled:opacity-40 ${t("min-h-12 w-full rounded-xl px-4 text-base font-semibold md:min-h-0 md:w-auto md:rounded md:px-2 md:py-1 md:text-xs md:font-normal", "min-h-0 w-auto rounded px-2 py-1 text-xs font-normal")}`}
               onClick={() => onAnswer(question.requestId, answers)}
             >
               {question.questions.length === 1 ? "Send answer" : "Send answers"}

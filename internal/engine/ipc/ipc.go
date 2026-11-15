@@ -138,11 +138,17 @@ func (s *Server) Close() error {
 // Send connects to a single IPC socket, sends a message, and disconnects.
 // Returns nil silently if the socket doesn't exist or the connection is refused.
 func Send(socketPath string, msg Message) error {
-	conn, err := net.Dial("unix", socketPath)
+	return sendContext(context.Background(), socketPath, msg)
+}
+
+func sendContext(ctx context.Context, socketPath string, msg Message) error {
+	conn, err := (&net.Dialer{}).DialContext(ctx, "unix", socketPath)
 	if err != nil {
 		return nil
 	}
 	defer conn.Close()
+	stop := context.AfterFunc(ctx, func() { _ = conn.Close() })
+	defer stop()
 
 	data, err := json.Marshal(msg)
 	if err != nil {
@@ -157,16 +163,25 @@ func Send(socketPath string, msg Message) error {
 // Broadcast sends a message to all Legato IPC sockets in the socket directory.
 // Best-effort: silently skips sockets that can't be reached.
 func Broadcast(msg Message) {
+	BroadcastContext(context.Background(), msg)
+}
+
+// BroadcastContext is a best-effort broadcast whose dials and writes stop
+// when ctx is cancelled, including when a peer accepts but does not read.
+func BroadcastContext(ctx context.Context, msg Message) {
 	dir := SocketDir()
 	entries, err := os.ReadDir(dir)
 	if err != nil {
 		return
 	}
 	for _, e := range entries {
+		if ctx.Err() != nil {
+			return
+		}
 		if e.IsDir() || filepath.Ext(e.Name()) != ".sock" {
 			continue
 		}
-		Send(filepath.Join(dir, e.Name()), msg)
+		sendContext(ctx, filepath.Join(dir, e.Name()), msg)
 	}
 }
 

@@ -152,6 +152,8 @@ func TestElevenLabsSpeechUnderTheDailyLimitGoesWithoutAsking(t *testing.T) {
 
 	f.broker.RecordMeasured(ctx, "eleven", map[string]int64{"characters": 1000})
 	status, _ := post(t, proxy.URL+"/c/eleven/v1/text-to-speech/abc", env["ELEVENLABS_API_KEY"], `{"text":"`+strings.Repeat("a", 500)+`"}`)
+	// Client EOF can precede response metering; wait for the handler to finish.
+	proxy.Close()
 	if status != 200 || calls != 1 {
 		t.Fatalf("status %d calls %d", status, calls)
 	}

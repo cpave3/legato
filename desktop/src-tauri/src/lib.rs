@@ -5,6 +5,7 @@
 pub mod pairing;
 pub mod pin;
 pub mod store;
+pub mod theme;
 pub mod webauthn;
 pub mod app;
 pub mod fido;

@@ -110,6 +110,9 @@ func withoutHostContent(approval service.Approval) service.Approval {
 		if fields, ok := call.(map[string]any); ok {
 			delete(fields, "diff")
 			delete(fields, "before")
+			// A config edit's moves name the database's older values,
+			// which the Reeve cannot read otherwise.
+			delete(fields, "keeps")
 		}
 	}
 	approval.Details, _ = json.Marshal(details)

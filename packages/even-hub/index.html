@@ -1,0 +1,29 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>Legato</title>
+    <style>
+      :root { color-scheme: light dark; font-family: system-ui, sans-serif; }
+      body { margin: 0; padding: 16px; background: Canvas; color: CanvasText; }
+      h1 { font-size: 1.25rem; margin: 0 0 4px; }
+      p { margin: 0 0 16px; opacity: 0.75; }
+      label { display: block; margin: 12px 0 4px; font-weight: 600; }
+      input { box-sizing: border-box; width: 100%; padding: 8px; font: inherit; }
+      button { margin-top: 16px; padding: 8px 16px; font: inherit; }
+    </style>
+  </head>
+  <body>
+    <h1>Legato on your glasses</h1>
+    <p id="source">Connecting to the glasses…</p>
+    <form id="settings">
+      <label for="url">Legato address</label>
+      <input id="url" name="url" type="url" placeholder="https://erebus.example.ts.net" autocomplete="off" />
+      <label for="token">Web token</label>
+      <input id="token" name="token" type="password" autocomplete="off" />
+      <button type="submit">Save</button>
+    </form>
+    <script type="module" src="/src/main.ts"></script>
+  </body>
+</html>

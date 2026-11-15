@@ -54,7 +54,7 @@ export function UpdatesSettings({ status, baseUrl, modeSetting, onChanged }: { s
       setBusy("")
     }
   }
-  const tools = (status.tools ?? []).filter((tool) => tool.state !== "missing")
+  const tools = status.tools ?? []
   const toolRows = tools.length > 0 && (
     <ToolRows tools={tools} busy={busy} onUpdate={(name) => void run(`tool:${name}`, () => applyToolUpdate(baseUrl, name))} />
   )

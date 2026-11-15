@@ -66,7 +66,7 @@ export const badgeTone: Record<NavTone, string> = {
   live: "bg-lw-live-soft text-lw-live",
   needs: "bg-lw-needs-soft text-lw-needs",
   error: "bg-lw-error-soft text-lw-error",
-  neutral: "bg-lw-line text-[#b4b3bd]",
+  neutral: "bg-lw-line text-[var(--theme-muted,#b4b3bd)]",
 }
 
 export function badgeText(count: number): string {

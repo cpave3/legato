@@ -70,6 +70,7 @@ type SessionSnapshot struct {
 	Status                 string          `json:"status"`
 	Messages               json.RawMessage `json:"messages"`
 	ToolCalls              json.RawMessage `json:"toolCalls"`
+	SubagentStates         json.RawMessage `json:"subagentStates,omitempty"`
 	Usage                  json.RawMessage `json:"usage"`
 	Tasks                  json.RawMessage `json:"tasks"`
 	ContextWindow          int             `json:"contextWindow,omitempty"`
@@ -191,6 +192,7 @@ func (c *Client) GetSession(ctx context.Context, sessionID string) (*SessionSnap
 	if err := c.getJSON(ctx, "/v1/sessions/"+url.PathEscape(sessionID), &snap); err != nil {
 		return nil, err
 	}
+	snap.PendingQuestions = normalizePendingQuestions(snap.PendingQuestions)
 	return &snap, nil
 }
 
@@ -378,7 +380,7 @@ func (c *Client) Subscribe(ctx context.Context, sessionID, since string, onEvent
 	}
 	req.Header.Set("Accept", "text/event-stream")
 
-	resp, err := c.http.Do(req)
+	resp, err := c.send(req)
 	if err != nil {
 		return err
 	}
@@ -477,7 +479,25 @@ func (c *Client) do(ctx context.Context, method, path string, body []byte) (*htt
 	if body != nil {
 		req.Header.Set("Content-Type", "application/json")
 	}
-	return c.http.Do(req)
+	return c.send(req)
+}
+
+// Endpoint paths carry authentication, including when net/http prints a URL
+// in a transport error. Keep the cause for errors.Is without publishing it.
+type endpointRequestError struct {
+	cause error
+	text  string
+}
+
+func (e *endpointRequestError) Error() string { return e.text }
+func (e *endpointRequestError) Unwrap() error { return e.cause }
+
+func (c *Client) send(req *http.Request) (*http.Response, error) {
+	response, err := c.http.Do(req)
+	if err != nil {
+		return response, &endpointRequestError{cause: err, text: strings.ReplaceAll(err.Error(), c.baseURL, "[Chimera endpoint]")}
+	}
+	return response, nil
 }
 
 // parseSSE reads an SSE stream and calls onEvent for each event block.
@@ -519,6 +539,9 @@ func parseSSE(reader io.Reader, onEvent func(EventEnvelope)) error {
 		}
 		if eventID != "" {
 			env.EventID = eventID
+		}
+		if env.Type == "question_request" {
+			env.Data = NormalizeQuestionRequest(env.Data)
 		}
 		onEvent(env)
 		eventID = ""

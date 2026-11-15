@@ -152,6 +152,8 @@ legato plan withdraw [--task ID] [--name NAME]
 ```
 
 - Inside an agent session, `--task` defaults to `LEGATO_TASK_ID` and `--name` to `LEGATO_PLAN_NAME`.
+- `show`, `feedback` and `status` without a name read the task's unnamed plan, else its latest one, so `legato plan show --task LEG-160` finds a plan whatever it is called. The other commands need the plan's name.
+- Scripts and the Reeve can read plans over the API: `GET /api/tasks/<id>/plans` lists a task's plans, newest first, and `GET /api/plans/<plan-id>` reads one, with its text, revision and status. See the [API reference](/legato/reference/api/).
 - `legato plan answer` answers a question you asked in Q&A. With `--file`, it reads the Markdown from a file, or from standard input with `--file -`, so the shell cannot change it. An answer read from a file can show image files: by an absolute path, or relative to the answer file's folder (the working directory for standard input). The same image checks apply, except that the file may be anywhere.
 - `legato plan claim` hands an existing plan to the agent that runs it, and `legato plan inbox` prints the comments and questions waiting for that agent.
 

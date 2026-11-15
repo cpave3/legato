@@ -124,7 +124,11 @@ describe("ReportsPage", () => {
     expect(within(table).getAllByRole("row")[1].textContent).toContain("LEG-42")
 
     fireEvent.click(within(table).getByRole("button", { name: /Waiting/ }))
-    expect(within(table).getAllByRole("row")[1].textContent).toContain("task-2")
+    await waitFor(() => {
+      const sortedTable = screen.getByRole("table", { name: "Tasks breakdown" })
+      expect(within(sortedTable).getByRole("columnheader", { name: /Waiting/ }).getAttribute("aria-sort")).toBe("descending")
+      expect(within(sortedTable).getAllByRole("row").slice(1).map(row => within(row).getAllByRole("cell")[0].textContent)).toEqual(["task-2", "LEG-42"])
+    })
 
     fireEvent.click(screen.getByRole("tab", { name: "Projects 1" }))
     expect(screen.getByTitle("/home/dev/very/long/path/to/legato")).toBeTruthy()

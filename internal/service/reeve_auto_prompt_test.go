@@ -50,3 +50,13 @@ func TestTheRolePromptSaysHowToSuperviseAgents(t *testing.T) {
 		}
 	}
 }
+
+// The role prompt names the reads of a task's notes and plans, and tells
+// task notes (a read) from task note (a write).
+func TestTheRolePromptSaysHowToReadNotesAndPlans(t *testing.T) {
+	for _, want := range []string{"GET /api/tasks/<id>/notes", "GET /api/tasks/<id>/plans", "GET /api/plans/<plan-id>", "legato task notes <id>", "legato task note writes", "legato plan show --task <id>"} {
+		if !strings.Contains(ReeveRolePrompt, want) {
+			t.Errorf("the role prompt lacks %q", want)
+		}
+	}
+}

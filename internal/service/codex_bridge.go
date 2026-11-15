@@ -82,7 +82,13 @@ func (a *agentService) RecoverNativeEndpoints(ctx context.Context) int {
 		if bound && nativeEndpointAlive(ctx, *session.ChimeraEndpoint, *session.ChimeraSessionID) {
 			continue
 		}
-		err := a.DiscoverChimera(ctx, session.TaskID)
+		if bound && session.AgentKind == "chimera" {
+			cleared, err := a.store.ClearChimeraDiscoveryForSession(ctx, session.ID, *session.ChimeraSessionID, *session.ChimeraEndpoint)
+			if err != nil || !cleared {
+				continue
+			}
+		}
+		err := a.DiscoverChimera(WithAgentSlot(ctx, session.Slot), session.TaskID)
 		switch {
 		case err == nil:
 			recovered++

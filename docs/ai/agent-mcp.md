@@ -43,6 +43,7 @@ Legato is not the MCP host. The agent tool is, and a terminal agent cannot draw 
 | `list_peers` | none | Other agents in the same Git worktree, the task's own reviewer among them (`slot`, `read_only`). |
 | `message_peer` | `to`, `text` | Queues a message to one peer. |
 | `broadcast_peers` | `text` | Messages every peer; the result names who was and was not reached. |
+| `message_reeve` | `text` | Every session but the Reeve's (the Reeve's own `message_reeve` reaches other instances' Reeves): queues a message to this instance's Reeve (`service.MessageReeve`, at most 4000 characters), told between its turns by the watcher. Answers `waiting` when no Reeve session runs. See [The Reeve](reeve.md) § Watching agents. |
 | `request_access` | `credential`, `operations`, `resources`, `reason`, `blocking` | Asks for a scope of a credential Legato holds, waiting up to a minute for the person; says what to do when granted, pending or denied. Offered only when credentials are configured, and its description names them. See [Credentials](credentials.md). |
 | `reply_case` | `delegation_id`, `outcome` (`done`, `finding`, `question`, `cannot`), `text` | Answers an `[argus case …]` message: queues the reply for Argus and tries it at once. Refused for a delegation not delivered to the caller's task. Offered only with `integrations.argus`. See [Integrations](integrations.md). |
 | `submit_review` | `summary`, `findings` (`pr`, `severity` `blocking`/`nit`, `title`, `body`, `failure_scenario` (required when blocking), `critical` (a later pass's new blocking finding off the changed lines), `place` {`path`, `line`, `start_line`, `side`}), `rulings` (`finding`, `status` `resolved`/`open`, `reason`), or `unable` | Hands a review pass's result to Legato, which posts it. Offered only to a session in a task's `reviewer` slot (`MCPOptions.Reviews`, decided on the host from the caller's session), and refused to any other at call time. Problems (a place not at the pinned head, a blocking finding without a failure scenario, a later pass's new blocking finding off what changed and not critical, a missing ruling, a pull request not of the pass) come back as a list to fix and submit again. See [Integrations](integrations.md) § Review passes. |
@@ -67,11 +68,11 @@ A session of the Reeve (a task of kind `reeve`) also gets `docs`, `instance_stat
 | --- | --- | --- | --- |
 | Claude Code | A third plugin, `legato-tools` (`internal/engine/hooks/claudemod/tools/`), installed to `<data_dir>/claude-mod/legato-tools` and added to the pane's `CLAUDE_CODE_PLUGIN_DIRS`. Its `.mcp.json` starts `${LEGATO_BIN} mcp serve`. | Claude Code gives a plugin's MCP server the session's whole environment. | `mcp__plugin_legato-tools_legato__show_card` |
 | Codex | Launch overrides: `-c mcp_servers.legato.command=…`, `….args=["mcp","serve"]`, `….env_vars=[…]`. `legato agent codex` passes every `-c` to the session's app server, which is the process that starts MCP servers. | Codex starts an MCP server with a short list of variables; `env_vars` adds the ones in `mcpServerEnv` (session IDs, `LEGATO_CONFIG`, `LEGATO_HOME`, the XDG directories, tmux). | `mcp__legato__show_card` (`legato.show_card` in the native panel) |
-| Chimera | `--mcp-config '{"mcpServers":{"legato":{…}}}'`: servers for that session only, merged over the global config (see Chimera's `docs/mcp.md`). | The entry's `env` map (`LEGATO_TASK_ID: env:LEGATO_TASK_ID`) makes Chimera pass its whole environment. | `mcp_legato_show_x00005f_card` |
+| Chimera | Legato's v1 mod manifest bundles `legato mcp serve`; with `native_bridge: false`, legacy `--mcp-config` injection remains. | A nonempty `env` map (`LEGATO_TASK_ID: env:LEGATO_TASK_ID`) inherits Chimera's full secret-scrubbed environment, including optional broker variables. | `mcp_legato_show_x00005f_card` |
 
 - The plugin is separate from the bridge mod, so the tools do not depend on `native_bridge`, and a change to it reloads no bridge. Because it is loaded from the pane's environment, a `claude` the person starts by hand in the pane gets the tools too.
 - The overrides come before the person's `launch_args`, so an entry of their own for a server named `legato` wins.
-- A Chimera from before the flag would refuse to start at all, so the adapter reads `chimera --help` once, at the first launch that needs it, and leaves an older Chimera alone. A `--mcp-config` in the person's own `launch_args` replaces Legato's: Chimera takes the flag once.
+- A Chimera mod launch adds no `--mcp-config` and performs no help probe. The manifest uses the concrete `LEGATO_BIN` path captured by the installer, because v1 command expansion only guarantees `${MOD_DIR}`. `agents.mcp.enabled: false` installs a manifest without servers. With the mod disabled, the legacy help probe and flag remain; an operator's own flag replaces Legato's only on that path. See [Chimera native integration](chimera-native.md).
 
 **No approval prompt.** Each agent tool is told to run these tools without asking:
 
@@ -87,7 +88,7 @@ An agent should reach for the tools by itself. One text says so, `cli.MCPGuidanc
 | --- | --- | --- |
 | Claude Code | The server's own MCP `instructions`. | Claude Code puts a server's instructions in the model's context for every session that loads the server, including one started by hand, after `/clear`, and on resume. |
 | Codex | The launch prompt: `-c developer_instructions=…`. | Codex does not pass server instructions to its model, and it keeps MCP tools out of the model's tool list until they are looked up, so tool descriptions cannot do the job either. |
-| Chimera | The launch prompt: the first turn (`--prompt`). | Chimera does not read server instructions. |
+| Chimera | The MCP server's instructions when using the mod. | Mods v1 passes server instructions to the model; the legacy launch path still puts guidance in `--prompt`. |
 
 Adapters whose tool needs the launch prompt implement `service.ToolsPromptAdapter`. `AgentService.SpawnAgent` adds `ToolsPrompt()` to the prompt every launch injects, after the role or general prompt, so a plain Codex session that had no launch prompt now gets one. An adapter returns the text only when its session really gets the server: not when the setting is off, Chimera is too old, or the person's own `--mcp-config` replaced Legato's.
 
@@ -219,6 +220,8 @@ This was tried three times, each with two agents that knew nothing of libretto a
 Checked in a browser against a scratch Legato, with a 2:46 video shown through `legato mcp serve`: the video loaded and played, 49 captions were on a showing track, a click on a chapter seeked to it, and **Ask about this moment** at 1:16 put the scene's file and its two highlighted lines in the terminal session's message box and moved the focus there. No agent was asked a question in that check; what an agent does with one is not tested.
 
 ## Studios
+
+The scene-local draft reset in `AgentStudioPanel` runs in a layout effect: a comment typed as soon as a scene appears must not be erased by its pending passive effect. The comment regression submits from a MutationObserver at that first visible commit.
 
 A person can say a video's words themselves. `show_studio` opens a studio on a storyboard in the side panel: the person records each scene with their microphone, and their camera if they like, beside the conversation in which they and the agent agreed what the scenes are. The studio is [libretto](https://github.com/cpave3/libretto)'s: libretto keeps the takes, transcribes them and draws the scenes. Legato adds the conversation.
 
@@ -439,7 +442,7 @@ A session must be started again to gain or lose the server: agent tools read the
 - A page saved with **Download** holds each image twice when a script may ask for it (in the HTML and in what `legato.image` answers), so a page with large images is a large file.
 - Image files are not shown again from their original path: Legato's copy is what every revision draws. A task's 101st image removes its oldest.
 - Legato draws the UI of its own server only. It is not a general MCP Apps host for other servers' `ui://` resources.
-- Chimera subagents (`spawn_agent`) read the global Chimera config and do not get the server.
+- Legacy Chimera subagents read the global configuration and do not get a launch-only `--mcp-config` server. Mods are inherited by v1 subagents; Legato's mod never starts a second link for them.
 - A sandboxed frame can navigate *itself* to another page. That page gets nothing from Legato and keeps the **Made by the agent** label, but it is no longer the agent's content.
 - For Codex, the guidance is the session's `developer_instructions`, which replaces a `developer_instructions` of the person's own in `~/.codex/config.toml` for Legato-launched sessions (as a role prompt or learned context already did).
 - A small model may ignore the guidance and answer in text.

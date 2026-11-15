@@ -72,7 +72,7 @@ function StudioButton({ onOpen }: { onOpen: () => void }) {
       onClick={onOpen}
       aria-label="Studio"
       title="The studio, where you record"
-      className="flex h-[30px] shrink-0 items-center gap-1.5 rounded-md border border-lw-line-strong bg-lw-raised px-3 text-xs text-lw-text transition-colors hover:border-[#4a4955]"
+      className="flex h-[30px] shrink-0 items-center gap-1.5 rounded-md border border-lw-line-strong bg-lw-raised px-3 text-xs text-lw-text transition-colors hover:border-[var(--theme-border,#4a4955)]"
     >
       <Mic size={12} />
       <span className="hidden sm:inline">Studio</span>
@@ -160,7 +160,7 @@ export function AgentChatHeader({ state, time, title, taskId, agentKind, engram,
   const chipClass = cn("shrink-0 rounded px-2 font-lw-mono text-[11px] uppercase", chip.tone)
 
   return (
-    <header className="flex shrink-0 items-center justify-between gap-2 border-b border-[#222228] bg-lw-ground px-3 py-2 font-lw text-[13px] text-lw-text sm:gap-3 sm:px-4 sm:py-2.5 md:px-6">
+    <header className="flex shrink-0 items-center justify-between gap-2 border-b border-[var(--theme-border,#222228)] bg-lw-ground px-3 py-2 font-lw text-[13px] text-lw-text sm:gap-3 sm:px-4 sm:py-2.5 md:px-6">
       <div className="flex min-w-0 items-center gap-3">
         {state === "needs-you" && onShowRequest
           ? <button type="button" onClick={onShowRequest} aria-label="Needs you" className={cn(chipClass, "animate-pulse hover:animate-none")}>{chipText}</button>
@@ -234,7 +234,7 @@ export function AgentMoreMenu({ entries }: { entries: AgentMenuEntry[] }) {
         aria-haspopup="menu"
         aria-expanded={open}
         onClick={() => setOpen((value) => !value)}
-        className={cn("flex h-[30px] w-[30px] items-center justify-center rounded-md border border-lw-line-strong text-lw-text hover:border-[#4a4955]", open ? "bg-lw-selected" : "bg-lw-raised")}
+        className={cn("flex h-[30px] w-[30px] items-center justify-center rounded-md border border-lw-line-strong text-lw-text hover:border-[var(--theme-border,#4a4955)]", open ? "bg-lw-selected" : "bg-lw-raised")}
       >
         <MoreHorizontal size={14} />
       </button>

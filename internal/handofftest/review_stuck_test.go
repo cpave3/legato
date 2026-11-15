@@ -129,4 +129,12 @@ func TestAWorkerWithoutReviewPassesTakesNoOverride(t *testing.T) {
 	if !errors.Is(err, service.ErrWorkerRefused) || !strings.Contains(err.Error(), "does not run review passes") {
 		t.Fatalf("override to an old worker: %v", err)
 	}
+
+	// Turning them off asks for nothing it lacks: the handoff goes, with
+	// no override.
+	off := false
+	if _, err := main.Handoffs.HandOff(ctx, service.TaskHandoffRequest{TaskID: taskID, Worker: paired.InstanceID, Purpose: service.HandoffMakeChange,
+		Repo: "acme/widget", AgentKind: "claude-code", Review: &service.ReviewPassOverride{Enabled: &off}}); err != nil {
+		t.Fatalf("review passes off to a worker without them: %v", err)
+	}
 }

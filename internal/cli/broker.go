@@ -111,6 +111,25 @@ func brokerAgentState(db *store.Store, deps BrokerDeps) BrokerOp {
 // read on the agent's side by ParseClaudeHook.
 func brokerAgentHook(db *store.Store, deps BrokerDeps) BrokerOp {
 	return func(_ context.Context, caller BrokerCaller, raw json.RawMessage) (any, error) {
+		var kind struct {
+			Kind string `json:"kind"`
+		}
+		if err := json.Unmarshal(raw, &kind); err != nil {
+			return nil, refuse("bad_request", err.Error())
+		}
+		if kind.Kind == "chimera" {
+			var args struct {
+				Hook       ChimeraHook `json:"hook"`
+				WorkingDir string      `json:"working_dir"`
+			}
+			if err := json.Unmarshal(raw, &args); err != nil || args.Hook.Event == "" {
+				return nil, refuse("bad_request", "a hook with its event is required")
+			}
+			if err := ApplyChimeraHook(db, ChimeraHookReport{TaskID: caller.TaskID, ExecutionID: caller.ExecutionID, WorkingDir: args.WorkingDir, Hook: args.Hook}, deps.Push, deps.OS); err != nil {
+				return nil, refuse("rejected", err.Error())
+			}
+			return map[string]bool{"ok": true}, nil
+		}
 		var args struct {
 			Hook       ClaudeHook `json:"hook"`
 			WorkingDir string     `json:"working_dir"`

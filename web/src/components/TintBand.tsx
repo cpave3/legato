@@ -1,5 +1,6 @@
-import { useEffect } from "react"
+import { useEffect, useSyncExternalStore } from "react"
 import { tintColor } from "../lib/tints"
+import { appTheme, subscribeTheme } from "../lib/appTheme"
 
 // TintBand is the server's tint as a band across the top of the window, and
 // as the browser's theme colour (a phone's address bar, an installed app's
@@ -7,13 +8,14 @@ import { tintColor } from "../lib/tints"
 // page's own.
 export function TintBand({ tint }: { tint?: string }) {
   const color = tintColor(tint)
+  const theme = useSyncExternalStore(subscribeTheme, () => appTheme().id)
   useEffect(() => {
     const meta = document.querySelector('meta[name="theme-color"]')
-    if (!meta || !color) return
+    if (!meta) return
     const own = meta.getAttribute("content") ?? ""
-    meta.setAttribute("content", color)
+    meta.setAttribute("content", color ?? appTheme().tokens?.canvas ?? own)
     return () => meta.setAttribute("content", own)
-  }, [color])
+  }, [color, theme])
   if (!color) return null
   return (
     <div

@@ -44,7 +44,7 @@ export function AutoRunNotice() {
       className="fixed inset-x-2 top-[calc(env(safe-area-inset-top)+4.25rem)] z-40 flex flex-col gap-1.5 font-lw md:inset-x-auto md:left-4 md:top-auto md:bottom-4 md:w-[340px]">
       {shown.slice(0, 3).map((run) => (
         <div key={run.id} className="flex items-center gap-2 rounded-xl border border-lw-line bg-lw-surface px-3 py-2 text-sm shadow-xl">
-          <span aria-hidden className="text-[#a78bfa]">◆</span>
+          <span aria-hidden className="text-[var(--theme-keyword,#a78bfa)]">◆</span>
           <span className="min-w-0 flex-1">
             <span className="block truncate text-lw-text">{run.reason}</span>
             <span className="block truncate text-xs text-lw-text-2">Ran without asking · {run.by.replace(/^auto: /, "")}</span>

@@ -73,7 +73,7 @@ review_passes:
 
 Choose a reviewer on another model from your authors: a second look by the same model finds less. The board needs the `Review` column (or the one `review_passes.review_column` names). Every setting is on [Configuration](/legato/reference/configuration/#review-passes).
 
-The worker tells your main instance that it runs review passes. When you hand a task off, the Hand off form has a **Review passes** section, starting at the worker's own settings: turn them off for this task, or choose another reviewer, tier or model, skill, or number of passes.
+The worker tells your main instance that it runs review passes. When you hand a task off, the Hand off form has a **Review passes** section, starting at the worker's own settings: turn them off for this task, or choose another reviewer, tier or model, skill, or number of passes. The Reeve, or any client of the API, can make the same choices with the `review` field of `POST /api/tasks/<id>/handoff` (see [API](/legato/reference/api/#handing-a-task-to-a-worker)). A worker on v0.16.0 refuses any such change, from the form or the API, with "this worker does not say what its review passes can do": update it.
 
 ## What your board shows
 

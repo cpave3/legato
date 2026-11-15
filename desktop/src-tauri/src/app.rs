@@ -217,12 +217,24 @@ fn make_server_view(app: &AppHandle, server: &Server, token: Option<String>, pat
         rand::rngs::OsRng.fill_bytes(&mut b);
         hex::encode(b)
     };
-    let shell_bridge = format!("if (location.origin === {origin:?}) {}", bridge::script(&key, voice::system_recorder().is_some()));
+    let initial_theme = app.state::<Desktop>().store.lock().unwrap().state.app_theme;
+    let theme_seed = crate::theme::page_script(&origin, initial_theme);
+    let theme_origin = origin.clone();
+    let shell_bridge = bridge::script(&key, voice::system_recorder().is_some(), &origin);
     let (handle, server_id) = (app.clone(), server.id.clone());
     let (server_url, new_window_server_url) = (server.url.clone(), server.url.clone());
     let builder = WebviewBuilder::new(webview_label(&server.id), WebviewUrl::External("about:blank".parse().unwrap()))
         .initialization_script(&seed)
         .initialization_script(&shell_bridge)
+        .initialization_script(&theme_seed)
+        .on_page_load(move |view, _| {
+            // Read again: a retained page may reload long after it was made,
+            // or a selection may change while its navigation is in flight.
+            let theme = view.app_handle().state::<Desktop>().store.lock().unwrap().state.app_theme;
+            if let Err(error) = view.eval(crate::theme::page_script(&theme_origin, theme)) {
+                eprintln!("[theme] page load: {error}");
+            }
+        })
         // Files dropped on the page are the page's: an image dropped on an
         // agent's chat. Tauri's own handler would finish the drop itself
         // (wry returns true to GTK), and WebKit would never fire `drop`.
@@ -247,6 +259,16 @@ fn make_server_view(app: &AppHandle, server: &Server, token: Option<String>, pat
             }
             let payload = match bridge::read(url.as_str(), &key) {
                 Some(PageMessage::Approval(id)) => Some(json!({ "server": server_id, "kind": "approval", "id": id })),
+                Some(PageMessage::Theme(theme)) => {
+                    let result = set_app_theme(handle.clone(), handle.state::<Desktop>(), theme);
+                    let origin = reqwest::Url::parse(&server_url).unwrap().origin().ascii_serialization();
+                    if let Some(view) = handle.get_webview(&webview_label(&server_id)) {
+                        if let Err(error) = view.eval(crate::theme::result_script(&origin, theme, result.err().as_deref())) {
+                            eprintln!("[theme] answer: {error}");
+                        }
+                    }
+                    None
+                }
                 Some(PageMessage::Enroll) => Some(json!({ "server": server_id, "kind": "enroll" })),
                 Some(PageMessage::Voice(action)) => {
                     record_for_page(&handle, &server_id, action);
@@ -1835,6 +1857,24 @@ fn take_import_requests(desktop: State<'_, Desktop>) -> Vec<ImportLink> {
 }
 
 #[tauri::command]
+fn app_theme(desktop: State<'_, Desktop>) -> crate::theme::AppTheme {
+    desktop.store.lock().unwrap().state.app_theme
+}
+
+#[tauri::command]
+fn set_app_theme(app: AppHandle, desktop: State<'_, Desktop>, theme: crate::theme::AppTheme) -> Result<(), String> {
+    crate::theme::select(
+        &mut desktop.store.lock().unwrap(),
+        theme,
+        |theme| app.emit("app-theme-changed", theme).map_err(|e| e.to_string()),
+        |id, script| match app.get_webview(&webview_label(id)) {
+            Some(view) => view.eval(script).map_err(|e| e.to_string()),
+            None => Ok(()), // A server not opened yet receives it at creation.
+        },
+    )
+}
+
+#[tauri::command]
 fn import_preference(desktop: State<'_, Desktop>) -> ImportTarget {
     desktop.store.lock().unwrap().state.import_target
 }
@@ -2817,6 +2857,8 @@ pub fn run() {
             apply_update,
             restart_app,
             take_import_requests,
+            app_theme,
+            set_app_theme,
             import_preference,
             set_import_preference,
             import_ticket,

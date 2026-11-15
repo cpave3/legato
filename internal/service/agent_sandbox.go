@@ -9,7 +9,6 @@ import (
 	"os/exec"
 	"path/filepath"
 	"regexp"
-	"slices"
 	"strings"
 
 	"github.com/cpave3/legato/internal/engine/sandbox"
@@ -43,8 +42,10 @@ func (a *agentService) CheckoutOverlayAvailable() bool {
 }
 
 // sandboxPrefix is the command line that starts an agent's launch command
-// in its sandbox, ending in "--".
-func (a *agentService) sandboxPrefix(ctx context.Context, taskID, executionID, agentKind, workDir string, env map[string]string, resources []Resource, readOnly, throwaway bool, engram SandboxEngram) (string, error) {
+// in its sandbox, ending in "--". attributionTaskID is the task the agent's
+// execution concerns: a workflow agent's may differ from taskID, and that
+// task's job clone is the agent's to work in too.
+func (a *agentService) sandboxPrefix(ctx context.Context, taskID, attributionTaskID, executionID, agentKind, workDir string, env map[string]string, resources []Resource, readOnly, throwaway bool, engram SandboxEngram) (string, error) {
 	backend := a.sandbox.Backend
 	if err := backend.Available(); err != nil {
 		return "", err
@@ -55,6 +56,9 @@ func (a *agentService) sandboxPrefix(ctx context.Context, taskID, executionID, a
 	// Without overlays, a throwaway checkout is the plain read-only one.
 	in.ThrowawayCheckout = readOnly && throwaway && a.CheckoutOverlayAvailable()
 	in.BrokerSocket = env["LEGATO_BROKER_SOCKET"]
+	if file := env["LEGATO_CHIMERA_SECRET_FILE"]; file != "" {
+		in.ChimeraSecretDir = filepath.Dir(file)
+	}
 	if sock := env["SSH_AUTH_SOCK"]; sock != "" && in.RuntimeDir != "" && strings.HasPrefix(sock, filepath.Join(in.RuntimeDir, "ssh")+"/") {
 		in.SSHSocket = sock
 	}
@@ -80,7 +84,11 @@ func (a *agentService) sandboxPrefix(ctx context.Context, taskID, executionID, a
 		}
 	}
 	in.GitCommonDir = gitCommonDir(ctx, workDir)
-	in.JobDir = a.taskJobClone(ctx, taskID, in.DataDir, workDir)
+	jobDir, err := a.taskJobClone(ctx, in.DataDir, workDir, taskID, attributionTaskID)
+	if err != nil {
+		return "", err
+	}
+	in.JobDir = jobDir
 	in.Extra = append([]SandboxPath{}, in.Extra...)
 	for _, resource := range resources {
 		for _, p := range resource.Paths {
@@ -132,6 +140,16 @@ func (a *agentService) sandboxPrefix(ctx context.Context, taskID, executionID, a
 	if root := scratchFor(in).Root; root != "" {
 		if err := os.MkdirAll(root, 0o700); err != nil {
 			return "", err
+		}
+	}
+	// These mounts must exist even on the first spawn: their writable
+	// parent would otherwise let the agent install its own mods or hooks.
+	for _, dir := range chimeraProtectedDirs(in) {
+		if err := checkProtectedDir(HostFS{}, dir); err != nil {
+			return "", err
+		}
+		if err := os.MkdirAll(dir, 0o700); err != nil {
+			return "", fmt.Errorf("prepare Chimera sandbox directory %s: %w", dir, err)
 		}
 	}
 	plan, err := BuildSandboxPlan(in)
@@ -348,34 +366,44 @@ func realCommands(name, skip string) []string {
 	return out
 }
 
-// taskJobClone is the job clone that holds workDir when the task works in
-// it (Legato made it for the task, or the task joined it), "" otherwise.
-// Only such a clone of Legato's data folder can be a sandboxed agent's
-// work: also when the agent is started again in it.
+// taskJobClone is the job clone that holds workDir when one of taskIDs
+// works in it (Legato made it for the task, or the task joined it), ""
+// otherwise. Only such a clone of Legato's data folder can be a sandboxed
+// agent's work: also when the agent is started again in it, and for a
+// workflow agent about the task, such as the learning workflow's curator,
+// which starts in the task's working folder (LEG-156).
 //
 // The paths are compared where they really are: the data folder and the
 // clone's record may name it through a link (a /home that is var/home)
 // while a working folder read back from the agent's pane does not.
-func (a *agentService) taskJobClone(ctx context.Context, taskID, dataDir, workDir string) string {
+func (a *agentService) taskJobClone(ctx context.Context, dataDir, workDir string, taskIDs ...string) (string, error) {
 	if dataDir == "" {
-		return ""
+		return "", nil
 	}
 	jobs := filepath.Join(dataDir, "jobs")
 	realJobs := HostFS{}.Real(jobs)
 	rel, err := filepath.Rel(realJobs, HostFS{}.Real(workDir))
 	if err != nil || rel == "." || strings.HasPrefix(rel, "..") {
-		return ""
+		return "", nil
 	}
 	parts := strings.Split(rel, string(filepath.Separator))
 	if len(parts) < 2 {
-		return ""
+		return "", nil
 	}
-	// The record names the clone as the data folder did when it was made.
-	for _, path := range []string{filepath.Join(jobs, parts[0], parts[1]), filepath.Join(realJobs, parts[0], parts[1])} {
-		clone, err := a.store.JobCloneByPath(ctx, path)
-		if err == nil && slices.Contains(clone.TaskIDs, taskID) {
-			return path
+	cloneRoot := filepath.Join(realJobs, parts[0], parts[1])
+	for _, taskID := range taskIDs {
+		if taskID == "" {
+			continue
+		}
+		clones, err := a.store.ListLiveTaskJobClones(ctx, taskID)
+		if err != nil {
+			return "", fmt.Errorf("finding task %s's job clone: %w", taskID, err)
+		}
+		for _, clone := range clones {
+			if (HostFS{}).Real(clone.Path) == cloneRoot {
+				return cloneRoot, nil
+			}
 		}
 	}
-	return ""
+	return "", nil
 }

@@ -6,6 +6,7 @@ import (
 	"crypto/sha256"
 	"encoding/hex"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"log"
 	"math"
@@ -465,7 +466,7 @@ func (s *WorkflowService) Complete(ctx context.Context, runID, stepID, attemptID
 	prior[stepID] = outputs
 	if next != "" {
 		if err := s.advance(ctx, definition, inputs, runID, view.Run.TaskID, index+1, prior, "", false); err != nil {
-			return nil, err
+			return nil, &StepRecordedError{StepID: stepID, NextStepID: next, Err: err}
 		}
 	}
 	completed, err := s.store.GetWorkflowRun(ctx, runID)
@@ -486,6 +487,23 @@ func (s *WorkflowService) Complete(ctx context.Context, runID, stepID, attemptID
 	}
 	return completed, nil
 }
+
+// ErrWorkflowStepRecorded is matched by a completion whose step was recorded
+// although what came after it failed: completing it again is a conflict.
+var ErrWorkflowStepRecorded = errors.New("workflow step recorded")
+
+// StepRecordedError is a completion that recorded its step's outputs, then
+// could not go on to the next step, which has failed the run.
+type StepRecordedError struct {
+	StepID, NextStepID string
+	Err                error
+}
+
+func (e *StepRecordedError) Error() string {
+	return fmt.Sprintf("step %q was completed and its outputs recorded, but the next step %q could not start: %v", e.StepID, e.NextStepID, e.Err)
+}
+
+func (e *StepRecordedError) Unwrap() []error { return []error{ErrWorkflowStepRecorded, e.Err} }
 
 func (s *WorkflowService) loadExecution(ctx context.Context, runID, stepID string) (*store.WorkflowRunView, *workflowengine.Definition, map[string]any, map[string]map[string]any, int, error) {
 	view, err := s.store.GetWorkflowRun(ctx, runID)

@@ -23,7 +23,7 @@ On a phone, a tab bar along the bottom holds **Attention**, **Board**, **Agents*
 | **Board** | The kanban board. See [Board and tasks](/legato/using/board/). |
 | **Review** | Review tours of what agents changed. See [Reviews](/legato/using/reviews/). |
 | **Plans** | Plans agents proposed, waiting for your decision. See [Plans](/legato/using/plans/). |
-| **Flows** | Workflow definitions and runs. See [Workflows](/legato/using/workflows/). |
+| **Flows** | Workflow runs and the workflows you can run. See [Workflows](/legato/using/workflows/#runs-and-workflows-in-the-web-ui). |
 | **Learning** | The Legato Learn ledger. See [Legato Learn](/legato/using/learn/). |
 | **Reports** | Where agent time went. See [Reports](/legato/using/reports/). |
 | **Remote** | Clones Legato made for agents. |
@@ -37,6 +37,8 @@ When the connection drops, the UI first says "Reconnecting…" and keeps the pag
 The board works as it does in the TUI, with the same keys: `h`/`j`/`k`/`l` to move, `n` to create, `m` to move, `/` to search, `?` for the key list. You can also drag a card to another column, or within its column to reorder it; it lands where you let it go. The phone layout has no drag: **Move** in a card's menu moves it to another column, at the end, and a column cannot be reordered there. Press `enter` or double-click a card to open its detail. From 1280 pixels of width, a panel beside the board describes the selected card, with buttons for its agent, its details and its ticket or pull request.
 
 **Import** in the header searches your ticket providers and imports a ticket, as `i` does; see [Board](/legato/using/board/#local-tasks-and-remote-tickets). **Sync providers** in the header syncs Jira and GitHub now, and pulls every [worker](/legato/using/handoff/#staying-up-to-date) this Legato hands tasks to.
+
+In `/` search, press `Enter` as soon as a result appears to open it, including an archived task.
 
 Once this Legato is paired with a [worker instance](/legato/running/instances/), a card's menu and its panel offer **Hand off…**, a card dragged onto the **Away** lane opens the same form, and the lane, after the columns, lists the tasks away on each worker. On a phone they are in an **Away** section above the columns. See [Hand off tasks to a worker](/legato/using/handoff/).
 
@@ -68,21 +70,25 @@ Each message you send is listed above the message box until the conversation sho
 
 When a native agent starts subagents, a **Sub-agents** switch appears in its header beside **Related** and **Artifacts**. **Inline** shows each subagent as a card in the conversation. **Tiles** keeps the conversation in the left half and gives each subagent a tile in the right half: what it is doing, its newest steps, how long it has run and how many tools it called. Running subagents share the space; finished ones move to a list underneath, newest first. The list shows the newest three: **Show more** lists the rest, and its **Finished** heading folds it away. Click a tile, or the subagent's line in the conversation, to open it in full with the prompt it was given; **All tiles** or `Esc` goes back. On a phone or a narrow window, the tiles are a strip under the header: tap one to open it as a sheet, and swipe or use the arrows to move between subagents. The browser remembers your choice. Tiles show Claude Code and Chimera subagents; Codex subagents are not shown yet.
 
+Cards and tiles agree on whether a child is starting, running, successful, failed or interrupted. Interrupted children go on the **Finished** shelf, separately labelled from errors. With Chimera's Legato mod, background completion status also updates while the parent is idle and survives reopening the panel.
+
 Type `/` in a native agent's message box to list its commands and skills. As you type, the best matches come first: the exact name, then names that start with what you typed, then names with a word that starts with it (`/review` finds `plugin:review`). Use `↑` and `↓` to move, and `Tab` or `Enter` to complete the highlighted one: it goes into the box and you keep typing, for example the skill's arguments. Nothing is sent until you press `Enter` again. A command that stands for a prompt puts that prompt in the box. `Esc` closes the list; type again to reopen it.
 
 When a native agent's terminal shows a numbered menu (an update notice, a trust question), the panel draws it as a card with a button for each choice.
 
 The **More actions** menu in the agent's header holds **Rename**, **Refresh from snapshot**, notifications, **Reload agent**, **Reload without sandbox** (or **Reload in sandbox**, for an agent you started outside it), **Disconnect** and **Kill agent**. The sandbox entry is there only while Legato's sandbox is on; see [Sandbox](/legato/security/sandbox/). Right-click an agent in the sidebar for the same actions. For an agent you have not opened, the actions that act on the open terminal (refreshing it, prompt detection) are left out. **Rename** renames the agent's task, so it works for local tasks; a task from a provider keeps its title. Asking before **Kill agent**, **Reload agent** and similar actions uses a small dialog in the app, not the browser's. See [Agents](/legato/using/agents/) for reloading and stopping.
 
-To switch agents from the keyboard, hold the switch key and press `1` to `9`. The key is Control on Linux and Alt on a Mac unless you change it in **Settings › Agents**. Press `M` for the agent's macros. A draft you type for one agent is kept when you switch to another.
+To switch agents from the keyboard, hold the switch key and press `1` to `9`. The numbers follow the visible list order, ready as soon as the agents appear. The key is Control on Linux and Alt on a Mac unless you change it in **Settings › Agents**. Press `M` for the agent's macros. A draft you type for one agent is kept when you switch to another.
 
 ### Terminal mode
 
 An agent that runs in tmux opens on the Agents page as a real terminal on its tmux session, set in a frame. Type straight into it (menus, arrow keys, Ctrl keys), scroll with the wheel or a drag to read tmux's own history; it resizes with the window. The strip along the top of the frame names the session. If the connection drops, it says **Reconnecting** and when it will try again, and **Retry now** tries at once. **Refresh terminal** in the agent's menu reconnects it too. Agents with a native panel keep their panel.
 
+When voice is enabled, press `v` outside a text field to start dictation in a terminal session with a message box, as soon as the selected agent appears; `Esc` cancels it.
+
 On a computer there is no message box: the terminal is where you type, and the agent's menu is in the header. A phone keeps the message box, with a row of the keys its keyboard lacks: **Esc**, **⇧Tab**, **↑** and **↓**, and **Ctrl**, which sends the next character you type, in the box or the terminal, with Ctrl. When the agent asks something, such as a yes-or-no menu, its answers appear as buttons above the box.
 
-The terminal's colours are set in **Settings › Appearance › Terminal theme**, for this browser: **Legato** (the default, Legato's own colours), **Night** (the same on black), **Solarized Dark** or **Classic**.
+Choose terminal colours in **Settings › Appearance › Terminal theme**: **Follow app**, **Legato**, **Night**, **Solarized Dark**, **Classic**, **Dracula**, **Ocular Light** or **Ocular Dark**. The default follows your app theme; an existing saved terminal choice stays as it was. A change updates open terminals without reconnecting or clearing their screens. Programs that emit their own truecolour backgrounds can override the terminal palette.
 
 While a terminal is open in the web UI, the session has mouse mode on and no tmux status line, which a desktop `tmux attach` sees too. Hold Shift to select text with the mouse there.
 
@@ -126,7 +132,7 @@ Select any agent of a [swarm](/legato/using/swarms/) and the page shows the swar
 - **Attention** groups what needs you under **Needs intervention**, **Ready for review** and **Merge blockers**. See [Attention and approvals](/legato/using/attention/).
 - **Plans** is the queue of plans waiting for your decision; open one to read it, comment, answer its questions and approve it. See [Plans](/legato/using/plans/).
 - **Review** is the queue of review tours; open one to step through the changes and ask the agent about them. See [Reviews](/legato/using/reviews/).
-- **Flows** lists workflow definitions and runs, and starts runs. See [Workflows](/legato/using/workflows/).
+- **Flows** shows workflow runs, those that need you first, and the workflows you can run. See [Workflows](/legato/using/workflows/#runs-and-workflows-in-the-web-ui).
 
 Requests from agents that wait for you (permissions, questions, credentials) appear in a tray at the bottom right of every page. See [Approvals](/legato/using/attention/#approvals).
 
@@ -149,7 +155,7 @@ Requests from agents that wait for you (permissions, questions, credentials) app
 - **Integrations**: [Argus](/legato/integrations/argus/) and integration tokens.
 - **Handoff**: **Workers**, the Legatos this one hands tasks to, with **Add a worker** (with none paired yet, it explains handing off); and **Main instances**, the Legatos that hand tasks to this one, with **Pair a main instance** and **Unpair**. See [Main and worker instances](/legato/running/instances/) and [Hand off tasks to a worker](/legato/using/handoff/).
 - **Connection**: servers, **Pair a phone**, and the TLS certificate.
-- **Appearance**: the tint, the terminal theme, the glitch effect, and the moving light round a working agent.
+- **Appearance**: the app theme, tint, terminal theme, glitch effect, and moving light round a working agent.
 - **Where a setting comes from.** Settings that can be kept on the server show where their value comes from: **default**, **config.yaml** with a lock (change it in the file), or **set here** with **Reset**, which goes back to the default. One marked **applies at restart** waits for Legato to restart.
 - **Export and import settings** (in Lists): download the settings kept on the server as a file shaped like `config.yaml`, secrets as names; or import such a file, which becomes one change set for you to approve.
 - **Lists**: workspaces, macros, agent tools, credentials and the other lists kept on the server. Entries from `config.yaml` are locked; add, edit or remove the others.
@@ -157,10 +163,24 @@ Requests from agents that wait for you (permissions, questions, credentials) app
 
 A setting kept in this browser only is marked `this browser`.
 
-### Tint
+### App theme and tint
 
-To tell your Legatos apart at a glance, give each a tint in **Settings › Appearance › Tint**: red, orange, yellow, green, teal, blue, purple or pink. The tint is saved on the server, so every browser and phone that uses it shows it: a band across the top of the window, a wash on the rail, and a dot beside the server in the switcher.
+Choose **Legato**, **Dracula**, **Ocular Light** or **Ocular Dark** in **Settings › Appearance › App theme**. Legato keeps the original dark appearance. Changes apply immediately to the page, conversations, diffs and theme-aware artifacts, and stay after reload. In a browser this preference belongs to that browser; in a compatible desktop or Android app, the app saves the choice for its shell and server pages. There is no automatic system-appearance mode.
+
+Terminals follow the app unless you choose a separate terminal theme. Server tints remain independent. Ocular uses the Work Light and Work Dark research candidates; these colours have not been shown to reduce fatigue or treat eye strain. Dracula uses the [Dracula OSS palette](https://github.com/dracula/dracula-theme), with readable text mappings for this application. Named themes distinguish recessed navigation, panels and raised controls, with softer separators and subtle depth; text contrast, focus and terminal colours remain readable.
+
+To tell your Legatos apart at a glance, give each a tint in **Settings › Appearance › Tint**: red, orange, yellow, green, teal, blue, purple or pink. The tint is saved on the server, so every browser and phone that uses it shows it: a band across the top of the window, a wash on the rail, and a dot beside the server in the switcher. A tint takes priority over the app canvas for the browser's address-bar colour.
 
 ### Updates
 
 When a new release is out and the update mode is `ask`, a bar across the top says so, with **Update and restart** and **Later**. See [Updates](/legato/running/updates/).
+
+## Message delivery safety
+
+Terminal messages and keys are refused unless Legato can verify the agent tool
+is in the foreground. A pane back at a shell receives nothing. Native agents
+never fall back to terminal typing when their connection fails; use their
+native message and approval controls. A terminal-only dialog in a native
+session needs deliberate terminal attachment, not a raw-key action button.
+Voice with auto-send uses the native connection; without auto-send, use the
+native composer's dictation rather than asking the server to type a draft.

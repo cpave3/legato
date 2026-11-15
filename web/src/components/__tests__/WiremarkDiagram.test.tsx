@@ -1,5 +1,6 @@
-import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react"
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { afterEach, describe, expect, it, vi } from "vitest"
+import { setAppTheme } from "../../lib/appTheme"
 import { VisualMarkdownPre } from "../VisualMarkdownPre"
 import { WiremarkDiagram } from "../WiremarkDiagram"
 
@@ -9,6 +10,7 @@ vi.mock("@wiremark/core", () => ({ render: renderWiremark }))
 
 afterEach(() => {
   cleanup()
+  setAppTheme("legato")
   renderWiremark.mockReset()
 })
 
@@ -99,4 +101,12 @@ describe("WiremarkDiagram", () => {
       await waitFor(() => expect(screen.queryByRole("img", { name: "Wiremark mockup" })).toBeNull())
     }
   })
+})
+
+it("redraws an open wireframe using the light renderer when the app theme changes", async () => {
+  renderWiremark.mockReturnValue({ svg: "<svg><text>Mockup</text></svg>", diagnostics: [] })
+  render(<WiremarkDiagram source="Wireframe mobile" />)
+  await screen.findByText("Mockup")
+  await act(() => setAppTheme("ocular-light"))
+  await waitFor(() => expect(renderWiremark).toHaveBeenLastCalledWith("Wireframe mobile", { theme: "light", interactive: true }))
 })

@@ -35,7 +35,7 @@ function Keys({ keys }: { keys: string[] }) {
   return (
     <span className="flex gap-1" aria-label={`Key: ${keys.join(", ")}`}>
       {keys.map((k) => (
-        <kbd key={k} className="voice-mono rounded-md border border-[#31313A] bg-[#0D0D12] px-1.5 py-0.5 text-[10px] text-[#9A99A5]">{k}</kbd>
+        <kbd key={k} className="voice-mono rounded-md border border-[var(--voice-line)] bg-[var(--theme-canvas,#0D0D12)] px-1.5 py-0.5 text-[10px] text-[var(--voice-dim)]">{k}</kbd>
       ))}
     </span>
   )
@@ -51,12 +51,12 @@ export function VoiceCapsule({ name, readiness, keys = [], onListen, onOpenSetti
 } & Pick<VoiceActions, "onListen" | "onOpenSettings">) {
   if (!readiness.ready) {
     return (
-      <div className="voice-ui flex h-16 w-[430px] max-w-full items-center gap-3.5 rounded-[32px] border border-[#E8B53A]/35 px-2.5 shadow-[0_12px_32px_rgba(0,0,0,0.45)]"
+      <div className="voice-ui flex h-16 w-[430px] max-w-full items-center gap-3.5 rounded-[32px] border border-[var(--theme-warning,rgba(232,181,58,0.35))] px-2.5 shadow-[0_12px_32px_rgba(0,0,0,0.45)]"
         style={{ background: "var(--voice-surface)" }} data-testid="voice-capsule" data-ready="false">
         <VoiceRing mode="blocked" size={44} />
         <div className="flex min-w-0 flex-1 flex-col gap-0.5">
           <span className="truncate text-sm font-semibold">{readiness.reason || "Voice isn't ready"}</span>
-          <span className="voice-mono truncate text-[11px] text-[#9A99A5]">not recording{readiness.setting ? ` · ${readiness.setting}` : ""}</span>
+          <span className="voice-mono truncate text-[11px] text-[var(--voice-dim)]">not recording{readiness.setting ? ` · ${readiness.setting}` : ""}</span>
         </div>
         {onOpenSettings && (
           <button type="button" onClick={onOpenSettings} className="voice-secondary h-11 shrink-0 rounded-full px-4 text-[13px] font-semibold">Open settings</button>
@@ -66,13 +66,13 @@ export function VoiceCapsule({ name, readiness, keys = [], onListen, onOpenSetti
   }
   return (
     <button type="button" onClick={onListen} data-testid="voice-capsule" data-ready="true"
-      className="voice-ui flex h-16 w-[318px] max-w-full items-center gap-3.5 rounded-[32px] border border-[#6D5EF6]/30 pl-2.5 pr-4 text-left shadow-[0_12px_32px_rgba(0,0,0,0.45)]"
+      className="voice-ui flex h-16 w-[318px] max-w-full items-center gap-3.5 rounded-[32px] border border-[var(--theme-border,rgba(109,94,246,0.3))] pl-2.5 pr-4 text-left shadow-[0_12px_32px_rgba(0,0,0,0.45)]"
       style={{ background: "var(--voice-surface)" }} aria-label={`Talk to ${name}`}>
       <VoiceRing mode="idle" size={44} />
       <span className="flex min-w-0 flex-1 flex-col gap-0.5">
         <span className="truncate text-sm font-semibold">{name}</span>
-        <span className="voice-mono flex items-center gap-1.5 text-[11px] text-[#9A99A5]">
-          <span className="h-[7px] w-[7px] rounded-full bg-[#6D5EF6]" />{readiness.main} · ready
+        <span className="voice-mono flex items-center gap-1.5 text-[11px] text-[var(--voice-dim)]">
+          <span className="h-[7px] w-[7px] rounded-full bg-[var(--voice-accent)]" />{readiness.main} · ready
         </span>
       </span>
       <Keys keys={keys} />
@@ -83,11 +83,11 @@ export function VoiceCapsule({ name, readiness, keys = [], onListen, onOpenSetti
 function Header({ view, main }: { view: VoiceView; main: string }) {
   return (
     <div className="flex items-center gap-2">
-      <span className="text-[#6D5EF6]" aria-hidden="true">◈</span>
+      <span className="text-[var(--voice-accent)]" aria-hidden="true">◈</span>
       <span className="voice-kicker" aria-live="polite">{KICKER[view.state] ?? "READY"}</span>
       <span className="flex-1" />
-      <span className="h-2 w-2 rounded-full bg-[#6D5EF6]" />
-      <span className="voice-mono text-xs text-[#9A99A5]">{main}</span>
+      <span className="h-2 w-2 rounded-full bg-[var(--voice-accent)]" />
+      <span className="voice-mono text-xs text-[var(--voice-dim)]">{main}</span>
     </div>
   )
 }
@@ -99,7 +99,7 @@ function Caption({ view, className }: { view: VoiceView; className?: string }) {
   return (
     <p className={className} data-testid="voice-caption">
       {lines.map((l, i) => (
-        <span key={l.id} className={l.id === view.speaking || (!view.speaking && i === 0) ? "text-[#E6E5EB]" : "text-[#6E6D79]"}>
+        <span key={l.id} className={l.id === view.speaking || (!view.speaking && i === 0) ? "text-[var(--voice-text)]" : "text-[var(--voice-faint)]"}>
           {i > 0 ? " " : ""}{l.text}
         </span>
       ))}
@@ -110,7 +110,7 @@ function Caption({ view, className }: { view: VoiceView; className?: string }) {
 function PauseBar({ view, hint }: { view: VoiceView; hint: ReactNode }) {
   return (
     <div className="flex flex-col gap-1.5">
-      <div className="h-[3px] overflow-hidden rounded-sm bg-[#26262D]">
+      <div className="h-[3px] overflow-hidden rounded-sm bg-[var(--voice-track)]">
         <div data-testid="voice-pause" className="voice-primary h-full" style={{ width: `${Math.round(view.pause * 100)}%` }} />
       </div>
       {hint}
@@ -142,7 +142,7 @@ function Buttons({ view, actions, big }: { view: VoiceView; actions: VoiceAction
 export function VoiceCard({ view, main, keyLabel, ...actions }: { view: VoiceView; main: string; keyLabel?: string } & VoiceActions) {
   const mode: RingMode = view.state
   return (
-    <div className="voice-ui flex w-[412px] max-w-full flex-col gap-3.5 rounded-[20px] border border-[#6D5EF6]/45 px-[18px] py-4 shadow-[0_18px_48px_rgba(0,0,0,0.5)]"
+    <div className="voice-ui flex w-[412px] max-w-full flex-col gap-3.5 rounded-[20px] border border-[var(--theme-border,rgba(109,94,246,0.45))] px-[18px] py-4 shadow-[0_18px_48px_rgba(0,0,0,0.5)]"
       style={{ background: "var(--voice-surface)" }} data-testid="voice-card" data-state={view.state}>
       <Header view={view} main={main} />
       <div className="flex items-center gap-4">
@@ -153,7 +153,7 @@ export function VoiceCard({ view, main, keyLabel, ...actions }: { view: VoiceVie
       </div>
       {view.state === "listening" && (
         <PauseBar view={view} hint={
-          <div className="voice-mono flex justify-between text-[11px] text-[#9A99A5]">
+          <div className="voice-mono flex justify-between text-[11px] text-[var(--voice-dim)]">
             <span>pause to send</span>{keyLabel && <span>{keyLabel} to send</span>}
           </div>} />
       )}
@@ -171,20 +171,20 @@ function Body({ view, centered }: { view: VoiceView; centered?: boolean }) {
     case "thinking":
       return (
         <>
-          {view.heard && <p className={`m-0 leading-[1.45] text-[#9A99A5] ${centered ? "text-[13px]" : "text-sm"}`}>“{view.heard}”</p>}
-          <span className="voice-mono text-[11px] text-[#A99CFF]">{view.activity ? `${view.activity}…` : "thinking…"}</span>
+          {view.heard && <p className={`m-0 leading-[1.45] text-[var(--voice-dim)] ${centered ? "text-[13px]" : "text-sm"}`}>“{view.heard}”</p>}
+          <span className="voice-mono text-[11px] text-[var(--voice-link)]">{view.activity ? `${view.activity}…` : "thinking…"}</span>
         </>
       )
     case "speaking":
       return (
         <>
-          {centered && view.heard && <p className="m-0 text-[13px] leading-[1.45] text-[#9A99A5]">“{view.heard}”</p>}
+          {centered && view.heard && <p className="m-0 text-[13px] leading-[1.45] text-[var(--voice-dim)]">“{view.heard}”</p>}
           <Caption view={view} className={`m-0 leading-[1.45] ${big}`} />
         </>
       )
   }
   const line = idleLine(view, reeve)
-  return <p className={`m-0 leading-[1.45] text-[#9A99A5] ${centered ? "text-[15px]" : "text-sm"}`}>{line || `Press to talk to ${reeve.mid}`}</p>
+  return <p className={`m-0 leading-[1.45] text-[var(--voice-dim)] ${centered ? "text-[15px]" : "text-sm"}`}>{line || `Press to talk to ${reeve.mid}`}</p>
 }
 
 // VoiceSheet is the phone's: a sheet over the page with the ring at 176 px.
@@ -195,7 +195,7 @@ export function VoiceSheet({ view, main, readiness, ...actions }: { view: VoiceV
   const ref = useRef<HTMLDivElement>(null)
   useEffect(() => { ref.current?.focus() }, [])
   return (
-    <div ref={ref} tabIndex={-1} className="voice-ui voice-rise flex flex-col gap-[18px] rounded-t-[22px] border border-b-0 border-[#6D5EF6]/45 px-5 pt-[18px] pb-[30px] outline-none"
+    <div ref={ref} tabIndex={-1} className="voice-ui voice-rise flex flex-col gap-[18px] rounded-t-[22px] border border-b-0 border-[var(--theme-border,rgba(109,94,246,0.45))] px-5 pt-[18px] pb-[30px] outline-none"
       style={{ background: "var(--voice-surface)" }} data-testid="voice-sheet" data-state={blocked ? "blocked" : view.state}
       role="dialog" aria-modal="true" aria-label={`Talk to ${reeve.mid}`}>
       <Header view={view} main={main} />
@@ -205,7 +205,7 @@ export function VoiceSheet({ view, main, readiness, ...actions }: { view: VoiceV
       {blocked ? (
         <>
           <p className="m-0 text-center text-lg font-medium leading-[1.45]" aria-live="polite">{readiness.reason || "Voice isn't ready"}</p>
-          {readiness.setting && <p className="voice-mono m-0 text-center text-[11px] text-[#9A99A5]">{readiness.setting}</p>}
+          {readiness.setting && <p className="voice-mono m-0 text-center text-[11px] text-[var(--voice-dim)]">{readiness.setting}</p>}
           <div className="flex gap-2.5">
             {actions.onClose && <button type="button" onClick={actions.onClose} className="voice-secondary h-[52px] flex-1 rounded-[14px] text-[15px] font-semibold">Close</button>}
             {actions.onOpenSettings && <button type="button" onClick={actions.onOpenSettings} className="voice-primary h-[52px] flex-1 rounded-[14px] text-[15px] font-semibold">Open settings</button>}
@@ -216,9 +216,9 @@ export function VoiceSheet({ view, main, readiness, ...actions }: { view: VoiceV
         <>
           <div className="flex flex-col items-center gap-2.5 text-center" aria-live="polite"><Body view={view} centered /></div>
           {view.state === "listening" && (
-            <PauseBar view={view} hint={<div className="voice-mono text-center text-[11px] text-[#9A99A5]">pause to send</div>} />
+            <PauseBar view={view} hint={<div className="voice-mono text-center text-[11px] text-[var(--voice-dim)]">pause to send</div>} />
           )}
-          {view.state === "speaking" && <div className="voice-mono text-center text-[11px] text-[#9A99A5]">tap Reply, or talk when it has finished</div>}
+          {view.state === "speaking" && <div className="voice-mono text-center text-[11px] text-[var(--voice-dim)]">tap Reply, or talk when it has finished</div>}
           <Buttons view={view} actions={actions} big />
         </>
       )}

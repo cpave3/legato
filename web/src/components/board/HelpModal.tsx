@@ -69,11 +69,11 @@ export function HelpModal({ open, onClose }: HelpModalProps) {
         <div className="grid grid-cols-2 gap-4 px-5 py-4">
           {sections.map((sec) => (
             <div key={sec.title}>
-              <h3 className="mb-2 text-xs font-bold uppercase tracking-wider text-[#AFA9EC]">{sec.title}</h3>
+              <h3 className="mb-2 text-xs font-bold uppercase tracking-wider text-[var(--theme-focus,#AFA9EC)]">{sec.title}</h3>
               <div className="space-y-1">
                 {sec.items.map((item) => (
                   <div key={item.key} className="flex items-center gap-2 text-xs">
-                    <kbd className="min-w-[3rem] rounded bg-zinc-800 px-1.5 py-0.5 text-center text-[10px] font-bold text-[#AFA9EC]">
+                    <kbd className="min-w-[3rem] rounded bg-zinc-800 px-1.5 py-0.5 text-center text-[10px] font-bold text-[var(--theme-focus,#AFA9EC)]">
                       {item.key}
                     </kbd>
                     <span className="text-zinc-400">{item.desc}</span>

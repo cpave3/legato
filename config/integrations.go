@@ -7,9 +7,9 @@ import (
 	"strings"
 )
 
-// IntegrationsConfig holds services outside Legato that hand work to its
-// agents. See docs/ai/integrations.md.
+// IntegrationsConfig holds optional connections to services outside Legato.
 type IntegrationsConfig struct {
+	MQTT MQTTConfig `yaml:"mqtt"`
 	// Argus delegates cases to agents and receives their replies. Unset,
 	// its delegation routes answer 503 and agents get no reply_case tool.
 	Argus *ArgusConfig `yaml:"argus"`
@@ -29,6 +29,9 @@ type ArgusConfig struct {
 }
 
 func normalizeIntegrations(cfg *Config) error {
+	if err := normalizeMQTT(&cfg.Integrations.MQTT); err != nil {
+		return err
+	}
 	argus := cfg.Integrations.Argus
 	if argus == nil {
 		return nil

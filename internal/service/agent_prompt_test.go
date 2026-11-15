@@ -17,6 +17,7 @@ func promptService(t *testing.T) (AgentService, *store.Store, *mockTmux) {
 	}
 	t.Cleanup(func() { s.Close() })
 	mt := newMockTmux()
+	mt.paneCommands = map[string]string{"legato-task-1": "fake"}
 	svc := NewAgentService(s, mt, t.TempDir(), AgentServiceOptions{
 		Adapter:           &fakeAdapter{name: "fake", launchFn: func(map[string]string, string, string, string) string { return "fake-tool" }},
 		BriefKickoffDelay: time.Millisecond,

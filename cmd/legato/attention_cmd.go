@@ -8,6 +8,8 @@ import (
 	"time"
 
 	"github.com/cpave3/legato/config"
+	"github.com/cpave3/legato/internal/engine/events"
+	"github.com/cpave3/legato/internal/engine/ipc"
 	"github.com/cpave3/legato/internal/service"
 )
 
@@ -41,14 +43,29 @@ func runAttentionCmd(args []string) int {
 	}
 	_, jsonMode := flags["json"]
 
-	attention := service.NewAttentionService(db, nil)
+	bus := events.New()
+	changes, unsubscribe := bus.SubscribeInvalidations(events.EventAttentionChanged)
+	defer unsubscribe()
+	defer func() {
+		select {
+		case <-changes:
+			ctx, cancel := context.WithTimeout(context.Background(), time.Second)
+			defer cancel()
+			ipc.BroadcastContext(ctx, ipc.Message{Type: "mqtt_changed"})
+		default:
+		}
+	}()
+	attention := service.NewAttentionService(db, bus)
 	// Register producers so the CLI can reconcile without a running server.
 	planSvc := service.NewPlanService(db, nil, nil)
 	_ = attention.RegisterProducerWithEvents(service.NewPlanAttentionAdapter(planSvc))
 	// Away tasks and workers, read from the database (the 15 minutes of an
 	// unreachable worker too); the running Legato notifies the phone.
 	_ = attention.RegisterProducer(service.NewHandoffAttentionAdapter(db, service.HandoffAttentionOptions{}))
-	_ = attention.ReconcileAll(context.Background())
+	if err := attention.ReconcileAll(context.Background()); err != nil {
+		fmt.Fprintf(os.Stderr, "error: %v\n", err)
+		return 1
+	}
 	items, err := attention.List(context.Background(), service.AttentionFilter{
 		Producer: flags["producer"],
 		Category: flags["category"],

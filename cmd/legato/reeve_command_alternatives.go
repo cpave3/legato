@@ -37,6 +37,7 @@ var legatoCommandAlternatives = map[string]string{
 	"agent codex":               "POST /api/tasks/<id>/agent {\"agent_kind\": \"codex\"} starts Codex on a task",
 	"agent codex-bridge":        "Legato starts a Codex session's bridge itself",
 	"agent bridge":              "Legato starts a Claude Code session's bridge itself",
+	"agent link chimera":        "Legato's Chimera mod starts its link itself",
 	"workflow step complete":    "a workflow's own agent completes its step: GET /api/workflow-runs/<id> reads a run, and POST …/steps/<step>/trigger or …/retry act on it",
 	"workflow step fail":        "a workflow's own agent fails its step: POST /api/workflow-runs/<id>/cancel cancels a run",
 	"learn reflection submit":   "an agent submits its own reflection: GET /api/learnings reads them",

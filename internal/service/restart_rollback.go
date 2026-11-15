@@ -22,6 +22,9 @@ type RestartSetting struct {
 	List string          `json:"list,omitempty"`
 	Key  string          `json:"key"`
 	Old  json.RawMessage `json:"old,omitempty"`
+	// New is the value the change wrote, for the record: a move keeps the
+	// value config.yaml pinned. A rollback reads only Old.
+	New json.RawMessage `json:"new,omitempty"`
 }
 
 // RestartPlan is what a restart changed and can put back.

@@ -82,23 +82,23 @@ describe("UpdatesSettings", () => {
     expect(screen.getByText(/does not update itself/)).toBeTruthy()
   })
 
-  it("shows st beside Legato and updates it when asked", async () => {
+  it.each(["st", "chimera"])("shows %s beside Legato and updates it when asked", async (name) => {
     const changed = vi.fn()
-    const withST: UpdateStatus = { ...upToDate, tools: [{ name: "st", path: "/home/me/.local/bin/st", managed: true, version: "v0.1.0", latest: "v0.2.0", available: true, state: "available" }] }
-    render(<UpdatesSettings status={withST} baseUrl="http://legato" onChanged={changed} />)
+    const withTool: UpdateStatus = { ...upToDate, tools: [{ name, path: `/home/me/.local/bin/${name}`, managed: true, version: "v0.1.0", latest: "v0.2.0", available: true, state: "available" }] }
+    render(<UpdatesSettings status={withTool} baseUrl="http://legato" onChanged={changed} />)
 
-    expect(screen.getByText("st")).toBeTruthy()
+    expect(screen.getByText(name)).toBeTruthy()
     expect(screen.getByText("v0.1.0")).toBeTruthy()
-    fireEvent.click(screen.getByRole("button", { name: "Update st to v0.2.0" }))
-    await waitFor(() => expect(mockApplyTool).toHaveBeenCalledWith("http://legato", "st"))
+    fireEvent.click(screen.getByRole("button", { name: `Update ${name} to v0.2.0` }))
+    await waitFor(() => expect(mockApplyTool).toHaveBeenCalledWith("http://legato", name))
     await waitFor(() => expect(changed).toHaveBeenCalled())
   })
 
-  it("says when st is not a release it looks after, and offers no update", () => {
-    const fromSource: UpdateStatus = { ...upToDate, tools: [{ name: "st", managed: false, version: "dev", available: false, state: "unmanaged" }] }
+  it.each(["st", "chimera"])("says when %s is not a release it looks after, and offers no update", (name) => {
+    const fromSource: UpdateStatus = { ...upToDate, tools: [{ name, managed: false, version: "dev", available: false, state: "unmanaged" }] }
     render(<UpdatesSettings status={fromSource} baseUrl="http://legato" />)
     expect(screen.getByText(/not a release/i)).toBeTruthy()
-    expect(screen.queryByRole("button", { name: /Update st/ })).toBeNull()
+    expect(screen.queryByRole("button", { name: new RegExp(`Update ${name}`) })).toBeNull()
   })
 
   it("keeps st current on a Legato built from source", () => {
@@ -106,5 +106,16 @@ describe("UpdatesSettings", () => {
     render(<UpdatesSettings status={dev} baseUrl="http://legato" />)
     expect(screen.getByText(/built from source/)).toBeTruthy()
     expect(screen.getByRole("button", { name: "Update st to v0.2.0" })).toBeTruthy()
+  })
+
+  it("shows missing Chimera beside st without offering to install it", () => {
+    render(<UpdatesSettings status={{ ...upToDate, tools: [
+      { name: "st", managed: true, version: "v0.2.0", available: false, state: "up_to_date" },
+      { name: "chimera", managed: false, available: false, state: "missing" },
+    ] }} baseUrl="" />)
+    expect(screen.getByText("st")).toBeTruthy()
+    expect(screen.getByText("chimera")).toBeTruthy()
+    expect(screen.getByText("Not installed on this server")).toBeTruthy()
+    expect(screen.queryByRole("button", { name: /Update chimera/ })).toBeNull()
   })
 })

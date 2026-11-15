@@ -53,6 +53,28 @@ func asksHostItself(args []string) bool {
 	return len(args) >= 2 && args[0] == "credential" && (args[1] == "get" || args[1] == "exec")
 }
 
+// forwardsToHost reports whether runCLI sends args to the host: an agent
+// command in the sandbox, unless the agent pointed legato at a scratch
+// instance of its own, which runCLI refuses instead.
+func forwardsToHost(args []string) bool {
+	return sandboxed() && forwardable(args) && !asksHostItself(args) && !scratchInstance()
+}
+
+// scratchInstance reports whether LEGATO_CONFIG names a configuration. A
+// sandbox never inherits it (secretVars), so inside one the agent set it,
+// meaning a scratch Legato of its own. Forwarding would run the command on
+// the Legato running the session instead (LEG-156: test cards on the real
+// board), and the sandbox never opens a store itself, so the command is
+// refused with the way to reach the scratch instance.
+func scratchInstance() bool { return os.Getenv("LEGATO_CONFIG") != "" }
+
+func errScratchInSandbox() *commandError {
+	return &commandError{Code: "scratch_instance_in_sandbox", Exit: exitEnvironment, Message: "LEGATO_CONFIG names " + os.Getenv("LEGATO_CONFIG") +
+		", but in Legato's sandbox this command would run on the Legato running this session, so it is refused. " +
+		"For a scratch instance, run legato with LEGATO_SANDBOXED, LEGATO_BROKER_SOCKET and LEGATO_BROKER_TOKEN unset " +
+		"(env -u LEGATO_SANDBOXED -u LEGATO_BROKER_SOCKET -u LEGATO_BROKER_TOKEN legato …); for this session's own Legato, unset LEGATO_CONFIG."}
+}
+
 func forwardable(args []string) bool {
 	if len(args) < 2 {
 		return false

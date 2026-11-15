@@ -18,9 +18,9 @@ export function SaidBubble({ text, status }: SaidBubbleProps) {
       <div
         role="group"
         aria-label="Said out loud"
-        className={`max-w-[75%] rounded-lg border-l-2 border-l-[#8b5cf6] px-3 py-2 text-[13px] text-lw-text whitespace-pre-wrap break-words ${reeveWash}`}
+        className={`max-w-[75%] rounded-lg border-l-2 border-l-[var(--theme-keyword,#8b5cf6)] px-3 py-2 text-[13px] text-lw-text whitespace-pre-wrap break-words ${reeveWash}`}
       >
-        <div className="mb-1 flex items-center gap-2 text-[10px] font-semibold uppercase tracking-wide text-[#c4b5fd]">
+        <div className="mb-1 flex items-center gap-2 text-[10px] font-semibold uppercase tracking-wide text-[var(--theme-keyword,#c4b5fd)]">
           <span><span aria-hidden="true">◈ </span>Said</span>
           {status === "not_spoken" && <span className="text-lw-error">Not spoken</span>}
         </div>

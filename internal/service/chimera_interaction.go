@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"os"
+	"strings"
+	"time"
 
 	"github.com/cpave3/legato/internal/engine/chimera"
 	"github.com/cpave3/legato/internal/engine/store"
@@ -102,10 +104,49 @@ func (a *ChimeraInteractionAdapter) QueueMessage(ctx context.Context, taskID, me
 		return err
 	}
 	client := a.clientFactory(endpoint)
-	if err := client.PostMessage(ctx, sessionID, message); !errors.Is(err, chimera.ErrBusy) {
+	ctx, cancel := context.WithTimeout(ctx, 30*time.Second)
+	defer cancel()
+	for {
+		if err := client.PostMessage(ctx, sessionID, message); !errors.Is(err, chimera.ErrBusy) {
+			return err
+		}
+		if err := client.PostMessageAppend(ctx, sessionID, message); !errors.Is(err, chimera.ErrBusy) {
+			return err
+		}
+		// A completing run has sealed its injection buffer, but has not
+		// released the next turn yet. Neither 409 accepted the message.
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("waiting for Chimera's finishing turn: %w", ctx.Err())
+		case <-time.After(nativeBindPoll):
+		}
+	}
+}
+
+// A launch task must start its own turn. Appending to the role prompt's run
+// can be acknowledged before that run is ready to consume injected messages.
+func (a *ChimeraInteractionAdapter) startLaunchMessage(ctx context.Context, taskID, message string) error {
+	endpoint, sessionID, err := a.getEndpointAndSession(ctx, taskID)
+	if err != nil {
 		return err
 	}
-	return client.PostMessageAppend(ctx, sessionID, message)
+	client := a.clientFactory(endpoint)
+	for {
+		err := client.PostMessage(ctx, sessionID, message)
+		if err == nil {
+			return nil
+		}
+		if !errors.Is(err, chimera.ErrBusy) {
+			// Endpoint URLs include the server secret; transport errors include
+			// the request URL and must not expose it in the delivery log.
+			return fmt.Errorf("starting launch turn: %s", strings.ReplaceAll(err.Error(), endpoint, "[Chimera endpoint]"))
+		}
+		select {
+		case <-ctx.Done():
+			return fmt.Errorf("waiting for the role turn to finish: %w", ctx.Err())
+		case <-time.After(nativeBindPoll):
+		}
+	}
 }
 
 func (a *ChimeraInteractionAdapter) Interrupt(ctx context.Context, taskID string) error {
@@ -132,5 +173,12 @@ func (a *ChimeraInteractionAdapter) AnswerQuestion(ctx context.Context, taskID, 
 		return err
 	}
 	client := a.clientFactory(endpoint)
+	session, err := slotSession(ctx, a.store, taskID)
+	if err != nil {
+		return err
+	}
+	if session.AgentKind == "chimera" {
+		return client.AnswerChimeraQuestion(ctx, sessionID, requestID, chimera.QuestionAnswer(answer))
+	}
 	return client.AnswerQuestion(ctx, sessionID, requestID, chimera.QuestionAnswer(answer))
 }

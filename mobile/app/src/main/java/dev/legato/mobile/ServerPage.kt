@@ -22,6 +22,7 @@ import android.webkit.WebViewClient
 import android.widget.FrameLayout
 import androidx.webkit.WebViewCompat
 import androidx.webkit.WebViewFeature
+import androidx.webkit.ScriptHandler
 import org.json.JSONObject
 import java.util.UUID
 
@@ -30,7 +31,6 @@ private const val TAG = "LegatoPage"
 // How long a page told the person left gets to stop what it streams before
 // its timers are paused too.
 private const val PAUSE_TIMERS_AFTER_MS = 5_000L
-private val PAGE_BACKGROUND = Color.parseColor("#0a0a0f")
 
 // ServerPage is one server's page: the WebView that shows it, kept on screen
 // by a PageKeeper, with the app recording for it through ShellVoice. The page
@@ -47,8 +47,10 @@ class ServerPage(
     private val callbacks: Callbacks,
     // Where on the server to open first, such as an approval: "/?approval=…".
     startPath: String = "",
+    private var theme: AppTheme,
 ) : PageKeeper.Host {
     interface Callbacks {
+        fun themeChanged(id: String, done: (String?) -> Unit)
         fun canGoBackChanged(canGoBack: Boolean)
         fun unavailable(reason: String)
         fun openExternally(url: String)
@@ -81,11 +83,15 @@ class ServerPage(
     private val baseUrl = connection.baseUrl
 
     // Holds the current WebView; each recovery puts a new one in it.
-    val view: FrameLayout = FrameLayout(context).apply { setBackgroundColor(PAGE_BACKGROUND) }
+    val view: FrameLayout = FrameLayout(context).apply { setBackgroundColor(Color.parseColor(theme.pageBackground)) }
     private var webView: WebView? = null
+    private var startScript: ScriptHandler? = null
 
     // The key the page sends with a request to record; only its top frame has it.
     private val shellKey = UUID.randomUUID().toString()
+    private val themeBridge = ThemeBridge(shellKey, callbacks::themeChanged) { id, error ->
+        evaluate(themeResultScript(baseUrl, id, error))
+    }
     private val keeper = PageKeeper(baseUrl, this)
     private val voice = ShellVoice(shellKey, microphone, tell = { evaluate(voiceEventScript(it.toJson())) }) { delay, action ->
         val tick = object : Runnable {
@@ -138,6 +144,26 @@ class ServerPage(
     }
 
     fun reload() = webView?.reload()
+
+    fun setTheme(value: AppTheme) {
+        theme = value
+        val background = Color.parseColor(theme.pageBackground)
+        view.setBackgroundColor(background)
+        webView?.let { page ->
+            page.setBackgroundColor(background)
+            installBootstrap(page)
+            if (page.url?.let { allowNavigation(baseUrl, it) } == true) evaluate(themeScript(baseUrl, theme.id))
+        }
+    }
+
+    private fun bootstrap() = bootstrapScript(baseUrl, token, shellKey) + themeBootstrapScript(baseUrl, theme.id)
+
+    private fun installBootstrap(page: WebView) {
+        startScript?.remove()
+        startScript = if (WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)) {
+            WebViewCompat.addDocumentStartJavaScript(page, bootstrap(), setOf(baseUrl))
+        } else null
+    }
 
     fun canGoBack(): Boolean = webView?.canGoBack() == true
 
@@ -226,6 +252,10 @@ class ServerPage(
     }
 
     private fun discard(page: WebView) {
+        if (page === webView) {
+            startScript?.remove()
+            startScript = null
+        }
         view.removeView(page)
         page.stopLoading()
         page.destroy()
@@ -234,7 +264,7 @@ class ServerPage(
     @SuppressLint("SetJavaScriptEnabled")
     private fun createWebView(): WebView {
         val page = WebView(view.context)
-        page.setBackgroundColor(PAGE_BACKGROUND)
+        page.setBackgroundColor(Color.parseColor(theme.pageBackground))
         page.overScrollMode = View.OVER_SCROLL_NEVER
         // Keep the renderer as important as the app while the app lives, so
         // the system does not reclaim it first when the app goes to the back.
@@ -250,10 +280,9 @@ class ServerPage(
             setSupportMultipleWindows(false)
         }
 
-        val bootstrap = bootstrapScript(baseUrl, token, shellKey)
         val origins = setOf(baseUrl)
         val startScripts = WebViewFeature.isFeatureSupported(WebViewFeature.DOCUMENT_START_SCRIPT)
-        if (startScripts) WebViewCompat.addDocumentStartJavaScript(page, bootstrap, origins)
+        installBootstrap(page)
         if (WebViewFeature.isFeatureSupported(WebViewFeature.WEB_MESSAGE_LISTENER)) {
             // Only frames from the server itself get the bridge: an agent's
             // HTML runs in sandboxed frames with an origin of their own.
@@ -269,7 +298,13 @@ class ServerPage(
                 // A new document: the one that was listening is gone.
                 if (view === webView) stream.release()
                 // Without document-start scripts this is the earliest moment.
-                if (!startScripts && url != null && allowNavigation(baseUrl, url)) view.evaluateJavascript(bootstrap, null)
+                if (!startScripts && url != null && allowNavigation(baseUrl, url)) view.evaluateJavascript(bootstrap(), null)
+            }
+
+            override fun onPageFinished(view: WebView, url: String?) {
+                if (view === webView && url != null && allowNavigation(baseUrl, url)) {
+                    view.evaluateJavascript(themeScript(baseUrl, theme.id), null)
+                }
             }
 
             override fun shouldOverrideUrlLoading(view: WebView, request: WebResourceRequest): Boolean {
@@ -319,6 +354,7 @@ class ServerPage(
 
     private fun heard(data: String) {
         when (val message = PageMessage.parse(data)) {
+            is PageMessage.Theme -> themeBridge.handle(message)
             is PageMessage.Restore -> keeper.pageAsksToReturnTo(message.url)
             is PageMessage.Voice -> voice.handle(message)
             is PageMessage.VoiceStream -> stream.handle(message)

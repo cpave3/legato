@@ -74,6 +74,10 @@ const (
 	WatchPR         = "pr"
 )
 
+// WatchAgentMessage is an event no watch asks for: an agent's own message
+// to the Reeve (MessageReeve), queued whether or not the agent is watched.
+const WatchAgentMessage = "message"
+
 // ReeveWatchEvents are every event, the default of a watch.
 var ReeveWatchEvents = []string{WatchWaiting, WatchIdle, WatchBackground, WatchError, WatchExited, WatchNote, WatchPR}
 
@@ -557,7 +561,13 @@ func (w *ReeveWatcher) deliver(ctx context.Context, settings ReeveWatchSettings)
 	if len(events) > 0 && w.opts.Now().Sub(events[0].At) < reeveWatchBatch {
 		return 0
 	}
-	if !w.reeveCanHear(ctx, settings) {
+	// An agent's message resumes a suspended session, as the operator's
+	// does: the agent asked, and may wait on the answer.
+	// It is looked for in the whole queue, not only this batch: one behind
+	// a full batch must still wake the Reeve, which then takes the batches
+	// in order.
+	urgent, _ := w.opts.Store.HasReeveWatchEventKind(ctx, WatchAgentMessage)
+	if !w.reeveCanHear(ctx, settings, urgent) {
 		return 0
 	}
 	if len(events) > 0 {
@@ -575,14 +585,18 @@ func (w *ReeveWatcher) deliver(ctx context.Context, settings ReeveWatchSettings)
 // reeveCanHear says whether a message to the Reeve now lands between its
 // turns: a running session whose agent is not working or waiting on the
 // operator; or, with Wake on, a suspended session or none, which the
-// message resumes or starts.
-func (w *ReeveWatcher) reeveCanHear(ctx context.Context, settings ReeveWatchSettings) bool {
+// message resumes or starts. An urgent message (an agent's own) resumes a
+// suspended session even with Wake off.
+func (w *ReeveWatcher) reeveCanHear(ctx context.Context, settings ReeveWatchSettings, urgent bool) bool {
 	current, err := w.opts.Store.CurrentReeveSession(ctx)
 	if err != nil {
 		return false
 	}
-	if current == nil || current.State != store.ReeveRunning {
+	if current == nil {
 		return settings.Wake
+	}
+	if current.State != store.ReeveRunning {
+		return settings.Wake || urgent
 	}
 	agent, err := w.opts.Store.LatestAgentSessionForTask(ctx, current.TaskID)
 	if err != nil || agent == nil || agent.Status != "running" {
@@ -611,6 +625,9 @@ func WatchMessage(events []WatchEvent) string {
 			name += " (" + oneLine(e.Title) + ")"
 		}
 		switch e.Kind {
+		case WatchAgentMessage:
+			fmt.Fprintf(&b, "- %s sent you a message (message_reeve): %q\n", name, e.Detail)
+			continue
 		case WatchNote:
 			fmt.Fprintf(&b, "- %s added a note: %q\n", name, e.Detail)
 			continue
@@ -657,6 +674,12 @@ func WatchMessage(events []WatchEvent) string {
 		}
 	}
 	b.WriteString("Read the task's notes before you decide; then propose one step at a time.")
+	for _, e := range events {
+		if e.Kind == WatchAgentMessage {
+			b.WriteString(" Answer an agent's message by messaging it (legato agent message <task>), in a change set like any other.")
+			break
+		}
+	}
 	if asks {
 		b.WriteString(" Never answer a permission prompt yourself: tell the operator what it asks.")
 	}
@@ -675,4 +698,53 @@ func clipRunes(s string, n int) string {
 		return s
 	}
 	return string(r[:n]) + "…"
+}
+
+// ReeveMessageMax is the most characters an agent's message to the Reeve
+// may have.
+const ReeveMessageMax = 4000
+
+// The states of an agent's message to the Reeve.
+const (
+	// ReeveMessageQueued: a session runs or is suspended, and is told
+	// between its turns.
+	ReeveMessageQueued = "queued"
+	// ReeveMessageWaiting: no session runs; the message waits for the next
+	// one (or starts one, with reeve.watch.wake on).
+	ReeveMessageWaiting = "waiting"
+)
+
+// ReeveMessageOutcome is what became of an agent's message to the Reeve.
+type ReeveMessageOutcome struct {
+	State string `json:"state"`
+}
+
+// MessageReeve queues an agent's message to this instance's Reeve (the
+// message_reeve tool of every session but the Reeve's). The watcher tells
+// it between the Reeve's turns, beside what watched agents did, and resumes
+// a suspended session for it. It needs only the store, so it works from
+// any process: the host's broker or an agent's own `legato mcp serve`.
+func MessageReeve(ctx context.Context, db *store.Store, taskID, text string, at time.Time) (ReeveMessageOutcome, error) {
+	text = strings.TrimSpace(text)
+	switch {
+	case text == "":
+		return ReeveMessageOutcome{}, errors.New("give the text of the message")
+	case len([]rune(text)) > ReeveMessageMax:
+		return ReeveMessageOutcome{}, fmt.Errorf("the message is over %d characters: say it shorter, or put the detail in a task note and point to it", ReeveMessageMax)
+	case IsReeveTask(ctx, db, taskID):
+		return ReeveMessageOutcome{}, errors.New("this session is the Reeve's own")
+	}
+	e := WatchEvent{TaskID: taskID, Kind: WatchAgentMessage, At: at, Detail: text}
+	if task, err := db.GetTask(ctx, taskID); err == nil {
+		e.Title = task.Title
+	}
+	raw, _ := json.Marshal(e)
+	if err := db.QueueReeveWatchEvent(ctx, taskID, string(raw)); err != nil {
+		return ReeveMessageOutcome{}, err
+	}
+	current, err := db.CurrentReeveSession(ctx)
+	if err != nil || current == nil {
+		return ReeveMessageOutcome{State: ReeveMessageWaiting}, nil
+	}
+	return ReeveMessageOutcome{State: ReeveMessageQueued}, nil
 }

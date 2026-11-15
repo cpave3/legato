@@ -73,6 +73,8 @@ Press `A` on the board to open the agents view. Agents are listed under what the
 - **Idle**: alive, and nothing will wake it but a message.
 - **Ended**: the session is over.
 
+Chimera sessions using Legato's mod report their state directly: permission prompts and questions show **Needs you** until the last open request is answered. A normal turn ending with background shells or background subagents still running shows **Background**, with those jobs listed. Errors show **Needs you**; an interrupted, timed-out or otherwise cancelled turn shows **Idle**, even if jobs remain. Old hook scripts and terminal prompt detection cannot override a session after its first mod report. These mappings follow Chimera's event spec; recorded fixtures are not available yet.
+
 Inside one state, a swarm's agents stay together with the conductor first, then grouped agents, then the rest. Each entry shows the agent's ID and the time in its state, its tool and task, and a bar of its recent activity.
 
 The selected agent's terminal is beside the list. When another agent needs you, a line above the foot names it; press `w` to select it.
@@ -86,6 +88,19 @@ A tile shows the agent's state, its task, and what it is doing. For a native age
 From 120 columns of width, a panel lists what changed among the agents, newest first.
 
 The web UI has the same ensemble at **Ensemble** in the navigation, or `e` on the Agents page. Each web tile has a message box and **Open**.
+
+## When an agent exits
+
+Legato checks that the agent tool is in the foreground before sending terminal
+messages, macros or keys. If the pane is back at a shell, it sends nothing and
+reports the failure; messages are never run as shell commands. The agent is
+marked ended once exit is confirmed. Starting tools have a short grace period,
+but receive no keys until verified. A shell-only session is not a message target.
+
+Native agents use their native connection only: a failed connection does not
+fall back to typing. Launch messages remain pending until accepted. Native TUI
+macros must submit text (end in a newline); raw key macros are refused. To work
+in the shell yourself, attach to the terminal deliberately.
 
 ## Attaching to an agent
 

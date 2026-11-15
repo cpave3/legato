@@ -48,7 +48,19 @@ func runHooksContract(args []string) int {
 	registry := service.NewAdapterRegistry()
 	registry.Register(hooks.NewClaudeCodeAdapter(legatoBin))
 	registry.Register(hooks.NewStaccatoAdapter(legatoBin))
-	registry.Register(hooks.NewChimeraAdapter(legatoBin))
+	chimera := hooks.NewChimeraAdapter(legatoBin)
+	retireChimera := false
+	if args[0] == "install" && slices.Contains(tools, "chimera") {
+		cfg, err := config.Load()
+		if err != nil {
+			return renderCommandError(command, &commandError{Code: "config_error", Message: err.Error(), Exit: exitEnvironment}, jsonMode)
+		}
+		retireChimera = nativeBridgeEnabled(cfg, "chimera")
+		if retireChimera {
+			chimera.SetModDir(filepath.Join(config.ResolveDataDir(cfg), "chimera-mod", "legato"))
+		}
+	}
+	registry.Register(chimera)
 	registry.Register(hooks.NewCodexAdapter(legatoBin))
 	registry.Register(hooks.NewYggdrasilAdapter(legatoBin))
 	adapters := make([]service.AIToolAdapter, 0, len(tools))
@@ -83,6 +95,15 @@ func runHooksContract(args []string) int {
 		text += "\nClaude Code's state is reported by the plugin Legato loads into each session it launches; any state hooks an earlier install left here were removed."
 	}
 	data := map[string]any{"tools": tools, "directory": wd}
+	if retireChimera {
+		notice := "Chimera's state is reported by Legato's mod; the managed hook scripts were removed."
+		if len(tools) == 1 {
+			text = notice
+		} else {
+			text += "\n" + notice
+		}
+		data["chimera_state_hooks"] = "removed"
+	}
 	if len(tools) == 1 {
 		data["tool"] = tools[0]
 	}

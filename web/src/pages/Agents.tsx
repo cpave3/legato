@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback, useRef, useMemo } from "react"
+import { useState, useEffect, useLayoutEffect, useCallback, useRef, useMemo } from "react"
 import { PreparingAgents } from "../components/PreparingAgents"
 import { InterruptedAgents } from "../components/InterruptedAgents"
 import { Link, useSearchParams } from "react-router-dom"
@@ -139,11 +139,6 @@ export function AgentsPage() {
   const ntfyConfigured = Boolean(settings.data?.ntfy_configured)
   const swarmEnabled = Boolean(settings.data?.swarm_enabled)
   const voiceEnabled = Boolean(settings.data?.voice_enabled)
-  const voiceEnabledRef = useRef(false)
-
-  useEffect(() => {
-    voiceEnabledRef.current = voiceEnabled
-  }, [voiceEnabled])
 
   // Per-agent prompt detection override. If not in the map, uses the global default.
   const [promptDetectionOverrides, setPromptDetectionOverrides] = useState<Record<string, boolean>>({})
@@ -160,6 +155,10 @@ export function AgentsPage() {
     if (glitchTimer.current) clearTimeout(glitchTimer.current)
     setGlitching(true)
     glitchTimer.current = setTimeout(() => setGlitching(false), GLITCH_DURATION_MS)
+  }, [])
+
+  useEffect(() => () => {
+    if (glitchTimer.current) clearTimeout(glitchTimer.current)
   }, [])
 
   // Fetch agents on mount and on agents_changed
@@ -218,9 +217,9 @@ export function AgentsPage() {
   // Global keyboard handler for voice dictation: 'v' toggles record/send,
   // Escape cancels recording. Only active when the textarea is not focused
   // and voice is enabled.
-  useEffect(() => {
+  useLayoutEffect(() => {
     const onKeyDown = (e: globalThis.KeyboardEvent) => {
-      if (!voiceEnabledRef.current || !selectedId) return
+      if (!voiceEnabled || !selectedId) return
       const target = e.target as HTMLElement
       const isTyping = target.tagName === "TEXTAREA" || target.tagName === "INPUT" || target.isContentEditable
       if (isTyping) return
@@ -239,7 +238,7 @@ export function AgentsPage() {
     }
     window.addEventListener("keydown", onKeyDown)
     return () => window.removeEventListener("keydown", onKeyDown)
-  }, [selectedId])
+  }, [selectedId, voiceEnabled])
 
   const handleSelect = useCallback(
     (taskId: string) => {
@@ -494,7 +493,7 @@ export function AgentsPage() {
 
   // Keyboard agent switching: modifier + digit
   const [modifierHeld, setModifierHeld] = useState(false)
-  useEffect(() => {
+  useLayoutEffect(() => {
     const onKeyDown = (e: globalThis.KeyboardEvent) => {
       const mod = getSwitchModifier()
       if (isModifierActive(e, mod)) {
@@ -676,9 +675,10 @@ export function AgentsPage() {
   }, [selectedParentId])
 
   // e changes between the list and the ensemble, unless the key is being
-  // typed somewhere or a dialog is open.
+  // typed somewhere or a dialog is open. A layout effect, so the key works
+  // from the moment the agents are shown, not one turn later.
   const hasAgents = runningAgents.length > 0
-  useEffect(() => {
+  useLayoutEffect(() => {
     if (!hasAgents) return
     const onKeyDown = (event: globalThis.KeyboardEvent) => {
       if (event.defaultPrevented || event.repeat || event.ctrlKey || event.altKey || event.metaKey || event.shiftKey) return
@@ -699,7 +699,7 @@ export function AgentsPage() {
         <p className="text-lw-text-2">No active agents</p>
         <button
           onClick={handleSpawn}
-          className="rounded bg-lw-accent px-4 py-2 text-sm font-medium text-white transition-colors hover:bg-indigo-500"
+          className="rounded bg-lw-accent px-4 py-2 text-sm font-medium text-[var(--theme-canvas,#fff)] transition-colors hover:bg-indigo-500"
         >
           Spawn Agent
         </button>
@@ -962,7 +962,7 @@ export function AgentsPage() {
       {/* Right sidebar: swarm event log for swarm participants */}
       {selectedParentId && (isMobile ? (
         <details className="fixed inset-x-2 bottom-2 z-30 max-h-[45vh] overflow-y-auto rounded-lg border border-lw-line-strong bg-lw-ground shadow-2xl">
-          <summary className="cursor-pointer px-3 py-2 text-xs font-medium text-[#c9c8d0]">Swarm events</summary>
+          <summary className="cursor-pointer px-3 py-2 text-xs font-medium text-[var(--theme-text,#c9c8d0)]">Swarm events</summary>
           <div className="max-h-[38vh] overflow-y-auto border-t border-lw-line">
             <SwarmEventLog parentId={selectedParentId} />
           </div>

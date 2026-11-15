@@ -12,6 +12,7 @@ import (
 	"os/exec"
 	"os/signal"
 	"path/filepath"
+	"slices"
 	"strconv"
 	"strings"
 	"syscall"
@@ -109,8 +110,11 @@ func runCLI(args []string) int {
 	}
 	// In Legato's sandbox an agent's own commands run on the host, for its
 	// session, through the broker.
-	if sandboxed() && forwardable(args) && !asksHostItself(args) {
+	if forwardsToHost(args) {
 		return forwardToHost(args)
+	}
+	if sandboxed() && forwardable(args) && scratchInstance() {
+		return renderCommandError(strings.Join(args[:2], "."), errScratchInSandbox(), slices.Contains(args, "--json"))
 	}
 	node, path, remaining, resolveErr := resolveCommand(commandTree(), args)
 	if resolveErr != nil {
@@ -206,6 +210,14 @@ func runPlanCmd(args []string) int {
 		}
 		return plan.ID, nil
 	}
+	// A read with no --name finds the task's latest plan.
+	resolveForRead := func() (string, error) {
+		plan, err := svc.ResolveForRead(context.Background(), taskID, name)
+		if err != nil {
+			return "", err
+		}
+		return plan.ID, nil
+	}
 	fail := func(err error) int {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		return 1
@@ -259,7 +271,7 @@ func runPlanCmd(args []string) int {
 		if len(positional) != 0 {
 			return fail(fmt.Errorf("usage: legato plan %s [--json] [--task <id>] [--name <name>]", verb))
 		}
-		planID, err := resolve()
+		planID, err := resolveForRead()
 		if err != nil {
 			return fail(err)
 		}
@@ -267,7 +279,7 @@ func runPlanCmd(args []string) int {
 			return fail(err)
 		}
 	case "status":
-		planID, err := resolve()
+		planID, err := resolveForRead()
 		if err != nil {
 			return fail(err)
 		}
@@ -1034,6 +1046,7 @@ func runServeCmd(args []string) int {
 	approvalsRT.attach(srv)
 	updates := newUpdateService(db, bus, agentSvc, serveRestarter())
 	serveAttention := wireAttention(context.Background(), db, bus, srv, planSvc, reviewSvc, agentSvc, workflowSvc, approvalsRT, updates, mainSide, triggerCoordinator)
+	defer startMQTT(cfg, db, bus, agentSvc, serveAttention, approvalsRT)()
 	srv.SetSettingsService(wireSettings(db, bus, serveAttention))
 	srv.SetSettingsMover(settingsMover(db), restartAll)
 	serveReeve := wireReeve(srv, db, agentSvc, bus, approvalsRT.approvals)
@@ -1523,6 +1536,7 @@ func runTUI() int {
 		log.Printf("attention: startup signal counts: %v", counts)
 	}
 	app.SetAttentionService(attentionSvc)
+	defer startMQTT(cfg, db, bus, agentSvc, attentionSvc, approvalsRT)()
 	app.SetApprovalService(approvalsRT.approvals)
 	// The TUI cannot draw what agents show through their Legato tools; it
 	// counts it and links to the web UI.

@@ -71,13 +71,21 @@ describe("SettingsPage hot reload build", () => {
     renderPage()
 
     const themes = screen.getByRole("radiogroup", { name: "Terminal theme" })
-    expect(within(themes).getByRole("radio", { name: "Legato" }).getAttribute("aria-checked")).toBe("true")
+    expect(within(themes).getByRole("radio", { name: "Follow app" }).getAttribute("aria-checked")).toBe("true")
 
     fireEvent.click(within(themes).getByRole("radio", { name: "Night" }))
 
     expect(within(themes).getByRole("radio", { name: "Night" }).getAttribute("aria-checked")).toBe("true")
     expect(within(themes).getByRole("radio", { name: "Legato" }).getAttribute("aria-checked")).toBe("false")
     expect(localStorage.getItem("legato:terminal-theme")).toBe("night")
+  })
+
+  it("offers app themes in Appearance and applies the selected palette", () => {
+    renderPage()
+    const themes = screen.getByRole("radiogroup", { name: "App theme" })
+    fireEvent.click(within(themes).getByRole("radio", { name: "Ocular Light" }))
+    expect(localStorage.getItem("legato:app-theme")).toBe("ocular-light")
+    expect(document.documentElement.style.getPropertyValue("--color-lw-text")).toBe("#252B33")
   })
 
   it("hides the rebuild action when the server is not running under hot reload", () => {

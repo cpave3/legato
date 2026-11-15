@@ -1,9 +1,11 @@
 import type { ITheme } from "@xterm/xterm"
+import { renderedThemes, themeContrast } from "../../../themes/render"
+import { appTheme, THEME_CHANGED, type ThemeTokens } from "./appTheme"
 
-// The colours of agents' terminals, chosen in Settings and kept in this
-// browser. The frame around a terminal stays Legato's whatever the theme.
+// Terminal overrides stay independent; without one the terminal follows
+// the app. Its frame always uses the app's semantic UI roles.
 
-export type TerminalThemeId = "legato" | "night" | "solarized" | "classic"
+export type TerminalThemeId = "app" | "legato" | "night" | "solarized" | "classic" | "dracula" | "ocular-light" | "ocular-dark"
 
 export interface TerminalThemeOption {
   id: TerminalThemeId
@@ -12,6 +14,21 @@ export interface TerminalThemeOption {
 }
 
 export const TERMINAL_THEME_KEY = "legato:terminal-theme"
+
+export function tokenTerminalTheme(t: ThemeTokens): ITheme {
+  const preserveSelectionInk = [t.text, t.muted, t.error, t.success, t.warning, t.info, t.keyword, t.type]
+    .every(ink => themeContrast(ink, t.selection) >= 4.5)
+  return {
+    background: t.canvas, foreground: t.text, cursor: t.text, cursorAccent: t.canvas,
+    selectionBackground: t.selection, selectionInactiveBackground: t.selection,
+    selectionForeground: preserveSelectionInk ? undefined : t.text,
+    black: t.muted, red: t.error, green: t.success, yellow: t.warning,
+    blue: t.info, magenta: t.keyword, cyan: t.type, white: t.text,
+    brightBlack: t.muted, brightRed: t.error, brightGreen: t.success,
+    brightYellow: t.warning, brightBlue: t.info, brightMagenta: t.keyword,
+    brightCyan: t.type, brightWhite: t.text,
+  }
+}
 
 // Legato's own: its state colours (running, needs you, done, error) as the
 // ANSI ones, its accent for the cursor and selection, on a ground a little
@@ -66,8 +83,11 @@ export const terminalThemes: TerminalThemeOption[] = [
   },
 ]
 
-// The theme this browser chose; Legato's when none is saved, the saved one
-// is no longer offered, or storage cannot be read.
+terminalThemes.push(...renderedThemes.map(option => ({
+  id: option.id as TerminalThemeId, name: option.name, theme: tokenTerminalTheme(option.tokens),
+})))
+
+// Preserve an explicit known choice; otherwise follow the app.
 export function terminalTheme(): TerminalThemeOption {
   let id: string | null = null
   try {
@@ -75,13 +95,19 @@ export function terminalTheme(): TerminalThemeOption {
   } catch {
     // A private window, or storage turned off.
   }
-  return terminalThemes.find((option) => option.id === id) ?? terminalThemes[0]
+  const saved = terminalThemes.find((option) => option.id === id)
+  if (saved) return saved
+  const app = appTheme()
+  return app.tokens ? { id: "app", name: "Follow app", theme: tokenTerminalTheme(app.tokens) } : terminalThemes[0]
 }
 
 export function setTerminalTheme(id: TerminalThemeId): void {
-  try {
-    localStorage.setItem(TERMINAL_THEME_KEY, id)
-  } catch {
-    // Not kept: the terminal stays as it was.
-  }
+  localStorage.setItem(TERMINAL_THEME_KEY, id)
+  window.dispatchEvent(new Event(THEME_CHANGED))
+}
+
+export function terminalThemePreference(): TerminalThemeId {
+  let id: string | null = null
+  try { id = localStorage.getItem(TERMINAL_THEME_KEY) } catch { /* Storage unavailable. */ }
+  return terminalThemes.some(option => option.id === id) ? id as TerminalThemeId : "app"
 }

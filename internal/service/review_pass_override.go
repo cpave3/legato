@@ -20,6 +20,11 @@ type ReviewPassOverride struct {
 	MaxPasses int    `json:"max_passes,omitempty"`
 }
 
+// OnlyOff says whether the override only turns review passes off.
+func (o ReviewPassOverride) OnlyOff() bool {
+	return o.Enabled != nil && !*o.Enabled && o.Agent == "" && o.Model == "" && o.Tier == "" && o.Skill == "" && o.MaxPasses == 0
+}
+
 // Apply makes the settings of one handoff: the worker's defaults with the
 // override on them. An override naming a tool, tier or skill this worker
 // does not have is an error, as is a pass limit below one.

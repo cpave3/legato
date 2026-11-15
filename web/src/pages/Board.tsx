@@ -929,7 +929,7 @@ export function BoardPage() {
               type="button"
               aria-label="New card"
               onClick={() => setOverlay({ kind: "create" })}
-              className="flex h-11 w-11 items-center justify-center rounded-full bg-lw-accent text-white"
+              className="flex h-11 w-11 items-center justify-center rounded-full bg-lw-accent text-[var(--theme-canvas,#fff)]"
             >
               <Plus size={20} aria-hidden="true" />
             </button>
@@ -943,7 +943,7 @@ export function BoardPage() {
         )}
       </header>
 
-      <header data-testid="board-header" className="hidden items-center justify-between gap-4 border-b border-[#222228] px-5 py-3.5 md:flex">
+      <header data-testid="board-header" className="hidden items-center justify-between gap-4 border-b border-[var(--theme-border,#222228)] px-5 py-3.5 md:flex">
         <div className="flex min-w-0 items-baseline gap-3">
           <h1 className="m-0 text-lg font-semibold leading-6">Board</h1>
           <span className="truncate text-[13px] text-lw-text-2">{cardCountLabel(allCards, shownCards)}</span>
@@ -981,7 +981,7 @@ export function BoardPage() {
           </button>
           <button
             onClick={() => setOverlay({ kind: "create" })}
-            className="h-8 rounded-md bg-lw-accent px-3.5 text-[13px] font-medium text-white hover:brightness-110"
+            className="h-8 rounded-md bg-lw-accent px-3.5 text-[13px] font-medium text-[var(--theme-canvas,#fff)] hover:brightness-110"
           >
             + New card
           </button>
@@ -1055,9 +1055,9 @@ export function BoardPage() {
         )}
       </div>
 
-      <footer data-testid="board-keys" className="hidden gap-[18px] border-t border-[#222228] px-5 py-1.5 text-xs text-lw-faint md:flex">
+      <footer data-testid="board-keys" className="hidden gap-[18px] border-t border-[var(--theme-border,#222228)] px-5 py-1.5 text-xs text-lw-faint md:flex">
         {boardKeys(showEmpty, Boolean(panelCard)).map(([key, label]) => (
-          <span key={key}><span className="text-[#b4b3bd]">{key}</span> {label}</span>
+          <span key={key}><span className="text-[var(--theme-muted,#b4b3bd)]">{key}</span> {label}</span>
         ))}
       </footer>
 

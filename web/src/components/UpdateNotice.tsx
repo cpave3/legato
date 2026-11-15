@@ -78,7 +78,7 @@ export function UpdateNotice({ status, baseUrl }: { status: UpdateStatus | null 
       {actions && (
         <span className="flex gap-2">
           <button className={button + " text-zinc-300 hover:bg-zinc-800"} onClick={putOffThis}>Later</button>
-          <button className={button + " bg-lw-accent text-white"} disabled={starting} onClick={() => void update()}>
+          <button className={button + " bg-lw-accent text-[var(--theme-canvas,#fff)]"} disabled={starting} onClick={() => void update()}>
             {status.state === "failed" ? "Try again" : "Update and restart"}
           </button>
         </span>

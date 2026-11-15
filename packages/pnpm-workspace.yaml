@@ -1,0 +1,6 @@
+# The workspace for the apps under packages/. It lives here, not at the
+# repository root, because a root workspace would take over `pnpm install` in
+# web/, site/ and browser-extension/, which keep lockfiles of their own until
+# they move in.
+packages:
+  - "*"

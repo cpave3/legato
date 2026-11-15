@@ -169,6 +169,19 @@ task extension:lint
 
 See [Browser extension](/legato/integrations/browser-extension/).
 
+### Apps under packages/
+
+Apps are moving into `packages/`, one folder each, in one pnpm workspace rooted there. The first is the Even Realities G2 glasses app in `packages/even-hub/`.
+
+```bash
+task packages:check        # lint, typecheck and test every app in packages/
+task even-hub:dev          # the glasses app on its recorded fixture
+task even-hub:sim          # the Even Hub simulator, open on it
+task even-hub:screenshots  # run both and save screenshots (-- --headless for xvfb-run)
+```
+
+See [Even Realities G2 glasses](/legato/integrations/even-g2/) and [`packages/README.md`](https://github.com/cpave3/legato/blob/main/packages/README.md).
+
 ## Release builds
 
 Releases are built by a GitHub workflow, not by hand. `task release:dist VERSION=vX.Y.Z` builds the web UI once, then a binary stamped with that version for Linux on amd64 and arm64 and for macOS on arm64, with a `SHA256SUMS` file. [`docs/ai/updates.md`](https://github.com/cpave3/legato/blob/main/docs/ai/updates.md) describes the release workflow.

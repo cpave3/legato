@@ -3,6 +3,7 @@ import { Terminal } from "@xterm/xterm"
 import { FitAddon } from "@xterm/addon-fit"
 import { useServer } from "../hooks/useServer"
 import { terminalUrl, touchWheel, wheelSequence } from "../lib/terminalSocket"
+import { subscribeTheme } from "../lib/appTheme"
 import { terminalTheme } from "../lib/terminalTheme"
 import { cn } from "../lib/utils"
 import "@xterm/xterm/css/xterm.css"
@@ -21,9 +22,7 @@ export function LiveTerminal({ agentId }: LiveTerminalProps) {
   const containerRef = useRef<HTMLDivElement>(null)
   const { baseUrl } = useServer()
   const [status, setStatus] = useState<"connecting" | "open" | "closed">("connecting")
-  // The theme is read once: Settings is another page, so a terminal opened
-  // after a change takes it.
-  const [theme] = useState(() => terminalTheme().theme)
+  const [theme, setTheme] = useState(() => terminalTheme().theme)
   const [size, setSize] = useState({ cols: 0, rows: 0 })
   const [focused, setFocused] = useState(false)
   // When the next reconnect is due, while the connection is down.
@@ -36,12 +35,17 @@ export function LiveTerminal({ agentId }: LiveTerminalProps) {
     if (!container) return
 
     const term = new Terminal({
-      theme,
+      theme: terminalTheme().theme,
       fontSize: 13,
       fontFamily: "'Geist Mono', ui-monospace, 'Cascadia Code', 'Source Code Pro', Menlo, Consolas, monospace",
       cursorBlink: true,
       scrollback: 0, // tmux keeps the history
       allowProposedApi: true,
+    })
+    const stopTheme = subscribeTheme(() => {
+      const next = terminalTheme().theme
+      term.options.theme = next
+      setTheme(next)
     })
     const fit = new FitAddon()
     term.loadAddon(fit)
@@ -131,9 +135,10 @@ export function LiveTerminal({ agentId }: LiveTerminalProps) {
       data.dispose()
       binary.dispose()
       ws?.close()
+      stopTheme()
       term.dispose()
     }
-  }, [agentId, baseUrl, theme])
+  }, [agentId, baseUrl])
 
   // Counts down to the next reconnect.
   useEffect(() => {
@@ -162,7 +167,7 @@ export function LiveTerminal({ agentId }: LiveTerminalProps) {
             : "border-lw-line-strong",
         )}
       >
-        <div className="flex h-8 shrink-0 items-center justify-between gap-3 border-b border-lw-raised bg-[#0e0e12] px-3 font-lw-mono text-[11px] text-lw-faint max-sm:h-[30px]">
+        <div className="flex h-8 shrink-0 items-center justify-between gap-3 border-b border-lw-raised bg-[var(--theme-surface,#0e0e12)] px-3 font-lw-mono text-[11px] text-lw-faint max-sm:h-[30px]">
           {lost ? (
             <span className="flex items-center gap-1.5 uppercase tracking-wide text-lw-needs">
               <span aria-hidden="true" className="size-1.5 rounded-full border-[1.5px] border-lw-needs" />
@@ -187,7 +192,7 @@ export function LiveTerminal({ agentId }: LiveTerminalProps) {
               <button
                 type="button"
                 onClick={() => retryNow.current()}
-                className="h-[26px] rounded-md border border-lw-line-strong bg-lw-raised px-2.5 text-xs text-lw-text hover:border-[#4a4955]"
+                className="h-[26px] rounded-md border border-lw-line-strong bg-lw-raised px-2.5 text-xs text-lw-text hover:border-[var(--theme-border,#4a4955)]"
               >
                 Retry now
               </button>

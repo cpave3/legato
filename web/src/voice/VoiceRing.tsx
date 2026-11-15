@@ -19,7 +19,14 @@ const LOOK: Record<RingMode, { fill: string; stroke: string; glyph: string; glow
 export function VoiceRing({ mode, size = 88, level = 0, label }: { mode: RingMode; size?: number; level?: number; label?: string }) {
   const reduced = useMediaQuery("(prefers-reduced-motion: reduce)")
   const reeve = useReeveName()
-  const look = LOOK[mode]
+  const base = LOOK[mode]
+  const role = mode === "speaking" ? "success" : mode === "blocked" ? "warning" : "focus"
+  const look = {
+    fill: base.fill === "none" ? "none" : `var(--theme-selection, ${base.fill})`,
+    stroke: `var(--theme-${mode === "idle" ? "border" : role}, ${base.stroke})`,
+    glyph: `var(--theme-${role}, ${base.glyph})`,
+    glow: base.glow,
+  }
   const c = size / 2
   const hr = c * 0.4
   const hexagon = Array.from({ length: 6 }, (_, k) => {
@@ -33,15 +40,15 @@ export function VoiceRing({ mode, size = 88, level = 0, label }: { mode: RingMod
       width={size} height={size} role="img" aria-label={label ?? `${reeve.start}'s voice: ${mode === "blocked" ? "not ready" : mode}`}
       style={{ overflow: "visible", flex: "none" }}>
       <defs>
-        <radialGradient id={`voice-glow-${mode}`}><stop offset="0" stopColor={look.glow || "transparent"} /><stop offset="0.68" stopColor="transparent" /></radialGradient>
+        <radialGradient id={`voice-glow-${mode}`}><stop offset="0" stopColor={look.glow ? `var(--theme-${role}, ${look.glow})` : "transparent"} /><stop offset="0.68" stopColor="transparent" /></radialGradient>
       </defs>
       {look.glow && <circle className="glow" cx={c} cy={c} r={c * 1.1} fill={`url(#voice-glow-${mode})`} />}
       {dialTicks(mode, size, level).map((t, i) => (
-        <line key={i} className="tick" x1={t.x1} y1={t.y1} x2={t.x2} y2={t.y2} stroke={t.color} strokeOpacity={t.opacity}
+        <line key={i} className="tick" x1={t.x1} y1={t.y1} x2={t.x2} y2={t.y2} stroke={`var(--theme-${mode === "idle" || mode === "thinking" ? "border" : role}, ${t.color})`} strokeOpacity={t.opacity}
           strokeWidth={t.width} strokeLinecap="round" style={t.delay ? { animationDelay: `${t.delay.toFixed(2)}s` } : undefined} />
       ))}
       {mode === "thinking" && (
-        <circle className="arc" data-testid="voice-arc" cx={c} cy={c} r={arcR} fill="none" stroke="#8A6CFF" strokeWidth={Math.max(3, size * 0.035)}
+        <circle className="arc" data-testid="voice-arc" cx={c} cy={c} r={arcR} fill="none" stroke="var(--theme-focus, #8A6CFF)" strokeWidth={Math.max(3, size * 0.035)}
           strokeLinecap="round" strokeDasharray={`${circ * 0.3} ${circ}`} />
       )}
       <polygon points={hexagon} fill={look.fill} stroke={look.stroke} strokeWidth={size > 100 ? 3 : size > 60 ? 2 : 1.5} />

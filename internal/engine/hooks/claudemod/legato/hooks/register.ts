@@ -981,6 +981,18 @@ export const register: Register = on => {
     return ended
   })
 
+  // API failures are opaque engine chunks, not stored conversation rows.
+  on('classic.StopFailure', async ($, e, next) => {
+    const stopped = await next(e)
+    const explanation = e.last_assistant_message || e.error
+    post({
+      type: 'request_error',
+      error: cap(explanation.replace(/https?:\/\/[^\s<>"']+/g, '[provider endpoint]'), SEED_TEXT_LIMIT),
+    })
+
+    return stopped
+  })
+
   // The conversation's own rows, as stored. The hook only relays. What the
   // engine injects beside the conversation (reminders, listings, hook output)
   // is no part of what the panel shows and never leaves the session.

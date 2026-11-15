@@ -333,3 +333,91 @@ func TestASandboxedChimeraDropsItsOwnDockerSandbox(t *testing.T) {
 		t.Fatalf("unsandboxed command = %s", cmd)
 	}
 }
+
+func TestChimeraModLaunchEnvironmentAndBinding(t *testing.T) {
+	a := hooks.NewChimeraAdapter("/opt/legato")
+	if a.BindsNativeEndpoint() {
+		t.Fatal("unconfigured adapter waits for a native binding")
+	}
+	for _, inherited := range []string{"", "/user/one" + string(os.PathListSeparator) + "/user/two"} {
+		t.Run(inherited, func(t *testing.T) {
+			t.Setenv("CHIMERA_MOD_DIRS", inherited)
+			a.SetModDir("/data/chimera-mod/legato")
+			vars := a.EnvVars("task-1", "")
+			want := "/data/chimera-mod/legato"
+			if inherited != "" {
+				want = inherited + string(os.PathListSeparator) + want
+			}
+			if vars["CHIMERA_MOD_DIRS"] != want || vars["LEGATO_BIN"] != "/opt/legato" || vars["LEGATO_TASK_ID"] != "task-1" {
+				t.Fatalf("environment = %v", vars)
+			}
+			if !a.BindsNativeEndpoint() {
+				t.Fatal("mod-backed launches must wait for binding")
+			}
+		})
+	}
+	a.SetModDir("")
+	if a.BindsNativeEndpoint() {
+		t.Fatal("clearing the mod did not clear native binding")
+	}
+	if _, ok := a.EnvVars("task-1", "")["CHIMERA_MOD_DIRS"]; ok {
+		t.Fatal("adapter without a mod overrides inherited mods")
+	}
+}
+
+func TestChimeraModUsesBundledToolsWithoutProbingOrReplacingOperatorFlags(t *testing.T) {
+	a := hooks.NewChimeraAdapter("/bin/legato")
+	a.SetModDir("/data/mod")
+	a.SetMCPTools(true, []string{"task_context"})
+	a.SetToolsPrompt("MCP guidance")
+	a.SetMCPConfigProbe(func() bool { t.Fatal("mod mode probed help"); return false })
+	if cmd := a.LaunchCommand(map[string]string{}, "", "", ""); cmd != "chimera" {
+		t.Fatalf("mod launch = %q", cmd)
+	}
+	if prompt := a.ToolsPrompt(); prompt != "" {
+		t.Fatalf("mod tools prompt = %q", prompt)
+	}
+	a.SetLaunchArgs([]string{"--mcp-config", "@/operator/mcp.json"})
+	if cmd := a.LaunchCommand(map[string]string{}, "", "", ""); !strings.Contains(cmd, "--mcp-config @/operator/mcp.json") {
+		t.Fatalf("operator flag lost: %q", cmd)
+	}
+}
+
+func TestChimeraLaunchReadsSecretFileAtExecutionTime(t *testing.T) {
+	dir := t.TempDir()
+	secretFile := filepath.Join(dir, "secret ' file")
+	if err := os.WriteFile(secretFile, []byte("server-secret-value"), 0600); err != nil {
+		t.Fatal(err)
+	}
+	// An executable named chimera observes the actual child environment.
+	if err := os.WriteFile(filepath.Join(dir, "chimera"), []byte("#!/bin/sh\nprintf '%s:%s' \"$CHIMERA_SERVER_SECRET\" \"$*\"\n"), 0700); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	a := hooks.NewChimeraAdapter("legato")
+	vars := map[string]string{"LEGATO_CHIMERA_SECRET_FILE": secretFile, "LEGATO_SANDBOXED": "1"}
+	cmd := a.LaunchCommand(vars, "", "", "")
+	if !strings.HasPrefix(cmd, "sh -c ") || !strings.Contains(cmd, "CHIMERA_SERVER_SECRET=") || strings.Contains(cmd, "env CHIMERA_SERVER_SECRET=") || strings.Contains(cmd, "server-secret-value") || vars["CHIMERA_SERVER_SECRET"] != "" {
+		t.Fatalf("secret exposed or not loaded by executable prefix: %q, %v", cmd, vars)
+	}
+	out, err := exec.Command("sh", "-c", cmd+" --late-flag").CombinedOutput()
+	if err != nil || string(out) != "server-secret-value:--late-flag" {
+		t.Fatalf("launch output %q: %v", out, err)
+	}
+	if _, err := os.Stat(secretFile); !os.IsNotExist(err) {
+		t.Fatalf("bootstrap secret was not consumed: %v", err)
+	}
+}
+
+func TestChimeraModDoesNotInstallLegacyHooks(t *testing.T) {
+	home := t.TempDir()
+	t.Setenv("HOME", home)
+	a := hooks.NewChimeraAdapter("/bin/legato")
+	a.SetModDir("/data/mod")
+	if err := a.InstallHooks(""); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := os.Stat(filepath.Join(home, ".chimera", "hooks")); !os.IsNotExist(err) {
+		t.Fatalf("mod mode installed legacy scripts: %v", err)
+	}
+}

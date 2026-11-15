@@ -1,11 +1,15 @@
 package tmux
 
 import (
+	"context"
+	"fmt"
 	"os"
 	"os/exec"
+	"path/filepath"
 	"strconv"
 	"strings"
 	"testing"
+	"time"
 )
 
 // TestMain gives the tests a tmux server of their own, never the one they
@@ -126,27 +130,40 @@ func TestSpawnGivesThePaneThePATHAmongItsVariables(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// Keep this private server alive while configuring the shell it starts.
+	control := "legato-test-path-control"
+	if out, err := exec.Command("tmux", "new-session", "-d", "-s", control, "sleep 3600").CombinedOutput(); err != nil {
+		t.Fatalf("start private tmux server: %v\n%s", err, out)
+	}
+	t.Cleanup(func() { m.Kill(control) })
+	dir := t.TempDir()
+	envFile := filepath.Join(dir, "pane-path")
+	shell := filepath.Join(dir, "shell")
+	script := "#!/bin/sh\nprintf '%s' \"$PATH\" > \"$LEGATO_TEST_ENV_FILE\"\n\"$LEGATO_TEST_TMUX\" wait-for -S path-started\nexec /bin/sh\n"
+	if err := os.WriteFile(shell, []byte(script), 0o755); err != nil {
+		t.Fatal(err)
+	}
+	if out, err := exec.Command("tmux", "set-option", "-g", "default-shell", shell).CombinedOutput(); err != nil {
+		t.Fatalf("configure controlled shell: %v\n%s", err, out)
+	}
 	name := "legato-test-path"
 	t.Cleanup(func() { m.Kill(name) })
 	path := t.TempDir() + string(os.PathListSeparator) + os.Getenv("PATH")
-	if err := m.Spawn(name, t.TempDir(), 0, 0, "PATH="+path); err != nil {
+	if err := m.Spawn(name, t.TempDir(), 0, 0, "PATH="+path, "LEGATO_TEST_ENV_FILE="+envFile, "LEGATO_TEST_TMUX="+m.tmuxPath); err != nil {
 		t.Fatal(err)
 	}
-	// What tmux started the pane's shell with, before its profile runs.
-	pid, err := exec.Command("tmux", "display-message", "-p", "-t", name, "#{pane_pid}").Output()
+	// The controlled shell records its inherited environment before any
+	// profile can rebuild PATH, then signals that it has started.
+	ctx, cancel := context.WithTimeout(context.Background(), 3*time.Second)
+	defer cancel()
+	if out, err := exec.CommandContext(ctx, "tmux", "wait-for", "path-started").CombinedOutput(); err != nil {
+		t.Fatalf("waiting for the pane to record its PATH: %v\n%s", err, out)
+	}
+	environ, err := os.ReadFile(envFile)
 	if err != nil {
 		t.Fatal(err)
 	}
-	environ, err := os.ReadFile("/proc/" + strings.TrimSpace(string(pid)) + "/environ")
-	if err != nil {
-		t.Skipf("no /proc to read the pane's environment: %v", err)
-	}
-	got := ""
-	for _, kv := range strings.Split(string(environ), "\x00") {
-		if v, ok := strings.CutPrefix(kv, "PATH="); ok {
-			got = v
-		}
-	}
+	got := string(environ)
 	if got != path {
 		t.Fatalf("the pane's PATH = %q, want %q", got, path)
 	}
@@ -407,6 +424,9 @@ func TestSendKeysIntegration(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	// Transport test: the lifecycle owner authorizes this scratch receiver.
+	m.SetDeliveryGuard(func(string, string) error { return nil })
+
 	name := "legato-test-sendkeys"
 	t.Cleanup(func() { m.Kill(name) })
 
@@ -477,6 +497,9 @@ func TestSendKeysLineIntegration(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// Transport test: the lifecycle owner authorizes this scratch receiver.
+	m.SetDeliveryGuard(func(string, string) error { return nil })
+
 	name := "legato-test-sendkeysline"
 	if err := m.Spawn(name, t.TempDir(), 0, 0); err != nil {
 		t.Fatal(err)
@@ -495,6 +518,9 @@ func TestSendKeysMultilineIntegration(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
+	// Transport test: the lifecycle owner authorizes this scratch receiver.
+	m.SetDeliveryGuard(func(string, string) error { return nil })
+
 	name := "legato-test-sendkeysmulti"
 	if err := m.Spawn(name, t.TempDir(), 0, 0); err != nil {
 		t.Fatal(err)
@@ -525,5 +551,106 @@ func TestListSessionsWithNoServerOrSocketFolderIsEmpty(t *testing.T) {
 	sessions, err := m.ListSessions()
 	if err != nil || len(sessions) != 0 {
 		t.Fatalf("ListSessions = %v, %v; want none and no error", sessions, err)
+	}
+}
+
+func TestAgentDeliveryRefusesUnverifiedPane(t *testing.T) {
+	skipWithoutTmux(t)
+	m, err := New(Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	name := "legato-test-refuse-shell"
+	if err := m.Spawn(name, t.TempDir(), 0, 0); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { m.Kill(name) })
+	awaitShellPane(t, m, name)
+	payload := "touch " + filepath.Join(t.TempDir(), "must-not-run")
+	sends := []func() error{
+		func() error { return m.SendKeys(name, payload) },
+		func() error { return m.SendKey(name, "Enter") },
+		func() error { return m.SendKeysLine(name, "echo unsafe") },
+		func() error { return m.SendKeysMultiline(name, "one\ntwo") },
+	}
+	for _, send := range sends {
+		if err := send(); err == nil {
+			t.Error("unverified pane accepted agent keys")
+		}
+	}
+	calls := 0
+	m.SetDeliveryGuard(func(_ string, command string) error {
+		calls++
+		if !IsShellCommand(command) {
+			t.Fatalf("scratch pane foreground = %q; want shell", command)
+		}
+		return fmt.Errorf("not delivered: shell is not the agent")
+	})
+	for _, send := range sends {
+		if err := send(); err == nil {
+			t.Error("verified shell accepted agent keys")
+		}
+	}
+	if calls != len(sends) {
+		t.Fatalf("foreground checks = %d; want %d", calls, len(sends))
+	}
+	capture, err := m.Capture(name)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if strings.Contains(capture, "must-not-run") || strings.Contains(capture, "echo unsafe") || strings.Contains(capture, "swarm event") {
+		t.Fatalf("keys reached shell: %q", capture)
+	}
+}
+
+func TestBootstrapShellCommandIsSeparateFromAgentMessages(t *testing.T) {
+	skipWithoutTmux(t)
+	m, err := New(Options{})
+	if err != nil {
+		t.Fatal(err)
+	}
+	name := "legato-test-bootstrap"
+	dir := t.TempDir()
+	if err := m.Spawn(name, dir, 0, 0); err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { m.Kill(name) })
+	awaitShellPane(t, m, name)
+	marker := filepath.Join(dir, "booted")
+	if err := m.SendKeysShellCommand(name, "touch "+marker); err != nil {
+		t.Fatal(err)
+	}
+	deadline := time.Now().Add(time.Second)
+	for {
+		if _, err := os.Stat(marker); err == nil {
+			break
+		}
+		if time.Now().After(deadline) {
+			t.Fatal("bootstrap was not executed")
+		}
+		time.Sleep(time.Millisecond)
+	}
+	if err := m.SendKeysLine(name, "echo not-an-agent"); err == nil {
+		t.Fatal("bootstrap authorized subsequent agent messages")
+	}
+}
+
+func awaitShellPane(t *testing.T, m *Manager, name string) {
+	t.Helper()
+	// new-session can return while the child is still tmux, before execing
+	// its shell. Exercise delivery only once that receiver actually exists.
+	deadline := time.Now().Add(3 * time.Second)
+	for {
+		commands, err := m.PaneCommands()
+		if err != nil {
+			t.Fatal(err)
+		}
+		if IsShellCommand(commands[name]) {
+			return
+		}
+		if time.Now().After(deadline) {
+			t.Fatalf("pane %s did not start its shell: foreground = %q", name, commands[name])
+		}
+		time.Sleep(5 * time.Millisecond)
 	}
 }

@@ -10,6 +10,7 @@ import (
 	"sync"
 	"time"
 
+	"github.com/cpave3/legato/internal/engine/chimera"
 	"github.com/cpave3/legato/internal/engine/events"
 	"github.com/cpave3/legato/internal/engine/store"
 )
@@ -484,6 +485,10 @@ func decodeApproval(row store.Approval) Approval {
 	approval := Approval{Approval: row, Details: json.RawMessage(row.DetailsJSON), Options: []ApprovalOption{}}
 	if len(approval.Details) == 0 {
 		approval.Details = json.RawMessage("{}")
+	}
+	if row.Source == ApprovalSourceAgentQuestion {
+		// Requests stored before question normalization must remain answerable.
+		approval.Details = chimera.NormalizeQuestionRequest(approval.Details)
 	}
 	_ = json.Unmarshal([]byte(row.OptionsJSON), &approval.Options)
 	if row.DecisionJSON != "" {

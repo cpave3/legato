@@ -41,12 +41,12 @@ export function Feed() {
       aria-label="Legato widget feed"
       // A press never moves the focus, so typing elsewhere carries on.
       onMouseDown={(e) => e.preventDefault()}
-      className="voice-ui w-[412px] max-w-full rounded-[20px] border border-[#E8B53A]/40 shadow-[0_18px_48px_rgba(0,0,0,0.5)]"
+      className="voice-ui w-[412px] max-w-full rounded-[20px] border border-[var(--theme-warning,rgba(232,181,58,0.4))] shadow-[0_18px_48px_rgba(0,0,0,0.5)]"
       style={{ background: "var(--voice-surface)" }}
     >
-      <header className="sticky top-0 z-10 flex items-center gap-2 rounded-t-[20px] border-b border-[#26262D] bg-[#141319] px-[18px] py-2.5">
-        <span className="text-[#E8B53A]" aria-hidden="true">◆</span>
-        <span className="voice-kicker !text-[#E8B53A]">{waiting ? `${waiting} ${waiting === 1 ? "needs" : "need"} you` : "done"}</span>
+      <header className="sticky top-0 z-10 flex items-center gap-2 rounded-t-[20px] border-b border-[var(--voice-track)] bg-[var(--theme-surface,#141319)] px-[18px] py-2.5">
+        <span className="text-[var(--voice-amber)]" aria-hidden="true">◆</span>
+        <span className="voice-kicker !text-[var(--voice-amber)]">{waiting ? `${waiting} ${waiting === 1 ? "needs" : "need"} you` : "done"}</span>
       </header>
       <ul className="m-0 flex list-none flex-col p-1.5">
         {entries.map((e) => (

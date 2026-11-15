@@ -108,9 +108,7 @@ func TestTakeBackNotesTheLastReviewHeard(t *testing.T) {
 	ctx := context.Background()
 	r.finish(t)
 	eventually(t, "in review", func() bool { return r.away(t).View == service.AwayViewInReview })
-	r.worker.Stop()
-	r.main.Clock.Advance(time.Hour)
-	eventually(t, "unreachable", func() bool { return r.away(t).View == service.AwayViewUnreachable })
+	unreachable(t, r.main, r.worker, r.away(t).WorkerInstanceID, r.taskID)
 
 	if _, err := r.main.Handoffs.TakeBack(ctx, r.taskID); err != nil {
 		t.Fatal(err)

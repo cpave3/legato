@@ -1,6 +1,7 @@
 package service
 
 import (
+	"context"
 	"fmt"
 	"sort"
 )
@@ -57,10 +58,23 @@ type LaunchCommandAdapter interface {
 	LaunchCommand(env map[string]string, brief, model, tier string) string
 }
 
+// SandboxLaunchCommandAdapter keeps a host-only bootstrap outside the sandbox
+// prefix while placing the tool and its arguments inside it.
+type SandboxLaunchCommandAdapter interface {
+	LaunchCommandAdapter
+	LaunchCommandWithSandbox(env map[string]string, brief, model, tier, sandboxPrefix string) string
+}
+
 // SessionLaunchValidator rejects configured arguments that override an exact
 // conversation selector or the saved workspace before a terminal is started.
 type SessionLaunchValidator interface {
 	ValidateSessionLaunch(policy, tier string) error
+}
+
+// LaunchValidator checks required host capabilities before a spawn has any
+// terminal or execution side effects. It is also called for ephemeral agents.
+type LaunchValidator interface {
+	ValidateLaunch(ctx context.Context, tier string, extraArgs []string) error
 }
 
 // LaunchSelfKickoff is an optional adapter capability for tools whose launch
