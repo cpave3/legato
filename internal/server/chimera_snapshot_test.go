@@ -7,6 +7,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/http/httptest"
+	"reflect"
 	"strings"
 	"testing"
 	"time"
@@ -333,5 +334,38 @@ func TestChimeraSnapshotDoesNotReplaceNativeChildrenWithEmptyModMetadata(t *test
 	New(nil, agents, nil, ":0").Handler().ServeHTTP(response, httptest.NewRequest("GET", "/api/agents/task/chimera/snapshot", nil))
 	if !strings.Contains(response.Body.String(), "native-child") {
 		t.Fatalf("upstream state erased: %s", response.Body.String())
+	}
+}
+
+func TestChimeraSnapshotPreservesToolCorrelationMetadata(t *testing.T) {
+	const calls = `[{"callId":"retained","toolCallId":"reused","messageCommitted":true,"name":"read","args":{}},{"callId":"active","toolCallId":"reused","messageCommitted":false,"pendingMessage":true,"name":"read","args":{},"result":{"content":"finished before sibling"}}]`
+	upstream := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if strings.HasSuffix(r.URL.Path, "/context") {
+			fmt.Fprint(w, `{"contextWindow":200000}`)
+			return
+		}
+		fmt.Fprintf(w, `{"id":"parent","status":"running","messages":[{"role":"assistant","content":[{"type":"tool-call","toolCallId":"reused"}]}],"toolCalls":%s}`, calls)
+	}))
+	t.Cleanup(upstream.Close)
+	id, endpoint := "parent", upstream.URL
+	agents := &chimeraSnapshotAgentFake{session: &store.AgentSession{ChimeraSessionID: &id, ChimeraEndpoint: &endpoint}}
+	response := httptest.NewRecorder()
+	New(nil, agents, nil, ":0").Handler().ServeHTTP(response, httptest.NewRequest("GET", "/api/agents/task/chimera/snapshot", nil))
+	if response.Code != http.StatusOK {
+		t.Fatalf("status=%d body=%s", response.Code, response.Body.String())
+	}
+	var snapshot map[string]json.RawMessage
+	if err := json.Unmarshal(response.Body.Bytes(), &snapshot); err != nil {
+		t.Fatal(err)
+	}
+	var got, want any
+	if err := json.Unmarshal(snapshot["toolCalls"], &got); err != nil {
+		t.Fatal(err)
+	}
+	if err := json.Unmarshal([]byte(calls), &want); err != nil {
+		t.Fatal(err)
+	}
+	if !reflect.DeepEqual(got, want) {
+		t.Fatalf("tool correlation changed: got %s", snapshot["toolCalls"])
 	}
 }

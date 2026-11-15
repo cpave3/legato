@@ -125,11 +125,14 @@ export interface NativeConversationItem {
 
 export interface NativeSnapshotMessage {
   role: string
-  content: string | Array<{ type: string; text?: string }>
+  content: string | Array<{ type: string; text?: string; toolCallId?: string }>
 }
 
 export interface NativeSnapshotToolCall {
   callId: string
+  toolCallId?: string
+  messageCommitted?: boolean
+  pendingMessage?: boolean
   name: string
   args: Record<string, unknown>
   result?: Record<string, unknown>
@@ -310,8 +313,40 @@ function questionConversationItem(question: NativeSnapshotQuestion): NativeConve
 export function stateFromNativeSnapshot(snapshot: NativeSnapshot): NativeSyncState {
   const items: NativeConversationItem[] = []
   const calls = snapshot.toolCalls ?? []
-  let callIndex = 0
+  const slots = (snapshot.messages ?? []).flatMap(message => typeof message.content === "string"
+    ? [] : message.content.filter(part => part.type === "tool-call"))
+  const identifiedCalls = new Map<string, NativeSnapshotToolCall[]>()
+  for (const call of calls) {
+    if (call.toolCallId && call.messageCommitted === true && !call.pendingMessage) {
+      const matches = identifiedCalls.get(call.toolCallId) ?? []
+      matches.push(call)
+      identifiedCalls.set(call.toolCallId, matches)
+    }
+  }
+  // A provider may reuse its ID. Compaction removes a prefix of occurrences,
+  // so join the surviving occurrences, not the last record for each ID.
+  const occurrences = new Map<string, number>()
+  for (const part of slots) if (part.toolCallId) occurrences.set(part.toolCallId, (occurrences.get(part.toolCallId) ?? 0) + 1)
+  const legacyOccurrences = new Map<string, number>()
+  let identifiedSlots = 0
+  for (const [id, matches] of identifiedCalls) {
+    const count = occurrences.get(id) ?? 0
+    identifiedCalls.set(id, count ? matches.slice(-count) : [])
+    identifiedSlots += Math.min(count, matches.length)
+    // After an upgrade, earlier occurrences can still have legacy records.
+    if (count > matches.length) legacyOccurrences.set(id, count - matches.length)
+  }
+  const legacyCalls = calls.filter(call => call.messageCommitted === undefined && call.pendingMessage !== true)
+  const legacySlots = slots.length - identifiedSlots
+  const canonical = calls.some(call => call.messageCommitted !== undefined || call.pendingMessage !== undefined)
+  // Idle history has committed every step. Compaction removes a message prefix,
+  // but retains its records. Upgraded hosts also identify their active calls,
+  // so the remaining legacy records are committed history, even during a run.
+  let legacyIndex = snapshot.status === "idle" || canonical ? Math.max(0, legacyCalls.length - legacySlots) : 0
+  const renderedCalls = new Set<string>()
+  const callIndices = new Map(calls.map((call, index) => [call, index]))
   function appendCall(call: NativeSnapshotToolCall, index: number) {
+    renderedCalls.add(call.callId)
     items.push({
       key: call.callId || `snap-call-${index}`,
       role: "tool",
@@ -328,6 +363,19 @@ export function stateFromNativeSnapshot(snapshot: NativeSnapshot): NativeSyncSta
         subagent: call.subagent ? subagentFromSnapshot(call.subagent, call.args) : subagentFromResult(call.name, call.args, call.result),
       },
     })
+  }
+  const retainedCalls = new Set([
+    ...[...identifiedCalls.values()].flat().map(call => call.callId),
+    ...legacyCalls.slice(legacyIndex, legacyIndex + legacySlots).map(call => call.callId),
+  ])
+  const historicalCalls = new Set(legacyCalls.slice(0, legacyIndex).map(call => call.callId))
+  const activeParents = new Set(snapshot.subagentStates?.filter(child => child.sessionId === snapshot.id && child.status === "running").map(child => child.parentCallId))
+  // A child can outlive its compacted parent message. Its launch is historical,
+  // not a new step after the latest reply, but its exact live identity remains.
+  for (const call of calls) {
+    if (!retainedCalls.has(call.callId) && activeParents.has(call.callId) && (call.messageCommitted || historicalCalls.has(call.callId))) {
+      appendCall(call, callIndices.get(call)!)
+    }
   }
   for (let index = 0; index < (snapshot.messages ?? []).length; index++) {
     const message = snapshot.messages![index]
@@ -357,13 +405,19 @@ export function stateFromNativeSnapshot(snapshot: NativeSnapshot): NativeSyncSta
       }
     }
     if (text) items.push({ key: `snap-msg-${index}`, role: message.role as NativeItemRole, text })
-    const toolCount = message.content.filter((part) => part.type === "tool-call").length
-    for (let offset = 0; offset < toolCount && callIndex < calls.length; offset++, callIndex++) {
-      appendCall(calls[callIndex], callIndex)
+    for (const part of message.content.filter(part => part.type === "tool-call")) {
+      const legacyRemaining = part.toolCallId ? legacyOccurrences.get(part.toolCallId) ?? 0 : 0
+      const call = part.toolCallId && identifiedCalls.has(part.toolCallId) && !legacyRemaining
+        ? identifiedCalls.get(part.toolCallId)!.shift()
+        : legacyCalls[legacyIndex++]
+      if (part.toolCallId && legacyRemaining) legacyOccurrences.set(part.toolCallId, legacyRemaining - 1)
+      if (call && !renderedCalls.has(call.callId)) appendCall(call, callIndices.get(call)!)
     }
   }
-  // Active tools enter the snapshot before their assistant message is committed.
-  for (; callIndex < calls.length; callIndex++) appendCall(calls[callIndex], callIndex)
+  // Only the active SDK step may legitimately lead committed history. Older
+  // busy hosts lack that marker; preserve their existing uncommitted-tool repair.
+  const unmatched = canonical ? calls.filter(call => call.pendingMessage) : legacyCalls.slice(legacyIndex)
+  for (const call of unmatched) if (!renderedCalls.has(call.callId)) appendCall(call, callIndices.get(call)!)
   applySnapshotSubagents(items, snapshot)
   for (const permission of snapshot.pendingPermissions ?? []) {
     items.push(permissionConversationItem(permission))

@@ -1656,6 +1656,54 @@ describe("NativeAgentPanel", () => {
     expect(await within(view.container).findByText("Repaired history", {}, { timeout: 3000 })).not.toBeNull()
   })
 
+  it("keeps a completed exchange at the end after repair, reconnect and reload with older tool records", async () => {
+    const history = [
+      { role: "assistant", content: "Earlier context" },
+      { role: "assistant", content: [{ type: "tool-call" }] },
+    ]
+    const calls = [
+      { callId: "old", name: "read", args: { path: "old.txt" }, result: {}, startedAt: 1, endedAt: 2 },
+      { callId: "recent", name: "read", args: { path: "recent.txt" }, result: {}, startedAt: 3, endedAt: 4 },
+    ]
+    let finished = false
+    let snapshotCalls = 0
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => {
+      if (!String(input).includes("/snapshot")) return new Response("[]", { status: 200 })
+      snapshotCalls++
+      return new Response(JSON.stringify({ id: "session-1", status: "idle", messages: [
+        ...history,
+        ...(finished ? [{ role: "user", content: "done?" }, { role: "assistant", content: "Implementation is done." }] : []),
+      ], toolCalls: calls }), { status: 200 })
+    })
+    const assertLatest = (container: HTMLElement) => {
+      const column = container.querySelector("[data-conversation-column]")!
+      expect(column.lastElementChild?.textContent).toContain("Implementation is done.")
+      expect(within(column as HTMLElement).getAllByText("done?")).toHaveLength(1)
+      expect(within(column as HTMLElement).getAllByText("Implementation is done.")).toHaveLength(1)
+    }
+    let view = render(<NativeAgentPanel agentId="task-1" />)
+    await screen.findByText("Earlier context")
+    act(() => {
+      for (const event of [
+        { eventId: "question", type: "user_message", content: "done?" },
+        { eventId: "answer-delta", type: "assistant_text_delta", id: "answer", delta: "Implementation is done." },
+        { eventId: "answer-done", type: "assistant_text_done", id: "answer", text: "Implementation is done." },
+      ]) websocketHandler?.({ type: "chimera_event", agent_id: "task-1", content: JSON.stringify(event) })
+    })
+    assertLatest(view.container)
+    finished = true
+    act(() => websocketHandler?.({ type: "chimera_event", agent_id: "task-1", content: JSON.stringify({ eventId: "finish", type: "run_finished" }) }))
+    await waitFor(() => expect(snapshotCalls).toBe(2))
+    await waitFor(() => assertLatest(view.container))
+    act(() => websocketHandler?.({ type: "chimera_sync_required", agent_id: "task-1" }))
+    await waitFor(() => expect(snapshotCalls).toBe(3))
+    await waitFor(() => assertLatest(view.container))
+    view.unmount()
+    view = render(<NativeAgentPanel agentId="task-1" />)
+    await screen.findByText("done?")
+    assertLatest(view.container)
+  })
+
   it("repairs from the authoritative snapshot after a run finishes", async () => {
     let snapshot: { id: string; status: string; messages: unknown[]; toolCalls: unknown[] } = {
       id: "session-1", status: "running", messages: [], toolCalls: [],
