@@ -646,6 +646,23 @@ integrations:
     delivery: ask
 ```
 
+### Home Assistant MQTT
+
+The publisher exposes ten aggregate entities. All settings apply at restart. See [Home Assistant](/legato/integrations/home-assistant/) for broker credentials, retention, and automations.
+
+| Setting | Type | Default | What it does |
+| --- | --- | --- | --- |
+| `integrations.mqtt.enabled` | bool | `false` | Enables the read-only publisher. Disabled means no network or credential access. |
+| `integrations.mqtt.broker` | URL | none | Required when enabled: `mqtt://` or `mqtts://` TCP address, without credentials, paths, query, or fragment. |
+| `integrations.mqtt.credential` | string | none | Name of a `mqtt` profile credential with type `userpass`; empty selects anonymous access. |
+| `integrations.mqtt.discovery_prefix` | string | `homeassistant` | Discovery root and root for the HA birth status subscription. |
+| `integrations.mqtt.base_topic` | string | `legato/<persistent-instance-id>` | Retained state root. Each independent instance needs its own root. |
+| `integrations.mqtt.device_name` | string | `Legato <hostname>` | Device display name; identity stays stable when renamed. |
+| `integrations.mqtt.include_reeve` | bool | `false` | Includes the Reeve in agent counts. Attention and approvals are always instance-wide. |
+| `integrations.mqtt.attention_details` | bool | `false` | Exports at most 20 generated safe signal labels, never source titles or details. |
+
+Topic roots must have nonempty segments, without MQTT wildcards, NUL, or a trailing slash. TLS verifies certificates and hostnames. Retained data and HA history can outlive Legato.
+
 ## Review passes
 
 On a worker instance, a reviewer on another model reviews the pull requests of each make-a-change handoff when its author finishes, and the author works through the findings until a pass is clean. Settings alone start nothing; `review_passes.enabled` turns it on. The main instance can change the reviewer, the skill and the number of passes for one handoff in the Hand off dialog. See [Handing off a task](/legato/using/handoff/).
