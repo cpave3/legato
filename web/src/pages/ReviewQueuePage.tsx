@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState } from "react"
+import { useEffect, useMemo, useRef, useState } from "react"
+import { useModalLayer } from "../hooks/useModalLayer"
 import { ArrowRight, CheckCircle2, RefreshCw, Trash2 } from "lucide-react"
 import { Link } from "react-router-dom"
 import { useReviewQueue } from "../hooks/useReview"
@@ -50,6 +51,8 @@ export function ReviewQueuePage() {
   const [confirming, setConfirming] = useState(false)
   const [removing, setRemoving] = useState(false)
   const [removeError, setRemoveError] = useState<string | null>(null)
+  const confirmRef = useRef<HTMLDivElement>(null)
+  useModalLayer({ open: confirming, onClose: () => setConfirming(false), containerRef: confirmRef, dismissible: !removing })
   const selectedItems = items.filter((item) => selected.has(item.tour_id))
   const allSelected = items.length > 0 && selectedItems.length === items.length
 
@@ -97,7 +100,7 @@ export function ReviewQueuePage() {
 
   return (
     <div className="flex h-full flex-col overflow-hidden bg-[var(--theme-canvas,#0a0a0f)] text-zinc-200">
-      <header className="flex items-center justify-between border-b border-zinc-800 px-4 py-3 md:px-6 md:py-4">
+      <header className="flex flex-wrap items-center justify-between gap-3 border-b border-zinc-800 px-4 py-3 md:px-6 md:py-4">
         <h1 className="text-lg font-semibold">Review queue</h1>
         <div className="flex items-center gap-3">
           <label className="flex min-h-10 cursor-pointer items-center gap-2 text-xs text-zinc-400">
@@ -108,7 +111,7 @@ export function ReviewQueuePage() {
             }} className="size-4 accent-indigo-500" />
             Show incomplete captures
           </label>
-          <button onClick={() => void refresh()} className="rounded p-2 text-zinc-500 hover:bg-zinc-900 hover:text-zinc-200" title="Refresh review queue">
+          <button aria-label="Refresh review queue" onClick={() => void refresh()} className="flex size-11 shrink-0 items-center justify-center rounded text-zinc-500 hover:bg-zinc-900 hover:text-zinc-200" title="Refresh review queue">
             <RefreshCw size={16} />
           </button>
         </div>
@@ -180,7 +183,7 @@ export function ReviewQueuePage() {
 
       {confirming && (
         <div className="fixed inset-0 z-50 flex items-end bg-[var(--theme-canvas,#000)]/70 p-2 sm:items-center sm:justify-center">
-          <div role="dialog" aria-modal="true" aria-labelledby="bulk-remove-title" className="w-full rounded-xl border border-zinc-700 bg-zinc-900 p-5 shadow-xl sm:max-w-md">
+          <div ref={confirmRef} tabIndex={-1} role="dialog" aria-modal="true" aria-labelledby="bulk-remove-title" className="w-full rounded-xl border border-zinc-700 bg-zinc-900 p-5 shadow-xl sm:max-w-md">
             <h2 id="bulk-remove-title" className="text-lg font-semibold">Remove {selectedCount} {reviewNoun}?</h2>
             <p className="mt-3 text-sm text-zinc-300">The selected review packets and their comments will be permanently removed. Tasks and code will remain.</p>
             <div className="mt-5 flex gap-2">

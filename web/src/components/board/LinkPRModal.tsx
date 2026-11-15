@@ -1,3 +1,4 @@
+import { Dialog, DialogPanel, DialogHeader, DialogTitle, DialogBody, DialogFooter } from "../ui/Dialog"
 import { useState, useEffect, useRef } from "react"
 import { useServer } from "../../hooks/useServer"
 import { detectRepo, prPreview, linkPR } from "../../lib/board"
@@ -32,7 +33,6 @@ export function LinkPRModal({ open, taskId, onClose, onLinked }: LinkPRModalProp
     detectRepo(baseUrl)
       .then((d) => setRepo(`${d.owner}/${d.repo}`))
       .catch(() => setRepo(""))
-    setTimeout(() => repoRef.current?.focus(), 50)
   }, [open, baseUrl])
 
   const handleFetch = async () => {
@@ -77,15 +77,15 @@ export function LinkPRModal({ open, taskId, onClose, onLinked }: LinkPRModalProp
   if (!open) return null
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={onClose}>
-      <div className="w-full max-w-sm rounded-lg border border-zinc-700 bg-zinc-900 shadow-2xl" onClick={(e) => e.stopPropagation()}>
-        <div className="flex items-center justify-between border-b border-zinc-800 px-5 py-3">
-          <h2 className="text-sm font-semibold text-zinc-200">Link PR</h2>
-          <button onClick={onClose} className="rounded p-1 text-zinc-500 transition-colors hover:bg-zinc-800 hover:text-zinc-200">
+    <Dialog open={open} onClose={onClose}>
+      <DialogPanel className="w-full max-w-sm rounded-lg border border-zinc-700 bg-zinc-900 shadow-2xl">
+        <DialogHeader className="flex items-center justify-between border-b border-zinc-800 px-5 py-3">
+          <DialogTitle className="text-sm font-semibold text-zinc-200">Link PR</DialogTitle>
+          <button aria-label="Close" onClick={onClose} className="rounded p-1 text-zinc-500 transition-colors hover:bg-zinc-800 hover:text-zinc-200">
             <X size={16} />
           </button>
-        </div>
-        <div className="px-5 py-4 space-y-3">
+        </DialogHeader>
+        <DialogBody className="px-5 py-4 space-y-3">
           {error && (
             <div role="alert" className="rounded border border-red-800 bg-red-950/50 px-3 py-2 text-xs text-red-300">{error}</div>
           )}
@@ -96,6 +96,7 @@ export function LinkPRModal({ open, taskId, onClose, onLinked }: LinkPRModalProp
                 <input
                   id="link-repo"
                   ref={repoRef}
+                  data-autofocus
                   type="text"
                   value={repo}
                   onChange={(e) => setRepo(e.target.value)}
@@ -135,8 +136,8 @@ export function LinkPRModal({ open, taskId, onClose, onLinked }: LinkPRModalProp
               <div className="text-[10px] text-zinc-600">y: confirm · n: cancel</div>
             </>
           )}
-        </div>
-        <div className="flex items-center justify-end gap-2 border-t border-zinc-800 px-5 py-3">
+        </DialogBody>
+        <DialogFooter className="flex items-center justify-end gap-2 border-t border-zinc-800 px-5 py-3">
           {phase === "input" && (
             <>
               <button onClick={onClose} className="rounded border border-zinc-700 px-3 py-1.5 text-xs text-zinc-400 hover:bg-zinc-800">
@@ -160,8 +161,8 @@ export function LinkPRModal({ open, taskId, onClose, onLinked }: LinkPRModalProp
               </button>
             </>
           )}
-        </div>
-      </div>
-    </div>
+        </DialogFooter>
+      </DialogPanel>
+    </Dialog>
   )
 }

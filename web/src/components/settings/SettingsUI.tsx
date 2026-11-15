@@ -6,7 +6,7 @@ import type { LucideIcon } from "lucide-react"
 // A group: one subject, with a heading the page's section list goes to.
 export function SettingsGroup({ id, title, description, children }: { id: string; title: string; description?: string; children: ReactNode }) {
   return (
-    <section id={id} aria-labelledby={`${id}-title`} className="scroll-mt-6">
+    <section id={id} aria-labelledby={`${id}-title`} className="scroll-mt-6" style={{ outline: "none" }}>
       <div className="mb-3">
         <h2 id={`${id}-title`} className="text-base font-semibold text-lw-text">{title}</h2>
         {description && <p className="mt-0.5 text-sm text-lw-text-2">{description}</p>}
@@ -81,12 +81,13 @@ export function SettingsRow({ icon: Icon, title, description, browser, control }
   )
 }
 
-export function Toggle({ label, on, onChange }: { label: string; on: boolean; onChange: () => void }) {
+export function Toggle({ label, on, onChange, disabled }: { label: string; on: boolean; onChange: () => void; disabled?: boolean }) {
   return (
     <button
       type="button"
       aria-label={label}
       aria-pressed={on}
+      disabled={disabled}
       onClick={onChange}
       className={`relative h-6 w-11 rounded-full transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-lw-accent ${on ? "bg-lw-accent" : "bg-lw-line-strong"}`}
     >

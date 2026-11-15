@@ -38,13 +38,15 @@ Most settings can also be kept in Legato's database, and changed from the web UI
 
 - **A value in `config.yaml` wins.** The setting is *pinned*: the web UI shows it locked, and only an edit to the file changes it. Remove it from the file and, at the next start, the database's value (or the default) applies again.
 - **Otherwise the database's value applies,** or the default when there is none.
-- **Lists are pinned entry by entry.** Workspaces, macros, agent tools (`adapters`), credentials, credential sources, tmux options, sandbox mounts and swarm prompts are each the file's entries plus those added in Settings › Lists, matched by name. An entry whose name the file has is locked, and the web UI will not add another of that name. Repositories, resources and repository guidance work the same way, in their own sections.
+- **Lists are pinned entry by entry.** Workspaces, macros, agent tools (`adapters`), credentials, credential sources, tmux options, sandbox mounts and swarm prompts are each the file's entries plus those added in their Settings category, matched by name. An entry whose name the file has is locked, and the web UI will not add another of that name. Repositories, resources and repository guidance work the same way, in their own sections.
 - **Secrets are kept by name.** A setting that holds a secret (`jira.api_token`, `github.token`, `notifications.ntfy.token`, `manticore.api_key`) takes, in the database, only the name of a secret: `legato://<name>` in Legato's own store (`legato secret add`), or `op://<vault>/<item>/<field>` in 1Password. Legato reads the secret when it starts. In the file, `${ENV}` references work as before.
 - **A change is checked before it is kept**: the value by its own rule, then the whole configuration with the rules Legato uses for this file. A change that would leave it invalid is refused with that error, so a value in the database never stops Legato from starting.
 
+tmux option values are strings. For example, an option named `history-limit` takes the value `50000`; its JSON form is `"50000"`, not an object.
+
 Some settings are **file-only**: they live only in this file, and nothing else changes them. They are what Legato needs before its database opens (`db.*`, `data_dir`), what unseals its secrets (`secrets.master_key`, `secrets.onepassword`), how it is reached (`web.enabled`, `web.port`, `web.tls`, `web.public_url`), and the signing trust root (`approval_devices.android_app_digests`). They are marked *file-only* below.
 
-**Moving settings out of the file.** After the upgrade that brought settings into the database, Attention offers once to move every setting `config.yaml` pins into the database, listed in Settings › Lists with a tick each; untick any to keep it in the file. Each pinned setting in Settings also has **Move to the database**. A move copies the values into the database, rewrites `config.yaml` without them (its comments and order kept, the old file kept beside it as `config.yaml.<time>.bak`), and restarts Legato; if Legato does not start on the result, it puts the old file and values back. A setting that holds a secret, or whose value reads an environment variable, stays in the file, and so do the Reeve's rules, whose order decides which applies. So does a setting the file needs beside a secret it keeps, such as `manticore.url` beside `manticore.api_key`: Legato reads `config.yaml` before the database when it starts, so a move never leaves a file that does not load by itself.
+**Moving settings out of the file.** After the upgrade that brought settings into the database, Attention offers once to move every setting `config.yaml` pins into the database, listed in Settings › Server and maintenance with a tick each; untick any to keep it in the file. Each pinned setting in Settings also has **Move to the database**. A move copies the values into the database, rewrites `config.yaml` without them (its comments and order kept, the old file kept beside it as `config.yaml.<time>.bak`), and restarts Legato; if Legato does not start on the result, it puts the old file and values back. A setting that holds a secret, or whose value reads an environment variable, stays in the file, and so do the Reeve's rules, whose order decides which applies. So does a setting the file needs beside a secret it keeps, such as `manticore.url` beside `manticore.api_key`: Legato reads `config.yaml` before the database when it starts, so a move never leaves a file that does not load by itself.
 
 **Export and import.** `legato config export` writes the settings kept in the database as a file shaped like `config.yaml`; `legato config import` turns such a file into one change set to approve, so one instance can set up another.
 
@@ -333,7 +335,7 @@ The web UI and its API. The TUI starts it beside itself when `web.enabled` is on
 | `web.tls.cert` | path | none | *File-only.* A certificate file of your own. With `web.tls.key`, it turns HTTPS on. |
 | `web.tls.key` | path | none | *File-only.* The private key of `web.tls.cert`. |
 | `web.tls.hostname` | string | none | *File-only.* Another host name for the certificate Legato makes, such as `mybox.local`. It already covers `localhost` and this machine's addresses. |
-| `web.tint` | string | none | A colour that tells this Legato from others in the web UI: `red`, `orange`, `yellow`, `green`, `teal`, `blue`, `purple` or `pink`. Usually set in Settings › Appearance. |
+| `web.tint` | string | none | A colour that tells this Legato from others in the web UI: `red`, `orange`, `yellow`, `green`, `teal`, `blue`, `purple` or `pink`. Usually set in Settings › Server and maintenance › Tint. |
 | `web.discovery` | bool | `true` | Announces the server on the local network (mDNS), so the Legato phone app finds it. See [Devices](/legato/running/devices/). |
 | `web.public_url` | URL | the first local address Legato announces | *File-only.* The address a phone uses to reach this server, put in the links of approval notifications. It must be an `http` or `https` address. |
 
@@ -408,7 +410,7 @@ With a topic set, Legato notifies you when an agent finishes, when it needs you,
 
 ## Repositories
 
-The repositories Legato offers when you start an agent or a workflow. You can add more in the web UI (Settings › Agents › Repositories); those are kept in the database. See [Agents](/legato/using/agents/) and [An agent server](/legato/running/agent-server/).
+The repositories Legato offers when you start an agent or a workflow. You can add more in the web UI (Settings › Agents and workspaces › Repositories); those are kept in the database. See [Agents](/legato/using/agents/) and [An agent server](/legato/running/agent-server/).
 
 | Setting | Type | Default | What it does |
 | --- | --- | --- | --- |

@@ -26,11 +26,11 @@ async function failed(response: Response): Promise<Error> {
   return new Error(body?.error || response.statusText)
 }
 
-export async function fetchConfigSettings(baseUrl: string): Promise<ConfigSetting[]> {
+export async function fetchConfigSettings(baseUrl: string): Promise<{ settings: ConfigSetting[]; file_only: string[] }> {
   const response = await apiFetch(baseUrl, "/api/config/settings")
   if (!response.ok) throw await failed(response)
-  const body = await response.json() as { settings: ConfigSetting[] }
-  return body.settings ?? []
+  const body = await response.json() as { settings?: ConfigSetting[]; file_only?: string[] }
+  return { settings: body.settings ?? [], file_only: body.file_only ?? [] }
 }
 
 export async function setConfigSetting(baseUrl: string, key: string, value: unknown): Promise<ConfigSetting> {
@@ -75,18 +75,20 @@ export async function fetchConfigLists(baseUrl: string): Promise<ConfigList[]> {
   return body.lists ?? []
 }
 
-export async function saveConfigListEntry(baseUrl: string, list: string, name: string, value: unknown): Promise<void> {
+export async function saveConfigListEntry(baseUrl: string, list: string, name: string, value: unknown): Promise<{ status?: string }> {
   const response = await apiFetch(baseUrl, `/api/config/lists/${encodeURIComponent(list)}/${encodeURIComponent(name)}`, {
     method: "PUT",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ value }),
   })
   if (!response.ok) throw await failed(response)
+  return response.json()
 }
 
-export async function removeConfigListEntry(baseUrl: string, list: string, name: string): Promise<void> {
+export async function removeConfigListEntry(baseUrl: string, list: string, name: string): Promise<{ status?: string }> {
   const response = await apiFetch(baseUrl, `/api/config/lists/${encodeURIComponent(list)}/${encodeURIComponent(name)}`, { method: "DELETE" })
   if (!response.ok) throw await failed(response)
+  return response.json()
 }
 
 // What can move from config.yaml into the database (GET /api/config/move).

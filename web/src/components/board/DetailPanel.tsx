@@ -1,4 +1,5 @@
-import type { ReactNode } from "react"
+import { useRef, type ReactNode } from "react"
+import { useModalLayer } from "../../hooks/useModalLayer"
 import { ChevronRight, X } from "lucide-react"
 
 import { taskPullRequests, type AwayOn, type CardDetail } from "../../lib/board-types"
@@ -11,6 +12,7 @@ import { handedOffFrom, providerLabel } from "../../lib/providers"
 
 interface DetailPanelProps {
   card: CardDetail
+  suspended?: boolean
   onClose: () => void
   onEditTitle: () => void
   onEditDescription: () => void
@@ -80,6 +82,7 @@ function remoteDetailsTitle(card: CardDetail): string {
 
 export function DetailPanel({
   card,
+  suspended = false,
   onClose,
   onEditTitle,
   onEditDescription,
@@ -96,6 +99,8 @@ export function DetailPanel({
   worktreesEnabled = false,
   away,
 }: DetailPanelProps) {
+  const containerRef = useRef<HTMLDivElement>(null)
+  useModalLayer({ open: !suspended, onClose, containerRef })
   const isLocal = !card.provider
   const pullRequests = taskPullRequests(card)
   const agentActionProps = {
@@ -108,11 +113,17 @@ export function DetailPanel({
   return (
     <div className="fixed inset-0 z-40 flex items-end justify-center bg-black/60 md:items-center md:p-6" onClick={onClose}>
       <div
+        ref={containerRef}
+        tabIndex={-1}
         role="dialog"
         aria-modal="true"
         aria-labelledby="task-detail-title"
         className="flex h-[calc(100dvh-env(safe-area-inset-top))] w-full max-w-5xl flex-col overflow-hidden rounded-t-xl border border-zinc-700 bg-zinc-900 shadow-2xl md:h-[min(52rem,calc(100dvh-3rem))] md:rounded-xl"
         onClick={(event) => event.stopPropagation()}
+        onKeyDown={(event) => {
+          // A nested agent dialog handles its own Escape before this bubbles.
+          if (event.key === "Escape" && (event.target as HTMLElement).closest('[role="dialog"]') !== event.currentTarget) event.stopPropagation()
+        }}
       >
         <header className="flex shrink-0 items-start justify-between gap-4 border-b border-zinc-800 px-5 py-4 md:px-6">
           <div className="min-w-0">

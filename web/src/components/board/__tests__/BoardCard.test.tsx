@@ -1,5 +1,6 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react"
+import userEvent from "@testing-library/user-event"
 import { MemoryRouter } from "react-router-dom"
 import { BoardCard } from "../BoardCard"
 import type { BoardCard as BoardCardType, PRMetaView } from "../../../lib/board-types"
@@ -196,6 +197,24 @@ describe("BoardCard", () => {
     card.dispatchEvent(event)
     expect(event.defaultPrevented).toBe(true)
     expect(onContextMenu).toHaveBeenCalledWith({ x: 120, y: 80 })
+  })
+
+  it("offers a keyboard primary action without nesting the menu or review link", async () => {
+    const user = userEvent.setup()
+    const onClick = vi.fn()
+    const onDoubleClick = vi.fn()
+    const onActionMenu = vi.fn()
+    renderCard(makeCard({ review_unreviewed: 1, review_tour_id: "tour" }), { onClick, onDoubleClick, onActionMenu })
+    const primary = screen.getByRole("button", { name: "Test title" })
+    expect(primary.querySelector("button, a")).toBeNull()
+    primary.focus()
+    await user.keyboard("{Enter}")
+    expect(onDoubleClick).toHaveBeenCalledTimes(1)
+    await user.keyboard(" ")
+    expect(onClick).toHaveBeenCalledTimes(1)
+    await user.click(screen.getByRole("button", { name: "Open actions for Test title" }))
+    expect(onActionMenu).toHaveBeenCalledTimes(1)
+    expect(onClick).toHaveBeenCalledTimes(1)
   })
 
   it("opens on a double click", () => {

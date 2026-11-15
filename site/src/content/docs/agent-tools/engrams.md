@@ -55,7 +55,7 @@ When an engram agent ends for good, Legato tells engram the session is over (`en
 
 ## Engram bindings in Settings
 
-**Settings › Agents › Engram bindings** lists each repository or folder that has engrams bound to it, with its default marked and any engram that engram no longer lists marked **missing**. You can make a bound engram the default, unbind one, or clear the default. Engrams are bound with **Remember** in the spawn dialog, not here. The section also says where engram and its store are, or that engram was not found.
+**Settings › Agents and workspaces › Engram bindings** lists each repository or folder that has engrams bound to it, with its default marked and any engram that engram no longer lists marked **missing**. You can make a bound engram the default, unbind one, or clear the default. Engrams are bound with **Remember** in the spawn dialog, not here. The section also says where engram and its store are, or that engram was not found.
 
 ## In workflows
 

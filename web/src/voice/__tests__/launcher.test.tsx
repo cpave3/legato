@@ -1,6 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import "@testing-library/jest-dom/vitest"
-import { fireEvent, render, screen, waitFor } from "@testing-library/react"
+import { act, fireEvent, render, screen, waitFor } from "@testing-library/react"
+import userEvent from "@testing-library/user-event"
 import { MemoryRouter, Route, Routes, useLocation } from "react-router-dom"
 import { VoiceLauncher } from "../VoiceLauncher"
 import { VOICE_HASH } from "../status"
@@ -108,6 +109,27 @@ describe("the voice sheet in the web UI", () => {
     await waitFor(() => expect(screen.queryByTestId("voice-sheet")).toBeNull())
   })
 
+  it("contains Tab focus and restores the opener after Escape", async () => {
+    mockStatus(status({ ready: false, reason: "Voice is off", setting: "reeve.voice.enabled" }))
+    const user = userEvent.setup()
+    render(<MemoryRouter><button>Open voice</button><VoiceLauncher baseUrl="" audio={audio} /></MemoryRouter>)
+    const opener = screen.getByRole("button", { name: "Open voice" })
+    opener.focus()
+    act(() => {
+      window.location.hash = VOICE_HASH
+      window.dispatchEvent(new HashChangeEvent("hashchange"))
+    })
+    const last = await screen.findByRole("button", { name: "Open settings" })
+    last.focus()
+    await user.tab()
+    expect(document.activeElement).toBe(screen.getByRole("button", { name: "Close" }))
+    await user.tab({ shift: true })
+    expect(document.activeElement).toBe(last)
+    await user.keyboard("{Escape}")
+    expect(screen.queryByRole("dialog")).toBeNull()
+    expect(document.activeElement).toBe(opener)
+  })
+
   it("keeps the router's history state when it closes", async () => {
     mockStatus(status())
     open()
@@ -139,6 +161,25 @@ describe("the voice sheet in the web UI", () => {
     answer(new Response(JSON.stringify(status()), { status: 200 }))
     await new Promise((r) => setTimeout(r, 20))
     expect(Socket.last).toBeNull()
+  })
+
+  it("does not navigate when closed while Open conversation is still loading", async () => {
+    let answer!: (response: Response) => void
+    vi.stubGlobal("fetch", vi.fn((url: string) => String(url).endsWith("/api/reeve")
+      ? new Promise<Response>((resolve) => { answer = resolve })
+      : Promise.resolve(new Response(JSON.stringify(status()), { status: 200 }))))
+    window.location.hash = VOICE_HASH
+    render(<MemoryRouter><Where /><VoiceLauncher baseUrl="" audio={audio} socket={(url) => new Socket(url)} /></MemoryRouter>)
+    await waitFor(() => expect(Socket.last?.sent.length).toBe(2))
+    Socket.last?.onmessage?.({ data: JSON.stringify({ type: "written" }) })
+    Socket.last?.onmessage?.({ data: JSON.stringify({ type: "state", state: "idle" }) })
+    fireEvent.click(await screen.findByRole("button", { name: "Open conversation" }))
+    fireEvent.keyDown(document, { key: "Escape" })
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull())
+    await act(async () => {
+      answer(new Response(JSON.stringify({ current: { task_id: "reeve-1" } }), { status: 200 }))
+    })
+    expect(screen.getByTestId("where")).toHaveTextContent(/^\/$/)
   })
 
   it("Open conversation opens the Reeve's own conversation", async () => {

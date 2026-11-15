@@ -1,5 +1,5 @@
 import { cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react"
-import { afterEach, describe, expect, it, vi } from "vitest"
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import { AgentContextMenu } from "../AgentContextMenu"
 import type { AgentInfo } from "../../hooks/useWebSocket"
 
@@ -18,7 +18,12 @@ const agent = {
   error_seconds: 0,
 } as AgentInfo
 
-afterEach(cleanup)
+beforeEach(() => {
+  vi.spyOn(HTMLElement.prototype, "getBoundingClientRect").mockImplementation(function (this: HTMLElement) {
+    return new DOMRect(0, 0, this.getAttribute('role') === 'menu' ? 240 : 0, this.getAttribute('role') === 'menu' ? 126 : 0)
+  })
+})
+afterEach(() => { cleanup(); vi.restoreAllMocks() })
 
 describe("AgentContextMenu", () => {
   it("clamps to the viewport and focuses its kill action", async () => {
@@ -37,7 +42,7 @@ describe("AgentContextMenu", () => {
     const menu = screen.getByRole("menu", { name: "Actions for TASK-42" })
     const kill = screen.getByRole("menuitem", { name: "Kill agent" })
     expect(menu.style.left).toBe("72px")
-    expect(menu.style.top).toBe("108px")
+    expect(menu.style.top).toBe("66px")
     await waitFor(() => expect(document.activeElement).toBe(kill))
   })
 
@@ -53,7 +58,7 @@ describe("AgentContextMenu", () => {
     )
 
     const kill = screen.getByRole("menuitem", { name: "Kill agent" })
-    fireEvent.keyDown(window, { key: "ArrowDown" })
+    fireEvent.keyDown(document.activeElement!, { key: "ArrowDown" })
     expect(document.activeElement).toBe(kill)
     fireEvent.click(kill)
     expect(onKill).toHaveBeenCalledTimes(1)
@@ -77,17 +82,17 @@ describe("AgentContextMenu", () => {
     const items = screen.getAllByRole("menuitem")
     expect(items.map((item) => item.textContent)).toEqual(["Rename", "Reload agent", "Kill agent"])
     expect(document.activeElement).toBe(items[0])
-    fireEvent.keyDown(window, { key: "ArrowDown" })
+    fireEvent.keyDown(document.activeElement!, { key: "ArrowDown" })
     expect(document.activeElement).toBe(items[1])
-    fireEvent.keyDown(window, { key: "ArrowUp" })
-    fireEvent.keyDown(window, { key: "ArrowUp" })
+    fireEvent.keyDown(document.activeElement!, { key: "ArrowUp" })
+    fireEvent.keyDown(document.activeElement!, { key: "ArrowUp" })
     expect(document.activeElement).toBe(items[2])
     fireEvent.click(items[0])
     expect(rename).toHaveBeenCalledTimes(1)
     expect(onClose).toHaveBeenCalledTimes(1)
   })
 
-  it("dismisses with Escape, outside pointer-down, external scroll, or resize", () => {
+  it("dismisses with Escape or outside pointer-down and stays positioned on viewport changes", () => {
     const onClose = vi.fn()
     const { rerender } = render(
       <AgentContextMenu
@@ -98,11 +103,11 @@ describe("AgentContextMenu", () => {
       />,
     )
 
-    fireEvent.keyDown(window, { key: "Escape" })
+    fireEvent.keyDown(document.activeElement!, { key: "Escape" })
     fireEvent.pointerDown(screen.getByTestId("agent-context-backdrop"))
     fireEvent.scroll(document.body)
     fireEvent.resize(window)
-    expect(onClose).toHaveBeenCalledTimes(4)
+    expect(onClose).toHaveBeenCalledTimes(2)
 
     onClose.mockClear()
     rerender(

@@ -66,6 +66,15 @@ describe("ReportsPage", () => {
     expect(screen.getByText("Agent active time")).toBeTruthy()
   })
 
+  it("announces increase and decrease direction in summary comparisons", async () => {
+    renderPage()
+    await screen.findByRole("heading", { name: "This Week" })
+    const metric = (name: string) => within(screen.getByRole("heading", { name }).closest("article")!)
+    expect(metric("Agent active time").getByText("Increase")).toBeTruthy()
+    expect(metric("Waiting time").getByText("Decrease")).toBeTruthy()
+    expect(metric("Active ratio").getByText("Increase")).toBeTruthy()
+  })
+
   it("navigates offsets, disables next at current, and resets to current when changing period", async () => {
     renderPage()
     await screen.findByRole("heading", { name: "This Week" })

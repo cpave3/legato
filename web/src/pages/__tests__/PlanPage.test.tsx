@@ -1,3 +1,4 @@
+import "@testing-library/jest-dom/vitest"
 import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react"
 import { MemoryRouter, Route, Routes } from "react-router-dom"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
@@ -321,4 +322,50 @@ describe("PlanPage block comments",()=>{
     expect(warning.className).toContain("amber")
     expect(askPlanQuestion).toHaveBeenCalledTimes(2)
   })
+})
+
+it("opens phone feedback as a modal and restores its trigger on Escape", async () => {
+  vi.stubGlobal("matchMedia", vi.fn(() => ({ matches: true, addEventListener: vi.fn(), removeEventListener: vi.fn() })))
+  try {
+    renderPage()
+    const trigger = screen.getByRole("button", {name: "Feedback"})
+    trigger.focus()
+    fireEvent.click(trigger)
+    const dialog = screen.getByRole("dialog", {name: "Plan feedback"})
+    expect(dialog.contains(document.activeElement)).toBe(true)
+    fireEvent.keyDown(document, {key: "Escape"})
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull())
+    await waitFor(() => expect(document.activeElement).toBe(trigger))
+  } finally {
+    cleanup()
+    vi.unstubAllGlobals()
+  }
+})
+
+it.each([false, true])("keeps phone plan actions visible and submits cleanup=%s", async (cleanupAfterImplementation) => {
+  // Model the base Tailwind utility; jsdom does not load the app stylesheet.
+  const style = document.createElement("style")
+  style.textContent = ".hidden { display: none; }"
+  document.head.append(style)
+  try {
+    renderPage()
+    expect(screen.getByText("Reject", {selector: "button"})).toBeVisible()
+    const cleanupChoice = screen.getByLabelText("Clean up plan files after implementation")
+    expect(cleanupChoice).toBeVisible()
+    expect(cleanupChoice).not.toBeChecked()
+    if (cleanupAfterImplementation) fireEvent.click(cleanupChoice)
+    fireEvent.click(screen.getByRole("button", {name: "Approve"}))
+    await waitFor(() => expect(planAction).toHaveBeenCalledWith("", "pl-1", "approve", {cleanup_after_implementation: cleanupAfterImplementation}))
+  } finally {
+    style.remove()
+  }
+})
+
+it("leaves the desktop feedback panel nonmodal", () => {
+  renderPage()
+  fireEvent.click(screen.getByRole("button", {name: "Feedback"}))
+  expect(screen.queryByRole("dialog")).toBeNull()
+  expect(document.body.style.overflow).not.toBe("hidden")
+  fireEvent.change(screen.getByLabelText("General plan comment"), {target: {value: "Desktop draft"}})
+  expect(screen.getByLabelText("General plan comment")).toHaveValue("Desktop draft")
 })

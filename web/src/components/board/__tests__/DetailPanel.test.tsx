@@ -1,5 +1,6 @@
 import { describe, expect, it, afterEach, vi } from "vitest"
 import { render, screen, cleanup, fireEvent, within } from "@testing-library/react"
+import userEvent from "@testing-library/user-event"
 import { DetailPanel } from "../DetailPanel"
 import type { CardDetail, PRMetaView } from "../../../lib/board-types"
 vi.mock("../TaskAgentAction",()=>({TaskAgentAction:({ taskId, worktreePath, rememberedWorkingDir, resumableAgentKinds }: { taskId: string; worktreePath?: string; rememberedWorkingDir?: string; resumableAgentKinds?: string[] })=> <button data-task-primary-action data-task-id={taskId} data-worktree-path={worktreePath} data-remembered-working-dir={rememberedWorkingDir} data-resumable-agent-kinds={JSON.stringify(resumableAgentKinds)} className="min-h-9 w-full" type="button">Open agent</button>}))
@@ -7,6 +8,7 @@ vi.mock("../TaskActivityTabs",()=>({TaskActivityTabs:()=>null}))
 
 afterEach(() => {
   cleanup()
+  vi.unstubAllGlobals()
 })
 
 function makeCard(overrides: Partial<CardDetail> = {}): CardDetail {
@@ -44,6 +46,23 @@ function renderPanel(card = makeCard(), overrides: Partial<React.ComponentProps<
 }
 
 describe("DetailPanel", () => {
+  it.each([false, true])("contains modal keyboard focus and restores the opener on close (desktop=%s)", async (desktop) => {
+    vi.stubGlobal("matchMedia", (query: string) => ({ matches: desktop, media: query, addEventListener() {}, removeEventListener() {} }))
+    const user = userEvent.setup()
+    render(<button type="button">Open details</button>)
+    const opener = screen.getByRole("button", { name: "Open details" })
+    opener.focus()
+    const { unmount } = renderPanel()
+    const dialog = screen.getByRole("dialog", { name: "Test title" })
+    expect(dialog.contains(document.activeElement)).toBe(true)
+    const first = within(dialog).getByRole("button", { name: "Close task details" })
+    first.focus()
+    await user.keyboard("{Shift>}{Tab}{/Shift}")
+    expect(document.activeElement).toBe(within(dialog).getByRole("button", { name: "Delete task" }))
+    unmount()
+    expect(document.activeElement).toBe(opener)
+  })
+
   it("places the agent action before mobile content while preserving its desktop Work placement", () => {
     const worktree = { primary_dir: "/repo", path: "/trees/t-1", branch: "t-1", base_branch: "main" }
     const code_context = { repo: "acme/widget", branch: "", head_sha: "", working_dir: "/repos/remembered", base_branch: "", repo_source: "manual", branch_source: "" }

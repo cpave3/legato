@@ -32,6 +32,8 @@ On a phone, a tab bar along the bottom holds **Attention**, **Board**, **Agents*
 
 When the connection drops, the UI first says "Reconnecting…" and keeps the page as it is. After 10 seconds without a connection, a **Connection Lost** dialog offers **Retry** and a way to switch servers.
 
+Dialogs keep keyboard focus inside their controls and return focus to the control that opened them. Escape closes the top dialog or picker first. A dialog cannot close while an operation that requires waiting is in progress.
+
 ## Board
 
 The board works as it does in the TUI, with the same keys: `h`/`j`/`k`/`l` to move, `n` to create, `m` to move, `/` to search, `?` for the key list. You can also drag a card to another column, or within its column to reorder it; it lands where you let it go. The phone layout has no drag: **Move** in a card's menu moves it to another column, at the end, and a column cannot be reordered there. Press `enter` or double-click a card to open its detail. From 1280 pixels of width, a panel beside the board describes the selected card, with buttons for its agent, its details and its ticket or pull request.
@@ -72,13 +74,13 @@ When a native agent starts subagents, a **Sub-agents** switch appears in its hea
 
 Cards and tiles agree on whether a child is starting, running, successful, failed or interrupted. Interrupted children go on the **Finished** shelf, separately labelled from errors. With Chimera's Legato mod, background completion status also updates while the parent is idle and survives reopening the panel.
 
-Type `/` in a native agent's message box to list its commands and skills. As you type, the best matches come first: the exact name, then names that start with what you typed, then names with a word that starts with it (`/review` finds `plugin:review`). Use `↑` and `↓` to move, and `Tab` or `Enter` to complete the highlighted one: it goes into the box and you keep typing, for example the skill's arguments. Nothing is sent until you press `Enter` again. A command that stands for a prompt puts that prompt in the box. `Esc` closes the list; type again to reopen it.
+Choose **Commands and skills** in a native agent's composer, or type `/` in its message box to list its commands and skills. As you type, the best matches come first: the exact name, then names that start with what you typed, then names with a word that starts with it (`/review` finds `plugin:review`). Use `↑` and `↓` to move, and `Tab` or `Enter` to complete the highlighted one: it goes into the box and you keep typing, for example the skill's arguments. Nothing is sent until you press `Enter` again. A command that stands for a prompt puts that prompt in the box. `Esc` closes the list; type again to reopen it. The launcher also has All, Skills and Commands filters, search, full descriptions and source/plugin details. Selecting an item keeps existing draft notes and does not send. Loading and catalog failures are shown separately; Retry keeps the draft.
 
 When a native agent's terminal shows a numbered menu (an update notice, a trust question), the panel draws it as a card with a button for each choice.
 
 The **More actions** menu in the agent's header holds **Rename**, **Refresh from snapshot**, notifications, **Reload agent**, **Reload without sandbox** (or **Reload in sandbox**, for an agent you started outside it), **Disconnect** and **Kill agent**. The sandbox entry is there only while Legato's sandbox is on; see [Sandbox](/legato/security/sandbox/). Right-click an agent in the sidebar for the same actions. For an agent you have not opened, the actions that act on the open terminal (refreshing it, prompt detection) are left out. **Rename** renames the agent's task, so it works for local tasks; a task from a provider keeps its title. Asking before **Kill agent**, **Reload agent** and similar actions uses a small dialog in the app, not the browser's. See [Agents](/legato/using/agents/) for reloading and stopping.
 
-To switch agents from the keyboard, hold the switch key and press `1` to `9`. The numbers follow the visible list order, ready as soon as the agents appear. The key is Control on Linux and Alt on a Mac unless you change it in **Settings › Agents**. Press `M` for the agent's macros. A draft you type for one agent is kept when you switch to another.
+To switch agents from the keyboard, hold the switch key and press `1` to `9`. The numbers follow the visible list order, ready as soon as the agents appear. The key is Control on Linux and Alt on a Mac unless you change it in **Settings › Agents and workspaces**. Press `M` for the agent's macros. A draft you type for one agent is kept when you switch to another.
 
 ### Terminal mode
 
@@ -88,7 +90,9 @@ When voice is enabled, press `v` outside a text field to start dictation in a te
 
 On a computer there is no message box: the terminal is where you type, and the agent's menu is in the header. A phone keeps the message box, with a row of the keys its keyboard lacks: **Esc**, **⇧Tab**, **↑** and **↓**, and **Ctrl**, which sends the next character you type, in the box or the terminal, with Ctrl. When the agent asks something, such as a yes-or-no menu, its answers appear as buttons above the box.
 
-Choose terminal colours in **Settings › Appearance › Terminal theme**: **Follow app**, **Legato**, **Night**, **Solarized Dark**, **Classic**, **Dracula**, **Ocular Light**, **Ocular Dark**, **Ocular Light Vivid** or **Ocular Dark Vivid**. The default follows your app theme; an existing saved terminal choice stays as it was. A change updates open terminals without reconnecting or clearing their screens. Programs that emit their own truecolour backgrounds can override the terminal palette.
+Use Tab or the arrow keys to focus a terminal prompt choice, then press Enter to select it. **Dismiss** closes the choices without sending terminal keys.
+
+Choose terminal colours in **Settings › Preferences › Appearance › Terminal theme**: **Follow app**, **Legato**, **Night**, **Solarized Dark**, **Classic**, **Dracula**, **Ocular Light**, **Ocular Dark**, **Ocular Light Vivid** or **Ocular Dark Vivid**. The default follows your app theme; an existing saved terminal choice stays as it was. A change updates open terminals without reconnecting or clearing their screens. Programs that emit their own truecolour backgrounds can override the terminal palette.
 
 While a terminal is open in the web UI, the session has mouse mode on and no tmux status line, which a desktop `tmux attach` sees too. Hold Shift to select text with the mouse there.
 
@@ -150,36 +154,24 @@ Requests from agents that wait for you (permissions, questions, credentials) app
 
 ## Settings
 
-**Settings** has seven groups:
+Choose a category, or search by task, title or configuration key. On a wide screen, categories stay beside the selected section. On a phone, open a category from the list; **Back to Settings** returns to it. Search results open and focus the matching control. Existing setting links still work.
 
-- **Agents**: repositories, a link to **Remote**, [resources](/legato/agent-tools/resources/), **Engram bindings** (the [engrams](/legato/agent-tools/engrams/) bound to each repository or folder, with **Make default**, **Unbind** and **Clear the default**, and whether engram was found), the engram settings, prompt detection and the agent switch key.
-- **Security**: browser notifications for approvals, the devices that can sign approvals, and credentials.
-- **Integrations**: [Argus](/legato/integrations/argus/) and integration tokens.
-- **Handoff**: **Workers**, the Legatos this one hands tasks to, with **Add a worker** (with none paired yet, it explains handing off); and **Main instances**, the Legatos that hand tasks to this one, with **Pair a main instance** and **Unpair**. See [Main and worker instances](/legato/running/instances/) and [Hand off tasks to a worker](/legato/using/handoff/).
-- **Connection**: servers, **Pair a phone**, and the TLS certificate.
-- **Appearance**: the app theme, tint, terminal theme, glitch effect, and moving light round a working agent.
-- **Where a setting comes from.** Settings that can be kept on the server show where their value comes from: **default**, **config.yaml** with a lock (change it in the file), or **set here** with **Reset**, which goes back to the default. One marked **applies at restart** waits for Legato to restart.
-- **Export and import settings** (in Lists): download the settings kept on the server as a file shaped like `config.yaml`, secrets as names; or import such a file, which becomes one change set for you to approve.
-- **Lists**: workspaces, macros, agent tools, credentials and the other lists kept on the server. Entries from `config.yaml` are locked; add, edit or remove the others.
-- **Updates**: this server's version, the latest release, and the update mode, and **Restart Legato**, which restarts every Legato process of this server. See [Updates](/legato/running/updates/).
+- **Preferences**: app and terminal appearance, motion, prompt detection, keyboard switching and browser notifications.
+- **Agents and workspaces**: repositories, directory presets, resources, guidance, agent tools, workspaces, macros, sandbox, swarms and engrams. Managed clones link to **Remote**.
+- **Reeve**: sessions, automation, rules, engram, pairings and voice.
+- **Security**: credentials and sources, grants, audit, signing devices and integration tokens.
+- **Integrations**: Jira, GitHub, Burnlite, Argus, MQTT and server notification delivery.
+- **Connections and handoff**: browser servers, pairing, TLS, workers and main instances.
+- **Server and maintenance**: tint, updates/restart, configuration sources, migration, import/export and conditional development controls.
 
-A setting kept in this browser only is marked `this browser`.
-
-### App theme and tint
-
-Choose **Legato**, **Dracula**, **Ocular Light**, **Ocular Dark**, **Ocular Light Vivid** or **Ocular Dark Vivid** in **Settings › Appearance › App theme**. Legato keeps the original dark appearance. Changes apply immediately to the page, conversations, diffs and theme-aware artifacts, and stay after reload. In a browser this preference belongs to that browser; in a compatible desktop or Android app, the app saves the choice for its shell and server pages. There is no automatic system-appearance mode.
-
-**Ocular Light Vivid** and **Ocular Dark Vivid** keep the matching original backgrounds and surface depth, with stronger action, focus and status highlights. Dark Vivid uses brighter, clearer accents; Light Vivid uses richer, deeper accents. The originals remain available. Vivid is a visual alternative, not a proven eye-strain treatment.
-
-Terminals follow the app unless you choose a separate terminal theme. Server tints remain independent. Ocular uses the Work Light and Work Dark research candidates; these colours have not been shown to reduce fatigue or treat eye strain. Dracula uses the [Dracula OSS palette](https://github.com/dracula/dracula-theme), with readable text mappings for this application. Named themes distinguish recessed navigation, panels and raised controls, with softer separators and subtle depth; text contrast, focus and terminal colours remain readable.
-
+Settings show their scope: this browser/device or the selected server. A server value shows **default**, **config.yaml** with a lock, or **set here** with **Reset**. File-only settings explain where to edit them. **Applies at restart** means the saved change waits for a restart.
 All Ocular themes use purple for actions and identity, green for activity and success, and blue for links. Agent-to-agent messages have a purple-tinted interior; Legato notices have a teal-tinted interior. Voice and signing keep the purple-and-green character. Text selection and the reading background remain separate, and the message box keeps its rounded inset focus indicator.
 
 To tell your Legatos apart at a glance, give each a tint in **Settings › Appearance › Tint**: red, orange, yellow, green, teal, blue, purple or pink. The tint is saved on the server, so every browser and phone that uses it shows it: a band across the top of the window, a wash on the rail, and a dot beside the server in the switcher. A tint takes priority over the app canvas for the browser's address-bar colour.
 
-### Updates
+Toggles and choices save immediately. Text and multi-field edits use **Apply** or **Save** and **Cancel**; leaving a field does not save it. If saving fails, the draft stays for retry. When another client changes the value, choose **Reload value** or **Keep my edit** before saving. An approval request is not a completed change.
 
-When a new release is out and the update mode is `ask`, a bar across the top says so, with **Update and restart** and **Later**. See [Updates](/legato/running/updates/).
+Lists live in their owning category, not a separate Lists page. Common entries have named fields; **Advanced JSON** keeps other fields available. File entries are locked. Credentials use secret references, never pasted secrets. **Export and import settings**, in Server and maintenance, downloads the server settings or proposes an import for approval.
 
 ## Message delivery safety
 

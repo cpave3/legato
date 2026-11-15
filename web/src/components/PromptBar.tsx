@@ -35,20 +35,26 @@ function ActionList({ actions, type, onSelect, onDismiss }: ActionListProps) {
   }, [type])
 
   const handleKey = useCallback((e: KeyboardEvent) => {
+    const focusChoice = (index: number) => {
+      setSelected(index)
+      listRef.current?.querySelectorAll<HTMLButtonElement>("button")[index]?.focus()
+    }
     switch (e.key) {
       case "ArrowDown":
       case "j":
         e.preventDefault()
-        setSelected((s) => Math.min(s + 1, actions.length - 1))
+        focusChoice(Math.min(selected + 1, actions.length - 1))
         break
       case "ArrowUp":
       case "k":
         e.preventDefault()
-        setSelected((s) => Math.max(s - 1, 0))
+        focusChoice(Math.max(selected - 1, 0))
         break
       case "Enter":
-        e.preventDefault()
-        onSelect(actions[selected].keys)
+        if (e.target === e.currentTarget) {
+          e.preventDefault()
+          onSelect(actions[selected].keys)
+        }
         break
       case "Escape":
         e.preventDefault()
@@ -73,6 +79,7 @@ function ActionList({ actions, type, onSelect, onDismiss }: ActionListProps) {
       {actions.map((action, i) => (
         <button
           key={action.label}
+          onFocus={() => setSelected(i)}
           onClick={() => onSelect(action.keys)}
           className={cn(
             "flex items-center gap-2 rounded px-3 py-1.5 text-sm text-left transition-colors",

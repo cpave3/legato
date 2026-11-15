@@ -1,3 +1,4 @@
+import { Dialog, DialogPanel, DialogHeader, DialogTitle, DialogBody, DialogFooter } from "./ui/Dialog"
 import { useState, useEffect, useCallback, useRef } from "react"
 import { useWebSocket } from "../hooks/useWebSocket"
 import { useServer } from "../hooks/useServer"
@@ -89,16 +90,6 @@ export function PlanApprovalModal() {
     })
   }, [subscribe, plan, discoverPlans, addToast])
 
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape" && isOpen) {
-        handleClose()
-      }
-    }
-    window.addEventListener("keydown", onKey)
-    return () => window.removeEventListener("keydown", onKey)
-  }, [isOpen])
-
   const handleClose = () => {
     // Dismissal is local only — the conductor is still blocked waiting
     // for a verdict. The persistent plan stays in the DB so the user
@@ -157,23 +148,23 @@ export function PlanApprovalModal() {
   const planContent = plan.plan
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4">
-      <div className="max-h-[85vh] w-full max-w-xl overflow-y-auto rounded-lg border border-zinc-700 bg-zinc-900 shadow-2xl">
-        <div className="flex items-center justify-between border-b border-zinc-800 px-5 py-3">
-          <h2 className="text-sm font-semibold text-zinc-200">
+    <Dialog open={isOpen} onClose={handleClose}>
+      <DialogPanel className="w-full max-w-xl rounded-lg border border-zinc-700 bg-zinc-900 shadow-2xl">
+        <DialogHeader className="flex items-center justify-between border-b border-zinc-800 px-5 py-3">
+          <DialogTitle className="text-sm font-semibold text-zinc-200">
             {isExtension ? "Extension plan — append to existing swarm" : "Plan Proposed"}
-          </h2>
-          <button
+          </DialogTitle>
+          <button aria-label="Close"
             onClick={handleClose}
             className="rounded p-1 text-zinc-500 transition-colors hover:bg-zinc-800 hover:text-zinc-200"
           >
             <X size={16} />
           </button>
-        </div>
+        </DialogHeader>
 
-        <div className="px-5 py-4 space-y-4">
+        <DialogBody className="px-5 py-4 space-y-4">
           {verdictError && (
-            <div className="rounded border border-red-800 bg-red-950/50 px-3 py-2 text-xs text-red-300">
+            <div role="alert" className="rounded border border-red-800 bg-red-950/50 px-3 py-2 text-xs text-red-300">
               {verdictError}
             </div>
           )}
@@ -242,7 +233,7 @@ export function PlanApprovalModal() {
               </div>
             </>
           ) : plan.load_error ? (
-            <div className="rounded border border-red-900/50 bg-red-950/30 px-3 py-2 text-xs text-red-400">
+            <div role="alert" className="rounded border border-red-900/50 bg-red-950/30 px-3 py-2 text-xs text-red-400">
               Could not load plan: {plan.load_error}
               <div className="mt-1 text-zinc-500">Path: {plan.plan_path}</div>
             </div>
@@ -254,8 +245,9 @@ export function PlanApprovalModal() {
 
           {rejectMode && (
             <div className="space-y-2">
-              <label className="text-xs text-zinc-500">Rejection Notes</label>
+              <label htmlFor="plan-rejection-notes" className="text-xs text-zinc-500">Rejection Notes</label>
               <textarea
+                id="plan-rejection-notes"
                 value={notes}
                 onChange={(e) => setNotes(e.target.value)}
                 placeholder="Describe what needs to change..."
@@ -265,9 +257,9 @@ export function PlanApprovalModal() {
               />
             </div>
           )}
-        </div>
+        </DialogBody>
 
-        <div className="flex items-center justify-end gap-2 border-t border-zinc-800 px-5 py-3">
+        <DialogFooter className="flex items-center justify-end gap-2 border-t border-zinc-800 px-5 py-3">
           {!rejectMode ? (
             <>
               <button
@@ -310,8 +302,8 @@ export function PlanApprovalModal() {
               </button>
             </>
           )}
-        </div>
-      </div>
-    </div>
+        </DialogFooter>
+      </DialogPanel>
+    </Dialog>
   )
 }

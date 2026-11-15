@@ -6,6 +6,8 @@ import { useServer } from "../hooks/useServer"
 import { executeAttentionAction, dismissAttentionItem, type AttentionAction, type AttentionItem } from "../lib/attention"
 import { externalHref, legatoHref } from "../lib/navigation"
 import { LoadingState } from "../components/ui/LoadingState"
+import { InlineNotice } from "../components/ui/InlineNotice"
+import { Button } from "../components/ui/Button"
 import { MarkdownBody } from "../components/MarkdownBody"
 import { AskReeve } from "../components/AskReeve"
 import { reeveBrief } from "../lib/reeve"
@@ -234,22 +236,26 @@ export function AttentionPage() {
   }
 
   if (loading) return <LoadingState label="Loading attention…" />
-  if (error) return <div className="p-8 text-red-400" role="alert">{error}</div>
 
   const allItems = items ?? []
 
   return (
     <div className="flex flex-1 flex-col overflow-hidden">
       <header className="border-b border-zinc-800 px-4 py-4 sm:px-6">
-        <h1 className="flex flex-wrap items-center gap-2 text-lg font-semibold">
+        <h1 className="flex flex-wrap items-center gap-2 text-xl font-semibold">
           <Bell size={20} className="text-amber-400" />
           Attention dashboard
-          <span className="text-sm font-normal text-zinc-500">{allItems.length} item{allItems.length === 1 ? "" : "s"}</span>
+          {items !== null && <span className="text-sm font-normal text-zinc-500">{allItems.length} item{allItems.length === 1 ? "" : "s"}</span>}
         </h1>
         {actionError && <p className="mt-2 text-sm text-red-400" role="alert">{actionError}</p>}
+        {error && <InlineNotice variant="error" className="mt-3">
+          <p>Could not load attention: {error}</p>
+          {items !== null && <p>Showing the last successful request. Items may have changed.</p>}
+          <Button variant="outline" onClick={() => void refresh()}>Retry</Button>
+        </InlineNotice>}
       </header>
-      <main className="flex-1 overflow-y-auto px-4 py-5 sm:px-6">
-        {allItems.length === 0 && (
+      {items !== null && <main className="flex-1 overflow-y-auto px-4 py-5 sm:px-6">
+        {!error && allItems.length === 0 && (
           <div className="mb-6 flex flex-col items-center gap-3 rounded-xl border border-emerald-900/60 bg-emerald-950/20 px-4 py-8 text-center">
             <CheckCircle size={42} className="text-emerald-500" />
             <p className="text-lg text-zinc-200">Nothing needs your attention right now</p>
@@ -293,7 +299,7 @@ export function AttentionPage() {
             )
           })}
         </div>
-      </main>
+      </main>}
     </div>
   )
 }

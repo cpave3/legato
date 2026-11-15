@@ -1,3 +1,6 @@
+import { DirectorySettings } from "../components/settings/DirectorySettings"
+import { useMediaQuery } from "../hooks/useMediaQuery"
+import { useSettingsCatalog, useSettingsLists } from "../components/settings/useSettingsCatalog"
 import { ReeveAutoSettings } from "../components/settings/ReeveAutoSettings"
 import { useEffect, useRef, useState } from "react"
 import { ShieldCheck, Download, Zap, ScanSearch, Keyboard, QrCode, Server, Trash2, Plus, RefreshCw, Smartphone, Sparkles, FolderGit2, Palette, SquareTerminal } from "lucide-react"
@@ -23,9 +26,8 @@ import { UpdatesSettings } from "../components/UpdatesSettings"
 import { RestartLegato } from "../components/RestartLegato"
 import { SettingsCard, SettingsGroup, SettingsRow, SettingsRows, Toggle, BrowserTag, primaryButton, quietButton } from "../components/settings/SettingsUI"
 import { useSettings } from "../hooks/useSettings"
-import { useConfigSettings } from "../hooks/useConfigSettings"
-import { RegistrySettings, SettingSource } from "../components/settings/RegistrySettings"
-import { ListSettings } from "../components/settings/ListSettings"
+import { CategorySettings, SettingsLoadState, SettingsSearch } from "../components/settings/SettingsCatalog"
+import { SettingSource } from "../components/settings/RegistrySettings"
 import { MoveSettings } from "../components/settings/MoveSettings"
 import { ExportSettings } from "../components/settings/ExportSettings"
 import { ReevePairings, ReeveSessions } from "../components/settings/ReeveSettings"
@@ -35,15 +37,17 @@ import { apiFetch } from "../lib/api"
 import { Link, useLocation, useSearchParams } from "react-router-dom"
 import { animatedAgentActivityEnabled, setAnimatedAgentActivityEnabled } from "../lib/appearancePreferences"
 
-type Group = { id: string; title: string }
+import { settingsCategories, settingsDestination } from "../lib/settingsCatalog"
 
 export function SettingsPage() {
   const [searchParams, setSearchParams] = useSearchParams()
   const { baseUrl, servers, addServer, removeServer, setActiveServer } = useServer()
   const version = useServerVersion(baseUrl)
   const settings = useSettings()
-  const configSettings = useConfigSettings(baseUrl)
-  const registry = configSettings.data ?? []
+  const configSettings = useSettingsCatalog(baseUrl)
+  const configLists = useSettingsLists(baseUrl)
+  const registry = configSettings.data?.settings ?? []
+  const fileOnly = configSettings.data?.file_only ?? []
   const registered = (key: string) => registry.find((s) => s.key === key)
   const { addToast } = useToast()
   const [buildStarting, setBuildStarting] = useState(false)
@@ -140,159 +144,108 @@ export function SettingsPage() {
     setTimeout(() => setScanSuccess(""), 3000)
   }
 
-  const groups: Group[] = [
-    { id: "agents", title: "Agents" },
-    { id: "reeve", title: "Reeve" },
-    { id: "security", title: "Security" },
-    { id: "integrations", title: "Integrations" },
-    { id: "handoff", title: "Handoff" },
-    { id: "connection", title: "Connection" },
-    { id: "appearance", title: "Appearance" },
-    { id: "lists", title: "Lists" },
-    { id: "updates", title: "Updates" },
-    ...(settings.data?.hot_reload_enabled ? [{ id: "development", title: "Development" }] : []),
-  ]
-
-  const groupIds = groups.map((g) => g.id).join(" ")
   const scroller = useRef<HTMLDivElement>(null)
-  const [current, setCurrent] = useState("agents")
-  // Mark the group in view in the section list.
+  const header = useRef<HTMLElement>(null)
+  const { hash, key: destinationRevision } = useLocation()
+  let target = hash.slice(1)
+  try { target = decodeURIComponent(target) } catch { /* An invalid fragment stays visible in the unavailable-target notice. */ }
+  const wide = useMediaQuery("(min-width: 1024px)")
+  const current = settingsDestination(target) ?? (!target && wide ? "preferences" : "")
+  const [search, setSearch] = useState("")
+  const [targetFound, setTargetFound] = useState(true)
+
   useEffect(() => {
-    const root = scroller.current
-    if (!root || typeof IntersectionObserver === "undefined") return
-    const observer = new IntersectionObserver((entries) => {
-      const shown = entries.filter((e) => e.isIntersecting).sort((a, b) => a.boundingClientRect.top - b.boundingClientRect.top)[0]
-      if (shown) setCurrent(shown.target.id)
-    }, { root, rootMargin: "0px 0px -65% 0px" })
-    for (const id of groupIds.split(" ")) {
-      const el = document.getElementById(id)
-      if (el) observer.observe(el)
+    if (!target) return
+    let focused = false
+    const resolve = () => {
+      const alias = ["handoff", "connection", "lists"].includes(target) ? current : target
+      const element = document.getElementById(alias)
+      setTargetFound(Boolean(element))
+      if (element && !focused) {
+        element.tabIndex = -1
+        element.style.scrollMarginTop = `${(header.current?.getBoundingClientRect().height ?? 0) + 16}px`
+        element.focus({ preventScroll: true })
+        element.scrollIntoView?.({ block: "start" })
+        focused = true
+      }
     }
+    resolve()
+    const observer = new MutationObserver(resolve)
+    if (scroller.current) observer.observe(scroller.current, { childList: true, subtree: true })
     return () => observer.disconnect()
-  }, [groupIds])
-
-  // A link to one setting (#setting-<key>, as the voice sheet's Open
-  // settings) opens at it once the settings have loaded.
-  const loaded = registry.length > 0
-  const { hash } = useLocation()
-  useEffect(() => {
-    if (!loaded || !hash.startsWith("#setting-")) return
-    document.getElementById(decodeURIComponent(hash.slice(1)))?.scrollIntoView?.({ block: "center" })
-  }, [loaded, hash])
-
-  const goTo = (id: string) => {
-    document.getElementById(id)?.scrollIntoView?.({ behavior: "smooth", block: "start" })
-    window.history.replaceState(window.history.state, "", `#${id}`)
-    setCurrent(id)
-  }
+  }, [target, current, baseUrl, destinationRevision])
 
   const isActive = (url: string) => (url ? baseUrl === url : !baseUrl)
 
   return (
     <div ref={scroller} className="flex-1 overflow-y-auto bg-lw-ground font-lw text-lw-text">
-      {/* On a phone: the groups as a row of chips that stays at the top. */}
-      <nav aria-label="Settings sections" className="sticky top-0 z-10 flex gap-2 overflow-x-auto border-b border-lw-line bg-lw-ground/95 px-4 py-2.5 backdrop-blur lg:hidden">
-        {groups.map((g) => (
-          <button
-            key={g.id}
-            onClick={() => goTo(g.id)}
-            aria-current={current === g.id ? "true" : undefined}
-            className={`shrink-0 rounded-full border px-3 py-1.5 text-xs transition-colors ${current === g.id ? "border-lw-accent-ring bg-lw-accent-soft text-lw-accent-text" : "border-lw-line text-lw-text-2"}`}
-          >
-            {g.title}
-          </button>
-        ))}
-      </nav>
-
-      <div className="mx-auto grid w-full max-w-5xl gap-10 px-4 py-6 md:px-8 md:py-8 lg:grid-cols-[180px_minmax(0,1fr)]">
-        <aside className="hidden lg:block">
-          <div className="sticky top-8">
-            <h1 className="mb-4 text-xl font-semibold">Settings</h1>
-            <nav aria-label="Settings sections" className="flex flex-col gap-0.5">
-              {groups.map((g) => (
-                <button
-                  key={g.id}
-                  onClick={() => goTo(g.id)}
-                  aria-current={current === g.id ? "true" : undefined}
-                  className={`rounded-lg px-3 py-2 text-left text-sm transition-colors ${current === g.id ? "bg-lw-selected text-lw-text" : "text-lw-text-2 hover:bg-lw-surface hover:text-lw-text"}`}
-                >
-                  {g.title}
-                </button>
-              ))}
-            </nav>
-            {version && <p data-testid="settings-version" className="mt-4 px-3 font-lw-mono text-xs text-lw-faint">Legato {version}</p>}
-          </div>
+      <header ref={header} className="sticky top-0 z-10 border-b border-lw-line bg-lw-ground px-4 py-4 md:px-8">
+        <div className="mx-auto max-w-5xl">
+          <h1 className="text-xl font-semibold">Settings</h1>
+          <p className="mt-1 break-all text-sm text-lw-text-2">Server: {baseUrl || window.location.origin}</p>
+          <input type="search" aria-label="Search settings" placeholder="Search settings" value={search} onChange={(event) => setSearch(event.target.value)} className="mt-3 min-h-11 w-full rounded-lg border border-lw-line-strong bg-lw-raised px-3 text-sm" />
+        </div>
+      </header>
+      <div className="mx-auto grid w-full max-w-6xl gap-8 px-4 py-6 md:px-8 lg:grid-cols-[220px_minmax(0,1fr)]">
+        <aside className={current ? "hidden lg:block" : ""}>
+          <nav aria-label="Settings sections" className="flex flex-col gap-1">
+            {settingsCategories.map((group) => <Link key={group.id} to={`#${group.id}`} onClick={() => setSearch("")} aria-current={current === group.id ? "page" : undefined} className={`flex min-h-11 items-center rounded-lg px-3 text-sm ${current === group.id ? "bg-lw-selected text-lw-text" : "text-lw-text-2 hover:bg-lw-surface"}`}>{group.title}</Link>)}
+          </nav>
+          {version && <p data-testid="settings-version" className="mt-4 px-3 font-lw-mono text-xs text-lw-faint">Legato {version}</p>}
         </aside>
-
-        <main className="flex min-w-0 max-w-3xl flex-col gap-10">
-          <h1 className="text-xl font-semibold lg:hidden">Settings</h1>
-
-          <SettingsGroup id="agents" title="Agents">
+        <main key={baseUrl} className="flex min-w-0 flex-col gap-6">
+          <SettingsLoadState loading={configSettings.isPending} error={configSettings.error} stale={Boolean(configSettings.data)} onRetry={() => void configSettings.refetch()} />
+          {configLists.isPending && <p role="status" className="text-sm text-lw-text-2">Loading configuration lists…</p>}
+          {configLists.error && <div><p role="alert" className="text-sm text-lw-error">Could not load configuration lists: {configLists.error.message}{configLists.data ? " Showing last loaded entries." : ""}</p><button className={quietButton + " mt-2"} onClick={() => void configLists.refetch()}>Retry lists</button></div>}
+          {target && !targetFound && !configSettings.isPending && !configLists.isPending && <p role="status" className="text-sm text-lw-text-2">This settings destination is unavailable on this server: {target}. Choose a category or search for another setting.</p>}
+          {search.trim() && <SettingsSearch query={search} settings={registry} fileOnly={fileOnly} lists={configLists.data ?? []} development={Boolean(settings.data?.hot_reload_enabled)} onSelect={() => setSearch("")} />}
+          {current && <Link to="/settings" className={quietButton + " w-fit lg:hidden"}>Back to Settings</Link>}
+          {current === "agents" && <SettingsGroup id="agents" title="Agents and workspaces">
             {/* The spawn dialog and the workflow form read the repositories from the settings. */}
-            <RepositoriesSettings baseUrl={baseUrl} onChanged={() => void settings.refetch()} />
-            <RepositoryGuidanceSettings baseUrl={baseUrl} />
+            <div id="list-repositories"><div id="list-workflows.repositories"><RepositoriesSettings baseUrl={baseUrl} onChanged={() => void settings.refetch()} /></div></div>
+            <DirectorySettings baseUrl={baseUrl} />
+            <div id="list-agents.guidance"><RepositoryGuidanceSettings baseUrl={baseUrl} /></div>
             <SettingsCard id="job-clones" icon={FolderGit2} title="Managed clones" description="View and remove clones Legato made for agents on the Remote page.">
               <Link to="/remote" className={quietButton}>Open Remote</Link>
             </SettingsCard>
-            <ResourcesSettings baseUrl={baseUrl} />
+            <div id="list-resources"><ResourcesSettings baseUrl={baseUrl} /></div>
             <EngramBindingsSettings baseUrl={baseUrl} />
-            <RegistrySettings settings={registry} baseUrl={baseUrl} prefixes={["agents", "engram"]} />
-            <SettingsRows>
-              <SettingsRow
-                icon={ScanSearch}
-                title="Prompt detection"
-                description="Find tool approval and plan prompts in a terminal agent's output and offer them as buttons."
-                browser
-                control={<Toggle label="Prompt detection" on={promptDetectionEnabled} onChange={togglePromptDetection} />}
-              />
-              <SettingsRow
-                icon={Keyboard}
-                title="Agent switch key"
-                description="Hold this key and press a number to switch agents."
-                browser
-                control={(
-                  <select
-                    aria-label="Agent switch key"
-                    value={switchModifier}
-                    onChange={(e) => handleSwitchModifier(e.target.value)}
-                    className="min-h-9 rounded-lg border border-lw-line-strong bg-lw-raised px-2 text-sm text-lw-text outline-none focus:border-lw-accent"
-                  >
-                    <option value="Control">Ctrl</option>
-                    <option value="Alt">Alt / Option</option>
-                    <option value="Meta">Meta / Cmd</option>
-                  </select>
-                )}
-              />
-            </SettingsRows>
-          </SettingsGroup>
 
-          <SettingsGroup id="reeve" title="Reeve" description="The agent of this Legato itself.">
-            <ReeveSessions baseUrl={baseUrl} />
+          <CategorySettings category="agents" settings={registry} fileOnly={fileOnly} baseUrl={baseUrl} listKeys={(configLists.data ?? []).map((list) => list.key)} />
+          </SettingsGroup>}
+
+          {current === "reeve" && <SettingsGroup id="reeve" title="Reeve" description="The agent of this Legato itself.">
+            <div id="reeve-sessions"><ReeveSessions baseUrl={baseUrl} /></div>
             <ReeveAutoSettings baseUrl={baseUrl} />
             <ReeveEngramSettings baseUrl={baseUrl} />
             <ReevePairings baseUrl={baseUrl} />
-            <RegistrySettings settings={registry} baseUrl={baseUrl} prefixes={["reeve", "voice"]} />
-          </SettingsGroup>
+          <CategorySettings category="reeve" settings={registry} fileOnly={fileOnly} baseUrl={baseUrl} listKeys={(configLists.data ?? []).map((list) => list.key)} />
+          </SettingsGroup>}
 
-          <SettingsGroup id="security" title="Security">
-            <ApprovalNotificationSettings />
-            <RegistrySettings settings={registry} baseUrl={baseUrl} prefixes={["notifications"]} />
+          {current === "security" && <SettingsGroup id="security" title="Security">
+
             <DevicesSettings baseUrl={baseUrl} />
             <CredentialsSettings baseUrl={baseUrl} />
-          </SettingsGroup>
+            <SettingsCard id="integration-tokens" icon={ShieldCheck} title="Integration tokens" description="Scoped tokens for external services that call this Legato.">
+              <p className="mb-3 text-sm text-lw-text-2">Create or revoke tokens on this server with <code>legato integration token create</code> or <code>legato integration token revoke</code>.</p>
+              <Link to="#integration-token-overview" className={quietButton}>View token scopes</Link>
+            </SettingsCard>
+          <CategorySettings category="security" settings={registry} fileOnly={fileOnly} baseUrl={baseUrl} listKeys={(configLists.data ?? []).map((list) => list.key)} />
+          </SettingsGroup>}
 
-          <SettingsGroup id="integrations" title="Integrations" description="External services, Home Assistant publishing, and integration tokens.">
-            <MQTTSettings settings={registry} baseUrl={baseUrl} loading={configSettings.isPending} error={configSettings.error} onRetry={() => void configSettings.refetch()} />
-            <IntegrationsSettings baseUrl={baseUrl} />
-          </SettingsGroup>
+          {current === "integrations" && <SettingsGroup id="integrations" title="Integrations" description="External services, Home Assistant publishing, and integration tokens.">
+            <MQTTSettings settings={registry} baseUrl={baseUrl} loading={false} error={null} onRetry={() => void configSettings.refetch()} />
+            <div id="integration-token-overview"><IntegrationsSettings baseUrl={baseUrl} /></div>
+          <CategorySettings category="integrations" settings={registry} fileOnly={fileOnly} baseUrl={baseUrl} listKeys={(configLists.data ?? []).map((list) => list.key)} />
+          </SettingsGroup>}
 
-          <SettingsGroup id="handoff" title="Handoff" description="Hand tasks from this Legato to workers that keep working while it sleeps, and take tasks from main instances. Every Legato can be both.">
+
+
+          {current === "connections" && <SettingsGroup id="connections" title="Connections and handoff">
             <WorkersSettings baseUrl={baseUrl} />
             <MainInstancesSettings baseUrl={baseUrl} />
-          </SettingsGroup>
 
-          <SettingsGroup id="connection" title="Connection">
-            <SettingsCard icon={Server} title="Servers" browser description="The Legato server this browser shows. Switch to another, or add one by its address.">
+            <SettingsCard id="servers" icon={Server} title="Servers" browser description="The Legato server this browser shows. Switch to another, or add one by its address.">
               <div className="overflow-hidden rounded-lg border border-lw-line divide-y divide-lw-line">
                 {[{ name: "Local", url: "" }, ...servers].map((s) => (
                   <div key={s.url || "local"} className={`flex items-center gap-3 px-3 ${isActive(s.url) ? "bg-lw-selected" : ""}`}>
@@ -342,14 +295,14 @@ export function SettingsPage() {
             </SettingsCard>
 
             <div className="grid gap-4 md:grid-cols-2">
-              <SettingsCard icon={Smartphone} title="Pair a phone" description="Pair the Legato app with this server by typing four words, or scanning a code.">
+              <SettingsCard id="pair-phone" icon={Smartphone} title="Pair a phone" description="Pair the Legato app with this server by typing four words, or scanning a code.">
                 <button onClick={() => setShowPairDevice(true)} className={primaryButton}>
                   <Smartphone size={14} />
                   Pair a device
                 </button>
               </SettingsCard>
               <SettingsCard
-                icon={QrCode}
+                id="pair-browser" icon={QrCode}
                 title="Pair this browser"
                 description={<>Scan the QR code another server shows with <code className="rounded bg-lw-raised px-1 font-lw-mono text-lw-text-2">legato pair</code>, and add it to this browser's servers.</>}
               >
@@ -361,7 +314,7 @@ export function SettingsPage() {
               </SettingsCard>
             </div>
 
-            <SettingsCard icon={ShieldCheck} title="TLS certificate" description="Install this server's CA certificate on a device to trust its HTTPS address and install the web app.">
+            <SettingsCard id="tls" icon={ShieldCheck} title="TLS certificate" description="Install this server's CA certificate on a device to trust its HTTPS address and install the web app.">
               <ul className="mb-3 flex flex-col gap-1 text-xs text-lw-text-2">
                 <li><span className="text-lw-text">Android:</span> Settings → Security → Install a certificate → CA certificate.</li>
                 <li><span className="text-lw-text">iOS:</span> install the profile, then turn on full trust in Settings → General → About → Certificate Trust Settings.</li>
@@ -375,21 +328,40 @@ export function SettingsPage() {
                 <p className="text-xs text-lw-faint">This server uses a certificate of its own (web.tls.cert), so there is no CA to download.</p>
               )}
             </SettingsCard>
-          </SettingsGroup>
+          <CategorySettings category="connections" settings={registry} fileOnly={fileOnly} baseUrl={baseUrl} listKeys={(configLists.data ?? []).map((list) => list.key)} />
+          </SettingsGroup>}
 
-          <SettingsGroup id="appearance" title="Appearance" description="This server's tint is shared. Theme, motion and effects are saved on this device.">
-            <SettingsRows>
+          {current === "preferences" && <SettingsGroup id="preferences" title="Preferences">
+            <div id="appearance" />
+            <div id="keyboard">            <SettingsRows>
               <SettingsRow
-                icon={Palette}
-                title="Tint"
-                description="A colour for this server, along the top of the window and down the rail. Every browser and phone that uses this server shows it."
-                control={
-                  <div className="flex flex-col items-end gap-1">
-                    <TintPicker tint={settings.data?.tint} pinned={registered("web.tint")?.pinned} onChanged={() => { void settings.refetch(); void configSettings.refetch() }} />
-                    {registered("web.tint") && <SettingSource setting={registered("web.tint")!} />}
-                  </div>
-                }
+                icon={ScanSearch}
+                title="Prompt detection"
+                description="Find tool approval and plan prompts in a terminal agent's output and offer them as buttons."
+                browser
+                control={<Toggle label="Prompt detection" on={promptDetectionEnabled} onChange={togglePromptDetection} />}
               />
+              <SettingsRow
+                icon={Keyboard}
+                title="Agent switch key"
+                description="Hold this key and press a number to switch agents."
+                browser
+                control={(
+                  <select
+                    aria-label="Agent switch key"
+                    value={switchModifier}
+                    onChange={(e) => handleSwitchModifier(e.target.value)}
+                    className="min-h-9 rounded-lg border border-lw-line-strong bg-lw-raised px-2 text-sm text-lw-text outline-none focus:border-lw-accent"
+                  >
+                    <option value="Control">Ctrl</option>
+                    <option value="Alt">Alt / Option</option>
+                    <option value="Meta">Meta / Cmd</option>
+                  </select>
+                )}
+              />
+            </SettingsRows></div>
+            <div id="browser-notifications"><ApprovalNotificationSettings /></div>
+            <SettingsRows>
               <SettingsRow icon={Palette} title="App theme" description="Colours for this device. Terminals follow unless you choose a separate theme." browser={(window as { legatoShell?: { theme?: number } }).legatoShell?.theme !== 1} control={<AppThemePicker />} />
               <SettingsRow
                 icon={SquareTerminal}
@@ -413,20 +385,29 @@ export function SettingsPage() {
                 control={<Toggle label="Animated agent activity" on={animatedActivityEnabled} onChange={toggleAnimatedActivity} />}
               />
             </SettingsRows>
-            <RegistrySettings settings={registry} baseUrl={baseUrl} prefixes={["theme", "icons", "editor"]} />
-          </SettingsGroup>
+          <CategorySettings category="preferences" settings={registry} fileOnly={fileOnly} baseUrl={baseUrl} listKeys={(configLists.data ?? []).map((list) => list.key)} />
+          </SettingsGroup>}
 
-          <SettingsGroup id="lists" title="Lists" description="Workspaces, macros, agent tools, credentials and other lists, kept on this server beside config.yaml. Entries config.yaml gives are locked.">
+          {current === "server" && <SettingsGroup id="server" title="Server and maintenance">
             <MoveSettings baseUrl={baseUrl} />
-            <ListSettings baseUrl={baseUrl} />
-            <ExportSettings baseUrl={baseUrl} />
-          </SettingsGroup>
 
-          <SettingsGroup id="updates" title="Updates" description="Which release of Legato this server runs, and how it takes the next.">
-            <UpdatesSettings status={settings.data ? settings.data.updates ?? null : undefined} baseUrl={baseUrl} modeSetting={registered("updates.mode")}
-              onChanged={() => { void settings.refetch(); void configSettings.refetch() }} />
-            <RestartLegato baseUrl={baseUrl} />
-          </SettingsGroup>
+            <div id="export"><ExportSettings baseUrl={baseUrl} /></div>
+            <SettingsRows><div id="setting-web.tint">              <SettingsRow
+                icon={Palette}
+                title="Tint"
+                description="A colour for this server, along the top of the window and down the rail. Every browser and phone that uses this server shows it."
+                control={
+                  <div className="flex flex-col items-end gap-1">
+                    <TintPicker tint={settings.data?.tint} pinned={registered("web.tint")?.pinned} onChanged={() => { void settings.refetch(); void configSettings.refetch() }} />
+                    {registered("web.tint") && <SettingSource setting={registered("web.tint")!} />}
+                  </div>
+                }
+              />
+</div></SettingsRows>
+            <div id="updates">
+            <div id="setting-updates.mode"><UpdatesSettings status={settings.data ? settings.data.updates ?? null : undefined} baseUrl={baseUrl} modeSetting={registered("updates.mode")}
+              onChanged={() => { void settings.refetch(); void configSettings.refetch() }} /></div>
+            <RestartLegato baseUrl={baseUrl} /></div>
 
           {settings.data?.hot_reload_enabled && (
             <SettingsGroup id="development" title="Development" description="This Legato runs from a checkout under hot reload.">
@@ -438,10 +419,16 @@ export function SettingsPage() {
               </SettingsCard>
             </SettingsGroup>
           )}
+            <SettingsCard id="list-board.columns" icon={Server} title="Board columns" description="Column names and ticket status mappings come from board.columns in config.yaml.">
+              <p className="mb-3 text-sm text-lw-text-2">Edit the columns in this server’s config.yaml, then run <code>legato columns sync</code> on that server.</p>
+              <Link to="/board" className={quietButton}>Open board</Link>
+            </SettingsCard>
+          <CategorySettings category="server" settings={registry} fileOnly={fileOnly} baseUrl={baseUrl} listKeys={(configLists.data ?? []).map((list) => list.key)} />
+          </SettingsGroup>}
 
-          <p className="pb-6 text-xs text-lw-faint">
+          {current && <p className="pb-6 text-xs text-lw-faint">
             Settings marked <BrowserTag /> are kept in this browser. Everything else is on the server, in config.yaml or its database.
-          </p>
+          </p>}
         </main>
       </div>
 

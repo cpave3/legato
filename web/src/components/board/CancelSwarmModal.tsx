@@ -1,3 +1,4 @@
+import { Dialog, DialogPanel, DialogHeader, DialogTitle, DialogBody, DialogFooter } from "../ui/Dialog"
 import { useCallback, useEffect, useState } from "react"
 import { X } from "lucide-react"
 import { useServer } from "../../hooks/useServer"
@@ -57,15 +58,15 @@ export function CancelSwarmModal({ taskId, taskTitle, isOpen, onClose, onConfirm
   if (!isOpen) return null
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={onClose}>
-      <div className="w-full max-w-sm rounded-lg border border-zinc-700 bg-zinc-900 shadow-2xl" onClick={(e) => e.stopPropagation()}>
-        <div className="flex items-center justify-between border-b border-zinc-800 px-5 py-3">
-          <h2 className="text-sm font-semibold text-zinc-200">Cancel swarm for {taskTitle}?</h2>
-          <button onClick={onClose} className="rounded p-1 text-zinc-500 transition-colors hover:bg-zinc-800 hover:text-zinc-200">
+    <Dialog open={isOpen} onClose={onClose}>
+      <DialogPanel className="w-full max-w-sm rounded-lg border border-zinc-700 bg-zinc-900 shadow-2xl">
+        <DialogHeader className="flex items-center justify-between border-b border-zinc-800 px-5 py-3">
+          <DialogTitle className="text-sm font-semibold text-zinc-200">Cancel swarm for {taskTitle}?</DialogTitle>
+          <button aria-label="Close" onClick={onClose} className="rounded p-1 text-zinc-500 transition-colors hover:bg-zinc-800 hover:text-zinc-200">
             <X size={16} />
           </button>
-        </div>
-        <div className="px-5 py-4">
+        </DialogHeader>
+        <DialogBody className="px-5 py-4">
           {error && (
             <div role="alert" className="mb-3 rounded border border-red-800 bg-red-950/50 px-3 py-2 text-xs text-red-300">
               {error}
@@ -75,8 +76,8 @@ export function CancelSwarmModal({ taskId, taskTitle, isOpen, onClose, onConfirm
             Kills the conductor + all live workers, deletes all sub-tasks, and clears the swarm state on this card.
           </p>
           <div className="mt-3 text-[10px] text-zinc-600">y = confirm · n/esc = cancel</div>
-        </div>
-        <div className="flex items-center justify-end gap-2 border-t border-zinc-800 px-5 py-3">
+        </DialogBody>
+        <DialogFooter className="flex items-center justify-end gap-2 border-t border-zinc-800 px-5 py-3">
           <button
             onClick={onClose}
             disabled={loading}
@@ -91,8 +92,8 @@ export function CancelSwarmModal({ taskId, taskTitle, isOpen, onClose, onConfirm
           >
             {loading ? "Cancelling..." : "Confirm"}
           </button>
-        </div>
-      </div>
-    </div>
+        </DialogFooter>
+      </DialogPanel>
+    </Dialog>
   )
 }

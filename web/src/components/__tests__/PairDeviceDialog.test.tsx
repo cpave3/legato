@@ -129,3 +129,15 @@ describe("PairDeviceDialog", () => {
     expect(await screen.findByText(/Paired with main instance workstation/)).toBeTruthy()
   })
 })
+
+it("traps pairing focus and Escape cancels its open phrase", async () => {
+  const close = vi.fn()
+  render(<PairDeviceDialog baseUrl="" onClose={close} />)
+  await screen.findByText("river")
+  screen.getByRole("button", {name:"Done"}).focus()
+  fireEvent.keyDown(document.activeElement!, {key:"Tab"})
+  expect(document.activeElement).toBe(screen.getByRole("button", {name:"Close"}))
+  fireEvent.keyDown(document.activeElement!, {key:"Escape"})
+  expect(close).toHaveBeenCalledTimes(1)
+  await waitFor(() => expect(methods).toContain("DELETE"))
+})

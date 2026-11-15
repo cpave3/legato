@@ -1,27 +1,47 @@
-import { cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react"
+import { QueryClientProvider } from "@tanstack/react-query"
+import { createQueryClient, queryKeys } from "../../lib/query"
+import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react"
 import { MemoryRouter, Route, Routes } from "react-router-dom"
 import { beforeEach, describe, expect, it, vi } from "vitest"
 import type { WorkflowRunView } from "../../lib/workflow"
 import { WorkflowRunPage } from "../WorkflowRunPage"
 
-const { fetchArtifact, view, triggerStep, retryStep, promptStep } = vi.hoisted(() => ({ fetchArtifact: vi.fn(), view: { current: null as unknown }, triggerStep: vi.fn(), retryStep: vi.fn(), promptStep: vi.fn() }))
+const { fetchArtifact, fetchRun, triggerStep, retryStep, promptStep } = vi.hoisted(() => ({ fetchArtifact: vi.fn(), fetchRun: vi.fn(), triggerStep: vi.fn(), retryStep: vi.fn(), promptStep: vi.fn() }))
 
 vi.mock("../../hooks/useServer", () => ({ useServer: () => ({ baseUrl: "" }) }))
-vi.mock("../../hooks/useWorkflow", () => ({ useWorkflowRun: () => ({ loading: false, error: null, refresh: vi.fn(), data: view.current }) }))
-vi.mock("../../lib/workflow", async importOriginal => ({ ...(await importOriginal<typeof import("../../lib/workflow")>()), fetchWorkflowArtifact: fetchArtifact, triggerWorkflowStep: triggerStep, retryWorkflowStep: retryStep, promptWorkflowStep: promptStep }))
+vi.mock("../../lib/workflow", async importOriginal => ({ ...(await importOriginal<typeof import("../../lib/workflow")>()), fetchWorkflowRun: fetchRun, fetchWorkflowArtifact: fetchArtifact, triggerWorkflowStep: triggerStep, retryWorkflowStep: retryStep, promptWorkflowStep: promptStep }))
 
 const run = { id: "wr-1", workflow_name: "plan-task", workflow_title: "Plan jgek1vt3", definition_source: "/w/plan-task.yaml", definition_digest: "d", definition_json: JSON.stringify({ title: "Plan a task" }), inputs_json: '{"task":"jgek1vt3"}', related_task_id: "jgek1vt3", related_task_title: "Sync retries hammer Jira", created_at: "2026-07-28T10:00:00Z", started_at: "2026-07-28T10:00:00Z" }
 const stepRun = (step_id: string, step_order: number, title: string, executor_type: string, status: string, extra = {}) => ({ run_id: "wr-1", step_id, step_order, title, executor_type, definition_json: "{}", resolved_inputs_json: "{}", outputs_json: "{}", status, latest_attempt: status === "pending" ? 0 : 1, ...extra })
 const agentAttempt = (extra = {}) => ({ id: "wa-1", run_id: "wr-1", step_id: "plan", attempt_number: 1, executor_type: "agent.run", agent_session_id: 7, task_id: "task-1", agent_kind: "claude-code", working_dir: "/repo", status: "waiting_agent", started_at: "2026-07-28T10:00:00Z", ...extra })
 
 function show(data: unknown) {
-  view.current = data as WorkflowRunView
-  render(<MemoryRouter initialEntries={["/workflows/runs/wr-1"]}><Routes><Route path="/workflows/runs/:runId" element={<WorkflowRunPage />} /></Routes></MemoryRouter>)
+  fetchRun.mockResolvedValue(data)
+  const client = createQueryClient()
+  client.setQueryData(queryKeys.workflowRun("", "wr-1"), data as WorkflowRunView)
+  render(<QueryClientProvider client={client}><MemoryRouter initialEntries={["/workflows/runs/wr-1"]}><Routes><Route path="/workflows/runs/:runId" element={<WorkflowRunPage />} /></Routes></MemoryRouter></QueryClientProvider>)
+  return client
 }
 const now = () => screen.getByRole("region", { name: "Now" })
 
 describe("WorkflowRunPage", () => {
-  beforeEach(() => { cleanup(); fetchArtifact.mockReset(); triggerStep.mockReset(); retryStep.mockReset(); promptStep.mockReset(); vi.stubGlobal("URL", { ...URL, createObjectURL: vi.fn(() => "blob:test"), revokeObjectURL: vi.fn() }) })
+  beforeEach(() => { cleanup(); fetchRun.mockReset(); fetchArtifact.mockReset(); triggerStep.mockReset(); retryStep.mockReset(); promptStep.mockReset(); vi.stubGlobal("URL", { ...URL, createObjectURL: vi.fn(() => "blob:test"), revokeObjectURL: vi.fn() }) })
+
+  it("keeps the run and expanded steps on refresh failure, then retries", async () => {
+    const data = { run: { ...run, status: "succeeded" }, steps: [stepRun("plan", 0, "Write the plan", "agent.run", "succeeded", { outputs_json: '{"risk":"low"}' })], attempts: [], artifacts: [] }
+    const client = show(data)
+    fireEvent.click(screen.getByRole("button", { name: /Write the plan/ }))
+    fetchRun.mockRejectedValueOnce(new Error("Server unavailable"))
+    await act(async () => { await client.invalidateQueries({ queryKey: queryKeys.workflowRun("", "wr-1") }) })
+    await waitFor(() => expect(fetchRun).toHaveBeenCalled())
+    expect((await screen.findByRole("alert")).textContent).toContain("Showing saved run")
+    expect(screen.getByRole("heading", { level: 1, name: run.workflow_title })).toBeTruthy()
+    expect(screen.getByRole("button", { name: /Write the plan/ }).getAttribute("aria-expanded")).toBe("true")
+    fetchRun.mockResolvedValueOnce({ ...data, run: { ...data.run, workflow_title: "Updated plan" } })
+    fireEvent.click(screen.getByRole("button", { name: "Retry" }))
+    expect(await screen.findByRole("heading", { name: "Updated plan" })).toBeTruthy()
+    expect(screen.queryByRole("alert")).toBeNull()
+  })
 
   it("says what the run is for, its state and the step it is on", () => {
     show({ run: { ...run, status: "running", current_step_id: "plan", inputs_json: JSON.stringify({ task: { id: "jgek1vt3", title: "Sync retries hammer Jira", metadata: {} } }) }, steps: [stepRun("read", 0, "Read the task", "task.context", "succeeded"), stepRun("plan", 1, "Write the plan", "agent.run", "waiting_agent"), stepRun("note", 2, "Attach the plan", "task.note", "pending")], attempts: [agentAttempt({ agent_activity: "working" })], artifacts: [] })
@@ -93,7 +113,7 @@ describe("WorkflowRunPage", () => {
   })
 
   it("shows what a finished run produced, previews it and downloads it under its own name", async () => {
-    fetchArtifact.mockResolvedValue(new Blob(["# Plan\n\nReady."]))
+    fetchArtifact.mockRejectedValueOnce(new Error("Preview unavailable"))
     let downloadedName = ""
     vi.spyOn(HTMLAnchorElement.prototype, "click").mockImplementation(function (this: HTMLAnchorElement) { downloadedName = this.download })
     show({ run: { ...run, status: "succeeded", current_step_id: "", completed_at: "2026-07-28T10:04:12Z" }, steps: [stepRun("plan", 0, "Write the plan", "agent.run", "succeeded", { outputs_json: JSON.stringify({ plan: { artifact_id: "wfa-1" }, risk: "low" }) })], attempts: [], artifacts: [{ id: "wfa-1", run_id: "wr-1", step_id: "plan", attempt_id: "wa-1", output_key: "plan", original_path: "reports/plan-xk2pb7do.md", media_type: "text/markdown", size_bytes: 266, digest: "sha256:x", created_at: "now" }] })
@@ -101,8 +121,21 @@ describe("WorkflowRunPage", () => {
     expect(within(now()).getByText("plan-xk2pb7do.md")).toBeTruthy()
     expect(within(now()).getByText("risk").nextElementSibling?.textContent).toBe("low")
     fireEvent.click(within(now()).getByText("Preview"))
+    expect(await screen.findByText("Preview unavailable")).toBeTruthy()
+    let resolvePreview!: (blob: Blob) => void
+    fetchArtifact.mockImplementationOnce(() => new Promise<Blob>(resolve => { resolvePreview = resolve }))
+    fireEvent.click(screen.getByRole("button", { name: "Retry preview" }))
+    expect(screen.queryByText("Preview unavailable")).toBeNull()
+    expect(screen.getByRole("status", { name: "Loading preview…" })).toBeTruthy()
+    await act(async () => { resolvePreview(new Blob(["# Plan\n\nReady."])) })
     expect(await screen.findByRole("heading", { name: "Plan" })).toBeTruthy()
+    fetchArtifact.mockRejectedValueOnce(new Error("Download unavailable"))
+    fireEvent.click(within(now()).getByRole("button", { name: "Download" }))
+    expect(await screen.findByText(/Download unavailable/)).toBeTruthy()
+    expect(screen.getByRole("heading", { name: "Plan" })).toBeTruthy()
+    fetchArtifact.mockResolvedValueOnce(new Blob(["# Plan"]))
     fireEvent.click(within(now()).getByRole("button", { name: "Download" }))
     await waitFor(() => expect(downloadedName).toBe("plan-xk2pb7do.md"))
+    expect(screen.queryByText(/Download unavailable/)).toBeNull()
   })
 })

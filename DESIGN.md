@@ -247,3 +247,10 @@ Sandboxed and downloaded HTML and Mermaid consume the same functional surfaces, 
 - **Don't** manufacture hierarchy with unreadable opacity, decorative glow or motion on every surface.
 - **Don't** turn legacy/platform exceptions into new global rules or silently change saved theme, terminal or motion preferences.
 - **Don't** claim Ocular fatigue superiority, native-device verification or full accessibility conformance from the current evidence.
+
+
+### Shared interaction rules
+
+Settings shows one task-based category at a time, with search, explicit scope and stable deep links. Text edits save explicitly and survive rejected requests or live-update conflicts. Lists belong to the task that owns them.
+
+Dialogs share focus containment/restoration, background isolation, topmost Escape and reachable actions. Desktop side columns remain nonmodal; phone sheets use the modal contract. Action menus share measured placement and keyboard behavior; forms use labelled dialogs, not menu roles. Commands and skills have a visible discovery path, readable selected descriptions and insertion without sending. Retain useful density and the inset composer focus treatment.

@@ -7,6 +7,7 @@ import { openMainVoice, shellStreams, voiceAudio } from "./audio"
 import { initialVoiceView, VoiceSessionClient, type AudioPort, type SocketLike, type VoiceView } from "./session"
 import { VoiceSheet, type VoiceReadinessView } from "./VoiceWidgets"
 import { VoiceRing } from "./VoiceRing"
+import { useModalLayer } from "../hooks/useModalLayer"
 import { useReeveName } from "../lib/reeveName"
 
 function sessionUrl(baseUrl: string): string {
@@ -135,12 +136,14 @@ export function VoiceLauncher({ baseUrl, audio: givenAudio, socket }: VoiceLaunc
 
   // openConversation shows the Reeve's own conversation.
   const openConversation = useCallback(async () => {
+    const mine = openingRef.current
     let task = ""
     try {
       task = (await fetchReeve(baseUrl)).current?.task_id ?? ""
     } catch {
       // The Agents page still opens.
     }
+    if (mine !== openingRef.current) return
     close()
     navigate(task ? `/agents?task=${encodeURIComponent(task)}` : "/agents")
   }, [baseUrl, close, navigate])
@@ -152,17 +155,8 @@ export function VoiceLauncher({ baseUrl, audio: givenAudio, socket }: VoiceLaunc
     if (open && !clientRef.current) void listen(navigator.userActivation?.hasBeenActive !== false)
   }, [open, listen])
 
-  // Escape closes the sheet, and the focus goes back where it was.
-  useEffect(() => {
-    if (!open) return
-    const before = document.activeElement as HTMLElement | null
-    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape" && !e.defaultPrevented) close() }
-    document.addEventListener("keydown", onKey)
-    return () => {
-      document.removeEventListener("keydown", onKey)
-      before?.focus?.()
-    }
-  }, [open, close])
+  const containerRef = useRef<HTMLDivElement>(null)
+  useModalLayer({ open, onClose: close, containerRef })
 
   // Closing the page ends the conversation.
   useEffect(() => () => end(), [end])
@@ -172,7 +166,7 @@ export function VoiceLauncher({ baseUrl, audio: givenAudio, socket }: VoiceLaunc
   const client = clientRef.current
   return (
     <div className="fixed inset-0 z-[80] flex flex-col justify-end bg-[color-mix(in_srgb,var(--theme-canvas,#070709)_80%,transparent)]" onClick={(e) => { if (e.target === e.currentTarget) close() }}>
-      <div className="mx-auto w-full max-w-[440px]">
+      <div ref={containerRef} tabIndex={-1} className="mx-auto w-full max-w-[440px]">
         {readiness === null ? (
           <VoiceSheet view={initialVoiceView} main="" onClose={close} />
         ) : (

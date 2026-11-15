@@ -1,5 +1,6 @@
 import { useCallback, useEffect, useMemo, useState } from "react"
 import { ArrowDown, ArrowLeft, ArrowRight, ArrowUp, Check, Clipboard, RefreshCw } from "lucide-react"
+import { Button } from "../components/ui/Button"
 import { InlineNotice } from "../components/ui/InlineNotice"
 import { useServer } from "../hooks/useServer"
 import {
@@ -49,13 +50,13 @@ function Delta({ current, previous, available, ratioPoints = false }: { current:
     const points = (current - previous) * 100
     if (points === 0) return <span>— vs previous period</span>
     const Icon = points > 0 ? ArrowUp : ArrowDown
-    return <span className="inline-flex items-center gap-1"><Icon aria-hidden="true" size={12} />{Math.abs(points).toFixed(0)} pts vs previous period</span>
+    return <span className="inline-flex items-center gap-1"><Icon aria-hidden="true" size={12} /><span className="sr-only">{points > 0 ? "Increase" : "Decrease"} </span>{Math.abs(points).toFixed(0)} pts vs previous period</span>
   }
   if (previous === 0) return <span>— vs previous period</span>
   const change = ((current - previous) / previous) * 100
   if (change === 0) return <span>— vs previous period</span>
   const Icon = change > 0 ? ArrowUp : ArrowDown
-  return <span className="inline-flex items-center gap-1"><Icon aria-hidden="true" size={12} />{Math.abs(change).toFixed(0)}% vs previous period</span>
+  return <span className="inline-flex items-center gap-1"><Icon aria-hidden="true" size={12} /><span className="sr-only">{change > 0 ? "Increase" : "Decrease"} </span>{Math.abs(change).toFixed(0)}% vs previous period</span>
 }
 
 function MetricCard({ label, value, children, secondary }: { label: string; value: string; children: React.ReactNode; secondary?: string }) {
@@ -191,19 +192,19 @@ export function ReportsPage() {
   ] : [], [data])
 
   if (!data && loading) return <div className="p-8" role="status" aria-label="Loading report"><div className="h-8 w-56 animate-pulse rounded bg-zinc-800" /><div className="mt-6 grid gap-3 sm:grid-cols-3">{Array.from({ length: 6 }, (_, i) => <div key={i} className="h-28 animate-pulse rounded-xl bg-zinc-900" />)}</div></div>
-  if (!data && error) return <div className="p-6"><InlineNotice variant="error"><p>{error}</p><button onClick={() => setReload(value => value + 1)} className="mt-2 rounded border border-red-700 px-3 py-1">Retry</button></InlineNotice></div>
+  if (!data && error) return <div className="p-6"><InlineNotice variant="error"><p>{error}</p><Button variant="outline" onClick={() => setReload(value => value + 1)} className="mt-2">Retry</Button></InlineNotice></div>
   if (!data) return null
 
   return <div className="flex-1 overflow-y-auto p-4 sm:p-6" aria-busy={loading}>
     <div className="mx-auto max-w-7xl space-y-6">
       <header className="space-y-4">
-        <div className="flex flex-wrap items-start justify-between gap-4"><h1 className="text-xl font-semibold">Reports</h1><button onClick={copyMarkdown} className="inline-flex min-h-10 items-center gap-2 rounded-lg border border-zinc-700 px-3 text-sm text-zinc-300 hover:bg-zinc-800"><Clipboard size={16} />Copy Markdown</button></div>
+        <div className="flex flex-wrap items-start justify-between gap-4"><h1 className="text-xl font-semibold">Reports</h1><Button variant="outline" onClick={copyMarkdown}><Clipboard aria-hidden="true" size={16} />Copy Markdown</Button></div>
         {copyStatus === "success" && <p role="status" className="flex items-center gap-1 text-sm text-emerald-400"><Check size={14} />Markdown copied</p>}
         {copyStatus === "error" && <InlineNotice variant="error">Could not copy Markdown</InlineNotice>}
-        {error && <InlineNotice variant="error"><span>{error}</span><button onClick={() => setReload(value => value + 1)} className="ml-3 underline">Retry</button></InlineNotice>}
+        {error && <InlineNotice variant="error"><span>{error}</span><Button variant="outline" onClick={() => setReload(value => value + 1)} className="ml-3">Retry</Button></InlineNotice>}
         <div className="flex flex-col gap-3 rounded-xl border border-zinc-800 bg-zinc-900/40 p-3 sm:flex-row sm:items-center sm:justify-between">
-          <div className="flex rounded-lg bg-zinc-950 p-1" aria-label="Report period">{(["day", "week", "month"] as ReportPeriodKind[]).map(kind => <button key={kind} onClick={() => { setPeriod(kind); setOffset(0) }} aria-pressed={period === kind} className={`rounded-md px-3 py-1.5 text-sm capitalize ${period === kind ? "bg-zinc-700 text-[var(--theme-text,#fff)]" : "text-zinc-500"}`}>{kind[0].toUpperCase() + kind.slice(1)}</button>)}</div>
-          <div className="flex items-center justify-between gap-3"><button aria-label="Previous period" onClick={() => setOffset(value => value - 1)} className="rounded p-2 hover:bg-zinc-800"><ArrowLeft size={17} /></button><div className="min-w-0 text-center"><h2 className="font-medium">{data.report.period.label}</h2><p className="mt-0.5 text-xs text-zinc-500">{formatRange(data.report.period.start, data.report.period.end)}</p></div><button aria-label="Next period" disabled={offset === 0} onClick={() => setOffset(value => Math.min(0, value + 1))} className="rounded p-2 hover:bg-zinc-800 disabled:opacity-30"><ArrowRight size={17} /></button></div>
+          <div className="flex rounded-lg bg-zinc-950 p-1" aria-label="Report period">{(["day", "week", "month"] as ReportPeriodKind[]).map(kind => <button key={kind} onClick={() => { setPeriod(kind); setOffset(0) }} aria-pressed={period === kind} className={`min-h-11 rounded-md px-3 py-1.5 text-sm capitalize ${period === kind ? "bg-zinc-700 text-[var(--theme-text,#fff)]" : "text-zinc-500"}`}>{kind[0].toUpperCase() + kind.slice(1)}</button>)}</div>
+          <div className="flex items-center justify-between gap-3"><button aria-label="Previous period" onClick={() => setOffset(value => value - 1)} className="min-h-11 min-w-11 shrink-0 rounded p-2 hover:bg-zinc-800"><ArrowLeft size={17} /></button><div className="min-w-0 text-center"><h2 className="font-medium">{data.report.period.label}</h2><p className="mt-0.5 text-xs text-zinc-500">{formatRange(data.report.period.start, data.report.period.end)}</p></div><button aria-label="Next period" disabled={offset === 0} onClick={() => setOffset(value => Math.min(0, value + 1))} className="min-h-11 min-w-11 shrink-0 rounded p-2 hover:bg-zinc-800 disabled:opacity-30"><ArrowRight size={17} /></button></div>
         </div>
         {loading && <p role="status" className="flex items-center gap-2 text-xs text-zinc-500"><RefreshCw className="animate-spin" size={13} />Updating report</p>}
       </header>

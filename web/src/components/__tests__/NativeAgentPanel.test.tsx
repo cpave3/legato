@@ -163,7 +163,7 @@ describe("NativeAgentPanel", () => {
     expect(snapshotRequests[0]).toBe("/api/agents/task-1/chimera/snapshot?initial=true")
 
     fireEvent.click(within(view.container).getByTitle("More actions"))
-    fireEvent.click(within(view.container).getByRole("menuitem", { name: "Refresh from snapshot" }))
+    fireEvent.click(within(view.baseElement).getByRole("menuitem", { name: "Refresh from snapshot" }))
     await waitFor(() => expect(snapshotRequests).toHaveLength(2))
     expect(snapshotRequests[1]).toBe("/api/agents/task-1/chimera/snapshot")
   })
@@ -177,7 +177,7 @@ describe("NativeAgentPanel", () => {
     const view = render(<NativeAgentPanel agentId="task-1" onDowngradeChimera={onDowngradeChimera} />)
     await within(view.container).findByText("Session ready — send a message to start")
     fireEvent.click(within(view.container).getByTitle("More actions"))
-    fireEvent.click(within(view.container).getByRole("menuitem", { name: "Downgrade to tmux" }))
+    fireEvent.click(within(view.baseElement).getByRole("menuitem", { name: "Downgrade to tmux" }))
 
     expect(onDowngradeChimera).toHaveBeenCalledOnce()
     expect(await within(view.container).findByText("downgrade unavailable")).not.toBeNull()
@@ -193,11 +193,11 @@ describe("NativeAgentPanel", () => {
     const view = render(<NativeAgentPanel agentId="task-1" onReload={onReload} switchSandbox={{ label: "Reload in sandbox", onSelect: onSwitch }} />)
     await within(view.container).findByText("Session ready — send a message to start")
     fireEvent.click(within(view.container).getByTitle("More actions"))
-    fireEvent.click(within(view.container).getByRole("menuitem", { name: "Reload agent" }))
+    fireEvent.click(within(view.baseElement).getByRole("menuitem", { name: "Reload agent" }))
     expect(onReload).toHaveBeenCalledOnce()
 
     fireEvent.click(within(view.container).getByTitle("More actions"))
-    fireEvent.click(within(view.container).getByRole("menuitem", { name: "Reload in sandbox" }))
+    fireEvent.click(within(view.baseElement).getByRole("menuitem", { name: "Reload in sandbox" }))
     expect(onSwitch).toHaveBeenCalledOnce()
   })
 
@@ -502,7 +502,7 @@ describe("NativeAgentPanel", () => {
     // The menu took the place of a settings button of its own.
     expect(within(view.container).queryByRole("button", { name: "Model settings" })).toBeNull()
 
-    fireEvent.click(screen.getByRole("button", { name: "high" }))
+    fireEvent.click(screen.getByRole("menuitemradio", { name: "high" }))
     await waitFor(() => {
       const post = fetchSpy.mock.calls.find(([url, init]) => String(url).endsWith("/chimera/model") && init?.method === "POST")
       expect(JSON.parse(String(post?.[1]?.body))).toEqual({ expectedModel: "anthropic/claude-opus-5-5", settings: { reasoningEffort: "high" } })
@@ -510,8 +510,10 @@ describe("NativeAgentPanel", () => {
     await waitFor(() => expect(within(screen.getByTitle("Change model")).getByText("high")).not.toBeNull())
 
     fireEvent.click(screen.getByTitle("Change model"))
-    fireEvent.click(screen.getByRole("button", { name: "More session settings…" }))
+    fireEvent.click(screen.getByRole("menuitem", { name: "More session settings…" }))
     expect(await screen.findByRole("dialog", { name: "Model settings" })).not.toBeNull()
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }))
+    expect(document.activeElement).toBe(screen.getByTitle("Change model"))
   })
 
   it("shows which agent tool the native session belongs to", async () => {
@@ -1753,12 +1755,12 @@ describe("NativeAgentPanel", () => {
     expect(await within(view.container).findByText("Initial reply")).not.toBeNull()
     snapshotText = "Refreshed reply"
     fireEvent.click(within(view.container).getByTitle("More actions"))
-    fireEvent.click(within(view.container).getByRole("menuitem", { name: "Refresh from snapshot" }))
+    fireEvent.click(within(view.baseElement).getByRole("menuitem", { name: "Refresh from snapshot" }))
     expect(await within(view.container).findByText("Refreshed reply")).not.toBeNull()
 
     refreshFails = true
     fireEvent.click(within(view.container).getByTitle("More actions"))
-    fireEvent.click(within(view.container).getByRole("menuitem", { name: "Refresh from snapshot" }))
+    fireEvent.click(within(view.baseElement).getByRole("menuitem", { name: "Refresh from snapshot" }))
     act(() => websocketHandler?.({
       type: "chimera_event",
       agent_id: "task-1",

@@ -1,4 +1,6 @@
-import { useEffect, useRef, useState, type ReactNode } from "react"
+import { createPortal } from "react-dom"
+import { useMenuLayer } from "../hooks/useMenuLayer"
+import { useRef, useState, type ReactNode } from "react"
 import { LayoutGrid, List, Mic, MoreHorizontal } from "lucide-react"
 import { cn } from "../lib/utils"
 import { AgentKindBadge } from "./AgentKindBadge"
@@ -187,24 +189,11 @@ export function AgentChatHeader({ state, time, title, taskId, agentKind, engram,
 export function AgentMoreMenu({ entries }: { entries: AgentMenuEntry[] }) {
   const [open, setOpen] = useState(false)
   const box = useRef<HTMLDivElement>(null)
+  const trigger = useRef<HTMLButtonElement>(null)
+  useMenuLayer({ open, onOpen: () => setOpen(true), onClose: () => setOpen(false), containerRef: box, triggerRef: trigger, align: "right" })
   const plain = entries.filter((entry) => !entry.danger)
   const danger = entries.filter((entry) => entry.danger)
 
-  useEffect(() => {
-    if (!open) return
-    const close = (event: MouseEvent) => {
-      if (box.current && !box.current.contains(event.target as Node)) setOpen(false)
-    }
-    const escape = (event: KeyboardEvent) => {
-      if (event.key === "Escape") setOpen(false)
-    }
-    document.addEventListener("mousedown", close)
-    document.addEventListener("keydown", escape)
-    return () => {
-      document.removeEventListener("mousedown", close)
-      document.removeEventListener("keydown", escape)
-    }
-  }, [open])
 
   if (entries.length === 0) return null
 
@@ -214,7 +203,7 @@ export function AgentMoreMenu({ entries }: { entries: AgentMenuEntry[] }) {
       type="button"
       role="menuitem"
       disabled={entry.disabled}
-      onClick={() => { setOpen(false); entry.onSelect() }}
+      onClick={() => { setOpen(false); trigger.current?.focus(); entry.onSelect() }}
       className={cn(
         "flex w-full items-center gap-2 px-3 py-1.5 text-left text-xs transition-colors disabled:opacity-50",
         entry.danger ? "text-lw-error hover:bg-lw-error-soft" : "text-lw-text hover:bg-lw-raised",
@@ -226,9 +215,10 @@ export function AgentMoreMenu({ entries }: { entries: AgentMenuEntry[] }) {
   )
 
   return (
-    <div ref={box} className="relative">
+    <div className="relative">
       <button
         type="button"
+        ref={trigger}
         aria-label="More actions"
         title="More actions"
         aria-haspopup="menu"
@@ -238,12 +228,12 @@ export function AgentMoreMenu({ entries }: { entries: AgentMenuEntry[] }) {
       >
         <MoreHorizontal size={14} />
       </button>
-      {open && (
-        <div role="menu" className="absolute right-0 top-full z-30 mt-1 max-h-[60vh] min-w-[200px] max-w-[calc(100vw-2rem)] overflow-y-auto rounded-md border border-lw-line-strong bg-lw-surface py-1 shadow-xl">
+      {open && createPortal(
+        <div ref={box} role="menu" className="absolute right-0 top-full z-30 mt-1 max-h-[60vh] min-w-[200px] max-w-[calc(100vw-2rem)] overflow-y-auto rounded-md border border-lw-line-strong bg-lw-surface py-1 shadow-xl">
           {plain.map(item)}
           {danger.length > 0 && plain.length > 0 && <div className="my-1 border-t border-lw-line" />}
           {danger.map(item)}
-        </div>
+        </div>, document.body
       )}
     </div>
   )

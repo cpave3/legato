@@ -1,3 +1,4 @@
+import { Dialog, DialogPanel, DialogHeader, DialogTitle, DialogBody, DialogFooter } from "../ui/Dialog"
 import { useState, useEffect, useRef, useCallback } from "react"
 import { Link } from "react-router-dom"
 import { useServer } from "../../hooks/useServer"
@@ -76,7 +77,6 @@ export function ImportRemoteModal({ open, workspaces = [], view = "all", default
     setColumn("")
     setError("")
     setImportingID("")
-    setTimeout(() => inputRef.current?.focus(), 50)
   }, [open, startWorkspace])
 
   // Whether any ticket provider is connected, asked each time it opens.
@@ -121,10 +121,7 @@ export function ImportRemoteModal({ open, workspaces = [], view = "all", default
   useEffect(() => {
     if (!open) return
     const handler = (e: KeyboardEvent) => {
-      if (e.key === "Escape") {
-        e.preventDefault()
-        onClose()
-      } else if (e.key === "ArrowDown") {
+      if (e.key === "ArrowDown") {
         e.preventDefault()
         setCursor((c) => Math.min(c + 1, results.length - 1))
       } else if (e.key === "ArrowUp") {
@@ -144,14 +141,15 @@ export function ImportRemoteModal({ open, workspaces = [], view = "all", default
   if (!open) return null
 
   return (
-    <div className="fixed inset-0 z-50 flex items-start justify-center bg-black/60 p-4 pt-20" onClick={onClose}>
-      <div className="w-full max-w-lg rounded-lg border border-zinc-700 bg-zinc-900 shadow-2xl" onClick={(e) => e.stopPropagation()}>
-        <div className="flex items-center justify-between border-b border-zinc-800 px-5 py-3">
-          <h2 className="text-sm font-semibold text-zinc-200">Import ticket</h2>
+    <Dialog open={open} onClose={onClose}>
+      <DialogPanel className="w-full max-w-lg rounded-lg border border-zinc-700 bg-zinc-900 shadow-2xl">
+        <DialogHeader className="flex items-center justify-between border-b border-zinc-800 px-5 py-3">
+          <DialogTitle className="text-sm font-semibold text-zinc-200">Import ticket</DialogTitle>
           <button type="button" aria-label="Close" onClick={onClose} className="rounded p-1 text-zinc-500 transition-colors hover:bg-zinc-800 hover:text-zinc-200">
             <X size={16} />
           </button>
-        </div>
+        </DialogHeader>
+        <DialogBody className="space-y-0 p-0">
         {hasProviders === false ? (
           <div className="px-5 py-6 text-sm text-zinc-400">
             No ticket provider is connected. Connect Burnlite or Jira in{" "}
@@ -161,15 +159,18 @@ export function ImportRemoteModal({ open, workspaces = [], view = "all", default
         ) : (
         <>
         <div className="grid gap-2 px-4 py-2 sm:grid-cols-[minmax(0,1fr)_9rem_9rem]">
-          <input
+          <label className="space-y-1 text-xs text-zinc-400">Search tickets<input
             ref={inputRef}
+            data-autofocus
+            aria-label="Search"
             type="text"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="Type to search..."
             className="w-full rounded border border-zinc-700 bg-zinc-950 px-3 py-2 text-sm text-zinc-200 outline-none focus:border-indigo-500"
           />
-          <select
+          </label>
+          <label className="space-y-1 text-xs text-zinc-400">Workspace<select
             aria-label="Workspace"
             value={workspaceId ?? ""}
             onChange={(event) => setWorkspaceId(event.target.value ? Number(event.target.value) : null)}
@@ -177,8 +178,8 @@ export function ImportRemoteModal({ open, workspaces = [], view = "all", default
           >
             <option value="">No workspace</option>
             {workspaces.map((workspace) => <option key={workspace.id} value={workspace.id}>{workspace.name}</option>)}
-          </select>
-          <select
+          </select></label>
+          <label className="space-y-1 text-xs text-zinc-400">Column<select
             aria-label="Column"
             value={column}
             onChange={(event) => setColumn(event.target.value)}
@@ -186,7 +187,7 @@ export function ImportRemoteModal({ open, workspaces = [], view = "all", default
           >
             <option value="">Provider default</option>
             {columns.map((name) => <option key={name} value={name}>{name}</option>)}
-          </select>
+          </select></label>
         </div>
         {error && (
           <div role="alert" className="mx-4 mb-2 rounded border border-red-800 bg-red-950/50 px-3 py-2 text-xs text-red-300">{error}</div>
@@ -226,8 +227,9 @@ export function ImportRemoteModal({ open, workspaces = [], view = "all", default
         </div>
         </>
         )}
-        <div className="border-t border-zinc-800 px-5 py-2 text-[10px] text-zinc-600">↑/↓ to choose · Enter to import · Esc to cancel</div>
-      </div>
-    </div>
+        </DialogBody>
+        <DialogFooter className="border-t border-zinc-800 px-5 py-2 text-[10px] text-zinc-600">↑/↓ to choose · Enter to import · Esc to cancel</DialogFooter>
+      </DialogPanel>
+    </Dialog>
   )
 }

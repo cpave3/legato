@@ -1,10 +1,11 @@
-import { useEffect, useState } from "react"
-import { useQueryClient } from "@tanstack/react-query"
+import { useRef, useState } from "react"
+import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { Lock, RotateCcw, SlidersHorizontal } from "lucide-react"
-import { moveSettings, resetConfigSetting, setConfigSetting, type ConfigSetting } from "../../lib/configSettings"
+import { fetchMovable, moveSettings, resetConfigSetting, setConfigSetting, type ConfigSetting } from "../../lib/configSettings"
 import { queryKeys } from "../../lib/query"
 import { cn } from "../../lib/utils"
-import { SettingsRows, Toggle } from "./SettingsUI"
+import { SettingsRows, Toggle, primaryButton, quietButton } from "./SettingsUI"
+import { useConfirm } from "../../hooks/useConfirm"
 import { useReeveName } from "../../lib/reeveName"
 
 // SettingSource says where a setting's value comes from: the default,
@@ -39,46 +40,63 @@ export function SettingSource({ setting, onReset, busy }: { setting: ConfigSetti
 function useSettingActions(baseUrl: string) {
   const queryClient = useQueryClient()
   const reeve = useReeveName()
-  const [busy, setBusy] = useState("")
+  const [busy, setBusy] = useState<Record<string, boolean>>({})
+  const pending = useRef(new Set<string>())
   const [errors, setErrors] = useState<Record<string, string>>({})
   const [notices, setNotices] = useState<Record<string, string>>({})
   const run = async (key: string, action: () => Promise<unknown>) => {
-    setBusy(key)
+    if (pending.current.has(key)) return
+    pending.current.add(key)
+    setBusy((b) => ({ ...b, [key]: true }))
     setErrors((e) => ({ ...e, [key]: "" }))
     setNotices((n) => ({ ...n, [key]: "" }))
     try {
-      const result = await action() as { status?: string } | undefined
+      const result = await action() as (ConfigSetting & { status?: string }) | undefined
       if (result?.status === "needs_signature") {
         setNotices((n) => ({ ...n, [key]: `This is one of ${reeve.mid}'s own rules: it changes once you approve it on your phone or with a passkey.` }))
+      } else {
+        setNotices((n) => ({ ...n, [key]: result?.pending_restart ? "Saved — applies at restart." : "Saved." }))
       }
       await queryClient.invalidateQueries({ queryKey: queryKeys.configSettings(baseUrl) })
       await queryClient.invalidateQueries({ queryKey: queryKeys.settings(baseUrl) })
+      if (result?.status !== "needs_signature") return result
     } catch (reason) {
       setErrors((e) => ({ ...e, [key]: reason instanceof Error ? reason.message : String(reason) }))
     } finally {
-      setBusy("")
+      pending.current.delete(key)
+      setBusy((b) => ({ ...b, [key]: false }))
     }
   }
   return {
     busy, errors, notices,
     set: (key: string, value: unknown) => run(key, () => setConfigSetting(baseUrl, key, value)),
     reset: (key: string) => run(key, () => resetConfigSetting(baseUrl, key)),
-    move: (key: string) => run(key, () => moveSettings(baseUrl, { settings: [key], entries: [] })),
   }
 }
 
 // SettingControl edits a setting by its kind; a pinned one is shown, not
 // edited.
-function SettingControl({ setting, disabled, onSet }: { setting: ConfigSetting; disabled: boolean; onSet: (value: unknown) => void }) {
-  const text = setting.kind === "strings" ? (setting.value as string[] ?? []).join(", ") : String(setting.value ?? "")
+function SettingControl({ setting, disabled, onSet }: { setting: ConfigSetting; disabled: boolean; onSet: (value: unknown) => Promise<ConfigSetting | undefined> }) {
+  const format = (value: unknown) => setting.kind === "strings" ? (value as string[] ?? []).join(", ") : String(value ?? "")
+  const text = format(setting.value)
   const [draft, setDraft] = useState(text)
-  useEffect(() => setDraft(text), [text])
+  const [baseline, setBaseline] = useState(text)
+  const [observed, setObserved] = useState(text)
+  if (observed !== text) {
+    setObserved(text)
+    if (draft === baseline || draft === text) {
+      setDraft(text)
+      setBaseline(text)
+    }
+  }
+  const conflict = draft !== baseline && text !== baseline && draft !== text
+  const reload = () => { setDraft(text); setBaseline(text) }
   const label = setting.title
   switch (setting.kind) {
     case "bool":
-      return disabled
+      return setting.pinned
         ? <span className="text-sm text-lw-text-2">{setting.value ? "On" : "Off"}</span>
-        : <Toggle label={label} on={Boolean(setting.value)} onChange={() => onSet(!setting.value)} />
+        : <Toggle label={label} disabled={disabled} on={Boolean(setting.value)} onChange={() => onSet(!setting.value)} />
     case "enum":
       return (
         <select aria-label={label} value={String(setting.value ?? "")} disabled={disabled}
@@ -88,17 +106,34 @@ function SettingControl({ setting, disabled, onSet }: { setting: ConfigSetting; 
         </select>
       )
     default: {
-      const commit = () => {
-        if (draft === text) return
-        if (setting.kind === "strings") onSet(draft.split(",").map((s) => s.trim()).filter(Boolean))
-        else if (setting.kind === "int") onSet(Number(draft))
-        else onSet(draft)
+      const commit = async () => {
+        if (draft === baseline || conflict || disabled) return
+        const value = setting.kind === "strings" ? draft.split(",").map((s) => s.trim()).filter(Boolean)
+          : setting.kind === "int" ? Number(draft) : draft
+        const saved = await onSet(value)
+        if (saved && "value" in saved) {
+          setDraft(format(saved.value))
+          setBaseline(format(saved.value))
+        }
       }
       return (
-        <input aria-label={label} value={draft} disabled={disabled}
-          onChange={(e) => setDraft(e.target.value)} onBlur={commit}
-          onKeyDown={(e) => { if (e.key === "Enter") commit() }}
-          className="min-h-9 w-56 max-w-full rounded-lg border border-lw-line bg-lw-ground px-2 text-sm text-lw-text disabled:opacity-60" />
+        <div className="flex flex-wrap items-center gap-2">
+          <input aria-label={label} value={draft} disabled={disabled}
+            onChange={(e) => setDraft(e.target.value)}
+            onKeyDown={(e) => { if (e.key === "Enter") { e.preventDefault(); void commit() } }}
+            className="min-h-9 w-56 max-w-full rounded-lg border border-lw-line bg-lw-ground px-2 text-sm text-lw-text disabled:opacity-60" />
+          {!setting.pinned && <>
+            <button type="button" className={primaryButton} disabled={disabled || draft === baseline || conflict} onClick={commit}>Apply</button>
+            <button type="button" className={quietButton} disabled={disabled || draft === baseline} onClick={reload}>Cancel</button>
+          </>}
+          {conflict && <div className="w-full text-xs text-lw-needs">
+            <p role="status">This value changed elsewhere.</p>
+            <div className="mt-2 flex flex-wrap gap-2">
+              <button type="button" className={quietButton} disabled={disabled} onClick={reload}>Reload value</button>
+              <button type="button" className={quietButton} disabled={disabled} onClick={() => setBaseline(text)}>Keep my edit</button>
+            </div>
+          </div>}
+        </div>
       )
     }
   }
@@ -108,7 +143,27 @@ function SettingControl({ setting, disabled, onSet }: { setting: ConfigSetting; 
 // value comes from, and its control.
 export function RegistrySettingRow({ setting, baseUrl, actions }: { setting: ConfigSetting; baseUrl: string; actions?: ReturnType<typeof useSettingActions> }) {
   const own = useSettingActions(baseUrl)
-  const { busy, errors, notices, set, reset, move } = actions ?? own
+  const { busy, errors, notices, set, reset } = actions ?? own
+  const { confirm, dialog } = useConfirm()
+  const movable = useQuery({ queryKey: [baseUrl, "config-move"], queryFn: () => fetchMovable(baseUrl), enabled: setting.pinned && !setting.secret, retry: false })
+  const [moveState, setMoveState] = useState<"idle" | "confirming" | "moving" | "restarting">("idle")
+  const [moveError, setMoveError] = useState("")
+  const move = async () => {
+    setMoveState("confirming")
+    if (!await confirm({ title: "Move setting and restart?", message: `${setting.title} will move out of config.yaml into the database. Legato will restart and connected clients will disconnect. A backup of config.yaml is kept.`, confirmLabel: "Move and restart", destructive: true })) {
+      setMoveState("idle")
+      return
+    }
+    setMoveState("moving")
+    setMoveError("")
+    try {
+      await moveSettings(baseUrl, { settings: [setting.key], entries: [] })
+      setMoveState("restarting")
+    } catch (reason) {
+      setMoveError(reason instanceof Error ? reason.message : String(reason))
+      setMoveState("idle")
+    }
+  }
   return (
     <div className="flex min-h-16 flex-wrap items-center gap-3 px-4 py-3" id={`setting-${setting.key}`} data-testid={`setting-${setting.key}`}>
       <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-lw-raised text-lw-link">
@@ -119,20 +174,28 @@ export function RegistrySettingRow({ setting, baseUrl, actions }: { setting: Con
           <p className="text-sm text-lw-text">{setting.title}</p>
           {setting.own_rule && <span className="rounded bg-[var(--theme-selection,rgba(139,92,246,0.2))] px-1.5 text-[10px] text-[var(--theme-keyword,#c4b5fd)]" title="Changed only with a signed approval">signed</span>}
           <code className="break-all text-[11px] text-lw-faint">{setting.key}</code>
-          <SettingSource setting={setting} busy={busy === setting.key} onReset={() => void reset(setting.key)} />
+          <SettingSource setting={setting} busy={busy[setting.key]} onReset={() => void reset(setting.key)} />
         </div>
         {setting.description && <p className="mt-0.5 text-xs text-lw-text-2">{setting.description}</p>}
-        {setting.pinned && !setting.secret && (
-          <button type="button" className="mt-1 text-xs text-lw-link hover:underline disabled:opacity-50" disabled={busy === setting.key}
-            onClick={() => void move(setting.key)}>
+        {setting.pinned && movable.data?.settings.includes(setting.key) && (
+          <button type="button" className="mt-1 text-xs text-lw-link hover:underline disabled:opacity-50" disabled={moveState !== "idle" || movable.isError || movable.isFetching}
+            onClick={() => void move()}>
             Move to the database (restarts Legato)
           </button>
         )}
+        {setting.pinned && movable.isError && <p role="alert" className="mt-1 text-xs text-lw-error">
+          Could not check move eligibility: {movable.error.message}
+          <button type="button" className={quietButton} onClick={() => void movable.refetch()}>Retry</button>
+        </p>}
+        {moveError && <p role="alert" className="mt-1 text-xs text-lw-error">{moveError}</p>}
+        {(moveState === "moving" || moveState === "restarting") && <p role="status" className="mt-1 text-xs text-lw-text-2">{moveState === "moving" ? "Moving…" : "Restarting…"}</p>}
         {errors[setting.key] && <p role="alert" className="mt-1 text-xs text-lw-error">{errors[setting.key]}</p>}
-        {notices[setting.key] && <p role="status" className="mt-1 text-xs text-lw-text-2">{notices[setting.key]}</p>}
+        {busy[setting.key] && <p role="status" className="mt-1 text-xs text-lw-text-2">Saving…</p>}
+        {!busy[setting.key] && notices[setting.key] && <p role="status" className="mt-1 text-xs text-lw-text-2">{notices[setting.key]}</p>}
       </div>
-      <div className={cn("w-full min-w-0 sm:w-auto sm:max-w-[60%]", busy === setting.key && "opacity-60")}>
-        <SettingControl setting={setting} disabled={setting.pinned || busy === setting.key} onSet={(value) => void set(setting.key, value)} />
+      {dialog}
+      <div className={cn("w-full min-w-0 sm:w-auto sm:max-w-[60%]", busy[setting.key] && "opacity-60")}>
+        <SettingControl setting={setting} disabled={setting.pinned || busy[setting.key]} onSet={(value) => set(setting.key, value)} />
       </div>
     </div>
   )

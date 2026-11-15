@@ -131,7 +131,7 @@ describe("NativeAgentPanel and images an agent read", () => {
     const dialog = screen.getByRole("dialog", { name: "panel.png, full size" })
     expect(dialog.querySelector("img")!.getAttribute("src")).toBe("blob:image-1")
 
-    fireEvent.keyDown(window, { key: "Escape" })
+    fireEvent.keyDown(dialog, { key: "Escape" })
     expect(screen.queryByRole("dialog", { name: "panel.png, full size" })).toBeNull()
     // The row stays open.
     expect(screen.getByRole("img", { name: "panel.png" })).toBeTruthy()

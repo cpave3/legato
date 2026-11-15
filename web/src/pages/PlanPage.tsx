@@ -1,4 +1,6 @@
+import { useModalLayer } from "../hooks/useModalLayer"
 import { createContext, memo, useCallback, useContext, useEffect, useRef, useState, type KeyboardEvent, type MouseEvent, type ReactNode } from "react"
+import { useMediaQuery } from "../hooks/useMediaQuery"
 import type { ItemImage } from "../lib/agentUi"
 import type { DocumentImage as NamedImage } from "../lib/documentImages"
 import { DocumentImage, DocumentImages } from "../components/DocumentImages"
@@ -219,6 +221,10 @@ export function PlanPage() {
   const [localComments, setLocalComments] = useState<PlanComment[]>([])
   const [comment, setComment] = useState("")
   const [feedbackOpen, setFeedbackOpen] = useState(false)
+  const phone = useMediaQuery("(max-width: 1023px)")
+  const feedbackRef = useRef<HTMLElement>(null)
+  const feedbackModal = phone && feedbackOpen && !!data
+  useModalLayer({ open: feedbackModal, onClose: () => setFeedbackOpen(false), containerRef: feedbackRef })
   const [question, setQuestion] = useState("")
   const [cleanupAfterImplementation, setCleanupAfterImplementation] = useState(false)
   const [busy, setBusy] = useState(false)
@@ -336,13 +342,13 @@ export function PlanPage() {
   return <div className="flex h-full min-h-0 flex-col bg-[var(--theme-canvas,#0a0a0f)] text-zinc-200">
     <header data-plan-header className="flex flex-wrap items-center justify-between gap-2 border-b border-zinc-800 px-3 py-2 md:px-5 md:py-3">
       <div><Link to="/plans" className="flex items-center gap-1 text-xs text-zinc-500"><ArrowLeft size={13}/> Plan queue</Link><h1 className="mt-1 text-lg font-semibold">{data.plan.title}</h1><div className="text-xs text-zinc-500">revision {data.plan.latest_revision} · {data.plan.status.replace("_", " ")}</div></div>
-      <div data-plan-actions className="flex w-full flex-wrap items-center gap-2 md:w-auto md:flex-nowrap"><Button variant="outline" size="sm" onClick={() => setFeedbackOpen(true)} className="min-h-11 lg:hidden"><PanelRight size={15}/> Feedback</Button><GoToAgentButton taskId={data.plan.task_id} />{data.plan.status === "proposed" && <><label className="mr-2 hidden max-w-52 items-center gap-2 text-xs text-zinc-400 md:flex" title="Remove the editable plan bundle after successful implementation; collaboration history is retained"><input type="checkbox" checked={cleanupAfterImplementation} disabled={busy} onChange={event => setCleanupAfterImplementation(event.target.checked)} className="accent-indigo-500"/>Clean up plan files after implementation</label><Button variant="destructive" size="sm" disabled={busy} onClick={() => void verdict("reject")} className="hidden sm:inline-flex">Reject</Button><Button variant="warning" size="sm" disabled={busy} onClick={() => void verdict("request-changes")} className="min-h-11 md:min-h-9">Request changes</Button><Button variant="success" size="sm" title={unanswered ? "Answer required choices first" : "Approve plan"} disabled={busy || unanswered > 0} onClick={() => void verdict("approve")} className="min-h-11 md:min-h-9">Approve</Button></>}{data.plan.status === "rejected" && <Button size="sm" onClick={() => void verdict("reopen")}>Reopen</Button>}</div>
+      <div data-plan-actions className="flex w-full flex-wrap items-center gap-2 md:w-auto md:flex-nowrap"><Button variant="outline" size="sm" onClick={() => setFeedbackOpen(true)} className="min-h-11 lg:hidden"><PanelRight size={15}/> Feedback</Button><GoToAgentButton taskId={data.plan.task_id} />{data.plan.status === "proposed" && <><label className="mr-2 flex min-h-11 w-full items-center gap-2 text-xs text-zinc-400 md:w-auto md:max-w-52" title="Remove the editable plan bundle after successful implementation; collaboration history is retained"><input type="checkbox" checked={cleanupAfterImplementation} disabled={busy} onChange={event => setCleanupAfterImplementation(event.target.checked)} className="accent-indigo-500"/>Clean up plan files after implementation</label><Button variant="destructive" size="sm" disabled={busy} onClick={() => void verdict("reject")} className="min-h-11 md:min-h-9">Reject</Button><Button variant="warning" size="sm" disabled={busy} onClick={() => void verdict("request-changes")} className="min-h-11 md:min-h-9">Request changes</Button><Button variant="success" size="sm" title={unanswered ? "Answer required choices first" : "Approve plan"} disabled={busy || unanswered > 0} onClick={() => void verdict("approve")} className="min-h-11 md:min-h-9">Approve</Button></>}{data.plan.status === "rejected" && <Button size="sm" onClick={() => void verdict("reopen")}>Reopen</Button>}</div>
     </header>
     {actionError && <InlineNotice variant="error" className="rounded-none border-x-0 border-t-0 px-5 py-2 text-xs">{actionError}</InlineNotice>}
     {notice && <InlineNotice variant={notice.variant} className="rounded-none border-x-0 border-t-0 px-5 py-2 text-xs">{notice.message}</InlineNotice>}
     <div className="grid min-h-0 flex-1 grid-cols-1 lg:grid-cols-[minmax(0,1fr)_25rem]">
       <PlanDocument markdown={data.revision.markdown} images={images} revisionID={data.revision.id} comments={localComments} selectedBlock={selectedBlock} onUpdateComment={editComment} onSelect={selectBlock} onDragStart={startDrag} onDragEnter={extendDrag} onDragEnd={endDrag}/>
-      <aside className={`${feedbackOpen ? "fixed inset-2 z-50 flex shadow-2xl" : "hidden"} min-h-0 flex-col overflow-y-auto rounded-lg border border-zinc-800 bg-zinc-950 p-4 lg:static lg:flex lg:rounded-none lg:border-y-0 lg:border-r-0`}>
+      <aside ref={feedbackRef} role={feedbackModal ? "dialog" : undefined} aria-modal={feedbackModal || undefined} aria-label="Plan feedback" tabIndex={-1} className={`${feedbackOpen ? "fixed inset-2 z-50 flex shadow-2xl" : "hidden"} min-h-0 flex-col overflow-y-auto rounded-lg border border-zinc-800 bg-zinc-950 p-4 lg:static lg:flex lg:rounded-none lg:border-y-0 lg:border-r-0`}>
         <div className="-mx-4 -mt-4 mb-4 flex min-h-14 shrink-0 items-center justify-between border-b border-zinc-800 px-4 lg:hidden">
           <h2 className="text-sm font-semibold text-zinc-200">Plan feedback</h2>
           <button aria-label="Close feedback" onClick={() => setFeedbackOpen(false)} className="flex h-11 w-11 items-center justify-center rounded text-zinc-400 hover:bg-zinc-900 hover:text-zinc-200"><X size={18}/></button>

@@ -1,3 +1,4 @@
+import { useModalLayer } from "../hooks/useModalLayer"
 import { useEffect, useRef, useState } from "react"
 import { Settings2 } from "lucide-react"
 import { apiFetch } from "../lib/api"
@@ -13,7 +14,7 @@ export function NativeModelSettings({ agentId, baseUrl, model, busy, onSaved }: 
   const [open, setOpen] = useState(false)
   const trigger = useRef<HTMLButtonElement>(null)
   const close = () => { setOpen(false); trigger.current?.focus() }
-  return <Dropdown open={open} onOpenChange={(value) => { if (!value) setOpen(false) }} minWidth={0}
+  return <Dropdown kind="dialog" open={open} onOpenChange={(value) => { if (!value) setOpen(false) }} minWidth={0}
     trigger={<button ref={trigger} type="button" title="Model settings" aria-label="Model settings" aria-expanded={open} aria-haspopup="dialog"
       onClick={() => open ? close() : setOpen(true)} className="rounded border border-zinc-700 p-1.5 text-zinc-400 hover:bg-zinc-800"><Settings2 size={12} /></button>}>
     {open && <NativeModelSettingsForm agentId={agentId} baseUrl={baseUrl} model={model} busy={busy} onSaved={onSaved} onClose={close} />}
@@ -34,7 +35,6 @@ export function NativeModelSettingsForm({ agentId, baseUrl, model, busy, onSaved
   const form = useRef<HTMLFormElement>(null)
   const generation = useRef(0)
   useEffect(() => () => { generation.current++ }, [])
-  useEffect(() => { if (!loading) form.current?.querySelector<HTMLElement>("select, input, button")?.focus() }, [loading])
 
   useEffect(() => {
     const request = ++generation.current
@@ -49,6 +49,7 @@ export function NativeModelSettingsForm({ agentId, baseUrl, model, busy, onSaved
   }, [agentId, baseUrl, model])
 
   const close = () => { if (!saving) { generation.current++; onClose() } }
+  useModalLayer({ open: true, onClose: close, containerRef: form, dismissible: !saving })
   const change = (key: keyof ModelSettings, value: string | number | boolean | null) => {
     setDraft((current) => {
       const next = { ...current, [key]: value }
@@ -96,8 +97,8 @@ export function NativeModelSettingsForm({ agentId, baseUrl, model, busy, onSaved
     </label>
   }
   const supported = state && Object.values(state.capabilities.settings).some((capability) => capability.status === "supported")
-  return <form ref={form} role="dialog" aria-label="Model settings" className="flex max-h-[65vh] w-72 max-w-[calc(100vw-2rem)] flex-col gap-3 overflow-auto p-3"
-    onSubmit={(event) => { event.preventDefault(); void apply() }} onKeyDown={(event) => { if (event.key === "Escape") { event.stopPropagation(); close() } }}>
+  return <form ref={form} role="dialog" aria-modal="true" aria-label="Model settings" className="flex max-h-[calc(100dvh-2rem)] w-72 max-w-[calc(100vw-2rem)] flex-col gap-3 overflow-auto p-3"
+    onSubmit={(event) => { event.preventDefault(); void apply() }}>
     <h3 className="text-sm font-medium text-zinc-200">Model settings</h3>
     <p className="break-all text-xs text-zinc-400">{model}</p>
     {state && <p className="break-all text-xs text-zinc-500">Resolved model: {state.capabilities.modelId}</p>}

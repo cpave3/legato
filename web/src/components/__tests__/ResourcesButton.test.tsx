@@ -105,3 +105,15 @@ describe("ResourcesButton", () => {
     expect(posted).toEqual([])
   })
 })
+
+it("focuses the resource dialog and returns to its trigger on Escape", async () => {
+  const user = (await import('@testing-library/user-event')).default.setup()
+  renderButton()
+  const trigger = screen.getByRole('button', { name: /^Resources/ })
+  await user.click(trigger)
+  await screen.findByRole('button', { name: 'Attach Specs' })
+  expect(screen.getByRole('dialog', { name: 'Resources' }).contains(document.activeElement)).toBe(true)
+  await user.keyboard('{Escape}')
+  expect(screen.queryByRole('dialog')).toBeNull()
+  expect(document.activeElement).toBe(trigger)
+})
