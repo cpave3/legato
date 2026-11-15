@@ -96,7 +96,7 @@ sequenceDiagram
   L->>L: Activate connection, no agent grants yet
   O->>L: Grant tools for selected execution/task/repository
   G->>L: Execution-authenticated tool call
-  L->>L: Validate grant, schema, operation and resource; audit
+  L->>L: Validate grant, schema, operation and resource and record audit
   L->>M: Call using host-owned access token
   M-->>L: Tool result
   L-->>G: Validated bounded result, no credentials
