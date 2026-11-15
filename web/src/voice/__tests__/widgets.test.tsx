@@ -144,6 +144,8 @@ describe("voice surface theme bindings", () => {
     const { rerender } = render(<VoiceSheet view={view({ state: "listening", partial: "Check the build" })} main="main" onSend={() => {}} onCancel={() => {}} />)
     const sheet = screen.getByRole("dialog")
     const css = Array.from(style.sheet!.cssRules).find(rule => rule.type === 1 && sheet.matches((rule as CSSStyleRule).selectorText)) as CSSStyleRule
+    expect(css.style.getPropertyValue("--voice-accent")).toBe("var(--theme-accent,#6d5ef6)")
+    expect(css.style.getPropertyValue("--voice-link")).toBe("var(--theme-identity,var(--theme-link,#a99cff))")
     expect(css.style.getPropertyValue("--voice-text")).toBe("var(--theme-text,#e6e5eb)")
     expect(css.style.getPropertyValue("--voice-surface")).toBe("var(--theme-surface,linear-gradient(#15141c,#111114))")
     expect(getComputedStyle(screen.getByRole("button", { name: "Send now" })).color).toBe("var(--theme-canvas, #fff)")
@@ -166,6 +168,12 @@ describe("voice surface theme bindings", () => {
     const ring = screen.getByRole("img")
     const role = mode === "speaking" ? "success" : mode === "blocked" ? "warning" : "focus"
     expect(ring.querySelector("text")?.getAttribute("fill")).toContain(`var(--theme-${role},`)
-    for (const tick of ring.querySelectorAll(".tick")) expect(tick.getAttribute("stroke")).toMatch(/^var\(--theme-/)
+    const ticks = ring.querySelectorAll(".tick")
+    for (const tick of ticks) expect(tick.getAttribute("stroke")).toMatch(mode === "speaking" ? /^color-mix\(in srgb, var\(--theme-voice-start,/ : /^var\(--theme-/)
+    if (mode === "speaking") {
+      expect(ticks[0].getAttribute("stroke")).toContain("100%")
+      expect(ticks[59].getAttribute("stroke")).toContain("var(--theme-success,")
+      expect(ticks[0].getAttribute("stroke")).not.toBe(ticks[59].getAttribute("stroke"))
+    }
   })
 })

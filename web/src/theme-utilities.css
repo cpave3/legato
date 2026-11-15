@@ -81,11 +81,9 @@
 :root[data-theme]:not([data-theme="legato"]) .border-amber-600,
 :root[data-theme]:not([data-theme="legato"]) .border-amber-800 { border-color: var(--theme-border); }
 :root[data-theme]:not([data-theme="legato"]) .text-blue-300,
-:root[data-theme]:not([data-theme="legato"]) .text-teal-400,
 :root[data-theme]:not([data-theme="legato"]) .text-sky-200,
 :root[data-theme]:not([data-theme="legato"]) .text-sky-300 { color: var(--theme-info); }
 :root[data-theme]:not([data-theme="legato"]) .bg-sky-950\/60,
-:root[data-theme]:not([data-theme="legato"]) .bg-teal-950\/30,
 :root[data-theme]:not([data-theme="legato"]) .bg-sky-900\/10,
 :root[data-theme]:not([data-theme="legato"]) .bg-sky-950\/70,
 :root[data-theme]:not([data-theme="legato"]) .bg-sky-950\/40,
@@ -94,6 +92,8 @@
 :root[data-theme]:not([data-theme="legato"]) .border-sky-800 { border-color: var(--theme-border); }
 :root[data-theme]:not([data-theme="legato"]) .ring-cyan-400 { --tw-ring-color: var(--theme-focus); }
 :root[data-theme]:not([data-theme="legato"]) .accent-sky-500 { accent-color: var(--theme-focus); }
+:root[data-theme]:not([data-theme="legato"]) .text-teal-400 { color: var(--theme-notice); }
+:root[data-theme]:not([data-theme="legato"]) .bg-teal-950\/30 { background-color: var(--material-noticeSurface); }
 :root[data-theme]:not([data-theme="legato"]) .text-purple-300,
 :root[data-theme]:not([data-theme="legato"]) .text-violet-300,
 :root[data-theme]:not([data-theme="legato"]) .text-indigo-100,
@@ -112,10 +112,10 @@
 :root[data-theme]:not([data-theme="legato"]) .bg-purple-950,
 :root[data-theme]:not([data-theme="legato"]) .bg-violet-950\/40,
 :root[data-theme]:not([data-theme="legato"]) .bg-indigo-950\/35,
-:root[data-theme]:not([data-theme="legato"]) .bg-violet-950 { background-color: var(--color-lw-accent-soft); }
+:root[data-theme]:not([data-theme="legato"]) .bg-violet-950 { background-color: var(--material-identitySurface); }
 :root[data-theme]:not([data-theme="legato"]) .hover\:bg-indigo-950\/60:hover,
 :root[data-theme]:not([data-theme="legato"]) .hover\:bg-indigo-900\/60:hover,
-:root[data-theme]:not([data-theme="legato"]) .hover\:bg-indigo-900\/50:hover { background-color: var(--color-lw-accent-soft); }
+:root[data-theme]:not([data-theme="legato"]) .hover\:bg-indigo-900\/50:hover { background-color: var(--material-identitySurface); }
 :root[data-theme]:not([data-theme="legato"]) .bg-indigo-500,
 :root[data-theme]:not([data-theme="legato"]) .bg-indigo-600 { background-color: var(--theme-focus); color: var(--theme-canvas); }
 :root[data-theme]:not([data-theme="legato"]) .hover\:bg-indigo-500:hover { background-color: var(--theme-focus); color: var(--theme-canvas); }

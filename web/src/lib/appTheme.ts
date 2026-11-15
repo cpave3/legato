@@ -20,8 +20,8 @@ export function themeVariables(t: ThemeTokens, material: ThemeMaterial): Record<
     rail: m.rail, ground: t.canvas, surface: m.panel, raised: m.raised,
     selected: t.selection, line: m.divider, "line-strong": t.border,
     text: ink.text, "text-2": ink.muted, faint: ink.muted,
-    accent: t.focus, "accent-ring": t.focus, link: ink.link,
-    "accent-soft": t.selection, "accent-text": ink.link,
+    accent: material.accent, "accent-ring": material.accent, link: ink.link,
+    "accent-soft": m.identitySurface, "accent-text": material.identity,
     live: ink.success, "live-soft": m.successSurface, needs: ink.warning, "needs-soft": m.warningSurface,
     done: ink.info, "done-soft": m.infoSurface, error: ink.error, "error-soft": m.errorSurface,
     "idle-soft": m.panel, danger: ink.error, "danger-line": t.border, record: ink.error,
@@ -31,6 +31,11 @@ export function themeVariables(t: ThemeTokens, material: ThemeMaterial): Record<
   vars["--shadow-lw-control"] = material.controlShadow
   for (const [role, value] of Object.entries(m)) vars[`--material-${role}`] = value
   for (const [role, value] of Object.entries(ink)) vars[`--theme-${role}`] = value
+  vars["--theme-accent"] = material.accent
+  vars["--theme-focus"] = material.accent
+  vars["--theme-identity"] = material.identity
+  vars["--theme-voice-start"] = material.voiceStart
+  vars["--theme-notice"] = material.notice
   vars["--theme-surface"] = m.panel
   // Older screens still use Tailwind's neutral scales. Keep their semantics in
   // both polarities without changing the incumbent Legato palette.

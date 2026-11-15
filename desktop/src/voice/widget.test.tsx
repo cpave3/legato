@@ -206,12 +206,19 @@ describe("the widget page", () => {
     await waitFor(() => expect(document.documentElement.dataset.theme).toBe("ocular-light"))
     expect(document.documentElement.style.getPropertyValue("--theme-surface")).toBe(document.documentElement.style.getPropertyValue("--panel"))
     expect(document.documentElement.style.getPropertyValue("--theme-text")).toBe("#252B33")
+    const style = document.documentElement.style
+    expect(style.getPropertyValue("--theme-voice-start")).toBe(style.getPropertyValue("--theme-keyword"))
+    expect(style.getPropertyValue("--theme-identity")).toBe(style.getPropertyValue("--theme-keyword"))
+    expect(style.getPropertyValue("--material-identitySurface")).toMatch(/^#[0-9A-F]{6}$/)
+    expect(style.getPropertyValue("--material-noticeSurface")).toMatch(/^#[0-9A-F]{6}$/)
     expect(document.documentElement.style.colorScheme).toBe("light")
     expect(screen.getByTestId("voice-capsule")).toBeInTheDocument()
     emit("voice-state", { state: "listening" })
     emit("app-theme-changed", "dracula")
     expect(screen.getByTestId("voice-card")).toBeInTheDocument()
     expect(document.documentElement.style.getPropertyValue("--theme-canvas")).toBe("#282A36")
+    expect(style.getPropertyValue("--theme-voice-start")).toBe(style.getPropertyValue("--theme-success"))
+    expect(style.getPropertyValue("--theme-identity")).toBe(style.getPropertyValue("--theme-link"))
     first.unmount()
     await act(async () => {})
     expect(handlers.has("app-theme-changed")).toBe(false)
@@ -220,6 +227,9 @@ describe("the widget page", () => {
     await waitFor(() => expect(document.documentElement.dataset.theme).toBe("ocular-dark"))
     emit("app-theme-changed", "legato")
     expect(document.documentElement.style.getPropertyValue("--theme-surface")).toBe("")
+    for (const role of ["theme-voice-start", "theme-identity", "material-identitySurface", "material-noticeSurface"]) {
+      expect(style.getPropertyValue(`--${role}`)).toBe("")
+    }
     expect(document.documentElement.style.colorScheme).toBe("dark")
     reloaded.unmount()
     savedTheme = "legato"

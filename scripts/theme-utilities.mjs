@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url"
 process.chdir(fileURLToPath(new URL("..", import.meta.url)))
 const groups = {
   error: ["red", "rose"], success: ["green", "emerald"], warning: ["amber", "yellow", "orange"],
-  info: ["blue", "cyan", "teal", "sky"], keyword: ["purple", "violet", "indigo", "pink", "fuchsia"],
+  info: ["blue", "cyan", "sky"], notice: ["teal"], keyword: ["purple", "violet", "indigo", "pink", "fuchsia"],
 }
 const shades = [50, 100, 200, 300, 400, 500, 600, 700, 800, 900, 950]
 const used = new Set()
@@ -31,7 +31,7 @@ function rule(classes, declarations) {
 }
 for (const [role, colors] of Object.entries(groups)) {
   rule(colors.flatMap(color => shades.map(n => `text-${color}-${n}`)), `color: var(--theme-${role});`)
-  const wash = ["error", "success", "warning", "info"].includes(role) ? `--material-${role}Surface` : "--color-lw-accent-soft"
+  const wash = role === "keyword" ? "--material-identitySurface" : `--material-${role}Surface`
   rule([...used].map(name => name.replace(/^(hover|focus-visible|active):/, "")).filter(name => colors.some(color => name.startsWith(`bg-${color}-`)) && /-(800|900|950)/.test(name)), `background-color: var(${wash});`)
   const fill = ["error", "success", "warning"].includes(role) ? role : "focus"
   rule(colors.flatMap(color => [500, 600, 700].map(n => `bg-${color}-${n}`)), `background-color: var(--theme-${fill}); color: var(--theme-canvas);`)

@@ -27,6 +27,7 @@ it.each([
   expect(themed).toContain(`"darkMode":${polarity === "dark"}`)
   expect(themed).toContain(`"primaryTextColor":"${text}"`)
   const saved = buildStandaloneDocument({ html: "<p>Hello</p>", title: "Saved", resourceDomains: [] })
+  expect(saved).toContain(`--color-ring-primary: ${style.getPropertyValue("--color-lw-accent")};`)
   expect(saved).toContain(`--color-text-primary: ${text};`)
   expect(saved).toContain(`--color-background-tertiary: ${style.getPropertyValue("--color-lw-raised")};`)
   await act(() => setAppTheme("legato"))

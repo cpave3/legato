@@ -23,13 +23,15 @@ function applyTheme(id: AppTheme) {
       ground: t.canvas, panel: m.panel, raised: m.raised, sunk: m.rail, chrome: m.rail,
       line: m.divider, "line-strong": t.border,
       text: ink.text, text2: ink.muted, faint: ink.muted,
-      accent: t.focus, accent2: t.focus, link: ink.link, green: ink.success, amber: ink.warning,
+      accent: material.accent, accent2: material.accent, link: ink.link, green: ink.success, amber: ink.warning,
+      "theme-accent": material.accent, "theme-focus": material.accent,
+      "theme-identity": material.identity, "theme-voice-start": material.voiceStart,
       danger: ink.error, "danger-line": t.border, error: ink.error, "error-soft": m.errorSurface,
       "on-accent": t.canvas, "on-warning": t.canvas,
       scrim: `color-mix(in srgb, ${t.canvas} 88%, transparent)`,
       "key-body": m.raised, "key-plug": t.border, readout: t.canvas,
-      "accent-glow": `color-mix(in srgb, ${t.focus} 45%, transparent)`,
-      "accent-glow-soft": `color-mix(in srgb, ${t.focus} 20%, transparent)`,
+      "accent-glow": `color-mix(in srgb, ${material.accent} 45%, transparent)`,
+      "accent-glow-soft": `color-mix(in srgb, ${material.accent} 20%, transparent)`,
       "close-hover": t.error, "on-close": t.canvas,
       "theme-surface": m.panel,
       "shadow-panel": material.panelShadow, "shadow-control": material.controlShadow,
@@ -37,6 +39,10 @@ function applyTheme(id: AppTheme) {
     for (const [role, value] of Object.entries(ink)) {
       root.style.setProperty(`--theme-${role}`, value)
       applied.add(`--theme-${role}`)
+    }
+    for (const [role, value] of Object.entries(m)) {
+      root.style.setProperty(`--material-${role}`, value)
+      applied.add(`--material-${role}`)
     }
     for (const [key, value] of Object.entries(variables)) {
       root.style.setProperty(`--${key}`, value)

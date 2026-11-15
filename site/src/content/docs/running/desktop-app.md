@@ -40,6 +40,8 @@ Open **Servers & keys** from the key icon at the foot of the dock. Under **Appea
 
 The choice applies to the desktop shell and every open server page, including pages behind other tiles. You can also choose **App theme** in a server page’s web Settings; a compatible page asks the desktop app to save the same choice. The shell updates even when Servers & keys is closed. It is kept when you close and reopen the app. **Legato** restores the original appearance. The app does not follow your system's light/dark setting. The floating Legato widget uses the same theme for its voice capsule, conversation card and approvals feed. Its native menu keeps the operating system’s appearance.
 
+Ocular themes retain Legato's purple action and identity colours with green activity/success in signing and voice. Links remain blue, and the original and Vivid themes keep their different accent strengths.
+
 ## Sign approvals with a security key
 
 A [signed approval](/legato/security/credential-broker/#signed-approvals) needs a signature from a device you enrolled. In the app that device is a security key: you touch it to sign, and no agent can do that for you.

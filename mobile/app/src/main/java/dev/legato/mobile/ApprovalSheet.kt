@@ -143,7 +143,7 @@ private fun SheetHeader(state: SheetState) {
     Row(verticalAlignment = Alignment.CenterVertically) {
         Text("◈", color = Lw.accent, fontSize = 14.sp)
         Spacer(Modifier.width(8.dp))
-        Text("SIGNED APPROVAL", style = mono.copy(color = Lw.link, letterSpacing = 2.sp, fontSize = 11.sp))
+        Text("SIGNED APPROVAL", style = mono.copy(color = Lw.identity, letterSpacing = 2.sp, fontSize = 11.sp))
         Spacer(Modifier.weight(1f))
         Text(state.connection.name, style = mono.copy(fontSize = 11.sp), maxLines = 1)
     }
