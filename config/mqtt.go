@@ -29,6 +29,17 @@ func normalizeMQTT(m *MQTTConfig) error {
 		if topic == "" {
 			continue
 		}
+		// MQTT topics are at most 65535 bytes, including appended suffixes.
+		// Reserve /agent_waiting_on_you/state (also enough for attributes).
+		limit := 65535 - len("/agent_waiting_on_you/state")
+		if key == "discovery_prefix" {
+			// Reserve the longest discovery suffix with a 36-byte UUID node ID
+			// (the current srv- instance IDs are shorter): 79 bytes in total.
+			limit = 65535 - len("/binary_sensor/") - 36 - len("/agent_waiting_on_you/config")
+		}
+		if len(topic) > limit {
+			return fmt.Errorf("integrations.mqtt.%s: topic root must be at most %d bytes to leave room for published topic suffixes", key, limit)
+		}
 		if strings.ContainsAny(topic, "+#\x00") || strings.HasPrefix(topic, "/") || strings.HasSuffix(topic, "/") || strings.Contains(topic, "//") {
 			return fmt.Errorf("integrations.mqtt.%s: topic roots need nonempty segments without wildcards, NUL or trailing slash", key)
 		}

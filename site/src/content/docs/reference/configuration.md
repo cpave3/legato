@@ -661,7 +661,7 @@ The publisher exposes ten aggregate entities. All settings apply at restart. See
 | `integrations.mqtt.include_reeve` | bool | `false` | Includes the Reeve in agent counts. Attention and approvals are always instance-wide. |
 | `integrations.mqtt.attention_details` | bool | `false` | Exports at most 20 generated safe signal labels, never source titles or details. |
 
-Topic roots must have nonempty segments, without MQTT wildcards, NUL, or a trailing slash. TLS verifies certificates and hostnames. Retained data and HA history can outlive Legato.
+Topic roots must have nonempty segments, without MQTT wildcards, NUL, or a trailing slash. Discovery roots can be at most 65,456 bytes and state roots 65,508 bytes, to leave room for topic suffixes. TLS verifies certificates and hostnames. Retained data and HA history can outlive Legato.
 
 ## Review passes
 

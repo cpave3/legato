@@ -78,6 +78,56 @@ func TestMQTTMissingConfigKeepsDiscoveryDefault(t *testing.T) {
 	}
 }
 
+func TestMQTTTopicRootsRejectInvalidUTF8(t *testing.T) {
+	for _, key := range []string{"discovery_prefix", "base_topic"} {
+		t.Run(key, func(t *testing.T) {
+			writeTestConfig(t, "integrations:\n  mqtt:\n    "+key+": root\xff\n")
+			if _, err := Load(); err == nil {
+				t.Fatal("Load accepted invalid UTF-8")
+			}
+		})
+	}
+}
+
+func TestMQTTTopicRootLengths(t *testing.T) {
+	for _, root := range []struct {
+		key   string
+		limit int
+	}{{"discovery_prefix", 65456}, {"base_topic", 65508}} {
+		t.Run(root.key, func(t *testing.T) {
+			for _, tc := range []struct {
+				name  string
+				topic string
+				valid bool
+			}{
+				{"at_limit", strings.Repeat("a", root.limit), true},
+				{"over_limit", strings.Repeat("a", root.limit+1), false},
+				{"multibyte_over_limit", strings.Repeat("é", root.limit/2+1), false},
+			} {
+				t.Run(tc.name, func(t *testing.T) {
+					t.Run("Load", func(t *testing.T) {
+						writeTestConfig(t, fmt.Sprintf("integrations:\n  mqtt:\n    %s: %q\n", root.key, tc.topic))
+						_, err := Load()
+						if tc.valid && err != nil || !tc.valid && (err == nil || !strings.Contains(err.Error(), "integrations.mqtt."+root.key)) {
+							t.Fatalf("valid = %v, error = %v", tc.valid, err)
+						}
+					})
+					t.Run("Overlay", func(t *testing.T) {
+						raw, err := json.Marshal(tc.topic)
+						if err != nil {
+							t.Fatal(err)
+						}
+						err = Overlay(Defaults(), map[string]json.RawMessage{"integrations.mqtt." + root.key: raw})
+						if tc.valid && err != nil || !tc.valid && (err == nil || !strings.Contains(err.Error(), "integrations.mqtt."+root.key)) {
+							t.Fatalf("valid = %v, error = %v", tc.valid, err)
+						}
+					})
+				})
+			}
+		})
+	}
+}
+
 func TestMQTTSettingsOverlayHonorsPinsAndRestartRisks(t *testing.T) {
 	writeTestConfig(t, "integrations:\n  mqtt:\n    include_reeve: false\n")
 	cfg, err := Load()
