@@ -28,7 +28,7 @@ artifacts = pathlib.Path(args.artifacts).resolve()
 artifacts.mkdir(parents=True, exist_ok=True)
 root = pathlib.Path(tempfile.mkdtemp(prefix='lc-health-'))
 home, work = root / 'h', root / 'work'
-for folder in [home, work, root / 'bin', root / 'r', root / 'tm', home / '.claude']:
+for folder in [home, work, root / 'bin', root / 'r', root / 'tm', root / 'tmp', home / '.claude']:
     folder.mkdir(mode=0o700, parents=True, exist_ok=True)
 (root / 'resource').mkdir()
 requests, outcomes = [], []
@@ -138,7 +138,7 @@ with socket.socket() as sock:
     port = sock.getsockname()[1]
 config = root / 'config.yaml'
 config.write_text(f'db:\n  path: {root}/legato.db\ndata_dir: {root}/data\nweb:\n  discovery: false\nupdates:\n  mode: off\nagents:\n  peer_awareness: false\n  sandbox:\n    enabled: false\nadapters:\n  claude-code:\n    native_bridge: true\n    launch_args: [--model, claude-sonnet-5-5, --permission-mode, default]\nboard:\n  columns:\n    - name: Backlog\n    - name: Doing\n    - name: Review\n    - name: Done\n')
-env = {'PATH': str(root / 'bin') + ':' + os.environ['PATH'], 'HOME': str(home), 'CLAUDE_CONFIG_DIR': str(home / '.claude'), 'LEGATO_HOME': str(home / '.legato'), 'LEGATO_CONFIG': str(config), 'XDG_RUNTIME_DIR': str(root / 'r'), 'XDG_CONFIG_HOME': str(home / '.config'), 'XDG_DATA_HOME': str(home / '.local/share'), 'TMUX_TMPDIR': str(root / 'tm'), 'TERM': 'xterm-256color', 'LANG': 'C.UTF-8'}
+env = {'PATH': str(root / 'bin') + ':' + os.environ['PATH'], 'HOME': str(home), 'CLAUDE_CONFIG_DIR': str(home / '.claude'), 'LEGATO_HOME': str(home / '.legato'), 'LEGATO_CONFIG': str(config), 'XDG_RUNTIME_DIR': str(root / 'r'), 'XDG_CONFIG_HOME': str(home / '.config'), 'XDG_DATA_HOME': str(home / '.local/share'), 'TMUX_TMPDIR': str(root / 'tm'), 'TMPDIR': str(root / 'tmp'), 'TERM': 'xterm-256color', 'LANG': 'C.UTF-8'}
 log = open(root / 'serve.log', 'w')
 process, token, task_id = None, None, None
 streams = []
@@ -170,6 +170,9 @@ def api(path, body=None):
 def row():
     rows = api('/api/agents?task=' + task_id)
     return rows[0] if rows else None
+
+def snapshot():
+    return api('/api/agents/' + task_id + '/chimera/snapshot')
 
 
 def wait(check, label, timeout=35):
@@ -224,7 +227,6 @@ try:
     first = wait(lambda: (current := row()) and current.get('has_chimera_endpoint') and current, 'real Claude native binding')
     wait(lambda: requests and 'CLAUDE-INTEGRATION-CANARY' in json.dumps(api('/api/agents/' + task_id + '/conversation')) and row()['activity'] == '', 'native final reply and idle agreement')
     outcomes.append('real-launch-mod-state-native-final-idle')
-    snapshot = lambda: api('/api/agents/' + task_id + '/chimera/snapshot')
     assert api('/api/agents/' + task_id + '/chimera/modes') == [], 'Claude advertised unsupported modes'
     try:
         api('/api/agents/' + task_id + '/chimera/modes', {'mode': 'plan'})
@@ -338,6 +340,7 @@ try:
         wait(lambda: snapshot()['status'] == 'idle' and row()['activity'] == 'background', 'parent idle while background child runs')
         launched = next(call for call in snapshot()['toolCalls'] if call.get('subagent', {}).get('subagentId') == child['subagentId'])
         assert launched['subagent']['status'] == 'running' and launched.get('result') and launched['result'].get('reason') is None, 'async launch reported child stopped before completion'
+        assert str(root / 'tmp') in launched['result']['output'], 'Claude child output escaped private TMPDIR'
         if mode == 'stop':
             control['stop_id'] = child['subagentId']
             message('CLAUDE-STOP-CHILD')
@@ -366,9 +369,12 @@ except Exception as error:
         lines = (root / 'claude-debug.log').read_text().splitlines()
         (artifacts / 'plugin-diagnostics.log').write_text(diagnostic('\n'.join(line for line in lines if any(word in line.lower() for word in ['legato', 'session.start', 'plugin.register', 'process.spawn']))))
     if task_id and token:
-        (artifacts / 'conversation-diagnostic.json').write_text(diagnostic(json.dumps(api('/api/agents/' + task_id + '/conversation'))))
-        (artifacts / 'snapshot-diagnostic.json').write_text(diagnostic(json.dumps(snapshot())))
-        (artifacts / 'aggregate-diagnostic.json').write_text(diagnostic(json.dumps(row())))
+        for name, fetch in [('conversation', lambda: api('/api/agents/' + task_id + '/conversation')), ('snapshot', snapshot), ('aggregate', row)]:
+            try:
+                captured = fetch()
+            except (RuntimeError, OSError, urllib.error.URLError) as diagnostic_error:
+                captured = {'diagnostic_error': str(diagnostic_error)}
+            (artifacts / (name + '-diagnostic.json')).write_text(diagnostic(json.dumps(captured)))
     sessions = subprocess.run(['/usr/bin/tmux', 'list-panes', '-a', '-F', '#{pane_id}'], env=env, capture_output=True, text=True)
     panes = []
     for pane in sessions.stdout.splitlines():

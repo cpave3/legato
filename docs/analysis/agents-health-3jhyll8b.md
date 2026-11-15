@@ -145,6 +145,8 @@ tests and rebuilt live validation pass.
 
 - `claude-final-2.log`: all **15 groups pass**, 43 real Claude model requests;
   test names are emitted in the JSON result. Engine version: 2.1.322.
+- `claude-private-temp-green.log`: repeats all 15 groups with explicit private
+  TMPDIR and asserts actual child output stays inside the removable root.
 - `chimera-final-green.log`: **20 full scenarios + 14 launch/auth/recovery
   outcomes pass** against the final rebuilt Legato and Chimera `0733a563`.
 - `claude-error-contract-green-build.log`: **52 plugin-host tests pass**,
@@ -154,7 +156,7 @@ tests and rebuilt live validation pass.
   focused native sync/panel boundaries separately pass 51 tests.
 - `legato-full-short-green.log`: full Go short suite passes (service package
   takes 495s on this worker). `legato-final-full-short-green.log` is the final
-  rerun after canonical interruption normalization; pending at this revision.
+  rerun after canonical interruption normalization: **all pass**, service 504s.
 
 Heavy validation runs under `flock ~/.nuget/packages/.legato-heavy.lock`.
 The final Go rerun uses a bounded 12-minute package timeout after measuring

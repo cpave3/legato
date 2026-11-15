@@ -20,7 +20,8 @@ python3 internal/cli/testdata/chimera-mod/isolated_run.py \
 Use the existing shared cache lock, not a private `/tmp` replacement. The
 whitelist runner clears inherited session/broker authority before running the
 driver. The driver creates private HOME/CLAUDE_CONFIG_DIR/config/database/data/
-runtime/tmux directories and independent ports. It pre-approves only the
+runtime/tmux/TMPDIR directories and independent ports, and asserts child output
+stays beneath its private temporary directory. It pre-approves only the
 synthetic `fixture-not-a-secret` provider key in its own disposable profile.
 The scratch agent is unsandboxed; no sandbox/security regression is claimed.
 
