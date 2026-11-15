@@ -1,13 +1,47 @@
 import java.util.Properties
 
-// The release key, kept outside the repository: a properties file with
-// storeFile, storePassword, keyAlias and keyPassword. Its path is
-// $LEGATO_ANDROID_SIGNING, else ~/.config/legato/android/signing.properties.
-// Without it, release builds are signed with the public debug key below.
-val releaseSigning: Properties? = (System.getenv("LEGATO_ANDROID_SIGNING")
-    ?: "${System.getProperty("user.home")}/.config/legato/android/signing.properties")
-    .let(::File).takeIf { it.isFile }
-    ?.let { file -> Properties().apply { file.inputStream().use(::load) } }
+val releaseTag = System.getenv("LEGATO_ANDROID_RELEASE_TAG")
+val releaseVersion = releaseTag?.let { tag ->
+    val match = Regex("v(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)\\.(0|[1-9][0-9]*)").matchEntire(tag)
+        ?: throw GradleException("LEGATO_ANDROID_RELEASE_TAG must be a stable vMAJOR.MINOR.PATCH tag without leading zeros")
+    val parts = match.groupValues.drop(1).map { it.toIntOrNull() }
+    val major = parts[0]
+    val minor = parts[1]
+    val patch = parts[2]
+    if (major == null || major > 2098 || minor == null || minor > 999 || patch == null || patch > 999) {
+        throw GradleException("LEGATO_ANDROID_RELEASE_TAG requires major <= 2098 and minor/patch <= 999")
+    }
+    tag.removePrefix("v") to ((major + 1) * 1_000_000 + minor * 1_000 + patch)
+}
+
+// Official releases never consult local signing properties or use the debug key.
+val releaseSigning: Properties? = if (releaseTag != null) {
+    Properties().apply {
+        mapOf(
+            "storeFile" to "LEGATO_ANDROID_KEYSTORE",
+            "storePassword" to "LEGATO_ANDROID_STORE_PASSWORD",
+            "keyAlias" to "LEGATO_ANDROID_KEY_ALIAS",
+            "keyPassword" to "LEGATO_ANDROID_KEY_PASSWORD",
+        ).forEach { (property, variable) ->
+            val value = System.getenv(variable)
+            if (value.isNullOrEmpty()) throw GradleException("$variable must be nonempty for an official Android release")
+            setProperty(property, value)
+        }
+        if (!file(getProperty("storeFile")).isFile) {
+            throw GradleException("LEGATO_ANDROID_KEYSTORE must name an existing keystore file")
+        }
+    }
+} else {
+    // Local builds use the private key when available, otherwise the debug key.
+    val signingPath = System.getenv("LEGATO_ANDROID_SIGNING")
+    val signingFile = File(signingPath
+        ?: "${System.getProperty("user.home")}/.config/legato/android/signing.properties")
+    if (signingPath != null && !signingFile.isFile) {
+        throw GradleException("LEGATO_ANDROID_SIGNING must name an existing signing properties file")
+    }
+    signingFile.takeIf { it.isFile }
+        ?.let { file -> Properties().apply { file.inputStream().use(::load) } }
+}
 
 plugins {
     id("com.android.application")
@@ -30,6 +64,11 @@ val themeAssets = tasks.register<GenerateThemeAssets>("generateThemeAssets") {
     output.set(layout.buildDirectory.dir("generated/themeAssets"))
 }
 
+// AGP resolves the test source directory to a path, losing its task dependency.
+tasks.matching { it.name.startsWith("process") && it.name.endsWith("UnitTestJavaRes") }.configureEach {
+    dependsOn(themeAssets)
+}
+
 androidComponents.onVariants { variant ->
     variant.sources.assets?.addGeneratedSourceDirectory(themeAssets, GenerateThemeAssets::output)
 }
@@ -37,6 +76,7 @@ androidComponents.onVariants { variant ->
 android {
     namespace = "dev.legato.mobile"
     compileSdk = 36
+    buildToolsVersion = "36.0.0"
 
     defaultConfig {
         // The same application ID as the Expo app it replaces, so an install
@@ -44,8 +84,8 @@ android {
         applicationId = "dev.legato.mobile"
         minSdk = 29
         targetSdk = 36
-        versionCode = 2
-        versionName = "2.0.0"
+        versionCode = releaseVersion?.second ?: 2
+        versionName = releaseVersion?.first ?: "2.0.0"
     }
 
     signingConfigs {

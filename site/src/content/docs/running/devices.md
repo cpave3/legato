@@ -68,7 +68,11 @@ The app is a native Android shell around the web UI, for Android 10 and later. O
 - An approvals list across all your servers.
 - Adding a worker from another server the app knows: on a main's Settings › Connections and handoff › Workers › **Add a worker**, choose one of the app's other servers and agree in the app's own dialog. The app opens the pairing request on that server with the token it holds, so you type no address or words. See [Main and worker instances](/legato/running/instances/).
 
-There is no download of the app yet. Build it from the repository with the Android SDK and a JDK from 17 to 24:
+:::caution
+Official Android release support is implemented, but an official APK has not been published yet. No production signing setup has been performed. Cameron's choice of a durable private signer is a prerequisite; fresh-install, data-preserving upgrade and real Obtainium skipped-release acceptance checks remain blocked operator work.
+:::
+
+For now, build it from the repository with the Android SDK and a JDK from 17 to 24:
 
 ```bash
 task mobile:apk       # build a release APK and print its path
@@ -76,6 +80,44 @@ task mobile:install   # build it and install it on the connected phone
 ```
 
 See [`mobile/README.md`](https://github.com/cpave3/legato/blob/main/mobile/README.md) for signing and how pairing works.
+
+### Android updates with Obtainium
+
+After the first official publication, download `legato-android.apk` from an APK-bearing [GitHub release](https://github.com/cpave3/legato/releases). The canonical checksum is `legato-android-SHA256SUMS` on that same tag, not the CLI's `SHA256SUMS`; the workflow also provides GitHub build provenance:
+
+```bash
+sha256sum -c legato-android-SHA256SUMS
+gh attestation verify legato-android.apk --repo cpave3/legato
+```
+
+Legato has no in-app Android updater. To follow APK updates with Obtainium:
+
+1. Add `https://github.com/cpave3/legato` as a **GitHub** source.
+2. Set **Filter links by regex** to `(^|/)legato-android\.apk$`, with inversion **OFF**.
+3. Turn **Fallback to older releases ON**.
+4. Leave **Include prereleases**, **Include drafts** and **Track-only OFF**.
+5. Explicitly select **Release date** for sorting and leave **Release title as version OFF**, so the tag supplies the version.
+
+Allow Obtainium to install apps when Android asks. Silent installation depends on Android permissions and Obtainium's installation method; it is not guaranteed. The asset is one directly installable universal APK, not an AAB or split bundle.
+
+With fallback enabled, newer releases without an APK are skipped. This is bounded: Obtainium's GitHub source fetches at most **100 releases, without pagination**. The release operator should use `android=always` before the last APK falls outside that window. If it already has, manually download from the last APK-bearing tag until a fresh Android release restores discovery. Fallback does not search the entire release history.
+
+These settings and limits were checked against the [official Obtainium wiki](https://wiki.obtainium.imranr.dev/sources/) and [GitHub source implementation](https://github.com/ImranR98/Obtainium/blob/main/lib/app_sources/github.dart). Real phone acceptance across APK-less releases is still pending.
+
+### Before replacing an installed build
+
+Android requires the same signing certificate for an in-place update. Inspect the installed app before choosing a release signer:
+
+```bash
+adb shell pm path dev.legato.mobile
+# Use the returned base.apk path, removing the package: prefix:
+adb pull /data/app/.../base.apk installed-legato.apk
+"$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --print-certs installed-legato.apk
+```
+
+Compare the printed SHA-256 certificate digest with the approved release certificate. A same-signer upgrade is intended to preserve servers, pairing and approval keys, but this still needs a real phone acceptance check. A different signer requires a deliberate uninstall, which destroys that data: pair and enroll again afterwards. Never uninstall automatically to fix a signature mismatch.
+
+The server must explicitly trust the approved app certificate through `approval_devices.android_app_digests`; publishing or installing the APK does not change that trust. The official helper requires a private certificate pin and rejects the bundled public debug certificate. See the [release runbook](https://github.com/cpave3/legato/blob/main/mobile/README.md#official-android-releases) for operator-owned signing setup.
 
 ## Install the web app
 

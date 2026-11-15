@@ -40,6 +40,144 @@ so a phone with such a build should not sign approvals: Legato's default
 
 Changing the key of an installed app needs an uninstall (`adb uninstall
 dev.legato.mobile`), which removes its saved servers and approval keys.
+Never uninstall automatically to work around a signature mismatch.
+
+## Official Android releases
+
+The release code is implemented, but an official APK has not been published
+yet. No production signing setup has been performed. Cameron must choose the
+durable private signer before production publication or phone acceptance.
+
+### Signing prerequisites (operator-owned)
+
+First inspect the certificate of the app already on the phone:
+
+```sh
+adb shell pm path dev.legato.mobile
+# Copy the returned base.apk path, without the package: prefix:
+adb pull /data/app/.../base.apk installed-legato.apk
+"$ANDROID_HOME/build-tools/36.0.0/apksigner" verify --print-certs installed-legato.apk
+```
+
+Compare its SHA-256 certificate digest with the chosen private signer's digest.
+A same-key update can retain app data; a key switch requires a deliberate
+uninstall, destroying saved servers, pairing tokens and approval keys. Pair and
+enroll again afterwards. This is never an automatic migration. Explicitly
+configure `approval_devices.android_app_digests` on each server to trust the
+approved app certificate; publishing an APK does not change server trust.
+
+The operator provisions the GitHub Actions environment `android-release` with
+secrets `ANDROID_KEYSTORE_BASE64`, `ANDROID_STORE_PASSWORD`, `ANDROID_KEY_ALIAS`
+and `ANDROID_KEY_PASSWORD`, plus the public environment variable
+`ANDROID_CERT_SHA256`. Keep the durable private keystore backed up outside the
+repository. The workflow decodes it into a temporary file and maps these values
+to Gradle's `LEGATO_ANDROID_KEYSTORE`, `LEGATO_ANDROID_STORE_PASSWORD`,
+`LEGATO_ANDROID_KEY_ALIAS` and `LEGATO_ANDROID_KEY_PASSWORD`.
+`ANDROID_CERT_SHA256` becomes `LEGATO_ANDROID_CERT_SHA256`: the release helper
+requires this private signer's certificate pin, verifies a single matching
+signer, and rejects the bundled public debug certificate. Official tagged
+builds never fall back to local signing properties or the debug key.
+
+### Policy and assets
+
+Run the release workflow on `main` with `android=auto|always|never` (default
+`auto`), for example:
+
+```sh
+gh workflow run release -f bump=patch -f android=always
+```
+
+- `auto` builds the first Android publication, then compares against the most
+  recently published stable, non-draft release carrying an uploaded, nonempty
+  `legato-android.apk`. The helper paginates **all** releases, not just the newest
+  100. Missing baseline tags are fetched from `origin`; API, fetch and diff
+  failures are visible failures, never inferred skips.
+- `always` forces Android publication; `never` skips it.
+
+The exact `INPUTS` list in `scripts/android-release.py` is `mobile/`,
+`themes/palettes.json`, `scripts/mobile-android.sh`, `scripts/android-release.py`
+and `.github/workflows/release.yml`. These cover the app, packaged palette,
+build launcher, release policy and workflow. Unrelated server or web UI changes
+do not trigger an APK: the app loads the server's web UI at runtime.
+
+Only stable `vMAJOR.MINOR.PATCH` tags without leading zeros are accepted.
+`versionName` is the tag without `v`; `versionCode` is
+`(major + 1) * 1,000,000 + minor * 1,000 + patch`, with major at most 2098 and
+minor/patch at most 999. Preflight rejects publication below an already
+published Android version code.
+
+The canonical assets on the same GitHub release are `legato-android.apk` and
+the Android-only `legato-android-SHA256SUMS`. This is one universal, directly
+installable APK, not an AAB or a set of splits. The workflow verifies the packaged
+`dev.legato.mobile` identity, tag-derived version and pinned certificate before
+attesting build provenance and uploading. The CLI's `SHA256SUMS` is separate.
+Verify a downloaded APK from that tag with:
+
+```sh
+sha256sum -c legato-android-SHA256SUMS
+gh attestation verify legato-android.apk --repo cpave3/legato
+```
+
+The CLI release is published before the Android job runs. An Android failure
+can therefore leave a valid CLI release without complete Android assets.
+After fixing prerequisites, rerun **only the failed Android job** on that same
+workflow run/tag, never all jobs: the CLI job would calculate another version.
+The helper's `stage` reuses an immutable existing APK and checks its signature
+and version instead of rebuilding it. Publication regenerates a missing
+checksum from those exact bytes; existing APKs/checksums are never clobbered.
+A conflicting APK or checksum fails and requires investigation.
+An upload returning HTTP 502 can leave an empty asset in GitHub's `starter`
+state. Recovery treats that placeholder as unpublished: it rebuilds a missing
+APK or regenerates the checksum from the completed original APK. Only during
+publication, after verifying the local APK, it rechecks the placeholder's exact
+asset ID, canonical name, `starter` state and zero size before deleting that
+failed placeholder and retrying the upload. A changed state, cleanup error,
+empty `uploaded` asset or any other unexpected state fails for investigation;
+completed assets and unrelated platform assets are never deleted or replaced.
+
+### Obtainium (after first publication)
+
+There is no in-app Android updater. In Obtainium, add
+`https://github.com/cpave3/legato` as a **GitHub** source and set:
+
+- **Filter links by regex:** `(^|/)legato-android\.apk$`; inversion **OFF**.
+- **Fallback to older releases:** **ON**.
+- **Include prereleases** and **Include drafts:** **OFF**.
+- **Track-only:** **OFF**.
+- **Sort method:** explicitly **Release date**.
+- **Release title as version:** **OFF** (use the tag).
+
+Allow Obtainium to install apps when Android asks. Whether an update can install
+without confirmation depends on Android permissions and Obtainium's installation
+method; silent installation is not guaranteed.
+
+With fallback enabled, newer APK-less CLI releases are skipped automatically,
+but only within the fetched window. Obtainium's GitHub source fetches at most
+100 releases with **no pagination**; it does not search indefinitely. Publish
+with `android=always` before the last APK falls outside that window. If it is
+already outside, manually download from the last APK-bearing tag; the operator
+must publish a fresh Android release to restore discovery.
+
+These settings and limits were checked against Obtainium's
+[official source wiki](https://wiki.obtainium.imranr.dev/sources/) and
+[GitHub source implementation](https://github.com/ImranR98/Obtainium/blob/main/lib/app_sources/github.dart).
+
+### Validation and remaining acceptance
+
+```sh
+# Set JAVA_HOME to JDK 21 and ANDROID_HOME to an SDK with platform/build-tools 36.
+bash scripts/test-android-apk.sh
+```
+
+This script uses a disposable key and real Gradle builds for two versions,
+verifies their certificate/version and packaged palette, and never installs or
+uploads. It is not a phone upgrade test.
+
+Production acceptance remains blocked on Cameron's signer choice and setup.
+Operator checks still required: a fresh phone install, a same-signer upgrade
+preserving saved servers, pairing and approval keys, and real Obtainium updates
+across APK-less releases. None is established by the packaging test or by the
+implemented release workflow.
 
 ## The code
 

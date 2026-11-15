@@ -66,6 +66,80 @@ Legato can restart itself, whatever started it (`cmd/legato/restart_runtime.go`)
 
 When `desktop/` changed since the last release that has one (or `-f desktop=always`), the workflow's `desktop-linux` and `desktop-macos` jobs build the desktop app at the release's tag and attach `legato-desktop-x86_64.AppImage`, `legato-desktop-SHA256SUMS`, `legato-desktop-macos-arm64.dmg`, `legato-desktop-macos-arm64.app.tar.gz` and `legato-desktop-macos-SHA256SUMS` to the release (`scripts/desktop-changed.sh` decides). Legato's own updater only takes `legato-*` binaries named for an OS and CPU, so it is unaffected. The AppImage, and Legato.app on a Mac, update themselves from the newest release that carries their build; see [Desktop app](desktop.md) § Releases and updates.
 
+## Android releases
+
+The Android release code is implemented; no official APK is published yet and
+no production signing setup has been performed. Cameron's durable private
+signer choice is a prerequisite. See [the mobile release runbook](../../mobile/README.md#official-android-releases)
+for operator setup, installed-certificate inspection and recovery.
+
+The workflow accepts `android=auto|always|never`, default `auto`:
+
+- `auto`: `scripts/android-release.py decide` paginates all GitHub releases,
+  selects the most recently published stable, non-draft release with an
+  uploaded, nonempty `legato-android.apk`, and diffs its commit against the
+  requested source. No baseline means first publication. Missing tags are
+  fetched from `origin`; API/fetch/diff errors fail visibly, never mean skip.
+- `always`: build Android regardless of the diff; `never`: skip Android.
+
+The exact `INPUTS` list is `mobile/`, `themes/palettes.json`,
+`scripts/mobile-android.sh`, `scripts/android-release.py`,
+`.github/workflows/release.yml`: app, packaged palette, launcher, policy and
+workflow. Unrelated server/web changes must not trigger APKs; web content is
+loaded from the server at runtime.
+
+Gradle and the helper require stable `vMAJOR.MINOR.PATCH` tags without leading
+zeros: `versionName = MAJOR.MINOR.PATCH`,
+`versionCode = (major + 1) * 1_000_000 + minor * 1_000 + patch`.
+Bounds are major <= 2098, minor/patch <= 999. Preflight scans all eligible
+Android releases and rejects a lower version code than one already published.
+
+The operator owns the `android-release` environment: secrets
+`ANDROID_KEYSTORE_BASE64`, `ANDROID_STORE_PASSWORD`, `ANDROID_KEY_ALIAS`,
+`ANDROID_KEY_PASSWORD`, and public variable `ANDROID_CERT_SHA256`. The latter
+maps to the helper's mandatory `LEGATO_ANDROID_CERT_SHA256` private-certificate
+pin; verification rejects the bundled debug certificate. Official tagged
+Gradle builds require private signing inputs and do not consult local properties
+or fall back to debug signing. Never switch a phone's signer automatically:
+uninstalling destroys its servers, pairing and approval keys. Server trust in
+`approval_devices.android_app_digests` is an explicit operator decision, not a
+side effect of publishing.
+
+The Android job checks out the release tag, tests/builds with JDK 21 and SDK36,
+verifies actual package ID/version/single signer, attests provenance and attaches
+canonical `legato-android.apk` and `legato-android-SHA256SUMS`. These do not
+change CLI `SHA256SUMS` or the server updater. CLI publication precedes Android:
+partial failures leave the CLI release available. Recover at the same tag by
+rerunning **only the failed Android job**, never all jobs (the CLI job computes
+another version). `stage` downloads and verifies an existing immutable APK
+instead of rebuilding; `publish` regenerates a missing checksum from that APK.
+Neither asset is clobbered; conflicting bytes/checksums fail for investigation.
+Empty `starter` assets left by failed GitHub uploads are not completed assets.
+`stage` rebuilds when the APK is such a placeholder; `publish` rechecks the exact
+asset ID/name/state/size and deletes only canonical, zero-byte `starter`
+placeholders before retrying. A completed APK is reused when only its checksum
+upload failed. Unexpected states, empty `uploaded` assets, changed placeholders
+and cleanup errors fail visibly without replacing completed or unrelated assets.
+
+Android has no in-app updater. Obtainium setup is documented on
+[Devices](../../site/src/content/docs/running/devices.md#android-updates-with-obtainium):
+GitHub source `https://github.com/cpave3/legato`, link regex
+`(^|/)legato-android\.apk$` not inverted, fallback ON, prereleases/drafts OFF,
+track-only OFF, explicit Release date sort, release title as version OFF.
+Upstream [wiki](https://wiki.obtainium.imranr.dev/sources/) and
+[source](https://github.com/ImranR98/Obtainium/blob/main/lib/app_sources/github.dart)
+confirm APK-less releases can be skipped with fallback, but the GitHub source
+fetches at most 100 releases without pagination. This differs from our helper's
+unbounded paginated release scan. Use `android=always` before the older APK
+falls outside that window; if already outside, manually use the last
+APK-bearing tag until a fresh Android publication restores discovery.
+
+`bash scripts/test-android-apk.sh` uses a disposable key and real Gradle builds
+for two versions (use JDK 21 and SDK36); it verifies packaged metadata, signer
+and palette without installing or uploading. Production fresh-install,
+same-signer upgrade preserving servers/pairing/approval keys, and real Obtainium
+skipped-release acceptance remain blocked operator checks, not proven outcomes.
+
 ## Known limits
 
 - Agents use the `legato` binary too (hooks, `legato mcp serve`, the native bridges). After an update, new calls run the new binary while processes already running keep the old one, and a sandboxed agent keeps the binary its sandbox mounted until it is reloaded. Waiting for a quiet moment keeps the mix short; the protocols between them must still tolerate one version of difference.
