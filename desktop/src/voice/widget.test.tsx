@@ -1,12 +1,13 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 import "@testing-library/jest-dom/vitest"
-import { act, cleanup, fireEvent, render, screen } from "@testing-library/react"
+import { act, cleanup, fireEvent, render, screen, waitFor } from "@testing-library/react"
 import { CAP, capped, initialModel, keyCaps, reduce, surface, tail, type VoiceEvent, type WidgetModel } from "./model"
 import { DRAG_FROM, useWidgetDrag } from "./drag"
 
 // The app's events, as Rust emits them, and what the page asks of Rust.
 const handlers = new Map<string, (e: { payload: unknown }) => void>()
 const invoked: { cmd: string; args?: unknown }[] = []
+let savedTheme = "legato"
 let status = { ready: true, reason: "", setting: "", main: "tessitura" }
 
 vi.mock("@tauri-apps/api/event", () => ({
@@ -18,6 +19,7 @@ vi.mock("@tauri-apps/api/event", () => ({
 vi.mock("@tauri-apps/api/core", () => ({
   invoke: (cmd: string, args?: unknown) => {
     invoked.push({ cmd, args })
+    if (cmd === "app_theme") return Promise.resolve(savedTheme)
     if (cmd === "voice_status") return Promise.resolve(status)
     if (cmd === "voice_key_info") return Promise.resolve({ key: "Meta+Alt+Space" })
     if (cmd === "voice_widget_layout") return Promise.resolve({ width: 480, height: 600, anchor: "top-right" })
@@ -145,6 +147,31 @@ describe("the widget page", () => {
   afterEach(cleanup)
 
   const actions = () => invoked.filter((i) => i.cmd === "voice_action").map((i) => (i.args as { action: string }).action)
+
+  it("restores the widget theme, follows changes while open, and restores it on reload", async () => {
+    savedTheme = "ocular-light"
+    const first = render(<Widget />)
+    await waitFor(() => expect(document.documentElement.dataset.theme).toBe("ocular-light"))
+    expect(document.documentElement.style.getPropertyValue("--theme-surface")).toBe("#EAE7DF")
+    expect(document.documentElement.style.getPropertyValue("--theme-text")).toBe("#252B33")
+    expect(document.documentElement.style.colorScheme).toBe("light")
+    expect(screen.getByTestId("voice-capsule")).toBeInTheDocument()
+    emit("voice-state", { state: "listening" })
+    emit("app-theme-changed", "dracula")
+    expect(screen.getByTestId("voice-card")).toBeInTheDocument()
+    expect(document.documentElement.style.getPropertyValue("--theme-canvas")).toBe("#282A36")
+    first.unmount()
+    await act(async () => {})
+    expect(handlers.has("app-theme-changed")).toBe(false)
+    savedTheme = "ocular-dark"
+    const reloaded = render(<Widget />)
+    await waitFor(() => expect(document.documentElement.dataset.theme).toBe("ocular-dark"))
+    emit("app-theme-changed", "legato")
+    expect(document.documentElement.style.getPropertyValue("--theme-surface")).toBe("")
+    expect(document.documentElement.style.colorScheme).toBe("dark")
+    reloaded.unmount()
+    savedTheme = "legato"
+  })
 
   it("shows the ready capsule with the main and the key, and a click talks", async () => {
     render(<Widget />)
@@ -278,6 +305,11 @@ describe("the widget page", () => {
     }])
     const feed = screen.getByTestId("widget-feed")
     expect(feed).toHaveTextContent("Reeve: Run a command on the host")
+    expect(feed.className).toContain("border-[var(--theme-warning,rgba(232,181,58,0.4))]")
+    fireEvent.click(screen.getByRole("button", { name: /Reeve: Run a command/ }))
+    expect(screen.getByText("Reeve:")).toHaveClass("text-[var(--voice-dim)]")
+    expect(screen.getByRole("button", { name: /Reeve: Run a command/ })).toHaveClass("text-[var(--voice-text)]")
+    expect(screen.getByRole("button", { name: "◈ Approve" })).toHaveClass("voice-primary")
     // Voice on top, the feed under it.
     const capsule = screen.getByTestId("voice-capsule")
     expect(capsule.compareDocumentPosition(feed) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()

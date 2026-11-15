@@ -7,6 +7,7 @@
   "permissions": [
     "core:event:default",
     "core:app:default",
+    "allow-app-theme",
     "allow-voice-action",
     "allow-voice-status",
     "allow-voice-key-info",

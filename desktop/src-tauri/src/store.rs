@@ -57,6 +57,8 @@ impl Key {
 
 #[derive(Debug, Clone, Default, PartialEq, Serialize, Deserialize)]
 pub struct State {
+    #[serde(default, deserialize_with = "crate::theme::saved_theme")]
+    pub app_theme: crate::theme::AppTheme,
     #[serde(default)]
     pub servers: Vec<Server>,
     #[serde(default)]
@@ -334,6 +336,36 @@ pub(crate) mod tests {
 
     fn open(dir: &tempfile::TempDir, secrets: &Memory) -> Store {
         Store::open(dir.path().join("legato-desktop.json"), Box::new(secrets.clone())).unwrap()
+    }
+
+    #[test]
+    fn an_unknown_saved_theme_keeps_servers_and_other_preferences() {
+        let (dir, secrets) = (tempfile::tempdir().unwrap(), Memory::default());
+        let mut store = open(&dir, &secrets);
+        let server = store.add_server("one", "https://one.local", None, "token").unwrap();
+        store.state.import_target = ImportTarget::Current;
+        store.save().unwrap();
+        let path = dir.path().join("legato-desktop.json");
+        let mut value: serde_json::Value = serde_json::from_slice(&std::fs::read(&path).unwrap()).unwrap();
+        value["app_theme"] = serde_json::json!("future-theme");
+        std::fs::write(&path, serde_json::to_vec(&value).unwrap()).unwrap();
+        let reopened = open(&dir, &secrets);
+        assert_eq!(reopened.state.app_theme, crate::theme::AppTheme::Legato);
+        assert_eq!(reopened.state.servers, [server]);
+        assert_eq!(reopened.state.import_target, ImportTarget::Current);
+    }
+
+    #[test]
+    fn app_theme_defaults_to_legato_and_survives_restart() {
+        let (dir, secrets) = (tempfile::tempdir().unwrap(), Memory::default());
+        std::fs::write(dir.path().join("legato-desktop.json"), r#"{"servers":[],"keys":[]}"#).unwrap();
+        let mut store = open(&dir, &secrets);
+        assert_eq!(store.state.app_theme, crate::theme::AppTheme::Legato);
+        for theme in [crate::theme::AppTheme::Dracula, crate::theme::AppTheme::OcularLight, crate::theme::AppTheme::OcularDark, crate::theme::AppTheme::Legato] {
+            store.state.app_theme = theme;
+            store.save().unwrap();
+            assert_eq!(open(&dir, &secrets).state.app_theme, theme);
+        }
     }
 
     #[test]

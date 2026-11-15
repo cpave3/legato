@@ -178,10 +178,6 @@ function TouchPrompt({ touchId }: { touchId: boolean }) {
   )
 }
 
-const ACCENT = [0x6d, 0x5e, 0xf6]
-const GREEN = [0x3e, 0xcf, 0x8e]
-const mix = (a: number[], b: number[], t: number) => `rgb(${a.map((v, i) => Math.round(v + (b[i] - v) * t)).join(",")})`
-
 // The reward for signing, as on the phone: a dial of ticks lights up as the
 // sweep passes, the arc runs violet to green, the hexagon seal fills, a
 // check lands, the readout types out; then Close counts down 5 seconds.
@@ -231,8 +227,8 @@ function SealView({ request, touchId, option, out, onClose }: { request: Request
       <div className="dial">
         <svg viewBox="0 0 196 196" width="196" height="196">
           <defs>
-            <radialGradient id="glow"><stop offset="0" stopColor="#6D5EF6" stopOpacity="0.5" /><stop offset="1" stopColor="#6D5EF6" stopOpacity="0" /></radialGradient>
-            <linearGradient id="sweep" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stopColor="#6D5EF6" /><stop offset="0.5" stopColor="#8A6CFF" /><stop offset="1" stopColor="#3ECF8E" /></linearGradient>
+            <radialGradient id="glow"><stop offset="0" stopColor="var(--accent)" stopOpacity="0.5" /><stop offset="1" stopColor="var(--accent)" stopOpacity="0" /></radialGradient>
+            <linearGradient id="sweep" x1="0" y1="0" x2="1" y2="1"><stop offset="0" stopColor="var(--accent)" /><stop offset="0.5" stopColor="var(--accent2)" /><stop offset="1" stopColor="var(--green)" /></linearGradient>
           </defs>
           <circle cx={c} cy={c} r={R} fill="url(#glow)" className="pulse" />
           {Array.from({ length: 60 }, (_, i) => {
@@ -240,11 +236,11 @@ function SealView({ request, touchId, option, out, onClose }: { request: Request
             const long = i % 5 === 0
             const inner = R * (long ? 0.8 : 0.84), outer = R * 0.9
             return <line key={i} x1={c + inner * Math.cos(a)} y1={c + inner * Math.sin(a)} x2={c + outer * Math.cos(a)} y2={c + outer * Math.sin(a)}
-              stroke={i / 60 <= t ? mix(ACCENT, GREEN, i / 60) : "#26262D"} strokeWidth={long ? 3 : 2} strokeLinecap="round" />
+              stroke={i / 60 <= t ? `color-mix(in srgb, var(--accent), var(--green) ${i / 60 * 100}%)` : "var(--line)"} strokeWidth={long ? 3 : 2} strokeLinecap="round" />
           })}
           <circle cx={c} cy={c} r={arcR} fill="none" stroke="url(#sweep)" strokeWidth="6" strokeLinecap="round"
             strokeDasharray={circ} strokeDashoffset={circ * (1 - t)} transform={`rotate(-90 ${c} ${c})`} />
-          <polygon points={hexagon} fill="#3ECF8E" fillOpacity={done ? 0.16 : 0} stroke={done ? "#3ECF8E" : "#31313A"} strokeWidth="3" className="hex" />
+          <polygon points={hexagon} fill="var(--green)" fillOpacity={done ? 0.16 : 0} stroke={done ? "var(--green)" : "var(--line-strong)"} strokeWidth="3" className="hex" />
         </svg>
         <span className={"check " + (done ? "in" : "")}>✓</span>
       </div>

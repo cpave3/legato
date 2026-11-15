@@ -19,7 +19,7 @@ export default defineConfig({
   server: {
     port: 5174,
     strictPort: true,
-    fs: { allow: [".", webVoice, path.resolve(__dirname, "../web/src/hooks")] },
+    fs: { allow: [".", path.resolve(__dirname, "../themes"), webVoice, path.resolve(__dirname, "../web/src/hooks")] },
   },
   build: {
     rollupOptions: {
