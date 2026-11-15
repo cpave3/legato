@@ -30,9 +30,9 @@ No native GUI, Android device/emulator or installed Home Assistant was tested. A
 
 ## Review and integration limits
 
-Recommended merge order: **PR #102 first, then rebase PR #103 onto its result before merging #103**. Neither merge has been performed. The combined layout has not been tested in this branch; the screenshots show this branch's pre-#102 Settings layout.
+PR #102 is merged. PR #103 has been rebased onto main `c3619406`, which includes #102 and the Ocular character work from #105. The original screenshots alongside this report show the pre-#102 layout; the rebase checks and current screenshots below cover the combined Settings layout. PR #103 has not been merged or deployed.
 
-When resolving `web/src/pages/Settings.tsx`, preserve #102's categories, search, wrappers and navigation. Keep `AppThemePicker` in **Preferences**; import and mount the no-props `ServerThemeSettings` in **Server**, beside instance tint/server appearance, not in browser-local preferences. The component already includes its Preferred theme label/helper. Preserve the mounted SettingsPage preference regression and adapt its navigation to the Server category. Keep MQTT `theme_control` registry semantics and the broker-authority helper when combining #102's MQTTSettings wrapper styling. Preserve #103's native-v2 ownership behavior, new canonical UI role adapters, palettes and stable IDs. Re-run mounted Settings tests, types and browser checks against the combined layout; the separate PR checks do not prove that integration.
+The resolved `Settings.tsx` preserves #102's categories, search, wrappers and navigation. `AppThemePicker` stays in **Preferences**; the no-props `ServerThemeSettings` mounts in **Server and maintenance › Server appearance**, beside instance tint. Its `server-theme` search destination is server-owned. The mounted regression saves through the real component, checks that the local fallback remains unchanged, and navigates between categories and search results. MQTT keeps explicit Apply/Cancel behavior with the new separate broker-authority opt-in. Native theme capabilities >=1 remain native-owned; Follow server still requires version2. The duplicate Ocular commit was dropped because its functional changes are already on main; canonical roles, stable IDs and terminal overrides remain intact.
 
 No external code-review approval is claimed. The optional independent final test auditor timed out; worker audits and the parent's applied test audit are documented above. No review tour/handoff packet was created because reviews are disabled for this task.
 
@@ -47,3 +47,20 @@ The new MQTT registry setting grows config-show JSON from **30,984 bytes** (base
 The minimal fix drains that existing test helper concurrently and synchronizes its output/error before returning. No production CLI behavior or JSON assertion changed. The actual config-show test passed 20 repetitions and five race repetitions; the full feature Go suite then passed. No timeout increase, retry, skip or lifecycle refactor was used.
 
 The separate CI engram cleanup failure at `fb5b43dd` remains **unattributed**, not established unrelated: untouched base's exact engram test passed 100 repetitions (14.932s). Full baseline comparison and subsequent CI outcomes are recorded in task notes/PR, including any unreproduced failure. No engram lifecycle changes were made. Do not infer attribution from an unchanged file alone.
+
+
+## Post-#102 rebase integration checks
+
+Validated the combined branch in an isolated worktree, without testing or restarting the operator instance:
+
+- **1,861 web tests /241 files pass**; web TypeScript, production build, ESLint and generated-theme checks pass. The mounted category/search/save regression was observed failing without the server mount, then passing with the resolved integration.
+- Go `config`, `themes`, MQTT transport, store, service, server and CLI package checks pass (`go test -short -timeout 10m`, `CGO_ENABLED=0`, writable scratch Go/npm caches). This preserves the missing-PUBACK cancellation and concurrent CLI stdout fixes.
+- **67 desktop tests** and TypeScript pass. **25 Android JVM model/bridge tests** pass using cached dependencies and a compile-only adapter that throws if pinned transport is invoked. No Android SDK, native GUI or transport verification is implied.
+- Documentation: **57 pages, all internal links valid**.
+- **109/109 scratch-browser assertions pass**, including the relocated Server editor, real API persistence, 320/390px bounds, and Preferences › Follow server adoption. Existing Settings/Board/dialog/plan paths and all six sampled themes pass. Zero browser JavaScript exceptions. The harness stopped its own backend/Vite/browser and removed its runtime.
+
+The public integration checks are included in `scripts/verify-web-ui.mjs`. Build a scratch binary and run it through `LEGATO_VERIFY_BIN`; raw results of this rebase run are in `/tmp/pr103-integration-evidence`. Existing physical-device, virtual-keyboard, external-agent and full screen-reader limits remain. No fresh independent review or approval is claimed.
+
+![Server-owned preferred theme at 320px after the Settings rebase](rebased-settings-320.png)
+
+![Server-owned preferred theme at 390px after the Settings rebase](rebased-settings-390.png)
