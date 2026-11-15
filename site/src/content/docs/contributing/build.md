@@ -151,6 +151,8 @@ The operator owns the `android-release` environment: secrets `ANDROID_KEYSTORE_B
 
 The canonical release assets are `legato-android.apk` and `legato-android-SHA256SUMS`, with GitHub build provenance. If Android fails after the CLI release is published, fix the prerequisite and rerun **only the failed Android job** at the same tag, never all jobs. Recovery stages and verifies the immutable existing APK's signature/version and regenerates a missing checksum without clobbering either asset.
 
+SDK setup explicitly installs `platform-tools`, not the retired `tools` package, followed by platform 36 and Build Tools 36.0.0. Rerunning an old job keeps its original workflow revision: if the workflow code needs a fix, merge it and publish a new release with `android=always`. Do not move the old release tag.
+
 GitHub can leave an empty `starter` placeholder after a failed upload. Recovery rechecks its exact identity and deletes only a canonical, zero-byte `starter` placeholder before retrying publication. Completed assets are never replaced. Other unexpected states or cleanup failures stop recovery for investigation; see the release runbook below.
 
 See [`mobile/README.md`](https://github.com/cpave3/legato/blob/main/mobile/README.md#official-android-releases) for signing, certificate inspection and recovery, and [Devices](/legato/running/devices/#android-updates-with-obtainium) for Obtainium's bounded release discovery.

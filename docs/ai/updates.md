@@ -107,7 +107,10 @@ side effect of publishing.
 
 The Android job checks out the release tag, tests/builds with JDK 21 and SDK36,
 verifies actual package ID/version/single signer, attests provenance and attaches
-canonical `legato-android.apk` and `legato-android-SHA256SUMS`. These do not
+canonical `legato-android.apk` and `legato-android-SHA256SUMS`. For SDK setup,
+`setup-android@v3` is explicitly given
+`packages: platform-tools` to avoid its retired `tools` package; platform 36
+and Build Tools 36.0.0 are installed in the following step. These APK assets do not
 change CLI `SHA256SUMS` or the server updater. CLI publication precedes Android:
 partial failures leave the CLI release available. Recover at the same tag by
 rerunning **only the failed Android job**, never all jobs (the CLI job computes
@@ -120,6 +123,12 @@ asset ID/name/state/size and deletes only canonical, zero-byte `starter`
 placeholders before retrying. A completed APK is reused when only its checksum
 upload failed. Unexpected states, empty `uploaded` assets, changed placeholders
 and cleanup errors fail visibly without replacing completed or unrelated assets.
+
+Rerunning a job retains its original workflow revision. A workflow-code fix on
+`main` therefore needs a new release after merging; use `android=always` to
+force the Android build. Same-tag reruns apply to corrected signing prerequisites
+or transient failures, not to adopting a new workflow revision. Never move a
+published tag to apply a CI fix.
 
 Android has no in-app updater. Obtainium setup is documented on
 [Devices](../../site/src/content/docs/running/devices.md#android-updates-with-obtainium):

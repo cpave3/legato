@@ -122,6 +122,9 @@ The CLI release is published before the Android job runs. An Android failure
 can therefore leave a valid CLI release without complete Android assets.
 After fixing prerequisites, rerun **only the failed Android job** on that same
 workflow run/tag, never all jobs: the CLI job would calculate another version.
+Reruns use the original workflow revision. If recovery requires changing the
+workflow itself, merge the fix and publish a new release with `android=always`
+instead; do not move the old tag or expect an old run to pick up new YAML.
 The helper's `stage` reuses an immutable existing APK and checks its signature
 and version instead of rebuilding it. Publication regenerates a missing
 checksum from those exact bytes; existing APKs/checksums are never clobbered.
