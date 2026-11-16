@@ -247,24 +247,25 @@ func TestAChangedToolEndsTheConnectionsGrants(t *testing.T) {
 	if _, err := f.conns.Update(ctx, "burnlite", MCPConnectionChange{Rules: &rules, ExpectedRevision: got.Revision}); err != nil {
 		t.Fatal(err)
 	}
-	approveNext := func() {
-		go func() {
-			a := waitForPending(t, f.approvals)
-			_, _ = f.approvals.Decide(ctx, a.ID, ApprovalDecision{Decision: ApprovalAllow, Option: "session", By: "web"})
-		}()
+	// The first call asks the operator; once they allow it for the session,
+	// calls go through.
+	var denied *MCPDenied
+	if _, err := f.call(t, "ex-1", "burnlite__delete_page", `{}`); !errors.As(err, &denied) || denied.ApprovalID == "" {
+		t.Fatalf("first call: %v", err)
 	}
-	approveNext()
-	if _, err := f.call(t, "ex-1", "burnlite__delete_page", `{}`); err != nil {
-		t.Fatalf("approved call: %v", err)
+	if _, err := f.approvals.Decide(ctx, denied.ApprovalID, ApprovalDecision{Decision: ApprovalAllow, Option: "session", By: "web"}); err != nil {
+		t.Fatal(err)
 	}
-	if _, err := f.call(t, "ex-1", "burnlite__delete_page", `{}`); err != nil {
-		t.Fatalf("the session grant did not last: %v", err)
+	for i := 0; i < 2; i++ {
+		if _, err := f.call(t, "ex-1", "burnlite__delete_page", `{}`); err != nil {
+			t.Fatalf("call %d after the session grant: %v", i, err)
+		}
 	}
 	f.upstream.addTool(t, "delete_page", "Delete every page", `{"type":"object"}`)
 	if err := f.broker.Refresh(ctx, "burnlite"); err != nil {
 		t.Fatal(err)
 	}
-	var denied *MCPDenied
+	denied = nil
 	if _, err := f.call(t, "ex-1", "burnlite__delete_page", `{}`); !errors.As(err, &denied) || denied.ApprovalID == "" {
 		t.Fatalf("a changed tool kept its grant: %v", err)
 	}
