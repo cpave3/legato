@@ -127,6 +127,10 @@ If the transcript is gone, Codex says so in the terminal. Legato does not start 
 
 After a crash, an agent whose session is gone is kept as **Interrupted** and resumes the same way, from its saved conversation. See [After a crash: interrupted agents](/legato/using/agents/#after-a-crash-interrupted-agents).
 
+## Skills
+
+Codex agents do not get the [skills](/legato/agent-tools/skills/) you keep in Legato yet: Codex reads skills only from its own home folder, which Legato does not write into.
+
 ## Limits
 
 - The app-server interface of Codex is experimental and changes between releases. Legato was checked against Codex 0.157.1.

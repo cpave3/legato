@@ -2,6 +2,7 @@ import { DirectorySettings } from "../components/settings/DirectorySettings"
 import { useMediaQuery } from "../hooks/useMediaQuery"
 import { useSettingsCatalog, useSettingsLists } from "../components/settings/useSettingsCatalog"
 import { ReeveAutoSettings } from "../components/settings/ReeveAutoSettings"
+import { SkillsSettings } from "../components/settings/SkillsSettings"
 import { useEffect, useRef, useState } from "react"
 import { ShieldCheck, Download, Zap, ScanSearch, Keyboard, QrCode, Server, Trash2, Plus, RefreshCw, Smartphone, Sparkles, FolderGit2, Palette, SquareTerminal } from "lucide-react"
 import { TintPicker } from "../components/TintPicker"
@@ -210,6 +211,7 @@ export function SettingsPage() {
               <Link to="/remote" className={quietButton}>Open Remote</Link>
             </SettingsCard>
             <div id="list-resources"><ResourcesSettings baseUrl={baseUrl} /></div>
+            <SkillsSettings baseUrl={baseUrl} />
             <EngramBindingsSettings baseUrl={baseUrl} />
 
           <CategorySettings category="agents" settings={registry} fileOnly={fileOnly} baseUrl={baseUrl} listKeys={(configLists.data ?? []).map((list) => list.key)} />

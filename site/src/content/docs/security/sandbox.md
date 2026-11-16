@@ -43,6 +43,7 @@ From then on every agent Legato starts runs inside the sandbox. If `bwrap` is mi
 | The agent tool's own state, such as `~/.claude`, `~/.codex` or `~/.chimera`, so sessions resume inside and out | read and write |
 | Chimera's `~/.chimera/mods` and `~/.chimera/hooks` (the rest of its state stays writable); linked mod targets outside forbidden paths | read-only |
 | Legato's installed mods in `<data_dir>/claude-mod` and `<data_dir>/chimera-mod` | read-only |
+| The session's own copy of the [skills](/legato/agent-tools/skills/) that are on | read-only |
 | The agent tool's installation | read-only |
 | Your toolchains, such as `~/.local/bin`, mise, `~/go/bin`, Rust and Bun | read-only |
 | Package and build caches for Go, npm, pnpm, Yarn, Bun, pip, uv, Cargo, Gradle, Maven and others | read and write |
@@ -62,6 +63,7 @@ Symlinks anywhere inside Chimera's global `hooks` folder, including event direct
 Agents never see:
 
 - Legato's configuration, database and data folder, and `~/.config/legato`.
+- Legato's skills folder (`~/.legato/skills`, or `skills.dir`): an agent gets a read-only copy of the skills that are on.
 - `~/.ssh`, `~/.gnupg`, `~/.1password`, `~/.config/op`, `~/.config/gh`, `~/.gitconfig`, git credential stores and `~/.netrc`.
 - `~/.aws`, `~/.azure`, `~/.kube`, `~/.docker`, and the Docker and Podman sockets (with [Docker in the sandbox](#docker-in-the-sandbox) on, an agent gets a filtered socket of its own instead).
 - Package registry logins: `~/.npmrc`, `~/.pypirc`, `~/.yarnrc`, Gradle's `gradle.properties`, Maven's `settings.xml`, Composer's `auth.json`.

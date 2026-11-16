@@ -176,6 +176,10 @@ Migration 110 (skipped, like 075, for a database from before agent sessions) add
 
 Migration 111 adds private `chimera_launch_secrets`, keyed by `agent_session_id` with cascading deletion. `SetChimeraLaunchSecret` stores server authentication and the bootstrap-file path separately from public session DTOs. The host launch shell consumes/unlinks the bootstrap before starting Chimera; binding cleanup tolerates its absence and clears the stored path, retaining authentication for discovery and restart recovery. `BindChimeraDiscoveryIfUnbound` conditionally installs fallback results so a concurrent mod binding cannot be replaced. Legacy selector updates/deletes are also guarded atomically by the current slot's `hook_source`; the link claims mod authority before writing its identity. See [Chimera native integration](chimera-native.md).
 
+## Skill states
+
+Migration `116_skill_states.sql` adds `skill_states`: `name` (a skill's folder name, the key), `enabled`, `updated_at`. A skill with no row is on. `SkillStates` reads them all as a map; `SetSkillEnabled` upserts one. The skills themselves are files on disk, never rows. 114 and 115 were left free because two open branches (LEG-214, LEG-199) each add migrations with those numbers; versions are positions in the sorted list, so whichever merges later renumbers its files. See [Skills](skills.md).
+
 ## Server theme preference
 
 Migration `113_server_theme.sql` adds singleton `server_theme_preference`: `singleton = 1`, `id` (empty initially), `revision` (0 initially), `updated_at`, `updated_by`. `ThemePreference` reads `{id, revision}`; `ChangeThemePreference` atomically updates only the expected revision, increments it and records actor/time, returning `ErrConflict` if stale. This works across processes. There is one current row, not a theme-change history ledger. Client follow flags, local choices and offline caches stay outside this table. See [Client themes](themes.md).

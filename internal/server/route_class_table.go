@@ -69,6 +69,8 @@ var routeClassTable = []routeClassEntry{
 	{"GET", "/api/settings/repository-guidance", ClassRead, "Read the repository guidance for agents"},
 	{"PUT", "/api/settings/repository-guidance", ClassChange, "Save repository guidance for agents"},
 	{"DELETE", "/api/settings/repository-guidance", ClassRisky, "Delete saved repository guidance"},
+	{"GET", "/api/settings/skills", ClassRead, "List the skills Legato gives agents"},
+	{"PUT", "/api/settings/skills/{name}", ClassChange, "Turn a skill on or off for agents started from now on"},
 	{"PUT", "/api/settings/updates", ClassRisky, "Set how Legato updates itself"},
 	{"GET", "/api/updates", ClassRead, "Read the update status"},
 	{"POST", "/api/updates/check", ClassRead, "Check for a new release"},

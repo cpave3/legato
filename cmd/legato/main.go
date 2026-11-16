@@ -966,6 +966,8 @@ func runServeCmd(args []string) int {
 			RepositoryGuidance:   repositoryGuidance(cfg, db),
 			ReeveName:            reeveNameFor(db),
 			RepositoryResources:  repositoryResources(cfg),
+			Capabilities:         skillService(cfg, db),
+			CapabilityFolders:    capabilityFolders(cfg),
 		})
 		sweepInterruptedAgents(agentSvc, configuredResourceService(cfg, db))
 		recoverNativeEndpoints(agentSvc)
@@ -1023,6 +1025,7 @@ func runServeCmd(args []string) int {
 	giveAgentsPrimaryDirs(agentSvc, repoPresets)
 	srv.SetRepositoryPresetService(repoPresets)
 	srv.SetRepositoryGuidanceService(repositoryGuidance(cfg, db))
+	srv.SetSkillService(skillService(cfg, db))
 	srv.SetTintService(service.NewTintService(service.StringSetting{Settings: settingsFor(db)}))
 	defer wireServerTheme(srv, db, bus)()
 	srv.SetEngramService(engramsFor(db))
@@ -1292,6 +1295,8 @@ func runTUI() int {
 			RepositoryGuidance:   repositoryGuidance(cfg, db),
 			ReeveName:            reeveNameFor(db),
 			RepositoryResources:  repositoryResources(cfg),
+			Capabilities:         skillService(cfg, db),
+			CapabilityFolders:    capabilityFolders(cfg),
 		})
 		sweepInterruptedAgents(agentSvc, configuredResourceService(cfg, db))
 		recoverNativeEndpoints(agentSvc)
@@ -1415,6 +1420,7 @@ func runTUI() int {
 			webSrv.SetFreshClonesEnabled(cfg.RepositoryCache.Enabled)
 			webSrv.SetRepositoryPresetService(repoPresets)
 			webSrv.SetRepositoryGuidanceService(repositoryGuidance(cfg, db))
+			webSrv.SetSkillService(skillService(cfg, db))
 			webSrv.SetTintService(service.NewTintService(service.StringSetting{Settings: settingsFor(db)}))
 			defer wireServerTheme(webSrv, db, bus)()
 			webSrv.SetEngramService(engramsFor(db))
@@ -1911,6 +1917,8 @@ func loadSwarmServiceForCLI() (service.SwarmService, *store.Store, int) {
 		ReviewsOff:           !cfg.Agents.Reviews,
 		RepositoryGuidance:   repositoryGuidance(cfg, db),
 		RepositoryResources:  repositoryResources(cfg),
+		Capabilities:         skillService(cfg, db),
+		CapabilityFolders:    capabilityFolders(cfg),
 	})
 	attachCredentialChannels(cfg, db, agents)
 

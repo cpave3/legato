@@ -125,6 +125,10 @@ The mod saves the actual Chimera session ID on every start, resume, fork or swit
 
 After a crash, an agent whose session is gone is kept as **Interrupted** and resumes the same way, from its saved conversation. See [After a crash: interrupted agents](/legato/using/agents/#after-a-crash-interrupted-agents).
 
+## Skills
+
+Each Chimera agent gets the [skills](/legato/agent-tools/skills/) you turned on in Legato as a mod named `legato-skills`, so a skill is called by its plain name. A skill of the same name in the project's or your own `.chimera/skills` wins over Legato's.
+
 ## Sandboxes
 
 Chimera has a sandbox of its own, and Legato has [one for every agent](/legato/security/sandbox/). They interact in two ways:
