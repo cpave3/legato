@@ -39,6 +39,10 @@ pub enum PageMessage {
     /// Open a main's pairing request on one of the app's servers (its ID),
     /// after the person agrees. main is what the page calls its server.
     OpenWorkerPairing { id: serde_json::Value, server: String, main: String },
+    /// Connect an MCP server of the page's server with OAuth: the app
+    /// receives the browser's return and hands it to that server (see
+    /// `oauthreceiver`). id is the page's, given back as it came.
+    McpConnect { id: serde_json::Value, connection: String },
 }
 
 /// What the page asks of a recording.
@@ -60,7 +64,7 @@ pub fn script(key: &str, voice: bool, origin: &str) -> String {
         r#"(() => {{
   if (window !== window.top || location.origin !== {origin}) return;
   const key = {key};
-  window.legatoShell = {{ approval: 1, enroll: 1, workers: 1, theme: 2,{voice} key }};
+  window.legatoShell = {{ approval: 1, enroll: 1, workers: 1, mcp: 1, theme: 2,{voice} key }};
   window.ReactNativeWebView = {{
     postMessage(text) {{
       let m;
@@ -77,6 +81,8 @@ pub fn script(key: &str, voice: bool, origin: &str) -> String {
       else if (kind === "workerCandidates" && wid) ask("workers", wid);
       else if (kind === "openWorkerPairing" && wid && typeof m.server === "string")
         ask("worker-pairing", wid + "&server=" + encodeURIComponent(m.server) + "&main=" + encodeURIComponent(typeof m.main === "string" ? m.main : ""));
+      else if (kind === "mcpConnect" && wid && typeof m.connection === "string")
+        ask("mcp-connect", wid + "&connection=" + encodeURIComponent(m.connection));
     }},
   }};
 }})();"#
@@ -110,6 +116,11 @@ pub fn read(url: &str, key: &str) -> Option<PageMessage> {
             let server = param("server").filter(|s| !s.is_empty())?;
             Some(PageMessage::OpenWorkerPairing { id, server, main: param("main").unwrap_or_default() })
         }
+        "mcp-connect" => {
+            let id = worker_id(param("id")?)?;
+            let connection = param("connection").filter(|c| crate::oauthreceiver::valid_connection(c))?;
+            Some(PageMessage::McpConnect { id, connection })
+        }
         _ => None,
     }
 }
@@ -122,6 +133,13 @@ fn worker_id(encoded: String) -> Option<serde_json::Value> {
         id @ (serde_json::Value::String(_) | serde_json::Value::Number(_)) => Some(id),
         _ => None,
     }
+}
+
+/// Answers an MCP connect request, as the web UI listens for it:
+/// `legato:shell-mcp` with the request's id and what came of it (never a
+/// code or a key).
+pub fn mcp_script(detail: &serde_json::Value) -> String {
+    format!(r#"(() => {{ try {{ window.dispatchEvent(new CustomEvent("legato:shell-mcp", {{ detail: {detail} }})); }} catch (e) {{}} }})();"#)
 }
 
 /// Tells the page how the sheet on an approval came out, as the web UI
@@ -266,9 +284,9 @@ console.log(JSON.stringify({{ sent, shell: window.legatoShell || null }}));
         assert!(out.status.success(), "node: {}", String::from_utf8_lossy(&out.stderr));
         let v: serde_json::Value = serde_json::from_slice(&out.stdout).unwrap();
         if top && voice {
-            assert_eq!(v["shell"], json!({ "approval": 1, "enroll": 1, "workers": 1, "theme": 2, "voice": 1, "key": key }));
+            assert_eq!(v["shell"], json!({ "approval": 1, "enroll": 1, "workers": 1, "mcp": 1, "theme": 2, "voice": 1, "key": key }));
         } else if top {
-            assert_eq!(v["shell"], json!({ "approval": 1, "enroll": 1, "workers": 1, "theme": 2, "key": key }), "not told it can record");
+            assert_eq!(v["shell"], json!({ "approval": 1, "enroll": 1, "workers": 1, "mcp": 1, "theme": 2, "key": key }), "not told it can record");
         } else {
             assert!(v["shell"].is_null(), "a frame is not told");
         }
@@ -352,6 +370,17 @@ console.log(JSON.stringify(sent));
     fn a_frame_in_the_page_is_not_told_it_runs_in_the_app() {
         let Some(sent) = in_node("k1", true, false, &[r#"{"legatoShell":"approval","key":"k1","id":"ap-7"}"#]) else { return };
         assert!(sent.is_empty());
+    }
+
+    #[test]
+    fn the_page_asks_to_connect_an_mcp_server_of_its_own_server() {
+        assert_eq!(
+            read("legato-desktop://mcp-connect?key=k1&id=%22m1%22&connection=notion", "k1"),
+            Some(PageMessage::McpConnect { id: json!("m1"), connection: "notion".into() })
+        );
+        assert_eq!(read("legato-desktop://mcp-connect?key=k2&id=%22m1%22&connection=notion", "k1"), None, "another key");
+        assert_eq!(read("legato-desktop://mcp-connect?key=k1&id=%22m1%22&connection=Bad%20Name", "k1"), None, "not a connection name");
+        assert_eq!(read("legato-desktop://mcp-connect?key=k1&connection=notion", "k1"), None, "no id");
     }
 
     #[test]

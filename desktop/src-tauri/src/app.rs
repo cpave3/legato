@@ -282,6 +282,10 @@ fn make_server_view(app: &AppHandle, server: &Server, token: Option<String>, pat
                     pair_worker_for_page(&handle, &server_id, id, &server, &main);
                     None
                 }
+                Some(PageMessage::McpConnect { id, connection }) => {
+                    connect_mcp_for_page(&handle, &server_id, id, &connection);
+                    None
+                }
                 None => None,
             };
             if let Some(p) = payload {
@@ -399,6 +403,65 @@ fn pair_worker_for_page(app: &AppHandle, page: &str, id: Value, key: &str, main:
             tell_page_worker(&handle, &page, workers::answer(&id, outcome.map(Some)));
         });
     });
+}
+
+// ---- Connecting an MCP server for a page ----
+
+/// The attempt running for each page's connection: a new one replaces it.
+static MCP_ATTEMPTS: std::sync::Mutex<Vec<(String, tauri::async_runtime::JoinHandle<()>)>> = std::sync::Mutex::new(Vec::new());
+
+fn tell_page_mcp(app: &AppHandle, page: &str, detail: Value) {
+    let Some(view) = app.get_webview(&webview_label(page)) else { return };
+    if let Err(e) = view.eval(bridge::mcp_script(&detail)) {
+        println!("[mcp] {page}: the page could not be told: {e}");
+    }
+}
+
+/// Connects one of the page's server's MCP connections with OAuth: the
+/// receiver, the browser and the hand-over (`oauthreceiver::connect`), with
+/// the page's own server, whichever server is in front when the browser
+/// comes back. The page hears only the outcome.
+fn connect_mcp_for_page(app: &AppHandle, page: &str, id: Value, connection: &str) {
+    let desktop = app.state::<Desktop>();
+    let prepared = {
+        let store = desktop.store.lock().unwrap();
+        store.server(page).ok_or_else(|| "This app has no such server.".to_string()).and_then(|s| {
+            let token = store.token(&s.id).ok_or_else(|| workers::no_token(&s.name))?;
+            Ok((s.url.clone(), Client::new(&s.url, s.ca_pem.as_deref(), Some(token))?))
+        })
+    };
+    let (url, client) = match prepared {
+        Ok(prepared) => prepared,
+        Err(e) => return tell_page_mcp(app, page, json!({ "id": id, "connection": connection, "error": e })),
+    };
+    println!("[mcp] {page}: connecting {connection}");
+    let (handle, page_id, name) = (app.clone(), page.to_string(), connection.to_string());
+    let task = tauri::async_runtime::spawn(async move {
+        let open = |authorize: &str| tauri::Url::parse(authorize).map_err(|e| e.to_string()).and_then(|u| links::open_in_browser(&u));
+        let outcome = crate::oauthreceiver::connect(&client, &url, &name, open, crate::oauthreceiver::LIFETIME).await;
+        let detail = match outcome {
+            Ok(answer) => {
+                println!("[mcp] {page_id}: {name}: {}", answer["status"].as_str().unwrap_or("handed over"));
+                json!({ "id": id, "connection": name, "status": answer["status"] })
+            }
+            Err(e) => {
+                println!("[mcp] {page_id}: {name}: {e}");
+                json!({ "id": id, "connection": name, "error": e })
+            }
+        };
+        tell_page_mcp(&handle, &page_id, detail);
+    });
+    let key = format!("{page}/{connection}");
+    let mut attempts = MCP_ATTEMPTS.lock().unwrap();
+    attempts.retain(|(k, previous)| {
+        if *k == key {
+            previous.abort();
+            false
+        } else {
+            true
+        }
+    });
+    attempts.push((key, task));
 }
 
 // ---- Recording for a page ----

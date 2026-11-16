@@ -18,6 +18,7 @@ pub mod bridge;
 pub mod voice;
 pub mod applink;
 pub mod workers;
+pub mod oauthreceiver;
 pub mod links;
 pub mod voicekey;
 pub mod voiceproto;
