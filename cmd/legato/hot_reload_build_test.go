@@ -50,7 +50,10 @@ func TestHotReloadBuildTriggerStartsFullBuildFromRootAndRejectsConcurrentBuild(t
 		t.Fatal(err)
 	}
 	calls := filepath.Join(root, "calls")
-	script := "#!/bin/sh\nprintf '%s|%s' \"$PWD\" \"$*\" > " + calls + "\necho building\nsleep 0.2\n"
+	// done is the script's last write: after it, nothing writes into root,
+	// so the test can end without racing t.TempDir's cleanup.
+	done := filepath.Join(root, "done")
+	script := "#!/bin/sh\nprintf '%s|%s' \"$PWD\" \"$*\" > " + calls + "\necho building\nsleep 0.2\n: > " + done + "\n"
 	if err := os.WriteFile(filepath.Join(bin, "task"), []byte(script), 0o755); err != nil {
 		t.Fatal(err)
 	}
@@ -95,10 +98,27 @@ func TestHotReloadBuildTriggerStartsFullBuildFromRootAndRejectsConcurrentBuild(t
 			t.Fatal(err)
 		}
 		if started {
+			if err := os.Remove(done); err != nil {
+				t.Fatal(err)
+			}
 			close(start)
+			waitForFile(t, done)
 			return
 		}
 		time.Sleep(10 * time.Millisecond)
 	}
 	t.Fatal("build trigger did not become available after command exit")
+}
+
+// waitForFile waits for the fake build to write its last file.
+func waitForFile(t *testing.T, path string) {
+	t.Helper()
+	deadline := time.Now().Add(5 * time.Second)
+	for time.Now().Before(deadline) {
+		if _, err := os.Stat(path); err == nil {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatalf("the build did not finish: no %s", path)
 }
