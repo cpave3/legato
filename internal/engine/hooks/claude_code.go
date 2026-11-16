@@ -98,6 +98,12 @@ func (a *ClaudeCodeAdapter) SetUsageReporting(pluginDir, url, apiKey string) {
 	a.usage = claudeUsageReporting{modDir: pluginDir, url: url, apiKey: apiKey}
 }
 
+// ReportsSubagents implements service.SubagentReportingAdapter: the state
+// plugin hooks SubagentStart and SubagentStop.
+func (a *ClaudeCodeAdapter) ReportsSubagents() bool {
+	return a.stateModDir != ""
+}
+
 // BindsNativeEndpoint implements service.NativeBindingAdapter: with the mod
 // loaded, a session's bridge binds itself moments after Claude Code starts,
 // so messages sent at launch wait for it rather than being typed.

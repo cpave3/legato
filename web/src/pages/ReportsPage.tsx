@@ -13,6 +13,7 @@ import {
   type ReportSummary,
   type ReportSwarm,
   type ReportTask,
+  type ReportTreeTime,
   type ReportWorkspace,
 } from "../lib/report"
 
@@ -27,6 +28,18 @@ function formatDuration(seconds: number): string {
   if (hours) return `${hours}h`
   if (minutes) return `${minutes}m`
   return "<1m"
+}
+
+/** Marks an aggregate whose sub-agent time is not all recorded. */
+const incompleteMark = "†"
+
+function incomplete(tree: ReportTreeTime): boolean {
+  return tree.subagent_coverage === "partial" || tree.subagent_coverage === "none"
+}
+
+function formatAggregate(tree: ReportTreeTime): string {
+  const value = formatDuration(tree.aggregate_working_seconds ?? 0)
+  return incomplete(tree) ? `${value} ${incompleteMark}` : value
 }
 
 function formatDate(date: string): string {
@@ -74,6 +87,11 @@ function SummaryCards({ current, previous, comparisonAvailable }: { current: Rep
     <MetricCard label="Waiting time" value={formatDuration(current.waiting_seconds)}><Delta current={current.waiting_seconds} previous={previous.waiting_seconds} available={comparisonAvailable} /></MetricCard>
     <MetricCard label="Error time" value={formatDuration(current.error_seconds)}><Delta current={current.error_seconds} previous={previous.error_seconds} available={comparisonAvailable} /></MetricCard>
     <MetricCard label="Active ratio" value={`${(ratio(current) * 100).toFixed(0)}%`}><Delta current={ratio(current)} previous={ratio(previous)} available={comparisonAvailable} ratioPoints /></MetricCard>
+    {current.aggregate_working_seconds !== undefined && <>
+      <MetricCard label="Sub-agent working" value={formatDuration(current.subagent_working_seconds ?? 0)} secondary={`${current.subagent_count ?? 0} sub-agents`}><Delta current={current.subagent_working_seconds ?? 0} previous={previous.subagent_working_seconds ?? 0} available={comparisonAvailable && previous.subagent_working_seconds !== undefined} /></MetricCard>
+      <MetricCard label="Aggregate agent working" value={formatAggregate(current)} secondary="Every agent's working time, added"><Delta current={current.aggregate_working_seconds} previous={previous.aggregate_working_seconds ?? 0} available={comparisonAvailable && previous.aggregate_working_seconds !== undefined} /></MetricCard>
+      <MetricCard label="Elapsed (wall clock)" value={formatDuration(current.elapsed_seconds ?? 0)} secondary="Time any agent was active, counted once"><Delta current={current.elapsed_seconds ?? 0} previous={previous.elapsed_seconds ?? 0} available={comparisonAvailable && previous.elapsed_seconds !== undefined} /></MetricCard>
+    </>}
     <MetricCard label="Tasks completed" value={String(current.tasks_completed)} secondary={`${current.tasks_created} created`}><Delta current={current.tasks_completed} previous={previous.tasks_completed} available /></MetricCard>
     <MetricCard label="Agent sessions" value={String(current.agent_sessions)}><Delta current={current.agent_sessions} previous={previous.agent_sessions} available /></MetricCard>
     <MetricCard label="PRs merged" value={String(current.prs_merged)}><Delta current={current.prs_merged} previous={previous.prs_merged} available /></MetricCard>
@@ -128,9 +146,16 @@ function BreakdownTable({ active, envelope }: { active: Breakdown; envelope: Rep
   })
   if (sorted.length === 0) return <div className="rounded-lg border border-dashed border-zinc-800 p-8 text-center text-sm text-zinc-500">No {active === "projects" ? "project" : active.slice(0, -1)} activity for this period</div>
 
-  if (active === "tasks") return <div className="overflow-x-auto"><table aria-label="Tasks breakdown" className="w-full"><thead><tr><th className={th}>ID</th><th className={th}>Title</th><th className={th}>Workspace</th><th className={th}>Provider</th>{["working_seconds", "waiting_seconds", "error_seconds", "total"].map(field => <th key={field} className={th} aria-sort={sort.field === field ? (sort.direction === "desc" ? "descending" : "ascending") : "none"}><SortButton label={field === "working_seconds" ? "Working" : field === "waiting_seconds" ? "Waiting" : field === "error_seconds" ? "Error" : "Total"} field={field} sort={sort} onSort={onSort} /></th>)}</tr></thead><tbody>{(sorted as ReportTask[]).map(row => <tr key={row.task_id} className="border-t border-zinc-800"><td className={td}>{row.display_id}</td><td className={td}>{row.title}</td><td className={td}>{row.workspace_name || "—"}</td><td className={td}>{row.provider || "Local"}</td><td className={td}>{formatDuration(row.working_seconds)}</td><td className={td}>{formatDuration(row.waiting_seconds)}</td><td className={td}>{formatDuration(row.error_seconds)}</td><td className={td}>{formatDuration(row.working_seconds + row.waiting_seconds + row.error_seconds)}</td></tr>)}</tbody></table></div>
-
-  if (active === "executions") return <div className="overflow-x-auto"><table aria-label="Executions breakdown" className="w-full"><thead><tr><th className={th}>Execution</th><th className={th}>Kind</th><th className={th}>Status</th><th className={th}>Task</th><th className={th}>Engram</th>{[["working_seconds", "Active"], ["waiting_seconds", "Waiting"], ["error_seconds", "Error"], ["wall_clock_seconds", "Wall clock"]].map(([field, label]) => <th key={field} className={th} aria-sort={sort.field === field ? (sort.direction === "desc" ? "descending" : "ascending") : "none"}><SortButton label={label} field={field} sort={sort} onSort={onSort} /></th>)}</tr></thead><tbody>{(sorted as ReportExecution[]).map(row => <tr key={row.id} className="border-t border-zinc-800"><td className={td}>{row.id}</td><td className={td}>{row.kind.replaceAll("_", " ")}</td><td className={td}>{row.status}</td><td className={td}>{row.task_title || row.task_id || "Project execution"}</td><td className={td}>{row.engram || ""}</td><td className={td}>{formatDuration(row.working_seconds)}</td><td className={td}>{formatDuration(row.waiting_seconds)}</td><td className={td}>{formatDuration(row.error_seconds)}</td><td className={td}>{formatDuration(row.wall_clock_seconds)}</td></tr>)}</tbody></table></div>
+  if (active === "tasks") {
+    const tree = (sorted as ReportTask[]).some(row => row.aggregate_working_seconds !== undefined)
+    const columns: [string, string][] = tree
+      ? [["working_seconds", "Own working"], ["subagent_working_seconds", "Sub-agents"], ["aggregate_working_seconds", "Aggregate"], ["elapsed_seconds", "Elapsed"], ["waiting_seconds", "Waiting"], ["error_seconds", "Error"]]
+      : [["working_seconds", "Working"], ["waiting_seconds", "Waiting"], ["error_seconds", "Error"], ["total", "Total"]]
+    return <div className="overflow-x-auto"><table aria-label="Tasks breakdown" className="w-full"><thead><tr><th className={th}>ID</th><th className={th}>Title</th><th className={th}>Workspace</th><th className={th}>Provider</th>{columns.map(([field, label]) => <th key={field} className={th} aria-sort={sort.field === field ? (sort.direction === "desc" ? "descending" : "ascending") : "none"}><SortButton label={label} field={field} sort={sort} onSort={onSort} /></th>)}</tr></thead><tbody>{(sorted as ReportTask[]).map(row => <tr key={row.task_id} className="border-t border-zinc-800"><td className={td}>{row.display_id}</td><td className={td}>{row.title}</td><td className={td}>{row.workspace_name || "—"}</td><td className={td}>{row.provider || "Local"}</td>{tree
+      ? <><td className={td}>{formatDuration(row.working_seconds)}</td><td className={td}>{formatDuration(row.subagent_working_seconds ?? 0)}</td><td className={td}>{formatAggregate(row)}</td><td className={td}>{formatDuration(row.elapsed_seconds ?? 0)}</td><td className={td}>{formatDuration(row.waiting_seconds)}</td><td className={td}>{formatDuration(row.error_seconds)}</td></>
+      : <><td className={td}>{formatDuration(row.working_seconds)}</td><td className={td}>{formatDuration(row.waiting_seconds)}</td><td className={td}>{formatDuration(row.error_seconds)}</td><td className={td}>{formatDuration(row.working_seconds + row.waiting_seconds + row.error_seconds)}</td></>}</tr>)}</tbody></table></div>
+  }
+  if (active === "executions") return <div className="overflow-x-auto"><table aria-label="Executions breakdown" className="w-full"><thead><tr><th className={th}>Execution</th><th className={th}>Kind</th><th className={th}>Status</th><th className={th}>Task</th><th className={th}>Engram</th>{[["working_seconds", "Active"], ["subagent_working_seconds", "Sub-agents"], ["waiting_seconds", "Waiting"], ["error_seconds", "Error"], ["wall_clock_seconds", "Wall clock"]].map(([field, label]) => <th key={field} className={th} aria-sort={sort.field === field ? (sort.direction === "desc" ? "descending" : "ascending") : "none"}><SortButton label={label} field={field} sort={sort} onSort={onSort} /></th>)}</tr></thead><tbody>{(sorted as ReportExecution[]).map(row => <tr key={row.id} className="border-t border-zinc-800"><td className={td}>{row.id}</td><td className={td}>{row.kind.replaceAll("_", " ")}</td><td className={td}>{row.status}</td><td className={td}>{row.task_title || row.task_id || "Project execution"}</td><td className={td}>{row.engram || ""}</td><td className={td}>{formatDuration(row.working_seconds)}</td><td className={td}>{row.subagent_coverage === "none" ? "Not reported" : formatDuration(row.subagent_working_seconds ?? 0)}</td><td className={td}>{formatDuration(row.waiting_seconds)}</td><td className={td}>{formatDuration(row.error_seconds)}</td><td className={td}>{formatDuration(row.wall_clock_seconds)}</td></tr>)}</tbody></table></div>
 
   if (active === "swarms") return <div className="overflow-x-auto"><table aria-label="Swarms breakdown" className="w-full"><thead><tr><th className={th}>Title</th>{[["working_seconds", "Working"], ["waiting_seconds", "Waiting"], ["error_seconds", "Error"], ["wall_clock_seconds", "Wall clock"], ["parallel_ratio", "Parallel ratio"], ["worker_count", "Workers"], ["subtask_count", "Subtasks"]].map(([field, label]) => <th key={field} className={th} aria-sort={sort.field === field ? (sort.direction === "desc" ? "descending" : "ascending") : "none"}><SortButton label={label} field={field} sort={sort} onSort={onSort} /></th>)}</tr></thead><tbody>{(sorted as ReportSwarm[]).map(row => <tr key={row.parent_task_id} className="border-t border-zinc-800"><td className={td}>{row.title || row.parent_task_id}</td><td className={td}>{formatDuration(row.working_seconds)}</td><td className={td}>{formatDuration(row.waiting_seconds)}</td><td className={td}>{formatDuration(row.error_seconds)}</td><td className={td}>{formatDuration(row.wall_clock_seconds)}</td><td className={td}>{row.parallel_ratio ? `${row.parallel_ratio.toFixed(1)}x` : "—"}</td><td className={td}>{row.worker_count}</td><td className={td}>{row.subtask_count}</td></tr>)}</tbody></table></div>
 
@@ -144,7 +169,7 @@ function BreakdownTable({ active, envelope }: { active: Breakdown; envelope: Rep
 }
 
 function hasActivity(summary: ReportSummary): boolean {
-  return summary.working_seconds > 0 || summary.waiting_seconds > 0 || summary.error_seconds > 0 || summary.tasks_created > 0 || summary.tasks_completed > 0 || summary.agent_sessions > 0 || summary.prs_merged > 0
+  return summary.working_seconds > 0 || (summary.aggregate_working_seconds ?? 0) > 0 || summary.waiting_seconds > 0 || summary.error_seconds > 0 || summary.tasks_created > 0 || summary.tasks_completed > 0 || summary.agent_sessions > 0 || summary.prs_merged > 0
 }
 
 export function ReportsPage() {
@@ -209,7 +234,8 @@ export function ReportsPage() {
         {loading && <p role="status" className="flex items-center gap-2 text-xs text-zinc-500"><RefreshCw className="animate-spin" size={13} />Updating report</p>}
       </header>
 
-      {data.report.activity_epoch && <InlineNotice>Agent activity is recorded from {new Date(data.report.activity_epoch).toLocaleString()}. Active time is additive across parallel executions, not elapsed wall-clock time.</InlineNotice>}
+      {data.report.activity_epoch && <InlineNotice>Agent activity is recorded from {new Date(data.report.activity_epoch).toLocaleString()}. Active time is additive across parallel executions, not elapsed wall-clock time: aggregate working adds every agent and sub-agent working at once, while elapsed counts that time once.</InlineNotice>}
+      {(incomplete(data.report.summary) || data.report.by_task.some(incomplete)) && <InlineNotice>{incompleteMark} Sub-agent time is not recorded for some of this period: agents from before Legato recorded sub-agents, and agent tools that do not report them (Codex, Chimera without its Legato mod). Those totals are the top-level agents' own time, a lower bound.</InlineNotice>}
 
       {!hasActivity(data.report.summary) ? <section className="rounded-xl border border-dashed border-zinc-800 px-4 py-16 text-center"><h2 className="text-lg font-medium">No activity recorded for this period</h2><p className="mt-2 text-sm text-zinc-500">Try an earlier period or a broader range.</p></section> : <>
         <SummaryCards current={data.report.summary} previous={data.comparison.summary} comparisonAvailable={data.comparison.activity_available} />

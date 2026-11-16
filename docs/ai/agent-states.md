@@ -28,8 +28,8 @@ new session with none: its background work ended with the old process.
 - **Claude Code:** the `legato-state` plugin (`internal/engine/hooks/claudemod/state`),
   which Legato writes at every start and loads into every Claude Code session it
   launches, hooks `SessionStart`, `UserPromptSubmit`, `PostToolUse`,
-  `PermissionRequest`, `Stop`, `StopFailure`, `PreCompact`, `PostCompact` and
-  `SessionEnd`, and pipes each payload into `legato agent hook claude-code`. That
+  `PermissionRequest`, `Stop`, `StopFailure`, `PreCompact`, `PostCompact`,
+  `SubagentStart`, `SubagentStop` and `SessionEnd`, and pipes each payload into `legato agent hook claude-code`. That
   command keeps only what the state needs (`cli.ParseClaudeHook`) and sends it
   through the host broker (op `agent.hook`) or, outside a sandbox without a
   broker, applies it to the database itself. The host applies it with
@@ -258,6 +258,34 @@ and bounds as Claude Code (200-rune labels, 64-rune IDs, at most 32 jobs).
 | Error | `OnError` | `error` | `error` | — |
 | Subagents | child sessions report with their own `CHIMERA_SESSION_ID` | notifications only; the parent's state is unchanged | `background` while a child runs after the parent's turn | A `Stop` payload that lists running children, or the children's state through the session snapshot |
 | Background shells | none known | idle | idle unless Chimera wakes on them | A list in `Stop` if it does |
+
+## Sub-agent time
+
+A sub-agent's state never changes its parent's (the tables above), but its own
+working and waiting time is recorded for the task's reports
+(`subagent_activity`; see [Database](database.md) § Sub-agent time). LEG-214.
+
+| Tool | What times a sub-agent | Waiting | Nesting |
+| --- | --- | --- | --- |
+| Claude Code (state plugin) | `SubagentStart` opens a `working` span (`recordClaudeSubagents`), `SubagentStop` ends it. The main loop's `Stop` ends any not listed in its `background_tasks` (a foreground subagent cannot outlive the turn); `SessionEnd` ends all. Recorded: `several-jobs-and-subagent.jsonl` | `PermissionRequest` with its `agent_id` → `waiting`; its next `PostToolUse` → `working` | Claude Code names no parent: each sub-agent is counted once under the top-level agent |
+| Chimera with the mod | `agent.spawn` → `agent.finish`, foreground and background (`recordChimeraSubagents`); `session.end` ends all. Recorded: `chimera-mod/subagent.ndjson` | not seen: the mod does nothing inside a subagent | not seen, for the same reason: a subagent's own subagents are missed |
+| Chimera without the mod | none (child sessions only notify) | — | — |
+| Codex | none: no hook or app-server event carries a subagent | — | — |
+
+Executions of the last two, and every execution from before migration 114, have
+`subagent_telemetry = 0`, and reports mark their totals incomplete rather than
+whole-tree.
+
+Gaps in what is recorded:
+
+- **Claude Code's own agents** (prompt suggestions, compaction) fire
+  `SubagentStop` with no `SubagentStart`; they are not counted, and neither is a
+  subagent Claude Code started without a `SubagentStart` (a version older than
+  that hook).
+- **An interrupted subagent** fires no `SubagentStop`. A foreground one ends at
+  the main loop's next `Stop`, a background one at `SessionEnd` or the
+  execution's end, so its span can run long.
+- **A Chimera subagent's waits** count as working.
 
 ## Gaps left
 

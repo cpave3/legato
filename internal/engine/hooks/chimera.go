@@ -81,6 +81,10 @@ func (a *ChimeraAdapter) SetModDir(dir string) { a.modDir = dir }
 // the session before Legato delivers launch-time messages.
 func (a *ChimeraAdapter) BindsNativeEndpoint() bool { return a.modDir != "" }
 
+// ReportsSubagents implements service.SubagentReportingAdapter: the Legato
+// mod reports agent.spawn and agent.finish.
+func (a *ChimeraAdapter) ReportsSubagents() bool { return a.modDir != "" }
+
 // ValidateLaunch refuses silent loss of bundled MCP tools on an old host.
 // The binary can update independently, so capability is checked at each spawn;
 // the first mod event still decides binding and state ownership.

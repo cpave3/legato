@@ -272,3 +272,43 @@ func TestReportAPIHandlesUnavailableAndFailedService(t *testing.T) {
 		t.Fatalf("unsafe error body = %q", rec.Body.String())
 	}
 }
+
+// Agent-tree time is named apart from the top-level agents' own time:
+// aggregate working agent-time, elapsed wall-clock, and how complete the
+// sub-agent figures are.
+func TestReportAPIEncodesAgentTreeTime(t *testing.T) {
+	tree := service.TreeTime{SubagentWorking: 50 * time.Minute, SubagentWaiting: 2 * time.Minute, AggregateWorking: time.Hour, Elapsed: 20 * time.Minute, SubagentCount: 5, SubagentCoverage: "partial"}
+	day := time.Date(2026, time.August, 3, 0, 0, 0, 0, time.Local)
+	fake := &fakeReportService{reports: []*service.Report{{
+		Summary:     service.ReportSummary{TotalWorking: 10 * time.Minute, TreeTime: tree},
+		ByDay:       []service.DayBreakdown{{Date: day, Working: 10 * time.Minute, SubagentWorking: 50 * time.Minute, AggregateWorking: time.Hour}},
+		ByTask:      []service.TaskStats{{TaskID: "task-1", Working: 10 * time.Minute, TreeTime: tree}},
+		ByExecution: []service.ExecutionStats{{ID: "ex-1", Working: 10 * time.Minute, StartedAt: day, TreeTime: tree}},
+	}}}
+	srv := New(nil, nil, nil, "")
+	srv.SetReportService(fake)
+
+	rec := reportRequest(t, srv, http.MethodGet, "/api/report?period=week")
+
+	var body struct {
+		Report struct {
+			Summary     map[string]any   `json:"summary"`
+			ByDay       []map[string]any `json:"by_day"`
+			ByTask      []map[string]any `json:"by_task"`
+			ByExecution []map[string]any `json:"by_execution"`
+		} `json:"report"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &body); err != nil {
+		t.Fatal(err)
+	}
+	for name, got := range map[string]map[string]any{"summary": body.Report.Summary, "task": body.Report.ByTask[0], "execution": body.Report.ByExecution[0]} {
+		if got["working_seconds"] != float64(600) || got["subagent_working_seconds"] != float64(3000) || got["subagent_waiting_seconds"] != float64(120) ||
+			got["aggregate_working_seconds"] != float64(3600) || got["elapsed_seconds"] != float64(1200) ||
+			got["subagent_count"] != float64(5) || got["subagent_coverage"] != "partial" {
+			t.Fatalf("%s = %#v", name, got)
+		}
+	}
+	if got := body.Report.ByDay[0]; got["subagent_working_seconds"] != float64(3000) || got["aggregate_working_seconds"] != float64(3600) {
+		t.Fatalf("day = %#v", got)
+	}
+}

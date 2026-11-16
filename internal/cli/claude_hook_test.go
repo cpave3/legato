@@ -642,3 +642,85 @@ func TestClaudeHook_AForegroundSubagentIsPartOfTheTurn(t *testing.T) {
 		t.Fatalf("a foreground subagent left jobs: %s", jobsOf(steps[1]))
 	}
 }
+
+// openSubagents lists the sub-agents Legato is timing for the agent.
+func (a *hookAgent) openSubagents() []string {
+	a.t.Helper()
+	open, err := a.s.OpenSubagents(context.Background(), a.execution)
+	if err != nil {
+		a.t.Fatal(err)
+	}
+	return open
+}
+
+func TestClaudeHook_ASubagentIsTimedFromItsStartToItsStop(t *testing.T) {
+	agent := newHookAgent(t)
+	const subagent = "ad5f8a8d3914377a8"
+	opened := map[int][]string{}
+	for i := 0; i < 20; i++ {
+		agent.send(lineOf(t, "several-jobs-and-subagent", i))
+		opened[i] = agent.openSubagents()
+	}
+
+	// Line 7 is its SubagentStart; line 9 the parent's Stop, which lists it
+	// as still running; line 14 its SubagentStop.
+	if got := opened[6]; len(got) != 0 {
+		t.Fatalf("before the subagent started: %v", got)
+	}
+	for _, i := range []int{7, 9, 13} {
+		if got := opened[i]; len(got) != 1 || got[0] != subagent {
+			t.Fatalf("after line %d: %v, want the subagent timed", i, got)
+		}
+	}
+	if got := opened[14]; len(got) != 0 {
+		t.Fatalf("after its SubagentStop: %v, want none", got)
+	}
+	now := time.Now()
+	report, err := agent.s.QueryAgentTime(context.Background(), store.ReportRange{Start: now.Add(-time.Hour), End: now.Add(time.Hour)})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := report.ByTask[agent.taskID].SubagentCount; got != 1 {
+		t.Fatalf("sub-agents in the task's time = %d, want 1", got)
+	}
+}
+
+// Claude Code's own agents (prompt suggestions, compaction) fire SubagentStop
+// with no SubagentStart: they are not the agent's sub-agents.
+func TestClaudeHook_ClaudeCodesOwnAgentsAreNotTimed(t *testing.T) {
+	for _, name := range []string{"permission-allowed", "question", "compact"} {
+		t.Run(name, func(t *testing.T) {
+			agent := newHookAgent(t)
+			agent.replay(name)
+			now := time.Now()
+			report, err := agent.s.QueryAgentTime(context.Background(), store.ReportRange{Start: now.Add(-time.Hour), End: now.Add(time.Hour)})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if got := report.ByTask[agent.taskID].SubagentCount; got != 0 {
+				t.Fatalf("sub-agents = %d, want none", got)
+			}
+		})
+	}
+}
+
+// A foreground subagent cannot outlive the turn that ran it: a Stop that
+// does not list it ends it, should its SubagentStop have been lost.
+func TestClaudeHook_TheEndOfTheTurnEndsSubagentsNoLongerRunning(t *testing.T) {
+	agent := newHookAgent(t)
+	agent.send([]byte(`{"hook_event_name":"UserPromptSubmit","prompt":"go"}`))
+	agent.send([]byte(`{"hook_event_name":"SubagentStart","agent_id":"fg","agent_type":"Explore"}`))
+	agent.send([]byte(`{"hook_event_name":"SubagentStart","agent_id":"bg","agent_type":"general-purpose"}`))
+
+	agent.send([]byte(`{"hook_event_name":"Stop","background_tasks":[{"id":"bg","type":"subagent","status":"running","description":"count","agent_type":"general-purpose"}]}`))
+
+	if got := agent.openSubagents(); len(got) != 1 || got[0] != "bg" {
+		t.Fatalf("open after the turn = %v, want only the background one", got)
+	}
+
+	agent.send([]byte(`{"hook_event_name":"SessionEnd","reason":"clear"}`))
+
+	if got := agent.openSubagents(); len(got) != 0 {
+		t.Fatalf("open after the session ended = %v, want none", got)
+	}
+}

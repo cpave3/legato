@@ -16,11 +16,11 @@ func ExportReportMarkdown(r *Report) string {
 
 	b.WriteString(fmt.Sprintf("# %s Report\n\n", r.Period.Label))
 	if !r.ActivityEpoch.IsZero() {
-		b.WriteString(fmt.Sprintf("_Agent activity is recorded from %s. Active time is additive across parallel executions and is not elapsed wall-clock time._\n\n", r.ActivityEpoch.Format(time.RFC3339)))
+		b.WriteString(fmt.Sprintf("_Agent activity is recorded from %s. Working time is agent-time: it adds up agents that work at once, sub-agents included in Aggregate. Elapsed is wall-clock time with any agent active, counted once._\n\n", r.ActivityEpoch.Format(time.RFC3339)))
 	}
 
 	// Check if there's any activity
-	if r.Summary.TotalWorking == 0 && r.Summary.TotalWaiting == 0 && r.Summary.TotalError == 0 &&
+	if r.Summary.TotalWorking == 0 && r.Summary.TotalWaiting == 0 && r.Summary.TotalError == 0 && r.Summary.AggregateWorking == 0 &&
 		r.Summary.TasksCreated == 0 && r.Summary.TasksCompleted == 0 {
 		b.WriteString("No activity recorded for this period.\n")
 		return b.String()
@@ -33,6 +33,9 @@ func ExportReportMarkdown(r *Report) string {
 	b.WriteString(fmt.Sprintf("| Agent Active Time | %s |\n", fmtDuration(r.Summary.TotalWorking)))
 	b.WriteString(fmt.Sprintf("| Waiting Time | %s |\n", fmtDuration(r.Summary.TotalWaiting)))
 	b.WriteString(fmt.Sprintf("| Error Time | %s |\n", fmtDuration(r.Summary.TotalError)))
+	b.WriteString(fmt.Sprintf("| Sub-agent Working | %s |\n", fmtDuration(r.Summary.SubagentWorking)))
+	b.WriteString(fmt.Sprintf("| Aggregate Agent Working | %s |\n", fmtTreeDuration(r.Summary.AggregateWorking, r.Summary.SubagentCoverage)))
+	b.WriteString(fmt.Sprintf("| Elapsed (wall clock) | %s |\n", fmtDuration(r.Summary.Elapsed)))
 	if r.Summary.TotalWorking > 0 || r.Summary.TotalWaiting > 0 || r.Summary.TotalError > 0 {
 		total := r.Summary.TotalWorking + r.Summary.TotalWaiting + r.Summary.TotalError
 		ratio := float64(r.Summary.TotalWorking) / float64(total) * 100
@@ -60,15 +63,16 @@ func ExportReportMarkdown(r *Report) string {
 	// Task breakdown
 	if len(r.ByTask) > 0 {
 		b.WriteString("## Tasks\n\n")
-		b.WriteString("| ID | Title | Working | Waiting | Error |\n")
-		b.WriteString("|----|-------|---------|---------|-------|\n")
+		b.WriteString("| ID | Title | Own Working | Sub-agent Working | Aggregate Working | Elapsed | Waiting | Error |\n")
+		b.WriteString("|----|-------|-------------|-------------------|-------------------|---------|---------|-------|\n")
 		for _, t := range r.ByTask {
 			title := t.Title
 			if len(title) > 50 {
 				title = title[:47] + "..."
 			}
-			b.WriteString(fmt.Sprintf("| %s | %s | %s | %s | %s |\n",
-				t.DisplayID, title, fmtDuration(t.Working), fmtDuration(t.Waiting), fmtDuration(t.Error)))
+			b.WriteString(fmt.Sprintf("| %s | %s | %s | %s | %s | %s | %s | %s |\n",
+				t.DisplayID, title, fmtDuration(t.Working), fmtDuration(t.SubagentWorking), fmtTreeDuration(t.AggregateWorking, t.SubagentCoverage),
+				fmtDuration(t.Elapsed), fmtDuration(t.Waiting), fmtDuration(t.Error)))
 		}
 		b.WriteString("\n")
 	}
@@ -133,7 +137,35 @@ func ExportReportMarkdown(r *Report) string {
 		b.WriteString("\n")
 	}
 
+	if incompleteTree(r) {
+		b.WriteString("_" + incompleteTreeMark + " Sub-agent time is not recorded for some or all of this: agents from before Legato recorded sub-agents, and agent tools that do not report them (Codex, Chimera without its Legato mod). Those totals are the top-level agents' own time and a lower bound on the tree's._\n")
+	}
+
 	return b.String()
+}
+
+// incompleteTreeMark follows an aggregate whose sub-agent time is incomplete.
+const incompleteTreeMark = "†"
+
+// fmtTreeDuration is an aggregate, marked when its sub-agent time is
+// incomplete.
+func fmtTreeDuration(d time.Duration, coverage string) string {
+	if (TreeTime{SubagentCoverage: coverage}).Incomplete() {
+		return fmtDuration(d) + " " + incompleteTreeMark
+	}
+	return fmtDuration(d)
+}
+
+func incompleteTree(r *Report) bool {
+	if r.Summary.Incomplete() {
+		return true
+	}
+	for _, t := range r.ByTask {
+		if t.Incomplete() {
+			return true
+		}
+	}
+	return false
 }
 
 func fmtDuration(d time.Duration) string {
