@@ -1059,6 +1059,7 @@ func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, hei
 		WorkflowRunID: opt.WorkflowRunID, WorkflowAttemptID: opt.WorkflowAttemptID,
 		SwarmID: opt.SwarmID, SwarmSubtaskID: opt.SubtaskID,
 		AgentKind: agentKind, Role: opt.Role, WorkingDir: workDir, StartedAt: time.Now().UTC(),
+		SubagentTelemetry: reportsSubagents(adapter),
 	}
 	if err := a.store.CreateExecution(ctx, execution); err != nil {
 		return fmt.Errorf("creating execution: %w", err)

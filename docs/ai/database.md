@@ -22,6 +22,22 @@ An **execution** is one independently startable and terminable unit of agent wor
 
 Migration 055 intentionally drops `state_intervals` without importing it because task-keyed intervals cannot be reliably associated with concurrent executions and include known orphan inflation. `reporting_metadata.activity_epoch` records the reset boundary. Tasks, workflows, attempts, sessions, swarms, reviews, plans, and non-duration history are preserved. Product reports treat pre-epoch activity as unavailable, not proven zero.
 
+### Sub-agent time
+
+An execution's agent may run sub-agents (Claude Code's Task/Agent subagents, Chimera's `agent.spawn`). Their time is the execution's, so it is attributed to the execution's task like the agent's own, at any depth. `subagent_activity` (migration 114) holds each sub-agent's `working` and `waiting` spans, keyed by `(execution_id, subagent_id)`, at most one open per sub-agent, with `parent_subagent_id` when the tool says which sub-agent started it (`''` otherwise). `Store.RecordSubagentActivityAt` moves one (state `""` ends it; ending one with no open span does nothing), `EndSubagentsAt` ends every open span but those still running, `OpenSubagents` and `SubagentParents` read them. Terminalization and `ReconcileLostExecutions` close a sub-agent's open span with the execution's, and a running execution refuses spans after it ends (`ErrExecutionTerminal`).
+
+`executions.subagent_telemetry` is set at spawn when the adapter reports sub-agents (`service.SubagentReportingAdapter`: Claude Code with its state plugin, Chimera with the Legato mod). Executions from before migration 114 and those of other tools (Codex; Chimera without the mod) have `0`: their totals are the top-level agent's own, and no backfill is possible, since nothing recorded their sub-agents.
+
+`Store.QueryAgentTime(range)` reads both tables and gives, in all, by attribution task and by execution (`store.AgentTime`):
+
+- `Own`: the top-level agents' own working, waiting and error time, as the other reporting queries count it.
+- `Subagents`: the sub-agents' working and waiting time, each sub-agent's own spans counted once. A sub-agent working while its parent is idle or in the background counts; a parent's span is never counted again for its children, nor a nested sub-agent's for its parent.
+- `AggregateWorking()`: `Own.Working + Subagents.Working`, agent-time: agents working at once each count (five sub-agents working the same 10 minutes make 50).
+- `Elapsed`: the union of every span of the tree (working, waiting, error; top-level and sub-agents), so agents active at once count once (those five make 10). It is wall-clock time with any agent active, not the operator's own time, and it leaves out the top-level agent's idle and background time, as swarm wall-clock does.
+- `SubagentCoverage()`: `complete` when every execution with a span in the range reported sub-agents, `partial` when some did, `none` when none did, `""` with no execution.
+
+Spans are clipped to the range and to their execution's end, and an open span of a running execution runs to now, as in the other queries. The day, workspace, directory and swarm breakdowns stay top-level agents' own time; the day breakdown adds the sub-agents' working time and the aggregate beside it.
+
 Execution history is not deleted during normal session cleanup or task deletion. `agent_sessions` remains operational and may be removed only after its linked execution is terminal. Task-triggered workflow executions retain their synthetic task as `execution_task_id` but attribute report totals to `workflow_runs.related_task_id`; repository-only workflow activity remains project/workflow-only.
 
 ## Schema
@@ -33,6 +49,7 @@ Execution history is not deleted during normal session cleanup or task deletion.
 - Local tasks: provider/remote_id/remote_meta are NULL and render `description_md` unchanged. Synced tasks: provider='jira', remote_id=Jira key, remote provider Markdown in `remote_description_md`, and remote_meta=JSON with remote_status, issue_type, assignee, labels, etc. Their editable `description_md` is composed under `## Legato details` at read time; the combined value is never persisted. A worker's card for a handed-off provider-backed task has provider `<provider>-copy` (`jira-copy`, `burnlite-copy`; no sync source has it), `remote_id` the ticket's key, `remote_description_md` the copy of its text taken at handoff and `remote_meta` `{url}`.
 - Task IDs: 8-char lowercase alphanumeric (crypto/rand) for local tasks, provider IDs (e.g. REX-1234) for synced tasks
 - `agent_sessions` and `sync_log` reference `task_id` (not ticket_id).
+- Migration 114 adds `executions.subagent_telemetry` and `subagent_activity` (see § Sub-agent time).
 - Migration 112 adds `agent_sessions.chimera_subagents`: bounded, parent-conversation-scoped JSON lifecycle metadata (IDs, purpose, status/reason and millisecond start/end times), not transcripts. `SetChimeraHookState` commits it with activity and active background jobs so native snapshot repair sees completion even when Chimera's idle SSE misses it. See [Chimera native integration](chimera-native.md).
 - `workflow_runs.task_id` is the workflow-owned execution task; `related_task_id` is the optional existing task selected through a typed `task` input. The execution task always belongs to the managed **Workflows** workspace. Successful final-step completion atomically moves it to Done and sets `archived_at`; failed and cancelled runs remain active for intervention.
 - `workflow_step_runs`, `workflow_step_attempts`, and `workflow_artifacts` retain ordered state, retries, agent identity, managed paths, media types, sizes, and digests. `(attempt_id, output_key)` is unique so interrupted completion callbacks can safely reuse an unchanged artifact.

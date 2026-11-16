@@ -445,14 +445,14 @@ func AgentState(s *store.Store, report AgentStateReport, pushNotifier, osNotifie
 		}
 		return fmt.Errorf("updating agent activity: %w", err)
 	}
-	return settleActivity(ctx, s, session, report.TaskID, report.ExecutionID, report.Activity, report.WorkingDir, pushNotifier, osNotifier)
+	return settleActivity(ctx, s, session, report.TaskID, report.ExecutionID, report.Activity, report.WorkingDir, time.Now().UTC(), pushNotifier, osNotifier)
 }
 
 // settleActivity follows a session's new activity, already written, with
 // what goes with it: the execution's reporting span, a notification when
 // the agent stops for the person or errs, and the IPC broadcast. session is
-// the session as it was before.
-func settleActivity(ctx context.Context, s *store.Store, session *store.AgentSession, taskID, executionID, activity, workingDir string, pushNotifier, osNotifier service.Notifier) error {
+// the session as it was before; at is when the activity changed.
+func settleActivity(ctx context.Context, s *store.Store, session *store.AgentSession, taskID, executionID, activity, workingDir string, at time.Time, pushNotifier, osNotifier service.Notifier) error {
 	// Legacy hooks omit execution identity. Keep the live operational status
 	// useful, but never infer an execution or write reporting activity.
 	if executionID != "" {
@@ -462,7 +462,7 @@ func settleActivity(ctx context.Context, s *store.Store, session *store.AgentSes
 		if reported == store.ActivityBackground {
 			reported = ""
 		}
-		if err := s.RecordExecutionActivity(ctx, executionID, reported, workingDir); err != nil {
+		if err := s.RecordExecutionActivityAt(ctx, executionID, reported, workingDir, at); err != nil {
 			return fmt.Errorf("recording execution activity: %w", err)
 		}
 	}

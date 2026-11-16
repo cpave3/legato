@@ -18,6 +18,7 @@ type reportQueries interface {
 	QueryDirectoryBreakdown(context.Context, store.ReportRange) ([]store.DirectoryBreakdown, error)
 	QuerySwarmBreakdown(context.Context, store.ReportRange) ([]store.SwarmBreakdown, error)
 	QueryExecutionBreakdown(context.Context, store.ReportRange) ([]store.ExecutionBreakdown, error)
+	QueryAgentTime(context.Context, store.ReportRange) (store.AgentTimeReport, error)
 	ActivityEpoch(context.Context) (time.Time, error)
 }
 
@@ -76,6 +77,21 @@ func (r *reportService) GenerateReport(ctx context.Context, period analytics.Tim
 	if err != nil {
 		return nil, err
 	}
+	agentTime, err := r.queries.QueryAgentTime(ctx, queryRange)
+	if err != nil {
+		return nil, err
+	}
+	// A task whose sub-agents worked in the range while its own agent did
+	// not is in it too.
+	listed := make(map[string]bool, len(taskBreakdown))
+	for _, td := range taskBreakdown {
+		listed[td.TaskID] = true
+	}
+	for id := range agentTime.ByTask {
+		if !listed[id] {
+			taskBreakdown = append(taskBreakdown, store.TaskDuration{TaskID: id})
+		}
+	}
 
 	// Enrich task breakdown with metadata
 	taskIDs := make([]string, len(taskBreakdown))
@@ -106,10 +122,11 @@ func (r *reportService) GenerateReport(ctx context.Context, period analytics.Tim
 	taskStats := make([]TaskStats, len(taskBreakdown))
 	for i, td := range taskBreakdown {
 		ts := TaskStats{
-			TaskID:  td.TaskID,
-			Working: td.Working,
-			Waiting: td.Waiting,
-			Error:   td.Error,
+			TaskID:   td.TaskID,
+			Working:  td.Working,
+			Waiting:  td.Waiting,
+			Error:    td.Error,
+			TreeTime: treeTime(agentTime.ByTask[td.TaskID]),
 		}
 		ts.DisplayID = td.TaskID
 		if t, ok := taskLookup[td.TaskID]; ok {
@@ -127,9 +144,9 @@ func (r *reportService) GenerateReport(ctx context.Context, period analytics.Tim
 		taskStats[i] = ts
 	}
 
-	// Sort by working duration descending
-	sort.Slice(taskStats, func(i, j int) bool {
-		return taskStats[i].Working > taskStats[j].Working
+	// Sort by aggregate working time descending: the whole tree's work.
+	sort.SliceStable(taskStats, func(i, j int) bool {
+		return taskStats[i].AggregateWorking > taskStats[j].AggregateWorking
 	})
 
 	// Convert daily breakdown
@@ -141,6 +158,12 @@ func (r *reportService) GenerateReport(ctx context.Context, period analytics.Tim
 			Waiting: d.Waiting,
 			Error:   d.Error,
 		}
+		dayTime, err := r.queries.QueryAgentTime(ctx, dayRange(queryRange, d.Date))
+		if err != nil {
+			return nil, err
+		}
+		days[i].SubagentWorking = dayTime.Total.Subagents.Working
+		days[i].AggregateWorking = dayTime.Total.AggregateWorking()
 	}
 
 	// Convert workspace breakdown
@@ -194,6 +217,7 @@ func (r *reportService) GenerateReport(ctx context.Context, period analytics.Tim
 			TaskID: execution.TaskID, TaskTitle: execution.TaskTitle, WorkflowRunID: execution.WorkflowRunID, Engram: execution.Engram,
 			Working: execution.Working, Waiting: execution.Waiting, Error: execution.Error, WallClock: execution.WallClock,
 			StartedAt: execution.StartedAt, EndedAt: execution.EndedAt,
+			TreeTime: treeTime(agentTime.ByExecution[execution.ID]),
 		}
 	}
 
@@ -203,6 +227,7 @@ func (r *reportService) GenerateReport(ctx context.Context, period analytics.Tim
 			TotalWorking:   durations.Working,
 			TotalWaiting:   durations.Waiting,
 			TotalError:     durations.Error,
+			TreeTime:       treeTime(agentTime.Total),
 			TasksCompleted: throughput.TasksCompleted,
 			TasksCreated:   throughput.TasksCreated,
 			AgentSessions:  throughput.AgentSessions,
@@ -215,4 +240,29 @@ func (r *reportService) GenerateReport(ctx context.Context, period analytics.Tim
 		BySwarm:     swarmStats,
 		ByExecution: executionStats,
 	}, nil
+}
+
+// treeTime is the report's view of an agent tree's time.
+func treeTime(t store.AgentTime) TreeTime {
+	return TreeTime{
+		SubagentWorking:  t.Subagents.Working,
+		SubagentWaiting:  t.Subagents.Waiting,
+		AggregateWorking: t.AggregateWorking(),
+		Elapsed:          t.Elapsed,
+		SubagentCount:    t.SubagentCount,
+		SubagentCoverage: t.SubagentCoverage(),
+	}
+}
+
+// dayRange is the part of a report's range on the day that starts at date,
+// as the store's daily breakdown cuts it.
+func dayRange(period store.ReportRange, date time.Time) store.ReportRange {
+	start, end := date, date.AddDate(0, 0, 1)
+	if start.Before(period.Start) {
+		start = period.Start
+	}
+	if end.After(period.End) {
+		end = period.End
+	}
+	return store.ReportRange{Start: start, End: end}
 }

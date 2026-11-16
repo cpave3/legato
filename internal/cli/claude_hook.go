@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"regexp"
+	"slices"
 	"strings"
 	"time"
 	"unicode"
@@ -26,6 +27,9 @@ const (
 	ClaudePreCompact        = "PreCompact"
 	ClaudePostCompact       = "PostCompact"
 	ClaudeSessionEnd        = "SessionEnd"
+	// A subagent's start and end, which time it (see recordClaudeSubagents).
+	ClaudeSubagentStart = "SubagentStart"
+	ClaudeSubagentStop  = "SubagentStop"
 )
 
 // HookTurnEnded is no agent tool's own hook: a native bridge (Claude Code's
@@ -196,6 +200,11 @@ func applyClaudeHookAt(s *store.Store, report ClaudeHookReport, now time.Time, p
 		return fmt.Errorf("execution %q does not own running task session %s", report.ExecutionID, report.TaskID)
 	}
 	hook := cleanHook(report.Hook)
+	if report.ExecutionID != "" {
+		if err := recordClaudeSubagents(ctx, s, report.ExecutionID, hook, now); err != nil {
+			return fmt.Errorf("recording subagent activity: %w", err)
+		}
+	}
 	jobs := append(store.BackgroundJobs(nil), session.BackgroundJobs...)
 	activity, decided := session.Activity, false
 	set := func(to string) { activity, decided = to, true }
@@ -290,7 +299,64 @@ func applyClaudeHookAt(s *store.Store, report ClaudeHookReport, now time.Time, p
 	if hook.Event == HookTurnEnded && activity != store.ActivityError {
 		pushNotifier, osNotifier = nil, nil
 	}
-	return settleActivity(ctx, s, session, report.TaskID, report.ExecutionID, activity, report.WorkingDir, pushNotifier, osNotifier)
+	return settleActivity(ctx, s, session, report.TaskID, report.ExecutionID, activity, report.WorkingDir, now, pushNotifier, osNotifier)
+}
+
+// recordClaudeSubagents times the session's subagents, for task time: each
+// from its SubagentStart to its SubagentStop, waiting while its permission
+// prompt is open. Only a SubagentStart starts one, so Claude Code's own
+// agents (prompt suggestions, compaction), which fire only SubagentStop, are
+// not counted. The main loop's Stop lists the subagents still running in the
+// background; it ends any other, should its SubagentStop have been lost, as a
+// foreground subagent cannot outlive the turn. The session's end ends them
+// all. Claude Code does not say which subagent started another, so each is
+// recorded under the top-level agent.
+func recordClaudeSubagents(ctx context.Context, s *store.Store, executionID string, hook ClaudeHook, now time.Time) error {
+	id := cleanText(hook.AgentID, maxJobIDOrWhen)
+	var err error
+	switch hook.Event {
+	case ClaudeSubagentStart:
+		if id != "" {
+			err = s.RecordSubagentActivityAt(ctx, executionID, id, "", store.ActivityWorking, now)
+		}
+	case ClaudeSubagentStop:
+		if id != "" {
+			err = s.RecordSubagentActivityAt(ctx, executionID, id, "", "", now)
+		}
+	case ClaudePermissionRequest, ClaudePostToolUse:
+		if id == "" {
+			return nil
+		}
+		open, openErr := s.OpenSubagents(ctx, executionID)
+		if openErr != nil {
+			return openErr
+		}
+		if !slices.Contains(open, id) {
+			return nil
+		}
+		state := store.ActivityWorking
+		if hook.Event == ClaudePermissionRequest {
+			state = store.ActivityWaiting
+		}
+		err = s.RecordSubagentActivityAt(ctx, executionID, id, "", state, now)
+	case ClaudeStop:
+		if id != "" {
+			return nil
+		}
+		var running []string
+		for _, job := range hook.Running {
+			if job.Kind == store.JobSubagent {
+				running = append(running, job.ID)
+			}
+		}
+		err = s.EndSubagentsAt(ctx, executionID, running, now)
+	case ClaudeSessionEnd:
+		err = s.EndSubagentsAt(ctx, executionID, nil, now)
+	}
+	if errors.Is(err, store.ErrExecutionTerminal) {
+		return nil
+	}
+	return err
 }
 
 // ApplyTurnEnded reports that a session's main turn ended without an answer,

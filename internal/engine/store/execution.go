@@ -25,14 +25,14 @@ func (s *Store) CreateExecution(ctx context.Context, execution Execution) error 
 			id, kind, status, task_id, execution_task_id, task_title,
 			workflow_run_id, workflow_attempt_id, swarm_id, swarm_subtask_id,
 			agent_session_id, agent_kind, role, working_dir, provider_session_id,
-			started_at, ended_at
+			subagent_telemetry, started_at, ended_at
 		) VALUES (?, ?, ?, NULLIF(?, ''), NULLIF(?, ''), ?, NULLIF(?, ''), NULLIF(?, ''),
-			NULLIF(?, ''), NULLIF(?, ''), ?, ?, ?, ?, ?, ?, ?)`,
+			NULLIF(?, ''), NULLIF(?, ''), ?, ?, ?, ?, ?, ?, ?, ?)`,
 		execution.ID, execution.Kind, execution.Status, execution.TaskID,
 		execution.ExecutionTaskID, execution.TaskTitle, execution.WorkflowRunID,
 		execution.WorkflowAttemptID, execution.SwarmID, execution.SwarmSubtaskID,
 		execution.AgentSessionID, execution.AgentKind, execution.Role,
-		execution.WorkingDir, execution.ProviderSessionID,
+		execution.WorkingDir, execution.ProviderSessionID, execution.SubagentTelemetry,
 		formatExecutionTime(execution.StartedAt), nullableExecutionTime(execution.EndedAt),
 	)
 	return err
@@ -71,7 +71,7 @@ func (s *Store) GetExecution(ctx context.Context, id string) (*Execution, error)
 			COALESCE(swarm_id, '') AS swarm_id,
 			COALESCE(swarm_subtask_id, '') AS swarm_subtask_id,
 			agent_session_id, agent_kind, role, working_dir, provider_session_id,
-			started_at, ended_at
+			subagent_telemetry, started_at, ended_at
 		FROM executions WHERE id = ?`, id); err != nil {
 		if err == sql.ErrNoRows {
 			return nil, ErrNotFound
@@ -180,6 +180,9 @@ func (s *Store) TerminalizeExecutionAt(ctx context.Context, executionID, status 
 	if _, err := tx.ExecContext(ctx, `UPDATE execution_activity SET ended_at = ? WHERE execution_id = ? AND ended_at IS NULL`, stamp, executionID); err != nil {
 		return err
 	}
+	if _, err := tx.ExecContext(ctx, `UPDATE subagent_activity SET ended_at = ? WHERE execution_id = ? AND ended_at IS NULL`, stamp, executionID); err != nil {
+		return err
+	}
 	if _, err := tx.ExecContext(ctx, `UPDATE executions SET status = ?, ended_at = ? WHERE id = ? AND status = 'running'`, status, stamp, executionID); err != nil {
 		return err
 	}
@@ -240,6 +243,10 @@ func (s *Store) ReconcileLostExecutions(ctx context.Context) (int, error) {
 	// lock from it on: both statements see the same rows, and no link can
 	// land between them.
 	if _, err := tx.ExecContext(ctx, `UPDATE execution_activity SET ended_at = ?
+		WHERE ended_at IS NULL AND execution_id IN (SELECT e.id FROM executions e WHERE `+lostExecutionCondition+`)`, stamp, cutoff); err != nil {
+		return 0, err
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE subagent_activity SET ended_at = ?
 		WHERE ended_at IS NULL AND execution_id IN (SELECT e.id FROM executions e WHERE `+lostExecutionCondition+`)`, stamp, cutoff); err != nil {
 		return 0, err
 	}

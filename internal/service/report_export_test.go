@@ -131,3 +131,33 @@ func TestExportReportMarkdown_Nil(t *testing.T) {
 		t.Errorf("expected empty string for nil report, got %q", md)
 	}
 }
+
+func TestExportReportMarkdown_AgentTreeTime(t *testing.T) {
+	tree := service.TreeTime{SubagentWorking: 50 * time.Minute, AggregateWorking: time.Hour, Elapsed: 20 * time.Minute, SubagentCount: 5, SubagentCoverage: "complete"}
+	partial := tree
+	partial.SubagentCoverage = "partial"
+	report := &service.Report{
+		Period:  analytics.TimeRange{Label: "Today"},
+		Summary: service.ReportSummary{TotalWorking: 10 * time.Minute, TreeTime: partial},
+		ByTask: []service.TaskStats{
+			{TaskID: "t1", DisplayID: "LEG-1", Title: "Tree", Working: 10 * time.Minute, TreeTime: tree},
+			{TaskID: "t2", DisplayID: "LEG-2", Title: "Codex", Working: 10 * time.Minute, TreeTime: service.TreeTime{AggregateWorking: 10 * time.Minute, Elapsed: 10 * time.Minute, SubagentCoverage: "none"}},
+		},
+	}
+
+	md := service.ExportReportMarkdown(report)
+
+	for _, want := range []string{
+		"| Sub-agent Working | 50m |",
+		"| Aggregate Agent Working | 1h † |",
+		"| Elapsed (wall clock) | 20m |",
+		"| ID | Title | Own Working | Sub-agent Working | Aggregate Working | Elapsed | Waiting | Error |",
+		"| LEG-1 | Tree | 10m | 50m | 1h | 20m | - | - |",
+		"| LEG-2 | Codex | 10m | - | 10m † | 10m | - | - |",
+		"† Sub-agent time is not recorded for some or all of this",
+	} {
+		if !strings.Contains(md, want) {
+			t.Errorf("missing %q in:\n%s", want, md)
+		}
+	}
+}

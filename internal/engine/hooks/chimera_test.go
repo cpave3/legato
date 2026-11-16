@@ -421,3 +421,14 @@ func TestChimeraModDoesNotInstallLegacyHooks(t *testing.T) {
 		t.Fatalf("mod mode installed legacy scripts: %v", err)
 	}
 }
+
+func TestChimeraAdapterReportsSubagentsOnlyWithTheMod(t *testing.T) {
+	a := hooks.NewChimeraAdapter("legato")
+	if a.ReportsSubagents() {
+		t.Fatal("without the mod, nothing reports Chimera's subagents")
+	}
+	a.SetModDir(t.TempDir())
+	if !a.ReportsSubagents() {
+		t.Fatal("the mod reports agent.spawn and agent.finish")
+	}
+}

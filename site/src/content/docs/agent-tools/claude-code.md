@@ -15,7 +15,7 @@ Three parts make this work. Legato installs all of them by itself and loads them
 
 ## What the card shows
 
-The `legato-state` plugin hooks Claude Code's `SessionStart`, `UserPromptSubmit`, `PostToolUse`, `PermissionRequest`, `Stop`, `StopFailure`, `PreCompact`, `PostCompact` and `SessionEnd` events and passes each to `legato agent hook claude-code`. Legato writes the plugin again each time it starts, so it always matches the Legato that reads it. It does nothing in a `claude` that Legato did not start.
+The `legato-state` plugin hooks Claude Code's `SessionStart`, `UserPromptSubmit`, `PostToolUse`, `PermissionRequest`, `Stop`, `StopFailure`, `PreCompact`, `PostCompact`, `SubagentStart`, `SubagentStop` and `SessionEnd` events and passes each to `legato agent hook claude-code`. `SubagentStart` and `SubagentStop` time each subagent for the task's [reports](/legato/using/reports/#sub-agents); they do not change the card. Legato writes the plugin again each time it starts, so it always matches the Legato that reads it. It does nothing in a `claude` that Legato did not start.
 
 | Card | Meaning | Set by |
 | --- | --- | --- |

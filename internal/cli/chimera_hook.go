@@ -103,9 +103,14 @@ func ApplyChimeraHook(s *store.Store, report ChimeraHookReport, pushNotifier, os
 	if h.IsSubagent {
 		return nil
 	}
+	now := time.Now().UTC()
+	if report.ExecutionID != "" {
+		if err := recordChimeraSubagents(ctx, s, report.ExecutionID, h, now); err != nil {
+			return fmt.Errorf("recording subagent activity: %w", err)
+		}
+	}
 	cleaned := cleanHook(ClaudeHook{Started: h.Started, Running: h.Running})
 	jobs := append(store.BackgroundJobs(nil), session.BackgroundJobs...)
-	now := time.Now().UTC()
 	if h.Running != nil {
 		jobs = runningJobs(jobs, cleaned.Running, now)
 	}
@@ -173,7 +178,33 @@ func ApplyChimeraHook(s *store.Store, report ChimeraHookReport, pushNotifier, os
 		}
 		return nil
 	}
-	return settleActivity(ctx, s, session, report.TaskID, report.ExecutionID, activity, report.WorkingDir, pushNotifier, osNotifier)
+	return settleActivity(ctx, s, session, report.TaskID, report.ExecutionID, activity, report.WorkingDir, now, pushNotifier, osNotifier)
+}
+
+// recordChimeraSubagents times the session's subagents, for task time: each
+// working from its agent.spawn to its agent.finish, foreground or
+// background. The mod reports only the main session's own subagents (it does
+// nothing inside a subagent), so a subagent's own subagents and its waits on
+// the operator are not seen. The session's end ends them all.
+func recordChimeraSubagents(ctx context.Context, s *store.Store, executionID string, h ChimeraHook, now time.Time) error {
+	id := cleanText(h.AgentID, maxJobIDOrWhen)
+	var err error
+	switch h.Event {
+	case "agent.spawn":
+		if id != "" {
+			err = s.RecordSubagentActivityAt(ctx, executionID, id, "", store.ActivityWorking, now)
+		}
+	case "agent.finish":
+		if id != "" {
+			err = s.RecordSubagentActivityAt(ctx, executionID, id, "", "", now)
+		}
+	case "session.end":
+		err = s.EndSubagentsAt(ctx, executionID, nil, now)
+	}
+	if errors.Is(err, store.ErrExecutionTerminal) {
+		return nil
+	}
+	return err
 }
 
 type chimeraChild struct {
