@@ -140,7 +140,7 @@ Restart Legato. Each sandboxed agent then gets a Docker socket of its own, with 
 
 - **Its own things.** Every container, network and volume the agent makes is labelled with its run (`legato.execution`). `docker ps`, `docker network ls`, `docker volume ls`, events and prunes show it only its own. Inspecting, starting, stopping, removing, `exec`, logs, `cp` and joining a network work only on its own. Two agents can run stacks side by side without seeing each other's, as long as their compose project names and published ports differ.
 - **Only what its sandbox sees.** A bind mount (`-v`, `--mount type=bind`, a volume that binds a folder, `--volumes-from`) may name only a path the agent's sandbox shows, with no more access: something it sees read-only is mounted read-only, and anything hidden is refused, `~/.ssh` and the Docker socket among them. Links are resolved on the host first, so a link in the worktree to `~/.ssh` is refused too. The sandbox's `/tmp` and home are its own scratch folders, so a container mounting them gets those. Folders given as [resources](/legato/agent-tools/resources/), including [resources for a repository](/legato/agent-tools/resources/#resources-for-a-repository), can be mounted into the agent's containers at the same access.
-- **Nothing that is root on your machine.** Refused: `--privileged`, devices and GPUs, `--cap-add` beyond `cap_add`, the host's network, PID, IPC, UTS, user or cgroup namespace, another agent's container's namespace, security options that turn off seccomp, AppArmor or SELinux, a cgroup parent, sysctls that are not per container, other runtimes, and `systempaths=unconfined`. A build on the host network is refused. Swarm, services, secrets, configs and nodes are refused, and so is installing, enabling or changing a plugin; the agent sees no plugins.
+- **Nothing that is root on your machine.** Refused: `--privileged`, devices and GPUs, `--cap-add` beyond `cap_add`, the host's network, PID, IPC, UTS, user or cgroup namespace, another agent's container's namespace, security options that turn off seccomp, AppArmor or SELinux, a cgroup parent, sysctls that are not per container, other runtimes, and `systempaths=unconfined`. A build on the host network is refused, unless you [allow the host network](#the-host-network-for-one-agent) for that agent. Swarm, services, secrets, configs and nodes are refused, and so is installing, enabling or changing a plugin; the agent sees no plugins.
 - **Shared images.** Pulling, building and listing images work as usual. An agent may remove only images it built.
 - **Ports.** Published ports bind `127.0.0.1` unless `publish` is `any`. Agents share your network, so they reach their own services there.
 
@@ -161,6 +161,29 @@ One thing still tells an agent that a hidden name is taken: making a container, 
 When the agent ends, however it ends, Legato removes its containers, networks and volumes. Reloading an agent starts a new run, so its containers go too; start the stack again after a reload. Things left by an agent that ended while Legato was not running are removed when Legato next checks its agents. Another Legato's containers are never touched.
 
 Agents run without the sandbox, and your own shells, are unchanged: they use Docker exactly as before, with nothing filtered.
+
+### The host network for one agent
+
+Some stacks need a container on the host's network, such as a headless browser that must open a server listening only on `127.0.0.1`. You can allow that for one agent. It is off for every agent unless you turn it on, and it does not carry over to other agents.
+
+- **Web UI**: tick **Allow the host network for its containers** in the spawn dialog (shown when Docker in the sandbox is on). It is unticked each time.
+- **TUI**: press `ctrl+n` in the spawn overlay.
+- **API**: send `"docker_host_network": true` to `POST /api/agents/spawn` or `POST /api/tasks/{id}/agent`.
+- **A running agent**: in the web UI, choose **Reload with host network** (or **Reload without host network**) in the agent's **More actions** menu or its right-click menu in the sidebar, or send `{"docker_host_network": true}` (or `false`) to `POST /api/agents/{task_id}/restart`. Legato reloads the agent in a new run, resuming its conversation, and tells it. The agent's containers are removed with the old run, so turning the option off leaves no container on the host network. The agent starts its stack again.
+
+The choice stays with the agent when you reload it or resume it after Legato restarts. Such an agent is marked **host network** in the web UI, and with `⇄` beside its ID and **host network** over its terminal in the TUI. Legato's log has a line for each container or build the agent starts on the host network.
+
+It is refused, not silently ignored, for an agent outside the sandbox, when Docker in the sandbox is off, and for [the Reeve](/legato/using/reeve/), swarm agents and workflow agents. For the Reeve, starting an agent with it, or changing it for a running agent, is a risky change.
+
+**What it weakens.** The sandbox already shares your network, so the agent's own processes reach your loopback services: Legato's web API, its credential proxy, other agents' published ports, and anything else listening on `127.0.0.1`. A container on the host network reaches the same services, because it is no longer on a network of its own. With `publish: loopback`, ports a host-network container listens on are not published. They are open on every address the container binds, as they would be for a program the agent runs itself.
+
+What it adds is the container's own root user, inside your network. With a rootful daemon (Docker as root), that root user could read the traffic on your machine, including Legato's token on loopback. It could also take ports below 1024, or change your interfaces, routes and firewall. Legato blocks these:
+
+- It drops `NET_RAW` and `NET_BIND_SERVICE` from every host-network container.
+- It refuses `--cap-add NET_ADMIN`, `NET_RAW` or `NET_BIND_SERVICE` on one, even when `cap_add` lists it.
+- It refuses `net.*` sysctls on one, because they would change your machine's network settings, not the container's.
+
+With a rootless daemon (rootless Docker, or Podman as your user), the container's root user is only your user, and its capabilities do not apply to your network. Dropping them changes nothing there. On either kind of daemon, everything else stays refused, and so do the host's PID, IPC, UTS, user and cgroup namespaces.
 
 :::tip
 Run Docker rootless if you can. The filtered socket is the wall, but if anything ever got past it, a rootless daemon gives away only your user, not root. Point `agents.sandbox.docker.host` at the rootless socket (`unix:///run/user/1000/docker.sock`); Podman's socket works too.

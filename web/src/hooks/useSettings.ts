@@ -19,6 +19,9 @@ export interface Settings {
   worktrees_enabled: boolean
   // Agents run in Legato's sandbox unless their spawn opts out.
   sandbox_enabled?: boolean
+  // Sandboxed agents have a filtered Docker socket, so a spawn may ask for
+  // the host network for its containers.
+  sandbox_docker_enabled?: boolean
   // The spawn dialog offers a fresh clone of a repository (repository_cache.enabled).
   fresh_clones_enabled?: boolean
   hot_reload_enabled: boolean

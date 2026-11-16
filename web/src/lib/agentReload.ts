@@ -21,6 +21,15 @@ export function sandboxSwitchLabel(agent: AgentInfo | undefined): string | undef
   return undefined
 }
 
+// The menu entry that reloads a sandboxed agent with or without the host
+// network for its containers, or undefined when it is not offered: the
+// agent cannot be reloaded, runs outside the sandbox, is the Reeve, or there
+// is no Docker in the sandbox.
+export function hostNetworkSwitchLabel(agent: AgentInfo | undefined, dockerInSandbox: boolean): string | undefined {
+  if (!dockerInSandbox || !canReloadAgent(agent) || !agent?.sandboxed || agent.reeve) return undefined
+  return agent.docker_host_network ? "Reload without host network" : "Reload with host network"
+}
+
 // A menu entry that reloads an agent on the other side of the sandbox.
 export interface SandboxSwitch {
   label: string
@@ -41,7 +50,14 @@ export async function switchAgentSandbox(baseUrl: string, taskId: string): Promi
   return answer.sandboxed === true
 }
 
-async function restart(baseUrl: string, taskId: string, body?: { switch_sandbox: boolean }): Promise<{ sandboxed?: boolean }> {
+// Reloads the running agent of a task in a new run whose containers may, or
+// may not, use the host's network, resuming its conversation. Its
+// containers from before are removed with the old run.
+export async function setAgentHostNetwork(baseUrl: string, taskId: string, on: boolean): Promise<void> {
+  await restart(baseUrl, taskId, { docker_host_network: on })
+}
+
+async function restart(baseUrl: string, taskId: string, body?: { switch_sandbox: boolean } | { docker_host_network: boolean }): Promise<{ sandboxed?: boolean }> {
   const response = await apiFetch(baseUrl, `/api/agents/${encodeURIComponent(taskId)}/restart`, {
     method: "POST",
     ...(body ? { headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) } : {}),

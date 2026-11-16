@@ -1,6 +1,7 @@
 package server
 
 import (
+	"encoding/json"
 	"net/http"
 	"strings"
 	"sync"
@@ -148,4 +149,37 @@ func RouteClasses() []RouteInfo {
 		out = append(out, RouteInfo{Method: e.Method, Pattern: e.Pattern, Class: e.Class, Description: e.Description, Known: true})
 	}
 	return out
+}
+
+// ClassifyCall is ClassifyRequest for a call whose body is known (a change
+// set's): a body can make a call riskier than its route, never less risky.
+// Starting an agent whose containers may use the host network is risky,
+// though starting an agent is a change.
+func ClassifyCall(r *http.Request, body []byte) RouteInfo {
+	info := ClassifyRequest(r)
+	if !info.Known || r.Method != http.MethodPost {
+		return info
+	}
+	switch info.Pattern {
+	case "/api/agents/spawn", "/api/tasks/{id}/agent", "/api/agents/{task_id}/restart":
+		var fields struct {
+			DockerHostNetwork *bool `json:"docker_host_network"`
+		}
+		if json.Unmarshal(body, &fields) != nil || fields.DockerHostNetwork == nil {
+			return info
+		}
+		if info.Pattern == "/api/agents/{task_id}/restart" {
+			if *fields.DockerHostNetwork {
+				info.Description += ", allowing its containers the host network"
+			} else {
+				info.Description += ", taking the host network away from its containers"
+			}
+		} else if *fields.DockerHostNetwork {
+			info.Description += " whose containers may use the host network"
+		} else {
+			return info
+		}
+		info.Class = ClassRisky
+	}
+	return info
 }

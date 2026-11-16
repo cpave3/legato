@@ -38,6 +38,8 @@ export interface SpawnAgentRequest {
   resources?: string[]
   // False starts the agent outside Legato's sandbox; absent otherwise.
   sandbox?: false
+  // True lets the agent's containers use the host's network; absent otherwise.
+  dockerHostNetwork?: true
   // The agent's first message; absent when nothing was written.
   prompt?: string
   // Set when the agent starts in a new clone of a repository instead of a
@@ -165,6 +167,9 @@ export function SpawnAgentDialog({
   const [savePath, setSavePath] = useState(false)
   // Out of Legato's sandbox for this one agent: asked afresh each time.
   const [unsandboxed, setUnsandboxed] = useState(false)
+  const [hostNetwork, setHostNetwork] = useState(false)
+  // Only for an agent in the sandbox, with Docker in it.
+  const hostNetworkOffered = Boolean(settings.data?.sandbox_enabled && settings.data?.sandbox_docker_enabled) && !unsandboxed
   const [prompt, setPrompt] = useState("")
   // The files and folders the person keeps for agents, and the ones picked.
   const [resources, setResources] = useState<Resource[]>([])
@@ -214,6 +219,7 @@ export function SpawnAgentDialog({
     setListOpen(false)
     setSavePath(false)
     setUnsandboxed(false)
+    setHostNetwork(false)
     setPrompt("")
     setWhereKind("folder")
     const firstCloneable = (settingsRef.current?.repositories ?? []).find((repository) => repository.repo)
@@ -447,6 +453,7 @@ export function SpawnAgentDialog({
         ...(offersSessionChoice ? { sessionPolicy } : {}),
         ...(picked.length > 0 ? { resources: picked } : {}),
         ...(unsandboxed ? { sandbox: false as const } : {}),
+        ...(hostNetworkOffered && hostNetwork ? { dockerHostNetwork: true as const } : {}),
         ...(prompt.trim() ? { prompt: prompt.trim() } : {}),
         ...(engramShown && engram ? { engram } : {}),
         ...(canRemember && rememberEngram ? { rememberEngram: true } : {}),
@@ -456,7 +463,7 @@ export function SpawnAgentDialog({
     } finally {
       setLoading(false)
     }
-  }, [loading, ready, path, savePath, canSave, baseUrl, onSubmit, title, agentKind, offersSessionChoice, sessionPolicy, picked, unsandboxed, prompt, cloneRepository, baseBranch, branch, inClone, jobClone, engramShown, engram, canRemember, rememberEngram])
+  }, [loading, ready, path, savePath, canSave, baseUrl, onSubmit, title, agentKind, offersSessionChoice, sessionPolicy, picked, unsandboxed, hostNetworkOffered, hostNetwork, prompt, cloneRepository, baseBranch, branch, inClone, jobClone, engramShown, engram, canRemember, rememberEngram])
 
   if (!open) return null
 
@@ -952,6 +959,15 @@ export function SpawnAgentDialog({
               <span>
                 <span className="font-medium text-lw-text">Run without sandbox</span>
                 <span className="block text-lw-faint">This agent sees your whole home folder and its credentials, so folders can be given to it while it runs.</span>
+              </span>
+            </label>
+          )}
+          {hostNetworkOffered && (
+            <label className={`flex min-h-11 cursor-pointer items-start gap-2.5 rounded-[10px] border px-3 py-2.5 text-sm sm:min-h-0 sm:rounded-md sm:text-xs ${hostNetwork ? "border-lw-needs/50 bg-lw-needs-soft text-lw-text" : "border-lw-line-strong bg-lw-ground text-lw-text-2"}`}>
+              <input type="checkbox" checked={hostNetwork} onChange={(event) => setHostNetwork(event.target.checked)} className="mt-0.5 accent-lw-accent" />
+              <span>
+                <span className="font-medium text-lw-text">Allow the host network for its containers</span>
+                <span className="block text-lw-faint">Its containers may use network_mode: host, and reach what this machine reaches, Legato's own local services included.</span>
               </span>
             </label>
           )}

@@ -97,6 +97,9 @@ export interface AgentInfo {
   sandboxed?: boolean
   // The sandbox is on and this agent opted out of it.
   unsandboxed?: boolean
+  // Its containers may use the host's network through its filtered Docker
+  // socket (agents.sandbox.docker).
+  docker_host_network?: boolean
   // The last known fill of a native agent's context window; changes arrive
   // as agent_context messages (useAgentContexts).
   context_used?: number

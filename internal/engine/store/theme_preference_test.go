@@ -19,6 +19,7 @@ func TestThemePreferenceSurvivesPartialMigrationReplay(t *testing.T) {
 	// A schema created before its ledger entry must not reset the preference.
 	// The later migrations are undone, as if they had not run yet.
 	if _, err := db.DB().Exec(`DROP TABLE subagent_activity; ALTER TABLE executions DROP COLUMN subagent_telemetry;
+		ALTER TABLE agent_sessions DROP COLUMN docker_host_network;
 		DELETE FROM schema_migrations WHERE version >= 113; PRAGMA user_version = 112`); err != nil {
 		t.Fatal(err)
 	}

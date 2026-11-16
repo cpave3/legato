@@ -15,16 +15,18 @@ import (
 // AgentCompact is an agent in GET /api/agents?view=compact: what a status
 // check needs, for the Reeve and scripts.
 type AgentCompact struct {
-	TaskID     string    `json:"task_id"`
-	CardTaskID string    `json:"card_task_id,omitempty"`
-	Slot       string    `json:"slot,omitempty"`
-	Title      string    `json:"title"`
-	Group      string    `json:"group,omitempty"`
-	Status     string    `json:"status"`
-	Activity   string    `json:"activity"`
-	Sandboxed  bool      `json:"sandboxed"`
-	StartedAt  time.Time `json:"started_at"`
-	Reeve      bool      `json:"reeve,omitempty"`
+	TaskID     string `json:"task_id"`
+	CardTaskID string `json:"card_task_id,omitempty"`
+	Slot       string `json:"slot,omitempty"`
+	Title      string `json:"title"`
+	Group      string `json:"group,omitempty"`
+	Status     string `json:"status"`
+	Activity   string `json:"activity"`
+	Sandboxed  bool   `json:"sandboxed"`
+	// DockerHostNetwork: its containers may use the host's network.
+	DockerHostNetwork bool      `json:"docker_host_network,omitempty"`
+	StartedAt         time.Time `json:"started_at"`
+	Reeve             bool      `json:"reeve,omitempty"`
 	// BackgroundJobs is what the agent started that still runs.
 	BackgroundJobs []store.BackgroundJob `json:"background_jobs,omitempty"`
 }
@@ -36,7 +38,7 @@ func (s *Server) compactAgents(ctx context.Context, agents []service.AgentSessio
 		resp := agentResponse(a)
 		out = append(out, AgentCompact{
 			TaskID: a.TaskID, CardTaskID: resp.CardTaskID, Slot: resp.Slot, Title: a.Title, Group: a.Group,
-			Status: a.Status, Activity: a.Activity, Sandboxed: a.Sandboxed, StartedAt: a.StartedAt,
+			Status: a.Status, Activity: a.Activity, Sandboxed: a.Sandboxed, DockerHostNetwork: a.DockerHostNetwork, StartedAt: a.StartedAt,
 			Reeve:          reeveTask != "" && a.TaskID == reeveTask,
 			BackgroundJobs: a.BackgroundJobs,
 		})

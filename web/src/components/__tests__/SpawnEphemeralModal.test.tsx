@@ -7,7 +7,7 @@ const { apiFetch } = vi.hoisted(() => ({ apiFetch: vi.fn() }))
 vi.mock("../../hooks/useServer", () => ({ useServer: () => ({ baseUrl: "" }) }))
 const { settingsData } = vi.hoisted(() => ({
   settingsData: {
-    working_dir: "/default", sandbox_enabled: false, fresh_clones_enabled: false,
+    working_dir: "/default", sandbox_enabled: false, sandbox_docker_enabled: false, fresh_clones_enabled: false,
     repositories: [
       { name: "Legato", repo: "cpave3/legato", primary_dir: "/projects/legato", base_branch: "main" },
       { name: "Autopilot", repo: "autopilot-dev/autopilot", primary_dir: "", base_branch: "develop" },
@@ -365,6 +365,44 @@ describe("SpawnEphemeralModal", () => {
       await vi.waitFor(() => expect(requests("POST", "/api/agents/spawn")).toHaveLength(1))
       expect(JSON.parse(requests("POST", "/api/agents/spawn")[0][2].body).sandbox).toBeUndefined()
     })
+  })
+
+  describe("with Docker in the sandbox", () => {
+    beforeEach(() => { settingsData.sandbox_enabled = true; settingsData.sandbox_docker_enabled = true })
+    afterEach(() => { settingsData.sandbox_enabled = false; settingsData.sandbox_docker_enabled = false })
+
+    it("asks for the host network for the agent's containers only when ticked, and asks again each time", async () => {
+      await openModal()
+      const host = screen.getByRole("checkbox", { name: /host network/ }) as HTMLInputElement
+      expect(host.checked).toBe(false)
+      fireEvent.click(host)
+      fireEvent.click(screen.getByRole("button", { name: "Spawn in legato" }))
+      await vi.waitFor(() => expect(requests("POST", "/api/agents/spawn")).toHaveLength(1))
+      expect(JSON.parse(requests("POST", "/api/agents/spawn")[0][2].body).docker_host_network).toBe(true)
+    })
+
+    it("sends nothing about the host network when the box is left alone", async () => {
+      await openModal()
+      fireEvent.click(screen.getByRole("button", { name: "Spawn in legato" }))
+      await vi.waitFor(() => expect(requests("POST", "/api/agents/spawn")).toHaveLength(1))
+      expect(JSON.parse(requests("POST", "/api/agents/spawn")[0][2].body).docker_host_network).toBeUndefined()
+    })
+
+    it("does not offer it to an agent that runs without the sandbox", async () => {
+      await openModal()
+      fireEvent.click(screen.getByRole("checkbox", { name: /Run without sandbox/ }))
+      expect(screen.queryByRole("checkbox", { name: /host network/ })).toBeNull()
+    })
+  })
+
+  it("offers no host network without Docker in the sandbox", async () => {
+    settingsData.sandbox_enabled = true
+    try {
+      await openModal()
+      expect(screen.queryByRole("checkbox", { name: /host network/ })).toBeNull()
+    } finally {
+      settingsData.sandbox_enabled = false
+    }
   })
 
   it("offers no sandbox choice when the sandbox is off", async () => {

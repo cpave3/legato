@@ -111,6 +111,7 @@ type Server struct {
 	pairing                  *service.PairingService
 	pairingAddresses         func() []string
 	sandboxEnabled           bool
+	sandboxDockerEnabled     bool
 	freshClonesEnabled       bool
 	integrationAuth          IntegrationAuthenticator
 	owners                   OwnerLookup
@@ -441,6 +442,10 @@ func (s *Server) SetReflectionWorkflowService(workflows ReflectionWorkflowServic
 // spawn opts out, for the spawn dialog and the agent list.
 func (s *Server) SetSandboxEnabled(enabled bool) { s.sandboxEnabled = enabled }
 
+// SetSandboxDockerEnabled says that sandboxed agents get a filtered Docker
+// socket, so a spawn may ask for the host network for its containers.
+func (s *Server) SetSandboxDockerEnabled(enabled bool) { s.sandboxDockerEnabled = enabled }
+
 // SetFreshClonesEnabled says that the spawn dialog offers a fresh clone of
 // a repository (repository_cache.enabled).
 func (s *Server) SetFreshClonesEnabled(enabled bool) { s.freshClonesEnabled = enabled }
@@ -583,14 +588,17 @@ func (s *Server) settingsHandler() http.HandlerFunc {
 		w.Header().Set("Content-Type", "application/json")
 		hasCACert := s.caCertPath != ""
 		resp := struct {
-			CaCertAvailable    bool   `json:"ca_cert_available"`
-			WorkingDir         string `json:"working_dir"`
-			NtfyConfigured     bool   `json:"ntfy_configured"`
-			VoiceEnabled       bool   `json:"voice_enabled"`
-			WorktreesEnabled   bool   `json:"worktrees_enabled"`
-			SandboxEnabled     bool   `json:"sandbox_enabled"`
-			FreshClonesEnabled bool   `json:"fresh_clones_enabled"`
-			HotReloadEnabled   bool   `json:"hot_reload_enabled"`
+			CaCertAvailable  bool   `json:"ca_cert_available"`
+			WorkingDir       string `json:"working_dir"`
+			NtfyConfigured   bool   `json:"ntfy_configured"`
+			VoiceEnabled     bool   `json:"voice_enabled"`
+			WorktreesEnabled bool   `json:"worktrees_enabled"`
+			SandboxEnabled   bool   `json:"sandbox_enabled"`
+			// SandboxDockerEnabled: sandboxed agents have Docker, and a
+			// spawn may ask for the host network for its containers.
+			SandboxDockerEnabled bool `json:"sandbox_docker_enabled"`
+			FreshClonesEnabled   bool `json:"fresh_clones_enabled"`
+			HotReloadEnabled     bool `json:"hot_reload_enabled"`
 			// SwarmEnabled: the server has a swarm service (swarm.enabled).
 			SwarmEnabled             bool                              `json:"swarm_enabled"`
 			DefaultWorkspaceID       *int                              `json:"default_workspace_id"`
@@ -611,6 +619,7 @@ func (s *Server) settingsHandler() http.HandlerFunc {
 			VoiceEnabled:             s.voiceSvc != nil,
 			WorktreesEnabled:         s.worktrees != nil,
 			SandboxEnabled:           s.sandboxEnabled,
+			SandboxDockerEnabled:     s.sandboxEnabled && s.sandboxDockerEnabled,
 			FreshClonesEnabled:       s.freshClonesEnabled,
 			HotReloadEnabled:         s.hotReloadBuildTrigger != nil,
 			SwarmEnabled:             s.swarm != nil,

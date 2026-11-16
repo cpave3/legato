@@ -58,3 +58,16 @@ it("offers to reload the agent on the other side of the sandbox, after Reload ag
   result.current.entries.find((entry) => entry.label === "Reload without sandbox")?.onSelect()
   expect(onSelect).toHaveBeenCalled()
 })
+
+it("offers to reload the agent with or without the host network for its containers, after the sandbox switch", () => {
+  const onSelect = vi.fn()
+  const { result } = renderHook(() => useTerminalMenu(options({
+    onReload: vi.fn(),
+    switchSandbox: { label: "Reload without sandbox", onSelect: vi.fn() },
+    switchHostNetwork: { label: "Reload with host network", onSelect },
+  })))
+  const labels = result.current.entries.map((entry) => entry.label)
+  expect(labels.slice(-5)).toEqual(["Reload agent", "Reload without sandbox", "Reload with host network", "Disconnect", "Kill agent"])
+  result.current.entries.find((entry) => entry.label === "Reload with host network")?.onSelect()
+  expect(onSelect).toHaveBeenCalled()
+})

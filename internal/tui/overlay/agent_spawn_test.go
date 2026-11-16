@@ -543,3 +543,34 @@ func TestAgentSpawnHasNoSandboxChoiceWhenTheSandboxIsOff(t *testing.T) {
 		t.Fatal("ctrl+u took effect with the sandbox off")
 	}
 }
+
+func TestAgentSpawnCanAllowTheHostNetworkWhereDockerIsInTheSandbox(t *testing.T) {
+	ctrlN := tea.KeyMsg{Type: tea.KeyCtrlN}
+	m := NewAgentSpawn(nil, "claude-code", "/tmp", "", "").WithSandbox().WithDockerHostNetwork()
+	if !strings.Contains(m.View(), "ctrl+n") {
+		t.Fatalf("the view does not offer the host network:\n%s", m.View())
+	}
+	m, _ = spawnKey(t, m, ctrlN)
+	if !strings.Contains(m.View(), "host network") {
+		t.Fatalf("the view does not say the agent's containers get the host network:\n%s", m.View())
+	}
+	_, msg := spawnKey(t, m, keyEnter)
+	if submit := msg.(AgentSpawnSubmitMsg); !submit.DockerHostNetwork {
+		t.Fatalf("submit = %+v", submit)
+	}
+	// Outside the sandbox there is no filtered socket to allow it on.
+	m = NewAgentSpawn(nil, "claude-code", "/tmp", "", "").WithSandbox().WithDockerHostNetwork()
+	_, msg = spawnKey(t, m, ctrlN, tea.KeyMsg{Type: tea.KeyCtrlU}, keyEnter)
+	if submit := msg.(AgentSpawnSubmitMsg); submit.DockerHostNetwork || !submit.Unsandboxed {
+		t.Fatalf("outside the sandbox: submit = %+v", submit)
+	}
+	// Without Docker in the sandbox, ctrl+n does nothing.
+	m = NewAgentSpawn(nil, "claude-code", "/tmp", "", "").WithSandbox()
+	if strings.Contains(m.View(), "ctrl+n") {
+		t.Fatal("offers the host network without Docker in the sandbox")
+	}
+	_, msg = spawnKey(t, m, ctrlN, keyEnter)
+	if msg.(AgentSpawnSubmitMsg).DockerHostNetwork {
+		t.Fatal("ctrl+n took effect without Docker in the sandbox")
+	}
+}

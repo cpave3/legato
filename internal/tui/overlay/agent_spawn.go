@@ -25,6 +25,8 @@ type AgentSpawnSubmitMsg struct {
 	Resources []string
 	// Unsandboxed starts the agent outside Legato's sandbox.
 	Unsandboxed bool
+	// DockerHostNetwork lets the agent's containers use the host's network.
+	DockerHostNetwork bool
 	// Engram starts the agent as that engram; empty for none.
 	Engram string
 	// RememberEngram binds Engram to the place and makes it the default
@@ -179,8 +181,12 @@ type AgentSpawnOverlay struct {
 	// sandbox is on (ctrl+u can start this agent outside it), and
 	// unsandboxed is the person's choice for this agent.
 	sandbox, unsandboxed bool
-	notice               string
-	failed               bool
+	// hostNetworkOffered is set when sandboxed agents have Docker (ctrl+n
+	// lets this one's containers use the host network), and hostNetwork is
+	// the person's choice for this agent.
+	hostNetworkOffered, hostNetwork bool
+	notice                          string
+	failed                          bool
 
 	width  int
 	height int
@@ -239,6 +245,19 @@ func (m AgentSpawnOverlay) WithResources(resources []SpawnResource) AgentSpawnOv
 func (m AgentSpawnOverlay) WithSandbox() AgentSpawnOverlay {
 	m.sandbox = true
 	return m
+}
+
+// WithDockerHostNetwork says sandboxed agents have Docker: ctrl+n lets this
+// one's containers use the host network.
+func (m AgentSpawnOverlay) WithDockerHostNetwork() AgentSpawnOverlay {
+	m.hostNetworkOffered = true
+	return m
+}
+
+// offersHostNetwork is whether ctrl+n applies: only to an agent that will
+// run in the sandbox, with Docker in it.
+func (m AgentSpawnOverlay) offersHostNetwork() bool {
+	return m.hostNetworkOffered && m.sandbox && !m.unsandboxed
 }
 
 // WithSaving lets a typed path be saved as a preset with ctrl+s.
@@ -454,6 +473,11 @@ func (m AgentSpawnOverlay) handleKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	case "ctrl+u":
 		if m.sandbox {
 			m.unsandboxed = !m.unsandboxed
+		}
+		return m, nil
+	case "ctrl+n":
+		if m.offersHostNetwork() {
+			m.hostNetwork = !m.hostNetwork
 		}
 		return m, nil
 	case "ctrl+s":
@@ -676,9 +700,11 @@ func (m AgentSpawnOverlay) submit() (tea.Model, tea.Cmd) {
 		WorkingDir: m.target().path,
 		Resources:  m.pickedResources(),
 		// The choice is the person's own and only while the sandbox is on.
-		Unsandboxed:    m.sandbox && m.unsandboxed,
-		Engram:         m.engram(),
-		RememberEngram: m.remember && m.canRemember(),
+		Unsandboxed: m.sandbox && m.unsandboxed,
+		// Only while it applies: ctrl+u takes the agent out of reach of it.
+		DockerHostNetwork: m.offersHostNetwork() && m.hostNetwork,
+		Engram:            m.engram(),
+		RememberEngram:    m.remember && m.canRemember(),
 	}
 	return m, func() tea.Msg { return submit }
 }
@@ -1138,6 +1164,9 @@ func (m AgentSpawnOverlay) summary(primary, secondary lipgloss.Style) string {
 	if m.unsandboxed {
 		text += separator + lipgloss.NewStyle().Foreground(theme.Amber).Render("without sandbox")
 	}
+	if m.offersHostNetwork() && m.hostNetwork {
+		text += separator + lipgloss.NewStyle().Foreground(theme.Amber).Render("containers on the host network")
+	}
 	return text
 }
 
@@ -1160,6 +1189,13 @@ func (m AgentSpawnOverlay) hints(width int) string {
 			label = "sandbox"
 		}
 		spawn = key.Render("ctrl+u") + word.Render(" "+label) + word.Render(" · ") + spawn
+	}
+	if m.offersHostNetwork() {
+		label := "host network"
+		if m.hostNetwork {
+			label = "no host network"
+		}
+		spawn = key.Render("ctrl+n") + word.Render(" "+label) + word.Render(" · ") + spawn
 	}
 	end := spawn + word.Render(" · ") + key.Render("esc")
 

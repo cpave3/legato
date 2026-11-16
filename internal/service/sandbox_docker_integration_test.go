@@ -48,7 +48,7 @@ func dockerFixture(t *testing.T) (SandboxPlanInput, dockerproxy.Cleaner, string)
 	if err != nil {
 		t.Fatal(err)
 	}
-	if err := sd.WriteView(in.ExecutionID, plan); err != nil {
+	if err := sd.WriteView(in.ExecutionID, plan, false); err != nil {
 		t.Fatal(err)
 	}
 	view, err := sd.View(in.ExecutionID)

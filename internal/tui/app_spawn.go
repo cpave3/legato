@@ -34,6 +34,13 @@ func (a *App) SetSandboxEnabled(enabled bool) {
 	a.agentView.SetSandboxEnabled(enabled)
 }
 
+// SetSandboxDockerEnabled says that sandboxed agents have a filtered Docker
+// socket: the spawn overlay then offers ctrl+n to let one's containers use
+// the host network.
+func (a *App) SetSandboxDockerEnabled(enabled bool) {
+	a.sandboxDocker = enabled
+}
+
 func (a *App) SetDirectoryService(svc DirectoryService) {
 	a.dirSvc = svc
 }

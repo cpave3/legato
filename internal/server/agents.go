@@ -93,6 +93,9 @@ type AgentResponse struct {
 	// Unsandboxed is true when the sandbox is on and this agent opted out:
 	// it sees the person's whole home folder.
 	Unsandboxed bool `json:"unsandboxed,omitempty"`
+	// DockerHostNetwork is true when the agent's containers may use the
+	// host's network through its filtered Docker socket.
+	DockerHostNetwork bool `json:"docker_host_network,omitempty"`
 	// ContextUsed and ContextWindow are the last known fill of a native
 	// agent's context window; later changes arrive as agent_context.
 	ContextUsed   int `json:"context_used,omitempty"`
@@ -114,7 +117,7 @@ func agentResponse(agent service.AgentSession) AgentResponse {
 		Command: agent.Command, AgentKind: agent.AgentKind, Engram: agent.Engram, Group: agent.Group, Status: agent.Status,
 		Activity: agent.Activity, Role: agent.Role, ParentTaskID: agent.ParentTaskID,
 		SubtaskID: agent.SubtaskID, StartedAt: agent.StartedAt, EndedAt: agent.EndedAt,
-		Sandboxed: agent.Sandboxed, CardTaskID: agent.CardTaskID, Slot: agent.Slot,
+		Sandboxed: agent.Sandboxed, DockerHostNetwork: agent.DockerHostNetwork, CardTaskID: agent.CardTaskID, Slot: agent.Slot,
 		BackgroundJobs: agent.BackgroundJobs,
 	}
 }
@@ -138,6 +141,9 @@ func (s *Server) spawnAgentHandler() http.HandlerFunc {
 			Resources  []string `json:"resources"`
 			// Sandbox false starts this agent outside Legato's sandbox.
 			Sandbox *bool `json:"sandbox"`
+			// DockerHostNetwork lets the agent's containers use the host's
+			// network (refused where it cannot apply).
+			DockerHostNetwork bool `json:"docker_host_network"`
 			// Prompt is the agent's first message.
 			Prompt string `json:"prompt"`
 			// Repo (owner/name) starts the agent in a fresh clone of the
@@ -202,6 +208,12 @@ func (s *Server) spawnAgentHandler() http.HandlerFunc {
 			Unsandboxed: req.Sandbox != nil && !*req.Sandbox,
 			Prompt:      req.Prompt,
 			Engram:      strings.TrimSpace(req.Engram),
+
+			DockerHostNetwork: req.DockerHostNetwork,
+		}
+		if err := s.checkDockerHostNetwork(r.Context(), "", opts); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
 		}
 		s.rememberEngram(r.Context(), req.RememberEngram, opts.WorkingDir, opts.Repo, opts.Engram)
 		if creator, ok := s.agents.(ephemeralTaskCreator); ok && startsInBackground(opts) {
@@ -220,7 +232,11 @@ func (s *Server) spawnAgentHandler() http.HandlerFunc {
 		}
 		var report service.SpawnReport
 		if err := s.agents.SpawnEphemeralAgent(service.WithSpawnReport(context.Background(), &report), req.Title, 0, 0, opts); err != nil {
-			http.Error(w, err.Error(), http.StatusInternalServerError)
+			status := http.StatusInternalServerError
+			if errors.Is(err, service.ErrDockerHostNetwork) {
+				status = http.StatusBadRequest
+			}
+			http.Error(w, err.Error(), status)
 			return
 		}
 
@@ -587,6 +603,10 @@ func (s *Server) taskAgentHandler() http.HandlerFunc {
 			SessionPolicy string   `json:"session_policy"`
 			Resources     []string `json:"resources"`
 			Sandbox       *bool    `json:"sandbox"`
+			// DockerHostNetwork lets the agent's containers use the host's
+			// network (refused where it cannot apply). A running agent is
+			// changed by restarting it, not here.
+			DockerHostNetwork bool `json:"docker_host_network"`
 			// Prompt is the agent's first message, or a message to the
 			// agent already running.
 			Prompt string `json:"prompt"`
@@ -623,6 +643,10 @@ func (s *Server) taskAgentHandler() http.HandlerFunc {
 			return
 		}
 		if _, err := agents.CaptureOutput(r.Context(), taskID); err == nil {
+			if req.DockerHostNetwork {
+				http.Error(w, "the agent is running: restart it with docker_host_network (POST /api/agents/"+taskID+"/restart) to change its containers' network", http.StatusConflict)
+				return
+			}
 			if prompt := strings.TrimSpace(req.Prompt); prompt != "" {
 				queuer, ok := s.agents.(messageQueuer)
 				if !ok {
@@ -651,7 +675,11 @@ func (s *Server) taskAgentHandler() http.HandlerFunc {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
-		opts := service.AgentSpawnOptions{AgentKind: req.AgentKind, WorkingDir: req.WorkingDir, Repo: req.Repo, Ref: req.Ref, Branch: strings.TrimSpace(req.Branch), Clone: req.CloneID, Resources: resources, Unsandboxed: req.Sandbox != nil && !*req.Sandbox, Prompt: req.Prompt, Engram: strings.TrimSpace(req.Engram)}
+		opts := service.AgentSpawnOptions{AgentKind: req.AgentKind, WorkingDir: req.WorkingDir, Repo: req.Repo, Ref: req.Ref, Branch: strings.TrimSpace(req.Branch), Clone: req.CloneID, Resources: resources, Unsandboxed: req.Sandbox != nil && !*req.Sandbox, Prompt: req.Prompt, Engram: strings.TrimSpace(req.Engram), DockerHostNetwork: req.DockerHostNetwork}
+		if err := s.checkDockerHostNetwork(r.Context(), taskID, opts); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
 		effectiveAdapter := req.AgentKind
 		if effectiveAdapter == "" {
 			effectiveAdapter = agents.DefaultAdapter()
@@ -720,6 +748,10 @@ func (s *Server) taskAgentHandler() http.HandlerFunc {
 				http.Error(w, err.Error(), http.StatusConflict)
 				return
 			}
+			if errors.Is(err, service.ErrDockerHostNetwork) {
+				http.Error(w, err.Error(), http.StatusBadRequest)
+				return
+			}
 			http.Error(w, err.Error(), taskErrorStatus(err))
 			return
 		}
@@ -741,4 +773,19 @@ func spawnResult(body map[string]any, report service.SpawnReport) map[string]any
 		body["engram_warning"] = report.EngramWarning
 	}
 	return body
+}
+
+// checkDockerHostNetwork refuses, before anything starts, a spawn that asks
+// for the host network where the agent service will not give it: a spawn
+// started in the background would otherwise fail out of sight.
+func (s *Server) checkDockerHostNetwork(ctx context.Context, taskID string, opts service.AgentSpawnOptions) error {
+	if !opts.DockerHostNetwork {
+		return nil
+	}
+	if checker, ok := s.agents.(interface {
+		CheckDockerHostNetwork(ctx context.Context, taskID string, opt service.AgentSpawnOptions) error
+	}); ok {
+		return checker.CheckDockerHostNetwork(ctx, taskID, opts)
+	}
+	return nil
 }

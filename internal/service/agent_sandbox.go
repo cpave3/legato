@@ -45,7 +45,7 @@ func (a *agentService) CheckoutOverlayAvailable() bool {
 // in its sandbox, ending in "--". attributionTaskID is the task the agent's
 // execution concerns: a workflow agent's may differ from taskID, and that
 // task's job clone is the agent's to work in too.
-func (a *agentService) sandboxPrefix(ctx context.Context, taskID, attributionTaskID, executionID, agentKind, workDir string, env map[string]string, resources []Resource, readOnly, throwaway bool, engram SandboxEngram) (string, error) {
+func (a *agentService) sandboxPrefix(ctx context.Context, taskID, attributionTaskID, executionID, agentKind, workDir string, env map[string]string, resources []Resource, readOnly, throwaway, dockerHostNetwork bool, engram SandboxEngram) (string, error) {
 	backend := a.sandbox.Backend
 	if err := backend.Available(); err != nil {
 		return "", err
@@ -164,7 +164,7 @@ func (a *agentService) sandboxPrefix(ctx context.Context, taskID, attributionTas
 	}
 	if a.sandbox.Docker != nil {
 		// What the proxy lets this agent's containers mount.
-		if err := a.sandbox.Docker.WriteView(executionID, plan); err != nil {
+		if err := a.sandbox.Docker.WriteView(executionID, plan, dockerHostNetwork); err != nil {
 			return "", err
 		}
 	}

@@ -412,6 +412,9 @@ type AgentSession struct {
 	LastEventID      *string `db:"last_event_id"`
 	// Sandboxed is true when the agent runs in Legato's sandbox.
 	Sandboxed bool `db:"sandboxed"`
+	// DockerHostNetwork is true when the agent's containers may use the
+	// host's network through its filtered Docker socket.
+	DockerHostNetwork bool `db:"docker_host_network"`
 	// Slot is the task's agent slot the session runs in: SlotMain, or a
 	// named slot such as "reviewer".
 	Slot string `db:"slot"`

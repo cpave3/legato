@@ -21,7 +21,9 @@ type agentRestartService interface {
 // agent is stopped and started again with its agent tool, directory and
 // resources, resuming its conversation. With {"switch_sandbox": true} it
 // comes back on the other side of the sandbox, as the TUI's U does, and the
-// answer says whether it is now sandboxed. 409 when it cannot be (a swarm or
+// answer says whether it is now sandboxed. With {"docker_host_network": bool}
+// it comes back in a new execution whose containers may, or may not, use
+// the host's network (400 where it cannot have it). 409 when it cannot be (a swarm or
 // a workflow runs it, or it has no conversation to resume), and it is left
 // running.
 func (s *Server) agentRestartHandler() http.HandlerFunc {
@@ -37,9 +39,21 @@ func (s *Server) agentRestartHandler() http.HandlerFunc {
 		}
 		var req struct {
 			SwitchSandbox bool `json:"switch_sandbox"`
+			// DockerHostNetwork, when given, restarts the agent with or
+			// without the host network for its containers.
+			DockerHostNetwork *bool `json:"docker_host_network"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&req); err != nil && !errors.Is(err, io.EOF) {
 			s.writeError(w, http.StatusBadRequest, "invalid JSON body")
+			return
+		}
+		if req.SwitchSandbox && req.DockerHostNetwork != nil {
+			s.writeError(w, http.StatusBadRequest, "switch the sandbox or set docker_host_network, not both")
+			return
+		}
+		hostNetwork, canSetHostNetwork := s.agents.(service.DockerHostNetworkSwitcher)
+		if req.DockerHostNetwork != nil && !canSetHostNetwork {
+			s.writeError(w, http.StatusServiceUnavailable, "this Legato cannot change the host network for an agent's containers")
 			return
 		}
 		switcher, canSwitch := s.agents.(service.SandboxSwitcher)
@@ -59,15 +73,21 @@ func (s *Server) agentRestartHandler() http.HandlerFunc {
 		}
 		resources := s.restartResources(r, names)
 		answer := map[string]any{"task_id": taskID, "restarted": true}
-		if req.SwitchSandbox {
+		switch {
+		case req.DockerHostNetwork != nil:
+			err = hostNetwork.RestartAgentSettingDockerHostNetwork(r.Context(), taskID, resources, *req.DockerHostNetwork)
+			answer["docker_host_network"] = *req.DockerHostNetwork
+		case req.SwitchSandbox:
 			var sandboxed bool
 			sandboxed, err = switcher.RestartAgentSwitchingSandbox(r.Context(), taskID, resources)
 			answer["sandboxed"] = sandboxed
-		} else {
+		default:
 			err = agents.RestartAgent(r.Context(), taskID, resources)
 		}
 		if err != nil {
 			switch {
+			case errors.Is(err, service.ErrDockerHostNetwork):
+				s.writeError(w, http.StatusBadRequest, err.Error())
 			case errors.Is(err, service.ErrAgentNotRestartable), errors.Is(err, service.ErrTaskResumeConflict):
 				s.writeError(w, http.StatusConflict, err.Error())
 			case errors.Is(err, store.ErrNotFound):

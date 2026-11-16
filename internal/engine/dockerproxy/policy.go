@@ -72,7 +72,15 @@ func (p *Proxy) createContainer(ctx context.Context, r *http.Request) error {
 	if err := hc.normalize(hostConfigFields, "HostConfig."); err != nil {
 		return err
 	}
-	if err := p.checkHostConfig(ctx, hc); err != nil {
+	var mode string
+	if _, err := hc.decode("NetworkMode", &mode); err != nil {
+		return err
+	}
+	hostNet := mode == "host"
+	if hostNet && !p.opts.HostNetwork {
+		return refuse("the host network is not allowed")
+	}
+	if err := p.checkHostConfig(ctx, hc, hostNet); err != nil {
 		return err
 	}
 	if err := body.set("HostConfig", hc); err != nil {
@@ -91,6 +99,10 @@ func (p *Proxy) createContainer(ctx context.Context, r *http.Request) error {
 	}
 	checked := map[string]*object{}
 	for name, raw := range endpoints {
+		if name == "host" && !hostNet {
+			// Only with NetworkMode host, so its limits apply.
+			return refuse("the host network is not allowed here: name it as HostConfig.NetworkMode")
+		}
 		if err := p.checkNetworkRef(ctx, name); err != nil {
 			return err
 		}
@@ -117,10 +129,21 @@ func (p *Proxy) createContainer(ctx context.Context, r *http.Request) error {
 	if err := p.labels(body, "Labels"); err != nil {
 		return err
 	}
+	if hostNet && p.opts.Logf != nil {
+		var image string
+		_, _ = body.decode("Image", &image)
+		p.opts.Logf("docker: %s makes a container on the host network: name %q, image %q", p.opts.Execution, r.URL.Query().Get("name"), image)
+	}
 	return setBody(r, body)
 }
 
-func (p *Proxy) checkHostConfig(ctx context.Context, hc *object) error {
+// hostNetworkCaps are the capabilities a container on the host network may
+// not have: in the host's network namespace a rootful container's root
+// would sniff its traffic (loopback included), take its ports below 1024,
+// or change its interfaces, routes and firewall.
+var hostNetworkCaps = []string{"NET_RAW", "NET_BIND_SERVICE", "NET_ADMIN"}
+
+func (p *Proxy) checkHostConfig(ctx context.Context, hc *object, hostNet bool) error {
 	var privileged bool
 	if _, err := hc.decode("Privileged", &privileged); err != nil {
 		return err
@@ -155,6 +178,9 @@ func (p *Proxy) checkHostConfig(ctx context.Context, hc *object) error {
 	}
 	for _, c := range capAdd {
 		name := strings.TrimPrefix(strings.ToUpper(strings.TrimSpace(c)), "CAP_")
+		if hostNet && (slices.Contains(hostNetworkCaps, name) || name == "ALL") {
+			return refuse("adding the capability %s is not allowed on the host network: it would act on the host's network", name)
+		}
 		if !slices.ContainsFunc(p.opts.CapAdd, func(a string) bool {
 			return strings.TrimPrefix(strings.ToUpper(strings.TrimSpace(a)), "CAP_") == name
 		}) {
@@ -187,8 +213,19 @@ func (p *Proxy) checkHostConfig(ctx context.Context, hc *object) error {
 		return err
 	}
 	switch {
-	case mode == "host":
-		return refuse("the host network is not allowed")
+	case hostNet:
+		var capDrop []string
+		if _, err := hc.decode("CapDrop", &capDrop); err != nil {
+			return err
+		}
+		for _, c := range hostNetworkCaps[:2] {
+			if !slices.Contains(capDrop, c) {
+				capDrop = append(capDrop, c)
+			}
+		}
+		if err := hc.set("CapDrop", capDrop); err != nil {
+			return err
+		}
 	case strings.HasPrefix(mode, "container:"):
 		id, err := p.ownContainer(ctx, strings.TrimPrefix(mode, "container:"))
 		if err != nil {
@@ -227,6 +264,9 @@ func (p *Proxy) checkHostConfig(ctx context.Context, hc *object) error {
 		return err
 	}
 	for key := range sysctls {
+		if hostNet && strings.HasPrefix(key, "net.") {
+			return refuse("the sysctl %s is not allowed on the host network: it would be the host's", key)
+		}
 		if !slices.ContainsFunc(namespacedSysctls, func(prefix string) bool { return strings.HasPrefix(key, prefix) }) {
 			return refuse("the sysctl %s is not allowed: only those kept per namespace are", key)
 		}
@@ -554,9 +594,12 @@ func (p *Proxy) checkVolumeRef(ctx context.Context, name string, opts map[string
 }
 
 // checkNetworkRef allows joining the default bridge or a network this agent
-// made.
+// made, and the host network when the agent may use it.
 func (p *Proxy) checkNetworkRef(ctx context.Context, name string) error {
 	if name == "host" {
+		if p.opts.HostNetwork {
+			return nil
+		}
 		return refuse("the host network is not allowed")
 	}
 	if predefinedNetwork(name) {
@@ -732,13 +775,18 @@ func (p *Proxy) createNetwork(r *http.Request) error {
 	return setBody(r, body)
 }
 
-// checkBuild refuses a build on the host network, and labels the image so
+// checkBuild refuses a build on the host network unless the agent may use
+// it, and labels the image so
 // this agent may remove it.
 func (p *Proxy) checkBuild(r *http.Request) error {
 	q := r.URL.Query()
 	for _, mode := range q["networkmode"] {
-		switch mode {
-		case "", "default", "bridge", "none":
+		switch {
+		case mode == "", mode == "default", mode == "bridge", mode == "none":
+		case mode == "host" && p.opts.HostNetwork:
+			if p.opts.Logf != nil {
+				p.opts.Logf("docker: %s builds on the host network: tags %q", p.opts.Execution, q["t"])
+			}
 		default:
 			return refuse("building with the network %s is not allowed", mode)
 		}

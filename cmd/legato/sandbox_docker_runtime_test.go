@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -53,7 +54,7 @@ func TestTheHostServesARunningExecutionsDockerSocket(t *testing.T) {
 		t.Fatal(err)
 	}
 	docker := sandboxDocker(cfg)
-	if err := docker.WriteView("ex-run", sandbox.Plan{}); err != nil {
+	if err := docker.WriteView("ex-run", sandbox.Plan{}, false); err != nil {
 		t.Fatal(err)
 	}
 
@@ -88,5 +89,63 @@ func TestTheHostServesARunningExecutionsDockerSocket(t *testing.T) {
 	host.Reconcile(ctx)
 	if _, err := client.Get("http://docker/_ping"); err == nil {
 		t.Fatal("the socket of an ended execution still answers")
+	}
+}
+
+// Each execution's socket applies its own agent's choice: the host network
+// for its containers only where that agent was started with it.
+func TestEachExecutionsSocketAllowsTheHostNetworkOnlyIfItsAgentMay(t *testing.T) {
+	runtime := shortDir(t)
+	t.Setenv("XDG_RUNTIME_DIR", runtime)
+	daemonSock := filepath.Join(runtime, "d.sock")
+	ln, err := net.Listen("unix", daemonSock)
+	if err != nil {
+		t.Fatal(err)
+	}
+	daemon := &http.Server{Handler: http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		io.WriteString(w, `{"Id":"made"}`)
+	})}
+	go daemon.Serve(ln)
+	t.Cleanup(func() { daemon.Close() })
+
+	cfg := &config.Config{DataDir: t.TempDir()}
+	cfg.Agents.Sandbox.Enabled = true
+	cfg.Agents.Sandbox.Docker = config.SandboxDockerConfig{Enabled: true, Host: "unix://" + daemonSock, Publish: "loopback"}
+	db := channelsTestDB(t)
+	ctx := context.Background()
+	if err := db.CreateTask(ctx, store.Task{ID: "task-1", Title: "t", Status: "Doing"}); err != nil {
+		t.Fatal(err)
+	}
+	docker := sandboxDocker(cfg)
+	for id, hostNetwork := range map[string]bool{"ex-host": true, "ex-plain": false} {
+		if err := db.CreateExecution(ctx, store.Execution{ID: id, TaskID: "task-1", Kind: store.ExecutionInteractive, Status: store.ExecutionRunning, StartedAt: time.Now()}); err != nil {
+			t.Fatal(err)
+		}
+		if err := docker.WriteView(id, sandbox.Plan{}, hostNetwork); err != nil {
+			t.Fatal(err)
+		}
+	}
+	host := startDockerHost(ctx, cfg, db, nil)
+	t.Cleanup(host.Stop)
+	for id, want := range map[string]int{"ex-host": http.StatusOK, "ex-plain": http.StatusForbidden} {
+		client := socketClient(docker.SocketPath(id))
+		deadline := time.Now().Add(5 * time.Second)
+		var resp *http.Response
+		for {
+			resp, err = client.Post("http://docker/v1.47/containers/create", "application/json",
+				strings.NewReader(`{"Image":"alpine","HostConfig":{"NetworkMode":"host"}}`))
+			if err == nil || time.Now().After(deadline) {
+				break
+			}
+			time.Sleep(50 * time.Millisecond)
+		}
+		if err != nil {
+			t.Fatalf("%s: the socket does not answer: %v", id, err)
+		}
+		body, _ := io.ReadAll(resp.Body)
+		resp.Body.Close()
+		if resp.StatusCode != want {
+			t.Errorf("%s: a host-network container = %d %s, want %d", id, resp.StatusCode, body, want)
+		}
 	}
 }
