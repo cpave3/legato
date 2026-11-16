@@ -49,7 +49,7 @@ func TestClaudeStateModReportsEveryHookTheStateNeeds(t *testing.T) {
 		commands[groups[0].Hooks[0].Command] = true
 	}
 	slices.Sort(events)
-	want := []string{"PermissionRequest", "PostCompact", "PostToolUse", "PreCompact", "SessionEnd", "SessionStart", "Stop", "StopFailure", "UserPromptSubmit"}
+	want := []string{"PermissionRequest", "PostCompact", "PostToolUse", "PreCompact", "SessionEnd", "SessionStart", "Stop", "StopFailure", "SubagentStart", "SubagentStop", "UserPromptSubmit"}
 	if !slices.Equal(events, want) {
 		t.Fatalf("events = %v, want %v", events, want)
 	}

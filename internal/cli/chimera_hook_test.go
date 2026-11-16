@@ -184,3 +184,26 @@ func TestChimeraHook_SubagentOutcomes(t *testing.T) {
 		}
 	}
 }
+
+// A Chimera subagent, foreground or background, is timed from its spawn to
+// its finish; one its subagent emitted is not the session's.
+func TestChimeraHook_SubagentsAreTimedFromSpawnToFinish(t *testing.T) {
+	a := newHookAgent(t)
+	sendChimera(t, a, `{"type":"turn.start","sessionId":"s1"}`)
+	sendChimera(t, a, `{"type":"agent.spawn","sessionId":"s1","agentId":"fg","background":false,"description":"look"}`)
+	sendChimera(t, a, `{"type":"agent.spawn","sessionId":"s1","agentId":"bg","background":true,"description":"count"}`)
+	sendChimera(t, a, `{"type":"agent.spawn","sessionId":"child","agentId":"grandchild","isSubagent":true}`)
+	if got := a.openSubagents(); fmt.Sprint(got) != "[fg bg]" {
+		t.Fatalf("open = %v, want both subagents of the session", got)
+	}
+
+	sendChimera(t, a, `{"type":"agent.finish","sessionId":"s1","agentId":"fg","reason":"stop","background":false}`)
+	if got := a.openSubagents(); fmt.Sprint(got) != "[bg]" {
+		t.Fatalf("open after one finished = %v", got)
+	}
+
+	sendChimera(t, a, `{"type":"session.end","sessionId":"s1","reason":"exit"}`)
+	if got := a.openSubagents(); len(got) != 0 {
+		t.Fatalf("open after the session ended = %v, want none", got)
+	}
+}

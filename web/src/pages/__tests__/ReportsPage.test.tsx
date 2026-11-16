@@ -66,6 +66,37 @@ describe("ReportsPage", () => {
     expect(screen.getByText("Agent active time")).toBeTruthy()
   })
 
+  it("shows aggregate agent time beside elapsed wall-clock time and marks incomplete sub-agent data", async () => {
+    const base = reportFixture().report
+    mockedApiFetch.mockResolvedValue(jsonResponse(reportFixture({
+      summary: { ...base.summary, subagent_working_seconds: 3000, subagent_waiting_seconds: 0, aggregate_working_seconds: 13800, elapsed_seconds: 7200, subagent_count: 5, subagent_coverage: "partial" },
+      by_task: [
+        { ...base.by_task[0], subagent_working_seconds: 3000, subagent_waiting_seconds: 0, aggregate_working_seconds: 10200, elapsed_seconds: 3600, subagent_count: 5, subagent_coverage: "complete" },
+        { ...base.by_task[1], subagent_working_seconds: 0, subagent_waiting_seconds: 0, aggregate_working_seconds: 1800, elapsed_seconds: 1800, subagent_count: 0, subagent_coverage: "none" },
+      ],
+    })))
+    renderPage()
+    await screen.findByRole("heading", { name: "This Week" })
+
+    const metric = (name: string) => within(screen.getByRole("heading", { name }).closest("article")!)
+    expect(metric("Aggregate agent working").getByText("3h 50m †")).toBeTruthy()
+    expect(metric("Elapsed (wall clock)").getByText("2h")).toBeTruthy()
+    expect(metric("Sub-agent working").getByText("50m")).toBeTruthy()
+    const table = screen.getByRole("table", { name: "Tasks breakdown" })
+    for (const header of [/Own working/, /Sub-agents/, /Aggregate/, /Elapsed/]) expect(within(table).getByRole("columnheader", { name: header })).toBeTruthy()
+    const rows = within(table).getAllByRole("row").slice(1)
+    expect(within(rows[0]).getByText("2h 50m")).toBeTruthy()
+    expect(within(rows[1]).getByText("30m †")).toBeTruthy()
+    expect(screen.getByText(/Sub-agent time is not recorded for some of this/)).toBeTruthy()
+  })
+
+  it("reads a report from a server that predates sub-agent time without NaN", async () => {
+    renderPage()
+    await screen.findByRole("heading", { name: "This Week" })
+    expect(screen.queryByText(/NaN/)).toBeNull()
+    expect(screen.queryByRole("heading", { name: "Aggregate agent working" })).toBeNull()
+  })
+
   it("announces increase and decrease direction in summary comparisons", async () => {
     renderPage()
     await screen.findByRole("heading", { name: "This Week" })

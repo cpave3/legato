@@ -186,7 +186,7 @@ func (m Model) View() string {
 	sections := []string{header}
 	if !m.report.ActivityEpoch.IsZero() {
 		sections = append(sections, lipgloss.NewStyle().Foreground(theme.TextTertiary).Render(
-			fmt.Sprintf("Activity recorded from %s · active time is additive across parallel executions", m.report.ActivityEpoch.Format("2006-01-02 15:04"))))
+			fmt.Sprintf("Activity recorded from %s · active time is additive across parallel executions; elapsed counts agents active at once once", m.report.ActivityEpoch.Format("2006-01-02 15:04"))))
 	}
 	sections = append(sections, summary)
 	if chart != "" {
@@ -275,8 +275,27 @@ func (m Model) renderSummary(width int) string {
 		metricStyle.Render("PRs Merged:"), valueStyle.Render(fmt.Sprintf("%d", s.PRsMerged)),
 	)
 
-	lines = append(lines, row1, row2)
+	// The whole agent tree: sub-agents' working time, every agent's working
+	// time added (agent-time), and wall-clock time with any of them active.
+	row3 := fmt.Sprintf("%s %s   %s %s   %s %s",
+		metricStyle.Render("Sub-agents:"), workingStyle.Render(fmtDuration(s.SubagentWorking)),
+		metricStyle.Render("Aggregate:"), workingStyle.Render(fmtTreeDuration(s.AggregateWorking, s.SubagentCoverage)),
+		metricStyle.Render("Elapsed:"), valueStyle.Render(fmtDuration(s.Elapsed)),
+	)
+
+	lines = append(lines, row1, row3, row2)
 	return strings.Join(lines, "\n")
+}
+
+// incompleteTreeMark follows an aggregate whose sub-agent time is not all
+// recorded (older agents, or tools that do not report sub-agents).
+const incompleteTreeMark = "†"
+
+func fmtTreeDuration(d time.Duration, coverage string) string {
+	if (service.TreeTime{SubagentCoverage: coverage}).Incomplete() {
+		return fmtDuration(d) + " " + incompleteTreeMark
+	}
+	return fmtDuration(d)
 }
 
 func (m Model) renderDailyChart(width int) string {
@@ -350,16 +369,23 @@ func (m Model) renderTaskTable(width int) string {
 
 	// Column widths
 	idWidth := 12
-	workingWidth := 10
-	waitingWidth := 10
-	titleWidth := width - idWidth - workingWidth - waitingWidth - 6
+	durWidth := 10
+	titleWidth := width - idWidth - 5*durWidth - 9
 	if titleWidth < 20 {
 		titleWidth = 20
 	}
+	// rest is a row after its ID: the title and the durations.
+	rest := func(title string, values ...string) string {
+		out := fmt.Sprintf(" %-*s", titleWidth, title)
+		for _, v := range values {
+			out += fmt.Sprintf(" %*s", durWidth, v)
+		}
+		return out
+	}
 
-	// Header
-	hdr := fmt.Sprintf("%-*s %-*s %*s %*s",
-		idWidth, "ID", titleWidth, "Title", workingWidth, "Working", waitingWidth, "Waiting")
+	// Header: the task's own agents, their sub-agents, the two added, the
+	// wall-clock time any was active, and the own agents' waiting time.
+	hdr := fmt.Sprintf("%-*s", idWidth, "ID") + rest("Title", "Own", "Sub-agents", "Aggregate", "Elapsed", "Waiting")
 	lines = append(lines, dimStyle.Render(hdr))
 
 	// Visible rows
@@ -380,6 +406,7 @@ func (m Model) renderTaskTable(width int) string {
 		end = len(tasks)
 	}
 
+	incomplete := false
 	for i := start; i < end; i++ {
 		t := tasks[i]
 		id := t.DisplayID
@@ -390,21 +417,20 @@ func (m Model) renderTaskTable(width int) string {
 		if len(title) > titleWidth {
 			title = title[:titleWidth-1] + "…"
 		}
+		if t.Incomplete() {
+			incomplete = true
+		}
+		values := []string{fmtDuration(t.Working), fmtDuration(t.SubagentWorking), fmtTreeDuration(t.AggregateWorking, t.SubagentCoverage), fmtDuration(t.Elapsed), fmtDuration(t.Waiting)}
 
 		if i == m.taskScroll {
-			row := fmt.Sprintf("%-*s %-*s %*s %*s",
-				idWidth, id, titleWidth, title,
-				workingWidth, fmtDuration(t.Working),
-				waitingWidth, fmtDuration(t.Waiting))
+			row := fmt.Sprintf("%-*s", idWidth, id) + rest(title, values...)
 			lines = append(lines, selectedStyle.Render("▸ ")+selectedStyle.Render(row))
 		} else {
-			row := fmt.Sprintf("  %s %-*s %*s %*s",
-				idStyle.Render(fmt.Sprintf("%-*s", idWidth, id)),
-				titleWidth, title,
-				workingWidth, fmtDuration(t.Working),
-				waitingWidth, fmtDuration(t.Waiting))
-			lines = append(lines, row)
+			lines = append(lines, "  "+idStyle.Render(fmt.Sprintf("%-*s", idWidth, id))+rest(title, values...))
 		}
+	}
+	if incomplete {
+		lines = append(lines, dimStyle.Render("  "+incompleteTreeMark+" sub-agent time not recorded (older agents, Codex, Chimera without its mod): own time only"))
 	}
 
 	if len(tasks) > maxVisible {

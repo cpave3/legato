@@ -272,3 +272,20 @@ func TestModel_DirectorySectionRendered(t *testing.T) {
 		t.Error("expected /projects/api in view")
 	}
 }
+
+func TestModel_ViewShowsAgentTreeTime(t *testing.T) {
+	report := sampleReport()
+	report.Summary.TreeTime = service.TreeTime{SubagentWorking: 50 * time.Minute, AggregateWorking: 3*time.Hour + 50*time.Minute, Elapsed: 2 * time.Hour, SubagentCoverage: "partial"}
+	report.ByTask[0].TreeTime = service.TreeTime{SubagentWorking: 50 * time.Minute, AggregateWorking: 2*time.Hour + 50*time.Minute, Elapsed: 90 * time.Minute, SubagentCoverage: "complete"}
+	report.ByTask[1].TreeTime = service.TreeTime{AggregateWorking: time.Hour, Elapsed: time.Hour, SubagentCoverage: "none"}
+	m := New(&mockReportService{report: report})
+	m.width, m.height, m.report = 140, 60, report
+
+	view := m.View()
+
+	for _, want := range []string{"Sub-agents: 50m", "Aggregate: 3h 50m †", "Elapsed: 2h", "Own", "Aggregate", "Elapsed", "2h 50m", "1h †", "† sub-agent time not recorded"} {
+		if !strings.Contains(view, want) {
+			t.Errorf("view lacks %q:\n%s", want, view)
+		}
+	}
+}

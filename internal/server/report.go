@@ -19,21 +19,35 @@ type reportPeriodResponse struct {
 	End    string `json:"end"`
 }
 
+// reportTreeResponse is an agent tree's time (service.TreeTime) beside the
+// top-level agents' own working_seconds, waiting_seconds and error_seconds.
+type reportTreeResponse struct {
+	SubagentWorkingSeconds  int64  `json:"subagent_working_seconds"`
+	SubagentWaitingSeconds  int64  `json:"subagent_waiting_seconds"`
+	AggregateWorkingSeconds int64  `json:"aggregate_working_seconds"`
+	ElapsedSeconds          int64  `json:"elapsed_seconds"`
+	SubagentCount           int    `json:"subagent_count"`
+	SubagentCoverage        string `json:"subagent_coverage"`
+}
+
 type reportSummaryResponse struct {
 	WorkingSeconds int64 `json:"working_seconds"`
 	WaitingSeconds int64 `json:"waiting_seconds"`
 	ErrorSeconds   int64 `json:"error_seconds"`
-	TasksCreated   int   `json:"tasks_created"`
-	TasksCompleted int   `json:"tasks_completed"`
-	AgentSessions  int   `json:"agent_sessions"`
-	PRsMerged      int   `json:"prs_merged"`
+	reportTreeResponse
+	TasksCreated   int `json:"tasks_created"`
+	TasksCompleted int `json:"tasks_completed"`
+	AgentSessions  int `json:"agent_sessions"`
+	PRsMerged      int `json:"prs_merged"`
 }
 
 type reportDayResponse struct {
-	Date           string `json:"date"`
-	WorkingSeconds int64  `json:"working_seconds"`
-	WaitingSeconds int64  `json:"waiting_seconds"`
-	ErrorSeconds   int64  `json:"error_seconds"`
+	Date                    string `json:"date"`
+	WorkingSeconds          int64  `json:"working_seconds"`
+	WaitingSeconds          int64  `json:"waiting_seconds"`
+	ErrorSeconds            int64  `json:"error_seconds"`
+	SubagentWorkingSeconds  int64  `json:"subagent_working_seconds"`
+	AggregateWorkingSeconds int64  `json:"aggregate_working_seconds"`
 }
 
 type reportTaskResponse struct {
@@ -45,6 +59,7 @@ type reportTaskResponse struct {
 	WorkingSeconds int64  `json:"working_seconds"`
 	WaitingSeconds int64  `json:"waiting_seconds"`
 	ErrorSeconds   int64  `json:"error_seconds"`
+	reportTreeResponse
 }
 
 type reportWorkspaceResponse struct {
@@ -79,6 +94,7 @@ type reportExecutionResponse struct {
 	WallClockSeconds int64   `json:"wall_clock_seconds"`
 	StartedAt        string  `json:"started_at"`
 	EndedAt          *string `json:"ended_at"`
+	reportTreeResponse
 }
 
 type reportSwarmResponse struct {
@@ -219,10 +235,10 @@ func mapReportResponse(report *service.Report, kind string, offset int) reportRe
 		ByExecution:       make([]reportExecutionResponse, len(report.ByExecution)),
 	}
 	for i, day := range report.ByDay {
-		response.ByDay[i] = reportDayResponse{Date: day.Date.Format("2006-01-02"), WorkingSeconds: durationSeconds(day.Working), WaitingSeconds: durationSeconds(day.Waiting), ErrorSeconds: durationSeconds(day.Error)}
+		response.ByDay[i] = reportDayResponse{Date: day.Date.Format("2006-01-02"), WorkingSeconds: durationSeconds(day.Working), WaitingSeconds: durationSeconds(day.Waiting), ErrorSeconds: durationSeconds(day.Error), SubagentWorkingSeconds: durationSeconds(day.SubagentWorking), AggregateWorkingSeconds: durationSeconds(day.AggregateWorking)}
 	}
 	for i, task := range report.ByTask {
-		response.ByTask[i] = reportTaskResponse{TaskID: task.TaskID, DisplayID: task.DisplayID, Title: task.Title, WorkspaceName: task.WorkspaceName, Provider: task.Provider, WorkingSeconds: durationSeconds(task.Working), WaitingSeconds: durationSeconds(task.Waiting), ErrorSeconds: durationSeconds(task.Error)}
+		response.ByTask[i] = reportTaskResponse{TaskID: task.TaskID, DisplayID: task.DisplayID, Title: task.Title, WorkspaceName: task.WorkspaceName, Provider: task.Provider, WorkingSeconds: durationSeconds(task.Working), WaitingSeconds: durationSeconds(task.Waiting), ErrorSeconds: durationSeconds(task.Error), reportTreeResponse: mapReportTree(task.TreeTime)}
 	}
 	for i, workspace := range report.ByWorkspace {
 		response.ByWorkspace[i] = reportWorkspaceResponse{WorkspaceID: workspace.WorkspaceID, WorkspaceName: workspace.WorkspaceName, WorkspaceColor: workspace.WorkspaceColor, WorkingSeconds: durationSeconds(workspace.Working), WaitingSeconds: durationSeconds(workspace.Waiting), ErrorSeconds: durationSeconds(workspace.Error), TaskCount: workspace.TaskCount}
@@ -239,7 +255,7 @@ func mapReportResponse(report *service.Report, kind string, offset int) reportRe
 			formatted := execution.EndedAt.Format(time.RFC3339Nano)
 			endedAt = &formatted
 		}
-		response.ByExecution[i] = reportExecutionResponse{ID: execution.ID, Kind: execution.Kind, Status: execution.Status, TaskID: execution.TaskID, TaskTitle: execution.TaskTitle, WorkflowRunID: execution.WorkflowRunID, Engram: execution.Engram, WorkingSeconds: durationSeconds(execution.Working), WaitingSeconds: durationSeconds(execution.Waiting), ErrorSeconds: durationSeconds(execution.Error), WallClockSeconds: durationSeconds(execution.WallClock), StartedAt: execution.StartedAt.Format(time.RFC3339Nano), EndedAt: endedAt}
+		response.ByExecution[i] = reportExecutionResponse{ID: execution.ID, Kind: execution.Kind, Status: execution.Status, TaskID: execution.TaskID, TaskTitle: execution.TaskTitle, WorkflowRunID: execution.WorkflowRunID, Engram: execution.Engram, WorkingSeconds: durationSeconds(execution.Working), WaitingSeconds: durationSeconds(execution.Waiting), ErrorSeconds: durationSeconds(execution.Error), WallClockSeconds: durationSeconds(execution.WallClock), StartedAt: execution.StartedAt.Format(time.RFC3339Nano), EndedAt: endedAt, reportTreeResponse: mapReportTree(execution.TreeTime)}
 	}
 	return response
 }
@@ -249,7 +265,15 @@ func mapReportPeriod(period analytics.TimeRange, kind string, offset int) report
 }
 
 func mapReportSummary(summary service.ReportSummary) reportSummaryResponse {
-	return reportSummaryResponse{WorkingSeconds: durationSeconds(summary.TotalWorking), WaitingSeconds: durationSeconds(summary.TotalWaiting), ErrorSeconds: durationSeconds(summary.TotalError), TasksCreated: summary.TasksCreated, TasksCompleted: summary.TasksCompleted, AgentSessions: summary.AgentSessions, PRsMerged: summary.PRsMerged}
+	return reportSummaryResponse{WorkingSeconds: durationSeconds(summary.TotalWorking), WaitingSeconds: durationSeconds(summary.TotalWaiting), ErrorSeconds: durationSeconds(summary.TotalError), reportTreeResponse: mapReportTree(summary.TreeTime), TasksCreated: summary.TasksCreated, TasksCompleted: summary.TasksCompleted, AgentSessions: summary.AgentSessions, PRsMerged: summary.PRsMerged}
+}
+
+func mapReportTree(tree service.TreeTime) reportTreeResponse {
+	return reportTreeResponse{
+		SubagentWorkingSeconds: durationSeconds(tree.SubagentWorking), SubagentWaitingSeconds: durationSeconds(tree.SubagentWaiting),
+		AggregateWorkingSeconds: durationSeconds(tree.AggregateWorking), ElapsedSeconds: durationSeconds(tree.Elapsed),
+		SubagentCount: tree.SubagentCount, SubagentCoverage: tree.SubagentCoverage,
+	}
 }
 
 func durationSeconds(duration time.Duration) int64 {

@@ -340,21 +340,25 @@ const (
 
 // Execution is one independently startable and terminable unit of agent work.
 type Execution struct {
-	ID                string     `db:"id"`
-	Kind              string     `db:"kind"`
-	Status            string     `db:"status"`
-	TaskID            string     `db:"task_id"`
-	ExecutionTaskID   string     `db:"execution_task_id"`
-	TaskTitle         string     `db:"task_title"`
-	WorkflowRunID     string     `db:"workflow_run_id"`
-	WorkflowAttemptID string     `db:"workflow_attempt_id"`
-	SwarmID           string     `db:"swarm_id"`
-	SwarmSubtaskID    string     `db:"swarm_subtask_id"`
-	AgentSessionID    *int       `db:"agent_session_id"`
-	AgentKind         string     `db:"agent_kind"`
-	Role              string     `db:"role"`
-	WorkingDir        string     `db:"working_dir"`
-	ProviderSessionID string     `db:"provider_session_id"`
+	ID                string `db:"id"`
+	Kind              string `db:"kind"`
+	Status            string `db:"status"`
+	TaskID            string `db:"task_id"`
+	ExecutionTaskID   string `db:"execution_task_id"`
+	TaskTitle         string `db:"task_title"`
+	WorkflowRunID     string `db:"workflow_run_id"`
+	WorkflowAttemptID string `db:"workflow_attempt_id"`
+	SwarmID           string `db:"swarm_id"`
+	SwarmSubtaskID    string `db:"swarm_subtask_id"`
+	AgentSessionID    *int   `db:"agent_session_id"`
+	AgentKind         string `db:"agent_kind"`
+	Role              string `db:"role"`
+	WorkingDir        string `db:"working_dir"`
+	ProviderSessionID string `db:"provider_session_id"`
+	// SubagentTelemetry is whether the agent tool reports its sub-agents to
+	// Legato (subagent_activity), so the execution's totals cover its whole
+	// agent tree. See docs/ai/database.md § Sub-agent time.
+	SubagentTelemetry bool       `db:"subagent_telemetry"`
 	StartedAt         time.Time  `db:"started_at"`
 	EndedAt           *time.Time `db:"ended_at"`
 }

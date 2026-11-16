@@ -176,6 +176,22 @@ type NativeBindingAdapter interface {
 	BindsNativeEndpoint() bool
 }
 
+// SubagentReportingAdapter is an optional capability for adapters whose
+// sessions report their sub-agents' starts and ends to Legato (Claude Code
+// with its state plugin, Chimera with the Legato mod). An execution records
+// it (store.Execution.SubagentTelemetry), so a report can say whether a
+// task's sub-agent time is complete. See docs/ai/database.md § Sub-agent time.
+type SubagentReportingAdapter interface {
+	ReportsSubagents() bool
+}
+
+// reportsSubagents is whether sessions an adapter launches report their
+// sub-agents.
+func reportsSubagents(adapter AIToolAdapter) bool {
+	reporter, ok := adapter.(SubagentReportingAdapter)
+	return ok && reporter.ReportsSubagents()
+}
+
 // InterruptAdapter is an optional capability adapters implement to describe
 // which tmux key names should be sent before an urgent message in order to
 // abort the agent's current turn. Adapters that don't implement this
