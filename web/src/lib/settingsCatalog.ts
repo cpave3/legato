@@ -3,7 +3,7 @@ export const settingsCategories = [
   { id: "agents", title: "Agents and workspaces", terms: "repositories guidance resources skills tools macros workspaces defaults groups sandbox swarms engrams learning models" },
   { id: "reeve", title: "Reeve", terms: "sessions automation rules engram pairings voice dictation speech microphone" },
   { id: "security", title: "Security", terms: "credentials secrets password grants audit approval devices channels tokens" },
-  { id: "integrations", title: "Integrations", terms: "jira github burnlite argus mqtt home assistant broker notifications delivery" },
+  { id: "integrations", title: "Integrations", terms: "jira github burnlite argus mqtt home assistant broker notifications delivery mcp servers oauth" },
   { id: "connections", title: "Connections and handoff", terms: "browser servers pairing workers main instances tls network discovery" },
   { id: "server", title: "Server and maintenance", terms: "tint identity updates restart configuration migration import export tui development advanced" },
 ] as const
@@ -43,6 +43,7 @@ export const settingsCards: { id: string; title: string; category: SettingsCateg
   { id: "devices", title: "Approval devices", category: "security", terms: "passkey signature phone" },
   { id: "integration-tokens", title: "Integration tokens", category: "security", terms: "argus access" },
   { id: "mqtt", title: "Home Assistant over MQTT", category: "integrations", terms: "broker smart home automation" },
+  { id: "mcp-connections", title: "MCP servers", category: "integrations", terms: "mcp oauth tools upstream notion linear connect authorize" },
   { id: "servers", title: "Browser servers", category: "connections", terms: "address connection", scope: "This browser" },
   { id: "pair-phone", title: "Pair a phone", category: "connections", terms: "qr device" },
   { id: "pair-browser", title: "Pair this browser", category: "connections", terms: "qr scan", scope: "This browser" },

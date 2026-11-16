@@ -160,7 +160,7 @@ Choose a category, or search by task, title or configuration key. On a wide scre
 - **Agents and workspaces**: repositories, directory presets, resources, [skills](/legato/agent-tools/skills/), guidance, agent tools, workspaces, macros, sandbox, swarms and engrams. Managed clones link to **Remote**.
 - **Reeve**: sessions, automation, rules, engram, pairings and voice.
 - **Security**: credentials and sources, grants, audit, signing devices and integration tokens.
-- **Integrations**: Jira, GitHub, Burnlite, Argus, MQTT and server notification delivery.
+- **Integrations**: Jira, GitHub, Burnlite, Argus, MCP servers, MQTT and server notification delivery.
 - **Connections and handoff**: browser servers, pairing, TLS, workers and main instances.
 - **Server and maintenance**: tint, updates/restart, configuration sources, migration, import/export and conditional development controls.
 
