@@ -19,13 +19,20 @@ func MCPBrokerOps(build func(BrokerCaller) MCPOptions) map[string]BrokerOp {
 		return MCPServerOptions(opts)
 	}
 	return map[string]BrokerOp{
-		"mcp.list": func(_ context.Context, caller BrokerCaller, _ json.RawMessage) (any, error) {
+		"mcp.list": func(ctx context.Context, caller BrokerCaller, _ json.RawMessage) (any, error) {
+			built := build(caller)
 			opts := server(caller)
 			specs := make([]mcpserver.Spec, 0, len(opts.Tools))
 			for _, tool := range opts.Tools {
 				specs = append(specs, tool.Spec())
 			}
-			return map[string]any{"instructions": opts.Instructions, "version": opts.Version, "tools": specs}, nil
+			instructions := opts.Instructions
+			if built.Upstream != nil && caller.TaskID != "" {
+				upstream, guidance := upstreamSpecs(ctx, built.Upstream, caller, opts.Tools)
+				specs = append(specs, upstream...)
+				instructions += guidance
+			}
+			return map[string]any{"instructions": instructions, "version": opts.Version, "tools": specs}, nil
 		},
 		"mcp.call": func(ctx context.Context, caller BrokerCaller, raw json.RawMessage) (any, error) {
 			var args struct {
@@ -34,6 +41,14 @@ func MCPBrokerOps(build func(BrokerCaller) MCPOptions) map[string]BrokerOp {
 			}
 			if err := json.Unmarshal(raw, &args); err != nil || args.Name == "" {
 				return nil, refuse("bad_request", "name is required")
+			}
+			// An upstream tool is authorized by the host on every call,
+			// whatever list the session holds.
+			if isUpstreamName(args.Name) {
+				if up := build(caller).Upstream; up != nil && caller.TaskID != "" {
+					return callUpstream(ctx, up, caller, args.Name, args.Arguments), nil
+				}
+				return nil, refuse("unknown_tool", "this session has no tool named "+args.Name)
 			}
 			for _, tool := range server(caller).Tools {
 				if tool.Name != args.Name {

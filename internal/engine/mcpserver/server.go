@@ -22,6 +22,9 @@ type Definition struct {
 	// ReadOnly marks a tool that changes nothing the person would have to
 	// undo. Clients use it to decide whether a call needs approval.
 	ReadOnly bool
+	// OpenWorld marks a tool another server runs, whose effects Legato
+	// cannot vouch for: it is announced as open-world and not as harmless.
+	OpenWorld bool
 	// Normalize, when set, puts a call's arguments into shape before they
 	// are checked against the schema: a string where a list belongs, say,
 	// which models often send.
@@ -143,11 +146,15 @@ func NewTool[In any](def Definition, handler func(context.Context, In) (Result, 
 // NewRelayTool offers a tool described by spec, whose calls handler
 // forwards with their raw arguments: a server that relays another's tools.
 func NewRelayTool(spec Spec, handler func(context.Context, json.RawMessage) (Result, error)) Tool {
-	closedWorld := false
+	closedWorld, openWorld := false, true
+	annotations := &mcp.ToolAnnotations{Title: spec.Title, ReadOnlyHint: spec.ReadOnly, DestructiveHint: &closedWorld, OpenWorldHint: &closedWorld}
+	if spec.OpenWorld {
+		annotations = &mcp.ToolAnnotations{Title: spec.Title, OpenWorldHint: &openWorld}
+	}
 	tool := &mcp.Tool{
 		Name: spec.Name, Title: spec.Title, Description: spec.Description,
 		InputSchema: json.RawMessage(spec.InputSchema),
-		Annotations: &mcp.ToolAnnotations{Title: spec.Title, ReadOnlyHint: spec.ReadOnly, DestructiveHint: &closedWorld, OpenWorldHint: &closedWorld},
+		Annotations: annotations,
 	}
 	return Tool{Name: spec.Name, spec: spec, call: handler, add: func(server *mcp.Server) {
 		server.AddTool(tool, func(ctx context.Context, req *mcp.CallToolRequest) (*mcp.CallToolResult, error) {

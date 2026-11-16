@@ -114,7 +114,17 @@ An agent can show image files from disk, such as a screenshot it took. Legato ke
 - At most 60 images in one card or artifact.
 - A task keeps the 100 images it used most recently.
 
-### Limits on what is kept
+### Tools of MCP servers you connect
+
+When you connect an MCP server to Legato and allow agents to use some of its tools, those tools appear beside Legato's own, named `<server>__<tool>` (for example `notion__search`). Legato calls them for the agent with your authorization: the agent never sees a token, and it cannot sign in to the server itself.
+
+- An agent sees only the tools your rules could let it use, for the repository it works in.
+- Every call is checked when it is made. Turning a server off, removing a rule or ending a grant stops calls at once, even from an agent that listed the tool earlier.
+- A rule that asks you shows the call in your approvals; the agent is told it waits for you.
+- Agents learn of tools when their session starts. After you add a tool or a rule, start a new session or reload the agent. Legato never restarts an agent for this.
+- What a server says (its tool descriptions and its results) is shown to the agent as that server's words, and links in results are never opened by Legato.
+
+## Limits on what is kept
 
 - A card or an artifact holds at most 1 MiB of text.
 - A task keeps 200 cards and artifacts. Past that, the oldest go.

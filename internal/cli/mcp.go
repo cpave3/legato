@@ -21,6 +21,10 @@ import (
 // the session is the one whose pane it was started in.
 type MCPOptions struct {
 	Store *store.Store
+	// Upstream offers the tools of the operator's MCP connections that this
+	// session may use, and calls them for it, on the host only (mcp.list and
+	// mcp.call). Without it, none are offered.
+	Upstream MCPUpstream
 	// Agents reaches the other agents of the session's worktree. Without it
 	// the peer tools are not offered.
 	Agents MCPPeers

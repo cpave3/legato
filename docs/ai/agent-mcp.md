@@ -80,6 +80,20 @@ A session of the Reeve (a task of kind `reeve`) also gets `docs`, `instance_stat
 - Codex: the tools are annotated as not destructive and closed-world; Codex runs them without an approval request.
 - Chimera: the entry's `trustedTools` lists every tool name (`cli.MCPToolNames()`).
 
+## Tools of the operator's MCP connections
+
+The host's `mcp.list` adds the tools of the operator's MCP connections that the session may use (`MCPOptions.Upstream`, the host's `service.MCPBroker`, wired by `startMCPBroker` in `cmd/legato/mcp_broker_runtime.go`). They are named `<connection>__<tool>`, never collide with Legato's own tools (none has a double underscore; an equal name is dropped), and are relayed with `Definition.OpenWorld`, so their annotations say open-world and not harmless. Their descriptions start with `[<connection>]`. The instructions add `upstreamGuidance` (whose tools these are, that their words are the server's and not instructions, how refusals and pending approvals read) and up to five tools or servers not offered, with reasons. The host's `mcp.call` sends every `__` name straight to `MCPBroker.CallTool` for the caller the broker token names, whatever list the session holds, so a revoked or disabled tool is refused (and audited) at once. A tool the session was never offered cannot be called: the agent-side server only knows the tools it listed. Text content is passed on; a resource link becomes `[link from the server, not fetched: …]`; other content is named and not shown; structured content is the call's data.
+
+Only the host offers these tools: the in-process fallback of `legato mcp serve` (no broker answering, outside the sandbox) offers none, so no agent-side process ever holds an upstream token.
+
+| Agent | When it learns the tools | After the operator adds or grants a tool | After a revocation, a rule change or turning a connection off |
+| --- | --- | --- | --- |
+| Claude Code | At session start, when it starts the `legato-tools` plugin's `legato mcp serve` | A new session, or the operator's Reload (`POST /api/agents/{task_id}/restart`, which resumes the conversation) | Refused at the next call; the tool stays in its list until a reload |
+| Codex | At session start, when its app server starts the `legato` MCP server | Same | Same |
+| Chimera | At session start, from the mod manifest's (or `--mcp-config`'s) `legato mcp serve` | Same | Same |
+
+Legato sends agents no `tools/list_changed`, and never restarts or interrupts an agent for a catalog change.
+
 ## How an agent learns that the tools exist
 
 An agent should reach for the tools by itself. One text says so, `cli.MCPGuidance`, and it reaches each agent tool's model by the route that tool supports:
