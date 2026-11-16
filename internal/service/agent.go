@@ -314,6 +314,8 @@ type LearningPromptProvider interface {
 }
 
 type agentService struct {
+	capabilities         CapabilitySource
+	capabilityFolders    CapabilityFolders
 	interruptedMu        sync.Mutex
 	interruptedRoutes    []InterruptedResumeRoute
 	resourceResolver     ResourceResolver
@@ -549,6 +551,12 @@ type AgentServiceOptions struct {
 	// their executions end and swept on reconcile, also while the sandbox
 	// is off. Nil: the Sandbox's own.
 	SandboxScratch *SandboxScratch
+	// Capabilities chooses what each agent is given beyond its tool: the
+	// skills that are on. Nil: nothing. See agent_capabilities.go.
+	Capabilities CapabilitySource
+	// CapabilityFolders is where each execution's capabilities are copied,
+	// removed when it ends and swept on reconcile.
+	CapabilityFolders CapabilityFolders
 }
 
 // JobCloner makes the clone an agent spawned with a repository works in.
@@ -650,6 +658,8 @@ func NewAgentService(s *store.Store, tmux TmuxManager, workDir string, opts ...A
 		svc.learningMaxBytes = opts[0].LearningPromptMaxBytes
 		svc.peerAwareness = !opts[0].DisablePeerAwareness
 		svc.sandbox = opts[0].Sandbox
+		svc.capabilities = opts[0].Capabilities
+		svc.capabilityFolders = opts[0].CapabilityFolders
 		switch {
 		case opts[0].SandboxScratch != nil:
 			svc.scratch = *opts[0].SandboxScratch
@@ -1112,6 +1122,9 @@ func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, hei
 			envMap[k] = v
 		}
 	}
+
+	// Skills, copied for this execution where its tool finds them.
+	a.giveCapabilities(ctx, CapabilityRequest{TaskID: taskID, ExecutionID: executionID, AgentKind: agentKind, Role: opt.Role, Slot: slot, WorkDir: workDir}, adapter, envMap)
 
 	// The bootstrap secret is read by the launch command, never tmux's environment.
 	var chimeraSecret, chimeraSecretPath string
@@ -1878,6 +1891,7 @@ func (a *agentService) EndExecution(ctx context.Context, executionID, status str
 		a.docker.cleanLogged(executionID)
 	}
 	a.scratch.removeLogged(executionID)
+	a.capabilityFolders.removeLogged(executionID)
 	a.endEngramSession(ctx, executionID)
 	return nil
 }
@@ -1937,6 +1951,11 @@ func (a *agentService) ReconcileSessions(ctx context.Context) error {
 		log.Printf("sandbox: removed the scratch of %d ended execution(s)", cleared)
 	}
 	a.docker.sweepLogged(ctx, StoreExecutionStatus(a.store))
+	if cleared, err := a.capabilityFolders.Sweep(ctx, StoreExecutionStatus(a.store)); err != nil {
+		log.Printf("capabilities: sweeping the folders of ended executions: %v", err)
+	} else if cleared > 0 {
+		log.Printf("capabilities: removed the folders of %d ended execution(s)", cleared)
+	}
 	count, oldest, err := a.store.ExecutionHealth(ctx)
 	if err != nil {
 		return err

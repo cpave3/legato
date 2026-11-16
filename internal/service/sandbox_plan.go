@@ -96,6 +96,12 @@ type SandboxPlanInput struct {
 	DockerSocket     string
 	PastedImagesDir  string
 	AgentFilesDir    string // ~/.legato/agents/<task>: role prompt and brief
+	// CapabilitiesDir is the execution's own copy of what it is given (its
+	// skills), <data_dir>/capabilities/<execution>: read-only.
+	CapabilitiesDir string
+	// SkillsDir is the operator's skills folder (skills.dir), which no
+	// agent may write: never shown, an agent gets its copy of a skill.
+	SkillsDir string
 	ChimeraSecretDir string // host bootstrap material, hidden even during clone setup
 	GitCommonDir     string // a worktree's main .git, written by commits
 	// JobDir is the job clone Legato made for the session's task, in its
@@ -277,6 +283,9 @@ func forbidden(in SandboxPlanInput) []string {
 	paths := []string{
 		// The configuration file itself: its folder may be the person's home.
 		in.DataDir, in.ConfigPath,
+		// The skills folder: agents get copies, and must not change the
+		// skills every later agent is given.
+		in.SkillsDir,
 		filepath.Join(home, ".ssh"), filepath.Join(home, ".config/gh"), filepath.Join(home, ".gitconfig"),
 		filepath.Join(home, ".git-credentials"), filepath.Join(home, ".config/git/credentials"), filepath.Join(home, ".netrc"),
 		filepath.Join(home, ".1password"), filepath.Join(home, ".config/op"), filepath.Join(home, ".config/legato"),
@@ -347,7 +356,7 @@ func inOthersScratch(in SandboxPlanInput, root, path string) bool {
 // allowedInside are mounts that may sit inside a forbidden folder: the parts
 // of Legato's runtime and data folders a session needs.
 func allowedInside(in SandboxPlanInput, path string) bool {
-	for _, ok := range []string{filepath.Dir(in.BrokerSocket), in.SSHSocket, in.CredentialWrapperDir, in.GHConfigDir, in.JobDir,
+	for _, ok := range []string{filepath.Dir(in.BrokerSocket), in.SSHSocket, in.CredentialWrapperDir, in.GHConfigDir, in.JobDir, in.CapabilitiesDir,
 		filepath.Join(in.DataDir, "claude-mod"), filepath.Join(in.DataDir, "chimera-mod"), filepath.Join(in.DataDir, "repos"), filepath.Join(in.RuntimeDir, "sandbox", in.ExecutionID)} {
 		if ok != "" && ok != "." && within(path, ok) {
 			return true
@@ -406,6 +415,7 @@ func BuildSandboxPlan(in SandboxPlanInput) (sandbox.Plan, error) {
 		in.JobDir = real(in.JobDir)
 		in.BinaryPath, in.GitCommonDir, in.AgentFilesDir, in.PastedImagesDir = real(in.BinaryPath), real(in.GitCommonDir), real(in.AgentFilesDir), real(in.PastedImagesDir)
 		in.ChimeraSecretDir = real(in.ChimeraSecretDir)
+		in.CapabilitiesDir, in.SkillsDir = real(in.CapabilitiesDir), real(in.SkillsDir)
 		in.CredentialWrapperDir, in.GHConfigDir = real(in.CredentialWrapperDir), real(in.GHConfigDir)
 		in.SSHConfigDir, in.KnownHosts = real(in.SSHConfigDir), real(in.KnownHosts)
 		installs := make(map[string][]string, len(in.ToolInstalls))
@@ -559,7 +569,7 @@ func BuildSandboxPlan(in SandboxPlanInput) (sandbox.Plan, error) {
 		}
 		add(in.GitCommonDir, checkout)
 	}
-	for _, p := range []string{in.AgentFilesDir, in.PastedImagesDir, in.CredentialWrapperDir, in.GHConfigDir, in.BinaryPath} {
+	for _, p := range []string{in.AgentFilesDir, in.PastedImagesDir, in.CapabilitiesDir, in.CredentialWrapperDir, in.GHConfigDir, in.BinaryPath} {
 		if p != "" {
 			add(p, sandbox.ReadOnly)
 		}

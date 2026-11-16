@@ -132,6 +132,10 @@ If Claude Code deleted the transcript, it says so in the terminal. Legato does n
 
 After a crash, an agent whose session is gone is kept as **Interrupted** and resumes the same way, from its saved conversation. See [After a crash: interrupted agents](/legato/using/agents/#after-a-crash-interrupted-agents).
 
+## Skills
+
+Each Claude Code agent gets the [skills](/legato/agent-tools/skills/) you turned on in Legato as a plugin named `legato-skills`, so a skill is called `legato-skills:<name>` and sits beside any skill of the same name in the project or in `~/.claude/skills`.
+
 ## Token usage in Manticore
 
 With a `manticore:` block in the configuration, Legato loads a second mod, `legato-manticore`, into each Claude Code session. It reports the token counts of every model request to your Manticore instance, and never the prompt or the reply. It works with or without the native panel. See [Manticore](/legato/integrations/manticore/).

@@ -69,6 +69,12 @@ func (a *agentService) sandboxPrefix(ctx context.Context, taskID, attributionTas
 			break
 		}
 	}
+	// The execution's skills, when it was given any.
+	if dir := a.capabilityFolders.Dir(executionID); dir != "" {
+		if info, err := os.Stat(dir); err == nil && info.IsDir() {
+			in.CapabilitiesDir = dir
+		}
+	}
 	if dir, err := EnsurePastedImageDir(taskID); err == nil {
 		in.PastedImagesDir = dir
 	} else {

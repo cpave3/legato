@@ -620,6 +620,14 @@ Whether agents can be started as engrams. Usually set in Settings. See [Engrams]
 | `engram.enabled` | string | `auto` | `auto` offers engrams when the engram command answers; `on` does too, and logs an error when it does not; `off` hides everything about engrams. |
 | `engram.command` | string | none | The engram binary. Without it, `engram` is looked up on the `PATH` of the Legato server. |
 
+## Skills
+
+Where Legato finds the skills it gives agents. See [Skills](/legato/agent-tools/skills/).
+
+| Setting | Type | Default | What it does |
+| --- | --- | --- | --- |
+| `skills.dir` | string | `~/.legato/skills` | The skills folder: one folder per skill, each with a `SKILL.md`. An absolute path or one that starts with `~/`. Takes effect at the next restart. |
+
 ## Manticore
 
 Reports the tokens each Claude Code session uses to a Manticore instance, and shows today's total in the TUI. Set both settings or neither. See [Manticore](/legato/integrations/manticore/).

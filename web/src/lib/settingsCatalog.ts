@@ -1,6 +1,6 @@
 export const settingsCategories = [
   { id: "preferences", title: "Preferences", terms: "appearance theme terminal motion keyboard prompt detection browser notifications" },
-  { id: "agents", title: "Agents and workspaces", terms: "repositories guidance resources tools macros workspaces defaults groups sandbox swarms engrams learning models" },
+  { id: "agents", title: "Agents and workspaces", terms: "repositories guidance resources skills tools macros workspaces defaults groups sandbox swarms engrams learning models" },
   { id: "reeve", title: "Reeve", terms: "sessions automation rules engram pairings voice dictation speech microphone" },
   { id: "security", title: "Security", terms: "credentials secrets password grants audit approval devices channels tokens" },
   { id: "integrations", title: "Integrations", terms: "jira github burnlite argus mqtt home assistant broker notifications delivery" },
@@ -10,7 +10,7 @@ export const settingsCategories = [
 export type SettingsCategory = typeof settingsCategories[number]["id"]
 
 const prefixes: Partial<Record<SettingsCategory, string[]>> = {
-  agents: ["agents", "engram", "swarm", "learning", "groups", "default_workspace", "default_import_workspace", "worktrees", "repository_cache", "review_passes", "manticore", "workspaces", "macros", "adapters", "repositories", "workflows.repositories", "resources"],
+  agents: ["agents", "engram", "swarm", "learning", "groups", "default_workspace", "default_import_workspace", "worktrees", "repository_cache", "review_passes", "manticore", "workspaces", "macros", "adapters", "repositories", "workflows.repositories", "resources", "skills"],
   reeve: ["reeve", "voice"],
   security: ["credentials", "credential_sources", "credential_channels", "ssh_agent_socket", "approval_devices", "secrets"],
   integrations: ["jira", "github", "burnlite", "integrations", "notifications"],
@@ -31,6 +31,7 @@ export const settingsCards: { id: string; title: string; category: SettingsCateg
   { id: "list-repositories", title: "Repositories", category: "agents", terms: "repositories workflows.repositories clone folder presets" },
   { id: "list-agents.guidance", title: "Repository guidance", category: "agents", terms: "agents.guidance instructions" },
   { id: "list-resources", title: "Resources", category: "agents", terms: "files folders" },
+  { id: "skills", title: "Skills", category: "agents", terms: "skill.md legato-skills plugin mod" },
   { id: "directory-presets", title: "Directory presets", category: "agents", terms: "directory folder path saved" },
   { id: "job-clones", title: "Managed clones", category: "agents", terms: "remote cleanup" },
   { id: "engram-bindings", title: "Engram bindings", category: "agents", terms: "memory" },

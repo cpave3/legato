@@ -40,7 +40,8 @@ func sandboxSettings(cfg *config.Config) *service.SandboxSettings {
 			BinaryPath: legatoBinary(), DefaultMounts: cfg.Agents.Sandbox.DefaultMountsOn(), Extra: extra,
 			CredentialWrapperDir: filepath.Join(runtimeDir, wrapperDirName), GHConfigDir: ghConfigDir(cfg, runtimeDir),
 			GitIdentity: gitIdentity(), KnownHosts: cfg.CredentialChannels.SSHAgent.KnownHosts, ToolInstalls: installs,
-			Azure: service.SandboxAzureFor(cfg.Credentials),
+			Azure:     service.SandboxAzureFor(cfg.Credentials),
+			SkillsDir: skillsDir(cfg),
 		},
 		Docker: sandboxDocker(cfg),
 	}

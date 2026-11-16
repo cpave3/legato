@@ -69,6 +69,10 @@ type Config struct {
 	// docs/ai/engram.md.
 	Engram EngramConfig `yaml:"engram"`
 
+	// Skills is where Legato finds the skills it gives agents. See
+	// docs/ai/skills.md.
+	Skills SkillsConfig `yaml:"skills"`
+
 	// pins are the dotted keys config.yaml gives a value (Pinned).
 	pins map[string]bool
 	// fileEntries are the names of each entry list's entries the file
@@ -549,6 +553,9 @@ func validate(cfg *Config) error {
 		return err
 	}
 	if err := normalizeRepositoryResources(cfg); err != nil {
+		return err
+	}
+	if err := normalizeSkills(cfg); err != nil {
 		return err
 	}
 	if err := normalizeAgentSandbox(cfg); err != nil {
