@@ -92,6 +92,11 @@ func (p *Proxy) Serve(ln net.Listener) error {
 type refusal struct {
 	status int
 	msg    string
+	// docker is set when msg is the daemon's own words, sent as they are;
+	// legato's reasons are sent with "legato: " in front.
+	docker bool
+	// hint says, in the log only, why the agent was told msg.
+	hint string
 }
 
 func (r *refusal) Error() string { return r.msg }
@@ -100,9 +105,33 @@ func refuse(format string, args ...any) error {
 	return &refusal{status: http.StatusForbidden, msg: fmt.Sprintf(format, args...)}
 }
 
+// notFound answers for something the agent cannot see in the daemon's own
+// words for something missing, the same whether it is missing or another's,
+// so tools that probe for it behave as outside the sandbox and nothing of
+// the other's is told.
 func notFound(kind, ref string) error {
-	return &refusal{status: http.StatusNotFound, msg: fmt.Sprintf("no %s %q belongs to this agent", kind, ref)}
+	var msg string
+	switch kind {
+	case "network":
+		msg = fmt.Sprintf("network %s not found", ref)
+	case "volume":
+		msg = fmt.Sprintf("get %s: no such volume", ref)
+	case "plugin":
+		msg = fmt.Sprintf("plugin %q not found", ref)
+	default:
+		msg = fmt.Sprintf("No such %s: %s", kind, ref)
+	}
+	return &refusal{status: http.StatusNotFound, msg: msg, docker: true,
+		hint: fmt.Sprintf("no %s %q belongs to this agent", kind, ref)}
 }
+
+// answer is a request the proxy answers itself, with body as JSON.
+type answer struct {
+	status int
+	body   any
+}
+
+func (a *answer) Error() string { return fmt.Sprintf("answered %d", a.status) }
 
 func writeError(w http.ResponseWriter, status int, msg string) {
 	w.Header().Set("Content-Type", "application/json")
@@ -114,16 +143,33 @@ var versionPrefix = regexp.MustCompile(`^/v[0-9]+(\.[0-9]+)*(/|$)`)
 
 func (p *Proxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	err := p.check(r)
+	var local *answer
+	if errors.As(err, &local) {
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(local.status)
+		_ = json.NewEncoder(w).Encode(local.body)
+		return
+	}
 	if err != nil {
-		status, msg := http.StatusInternalServerError, err.Error()
+		status, msg, sent := http.StatusInternalServerError, err.Error(), "legato: "+err.Error()
 		var ref *refusal
 		if errors.As(err, &ref) {
 			status = ref.status
+			if ref.docker {
+				sent = ref.msg
+			}
+			if ref.hint != "" {
+				msg = ref.hint
+			}
 		}
 		if p.opts.Logf != nil {
-			p.opts.Logf("docker: refused %s %s for %s: %s", r.Method, r.URL.Path, p.opts.Execution, msg)
+			if status == http.StatusNotFound {
+				p.opts.Logf("docker: not found %s %s for %s: %s", r.Method, r.URL.Path, p.opts.Execution, msg)
+			} else {
+				p.opts.Logf("docker: refused %s %s for %s: %s", r.Method, r.URL.Path, p.opts.Execution, msg)
+			}
 		}
-		writeError(w, status, "legato: "+msg)
+		writeError(w, status, sent)
 		return
 	}
 	p.rp.ServeHTTP(w, r)
@@ -194,6 +240,15 @@ func (p *Proxy) check(r *http.Request) error {
 		return p.checkNetworks(ctx, r, seg, denied)
 	case "volumes":
 		return p.checkVolumes(ctx, r, seg, denied)
+	case "plugins":
+		// There are none to see: docker inspect without a type asks for a
+		// plugin last and must hear "not found". Changing one is refused.
+		switch {
+		case len(seg) == 1 && get:
+			return &answer{status: http.StatusOK, body: []any{}}
+		case len(seg) == 3 && seg[2] == "json" && get:
+			return notFound("plugin", seg[1])
+		}
 	case "distribution":
 		if len(seg) >= 3 && seg[len(seg)-1] == "json" && get {
 			return nil

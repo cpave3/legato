@@ -23,6 +23,7 @@ type fakeDaemon struct {
 	mu       sync.Mutex
 	got      []seen
 	volumes  map[string]map[string]string
+	removed  map[string]bool
 	logsNext chan struct{}
 }
 
@@ -71,7 +72,11 @@ func (d *fakeDaemon) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	if r.Method == http.MethodGet {
 		switch {
 		case len(seg) == 3 && seg[0] == "containers" && seg[2] == "json":
-			if c, ok := find(containers, seg[1]); ok {
+			d.mu.Lock()
+			c, ok := find(containers, seg[1])
+			ok = ok && !d.removed[c.id]
+			d.mu.Unlock()
+			if ok {
 				reply(map[string]any{"Id": c.id, "Config": map[string]any{"Labels": c.labels}})
 				return
 			}
@@ -129,6 +134,9 @@ func (d *fakeDaemon) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		_ = json.Unmarshal(body, &v)
 		d.volumes[v.Name] = v.Labels
 	}
+	if r.Method == http.MethodDelete && len(seg) == 2 && seg[0] == "containers" {
+		d.removed[seg[1]] = true
+	}
 	d.mu.Unlock()
 	if r.Header.Get("Upgrade") != "" {
 		conn, buf, err := w.(http.Hijacker).Hijack()
@@ -165,6 +173,7 @@ func newHarness(t *testing.T) *harness {
 	t.Helper()
 	h := &harness{s: newSandboxed(t), daemon: &fakeDaemon{
 		volumes:  map[string]map[string]string{"myvol": {Label: "ex-1"}, "theirvol": {Label: "ex-2"}},
+		removed:  map[string]bool{},
 		logsNext: make(chan struct{}),
 	}}
 	daemon := httptest.NewServer(h.daemon)
@@ -204,7 +213,7 @@ func TestRoutesTheCLIDoesNotNeedAreRefused(t *testing.T) {
 	h := newHarness(t)
 	for _, route := range [][2]string{
 		{"POST", "/v1.47/swarm/init"}, {"GET", "/services"}, {"POST", "/secrets/create"}, {"GET", "/configs"},
-		{"GET", "/plugins"}, {"POST", "/plugins/pull"}, {"GET", "/nodes"}, {"GET", "/tasks"},
+		{"POST", "/plugins/pull"}, {"GET", "/nodes"}, {"GET", "/tasks"},
 		{"POST", "/images/alpine/push"}, {"POST", "/build/prune"}, {"GET", "/containers/x/../../plugins"},
 		{"PUT", "/volumes/myvol"},
 	} {
@@ -261,10 +270,10 @@ func TestEscapesFromTheSandboxAreRefused(t *testing.T) {
 		{"--userns host", createBody(map[string]any{"UsernsMode": "host"}), "UsernsMode host"},
 		{"--cgroupns host", createBody(map[string]any{"CgroupnsMode": "host"}), "CgroupnsMode host"},
 		{"--network host", createBody(map[string]any{"NetworkMode": "host"}), "host network"},
-		{"--network container:theirs", createBody(map[string]any{"NetworkMode": "container:theirs"}), "no container"},
-		{"--pid container:persons", createBody(map[string]any{"PidMode": "container:persons"}), "no container"},
-		{"another agent's network", createBody(map[string]any{"NetworkMode": "theirnet"}), "no network"},
-		{"another agent's network as an endpoint", map[string]any{"Image": "alpine", "NetworkingConfig": map[string]any{"EndpointsConfig": map[string]any{"theirnet": map[string]any{}}}}, "no network"},
+		{"--network container:theirs", createBody(map[string]any{"NetworkMode": "container:theirs"}), "No such container: theirs"},
+		{"--pid container:persons", createBody(map[string]any{"PidMode": "container:persons"}), "No such container: persons"},
+		{"another agent's network", createBody(map[string]any{"NetworkMode": "theirnet"}), "network theirnet not found"},
+		{"another agent's network as an endpoint", map[string]any{"Image": "alpine", "NetworkingConfig": map[string]any{"EndpointsConfig": map[string]any{"theirnet": map[string]any{}}}}, "network theirnet not found"},
 		{"--cap-add SYS_ADMIN", createBody(map[string]any{"CapAdd": []string{"SYS_ADMIN"}}), "SYS_ADMIN"},
 		{"--cap-add ALL", createBody(map[string]any{"CapAdd": []string{"ALL"}}), "ALL"},
 		{"--device", createBody(map[string]any{"Devices": []any{map[string]any{"PathOnHost": "/dev/sda", "PathInContainer": "/dev/sda"}}}), "devices"},
@@ -276,8 +285,8 @@ func TestEscapesFromTheSandboxAreRefused(t *testing.T) {
 		{"--security-opt systempaths=unconfined", createBody(map[string]any{"MaskedPaths": []string{}}), "MaskedPaths"},
 		{"--cgroup-parent", createBody(map[string]any{"CgroupParent": "/"}), "CgroupParent"},
 		{"a host-wide sysctl", createBody(map[string]any{"Sysctls": map[string]string{"kernel.core_pattern": "|/x"}}), "kernel.core_pattern"},
-		{"--volumes-from another agent's", createBody(map[string]any{"VolumesFrom": []string{"theirs:ro"}}), "no container"},
-		{"--link to the person's", createBody(map[string]any{"Links": []string{"persons:db"}}), "no container"},
+		{"--volumes-from another agent's", createBody(map[string]any{"VolumesFrom": []string{"theirs:ro"}}), "No such container: theirs"},
+		{"--link to the person's", createBody(map[string]any{"Links": []string{"persons:db"}}), "No such container: persons"},
 		{"another agent's volume", createBody(map[string]any{"Binds": []string{"theirvol:/data"}}), "not this agent's"},
 		{"a volume binding ~/.ssh in its options", createBody(map[string]any{"Mounts": []any{map[string]any{"Type": "volume", "Source": "keys", "Target": "/k",
 			"VolumeOptions": map[string]any{"DriverConfig": map[string]any{"Options": map[string]string{"type": "none", "o": "bind", "device": h.s.ssh}}}}}}), "does not exist"},
@@ -287,7 +296,10 @@ func TestEscapesFromTheSandboxAreRefused(t *testing.T) {
 	} {
 		t.Run(tc.name, func(t *testing.T) {
 			status, body := h.call(t, "POST", "/v1.47/containers/create", tc.body)
-			if status/100 == 2 || !strings.Contains(body, "legato: ") || !strings.Contains(body, tc.want) {
+			// What it may not see is not found, in Docker's words; the rest
+			// is refused with Legato's reason.
+			reason := strings.Contains(body, "legato: ") || status == http.StatusNotFound
+			if status/100 == 2 || !reason || !strings.Contains(body, tc.want) {
 				t.Fatalf("= %d %s, want a refusal saying %q", status, body, tc.want)
 			}
 		})
@@ -407,7 +419,8 @@ func TestAnAgentTouchesOnlyItsOwnThings(t *testing.T) {
 		{"POST", "/containers/mine/update", map[string]any{"Devices": []any{}}, http.StatusForbidden},
 	} {
 		status, body := h.call(t, tc.method, tc.path, tc.body)
-		if status != tc.status || !strings.Contains(body, "legato: ") {
+		// Not found is in Docker's words; a refusal gives Legato's reason.
+		if status != tc.status || (status == http.StatusForbidden) != strings.Contains(body, "legato: ") {
 			t.Errorf("%s %s = %d %s, want %d", tc.method, tc.path, status, body, tc.status)
 		}
 	}
