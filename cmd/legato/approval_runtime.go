@@ -207,6 +207,7 @@ func (rt *approvalRuntime) attach(srv *server.Server) {
 	if rt.watcher != nil {
 		srv.UseAgentEvents(rt.watcher)
 	}
+	rt.mcp.attach(srv)
 }
 
 // registerApprovalAttention shows pending approvals in Attention.

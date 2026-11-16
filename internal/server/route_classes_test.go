@@ -126,6 +126,7 @@ var getNotRead = map[string]string{
 	"/ws":                            "the live connection that can type into agents",
 	"/api/reeve/voice/session":       "the person's own spoken conversation",
 	"/oauth/callback":                "finishes connecting an integration",
+	"/api/mcp/oauth/attempts/{id}":   "the operator's own authorization attempt, with the account being connected",
 }
 
 func TestEveryGETIsAReadUnlessListedOnPurpose(t *testing.T) {

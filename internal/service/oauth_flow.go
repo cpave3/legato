@@ -25,6 +25,9 @@ import (
 var (
 	ErrOAuthFlowInput   = errors.New("invalid OAuth connection or receiver")
 	ErrOAuthFlowRefused = errors.New("OAuth attempt is unavailable, expired or belongs to another receiver")
+	// ErrOAuthSecretStoreLocked: Legato's secret store needs a passphrase
+	// typed at each start, so it could not seal an authorization later.
+	ErrOAuthSecretStoreLocked = errors.New("OAuth needs a secret store Legato can open without a typed passphrase; change the secret store's master key source")
 )
 
 // OAuthFlowSecrets is implemented by the existing host sealed store adapter.
@@ -67,6 +70,7 @@ type OAuthFlowBegin struct {
 	ID           string `json:"id"`
 	AuthorizeURL string `json:"authorize_url"`
 	ReturnKey    string `json:"return_key,omitempty"`
+	ExpiresAt    int64  `json:"expires_at"`
 }
 type OAuthFlowStatus struct {
 	ID         string `json:"id"`
@@ -165,7 +169,7 @@ func (s *OAuthFlowService) Begin(ctx context.Context, r OAuthFlowRequest) (OAuth
 			return OAuthFlowBegin{}, err
 		}
 		if source == "passphrase" {
-			return OAuthFlowBegin{}, errors.New("OAuth requires a host secret store that can be unlocked without an interactive passphrase")
+			return OAuthFlowBegin{}, ErrOAuthSecretStoreLocked
 		}
 	}
 	target, err := s.opts.Connections.AuthorizationTarget(ctx, r.Connection)
@@ -265,7 +269,7 @@ func (s *OAuthFlowService) Begin(ctx context.Context, r OAuthFlowRequest) (OAuth
 	}
 	close(ready)
 	keep = true
-	result := OAuthFlowBegin{ID: id, AuthorizeURL: auth.URL()}
+	result := OAuthFlowBegin{ID: id, AuthorizeURL: auth.URL(), ExpiresAt: expires.Unix()}
 	if r.Mode == "app" {
 		result.ReturnKey = key
 	}

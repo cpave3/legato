@@ -403,6 +403,12 @@ A card on the board is a task: its ID is the task's. An agent is addressed by it
 | `GET` | `/api/agent-groups` | read | List the agent groups |  |
 | `PUT` | `/api/agent-groups/{name}` | change | Rename an agent group | `{"name": "…"}` |
 | `DELETE` | `/api/agent-groups/{name}` | change | Delete an agent group, leaving its agents ungrouped |  |
+| `POST` | `/api/mcp/connections/{name}/oauth/begin` | never | Start authorizing an MCP connection |  |
+| `POST` | `/api/mcp/connections/{name}/oauth/disconnect` | never | Disconnect an MCP connection's authorization |  |
+| `GET` | `/api/mcp/oauth/attempts/{id}` | never | Read an MCP authorization attempt |  |
+| `POST` | `/api/mcp/oauth/attempts/{id}/deliver` | never | Deliver an MCP authorization response from the Legato app |  |
+| `POST` | `/api/mcp/oauth/attempts/{id}/confirm` | never | Confirm an MCP authorization |  |
+| `POST` | `/api/mcp/oauth/attempts/{id}/cancel` | never | Cancel an MCP authorization attempt |  |
 | `GET` | `/api/ca-cert` | read | Download the CA certificate |  |
 | `GET` | `/ws` | never | Open the live connection that can type into agents |  |
 | `GET` | `/` | read | Load the web UI |  |

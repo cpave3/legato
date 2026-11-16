@@ -101,6 +101,7 @@ type Server struct {
 	tints                    TintService
 	themes                   ThemePreferenceService
 	mcpConnections           MCPConnectionService
+	mcpOAuth                 MCPOAuth
 	reeveName                service.ReeveNameSource
 	engrams                  EngramService
 	builtInWorkflows         []*workflowengine.Definition
@@ -359,6 +360,7 @@ func NewWithSwarm(board service.BoardService, agents service.AgentService, tmux 
 	mux.HandleFunc("/ws", s.wsHandler())
 	s.registerIntegrationRoutes(mux)
 	s.registerMCPConnectionRoutes(mux)
+	s.registerMCPOAuthRoutes(mux)
 	s.registerInstanceRoutes(mux)
 	s.registerBurnliteRoutes(mux)
 	s.registerReeveRoutes(mux)

@@ -8,6 +8,7 @@ import (
 	"github.com/cpave3/legato/config"
 	"github.com/cpave3/legato/internal/cli"
 	"github.com/cpave3/legato/internal/engine/store"
+	"github.com/cpave3/legato/internal/server"
 	"github.com/cpave3/legato/internal/service"
 )
 
@@ -67,4 +68,14 @@ func (rt *mcpBrokerRuntime) upstream() cli.MCPUpstream {
 		return nil
 	}
 	return rt.broker
+}
+
+// attach serves the operator's MCP connections and their authorization on
+// a web server; nothing without a runtime.
+func (rt *mcpBrokerRuntime) attach(srv *server.Server) {
+	if rt == nil {
+		return
+	}
+	srv.SetMCPConnectionService(rt.conns)
+	srv.SetMCPOAuth(rt.flows)
 }

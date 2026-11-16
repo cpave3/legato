@@ -98,6 +98,10 @@ type MCPConnectionState struct {
 	// Authorization: not_required, required, pending, awaiting_confirmation,
 	// authorized, reauth_required.
 	Authorization string `json:"authorization"`
+	// Attempt is the unfinished authorization attempt (pending or awaiting
+	// confirmation), so a reloaded page can follow it again; its status is
+	// still readable only by the operator who began it.
+	Attempt string `json:"attempt,omitempty"`
 	// Connection: unknown, connected, failed.
 	Connection    string      `json:"connection"`
 	LastContactAt *time.Time  `json:"last_contact_at,omitempty"`
@@ -527,45 +531,52 @@ func mcpProblem(code string) *MCPProblem {
 	return &MCPProblem{Code: code, Message: mcpContactCodes[code]}
 }
 
-func (s *MCPConnectionService) authorization(ctx context.Context, c store.MCPConnection) (string, error) {
+// authorization is a connection's authorization state and its unfinished
+// attempt, if any.
+func (s *MCPConnectionService) authorization(ctx context.Context, c store.MCPConnection) (string, string, error) {
 	if c.Auth == "none" {
-		return "not_required", nil
-	}
-	if _, err := s.db.ActiveOAuthAttempt(ctx, c.Name); err == nil {
-		return "authorized", nil
-	} else if !errors.Is(err, store.ErrNotFound) {
-		return "", err
+		return "not_required", "", nil
 	}
 	attempts, err := s.db.ListOAuthAttempts(ctx, c.Name)
 	if err != nil {
-		return "", err
+		return "", "", err
 	}
 	now := s.opts.Now().Unix()
-	state := "required"
-	if cur, err := s.db.CurrentOAuthAttempt(ctx, c.Name); err == nil && cur.Status == "reauth_required" {
-		state = "reauth_required"
-	} else if err != nil && !errors.Is(err, store.ErrNotFound) {
-		return "", err
-	}
+	state, attempt := "required", ""
 	for _, a := range attempts {
 		if a.ExpiresAt <= now {
 			continue
 		}
 		switch a.Status {
 		case "awaiting_confirmation":
-			return "awaiting_confirmation", nil
+			state, attempt = "awaiting_confirmation", a.ID
 		case "pending", "exchanging":
-			state = "pending"
+			if state != "awaiting_confirmation" {
+				state, attempt = "pending", a.ID
+			}
 		}
 	}
-	return state, nil
+	if _, err := s.db.ActiveOAuthAttempt(ctx, c.Name); err == nil {
+		return "authorized", attempt, nil
+	} else if !errors.Is(err, store.ErrNotFound) {
+		return "", "", err
+	}
+	if state != "required" {
+		return state, attempt, nil
+	}
+	if cur, err := s.db.CurrentOAuthAttempt(ctx, c.Name); err == nil && cur.Status == "reauth_required" {
+		return "reauth_required", "", nil
+	} else if err != nil && !errors.Is(err, store.ErrNotFound) {
+		return "", "", err
+	}
+	return state, "", nil
 }
 
 func (s *MCPConnectionService) state(ctx context.Context, c store.MCPConnection, instance string) (MCPConnectionState, error) {
 	st := MCPConnectionState{MCPConnection: c, PrivateNetworks: splitNetworks(c.Networks), Connection: "unknown"}
 	st.Rules, st.ReadOnlyTools = decodeMCPRules(c)
 	var err error
-	if st.Authorization, err = s.authorization(ctx, c); err != nil {
+	if st.Authorization, st.Attempt, err = s.authorization(ctx, c); err != nil {
 		return MCPConnectionState{}, err
 	}
 	switch {

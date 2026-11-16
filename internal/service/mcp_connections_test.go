@@ -341,3 +341,47 @@ func TestEveryOAuthHopIsConstrained(t *testing.T) {
 		t.Fatal("a refused attempt left sealed records")
 	}
 }
+
+// A page reloaded mid-authorization finds its attempt again through the
+// connection's state, and loses it once the attempt is over.
+func TestAnUnfinishedAuthorizationIsFoundAgainAfterAReload(t *testing.T) {
+	provider := newFakeOAuth(t)
+	f := newMCPFixture(t)
+	ctx := context.Background()
+	if _, err := f.conns.Add(ctx, MCPConnectionInput{Name: "burnlite", URL: provider.srv.URL + "/api/llm/mcp"}); err != nil {
+		t.Fatal(err)
+	}
+	begun, err := f.flows.Begin(ctx, OAuthFlowRequest{Connection: "burnlite", Owner: "operator", Mode: "web"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if begun.ExpiresAt <= time.Now().Unix() {
+		t.Fatalf("begin gave no expiry: %+v", begun)
+	}
+	got, _ := f.conns.Get(ctx, "burnlite")
+	if got.Authorization != "pending" || got.Attempt != begun.ID {
+		t.Fatalf("pending: %+v", got)
+	}
+	resp, err := (&http.Client{Timeout: time.Second}).Get(begun.AuthorizeURL)
+	if err != nil {
+		t.Fatal(err)
+	}
+	resp.Body.Close()
+	if got, _ := f.conns.Get(ctx, "burnlite"); got.Authorization != "awaiting_confirmation" || got.Attempt != begun.ID {
+		t.Fatalf("awaiting confirmation: %+v", got)
+	}
+	if err := f.flows.Confirm(ctx, begun.ID, "operator"); err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := f.conns.Get(ctx, "burnlite"); got.Authorization != "authorized" || got.Attempt != "" {
+		t.Fatalf("authorized: %+v", got)
+	}
+	// Connecting again keeps the authorization and names the new attempt.
+	again, err := f.flows.Begin(ctx, OAuthFlowRequest{Connection: "burnlite", Owner: "operator", Mode: "web"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got, _ := f.conns.Get(ctx, "burnlite"); got.Authorization != "authorized" || got.Attempt != again.ID {
+		t.Fatalf("reconnecting: %+v", got)
+	}
+}
