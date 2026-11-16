@@ -4,7 +4,7 @@ import react from '@vitejs/plugin-react'
 import tailwindcss from '@tailwindcss/vite'
 import { VitePWA } from 'vite-plugin-pwa'
 import path from 'path'
-import { SERVER_PAGES } from './src/lib/serverPages'
+import { NEVER_CACHED, SERVER_PAGES } from './src/lib/serverPages'
 import { randomUUID } from 'crypto'
 import type { Plugin } from 'vite'
 
@@ -67,6 +67,8 @@ export default defineConfig({
         skipWaiting: true,
         clientsClaim: true,
         runtimeCaching: [
+          // Authorization answers are never kept (src/lib/serverPages.ts).
+          ...NEVER_CACHED.map((urlPattern) => ({ urlPattern, handler: 'NetworkOnly' as const })),
           {
             urlPattern: /^\/api\//,
             handler: 'NetworkFirst',

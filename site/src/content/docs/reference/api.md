@@ -306,6 +306,11 @@ A card on the board is a task: its ID is the task's. An agent is addressed by it
 | `PUT` | `/api/settings/tint` | change | Set this Legato's tint |  |
 | `GET` | `/api/settings/theme` | read | Read this server's preferred theme |  |
 | `PUT` | `/api/settings/theme` | change | Set this server's preferred theme | `{"id": "ocular-dark-vivid", "expected_revision": 0}` |
+| `GET` | `/api/settings/mcp/connections` | read | List the MCP connections |  |
+| `GET` | `/api/settings/mcp/connections/{name}` | read | Read an MCP connection |  |
+| `POST` | `/api/settings/mcp/connections` | never | Add an MCP connection |  |
+| `PATCH` | `/api/settings/mcp/connections/{name}` | never | Change, turn on or turn off an MCP connection |  |
+| `DELETE` | `/api/settings/mcp/connections/{name}` | never | Remove an MCP connection |  |
 | `GET` | `/api/engrams` | read | List the engrams agents can be started as |  |
 | `GET` | `/api/engram-bindings` | read | List the engrams bound to repositories and folders |  |
 | `DELETE` | `/api/engram-bindings` | change | Unbind an engram from a repository or folder |  |
@@ -398,6 +403,12 @@ A card on the board is a task: its ID is the task's. An agent is addressed by it
 | `GET` | `/api/agent-groups` | read | List the agent groups |  |
 | `PUT` | `/api/agent-groups/{name}` | change | Rename an agent group | `{"name": "…"}` |
 | `DELETE` | `/api/agent-groups/{name}` | change | Delete an agent group, leaving its agents ungrouped |  |
+| `POST` | `/api/mcp/connections/{name}/oauth/begin` | never | Start authorizing an MCP connection |  |
+| `POST` | `/api/mcp/connections/{name}/oauth/disconnect` | never | Disconnect an MCP connection's authorization |  |
+| `GET` | `/api/mcp/oauth/attempts/{id}` | never | Read an MCP authorization attempt |  |
+| `POST` | `/api/mcp/oauth/attempts/{id}/deliver` | never | Deliver an MCP authorization response from the Legato app |  |
+| `POST` | `/api/mcp/oauth/attempts/{id}/confirm` | never | Confirm an MCP authorization |  |
+| `POST` | `/api/mcp/oauth/attempts/{id}/cancel` | never | Cancel an MCP authorization attempt |  |
 | `GET` | `/api/ca-cert` | read | Download the CA certificate |  |
 | `GET` | `/ws` | never | Open the live connection that can type into agents |  |
 | `GET` | `/` | read | Load the web UI |  |

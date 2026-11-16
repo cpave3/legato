@@ -4,7 +4,6 @@ import (
 	"context"
 	"crypto/rand"
 	"crypto/sha256"
-	"crypto/subtle"
 	"encoding/base64"
 	"errors"
 	"fmt"
@@ -21,10 +20,12 @@ import (
 // from the browser through the listener, or through Paste when the browser
 // ran on another machine.
 type Authorization struct {
-	url         string
-	redirectURI string
-	state       string
-	verifier    string
+	url           string
+	redirectURI   string
+	state         string
+	verifier      string
+	issuer        string
+	requireIssuer bool
 
 	srv  *http.Server
 	once sync.Once
@@ -79,17 +80,21 @@ func newAuthorization(md *Metadata, clientID, scope, redirectURI string) (*Autho
 		return nil, err
 	}
 	a := &Authorization{
-		redirectURI: redirectURI,
-		state:       state,
-		verifier:    verifier,
-		done:        make(chan struct{}),
+		redirectURI:   redirectURI,
+		state:         state,
+		verifier:      verifier,
+		issuer:        md.Issuer,
+		requireIssuer: md.ResponseIssuerSupported,
+		done:          make(chan struct{}),
 	}
 	sum := sha256.Sum256([]byte(verifier))
 	q := authURL.Query()
 	q.Set("response_type", "code")
 	q.Set("client_id", clientID)
 	q.Set("redirect_uri", a.redirectURI)
-	q.Set("scope", scope)
+	if scope != "" {
+		q.Set("scope", scope)
+	}
 	q.Set("state", state)
 	q.Set("code_challenge", base64.RawURLEncoding.EncodeToString(sum[:]))
 	q.Set("code_challenge_method", "S256")
@@ -134,12 +139,11 @@ func (a *Authorization) Paste(redirected string) error {
 	if err != nil {
 		return errors.New("oauth: the pasted text is not an address")
 	}
-	q := u.Query()
-	if !q.Has("code") && !q.Has("error") {
-		return errors.New("oauth: the pasted address carries no authorization code")
+	r, err := ParseAuthorizationResponse(u.RawQuery)
+	if err != nil {
+		return err
 	}
-	_, err = a.deliver(q)
-	return err
+	return a.AcceptResponse(r)
 }
 
 // Close stops the listener. Wait calls it.
@@ -157,16 +161,16 @@ func (a *Authorization) Close() error {
 }
 
 func (a *Authorization) callback(w http.ResponseWriter, r *http.Request) {
-	q := r.URL.Query()
+	response, parseErr := ParseAuthorizationResponse(r.URL.RawQuery)
 	w.Header().Set("Content-Type", "text/html; charset=utf-8")
-	if !q.Has("code") && !q.Has("error") {
+	if parseErr != nil {
 		w.WriteHeader(http.StatusBadRequest)
-		_, _ = fmt.Fprint(w, page("This address carries no authorization."))
+		_, _ = fmt.Fprint(w, page("Invalid authorization response."))
 		return
 	}
-	code, err := a.deliver(q)
+	err := a.AcceptResponse(response)
 	switch {
-	case err == nil && code != "":
+	case err == nil && response.Code != "":
 		_, _ = fmt.Fprint(w, page("Authorization complete. You can close this tab."))
 	default:
 		w.WriteHeader(http.StatusBadRequest)
@@ -174,26 +178,22 @@ func (a *Authorization) callback(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
-// deliver checks a redirect's parameters and records the outcome. The first
-// outcome is final.
-func (a *Authorization) deliver(q url.Values) (string, error) {
-	var code string
-	var err error
-	switch {
-	case subtle.ConstantTimeCompare([]byte(q.Get("state")), []byte(a.state)) != 1:
-		err = ErrStateMismatch
-	case q.Get("error") != "":
-		err = &Error{Code: q.Get("error"), Description: q.Get("error_description"), op: "authorization"}
-	case q.Get("code") == "":
-		err = errors.New("oauth: the redirect carries no authorization code")
-	default:
-		code = q.Get("code")
+// AcceptResponse accepts an app-delivered response without exposing the PKCE
+// verifier. Invalid state or issuer cannot consume another pending attempt.
+func (a *Authorization) AcceptResponse(r AuthorizationResponse) error {
+	if err := r.Check(a.state, a.issuer, a.requireIssuer); err != nil {
+		return err
 	}
-	a.once.Do(func() {
-		a.code, a.err = code, err
-		close(a.done)
-	})
-	return code, err
+	var result error
+	if r.Error != "" {
+		result = &Error{Code: safeAuthorizationError(r.Error), op: "authorization"}
+	}
+	used := true
+	a.once.Do(func() { used = false; a.code, a.err = r.Code, result; close(a.done) })
+	if used {
+		return ErrAuthorizationUsed
+	}
+	return result
 }
 
 func page(msg string) string {

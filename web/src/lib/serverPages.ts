@@ -9,3 +9,12 @@ export const SERVER_PAGES: RegExp[] = [
   /^\/review-images\//,
   /^\/oauth\//,
 ]
+
+// The API answers the service worker must never keep (its runtimeCaching
+// sends them NetworkOnly): authorizing integrations and MCP connections,
+// whose answers name attempts and accounts, and the connections themselves.
+// Workbox tests a pattern against a same-origin request's full address, so
+// these match anywhere in it.
+export const NEVER_CACHED: RegExp[] = [
+  /\/api\/(?:mcp|settings\/mcp|settings\/integrations)\//,
+]

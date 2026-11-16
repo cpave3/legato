@@ -3,6 +3,7 @@ import { useMediaQuery } from "../hooks/useMediaQuery"
 import { useSettingsCatalog, useSettingsLists } from "../components/settings/useSettingsCatalog"
 import { ReeveAutoSettings } from "../components/settings/ReeveAutoSettings"
 import { SkillsSettings } from "../components/settings/SkillsSettings"
+import { MCPSettings } from "../components/settings/MCPSettings"
 import { useEffect, useRef, useState } from "react"
 import { ShieldCheck, Download, Zap, ScanSearch, Keyboard, QrCode, Server, Trash2, Plus, RefreshCw, Smartphone, Sparkles, FolderGit2, Palette, SquareTerminal } from "lucide-react"
 import { TintPicker } from "../components/TintPicker"
@@ -239,6 +240,7 @@ export function SettingsPage() {
           {current === "integrations" && <SettingsGroup id="integrations" title="Integrations" description="External services, Home Assistant publishing, and integration tokens.">
             <MQTTSettings settings={registry} baseUrl={baseUrl} loading={false} error={null} onRetry={() => void configSettings.refetch()} />
             <div id="integration-token-overview"><IntegrationsSettings baseUrl={baseUrl} /></div>
+            <MCPSettings baseUrl={baseUrl} />
           <CategorySettings category="integrations" settings={registry} fileOnly={fileOnly} baseUrl={baseUrl} listKeys={(configLists.data ?? []).map((list) => list.key)} />
           </SettingsGroup>}
 

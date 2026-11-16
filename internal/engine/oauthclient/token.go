@@ -115,3 +115,34 @@ func requestToken(ctx context.Context, client *http.Client, md *Metadata, op str
 	}
 	return tok, nil
 }
+
+// ErrRevocationUnsupported is a server that advertises no revocation
+// endpoint: a token Legato forgets may still be valid there.
+var ErrRevocationUnsupported = errors.New("oauth: the server offers no token revocation")
+
+// Revoke asks the server to revoke a token (RFC 7009). hint is
+// "refresh_token" or "access_token". The token never appears in an error.
+func Revoke(ctx context.Context, client *http.Client, md *Metadata, clientID, token, hint string, opts ...TokenOption) error {
+	if md.RevocationEndpoint == "" {
+		return ErrRevocationUnsupported
+	}
+	form := url.Values{"token": {token}, "token_type_hint": {hint}, "client_id": {clientID}}
+	for _, opt := range opts {
+		opt(form)
+	}
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, md.RevocationEndpoint, strings.NewReader(form.Encode()))
+	if err != nil {
+		return fmt.Errorf("oauth: revocation: %w", err)
+	}
+	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	resp, err := httpClient(client).Do(req)
+	if err != nil {
+		return fmt.Errorf("oauth: revocation: %w", err)
+	}
+	defer resp.Body.Close()
+	data, _ := io.ReadAll(io.LimitReader(resp.Body, maxBody))
+	if resp.StatusCode != http.StatusOK {
+		return errorFromResponse("revocation", resp.StatusCode, data)
+	}
+	return nil
+}

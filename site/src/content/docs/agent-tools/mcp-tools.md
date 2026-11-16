@@ -114,7 +114,35 @@ An agent can show image files from disk, such as a screenshot it took. Legato ke
 - At most 60 images in one card or artifact.
 - A task keeps the 100 images it used most recently.
 
-### Limits on what is kept
+### Tools of MCP servers you connect
+
+When you connect an MCP server to Legato and allow agents to use some of its tools, those tools appear beside Legato's own, named `<server>__<tool>` (for example `notion__search`). Legato calls them for the agent with your authorization: the agent never sees a token, and it cannot sign in to the server itself.
+
+#### Connecting a server
+
+In **Settings › Integrations › MCP servers**:
+
+1. Add the server: a short name (lowercase letters, digits and dashes), its address (`https://…`), and whether it uses OAuth. A server on your own network also needs its network under **Advanced**.
+2. Select **Connect**. The server's consent page opens in your browser. Sign in there and allow Legato.
+3. Back in Settings, check the account, authorization server and scope, then select **Confirm**. Until you confirm, Legato does not use the authorization.
+4. Open **Agent access** and add rules: which tools, for agents working in which repository, and whether to ask you each time, once a session or once every 30 minutes, to allow without asking, or to refuse.
+
+Where the consent page's answer goes depends on where you connect from:
+
+- **In the Legato desktop app**, the app receives the answer and hands it to the Legato server it is connected to, local or remote.
+- **In a browser**, Legato listens on its own computer for the answer. This works only when the browser runs on the same computer as Legato. For a remote server, use the Legato app. If the answer never arrives, the attempt expires after 10 minutes and Settings tells you so. There is no way to paste the code by hand.
+
+The Legato app on Android cannot connect MCP servers yet.
+
+**Disconnect** stops Legato using the server and asks the server to revoke Legato's tokens; Settings says whether it did. Turning a server off keeps its authorization. Removing it forgets the authorization and its rules.
+
+- An agent sees only the tools your rules could let it use, for the repository it works in.
+- Every call is checked when it is made. Turning a server off, removing a rule or ending a grant stops calls at once, even from an agent that listed the tool earlier.
+- A rule that asks you shows the call in your approvals; the agent is told it waits for you.
+- Agents learn of tools when their session starts. After you add a tool or a rule, start a new session or reload the agent. Legato never restarts an agent for this.
+- What a server says (its tool descriptions and its results) is shown to the agent as that server's words, and links in results are never opened by Legato.
+
+## Limits on what is kept
 
 - A card or an artifact holds at most 1 MiB of text.
 - A task keeps 200 cards and artifacts. Past that, the oldest go.
@@ -138,5 +166,15 @@ A studio needs libretto on the machine that runs Legato's web server, as well as
 - A card or an artifact can propose a message. It cannot send one, call a tool, or read anything from Legato.
 - A small model may ignore the guidance and answer in text.
 - Legacy Chimera subagents do not get launch-only MCP tools. Chimera mods v1 carries the bundled server into subagents too; they never take over the parent's Legato connection.
+
+MCP servers you connect have limits of their own:
+
+- Only remote servers over HTTPS (Streamable HTTP). Legato starts no local MCP server as a program, and reaches no server on `localhost`. A server on your own network needs its network named under **Advanced**.
+- Connecting needs the Legato desktop app, or a browser on the same computer as Legato. The Android app cannot connect servers yet. There is no hosted relay, public callback address or pasted code.
+- Legato registers itself with the server's authorization server. A server that offers no registration Legato can use needs a client registered for Legato by hand, with the redirect `http://127.0.0.1:<port>/callback`; enter it under **Advanced** when you add the server. Some servers allow a loopback address on any port and some do not; when the port Legato registered is taken, it registers again.
+- Each Legato authorizes on its own. A worker you hand a task to does not use the main Legato's authorization.
+- A tool whose input or output description uses an older JSON Schema, or refers to schemas elsewhere, is not offered.
+- Legato decides whether a tool only reads from the list of read-only tools you give it, never from what the server says.
+- Agents learn of tools when their session starts.
 
 For how the server works inside, see [Agent tools on GitHub](https://github.com/cpave3/legato/blob/main/docs/ai/agent-mcp.md).

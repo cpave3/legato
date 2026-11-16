@@ -138,6 +138,8 @@ type CredentialBroker struct {
 	mu          sync.RWMutex
 	fromSources map[string]brokerCredential
 	refreshMu   sync.Mutex
+	// mcp gives the rules of MCP connections, credentials mcp:<name>.
+	mcp         MCPRuleSource
 	refreshedAt time.Time
 	messenger   AgentMessenger
 	wait        time.Duration
@@ -257,6 +259,9 @@ func NewCredentialBroker(db *store.Store, approvals *ApprovalService, opts Crede
 		ref, err := credential.ParseRef(c.Secret)
 		if err != nil {
 			return nil, fmt.Errorf("credentials %q: %w", c.Name, err)
+		}
+		if ref.Scheme == "legato" && isMCPOAuthRecord(ref.Path) {
+			return nil, fmt.Errorf("credentials %q: %s is an MCP OAuth record that only Legato uses; agents reach MCP servers through the broker", c.Name, ref)
 		}
 		if c.Type != "" && !listHas(profile.Accepts, c.Type) {
 			return nil, fmt.Errorf("credentials %q: profile %s does not take secrets of type %s", c.Name, profile.Name, c.Type)
@@ -501,6 +506,19 @@ func (b *CredentialBroker) lookup(ctx context.Context, name string) (brokerCrede
 	if c, ok := b.credentials[name]; ok {
 		return c, true
 	}
+	if strings.HasPrefix(name, mcpCredentialPrefix) {
+		b.mu.RLock()
+		src := b.mcp
+		b.mu.RUnlock()
+		if src == nil {
+			return brokerCredential{}, false
+		}
+		rules, ok := src.MCPRules(ctx, strings.TrimPrefix(name, mcpCredentialPrefix))
+		if !ok {
+			return brokerCredential{}, false
+		}
+		return brokerCredential{config: config.CredentialConfig{Name: name, Profile: mcpProfile.Name}, profile: mcpProfile, rules: rules}, true
+	}
 	b.mu.RLock()
 	c, ok := b.fromSources[name]
 	b.mu.RUnlock()
@@ -512,6 +530,31 @@ func (b *CredentialBroker) lookup(ctx context.Context, name string) (brokerCrede
 	defer b.mu.RUnlock()
 	c, ok = b.fromSources[name]
 	return c, ok
+}
+
+// MCPRuleSource gives the broker rules of an MCP connection.
+type MCPRuleSource interface {
+	MCPRules(ctx context.Context, connection string) ([]config.CredentialRule, bool)
+}
+
+// SetMCPRules makes MCP connections credentials of the broker, mcp:<name>,
+// with the registry's rules: none means nothing is allowed.
+func (b *CredentialBroker) SetMCPRules(src MCPRuleSource) {
+	b.mu.Lock()
+	b.mcp = src
+	b.mu.Unlock()
+}
+
+// permits says whether a use could go ahead: a running execution, no
+// outright refusal, and a rule that does not deny it. It asks no one,
+// spends no grant and records nothing: for listing tools.
+func (b *CredentialBroker) permits(ctx context.Context, executionID, taskID, name, operation, resource string) bool {
+	c, ok := b.lookup(ctx, name)
+	if !ok || c.profile.HostOnly || !b.executionRunning(ctx, executionID, taskID) || b.readOnlyRefusal(ctx, executionID, operation) != "" {
+		return false
+	}
+	r := b.selectRule(ctx, c, pair{operation, resource}, nil)
+	return r != nil && r.Approve != "deny"
 }
 
 // all lists every credential known now, by name.
@@ -1216,6 +1259,9 @@ func (b *CredentialBroker) readSecret(ctx context.Context, name string) (credent
 	if !ok {
 		return credential.Secret{}, fmt.Errorf("no credential named %q", name)
 	}
+	if c.profile.Brokered {
+		return credential.Secret{}, brokeredError(name)
+	}
 	s, ok := b.stores[c.ref.Scheme]
 	if !ok {
 		return credential.Secret{}, fmt.Errorf("no store for %s:// references in this Legato", c.ref.Scheme)
@@ -1232,6 +1278,10 @@ func (b *CredentialBroker) readSecret(ctx context.Context, name string) (credent
 
 // Value is a use that also reads the credential, through its issuer.
 func (b *CredentialBroker) Value(ctx context.Context, use CredentialUse) (credential.Secret, UseDecision, error) {
+	if c, ok := b.lookup(ctx, use.Credential); ok && c.profile.Brokered {
+		b.audit(ctx, use.TaskID, use.ExecutionID, store.CredentialAuditEntry{Event: "refuse", Credential: use.Credential, Operation: use.Operation, Resource: use.Resource, Detail: brokeredError(use.Credential).Error()})
+		return credential.Secret{}, UseDecision{Reason: brokeredError(use.Credential).Error()}, brokeredError(use.Credential)
+	}
 	decision, err := b.Authorize(ctx, use)
 	if err != nil || !decision.Allowed {
 		return credential.Secret{}, decision, err
@@ -1508,17 +1558,33 @@ func (b *CredentialBroker) VerifyAudit(ctx context.Context) (int64, error) {
 // readOnlyRefusal is why an execution that may only look (a find-out
 // delegation's) is refused an operation that writes: a push, a ref deletion,
 // or a pull request, issue or Actions write. Empty when it is not refused.
+// brokeredError refuses the value of a credential the broker uses itself.
+func brokeredError(name string) error {
+	return fmt.Errorf("%s has no value an agent can read: the broker calls the MCP server for the agent", name)
+}
+
 // hostOnlyReason refuses an agent a credential only Legato uses.
 func hostOnlyReason(name string) string {
 	return name + " is Legato's own credential: Legato uses it itself, and no agent is given it"
 }
 
 func (b *CredentialBroker) readOnlyRefusal(ctx context.Context, executionID, operation string) string {
-	if !strings.HasPrefix(operation, "git.push") && operation != "git.delete-ref" && !strings.HasPrefix(operation, "pr.") && !strings.HasPrefix(operation, "issue.") && operation != "actions.write" {
+	if !strings.HasPrefix(operation, "git.push") && operation != "git.delete-ref" && !strings.HasPrefix(operation, "pr.") && !strings.HasPrefix(operation, "issue.") && operation != "actions.write" && operation != mcpWrite {
 		return ""
 	}
 	if readOnly, err := b.db.ExecutionReadOnly(ctx, executionID); err != nil || !readOnly {
 		return ""
 	}
 	return "this agent may only look: it was started to find something out, so " + operation + " is refused"
+}
+
+// isMCPOAuthRecord is a sealed record of MCP OAuth (oauth_flow.go,
+// oauth_registration.go, mcp_connections.go): never a credential.
+func isMCPOAuthRecord(name string) bool {
+	for _, prefix := range []string{"oauth-attempt-", "oauth-client-", "mcp-static-client-"} {
+		if strings.HasPrefix(name, prefix) {
+			return true
+		}
+	}
+	return false
 }

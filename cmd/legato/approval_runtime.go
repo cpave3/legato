@@ -40,6 +40,9 @@ type approvalRuntime struct {
 	// reviews runs review passes on this worker's handoffs, once wired
 	// (wireTaskHandoffs); submit_review reaches it through the broker.
 	reviews *service.ReviewPassService
+	// mcp is the operator's MCP connections and the broker that calls
+	// them for agents; nil without a credential broker.
+	mcp *mcpBrokerRuntime
 
 	cfg  *config.Config
 	mu   sync.Mutex
@@ -78,10 +81,16 @@ func startApprovals(ctx context.Context, cfg *config.Config, db *store.Store, bu
 	rt.caseReplies = newCaseReplyService(cfg, db, bus, true)
 	changeSets := startChangeSets(ctx, cfg, db, rt.approvals, agents, nil)
 	processSpeech = newReeveVoice(cfg, db, rt.credentials, bus)
-	deps := hostBrokerDeps(cfg, db, agents, rt.credentials, rt.caseReplies, rt.reviewPasses)
+	var stopMCP func()
+	rt.mcp, stopMCP = startMCPBroker(cfg, db, rt.credentials)
+	stops = append(stops, stopMCP)
+	deps := hostBrokerDeps(cfg, db, agents, rt.credentials, rt.caseReplies, rt.reviewPasses, rt.mcp.upstream())
 	broker := startBrokerHost(ctx, db, ipc.SocketDir(), brokerHostOptions{Deps: deps})
 	stops = append(stops, broker.Stop)
 	rt.brokerOwner = broker.Owner
+	if rt.mcp != nil {
+		go rt.mcp.sweep(ctx, broker.Owner)
+	}
 	if agents != nil {
 		go whileBrokerOwner(ctx, broker.Owner, 2*time.Second, func(ctx context.Context) {
 			if err := agents.ReconcileSessions(ctx); err != nil {
@@ -198,6 +207,7 @@ func (rt *approvalRuntime) attach(srv *server.Server) {
 	if rt.watcher != nil {
 		srv.UseAgentEvents(rt.watcher)
 	}
+	rt.mcp.attach(srv)
 }
 
 // registerApprovalAttention shows pending approvals in Attention.
@@ -255,7 +265,7 @@ func (rt *approvalRuntime) reviewPasses() cli.MCPReviews {
 // hostBrokerDeps is what the host's broker serves agent-side processes:
 // Legato's MCP tools, forwarded commands of the sandbox, and, with a
 // credential broker, the values `legato credential get` and `exec` ask for.
-func hostBrokerDeps(cfg *config.Config, db *store.Store, agents service.AgentService, credentials *service.CredentialBroker, caseReplies *service.CaseReplyService, reviews func() cli.MCPReviews) cli.BrokerDeps {
+func hostBrokerDeps(cfg *config.Config, db *store.Store, agents service.AgentService, credentials *service.CredentialBroker, caseReplies *service.CaseReplyService, reviews func() cli.MCPReviews, upstream cli.MCPUpstream) cli.BrokerDeps {
 	deps := cli.BrokerDeps{Push: agentPushNotifier(cfg), OS: agentOSNotifier(cfg), ClaudeModels: cfg.Adapters["claude-code"].Models}
 	deps.Ops = cli.MCPBrokerOps(func(cli.BrokerCaller) cli.MCPOptions {
 		opts := cli.MCPOptions{Store: db, Version: version.String(), ResourceDomains: cfg.Agents.MCP.ResourceDomains,
@@ -273,6 +283,7 @@ func hostBrokerDeps(cfg *config.Config, db *store.Store, agents service.AgentSer
 			opts.Reviews = reviews()
 		}
 		opts.Reeve = reeveTools(cfg, db)
+		opts.Upstream = upstream
 		return opts
 	})
 	// Agents in the sandbox run their own `legato` commands here.

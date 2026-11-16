@@ -124,6 +124,13 @@ func (s *Store) EndCredentialGrants(ctx context.Context, executionID string) err
 	return err
 }
 
+// EndCredentialGrantsFor ends every grant of a credential, whoever holds it.
+func (s *Store) EndCredentialGrantsFor(ctx context.Context, credential string) error {
+	_, err := s.db.ExecContext(ctx, `UPDATE credential_grants SET ended_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
+		WHERE credential = ? AND ended_at IS NULL`, credential)
+	return err
+}
+
 // EndCredentialGrant ends one grant early.
 func (s *Store) EndCredentialGrant(ctx context.Context, id string) error {
 	result, err := s.db.ExecContext(ctx, `UPDATE credential_grants SET ended_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now')
