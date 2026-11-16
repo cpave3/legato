@@ -110,6 +110,9 @@ func (s *Store) UpdateMCPConnection(ctx context.Context, c MCPConnection, now in
 		if fenced, err = invalidateOAuthConnectionTx(ctx, tx, c.Name, now); err != nil {
 			return MCPConnection{}, nil, err
 		}
+		if _, err = tx.ExecContext(ctx, `DELETE FROM mcp_tools WHERE connection=?`, c.Name); err != nil {
+			return MCPConnection{}, nil, err
+		}
 		c.LastContactAt, c.LastError = 0, ""
 	case old.Enabled && !c.Enabled:
 		if fenced, err = endUnfinishedOAuthAttemptsTx(ctx, tx, c.Name, now); err != nil {
@@ -153,6 +156,9 @@ func (s *Store) DeleteMCPConnection(ctx context.Context, name string, now int64)
 	if err != nil {
 		return nil, err
 	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM mcp_tools WHERE connection=?`, name); err != nil {
+		return nil, err
+	}
 	return fenced, tx.Commit()
 }
 
@@ -174,4 +180,37 @@ func endUnfinishedOAuthAttemptsTx(ctx context.Context, tx *sqlx.Tx, connection s
 		return nil, err
 	}
 	return attempts, nil
+}
+
+// RecordMCPTools stores the definition hashes of the tools a connection
+// offers now, and reports whether any tool it offered before changed or
+// went away.
+func (s *Store) RecordMCPTools(ctx context.Context, connection string, hashes map[string]string) (bool, error) {
+	tx, err := s.db.BeginTxx(ctx, nil)
+	if err != nil {
+		return false, err
+	}
+	defer tx.Rollback()
+	var before []struct {
+		Tool string `db:"tool"`
+		Hash string `db:"hash"`
+	}
+	if err := tx.SelectContext(ctx, &before, `SELECT tool, hash FROM mcp_tools WHERE connection=?`, connection); err != nil {
+		return false, err
+	}
+	changed := false
+	for _, b := range before {
+		if now, ok := hashes[b.Tool]; !ok || now != b.Hash {
+			changed = true
+		}
+	}
+	if _, err := tx.ExecContext(ctx, `DELETE FROM mcp_tools WHERE connection=?`, connection); err != nil {
+		return false, err
+	}
+	for tool, hash := range hashes {
+		if _, err := tx.ExecContext(ctx, `INSERT INTO mcp_tools(connection,tool,hash) VALUES(?,?,?)`, connection, tool, hash); err != nil {
+			return false, err
+		}
+	}
+	return changed, tx.Commit()
 }

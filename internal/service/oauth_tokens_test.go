@@ -51,6 +51,7 @@ type fakeOAuth struct {
 	noRefresh  bool          // issue no refresh tokens
 	drop       bool          // the token endpoint drops the connection
 	tokenGate  chan struct{} // when set, a refresh waits for it
+	mcp        http.Handler  // when set, serves the MCP endpoint
 }
 
 func newFakeOAuth(t *testing.T) *fakeOAuth {
@@ -80,10 +81,24 @@ func newFakeOAuth(t *testing.T) *fakeOAuth {
 		f.mu.Unlock()
 		writeJSON(w, 200, prm)
 	})
+	mux.HandleFunc("/api/llm/mcp", func(w http.ResponseWriter, r *http.Request) {
+		f.mu.Lock()
+		h := f.mcp
+		f.mu.Unlock()
+		if h == nil {
+			http.Error(w, "no", http.StatusMethodNotAllowed)
+			return
+		}
+		h.ServeHTTP(w, r)
+	})
 	mux.HandleFunc("POST /api/llm/mcp", func(w http.ResponseWriter, r *http.Request) {
 		f.mu.Lock()
-		challenge := f.challenge
+		challenge, h := f.challenge, f.mcp
 		f.mu.Unlock()
+		if h != nil {
+			h.ServeHTTP(w, r)
+			return
+		}
 		if challenge == "" {
 			http.Error(w, "no", http.StatusMethodNotAllowed)
 			return

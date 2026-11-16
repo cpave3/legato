@@ -73,11 +73,24 @@ func (s *OAuthFlowService) fresh(tok *oauthclient.Token) bool {
 // starts consent. Agents never call it: they reach upstream tools only
 // through the broker.
 func (s *OAuthFlowService) AccessToken(ctx context.Context, connection string) (string, error) {
+	return s.accessToken(ctx, connection, false)
+}
+
+// RefreshAccessToken refreshes even a token that looks fresh: the server
+// refused it.
+func (s *OAuthFlowService) RefreshAccessToken(ctx context.Context, connection string) (string, error) {
+	return s.accessToken(ctx, connection, true)
+}
+
+func (s *OAuthFlowService) accessToken(ctx context.Context, connection string, force bool) (string, error) {
 	client, err := s.clientFor(ctx, connection)
 	if err != nil {
 		return "", err
 	}
 	deadline := time.Now().Add(oauthRefreshWait)
+	// refused is the token the server turned down, when forced: one another
+	// process has replaced since is good.
+	refused := ""
 	for {
 		a, err := s.db.ActiveOAuthAttempt(ctx, connection)
 		if errors.Is(err, store.ErrNotFound) {
@@ -93,7 +106,10 @@ func (s *OAuthFlowService) AccessToken(ctx context.Context, connection string) (
 		if err != nil {
 			return "", err
 		}
-		if s.fresh(secret.Token) {
+		if force && refused == "" && secret.Token != nil {
+			refused = secret.Token.AccessToken
+		}
+		if s.fresh(secret.Token) && (!force || secret.Token.AccessToken != refused) {
 			return secret.Token.AccessToken, nil
 		}
 		if secret.Token == nil || secret.Token.RefreshToken == "" {
@@ -116,20 +132,20 @@ func (s *OAuthFlowService) AccessToken(ctx context.Context, connection string) (
 		if err != nil {
 			return "", err
 		}
-		token, err := s.refresh(ctx, client, a)
+		token, err := s.refresh(ctx, client, a, refused, force)
 		_ = s.db.ReleaseOAuthRefresh(context.WithoutCancel(ctx), connection, s.holder)
 		return token, err
 	}
 }
 
 // refresh runs under the connection's refresh lease.
-func (s *OAuthFlowService) refresh(ctx context.Context, client *http.Client, a store.OAuthAttempt) (string, error) {
+func (s *OAuthFlowService) refresh(ctx context.Context, client *http.Client, a store.OAuthAttempt, refused string, force bool) (string, error) {
 	// Another process may have refreshed between our read and our claim.
 	secret, err := s.read(ctx, a.ID)
 	if err != nil {
 		return "", err
 	}
-	if s.fresh(secret.Token) {
+	if s.fresh(secret.Token) && (!force || secret.Token.AccessToken != refused) {
 		return secret.Token.AccessToken, nil
 	}
 	work, cancel := context.WithTimeout(context.WithoutCancel(ctx), 20*time.Second)

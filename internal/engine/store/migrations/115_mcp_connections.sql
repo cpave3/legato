@@ -47,3 +47,12 @@ CREATE TABLE IF NOT EXISTS oauth_client_registrations (
     created_at INTEGER NOT NULL,
     UNIQUE (issuer, resource, redirect_uri)
 );
+
+-- The definition hash of each tool an MCP connection last offered: a tool
+-- whose definition changes ends the connection's grants, across processes.
+CREATE TABLE IF NOT EXISTS mcp_tools (
+    connection TEXT NOT NULL,
+    tool TEXT NOT NULL,
+    hash TEXT NOT NULL,
+    PRIMARY KEY (connection, tool)
+);

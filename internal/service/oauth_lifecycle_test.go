@@ -362,3 +362,18 @@ func TestAStaleCallbackAfterASweepIsRefused(t *testing.T) {
 		t.Fatal("a stale callback was exchanged")
 	}
 }
+
+// A token the MCP server refused is refreshed even though it has not
+// expired, once: a second process asking with the same refused token gets
+// the replacement.
+func TestARefusedTokenIsRefreshedEvenWhenFresh(t *testing.T) {
+	f := newLifecycleFixture(t)
+	f.connect(t)
+	token, err := f.flows.RefreshAccessToken(context.Background(), "burnlite")
+	if err != nil || token != "access-2" {
+		t.Fatalf("forced refresh: %q %v", token, err)
+	}
+	if again, _ := f.another(t).AccessToken(context.Background(), "burnlite"); again != "access-2" || f.refreshes() != 1 {
+		t.Fatalf("after: %q, %d refreshes", again, f.refreshes())
+	}
+}
