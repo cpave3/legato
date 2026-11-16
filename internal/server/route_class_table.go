@@ -62,6 +62,12 @@ var routeClassTable = []routeClassEntry{
 	{"PUT", "/api/settings/tint", ClassChange, "Set this Legato's tint"},
 	{"GET", "/api/settings/theme", ClassRead, "Read this server's preferred theme"},
 	{"PUT", "/api/settings/theme", ClassChange, "Set this server's preferred theme"},
+	{"GET", "/api/settings/mcp/connections", ClassRead, "List the MCP connections"},
+	{"GET", "/api/settings/mcp/connections/{name}", ClassRead, "Read an MCP connection"},
+	// Upstream MCP connections are the operator's to administer.
+	{"POST", "/api/settings/mcp/connections", ClassNever, "Add an MCP connection"},
+	{"PATCH", "/api/settings/mcp/connections/{name}", ClassNever, "Change, turn on or turn off an MCP connection"},
+	{"DELETE", "/api/settings/mcp/connections/{name}", ClassNever, "Remove an MCP connection"},
 	{"GET", "/api/engrams", ClassRead, "List the engrams agents can be started as"},
 	{"GET", "/api/engram-bindings", ClassRead, "List the engrams bound to repositories and folders"},
 	{"DELETE", "/api/engram-bindings", ClassChange, "Unbind an engram from a repository or folder"},

@@ -4,6 +4,8 @@ import (
 	"context"
 	"database/sql"
 	"errors"
+
+	"github.com/jmoiron/sqlx"
 )
 
 // OAuthAttempt contains delivery and activation authority, never credentials.
@@ -21,6 +23,10 @@ type OAuthAttempt struct {
 	ExpiresAt    int64  `db:"expires_at"`
 	CreatedAt    int64  `db:"created_at"`
 	UpdatedAt    int64  `db:"updated_at"`
+	// ConnectionRevision, when set, is the MCP connection revision the attempt
+	// was begun against: recording it fails unless that revision is current and
+	// the connection is enabled for OAuth. It is not stored on the attempt.
+	ConnectionRevision int64 `db:"-"`
 }
 
 func (s *Store) BeginOAuthAttempt(ctx context.Context, a OAuthAttempt, now int64) (OAuthAttempt, error) {
@@ -29,6 +35,16 @@ func (s *Store) BeginOAuthAttempt(ctx context.Context, a OAuthAttempt, now int64
 		return OAuthAttempt{}, err
 	}
 	defer tx.Rollback()
+	if a.ConnectionRevision != 0 {
+		var current int
+		err := tx.GetContext(ctx, &current, `SELECT COUNT(*) FROM mcp_connections WHERE name=? AND revision=? AND enabled=1 AND auth='oauth'`, a.Connection, a.ConnectionRevision)
+		if err != nil {
+			return OAuthAttempt{}, err
+		}
+		if current != 1 {
+			return OAuthAttempt{}, ErrConflict
+		}
+	}
 	if _, err = tx.ExecContext(ctx, `INSERT INTO oauth_connections(connection) VALUES(?) ON CONFLICT(connection) DO NOTHING`, a.Connection); err != nil {
 		return OAuthAttempt{}, err
 	}
@@ -130,20 +146,28 @@ func (s *Store) InvalidateOAuthConnection(ctx context.Context, connection string
 		return nil, err
 	}
 	defer tx.Rollback()
-	if _, err = tx.ExecContext(ctx, `INSERT INTO oauth_connections(connection) VALUES(?) ON CONFLICT(connection) DO NOTHING`, connection); err != nil {
+	attempts, err := invalidateOAuthConnectionTx(ctx, tx, connection, now)
+	if err != nil {
+		return nil, err
+	}
+	if err := tx.Commit(); err != nil {
+		return nil, err
+	}
+	return attempts, nil
+}
+
+func invalidateOAuthConnectionTx(ctx context.Context, tx *sqlx.Tx, connection string, now int64) ([]OAuthAttempt, error) {
+	if _, err := tx.ExecContext(ctx, `INSERT INTO oauth_connections(connection) VALUES(?) ON CONFLICT(connection) DO NOTHING`, connection); err != nil {
 		return nil, err
 	}
 	var attempts []OAuthAttempt
 	if err := tx.SelectContext(ctx, &attempts, `SELECT * FROM oauth_attempts WHERE connection=? ORDER BY created_at,id`, connection); err != nil {
 		return nil, err
 	}
-	if _, err = tx.ExecContext(ctx, `UPDATE oauth_connections SET generation=generation+1,active_attempt='' WHERE connection=?`, connection); err != nil {
+	if _, err := tx.ExecContext(ctx, `UPDATE oauth_connections SET generation=generation+1,active_attempt='' WHERE connection=?`, connection); err != nil {
 		return nil, err
 	}
-	if _, err = tx.ExecContext(ctx, `UPDATE oauth_attempts SET status='cancelled',updated_at=? WHERE connection=? AND status IN ('pending','exchanging','awaiting_confirmation','authorized')`, now, connection); err != nil {
-		return nil, err
-	}
-	if err := tx.Commit(); err != nil {
+	if _, err := tx.ExecContext(ctx, `UPDATE oauth_attempts SET status='cancelled',updated_at=? WHERE connection=? AND status IN ('pending','exchanging','awaiting_confirmation','authorized')`, now, connection); err != nil {
 		return nil, err
 	}
 	return attempts, nil

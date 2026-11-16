@@ -37,6 +37,15 @@ type OAuthFlowOptions struct {
 	Now          func() time.Time
 	Lifetime     time.Duration
 	SecretSource func(context.Context) (string, error)
+	// Connections, when set, is the registry an attempt must name: the
+	// resource address and pinned issuer come from it, never the request,
+	// and the attempt is fenced by the connection's revision.
+	Connections OAuthFlowConnections
+}
+
+// OAuthFlowConnections resolves a connection name to what may be authorized.
+type OAuthFlowConnections interface {
+	AuthorizationTarget(ctx context.Context, name string) (MCPAuthorizationTarget, error)
 }
 
 // OAuthFlowRequest's Owner is supplied by the authenticated host handler, never
@@ -134,6 +143,20 @@ func (s *OAuthFlowService) Begin(ctx context.Context, r OAuthFlowRequest) (OAuth
 			return OAuthFlowBegin{}, errors.New("OAuth requires a host secret store that can be unlocked without an interactive passphrase")
 		}
 	}
+	var target MCPAuthorizationTarget
+	if s.opts.Connections != nil {
+		if r.URL != "" {
+			return OAuthFlowBegin{}, ErrOAuthFlowInput
+		}
+		var err error
+		if target, err = s.opts.Connections.AuthorizationTarget(ctx, r.Connection); err != nil {
+			if errors.Is(err, store.ErrNotFound) {
+				return OAuthFlowBegin{}, ErrOAuthFlowInput
+			}
+			return OAuthFlowBegin{}, err
+		}
+		r.URL = target.URL
+	}
 	instance, err := InstanceID(ctx, s.db)
 	if err != nil {
 		return OAuthFlowBegin{}, err
@@ -171,6 +194,9 @@ func (s *OAuthFlowService) Begin(ctx context.Context, r OAuthFlowRequest) (OAuth
 	if err != nil {
 		return OAuthFlowBegin{}, errors.New("OAuth discovery failed: check the endpoint, TLS, issuer and PKCE S256 metadata")
 	}
+	if target.Issuer != "" && md.Issuer != target.Issuer {
+		return OAuthFlowBegin{}, errors.New("OAuth discovery found an issuer other than the one this connection pins")
+	}
 	// The new flow is strict even while existing integration CLI callers migrate.
 	s256 := false
 	for _, method := range md.CodeChallengeMethods {
@@ -194,7 +220,10 @@ func (s *OAuthFlowService) Begin(ctx context.Context, r OAuthFlowRequest) (OAuth
 	if err := s.write(ctx, id, secret); err != nil {
 		return OAuthFlowBegin{}, err
 	}
-	_, err = s.db.BeginOAuthAttempt(ctx, store.OAuthAttempt{ID: id, Connection: r.Connection, Owner: oauthHash(r.Owner), InstanceID: instance, ReceiverHash: oauthHash(key), StateHash: oauthHash(auth.State()), ExpiresAt: expires.Unix()}, s.opts.Now().Unix())
+	_, err = s.db.BeginOAuthAttempt(ctx, store.OAuthAttempt{ID: id, Connection: r.Connection, Owner: oauthHash(r.Owner), InstanceID: instance, ReceiverHash: oauthHash(key), StateHash: oauthHash(auth.State()), ExpiresAt: expires.Unix(), ConnectionRevision: target.Revision}, s.opts.Now().Unix())
+	if errors.Is(err, store.ErrConflict) {
+		err = errors.Join(ErrOAuthFlowRefused, errors.New("the connection changed while authorization was starting; start again"))
+	}
 	if err != nil {
 		return OAuthFlowBegin{}, errors.Join(err, s.remove(ctx, id))
 	}
@@ -474,6 +503,12 @@ func (s *OAuthFlowService) Disconnect(ctx context.Context, connection string) er
 	if err != nil {
 		return err
 	}
+	return s.ForgetAttempts(ctx, attempts)
+}
+
+// ForgetAttempts stops the receivers of attempts that have already been
+// fenced in the store and removes their sealed records.
+func (s *OAuthFlowService) ForgetAttempts(ctx context.Context, attempts []store.OAuthAttempt) error {
 	var problems []error
 	for _, a := range attempts {
 		s.stopReceiver(a.ID)

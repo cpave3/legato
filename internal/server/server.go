@@ -100,6 +100,7 @@ type Server struct {
 	preparing                preparingAgents
 	tints                    TintService
 	themes                   ThemePreferenceService
+	mcpConnections           MCPConnectionService
 	reeveName                service.ReeveNameSource
 	engrams                  EngramService
 	builtInWorkflows         []*workflowengine.Definition
@@ -357,6 +358,7 @@ func NewWithSwarm(board service.BoardService, agents service.AgentService, tmux 
 	mux.HandleFunc("/api/agents/{task_id}/chimera/models", s.chimeraModelsHandler())
 	mux.HandleFunc("/ws", s.wsHandler())
 	s.registerIntegrationRoutes(mux)
+	s.registerMCPConnectionRoutes(mux)
 	s.registerInstanceRoutes(mux)
 	s.registerBurnliteRoutes(mux)
 	s.registerReeveRoutes(mux)
