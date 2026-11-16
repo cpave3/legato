@@ -21,7 +21,7 @@ func TestTheMCPRuntimeServesSettings(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	rt, stop := startMCPBroker(&config.Config{DataDir: t.TempDir()}, db, credentials)
+	rt, stop := startMCPBroker(&config.Config{DataDir: t.TempDir(), Secrets: config.SecretsConfig{MasterKey: "file"}}, db, credentials)
 	t.Cleanup(stop)
 	srv := server.New(nil, nil, nil, ":0")
 	srv.SetAuthToken("secret")

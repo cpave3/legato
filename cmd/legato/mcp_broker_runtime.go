@@ -7,6 +7,7 @@ import (
 
 	"github.com/cpave3/legato/config"
 	"github.com/cpave3/legato/internal/cli"
+	"github.com/cpave3/legato/internal/engine/egress"
 	"github.com/cpave3/legato/internal/engine/store"
 	"github.com/cpave3/legato/internal/server"
 	"github.com/cpave3/legato/internal/service"
@@ -22,6 +23,10 @@ type mcpBrokerRuntime struct {
 	broker *service.MCPBroker
 }
 
+// mcpEgress adjusts every connection's egress policy; nil in production.
+// Tests set it to reach fixture servers on the loopback address.
+var mcpEgress func(egress.Policy) egress.Policy
+
 // mcpSweepEvery is how often abandoned OAuth attempts are reconciled.
 const mcpSweepEvery = 5 * time.Minute
 
@@ -34,7 +39,7 @@ func startMCPBroker(cfg *config.Config, db *store.Store, credentials *service.Cr
 	}
 	secretStore := configuredSecretStore(cfg, db)
 	secrets := service.SealedIntegrationSecrets{Store: secretStore}
-	conns := service.NewMCPConnectionService(db, service.MCPConnectionOptions{Secrets: secrets})
+	conns := service.NewMCPConnectionService(db, service.MCPConnectionOptions{Secrets: secrets, Egress: mcpEgress})
 	flows := service.NewOAuthFlowService(db, secrets, service.OAuthFlowOptions{Connections: conns, SecretSource: secretStore.Source})
 	conns.SetOAuth(flows)
 	grants := service.NewMCPGrants(credentials, conns, db)
