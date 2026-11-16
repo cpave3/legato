@@ -140,7 +140,7 @@ Restart Legato. Each sandboxed agent then gets a Docker socket of its own, with 
 
 - **Its own things.** Every container, network and volume the agent makes is labelled with its run (`legato.execution`). `docker ps`, `docker network ls`, `docker volume ls`, events and prunes show it only its own. Inspecting, starting, stopping, removing, `exec`, logs, `cp` and joining a network work only on its own. Two agents can run stacks side by side without seeing each other's, as long as their compose project names and published ports differ.
 - **Only what its sandbox sees.** A bind mount (`-v`, `--mount type=bind`, a volume that binds a folder, `--volumes-from`) may name only a path the agent's sandbox shows, with no more access: something it sees read-only is mounted read-only, and anything hidden is refused, `~/.ssh` and the Docker socket among them. Links are resolved on the host first, so a link in the worktree to `~/.ssh` is refused too. The sandbox's `/tmp` and home are its own scratch folders, so a container mounting them gets those. Folders given as [resources](/legato/agent-tools/resources/), including [resources for a repository](/legato/agent-tools/resources/#resources-for-a-repository), can be mounted into the agent's containers at the same access.
-- **Nothing that is root on your machine.** Refused: `--privileged`, devices and GPUs, `--cap-add` beyond `cap_add`, the host's network, PID, IPC, UTS, user or cgroup namespace, another agent's container's namespace, security options that turn off seccomp, AppArmor or SELinux, a cgroup parent, sysctls that are not per container, other runtimes, and `systempaths=unconfined`. A build on the host network is refused. Swarm, services, secrets, configs, plugins and nodes are refused.
+- **Nothing that is root on your machine.** Refused: `--privileged`, devices and GPUs, `--cap-add` beyond `cap_add`, the host's network, PID, IPC, UTS, user or cgroup namespace, another agent's container's namespace, security options that turn off seccomp, AppArmor or SELinux, a cgroup parent, sysctls that are not per container, other runtimes, and `systempaths=unconfined`. A build on the host network is refused. Swarm, services, secrets, configs and nodes are refused, and so is installing, enabling or changing a plugin; the agent sees no plugins.
 - **Shared images.** Pulling, building and listing images work as usual. An agent may remove only images it built.
 - **Ports.** Published ports bind `127.0.0.1` unless `publish` is `any`. Agents share your network, so they reach their own services there.
 
@@ -149,6 +149,14 @@ A refusal reads like any Docker error and starts with `legato:`, so the agent se
 ```text
 docker: Error response from daemon: legato: privileged containers are not allowed: they are root on the host
 ```
+
+Something the agent cannot see is not refused: it is missing, in Docker's own words, whether it never existed, was removed, or belongs to another agent or to you. Tools that check whether a container exists behave as they do outside the sandbox, and `docker inspect` of a name that is nowhere ends in `No such object`:
+
+```text
+Error response from daemon: No such container: dev-cosmos-1
+```
+
+One thing still tells an agent that a hidden name is taken: making a container, network or volume with a name that another agent's or yours already has fails with Docker's name-conflict error, which may give the other container's ID, and a container that names a volume of someone else's is refused. The agent can do nothing with either. Give each agent's stack its own compose project name and the names do not meet.
 
 When the agent ends, however it ends, Legato removes its containers, networks and volumes. Reloading an agent starts a new run, so its containers go too; start the stack again after a reload. Things left by an agent that ended while Legato was not running are removed when Legato next checks its agents. Another Legato's containers are never touched.
 
