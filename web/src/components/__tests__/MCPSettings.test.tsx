@@ -297,4 +297,22 @@ describe("MCPSettings", () => {
     await waitFor(() => expect(screen.queryByRole("listitem", { name: "notion" })).toBeNull())
     expect(requests.some((r) => r.method === "DELETE" && r.url === "/api/settings/mcp/connections/notion")).toBe(true)
   })
+
+  it("adds a server with a client registered for Legato by hand", async () => {
+    render(<MCPSettings baseUrl="" pollEvery={10} />)
+    await screen.findByRole("listitem", { name: "notion" })
+    fireEvent.change(screen.getByRole("textbox", { name: "MCP server name" }), { target: { value: "corp" } })
+    fireEvent.change(screen.getByRole("textbox", { name: "MCP server address" }), { target: { value: "https://mcp.corp.example/mcp" } })
+    fireEvent.change(screen.getByRole("textbox", { name: "Client ID" }), { target: { value: "legato-corp" } })
+    fireEvent.change(screen.getByRole("textbox", { name: "Registered redirect" }), { target: { value: "http://127.0.0.1:47123/callback" } })
+    fireEvent.change(screen.getByLabelText("Client secret"), { target: { value: "s3cret" } })
+    fireEvent.click(screen.getByRole("button", { name: "Add" }))
+    await screen.findByRole("listitem", { name: "corp" })
+    expect(requests.find((r) => r.method === "POST" && r.url === "/api/settings/mcp/connections")?.body).toEqual({
+      name: "corp", url: "https://mcp.corp.example/mcp", auth: "oauth",
+      static_client_id: "legato-corp", static_redirect_uri: "http://127.0.0.1:47123/callback", static_client_secret: "s3cret",
+    })
+    expect((screen.getByLabelText("Client secret") as HTMLInputElement).value).toBe("")
+  })
 })
+

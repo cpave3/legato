@@ -410,6 +410,9 @@ function AddConnection({ baseUrl, onAdded }: { baseUrl: string; onAdded: (conn: 
   const [auth, setAuth] = useState<"oauth" | "none">("oauth")
   const [issuer, setIssuer] = useState("")
   const [networks, setNetworks] = useState("")
+  const [clientID, setClientID] = useState("")
+  const [redirect, setRedirect] = useState("")
+  const [secret, setSecret] = useState("")
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)
 
@@ -423,11 +426,16 @@ function AddConnection({ baseUrl, onAdded }: { baseUrl: string; onAdded: (conn: 
         name: name.trim(), url: url.trim(), auth,
         ...(issuer.trim() ? { issuer: issuer.trim() } : {}),
         ...(privateNetworks.length ? { private_networks: privateNetworks } : {}),
+        ...(clientID.trim() ? { static_client_id: clientID.trim(), static_redirect_uri: redirect.trim() } : {}),
+        ...(clientID.trim() && secret ? { static_client_secret: secret } : {}),
       }))
       setName("")
       setUrl("")
       setIssuer("")
       setNetworks("")
+      setClientID("")
+      setRedirect("")
+      setSecret("")
     } catch (reason) {
       setError(message(reason))
     } finally {
@@ -451,6 +459,12 @@ function AddConnection({ baseUrl, onAdded }: { baseUrl: string; onAdded: (conn: 
         <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
           <input aria-label="Authorization server" type="url" value={issuer} onChange={(e) => setIssuer(e.target.value)} placeholder="Authorization server, if not the one the server names" className={`${input} font-lw-mono`} />
           <input aria-label="Private networks" value={networks} onChange={(e) => setNetworks(e.target.value)} placeholder="10.0.0.0/8, for a server on your network" className={`${input} font-lw-mono`} />
+        </div>
+        <p className="mt-2 text-[11px] text-lw-faint">A client registered for Legato by hand, for a server that offers no registration Legato can use. Register the redirect http://127.0.0.1:&lt;port&gt;/callback with a free port; connecting listens on exactly that port.</p>
+        <div className="mt-1 grid grid-cols-1 gap-2 sm:grid-cols-3">
+          <input aria-label="Client ID" value={clientID} onChange={(e) => setClientID(e.target.value)} placeholder="Client ID" className={`${input} font-lw-mono`} />
+          <input aria-label="Registered redirect" value={redirect} onChange={(e) => setRedirect(e.target.value)} placeholder="http://127.0.0.1:47123/callback" className={`${input} font-lw-mono`} />
+          <input aria-label="Client secret" type="password" autoComplete="off" value={secret} onChange={(e) => setSecret(e.target.value)} placeholder="Client secret, if it has one" className={`${input} font-lw-mono`} />
         </div>
       </details>
       {error && <p role="alert" className="text-xs text-lw-error">{error}</p>}

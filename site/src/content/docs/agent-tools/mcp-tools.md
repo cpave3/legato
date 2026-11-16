@@ -167,4 +167,14 @@ A studio needs libretto on the machine that runs Legato's web server, as well as
 - A small model may ignore the guidance and answer in text.
 - Legacy Chimera subagents do not get launch-only MCP tools. Chimera mods v1 carries the bundled server into subagents too; they never take over the parent's Legato connection.
 
+MCP servers you connect have limits of their own:
+
+- Only remote servers over HTTPS (Streamable HTTP). Legato starts no local MCP server as a program, and reaches no server on `localhost`. A server on your own network needs its network named under **Advanced**.
+- Connecting needs the Legato desktop app, or a browser on the same computer as Legato. The Android app cannot connect servers yet. There is no hosted relay, public callback address or pasted code.
+- Legato registers itself with the server's authorization server. A server that offers no registration Legato can use needs a client registered for Legato by hand, with the redirect `http://127.0.0.1:<port>/callback`; enter it under **Advanced** when you add the server. Some servers allow a loopback address on any port and some do not; when the port Legato registered is taken, it registers again.
+- Each Legato authorizes on its own. A worker you hand a task to does not use the main Legato's authorization.
+- A tool whose input or output description uses an older JSON Schema, or refers to schemas elsewhere, is not offered.
+- Legato decides whether a tool only reads from the list of read-only tools you give it, never from what the server says.
+- Agents learn of tools when their session starts.
+
 For how the server works inside, see [Agent tools on GitHub](https://github.com/cpave3/legato/blob/main/docs/ai/agent-mcp.md).

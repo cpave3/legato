@@ -45,6 +45,10 @@ export interface MCPConnectionInput {
   auth: "oauth" | "none"
   issuer?: string
   private_networks?: string[]
+  /** a client registered for Legato by hand, its loopback redirect and any secret (sent once, then sealed) */
+  static_client_id?: string
+  static_redirect_uri?: string
+  static_client_secret?: string
 }
 
 export interface MCPConnectionChange {
