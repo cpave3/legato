@@ -9,6 +9,7 @@ import (
 	"strings"
 	"time"
 
+	"github.com/cpave3/legato/internal/engine/credential"
 	"github.com/cpave3/legato/internal/engine/egress"
 	"github.com/cpave3/legato/internal/engine/store"
 )
@@ -33,17 +34,28 @@ type MCPConnectionInput struct {
 	// PrivateNetworks are the private prefixes (CIDR) this connection may
 	// reach, for an upstream on a LAN or VPN; none means public only.
 	PrivateNetworks []string `json:"private_networks,omitempty"`
+	// An advanced pre-registered OAuth client, for a server without usable
+	// registration: its ID, the bare loopback redirect registered for it
+	// (http://127.0.0.1:<port>/callback), and its secret if it has one.
+	StaticClientID     string `json:"static_client_id,omitempty"`
+	StaticRedirectURI  string `json:"static_redirect_uri,omitempty"`
+	StaticClientSecret string `json:"static_client_secret,omitempty"`
 }
 
 // MCPConnectionChange edits a connection read at ExpectedRevision. A nil
 // field is left as it is.
 type MCPConnectionChange struct {
-	URL              *string   `json:"url,omitempty"`
-	Issuer           *string   `json:"issuer,omitempty"`
-	Auth             *string   `json:"auth,omitempty"`
-	PrivateNetworks  *[]string `json:"private_networks,omitempty"`
-	Enabled          *bool     `json:"enabled,omitempty"`
-	ExpectedRevision int64     `json:"expected_revision"`
+	URL             *string   `json:"url,omitempty"`
+	Issuer          *string   `json:"issuer,omitempty"`
+	Auth            *string   `json:"auth,omitempty"`
+	PrivateNetworks *[]string `json:"private_networks,omitempty"`
+	// StaticClientID "" removes the pre-registered client (and its secret);
+	// StaticClientSecret "" removes only the secret.
+	StaticClientID     *string `json:"static_client_id,omitempty"`
+	StaticRedirectURI  *string `json:"static_redirect_uri,omitempty"`
+	StaticClientSecret *string `json:"static_client_secret,omitempty"`
+	Enabled            *bool   `json:"enabled,omitempty"`
+	ExpectedRevision   int64   `json:"expected_revision"`
 }
 
 // MCPProblem is a fixed code and what the operator can do about it. It never
@@ -104,6 +116,8 @@ type MCPAuthorizationTarget struct {
 	Revision int64
 	// Egress is the policy every request of the attempt goes through.
 	Egress egress.Policy
+	// A pre-registered client, when the operator configured one.
+	StaticClientID, StaticRedirectURI, StaticClientSecret string
 }
 
 type MCPConnectionOptions struct {
@@ -111,6 +125,8 @@ type MCPConnectionOptions struct {
 	// Egress adjusts a connection's outbound policy before use. Production
 	// leaves it nil; tests use it to reach their loopback fixtures.
 	Egress func(egress.Policy) egress.Policy
+	// Secrets seals a pre-registered client's secret.
+	Secrets OAuthFlowSecrets
 }
 
 // MCPConnectionService is the instance-owned registry of upstream MCP
@@ -187,6 +203,17 @@ func (s *MCPConnectionService) checkFields(c store.MCPConnection) error {
 	if c.Auth == "none" && c.Issuer != "" {
 		return errors.Join(ErrMCPConnectionInvalid, errors.New("issuer: an anonymous connection has none"))
 	}
+	if c.StaticClientID == "" && (c.StaticRedirectURI != "" || c.StaticSecretSet) {
+		return errors.Join(ErrMCPConnectionInvalid, errors.New("static_client_id: a pre-registered redirect or secret needs its client ID"))
+	}
+	if c.StaticClientID != "" {
+		if c.Auth != "oauth" || len(c.StaticClientID) > 512 || strings.ContainsFunc(c.StaticClientID, func(r rune) bool { return r < ' ' }) {
+			return errors.Join(ErrMCPConnectionInvalid, errors.New("static_client_id: a client ID for an OAuth connection"))
+		}
+		if !validOAuthAppRedirect(c.StaticRedirectURI) {
+			return errors.Join(ErrMCPConnectionInvalid, errors.New("static_redirect_uri: the bare redirect registered for the client, http://127.0.0.1:<port>/callback"))
+		}
+	}
 	p, err := s.policy(c)
 	if err != nil {
 		return errors.Join(ErrMCPConnectionInvalid, fmt.Errorf("private_networks: %w", err))
@@ -219,12 +246,16 @@ func (s *MCPConnectionService) Add(ctx context.Context, in MCPConnectionInput) (
 	if err != nil {
 		return MCPConnectionState{}, err
 	}
-	c := store.MCPConnection{Name: strings.TrimSpace(in.Name), URL: strings.TrimSpace(in.URL), Issuer: strings.TrimSpace(in.Issuer), Networks: networks, Auth: in.Auth, InstanceID: instance}
+	c := store.MCPConnection{Name: strings.TrimSpace(in.Name), URL: strings.TrimSpace(in.URL), Issuer: strings.TrimSpace(in.Issuer), Networks: networks, Auth: in.Auth, InstanceID: instance,
+		StaticClientID: strings.TrimSpace(in.StaticClientID), StaticRedirectURI: strings.TrimSpace(in.StaticRedirectURI), StaticSecretSet: in.StaticClientSecret != ""}
 	if c.Auth == "" {
 		c.Auth = "oauth"
 	}
 	if err := s.checkFields(c); err != nil {
 		return MCPConnectionState{}, err
+	}
+	if c.StaticSecretSet && s.opts.Secrets == nil {
+		return MCPConnectionState{}, errors.New("this Legato cannot seal a client secret")
 	}
 	created, err := s.db.CreateMCPConnection(ctx, c, s.opts.Now().Unix())
 	if errors.Is(err, store.ErrConflict) {
@@ -232,6 +263,12 @@ func (s *MCPConnectionService) Add(ctx context.Context, in MCPConnectionInput) (
 	}
 	if err != nil {
 		return MCPConnectionState{}, err
+	}
+	if c.StaticSecretSet {
+		if err := s.opts.Secrets.Write(ctx, mcpStaticSecretName(c.Name), in.StaticClientSecret); err != nil {
+			_, _ = s.db.DeleteMCPConnection(ctx, c.Name, s.opts.Now().Unix())
+			return MCPConnectionState{}, fmt.Errorf("sealing the client secret: %w", err)
+		}
 	}
 	return s.state(ctx, created, instance)
 }
@@ -303,6 +340,21 @@ func (s *MCPConnectionService) Update(ctx context.Context, name string, ch MCPCo
 			return MCPConnectionState{}, err
 		}
 	}
+	if ch.StaticClientID != nil {
+		c.StaticClientID = strings.TrimSpace(*ch.StaticClientID)
+		if c.StaticClientID == "" {
+			c.StaticRedirectURI, c.StaticSecretSet = "", false
+		}
+	}
+	if ch.StaticRedirectURI != nil {
+		c.StaticRedirectURI = strings.TrimSpace(*ch.StaticRedirectURI)
+	}
+	if ch.StaticClientSecret != nil {
+		c.StaticSecretSet = *ch.StaticClientSecret != ""
+		if c.StaticSecretSet && s.opts.Secrets == nil {
+			return MCPConnectionState{}, errors.New("this Legato cannot seal a client secret")
+		}
+	}
 	if err := s.checkFields(c); err != nil {
 		return MCPConnectionState{}, err
 	}
@@ -316,6 +368,16 @@ func (s *MCPConnectionService) Update(ctx context.Context, name string, ch MCPCo
 	if err := s.forget(ctx, fenced); err != nil {
 		return MCPConnectionState{}, err
 	}
+	switch {
+	case ch.StaticClientSecret != nil && *ch.StaticClientSecret != "":
+		if err := s.opts.Secrets.Write(ctx, mcpStaticSecretName(name), *ch.StaticClientSecret); err != nil {
+			return MCPConnectionState{}, fmt.Errorf("sealing the client secret: %w", err)
+		}
+	case !updated.StaticSecretSet:
+		if err := s.removeStaticSecret(ctx, name); err != nil {
+			return MCPConnectionState{}, err
+		}
+	}
 	return s.state(ctx, updated, instance)
 }
 
@@ -327,7 +389,20 @@ func (s *MCPConnectionService) Remove(ctx context.Context, name string) error {
 	if err != nil {
 		return err
 	}
-	return s.forget(ctx, fenced)
+	return errors.Join(s.forget(ctx, fenced), s.removeStaticSecret(ctx, name))
+}
+
+func mcpStaticSecretName(name string) string { return "mcp-static-client-" + name }
+
+func (s *MCPConnectionService) removeStaticSecret(ctx context.Context, name string) error {
+	if s.opts.Secrets == nil {
+		return nil
+	}
+	err := s.opts.Secrets.Remove(ctx, mcpStaticSecretName(name))
+	if errors.Is(err, credential.ErrNotFound) {
+		return nil
+	}
+	return err
 }
 
 func (s *MCPConnectionService) forget(ctx context.Context, attempts []store.OAuthAttempt) error {
@@ -500,5 +575,14 @@ func (s *MCPConnectionService) AuthorizationTarget(ctx context.Context, name str
 	if err != nil {
 		return MCPAuthorizationTarget{}, err
 	}
-	return MCPAuthorizationTarget{URL: c.URL, Issuer: c.Issuer, Revision: c.Revision, Egress: p}, nil
+	target := MCPAuthorizationTarget{URL: c.URL, Issuer: c.Issuer, Revision: c.Revision, Egress: p, StaticClientID: c.StaticClientID, StaticRedirectURI: c.StaticRedirectURI}
+	if c.StaticSecretSet {
+		if s.opts.Secrets == nil {
+			return MCPAuthorizationTarget{}, errors.New("this Legato cannot read the sealed client secret")
+		}
+		if target.StaticClientSecret, err = s.opts.Secrets.Read(ctx, mcpStaticSecretName(c.Name)); err != nil {
+			return MCPAuthorizationTarget{}, fmt.Errorf("reading the sealed client secret: %w", err)
+		}
+	}
+	return target, nil
 }

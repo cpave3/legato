@@ -30,9 +30,19 @@ type Metadata struct {
 	AuthorizationEndpoint string
 	TokenEndpoint         string
 	RegistrationEndpoint  string
+	// RevocationEndpoint is empty when the server offers no revocation.
+	RevocationEndpoint string
 	// CodeChallengeMethods is empty when the server did not list them.
 	CodeChallengeMethods    []string
 	ResponseIssuerSupported bool
+	// CIMDSupported: the server accepts a client ID metadata document URL as
+	// client_id (client_id_metadata_document_supported).
+	CIMDSupported bool
+	// ResourceScopes are the protected resource's scopes_supported,
+	// ServerScopes the authorization server's.
+	ResourceScopes   []string
+	ServerScopes     []string
+	TokenAuthMethods []string
 }
 
 // Discover reads the protected-resource metadata at the origin of

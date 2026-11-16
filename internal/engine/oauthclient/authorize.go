@@ -92,7 +92,9 @@ func newAuthorization(md *Metadata, clientID, scope, redirectURI string) (*Autho
 	q.Set("response_type", "code")
 	q.Set("client_id", clientID)
 	q.Set("redirect_uri", a.redirectURI)
-	q.Set("scope", scope)
+	if scope != "" {
+		q.Set("scope", scope)
+	}
 	q.Set("state", state)
 	q.Set("code_challenge", base64.RawURLEncoding.EncodeToString(sum[:]))
 	q.Set("code_challenge_method", "S256")

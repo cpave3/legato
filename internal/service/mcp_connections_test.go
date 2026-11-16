@@ -27,12 +27,25 @@ type mcpFixture struct {
 	conns   *MCPConnectionService
 }
 
-func newMCPFixture(t *testing.T, client *http.Client) mcpFixture {
+// flowConnections is a registry with the connections the flow tests name,
+// each at the fake provider's MCP endpoint.
+func flowConnections(t *testing.T, db *store.Store, f *fakeOAuth) *MCPConnectionService {
+	t.Helper()
+	conns := NewMCPConnectionService(db, MCPConnectionOptions{Egress: loopbackFixture})
+	for _, name := range []string{"mcp-burnlite", "one", "connection", "sealed", "local"} {
+		if _, err := conns.Add(context.Background(), MCPConnectionInput{Name: name, URL: f.srv.URL + "/api/llm/mcp"}); err != nil && !errors.Is(err, ErrMCPConnectionExists) {
+			t.Fatal(err)
+		}
+	}
+	return conns
+}
+
+func newMCPFixture(t *testing.T) mcpFixture {
 	t.Helper()
 	db := newIntegrationStore(t)
 	secrets := flowMemorySecrets{&memorySecrets{values: map[string]string{}}}
 	conns := NewMCPConnectionService(db, MCPConnectionOptions{Egress: loopbackFixture})
-	flows := NewOAuthFlowService(db, secrets, OAuthFlowOptions{HTTPClient: client, Connections: conns})
+	flows := NewOAuthFlowService(db, secrets, OAuthFlowOptions{Connections: conns})
 	conns.SetOAuth(flows)
 	t.Cleanup(func() { flows.Close() })
 	return mcpFixture{db: db, secrets: secrets, flows: flows, conns: conns}
@@ -56,7 +69,7 @@ func (f mcpFixture) authorize(t *testing.T, name string) {
 }
 
 func TestMCPConnectionsValidateWhatTheOperatorAdds(t *testing.T) {
-	f := newMCPFixture(t, nil)
+	f := newMCPFixture(t)
 	ctx := context.Background()
 	for _, bad := range []MCPConnectionInput{
 		{Name: "", URL: "https://mcp.example.test/mcp"},
@@ -91,9 +104,9 @@ func TestMCPConnectionsValidateWhatTheOperatorAdds(t *testing.T) {
 
 func TestMCPConnectionStatesAreSeparate(t *testing.T) {
 	provider := newFakeOAuth(t)
-	f := newMCPFixture(t, provider.srv.Client())
+	f := newMCPFixture(t)
 	ctx := context.Background()
-	if _, err := f.conns.Add(ctx, MCPConnectionInput{Name: "burnlite", URL: provider.srv.URL}); err != nil {
+	if _, err := f.conns.Add(ctx, MCPConnectionInput{Name: "burnlite", URL: provider.srv.URL + "/api/llm/mcp"}); err != nil {
 		t.Fatal(err)
 	}
 	f.authorize(t, "burnlite")
@@ -144,7 +157,7 @@ func (g *grantAll) MCPGranted(_ context.Context, _ store.MCPConnection, c MCPCal
 
 func TestMCPConnectionUsabilityChecksEachLayer(t *testing.T) {
 	provider := newFakeOAuth(t)
-	f := newMCPFixture(t, provider.srv.Client())
+	f := newMCPFixture(t)
 	grants := &grantAll{}
 	f.conns.SetGrants(grants)
 	ctx := context.Background()
@@ -152,7 +165,7 @@ func TestMCPConnectionUsabilityChecksEachLayer(t *testing.T) {
 	if use, _ := f.conns.Usable(ctx, "missing", caller); use.Usable || use.Code != "not_found" {
 		t.Fatalf("missing %+v", use)
 	}
-	added, _ := f.conns.Add(ctx, MCPConnectionInput{Name: "burnlite", URL: provider.srv.URL})
+	added, _ := f.conns.Add(ctx, MCPConnectionInput{Name: "burnlite", URL: provider.srv.URL + "/api/llm/mcp"})
 	if use, _ := f.conns.Usable(ctx, "burnlite", caller); use.Usable || use.Code != "authorization_required" {
 		t.Fatalf("unauthorized %+v", use)
 	}
@@ -178,9 +191,9 @@ func TestMCPConnectionUsabilityChecksEachLayer(t *testing.T) {
 
 func TestChangingAnMCPResourceRemovesItsSealedCredentials(t *testing.T) {
 	provider := newFakeOAuth(t)
-	f := newMCPFixture(t, provider.srv.Client())
+	f := newMCPFixture(t)
 	ctx := context.Background()
-	f.conns.Add(ctx, MCPConnectionInput{Name: "burnlite", URL: provider.srv.URL})
+	f.conns.Add(ctx, MCPConnectionInput{Name: "burnlite", URL: provider.srv.URL + "/api/llm/mcp"})
 	f.authorize(t, "burnlite")
 	f.secrets.mu.Lock()
 	stored := len(f.secrets.values)
@@ -189,7 +202,7 @@ func TestChangingAnMCPResourceRemovesItsSealedCredentials(t *testing.T) {
 		t.Fatal("authorization stored nothing")
 	}
 	got, _ := f.conns.Get(ctx, "burnlite")
-	moved := provider.srv.URL + "/elsewhere"
+	moved := provider.srv.URL + "/elsewhere/mcp"
 	changed, err := f.conns.Update(ctx, "burnlite", MCPConnectionChange{URL: &moved, ExpectedRevision: got.Revision})
 	if err != nil {
 		t.Fatal(err)
@@ -207,9 +220,9 @@ func TestChangingAnMCPResourceRemovesItsSealedCredentials(t *testing.T) {
 
 func TestRemovingAnMCPConnectionEndsItsAuthorizationAttempts(t *testing.T) {
 	provider := newFakeOAuth(t)
-	f := newMCPFixture(t, provider.srv.Client())
+	f := newMCPFixture(t)
 	ctx := context.Background()
-	f.conns.Add(ctx, MCPConnectionInput{Name: "burnlite", URL: provider.srv.URL})
+	f.conns.Add(ctx, MCPConnectionInput{Name: "burnlite", URL: provider.srv.URL + "/api/llm/mcp"})
 	begun, err := f.flows.Begin(ctx, OAuthFlowRequest{Connection: "burnlite", Owner: "operator", Mode: "web"})
 	if err != nil {
 		t.Fatal(err)
@@ -238,16 +251,13 @@ func TestRemovingAnMCPConnectionEndsItsAuthorizationAttempts(t *testing.T) {
 
 func TestOAuthBeginUsesTheRegisteredConnectionOnly(t *testing.T) {
 	provider := newFakeOAuth(t)
-	f := newMCPFixture(t, provider.srv.Client())
+	f := newMCPFixture(t)
 	ctx := context.Background()
 	if _, err := f.flows.Begin(ctx, OAuthFlowRequest{Connection: "unknown", Owner: "operator", Mode: "web"}); err == nil {
 		t.Fatal("began OAuth for an unregistered connection")
 	}
-	f.conns.Add(ctx, MCPConnectionInput{Name: "burnlite", URL: provider.srv.URL})
-	if _, err := f.flows.Begin(ctx, OAuthFlowRequest{Connection: "burnlite", URL: "https://attacker.example.test", Owner: "operator", Mode: "web"}); !errors.Is(err, ErrOAuthFlowInput) {
-		t.Fatalf("request-supplied URL accepted: %v", err)
-	}
-	f.conns.Add(ctx, MCPConnectionInput{Name: "anon", URL: provider.srv.URL, Auth: "none"})
+	f.conns.Add(ctx, MCPConnectionInput{Name: "burnlite", URL: provider.srv.URL + "/api/llm/mcp"})
+	f.conns.Add(ctx, MCPConnectionInput{Name: "anon", URL: provider.srv.URL + "/api/llm/mcp", Auth: "none"})
 	if _, err := f.flows.Begin(ctx, OAuthFlowRequest{Connection: "anon", Owner: "operator", Mode: "web"}); err == nil {
 		t.Fatal("began OAuth for an anonymous connection")
 	}
@@ -262,7 +272,7 @@ func TestOAuthBeginUsesTheRegisteredConnectionOnly(t *testing.T) {
 }
 
 func TestAnMCPConnectionOfAnotherInstanceIsNotUsable(t *testing.T) {
-	f := newMCPFixture(t, nil)
+	f := newMCPFixture(t)
 	ctx := context.Background()
 	f.conns.Add(ctx, MCPConnectionInput{Name: "notion", URL: "https://mcp.example.test/mcp", Auth: "none"})
 	// Simulate a database whose instance identity changed (copied or restored).
@@ -315,9 +325,9 @@ func TestTheProductionEgressPolicyChecksWhatTheOperatorAdds(t *testing.T) {
 func TestEveryOAuthHopIsConstrained(t *testing.T) {
 	provider := newFakeOAuth(t)
 	provider.authServer = "https://10.9.9.9"
-	f := newMCPFixture(t, nil)
+	f := newMCPFixture(t)
 	ctx := context.Background()
-	if _, err := f.conns.Add(ctx, MCPConnectionInput{Name: "burnlite", URL: provider.srv.URL}); err != nil {
+	if _, err := f.conns.Add(ctx, MCPConnectionInput{Name: "burnlite", URL: provider.srv.URL + "/api/llm/mcp"}); err != nil {
 		t.Fatal(err)
 	}
 	_, err := f.flows.Begin(ctx, OAuthFlowRequest{Connection: "burnlite", Owner: "operator", Mode: "web"})

@@ -8,6 +8,11 @@ CREATE TABLE IF NOT EXISTS mcp_connections (
     -- connection to reach; empty means public addresses only.
     networks TEXT NOT NULL DEFAULT '',
     auth TEXT NOT NULL CHECK (auth IN ('none', 'oauth')),
+    -- An advanced, pre-registered OAuth client: its ID and the bare loopback
+    -- redirect registered for it. Its secret, if any, is sealed.
+    static_client_id TEXT NOT NULL DEFAULT '',
+    static_redirect_uri TEXT NOT NULL DEFAULT '',
+    static_secret_set INTEGER NOT NULL DEFAULT 0,
     enabled INTEGER NOT NULL DEFAULT 1 CHECK (enabled IN (0, 1)),
     instance_id TEXT NOT NULL,
     revision INTEGER NOT NULL,
@@ -22,4 +27,18 @@ CREATE TABLE IF NOT EXISTS mcp_connections (
 CREATE TABLE IF NOT EXISTS mcp_connection_revisions (
     name TEXT PRIMARY KEY,
     last INTEGER NOT NULL
+);
+
+-- Client registrations Legato made (DCR), reused for the same issuer,
+-- resource and exact redirect. A confidential client's secret is sealed under
+-- the registration's ID.
+CREATE TABLE IF NOT EXISTS oauth_client_registrations (
+    id TEXT PRIMARY KEY,
+    issuer TEXT NOT NULL,
+    resource TEXT NOT NULL,
+    redirect_uri TEXT NOT NULL,
+    client_id TEXT NOT NULL,
+    auth_method TEXT NOT NULL CHECK (auth_method IN ('none', 'client_secret_post')),
+    created_at INTEGER NOT NULL,
+    UNIQUE (issuer, resource, redirect_uri)
 );

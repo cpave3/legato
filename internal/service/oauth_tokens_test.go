@@ -33,6 +33,18 @@ type fakeOAuth struct {
 	secretsSeen  []string
 	// authServer, when set, is the authorization server the resource names.
 	authServer string
+	// MCP-broker knobs (LEG-205): registrations counts /register calls.
+	registrations int
+	noDCR         bool     // no registration_endpoint advertised
+	cimd          bool     // client_id_metadata_document_supported
+	cimdRedirects []string // the redirect_uris of the document at /client.json
+	noASMetadata  bool     // no authorization server metadata at all
+	prmScopes     []string
+	asScopes      []string
+	challenge     string // WWW-Authenticate of the MCP endpoint
+	refuseClient  bool   // the token endpoint answers invalid_client
+	tokenForms    []url.Values
+	authorizeIDs  []string // client_id of each authorization request
 }
 
 func newFakeOAuth(t *testing.T) *fakeOAuth {
@@ -54,11 +66,50 @@ func newFakeOAuth(t *testing.T) *fakeOAuth {
 			as = f.authServer
 		}
 		f.mu.Unlock()
-		writeJSON(w, 200, map[string]any{"resource": srv.URL + "/api/llm/mcp", "authorization_servers": []string{as}})
+		f.mu.Lock()
+		prm := map[string]any{"resource": srv.URL + "/api/llm/mcp", "authorization_servers": []string{as}}
+		if f.prmScopes != nil {
+			prm["scopes_supported"] = f.prmScopes
+		}
+		f.mu.Unlock()
+		writeJSON(w, 200, prm)
+	})
+	mux.HandleFunc("POST /api/llm/mcp", func(w http.ResponseWriter, r *http.Request) {
+		f.mu.Lock()
+		challenge := f.challenge
+		f.mu.Unlock()
+		if challenge == "" {
+			http.Error(w, "no", http.StatusMethodNotAllowed)
+			return
+		}
+		w.Header().Set("WWW-Authenticate", challenge)
+		w.WriteHeader(http.StatusUnauthorized)
+	})
+	mux.HandleFunc("GET /client.json", func(w http.ResponseWriter, r *http.Request) {
+		f.mu.Lock()
+		redirects := f.cimdRedirects
+		f.mu.Unlock()
+		writeJSON(w, 200, map[string]any{"client_id": srv.URL + "/client.json", "client_name": "Legato", "redirect_uris": redirects, "token_endpoint_auth_method": "none"})
 	})
 	mux.HandleFunc("GET /.well-known/oauth-authorization-server", func(w http.ResponseWriter, r *http.Request) {
-		writeJSON(w, 200, map[string]any{"issuer": srv.URL, "authorization_endpoint": srv.URL + "/authorize", "token_endpoint": srv.URL + "/token",
-			"registration_endpoint": srv.URL + "/register", "code_challenge_methods_supported": []string{"S256"}})
+		f.mu.Lock()
+		defer f.mu.Unlock()
+		if f.noASMetadata {
+			http.NotFound(w, r)
+			return
+		}
+		md := map[string]any{"issuer": srv.URL, "authorization_endpoint": srv.URL + "/authorize", "token_endpoint": srv.URL + "/token",
+			"code_challenge_methods_supported": []string{"S256"}}
+		if !f.noDCR {
+			md["registration_endpoint"] = srv.URL + "/register"
+		}
+		if f.cimd {
+			md["client_id_metadata_document_supported"] = true
+		}
+		if f.asScopes != nil {
+			md["scopes_supported"] = f.asScopes
+		}
+		writeJSON(w, 200, md)
 	})
 	mux.HandleFunc("POST /register", func(w http.ResponseWriter, r *http.Request) {
 		var body struct {
@@ -66,6 +117,7 @@ func newFakeOAuth(t *testing.T) *fakeOAuth {
 		}
 		_ = json.NewDecoder(r.Body).Decode(&body)
 		f.mu.Lock()
+		f.registrations++
 		f.registered = body.RedirectURIs
 		confidential := f.confidential
 		f.mu.Unlock()
@@ -79,6 +131,7 @@ func newFakeOAuth(t *testing.T) *fakeOAuth {
 		q := r.URL.Query()
 		f.mu.Lock()
 		f.scope = q.Get("scope")
+		f.authorizeIDs = append(f.authorizeIDs, q.Get("client_id"))
 		f.mu.Unlock()
 		to, _ := url.Parse(q.Get("redirect_uri"))
 		to.RawQuery = url.Values{"code": {"code-1"}, "state": {q.Get("state")}}.Encode()
@@ -89,6 +142,11 @@ func newFakeOAuth(t *testing.T) *fakeOAuth {
 		f.mu.Lock()
 		defer f.mu.Unlock()
 		f.secretsSeen = append(f.secretsSeen, r.PostForm.Get("client_secret"))
+		f.tokenForms = append(f.tokenForms, r.PostForm)
+		if f.refuseClient {
+			writeJSON(w, 401, map[string]any{"error": "invalid_client"})
+			return
+		}
 		if f.confidential && r.PostForm.Get("client_secret") != "client-secret-1" {
 			writeJSON(w, 401, map[string]any{"error": "invalid_client", "error_description": "Invalid client credentials"})
 			return

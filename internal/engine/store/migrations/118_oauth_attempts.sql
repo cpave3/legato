@@ -16,6 +16,8 @@ CREATE TABLE IF NOT EXISTS oauth_attempts (
     receiver_hash TEXT NOT NULL,
     status TEXT NOT NULL CHECK (status IN ('pending', 'exchanging', 'awaiting_confirmation', 'authorized', 'cancelled', 'superseded', 'failed', 'denied', 'expired', 'interrupted')),
     error_code TEXT NOT NULL DEFAULT '',
+    -- The scope the attempt asked for, shown to the operator at confirmation.
+    scope TEXT NOT NULL DEFAULT '',
     expires_at INTEGER NOT NULL,
     created_at INTEGER NOT NULL,
     updated_at INTEGER NOT NULL

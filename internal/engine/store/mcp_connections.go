@@ -13,18 +13,23 @@ import (
 // it is reached, never its credentials. Revision changes with every edit and is
 // never reused for a name, so work begun against one revision can be fenced.
 type MCPConnection struct {
-	Name          string `db:"name" json:"name"`
-	URL           string `db:"url" json:"url"`
-	Issuer        string `db:"issuer" json:"issuer,omitempty"`
-	Networks      string `db:"networks" json:"-"`
-	Auth          string `db:"auth" json:"auth"`
-	Enabled       bool   `db:"enabled" json:"enabled"`
-	InstanceID    string `db:"instance_id" json:"-"`
-	Revision      int64  `db:"revision" json:"revision"`
-	LastContactAt int64  `db:"last_contact_at" json:"-"`
-	LastError     string `db:"last_error" json:"-"`
-	CreatedAt     int64  `db:"created_at" json:"-"`
-	UpdatedAt     int64  `db:"updated_at" json:"-"`
+	Name     string `db:"name" json:"name"`
+	URL      string `db:"url" json:"url"`
+	Issuer   string `db:"issuer" json:"issuer,omitempty"`
+	Networks string `db:"networks" json:"-"`
+	Auth     string `db:"auth" json:"auth"`
+	// StaticClientID and StaticRedirectURI are an advanced, pre-registered
+	// client; its secret is sealed, and StaticSecretSet says there is one.
+	StaticClientID    string `db:"static_client_id" json:"static_client_id,omitempty"`
+	StaticRedirectURI string `db:"static_redirect_uri" json:"static_redirect_uri,omitempty"`
+	StaticSecretSet   bool   `db:"static_secret_set" json:"static_client_secret_set,omitempty"`
+	Enabled           bool   `db:"enabled" json:"enabled"`
+	InstanceID        string `db:"instance_id" json:"-"`
+	Revision          int64  `db:"revision" json:"revision"`
+	LastContactAt     int64  `db:"last_contact_at" json:"-"`
+	LastError         string `db:"last_error" json:"-"`
+	CreatedAt         int64  `db:"created_at" json:"-"`
+	UpdatedAt         int64  `db:"updated_at" json:"-"`
 }
 
 func nextMCPRevision(ctx context.Context, tx *sqlx.Tx, name string) (int64, error) {
@@ -51,8 +56,8 @@ func (s *Store) CreateMCPConnection(ctx context.Context, c MCPConnection, now in
 		return MCPConnection{}, err
 	}
 	c.Enabled, c.CreatedAt, c.UpdatedAt, c.LastContactAt, c.LastError = true, now, now, 0, ""
-	_, err = tx.NamedExecContext(ctx, `INSERT INTO mcp_connections(name,url,issuer,networks,auth,enabled,instance_id,revision,last_contact_at,last_error,created_at,updated_at)
-		VALUES(:name,:url,:issuer,:networks,:auth,:enabled,:instance_id,:revision,:last_contact_at,:last_error,:created_at,:updated_at)`, c)
+	_, err = tx.NamedExecContext(ctx, `INSERT INTO mcp_connections(name,url,issuer,networks,auth,static_client_id,static_redirect_uri,static_secret_set,enabled,instance_id,revision,last_contact_at,last_error,created_at,updated_at)
+		VALUES(:name,:url,:issuer,:networks,:auth,:static_client_id,:static_redirect_uri,:static_secret_set,:enabled,:instance_id,:revision,:last_contact_at,:last_error,:created_at,:updated_at)`, c)
 	if err != nil {
 		return MCPConnection{}, err
 	}
@@ -75,8 +80,8 @@ func (s *Store) ListMCPConnections(ctx context.Context) ([]MCPConnection, error)
 }
 
 // UpdateMCPConnection saves c if c.Revision is still current (ErrConflict
-// otherwise) and advances the revision. Changing the resource, issuer or auth
-// mode invalidates the connection's OAuth authorization and every unfinished
+// otherwise) and advances the revision. Changing the resource, issuer, auth
+// mode or pre-registered client invalidates the connection's OAuth authorization and every unfinished
 // attempt; disabling only ends unfinished attempts. The fence shares the
 // update's transaction. It returns the attempts whose sealed records the
 // caller must clean.
@@ -99,7 +104,7 @@ func (s *Store) UpdateMCPConnection(ctx context.Context, c MCPConnection, now in
 	}
 	var fenced []OAuthAttempt
 	switch {
-	case old.URL != c.URL || old.Issuer != c.Issuer || old.Auth != c.Auth:
+	case old.URL != c.URL || old.Issuer != c.Issuer || old.Auth != c.Auth || old.StaticClientID != c.StaticClientID || old.StaticRedirectURI != c.StaticRedirectURI:
 		if fenced, err = invalidateOAuthConnectionTx(ctx, tx, c.Name, now); err != nil {
 			return MCPConnection{}, nil, err
 		}
@@ -116,7 +121,7 @@ func (s *Store) UpdateMCPConnection(ctx context.Context, c MCPConnection, now in
 		return MCPConnection{}, nil, err
 	}
 	c.InstanceID, c.CreatedAt, c.UpdatedAt = old.InstanceID, old.CreatedAt, now
-	_, err = tx.NamedExecContext(ctx, `UPDATE mcp_connections SET url=:url,issuer=:issuer,networks=:networks,auth=:auth,enabled=:enabled,revision=:revision,
+	_, err = tx.NamedExecContext(ctx, `UPDATE mcp_connections SET url=:url,issuer=:issuer,networks=:networks,auth=:auth,static_client_id=:static_client_id,static_redirect_uri=:static_redirect_uri,static_secret_set=:static_secret_set,enabled=:enabled,revision=:revision,
 		last_contact_at=:last_contact_at,last_error=:last_error,updated_at=:updated_at WHERE name=:name`, c)
 	if err != nil {
 		return MCPConnection{}, nil, err

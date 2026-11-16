@@ -6,7 +6,6 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"errors"
-	"io"
 	"net/http"
 	"net/url"
 	"strings"
@@ -29,10 +28,10 @@ func TestOAuthLocalWebFlowRegistersTheListenerAndWaitsForOperatorConfirmation(t 
 	f := newFakeOAuth(t)
 	db := newIntegrationStore(t)
 	secrets := flowMemorySecrets{&memorySecrets{values: map[string]string{}}}
-	flows := NewOAuthFlowService(db, secrets, OAuthFlowOptions{HTTPClient: f.srv.Client()})
+	flows := NewOAuthFlowService(db, secrets, OAuthFlowOptions{Connections: flowConnections(t, db, f)})
 	defer flows.Close()
 	ctx, cancel := context.WithCancel(context.Background())
-	begun, err := flows.Begin(ctx, OAuthFlowRequest{Connection: "mcp-burnlite", URL: f.srv.URL, Scope: "read:tasks", Owner: "operator-authority", Mode: "web"})
+	begun, err := flows.Begin(ctx, OAuthFlowRequest{Connection: "mcp-burnlite", Scope: "read:tasks", Owner: "operator-authority", Mode: "web"})
 	if err != nil {
 		t.Fatal(err)
 	}
@@ -90,43 +89,16 @@ func TestOAuthAppDeliveryUsesTheSavedServerVerifierAndCanReachAnotherWebProcess(
 	provider := newFakeOAuth(t)
 	db := newIntegrationStore(t)
 	secrets := flowMemorySecrets{&memorySecrets{values: map[string]string{}}}
-	challenge := ""
-	exchanges := 0
-	client := provider.srv.Client()
-	base := client.Transport
-	if base == nil {
-		base = http.DefaultTransport
-	}
-	client.Transport = oauthFlowTransportFunc(func(r *http.Request) (*http.Response, error) {
-		if r.URL.Path == "/token" {
-			exchanges++
-			body, err := r.GetBody()
-			if err != nil {
-				return nil, err
-			}
-			raw, _ := io.ReadAll(body)
-			body.Close()
-			form, err := url.ParseQuery(string(raw))
-			if err != nil {
-				return nil, err
-			}
-			hash := sha256.Sum256([]byte(form.Get("code_verifier")))
-			if base64.RawURLEncoding.EncodeToString(hash[:]) != challenge || form.Get("redirect_uri") != "http://127.0.0.1:34567/callback" || form.Get("resource") != provider.srv.URL+"/api/llm/mcp" {
-				return nil, errors.New("server did not exchange with the original PKCE, redirect and resource")
-			}
-		}
-		return base.RoundTrip(r)
-	})
-	first := NewOAuthFlowService(db, secrets, OAuthFlowOptions{HTTPClient: client})
+	first := NewOAuthFlowService(db, secrets, OAuthFlowOptions{Connections: flowConnections(t, db, provider)})
 	defer first.Close()
-	second := NewOAuthFlowService(db, secrets, OAuthFlowOptions{HTTPClient: client})
+	second := NewOAuthFlowService(db, secrets, OAuthFlowOptions{Connections: flowConnections(t, db, provider)})
 	defer second.Close()
-	begun, err := first.Begin(context.Background(), OAuthFlowRequest{Connection: "one", URL: provider.srv.URL, Scope: "read:tasks", Owner: "operator", Mode: "app", RedirectURI: "http://127.0.0.1:34567/callback"})
+	begun, err := first.Begin(context.Background(), OAuthFlowRequest{Connection: "one", Scope: "read:tasks", Owner: "operator", Mode: "app", RedirectURI: "http://127.0.0.1:34567/callback"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	authURL, _ := url.Parse(begun.AuthorizeURL)
-	challenge = authURL.Query().Get("code_challenge")
+	challenge := authURL.Query().Get("code_challenge")
 	response := oauthclient.AuthorizationResponse{Code: "app-code", State: authURL.Query().Get("state"), Issuer: provider.srv.URL}
 	for _, bad := range []struct {
 		owner, key string
@@ -144,8 +116,18 @@ func TestOAuthAppDeliveryUsesTheSavedServerVerifierAndCanReachAnotherWebProcess(
 	if state, err := second.Deliver(context.Background(), begun.ID, "operator", begun.ReturnKey, response); err != nil || state.Status != "awaiting_confirmation" {
 		t.Fatalf("delivery: %+v %v", state, err)
 	}
-	if state, err := second.Deliver(context.Background(), begun.ID, "operator", begun.ReturnKey, response); err != nil || state.Status != "awaiting_confirmation" || exchanges != 1 {
-		t.Fatal("duplicate delivery exchanged the code twice")
+	if state, err := second.Deliver(context.Background(), begun.ID, "operator", begun.ReturnKey, response); err != nil || state.Status != "awaiting_confirmation" {
+		t.Fatalf("duplicate delivery: %+v %v", state, err)
+	}
+	provider.mu.Lock()
+	forms := append([]url.Values(nil), provider.tokenForms...)
+	provider.mu.Unlock()
+	if len(forms) != 1 {
+		t.Fatalf("the code was exchanged %d times", len(forms))
+	}
+	hash := sha256.Sum256([]byte(forms[0].Get("code_verifier")))
+	if base64.RawURLEncoding.EncodeToString(hash[:]) != challenge || forms[0].Get("redirect_uri") != "http://127.0.0.1:34567/callback" || forms[0].Get("resource") != provider.srv.URL+"/api/llm/mcp" {
+		t.Fatal("server did not exchange with the original PKCE, redirect and resource")
 	}
 	if err := first.Confirm(context.Background(), begun.ID, "operator"); err != nil {
 		t.Fatal(err)
@@ -156,11 +138,11 @@ func TestOAuthFlowDisconnectInvalidatesAppDeliveryAndStagedConfirmation(t *testi
 	f := newFakeOAuth(t)
 	db := newIntegrationStore(t)
 	secrets := flowMemorySecrets{&memorySecrets{values: map[string]string{}}}
-	flows := NewOAuthFlowService(db, secrets, OAuthFlowOptions{HTTPClient: f.srv.Client()})
+	flows := NewOAuthFlowService(db, secrets, OAuthFlowOptions{Connections: flowConnections(t, db, f)})
 	defer flows.Close()
 	begin := func() OAuthFlowBegin {
 		t.Helper()
-		b, err := flows.Begin(context.Background(), OAuthFlowRequest{Connection: "connection", URL: f.srv.URL, Owner: "operator", Mode: "app", RedirectURI: "http://127.0.0.1:34567/callback"})
+		b, err := flows.Begin(context.Background(), OAuthFlowRequest{Connection: "connection", Owner: "operator", Mode: "app", RedirectURI: "http://127.0.0.1:34567/callback"})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -195,14 +177,14 @@ func TestOAuthFlowCanDeliverThroughTheExistingSealedStoreAfterReconstruction(t *
 	f := newFakeOAuth(t)
 	hostSecrets, db := newSecretStoreService(t)
 	secrets := SealedIntegrationSecrets{Store: hostSecrets}
-	first := NewOAuthFlowService(db, secrets, OAuthFlowOptions{HTTPClient: f.srv.Client(), SecretSource: hostSecrets.Source})
+	first := NewOAuthFlowService(db, secrets, OAuthFlowOptions{Connections: flowConnections(t, db, f), SecretSource: hostSecrets.Source})
 	defer first.Close()
-	begun, err := first.Begin(context.Background(), OAuthFlowRequest{Connection: "sealed", URL: f.srv.URL, Owner: "operator", Mode: "app", RedirectURI: "http://127.0.0.1:34567/callback"})
+	begun, err := first.Begin(context.Background(), OAuthFlowRequest{Connection: "sealed", Owner: "operator", Mode: "app", RedirectURI: "http://127.0.0.1:34567/callback"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	authURL, _ := url.Parse(begun.AuthorizeURL)
-	second := NewOAuthFlowService(db, secrets, OAuthFlowOptions{HTTPClient: f.srv.Client()})
+	second := NewOAuthFlowService(db, secrets, OAuthFlowOptions{Connections: flowConnections(t, db, f)})
 	defer second.Close()
 	if _, err := second.Deliver(context.Background(), begun.ID, "operator", begun.ReturnKey, oauthclient.AuthorizationResponse{Code: "code", State: authURL.Query().Get("state")}); err != nil {
 		t.Fatal(err)
@@ -229,9 +211,9 @@ func TestOAuthFlowCancellationAndExpiryPreventLateExchange(t *testing.T) {
 			db := newIntegrationStore(t)
 			secrets := flowMemorySecrets{&memorySecrets{values: map[string]string{}}}
 			now := time.Now()
-			flows := NewOAuthFlowService(db, secrets, OAuthFlowOptions{HTTPClient: f.srv.Client(), Now: func() time.Time { return now }})
+			flows := NewOAuthFlowService(db, secrets, OAuthFlowOptions{Connections: flowConnections(t, db, f), Now: func() time.Time { return now }})
 			defer flows.Close()
-			begun, err := flows.Begin(context.Background(), OAuthFlowRequest{Connection: "one", URL: f.srv.URL, Owner: "operator", Mode: "app", RedirectURI: "http://127.0.0.1:34567/callback"})
+			begun, err := flows.Begin(context.Background(), OAuthFlowRequest{Connection: "one", Owner: "operator", Mode: "app", RedirectURI: "http://127.0.0.1:34567/callback"})
 			if err != nil {
 				t.Fatal(err)
 			}
@@ -263,15 +245,15 @@ func TestOAuthFlowCloseInterruptsItsPendingLocalReceiver(t *testing.T) {
 	f := newFakeOAuth(t)
 	db := newIntegrationStore(t)
 	secrets := flowMemorySecrets{&memorySecrets{values: map[string]string{}}}
-	flows := NewOAuthFlowService(db, secrets, OAuthFlowOptions{HTTPClient: f.srv.Client()})
-	begun, err := flows.Begin(context.Background(), OAuthFlowRequest{Connection: "local", URL: f.srv.URL, Owner: "operator", Mode: "web"})
+	flows := NewOAuthFlowService(db, secrets, OAuthFlowOptions{Connections: flowConnections(t, db, f)})
+	begun, err := flows.Begin(context.Background(), OAuthFlowRequest{Connection: "local", Owner: "operator", Mode: "web"})
 	if err != nil {
 		t.Fatal(err)
 	}
 	if err := flows.Close(); err != nil {
 		t.Fatal(err)
 	}
-	replacement := NewOAuthFlowService(db, secrets, OAuthFlowOptions{HTTPClient: f.srv.Client()})
+	replacement := NewOAuthFlowService(db, secrets, OAuthFlowOptions{Connections: flowConnections(t, db, f)})
 	defer replacement.Close()
 	if state, err := replacement.Status(context.Background(), begun.ID, "operator"); err != nil || state.Status != "interrupted" {
 		t.Fatalf("closed receiver: %+v %v", state, err)
@@ -288,11 +270,11 @@ func TestOAuthFlowReauthorizationRemovesSupersededCredentials(t *testing.T) {
 	f := newFakeOAuth(t)
 	db := newIntegrationStore(t)
 	secrets := flowMemorySecrets{&memorySecrets{values: map[string]string{}}}
-	flows := NewOAuthFlowService(db, secrets, OAuthFlowOptions{HTTPClient: f.srv.Client()})
+	flows := NewOAuthFlowService(db, secrets, OAuthFlowOptions{Connections: flowConnections(t, db, f)})
 	defer flows.Close()
 	authorize := func() OAuthFlowBegin {
 		t.Helper()
-		b, err := flows.Begin(context.Background(), OAuthFlowRequest{Connection: "one", URL: f.srv.URL, Owner: "operator", Mode: "app", RedirectURI: "http://127.0.0.1:34567/callback"})
+		b, err := flows.Begin(context.Background(), OAuthFlowRequest{Connection: "one", Owner: "operator", Mode: "app", RedirectURI: "http://127.0.0.1:34567/callback"})
 		if err != nil {
 			t.Fatal(err)
 		}
@@ -330,9 +312,9 @@ func TestOAuthFlowFailedTokenStorageEndsTheConsumedAttempt(t *testing.T) {
 	f := newFakeOAuth(t)
 	db := newIntegrationStore(t)
 	secrets := failOAuthTokenWrite{flowMemorySecrets{&memorySecrets{values: map[string]string{}}}}
-	flows := NewOAuthFlowService(db, secrets, OAuthFlowOptions{HTTPClient: f.srv.Client()})
+	flows := NewOAuthFlowService(db, secrets, OAuthFlowOptions{Connections: flowConnections(t, db, f)})
 	defer flows.Close()
-	b, err := flows.Begin(context.Background(), OAuthFlowRequest{Connection: "one", URL: f.srv.URL, Owner: "operator", Mode: "app", RedirectURI: "http://127.0.0.1:34567/callback"})
+	b, err := flows.Begin(context.Background(), OAuthFlowRequest{Connection: "one", Owner: "operator", Mode: "app", RedirectURI: "http://127.0.0.1:34567/callback"})
 	if err != nil {
 		t.Fatal(err)
 	}

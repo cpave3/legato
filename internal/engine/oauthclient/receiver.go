@@ -7,6 +7,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -94,8 +95,23 @@ type LoopbackReceiver struct {
 // ListenLoopback binds before registration, so RedirectURI includes the actual
 // reserved port. ctx bounds the receiver's lifetime, not an initiating HTTP call.
 func ListenLoopback(ctx context.Context, receive func(context.Context, AuthorizationResponse) error) (*LoopbackReceiver, error) {
-	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	return ListenLoopbackAt(ctx, 0, receive)
+}
+
+// ErrPortInUse is a fixed receiver port another process holds.
+var ErrPortInUse = errors.New("oauth: the callback port is in use")
+
+// ListenLoopbackAt binds 127.0.0.1:port (0 for any free port). A fixed port
+// that is taken fails with ErrPortInUse; it is never swapped for another.
+func ListenLoopbackAt(ctx context.Context, port int, receive func(context.Context, AuthorizationResponse) error) (*LoopbackReceiver, error) {
+	if port < 0 || port > 65535 {
+		return nil, errors.New("oauth: invalid callback port")
+	}
+	ln, err := net.Listen("tcp", net.JoinHostPort("127.0.0.1", strconv.Itoa(port)))
 	if err != nil {
+		if port != 0 {
+			return nil, ErrPortInUse
+		}
 		return nil, errors.New("oauth: could not start the loopback receiver")
 	}
 	r := &LoopbackReceiver{address: "http://" + ln.Addr().String(), closed: make(chan struct{})}

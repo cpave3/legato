@@ -33,14 +33,19 @@ type OAuthFlowSecrets interface {
 	Remove(context.Context, string) error
 }
 type OAuthFlowOptions struct {
-	HTTPClient   *http.Client
 	Now          func() time.Time
 	Lifetime     time.Duration
 	SecretSource func(context.Context) (string, error)
-	// Connections, when set, is the registry an attempt must name: the
-	// resource address and pinned issuer come from it, never the request,
-	// and the attempt is fenced by the connection's revision.
+	// Connections is the registry an attempt must name: the resource
+	// address, pinned issuer, egress policy and any pre-registered client
+	// come from it, never the request, and the attempt is fenced by the
+	// connection's revision. Begin refuses to run without it.
 	Connections OAuthFlowConnections
+	// ClientMetadataDocument is the HTTPS URL of a client ID metadata
+	// document Legato may use as its client_id where a server supports
+	// CIMD. Legato publishes none yet, so production leaves it empty; it is
+	// used only when the document lists the attempt's exact redirect.
+	ClientMetadataDocument string
 }
 
 // OAuthFlowConnections resolves a connection name to what may be authorized.
@@ -51,7 +56,9 @@ type OAuthFlowConnections interface {
 // OAuthFlowRequest's Owner is supplied by the authenticated host handler, never
 // decoded from an operator's request body. An app can only use a loopback profile
 // until a different native callback profile has been explicitly implemented.
-type OAuthFlowRequest struct{ Connection, URL, Scope, Owner, Mode, RedirectURI string }
+// Scope, when set, is the operator's explicit choice; otherwise the server's
+// challenge, then the resource's scopes_supported, decide it.
+type OAuthFlowRequest struct{ Connection, Scope, Owner, Mode, RedirectURI string }
 type OAuthFlowBegin struct {
 	ID           string `json:"id"`
 	AuthorizeURL string `json:"authorize_url"`
@@ -61,14 +68,20 @@ type OAuthFlowStatus struct {
 	ID         string `json:"id"`
 	Connection string `json:"connection"`
 	Status     string `json:"status"`
-	ErrorCode  string `json:"error_code,omitempty"`
-	ExpiresAt  int64  `json:"expires_at"`
+	// Scope is what the attempt asked for, for the operator to check.
+	Scope     string `json:"scope,omitempty"`
+	ErrorCode string `json:"error_code,omitempty"`
+	ExpiresAt int64  `json:"expires_at"`
 }
 
 type oauthFlowSecret struct {
 	Metadata                                             oauthclient.Metadata
 	ClientID, ClientSecret, State, Verifier, RedirectURI string
-	Token                                                *oauthclient.Token
+	// RegistrationID is the reused or new DCR registration ("" for a
+	// pre-registered client or a metadata document).
+	RegistrationID string
+	Scope          string
+	Token          *oauthclient.Token
 }
 type oauthLocalReceiver struct {
 	connection, owner string
@@ -89,9 +102,6 @@ type OAuthFlowService struct {
 }
 
 func NewOAuthFlowService(db *store.Store, secrets OAuthFlowSecrets, opts OAuthFlowOptions) *OAuthFlowService {
-	if opts.HTTPClient == nil {
-		opts.HTTPClient = &http.Client{Timeout: 15 * time.Second}
-	}
 	if opts.Now == nil {
 		opts.Now = time.Now
 	}
@@ -128,6 +138,9 @@ func (s *OAuthFlowService) Begin(ctx context.Context, r OAuthFlowRequest) (OAuth
 	if r.Owner == "" || r.Connection == "" || len(r.Connection) > 100 || (r.Mode != "web" && r.Mode != "app") || (r.Mode == "web" && r.RedirectURI != "") || (r.Mode == "app" && !validOAuthAppRedirect(r.RedirectURI)) {
 		return OAuthFlowBegin{}, ErrOAuthFlowInput
 	}
+	if s.opts.Connections == nil {
+		return OAuthFlowBegin{}, errors.New("OAuth connections need the MCP connection registry")
+	}
 	s.mu.Lock()
 	closed := s.closed
 	s.mu.Unlock()
@@ -143,23 +156,22 @@ func (s *OAuthFlowService) Begin(ctx context.Context, r OAuthFlowRequest) (OAuth
 			return OAuthFlowBegin{}, errors.New("OAuth requires a host secret store that can be unlocked without an interactive passphrase")
 		}
 	}
-	var target MCPAuthorizationTarget
-	client := s.opts.HTTPClient
-	if s.opts.Connections != nil {
-		if r.URL != "" {
+	target, err := s.opts.Connections.AuthorizationTarget(ctx, r.Connection)
+	if err != nil {
+		if errors.Is(err, store.ErrNotFound) {
 			return OAuthFlowBegin{}, ErrOAuthFlowInput
 		}
-		var err error
-		if target, err = s.opts.Connections.AuthorizationTarget(ctx, r.Connection); err != nil {
-			if errors.Is(err, store.ErrNotFound) {
-				return OAuthFlowBegin{}, ErrOAuthFlowInput
-			}
-			return OAuthFlowBegin{}, err
-		}
-		r.URL = target.URL
-		// Every hop (resource and authorization server metadata,
-		// registration, token) goes through the connection's policy.
-		client = target.Egress.Client()
+		return OAuthFlowBegin{}, err
+	}
+	if target.StaticClientID != "" && r.Mode == "app" && r.RedirectURI != target.StaticRedirectURI {
+		return OAuthFlowBegin{}, errors.Join(ErrOAuthFlowInput, errors.New("the pre-registered client is registered for another redirect"))
+	}
+	// Every hop (resource and authorization server metadata, registration,
+	// token) goes through the connection's egress policy.
+	client := target.Egress.Client()
+	md, scope, err := s.discover(ctx, client, target, r.Scope)
+	if err != nil {
+		return OAuthFlowBegin{}, err
 	}
 	instance, err := InstanceID(ctx, s.db)
 	if err != nil {
@@ -170,9 +182,11 @@ func (s *OAuthFlowService) Begin(ctx context.Context, r OAuthFlowRequest) (OAuth
 	var local oauthLocalReceiver
 	ready := make(chan struct{})
 	if r.Mode == "web" {
+		// The receiver is bound before any registration, so the redirect
+		// registered is the address actually listening.
 		receiverCtx, cancel := context.WithTimeout(context.Background(), s.opts.Lifetime)
 		local = oauthLocalReceiver{connection: r.Connection, owner: r.Owner, cancel: cancel}
-		local.receiver, err = oauthclient.ListenLoopback(receiverCtx, func(ctx context.Context, response oauthclient.AuthorizationResponse) error {
+		receive := func(ctx context.Context, response oauthclient.AuthorizationResponse) error {
 			select {
 			case <-ready:
 			default:
@@ -180,7 +194,8 @@ func (s *OAuthFlowService) Begin(ctx context.Context, r OAuthFlowRequest) (OAuth
 			}
 			_, err := s.Deliver(ctx, id, r.Owner, key, response)
 			return err
-		})
+		}
+		local.receiver, err = s.listen(receiverCtx, target, md, receive)
 		if err != nil {
 			cancel()
 			return OAuthFlowBegin{}, err
@@ -194,37 +209,20 @@ func (s *OAuthFlowService) Begin(ctx context.Context, r OAuthFlowRequest) (OAuth
 			_ = local.receiver.Close()
 		}
 	}()
-	md, err := oauthclient.Discover(ctx, client, r.URL)
+	reg, err := s.register(ctx, client, target, md, r.RedirectURI)
 	if err != nil {
-		return OAuthFlowBegin{}, errors.New("OAuth discovery failed: check the endpoint, TLS, issuer and PKCE S256 metadata")
+		return OAuthFlowBegin{}, err
 	}
-	if target.Issuer != "" && md.Issuer != target.Issuer {
-		return OAuthFlowBegin{}, errors.New("OAuth discovery found an issuer other than the one this connection pins")
-	}
-	// The new flow is strict even while existing integration CLI callers migrate.
-	s256 := false
-	for _, method := range md.CodeChallengeMethods {
-		if method == "S256" {
-			s256 = true
-		}
-	}
-	if !s256 {
-		return OAuthFlowBegin{}, errors.New("OAuth provider must advertise PKCE S256 support")
-	}
-	reg, err := oauthclient.Register(ctx, client, md, oauthclient.RegistrationRequest{ClientName: "Legato", RedirectURI: r.RedirectURI})
-	if err != nil {
-		return OAuthFlowBegin{}, errors.New("OAuth client registration failed: check provider registration and callback support")
-	}
-	auth, err := oauthclient.StartRedirectAuthorization(md, reg.ClientID, r.Scope, r.RedirectURI)
+	auth, err := oauthclient.StartRedirectAuthorization(md, reg.ClientID, scope, r.RedirectURI)
 	if err != nil {
 		return OAuthFlowBegin{}, err
 	}
 	defer auth.Close()
-	secret := oauthFlowSecret{Metadata: *md, ClientID: reg.ClientID, ClientSecret: reg.ClientSecret, State: auth.State(), Verifier: auth.Verifier(), RedirectURI: r.RedirectURI}
+	secret := oauthFlowSecret{Metadata: *md, ClientID: reg.ClientID, ClientSecret: reg.ClientSecret, RegistrationID: reg.ID, State: auth.State(), Verifier: auth.Verifier(), RedirectURI: r.RedirectURI, Scope: scope}
 	if err := s.write(ctx, id, secret); err != nil {
 		return OAuthFlowBegin{}, err
 	}
-	_, err = s.db.BeginOAuthAttempt(ctx, store.OAuthAttempt{ID: id, Connection: r.Connection, Owner: oauthHash(r.Owner), InstanceID: instance, ReceiverHash: oauthHash(key), StateHash: oauthHash(auth.State()), ExpiresAt: expires.Unix(), ConnectionRevision: target.Revision}, s.opts.Now().Unix())
+	_, err = s.db.BeginOAuthAttempt(ctx, store.OAuthAttempt{ID: id, Connection: r.Connection, Owner: oauthHash(r.Owner), InstanceID: instance, ReceiverHash: oauthHash(key), StateHash: oauthHash(auth.State()), Scope: scope, ExpiresAt: expires.Unix(), ConnectionRevision: target.Revision}, s.opts.Now().Unix())
 	if errors.Is(err, store.ErrConflict) {
 		err = errors.Join(ErrOAuthFlowRefused, errors.New("the connection changed while authorization was starting; start again"))
 	}
@@ -304,7 +302,7 @@ func (s *OAuthFlowService) owned(ctx context.Context, id, owner string) (store.O
 	return a, nil
 }
 func flowStatus(a store.OAuthAttempt) OAuthFlowStatus {
-	return OAuthFlowStatus{ID: a.ID, Connection: a.Connection, Status: a.Status, ErrorCode: a.ErrorCode, ExpiresAt: a.ExpiresAt}
+	return OAuthFlowStatus{ID: a.ID, Connection: a.Connection, Status: a.Status, Scope: a.Scope, ErrorCode: a.ErrorCode, ExpiresAt: a.ExpiresAt}
 }
 
 // Deliver is called by a native app over its authenticated pinned connection or
@@ -355,11 +353,15 @@ func (s *OAuthFlowService) Deliver(ctx context.Context, id, owner, key string, r
 	}
 	token, err := oauthclient.Exchange(work, client, &secret.Metadata, secret.ClientID, response.Code, secret.Verifier, secret.RedirectURI, oauthclient.WithClientSecret(secret.ClientSecret))
 	if err != nil {
+		var forgetErr error
+		if isInvalidClient(err) {
+			forgetErr = s.forgetRegistration(work, secret.RegistrationID)
+		}
 		finishErr := s.db.EndOAuthAttempt(work, id, a.Owner, "failed", "token_exchange_failed", s.opts.Now().Unix())
 		cleanupErr := s.remove(work, id)
 		s.closeReceiverAfterReturn(id)
-		if finishErr != nil || cleanupErr != nil {
-			return OAuthFlowStatus{}, errors.Join(finishErr, cleanupErr)
+		if finishErr != nil || cleanupErr != nil || forgetErr != nil {
+			return OAuthFlowStatus{}, errors.Join(finishErr, cleanupErr, forgetErr)
 		}
 		return s.Status(work, id, owner)
 	}
@@ -375,11 +377,10 @@ func (s *OAuthFlowService) Deliver(ctx context.Context, id, owner, key string, r
 	return s.Status(work, id, owner)
 }
 
-// clientFor is the HTTP client for a connection's requests: its egress
-// policy when the registry is in use.
+// clientFor is the HTTP client for a connection's requests: its egress policy.
 func (s *OAuthFlowService) clientFor(ctx context.Context, connection string) (*http.Client, error) {
 	if s.opts.Connections == nil {
-		return s.opts.HTTPClient, nil
+		return nil, errors.New("OAuth connections need the MCP connection registry")
 	}
 	target, err := s.opts.Connections.AuthorizationTarget(ctx, connection)
 	if err != nil {

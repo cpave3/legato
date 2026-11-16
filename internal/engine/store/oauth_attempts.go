@@ -20,6 +20,7 @@ type OAuthAttempt struct {
 	ReceiverHash string `db:"receiver_hash"`
 	Status       string `db:"status"`
 	ErrorCode    string `db:"error_code"`
+	Scope        string `db:"scope"`
 	ExpiresAt    int64  `db:"expires_at"`
 	CreatedAt    int64  `db:"created_at"`
 	UpdatedAt    int64  `db:"updated_at"`
@@ -52,7 +53,7 @@ func (s *Store) BeginOAuthAttempt(ctx context.Context, a OAuthAttempt, now int64
 		return OAuthAttempt{}, err
 	}
 	a.Status, a.CreatedAt, a.UpdatedAt = "pending", now, now
-	_, err = tx.ExecContext(ctx, `INSERT INTO oauth_attempts(id,connection,generation,owner,instance_id,state_hash,receiver_hash,status,expires_at,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?)`, a.ID, a.Connection, a.Generation, a.Owner, a.InstanceID, a.StateHash, a.ReceiverHash, a.Status, a.ExpiresAt, now, now)
+	_, err = tx.ExecContext(ctx, `INSERT INTO oauth_attempts(id,connection,generation,owner,instance_id,state_hash,receiver_hash,status,scope,expires_at,created_at,updated_at) VALUES(?,?,?,?,?,?,?,?,?,?,?,?)`, a.ID, a.Connection, a.Generation, a.Owner, a.InstanceID, a.StateHash, a.ReceiverHash, a.Status, a.Scope, a.ExpiresAt, now, now)
 	if err != nil {
 		return OAuthAttempt{}, err
 	}
