@@ -9,16 +9,15 @@ import (
 	"testing"
 	"time"
 
+	"github.com/cpave3/legato/internal/engine/egress"
 	"github.com/cpave3/legato/internal/engine/store"
 )
 
-// allowLoopbackHTTP admits the plain-HTTP fake provider; production uses the
-// default HTTPS-only check (and LEG-204's egress policy).
-func allowLoopbackHTTP(raw string) error {
-	if strings.HasPrefix(raw, "http://127.0.0.1:") {
-		return nil
-	}
-	return defaultMCPURLCheck(raw)
+// loopbackFixture lets the registry reach the plain-HTTP fake provider on
+// loopback; production policies never set it.
+func loopbackFixture(p egress.Policy) egress.Policy {
+	p.LoopbackFixture = true
+	return p
 }
 
 type mcpFixture struct {
@@ -32,7 +31,7 @@ func newMCPFixture(t *testing.T, client *http.Client) mcpFixture {
 	t.Helper()
 	db := newIntegrationStore(t)
 	secrets := flowMemorySecrets{&memorySecrets{values: map[string]string{}}}
-	conns := NewMCPConnectionService(db, MCPConnectionOptions{CheckURL: allowLoopbackHTTP})
+	conns := NewMCPConnectionService(db, MCPConnectionOptions{Egress: loopbackFixture})
 	flows := NewOAuthFlowService(db, secrets, OAuthFlowOptions{HTTPClient: client, Connections: conns})
 	conns.SetOAuth(flows)
 	t.Cleanup(func() { flows.Close() })
@@ -277,5 +276,58 @@ func TestAnMCPConnectionOfAnotherInstanceIsNotUsable(t *testing.T) {
 	f.conns.SetGrants(&grantAll{})
 	if use, _ := f.conns.Usable(ctx, "notion", MCPCaller{ExecutionID: "ex"}); use.Usable || use.Code != "other_instance" {
 		t.Fatalf("foreign usable %+v", use)
+	}
+}
+
+func TestTheProductionEgressPolicyChecksWhatTheOperatorAdds(t *testing.T) {
+	db := newIntegrationStore(t)
+	conns := NewMCPConnectionService(db, MCPConnectionOptions{})
+	ctx := context.Background()
+	for _, bad := range []MCPConnectionInput{
+		{Name: "a", URL: "https://127.0.0.1/mcp"},
+		{Name: "b", URL: "http://127.0.0.1:8080/mcp"},
+		{Name: "c", URL: "https://169.254.169.254/latest"},
+		{Name: "d", URL: "https://localhost/mcp"},
+		{Name: "e", URL: "https://mcp.example.test/mcp?access_token=x"},
+		{Name: "f", URL: "https://10.1.2.3/mcp"},
+		{Name: "g", URL: "https://mcp.example.test/mcp", PrivateNetworks: []string{"8.8.8.0/24"}},
+		{Name: "h", URL: "https://mcp.example.test/mcp", PrivateNetworks: []string{"0.0.0.0/0"}},
+		{Name: "i", URL: "https://mcp.example.test/mcp", PrivateNetworks: []string{"not-a-prefix"}},
+	} {
+		if _, err := conns.Add(ctx, bad); !errors.Is(err, ErrMCPConnectionInvalid) {
+			t.Errorf("%+v: %v", bad, err)
+		}
+	}
+	// A private upstream needs the operator to name its network.
+	added, err := conns.Add(ctx, MCPConnectionInput{Name: "vpn", URL: "https://10.1.2.3/mcp", PrivateNetworks: []string{"10.1.0.0/16"}})
+	if err != nil || len(added.PrivateNetworks) != 1 || added.PrivateNetworks[0] != "10.1.0.0/16" {
+		t.Fatalf("private upstream %+v %v", added, err)
+	}
+	none := []string{}
+	if _, err := conns.Update(ctx, "vpn", MCPConnectionChange{PrivateNetworks: &none, ExpectedRevision: added.Revision}); !errors.Is(err, ErrMCPConnectionInvalid) {
+		t.Fatalf("dropping the network of a private upstream: %v", err)
+	}
+}
+
+// Every hop of authorization goes through the connection's policy: an
+// authorization server the resource names on an internal address is refused
+// without a connection being made.
+func TestEveryOAuthHopIsConstrained(t *testing.T) {
+	provider := newFakeOAuth(t)
+	provider.authServer = "https://10.9.9.9"
+	f := newMCPFixture(t, nil)
+	ctx := context.Background()
+	if _, err := f.conns.Add(ctx, MCPConnectionInput{Name: "burnlite", URL: provider.srv.URL}); err != nil {
+		t.Fatal(err)
+	}
+	_, err := f.flows.Begin(ctx, OAuthFlowRequest{Connection: "burnlite", Owner: "operator", Mode: "web"})
+	if err == nil {
+		t.Fatal("began authorization through an internal authorization server")
+	}
+	f.secrets.mu.Lock()
+	left := len(f.secrets.values)
+	f.secrets.mu.Unlock()
+	if left != 0 {
+		t.Fatal("a refused attempt left sealed records")
 	}
 }

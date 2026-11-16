@@ -3,11 +3,13 @@ package service
 import (
 	"context"
 	"errors"
-	"net/url"
+	"fmt"
+	"net/netip"
 	"regexp"
 	"strings"
 	"time"
 
+	"github.com/cpave3/legato/internal/engine/egress"
 	"github.com/cpave3/legato/internal/engine/store"
 )
 
@@ -28,16 +30,20 @@ type MCPConnectionInput struct {
 	URL    string `json:"url"`
 	Issuer string `json:"issuer,omitempty"`
 	Auth   string `json:"auth,omitempty"`
+	// PrivateNetworks are the private prefixes (CIDR) this connection may
+	// reach, for an upstream on a LAN or VPN; none means public only.
+	PrivateNetworks []string `json:"private_networks,omitempty"`
 }
 
 // MCPConnectionChange edits a connection read at ExpectedRevision. A nil
 // field is left as it is.
 type MCPConnectionChange struct {
-	URL              *string `json:"url,omitempty"`
-	Issuer           *string `json:"issuer,omitempty"`
-	Auth             *string `json:"auth,omitempty"`
-	Enabled          *bool   `json:"enabled,omitempty"`
-	ExpectedRevision int64   `json:"expected_revision"`
+	URL              *string   `json:"url,omitempty"`
+	Issuer           *string   `json:"issuer,omitempty"`
+	Auth             *string   `json:"auth,omitempty"`
+	PrivateNetworks  *[]string `json:"private_networks,omitempty"`
+	Enabled          *bool     `json:"enabled,omitempty"`
+	ExpectedRevision int64     `json:"expected_revision"`
 }
 
 // MCPProblem is a fixed code and what the operator can do about it. It never
@@ -53,6 +59,7 @@ type MCPProblem struct {
 // given agent may use it is Usable's question, not part of this state.
 type MCPConnectionState struct {
 	store.MCPConnection
+	PrivateNetworks []string `json:"private_networks,omitempty"`
 	// Authorization: not_required, required, pending, awaiting_confirmation, authorized.
 	Authorization string `json:"authorization"`
 	// Connection: unknown, connected, failed.
@@ -95,14 +102,15 @@ type MCPAuthorizationTarget struct {
 	URL      string
 	Issuer   string
 	Revision int64
+	// Egress is the policy every request of the attempt goes through.
+	Egress egress.Policy
 }
 
 type MCPConnectionOptions struct {
 	Now func() time.Time
-	// CheckURL checks a resource or issuer address; the default requires an
-	// absolute HTTPS URL without credentials or fragment. The egress policy
-	// (LEG-204) applies again to every request made.
-	CheckURL func(string) error
+	// Egress adjusts a connection's outbound policy before use. Production
+	// leaves it nil; tests use it to reach their loopback fixtures.
+	Egress func(egress.Policy) egress.Policy
 }
 
 // MCPConnectionService is the instance-owned registry of upstream MCP
@@ -119,32 +127,59 @@ func NewMCPConnectionService(db *store.Store, opts MCPConnectionOptions) *MCPCon
 	if opts.Now == nil {
 		opts.Now = time.Now
 	}
-	if opts.CheckURL == nil {
-		opts.CheckURL = defaultMCPURLCheck
-	}
 	return &MCPConnectionService{db: db, opts: opts}
 }
 
 func (s *MCPConnectionService) SetOAuth(c MCPOAuthCleaner)  { s.oauth = c }
 func (s *MCPConnectionService) SetGrants(g MCPGrantChecker) { s.grants = g }
 
-func defaultMCPURLCheck(raw string) error {
-	u, err := url.Parse(raw)
-	if err != nil || u.Scheme != "https" || u.Host == "" || u.Hostname() == "" || u.User != nil || u.Fragment != "" || strings.ContainsAny(raw, " \t\r\n") {
-		return ErrMCPConnectionInvalid
+func parseNetworks(raw []string) ([]netip.Prefix, error) {
+	prefixes := make([]netip.Prefix, 0, len(raw))
+	for _, r := range raw {
+		p, err := netip.ParsePrefix(strings.TrimSpace(r))
+		if err != nil {
+			return nil, fmt.Errorf("%q is not a network prefix", r)
+		}
+		if err := egress.CheckPrivate(p); err != nil {
+			return nil, err
+		}
+		prefixes = append(prefixes, p.Masked())
 	}
-	return nil
+	return prefixes, nil
+}
+
+func joinNetworks(prefixes []netip.Prefix) string {
+	parts := make([]string, len(prefixes))
+	for i, p := range prefixes {
+		parts[i] = p.String()
+	}
+	return strings.Join(parts, ",")
+}
+
+func splitNetworks(stored string) []string {
+	if stored == "" {
+		return nil
+	}
+	return strings.Split(stored, ",")
+}
+
+// policy is the outbound policy for a connection: public addresses, plus
+// the private networks its operator named.
+func (s *MCPConnectionService) policy(c store.MCPConnection) (egress.Policy, error) {
+	prefixes, err := parseNetworks(splitNetworks(c.Networks))
+	if err != nil {
+		return egress.Policy{}, err
+	}
+	p := egress.Policy{Private: prefixes}
+	if s.opts.Egress != nil {
+		p = s.opts.Egress(p)
+	}
+	return p, nil
 }
 
 func (s *MCPConnectionService) checkFields(c store.MCPConnection) error {
 	if !mcpConnectionName.MatchString(c.Name) {
 		return errors.Join(ErrMCPConnectionInvalid, errors.New("name: lowercase letters, digits and dashes, at most 63"))
-	}
-	if s.opts.CheckURL(c.URL) != nil {
-		return errors.Join(ErrMCPConnectionInvalid, errors.New("url: an absolute https address without credentials"))
-	}
-	if c.Issuer != "" && s.opts.CheckURL(c.Issuer) != nil {
-		return errors.Join(ErrMCPConnectionInvalid, errors.New("issuer: an absolute https address"))
 	}
 	if c.Auth != "oauth" && c.Auth != "none" {
 		return errors.Join(ErrMCPConnectionInvalid, errors.New("auth: oauth or none"))
@@ -152,7 +187,27 @@ func (s *MCPConnectionService) checkFields(c store.MCPConnection) error {
 	if c.Auth == "none" && c.Issuer != "" {
 		return errors.Join(ErrMCPConnectionInvalid, errors.New("issuer: an anonymous connection has none"))
 	}
+	p, err := s.policy(c)
+	if err != nil {
+		return errors.Join(ErrMCPConnectionInvalid, fmt.Errorf("private_networks: %w", err))
+	}
+	if err := p.CheckURL(c.URL); err != nil {
+		return errors.Join(ErrMCPConnectionInvalid, fmt.Errorf("url: %w", err))
+	}
+	if c.Issuer != "" {
+		if err := p.CheckURL(c.Issuer); err != nil {
+			return errors.Join(ErrMCPConnectionInvalid, fmt.Errorf("issuer: %w", err))
+		}
+	}
 	return nil
+}
+
+func normalizeNetworks(raw []string) (string, error) {
+	prefixes, err := parseNetworks(raw)
+	if err != nil {
+		return "", errors.Join(ErrMCPConnectionInvalid, fmt.Errorf("private_networks: %w", err))
+	}
+	return joinNetworks(prefixes), nil
 }
 
 func (s *MCPConnectionService) Add(ctx context.Context, in MCPConnectionInput) (MCPConnectionState, error) {
@@ -160,7 +215,11 @@ func (s *MCPConnectionService) Add(ctx context.Context, in MCPConnectionInput) (
 	if err != nil {
 		return MCPConnectionState{}, err
 	}
-	c := store.MCPConnection{Name: strings.TrimSpace(in.Name), URL: strings.TrimSpace(in.URL), Issuer: strings.TrimSpace(in.Issuer), Auth: in.Auth, InstanceID: instance}
+	networks, err := normalizeNetworks(in.PrivateNetworks)
+	if err != nil {
+		return MCPConnectionState{}, err
+	}
+	c := store.MCPConnection{Name: strings.TrimSpace(in.Name), URL: strings.TrimSpace(in.URL), Issuer: strings.TrimSpace(in.Issuer), Networks: networks, Auth: in.Auth, InstanceID: instance}
 	if c.Auth == "" {
 		c.Auth = "oauth"
 	}
@@ -239,6 +298,11 @@ func (s *MCPConnectionService) Update(ctx context.Context, name string, ch MCPCo
 	if ch.Enabled != nil {
 		c.Enabled = *ch.Enabled
 	}
+	if ch.PrivateNetworks != nil {
+		if c.Networks, err = normalizeNetworks(*ch.PrivateNetworks); err != nil {
+			return MCPConnectionState{}, err
+		}
+	}
 	if err := s.checkFields(c); err != nil {
 		return MCPConnectionState{}, err
 	}
@@ -282,6 +346,7 @@ var mcpContactCodes = map[string]string{
 	"forbidden":      "The server refused the request for this account.",
 	"egress_denied":  "Legato's network policy does not allow this address.",
 	"protocol":       "The server did not answer as an MCP server.",
+	"too_large":      "The server's answer was larger than Legato accepts.",
 	"upstream_error": "The server reported an error. Try again later.",
 }
 
@@ -347,7 +412,7 @@ func (s *MCPConnectionService) authorization(ctx context.Context, c store.MCPCon
 }
 
 func (s *MCPConnectionService) state(ctx context.Context, c store.MCPConnection, instance string) (MCPConnectionState, error) {
-	st := MCPConnectionState{MCPConnection: c, Connection: "unknown"}
+	st := MCPConnectionState{MCPConnection: c, PrivateNetworks: splitNetworks(c.Networks), Connection: "unknown"}
 	var err error
 	if st.Authorization, err = s.authorization(ctx, c); err != nil {
 		return MCPConnectionState{}, err
@@ -431,5 +496,9 @@ func (s *MCPConnectionService) AuthorizationTarget(ctx context.Context, name str
 	if !c.Enabled || c.Auth != "oauth" {
 		return MCPAuthorizationTarget{}, ErrMCPConnectionUnusable
 	}
-	return MCPAuthorizationTarget{URL: c.URL, Issuer: c.Issuer, Revision: c.Revision}, nil
+	p, err := s.policy(c)
+	if err != nil {
+		return MCPAuthorizationTarget{}, err
+	}
+	return MCPAuthorizationTarget{URL: c.URL, Issuer: c.Issuer, Revision: c.Revision, Egress: p}, nil
 }

@@ -4,6 +4,9 @@ CREATE TABLE IF NOT EXISTS mcp_connections (
     name TEXT PRIMARY KEY,
     url TEXT NOT NULL,
     issuer TEXT NOT NULL DEFAULT '',
+    -- Private network prefixes (comma separated) the operator allowed this
+    -- connection to reach; empty means public addresses only.
+    networks TEXT NOT NULL DEFAULT '',
     auth TEXT NOT NULL CHECK (auth IN ('none', 'oauth')),
     enabled INTEGER NOT NULL DEFAULT 1 CHECK (enabled IN (0, 1)),
     instance_id TEXT NOT NULL,

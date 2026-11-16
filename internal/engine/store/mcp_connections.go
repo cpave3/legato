@@ -16,6 +16,7 @@ type MCPConnection struct {
 	Name          string `db:"name" json:"name"`
 	URL           string `db:"url" json:"url"`
 	Issuer        string `db:"issuer" json:"issuer,omitempty"`
+	Networks      string `db:"networks" json:"-"`
 	Auth          string `db:"auth" json:"auth"`
 	Enabled       bool   `db:"enabled" json:"enabled"`
 	InstanceID    string `db:"instance_id" json:"-"`
@@ -50,8 +51,8 @@ func (s *Store) CreateMCPConnection(ctx context.Context, c MCPConnection, now in
 		return MCPConnection{}, err
 	}
 	c.Enabled, c.CreatedAt, c.UpdatedAt, c.LastContactAt, c.LastError = true, now, now, 0, ""
-	_, err = tx.NamedExecContext(ctx, `INSERT INTO mcp_connections(name,url,issuer,auth,enabled,instance_id,revision,last_contact_at,last_error,created_at,updated_at)
-		VALUES(:name,:url,:issuer,:auth,:enabled,:instance_id,:revision,:last_contact_at,:last_error,:created_at,:updated_at)`, c)
+	_, err = tx.NamedExecContext(ctx, `INSERT INTO mcp_connections(name,url,issuer,networks,auth,enabled,instance_id,revision,last_contact_at,last_error,created_at,updated_at)
+		VALUES(:name,:url,:issuer,:networks,:auth,:enabled,:instance_id,:revision,:last_contact_at,:last_error,:created_at,:updated_at)`, c)
 	if err != nil {
 		return MCPConnection{}, err
 	}
@@ -115,7 +116,7 @@ func (s *Store) UpdateMCPConnection(ctx context.Context, c MCPConnection, now in
 		return MCPConnection{}, nil, err
 	}
 	c.InstanceID, c.CreatedAt, c.UpdatedAt = old.InstanceID, old.CreatedAt, now
-	_, err = tx.NamedExecContext(ctx, `UPDATE mcp_connections SET url=:url,issuer=:issuer,auth=:auth,enabled=:enabled,revision=:revision,
+	_, err = tx.NamedExecContext(ctx, `UPDATE mcp_connections SET url=:url,issuer=:issuer,networks=:networks,auth=:auth,enabled=:enabled,revision=:revision,
 		last_contact_at=:last_contact_at,last_error=:last_error,updated_at=:updated_at WHERE name=:name`, c)
 	if err != nil {
 		return MCPConnection{}, nil, err

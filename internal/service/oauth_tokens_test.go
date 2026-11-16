@@ -31,6 +31,8 @@ type fakeOAuth struct {
 	// which the token endpoint needs.
 	confidential bool
 	secretsSeen  []string
+	// authServer, when set, is the authorization server the resource names.
+	authServer string
 }
 
 func newFakeOAuth(t *testing.T) *fakeOAuth {
@@ -46,7 +48,13 @@ func newFakeOAuth(t *testing.T) *fakeOAuth {
 		_ = json.NewEncoder(w).Encode(v)
 	}
 	mux.HandleFunc("GET /.well-known/oauth-protected-resource", func(w http.ResponseWriter, r *http.Request) {
-		writeJSON(w, 200, map[string]any{"resource": srv.URL + "/api/llm/mcp", "authorization_servers": []string{srv.URL}})
+		as := srv.URL
+		f.mu.Lock()
+		if f.authServer != "" {
+			as = f.authServer
+		}
+		f.mu.Unlock()
+		writeJSON(w, 200, map[string]any{"resource": srv.URL + "/api/llm/mcp", "authorization_servers": []string{as}})
 	})
 	mux.HandleFunc("GET /.well-known/oauth-authorization-server", func(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, 200, map[string]any{"issuer": srv.URL, "authorization_endpoint": srv.URL + "/authorize", "token_endpoint": srv.URL + "/token",

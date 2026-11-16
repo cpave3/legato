@@ -144,6 +144,7 @@ func (s *OAuthFlowService) Begin(ctx context.Context, r OAuthFlowRequest) (OAuth
 		}
 	}
 	var target MCPAuthorizationTarget
+	client := s.opts.HTTPClient
 	if s.opts.Connections != nil {
 		if r.URL != "" {
 			return OAuthFlowBegin{}, ErrOAuthFlowInput
@@ -156,6 +157,9 @@ func (s *OAuthFlowService) Begin(ctx context.Context, r OAuthFlowRequest) (OAuth
 			return OAuthFlowBegin{}, err
 		}
 		r.URL = target.URL
+		// Every hop (resource and authorization server metadata,
+		// registration, token) goes through the connection's policy.
+		client = target.Egress.Client()
 	}
 	instance, err := InstanceID(ctx, s.db)
 	if err != nil {
@@ -190,7 +194,7 @@ func (s *OAuthFlowService) Begin(ctx context.Context, r OAuthFlowRequest) (OAuth
 			_ = local.receiver.Close()
 		}
 	}()
-	md, err := oauthclient.Discover(ctx, s.opts.HTTPClient, r.URL)
+	md, err := oauthclient.Discover(ctx, client, r.URL)
 	if err != nil {
 		return OAuthFlowBegin{}, errors.New("OAuth discovery failed: check the endpoint, TLS, issuer and PKCE S256 metadata")
 	}
@@ -207,7 +211,7 @@ func (s *OAuthFlowService) Begin(ctx context.Context, r OAuthFlowRequest) (OAuth
 	if !s256 {
 		return OAuthFlowBegin{}, errors.New("OAuth provider must advertise PKCE S256 support")
 	}
-	reg, err := oauthclient.Register(ctx, s.opts.HTTPClient, md, oauthclient.RegistrationRequest{ClientName: "Legato", RedirectURI: r.RedirectURI})
+	reg, err := oauthclient.Register(ctx, client, md, oauthclient.RegistrationRequest{ClientName: "Legato", RedirectURI: r.RedirectURI})
 	if err != nil {
 		return OAuthFlowBegin{}, errors.New("OAuth client registration failed: check provider registration and callback support")
 	}
@@ -345,7 +349,11 @@ func (s *OAuthFlowService) Deliver(ctx context.Context, id, owner, key string, r
 		s.closeReceiverAfterReturn(id)
 		return s.Status(work, id, owner)
 	}
-	token, err := oauthclient.Exchange(work, s.opts.HTTPClient, &secret.Metadata, secret.ClientID, response.Code, secret.Verifier, secret.RedirectURI, oauthclient.WithClientSecret(secret.ClientSecret))
+	client, err := s.clientFor(work, a.Connection)
+	if err != nil {
+		return OAuthFlowStatus{}, s.failConsumedAttempt(work, a, "connection_unavailable", err)
+	}
+	token, err := oauthclient.Exchange(work, client, &secret.Metadata, secret.ClientID, response.Code, secret.Verifier, secret.RedirectURI, oauthclient.WithClientSecret(secret.ClientSecret))
 	if err != nil {
 		finishErr := s.db.EndOAuthAttempt(work, id, a.Owner, "failed", "token_exchange_failed", s.opts.Now().Unix())
 		cleanupErr := s.remove(work, id)
@@ -365,6 +373,19 @@ func (s *OAuthFlowService) Deliver(ctx context.Context, id, owner, key string, r
 	}
 	s.closeReceiverAfterReturn(id)
 	return s.Status(work, id, owner)
+}
+
+// clientFor is the HTTP client for a connection's requests: its egress
+// policy when the registry is in use.
+func (s *OAuthFlowService) clientFor(ctx context.Context, connection string) (*http.Client, error) {
+	if s.opts.Connections == nil {
+		return s.opts.HTTPClient, nil
+	}
+	target, err := s.opts.Connections.AuthorizationTarget(ctx, connection)
+	if err != nil {
+		return nil, err
+	}
+	return target.Egress.Client(), nil
 }
 
 func (s *OAuthFlowService) failConsumedAttempt(ctx context.Context, a store.OAuthAttempt, code string, cause error) error {
