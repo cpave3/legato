@@ -29,6 +29,8 @@ type AgentCompact struct {
 	Reeve             bool      `json:"reeve,omitempty"`
 	// BackgroundJobs is what the agent started that still runs.
 	BackgroundJobs []store.BackgroundJob `json:"background_jobs,omitempty"`
+	// WorkingDir is the directory the agent was started in.
+	WorkingDir string `json:"working_dir,omitempty"`
 }
 
 func (s *Server) compactAgents(ctx context.Context, agents []service.AgentSession) []AgentCompact {
@@ -41,6 +43,7 @@ func (s *Server) compactAgents(ctx context.Context, agents []service.AgentSessio
 			Status: a.Status, Activity: a.Activity, Sandboxed: a.Sandboxed, DockerHostNetwork: a.DockerHostNetwork, StartedAt: a.StartedAt,
 			Reeve:          reeveTask != "" && a.TaskID == reeveTask,
 			BackgroundJobs: a.BackgroundJobs,
+			WorkingDir:     a.WorkingDir,
 		})
 	}
 	return out

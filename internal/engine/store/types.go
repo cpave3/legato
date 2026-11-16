@@ -396,7 +396,14 @@ type AgentSession struct {
 	ExecutionKind     string `db:"execution_kind"`
 	WorkflowRunID     string `db:"workflow_run_id"`
 	// Engram is the engram its execution runs as, "" for none.
-	Engram           string  `db:"engram"`
+	Engram string `db:"engram"`
+	// WorkingDir is the directory its execution was started in, "" for a
+	// session with no execution.
+	WorkingDir string `db:"working_dir"`
+	// CloneRepo and CloneBranch are the live job clone at WorkingDir (the
+	// repository, and the branch it was made on), "" when it is not one.
+	CloneRepo        string  `db:"clone_repo"`
+	CloneBranch      string  `db:"clone_branch"`
 	TmuxSession      string  `db:"tmux_session"`
 	Command          string  `db:"command"`
 	AgentKind        string  `db:"agent_kind"`

@@ -112,6 +112,18 @@ type AgentResponse struct {
 	// exit_code, started_at, ended_at. Chimera's; a Claude Code agent's
 	// bridge serves its own, with their output, in its snapshot.
 	BackgroundShells []store.BackgroundShell `json:"background_shells,omitempty"`
+	// WorkingDir is the directory the agent was started in (its
+	// execution's working directory); absent when none is recorded.
+	WorkingDir string `json:"working_dir,omitempty"`
+	// Clone is the job clone at WorkingDir, when it is one.
+	Clone *AgentClone `json:"clone,omitempty"`
+}
+
+// AgentClone is the job clone an agent works in: its repository (owner/name)
+// and the branch it was made on, which the agent may since have changed.
+type AgentClone struct {
+	Repo   string `json:"repo"`
+	Branch string `json:"branch,omitempty"`
 }
 
 func agentResponse(agent service.AgentSession) AgentResponse {
@@ -124,7 +136,15 @@ func agentResponse(agent service.AgentSession) AgentResponse {
 		SubtaskID: agent.SubtaskID, StartedAt: agent.StartedAt, EndedAt: agent.EndedAt,
 		Sandboxed: agent.Sandboxed, DockerHostNetwork: agent.DockerHostNetwork, CardTaskID: agent.CardTaskID, Slot: agent.Slot,
 		BackgroundJobs: agent.BackgroundJobs, BackgroundShells: agent.BackgroundShells,
+		WorkingDir: agent.WorkingDir, Clone: agentClone(agent),
 	}
+}
+
+func agentClone(agent service.AgentSession) *AgentClone {
+	if agent.CloneRepo == "" {
+		return nil
+	}
+	return &AgentClone{Repo: agent.CloneRepo, Branch: agent.CloneBranch}
 }
 
 func (s *Server) spawnAgentHandler() http.HandlerFunc {

@@ -113,6 +113,13 @@ export interface AgentInfo {
   // The background shells its mod reported, running and ended (Chimera's);
   // absent for none. A Claude Code agent's come from its native endpoint.
   background_shells?: StoredBackgroundShell[]
+  // The directory the agent was started in: its execution's working
+  // directory (a folder, a worktree or a job clone); absent when none is
+  // recorded.
+  working_dir?: string
+  // The job clone at working_dir, when it is one: its repository and the
+  // branch it was made on.
+  clone?: { repo: string; branch?: string }
 }
 
 export interface BackgroundJob {

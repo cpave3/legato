@@ -6,6 +6,7 @@ import { useWebSocket, type AgentInfo, type WSMessage, type PromptState } from "
 import { usePageInView } from "../hooks/usePageInView"
 import { AgentSidebar } from "../components/AgentSidebar"
 import { AgentContextMenu } from "../components/AgentContextMenu"
+import { AgentInfoDialog } from "../components/AgentInfoDialog"
 import { useAgentGroups } from "../hooks/useAgentGroups"
 import { TerminalPanel } from "../components/TerminalPanel"
 import { LiveTerminal } from "../components/LiveTerminal"
@@ -42,7 +43,7 @@ import { RenameAgentDialog } from "../components/RenameAgentDialog"
 import { useAgentContexts } from "../hooks/useAgentContexts"
 import { formatAgentTime, stateSeconds } from "../lib/agentList"
 import { AgentChatHeader, type AgentChatState, type AgentMenuEntry, type SidePanel, type SidePanelsProps } from "../components/AgentChatHeader"
-import { Bell, BellOff, FolderInput, Network, Pencil, RefreshCw, RotateCw, Shield, Skull, Sparkles, Terminal, Unplug } from "lucide-react"
+import { Bell, BellOff, FolderInput, Info, Network, Pencil, RefreshCw, RotateCw, Shield, Skull, Sparkles, Terminal, Unplug } from "lucide-react"
 import { useTerminalMenu } from "../hooks/useTerminalMenu"
 import { canReloadAgent, hostNetworkSwitchLabel, reloadAgent, sandboxSwitchLabel, setAgentHostNetwork, switchAgentSandbox, type SandboxSwitch } from "../lib/agentReload"
 
@@ -137,6 +138,9 @@ export function AgentsPage() {
   const { addToast } = useToast()
   const { confirm, dialog: confirmDialog } = useConfirm()
   const [renaming, setRenaming] = useState<{ taskId: string; title: string } | null>(null)
+  // The agent whose info dialog is open, and the agent as it was when it
+  // was opened, shown should it leave the list.
+  const [infoAgent, setInfoAgent] = useState<AgentInfo | null>(null)
   // The selected native agent's own refresh, for its entry in the context menu.
   const nativeResyncRef = useRef<(() => void) | null>(null)
   const contexts = useAgentContexts(agents)
@@ -660,8 +664,10 @@ export function AgentsPage() {
   const handleRename = useCallback(() => {
     if (selectedAgent) openRename(selectedAgent)
   }, [selectedAgent, openRename])
+  const openInfo = useCallback((agent: AgentInfo) => setInfoAgent(agent), [])
   const terminalMenu = useTerminalMenu({
     onRename: handleRename,
+    onShowInfo: selectedAgent ? () => openInfo(selectedAgent) : undefined,
     onMoveToGroup: selectedAgent && !selectedAgent.reeve ? () => agentGroups.openMove(selectedAgent) : undefined,
     agentKind: selectedAgent?.agent_kind,
     onUpgradeChimera: canBeNative(selectedAgent?.agent_kind) ? handleUpgradeChimera : undefined,
@@ -692,6 +698,7 @@ export function AgentsPage() {
     const fail = (error: unknown) => addToast(error instanceof Error ? error.message : String(error), "error")
     const entries: AgentMenuEntry[] = [{ label: "Rename", icon: icon(Pencil), onSelect: () => openRename(agent) }]
     if (!agent.reeve) entries.push({ label: "Move to group…", icon: icon(FolderInput), onSelect: () => agentGroups.openMove(agent) })
+    entries.push({ label: "Agent info", icon: icon(Info), onSelect: () => openInfo(agent) })
     if (isSelected && native) {
       entries.push({ label: "Refresh from snapshot", icon: icon(RefreshCw), onSelect: () => nativeResyncRef.current?.() })
     }
@@ -889,6 +896,7 @@ export function AgentsPage() {
                       composerEnabled={agent.task_id === selectedId}
                       title={agent.task_title}
                       onRename={() => openRename(agent)}
+                      onShowInfo={() => openInfo(agent)}
                       activity={agent.activity}
                       stateTime={formatAgentTime(stateSeconds(agent))}
                       onOpenUIItem={agent.task_id === selectedId ? artifacts.openItem : undefined}
@@ -911,6 +919,7 @@ export function AgentsPage() {
                   sandboxed={selectedAgent?.sandboxed}
                   onKill={handleKill}
                   onRename={handleRename}
+                  onShowInfo={selectedAgent ? () => openInfo(selectedAgent) : undefined}
                   onMoveToGroup={selectedAgent && !selectedAgent.reeve ? () => agentGroups.openMove(selectedAgent) : undefined}
                   resyncRef={nativeResyncRef}
                   onReload={canReload ? () => { void handleReload() } : undefined}
@@ -956,6 +965,7 @@ export function AgentsPage() {
                 onReload={canReload ? () => { void handleReload() } : undefined}
                   switchSandbox={selectedSandboxSwitch}
                   switchHostNetwork={selectedHostNetworkSwitch}
+                onShowInfo={selectedAgent ? () => openInfo(selectedAgent) : undefined}
                 onRefresh={handleRefresh}
                 onTogglePromptDetection={handleTogglePromptDetection}
                 promptDetectionEnabled={isPromptDetectionEnabled}
@@ -1008,6 +1018,12 @@ export function AgentsPage() {
           position={agentContextMenu.position}
           onClose={() => setAgentContextMenu(null)}
           entries={contextMenuEntries(agentContextMenu.agent)}
+        />
+      )}
+      {infoAgent && (
+        <AgentInfoDialog
+          agent={agents.find((a) => a.task_id === infoAgent.task_id) ?? infoAgent}
+          onClose={() => setInfoAgent(null)}
         />
       )}
       {renaming && (
