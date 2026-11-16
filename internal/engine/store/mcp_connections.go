@@ -23,6 +23,8 @@ type MCPConnection struct {
 	StaticClientID    string `db:"static_client_id" json:"static_client_id,omitempty"`
 	StaticRedirectURI string `db:"static_redirect_uri" json:"static_redirect_uri,omitempty"`
 	StaticSecretSet   bool   `db:"static_secret_set" json:"static_client_secret_set,omitempty"`
+	RulesJSON         string `db:"rules_json" json:"-"`
+	ReadOnlyTools     string `db:"read_only_tools" json:"-"`
 	Enabled           bool   `db:"enabled" json:"enabled"`
 	InstanceID        string `db:"instance_id" json:"-"`
 	Revision          int64  `db:"revision" json:"revision"`
@@ -56,8 +58,8 @@ func (s *Store) CreateMCPConnection(ctx context.Context, c MCPConnection, now in
 		return MCPConnection{}, err
 	}
 	c.Enabled, c.CreatedAt, c.UpdatedAt, c.LastContactAt, c.LastError = true, now, now, 0, ""
-	_, err = tx.NamedExecContext(ctx, `INSERT INTO mcp_connections(name,url,issuer,networks,auth,static_client_id,static_redirect_uri,static_secret_set,enabled,instance_id,revision,last_contact_at,last_error,created_at,updated_at)
-		VALUES(:name,:url,:issuer,:networks,:auth,:static_client_id,:static_redirect_uri,:static_secret_set,:enabled,:instance_id,:revision,:last_contact_at,:last_error,:created_at,:updated_at)`, c)
+	_, err = tx.NamedExecContext(ctx, `INSERT INTO mcp_connections(name,url,issuer,networks,auth,static_client_id,static_redirect_uri,static_secret_set,rules_json,read_only_tools,enabled,instance_id,revision,last_contact_at,last_error,created_at,updated_at)
+		VALUES(:name,:url,:issuer,:networks,:auth,:static_client_id,:static_redirect_uri,:static_secret_set,:rules_json,:read_only_tools,:enabled,:instance_id,:revision,:last_contact_at,:last_error,:created_at,:updated_at)`, c)
 	if err != nil {
 		return MCPConnection{}, err
 	}
@@ -121,7 +123,7 @@ func (s *Store) UpdateMCPConnection(ctx context.Context, c MCPConnection, now in
 		return MCPConnection{}, nil, err
 	}
 	c.InstanceID, c.CreatedAt, c.UpdatedAt = old.InstanceID, old.CreatedAt, now
-	_, err = tx.NamedExecContext(ctx, `UPDATE mcp_connections SET url=:url,issuer=:issuer,networks=:networks,auth=:auth,static_client_id=:static_client_id,static_redirect_uri=:static_redirect_uri,static_secret_set=:static_secret_set,enabled=:enabled,revision=:revision,
+	_, err = tx.NamedExecContext(ctx, `UPDATE mcp_connections SET url=:url,issuer=:issuer,networks=:networks,auth=:auth,static_client_id=:static_client_id,static_redirect_uri=:static_redirect_uri,static_secret_set=:static_secret_set,rules_json=:rules_json,read_only_tools=:read_only_tools,enabled=:enabled,revision=:revision,
 		last_contact_at=:last_contact_at,last_error=:last_error,updated_at=:updated_at WHERE name=:name`, c)
 	if err != nil {
 		return MCPConnection{}, nil, err

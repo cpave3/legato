@@ -276,3 +276,8 @@ A profile is YAML: `name`, `description`, `issuer` (`static` in this phase), `ch
 - `cmd/legato/credential_runtime.go`, `credential_contract.go`: wiring and the `secret`, `credential` and `audit` commands. Host processes (TUI, `legato serve`) build the broker with the resolver and a messenger; `legato mcp serve` and the CLI build it without, so their approvals are decided by a host.
 - `internal/server/credentials.go`: `GET /api/credentials`, `GET /api/credentials/grants`, `DELETE /api/credentials/grants/{id}`, `GET /api/credentials/audit`.
 - `web/src/components/CredentialsSettings.tsx` (Settings › Security › Credentials) and the credential card of `ApprovalTray`.
+
+## MCP connections
+
+An instance-owned MCP connection is a broker credential `mcp:<name>` whose rules the connection carries (`rules`, none by default) and whose token the broker uses for the agent and never hands out (profile `mcp`, `Brokered`). A configured credential may not name a sealed MCP OAuth record (`legato://oauth-attempt-*`, `oauth-client-*`, `mcp-static-client-*`). See [Integrations](integrations.md) § Tool grants through the credential broker.
+

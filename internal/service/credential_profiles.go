@@ -47,6 +47,9 @@ type CredentialProfile struct {
 	// HostOnly marks a credential Legato itself uses and no agent is ever
 	// given (the reviewer App): every agent request and use is refused.
 	HostOnly bool `yaml:"host_only"`
+	// Brokered marks a credential the broker uses for the agent (an MCP
+	// connection): uses are authorized, but no value is ever handed out.
+	Brokered bool `yaml:"-"`
 	// Source is where the profile was read from: "shipped" or a file.
 	Source string `yaml:"-"`
 }

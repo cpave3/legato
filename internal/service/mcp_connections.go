@@ -40,6 +40,25 @@ type MCPConnectionInput struct {
 	StaticClientID     string `json:"static_client_id,omitempty"`
 	StaticRedirectURI  string `json:"static_redirect_uri,omitempty"`
 	StaticClientSecret string `json:"static_client_secret,omitempty"`
+	// Rules say which agents may use which tools; none means no agent may.
+	// ReadOnlyTools are the tools the operator calls read-only.
+	Rules         []MCPRule `json:"rules,omitempty"`
+	ReadOnlyTools []string  `json:"read_only_tools,omitempty"`
+}
+
+// MCPRule is one credential-broker rule for a connection's tools: which
+// tools (a pattern of tool names), for agents working in which repository
+// (an owner/name pattern; agents with none are "-/-"), which access (read,
+// write, or "" for both, where read means a tool in ReadOnlyTools), and how
+// a use is approved (auto, session, window, request, deny) with the window
+// and limits of any broker rule.
+type MCPRule struct {
+	Tools      string            `json:"tools"`
+	Repository string            `json:"repository"`
+	Access     string            `json:"access,omitempty"`
+	Approve    string            `json:"approve"`
+	Window     string            `json:"window,omitempty"`
+	Limit      map[string]string `json:"limit,omitempty"`
 }
 
 // MCPConnectionChange edits a connection read at ExpectedRevision. A nil
@@ -51,11 +70,13 @@ type MCPConnectionChange struct {
 	PrivateNetworks *[]string `json:"private_networks,omitempty"`
 	// StaticClientID "" removes the pre-registered client (and its secret);
 	// StaticClientSecret "" removes only the secret.
-	StaticClientID     *string `json:"static_client_id,omitempty"`
-	StaticRedirectURI  *string `json:"static_redirect_uri,omitempty"`
-	StaticClientSecret *string `json:"static_client_secret,omitempty"`
-	Enabled            *bool   `json:"enabled,omitempty"`
-	ExpectedRevision   int64   `json:"expected_revision"`
+	StaticClientID     *string    `json:"static_client_id,omitempty"`
+	StaticRedirectURI  *string    `json:"static_redirect_uri,omitempty"`
+	StaticClientSecret *string    `json:"static_client_secret,omitempty"`
+	Rules              *[]MCPRule `json:"rules,omitempty"`
+	ReadOnlyTools      *[]string  `json:"read_only_tools,omitempty"`
+	Enabled            *bool      `json:"enabled,omitempty"`
+	ExpectedRevision   int64      `json:"expected_revision"`
 }
 
 // MCPProblem is a fixed code and what the operator can do about it. It never
@@ -71,7 +92,9 @@ type MCPProblem struct {
 // given agent may use it is Usable's question, not part of this state.
 type MCPConnectionState struct {
 	store.MCPConnection
-	PrivateNetworks []string `json:"private_networks,omitempty"`
+	PrivateNetworks []string  `json:"private_networks,omitempty"`
+	Rules           []MCPRule `json:"rules"`
+	ReadOnlyTools   []string  `json:"read_only_tools,omitempty"`
 	// Authorization: not_required, required, pending, awaiting_confirmation,
 	// authorized, reauth_required.
 	Authorization string `json:"authorization"`
@@ -254,6 +277,9 @@ func (s *MCPConnectionService) Add(ctx context.Context, in MCPConnectionInput) (
 	if c.Auth == "" {
 		c.Auth = "oauth"
 	}
+	if c.RulesJSON, c.ReadOnlyTools, err = encodeMCPRules(in.Rules, in.ReadOnlyTools); err != nil {
+		return MCPConnectionState{}, err
+	}
 	if err := s.checkFields(c); err != nil {
 		return MCPConnectionState{}, err
 	}
@@ -331,6 +357,7 @@ func (s *MCPConnectionService) Update(ctx context.Context, name string, ch MCPCo
 	if err != nil {
 		return MCPConnectionState{}, err
 	}
+	before := c
 	if ch.URL != nil {
 		c.URL = strings.TrimSpace(*ch.URL)
 	}
@@ -357,6 +384,18 @@ func (s *MCPConnectionService) Update(ctx context.Context, name string, ch MCPCo
 	if ch.StaticRedirectURI != nil {
 		c.StaticRedirectURI = strings.TrimSpace(*ch.StaticRedirectURI)
 	}
+	if ch.Rules != nil || ch.ReadOnlyTools != nil {
+		rules, readOnly := decodeMCPRules(c)
+		if ch.Rules != nil {
+			rules = *ch.Rules
+		}
+		if ch.ReadOnlyTools != nil {
+			readOnly = *ch.ReadOnlyTools
+		}
+		if c.RulesJSON, c.ReadOnlyTools, err = encodeMCPRules(rules, readOnly); err != nil {
+			return MCPConnectionState{}, err
+		}
+	}
 	if ch.StaticClientSecret != nil {
 		c.StaticSecretSet = *ch.StaticClientSecret != ""
 		if c.StaticSecretSet && s.opts.Secrets == nil {
@@ -375,6 +414,11 @@ func (s *MCPConnectionService) Update(ctx context.Context, name string, ch MCPCo
 	}
 	if err := s.forget(ctx, fenced, oldPolicy); err != nil {
 		return MCPConnectionState{}, err
+	}
+	if fencedResource(before, updated) {
+		if err := s.endGrants(ctx, name); err != nil {
+			return MCPConnectionState{}, err
+		}
 	}
 	switch {
 	case ch.StaticClientSecret != nil && *ch.StaticClientSecret != "":
@@ -405,7 +449,7 @@ func (s *MCPConnectionService) Remove(ctx context.Context, name string) error {
 	if err != nil {
 		return err
 	}
-	return errors.Join(s.forget(ctx, fenced, policy), s.removeStaticSecret(ctx, name))
+	return errors.Join(s.forget(ctx, fenced, policy), s.removeStaticSecret(ctx, name), s.endGrants(ctx, name))
 }
 
 func mcpStaticSecretName(name string) string { return "mcp-static-client-" + name }
@@ -519,6 +563,7 @@ func (s *MCPConnectionService) authorization(ctx context.Context, c store.MCPCon
 
 func (s *MCPConnectionService) state(ctx context.Context, c store.MCPConnection, instance string) (MCPConnectionState, error) {
 	st := MCPConnectionState{MCPConnection: c, PrivateNetworks: splitNetworks(c.Networks), Connection: "unknown"}
+	st.Rules, st.ReadOnlyTools = decodeMCPRules(c)
 	var err error
 	if st.Authorization, err = s.authorization(ctx, c); err != nil {
 		return MCPConnectionState{}, err
