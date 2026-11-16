@@ -58,3 +58,32 @@ func TestListedAgentsInAJobCloneSayItsRepositoryAndBranch(t *testing.T) {
 		t.Fatalf("agent = dir %q, clone %q on %q", got.WorkingDir, got.CloneRepo, got.CloneBranch)
 	}
 }
+
+// A named slot's agent, addressed as <task>_<slot>, lists its own
+// execution's resources, not the main slot's.
+func TestAttachedResourcesOfANamedSlotAgent(t *testing.T) {
+	svc, db, _ := newTestAgentService(t)
+	ctx := context.Background()
+	createTask(t, db, "task-slots")
+	if err := svc.SpawnAgent(ctx, "task-slots", 80, 24, AgentSpawnOptions{AgentKind: "shell"}); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.SpawnAgent(ctx, "task-slots", 80, 24, AgentSpawnOptions{AgentKind: "shell", Slot: SlotReviewer}); err != nil {
+		t.Fatal(err)
+	}
+	reviewer, err := db.GetAgentSessionInSlot(ctx, "task-slots", SlotReviewer)
+	if err != nil || reviewer.ExecutionID == "" {
+		t.Fatalf("reviewer session = %+v, %v", reviewer, err)
+	}
+	if err := db.AddExecutionResources(ctx, reviewer.ExecutionID, []string{"review-notes"}); err != nil {
+		t.Fatal(err)
+	}
+
+	got, err := svc.(*agentService).AttachedResources(ctx, AgentSlotKey("task-slots", SlotReviewer))
+	if err != nil || len(got) != 1 || got[0] != "review-notes" {
+		t.Fatalf("reviewer resources = %v, %v", got, err)
+	}
+	if main, err := svc.(*agentService).AttachedResources(ctx, "task-slots"); err != nil || len(main) != 0 {
+		t.Fatalf("main resources = %v, %v", main, err)
+	}
+}
