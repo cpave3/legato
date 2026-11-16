@@ -258,6 +258,9 @@ func NewCredentialBroker(db *store.Store, approvals *ApprovalService, opts Crede
 		if err != nil {
 			return nil, fmt.Errorf("credentials %q: %w", c.Name, err)
 		}
+		if ref.Scheme == "legato" && isMCPOAuthRecord(ref.Path) {
+			return nil, fmt.Errorf("credentials %q: %s is an MCP OAuth record that only Legato uses; agents reach MCP servers through the broker", c.Name, ref)
+		}
 		if c.Type != "" && !listHas(profile.Accepts, c.Type) {
 			return nil, fmt.Errorf("credentials %q: profile %s does not take secrets of type %s", c.Name, profile.Name, c.Type)
 		}
@@ -1521,4 +1524,15 @@ func (b *CredentialBroker) readOnlyRefusal(ctx context.Context, executionID, ope
 		return ""
 	}
 	return "this agent may only look: it was started to find something out, so " + operation + " is refused"
+}
+
+// isMCPOAuthRecord is a sealed record of MCP OAuth (oauth_flow.go,
+// oauth_registration.go, mcp_connections.go): never a credential.
+func isMCPOAuthRecord(name string) bool {
+	for _, prefix := range []string{"oauth-attempt-", "oauth-client-", "mcp-static-client-"} {
+		if strings.HasPrefix(name, prefix) {
+			return true
+		}
+	}
+	return false
 }

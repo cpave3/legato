@@ -45,6 +45,12 @@ type fakeOAuth struct {
 	refuseClient  bool   // the token endpoint answers invalid_client
 	tokenForms    []url.Values
 	authorizeIDs  []string // client_id of each authorization request
+	// LEG-206 knobs.
+	revocation bool          // advertise and serve /revoke
+	revoked    []url.Values  // what /revoke received
+	noRefresh  bool          // issue no refresh tokens
+	drop       bool          // the token endpoint drops the connection
+	tokenGate  chan struct{} // when set, a refresh waits for it
 }
 
 func newFakeOAuth(t *testing.T) *fakeOAuth {
@@ -109,6 +115,9 @@ func newFakeOAuth(t *testing.T) *fakeOAuth {
 		if f.asScopes != nil {
 			md["scopes_supported"] = f.asScopes
 		}
+		if f.revocation {
+			md["revocation_endpoint"] = srv.URL + "/revoke"
+		}
 		writeJSON(w, 200, md)
 	})
 	mux.HandleFunc("POST /register", func(w http.ResponseWriter, r *http.Request) {
@@ -137,8 +146,28 @@ func newFakeOAuth(t *testing.T) *fakeOAuth {
 		to.RawQuery = url.Values{"code": {"code-1"}, "state": {q.Get("state")}}.Encode()
 		http.Redirect(w, r, to.String(), http.StatusFound)
 	})
+	mux.HandleFunc("POST /revoke", func(w http.ResponseWriter, r *http.Request) {
+		_ = r.ParseForm()
+		f.mu.Lock()
+		f.revoked = append(f.revoked, r.PostForm)
+		f.mu.Unlock()
+		w.WriteHeader(http.StatusOK)
+	})
 	mux.HandleFunc("POST /token", func(w http.ResponseWriter, r *http.Request) {
 		_ = r.ParseForm()
+		f.mu.Lock()
+		gate, drop := f.tokenGate, f.drop
+		f.mu.Unlock()
+		if drop {
+			if hj, ok := w.(http.Hijacker); ok {
+				conn, _, _ := hj.Hijack()
+				conn.Close()
+				return
+			}
+		}
+		if gate != nil && r.PostForm.Get("grant_type") == "refresh_token" {
+			<-gate
+		}
 		f.mu.Lock()
 		defer f.mu.Unlock()
 		f.secretsSeen = append(f.secretsSeen, r.PostForm.Get("client_secret"))
@@ -160,7 +189,11 @@ func newFakeOAuth(t *testing.T) *fakeOAuth {
 		}
 		f.issued++
 		f.refresh = fmt.Sprintf("refresh-%d", f.issued)
-		writeJSON(w, 200, map[string]any{"access_token": fmt.Sprintf("access-%d", f.issued), "refresh_token": f.refresh, "expires_in": 3600, "token_type": "Bearer"})
+		answer := map[string]any{"access_token": fmt.Sprintf("access-%d", f.issued), "refresh_token": f.refresh, "expires_in": 3600, "token_type": "Bearer", "scope": "read:tasks"}
+		if f.noRefresh {
+			delete(answer, "refresh_token")
+		}
+		writeJSON(w, 200, answer)
 	})
 	return f
 }

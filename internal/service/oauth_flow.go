@@ -17,6 +17,7 @@ import (
 	"time"
 
 	"github.com/cpave3/legato/internal/engine/credential"
+	"github.com/cpave3/legato/internal/engine/egress"
 	"github.com/cpave3/legato/internal/engine/oauthclient"
 	"github.com/cpave3/legato/internal/engine/store"
 )
@@ -51,6 +52,9 @@ type OAuthFlowOptions struct {
 // OAuthFlowConnections resolves a connection name to what may be authorized.
 type OAuthFlowConnections interface {
 	AuthorizationTarget(ctx context.Context, name string) (MCPAuthorizationTarget, error)
+	// EgressPolicy is a connection's outbound policy, enabled or not, for
+	// revocation when it is disconnected.
+	EgressPolicy(ctx context.Context, name string) (egress.Policy, error)
 }
 
 // OAuthFlowRequest's Owner is supplied by the authenticated host handler, never
@@ -72,6 +76,8 @@ type OAuthFlowStatus struct {
 	Scope     string `json:"scope,omitempty"`
 	ErrorCode string `json:"error_code,omitempty"`
 	ExpiresAt int64  `json:"expires_at"`
+	// Evidence is shown for confirmation: what was authorized, never a secret.
+	Evidence *OAuthEvidence `json:"evidence,omitempty"`
 }
 
 type oauthFlowSecret struct {
@@ -99,6 +105,10 @@ type OAuthFlowService struct {
 	mu        sync.Mutex
 	receivers map[string]oauthLocalReceiver
 	closed    bool
+	// holder names this process in refresh and receiver leases.
+	holder    string
+	leaseStop chan struct{}
+	leaseOnce sync.Once
 }
 
 func NewOAuthFlowService(db *store.Store, secrets OAuthFlowSecrets, opts OAuthFlowOptions) *OAuthFlowService {
@@ -108,7 +118,9 @@ func NewOAuthFlowService(db *store.Store, secrets OAuthFlowSecrets, opts OAuthFl
 	if opts.Lifetime == 0 {
 		opts.Lifetime = 10 * time.Minute
 	}
-	return &OAuthFlowService{db: db, secrets: secrets, opts: opts, receivers: map[string]oauthLocalReceiver{}}
+	s := &OAuthFlowService{db: db, secrets: secrets, opts: opts, receivers: map[string]oauthLocalReceiver{}, holder: "proc-" + oauthRandom()[:16], leaseStop: make(chan struct{})}
+	go s.renewLeases()
+	return s
 }
 func oauthHash(value string) string {
 	sum := sha256.Sum256([]byte(value))
@@ -222,7 +234,11 @@ func (s *OAuthFlowService) Begin(ctx context.Context, r OAuthFlowRequest) (OAuth
 	if err := s.write(ctx, id, secret); err != nil {
 		return OAuthFlowBegin{}, err
 	}
-	_, err = s.db.BeginOAuthAttempt(ctx, store.OAuthAttempt{ID: id, Connection: r.Connection, Owner: oauthHash(r.Owner), InstanceID: instance, ReceiverHash: oauthHash(key), StateHash: oauthHash(auth.State()), Scope: scope, ExpiresAt: expires.Unix(), ConnectionRevision: target.Revision}, s.opts.Now().Unix())
+	row := store.OAuthAttempt{ID: id, Connection: r.Connection, Owner: oauthHash(r.Owner), InstanceID: instance, ReceiverHash: oauthHash(key), StateHash: oauthHash(auth.State()), Scope: scope, ExpiresAt: expires.Unix(), ConnectionRevision: target.Revision}
+	if local.cancel != nil {
+		row.ReceiverOwner, row.ReceiverLeaseUntil = s.holder, s.opts.Now().Add(oauthReceiverLease).Unix()
+	}
+	_, err = s.db.BeginOAuthAttempt(ctx, row, s.opts.Now().Unix())
 	if errors.Is(err, store.ErrConflict) {
 		err = errors.Join(ErrOAuthFlowRefused, errors.New("the connection changed while authorization was starting; start again"))
 	}
@@ -365,6 +381,7 @@ func (s *OAuthFlowService) Deliver(ctx context.Context, id, owner, key string, r
 		}
 		return s.Status(work, id, owner)
 	}
+	s.rebase(token)
 	secret.State, secret.Verifier = "", ""
 	secret.Token = token
 	if err := s.write(work, id, secret); err != nil {
@@ -419,7 +436,11 @@ func (s *OAuthFlowService) Status(ctx context.Context, id, owner string) (OAuthF
 			s.stopReceiver(id)
 		}
 	}
-	return flowStatus(a), nil
+	status := flowStatus(a)
+	if a.Status == "awaiting_confirmation" || a.Status == "authorized" {
+		status.Evidence = s.evidence(ctx, id)
+	}
+	return status, nil
 }
 func (s *OAuthFlowService) Confirm(ctx context.Context, id, owner string) error {
 	a, err := s.owned(ctx, id, owner)
@@ -488,6 +509,7 @@ func (s *OAuthFlowService) closeReceiverAfterReturn(id string) {
 	time.AfterFunc(2*time.Second, func() { s.stopReceiver(id) })
 }
 func (s *OAuthFlowService) Close() error {
+	s.stopLeases()
 	s.mu.Lock()
 	s.closed = true
 	receivers := s.receivers
@@ -513,29 +535,6 @@ func (s *OAuthFlowService) Close() error {
 			} else if !errors.Is(err, store.ErrConflict) {
 				problems = append(problems, err)
 			}
-		}
-	}
-	return errors.Join(problems...)
-}
-
-// Disconnect is an operator/host operation. Invalidation happens before secret
-// cleanup so a late delivery cannot recreate an active connection.
-func (s *OAuthFlowService) Disconnect(ctx context.Context, connection string) error {
-	attempts, err := s.db.InvalidateOAuthConnection(ctx, connection, s.opts.Now().Unix())
-	if err != nil {
-		return err
-	}
-	return s.ForgetAttempts(ctx, attempts)
-}
-
-// ForgetAttempts stops the receivers of attempts that have already been
-// fenced in the store and removes their sealed records.
-func (s *OAuthFlowService) ForgetAttempts(ctx context.Context, attempts []store.OAuthAttempt) error {
-	var problems []error
-	for _, a := range attempts {
-		s.stopReceiver(a.ID)
-		if err := s.remove(ctx, a.ID); err != nil {
-			problems = append(problems, err)
 		}
 	}
 	return errors.Join(problems...)

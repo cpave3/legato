@@ -156,7 +156,7 @@ func TestOAuthFlowDisconnectInvalidatesAppDeliveryAndStagedConfirmation(t *testi
 	if _, err := flows.Deliver(context.Background(), staged.ID, "operator", staged.ReturnKey, response(staged)); err != nil {
 		t.Fatal(err)
 	}
-	if err := flows.Disconnect(context.Background(), "connection"); err != nil {
+	if _, err := flows.Disconnect(context.Background(), "connection"); err != nil {
 		t.Fatal(err)
 	}
 	if err := flows.Confirm(context.Background(), staged.ID, "operator"); err == nil {

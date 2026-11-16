@@ -285,6 +285,19 @@ func TestACredentialNamingAnUnknownProfileIsRefused(t *testing.T) {
 	}
 }
 
+// The sealed records of MCP OAuth (attempts with their tokens, client
+// registrations, pre-registered client secrets) are Legato's alone: no
+// credential definition can hand them to an agent.
+func TestACredentialCannotNameAnMCPOAuthRecord(t *testing.T) {
+	approvals, db, _ := newApprovalFixture(t)
+	for _, ref := range []string{"legato://oauth-attempt-abc", "legato://oauth-client-abc", "legato://mcp-static-client-notion"} {
+		_, err := NewCredentialBroker(db, approvals, CredentialBrokerOptions{Credentials: []config.CredentialConfig{{Name: "x", Secret: ref, Profile: "secret"}}})
+		if err == nil || !strings.Contains(err.Error(), "MCP OAuth") {
+			t.Errorf("%s: %v", ref, err)
+		}
+	}
+}
+
 func TestAnAzureCredentialIsHandedOutOnceASessionLikeASecret(t *testing.T) {
 	f := newBrokerFixture(t, config.CredentialConfig{Name: "eleven", Secret: "env://BROKER_TEST_KEY", Profile: "azure",
 		Settings: config.CredentialSettings{ClientID: "b4c42806-dfd5-4a59-b6d3-6ae1c96d2166", TenantID: "7948632d-756d-40b1-8af2-1b9ca8b344b1"}})

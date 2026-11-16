@@ -72,7 +72,8 @@ type MCPProblem struct {
 type MCPConnectionState struct {
 	store.MCPConnection
 	PrivateNetworks []string `json:"private_networks,omitempty"`
-	// Authorization: not_required, required, pending, awaiting_confirmation, authorized.
+	// Authorization: not_required, required, pending, awaiting_confirmation,
+	// authorized, reauth_required.
 	Authorization string `json:"authorization"`
 	// Connection: unknown, connected, failed.
 	Connection    string      `json:"connection"`
@@ -106,7 +107,9 @@ type MCPGrantChecker interface {
 // MCPOAuthCleaner removes the sealed records and receivers of attempts that
 // the registry has already fenced.
 type MCPOAuthCleaner interface {
-	ForgetAttempts(ctx context.Context, attempts []store.OAuthAttempt) error
+	// ForgetAttempts revokes upstream what they held, through policy, then
+	// removes their sealed records.
+	ForgetAttempts(ctx context.Context, attempts []store.OAuthAttempt, policy egress.Policy) error
 }
 
 // MCPAuthorizationTarget is what an OAuth attempt may be begun against.
@@ -323,6 +326,11 @@ func (s *MCPConnectionService) Update(ctx context.Context, name string, ch MCPCo
 	if ch.ExpectedRevision != c.Revision {
 		return MCPConnectionState{}, ErrMCPConnectionStale
 	}
+	// Revocation of what the old resource held goes through its own policy.
+	oldPolicy, err := s.policy(c)
+	if err != nil {
+		return MCPConnectionState{}, err
+	}
 	if ch.URL != nil {
 		c.URL = strings.TrimSpace(*ch.URL)
 	}
@@ -365,7 +373,7 @@ func (s *MCPConnectionService) Update(ctx context.Context, name string, ch MCPCo
 	if err != nil {
 		return MCPConnectionState{}, err
 	}
-	if err := s.forget(ctx, fenced); err != nil {
+	if err := s.forget(ctx, fenced, oldPolicy); err != nil {
 		return MCPConnectionState{}, err
 	}
 	switch {
@@ -385,11 +393,19 @@ func (s *MCPConnectionService) Update(ctx context.Context, name string, ch MCPCo
 // the same transaction, then their sealed records are removed. Local removal
 // does not revoke anything at the provider.
 func (s *MCPConnectionService) Remove(ctx context.Context, name string) error {
+	c, err := s.db.GetMCPConnection(ctx, name)
+	if err != nil {
+		return err
+	}
+	policy, err := s.policy(c)
+	if err != nil {
+		return err
+	}
 	fenced, err := s.db.DeleteMCPConnection(ctx, name, s.opts.Now().Unix())
 	if err != nil {
 		return err
 	}
-	return errors.Join(s.forget(ctx, fenced), s.removeStaticSecret(ctx, name))
+	return errors.Join(s.forget(ctx, fenced, policy), s.removeStaticSecret(ctx, name))
 }
 
 func mcpStaticSecretName(name string) string { return "mcp-static-client-" + name }
@@ -405,11 +421,20 @@ func (s *MCPConnectionService) removeStaticSecret(ctx context.Context, name stri
 	return err
 }
 
-func (s *MCPConnectionService) forget(ctx context.Context, attempts []store.OAuthAttempt) error {
+func (s *MCPConnectionService) forget(ctx context.Context, attempts []store.OAuthAttempt, policy egress.Policy) error {
 	if len(attempts) == 0 || s.oauth == nil {
 		return nil
 	}
-	return s.oauth.ForgetAttempts(ctx, attempts)
+	return s.oauth.ForgetAttempts(ctx, attempts, policy)
+}
+
+// EgressPolicy is a connection's outbound policy, whether or not it is enabled.
+func (s *MCPConnectionService) EgressPolicy(ctx context.Context, name string) (egress.Policy, error) {
+	c, err := s.db.GetMCPConnection(ctx, name)
+	if err != nil {
+		return egress.Policy{}, err
+	}
+	return s.policy(c)
 }
 
 // mcpContactCodes are the outcomes the broker may record; anything else is
@@ -445,6 +470,7 @@ var mcpProblemMessages = map[string]string{
 	"disabled":               "This connection is turned off.",
 	"authorization_required": "Connect this server from the Legato app, or from a browser on the computer Legato runs on.",
 	"authorization_pending":  "Sign-in has started and has not finished.",
+	"reauth_required":        "Legato's authorization for this server ended. Connect it again from the Legato app, or from a browser on the computer Legato runs on.",
 	"awaiting_confirmation":  "Confirm the account Legato signed in with.",
 	"not_found":              "There is no MCP connection of that name.",
 	"not_granted":            "No grant lets this agent use the connection.",
@@ -472,6 +498,11 @@ func (s *MCPConnectionService) authorization(ctx context.Context, c store.MCPCon
 	}
 	now := s.opts.Now().Unix()
 	state := "required"
+	if cur, err := s.db.CurrentOAuthAttempt(ctx, c.Name); err == nil && cur.Status == "reauth_required" {
+		state = "reauth_required"
+	} else if err != nil && !errors.Is(err, store.ErrNotFound) {
+		return "", err
+	}
 	for _, a := range attempts {
 		if a.ExpiresAt <= now {
 			continue
@@ -507,6 +538,8 @@ func (s *MCPConnectionService) state(ctx context.Context, c store.MCPConnection,
 		st.Problem = mcpProblem("disabled")
 	case st.Authorization == "required":
 		st.Problem = mcpProblem("authorization_required")
+	case st.Authorization == "reauth_required":
+		st.Problem = mcpProblem("reauth_required")
 	case st.Authorization == "pending":
 		st.Problem = mcpProblem("authorization_pending")
 	case st.Authorization == "awaiting_confirmation":
