@@ -108,6 +108,10 @@ type HandoffAdvert struct {
 	// Refuses says why the worker would refuse every handoff now, each
 	// with what to do; empty when it can take them.
 	Refuses []string `json:"refuses,omitempty"`
+	// ReviewPasses is the worker's review passes with the skills a main's
+	// override may name; nil while they are off. /api/meta gives them
+	// without the skill names.
+	ReviewPasses *ReviewPassesAdvert `json:"review_passes,omitempty"`
 }
 
 // Why a worker refuses every handoff, with what to do. A worker says them
@@ -168,6 +172,8 @@ type HandoffAdvertSources struct {
 	Skills func(ctx context.Context) ([]string, error)
 	// Repositories are the patterns the GitHub credentials list.
 	Repositories func() []string
+	// ReviewPasses is the review passes advert, nil while they are off.
+	ReviewPasses func() *ReviewPassesAdvert
 }
 
 // mcpToolsOff says the worker's agents would get no Legato MCP tools; false
@@ -220,6 +226,9 @@ func (s *HandoffWorkerService) Advert(ctx context.Context) HandoffAdvert {
 	advert.Skills = advertList(ctx, "skills", src.Skills)
 	if src.Repositories != nil {
 		advert.Repositories = sortedCopy(src.Repositories())
+	}
+	if src.ReviewPasses != nil {
+		advert.ReviewPasses = src.ReviewPasses()
 	}
 	if !advert.Sandbox {
 		advert.Refuses = append(advert.Refuses, refusesNoSandbox)

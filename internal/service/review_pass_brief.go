@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/cpave3/legato/internal/engine/store"
@@ -15,6 +16,14 @@ func (s *ReviewPassService) brief(ctx context.Context, h *store.Handoff, pass in
 	task, err := s.db.GetTask(ctx, h.TaskID)
 	if err != nil {
 		return "", err
+	}
+	// A skill is the reviewer tool's by the name it knows it: whether it
+	// is a managed one is read now, so the worker's default skill is named
+	// as an override's is.
+	if !settings.SkillManaged && settings.Skill != "" && s.opts.Advert != nil {
+		if advert := s.opts.Advert(); advert != nil {
+			settings.SkillManaged = slices.Contains(advert.ManagedSkills, settings.Skill)
+		}
 	}
 	var b strings.Builder
 	fmt.Fprintf(&b, "# Review pass %d of %s\n\n", pass, h.Repo)

@@ -103,6 +103,10 @@ func (s *TaskHandoffService) WorkerReviewPasses(ctx context.Context, workerID st
 	if err != nil {
 		return nil, err
 	}
+	// The skills a main may name are behind its token, in the advert.
+	if advert, err := client.Capabilities(ctx); err == nil && advert.ReviewPasses != nil {
+		return advert.ReviewPasses, nil
+	}
 	meta, err := client.Meta(ctx)
 	if err != nil {
 		return nil, err

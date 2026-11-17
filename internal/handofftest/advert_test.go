@@ -338,3 +338,24 @@ func TestAWorkerWithoutTheMCPToolsRefusesTheCallItself(t *testing.T) {
 		t.Fatalf("the worker made %+v", cards)
 	}
 }
+
+// A worker's review passes are public in /api/meta, its skill names are
+// not: only a paired main reads them, in the advert, for the Hand off form.
+func TestAWorkersReviewSkillsAreOnlyForAPairedMain(t *testing.T) {
+	ctx := context.Background()
+	worker := StartWorker(t, WorkerOptions{GitHubRepositories: []string{"acme/*"}, ReviewPasses: &ReviewPassOptions{}})
+	main := NewMain(t, MainOptions{Clock: worker.Clock})
+	paired := Pair(t, main, worker)
+
+	resp := worker.Do(http.MethodGet, "/api/meta", "", "")
+	raw, _ := io.ReadAll(resp.Body)
+	resp.Body.Close()
+	if !strings.Contains(string(raw), `"review_passes"`) || strings.Contains(string(raw), `"skills":["`) {
+		t.Fatalf("/api/meta: %s; want review passes without skill names", raw)
+	}
+
+	got, err := main.Handoffs.WorkerReviewPasses(ctx, paired.InstanceID)
+	if err != nil || got == nil || !slices.Contains(got.Skills, "3-tier-review") {
+		t.Fatalf("the main reads %+v, %v; want the skills from the advert", got, err)
+	}
+}

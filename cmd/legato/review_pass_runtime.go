@@ -2,12 +2,12 @@ package main
 
 import (
 	"context"
-	"github.com/cpave3/legato/internal/engine/store"
 	"log"
 	"time"
 
 	"github.com/cpave3/legato/config"
 	"github.com/cpave3/legato/internal/engine/events"
+	"github.com/cpave3/legato/internal/engine/store"
 	"github.com/cpave3/legato/internal/service"
 )
 
