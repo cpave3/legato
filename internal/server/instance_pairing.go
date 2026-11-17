@@ -104,7 +104,7 @@ func (s *Server) handoffMeta(meta *MobileMetaResponse) {
 }
 
 // publicReviewPasses is the review passes advert as /api/meta gives it:
-// without the skill names, which only a paired main reads (in the
+// without the skill names (the default's included), which only a paired main reads (in the
 // capabilities advert). The lists stay empty, not absent, for an older
 // main that reads them.
 func publicReviewPasses(advert *service.ReviewPassesAdvert) *service.ReviewPassesAdvert {
@@ -113,6 +113,7 @@ func publicReviewPasses(advert *service.ReviewPassesAdvert) *service.ReviewPasse
 	}
 	public := *advert
 	public.Skills, public.ManagedSkills = []string{}, nil
+	public.Defaults.Skill, public.Defaults.SkillManaged = "", false
 	return &public
 }
 
