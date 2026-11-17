@@ -113,8 +113,9 @@ type HandoffAdvert struct {
 // Why a worker refuses every handoff, with what to do. A worker says them
 // in its advert; a main without an advert reads the sandbox from /api/meta.
 const (
-	refusesNoSandbox = "its agents cannot run in Legato's sandbox, which needs Linux with bubblewrap (bwrap) on PATH and agents.sandbox.enabled"
-	refusesNoColumns = "its board has no columns: run legato columns sync there, or restart legato serve, which seeds them"
+	refusesNoSandbox  = "its agents cannot run in Legato's sandbox, which needs Linux with bubblewrap (bwrap) on PATH and agents.sandbox.enabled"
+	refusesNoColumns  = "its board has no columns: run legato columns sync there, or restart legato serve, which seeds them"
+	refusesNoMCPTools = "its agents get no Legato tools, which a handed-off agent records its work with: turn on agents.mcp.enabled there"
 )
 
 // HandoffAdvertAgent is one agent tool a worker knows: whether its command
@@ -169,6 +170,15 @@ type HandoffAdvertSources struct {
 	Repositories func() []string
 }
 
+// mcpToolsOff says the worker's agents would get no Legato MCP tools; false
+// when it cannot tell (no source).
+func (s *HandoffWorkerService) mcpToolsOff() bool {
+	s.advertMu.Lock()
+	tools := s.advert.MCPTools
+	s.advertMu.Unlock()
+	return tools != nil && !tools()
+}
+
 // SetAdvertSources sets where the advert's lists come from.
 func (s *HandoffWorkerService) SetAdvertSources(src HandoffAdvertSources) {
 	s.advertMu.Lock()
@@ -216,6 +226,9 @@ func (s *HandoffWorkerService) Advert(ctx context.Context) HandoffAdvert {
 	}
 	if _, err := s.newTaskColumn(ctx); err != nil {
 		advert.Refuses = append(advert.Refuses, refusesNoColumns)
+	}
+	if !advert.MCPTools {
+		advert.Refuses = append(advert.Refuses, refusesNoMCPTools)
 	}
 	return advert
 }

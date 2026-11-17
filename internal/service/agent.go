@@ -353,6 +353,7 @@ type agentService struct {
 	repoResources        RepositoryResourceSource
 	docker               *SandboxDocker
 	reviewsOff           bool
+	hasSkill             func(name string) bool
 	binaryPath           string
 	bus                  EventPublisher
 	briefKickoffDelay    time.Duration
@@ -554,6 +555,10 @@ type AgentServiceOptions struct {
 	// ReviewsOff tells agents to skip Legato's review tours and handoff
 	// packets unless the person asks for one.
 	ReviewsOff bool
+	// HasSkill says whether agents have a skill of that name (managed or
+	// the agent tools' own): the reviews prompt names legato-review only
+	// then. Nil: assume they do.
+	HasSkill func(name string) bool
 	// Sandbox runs agents in Legato's sandbox. Nil: no sandbox.
 	Sandbox *SandboxSettings
 	// SandboxScratch is where sandboxes keep their scratch, removed when
@@ -655,6 +660,7 @@ func NewAgentService(s *store.Store, tmux TmuxManager, workDir string, opts ...A
 			svc.docker = opts[0].Sandbox.Docker
 		}
 		svc.reviewsOff = opts[0].ReviewsOff
+		svc.hasSkill = opts[0].HasSkill
 		svc.binaryPath = opts[0].BinaryPath
 		svc.bus = opts[0].EventBus
 		if opts[0].BriefKickoffDelay > 0 {
@@ -980,7 +986,8 @@ func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, hei
 	// (Claude Code, Codex) is told; swarm workers never review.
 	if a.reviewsOff && !nativeResume && !ownPrompt {
 		rolePrompt = joinPromptSections(rolePrompt, reviewsOffPrompt)
-	} else if rp, ok := adapter.(ReviewsPromptAdapter); ok && rp.NeedsReviewsPrompt() && !nativeResume && !isSwarm && !ownPrompt {
+	} else if rp, ok := adapter.(ReviewsPromptAdapter); ok && rp.NeedsReviewsPrompt() && !nativeResume && !isSwarm && !ownPrompt &&
+		(a.hasSkill == nil || a.hasSkill(reviewSkill)) {
 		rolePrompt = joinPromptSections(rolePrompt, reviewsOnPrompt)
 	}
 	if repo, ok := strings.CutPrefix(projectKey, "repo:"); ok && a.guidance != nil {

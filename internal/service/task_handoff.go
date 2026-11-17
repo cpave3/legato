@@ -246,6 +246,9 @@ func (s *TaskHandoffService) HandOff(ctx context.Context, req TaskHandoffRequest
 	}
 	// The worker's definition decides access: a repository its advert does
 	// not list is refused here, in the words the Hand off form uses.
+	if advert := client.Worker.Advert; advert != nil && !advert.MCPTools {
+		return AwayTask{}, &handoffWorkerError{ErrWorkerRefused, fmt.Sprintf("turn on agents.mcp.enabled on %s: its agents get no Legato tools (add_task_note, submit_review), which a handed-off agent needs", name)}
+	}
 	if !client.Worker.Advert.CanClone(req.Repo) {
 		return AwayTask{}, &handoffWorkerError{ErrWorkerRefused, fmt.Sprintf("%s can't clone %s: its GitHub credentials do not list it", name, req.Repo)}
 	}

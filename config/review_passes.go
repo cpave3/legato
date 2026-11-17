@@ -88,6 +88,10 @@ func ValidateReviewPasses(cfg *Config) error {
 			return fmt.Errorf("review_passes.%s must be a positive duration, got %q", d.name, d.value)
 		}
 	}
+	// A reviewer reports through submit_review, one of Legato's MCP tools.
+	if rp.Enabled && !cfg.Agents.MCP.Enabled {
+		return fmt.Errorf("review_passes.enabled needs agents.mcp.enabled: a reviewer reports its findings through Legato's submit_review tool")
+	}
 	// The default column is checked only once review passes are on: a
 	// board without a Review column loads while they are off.
 	if rp.Enabled && rp.ReviewColumn != "" && !boardHasColumn(cfg, rp.ReviewColumn) {

@@ -294,3 +294,24 @@ func TestAHandoffReadsTheWorkersAdvertAfresh(t *testing.T) {
 		t.Fatalf("a repository the worker lists since pairing: %v", err)
 	}
 }
+
+// The brief asks the agent to record its decisions with add_task_note, one
+// of Legato's MCP tools: a worker that gives its agents none refuses.
+func TestAWorkerWithoutTheMCPToolsRefusesAHandoff(t *testing.T) {
+	sources := advertSources()
+	sources.Repositories = nil
+	sources.MCPTools = func() bool { return false }
+	worker := StartWorker(t, WorkerOptions{Name: "legato-1", Wire: func(w *Worker) { w.Handoffs.SetAdvertSources(sources) }})
+	main := NewMain(t, MainOptions{Clock: worker.Clock})
+	paired := Pair(t, main, worker)
+	if !strings.Contains(paired.CannotTakeHandoffs, "agents.mcp.enabled") {
+		t.Errorf("cannot_take_handoffs = %q", paired.CannotTakeHandoffs)
+	}
+	taskID, _ := localTask(t, main, "Fix it", "", "")
+
+	_, err := handOff(t, main, paired.InstanceID, taskID)
+	if !errors.Is(err, service.ErrWorkerRefused) || !strings.Contains(err.Error(), "turn on agents.mcp.enabled on legato-1") {
+		t.Fatalf("handing off to a worker without the MCP tools: %v", err)
+	}
+	stillHome(t, main, worker, taskID)
+}

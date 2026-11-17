@@ -228,6 +228,9 @@ func (w *Worker) start() {
 	srv.SetTaskHandoffs(w.Handoffs)
 	srv.SetHandoffReauthEvery(50 * time.Millisecond)
 	w.Server = srv
+	// As a worker's runtime with agents.mcp.enabled (the default): its
+	// agents get Legato's tools. Wire may give other sources.
+	w.Handoffs.SetAdvertSources(service.HandoffAdvertSources{MCPTools: func() bool { return true }})
 	if w.opts.Wire != nil {
 		w.opts.Wire(w)
 	}

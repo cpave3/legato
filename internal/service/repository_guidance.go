@@ -156,6 +156,9 @@ const reviewsOffPrompt = "## Reviews\n\n" +
 	"or write a review handoff packet, and do not use the legato-review skill, " +
 	"unless the operator asks for a review."
 
+// reviewSkill is the skill reviewsOnPrompt names, which Legato does not ship.
+const reviewSkill = "legato-review"
+
 // reviewsOnPrompt asks an agent whose launch prompt teaches nothing of
 // reviews for a review tour at the end of its work.
 const reviewsOnPrompt = "## Reviews\n\n" +

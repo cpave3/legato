@@ -191,6 +191,11 @@ func (s *HandoffWorkerService) Accept(ctx context.Context, main HandoffMain, cal
 	if s.opts.Sandbox == nil || !s.opts.Sandbox() {
 		return HandoffAccepted{}, false, handoffErr("no_sandbox", "this worker cannot run agents in Legato's sandbox, which a handed-off agent needs")
 	}
+	// The brief asks the agent to record its work with add_task_note, and
+	// a reviewer reports through submit_review: Legato's MCP tools.
+	if s.mcpToolsOff() {
+		return HandoffAccepted{}, false, handoffErr("no_mcp_tools", "this worker's agents get no Legato tools (add_task_note, submit_review), which a handed-off agent needs: turn on agents.mcp.enabled here")
+	}
 	agentKind, err := s.agentKind(call.AgentKind)
 	if err != nil {
 		return HandoffAccepted{}, false, err
