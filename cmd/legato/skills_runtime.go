@@ -45,12 +45,8 @@ func capabilityFolders(cfg *config.Config) service.CapabilityFolders {
 func agentHasSkill(cfg *config.Config, db *store.Store) func(name string) bool {
 	skills := skillService(cfg, db)
 	return func(name string) bool {
-		if list, err := skills.List(context.Background()); err == nil {
-			for _, s := range list {
-				if s.Name == name && s.Enabled && s.Err == "" {
-					return true
-				}
-			}
+		if usable, err := skills.Usable(context.Background()); err == nil && slices.Contains(usable, name) {
+			return true
 		}
 		home, err := os.UserHomeDir()
 		return err == nil && slices.Contains(service.AgentSkills(home), name)

@@ -302,12 +302,12 @@ export function handoffTools(advert: WorkerAdvert | undefined, local: string[]):
 }
 
 // missingOnWorker names what this Legato's agents have that a worker's
-// would not: skills and MCP connections that are on here, and Legato's
-// own agent tools. A warning, not a refusal: the person decides.
+// would not: skills and MCP connections that are on here. A warning, not a
+// refusal: the person decides. A worker without Legato's agent tools is no
+// warning: it refuses every handoff (cannot_take_handoffs).
 export function missingOnWorker(advert: WorkerAdvert | undefined, here: { skills: string[]; mcpConnections: string[] }): string[] {
   if (!advert) return []
   const out: string[] = []
-  if (!advert.mcp_tools) out.push("Legato's agent tools (add_task_note and the rest)")
   for (const s of here.skills) if (!advert.skills.includes(s)) out.push(`skill ${s}`)
   for (const c of here.mcpConnections) if (!advert.mcp_connections.includes(c)) out.push(`MCP connection ${c}`)
   return out

@@ -315,3 +315,26 @@ func TestAWorkerWithoutTheMCPToolsRefusesAHandoff(t *testing.T) {
 	}
 	stillHome(t, main, worker, taskID)
 }
+
+// The worker refuses for itself, whatever the main knows: a main with no
+// advert of it (an older one) still gets 422 no_mcp_tools, and nothing is made.
+func TestAWorkerWithoutTheMCPToolsRefusesTheCallItself(t *testing.T) {
+	sources := advertSources()
+	sources.Repositories = nil
+	sources.MCPTools = func() bool { return false }
+	worker := StartWorker(t, WorkerOptions{Wire: func(w *Worker) { w.Handoffs.SetAdvertSources(sources) }})
+	main := NewMain(t, MainOptions{Clock: worker.Clock})
+	paired := Pair(t, main, worker)
+	body, _ := json.Marshal(service.HandoffCall{HandoffID: "ho-1", MainTaskID: "T-1", Title: "Fix it", Notes: []service.HandoffCallNote{},
+		Repo: "acme/widget", Purpose: service.HandoffMakeChange, Kind: service.HandoffNewBranch, Branch: "legato/t-1", AgentKind: "claude-code"})
+	resp := worker.Do(http.MethodPost, service.HandoffCallPath, mainToken(t, main, paired.InstanceID), string(body))
+	var refused struct{ Error, Message string }
+	_ = json.NewDecoder(resp.Body).Decode(&refused)
+	resp.Body.Close()
+	if resp.StatusCode != http.StatusUnprocessableEntity || refused.Error != "no_mcp_tools" {
+		t.Fatalf("%d %+v", resp.StatusCode, refused)
+	}
+	if cards := workerCards(t, worker); len(cards) != 0 {
+		t.Fatalf("the worker made %+v", cards)
+	}
+}

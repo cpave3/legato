@@ -60,9 +60,6 @@ describe("missingOnWorker", () => {
   it("names the skills and MCP connections this Legato has and the worker lacks", () => {
     expect(missingOnWorker(advert, { skills: ["tdd", "pr"], mcpConnections: ["burnlite", "linear"] })).toEqual(["skill pr", "MCP connection linear"])
   })
-  it("says the Legato tools are off there", () => {
-    expect(missingOnWorker({ ...advert, mcp_tools: false }, { skills: [], mcpConnections: [] })).toEqual(["Legato's agent tools (add_task_note and the rest)"])
-  })
   it("says nothing without an advert", () => {
     expect(missingOnWorker(undefined, { skills: ["pr"], mcpConnections: [] })).toEqual([])
   })

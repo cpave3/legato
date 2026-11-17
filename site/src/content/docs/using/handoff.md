@@ -24,7 +24,7 @@ Before you can hand anything off, pair a worker with this Legato. See [Main and 
    - **Repository**: one of the repositories in Settings › Agents and workspaces that has a GitHub name. With none, type its `owner/name`. Nothing is chosen for you: **Hand off** stays unavailable until you pick one, so a task never goes to the wrong repository because you forgot to change a default. The worker's GitHub access decides what it can clone: a repository it can't clone is listed as "vm-1 can't clone it" and cannot be chosen, and a repository only the worker names is offered as "on vm-1 only".
    - **Agent tool**: the tool the worker starts: the tools installed on the worker, its own default first. A worker too old to say lists this Legato's tools.
 
-   Below the fields, the form warns of what your agents have here and the worker's agent would not: skills and MCP connections that are on here but not there, and Legato's agent tools when they are off there ("Not on vm-1: skill pr, MCP connection linear"). It is a warning: you can still hand off.
+   Below the fields, the form warns of what your agents have here and the worker's agent would not: skills and MCP connections that are on here but not there ("Not on vm-1: skill pr, MCP connection linear"). It is a warning: you can still hand off.
 4. Choose **Hand off**.
 
 The task's title, description and notes travel to the worker, with the repository and the branch. Your agent's conversation never does.
