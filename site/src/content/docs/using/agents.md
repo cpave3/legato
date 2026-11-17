@@ -53,6 +53,8 @@ When `agents.sandbox.enabled` is on, every agent runs inside Legato's [sandbox](
 
 An agent started as an [engram](/legato/agent-tools/engrams/) shows it beside its tool, such as `claude · hestia`, in the agents list, over its terminal, on its ensemble tile, in the board's panel about the task, and on its card in the web UI (`Running · Claude Code · hestia`).
 
+With [Docker in the sandbox](/legato/security/sandbox/#docker-in-the-sandbox) on, `ctrl+n` in the spawn dialog (or **Allow the host network for its containers** on the web) lets that agent's containers use the host's network. This weakens the agent's isolation; see [The host network for one agent](/legato/security/sandbox/#the-host-network-for-one-agent) for how. Such an agent is marked with `⇄` beside its ID (a sitemap glyph with Nerd Fonts) and **host network** over its terminal. In the web UI, **Reload with host network** and **Reload without host network** change it for a running agent.
+
 An agent that runs outside the sandbox is marked in amber: with `⊘` beside its ID in the agents list (an open padlock with Nerd Fonts), and with **unsandboxed** over its terminal and on its tile in the ensemble. When the sandbox is off, no agent is marked.
 
 ### The web spawn dialog

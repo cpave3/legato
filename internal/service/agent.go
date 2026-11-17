@@ -78,6 +78,9 @@ type AgentSession struct {
 	Scope       []string // file globs
 	// Sandboxed is true when the agent runs in Legato's sandbox.
 	Sandboxed bool
+	// DockerHostNetwork is true when its containers may use the host's
+	// network through its filtered Docker socket.
+	DockerHostNetwork bool
 	// Slot is the task's agent slot it runs in: "main", or a named slot
 	// such as "reviewer". A named slot's row has the agent ID
 	// <task>_<slot> as TaskID, so every action on the row reaches it.
@@ -177,6 +180,11 @@ type AgentSpawnOptions struct {
 	// Unsandboxed starts this agent outside Legato's sandbox when it is on.
 	// Swarm and workflow agents ignore it: they are always sandboxed.
 	Unsandboxed bool
+	// DockerHostNetwork lets this agent's containers and builds use the
+	// host's network through its filtered Docker socket. Only for an agent
+	// the operator starts in the sandbox with Docker in it: anything else
+	// asking for it is refused (ErrDockerHostNetwork), never ignored.
+	DockerHostNetwork bool
 	// LaunchPrompt replaces the general launch prompt (the Reeve's): no
 	// repository guidance, review prompt or learnings are added to it.
 	LaunchPrompt string
@@ -703,6 +711,13 @@ func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, hei
 		slot = store.SlotMain
 	}
 	named := IsNamedSlot(slot)
+	// A Reeve session runs only in Legato's sandbox.
+	reeve := IsReeveTask(ctx, a.store, taskID)
+	if opt.DockerHostNetwork {
+		if err := a.checkDockerHostNetwork(reeve, named, opt); err != nil {
+			return err
+		}
+	}
 	if opt.Unattended {
 		if a.sandbox == nil {
 			return errors.New("Legato's sandbox is off here, and an unattended agent runs only in it")
@@ -711,8 +726,6 @@ func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, hei
 			return fmt.Errorf("%s cannot be started with its permission prompts off", orUnknown(opt.AgentKind))
 		}
 	}
-	// A Reeve session runs only in Legato's sandbox.
-	reeve := IsReeveTask(ctx, a.store, taskID)
 	if reeve {
 		if opt.Unsandboxed {
 			return ErrReeveSandboxed
@@ -1168,7 +1181,7 @@ func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, hei
 		if booted.booted() {
 			engramMounts = SandboxEngram{Binary: booted.Binary, Store: booted.Store}
 		}
-		prefix, err := a.sandboxPrefix(ctx, taskID, attributionTaskID, executionID, agentKind, workDir, envMap, append(resources, freshClone.sandboxResources()...), opt.ReadOnlyCheckout, opt.ThrowawayCheckout, engramMounts)
+		prefix, err := a.sandboxPrefix(ctx, taskID, attributionTaskID, executionID, agentKind, workDir, envMap, append(resources, freshClone.sandboxResources()...), opt.ReadOnlyCheckout, opt.ThrowawayCheckout, opt.DockerHostNetwork, engramMounts)
 		if err != nil {
 			failExecution()
 			return fmt.Errorf("Legato's sandbox: %w", err)
@@ -1236,6 +1249,8 @@ func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, hei
 		Role:        opt.Role,
 		Sandboxed:   sandboxed,
 		Slot:        slot,
+		// Checked above: only a sandboxed agent of the operator's has it.
+		DockerHostNetwork: opt.DockerHostNetwork,
 	}
 	if opt.ParentTaskID != "" {
 		p := opt.ParentTaskID
@@ -1847,6 +1862,7 @@ func (a *agentService) ListAgents(ctx context.Context) ([]AgentSession, error) {
 			Role:              s.Role,
 			ParentTaskID:      parentID,
 			SubtaskID:         subtaskID,
+			DockerHostNetwork: s.DockerHostNetwork,
 			StartedAt:         startedAt,
 			EndedAt:           endedAt,
 			NotifyEnabled:     notifyEnabled,

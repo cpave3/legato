@@ -37,15 +37,23 @@ type SandboxSwitcher interface {
 var _ SandboxSwitcher = (*agentService)(nil)
 
 func (a *agentService) RestartAgent(ctx context.Context, taskID string, resources []Resource) error {
-	_, err := a.restartAgent(ctx, taskID, resources, false)
+	_, err := a.restartAgentWith(ctx, taskID, resources, restartChange{})
 	return err
 }
 
 func (a *agentService) RestartAgentSwitchingSandbox(ctx context.Context, taskID string, resources []Resource) (bool, error) {
-	return a.restartAgent(ctx, taskID, resources, true)
+	return a.restartAgentWith(ctx, taskID, resources, restartChange{switchSandbox: true})
 }
 
-func (a *agentService) restartAgent(ctx context.Context, taskID string, resources []Resource, switchSandbox bool) (bool, error) {
+// restartChange is what a restart changes about the agent: nothing, its
+// side of the sandbox, or the host network for its containers.
+type restartChange struct {
+	switchSandbox bool
+	hostNetwork   *bool
+}
+
+func (a *agentService) restartAgentWith(ctx context.Context, taskID string, resources []Resource, change restartChange) (bool, error) {
+	switchSandbox := change.switchSandbox
 	if _, slot := SplitAgentID(taskID); IsNamedSlot(slot) {
 		// Legato starts a named slot's agent with what its work needs (a
 		// reviewer's read-only, unattended sandbox); a restart would not.
@@ -74,7 +82,17 @@ func (a *agentService) restartAgent(ctx context.Context, taskID string, resource
 			return false, errors.New("Legato's sandbox is off, so there is no sandbox to put the agent in")
 		}
 	}
-	opt := AgentSpawnOptions{AgentKind: session.AgentKind, Resources: resources, Ephemeral: task.Ephemeral, Unsandboxed: !sandboxed}
+	opt := AgentSpawnOptions{AgentKind: session.AgentKind, Resources: resources, Ephemeral: task.Ephemeral, Unsandboxed: !sandboxed,
+		DockerHostNetwork: a.keptDockerHostNetwork(session.DockerHostNetwork, sandboxed)}
+	if change.hostNetwork != nil {
+		opt.DockerHostNetwork = *change.hostNetwork
+		if opt.DockerHostNetwork {
+			// Checked before the agent is stopped, as SpawnAgent checks it.
+			if err := a.checkDockerHostNetwork(IsReeveTask(ctx, a.store, taskID), false, opt); err != nil {
+				return false, err
+			}
+		}
+	}
 	if session.ExecutionID != "" {
 		if execution, err := a.store.GetExecution(ctx, session.ExecutionID); err == nil {
 			opt.WorkingDir = execution.WorkingDir
@@ -109,6 +127,9 @@ func (a *agentService) restartAgent(ctx context.Context, taskID string, resource
 		return false, err
 	}
 	opt.Prompt = restartNote(switchSandbox, sandboxed, opt.SessionPolicy == "resume")
+	if change.hostNetwork != nil {
+		opt.Prompt = hostNetworkNote(*change.hostNetwork, opt.SessionPolicy == "resume")
+	}
 	return sandboxed, a.SpawnAgent(ctx, taskID, 0, 0, opt)
 }
 
@@ -133,6 +154,22 @@ func restartNote(switchedSandbox, sandboxed, resumed bool) string {
 		return "[legato sandbox] The operator removed the sandbox: this session was stopped and started again outside Legato's sandbox" + conversation +
 			". What the sandbox hid or refused before can now be reached, so a step it blocked can be tried again." + unfinished
 	}
+}
+
+// hostNetworkNote is the first message an agent restarted to change the
+// host network for its containers gets.
+func hostNetworkNote(on, resumed bool) string {
+	conversation := ""
+	if resumed {
+		conversation = " and your conversation resumed"
+	}
+	unfinished := " A step that was running when it stopped may not have finished: check before you go on."
+	if on {
+		return "[legato sandbox] The operator allowed the host network for your containers: this session was stopped and started again" + conversation +
+			". Containers and builds may now use network_mode: host (--network host); everything else Docker refused before is still refused. Your containers from before were removed: start them again." + unfinished
+	}
+	return "[legato sandbox] The operator took the host network away from your containers: this session was stopped and started again" + conversation +
+		". network_mode: host (--network host) is refused again. Your containers from before were removed: start them again." + unfinished
 }
 
 // restartOwner names what owns an agent that is started by it, not by the

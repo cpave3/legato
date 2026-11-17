@@ -1,5 +1,5 @@
 import { createElement, useState } from "react"
-import { Bell, BellOff, Eye, EyeOff, FolderInput, Pencil, RefreshCw, RotateCw, ScanSearch, Shield, Skull, Sparkles, Unplug } from "lucide-react"
+import { Bell, BellOff, Eye, EyeOff, FolderInput, Network, Pencil, RefreshCw, RotateCw, ScanSearch, Shield, Skull, Sparkles, Unplug } from "lucide-react"
 import { canBeNative } from "../lib/agentKind"
 import type { SandboxSwitch } from "../lib/agentReload"
 import type { AgentMenuEntry } from "../components/AgentChatHeader"
@@ -23,6 +23,9 @@ interface TerminalMenuOptions {
   // Reloads it on the other side of the sandbox. Absent where there is no
   // sandbox to switch.
   switchSandbox?: SandboxSwitch
+  // Reloads it with or without the host network for its containers. Absent
+  // where there is no Docker in its sandbox.
+  switchHostNetwork?: SandboxSwitch
   onDisconnect: () => void
   onKill: () => void
 }
@@ -71,6 +74,9 @@ export function useTerminalMenu(options: TerminalMenuOptions): { entries: AgentM
   }
   if (options.switchSandbox) {
     entries.push({ label: options.switchSandbox.label, icon: icon(Shield), onSelect: options.switchSandbox.onSelect })
+  }
+  if (options.switchHostNetwork) {
+    entries.push({ label: options.switchHostNetwork.label, icon: icon(Network), onSelect: options.switchHostNetwork.onSelect })
   }
   entries.push(
     { label: "Disconnect", icon: icon(Unplug), onSelect: options.onDisconnect },

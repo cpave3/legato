@@ -37,6 +37,11 @@ type Options struct {
 	// PublishAnywhere lets published ports bind every address; otherwise
 	// they bind 127.0.0.1.
 	PublishAnywhere bool
+	// HostNetwork lets the agent's containers and builds use the host's
+	// network namespace. Such a container gets no NET_RAW or
+	// NET_BIND_SERVICE, may not add NET_ADMIN, and may set no net.*
+	// sysctl: those would act on the host's network itself.
+	HostNetwork bool
 	// Upstream is the daemon.
 	Upstream Upstream
 	// Logf logs a refusal; nothing when nil.
@@ -346,7 +351,7 @@ func (p *Proxy) checkNetworks(ctx context.Context, r *http.Request, seg []string
 	case len(seg) == 2 && seg[1] == "prune" && m == http.MethodPost:
 		return p.scopeFilters(r)
 	case len(seg) == 2 && m == http.MethodGet:
-		if predefinedNetwork(seg[1]) {
+		if predefinedNetwork(seg[1]) || (seg[1] == "host" && p.opts.HostNetwork) {
 			return nil
 		}
 		return p.ownNetwork(ctx, seg[1])

@@ -2,7 +2,7 @@ import { useState, useRef, useEffect, type ReactNode } from "react"
 import type { AgentInfo } from "../hooks/useWebSocket"
 import { cn } from "../lib/utils"
 import { ChevronDown, ChevronRight, Play, Pause, AlertTriangle, LayoutGrid, Plus } from "lucide-react"
-import { AgentKindBadge, UnsandboxedBadge } from "./AgentKindBadge"
+import { AgentKindBadge, HostNetworkBadge, UnsandboxedBadge } from "./AgentKindBadge"
 import { agentToolLabel, isAgentToolInForeground } from "../lib/agentKind"
 import { ensembleSection } from "../lib/agentGlance"
 import { formatAgentTime, sectionLabels, stateSeconds } from "../lib/agentList"
@@ -138,6 +138,7 @@ export function AgentSelect({ agents: all, selectedId, onSelect, reeve, grouping
                 <span className="flex min-w-0 items-center gap-1.5 pl-4">
                   <AgentKindBadge kind={agent.agent_kind} engram={agent.engram} isNative={!!agent.has_chimera_endpoint} />
                   {agent.unsandboxed && <UnsandboxedBadge />}
+                  {agent.docker_host_network && <HostNetworkBadge />}
                   {!isAgentToolInForeground(agent.agent_kind, agent.command) && (
                     <span className="min-w-0 truncate font-mono text-xs text-lw-text-2">{agent.command}</span>
                   )}

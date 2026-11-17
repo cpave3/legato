@@ -42,9 +42,9 @@ import { RenameAgentDialog } from "../components/RenameAgentDialog"
 import { useAgentContexts } from "../hooks/useAgentContexts"
 import { formatAgentTime, stateSeconds } from "../lib/agentList"
 import { AgentChatHeader, type AgentChatState, type AgentMenuEntry, type SidePanel, type SidePanelsProps } from "../components/AgentChatHeader"
-import { Bell, BellOff, FolderInput, Pencil, RefreshCw, RotateCw, Shield, Skull, Sparkles, Terminal, Unplug } from "lucide-react"
+import { Bell, BellOff, FolderInput, Network, Pencil, RefreshCw, RotateCw, Shield, Skull, Sparkles, Terminal, Unplug } from "lucide-react"
 import { useTerminalMenu } from "../hooks/useTerminalMenu"
-import { canReloadAgent, reloadAgent, sandboxSwitchLabel, switchAgentSandbox, type SandboxSwitch } from "../lib/agentReload"
+import { canReloadAgent, hostNetworkSwitchLabel, reloadAgent, sandboxSwitchLabel, setAgentHostNetwork, switchAgentSandbox, type SandboxSwitch } from "../lib/agentReload"
 
 // The prefix of the request IDs of messages sent from a terminal agent's
 // message box, which keeps them apart from the native panel's ("message-"):
@@ -427,6 +427,36 @@ export function AgentsPage() {
   }, [switchSandboxFor])
   const selectedSandboxSwitch = sandboxSwitchOf(agents.find((agent) => agent.task_id === selectedId))
 
+  // Reloads a sandboxed agent with or without the host network for its
+  // containers, in a new run: its containers go with the old one. Asked
+  // first, as the change is a weaker wall or loses the agent's containers.
+  const dockerInSandbox = Boolean(settings.data?.sandbox_enabled && settings.data?.sandbox_docker_enabled)
+  const switchHostNetworkFor = useCallback(async (agent: AgentInfo) => {
+    const label = hostNetworkSwitchLabel(agent, dockerInSandbox)
+    if (!label) return
+    const on = !agent.docker_host_network
+    if (!await confirm({
+      title: label,
+      message: on
+        ? "Its containers may then use the host's network and reach what this machine reaches, Legato's own local services included. The agent is reloaded, and its containers are removed: it starts them again."
+        : "The agent is reloaded, and its containers are removed: it starts them again without the host network.",
+      confirmLabel: "Reload",
+      destructive: on,
+    })) return
+    try {
+      await setAgentHostNetwork(baseUrl, agent.task_id, on)
+      addToast(`Reloaded ${agent.task_id} ${on ? "with" : "without"} the host network for its containers`, "success")
+    } catch (error) {
+      addToast(error instanceof Error ? error.message : "The agent could not be reloaded", "error")
+    }
+    await fetchAgents()
+  }, [baseUrl, addToast, fetchAgents, confirm, dockerInSandbox])
+  const hostNetworkSwitchOf = useCallback((agent: AgentInfo | undefined): SandboxSwitch | undefined => {
+    const label = hostNetworkSwitchLabel(agent, dockerInSandbox)
+    return agent && label ? { label, onSelect: () => { void switchHostNetworkFor(agent) } } : undefined
+  }, [switchHostNetworkFor, dockerInSandbox])
+  const selectedHostNetworkSwitch = hostNetworkSwitchOf(agents.find((agent) => agent.task_id === selectedId))
+
   const handleSpawn = useCallback(() => {
     setShowSpawn(true)
   }, [])
@@ -644,6 +674,7 @@ export function AgentsPage() {
     onToggleNotify: () => { void handleToggleNotify() },
     onReload: canReload ? () => { void handleReload() } : undefined,
     switchSandbox: selectedSandboxSwitch,
+    switchHostNetwork: selectedHostNetworkSwitch,
     onDisconnect: handleDisconnect,
     onKill: handleKill,
   })
@@ -683,6 +714,8 @@ export function AgentsPage() {
     if (canReloadAgent(agent)) entries.push({ label: "Reload agent", icon: icon(RotateCw), onSelect: () => reloadFor(agent) })
     const sandboxSwitch = sandboxSwitchOf(agent)
     if (sandboxSwitch) entries.push({ label: sandboxSwitch.label, icon: icon(Shield), onSelect: sandboxSwitch.onSelect })
+    const hostNetworkSwitch = hostNetworkSwitchOf(agent)
+    if (hostNetworkSwitch) entries.push({ label: hostNetworkSwitch.label, icon: icon(Network), onSelect: hostNetworkSwitch.onSelect })
     if (isSelected) entries.push({ label: "Disconnect", icon: icon(Unplug), onSelect: handleDisconnect })
     entries.push({ label: "Kill agent", icon: icon(Skull), onSelect: () => killAgent(agent.task_id, agent.role), danger: true })
     return entries
@@ -881,6 +914,7 @@ export function AgentsPage() {
                   resyncRef={nativeResyncRef}
                   onReload={canReload ? () => { void handleReload() } : undefined}
                   switchSandbox={selectedSandboxSwitch}
+                  switchHostNetwork={selectedHostNetworkSwitch}
                   onDisconnect={handleDisconnect}
                   onDowngradeChimera={handleDowngradeChimera}
                   ntfyConfigured={ntfyConfigured}
@@ -919,6 +953,7 @@ export function AgentsPage() {
                 onKill={handleKill}
                 onReload={canReload ? () => { void handleReload() } : undefined}
                   switchSandbox={selectedSandboxSwitch}
+                  switchHostNetwork={selectedHostNetworkSwitch}
                 onRefresh={handleRefresh}
                 onTogglePromptDetection={handleTogglePromptDetection}
                 promptDetectionEnabled={isPromptDetectionEnabled}

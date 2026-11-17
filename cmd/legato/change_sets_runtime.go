@@ -114,14 +114,15 @@ func startChangeSets(ctx context.Context, cfg *config.Config, db *store.Store, a
 	return changeSets
 }
 
-// classifyCall classes a call by the route class table. A call that is not
-// a request at all is never made.
-func classifyCall(method, path string) (string, string) {
+// classifyCall classes a call by the route class table, and by what its
+// body asks where that makes it riskier. A call that is not a request at
+// all is never made.
+func classifyCall(method, path string, body []byte) (string, string) {
 	req, err := http.NewRequest(method, path, nil)
 	if err != nil || strings.ContainsFunc(method+path, func(r rune) bool { return r <= ' ' || r == 0x7f }) {
 		return "never", "Make a request that does not parse"
 	}
-	info := server.ClassifyRequest(req)
+	info := server.ClassifyCall(req, body)
 	return string(info.Class), info.Description
 }
 

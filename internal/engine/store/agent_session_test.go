@@ -498,3 +498,27 @@ func TestReserveChimeraCleanupCapturesOriginalSessionAndBlocksAgentInsert(t *tes
 		t.Fatalf("InsertAgentSession error=%v, want conflict", err)
 	}
 }
+
+// Whether an agent's containers may use the host network is kept with its
+// session, as whether it is sandboxed is, so a reload or a resume keeps it.
+func TestAnAgentSessionKeepsWhetherItMayUseTheHostNetwork(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	createTestTask(t, s, "on")
+	createTestTask(t, s, "off")
+	if _, err := s.InsertAgentSessionReturningID(ctx, AgentSession{TaskID: "on", TmuxSession: "legato-on", Command: "shell", Status: "running", Sandboxed: true, DockerHostNetwork: true}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.InsertAgentSession(ctx, AgentSession{TaskID: "off", TmuxSession: "legato-off", Command: "shell", Status: "running", Sandboxed: true}); err != nil {
+		t.Fatal(err)
+	}
+	for task, want := range map[string]bool{"on": true, "off": false} {
+		got, err := s.GetAgentSessionByTaskID(ctx, task)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if got.DockerHostNetwork != want {
+			t.Errorf("%s: DockerHostNetwork = %v, want %v", task, got.DockerHostNetwork, want)
+		}
+	}
+}

@@ -180,8 +180,11 @@ type App struct {
 	dirSvc        DirectoryService
 	engramSvc     EngramPickerService
 	// sandbox: agents run in Legato's sandbox unless their spawn opts out.
-	sandbox     bool
-	resourceSvc ResourceService
+	sandbox bool
+	// sandboxDocker: sandboxed agents have Docker, so a spawn may give
+	// their containers the host network.
+	sandboxDocker bool
+	resourceSvc   ResourceService
 	// spinFrame is the frame of the mark of a running agent, and
 	// spinnerRunning whether a tick that will advance it is on its way.
 	spinFrame      int
@@ -2551,6 +2554,9 @@ func (a App) openAgentSpawnOverlay(taskID, title string) (tea.Model, tea.Cmd) {
 	spawnModel := a.withSpawnResources(a.withSpawnLocations(overlay.NewAgentSpawn(filtered, defaultAdapter, defaultDir, taskID, title), defaultDir))
 	if a.sandbox {
 		spawnModel = spawnModel.WithSandbox()
+		if a.sandboxDocker {
+			spawnModel = spawnModel.WithDockerHostNetwork()
+		}
 	}
 	sized, _ := spawnModel.Update(tea.WindowSizeMsg{Width: a.width, Height: a.height})
 	a.activeOverlay = sized
@@ -2588,6 +2594,8 @@ func (a App) handleAgentSpawnSubmit(msg overlay.AgentSpawnSubmitMsg) (tea.Model,
 		Resources:   resources,
 		Unsandboxed: msg.Unsandboxed,
 		Engram:      msg.Engram,
+
+		DockerHostNetwork: msg.DockerHostNetwork,
 	}
 
 	if msg.TaskID == "" {
@@ -2639,7 +2647,7 @@ func (a App) spawnTaskAgent(msg overlay.AgentSpawnSubmitMsg, sessionPolicy, resu
 	if err != nil {
 		return a, func() tea.Msg { return statusbar.ErrorMsg{Text: "spawn failed: " + err.Error()} }
 	}
-	opts := service.AgentSpawnOptions{AgentKind: msg.AgentKind, WorkingDir: msg.WorkingDir, SessionPolicy: sessionPolicy, ResumeSessionID: resumeSessionID, ResumeWorkingDir: resumeWorkingDir, Resources: resources, Unsandboxed: msg.Unsandboxed, Engram: msg.Engram}
+	opts := service.AgentSpawnOptions{AgentKind: msg.AgentKind, WorkingDir: msg.WorkingDir, SessionPolicy: sessionPolicy, ResumeSessionID: resumeSessionID, ResumeWorkingDir: resumeWorkingDir, Resources: resources, Unsandboxed: msg.Unsandboxed, Engram: msg.Engram, DockerHostNetwork: msg.DockerHostNetwork}
 	a.rememberSpawnEngram(msg)
 
 	// Task-bound agent: switch to agent view and spawn with options

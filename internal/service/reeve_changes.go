@@ -126,8 +126,8 @@ type ChangeSetOutcome struct {
 }
 
 // RouteClassifier says a call's class and a plain description of it, from
-// the route class table.
-type RouteClassifier func(method, path string) (class, description string)
+// the route class table and, where it makes the call riskier, its body.
+type RouteClassifier func(method, path string, body []byte) (class, description string)
 
 // CallRunner runs one API call with Legato's own authority, as the person
 // would: its status and body.
@@ -267,7 +267,7 @@ func (c *ChangeSetService) Describe(ctx context.Context, reason string, calls []
 			if err := checkAPICall(p.Method, call.Path); err != nil {
 				return details, fmt.Errorf("call %d: %w", i+1, err)
 			}
-			p.Class, p.Description = c.opts.Classify(p.Method, call.Path)
+			p.Class, p.Description = c.opts.Classify(p.Method, call.Path, call.Body)
 			if why := c.decidesApproval(ctx, p.Method, call.Path); why != "" {
 				p.Class, p.Description = "never", why
 			}

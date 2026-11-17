@@ -268,7 +268,7 @@ type interruptedResume struct {
 
 func (a *agentService) planInterruptedResume(ctx context.Context, s store.AgentSession) interruptedResume {
 	var plan interruptedResume
-	opt := AgentSpawnOptions{AgentKind: s.AgentKind, Unsandboxed: !s.Sandboxed}
+	opt := AgentSpawnOptions{AgentKind: s.AgentKind, Unsandboxed: !s.Sandboxed, DockerHostNetwork: a.keptDockerHostNetwork(s.DockerHostNetwork, s.Sandboxed)}
 	if s.ExecutionID != "" {
 		if execution, err := a.store.GetExecution(ctx, s.ExecutionID); err == nil {
 			opt.WorkingDir = execution.WorkingDir

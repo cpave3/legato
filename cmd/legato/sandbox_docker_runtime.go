@@ -182,7 +182,8 @@ func (h *dockerHost) serveLocked(executionID string) {
 	d := h.cfg.Agents.Sandbox.Docker
 	proxy := dockerproxy.New(dockerproxy.Options{
 		Execution: executionID, View: view, CapAdd: d.CapAdd, PublishAnywhere: d.Publish == "any",
-		Upstream: h.upstream, Logf: log.Printf,
+		HostNetwork: h.docker.HostNetwork(executionID),
+		Upstream:    h.upstream, Logf: log.Printf,
 	})
 	server := proxy.Server()
 	h.servers[executionID] = server

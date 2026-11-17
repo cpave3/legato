@@ -122,9 +122,15 @@ describe("AgentSidebar", () => {
     expect(screen.getByLabelText("Recent activity").nextElementSibling).toBe(mark)
   })
 
+  it("marks an agent whose containers may use the host network", () => {
+    render(<AgentSidebar agents={[{ ...longAgent, sandboxed: true, docker_host_network: true, state_timeline: ["working"] }]} selectedId={longAgent.task_id} onSelect={() => {}} onSpawn={() => {}} />)
+    expect(screen.getByText("host network")).toBeTruthy()
+  })
+
   it("shows no sandbox mark for an agent inside the sandbox", () => {
     render(<AgentSidebar agents={[{ ...longAgent, state_timeline: ["working"] }]} selectedId={longAgent.task_id} onSelect={() => {}} onSpawn={() => {}} />)
     expect(screen.queryByText("unsandboxed")).toBeNull()
+    expect(screen.queryByText("host network")).toBeNull()
   })
 
   it("constrains long agent metadata to the fixed sidebar width", () => {

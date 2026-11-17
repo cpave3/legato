@@ -12,7 +12,10 @@ type Icons struct {
 	Worktree string
 	Warning  string
 	// Unsandboxed marks an agent that runs outside Legato's sandbox.
-	Unsandboxed  string
+	Unsandboxed string
+	// HostNetwork marks a sandboxed agent whose containers may use the
+	// host's network.
+	HostNetwork  string
 	AgentWorking string
 	AgentWaiting string
 	// AgentWorked marks time an agent spent working. Unlike AgentWorking,
@@ -46,6 +49,7 @@ func NewIcons(mode string) Icons {
 			Worktree:        "\uf1bb", // nf-fa-tree
 			Warning:         "\uf071", // nf-fa-exclamation_triangle
 			Unsandboxed:     "\uf09c", // nf-fa-unlock
+			HostNetwork:     "\uf0e8", // nf-fa-sitemap
 			AgentWorking:    "\uf46a", // nf-oct-sync (spinning arrows)
 			AgentWaiting:    "\uf4a5", // nf-oct-bell
 			AgentWorked:     "\uf46a", // nf-oct-sync
@@ -72,6 +76,7 @@ func NewIcons(mode string) Icons {
 		Worktree:        "⑂",
 		Warning:         "!",
 		Unsandboxed:     "⊘",
+		HostNetwork:     "⇄",
 		AgentWorking:    "⠹",
 		AgentWaiting:    "◆",
 		AgentWorked:     "⠹",

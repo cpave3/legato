@@ -960,3 +960,22 @@ func TestTheHeaderMarksTheSelectedAgentWhenItRunsOutsideTheSandbox(t *testing.T)
 		t.Errorf("the header over the terminal should say the agent runs outside the sandbox: %q", view)
 	}
 }
+
+func TestTheListAndHeaderMarkAnAgentWhoseContainersMayUseTheHostNetwork(t *testing.T) {
+	icons := theme.NewIcons("unicode")
+	m := New(icons)
+	m.SetSandboxEnabled(true)
+	m.SetAgents([]service.AgentSession{
+		{TaskID: "hostnet", AgentKind: "codex", Title: "Print", Sandboxed: true, DockerHostNetwork: true},
+		{TaskID: "plain", AgentKind: "claude-code", Title: "Fix login", Sandboxed: true},
+	})
+	m.SetSize(140, 40)
+
+	view := m.View()
+	if !strings.Contains(view, "hostnet "+icons.HostNetwork) || strings.Contains(view, "plain "+icons.HostNetwork) {
+		t.Errorf("only the agent with the host network should have its icon beside its ID: %q", view)
+	}
+	if !strings.Contains(view, "hostnet › codex › host network › Print") {
+		t.Errorf("the header over the terminal should say its containers may use the host network: %q", view)
+	}
+}

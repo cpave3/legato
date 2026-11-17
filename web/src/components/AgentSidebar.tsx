@@ -5,7 +5,7 @@ import type { AgentContext } from "../hooks/useAgentContexts";
 import { cn } from "../lib/utils";
 import { Plus, Layers, Bell, LayoutGrid, ChevronRight, MoreHorizontal, Folders, Activity } from "lucide-react";
 import { AgentActionMenu } from "./AgentActionMenu";
-import { AgentKindBadge, UnsandboxedBadge } from "./AgentKindBadge";
+import { AgentKindBadge, HostNetworkBadge, UnsandboxedBadge } from "./AgentKindBadge";
 import { ActivityBar, ContextMeter } from "./AgentMeters";
 import { isAgentToolInForeground } from "../lib/agentKind";
 import { agentSections, formatAgentTime, sectionLabels, stateSeconds, type AgentListSection } from "../lib/agentList";
@@ -396,6 +396,7 @@ function AgentEntry({
         <div className="flex items-center gap-2 pt-0.5">
           <ActivityBar states={agent.state_timeline} />
           {agent.unsandboxed && <UnsandboxedBadge />}
+          {agent.docker_host_network && <HostNetworkBadge />}
         </div>
       </button>
       {isSwarm && (

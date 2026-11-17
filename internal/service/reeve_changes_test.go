@@ -15,7 +15,7 @@ import (
 )
 
 // classify stands in for the route class table.
-func classify(method, path string) (string, string) {
+func classify(method, path string, _ []byte) (string, string) {
 	switch {
 	case method == "GET":
 		return "read", "Read " + path

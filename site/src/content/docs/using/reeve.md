@@ -191,7 +191,7 @@ Before it listens, an app asks the main whether a conversation will work. If not
 
 ## Where it runs
 
-The Reeve always runs in Legato's [sandbox](/legato/security/sandbox/): it cannot be started without it, and **Run without sandbox** and the switch out of the sandbox are refused for it. It works in a folder of its own, `~/.local/state/legato/reeve` (or under `$XDG_STATE_HOME`), outside your repositories and Legato's data folder. The folder also holds its engram's store.
+The Reeve always runs in Legato's [sandbox](/legato/security/sandbox/): it cannot be started without it, and **Run without sandbox** and the switch out of the sandbox are refused for it. Its containers never get [the host network](/legato/security/sandbox/#the-host-network-for-one-agent). When the Reeve starts another agent with the host network, or reloads one to change it, that is a risky change, whatever the route's own class. It works in a folder of its own, `~/.local/state/legato/reeve` (or under `$XDG_STATE_HOME`), outside your repositories and Legato's data folder. The folder also holds its engram's store.
 
 It reads your agents' work from Legato's copy of each repository, which it can see but not change. Legato fetches that copy each time an agent pushes, so the Reeve has an agent's latest commits within seconds of the push. It cannot see the agents' own clones, which hold files copied from your checkout (such as `.env`) and the key each agent pushes with.
 

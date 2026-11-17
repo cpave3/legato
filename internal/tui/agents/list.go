@@ -305,11 +305,15 @@ func (m Model) renderSidebarEntry(a service.AgentSession, selected bool, width i
 		note = colored(theme.TextSecondary, m.stateDuration(a))
 	}
 
-	// Beside the ID: the mark of an agent outside the sandbox, then the bell
-	// of one that notifies.
+	// Beside the ID: the mark of an agent outside the sandbox, or of one
+	// whose containers may use the host network, then the bell of one that
+	// notifies.
 	marks := ""
 	if m.unsandboxed(a) {
 		marks += " " + colored(theme.Amber, m.icons.Unsandboxed)
+	}
+	if a.DockerHostNetwork {
+		marks += " " + colored(theme.Amber, m.icons.HostNetwork)
 	}
 	if m.ntfyConfigured && m.notifyStates[a.TaskID] {
 		marks += " " + colored(theme.Accent, "🔔")
@@ -452,6 +456,9 @@ func (m Model) renderHeader(width int) string {
 		step + colored(theme.TextSecondary, kindLabel(*a))
 	if m.unsandboxed(*a) {
 		trail += step + unsandboxedTag()
+	}
+	if a.DockerHostNetwork {
+		trail += step + colored(theme.Amber, "host network")
 	}
 	if a.Title != "" {
 		room := inner - lipgloss.Width(trail) - lipgloss.Width(step) - lipgloss.Width(status) - 2

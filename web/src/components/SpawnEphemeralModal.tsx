@@ -30,6 +30,7 @@ export function SpawnEphemeralModal({
         ...spawnPlace(request),
         ...(request.resources ? { resources: request.resources } : {}),
         ...(request.sandbox === false ? { sandbox: false } : {}),
+        ...(request.dockerHostNetwork ? { docker_host_network: true } : {}),
         ...(request.prompt ? { prompt: request.prompt } : {}),
         ...engramFields(request),
       }),

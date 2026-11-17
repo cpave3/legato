@@ -187,3 +187,7 @@ Migration `116_skill_states.sql` adds `skill_states`: `name` (a skill's folder n
 ## Server theme preference
 
 Migration `113_server_theme.sql` adds singleton `server_theme_preference`: `singleton = 1`, `id` (empty initially), `revision` (0 initially), `updated_at`, `updated_by`. `ThemePreference` reads `{id, revision}`; `ChangeThemePreference` atomically updates only the expected revision, increments it and records actor/time, returning `ErrConflict` if stale. This works across processes. There is one current row, not a theme-change history ledger. Client follow flags, local choices and offline caches stay outside this table. See [Client themes](themes.md).
+
+## Docker host network
+
+Migration `117_agent_docker_host_network.sql` (skipped, like 075, for a database from before agent sessions) adds `agent_sessions.docker_host_network` (default `0`): whether the agent's containers may use the host's network through its filtered Docker socket, so a reload or a resume keeps it. Migrations are ordered by their place in the file list, not their number: 117 follows 116 on `main`. See [Sandbox](sandbox.md) § Docker.

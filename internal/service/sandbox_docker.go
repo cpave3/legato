@@ -63,24 +63,45 @@ func (d *SandboxDocker) HasProxy(executionID string) bool {
 	return err == nil
 }
 
-// View reads what an execution's sandbox shows.
-func (d *SandboxDocker) View(executionID string) (dockerproxy.View, error) {
-	var view dockerproxy.View
-	data, err := os.ReadFile(d.viewFile(executionID))
-	if err != nil {
-		return view, err
-	}
-	err = json.Unmarshal(data, &view)
-	return view, err
+// dockerViewFile is an execution's view file: what its sandbox shows, and
+// what else its proxy allows. A file written before HostNetwork was is the
+// view alone, which reads the same.
+type dockerViewFile struct {
+	dockerproxy.View
+	// HostNetwork lets its containers and builds use the host's network.
+	HostNetwork bool `json:"host_network,omitempty"`
 }
 
-// WriteView records what a sandbox about to start shows, and makes its
-// socket's folder.
-func (d *SandboxDocker) WriteView(executionID string, plan sandbox.Plan) error {
+func (d *SandboxDocker) readViewFile(executionID string) (dockerViewFile, error) {
+	var file dockerViewFile
+	data, err := os.ReadFile(d.viewFile(executionID))
+	if err != nil {
+		return file, err
+	}
+	err = json.Unmarshal(data, &file)
+	return file, err
+}
+
+// View reads what an execution's sandbox shows.
+func (d *SandboxDocker) View(executionID string) (dockerproxy.View, error) {
+	file, err := d.readViewFile(executionID)
+	return file.View, err
+}
+
+// HostNetwork says whether an execution's containers may use the host's
+// network; false when it has no view.
+func (d *SandboxDocker) HostNetwork(executionID string) bool {
+	file, err := d.readViewFile(executionID)
+	return err == nil && file.HostNetwork
+}
+
+// WriteView records what a sandbox about to start shows, and whether its
+// containers may use the host's network, and makes its socket's folder.
+func (d *SandboxDocker) WriteView(executionID string, plan sandbox.Plan, hostNetwork bool) error {
 	if err := os.MkdirAll(filepath.Dir(d.SocketPath(executionID)), 0o700); err != nil {
 		return err
 	}
-	data, err := json.Marshal(dockerViewOf(plan))
+	data, err := json.Marshal(dockerViewFile{View: dockerViewOf(plan), HostNetwork: hostNetwork})
 	if err != nil {
 		return err
 	}

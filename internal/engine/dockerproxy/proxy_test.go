@@ -44,7 +44,7 @@ var (
 		{"bbbb2222", "theirs", map[string]string{Label: "ex-2"}},
 		{"cccc3333", "persons", nil},
 	}
-	networks = []thing{{"n1", "mynet", map[string]string{Label: "ex-1"}}, {"n2", "theirnet", map[string]string{Label: "ex-2"}}}
+	networks = []thing{{"n1", "mynet", map[string]string{Label: "ex-1"}}, {"n2", "theirnet", map[string]string{Label: "ex-2"}}, {"n3", "host", nil}}
 	images   = []thing{{"sha256:i1", "built:1", map[string]string{Label: "ex-1"}}, {"sha256:i2", "alpine", nil}}
 	execs    = map[string]string{"exec-mine": "aaaa1111", "exec-theirs": "bbbb2222"}
 )
@@ -171,6 +171,12 @@ type harness struct {
 
 func newHarness(t *testing.T) *harness {
 	t.Helper()
+	return newHarnessWith(t, func(*Options) {})
+}
+
+// newHarnessWith is newHarness with the proxy's options changed by set.
+func newHarnessWith(t *testing.T, set func(*Options)) *harness {
+	t.Helper()
 	h := &harness{s: newSandboxed(t), daemon: &fakeDaemon{
 		volumes:  map[string]map[string]string{"myvol": {Label: "ex-1"}, "theirvol": {Label: "ex-2"}},
 		removed:  map[string]bool{},
@@ -178,8 +184,10 @@ func newHarness(t *testing.T) *harness {
 	}}
 	daemon := httptest.NewServer(h.daemon)
 	t.Cleanup(daemon.Close)
-	p := New(Options{Execution: "ex-1", View: h.s.view, CapAdd: []string{"SYS_PTRACE"},
-		Upstream: Upstream{Network: "tcp", Address: strings.TrimPrefix(daemon.URL, "http://")}, Logf: t.Logf})
+	opts := Options{Execution: "ex-1", View: h.s.view, CapAdd: []string{"SYS_PTRACE"},
+		Upstream: Upstream{Network: "tcp", Address: strings.TrimPrefix(daemon.URL, "http://")}, Logf: t.Logf}
+	set(&opts)
+	p := New(opts)
 	h.proxy = httptest.NewServer(p)
 	t.Cleanup(h.proxy.Close)
 	return h

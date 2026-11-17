@@ -31,6 +31,18 @@ export function AgentKindBadge({ kind, engram, isNative, className }: AgentKindB
   )
 }
 
+// A sandboxed agent whose containers may use the host's network.
+export function HostNetworkBadge({ className }: { className?: string }) {
+  return (
+    <span
+      title="Its containers may use the host's network: they reach what this machine reaches, Legato's own local services included"
+      className={cn("inline-flex shrink-0 items-center rounded border border-lw-needs/40 bg-lw-needs-soft px-1.5 py-0.5 text-[10px] font-medium leading-none text-lw-needs", className)}
+    >
+      host network
+    </span>
+  )
+}
+
 // An agent that runs outside Legato's sandbox while the sandbox is on.
 export function UnsandboxedBadge({ className }: { className?: string }) {
   return (
