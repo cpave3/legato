@@ -256,10 +256,15 @@ type session struct {
 	context   contextUsage
 	// described is set once the mod has said what the session is.
 	described bool
+	// shells are the background shells the session started, by ID, and
+	// their IDs in the order they started. A /clear keeps them: they run on
+	// in the same process.
+	shells     map[string]*shellRecord
+	shellOrder []string
 }
 
 func newSession() *session {
-	s := &session{}
+	s := &session{shells: map[string]*shellRecord{}}
 	s.clearConversation()
 	return s
 }
@@ -424,6 +429,7 @@ func (s *session) applyHello(event modEvent, now time.Time) {
 			}
 		}
 	}
+	s.hydrateShells(event.Messages, now)
 }
 
 // injectedPrefixes open the user-role text the engine writes beside the
@@ -714,6 +720,9 @@ func (s *session) applyRow(event modEvent, now time.Time) []nativeEvent {
 			return results
 		}
 		if !isPersonFacingPrompt(event) {
+			if event.Origin.Kind == "task-notification" || strings.Contains(joinText(event.Message.Content), "<task-notification>") {
+				return s.applyTaskNotifications(joinText(event.Message.Content), now)
+			}
 			return nil
 		}
 		text := joinText(event.Message.Content)
@@ -833,6 +842,7 @@ func (s *session) applyToolResults(event modEvent, now time.Time) []nativeEvent 
 			"type": "tool_call_result", "callId": call.callID, "result": call.result,
 			"display": map[string]any{"summary": call.summary},
 		})
+		out = append(out, s.applyShellResult(call, block.resultText(), block.IsError, now)...)
 	}
 	if answered && out == nil {
 		return []nativeEvent{}
@@ -950,6 +960,10 @@ type sessionSnapshot struct {
 	PendingPermissions []snapshotPermission `json:"pendingPermissions"`
 	// PendingQuestions is always present for the same reason.
 	PendingQuestions []snapshotQuestion `json:"pendingQuestions"`
+	// BackgroundShells are the shells the session runs in the background,
+	// and those that ended, with their newest output. Always present, so the
+	// panel can tell "none" from a host that does not report them.
+	BackgroundShells []snapshotShell `json:"backgroundShells"`
 }
 
 type snapshotQuestion struct {
@@ -1027,6 +1041,7 @@ func (s *session) snapshot(taskID string) sessionSnapshot {
 		ModelSettingsOverrides: map[string]map[string]any{settings.Model: settings.Overrides},
 		PendingPermissions:     pending,
 		PendingQuestions:       questions,
+		BackgroundShells:       s.snapshotShells(),
 	}
 }
 

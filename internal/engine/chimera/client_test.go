@@ -418,3 +418,28 @@ func TestSubscribeWithSince(t *testing.T) {
 		t.Fatalf("EventID = %q, want evt-1", got.EventID)
 	}
 }
+
+// The panel reads background shells from the snapshot the server passes on,
+// so they must survive the client (LEG-244).
+func TestGetSessionKeepsBackgroundShells(t *testing.T) {
+	shells := `[{"shellId":"b1","command":"npm run dev","status":"running","output":{"available":true,"text":"ready\n"}}]`
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		fmt.Fprintf(w, `{"id":"sess-1","status":"idle","backgroundShells":%s}`, shells)
+	}))
+	defer srv.Close()
+
+	snap, err := NewClient(srv.URL).GetSession(context.Background(), "sess-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	encoded, err := json.Marshal(snap)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var back struct {
+		BackgroundShells json.RawMessage `json:"backgroundShells"`
+	}
+	if err := json.Unmarshal(encoded, &back); err != nil || string(back.BackgroundShells) != shells {
+		t.Fatalf("backgroundShells = %s (%v)", back.BackgroundShells, err)
+	}
+}

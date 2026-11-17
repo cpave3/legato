@@ -23,6 +23,12 @@ is in `GET /api/agents` and in the Reeve's watch message. It is kept in the
 database, so it survives a restart of Legato. A resumed or reloaded agent is a
 new session with none: its background work ended with the old process.
 
+`background_shells` (`agent_sessions.background_shells`; `store.BackgroundShell`)
+is a different list: every background shell a Chimera agent's mod reported,
+ended ones included, with its status and exit code, for the web UI's shell
+tiles. A Claude Code agent's shells are kept by its bridge, with their output.
+See [Web UI](web-ui.md) § Background shell tiles.
+
 ## How the signals reach Legato
 
 - **Claude Code:** the `legato-state` plugin (`internal/engine/hooks/claudemod/state`),

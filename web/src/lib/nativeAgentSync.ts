@@ -1,3 +1,4 @@
+import { withShell, withShellOutput, type NativeBackgroundShell } from "./backgroundShells"
 import type { ModelSettings, ModelCapabilities, ModelSettingsState } from "./modelSettings"
 
 // reasoning: what the agent thought on its way to a reply or a tool call, as
@@ -176,6 +177,9 @@ export interface NativeSnapshotQuestion {
 
 export interface NativeSnapshot {
   id?: string
+  // The shells the agent runs in the background, with their newest output;
+  // absent from an endpoint that does not report them.
+  backgroundShells?: NativeBackgroundShell[]
   subagentStates?: Array<NativeSnapshotSubagent & { sessionId: string }>
   mode?: string
   model?: { providerId?: string; modelId?: string; settings?: ModelSettings; settingsDefaults?: ModelSettings; capabilities?: ModelCapabilities }
@@ -232,6 +236,12 @@ export interface NativeEvent {
   to?: string
   effectiveModel?: string
   event?: Omit<NativeEvent, "eventId">
+  // background_shell and background_shell_output
+  shell?: NativeBackgroundShell
+  shellId?: string
+  chunk?: string
+  gap?: boolean
+  reset?: boolean
 }
 
 const nativeEventHistoryLimit = 1000
@@ -248,6 +258,8 @@ export interface NativeSyncState {
   error: string | null
   contextUsage: { used: number; window: number } | null
   model: string
+  // The shells the agent runs in the background, as its endpoint reports them.
+  backgroundShells: NativeBackgroundShell[]
 }
 
 export function createNativeSyncState(items: NativeConversationItem[] = [], callIds: Iterable<string> = []): NativeSyncState {
@@ -262,6 +274,7 @@ export function createNativeSyncState(items: NativeConversationItem[] = [], call
     error: null,
     contextUsage: null,
     model: "",
+    backgroundShells: [],
   }
 }
 
@@ -427,6 +440,7 @@ export function stateFromNativeSnapshot(snapshot: NativeSnapshot): NativeSyncSta
   }
   const state = createNativeSyncState(items, calls.map((call) => call.callId).filter(Boolean))
   state.busy = snapshot.status === "running" || snapshot.status === "waiting_for_permission" || snapshot.status === "waiting_for_input"
+  state.backgroundShells = (snapshot.backgroundShells ?? []).map((shell) => ({ ...shell, output: shell.output ?? { available: true, text: "" } }))
   if (snapshot.contextWindow && snapshot.usedContextTokens != null) {
     state.contextUsage = { used: snapshot.usedContextTokens, window: snapshot.contextWindow }
   }
@@ -507,6 +521,12 @@ export function reconcileNativeSnapshot(
         next = acceptWithoutRendering(next, event)
         continue
       }
+    }
+    // Output the snapshot's tail already ends with was read before it.
+    if (event.type === "background_shell_output" && event.chunk && !event.gap && !event.reset &&
+      next.backgroundShells.some((shell) => shell.shellId === event.shellId && shell.output?.text.endsWith(event.chunk!))) {
+      next = acceptWithoutRendering(next, event)
+      continue
     }
     const thought = event.type === "reasoning_text_done" ? event.text : event.type === "reasoning_text_delta" ? event.delta : undefined
     if (thought && snapshotReasoning.some((text) => text.includes(thought))) {
@@ -742,6 +762,12 @@ export function reduceNativeEvent(state: NativeSyncState, event: NativeEvent): N
       break
     case "error":
       if (event.error) next.error = event.error
+      break
+    case "background_shell":
+      if (event.shell?.shellId) next.backgroundShells = withShell(next.backgroundShells, event.shell)
+      break
+    case "background_shell_output":
+      next.backgroundShells = withShellOutput(next.backgroundShells, event)
       break
   }
 

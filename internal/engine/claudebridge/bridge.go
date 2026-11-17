@@ -49,6 +49,9 @@ type Options struct {
 	OnTurnEnded func(reason string)
 	// TurnEndedDelay is that wait; zero means DefaultTurnEndedDelay.
 	TurnEndedDelay time.Duration
+	// ShellPoll is how often a background shell's output file is read;
+	// zero means DefaultShellPoll.
+	ShellPoll time.Duration
 	// Now overrides the clock in tests.
 	Now func() time.Time
 }
@@ -86,6 +89,7 @@ type Bridge struct {
 
 	closeOnce sync.Once
 	closed    chan struct{}
+	shellPoll time.Duration
 
 	mu          sync.Mutex
 	session     *session
@@ -140,7 +144,13 @@ func New(opts Options) *Bridge {
 			}
 			return DefaultTurnEndedDelay
 		}(),
-		closed:      make(chan struct{}),
+		closed: make(chan struct{}),
+		shellPoll: func() time.Duration {
+			if opts.ShellPoll > 0 {
+				return opts.ShellPoll
+			}
+			return DefaultShellPoll
+		}(),
 		session:     newSession(),
 		subscribers: map[chan envelope]struct{}{},
 		waiters:     map[string]chan permissionAnswer{},
@@ -238,6 +248,7 @@ func (b *Bridge) handleModEvents(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	b.releaseSettledWaiters()
+	b.watchShells()
 	b.mu.Unlock()
 	b.eventMu.Unlock()
 	if b.onTurnEnded != nil {

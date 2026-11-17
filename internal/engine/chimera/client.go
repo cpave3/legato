@@ -61,16 +61,20 @@ type SessionSnapshot struct {
 	PendingPermissions *[]PendingPermission `json:"pendingPermissions,omitempty"`
 	// PendingQuestions are the questions the agent is waiting on the person
 	// to answer. Absent from an endpoint that does not ask any.
-	PendingQuestions       json.RawMessage `json:"pendingQuestions,omitempty"`
-	Name                   string          `json:"name"`
-	CWD                    string          `json:"cwd"`
-	Model                  json.RawMessage `json:"model"`
-	SandboxMode            string          `json:"sandboxMode"`
-	Mode                   string          `json:"mode"`
-	Status                 string          `json:"status"`
-	Messages               json.RawMessage `json:"messages"`
-	ToolCalls              json.RawMessage `json:"toolCalls"`
-	SubagentStates         json.RawMessage `json:"subagentStates,omitempty"`
+	PendingQuestions json.RawMessage `json:"pendingQuestions,omitempty"`
+	Name             string          `json:"name"`
+	CWD              string          `json:"cwd"`
+	Model            json.RawMessage `json:"model"`
+	SandboxMode      string          `json:"sandboxMode"`
+	Mode             string          `json:"mode"`
+	Status           string          `json:"status"`
+	Messages         json.RawMessage `json:"messages"`
+	ToolCalls        json.RawMessage `json:"toolCalls"`
+	SubagentStates   json.RawMessage `json:"subagentStates,omitempty"`
+	// BackgroundShells are the shells the session runs in the background,
+	// with their newest output, from an endpoint that reports them (Claude
+	// Code's bridge). Passed on to the panel as they came.
+	BackgroundShells       json.RawMessage `json:"backgroundShells,omitempty"`
 	Usage                  json.RawMessage `json:"usage"`
 	Tasks                  json.RawMessage `json:"tasks"`
 	ContextWindow          int             `json:"contextWindow,omitempty"`
