@@ -245,8 +245,14 @@ func (s *TaskHandoffService) finishReturn(ctx context.Context, handoffID string,
 	// Landing in another column is a move like any other, so the main's
 	// workflow triggers act on it. Nothing is pushed to a ticket provider:
 	// its own state wins at the next pull.
+	// The snapshot triggers read is the task as it lands: the column, and
+	// the title and details that came back with it.
 	landed := *task
 	landed.Status = column
+	if apply.Title != "" {
+		landed.Title = apply.Title
+	}
+	landed.Description, landed.DescriptionMD = apply.Description, apply.Description
 	snapshot, _ := json.Marshal(workflowTaskContext(&landed))
 	apply.Move = &store.TaskTransition{ID: workflowID("tt-"), Source: TransitionSourceHandoff, TaskJSON: string(snapshot)}
 	applied, err := s.db.ApplyAwayTaskReturn(ctx, &apply)
