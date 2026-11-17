@@ -24,7 +24,9 @@ import (
 //
 // A shell ends when Claude Code tells the session so, with a
 // <task-notification> prompt that gives its status and exit code, or when
-// the session stops it with TaskStop (KillShell before 2.1). Claude Code
+// the session stops it with TaskStop (KillShell before 2.1). Never from its
+// output: Claude Code ends the file with "[exited with code N]", but the
+// command can print that line too. Claude Code
 // delivers a notification between the session's steps, so a shell that ends
 // during a long turn is marked when that turn takes it in.
 
@@ -68,6 +70,9 @@ type shellRecord struct {
 	truncated bool
 	// offset is how far the file has been read.
 	offset int64
+	// seq numbers the shell's output events; the snapshot carries the
+	// newest, so a panel skips events its snapshot already holds.
+	seq int64
 	// watched is set once a watcher follows the file.
 	watched bool
 }
@@ -83,8 +88,6 @@ var (
 	notificationStatus  = notificationField("status")
 	notificationSummary = notificationField("summary")
 	exitCodeInSummary   = regexp.MustCompile(`exit code (-?\d+)`)
-	// exitLine is how Claude Code ends a shell's file when it exits.
-	exitLine = regexp.MustCompile(`(?:^|\n)\[exited with code (-?\d+)\]\n*$`)
 )
 
 // backgroundShellOf reads a Bash call's result for the background shell it
@@ -236,7 +239,7 @@ func (s *session) shellsToWatch() []string {
 }
 
 // appendShellOutput adds what a shell printed since the last read.
-func (s *session) appendShellOutput(id string, chunk []byte, gap, reset bool, now time.Time) []nativeEvent {
+func (s *session) appendShellOutput(id string, chunk []byte, gap, reset bool) []nativeEvent {
 	shell := s.shells[id]
 	if shell == nil || (len(chunk) == 0 && !reset) {
 		return nil
@@ -253,23 +256,15 @@ func (s *session) appendShellOutput(id string, chunk []byte, gap, reset bool, no
 		shell.tail = append([]byte(nil), trimToRune(shell.tail[over:])...)
 		shell.truncated = true
 	}
-	event := nativeEvent{"type": "background_shell_output", "shellId": id, "chunk": string(chunk)}
+	shell.seq++
+	event := nativeEvent{"type": "background_shell_output", "shellId": id, "chunk": string(chunk), "seq": shell.seq}
 	if gap {
 		event["gap"] = true
 	}
 	if reset {
 		event["reset"] = true
 	}
-	out := []nativeEvent{event}
-	// Claude Code writes the exit code as the file's last line, before it
-	// notifies the session: a shell that ends during a long turn is marked
-	// at once.
-	if match := exitLine.FindSubmatch(shell.tail); match != nil {
-		if code, err := strconv.Atoi(string(match[1])); err == nil {
-			out = append(out, s.endShell(id, shellExited, &code, now)...)
-		}
-	}
-	return out
+	return []nativeEvent{event}
 }
 
 // trimToRune drops the continuation bytes a cut left at the front.
@@ -305,6 +300,8 @@ type shellOutput struct {
 	Available bool   `json:"available"`
 	Text      string `json:"text"`
 	Truncated bool   `json:"truncated,omitempty"`
+	// Seq is the newest output event the text holds.
+	Seq int64 `json:"seq"`
 }
 
 func (r *shellRecord) describe(withOutput bool) snapshotShell {
@@ -313,7 +310,7 @@ func (r *shellRecord) describe(withOutput bool) snapshotShell {
 		Status: r.status, ExitCode: r.exitCode, StartedAt: r.startedAt, EndedAt: r.endedAt,
 	}
 	if withOutput {
-		shell.Output = &shellOutput{Available: r.path != "", Text: string(r.tail), Truncated: r.truncated}
+		shell.Output = &shellOutput{Available: r.path != "", Text: string(r.tail), Truncated: r.truncated, Seq: r.seq}
 	} else {
 		shell.Output = &shellOutput{Available: r.path != ""}
 	}
@@ -429,7 +426,7 @@ func (b *Bridge) watchShell(id string) {
 		b.mu.Lock()
 		if shell := b.session.shells[id]; shell != nil && err == nil {
 			shell.offset = next
-			b.publish(b.session.appendShellOutput(id, chunk, gap, reset, b.now()))
+			b.publish(b.session.appendShellOutput(id, chunk, gap, reset))
 		}
 		b.mu.Unlock()
 		// One read takes the file to its end, so a shell that had ended

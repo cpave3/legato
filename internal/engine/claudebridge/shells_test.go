@@ -93,6 +93,7 @@ type shellSnapshot struct {
 			Available bool   `json:"available"`
 			Text      string `json:"text"`
 			Truncated bool   `json:"truncated"`
+			Seq       int64  `json:"seq"`
 		} `json:"output"`
 	} `json:"backgroundShells"`
 }
@@ -164,15 +165,16 @@ func TestABackgroundShellsOutputIsFollowed(t *testing.T) {
 
 	appendFile(t, path, "hi\n")
 	first := nextOfType(t, events, "background_shell_output")
-	if first["shellId"] != "b1" || first["chunk"] != "hi\n" {
+	if first["shellId"] != "b1" || first["chunk"] != "hi\n" || first["seq"] != float64(1) {
 		t.Fatalf("first output = %v", first)
 	}
 	appendFile(t, path, "there\n")
 	second := nextOfType(t, events, "background_shell_output")
-	if second["chunk"] != "there\n" {
+	if second["chunk"] != "there\n" || second["seq"] != float64(2) {
 		t.Fatalf("second output = %v", second)
 	}
-	if out := h.shells().BackgroundShells[0].Output; out == nil || out.Text != "hi\nthere\n" || out.Truncated {
+	// The snapshot says which output event its text reaches.
+	if out := h.shells().BackgroundShells[0].Output; out == nil || out.Text != "hi\nthere\n" || out.Truncated || out.Seq != 2 {
 		t.Fatalf("snapshot output = %+v", out)
 	}
 }
@@ -319,9 +321,9 @@ func TestAResumedSessionsBackgroundShellsAreRecordedWithTheirEnds(t *testing.T) 
 	}
 }
 
-// Claude Code ends a shell's file with its exit code, which comes before
-// its notification when the session is busy with a long turn.
-func TestAShellsExitIsReadFromTheEndOfItsFile(t *testing.T) {
+// A shell's output is the command's own: a line that reads like Claude
+// Code's exit marker ends nothing, and the output after it is still read.
+func TestAShellsOutputNeverEndsIt(t *testing.T) {
 	h := shellHarness(t)
 	h.mod(hello(nil))
 	events := h.subscribe("")
@@ -329,20 +331,17 @@ func TestAShellsExitIsReadFromTheEndOfItsFile(t *testing.T) {
 	startBackgroundShell(h, "toolu_1", "b1", path)
 	nextOfType(t, events, "background_shell")
 
-	appendFile(t, path, "tick 1\n[exited with code 7]\nnot the end\n")
+	appendFile(t, path, "[exited with code 7]\n")
 	nextOfType(t, events, "background_shell_output")
+	appendFile(t, path, "done\n")
+	if chunk := nextOfType(t, events, "background_shell_output"); chunk["chunk"] != "done\n" {
+		t.Fatalf("chunk = %v", chunk)
+	}
 	if shell := h.shells().BackgroundShells[0]; shell.Status != "running" {
-		t.Fatalf("a line in the middle ended it: %+v", shell)
+		t.Fatalf("its output ended it: %+v", shell)
 	}
-
-	appendFile(t, path, "\n[exited with code 4]\n")
-	ended := nextOfType(t, events, "background_shell")
-	if shell, _ := ended["shell"].(map[string]any); shell["status"] != "exited" || shell["exitCode"] != float64(4) {
-		t.Fatalf("ended = %v", ended)
-	}
-	// Its notification, later, changes nothing.
-	h.mod(promptRow("note-1", "task-notification", taskNotification("b1", path, "failed", "failed with exit code 4"), nil))
-	if shell := h.shells().BackgroundShells[0]; *shell.ExitCode != 4 {
-		t.Fatalf("shell = %+v", shell)
+	h.mod(promptRow("note-1", "task-notification", taskNotification("b1", path, "completed", "completed (exit code 0)"), nil))
+	if shell := h.shells().BackgroundShells[0]; shell.Status != "exited" || *shell.ExitCode != 0 {
+		t.Fatalf("after its notification = %+v", shell)
 	}
 }

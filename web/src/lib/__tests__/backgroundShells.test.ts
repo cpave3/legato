@@ -45,18 +45,22 @@ describe("background shells in the native sync", () => {
     expect(state.backgroundShells[0].output?.text).toBe("after the gap\n")
   })
 
-  it("hydrates shells and their output from a snapshot, without repeating output read before it", () => {
+  it("hydrates shells and their output from a snapshot, without repeating output it already holds", () => {
     const snapshot = {
       status: "idle",
-      backgroundShells: [{ shellId: "b1", command: "npm run dev", status: "running" as const, startedAt: 1, output: { available: true, text: "ready\n" } }],
+      backgroundShells: [{ shellId: "b1", command: "npm run dev", status: "running" as const, startedAt: 1, output: { available: true, text: "first\nsecond\n", seq: 2 } }],
     }
-    expect(stateFromNativeSnapshot(snapshot).backgroundShells[0].output?.text).toBe("ready\n")
+    expect(stateFromNativeSnapshot(snapshot).backgroundShells[0].output?.text).toBe("first\nsecond\n")
 
+    // A panel joining a stream is replayed what it retained, before and after the snapshot.
     const state = reconcileNativeSnapshot(snapshot, createNativeSyncState(), [
-      { eventId: "o1", type: "background_shell_output", shellId: "b1", chunk: "ready\n" },
-      { eventId: "o2", type: "background_shell_output", shellId: "b1", chunk: "GET /\n" },
+      { eventId: "o1", type: "background_shell_output", shellId: "b1", chunk: "first\n", seq: 1 },
+      { eventId: "o2", type: "background_shell_output", shellId: "b1", chunk: "second\n", seq: 2 },
+      { eventId: "o3", type: "background_shell_output", shellId: "b1", chunk: "second\n", seq: 3 },
     ])
-    expect(state.backgroundShells[0].output?.text).toBe("ready\nGET /\n")
+    // The same line printed again is new output.
+    expect(state.backgroundShells[0].output?.text).toBe("first\nsecond\nsecond\n")
+    expect(state.backgroundShells[0].output?.seq).toBe(3)
   })
 })
 

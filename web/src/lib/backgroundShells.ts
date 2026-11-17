@@ -19,6 +19,9 @@ export interface NativeShellOutput {
   text: string
   // Older output was dropped.
   truncated?: boolean
+  // The newest output event the text holds: one numbered at or below it is
+  // already in it.
+  seq?: number
 }
 
 export interface NativeBackgroundShell {
@@ -55,6 +58,8 @@ export interface ShellOutputEvent {
   gap?: boolean
   // The file was started over.
   reset?: boolean
+  // Numbers the shell's output events, from 1.
+  seq?: number
 }
 
 // withShell puts a shell's start or end in the list, keeping the output
@@ -74,6 +79,8 @@ export function withShellOutput(shells: NativeBackgroundShell[], event: ShellOut
   const index = shells.findIndex((each) => each.shellId === event.shellId)
   if (index < 0) return shells
   const known = shells[index]
+  // Replayed over a snapshot that already holds it.
+  if (event.seq !== undefined && known.output?.seq !== undefined && event.seq <= known.output.seq) return shells
   const fresh = event.gap || event.reset
   let text = (fresh ? "" : known.output?.text ?? "") + (event.chunk ?? "")
   let truncated = event.gap ? true : event.reset ? false : known.output?.truncated ?? false
@@ -82,7 +89,7 @@ export function withShellOutput(shells: NativeBackgroundShell[], event: ShellOut
     truncated = true
   }
   const next = [...shells]
-  next[index] = { ...known, output: { available: true, text, truncated } }
+  next[index] = { ...known, output: { available: true, text, truncated, seq: event.seq ?? known.output?.seq } }
   return next
 }
 

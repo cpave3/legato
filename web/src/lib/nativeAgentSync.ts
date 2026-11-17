@@ -242,6 +242,7 @@ export interface NativeEvent {
   chunk?: string
   gap?: boolean
   reset?: boolean
+  seq?: number
 }
 
 const nativeEventHistoryLimit = 1000
@@ -521,12 +522,6 @@ export function reconcileNativeSnapshot(
         next = acceptWithoutRendering(next, event)
         continue
       }
-    }
-    // Output the snapshot's tail already ends with was read before it.
-    if (event.type === "background_shell_output" && event.chunk && !event.gap && !event.reset &&
-      next.backgroundShells.some((shell) => shell.shellId === event.shellId && shell.output?.text.endsWith(event.chunk!))) {
-      next = acceptWithoutRendering(next, event)
-      continue
     }
     const thought = event.type === "reasoning_text_done" ? event.text : event.type === "reasoning_text_delta" ? event.delta : undefined
     if (thought && snapshotReasoning.some((text) => text.includes(thought))) {

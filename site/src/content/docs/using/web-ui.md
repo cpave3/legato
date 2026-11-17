@@ -74,7 +74,7 @@ When a native agent starts subagents, a **Sub-agents** switch appears in its hea
 
 Background shells get tiles in the same place. When an agent starts a command in the background, such as a dev server, a test watcher or a long build, the switch appears too, and in **Tiles** each shell has a tile beside the subagents. The tile shows the command (or its description, when the agent gave one), whether it is running, exited with a code, or was killed, how long it has run, and the last lines it printed. Open a tile to read its output in full; while the shell runs, the output follows what it prints. A shell that exited with any code other than 0 is marked as an error. Finished shells go on the **Finished** list with their exit code. The tile is read-only: you can't type to the shell or stop it from here. Only the newest 32 KB of a shell's output is kept; the tile says when earlier output was dropped. In the conversation, the command's line has a link to its tile.
 
-- **Claude Code**: tiles with output, also when the agent runs in the sandbox. A tile is marked finished as soon as the shell exits.
+- **Claude Code**: tiles with output, also when the agent runs in the sandbox. A shell is marked finished when Claude Code tells the agent it ended. If that happens during a long turn, the tile updates when the turn reaches that point.
 - **Chimera**: tiles with the command, state, run time and exit code. Their output isn't available yet, and the tile says so. Chimera doesn't let Legato read a shell's output yet.
 - **Codex**: no shell tiles.
 
