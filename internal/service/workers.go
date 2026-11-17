@@ -23,6 +23,7 @@ import (
 	"github.com/cpave3/legato/internal/engine/events"
 	"github.com/cpave3/legato/internal/engine/pairing"
 	"github.com/cpave3/legato/internal/engine/store"
+	"github.com/cpave3/legato/internal/engine/version"
 )
 
 // HandoffProtocolVersion is the version of the calls a main instance and a
@@ -74,6 +75,13 @@ type Worker struct {
 	// a worker too old to advertise.
 	Advert   *HandoffAdvert `json:"advert,omitempty"`
 	AdvertAt *string        `json:"advert_at,omitempty"`
+	// CannotTakeHandoffs says why the worker refuses every handoff (no
+	// sandbox, no columns), with what to do; empty when it can take them.
+	// Pairing still succeeds.
+	CannotTakeHandoffs string `json:"cannot_take_handoffs,omitempty"`
+	// Older says the worker runs an older release than this main, which
+	// may lack what this main sends.
+	Older bool `json:"older,omitempty"`
 	// leavingUntil is set once the worker was removed: it is kept, hidden,
 	// only to send the calls owed it until then.
 	leavingUntil string
@@ -182,6 +190,16 @@ func workerFromRow(w store.Worker) Worker {
 		if err := json.Unmarshal([]byte(*w.Advert), &advert); err == nil {
 			worker.Advert, worker.AdvertAt = &advert, w.AdvertAt
 		}
+	}
+	var refuses []string
+	if worker.Advert != nil {
+		refuses = worker.Advert.Refuses
+		worker.Older = version.Newer(version.String(), worker.Advert.Version)
+	} else if !worker.Sandbox {
+		refuses = []string{refusesNoSandbox}
+	}
+	if len(refuses) > 0 {
+		worker.CannotTakeHandoffs = "can't take handoffs: " + strings.Join(refuses, "; ")
 	}
 	return worker
 }

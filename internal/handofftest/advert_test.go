@@ -189,3 +189,47 @@ func TestAWorkerThatStopsAdvertisingLosesItsAdvert(t *testing.T) {
 		t.Fatalf("after the downgrade the main lists %+v, %v", workers, err)
 	}
 }
+
+func TestAWorkerWithoutTheSandboxPairsButCannotTakeHandoffs(t *testing.T) {
+	worker := StartWorker(t, WorkerOptions{NoSandbox: true})
+	main := NewMain(t, MainOptions{Clock: worker.Clock})
+
+	paired := Pair(t, main, worker)
+
+	if !strings.Contains(paired.CannotTakeHandoffs, "sandbox") || !strings.Contains(paired.CannotTakeHandoffs, "bubblewrap") {
+		t.Fatalf("cannot_take_handoffs = %q", paired.CannotTakeHandoffs)
+	}
+	workers, err := main.Workers.List(context.Background())
+	if err != nil || len(workers) != 1 || workers[0].CannotTakeHandoffs != paired.CannotTakeHandoffs {
+		t.Fatalf("listed %+v, %v", workers, err)
+	}
+}
+
+func TestAWorkerWhoseBoardHasNoColumnsCannotTakeHandoffs(t *testing.T) {
+	ctx := context.Background()
+	worker := StartWorker(t, WorkerOptions{})
+	columns, err := worker.Store.ListColumnMappings(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, c := range columns {
+		if err := worker.Store.DeleteColumnMapping(ctx, c.ID); err != nil {
+			t.Fatal(err)
+		}
+	}
+	main := NewMain(t, MainOptions{Clock: worker.Clock})
+
+	paired := Pair(t, main, worker)
+
+	if !strings.Contains(paired.CannotTakeHandoffs, "no columns") {
+		t.Fatalf("cannot_take_handoffs = %q", paired.CannotTakeHandoffs)
+	}
+}
+
+func TestAWorkerThatCanTakeHandoffsIsNotMarked(t *testing.T) {
+	worker := StartWorker(t, WorkerOptions{})
+	main := NewMain(t, MainOptions{Clock: worker.Clock})
+	if paired := Pair(t, main, worker); paired.CannotTakeHandoffs != "" {
+		t.Fatalf("cannot_take_handoffs = %q", paired.CannotTakeHandoffs)
+	}
+}

@@ -89,6 +89,40 @@ describe("WorkersSettings", () => {
     expect(within(screen.getByRole("listitem", { name: "vm-3" })).getByText(/no longer accepts this main; pair again/i)).toBeTruthy()
   })
 
+  it("shows each worker's version and commit, and marks one older than this Legato", async () => {
+    const advert = { version: "dev", commit: "1a2b3c4d5e6f", features: [], sandbox: true, agents: [], mcp_tools: true, mcp_connections: [], skills: [], repositories: [] }
+    workers = [
+      { ...workers[0], advert },
+      { ...workers[0], instance_id: "srv-2", name: "vm-2", advert: { ...advert, version: "v0.14.0", commit: undefined }, older: true },
+      { ...workers[0], instance_id: "srv-3", name: "vm-3" },
+    ]
+    render(<WorkersSettings baseUrl="" />)
+    expect(within(await screen.findByRole("listitem", { name: "vm-1" })).getByText("Legato dev (1a2b3c4d5e6f)")).toBeTruthy()
+    const vm2 = screen.getByRole("listitem", { name: "vm-2" })
+    expect(within(vm2).getByText("Legato v0.14.0")).toBeTruthy()
+    expect(within(vm2).getByText(/older than this Legato/i)).toBeTruthy()
+    expect(within(screen.getByRole("listitem", { name: "vm-3" })).getByText(/version unknown/i)).toBeTruthy()
+  })
+
+  it("marks a worker that can't take handoffs, with why", async () => {
+    workers = [{ ...workers[0], sandbox: false, cannot_take_handoffs: "can't take handoffs: its board has no columns" }]
+    render(<WorkersSettings baseUrl="" />)
+    const vm = await screen.findByRole("listitem", { name: "vm-1" })
+    expect(within(vm).getByText("can't take handoffs: its board has no columns")).toBeTruthy()
+  })
+
+  it("says after pairing when the new worker can't take handoffs", async () => {
+    pairAnswer = json({ instance_id: "srv-1111222233334444", address: "https://vm-2.lan:3080", name: "vm-2", main_name: "workstation", sandbox: false,
+      handoff_version: 2, paired_at: "2026-11-05T09:00:00Z", cannot_take_handoffs: "can't take handoffs: its agents cannot run in Legato's sandbox" })
+    render(<WorkersSettings baseUrl="" />)
+    await screen.findByRole("listitem", { name: "vm-1" })
+    fireEvent.click(screen.getByRole("button", { name: "Add a worker" }))
+    fireEvent.change(screen.getByLabelText("Worker address"), { target: { value: "vm-2.lan:3080" } })
+    fireEvent.change(screen.getByLabelText("Phrase"), { target: { value: "bucket ladle spree oyster" } })
+    fireEvent.click(screen.getByRole("button", { name: "Pair" }))
+    expect((await screen.findByRole("status")).textContent).toMatch(/Paired with vm-2, but it can't take handoffs: its agents cannot run/)
+  })
+
   it("removes a worker after warning how many away tasks it holds", async () => {
     workers = [{ ...workers[0], away: 2 }]
     render(<WorkersSettings baseUrl="" />)

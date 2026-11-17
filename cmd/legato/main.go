@@ -900,6 +900,15 @@ func runServeCmd(args []string) int {
 		return 1
 	}
 	defer db.Close()
+	// A first start with no terminal to run the wizard in, such as a
+	// headless worker's, still gets the default columns: a board without
+	// them refuses every handoff.
+	if seeded, err := setup.SeedColumnsIfEmpty(context.Background(), &setup.StoreAdapter{S: db}, cfg.Board.Columns); err != nil {
+		fmt.Fprintf(os.Stderr, "columns: %v\n", err)
+		return 1
+	} else if seeded {
+		log.Printf("serve: the board had no columns; seeded %d", len(cfg.Board.Columns))
+	}
 	workspaceDefaults, err := service.SeedAndResolveWorkspaceDefaults(context.Background(), db, cfg)
 	if err != nil {
 		fmt.Fprintf(os.Stderr, "workspaces: %v\n", err)

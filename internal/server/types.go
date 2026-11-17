@@ -12,7 +12,10 @@ type HealthResponse struct {
 }
 
 type MobileMetaResponse struct {
-	Version        string `json:"version"`
+	Version string `json:"version"`
+	// Commit is the commit this build came from, when it knows it, so a
+	// dev build ("dev") can still be told apart.
+	Commit         string `json:"commit,omitempty"`
 	MobileShellAPI int    `json:"mobile_shell_api"`
 	AuthBootstrap  string `json:"auth_bootstrap"`
 	// PhrasePairing is 1 when a phone can pair by phrase (/api/pair/...).

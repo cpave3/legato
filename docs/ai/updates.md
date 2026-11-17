@@ -4,7 +4,7 @@ A Legato built from a GitHub release keeps itself on the newest stable release. 
 
 ## The version
 
-`internal/engine/version` holds the version a release build stamps in (`-X github.com/cpave3/legato/internal/engine/version.stamped=vX.Y.Z`); without it the version is `dev`. `version.IsRelease` is true for a stable `vX.Y.Z` only, `version.Newer` compares two. The version is in `legato version` (`--json`: `{version, release}`; it reads no configuration), `GET /health`, `GET /api/meta`, the MCP server's handshake and the 1Password integration's name.
+`internal/engine/version` holds the version a release build stamps in (`-X github.com/cpave3/legato/internal/engine/version.stamped=vX.Y.Z`); without it the version is `dev`. `version.IsRelease` is true for a stable `vX.Y.Z` only, `version.Newer` compares two. `version.Commit` is the commit the Go toolchain stamped into the build (`vcs.revision` from `runtime/debug.ReadBuildInfo`, cut to 12 characters, `-dirty` for a modified tree; empty for a build without version control), so two `dev` builds can be told apart without any `-ldflags`. `GET /api/meta` gives it as `commit`, and a worker's handoff advert carries both: Settings › Workers shows `Legato <version> (<commit>)` for each worker and marks one whose release is older than this main's (`Worker.older`, `version.Newer`; never for `dev`). The version is in `legato version` (`--json`: `{version, release}`; it reads no configuration), `GET /health`, `GET /api/meta`, the MCP server's handshake and the 1Password integration's name.
 
 ## Making a release
 

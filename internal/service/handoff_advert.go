@@ -72,7 +72,17 @@ type HandoffAdvert struct {
 	// Repositories are the owner/name patterns its GitHub credentials
 	// list (settings.repositories): what it can clone.
 	Repositories []string `json:"repositories"`
+	// Refuses says why the worker would refuse every handoff now, each
+	// with what to do; empty when it can take them.
+	Refuses []string `json:"refuses,omitempty"`
 }
+
+// Why a worker refuses every handoff, with what to do. A worker says them
+// in its advert; a main without an advert reads the sandbox from /api/meta.
+const (
+	refusesNoSandbox = "its agents cannot run in Legato's sandbox, which needs Linux with bubblewrap (bwrap) on PATH and agents.sandbox.enabled"
+	refusesNoColumns = "its board has no columns: run legato columns sync there, or restart legato serve, which seeds them"
+)
 
 // HandoffAdvertAgent is one agent tool a worker knows: whether its command
 // is installed on the host, its tiers, and whether it can run with its
@@ -148,6 +158,12 @@ func (s *HandoffWorkerService) Advert(ctx context.Context) HandoffAdvert {
 	advert.Skills = advertList(ctx, "skills", src.Skills)
 	if src.Repositories != nil {
 		advert.Repositories = sortedCopy(src.Repositories())
+	}
+	if !advert.Sandbox {
+		advert.Refuses = append(advert.Refuses, refusesNoSandbox)
+	}
+	if _, err := s.newTaskColumn(ctx); err != nil {
+		advert.Refuses = append(advert.Refuses, refusesNoColumns)
 	}
 	return advert
 }

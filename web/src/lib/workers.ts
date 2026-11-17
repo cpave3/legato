@@ -28,6 +28,24 @@ export interface Worker {
   // pairing and on each connection; absent for a worker too old to say.
   advert?: WorkerAdvert
   advert_at?: string
+  // Why it refuses every handoff (no sandbox, no columns), with what to
+  // do; absent when it can take them.
+  cannot_take_handoffs?: string
+  // It runs an older release than this main.
+  older?: boolean
+}
+
+// workerVersion is a worker's version as Settings › Workers shows it:
+// "Legato v0.15.0", or "Legato dev (1a2b3c4d5e6f)" for a build from source.
+export function workerVersion(w: Worker): string {
+  if (!w.advert) return "Legato version unknown"
+  return w.advert.commit ? `Legato ${w.advert.version} (${w.advert.commit})` : `Legato ${w.advert.version}`
+}
+
+// pairedText is what Add a worker says once paired.
+export function pairedText(w: Worker): string {
+  if (w.cannot_take_handoffs) return `Paired with ${w.name}, but it ${w.cannot_take_handoffs}.`
+  return `Paired with ${w.name}. Tasks can now be handed off to it.`
 }
 
 // WorkerAdvert is what a worker can do for a handoff: its version, the
@@ -45,6 +63,8 @@ export interface WorkerAdvert {
   mcp_connections: string[]
   skills: string[]
   repositories: string[]
+  // Why it would refuse every handoff now; absent when it can take them.
+  refuses?: string[]
 }
 
 export interface WorkerAdvertAgent {
