@@ -1,0 +1,1271 @@
+{
+  "entry_lists": [
+    "repositories",
+    "workflows.repositories",
+    "resources",
+    "agents.guidance",
+    "board.columns",
+    "workspaces",
+    "macros",
+    "adapters",
+    "credentials",
+    "credential_sources",
+    "agents.tmux_options",
+    "agents.sandbox.mounts",
+    "swarm.prompts",
+    "reeve.rules"
+  ],
+  "file_only": [
+    "db",
+    "data_dir",
+    "secrets.master_key",
+    "secrets.onepassword",
+    "web.enabled",
+    "web.port",
+    "web.tls",
+    "web.public_url",
+    "approval_devices.android_app_digests",
+    "agents.repository_resources"
+  ],
+  "lists": [
+    {
+      "key": "workspaces",
+      "title": "Workspaces",
+      "class": "change",
+      "mode": "restart",
+      "name_field": "name"
+    },
+    {
+      "key": "macros",
+      "title": "Macros",
+      "class": "change",
+      "mode": "restart",
+      "name_field": "name"
+    },
+    {
+      "key": "adapters",
+      "title": "Agent tools",
+      "class": "change",
+      "mode": "restart"
+    },
+    {
+      "key": "credentials",
+      "title": "Credentials",
+      "class": "risky",
+      "mode": "restart",
+      "name_field": "name"
+    },
+    {
+      "key": "credential_sources",
+      "title": "Credential sources",
+      "class": "risky",
+      "mode": "restart",
+      "name_field": "vault"
+    },
+    {
+      "key": "agents.tmux_options",
+      "title": "tmux options for agents",
+      "class": "change",
+      "mode": "new_agents"
+    },
+    {
+      "key": "agents.sandbox.mounts",
+      "title": "Sandbox mounts",
+      "class": "risky",
+      "mode": "restart",
+      "name_field": "path"
+    },
+    {
+      "key": "swarm.prompts",
+      "title": "Swarm role prompts",
+      "class": "change",
+      "mode": "restart"
+    },
+    {
+      "key": "reeve.rules",
+      "title": "The Reeve's rules",
+      "class": "risky",
+      "mode": "live",
+      "name_field": "pattern",
+      "own_rule": true,
+      "ordered": true
+    }
+  ],
+  "settings": [
+    {
+      "key": "agents.escape_key",
+      "title": "Detach key",
+      "description": "The key that leaves an agent's terminal in the TUI, as ctrl+].",
+      "kind": "string",
+      "class": "change",
+      "mode": "restart"
+    },
+    {
+      "key": "agents.sparkline_window",
+      "title": "Activity window",
+      "description": "How far back the activity bar of an agent reaches.",
+      "kind": "duration",
+      "class": "change",
+      "mode": "restart"
+    },
+    {
+      "key": "agents.peer_awareness",
+      "title": "Peer awareness",
+      "description": "Tell agents in the same Git worktree about each other.",
+      "kind": "bool",
+      "class": "change",
+      "mode": "restart"
+    },
+    {
+      "key": "agents.reviews",
+      "title": "Reviews",
+      "description": "Ask agents for a review tour and a handoff packet at the end of their work.",
+      "kind": "bool",
+      "class": "change",
+      "mode": "restart"
+    },
+    {
+      "key": "agents.mcp.enabled",
+      "title": "Legato tools",
+      "description": "Give agents Legato's tools (cards, artifacts, notes) through `legato mcp serve`.",
+      "kind": "bool",
+      "class": "change",
+      "mode": "restart"
+    },
+    {
+      "key": "agents.sandbox.enabled",
+      "title": "Sandbox",
+      "description": "Run every agent in Legato's sandbox unless its spawn opts out.",
+      "kind": "bool",
+      "class": "risky",
+      "mode": "restart"
+    },
+    {
+      "key": "agents.sandbox.backend",
+      "title": "Sandbox backend",
+      "description": "Only bwrap for now.",
+      "kind": "string",
+      "class": "risky",
+      "mode": "restart"
+    },
+    {
+      "key": "agents.sandbox.default_mounts",
+      "title": "Toolchains in the sandbox",
+      "description": "Show the operator's toolchains (read-only) and package caches inside the sandbox.",
+      "kind": "bool",
+      "class": "risky",
+      "mode": "restart"
+    },
+    {
+      "key": "agents.sandbox.scratch_dir",
+      "title": "Sandbox scratch folder",
+      "kind": "string",
+      "class": "risky",
+      "mode": "restart"
+    },
+    {
+      "key": "agents.sandbox.docker.enabled",
+      "title": "Docker in the sandbox",
+      "description": "Give sandboxed agents a filtered Docker socket: their own containers, mounting only what their sandbox sees.",
+      "kind": "bool",
+      "class": "risky",
+      "mode": "restart"
+    },
+    {
+      "key": "agents.sandbox.docker.host",
+      "title": "Docker daemon for sandboxed agents",
+      "description": "unix:// or tcp://; Legato's DOCKER_HOST, Docker context, or /var/run/docker.sock when empty.",
+      "kind": "string",
+      "class": "risky",
+      "mode": "restart"
+    },
+    {
+      "key": "agents.sandbox.docker.cap_add",
+      "title": "Capabilities sandboxed containers may add",
+      "description": "Such as SYS_PTRACE. Capabilities that reach the host are refused.",
+      "kind": "strings",
+      "class": "risky",
+      "mode": "restart"
+    },
+    {
+      "key": "agents.sandbox.docker.publish",
+      "title": "Where sandboxed containers publish ports",
+      "description": "loopback binds 127.0.0.1; any binds every address.",
+      "kind": "enum",
+      "enum": [
+        "loopback",
+        "any"
+      ],
+      "class": "risky",
+      "mode": "restart"
+    },
+    {
+      "key": "notifications.ntfy.url",
+      "title": "ntfy server",
+      "kind": "string",
+      "class": "change",
+      "mode": "restart"
+    },
+    {
+      "key": "notifications.ntfy.topic",
+      "title": "ntfy topic",
+      "kind": "string",
+      "class": "change",
+      "mode": "restart"
+    },
+    {
+      "key": "notifications.os.enabled",
+      "title": "Desktop notifications",
+      "kind": "bool",
+      "class": "change",
+      "mode": "restart"
+    },
+    {
+      "key": "notifications.approvals",
+      "title": "Notify of approvals",
+      "kind": "bool",
+      "class": "change",
+      "mode": "restart"
+    },
+    {
+      "key": "notifications.handoff",
+      "title": "Notify of handoffs",
+      "kind": "bool",
+      "class": "change",
+      "mode": "restart"
+    },
+    {
+      "key": "theme",
+      "title": "Theme",
+      "kind": "string",
+      "class": "change",
+      "mode": "restart"
+    },
+    {
+      "key": "icons",
+      "title": "Icons",
+      "description": "Unicode glyphs, or Nerd Font ones.",
+      "kind": "enum",
+      "enum": [
+        "unicode",
+        "nerdfonts"
+      ],
+      "class": "change",
+      "mode": "restart"
+    },
+    {
+      "key": "editor",
+      "title": "Editor",
+      "description": "The editor the TUI opens; $VISUAL, then $EDITOR, when empty.",
+      "kind": "string",
+      "class": "change",
+      "mode": "restart"
+    },
+    {
+      "key": "web.tint",
+      "title": "Tint",
+      "description": "A colour that tells this Legato from others in the web UI.",
+      "kind": "enum",
+      "enum": [
+        "",
+        "red",
+        "orange",
+        "yellow",
+        "green",
+        "teal",
+        "blue",
+        "purple",
+        "pink"
+      ],
+      "class": "change",
+      "mode": "live"
+    },
+    {
+      "key": "updates.mode",
+      "title": "Updates",
+      "description": "auto installs new releases; ask offers them; off never looks.",
+      "kind": "enum",
+      "enum": [
+        "auto",
+        "ask",
+        "off"
+      ],
+      "class": "risky",
+      "mode": "live"
+    },
+    {
+      "key": "notifications.ntfy.token",
+      "title": "ntfy token",
+      "description": "The name of a secret holding the token for a private topic.",
+      "kind": "string",
+      "class": "risky",
+      "mode": "restart",
+      "secret": true
+    },
+    {
+      "key": "keybindings.vim_mode",
+      "title": "Vim keys",
+      "kind": "bool",
+      "class": "change",
+      "mode": "restart"
+    },
+    {
+      "key": "web.discovery",
+      "title": "Announce on the network",
+      "description": "Announce the web server over mDNS so the phone app finds it.",
+      "kind": "bool",
+      "class": "risky",
+      "mode": "restart"
+    },
+    {
+      "key": "agents.mcp.resource_domains",
+      "title": "Hosts agents' HTML may load from",
+      "kind": "strings",
+      "class": "risky",
+      "mode": "restart"
+    },
+    {
+      "key": "groups.defaults",
+      "title": "Default groups",
+      "kind": "strings",
+      "class": "change",
+      "mode": "restart"
+    },
+    {
+      "key": "default_workspace",
+      "title": "Default workspace",
+      "description": "The workspace of a new task.",
+      "kind": "string",
+      "class": "change",
+      "mode": "restart"
+    },
+    {
+      "key": "default_import_workspace",
+      "title": "Default import workspace",
+      "description": "The workspace of an imported task.",
+      "kind": "string",
+      "class": "change",
+      "mode": "restart"
+    },
+    {
+      "key": "ssh_agent_socket",
+      "title": "SSH agent socket",
+      "kind": "string",
+      "class": "risky",
+      "mode": "restart"
+    },
+    {
+      "key": "jira.base_url",
+      "title": "Jira address",
+      "kind": "string",
+      "class": "change",
+      "mode": "restart"
+    },
+    {
+      "key": "jira.email",
+      "title": "Jira email",
+      "kind": "string",
+      "class": "change",
+      "mode": "restart"
+    },
+    {
+      "key": "jira.api_token",
+      "title": "Jira API token",
+      "description": "The name of a secret holding the token.",
+      "kind": "string",
+      "class": "risky",
+      "mode": "restart",
+      "secret": true
+    },
+    {
+      "key": "jira.project_keys",
+      "title": "Jira projects",
+      "kind": "strings",
+      "class": "change",
+      "mode": "restart"
+    },
+    {
+      "key": "jira.jql_filter",
+      "title": "Jira filter",
+      "kind": "string",
+      "class": "change",
+      "mode": "restart"
+    },
+    {
+      "key": "jira.sync_interval_seconds",
+      "title": "Jira sync interval (seconds)",
+      "kind": "int",
+      "class": "change",
+      "mode": "restart"
+    },
+    {
+      "key": "jira.status_sync_enabled",
+      "title": "Move Jira issues with their cards",
+      "kind": "bool",
+      "class": "change",
+      "mode": "restart"
+    },
+    {
+      "key": "jira.attachment_max_size_bytes",
+      "title": "Largest Jira attachment (bytes)",
+      "kind": "int",
+      "class": "change",
+      "mode": "restart"
+    },
+    {
+      "key": "burnlite.url",
+      "title": "Burnlite address",
+      "kind": "string",
+      "class": "change",
+      "mode": "restart"
+    },
+    {
+      "key": "burnlite.sync_interval_seconds",
+      "title": "Burnlite sync interval (seconds)",
+      "kind": "int",
+      "class": "change",
+      "mode": "restart"
+    },
+    {
+      "key": "burnlite.status_sync_enabled",
+      "title": "Move cards with Burnlite",
+      "kind": "bool",
+      "class": "change",
+      "mode": "restart"
+    },
+    {
+      "key": "burnlite.columns.ready",
+      "title": "Burnlite: column for ready",
+      "kind": "string",
+      "class": "change",
+      "mode": "restart"
+    },
+    {
+      "key": "burnlite.columns.blocked",
+      "title": "Burnlite: column for blocked",
+      "kind": "string",
+      "class": "change",
+      "mode": "restart"
+    },
+    {
+      "key": "burnlite.columns.claimed",
+      "title": "Burnlite: column for claimed",
+      "kind": "string",
+      "class": "change",
+      "mode": "restart"
+    },
+    {
+      "key": "burnlite.columns.closed",
+      "title": "Burnlite: column for closed",
+      "kind": "string",
+      "class": "change",
+      "mode": "restart"
+    },
+    {
+      "key": "github.auth",
+      "title": "GitHub sign-in",
+      "description": "auto, gh or token.",
+      "kind": "enum",
+      "enum": [
+        "auto",
+        "gh",
+        "token"
+      ],
+      "class": "risky",
+      "mode": "restart"
+    },
+    {
+      "key": "github.token",
+      "title": "GitHub token",
+      "description": "The name of a secret holding the token.",
+      "kind": "string",
+      "class": "risky",
+      "mode": "restart",
+      "secret": true
+    },
+    {
+      "key": "github.poll_interval_seconds",
+      "title": "GitHub poll interval (seconds)",
+      "kind": "int",
+      "class": "change",
+      "mode": "restart"
+    },
+    {
+      "key": "github.resolved_poll_interval_seconds",
+      "title": "GitHub poll interval for known PRs (seconds)",
+      "kind": "int",
+      "class": "change",
+      "mode": "restart"
+    },
+    {
+      "key": "swarm.enabled",
+      "title": "Swarms",
+      "kind": "bool",
+      "class": "change",
+      "mode": "restart"
+    },
+    {
+      "key": "swarm.max_concurrent_agents",
+      "title": "Swarm: most agents at once",
+      "kind": "int",
+      "class": "change",
+      "mode": "restart"
+    },
+    {
+      "key": "swarm.max_subtasks_per_plan",
+      "title": "Swarm: most sub-tasks in a plan",
+      "kind": "int",
+      "class": "change",
+      "mode": "restart"
+    },
+    {
+      "key": "swarm.max_steps_per_plan",
+      "title": "Swarm: most steps in a plan",
+      "kind": "int",
+      "class": "change",
+      "mode": "restart"
+    },
+    {
+      "key": "swarm.conductor.agent",
+      "title": "Swarm conductor's agent tool",
+      "kind": "string",
+      "class": "change",
+      "mode": "restart"
+    },
+    {
+      "key": "swarm.conductor.model",
+      "title": "Swarm conductor's model",
+      "kind": "string",
+      "class": "change",
+      "mode": "restart"
+    },
+    {
+      "key": "swarm.worker.agent",
+      "title": "Swarm workers' agent tool",
+      "kind": "string",
+      "class": "change",
+      "mode": "restart"
+    },
+    {
+      "key": "swarm.worker.model",
+      "title": "Swarm workers' model",
+      "kind": "string",
+      "class": "change",
+      "mode": "restart"
+    },
+    {
+      "key": "swarm.strict_scope",
+      "title": "Swarm: strict scopes",
+      "kind": "bool",
+      "class": "change",
+      "mode": "restart"
+    },
+    {
+      "key": "swarm.require_user_close",
+      "title": "Swarm: you close workers",
+      "kind": "bool",
+      "class": "change",
+      "mode": "restart"
+    },
+    {
+      "key": "swarm.brief_kickoff_delay_ms",
+      "title": "Swarm: kickoff delay (ms)",
+      "kind": "int",
+      "class": "change",
+      "mode": "restart"
+    },
+    {
+      "key": "voice.enabled",
+      "title": "Voice dictation",
+      "kind": "bool",
+      "class": "change",
+      "mode": "restart"
+    },
+    {
+      "key": "voice.whisper_url",
+      "title": "Whisper server",
+      "description": "The Wyoming address of a Whisper server, such as tcp://192.168.1.220:10300. It can be the one Home Assistant Assist already uses; Legato's requests and Assist's then wait for each other.",
+      "kind": "string",
+      "class": "change",
+      "mode": "restart"
+    },
+    {
+      "key": "voice.autosend",
+      "title": "Send dictation at once",
+      "kind": "bool",
+      "class": "change",
+      "mode": "restart"
+    },
+    {
+      "key": "voice.mic_device",
+      "title": "Microphone",
+      "kind": "string",
+      "class": "change",
+      "mode": "restart"
+    },
+    {
+      "key": "worktrees.yggdrasil.enabled",
+      "title": "Yggdrasil worktrees",
+      "kind": "bool",
+      "class": "change",
+      "mode": "restart"
+    },
+    {
+      "key": "repository_cache.enabled",
+      "title": "Fresh clones",
+      "kind": "bool",
+      "class": "change",
+      "mode": "restart"
+    },
+    {
+      "key": "repository_cache.max_age",
+      "title": "Fetch a repository older than",
+      "kind": "duration",
+      "class": "change",
+      "mode": "restart"
+    },
+    {
+      "key": "repository_cache.keep_idle",
+      "title": "Keep idle clones for",
+      "description": "A duration, or forever.",
+      "kind": "string",
+      "class": "risky",
+      "mode": "restart"
+    },
+    {
+      "key": "credential_channels.http_proxy.listen",
+      "title": "Credential proxy address",
+      "kind": "string",
+      "class": "risky",
+      "mode": "restart"
+    },
+    {
+      "key": "credential_channels.ssh_agent.known_hosts",
+      "title": "Known hosts for the SSH channel",
+      "kind": "string",
+      "class": "risky",
+      "mode": "restart"
+    },
+    {
+      "key": "credential_channels.gh.isolate_login",
+      "title": "Keep gh's own login from agents",
+      "kind": "bool",
+      "class": "risky",
+      "mode": "restart"
+    },
+    {
+      "key": "learning.enabled",
+      "title": "Legato Learn",
+      "kind": "bool",
+      "class": "change",
+      "mode": "restart"
+    },
+    {
+      "key": "learning.prompt_enabled",
+      "title": "Learnings in launch prompts",
+      "kind": "bool",
+      "class": "change",
+      "mode": "restart"
+    },
+    {
+      "key": "learning.transition_columns",
+      "title": "Reflect when a card enters",
+      "kind": "strings",
+      "class": "change",
+      "mode": "restart"
+    },
+    {
+      "key": "learning.curator_adapter",
+      "title": "Curator's agent tool",
+      "kind": "string",
+      "class": "change",
+      "mode": "restart"
+    },
+    {
+      "key": "learning.curator_tier",
+      "title": "Curator's tier",
+      "kind": "string",
+      "class": "change",
+      "mode": "restart"
+    },
+    {
+      "key": "learning.curator_working_dir",
+      "title": "Curator's folder",
+      "kind": "string",
+      "class": "change",
+      "mode": "restart"
+    },
+    {
+      "key": "learning.packet_max_items",
+      "title": "Learn: most items in a packet",
+      "kind": "int",
+      "class": "change",
+      "mode": "restart"
+    },
+    {
+      "key": "learning.packet_max_bytes",
+      "title": "Learn: largest packet (bytes)",
+      "kind": "int",
+      "class": "change",
+      "mode": "restart"
+    },
+    {
+      "key": "learning.reflection_timeout",
+      "title": "Learn: reflection timeout",
+      "kind": "duration",
+      "class": "change",
+      "mode": "restart"
+    },
+    {
+      "key": "learning.reflection_retries",
+      "title": "Learn: reflection retries",
+      "kind": "int",
+      "class": "change",
+      "mode": "restart"
+    },
+    {
+      "key": "learning.prompt_max_items",
+      "title": "Learn: most items in a prompt",
+      "kind": "int",
+      "class": "change",
+      "mode": "restart"
+    },
+    {
+      "key": "learning.prompt_max_bytes",
+      "title": "Learn: largest prompt section (bytes)",
+      "kind": "int",
+      "class": "change",
+      "mode": "restart"
+    },
+    {
+      "key": "learning.consolidation_automatic",
+      "title": "Learn: consolidate on its own",
+      "kind": "bool",
+      "class": "change",
+      "mode": "restart"
+    },
+    {
+      "key": "learning.consolidation_threshold",
+      "title": "Learn: consolidate past",
+      "kind": "int",
+      "class": "change",
+      "mode": "restart"
+    },
+    {
+      "key": "learning.embedding.enabled",
+      "title": "Learn: semantic search",
+      "kind": "bool",
+      "class": "change",
+      "mode": "restart"
+    },
+    {
+      "key": "learning.embedding.provider",
+      "title": "Learn: embedding provider",
+      "kind": "string",
+      "class": "change",
+      "mode": "restart"
+    },
+    {
+      "key": "learning.embedding.model",
+      "title": "Learn: embedding model",
+      "kind": "string",
+      "class": "change",
+      "mode": "restart"
+    },
+    {
+      "key": "learning.embedding.base_url",
+      "title": "Learn: embedding address",
+      "kind": "string",
+      "class": "change",
+      "mode": "restart"
+    },
+    {
+      "key": "learning.embedding.api_key_env",
+      "title": "Learn: variable with the embedding key",
+      "kind": "string",
+      "class": "risky",
+      "mode": "restart"
+    },
+    {
+      "key": "learning.embedding.timeout",
+      "title": "Learn: embedding timeout",
+      "kind": "duration",
+      "class": "change",
+      "mode": "restart"
+    },
+    {
+      "key": "learning.embedding.dimensions",
+      "title": "Learn: embedding dimensions",
+      "kind": "int",
+      "class": "change",
+      "mode": "restart"
+    },
+    {
+      "key": "learning.embedding.batch_size",
+      "title": "Learn: embedding batch size",
+      "kind": "int",
+      "class": "change",
+      "mode": "restart"
+    },
+    {
+      "key": "engram.enabled",
+      "title": "Engrams",
+      "description": "auto offers engrams when the engram command answers; on does too, and reports when it does not; off hides them.",
+      "kind": "enum",
+      "enum": [
+        "auto",
+        "on",
+        "off"
+      ],
+      "class": "change",
+      "mode": "live"
+    },
+    {
+      "key": "skills.dir",
+      "title": "Skills folder",
+      "description": "The folder of skills Legato gives agents, one folder per skill; ~/.legato/skills when empty.",
+      "kind": "string",
+      "class": "risky",
+      "mode": "restart"
+    },
+    {
+      "key": "engram.command",
+      "title": "Engram command",
+      "description": "The engram binary; engram on PATH when empty.",
+      "kind": "string",
+      "class": "risky",
+      "mode": "live"
+    },
+    {
+      "key": "manticore.url",
+      "title": "Manticore address",
+      "kind": "string",
+      "class": "change",
+      "mode": "restart"
+    },
+    {
+      "key": "manticore.api_key",
+      "title": "Manticore key",
+      "description": "The name of a secret holding the key.",
+      "kind": "string",
+      "class": "risky",
+      "mode": "restart",
+      "secret": true
+    },
+    {
+      "key": "integrations.mqtt.enabled",
+      "title": "MQTT publisher",
+      "description": "Publish read-only Home Assistant entities to an MQTT broker.",
+      "kind": "bool",
+      "class": "risky",
+      "mode": "restart"
+    },
+    {
+      "key": "integrations.mqtt.theme_control",
+      "title": "Allow MQTT theme control",
+      "description": "Delegate server theme authority to broker ACL writers of the exact theme/set topic; independent of read-only aggregates. No Legato token is required.",
+      "kind": "bool",
+      "class": "risky",
+      "mode": "restart"
+    },
+    {
+      "key": "integrations.mqtt.broker",
+      "title": "MQTT broker",
+      "description": "mqtt:// or mqtts:// TCP broker address without credentials.",
+      "kind": "string",
+      "class": "risky",
+      "mode": "restart"
+    },
+    {
+      "key": "integrations.mqtt.credential",
+      "title": "MQTT credential",
+      "description": "Name of a host-only mqtt userpass credential; empty selects anonymous access.",
+      "kind": "string",
+      "class": "risky",
+      "mode": "restart"
+    },
+    {
+      "key": "integrations.mqtt.discovery_prefix",
+      "title": "MQTT discovery prefix",
+      "description": "Home Assistant discovery topic root; homeassistant when empty.",
+      "kind": "string",
+      "class": "risky",
+      "mode": "restart"
+    },
+    {
+      "key": "integrations.mqtt.base_topic",
+      "title": "MQTT base topic",
+      "description": "Publish topic root; legato/\u003cpersistent-instance-id\u003e when empty.",
+      "kind": "string",
+      "class": "risky",
+      "mode": "restart"
+    },
+    {
+      "key": "integrations.mqtt.device_name",
+      "title": "MQTT device name",
+      "description": "Home Assistant device name; Legato \u003chostname\u003e when empty.",
+      "kind": "string",
+      "class": "change",
+      "mode": "restart"
+    },
+    {
+      "key": "integrations.mqtt.include_reeve",
+      "title": "Include Reeve in MQTT counts",
+      "description": "Include the Reeve in agent counts.",
+      "kind": "bool",
+      "class": "change",
+      "mode": "restart"
+    },
+    {
+      "key": "integrations.mqtt.attention_details",
+      "title": "MQTT Attention details",
+      "description": "Export bounded generated safe labels; retained MQTT data and HA history can outlive Legato.",
+      "kind": "bool",
+      "class": "risky",
+      "mode": "restart"
+    },
+    {
+      "key": "integrations.argus.url",
+      "title": "Argus address",
+      "kind": "string",
+      "class": "risky",
+      "mode": "restart"
+    },
+    {
+      "key": "integrations.argus.delivery",
+      "title": "Argus delivery",
+      "kind": "string",
+      "class": "change",
+      "mode": "restart"
+    },
+    {
+      "key": "integrations.argus.agent",
+      "title": "Argus's agent tool",
+      "kind": "string",
+      "class": "change",
+      "mode": "restart"
+    },
+    {
+      "key": "review_passes.enabled",
+      "title": "Review passes",
+      "kind": "bool",
+      "class": "change",
+      "mode": "restart"
+    },
+    {
+      "key": "review_passes.reviewer.agent",
+      "title": "Reviewer's agent tool",
+      "kind": "string",
+      "class": "change",
+      "mode": "restart"
+    },
+    {
+      "key": "review_passes.reviewer.model",
+      "title": "Reviewer's model",
+      "kind": "string",
+      "class": "change",
+      "mode": "restart"
+    },
+    {
+      "key": "review_passes.reviewer.tier",
+      "title": "Reviewer's tier",
+      "kind": "string",
+      "class": "change",
+      "mode": "restart"
+    },
+    {
+      "key": "review_passes.reviewer.skill",
+      "title": "Reviewer's skill",
+      "kind": "string",
+      "class": "change",
+      "mode": "restart"
+    },
+    {
+      "key": "review_passes.github_credential",
+      "title": "Reviewer's GitHub credential",
+      "kind": "string",
+      "class": "risky",
+      "mode": "restart"
+    },
+    {
+      "key": "review_passes.max_passes",
+      "title": "Most review passes",
+      "kind": "int",
+      "class": "change",
+      "mode": "restart"
+    },
+    {
+      "key": "review_passes.pass_timeout",
+      "title": "Review pass timeout",
+      "kind": "duration",
+      "class": "change",
+      "mode": "restart"
+    },
+    {
+      "key": "review_passes.max_concurrent",
+      "title": "Most review passes at once",
+      "kind": "int",
+      "class": "change",
+      "mode": "restart"
+    },
+    {
+      "key": "review_passes.review_column",
+      "title": "Review column",
+      "kind": "string",
+      "class": "change",
+      "mode": "restart"
+    },
+    {
+      "key": "review_passes.poll_interval",
+      "title": "Review pass poll interval",
+      "kind": "duration",
+      "class": "change",
+      "mode": "restart"
+    },
+    {
+      "key": "review_passes.quiet_time",
+      "title": "Review pass quiet time",
+      "kind": "duration",
+      "class": "change",
+      "mode": "restart"
+    },
+    {
+      "key": "review_passes.counted_bots",
+      "title": "Review bots counted",
+      "kind": "strings",
+      "class": "change",
+      "mode": "restart"
+    },
+    {
+      "key": "review_passes.required_checks",
+      "title": "Checks a review pass waits for",
+      "kind": "strings",
+      "class": "change",
+      "mode": "restart"
+    },
+    {
+      "key": "reeve.name",
+      "title": "The Reeve's name",
+      "description": "What Legato calls the Reeve on this instance: in the sidebar, its conversation, approvals, notifications and the TUI, and in its own prompt. \"the Reeve\" when empty.",
+      "kind": "string",
+      "class": "change",
+      "mode": "live"
+    },
+    {
+      "key": "reeve.agent",
+      "title": "The Reeve's agent tool",
+      "description": "claude-code, codex or chimera; the default agent tool when empty.",
+      "kind": "string",
+      "class": "change",
+      "mode": "live"
+    },
+    {
+      "key": "reeve.model",
+      "title": "The Reeve's model or tier",
+      "kind": "string",
+      "class": "change",
+      "mode": "live"
+    },
+    {
+      "key": "reeve.idle_timeout",
+      "title": "Suspend the Reeve after",
+      "description": "How long a session may be idle before its agent is stopped; the next message resumes it. 2h when empty.",
+      "kind": "duration",
+      "class": "change",
+      "mode": "live"
+    },
+    {
+      "key": "reeve.levels.change",
+      "title": "What a change needs",
+      "description": "auto (runs at once, no approval asked), approve (a tap), signed (an enrolled device) or verified (signed, with a fingerprint or a PIN). One of the Reeve's own rules: changed only with a signature, though making it stricter needs none.",
+      "kind": "enum",
+      "enum": [
+        "",
+        "auto",
+        "approve",
+        "signed",
+        "verified"
+      ],
+      "class": "risky",
+      "mode": "live",
+      "own_rule": true
+    },
+    {
+      "key": "reeve.levels.risky",
+      "title": "What a risky change needs",
+      "description": "default (signed once a device is enrolled, else approve), approve, signed or verified; or auto, which runs risky changes (restarts, agents stopped, settings that choose what runs on this machine) at once with no approval asked. One of the Reeve's own rules.",
+      "kind": "enum",
+      "enum": [
+        "",
+        "default",
+        "auto",
+        "approve",
+        "signed",
+        "verified"
+      ],
+      "class": "risky",
+      "mode": "live",
+      "own_rule": true
+    },
+    {
+      "key": "reeve.host_operations",
+      "title": "Host operations",
+      "description": "Offer the Reeve a shell, file edits and systemd services on this machine, each as a change you approve. One of the Reeve's own rules.",
+      "kind": "bool",
+      "class": "risky",
+      "mode": "live",
+      "own_rule": true
+    },
+    {
+      "key": "reeve.host_operations_auto",
+      "title": "Run host operations without asking",
+      "description": "On, the Reeve's shell commands, file edits and service actions run at once, with no approval asked: it can then run any command as your user on this machine. Each is still audited. Commands as root still need a verified approval. Off by default; one of the Reeve's own rules: turning it on needs a signature, turning it off never does.",
+      "kind": "bool",
+      "class": "risky",
+      "mode": "live",
+      "own_rule": true
+    },
+    {
+      "key": "reeve.host_timeout",
+      "title": "Host command timeout",
+      "description": "How long one host command may run. 10m when empty.",
+      "kind": "duration",
+      "class": "risky",
+      "mode": "live"
+    },
+    {
+      "key": "reeve.host_output_cap",
+      "title": "Host command output (bytes)",
+      "description": "How much of a host command's output the Reeve is given; the rest is kept in a file it can read. 65536 when 0.",
+      "kind": "int",
+      "class": "change",
+      "mode": "live"
+    },
+    {
+      "key": "reeve.peer",
+      "title": "When another Reeve messages",
+      "description": "With no session running: start one (start, the default), ask a person first (ask), or refuse. One of the Reeve's own rules.",
+      "kind": "enum",
+      "enum": [
+        "",
+        "start",
+        "ask",
+        "refuse"
+      ],
+      "class": "risky",
+      "mode": "live",
+      "own_rule": true
+    },
+    {
+      "key": "reeve.launch_args",
+      "title": "The Reeve's launch arguments",
+      "kind": "strings",
+      "class": "risky",
+      "mode": "live"
+    },
+    {
+      "key": "reeve.voice.enabled",
+      "title": "The Reeve's voice",
+      "description": "Lets the Reeve speak out loud on this machine's speakers. Sessions started after it is turned on are offered the speak tool; turning it off mutes the Reeve at once.",
+      "kind": "bool",
+      "class": "change",
+      "mode": "live"
+    },
+    {
+      "key": "reeve.voice.command",
+      "title": "Voice command",
+      "description": "Makes a line's audio: run as \u003ccommand\u003e \"\u003ctext\u003e\" \u003cout-file\u003e, it writes an audio file to \u003cout-file\u003e. A script such as reeve-say.sh, or one for Piper.",
+      "kind": "string",
+      "class": "risky",
+      "mode": "live"
+    },
+    {
+      "key": "reeve.voice.credential",
+      "title": "Voice credential",
+      "description": "A credential Legato gives the voice command, as elevenlabs. Empty for a local voice.",
+      "kind": "string",
+      "class": "risky",
+      "mode": "live"
+    },
+    {
+      "key": "reeve.voice.credential_env",
+      "title": "Voice credential variable",
+      "description": "The variable the command finds the credential in. The credential's name in capitals with _API_KEY when empty (ELEVENLABS_API_KEY).",
+      "kind": "string",
+      "class": "risky",
+      "mode": "live"
+    },
+    {
+      "key": "reeve.voice.pause",
+      "title": "Pause that ends a spoken turn",
+      "description": "How long you stay quiet before what you said is sent to the Reeve, from 0.3s to 2s. 1s when empty.",
+      "kind": "duration",
+      "class": "change",
+      "mode": "live"
+    },
+    {
+      "key": "reeve.voice.follow_up",
+      "title": "Listen for a reply for",
+      "description": "How long the voice listens for your reply after the Reeve has spoken. 6s when empty; 0s for a single turn.",
+      "kind": "duration",
+      "class": "change",
+      "mode": "live"
+    },
+    {
+      "key": "reeve.voice.partials",
+      "title": "Words as you speak",
+      "description": "Show the words so far while you speak, by transcribing about once a second. Turn it off when Whisper runs on a CPU, or is shared with Home Assistant.",
+      "kind": "bool",
+      "class": "change",
+      "mode": "live"
+    },
+    {
+      "key": "reeve.voice.quiet_hours",
+      "title": "Quiet hours",
+      "description": "No line plays on this machine's speakers then, as 22:00-07:00 in its local time; the Reeve replies in writing instead. A reply to something you said to it still plays on your device. Empty for none.",
+      "kind": "string",
+      "class": "change",
+      "mode": "live"
+    },
+    {
+      "key": "reeve.voice.player",
+      "title": "Voice player",
+      "description": "Plays a line's audio file, named after it. pw-play, else ffplay, when empty.",
+      "kind": "string",
+      "class": "risky",
+      "mode": "live"
+    },
+    {
+      "key": "reeve.watch.settle",
+      "title": "Agent idle before the Reeve is told",
+      "description": "How long an agent the Reeve watches must stay idle, or busy only in the background, before the Reeve is told, so brief pauses do not wake it. 30s when empty.",
+      "kind": "duration",
+      "class": "change",
+      "mode": "live"
+    },
+    {
+      "key": "reeve.watch.started",
+      "title": "Watch the agents the Reeve starts",
+      "description": "Watch every agent the Reeve starts or messages, so it is told when one waits, goes idle, adds a note, opens a pull request or exits.",
+      "kind": "bool",
+      "class": "change",
+      "mode": "live"
+    },
+    {
+      "key": "reeve.watch.wake",
+      "title": "Wake the Reeve for its agents",
+      "description": "When an agent the Reeve watches needs it and no session is running, start or resume one to tell it. Off, the news waits for the next session. On costs tokens while you are away.",
+      "kind": "bool",
+      "class": "change",
+      "mode": "live"
+    },
+    {
+      "key": "burnlite.projects",
+      "title": "Burnlite projects",
+      "description": "The projects searched for import; none is every project.",
+      "kind": "strings",
+      "class": "change",
+      "mode": "live"
+    }
+  ]
+}
