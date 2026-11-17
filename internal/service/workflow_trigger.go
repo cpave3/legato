@@ -121,8 +121,12 @@ func (c *WorkflowTriggerCoordinator) process(ctx context.Context, transition sto
 	// leave it alone unless the workflow opts in.
 	if !definition.On.TaskEnteredColumn.HandedOff {
 		if h, err := c.store.OpenHandoffForTask(ctx, transition.TaskID); err == nil {
+			main := h.MainName
+			if main == "" {
+				main = h.MainInstanceID
+			}
 			return c.update(ctx, request.ID, "skipped", "", `{}`, `[]`,
-				fmt.Sprintf("the card was handed off from %s, whose workflows run when it returns; set handed_off: true on the trigger to run on such cards", h.MainName))
+				fmt.Sprintf("the card was handed off from %s, whose workflows run when it returns; set handed_off: true on the trigger to run on such cards", main))
 		} else if !errors.Is(err, store.ErrNotFound) {
 			return err
 		}
