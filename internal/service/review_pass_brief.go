@@ -48,7 +48,7 @@ func (s *ReviewPassService) brief(ctx context.Context, h *store.Handoff, pass in
 	place := "Give each the pull request's number, a one-line title, a body, a `failure_scenario` when it is blocking, and a place (path, line, optional start_line, side RIGHT for the head or LEFT for a deleted line) when it is about particular lines."
 	if pass == 1 {
 		if settings.Skill != "" {
-			fmt.Fprintf(&b, "1. Review these pull requests with the %s skill.\n", settings.Skill)
+			fmt.Fprintf(&b, "1. Review these pull requests with the %s skill.\n", reviewSkillName(settings))
 		} else {
 			b.WriteString("1. Review these pull requests.\n")
 		}
@@ -57,7 +57,7 @@ func (s *ReviewPassService) brief(ctx context.Context, h *store.Handoff, pass in
 	} else {
 		fmt.Fprintf(&b, "1. Read what changed since pass %d: the diff from the heads listed above to the pinned heads.", pass-1)
 		if settings.Skill != "" {
-			fmt.Fprintf(&b, " If you use the %s skill, point it at that diff only.", settings.Skill)
+			fmt.Fprintf(&b, " If you use the %s skill, point it at that diff only.", reviewSkillName(settings))
 		}
 		b.WriteString("\n")
 		b.WriteString("2. Rule on every earlier blocking finding listed above: `resolved` when it was fixed or you accept the author's answer, `open` with why when it was not. Accept an answer that a finding is below the bar, or is a follow-up outside this task, when that is so.\n")

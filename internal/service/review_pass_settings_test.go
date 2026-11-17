@@ -56,3 +56,38 @@ func TestAReviewOverrideIsCheckedAgainstWhatTheWorkerHas(t *testing.T) {
 		t.Fatalf("override = %+v, %v", settings, err)
 	}
 }
+
+// A skill in the worker's own Legato skills folder can be the reviewer's,
+// named plainly or as Claude Code sees it (legato-skills:<name>).
+func TestAReviewOverrideMayNameAManagedSkill(t *testing.T) {
+	advert := ReviewPassesAdvert{
+		Defaults:      ReviewPassSettings{Enabled: true, Agent: "claude-code", MaxPasses: 3},
+		Adapters:      []ReviewAdapter{{Name: "claude-code"}, {Name: "codex"}},
+		Skills:        []string{"scratch-managed", "scratch-personal"},
+		ManagedSkills: []string{"scratch-managed"},
+	}
+	for _, name := range []string{"scratch-managed", "legato-skills:scratch-managed"} {
+		settings, err := advert.Apply(ReviewPassOverride{Skill: name})
+		if err != nil || settings.Skill != "scratch-managed" || !settings.SkillManaged {
+			t.Fatalf("%s: %+v, %v", name, settings, err)
+		}
+	}
+	if settings, err := advert.Apply(ReviewPassOverride{Skill: "scratch-personal"}); err != nil || settings.SkillManaged {
+		t.Fatalf("personal: %+v, %v", settings, err)
+	}
+}
+
+func TestTheReviewerIsToldTheSkillByTheNameItsToolKnows(t *testing.T) {
+	for _, tc := range []struct {
+		settings ReviewPassSettings
+		want     string
+	}{
+		{ReviewPassSettings{Agent: "claude-code", Skill: "scratch-managed", SkillManaged: true}, "legato-skills:scratch-managed"},
+		{ReviewPassSettings{Agent: "codex", Skill: "scratch-managed", SkillManaged: true}, "scratch-managed"},
+		{ReviewPassSettings{Agent: "claude-code", Skill: "scratch-personal"}, "scratch-personal"},
+	} {
+		if got := reviewSkillName(tc.settings); got != tc.want {
+			t.Errorf("%+v: %q, want %q", tc.settings, got, tc.want)
+		}
+	}
+}

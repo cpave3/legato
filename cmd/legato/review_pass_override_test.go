@@ -59,7 +59,7 @@ review_passes:
 
 	worker := handofftest.StartWorker(t, handofftest.WorkerOptions{Name: "vm-1", GitHubRepositories: []string{"acme/*"},
 		ReviewPasses: &handofftest.ReviewPassOptions{Runtime: func(o service.ReviewPassOptions) service.ReviewPassOptions {
-			return workerReviewPassOptions(cfg, o)
+			return workerReviewPassOptions(cfg, nil, o)
 		}}})
 	main := handofftest.NewMain(t, handofftest.MainOptions{Name: "workstation", Clock: worker.Clock})
 	paired := handofftest.Pair(t, main, worker)

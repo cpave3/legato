@@ -2,6 +2,7 @@ package main
 
 import (
 	"context"
+	"github.com/cpave3/legato/internal/engine/store"
 	"log"
 	"time"
 
@@ -32,8 +33,8 @@ func reviewPassConfig(cfg *config.Config) func() service.ReviewPassConfig {
 // configuration: review_passes, and the advert a main's Hand off override is
 // checked against, which is the one /api/meta gives (reviewPassesAdvert).
 // Without the advert every override is refused.
-func workerReviewPassOptions(cfg *config.Config, opts service.ReviewPassOptions) service.ReviewPassOptions {
-	opts.Config, opts.Advert = reviewPassConfig(cfg), reviewPassesAdvert(cfg)
+func workerReviewPassOptions(cfg *config.Config, db *store.Store, opts service.ReviewPassOptions) service.ReviewPassOptions {
+	opts.Config, opts.Advert = reviewPassConfig(cfg), reviewPassesAdvert(cfg, db)
 	return opts
 }
 
@@ -49,7 +50,7 @@ func wireReviewPasses(deps integrationDeps, handoffs *service.HandoffWorkerServi
 	if !ok || deps.board == nil {
 		return func() {}
 	}
-	opts := workerReviewPassOptions(deps.cfg, service.ReviewPassOptions{
+	opts := workerReviewPassOptions(deps.cfg, deps.db, service.ReviewPassOptions{
 		Agents: agents, Board: deps.board, Bus: deps.bus,
 		GitHub:   service.NewReviewPublisher(deps.approvals.channels, deps.cfg.ReviewPasses.GitHubCredential),
 		Checkout: service.GitReviewCheckout{Store: deps.db},

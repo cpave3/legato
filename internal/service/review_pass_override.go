@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/cpave3/legato/internal/engine/store"
@@ -62,14 +63,17 @@ func (a ReviewPassesAdvert) Apply(o ReviewPassOverride) (ReviewPassSettings, err
 		settings.Tier, settings.Model = o.Tier, ""
 	}
 	if o.Skill != "" {
+		// Named plainly, or as Claude Code names a managed skill.
+		name := strings.TrimPrefix(o.Skill, managedSkillPrefix)
 		found := false
 		for _, s := range a.Skills {
-			found = found || s == o.Skill
+			found = found || s == name
 		}
 		if !found {
 			return ReviewPassSettings{}, fmt.Errorf("this worker has no skill %q", o.Skill)
 		}
-		settings.Skill = o.Skill
+		settings.Skill = name
+		settings.SkillManaged = slices.Contains(a.ManagedSkills, name)
 	}
 	if o.MaxPasses < 0 {
 		return ReviewPassSettings{}, errors.New("max passes must be at least 1")
