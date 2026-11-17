@@ -53,7 +53,7 @@ The form says why, in the words of the main or the worker, and nothing is handed
 - **The worker did not answer.** Nothing was sent. Handing the task to the same worker again is safe: if the worker did get it, it does not make a second card.
 - **The worker has no sandbox**, or **does not know the agent tool** you chose. Choose another worker or tool.
 - **The worker cannot clone the repository**, for example because its GitHub credential cannot read it.
-- **Update the worker**: the worker runs a Legato too old to take a handoff. A worker that cannot yet start from a pushed branch says so.
+- **Update the worker**: the worker runs a Legato too old to take a handoff, or too old for what this one needs: a ticket's text, a start from a pushed branch, or your review settings. The message names what it lacks ("vm-1 is too old for ticket: update it"), and nothing is sent. A plain task on a new branch still goes to an older worker.
 - **No branch name**: starting from a pushed branch needs the branch's name.
 - **No key**: a task from a ticket provider that has no ticket key cannot be handed off.
 

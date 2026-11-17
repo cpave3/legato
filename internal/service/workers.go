@@ -220,6 +220,9 @@ type workerMeta struct {
 	Sandbox        *bool  `json:"sandbox"`
 	// ReviewPasses is set when the worker runs review passes.
 	ReviewPasses *ReviewPassesAdvert `json:"review_passes,omitempty"`
+	// HandoffFeatures are the handoff features the worker supports; none
+	// for a worker built before they were advertised.
+	HandoffFeatures []string `json:"handoff_features,omitempty"`
 }
 
 // Pair pairs this main with a worker by the phrase the worker shows: it

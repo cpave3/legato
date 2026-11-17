@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"net/http"
+	"strings"
 
 	"github.com/cpave3/legato/internal/service"
 )
@@ -35,7 +36,16 @@ func (s *Server) taskHandoffHandler() http.HandlerFunc {
 		}
 		var call service.HandoffCall
 		r.Body = http.MaxBytesReader(w, r.Body, 16<<20)
-		if err := json.NewDecoder(r.Body).Decode(&call); err != nil {
+		// Strict: a field this worker does not know is refused, not
+		// dropped, so a newer main never loses what it sent (a ticket, a
+		// base branch) to a 201.
+		dec := json.NewDecoder(r.Body)
+		dec.DisallowUnknownFields()
+		if err := dec.Decode(&call); err != nil {
+			if field, ok := strings.CutPrefix(err.Error(), "json: unknown field "); ok {
+				writeIntegrationError(w, http.StatusBadRequest, "unknown_field", "this worker does not know the field "+field+": update it")
+				return
+			}
 			writeIntegrationError(w, http.StatusBadRequest, "bad_request", "the body is not a handoff")
 			return
 		}

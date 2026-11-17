@@ -9,6 +9,7 @@ import (
 	"fmt"
 	"net/http"
 	"net/url"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -242,6 +243,24 @@ func (s *TaskHandoffService) HandOff(ctx context.Context, req TaskHandoffRequest
 	}
 	if req.Review != nil && meta.ReviewPasses == nil {
 		return AwayTask{}, &handoffWorkerError{ErrWorkerRefused, fmt.Sprintf("%s does not run review passes", name)}
+	}
+	// What the call carries beyond a local task on a new branch is sent
+	// only to a worker that lists its feature: an older worker would drop
+	// it and answer 201 all the same.
+	if req.Review != nil && !slices.Contains(meta.HandoffFeatures, HandoffFeatureReviewOverride) && req.Review.OnlyOff() {
+		req.Review = nil
+	}
+	for _, need := range []struct {
+		feature string
+		used    bool
+	}{
+		{HandoffFeatureTicket, task.Provider != nil},
+		{HandoffFeaturePushedBranch, req.Kind == HandoffPushedBranch},
+		{HandoffFeatureReviewOverride, req.Review != nil},
+	} {
+		if need.used && !slices.Contains(meta.HandoffFeatures, need.feature) {
+			return AwayTask{}, &handoffWorkerError{ErrWorkerTooOld, fmt.Sprintf("%s is too old for %s: update it (it runs Legato %s)", name, need.feature, orUnknown(meta.Version))}
+		}
 	}
 
 	notes, err := s.db.ListTaskNotes(ctx, task.ID)
