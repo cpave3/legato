@@ -16,6 +16,17 @@ function when(iso: string): string {
 const inputClass = "min-h-10 rounded-lg border border-lw-line-strong bg-lw-raised px-3 text-sm text-lw-text outline-none placeholder:text-lw-faint focus:border-lw-accent"
 const alertClass = "rounded-md border border-lw-danger-line bg-lw-error-soft px-3 py-2 text-xs text-lw-danger"
 const listClass = "overflow-hidden rounded-lg border border-lw-line divide-y divide-lw-line"
+// sentence starts a status that stands on its own line with a capital.
+function sentence(text: string): string {
+  return text.charAt(0).toUpperCase() + text.slice(1)
+}
+
+// sandboxOn is the worker's sandbox as it last said: its advert when it
+// gave one, else what it said at pairing.
+function sandboxOn(w: Worker): boolean {
+  return w.advert ? w.advert.sandbox : w.sandbox
+}
+
 const metaClass = "flex min-w-0 flex-wrap items-baseline gap-x-3 gap-y-0.5 text-xs text-lw-text-2"
 
 // WorkersSettings is the main's side: the workers it hands tasks to, Add a
@@ -152,13 +163,13 @@ export function WorkersSettings({ baseUrl }: { baseUrl: string }) {
                   ) : w.unreachable_since ? (
                     <span className="text-lw-error">Unreachable since {when(w.unreachable_since)}</span>
                   ) : null}
-                  <span className={w.sandbox ? "" : "text-lw-needs"}>{w.sandbox ? "Sandbox on" : "Sandbox off: it refuses handoffs"}</span>
+                  {!w.cannot_take_handoffs && <span className={sandboxOn(w) ? "" : "text-lw-needs"}>{sandboxOn(w) ? "Sandbox on" : "Sandbox off: it refuses handoffs"}</span>}
                   <span className="font-lw-mono">{workerVersion(w)}</span>
                   {w.older && <span className="text-lw-needs">Older than this Legato: update it</span>}
                   <span>This main is <span className="font-lw-mono">{w.main_name}</span> there</span>
                   <span>{w.away ?? 0} away</span>
                 </div>
-                {w.cannot_take_handoffs && <p className="m-0 text-xs text-lw-needs">{w.cannot_take_handoffs}</p>}
+                {w.cannot_take_handoffs && <p className="m-0 text-xs text-lw-needs">{sentence(w.cannot_take_handoffs)}</p>}
                 {removing?.instance_id === w.instance_id && (
                   <div className="mt-1 flex flex-col gap-2 rounded-lg border border-lw-danger-line p-3">
                     <p className="text-xs text-lw-text-2">{removeWarning(w.name, w.away ?? 0)}</p>

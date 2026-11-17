@@ -194,7 +194,7 @@ func workerFromRow(w store.Worker) Worker {
 	var refuses []string
 	if worker.Advert != nil {
 		refuses = worker.Advert.Refuses
-		worker.Older = version.Newer(version.String(), worker.Advert.Version)
+		worker.Older = version.Newer(thisVersion(), worker.Advert.Version)
 	} else if !worker.Sandbox {
 		refuses = []string{refusesNoSandbox}
 	}
@@ -203,6 +203,10 @@ func workerFromRow(w store.Worker) Worker {
 	}
 	return worker
 }
+
+// thisVersion is this Legato's version, which a worker's is compared with;
+// tests replace it.
+var thisVersion = version.String
 
 // Leaving says whether the worker was removed and is kept only to send the
 // calls owed it.

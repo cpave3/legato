@@ -108,7 +108,9 @@ describe("WorkersSettings", () => {
     workers = [{ ...workers[0], sandbox: false, cannot_take_handoffs: "can't take handoffs: its board has no columns" }]
     render(<WorkersSettings baseUrl="" />)
     const vm = await screen.findByRole("listitem", { name: "vm-1" })
-    expect(within(vm).getByText("can't take handoffs: its board has no columns")).toBeTruthy()
+    expect(within(vm).getByText("Can't take handoffs: its board has no columns")).toBeTruthy()
+    // Said once: the sandbox line would repeat it.
+    expect(within(vm).queryByText(/sandbox off/i)).toBeNull()
   })
 
   it("says after pairing when the new worker can't take handoffs", async () => {
