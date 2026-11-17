@@ -31,13 +31,18 @@ describe("workerOnlyRepositories", () => {
   it("lists the worker's named repositories the main does not offer, never a pattern", () => {
     expect(workerOnlyRepositories(advert, ["acme/widget"])).toEqual(["cpave3/legato"])
     expect(workerOnlyRepositories(advert, ["cpave3/legato"])).toEqual([])
+    // Only a GitHub owner/name: nothing else a worker sends is offered.
+    expect(workerOnlyRepositories({ ...advert, repositories: ["evil/<b>x</b>", "a/b c", "ok/fine"] }, [])).toEqual(["ok/fine"])
   })
 })
 
 describe("handoffBlock", () => {
   it("says why a worker can't take handoffs", () => {
     expect(handoffBlock(worker())).toBeNull()
-    expect(handoffBlock(worker({ sandbox: false }))).toMatch(/sandbox off/)
+    expect(handoffBlock(worker({ sandbox: false, advert: undefined }))).toMatch(/sandbox off/)
+    // The advert is newer than what the worker said at pairing.
+    expect(handoffBlock(worker({ sandbox: false }))).toBeNull()
+    expect(handoffBlock(worker({ advert: { ...advert, sandbox: false } }))).toMatch(/sandbox off/)
     expect(handoffBlock(worker({ cannot_take_handoffs: "can't take handoffs: its board has no columns" }))).toBe("can't take handoffs: its board has no columns")
   })
 })

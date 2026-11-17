@@ -89,6 +89,9 @@ export function HandOffModal({ baseUrl, open, card, repositories, onClose, onHan
   const offered = repositories.filter((repository) => repository.repo)
   const [repo, setRepo] = useState("")
   const [tool, setTool] = useState("")
+  // Whether the person chose the tool: until they do, it follows the
+  // chosen worker's default, whichever list arrived first.
+  const [toolChosen, setToolChosen] = useState(false)
   const [error, setError] = useState<string | null>(null)
   const [sending, setSending] = useState(false)
   // The chosen worker's review passes, and this handoff's changes to them.
@@ -141,7 +144,10 @@ export function HandOffModal({ baseUrl, open, card, repositories, onClose, onHan
   // No repository is chosen for the person: work sent to the wrong one is
   // easy to miss, so the form waits for a choice every time it opens.
   useEffect(() => {
-    if (!open) setRepo("")
+    if (!open) {
+      setRepo("")
+      setToolChosen(false)
+    }
   }, [open])
 
   const chosenWorker = workers?.find((w) => w.instance_id === worker)
@@ -149,9 +155,13 @@ export function HandOffModal({ baseUrl, open, card, repositories, onClose, onHan
   // The tools the chosen worker can run unattended, its default first; the
   // choice follows the worker.
   const tools = handoffTools(advertOf, localTools)
+  // tools is rebuilt each render; its names say when it changed.
+  const toolsKey = tools.join(" ")
   useEffect(() => {
-    setTool((chosen) => (tools.includes(chosen) ? chosen : tools[0] ?? ""))
-  }, [tools.join(" ")]) // eslint-disable-line react-hooks/exhaustive-deps
+    setTool((chosen) => (toolChosen && tools.includes(chosen) ? chosen : tools[0] ?? ""))
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [toolsKey, toolChosen])
+  const workerName = chosenWorker?.name ?? "the worker"
   const workerOnly = workerOnlyRepositories(advertOf, offered.map((r) => r.repo))
   const lacks = missingOnWorker(advertOf, here)
   const repoBlocked = repo.trim() !== "" && !advertCanClone(advertOf, repo)
@@ -224,9 +234,9 @@ export function HandOffModal({ baseUrl, open, card, repositories, onClose, onHan
                   {offered.map((repository) => {
                     const label = repository.name === repository.repo ? repository.repo : `${repository.name} · ${repository.repo}`
                     const clonable = advertCanClone(advertOf, repository.repo)
-                    return <option key={repository.repo} value={repository.repo} disabled={!clonable}>{clonable ? label : `${label} · ${chosenWorker?.name} can't clone it`}</option>
+                    return <option key={repository.repo} value={repository.repo} disabled={!clonable}>{clonable ? label : `${label} · ${workerName} can't clone it`}</option>
                   })}
-                  {workerOnly.map((r) => <option key={r} value={r}>{`${r} · on ${chosenWorker?.name} only`}</option>)}
+                  {workerOnly.map((r) => <option key={r} value={r}>{`${r} · on ${workerName} only`}</option>)}
                 </select>
               ) : (
                 <input aria-label="Repository" required value={repo} onChange={(event) => setRepo(event.target.value)} placeholder="owner/name on GitHub" className={`${control} font-lw-mono`} />
@@ -234,17 +244,17 @@ export function HandOffModal({ baseUrl, open, card, repositories, onClose, onHan
             </label>
             <label className="flex flex-col gap-1.5">
               <span className={fieldLabel}>Agent tool</span>
-              <select aria-label="Agent tool" value={tool} onChange={(event) => setTool(event.target.value)} className={control}>
+              <select aria-label="Agent tool" value={tool} onChange={(event) => { setTool(event.target.value); setToolChosen(true) }} className={control}>
                 {tools.length === 0 && <option value="">The worker's default</option>}
                 {tools.map((kind) => <option key={kind} value={kind}>{agentKindLabel(kind)}</option>)}
               </select>
             </label>
             {repoBlocked && (
-              <p className="text-xs text-lw-needs">{chosenWorker?.name} can't clone {repo.trim()}: its GitHub credentials do not list it.</p>
+              <p className="text-xs text-lw-needs">{workerName} can't clone {repo.trim()}: its GitHub credentials do not list it.</p>
             )}
             {lacks.length > 0 && (
               <p className="rounded-md border border-lw-needs/40 bg-lw-needs-soft px-3 py-2 text-xs text-lw-needs">
-                Not on {chosenWorker?.name}: {lacks.join(", ")}. Its agent works without them.
+                Not on {workerName}: {lacks.join(", ")}. Its agent works without them.
               </p>
             )}
             {advert && purpose === "make-change" && <ReviewPassesSection advert={advert} review={review} onChange={setReview} />}

@@ -283,6 +283,26 @@ describe("HandOffModal", () => {
       expect(warning.textContent).not.toContain("tdd")
     })
 
+    it("picks the worker's default tool even when this Legato's tools are read first", async () => {
+      // This Legato's default (codex in these tests) is installed there
+      // too: the worker's own default still wins until the person chooses.
+      vm1Advert = { ...advert, agents: [...advert.agents.filter((a) => a.name !== "codex"), { name: "codex", installed: true, tiers: [], prompts_off: true }] }
+      renderForm()
+      const tool = await screen.findByRole("combobox", { name: "Agent tool" }) as HTMLSelectElement
+      await waitFor(() => expect(tool.value).toBe("chimera"))
+      fireEvent.change(tool, { target: { value: "codex" } })
+      expect(tool.value).toBe("codex")
+    })
+
+    it("blocks a typed repository the worker can't clone", async () => {
+      vm1Advert = advert
+      renderForm({ repositories: [] })
+      const repo = await screen.findByRole("textbox", { name: "Repository" })
+      fireEvent.change(repo, { target: { value: "other/thing" } })
+      expect(await screen.findByText(/vm-1 can't clone other\/thing/)).toBeTruthy()
+      expect((screen.getByRole("button", { name: "Hand off" }) as HTMLButtonElement).disabled).toBe(true)
+    })
+
     it("shows a worker that can't take handoffs, unselectable, with why", async () => {
       vm3 = { instance_id: "srv-vm3", address: "https://vm-3", name: "vm-3", main_name: "workstation", sandbox: true, handoff_version: 2,
         paired_at: "2026-11-03T09:00:00Z", cannot_take_handoffs: "can't take handoffs: its board has no columns" }

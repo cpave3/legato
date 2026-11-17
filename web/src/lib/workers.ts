@@ -272,18 +272,22 @@ export function advertCanClone(advert: WorkerAdvert | undefined, repo: string): 
   })
 }
 
+// githubRepo is a GitHub owner/name: what a worker's advert may add to the
+// form, never a pattern or anything else it sends.
+const githubRepo = /^[A-Za-z0-9-]{1,39}\/[A-Za-z0-9._-]{1,100}$/
+
 // workerOnlyRepositories are the repositories a worker names that this
 // Legato does not offer: they can be handed off too.
 export function workerOnlyRepositories(advert: WorkerAdvert | undefined, offered: string[]): string[] {
   if (!advert || !advert.repositories) return []
   const here = new Set(offered.map((r) => r.toLowerCase()))
-  return advert.repositories.filter((r) => !r.endsWith("/*") && r.includes("/") && !here.has(r.toLowerCase()))
+  return advert.repositories.filter((r) => githubRepo.test(r) && !here.has(r.toLowerCase()))
 }
 
 // handoffBlock says why a worker can't take handoffs, or null when it can.
 export function handoffBlock(w: Worker): string | null {
   if (w.cannot_take_handoffs) return w.cannot_take_handoffs
-  if (!w.sandbox) return "sandbox off: it refuses handoffs"
+  if (!(w.advert ? w.advert.sandbox : w.sandbox)) return "sandbox off: it refuses handoffs"
   return null
 }
 

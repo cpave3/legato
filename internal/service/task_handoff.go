@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"net/http"
 	"net/url"
 	"slices"
@@ -235,6 +236,13 @@ func (s *TaskHandoffService) HandOff(ctx context.Context, req TaskHandoffRequest
 	}
 	if meta.Handoff < HandoffProtocolVersion {
 		return AwayTask{}, &handoffWorkerError{ErrWorkerTooOld, fmt.Sprintf("update the worker: %s runs Legato %s, which cannot take a handoff from this one", name, orUnknown(meta.Version))}
+	}
+	// What the worker can do is read again now: a worker that holds none
+	// of this main's tasks has no connection to refresh it, and an advert
+	// from pairing may refuse what the worker now takes. A failed read
+	// keeps the stored one.
+	if err := s.opts.Workers.RefreshAdvert(ctx, client); err != nil {
+		log.Printf("handoff: %s's advert: %v", name, err)
 	}
 	// The worker's definition decides access: a repository its advert does
 	// not list is refused here, in the words the Hand off form uses.

@@ -2,8 +2,8 @@ package handofftest
 
 import (
 	"context"
-	"errors"
 	"encoding/json"
+	"errors"
 	"io"
 	"net/http"
 	"slices"
@@ -274,5 +274,23 @@ func TestTheCredentialBrokerListsWhatItsGitHubCredentialsCanClone(t *testing.T) 
 	}
 	if got := StartWorker(t, WorkerOptions{}).Credentials.GitHubRepositories(); got == nil || len(got) != 0 {
 		t.Fatalf("without a credential: %#v, want an empty list", got)
+	}
+}
+
+// A worker given a repository after pairing takes it at once: the main
+// reads the advert again before it decides, with no connection to refresh it.
+func TestAHandoffReadsTheWorkersAdvertAfresh(t *testing.T) {
+	var repos atomic.Value
+	repos.Store([]string{"acme/*"})
+	sources := advertSources()
+	sources.Repositories = func() []string { return repos.Load().([]string) }
+	worker := StartWorker(t, WorkerOptions{Wire: func(w *Worker) { w.Handoffs.SetAdvertSources(sources) }})
+	main := NewMain(t, MainOptions{Clock: worker.Clock})
+	paired := Pair(t, main, worker)
+	taskID, _ := localTask(t, main, "Fix it", "", "")
+
+	repos.Store([]string{"acme/*", "other/thing"})
+	if _, err := handOff(t, main, paired.InstanceID, taskID, func(r *service.TaskHandoffRequest) { r.Repo = "other/thing" }); err != nil {
+		t.Fatalf("a repository the worker lists since pairing: %v", err)
 	}
 }

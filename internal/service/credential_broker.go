@@ -557,7 +557,6 @@ func (b *CredentialBroker) permits(ctx context.Context, executionID, taskID, nam
 	return r != nil && r.Approve != "deny"
 }
 
-// all lists every credential known now, by name.
 // GitHubRepositories are the repositories (owner/name, owner/*) the
 // GitHub credentials that make git tokens list: what Legato's repository
 // cache can clone. A worker advertises them to its mains.
@@ -571,6 +570,7 @@ func (b *CredentialBroker) GitHubRepositories() []string {
 	return out
 }
 
+// all lists every credential known now, by name.
 func (b *CredentialBroker) all() []brokerCredential {
 	out := make([]brokerCredential, 0, len(b.names))
 	for _, name := range b.names {

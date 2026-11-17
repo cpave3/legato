@@ -483,11 +483,15 @@ var ErrNoAdvert = errors.New("the worker does not advertise what it can do; upda
 func (s *WorkerService) RefreshAdvert(ctx context.Context, client *WorkerClient) error {
 	advert, err := client.Capabilities(ctx)
 	if errors.Is(err, ErrNoAdvert) {
+		client.Worker.Advert, client.Worker.AdvertAt = nil, nil
 		return s.db.ClearWorkerAdvert(ctx, client.Worker.InstanceID)
 	}
 	if err != nil {
 		return err
 	}
+	// The client's record follows, so a caller deciding on it next reads
+	// the advert just given.
+	client.Worker.Advert = &advert
 	raw, err := json.Marshal(advert)
 	if err != nil {
 		return err
