@@ -25,12 +25,37 @@ type MCPConnectionService interface {
 // SetMCPConnectionService serves /api/settings/mcp/connections.
 func (s *Server) SetMCPConnectionService(svc MCPConnectionService) { s.mcpConnections = svc }
 
+// MCPTester reaches a saved connection now and lists its tools: the
+// broker's Test, which starts a local server for the test.
+type MCPTester interface {
+	Test(ctx context.Context, name string) (service.MCPTestResult, error)
+}
+
+// SetMCPTester serves POST /api/settings/mcp/connections/{name}/test.
+func (s *Server) SetMCPTester(t MCPTester) { s.mcpTester = t }
+
 func (s *Server) registerMCPConnectionRoutes(mux *routeMux) {
 	mux.HandleFunc("GET /api/settings/mcp/connections", s.mcpConnectionsListHandler())
 	mux.HandleFunc("POST /api/settings/mcp/connections", s.mcpConnectionAddHandler())
 	mux.HandleFunc("GET /api/settings/mcp/connections/{name}", s.mcpConnectionGetHandler())
 	mux.HandleFunc("PATCH /api/settings/mcp/connections/{name}", s.mcpConnectionUpdateHandler())
 	mux.HandleFunc("DELETE /api/settings/mcp/connections/{name}", s.mcpConnectionRemoveHandler())
+	mux.HandleFunc("POST /api/settings/mcp/connections/{name}/test", s.mcpConnectionTestHandler())
+}
+
+func (s *Server) mcpConnectionTestHandler() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if s.mcpTester == nil {
+			s.writeError(w, http.StatusServiceUnavailable, "testing MCP connections is not available on this server")
+			return
+		}
+		res, err := s.mcpTester.Test(r.Context(), r.PathValue("name"))
+		if err != nil {
+			s.writeMCPConnectionError(w, err)
+			return
+		}
+		s.writeJSON(w, http.StatusOK, res)
+	}
 }
 
 func (s *Server) haveMCPConnections(w http.ResponseWriter) bool {
@@ -42,7 +67,11 @@ func (s *Server) haveMCPConnections(w http.ResponseWriter) bool {
 }
 
 func (s *Server) writeMCPConnectionError(w http.ResponseWriter, err error) {
+	var pending *service.MCPApprovalRequired
 	switch {
+	case errors.As(err, &pending):
+		// Nothing changed yet: the operator approves it in the tray.
+		s.writeJSON(w, http.StatusAccepted, map[string]any{"status": "needs_approval", "approval_id": pending.ApprovalID, "signed": pending.Signed, "message": err.Error()})
 	case errors.Is(err, service.ErrMCPConnectionInvalid):
 		s.writeError(w, http.StatusBadRequest, err.Error())
 	case errors.Is(err, service.ErrMCPConnectionExists), errors.Is(err, service.ErrMCPConnectionStale), errors.Is(err, service.ErrMCPConnectionForeign):
@@ -83,7 +112,7 @@ func (s *Server) mcpConnectionAddHandler() http.HandlerFunc {
 		}
 		var in service.MCPConnectionInput
 		if err := decodeMCPBody(r, &in); err != nil {
-			s.writeError(w, http.StatusBadRequest, "send {name, url, issuer?, auth?}")
+			s.writeError(w, http.StatusBadRequest, "send {name, url, issuer?, auth?} or {name, kind: stdio, command, args?, dir, env?}")
 			return
 		}
 		added, err := s.mcpConnections.Add(r.Context(), in)
@@ -116,7 +145,7 @@ func (s *Server) mcpConnectionUpdateHandler() http.HandlerFunc {
 		}
 		var ch service.MCPConnectionChange
 		if err := decodeMCPBody(r, &ch); err != nil || ch.ExpectedRevision == 0 {
-			s.writeError(w, http.StatusBadRequest, "send {url?, issuer?, auth?, enabled?, expected_revision}")
+			s.writeError(w, http.StatusBadRequest, "send {url?, issuer?, auth?, enabled?, command?, args?, dir?, env?, expected_revision}")
 			return
 		}
 		updated, err := s.mcpConnections.Update(r.Context(), r.PathValue("name"), ch)

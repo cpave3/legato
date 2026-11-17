@@ -12,6 +12,7 @@ import (
 
 	"github.com/cpave3/legato/internal/engine/egress"
 	"github.com/cpave3/legato/internal/engine/mcpupstream"
+	"github.com/cpave3/legato/internal/engine/store"
 )
 
 // mcpLocalSeparator joins a connection and a tool into the name an agent
@@ -74,15 +75,24 @@ type MCPBroker struct {
 	flows  *OAuthFlowService
 	mu     sync.Mutex
 	conn   map[string]*mcpBrokerConn
+	// stdioGrace is how long a local server is given to stop; zero is
+	// mcpstdio's default.
+	stdioGrace time.Duration
 }
 
+// mcpBrokerConn is one connection at one revision. For a local (stdio)
+// server, client only lists its tools (a process that exits after) and each
+// execution that calls a tool has its own session, with its own process.
 type mcpBrokerConn struct {
 	revision int64
+	row      store.MCPConnection
+	stdio    bool
 	client   *mcpupstream.Client
 	mu       sync.Mutex
 	catalog  *mcpupstream.Catalog
 	fetched  time.Time
 	stale    bool
+	sessions map[string]*mcpupstream.Client
 }
 
 // NewMCPBroker makes a broker. flows may be nil when only anonymous
@@ -96,7 +106,7 @@ func (b *MCPBroker) Close() {
 	b.mu.Lock()
 	defer b.mu.Unlock()
 	for name, c := range b.conn {
-		c.client.Close()
+		c.close()
 		delete(b.conn, name)
 	}
 }
@@ -130,10 +140,15 @@ func (b *MCPBroker) client(ctx context.Context, name string) (*mcpBrokerConn, er
 		if c.revision == st.Revision {
 			return c, nil
 		}
-		c.client.Close()
+		go c.close()
 		delete(b.conn, name)
 	}
-	c := &mcpBrokerConn{revision: st.Revision}
+	c := &mcpBrokerConn{revision: st.Revision, row: st.MCPConnection, stdio: st.Kind == "stdio", sessions: map[string]*mcpupstream.Client{}}
+	if c.stdio {
+		c.client = mcpupstream.New(mcpupstream.Options{Connect: b.stdioConnect(st.MCPConnection, "list"), Limits: mcpStdioLimits, AcceptDraft07: true})
+		b.conn[name] = c
+		return c, nil
+	}
 	opts := mcpupstream.Options{Endpoint: st.URL, HTTP: brokerHTTP(policy), OnToolsChanged: func() {
 		c.mu.Lock()
 		c.stale = true
@@ -162,25 +177,38 @@ func (b *MCPBroker) catalog(ctx context.Context, name string, c *mcpBrokerConn, 
 		return c.catalog, nil
 	}
 	cat, err := c.client.Tools(ctx)
-	b.recordContact(ctx, name, c.revision, err)
+	if c.stdio {
+		// The listing's own process is not kept: sessions start theirs.
+		c.client.Close()
+		b.recordStdioContact(ctx, name, c.revision, err)
+	} else {
+		b.recordContact(ctx, name, c.revision, err)
+	}
 	if err != nil {
 		return nil, err
 	}
+	if err := b.recordTools(ctx, name, cat); err != nil {
+		return nil, err
+	}
+	c.catalog, c.fetched, c.stale = cat, time.Now(), false
+	return cat, nil
+}
+
+// recordTools keeps the tools' definition hashes; a tool that changed or
+// went away ends the connection's grants.
+func (b *MCPBroker) recordTools(ctx context.Context, name string, cat *mcpupstream.Catalog) error {
 	hashes := make(map[string]string, len(cat.Tools))
 	for _, t := range cat.Tools {
 		hashes[t.Name] = t.Hash
 	}
 	changed, err := b.grants.db.RecordMCPTools(ctx, name, hashes)
 	if err != nil {
-		return nil, err
+		return err
 	}
 	if changed {
-		if err := b.grants.EndGrants(ctx, name); err != nil {
-			return nil, err
-		}
+		return b.grants.EndGrants(ctx, name)
 	}
-	c.catalog, c.fetched, c.stale = cat, time.Now(), false
-	return cat, nil
+	return nil
 }
 
 // Refresh lists a connection's tools again now.
@@ -290,20 +318,36 @@ func (b *MCPBroker) CallTool(ctx context.Context, caller MCPCaller, local string
 	if err != nil {
 		return nil, errors.New(safeMCPError(err))
 	}
+	agentError := func(err error) error {
+		if c.stdio {
+			return stdioAgentError(err)
+		}
+		return errors.New(safeMCPError(err))
+	}
 	cat, err := b.catalog(ctx, name, c, false)
 	if err != nil {
-		return nil, errors.New(safeMCPError(err))
+		return nil, agentError(err)
 	}
 	t := cat.Find(tool)
 	if t == nil {
 		if cat, err = b.catalog(ctx, name, c, true); err != nil {
-			return nil, errors.New(safeMCPError(err))
+			return nil, agentError(err)
 		}
 		if t = cat.Find(tool); t == nil {
 			return nil, &MCPDenied{Reason: "the server no longer offers " + tool}
 		}
 	}
 	var result *mcpupstream.Result
+	if c.stdio {
+		// Never sent again: a crashed server's call is a tool error, and
+		// the next call starts a new server.
+		result, err = b.session(c, caller.ExecutionID).Call(ctx, t, args)
+		b.recordStdioContact(ctx, name, c.revision, err)
+		if err != nil {
+			return nil, stdioAgentError(err)
+		}
+		return &MCPCallResult{IsError: result.IsError, Raw: result.Raw}, nil
+	}
 	if b.grants.operation(ctx, name, tool) == mcpRead {
 		result, err = c.client.CallRead(ctx, t, args)
 	} else {

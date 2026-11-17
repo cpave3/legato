@@ -1,5 +1,6 @@
-// Package mcpupstream is a bounded, validating client of one remote MCP
-// server over Streamable HTTP, on the official Go SDK. It lists the
+// Package mcpupstream is a bounded, validating client of one MCP server, over
+// Streamable HTTP or a transport the caller gives it (a local server's pipes),
+// on the official Go SDK. It lists the
 // server's tools, keeping only those whose names and JSON Schema 2020-12
 // schemas it can check (no remote references) and reporting the rest, and
 // calls them with arguments and structured results checked against those
@@ -18,6 +19,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"io"
 	"net/http"
 	"regexp"
 	"strings"
@@ -68,7 +70,15 @@ type Options struct {
 	Endpoint string
 	HTTP     *http.Client
 	Tokens   TokenSource
-	Limits   Limits
+	// Connect, when set, gives the transport of each new session in place
+	// of Streamable HTTP to Endpoint (a local server's pipes); HTTP and
+	// Tokens are not used.
+	Connect func(ctx context.Context) (mcp.Transport, error)
+	// AcceptDraft07 takes tools whose schemas declare JSON Schema draft-07
+	// (as servers built on the TypeScript SDK do), validated as draft-07;
+	// otherwise only 2020-12 is taken. Remote references are refused either way.
+	AcceptDraft07 bool
+	Limits        Limits
 	// OnToolsChanged is told when the server says its tools changed.
 	OnToolsChanged func()
 }
@@ -186,6 +196,18 @@ func (c *Client) sessionFor(ctx context.Context, force bool) (*mcp.ClientSession
 	if c.session != nil {
 		return c.session, nil
 	}
+	if c.opts.Connect != nil {
+		transport, err := c.opts.Connect(ctx)
+		if err != nil {
+			return nil, err
+		}
+		session, err := c.newClient().Connect(ctx, transport, nil)
+		if err != nil {
+			return nil, err
+		}
+		c.session = session
+		return session, nil
+	}
 	token := ""
 	if c.opts.Tokens != nil {
 		var err error
@@ -209,7 +231,18 @@ func (c *Client) sessionFor(ctx context.Context, force bool) (*mcp.ClientSession
 		}
 		return resp, err
 	})
-	client := mcp.NewClient(&mcp.Implementation{Name: "legato", Version: "1"}, &mcp.ClientOptions{
+	client := c.newClient()
+	c.refused.Store(false)
+	session, err := client.Connect(ctx, &mcp.StreamableClientTransport{Endpoint: c.opts.Endpoint, HTTPClient: &hc, MaxRetries: -1, DisableStandaloneSSE: true}, nil)
+	if err != nil {
+		return nil, err
+	}
+	c.session = session
+	return session, nil
+}
+
+func (c *Client) newClient() *mcp.Client {
+	return mcp.NewClient(&mcp.Implementation{Name: "legato", Version: "1"}, &mcp.ClientOptions{
 		// No roots, no sampling, no elicitation: nothing is advertised.
 		Capabilities:   &mcp.ClientCapabilities{},
 		MultiRoundTrip: &mcp.MultiRoundTripOptions{Disabled: true},
@@ -219,13 +252,6 @@ func (c *Client) sessionFor(ctx context.Context, force bool) (*mcp.ClientSession
 			}
 		},
 	})
-	c.refused.Store(false)
-	session, err := client.Connect(ctx, &mcp.StreamableClientTransport{Endpoint: c.opts.Endpoint, HTTPClient: &hc, MaxRetries: -1, DisableStandaloneSSE: true}, nil)
-	if err != nil {
-		return nil, err
-	}
-	c.session = session
-	return session, nil
 }
 
 // with runs fn on a session. A refusal (401) gets a new token and runs fn
@@ -249,7 +275,8 @@ func (c *Client) with(ctx context.Context, again bool, fn func(*mcp.ClientSessio
 		case c.refused.Load():
 			c.Close()
 			return ErrUnauthorized
-		case errors.Is(err, mcp.ErrSessionMissing) || errors.Is(err, mcp.ErrConnectionClosed):
+		case errors.Is(err, mcp.ErrSessionMissing) || errors.Is(err, mcp.ErrConnectionClosed) || (c.opts.Connect != nil && errors.Is(err, io.EOF)):
+			// A local server's pipes end at EOF when its process does.
 			c.Close()
 			if again && attempt == 0 {
 				continue
@@ -264,8 +291,11 @@ var toolName = regexp.MustCompile(`^[A-Za-z0-9_.-]{1,128}$`)
 
 const draft2020 = "https://json-schema.org/draft/2020-12/schema"
 
-// checkSchema parses and resolves a JSON Schema 2020-12 document, refusing
-// any other draft, any remote reference and anything too large.
+var draft07 = map[string]bool{"http://json-schema.org/draft-07/schema": true, "https://json-schema.org/draft-07/schema": true}
+
+// checkSchema parses and resolves a JSON Schema 2020-12 document (or draft-07
+// with AcceptDraft07), refusing any other draft, any remote reference and
+// anything too large.
 func (c *Client) checkSchema(raw any) (json.RawMessage, *jsonschema.Resolved, error) {
 	b, err := json.Marshal(raw)
 	if err != nil {
@@ -278,7 +308,7 @@ func (c *Client) checkSchema(raw any) (json.RawMessage, *jsonschema.Resolved, er
 	if err := json.Unmarshal(b, &s); err != nil {
 		return nil, nil, fmt.Errorf("the schema is not valid JSON Schema: %v", err)
 	}
-	if s.Schema != "" && strings.TrimSuffix(s.Schema, "#") != draft2020 {
+	if s.Schema != "" && strings.TrimSuffix(s.Schema, "#") != draft2020 && !(c.opts.AcceptDraft07 && draft07[strings.TrimSuffix(s.Schema, "#")]) {
 		return nil, nil, fmt.Errorf("the schema is %s, not JSON Schema 2020-12", s.Schema)
 	}
 	// A nil loader refuses every remote reference.

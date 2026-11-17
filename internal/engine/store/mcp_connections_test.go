@@ -161,3 +161,34 @@ func TestMCPContactIsRecordedOnlyForTheCurrentRevision(t *testing.T) {
 		t.Fatalf("contact state of the old resource survived a resource change: %+v", got)
 	}
 }
+
+func TestALocalMCPServerKeepsItsCommandAndAChangeToItForgetsItsTools(t *testing.T) {
+	s := newTestStore(t)
+	ctx := context.Background()
+	c, err := s.CreateMCPConnection(ctx, MCPConnection{Name: "design", Kind: "stdio", Auth: "none", InstanceID: "srv-1",
+		Command: "/usr/bin/node", ArgsJSON: `["tools/design/mcp.mjs"]`, Dir: "/home/me/repo", EnvJSON: `{"PATH":"/opt/node/bin"}`}, 1)
+	if err != nil {
+		t.Fatal(err)
+	}
+	got, err := s.GetMCPConnection(ctx, "design")
+	if err != nil || got.Kind != "stdio" || got.Command != "/usr/bin/node" || got.ArgsJSON != `["tools/design/mcp.mjs"]` || got.Dir != "/home/me/repo" || got.EnvJSON != `{"PATH":"/opt/node/bin"}` {
+		t.Fatalf("got %+v, %v", got, err)
+	}
+	if _, err := s.RecordMCPTools(ctx, "design", map[string]string{"render": "h1"}); err != nil {
+		t.Fatal(err)
+	}
+	c.ArgsJSON = `["tools/design/other.mjs"]`
+	if _, _, err := s.UpdateMCPConnection(ctx, c, 2); err != nil {
+		t.Fatal(err)
+	}
+	// The tools were another program's: none is "changed" from before.
+	changed, err := s.RecordMCPTools(ctx, "design", map[string]string{"render": "h2"})
+	if err != nil || changed {
+		t.Fatalf("changed = %v, %v; a new command's tools are not a change of the old", changed, err)
+	}
+	// An HTTP connection is kind http unless it says otherwise.
+	h, err := s.CreateMCPConnection(ctx, newMCPConnection("notion"), 3)
+	if err != nil || h.Kind != "http" {
+		t.Fatalf("kind %q, %v", h.Kind, err)
+	}
+}

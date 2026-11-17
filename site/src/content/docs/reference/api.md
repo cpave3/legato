@@ -311,6 +311,7 @@ A card on the board is a task: its ID is the task's. An agent is addressed by it
 | `POST` | `/api/settings/mcp/connections` | never | Add an MCP connection |  |
 | `PATCH` | `/api/settings/mcp/connections/{name}` | never | Change, turn on or turn off an MCP connection |  |
 | `DELETE` | `/api/settings/mcp/connections/{name}` | never | Remove an MCP connection |  |
+| `POST` | `/api/settings/mcp/connections/{name}/test` | never | Test an MCP connection: start a local server or reach a remote one, and list its tools |  |
 | `GET` | `/api/engrams` | read | List the engrams agents can be started as |  |
 | `GET` | `/api/engram-bindings` | read | List the engrams bound to repositories and folders |  |
 | `DELETE` | `/api/engram-bindings` | change | Unbind an engram from a repository or folder |  |

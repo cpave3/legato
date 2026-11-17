@@ -32,7 +32,10 @@ const mcpSweepEvery = 5 * time.Minute
 
 // startMCPBroker builds the MCP broker over the credential broker; nil
 // without one (its grants are the credential broker's).
-func startMCPBroker(cfg *config.Config, db *store.Store, credentials *service.CredentialBroker) (*mcpBrokerRuntime, func()) {
+//
+// approvals let the operator add and change local (stdio) servers: each such
+// change is an approval, applied by this process when it is decided here.
+func startMCPBroker(cfg *config.Config, db *store.Store, credentials *service.CredentialBroker, approvals *service.ApprovalService) (*mcpBrokerRuntime, func()) {
 	if credentials == nil {
 		log.Printf("mcp: the credential broker is unavailable, so MCP connections are not offered to agents")
 		return nil, func() {}
@@ -42,6 +45,9 @@ func startMCPBroker(cfg *config.Config, db *store.Store, credentials *service.Cr
 	conns := service.NewMCPConnectionService(db, service.MCPConnectionOptions{Secrets: secrets, Egress: mcpEgress})
 	flows := service.NewOAuthFlowService(db, secrets, service.OAuthFlowOptions{Connections: conns, SecretSource: secretStore.Source})
 	conns.SetOAuth(flows)
+	if approvals != nil {
+		conns.SetApprovals(approvals)
+	}
 	grants := service.NewMCPGrants(credentials, conns, db)
 	conns.SetGrants(grants)
 	rt := &mcpBrokerRuntime{conns: conns, flows: flows, broker: service.NewMCPBroker(conns, grants, flows)}
@@ -53,9 +59,14 @@ func startMCPBroker(cfg *config.Config, db *store.Store, credentials *service.Cr
 	}
 }
 
+// mcpStdioSweepEvery is how often local servers of ended sessions are stopped.
+const mcpStdioSweepEvery = 3 * time.Second
+
 // sweep reconciles abandoned OAuth attempts at once and then periodically,
-// in the process that serves the broker.
-func (rt *mcpBrokerRuntime) sweep(ctx context.Context, owner func() bool) {
+// and stops the local servers of sessions that ended, in the process that
+// serves the broker (the one whose broker runs them).
+func (rt *mcpBrokerRuntime) sweep(ctx context.Context, owner func() bool, db *store.Store) {
+	go whileBrokerOwner(ctx, owner, mcpStdioSweepEvery, func(ctx context.Context) { rt.broker.Sweep(ctx, db) })
 	run := func(ctx context.Context) {
 		if err := rt.flows.Sweep(ctx); err != nil {
 			log.Printf("mcp: reconciling OAuth attempts: %v", err)
@@ -83,4 +94,5 @@ func (rt *mcpBrokerRuntime) attach(srv *server.Server) {
 	}
 	srv.SetMCPConnectionService(rt.conns)
 	srv.SetMCPOAuth(rt.flows)
+	srv.SetMCPTester(rt.broker)
 }

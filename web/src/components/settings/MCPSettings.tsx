@@ -15,7 +15,10 @@ import {
   getMCPConnection,
   listMCPConnections,
   removeMCPConnection,
+  isPendingApproval,
+  testMCPConnection,
   type MCPConnection,
+  type MCPTestResult,
   type MCPRule,
   type OAuthAttempt,
 } from "../../lib/mcpConnections"
@@ -65,6 +68,33 @@ function ended(attempt: OAuthAttempt): ReactNode {
   }
 }
 
+/** What a change that runs a command waits for. */
+function waitingText(name: string, what: "run" | "change"): string {
+  return `Waiting for your approval to ${what === "run" ? "run" : "change what runs for"} ${name}. A local server runs on this computer as you, outside any sandbox, so Legato asks first: approve it in the approvals tray${what === "run" ? ", and it appears here" : ""}.`
+}
+
+/** A local server's command line, as the operator typed it. */
+function commandLine(conn: MCPConnection): string {
+  return [conn.command ?? "", ...(conn.args ?? [])].join(" ")
+}
+
+function lines(text: string): string[] {
+  return text.split("\n").map((l) => l.trim()).filter(Boolean)
+}
+
+function envFromText(text: string): Record<string, string> {
+  const env: Record<string, string> = {}
+  for (const line of lines(text)) {
+    const at = line.indexOf("=")
+    if (at > 0) env[line.slice(0, at).trim()] = line.slice(at + 1)
+  }
+  return env
+}
+
+function envToText(env: Record<string, string> | undefined): string {
+  return Object.entries(env ?? {}).map(([k, v]) => `${k}=${v}`).join("\n")
+}
+
 // MCPSettings is where the operator adds upstream MCP servers, authorizes
 // Legato with them, and says which agents may use which of their tools.
 // Agents never see a token: Legato calls the tools for them.
@@ -86,9 +116,21 @@ export function MCPSettings({ baseUrl, pollEvery = 2000 }: { baseUrl: string; po
 
   const replace = (conn: MCPConnection) => setList((current) => current && current.map((c) => (c.name === conn.name ? conn : c)))
 
+  // Local servers waiting for the operator's approval: the list is read
+  // again until each appears.
+  const [waitingFor, setWaitingFor] = useState<string[]>([])
+  useEffect(() => {
+    if (list) setWaitingFor((names) => names.filter((n) => !list.some((c) => c.name === n)))
+  }, [list])
+  useEffect(() => {
+    if (waitingFor.length === 0) return
+    const timer = setInterval(() => void load(), pollEvery)
+    return () => clearInterval(timer)
+  }, [waitingFor.length, load, pollEvery])
+
   return (
     <SettingsCard id="mcp-connections" icon={Plug} title="MCP servers"
-      description="Remote MCP servers whose tools agents can use through Legato. Legato holds the authorization and calls the tools; agents never see a token.">
+      description="MCP servers whose tools agents can use through Legato: remote ones, which Legato holds the authorization for, and local commands, which Legato runs on this computer. Agents never see a token, and a sandboxed agent needs nothing of a local server's.">
       <div className="flex flex-col gap-3">
         {app
           ? <InlineNotice>Connecting opens the server's consent page in your browser. The Legato app receives its answer and hands it to this server.</InlineNotice>
@@ -104,7 +146,11 @@ export function MCPSettings({ baseUrl, pollEvery = 2000 }: { baseUrl: string; po
             ))}
           </ul>
         )}
-        <AddConnection baseUrl={baseUrl} onAdded={(conn) => setList((current) => [...(current ?? []), conn])} />
+        {waitingFor.map((name) => (
+          <InlineNotice key={name}>{waitingText(name, "run")}</InlineNotice>
+        ))}
+        <AddConnection baseUrl={baseUrl} onAdded={(conn) => setList((current) => [...(current ?? []), conn])}
+          onPending={(name) => setWaitingFor((names) => (names.includes(name) ? names : [...names, name]))} />
       </div>
     </SettingsCard>
   )
@@ -247,13 +293,26 @@ function Connection({ baseUrl, conn, app, pollEvery, onChanged, onReload, onRemo
 
   const change = (patch: Omit<Parameters<typeof changeMCPConnection>[2], "expected_revision">) => run(async () => {
     try {
-      onChanged(await changeMCPConnection(baseUrl, conn.name, { ...patch, expected_revision: conn.revision }))
+      const out = await changeMCPConnection(baseUrl, conn.name, { ...patch, expected_revision: conn.revision })
+      if (isPendingApproval(out)) {
+        setNotice({ variant: "info", text: waitingText(conn.name, "change") })
+        return
+      }
+      onChanged(out)
     } catch (reason) {
       await onReload()
       throw reason
     }
   })
 
+  const [tested, setTested] = useState<MCPTestResult | null>(null)
+  const test = () => void run(async () => {
+    setTested(null)
+    setTested(await testMCPConnection(baseUrl, conn.name))
+    await refresh()
+  })
+
+  const local = conn.kind === "stdio"
   const oauth = conn.auth === "oauth"
   const authorized = conn.authorization === "authorized"
   return (
@@ -263,10 +322,18 @@ function Connection({ baseUrl, conn, app, pollEvery, onChanged, onReload, onRemo
           <div className="flex flex-wrap items-center gap-2">
             <span className="font-lw-mono text-sm text-lw-text">{conn.name}</span>
             <span className={`${chip} ${authorized || conn.authorization === "not_required" ? "text-lw-live" : "text-lw-text-2"}`}>{authorizationLabel[conn.authorization] ?? conn.authorization}</span>
-            {conn.connection === "failed" && <span className={`${chip} text-lw-error`}>unreachable</span>}
+            {local && <span className={`${chip} text-lw-text-2`}>local</span>}
+            {conn.connection === "failed" && <span className={`${chip} text-lw-error`}>{local ? "failed" : "unreachable"}</span>}
             {!conn.enabled && <span className={`${chip} text-lw-faint`}>off</span>}
           </div>
-          <p className="mt-0.5 truncate font-lw-mono text-[11px] text-lw-faint">{conn.url}</p>
+          {local ? (
+            <>
+              <p className="mt-0.5 break-all font-lw-mono text-[11px] text-lw-text-2">{commandLine(conn)}</p>
+              <p className="break-all font-lw-mono text-[11px] text-lw-faint">in {conn.dir}</p>
+            </>
+          ) : (
+            <p className="mt-0.5 truncate font-lw-mono text-[11px] text-lw-faint">{conn.url}</p>
+          )}
           {conn.problem && <p className="mt-0.5 text-xs text-lw-text-2">{conn.problem.message}</p>}
         </div>
         <Toggle label={`Use ${conn.name}`} on={conn.enabled} disabled={busy} onChange={() => void change({ enabled: !conn.enabled })} />
@@ -323,6 +390,15 @@ function Connection({ baseUrl, conn, app, pollEvery, onChanged, onReload, onRemo
         </div>
       )}
 
+      <div className="flex flex-wrap items-center gap-2">
+        <button type="button" className={quietButton} aria-label={`Test ${conn.name}`} disabled={busy || !conn.enabled} onClick={test}>Test</button>
+        {local && <span className="text-[11px] text-lw-faint">Starts it, lists its tools, and stops it.</span>}
+      </div>
+      {tested && <TestResult result={tested} />}
+
+      {local && <EditLocal conn={conn} busy={busy}
+        onSave={(command, args, dir, env) => change({ command, args, dir, env })} />}
+
       <Rules conn={conn} busy={busy} onSave={(rules) => change({ rules })} />
 
       <div className="flex flex-wrap items-center gap-2">
@@ -337,6 +413,86 @@ function Connection({ baseUrl, conn, app, pollEvery, onChanged, onReload, onRemo
         )}
       </div>
     </li>
+  )
+}
+
+// What a test found: the tools, or why it failed, with the server's error output.
+function TestResult({ result }: { result: MCPTestResult }) {
+  return (
+    <div className="flex flex-col gap-1 rounded-lg border border-lw-line p-2 text-xs">
+      {result.error
+        ? <p role="alert" className="break-words text-lw-error">{result.error}</p>
+        : <p className="text-lw-text-2">{result.tools.length} tool{result.tools.length === 1 ? "" : "s"}:</p>}
+      {result.tools.length > 0 && (
+        <ul className="flex flex-col gap-0.5">
+          {result.tools.map((tool) => (
+            <li key={tool.name} className="flex gap-2">
+              <span className="font-lw-mono text-lw-text">{tool.name}</span>
+              {tool.description && <span className="min-w-0 truncate text-lw-faint">{tool.description}</span>}
+            </li>
+          ))}
+        </ul>
+      )}
+      {(result.rejected ?? []).map((r) => <p key={r.name} className="text-lw-text-2">Not offered: <span className="font-lw-mono">{r.name}</span>, {r.reason}</p>)}
+      {result.stderr && (
+        <details open={Boolean(result.error)}>
+          <summary className="cursor-pointer text-lw-text-2">Error output</summary>
+          <pre className="mt-1 max-h-48 overflow-auto whitespace-pre-wrap break-words rounded bg-lw-ground p-2 font-lw-mono text-[11px]">{result.stderr}</pre>
+        </details>
+      )}
+    </div>
+  )
+}
+
+// What a local server runs. A change is asked of the operator as an approval.
+function EditLocal({ conn, busy, onSave }: {
+  conn: MCPConnection
+  busy: boolean
+  onSave: (command: string, args: string[], dir: string, env: Record<string, string>) => Promise<void>
+}) {
+  const [command, setCommand] = useState(conn.command ?? "")
+  const [args, setArgs] = useState((conn.args ?? []).join("\n"))
+  const [dir, setDir] = useState(conn.dir ?? "")
+  const [env, setEnv] = useState(envToText(conn.env))
+  const submit = (event: FormEvent) => {
+    event.preventDefault()
+    void onSave(command.trim(), lines(args), dir.trim(), envFromText(env))
+  }
+  return (
+    <details className="rounded-lg border border-lw-line">
+      <summary className="cursor-pointer px-2 py-1.5 text-xs text-lw-text-2">Change what it runs</summary>
+      <form onSubmit={submit} className="flex flex-col gap-2 p-2">
+        <LocalFields name={conn.name} command={command} setCommand={setCommand} args={args} setArgs={setArgs} dir={dir} setDir={setDir} env={env} setEnv={setEnv} />
+        <button type="submit" className={quietButton} aria-label={`Ask to change ${conn.name}`} disabled={busy || !command.trim() || !dir.trim()}>Ask to change</button>
+      </form>
+    </details>
+  )
+}
+
+function LocalFields({ name, command, setCommand, args, setArgs, dir, setDir, env, setEnv }: {
+  name?: string
+  command: string
+  setCommand: (v: string) => void
+  args: string
+  setArgs: (v: string) => void
+  dir: string
+  setDir: (v: string) => void
+  env: string
+  setEnv: (v: string) => void
+}) {
+  const of = name ? ` of ${name}` : ""
+  return (
+    <>
+      <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
+        <input aria-label={`Command${of}`} value={command} onChange={(e) => setCommand(e.target.value)} placeholder="/usr/bin/node, or node with PATH below" className={`${input} font-lw-mono`} />
+        <input aria-label={`Working directory${of}`} value={dir} onChange={(e) => setDir(e.target.value)} placeholder="~/Projects/my-repo" className={`${input} font-lw-mono`} />
+        <textarea aria-label={`Arguments${of}, one per line`} value={args} onChange={(e) => setArgs(e.target.value)} placeholder="tools/mcp.mjs" rows={2} className={`${input} py-2 font-lw-mono`} />
+        <textarea aria-label={`Environment${of}, one NAME=value per line`} value={env} onChange={(e) => setEnv(e.target.value)} placeholder={"PATH=/home/me/.local/share/mise/installs/node/24/bin:/usr/bin\nAPI_KEY=legato://my-secret"} rows={2} className={`${input} py-2 font-lw-mono`} />
+      </div>
+      <p className="text-[11px] text-lw-faint">
+        Runs on this computer as you, outside any sandbox, one process for each agent session that uses it. A bare command is found in the PATH set here, else in Legato's own. It gets only HOME, the user, locale and XDG folders, PATH and these variables; a value legato://name is that secret.
+      </p>
+    </>
   )
 }
 
@@ -404,7 +560,12 @@ function Rules({ conn, busy, onSave }: { conn: MCPConnection; busy: boolean; onS
   )
 }
 
-function AddConnection({ baseUrl, onAdded }: { baseUrl: string; onAdded: (conn: MCPConnection) => void }) {
+function AddConnection({ baseUrl, onAdded, onPending }: { baseUrl: string; onAdded: (conn: MCPConnection) => void; onPending: (name: string) => void }) {
+  const [kind, setKind] = useState<"http" | "stdio">("http")
+  const [command, setCommand] = useState("")
+  const [args, setArgs] = useState("")
+  const [dir, setDir] = useState("")
+  const [env, setEnv] = useState("")
   const [name, setName] = useState("")
   const [url, setUrl] = useState("")
   const [auth, setAuth] = useState<"oauth" | "none">("oauth")
@@ -421,14 +582,31 @@ function AddConnection({ baseUrl, onAdded }: { baseUrl: string; onAdded: (conn: 
     setBusy(true)
     setError(null)
     try {
+      if (kind === "stdio") {
+        const environment = envFromText(env)
+        const out = await addMCPConnection(baseUrl, {
+          name: name.trim(), kind: "stdio", command: command.trim(), args: lines(args), dir: dir.trim(),
+          ...(Object.keys(environment).length ? { env: environment } : {}),
+        })
+        if (isPendingApproval(out)) onPending(name.trim())
+        else onAdded(out)
+        setName("")
+        setCommand("")
+        setArgs("")
+        setDir("")
+        setEnv("")
+        return
+      }
       const privateNetworks = networks.split(",").map((n) => n.trim()).filter(Boolean)
-      onAdded(await addMCPConnection(baseUrl, {
+      const out = await addMCPConnection(baseUrl, {
         name: name.trim(), url: url.trim(), auth,
         ...(issuer.trim() ? { issuer: issuer.trim() } : {}),
         ...(privateNetworks.length ? { private_networks: privateNetworks } : {}),
         ...(clientID.trim() ? { static_client_id: clientID.trim(), static_redirect_uri: redirect.trim() } : {}),
         ...(clientID.trim() && secret ? { static_client_secret: secret } : {}),
-      }))
+      })
+      if (isPendingApproval(out)) onPending(name.trim())
+      else onAdded(out)
       setName("")
       setUrl("")
       setIssuer("")
@@ -445,16 +623,26 @@ function AddConnection({ baseUrl, onAdded }: { baseUrl: string; onAdded: (conn: 
 
   return (
     <form onSubmit={(event) => void submit(event)} aria-label="Add an MCP server" className="flex flex-col gap-2">
-      <div className="grid grid-cols-1 gap-2 sm:grid-cols-[9rem_minmax(0,1fr)_auto_auto]">
-        <input aria-label="MCP server name" value={name} onChange={(e) => setName(e.target.value)} placeholder="notion" className={`${input} font-lw-mono`} />
-        <input aria-label="MCP server address" type="url" value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://mcp.example.com/mcp" className={`${input} font-lw-mono`} />
-        <select aria-label="Authorization" value={auth} onChange={(e) => setAuth(e.target.value as "oauth" | "none")} className={input}>
-          <option value="oauth">OAuth</option>
-          <option value="none">None</option>
+      <div className="grid grid-cols-1 gap-2 sm:grid-cols-[auto_9rem_minmax(0,1fr)_auto_auto]">
+        <select aria-label="Kind of server" value={kind} onChange={(e) => setKind(e.target.value as "http" | "stdio")} className={input}>
+          <option value="http">Remote</option>
+          <option value="stdio">Local command</option>
         </select>
-        <button type="submit" className={quietButton} disabled={busy || !name.trim() || !url.trim()}>Add</button>
+        <input aria-label="MCP server name" value={name} onChange={(e) => setName(e.target.value)} placeholder={kind === "stdio" ? "design" : "notion"} className={`${input} font-lw-mono`} />
+        {kind === "http" ? (
+          <>
+            <input aria-label="MCP server address" type="url" value={url} onChange={(e) => setUrl(e.target.value)} placeholder="https://mcp.example.com/mcp" className={`${input} font-lw-mono`} />
+            <select aria-label="Authorization" value={auth} onChange={(e) => setAuth(e.target.value as "oauth" | "none")} className={input}>
+              <option value="oauth">OAuth</option>
+              <option value="none">None</option>
+            </select>
+          </>
+        ) : <span className="sm:col-span-2" />}
+        <button type="submit" className={quietButton}
+          disabled={busy || !name.trim() || (kind === "http" ? !url.trim() : !command.trim() || !dir.trim())}>Add</button>
       </div>
-      <details>
+      {kind === "stdio" && <LocalFields command={command} setCommand={setCommand} args={args} setArgs={setArgs} dir={dir} setDir={setDir} env={env} setEnv={setEnv} />}
+      {kind === "http" && <details>
         <summary className="cursor-pointer text-xs text-lw-text-2">Advanced</summary>
         <div className="mt-2 grid grid-cols-1 gap-2 sm:grid-cols-2">
           <input aria-label="Authorization server" type="url" value={issuer} onChange={(e) => setIssuer(e.target.value)} placeholder="Authorization server, if not the one the server names" className={`${input} font-lw-mono`} />
@@ -466,7 +654,7 @@ function AddConnection({ baseUrl, onAdded }: { baseUrl: string; onAdded: (conn: 
           <input aria-label="Registered redirect" value={redirect} onChange={(e) => setRedirect(e.target.value)} placeholder="http://127.0.0.1:47123/callback" className={`${input} font-lw-mono`} />
           <input aria-label="Client secret" type="password" autoComplete="off" value={secret} onChange={(e) => setSecret(e.target.value)} placeholder="Client secret, if it has one" className={`${input} font-lw-mono`} />
         </div>
-      </details>
+      </details>}
       {error && <p role="alert" className="text-xs text-lw-error">{error}</p>}
     </form>
   )

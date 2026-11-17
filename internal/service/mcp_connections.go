@@ -27,8 +27,11 @@ var mcpConnectionName = regexp.MustCompile(`^[a-z0-9][a-z0-9-]{0,62}$`)
 // MCPConnectionInput is what the operator gives to add a connection. Auth is
 // "oauth" (the default) or "none" for an anonymous server.
 type MCPConnectionInput struct {
-	Name   string `json:"name"`
-	URL    string `json:"url"`
+	Name string `json:"name"`
+	// Kind is http (the default: a server at URL) or stdio (a command Legato
+	// runs on this computer, outside any sandbox: Command, Args, Dir, Env).
+	Kind   string `json:"kind,omitempty"`
+	URL    string `json:"url,omitempty"`
 	Issuer string `json:"issuer,omitempty"`
 	Auth   string `json:"auth,omitempty"`
 	// PrivateNetworks are the private prefixes (CIDR) this connection may
@@ -44,6 +47,13 @@ type MCPConnectionInput struct {
 	// ReadOnlyTools are the tools the operator calls read-only.
 	Rules         []MCPRule `json:"rules,omitempty"`
 	ReadOnlyTools []string  `json:"read_only_tools,omitempty"`
+	// A local server: an absolute command or a name found in Env's PATH
+	// (else Legato's), its arguments, its working directory (~ is the home
+	// folder) and environment (a value legato://name is that secret).
+	Command string            `json:"command,omitempty"`
+	Args    []string          `json:"args,omitempty"`
+	Dir     string            `json:"dir,omitempty"`
+	Env     map[string]string `json:"env,omitempty"`
 }
 
 // MCPRule is one credential-broker rule for a connection's tools: which
@@ -76,7 +86,12 @@ type MCPConnectionChange struct {
 	Rules              *[]MCPRule `json:"rules,omitempty"`
 	ReadOnlyTools      *[]string  `json:"read_only_tools,omitempty"`
 	Enabled            *bool      `json:"enabled,omitempty"`
-	ExpectedRevision   int64      `json:"expected_revision"`
+	// What a local server runs; a change to any waits for approval.
+	Command          *string            `json:"command,omitempty"`
+	Args             *[]string          `json:"args,omitempty"`
+	Dir              *string            `json:"dir,omitempty"`
+	Env              *map[string]string `json:"env,omitempty"`
+	ExpectedRevision int64              `json:"expected_revision"`
 }
 
 // MCPProblem is a fixed code and what the operator can do about it. It never
@@ -95,6 +110,9 @@ type MCPConnectionState struct {
 	PrivateNetworks []string  `json:"private_networks,omitempty"`
 	Rules           []MCPRule `json:"rules"`
 	ReadOnlyTools   []string  `json:"read_only_tools,omitempty"`
+	// A local server's arguments and environment.
+	Args []string          `json:"args,omitempty"`
+	Env  map[string]string `json:"env,omitempty"`
 	// Authorization: not_required, required, pending, awaiting_confirmation,
 	// authorized, reauth_required.
 	Authorization string `json:"authorization"`
@@ -163,10 +181,11 @@ type MCPConnectionOptions struct {
 // servers. Its mutations are operator operations: the HTTP layer admits only
 // the operator's token to them.
 type MCPConnectionService struct {
-	db     *store.Store
-	opts   MCPConnectionOptions
-	oauth  MCPOAuthCleaner
-	grants MCPGrantChecker
+	db        *store.Store
+	approvals *ApprovalService
+	opts      MCPConnectionOptions
+	oauth     MCPOAuthCleaner
+	grants    MCPGrantChecker
 }
 
 func NewMCPConnectionService(db *store.Store, opts MCPConnectionOptions) *MCPConnectionService {
@@ -227,6 +246,16 @@ func (s *MCPConnectionService) checkFields(c store.MCPConnection) error {
 	if !mcpConnectionName.MatchString(c.Name) {
 		return errors.Join(ErrMCPConnectionInvalid, errors.New("name: lowercase letters, digits and dashes, at most 63"))
 	}
+	switch c.Kind {
+	case "stdio":
+		return checkStdio(c)
+	case "http":
+		if c.Command != "" || c.Dir != "" || c.ArgsJSON != "[]" || c.EnvJSON != "{}" {
+			return errors.Join(ErrMCPConnectionInvalid, errors.New("command, args, dir, env: only a local (stdio) server has them"))
+		}
+	default:
+		return errors.Join(ErrMCPConnectionInvalid, errors.New("kind: http or stdio"))
+	}
 	if c.Auth != "oauth" && c.Auth != "none" {
 		return errors.Join(ErrMCPConnectionInvalid, errors.New("auth: oauth or none"))
 	}
@@ -267,7 +296,13 @@ func normalizeNetworks(raw []string) (string, error) {
 	return joinNetworks(prefixes), nil
 }
 
+// Add saves a connection. A local (stdio) server is not saved: it raises an
+// approval and returns *MCPApprovalRequired, and is saved once allowed.
 func (s *MCPConnectionService) Add(ctx context.Context, in MCPConnectionInput) (MCPConnectionState, error) {
+	return s.add(ctx, in, false)
+}
+
+func (s *MCPConnectionService) add(ctx context.Context, in MCPConnectionInput, approved bool) (MCPConnectionState, error) {
 	instance, err := InstanceID(ctx, s.db)
 	if err != nil {
 		return MCPConnectionState{}, err
@@ -277,15 +312,35 @@ func (s *MCPConnectionService) Add(ctx context.Context, in MCPConnectionInput) (
 		return MCPConnectionState{}, err
 	}
 	c := store.MCPConnection{Name: strings.TrimSpace(in.Name), URL: strings.TrimSpace(in.URL), Issuer: strings.TrimSpace(in.Issuer), Networks: networks, Auth: in.Auth, InstanceID: instance,
-		StaticClientID: strings.TrimSpace(in.StaticClientID), StaticRedirectURI: strings.TrimSpace(in.StaticRedirectURI), StaticSecretSet: in.StaticClientSecret != ""}
+		StaticClientID: strings.TrimSpace(in.StaticClientID), StaticRedirectURI: strings.TrimSpace(in.StaticRedirectURI), StaticSecretSet: in.StaticClientSecret != "",
+		Kind: in.Kind, Command: in.Command, Dir: homeDir(strings.TrimSpace(in.Dir))}
+	if c.Kind == "" {
+		c.Kind = "http"
+	}
 	if c.Auth == "" {
 		c.Auth = "oauth"
+		if c.Kind == "stdio" {
+			c.Auth = "none"
+		}
+	}
+	if err := encodeStdio(&c, in.Args, in.Env); err != nil {
+		return MCPConnectionState{}, err
+	}
+	if c.Kind == "http" && len(in.Args) == 0 && len(in.Env) == 0 {
+		c.ArgsJSON, c.EnvJSON = "[]", "{}"
 	}
 	if c.RulesJSON, c.ReadOnlyTools, err = encodeMCPRules(in.Rules, in.ReadOnlyTools); err != nil {
 		return MCPConnectionState{}, err
 	}
 	if err := s.checkFields(c); err != nil {
 		return MCPConnectionState{}, err
+	}
+	if c.Kind == "stdio" && !approved {
+		if _, err := s.db.GetMCPConnection(ctx, c.Name); err == nil {
+			return MCPConnectionState{}, ErrMCPConnectionExists
+		}
+		in.Dir = c.Dir
+		return MCPConnectionState{}, s.requestStdio(ctx, mcpStdioProposal{Change: "add", Input: &in}, c)
 	}
 	if c.StaticSecretSet && s.opts.Secrets == nil {
 		return MCPConnectionState{}, errors.New("this Legato cannot seal a client secret")
@@ -341,7 +396,15 @@ func (s *MCPConnectionService) Get(ctx context.Context, name string) (MCPConnect
 // Update applies an operator's change. Changing the resource, issuer or auth
 // mode discards the authorization (it was for another resource); disabling
 // ends unfinished authorization attempts and keeps the authorization.
+//
+// What a local server runs (command, args, dir, env) is not changed here:
+// such a change raises an approval and returns *MCPApprovalRequired, and is
+// applied once allowed, if the connection is still at ExpectedRevision.
 func (s *MCPConnectionService) Update(ctx context.Context, name string, ch MCPConnectionChange) (MCPConnectionState, error) {
+	return s.update(ctx, name, ch, false)
+}
+
+func (s *MCPConnectionService) update(ctx context.Context, name string, ch MCPConnectionChange, approved bool) (MCPConnectionState, error) {
 	instance, err := InstanceID(ctx, s.db)
 	if err != nil {
 		return MCPConnectionState{}, err
@@ -406,8 +469,31 @@ func (s *MCPConnectionService) Update(ctx context.Context, name string, ch MCPCo
 			return MCPConnectionState{}, errors.New("this Legato cannot seal a client secret")
 		}
 	}
+	if ch.Command != nil {
+		c.Command = *ch.Command
+	}
+	if ch.Dir != nil {
+		c.Dir = homeDir(strings.TrimSpace(*ch.Dir))
+		dir := c.Dir
+		ch.Dir = &dir
+	}
+	if ch.Args != nil || ch.Env != nil {
+		args, env := decodeStdio(c)
+		if ch.Args != nil {
+			args = *ch.Args
+		}
+		if ch.Env != nil {
+			env = *ch.Env
+		}
+		if err := encodeStdio(&c, args, env); err != nil {
+			return MCPConnectionState{}, err
+		}
+	}
 	if err := s.checkFields(c); err != nil {
 		return MCPConnectionState{}, err
+	}
+	if c.Kind == "stdio" && stdioDefinitionChanged(before, c) && !approved {
+		return MCPConnectionState{}, s.requestStdio(ctx, mcpStdioProposal{Change: "edit", Edit: &ch}, c)
 	}
 	updated, fenced, err := s.db.UpdateMCPConnection(ctx, c, s.opts.Now().Unix())
 	if errors.Is(err, store.ErrConflict) {
@@ -496,6 +582,9 @@ var mcpContactCodes = map[string]string{
 	"protocol":       "The server did not answer as an MCP server.",
 	"too_large":      "The server's answer was larger than Legato accepts.",
 	"upstream_error": "The server reported an error. Try again later.",
+	// A local (stdio) server's.
+	"command_not_found": "Legato could not find the server's command. Use Test to see where it looked.",
+	"process_failed":    "The server's process could not start, or stopped. Use Test to see its error output.",
 }
 
 // RecordContact records the result of reaching the server at revision: "" for
@@ -575,6 +664,9 @@ func (s *MCPConnectionService) authorization(ctx context.Context, c store.MCPCon
 func (s *MCPConnectionService) state(ctx context.Context, c store.MCPConnection, instance string) (MCPConnectionState, error) {
 	st := MCPConnectionState{MCPConnection: c, PrivateNetworks: splitNetworks(c.Networks), Connection: "unknown"}
 	st.Rules, st.ReadOnlyTools = decodeMCPRules(c)
+	if c.Kind == "stdio" {
+		st.Args, st.Env = decodeStdio(c)
+	}
 	var err error
 	if st.Authorization, st.Attempt, err = s.authorization(ctx, c); err != nil {
 		return MCPConnectionState{}, err

@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
@@ -87,5 +88,65 @@ func TestOnlyTheOperatorAdministersMCPConnections(t *testing.T) {
 	var got service.MCPConnectionState
 	if json.Unmarshal(rec.Body.Bytes(), &got) != nil || !got.Enabled || got.Revision != 1 {
 		t.Fatalf("connection changed: %s", rec.Body)
+	}
+}
+
+type fakeMCPTester struct{ tested []string }
+
+func (f *fakeMCPTester) Test(_ context.Context, name string) (service.MCPTestResult, error) {
+	f.tested = append(f.tested, name)
+	return service.MCPTestResult{Tools: []service.MCPTestTool{{Name: "list_blocks"}}, Stderr: "starting"}, nil
+}
+
+// A local server is not added by the call: the operator approves it, and
+// the answer says which approval to look for.
+func TestAddingALocalServerAnswersWithTheApprovalItWaitsFor(t *testing.T) {
+	srv, db := reeveServer(t)
+	approvals := service.NewApprovalService(db, service.ApprovalServiceOptions{})
+	conns := service.NewMCPConnectionService(db, service.MCPConnectionOptions{})
+	conns.SetApprovals(approvals)
+	srv.SetMCPConnectionService(conns)
+	body := fmt.Sprintf(`{"name":"design","kind":"stdio","command":"/usr/bin/node","args":["tools/design/mcp.mjs"],"dir":%q,"env":{"PATH":"/opt/node/bin"}}`, t.TempDir())
+	rec := callAs(srv, "secret", http.MethodPost, "/api/settings/mcp/connections", body)
+	var pending struct {
+		Status     string `json:"status"`
+		ApprovalID string `json:"approval_id"`
+	}
+	if rec.Code != http.StatusAccepted || json.Unmarshal(rec.Body.Bytes(), &pending) != nil || pending.Status != "needs_approval" || pending.ApprovalID == "" {
+		t.Fatalf("add: %d %s", rec.Code, rec.Body)
+	}
+	if rec := callAs(srv, "secret", http.MethodGet, "/api/settings/mcp/connections/design", ""); rec.Code != http.StatusNotFound {
+		t.Fatalf("saved before approval: %d %s", rec.Code, rec.Body)
+	}
+	if _, err := approvals.Decide(context.Background(), pending.ApprovalID, service.ApprovalDecision{Decision: service.ApprovalAllow, By: "operator"}); err != nil {
+		t.Fatal(err)
+	}
+	rec = callAs(srv, "secret", http.MethodGet, "/api/settings/mcp/connections/design", "")
+	var got service.MCPConnectionState
+	if rec.Code != http.StatusOK || json.Unmarshal(rec.Body.Bytes(), &got) != nil || got.Kind != "stdio" || got.Command != "/usr/bin/node" || got.Env["PATH"] != "/opt/node/bin" {
+		t.Fatalf("get: %d %s", rec.Code, rec.Body)
+	}
+	change := fmt.Sprintf(`{"args":["other.mjs"],"expected_revision":%d}`, got.Revision)
+	if rec := callAs(srv, "secret", http.MethodPatch, "/api/settings/mcp/connections/design", change); rec.Code != http.StatusAccepted {
+		t.Fatalf("change: %d %s", rec.Code, rec.Body)
+	}
+}
+
+func TestTheOperatorTestsAConnectionAndTheReeveCannot(t *testing.T) {
+	srv, reeve := mcpServer(t)
+	tester := &fakeMCPTester{}
+	srv.SetMCPTester(tester)
+	rec := callAs(srv, "secret", http.MethodPost, "/api/settings/mcp/connections/design/test", "")
+	var res service.MCPTestResult
+	if rec.Code != http.StatusOK || json.Unmarshal(rec.Body.Bytes(), &res) != nil || len(res.Tools) != 1 || res.Stderr != "starting" {
+		t.Fatalf("test: %d %s", rec.Code, rec.Body)
+	}
+	for _, token := range []string{reeve, "lgi_main"} {
+		if rec := callAs(srv, token, http.MethodPost, "/api/settings/mcp/connections/design/test", ""); rec.Code != http.StatusForbidden {
+			t.Errorf("test with %.8s: %d %s", token, rec.Code, rec.Body)
+		}
+	}
+	if len(tester.tested) != 1 {
+		t.Fatalf("tested %v", tester.tested)
 	}
 }
