@@ -24,6 +24,10 @@ func (e *TaskMetadataExecutor) Start(ctx context.Context, step ResolvedWorkflowS
 	if !ok || len(values) == 0 {
 		return WorkflowExecutionResult{}, fmt.Errorf("values must be a non-empty object")
 	}
+	// An away task is read-only here, its metadata included.
+	if err := RefuseAway(ctx, e.store, taskID); err != nil {
+		return WorkflowExecutionResult{}, err
+	}
 	for path, value := range values {
 		parts, err := store.ValidateTaskMetadataPath(path)
 		if err != nil {

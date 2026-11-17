@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"errors"
 	"fmt"
 	"os"
 	"strings"
@@ -50,5 +51,14 @@ func (e *TaskNoteExecutor) Start(ctx context.Context, step ResolvedWorkflowStep)
 	if err != nil {
 		return WorkflowExecutionResult{}, err
 	}
-	return WorkflowExecutionResult{Status: "succeeded", Outputs: map[string]any{"note_id": note.ID, "task_id": taskID}}, nil
+	outputs := map[string]any{"note_id": note.ID, "task_id": taskID}
+	// A note on a task away on a worker stays here, where it is when the
+	// task returns; it is not sent on, so the worker's agent works without
+	// it. The step says so rather than pretend it reached the work.
+	var away *TaskAwayError
+	if err := RefuseAway(ctx, e.store, taskID); errors.As(err, &away) {
+		outputs["away_on"] = away.Worker
+		outputs["warning"] = fmt.Sprintf("the task is away on %s: the note is kept here, and the worker's agent won't see it", away.Worker)
+	}
+	return WorkflowExecutionResult{Status: "succeeded", Outputs: outputs}, nil
 }
