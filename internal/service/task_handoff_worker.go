@@ -445,7 +445,7 @@ func (s *HandoffWorkerService) start(ctx context.Context, mainInstanceID, handof
 	}
 	brief := HandoffBrief(in)
 	opts := AgentSpawnOptions{AgentKind: h.AgentKind, Repo: h.Repo, Branch: h.Branch, Assignment: brief, Unattended: true,
-		Branches: handoffSessionBranches(h), PushedBranch: h.Kind == HandoffPushedBranch}
+		Branches: handoffSessionBranches(h), PushedBranch: h.Kind == HandoffPushedBranch, Holder: h.MainTaskID}
 	if h.Kind == HandoffNewBranch {
 		opts.Ref = h.Base
 	}
@@ -565,7 +565,7 @@ func (s *HandoffWorkerService) grant(ctx context.Context, h *store.Handoff) {
 // provider-backed task), and the main's notes.
 func handoffBriefInput(h *store.Handoff, task *store.Task, notes []store.TaskNote) HandoffBriefInput {
 	in := HandoffBriefInput{MainName: h.MainName, MainTaskID: h.MainTaskID, Title: task.Title, Details: task.DescriptionMD,
-		Purpose: h.Purpose, Kind: h.Kind, Branch: h.Branch}
+		Purpose: h.Purpose, Kind: h.Kind, Branch: h.Branch, Holder: h.MainTaskID}
 	if task.Provider != nil && IsHandoffCopy(*task.Provider) && task.RemoteID != nil {
 		in.TicketProvider, in.TicketKey, in.TicketText = TicketProviderLabel(*task.Provider), *task.RemoteID, task.RemoteDescriptionMD
 	}

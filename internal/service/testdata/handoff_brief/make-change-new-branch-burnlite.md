@@ -24,6 +24,8 @@ Read the size and uncertainty from remote_meta.
 - [ ] Show it on the card
 </ticket>
 
+Where you have access to Burnlite here, you may claim this ticket, add notes to it and close it, as holder LEG-33 (also in $LEGATO_HOLDER; use it, not LEGATO_TASK_ID). Close it only when the work is done. Without access, the ticket is read only for this run.
+
 ### Details
 
 <task-details>

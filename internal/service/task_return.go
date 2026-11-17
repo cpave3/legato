@@ -211,6 +211,13 @@ func (s *TaskHandoffService) finishReturn(ctx context.Context, handoffID string,
 	if err != nil {
 		return ReturnedTask{}, err
 	}
+	// A provider-backed task the provider moved while it was away (its
+	// ticket claimed or closed, by the worker's agent or anyone) stays where
+	// the provider put it: the provider's state wins over the worker's
+	// column.
+	if task.Provider != nil && task.Status != a.LeftColumn {
+		column = task.Status
+	}
 	repo := answer.Repo
 	if repo == "" {
 		repo = a.Repo

@@ -84,7 +84,7 @@ func (s *HandoffWorkerService) resumeAuthor(ctx context.Context, taskID string, 
 		}
 	}
 	opts := AgentSpawnOptions{AgentKind: kind, Repo: h.Repo, Unattended: true, Branches: handoffSessionBranches(h),
-		SessionPolicy: "resume", ResumeSessionID: saved.ID, Prompt: note}
+		SessionPolicy: "resume", ResumeSessionID: saved.ID, Prompt: note, Holder: h.MainTaskID}
 	opts.Resources = r.Resources
 	if err := s.opts.Agents.SpawnAgent(ctx, taskID, 0, 0, opts); err != nil {
 		return fmt.Errorf("%w: %v", ErrAuthorNotResumable, err)

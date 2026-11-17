@@ -17,6 +17,8 @@ Carts over 50 items time out at checkout.
 Acceptance: checkout under 2s.
 </ticket>
 
+Where you have access to Jira here, you may claim this ticket, add notes to it and close it, as holder ACME-12 (also in $LEGATO_HOLDER; use it, not LEGATO_TASK_ID). Close it only when the work is done. Without access, the ticket is read only for this run.
+
 ### Details
 
 <task-details>

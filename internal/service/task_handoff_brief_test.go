@@ -29,6 +29,7 @@ func TestTheHandoffBriefSaysWhatTheSpecSays(t *testing.T) {
 		in.MainTaskID, in.Title = "ACME-12", "Checkout times out on large carts"
 		in.TicketProvider, in.TicketKey = "Jira", "ACME-12"
 		in.TicketText = "Carts over 50 items time out at checkout.\n\nAcceptance: checkout under 2s."
+		in.Holder = "ACME-12"
 		in.Details = "Start with the cart serializer."
 	}
 	jira.Branch = "legato/acme-12"
@@ -40,6 +41,7 @@ func TestTheHandoffBriefSaysWhatTheSpecSays(t *testing.T) {
 		in.TicketProvider, in.TicketKey = "Burnlite", "LEG-33"
 		in.TicketText = "A card should say how long its task is estimated to take.\n\n## Plan\n\nRead the size and uncertainty from remote_meta.\n\n## Checklist\n\n- [x] Read the estimate\n- [ ] Show it on the card"
 		in.Details = "Keep it to one line on the card."
+		in.Holder = "LEG-33"
 	}
 	burnlite.Branch = "legato/leg-33"
 	// A new branch off the main's base branch.

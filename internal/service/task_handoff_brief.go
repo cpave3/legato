@@ -24,6 +24,9 @@ type HandoffBriefInput struct {
 	// Branch is the branch the work is on: legato/<main task id> for a new
 	// branch, else the pushed branch it starts from.
 	Branch string
+	// Holder is the name the agent claims and closes the ticket under: the
+	// main's task ID, also in LEGATO_HOLDER.
+	Holder string
 	// Base is the repository's default branch, which a pushed branch's
 	// commits are read against; for a new branch, the base branch it starts
 	// from when the main gave one.
@@ -81,6 +84,10 @@ func HandoffBrief(in HandoffBriefInput) string {
 		line(`<ticket provider="` + attr(in.TicketProvider) + `" key="` + attr(in.TicketKey) + `">`)
 		line(fenced(ticket, "ticket"))
 		line("</ticket>")
+		if in.Holder != "" {
+			line("")
+			line("Where you have access to " + in.TicketProvider + " here, you may claim this ticket, add notes to it and close it, as holder " + in.Holder + " (also in $LEGATO_HOLDER; use it, not LEGATO_TASK_ID). Close it only when the work is done. Without access, the ticket is read only for this run.")
+		}
 	}
 	if details != "" {
 		line("")
