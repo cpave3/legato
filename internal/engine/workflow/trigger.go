@@ -11,8 +11,12 @@ type Triggers struct {
 }
 
 type TaskEnteredColumnTrigger struct {
-	Column     string         `yaml:"column" json:"column"`
-	Confirm    bool           `yaml:"confirm,omitempty" json:"confirm,omitempty"`
+	Column  string `yaml:"column" json:"column"`
+	Confirm bool   `yaml:"confirm,omitempty" json:"confirm,omitempty"`
+	// HandedOff lets the trigger run on a card a main handed off to this
+	// Legato (a worker), which by default it skips: the main's own
+	// workflows run when the task returns.
+	HandedOff  bool           `yaml:"handed_off,omitempty" json:"handed_off,omitempty"`
 	Inputs     map[string]any `yaml:"inputs,omitempty" json:"inputs,omitempty"`
 	Conditions *Condition     `yaml:"conditions,omitempty" json:"conditions,omitempty"`
 }

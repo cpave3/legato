@@ -96,6 +96,7 @@ describe("triggerText", () => {
   it("says when a workflow starts on its own", () => {
     expect(triggerText({ "task.entered_column": { column: "Backlog" } })).toBe("Starts when a task enters Backlog")
     expect(triggerText({ "task.entered_column": { column: "Done", confirm: true } })).toBe("Asks to start when a task enters Done")
+    expect(triggerText({ "task.entered_column": { column: "Done", handed_off: true } })).toBe("Starts when a task enters Done, cards handed off from a main included")
     expect(triggerText({})).toBeNull()
     expect(triggerText(undefined)).toBeNull()
   })

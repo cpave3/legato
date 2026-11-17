@@ -117,6 +117,16 @@ func (c *WorkflowTriggerCoordinator) process(ctx context.Context, transition sto
 	if err := json.Unmarshal([]byte(transition.TaskJSON), &task); err != nil {
 		return err
 	}
+	// A card handed off from a main is the main's: this Legato's triggers
+	// leave it alone unless the workflow opts in.
+	if !definition.On.TaskEnteredColumn.HandedOff {
+		if h, err := c.store.OpenHandoffForTask(ctx, transition.TaskID); err == nil {
+			return c.update(ctx, request.ID, "skipped", "", `{}`, `[]`,
+				fmt.Sprintf("the card was handed off from %s, whose workflows run when it returns; set handed_off: true on the trigger to run on such cards", h.MainName))
+		} else if !errors.Is(err, store.ErrNotFound) {
+			return err
+		}
+	}
 	conditions := definition.On.TaskEnteredColumn.Conditions
 	if conditions != nil && conditions.UsesField("task.has_active_agent") {
 		if _, err := c.store.GetAgentSessionByTaskID(ctx, transition.TaskID); err == nil {

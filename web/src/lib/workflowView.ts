@@ -149,9 +149,12 @@ export function stepIntent(step: { executor_type: string; resolved_inputs_json: 
 }
 
 export function triggerText(on: Record<string, unknown> | null | undefined): string | null {
-  const entered = on?.["task.entered_column"] as { column?: unknown; confirm?: unknown } | undefined
+  const entered = on?.["task.entered_column"] as { column?: unknown; confirm?: unknown; handed_off?: unknown } | undefined
   if (!entered || typeof entered.column !== "string") return null
-  return `${entered.confirm ? "Asks to start" : "Starts"} when a task enters ${entered.column}`
+  // On a worker, a trigger skips cards handed off from a main unless it
+  // opts in with handed_off.
+  const handedOff = entered.handed_off ? ", cards handed off from a main included" : ""
+  return `${entered.confirm ? "Asks to start" : "Starts"} when a task enters ${entered.column}${handedOff}`
 }
 
 export function sourceLabel(source: string): string {

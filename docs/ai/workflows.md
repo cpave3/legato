@@ -38,3 +38,7 @@ The card context menu's Workflows flyout on the web board scrolls independently 
 ### Extension model
 
 Workflow persistence and UI are executor-neutral. A future deterministic executor implements the service executor contract and renders type-specific details without replacing runs, steps, attempts, outputs or artifacts. DAGs, parallel execution, schedules, shell plugins, approval gates and native external publishers are not part of schema version 1.
+
+## Triggers on a worker's handed-off cards
+
+A card a main handed off to this Legato is the main's (LEG-243). `WorkflowTriggerCoordinator.process` checks `store.OpenHandoffForTask` before anything else and marks the trigger request `skipped` with the reason ("the card was handed off from <main>, whose workflows run when it returns; set handed_off: true on the trigger to run on such cards") unless the trigger sets `handed_off: true` (`TaskEnteredColumnTrigger.HandedOff`, schema v1). The built-in learning triggers are skipped the same way, so a worker's curator does not curate a main's task into the worker's ledger. The main's own triggers run when the task returns into another column (a `handoff` transition; see [Integrations](integrations.md) § Handing off a task). Review passes are not workflows and are unaffected. The Workflows page says "cards handed off from a main included" on a trigger that opts in; trigger requests themselves, skipped ones included, are not listed by any route yet.
