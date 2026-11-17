@@ -95,6 +95,9 @@ type AgentSession struct {
 	// BackgroundJobs is what a running agent started that still runs and
 	// will wake it (see docs/ai/agent-states.md); none for an ended one.
 	BackgroundJobs []BackgroundJob
+	// BackgroundShells are the background shells its mod reported, running
+	// and ended (Chimera); a Claude Code agent's are served by its bridge.
+	BackgroundShells []store.BackgroundShell
 }
 
 // BackgroundJob is one thing an agent started that still runs and will wake
@@ -1873,6 +1876,7 @@ func (a *agentService) ListAgents(ctx context.Context) ([]AgentSession, error) {
 		}
 		if s.Status == "running" {
 			result[i].BackgroundJobs = s.BackgroundJobs
+			result[i].BackgroundShells = s.BackgroundShells
 		}
 		if result[i].Reeve {
 			if name := a.reeveName.Of(ctx); name != "" {

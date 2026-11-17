@@ -207,3 +207,75 @@ func TestChimeraHook_SubagentsAreTimedFromSpawnToFinish(t *testing.T) {
 		t.Fatalf("open after the session ended = %v, want none", got)
 	}
 }
+
+func chimeraShells(t *testing.T, a *hookAgent) store.BackgroundShells {
+	t.Helper()
+	session, err := a.s.GetAgentSessionByTaskID(context.Background(), a.taskID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return session.BackgroundShells
+}
+
+func TestChimeraHook_BackgroundShellsAreRecordedWithTheirExitCodes(t *testing.T) {
+	a := newHookAgent(t)
+	sendChimera(t, a, `{"type":"turn.start"}`)
+	sendChimera(t, a, `{"type":"background.start","jobId":"b1","command":"sleep 2; echo hi; sleep 30"}`)
+	sendChimera(t, a, `{"type":"background.start","jobId":"b2","command":"npm run dev"}`)
+	shells := chimeraShells(t, a)
+	if len(shells) != 2 || shells[0].ID != "b1" || shells[0].Command != "sleep 2; echo hi; sleep 30" || shells[0].Status != store.ShellRunning ||
+		shells[0].StartedAt.IsZero() || shells[1].ID != "b2" || shells[1].Status != store.ShellRunning {
+		t.Fatalf("shells = %+v", shells)
+	}
+
+	sendChimera(t, a, `{"type":"background.exit","jobId":"b1","command":"sleep 2; echo hi; sleep 30","exitCode":3}`)
+	shells = chimeraShells(t, a)
+	if shells[0].Status != store.ShellExited || shells[0].ExitCode == nil || *shells[0].ExitCode != 3 || shells[0].EndedAt.IsZero() {
+		t.Fatalf("after its exit = %+v", shells[0])
+	}
+	if shells[1].Status != store.ShellRunning {
+		t.Fatalf("the other = %+v", shells[1])
+	}
+	// The job that woke nothing more is gone from the running jobs, but the
+	// shell stays listed as ended.
+	if got := sendChimera(t, a, `{"type":"turn.complete","reason":"stop"}`); len(got.jobs) != 1 || got.jobs[0].ID != "b2" {
+		t.Fatalf("jobs = %+v", got.jobs)
+	}
+	if len(chimeraShells(t, a)) != 2 {
+		t.Fatal("an ended shell left the list")
+	}
+}
+
+func TestChimeraHook_AShellStillRunningWhenTheProcessExitsIsKilled(t *testing.T) {
+	a := newHookAgent(t)
+	sendChimera(t, a, `{"type":"background.start","jobId":"b1","command":"npm run dev"}`)
+	sendChimera(t, a, `{"type":"session.end","reason":"switch"}`)
+	if shells := chimeraShells(t, a); shells[0].Status != store.ShellRunning {
+		t.Fatalf("after a switch = %+v", shells)
+	}
+	sendChimera(t, a, `{"type":"session.end","reason":"exit"}`)
+	if shells := chimeraShells(t, a); shells[0].Status != store.ShellKilled || shells[0].ExitCode != nil {
+		t.Fatalf("after the exit = %+v", shells)
+	}
+}
+
+func TestChimeraHook_AnExitWithoutItsStartIsStillRecorded(t *testing.T) {
+	a := newHookAgent(t)
+	sendChimera(t, a, `{"type":"background.exit","jobId":"b9","command":"make","exitCode":0}`)
+	shells := chimeraShells(t, a)
+	if len(shells) != 1 || shells[0].Status != store.ShellExited || *shells[0].ExitCode != 0 || shells[0].Command != "make" {
+		t.Fatalf("shells = %+v", shells)
+	}
+}
+
+func TestChimeraHook_ShellsAreBounded(t *testing.T) {
+	a := newHookAgent(t)
+	for i := range 40 {
+		sendChimera(t, a, fmt.Sprintf(`{"type":"background.start","jobId":"b%d","command":"true"}`, i))
+		sendChimera(t, a, fmt.Sprintf(`{"type":"background.exit","jobId":"b%d","exitCode":0}`, i))
+	}
+	shells := chimeraShells(t, a)
+	if len(shells) != 32 || shells[len(shells)-1].ID != "b39" {
+		t.Fatalf("%d shells, last %+v", len(shells), shells[len(shells)-1])
+	}
+}

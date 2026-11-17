@@ -107,6 +107,11 @@ type AgentResponse struct {
 	// wake it: kind (bash, monitor, subagent, cron), id, label, schedule
 	// for a cron, started_at.
 	BackgroundJobs []store.BackgroundJob `json:"background_jobs,omitempty"`
+	// BackgroundShells are the background shells the agent's mod reported,
+	// running and ended: id, command, status (running, exited, killed),
+	// exit_code, started_at, ended_at. Chimera's; a Claude Code agent's
+	// bridge serves its own, with their output, in its snapshot.
+	BackgroundShells []store.BackgroundShell `json:"background_shells,omitempty"`
 }
 
 func agentResponse(agent service.AgentSession) AgentResponse {
@@ -118,7 +123,7 @@ func agentResponse(agent service.AgentSession) AgentResponse {
 		Activity: agent.Activity, Role: agent.Role, ParentTaskID: agent.ParentTaskID,
 		SubtaskID: agent.SubtaskID, StartedAt: agent.StartedAt, EndedAt: agent.EndedAt,
 		Sandboxed: agent.Sandboxed, DockerHostNetwork: agent.DockerHostNetwork, CardTaskID: agent.CardTaskID, Slot: agent.Slot,
-		BackgroundJobs: agent.BackgroundJobs,
+		BackgroundJobs: agent.BackgroundJobs, BackgroundShells: agent.BackgroundShells,
 	}
 }
 

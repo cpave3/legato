@@ -29,6 +29,8 @@ A card shows `ready for review` in place of `idle` when the agent marked its [re
 
 When the agent is in the background, Legato lists what still runs: the agents list and the web UI's ensemble say `background · 2 jobs` or `background · subagent: Explore: find the callers`, and `GET /api/agents` has it under `background_jobs`. When a job ends and wakes the agent, the card goes back to `running`.
 
+In the web UI's native panel, each background shell is a tile beside the subagents. It shows the shell's output as it prints, and its exit code when it ends. See [Web UI](/legato/using/web-ui/).
+
 An asynchronously launched subagent stays running in the native panel until its own turn ends, even though its launch tool has already returned. This includes newer Claude Code versions whose `Agent` tool always runs asynchronously, without a background flag.
 Stopping a child reports it as interrupted, not failed, both live and when you reopen the panel.
 

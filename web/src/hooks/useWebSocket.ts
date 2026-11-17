@@ -1,3 +1,4 @@
+import type { StoredBackgroundShell } from "../lib/backgroundShells"
 import { useEffect, useRef, useState, useCallback, createContext, useContext } from "react"
 import { getToken } from "../lib/auth"
 import type { RepositoryCacheStatus } from "../lib/preparingAgents"
@@ -109,6 +110,9 @@ export interface AgentInfo {
   // What the agent started that still runs and will wake it; absent for
   // none. See docs/ai/agent-states.md.
   background_jobs?: BackgroundJob[]
+  // The background shells its mod reported, running and ended (Chimera's);
+  // absent for none. A Claude Code agent's come from its native endpoint.
+  background_shells?: StoredBackgroundShell[]
 }
 
 export interface BackgroundJob {

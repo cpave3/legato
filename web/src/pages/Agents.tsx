@@ -894,6 +894,7 @@ export function AgentsPage() {
                       onOpenUIItem={agent.task_id === selectedId ? artifacts.openItem : undefined}
                       panels={agent.task_id === selectedId ? sidePanels : undefined}
                       pullRequest={agent.task_id === selectedId ? pullRequest : undefined}
+                      backgroundShells={agent.background_shells}
                     />
                   ) : (
                     <TerminalPanel agentId={agent.task_id} onGlitch={triggerGlitch} onClickTerminal={() => {
@@ -929,6 +930,7 @@ export function AgentsPage() {
                   title={selectedAgent?.task_title}
                   activity={selectedAgent?.activity}
                   stateTime={selectedAgent ? formatAgentTime(stateSeconds(selectedAgent)) : undefined}
+                  backgroundShells={selectedAgent?.background_shells}
                 />
               ) : (
                 <LiveTerminal key={`${selectedId}:${terminalAttach}`} agentId={selectedId} />

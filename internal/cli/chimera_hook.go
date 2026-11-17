@@ -5,7 +5,9 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"strings"
 	"time"
+	"unicode"
 
 	"github.com/cpave3/legato/internal/engine/ipc"
 	"github.com/cpave3/legato/internal/engine/store"
@@ -29,6 +31,10 @@ type ChimeraHook struct {
 	// Running, when present, replaces the complete job list; nil preserves it.
 	Running []store.BackgroundJob `json:"running"`
 	Woke    []string              `json:"woke,omitempty"`
+	// Shell is a background shell's job ID and command (background.start
+	// and background.exit), and ExitCode how it exited, when it says.
+	Shell    *store.BackgroundShell `json:"shell,omitempty"`
+	ExitCode *int                   `json:"exit_code,omitempty"`
 }
 
 // ChimeraHookReport identifies the execution and slot receiving a mod report.
@@ -53,6 +59,7 @@ func ParseChimeraHook(raw []byte) (ChimeraHook, error) {
 		Reason          string                `json:"reason"`
 		RequestID       string                `json:"requestId"`
 		PendingRequests *int                  `json:"pendingRequests"`
+		ExitCode        *int                  `json:"exitCode"`
 		Started         *store.BackgroundJob  `json:"started"`
 		Running         []store.BackgroundJob `json:"running"`
 		Woke            []string              `json:"woke"`
@@ -71,10 +78,13 @@ func ParseChimeraHook(raw []byte) (ChimeraHook, error) {
 	case "background.start":
 		if p.JobID != "" {
 			h.Started = &store.BackgroundJob{Kind: store.JobBash, ID: p.JobID, Label: p.Command}
+			h.Shell = &store.BackgroundShell{ID: p.JobID, Command: p.Command}
 		}
 	case "background.exit":
 		if p.JobID != "" {
 			h.Woke = append(h.Woke, p.JobID)
+			h.Shell = &store.BackgroundShell{ID: p.JobID, Command: p.Command}
+			h.ExitCode = p.ExitCode
 		}
 	case "agent.spawn":
 		if p.Background && p.AgentID != "" {
@@ -166,14 +176,15 @@ func ApplyChimeraHook(s *store.Store, report ChimeraHookReport, pushNotifier, os
 	if err != nil {
 		return err
 	}
-	if err := s.SetChimeraHookState(ctx, session.ID, activity, jobs, children); err != nil {
+	shells := chimeraShells(session.BackgroundShells, h, now)
+	if err := s.SetChimeraHookState(ctx, session.ID, activity, jobs, children, shells); err != nil {
 		if errors.Is(err, store.ErrAgentStateIgnored) {
 			return nil
 		}
 		return fmt.Errorf("updating agent state: %w", err)
 	}
 	if !decided {
-		if !sameJobs(jobs, session.BackgroundJobs) || children != session.ChimeraSubagents {
+		if !sameJobs(jobs, session.BackgroundJobs) || children != session.ChimeraSubagents || !sameShells(shells, session.BackgroundShells) {
 			ipc.Broadcast(ipc.Message{Type: "agent_state", TaskID: report.TaskID, Status: activity})
 		}
 		return nil
@@ -282,4 +293,101 @@ func chimeraChildren(raw string, h ChimeraHook, now int64) (string, error) {
 	}
 	encoded, err := json.Marshal(children)
 	return string(encoded), err
+}
+
+// maxShellCommand bounds a shell's command as kept: the tile shows its
+// first line, the open tile the rest.
+const maxShellCommand = 1000
+
+// chimeraShells is the session's background shells after one mod event: a
+// background.start adds one running, a background.exit marks it exited
+// with its code (none when the event gives none), and the process's exit
+// (session.end with reason exit) marks those still running killed, as they
+// end with it. Ended shells stay listed, so the panel shows how they ended;
+// at most maxJobs are kept, the oldest ended going first.
+func chimeraShells(known store.BackgroundShells, h ChimeraHook, now time.Time) store.BackgroundShells {
+	shells := append(store.BackgroundShells(nil), known...)
+	index := func(id string) int {
+		for i := range shells {
+			if shells[i].ID == id {
+				return i
+			}
+		}
+		return -1
+	}
+	switch {
+	case h.Event == "background.start" && h.Shell != nil:
+		id := cleanText(h.Shell.ID, maxJobIDOrWhen)
+		if id == "" || index(id) >= 0 {
+			return shells
+		}
+		shells = append(shells, store.BackgroundShell{ID: id, Command: cleanShellCommand(h.Shell.Command), Status: store.ShellRunning, StartedAt: now})
+	case h.Event == "background.exit" && h.Shell != nil:
+		id := cleanText(h.Shell.ID, maxJobIDOrWhen)
+		i := index(id)
+		if id == "" {
+			return shells
+		}
+		if i < 0 {
+			// Its start was missed: it is known from its end alone.
+			shells = append(shells, store.BackgroundShell{ID: id, Command: cleanShellCommand(h.Shell.Command), Status: store.ShellRunning, StartedAt: now})
+			i = len(shells) - 1
+		}
+		if shells[i].Status == store.ShellRunning {
+			shells[i].Status, shells[i].EndedAt = store.ShellExited, now
+			if h.ExitCode != nil {
+				code := *h.ExitCode
+				shells[i].ExitCode = &code
+			}
+		}
+	case h.Event == "session.end" && h.Reason == "exit":
+		for i := range shells {
+			if shells[i].Status == store.ShellRunning {
+				shells[i].Status, shells[i].EndedAt = store.ShellKilled, now
+			}
+		}
+	}
+	for len(shells) > maxJobs {
+		dropped := false
+		for i := range shells {
+			if shells[i].Status != store.ShellRunning {
+				shells = append(shells[:i], shells[i+1:]...)
+				dropped = true
+				break
+			}
+		}
+		if !dropped {
+			shells = shells[1:]
+		}
+	}
+	return shells
+}
+
+// cleanShellCommand keeps a command's lines but drops other control
+// characters, and clips it.
+func cleanShellCommand(command string) string {
+	command = strings.Map(func(r rune) rune {
+		if r != '\n' && unicode.IsControl(r) {
+			return ' '
+		}
+		return r
+	}, strings.TrimSpace(command))
+	if r := []rune(command); len(r) > maxShellCommand {
+		command = string(r[:maxShellCommand-1]) + "…"
+	}
+	return command
+}
+
+func sameShells(a, b store.BackgroundShells) bool {
+	if len(a) != len(b) {
+		return false
+	}
+	for i := range a {
+		x, y := a[i], b[i]
+		if x.ID != y.ID || x.Command != y.Command || x.Status != y.Status || !x.StartedAt.Equal(y.StartedAt) || !x.EndedAt.Equal(y.EndedAt) ||
+			(x.ExitCode == nil) != (y.ExitCode == nil) || (x.ExitCode != nil && *x.ExitCode != *y.ExitCode) {
+			return false
+		}
+	}
+	return true
 }

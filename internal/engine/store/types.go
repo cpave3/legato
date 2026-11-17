@@ -427,6 +427,9 @@ type AgentSession struct {
 	BackgroundJobs BackgroundJobs `db:"background_jobs"`
 	// ChimeraSubagents is lifecycle metadata from the ordered mod stream, not transcripts.
 	ChimeraSubagents string `db:"chimera_subagents" json:"-"`
+	// BackgroundShells are the background shells a mod reported, running
+	// and ended, for agents whose own endpoint does not serve them (Chimera).
+	BackgroundShells BackgroundShells `db:"background_shells"`
 	// HookSource is HookSourcePlugin or HookSourceMod once native state
 	// reporting owns the session, "" otherwise.
 	HookSource string `db:"hook_source"`
@@ -461,6 +464,63 @@ type BackgroundJob struct {
 	Schedule string `json:"schedule,omitempty"`
 	// StartedAt is when Legato first saw it.
 	StartedAt time.Time `json:"started_at"`
+}
+
+// States of a BackgroundShell.
+const (
+	ShellRunning = "running"
+	ShellExited  = "exited"
+	ShellKilled  = "killed"
+)
+
+// BackgroundShell is one shell an agent ran in the background, as its agent
+// tool's mod reported it: what it ran, whether it still runs, and its exit
+// code once it exited. Its output is not kept here.
+type BackgroundShell struct {
+	// ID is the agent tool's own job ID.
+	ID        string    `json:"id"`
+	Command   string    `json:"command"`
+	Status    string    `json:"status"`
+	ExitCode  *int      `json:"exit_code,omitempty"`
+	StartedAt time.Time `json:"started_at"`
+	EndedAt   time.Time `json:"ended_at,omitzero"`
+}
+
+// BackgroundShells is kept as a JSON list.
+type BackgroundShells []BackgroundShell
+
+// Scan implements sql.Scanner.
+func (b *BackgroundShells) Scan(value any) error {
+	var raw []byte
+	switch v := value.(type) {
+	case nil:
+		*b = nil
+		return nil
+	case string:
+		raw = []byte(v)
+	case []byte:
+		raw = v
+	default:
+		return fmt.Errorf("background shells: cannot scan %T", value)
+	}
+	var shells []BackgroundShell
+	if err := json.Unmarshal(raw, &shells); err != nil {
+		return fmt.Errorf("background shells: %w", err)
+	}
+	if len(shells) == 0 {
+		shells = nil
+	}
+	*b = shells
+	return nil
+}
+
+// Value implements driver.Valuer.
+func (b BackgroundShells) Value() (driver.Value, error) {
+	if len(b) == 0 {
+		return "[]", nil
+	}
+	raw, err := json.Marshal([]BackgroundShell(b))
+	return string(raw), err
 }
 
 // BackgroundJobs is kept as a JSON list.

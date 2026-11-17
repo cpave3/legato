@@ -2,7 +2,7 @@ import { ReeveStatus, reeveWash } from "./ReeveEntry"
 import { AskReeve } from "./AskReeve"
 import { parseReeveMessage, reeveBrief } from "../lib/reeve"
 import { ChangeSetLines } from "./ChangeSetLines"
-import { useState, useEffect, useLayoutEffect, useCallback, useRef, useMemo, useId, memo } from "react"
+import { useState, useEffect, useLayoutEffect, useCallback, useRef, useMemo, useId, memo, Fragment } from "react"
 import { ArrowDown, ArrowLeftRight, Bell, BellOff, Check, FolderInput, Network, Pencil, RefreshCw, RotateCw, Shield, Skull, Terminal, Unplug, Zap } from "lucide-react"
 import type { SandboxSwitch } from "../lib/agentReload"
 import { useWebSocket, type PromptState, type WSMessage } from "../hooks/useWebSocket"
@@ -57,6 +57,8 @@ import { LoadingState } from "./ui/LoadingState"
 import { TileDeck } from "./TileDeck"
 import { SubagentLink } from "./SubagentParts"
 import { saveSubagentView, savedSubagentView, subagentTiles, type SubagentView } from "../lib/subagentTiles"
+import { shellTileForCall, shellTiles } from "../lib/shellTiles"
+import { fromStored, mergeShells, type StoredBackgroundShell } from "../lib/backgroundShells"
 import { useElementWidth } from "../hooks/useElementWidth"
 
 // The least width at which subagent tiles sit beside the conversation; below
@@ -245,9 +247,12 @@ interface NativeAgentPanelProps {
   stateTime?: string
   // The pull request of the agent's task.
   pullRequest?: number
+  // The background shells Legato recorded from the agent's mod (Chimera's,
+  // without output); its endpoint's own, when it reports them, win.
+  backgroundShells?: StoredBackgroundShell[]
 }
 
-export function NativeAgentPanel({ agentId, reeve, sandboxed, onKill, onRename, onMoveToGroup, resyncRef, onReload, switchSandbox, switchHostNetwork, onDisconnect, onDowngradeChimera, ntfyConfigured, notifyEnabled, onToggleNotify, voiceEnabled, agentKind, engram, composerEnabled = true, onOpenUIItem, panels, title, activity, stateTime, pullRequest }: NativeAgentPanelProps) {
+export function NativeAgentPanel({ agentId, reeve, sandboxed, onKill, onRename, onMoveToGroup, resyncRef, onReload, switchSandbox, switchHostNetwork, onDisconnect, onDowngradeChimera, ntfyConfigured, notifyEnabled, onToggleNotify, voiceEnabled, agentKind, engram, composerEnabled = true, onOpenUIItem, panels, title, activity, stateTime, pullRequest, backgroundShells }: NativeAgentPanelProps) {
   const { send, subscribe, connected } = useWebSocket()
   // Out of view the panel stops following the agent and catches up from its
   // cursor on return, so a phone with its screen off does not keep receiving
@@ -279,7 +284,9 @@ export function NativeAgentPanel({ agentId, reeve, sandboxed, onKill, onRename, 
   const draftKey = `legato:chimera-draft:${agentId}`
   const { items, busy, error, contextUsage, model } = syncState
   const blocks = useMemo(() => conversationBlocks(items), [items])
-  const tiles = useMemo(() => subagentTiles(items), [items])
+  const shells = useMemo(() => mergeShells(syncState.backgroundShells, fromStored(backgroundShells)), [syncState.backgroundShells, backgroundShells])
+  const tiles = useMemo(() => [...subagentTiles(items), ...shellTiles(shells)], [items, shells])
+  const deckTitle = shells.length > 0 ? "Sub-agents and shells" : "Sub-agents"
   const [subagentView, setSubagentView] = useState<SubagentView>(savedSubagentView)
   const [focusedTile, setFocusedTile] = useState<string | null>(null)
   const [highlightedTile, setHighlightedTile] = useState<string | null>(null)
@@ -1066,7 +1073,7 @@ export function NativeAgentPanel({ agentId, reeve, sandboxed, onKill, onRename, 
       />
       {reeve && <ChangeSetLines baseUrl={baseUrl} taskId={agentId} refresh={activity} />}
       {showTiles && !tilesBeside && (
-        <TileDeck title="Sub-agents" tiles={tiles} layout="strip" focused={focusedTile} onFocus={setFocusedTile} />
+        <TileDeck title={deckTitle} tiles={tiles} layout="strip" focused={focusedTile} onFocus={setFocusedTile} />
       )}
 
       {/* The conversation and its composer; subagent tiles may sit beside them,
@@ -1085,7 +1092,22 @@ export function NativeAgentPanel({ agentId, reeve, sandboxed, onKill, onRename, 
         )}
         <div data-conversation-column className="mx-auto w-full max-w-[820px] py-3 md:px-2">
         {blocks.map((block) => {
-          if (block.kind === "steps") return <StepGroup key={block.key} agentId={agentId} rows={block.rows} />
+          if (block.kind === "steps") {
+            // A background shell's call stays in its group, with a way to its tile after it.
+            const shellLinks = showTiles ? block.rows.flatMap((row) => {
+              const tile = row.tool ? shellTileForCall(tiles, shells, row.tool.key) : undefined
+              return tile ? [tile] : []
+            }) : []
+            if (shellLinks.length === 0) return <StepGroup key={block.key} agentId={agentId} rows={block.rows} />
+            return (
+              <Fragment key={block.key}>
+                <StepGroup agentId={agentId} rows={block.rows} />
+                {shellLinks.map((tile) => (
+                  <SubagentLink key={tile.id} kind="shell" tile={tile} highlighted={highlightedTile === tile.id} onOpen={() => setFocusedTile(tile.id)} onHighlight={setHighlightedTile} />
+                ))}
+              </Fragment>
+            )
+          }
           const item = block.item
           if ((!agentKind || agentKind === "chimera") && item.role === "assistant" && !item.isStreaming && isChimeraRecovery(item.text)) {
             return <ChimeraRecovery key={item.key} text={item.text} />
@@ -1170,6 +1192,7 @@ export function NativeAgentPanel({ agentId, reeve, sandboxed, onKill, onRename, 
             if (tile) {
               return <SubagentLink key={item.key} tile={tile} highlighted={highlightedTile === tile.id} onOpen={() => setFocusedTile(tile.id)} onHighlight={setHighlightedTile} />
             }
+
             return <SubagentCard key={item.key} tool={item.tool} />
           }
           if (item.role === "bang" && item.bang) {
@@ -1390,7 +1413,7 @@ export function NativeAgentPanel({ agentId, reeve, sandboxed, onKill, onRename, 
       </div>
       {showTiles && tilesBeside && (
         <TileDeck
-          title="Sub-agents"
+          title={deckTitle}
           tiles={tiles}
           layout="grid"
           focused={focusedTile}

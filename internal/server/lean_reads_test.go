@@ -178,3 +178,31 @@ func TestTheAgentsSayWhatStillRuns(t *testing.T) {
 		t.Fatal("an agent with nothing running lists background jobs")
 	}
 }
+
+// A Chimera agent's background shells, running and ended, for its tiles
+// (LEG-244).
+func TestTheAgentsListTheirBackgroundShells(t *testing.T) {
+	srv := agentsServer()
+	started := time.Date(2026, 11, 17, 3, 5, 0, 0, time.UTC)
+	code := 3
+	agent := &srv.agents.(*manyAgents).list[1]
+	agent.BackgroundShells = []store.BackgroundShell{
+		{ID: "b1", Command: "npm run dev", Status: store.ShellRunning, StartedAt: started},
+		{ID: "b2", Command: "make", Status: store.ShellExited, ExitCode: &code, StartedAt: started, EndedAt: started.Add(time.Minute)},
+	}
+	got := getAgents(t, srv, "?task=T-2")
+	shells, _ := got[0]["background_shells"].([]any)
+	if len(shells) != 2 {
+		t.Fatalf("background_shells = %v", got[0]["background_shells"])
+	}
+	first, second := shells[0].(map[string]any), shells[1].(map[string]any)
+	if first["status"] != "running" || first["command"] != "npm run dev" || first["exit_code"] != nil || first["ended_at"] != nil {
+		t.Fatalf("first = %v", first)
+	}
+	if second["status"] != "exited" || second["exit_code"] != float64(3) || second["ended_at"] != "2026-11-17T03:06:00Z" {
+		t.Fatalf("second = %v", second)
+	}
+	if _, ok := getAgents(t, srv, "?task=T-1")[0]["background_shells"]; ok {
+		t.Fatal("an agent with no shells lists background shells")
+	}
+}

@@ -4,9 +4,9 @@ import { cn } from "../lib/utils"
 // TileDeck shows several things that run at once, each as a tile: what is
 // running shares the space, what has finished waits on a shelf, and one tile
 // can be opened in full. It knows nothing of what a tile stands for; the
-// native panel uses it for subagents.
+// native panel uses it for subagents and background shells.
 
-export type TileState = "spawning" | "running" | "waiting" | "done" | "error" | "interrupted"
+export type TileState = "spawning" | "running" | "waiting" | "done" | "error" | "interrupted" | "killed"
 
 export interface DeckTile {
   id: string
@@ -45,6 +45,7 @@ export interface TileDeckProps {
 const looks: Record<TileState, { label: string; glyph: string; chip: string; frame: string }> = {
   spawning: { label: "spawning", glyph: "○", chip: "bg-lw-live-soft text-lw-live", frame: "border-[var(--theme-border,#2d3a33)]" },
   interrupted: { label: "interrupted", glyph: "■", chip: "bg-lw-idle-soft text-lw-text-2", frame: "border-lw-line" },
+  killed: { label: "killed", glyph: "■", chip: "bg-lw-idle-soft text-lw-text-2", frame: "border-lw-line" },
   running: { label: "running", glyph: "●", chip: "bg-lw-live-soft text-lw-live", frame: "border-[var(--theme-border,#2d3a33)]" },
   waiting: { label: "needs you", glyph: "◆", chip: "bg-lw-needs-soft text-lw-needs", frame: "border-[var(--theme-border,#4a3a1a)]" },
   done: { label: "done", glyph: "✓", chip: "bg-lw-done-soft text-lw-done", frame: "border-lw-line" },
@@ -331,7 +332,7 @@ function Sheet({ tile, now, onClose, onStep, position }: {
 
 function Counts({ tiles }: { tiles: DeckTile[] }) {
   const count = (state: TileState) => tiles.filter((tile) => tile.state === state).length
-  const parts: Array<[TileState, string]> = [["spawning", "text-lw-live"], ["interrupted", "text-lw-text-2"], ["waiting", "text-lw-needs"], ["running", "text-lw-live"], ["done", "text-lw-done"], ["error", "text-lw-error"]]
+  const parts: Array<[TileState, string]> = [["spawning", "text-lw-live"], ["interrupted", "text-lw-text-2"], ["killed", "text-lw-text-2"], ["waiting", "text-lw-needs"], ["running", "text-lw-live"], ["done", "text-lw-done"], ["error", "text-lw-error"]]
   return (
     <ul aria-label="By state" className="m-0 flex list-none flex-wrap gap-x-3 p-0 text-xs">
       {parts.map(([state, tone]) => count(state) > 0 && (

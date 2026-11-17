@@ -2482,3 +2482,74 @@ describe("NativeAgentPanel sub-agent tiles", () => {
     expect(sheet.textContent).toContain("yaml.Unmarshal")
   })
 })
+
+describe("NativeAgentPanel background shell tiles", () => {
+  const shellSnapshot = {
+    id: "task-1",
+    status: "idle",
+    messages: [
+      { role: "system", content: "" },
+      { role: "assistant", content: [{ type: "text", text: "Starting the server." }, { type: "tool-call" }] },
+    ],
+    toolCalls: [{
+      callId: "call-b", name: "bash", args: { command: "npm run dev", description: "Dev server", run_in_background: true },
+      result: { stdout: "Command running in background with ID: b1.", exit_code: 0 },
+    }],
+    backgroundShells: [{ shellId: "b1", callId: "call-b", command: "npm run dev", description: "Dev server", status: "running", startedAt: Date.now(), output: { available: true, text: "ready on :5173\n" } }],
+  }
+
+  function serve(snapshot: object) {
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => String(input).includes("/snapshot")
+      ? new Response(JSON.stringify(snapshot), { status: 200 })
+      : new Response("[]", { status: 200 }))
+  }
+
+  beforeEach(() => {
+    localStorage.setItem("legato:subagent-view", "tiles")
+    Object.defineProperty(window, "innerWidth", { configurable: true, value: 1440 })
+    window.dispatchEvent(new Event("resize"))
+  })
+
+  afterEach(() => {
+    cleanup()
+    vi.restoreAllMocks()
+    localStorage.removeItem("legato:subagent-view")
+  })
+
+  it("shows a background shell as a tile whose output and end follow the agent", async () => {
+    serve(shellSnapshot)
+    const view = render(<NativeAgentPanel agentId="agent-1" />)
+
+    const deck = await within(view.container).findByRole("region", { name: "Sub-agents and shells" })
+    const tile = within(deck).getByRole("article", { name: "Dev server, running" })
+    expect(within(tile).getByLabelText("Output").textContent).toBe("ready on :5173\n")
+    // Its call stays in the conversation, with a way to its tile.
+    expect(within(view.container).getByRole("button", { name: "Show Dev server in tiles" })).not.toBeNull()
+
+    act(() => {
+      websocketHandler?.({ type: "chimera_event", agent_id: "agent-1", content: JSON.stringify({ eventId: "e1", type: "background_shell_output", shellId: "b1", chunk: "GET /\n" }) })
+    })
+    await waitFor(() => expect(within(tile).getByLabelText("Output").textContent).toBe("ready on :5173\nGET /\n"))
+
+    act(() => {
+      websocketHandler?.({ type: "chimera_event", agent_id: "agent-1", content: JSON.stringify({
+        eventId: "e2", type: "background_shell",
+        shell: { shellId: "b1", callId: "call-b", command: "npm run dev", description: "Dev server", status: "exited", exitCode: 1, startedAt: 1, endedAt: 2, output: { available: true, text: "" } },
+      }) })
+    })
+    const shelf = await within(view.container).findByRole("list", { name: "Finished" })
+    expect(within(shelf).getByRole("button", { name: /Dev server/ }).textContent).toContain("GET /")
+  })
+
+  it("shows a Chimera agent's recorded shells, saying their output is not available yet", async () => {
+    serve({ id: "s", status: "idle", messages: [{ role: "user", content: "Launch" }, { role: "assistant", content: "Ready" }], toolCalls: [] })
+    const view = render(<NativeAgentPanel agentId="agent-1" agentKind="chimera" backgroundShells={[
+      { id: "j1", command: "cargo build", status: "running", started_at: new Date().toISOString() },
+    ]} />)
+
+    const deck = await within(view.container).findByRole("region", { name: "Sub-agents and shells" })
+    const tile = within(deck).getByRole("article", { name: "cargo build, running" })
+    expect(tile.textContent).toContain("Output isn’t available for this agent yet")
+    expect(within(view.container).getByRole("button", { name: /^Tiles \(1\), 1 running/ })).not.toBeNull()
+  })
+})

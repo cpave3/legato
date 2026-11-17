@@ -32,14 +32,16 @@ export function SubagentActivity({ subagent }: { subagent?: NativeSubagentState 
 }
 
 // SubagentLink stands in the conversation for a subagent shown as a tile:
-// it names it and opens its tile.
-export function SubagentLink({ tile, highlighted, onOpen, onHighlight }: {
+// it names it and opens its tile. A background shell's call has one too.
+export function SubagentLink({ tile, highlighted, onOpen, onHighlight, kind = "subagent" }: {
   tile: DeckTile
+  kind?: "subagent" | "shell"
   highlighted: boolean
   onOpen: () => void
   onHighlight: (id: string | null) => void
 }) {
-  const tone = tile.state === "running" ? "bg-lw-live" : tile.state === "done" ? "bg-lw-done" : tile.state === "error" ? "bg-lw-error" : "bg-lw-needs"
+  const tone = tile.state === "running" ? "bg-lw-live" : tile.state === "done" ? "bg-lw-done" : tile.state === "error" ? "bg-lw-error"
+    : tile.state === "killed" || tile.state === "interrupted" ? "bg-lw-text-2" : "bg-lw-needs"
   return (
     <button
       type="button"
@@ -51,7 +53,7 @@ export function SubagentLink({ tile, highlighted, onOpen, onHighlight }: {
         highlighted ? "border-lw-accent bg-lw-accent-soft" : "border-lw-line-strong bg-lw-surface hover:border-lw-accent")}
     >
       <span aria-hidden="true" className={cn("size-1.5 shrink-0 rounded-full", tone)} />
-      <span className="shrink-0 font-lw-mono text-[11px] uppercase text-lw-text-2">subagent</span>
+      <span className="shrink-0 font-lw-mono text-[11px] uppercase text-lw-text-2">{kind}</span>
       <span className="min-w-0 flex-1 truncate text-lw-text">{tile.title}</span>
       <span className="shrink-0 text-xs text-lw-link">in tiles<span aria-hidden="true"> →</span></span>
     </button>
