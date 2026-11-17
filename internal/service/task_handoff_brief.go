@@ -25,7 +25,8 @@ type HandoffBriefInput struct {
 	// branch, else the pushed branch it starts from.
 	Branch string
 	// Base is the repository's default branch, which a pushed branch's
-	// commits are read against.
+	// commits are read against; for a new branch, the base branch it starts
+	// from when the main gave one.
 	Base string
 }
 
@@ -53,6 +54,9 @@ func HandoffBrief(in HandoffBriefInput) string {
 		purpose = "find out"
 	}
 	startsFrom := "a new branch"
+	if !given && in.Base != "" {
+		startsFrom = "a new branch off " + in.Base
+	}
 	if given {
 		startsFrom = "the pushed branch " + in.Branch
 	}
@@ -105,6 +109,9 @@ func HandoffBrief(in HandoffBriefInput) string {
 	case findOut && given:
 		line("- You are on " + in.Branch + ", which already has commits: read them against " + base + " first.")
 		line("- Answer in notes. Change files to test and debug if useful; don't push or open a PR.")
+	case findOut && in.Base != "":
+		line("- You are on " + in.Branch + ", which starts from " + in.Base + ".")
+		line("- Answer in notes. Change files to test and debug if useful; don't push or open a PR.")
 	case findOut:
 		line("- Answer in notes. Change files to test and debug if useful; don't push or open a PR.")
 	case given:
@@ -112,7 +119,11 @@ func HandoffBrief(in HandoffBriefInput) string {
 		line("- You may stack: name new branches " + ownBranches + ", on top of " + in.Branch + ".")
 		line("- Pushing these branches and opening draft PRs is already allowed. Open PRs as drafts; never merge.")
 	default:
-		line("- Work on " + in.Branch + ".")
+		if in.Base != "" {
+			line("- Work on " + in.Branch + ", which starts from " + in.Base + "; open PRs against " + in.Base + ".")
+		} else {
+			line("- Work on " + in.Branch + ".")
+		}
 		line("- You may stack: name new branches " + ownBranches + ".")
 		line("- Pushing these branches and opening draft PRs is already allowed. Open PRs as drafts; never merge.")
 	}

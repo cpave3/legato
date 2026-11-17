@@ -160,3 +160,27 @@ func TestSpawnAgent_AnOwnLaunchPromptGetsNoGuidanceAndNoReviewPrompt(t *testing.
 		t.Fatalf("launch prompt = %q", prompt)
 	}
 }
+
+// The reviews prompt names the legato-review skill only when the agent has
+// it: Legato does not ship it, and an agent told to use a skill it lacks
+// guesses.
+func TestSpawnAgent_ReviewsOnNamesTheSkillOnlyWhenTheAgentHasIt(t *testing.T) {
+	spawn := func(t *testing.T, has func(string) bool) string {
+		t.Helper()
+		db := newServiceTestStore(t)
+		createTask(t, db, "task-1")
+		mt := newMockTmux()
+		adapter := reviewsPromptAdapter{fakeAdapter: &fakeAdapter{name: "claude-code"}}
+		svc := NewAgentService(db, mt, t.TempDir(), AgentServiceOptions{Adapter: adapter, HasSkill: has})
+		if err := svc.SpawnAgent(context.Background(), "task-1", 0, 0); err != nil {
+			t.Fatal(err)
+		}
+		return spawnedLaunchPrompt(t, mt, "task-1")
+	}
+	if prompt := spawn(t, func(name string) bool { return name == "legato-review" }); !strings.Contains(prompt, "use the legato-review skill") {
+		t.Fatalf("with the skill: %q", prompt)
+	}
+	if prompt := spawn(t, func(string) bool { return false }); strings.Contains(prompt, "legato-review") {
+		t.Fatalf("without the skill: %q", prompt)
+	}
+}

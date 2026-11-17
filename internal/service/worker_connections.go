@@ -564,6 +564,9 @@ func (c *WorkerConnections) session(ctx context.Context, id string, wc *workerCo
 				wc.mu.Unlock()
 				c.heard(ctx, id)
 				wc.reach.Unlock()
+				// Read before the pull is answered, so a manual sync
+				// returns with the advert current.
+				c.refreshAdvert(ctx, client)
 				pulled = true
 				wc.answer(session, nil)
 			case HandoffStreamRow:
@@ -838,7 +841,17 @@ func (c *WorkerConnections) pullOnce(ctx context.Context, worker Worker) error {
 	}
 	c.applyPull(ctx, worker, before, pull.Handoffs)
 	c.heard(ctx, worker.InstanceID)
+	c.refreshAdvert(ctx, client)
 	return nil
+}
+
+// refreshAdvert reads the worker's advert again after a pull: what it can do
+// may have changed since the main last connected (an update, a skill turned
+// on). A failure keeps the advert the main has.
+func (c *WorkerConnections) refreshAdvert(ctx context.Context, client *WorkerClient) {
+	if err := c.opts.Workers.RefreshAdvert(ctx, client); err != nil {
+		log.Printf("workers: %s's advert: %v", client.Worker.Name, err)
+	}
 }
 
 // classifyWorkerError tells a worker that refuses this main's token from

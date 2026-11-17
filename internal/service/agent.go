@@ -329,6 +329,7 @@ type agentService struct {
 	capabilityFolders    CapabilityFolders
 	interruptedMu        sync.Mutex
 	interruptedRoutes    []InterruptedResumeRoute
+	handedOff            HandedOffAgents
 	resourceResolver     ResourceResolver
 	interruptedListeners []func()
 	sessionEnvMu         sync.Mutex
@@ -355,6 +356,7 @@ type agentService struct {
 	repoResources        RepositoryResourceSource
 	docker               *SandboxDocker
 	reviewsOff           bool
+	hasSkill             func(name string) bool
 	binaryPath           string
 	bus                  EventPublisher
 	briefKickoffDelay    time.Duration
@@ -556,6 +558,10 @@ type AgentServiceOptions struct {
 	// ReviewsOff tells agents to skip Legato's review tours and handoff
 	// packets unless the person asks for one.
 	ReviewsOff bool
+	// HasSkill says whether agents have a skill of that name (managed or
+	// the agent tools' own): the reviews prompt names legato-review only
+	// then. Nil: assume they do.
+	HasSkill func(name string) bool
 	// Sandbox runs agents in Legato's sandbox. Nil: no sandbox.
 	Sandbox *SandboxSettings
 	// SandboxScratch is where sandboxes keep their scratch, removed when
@@ -657,6 +663,7 @@ func NewAgentService(s *store.Store, tmux TmuxManager, workDir string, opts ...A
 			svc.docker = opts[0].Sandbox.Docker
 		}
 		svc.reviewsOff = opts[0].ReviewsOff
+		svc.hasSkill = opts[0].HasSkill
 		svc.binaryPath = opts[0].BinaryPath
 		svc.bus = opts[0].EventBus
 		if opts[0].BriefKickoffDelay > 0 {
@@ -806,6 +813,13 @@ func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, hei
 			return fmt.Errorf("%w: the saved conversation is in %s, not in the clone at %s", ErrTaskResumeConflict, opt.ResumeWorkingDir, clone.Path)
 		}
 		freshClone = a.prepareFreshClone(clone, executionID, clone.Repo, opt.Ref)
+		if note := freshClone.note(); note != "" {
+			// On the card, so the operator (and a main, on Return) sees
+			// why the agent lacks what the setup should have given it.
+			if _, err := AddTaskNote(ctx, a.store, taskID, note, "legato"); err != nil {
+				log.Printf("noting the clone setup of %s: %v", taskID, err)
+			}
+		}
 	}
 	var launchPeers []AgentPeer
 	// An agent in a read-only named slot (a reviewer) cannot change the
@@ -975,7 +989,8 @@ func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, hei
 	// (Claude Code, Codex) is told; swarm workers never review.
 	if a.reviewsOff && !nativeResume && !ownPrompt {
 		rolePrompt = joinPromptSections(rolePrompt, reviewsOffPrompt)
-	} else if rp, ok := adapter.(ReviewsPromptAdapter); ok && rp.NeedsReviewsPrompt() && !nativeResume && !isSwarm && !ownPrompt {
+	} else if rp, ok := adapter.(ReviewsPromptAdapter); ok && rp.NeedsReviewsPrompt() && !nativeResume && !isSwarm && !ownPrompt &&
+		(a.hasSkill == nil || a.hasSkill(reviewSkill)) {
 		rolePrompt = joinPromptSections(rolePrompt, reviewsOnPrompt)
 	}
 	if repo, ok := strings.CutPrefix(projectKey, "repo:"); ok && a.guidance != nil {

@@ -68,7 +68,7 @@ func runCloneSetupCmd(args []string) int {
 		return exitOK
 	}
 	fmt.Fprintf(out, "legato: setting up this clone failed: %v\n", err)
-	text := fmt.Sprintf("Setting up the clone at %s failed: %v.", dir, err)
+	text := fmt.Sprintf("[legato clone setup] Setting up the clone at %s failed: %v.", dir, err)
 	if logPath != "" {
 		text += " Its output is in " + logPath + "."
 	}

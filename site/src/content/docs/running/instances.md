@@ -40,7 +40,11 @@ If the app or browser you use the main from already knows the worker, there is a
 
 The server in front is never offered. If the worker cannot be reached, is too old to pair a main, or the main cannot reach it at that address, the reason shows above the form and the worker's address is filled in, so you can pair it by hand.
 
-Both sides then list each other. The worker lists the main under Main instances, with its instance ID, when it paired, when it last pulled and its open handoffs. The main lists the worker under Workers, with its address, its instance ID, when it last pulled and whether its sandbox is on. A worker without the sandbox refuses handoffs.
+Both sides then list each other. The worker lists the main under Main instances, with its instance ID, when it paired, when it last pulled and its open handoffs. The main lists the worker under Workers, with its address, its instance ID, when it last pulled and whether its sandbox is on. A worker without the sandbox refuses handoffs. Today a worker needs Linux with bubblewrap (`bwrap`) installed and `agents.sandbox.enabled` on: a Mac can be a main, not a worker. It also needs `agents.mcp.enabled` (on by default): a handed-off agent records its work with Legato's agent tools, and a worker with them off refuses handoffs.
+
+Under each worker the main shows its version (`Legato v0.15.0`, or `Legato dev (1a2b3c4d5e6f)` for a build from source, with its commit) and marks one that runs an older release than the main. A worker that can't take handoffs, because it has no sandbox or its board has no columns, is marked "can't take handoffs" with the reason and what to do, there and as soon as you pair it. `legato serve` gives a new board the default columns when it starts, so a worker set up with `legato serve` alone is ready.
+
+The main also keeps what the worker says it can do for a handoff: its version, the agent tools installed there and their tiers, whether its agents get Legato's tools, its MCP connections and skills that are on, and the repositories it can clone. The main reads this when it pairs, each time it connects to the worker, and when you choose **Sync**. A worker that holds none of your tasks has no connection, so after you change it (update it, turn a skill on), choose **Sync** to see the change here. Only a paired main can read it; the worker's public `/api/meta` names the handoff features it supports and nothing more.
 
 The words work once, for five minutes and five tries, like a phone's. A phone cannot use a main's words, and a main cannot use a phone's.
 
@@ -76,6 +80,8 @@ When a main hands a task to a worker, the worker:
 - makes an ordinary card for it in a workspace named after the main, in the Doing column (or In Progress, else the first column). The card says where it came from under its title: "from workstation · K7Q2M9XA", the main's name and its own ID for the task;
 - adds the main's notes to the card, marked as from the main;
 - starts an agent on the card at once, in a fresh clone of the task's repository on the branch `legato/<the main's task ID>`, or on the pushed branch the task starts from, which the worker first fetches from GitHub. The agent always runs in Legato's [sandbox](/legato/security/sandbox/), with its tool's own permission prompts off, and with a brief that tells it to work alone, record its decisions in notes, open draft pull requests only (or, to find something out, answer in notes and push nothing) and move the card to Done when it is through.
+
+If you reload a handed-off agent on the worker, it comes back the way the handoff started it: in the sandbox, with its permission prompts off, in its clone, and still allowed to push its branches. You cannot take it out of the sandbox or give its containers the host network.
 
 The worker refuses a handoff before it makes anything when it has no sandbox, does not know the agent tool asked for, or cannot clone the repository. If the agent then fails to start, for example because the clone failed, the handoff is marked failed with the reason. A pushed branch that GitHub does not have fails the handoff with "branch not on GitHub". A handoff accepted just before the worker stopped starts when the worker starts again.
 

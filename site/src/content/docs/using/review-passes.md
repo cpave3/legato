@@ -61,6 +61,8 @@ The `github-reviewer` profile is Legato's own. No agent is given the credential,
 
 ### 2. The settings
 
+Review passes need Legato's agent tools (`agents.mcp.enabled`, on by default): the reviewer reports its findings through the `submit_review` tool, so Legato refuses to start with review passes on and the tools off.
+
 Turn review passes on in the worker's `config.yaml`:
 
 ```yaml

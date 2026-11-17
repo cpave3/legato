@@ -7,6 +7,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"strings"
 	"time"
 
 	"github.com/cpave3/legato/internal/engine/clonesetup"
@@ -31,6 +32,9 @@ type cloneSetup struct {
 	// linked are the main checkout's files the clone links to, which the
 	// sandbox must show for the links to work.
 	linked []string
+	// missed says what the setup asked for from the main checkout and the
+	// clone did not get, and why; empty when it got everything.
+	missed string
 }
 
 // prepareFreshClone reads the setup of a clone this spawn has just made
@@ -66,6 +70,7 @@ func (a *agentService) prepareFreshClone(clone store.JobClone, executionID, repo
 			log.Printf("clone setup of %s: %s", clone.Path, note)
 		}
 		prepared.linked = report.Linked
+		prepared.missed = missedProvisioning(setup, repo, primary, report, provisionErr)
 		if len(setup.Run) == 0 {
 			return prepared
 		}
@@ -97,14 +102,63 @@ func (c *cloneSetup) sandboxResources() []Resource {
 	return []Resource{r}
 }
 
-// prompt tells the agent its clone was set up and where the record is.
-func (c *cloneSetup) prompt(clonePath string) string {
-	if c == nil || c.command == "" {
+// missedProvisioning says what of the setup's copy and link the clone did
+// not get from the main checkout, and why; "" when it got it all. A file the
+// clone has of its own is no miss.
+func missedProvisioning(setup clonesetup.Setup, repo, primary string, report clonesetup.Report, err error) string {
+	if len(setup.Copy) == 0 && len(setup.Link) == 0 {
 		return ""
 	}
-	return "## Your clone was set up\n\nBefore you started, Legato ran the setup in this repository's " + c.file +
-		" in your working directory (installing its dependencies, say). What it wrote is in " +
-		filepath.Join(clonePath, ".git", "legato-setup.log") + ". If that log ends in a failure, fix what you need of it before you rely on the setup, or tell the operator."
+	wanted := strings.Join(append(append([]string(nil), setup.Copy...), setup.Link...), ", ")
+	switch {
+	case primary == "":
+		return fmt.Sprintf("this Legato has no main checkout of %s (no primary_dir in its repository presets), so %s were not copied or linked from it", repo, wanted)
+	case err != nil:
+		return fmt.Sprintf("%s were not copied or linked from %s: %v", wanted, primary, err)
+	}
+	var missed []string
+	for _, note := range report.Notes {
+		if !strings.HasSuffix(note, "the clone has its own, kept") {
+			missed = append(missed, note)
+		}
+	}
+	if len(missed) == 0 {
+		return ""
+	}
+	return fmt.Sprintf("not everything was copied or linked from %s: %s", primary, strings.Join(missed, "; "))
+}
+
+// cloneSetupNoteTag opens the note a clone's setup leaves on its task.
+const cloneSetupNoteTag = "[legato clone setup] "
+
+// note is the task note for what the clone did not get; "" for none.
+func (c *cloneSetup) note() string {
+	if c == nil || c.missed == "" {
+		return ""
+	}
+	return cloneSetupNoteTag + "The setup in " + c.file + " was not fully done: " + c.missed + ". The agent was told."
+}
+
+// prompt tells the agent its clone was set up and where the record is, and
+// what the setup could not give it.
+func (c *cloneSetup) prompt(clonePath string) string {
+	if c == nil {
+		return ""
+	}
+	var parts []string
+	if c.command != "" {
+		parts = append(parts, "Before you started, Legato ran the setup in this repository's "+c.file+
+			" in your working directory (installing its dependencies, say). What it wrote is in "+
+			filepath.Join(clonePath, ".git", "legato-setup.log")+". If that log ends in a failure, fix what you need of it before you rely on the setup, or tell the operator.")
+	}
+	if c.missed != "" {
+		parts = append(parts, "The setup in "+c.file+" also takes files from the repository's main checkout, but "+c.missed+
+			". Expect them to be missing: if the work needs them, make what you can (from an example file, say) or tell the operator, rather than guess why something fails.")
+	}
+	if len(parts) == 0 {
+		return ""
+	}
+	return "## Your clone was set up\n\n" + strings.Join(parts, "\n\n")
 }
 
 // cloneSetupStatus is the file the pane's shell writes the setup's exit

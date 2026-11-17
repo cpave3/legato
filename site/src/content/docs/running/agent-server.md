@@ -115,7 +115,7 @@ notifications:
     topic: legato-vm-<something hard to guess>   # finished agents, agents that need you, approvals
 ```
 
-Then, once: `legato columns sync`. A database with no columns has nowhere to put a task.
+`legato serve` gives a board with no columns the columns of `board.columns` when it starts, so a new database has somewhere to put a task.
 
 A clone Legato makes for an agent is set up before the agent starts, from the repository's own `.legato.toml` (or its `.yggdrasil.toml`'s `post_create` hooks): its dependencies installed in the agent's sandbox, with the package caches the sandbox shares. Files a repository copies or links from its main checkout (`.env.local`) come from the repository's `primary_dir`, which a worker usually has none of; give agents such files another way (a resource, or a credential). See [Configuration](/legato/reference/configuration/) § Setting up a fresh clone.
 

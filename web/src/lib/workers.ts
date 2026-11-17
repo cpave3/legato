@@ -24,6 +24,55 @@ export interface Worker {
   refused_at?: string
   // How many of this main's tasks it holds, which Remove warns of.
   away?: number
+  // What the worker last advertised it can do for a handoff, read at
+  // pairing and on each connection; absent for a worker too old to say.
+  advert?: WorkerAdvert
+  advert_at?: string
+  // Why it refuses every handoff (no sandbox, no columns), with what to
+  // do; absent when it can take them.
+  cannot_take_handoffs?: string
+  // It runs an older release than this main.
+  older?: boolean
+}
+
+// workerVersion is a worker's version as Settings › Workers shows it:
+// "Legato v0.15.0", or "Legato dev (1a2b3c4d5e6f)" for a build from source.
+export function workerVersion(w: Worker): string {
+  if (!w.advert) return "Legato version unknown"
+  return w.advert.commit ? `Legato ${w.advert.version} (${w.advert.commit})` : `Legato ${w.advert.version}`
+}
+
+// pairedText is what Add a worker says once paired.
+export function pairedText(w: Worker): string {
+  if (w.cannot_take_handoffs) return `Paired with ${w.name}, but it ${w.cannot_take_handoffs}.`
+  return `Paired with ${w.name}. Tasks can now be handed off to it.`
+}
+
+// WorkerAdvert is what a worker can do for a handoff: its version, the
+// handoff features it supports, the agent tools it has, whether its agents
+// get Legato's tools, its MCP connections and skills that are on, and the
+// repositories its GitHub credentials list (owner/name, owner/*).
+export interface WorkerAdvert {
+  version: string
+  commit?: string
+  features: string[]
+  sandbox: boolean
+  agents: WorkerAdvertAgent[]
+  default_agent?: string
+  mcp_tools: boolean
+  mcp_connections: string[]
+  skills: string[]
+  // null when the worker cannot say, which is not second-guessed.
+  repositories: string[] | null
+  // Why it would refuse every handoff now; absent when it can take them.
+  refuses?: string[]
+}
+
+export interface WorkerAdvertAgent {
+  name: string
+  installed: boolean
+  tiers: string[]
+  prompts_off: boolean
 }
 
 // RemovedWorker is what removing a worker did: the tasks recalled with
@@ -208,4 +257,58 @@ export function workerCandidates(baseUrl: string): WorkerCandidates {
       return openMainRequest(candidate)
     },
   }
+}
+
+// advertCanClone says whether a worker's GitHub credentials list a
+// repository (owner/name, or owner/* for every repository of an owner).
+// A worker with no advert is not second-guessed: it refuses for itself.
+export function advertCanClone(advert: WorkerAdvert | undefined, repo: string): boolean {
+  if (!advert || !advert.repositories) return true
+  const want = repo.trim().toLowerCase()
+  const [owner] = want.split("/")
+  return advert.repositories.some((pattern) => {
+    const p = pattern.toLowerCase()
+    return p === want || p === `${owner}/*`
+  })
+}
+
+// githubRepo is a GitHub owner/name: what a worker's advert may add to the
+// form, never a pattern or anything else it sends.
+const githubRepo = /^[A-Za-z0-9-]{1,39}\/[A-Za-z0-9._-]{1,100}$/
+
+// workerOnlyRepositories are the repositories a worker names that this
+// Legato does not offer: they can be handed off too.
+export function workerOnlyRepositories(advert: WorkerAdvert | undefined, offered: string[]): string[] {
+  if (!advert || !advert.repositories) return []
+  const here = new Set(offered.map((r) => r.toLowerCase()))
+  return advert.repositories.filter((r) => githubRepo.test(r) && !here.has(r.toLowerCase()))
+}
+
+// handoffBlock says why a worker can't take handoffs, or null when it can.
+export function handoffBlock(w: Worker): string | null {
+  if (w.cannot_take_handoffs) return w.cannot_take_handoffs
+  if (!(w.advert ? w.advert.sandbox : w.sandbox)) return "sandbox off: it refuses handoffs"
+  return null
+}
+
+// handoffTools are the agent tools a handoff to a worker can ask for: those
+// installed there that run with their prompts off, the worker's default
+// first. Without an advert, this Legato's own (theirs is unknown).
+export function handoffTools(advert: WorkerAdvert | undefined, local: string[]): string[] {
+  if (!advert) return local
+  const usable = advert.agents.filter((a) => a.installed && a.prompts_off).map((a) => a.name)
+  const first = advert.default_agent && usable.includes(advert.default_agent) ? advert.default_agent : usable[0]
+  return first ? [first, ...usable.filter((n) => n !== first)] : usable
+}
+
+// missingOnWorker names what this Legato's agents have that a worker's
+// would not: skills and MCP connections that are on here. A warning, not a
+// refusal: the person decides. A worker without Legato's agent tools is no
+// warning: it refuses every handoff (cannot_take_handoffs).
+export function missingOnWorker(advert: WorkerAdvert | undefined, here: { skills: string[]; mcpConnections: string[] }): string[] {
+  if (!advert) return []
+  const out: string[] = []
+  for (const s of here.skills) if (!advert.skills.includes(s)) out.push(`skill ${s}`)
+  for (const c of here.mcpConnections) if (!advert.mcp_connections.includes(c)) out.push(`MCP connection ${c}`)
+  return out
 }

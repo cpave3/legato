@@ -244,3 +244,18 @@ func saveJira(ctx context.Context, sink SettingsSink, baseURL, email, token, pro
 	}
 	return nil
 }
+
+// SeedColumnsIfEmpty gives a board with no columns the configured ones, as
+// the first run's wizard does, without asking anything: for `legato serve`,
+// which has nobody at a terminal to ask (a headless worker refuses every
+// handoff while its board has no columns). It says whether it seeded.
+func SeedColumnsIfEmpty(ctx context.Context, store ColumnSeeder, columns []config.ColumnConfig) (bool, error) {
+	existing, err := store.ListColumnMappings(ctx)
+	if err != nil {
+		return false, fmt.Errorf("listing columns: %w", err)
+	}
+	if len(existing) > 0 {
+		return false, nil
+	}
+	return true, seedColumns(ctx, store, columns)
+}

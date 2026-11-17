@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/cpave3/legato/internal/engine/events"
@@ -100,6 +101,9 @@ type HandoffMain struct {
 type HandoffWorkerService struct {
 	db   *store.Store
 	opts HandoffWorkerOptions
+
+	advertMu sync.Mutex
+	advert   HandoffAdvertSources
 }
 
 func NewHandoffWorkerService(db *store.Store, opts HandoffWorkerOptions) *HandoffWorkerService {
@@ -151,6 +155,8 @@ func validateHandoffCall(call HandoffCall) error {
 		return handoffErr("bad_request", "repo must be a GitHub repository, owner/name")
 	case !stackgraph.ValidBranchName(call.Branch):
 		return handoffErr("bad_request", "branch must name a branch")
+	case call.Base != "" && (call.Kind != HandoffNewBranch || !stackgraph.ValidBranchName(call.Base)):
+		return handoffErr("bad_request", "base must name a branch, and only for a new branch")
 	}
 	for _, n := range call.Notes {
 		if n.ID == "" || len(n.ID) > maxHandoffField || len(n.Body) > maxHandoffText {
@@ -184,6 +190,11 @@ func (s *HandoffWorkerService) Accept(ctx context.Context, main HandoffMain, cal
 
 	if s.opts.Sandbox == nil || !s.opts.Sandbox() {
 		return HandoffAccepted{}, false, handoffErr("no_sandbox", "this worker cannot run agents in Legato's sandbox, which a handed-off agent needs")
+	}
+	// The brief asks the agent to record its work with add_task_note, and
+	// a reviewer reports through submit_review: Legato's MCP tools.
+	if s.mcpToolsOff() {
+		return HandoffAccepted{}, false, handoffErr("no_mcp_tools", "this worker's agents get no Legato tools (add_task_note, submit_review), which a handed-off agent needs: turn on agents.mcp.enabled here")
 	}
 	agentKind, err := s.agentKind(call.AgentKind)
 	if err != nil {
@@ -233,7 +244,7 @@ func (s *HandoffWorkerService) Accept(ctx context.Context, main HandoffMain, cal
 		notes = append(notes, store.TaskNote{ID: workflowID("tn-"), TaskID: task.ID, Body: n.Body, Source: NoteSourceMain, RemoteID: n.ID})
 	}
 	record := store.Handoff{MainInstanceID: main.InstanceID, HandoffID: call.HandoffID, MainName: main.Name, MainTaskID: call.MainTaskID,
-		TaskID: task.ID, Purpose: call.Purpose, Kind: call.Kind, Repo: call.Repo, Branch: call.Branch, AgentKind: agentKind,
+		TaskID: task.ID, Purpose: call.Purpose, Kind: call.Kind, Repo: call.Repo, Branch: call.Branch, Base: call.Base, AgentKind: agentKind,
 		State: store.HandoffPending, RequestHash: hash, CreatedAt: now, UpdatedAt: now}
 	if err := s.db.CreateHandoffCard(ctx, task, notes, record); errors.Is(err, store.ErrConflict) {
 		// The same handoff arrived twice at once; the first one stands.
@@ -413,6 +424,15 @@ func (s *HandoffWorkerService) start(ctx context.Context, mainInstanceID, handof
 			return
 		}
 		in.Base = base
+	} else if h.Base != "" {
+		// The main's base branch: fetched now, as below, and checked on
+		// GitHub, so the new branch is never made at a base that is not
+		// there.
+		if failure := s.baseBranch(ctx, h); failure != "" {
+			move(store.HandoffFailed, failure)
+			return
+		}
+		in.Base = h.Base
 	} else if s.opts.Repositories != nil {
 		// A handoff can start long after the person last pushed: fetch now,
 		// whatever the cache's max age, so the new branch starts from
@@ -426,6 +446,9 @@ func (s *HandoffWorkerService) start(ctx context.Context, mainInstanceID, handof
 	brief := HandoffBrief(in)
 	opts := AgentSpawnOptions{AgentKind: h.AgentKind, Repo: h.Repo, Branch: h.Branch, Assignment: brief, Unattended: true,
 		Branches: handoffSessionBranches(h), PushedBranch: h.Kind == HandoffPushedBranch}
+	if h.Kind == HandoffNewBranch {
+		opts.Ref = h.Base
+	}
 	if err := s.opts.Agents.SpawnAgent(ctx, h.TaskID, 0, 0, opts); err != nil {
 		move(store.HandoffFailed, startFailure(err))
 		return
@@ -483,6 +506,20 @@ func (s *HandoffWorkerService) pushedBranch(ctx context.Context, h *store.Handof
 		return "", fmt.Sprintf("%s is the default branch of %s: hand off a branch of your own", h.Branch, h.Repo)
 	}
 	return base, ""
+}
+
+// baseBranch fetches a new-branch handoff's repository and checks GitHub
+// has its base branch; the failure says why not.
+func (s *HandoffWorkerService) baseBranch(ctx context.Context, h *store.Handoff) (failure string) {
+	if s.opts.Repositories == nil {
+		return fmt.Sprintf("this worker cannot clone %s: it has no repository cache", h.Repo)
+	}
+	if _, err := s.opts.Repositories.PushedBranch(ctx, h.Repo, h.Base); errors.Is(err, ErrBranchNotOnGitHub) {
+		return fmt.Sprintf("origin has no branch %s, the base branch %s gave for %s", h.Base, h.MainName, h.Repo)
+	} else if err != nil {
+		return startFailure(err)
+	}
+	return ""
 }
 
 // startFailure is why a handoff's start failed, as its main shows it: a

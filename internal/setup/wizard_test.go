@@ -253,3 +253,22 @@ func TestWizard_JiraGoesToTheDatabaseAndTheTokenToTheSecretStore(t *testing.T) {
 		t.Errorf("columns = %+v", store.mappings)
 	}
 }
+
+func TestSeedColumnsIfEmptySeedsAnEmptyBoard(t *testing.T) {
+	store := &fakeColumnStore{}
+	seeded, err := SeedColumnsIfEmpty(context.Background(), store, config.DefaultColumns())
+	if err != nil || !seeded {
+		t.Fatalf("seeded %v, %v", seeded, err)
+	}
+	if len(store.mappings) != len(config.DefaultColumns()) {
+		t.Fatalf("seeded %d columns", len(store.mappings))
+	}
+}
+
+func TestSeedColumnsIfEmptyLeavesABoardWithColumns(t *testing.T) {
+	store := &fakeColumnStore{mappings: []ColumnMappingRow{{ID: 1, ColumnName: "Inbox"}}}
+	seeded, err := SeedColumnsIfEmpty(context.Background(), store, config.DefaultColumns())
+	if err != nil || seeded || len(store.mappings) != 1 {
+		t.Fatalf("seeded %v, %v: %+v", seeded, err, store.mappings)
+	}
+}

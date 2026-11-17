@@ -19,15 +19,17 @@ const (
 // Handoff is a task a main instance handed to this worker: the main's
 // instance ID and handoff ID name it, TaskID is the worker's card.
 type Handoff struct {
-	MainInstanceID string  `db:"main_instance_id"`
-	HandoffID      string  `db:"handoff_id"`
-	MainName       string  `db:"main_name"`
-	MainTaskID     string  `db:"main_task_id"`
-	TaskID         string  `db:"task_id"`
-	Purpose        string  `db:"purpose"`
-	Kind           string  `db:"kind"`
-	Repo           string  `db:"repo"`
-	Branch         string  `db:"branch"`
+	MainInstanceID string `db:"main_instance_id"`
+	HandoffID      string `db:"handoff_id"`
+	MainName       string `db:"main_name"`
+	MainTaskID     string `db:"main_task_id"`
+	TaskID         string `db:"task_id"`
+	Purpose        string `db:"purpose"`
+	Kind           string `db:"kind"`
+	Repo           string `db:"repo"`
+	Branch         string `db:"branch"`
+	// Base is the branch a new branch starts from; "" for the default.
+	Base           string  `db:"base"`
 	AgentKind      string  `db:"agent_kind"`
 	State          string  `db:"state"`
 	Failure        string  `db:"failure"`
@@ -62,9 +64,9 @@ func (s *Store) CreateHandoffCard(ctx context.Context, task Task, notes []TaskNo
 		}
 	}
 	if _, err := tx.NamedExecContext(ctx, `INSERT INTO handoffs (main_instance_id, handoff_id, main_name, main_task_id, task_id, purpose, kind,
-			repo, branch, agent_kind, state, failure, request_hash, created_at, updated_at)
+			repo, branch, base, agent_kind, state, failure, request_hash, created_at, updated_at)
 		VALUES (:main_instance_id, :handoff_id, :main_name, :main_task_id, :task_id, :purpose, :kind,
-			:repo, :branch, :agent_kind, :state, :failure, :request_hash, :created_at, :updated_at)`, h); err != nil {
+			:repo, :branch, :base, :agent_kind, :state, :failure, :request_hash, :created_at, :updated_at)`, h); err != nil {
 		if strings.Contains(err.Error(), "UNIQUE constraint failed") {
 			return ErrConflict
 		}

@@ -73,7 +73,7 @@ func TestAFailedCloneSetupIsNotedOnTheTask(t *testing.T) {
 	if code == exitOK {
 		t.Fatal("a failed setup succeeded")
 	}
-	if len(*notes) != 1 || !strings.HasPrefix((*notes)[0], "task-1: ") || !strings.Contains((*notes)[0], "legato-setup.log") || !strings.Contains((*notes)[0], "exit 7") {
+	if len(*notes) != 1 || !strings.HasPrefix((*notes)[0], "task-1: [legato clone setup] ") || !strings.Contains((*notes)[0], "legato-setup.log") || !strings.Contains((*notes)[0], "exit 7") {
 		t.Errorf("notes = %v", *notes)
 	}
 }

@@ -7,8 +7,10 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"log"
 	"net/http"
 	"net/url"
+	"slices"
 	"strings"
 	"sync"
 	"time"
@@ -146,6 +148,9 @@ type TaskHandoffOptions struct {
 	Bus *events.Bus
 	// Now is the clock; time.Now when nil.
 	Now func() time.Time
+	// BaseBranch is this main's preset base_branch for a repository, ""
+	// for none: a new branch on the worker starts from it.
+	BaseBranch func(ctx context.Context, repo string) string
 }
 
 // TaskHandoffService is a main instance's side of handing tasks to workers:
@@ -232,9 +237,25 @@ func (s *TaskHandoffService) HandOff(ctx context.Context, req TaskHandoffRequest
 	if meta.Handoff < HandoffProtocolVersion {
 		return AwayTask{}, &handoffWorkerError{ErrWorkerTooOld, fmt.Sprintf("update the worker: %s runs Legato %s, which cannot take a handoff from this one", name, orUnknown(meta.Version))}
 	}
+	// What the worker can do is read again now: a worker that holds none
+	// of this main's tasks has no connection to refresh it, and an advert
+	// from pairing may refuse what the worker now takes. A failed read
+	// keeps the stored one.
+	if err := s.opts.Workers.RefreshAdvert(ctx, client); err != nil {
+		log.Printf("handoff: %s's advert: %v", name, err)
+	}
+	// The worker's definition decides access: a repository its advert does
+	// not list is refused here, in the words the Hand off form uses.
+	if advert := client.Worker.Advert; advert != nil && !advert.MCPTools {
+		return AwayTask{}, &handoffWorkerError{ErrWorkerRefused, fmt.Sprintf("turn on agents.mcp.enabled on %s: its agents get no Legato tools (add_task_note, submit_review), which a handed-off agent needs", name)}
+	}
+	if !client.Worker.Advert.CanClone(req.Repo) {
+		return AwayTask{}, &handoffWorkerError{ErrWorkerRefused, fmt.Sprintf("%s can't clone %s: its GitHub credentials do not list it", name, req.Repo)}
+	}
 	if meta.Sandbox == nil || !*meta.Sandbox {
 		return AwayTask{}, &handoffWorkerError{ErrWorkerRefused, fmt.Sprintf("%s cannot run agents in Legato's sandbox, which a handed-off agent needs", name)}
 	}
+	meta.HandoffFeatures = workerFeatures(meta)
 	// Review passes turned off, to a worker that runs none, is what the
 	// worker does anyway: the override is left out.
 	if req.Review != nil && meta.ReviewPasses == nil && req.Review.OnlyOff() {
@@ -242,6 +263,29 @@ func (s *TaskHandoffService) HandOff(ctx context.Context, req TaskHandoffRequest
 	}
 	if req.Review != nil && meta.ReviewPasses == nil {
 		return AwayTask{}, &handoffWorkerError{ErrWorkerRefused, fmt.Sprintf("%s does not run review passes", name)}
+	}
+	// What the call carries beyond a local task on a new branch is sent
+	// only to a worker that lists its feature: an older worker would drop
+	// it and answer 201 all the same.
+	if req.Review != nil && !slices.Contains(meta.HandoffFeatures, HandoffFeatureReviewOverride) && req.Review.OnlyOff() {
+		req.Review = nil
+	}
+	base := ""
+	if req.Kind != HandoffPushedBranch && s.opts.BaseBranch != nil {
+		base = s.opts.BaseBranch(ctx, req.Repo)
+	}
+	for _, need := range []struct {
+		feature string
+		used    bool
+	}{
+		{HandoffFeatureTicket, task.Provider != nil},
+		{HandoffFeaturePushedBranch, req.Kind == HandoffPushedBranch},
+		{HandoffFeatureReviewOverride, req.Review != nil},
+		{HandoffFeatureBase, base != ""},
+	} {
+		if need.used && !slices.Contains(meta.HandoffFeatures, need.feature) {
+			return AwayTask{}, &handoffWorkerError{ErrWorkerTooOld, fmt.Sprintf("%s is too old for %s: update it (it runs Legato %s)", name, need.feature, orUnknown(meta.Version))}
+		}
 	}
 
 	notes, err := s.db.ListTaskNotes(ctx, task.ID)
@@ -288,6 +332,7 @@ func (s *TaskHandoffService) HandOff(ctx context.Context, req TaskHandoffRequest
 	}
 	call.Ticket = handoffTicket(task)
 	call.Review = req.Review
+	call.Base = base
 	var accepted HandoffAccepted
 	if err := client.Call(ctx, http.MethodPost, HandoffCallPath, call, &accepted); err != nil {
 		if errors.Is(err, ErrWorkerUnreachable) {

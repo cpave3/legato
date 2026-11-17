@@ -86,13 +86,19 @@ type AwayReturn struct {
 	Notes       []TaskNote
 	Stack       *string
 	At          string
+	// Move, when set, is the transition recorded when the task lands in
+	// another column than it is in (its ID, source and task snapshot; the
+	// columns are filled in here), so the main's workflow triggers act on
+	// the return as on any move. Moved says whether it was.
+	Move  *TaskTransition
+	Moved bool
 }
 
 // ApplyAwayTaskReturn applies a worker's results to an open away task and
 // closes it, in one transaction, leaving step 2 owed (archive_owed). It
 // says whether it applied them: false when the away task was closed
 // already, and nothing changes.
-func (s *Store) ApplyAwayTaskReturn(ctx context.Context, r AwayReturn) (bool, error) {
+func (s *Store) ApplyAwayTaskReturn(ctx context.Context, r *AwayReturn) (bool, error) {
 	codeContext, err := MarshalCodeContext(r.CodeContext)
 	if err != nil {
 		return false, err
@@ -110,11 +116,24 @@ func (s *Store) ApplyAwayTaskReturn(ctx context.Context, r AwayReturn) (bool, er
 	if n, err := result.RowsAffected(); err != nil || n == 0 {
 		return false, err
 	}
+	var from string
+	if err := tx.GetContext(ctx, &from, `SELECT status FROM tasks WHERE id = ?`, r.TaskID); err != nil {
+		return false, err
+	}
 	if _, err := tx.ExecContext(ctx, `UPDATE tasks SET title = COALESCE(NULLIF(?, ''), title), description = ?, description_md = ?, status = ?,
 			sort_order = (SELECT COALESCE(MAX(sort_order), -1) + 1 FROM tasks WHERE status = ? AND archived_at IS NULL AND id <> ?),
 			code_context = COALESCE(?, code_context), updated_at = datetime('now')
 		WHERE id = ?`, r.Title, r.Description, r.Description, r.Status, r.Status, r.TaskID, codeContext, r.TaskID); err != nil {
 		return false, err
+	}
+	r.Moved = false
+	if r.Move != nil && from != r.Status {
+		r.Move.TaskID, r.Move.FromColumn, r.Move.ToColumn = r.TaskID, from, r.Status
+		if _, err := tx.ExecContext(ctx, `INSERT INTO task_transitions (id, task_id, source, from_column, to_column, task_json) VALUES (?, ?, ?, ?, ?, ?)`,
+			r.Move.ID, r.Move.TaskID, r.Move.Source, r.Move.FromColumn, r.Move.ToColumn, r.Move.TaskJSON); err != nil {
+			return false, err
+		}
+		r.Moved = true
 	}
 	for _, n := range r.Notes {
 		if _, err := tx.ExecContext(ctx, `INSERT INTO task_notes (id, task_id, body, source, remote_id, created_at)

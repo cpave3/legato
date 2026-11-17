@@ -11,6 +11,7 @@ import (
 	"errors"
 	"fmt"
 	"io"
+	"log"
 	"net/http"
 	"net/url"
 	"regexp"
@@ -22,6 +23,7 @@ import (
 	"github.com/cpave3/legato/internal/engine/events"
 	"github.com/cpave3/legato/internal/engine/pairing"
 	"github.com/cpave3/legato/internal/engine/store"
+	"github.com/cpave3/legato/internal/engine/version"
 )
 
 // HandoffProtocolVersion is the version of the calls a main instance and a
@@ -68,6 +70,18 @@ type Worker struct {
 	// Away is how many of this main's tasks the worker holds, which
 	// Remove warns of.
 	Away int `json:"away"`
+	// Advert is what the worker last advertised it can do for a handoff,
+	// read at pairing and on each connection, and AdvertAt when; nil for
+	// a worker too old to advertise.
+	Advert   *HandoffAdvert `json:"advert,omitempty"`
+	AdvertAt *string        `json:"advert_at,omitempty"`
+	// CannotTakeHandoffs says why the worker refuses every handoff (no
+	// sandbox, no columns), with what to do; empty when it can take them.
+	// Pairing still succeeds.
+	CannotTakeHandoffs string `json:"cannot_take_handoffs,omitempty"`
+	// Older says the worker runs an older release than this main, which
+	// may lack what this main sends.
+	Older bool `json:"older,omitempty"`
 	// leavingUntil is set once the worker was removed: it is kept, hidden,
 	// only to send the calls owed it until then.
 	leavingUntil string
@@ -171,8 +185,28 @@ func workerFromRow(w store.Worker) Worker {
 	if w.LeavingUntil != nil {
 		worker.leavingUntil = *w.LeavingUntil
 	}
+	if w.Advert != nil {
+		var advert HandoffAdvert
+		if err := json.Unmarshal([]byte(*w.Advert), &advert); err == nil {
+			worker.Advert, worker.AdvertAt = &advert, w.AdvertAt
+		}
+	}
+	var refuses []string
+	if worker.Advert != nil {
+		refuses = worker.Advert.Refuses
+		worker.Older = version.Newer(thisVersion(), worker.Advert.Version)
+	} else if !worker.Sandbox {
+		refuses = []string{refusesNoSandbox}
+	}
+	if len(refuses) > 0 {
+		worker.CannotTakeHandoffs = "can't take handoffs: " + strings.Join(refuses, "; ")
+	}
 	return worker
 }
+
+// thisVersion is this Legato's version, which a worker's is compared with;
+// tests replace it.
+var thisVersion = version.String
 
 // Leaving says whether the worker was removed and is kept only to send the
 // calls owed it.
@@ -186,6 +220,9 @@ type workerMeta struct {
 	Sandbox        *bool  `json:"sandbox"`
 	// ReviewPasses is set when the worker runs review passes.
 	ReviewPasses *ReviewPassesAdvert `json:"review_passes,omitempty"`
+	// HandoffFeatures are the handoff features the worker supports; none
+	// for a worker built before they were advertised.
+	HandoffFeatures []string `json:"handoff_features,omitempty"`
 }
 
 // Pair pairs this main with a worker by the phrase the worker shows: it
@@ -256,6 +293,11 @@ func (s *WorkerService) Pair(ctx context.Context, req WorkerPairRequest) (Worker
 	}
 	if err := s.db.SaveWorker(ctx, row); err != nil {
 		return Worker{}, err
+	}
+	// The advert is not needed to pair: a worker too old to advertise
+	// pairs all the same, and the next connection reads it again.
+	if err := s.RefreshAdvert(ctx, client); err != nil {
+		log.Printf("workers: %s's advert: %v", secret.Name, err)
 	}
 	saved, err := s.db.GetWorker(ctx, row.InstanceID)
 	if err != nil {
@@ -418,6 +460,43 @@ func (c *WorkerClient) Meta(ctx context.Context) (WorkerMeta, error) {
 	var meta workerMeta
 	err := workerCall(ctx, c.http, http.MethodGet, c.base+"/api/meta", "", nil, &meta)
 	return meta, err
+}
+
+// Capabilities reads the worker's advert with this main's token. A worker
+// too old to have the route answers ErrNoAdvert.
+func (c *WorkerClient) Capabilities(ctx context.Context) (HandoffAdvert, error) {
+	var advert HandoffAdvert
+	err := c.Call(ctx, http.MethodGet, HandoffCapabilitiesPath, nil, &advert)
+	var refusal *WorkerRefusal
+	if errors.As(err, &refusal) && (refusal.Status == http.StatusNotFound || refusal.Status == http.StatusMethodNotAllowed) {
+		return HandoffAdvert{}, ErrNoAdvert
+	}
+	return advert, err
+}
+
+// ErrNoAdvert: the worker has no capabilities route (an older Legato).
+var ErrNoAdvert = errors.New("the worker does not advertise what it can do; update it")
+
+// RefreshAdvert reads a worker's advert and keeps it on its record. A
+// worker without the route (an older build, or one downgraded since) keeps
+// no advert, and is no error.
+func (s *WorkerService) RefreshAdvert(ctx context.Context, client *WorkerClient) error {
+	advert, err := client.Capabilities(ctx)
+	if errors.Is(err, ErrNoAdvert) {
+		client.Worker.Advert, client.Worker.AdvertAt = nil, nil
+		return s.db.ClearWorkerAdvert(ctx, client.Worker.InstanceID)
+	}
+	if err != nil {
+		return err
+	}
+	// The client's record follows, so a caller deciding on it next reads
+	// the advert just given.
+	client.Worker.Advert = &advert
+	raw, err := json.Marshal(advert)
+	if err != nil {
+		return err
+	}
+	return s.db.SetWorkerAdvert(ctx, client.Worker.InstanceID, string(raw), s.opts.Now().UTC().Format(time.RFC3339))
 }
 
 // CheckPairing asks the worker how it sees this pairing, and checks it is

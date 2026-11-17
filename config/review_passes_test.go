@@ -102,3 +102,19 @@ func TestABoardWithoutAReviewColumnLoadsWhileReviewPassesAreOff(t *testing.T) {
 		t.Fatalf("a board without Review: %v", err)
 	}
 }
+
+// A reviewer reports through submit_review, one of Legato's MCP tools: review
+// passes with the tools off could never finish a pass.
+func TestReviewPassesNeedTheAgentsMCPTools(t *testing.T) {
+	writeTestConfig(t, reviewPassesBase+`
+agents:
+  mcp: {enabled: false}
+review_passes:
+  enabled: true
+  reviewer: {agent: codex}
+  github_credential: reviewer-app
+`)
+	if _, err := Load(); err == nil || !strings.Contains(err.Error(), "agents.mcp.enabled") {
+		t.Fatalf("review passes with the MCP tools off: %v", err)
+	}
+}

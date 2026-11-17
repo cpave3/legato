@@ -101,3 +101,17 @@ func TestAgentsAreGivenTheSkillsThatAreOnAndUsable(t *testing.T) {
 		t.Fatalf("skills given after adding one = %+v", got.Skills)
 	}
 }
+
+func TestUsableNamesTheSkillsAgentsAreGiven(t *testing.T) {
+	svc, dir := newSkillService(t)
+	ctx := context.Background()
+	writeLegatoSkill(t, dir, "tdd", "Tests first.")
+	writeLegatoSkill(t, dir, "deploy", "Ship it.")
+	writeLegatoSkill(t, dir, "broken", "")
+	if err := svc.SetEnabled(ctx, "deploy", false); err != nil {
+		t.Fatal(err)
+	}
+	if got, err := svc.Usable(ctx); err != nil || len(got) != 1 || got[0] != "tdd" {
+		t.Fatalf("usable = %v, %v; want tdd alone", got, err)
+	}
+}
