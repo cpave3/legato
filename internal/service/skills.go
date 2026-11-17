@@ -76,6 +76,21 @@ func (s *SkillService) SetEnabled(ctx context.Context, name string, enabled bool
 	return ErrSkillNotFound
 }
 
+// Usable names the skills that are on and usable: what Capabilities gives
+// every agent. The handoff advert, the review-pass advert and the reviews
+// prompt ask it rather than filter List themselves.
+func (s *SkillService) Usable(ctx context.Context) ([]string, error) {
+	given, err := s.Capabilities(ctx, CapabilityRequest{})
+	if err != nil {
+		return nil, err
+	}
+	names := make([]string, 0, len(given.Skills))
+	for _, skill := range given.Skills {
+		names = append(names, skill.Name)
+	}
+	return names, nil
+}
+
 // Capabilities gives every agent the skills that are on and usable. It is
 // the one CapabilitySource there is until profiles choose for an agent.
 func (s *SkillService) Capabilities(ctx context.Context, _ CapabilityRequest) (AgentCapabilities, error) {

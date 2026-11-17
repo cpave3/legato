@@ -50,19 +50,7 @@ func handoffAdvertSources(cfg *config.Config, db *store.Store) service.HandoffAd
 			}
 			return names, nil
 		},
-		Skills: func(ctx context.Context) ([]string, error) {
-			list, err := skills.List(ctx)
-			if err != nil {
-				return nil, err
-			}
-			var names []string
-			for _, s := range list {
-				if s.Enabled && s.Err == "" {
-					names = append(names, s.Name)
-				}
-			}
-			return names, nil
-		},
+		Skills: skills.Usable,
 		Repositories: func() []string {
 			var repos []string
 			for _, c := range cfg.Credentials {

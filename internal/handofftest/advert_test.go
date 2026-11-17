@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"slices"
 	"strings"
+	"sync/atomic"
 	"testing"
 
 	"github.com/cpave3/legato/internal/service"
@@ -157,5 +158,34 @@ func TestAWorkerWithoutTheAdvertStillPairs(t *testing.T) {
 	main := NewMain(t, MainOptions{Clock: worker.Clock})
 	if paired := Pair(t, main, worker); paired.Advert != nil {
 		t.Fatalf("advert %+v from a worker that has none", paired.Advert)
+	}
+}
+
+func TestAWorkerThatStopsAdvertisingLosesItsAdvert(t *testing.T) {
+	ctx := context.Background()
+	var old atomic.Bool
+	worker := StartWorker(t, WorkerOptions{Handler: func(next http.Handler) http.Handler {
+		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if old.Load() && r.URL.Path == service.HandoffCapabilitiesPath {
+				http.NotFound(w, r)
+				return
+			}
+			next.ServeHTTP(w, r)
+		})
+	}})
+	main := NewMain(t, MainOptions{Clock: worker.Clock})
+	if paired := Pair(t, main, worker); paired.Advert == nil {
+		t.Fatal("no advert at pairing")
+	}
+
+	// Downgraded to a build without the route: what it said before is no
+	// longer true.
+	old.Store(true)
+	if err := main.Connections.SyncWorkers(ctx); err != nil {
+		t.Fatal(err)
+	}
+	workers, err := main.Workers.List(ctx)
+	if err != nil || len(workers) != 1 || workers[0].Advert != nil || workers[0].AdvertAt != nil {
+		t.Fatalf("after the downgrade the main lists %+v, %v", workers, err)
 	}
 }

@@ -191,3 +191,7 @@ Migration `113_server_theme.sql` adds singleton `server_theme_preference`: `sing
 ## Docker host network
 
 Migration `117_agent_docker_host_network.sql` (skipped, like 075, for a database from before agent sessions) adds `agent_sessions.docker_host_network` (default `0`): whether the agent's containers may use the host's network through its filtered Docker socket, so a reload or a resume keeps it. Migrations are ordered by their place in the file list, not their number: 117 follows 116 on `main`. See [Sandbox](sandbox.md) § Docker.
+
+## Worker adverts
+
+Migration `120_worker_advert.sql` adds `workers.advert` (JSON, `NULL` until read) and `workers.advert_at` on a main: what each paired worker last advertised it can do for a handoff (`service.HandoffAdvert`, read from its capabilities route at pairing, after each pull and on Sync). `SetWorkerAdvert` writes both; `ClearWorkerAdvert` forgets them when the worker no longer has the route. See [Integrations](integrations.md) § What a worker advertises.

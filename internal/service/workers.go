@@ -453,11 +453,12 @@ func (c *WorkerClient) Capabilities(ctx context.Context) (HandoffAdvert, error) 
 var ErrNoAdvert = errors.New("the worker does not advertise what it can do; update it")
 
 // RefreshAdvert reads a worker's advert and keeps it on its record. A
-// worker without the route keeps no advert, and is no error.
+// worker without the route (an older build, or one downgraded since) keeps
+// no advert, and is no error.
 func (s *WorkerService) RefreshAdvert(ctx context.Context, client *WorkerClient) error {
 	advert, err := client.Capabilities(ctx)
 	if errors.Is(err, ErrNoAdvert) {
-		return nil
+		return s.db.ClearWorkerAdvert(ctx, client.Worker.InstanceID)
 	}
 	if err != nil {
 		return err

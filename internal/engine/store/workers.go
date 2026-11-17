@@ -116,3 +116,10 @@ func (s *Store) SetWorkerAdvert(ctx context.Context, instanceID, advert, at stri
 	_, err := s.db.ExecContext(ctx, `UPDATE workers SET advert = ?, advert_at = ? WHERE instance_id = ?`, advert, at, instanceID)
 	return err
 }
+
+// ClearWorkerAdvert forgets a worker's advert: it no longer gives one (a
+// build without the route), so what it gave before is no longer true.
+func (s *Store) ClearWorkerAdvert(ctx context.Context, instanceID string) error {
+	_, err := s.db.ExecContext(ctx, `UPDATE workers SET advert = NULL, advert_at = NULL WHERE instance_id = ?`, instanceID)
+	return err
+}
