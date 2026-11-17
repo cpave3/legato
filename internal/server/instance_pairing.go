@@ -79,6 +79,11 @@ type HandoffMeta struct {
 	// ReviewPasses is set when this worker runs review passes on
 	// make-a-change handoffs: its defaults, and what a main may choose.
 	ReviewPasses *service.ReviewPassesAdvert `json:"review_passes,omitempty"`
+	// HandoffFeatures are the handoff features this build supports, which
+	// a main checks per feature instead of a protocol bump. The rest of
+	// what the worker can do (its agents, skills, repositories) is behind
+	// a main's token, at the capabilities route.
+	HandoffFeatures []string `json:"handoff_features,omitempty"`
 }
 
 // handoffMeta adds to /api/meta what a main checks before it pairs or hands
@@ -93,6 +98,7 @@ func (s *Server) handoffMeta(meta *MobileMetaResponse) {
 	}
 	meta.HandoffPairing = 1
 	meta.Handoff = service.HandoffProtocolVersion
+	meta.HandoffFeatures = service.HandoffFeatures()
 	available := s.instances.sandbox != nil && s.instances.sandbox()
 	meta.Sandbox = &available
 }
@@ -121,6 +127,7 @@ func requireHandoffMain(w http.ResponseWriter, r *http.Request) (service.Integra
 
 func (s *Server) registerInstanceRoutes(mux *routeMux) {
 	mux.HandleFunc("GET /api/integrations/handoff/pairing", s.handoffPairingHandler())
+	mux.HandleFunc("GET "+service.HandoffCapabilitiesPath, s.handoffCapabilitiesHandler())
 	mux.HandleFunc("POST "+service.HandoffCallPath, s.taskHandoffHandler())
 	mux.HandleFunc("GET "+service.HandoffCallPath+"/{handoff_id}", s.taskHandoffGetHandler())
 	mux.HandleFunc("POST "+service.HandoffCallPath+"/{handoff_id}/return", s.taskHandoffReturnHandler(false))
@@ -168,6 +175,28 @@ func (s *Server) handoffPairingHandler() http.HandlerFunc {
 			"main_name":          main.Name,
 			"handoff":            service.HandoffProtocolVersion,
 		})
+	}
+}
+
+// HandoffAdvertiser is a worker's advert (HandoffWorkerService.Advert).
+type HandoffAdvertiser interface {
+	Advert(ctx context.Context) service.HandoffAdvert
+}
+
+// handoffCapabilitiesHandler answers a paired main with what this worker
+// can do for a handoff. Only a main's token reaches it: the names of skills,
+// connections and repositories are not for /api/meta.
+func (s *Server) handoffCapabilitiesHandler() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if _, ok := requireHandoffMain(w, r); !ok {
+			return
+		}
+		advertiser, ok := s.instances.handoffs.(HandoffAdvertiser)
+		if !ok {
+			writeIntegrationError(w, http.StatusServiceUnavailable, "unavailable", "this worker does not take handoffs")
+			return
+		}
+		writeJSONValue(w, http.StatusOK, advertiser.Advert(r.Context()))
 	}
 }
 

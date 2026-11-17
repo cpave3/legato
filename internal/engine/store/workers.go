@@ -31,6 +31,10 @@ type Worker struct {
 	// LeavingUntil is set once the person removed the worker: it is kept,
 	// hidden, only to send the calls owed it (Drop, Leave) until then.
 	LeavingUntil *string `db:"leaving_until"`
+	// Advert is what the worker last advertised it can do for a handoff
+	// (JSON), and AdvertAt when the main read it; nil until read.
+	Advert   *string `db:"advert"`
+	AdvertAt *string `db:"advert_at"`
 }
 
 // SaveWorker stores a worker, replacing the one of its instance ID: pairing
@@ -104,4 +108,11 @@ func (s *Store) SetWorkerRefused(ctx context.Context, instanceID, at string) (bo
 	}
 	n, err := result.RowsAffected()
 	return n == 1, err
+}
+
+// SetWorkerAdvert records what a worker advertised (JSON) and when the main
+// read it.
+func (s *Store) SetWorkerAdvert(ctx context.Context, instanceID, advert, at string) error {
+	_, err := s.db.ExecContext(ctx, `UPDATE workers SET advert = ?, advert_at = ? WHERE instance_id = ?`, advert, at, instanceID)
+	return err
 }

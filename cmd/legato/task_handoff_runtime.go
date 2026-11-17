@@ -48,6 +48,7 @@ func wireTaskHandoffs(srv *server.Server, deps integrationDeps) (stop func()) {
 		opts.Grants = deps.approvals.credentials
 	}
 	handoffs := service.NewHandoffWorkerService(deps.db, opts)
+	handoffs.SetAdvertSources(handoffAdvertSources(deps.cfg, deps.db))
 	srv.SetTaskHandoffs(handoffs)
 	addInterruptedResumeRoute(deps.agents, handoffs.ResumeInterrupted)
 	stopReviews := wireReviewPasses(deps, handoffs)

@@ -42,6 +42,8 @@ The server in front is never offered. If the worker cannot be reached, is too ol
 
 Both sides then list each other. The worker lists the main under Main instances, with its instance ID, when it paired, when it last pulled and its open handoffs. The main lists the worker under Workers, with its address, its instance ID, when it last pulled and whether its sandbox is on. A worker without the sandbox refuses handoffs.
 
+The main also keeps what the worker says it can do for a handoff: its version, the agent tools installed there and their tiers, whether its agents get Legato's tools, its MCP connections and skills that are on, and the repositories it can clone. The main reads this when it pairs and each time it connects, so it stays current after you update the worker or turn a skill on. Only a paired main can read it; the worker's public `/api/meta` names the handoff features it supports and nothing more.
+
 The words work once, for five minutes and five tries, like a phone's. A phone cannot use a main's words, and a main cannot use a phone's.
 
 - **Pairing again** with the same main replaces its token. Renaming the main this way keeps it the same main: the worker knows it by its instance ID.

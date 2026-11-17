@@ -9,6 +9,7 @@ import (
 	"net/url"
 	"regexp"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/cpave3/legato/internal/engine/events"
@@ -100,6 +101,9 @@ type HandoffMain struct {
 type HandoffWorkerService struct {
 	db   *store.Store
 	opts HandoffWorkerOptions
+
+	advertMu sync.Mutex
+	advert   HandoffAdvertSources
 }
 
 func NewHandoffWorkerService(db *store.Store, opts HandoffWorkerOptions) *HandoffWorkerService {

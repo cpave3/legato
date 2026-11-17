@@ -284,6 +284,7 @@ var routeClassTable = []routeClassEntry{
 
 	// Handoffs between instances
 	{"GET", "/api/integrations/handoff/pairing", ClassRead, "Read this worker's pairing"},
+	{"GET", "/api/integrations/handoff/capabilities", ClassRead, "Read what this worker can do for a handoff"},
 	{"POST", "/api/integrations/handoff/tasks", ClassChange, "Accept a handed-off task"},
 	{"GET", "/api/integrations/handoff/tasks/{handoff_id}", ClassRead, "Read a handoff"},
 	{"POST", "/api/integrations/handoff/tasks/{handoff_id}/return", ClassChange, "Return a handed-off task"},

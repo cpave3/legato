@@ -381,6 +381,7 @@ A card on the board is a task: its ID is the task's. An agent is addressed by it
 | `POST` | `/api/integrations/attention/{key}/resolve` | change | Resolve a case |  |
 | `POST` | `/api/integrations/attention/sync` | change | Sync the open cases |  |
 | `GET` | `/api/integrations/handoff/pairing` | read | Read this worker's pairing |  |
+| `GET` | `/api/integrations/handoff/capabilities` | read | Read what this worker can do for a handoff |  |
 | `POST` | `/api/integrations/handoff/tasks` | change | Accept a handed-off task |  |
 | `GET` | `/api/integrations/handoff/tasks/{handoff_id}` | read | Read a handoff |  |
 | `POST` | `/api/integrations/handoff/tasks/{handoff_id}/return` | change | Return a handed-off task |  |

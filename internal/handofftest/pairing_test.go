@@ -33,6 +33,11 @@ func TestAMainPairsWithAWorkerEndToEnd(t *testing.T) {
 	}
 	want := service.Worker{InstanceID: worker.InstanceID(), Address: worker.URL, Name: "vm-1", MainName: "workstation", Sandbox: true,
 		HandoffVersion: service.HandoffProtocolVersion, PairedAt: "2026-11-05T09:00:00Z"}
+	// The advert is TestAMainKeepsWhatAWorkerAdvertises's.
+	if len(workers) == 1 {
+		workers[0].Advert, workers[0].AdvertAt = nil, nil
+	}
+	paired.Advert, paired.AdvertAt = nil, nil
 	if len(workers) != 1 || workers[0] != want || paired != want {
 		t.Fatalf("the main lists %+v (paired %+v), want %+v", workers, paired, want)
 	}

@@ -24,6 +24,34 @@ export interface Worker {
   refused_at?: string
   // How many of this main's tasks it holds, which Remove warns of.
   away?: number
+  // What the worker last advertised it can do for a handoff, read at
+  // pairing and on each connection; absent for a worker too old to say.
+  advert?: WorkerAdvert
+  advert_at?: string
+}
+
+// WorkerAdvert is what a worker can do for a handoff: its version, the
+// handoff features it supports, the agent tools it has, whether its agents
+// get Legato's tools, its MCP connections and skills that are on, and the
+// repositories its GitHub credentials list (owner/name, owner/*).
+export interface WorkerAdvert {
+  version: string
+  commit?: string
+  features: string[]
+  sandbox: boolean
+  agents: WorkerAdvertAgent[]
+  default_agent?: string
+  mcp_tools: boolean
+  mcp_connections: string[]
+  skills: string[]
+  repositories: string[]
+}
+
+export interface WorkerAdvertAgent {
+  name: string
+  installed: boolean
+  tiers: string[]
+  prompts_off: boolean
 }
 
 // RemovedWorker is what removing a worker did: the tasks recalled with

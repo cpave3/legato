@@ -4,6 +4,7 @@ package version
 
 import (
 	"regexp"
+	"runtime/debug"
 	"strconv"
 )
 
@@ -63,4 +64,33 @@ func parse(v string) ([3]int, bool) {
 		out[i] = n
 	}
 	return out, true
+}
+
+// Commit is the commit this binary was built from, as the Go toolchain
+// stamped it (vcs.revision, with "-dirty" for a modified tree), or "" when
+// it was built without version control information.
+func Commit() string {
+	info, ok := debug.ReadBuildInfo()
+	if !ok {
+		return ""
+	}
+	var revision, modified string
+	for _, s := range info.Settings {
+		switch s.Key {
+		case "vcs.revision":
+			revision = s.Value
+		case "vcs.modified":
+			modified = s.Value
+		}
+	}
+	if revision == "" {
+		return ""
+	}
+	if len(revision) > 12 {
+		revision = revision[:12]
+	}
+	if modified == "true" {
+		revision += "-dirty"
+	}
+	return revision
 }
