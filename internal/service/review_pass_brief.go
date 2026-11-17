@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/cpave3/legato/internal/engine/store"
@@ -15,6 +16,14 @@ func (s *ReviewPassService) brief(ctx context.Context, h *store.Handoff, pass in
 	task, err := s.db.GetTask(ctx, h.TaskID)
 	if err != nil {
 		return "", err
+	}
+	// A skill is the reviewer tool's by the name it knows it: whether it
+	// is a managed one is read now, so the worker's default skill is named
+	// as an override's is.
+	if !settings.SkillManaged && settings.Skill != "" && s.opts.Advert != nil {
+		if advert := s.opts.Advert(); advert != nil {
+			settings.SkillManaged = slices.Contains(advert.ManagedSkills, settings.Skill)
+		}
 	}
 	var b strings.Builder
 	fmt.Fprintf(&b, "# Review pass %d of %s\n\n", pass, h.Repo)
@@ -48,7 +57,7 @@ func (s *ReviewPassService) brief(ctx context.Context, h *store.Handoff, pass in
 	place := "Give each the pull request's number, a one-line title, a body, a `failure_scenario` when it is blocking, and a place (path, line, optional start_line, side RIGHT for the head or LEFT for a deleted line) when it is about particular lines."
 	if pass == 1 {
 		if settings.Skill != "" {
-			fmt.Fprintf(&b, "1. Review these pull requests with the %s skill.\n", settings.Skill)
+			fmt.Fprintf(&b, "1. Review these pull requests with the %s skill.\n", reviewSkillName(settings))
 		} else {
 			b.WriteString("1. Review these pull requests.\n")
 		}
@@ -57,7 +66,7 @@ func (s *ReviewPassService) brief(ctx context.Context, h *store.Handoff, pass in
 	} else {
 		fmt.Fprintf(&b, "1. Read what changed since pass %d: the diff from the heads listed above to the pinned heads.", pass-1)
 		if settings.Skill != "" {
-			fmt.Fprintf(&b, " If you use the %s skill, point it at that diff only.", settings.Skill)
+			fmt.Fprintf(&b, " If you use the %s skill, point it at that diff only.", reviewSkillName(settings))
 		}
 		b.WriteString("\n")
 		b.WriteString("2. Rule on every earlier blocking finding listed above: `resolved` when it was fixed or you accept the author's answer, `open` with why when it was not. Accept an answer that a finding is below the bar, or is a follow-up outside this task, when that is so.\n")

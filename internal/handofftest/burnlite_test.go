@@ -54,8 +54,11 @@ func (f *fakeBurnlite) Interval() time.Duration      { return time.Hour }
 func (f *fakeBurnlite) MovesCards() bool             { return true }
 
 func (f *fakeBurnlite) Column(_ context.Context, t service.RemoteTicket) (string, error) {
-	if t.Status == "Claimed" {
+	switch t.Status {
+	case "Claimed":
 		return "Doing", nil
+	case "Closed":
+		return "Done", nil
 	}
 	return "Ready", nil
 }

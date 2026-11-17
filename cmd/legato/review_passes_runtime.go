@@ -1,17 +1,25 @@
 package main
 
 import (
+	"context"
 	"os"
+	"slices"
 	"sort"
 
 	"github.com/cpave3/legato/config"
+	"github.com/cpave3/legato/internal/engine/store"
 	"github.com/cpave3/legato/internal/service"
 )
 
-// reviewPassesAdvert is what this worker tells main instances of its review
-// passes in /api/meta, nil while they are off. Skills are read at each ask,
+// reviewPassesAdvert is what this worker tells its paired mains of its
+// review passes (the capabilities advert; /api/meta gives it without the
+// skill names), nil while they are off. Skills are read at each ask,
 // so one installed since start is offered.
-func reviewPassesAdvert(cfg *config.Config) func() *service.ReviewPassesAdvert {
+func reviewPassesAdvert(cfg *config.Config, db *store.Store) func() *service.ReviewPassesAdvert {
+	var skills *service.SkillService
+	if db != nil {
+		skills = skillService(cfg, db)
+	}
 	return func() *service.ReviewPassesAdvert {
 		rp := cfg.ReviewPasses
 		if !rp.Enabled {
@@ -34,6 +42,19 @@ func reviewPassesAdvert(cfg *config.Config) func() *service.ReviewPassesAdvert {
 		}
 		if home, err := os.UserHomeDir(); err == nil {
 			advert.Skills = service.AgentSkills(home)
+		}
+		// The worker's own Legato-managed skills that are on: a reviewer
+		// gets them too (Claude Code as legato-skills:<name>).
+		if skills != nil {
+			if usable, err := skills.Usable(context.Background()); err == nil {
+				for _, name := range usable {
+					if !slices.Contains(advert.Skills, name) {
+						advert.Skills = append(advert.Skills, name)
+						advert.ManagedSkills = append(advert.ManagedSkills, name)
+					}
+				}
+				sort.Strings(advert.Skills)
+			}
 		}
 		return advert
 	}

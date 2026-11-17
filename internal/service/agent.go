@@ -161,22 +161,26 @@ type AgentSpawnOptions struct {
 	// legato/<task id> when empty, which the GitHub credential lets agents
 	// push. A clone that exists: a new branch at the commit it has checked
 	// out, and the branch it is on when empty.
-	Branch            string
-	AgentKind         string            // adapter name to use; "" → default adapter
-	Model             string            // direct model selector; "" → adapter default
-	Tier              string            // adapter tier name (selects per-tier launch_args from cfg.Adapters.<kind>.tiers); "" → base launch_args only
-	Brief             string            // the per-worker initial brief; conductors leave this empty
-	StrictScope       bool              // when true, scope conflicts hard-block the spawn; otherwise advisory
-	SessionPolicy     string            // new or resume; Chimera also supports its internal error collision policy
-	ResumeSessionID   string            // saved provider conversation ID
-	ResumeWorkingDir  string            // saved native conversation directory
-	ResumeStorageDir  string            // provider's transcript storage directory
-	Ephemeral         bool              // internal: omit task-linked session identity
-	Assignment        string            // standalone workflow assignment; distinct from swarm role prompts
-	ExtraEnv          map[string]string // trusted Legato-owned workflow identity values
-	ExecutionKind     string            // reporting execution kind; defaults from workflow/swarm context
-	AttributionTaskID string            // user-facing reporting task; defaults to taskID
-	WorkflowRunID     string            // owning workflow run, when applicable
+	Branch           string
+	AgentKind        string            // adapter name to use; "" → default adapter
+	Model            string            // direct model selector; "" → adapter default
+	Tier             string            // adapter tier name (selects per-tier launch_args from cfg.Adapters.<kind>.tiers); "" → base launch_args only
+	Brief            string            // the per-worker initial brief; conductors leave this empty
+	StrictScope      bool              // when true, scope conflicts hard-block the spawn; otherwise advisory
+	SessionPolicy    string            // new or resume; Chimera also supports its internal error collision policy
+	ResumeSessionID  string            // saved provider conversation ID
+	ResumeWorkingDir string            // saved native conversation directory
+	ResumeStorageDir string            // provider's transcript storage directory
+	Ephemeral        bool              // internal: omit task-linked session identity
+	Assignment       string            // standalone workflow assignment; distinct from swarm role prompts
+	ExtraEnv         map[string]string // trusted Legato-owned workflow identity values
+	// Holder is the name the agent claims and closes its ticket under
+	// (LEGATO_HOLDER): a handed-off agent's is the main's task ID, which a
+	// tracker's holder rule prefers over LEGATO_TASK_ID.
+	Holder            string
+	ExecutionKind     string // reporting execution kind; defaults from workflow/swarm context
+	AttributionTaskID string // user-facing reporting task; defaults to taskID
+	WorkflowRunID     string // owning workflow run, when applicable
 	// Prompt is the agent's first message, sent once it can take one (after
 	// the brief kickoff when there is one). Blank sends nothing.
 	Prompt string
@@ -869,6 +873,9 @@ func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, hei
 	// execution.
 	if named {
 		envMap["LEGATO_SLOT"] = slot
+	}
+	if opt.Holder != "" {
+		envMap["LEGATO_HOLDER"] = opt.Holder
 	}
 	for key, value := range opt.ExtraEnv {
 		if strings.HasPrefix(key, "LEGATO_WORKFLOW_") {

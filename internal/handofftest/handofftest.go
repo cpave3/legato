@@ -199,6 +199,7 @@ func (w *Worker) start() {
 	srv.SetSandboxAvailable(func() bool { return sandbox })
 	w.Credentials = w.credentialBroker(db)
 	var reviews *service.ReviewPassService
+	var reviewAdvert func() *service.ReviewPassesAdvert
 	if rp := w.opts.ReviewPasses; rp != nil {
 		opts := service.ReviewPassOptions{
 			Agents: w.Agents.(service.ReviewAgents), Board: w.Board, GitHub: w.ReviewGitHub,
@@ -212,6 +213,7 @@ func (w *Worker) start() {
 		}
 		reviews = service.NewReviewPassService(db, opts)
 		srv.SetReviewPasses(opts.Advert)
+		reviewAdvert = opts.Advert
 	}
 	w.Reviews = reviews
 	w.Handoffs = service.NewHandoffWorkerService(db, service.HandoffWorkerOptions{
@@ -230,7 +232,7 @@ func (w *Worker) start() {
 	w.Server = srv
 	// As a worker's runtime with agents.mcp.enabled (the default): its
 	// agents get Legato's tools. Wire may give other sources.
-	w.Handoffs.SetAdvertSources(service.HandoffAdvertSources{MCPTools: func() bool { return true }})
+	w.Handoffs.SetAdvertSources(service.HandoffAdvertSources{MCPTools: func() bool { return true }, ReviewPasses: reviewAdvert})
 	if w.opts.Wire != nil {
 		w.opts.Wire(w)
 	}

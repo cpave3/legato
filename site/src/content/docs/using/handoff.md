@@ -43,7 +43,9 @@ The agent works on your branch. Its brief tells it that the branch already has c
 
 ### Hand off a task from Jira or Burnlite
 
-A task imported from a ticket provider, such as [Jira](/legato/integrations/jira/) or [Burnlite](/legato/integrations/burnlite/), hands off like any other. Your main keeps its link to the provider and goes on syncing it while the task is away, and after it comes back. The worker never talks to the provider and needs no access to it.
+A task imported from a ticket provider, such as [Jira](/legato/integrations/jira/) or [Burnlite](/legato/integrations/burnlite/), hands off like any other. Your main keeps its link to the provider and goes on syncing it while the task is away, and after it comes back. Legato on the worker never talks to the provider.
+
+The worker's agent may claim, add notes to and close the ticket itself, if the worker gives it access to the provider (its own MCP connection, say; yours never crosses). It does so under your task's ID (`LEGATO_HOLDER`), so a claim your own agent made earlier is the same holder's. Without access, the ticket is read only for that run. If the provider moves the task while it is away, because its ticket was claimed or closed, the task comes home in the column the provider put it in, not the worker's.
 
 On the worker, the card shows the task in two parts: **From Jira ACME-12 (read only)** (or **From Burnlite LEG-33 (read only)**), a copy of the ticket's text taken when you handed it off, then **Legato details**, the part you wrote in Legato. Only the Legato details can be edited there; the title is read-only too. The card names the provider it came from, and moving it changes nothing in the provider. The agent's brief gives it the same two parts. When the task comes back, only its Legato details come back: its title and its text stay the provider's.
 

@@ -94,13 +94,27 @@ func (s *Server) handoffMeta(meta *MobileMetaResponse) {
 		return
 	}
 	if s.instances.reviewPasses != nil {
-		meta.ReviewPasses = s.instances.reviewPasses()
+		meta.ReviewPasses = publicReviewPasses(s.instances.reviewPasses())
 	}
 	meta.HandoffPairing = 1
 	meta.Handoff = service.HandoffProtocolVersion
 	meta.HandoffFeatures = service.HandoffFeatures()
 	available := s.instances.sandbox != nil && s.instances.sandbox()
 	meta.Sandbox = &available
+}
+
+// publicReviewPasses is the review passes advert as /api/meta gives it:
+// without the skill names (the default's included), which only a paired main reads (in the
+// capabilities advert). The lists stay empty, not absent, for an older
+// main that reads them.
+func publicReviewPasses(advert *service.ReviewPassesAdvert) *service.ReviewPassesAdvert {
+	if advert == nil {
+		return nil
+	}
+	public := *advert
+	public.Skills, public.ManagedSkills = []string{}, nil
+	public.Defaults.Skill, public.Defaults.SkillManaged = "", false
+	return &public
 }
 
 // handoffMain is the paired main instance a request acts for, or false. Only

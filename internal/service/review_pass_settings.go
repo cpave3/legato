@@ -15,6 +15,10 @@ type ReviewPassSettings struct {
 	Tier      string `json:"tier,omitempty"`
 	Skill     string `json:"skill,omitempty"`
 	MaxPasses int    `json:"max_passes"`
+	// SkillManaged says Skill is one of the worker's Legato-managed skills
+	// (and not also the agent tools' own), which Claude Code names
+	// legato-skills:<name>.
+	SkillManaged bool `json:"skill_managed,omitempty"`
 }
 
 // ReviewAdapter is an agent tool a worker can start a reviewer with, and
@@ -31,6 +35,22 @@ type ReviewPassesAdvert struct {
 	Defaults ReviewPassSettings `json:"defaults"`
 	Adapters []ReviewAdapter    `json:"adapters"`
 	Skills   []string           `json:"skills"`
+	// ManagedSkills are those of Skills that come only from the worker's
+	// Legato skills folder.
+	ManagedSkills []string `json:"managed_skills,omitempty"`
+}
+
+// managedSkillPrefix is how Claude Code names a skill of Legato's skills
+// bundle (hooks.SkillsBundleName).
+const managedSkillPrefix = "legato-skills:"
+
+// reviewSkillName is the skill as the reviewer's tool knows it: Claude Code
+// namespaces Legato's managed skills.
+func reviewSkillName(s ReviewPassSettings) string {
+	if s.SkillManaged && s.Agent == "claude-code" {
+		return managedSkillPrefix + s.Skill
+	}
+	return s.Skill
 }
 
 // agentSkillDirs are where the agent tools keep the skills they can be told

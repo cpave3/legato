@@ -29,13 +29,15 @@ func TestMetaAdvertisesReviewPassesOnlyWhenTheyAreOn(t *testing.T) {
 		t.Fatalf("meta = %v; want review_passes", meta)
 	}
 	defaults := advert["defaults"].(map[string]any)
-	if defaults["agent"] != "codex" || defaults["model"] != "gpt-5.5" || defaults["skill"] != "3-tier-review" || defaults["max_passes"] != float64(3) {
+	if defaults["agent"] != "codex" || defaults["model"] != "gpt-5.5" || defaults["max_passes"] != float64(3) {
 		t.Fatalf("defaults = %v", defaults)
 	}
 	if adapters := advert["adapters"].([]any); len(adapters) != 1 || adapters[0].(map[string]any)["name"] != "codex" {
 		t.Fatalf("adapters = %v", advert["adapters"])
 	}
-	if skills := advert["skills"].([]any); len(skills) != 1 || skills[0] != "3-tier-review" {
-		t.Fatalf("skills = %v", advert["skills"])
+	// Skill names are for a paired main only (the capabilities advert):
+	// /api/meta, which anyone on the network reads, names none.
+	if skills := advert["skills"].([]any); len(skills) != 0 || defaults["skill"] != nil {
+		t.Fatalf("skills = %v, default skill %v; want none in /api/meta", advert["skills"], defaults["skill"])
 	}
 }
