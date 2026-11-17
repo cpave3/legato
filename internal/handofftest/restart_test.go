@@ -44,6 +44,9 @@ func TestRestartingAHandedOffAgentKeepsItUnattendedAndSandboxed(t *testing.T) {
 	if typed := strings.Join(worker.Tmux.Typed(restarted.Name), "\n"); !strings.Contains(typed, "--claude-code-prompts-off") {
 		t.Fatalf("launch = %q; want its prompts still off", typed)
 	}
+	if env := strings.Join(restarted.Env, "\n"); !strings.Contains(env, "LEGATO_HOLDER="+away.TaskID) {
+		t.Fatalf("env %s; want LEGATO_HOLDER=%s kept", env, away.TaskID)
+	}
 	session, err := worker.Store.GetAgentSessionByTaskID(ctx, card)
 	if err != nil || session.ExecutionID == first.ExecutionID || !session.Sandboxed {
 		t.Fatalf("restarted session = %+v, %v", session, err)

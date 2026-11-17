@@ -146,7 +146,7 @@ The documentation for people who use Legato is the Starlight site in `site/`, pu
 
 ### Issue tracker
 
-Issues, specs and wayfinder maps live in Burnlite, in the Project `LEG`, managed with the Burnlite MCP tools (or the `burnlite` CLI when they aren't connected). Not GitHub Issues: pull requests stay on GitHub. See `docs/agents/issue-tracker.md`.
+Issues, specs and wayfinder maps live in Burnlite, in the Project `LEG`, managed with the Burnlite MCP tools (or the `burnlite` CLI when they aren't connected). Not GitHub Issues: pull requests stay on GitHub. See `docs/agents/issue-tracker.md`. That file is generated (`npx burnlite init --project LEG`) but carries one Legato rule by hand: the holder is `LEGATO_HOLDER` first (set on an agent a main handed off, to the main's task ID). Put it back if the file is regenerated.
 
 ### Triage labels
 

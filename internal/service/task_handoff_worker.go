@@ -125,14 +125,19 @@ const (
 
 // ticketProviderName is a provider's name as a handoff's ticket names it
 // ("jira", "burnlite"); its card's provider is that name and "-copy".
+// mainTaskID is a main's task ID (a local ID, or a ticket's key such as
+// LEG-33): it becomes the agent's LEGATO_HOLDER and is named in the brief's
+// own words, so it may hold nothing but a task ID's characters.
+var mainTaskID = regexp.MustCompile(`^[A-Za-z0-9][A-Za-z0-9._-]{0,199}$`)
+
 var ticketProviderName = regexp.MustCompile(`^[a-z][a-z0-9_-]{0,49}$`)
 
 func validateHandoffCall(call HandoffCall) error {
 	switch {
 	case len(call.HandoffID) == 0 || len(call.HandoffID) > maxHandoffField:
 		return handoffErr("bad_request", "handoff_id must be 1 to 200 characters")
-	case len(call.MainTaskID) == 0 || len(call.MainTaskID) > maxHandoffField:
-		return handoffErr("bad_request", "main_task_id must be 1 to 200 characters")
+	case !mainTaskID.MatchString(call.MainTaskID):
+		return handoffErr("bad_request", "main_task_id must be a task ID: letters, digits, '.', '_' and '-', at most 200")
 	case strings.TrimSpace(call.Title) == "" || len(call.Title) > maxHandoffTitle:
 		return handoffErr("bad_request", "title must be 1 to 500 characters")
 	case len(call.Details) > maxHandoffText:
