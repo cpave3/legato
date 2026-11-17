@@ -42,6 +42,9 @@ func TestTheHandoffBriefSaysWhatTheSpecSays(t *testing.T) {
 		in.Details = "Keep it to one line on the card."
 	}
 	burnlite.Branch = "legato/leg-33"
+	// A new branch off the main's base branch.
+	based := task
+	based.Base = "develop"
 	for name, form := range map[string]struct {
 		in      HandoffBriefInput
 		purpose string
@@ -58,6 +61,8 @@ func TestTheHandoffBriefSaysWhatTheSpecSays(t *testing.T) {
 		"find-out-new-branch-burnlite.md":       {burnlite, HandoffFindOut},
 		"make-change-pushed-branch-burnlite.md": {burnlitePushed, HandoffMakeChange},
 		"find-out-pushed-branch-burnlite.md":    {burnlitePushed, HandoffFindOut},
+		"make-change-new-branch-base-local.md":  {based, HandoffMakeChange},
+		"find-out-new-branch-base-local.md":     {based, HandoffFindOut},
 	} {
 		t.Run(name, func(t *testing.T) {
 			in := form.in

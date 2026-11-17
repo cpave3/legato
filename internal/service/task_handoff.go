@@ -147,6 +147,9 @@ type TaskHandoffOptions struct {
 	Bus *events.Bus
 	// Now is the clock; time.Now when nil.
 	Now func() time.Time
+	// BaseBranch is this main's preset base_branch for a repository, ""
+	// for none: a new branch on the worker starts from it.
+	BaseBranch func(ctx context.Context, repo string) string
 }
 
 // TaskHandoffService is a main instance's side of handing tasks to workers:
@@ -251,6 +254,10 @@ func (s *TaskHandoffService) HandOff(ctx context.Context, req TaskHandoffRequest
 	if req.Review != nil && !slices.Contains(meta.HandoffFeatures, HandoffFeatureReviewOverride) && req.Review.OnlyOff() {
 		req.Review = nil
 	}
+	base := ""
+	if req.Kind != HandoffPushedBranch && s.opts.BaseBranch != nil {
+		base = s.opts.BaseBranch(ctx, req.Repo)
+	}
 	for _, need := range []struct {
 		feature string
 		used    bool
@@ -258,6 +265,7 @@ func (s *TaskHandoffService) HandOff(ctx context.Context, req TaskHandoffRequest
 		{HandoffFeatureTicket, task.Provider != nil},
 		{HandoffFeaturePushedBranch, req.Kind == HandoffPushedBranch},
 		{HandoffFeatureReviewOverride, req.Review != nil},
+		{HandoffFeatureBase, base != ""},
 	} {
 		if need.used && !slices.Contains(meta.HandoffFeatures, need.feature) {
 			return AwayTask{}, &handoffWorkerError{ErrWorkerTooOld, fmt.Sprintf("%s is too old for %s: update it (it runs Legato %s)", name, need.feature, orUnknown(meta.Version))}
@@ -308,6 +316,7 @@ func (s *TaskHandoffService) HandOff(ctx context.Context, req TaskHandoffRequest
 	}
 	call.Ticket = handoffTicket(task)
 	call.Review = req.Review
+	call.Base = base
 	var accepted HandoffAccepted
 	if err := client.Call(ctx, http.MethodPost, HandoffCallPath, call, &accepted); err != nil {
 		if errors.Is(err, ErrWorkerUnreachable) {

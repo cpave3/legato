@@ -30,12 +30,15 @@ const (
 	HandoffFeatureEvents = "events"
 	// HandoffFeatureCapabilities: the capabilities route, this advert.
 	HandoffFeatureCapabilities = "capabilities"
+	// HandoffFeatureBase: a new branch may start from a base branch other
+	// than the default (base).
+	HandoffFeatureBase = "base"
 )
 
 // HandoffFeatures are the handoff features this build supports.
 func HandoffFeatures() []string {
 	return []string{
-		HandoffFeatureCapabilities, HandoffFeatureDrop, HandoffFeatureEvents, HandoffFeaturePushedBranch,
+		HandoffFeatureBase, HandoffFeatureCapabilities, HandoffFeatureDrop, HandoffFeatureEvents, HandoffFeaturePushedBranch,
 		HandoffFeatureReturn, HandoffFeatureReviewOverride, HandoffFeatureTicket,
 	}
 }

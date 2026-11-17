@@ -2,6 +2,8 @@ package main
 
 import (
 	"context"
+	"log"
+	"strings"
 	"sync"
 	"time"
 
@@ -40,7 +42,11 @@ func startMainHandoffs(cfg *config.Config, db *store.Store, bus *events.Bus) *ma
 		Bus:      bus,
 	})
 	connections := service.NewWorkerConnections(db, service.WorkerConnectionsOptions{Workers: workers, Bus: bus})
-	handoffs := service.NewTaskHandoffService(db, service.TaskHandoffOptions{Workers: workers, Bus: bus})
+	// A new branch on the worker starts from this main's preset base_branch
+	// for its repository: the main decides the intent, the worker the access.
+	presets := newRepositoryPresetService(cfg, db, nil)
+	handoffs := service.NewTaskHandoffService(db, service.TaskHandoffOptions{Workers: workers, Bus: bus,
+		BaseBranch: func(ctx context.Context, repo string) string { return presetBaseBranch(ctx, presets, repo) }})
 	// Step 2 of a return the worker did not confirm goes on connect, and
 	// returns a worker shows under way are finished.
 	connections.SetOwedCalls(handoffs)
@@ -90,3 +96,19 @@ const handoffAttentionEvery = 30 * time.Second
 // returnLoopEvery is how often a main looks again for returns under way and
 // step 2 calls owed, besides when the board hears of a worker's row.
 const returnLoopEvery = 30 * time.Second
+
+// presetBaseBranch is the base_branch of the first preset of a repository
+// that names one, "" for none.
+func presetBaseBranch(ctx context.Context, presets *service.RepositoryPresetService, repo string) string {
+	list, err := presets.List(ctx)
+	if err != nil {
+		log.Printf("handoff: repository presets: %v", err)
+		return ""
+	}
+	for _, p := range list {
+		if strings.EqualFold(p.Repo, repo) && p.BaseBranch != "" {
+			return p.BaseBranch
+		}
+	}
+	return ""
+}

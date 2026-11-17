@@ -46,6 +46,10 @@ type HandoffCall struct {
 	// Branch is the branch the work starts on: for a new branch, the one
 	// the worker's clone makes (legato/<main task id>).
 	Branch string `json:"branch"`
+	// Base is the branch a new branch starts from, the main's preset
+	// base_branch for the repository; empty for GitHub's default branch.
+	// Sent only to a worker with the base feature.
+	Base string `json:"base,omitempty"`
 	// AgentKind is the agent tool; empty for the worker's default.
 	AgentKind string `json:"agent_kind,omitempty"`
 	// Review overrides the worker's review passes for this handoff; nil

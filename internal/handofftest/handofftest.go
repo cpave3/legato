@@ -398,6 +398,9 @@ type MainOptions struct {
 	// GitHub, when set, gives the main PR tracking with a read token for
 	// this fake GitHub, as a main with github.token has.
 	GitHub *FakeGitHub
+	// BaseBranches are the main's repository presets' base branches, by
+	// repository (owner/name).
+	BaseBranches map[string]string
 }
 
 // Main is a main instance: its database and services. It has no web
@@ -445,7 +448,9 @@ func NewMain(t testing.TB, opts MainOptions) *Main {
 	// The key file source works anywhere: no keyring, no systemd-creds.
 	m.Secrets = service.NewSecretStoreService(db, credential.MasterKeyOptions{DataDir: dir, Source: "file"})
 	m.Workers = service.NewWorkerService(db, service.WorkerServiceOptions{Secrets: m.Secrets, MainName: opts.Name, Now: opts.Clock.Now})
-	m.Handoffs = service.NewTaskHandoffService(db, service.TaskHandoffOptions{Workers: m.Workers, Bus: m.Bus, Now: opts.Clock.Now})
+	bases := opts.BaseBranches
+	m.Handoffs = service.NewTaskHandoffService(db, service.TaskHandoffOptions{Workers: m.Workers, Bus: m.Bus, Now: opts.Clock.Now,
+		BaseBranch: func(_ context.Context, repo string) string { return bases[repo] }})
 	connections := service.WorkerConnectionsOptions{Workers: m.Workers, Bus: m.Bus, Now: opts.Clock.Now,
 		MinBackoff: 20 * time.Millisecond, MaxBackoff: 200 * time.Millisecond, CheckEvery: 20 * time.Millisecond}
 	if opts.GitHub != nil {
