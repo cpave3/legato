@@ -804,6 +804,13 @@ func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, hei
 			return fmt.Errorf("%w: the saved conversation is in %s, not in the clone at %s", ErrTaskResumeConflict, opt.ResumeWorkingDir, clone.Path)
 		}
 		freshClone = a.prepareFreshClone(clone, executionID, clone.Repo, opt.Ref)
+		if note := freshClone.note(); note != "" {
+			// On the card, so the operator (and a main, on Return) sees
+			// why the agent lacks what the setup should have given it.
+			if _, err := AddTaskNote(ctx, a.store, taskID, note, "legato"); err != nil {
+				log.Printf("noting the clone setup of %s: %v", taskID, err)
+			}
+		}
 	}
 	var launchPeers []AgentPeer
 	// An agent in a read-only named slot (a reviewer) cannot change the

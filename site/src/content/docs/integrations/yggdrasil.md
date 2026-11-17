@@ -80,7 +80,7 @@ Without a `.legato.toml`, Legato reads the repository's `.yggdrasil.toml` instea
 
 Legato makes a checkout ready only when it has just cloned the repository for an agent. Joining a clone that exists, reloading an agent and resuming one run nothing.
 
-1. Legato copies and links the files from your main checkout. Without a `primary_dir`, as on a server, it copies nothing.
+1. Legato copies and links the files from your main checkout. Without a `primary_dir`, as on a server, it copies nothing. When it could not copy or link everything the setup names, it adds a `[legato clone setup]` note to the task saying what was left out and why, and tells the agent, so it does not guess why something fails. On a worker the note comes back to the main with the task.
 2. Legato runs the commands in the agent's terminal, in the agent's [sandbox](/legato/security/sandbox/) when it has one, before the agent tool starts.
 3. The agent tool starts, whether the setup worked or not. When it failed, Legato adds a note to the task and tells the agent where the log is.
 

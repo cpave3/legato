@@ -221,3 +221,52 @@ func TestAwaitingASetupEndsWithTheSetupOrWithTheAgent(t *testing.T) {
 		t.Fatal("still waiting after the agent's pane went")
 	}
 }
+
+// A setup that copies and links from the main checkout, in a clone of a
+// repository with no main checkout here (a worker has no primary_dir for
+// it): the card gets a note, and the agent is told what it lacks.
+func TestACloneWithNoMainCheckoutToProvisionFromIsNotedOnTheCard(t *testing.T) {
+	backend := &fakeBackend{}
+	svc, s, mt := sandboxedService(t, backend)
+	cloner := &seedingCloner{root: t.TempDir(), files: map[string]string{".legato.toml": "[setup]\ncopy = [\".env.local\"]\nlink = [\"node_modules\"]\n"}}
+	svc.(*agentService).SetRepositories(cloner)
+	createTask(t, s, "task-1")
+	if err := svc.SpawnAgent(context.Background(), "task-1", 0, 0, AgentSpawnOptions{Repo: "acme/widget"}); err != nil {
+		t.Fatal(err)
+	}
+
+	notes, err := s.ListTaskNotes(context.Background(), "task-1")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(notes) != 1 || !strings.HasPrefix(notes[0].Body, "[legato clone setup]") ||
+		!strings.Contains(notes[0].Body, ".env.local") || !strings.Contains(notes[0].Body, "node_modules") ||
+		!strings.Contains(notes[0].Body, "no main checkout") {
+		t.Fatalf("notes %+v", notes)
+	}
+	prompt, err := os.ReadFile(mt.envVarsFor("legato-task-1")["LEGATO_ROLE_PROMPT_FILE"])
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(string(prompt), "were not copied or linked") || !strings.Contains(string(prompt), ".env.local") {
+		t.Errorf("prompt does not say what the clone lacks:\n%s", prompt)
+	}
+}
+
+func TestAFullyProvisionedCloneLeavesNoNote(t *testing.T) {
+	primary := t.TempDir()
+	_ = os.WriteFile(filepath.Join(primary, ".env.local"), []byte("SECRET=1"), 0o600)
+	_ = os.WriteFile(filepath.Join(primary, "local.settings.json"), []byte("{}"), 0o644)
+	cloner := &seedingCloner{root: t.TempDir(), files: map[string]string{".legato.toml": setupToml}}
+	backend := &fakeBackend{}
+	svc, s, _ := sandboxedService(t, backend)
+	svc.(*agentService).SetRepositories(cloner)
+	svc.(*agentService).SetPrimaryDirs(func(string) string { return primary })
+	createTask(t, s, "task-1")
+	if err := svc.SpawnAgent(context.Background(), "task-1", 0, 0, AgentSpawnOptions{Repo: "acme/widget"}); err != nil {
+		t.Fatal(err)
+	}
+	if notes, _ := s.ListTaskNotes(context.Background(), "task-1"); len(notes) != 0 {
+		t.Fatalf("notes %+v", notes)
+	}
+}
