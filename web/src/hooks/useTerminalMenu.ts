@@ -1,5 +1,5 @@
 import { createElement, useState } from "react"
-import { Bell, BellOff, Eye, EyeOff, FolderInput, Network, Pencil, RefreshCw, RotateCw, ScanSearch, Shield, Skull, Sparkles, Unplug } from "lucide-react"
+import { Bell, BellOff, Eye, EyeOff, FolderInput, Info, Network, Pencil, RefreshCw, RotateCw, ScanSearch, Shield, Skull, Sparkles, Unplug } from "lucide-react"
 import { canBeNative } from "../lib/agentKind"
 import type { SandboxSwitch } from "../lib/agentReload"
 import type { AgentMenuEntry } from "../components/AgentChatHeader"
@@ -10,6 +10,8 @@ interface TerminalMenuOptions {
   onRename?: () => void
   // Opens the dialog that puts the agent in a group.
   onMoveToGroup?: () => void
+  // Opens the dialog that shows what Legato knows about the agent.
+  onShowInfo?: () => void
   onRefresh: () => void
   onDetectPrompt: () => void
   onTogglePromptDetection: () => void
@@ -43,6 +45,7 @@ export function useTerminalMenu(options: TerminalMenuOptions): { entries: AgentM
   const entries: AgentMenuEntry[] = []
   if (options.onRename) entries.push({ label: "Rename", icon: icon(Pencil), onSelect: options.onRename })
   if (options.onMoveToGroup) entries.push({ label: "Move to group…", icon: icon(FolderInput), onSelect: options.onMoveToGroup })
+  if (options.onShowInfo) entries.push({ label: "Agent info", icon: icon(Info), onSelect: options.onShowInfo })
   if (canBeNative(agentKind) && onUpgradeChimera) {
     entries.push({
       label: upgradePending ? "Upgrading…" : agentKind === "chimera" ? "Upgrade to native Chimera" : "Upgrade to native panel",

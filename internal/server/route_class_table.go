@@ -68,6 +68,7 @@ var routeClassTable = []routeClassEntry{
 	{"POST", "/api/settings/mcp/connections", ClassNever, "Add an MCP connection"},
 	{"PATCH", "/api/settings/mcp/connections/{name}", ClassNever, "Change, turn on or turn off an MCP connection"},
 	{"DELETE", "/api/settings/mcp/connections/{name}", ClassNever, "Remove an MCP connection"},
+	{"POST", "/api/settings/mcp/connections/{name}/test", ClassNever, "Test an MCP connection: start a local server or reach a remote one, and list its tools"},
 	// Authorizing one is too, and an attempt belongs to the operator
 	// credential that began it.
 	{"POST", "/api/mcp/connections/{name}/oauth/begin", ClassNever, "Start authorizing an MCP connection"},

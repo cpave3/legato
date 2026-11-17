@@ -66,12 +66,17 @@ func upstreamSpecs(ctx context.Context, up MCPUpstream, caller BrokerCaller, own
 	return specs, guidance
 }
 
+// upstreamImageTypes are the pictures passed on to an agent; agent tools
+// show their models these.
+var upstreamImageTypes = map[string]bool{"image/png": true, "image/jpeg": true, "image/gif": true, "image/webp": true}
+
 // isUpstreamName is a local name of an upstream tool: Legato's own tools
 // never have a double underscore.
 func isUpstreamName(name string) bool { return strings.Contains(name, "__") }
 
 // callUpstream makes one call for the session and turns the server's answer
-// into text: text content as it is, everything else named and not followed.
+// into text and pictures: text content as it is, PNG, JPEG, GIF and WebP
+// images as images, everything else named and not followed.
 func callUpstream(ctx context.Context, up MCPUpstream, caller BrokerCaller, name string, args json.RawMessage) map[string]any {
 	result, err := up.CallTool(ctx, service.MCPCaller{ExecutionID: caller.ExecutionID, TaskID: caller.TaskID}, name, args)
 	var denied *service.MCPDenied
@@ -91,17 +96,24 @@ func callUpstream(ctx context.Context, up MCPUpstream, caller BrokerCaller, name
 			Text     string `json:"text"`
 			URI      string `json:"uri"`
 			MIMEType string `json:"mimeType"`
+			Data     []byte `json:"data"`
 		} `json:"content"`
 		StructuredContent any `json:"structuredContent"`
 	}
 	_ = json.Unmarshal(result.Raw, &answer)
 	var parts []string
+	var images []mcpserver.Image
 	for _, c := range answer.Content {
-		switch c.Type {
-		case "text":
+		switch {
+		case c.Type == "text":
 			parts = append(parts, c.Text)
-		case "resource_link":
+		case c.Type == "image" && upstreamImageTypes[c.MIMEType] && len(c.Data) > 0:
+			// The result was bounded on the host; a picture is passed on.
+			images = append(images, mcpserver.Image{MIMEType: c.MIMEType, Data: c.Data})
+		case c.Type == "resource_link":
 			parts = append(parts, "[link from the server, not fetched: "+c.URI+"]")
+		case c.Type == "image":
+			parts = append(parts, "[image of type "+c.MIMEType+" from the server, not shown here]")
 		default:
 			parts = append(parts, "["+c.Type+" content from the server, not shown here]")
 		}
@@ -112,6 +124,9 @@ func callUpstream(ctx context.Context, up MCPUpstream, caller BrokerCaller, name
 		text = string(b)
 	}
 	out := map[string]any{"text": text, "is_error": result.IsError}
+	if len(images) > 0 {
+		out["images"] = images
+	}
 	if answer.StructuredContent != nil && !result.IsError {
 		out["data"] = answer.StructuredContent
 	}

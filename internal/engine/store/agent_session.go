@@ -27,9 +27,13 @@ const agentSessionSelect = `SELECT a.*,
 	COALESCE(e.task_id, '') AS attribution_task_id,
 	COALESCE(e.kind, '') AS execution_kind,
 	COALESCE(e.workflow_run_id, '') AS workflow_run_id,
-	COALESCE(e.engram, '') AS engram
+	COALESCE(e.engram, '') AS engram,
+	COALESCE(e.working_dir, '') AS working_dir,
+	COALESCE(c.repo, '') AS clone_repo,
+	COALESCE(c.branch, '') AS clone_branch
 	FROM agent_sessions a
-	LEFT JOIN executions e ON e.agent_session_id = a.id`
+	LEFT JOIN executions e ON e.agent_session_id = a.id
+	LEFT JOIN job_clones c ON e.working_dir != '' AND c.path = e.working_dir AND c.removed_at IS NULL`
 
 func (s *Store) InsertAgentSession(ctx context.Context, a AgentSession) error {
 	result, err := s.db.NamedExecContext(ctx, `

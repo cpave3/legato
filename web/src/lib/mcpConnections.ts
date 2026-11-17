@@ -22,6 +22,13 @@ export interface MCPProblem {
 export interface MCPConnection {
   name: string
   url: string
+  /** http (a server at url) or stdio (a command Legato runs on its own computer, outside any sandbox) */
+  kind?: "http" | "stdio" | string
+  /** a local server: what it runs, where, and with what environment */
+  command?: string
+  args?: string[]
+  dir?: string
+  env?: Record<string, string>
   issuer?: string
   auth: "oauth" | "none" | string
   enabled: boolean
@@ -41,8 +48,13 @@ export interface MCPConnection {
 
 export interface MCPConnectionInput {
   name: string
-  url: string
-  auth: "oauth" | "none"
+  url?: string
+  auth?: "oauth" | "none"
+  kind?: "http" | "stdio"
+  command?: string
+  args?: string[]
+  dir?: string
+  env?: Record<string, string>
   issuer?: string
   private_networks?: string[]
   /** a client registered for Legato by hand, its loopback redirect and any secret (sent once, then sealed) */
@@ -53,6 +65,11 @@ export interface MCPConnectionInput {
 
 export interface MCPConnectionChange {
   enabled?: boolean
+  /** what a local server runs: a change waits for the operator's approval */
+  command?: string
+  args?: string[]
+  dir?: string
+  env?: Record<string, string>
   rules?: MCPRule[]
   read_only_tools?: string[]
   expected_revision: number
@@ -87,6 +104,26 @@ export interface OAuthBegin {
   expires_at: number
 }
 
+/** A change that runs a command on Legato's computer: nothing changed yet, the operator approves it first. */
+export interface MCPPendingApproval {
+  status: "needs_approval"
+  approval_id: string
+  signed: boolean
+  message?: string
+}
+
+export function isPendingApproval(value: MCPConnection | MCPPendingApproval): value is MCPPendingApproval {
+  return (value as MCPPendingApproval).status === "needs_approval"
+}
+
+/** What testing a connection found: its tools, or why it failed, with a local server's error output. */
+export interface MCPTestResult {
+  tools: Array<{ name: string; title?: string; description?: string }>
+  rejected?: Array<{ name: string; reason: string }>
+  error?: string
+  stderr?: string
+}
+
 const settings = "/api/settings/mcp/connections"
 const json = { "Content-Type": "application/json" }
 
@@ -113,12 +150,17 @@ export async function getMCPConnection(baseUrl: string, name: string): Promise<M
   return (await ok(await apiFetch(baseUrl, named(name)))).json()
 }
 
-export async function addMCPConnection(baseUrl: string, input: MCPConnectionInput): Promise<MCPConnection> {
+export async function addMCPConnection(baseUrl: string, input: MCPConnectionInput): Promise<MCPConnection | MCPPendingApproval> {
   return (await ok(await apiFetch(baseUrl, settings, { method: "POST", headers: json, body: JSON.stringify(input) }))).json()
 }
 
-export async function changeMCPConnection(baseUrl: string, name: string, change: MCPConnectionChange): Promise<MCPConnection> {
+export async function changeMCPConnection(baseUrl: string, name: string, change: MCPConnectionChange): Promise<MCPConnection | MCPPendingApproval> {
   return (await ok(await apiFetch(baseUrl, named(name), { method: "PATCH", headers: json, body: JSON.stringify(change) }))).json()
+}
+
+/** Reaches a saved connection now and lists its tools; a local server is started for the test. */
+export async function testMCPConnection(baseUrl: string, name: string): Promise<MCPTestResult> {
+  return (await ok(await apiFetch(baseUrl, `${named(name)}/test`, { method: "POST" }))).json()
 }
 
 export async function removeMCPConnection(baseUrl: string, name: string): Promise<void> {

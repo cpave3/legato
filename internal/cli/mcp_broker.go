@@ -82,9 +82,10 @@ func MCPRelay(ctx context.Context, socket, token, version string) (mcpserver.Opt
 		name := spec.Name
 		opts.Tools = append(opts.Tools, mcpserver.NewRelayTool(spec, func(ctx context.Context, raw json.RawMessage) (mcpserver.Result, error) {
 			var out struct {
-				Text    string `json:"text"`
-				Data    any    `json:"data"`
-				IsError bool   `json:"is_error"`
+				Text    string            `json:"text"`
+				Data    any               `json:"data"`
+				Images  []mcpserver.Image `json:"images"`
+				IsError bool              `json:"is_error"`
 			}
 			if err := callBroker(ctx, socket, token, "mcp.call", map[string]any{"name": name, "arguments": raw}, &out); err != nil {
 				return mcpserver.Result{}, err
@@ -92,7 +93,7 @@ func MCPRelay(ctx context.Context, socket, token, version string) (mcpserver.Opt
 			if out.IsError {
 				return mcpserver.Result{}, toolError(out.Text)
 			}
-			return mcpserver.Result{Text: out.Text, Data: out.Data}, nil
+			return mcpserver.Result{Text: out.Text, Data: out.Data, Images: out.Images}, nil
 		}))
 	}
 	return opts, nil

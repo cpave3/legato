@@ -81,6 +81,8 @@ Source `reeve_rules`: a change to one of the Reeve's own rules (`reeve.levels.*`
 
 Source `reeve_seed`: a new seed for the Reeve's engram, one of its own rules, always `signed`, refused with no device enrolled. The details hold the engram and the whole seed, which the tray shows as the summary; its resolver writes the seed into the engram once allowed. See [The Reeve](reeve.md) § Its engram.
 
+Source `mcp_stdio`: adding a local (stdio) MCP server, or changing what one runs, which Legato runs on the host outside any sandbox. `signed` once a device is enrolled, else a tap. The details hold the proposal, the command line (with the environment as `NAME=value` lines) as `command` and the folder as `cwd`, which the tray's generic card shows; its resolver saves the change once allowed. See [Integrations](integrations.md) § Local (stdio) MCP servers.
+
 ## API
 
 Behind the web token:

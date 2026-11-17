@@ -1,5 +1,4 @@
 import "@testing-library/jest-dom/vitest"
-import { execFileSync } from "node:child_process"
 import type { ConfigSetting, ConfigList } from "../../lib/configSettings"
 import { act, cleanup, fireEvent, render, screen, waitFor, within } from "@testing-library/react"
 import { MemoryRouter, useNavigate } from "react-router-dom"
@@ -8,6 +7,9 @@ import { QueryClientProvider } from "@tanstack/react-query"
 import { apiFetch } from "../../lib/api"
 import { createQueryClient, queryKeys } from "../../lib/query"
 import { SettingsPage } from "../Settings"
+// A copy of the Go settings registry (config.Settings and friends), kept current by
+// go test ./config -run TestTheWebSettingsRegistryFixtureIsCurrent -update.
+import registryFixture from "./fixtures/settings-registry.json"
 
 const addToast = vi.fn()
 const useSettings = vi.fn()
@@ -297,7 +299,7 @@ describe("SettingsPage layout", () => {
   })
 
   it("gives every actual Go registry key and named list exactly one destination", async () => {
-    const registry = JSON.parse(execFileSync("go", ["run", "./src/pages/__tests__/fixtures/settings-registry"], { encoding: "utf8" })) as { settings: ConfigSetting[]; file_only: string[]; lists: ConfigList[]; entry_lists: string[] }
+    const registry = registryFixture as { settings: ConfigSetting[]; file_only: string[]; lists: ConfigList[]; entry_lists: string[] }
     const values = registry.settings.map((s) => ({ ...s, value: s.kind === "bool" ? false : s.kind === "strings" ? [] : s.kind === "int" ? 0 : "", source: "default", pinned: false }))
     mockedApiFetch.mockImplementation(async (_base, path) => {
       if (path === "/api/config/settings") return Response.json({ settings: values, file_only: registry.file_only })
@@ -315,7 +317,7 @@ describe("SettingsPage layout", () => {
     }
     for (const key of [...registry.settings.map((s) => s.key), ...registry.file_only]) expect(found.filter((id) => id === `setting-${key}`), key).toHaveLength(1)
     for (const key of registry.entry_lists) expect(found.filter((id) => id === `list-${key}`), key).toHaveLength(1)
-  }, 30000)
+  })
 
   it("puts existing controls in their task categories", async () => {
     renderPage()

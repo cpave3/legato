@@ -9,6 +9,11 @@ function json(body: unknown, status = 200) {
 type Conn = {
   name: string
   url: string
+  kind?: string
+  command?: string
+  args?: string[]
+  dir?: string
+  env?: Record<string, string>
   auth: string
   enabled: boolean
   revision: number
@@ -25,6 +30,7 @@ let conns: Conn[]
 let attempts: Record<string, Attempt>
 let requests: Array<{ method: string; url: string; body?: Record<string, unknown>; contentType?: string }>
 let opened: { location: { href: string }; opener: unknown } | null
+let testResult: Record<string, unknown>
 let posted: string[]
 
 const notion = (over: Partial<Conn> = {}): Conn => ({
@@ -41,6 +47,7 @@ beforeEach(() => {
   requests = []
   opened = null
   posted = []
+  testResult = { tools: [] }
   vi.stubGlobal("open", vi.fn(() => {
     opened = { location: { href: "" }, opener: window }
     return opened
@@ -52,6 +59,8 @@ beforeEach(() => {
     requests.push({ method, url, body, contentType: headers["Content-Type"] })
     const path = String(url)
     if (method === "GET" && path === "/api/settings/mcp/connections") return json({ connections: conns })
+    const tested = path.match(/^\/api\/settings\/mcp\/connections\/([^/]+)\/test$/)
+    if (tested && method === "POST") return json(testResult)
     let m = path.match(/^\/api\/settings\/mcp\/connections\/([^/]+)$/)
     if (m) {
       const c = conns.find((x) => x.name === m![1])
@@ -59,6 +68,9 @@ beforeEach(() => {
       if (method === "GET") return json(c)
       if (method === "PATCH") {
         if (body?.expected_revision !== c.revision) return json({ error: "the connection changed; reload it" }, 409)
+        if (c.kind === "stdio" && ["command", "args", "dir", "env"].some((k) => body && k in body)) {
+          return json({ status: "needs_approval", approval_id: "apr-2", signed: false, message: "waits for approval" }, 202)
+        }
         Object.assign(c, body, { revision: c.revision + 1 })
         delete (c as Record<string, unknown>).expected_revision
         return json(c)
@@ -70,6 +82,7 @@ beforeEach(() => {
     }
     if (method === "POST" && path === "/api/settings/mcp/connections") {
       if (conns.some((x) => x.name === body?.name)) return json({ error: "an MCP connection of that name exists" }, 409)
+      if (body?.kind === "stdio") return json({ status: "needs_approval", approval_id: "apr-1", signed: false, message: "waits for approval" }, 202)
       const c = notion({ name: String(body?.name), url: String(body?.url), auth: String(body?.auth ?? "oauth"), rules: (body?.rules as Conn["rules"]) ?? [] })
       if (c.auth === "none") Object.assign(c, { authorization: "not_required", problem: undefined })
       conns.push(c)
@@ -314,5 +327,70 @@ describe("MCPSettings", () => {
     })
     expect((screen.getByLabelText("Client secret") as HTMLInputElement).value).toBe("")
   })
+
+  it("adds a local server, which waits for the operator's approval before it is saved", async () => {
+    render(<MCPSettings baseUrl="" pollEvery={10} />)
+    await screen.findByRole("listitem", { name: "notion" })
+    fireEvent.change(screen.getByRole("combobox", { name: "Kind of server" }), { target: { value: "stdio" } })
+    fireEvent.change(screen.getByRole("textbox", { name: "MCP server name" }), { target: { value: "design" } })
+    fireEvent.change(screen.getByRole("textbox", { name: "Command" }), { target: { value: "node" } })
+    fireEvent.change(screen.getByRole("textbox", { name: "Arguments, one per line" }), { target: { value: "tools/design/mcp.mjs\n" } })
+    fireEvent.change(screen.getByRole("textbox", { name: "Working directory" }), { target: { value: "~/Development/autopilot-proposals-styles" } })
+    fireEvent.change(screen.getByRole("textbox", { name: "Environment, one NAME=value per line" }), { target: { value: "PATH=/opt/node/bin:/usr/bin\n" } })
+    fireEvent.click(screen.getByRole("button", { name: "Add" }))
+    const waiting = await screen.findByText(/Waiting for your approval to run design/)
+    expect(waiting.textContent).toMatch(/outside any sandbox/)
+    expect(requests.find((r) => r.method === "POST" && r.url === "/api/settings/mcp/connections")?.body).toEqual({
+      name: "design", kind: "stdio", command: "node", args: ["tools/design/mcp.mjs"],
+      dir: "~/Development/autopilot-proposals-styles", env: { PATH: "/opt/node/bin:/usr/bin" },
+    })
+    expect(screen.queryByRole("listitem", { name: "design" })).toBeNull()
+    // The operator approves it in the tray; the list finds it.
+    conns.push(local())
+    expect(await screen.findByRole("listitem", { name: "design" })).toBeTruthy()
+  })
+
+  it("shows what a local server runs, and tests it", async () => {
+    conns = [local()]
+    testResult = { tools: [{ name: "list_blocks", description: "Lists the blocks." }, { name: "render_block" }], stderr: "design server on 5199" }
+    render(<MCPSettings baseUrl="" pollEvery={10} />)
+    const row = await screen.findByRole("listitem", { name: "design" })
+    expect(within(row).getByText("node tools/design/mcp.mjs")).toBeTruthy()
+    expect(within(row).getByText(/in \/home\/me\/Development\/autopilot-proposals-styles/)).toBeTruthy()
+    expect(within(row).queryByRole("button", { name: "Connect design" })).toBeNull()
+    fireEvent.click(within(row).getByRole("button", { name: "Test design" }))
+    expect(await within(row).findByText("list_blocks")).toBeTruthy()
+    expect(within(row).getByText("render_block")).toBeTruthy()
+    expect(within(row).getByText(/design server on 5199/)).toBeTruthy()
+  })
+
+  it("says why a server failed its test, with what it wrote to stderr", async () => {
+    conns = [local()]
+    testResult = { tools: [], error: `command not found: "node" is not in PATH /usr/bin`, stderr: "" }
+    render(<MCPSettings baseUrl="" pollEvery={10} />)
+    const row = await screen.findByRole("listitem", { name: "design" })
+    fireEvent.click(within(row).getByRole("button", { name: "Test design" }))
+    expect((await within(row).findByRole("alert")).textContent).toContain(`"node" is not in PATH`)
+  })
+
+  it("changes what a local server runs only through the operator's approval", async () => {
+    conns = [local()]
+    render(<MCPSettings baseUrl="" pollEvery={10} />)
+    const row = await screen.findByRole("listitem", { name: "design" })
+    fireEvent.click(within(row).getByText("Change what it runs"))
+    fireEvent.change(within(row).getByRole("textbox", { name: "Arguments of design, one per line" }), { target: { value: "tools/design/other.mjs" } })
+    fireEvent.click(within(row).getByRole("button", { name: "Ask to change design" }))
+    expect((await within(row).findByRole("status")).textContent).toMatch(/approv/i)
+    expect(requests.find((r) => r.method === "PATCH")?.body).toEqual({
+      command: "node", args: ["tools/design/other.mjs"], dir: "/home/me/Development/autopilot-proposals-styles", env: { PATH: "/opt/node/bin:/usr/bin" }, expected_revision: 1,
+    })
+    expect(within(screen.getByRole("listitem", { name: "design" })).getByText("node tools/design/mcp.mjs")).toBeTruthy()
+  })
 })
 
+function local(over: Partial<Conn> = {}): Conn {
+  return {
+    name: "design", url: "", kind: "stdio", auth: "none", enabled: true, revision: 1, rules: [], authorization: "not_required", connection: "unknown",
+    command: "node", args: ["tools/design/mcp.mjs"], dir: "/home/me/Development/autopilot-proposals-styles", env: { PATH: "/opt/node/bin:/usr/bin" }, ...over,
+  }
+}

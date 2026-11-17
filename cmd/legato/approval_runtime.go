@@ -82,14 +82,14 @@ func startApprovals(ctx context.Context, cfg *config.Config, db *store.Store, bu
 	changeSets := startChangeSets(ctx, cfg, db, rt.approvals, agents, nil)
 	processSpeech = newReeveVoice(cfg, db, rt.credentials, bus)
 	var stopMCP func()
-	rt.mcp, stopMCP = startMCPBroker(cfg, db, rt.credentials)
+	rt.mcp, stopMCP = startMCPBroker(cfg, db, rt.credentials, rt.approvals)
 	stops = append(stops, stopMCP)
 	deps := hostBrokerDeps(cfg, db, agents, rt.credentials, rt.caseReplies, rt.reviewPasses, rt.mcp.upstream())
 	broker := startBrokerHost(ctx, db, ipc.SocketDir(), brokerHostOptions{Deps: deps})
 	stops = append(stops, broker.Stop)
 	rt.brokerOwner = broker.Owner
 	if rt.mcp != nil {
-		go rt.mcp.sweep(ctx, broker.Owner)
+		go rt.mcp.sweep(ctx, broker.Owner, db)
 	}
 	if agents != nil {
 		go whileBrokerOwner(ctx, broker.Owner, 2*time.Second, func(ctx context.Context) {

@@ -136,11 +136,40 @@ The Legato app on Android cannot connect MCP servers yet.
 
 **Disconnect** stops Legato using the server and asks the server to revoke Legato's tokens; Settings says whether it did. Turning a server off keeps its authorization. Removing it forgets the authorization and its rules.
 
+#### Adding a local server
+
+Many MCP servers are programs that speak MCP on their standard input and output, such as one a repository lists in its `.mcp.json`. Legato can run such a server for your agents.
+
+:::caution
+A local server runs on the computer Legato runs on, as you, **outside any sandbox**. It can do anything you can do there. Add only servers you trust.
+:::
+
+In **Settings › Integrations › MCP servers**, choose **Local command** and give:
+
+- **Name**: a short name, as for a remote server.
+- **Command**: the program, as an absolute path (`/home/me/.local/share/mise/installs/node/24.11.1/bin/node`), or as a bare name (`node`) that Legato finds in the `PATH` you set under **Environment**, else in its own `PATH`. Legato does not read your shell's startup files, so a `node` that mise or nvm puts on your shell's `PATH` is not found unless you set `PATH`.
+- **Arguments**, one per line (`tools/design/mcp.mjs`).
+- **Working directory** (`~/Development/my-repo`).
+- **Environment**, one `NAME=value` per line. A value `legato://name` is the secret of that name in Legato's secret store.
+
+Select **Add**. Legato does not add the server yet: it asks you in your approvals, showing the command line, the folder and the environment. With a phone or a passkey enrolled, the approval must be signed on it. Once you allow it, the server appears in the list. Changing what a local server runs (its command, arguments, folder or environment) asks you again in the same way. Turning it off, removing it and changing its **Agent access** do not.
+
+**Test** starts the server, lists its tools, and stops it. When the server cannot start, Test says why (for example, that `node` is not in the `PATH` it searched) and shows what the server wrote to its error output.
+
+How Legato runs a local server:
+
+- Each agent session that calls one of its tools gets its own process, started at its first call. Listing the tools at the start of a session uses a short-lived process that exits at once, so an agent that never calls a tool starts nothing that stays.
+- The process stops when the session ends, when you change, turn off or remove the server, and when Legato stops. Everything it started stops with it, including programs it started in the background, such as a browser or a development server. A helper that the server meant to share between sessions is stopped too, and the next session that needs it starts it again.
+- When the process crashes, the call that was running fails, and the agent's next call starts a new process.
+- The process gets only `HOME`, your user name, the locale, the time zone, the XDG folders and `PATH` from Legato's environment, then the environment you set. Legato's own tokens are not passed.
+- What it writes to its error output goes to Legato's log, marked with the server's name and the session's execution.
+- A sandboxed agent needs nothing of the server's: no mounts, no `node`, no browser and no ports. It calls the tools through Legato as it calls a remote server's.
+
 - An agent sees only the tools your rules could let it use, for the repository it works in.
 - Every call is checked when it is made. Turning a server off, removing a rule or ending a grant stops calls at once, even from an agent that listed the tool earlier.
 - A rule that asks you shows the call in your approvals; the agent is told it waits for you.
 - Agents learn of tools when their session starts. After you add a tool or a rule, start a new session or reload the agent. Legato never restarts an agent for this.
-- What a server says (its tool descriptions and its results) is shown to the agent as that server's words, and links in results are never opened by Legato.
+- What a server says (its tool descriptions and its results) is shown to the agent as that server's words, and links in results are never opened by Legato. Pictures in results (PNG, JPEG, GIF and WebP) reach the agent as pictures.
 
 ## Limits on what is kept
 
@@ -169,11 +198,12 @@ A studio needs libretto on the machine that runs Legato's web server, as well as
 
 MCP servers you connect have limits of their own:
 
-- Only remote servers over HTTPS (Streamable HTTP). Legato starts no local MCP server as a program, and reaches no server on `localhost`. A server on your own network needs its network named under **Advanced**.
+- A remote server must use HTTPS (Streamable HTTP). Legato reaches no remote server on `localhost`; run such a server as a local server instead. A server on your own network needs its network named under **Advanced**.
+- A local server runs outside the sandbox, on the computer Legato runs on. Legato does not run it in a sandbox of its own, and does not read a repository's `.mcp.json` for you.
 - Connecting needs the Legato desktop app, or a browser on the same computer as Legato. The Android app cannot connect servers yet. There is no hosted relay, public callback address or pasted code.
 - Legato registers itself with the server's authorization server. A server that offers no registration Legato can use needs a client registered for Legato by hand, with the redirect `http://127.0.0.1:<port>/callback`; enter it under **Advanced** when you add the server. Some servers allow a loopback address on any port and some do not; when the port Legato registered is taken, it registers again.
 - Each Legato authorizes on its own. A worker you hand a task to does not use the main Legato's authorization.
-- A tool whose input or output description uses an older JSON Schema, or refers to schemas elsewhere, is not offered.
+- A tool whose input or output description uses an older JSON Schema, or refers to schemas elsewhere, is not offered. For a local server, draft-07 is accepted too, since servers built on the TypeScript MCP SDK use it.
 - Legato decides whether a tool only reads from the list of read-only tools you give it, never from what the server says.
 - Agents learn of tools when their session starts.
 

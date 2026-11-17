@@ -124,6 +124,8 @@ interface PromptBarProps {
   switchSandbox?: SandboxSwitch
   // Reloads it with or without the host network for its containers.
   switchHostNetwork?: SandboxSwitch
+  // Opens the dialog that shows what Legato knows about the agent.
+  onShowInfo?: () => void
   onRefresh: () => void
   onTogglePromptDetection: () => void
   promptDetectionEnabled: boolean
@@ -159,10 +161,10 @@ export interface PromptBarHandle {
   voiceIsRecording: () => boolean
 }
 
-export const PromptBar = forwardRef<PromptBarHandle, PromptBarProps>(function PromptBar({ promptState, onSendKeys, onSubmitMessage, onDismissPrompt, onDetectPrompt, onDisconnect, onKill, onReload, switchSandbox, switchHostNetwork, onRefresh, onTogglePromptDetection, promptDetectionEnabled, agentId, agentTitle, agentActivity, agentCommand, agentKind, engram, connected, ntfyConfigured, notifyEnabled, onToggleNotify, voiceEnabled, onUpgradeChimera, panels, menuInHeader = false }, ref) {
+export const PromptBar = forwardRef<PromptBarHandle, PromptBarProps>(function PromptBar({ promptState, onSendKeys, onSubmitMessage, onDismissPrompt, onDetectPrompt, onDisconnect, onKill, onReload, switchSandbox, switchHostNetwork, onShowInfo, onRefresh, onTogglePromptDetection, promptDetectionEnabled, agentId, agentTitle, agentActivity, agentCommand, agentKind, engram, connected, ntfyConfigured, notifyEnabled, onToggleNotify, voiceEnabled, onUpgradeChimera, panels, menuInHeader = false }, ref) {
   const { baseUrl } = useServer()
   const [input, setInput] = useState(() => localStorage.getItem(draftKey(agentId)) ?? "")
-  const terminalMenu = useTerminalMenu({ agentKind, onUpgradeChimera, onRefresh, onDetectPrompt, onTogglePromptDetection, promptDetectionEnabled, ntfyConfigured, notifyEnabled, onToggleNotify, onReload, switchSandbox, switchHostNetwork, onDisconnect, onKill })
+  const terminalMenu = useTerminalMenu({ agentKind, onUpgradeChimera, onShowInfo, onRefresh, onDetectPrompt, onTogglePromptDetection, promptDetectionEnabled, ntfyConfigured, notifyEnabled, onToggleNotify, onReload, switchSandbox, switchHostNetwork, onDisconnect, onKill })
   const [macrosOpen, setMacrosOpen] = useState(false)
   const [macros, setMacros] = useState<{ name: string; keys: string }[]>([])
   const macrosRef = useRef<HTMLDivElement>(null)

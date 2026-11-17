@@ -101,6 +101,7 @@ type Server struct {
 	tints                    TintService
 	themes                   ThemePreferenceService
 	mcpConnections           MCPConnectionService
+	mcpTester                MCPTester
 	mcpOAuth                 MCPOAuth
 	reeveName                service.ReeveNameSource
 	engrams                  EngramService

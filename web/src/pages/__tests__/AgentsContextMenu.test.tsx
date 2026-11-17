@@ -79,6 +79,49 @@ afterEach(() => {
 })
 
 describe("AgentsPage sidebar context menu", () => {
+  const withDirectories = (input: RequestInfo | URL) => {
+    const path = String(input)
+    if (path === "/api/agents") {
+      return Promise.resolve({ ok: true, status: 200, json: async () => [
+        { ...agent("TASK-1"), working_dir: "/home/me/one" },
+        { ...agent("TASK-2"), working_dir: "/home/me/two", clone: { repo: "acme/two", branch: "legato/task-2" } },
+      ] })
+    }
+    if (path.endsWith("/resources")) {
+      return Promise.resolve({ ok: true, status: 200, json: async () => ({ attached: [] }) })
+    }
+    throw new Error(`unexpected request: ${path}`)
+  }
+
+  it("opens the info of the right-clicked agent, not the selected one", async () => {
+    mockFetch.mockImplementation(withDirectories)
+    render(<MemoryRouter><AgentsPage /></MemoryRouter>)
+    fireEvent.contextMenu(await screen.findByRole("button", { name: /TASK-2/ }), { clientX: 50, clientY: 60 })
+    fireEvent.click(screen.getByRole("menuitem", { name: "Agent info" }))
+
+    const dialog = await screen.findByRole("dialog", { name: "Agent info" })
+    expect(dialog.textContent).toContain("/home/me/two")
+    expect(dialog.textContent).toContain("acme/two")
+    expect(dialog.textContent).not.toContain("/home/me/one")
+    expect(screen.queryByRole("menu", { name: "Actions for TASK-2" })).toBeNull()
+  })
+
+  it("opens the selected agent's info from More actions, and gives focus back on Escape", async () => {
+    mockFetch.mockImplementation(withDirectories)
+    render(<MemoryRouter><AgentsPage /></MemoryRouter>)
+    await screen.findByRole("button", { name: /TASK-1/ })
+    const trigger = screen.getByRole("button", { name: "More actions" })
+    trigger.focus()
+    fireEvent.click(trigger)
+    fireEvent.click(screen.getByRole("menuitem", { name: "Agent info" }))
+
+    const dialog = await screen.findByRole("dialog", { name: "Agent info" })
+    expect(dialog.textContent).toContain("/home/me/one")
+    fireEvent.keyDown(document.activeElement ?? document.body, { key: "Escape" })
+    await waitFor(() => expect(screen.queryByRole("dialog", { name: "Agent info" })).toBeNull())
+    expect(document.activeElement).toBe(trigger)
+  })
+
   it("kills the right-clicked agent rather than the selected agent", async () => {
     mockFetch.mockImplementation((input: RequestInfo | URL) => {
       const path = String(input)

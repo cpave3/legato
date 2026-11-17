@@ -18,6 +18,14 @@ type MCPConnection struct {
 	Issuer   string `db:"issuer" json:"issuer,omitempty"`
 	Networks string `db:"networks" json:"-"`
 	Auth     string `db:"auth" json:"auth"`
+	// Kind is http (a remote server at URL) or stdio (a command Legato runs
+	// on the host). A stdio connection's Command, ArgsJSON (a JSON list),
+	// Dir and EnvJSON (a JSON object) are what the operator approved.
+	Kind     string `db:"kind" json:"kind"`
+	Command  string `db:"command" json:"command,omitempty"`
+	ArgsJSON string `db:"args_json" json:"-"`
+	Dir      string `db:"dir" json:"dir,omitempty"`
+	EnvJSON  string `db:"env_json" json:"-"`
 	// StaticClientID and StaticRedirectURI are an advanced, pre-registered
 	// client; its secret is sealed, and StaticSecretSet says there is one.
 	StaticClientID    string `db:"static_client_id" json:"static_client_id,omitempty"`
@@ -32,6 +40,18 @@ type MCPConnection struct {
 	LastError         string `db:"last_error" json:"-"`
 	CreatedAt         int64  `db:"created_at" json:"-"`
 	UpdatedAt         int64  `db:"updated_at" json:"-"`
+}
+
+func (c *MCPConnection) defaults() {
+	if c.Kind == "" {
+		c.Kind = "http"
+	}
+	if c.ArgsJSON == "" {
+		c.ArgsJSON = "[]"
+	}
+	if c.EnvJSON == "" {
+		c.EnvJSON = "{}"
+	}
 }
 
 func nextMCPRevision(ctx context.Context, tx *sqlx.Tx, name string) (int64, error) {
@@ -58,8 +78,9 @@ func (s *Store) CreateMCPConnection(ctx context.Context, c MCPConnection, now in
 		return MCPConnection{}, err
 	}
 	c.Enabled, c.CreatedAt, c.UpdatedAt, c.LastContactAt, c.LastError = true, now, now, 0, ""
-	_, err = tx.NamedExecContext(ctx, `INSERT INTO mcp_connections(name,url,issuer,networks,auth,static_client_id,static_redirect_uri,static_secret_set,rules_json,read_only_tools,enabled,instance_id,revision,last_contact_at,last_error,created_at,updated_at)
-		VALUES(:name,:url,:issuer,:networks,:auth,:static_client_id,:static_redirect_uri,:static_secret_set,:rules_json,:read_only_tools,:enabled,:instance_id,:revision,:last_contact_at,:last_error,:created_at,:updated_at)`, c)
+	c.defaults()
+	_, err = tx.NamedExecContext(ctx, `INSERT INTO mcp_connections(name,url,issuer,networks,auth,kind,command,args_json,dir,env_json,static_client_id,static_redirect_uri,static_secret_set,rules_json,read_only_tools,enabled,instance_id,revision,last_contact_at,last_error,created_at,updated_at)
+		VALUES(:name,:url,:issuer,:networks,:auth,:kind,:command,:args_json,:dir,:env_json,:static_client_id,:static_redirect_uri,:static_secret_set,:rules_json,:read_only_tools,:enabled,:instance_id,:revision,:last_contact_at,:last_error,:created_at,:updated_at)`, c)
 	if err != nil {
 		return MCPConnection{}, err
 	}
@@ -106,7 +127,8 @@ func (s *Store) UpdateMCPConnection(ctx context.Context, c MCPConnection, now in
 	}
 	var fenced []OAuthAttempt
 	switch {
-	case old.URL != c.URL || old.Issuer != c.Issuer || old.Auth != c.Auth || old.StaticClientID != c.StaticClientID || old.StaticRedirectURI != c.StaticRedirectURI:
+	case old.URL != c.URL || old.Issuer != c.Issuer || old.Auth != c.Auth || old.StaticClientID != c.StaticClientID || old.StaticRedirectURI != c.StaticRedirectURI ||
+		old.Kind != c.Kind || old.Command != c.Command || old.ArgsJSON != c.ArgsJSON || old.Dir != c.Dir || old.EnvJSON != c.EnvJSON:
 		if fenced, err = invalidateOAuthConnectionTx(ctx, tx, c.Name, now); err != nil {
 			return MCPConnection{}, nil, err
 		}
@@ -126,7 +148,8 @@ func (s *Store) UpdateMCPConnection(ctx context.Context, c MCPConnection, now in
 		return MCPConnection{}, nil, err
 	}
 	c.InstanceID, c.CreatedAt, c.UpdatedAt = old.InstanceID, old.CreatedAt, now
-	_, err = tx.NamedExecContext(ctx, `UPDATE mcp_connections SET url=:url,issuer=:issuer,networks=:networks,auth=:auth,static_client_id=:static_client_id,static_redirect_uri=:static_redirect_uri,static_secret_set=:static_secret_set,rules_json=:rules_json,read_only_tools=:read_only_tools,enabled=:enabled,revision=:revision,
+	c.defaults()
+	_, err = tx.NamedExecContext(ctx, `UPDATE mcp_connections SET url=:url,issuer=:issuer,networks=:networks,auth=:auth,kind=:kind,command=:command,args_json=:args_json,dir=:dir,env_json=:env_json,static_client_id=:static_client_id,static_redirect_uri=:static_redirect_uri,static_secret_set=:static_secret_set,rules_json=:rules_json,read_only_tools=:read_only_tools,enabled=:enabled,revision=:revision,
 		last_contact_at=:last_contact_at,last_error=:last_error,updated_at=:updated_at WHERE name=:name`, c)
 	if err != nil {
 		return MCPConnection{}, nil, err

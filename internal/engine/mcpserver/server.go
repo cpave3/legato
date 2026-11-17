@@ -39,6 +39,23 @@ type Result struct {
 	// give their model Data in place of Text, so set it only when it says
 	// everything Text does.
 	Data any
+	// Images follow the text, as image content the client shows its model.
+	Images []Image
+}
+
+// Image is a picture in a result: its bytes and media type.
+type Image struct {
+	MIMEType string `json:"mime_type"`
+	Data     []byte `json:"data"`
+}
+
+// content is a result's content: its text, then its images.
+func (r Result) content() []mcp.Content {
+	out := []mcp.Content{&mcp.TextContent{Text: r.Text}}
+	for _, img := range r.Images {
+		out = append(out, &mcp.ImageContent{MIMEType: img.MIMEType, Data: img.Data})
+	}
+	return out
 }
 
 // Tool is one tool a server offers. NewTool makes one.
@@ -138,7 +155,7 @@ func NewTool[In any](def Definition, handler func(context.Context, In) (Result, 
 			if err != nil {
 				return &mcp.CallToolResult{IsError: true, Content: []mcp.Content{&mcp.TextContent{Text: err.Error()}}}, nil
 			}
-			return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: result.Text}}, StructuredContent: result.Data}, nil
+			return &mcp.CallToolResult{Content: result.content(), StructuredContent: result.Data}, nil
 		})
 	}}
 }
@@ -162,7 +179,7 @@ func NewRelayTool(spec Spec, handler func(context.Context, json.RawMessage) (Res
 			if err != nil {
 				return &mcp.CallToolResult{IsError: true, Content: []mcp.Content{&mcp.TextContent{Text: err.Error()}}}, nil
 			}
-			return &mcp.CallToolResult{Content: []mcp.Content{&mcp.TextContent{Text: result.Text}}, StructuredContent: result.Data}, nil
+			return &mcp.CallToolResult{Content: result.content(), StructuredContent: result.Data}, nil
 		})
 	}}
 }

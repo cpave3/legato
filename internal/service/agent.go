@@ -98,6 +98,13 @@ type AgentSession struct {
 	// BackgroundShells are the background shells its mod reported, running
 	// and ended (Chimera); a Claude Code agent's are served by its bridge.
 	BackgroundShells []store.BackgroundShell
+	// WorkingDir is the directory the agent was started in: the
+	// execution's working directory (a job clone, a worktree or a folder).
+	WorkingDir string
+	// CloneRepo and CloneBranch are the job clone at WorkingDir, when it is
+	// one: its repository and the branch it was made on.
+	CloneRepo   string
+	CloneBranch string
 }
 
 // BackgroundJob is one thing an agent started that still runs and will wake
@@ -1895,6 +1902,9 @@ func (a *agentService) ListAgents(ctx context.Context) ([]AgentSession, error) {
 			Slot:              s.Slot,
 			CardTaskID:        s.TaskID,
 			Reeve:             IsReeveTask(ctx, a.store, s.TaskID),
+			WorkingDir:        s.WorkingDir,
+			CloneRepo:         s.CloneRepo,
+			CloneBranch:       s.CloneBranch,
 		}
 		if s.Status == "running" {
 			result[i].BackgroundJobs = s.BackgroundJobs

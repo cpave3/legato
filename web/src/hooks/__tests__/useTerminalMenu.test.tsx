@@ -71,3 +71,12 @@ it("offers to reload the agent with or without the host network for its containe
   result.current.entries.find((entry) => entry.label === "Reload with host network")?.onSelect()
   expect(onSelect).toHaveBeenCalled()
 })
+
+it("offers the agent's info after renaming and grouping it", () => {
+  const onShowInfo = vi.fn()
+  const { result } = renderHook(() => useTerminalMenu(options({ onRename: vi.fn(), onMoveToGroup: vi.fn(), onShowInfo })))
+  const labels = result.current.entries.map((entry) => entry.label)
+  expect(labels.slice(0, 3)).toEqual(["Rename", "Move to group…", "Agent info"])
+  result.current.entries[2].onSelect()
+  expect(onShowInfo).toHaveBeenCalled()
+})

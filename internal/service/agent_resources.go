@@ -81,8 +81,9 @@ func (a *ChimeraInteractionAdapter) GrantPaths(ctx context.Context, taskID strin
 	return client.PostMessageAppend(ctx, sessionID, note)
 }
 
+// taskID is an agent address: <task>_<slot> names a named slot's agent.
 func (a *agentService) AttachedResources(ctx context.Context, taskID string) ([]string, error) {
-	session, err := a.store.GetAgentSessionByTaskID(ctx, taskID)
+	session, err := slotSession(ctx, a.store, taskID)
 	if err != nil {
 		return nil, err
 	}

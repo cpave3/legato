@@ -5,12 +5,15 @@ import (
 	"testing"
 
 	"github.com/cpave3/legato/internal/engine/gitrepo"
+	"github.com/cpave3/legato/internal/engine/mcpstdio/mcpstdiotest"
 	"github.com/cpave3/legato/internal/testenv"
 )
 
 // The test binary is also the askpass helper the repository cache's git
 // runs, as legato is.
 func TestMain(m *testing.M) {
+	// The fake local MCP server is this test binary, started as one.
+	mcpstdiotest.Serve()
 	if gitrepo.IsAskPass(os.Getenv) {
 		os.Exit(gitrepo.AskPass(os.Args[1:], os.Stdout, os.Stderr))
 	}
