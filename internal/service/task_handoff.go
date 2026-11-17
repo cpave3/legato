@@ -236,6 +236,11 @@ func (s *TaskHandoffService) HandOff(ctx context.Context, req TaskHandoffRequest
 	if meta.Handoff < HandoffProtocolVersion {
 		return AwayTask{}, &handoffWorkerError{ErrWorkerTooOld, fmt.Sprintf("update the worker: %s runs Legato %s, which cannot take a handoff from this one", name, orUnknown(meta.Version))}
 	}
+	// The worker's definition decides access: a repository its advert does
+	// not list is refused here, in the words the Hand off form uses.
+	if !client.Worker.Advert.CanClone(req.Repo) {
+		return AwayTask{}, &handoffWorkerError{ErrWorkerRefused, fmt.Sprintf("%s can't clone %s: its GitHub credentials do not list it", name, req.Repo)}
+	}
 	if meta.Sandbox == nil || !*meta.Sandbox {
 		return AwayTask{}, &handoffWorkerError{ErrWorkerRefused, fmt.Sprintf("%s cannot run agents in Legato's sandbox, which a handed-off agent needs", name)}
 	}

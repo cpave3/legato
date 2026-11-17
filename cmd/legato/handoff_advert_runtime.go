@@ -18,9 +18,9 @@ var agentCommands = map[string]string{"claude-code": "claude", "chimera": "chime
 // connections that are on, the skills that are on, and the repositories the
 // GitHub credentials list. See docs/ai/integrations.md § What a worker
 // advertises.
-func handoffAdvertSources(cfg *config.Config, db *store.Store) service.HandoffAdvertSources {
+func handoffAdvertSources(cfg *config.Config, db *store.Store, credentials *service.CredentialBroker) service.HandoffAdvertSources {
 	skills := skillService(cfg, db)
-	return service.HandoffAdvertSources{
+	sources := service.HandoffAdvertSources{
 		Installed: func(kind string) bool {
 			command, ok := agentCommands[kind]
 			if !ok {
@@ -51,14 +51,12 @@ func handoffAdvertSources(cfg *config.Config, db *store.Store) service.HandoffAd
 			return names, nil
 		},
 		Skills: skills.Usable,
-		Repositories: func() []string {
-			var repos []string
-			for _, c := range cfg.Credentials {
-				if c.Profile == "github" {
-					repos = append(repos, c.Settings.Repositories...)
-				}
-			}
-			return repos
-		},
 	}
+	// What the repository cache can clone is what the credential broker's
+	// GitHub credentials list, from config.yaml or a vault. Without a
+	// broker the worker cannot say, and the advert leaves it null.
+	if credentials != nil {
+		sources.Repositories = credentials.GitHubRepositories
+	}
+	return sources
 }

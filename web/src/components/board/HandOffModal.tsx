@@ -7,7 +7,9 @@ import { apiFetch } from "../../lib/api"
 import { agentKindLabel } from "../../lib/agentKind"
 import { handOffTask, type HandOffRequest, workerReviewPasses, type ReviewPassesAdvert, type ReviewOverride } from "../../lib/away"
 import type { AwayOn, BoardCard } from "../../lib/board-types"
-import { listWorkers, type Worker } from "../../lib/workers"
+import { advertCanClone, handoffBlock, handoffTools, listWorkers, missingOnWorker, workerOnlyRepositories, type Worker } from "../../lib/workers"
+import { listSkills } from "../../lib/skills"
+import { listMCPConnections } from "../../lib/mcpConnections"
 import type { RepositoryPreset } from "../RepositoryPresetSelect"
 
 // The Hand off form: one form whichever way a task is handed off (its card's
@@ -76,7 +78,10 @@ function Choices<T extends string>({ name, legend, value, options, onChange }: {
 export function HandOffModal({ baseUrl, open, card, repositories, onClose, onHandedOff }: HandOffModalProps) {
   const id = useId()
   const [workers, setWorkers] = useState<Worker[] | null>(null)
-  const [tools, setTools] = useState<string[]>([])
+  // This Legato's own tools, and the skills and MCP connections its agents
+  // get, to compare with the chosen worker's advert.
+  const [localTools, setLocalTools] = useState<string[]>([])
+  const [here, setHere] = useState<{ skills: string[]; mcpConnections: string[] }>({ skills: [], mcpConnections: [] })
   const [worker, setWorker] = useState("")
   const [purpose, setPurpose] = useState<Purpose>("make-change")
   const [startFrom, setStartFrom] = useState<StartFrom>("new-branch")
@@ -109,7 +114,7 @@ export function HandOffModal({ baseUrl, open, card, repositories, onClose, onHan
       .then((list) => {
         if (!current) return
         setWorkers(list.workers)
-        setWorker((chosen) => chosen || list.workers.find((w) => w.sandbox)?.instance_id || "")
+        setWorker((chosen) => chosen || list.workers.find((w) => handoffBlock(w) === null)?.instance_id || "")
       })
       .catch((reason) => { if (current) setError(reason instanceof Error ? reason.message : String(reason)) })
     // The tools this Legato drives, its default first. A handed-off agent
@@ -122,10 +127,14 @@ export function HandOffModal({ baseUrl, open, card, repositories, onClose, onHan
         const first: string = data.default && data.default !== "shell" ? data.default : adapters[0] ?? ""
         const ordered = first ? [first, ...adapters.filter((adapter) => adapter !== first)] : adapters
         if (!current) return
-        setTools(ordered)
-        setTool((chosen) => chosen || ordered[0] || "")
+        setLocalTools(ordered)
       })
       .catch(() => {})
+    // What a worker lacks is a warning; failing to read it here is none.
+    Promise.all([
+      listSkills(baseUrl).then((list) => list.skills.filter((s) => s.enabled && !s.error).map((s) => s.name)).catch(() => []),
+      listMCPConnections(baseUrl).then((list) => list.filter((c) => c.enabled).map((c) => c.name)).catch(() => []),
+    ]).then(([skills, mcpConnections]) => { if (current) setHere({ skills, mcpConnections }) })
     return () => { current = false }
   }, [open, baseUrl])
 
@@ -135,9 +144,21 @@ export function HandOffModal({ baseUrl, open, card, repositories, onClose, onHan
     if (!open) setRepo("")
   }, [open])
 
+  const chosenWorker = workers?.find((w) => w.instance_id === worker)
+  const advertOf = chosenWorker?.advert
+  // The tools the chosen worker can run unattended, its default first; the
+  // choice follows the worker.
+  const tools = handoffTools(advertOf, localTools)
+  useEffect(() => {
+    setTool((chosen) => (tools.includes(chosen) ? chosen : tools[0] ?? ""))
+  }, [tools.join(" ")]) // eslint-disable-line react-hooks/exhaustive-deps
+  const workerOnly = workerOnlyRepositories(advertOf, offered.map((r) => r.repo))
+  const lacks = missingOnWorker(advertOf, here)
+  const repoBlocked = repo.trim() !== "" && !advertCanClone(advertOf, repo)
+
   const agentHere = card.agent_active
   const pushed = startFrom === "pushed-branch"
-  const canSend = !sending && !agentHere && worker !== "" && repo.trim().includes("/") && (!pushed || branch.trim() !== "")
+  const canSend = !sending && !agentHere && worker !== "" && repo.trim().includes("/") && !repoBlocked && (!pushed || branch.trim() !== "")
 
   const submit = async (event: FormEvent) => {
     event.preventDefault()
@@ -158,7 +179,7 @@ export function HandOffModal({ baseUrl, open, card, repositories, onClose, onHan
     }
   }
 
-  const chosen = workers?.find((w) => w.instance_id === worker)
+  const chosen = chosenWorker
   return (
     <Dialog open={open} onClose={onClose} dismissible={!sending}>
       <DialogPanel className="flex max-h-[calc(100dvh-2rem)] max-w-lg flex-col font-lw">
@@ -180,8 +201,8 @@ export function HandOffModal({ baseUrl, open, card, repositories, onClose, onHan
               <select aria-label="Worker" value={worker} onChange={(event) => setWorker(event.target.value)} className={control}>
                 {worker === "" && <option value="">{workers ? "No worker can take it" : "Reading the workers…"}</option>}
                 {(workers ?? []).map((w) => (
-                  <option key={w.instance_id} value={w.instance_id} disabled={!w.sandbox}>
-                    {w.sandbox ? w.name : `${w.name} · sandbox off: it refuses handoffs`}
+                  <option key={w.instance_id} value={w.instance_id} disabled={handoffBlock(w) !== null}>
+                    {handoffBlock(w) === null ? w.name : `${w.name} · ${handoffBlock(w)}`}
                   </option>
                 ))}
               </select>
@@ -200,7 +221,12 @@ export function HandOffModal({ baseUrl, open, card, repositories, onClose, onHan
               {offered.length > 0 ? (
                 <select aria-label="Repository" required value={repo} onChange={(event) => setRepo(event.target.value)} className={control}>
                   <option value="" disabled>Choose a repository…</option>
-                  {offered.map((repository) => <option key={repository.repo} value={repository.repo}>{repository.name === repository.repo ? repository.repo : `${repository.name} · ${repository.repo}`}</option>)}
+                  {offered.map((repository) => {
+                    const label = repository.name === repository.repo ? repository.repo : `${repository.name} · ${repository.repo}`
+                    const clonable = advertCanClone(advertOf, repository.repo)
+                    return <option key={repository.repo} value={repository.repo} disabled={!clonable}>{clonable ? label : `${label} · ${chosenWorker?.name} can't clone it`}</option>
+                  })}
+                  {workerOnly.map((r) => <option key={r} value={r}>{`${r} · on ${chosenWorker?.name} only`}</option>)}
                 </select>
               ) : (
                 <input aria-label="Repository" required value={repo} onChange={(event) => setRepo(event.target.value)} placeholder="owner/name on GitHub" className={`${control} font-lw-mono`} />
@@ -213,6 +239,14 @@ export function HandOffModal({ baseUrl, open, card, repositories, onClose, onHan
                 {tools.map((kind) => <option key={kind} value={kind}>{agentKindLabel(kind)}</option>)}
               </select>
             </label>
+            {repoBlocked && (
+              <p className="text-xs text-lw-needs">{chosenWorker?.name} can't clone {repo.trim()}: its GitHub credentials do not list it.</p>
+            )}
+            {lacks.length > 0 && (
+              <p className="rounded-md border border-lw-needs/40 bg-lw-needs-soft px-3 py-2 text-xs text-lw-needs">
+                Not on {chosenWorker?.name}: {lacks.join(", ")}. Its agent works without them.
+              </p>
+            )}
             {advert && purpose === "make-change" && <ReviewPassesSection advert={advert} review={review} onChange={setReview} />}
             <p className="text-xs text-lw-text-2">
               The agent works on its own in {chosen?.name ?? "the worker"}'s sandbox

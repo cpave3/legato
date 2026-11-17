@@ -62,7 +62,8 @@ export interface WorkerAdvert {
   mcp_tools: boolean
   mcp_connections: string[]
   skills: string[]
-  repositories: string[]
+  // null when the worker cannot say, which is not second-guessed.
+  repositories: string[] | null
   // Why it would refuse every handoff now; absent when it can take them.
   refuses?: string[]
 }
@@ -256,4 +257,54 @@ export function workerCandidates(baseUrl: string): WorkerCandidates {
       return openMainRequest(candidate)
     },
   }
+}
+
+// advertCanClone says whether a worker's GitHub credentials list a
+// repository (owner/name, or owner/* for every repository of an owner).
+// A worker with no advert is not second-guessed: it refuses for itself.
+export function advertCanClone(advert: WorkerAdvert | undefined, repo: string): boolean {
+  if (!advert || !advert.repositories) return true
+  const want = repo.trim().toLowerCase()
+  const [owner] = want.split("/")
+  return advert.repositories.some((pattern) => {
+    const p = pattern.toLowerCase()
+    return p === want || p === `${owner}/*`
+  })
+}
+
+// workerOnlyRepositories are the repositories a worker names that this
+// Legato does not offer: they can be handed off too.
+export function workerOnlyRepositories(advert: WorkerAdvert | undefined, offered: string[]): string[] {
+  if (!advert || !advert.repositories) return []
+  const here = new Set(offered.map((r) => r.toLowerCase()))
+  return advert.repositories.filter((r) => !r.endsWith("/*") && r.includes("/") && !here.has(r.toLowerCase()))
+}
+
+// handoffBlock says why a worker can't take handoffs, or null when it can.
+export function handoffBlock(w: Worker): string | null {
+  if (w.cannot_take_handoffs) return w.cannot_take_handoffs
+  if (!w.sandbox) return "sandbox off: it refuses handoffs"
+  return null
+}
+
+// handoffTools are the agent tools a handoff to a worker can ask for: those
+// installed there that run with their prompts off, the worker's default
+// first. Without an advert, this Legato's own (theirs is unknown).
+export function handoffTools(advert: WorkerAdvert | undefined, local: string[]): string[] {
+  if (!advert) return local
+  const usable = advert.agents.filter((a) => a.installed && a.prompts_off).map((a) => a.name)
+  const first = advert.default_agent && usable.includes(advert.default_agent) ? advert.default_agent : usable[0]
+  return first ? [first, ...usable.filter((n) => n !== first)] : usable
+}
+
+// missingOnWorker names what this Legato's agents have that a worker's
+// would not: skills and MCP connections that are on here, and Legato's
+// own agent tools. A warning, not a refusal: the person decides.
+export function missingOnWorker(advert: WorkerAdvert | undefined, here: { skills: string[]; mcpConnections: string[] }): string[] {
+  if (!advert) return []
+  const out: string[] = []
+  if (!advert.mcp_tools) out.push("Legato's agent tools (add_task_note and the rest)")
+  for (const s of here.skills) if (!advert.skills.includes(s)) out.push(`skill ${s}`)
+  for (const c of here.mcpConnections) if (!advert.mcp_connections.includes(c)) out.push(`MCP connection ${c}`)
+  return out
 }

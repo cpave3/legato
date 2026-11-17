@@ -2,6 +2,7 @@ package handofftest
 
 import (
 	"context"
+	"errors"
 	"encoding/json"
 	"io"
 	"net/http"
@@ -231,5 +232,47 @@ func TestAWorkerThatCanTakeHandoffsIsNotMarked(t *testing.T) {
 	main := NewMain(t, MainOptions{Clock: worker.Clock})
 	if paired := Pair(t, main, worker); paired.CannotTakeHandoffs != "" {
 		t.Fatalf("cannot_take_handoffs = %q", paired.CannotTakeHandoffs)
+	}
+}
+
+func TestAHandoffToARepositoryTheWorkerCannotCloneIsRefusedBeforeSending(t *testing.T) {
+	sources := advertSources()
+	sources.Repositories = func() []string { return []string{"acme/*"} }
+	worker := StartWorker(t, WorkerOptions{Name: "legato-1", Wire: func(w *Worker) { w.Handoffs.SetAdvertSources(sources) }})
+	main := NewMain(t, MainOptions{Clock: worker.Clock})
+	paired := Pair(t, main, worker)
+	taskID, _ := localTask(t, main, "Fix it", "", "")
+
+	_, err := handOff(t, main, paired.InstanceID, taskID, func(r *service.TaskHandoffRequest) { r.Repo = "other/thing" })
+	if !errors.Is(err, service.ErrWorkerRefused) || !strings.Contains(err.Error(), "legato-1 can't clone other/thing") {
+		t.Fatalf("handing off a repository the worker can't clone: %v", err)
+	}
+	stillHome(t, main, worker, taskID)
+
+	if _, err := handOff(t, main, paired.InstanceID, taskID); err != nil {
+		t.Fatalf("acme/widget: %v", err)
+	}
+}
+
+func TestAWorkerThatCannotListItsRepositoriesIsNotSecondGuessed(t *testing.T) {
+	worker := StartWorker(t, WorkerOptions{})
+	main := NewMain(t, MainOptions{Clock: worker.Clock})
+	paired := Pair(t, main, worker)
+	if paired.Advert == nil || paired.Advert.Repositories != nil {
+		t.Fatalf("advert %+v; want repositories null", paired.Advert)
+	}
+	taskID, _ := localTask(t, main, "Fix it", "", "")
+	if _, err := handOff(t, main, paired.InstanceID, taskID); err != nil {
+		t.Fatal(err)
+	}
+}
+
+func TestTheCredentialBrokerListsWhatItsGitHubCredentialsCanClone(t *testing.T) {
+	worker := StartWorker(t, WorkerOptions{GitHubRepositories: []string{"acme/*", "cpave3/legato"}})
+	if got := worker.Credentials.GitHubRepositories(); !slices.Equal(got, []string{"acme/*", "cpave3/legato"}) {
+		t.Fatalf("repositories %v", got)
+	}
+	if got := StartWorker(t, WorkerOptions{}).Credentials.GitHubRepositories(); got == nil || len(got) != 0 {
+		t.Fatalf("without a credential: %#v, want an empty list", got)
 	}
 }

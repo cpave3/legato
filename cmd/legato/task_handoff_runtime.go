@@ -48,7 +48,11 @@ func wireTaskHandoffs(srv *server.Server, deps integrationDeps) (stop func()) {
 		opts.Grants = deps.approvals.credentials
 	}
 	handoffs := service.NewHandoffWorkerService(deps.db, opts)
-	handoffs.SetAdvertSources(handoffAdvertSources(deps.cfg, deps.db))
+	var credentials *service.CredentialBroker
+	if deps.approvals != nil {
+		credentials = deps.approvals.credentials
+	}
+	handoffs.SetAdvertSources(handoffAdvertSources(deps.cfg, deps.db, credentials))
 	srv.SetTaskHandoffs(handoffs)
 	addInterruptedResumeRoute(deps.agents, handoffs.ResumeInterrupted)
 	// A handed-off card's agent restarts through the handoff: unattended,

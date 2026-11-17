@@ -22,6 +22,12 @@ const repositories = [
 let posts: { url: string; body: Record<string, unknown> }[]
 let handOffAnswer: Response | null
 let reviewPasses: unknown = null
+// The advert of vm-1, when a test gives it one; this Legato's skills and
+// MCP connections.
+let vm1Advert: unknown = null
+let skills: { name: string; enabled: boolean; error?: string }[] = []
+let mcpConnections: { name: string; enabled: boolean }[] = []
+let vm3: Record<string, unknown> | null = null
 
 beforeEach(() => {
   posts = []
@@ -32,11 +38,14 @@ beforeEach(() => {
       return json({
         workers: [
           { instance_id: "srv-bare", address: "https://vm-2.lan:3080", name: "vm-2", main_name: "workstation", sandbox: false, handoff_version: 2, paired_at: "2026-11-03T09:00:00Z" },
-          { instance_id: "srv-vm1", address: "https://vm-1.lan:3080", name: "vm-1", main_name: "workstation", sandbox: true, handoff_version: 2, paired_at: "2026-11-03T09:00:00Z" },
+          { instance_id: "srv-vm1", address: "https://vm-1.lan:3080", name: "vm-1", main_name: "workstation", sandbox: true, handoff_version: 2, paired_at: "2026-11-03T09:00:00Z", ...(vm1Advert ? { advert: vm1Advert } : {}) },
+          ...(vm3 ? [vm3] : []),
         ],
         instance_id: "srv-main", main_name: "workstation",
       })
     }
+    if (u.endsWith("/api/settings/skills")) return json({ dir: "/skills", skills: skills.map((sk) => ({ description: "", path: "", ...sk })) })
+    if (u.endsWith("/api/settings/mcp/connections")) return json({ connections: mcpConnections })
     if (u.endsWith("/api/adapters")) return json({ adapters: ["claude-code", "codex", "chimera"], default: "codex" })
     if (u.endsWith("/api/settings/workers/srv-vm1/review-passes") && reviewPasses) return json({ review_passes: reviewPasses })
     if (u.endsWith(`/api/tasks/${card.id}/handoff`) && init?.method === "POST") {
@@ -50,6 +59,10 @@ beforeEach(() => {
 
 afterEach(() => {
   reviewPasses = null
+  vm1Advert = null
+  skills = []
+  mcpConnections = []
+  vm3 = null
   cleanup()
   vi.unstubAllGlobals()
 })
@@ -225,5 +238,59 @@ describe("HandOffModal", () => {
     await waitFor(() => expect(worker.value).toBe("srv-vm1"))
     await new Promise((resolve) => setTimeout(resolve, 20))
     expect(screen.queryByRole("group", { name: "Review passes" })).toBeNull()
+  })
+
+  describe("with the worker's advert", () => {
+    const advert = {
+      version: "dev", features: [], sandbox: true, mcp_tools: true, mcp_connections: ["burnlite"], skills: ["tdd"],
+      repositories: ["acme/widget", "cpave3/legato"], default_agent: "chimera",
+      agents: [
+        { name: "claude-code", installed: true, tiers: [], prompts_off: true },
+        { name: "chimera", installed: true, tiers: [], prompts_off: true },
+        { name: "codex", installed: false, tiers: [], prompts_off: true },
+      ],
+    }
+
+    it("offers only the repositories the worker can clone, and those only it has", async () => {
+      vm1Advert = advert
+      renderForm()
+      const repo = await screen.findByRole("combobox", { name: "Repository" }) as HTMLSelectElement
+      await waitFor(() => expect(within(repo).queryByRole("option", { name: /cpave3\/legato/ })).toBeTruthy())
+      expect((within(repo).getByRole("option", { name: /acme\/widget/ }) as HTMLOptionElement).disabled).toBe(false)
+      const gadget = within(repo).getByRole("option", { name: /acme\/gadget/ }) as HTMLOptionElement
+      expect(gadget.disabled).toBe(true)
+      expect(gadget.textContent).toMatch(/vm-1 can't clone it/)
+    })
+
+    it("lists the worker's installed tools, its default first", async () => {
+      vm1Advert = advert
+      renderForm()
+      const tool = await screen.findByRole("combobox", { name: "Agent tool" }) as HTMLSelectElement
+      await waitFor(() => expect(tool.value).toBe("chimera"))
+      const names = within(tool).getAllByRole("option").map((o) => o.getAttribute("value"))
+      expect(names).toEqual(["chimera", "claude-code"])
+    })
+
+    it("warns of the skills and MCP connections the worker lacks", async () => {
+      vm1Advert = advert
+      skills = [{ name: "tdd", enabled: true }, { name: "pr", enabled: true }, { name: "off", enabled: false }]
+      mcpConnections = [{ name: "burnlite", enabled: true }, { name: "linear", enabled: true }]
+      renderForm()
+      const warning = await screen.findByText(/Not on vm-1:/)
+      expect(warning.textContent).toContain("skill pr")
+      expect(warning.textContent).toContain("MCP connection linear")
+      expect(warning.textContent).not.toContain("skill off")
+      expect(warning.textContent).not.toContain("tdd")
+    })
+
+    it("shows a worker that can't take handoffs, unselectable, with why", async () => {
+      vm3 = { instance_id: "srv-vm3", address: "https://vm-3", name: "vm-3", main_name: "workstation", sandbox: true, handoff_version: 2,
+        paired_at: "2026-11-03T09:00:00Z", cannot_take_handoffs: "can't take handoffs: its board has no columns" }
+      renderForm()
+      const worker = await screen.findByRole("combobox", { name: "Worker" })
+      const option = await within(worker).findByRole("option", { name: /vm-3/ }) as HTMLOptionElement
+      expect(option.disabled).toBe(true)
+      expect(option.textContent).toContain("its board has no columns")
+    })
   })
 })

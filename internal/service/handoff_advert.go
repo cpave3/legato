@@ -5,6 +5,7 @@ import (
 	"log"
 	"slices"
 	"sort"
+	"strings"
 
 	"github.com/cpave3/legato/internal/engine/version"
 )
@@ -100,7 +101,9 @@ type HandoffAdvert struct {
 	// Skills names its Legato-managed skills that are on and usable.
 	Skills []string `json:"skills"`
 	// Repositories are the owner/name patterns its GitHub credentials
-	// list (settings.repositories): what it can clone.
+	// list (settings.repositories): what it can clone. Null when the
+	// worker cannot say (no source), which a main does not second-guess;
+	// empty when it has no GitHub credential.
 	Repositories []string `json:"repositories"`
 	// Refuses says why the worker would refuse every handoff now, each
 	// with what to do; empty when it can take them.
@@ -122,6 +125,25 @@ type HandoffAdvertAgent struct {
 	Installed  bool     `json:"installed"`
 	Tiers      []string `json:"tiers"`
 	PromptsOff bool     `json:"prompts_off"`
+}
+
+// CanClone says whether the worker's GitHub credentials list a repository:
+// owner/name, or owner/* for every repository of the owner, ignoring case.
+// A nil advert (an older worker), or one that cannot list its
+// repositories, is not second-guessed: the worker refuses for itself.
+func (a *HandoffAdvert) CanClone(repo string) bool {
+	if a == nil || a.Repositories == nil {
+		return true
+	}
+	want := strings.ToLower(strings.TrimSpace(repo))
+	owner, _, _ := strings.Cut(want, "/")
+	for _, pattern := range a.Repositories {
+		p := strings.ToLower(pattern)
+		if p == want || p == owner+"/*" {
+			return true
+		}
+	}
+	return false
 }
 
 // Has says whether the advert lists a feature.
@@ -163,7 +185,7 @@ func (s *HandoffWorkerService) Advert(ctx context.Context) HandoffAdvert {
 	advert := HandoffAdvert{
 		Version: version.String(), Commit: version.Commit(), Features: HandoffFeatures(),
 		Sandbox: s.opts.Sandbox != nil && s.opts.Sandbox(),
-		Agents:  []HandoffAdvertAgent{}, MCPConnections: []string{}, Skills: []string{}, Repositories: []string{},
+		Agents:  []HandoffAdvertAgent{}, MCPConnections: []string{}, Skills: []string{},
 	}
 	if s.opts.Agents != nil {
 		advert.DefaultAgent = s.opts.Agents.DefaultAdapter()
@@ -210,6 +232,7 @@ func advertList(ctx context.Context, what string, list func(context.Context) ([]
 	return sortedCopy(names)
 }
 
+// sortedCopy is list sorted, without repeats; never nil.
 func sortedCopy(list []string) []string {
 	out := append([]string{}, list...)
 	sort.Strings(out)
