@@ -8,8 +8,8 @@ import (
 	"strings"
 	"testing"
 
-	"github.com/cpave3/legato/internal/service"
 	"github.com/cpave3/legato/internal/engine/store"
+	"github.com/cpave3/legato/internal/service"
 )
 
 func TestANewBranchStartsFromTheMainsBaseBranch(t *testing.T) {
