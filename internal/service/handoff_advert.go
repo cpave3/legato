@@ -40,6 +40,33 @@ func HandoffFeatures() []string {
 	}
 }
 
+// legacyFeatures are the features of a worker that lists none: one built
+// before features were advertised, which speaks protocol 2 and took these
+// fields from these releases on. A build from source ("dev") or of unknown
+// version is taken to have them all.
+var legacyFeatures = []struct {
+	feature, since string
+}{
+	{HandoffFeaturePushedBranch, "v0.7.0"},
+	{HandoffFeatureTicket, "v0.7.2"},
+	{HandoffFeatureReviewOverride, "v0.9.0"},
+}
+
+// workerFeatures are the handoff features a worker's /api/meta says it
+// has: its list, or for a worker that lists none, those its release had.
+func workerFeatures(meta WorkerMeta) []string {
+	if len(meta.HandoffFeatures) > 0 {
+		return meta.HandoffFeatures
+	}
+	var out []string
+	for _, f := range legacyFeatures {
+		if !version.IsStable(meta.Version) || !version.Newer(f.since, meta.Version) {
+			out = append(out, f.feature)
+		}
+	}
+	return out
+}
+
 // HandoffCapabilitiesPath is the worker's route for its advert. Only a
 // paired main's handoff token reaches it: the lists in it are not for a
 // stranger on the network.
