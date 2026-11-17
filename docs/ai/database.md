@@ -195,3 +195,5 @@ Migration `117_agent_docker_host_network.sql` (skipped, like 075, for a database
 ## Worker adverts
 
 Migration `120_worker_advert.sql` adds `workers.advert` (JSON, `NULL` until read) and `workers.advert_at` on a main: what each paired worker last advertised it can do for a handoff (`service.HandoffAdvert`, read from its capabilities route at pairing, after each pull and on Sync). `SetWorkerAdvert` writes both; `ClearWorkerAdvert` forgets them when the worker no longer has the route. See [Integrations](integrations.md) § What a worker advertises.
+
+Migration `121_handoff_base.sql` adds `handoffs.base` (default `''`) on a worker: the branch a new-branch handoff starts from, the main's preset `base_branch` for the repository, or `''` for GitHub's default branch. See [Integrations](integrations.md) § Handing off a task.

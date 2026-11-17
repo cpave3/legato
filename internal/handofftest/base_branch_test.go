@@ -2,7 +2,9 @@ package handofftest
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"net/http"
 	"strings"
 	"testing"
 
@@ -89,4 +91,29 @@ func TestAWorkerWithoutTheBaseFeatureIsNotSentABase(t *testing.T) {
 		t.Fatalf("handing off with a base: %v", err)
 	}
 	stillHome(t, main, worker, taskID)
+}
+
+func TestTheWorkerRefusesABaseItCannotStartFrom(t *testing.T) {
+	worker := StartWorker(t, WorkerOptions{})
+	main := NewMain(t, MainOptions{Clock: worker.Clock})
+	paired := Pair(t, main, worker)
+	token := mainToken(t, main, paired.InstanceID)
+	for name, call := range map[string]service.HandoffCall{
+		"a base on a pushed branch": {Kind: service.HandoffPushedBranch, Branch: "feature/cart", Base: "develop"},
+		"a base that is no branch":  {Kind: service.HandoffNewBranch, Branch: "legato/t-1", Base: "-x..y"},
+	} {
+		call.HandoffID, call.MainTaskID, call.Title, call.Notes = "ho-"+strings.ReplaceAll(name, " ", "-"), "T-1", "Fix it", []service.HandoffCallNote{}
+		call.Repo, call.Purpose, call.AgentKind = "acme/widget", service.HandoffMakeChange, "claude-code"
+		body, _ := json.Marshal(call)
+		resp := worker.Do(http.MethodPost, service.HandoffCallPath, token, string(body))
+		var refused struct{ Error, Message string }
+		_ = json.NewDecoder(resp.Body).Decode(&refused)
+		resp.Body.Close()
+		if resp.StatusCode != http.StatusBadRequest || !strings.Contains(refused.Message, "base") {
+			t.Errorf("%s: %d %+v", name, resp.StatusCode, refused)
+		}
+	}
+	if cards := workerCards(t, worker); len(cards) != 0 {
+		t.Fatalf("the worker made %+v", cards)
+	}
 }
