@@ -24,9 +24,16 @@ func TestRestartingAHandedOffAgentKeepsItUnattendedAndSandboxed(t *testing.T) {
 		t.Fatal(err)
 	}
 
+	// A reload that attaches a resource keeps it.
+	docs := service.Resource{Name: "design-docs", Paths: []service.ResourcePath{{Path: t.TempDir(), Access: "read"}}}
 	restarter := worker.Agents.(service.AgentRestarter)
-	if err := restarter.RestartAgent(ctx, card, nil); err != nil {
+	if err := restarter.RestartAgent(ctx, card, []service.Resource{docs}); err != nil {
 		t.Fatalf("restarting: %v", err)
+	}
+	if attached, err := worker.Agents.(interface {
+		AttachedResources(context.Context, string) ([]string, error)
+	}).AttachedResources(ctx, card); err != nil || len(attached) != 1 || attached[0] != "design-docs" {
+		t.Fatalf("attached after the restart: %v, %v", attached, err)
 	}
 
 	spawns := worker.Tmux.Spawned()
@@ -72,5 +79,25 @@ func TestAHandedOffAgentCannotLeaveTheSandbox(t *testing.T) {
 	}
 	if session, err := worker.Store.GetAgentSessionByTaskID(ctx, card); err != nil || !session.Sandboxed {
 		t.Fatalf("session %+v, %v; want it still running in the sandbox", session, err)
+	}
+}
+
+// A handed-off agent with no saved conversation cannot come back as the
+// handoff starts it: the restart is refused before the agent is stopped.
+func TestAHandedOffAgentThatCannotBeResumedIsLeftRunning(t *testing.T) {
+	ctx := context.Background()
+	worker, away, _ := handOffAndSettle(t, service.HandoffMakeChange)
+	card := away.WorkerTaskID
+	before, err := worker.Store.GetAgentSessionByTaskID(ctx, card)
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	err = worker.Agents.(service.AgentRestarter).RestartAgent(ctx, card, nil)
+	if !errors.Is(err, service.ErrAgentNotRestartable) {
+		t.Fatalf("restarting with no saved conversation: %v", err)
+	}
+	if after, err := worker.Store.GetAgentSessionByTaskID(ctx, card); err != nil || after.ExecutionID != before.ExecutionID {
+		t.Fatalf("session after the refusal %+v, %v; want the same one running", after, err)
 	}
 }
