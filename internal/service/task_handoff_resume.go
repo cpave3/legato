@@ -17,6 +17,26 @@ var ErrAuthorNotResumable = errors.New("the handoff's author cannot be resumed")
 // branches granted to the new session as they were to the first. An author
 // that runs is left alone.
 func (s *HandoffWorkerService) ResumeAuthor(ctx context.Context, taskID string) error {
+	return s.resumeAuthor(ctx, taskID, "")
+}
+
+// HandedOffFrom names the main a card was handed off from while its handoff
+// is open (HandedOffAgents).
+func (s *HandoffWorkerService) HandedOffFrom(ctx context.Context, taskID string) (string, bool) {
+	h, err := s.db.OpenHandoffForTask(ctx, taskID)
+	if err != nil {
+		return "", false
+	}
+	return h.MainName, true
+}
+
+// RestartHandedOff starts a handed-off card's stopped agent again as
+// ResumeAuthor does, with note as its first message (HandedOffAgents).
+func (s *HandoffWorkerService) RestartHandedOff(ctx context.Context, taskID, note string) error {
+	return s.resumeAuthor(ctx, taskID, note)
+}
+
+func (s *HandoffWorkerService) resumeAuthor(ctx context.Context, taskID, note string) error {
 	h, err := s.db.OpenHandoffForTask(ctx, taskID)
 	if err != nil {
 		return fmt.Errorf("%w: %s has no open handoff: %v", ErrAuthorNotResumable, taskID, err)
@@ -41,7 +61,7 @@ func (s *HandoffWorkerService) ResumeAuthor(ctx context.Context, taskID string) 
 		return fmt.Errorf("%w: it has no saved conversation (its %s session never reported one)", ErrAuthorNotResumable, kind)
 	}
 	opts := AgentSpawnOptions{AgentKind: kind, Repo: h.Repo, Unattended: true, Branches: handoffSessionBranches(h),
-		SessionPolicy: "resume", ResumeSessionID: saved.ID}
+		SessionPolicy: "resume", ResumeSessionID: saved.ID, Prompt: note}
 	if err := s.opts.Agents.SpawnAgent(ctx, taskID, 0, 0, opts); err != nil {
 		return fmt.Errorf("%w: %v", ErrAuthorNotResumable, err)
 	}

@@ -222,6 +222,9 @@ func (w *Worker) start() {
 	if reviews != nil {
 		w.Handoffs.SetReviews(reviews)
 	}
+	if setter, ok := w.Agents.(interface{ SetHandedOffAgents(service.HandedOffAgents) }); ok {
+		setter.SetHandedOffAgents(w.Handoffs)
+	}
 	srv.SetTaskHandoffs(w.Handoffs)
 	srv.SetHandoffReauthEvery(50 * time.Millisecond)
 	w.Server = srv

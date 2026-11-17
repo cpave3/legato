@@ -81,6 +81,8 @@ When a main hands a task to a worker, the worker:
 - adds the main's notes to the card, marked as from the main;
 - starts an agent on the card at once, in a fresh clone of the task's repository on the branch `legato/<the main's task ID>`, or on the pushed branch the task starts from, which the worker first fetches from GitHub. The agent always runs in Legato's [sandbox](/legato/security/sandbox/), with its tool's own permission prompts off, and with a brief that tells it to work alone, record its decisions in notes, open draft pull requests only (or, to find something out, answer in notes and push nothing) and move the card to Done when it is through.
 
+If you reload a handed-off agent on the worker, it comes back the way the handoff started it: in the sandbox, with its permission prompts off, in its clone, and still allowed to push its branches. You cannot take it out of the sandbox or give its containers the host network.
+
 The worker refuses a handoff before it makes anything when it has no sandbox, does not know the agent tool asked for, or cannot clone the repository. If the agent then fails to start, for example because the clone failed, the handoff is marked failed with the reason. A pushed branch that GitHub does not have fails the handoff with "branch not on GitHub". A handoff accepted just before the worker stopped starts when the worker starts again.
 
 A worker can also review a make-a-change task's pull requests with a second agent before the task is done. See [Review passes](/legato/using/review-passes/).

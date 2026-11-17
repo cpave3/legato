@@ -326,6 +326,7 @@ type agentService struct {
 	capabilityFolders    CapabilityFolders
 	interruptedMu        sync.Mutex
 	interruptedRoutes    []InterruptedResumeRoute
+	handedOff            HandedOffAgents
 	resourceResolver     ResourceResolver
 	interruptedListeners []func()
 	sessionEnvMu         sync.Mutex

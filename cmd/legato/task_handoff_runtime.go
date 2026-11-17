@@ -51,6 +51,11 @@ func wireTaskHandoffs(srv *server.Server, deps integrationDeps) (stop func()) {
 	handoffs.SetAdvertSources(handoffAdvertSources(deps.cfg, deps.db))
 	srv.SetTaskHandoffs(handoffs)
 	addInterruptedResumeRoute(deps.agents, handoffs.ResumeInterrupted)
+	// A handed-off card's agent restarts through the handoff: unattended,
+	// in the sandbox, its branches granted again.
+	if setter, ok := deps.agents.(interface{ SetHandedOffAgents(service.HandedOffAgents) }); ok {
+		setter.SetHandedOffAgents(handoffs)
+	}
 	stopReviews := wireReviewPasses(deps, handoffs)
 	ctx, cancel := context.WithCancel(context.Background())
 	stopLoop := handoffs.StartEventLoop(ctx, handoffReconcileEvery)

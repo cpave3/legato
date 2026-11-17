@@ -52,6 +52,32 @@ type restartChange struct {
 	hostNetwork   *bool
 }
 
+// HandedOffAgents is a worker's side of the agents of cards handed off from
+// a main (HandoffWorkerService): such an agent always runs unattended in the
+// sandbox, with its branches granted, so a restart goes through the handoff.
+type HandedOffAgents interface {
+	// HandedOffFrom names the main a card was handed off from while its
+	// handoff is open; ok is false for any other card.
+	HandedOffFrom(ctx context.Context, taskID string) (main string, ok bool)
+	// RestartHandedOff starts the card's agent again as the handoff starts
+	// it, resuming its conversation, with note as its first message.
+	RestartHandedOff(ctx context.Context, taskID, note string) error
+}
+
+// SetHandedOffAgents makes restarts of handed-off cards' agents go through
+// the handoff (a worker's runtime sets it).
+func (a *agentService) SetHandedOffAgents(h HandedOffAgents) {
+	a.interruptedMu.Lock()
+	defer a.interruptedMu.Unlock()
+	a.handedOff = h
+}
+
+func (a *agentService) handedOffAgents() HandedOffAgents {
+	a.interruptedMu.Lock()
+	defer a.interruptedMu.Unlock()
+	return a.handedOff
+}
+
 func (a *agentService) restartAgentWith(ctx context.Context, taskID string, resources []Resource, change restartChange) (bool, error) {
 	switchSandbox := change.switchSandbox
 	if _, slot := SplitAgentID(taskID); IsNamedSlot(slot) {
@@ -62,6 +88,11 @@ func (a *agentService) restartAgentWith(ctx context.Context, taskID string, reso
 	session, err := a.store.GetAgentSessionByTaskID(ctx, taskID)
 	if err != nil {
 		return false, err
+	}
+	if handedOff := a.handedOffAgents(); handedOff != nil {
+		if main, ok := handedOff.HandedOffFrom(ctx, taskID); ok {
+			return true, a.restartHandedOff(ctx, handedOff, main, session, change)
+		}
 	}
 	if owner := restartOwner(session); owner != "" {
 		return false, fmt.Errorf("%w: %s", ErrAgentNotRestartable, owner)
@@ -131,6 +162,28 @@ func (a *agentService) restartAgentWith(ctx context.Context, taskID string, reso
 		opt.Prompt = hostNetworkNote(*change.hostNetwork, opt.SessionPolicy == "resume")
 	}
 	return sandboxed, a.SpawnAgent(ctx, taskID, 0, 0, opt)
+}
+
+// restartHandedOff restarts the agent of a card handed off from main: never
+// out of the sandbox or onto the host network, and through the handoff, so
+// it comes back unattended in its clone with its branches granted again.
+func (a *agentService) restartHandedOff(ctx context.Context, handedOff HandedOffAgents, main string, session *store.AgentSession, change restartChange) error {
+	if change.switchSandbox || change.hostNetwork != nil {
+		return fmt.Errorf("%w: this agent was handed off from %s; it always runs unattended in the sandbox", ErrAgentNotRestartable, main)
+	}
+	task, err := a.store.GetTask(ctx, session.TaskID)
+	if err != nil {
+		return err
+	}
+	// Checked before the agent is stopped: a restart must not lose its
+	// conversation, and the handoff never starts its author afresh.
+	if _, err := a.restartConversation(ctx, task, session); err != nil {
+		return err
+	}
+	if err := a.stopAgent(ctx, session.TaskID, false); err != nil {
+		return err
+	}
+	return handedOff.RestartHandedOff(ctx, session.TaskID, restartNote(false, true, true))
 }
 
 // restartNote is the first message a restarted agent gets: what happened to
