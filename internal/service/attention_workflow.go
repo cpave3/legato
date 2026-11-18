@@ -13,6 +13,7 @@ type WorkflowAttentionSource interface {
 	TriggerStep(ctx context.Context, runID, stepID string, force bool) (*store.WorkflowRunView, error)
 	Retry(ctx context.Context, runID, stepID string, force bool) (*store.WorkflowRunView, error)
 	PromptStep(ctx context.Context, runID, stepID string) (*store.WorkflowRunView, error)
+	StepAction(ctx context.Context, runID, stepID, action, text string) (*store.WorkflowRunView, error)
 }
 
 type WorkflowAttentionAdapter struct {
@@ -28,12 +29,15 @@ func (a *WorkflowAttentionAdapter) Producer() string { return "workflows" }
 type workflowAttentionState struct {
 	runID    string
 	stepID   string
-	kind     string // manual | failed | waiting_agent
+	kind     string // manual | failed | waiting_agent | waiting
 	revision string
 	runTitle string
 	taskID   string
 	reason   string
 	action   AttentionAction
+	// more are the actions after the first, for a step waiting on its
+	// service.
+	more []AttentionAction
 }
 
 func (a *WorkflowAttentionAdapter) Snapshot(ctx context.Context) ([]AttentionInput, error) {
@@ -61,6 +65,8 @@ func (a *WorkflowAttentionAdapter) Snapshot(ctx context.Context) ([]AttentionInp
 		case "failed":
 			signalKind = AttentionSignalWorkflowFailed
 			urgency = "high"
+		case "waiting":
+			signalKind = AttentionSignalWorkflowReviewStuck
 		}
 		items = append(items, AttentionInput{
 			SignalKind: signalKind,
@@ -68,10 +74,10 @@ func (a *WorkflowAttentionAdapter) Snapshot(ctx context.Context) ([]AttentionInp
 			TaskID: s.taskID, Title: s.runTitle, Reason: s.reason,
 			Category: "workflow", Urgency: urgency,
 			Navigation: AttentionNavigation{Kind: "workflow_run", Target: s.runID},
-			Actions: []AttentionAction{
+			Actions: append([]AttentionAction{
 				{ID: "open", Label: "Open run", Kind: "navigate", Intent: "primary"},
 				s.action,
-			},
+			}, s.more...),
 		})
 	}
 	return items, nil
@@ -100,6 +106,26 @@ func (a *WorkflowAttentionAdapter) collectRunStates(run store.WorkflowRun, view 
 		}
 	}
 	for _, attempt := range view.Attempts {
+		if attempt.NeedsAttention && attempt.Status == WorkflowStepWaiting {
+			// A step waiting on its service that needs the person: a
+			// stuck review loop.
+			more := []AttentionAction{{ID: "end", Label: "End", Kind: "execute", RequiresConfirm: true,
+				Confirmation: "End the review loop as stuck? The run goes on to its next step."}}
+			for _, id := range attempt.AttentionActions {
+				if id == "message" {
+					more = append(more, AttentionAction{ID: "message", Label: "Message the author", Kind: "execute", RequiresText: true})
+				}
+			}
+			states = append(states, workflowAttentionState{
+				runID: run.ID, stepID: attempt.StepID, kind: "waiting",
+				revision: fmt.Sprintf("waiting:%s:%d:%s", attempt.StepID, attempt.AttemptNumber, attempt.AttentionReason),
+				runTitle: run.WorkflowTitle, taskID: run.TaskID,
+				reason: attempt.AttentionReason,
+				action: AttentionAction{ID: "another_pass", Label: "Run another pass", Kind: "execute"},
+				more:   more,
+			})
+			continue
+		}
 		if !attempt.NeedsAttention || attempt.Status != "waiting_agent" {
 			continue
 		}
@@ -128,6 +154,9 @@ func (a *WorkflowAttentionAdapter) Execute(ctx context.Context, request Attentio
 		return err
 	case "prompt":
 		_, err := a.workflows.PromptStep(ctx, runID, stepID)
+		return err
+	case "another_pass", "end", "message":
+		_, err := a.workflows.StepAction(ctx, runID, stepID, request.ActionID, request.Text)
 		return err
 	default:
 		return fmt.Errorf("unsupported workflow attention action %q", request.ActionID)

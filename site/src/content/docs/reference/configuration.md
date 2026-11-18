@@ -676,11 +676,11 @@ Topic roots must have nonempty segments, without MQTT wildcards, NUL, or a trail
 
 ## Review passes
 
-On a worker instance, a reviewer on another model reviews the pull requests of each make-a-change handoff when its author finishes, and the author works through the findings until a pass is clean. Settings alone start nothing; `review_passes.enabled` turns it on. The main instance can change the reviewer, the skill and the number of passes for one handoff in the Hand off dialog. See [Handing off a task](/legato/using/handoff/).
+A reviewer on another model reviews pull requests in passes until a pass is clean: on a worker instance, those of each make-a-change handoff when its author finishes; on any instance, any pull request a `review-pr-passes` workflow run names. Settings alone start nothing; `review_passes.enabled` turns it on. The main instance can change the reviewer, the skill and the number of passes for one handoff in the Hand off dialog. See [Handing off a task](/legato/using/handoff/) and [Review passes](/legato/using/review-passes/).
 
 | Setting | Type | Default | What it does |
 | --- | --- | --- | --- |
-| `review_passes.enabled` | bool | `false` | Runs review passes on this worker's make-a-change handoffs, and tells main instances it does. Needs `agents.mcp.enabled`: the reviewer reports through Legato's `submit_review` tool. |
+| `review_passes.enabled` | bool | `false` | Runs review passes on this worker's make-a-change handoffs, and tells main instances it does, and lets review loops run on any pull request here. Needs `agents.mcp.enabled`: the reviewer reports through Legato's `submit_review` tool. |
 | `review_passes.reviewer.agent` | string | none | The reviewer's tool: `claude-code`, `codex` or `chimera`. Required when enabled. Choose a different model from the author's; Legato does not check. |
 | `review_passes.reviewer.model` | string | the tool's | The reviewer's model. Set this or `review_passes.reviewer.tier`, not both. |
 | `review_passes.reviewer.tier` | string | none | A tier of `adapters.<name>.tiers` for the reviewer. |

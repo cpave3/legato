@@ -26,6 +26,7 @@ Agent-side processes of a session (the hooks, `legato mcp serve`, the Claude Cod
 
 ```bash
 legato workflow list --json
+legato workflow add [<name>] [--project] [--force] [--json]
 legato workflow validate <name-or-file> --json
 legato workflow run <name> --input key=value --json
 legato workflow runs [--status running] [--limit 20] --json
@@ -34,6 +35,8 @@ legato workflow trigger <run-id> <step-id> --json
 legato workflow retry <run-id> <step-id> --json
 legato workflow cancel <run-id> --json
 ```
+
+`workflow add` (`cmd/legato/workflow_add.go`) needs no database: with no name it lists the embedded examples (`workflow.Examples`: `review-pr`, `review-pr-passes`) with their titles; with one it writes `<name>.workflow.yaml` to the XDG global workflows folder, or `.legato/workflows` with `--project`, and refuses a file that is there (`errWorkflowExists`) unless `--force`. `--json` prints `{name, path}`, or the list.
 
 Each `agent.run` attempt owns a distinct durable execution; retries create new executions. Task-triggered runs attribute active time to `workflow_runs.related_task_id` while retaining the synthetic workflow task and run/attempt IDs for drill-down. Repository-only runs remain project/workflow activity. Successful callbacks terminalize the execution before deleting the operational agent session.
 
@@ -56,7 +59,7 @@ See [Workflows](../../site/src/content/docs/using/workflows.md) for the schema a
 
 ## Review pass commands
 
-`legato review-pass feedback [--task <id>] [--json]` and `legato review-pass answer <item-id> --fixed [--note …] | --replied --file <path|-> | --skipped [--task <id>]` (`cmd/legato/review_pass_contract.go`) read and answer a reviewed handoff's feedback: `service.ReviewFeedback` (the current round's `handoff_review_items`; it prints JSON even without `--json`, so GitHub's text reaches the author only as data, never as a prompt) and `service.AnswerReviewItem` (`--skipped` for nits only, a reply needs text; an answer already on GitHub is not changed; a failing check is handled only by passing on a pushed commit or by `--replied`). Both are forwarded from the sandbox (`forwardedCommands`). The answer is recorded only; the worker's review loop posts it as the author App on its next tick. `legato task update --status Done` (like `BoardService.MoveCard`) is refused with `ErrReviewItemsOpen` and a `[legato review pass]` line while a blocking finding or a counted comment is unanswered (a failing check holds the handoff's done instead). See [Integrations](integrations.md) § Review passes.
+`legato review-pass feedback [--task <id>] [--json]` and `legato review-pass answer <item-id> --fixed [--note …] | --replied --file <path|-> | --skipped [--task <id>]` (`cmd/legato/review_pass_contract.go`) read and answer the feedback of the review loop the task's agent authors (a handoff's card, or a run loop with `agent_author` that names the task, `reviewLoopTask`): `service.ReviewFeedback` (the current round's `handoff_review_items`; it prints JSON even without `--json`, so GitHub's text reaches the author only as data, never as a prompt) and `service.AnswerReviewItem` (`--skipped` for nits only, a reply needs text; an answer already on GitHub is not changed; a failing check is handled only by passing on a pushed commit or by `--replied`). Both are forwarded from the sandbox (`forwardedCommands`). The answer is recorded only; the worker's review loop posts it as the author App on its next tick. `legato task update --status Done` (like `BoardService.MoveCard`) is refused with `ErrReviewItemsOpen` and a `[legato review pass]` line while a blocking finding or a counted comment is unanswered (a failing check holds the handoff's done instead). See [Integrations](integrations.md) § Review passes.
 
 ## Subcommands
 

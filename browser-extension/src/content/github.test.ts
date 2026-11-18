@@ -54,7 +54,7 @@ describe("reconcileGitHubAction", () => {
     reconcileGitHubAction(document, "https://github.com/cpave3/legato/pull/12", send)
 
     await vi.waitFor(() => expect(document.querySelector<HTMLButtonElement>("button")?.style.display).toBe("none"))
-    expect(Array.from(document.querySelectorAll<HTMLButtonElement>("button")).filter((item) => item.style.display !== "none").map((item) => item.textContent)).toEqual(["View review", "Discuss PR"])
+    expect(Array.from(document.querySelectorAll<HTMLButtonElement>("button")).filter((item) => item.style.display !== "none").map((item) => item.textContent)).toEqual(["View review", "Discuss PR", "Review passes"])
   })
 
   it("requests review opening from the explicit user gesture", async () => {
@@ -96,6 +96,29 @@ describe("reconcileGitHubAction", () => {
     button.click()
     await vi.waitFor(() => expect(send).toHaveBeenCalledTimes(2))
     expect(send.mock.calls[1][0]).toMatchObject({ type: "startPreparedWorkflow" })
+  })
+
+  it("offers review passes beside the review, and shows the loop already running", async () => {
+    const send = vi.fn().mockImplementation((message: { type: string }) => {
+      if (message.type === "detectGitHubReview") return Promise.resolve({ ok: true, review: { runs: [] } })
+      if (message.type === "detectGitHubDiscussion") return Promise.resolve({ ok: true, discussion: null })
+      if (message.type === "prepareGitHubWorkflow") return Promise.resolve({ ok: true, prepared: {
+        workflowName: "review-pr-passes", repositoryPresetName: "", repository: "cpave3/legato",
+        pullRequestNumber: 12, primaryDir: "", inputs: {},
+      } })
+      return Promise.resolve({ ok: true, runUrl: "http://localhost:3080/workflows/runs/live", activeLoop: true,
+        navigationWarning: "A review loop is already running on this pull request; it is open in Legato." })
+    })
+    reconcileGitHubAction(document, "https://github.com/cpave3/legato/pull/12", send)
+    const passes = buttonLabelled("Review passes")
+    passes.click()
+    await vi.waitFor(() => expect(passes.textContent).toBe("Confirm and start"))
+    expect(send).toHaveBeenCalledWith({ type: "prepareGitHubWorkflow", purpose: "passes", context: { repository: "cpave3/legato", pullRequestNumber: 12 } })
+    expect(document.querySelector("[role=status]")?.textContent).toContain("Workflow: review-pr-passes")
+    expect(document.querySelector("[role=status]")?.textContent).not.toContain("Checkout")
+    passes.click()
+    await vi.waitFor(() => expect(document.querySelector("[role=status]")?.textContent).toContain("already running"))
+    expect(passes.textContent).toBe("Open review loop")
   })
 
   it("offers to discuss the pull request, with the same confirmation as a review", async () => {

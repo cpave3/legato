@@ -6,10 +6,10 @@ import { beforeEach, describe, expect, it, vi } from "vitest"
 import type { WorkflowRunView } from "../../lib/workflow"
 import { WorkflowRunPage } from "../WorkflowRunPage"
 
-const { fetchArtifact, fetchRun, triggerStep, retryStep, promptStep } = vi.hoisted(() => ({ fetchArtifact: vi.fn(), fetchRun: vi.fn(), triggerStep: vi.fn(), retryStep: vi.fn(), promptStep: vi.fn() }))
+const { fetchArtifact, fetchRun, triggerStep, retryStep, promptStep, anotherPass } = vi.hoisted(() => ({ fetchArtifact: vi.fn(), fetchRun: vi.fn(), triggerStep: vi.fn(), retryStep: vi.fn(), promptStep: vi.fn(), anotherPass: vi.fn() }))
 
 vi.mock("../../hooks/useServer", () => ({ useServer: () => ({ baseUrl: "" }) }))
-vi.mock("../../lib/workflow", async importOriginal => ({ ...(await importOriginal<typeof import("../../lib/workflow")>()), fetchWorkflowRun: fetchRun, fetchWorkflowArtifact: fetchArtifact, triggerWorkflowStep: triggerStep, retryWorkflowStep: retryStep, promptWorkflowStep: promptStep }))
+vi.mock("../../lib/workflow", async importOriginal => ({ ...(await importOriginal<typeof import("../../lib/workflow")>()), fetchWorkflowRun: fetchRun, fetchWorkflowArtifact: fetchArtifact, triggerWorkflowStep: triggerStep, retryWorkflowStep: retryStep, promptWorkflowStep: promptStep, anotherReviewPass: anotherPass }))
 
 const run = { id: "wr-1", workflow_name: "plan-task", workflow_title: "Plan jgek1vt3", definition_source: "/w/plan-task.yaml", definition_digest: "d", definition_json: JSON.stringify({ title: "Plan a task" }), inputs_json: '{"task":"jgek1vt3"}', related_task_id: "jgek1vt3", related_task_title: "Sync retries hammer Jira", created_at: "2026-07-28T10:00:00Z", started_at: "2026-07-28T10:00:00Z" }
 const stepRun = (step_id: string, step_order: number, title: string, executor_type: string, status: string, extra = {}) => ({ run_id: "wr-1", step_id, step_order, title, executor_type, definition_json: "{}", resolved_inputs_json: "{}", outputs_json: "{}", status, latest_attempt: status === "pending" ? 0 : 1, ...extra })
@@ -25,7 +25,7 @@ function show(data: unknown) {
 const now = () => screen.getByRole("region", { name: "Now" })
 
 describe("WorkflowRunPage", () => {
-  beforeEach(() => { cleanup(); fetchRun.mockReset(); fetchArtifact.mockReset(); triggerStep.mockReset(); retryStep.mockReset(); promptStep.mockReset(); vi.stubGlobal("URL", { ...URL, createObjectURL: vi.fn(() => "blob:test"), revokeObjectURL: vi.fn() }) })
+  beforeEach(() => { cleanup(); fetchRun.mockReset(); fetchArtifact.mockReset(); triggerStep.mockReset(); retryStep.mockReset(); promptStep.mockReset(); anotherPass.mockReset(); vi.stubGlobal("URL", { ...URL, createObjectURL: vi.fn(() => "blob:test"), revokeObjectURL: vi.fn() }) })
 
   it("keeps the run and expanded steps on refresh failure, then retries", async () => {
     const data = { run: { ...run, status: "succeeded" }, steps: [stepRun("plan", 0, "Write the plan", "agent.run", "succeeded", { outputs_json: '{"risk":"low"}' })], attempts: [], artifacts: [] }
@@ -56,6 +56,35 @@ describe("WorkflowRunPage", () => {
     expect(screen.getByText("task").nextElementSibling?.textContent).toBe("jgek1vt3 Sync retries hammer Jira")
     const steps = within(screen.getByRole("list", { name: "Steps" })).getAllByRole("listitem")
     expect(steps.map(step => step.textContent)).toEqual([expect.stringContaining("Read the task"), expect.stringContaining("Write the plan"), expect.stringContaining("Attach the plan")])
+  })
+
+  it("offers another pass while a review loop waits, and says why one is refused", async () => {
+    show({ run: { ...run, status: "running", current_step_id: "review" }, steps: [stepRun("review", 0, "Review in passes", "github.pr.review_passes", "waiting"), stepRun("note", 1, "Note the outcome", "task.note", "pending")], attempts: [], artifacts: [] })
+    expect(within(now()).getByText("Review in passes")).toBeTruthy()
+    anotherPass.mockRejectedValueOnce(new Error("a pass is running already"))
+    fireEvent.click(within(now()).getByRole("button", { name: "Run another pass" }))
+    expect(anotherPass).toHaveBeenCalledWith("", "wr-1", "review")
+    expect((await within(now()).findByRole("alert")).textContent).toContain("a pass is running already")
+  })
+
+  it("says where a review loop stands, with its reviews", () => {
+    const review = (details: unknown) => show({ run: { ...run, status: "running", current_step_id: "review" }, steps: [stepRun("review", 0, "Review in passes", "github.pr.review_passes", "waiting")], attempts: [], artifacts: [], details: { review: details } })
+    const reviews = [{ pass: 1, pr: 12, url: "https://github.com/acme/widget/pull/12#pullrequestreview-1" }]
+    review({ phase: "reviewing", pass: 2, summary: "Reviewing · pass 2", blocking_open: 0, reviews })
+    expect(within(now()).getByText("Reviewing · pass 2")).toBeTruthy()
+    expect(within(now()).queryByRole("button", { name: "Run another pass" })).toBeNull()
+    expect(within(now()).getByRole("link", { name: "Pass 1 review of #12" }).getAttribute("href")).toBe(reviews[0].url)
+    cleanup()
+    review({ phase: "waiting_for_author", pass: 1, summary: "Waiting for author · 3 blocking", blocking_open: 3, reviews })
+    expect(within(now()).getByText("Waiting for author · 3 blocking")).toBeTruthy()
+    expect(within(now()).getByRole("button", { name: "Run another pass" })).toBeTruthy()
+    cleanup()
+    review({ phase: "stuck", pass: 3, summary: "Stuck: the review reached its limit of 3 passes", blocking_open: 1, reason: "the review reached its limit of 3 passes", reviews })
+    expect(within(now()).getByText("Stuck: the review reached its limit of 3 passes")).toBeTruthy()
+    expect(within(now()).getByRole("button", { name: "Run another pass" })).toBeTruthy()
+    cleanup()
+    review({ phase: "clean", pass: 1, summary: "Approved", blocking_open: 0, reviews })
+    expect(within(now()).getByText("Approved")).toBeTruthy()
   })
 
   it("puts an idle agent in front of the operator with a way to nudge it", () => {

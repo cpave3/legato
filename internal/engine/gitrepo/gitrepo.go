@@ -183,6 +183,16 @@ func (r Runner) Fetch(ctx context.Context, dir string, token []byte, progress fu
 	return err
 }
 
+// FetchRef fetches one ref of a bare clone's remote under the same name,
+// such as a pull request's head (refs/pull/7/head), which Fetch leaves out.
+func (r Runner) FetchRef(ctx context.Context, dir string, token []byte, ref string) error {
+	if !strings.HasPrefix(ref, "refs/") || strings.ContainsAny(ref, ": \t\n") {
+		return fmt.Errorf("%q is not a ref to fetch", ref)
+	}
+	_, err := r.run(ctx, "", token, "--git-dir", dir, "fetch", "--quiet", "origin", "+"+ref+":"+ref)
+	return err
+}
+
 // progressFlag asks git for its progress when someone follows it: git
 // writes none when its output is not a terminal unless asked.
 func progressFlag(progress func(Progress)) string {

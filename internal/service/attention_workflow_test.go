@@ -18,6 +18,9 @@ type fakeWorkflowAttentionSource struct {
 func (f *fakeWorkflowAttentionSource) ListRuns(context.Context, store.WorkflowRunFilter) ([]store.WorkflowRun, error) {
 	return f.runs, nil
 }
+func (f *fakeWorkflowAttentionSource) StepAction(context.Context, string, string, string, string) (*store.WorkflowRunView, error) {
+	return nil, nil
+}
 func (f *fakeWorkflowAttentionSource) Show(context.Context, string) (*store.WorkflowRunView, error) {
 	return f.view, f.showErr
 }

@@ -115,6 +115,25 @@ describe("AttentionPage", () => {
     expect(screen.getByRole("link", { name: /Open workflow/ })).toBeTruthy()
   })
 
+  it("offers a stuck review loop's Run another pass and End, asking before End", async () => {
+    mockData = [item({ id: "att-loop", producer: "workflows", signal_kind: "workflow_review_stuck", source_key: "wr-1:review", title: "Review loop on acme/widget#12",
+      reason: "Review loop stuck: the review reached its limit of 3 passes", navigation: { kind: "workflow_run", target: "wr-1" },
+      actions: [
+        { id: "open", label: "Open run", kind: "navigate" },
+        { id: "another_pass", label: "Run another pass", kind: "execute" },
+        { id: "end", label: "End", kind: "execute", requires_confirmation: true, confirmation: "End the review loop as stuck?" },
+      ] })]
+    const confirm = vi.spyOn(window, "confirm").mockReturnValue(true)
+    const { AttentionPage } = await import("../AttentionPage")
+    render(<MemoryRouter><AttentionPage /></MemoryRouter>)
+    expect(screen.getByText("Review loop stuck: the review reached its limit of 3 passes")).toBeTruthy()
+    expect(screen.getByRole("button", { name: "Run another pass" })).toBeTruthy()
+    fireEvent.click(screen.getByRole("button", { name: "End" }))
+    expect(confirm).toHaveBeenCalledWith("End the review loop as stuck?")
+    await waitFor(() => expect(mockExecute).toHaveBeenCalledWith("", "att-loop", "end", "1", { confirmed: true }))
+    confirm.mockRestore()
+  })
+
   it("executes the primary action and refreshes", async () => {
     const { AttentionPage } = await import("../AttentionPage")
     render(<MemoryRouter><AttentionPage /></MemoryRouter>)

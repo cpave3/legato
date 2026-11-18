@@ -16,6 +16,13 @@ Legato discovers YAML definitions from:
 1. `$XDG_CONFIG_HOME/legato/workflows` (normally `~/.config/legato/workflows`)
 2. `.legato/workflows` in the current project
 
+Legato ships example workflows; `legato workflow add` lists them, and `legato workflow add <name>` writes one to your global folder (or `.legato/workflows` with `--project`), keeping a file of that name unless you add `--force`:
+
+```bash
+legato workflow add review-pr-passes
+legato workflow run review-pr-passes --input repo=acme/widget --input pr_number=12
+```
+
 Legato also reads `~/.legato/workflows` for compatibility. Precedence is legacy global, XDG global, then project-local. A later definition overrides an earlier definition with the same `name`. The selected source path is stored on every run.
 
 ## Repository presets
@@ -49,9 +56,10 @@ Version 1 executes steps in declaration order and supports these executors:
 - `chimera.session.remove`: remove the exact Chimera session retained by the selected task, then clear its resume and native binding data. The action is idempotent when no session exists, refuses a running agent or a parent session with children, and returns `removed` and `metadata_cleared` booleans. Use an explicit `agent.stop` step first when the workflow should stop an active agent.
 - `task.context`: render the selected task's full Markdown context, including structured fields, effective provider/local description, and task notes, as the `content` output.
 - `task.working_dir.resolve`: choose a selected task's linked worktree when present, otherwise use the required `with.fallback` repository path. Outputs are `path` and `source` (`worktree` or `repository`).
-- `task.note`: add Markdown to a selected task. Pass a resolved `task` input plus either inline `body` or a managed/file `body_path`. Notes are stored locally in Legato and shown in task detail, including for provider-backed tasks; they are not published to Jira. On a task that is away on a worker, the note is kept here and the step still succeeds, but its outputs say so (`away_on`, `warning`): the worker's agent will not see it.
+- `task.note`: add Markdown to a selected task. Pass a resolved `task` input plus either inline `body` or a managed/file `body_path`. Notes are stored locally in Legato and shown in task detail, including for provider-backed tasks; they are not published to Jira. On a task that is away on a worker, the note is kept here and the step still succeeds, but its outputs say so (`away_on`, `warning`): the worker's agent will not see it. `task` may also be a task ID as text, such as another step's output. With `optional: true`, a step whose task is empty adds no note and succeeds, with `skipped: true` in its outputs; without it, an empty task fails the step.
 - `task.metadata.set`: atomically set one or more dotted local metadata paths on a task. Provider sync preserves this metadata. A task that is away on a worker is read-only, so the step fails with "away on <worker>".
 - `task.move`: move the required structured `with.task` to the required non-empty, exact case-sensitive configured column named by `with.column`. A real move appends the task to the end of that column and uses normal transitions, events, and column-entry triggers; use trigger conditions to avoid authoring loops. Moving to the current column is an idempotent local no-op with no new transition or event. With a ticket provider such as Jira configured, Legato may still queue the mapped Jira transition, so a remote push that failed earlier can recover. A successful step means the move is saved locally and queued, not that Jira has accepted it.
+- `github.pr.review_passes`: run a [review loop](/legato/using/review-passes/#review-any-pull-request) on an open pull request (`with.repo`, `with.pr_number`): passes posted as GitHub reviews from the reviewer App until a clean one approves it. The step waits on the loop rather than on an agent, and outputs `outcome`, `passes`, `findings`, `reviews`, `summary_path` and `linked_task`. It is the one step that publishes to an outside service. The `review-pr-passes` example uses it. `with.max_passes` and `with.reviewer` (`tool` or `tool:tier`) override this Legato's review-pass settings for the loop; empty, the setting holds.
 - `repo.ensure`: prepare what a job works in. With an empty `with.repo` it does nothing and outputs `working_dir` as given in `with.working_dir`. With a repository (`owner/name`) it makes Legato's cache of it ready (cloning or fetching with the `github` credential, so a repository Legato cannot read fails here) and outputs `repo`, `ref` and `branch` for the agent step; giving both `repo` and `working_dir` is refused. `agent.run` with `with.repo` (and `with.ref`, `with.branch`) starts its agent in a fresh clone made for the agent's execution, on its own branch.
 - Built-in Learn definitions additionally own `agent.interview`, `learning.packet.prepare`, and `learning.proposals.submit`. They are internal orchestration contracts rather than general-purpose user workflow examples; see [Legato Learn](/legato/using/learn/).
 
@@ -345,6 +353,8 @@ The execution task is where the run's agents work, and `${{ workflow.task }}` an
 
 Fixed steps run one after another until a step hands work to an agent. The run moves on when that agent reports that it completed or failed its step.
 
+A few steps wait on Legato itself rather than on an agent or on you: their status is **waiting** until the part of Legato that owns them finishes them, with their outputs, or fails them. Such a step is tied to no agent, so no agent exiting fails it, and it is still waiting after Legato restarts. Cancelling the run stops it.
+
 ## Agent completion
 
 Workflow agents receive these environment variables:
@@ -399,10 +409,12 @@ The **Workflows** destination includes:
 
 A board task's detail also shows the runs that took it as their `task` input, with the files they produced to download.
 
+While a review step waits on its [review loop](/legato/using/review-passes/#review-any-pull-request), the run's page says where the loop stands (**Reviewing · pass 2**, **Waiting for author · 3 blocking**, **Stuck:** and why, **Approved**), links each review posted, and offers **Run another pass** while it waits for the author or is stuck. A stuck loop is in Attention with **Run another pass** and **End**.
+
 Runs update on the page as they progress. When the agent of an unfinished `agent.run` step stops to wait for you, goes idle, the step is marked as needing attention: the Workflows item in the navigation shows a red count, the run's card says why it stalled, and the run page offers **Prompt to continue** while the agent is still running. Legato never prompts the agent by itself, so it cannot start the same work twice.
 
 ## Limits
 
-Schema version 1 runs steps one after another. It has no branching graphs of steps, no parallel steps, no schedules, no shell plugins, no approval gates beyond manual steps, and no steps that publish to outside services.
+Schema version 1 runs steps one after another. It has no branching graphs of steps, no parallel steps, no schedules, no shell plugins, no approval gates beyond manual steps, and no steps that publish to outside services except `github.pr.review_passes`, which posts its review passes to GitHub as the reviewer App.
 
 Internals (the HTTP API, how runs and artifacts are stored, how the web UI is kept up to date) are in [docs/ai/workflows.md](https://github.com/cpave3/legato/blob/main/docs/ai/workflows.md) on GitHub.

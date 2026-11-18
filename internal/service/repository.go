@@ -43,6 +43,7 @@ type RepoGit interface {
 	OriginURL(ctx context.Context, dir string) (string, error)
 	DefaultBranch(ctx context.Context, dir string) (string, error)
 	HasBranch(ctx context.Context, dir, branch string) (bool, error)
+	FetchRef(ctx context.Context, dir string, token []byte, ref string) error
 }
 
 // RepositoryServiceOptions configures the repository cache.
@@ -158,6 +159,31 @@ func (s *RepositoryService) FetchPushed(ctx context.Context, repo string) {
 	if _, err := s.Refresh(ctx, repo); err != nil {
 		log.Printf("repositories: fetching %s after a push: %v", repo, err)
 	}
+}
+
+// PullHead fetches a pull request's head into the repository's cache, as
+// refs/pull/<number>/head, so a job clone can be made at it even when it is
+// a fork's.
+func (s *RepositoryService) PullHead(ctx context.Context, repo string, number int) error {
+	cache, err := s.Ensure(ctx, repo)
+	if err != nil {
+		return err
+	}
+	tokens := s.tokenSource()
+	if tokens == nil {
+		return fmt.Errorf("%s: Legato needs a GitHub credential to fetch pull requests", repo)
+	}
+	token, _, err := tokens.GitReadToken(ctx, repo)
+	if err != nil {
+		return fmt.Errorf("%s: %w", repo, err)
+	}
+	l := s.lock(repo)
+	l.Lock()
+	defer l.Unlock()
+	if err := s.opts.Git.FetchRef(ctx, cache, token, fmt.Sprintf("refs/pull/%d/head", number)); err != nil {
+		return fmt.Errorf("fetching the head of %s#%d: %w", repo, number, err)
+	}
+	return nil
 }
 
 // Refresh fetches the repository's cache now, making it when there is none.

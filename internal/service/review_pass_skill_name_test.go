@@ -23,7 +23,8 @@ func TestTheReviewerBriefNamesAManagedDefaultSkillAsItsToolKnowsIt(t *testing.T)
 	}
 	advert := &ReviewPassesAdvert{Skills: []string{"my-review"}, ManagedSkills: []string{"my-review"}}
 	svc := NewReviewPassService(db, ReviewPassOptions{Advert: func() *ReviewPassesAdvert { return advert }})
-	brief, err := svc.brief(ctx, &store.Handoff{TaskID: "card-1", Repo: "acme/widget"}, 1, nil,
+	caller := NewHandoffReviewCaller(svc, HandoffReviewCallerOptions{})
+	brief, err := svc.brief(ctx, ReviewLoop{TaskID: "card-1", Repo: "acme/widget", AuthorTaskID: "card-1", caller: caller}, 1, nil,
 		ReviewPassSettings{Enabled: true, Agent: "claude-code", Skill: "my-review", MaxPasses: 3})
 	if err != nil {
 		t.Fatal(err)

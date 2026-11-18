@@ -27,7 +27,7 @@ func sandboxAvailable(cfg *config.Config) bool {
 // repositories. While this process serves the broker, so one Legato does it,
 // it starts the agents of handoffs accepted and never started. See
 // docs/ai/integrations.md § Handing off a task.
-func wireTaskHandoffs(srv *server.Server, deps integrationDeps) (stop func()) {
+func wireTaskHandoffs(srv *server.Server, deps integrationDeps, reviews *service.ReviewPassService) (stop func()) {
 	agents, ok := deps.agents.(service.HandoffAgents)
 	if !ok || deps.db == nil {
 		return func() {}
@@ -62,7 +62,7 @@ func wireTaskHandoffs(srv *server.Server, deps integrationDeps) (stop func()) {
 	if setter, ok := deps.agents.(interface{ SetHandedOffAgents(service.HandedOffAgents) }); ok {
 		setter.SetHandedOffAgents(handoffs)
 	}
-	stopReviews := wireReviewPasses(deps, handoffs)
+	wireHandoffReviewCaller(deps, reviews, handoffs)
 	ctx, cancel := context.WithCancel(context.Background())
 	stopLoop := handoffs.StartEventLoop(ctx, handoffReconcileEvery)
 	if deps.approvals != nil && deps.approvals.brokerOwner != nil {
@@ -75,7 +75,6 @@ func wireTaskHandoffs(srv *server.Server, deps integrationDeps) (stop func()) {
 		}()
 	}
 	return func() {
-		stopReviews()
 		stopLoop()
 		cancel()
 	}

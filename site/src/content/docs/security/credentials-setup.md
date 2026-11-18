@@ -119,7 +119,7 @@ PR tracking keeps its own read access (`github.auth`); this changes nothing ther
 
 ### The reviewer App (for review passes)
 
-A worker that runs review passes posts its reviews as a second GitHub App, so its approval of the author App's pull requests counts.
+A Legato that runs review passes posts its reviews as a second GitHub App, so its approval counts: of the author App's pull requests, and of any pull request a review loop reviews. It must be installed on each repository whose pull requests you review.
 
 1. Create another GitHub App, for example `legato-reviewer`, with **Pull requests: Read and write**, **Contents: Read and write**, **Checks: Read**, **Commit statuses: Read**, **Actions: Read** and **Metadata: Read**. GitHub counts an App's approval only when it can write the repository's contents. Add **Administration: Read** to let Legato read which checks branch protection requires; without it, Legato counts `review_passes.required_checks`. No webhook.
 2. Install it on the same repositories, and keep its private key as you did the first App's.

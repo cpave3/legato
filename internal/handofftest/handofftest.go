@@ -202,9 +202,8 @@ func (w *Worker) start() {
 	var reviewAdvert func() *service.ReviewPassesAdvert
 	if rp := w.opts.ReviewPasses; rp != nil {
 		opts := service.ReviewPassOptions{
-			Agents: w.Agents.(service.ReviewAgents), Board: w.Board, GitHub: w.ReviewGitHub,
+			Agents: w.Agents.(service.ReviewAgents), GitHub: w.ReviewGitHub,
 			Checkout: w.Checkout, Bus: w.Bus, Now: w.Clock.Now, Run: w.run, Overlay: func() bool { return false },
-			ResumeAuthor: func(ctx context.Context, taskID string) error { return w.Handoffs.ResumeAuthor(ctx, taskID) },
 		}
 		if rp.Runtime != nil {
 			opts = rp.Runtime(opts)
@@ -222,7 +221,12 @@ func (w *Worker) start() {
 		Stacks: service.NewTaskStackService(db, w.Clock.Now),
 	})
 	if reviews != nil {
-		w.Handoffs.SetReviews(reviews)
+		// As a worker's runtime does: the handoff caller registers when
+		// handoffs are wired.
+		w.Handoffs.SetReviews(service.NewHandoffReviewCaller(reviews, service.HandoffReviewCallerOptions{
+			Board: w.Board, Bus: w.Bus, Now: w.Clock.Now,
+			ResumeAuthor: func(ctx context.Context, taskID string) error { return w.Handoffs.ResumeAuthor(ctx, taskID) },
+		}))
 	}
 	if setter, ok := w.Agents.(interface{ SetHandedOffAgents(service.HandedOffAgents) }); ok {
 		setter.SetHandedOffAgents(w.Handoffs)

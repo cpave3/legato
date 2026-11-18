@@ -40,6 +40,12 @@ type FakeReviewGitHub struct {
 	polls      int
 	// checks are the counted checks of each head.
 	checks map[string][]service.CheckResult
+	// closed are the pull requests closed, by number; notInstalled the
+	// repositories the reviewer App cannot read.
+	closed       map[int]string
+	notInstalled map[string]bool
+	// failReads makes the next PullRequest reads fail, as GitHub's 503.
+	failReads int
 }
 
 // NewFakeReviewGitHub has no pull requests.
@@ -319,4 +325,79 @@ func (o ReviewPassOptions) advert() *service.ReviewPassesAdvert {
 // typedTo is everything typed to a session, joined.
 func (w *Worker) typedTo(session string) string {
 	return strings.Join(w.Tmux.Typed(session), "\n")
+}
+
+// ClosePR closes a pull request.
+func (f *FakeReviewGitHub) ClosePR(number int) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.closed == nil {
+		f.closed = map[int]string{}
+	}
+	f.closed[number] = "closed"
+}
+
+// MergePR merges a pull request.
+func (f *FakeReviewGitHub) MergePR(number int) {
+	f.ClosePR(number)
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.closed[number] = "merged"
+}
+
+// NotInstalled makes repo one the reviewer App cannot read.
+func (f *FakeReviewGitHub) NotInstalled(repo string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.notInstalled == nil {
+		f.notInstalled = map[string]bool{}
+	}
+	f.notInstalled[repo] = true
+}
+
+// Push moves a pull request's head, as its owner pushing.
+func (f *FakeReviewGitHub) Push(number int, head string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	for branch, pr := range f.prs {
+		if pr.Number == number {
+			pr.HeadSHA = head
+			f.prs[branch] = pr
+		}
+	}
+}
+
+func (f *FakeReviewGitHub) Installed(_ context.Context, repo string) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.notInstalled[repo] {
+		return &service.GitHubError{Status: 404, Message: "Not Found"}
+	}
+	return nil
+}
+
+// FailReads makes the next n pull request reads fail.
+func (f *FakeReviewGitHub) FailReads(n int) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.failReads = n
+}
+
+func (f *FakeReviewGitHub) PullRequest(_ context.Context, _ string, number int) (service.ReviewGitHubPR, string, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.failReads > 0 {
+		f.failReads--
+		return service.ReviewGitHubPR{}, "", &service.GitHubError{Status: 503, Message: "Service Unavailable"}
+	}
+	for _, pr := range f.prs {
+		if pr.Number == number {
+			state := "open"
+			if closed, ok := f.closed[number]; ok {
+				state = closed
+			}
+			return pr, state, nil
+		}
+	}
+	return service.ReviewGitHubPR{}, "", &service.GitHubError{Status: 404, Message: "Not Found"}
 }

@@ -1,6 +1,6 @@
 ---
 title: Review passes
-description: Have a worker instance review a handed-off task's pull requests with a second agent, and let the first one work through what it finds, before the task is done.
+description: Have a second agent review pull requests in passes, posted as GitHub reviews, until a clean pass approves them; for a handed-off task's pull requests, or for any pull request through a workflow.
 sidebar:
   order: 36
 ---
@@ -9,9 +9,11 @@ sidebar:
 Review passes are built but not yet in a release: they work in Legato built from its main branch, and the details can change.
 :::
 
+Review passes review pull requests in a **review loop**: a reviewer agent posts each pass as a GitHub review, the **author** fixes or answers what it found, and the passes repeat until one is clean. A loop runs for a task you hand off to a worker, or for [any pull request](#review-any-pull-request), started from a workflow.
+
 A task you [hand off](/legato/using/handoff/) to a worker comes back with pull requests. Review passes have the worker review them before the task is done. When the agent working on the task (the author) finishes, a second agent, the **reviewer**, on another model, reviews every pull request and posts a GitHub review. The author then works through what the reviewer found, and through comments people leave and checks that fail, until a pass is clean. Only then is the task done on your board.
 
-This page ties the pieces together: what happens, how to set up a worker for it, and what to do when a review needs you.
+This page ties the pieces together: what happens, how to set up a worker for it, what to do when a review needs you, and how to review any pull request.
 
 ## How a review runs
 
@@ -47,7 +49,7 @@ The author reads all of this as data through `legato review-pass feedback --json
 
 ## Set up a worker
 
-Review passes run on the worker. The main instance needs nothing.
+A handed-off task's review passes run on the worker; the main instance needs nothing. A review loop on [any pull request](#review-any-pull-request) runs on the Legato you start it on, which needs the same setup.
 
 ### 1. The reviewer App
 
@@ -119,3 +121,49 @@ To see a review run end to end before you rely on it:
 3. On your main instance, make a task such as "Add a greeting function, and add a file named FAIL", and hand it off to the worker as **Make a change** on the test repository.
 4. Watch the Away lane: the author opens a pull request and finishes, a pass reviews it, the failing check goes back to the author, and the task is done once the author removes `FAIL` and the next pass approves.
 5. On GitHub, see the reviewer App's review, its inline findings, the author App's answers, and a resolved thread for each finding the next pass resolved.
+
+## Review any pull request
+
+A review loop need not start from a handoff. The `review-pr-passes` workflow runs one on any open pull request in a repository Legato's reviewer App is installed on: yours, a coworker's, or an agent's you started on this Legato. The loop runs on the Legato you start it on, which needs review passes set up as above, with a reviewer App credential of its own.
+
+Add the workflow with `legato workflow add review-pr-passes` (`--project` for the repository's own workflows folder), then start it from the web **Workflows** page, from the command line (`legato workflow run review-pr-passes --input repo=acme/widget --input pr_number=12`), or from the API (as the Reeve can), with the repository and the pull request's number:
+
+```bash
+curl -X POST -H "Authorization: Bearer $TOKEN" \
+  -d '{"inputs":{"repo":"acme/widget","pr_number":"12"}}' \
+  https://server:3080/api/workflows/review-pr-passes/runs
+```
+
+Legato makes its own clone of the pull request's head (a fork's too) and starts pass 1 at once, in the run's reviewer slot. Each pass is posted as a GitHub review from the reviewer App, as for a handoff. The author is whoever owns the branch: Legato only reviews, and the author fixes by pushing and answers by replying in the review threads on GitHub. Only the reviewer's findings count: comments from other people and required checks are not items of this loop. No card moves.
+
+### Tuning one loop
+
+A loop takes its settings from this Legato's `review_passes`: the reviewer, its model or tier, the skill, the maximum passes and the timings. The `review-pr-passes` inputs override two of them for one run: `max_passes`, and `reviewer` (an agent tool, or `tool:tier`, such as `codex:careful`). An input left empty uses the setting. In a workflow of your own, the `github.pr.review_passes` step's `max_passes` and `reviewer` do the same, and when they template a run input, the input wins. A reviewer this Legato does not offer is refused when the run starts, with the ones it does.
+
+### How the author moves the loop on
+
+After a pass with findings, the run waits for the branch's owner, with no time limit. The next pass starts when:
+
+- **the owner pushes**, and the pull request's head then stays still for `review_passes.quiet_time` (two minutes by default). A push during the wait starts the wait again, so a pass never reviews a half-pushed fix;
+- **someone replies in a blocking finding's thread** without pushing: a dispute. The next pass reads the reply and rules on it, resolved or still open with why;
+- **you press Run another pass** on the run's page (or call `POST /api/workflow-runs/<run>/steps/<step>/another-pass`), at once, whether or not anything was pushed. It is refused while a pass runs or after the loop ended.
+
+Each later pass reviews only what changed since the one before, and rules on every earlier blocking finding. A loop that reaches its maximum passes, or whose passes keep finding new blocking problems in the fixes, is **stuck**. A pull request that is merged or closed ends the run with outcome `closed`.
+
+A stuck loop raises one item in [Attention](/legato/using/attention/) on its run, with the reason. **Run another pass** reviews again, past the limit; **End** ends the loop with outcome `stuck`, and the run goes on to its note step. Both are also on the run's page (Run another pass) and in the TUI's Attention list (Enter, and `x` for End).
+
+### How it ends
+
+A clean pass approves the pull request and ends the run, unless the owner pushed while it ran: then the next pass reviews what was pushed. Its outputs are the `outcome` (`approved`), the number of `passes` and `findings`, the `reviews` posted with their links, `summary_path` (a Markdown summary) and `linked_task`, the board task the pull request belongs to (empty when none does). The workflow's second step adds the summary as a note to that task, and skips the note when there is none. Cancelling the run stops the reviewer and posts nothing more. Either way, Legato removes its clone.
+
+The run is refused at once, with the reason, when:
+
+- review passes are off on this Legato;
+- the reviewer App cannot read the repository: the App is not installed on the account, the repository is not among those its installation selects, or there is no such repository (GitHub cannot say which). The find-only `review-pr` workflow reviews without posting;
+- the pull request is not open;
+- the pull request already has an active review loop, from another run or from a handoff: one loop runs per pull request. The refusal names that loop and links to it (the run's page, or the handed-off card). A loop that ended, approved, closed or was cancelled does not count;
+- `agent_author` is asked for on a pull request no board task links.
+
+### An agent as the author
+
+When the pull request belongs to a task on your board (an agent you started opened it, say), start the run with `agent_author: true` and that task's agent is the author. It is told of each pass with the same `[legato review pass]` line a handed-off author gets, and answers with the same `legato review-pass feedback` and `legato review-pass answer` commands; its answers are posted as the author App. The next pass starts once it is idle with every finding answered and it pushed or disputed one, or on the triggers above. An author that exited is resumed from its saved conversation; one that cannot be resumed makes the loop stuck, since Legato never starts a fresh author on code it knows nothing about. A stuck loop with an agent author also offers **Message the author** in Attention. A task's agent authors one loop at a time: a second is refused until the first ends.

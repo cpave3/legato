@@ -62,6 +62,7 @@ Attention deliberately includes only states the local durable data can support r
 - **Needs intervention** also: a restart of Legato rolled back (`restart_rolled_back`).
 - **Needs intervention** also: an agent whose engram did not boot (`engram_boot_failed`), while it runs.
 - **Needs intervention** also: agents a crash interrupted (`agents_interrupted`), until each is resumed or dismissed.
+- **Needs intervention** also: a run's review loop that is stuck (`workflow_review_stuck`, from the `workflows` producer, one item per run step, LEG-275). A step waiting on its service needs the person when its executor says so (`WorkflowStepAttention`; the review step: phase `stuck`, reason "Review loop stuck: …"), which `enrichWorkflowAttention` puts on the attempt; the item's actions are `another_pass` (Run another pass, `AnotherPass` past the limit) and `end` (End, with a confirmation: the loop ends with outcome `stuck`, the step completes and the next step runs), both through `WorkflowService.StepAction` and the executor's `WorkflowStepActor`. It clears once the loop moves on or ends.
 - **Needs intervention** also: an away task failed or lost on its worker, and a worker that no longer accepts this main or has been unreachable for 15 minutes.
 - **Ready for review:** tours explicitly marked ready through `legato review ready` and still containing visible unreviewed work. Also an away task done on its worker (`handoff_done`), waiting to be returned.
 - **Merge blockers:** open, non-draft tracked PRs whose persisted review decision is `REVIEW_REQUIRED` or `CHANGES_REQUESTED`, whose persisted check status is `fail`, or a combination.
@@ -100,7 +101,7 @@ All endpoints use the configured authentication boundary.
 
 ## Other clients
 
-- **TUI:** `I` opens the shared generic list; `j`/`k`, Enter, `D`, and `q` retain their existing behavior. Enter on an item with `external` navigation and no executable action opens its address in the browser. Enter on a `handoff` item runs nothing and says "Return, recall and take back from the web UI", as the board refuses away tasks; `D` dismisses it.
+- **TUI:** `I` opens the shared generic list; `j`/`k`, Enter, `D`, and `q` retain their existing behavior. Enter on an item with `external` navigation and no executable action opens its address in the browser. Enter on a `handoff` item runs nothing and says "Return, recall and take back from the web UI", as the board refuses away tasks; `D` dismisses it. `x` runs an item's second executable action (End beside a stuck review loop's Run another pass).
 - **CLI:** `legato attention list` reconciles CLI-available sources (plans, and `handoff` from the database, without notifying) and lists the durable default-policy set with producer/category/urgency/JSON options.
 - **Stream Deck and navigation badges:** consume the same expanded count/list policy.
 

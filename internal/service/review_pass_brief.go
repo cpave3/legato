@@ -12,8 +12,8 @@ import (
 // brief is a reviewer's assignment: the pull requests at their pinned
 // heads, the task, and on a later pass what earlier passes found. It wraps
 // the configured skill and ends by asking for submit_review.
-func (s *ReviewPassService) brief(ctx context.Context, h *store.Handoff, pass int, prs []store.HandoffReviewPR, settings ReviewPassSettings) (string, error) {
-	task, err := s.db.GetTask(ctx, h.TaskID)
+func (s *ReviewPassService) brief(ctx context.Context, l ReviewLoop, pass int, prs []store.HandoffReviewPR, settings ReviewPassSettings) (string, error) {
+	task, err := s.db.GetTask(ctx, l.TaskID)
 	if err != nil {
 		return "", err
 	}
@@ -26,8 +26,8 @@ func (s *ReviewPassService) brief(ctx context.Context, h *store.Handoff, pass in
 		}
 	}
 	var b strings.Builder
-	fmt.Fprintf(&b, "# Review pass %d of %s\n\n", pass, h.Repo)
-	b.WriteString("You are the reviewer of a handed-off task's pull requests. ")
+	fmt.Fprintf(&b, "# Review pass %d of %s\n\n", pass, l.Repo)
+	b.WriteString("You are the reviewer of " + l.caller.Subject() + ". ")
 	if pass == 1 {
 		b.WriteString("Review the whole stack, every pull request in full, each against its own base. ")
 	} else {
@@ -41,14 +41,14 @@ func (s *ReviewPassService) brief(ctx context.Context, h *store.Handoff, pass in
 	}
 	b.WriteString("## Pull requests\n\n")
 	for _, pr := range prs {
-		fmt.Fprintf(&b, "### #%d %s\n\n- branch `%s`, base `%s`\n- pinned head `%s` (also at `%s`)\n\n", pr.Number, pr.Title, pr.Branch, pr.Base, pr.HeadSHA, pinRef(h.TaskID, pass, pr.Number))
+		fmt.Fprintf(&b, "### #%d %s\n\n- branch `%s`, base `%s`\n- pinned head `%s` (also at `%s`)\n\n", pr.Number, pr.Title, pr.Branch, pr.Base, pr.HeadSHA, pinRef(l.TaskID, pass, pr.Number))
 		if body := strings.TrimSpace(pr.Body); body != "" {
 			b.WriteString("<pr-description>\n" + body + "\n</pr-description>\n\n")
 		}
 	}
 	b.WriteString("## The task\n\n<task-details>\n# " + task.Title + "\n\n" + strings.TrimSpace(task.DescriptionMD) + "\n</task-details>\n\n")
 	if pass > 1 {
-		if err := s.laterPassBrief(ctx, &b, h, pass); err != nil {
+		if err := s.laterPassBrief(ctx, &b, l, pass); err != nil {
 			return "", err
 		}
 	}
@@ -79,16 +79,16 @@ func (s *ReviewPassService) brief(ctx context.Context, h *store.Handoff, pass in
 
 // laterPassBrief adds what earlier passes found: their pinned heads, for a
 // diff since, and the blocking findings still open.
-func (s *ReviewPassService) laterPassBrief(ctx context.Context, b *strings.Builder, h *store.Handoff, pass int) error {
-	previous, err := s.db.ListHandoffReviewPRs(ctx, h.TaskID, pass-1)
+func (s *ReviewPassService) laterPassBrief(ctx context.Context, b *strings.Builder, l ReviewLoop, pass int) error {
+	previous, err := s.db.ListHandoffReviewPRs(ctx, l.TaskID, pass-1)
 	if err != nil {
 		return err
 	}
 	b.WriteString("## Since the last pass\n\nThe last pass reviewed these heads; compare with `git range-diff` or `git diff` against them:\n\n")
 	for _, pr := range previous {
-		fmt.Fprintf(b, "- #%d at `%s` (`%s`)\n", pr.Number, pr.HeadSHA, pinRef(h.TaskID, pass-1, pr.Number))
+		fmt.Fprintf(b, "- #%d at `%s` (`%s`)\n", pr.Number, pr.HeadSHA, pinRef(l.TaskID, pass-1, pr.Number))
 	}
-	if items, err := s.db.ListHandoffReviewItems(ctx, h.TaskID); err == nil {
+	if items, err := s.db.ListHandoffReviewItems(ctx, l.TaskID); err == nil {
 		var comments []store.HandoffReviewItem
 		for _, item := range items {
 			if item.Kind == ItemComment && !item.Closed {
@@ -105,7 +105,7 @@ func (s *ReviewPassService) laterPassBrief(ctx context.Context, b *strings.Build
 			}
 		}
 	}
-	open, err := s.openBlocking(ctx, h.TaskID, pass)
+	open, err := s.openBlocking(ctx, l.TaskID, pass)
 	if err != nil {
 		return err
 	}
@@ -117,7 +117,7 @@ func (s *ReviewPassService) laterPassBrief(ctx context.Context, b *strings.Build
 				where = fmt.Sprintf(" at `%s:%d`", f.Path, f.Line)
 			}
 			fmt.Fprintf(b, "- `%s` on #%d%s: %s\n", f.ID, f.PR, where, f.Title)
-			if item, err := s.db.GetHandoffReviewItem(ctx, h.TaskID, f.ID); err == nil && item.Answer != "" {
+			if item, err := s.db.GetHandoffReviewItem(ctx, l.TaskID, f.ID); err == nil && item.Answer != "" {
 				answer := item.Answer
 				if item.AnswerNote != "" {
 					answer += ": " + item.AnswerNote

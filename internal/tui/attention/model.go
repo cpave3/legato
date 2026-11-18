@@ -130,6 +130,26 @@ func (m Model) HandleAction(action hotkey.ActionID) (Model, tea.Cmd) {
 				return m, func() tea.Msg { return openedMsg{err: open(url)} }
 			}
 		}
+	case hotkey.ActionAttentionOther:
+		// The second action an item can run here, such as End beside a
+		// stuck review loop's Run another pass.
+		if len(m.items) > 0 {
+			item := m.items[m.cursor]
+			if item.Producer == service.HandoffAttentionProducer {
+				m.err, m.info = nil, "Return, recall and take back from the web UI"
+				return m, nil
+			}
+			seen := 0
+			for _, action := range item.Actions {
+				if action.Kind != "execute" {
+					continue
+				}
+				if seen++; seen == 2 {
+					return m, m.executeAction(item, action)
+				}
+			}
+			m.err, m.info = nil, "This item has no other action"
+		}
 	case hotkey.ActionAttentionDismiss:
 		if len(m.items) > 0 {
 			item := m.items[m.cursor]

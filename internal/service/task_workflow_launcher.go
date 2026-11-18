@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"sort"
 	"strings"
@@ -74,6 +75,7 @@ func (l *TaskWorkflowLauncher) List(ctx context.Context, taskID string) ([]TaskW
 		}
 		options = append(options, TaskWorkflowOption{Name: definition.Name, Title: definition.Title, Description: definition.Description, TaskInput: taskInput, Inputs: inputs, Values: values})
 	}
+	options = append(options, l.reviewPassOptions(ctx, task, result)...)
 	if len(result.Errors) > 0 {
 		messages := make([]string, len(result.Errors))
 		for i, discoveryErr := range result.Errors {
@@ -90,12 +92,23 @@ func (l *TaskWorkflowLauncher) Start(ctx context.Context, name string, inputs ma
 		if definition.Name != name {
 			continue
 		}
-		if _, ok := soleTaskInput(definition); !ok {
+		_, ok := soleTaskInput(definition)
+		if !ok && name != ReviewPassesWorkflow {
 			return nil, fmt.Errorf("workflow %q does not accept exactly one task input", name)
 		}
 		view, err := l.workflows.Start(ctx, definition, inputs)
 		if err != nil {
 			return nil, err
+		}
+		// A review loop refused at start (one already running on the pull
+		// request, say) says why, naming that loop.
+		if name == ReviewPassesWorkflow && view.Run.Status == "failed" {
+			for _, step := range view.Steps {
+				if step.Status == "failed" && step.Error != "" {
+					return nil, errors.New(step.Error)
+				}
+			}
+			return nil, errors.New(view.Run.Error)
 		}
 		return &TaskWorkflowRun{ID: view.Run.ID, Title: view.Run.WorkflowTitle, RelatedTaskID: view.Run.RelatedTaskID}, nil
 	}
@@ -176,4 +189,36 @@ func rawWorkflowValue(value any) string {
 	default:
 		return fmt.Sprint(value)
 	}
+}
+
+// ReviewPassesWorkflow is the workflow a card's Review passes action starts.
+const ReviewPassesWorkflow = "review-pr-passes"
+
+// reviewPassOptions are a card's Review passes actions: one for each of its
+// open pull requests, when the review-pr-passes workflow is there. Each
+// starts a review loop with the card's own agent as the author.
+func (l *TaskWorkflowLauncher) reviewPassOptions(ctx context.Context, task *store.Task, result workflowengine.DiscoveryResult) []TaskWorkflowOption {
+	found := false
+	for _, definition := range result.Definitions {
+		found = found || definition.Name == ReviewPassesWorkflow
+	}
+	if !found {
+		return nil
+	}
+	tracked, err := l.store.ListTrackedTaskBranches(ctx)
+	if err != nil {
+		return nil
+	}
+	var options []TaskWorkflowOption
+	for _, pr := range TaskPullRequests(task, tracked[task.ID]) {
+		if pr.Repo == "" || strings.EqualFold(pr.State, "MERGED") || strings.EqualFold(pr.State, "CLOSED") {
+			continue
+		}
+		options = append(options, TaskWorkflowOption{
+			Name: ReviewPassesWorkflow, Title: fmt.Sprintf("Review passes · #%d", pr.PRNumber),
+			Description: fmt.Sprintf("Review %s#%d in passes posted to GitHub; this card's agent fixes the findings.", pr.Repo, pr.PRNumber),
+			Values:      map[string]string{"repo": pr.Repo, "pr_number": fmt.Sprint(pr.PRNumber), "agent_author": "true"},
+		})
+	}
+	return options
 }

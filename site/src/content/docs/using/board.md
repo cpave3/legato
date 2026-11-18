@@ -93,6 +93,10 @@ Press `d` on the board, or `D` in the detail view, to delete a task. You confirm
 
 ## Handing a task off to a worker
 
+## Review a card's pull request in passes
+
+A card with an open pull request offers **Review passes · #N**, one for each pull request: in the web board's `⋯` or right-click menu, and in the TUI under `c` › Workflows. It starts a [review loop](/legato/using/review-passes/#an-agent-as-the-author) on that pull request with the card's own agent as the author, so the agent fixes what the reviewer finds. It needs the `review-pr-passes` workflow (`legato workflow add review-pr-passes`). When a loop is already running on the pull request, the web board opens it instead, and Legato refuses a second one, naming the first.
+
 On a main instance paired with a [worker instance](/legato/running/instances/), the web board can send a task to the worker, which starts an agent on it. Drag the card onto the **Away** lane (a narrow rail while nothing is away), or choose **Hand off…** in the card's `⋯` or right-click menu, or in the panel beside the board. The task then leaves its column for the **Away** lane at the end of the web board, grouped by worker (on a phone, an **Away** section above the columns), and stays read-only on your main until you bring it back with **Return** or **Recall** on its row or in its panel, or **Return all done** on its worker's group. When its worker cannot be reached, lost the task or no longer accepts your main, **Take back** brings it back without its results. See [Hand off tasks to a worker](/legato/using/handoff/#bring-a-task-home).
 
 The TUI has no handoff actions, but it shows an away task in the column it left, with "away on" and the worker's name at the foot of the card, and the handoff's state at its end. The detail view names the worker and the state too. Editing, moving, deleting, linking a pull request, starting an agent or a workflow on an away task is refused with a message in the status bar: return or recall the task from the web UI. On a worker, deleting a card a main handed to it is refused the same way, naming the main.

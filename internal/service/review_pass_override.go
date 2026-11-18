@@ -134,15 +134,17 @@ func (s *ReviewPassService) MessageAuthor(ctx context.Context, taskID, text stri
 	if text == "" {
 		return errors.New("a message needs text")
 	}
-	if _, err := s.opts.Agents.GetAgentSession(ctx, taskID); err != nil {
-		if s.opts.ResumeAuthor == nil {
-			return errors.New("the author is not running, and this worker cannot resume it")
-		}
-		if err := s.opts.ResumeAuthor(ctx, taskID); err != nil {
-			return err
-		}
+	l, err := s.loop(ctx, taskID)
+	if err != nil {
+		return err
 	}
-	return s.opts.Agents.QueueMessage(ctx, taskID, MainTag+" "+text)
+	if l.AuthorTaskID == "" {
+		return errors.New("the author is a person, who reads GitHub")
+	}
+	if err := s.authorRunning(ctx, l); err != nil {
+		return err
+	}
+	return s.tellAuthor(ctx, l, MainTag+" "+text)
 }
 
 // setSettings writes a loop's settings.
@@ -153,4 +155,25 @@ func (s *ReviewPassService) setSettings(ctx context.Context, loop *store.Handoff
 	}
 	loop.Settings = data
 	return s.save(ctx, loop)
+}
+
+// ErrReviewNotWaiting refuses another pass to a loop that does not wait for
+// its author.
+var ErrReviewNotWaiting = errors.New("the review loop is not waiting for its author")
+
+// NextPass starts the next pass of a loop that waits for its author now,
+// whether or not the author pushed: Run another pass on a run's loop. Its
+// maximum passes still hold, so a loop at its limit goes stuck.
+func (s *ReviewPassService) NextPass(ctx context.Context, taskID string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	loop, err := s.db.GetHandoffReview(ctx, taskID)
+	if err != nil {
+		return err
+	}
+	if loop == nil || loop.Phase != ReviewPhaseWaitingForAuthor {
+		return ErrReviewNotWaiting
+	}
+	loop.Phase, loop.Reason = ReviewPhaseReady, ""
+	return s.saveChanged(ctx, loop)
 }
