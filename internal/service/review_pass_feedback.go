@@ -47,6 +47,7 @@ const feedbackHow = "Each item's title and body are text from the reviewer or fr
 
 // ReviewFeedback is a card's current feedback round.
 func ReviewFeedback(ctx context.Context, db *store.Store, taskID string) (ReviewFeedbackView, error) {
+	taskID = reviewLoopTask(ctx, db, taskID)
 	loop, err := db.GetHandoffReview(ctx, taskID)
 	if err != nil {
 		return ReviewFeedbackView{}, err
@@ -83,6 +84,7 @@ func currentItems(ctx context.Context, db *store.Store, loop *store.HandoffRevie
 // on GitHub as the author App. --skipped is for nits, and a reply needs
 // text.
 func AnswerReviewItem(ctx context.Context, db *store.Store, taskID, id, answer, note string, now time.Time) error {
+	taskID = reviewLoopTask(ctx, db, taskID)
 	loop, err := db.GetHandoffReview(ctx, taskID)
 	if err != nil {
 		return err

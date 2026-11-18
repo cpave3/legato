@@ -111,13 +111,15 @@ func (s *WorkflowService) addDetails(ctx context.Context, view *store.WorkflowRu
 // WorkflowStepAttention is an executor whose waiting step can need the
 // person: a reason, or "" when it does not.
 type WorkflowStepAttention interface {
-	Attention(ctx context.Context, attempt store.WorkflowStepAttempt) string
+	// Attention is the reason, and the actions beyond another_pass and
+	// end that the step offers.
+	Attention(ctx context.Context, attempt store.WorkflowStepAttempt) (string, []string)
 }
 
 // WorkflowStepActor is an executor whose waiting step takes actions, such
 // as a stuck review loop's another_pass and end.
 type WorkflowStepActor interface {
-	Act(ctx context.Context, attempt store.WorkflowStepAttempt, action string) error
+	Act(ctx context.Context, attempt store.WorkflowStepAttempt, action, text string) error
 }
 
 // waitingAttention marks the waiting attempts whose executor says they need
@@ -129,15 +131,16 @@ func (s *WorkflowService) waitingAttention(ctx context.Context, view *store.Work
 			continue
 		}
 		if detector, ok := s.executors[attempt.ExecutorType].(WorkflowStepAttention); ok {
-			if reason := detector.Attention(ctx, *attempt); reason != "" {
-				attempt.NeedsAttention, attempt.AttentionReason = true, reason
+			if reason, actions := detector.Attention(ctx, *attempt); reason != "" {
+				attempt.NeedsAttention, attempt.AttentionReason, attempt.AttentionActions = true, reason, actions
 			}
 		}
 	}
 }
 
-// StepAction takes an action on a step waiting on its service.
-func (s *WorkflowService) StepAction(ctx context.Context, runID, stepID, action string) (*store.WorkflowRunView, error) {
+// StepAction takes an action on a step waiting on its service; text is a
+// message's.
+func (s *WorkflowService) StepAction(ctx context.Context, runID, stepID, action, text string) (*store.WorkflowRunView, error) {
 	view, err := s.store.GetWorkflowRun(ctx, runID)
 	if err != nil {
 		return nil, err
@@ -150,7 +153,7 @@ func (s *WorkflowService) StepAction(ctx context.Context, runID, stepID, action 
 		if !ok {
 			break
 		}
-		if err := actor.Act(ctx, attempt, action); err != nil {
+		if err := actor.Act(ctx, attempt, action, text); err != nil {
 			return nil, err
 		}
 		return s.Show(ctx, runID)

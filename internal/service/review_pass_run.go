@@ -108,6 +108,9 @@ type reviewRun struct {
 	CloneID    int64  `json:"clone_id"`
 	Dir        string `json:"dir"`
 	LinkedTask string `json:"linked_task"`
+	// AuthorTask is the board task whose agent is the author (agent_author);
+	// empty for the branch's owner.
+	AuthorTask string `json:"author_task,omitempty"`
 	// SeenHead is the pull request's head the loop last saw move, and
 	// SeenAt when: the next pass waits for it to stay still for the quiet
 	// time.
@@ -185,7 +188,10 @@ func (c *ReviewRunCaller) Start(ctx context.Context, step ResolvedWorkflowStep) 
 		if linked == "" {
 			return WorkflowExecutionResult{}, fmt.Errorf("agent_author needs a board task linked to pull request #%d of %s, and none is: Legato starts no fresh author. Run without agent_author, and the branch's owner is the author", number, repo)
 		}
-		return WorkflowExecutionResult{}, errors.New("agent_author is not supported yet: run without it, and the branch's owner is the author")
+	}
+	author := ""
+	if agentAuthor {
+		author = linked
 	}
 	if err := c.opts.Clones.PullHead(ctx, repo, number); err != nil {
 		return WorkflowExecutionResult{}, fmt.Errorf("fetching the head of #%d: %w", number, err)
@@ -196,7 +202,7 @@ func (c *ReviewRunCaller) Start(ctx context.Context, step ResolvedWorkflowStep) 
 		return WorkflowExecutionResult{}, fmt.Errorf("cloning %s at the head of #%d: %w", repo, number, err)
 	}
 	run := reviewRun{RunID: step.RunID, StepID: step.StepID, AttemptID: step.AttemptID, Repo: repo, PR: number, Branch: clone.Branch,
-		CloneID: clone.ID, Dir: clone.Path, LinkedTask: linked}
+		CloneID: clone.ID, Dir: clone.Path, LinkedTask: linked, AuthorTask: author}
 	if err := c.engine.db.SetTaskMetadata(ctx, step.TaskID, reviewRunKey, run); err != nil {
 		c.removeClone(ctx, &run)
 		return WorkflowExecutionResult{}, err
@@ -300,7 +306,7 @@ func (c *ReviewRunCaller) Loop(ctx context.Context, taskID string) (ReviewLoop, 
 	if err != nil {
 		return ReviewLoop{}, false
 	}
-	return ReviewLoop{TaskID: taskID, Repo: run.Repo, PR: run.PR, Name: "run " + run.RunID, Link: "/workflows/runs/" + run.RunID}, true
+	return ReviewLoop{TaskID: taskID, Repo: run.Repo, PR: run.PR, AuthorTaskID: run.AuthorTask, Name: "run " + run.RunID, Link: "/workflows/runs/" + run.RunID}, true
 }
 
 // Checkout puts the run's clone at the pull request's head on GitHub now and
@@ -347,6 +353,9 @@ func (c *ReviewRunCaller) AuthorDone(ctx context.Context, l ReviewLoop) bool {
 	}
 	pinned := c.pinnedHead(ctx, l.TaskID)
 	now := c.engine.opts.Now()
+	if l.AuthorTaskID != "" && c.agentDone(ctx, l, pr.HeadSHA != pinned) {
+		return true
+	}
 	if pr.HeadSHA != pinned {
 		if pr.HeadSHA != run.SeenHead {
 			// A push, or another one: the quiet time starts again.
@@ -358,6 +367,30 @@ func (c *ReviewRunCaller) AuthorDone(ctx context.Context, l ReviewLoop) bool {
 		return err == nil && now.Sub(seen) >= c.engine.config().QuietTime
 	}
 	return c.disputed(ctx, l, run)
+}
+
+// agentDone says an agent author finished its round: idle, every finding
+// that needs an answer answered, and it pushed or disputed one.
+func (c *ReviewRunCaller) agentDone(ctx context.Context, l ReviewLoop, pushed bool) bool {
+	if !c.engine.authorIdle(ctx, l.AuthorTaskID) {
+		return false
+	}
+	loop, err := c.engine.db.GetHandoffReview(ctx, l.TaskID)
+	if err != nil || loop == nil || loop.DeliveredPass < loop.Pass {
+		return false
+	}
+	items, err := currentItems(ctx, c.engine.db, loop)
+	if err != nil {
+		return false
+	}
+	disputed := false
+	for _, item := range items {
+		if item.Kind != ItemNit && item.Answer == "" {
+			return false
+		}
+		disputed = disputed || (item.Kind == ItemBlocking && item.Answer == AnswerReplied)
+	}
+	return pushed || disputed
 }
 
 // pinnedHead is the head the loop's last pass reviewed.
@@ -482,9 +515,34 @@ func (c *ReviewRunCaller) Stage(ctx context.Context, l ReviewLoop, stage string)
 	}
 }
 
-// ResumeAuthor: the author is a person.
-func (c *ReviewRunCaller) ResumeAuthor(context.Context, ReviewLoop) error {
-	return ErrCannotResumeAuthor
+// ResumeAuthor resumes an agent author that is not running from the
+// conversation its main slot saved. Legato never starts a fresh one: with
+// none saved, the loop goes stuck. A person cannot be resumed.
+func (c *ReviewRunCaller) ResumeAuthor(ctx context.Context, l ReviewLoop) error {
+	if l.AuthorTaskID == "" {
+		return ErrCannotResumeAuthor
+	}
+	agents := c.engine.opts.Agents
+	_ = agents.ReconcileSessions(ctx)
+	if session, err := agents.GetAgentSession(ctx, l.AuthorTaskID); err == nil && session != nil {
+		return nil
+	}
+	kind := ""
+	if last, err := c.engine.db.LatestAgentSessionForTask(ctx, l.AuthorTaskID); err == nil && last != nil {
+		kind = last.AgentKind
+	}
+	saved, err := agents.GetTaskResumeSessionInSlot(ctx, l.AuthorTaskID, store.SlotMain, kind)
+	if err != nil {
+		return fmt.Errorf("the author %s cannot be resumed: reading its saved conversation: %v", l.AuthorTaskID, err)
+	}
+	if saved == nil || saved.ID == "" {
+		return fmt.Errorf("the author %s cannot be resumed: it has no saved conversation, and Legato starts no fresh author", l.AuthorTaskID)
+	}
+	opts := AgentSpawnOptions{AgentKind: kind, SessionPolicy: "resume", ResumeSessionID: saved.ID, WorkingDir: saved.CWD}
+	if err := agents.SpawnAgent(ctx, l.AuthorTaskID, 0, 0, opts); err != nil {
+		return fmt.Errorf("the author %s cannot be resumed: %v", l.AuthorTaskID, err)
+	}
+	return nil
 }
 
 // Changed says the run changed, for its page.
@@ -729,20 +787,27 @@ func (s *ReviewPassesStep) Details(ctx context.Context, attempt store.WorkflowSt
 // publishes; the web server forwards those to open run pages.
 const ReviewLoopChangedKind = "review_loop"
 
-// Attention is why a run's loop needs the person: it is stuck.
-func (c *ReviewRunCaller) Attention(ctx context.Context, attempt store.WorkflowStepAttempt) string {
+// Attention is why a run's loop needs the person: it is stuck. A loop with
+// an agent author also offers message.
+func (c *ReviewRunCaller) Attention(ctx context.Context, attempt store.WorkflowStepAttempt) (string, []string) {
 	loop, err := c.engine.db.GetHandoffReview(ctx, attempt.TaskID)
 	if err != nil || loop == nil || loop.Phase != ReviewPhaseStuck {
-		return ""
+		return "", nil
 	}
-	return "Review loop stuck: " + loop.Reason
+	var actions []string
+	if run, err := c.run(ctx, attempt.TaskID); err == nil && run.AuthorTask != "" {
+		actions = append(actions, "message")
+	}
+	return "Review loop stuck: " + loop.Reason, actions
 }
 
 // Act takes a stuck loop's actions: another_pass reviews again (one pass
 // past the limit, or a retry), end ends it with outcome stuck, so the step
 // completes and the workflow goes on.
-func (c *ReviewRunCaller) Act(ctx context.Context, attempt store.WorkflowStepAttempt, action string) error {
+func (c *ReviewRunCaller) Act(ctx context.Context, attempt store.WorkflowStepAttempt, action, text string) error {
 	switch action {
+	case "message":
+		return c.messageAuthor(ctx, attempt.TaskID, text)
 	case "another_pass":
 		return c.anotherPass(ctx, attempt.TaskID)
 	case "end":
@@ -767,17 +832,56 @@ func (c *ReviewRunCaller) anotherPass(ctx context.Context, taskID string) error 
 }
 
 // Attention is the run caller's, once it is attached.
-func (s *ReviewPassesStep) Attention(ctx context.Context, attempt store.WorkflowStepAttempt) string {
+func (s *ReviewPassesStep) Attention(ctx context.Context, attempt store.WorkflowStepAttempt) (string, []string) {
 	if caller := s.current(); caller != nil {
 		return caller.Attention(ctx, attempt)
 	}
-	return ""
+	return "", nil
 }
 
 // Act is the run caller's, once it is attached.
-func (s *ReviewPassesStep) Act(ctx context.Context, attempt store.WorkflowStepAttempt, action string) error {
+func (s *ReviewPassesStep) Act(ctx context.Context, attempt store.WorkflowStepAttempt, action, text string) error {
 	if caller := s.current(); caller != nil {
-		return caller.Act(ctx, attempt, action)
+		return caller.Act(ctx, attempt, action, text)
 	}
 	return errors.New("review passes are off on this Legato")
+}
+
+// ReviewOperatorTag opens the operator's words relayed to an agent author.
+const reviewOperatorPrefix = ReviewTag + " From the operator: "
+
+// messageAuthor sends an agent author the operator's words, tagged, resumed
+// first when it is not running.
+func (c *ReviewRunCaller) messageAuthor(ctx context.Context, taskID, text string) error {
+	text = strings.TrimSpace(text)
+	if text == "" {
+		return errors.New("a message needs text")
+	}
+	l, ok := c.Loop(ctx, taskID)
+	if !ok || l.AuthorTaskID == "" {
+		return errors.New("the author is a person, who reads GitHub")
+	}
+	l.caller = c
+	if err := c.engine.authorRunning(ctx, l); err != nil {
+		return err
+	}
+	return c.engine.tellAuthor(ctx, l, reviewOperatorPrefix+text)
+}
+
+// reviewLoopTask is the task whose ledger holds the loop an agent of taskID
+// answers: its own (a handoff's card), else the newest run loop it authors.
+func reviewLoopTask(ctx context.Context, db *store.Store, taskID string) string {
+	if loop, err := db.GetHandoffReview(ctx, taskID); err == nil && loop != nil {
+		return taskID
+	}
+	ids, err := db.TasksWithMetadataText(ctx, []string{"legato", "review_loop", "author_task"}, taskID)
+	if err != nil {
+		return taskID
+	}
+	for _, id := range ids {
+		if loop, err := db.GetHandoffReview(ctx, id); err == nil && loop != nil && loop.Phase != ReviewPhaseEnded && loop.Phase != ReviewPhaseClean {
+			return id
+		}
+	}
+	return taskID
 }

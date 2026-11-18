@@ -13,7 +13,7 @@ type WorkflowAttentionSource interface {
 	TriggerStep(ctx context.Context, runID, stepID string, force bool) (*store.WorkflowRunView, error)
 	Retry(ctx context.Context, runID, stepID string, force bool) (*store.WorkflowRunView, error)
 	PromptStep(ctx context.Context, runID, stepID string) (*store.WorkflowRunView, error)
-	StepAction(ctx context.Context, runID, stepID, action string) (*store.WorkflowRunView, error)
+	StepAction(ctx context.Context, runID, stepID, action, text string) (*store.WorkflowRunView, error)
 }
 
 type WorkflowAttentionAdapter struct {
@@ -109,14 +109,20 @@ func (a *WorkflowAttentionAdapter) collectRunStates(run store.WorkflowRun, view 
 		if attempt.NeedsAttention && attempt.Status == WorkflowStepWaiting {
 			// A step waiting on its service that needs the person: a
 			// stuck review loop.
+			more := []AttentionAction{{ID: "end", Label: "End", Kind: "execute", RequiresConfirm: true,
+				Confirmation: "End the review loop as stuck? The run goes on to its next step."}}
+			for _, id := range attempt.AttentionActions {
+				if id == "message" {
+					more = append(more, AttentionAction{ID: "message", Label: "Message the author", Kind: "execute", RequiresText: true})
+				}
+			}
 			states = append(states, workflowAttentionState{
 				runID: run.ID, stepID: attempt.StepID, kind: "waiting",
 				revision: fmt.Sprintf("waiting:%s:%d:%s", attempt.StepID, attempt.AttemptNumber, attempt.AttentionReason),
 				runTitle: run.WorkflowTitle, taskID: run.TaskID,
 				reason: attempt.AttentionReason,
 				action: AttentionAction{ID: "another_pass", Label: "Run another pass", Kind: "execute"},
-				more: []AttentionAction{{ID: "end", Label: "End", Kind: "execute", RequiresConfirm: true,
-					Confirmation: "End the review loop as stuck? The run goes on to its next step."}},
+				more:   more,
 			})
 			continue
 		}
@@ -149,8 +155,8 @@ func (a *WorkflowAttentionAdapter) Execute(ctx context.Context, request Attentio
 	case "prompt":
 		_, err := a.workflows.PromptStep(ctx, runID, stepID)
 		return err
-	case "another_pass", "end":
-		_, err := a.workflows.StepAction(ctx, runID, stepID, request.ActionID)
+	case "another_pass", "end", "message":
+		_, err := a.workflows.StepAction(ctx, runID, stepID, request.ActionID, request.Text)
 		return err
 	default:
 		return fmt.Errorf("unsupported workflow attention action %q", request.ActionID)

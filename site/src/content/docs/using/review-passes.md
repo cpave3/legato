@@ -163,3 +163,7 @@ The run is refused at once, with the reason, when:
 - the pull request is not open;
 - the pull request already has an active review loop, from another run or from a handoff: one loop runs per pull request. The refusal names that loop and links to it (the run's page, or the handed-off card). A loop that ended, approved, closed or was cancelled does not count;
 - `agent_author` is asked for on a pull request no board task links.
+
+### An agent as the author
+
+When the pull request belongs to a task on your board (an agent you started opened it, say), start the run with `agent_author: true` and that task's agent is the author. It is told of each pass with the same `[legato review pass]` line a handed-off author gets, and answers with the same `legato review-pass feedback` and `legato review-pass answer` commands; its answers are posted as the author App. The next pass starts once it is idle with every finding answered and it pushed or disputed one, or on the triggers above. An author that exited is resumed from its saved conversation; one that cannot be resumed makes the loop stuck, since Legato never starts a fresh author on code it knows nothing about. A stuck loop with an agent author also offers **Message the author** in Attention.

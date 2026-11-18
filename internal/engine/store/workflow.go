@@ -90,6 +90,10 @@ type WorkflowStepAttempt struct {
 	AgentActivity   string  `db:"-" json:"agent_activity,omitempty"`
 	NeedsAttention  bool    `db:"-" json:"needs_attention,omitempty"`
 	AttentionReason string  `db:"-" json:"attention_reason,omitempty"`
+	// AttentionActions are the actions a step waiting on its service
+	// offers beyond the usual, such as message for a stuck review loop
+	// with an agent author.
+	AttentionActions []string `db:"-" json:"attention_actions,omitempty"`
 }
 
 type WorkflowArtifact struct {
@@ -630,4 +634,13 @@ func withTx(ctx context.Context, db *sqlx.DB, fn func(*sqlx.Tx) error) error {
 		return fmt.Errorf("commit transaction: %w", err)
 	}
 	return nil
+}
+
+// TasksWithMetadataText lists the tasks whose metadata has text at path
+// (dotted keys), newest first.
+func (s *Store) TasksWithMetadataText(ctx context.Context, path []string, value string) ([]string, error) {
+	ids := []string{}
+	err := s.db.SelectContext(ctx, &ids, `SELECT id FROM tasks WHERE json_extract(metadata, ?) = ? ORDER BY updated_at DESC, id DESC`,
+		"$."+strings.Join(path, "."), value)
+	return ids, err
 }
