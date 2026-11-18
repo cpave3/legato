@@ -67,6 +67,7 @@ Legato keeps its state in one SQLite database, through `modernc.org/sqlite`, a S
 
 - The database is at `~/.local/share/legato/legato.db` by default (`$XDG_DATA_HOME/legato/` when set), or at `db.path`.
 - Migrations are SQL files embedded from `internal/engine/store/migrations/`, numbered in order. A `schema_migrations` table records which have run. Migrations only go forward. Legato refuses a database whose schema is newer than the binary.
+- A new migration's file name must sort after every migration on `main` and in the latest release. Each migration is recorded by its position in the sorted list, so a file that sorts in the middle (a branch's `117_…` merged after `118_…` was released) moves the others, and databases made before it no longer open. When your branch is behind `main`, renumber its migrations to the next free number before merging. CI's `migrations` job (`scripts/migration-order.sh`) refuses a file that sorts too early.
 - Each pooled connection turns on foreign keys and a 5-second busy timeout, so several Legato processes can share one database.
 - A task is one row in `tasks`. A task from a ticket provider has a provider, a remote ID and provider metadata; a local task has none.
 

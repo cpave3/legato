@@ -1,5 +1,6 @@
 # Runs the test suite on every pull request and on every push to main (a
-# merge): a check that no two paths differ only in case, the Go tests, as the
+# merge): a check that no two paths differ only in case, a check that new
+# migrations sort last, the Go tests, as the
 # release workflow runs them, the web UI's unit tests, and the lint, types and
 # tests of the apps under packages/. The docs site has its own workflow
 # (docs.yml), and the desktop app is tested when a release builds it.
@@ -31,6 +32,26 @@ jobs:
 
       - name: No paths that differ only in case
         run: bash scripts/case-clashes.sh
+
+  # The store records migrations by position in the sorted list, so a new one
+  # that sorts before one already released (or on main, for a pull request)
+  # makes every older database refuse to open (LEG-249).
+  migrations:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: New migrations sort last
+        env:
+          BASE_REF: ${{ github.base_ref }}
+        run: |
+          refs=$(git tag --list 'v[0-9]*' --sort=-v:refname | head -n 1)
+          if [ -n "$BASE_REF" ]; then refs="$refs origin/$BASE_REF"; fi
+          echo "comparing with: $refs"
+          bash scripts/migration-order.sh $refs
 
   go:
     runs-on: ubuntu-latest
