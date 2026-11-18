@@ -62,6 +62,7 @@ describe("runSummary", () => {
   it("says what a running run is doing", () => {
     expect(runSummary({ status: "running", steps: [step("read", "Read the task", "succeeded"), step("plan", "Write the plan", "waiting_agent")] })).toEqual({ text: "An agent is working on “Write the plan”", tone: undefined })
     expect(runSummary({ status: "running", steps: [step("prepare", "Prepare checkout", "running")] }).text).toBe("Running “Prepare checkout”")
+    expect(runSummary({ status: "running", steps: [step("review", "Review the pull request", "waiting")] }).text).toBe("“Review the pull request” is waiting")
     expect(runSummary({ status: "waiting", steps: [step("agent", "Run agent", "succeeded"), { ...step("end", "Finish", "waiting_manual"), trigger: "agent_ended" }] }).text).toBe("“Finish” starts when the agent ends")
   })
 
@@ -167,6 +168,7 @@ describe("stepMark", () => {
     expect(mark("failed")).toEqual({ glyph: "✕", tone: "error" })
     expect(mark("cancelled")).toEqual({ glyph: "–", tone: "idle" })
     expect(mark("waiting_agent")).toEqual({ glyph: "●", tone: "live" })
+    expect(mark("waiting")).toEqual({ glyph: "●", tone: "live" })
     expect(mark("waiting_agent", { needs: true })).toEqual({ glyph: "◆", tone: "needs" })
     expect(mark("waiting_manual", { trigger: "manual", needs: true })).toEqual({ glyph: "◆", tone: "needs" })
     expect(mark("waiting_manual", { trigger: "agent_ended" })).toEqual({ glyph: "●", tone: "live" })

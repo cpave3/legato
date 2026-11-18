@@ -2,7 +2,7 @@ import type { RelatedWorkItem } from "./task-activity"
 
 // Statuses of work that is still under way: a review being captured, a
 // workflow running or waiting at a step.
-const UNDER_WAY = new Set(["capturing", "running", "pending", "waiting_agent", "waiting_manual"])
+const UNDER_WAY = new Set(["capturing", "running", "pending", "waiting_agent", "waiting_manual", "waiting"])
 
 // splitRelated puts the related work still under way apart from the rest,
 // keeping the order of each.

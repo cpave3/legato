@@ -112,6 +112,8 @@ export function runSummary(run: RunSummaryInput): { text: string; tone?: Tone } 
   if (run.needs_attention) return { text: attentionCopy(run.attention_reason ?? "", current?.title ?? "").sentence, tone: "needs" }
   if (!current) return { text: "" }
   if (current.status === "waiting_agent") return { text: `An agent is working on “${current.title}”` }
+  // A step that waits on its own service, such as a review loop.
+  if (current.status === "waiting") return { text: `“${current.title}” is waiting` }
   if (current.status === "waiting_manual" && current.trigger === "agent_ended") return { text: `“${current.title}” starts when the agent ends` }
   return { text: `Running “${current.title}”` }
 }

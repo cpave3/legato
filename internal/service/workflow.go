@@ -375,7 +375,7 @@ func (s *WorkflowService) Fail(ctx context.Context, runID, stepID, attemptID, re
 	var active *store.WorkflowStepAttempt
 	for i := range view.Attempts {
 		attempt := &view.Attempts[i]
-		if attempt.ID == attemptID && attempt.StepID == stepID && (attempt.Status == "running" || attempt.Status == "waiting_agent") {
+		if attempt.ID == attemptID && attempt.StepID == stepID && (attempt.Status == "running" || attempt.Status == "waiting_agent" || attempt.Status == WorkflowStepWaiting) {
 			active = attempt
 			break
 		}
@@ -417,7 +417,7 @@ func (s *WorkflowService) Cancel(ctx context.Context, runID, reason string) (*st
 		return nil, err
 	}
 	for _, attempt := range view.Attempts {
-		if attempt.Status == "running" || attempt.Status == "waiting_agent" {
+		if attempt.Status == "running" || attempt.Status == "waiting_agent" || attempt.Status == WorkflowStepWaiting {
 			if executor := s.executors[attempt.ExecutorType]; executor != nil {
 				if err := executor.Cancel(ctx, attempt); err != nil {
 					return nil, err
@@ -592,6 +592,9 @@ func (s *WorkflowService) advance(ctx context.Context, definition *workflowengin
 		}
 		if result.Status == "waiting_agent" {
 			return s.store.MarkWorkflowStepWaiting(ctx, runID, step.ID, attemptID, result.AgentSession, result.WorkingDir)
+		}
+		if result.Status == WorkflowStepWaiting {
+			return s.store.WaitWorkflowStepOnService(ctx, runID, step.ID, attemptID)
 		}
 		if result.Status != "succeeded" {
 			return fmt.Errorf("executor %q returned invalid status %q", step.Type, result.Status)

@@ -259,7 +259,7 @@ func (s *Store) StartWorkflowStepAttempt(ctx context.Context, attempt WorkflowSt
 func (s *Store) CompleteWorkflowStep(ctx context.Context, runID, stepID, attemptID, outputsJSON, nextStepID string) error {
 	return withTx(ctx, s.db, func(tx *sqlx.Tx) error {
 		result, err := tx.ExecContext(ctx, `UPDATE workflow_step_attempts SET status = 'succeeded', ended_at = datetime('now')
-			WHERE id = ? AND run_id = ? AND step_id = ? AND status IN ('running','waiting_agent')`, attemptID, runID, stepID)
+			WHERE id = ? AND run_id = ? AND step_id = ? AND status IN ('running','waiting_agent','waiting')`, attemptID, runID, stepID)
 		if err != nil {
 			return err
 		}
@@ -271,7 +271,7 @@ func (s *Store) CompleteWorkflowStep(ctx context.Context, runID, stepID, attempt
 			return ErrWorkflowStateConflict
 		}
 		result, err = tx.ExecContext(ctx, `UPDATE workflow_step_runs SET status = 'succeeded', outputs_json = ?, completed_at = datetime('now'), error = ''
-			WHERE run_id = ? AND step_id = ? AND status IN ('running','waiting_agent')`, outputsJSON, runID, stepID)
+			WHERE run_id = ? AND step_id = ? AND status IN ('running','waiting_agent','waiting')`, outputsJSON, runID, stepID)
 		if err != nil {
 			return err
 		}
@@ -347,9 +347,47 @@ func (s *Store) MarkWorkflowStepWaiting(ctx context.Context, runID, stepID, atte
 	})
 }
 
+// WaitWorkflowStepOnService parks a running step until the service that owns
+// its executor completes or fails it (CompleteWorkflowStep,
+// FailWorkflowStep). No agent session is tied to it, so no agent's exit ends
+// it, and a restart leaves it waiting.
+func (s *Store) WaitWorkflowStepOnService(ctx context.Context, runID, stepID, attemptID string) error {
+	return withTx(ctx, s.db, func(tx *sqlx.Tx) error {
+		for _, update := range []struct {
+			query string
+			args  []any
+		}{
+			{`UPDATE workflow_step_attempts SET status = 'waiting' WHERE id = ? AND run_id = ? AND step_id = ? AND status = 'running'`, []any{attemptID, runID, stepID}},
+			{`UPDATE workflow_step_runs SET status = 'waiting' WHERE run_id = ? AND step_id = ? AND status = 'running'`, []any{runID, stepID}},
+		} {
+			result, err := tx.ExecContext(ctx, update.query, update.args...)
+			if err != nil {
+				return err
+			}
+			rows, err := result.RowsAffected()
+			if err != nil {
+				return err
+			}
+			if rows != 1 {
+				return ErrWorkflowStateConflict
+			}
+		}
+		return nil
+	})
+}
+
+// ListWaitingWorkflowAttemptsByExecutor lists the attempts of one executor
+// type that wait on its service, oldest first.
+func (s *Store) ListWaitingWorkflowAttemptsByExecutor(ctx context.Context, executorType string) ([]WorkflowStepAttempt, error) {
+	attempts := []WorkflowStepAttempt{}
+	err := s.db.SelectContext(ctx, &attempts, `SELECT * FROM workflow_step_attempts
+		WHERE executor_type = ? AND status = 'waiting' ORDER BY started_at, id`, executorType)
+	return attempts, err
+}
+
 func (s *Store) FailWorkflowStep(ctx context.Context, runID, stepID, attemptID, errorMessage string) error {
 	return withTx(ctx, s.db, func(tx *sqlx.Tx) error {
-		result, err := tx.ExecContext(ctx, `UPDATE workflow_step_attempts SET status = 'failed', error = ?, ended_at = datetime('now') WHERE id = ? AND run_id = ? AND step_id = ? AND status IN ('running','waiting_agent')`, errorMessage, attemptID, runID, stepID)
+		result, err := tx.ExecContext(ctx, `UPDATE workflow_step_attempts SET status = 'failed', error = ?, ended_at = datetime('now') WHERE id = ? AND run_id = ? AND step_id = ? AND status IN ('running','waiting_agent','waiting')`, errorMessage, attemptID, runID, stepID)
 		if err != nil {
 			return err
 		}
@@ -360,7 +398,7 @@ func (s *Store) FailWorkflowStep(ctx context.Context, runID, stepID, attemptID, 
 		if rows != 1 {
 			return ErrWorkflowStateConflict
 		}
-		result, err = tx.ExecContext(ctx, `UPDATE workflow_step_runs SET status = 'failed', error = ?, completed_at = datetime('now') WHERE run_id = ? AND step_id = ? AND status IN ('running','waiting_agent')`, errorMessage, runID, stepID)
+		result, err = tx.ExecContext(ctx, `UPDATE workflow_step_runs SET status = 'failed', error = ?, completed_at = datetime('now') WHERE run_id = ? AND step_id = ? AND status IN ('running','waiting_agent','waiting')`, errorMessage, runID, stepID)
 		if err != nil {
 			return err
 		}
@@ -553,10 +591,10 @@ func (s *Store) CancelWorkflowRun(ctx context.Context, runID, reason string) err
 		if rows != 1 {
 			return ErrWorkflowStateConflict
 		}
-		if _, err := tx.ExecContext(ctx, `UPDATE workflow_step_runs SET status = 'cancelled', error = ?, completed_at = datetime('now') WHERE run_id = ? AND status IN ('pending','running','waiting_agent','waiting_manual')`, reason, runID); err != nil {
+		if _, err := tx.ExecContext(ctx, `UPDATE workflow_step_runs SET status = 'cancelled', error = ?, completed_at = datetime('now') WHERE run_id = ? AND status IN ('pending','running','waiting_agent','waiting_manual','waiting')`, reason, runID); err != nil {
 			return err
 		}
-		_, err = tx.ExecContext(ctx, `UPDATE workflow_step_attempts SET status = 'cancelled', error = ?, ended_at = datetime('now') WHERE run_id = ? AND status IN ('running','waiting_agent')`, reason, runID)
+		_, err = tx.ExecContext(ctx, `UPDATE workflow_step_attempts SET status = 'cancelled', error = ?, ended_at = datetime('now') WHERE run_id = ? AND status IN ('running','waiting_agent','waiting')`, reason, runID)
 		return err
 	})
 }

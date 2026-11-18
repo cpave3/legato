@@ -206,6 +206,12 @@ func validateStepContract(step Step, inputs map[string]Input) error {
 				return fmt.Errorf("with engram must be the name of an engram")
 			}
 		}
+	case "task.note":
+		if optional, ok := step.With["optional"]; ok {
+			if _, boolean := optional.(bool); !boolean {
+				return fmt.Errorf("with optional must be true or false")
+			}
+		}
 	case "agent.stop":
 		required = []string{"task"}
 	case "chimera.session.remove":

@@ -20,12 +20,24 @@ func NewTaskNoteExecutor(s *store.Store) *TaskNoteExecutor {
 func (e *TaskNoteExecutor) Type() string                                            { return "task.note" }
 func (e *TaskNoteExecutor) Cancel(context.Context, store.WorkflowStepAttempt) error { return nil }
 func (e *TaskNoteExecutor) Start(ctx context.Context, step ResolvedWorkflowStep) (WorkflowExecutionResult, error) {
-	taskValue, ok := step.With["task"].(map[string]any)
-	if !ok {
-		return WorkflowExecutionResult{}, fmt.Errorf("task must be a task input")
+	optional, _ := step.With["optional"].(bool)
+	var taskID string
+	switch task := step.With["task"].(type) {
+	case map[string]any:
+		taskID, _ = task["id"].(string)
+	case string:
+		// A task ID, such as a step's linked_task output.
+		taskID = strings.TrimSpace(task)
+	case nil:
+	default:
+		return WorkflowExecutionResult{}, fmt.Errorf("task must be a task input or a task ID")
 	}
-	taskID, _ := taskValue["id"].(string)
 	if taskID == "" {
+		// optional: true makes "no task" a skip, for a note on a task that
+		// may not exist, such as the board task a pull request belongs to.
+		if optional {
+			return WorkflowExecutionResult{Status: "succeeded", Outputs: map[string]any{"note_id": "", "task_id": "", "skipped": true}}, nil
+		}
 		return WorkflowExecutionResult{}, fmt.Errorf("task id is required")
 	}
 	body, _ := workflowString(step.With, "body", false)
