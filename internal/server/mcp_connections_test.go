@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"strings"
 	"testing"
 
 	"github.com/cpave3/legato/internal/service"
@@ -63,8 +64,9 @@ func TestTheOperatorAdministersMCPConnections(t *testing.T) {
 	}
 }
 
-// Paired instances' tokens and agents' (the Reeve's) tokens gain no
-// administration of MCP connections.
+// Paired instances' tokens gain no administration of MCP connections, and
+// the Reeve's token makes none directly: each is a risky call it proposes
+// as a change set for the operator to approve.
 func TestOnlyTheOperatorAdministersMCPConnections(t *testing.T) {
 	srv, reeve := mcpServer(t)
 	if rec := callAs(srv, "secret", http.MethodPost, "/api/settings/mcp/connections", `{"name":"notion","url":"https://mcp.example.test/mcp"}`); rec.Code != http.StatusCreated {
@@ -76,8 +78,12 @@ func TestOnlyTheOperatorAdministersMCPConnections(t *testing.T) {
 			{http.MethodPatch, "/api/settings/mcp/connections/notion", `{"enabled":false,"expected_revision":1}`},
 			{http.MethodDelete, "/api/settings/mcp/connections/notion", ""},
 		} {
-			if rec := callAs(srv, token, call.method, call.path, call.body); rec.Code != http.StatusForbidden {
+			rec := callAs(srv, token, call.method, call.path, call.body)
+			if rec.Code != http.StatusForbidden {
 				t.Errorf("%s %s %s with %.8s: %d %s", call.method, call.path, call.body, token, rec.Code, rec.Body)
+			}
+			if token == reeve && !strings.Contains(rec.Body.String(), `"needs_approval"`) {
+				t.Errorf("%s %s by the Reeve is not one it can propose: %s", call.method, call.path, rec.Body)
 			}
 		}
 	}
@@ -132,7 +138,7 @@ func TestAddingALocalServerAnswersWithTheApprovalItWaitsFor(t *testing.T) {
 	}
 }
 
-func TestTheOperatorTestsAConnectionAndTheReeveCannot(t *testing.T) {
+func TestTheOperatorTestsAConnectionAndTheReeveProposesIt(t *testing.T) {
 	srv, reeve := mcpServer(t)
 	tester := &fakeMCPTester{}
 	srv.SetMCPTester(tester)
@@ -142,8 +148,12 @@ func TestTheOperatorTestsAConnectionAndTheReeveCannot(t *testing.T) {
 		t.Fatalf("test: %d %s", rec.Code, rec.Body)
 	}
 	for _, token := range []string{reeve, "lgi_main"} {
-		if rec := callAs(srv, token, http.MethodPost, "/api/settings/mcp/connections/design/test", ""); rec.Code != http.StatusForbidden {
+		rec := callAs(srv, token, http.MethodPost, "/api/settings/mcp/connections/design/test", "")
+		if rec.Code != http.StatusForbidden {
 			t.Errorf("test with %.8s: %d %s", token, rec.Code, rec.Body)
+		}
+		if token == reeve && !strings.Contains(rec.Body.String(), `"needs_approval"`) {
+			t.Errorf("a test by the Reeve is not one it can propose: %s", rec.Body)
 		}
 	}
 	if len(tester.tested) != 1 {

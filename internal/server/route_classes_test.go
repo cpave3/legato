@@ -63,6 +63,18 @@ func TestARequestIsClassedByItsRoute(t *testing.T) {
 		{http.MethodGet, "/api/no-such-route", ClassRead},
 		{http.MethodPost, "/api/no-such-route", ClassRisky},
 		{http.MethodPatch, "/api/agents", ClassRisky},
+		// The Reeve may set up MCP connections with the operator's
+		// approval, but never authorize one: that is the operator's sign-in.
+		{http.MethodPost, "/api/settings/mcp/connections", ClassRisky},
+		{http.MethodPatch, "/api/settings/mcp/connections/design", ClassRisky},
+		{http.MethodDelete, "/api/settings/mcp/connections/design", ClassRisky},
+		{http.MethodPost, "/api/settings/mcp/connections/design/test", ClassRisky},
+		{http.MethodPost, "/api/mcp/connections/design/oauth/begin", ClassNever},
+		{http.MethodPost, "/api/mcp/connections/design/oauth/disconnect", ClassNever},
+		{http.MethodGet, "/api/mcp/oauth/attempts/at-1", ClassNever},
+		{http.MethodPost, "/api/mcp/oauth/attempts/at-1/deliver", ClassNever},
+		{http.MethodPost, "/api/mcp/oauth/attempts/at-1/confirm", ClassNever},
+		{http.MethodPost, "/api/mcp/oauth/attempts/at-1/cancel", ClassNever},
 	} {
 		got := ClassifyRequest(httptest.NewRequest(tc.method, tc.path, nil))
 		if got.Class != tc.want {

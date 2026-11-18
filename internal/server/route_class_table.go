@@ -64,13 +64,15 @@ var routeClassTable = []routeClassEntry{
 	{"PUT", "/api/settings/theme", ClassChange, "Set this server's preferred theme"},
 	{"GET", "/api/settings/mcp/connections", ClassRead, "List the MCP connections"},
 	{"GET", "/api/settings/mcp/connections/{name}", ClassRead, "Read an MCP connection"},
-	// Upstream MCP connections are the operator's to administer.
-	{"POST", "/api/settings/mcp/connections", ClassNever, "Add an MCP connection"},
-	{"PATCH", "/api/settings/mcp/connections/{name}", ClassNever, "Change, turn on or turn off an MCP connection"},
-	{"DELETE", "/api/settings/mcp/connections/{name}", ClassNever, "Remove an MCP connection"},
-	{"POST", "/api/settings/mcp/connections/{name}/test", ClassNever, "Test an MCP connection: start a local server or reach a remote one, and list its tools"},
-	// Authorizing one is too, and an attempt belongs to the operator
-	// credential that began it.
+	// The Reeve may set up upstream MCP connections, each call with the
+	// operator's approval: a local server runs on this computer outside any
+	// sandbox.
+	{"POST", "/api/settings/mcp/connections", ClassRisky, "Add an MCP connection"},
+	{"PATCH", "/api/settings/mcp/connections/{name}", ClassRisky, "Change, turn on or turn off an MCP connection"},
+	{"DELETE", "/api/settings/mcp/connections/{name}", ClassRisky, "Remove an MCP connection"},
+	{"POST", "/api/settings/mcp/connections/{name}/test", ClassRisky, "Test an MCP connection: start a local server or reach a remote one, and list its tools"},
+	// Authorizing one is the operator's own sign-in, and an attempt belongs
+	// to the operator credential that began it.
 	{"POST", "/api/mcp/connections/{name}/oauth/begin", ClassNever, "Start authorizing an MCP connection"},
 	{"POST", "/api/mcp/connections/{name}/oauth/disconnect", ClassNever, "Disconnect an MCP connection's authorization"},
 	{"GET", "/api/mcp/oauth/attempts/{id}", ClassNever, "Read an MCP authorization attempt"},

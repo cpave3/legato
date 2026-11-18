@@ -154,6 +154,8 @@ In **Settings › Integrations › MCP servers**, choose **Local command** and g
 
 Select **Add**. Legato does not add the server yet: it asks you in your approvals, showing the command line, the folder and the environment. With a phone or a passkey enrolled, the approval must be signed on it. Once you allow it, the server appears in the list. Changing what a local server runs (its command, arguments, folder or environment) asks you again in the same way. Turning it off, removing it and changing its **Agent access** do not.
 
+The [Reeve](/legato/using/reeve/) can add, change, test and remove MCP servers for you too. Each of these is a change it proposes, and it always needs your approval: no setting or rule makes one run without asking. A local server it adds asks you a second time, in the approval above. Only you can authorize a server (**Connect**).
+
 **Test** starts the server, lists its tools, and stops it. When the server cannot start, Test says why (for example, that `node` is not in the `PATH` it searched) and shows what the server wrote to its error output.
 
 How Legato runs a local server:
