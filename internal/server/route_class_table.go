@@ -224,6 +224,7 @@ var routeClassTable = []routeClassEntry{
 	{"POST", "/api/workflow-runs/{run_id}/steps/{step_id}/retry", ClassChange, "Retry a workflow step"},
 	{"POST", "/api/workflow-runs/{run_id}/steps/{step_id}/trigger", ClassChange, "Trigger a manual workflow step"},
 	{"POST", "/api/workflow-runs/{run_id}/steps/{step_id}/prompt", ClassChange, "Remind a workflow step's agent"},
+	{"POST", "/api/workflow-runs/{run_id}/steps/{step_id}/another-pass", ClassChange, "Run another pass of a run's review loop"},
 	{"GET", "/api/workflow-artifacts/{artifact_id}", ClassRead, "Read a workflow artifact"},
 
 	// Swarms

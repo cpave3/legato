@@ -10,6 +10,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/cpave3/legato/internal/engine/events"
 	"github.com/cpave3/legato/internal/engine/store"
@@ -107,6 +108,13 @@ type reviewRun struct {
 	CloneID    int64  `json:"clone_id"`
 	Dir        string `json:"dir"`
 	LinkedTask string `json:"linked_task"`
+	// SeenHead is the pull request's head the loop last saw move, and
+	// SeenAt when: the next pass waits for it to stay still for the quiet
+	// time.
+	SeenHead string `json:"seen_head,omitempty"`
+	SeenAt   string `json:"seen_at,omitempty"`
+	// Replies are the thread replies the loop has taken as answers.
+	Replies []int64 `json:"replies,omitempty"`
 }
 
 var reviewRunKey = []string{"legato", "review_loop"}
@@ -281,13 +289,158 @@ func (c *ReviewRunCaller) Checkout(ctx context.Context, l ReviewLoop) (string, [
 	return run.Dir, []ReviewGitHubPR{pr}, nil
 }
 
-// AuthorDone: the run waits after each pass with changes.
-func (c *ReviewRunCaller) AuthorDone(context.Context, ReviewLoop) bool { return false }
+// AuthorDone says the branch's owner has finished a round: the pull
+// request's head moved past the last pass's and stayed still for the quiet
+// time, or someone replied in a blocking finding's thread (a dispute, which
+// the next pass rules on). A pull request merged or closed ends the loop as
+// closed. There is no timeout.
+func (c *ReviewRunCaller) AuthorDone(ctx context.Context, l ReviewLoop) bool {
+	run, err := c.run(ctx, l.TaskID)
+	if err != nil {
+		return false
+	}
+	pr, state, err := c.opts.GitHub.PullRequest(ctx, run.Repo, run.PR)
+	if err != nil {
+		return false // GitHub may answer next time
+	}
+	if state != "open" {
+		c.finish(ctx, l.TaskID, ReviewOutcomeClosed)
+		return false
+	}
+	pinned := c.pinnedHead(ctx, l.TaskID)
+	now := c.engine.opts.Now()
+	if pr.HeadSHA != pinned {
+		if pr.HeadSHA != run.SeenHead {
+			// A push, or another one: the quiet time starts again.
+			run.SeenHead, run.SeenAt = pr.HeadSHA, now.UTC().Format(time.RFC3339)
+			_ = c.engine.db.SetTaskMetadata(ctx, l.TaskID, reviewRunKey, run)
+			return false
+		}
+		seen, err := time.Parse(time.RFC3339, run.SeenAt)
+		return err == nil && now.Sub(seen) >= c.engine.config().QuietTime
+	}
+	return c.disputed(ctx, l, run)
+}
 
-// Stage ends the step when a clean pass approved.
+// pinnedHead is the head the loop's last pass reviewed.
+func (c *ReviewRunCaller) pinnedHead(ctx context.Context, taskID string) string {
+	loop, err := c.engine.db.GetHandoffReview(ctx, taskID)
+	if err != nil || loop == nil {
+		return ""
+	}
+	prs, err := c.engine.db.ListHandoffReviewPRs(ctx, taskID, loop.Pass)
+	if err != nil || len(prs) == 0 {
+		return ""
+	}
+	return prs[0].HeadSHA
+}
+
+// disputed reads the pull request's threads, and takes a reply in the thread
+// of an open blocking finding, by anyone but Legato, as the author's answer
+// to it.
+func (c *ReviewRunCaller) disputed(ctx context.Context, l ReviewLoop, run *reviewRun) bool {
+	loop, err := c.engine.db.GetHandoffReview(ctx, l.TaskID)
+	if err != nil || loop == nil {
+		return false
+	}
+	items, err := currentItems(ctx, c.engine.db, loop)
+	if err != nil {
+		return false
+	}
+	threads := map[int64]store.HandoffReviewItem{}
+	for _, item := range items {
+		if item.Kind == ItemBlocking && item.ThreadCommentID != 0 && item.Answer == "" {
+			threads[item.ThreadCommentID] = item
+		}
+	}
+	if len(threads) == 0 {
+		return false
+	}
+	poll, err := c.engine.opts.GitHub.PollComments(ctx, run.Repo, run.PR, storePollPages{db: c.engine.db, taskID: l.TaskID, pr: run.PR})
+	if err != nil {
+		return false
+	}
+	legato := map[string]bool{}
+	for _, comment := range poll.Comments {
+		if comment.Kind == "review" && strings.Contains(comment.Body, "<!-- legato-review-pass ") {
+			legato[strings.ToLower(comment.Author)] = true
+		}
+	}
+	seen := map[int64]bool{}
+	for _, id := range run.Replies {
+		seen[id] = true
+	}
+	answered := false
+	for _, comment := range poll.Comments {
+		item, ok := threads[comment.ThreadRoot]
+		if comment.Kind != "inline" || !ok || comment.ID == comment.ThreadRoot || seen[comment.ID] || legato[strings.ToLower(comment.Author)] {
+			continue
+		}
+		note := strings.TrimSpace(comment.Body)
+		if note == "" {
+			continue
+		}
+		at := c.engine.opts.Now().UTC().Format(time.RFC3339)
+		if err := c.engine.db.AnswerHandoffReviewItem(ctx, l.TaskID, item.ID, AnswerReplied, comment.Author+" replied on GitHub: "+note, at); err != nil {
+			continue
+		}
+		// It is on GitHub already: nothing to post as the author App.
+		_ = c.engine.db.MarkHandoffReviewItemPosted(ctx, l.TaskID, item.ID)
+		run.Replies = append(run.Replies, comment.ID)
+		delete(threads, comment.ThreadRoot)
+		answered = true
+	}
+	if answered {
+		_ = c.engine.db.SetTaskMetadata(ctx, l.TaskID, reviewRunKey, run)
+	}
+	return answered
+}
+
+// Pushed says whether the pull request's head on GitHub moved past the head
+// the last pass pinned.
+func (c *ReviewRunCaller) Pushed(ctx context.Context, l ReviewLoop, pinned []store.HandoffReviewPR) (bool, error) {
+	run, err := c.run(ctx, l.TaskID)
+	if err != nil {
+		return false, err
+	}
+	pr, _, err := c.opts.GitHub.PullRequest(ctx, run.Repo, run.PR)
+	if err != nil {
+		return false, err
+	}
+	for _, p := range pinned {
+		if p.Number == run.PR && p.HeadSHA != pr.HeadSHA {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
+// AnotherPass starts the next pass of a run's review step now: Run another
+// pass. Refused unless the loop waits for its author.
+func (c *ReviewRunCaller) AnotherPass(ctx context.Context, runID, stepID string) error {
+	if c.workflows == nil {
+		return ErrReviewNotWaiting
+	}
+	attempts, err := c.workflows.WaitingAttempts(ctx, ReviewPassesStepType)
+	if err != nil {
+		return err
+	}
+	for _, attempt := range attempts {
+		if attempt.RunID == runID && attempt.StepID == stepID {
+			return c.engine.NextPass(ctx, attempt.TaskID)
+		}
+	}
+	return ErrReviewNotWaiting
+}
+
+// Stage ends the step when a clean pass approved, or when no open pull
+// request is left to review.
 func (c *ReviewRunCaller) Stage(ctx context.Context, l ReviewLoop, stage string) {
-	if stage == ReviewStageClean {
+	switch stage {
+	case ReviewStageClean:
 		c.finish(ctx, l.TaskID, ReviewOutcomeApproved)
+	case ReviewStageNone:
+		c.finish(ctx, l.TaskID, ReviewOutcomeClosed)
 	}
 }
 
@@ -316,6 +469,11 @@ func (c *ReviewRunCaller) finish(ctx context.Context, taskID, outcome string) {
 	if err != nil {
 		log.Printf("review passes: ending %s: %v", taskID, err)
 		return
+	}
+	if outcome != ReviewOutcomeApproved && c.engine.opts.Agents != nil {
+		// Called inside a tick as well: stop the reviewer without the
+		// engine's lock.
+		_ = c.engine.opts.Agents.KillAgentInSlot(ctx, taskID, SlotReviewer)
 	}
 	if err := c.engine.endLoop(ctx, taskID, outcome); err != nil {
 		log.Printf("review passes: ending %s: %v", taskID, err)

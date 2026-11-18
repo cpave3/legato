@@ -268,20 +268,7 @@ func (s *ReviewPassService) pushedSince(ctx context.Context, l ReviewLoop, loop 
 	if err != nil {
 		return false, err
 	}
-	dir, branches, err := s.opts.Checkout.Branches(ctx, l.TaskID, l.Repo)
-	if err != nil {
-		return false, err
-	}
-	if len(branches) > len(prs) {
-		return true, nil // a branch added to the stack
-	}
-	for _, pr := range prs {
-		tip, err := s.opts.Checkout.Tip(ctx, dir, pr.Branch)
-		if err == nil && tip != pr.HeadSHA {
-			return true, nil
-		}
-	}
-	return false, nil
+	return l.caller.Pushed(ctx, l, prs)
 }
 
 // postAnswers posts the author's answers that are not on GitHub yet, as the

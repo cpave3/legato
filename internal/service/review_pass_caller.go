@@ -3,6 +3,8 @@ package service
 import (
 	"context"
 	"errors"
+
+	"github.com/cpave3/legato/internal/engine/store"
 )
 
 // ReviewLoop is one review loop as the review-pass engine moves it on: the
@@ -34,6 +36,8 @@ const (
 	ReviewStageAuthor = "author"
 	// ReviewStageClean: a clean pass approved.
 	ReviewStageClean = "clean"
+	// ReviewStageNone: no open pull request was left to review.
+	ReviewStageNone = "none"
 )
 
 // ReviewCaller is who starts review loops and what they mean to it. The
@@ -49,6 +53,9 @@ type ReviewCaller interface {
 	// reviews there, each with Branch the folder's local branch at its
 	// head; none when there is nothing to review.
 	Checkout(ctx context.Context, loop ReviewLoop) (dir string, prs []ReviewGitHubPR, err error)
+	// Pushed says whether the author pushed past the heads a pass
+	// pinned (or added a pull request).
+	Pushed(ctx context.Context, loop ReviewLoop, pinned []store.HandoffReviewPR) (bool, error)
 	// AuthorDone says whether the author has finished a round: its work
 	// is ready for the next pass.
 	AuthorDone(ctx context.Context, loop ReviewLoop) bool

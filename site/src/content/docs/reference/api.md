@@ -283,6 +283,7 @@ A card on the board is a task: its ID is the task's. An agent is addressed by it
 | `POST` | `/api/workflow-runs/{run_id}/steps/{step_id}/retry` | change | Retry a workflow step |  |
 | `POST` | `/api/workflow-runs/{run_id}/steps/{step_id}/trigger` | change | Trigger a manual workflow step |  |
 | `POST` | `/api/workflow-runs/{run_id}/steps/{step_id}/prompt` | change | Remind a workflow step's agent |  |
+| `POST` | `/api/workflow-runs/{run_id}/steps/{step_id}/another-pass` | change | Run another pass of a run's review loop |  |
 | `GET` | `/api/workflow-artifacts/{artifact_id}` | read | Read a workflow artifact |  |
 | `POST` | `/api/swarm/start` | change | Start a swarm |  |
 | `POST` | `/api/swarm/cancel` | risky | Cancel a swarm |  |

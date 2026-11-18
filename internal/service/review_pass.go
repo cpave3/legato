@@ -330,7 +330,11 @@ func (s *ReviewPassService) ready(ctx context.Context, l ReviewLoop, loop *store
 	if len(prs) == 0 {
 		// Nothing to review: the loop is done as without review passes.
 		loop.Phase = ReviewPhaseSkipped
-		return s.save(ctx, loop)
+		if err := s.save(ctx, loop); err != nil {
+			return err
+		}
+		l.stage(ctx, ReviewStageNone)
+		return nil
 	}
 	var mismatch []string
 	for _, pr := range prs {

@@ -4,7 +4,7 @@ import { ChevronDown, ChevronRight, Download, FileText } from "lucide-react"
 import { useWorkflowRun } from "../hooks/useWorkflow"
 import { useServer } from "../hooks/useServer"
 import { useNow } from "../hooks/useNow"
-import { cancelWorkflow, retryWorkflowStep, triggerWorkflowStep, promptWorkflowStep, fetchWorkflowArtifact, type WorkflowArtifact, type WorkflowAttempt, type WorkflowRunView, type WorkflowStepRun } from "../lib/workflow"
+import { anotherReviewPass, cancelWorkflow, retryWorkflowStep, triggerWorkflowStep, promptWorkflowStep, fetchWorkflowArtifact, type WorkflowArtifact, type WorkflowAttempt, type WorkflowRunView, type WorkflowStepRun } from "../lib/workflow"
 import { ago, attentionCopy, currentStep, elapsed, inputText, runWithAttention, producedValues, runState, runSubject, secretInputNames, sourceLabel, stepIntent, stepMark, stepPosition, stepSegments, type StepLike, type Tone } from "../lib/workflowView"
 import { WorkflowMarkdownPreview } from "../components/WorkflowMarkdownPreview"
 import { ManualWorkflowStepAction } from "../components/ManualWorkflowStepAction"
@@ -121,6 +121,9 @@ function Now({ view, runId, refresh, now, secrets }: { view: WorkflowRunView; ru
       <p>{attempt.agent_kind || "The agent"} is working · {elapsed(attempt.started_at, now)}{attempt.working_dir && <> · in <span className="break-all font-lw-mono text-xs">{attempt.working_dir}</span></>}</p>
     </NowPanel>
   }
+  if (current.status === "waiting" && current.executor_type === "github.pr.review_passes") {
+    return <ReviewLoopNow view={view} step={current} runId={runId} refresh={refresh} />
+  }
   if (current.status === "waiting_manual") {
     if (stepTrigger(current) === "agent_ended" && !run.needs_attention) {
       return <NowPanel tone="live" heading={`${current.title} starts when the agent ends`}
@@ -135,6 +138,25 @@ function Now({ view, runId, refresh, now, secrets }: { view: WorkflowRunView; ru
     </NowPanel>
   }
   return <NowPanel tone={state.tone} heading={`Running ${current.title}`} />
+}
+
+// ReviewLoopNow is a run's review loop while its step waits on it.
+function ReviewLoopNow({ step, runId, refresh }: { view: WorkflowRunView; step: WorkflowStepRun; runId: string; refresh: () => Promise<void> }) {
+  const { baseUrl } = useServer()
+  const [error, setError] = useState("")
+  const [busy, setBusy] = useState(false)
+  async function another() {
+    setError("")
+    setBusy(true)
+    try { await anotherReviewPass(baseUrl, runId, step.step_id); await refresh() }
+    catch (c) { setError(c instanceof Error ? c.message : String(c)) }
+    finally { setBusy(false) }
+  }
+  return <NowPanel tone="live" heading={step.title}
+    actions={<Button variant="outline" disabled={busy} onClick={another}>Run another pass</Button>}>
+    <p>The review loop is under way. The next pass starts when the author pushes, or replies to a blocking finding.</p>
+    {error && <p role="alert" className="mt-1 text-lw-error">{error}</p>}
+  </NowPanel>
 }
 
 function stepDuration(step: WorkflowStepRun, now: number): string {

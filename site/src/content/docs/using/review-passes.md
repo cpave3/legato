@@ -136,6 +136,18 @@ curl -X POST -H "Authorization: Bearer $TOKEN" \
 
 Legato makes its own clone of the pull request's head (a fork's too) and starts pass 1 at once, in the run's reviewer slot. Each pass is posted as a GitHub review from the reviewer App, as for a handoff. The author is whoever owns the branch: Legato only reviews, and the author fixes by pushing and answers by replying in the review threads on GitHub. Only the reviewer's findings count: comments from other people and required checks are not items of this loop. No card moves.
 
+### How the author moves the loop on
+
+After a pass with findings, the run waits for the branch's owner, with no time limit. The next pass starts when:
+
+- **the owner pushes**, and the pull request's head then stays still for `review_passes.quiet_time` (two minutes by default). A push during the wait starts the wait again, so a pass never reviews a half-pushed fix;
+- **someone replies in a blocking finding's thread** without pushing: a dispute. The next pass reads the reply and rules on it, resolved or still open with why;
+- **you press Run another pass** on the run's page (or call `POST /api/workflow-runs/<run>/steps/<step>/another-pass`), at once, whether or not anything was pushed. It is refused while a pass runs or after the loop ended.
+
+Each later pass reviews only what changed since the one before, and rules on every earlier blocking finding. A loop that reaches its maximum passes, or whose passes keep finding new blocking problems in the fixes, is **stuck**. A pull request that is merged or closed ends the run with outcome `closed`.
+
+### How it ends
+
 A clean pass approves the pull request and ends the run. Its outputs are the `outcome` (`approved`), the number of `passes` and `findings`, the `reviews` posted with their links, `summary_path` (a Markdown summary) and `linked_task`, the board task the pull request belongs to (empty when none does). The workflow's second step adds the summary as a note to that task, and skips the note when there is none. Cancelling the run stops the reviewer and posts nothing more. Either way, Legato removes its clone.
 
 The run is refused at once, with the reason, when:

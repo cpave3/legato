@@ -3,13 +3,14 @@ package main
 import (
 	"path/filepath"
 
+	"github.com/cpave3/legato/internal/server"
 	"github.com/cpave3/legato/internal/service"
 )
 
 // wireReviewRuns registers the run caller with the review-pass engine and
 // attaches it to the workflow service's github.pr.review_passes step: review
 // loops on any pull request run on this instance, with its reviewer App.
-func wireReviewRuns(deps integrationDeps, reviews *service.ReviewPassService) {
+func wireReviewRuns(srv *server.Server, deps integrationDeps, reviews *service.ReviewPassService) {
 	if reviews == nil || deps.workflows == nil || deps.repos == nil {
 		return
 	}
@@ -25,4 +26,5 @@ func wireReviewRuns(deps integrationDeps, reviews *service.ReviewPassService) {
 	})
 	caller.SetWorkflows(deps.workflows)
 	step.Attach(caller)
+	srv.SetReviewRuns(caller)
 }

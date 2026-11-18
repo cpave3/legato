@@ -335,6 +335,14 @@ func (f *FakeReviewGitHub) ClosePR(number int) {
 	f.closed[number] = "closed"
 }
 
+// MergePR merges a pull request.
+func (f *FakeReviewGitHub) MergePR(number int) {
+	f.ClosePR(number)
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.closed[number] = "merged"
+}
+
 // NotInstalled makes repo one the reviewer App cannot read.
 func (f *FakeReviewGitHub) NotInstalled(repo string) {
 	f.mu.Lock()

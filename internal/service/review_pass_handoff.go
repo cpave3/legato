@@ -107,6 +107,25 @@ func (c *HandoffReviewCaller) Checkout(ctx context.Context, l ReviewLoop) (strin
 	return dir, prs, err
 }
 
+// Pushed says whether a branch of the card's clone moved past the head the
+// last pass pinned, or a branch was added to the stack.
+func (c *HandoffReviewCaller) Pushed(ctx context.Context, l ReviewLoop, prs []store.HandoffReviewPR) (bool, error) {
+	dir, branches, err := c.ReviewPassService.opts.Checkout.Branches(ctx, l.TaskID, l.Repo)
+	if err != nil {
+		return false, err
+	}
+	if len(branches) > len(prs) {
+		return true, nil // a branch added to the stack
+	}
+	for _, pr := range prs {
+		tip, err := c.ReviewPassService.opts.Checkout.Tip(ctx, dir, pr.Branch)
+		if err == nil && tip != pr.HeadSHA {
+			return true, nil
+		}
+	}
+	return false, nil
+}
+
 // AuthorDone says whether the card is in the Done column.
 func (c *HandoffReviewCaller) AuthorDone(ctx context.Context, l ReviewLoop) bool {
 	task, err := c.db.GetTask(ctx, l.TaskID)
