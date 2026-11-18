@@ -32,6 +32,9 @@ type ReviewLoop struct {
 	// Name and Link say whose loop it is, for a refusal to start another
 	// on the same pull request ("run wr-1", "/workflows/runs/wr-1").
 	Name, Link string
+	// Pending says a loop whose phase reads finished (clean) is not: its
+	// caller has yet to end it (a run confirming its head with GitHub).
+	Pending bool
 
 	caller ReviewCaller
 }
@@ -167,7 +170,7 @@ func (s *ReviewPassService) activeLoopOn(ctx context.Context, repo string, numbe
 		if err != nil {
 			continue
 		}
-		if loop != nil && (loop.Phase == ReviewPhaseClean || loop.Phase == ReviewPhaseSkipped || loop.Phase == ReviewPhaseEnded) {
+		if loop != nil && !l.Pending && (loop.Phase == ReviewPhaseClean || loop.Phase == ReviewPhaseSkipped || loop.Phase == ReviewPhaseEnded) {
 			continue
 		}
 		on := l.PR == number

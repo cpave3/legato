@@ -330,7 +330,8 @@ func (c *ReviewRunCaller) Loop(ctx context.Context, taskID string) (ReviewLoop, 
 	if err != nil {
 		return ReviewLoop{}, false
 	}
-	return ReviewLoop{TaskID: taskID, Repo: run.Repo, PR: run.PR, AuthorTaskID: run.AuthorTask, Name: "run " + run.RunID, Link: "/workflows/runs/" + run.RunID}, true
+	return ReviewLoop{TaskID: taskID, Repo: run.Repo, PR: run.PR, AuthorTaskID: run.AuthorTask, Pending: run.ConfirmClean,
+		Name: "run " + run.RunID, Link: "/workflows/runs/" + run.RunID}, true
 }
 
 // Checkout puts the run's clone at the pull request's head on GitHub now and

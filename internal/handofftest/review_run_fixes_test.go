@@ -156,3 +156,15 @@ func TestACleanPassIsApprovedOnlyOnceGitHubConfirmsTheHead(t *testing.T) {
 		t.Fatalf("run %q after GitHub answered", got.Run.Status)
 	}
 }
+
+// A loop waiting for GitHub to confirm its clean pass's head is still
+// active: another start on its pull request is refused.
+func TestALoopConfirmingItsHeadIsStillActive(t *testing.T) {
+	r := newReviewRun(t, ReviewPassOptions{})
+	first := r.start(t, pr12)
+	r.tick()
+	r.worker.ReviewGitHub.FailReads(1)
+	r.submit(t, first.Run.TaskID, service.ReviewSubmission{Summary: "Clean."})
+	r.worker.ReviewGitHub.Push(12, "ccc333")
+	refused(t, r.start(t, pr12), "already has an active review loop: run "+first.Run.ID)
+}
