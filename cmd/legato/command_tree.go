@@ -348,7 +348,7 @@ func commandTree() *commandDef {
 		[]string{"validate-plan", "create", "propose-plan", "cancel", "extend-plan", "dispatch", "message", "broadcast", "close", "finish", "next-step", "progress", "question", "built", "status", "inbox"},
 		[]commandFlag{jsonFlag})
 	workflow := legacyVerbGroup("workflow", "Run and inspect reusable workflows", runWorkflowCmd,
-		[]string{"list", "validate", "run", "runs", "show", "cancel", "retry", "trigger", "step"},
+		[]string{"list", "add", "validate", "run", "runs", "show", "cancel", "retry", "trigger", "step"},
 		[]commandFlag{valueFlag("input", "key=value", "Workflow input (repeatable)"), valueFlag("output", "key=value", "Step output (repeatable)"), valueFlag("artifact", "key=path", "Step artifact (repeatable)"), valueFlag("run", "run-id", "Workflow run identity"), valueFlag("step", "step-id", "Workflow step identity"), valueFlag("attempt", "attempt-id", "Workflow attempt identity"), valueFlag("status", "status", "Filter runs"), valueFlag("limit", "count", "Maximum runs"), jsonFlag})
 	configureSwarmCommands(swarm)
 	configureWorkflowCommands(workflow)
@@ -595,6 +595,7 @@ func configureWorkflowCommands(workflow *commandDef) {
 	}
 	applyCommandShapes(workflow, map[string]commandShape{
 		"list":     {flags: []commandFlag{jsonFlag}, examples: []string{"legato workflow list --json"}},
+		"add":      {arguments: []argumentDef{optionalArg("name", "Example workflow to add; lists them when left out")}, flags: []commandFlag{boolFlag("project", "Add it to .legato/workflows in this project instead of your global folder"), boolFlag("force", "Replace a workflow file of that name"), jsonFlag}, examples: []string{"legato workflow add", "legato workflow add review-pr-passes"}},
 		"validate": {arguments: []argumentDef{arg("name-or-file", "Workflow name or definition file")}, flags: []commandFlag{jsonFlag}, examples: []string{"legato workflow validate deploy.yaml --json"}},
 		"run":      {arguments: []argumentDef{arg("name", "Workflow name")}, flags: []commandFlag{{Name: "input", Value: "key=value", Description: "Workflow input", Repeatable: true}, jsonFlag}, examples: []string{"legato workflow run deploy --input environment=staging --json"}},
 		"runs":     {flags: []commandFlag{valueFlag("status", "status", "Filter runs"), valueFlag("limit", "count", "Maximum runs"), jsonFlag}, examples: []string{"legato workflow runs --status running --limit 20 --json"}},
