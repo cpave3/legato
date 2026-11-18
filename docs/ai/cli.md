@@ -26,6 +26,7 @@ Agent-side processes of a session (the hooks, `legato mcp serve`, the Claude Cod
 
 ```bash
 legato workflow list --json
+legato workflow add [<name>] [--project] [--force] [--json]
 legato workflow validate <name-or-file> --json
 legato workflow run <name> --input key=value --json
 legato workflow runs [--status running] [--limit 20] --json
@@ -34,6 +35,8 @@ legato workflow trigger <run-id> <step-id> --json
 legato workflow retry <run-id> <step-id> --json
 legato workflow cancel <run-id> --json
 ```
+
+`workflow add` (`cmd/legato/workflow_add.go`) needs no database: with no name it lists the embedded examples (`workflow.Examples`: `review-pr`, `review-pr-passes`) with their titles; with one it writes `<name>.workflow.yaml` to the XDG global workflows folder, or `.legato/workflows` with `--project`, and refuses a file that is there (`errWorkflowExists`) unless `--force`. `--json` prints `{name, path}`, or the list.
 
 Each `agent.run` attempt owns a distinct durable execution; retries create new executions. Task-triggered runs attribute active time to `workflow_runs.related_task_id` while retaining the synthetic workflow task and run/attempt IDs for drill-down. Repository-only runs remain project/workflow activity. Successful callbacks terminalize the execution before deleting the operational agent session.
 

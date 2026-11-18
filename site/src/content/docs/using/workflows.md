@@ -16,6 +16,13 @@ Legato discovers YAML definitions from:
 1. `$XDG_CONFIG_HOME/legato/workflows` (normally `~/.config/legato/workflows`)
 2. `.legato/workflows` in the current project
 
+Legato ships example workflows; `legato workflow add` lists them, and `legato workflow add <name>` writes one to your global folder (or `.legato/workflows` with `--project`), keeping a file of that name unless you add `--force`:
+
+```bash
+legato workflow add review-pr-passes
+legato workflow run review-pr-passes --input repo=acme/widget --input pr_number=12
+```
+
 Legato also reads `~/.legato/workflows` for compatibility. Precedence is legacy global, XDG global, then project-local. A later definition overrides an earlier definition with the same `name`. The selected source path is stored on every run.
 
 ## Repository presets

@@ -126,7 +126,7 @@ To see a review run end to end before you rely on it:
 
 A review loop need not start from a handoff. The `review-pr-passes` workflow runs one on any open pull request in a repository Legato's reviewer App is installed on: yours, a coworker's, or an agent's you started on this Legato. The loop runs on the Legato you start it on, which needs review passes set up as above, with a reviewer App credential of its own.
 
-Add the workflow to your [workflows folder](/legato/using/workflows/#definition-locations) (Legato ships it as [`review-pr-passes.workflow.yaml`](https://github.com/cpave3/legato/blob/main/internal/engine/workflow/examples/review-pr-passes.workflow.yaml)), then start it from the web **Workflows** page, or from the API (as the Reeve can), with the repository and the pull request's number:
+Add the workflow with `legato workflow add review-pr-passes` (`--project` for the repository's own workflows folder), then start it from the web **Workflows** page, from the command line (`legato workflow run review-pr-passes --input repo=acme/widget --input pr_number=12`), or from the API (as the Reeve can), with the repository and the pull request's number:
 
 ```bash
 curl -X POST -H "Authorization: Bearer $TOKEN" \
