@@ -113,7 +113,13 @@ func (s *Store) preflight() error {
 	}
 	ledgerVersion, err := validateMigrationLedger(connQueryer{conn: conn})
 	if err != nil {
-		return err
+		// A known released order is repaired by migrate; any other
+		// mismatch is refused here.
+		rows, readErr := readLedger(connQueryer{conn: conn})
+		if _, known := matchLedgerReordering(rows); readErr != nil || !known {
+			return err
+		}
+		ledgerVersion = len(rows)
 	}
 	if ledgerVersion != version {
 		return fmt.Errorf("database schema markers disagree: migration ledger is %d but SQLite user_version is %d", ledgerVersion, version)
@@ -179,6 +185,12 @@ func (s *Store) migrate() error {
 		return err
 	}
 	if ledgerExists != 0 {
+		if err := repairLedgerReordering(tx); err != nil {
+			return fmt.Errorf("repairing migration ledger: %w", err)
+		}
+		if err := tx.Get(&legacyVersion, "PRAGMA user_version"); err != nil {
+			return err
+		}
 		version, err := validateMigrationLedger(tx)
 		if err != nil {
 			return err
