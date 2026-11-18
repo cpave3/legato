@@ -378,6 +378,11 @@ func (d *Definition) NormalizeInputs(raw map[string]string) (map[string]any, err
 	}
 	for key, spec := range d.Inputs {
 		value, supplied := raw[key]
+		// An empty number or boolean, such as a form's blank field, is
+		// one not given: its default applies.
+		if supplied && strings.TrimSpace(value) == "" && (spec.Type == "integer" || spec.Type == "boolean") {
+			supplied = false
+		}
 		if !supplied {
 			if spec.Default != nil {
 				out[key] = spec.Default

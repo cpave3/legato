@@ -136,6 +136,10 @@ curl -X POST -H "Authorization: Bearer $TOKEN" \
 
 Legato makes its own clone of the pull request's head (a fork's too) and starts pass 1 at once, in the run's reviewer slot. Each pass is posted as a GitHub review from the reviewer App, as for a handoff. The author is whoever owns the branch: Legato only reviews, and the author fixes by pushing and answers by replying in the review threads on GitHub. Only the reviewer's findings count: comments from other people and required checks are not items of this loop. No card moves.
 
+### Tuning one loop
+
+A loop takes its settings from this Legato's `review_passes`: the reviewer, its model or tier, the skill, the maximum passes and the timings. The `review-pr-passes` inputs override two of them for one run: `max_passes`, and `reviewer` (an agent tool, or `tool:tier`, such as `codex:careful`). An input left empty uses the setting. In a workflow of your own, the `github.pr.review_passes` step's `max_passes` and `reviewer` do the same, and when they template a run input, the input wins. A reviewer this Legato does not offer is refused when the run starts, with the ones it does.
+
 ### How the author moves the loop on
 
 After a pass with findings, the run waits for the branch's owner, with no time limit. The next pass starts when:

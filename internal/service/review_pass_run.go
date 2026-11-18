@@ -163,6 +163,10 @@ func (c *ReviewRunCaller) Start(ctx context.Context, step ResolvedWorkflowStep) 
 	if c.opts.GitHub == nil || c.opts.Clones == nil {
 		return WorkflowExecutionResult{}, errors.New("review loops are not wired on this Legato")
 	}
+	settings, err := c.settings(cfg, step.With)
+	if err != nil {
+		return WorkflowExecutionResult{}, err
+	}
 	if err := c.opts.GitHub.Installed(ctx, repo); err != nil {
 		return WorkflowExecutionResult{}, fmt.Errorf("%w: Legato's reviewer App cannot read %s (%v). Either the App is not installed on the account, %s is not among the repositories the installation selects, or there is no such repository. Install the App on %s, or run the find-only review-pr workflow instead", ErrReviewAppMissing, repo, err, repo, repo)
 	}
@@ -197,7 +201,7 @@ func (c *ReviewRunCaller) Start(ctx context.Context, step ResolvedWorkflowStep) 
 		c.removeClone(ctx, &run)
 		return WorkflowExecutionResult{}, err
 	}
-	if err := c.engine.beginLoop(ctx, step.TaskID, cfg.Defaults); err != nil {
+	if err := c.engine.beginLoop(ctx, step.TaskID, settings); err != nil {
 		c.removeClone(ctx, &run)
 		return WorkflowExecutionResult{}, err
 	}
@@ -215,6 +219,37 @@ func (c *ReviewRunCaller) Cancel(ctx context.Context, attempt store.WorkflowStep
 		c.removeClone(ctx, run)
 	}
 	return nil
+}
+
+// settings are a run's loop settings: this Legato's review-pass settings,
+// with the step's max_passes and reviewer (an agent tool, or tool:tier) on
+// them when they are set. A reviewer this Legato does not offer is refused.
+func (c *ReviewRunCaller) settings(cfg ReviewPassConfig, with map[string]any) (ReviewPassSettings, error) {
+	var o ReviewPassOverride
+	if raw, ok := with["max_passes"]; ok && raw != nil && raw != "" {
+		n, err := workflowInt(raw)
+		if err != nil || n < 0 {
+			return ReviewPassSettings{}, fmt.Errorf("max_passes must be a number of passes, not %v", raw)
+		}
+		o.MaxPasses = n
+	}
+	if reviewer, _ := with["reviewer"].(string); strings.TrimSpace(reviewer) != "" {
+		o.Agent, o.Tier, _ = strings.Cut(strings.TrimSpace(reviewer), ":")
+	}
+	if o.MaxPasses == 0 && o.Agent == "" {
+		return cfg.Defaults, nil
+	}
+	settings, err := c.engine.Override(o)
+	if err != nil && o.Agent != "" && c.engine.opts.Advert != nil {
+		if advert := c.engine.opts.Advert(); advert != nil {
+			var names []string
+			for _, a := range advert.Adapters {
+				names = append(names, a.Name)
+			}
+			return ReviewPassSettings{}, fmt.Errorf("%v; this Legato's reviewers: %s", err, strings.Join(names, ", "))
+		}
+	}
+	return settings, err
 }
 
 // linkedTask is the board task the pull request belongs to, or "".
