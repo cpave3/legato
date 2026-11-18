@@ -158,7 +158,7 @@ function ReviewLoopNow({ view, step, runId, refresh }: { view: WorkflowRunView; 
   const stuck = details?.phase === "stuck"
   const waiting = !details || details.phase === "waiting_for_author"
   return <NowPanel tone={stuck ? "needs" : "live"} heading={details?.summary || step.title}
-    actions={waiting && <Button variant="outline" disabled={busy} onClick={another}>Run another pass</Button>}>
+    actions={(waiting || stuck) && <Button variant="outline" disabled={busy} onClick={another}>Run another pass</Button>}>
     {waiting && <p>The next pass starts when the author pushes, or replies to a blocking finding.</p>}
     {details?.reviews && details.reviews.length > 0 && <ul aria-label="Reviews posted" className="mt-1 space-y-0.5">
       {details.reviews.map(review => <li key={`${review.pass}-${review.pr}`}><a className="text-lw-accent underline" href={review.url} target="_blank" rel="noreferrer">Pass {review.pass} review of #{review.pr}</a></li>)}

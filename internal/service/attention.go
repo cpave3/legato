@@ -46,6 +46,7 @@ const (
 	AttentionSignalWorkflowTriggerConfirmation = "workflow_trigger_confirmation"
 	AttentionSignalWorkflowTriggerFailed       = "workflow_trigger_failed"
 	AttentionSignalWorkflowCompletion          = "workflow_completion"
+	AttentionSignalWorkflowReviewStuck         = "workflow_review_stuck"
 	AttentionSignalLearningCuratorWork         = "learning_curator_work"
 	AttentionSignalApproval                    = "approval"
 	AttentionSignalDevicesReset                = "devices_reset"
@@ -61,6 +62,7 @@ var defaultAttentionSignals = []string{
 	AttentionSignalWorkflowManualGate,
 	AttentionSignalWorkflowWaitingAgent,
 	AttentionSignalWorkflowFailed,
+	AttentionSignalWorkflowReviewStuck,
 	AttentionSignalWorkflowTriggerInput,
 	AttentionSignalWorkflowTriggerConfirmation,
 	AttentionSignalWorkflowTriggerFailed,
@@ -95,6 +97,7 @@ var knownAttentionSignals = map[string]bool{
 	AttentionSignalWorkflowManualGate:          true,
 	AttentionSignalWorkflowWaitingAgent:        true,
 	AttentionSignalWorkflowFailed:              true,
+	AttentionSignalWorkflowReviewStuck:         true,
 	AttentionSignalWorkflowTriggerInput:        true,
 	AttentionSignalWorkflowTriggerConfirmation: true,
 	AttentionSignalWorkflowTriggerFailed:       true,

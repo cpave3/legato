@@ -465,7 +465,7 @@ func (c *ReviewRunCaller) AnotherPass(ctx context.Context, runID, stepID string)
 	}
 	for _, attempt := range attempts {
 		if attempt.RunID == runID && attempt.StepID == stepID {
-			return c.engine.NextPass(ctx, attempt.TaskID)
+			return c.anotherPass(ctx, attempt.TaskID)
 		}
 	}
 	return ErrReviewNotWaiting
@@ -728,3 +728,56 @@ func (s *ReviewPassesStep) Details(ctx context.Context, attempt store.WorkflowSt
 // ReviewLoopChangedKind marks the EventWorkflowChanged a run's loop
 // publishes; the web server forwards those to open run pages.
 const ReviewLoopChangedKind = "review_loop"
+
+// Attention is why a run's loop needs the person: it is stuck.
+func (c *ReviewRunCaller) Attention(ctx context.Context, attempt store.WorkflowStepAttempt) string {
+	loop, err := c.engine.db.GetHandoffReview(ctx, attempt.TaskID)
+	if err != nil || loop == nil || loop.Phase != ReviewPhaseStuck {
+		return ""
+	}
+	return "Review loop stuck: " + loop.Reason
+}
+
+// Act takes a stuck loop's actions: another_pass reviews again (one pass
+// past the limit, or a retry), end ends it with outcome stuck, so the step
+// completes and the workflow goes on.
+func (c *ReviewRunCaller) Act(ctx context.Context, attempt store.WorkflowStepAttempt, action string) error {
+	switch action {
+	case "another_pass":
+		return c.anotherPass(ctx, attempt.TaskID)
+	case "end":
+		loop, err := c.engine.db.GetHandoffReview(ctx, attempt.TaskID)
+		if err != nil || loop == nil || loop.Phase != ReviewPhaseStuck {
+			return ErrReviewNotStuck
+		}
+		c.finish(ctx, attempt.TaskID, ReviewOutcomeStuck)
+		return nil
+	}
+	return fmt.Errorf("a review loop takes no action %q", action)
+}
+
+// anotherPass is Run another pass: at once on a loop waiting for its author,
+// or past its limit on a stuck one.
+func (c *ReviewRunCaller) anotherPass(ctx context.Context, taskID string) error {
+	loop, err := c.engine.db.GetHandoffReview(ctx, taskID)
+	if err == nil && loop != nil && loop.Phase == ReviewPhaseStuck {
+		return c.engine.AnotherPass(ctx, taskID)
+	}
+	return c.engine.NextPass(ctx, taskID)
+}
+
+// Attention is the run caller's, once it is attached.
+func (s *ReviewPassesStep) Attention(ctx context.Context, attempt store.WorkflowStepAttempt) string {
+	if caller := s.current(); caller != nil {
+		return caller.Attention(ctx, attempt)
+	}
+	return ""
+}
+
+// Act is the run caller's, once it is attached.
+func (s *ReviewPassesStep) Act(ctx context.Context, attempt store.WorkflowStepAttempt, action string) error {
+	if caller := s.current(); caller != nil {
+		return caller.Act(ctx, attempt, action)
+	}
+	return errors.New("review passes are off on this Legato")
+}

@@ -236,6 +236,7 @@ func (s *WorkflowService) Show(ctx context.Context, runID string) (*store.Workfl
 }
 
 func (s *WorkflowService) enrichWorkflowAttention(ctx context.Context, view *store.WorkflowRunView) {
+	s.waitingAttention(ctx, view)
 	for _, step := range view.Steps {
 		if step.Status == "waiting_manual" && waitsForAgentToEnd(view.Run) && s.taskHasRunningAgent(ctx, view.Run.TaskID) {
 			break

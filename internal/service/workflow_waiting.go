@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"encoding/json"
+	"fmt"
 
 	"github.com/cpave3/legato/internal/engine/store"
 )
@@ -105,6 +106,56 @@ func (s *WorkflowService) addDetails(ctx context.Context, view *store.WorkflowRu
 			view.Details[stepID] = details
 		}
 	}
+}
+
+// WorkflowStepAttention is an executor whose waiting step can need the
+// person: a reason, or "" when it does not.
+type WorkflowStepAttention interface {
+	Attention(ctx context.Context, attempt store.WorkflowStepAttempt) string
+}
+
+// WorkflowStepActor is an executor whose waiting step takes actions, such
+// as a stuck review loop's another_pass and end.
+type WorkflowStepActor interface {
+	Act(ctx context.Context, attempt store.WorkflowStepAttempt, action string) error
+}
+
+// waitingAttention marks the waiting attempts whose executor says they need
+// the person.
+func (s *WorkflowService) waitingAttention(ctx context.Context, view *store.WorkflowRunView) {
+	for i := range view.Attempts {
+		attempt := &view.Attempts[i]
+		if attempt.Status != WorkflowStepWaiting {
+			continue
+		}
+		if detector, ok := s.executors[attempt.ExecutorType].(WorkflowStepAttention); ok {
+			if reason := detector.Attention(ctx, *attempt); reason != "" {
+				attempt.NeedsAttention, attempt.AttentionReason = true, reason
+			}
+		}
+	}
+}
+
+// StepAction takes an action on a step waiting on its service.
+func (s *WorkflowService) StepAction(ctx context.Context, runID, stepID, action string) (*store.WorkflowRunView, error) {
+	view, err := s.store.GetWorkflowRun(ctx, runID)
+	if err != nil {
+		return nil, err
+	}
+	for _, attempt := range view.Attempts {
+		if attempt.StepID != stepID || attempt.Status != WorkflowStepWaiting {
+			continue
+		}
+		actor, ok := s.executors[attempt.ExecutorType].(WorkflowStepActor)
+		if !ok {
+			break
+		}
+		if err := actor.Act(ctx, attempt, action); err != nil {
+			return nil, err
+		}
+		return s.Show(ctx, runID)
+	}
+	return nil, fmt.Errorf("workflow step %q takes no action %q now: %w", stepID, action, store.ErrWorkflowStateConflict)
 }
 
 // Executor is the registered executor of a step type, or nil.

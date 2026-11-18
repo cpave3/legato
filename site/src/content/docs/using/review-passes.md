@@ -150,6 +150,8 @@ After a pass with findings, the run waits for the branch's owner, with no time l
 
 Each later pass reviews only what changed since the one before, and rules on every earlier blocking finding. A loop that reaches its maximum passes, or whose passes keep finding new blocking problems in the fixes, is **stuck**. A pull request that is merged or closed ends the run with outcome `closed`.
 
+A stuck loop raises one item in [Attention](/legato/using/attention/) on its run, with the reason. **Run another pass** reviews again, past the limit; **End** ends the loop with outcome `stuck`, and the run goes on to its note step. Both are also on the run's page (Run another pass) and in the TUI's Attention list (Enter, and `x` for End).
+
 ### How it ends
 
 A clean pass approves the pull request and ends the run. Its outputs are the `outcome` (`approved`), the number of `passes` and `findings`, the `reviews` posted with their links, `summary_path` (a Markdown summary) and `linked_task`, the board task the pull request belongs to (empty when none does). The workflow's second step adds the summary as a note to that task, and skips the note when there is none. Cancelling the run stops the reviewer and posts nothing more. Either way, Legato removes its clone.

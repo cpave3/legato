@@ -81,6 +81,7 @@ describe("WorkflowRunPage", () => {
     cleanup()
     review({ phase: "stuck", pass: 3, summary: "Stuck: the review reached its limit of 3 passes", blocking_open: 1, reason: "the review reached its limit of 3 passes", reviews })
     expect(within(now()).getByText("Stuck: the review reached its limit of 3 passes")).toBeTruthy()
+    expect(within(now()).getByRole("button", { name: "Run another pass" })).toBeTruthy()
     cleanup()
     review({ phase: "clean", pass: 1, summary: "Approved", blocking_open: 0, reviews })
     expect(within(now()).getByText("Approved")).toBeTruthy()

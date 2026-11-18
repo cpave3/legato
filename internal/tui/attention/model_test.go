@@ -13,13 +13,15 @@ type fakeService struct {
 	items   []service.AttentionItem
 	execErr error
 	calls   int
+	last    service.AttentionActionRequest
 }
 
 func (f *fakeService) List(context.Context, service.AttentionFilter) ([]service.AttentionItem, error) {
 	return f.items, nil
 }
-func (f *fakeService) Execute(context.Context, string, service.AttentionActionRequest) error {
+func (f *fakeService) Execute(_ context.Context, _ string, request service.AttentionActionRequest) error {
 	f.calls++
+	f.last = request
 	return f.execErr
 }
 func (f *fakeService) Dismiss(context.Context, string, string) error {
@@ -174,5 +176,33 @@ func TestTheTUIListsAnAwayTasksItemsButRefersTheirActionsToTheWebUI(t *testing.T
 	}
 	if !contains(m.View(), "Return, recall and take back from the web UI") {
 		t.Fatalf("view = %q", m.View())
+	}
+}
+
+func TestOtherActionRunsAnItemsSecondAction(t *testing.T) {
+	svc := &fakeService{items: []service.AttentionItem{
+		{ID: "att-1", Title: "Review loop on acme/widget#12", Reason: "Review loop stuck", Producer: "workflows", SourceRevision: "1",
+			Actions: []service.AttentionAction{
+				{ID: "open", Label: "Open run", Kind: "navigate"},
+				{ID: "another_pass", Label: "Run another pass", Kind: "execute"},
+				{ID: "end", Label: "End", Kind: "execute", RequiresConfirm: true},
+			}},
+	}}
+	m := New(svc)
+	m, _ = m.Update(queueMsg{items: svc.items})
+	m, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("x")})
+	if cmd == nil {
+		t.Fatal("x produced no command")
+	}
+	cmd()
+	if svc.last.ActionID != "end" || !svc.last.Confirmed {
+		t.Fatalf("request = %+v", svc.last)
+	}
+	m, cmd = m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if cmd != nil {
+		cmd()
+	}
+	if svc.last.ActionID != "another_pass" {
+		t.Fatalf("enter ran %q", svc.last.ActionID)
 	}
 }
