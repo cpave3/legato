@@ -79,12 +79,12 @@ func (s *ReviewPassService) Submit(ctx context.Context, taskID, executionID stri
 	if executionID == "" || (pass.ExecutionID != "" && pass.ExecutionID != executionID) {
 		return ReviewSubmitResult{}, ErrNotTheReviewer
 	}
-	h, err := s.db.OpenHandoffForTask(ctx, taskID)
+	l, err := s.loop(ctx, taskID)
 	if err != nil {
 		return ReviewSubmitResult{}, err
 	}
 	if reason := strings.TrimSpace(sub.Unable); reason != "" {
-		if err := s.unable(ctx, h, loop, *pass, "the reviewer was unable to review: "+reason); err != nil {
+		if err := s.unable(ctx, l, loop, *pass, "the reviewer was unable to review: "+reason); err != nil {
 			return ReviewSubmitResult{}, err
 		}
 		return ReviewSubmitResult{Message: "Legato recorded that you could not review, and posts nothing. You are done."}, nil
@@ -346,7 +346,7 @@ func (s *ReviewPassService) post(ctx context.Context, taskID string) error {
 	if err != nil || pass.State != ReviewPassSubmitted {
 		return err
 	}
-	h, err := s.db.OpenHandoffForTask(ctx, taskID)
+	l, err := s.loop(ctx, taskID)
 	if err != nil {
 		return err
 	}
@@ -394,7 +394,7 @@ func (s *ReviewPassService) post(ctx context.Context, taskID string) error {
 				return err // left submitted: the next Tick tries again
 			}
 			if errors.As(err, &gh) {
-				return s.stuck(ctx, h, loop, fmt.Sprintf("GitHub refused the review of #%d: %v", pr.Number, err))
+				return s.stuck(ctx, l, loop, fmt.Sprintf("GitHub refused the review of #%d: %v", pr.Number, err))
 			}
 			return err
 		}
@@ -434,7 +434,8 @@ func (s *ReviewPassService) post(ctx context.Context, taskID string) error {
 		if err := s.saveChanged(ctx, loop); err != nil {
 			return err
 		}
-		return s.opts.Board.MoveCard(ctx, taskID, cfg.DoneColumn)
+		l.stage(ctx, ReviewStageClean)
+		return nil
 	}
 	if err := s.raiseItems(ctx, taskID, pass.Pass, prs); err != nil {
 		return err
@@ -451,7 +452,8 @@ func (s *ReviewPassService) post(ctx context.Context, taskID string) error {
 	if err := s.saveChanged(ctx, loop); err != nil {
 		return err
 	}
-	return s.opts.Board.MoveCard(ctx, taskID, cfg.WorkColumn)
+	l.stage(ctx, ReviewStageAuthor)
+	return nil
 }
 
 // notConverging says whether a pass and the one before it each raised new

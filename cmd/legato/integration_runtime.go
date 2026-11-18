@@ -48,7 +48,10 @@ func wireIntegrations(srv *server.Server, deps integrationDeps) (stop func()) {
 	srv.SetBurnliteSettings(burnlite)
 	srv.SetIntegrationOverview(overview)
 	ctx, cancel := context.WithCancel(context.Background())
-	stopHandoffs := wireTaskHandoffs(srv, deps)
+	// The review-pass engine runs wherever review passes are on; handoffs
+	// are one of its callers.
+	reviews, stopReviews := startReviewPasses(deps)
+	stopHandoffs := wireTaskHandoffs(srv, deps, reviews)
 	if deps.cfg.Integrations.Argus != nil && deps.approvals != nil && deps.approvals.caseAttention != nil {
 		srv.SetCaseAttention(deps.approvals.caseAttention)
 	}
@@ -64,6 +67,7 @@ func wireIntegrations(srv *server.Server, deps integrationDeps) (stop func()) {
 	}
 	return func() {
 		stopHandoffs()
+		stopReviews()
 		cancel()
 	}
 }

@@ -184,19 +184,19 @@ func (s *ReviewPassService) raiseItems(ctx context.Context, taskID string, pass 
 // feedback moves a loop waiting for its author on: it tells the author of
 // a new round once it is idle (resuming it when it is not running), and,
 // once the card is in Done again, starts the next pass or lets it be done.
-func (s *ReviewPassService) feedback(ctx context.Context, h *store.Handoff, loop *store.HandoffReview, inDone bool) error {
+func (s *ReviewPassService) feedback(ctx context.Context, l ReviewLoop, loop *store.HandoffReview, inDone bool) error {
 	if loop.DeliveredPass < loop.Pass {
-		if err := s.deliver(ctx, h, loop); err != nil || loop.DeliveredPass < loop.Pass || loop.Phase != ReviewPhaseWaitingForAuthor {
+		if err := s.deliver(ctx, l, loop); err != nil || loop.DeliveredPass < loop.Pass || loop.Phase != ReviewPhaseWaitingForAuthor {
 			return err
 		}
 	}
 	if !inDone {
 		return nil
 	}
-	if err := RefuseUnansweredReview(ctx, s.db, h.TaskID); err != nil {
+	if err := RefuseUnansweredReview(ctx, s.db, l.TaskID); l.Counted && err != nil {
 		return nil // moved by hand, past the refusal: wait for the answers
 	}
-	pushed, err := s.pushedSince(ctx, h, loop)
+	pushed, err := s.pushedSince(ctx, l, loop)
 	if err != nil {
 		return err
 	}
@@ -207,7 +207,7 @@ func (s *ReviewPassService) feedback(ctx context.Context, h *store.Handoff, loop
 	}
 	if pushed || disputed {
 		loop.Phase = ReviewPhaseReady
-		return s.ready(ctx, h, loop)
+		return s.ready(ctx, l, loop)
 	}
 	loop.Phase = ReviewPhaseClean
 	return s.saveChanged(ctx, loop)
@@ -216,16 +216,11 @@ func (s *ReviewPassService) feedback(ctx context.Context, h *store.Handoff, loop
 // deliver tells the author of a round: one tagged line naming the command
 // that reads it. A dead author is resumed first; one that cannot be is
 // stuck.
-func (s *ReviewPassService) deliver(ctx context.Context, h *store.Handoff, loop *store.HandoffReview) error {
-	if _, err := s.opts.Agents.GetAgentSession(ctx, h.TaskID); err != nil {
-		if s.opts.ResumeAuthor == nil {
-			return s.stuck(ctx, h, loop, "the author is not running, and this worker cannot resume it")
-		}
-		if err := s.opts.ResumeAuthor(ctx, h.TaskID); err != nil {
-			return s.stuck(ctx, h, loop, err.Error())
-		}
+func (s *ReviewPassService) deliver(ctx context.Context, l ReviewLoop, loop *store.HandoffReview) error {
+	if err := s.authorRunning(ctx, l); err != nil {
+		return s.stuck(ctx, l, loop, err.Error())
 	}
-	if !s.authorIdle(ctx, h.TaskID) {
+	if !s.authorIdle(ctx, l.AuthorTaskID) {
 		return nil
 	}
 	items, err := currentItems(ctx, s.db, loop)
@@ -254,26 +249,26 @@ func (s *ReviewPassService) deliver(ctx context.Context, h *store.Handoff, loop 
 		return s.save(ctx, loop)
 	}
 	message := fmt.Sprintf("%s Pass %d has %s. Run legato review-pass feedback --json to read them.", ReviewTag, loop.Pass, joinAnd(parts))
-	if err := s.opts.Agents.QueueMessage(ctx, h.TaskID, message); err != nil {
-		return s.stuck(ctx, h, loop, "the author could not be told of its feedback: "+err.Error())
+	if err := s.tellAuthor(ctx, l, message); err != nil {
+		return s.stuck(ctx, l, loop, "the author could not be told of its feedback: "+err.Error())
 	}
 	var ids []string
 	for _, item := range items {
 		ids = append(ids, item.ID)
 	}
-	_ = s.db.MarkHandoffReviewItemsDelivered(ctx, h.TaskID, ids)
+	_ = s.db.MarkHandoffReviewItemsDelivered(ctx, l.TaskID, ids)
 	loop.DeliveredPass = loop.Pass
 	return s.save(ctx, loop)
 }
 
 // pushedSince says whether a pull request's branch moved past the head the
 // last pass pinned.
-func (s *ReviewPassService) pushedSince(ctx context.Context, h *store.Handoff, loop *store.HandoffReview) (bool, error) {
-	prs, err := s.db.ListHandoffReviewPRs(ctx, h.TaskID, loop.Pass)
+func (s *ReviewPassService) pushedSince(ctx context.Context, l ReviewLoop, loop *store.HandoffReview) (bool, error) {
+	prs, err := s.db.ListHandoffReviewPRs(ctx, l.TaskID, loop.Pass)
 	if err != nil {
 		return false, err
 	}
-	dir, branches, err := s.opts.Checkout.Branches(ctx, h.TaskID, h.Repo)
+	dir, branches, err := s.opts.Checkout.Branches(ctx, l.TaskID, l.Repo)
 	if err != nil {
 		return false, err
 	}
@@ -292,15 +287,15 @@ func (s *ReviewPassService) pushedSince(ctx context.Context, h *store.Handoff, l
 // postAnswers posts the author's answers that are not on GitHub yet, as the
 // author App: a reply in the item's thread, else a comment on the pull
 // request. Call with s.mu held.
-func (s *ReviewPassService) postAnswers(ctx context.Context, h *store.Handoff) {
-	items, err := s.db.ListHandoffReviewItems(ctx, h.TaskID)
+func (s *ReviewPassService) postAnswers(ctx context.Context, l ReviewLoop) {
+	items, err := s.db.ListHandoffReviewItems(ctx, l.TaskID)
 	if err != nil {
 		return
 	}
-	dir, _, _ := s.opts.Checkout.Branches(ctx, h.TaskID, h.Repo)
+	dir, _, _ := s.opts.Checkout.Branches(ctx, l.TaskID, l.Repo)
 	prs := map[int]string{}
-	if loop, err := s.db.GetHandoffReview(ctx, h.TaskID); err == nil && loop != nil {
-		if list, err := s.db.ListHandoffReviewPRs(ctx, h.TaskID, loop.Pass); err == nil {
+	if loop, err := s.db.GetHandoffReview(ctx, l.TaskID); err == nil && loop != nil {
+		if list, err := s.db.ListHandoffReviewPRs(ctx, l.TaskID, loop.Pass); err == nil {
 			for _, pr := range list {
 				prs[pr.Number] = pr.Branch
 			}
@@ -325,7 +320,7 @@ func (s *ReviewPassService) postAnswers(ctx context.Context, h *store.Handoff) {
 			log.Printf("review passes: posting the answer to %s: %v", item.ID, err)
 			continue
 		}
-		_ = s.db.MarkHandoffReviewItemPosted(ctx, h.TaskID, item.ID)
+		_ = s.db.MarkHandoffReviewItemPosted(ctx, l.TaskID, item.ID)
 	}
 }
 
@@ -355,4 +350,16 @@ func joinAnd(parts []string) string {
 		return strings.Join(parts, "")
 	}
 	return strings.Join(parts[:len(parts)-1], ", ") + " and " + parts[len(parts)-1]
+}
+
+// authorRunning resumes a loop's author agent when it is not running. A
+// person (no author task) needs nothing.
+func (s *ReviewPassService) authorRunning(ctx context.Context, l ReviewLoop) error {
+	if l.AuthorTaskID == "" {
+		return nil
+	}
+	if _, err := s.opts.Agents.GetAgentSession(ctx, l.AuthorTaskID); err == nil {
+		return nil
+	}
+	return l.resumeAuthor(ctx)
 }

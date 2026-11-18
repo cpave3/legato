@@ -134,15 +134,17 @@ func (s *ReviewPassService) MessageAuthor(ctx context.Context, taskID, text stri
 	if text == "" {
 		return errors.New("a message needs text")
 	}
-	if _, err := s.opts.Agents.GetAgentSession(ctx, taskID); err != nil {
-		if s.opts.ResumeAuthor == nil {
-			return errors.New("the author is not running, and this worker cannot resume it")
-		}
-		if err := s.opts.ResumeAuthor(ctx, taskID); err != nil {
-			return err
-		}
+	l, err := s.loop(ctx, taskID)
+	if err != nil {
+		return err
 	}
-	return s.opts.Agents.QueueMessage(ctx, taskID, MainTag+" "+text)
+	if l.AuthorTaskID == "" {
+		return errors.New("the author is a person, who reads GitHub")
+	}
+	if err := s.authorRunning(ctx, l); err != nil {
+		return err
+	}
+	return s.tellAuthor(ctx, l, MainTag+" "+text)
 }
 
 // setSettings writes a loop's settings.

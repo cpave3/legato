@@ -6,12 +6,13 @@ import (
 	"strings"
 )
 
-// HandoffReviewBlock is what a summary row says of a handoff's review: the
+// ReviewLoopBlock is a review loop in brief, as a handoff's summary row and a
+// run's review step say it: the
 // pass, its phase (reviewing, waiting_for_reviewer, waiting_for_author,
 // clean, stuck), the items open, the comments skipped, why it is stuck,
 // and each pull request's latest Legato review. A main that predates it
 // ignores it.
-type HandoffReviewBlock struct {
+type ReviewLoopBlock struct {
 	Pass         int    `json:"pass"`
 	Phase        string `json:"phase"`
 	BlockingOpen int    `json:"blocking_open"`
@@ -34,17 +35,17 @@ type ReviewLink struct {
 
 // InReview says the review is under way: a pass runs, waits for a
 // reviewer, waits for the author, or is clean and waits for checks.
-func (b *HandoffReviewBlock) InReview() bool {
+func (b *ReviewLoopBlock) InReview() bool {
 	return b != nil && (b.Phase == ReviewPhaseReviewing || b.Phase == ReviewPhaseWaitingForReviewer || b.Phase == ReviewPhaseWaitingForAuthor ||
 		(b.Phase == ReviewPhaseClean && b.ChecksPending > 0))
 }
 
 // Stuck says the review needs the person.
-func (b *HandoffReviewBlock) Stuck() bool { return b != nil && b.Phase == ReviewPhaseStuck }
+func (b *ReviewLoopBlock) Stuck() bool { return b != nil && b.Phase == ReviewPhaseStuck }
 
 // Summary is the block in a few words: "Reviewing · pass 2", "Author fixing
 // · 3 blocking, 1 comment", "Done · approved".
-func (b *HandoffReviewBlock) Summary() string {
+func (b *ReviewLoopBlock) Summary() string {
 	if b == nil {
 		return ""
 	}
@@ -88,12 +89,12 @@ func (b *HandoffReviewBlock) Summary() string {
 
 // ReviewBlock is a card's review as its summary row says it; nil when it
 // has none (yet, or no pull request to review).
-func (s *ReviewPassService) ReviewBlock(ctx context.Context, taskID string) *HandoffReviewBlock {
+func (s *ReviewPassService) ReviewBlock(ctx context.Context, taskID string) *ReviewLoopBlock {
 	loop, err := s.db.GetHandoffReview(ctx, taskID)
 	if err != nil || loop == nil {
 		return nil
 	}
-	block := &HandoffReviewBlock{Pass: loop.Pass, Phase: loop.Phase, Reason: loop.Reason}
+	block := &ReviewLoopBlock{Pass: loop.Pass, Phase: loop.Phase, Reason: loop.Reason}
 	switch loop.Phase {
 	case ReviewPhaseAuthor, ReviewPhaseSkipped:
 		if loop.Pass == 0 {
@@ -174,7 +175,7 @@ func (s *ReviewPassService) openItemTitles(ctx context.Context, taskID string) [
 }
 
 // reviewNoteText is a review block as a note.
-func reviewNoteText(block *HandoffReviewBlock, open []string) string {
+func reviewNoteText(block *ReviewLoopBlock, open []string) string {
 	var b strings.Builder
 	fmt.Fprintf(&b, "Review passes: %d pass(es); %s.", block.Pass, strings.TrimSuffix(block.Summary(), "."))
 	for _, link := range block.Links {
@@ -191,7 +192,7 @@ func reviewNoteText(block *HandoffReviewBlock, open []string) string {
 
 // ReviewBlockNote is a review block as the note a Take back leaves, from
 // what the main last heard.
-func ReviewBlockNote(block *HandoffReviewBlock) string {
+func ReviewBlockNote(block *ReviewLoopBlock) string {
 	if block == nil {
 		return ""
 	}

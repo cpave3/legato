@@ -38,32 +38,30 @@ func workerReviewPassOptions(cfg *config.Config, db *store.Store, opts service.R
 	return opts
 }
 
-// wireReviewPasses starts the review loop of a worker with review_passes
-// on: it gates its handoffs' Done on a clean review, takes submit_review
-// through the broker, and ticks while this process serves the broker. It
-// needs the credential channels, which post as the reviewer App.
-func wireReviewPasses(deps integrationDeps, handoffs *service.HandoffWorkerService) (stop func()) {
+// startReviewPasses starts the review-pass engine on an instance with
+// review_passes on: it takes submit_review through the broker and ticks
+// while this process serves the broker. It needs the credential channels,
+// which post as the reviewer App. It does nothing until a caller has a loop:
+// the handoff caller registers when handoffs are wired
+// (wireHandoffReviewCaller). Nil when review passes are off.
+func startReviewPasses(deps integrationDeps) (*service.ReviewPassService, func()) {
 	if !deps.cfg.ReviewPasses.Enabled || deps.approvals == nil || deps.approvals.channels == nil {
-		return func() {}
+		return nil, func() {}
 	}
 	agents, ok := deps.agents.(service.ReviewAgents)
-	if !ok || deps.board == nil {
-		return func() {}
+	if !ok {
+		return nil, func() {}
 	}
 	opts := workerReviewPassOptions(deps.cfg, deps.db, service.ReviewPassOptions{
-		Agents: agents, Board: deps.board, Bus: deps.bus,
+		Agents: agents, Bus: deps.bus,
 		GitHub:   service.NewReviewPublisher(deps.approvals.channels, deps.cfg.ReviewPasses.GitHubCredential),
 		Checkout: service.GitReviewCheckout{Store: deps.db},
 		Run:      func(f func()) { go f() },
-		// A dead author is resumed, with everything it had, to hear of its
-		// feedback.
-		ResumeAuthor: handoffs.ResumeAuthor,
 	})
 	if prober, ok := deps.agents.(service.CheckoutOverlayProber); ok {
 		opts.Overlay = prober.CheckoutOverlayAvailable
 	}
 	reviews := service.NewReviewPassService(deps.db, opts)
-	handoffs.SetReviews(reviews)
 	deps.approvals.setReviewPasses(reviews)
 	ctx, cancel := context.WithCancel(context.Background())
 	owner := deps.approvals.brokerOwner
@@ -90,5 +88,19 @@ func wireReviewPasses(deps integrationDeps, handoffs *service.HandoffWorkerServi
 		}()
 	}
 	log.Printf("review passes: on, reviewing as %s with %s", deps.cfg.ReviewPasses.GitHubCredential, deps.cfg.ReviewPasses.Reviewer.Agent)
-	return cancel
+	return reviews, cancel
+}
+
+// wireHandoffReviewCaller registers the handoff caller with the engine: a
+// worker's reviewed handoffs' Done waits for a clean review.
+func wireHandoffReviewCaller(deps integrationDeps, reviews *service.ReviewPassService, handoffs *service.HandoffWorkerService) {
+	if reviews == nil || deps.board == nil {
+		return
+	}
+	handoffs.SetReviews(service.NewHandoffReviewCaller(reviews, service.HandoffReviewCallerOptions{
+		Board: deps.board, Bus: deps.bus,
+		// A dead author is resumed, with everything it had, to hear of its
+		// feedback.
+		ResumeAuthor: handoffs.ResumeAuthor,
+	}))
 }
