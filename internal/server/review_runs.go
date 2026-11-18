@@ -3,6 +3,9 @@ package server
 import (
 	"context"
 	"net/http"
+
+	"github.com/cpave3/legato/internal/engine/events"
+	"github.com/cpave3/legato/internal/service"
 )
 
 // ReviewRuns are the review loops workflow runs started
@@ -41,4 +44,27 @@ func (s *Server) reviewAnotherPassHandler() http.HandlerFunc {
 		}
 		s.writeJSON(w, http.StatusOK, view)
 	}
+}
+
+// ReviewLoopChanged is the kind of EventWorkflowChanged a run's review loop
+// publishes when it moves on (service.ReviewRunCaller).
+const ReviewLoopChanged = service.ReviewLoopChangedKind
+
+// StartReviewRunEvents sends the web UI a run's review-loop changes, which
+// the service publishes on the bus, so an open run page follows its loop.
+// Other workflow events reach the web UI through NotifyWorkflowChanged.
+func (s *Server) StartReviewRunEvents() {
+	if s.bus == nil {
+		return
+	}
+	go func() {
+		ch := s.bus.Subscribe(events.EventWorkflowChanged)
+		for event := range ch {
+			payload, ok := event.Payload.(events.WorkflowChangedPayload)
+			if !ok || payload.Kind != ReviewLoopChanged {
+				continue
+			}
+			s.hub.Broadcast(WSMessage{Type: MsgWorkflowChanged, WorkflowRunID: payload.RunID, WorkflowStepID: payload.StepID})
+		}
+	}()
 }

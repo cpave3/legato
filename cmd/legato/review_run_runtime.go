@@ -27,4 +27,5 @@ func wireReviewRuns(srv *server.Server, deps integrationDeps, reviews *service.R
 	caller.SetWorkflows(deps.workflows)
 	step.Attach(caller)
 	srv.SetReviewRuns(caller)
+	srv.StartReviewRunEvents()
 }

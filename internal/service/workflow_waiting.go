@@ -79,6 +79,34 @@ func hasWaitingAttempt(view *store.WorkflowRunView, stepID, attemptID string) bo
 	return false
 }
 
+// WorkflowStepDetailer is an executor that says more of its step than its
+// status: Show puts it in the run view's Details.
+type WorkflowStepDetailer interface {
+	Details(ctx context.Context, attempt store.WorkflowStepAttempt) any
+}
+
+// addDetails asks each step's executor about its latest attempt.
+func (s *WorkflowService) addDetails(ctx context.Context, view *store.WorkflowRunView) {
+	latest := map[string]store.WorkflowStepAttempt{}
+	for _, attempt := range view.Attempts {
+		if previous, ok := latest[attempt.StepID]; !ok || attempt.AttemptNumber >= previous.AttemptNumber {
+			latest[attempt.StepID] = attempt
+		}
+	}
+	for stepID, attempt := range latest {
+		detailer, ok := s.executors[attempt.ExecutorType].(WorkflowStepDetailer)
+		if !ok {
+			continue
+		}
+		if details := detailer.Details(ctx, attempt); details != nil {
+			if view.Details == nil {
+				view.Details = map[string]any{}
+			}
+			view.Details[stepID] = details
+		}
+	}
+}
+
 // Executor is the registered executor of a step type, or nil.
 func (s *WorkflowService) Executor(executorType string) WorkflowExecutor {
 	return s.executors[executorType]

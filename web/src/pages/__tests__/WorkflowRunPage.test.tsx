@@ -67,6 +67,25 @@ describe("WorkflowRunPage", () => {
     expect((await within(now()).findByRole("alert")).textContent).toContain("a pass is running already")
   })
 
+  it("says where a review loop stands, with its reviews", () => {
+    const review = (details: unknown) => show({ run: { ...run, status: "running", current_step_id: "review" }, steps: [stepRun("review", 0, "Review in passes", "github.pr.review_passes", "waiting")], attempts: [], artifacts: [], details: { review: details } })
+    const reviews = [{ pass: 1, pr: 12, url: "https://github.com/acme/widget/pull/12#pullrequestreview-1" }]
+    review({ phase: "reviewing", pass: 2, summary: "Reviewing · pass 2", blocking_open: 0, reviews })
+    expect(within(now()).getByText("Reviewing · pass 2")).toBeTruthy()
+    expect(within(now()).queryByRole("button", { name: "Run another pass" })).toBeNull()
+    expect(within(now()).getByRole("link", { name: "Pass 1 review of #12" }).getAttribute("href")).toBe(reviews[0].url)
+    cleanup()
+    review({ phase: "waiting_for_author", pass: 1, summary: "Waiting for author · 3 blocking", blocking_open: 3, reviews })
+    expect(within(now()).getByText("Waiting for author · 3 blocking")).toBeTruthy()
+    expect(within(now()).getByRole("button", { name: "Run another pass" })).toBeTruthy()
+    cleanup()
+    review({ phase: "stuck", pass: 3, summary: "Stuck: the review reached its limit of 3 passes", blocking_open: 1, reason: "the review reached its limit of 3 passes", reviews })
+    expect(within(now()).getByText("Stuck: the review reached its limit of 3 passes")).toBeTruthy()
+    cleanup()
+    review({ phase: "clean", pass: 1, summary: "Approved", blocking_open: 0, reviews })
+    expect(within(now()).getByText("Approved")).toBeTruthy()
+  })
+
   it("puts an idle agent in front of the operator with a way to nudge it", () => {
     // As the run endpoint sends it: the attention is on the attempt, not the run.
     show({ run: { ...run, status: "running", current_step_id: "plan" }, steps: [stepRun("plan", 0, "Write the plan", "agent.run", "waiting_agent")], attempts: [agentAttempt({ needs_attention: true, attention_reason: "agent idle before step completion", agent_activity: "idle" })], artifacts: [] })

@@ -231,6 +231,7 @@ func (s *WorkflowService) Show(ctx context.Context, runID string) (*store.Workfl
 		return nil, err
 	}
 	s.enrichWorkflowAttention(ctx, view)
+	s.addDetails(ctx, view)
 	return view, nil
 }
 

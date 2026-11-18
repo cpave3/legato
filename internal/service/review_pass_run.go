@@ -455,7 +455,7 @@ func (c *ReviewRunCaller) Changed(taskID string) {
 		return
 	}
 	if run, err := c.run(context.Background(), taskID); err == nil {
-		c.engine.opts.Bus.Publish(events.Event{Type: events.EventWorkflowChanged, Payload: events.WorkflowChangedPayload{RunID: run.RunID}, At: c.engine.opts.Now()})
+		c.engine.opts.Bus.Publish(events.Event{Type: events.EventWorkflowChanged, Payload: events.WorkflowChangedPayload{RunID: run.RunID, StepID: run.StepID, Kind: ReviewLoopChangedKind}, At: c.engine.opts.Now()})
 	}
 }
 
@@ -619,3 +619,74 @@ func (s *ReviewPassesStep) Cancel(ctx context.Context, attempt store.WorkflowSte
 	}
 	return nil
 }
+
+// ReviewRunDetails is where a run's review loop stands, as the run page
+// shows it: its phase, the pass, a line ("Reviewing · pass 2", "Waiting for
+// author · 3 blocking", "Approved", "Stuck: …"), and every review posted.
+type ReviewRunDetails struct {
+	Phase        string            `json:"phase"`
+	Pass         int               `json:"pass"`
+	Summary      string            `json:"summary"`
+	BlockingOpen int               `json:"blocking_open"`
+	Reason       string            `json:"reason,omitempty"`
+	Reviews      []ReviewRunReview `json:"reviews"`
+}
+
+// ReviewRunReview is one review a pass posted.
+type ReviewRunReview struct {
+	Pass int    `json:"pass"`
+	PR   int    `json:"pr"`
+	URL  string `json:"url"`
+}
+
+// Details is where the run task's loop stands; nil before it has one.
+func (c *ReviewRunCaller) Details(ctx context.Context, attempt store.WorkflowStepAttempt) any {
+	loop, err := c.engine.db.GetHandoffReview(ctx, attempt.TaskID)
+	if err != nil || loop == nil {
+		return nil
+	}
+	d := ReviewRunDetails{Phase: loop.Phase, Pass: loop.Pass, Reason: loop.Reason, Reviews: []ReviewRunReview{}}
+	if block := c.engine.ReviewBlock(ctx, attempt.TaskID); block != nil {
+		d.BlockingOpen = block.BlockingOpen
+	}
+	for pass := 1; pass <= loop.Pass; pass++ {
+		prs, _ := c.engine.db.ListHandoffReviewPRs(ctx, attempt.TaskID, pass)
+		for _, pr := range prs {
+			if pr.ReviewURL != "" {
+				d.Reviews = append(d.Reviews, ReviewRunReview{Pass: pass, PR: pr.Number, URL: pr.ReviewURL})
+			}
+		}
+	}
+	switch loop.Phase {
+	case ReviewPhaseReady, ReviewPhaseWaitingForReviewer:
+		d.Phase, d.Summary = ReviewPhaseReviewing, fmt.Sprintf("Reviewing · pass %d", loop.Pass+1)
+	case ReviewPhaseReviewing:
+		d.Summary = fmt.Sprintf("Reviewing · pass %d", loop.Pass)
+	case ReviewPhaseWaitingForAuthor:
+		d.Summary = "Waiting for author"
+		if d.BlockingOpen > 0 {
+			d.Summary += fmt.Sprintf(" · %d blocking", d.BlockingOpen)
+		}
+	case ReviewPhaseClean:
+		d.Summary = "Approved"
+	case ReviewPhaseStuck:
+		d.Summary = "Stuck: " + loop.Reason
+	case ReviewPhaseSkipped:
+		d.Phase, d.Summary = ReviewPhaseEnded, "Closed"
+	case ReviewPhaseEnded:
+		d.Summary = map[string]string{ReviewOutcomeClosed: "Closed", ReviewOutcomeCancelled: "Cancelled", ReviewOutcomeStuck: "Ended while stuck"}[loop.Reason]
+	}
+	return d
+}
+
+// Details is the run caller's, once it is attached.
+func (s *ReviewPassesStep) Details(ctx context.Context, attempt store.WorkflowStepAttempt) any {
+	if caller := s.current(); caller != nil {
+		return caller.Details(ctx, attempt)
+	}
+	return nil
+}
+
+// ReviewLoopChangedKind marks the EventWorkflowChanged a run's loop
+// publishes; the web server forwards those to open run pages.
+const ReviewLoopChangedKind = "review_loop"

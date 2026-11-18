@@ -112,6 +112,9 @@ type WorkflowRunView struct {
 	Steps     []WorkflowStepRun     `json:"steps"`
 	Attempts  []WorkflowStepAttempt `json:"attempts"`
 	Artifacts []WorkflowArtifact    `json:"artifacts"`
+	// Details are what a step's executor says of it, by step ID, such as
+	// where a review loop stands; the service fills them.
+	Details map[string]any `json:"details,omitempty"`
 }
 
 func (s *Store) CreateWorkflowRun(ctx context.Context, run WorkflowRun, steps []WorkflowStepRun) error {

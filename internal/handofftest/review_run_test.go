@@ -243,3 +243,28 @@ func TestCancellingAReviewRunEndsItsLoopAndRemovesItsClone(t *testing.T) {
 		t.Fatal("a cancelled loop posted")
 	}
 }
+
+func TestTheRunSaysWhereItsReviewLoopStands(t *testing.T) {
+	r := newReviewRun(t, ReviewPassOptions{})
+	view := r.start(t, pr12)
+	task := view.Run.TaskID
+	r.tick()
+	details := func() service.ReviewRunDetails {
+		t.Helper()
+		got, ok := r.show(t, view.Run.ID).Details["review"].(service.ReviewRunDetails)
+		if !ok {
+			t.Fatalf("details = %+v", r.show(t, view.Run.ID).Details)
+		}
+		return got
+	}
+	if d := details(); d.Phase != service.ReviewPhaseReviewing || d.Summary != "Reviewing · pass 1" {
+		t.Fatalf("reviewing: %+v", d)
+	}
+	r.submit(t, task, service.ReviewSubmission{Summary: "One problem.", Findings: []service.SubmittedFinding{
+		{PR: 12, Severity: "blocking", Title: "Greets nobody", Body: "An empty name.", FailureScenario: "greet(\"\") prints a bare comma.", Place: &service.ReviewPlace{Path: "greet.go", Line: 4}},
+	}})
+	d := details()
+	if d.Phase != service.ReviewPhaseWaitingForAuthor || d.Summary != "Waiting for author · 1 blocking" || len(d.Reviews) != 1 || d.Reviews[0].URL != "https://github.com/review/1" {
+		t.Fatalf("waiting: %+v", d)
+	}
+}
