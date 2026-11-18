@@ -343,3 +343,64 @@ describe("discussing a pull request", () => {
     expect(response).toEqual({ ok: false, error: "Unsupported pull request action" })
   })
 })
+
+describe("review passes on a pull request", () => {
+  const passesDiscovery: WorkflowDiscovery = {
+    ...discovery,
+    definitions: [...discovery.definitions!, { name: "review-pr-passes", inputs: { repo: { type: "string" }, pr_number: { type: "integer" }, max_passes: { type: "integer", default: 0 } } }],
+  }
+  const passes = () => {
+    const deps = dependencies()
+    deps.discover.mockResolvedValue(passesDiscovery)
+    return deps
+  }
+  const start = { type: "startPreparedWorkflow", purpose: "passes", context: pr }
+
+  it("starts the configured review loop workflow with the pull request's repository and number", async () => {
+    const deps = passes()
+    deps.start.mockResolvedValue({ run: { id: "run-5", status: "running" } })
+    const response = await createMessageHandler(deps)(start, { tab: { id: 4 } })
+
+    expect(deps.start).toHaveBeenCalledWith(DEFAULT_CONFIG, expect.objectContaining({ workflowName: "review-pr-passes", inputs: { repo: "cpave3/legato", pr_number: "7" } }))
+    expect(response).toEqual({ ok: true, runUrl: "http://localhost:3080/workflows/runs/run-5" })
+  })
+
+  it("opens the review loop already running on the pull request instead of starting another", async () => {
+    const deps = passes()
+    deps.listRuns.mockResolvedValue([{ ...discussionRun("live", "running"), workflow_name: "review-pr-passes" }])
+    const response = await createMessageHandler(deps)(start, { tab: { id: 4 } })
+
+    expect(deps.start).not.toHaveBeenCalled()
+    expect(deps.listRuns).toHaveBeenCalledWith(DEFAULT_CONFIG, "review-pr-passes", { repo: "cpave3/legato", pr_number: "7" })
+    expect(response).toMatchObject({ ok: true, runUrl: "http://localhost:3080/workflows/runs/live", activeLoop: true })
+    expect(deps.openRun).toHaveBeenCalledWith("http://localhost:3080/workflows/runs/live")
+  })
+
+  it("links the active loop Legato names when it refuses the start", async () => {
+    const deps = passes()
+    deps.start.mockResolvedValue({ run: { id: "run-6", status: "failed" }, steps: [{ step_id: "review", title: "Review", status: "failed",
+      error: "pull request #7 of cpave3/legato already has an active review loop: handed-off task card-1 (/board?highlight_task=card-1)" }] })
+    const response = await createMessageHandler(deps)(start, { tab: { id: 4 } })
+
+    expect(response).toMatchObject({ ok: true, runUrl: "http://localhost:3080/board?highlight_task=card-1", activeLoop: true })
+    expect(deps.openRun).toHaveBeenCalledWith("http://localhost:3080/board?highlight_task=card-1")
+  })
+
+  it("shows Legato's words when the reviewer App cannot read the repository", async () => {
+    const deps = passes()
+    const refusal = "the reviewer App cannot read this repository: Legato's reviewer App cannot read cpave3/legato. Either the App is not installed on the account, …"
+    deps.start.mockResolvedValue({ run: { id: "run-7", status: "failed" }, steps: [{ step_id: "review", title: "Review", status: "failed", error: refusal }] })
+    const response = await createMessageHandler(deps)(start, { tab: { id: 4 } })
+
+    expect(response).toEqual({ ok: false, error: refusal })
+    expect(deps.openRun).not.toHaveBeenCalled()
+  })
+
+  it("takes the workflow name from the options", async () => {
+    const deps = passes()
+    deps.loadConfig.mockResolvedValue({ ...DEFAULT_CONFIG, reviewPassesWorkflowName: "deep-review" })
+    deps.discover.mockResolvedValue({ ...passesDiscovery, definitions: [{ name: "deep-review", inputs: { repo: { type: "string" }, pr_number: { type: "integer" } } }] })
+    const response = await createMessageHandler(deps)({ ...start, type: "prepareGitHubWorkflow" }, { tab: { id: 4 } })
+    expect(response).toMatchObject({ ok: true, prepared: { workflowName: "deep-review" } })
+  })
+})

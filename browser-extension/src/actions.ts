@@ -2,8 +2,8 @@ import type { ExtensionConfig } from "./config"
 import type { WorkflowDiscovery } from "./legato"
 
 export type GitHubPullRequestContext = { repository: string; pullRequestNumber: number }
-/** What a pull request action is for: a review run, or a conversation about the change. */
-export type PullRequestPurpose = "review" | "discuss"
+/** What a pull request action is for: a review run, a conversation about the change, or a review loop. */
+export type PullRequestPurpose = "review" | "discuss" | "passes"
 export type PreparedWorkflow = {
   workflowName: string
   repositoryPresetName: string
@@ -19,6 +19,7 @@ export function prepareGitHubWorkflow(
   discovery: WorkflowDiscovery,
   purpose: PullRequestPurpose = "review",
 ): PreparedWorkflow {
+  if (purpose === "passes") return prepareReviewPasses(config, context, discovery)
   const workflowName = purpose === "discuss" ? config.discussWorkflowName : config.workflowName
   const inputNames = [config.repoInput, config.pullRequestInput, config.primaryDirInput]
   if (new Set(inputNames).size !== inputNames.length) throw new Error("Configured workflow input names must be distinct")
@@ -57,5 +58,36 @@ export function prepareGitHubWorkflow(
       [config.pullRequestInput]: String(context.pullRequestNumber),
       [config.primaryDirInput]: preset.primary_dir,
     },
+  }
+}
+
+// A review loop needs the repository and the pull request's number only:
+// Legato makes its own clone. A repository preset that matches names the
+// repository as Legato knows it; without one, the pull request's own is used,
+// since a loop can review anyone's pull request.
+function prepareReviewPasses(config: ExtensionConfig, context: GitHubPullRequestContext, discovery: WorkflowDiscovery): PreparedWorkflow {
+  const workflowName = config.reviewPassesWorkflowName
+  const workflow = discovery.definitions?.find((item) => item.name === workflowName)
+  if (!workflow) throw new Error(`Workflow "${workflowName}" was not found. Add it with: legato workflow add review-pr-passes`)
+  const expected: Array<[string, string]> = [[config.repoInput, "string"], [config.pullRequestInput, "integer"]]
+  for (const [name, type] of expected) {
+    const input = workflow.inputs?.[name]
+    if (!input) throw new Error(`Workflow input "${name}" was not found`)
+    if (input.type !== type) throw new Error(`Workflow input "${name}" must have type ${type}`)
+  }
+  for (const [name, input] of Object.entries(workflow.inputs ?? {})) {
+    if (input.required && input.default === undefined && name !== config.repoInput && name !== config.pullRequestInput) {
+      throw new Error(`Required workflow input "${name}" is not mapped by this action`)
+    }
+  }
+  const preset = (discovery.repositories ?? []).find((item) => item.repo.toLowerCase() === context.repository.toLowerCase())
+  const repository = preset?.repo ?? context.repository
+  return {
+    workflowName,
+    repositoryPresetName: preset?.name ?? "",
+    repository,
+    pullRequestNumber: context.pullRequestNumber,
+    primaryDir: "",
+    inputs: { [config.repoInput]: repository, [config.pullRequestInput]: String(context.pullRequestNumber) },
   }
 }

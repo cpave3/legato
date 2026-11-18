@@ -6,7 +6,7 @@ import { createLegatoFab, type LegatoFab } from "./legato-fab"
 import { ensureFilesPage, jumpToFile, resumePendingJump, type JumpTarget } from "./pr-jump"
 
 type MessageResponse = {
-  ok: true; prepared?: PreparedWorkflow; runUrl?: string; agentUrl?: string; navigationWarning?: string
+  ok: true; prepared?: PreparedWorkflow; runUrl?: string; agentUrl?: string; navigationWarning?: string; activeLoop?: boolean
   review?: ReviewPanelModel; discussion?: { runId: string; agentUrl: string } | null
 } | { ok: false; error: string }
 type SendMessage = (message: unknown) => Promise<MessageResponse>
@@ -35,9 +35,11 @@ export function reconcileGitHubAction(doc: Document, href: string, sendMessage: 
   const { root, button, setPrimaryVisible, setState } = fab
   const viewReview = fab.addSecondaryAction("View review")
   const discuss = fab.addSecondaryAction("Discuss PR")
+  const passes = fab.addSecondaryAction("Review passes")
   setPrimaryVisible(false)
   viewReview.setAttribute("aria-label", `View Legato review for ${context.repository} pull request ${context.pullRequestNumber}`)
   discuss.setAttribute("aria-label", `Discuss ${context.repository} pull request ${context.pullRequestNumber} with a Legato agent`)
+  passes.setAttribute("aria-label", `Review ${context.repository} pull request ${context.pullRequestNumber} in passes posted to GitHub`)
   // The side panel opens only in answer to a click, so it is asked for
   // before anything else the click does.
   const openPanel = (view: "review" | "discussion"): void => {
@@ -83,6 +85,12 @@ export function reconcileGitHubAction(doc: Document, href: string, sendMessage: 
     },
   })
 
+  // A review loop: passes posted to GitHub until one approves. Legato opens
+  // the loop already running on the pull request instead of a second one.
+  startsWithConfirmation(passes, { purpose: "passes", retry: "Retry review passes" }, context, sendMessage, fab, flow, {
+    onStarted: (response) => { passes.textContent = response.activeLoop ? "Open review loop" : "Review loop started" },
+  })
+
   doc.body.append(root)
 }
 
@@ -95,7 +103,7 @@ function startsWithConfirmation(
   sendMessage: SendMessage,
   fab: LegatoFab,
   flow: { busy: boolean },
-  hooks: { onConfirm?: () => void; onStarted: () => void },
+  hooks: { onConfirm?: () => void; onStarted: (response: { activeLoop?: boolean }) => void },
 ): void {
   let prepared: PreparedWorkflow | undefined
   trigger.addEventListener("click", () => {
@@ -112,12 +120,12 @@ function startsWithConfirmation(
         fab.setEmphasis(trigger)
         fab.setState("idle", [
           `Workflow: ${prepared.workflowName}`,
-          `Repository: ${prepared.repository} (${prepared.repositoryPresetName})`,
-          `Checkout: ${prepared.primaryDir}`,
+          prepared.repositoryPresetName ? `Repository: ${prepared.repository} (${prepared.repositoryPresetName})` : `Repository: ${prepared.repository}`,
+          ...(prepared.primaryDir ? [`Checkout: ${prepared.primaryDir}`] : []),
         ].join("\n"))
       } else {
         prepared = undefined
-        hooks.onStarted()
+        hooks.onStarted(response)
         fab.setState("success", response.navigationWarning ?? (options.purpose === "discuss" ? "Discussion started. It is in the side panel." : "Workflow started."))
       }
     }).catch((error: unknown) => {

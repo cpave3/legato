@@ -3,6 +3,9 @@ export type ExtensionConfig = {
   token: string
   workflowName: string
   discussWorkflowName: string
+  // The workflow that runs a review loop on the pull request: review
+  // passes posted to GitHub until one approves it.
+  reviewPassesWorkflowName: string
   repoInput: string
   pullRequestInput: string
   primaryDirInput: string
@@ -17,6 +20,7 @@ export const DEFAULT_CONFIG: ExtensionConfig = {
   token: "",
   workflowName: "review-pr",
   discussWorkflowName: "discuss-pr",
+  reviewPassesWorkflowName: "review-pr-passes",
   repoInput: "repo",
   pullRequestInput: "pr_number",
   primaryDirInput: "primary_dir",
@@ -40,6 +44,7 @@ export function normalizeConfig(config: ExtensionConfig): ExtensionConfig {
   const names: Array<[Exclude<keyof ExtensionConfig, "openImportsInDesktop">, string]> = [
     ["workflowName", "Review workflow name"],
     ["discussWorkflowName", "Discussion workflow name"],
+    ["reviewPassesWorkflowName", "Review passes workflow name"],
     ["repoInput", "Repository input name"],
     ["pullRequestInput", "Pull request input name"],
     ["primaryDirInput", "Primary directory input name"],

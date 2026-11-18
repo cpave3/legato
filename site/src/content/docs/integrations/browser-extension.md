@@ -18,6 +18,7 @@ On a GitHub pull request page:
 - **Prepare Legato review** starts your review workflow on the pull request.
 - **View review** opens the side panel on the review. The newest run is shown first, and while it runs the panel checks every four seconds.
 - **Discuss PR** starts an agent in a worktree checked out at the pull request's head. It reads the change and waits for your questions in the side panel's **Discussion** tab. While a discussion is open, the button reads **Open discussion**.
+- **Review passes** starts a [review loop](/legato/using/review-passes/#review-any-pull-request) on the pull request: passes posted as GitHub reviews from Legato's reviewer App until one approves it. It needs only the repository and the number, so it works on a coworker's pull request too, with or without a repository preset. When a loop is already running on the pull request, from a run or a handoff, the extension opens it instead of starting another, and the button reads **Open review loop**. When Legato refuses (its reviewer App cannot read the repository, say), the extension shows Legato's message. The find-only review is unchanged.
 - **Ask Legato**, beside **Cancel** in each inline comment form of the diff, puts the file and the lines you selected into the discussion's message box.
 
 In the side panel, a file and line that the agent names are buttons. A click scrolls the pull request page to that line in **Files changed**.
@@ -55,6 +56,7 @@ Open the extension's **Options** page and fill in:
 | **Bearer token** | Legato's web token, from `legato auth token`. | none |
 | **Review workflow name** | The workflow that reviews a pull request. | `review-pr` |
 | **Discussion workflow name** | The workflow that starts a discussion. | `discuss-pr` |
+| **Review passes workflow name** | The workflow that starts a review loop. Add it with `legato workflow add review-pr-passes`. | `review-pr-passes` |
 | **Input names** | The workflow inputs for the repository, the PR number and the checkout. | `repo`, `pr_number`, `primary_dir` |
 | **Review artifact output key** | The workflow output that holds the review. | `review` |
 

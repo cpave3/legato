@@ -13,7 +13,7 @@ import { handleMarkedTab, stripStreamDeckMarker } from "./tab-reuse"
 type MessageSender = { tab?: { id?: number } }
 type MessageResponse = {
   ok: true; prepared?: PreparedWorkflow; runUrl?: string; agentUrl?: string; taskUrl?: string; desktopLink?: string
-  navigationWarning?: string; review?: ReviewPanelModel; discussion?: DiscussionRef | null
+  navigationWarning?: string; review?: ReviewPanelModel; discussion?: DiscussionRef | null; activeLoop?: boolean
 } | ({ ok: true } & TicketSitesResult) | { ok: false; error: string }
 
 type Dependencies = {
@@ -82,6 +82,7 @@ const pullRequestMessages = new Set([
 function purposeOf(value: unknown): PullRequestPurpose {
   if (value === undefined || value === "review") return "review"
   if (value === "discuss") return "discuss"
+  if (value === "passes") return "passes"
   throw new Error("Unsupported pull request action")
 }
 
@@ -191,7 +192,18 @@ export function createMessageHandler(deps: Dependencies = defaultDependencies) {
         if (request.type === "detectGitHubDiscussion") return { ok: true, discussion: await findDiscussion(deps, config, context) }
         const prepared = prepareGitHubWorkflow(config, context, await deps.discover(config), purpose)
         if (request.type === "prepareGitHubWorkflow") return { ok: true, prepared }
+        // One review loop per pull request: the one going is opened instead.
+        if (purpose === "passes") {
+          const live = (await deps.listRuns(config, prepared.workflowName, prepared.inputs)).find((run) => run.status === "running" || run.status === "waiting")
+          if (live) return openActiveLoop(deps, `${config.baseUrl}/workflows/runs/${encodeURIComponent(live.id)}`)
+        }
         const view = await deps.start(config, prepared)
+        if (purpose === "passes" && view.run.status === "failed") {
+          const refusal = view.steps?.find((step) => step.status === "failed")?.error || view.run.error || "Legato refused the review loop"
+          const active = /already has an active review loop: .* \((\/[^)\s]*)\)/.exec(refusal)
+          if (active) return openActiveLoop(deps, `${config.baseUrl}${active[1]}`)
+          throw new Error(refusal)
+        }
         // A discussion is followed in the side panel, which the widget opened
         // when the person confirmed; the PR stays in front.
         if (purpose === "discuss" && view.run.task_id) return { ok: true, agentUrl: agentUrlFor(config, view.run.task_id) }
@@ -208,6 +220,18 @@ export function createMessageHandler(deps: Dependencies = defaultDependencies) {
     } catch (error) {
       return { ok: false, error: error instanceof Error ? error.message : String(error) }
     }
+  }
+}
+
+// Opens the review loop already going on a pull request: a run's page, or a
+// handed-off card.
+async function openActiveLoop(deps: Dependencies, runUrl: string): Promise<MessageResponse> {
+  const warning = "A review loop is already running on this pull request; it is open in Legato."
+  try {
+    await deps.openRun(runUrl)
+    return { ok: true, runUrl, activeLoop: true, navigationWarning: warning }
+  } catch {
+    return { ok: true, runUrl, activeLoop: true, navigationWarning: `A review loop is already running on this pull request: ${runUrl}` }
   }
 }
 
