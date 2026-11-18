@@ -115,6 +115,9 @@ func buildWorkflowService(db *store.Store, cfg *config.Config, opts workflowRunt
 		service.NewTaskMetadataExecutor(db),
 		service.NewTaskMoveExecutor(service.NewWorkflowTaskMover(board, moveSync)),
 		service.NewFileRemoveExecutor(),
+		// Runs on the run caller once review passes are wired
+		// (wireReviewRuns); refuses to start before.
+		service.NewReviewPassesStep(),
 	)
 	if cfg.Worktrees.Yggdrasil.Enabled {
 		worktrees := service.NewWorktreeWorkflow(db, worktree.NewRunner("yg"), checkoutInspector())

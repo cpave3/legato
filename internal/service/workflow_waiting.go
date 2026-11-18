@@ -78,3 +78,8 @@ func hasWaitingAttempt(view *store.WorkflowRunView, stepID, attemptID string) bo
 	}
 	return false
 }
+
+// Executor is the registered executor of a step type, or nil.
+func (s *WorkflowService) Executor(executorType string) WorkflowExecutor {
+	return s.executors[executorType]
+}

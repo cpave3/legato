@@ -136,7 +136,7 @@ func (d *Definition) Validate() error {
 		if step.Trigger != "automatic" && step.Trigger != "manual" && step.Trigger != TriggerAgentEnded {
 			return fmt.Errorf("step %q has unsupported trigger %q", step.ID, step.Trigger)
 		}
-		if step.Type != "github.pr.prepare" && step.Type != "agent.run" && step.Type != "agent.dispatch" && step.Type != "agent.interview" && step.Type != "agent.stop" && step.Type != "worktree.remove" && step.Type != "file.remove" && step.Type != "task.context" && step.Type != "task.working_dir.resolve" && step.Type != "task.note" && step.Type != "task.metadata.set" && step.Type != "task.move" && step.Type != "learning.packet.prepare" && step.Type != "learning.proposals.submit" && step.Type != "chimera.session.remove" && step.Type != "repo.ensure" {
+		if step.Type != "github.pr.prepare" && step.Type != "agent.run" && step.Type != "agent.dispatch" && step.Type != "agent.interview" && step.Type != "agent.stop" && step.Type != "worktree.remove" && step.Type != "file.remove" && step.Type != "task.context" && step.Type != "task.working_dir.resolve" && step.Type != "task.note" && step.Type != "task.metadata.set" && step.Type != "task.move" && step.Type != "learning.packet.prepare" && step.Type != "learning.proposals.submit" && step.Type != "chimera.session.remove" && step.Type != "repo.ensure" && step.Type != "github.pr.review_passes" {
 			return fmt.Errorf("step %q has unsupported type %q", step.ID, step.Type)
 		}
 		if err := validateStepContract(*step, d.Inputs); err != nil {
@@ -204,6 +204,19 @@ func validateStepContract(step Step, inputs map[string]Input) error {
 		if engram, ok := step.With["engram"]; ok {
 			if _, text := engram.(string); !text {
 				return fmt.Errorf("with engram must be the name of an engram")
+			}
+		}
+	case "github.pr.review_passes":
+		required = []string{"repo", "pr_number"}
+		for _, key := range []string{"agent_author"} {
+			if value, ok := step.With[key]; ok {
+				if text, isText := value.(string); isText && !expressionPattern.MatchString(text) {
+					return fmt.Errorf("with %s must be true or false", key)
+				} else if !isText {
+					if _, boolean := value.(bool); !boolean {
+						return fmt.Errorf("with %s must be true or false", key)
+					}
+				}
 			}
 		}
 	case "task.note":

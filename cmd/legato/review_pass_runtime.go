@@ -72,8 +72,12 @@ func startReviewPasses(deps integrationDeps) (*service.ReviewPassService, func()
 	}
 	if deps.bus != nil {
 		moved := deps.bus.Subscribe(events.EventCardMoved)
+		// A run that starts a review loop is ticked at once, so its
+		// first pass does not wait for the timer.
+		runs := deps.bus.Subscribe(events.EventWorkflowChanged)
 		go func() {
 			defer deps.bus.Unsubscribe(moved)
+			defer deps.bus.Unsubscribe(runs)
 			timer := time.NewTicker(reviewPassEvery)
 			defer timer.Stop()
 			for {
@@ -81,6 +85,7 @@ func startReviewPasses(deps integrationDeps) (*service.ReviewPassService, func()
 				case <-ctx.Done():
 					return
 				case <-moved:
+				case <-runs:
 				case <-timer.C:
 				}
 				tick(ctx)

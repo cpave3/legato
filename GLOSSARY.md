@@ -70,8 +70,16 @@ _Avoid_: crashed agent, lost agent, dead agent
 
 ### Review passes
 
+**Review loop**:
+The review passes on one set of pull requests, from the first pass until it is approved, goes stuck or is ended. A handoff or a workflow run starts it.
+_Avoid_: review cycle, review session
+
+**Author**:
+Whoever fixes and answers a review loop's findings: the branch's owner, or a board task's agent when asked.
+_Avoid_: developer, PR owner
+
 **Review pass**:
-One review of a handoff's pull requests by the reviewer, at heads pinned when it starts, ending in a GitHub review per pull request. The first reviews them in full; a later one reviews what changed since the pass before and rules on the earlier blocking findings.
+One review of a review loop's pull requests by the reviewer, at heads pinned when it starts, ending in a GitHub review per pull request. The first reviews them in full; a later one reviews what changed since the pass before and rules on the earlier blocking findings.
 _Avoid_: review round, review cycle, auto-review, automated review, review tour
 
 **Reviewer**:
@@ -101,7 +109,7 @@ A comment on a pull request that the author must answer: from the repository's o
 _Avoid_: feedback comment, external feedback
 
 **Counted check**:
-A check a pull request must pass before its handoff is done: one branch protection requires on its base, else one the worker lists.
+A check a pull request must pass before its handoff's review loop ends: one branch protection requires on its base, else one the worker lists.
 _Avoid_: required CI, gate
 
 **Feedback item**:
