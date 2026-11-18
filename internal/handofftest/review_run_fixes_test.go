@@ -123,3 +123,36 @@ func TestATasksAgentAuthorsOneLoopAtATime(t *testing.T) {
 	second := r.start(t, map[string]string{"repo": "acme/widget", "pr_number": "13", "agent_author": "true"})
 	refused(t, second, "board-1's agent already authors the review loop of run "+first.Run.ID)
 }
+
+// The head check after a clean pass that GitHub fails to answer is tried
+// again: the run is not approved until it knows the head did not move.
+func TestACleanPassIsApprovedOnlyOnceGitHubConfirmsTheHead(t *testing.T) {
+	r := newReviewRun(t, ReviewPassOptions{})
+	view := r.start(t, pr12)
+	r.tick()
+	r.worker.ReviewGitHub.Push(12, "ccc333")
+	r.worker.ReviewGitHub.FailReads(1)
+	r.submit(t, view.Run.TaskID, service.ReviewSubmission{Summary: "Clean."})
+	if got := r.show(t, view.Run.ID); got.Run.Status != "running" {
+		t.Fatalf("run %q on an unconfirmed head", got.Run.Status)
+	}
+	r.tick() // GitHub answers: the head moved, so the loop is ready again
+	r.tick()
+	if loop := r.loopPhase(t, view.Run.TaskID); loop.Pass != 2 {
+		t.Fatalf("no pass on the pushed head: %+v", loop)
+	}
+
+	// The same with no push: once GitHub answers, the run is approved.
+	other := newReviewRun(t, ReviewPassOptions{})
+	view = other.start(t, pr12)
+	other.tick()
+	other.worker.ReviewGitHub.FailReads(1)
+	other.submit(t, view.Run.TaskID, service.ReviewSubmission{Summary: "Clean."})
+	if got := other.show(t, view.Run.ID); got.Run.Status != "running" {
+		t.Fatalf("run %q on an unconfirmed head", got.Run.Status)
+	}
+	other.tick()
+	if got := other.show(t, view.Run.ID); got.Run.Status != "succeeded" || outputs(t, got, "review")["outcome"] != "approved" {
+		t.Fatalf("run %q after GitHub answered", got.Run.Status)
+	}
+}

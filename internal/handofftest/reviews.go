@@ -44,6 +44,8 @@ type FakeReviewGitHub struct {
 	// repositories the reviewer App cannot read.
 	closed       map[int]string
 	notInstalled map[string]bool
+	// failReads makes the next PullRequest reads fail, as GitHub's 503.
+	failReads int
 }
 
 // NewFakeReviewGitHub has no pull requests.
@@ -374,9 +376,20 @@ func (f *FakeReviewGitHub) Installed(_ context.Context, repo string) error {
 	return nil
 }
 
+// FailReads makes the next n pull request reads fail.
+func (f *FakeReviewGitHub) FailReads(n int) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.failReads = n
+}
+
 func (f *FakeReviewGitHub) PullRequest(_ context.Context, _ string, number int) (service.ReviewGitHubPR, string, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if f.failReads > 0 {
+		f.failReads--
+		return service.ReviewGitHubPR{}, "", &service.GitHubError{Status: 503, Message: "Service Unavailable"}
+	}
 	for _, pr := range f.prs {
 		if pr.Number == number {
 			state := "open"

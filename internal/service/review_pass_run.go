@@ -119,6 +119,9 @@ type reviewRun struct {
 	SeenAt   string `json:"seen_at,omitempty"`
 	// Replies are the thread replies the loop has taken as answers.
 	Replies []int64 `json:"replies,omitempty"`
+	// ConfirmClean is a clean pass whose head GitHub has not yet confirmed
+	// is still the pull request's: each tick asks again.
+	ConfirmClean bool `json:"confirm_clean,omitempty"`
 }
 
 var reviewRunKey = []string{"legato", "review_loop"}
@@ -364,6 +367,10 @@ func (c *ReviewRunCaller) AuthorDone(ctx context.Context, l ReviewLoop) bool {
 	if err != nil {
 		return false
 	}
+	if run.ConfirmClean {
+		c.confirmClean(ctx, l.TaskID)
+		return false
+	}
 	pr, state, err := c.opts.GitHub.PullRequest(ctx, run.Repo, run.PR)
 	if err != nil {
 		return false // GitHub may answer next time
@@ -530,18 +537,7 @@ func (c *ReviewRunCaller) AnotherPass(ctx context.Context, runID, stepID string)
 func (c *ReviewRunCaller) Stage(ctx context.Context, l ReviewLoop, stage string) {
 	switch stage {
 	case ReviewStageClean:
-		// A push while the reviewer worked: the pass approved a head that
-		// is no longer the pull request's, so the next pass reviews the new
-		// one instead of the loop ending.
-		if run, err := c.run(ctx, l.TaskID); err == nil {
-			if pr, state, err := c.opts.GitHub.PullRequest(ctx, run.Repo, run.PR); err == nil && state == "open" && pr.HeadSHA != c.pinnedHead(ctx, l.TaskID) {
-				if err := c.engine.reopen(ctx, l.TaskID); err != nil {
-					log.Printf("review passes: %s moved during its pass: %v", l.TaskID, err)
-				}
-				return
-			}
-		}
-		c.finish(ctx, l.TaskID, ReviewOutcomeApproved)
+		c.confirmClean(ctx, l.TaskID)
 	case ReviewStageNone:
 		c.finish(ctx, l.TaskID, ReviewOutcomeClosed)
 	}
@@ -944,4 +940,40 @@ func (s *ReviewPassService) reopen(ctx context.Context, taskID string) error {
 	}
 	loop.Phase, loop.Reason = ReviewPhaseReady, ""
 	return s.saveChanged(ctx, loop)
+}
+
+// confirmClean ends a clean pass only once GitHub says the pull request's
+// head is still the one it reviewed: approved; a head that moved while the
+// reviewer worked goes to the next pass; a closed pull request ends the loop
+// closed. When GitHub does not answer, the check is kept and asked again each
+// tick, and nothing is approved meanwhile.
+func (c *ReviewRunCaller) confirmClean(ctx context.Context, taskID string) {
+	run, err := c.run(ctx, taskID)
+	if err != nil {
+		log.Printf("review passes: confirming %s: %v", taskID, err)
+		return
+	}
+	pr, state, err := c.opts.GitHub.PullRequest(ctx, run.Repo, run.PR)
+	if err != nil {
+		if !run.ConfirmClean {
+			run.ConfirmClean = true
+			_ = c.engine.db.SetTaskMetadata(ctx, taskID, reviewRunKey, run)
+		}
+		log.Printf("review passes: confirming the head of %s#%d, trying again: %v", run.Repo, run.PR, err)
+		return
+	}
+	if run.ConfirmClean {
+		run.ConfirmClean = false
+		_ = c.engine.db.SetTaskMetadata(ctx, taskID, reviewRunKey, run)
+	}
+	switch {
+	case state != "open":
+		c.finish(ctx, taskID, ReviewOutcomeClosed)
+	case pr.HeadSHA != c.pinnedHead(ctx, taskID):
+		if err := c.engine.reopen(ctx, taskID); err != nil {
+			log.Printf("review passes: %s moved during its pass: %v", taskID, err)
+		}
+	default:
+		c.finish(ctx, taskID, ReviewOutcomeApproved)
+	}
 }
