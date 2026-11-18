@@ -131,3 +131,18 @@ func TestReadsStayFreeAndAutoIsBelowApprove(t *testing.T) {
 		t.Fatalf("strictest of auto and auto = %s", got)
 	}
 }
+
+// The Reeve's MCP connection calls always wait for the operator, whatever
+// is set to auto: a connection gives agents a server's tools.
+func TestMCPConnectionCallsAreNeverAutomatic(t *testing.T) {
+	for _, call := range []struct{ method, path string }{
+		{"POST", "/api/settings/mcp/connections"},
+		{"PATCH", "/api/settings/mcp/connections/design"},
+		{"DELETE", "/api/settings/mcp/connections/design"},
+		{"POST", "/api/settings/mcp/connections/design/test"},
+	} {
+		if level, _ := apiFloor(call.method, call.path); level != LevelApprove {
+			t.Errorf("%s %s floor = %q, want approve", call.method, call.path, level)
+		}
+	}
+}

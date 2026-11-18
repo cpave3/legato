@@ -181,7 +181,7 @@ var floorSettingPrefixes = []string{
 // floorRoutePrefixes are routes that pair, connect or hand out access.
 var floorRoutePrefixes = []string{
 	"/api/credentials", "/api/pairing", "/api/pair/", "/api/devices", "/api/settings/workers",
-	"/api/settings/mains", "/api/settings/integrations", "/api/reeve/peers", "/api/integrations/handoff/pairing",
+	"/api/settings/mains", "/api/settings/integrations", "/api/settings/mcp/", "/api/reeve/peers", "/api/integrations/handoff/pairing",
 }
 
 // apiFloor is the least an API call needs, whatever is set to auto:
