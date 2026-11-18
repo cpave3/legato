@@ -1,8 +1,8 @@
 import { createPortal } from "react-dom"
 import { useMenuLayer } from "../../hooks/useMenuLayer"
 import { useRef, useState, useSyncExternalStore } from "react"
-import { ChevronRight, ExternalLink, Move, Send, Trash2, Workflow } from "lucide-react"
-import type { BoardCard } from "../../lib/board-types"
+import { ChevronRight, ExternalLink, Move, Repeat, Send, Trash2, Workflow } from "lucide-react"
+import type { BoardCard, PRMetaView } from "../../lib/board-types"
 import type { CardWorkflowOption } from "../../lib/card-workflows"
 import { LoadingState } from "../ui/LoadingState"
 
@@ -21,6 +21,8 @@ export function CardContextMenu({
   workflowLoading = false,
   workflowWarning = "",
   canHandOff = false,
+  reviewPasses = [],
+  onReviewPasses,
   onAction,
   onWorkflow,
   onClose,
@@ -32,6 +34,10 @@ export function CardContextMenu({
   workflowWarning?: string
   // Whether this main has a worker to hand the task off to.
   canHandOff?: boolean
+  // The card's pull requests a review loop can start on, with its own agent
+  // as the author: one item each, so a card with several asks which.
+  reviewPasses?: PRMetaView[]
+  onReviewPasses?: (pr: PRMetaView) => void
   onAction: (action: CardContextAction) => void
   onWorkflow?: (workflow: CardWorkflowOption) => void
   onClose: () => void
@@ -62,6 +68,7 @@ export function CardContextMenu({
     <div ref={menuRef} role="menu" aria-label={`Actions for ${card.title}`} onPointerDown={event => event.stopPropagation()} className="fixed w-60 rounded-lg border border-zinc-700 bg-zinc-900 p-1 shadow-2xl" style={{ visibility: compact && flyoutOpen ? "hidden" : undefined }}>
       <p className="truncate border-b border-zinc-800 px-3 py-2 text-xs text-zinc-500">{card.id} · {card.title}</p>
       {items.map(item => <button key={item.action} type="button" role="menuitem" onClick={() => { restoreFocus(); onClose(); onAction(item.action) }} className={`flex min-h-10 w-full items-center gap-3 rounded px-3 text-left text-sm hover:bg-zinc-800 focus:bg-zinc-800 focus:outline-none ${item.action === "delete" ? "text-red-300" : "text-zinc-200"}`}>{item.icon}<span>{item.label}</span></button>)}
+      {!card.away && onReviewPasses && reviewPasses.map(pr => <button key={`review-${pr.repo}-${pr.pr_number}`} type="button" role="menuitem" onClick={() => { restoreFocus(); onClose(); onReviewPasses(pr) }} className="flex min-h-10 w-full items-center gap-3 rounded px-3 text-left text-sm text-zinc-200 hover:bg-zinc-800 focus:bg-zinc-800 focus:outline-none"><Repeat size={16} /><span>Review passes · #{pr.pr_number}</span></button>)}
       {!card.away && <button ref={workflowTriggerRef} type="button" role="menuitem" aria-haspopup="menu" aria-expanded={flyoutOpen} onMouseEnter={() => { if (!compact) setFlyoutOpen(true) }} onKeyDown={event => { if (event.key === "ArrowRight") { event.preventDefault(); setFlyoutOpen(true) } }} onClick={() => setFlyoutOpen(true)} className="mt-1 flex min-h-10 w-full items-center gap-3 border-t border-zinc-800 px-3 pt-1 text-left text-sm text-zinc-200 hover:bg-zinc-800 focus:bg-zinc-800 focus:outline-none"><Workflow size={16} /><span>Workflows</span><ChevronRight className="ml-auto" size={15} /></button>}
     </div>
     {flyoutOpen && <div ref={flyoutRef} role="menu" aria-label={`Workflows for ${card.title}`} onPointerDown={event => event.stopPropagation()} className="fixed w-70 overflow-y-auto rounded-lg border border-zinc-700 bg-zinc-900 p-1 shadow-2xl" onKeyDownCapture={event => { if (event.key === "ArrowLeft" || event.key === "Escape") { event.preventDefault(); event.stopPropagation(); closeFlyout() } }}>

@@ -36,6 +36,18 @@ describe("CardContextMenu", () => {
     expect(onClose).toHaveBeenCalledTimes(1)
   })
 
+  it("offers review passes for each of a card's pull requests, and none for a card without", () => {
+    const onReviewPasses = vi.fn()
+    const pr = (n: number) => ({ repo: "acme/widget", branch: `b${n}`, pr_number: n, pr_url: "", state: "OPEN" }) as never
+    render(<CardContextMenu card={card} position={{ x: 10, y: 10 }} reviewPasses={[pr(12), pr(13)]} onReviewPasses={onReviewPasses} onAction={() => {}} onClose={() => {}} />)
+    expect(screen.getByRole("menuitem", { name: "Review passes · #12" })).toBeTruthy()
+    fireEvent.click(screen.getByRole("menuitem", { name: "Review passes · #13" }))
+    expect(onReviewPasses).toHaveBeenCalledWith(expect.objectContaining({ pr_number: 13 }))
+    cleanup()
+    render(<CardContextMenu card={card} position={{ x: 10, y: 10 }} onAction={() => {}} onClose={() => {}} />)
+    expect(screen.queryByRole("menuitem", { name: /Review passes/ })).toBeNull()
+  })
+
   it("emits existing card actions", () => {
     const onAction = vi.fn()
     render(<CardContextMenu card={card} position={{ x: 10, y: 10 }} onAction={onAction} onClose={() => {}} />)

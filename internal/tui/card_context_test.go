@@ -85,3 +85,36 @@ func TestCardContextLaunchErrorRemainsVisible(t *testing.T) {
 		t.Fatalf("view did not contain launch error: %s", model.View())
 	}
 }
+
+func TestCardContextStartsReviewPassesOnTheCardsPullRequest(t *testing.T) {
+	app := NewApp(&fakeBoardService{}, nil, nil, nil, nil, theme.NewIcons("unicode"), nil, "", nil, nil, "", nil, nil)
+	launcher := &fakeTaskWorkflowLauncher{options: []service.TaskWorkflowOption{{
+		Name: "review-pr-passes", Title: "Review passes · #12",
+		Values: map[string]string{"repo": "acme/widget", "pr_number": "12", "agent_author": "true"},
+	}}}
+	app.SetTaskWorkflowLauncher(launcher)
+	loaded := app.board.Init()()
+	app, _ = updateApp(app, loaded)
+	app, cmd := updateApp(app, tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune{'c'}})
+	app, _ = updateApp(app, cmd())
+	for range 3 {
+		app, _ = updateApp(app, tea.KeyMsg{Type: tea.KeyDown})
+	}
+	app, cmd = updateApp(app, tea.KeyMsg{Type: tea.KeyEnter})
+	app, cmd = updateApp(app, cmd())
+	app, _ = updateApp(app, cmd())
+	if view := app.activeOverlay.View(); !strings.Contains(view, "Review passes · #12") {
+		t.Fatalf("the menu does not offer review passes: %s", view)
+	}
+	app, cmd = updateApp(app, tea.KeyMsg{Type: tea.KeyEnter})
+	for i := 0; i < 4 && launcher.startedName == ""; i++ {
+		if cmd == nil {
+			app, cmd = updateApp(app, tea.KeyMsg{Type: tea.KeyEnter})
+			continue
+		}
+		app, cmd = updateApp(app, cmd())
+	}
+	if launcher.startedName != "review-pr-passes" || launcher.startedInputs["agent_author"] != "true" || launcher.startedInputs["pr_number"] != "12" {
+		t.Fatalf("start = %q %#v", launcher.startedName, launcher.startedInputs)
+	}
+}

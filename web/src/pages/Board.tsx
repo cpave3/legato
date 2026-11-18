@@ -1,5 +1,6 @@
 import { useState, useEffect, useLayoutEffect, useCallback, useMemo, useRef } from "react"
-import { useSearchParams } from "react-router-dom"
+import { useNavigate, useSearchParams } from "react-router-dom"
+import { activeReviewLoop } from "../lib/workflow"
 import { useServer } from "../hooks/useServer"
 import { useBoard } from "../hooks/useBoard"
 import {
@@ -13,7 +14,7 @@ import {
   syncBoard,
   type ProviderSyncResult,
 } from "../lib/board"
-import type { BoardCard, BoardColumn, CardDetail } from "../lib/board-types"
+import type { BoardCard, BoardColumn, CardDetail, PRMetaView } from "../lib/board-types"
 import { BoardGrid } from "../components/board/BoardGrid"
 import { isColumnCollapsed } from "../lib/boardColumns"
 import { MobileBoardList } from "../components/board/MobileBoardList"
@@ -207,6 +208,16 @@ export function BoardPage() {
   const [overlay, setOverlay] = useState<Overlay>({ kind: "none" })
   const [contextMenu, setContextMenu] = useState<{ card: BoardCard; position: { x: number; y: number } } | null>(null)
   const [cardWorkflow, setCardWorkflow] = useState<{ card: BoardCard; workflow: CardWorkflowOption } | null>(null)
+  // A review loop to start on a card's pull request, its agent the author.
+  const [reviewLoop, setReviewLoop] = useState<{ card: BoardCard; pr: PRMetaView } | null>(null)
+  const navigateTo = useNavigate()
+  const reviewPassesDefinition = workflowDiscovery.data?.definitions?.find(definition => definition.name === "review-pr-passes")
+  const startReviewLoop = useCallback(async (card: BoardCard, pr: PRMetaView) => {
+    // The loop already running on the pull request is shown, not a second.
+    const active = await activeReviewLoop(baseUrl, pr.repo, pr.pr_number).catch(() => null)
+    if (active) navigateTo(`/workflows/runs/${encodeURIComponent(active.id)}`)
+    else setReviewLoop({ card, pr })
+  }, [baseUrl, navigateTo])
   const [detailCard, setDetailCard] = useState<CardDetail | null>(null)
   const [detailId, setDetailId] = useState<string | null>(null)
   const [pendingAction, setPendingAction] = useState<string | null>(null)
@@ -1101,8 +1112,11 @@ export function BoardPage() {
         canHandOff={canHandOff}
         onAction={handleContextAction}
         onWorkflow={workflow => { setCardWorkflow({ card: contextMenu.card, workflow }); setContextMenu(null) }}
+        reviewPasses={reviewPassesDefinition ? (contextMenu.card.pull_requests ?? []).filter(pr => pr.repo && !["MERGED", "CLOSED"].includes(pr.state.toUpperCase())) : []}
+        onReviewPasses={pr => { void startReviewLoop(contextMenu.card, pr) }}
         onClose={() => setContextMenu(null)}
       />}
+      {reviewLoop && reviewPassesDefinition && <RunWorkflowDialog definition={reviewPassesDefinition} repositories={workflowDiscovery.data?.repositories ?? []} initialValues={{ repo: reviewLoop.pr.repo, pr_number: String(reviewLoop.pr.pr_number), agent_author: "true" }} readOnlyInputs={["repo", "pr_number", "agent_author"]} onClose={() => setReviewLoop(null)} />}
       {cardWorkflow && <RunWorkflowDialog definition={cardWorkflow.workflow.definition} repositories={workflowDiscovery.data?.repositories ?? []} initialValues={{ [cardWorkflow.workflow.taskInput]: cardWorkflow.card.id }} readOnlyInputs={[cardWorkflow.workflow.taskInput]} onClose={() => setCardWorkflow(null)} />}
 
       {/* Overlays */}

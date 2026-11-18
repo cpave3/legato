@@ -26,3 +26,6 @@ export const retryWorkflowStep=(baseUrl:string,id:string,step:string,force=false
 export const promptWorkflowStep=(baseUrl:string,id:string,step:string)=>apiFetch(baseUrl,`/api/workflow-runs/${encodeURIComponent(id)}/steps/${encodeURIComponent(step)}/prompt`,{method:"POST"}).then(decode<WorkflowRunView>)
 export async function fetchWorkflowArtifact(baseUrl:string,id:string):Promise<Blob>{const response=await apiFetch(baseUrl,`/api/workflow-artifacts/${encodeURIComponent(id)}`);if(!response.ok)throw new Error(await response.text());return response.blob()}
 export const anotherReviewPass=(baseUrl:string,id:string,step:string)=>apiFetch(baseUrl,`/api/workflow-runs/${encodeURIComponent(id)}/steps/${encodeURIComponent(step)}/another-pass`,{method:"POST"}).then(decode<WorkflowRunView>)
+// The review loop already running on a pull request, as a run of
+// review-pr-passes, or null.
+export async function activeReviewLoop(baseUrl:string,repo:string,pr:number):Promise<WorkflowRun|null>{const query=new URLSearchParams({workflow_name:"review-pr-passes","input.repo":repo,"input.pr_number":String(pr)});const runs=await apiFetch(baseUrl,`/api/workflow-runs?${query}`).then(decode<WorkflowRun[]|null>);return (runs??[]).find(run=>run.status==="running"||run.status==="waiting")??null}
