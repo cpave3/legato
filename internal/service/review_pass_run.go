@@ -8,6 +8,7 @@ import (
 	"log"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"sync"
 	"time"
@@ -192,6 +193,10 @@ func (c *ReviewRunCaller) Start(ctx context.Context, step ResolvedWorkflowStep) 
 	author := ""
 	if agentAuthor {
 		author = linked
+		// One loop per author: its feedback commands find one loop.
+		if other := c.authoredLoop(ctx, author); other != "" {
+			return WorkflowExecutionResult{}, fmt.Errorf("%s's agent already authors the review loop of run %s (/workflows/runs/%s): one agent-authored loop runs per task", author, other, other)
+		}
 	}
 	if err := c.opts.Clones.PullHead(ctx, repo, number); err != nil {
 		return WorkflowExecutionResult{}, fmt.Errorf("fetching the head of #%d: %w", number, err)
@@ -258,8 +263,24 @@ func (c *ReviewRunCaller) settings(cfg ReviewPassConfig, with map[string]any) (R
 	return settings, err
 }
 
-// linkedTask is the board task the pull request belongs to, or "".
+// linkedTask is the board task the pull request belongs to, or "": a task
+// that tracks it on one of its branches first (a stack's middle pull request
+// too), else owner lookup.
 func (c *ReviewRunCaller) linkedTask(ctx context.Context, repo string, number int, branch string) string {
+	if tracked, err := c.engine.db.ListTrackedTaskBranches(ctx); err == nil {
+		ids := make([]string, 0, len(tracked))
+		for id := range tracked {
+			ids = append(ids, id)
+		}
+		sort.Strings(ids)
+		for _, id := range ids {
+			for _, b := range tracked[id] {
+				if b.PR != nil && b.PR.PRNumber == number && strings.EqualFold(b.Repo, repo) {
+					return id
+				}
+			}
+		}
+	}
 	if c.opts.Owners == nil {
 		return ""
 	}
@@ -509,6 +530,17 @@ func (c *ReviewRunCaller) AnotherPass(ctx context.Context, runID, stepID string)
 func (c *ReviewRunCaller) Stage(ctx context.Context, l ReviewLoop, stage string) {
 	switch stage {
 	case ReviewStageClean:
+		// A push while the reviewer worked: the pass approved a head that
+		// is no longer the pull request's, so the next pass reviews the new
+		// one instead of the loop ending.
+		if run, err := c.run(ctx, l.TaskID); err == nil {
+			if pr, state, err := c.opts.GitHub.PullRequest(ctx, run.Repo, run.PR); err == nil && state == "open" && pr.HeadSHA != c.pinnedHead(ctx, l.TaskID) {
+				if err := c.engine.reopen(ctx, l.TaskID); err != nil {
+					log.Printf("review passes: %s moved during its pass: %v", l.TaskID, err)
+				}
+				return
+			}
+		}
 		c.finish(ctx, l.TaskID, ReviewOutcomeApproved)
 	case ReviewStageNone:
 		c.finish(ctx, l.TaskID, ReviewOutcomeClosed)
@@ -884,4 +916,32 @@ func reviewLoopTask(ctx context.Context, db *store.Store, taskID string) string 
 		}
 	}
 	return taskID
+}
+
+// authoredLoop is the run whose live loop a task's agent authors, or "".
+func (c *ReviewRunCaller) authoredLoop(ctx context.Context, author string) string {
+	if c.workflows == nil {
+		return ""
+	}
+	attempts, err := c.workflows.WaitingAttempts(ctx, ReviewPassesStepType)
+	if err != nil {
+		return ""
+	}
+	for _, attempt := range attempts {
+		if run, err := c.run(ctx, attempt.TaskID); err == nil && run.AuthorTask == author {
+			return run.RunID
+		}
+	}
+	return ""
+}
+
+// reopen sends a loop whose clean pass reviewed a head that moved to the
+// next pass. Called with the engine's lock held (from post).
+func (s *ReviewPassService) reopen(ctx context.Context, taskID string) error {
+	loop, err := s.db.GetHandoffReview(ctx, taskID)
+	if err != nil || loop == nil {
+		return err
+	}
+	loop.Phase, loop.Reason = ReviewPhaseReady, ""
+	return s.saveChanged(ctx, loop)
 }

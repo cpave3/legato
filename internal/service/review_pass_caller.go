@@ -154,8 +154,13 @@ func (e *ReviewLoopActiveError) Error() string {
 // one that has not ended, approved, or found nothing to review. Nil when
 // there is none.
 func (s *ReviewPassService) ActiveLoopOn(ctx context.Context, repo string, number int) *ReviewLoopActiveError {
+	return s.activeLoopOn(ctx, repo, number, "")
+}
+
+// activeLoopOn is ActiveLoopOn, leaving out the loop of except.
+func (s *ReviewPassService) activeLoopOn(ctx context.Context, repo string, number int, except string) *ReviewLoopActiveError {
 	for _, l := range s.loops(ctx) {
-		if !strings.EqualFold(l.Repo, repo) {
+		if l.TaskID == except || !strings.EqualFold(l.Repo, repo) {
 			continue
 		}
 		loop, err := s.db.GetHandoffReview(ctx, l.TaskID)

@@ -261,6 +261,11 @@ func (s *ReviewPassService) step(ctx context.Context, l ReviewLoop) error {
 		loop = &store.HandoffReview{TaskID: l.TaskID, Settings: "{}"}
 	}
 	inDone := l.caller.AuthorDone(ctx, l)
+	// AuthorDone may have ended the loop (a run's pull request closed):
+	// the phase read before it is stale.
+	if fresh, err := s.db.GetHandoffReview(ctx, l.TaskID); err == nil && fresh != nil && fresh.Phase != loop.Phase {
+		return nil
+	}
 	switch loop.Phase {
 	case ReviewPhaseAuthor:
 		if err := s.deliverComments(ctx, l, loop); err != nil {
@@ -358,6 +363,13 @@ func (s *ReviewPassService) ready(ctx context.Context, l ReviewLoop, loop *store
 		}
 		return s.stuck(ctx, l, loop, reason)
 	}
+	// One loop per pull request: a pass does not start on one another loop
+	// reviews (a run started before a handoff's first pass, say).
+	for _, pr := range prs {
+		if active := s.activeLoopOn(ctx, l.Repo, pr.Number, l.TaskID); active != nil {
+			return s.stuck(ctx, l, loop, fmt.Sprintf("another review loop reviews #%d: %s (%s)", pr.Number, active.Name, active.Link))
+		}
+	}
 	if s.running(ctx) >= s.config().MaxConcurrent {
 		if loop.Phase != ReviewPhaseWaitingForReviewer {
 			loop.Phase, loop.QueuedAt = ReviewPhaseWaitingForReviewer, s.now()
@@ -443,7 +455,7 @@ func (s *ReviewPassService) startPass(ctx context.Context, l ReviewLoop, loop *s
 		return err
 	}
 	loop.Pass, loop.Phase, loop.QueuedAt, loop.Reason = pass, ReviewPhaseReviewing, "", ""
-	if loop.ChecksHeads != checkHeads(pinned) {
+	if l.Counted && loop.ChecksHeads != checkHeads(pinned) {
 		// The checks of the heads this pass reviews, read now.
 		s.readChecks(ctx, l, loop, pinned)
 	}
