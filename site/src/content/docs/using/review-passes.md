@@ -155,4 +155,5 @@ The run is refused at once, with the reason, when:
 - review passes are off on this Legato;
 - the reviewer App cannot read the repository: the App is not installed on the account, the repository is not among those its installation selects, or there is no such repository (GitHub cannot say which). The find-only `review-pr` workflow reviews without posting;
 - the pull request is not open;
+- the pull request already has an active review loop, from another run or from a handoff: one loop runs per pull request. The refusal names that loop and links to it (the run's page, or the handed-off card). A loop that ended, approved, closed or was cancelled does not count;
 - `agent_author` is asked for on a pull request no board task links.

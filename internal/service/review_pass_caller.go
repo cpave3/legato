@@ -3,6 +3,8 @@ package service
 import (
 	"context"
 	"errors"
+	"fmt"
+	"strings"
 
 	"github.com/cpave3/legato/internal/engine/store"
 )
@@ -24,6 +26,12 @@ type ReviewLoop struct {
 	// counted checks are items the author must handle, as well as the
 	// reviewer's findings.
 	Counted bool
+	// PR is the pull request the loop reviews when its caller knows it
+	// before the first pass (a run's); 0 otherwise.
+	PR int
+	// Name and Link say whose loop it is, for a refusal to start another
+	// on the same pull request ("run wr-1", "/workflows/runs/wr-1").
+	Name, Link string
 
 	caller ReviewCaller
 }
@@ -129,3 +137,44 @@ type ReviewCheckoutError struct{ Err error }
 
 func (e *ReviewCheckoutError) Error() string { return e.Err.Error() }
 func (e *ReviewCheckoutError) Unwrap() error { return e.Err }
+
+// ReviewLoopActiveError refuses a review loop on a pull request that has an
+// active one: one review loop per pull request, whoever started it.
+type ReviewLoopActiveError struct {
+	Repo       string
+	PR         int
+	Name, Link string
+}
+
+func (e *ReviewLoopActiveError) Error() string {
+	return fmt.Sprintf("pull request #%d of %s already has an active review loop: %s (%s)", e.PR, e.Repo, e.Name, e.Link)
+}
+
+// ActiveLoopOn is the active loop on a pull request, among every caller's:
+// one that has not ended, approved, or found nothing to review. Nil when
+// there is none.
+func (s *ReviewPassService) ActiveLoopOn(ctx context.Context, repo string, number int) *ReviewLoopActiveError {
+	for _, l := range s.loops(ctx) {
+		if !strings.EqualFold(l.Repo, repo) {
+			continue
+		}
+		loop, err := s.db.GetHandoffReview(ctx, l.TaskID)
+		if err != nil {
+			continue
+		}
+		if loop != nil && (loop.Phase == ReviewPhaseClean || loop.Phase == ReviewPhaseSkipped || loop.Phase == ReviewPhaseEnded) {
+			continue
+		}
+		on := l.PR == number
+		if !on && loop != nil {
+			prs, _ := s.db.ListHandoffReviewPRs(ctx, l.TaskID, loop.Pass)
+			for _, pr := range prs {
+				on = on || pr.Number == number
+			}
+		}
+		if on {
+			return &ReviewLoopActiveError{Repo: repo, PR: number, Name: l.Name, Link: l.Link}
+		}
+	}
+	return nil
+}
