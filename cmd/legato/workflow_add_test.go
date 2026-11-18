@@ -60,3 +60,23 @@ func TestWorkflowAddListsItsExamplesAndRefusesAnUnknownOne(t *testing.T) {
 		t.Fatalf("err = %v", err)
 	}
 }
+
+func TestWorkflowAddIsReachableFromTheCommandLine(t *testing.T) {
+	root := commandTree()
+	for _, args := range [][]string{
+		{"workflow", "add"},
+		{"workflow", "add", "--json"},
+		{"workflow", "add", "review-pr-passes", "--project", "--force"},
+	} {
+		node, _, _, cmdErr := resolveCommand(root, args)
+		if cmdErr != nil {
+			t.Fatalf("legato %s: %v", strings.Join(args, " "), cmdErr)
+		}
+		if node.Name != "add" || node.Run == nil {
+			t.Fatalf("legato %s resolved to %q", strings.Join(args, " "), node.Name)
+		}
+	}
+	if got := helpTextFor(root, []string{"workflow", "add"}); !strings.Contains(got, "--project") || !strings.Contains(got, "--force") {
+		t.Fatalf("help for workflow add:\n%s", got)
+	}
+}
