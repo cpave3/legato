@@ -3,6 +3,7 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"mime"
 	"net/http"
@@ -15,6 +16,7 @@ import (
 	"github.com/cpave3/legato/internal/engine/events"
 	"github.com/cpave3/legato/internal/engine/store"
 	workflowengine "github.com/cpave3/legato/internal/engine/workflow"
+	"github.com/cpave3/legato/internal/service"
 )
 
 func legacyWorkflowDirPath() string {
@@ -51,7 +53,58 @@ func (s *Server) workflowsHandler() http.HandlerFunc {
 		}
 		result := s.discoverWorkflows()
 		result.Repositories = s.repositories(r.Context())
-		s.writeJSON(w, http.StatusOK, result)
+		var states map[string][]service.WorkflowTriggerState
+		if s.workflowTriggers != nil {
+			var err error
+			if states, err = s.workflowTriggers.TriggerStates(r.Context()); err != nil {
+				http.Error(w, err.Error(), http.StatusInternalServerError)
+				return
+			}
+		}
+		s.writeJSON(w, http.StatusOK, struct {
+			workflowengine.DiscoveryResult
+			// TriggerStates is each workflow's triggers, on or paused here.
+			TriggerStates map[string][]service.WorkflowTriggerState `json:"trigger_states,omitempty"`
+		}{result, states})
+	}
+}
+
+// workflowTriggerSwitchHandler serves PUT /api/workflows/{name}/triggers/
+// {trigger} {enabled}: the trigger on or paused in this Legato, never in
+// its file; DELETE leaves it to the file again.
+func (s *Server) workflowTriggerSwitchHandler() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if s.workflowTriggers == nil {
+			s.writeError(w, http.StatusServiceUnavailable, "workflow triggers are not available")
+			return
+		}
+		name, trigger := r.PathValue("name"), r.PathValue("trigger")
+		var err error
+		switch r.Method {
+		case http.MethodPut:
+			var body struct {
+				Enabled *bool `json:"enabled"`
+			}
+			if json.NewDecoder(r.Body).Decode(&body) != nil || body.Enabled == nil {
+				s.writeError(w, http.StatusBadRequest, "want {\"enabled\": true|false}")
+				return
+			}
+			err = s.workflowTriggers.SetTriggerEnabled(r.Context(), name, trigger, *body.Enabled)
+		case http.MethodDelete:
+			err = s.workflowTriggers.ResetTrigger(r.Context(), name, trigger)
+		default:
+			s.writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+			return
+		}
+		switch {
+		case errors.Is(err, service.ErrNoSuchTrigger):
+			s.writeError(w, http.StatusNotFound, err.Error())
+		case err != nil:
+			s.writeError(w, http.StatusInternalServerError, err.Error())
+		default:
+			s.hub.Broadcast(WSMessage{Type: MsgWorkflowChanged})
+			s.writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+		}
 	}
 }
 func (s *Server) workflowStartHandler() http.HandlerFunc {

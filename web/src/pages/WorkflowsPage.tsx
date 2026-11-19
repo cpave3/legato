@@ -3,8 +3,9 @@ import { Link, useSearchParams } from "react-router-dom"
 import { Play, RefreshCw } from "lucide-react"
 import { useWorkflows, useWorkflowRuns } from "../hooks/useWorkflow"
 import { useNow } from "../hooks/useNow"
-import type { WorkflowDefinition, WorkflowRun } from "../lib/workflow"
-import { ago, inputsLabel, runState, runSubject, runSummary, sourceLabel, stepPosition, stepSegments, triggerText } from "../lib/workflowView"
+import { setWorkflowTrigger, type WorkflowDefinition, type WorkflowRun, type WorkflowTriggerState } from "../lib/workflow"
+import { ago, inputsLabel, runState, runSubject, runSummary, sourceLabel, stepPosition, stepSegments, triggerLabel, triggerText } from "../lib/workflowView"
+import { useServer } from "../hooks/useServer"
 import { RunWorkflowDialog } from "../components/RunWorkflowDialog"
 import { StatePill, StepBar } from "../components/WorkflowRunStatus"
 import { toneText } from "../lib/workflowTones"
@@ -124,6 +125,36 @@ function LastRun({ run, now }: { run?: WorkflowRun; now: number }) {
   </Link>
 }
 
+// TriggerSwitch turns one of a workflow's triggers on or off in this Legato
+// only; its file, which may say enabled: false, is never changed.
+function TriggerSwitch({ definition, state, onChanged }: { definition: WorkflowDefinition; state: WorkflowTriggerState; onChanged: () => Promise<unknown> | void }) {
+  const { baseUrl } = useServer()
+  const [busy, setBusy] = useState(false)
+  const [error, setError] = useState("")
+  const label = triggerLabel(state.trigger, definition.on)
+  const toggle = async () => {
+    setBusy(true)
+    setError("")
+    try {
+      await setWorkflowTrigger(baseUrl, definition.name, state.trigger, !state.enabled)
+      await onChanged()
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : String(reason))
+    } finally {
+      setBusy(false)
+    }
+  }
+  return <span className="inline-flex items-center gap-2">
+    <button type="button" role="switch" aria-checked={state.enabled} aria-label={label} disabled={busy} onClick={() => void toggle()}
+      title={state.overridden ? `Switched here; the file says ${state.file_enabled ? "on" : "paused"}` : "As its file says"}
+      className={cn("inline-flex min-h-8 items-center gap-2 rounded-full border px-2.5 text-xs", state.enabled ? "border-lw-done/50 text-lw-done" : "border-lw-line-strong text-lw-text-2")}>
+      <span aria-hidden="true" className={cn("h-2 w-2 rounded-full", state.enabled ? "bg-lw-done" : "bg-lw-faint")} />
+      {state.enabled ? "on here" : "paused here"}
+    </button>
+    {error && <span role="alert" className="text-xs text-lw-error">{error}</span>}
+  </span>
+}
+
 function WorkflowsTab({ setTab }: { setTab: (tab: WorkflowTab) => void }) {
   const definitions = useWorkflows()
   const runs = useWorkflowRuns()
@@ -157,6 +188,9 @@ function WorkflowsTab({ setTab }: { setTab: (tab: WorkflowTab) => void }) {
             {takes && <span><span className="text-lw-faint">Takes</span> {takes}</span>}
             {trigger && <span className="text-lw-link">↳ {trigger}</span>}
           </p>}
+          {(definitions.data?.trigger_states?.[definition.name] ?? []).length > 0 && <div className="flex flex-wrap gap-2">
+            {(definitions.data?.trigger_states?.[definition.name] ?? []).map(state => <TriggerSwitch key={state.trigger} definition={definition} state={state} onChanged={definitions.refresh} />)}
+          </div>}
         </li>
       })}
     </ul>}

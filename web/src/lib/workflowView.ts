@@ -159,6 +159,15 @@ export function triggerText(on: Record<string, unknown> | null | undefined): str
   return `${entered.confirm ? "Asks to start" : "Starts"} when a task enters ${entered.column}${handedOff}`
 }
 
+// triggerLabel names one of a definition's triggers for its switch.
+export function triggerLabel(kind: string, on: Record<string, unknown> | null | undefined): string {
+  const trigger = on?.[kind] as Record<string, unknown> | undefined
+  switch (kind) {
+    case "task.entered_column": return `When a task enters ${typeof trigger?.column === "string" ? trigger.column : "a column"}`
+  }
+  return kind
+}
+
 export function sourceLabel(source: string): string {
   if (source.startsWith("builtin:")) return "built in"
   return source.split(/[\\/]/).pop() || source

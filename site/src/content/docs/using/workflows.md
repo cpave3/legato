@@ -133,6 +133,19 @@ Conditions support nested `all`, `any`, and `not`, and field comparisons using `
 
 On a [worker](/legato/running/instances/), a column trigger skips cards handed off from a main: they are the main's, and the main's own workflows run when the task comes home. Set `handed_off: true` on the trigger to run it on those cards too.
 
+### Pausing a trigger
+
+Every trigger is on unless it says `enabled: false`, which makes it start paused: a shared workflow then runs nothing until someone switches it on.
+
+```yaml
+on:
+  task.entered_column:
+    column: Triage
+    enabled: false
+```
+
+On the **Workflows** tab, each trigger has a switch that says **on here** or **paused here**. It turns the trigger on or off in this Legato only and never changes the file; another Legato that reads the same file keeps its own switch. A trigger you have not switched follows its file. A paused trigger makes no requests while it is paused, and moves made then are not caught up later.
+
 Set `confirm: true` on a column trigger to require explicit approval after its conditions match and inputs resolve. Existing triggers without it continue to start automatically. Confirmable requests remain recoverable in Attention: closing the immediate prompt means **Not now** and makes no state change, while **Skip** terminates the request. Conditions are re-evaluated when the user confirms, so a session that closes while the prompt is pending causes the trigger to skip without creating a workflow run.
 
 Automatic triggers run for explicit local moves, including local moves of provider-backed tasks, and for a task [handed off to a worker](/legato/using/handoff/) that comes home into another column than it left (its Return or Recall is a move like any other); pull-sync status changes do not trigger workflows. Trigger requests are durable and idempotent. Missing required inputs leave the card in its destination column and create a recoverable Attention item; for confirmable triggers, supplying those inputs advances to confirmation instead of starting immediately. The workflow can always be started manually as a separate run.

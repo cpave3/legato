@@ -287,6 +287,8 @@ A card on the board is a task: its ID is the task's. An agent is addressed by it
 | --- | --- | --- | --- | --- |
 | `GET` | `/api/workflows` | read | List the workflows |  |
 | `POST` | `/api/workflows/{name}/runs` | change | Start a workflow |  |
+| `PUT` | `/api/workflows/{name}/triggers/{trigger}` | change | Switch a workflow's trigger on or off here | `{"enabled": false}` |
+| `DELETE` | `/api/workflows/{name}/triggers/{trigger}` | change | Leave a workflow's trigger to its file |  |
 | `GET` | `/api/workflow-triggers/{request_id}` | read | Read a workflow trigger request |  |
 | `POST` | `/api/workflow-triggers/{request_id}` | change | Answer a workflow trigger request |  |
 | `GET` | `/api/workflow-runs` | read | List the workflow runs |  |

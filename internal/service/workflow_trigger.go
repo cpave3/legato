@@ -60,6 +60,12 @@ func (c *WorkflowTriggerCoordinator) CaptureTransition(ctx context.Context, tran
 		if trigger == nil || trigger.Column != transition.ToColumn {
 			continue
 		}
+		// A paused trigger asks for nothing.
+		if on, err := c.triggerEnabled(ctx, definition, workflowengine.TriggerTaskEnteredColumn); err != nil {
+			return err
+		} else if !on {
+			continue
+		}
 		definitionJSON, _ := json.Marshal(definition)
 		digest := sha256.Sum256(definitionJSON)
 		request, err := c.store.UpsertWorkflowTriggerRequest(ctx, store.WorkflowTriggerRequest{ID: workflowID("wtr-"), TransitionID: transition.ID, WorkflowName: definition.Name, DefinitionSource: definition.Source, DefinitionDigest: hex.EncodeToString(digest[:]), DefinitionJSON: string(definitionJSON), InputsJSON: `{}`, MissingInputsJSON: `[]`, Status: "pending"})

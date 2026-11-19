@@ -10,9 +10,36 @@ type Triggers struct {
 	TaskEnteredColumn *TaskEnteredColumnTrigger `yaml:"task.entered_column,omitempty" json:"task.entered_column,omitempty"`
 }
 
+// The kinds of trigger, as a definition's on: names them.
+const (
+	TriggerTaskEnteredColumn = "task.entered_column"
+)
+
+// TriggerInfo is one trigger a definition declares: its kind, and whether
+// it is on when no Legato has switched it (its enabled field, true when
+// absent).
+type TriggerInfo struct {
+	Kind             string `json:"trigger"`
+	EnabledByDefault bool   `json:"file_enabled"`
+}
+
+// List is the triggers a definition declares, in a fixed order.
+func (t Triggers) List() []TriggerInfo {
+	var out []TriggerInfo
+	if t.TaskEnteredColumn != nil {
+		out = append(out, TriggerInfo{Kind: TriggerTaskEnteredColumn, EnabledByDefault: enabledByDefault(t.TaskEnteredColumn.Enabled)})
+	}
+	return out
+}
+
+func enabledByDefault(enabled *bool) bool { return enabled == nil || *enabled }
+
 type TaskEnteredColumnTrigger struct {
-	Column  string `yaml:"column" json:"column"`
-	Confirm bool   `yaml:"confirm,omitempty" json:"confirm,omitempty"`
+	Column string `yaml:"column" json:"column"`
+	// Enabled false makes the trigger start paused: it starts nothing until
+	// a Legato switches it on (per instance, never in this file).
+	Enabled *bool `yaml:"enabled,omitempty" json:"enabled,omitempty"`
+	Confirm bool  `yaml:"confirm,omitempty" json:"confirm,omitempty"`
 	// HandedOff lets the trigger run on a card a main handed off to this
 	// Legato (a worker), which by default it skips: the main's own
 	// workflows run when the task returns.
