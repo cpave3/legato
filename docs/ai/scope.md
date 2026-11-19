@@ -81,7 +81,7 @@ Errors: `400` (`ErrScopeInvalidOrigin`, `ErrScopeInvalid`, a screenshot that is 
 
 Host: `hostBrokerDeps` gets the host's `ScopeService`. The broker's `mcp.call` returns a tool's `images`, which `MCPRelay` already read, so a sandboxed agent sees the screenshot. Without a broker, `legato mcp serve` builds `standaloneScope`: its own `ScopeService` over the store, with the agent service as messenger and `Notify` broadcasting `scope_changed` over IPC (`Content` is the origin), which both host runtimes publish as `EventScopeChanged`.
 
-`cli.MCPGuidance` tells every agent to subscribe the origin of a dev server it starts or knows of, read pins with `page_pin_get`, resolve each, and use `page_pin_list` when told pins wait. Claude Code reads it as the server's instructions; Codex and Chimera get it in the launch prompt (`SetToolsPrompt`). `MCPToolNames` names the five tools, so Chimera runs them without asking.
+`cli.MCPGuidance` tells every agent to subscribe the origin of a dev server it starts or knows of, read pins with `page_pin_get`, resolve each, and use `page_pin_list` when told pins wait. Claude Code, and Chimera launched with Legato's mod, read it as the server's instructions; Codex, and Chimera on the legacy `--mcp-config` launch, get it in the launch prompt (`SetToolsPrompt`; see [Agent tools](agent-mcp.md) for which launch gets which). `MCPToolNames` names the five tools, so Chimera runs them without asking.
 
 ## Wiring
 
