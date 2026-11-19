@@ -1,5 +1,5 @@
-import type { DraftStore } from "../scope-drafts"
-import type { Box, PinTarget, ScopeDraft, ScopePin } from "../scope-types"
+import type { ClearedStore, DraftStore } from "../scope-drafts"
+import { MAX_PINS_PER_BATCH, type Box, type PinTarget, type ScopeBatchResult, type ScopeDraft, type ScopePin, type SentPin, type SentPinState } from "../scope-types"
 import { LEGATO_MONO, LEGATO_SANS, loadLegatoFonts } from "./fonts"
 
 export type CapturedPin = { pin: Omit<ScopePin, "comment" | "screenshot">; screenshot?: string }
@@ -13,6 +13,13 @@ export type ScopeOverlayDeps = {
   locate: (target: PinTarget) => Element | null
   newId: () => string
   now: () => string
+  // Sending drafts and acting on sent pins, through the service worker.
+  sent?: {
+    send: (pins: ScopePin[]) => Promise<ScopeBatchResult>
+    reopen: (id: string, comment: string) => Promise<void>
+    withdraw: (id: string) => Promise<void>
+    cleared: ClearedStore
+  }
 }
 
 export type ScopeOverlay = {
@@ -26,6 +33,9 @@ export type ScopeOverlay = {
   refresh: () => Promise<void>
   // Finds lost markers' elements again after the page changed.
   relocate: () => void
+  // The site's sent pins, as Legato last reported them.
+  setSent: (pins: SentPin[]) => void
+  setSentError: (message: string) => void
   destroy: () => void
 }
 
@@ -88,7 +98,28 @@ button.act:disabled { opacity: .5; cursor: default; }
 .status[data-kind="error"] { color: var(--lw-error); }
 .status[data-kind="success"] { color: var(--lw-live); }
 .status:empty { display: none; }
+.marker[data-state] { border-radius: 50%; font-size: 12px; }
+.marker[data-state="sent"] { background: var(--lw-accent-ring); }
+.marker[data-state="delivered"] { background: var(--lw-accent); }
+.marker[data-state="fixed"] { background: var(--lw-live); color: #0b2a1c; }
+.marker[data-state="wont_fix"] { background: var(--lw-faint); }
+.section { display: flex; align-items: center; gap: 8px; margin-top: 4px; color: var(--lw-text-2); font-size: 11px;
+  text-transform: uppercase; letter-spacing: .04em; }
+.section span { flex: 1; }
+.sent { display: flex; flex-direction: column; gap: 4px; padding-bottom: 8px; border-bottom: 1px solid var(--lw-line); }
+.sent .head { display: flex; gap: 8px; align-items: center; }
+.chip { padding: 1px 6px; border-radius: 999px; font-size: 11px; border: 1px solid var(--lw-line-strong); color: var(--lw-text-2); }
+.chip[data-state="delivered"] { color: var(--lw-accent-text); border-color: var(--lw-accent-ring); }
+.chip[data-state="fixed"] { color: var(--lw-live); border-color: var(--lw-live); }
+.sent .page { flex: 1; color: var(--lw-text-2); font-size: 11px; overflow-wrap: anywhere; }
+.sent .comment, .popover .comment { overflow-wrap: anywhere; }
+.note { padding: 4px 8px; border-left: 2px solid var(--lw-accent-ring); color: var(--lw-text-2); overflow-wrap: anywhere; }
+.send { display: flex; justify-content: flex-end; }
 `
+
+const RESOLVED = new Set<SentPinState>(["fixed", "wont_fix"])
+const STATE_LABELS: Record<SentPinState, string> = { sent: "Sent", delivered: "Delivered", fixed: "Fixed", wont_fix: "Won't fix" }
+const STATE_GLYPHS: Record<SentPinState, string> = { sent: "↑", delivered: "→", fixed: "✓", wont_fix: "✕" }
 
 function pathOf(url: string): string {
   try {
@@ -144,7 +175,14 @@ export function createScopeOverlay(doc: Document, win: Window, deps: ScopeOverla
   const list = el("div", "drafts")
   const status = el("div", "status")
   status.setAttribute("role", "status")
-  body.append(list, status)
+  const sendRow = el("div", "send")
+  const sendButton = button("Send", "send", true)
+  sendRow.append(sendButton)
+  const sentHeader = el("div", "section")
+  const clearResolved = button("Clear resolved", "clear-resolved")
+  sentHeader.append(el("span", "", "Sent"), clearResolved)
+  const sentList = el("div", "sent-list")
+  body.append(list, sendRow, sentHeader, sentList, status)
   tray.append(header, body)
   layer.append(tray)
 
@@ -154,6 +192,9 @@ export function createScopeOverlay(doc: Document, win: Window, deps: ScopeOverla
   let popover: HTMLElement | null = null
   let pending: { captured: CapturedPin; element: Element; marker: Marker } | null = null
   let destroyed = false
+  let sentPins: SentPin[] = []
+  let cleared = new Set<string>()
+  let sending = false
 
   const ours = (event: Event): boolean => event.composedPath().includes(host)
   const targetOf = (event: Event): Element | null => {
@@ -327,18 +368,31 @@ export function createScopeOverlay(doc: Document, win: Window, deps: ScopeOverla
   win.addEventListener("scroll", schedule, { capture: true, passive: true })
   win.addEventListener("resize", schedule, { passive: true })
 
-  const say = (message: string, kind: "info" | "error" | "success" = "info"): void => {
+  // A quiet message is shown when the tray is, but does not open it: Legato
+  // being unreachable is news on a page only when there is something to send.
+  const say = (message: string, kind: "info" | "error" | "success" = "info", quiet = false): void => {
+    status.dataset.quiet = String(quiet)
     status.textContent = message
     status.dataset.kind = kind
     renderTray()
   }
 
+  const visibleSent = (): SentPin[] => sentPins.filter((pin) => !(RESOLVED.has(pin.state) && cleared.has(pin.id)))
+
   const renderTray = (): void => {
     const count = drafts.length
+    const shown = visibleSent()
+    const batch = Math.min(count, MAX_PINS_PER_BATCH)
+    sendRow.style.display = deps.sent && count > 0 ? "flex" : "none"
+    sendButton.textContent = sending ? "Sending…" : batch === 1 ? "Send 1 pin" : `Send ${batch} pins`
+    sendButton.disabled = sending || count === 0
+    sentHeader.style.display = shown.length > 0 ? "flex" : "none"
+    clearResolved.style.display = shown.some((pin) => RESOLVED.has(pin.state)) ? "inline-block" : "none"
+    sentList.replaceChildren(...shown.map((pin) => sentRow(pin)))
     title.replaceChildren("Scope ", el("small", "", count === 1 ? "· 1 draft" : `· ${count} drafts`))
     pinToggle.setAttribute("aria-pressed", String(pinning))
     pinToggle.textContent = pinning ? "Pinning" : "Pin"
-    tray.dataset.visible = String(pinning || count > 0 || Boolean(status.textContent))
+    tray.dataset.visible = String(pinning || count > 0 || shown.length > 0 || (Boolean(status.textContent) && status.dataset.quiet !== "true"))
     const rows = new Map([...list.querySelectorAll<HTMLElement>(".draft")].map((row) => [row.dataset.id!, row]))
     const next: HTMLElement[] = []
     drafts.forEach((draft, index) => {
@@ -387,10 +441,134 @@ export function createScopeOverlay(doc: Document, win: Window, deps: ScopeOverla
         onDelete: () => deps.store.remove(draft.id),
       }))
     })
+    renderSentMarkers()
   }
+
+  // A sent pin's popover: its comment and the agent's note, and what can be
+  // done with it in its state.
+  const openSentPopover = (pin: SentPin, anchor: Element): void => {
+    closePopover()
+    const panel = el("div", "popover panel")
+    panel.setAttribute("role", "dialog")
+    panel.setAttribute("aria-label", `Sent pin: ${STATE_LABELS[pin.state]}`)
+    const meta = el("div", "meta mono", `${STATE_LABELS[pin.state]} · ${pathOf(pin.url)}`)
+    panel.append(meta, el("div", "comment", pin.comment))
+    if (pin.note) panel.append(el("div", "note", pin.note))
+    const row = el("div", "row")
+    const close = button("Close", "cancel")
+    close.addEventListener("click", () => closePopover())
+    if (RESOLVED.has(pin.state) && deps.sent) {
+      const text = el("textarea")
+      text.placeholder = "What is still wrong?"
+      const reopen = button("Reopen", "reopen", true)
+      reopen.disabled = true
+      text.addEventListener("input", () => { reopen.disabled = !text.value.trim() })
+      reopen.addEventListener("click", () => {
+        const comment = text.value.trim()
+        if (!comment) return
+        reopen.disabled = true
+        void act(() => deps.sent!.reopen(pin.id, comment), "Reopened. The pin is back with Legato.")
+      })
+      panel.append(text)
+      row.append(close, reopen)
+    } else if (pin.state === "sent" && deps.sent) {
+      const withdraw = button("Withdraw", "withdraw")
+      withdraw.addEventListener("click", () => { void act(() => deps.sent!.withdraw(pin.id), "Withdrawn.") })
+      row.append(withdraw, close)
+    } else {
+      row.append(close)
+    }
+    panel.append(row)
+    layer.append(panel)
+    popover = panel
+    const rect = anchor.getBoundingClientRect()
+    panel.style.left = `${Math.max(8, Math.min(rect.left + 28, win.innerWidth - 288))}px`
+    panel.style.top = `${Math.max(8, Math.min(rect.top, win.innerHeight - 220))}px`
+  }
+
+  const act = async (work: () => Promise<void>, done: string): Promise<void> => {
+    try {
+      await work()
+      closePopover()
+      say(done, "success")
+    } catch (error) {
+      say(error instanceof Error ? error.message : String(error), "error")
+    }
+  }
+
+  const sentRow = (pin: SentPin): HTMLElement => {
+    const row = el("div", "sent")
+    row.dataset.id = pin.id
+    const head = el("div", "head")
+    const chip = el("span", "chip", STATE_LABELS[pin.state])
+    chip.dataset.state = pin.state
+    head.append(chip, el("span", "page mono", pathOf(pin.url)))
+    if (RESOLVED.has(pin.state) && deps.sent) {
+      const reopen = button("Reopen…", "reopen")
+      reopen.addEventListener("click", () => openSentPopover(pin, row))
+      head.append(reopen)
+    } else if (pin.state === "sent" && deps.sent) {
+      const withdraw = button("Withdraw", "withdraw")
+      withdraw.addEventListener("click", () => { void act(() => deps.sent!.withdraw(pin.id), "Withdrawn.") })
+      head.append(withdraw)
+    }
+    row.append(head, el("div", "comment", pin.comment))
+    if (pin.note) row.append(el("div", "note", pin.note))
+    return row
+  }
+
+  const renderSentMarkers = (): void => {
+    const here = pathOf(win.location.href)
+    for (const pin of visibleSent()) {
+      if (pathOf(pin.url) !== here) continue
+      const target: PinTarget = { selectors: pin.selectors ?? (pin.selector ? [pin.selector] : []), text: pin.text ?? "", box: pin.box }
+      const marker = makeMarker(`sent:${pin.id}`, STATE_GLYPHS[pin.state], deps.locate(target), pin.box, target)
+      marker.button.dataset.state = pin.state
+      marker.button.setAttribute("aria-label", `${STATE_LABELS[pin.state]}: ${pin.comment}`)
+      marker.button.title = pin.note ? `${pin.comment}\n— ${pin.note}` : pin.comment
+      marker.button.addEventListener("click", () => openSentPopover(pin, marker.button))
+    }
+  }
+
+  const send = async (): Promise<void> => {
+    if (!deps.sent || sending) return
+    const batch = drafts.slice(0, MAX_PINS_PER_BATCH)
+    if (batch.length === 0) return
+    sending = true
+    say("Sending…")
+    try {
+      const pins = await Promise.all(batch.map(async (draft): Promise<ScopePin> => {
+        const screenshot = draft.hasScreenshot ? await deps.store.screenshot(draft.id) : undefined
+        return screenshot ? { ...draft.pin, screenshot } : { ...draft.pin }
+      }))
+      const result = await deps.sent.send(pins)
+      await deps.store.removeMany(batch.map((draft) => draft.id))
+      const left = drafts.length - batch.length
+      const lines = [batch.length === 1 ? "Sent 1 pin to Legato." : `Sent ${batch.length} pins to Legato.`]
+      if (!result.subscribed) lines.push(`They wait in Legato's pool until an agent subscribes to ${win.location.origin}.`)
+      else if (result.delivered) lines.push("The agent subscribed to this site has them.")
+      else lines.push("An agent is subscribed to this site; it gets them next.")
+      if (left > 0) lines.push(left === 1 ? "1 draft left: send again." : `${left} drafts left: send again.`)
+      sending = false
+      say(lines.join("\n"), "success")
+    } catch (error) {
+      sending = false
+      say(error instanceof Error ? error.message : String(error), "error")
+    }
+    await refresh()
+  }
+  sendButton.addEventListener("click", () => { void send() })
+  clearResolved.addEventListener("click", () => {
+    const ids = visibleSent().filter((pin) => RESOLVED.has(pin.state)).map((pin) => pin.id)
+    for (const id of ids) cleared.add(id)
+    void deps.sent?.cleared.add(ids)
+    renderMarkers()
+    renderTray()
+  })
 
   const refresh = async (): Promise<void> => {
     drafts = await deps.store.list()
+    if (deps.sent) cleared = new Set(await deps.sent.cleared.list())
     if (destroyed) return
     renderMarkers()
     renderTray()
@@ -431,6 +609,16 @@ export function createScopeOverlay(doc: Document, win: Window, deps: ScopeOverla
       }
       reposition()
     },
+    setSent: (pins) => {
+      sentPins = pins
+      void (async () => {
+        if (deps.sent) cleared = new Set(await deps.sent.cleared.list())
+        if (destroyed) return
+        renderMarkers()
+        renderTray()
+      })()
+    },
+    setSentError: (message) => say(message, "error", true),
     destroy: () => {
       destroyed = true
       for (const type of BLOCKED) win.removeEventListener(type, block, { capture: true })

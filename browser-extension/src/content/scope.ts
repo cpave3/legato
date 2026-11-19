@@ -1,4 +1,5 @@
-import { createDraftStore, draftsKey } from "../scope-drafts"
+import { clearedKey, createClearedStore, createDraftStore, draftsKey } from "../scope-drafts"
+import type { ScopeBatchResult, ScopePin, SentPin } from "../scope-types"
 import { normalizeScopeOrigins, SCOPE_ORIGINS_KEY } from "../scope-origins"
 import { capturePage, captureTarget, locateTarget } from "./scope-capture"
 import { captureStyles, createStyleReader } from "./scope-styles"
@@ -11,6 +12,21 @@ import { createScopeOverlay, type CapturedPin, type ScopeOverlay } from "./scope
 
 type Booted = { ready: Promise<ScopeOverlay | null> }
 const BOOTED = "__legatoScope"
+
+type Answer = { ok: true; [key: string]: unknown } | { ok: false; error: string }
+
+// A call to the service worker, which owns the token; its refusal is thrown.
+async function ask(message: Record<string, unknown>): Promise<Answer & { ok: true }> {
+  let answer: Answer | undefined
+  try {
+    answer = await chrome.runtime.sendMessage(message) as Answer | undefined
+  } catch (error) {
+    throw new Error(`The extension did not answer (${error instanceof Error ? error.message : String(error)}). Reload the page.`)
+  }
+  if (!answer) throw new Error("The extension did not answer. Reload the page.")
+  if (!answer.ok) throw new Error(answer.error)
+  return answer
+}
 
 function newId(): string {
   return `d-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
@@ -76,10 +92,31 @@ export function bootScope(doc: Document = document, win: Window = window): Promi
       locate: (target) => locateTarget(doc, target),
       newId,
       now: () => new Date().toISOString(),
+      sent: {
+        send: async (pins: ScopePin[]) => (await ask({ type: "scopeSend", pins })).result as ScopeBatchResult,
+        reopen: async (id, comment) => { await ask({ type: "scopeReopen", id, comment }) },
+        withdraw: async (id) => { await ask({ type: "scopeWithdraw", id }) },
+        cleared: createClearedStore(chrome.storage.local, origin),
+      },
     })
     chrome.storage.onChanged.addListener((changes, area) => {
-      if (area === "local" && draftsKey(origin) in changes) void overlay.refresh()
+      if (area === "local" && (draftsKey(origin) in changes || clearedKey(origin) in changes)) void overlay.refresh()
     })
+    // The service worker tells the site's tabs when its pins change.
+    chrome.runtime.onMessage.addListener((message: unknown) => {
+      const update = message as { type?: string; origin?: string; pins?: unknown }
+      if (update?.type === "scopePinsChanged" && update.origin === origin && Array.isArray(update.pins)) overlay.setSent(update.pins as SentPin[])
+      return false
+    })
+    // Watching again when the tab comes back: the service worker may have
+    // been stopped meanwhile and forgotten the tab.
+    const watch = (): void => {
+      void ask({ type: "scopeWatch" })
+        .then((answer) => overlay.setSent((answer.pins as SentPin[] | undefined) ?? []))
+        .catch((error: unknown) => overlay.setSentError(error instanceof Error ? error.message : String(error)))
+    }
+    doc.addEventListener("visibilitychange", () => { if (doc.visibilityState === "visible") watch() })
+    watch()
     watchPage(doc, win, overlay)
     await overlay.refresh()
     return overlay

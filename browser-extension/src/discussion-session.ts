@@ -10,7 +10,7 @@ import {
   type NativeSnapshot,
   type NativeSyncState,
 } from "../../web/src/lib/nativeAgentSync"
-import { unreachableMessage } from "./legato"
+import { socketUrl, unreachableMessage } from "./legato"
 
 export type DiscussionSocket = {
   send: (data: string) => void
@@ -41,13 +41,6 @@ export const browserDependencies: Dependencies = {
   connect: (url) => new WebSocket(url) as unknown as DiscussionSocket,
   setTimeout: (callback, ms) => window.setTimeout(callback, ms),
   clearTimeout: (id) => window.clearTimeout(id),
-}
-
-export function socketUrl(baseUrl: string, token: string): string {
-  const url = new URL("/ws", baseUrl)
-  url.protocol = url.protocol === "https:" ? "wss:" : "ws:"
-  if (token) url.searchParams.set("token", token)
-  return url.toString()
 }
 
 export function createDiscussionSession(target: Target, deps: Dependencies, onChange: (state: DiscussionState) => void) {

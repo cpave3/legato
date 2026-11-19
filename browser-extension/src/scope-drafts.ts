@@ -55,6 +55,29 @@ export function createDraftStore(area: StorageAreaLike, origin: string) {
 
 export type DraftStore = ReturnType<typeof createDraftStore>
 
+export const clearedKey = (origin: string): string => `scopeCleared:${origin}`
+const CLEARED_LIMIT = 500
+
+// The sent pins the person cleared from the site's pages once resolved. Only
+// this browser forgets them; Legato keeps them.
+export function createClearedStore(area: StorageAreaLike, origin: string) {
+  const key = clearedKey(origin)
+  const list = async (): Promise<string[]> => {
+    const value = (await area.get(key))[key]
+    return Array.isArray(value) ? value.filter((id): id is string => typeof id === "string") : []
+  }
+  return {
+    key,
+    list,
+    add: async (ids: string[]): Promise<void> => {
+      const next = [...new Set([...(await list()), ...ids])]
+      await area.set({ [key]: next.slice(-CLEARED_LIMIT) })
+    },
+  }
+}
+
+export type ClearedStore = ReturnType<typeof createClearedStore>
+
 // A storage area in memory, for tests and for pages without chrome.storage.
 export function memoryArea(initial: Record<string, unknown> = {}): StorageAreaLike & { data: Record<string, unknown> } {
   const data: Record<string, unknown> = structuredClone(initial)

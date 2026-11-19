@@ -1,3 +1,4 @@
+import type { ScopeBatch, ScopeBatchResult, SentPin } from "./scope-types"
 import type { TicketProvider } from "./ticket-providers"
 
 export type WorkflowInput = { type: string; required?: boolean; default?: unknown }
@@ -61,6 +62,23 @@ export function unreachableMessage(baseUrl: string): string {
   ].join("\n")
 }
 
+// The part of a WebSocket the extension uses.
+export type LiveSocketLike = {
+  send?: (data: string) => void
+  close: () => void
+  onopen: (() => void) | null
+  onmessage: ((event: { data: string }) => void) | null
+  onclose: (() => void) | null
+}
+
+// Legato's WebSocket, with the token in the address as the web UI sends it.
+export function socketUrl(baseUrl: string, token: string): string {
+  const url = new URL("/ws", baseUrl)
+  url.protocol = url.protocol === "https:" ? "wss:" : "ws:"
+  if (token) url.searchParams.set("token", token)
+  return url.toString()
+}
+
 // Legato's API answers most refusals as {"error": "..."}; the message is what
 // the person should read.
 function errorMessage(body: string): string {
@@ -70,6 +88,14 @@ function errorMessage(body: string): string {
     return typeof parsed.error === "string" && parsed.error ? parsed.error : body
   } catch {
     return body
+  }
+}
+
+// A refusal from Legato, with the status it answered.
+export class LegatoRequestError extends Error {
+  constructor(message: string, readonly status: number) {
+    super(message)
+    this.name = "LegatoRequestError"
   }
 }
 
@@ -120,6 +146,32 @@ export class LegatoClient {
     return (await this.request<{ providers: TicketProvider[] | null }>("/api/ticket-providers")).providers ?? []
   }
 
+  // Scope: pins placed on a page of the person's own site.
+  sendScopeBatch(batch: ScopeBatch): Promise<ScopeBatchResult> {
+    return this.request<ScopeBatchResult>("/api/scope/batches", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(batch),
+    })
+  }
+
+  async listScopePins(origin: string): Promise<SentPin[]> {
+    const query = new URLSearchParams({ origin })
+    return (await this.request<{ pins: SentPin[] | null }>(`/api/scope/pins?${query}`)).pins ?? []
+  }
+
+  reopenScopePin(id: string, comment: string): Promise<SentPin> {
+    return this.request<SentPin>(`/api/scope/pins/${encodeURIComponent(id)}/reopen`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ comment }),
+    })
+  }
+
+  async withdrawScopePin(id: string): Promise<void> {
+    await this.fetch(`/api/scope/pins/${encodeURIComponent(id)}/withdraw`, { method: "POST" })
+  }
+
   private async fetch(path: string, init: RequestInit = {}): Promise<Response> {
     const headers = new Headers(init.headers)
     if (this.token) headers.set("Authorization", `Bearer ${this.token}`)
@@ -131,7 +183,7 @@ export class LegatoClient {
     }
     if (!response.ok) {
       const detail = errorMessage((await response.text()).trim())
-      throw new Error(detail || `Legato request failed (${response.status})`)
+      throw new LegatoRequestError(detail || `Legato request failed (${response.status})`, response.status)
     }
     return response
   }

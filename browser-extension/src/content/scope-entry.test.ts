@@ -104,3 +104,20 @@ it("captures a pin's context and asks the service worker for its screenshot", as
   expect(data[`scopeShot:http://localhost:5173:${saved.id}`]).toBe("data:image/jpeg;base64,AAAA")
   overlay.destroy()
 })
+
+it("watches the site's sent pins and shows those the service worker reports", async () => {
+  const { send, sendMessage } = stubChrome({ scopeOrigins: ["http://localhost:5173"] })
+  document.body.innerHTML = `<button id="save">Save</button>`
+  const { bootScope } = await import("./scope")
+  const overlay = (await bootScope(document, window))!
+  await vi.waitFor(() => expect(sendMessage).toHaveBeenCalledWith({ type: "scopeWatch" }))
+  const pin = {
+    id: "sp-1", batch_id: "sb-1", origin: "http://localhost:5173", url: "http://localhost:5173/settings", path: "/settings",
+    comment: "Too much padding", state: "fixed", note: "Reduced", selectors: ["#save"], box: { x: 0, y: 0, width: 1, height: 1 },
+    has_screenshot: false, created_at: "", updated_at: "",
+  }
+  void send({ type: "scopePinsChanged", origin: "https://other.test", pins: [pin] })
+  void send({ type: "scopePinsChanged", origin: "http://localhost:5173", pins: [pin] })
+  await vi.waitFor(() => expect(overlay.root.querySelectorAll(".marker[data-state='fixed']")).toHaveLength(1))
+  overlay.destroy()
+})

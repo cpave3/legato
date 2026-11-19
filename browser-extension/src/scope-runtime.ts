@@ -1,6 +1,9 @@
 // Scope in the service worker: the toolbar button, the script registrations,
 // and the messages of the options page and the content script.
+import { LegatoClient, type LiveSocketLike } from "./legato"
+import { hasOriginPermission } from "./permissions"
 import { handleScopeAction, type ScopeActionResult } from "./scope-action"
+import { createScopeLive } from "./scope-live"
 import { scopeOrigins } from "./scope-origins"
 import { cropScreenshot } from "./scope-screenshot"
 import { createScopeMessageHandler } from "./scope-service"
@@ -40,12 +43,33 @@ function report(tabId: number | undefined, result: ScopeActionResult): void {
   void chrome.action.setTitle({ tabId, title: problem || "Legato integration · Scope: toggle pin mode" }).catch(() => undefined)
 }
 
+// The configured Legato, once the person has let the extension reach it.
+async function legato(): Promise<{ baseUrl: string; token: string; client: LegatoClient }> {
+  const config = await loadConfig()
+  if (!(await hasOriginPermission(config.baseUrl))) throw new Error("Open extension options and grant access to the configured Legato origin")
+  return { baseUrl: config.baseUrl, token: config.token, client: new LegatoClient(config.baseUrl, config.token) }
+}
+
+const live = createScopeLive({
+  target: legato,
+  connect: (url) => new WebSocket(url) as unknown as LiveSocketLike,
+  fetchPins: async (origin) => (await legato()).client.listScopePins(origin),
+  notify: (tabId, message) => chrome.tabs.sendMessage(tabId, message),
+  setTimeout: (callback, ms) => setTimeout(callback, ms) as unknown as number,
+  clearTimeout: (id) => clearTimeout(id),
+})
+
 export const handleScopeMessage = createScopeMessageHandler({
   get extensionUrl() { return chrome.runtime.getURL("") },
   origins: scopeOrigins,
   releasePermission,
   captureTab: (windowId) => chrome.tabs.captureVisibleTab(windowId, { format: "png" }),
   crop: cropScreenshot,
+  legato: async () => {
+    const { baseUrl, client } = await legato()
+    return { baseUrl, api: client }
+  },
+  live,
 })
 
 export function startScope(): void {
@@ -67,4 +91,5 @@ export function startScope(): void {
   chrome.runtime.onStartup.addListener(sync)
   chrome.permissions.onAdded.addListener(sync)
   chrome.permissions.onRemoved.addListener(sync)
+  chrome.tabs.onRemoved.addListener((tabId) => live.unwatch(tabId))
 }

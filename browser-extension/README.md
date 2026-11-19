@@ -4,6 +4,7 @@ A local Manifest V3 extension that:
 
 - adds **Prepare Legato review**, **View review** and **Discuss PR** actions to GitHub pull-request pages;
 - adds an **Import to Legato** action to the ticket pages of the providers Legato syncs (Jira and Burnlite), on the sites Legato reports;
+- lets you pin comments on elements of your own site (**Scope**) and send them to Legato for an agent to act on;
 - resolves a configured user workflow and local repository preset;
 - displays the resolved details for confirmation before starting the run; and
 - reuses Chrome's last active Legato tab for marked Stream Deck navigation when it is in the same Chrome window.
@@ -127,6 +128,71 @@ The widgets' fonts are web-accessible from any site (`use_dynamic_url`), since a
 
 With **Open ticket imports in the Legato desktop app** (`openImportsInDesktop`, off unless chosen), the service worker does not call Legato: it answers `importTicket` with `desktopLink`, `legato-desktop://import?provider=<provider>&key=<KEY>`, and the content script opens it with a link click, which needs the page's user gesture. The desktop app reads it, asks which server, and imports there (see `docs/ai/desktop.md` § Links from the system).
 
+## Scope: pins on your own site
+
+Scope lets you point at elements of a site you are building (a dev server such as `http://localhost:5173`, or a staging site), write what should change, and send the comments to Legato as one batch for an agent to act on. Each pin carries what an agent needs to find and judge the element: the page, selectors for it, its styles and a screenshot.
+
+### Allowing a site
+
+Scope is off everywhere until you allow a site, one origin at a time:
+
+1. Open a page of the site.
+2. Click the extension's toolbar button, or press its shortcut (`Alt+Shift+P` unless you change it at `chrome://extensions/shortcuts`).
+3. Chrome asks for access to that one origin (`http://localhost:5173/*`). Allow it.
+
+The extension stores the origin in `chrome.storage.local` (`scopeOrigins`) and registers the content script `scope.js` there with `chrome.scripting.registerContentScripts` (id `legato-scope-<origin>`, `persistAcrossSessions`), so it runs on every page of the site from then on; a tab that was already open gets the script at once. The registrations are reconciled as the ticket sites' are (`src/scope-origins.ts`): when the extension is installed or Chrome starts, and when a host permission is added or removed. An origin whose access was removed in Chrome stays listed but gets no script. Several sites may be allowed. The first click on a new site also turns pin mode on.
+
+The options page lists the sites under **Scope sites**, each with **Remove**: Remove unregisters the script and gives Chrome's access back, unless the extension still needs that origin for Legato itself or for a ticket site. A site's drafts stay in storage.
+
+The toolbar button acts for Scope only because nothing else is bound to it: the extension has no popup, and the side panel opens from the GitHub widgets (`chrome.sidePanel.open`), not from the button (no `openPanelOnActionClick`). A side-panel behaviour on the button would stop `chrome.action.onClicked` from firing. When the button cannot act (the page is not http(s), access was refused, the page could not be reached) its badge shows `!` and its tooltip says why.
+
+### Pin mode
+
+On an allowed site, the button (or shortcut) toggles pin mode. **Esc** leaves it. In pin mode:
+
+- the element under the pointer is outlined;
+- a click places a numbered marker on that element and opens a comment box; **Save** (or Ctrl/⌘+Enter) keeps the pin as a draft, **Cancel** drops it;
+- the page's own handlers do not hear the presses and clicks: the overlay listens on `window` in the capture phase and calls `preventDefault` and `stopImmediatePropagation` on `pointerdown`, `mousedown`, `pointerup`, `mouseup`, `click`, `dblclick` and `auxclick`. A page listener added to `window` in the capture phase before the overlay's still runs first.
+
+The overlay lives in a closed shadow root (`<legato-scope>`), so the site's CSS does not reach it, and is drawn in the web app's `lw-` colours and Geist, like the other widgets. Its own presses are kept from the page, so a site's modal does not close under it. While a pin's context is captured, the overlay is hidden, so it is not in the screenshot.
+
+A marker follows its element as the page scrolls and resizes. After a reload, a draft's element is found again from its selectors and text (`locateTarget`: a selector whose element still has the pin's text, else the one element with that text, else the first selector that matches one element). When none is found, the marker stays at the pin's saved place on the page, dashed and grey, marked lost; it is looked for again whenever the page changes.
+
+The **Scope** tray (bottom right) lists the site's drafts across its pages, with the page of each; edit a comment there, or **Delete** a draft. Click a marker to edit or delete its draft on the page. The tray collapses with its arrow. It shows while pin mode is on, or while there are drafts or sent pins.
+
+### What a pin records
+
+- **Page**: address, title, viewport, scroll, device pixel ratio.
+- **Target**: selector candidates, stablest first, each checked to match exactly that one element: a test ID (`data-testid`, `data-test-id`, `data-test`, `data-cy`, `data-qa`), the `id`, role and accessible name (written `role=button[name="Save"]`), a class combination unique on the page (`button.btn-primary`), and last the `nth-child` path from `body`. Also a text snippet (200 characters at most) and the element's box in page coordinates.
+- **Styles**: about thirty computed properties that explain most visual bugs (box, layout, colour, type), keeping only values that differ from the browser's default for that tag, read from a fresh element of the same tag in an empty iframe of the overlay's own; the class list; the inline style; the parent's layout (`display`, `position`, flex and grid properties, `gap`, `overflow`, ...).
+- **Screenshot**: the service worker captures the visible tab (`chrome.tabs.captureVisibleTab`), crops it around the element with a 24-pixel margin, outlines the element, scales it to at most 1024 pixels wide and encodes a JPEG, lowering the quality and then the size until it is within 500 KB. The crop reads the ratio from the picture, so the pixel ratio and page zoom both count, and it stops at the edges of the visible page. Without a visible part of the element, the pin has no screenshot.
+- **Source**: the payload has an optional `source` (the component that drew the element), which a later change fills.
+
+Drafts are kept per origin in `chrome.storage.local` (`scopeDrafts:<origin>`, each screenshot under its own `scopeShot:<origin>:<id>`), so they survive reloads and navigation within the site, and every tab of the site shows the same ones. The extension asks for `unlimitedStorage`, since twenty screenshots of 500 KB would fill Chrome's default 10 MB.
+
+### Sending
+
+**Send N pins** in the tray posts the drafts as one batch (`POST /api/scope/batches`) through the service worker, which alone reads the token. A batch takes at most 20 pins; with more drafts, the oldest 20 go and the tray says how many are left. Once Legato accepts the batch, its drafts are deleted. When Legato answers `subscribed: false`, the tray says the pins wait in Legato's pool until an agent subscribes to the site.
+
+### Sent pins and their states
+
+On a page of the site, the content script asks the service worker for the site's pins (`GET /api/scope/pins?origin=`). Each sent pin shows on its page as a round marker with its state, and in the tray under **Sent** with its comment and the agent's note:
+
+| State | Marker | Means |
+| --- | --- | --- |
+| Sent | ↑ | Legato has it; no agent has taken it yet. |
+| Delivered | → | An agent has it. |
+| Fixed | ✓ | The agent fixed it; its note says how. |
+| Won't fix | ✕ | The agent will not change it; its note says why. |
+
+While a tab of the site is open, the service worker keeps Legato's WebSocket (`/ws?token=…`) open; on `scope_changed` for the site it reads the pins again and tells the site's tabs. It reconnects after a drop and reads every watched site's pins again. A tab watches again when it comes back into view, since Chrome may have stopped the service worker meanwhile.
+
+- **Reopen** a fixed or won't-fix pin with a new comment (`POST /api/scope/pins/{id}/reopen`); it goes back to Sent.
+- **Withdraw** a pin no agent has taken yet (state Sent; `POST /api/scope/pins/{id}/withdraw`).
+- **Clear resolved** hides the fixed and won't-fix pins from the site's pages. Only this browser forgets them (`scopeCleared:<origin>`); Legato keeps them. A cleared pin that is reopened shows again.
+
+Errors show in the tray: Legato unreachable (with the same advice about running Legato and trusting its certificate as the other widgets), the token refused (`401`), and a batch over Legato's limits (`413`). A failure to read the sent pins does not open the tray by itself.
+
 ## Stream Deck integration
 
 Current Stream Deck builds append `legato_source=streamdeck` immediately before opening browser destinations. When Chrome sees that marker, the extension reuses the immediately preceding active tab only if:
@@ -168,3 +234,11 @@ Without the extension, Stream Deck links remain valid ordinary Legato URLs; Lega
 12. Make a Legato tab active, switch to another desktop application if desired, press each Stream Deck navigation type, and verify the prior tab is reused without a duplicate.
 13. Make a non-Legato tab active and verify Stream Deck leaves the new Legato tab.
 14. Disable the extension and verify Stream Deck destinations still open normally.
+15. On a page of a dev server, click the toolbar button: Chrome asks for that origin only; allow it, and check pin mode turns on and the options page lists the site under **Scope sites**.
+16. In pin mode, hover and click elements that have click handlers (a link, a button, a menu): check each is outlined, gets a numbered marker and a comment box, and the page does not react. Press **Esc** and check the page reacts again.
+17. Save three drafts on two pages of the site; reload, navigate within the site, and open a second tab: check the tray lists all three, each marker sits on its element and follows it as you scroll and resize, and a draft whose element you removed shows dashed at its old place.
+18. Press the shortcut on a site not yet allowed and refuse Chrome's prompt: check nothing is registered and the button's badge shows `!`.
+19. Send the drafts with no agent subscribed to the site: check the tray says they wait in Legato's pool and the drafts are gone; check the pins show as Sent.
+20. Have an agent mark one pin fixed with a note and another won't fix: check both pages update without a reload; reopen the fixed one with a comment, withdraw a Sent one, and **Clear resolved**; reload and check cleared pins stay hidden.
+21. Stop Legato and press **Send**: check the tray shows the unreachable message with its advice; set a wrong token and check the token message.
+22. Remove the site in the options and reload a page of it: check Scope no longer runs there.
