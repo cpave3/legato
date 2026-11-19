@@ -1,6 +1,7 @@
 package main
 
 import (
+	"context"
 	"sync"
 
 	"github.com/cpave3/legato/internal/service"
@@ -16,4 +17,17 @@ var (
 func processDoctor() *service.Doctor {
 	doctorOnce.Do(func() { doctorInst = service.NewDoctor(service.DoctorOptions{}) })
 	return doctorInst
+}
+
+// agentsOffReason says why this process has no agent service, with the fix:
+// the doctor's tmux check, or what else stopped tmux being used.
+func agentsOffReason(ctx context.Context) string {
+	check, _ := processDoctor().CheckTool(ctx, "tmux")
+	switch check.Result {
+	case service.DoctorMissing:
+		return "tmux not found: agents are off. " + check.Fix
+	case service.DoctorOK:
+		return "tmux could not be used: agents are off. Run legato doctor."
+	}
+	return "tmux cannot run: agents are off. " + check.Detail + ". " + check.Fix
 }

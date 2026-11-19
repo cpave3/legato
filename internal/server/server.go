@@ -25,6 +25,8 @@ type WorktreeService interface {
 }
 
 type Server struct {
+	// agentsOff is why there is no agent service, with the fix.
+	agentsOff                string
 	board                    service.BoardService
 	agents                   service.AgentService
 	swarm                    SwarmService
@@ -400,6 +402,20 @@ func NewWithSwarm(board service.BoardService, agents service.AgentService, tmux 
 }
 
 // SetTLS configures TLS certificate paths. Call before Start/Serve.
+// SetAgentsOff says why this server has no agent service, with the fix
+// (tmux missing): what agent routes answer instead of a bare refusal.
+func (s *Server) SetAgentsOff(reason string) {
+	s.agentsOff = reason
+}
+
+// agentsUnavailable is what an agent route answers without an agent service.
+func (s *Server) agentsUnavailable() string {
+	if s.agentsOff != "" {
+		return s.agentsOff
+	}
+	return "agent service not available"
+}
+
 func (s *Server) SetTLS(certFile, keyFile string) {
 	s.tlsCert = certFile
 	s.tlsKey = keyFile

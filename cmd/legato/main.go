@@ -985,6 +985,13 @@ func runServeCmd(args []string) int {
 		wireTaskAgents(boardSvc, agentSvc)
 		giveAgentsEngrams(agentSvc, db)
 	}
+	// Without tmux nothing refuses to start: agents are off, and every
+	// surface says why with the fix.
+	agentsOff := ""
+	if agentSvc == nil {
+		agentsOff = agentsOffReason(context.Background())
+		log.Printf("%s", agentsOff)
+	}
 
 	// Swarm service for HTTP endpoints.
 	var swarmSvc service.SwarmService
@@ -1014,6 +1021,7 @@ func runServeCmd(args []string) int {
 	artifactSvc := service.NewArtifactService(db, planSvc, reviewSvc)
 	addr := ":" + port
 	srv := server.NewWithSwarm(boardSvc, agentSvc, tmuxMgr, addr, swarmSvc, bus, wd)
+	srv.SetAgentsOff(agentsOff)
 	srv.SetWorkspaceDefaults(workspaceDefaults.Task, workspaceDefaults.Import)
 	srv.SetHotReloadBuildTrigger(configuredHotReloadBuildTrigger())
 	srv.SetReportService(service.NewReportService(db))
@@ -1317,6 +1325,13 @@ func runTUI() int {
 		wireTaskAgents(boardSvc, agentSvc)
 		giveAgentsEngrams(agentSvc, db)
 	}
+	// Without tmux nothing refuses to start: agents are off, and every
+	// surface says why with the fix.
+	agentsOff := ""
+	if agentSvc == nil {
+		agentsOff = agentsOffReason(context.Background())
+		log.Printf("%s", agentsOff)
+	}
 
 	// Transcription, shared by the TUI and its web server.
 	voiceSvc := newVoiceService(cfg, tmuxMgr, agentSvc)
@@ -1393,6 +1408,7 @@ func runTUI() int {
 			log.Printf("web: port %s unavailable: %v", cfg.Web.Port, listenErr)
 		} else {
 			webSrv = server.NewWithSwarm(boardSvc, agentSvc, tmuxMgr, ln.Addr().String(), swarmSvc, bus, wd)
+			webSrv.SetAgentsOff(agentsOff)
 			webSrv.SetWorkspaceDefaults(workspaceDefaults.Task, workspaceDefaults.Import)
 			webSrv.SetHotReloadBuildTrigger(configuredHotReloadBuildTrigger())
 			webSrv.SetReportService(reportSvc)
@@ -1504,6 +1520,7 @@ func runTUI() int {
 	workspaces, _ := boardSvc.ListWorkspaces(context.Background())
 
 	app := tui.NewApp(boardSvc, syncSvc, agentSvc, prSvc, reportSvc, icons, bus, editor, workspaces, tmuxMgr, wd, swarmSvc, cfg.Macros, reviewSvc)
+	app.SetAgentsOff(agentsOff)
 	app.SetDirectoryService(configuredDirectoryService(cfg, db, repoPresets))
 	app.SetEngramService(engramsFor(db))
 	app.SetSandboxEnabled(cfg.Agents.Sandbox.Enabled)

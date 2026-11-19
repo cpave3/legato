@@ -155,7 +155,7 @@ func (s *Server) spawnAgentHandler() http.HandlerFunc {
 		}
 
 		if s.agents == nil {
-			http.Error(w, "agent service not available", http.StatusServiceUnavailable)
+			http.Error(w, s.agentsUnavailable(), http.StatusServiceUnavailable)
 			return
 		}
 
@@ -284,7 +284,7 @@ func (s *Server) killAgentHandler() http.HandlerFunc {
 		}
 
 		if s.agents == nil {
-			http.Error(w, "agent service not available", http.StatusServiceUnavailable)
+			http.Error(w, s.agentsUnavailable(), http.StatusServiceUnavailable)
 			return
 		}
 
@@ -375,7 +375,7 @@ func (s *Server) agentPreviewHandler() http.HandlerFunc {
 			return
 		}
 		if s.agents == nil {
-			http.Error(w, "agent service not available", http.StatusServiceUnavailable)
+			http.Error(w, s.agentsUnavailable(), http.StatusServiceUnavailable)
 			return
 		}
 
@@ -490,7 +490,7 @@ func (s *Server) agentNotifyHandler() http.HandlerFunc {
 			return
 		}
 		if s.agents == nil {
-			http.Error(w, "agent service not available", http.StatusServiceUnavailable)
+			http.Error(w, s.agentsUnavailable(), http.StatusServiceUnavailable)
 			return
 		}
 
@@ -612,7 +612,7 @@ func (s *Server) taskAgentHandler() http.HandlerFunc {
 		}
 		agents, ok := s.agents.(taskAgentService)
 		if !ok {
-			http.Error(w, "agent service not available", http.StatusServiceUnavailable)
+			http.Error(w, s.agentsUnavailable(), http.StatusServiceUnavailable)
 			return
 		}
 		taskID := r.PathValue("id")

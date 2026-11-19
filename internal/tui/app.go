@@ -160,6 +160,8 @@ type taskWorkflowStartedMsg struct {
 
 // App is the root Bubbletea model.
 type App struct {
+	// agentsOff is why agents cannot run here, with the fix (SetAgentsOff).
+	agentsOff     string
 	svc           service.BoardService
 	syncSvc       service.SyncService
 	providerSync  service.ProviderSyncService
@@ -293,6 +295,22 @@ func (a *App) SetAttentionService(svc attention.Service) {
 
 // SetWebServerRunning tells the TUI that the web server web.enabled started
 // is running, so the status bar shows it. The TUI does not manage the server.
+// SetAgentsOff says agents cannot run here and why, with the fix, such as
+// tmux missing. The TUI warns at start and every spawn shows it instead of
+// doing nothing.
+func (a *App) SetAgentsOff(reason string) {
+	a.agentsOff = reason
+}
+
+// agentsOffCmd is the refusal of a spawn while agents are off.
+func (a App) agentsOffCmd() tea.Cmd {
+	reason := a.agentsOff
+	if reason == "" {
+		reason = "Agents are off in this Legato."
+	}
+	return func() tea.Msg { return statusbar.ErrorMsg{Text: reason} }
+}
+
 func (a *App) SetWebServerRunning(port string) {
 	a.statusBar = a.statusBar.SetWebServer(port)
 }
@@ -398,6 +416,10 @@ func NewApp(svc service.BoardService, syncSvc service.SyncService, agentSvc serv
 // Init returns initial commands.
 func (a App) Init() tea.Cmd {
 	cmds := []tea.Cmd{a.board.Init()}
+	if a.agentsOff != "" {
+		warning, _, _ := strings.Cut(a.agentsOff, ". ")
+		cmds = append(cmds, func() tea.Msg { return statusbar.WarningMsg{Text: warning} })
+	}
 	for _, sub := range a.eventSubs {
 		cmds = append(cmds, a.listenEventBusCh(sub))
 	}
@@ -2525,6 +2547,9 @@ func (a App) openGroupOverlay(taskID, current string) (tea.Model, tea.Cmd) {
 }
 
 func (a App) openAgentSpawnOverlay(taskID, title string) (tea.Model, tea.Cmd) {
+	if a.agentSvc == nil {
+		return a, a.agentsOffCmd()
+	}
 	defaultAdapter := ""
 	var adapters, filtered []string
 	if a.agentSvc != nil {
@@ -2570,7 +2595,7 @@ func (a App) handleAgentSpawnSubmit(msg overlay.AgentSpawnSubmitMsg) (tea.Model,
 	a.activeOverlay = nil
 
 	if a.agentSvc == nil {
-		return a, nil
+		return a, a.agentsOffCmd()
 	}
 
 	svc := a.agentSvc
@@ -3055,7 +3080,7 @@ func (a App) handleBoardSpawnAgent() (tea.Model, tea.Cmd) {
 		return a, cmd
 	}
 	if a.agentSvc == nil {
-		return a, nil
+		return a, a.agentsOffCmd()
 	}
 
 	taskID := card.Key
