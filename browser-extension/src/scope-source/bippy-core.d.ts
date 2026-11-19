@@ -6,4 +6,5 @@ declare module "bippy/dist/core" {
   export const m: (fiber: unknown) => boolean
   export const g: (fiber: unknown) => boolean
   export const h: (value: unknown) => boolean
+  export const l: (fiber: unknown) => unknown
 }

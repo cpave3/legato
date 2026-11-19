@@ -81,12 +81,70 @@ describe("readProbedComponent", () => {
     const reading = readProbedComponent(document)!
     root.unmount()
     expect(reading).toMatchObject({ name: "LibraryButton", owners: ["App"] })
+    // The project's frames come first, then the dependencies' (which no
+    // resolver places, but which are kept while there is room).
     const urls = reading.frames.map((frame) => frame.url)
     const library = urls.indexOf("http://localhost:5173/node_modules/.vite/deps/library.js?v=1")
     const app = urls.indexOf("http://localhost:5173/src/App.jsx?t=1")
-    expect(library).toBeGreaterThanOrEqual(0)
-    expect(app).toBeGreaterThan(library)
+    expect(app).toBe(0)
+    expect(library).toBeGreaterThan(app)
     expect(reading.frames[app]).toMatchObject({ line: 2, original: false })
+  })
+
+  // In a browser React's runtime is served by the dev server too, so a
+  // dependency's stacks are full of http frames. They must not use up the
+  // frame budget before the owner whose stack names the project's callsite.
+  it("keeps the project's callsite when nested dependency components fill the stacks", () => {
+    const { jsxDEV, createRoot, flushSync } = loadReact(19)
+    // Each library component makes its element from deep inside the
+    // library: a chain of helpers, every frame a dependency's.
+    const library = (name: string, child: string): unknown => runInThisContext(
+      `(function (jsx, Child) {
+        const deep = (n, make) => n === 0 ? make() : deep(n - 1, make)
+        return function ${name}() { return deep(12, () => jsx(Child ?? ${JSON.stringify(child)}, {}, undefined, false, undefined, undefined)) }
+      })`,
+      { filename: `http://localhost:5173/node_modules/.vite/deps/${name}.js?v=1` },
+    )
+    const Leaf = (library("LibraryLeaf", "button") as (jsx: unknown, child: unknown) => unknown)(jsxDEV, null)
+    const Middle = (library("LibraryMiddle", "") as (jsx: unknown, child: unknown) => unknown)(jsxDEV, Leaf)
+    const Wrapper = (library("LibraryWrapper", "") as (jsx: unknown, child: unknown) => unknown)(jsxDEV, Middle)
+    const App = runInThisContext(
+      "(function (jsx, Wrapper) { return function App() {\n  return jsx(Wrapper, {}, undefined, false, undefined, undefined) } })",
+      { filename: "http://localhost:5173/src/App.jsx?t=1" },
+    )(jsxDEV, Wrapper)
+    const container = document.createElement("div")
+    document.body.append(container)
+    const root = createRoot(container)
+    flushSync(() => root.render(jsxDEV(App, {}, undefined, false, undefined, undefined)))
+    probe(container.querySelector("button")!)
+    const reading = readProbedComponent(document)!
+    root.unmount()
+    expect(reading).toMatchObject({ name: "LibraryLeaf", owners: ["LibraryMiddle", "LibraryWrapper", "App"] })
+    expect(reading.frames.map((frame) => frame.url)).toContain("http://localhost:5173/src/App.jsx?t=1")
+    expect(reading.frames[0]).toMatchObject({ url: "http://localhost:5173/src/App.jsx?t=1", line: 2 })
+  })
+
+  // React may leave the DOM node pointing at the older fibre of the pair
+  // after an update; the source is read from the current one.
+  it("reads the source of the element as rendered now, after an update reused its node", () => {
+    const { jsxDEV, createRoot, flushSync } = loadReact(18)
+    const at = (line: number) => ({ fileName: "/app/src/App.jsx", lineNumber: line, columnNumber: 5 })
+    function App({ which }: { which: string }) {
+      return which === "a"
+        ? jsxDEV("button", { className: "a" }, undefined, false, at(3), undefined)
+        : jsxDEV("button", { className: "b" }, undefined, false, at(2), undefined)
+    }
+    const container = document.createElement("div")
+    document.body.append(container)
+    const root = createRoot(container)
+    flushSync(() => root.render(jsxDEV(App, { which: "a" }, undefined, false, undefined, undefined)))
+    const button = container.querySelector("button")!
+    flushSync(() => root.render(jsxDEV(App, { which: "b" }, undefined, false, undefined, undefined)))
+    expect(container.querySelector("button")).toBe(button)
+    probe(button)
+    const reading = readProbedComponent(document)!
+    root.unmount()
+    expect(reading.frames[0]).toMatchObject({ url: "file:///app/src/App.jsx", line: 2 })
   })
 
   it("reads only the names from a production build of React", () => {

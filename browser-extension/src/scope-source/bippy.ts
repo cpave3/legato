@@ -4,8 +4,8 @@
 // imports React; Scope's page script must do neither. So the helpers come
 // from bippy's core chunk, which does neither, under the minified names that
 // bippy 0.7.3's dist/index.js maps to these (the version is pinned in
-// package.json; react-adapter.test.ts fails if an upgrade moves them).
-import { a, g, h, i, m } from "bippy/dist/core"
+// package.json; main-world.test.ts fails if an upgrade moves them).
+import { a, g, h, i, l, m } from "bippy/dist/core"
 
 export type Fiber = {
   tag: number
@@ -18,6 +18,9 @@ export type Fiber = {
 
 // The fibre React keeps on a DOM node (its __reactFiber$… key), or null.
 export const getFiberFromHostInstance = a as (node: unknown) => Fiber | null
+// The current fibre of a fibre's pair. A DOM node keeps the fibre it was
+// made with, which after an update may be the older of the two.
+export const getLatestFiber = l as (fiber: Fiber) => Fiber
 // A component type's name: displayName, the function's name, or what memo
 // and forwardRef wrap; null when it has none.
 export const getDisplayName = i

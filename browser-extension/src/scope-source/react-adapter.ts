@@ -1,4 +1,4 @@
-import { getDisplayName, getFiberFromHostInstance, isCompositeFiber, isFiber, isHostFiber, type Fiber } from "./bippy"
+import { getDisplayName, getFiberFromHostInstance, getLatestFiber, isCompositeFiber, isFiber, isHostFiber, type Fiber } from "./bippy"
 import { parseStack } from "./stack"
 import { MAX_FRAMES, MAX_NAME_LENGTH, MAX_OWNERS, MAX_URL_LENGTH, type ComponentReading, type FrameworkAdapter, type RawFrame } from "./types"
 
@@ -19,6 +19,15 @@ import { MAX_FRAMES, MAX_NAME_LENGTH, MAX_OWNERS, MAX_URL_LENGTH, type Component
 
 const nameOf = (type: unknown): string => (getDisplayName(type) || "Anonymous").slice(0, MAX_NAME_LENGTH)
 
+// The current fibre of the pair; the one given if bippy cannot tell.
+function latest(fiber: Fiber): Fiber {
+  try {
+    return getLatestFiber(fiber)
+  } catch {
+    return fiber
+  }
+}
+
 // A fibre's owner: the component whose render made it. React 19 may give a
 // server component's info ({name}) in place of a fibre.
 type Owner = { name: string; fiber: Fiber | null; next: unknown }
@@ -27,7 +36,8 @@ function ownerOf(value: unknown): Owner | null {
   if (!value || typeof value !== "object") return null
   if (isFiber(value)) {
     if (!isCompositeFiber(value)) return null
-    return { name: nameOf(value.type), fiber: value, next: value._debugOwner }
+    const current = latest(value)
+    return { name: nameOf(current.type), fiber: current, next: current._debugOwner }
   }
   const info = value as { name?: unknown; owner?: unknown }
   return typeof info.name === "string" ? { name: info.name.slice(0, MAX_NAME_LENGTH) || "Anonymous", fiber: null, next: info.owner } : null
@@ -88,6 +98,17 @@ function sourceFrame(source: unknown, win: Window): RawFrame | null {
   return { url, line: lineNumber, column: typeof columnNumber === "number" ? columnNumber : 0, original: true }
 }
 
+// A frame in a dependency (Vite serves them, and React's own runtime, under
+// /node_modules/): no resolver places one, so they wait behind the
+// project's frames.
+function isDependency(frame: RawFrame): boolean {
+  try {
+    return new URL(frame.url).pathname.includes("/node_modules/")
+  } catch {
+    return true
+  }
+}
+
 function stackFrames(stack: unknown): RawFrame[] {
   if (!stack || typeof stack !== "object") return []
   const text = (stack as { stack?: unknown }).stack
@@ -104,17 +125,23 @@ export function createReactAdapter(win: Window): FrameworkAdapter {
   return {
     framework: "react",
     read(element: Element): ComponentReading | null {
-      const fiber = getFiberFromHostInstance(element)
-      if (!fiber || !isFiber(fiber) || !isHostFiber(fiber)) return null
+      const found = getFiberFromHostInstance(element)
+      if (!found || !isFiber(found) || !isHostFiber(found)) return null
+      const fiber = latest(found)
       const above = components(fiber)
       // The element's own frames first, then where each owner was written:
       // an element a dependency's component drew is placed where the
-      // project used that component.
-      const frames = framesOf(fiber, win)
-      for (const owner of above) {
-        if (frames.length >= MAX_FRAMES) break
-        if (owner.fiber) frames.push(...framesOf(owner.fiber, win))
+      // project used that component. The project's frames go before the
+      // dependencies' and fill the budget first, so a stack full of a
+      // library's and React's frames cannot push the project's callsite out.
+      const project: RawFrame[] = []
+      const dependencies: RawFrame[] = []
+      for (const next of [fiber, ...above.map((owner) => owner.fiber)]) {
+        if (project.length >= MAX_FRAMES) break
+        if (!next) continue
+        for (const frame of framesOf(next, win)) (isDependency(frame) ? dependencies : project).push(frame)
       }
+      const frames = [...project, ...dependencies]
       const [component, ...owners] = above
       return {
         framework: "react",
