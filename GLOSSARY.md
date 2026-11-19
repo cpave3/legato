@@ -180,6 +180,21 @@ The sent pins a Legato instance keeps, by origin, until agents handle them.
 A task slot's claim on an origin (such as `http://localhost:5173`), so that batches sent from it are pushed to that slot's agent. One slot holds an origin at a time; the newest subscriber takes over.
 _Avoid_: scope, which means swarm file-ownership globs
 
+### Automations
+
+**Macro**:
+A named, editable piece of text the operator sends to an agent. It can be sent to a running agent as it is, or started from a card or a pull request, where it also starts the task's agent if none is running.
+_Avoid_: Action, saved prompt, recipe
+
+**Due time**:
+The moment a schedule says a workflow should run. Each due time makes at most one run.
+
+**Missed run**:
+A due time that passed while no Legato was running.
+
+**Loop stop**:
+The limit that pauses a trigger which has started the same workflow for the same item too often, and asks the operator.
+
 ### Neighbouring terms
 
 **Delegation**:

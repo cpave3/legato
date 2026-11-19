@@ -227,6 +227,7 @@ type App struct {
 	swarmSvc           service.SwarmService
 	workDir            string
 	macros             []macros.Macro
+	macroSource        func(context.Context) ([]macros.Macro, error)
 	lastSparklineFetch time.Time
 	sparklineWindow    time.Duration
 	sparklineBuckets   int
@@ -2710,8 +2711,20 @@ func (a App) spawnTaskAgent(msg overlay.AgentSpawnSubmitMsg, sessionPolicy, resu
 	)
 }
 
+// SetMacroSource reads the macros at each use, so an edit needs no
+// restart; without it the picker offers the list NewApp was given.
+func (a *App) SetMacroSource(source func(context.Context) ([]macros.Macro, error)) {
+	a.macroSource = source
+}
+
 func (a App) openMacroPickerOverlay() (tea.Model, tea.Cmd) {
-	model := overlay.NewMacroPicker(a.macros)
+	list := a.macros
+	if a.macroSource != nil {
+		if live, err := a.macroSource(context.Background()); err == nil {
+			list = live
+		}
+	}
+	model := overlay.NewMacroPicker(list)
 	sized, _ := model.Update(tea.WindowSizeMsg{Width: a.width, Height: a.height})
 	a.activeOverlay = sized
 	a.overlayType = overlayMacroPicker

@@ -294,12 +294,15 @@ The older settings `swarm.default_agent`, `swarm.conductor_agent` and `swarm.con
 
 ## Macros
 
-Named text you send to an agent with one key: `m` in the TUI's agents view, or **Macros** in the web UI. See [Agents](/legato/using/agents/).
+Named text you send to an agent with one key: `m` in the TUI's agents view, or **Macros** in the web UI. Four ship built in (Plan, Implement, Review, Address feedback); an entry with a built-in's name replaces it. A change applies at once, with no restart. See [Agents](/legato/using/agents/#macros).
 
 | Setting | Type | Default | What it does |
 | --- | --- | --- | --- |
 | `macros[].name` | string | none | The label in the macro list. |
 | `macros[].keys` | string | none | The text sent to the agent, exactly as written. A trailing `\n` presses Enter. |
+| `macros[].applies_to` | `task`, `pr` | anything | What the macro is for: a task, or a pull request. |
+| `macros[].agent` | string | the default agent tool | The agent tool to start when the macro starts an agent, such as `codex`. |
+| `macros[].tier` | string | none | The agent tool's tier to start with. |
 
 ```yaml
 macros:

@@ -69,6 +69,7 @@ type Server struct {
 	caCertPath               string
 	authToken                string
 	macros                   []macros.Macro
+	macroSvc                 MacroSource
 	groupDefaults            []string
 	sparklineWindow          time.Duration
 	sparklineBuckets         int

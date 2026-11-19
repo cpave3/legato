@@ -1,12 +1,14 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
 	"testing"
 
 	"github.com/cpave3/legato/internal/engine/macros"
+	"github.com/cpave3/legato/internal/service"
 )
 
 func TestMacrosHandlerEmpty(t *testing.T) {
@@ -112,5 +114,31 @@ func TestMacrosHandlerMethodNotAllowed(t *testing.T) {
 
 	if rec.Code != http.StatusMethodNotAllowed {
 		t.Errorf("status = %d, want %d", rec.Code, http.StatusMethodNotAllowed)
+	}
+}
+
+type fakeMacroSource struct{ list []service.MacroEntry }
+
+func (f *fakeMacroSource) List(context.Context) ([]service.MacroEntry, error) { return f.list, nil }
+
+func TestMacrosHandlerReadsTheMacroServiceAtEachRequest(t *testing.T) {
+	s := New(nil, nil, nil, ":0")
+	s.SetMacros([]macros.Macro{{Name: "stale", Keys: "x"}})
+	src := &fakeMacroSource{list: []service.MacroEntry{{Macro: macros.Macro{Name: "Plan", Keys: "plan it", AppliesTo: "task"}, Source: service.MacroBuiltin, Builtin: true}}}
+	s.SetMacroService(src)
+	get := func() map[string][]map[string]any {
+		rec := httptest.NewRecorder()
+		s.macrosHandler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/macros", nil))
+		var body map[string][]map[string]any
+		_ = json.Unmarshal(rec.Body.Bytes(), &body)
+		return body
+	}
+	first := get()["macros"]
+	if len(first) != 1 || first[0]["name"] != "Plan" || first[0]["applies_to"] != "task" || first[0]["builtin"] != true {
+		t.Fatalf("macros = %v", first)
+	}
+	src.list = append(src.list, service.MacroEntry{Macro: macros.Macro{Name: "new", Keys: "y"}, Source: service.MacroFromDatabase})
+	if got := get()["macros"]; len(got) != 2 {
+		t.Fatalf("an edit was not seen at the next request: %v", got)
 	}
 }

@@ -57,7 +57,7 @@ func (s *SettingsService) Export(ctx context.Context, pinned bool) ([]byte, erro
 			var entries []any
 			byName := map[string]any{}
 			for _, e := range l.Entries {
-				if e.Source == SettingFromFile && !pinned {
+				if (e.Source == SettingFromFile && !pinned) || e.Source == SettingFromDefault {
 					continue
 				}
 				value := e.Value

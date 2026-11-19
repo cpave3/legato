@@ -570,6 +570,11 @@ func validate(cfg *Config) error {
 	if err := ValidateReviewPasses(cfg); err != nil {
 		return err
 	}
+	for _, m := range cfg.Macros {
+		if err := m.Validate(); err != nil {
+			return err
+		}
+	}
 	if cfg.Web.PublicURL != "" {
 		if u, err := url.Parse(cfg.Web.PublicURL); err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
 			return fmt.Errorf("web.public_url %q: want an http or https address", cfg.Web.PublicURL)

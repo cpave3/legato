@@ -39,7 +39,7 @@
       "key": "macros",
       "title": "Macros",
       "class": "change",
-      "mode": "restart",
+      "mode": "live",
       "name_field": "name"
     },
     {
