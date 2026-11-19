@@ -72,6 +72,8 @@ var routeBodies = map[string]string{
 	"PUT /api/config/lists/{list}/{name}":     `{"value": {…}}`,
 	"POST /api/reeve/message":                 `{"text": "…"}`,
 	"POST /api/tasks/{id}/handoff":            handOffBody,
+	"POST /api/scope/batches":                 `{"origin": "http://localhost:5173", "pins": [{"comment": "…", "page": {"url": "http://localhost:5173/…"}, "target": {"selectors": ["…"]}, "screenshot": "data:image/jpeg;base64,…"}]}`,
+	"POST /api/scope/pins/{id}/reopen":        `{"comment": "…"}`,
 }
 
 // apiGroups are the page's sections, each the routes whose pattern starts
@@ -88,6 +90,7 @@ var apiGroups = []struct {
 	{"Approvals and devices", []string{"/api/approvals", "/api/devices"}},
 	{"Credentials", []string{"/api/credentials"}},
 	{"Plans, reviews and learnings", []string{"/api/plans", "/api/review", "/api/learning", "/plan-images", "/review-images"}},
+	{"Legato Scope", []string{"/api/scope"}},
 	{"Workflows and swarms", []string{"/api/workflow", "/api/swarm"}},
 	{"Settings, updates and the machine", []string{"/api/settings", "/api/config", "/api/updates", "/api/restart", "/api/hot-reload", "/api/engram", "/api/adapters", "/api/macros", "/api/directories", "/api/repositories", "/api/resources", "/api/job-clones", "/api/voice"}},
 	{"Instances and integrations", []string{"/api/integrations", "/api/workers", "/api/pair", "/oauth"}},

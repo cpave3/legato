@@ -483,7 +483,8 @@ func TestMCPToolNamesListsEveryToolTheServerOffers(t *testing.T) {
 	seedMCPAgent(t, s, "task1")
 	// A reviewer is offered every tool, submit_review too.
 	executionID := seedReviewer(t, s, "task1")
-	session := connectMCP(t, cli.MCPOptions{Store: s, TaskID: "task1", ExecutionID: executionID, Agents: &fakePeers{}, Credentials: &fakeCredentials{}, CaseReplies: &fakeCaseReplies{}, Reviews: &recordingReviews{}})
+	scope, _ := newMCPScope(t, s)
+	session := connectMCP(t, cli.MCPOptions{Store: s, TaskID: "task1", ExecutionID: executionID, Agents: &fakePeers{}, Credentials: &fakeCredentials{}, CaseReplies: &fakeCaseReplies{}, Reviews: &recordingReviews{}, Scope: scope})
 	listed, err := session.ListTools(context.Background(), nil)
 	if err != nil {
 		t.Fatal(err)

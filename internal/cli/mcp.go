@@ -58,6 +58,9 @@ type MCPOptions struct {
 	// Reviews takes a reviewer's result. submit_review is offered only with
 	// it, and only to a session in a task's reviewer slot.
 	Reviews MCPReviews
+	// Scope is Legato Scope's pool; the page_pin tools are offered only
+	// with it.
+	Scope MCPScope
 	// Reeve serves the Reeve's own tools (docs, instance_status, read_logs,
 	// legato_api), offered only to a session of the Reeve.
 	Reeve *MCPReeve
@@ -100,6 +103,7 @@ Also yours to use without being asked:
 - list_peers, message_peer, broadcast_peers: see and coordinate with other agents working in the same Git worktree.
 - message_reeve (unless you are the Reeve yourself): ask or tell this Legato's Reeve (the agent that runs this instance) something, such as when the Reeve started you and asked you to report to it, or you need its answer before going on.
 - session_info: which session, task and working directory you are in.
+- page_pin_subscribe: when you start a dev server, or know of one the operator looks at, subscribe its origin (such as http://localhost:5173). The operator can then pin comments on its pages with Legato's browser extension, and each batch reaches you as one [legato scope] message listing the pins. Read each with page_pin_get (its context and a screenshot), fix what you can, and mark each with page_pin_resolve (fixed or wont_fix, with a one-line note the operator sees on the page). When told pins are waiting, page_pin_list shows them.
 - request_access: when the task needs a credential Legato holds (an API key, a login), ask for exactly the scope you need, with your reason, before you need it. If the answer is pending, carry on with other work, or stop and end your turn when you are blocked; a [legato approvals] message tells you the decision. Never look for the secret another way.`
 
 const mcpOutsideSession = "This server acts on a Legato agent session, and it was not started inside one (LEGATO_TASK_ID is not set), so it offers no tools."
@@ -142,7 +146,7 @@ func MCPServerOptions(opts MCPOptions) mcpserver.Options {
 func MCPToolNames() []string {
 	// The tools are only named here, never called, so they need nothing real
 	// behind them; the peers are present so that the peer tools are counted.
-	tools := (&mcpTools{opts: MCPOptions{Agents: noPeers{}, Credentials: noCredentials{}}}).all()
+	tools := (&mcpTools{opts: MCPOptions{Agents: noPeers{}, Credentials: noCredentials{}, Scope: noScope{}}}).all()
 	names := make([]string, 0, len(tools)+1)
 	for _, tool := range tools {
 		names = append(names, tool.Name)
@@ -165,6 +169,9 @@ func listHasName(names []string, want string) bool {
 	}
 	return false
 }
+
+// noScope stands in for Scope where only tool names are wanted.
+type noScope struct{ MCPScope }
 
 // noPeers stands in for the agent service where only tool names are wanted.
 type noPeers struct{}
@@ -198,6 +205,9 @@ func (m *mcpTools) all() []mcpserver.Tool {
 	}
 	if m.opts.CaseReplies != nil {
 		tools = append(tools, m.replyCase())
+	}
+	if m.opts.Scope != nil {
+		tools = append(tools, m.scopeTools()...)
 	}
 	if m.reviewerSession() {
 		tools = append(tools, m.submitReview())

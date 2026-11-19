@@ -84,6 +84,7 @@ type Server struct {
 	credentials              *service.CredentialBroker
 	learning                 LearningService
 	agentUI                  AgentUIService
+	scope                    ScopeService
 	agentStudio              AgentStudioService
 	agentStudioNotifier      AgentStudioNotifier
 	reviewBriefings          ReviewBriefingService
@@ -340,6 +341,11 @@ func NewWithSwarm(board service.BoardService, agents service.AgentService, tmux 
 	mux.HandleFunc("/api/agents/{task_id}/image", s.agentImageHandler())
 	mux.HandleFunc("/api/agents/{task_id}/ui-items", s.agentUIItemsHandler())
 	mux.HandleFunc("/api/ui-items/{id}", s.agentUIItemHandler())
+	mux.HandleFunc("/api/scope/batches", s.scopeBatchesHandler())
+	mux.HandleFunc("/api/scope/pins", s.scopePinsHandler())
+	mux.HandleFunc("/api/scope/pins/{id}/reopen", s.scopeReopenHandler())
+	mux.HandleFunc("/api/scope/pins/{id}/withdraw", s.scopeWithdrawHandler())
+	mux.HandleFunc("/api/scope/pins/{id}/screenshot", s.scopeScreenshotHandler())
 	mux.HandleFunc("/api/ui-items/{id}/studio/{rest...}", s.agentStudioHandler())
 	mux.HandleFunc("/api/agents/{task_id}/review-briefing", s.reviewBriefingHandler())
 	mux.HandleFunc("/api/agents/{task_id}/review-briefing/page", s.reviewBriefingPageHandler())

@@ -1,6 +1,6 @@
 ---
 title: Browser extension
-description: Start a Legato review or discussion from a GitHub pull request, import tickets from Jira and Burnlite, and talk to the agent in Chrome's side panel.
+description: Start a Legato review or discussion from a GitHub pull request, import tickets from Jira and Burnlite, pin comments on your own site, and talk to the agent in Chrome's side panel.
 sidebar:
   order: 100
 ---
@@ -26,6 +26,8 @@ In the side panel, a file and line that the agent names are buttons. A click scr
 On a Jira ticket or a Burnlite task, a button imports the ticket into Legato and opens the board with its card picked out. See [Import tickets](#import-tickets).
 
 Before it starts a run, the extension shows the workflow, the repository, the PR number and your local checkout, and waits for **Confirm and start**.
+
+On a site you are building, **Scope** lets you pin comments on elements of the page and send them to Legato for an agent to fix. See [Scope](/legato/using/scope/).
 
 On Stream Deck presses, the extension reuses your last Legato tab in the same Chrome window instead of opening a new one; see [Stream Deck](/legato/integrations/stream-deck/).
 

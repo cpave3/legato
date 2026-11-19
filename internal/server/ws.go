@@ -28,6 +28,10 @@ const (
 	MsgResize           = "resize"
 	MsgDetectPrompt     = "detect_prompt"
 	MsgRefreshPane      = "refresh_pane"
+	// MsgPing keeps a client's connection busy: Chrome stops an extension's
+	// idle service worker unless a message crosses its socket (Legato
+	// Scope's live pin states). Answered with MsgPong.
+	MsgPing = "ping"
 )
 
 // WebSocket message types (server → client).
@@ -59,7 +63,11 @@ const (
 	// MsgAgentMessageSent says the agent took the message of request_id. It
 	// is not yet read: the conversation shows it once it is.
 	MsgAgentMessageSent = "agent_message_sent"
-	MsgError            = "error"
+	// MsgScopeChanged says an origin's Scope pins changed; the extension
+	// fetches them again.
+	MsgScopeChanged = "scope_changed"
+	MsgPong         = "pong"
+	MsgError        = "error"
 )
 
 // WSMessage is the JSON envelope for all WebSocket messages.
@@ -106,6 +114,8 @@ type WSMessage struct {
 	// Answers and Dismissed answer a question the agent asked (agent_question).
 	Answers   map[string][]string `json:"answers,omitempty"`
 	Dismissed bool                `json:"dismissed,omitempty"`
+	// Origin is the page origin whose Scope pins changed (scope_changed).
+	Origin string `json:"origin,omitempty"`
 	// ContextUsed and ContextWindow are an agent's context fill (agent_context).
 	ContextUsed   int `json:"context_used,omitempty"`
 	ContextWindow int `json:"context_window,omitempty"`
@@ -242,6 +252,8 @@ func (s *Server) handleWSMessage(client *wsClient, msg WSMessage) {
 		s.handleRefreshPane(client, msg)
 	case MsgPlanVerdict:
 		s.handlePlanVerdict(client, msg)
+	case MsgPing:
+		client.send(WSMessage{Type: MsgPong})
 	default:
 		client.send(WSMessage{Type: MsgError, Error: "unknown message type: " + msg.Type})
 	}

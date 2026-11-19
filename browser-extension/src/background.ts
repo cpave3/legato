@@ -5,6 +5,8 @@ import { hasOriginPermission } from "./permissions"
 import { cacheReviewContext, clearReviewContext, loadReviewContext, parseGitHubPullRequestUrl, saveDiscussionDraft, savePanelView, saveReviewContext, type PanelView } from "./review-context"
 import type { DiscussionRef } from "./discussion-panel"
 import { loadReviewModel, type ReviewPanelModel } from "./review-model"
+import { handleScopeMessage, startScope } from "./scope-runtime"
+import { isScopeMessage } from "./scope-service"
 import { loadConfig } from "./storage"
 import { syncTicketSites, type TicketSitesResult } from "./ticket-sites"
 import { consumeTabCreated, loadWindowHistory, predecessorFor, queueActivation, recordTabCreated } from "./tab-history"
@@ -312,9 +314,15 @@ if (typeof chrome !== "undefined" && chrome.runtime?.onMessage) {
 
   chrome.runtime.onMessage.addListener((message: unknown, sender, sendResponse) => {
     if ((message as { type?: string }).type === "openReviewPanel") return false
+    if (isScopeMessage(message)) {
+      void handleScopeMessage(message, sender).then(sendResponse)
+      return true
+    }
     void handleMessage(message, sender).then(sendResponse)
     return true
   })
+
+  startScope()
 
   // The ticket content script is registered at run time, one per provider
   // site Legato reports (see ticket-sites.ts).
