@@ -181,7 +181,7 @@ func validateStepContract(step Step, inputs map[string]Input) error {
 	required := []string{}
 	switch step.Type {
 	case "agent.dispatch":
-		required = []string{"task", "working_dir"}
+		required = []string{"task"}
 		if err := validatePromptOrMacro(step); err != nil {
 			return err
 		}

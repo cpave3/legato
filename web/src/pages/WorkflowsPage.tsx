@@ -7,6 +7,7 @@ import { setWorkflowTrigger, type WorkflowDefinition, type WorkflowRun, type Wor
 import { ago, dueTimeText, inputsLabel, runState, runSubject, runSummary, sourceLabel, stepPosition, stepSegments, triggerLabel, triggerText } from "../lib/workflowView"
 import { useServer } from "../hooks/useServer"
 import { RunWorkflowDialog } from "../components/RunWorkflowDialog"
+import { AddWorkflowTemplateDialog } from "../components/AddWorkflowTemplateDialog"
 import { StatePill, StepBar } from "../components/WorkflowRunStatus"
 import { toneText } from "../lib/workflowTones"
 import { Button } from "../components/ui/Button"
@@ -175,12 +176,14 @@ function WorkflowsTab({ setTab }: { setTab: (tab: WorkflowTab) => void }) {
   const definitions = useWorkflows()
   const runs = useWorkflowRuns()
   const [selected, setSelected] = useState<WorkflowDefinition | null>(null)
+  const [adding, setAdding] = useState(false)
   const now = useNow(30_000)
   const list = definitions.data?.definitions ?? []
   const lastRun = new Map<string, WorkflowRun>()
   for (const run of runs.data ?? []) if (!lastRun.has(run.workflow_name)) lastRun.set(run.workflow_name, run)
   const needsYou = (runs.data ?? []).filter(run => run.needs_attention).length
   return <PageFrame tab="workflows" setTab={setTab} needsYou={needsYou} refresh={async () => { await Promise.all([definitions.refresh(), runs.refresh()]) }}>
+    <div className="mt-4 flex justify-end"><Button variant="outline" size="sm" onClick={() => setAdding(true)}>Add from template</Button></div>
     {definitions.loading && <LoadingState label="Loading workflows…" size="inline" className="mt-6" />}
     {definitions.error && <LoadFailure error={definitions.error} saved={definitions.data !== null} label="workflows" refreshing={definitions.refreshing} refresh={definitions.refresh} />}
     {runs.error && <LoadFailure error={runs.error} saved={runs.data !== null} label="runs" refreshing={runs.refreshing} refresh={runs.refresh} />}
@@ -210,7 +213,12 @@ function WorkflowsTab({ setTab }: { setTab: (tab: WorkflowTab) => void }) {
         </li>
       })}
     </ul>}
-    {!definitions.loading && !definitions.error && list.length === 0 && <div className="mt-6 text-sm text-lw-text-2"><p>No workflow definitions found</p><p className="mt-1">A workflow is a YAML file of steps. <a href="https://cpave3.github.io/legato/using/workflows/" target="_blank" rel="noreferrer" className="text-lw-link hover:underline">Write your first workflow</a></p></div>}
+    {!definitions.loading && !definitions.error && list.length === 0 && <div className="mt-6 flex flex-col items-start gap-2 text-sm text-lw-text-2">
+      <p>No workflow definitions found</p>
+      <p>A workflow is a YAML file of steps. <a href="https://cpave3.github.io/legato/using/workflows/" target="_blank" rel="noreferrer" className="text-lw-link hover:underline">Write your first workflow</a>, or start from a template.</p>
+      <Button size="sm" onClick={() => setAdding(true)}>Add from template</Button>
+    </div>}
+    {adding && <AddWorkflowTemplateDialog onClose={() => setAdding(false)} onAdded={definitions.refresh} />}
     {selected && <RunWorkflowDialog definition={selected} repositories={definitions.data?.repositories ?? []} onClose={() => setSelected(null)} />}
   </PageFrame>
 }

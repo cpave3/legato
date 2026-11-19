@@ -27,6 +27,12 @@ export const startWorkflow=(baseUrl:string,name:string,inputs:Record<string,stri
 // setWorkflowTrigger switches a workflow's trigger on or off in this Legato
 // only; its file is never changed.
 export const setWorkflowTrigger=(baseUrl:string,name:string,trigger:string,enabled:boolean)=>apiFetch(baseUrl,`/api/workflows/${encodeURIComponent(name)}/triggers/${encodeURIComponent(trigger)}`,{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify({enabled})}).then(decode<{status:string}>)
+export type WorkflowTemplate = { name:string; title:string; description?:string }
+export type WorkflowFolder = { id:string; label:string; path:string }
+export const fetchWorkflowTemplates=(baseUrl:string)=>apiFetch(baseUrl,"/api/workflow-templates").then(decode<{templates:WorkflowTemplate[];folders:WorkflowFolder[]}>)
+// addWorkflowTemplate writes a template into a folder under a name; a name
+// a workflow has is refused (409), never overwritten.
+export async function addWorkflowTemplate(baseUrl:string,template:string,name:string,folder:string):Promise<{name:string;path:string}>{const response=await apiFetch(baseUrl,`/api/workflow-templates/${encodeURIComponent(template)}`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({name,folder})});if(!response.ok){let message=response.statusText;try{const body=await response.json();if(typeof body?.error==="string")message=body.error}catch{/* not JSON */}throw new Error(message||`request failed (${response.status})`)}return response.json()}
 export const cancelWorkflow=(baseUrl:string,id:string)=>apiFetch(baseUrl,`/api/workflow-runs/${encodeURIComponent(id)}/cancel`,{method:"POST"}).then(decode<WorkflowRunView>)
 const forceBody=(force:boolean)=>({method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({force})})
 export const triggerWorkflowStep=(baseUrl:string,id:string,step:string,force=false)=>apiFetch(baseUrl,`/api/workflow-runs/${encodeURIComponent(id)}/steps/${encodeURIComponent(step)}/trigger`,forceBody(force)).then(decode<WorkflowRunView>)

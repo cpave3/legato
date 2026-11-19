@@ -42,13 +42,15 @@ func (e *AgentDispatchExecutor) Start(ctx context.Context, step ResolvedWorkflow
 	}
 	var prompt string
 	if fromMacro {
-		if prompt, err = e.macros.Message(ctx, macro.Keys, taskID, nil); err != nil {
+		if prompt, err = e.macros.Message(ctx, macro.Keys, taskID, stepPR(step.With)); err != nil {
 			return WorkflowExecutionResult{}, err
 		}
 	} else if prompt, err = workflowString(step.With, "prompt", true); err != nil {
 		return WorkflowExecutionResult{}, err
 	}
-	workingDir, err := workflowString(step.With, "working_dir", true)
+	// An empty working directory starts a new agent where agents start by
+	// default; a running one is messaged wherever it is.
+	workingDir, err := workflowString(step.With, "working_dir", false)
 	if err != nil {
 		return WorkflowExecutionResult{}, err
 	}

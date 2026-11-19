@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"strconv"
 	"strings"
 )
 
@@ -53,4 +54,14 @@ func macroPRHeader(with map[string]any) string {
 		return ""
 	}
 	return fmt.Sprintf("Pull request %s#%s: https://github.com/%s/pull/%s\n\n", repo, number, repo, number)
+}
+
+// stepPR is the pull request a step names with repo and pr_number, or nil.
+func stepPR(with map[string]any) *MacroPR {
+	repo, _ := workflowString(with, "repo", false)
+	number, _ := strconv.Atoi(fmt.Sprint(with["pr_number"]))
+	if strings.TrimSpace(repo) == "" || number <= 0 {
+		return nil
+	}
+	return &MacroPR{Repo: repo, Number: number}
 }
