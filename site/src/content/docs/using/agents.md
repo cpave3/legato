@@ -30,6 +30,8 @@ launch and logs the failure instead of sending the command to another program.
 
 `tab` and `shift+tab` move between the fields, and `enter` spawns from any of them. A line above the keys says what `enter` will do, such as `→ chimera in ~/Development/autopilot · for f41p6uf0`.
 
+Before it starts the agent, Legato checks that the agent tool is installed and runs, as [`legato doctor`](/legato/reference/cli/#running-legato) does. When it is missing or broken, the spawn is refused with the reason and the fix, in the status bar or the web spawn dialog, rather than leaving `command not found` in a terminal. The check reuses a result from the last few minutes and never holds a spawn for more than a fraction of a second.
+
 When the task's agent tool has a saved conversation, Legato then asks whether to resume it (`enter` or `r`) or start a new one (`n`).
 
 In the web UI, press **Open agent** in the task's detail, or press `s` with the card selected on a wide screen. If the task's agent already runs, this takes you to it.

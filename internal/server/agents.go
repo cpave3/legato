@@ -260,6 +260,8 @@ func (s *Server) spawnAgentHandler() http.HandlerFunc {
 			status := http.StatusInternalServerError
 			if errors.Is(err, service.ErrDockerHostNetwork) {
 				status = http.StatusBadRequest
+			} else if refused := spawnRefusalStatus(err); refused != 0 {
+				status = refused
 			}
 			http.Error(w, err.Error(), status)
 			return

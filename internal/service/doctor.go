@@ -90,10 +90,22 @@ type DoctorOptions struct {
 	Now      func() time.Time
 	// Timeout bounds each command; 0 is DoctorTimeout.
 	Timeout time.Duration
+	// SpawnBound is the longest SpawnCheck holds a spawn; 0 is
+	// DoctorSpawnBound.
+	SpawnBound time.Duration
+	// SpawnMaxAge is how long a passed check spares a spawn from running
+	// it again; 0 is DoctorSpawnMaxAge.
+	SpawnMaxAge time.Duration
 }
 
 // DoctorTimeout is how long one command of a check may take.
 const DoctorTimeout = 5 * time.Second
+
+// DoctorSpawnBound is the longest a spawn waits for its tool's check.
+const DoctorSpawnBound = 300 * time.Millisecond
+
+// DoctorSpawnMaxAge is how long a passed tool check stays fresh for spawns.
+const DoctorSpawnMaxAge = 10 * time.Minute
 
 // Doctor runs the checks of what Legato needs from the machine it runs on.
 // It runs commands only to ask a version or whether credentials are present:
@@ -101,6 +113,16 @@ const DoctorTimeout = 5 * time.Second
 // uses the network only for the online check.
 type Doctor struct {
 	opts DoctorOptions
+
+	mu sync.Mutex
+	// installed is the last installed-and-runnable check of each tool,
+	// which spawns read.
+	installed map[string]timedCheck
+}
+
+type timedCheck struct {
+	check DoctorCheck
+	at    time.Time
 }
 
 // NewDoctor returns a doctor that looks at the machine through opts.
@@ -123,7 +145,13 @@ func NewDoctor(opts DoctorOptions) *Doctor {
 	if opts.Timeout <= 0 {
 		opts.Timeout = DoctorTimeout
 	}
-	return &Doctor{opts: opts}
+	if opts.SpawnBound <= 0 {
+		opts.SpawnBound = DoctorSpawnBound
+	}
+	if opts.SpawnMaxAge <= 0 {
+		opts.SpawnMaxAge = DoctorSpawnMaxAge
+	}
+	return &Doctor{opts: opts, installed: map[string]timedCheck{}}
 }
 
 // runDoctorCommand runs a command with no input, its error carrying the
@@ -296,7 +324,72 @@ func (d *Doctor) checkTool(ctx context.Context, tool doctorTool, online bool) []
 	return checks
 }
 
+// AgentToolUnavailableError refuses a spawn whose agent tool is missing or
+// cannot run, with the check that says so and its fix.
+type AgentToolUnavailableError struct {
+	Check DoctorCheck
+}
+
+func (e *AgentToolUnavailableError) Error() string {
+	msg := e.Check.Title + " cannot start: " + e.Check.Detail
+	if e.Check.Fix != "" {
+		msg += ". " + e.Check.Fix
+	}
+	return msg
+}
+
+// SpawnCheck says whether an agent tool (by check ID, which is its adapter
+// name) can start, for a spawn: nil, or an *AgentToolUnavailableError. A
+// check passed within SpawnMaxAge is taken as it is and runs nothing.
+// Otherwise the tool's installed-and-runnable check runs, and the spawn
+// waits for it at most SpawnBound: a check that has not answered by then
+// lets the spawn go on and keeps running, so the next spawn knows. A tool
+// the doctor does not know is let through.
+func (d *Doctor) SpawnCheck(ctx context.Context, tool string) error {
+	var known doctorTool
+	for _, t := range doctorTools() {
+		if t.id == tool {
+			known = t
+		}
+	}
+	if known.id == "" {
+		return nil
+	}
+	d.mu.Lock()
+	last, ok := d.installed[tool]
+	d.mu.Unlock()
+	if ok && last.check.Result == DoctorOK && d.opts.Now().Sub(last.at) < d.opts.SpawnMaxAge {
+		return nil
+	}
+	done := make(chan DoctorCheck, 1)
+	go func() {
+		_, c := d.checkInstalled(context.WithoutCancel(ctx), known)
+		done <- c
+	}()
+	timer := time.NewTimer(d.opts.SpawnBound)
+	defer timer.Stop()
+	select {
+	case c := <-done:
+		if c.Result != DoctorOK {
+			return &AgentToolUnavailableError{Check: c}
+		}
+		return nil
+	case <-timer.C:
+		return nil
+	case <-ctx.Done():
+		return ctx.Err()
+	}
+}
+
 func (d *Doctor) checkInstalled(ctx context.Context, tool doctorTool) (string, DoctorCheck) {
+	path, c := d.runInstalled(ctx, tool)
+	d.mu.Lock()
+	d.installed[tool.id] = timedCheck{check: c, at: d.opts.Now()}
+	d.mu.Unlock()
+	return path, c
+}
+
+func (d *Doctor) runInstalled(ctx context.Context, tool doctorTool) (string, DoctorCheck) {
 	c := DoctorCheck{ID: tool.id, Title: tool.title}
 	path, err := d.opts.LookPath(tool.command)
 	if err != nil {

@@ -300,3 +300,62 @@ func TestDoctorNeverStartsASessionOrABrowser(t *testing.T) {
 		}
 	}
 }
+
+func TestTheSpawnCheckUsesAFreshResultWithoutRunningAnything(t *testing.T) {
+	m := healthyMachine()
+	d := NewDoctor(m.options())
+	d.Check(context.Background(), DoctorConfig{}, false)
+	m.mu.Lock()
+	m.ran = nil
+	m.mu.Unlock()
+	if err := d.SpawnCheck(context.Background(), "claude-code"); err != nil {
+		t.Fatal(err)
+	}
+	if len(m.ran) != 0 {
+		t.Fatalf("ran %v with a fresh result", m.ran)
+	}
+}
+
+func TestTheSpawnCheckRefusesAMissingToolWithItsFix(t *testing.T) {
+	m := healthyMachine()
+	m.remove("codex")
+	err := NewDoctor(m.options()).SpawnCheck(context.Background(), "codex")
+	var unavailable *AgentToolUnavailableError
+	if !errors.As(err, &unavailable) || !strings.Contains(err.Error(), "npm install -g @openai/codex") {
+		t.Fatalf("spawn check = %v", err)
+	}
+}
+
+func TestTheSpawnCheckRechecksAToolThatWasMissing(t *testing.T) {
+	m := healthyMachine()
+	m.remove("codex")
+	d := NewDoctor(m.options())
+	d.Check(context.Background(), DoctorConfig{}, false)
+	m.paths["codex"] = "/usr/bin/codex"
+	if err := d.SpawnCheck(context.Background(), "codex"); err != nil {
+		t.Fatalf("a tool installed since the last check was refused: %v", err)
+	}
+}
+
+func TestASlowToolCannotStallASpawnPastTheBound(t *testing.T) {
+	m := healthyMachine()
+	m.answer("claude --version", "", context.DeadlineExceeded)
+	opts := m.options()
+	opts.Timeout = 2 * time.Second
+	opts.SpawnBound = 30 * time.Millisecond
+	d := NewDoctor(opts)
+	start := time.Now()
+	err := d.SpawnCheck(context.Background(), "claude-code")
+	if elapsed := time.Since(start); elapsed > 500*time.Millisecond {
+		t.Fatalf("spawn check took %s", elapsed)
+	}
+	if err != nil {
+		t.Fatalf("an unanswered check refused the spawn: %v", err)
+	}
+}
+
+func TestTheSpawnCheckAllowsAToolTheDoctorDoesNotKnow(t *testing.T) {
+	if err := NewDoctor(healthyMachine().options()).SpawnCheck(context.Background(), "aider"); err != nil {
+		t.Fatal(err)
+	}
+}

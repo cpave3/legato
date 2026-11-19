@@ -336,6 +336,7 @@ type LearningPromptProvider interface {
 }
 
 type agentService struct {
+	toolCheck            func(ctx context.Context, tool string) error
 	capabilities         CapabilitySource
 	capabilityFolders    CapabilityFolders
 	interruptedMu        sync.Mutex
@@ -535,6 +536,10 @@ type EventPublisher interface {
 
 // AgentServiceOptions configures optional AI tool integration for agent sessions.
 type AgentServiceOptions struct {
+	// ToolCheck, when set, is asked before a spawn whether the chosen
+	// agent tool (its adapter name) can start; an error refuses the spawn
+	// before anything is made. Doctor.SpawnCheck is the runtime's.
+	ToolCheck func(ctx context.Context, tool string) error
 	// Adapter is the default AI tool adapter used when AgentSpawnOptions
 	// doesn't specify an AgentKind, or when the requested AgentKind isn't
 	// in the Adapters registry.
@@ -681,6 +686,7 @@ func NewAgentService(s *store.Store, tmux TmuxManager, workDir string, opts ...A
 			svc.briefKickoffDelay = opts[0].BriefKickoffDelay
 		}
 		svc.notifier = opts[0].Notifier
+		svc.toolCheck = opts[0].ToolCheck
 		svc.osNotifier = opts[0].OSNotifier
 		svc.learning = opts[0].LearningPromptProvider
 		svc.learningMaxItems = opts[0].LearningPromptMaxItems
@@ -722,6 +728,11 @@ func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, hei
 		return err
 	}
 	adapter := a.resolveAdapter(opt.AgentKind)
+	if a.toolCheck != nil && adapter != nil {
+		if err := a.toolCheck(ctx, adapter.Name()); err != nil {
+			return err
+		}
+	}
 	if validator, ok := adapter.(LaunchValidator); ok {
 		if err := validator.ValidateLaunch(ctx, opt.Tier, opt.LaunchArgs); err != nil {
 			return err
