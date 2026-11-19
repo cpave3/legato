@@ -54,7 +54,7 @@ func startReviewPasses(deps integrationDeps) (*service.ReviewPassService, func()
 	}
 	opts := workerReviewPassOptions(deps.cfg, deps.db, service.ReviewPassOptions{
 		Agents: agents, Bus: deps.bus,
-		GitHub:   service.NewReviewPublisher(deps.approvals.channels, deps.cfg.ReviewPasses.GitHubCredential),
+		GitHub:   learningPublisher(deps.db, service.NewReviewPublisher(deps.approvals.channels, deps.cfg.ReviewPasses.GitHubCredential)),
 		Checkout: service.GitReviewCheckout{Store: deps.db},
 		Run:      func(f func()) { go f() },
 	})

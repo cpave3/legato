@@ -31,6 +31,16 @@ type fakePR struct {
 	Review string
 	// Check is the one check run's conclusion, if any.
 	Check string
+	// Reviews, when set, are served in place of Review, a hundred to a page.
+	Reviews []fakeReview
+}
+
+// fakeReview is one review of a fake PR.
+type fakeReview struct {
+	ID        int64
+	State     string
+	Login     string
+	Submitted string
 }
 
 // fakeGitHub is a GitHub API on an httptest server, serving the reads PR
@@ -100,6 +110,19 @@ func (f *fakeGitHub) serve(w http.ResponseWriter, r *http.Request) {
 		for _, pr := range prs {
 			if pr.Number != n {
 				continue
+			}
+			if len(parts) == 6 && parts[5] == "reviews" && pr.Reviews != nil {
+				page, _ := strconv.Atoi(r.URL.Query().Get("page"))
+				if page < 1 {
+					page = 1
+				}
+				reviews := []any{}
+				for i := (page - 1) * 100; i < len(pr.Reviews) && i < page*100; i++ {
+					rv := pr.Reviews[i]
+					reviews = append(reviews, map[string]any{"id": rv.ID, "state": rv.State, "submitted_at": rv.Submitted, "user": map[string]any{"login": rv.Login}})
+				}
+				write(reviews)
+				return
 			}
 			if len(parts) == 6 && parts[5] == "reviews" {
 				reviews := []any{}

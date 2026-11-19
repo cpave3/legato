@@ -64,11 +64,26 @@ const (
 	// batch sent, a pin delivered, resolved, reopened or withdrawn).
 	// Payload: ScopeChangedPayload.
 	EventScopeChanged
+	// EventPRChangesRequested: a new review requesting changes on a pull
+	// request a task owns, by someone other than Legato's own Apps;
+	// payload PRChangesRequestedPayload.
+	EventPRChangesRequested
 )
 
 // ScopeChangedPayload names the origin whose Scope pins changed.
 type ScopeChangedPayload struct {
 	Origin string
+}
+
+// PRChangesRequestedPayload is a new changes-requested review on a task's
+// pull request.
+type PRChangesRequestedPayload struct {
+	TaskID   string
+	Repo     string
+	Number   int
+	URL      string
+	ReviewID int64
+	Reviewer string
 }
 
 // ReeveSpokePayload is what became of one line the Reeve said.

@@ -392,6 +392,7 @@ How Legato reads pull requests for your tasks. Legato only reads from GitHub her
 | --- | --- | --- | --- |
 | `github.auth` | string | `auto` | Where the token comes from: `auto` (`github.token` if set, else `gh auth token`), `gh` (only `gh auth token`) or `token` (only `github.token`). |
 | `github.token` | string | none | A GitHub token. Use `${VAR}` to keep it out of the file. |
+| `github.app_logins` | list of strings | none | The bot logins of your Legato's own GitHub Apps, such as `my-legato-reviewer[bot]`. Their reviews never start a workflow; Legato also learns them from the reviews it posts. |
 | `github.poll_interval_seconds` | integer | `600` | How often Legato looks for a pull request on a task's branch that has none yet. |
 | `github.resolved_poll_interval_seconds` | integer | `600` | How often Legato refreshes pull requests it already knows. |
 

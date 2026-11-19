@@ -19,7 +19,7 @@ func wireReviewRuns(srv *server.Server, deps integrationDeps, reviews *service.R
 		return
 	}
 	caller := service.NewReviewRunCaller(reviews, service.ReviewRunOptions{
-		GitHub:     service.NewReviewPublisher(deps.approvals.channels, deps.cfg.ReviewPasses.GitHubCredential),
+		GitHub:     learningPublisher(deps.db, service.NewReviewPublisher(deps.approvals.channels, deps.cfg.ReviewPasses.GitHubCredential)),
 		Clones:     service.ReviewRunRepositories{Repos: deps.repos, Checkout: service.GitReviewCheckout{Store: deps.db}},
 		Owners:     service.NewOwnerLookupService(deps.db, deps.agents, deps.cfg.Web.PublicURL),
 		SummaryDir: filepath.Join(workflowArtifactRoot(deps.cfg), "review-summaries"),

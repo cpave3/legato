@@ -131,7 +131,6 @@ func TestTheWorkflowsPageSeesAScheduleNextRuns(t *testing.T) {
 	}
 }
 
-
 func TestMissedDueTimesAreRecordedAndCaughtUpOnce(t *testing.T) {
 	for _, policy := range []string{"once", "skip"} {
 		t.Run(policy, func(t *testing.T) {

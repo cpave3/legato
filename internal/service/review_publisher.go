@@ -115,6 +115,9 @@ func (e *GitHubError) Error() string {
 type ReviewPublisher struct {
 	channels *CredentialChannels
 	reviewer string
+	// learnLogin is told the login a review was posted as: one of
+	// Legato's own Apps, whose reviews never fire a trigger.
+	learnLogin func(login string)
 	// Timeout bounds each request to GitHub.
 	Timeout time.Duration
 }
@@ -123,6 +126,9 @@ type ReviewPublisher struct {
 func NewReviewPublisher(channels *CredentialChannels, reviewer string) *ReviewPublisher {
 	return &ReviewPublisher{channels: channels, reviewer: reviewer, Timeout: 30 * time.Second}
 }
+
+// SetLoginRecorder is told the login each review is posted as.
+func (p *ReviewPublisher) SetLoginRecorder(record func(login string)) { p.learnLogin = record }
 
 // call is one authorized request to GitHub's REST API.
 type githubCall struct {
@@ -276,10 +282,16 @@ func (p *ReviewPublisher) PostReview(ctx context.Context, post ReviewPost) (Post
 	var created struct {
 		ID      int64  `json:"id"`
 		HTMLURL string `json:"html_url"`
+		User    struct {
+			Login string `json:"login"`
+		} `json:"user"`
 	}
 	payload := map[string]any{"commit_id": post.CommitID, "event": post.Event, "body": body, "comments": comments}
 	err = write.do(ctx, http.MethodPost, fmt.Sprintf("/repos/%s/pulls/%d/reviews", post.Repo, post.Number), payload, &created)
 	if err == nil {
+		if p.learnLogin != nil && created.User.Login != "" {
+			p.learnLogin(created.User.Login)
+		}
 		posted := PostedReview{ID: created.ID, URL: created.HTMLURL, Inline: inline}
 		posted.CommentIDs = p.reviewComments(ctx, read, post.Repo, post.Number, created.ID)
 		return posted, nil

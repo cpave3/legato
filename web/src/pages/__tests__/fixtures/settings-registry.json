@@ -505,6 +505,14 @@
       "mode": "restart"
     },
     {
+      "key": "github.app_logins",
+      "title": "Legato's GitHub App logins",
+      "description": "Bot logins of Legato's own GitHub Apps, whose reviews never start a workflow.",
+      "kind": "strings",
+      "class": "change",
+      "mode": "restart"
+    },
+    {
       "key": "github.resolved_poll_interval_seconds",
       "title": "GitHub poll interval for known PRs (seconds)",
       "kind": "int",

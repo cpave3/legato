@@ -375,6 +375,7 @@ func (p *prTrackingService) refreshBranchPR(ctx context.Context, row store.TaskB
 	}
 	pr := prFromStatus(status, row.PR.MatchMethod, row.PR.Pinned)
 	pr.HeadSHA, pr.LinkedAt = row.PR.HeadSHA, row.PR.LinkedAt
+	p.observeReviews(ctx, row, status)
 	return p.setBranchPR(ctx, row, pr), nil
 }
 

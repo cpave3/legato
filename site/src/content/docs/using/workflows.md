@@ -157,6 +157,21 @@ A run's inputs may read `${{ schedule.time }}`, its due time, and `${{ schedule.
 
 When Legato starts, the due times that passed while no Legato was running (since the last one it recorded) are recorded as **missed**, and the Workflows tab lists them with why. `catch_up` says what then happens: `once`, the default, makes one late run for all of them, whose `${{ schedule.previous_time }}` is the due time before the first missed one, so it covers them all; `skip` makes none. A restart does not record or run them again. A scheduled run that cannot start reaches [Attention](/legato/using/attention/) as a failed trigger.
 
+### When changes are requested
+
+A `pr.changes_requested` trigger starts a workflow when someone requests changes on a pull request one of your tasks owns. Every new changes-requested review fires: a second reviewer's, or the same reviewer's again. Your own reviews count, so you can request changes yourself to start it; reviews by your Legato's own GitHub Apps never do (name their bot logins in `github.app_logins`; Legato also learns them from the reviews it posts). Legato sees reviews when it refreshes the task's pull request, so it costs no extra GitHub calls, and the run can start up to a refresh interval after the review.
+
+```yaml
+on:
+  pr.changes_requested:
+    inputs:
+      task: ${{ event.task }}
+      repo: ${{ event.repo }}
+      pr_number: ${{ event.pr_number }}
+```
+
+With no inputs to map, write `pr.changes_requested: {}`. The inputs may also read `${{ event.pr_url }}` and `${{ event.reviewer }}`. The [loop stop](#the-loop-stop) counts runs by the task.
+
 ### Pausing a trigger
 
 Every trigger is on unless it says `enabled: false`, which makes it start paused: a shared workflow then runs nothing until someone switches it on.

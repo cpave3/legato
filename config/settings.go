@@ -139,6 +139,7 @@ var registry = []Setting{
 	{Key: "github.auth", Title: "GitHub sign-in", Description: "auto, gh or token.", Kind: KindEnum, Enum: []string{"auto", "gh", "token"}, Class: ClassRisky, Mode: ModeRestart},
 	{Key: "github.token", Title: "GitHub token", Description: "The name of a secret holding the token.", Kind: KindString, Secret: true, Class: ClassRisky, Mode: ModeRestart},
 	{Key: "github.poll_interval_seconds", Title: "GitHub poll interval (seconds)", Kind: KindInt, Class: ClassChange, Mode: ModeRestart, Check: nonNegative},
+	{Key: "github.app_logins", Title: "Legato's GitHub App logins", Description: "Bot logins of Legato's own GitHub Apps, whose reviews never start a workflow.", Kind: KindStrings, Class: ClassChange, Mode: ModeRestart},
 	{Key: "github.resolved_poll_interval_seconds", Title: "GitHub poll interval for known PRs (seconds)", Kind: KindInt, Class: ClassChange, Mode: ModeRestart, Check: nonNegative},
 
 	// Swarms.

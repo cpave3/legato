@@ -21,11 +21,18 @@ func (c *WorkflowTriggerCoordinator) StartEventLoop(ctx context.Context, bus *ev
 		return cancel
 	}
 	ch := bus.Subscribe(events.EventCardMoved)
+	reviews := bus.Subscribe(events.EventPRChangesRequested)
 	go func() {
 		for {
 			select {
 			case <-ctx.Done():
 				return
+			case event := <-reviews:
+				if payload, ok := event.Payload.(events.PRChangesRequestedPayload); ok {
+					if err := c.ChangesRequested(ctx, payload); err != nil {
+						log.Printf("workflow triggers: changes requested: %v", err)
+					}
+				}
 			case event := <-ch:
 				transitionID := ""
 				if payload, ok := event.Payload.(map[string]string); ok {

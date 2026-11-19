@@ -36,6 +36,18 @@ type PRStatus struct {
 	// branch when the PR is part of a stack.
 	BaseBranch string
 	CreatedAt  string
+	// Reviews are every review of the PR, oldest first (FetchPRByNumber
+	// only).
+	Reviews []PRReview
+}
+
+// PRReview is one review of a pull request.
+type PRReview struct {
+	ID          int64
+	State       string // APPROVED, CHANGES_REQUESTED, COMMENTED, DISMISSED, PENDING
+	Login       string
+	UserType    string // User or Bot
+	SubmittedAt string
 }
 
 // ErrorKind classifies failures that callers can surface without parsing text.
@@ -200,11 +212,11 @@ func (c *Client) FetchPRByNumber(owner, repo string, number int) (*PRStatus, err
 		return nil, err
 	}
 	status := statusFromAPI(raw)
-	var enrichErr error
-	status.ReviewDecision, enrichErr = c.fetchReviewDecision(owner, repo, number)
+	reviews, enrichErr := c.fetchReviews(owner, repo, number)
 	if enrichErr != nil {
 		return nil, fmt.Errorf("fetching PR reviews: %w", enrichErr)
 	}
+	status.Reviews, status.ReviewDecision = reviews, reviewDecision(reviews)
 	if status.HeadSHA != "" {
 		status.CheckStatus, enrichErr = c.fetchCheckStatus(owner, repo, status.HeadSHA)
 		if enrichErr != nil {
@@ -214,41 +226,62 @@ func (c *Client) FetchPRByNumber(owner, repo string, number int) (*PRStatus, err
 	return &status, nil
 }
 
-func (c *Client) fetchReviewDecision(owner, repo string, number int) (string, error) {
-	var reviews []struct {
-		State       string `json:"state"`
-		SubmittedAt string `json:"submitted_at"`
-		User        struct {
-			Login string `json:"login"`
-		} `json:"user"`
-	}
+// maxReviewPages bounds how many pages of reviews a PR is read to.
+const maxReviewPages = 30
+
+// fetchReviews reads every review of a PR, a hundred to a page.
+func (c *Client) fetchReviews(owner, repo string, number int) ([]PRReview, error) {
+	var out []PRReview
 	path := fmt.Sprintf("/repos/%s/%s/pulls/%d/reviews", url.PathEscape(owner), url.PathEscape(repo), number)
-	if err := c.get(path, url.Values{"per_page": {"100"}}, &reviews); err != nil {
-		return "", err
+	for page := 1; page <= maxReviewPages; page++ {
+		var reviews []struct {
+			ID          int64  `json:"id"`
+			State       string `json:"state"`
+			SubmittedAt string `json:"submitted_at"`
+			User        struct {
+				Login string `json:"login"`
+				Type  string `json:"type"`
+			} `json:"user"`
+		}
+		if err := c.get(path, url.Values{"per_page": {"100"}, "page": {strconv.Itoa(page)}}, &reviews); err != nil {
+			return nil, err
+		}
+		for _, r := range reviews {
+			out = append(out, PRReview{ID: r.ID, State: r.State, Login: r.User.Login, UserType: r.User.Type, SubmittedAt: r.SubmittedAt})
+		}
+		if len(reviews) < 100 {
+			break
+		}
 	}
+	return out, nil
+}
+
+// reviewDecision folds reviews into one decision: changes requested if any
+// reviewer's latest review requests them, else approved if any approves.
+func reviewDecision(reviews []PRReview) string {
 	latest := make(map[string]struct{ state, submitted string })
 	for _, review := range reviews {
-		if review.User.Login == "" || review.SubmittedAt == "" || review.State == "COMMENTED" || review.State == "DISMISSED" || review.State == "PENDING" {
+		if review.Login == "" || review.SubmittedAt == "" || review.State == "COMMENTED" || review.State == "DISMISSED" || review.State == "PENDING" {
 			continue
 		}
-		current := latest[review.User.Login]
+		current := latest[review.Login]
 		if review.SubmittedAt > current.submitted {
-			latest[review.User.Login] = struct{ state, submitted string }{review.State, review.SubmittedAt}
+			latest[review.Login] = struct{ state, submitted string }{review.State, review.SubmittedAt}
 		}
 	}
 	approved := false
 	for _, review := range latest {
 		if review.state == "CHANGES_REQUESTED" {
-			return "CHANGES_REQUESTED", nil
+			return "CHANGES_REQUESTED"
 		}
 		if review.state == "APPROVED" {
 			approved = true
 		}
 	}
 	if approved {
-		return "APPROVED", nil
+		return "APPROVED"
 	}
-	return "", nil
+	return ""
 }
 
 func (c *Client) fetchCheckStatus(owner, repo, sha string) (string, error) {

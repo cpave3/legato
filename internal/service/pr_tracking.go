@@ -59,6 +59,7 @@ type RepositoryMapping struct {
 type prTrackingService struct {
 	store            *store.Store
 	bus              *events.Bus
+	appLogins        []string
 	gh               GitHubClient
 	interval         time.Duration // unresolved PRs (branch-only)
 	resolvedInterval time.Duration // resolved PRs (have PR number)

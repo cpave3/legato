@@ -7,8 +7,9 @@ import (
 )
 
 type Triggers struct {
-	TaskEnteredColumn *TaskEnteredColumnTrigger `yaml:"task.entered_column,omitempty" json:"task.entered_column,omitempty"`
-	Schedule          *ScheduleTrigger          `yaml:"schedule,omitempty" json:"schedule,omitempty"`
+	TaskEnteredColumn  *TaskEnteredColumnTrigger `yaml:"task.entered_column,omitempty" json:"task.entered_column,omitempty"`
+	Schedule           *ScheduleTrigger          `yaml:"schedule,omitempty" json:"schedule,omitempty"`
+	PRChangesRequested *PRTrigger                `yaml:"pr.changes_requested,omitempty" json:"pr.changes_requested,omitempty"`
 }
 
 // The kinds of trigger, as a definition's on: names them.
@@ -58,6 +59,10 @@ func (t Triggers) Common(kind string) (TriggerCommon, bool) {
 		if c := t.Schedule; c != nil {
 			return TriggerCommon{Enabled: c.Enabled, Confirm: c.Confirm, MaxRunsPerDay: c.MaxRunsPerDay, Inputs: c.Inputs}, true
 		}
+	case TriggerPRChangesRequested:
+		if c := t.PRChangesRequested; c != nil {
+			return c.common(), true
+		}
 	}
 	return TriggerCommon{}, false
 }
@@ -65,7 +70,7 @@ func (t Triggers) Common(kind string) (TriggerCommon, bool) {
 // List is the triggers a definition declares, in a fixed order.
 func (t Triggers) List() []TriggerInfo {
 	var out []TriggerInfo
-	for _, kind := range []string{TriggerTaskEnteredColumn, TriggerSchedule} {
+	for _, kind := range []string{TriggerTaskEnteredColumn, TriggerSchedule, TriggerPRChangesRequested} {
 		if common, ok := t.Common(kind); ok {
 			out = append(out, TriggerInfo{Kind: kind, EnabledByDefault: enabledByDefault(common.Enabled), MaxRunsPerDay: common.Limit()})
 		}
