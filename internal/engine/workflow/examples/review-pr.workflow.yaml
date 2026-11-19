@@ -1,8 +1,10 @@
 schema_version: 1
 name: review-pr
 title: Review pull request
-run_title: Review PR #${{ workflow.inputs.pr_number }}
-description: Prepare an exact GitHub PR head and review it with Chimera.
+run_title: Review ${{ workflow.inputs.repo }}#${{ workflow.inputs.pr_number }}
+description: >-
+  Review a pull request in a fresh clone with your Review macro, then keep
+  the agent open for your questions. The run ends when the agent does.
 inputs:
   repo:
     type: string
@@ -12,55 +14,19 @@ inputs:
     type: integer
     required: true
     description: Pull request number
-  primary_dir:
-    type: string
-    required: true
-    description: Local primary checkout for the repository
 steps:
-  - id: prepare
-    title: Prepare pull request
-    type: github.pr.prepare
-    with:
-      repo: ${{ workflow.inputs.repo }}
-      number: ${{ workflow.inputs.pr_number }}
-      primary_dir: ${{ workflow.inputs.primary_dir }}
-      base_branch: main
-    outputs:
-      worktree_path: {type: string}
-      branch: {type: string}
-      base_branch: {type: string}
-      head_sha: {type: string}
-      metadata: {type: json}
-
   - id: review
     title: Review pull request
     type: agent.run
     with:
-      agent: chimera
-      tier: large
-      working_dir: ${{ steps.prepare.outputs.worktree_path }}
-      prompt: |
-        Run the `3-tier-review` skill against this pull request. Use the prepared
-        exact head at ${{ steps.prepare.outputs.head_sha }}. Do not modify or
-        publish to the pull request. Write the consolidated review to
-        `${{ outputs.review.path }}` and provide a JSON list of findings.
-    outputs:
-      review:
-        type: file
-        path: review.md
-        media_type: text/markdown
-      findings:
-        type: json
-  - id: cleanup
-    title: Remove review worktree
-    type: worktree.remove
-    trigger: manual
+      name: Review ${{ workflow.inputs.repo }}#${{ workflow.inputs.pr_number }}
+      repo: ${{ workflow.inputs.repo }}
+      pr_number: ${{ workflow.inputs.pr_number }}
+      macro: Review
+      keep_agent: true
+  - id: end
+    title: End the review
+    type: agent.stop
+    trigger: agent_ended
     with:
-      expected_path: ${{ steps.prepare.outputs.worktree_path }}
-    outputs:
-      removed:
-        type: boolean
-      removed_path:
-        type: string
-      removed_branch:
-        type: string
+      task: ${{ workflow.task }}

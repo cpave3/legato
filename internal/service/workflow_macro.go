@@ -43,3 +43,14 @@ func stepAgent(with map[string]any, macro MacroEntry) (kind, tier string) {
 	}
 	return kind, tier
 }
+
+// macroPRHeader is the line a macro started on a pull request opens with,
+// when a step gives repo and pr_number; "" otherwise.
+func macroPRHeader(with map[string]any) string {
+	repo, _ := workflowString(with, "repo", false)
+	number := fmt.Sprint(with["pr_number"])
+	if strings.TrimSpace(repo) == "" || with["pr_number"] == nil || number == "" || number == "0" {
+		return ""
+	}
+	return fmt.Sprintf("Pull request %s#%s: https://github.com/%s/pull/%s\n\n", repo, number, repo, number)
+}

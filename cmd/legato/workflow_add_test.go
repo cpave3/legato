@@ -4,6 +4,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"sort"
 	"strings"
 	"testing"
 )
@@ -53,7 +54,8 @@ func TestWorkflowAddListsItsExamplesAndRefusesAnUnknownOne(t *testing.T) {
 	for _, example := range workflowExamples() {
 		names = append(names, example.Name)
 	}
-	if strings.Join(names, ",") != "review-pr,review-pr-passes" {
+	joined := "," + strings.Join(names, ",") + ","
+	if !sort.StringsAreSorted(names) || !strings.Contains(joined, ",review-pr,") || !strings.Contains(joined, ",review-pr-passes,") || !strings.Contains(joined, ",triage,") || !strings.Contains(joined, ",discuss-pr,") {
 		t.Fatalf("examples = %v", names)
 	}
 	if _, err := addWorkflowExample("nope", t.TempDir(), "", false, false); err == nil || !strings.Contains(err.Error(), "review-pr-passes") {

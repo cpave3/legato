@@ -252,7 +252,7 @@ Anyone can run:
 See [Workflows](/legato/using/workflows/).
 
 - `legato workflow list [--json]`: list the workflows you can run.
-- `legato workflow add [<name>] [--project] [--force] [--json]`: add one of Legato's example workflows (`review-pr-passes`, `review-pr`) to your workflows folder, or the project's with `--project`. A file that is there is kept unless `--force`. With no name, list the examples.
+- `legato workflow add [<name>] [--project] [--force] [--json]`: add one of Legato's templates (`triage`, `review-pr`, `discuss-pr`, `review-pr-passes`) to your workflows folder, or the project's with `--project`. A file that is there is kept unless `--force`. With no name, list the examples.
 - `legato workflow validate <name-or-file> [--json]`: check a workflow definition.
 - `legato workflow run <name> [--input <key>=<value>...] [--json]`: start a run.
 - `legato workflow runs [--status <status>] [--limit <count>] [--json]`: list runs.

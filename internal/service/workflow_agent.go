@@ -149,6 +149,9 @@ func (e *AgentRunExecutor) Start(ctx context.Context, step ResolvedWorkflowStep)
 		return WorkflowExecutionResult{}, err
 	}
 	prompt := strings.TrimRight(macro.Keys, "\n")
+	if fromMacro {
+		prompt = macroPRHeader(step.With) + prompt
+	}
 	if !fromMacro {
 		if prompt, err = workflowString(step.With, "prompt", true); err != nil {
 			return WorkflowExecutionResult{}, err

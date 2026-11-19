@@ -68,3 +68,19 @@ func TestAWorkflowStepWithAnUnknownMacroFails(t *testing.T) {
 		t.Fatalf("no macro service: %v", err)
 	}
 }
+
+func TestAMacroStepOnAPullRequestNamesIt(t *testing.T) {
+	settings, _ := newSettingsFixture(t, "")
+	agents := &fakeWorkflowAgentService{}
+	run := NewAgentRunExecutor(agents)
+	run.SetMacros(NewMacroService(settings))
+	if _, err := run.Start(context.Background(), ResolvedWorkflowStep{RunID: "wr-1", TaskID: "wf", With: map[string]any{"macro": "Review", "repo": "acme/web", "pr_number": 12}}); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(agents.opts.Assignment, "Pull request acme/web#12: https://github.com/acme/web/pull/12\n\nReview this pull request.") {
+		t.Fatalf("assignment = %q", agents.opts.Assignment)
+	}
+	if agents.opts.Repo != "acme/web" {
+		t.Fatalf("repo = %q", agents.opts.Repo)
+	}
+}

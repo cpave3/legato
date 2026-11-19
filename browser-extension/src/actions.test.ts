@@ -15,6 +15,20 @@ const discovery: WorkflowDiscovery = {
 }
 
 describe("prepareGitHubWorkflow", () => {
+  it("starts a workflow that declares no primary directory with the repository and number only", () => {
+    const fresh: WorkflowDiscovery = { ...discovery, definitions: [{ name: "review-pr", inputs: { repo: prInputs.repo, pr_number: prInputs.pr_number } }] }
+    expect(prepareGitHubWorkflow(DEFAULT_CONFIG, { repository: "CPAVE3/LEGATO", pullRequestNumber: 42 }, fresh)).toEqual({
+      workflowName: "review-pr",
+      repositoryPresetName: "Legato",
+      repository: "cpave3/legato",
+      pullRequestNumber: 42,
+      primaryDir: "",
+      inputs: { repo: "cpave3/legato", pr_number: "42" },
+    })
+    // It needs no repository preset: Legato makes its own clone.
+    expect(prepareGitHubWorkflow(DEFAULT_CONFIG, { repository: "other/repo", pullRequestNumber: 3 }, fresh, "review").inputs).toEqual({ repo: "other/repo", pr_number: "3" })
+  })
+
   it("resolves a configured workflow and canonical repository preset for confirmation", () => {
     expect(prepareGitHubWorkflow(DEFAULT_CONFIG, { repository: "CPAVE3/LEGATO", pullRequestNumber: 42 }, discovery)).toEqual({
       workflowName: "review-pr",

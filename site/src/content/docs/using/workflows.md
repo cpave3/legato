@@ -23,6 +23,17 @@ legato workflow add review-pr-passes
 legato workflow run review-pr-passes --input repo=acme/widget --input pr_number=12
 ```
 
+The templates Legato ships use your default agent tool and your [macros](/legato/using/agents/#macros), need no extra tools, and arrive with every trigger paused (`enabled: false`), so nothing runs until you switch it on:
+
+| Template | What it does |
+| --- | --- |
+| `triage` | When a card enters **Triage**, an agent triages it in the repository's checkout; the triage becomes a note, the task is marked triaged and moves to **Ready**. Skips a task already triaged. Needs a repository preset with a `primary_dir`. |
+| `review-pr` | Reviews a pull request (`repo`, `pr_number`) in a fresh clone with your **Review** macro, then stays open for your questions. The run ends when the agent does. |
+| `discuss-pr` | An agent in a fresh clone gets across a pull request's change set and answers your questions about it. |
+| `review-pr-passes` | Reviews a pull request in passes posted to GitHub; see [Review passes](/legato/using/review-passes/). |
+
+The browser extension starts `review-pr` and `discuss-pr` with the repository and number only; a workflow of yours of the same name that declares a `primary_dir` input still gets the matching repository preset's folder.
+
 Legato also reads `~/.legato/workflows` for compatibility. Precedence is legacy global, XDG global, then project-local. A later definition overrides an earlier definition with the same `name`. The selected source path is stored on every run.
 
 ## Repository presets

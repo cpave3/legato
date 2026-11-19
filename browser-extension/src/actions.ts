@@ -26,6 +26,10 @@ export function prepareGitHubWorkflow(
 
   const workflow = discovery.definitions?.find((item) => item.name === workflowName)
   if (!workflow) throw new Error(`Workflow "${workflowName}" was not found`)
+  // A workflow that makes its own clone (the bundled review-pr and
+  // discuss-pr) declares no primary directory: it takes the repository and
+  // the number only, as a review loop does.
+  if (!workflow.inputs?.[config.primaryDirInput]) return prepareClonedWorkflow(config, context, discovery, workflowName)
   const expected: Array<[string, string]> = [
     [config.repoInput, "string"],
     [config.pullRequestInput, "integer"],
@@ -67,8 +71,15 @@ export function prepareGitHubWorkflow(
 // since a loop can review anyone's pull request.
 function prepareReviewPasses(config: ExtensionConfig, context: GitHubPullRequestContext, discovery: WorkflowDiscovery): PreparedWorkflow {
   const workflowName = config.reviewPassesWorkflowName
+  if (!discovery.definitions?.some((item) => item.name === workflowName)) throw new Error(`Workflow "${workflowName}" was not found. Add it with: legato workflow add review-pr-passes`)
+  return prepareClonedWorkflow(config, context, discovery, workflowName)
+}
+
+// prepareClonedWorkflow is a workflow that takes the repository and the
+// pull request's number only, checking just the inputs it declares.
+function prepareClonedWorkflow(config: ExtensionConfig, context: GitHubPullRequestContext, discovery: WorkflowDiscovery, workflowName: string): PreparedWorkflow {
   const workflow = discovery.definitions?.find((item) => item.name === workflowName)
-  if (!workflow) throw new Error(`Workflow "${workflowName}" was not found. Add it with: legato workflow add review-pr-passes`)
+  if (!workflow) throw new Error(`Workflow "${workflowName}" was not found`)
   const expected: Array<[string, string]> = [[config.repoInput, "string"], [config.pullRequestInput, "integer"]]
   for (const [name, type] of expected) {
     const input = workflow.inputs?.[name]

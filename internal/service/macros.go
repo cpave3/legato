@@ -49,7 +49,7 @@ var builtinMacros = []macros.Macro{
 	{
 		Name:      "Review",
 		AppliesTo: macros.AppliesToPR,
-		Keys: "Review this pull request. Read the change set and the code around it, and report what you find by severity, " +
+		Keys: "Review this pull request. If it is not checked out, check it out first (gh pr checkout). Read the change set and the code around it, and report what you find by severity, " +
 			"each with its file and line: bugs, missing tests, and anything that does not do what the pull request says. " +
 			"Do not change the code. Stay open for my questions about it.\n",
 	},
