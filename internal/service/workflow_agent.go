@@ -128,7 +128,11 @@ func (e *AgentStopExecutor) Cancel(context.Context, store.WorkflowStepAttempt) e
 type AgentRunExecutor struct {
 	agents     workflowAgentRunner
 	binaryPath string
+	macros     workflowMacros
 }
+
+// SetMacros lets steps name a macro (with.macro) in place of a prompt.
+func (e *AgentRunExecutor) SetMacros(macros workflowMacros) { e.macros = macros }
 
 func NewAgentRunExecutor(agents workflowAgentRunner, binaryPath ...string) *AgentRunExecutor {
 	executor := &AgentRunExecutor{agents: agents}
@@ -140,13 +144,18 @@ func NewAgentRunExecutor(agents workflowAgentRunner, binaryPath ...string) *Agen
 func (e *AgentRunExecutor) Type() string { return "agent.run" }
 
 func (e *AgentRunExecutor) Start(ctx context.Context, step ResolvedWorkflowStep) (WorkflowExecutionResult, error) {
-	prompt, err := workflowString(step.With, "prompt", true)
+	macro, fromMacro, err := stepMacro(ctx, e.macros, step.With)
 	if err != nil {
 		return WorkflowExecutionResult{}, err
 	}
+	prompt := strings.TrimRight(macro.Keys, "\n")
+	if !fromMacro {
+		if prompt, err = workflowString(step.With, "prompt", true); err != nil {
+			return WorkflowExecutionResult{}, err
+		}
+	}
 	name, _ := workflowString(step.With, "name", false)
-	kind, _ := workflowString(step.With, "agent", false)
-	tier, _ := workflowString(step.With, "tier", false)
+	kind, tier := stepAgent(step.With, macro)
 	workingDir, _ := workflowString(step.With, "working_dir", false)
 	repo, _ := workflowString(step.With, "repo", false)
 	ref, _ := workflowString(step.With, "ref", false)

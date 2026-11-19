@@ -59,6 +59,7 @@ steps:
     title: Inspect identities
     type: agent.run
     with:
+      prompt: Inspect the identities.
       workflow_task: ${{ workflow.task }}
       workflow_id: ${{ workflow.task.id }}
       workflow_title: ${{ workflow.task.title }}

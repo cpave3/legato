@@ -92,9 +92,14 @@ func buildWorkflowService(db *store.Store, cfg *config.Config, opts workflowRunt
 	binary, _ := os.Executable()
 	runner := service.NewWorkflowAgentRunner(agentSvc, db, binary)
 	runner.SetBus(bus)
+	macros := service.NewMacroService(settingsFor(db))
+	agentRun := service.NewAgentRunExecutor(runner, binary)
+	agentRun.SetMacros(macros)
+	agentDispatch := service.NewAgentDispatchExecutor(agentSvc, db)
+	agentDispatch.SetMacros(macros)
 	executors := []service.WorkflowExecutor{
-		service.NewAgentRunExecutor(runner, binary),
-		service.NewAgentDispatchExecutor(agentSvc, db),
+		agentRun,
+		agentDispatch,
 		service.NewAgentStopExecutor(runner),
 		service.NewChimeraSessionRemoveExecutor(db, chimera.NewSessionRemover("chimera")),
 	}

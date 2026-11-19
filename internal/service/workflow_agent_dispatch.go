@@ -18,7 +18,12 @@ type taskAgentDispatcher interface {
 type AgentDispatchExecutor struct {
 	agents taskAgentDispatcher
 	store  *store.Store
+	macros workflowMacros
 }
+
+// SetMacros lets steps name a macro (with.macro) in place of a prompt: the
+// task's agent gets it as a macro started on the task would be sent.
+func (e *AgentDispatchExecutor) SetMacros(macros workflowMacros) { e.macros = macros }
 
 func NewAgentDispatchExecutor(agents taskAgentDispatcher, s *store.Store) *AgentDispatchExecutor {
 	return &AgentDispatchExecutor{agents: agents, store: s}
@@ -31,16 +36,23 @@ func (e *AgentDispatchExecutor) Start(ctx context.Context, step ResolvedWorkflow
 	if err != nil {
 		return WorkflowExecutionResult{}, err
 	}
-	prompt, err := workflowString(step.With, "prompt", true)
+	macro, fromMacro, err := stepMacro(ctx, e.macros, step.With)
 	if err != nil {
+		return WorkflowExecutionResult{}, err
+	}
+	var prompt string
+	if fromMacro {
+		if prompt, err = e.macros.Message(ctx, macro.Keys, taskID, nil); err != nil {
+			return WorkflowExecutionResult{}, err
+		}
+	} else if prompt, err = workflowString(step.With, "prompt", true); err != nil {
 		return WorkflowExecutionResult{}, err
 	}
 	workingDir, err := workflowString(step.With, "working_dir", true)
 	if err != nil {
 		return WorkflowExecutionResult{}, err
 	}
-	kind, _ := workflowString(step.With, "agent", false)
-	tier, _ := workflowString(step.With, "tier", false)
+	kind, tier := stepAgent(step.With, macro)
 
 	session, err := e.store.GetAgentSessionByTaskID(ctx, taskID)
 	created := false
