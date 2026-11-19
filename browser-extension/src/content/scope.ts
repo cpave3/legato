@@ -1,6 +1,7 @@
 import { createDraftStore, draftsKey } from "../scope-drafts"
 import { normalizeScopeOrigins, SCOPE_ORIGINS_KEY } from "../scope-origins"
 import { capturePage, captureTarget, locateTarget } from "./scope-capture"
+import { captureStyles, createStyleReader } from "./scope-styles"
 import { createScopeOverlay, type CapturedPin, type ScopeOverlay } from "./scope-overlay"
 
 // The Scope content script. The service worker registers it on each origin
@@ -15,14 +16,33 @@ function newId(): string {
   return `d-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
 }
 
-async function capture(win: Window, element: Element): Promise<CapturedPin> {
-  return {
-    pin: {
-      page: capturePage(win),
-      target: captureTarget(element),
-      styles: { computed: {}, classes: [], inline: "", parent: {} },
-    },
+const nextFrame = (win: Window): Promise<void> => new Promise((resolve) => {
+  if (typeof win.requestAnimationFrame === "function") win.requestAnimationFrame(() => resolve())
+  else win.setTimeout(resolve, 16)
+})
+
+// A pin's context: the page, the element and its styles, then a screenshot
+// the service worker takes of the visible tab (the overlay is hidden by
+// then; two frames let the page paint without it). The default styles are
+// read in an iframe put in the overlay's shadow root.
+async function capture(win: Window, element: Element, container: Node): Promise<CapturedPin> {
+  const reader = createStyleReader(win.document, container)
+  let pin: CapturedPin["pin"]
+  try {
+    pin = { page: capturePage(win), target: captureTarget(element), styles: captureStyles(element, reader) }
+  } finally {
+    reader.dispose()
   }
+  await nextFrame(win)
+  await nextFrame(win)
+  const rect = element.getBoundingClientRect()
+  const answer = await chrome.runtime.sendMessage({
+    type: "scopeCapture",
+    box: { x: rect.left, y: rect.top, width: rect.width, height: rect.height },
+    viewport: { width: win.innerWidth, height: win.innerHeight },
+  }).catch(() => undefined) as { ok?: boolean; screenshot?: unknown } | undefined
+  const screenshot = answer?.ok && typeof answer.screenshot === "string" ? answer.screenshot : undefined
+  return screenshot ? { pin, screenshot } : { pin }
 }
 
 export function bootScope(doc: Document = document, win: Window = window): Promise<ScopeOverlay | null> {
@@ -50,9 +70,9 @@ export function bootScope(doc: Document = document, win: Window = window): Promi
     // another port of an allowed host.
     if (!normalizeScopeOrigins(stored[SCOPE_ORIGINS_KEY]).includes(origin)) return null
     const store = createDraftStore(chrome.storage.local, origin)
-    const overlay = createScopeOverlay(doc, win, {
+    const overlay: ScopeOverlay = createScopeOverlay(doc, win, {
       store,
-      capture: (element) => capture(win, element),
+      capture: (element) => capture(win, element, overlay.root),
       locate: (target) => locateTarget(doc, target),
       newId,
       now: () => new Date().toISOString(),

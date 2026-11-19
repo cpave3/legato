@@ -50,7 +50,7 @@ describe("the pinned element", () => {
     const p = document.querySelectorAll("p")[2]
     const target = captureTarget(p)
     expect(locateTarget(document, target)).toBe(p)
-    expect(locateTarget(document, { ...target, selectors: ["#nowhere"] })).toBeNull()
+    expect(locateTarget(document, { ...target, selectors: ["#nowhere"], text: "" })).toBeNull()
   })
 
   it("resolves a selector only when it matches exactly one element", () => {

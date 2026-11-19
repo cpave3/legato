@@ -2,6 +2,7 @@
 // and the messages of the options page and the content script.
 import { handleScopeAction, type ScopeActionResult } from "./scope-action"
 import { scopeOrigins } from "./scope-origins"
+import { cropScreenshot } from "./scope-screenshot"
 import { createScopeMessageHandler } from "./scope-service"
 import { loadConfig } from "./storage"
 import { hostPatternFor, normalizeTicketProviders, TICKET_PROVIDERS_KEY } from "./ticket-providers"
@@ -43,6 +44,8 @@ export const handleScopeMessage = createScopeMessageHandler({
   get extensionUrl() { return chrome.runtime.getURL("") },
   origins: scopeOrigins,
   releasePermission,
+  captureTab: (windowId) => chrome.tabs.captureVisibleTab(windowId, { format: "png" }),
+  crop: cropScreenshot,
 })
 
 export function startScope(): void {

@@ -15,8 +15,9 @@ function stubChrome(stored: Record<string, unknown>) {
   const listeners: Listener[] = []
   const changeListeners: Array<(changes: Record<string, unknown>, area: string) => void> = []
   const data = { ...stored }
+  const sendMessage = vi.fn<(message: unknown) => Promise<unknown>>(async () => ({ ok: true, screenshot: "data:image/jpeg;base64,AAAA" }))
   vi.stubGlobal("chrome", {
-    runtime: { id: "", sendMessage: vi.fn(), onMessage: { addListener: (listener: Listener) => listeners.push(listener) } },
+    runtime: { id: "", sendMessage, onMessage: { addListener: (listener: Listener) => listeners.push(listener) } },
     storage: {
       local: {
         get: vi.fn(async (keys: string | string[]) => Object.fromEntries((Array.isArray(keys) ? keys : [keys]).filter((k) => k in data).map((k) => [k, data[k]]))),
@@ -29,7 +30,7 @@ function stubChrome(stored: Record<string, unknown>) {
   const send = (message: unknown) => new Promise((resolve) => {
     for (const listener of listeners) listener(message, {}, resolve)
   })
-  return { send, listeners, changeListeners, data }
+  return { send, listeners, changeListeners, data, sendMessage }
 }
 
 it("answers the toolbar button's toggle, even when it comes before the overlay is ready", async () => {
@@ -71,4 +72,35 @@ it("redraws when another tab changes this origin's drafts", async () => {
   for (const listener of changeListeners) listener({ "scopeDrafts:https://other.test": {} }, "local")
   expect(refresh).toHaveBeenCalledTimes(1)
   overlay?.destroy()
+})
+
+it("captures a pin's context and asks the service worker for its screenshot", async () => {
+  const { data, sendMessage } = stubChrome({ scopeOrigins: ["http://localhost:5173"] })
+  document.body.innerHTML = `<div style="display: flex"><button data-testid="save" class="btn">Save</button></div>`
+  const button = document.querySelector("button")!
+  button.getBoundingClientRect = () => ({ left: 10, top: 20, width: 30, height: 40, right: 40, bottom: 60, x: 10, y: 20, toJSON: () => ({}) })
+  const { bootScope } = await import("./scope")
+  const overlay = (await bootScope(document, window))!
+  overlay.setPinMode(true)
+  button.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }))
+  await vi.waitFor(() => expect(sendMessage).toHaveBeenCalledWith({
+    type: "scopeCapture",
+    box: { x: 10, y: 20, width: 30, height: 40 },
+    viewport: { width: window.innerWidth, height: window.innerHeight },
+  }))
+  const text = await vi.waitFor(() => {
+    const found = overlay.root.querySelector<HTMLTextAreaElement>(".popover textarea")
+    if (!found) throw new Error("no popover")
+    return found
+  })
+  text.value = "Bigger"
+  text.dispatchEvent(new Event("input"))
+  overlay.root.querySelector<HTMLButtonElement>(".popover [data-action='save']")!.click()
+  await vi.waitFor(() => expect(data["scopeDrafts:http://localhost:5173"]).toHaveLength(1))
+  const [saved] = data["scopeDrafts:http://localhost:5173"] as Array<{ id: string; pin: { target: { selectors: string[] }; styles: { classes: string[]; parent: Record<string, string> } } }>
+  expect(saved.pin.target.selectors[0]).toBe('[data-testid="save"]')
+  expect(saved.pin.styles.classes).toEqual(["btn"])
+  expect(saved.pin.styles.parent.display).toBe("flex")
+  expect(data[`scopeShot:http://localhost:5173:${saved.id}`]).toBe("data:image/jpeg;base64,AAAA")
+  overlay.destroy()
 })

@@ -4,7 +4,7 @@
   "version": "0.1.0",
   "description": "Launch Legato actions from GitHub and your ticket providers, pin comments on your own site for an agent, and reuse Legato tabs for Stream Deck links.",
   "minimum_chrome_version": "116",
-  "permissions": ["storage", "tabs", "sidePanel", "scripting"],
+  "permissions": ["storage", "unlimitedStorage", "tabs", "sidePanel", "scripting"],
   "optional_host_permissions": ["http://*/*", "https://*/*"],
   "host_permissions": ["https://github.com/*"],
   "background": {
