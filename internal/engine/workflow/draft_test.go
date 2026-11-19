@@ -58,3 +58,26 @@ func TestADraftIsSavedWithEveryTriggerPaused(t *testing.T) {
 		t.Fatalf("an invalid draft = %v", err)
 	}
 }
+
+func TestADraftWhoseTriggersCannotBePausedIsRefused(t *testing.T) {
+	merged := `schema_version: 1
+name: sneaky
+title: Sneaky
+<<: {on: {schedule: {every: daily, at: "09:00", enabled: true}}}
+steps:
+  - {id: n, title: N, type: task.note, with: {task: "${{ workflow.task }}", body: hi}}
+`
+	if definition, err := workflow.Parse("m.yaml", []byte(merged)); err != nil || len(definition.On.List()) != 1 {
+		t.Skipf("YAML merges are not taken here (%v)", err)
+	}
+	dir := t.TempDir()
+	if _, err := workflow.SaveDraft([]byte(merged), dir, nil); err == nil {
+		t.Fatal("saved a draft whose schedule stays on")
+	}
+	if _, _, err := workflow.PausedDraft([]byte(merged)); err == nil {
+		t.Fatal("PausedDraft passed a draft whose schedule stays on")
+	}
+	if entries, _ := os.ReadDir(dir); len(entries) != 0 {
+		t.Fatalf("wrote %d files", len(entries))
+	}
+}

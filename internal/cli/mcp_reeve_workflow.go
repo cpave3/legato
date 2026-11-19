@@ -24,14 +24,7 @@ func (m *mcpTools) draftWorkflow() mcpserver.Tool {
 		if err := m.mustBeReeve(ctx); err != nil {
 			return mcpserver.Result{}, err
 		}
-		if _, err := workflowengine.Parse("draft.workflow.yaml", []byte(in.YAML)); err != nil {
-			return mcpserver.Result{}, fmt.Errorf("the draft does not validate: %w", err)
-		}
-		paused, err := workflowengine.PauseTriggers([]byte(in.YAML))
-		if err != nil {
-			return mcpserver.Result{}, err
-		}
-		definition, err := workflowengine.Parse("draft.workflow.yaml", paused)
+		paused, definition, err := workflowengine.PausedDraft([]byte(in.YAML))
 		if err != nil {
 			return mcpserver.Result{}, fmt.Errorf("the draft does not validate: %w", err)
 		}

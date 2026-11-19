@@ -54,19 +54,36 @@ func PauseTriggers(data []byte) ([]byte, error) {
 	return out.Bytes(), encoder.Close()
 }
 
+// PausedDraft checks a drafted definition, pauses its triggers, and checks
+// the result again: every trigger the parsed definition has (however the
+// YAML gives it: a merge key, an alias) must now be paused, or the draft
+// is refused. It returns the paused YAML and its definition.
+func PausedDraft(data []byte) ([]byte, *Definition, error) {
+	if _, err := Parse("draft.workflow.yaml", data); err != nil {
+		return nil, nil, err
+	}
+	paused, err := PauseTriggers(data)
+	if err != nil {
+		return nil, nil, err
+	}
+	definition, err := Parse("draft.workflow.yaml", paused)
+	if err != nil {
+		return nil, nil, err
+	}
+	for _, trigger := range definition.On.List() {
+		if trigger.EnabledByDefault {
+			return nil, nil, fmt.Errorf("the %s trigger could not be paused: write on: as a plain mapping, without YAML merge keys or aliases", trigger.Kind)
+		}
+	}
+	return paused, definition, nil
+}
+
 // SaveDraft checks a drafted definition as legato workflow validate does,
 // pauses every trigger, and writes it to dir as <name>.workflow.yaml. A
 // name taken says, or a file there, is refused with ErrWorkflowNameTaken:
 // a draft never overwrites a workflow.
 func SaveDraft(data []byte, dir string, taken func(name string) bool) (string, error) {
-	if _, err := Parse("draft.workflow.yaml", data); err != nil {
-		return "", err
-	}
-	paused, err := PauseTriggers(data)
-	if err != nil {
-		return "", err
-	}
-	definition, err := Parse("draft.workflow.yaml", paused)
+	paused, definition, err := PausedDraft(data)
 	if err != nil {
 		return "", err
 	}
