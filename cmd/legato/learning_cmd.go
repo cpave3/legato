@@ -363,7 +363,7 @@ func splitLearningTags(value string) []string {
 }
 
 func learningWorkflowOptions(cfg *config.Config) service.LearningWorkflowOptions {
-	adapter := firstNonEmpty(cfg.Learning.CuratorAdapter, cfg.Swarm.Worker.Agent)
+	adapter := firstNonEmpty(cfg.Learning.CuratorAdapter, cfg.DefaultAgentTool())
 	return service.LearningWorkflowOptions{
 		Adapter: adapter, Tier: cfg.Learning.CuratorTier,
 		WorkingDir:     cfg.Learning.CuratorWorkingDir,

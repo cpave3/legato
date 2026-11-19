@@ -129,8 +129,8 @@ func configuredAdapters(cfg *config.Config, legatoBin string) (service.AIToolAda
 		codex.Name():   codex,
 	}
 	defaultAdapter := service.AIToolAdapter(claude)
-	if configured := cfg.Swarm.Worker.Agent; configured != "" {
-		defaultAdapter = adapters[configured]
+	if configured := adapters[cfg.DefaultAgentTool()]; configured != nil {
+		defaultAdapter = configured
 	}
 	return defaultAdapter, adapters
 }

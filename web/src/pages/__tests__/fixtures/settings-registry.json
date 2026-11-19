@@ -93,6 +93,20 @@
   ],
   "settings": [
     {
+      "key": "agents.default_tool",
+      "title": "Default agent tool",
+      "description": "The agent tool Legato starts when you name none: claude-code, codex or chimera. Unset, swarm.worker.agent, then claude-code.",
+      "kind": "enum",
+      "enum": [
+        "",
+        "claude-code",
+        "codex",
+        "chimera"
+      ],
+      "class": "change",
+      "mode": "restart"
+    },
+    {
       "key": "agents.escape_key",
       "title": "Detach key",
       "description": "The key that leaves an agent's terminal in the TUI, as ctrl+].",

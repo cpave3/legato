@@ -76,6 +76,7 @@ var burnliteProjectPattern = regexp.MustCompile(`^[A-Z]{2,6}[0-9]{0,4}$`)
 
 var registry = []Setting{
 	// Agents.
+	{Key: "agents.default_tool", Title: "Default agent tool", Description: "The agent tool Legato starts when you name none: claude-code, codex or chimera. Unset, swarm.worker.agent, then claude-code.", Kind: KindEnum, Enum: []string{"", "claude-code", "codex", "chimera"}, Class: ClassChange, Mode: ModeRestart},
 	{Key: "agents.escape_key", Title: "Detach key", Description: "The key that leaves an agent's terminal in the TUI, as ctrl+].", Kind: KindString, Class: ClassChange, Mode: ModeRestart},
 	{Key: "agents.sparkline_window", Title: "Activity window", Description: "How far back the activity bar of an agent reaches.", Kind: KindDuration, Class: ClassChange, Mode: ModeRestart},
 	{Key: "agents.peer_awareness", Title: "Peer awareness", Description: "Tell agents in the same Git worktree about each other.", Kind: KindBool, Class: ClassChange, Mode: ModeRestart},

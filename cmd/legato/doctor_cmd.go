@@ -37,7 +37,7 @@ func loadDoctorConfig() service.DoctorConfig {
 // in use depends on.
 func doctorConfig(cfg *config.Config, workflows []*workflow.Definition) service.DoctorConfig {
 	out := service.DoctorConfig{
-		DefaultAgent:   cfg.Swarm.Worker.Agent,
+		DefaultAgent:   firstNonEmpty(cfg.DefaultAgentTool(), "claude-code"),
 		SandboxEnabled: cfg.Agents.Sandbox.Enabled,
 		RequiredBy:     map[string]string{},
 	}
