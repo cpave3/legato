@@ -170,7 +170,11 @@ Press `X` in the agents view, or choose **Kill agent** in the web UI's **More ac
 
 ## Macros
 
-A macro is a named text you send to an agent with a key or two, such as "run the tests". Define them in the configuration:
+A macro is a named text you send to an agent with a key or two, such as "run the tests".
+
+Four macros are built in: **Plan** and **Implement** for a task, **Review** and **Address feedback** for a pull request. Edit one in **Settings › Agents and workspaces › Macros** to make it yours, for example to point Review at your favourite review skill. **Reset** puts it back as shipped. A built-in can be edited but not removed.
+
+Add your own there, or in the configuration:
 
 ```yaml
 macros:
@@ -180,10 +184,11 @@ macros:
     keys: "Please commit all current changes with a descriptive message.\n"
 ```
 
-Legato sends `keys` exactly as written. It does not expand environment variables. In the TUI, a trailing `\n` presses Enter.
+Legato sends `keys` exactly as written. It does not expand environment variables. In the TUI, a trailing `\n` presses Enter. A macro may also say what it applies to (`applies_to: task` or `pr`), and which agent tool and tier to start (`agent`, `tier`). A change to a macro applies the next time you use it, with no restart. Legato never adds its own tag to a macro: it reaches the agent as your words.
 
 - In the TUI, press `m` in the agents view and pick a macro.
 - In the web UI, press `M` on the Agents page, then `1` to `9` for the first nine macros. Click a later macro to send it. The keys do nothing while you type in a field.
+- To start an agent with a macro, choose it under **Start with macro** in the spawn dialog: it fills the first message, and the agent tool and tier when the macro names them. On the board, a card's menu and its pull request lines start a macro on the task; see [Board](/legato/using/board/). From a script: `legato macro run Plan <task-id>`.
 
 ## Guidance for a repository
 

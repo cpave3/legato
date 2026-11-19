@@ -39,7 +39,7 @@
       "key": "macros",
       "title": "Macros",
       "class": "change",
-      "mode": "restart",
+      "mode": "live",
       "name_field": "name"
     },
     {
@@ -501,6 +501,14 @@
       "key": "github.poll_interval_seconds",
       "title": "GitHub poll interval (seconds)",
       "kind": "int",
+      "class": "change",
+      "mode": "restart"
+    },
+    {
+      "key": "github.app_logins",
+      "title": "Legato's GitHub App logins",
+      "description": "Bot logins of Legato's own GitHub Apps, whose reviews never start a workflow.",
+      "kind": "strings",
       "class": "change",
       "mode": "restart"
     },

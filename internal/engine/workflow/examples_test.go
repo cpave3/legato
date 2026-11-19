@@ -38,3 +38,35 @@ func TestAnEmptyNumberOrBooleanInputTakesItsDefault(t *testing.T) {
 		t.Fatal("an empty required number was taken")
 	}
 }
+
+func TestTheBundledTemplatesArePausedAndNeedNoExtraTools(t *testing.T) {
+	for _, name := range []string{"triage", "review-pr", "discuss-pr"} {
+		example, ok := ExampleNamed(name)
+		if !ok {
+			t.Fatalf("%s is not bundled", name)
+		}
+		definition, err := Parse(name+".workflow.yaml", example.YAML)
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, trigger := range definition.On.List() {
+			if trigger.EnabledByDefault {
+				t.Errorf("%s: trigger %s is not enabled: false", name, trigger.Kind)
+			}
+		}
+		for _, step := range definition.Steps {
+			if step.Type == "github.pr.prepare" || step.Type == "worktree.remove" {
+				t.Errorf("%s: step %s needs Yggdrasil", name, step.ID)
+			}
+			if _, ok := step.With["agent"]; ok {
+				t.Errorf("%s: step %s names an agent tool; templates use the default", name, step.ID)
+			}
+			if _, ok := step.With["tier"]; ok {
+				t.Errorf("%s: step %s names a tier", name, step.ID)
+			}
+		}
+		if _, ok := definition.Inputs["primary_dir"]; ok && name != "triage" {
+			t.Errorf("%s declares primary_dir; it works in a fresh clone", name)
+		}
+	}
+}

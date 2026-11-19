@@ -227,6 +227,8 @@ type App struct {
 	swarmSvc           service.SwarmService
 	workDir            string
 	macros             []macros.Macro
+	macroSource        func(context.Context) ([]macros.Macro, error)
+	macroStarter       TaskMacroStarter
 	lastSparklineFetch time.Time
 	sparklineWindow    time.Duration
 	sparklineBuckets   int
@@ -930,6 +932,54 @@ func (a App) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 			workflows, err := launcher.List(context.Background(), taskID)
 			return taskWorkflowsLoadedMsg{Workflows: workflows, Err: err}
 		}
+	case overlay.CardContextLoadMacrosMsg:
+		if refused, cmd, away := a.refuseAway(msg.TaskID); away {
+			refused.overlayType, refused.activeOverlay = overlayNone, nil
+			return refused, cmd
+		}
+		if a.macroStarter == nil {
+			return a.Update(cardMacrosLoadedMsg{Err: fmt.Errorf("macros cannot start agents here")})
+		}
+		starter, board, taskID := a.macroStarter, a.svc, msg.TaskID
+		return a, func() tea.Msg {
+			list, err := starter.List(context.Background())
+			if err != nil {
+				return cardMacrosLoadedMsg{Err: err}
+			}
+			var prs []service.PRMetaView
+			if card, err := board.GetCard(context.Background(), taskID); err == nil && card != nil {
+				prs = card.PullRequests
+			}
+			return cardMacrosLoadedMsg{Items: cardMacroItems(list, prs)}
+		}
+	case cardMacrosLoadedMsg:
+		if model, ok := a.activeOverlay.(overlay.CardContextOverlay); ok {
+			a.activeOverlay = model.SetMacros(msg.Items, msg.Err)
+		}
+		return a, nil
+	case overlay.CardContextStartMacroMsg:
+		if a.macroStarter == nil {
+			return a.Update(cardMacroStartedMsg{Err: fmt.Errorf("macros cannot start agents here")})
+		}
+		starter, req := a.macroStarter, service.MacroStart{Name: msg.Name, TaskID: msg.TaskID, PR: msg.PR}
+		return a, func() tea.Msg {
+			result, err := starter.Start(context.Background(), req)
+			return cardMacroStartedMsg{Name: req.Name, Result: result, Err: err}
+		}
+	case cardMacroStartedMsg:
+		if msg.Err != nil {
+			if model, ok := a.activeOverlay.(overlay.CardContextOverlay); ok {
+				a.activeOverlay = model.SetError(msg.Err)
+			}
+			return a, nil
+		}
+		a.overlayType, a.activeOverlay = overlayNone, nil
+		text := "Started the agent with " + msg.Name
+		if msg.Result.Queued {
+			text = msg.Name + " will be the agent's next message"
+		}
+		a.statusBar, _ = a.statusBar.Update(statusbar.InfoMsg{Text: text})
+		return a, nil
 	case taskWorkflowsLoadedMsg:
 		if model, ok := a.activeOverlay.(overlay.CardContextOverlay); ok {
 			a.activeOverlay = model.SetWorkflows(msg.Workflows, msg.Err)
@@ -2710,8 +2760,81 @@ func (a App) spawnTaskAgent(msg overlay.AgentSpawnSubmitMsg, sessionPolicy, resu
 	)
 }
 
+// TaskMacroStarter lists the macros and starts one on a task: the macro
+// service.
+type TaskMacroStarter interface {
+	List(ctx context.Context) ([]service.MacroEntry, error)
+	Start(ctx context.Context, req service.MacroStart) (service.MacroStartResult, error)
+}
+
+// SetMacroStarter offers Macros in the card menu.
+func (a *App) SetMacroStarter(starter TaskMacroStarter) {
+	a.macroStarter = starter
+}
+
+type cardMacrosLoadedMsg struct {
+	Items []overlay.CardContextMacro
+	Err   error
+}
+
+type cardMacroStartedMsg struct {
+	Name   string
+	Result service.MacroStartResult
+	Err    error
+}
+
+// cardMacroItems lists the card menu's macros: the task's, the suggested
+// first, then each open pull request's, the suggested first.
+func cardMacroItems(list []service.MacroEntry, prs []service.PRMetaView) []overlay.CardContextMacro {
+	ordered := func(target service.MacroTarget) []service.MacroEntry {
+		want := macros.AppliesToTask
+		if target.PR {
+			want = macros.AppliesToPR
+		}
+		suggested := service.SuggestedMacro(target)
+		var first, rest []service.MacroEntry
+		for _, m := range list {
+			if m.AppliesTo != "" && m.AppliesTo != want {
+				continue
+			}
+			if strings.EqualFold(m.Name, suggested) {
+				first = append(first, m)
+			} else {
+				rest = append(rest, m)
+			}
+		}
+		return append(first, rest...)
+	}
+	var items []overlay.CardContextMacro
+	for _, m := range ordered(service.MacroTarget{}) {
+		items = append(items, overlay.CardContextMacro{Label: m.Name, Name: m.Name})
+	}
+	for _, pr := range prs {
+		if pr.Repo == "" || pr.PRNumber == 0 || strings.EqualFold(pr.State, "MERGED") || strings.EqualFold(pr.State, "CLOSED") {
+			continue
+		}
+		target := &service.MacroPR{Repo: pr.Repo, Number: pr.PRNumber, URL: pr.PRURL}
+		for _, m := range ordered(service.MacroTarget{PR: true, Mine: !pr.Pinned}) {
+			items = append(items, overlay.CardContextMacro{Label: fmt.Sprintf("%s · #%d", m.Name, pr.PRNumber), Name: m.Name, PR: target})
+		}
+	}
+	return items
+}
+
+// SetMacroSource reads the macros at each use, so an edit needs no
+// restart; without it the picker offers the list NewApp was given.
+func (a *App) SetMacroSource(source func(context.Context) ([]macros.Macro, error)) {
+	a.macroSource = source
+}
+
 func (a App) openMacroPickerOverlay() (tea.Model, tea.Cmd) {
-	model := overlay.NewMacroPicker(a.macros)
+	list := a.macros
+	if a.macroSource != nil {
+		if live, err := a.macroSource(context.Background()); err == nil {
+			list = live
+		}
+	}
+	model := overlay.NewMacroPicker(list)
 	sized, _ := model.Update(tea.WindowSizeMsg{Width: a.width, Height: a.height})
 	a.activeOverlay = sized
 	a.overlayType = overlayMacroPicker

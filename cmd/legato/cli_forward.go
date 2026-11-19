@@ -39,6 +39,7 @@ var forwardedCommands = map[string][]string{
 	"attention":   {"list"},
 	"resource":    {"list"},
 	"workspace":   {"list"},
+	"macro":       {"run"},
 	// doctor has no second word: "" forwards it with only flags, so an
 	// agent sees the host's tools, which its sandbox hides by design.
 	"doctor": {""},

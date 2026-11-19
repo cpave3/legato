@@ -103,6 +103,16 @@ func (d *Definition) Validate() error {
 			return fmt.Errorf("after_start agent requires exactly one required task input")
 		}
 	}
+	if d.On.PRChangesRequested != nil {
+		if err := d.On.PRChangesRequested.Validate(TriggerPRChangesRequested, d.Inputs); err != nil {
+			return err
+		}
+	}
+	if d.On.Schedule != nil {
+		if err := d.On.Schedule.Validate(d.Inputs); err != nil {
+			return err
+		}
+	}
 	if d.On.TaskEnteredColumn != nil {
 		if err := d.On.TaskEnteredColumn.Validate(d.Inputs); err != nil {
 			return err
@@ -171,7 +181,10 @@ func validateStepContract(step Step, inputs map[string]Input) error {
 	required := []string{}
 	switch step.Type {
 	case "agent.dispatch":
-		required = []string{"task", "prompt", "working_dir"}
+		required = []string{"task", "working_dir"}
+		if err := validatePromptOrMacro(step); err != nil {
+			return err
+		}
 		if task, ok := step.With["task"]; ok && !wholeTaskReference(task, inputs) {
 			return fmt.Errorf("with task must be a whole task reference")
 		}
@@ -196,6 +209,9 @@ func validateStepContract(step Step, inputs map[string]Input) error {
 			}
 		}
 	case "agent.run":
+		if err := validatePromptOrMacro(step); err != nil {
+			return err
+		}
 		if keep, ok := step.With["keep_agent"]; ok {
 			if _, boolean := keep.(bool); !boolean {
 				return fmt.Errorf("with keep_agent must be true or false")
@@ -245,6 +261,24 @@ func validateStepContract(step Step, inputs map[string]Input) error {
 	for _, field := range required {
 		if _, ok := step.With[field]; !ok {
 			return fmt.Errorf("with requires %s", field)
+		}
+	}
+	return nil
+}
+
+// validatePromptOrMacro checks that an agent step says what to ask with
+// exactly one of prompt and macro (a macro's name, resolved when it runs).
+func validatePromptOrMacro(step Step) error {
+	_, prompt := step.With["prompt"]
+	macro, hasMacro := step.With["macro"]
+	switch {
+	case prompt && hasMacro:
+		return fmt.Errorf("with takes prompt or macro, not both")
+	case !prompt && !hasMacro:
+		return fmt.Errorf("with requires prompt or macro")
+	case hasMacro:
+		if text, ok := macro.(string); !ok || strings.TrimSpace(text) == "" {
+			return fmt.Errorf("with macro must be the name of a macro")
 		}
 	}
 	return nil

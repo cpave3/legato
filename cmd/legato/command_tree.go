@@ -165,6 +165,12 @@ func commandTree() *commandDef {
 		leaf("list", "List configured workspaces", func(a []string) int { return runWorkspaceContract(append([]string{"list"}, a...)) },
 			nil, []commandFlag{valueFlag("format", "text|json", "Output format"), jsonFlag}, "legato workspace list"),
 	)
+	macro := group("macro", "Put a task's agent to work with a macro", []string{"legato macro run Plan <task-id>", "legato macro run Review <task-id> --pr 12"},
+		leaf("run", "Start a macro on a task: its agent starts with it, or gets it as its next message", runMacroRunContract,
+			[]argumentDef{arg("name", "The macro's name"), arg("task-id", "The task")},
+			[]commandFlag{valueFlag("pr", "number", "One of the task's pull requests to start it on"), jsonFlag},
+			"legato macro run Plan <task-id>", "legato macro run \"Address feedback\" <task-id> --pr 12"),
+	)
 	clone := group("clone", "Make a clone Legato made for an agent ready to work in", []string{"legato clone setup"},
 		leaf("setup", "Run the setup of the clone in the working directory", runCloneSetupCmd, nil,
 			[]commandFlag{valueFlag("base", "ref", "The ref the clone was made from; the default branch when left out"),
@@ -403,7 +409,7 @@ func commandTree() *commandDef {
 		"It speaks MCP on stdin and stdout and acts on the session it was started in: showing artifacts and cards in the web UI, reading the task, recording notes and messaging peer agents."
 
 	root := group("", "Legato task management and AI-agent orchestration", []string{"legato task list", "legato workflow list --json"},
-		task, workspace, clone, resource, secret, credentialGroup, device, integration, audit, columns, agent, plan, review, reviewPass, workflow, swarm, attention, learn, hooks, mcp,
+		task, workspace, macro, clone, resource, secret, credentialGroup, device, integration, audit, columns, agent, plan, review, reviewPass, workflow, swarm, attention, learn, hooks, mcp,
 		leaf("serve", "Run the Legato web server", runServeCmd, nil, []commandFlag{valueFlag("port", "port", "Listening port"), boolFlag("hot-reload", "Supervise this foreground server and restart after binary replacement")}, "legato serve --port 3080", "legato --hot-reload serve --port 3080"),
 		authGroup,
 		configGroup,

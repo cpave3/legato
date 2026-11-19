@@ -235,6 +235,10 @@ func TestAListIsTheFilesEntriesPlusTheDatabases(t *testing.T) {
 			macros = l
 		}
 	}
+	// The built-in macros come first; then the file's, then the database's.
+	if len(macros.Entries) == len(BuiltinMacros())+2 {
+		macros.Entries = macros.Entries[len(BuiltinMacros()):]
+	}
 	if len(macros.Entries) != 2 || macros.Entries[0].Name != "hi" || !macros.Entries[0].Pinned || macros.Entries[1].Name != "bye" || macros.Entries[1].Source != SettingFromDatabase {
 		t.Fatalf("macros = %+v", macros.Entries)
 	}

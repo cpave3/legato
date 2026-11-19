@@ -7,12 +7,95 @@ import (
 )
 
 type Triggers struct {
-	TaskEnteredColumn *TaskEnteredColumnTrigger `yaml:"task.entered_column,omitempty" json:"task.entered_column,omitempty"`
+	TaskEnteredColumn  *TaskEnteredColumnTrigger `yaml:"task.entered_column,omitempty" json:"task.entered_column,omitempty"`
+	Schedule           *ScheduleTrigger          `yaml:"schedule,omitempty" json:"schedule,omitempty"`
+	PRChangesRequested *PRTrigger                `yaml:"pr.changes_requested,omitempty" json:"pr.changes_requested,omitempty"`
 }
 
+// The kinds of trigger, as a definition's on: names them.
+const (
+	TriggerTaskEnteredColumn = "task.entered_column"
+)
+
+// TriggerInfo is one trigger a definition declares: its kind, and whether
+// it is on when no Legato has switched it (its enabled field, true when
+// absent).
+type TriggerInfo struct {
+	Kind             string `json:"trigger"`
+	EnabledByDefault bool   `json:"file_enabled"`
+	// MaxRunsPerDay is the loop stop's limit for one item.
+	MaxRunsPerDay int `json:"max_runs_per_day"`
+}
+
+// DefaultMaxRunsPerDay is how many runs a trigger may start for one item in
+// a day before the loop stop holds the next and asks the operator.
+const DefaultMaxRunsPerDay = 3
+
+// TriggerCommon is what every kind of trigger may say.
+type TriggerCommon struct {
+	Enabled       *bool
+	Confirm       bool
+	MaxRunsPerDay int
+	Inputs        map[string]any
+}
+
+// Limit is the trigger's runs per item per day.
+func (c TriggerCommon) Limit() int {
+	if c.MaxRunsPerDay > 0 {
+		return c.MaxRunsPerDay
+	}
+	return DefaultMaxRunsPerDay
+}
+
+// Common is what a declared trigger of a kind says in common with the
+// others; ok is false when the definition has none of that kind.
+func (t Triggers) Common(kind string) (TriggerCommon, bool) {
+	switch kind {
+	case TriggerTaskEnteredColumn:
+		if c := t.TaskEnteredColumn; c != nil {
+			return TriggerCommon{Enabled: c.Enabled, Confirm: c.Confirm, MaxRunsPerDay: c.MaxRunsPerDay, Inputs: c.Inputs}, true
+		}
+	case TriggerSchedule:
+		if c := t.Schedule; c != nil {
+			return TriggerCommon{Enabled: c.Enabled, Confirm: c.Confirm, MaxRunsPerDay: c.MaxRunsPerDay, Inputs: c.Inputs}, true
+		}
+	case TriggerPRChangesRequested:
+		if c := t.PRChangesRequested; c != nil {
+			return c.common(), true
+		}
+	}
+	return TriggerCommon{}, false
+}
+
+// List is the triggers a definition declares, in a fixed order.
+func (t Triggers) List() []TriggerInfo {
+	var out []TriggerInfo
+	for _, kind := range []string{TriggerTaskEnteredColumn, TriggerSchedule, TriggerPRChangesRequested} {
+		if common, ok := t.Common(kind); ok {
+			out = append(out, TriggerInfo{Kind: kind, EnabledByDefault: enabledByDefault(common.Enabled), MaxRunsPerDay: common.Limit()})
+		}
+	}
+	return out
+}
+
+func validateMaxRunsPerDay(n int) error {
+	if n < 0 {
+		return fmt.Errorf("max_runs_per_day must be 1 or more")
+	}
+	return nil
+}
+
+func enabledByDefault(enabled *bool) bool { return enabled == nil || *enabled }
+
 type TaskEnteredColumnTrigger struct {
-	Column  string `yaml:"column" json:"column"`
-	Confirm bool   `yaml:"confirm,omitempty" json:"confirm,omitempty"`
+	Column string `yaml:"column" json:"column"`
+	// Enabled false makes the trigger start paused: it starts nothing until
+	// a Legato switches it on (per instance, never in this file).
+	Enabled *bool `yaml:"enabled,omitempty" json:"enabled,omitempty"`
+	Confirm bool  `yaml:"confirm,omitempty" json:"confirm,omitempty"`
+	// MaxRunsPerDay is how many runs the trigger may start for one task in
+	// a day before the loop stop holds the next; 0 is DefaultMaxRunsPerDay.
+	MaxRunsPerDay int `yaml:"max_runs_per_day,omitempty" json:"max_runs_per_day,omitempty"`
 	// HandedOff lets the trigger run on a card a main handed off to this
 	// Legato (a worker), which by default it skips: the main's own
 	// workflows run when the task returns.
@@ -35,6 +118,9 @@ type Condition struct {
 func (t *TaskEnteredColumnTrigger) Validate(inputs map[string]Input) error {
 	if strings.TrimSpace(t.Column) == "" {
 		return fmt.Errorf("task.entered_column column is required")
+	}
+	if err := validateMaxRunsPerDay(t.MaxRunsPerDay); err != nil {
+		return fmt.Errorf("task.entered_column %w", err)
 	}
 	for key := range t.Inputs {
 		if _, ok := inputs[key]; !ok {

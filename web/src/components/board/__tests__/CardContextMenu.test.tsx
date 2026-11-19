@@ -36,6 +36,20 @@ describe("CardContextMenu", () => {
     expect(onClose).toHaveBeenCalledTimes(1)
   })
 
+  it("lists the task's macros and starts the one chosen", () => {
+    const onMacro = vi.fn()
+    const onClose = vi.fn()
+    const macros = [{ name: "Plan", keys: "p", applies_to: "task" as const }, { name: "tests", keys: "t" }]
+    const { unmount } = render(<CardContextMenu card={card} position={{ x: 10, y: 10 }} macros={macros} onMacro={onMacro} onAction={() => {}} onClose={onClose} />)
+    expect(screen.getByText("Macros")).toBeTruthy()
+    fireEvent.click(screen.getByRole("menuitem", { name: "Macro: Plan" }))
+    expect(onMacro).toHaveBeenCalledWith(macros[0])
+    expect(onClose).toHaveBeenCalled()
+    unmount()
+    render(<CardContextMenu card={{ ...card, away: { worker: "w" } } as BoardCard} position={{ x: 10, y: 10 }} macros={macros} onMacro={onMacro} onAction={() => {}} onClose={() => {}} />)
+    expect(screen.queryByRole("menuitem", { name: "Macro: Plan" })).toBeNull()
+  })
+
   it("offers review passes for each of a card's pull requests, and none for a card without", () => {
     const onReviewPasses = vi.fn()
     const pr = (n: number) => ({ repo: "acme/widget", branch: `b${n}`, pr_number: n, pr_url: "", state: "OPEN" }) as never

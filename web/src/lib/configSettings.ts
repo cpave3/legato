@@ -53,9 +53,12 @@ export async function resetConfigSetting(baseUrl: string, key: string): Promise<
 export interface ConfigListEntry {
   name: string
   value: unknown
-  source: "config.yaml" | "database"
+  source: "config.yaml" | "database" | "default"
   pinned: boolean
   updated_at?: string
+  // A built-in macro: edited (overridden) or as shipped; reset, never removed.
+  builtin?: boolean
+  overridden?: boolean
 }
 
 // A list of named entries, the file's and the database's.

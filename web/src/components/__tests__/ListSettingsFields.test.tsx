@@ -152,3 +152,32 @@ it("keeps an entry draft when its server value changes and asks which version to
   fireEvent.click(screen.getByRole("button", { name: "Save" }))
   await waitFor(() => expect(save).toHaveBeenCalledWith("http://test", "workspaces", "Home", { path: "/mine" }))
 })
+
+it("edits a macro's applies-to, agent and tier", async () => {
+  fetchLists.mockResolvedValue([{ ...macros, entries: [{ name: "mine", value: { keys: "go" }, pinned: false, source: "database" }] }])
+  show(["macros"])
+  fireEvent.click(await screen.findByRole("button", { name: "Edit" }))
+  fireEvent.change(screen.getByRole("combobox", { name: "Applies to" }), { target: { value: "pr" } })
+  fireEvent.change(screen.getByRole("textbox", { name: "Agent tool" }), { target: { value: "codex" } })
+  fireEvent.change(screen.getByRole("textbox", { name: "Tier" }), { target: { value: "smart" } })
+  fireEvent.click(screen.getByRole("button", { name: "Save" }))
+  await waitFor(() => expect(save).toHaveBeenCalledWith("http://test", "macros", "mine", { keys: "go", applies_to: "pr", agent: "codex", tier: "smart" }))
+})
+
+it("offers Edit and Reset on built-in macros, never Remove", async () => {
+  fetchLists.mockResolvedValue([{ ...macros, mode: "live", entries: [
+    { name: "Plan", value: { keys: "plan", applies_to: "task" }, pinned: false, source: "default", builtin: true },
+    { name: "Review", value: { keys: "mine" }, pinned: false, source: "database", builtin: true, overridden: true },
+  ] }])
+  show(["macros"])
+  const plan = await screen.findByTestId("entry-macros-Plan")
+  expect(plan).toHaveTextContent("built in")
+  expect(plan.querySelector("button[aria-label='Remove Plan']")).toBeNull()
+  expect(plan.querySelector("button[aria-label='Reset Plan']")).toBeNull()
+  const review = screen.getByTestId("entry-macros-Review")
+  expect(review).toHaveTextContent("edited")
+  expect(review.querySelector("button[aria-label='Remove Review']")).toBeNull()
+  fireEvent.click(screen.getByRole("button", { name: "Reset Review" }))
+  await waitFor(() => expect(remove).toHaveBeenCalledWith("http://test", "macros", "Review"))
+  expect(await screen.findByRole("status")).toHaveTextContent("Reset")
+})

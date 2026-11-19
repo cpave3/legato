@@ -124,6 +124,7 @@ These commands tell Legato which repository and branch a task works on, so it ca
 - `legato agent hook claude-code [<task-id>] [--execution-id <id>] [--working-dir <path>] [--json]`: report one Claude Code hook, its payload on stdin. Legato's `legato-state` plugin calls it; see [Claude Code](/legato/agent-tools/claude-code/).
 - `legato agent summary [--exclude <task-id>] [--json]`: count the agents that are working, waiting, in error and idle, formatted for a tmux status line.
 - `legato agent status [<task-id>] --format tmux [--json]`: a tmux status line for one task. A swarm task shows its progress; any other task shows the summary. See [tmux status line](/legato/integrations/tmux-status/).
+- `legato macro run <name> <task-id> [--pr <number>] [--json]`: put the task's agent to work with a [macro](/legato/using/agents/#macros). With no agent running, Legato starts one with the macro's agent tool and tier and the macro as its first message; with one running, the macro becomes its next message. `--pr` starts it on one of the task's pull requests. Agents in the sandbox can run it too.
 - `legato attention list [--producer <name>] [--category <category>] [--urgency <urgency>] [--json]`: list what waits for you in Attention. See [Attention](/legato/using/attention/).
 
 ```bash
@@ -251,7 +252,7 @@ Anyone can run:
 See [Workflows](/legato/using/workflows/).
 
 - `legato workflow list [--json]`: list the workflows you can run.
-- `legato workflow add [<name>] [--project] [--force] [--json]`: add one of Legato's example workflows (`review-pr-passes`, `review-pr`) to your workflows folder, or the project's with `--project`. A file that is there is kept unless `--force`. With no name, list the examples.
+- `legato workflow add [<name>] [--project] [--force] [--json]`: add one of Legato's templates (`triage`, `review-pr`, `discuss-pr`, `review-pr-passes`) to your workflows folder, or the project's with `--project`. A file that is there is kept unless `--force`. With no name, list the examples.
 - `legato workflow validate <name-or-file> [--json]`: check a workflow definition.
 - `legato workflow run <name> [--input <key>=<value>...] [--json]`: start a run.
 - `legato workflow runs [--status <status>] [--limit <count>] [--json]`: list runs.

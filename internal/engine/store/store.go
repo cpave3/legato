@@ -228,14 +228,16 @@ func (s *Store) migrate() error {
 		if _, err := tx.Exec(sqlText); err != nil {
 			return fmt.Errorf("executing migration %s: %w", migrations[i], err)
 		}
-		if migrations[i] == "058_workflow_trigger_confirmation.sql" {
+		// These migrations edit workflow_trigger_requests' text through
+		// writable_schema: the connection must read the schema afresh.
+		if want, edits := triggerSchemaEdits[migrations[i]]; edits {
 			var tableSQL string
 			err := tx.Get(&tableSQL, `SELECT sql FROM sqlite_schema WHERE type = 'table' AND name = 'workflow_trigger_requests'`)
 			if err != nil && err != sql.ErrNoRows {
 				return fmt.Errorf("validating migration %s: %w", migrations[i], err)
 			}
 			if err == nil && strings.Contains(tableSQL, "CHECK (status IN") {
-				if !strings.Contains(tableSQL, "'waiting_confirmation'") {
+				if !strings.Contains(tableSQL, want) {
 					return fmt.Errorf("migration %s did not update workflow trigger status constraint", migrations[i])
 				}
 				var schemaVersion int
@@ -312,6 +314,31 @@ func prepareMigration(queryer migrationQueryer, name, migrationSQL string) (stri
 		if has > 0 {
 			migrationSQL = strings.Replace(migrationSQL, "ALTER TABLE handoff_reviews ADD COLUMN delivered_pass INTEGER NOT NULL DEFAULT 0;", "", 1)
 		}
+	}
+	if name == "125_workflow_trigger_events.sql" {
+		// A legacy database built in part may lack the table, or hold some
+		// of the columns: each statement runs where it still applies.
+		var tables int
+		if err := queryer.Get(&tables, `SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'workflow_trigger_requests'`); err != nil {
+			return "", err
+		}
+		var statements []string
+		for _, statement := range strings.SplitAfter(migrationSQL, ";\n") {
+			if tables == 0 && strings.Contains(statement, "workflow_trigger_requests") {
+				continue
+			}
+			if column, ok := strings.CutPrefix(strings.TrimSpace(lastLine(statement)), "ALTER TABLE workflow_trigger_requests ADD COLUMN "); ok {
+				var has int
+				if err := queryer.Get(&has, `SELECT COUNT(*) FROM pragma_table_info('workflow_trigger_requests') WHERE name = ?`, strings.Fields(column)[0]); err != nil {
+					return "", err
+				}
+				if has > 0 {
+					continue
+				}
+			}
+			statements = append(statements, statement)
+		}
+		migrationSQL = strings.Join(statements, "")
 	}
 	if name == "089_agent_slots.sql" {
 		// A legacy database built in part has some of these tables or
@@ -639,6 +666,19 @@ func (s *Store) SetTaskSwarmWorkingDir(ctx context.Context, taskID string, worki
 		return ErrNotFound
 	}
 	return nil
+}
+
+// lastLine is a statement's last non-empty line: comments come before it.
+func lastLine(statement string) string {
+	lines := strings.Split(strings.TrimSpace(statement), "\n")
+	return lines[len(lines)-1]
+}
+
+// triggerSchemaEdits are the migrations that edit workflow_trigger_requests'
+// text, each with what the edited text must hold.
+var triggerSchemaEdits = map[string]string{
+	"058_workflow_trigger_confirmation.sql": "'waiting_confirmation'",
+	"124_workflow_trigger_held.sql":         "'held'",
 }
 
 func (s *Store) DeleteTask(ctx context.Context, id string) error {

@@ -1,0 +1,63 @@
+schema_version: 1
+name: triage
+title: Triage a task
+run_title: Triage ${{ workflow.inputs.task.title }}
+description: >-
+  When a card enters Triage, an agent investigates it in the repository's
+  checkout and writes its triage, which becomes a note on the task. The task
+  is marked triaged and moves to Ready. Paused until you switch it on.
+inputs:
+  task: {type: task, required: true}
+  repository: {type: repository, required: true}
+on:
+  task.entered_column:
+    column: Triage
+    enabled: false
+    inputs:
+      task: ${{ event.task }}
+      repository: ${{ task.metadata.repository }}
+    conditions:
+      all:
+        - field: task.metadata.triaged
+          not_equals: true
+steps:
+  - id: triage
+    title: Investigate the task
+    type: agent.run
+    with:
+      name: Triage ${{ workflow.inputs.task.id }}
+      working_dir: ${{ workflow.inputs.repository.primary_dir }}
+      prompt: |
+        Triage this task: ${{ workflow.inputs.task.id }}, ${{ workflow.inputs.task.title }}.
+
+        ${{ workflow.inputs.task.description }}
+
+        Read the code it touches and write, as Markdown, to `${{ outputs.report.path }}`:
+        what is being asked, where in the code it lands, how big it is, open
+        questions, and a first step. Do not change any other file.
+    outputs:
+      report: {type: file, path: "triage-${{ workflow.inputs.task.id }}.md", media_type: text/markdown}
+  - id: note
+    title: Add the triage as a note
+    type: task.note
+    with:
+      task: ${{ workflow.inputs.task }}
+      body_path: ${{ steps.triage.outputs.report.path }}
+  - id: mark-triaged
+    title: Mark the task triaged
+    type: task.metadata.set
+    with:
+      task: ${{ workflow.inputs.task }}
+      values: {triaged: true}
+  - id: cleanup
+    title: Remove the triage file
+    type: file.remove
+    with:
+      working_dir: ${{ workflow.inputs.repository.primary_dir }}
+      path: "triage-${{ workflow.inputs.task.id }}.md"
+  - id: ready
+    title: Move the task to Ready
+    type: task.move
+    with:
+      task: ${{ workflow.inputs.task }}
+      column: Ready

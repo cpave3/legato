@@ -41,7 +41,7 @@ In the TUI, press `?` to see these keys. The help shows only the keys that work 
 | Key | Action |
 | --- | --- |
 | `enter` | Open task detail |
-| `c` | Open task context menu |
+| `c` | Open the task menu: details, move, delete, workflows, macros |
 | `m` | Move task |
 | `v` | Move task to workspace |
 | `n` | Create new task |

@@ -428,6 +428,10 @@ type SettingEntryValue struct {
 	Pinned    bool   `json:"pinned"`
 	UpdatedAt string `json:"updated_at,omitempty"`
 	UpdatedBy string `json:"updated_by,omitempty"`
+	// Builtin marks a built-in macro, which can be edited and reset but
+	// not removed; Overridden one that is edited.
+	Builtin    bool `json:"builtin,omitempty"`
+	Overridden bool `json:"overridden,omitempty"`
 }
 
 // SettingList is a list of named entries with its entries.
@@ -450,6 +454,11 @@ func (s *SettingsService) Lists(ctx context.Context) ([]SettingList, error) {
 	var out []SettingList
 	for _, l := range config.EntryListDefs() {
 		list := SettingList{EntryList: l, Entries: []SettingEntryValue{}}
+		if l.Key == "macros" {
+			list.Entries = macroSettingEntries(cfg, rows)
+			out = append(out, list)
+			continue
+		}
 		for _, name := range cfg.FileEntries(l.Key) {
 			v, _, _ := config.EntryValue(cfg, l.Key, name)
 			if l.Key == "credentials" || l.Key == "credential_sources" {

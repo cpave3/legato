@@ -33,7 +33,7 @@ Executable source actions additionally implement `AttentionActionHandler`. Navig
 | `pull_requests` | Open non-draft tracked PRs with a required review, changes requested, failed CI, or a combination; one item per PR, so each PR of a stack (`task_branches`) has its own (source key `<task>:<number>`). Failed CI is left out while an open Argus case targets the PR | `EventPRStatusUpdated`, and after each Argus push |
 | `agents` | Running standalone interactive agents explicitly reporting waiting or error | `EventAgentActivityChanged`, start/death/completion lifecycle |
 | `workflows` | Manual gates, workflow agents waiting for input, failed steps | Workflow and agent lifecycle events |
-| `workflow_triggers` | Missing input, confirmation, and failed automatic triggers | `EventWorkflowTriggerChanged` |
+| `workflow_triggers` | Missing input, confirmation, failed automatic triggers, and loop stops (`workflow_trigger_loop_stop`: Run anyway, Pause trigger) | `EventWorkflowTriggerChanged` |
 | `approvals` | Pending approval requests (agents' permissions and questions), with their options as actions; see [Approvals](approvals.md) | `EventApprovalChanged` |
 | `devices` | The last `legato device reset`, until dismissed; see [Approvals](approvals.md) § Signed approvals | `EventApprovalChanged` |
 | `argus` | Argus's open CI cases on the person's PRs (`argus_case`, `argus_needs_you`), pushed by Argus and put on the task that owns the PR; navigation `external`; see [Integrations](integrations.md) § Cases in Attention | After each push, `EventPRStatusUpdated`, `EventCardsRefreshed` |

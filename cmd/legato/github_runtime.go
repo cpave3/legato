@@ -27,6 +27,16 @@ func startPRTrackingRuntime(ctx context.Context, cfg *config.Config, db *store.S
 	interval := time.Duration(cfg.GitHub.PollIntervalSeconds) * time.Second
 	resolvedInterval := time.Duration(cfg.GitHub.ResolvedPollIntervalSeconds) * time.Second
 	svc := service.NewPRTrackingServiceWithInspector(db, bus, client, interval, resolvedInterval, checkoutInspector(), githubRepositoryMappings(cfg)...)
+	if apps, ok := svc.(interface{ SetGitHubAppLogins([]string) }); ok {
+		apps.SetGitHubAppLogins(cfg.GitHub.AppLogins)
+	}
 	go func() { _ = svc.PollAll(ctx) }()
 	return svc, svc.StartPolling(ctx), nil
+}
+
+// learningPublisher records the login each review is posted as, so pull
+// request triggers know Legato's own Apps.
+func learningPublisher(db *store.Store, publisher *service.ReviewPublisher) *service.ReviewPublisher {
+	publisher.SetLoginRecorder(func(login string) { _ = db.RecordGitHubAppLogin(context.Background(), login) })
+	return publisher
 }

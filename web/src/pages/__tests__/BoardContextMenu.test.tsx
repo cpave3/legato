@@ -72,4 +72,22 @@ describe("Board card context menu", () => {
     expect(task.value).toBe("TASK-1")
     expect(task.readOnly).toBe(true)
   })
+
+  it("starts a macro on the card through the macro endpoint", async () => {
+    const base = mockFetch.getMockImplementation()!
+    mockFetch.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      if (url.endsWith("/api/macros")) return new Response(JSON.stringify({ macros: [{ name: "Plan", keys: "p", applies_to: "task" }, { name: "Review", keys: "r", applies_to: "pr" }] }))
+      if (url.endsWith("/api/tasks/TASK-1/macro")) return new Response(JSON.stringify({ task_id: "TASK-1", started: true, queued: false }), { status: 201 })
+      return base(input, init)
+    })
+    const element = renderBoard()
+    fireEvent.contextMenu(element, { clientX: 40, clientY: 60 })
+    const plan = await screen.findByRole("menuitem", { name: "Macro: Plan" })
+    expect(screen.queryByRole("menuitem", { name: "Macro: Review" })).toBeNull()
+    fireEvent.click(plan)
+    await waitFor(() => expect(mockFetch.mock.calls.some(([url]) => String(url).endsWith("/api/tasks/TASK-1/macro"))).toBe(true))
+    const call = mockFetch.mock.calls.find(([url]) => String(url).endsWith("/api/tasks/TASK-1/macro"))!
+    expect(JSON.parse(String(call[1]?.body))).toEqual({ name: "Plan" })
+  })
 })

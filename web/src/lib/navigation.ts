@@ -32,6 +32,9 @@ export function legatoHref(navigation: { kind: string; target: string }): string
     case "agents":
       // The Agents page, where interrupted agents are listed.
       return "/agents"
+    case "workflows":
+      // The Workflows tab, where a workflow's triggers are switched.
+      return "/workflows?tab=workflows"
     default:
       return null
   }

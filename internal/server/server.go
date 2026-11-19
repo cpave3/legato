@@ -69,6 +69,7 @@ type Server struct {
 	caCertPath               string
 	authToken                string
 	macros                   []macros.Macro
+	macroSvc                 MacroSource
 	groupDefaults            []string
 	sparklineWindow          time.Duration
 	sparklineBuckets         int
@@ -200,6 +201,7 @@ func NewWithSwarm(board service.BoardService, agents service.AgentService, tmux 
 	mux.HandleFunc("/api/tasks/{id}/stacks", s.taskStacksHandler())
 	mux.HandleFunc("/api/tasks/{id}/stacks/{clone}/document", s.taskStackDocumentHandler())
 	mux.HandleFunc("/api/tasks/{id}/agent", s.taskAgentHandler())
+	mux.HandleFunc("/api/tasks/{id}/macro", s.macroStartHandler())
 	mux.HandleFunc("/api/tasks/{id}/worktree", s.taskWorktreeHandler())
 	mux.HandleFunc("/api/tasks/{id}/artifacts", s.taskArtifactsHandler())
 	mux.HandleFunc("/api/tasks/{id}/link-pr", s.linkPRHandler())
@@ -321,6 +323,7 @@ func NewWithSwarm(board service.BoardService, agents service.AgentService, tmux 
 	mux.HandleFunc("/api/learning-prompt-manifests/{id}", s.learningPromptManifestHandler())
 	mux.HandleFunc("/api/workflows", s.workflowsHandler())
 	mux.HandleFunc("/api/workflows/{name}/runs", s.workflowStartHandler())
+	mux.HandleFunc("/api/workflows/{name}/triggers/{trigger}", s.workflowTriggerSwitchHandler())
 	mux.HandleFunc("/api/workflow-triggers/{request_id}", s.workflowTriggerRequestHandler())
 	mux.HandleFunc("/api/workflow-runs", s.workflowRunsHandler())
 	mux.HandleFunc("/api/workflow-runs/{run_id}", s.workflowRunHandler())

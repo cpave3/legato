@@ -29,7 +29,7 @@ export function TaskAgentAction({ taskId, worktreePath = "", rememberedWorkingDi
   const initialWorkingDir = resolveTaskWorkingDirectory(worktreePath, rememberedWorkingDir, settings.data?.working_dir || "")
 
   const launch = useCallback(async (request: SpawnAgentRequest) => {
-    const body: { agent_kind: string; working_dir?: string; repo?: string; ref?: string; branch?: string; clone_id?: number; session_policy?: "resume" | "new"; resources?: string[]; sandbox?: false; docker_host_network?: true; prompt?: string; engram?: string; remember_engram?: boolean } = {
+    const body: { agent_kind: string; working_dir?: string; repo?: string; ref?: string; branch?: string; clone_id?: number; session_policy?: "resume" | "new"; resources?: string[]; sandbox?: false; docker_host_network?: true; prompt?: string; tier?: string; engram?: string; remember_engram?: boolean } = {
       agent_kind: request.agentKind,
     }
     Object.assign(body, spawnPlace(request))
@@ -38,6 +38,7 @@ export function TaskAgentAction({ taskId, worktreePath = "", rememberedWorkingDi
     if (request.sandbox === false) body.sandbox = false
     if (request.dockerHostNetwork) body.docker_host_network = true
     if (request.prompt) body.prompt = request.prompt
+    if (request.tier) body.tier = request.tier
     Object.assign(body, engramFields(request))
     const response = await apiFetch(baseUrl, `/api/tasks/${encodeURIComponent(taskId)}/agent`, {
       method: "POST",

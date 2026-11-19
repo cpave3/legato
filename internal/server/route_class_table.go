@@ -39,6 +39,7 @@ var routeClassTable = []routeClassEntry{
 	{"GET", "/api/tasks/{id}/stacks", ClassRead, "List a task's branch stacks"},
 	{"GET", "/api/tasks/{id}/stacks/{clone}/document", ClassRead, "Read a branch stack's import file"},
 	{"POST", "/api/tasks/{id}/agent", ClassChange, "Start, resume or message a task's agent"},
+	{"POST", "/api/tasks/{id}/macro", ClassChange, "Start a macro on a task: its agent starts or is messaged"},
 	{"POST", "/api/tasks/{id}/worktree", ClassChange, "Create a worktree for a task"},
 	{"GET", "/api/tasks/{id}/artifacts", ClassRead, "List a task's artifacts"},
 	{"POST", "/api/tasks/{id}/link-pr", ClassChange, "Link a pull request to a task"},
@@ -220,6 +221,8 @@ var routeClassTable = []routeClassEntry{
 	// Workflows
 	{"GET", "/api/workflows", ClassRead, "List the workflows"},
 	{"POST", "/api/workflows/{name}/runs", ClassChange, "Start a workflow"},
+	{"PUT", "/api/workflows/{name}/triggers/{trigger}", ClassChange, "Switch a workflow's trigger on or off here"},
+	{"DELETE", "/api/workflows/{name}/triggers/{trigger}", ClassChange, "Leave a workflow's trigger to its file"},
 	{"GET", "/api/workflow-triggers/{request_id}", ClassRead, "Read a workflow trigger request"},
 	{"POST", "/api/workflow-triggers/{request_id}", ClassChange, "Answer a workflow trigger request"},
 	{"GET", "/api/workflow-runs", ClassRead, "List the workflow runs"},

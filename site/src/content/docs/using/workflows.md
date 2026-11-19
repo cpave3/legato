@@ -23,6 +23,17 @@ legato workflow add review-pr-passes
 legato workflow run review-pr-passes --input repo=acme/widget --input pr_number=12
 ```
 
+The templates Legato ships use your default agent tool and your [macros](/legato/using/agents/#macros), need no extra tools, and arrive with every trigger paused (`enabled: false`), so nothing runs until you switch it on:
+
+| Template | What it does |
+| --- | --- |
+| `triage` | When a card enters **Triage**, an agent triages it in the repository's checkout; the triage becomes a note, the task is marked triaged and moves to **Ready**. Skips a task already triaged. Needs a repository preset with a `primary_dir`. |
+| `review-pr` | Reviews a pull request (`repo`, `pr_number`) in a fresh clone with your **Review** macro, then stays open for your questions. The run ends when the agent does. |
+| `discuss-pr` | An agent in a fresh clone gets across a pull request's change set and answers your questions about it. |
+| `review-pr-passes` | Reviews a pull request in passes posted to GitHub; see [Review passes](/legato/using/review-passes/). |
+
+The browser extension starts `review-pr` and `discuss-pr` with the repository and number only; a workflow of yours of the same name that declares a `primary_dir` input still gets the matching repository preset's folder.
+
 Legato also reads `~/.legato/workflows` for compatibility. Precedence is legacy global, XDG global, then project-local. A later definition overrides an earlier definition with the same `name`. The selected source path is stored on every run.
 
 ## Repository presets
@@ -50,6 +61,17 @@ Version 1 executes steps in declaration order and supports these executors:
 - `github.pr.prepare`: deterministically fetch an exact GitHub PR head, create a Yggdrasil worktree, and link the workflow task to the PR.
 - `agent.run`: launch a workflow-owned Legato agent with an explicit assignment and completion contract. Set `with.name` to customize the agent's visible name; workflow input references are supported. The agent is removed after completing its step, unless `with.keep_agent: true`: then its outputs are collected and the run moves on as usual, but the agent keeps running on the workflow task, for you to go on talking to. Follow it with a step with `trigger: agent_ended` to end the run (and remove a worktree) when that agent ends. Set `with.engram` to start the agent as one of your [engrams](/legato/agent-tools/engrams/), such as `engram: mneme` or `engram: ${{ workflow.inputs.engram }}`; without it the agent has none. A step whose engram engram does not know fails before the agent starts. Workflows do not use or change the engrams bound to a repository.
 - `agent.dispatch`: send a prompt to the selected task's ordinary durable agent, or spawn that task-linked agent in `with.working_dir` when none is active. The workflow does not own or tear down this session. Outputs include `agent_session_id`, `created`, and `working_dir`.
+- Both `agent.run` and `agent.dispatch` take what to ask either as `with.prompt` or as `with.macro`, the name of one of your [macros](/legato/using/agents/#macros), not both. A macro is read when the step runs, so an edit applies to the next run. A step that names no `agent` or `tier` uses the macro's. `agent.dispatch` sends it as a macro started on the task would be: the task's key and title, then the macro's text.
+
+  ```yaml
+  - id: review
+    title: Review
+    type: agent.dispatch
+    with:
+      task: ${{ workflow.inputs.task }}
+      macro: Review
+      working_dir: ${{ steps.clone.outputs.working_dir }}
+  ```
 - `agent.stop`: idempotently stop the active agent for the resolved `with.task`. Built-in Learn does not use it because interviews borrow the original task session; curator and critic agents run under the separate generated workflow task.
 - `worktree.remove`: validate and remove the shared task's worktree through Yggdrasil, then clear task metadata.
 - `file.remove`: idempotently remove one regular file beneath an explicit working directory. Absolute paths, traversal, symlink escapes, and directories are rejected.
@@ -121,6 +143,69 @@ on:
 Conditions support nested `all`, `any`, and `not`, and field comparisons using `exists`, `equals`, `not_equals`, or `in`. In addition to task snapshot, metadata, and transition fields, `task.has_active_agent` resolves at trigger time to whether the task has an open agent session. An open session includes working, waiting, idle, and error activity states; completed/dead sessions do not match. `task.has_chimera_session` resolves from the task's current retained Chimera resume ID. Both dynamic fields are re-evaluated when a confirmed trigger starts.
 
 On a [worker](/legato/running/instances/), a column trigger skips cards handed off from a main: they are the main's, and the main's own workflows run when the task comes home. Set `handed_off: true` on the trigger to run it on those cards too.
+
+### On a schedule
+
+A `schedule` trigger runs a workflow at due times: every day, every weekday, or once a week at a time, or as a cron expression says.
+
+```yaml
+on:
+  schedule:
+    every: weekdays        # daily | weekdays | weekly
+    at: "09:00"
+    # on: monday           # weekly only
+    # cron: "0 9 * * 1-5"  # instead of every/at/on
+    timezone: Australia/Sydney   # optional; your machine's zone by default
+    inputs:
+      since: ${{ schedule.previous_time }}
+```
+
+Give either `every` and `at` (and `on` for `weekly`), or `cron`: five fields, minute, hour, day of the month, month and weekday, each `*`, a number, a range `a-b`, a list, or a step `*/15`; months and weekdays may be names. Times are in `timezone`, or your machine's zone. When the clocks go forward and a time does not exist that day, the run comes at the next minute that does; when they go back and a time comes twice, it runs once.
+
+A run's inputs may read `${{ schedule.time }}`, its due time, and `${{ schedule.previous_time }}`, the due time before it, so a run can cover "since last time". Each due time makes one run, however many Legatos (the TUI and `legato serve`, say) share the database. The **Workflows** tab shows each schedule's next three runs and what its last one did.
+
+#### Missed runs
+
+When Legato starts, the due times that passed while no Legato was running (since the last one it recorded) are recorded as **missed**, and the Workflows tab lists them with why. `catch_up` says what then happens: `once`, the default, makes one late run for all of them, whose `${{ schedule.previous_time }}` is the due time before the first missed one, so it covers them all; `skip` makes none. A restart does not record or run them again. A scheduled run that cannot start reaches [Attention](/legato/using/attention/) as a failed trigger.
+
+### When changes are requested
+
+A `pr.changes_requested` trigger starts a workflow when someone requests changes on a pull request one of your tasks owns. Every new changes-requested review fires: a second reviewer's, or the same reviewer's again. Your own reviews count, so you can request changes yourself to start it; reviews by your Legato's own GitHub Apps never do (name their bot logins in `github.app_logins`; Legato also learns them from the reviews it posts). Legato sees reviews when it refreshes the task's pull request, so it costs no extra GitHub calls, and the run can start up to a refresh interval after the review.
+
+```yaml
+on:
+  pr.changes_requested:
+    inputs:
+      task: ${{ event.task }}
+      repo: ${{ event.repo }}
+      pr_number: ${{ event.pr_number }}
+```
+
+With no inputs to map, write `pr.changes_requested: {}`. The inputs may also read `${{ event.pr_url }}` and `${{ event.reviewer }}`. The [loop stop](#the-loop-stop) counts runs by the task.
+
+### Pausing a trigger
+
+Every trigger is on unless it says `enabled: false`, which makes it start paused: a shared workflow then runs nothing until someone switches it on.
+
+```yaml
+on:
+  task.entered_column:
+    column: Triage
+    enabled: false
+```
+
+On the **Workflows** tab, each trigger has a switch that says **on here** or **paused here**. It turns the trigger on or off in this Legato only and never changes the file; another Legato that reads the same file keeps its own switch. A trigger you have not switched follows its file. A paused trigger makes no requests while it is paused, and moves made then are not caught up later.
+
+### The loop stop
+
+A trigger starts at most three runs of its workflow for the same item in a day: the same task for a column trigger, the same pull request, the same due time of a schedule. A fourth is held instead, and [Attention](/legato/using/attention/) says it **stopped to prevent a loop**, with **Run anyway** and **Pause trigger** (which pauses it here, as the switch does). A busy trigger can allow more with `max_runs_per_day`:
+
+```yaml
+on:
+  task.entered_column:
+    column: Triage
+    max_runs_per_day: 10
+```
 
 Set `confirm: true` on a column trigger to require explicit approval after its conditions match and inputs resolve. Existing triggers without it continue to start automatically. Confirmable requests remain recoverable in Attention: closing the immediate prompt means **Not now** and makes no state change, while **Skip** terminates the request. Conditions are re-evaluated when the user confirms, so a session that closes while the prompt is pending causes the trigger to skip without creating a workflow run.
 

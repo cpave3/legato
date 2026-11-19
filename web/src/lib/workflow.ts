@@ -5,7 +5,12 @@ export type WorkflowOutput = { type: string; path?: string; media_type?: string;
 export type WorkflowStepDefinition = { id:string; title:string; type:string; trigger?:"automatic"|"manual"|"agent_ended"; with:Record<string,unknown>; outputs?:Record<string,WorkflowOutput> }
 export type WorkflowDefinition = { schema_version:number; name:string; title:string; run_title?:string; description?:string; after_start?:"workflow"|"agent"|"stay"; inputs?:Record<string,WorkflowInput>; on?:Record<string,unknown>; steps:WorkflowStepDefinition[]; source:string }
 export type WorkflowRepositoryPreset = { name:string; repo:string; primary_dir:string; base_branch?:string }
-export type WorkflowDiscovery = { definitions:WorkflowDefinition[] | null; errors:{path:string;error:string}[] | null; repositories?:WorkflowRepositoryPreset[] | null }
+// A trigger as this Legato runs it: on or paused here (enabled), what its
+// file says (file_enabled), and whether this Legato switched it (overridden).
+export type ScheduleFire = { due_time:string; status:string; run_id?:string; error?:string }
+export type ScheduleState = { description:string; timezone:string; next:string[]; last?:ScheduleFire | null; missed?:ScheduleFire[] | null; catch_up?:string }
+export type WorkflowTriggerState = { trigger:string; file_enabled:boolean; enabled:boolean; overridden:boolean; max_runs_per_day?:number; schedule?:ScheduleState | null }
+export type WorkflowDiscovery = { definitions:WorkflowDefinition[] | null; errors:{path:string;error:string}[] | null; repositories?:WorkflowRepositoryPreset[] | null; trigger_states?:Record<string,WorkflowTriggerState[]> | null }
 export type WorkflowRunStepSummary = { step_id:string; title:string; status:string; trigger?:string }
 export type WorkflowRun = { id:string; workflow_name:string; workflow_title:string; definition_source:string; definition_digest:string; definition_json?:string; inputs_json:string; status:string; current_step_id:string; task_id?:string; related_task_id?:string; related_task_title?:string; steps?:WorkflowRunStepSummary[]; error?:string; needs_attention?:boolean; attention_reason?:string; created_at:string; started_at?:string; completed_at?:string }
 export type WorkflowStepRun = { run_id:string; step_id:string; step_order:number; title:string; executor_type:string; definition_json?:string; resolved_inputs_json:string; outputs_json:string; status:string; latest_attempt:number; error?:string; started_at?:string; completed_at?:string }
@@ -19,6 +24,9 @@ export const fetchWorkflows=(baseUrl:string)=>apiFetch(baseUrl,"/api/workflows")
 export const fetchWorkflowRuns=(baseUrl:string)=>apiFetch(baseUrl,"/api/workflow-runs").then(decode<WorkflowRun[]>)
 export const fetchWorkflowRun=(baseUrl:string,id:string)=>apiFetch(baseUrl,`/api/workflow-runs/${encodeURIComponent(id)}`).then(decode<WorkflowRunView>)
 export const startWorkflow=(baseUrl:string,name:string,inputs:Record<string,string>)=>apiFetch(baseUrl,`/api/workflows/${encodeURIComponent(name)}/runs`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({inputs})}).then(decode<WorkflowRunView>)
+// setWorkflowTrigger switches a workflow's trigger on or off in this Legato
+// only; its file is never changed.
+export const setWorkflowTrigger=(baseUrl:string,name:string,trigger:string,enabled:boolean)=>apiFetch(baseUrl,`/api/workflows/${encodeURIComponent(name)}/triggers/${encodeURIComponent(trigger)}`,{method:"PUT",headers:{"Content-Type":"application/json"},body:JSON.stringify({enabled})}).then(decode<{status:string}>)
 export const cancelWorkflow=(baseUrl:string,id:string)=>apiFetch(baseUrl,`/api/workflow-runs/${encodeURIComponent(id)}/cancel`,{method:"POST"}).then(decode<WorkflowRunView>)
 const forceBody=(force:boolean)=>({method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({force})})
 export const triggerWorkflowStep=(baseUrl:string,id:string,step:string,force=false)=>apiFetch(baseUrl,`/api/workflow-runs/${encodeURIComponent(id)}/steps/${encodeURIComponent(step)}/trigger`,forceBody(force)).then(decode<WorkflowRunView>)

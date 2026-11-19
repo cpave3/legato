@@ -318,6 +318,10 @@ type GitHubConfig struct {
 	Token                       string `yaml:"token"`
 	PollIntervalSeconds         int    `yaml:"poll_interval_seconds"`          // unresolved PRs (branch-only, no PR yet) — default 600s (10 min)
 	ResolvedPollIntervalSeconds int    `yaml:"resolved_poll_interval_seconds"` // resolved PRs (have PR number) — default 600s (10 min)
+	// AppLogins are the bot logins of Legato's own GitHub Apps (such as
+	// my-legato-reviewer[bot]): their reviews never fire a pull request
+	// trigger. Legato also learns them from the reviews it posts.
+	AppLogins []string `yaml:"app_logins"`
 }
 
 type WorkspaceConfig struct {
@@ -569,6 +573,11 @@ func validate(cfg *Config) error {
 	}
 	if err := ValidateReviewPasses(cfg); err != nil {
 		return err
+	}
+	for _, m := range cfg.Macros {
+		if err := m.Validate(); err != nil {
+			return err
+		}
 	}
 	if cfg.Web.PublicURL != "" {
 		if u, err := url.Parse(cfg.Web.PublicURL); err != nil || (u.Scheme != "http" && u.Scheme != "https") || u.Host == "" {
