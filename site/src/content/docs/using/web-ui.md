@@ -15,7 +15,7 @@ On a wide screen, a rail on the left holds every page. A count beside a page say
 
 When something Legato needs is missing on the machine it runs on, such as tmux or your default agent tool, a red strip at the top of every page names it with the fix. Fix it there, then press **Check again**. It shows the same required checks as [`legato doctor`](/legato/reference/cli/#running-legato), and only once you are signed in.
 
-While Legato is not fully set up, a **Setup n/N** chip at the top right counts what is done: the checks passing, a default agent tool chosen, a repository added, and a device paired. A ticket tracker is listed too, but it is optional and not counted. Press the chip to see the list, with a way to each item in Settings. **Hide the checklist** hides it on every device. It comes back if a required check fails later.
+While Legato is not fully set up, a **Setup n/N** chip at the top right counts what is done: the checks passing, a default agent tool chosen, a repository added, and a device paired. A ticket tracker is listed too, but it is optional and not counted. Press the chip to see the list, with a way to each item in Settings. **Hide the checklist** hides it on every device. It comes back if a required check fails later. Under the list, **More setup** has a card for each optional feature: the sandbox, credentials, workers, review passes, swarms, Learn, the Reeve and workflow templates. Each card says whether the feature is on, off, or needs something, such as bubblewrap. **Set up** takes you to its place, and **Docs** to its page here.
 
 On a phone, a tab bar along the bottom holds **Attention**, **Board**, **Agents**, **Review** and **More**. **More** opens the other pages, the server in use, and a few settings.
 

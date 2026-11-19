@@ -1,5 +1,5 @@
 import { describe, it, expect, vi, afterEach, beforeEach } from "vitest"
-import { render, screen, cleanup, fireEvent, waitFor } from "@testing-library/react"
+import { render, screen, cleanup, fireEvent, waitFor, within } from "@testing-library/react"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { MemoryRouter } from "react-router-dom"
 
@@ -22,6 +22,11 @@ const checklist: SetupStatus = {
     { id: "repository", title: "Add a repository", done: false, settings: "repositories" },
     { id: "device", title: "Pair a phone or another device", done: false, settings: "devices" },
     { id: "tracker", title: "Connect a ticket tracker", done: false, optional: true, settings: "integrations" },
+  ],
+  more: [
+    { id: "sandbox", title: "Sandbox", state: "needs", detail: "Install bubblewrap", link: "/settings#setting-agents.sandbox.enabled", docs: "https://cpave3.github.io/legato/security/sandbox/" },
+    { id: "swarms", title: "Swarms", state: "on", link: "/settings#setting-swarm.enabled", docs: "https://cpave3.github.io/legato/using/swarms/" },
+    { id: "workflows", title: "Workflow templates", state: "off", link: "/workflows", docs: "https://cpave3.github.io/legato/using/workflows/" },
   ],
 }
 
@@ -66,5 +71,19 @@ describe("SetupChip", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "Hide the checklist" }))
     await waitFor(() => expect(mockDismiss).toHaveBeenCalledWith("http://legato", true))
+  })
+
+  it("shows More setup cards with each feature's state, its place in Settings and its docs", async () => {
+    renderChip({ show: true, done: 2, total: 4 })
+    fireEvent.click(screen.getByRole("button", { name: /Setup 2\/4/ }))
+
+    const sandbox = await screen.findByRole("article", { name: "Sandbox" })
+    expect(sandbox.textContent).toMatch(/needs/)
+    expect(sandbox.textContent).toMatch(/Install bubblewrap/)
+    expect(within(screen.getByRole("article", { name: "Swarms" })).getByText("on")).toBeTruthy()
+    const workflows = screen.getByRole("article", { name: "Workflow templates" })
+    expect(within(workflows).getByText("off")).toBeTruthy()
+    expect(within(workflows).getByRole("link", { name: "Set up" }).getAttribute("href")).toBe("/workflows")
+    expect(within(sandbox).getByRole("link", { name: "Docs" }).getAttribute("href")).toBe("https://cpave3.github.io/legato/security/sandbox/")
   })
 })

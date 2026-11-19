@@ -3,6 +3,9 @@ package main
 import (
 	"context"
 
+	"github.com/cpave3/legato/config"
+	"github.com/cpave3/legato/internal/engine/workflow"
+
 	"github.com/cpave3/legato/internal/engine/store"
 	"github.com/cpave3/legato/internal/server"
 	"github.com/cpave3/legato/internal/service"
@@ -11,7 +14,7 @@ import (
 // wireSetupChecklist gives a web server the setup checklist: the doctor's
 // last report, the settings and presets as they are now, the devices, and
 // the phones that pair by phrase from now on.
-func wireSetupChecklist(srv *server.Server, db *store.Store, reports *service.DoctorReports, presets *service.RepositoryPresetService, pairing *service.PairingService) {
+func wireSetupChecklist(srv *server.Server, cfg *config.Config, db *store.Store, reports *service.DoctorReports, presets *service.RepositoryPresetService, pairing *service.PairingService) {
 	settings := settingsFor(db)
 	text := func(ctx context.Context, key string) string {
 		value, err := settings.Get(ctx, key)
@@ -43,6 +46,13 @@ func wireSetupChecklist(srv *server.Server, db *store.Store, reports *service.Do
 			}
 			_, err := db.GetIntegration(ctx, service.BurnliteIntegration)
 			return err == nil
+		},
+		Features: func(ctx context.Context) []service.SetupFeature {
+			report, _ := reports.Known()
+			workers, _ := db.ListWorkers(ctx)
+			global, project := workflowDirs()
+			workflows := workflow.DiscoverPaths(legacyWorkflowDir(), global, project).Definitions
+			return setupFeatures(cfg, report, featureCounts{Workers: len(workers), Workflows: len(workflows)})
 		},
 		Values: db,
 	})

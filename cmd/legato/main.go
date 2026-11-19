@@ -1114,7 +1114,7 @@ func runServeCmd(args []string) int {
 		srv.SetAuthToken(token)
 	}
 	pairing := wirePairing(srv, cfg, db, caCertFile, port, mainSide)
-	wireSetupChecklist(srv, db, doctorReports, repoPresets, pairing)
+	wireSetupChecklist(srv, cfg, db, doctorReports, repoPresets, pairing)
 
 	// IPC server for receiving CLI→web updates.
 	socketPath := ipc.SocketPath()
@@ -1496,7 +1496,7 @@ func runTUI() int {
 			}
 			if tcp, ok := ln.Addr().(*net.TCPAddr); ok {
 				webPairing := wirePairing(webSrv, cfg, db, caCertFile, strconv.Itoa(tcp.Port), mainSide)
-				wireSetupChecklist(webSrv, db, webDoctor, repoPresets, webPairing)
+				wireSetupChecklist(webSrv, cfg, db, webDoctor, repoPresets, webPairing)
 				scheme := "http"
 				if certFile != "" {
 					scheme = "https"

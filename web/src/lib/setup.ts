@@ -11,6 +11,19 @@ export interface SetupItem {
   settings?: string
 }
 
+// A "More setup" card: an optional feature (service.SetupFeature).
+export interface SetupFeature {
+  id: string
+  title: string
+  state: "on" | "off" | "needs"
+  // What it needs, when state is "needs".
+  detail?: string
+  // Where it is set up in the web UI.
+  link: string
+  // Its page on the user site.
+  docs: string
+}
+
 // The setup checklist (GET /api/setup, service.SetupStatus).
 export interface SetupStatus {
   items: SetupItem[]
@@ -18,6 +31,8 @@ export interface SetupStatus {
   total: number
   dismissed: boolean
   show: boolean
+  // The optional features, not counted; absent from an older server.
+  more?: SetupFeature[]
 }
 
 // The chip's part of it, carried by /api/settings.

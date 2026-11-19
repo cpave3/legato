@@ -16,6 +16,26 @@ type SetupItem struct {
 	Settings string `json:"settings,omitempty"`
 }
 
+// Feature states for More setup.
+const (
+	FeatureOn    = "on"
+	FeatureOff   = "off"
+	FeatureNeeds = "needs"
+)
+
+// SetupFeature is a "More setup" card: an optional feature, whether it is
+// on, off, or on but missing something (Detail says what), where it is
+// set up in the web UI, and its page on the user site.
+type SetupFeature struct {
+	ID     string `json:"id"`
+	Title  string `json:"title"`
+	State  string `json:"state"`
+	Detail string `json:"detail,omitempty"`
+	// Link is a path in the web UI, such as /settings#credentials.
+	Link string `json:"link"`
+	Docs string `json:"docs"`
+}
+
 // SetupStatus is the setup checklist: its items, how many of the counted
 // ones are done, whether it was dismissed, and whether the web UI shows its
 // chip (not all done and not dismissed, or a required check failing).
@@ -25,6 +45,8 @@ type SetupStatus struct {
 	Total     int         `json:"total"`
 	Dismissed bool        `json:"dismissed"`
 	Show      bool        `json:"show"`
+	// More are the optional features, not counted.
+	More []SetupFeature `json:"more"`
 }
 
 // InstanceValues keeps values of this Legato in its database.
@@ -46,7 +68,9 @@ type SetupChecklistOptions struct {
 	Devices func(ctx context.Context) (int, error)
 	// Tracker says a ticket tracker is connected.
 	Tracker func(ctx context.Context) bool
-	Values  InstanceValues
+	// Features are the More setup cards; nil lists none.
+	Features func(ctx context.Context) []SetupFeature
+	Values   InstanceValues
 }
 
 // SetupChecklist is what is left to set up, for the web UI's "Setup n/N"
@@ -95,6 +119,10 @@ func (c *SetupChecklist) Status(ctx context.Context) SetupStatus {
 	dismissed, _ := c.opts.Values.GetInstanceValue(ctx, setupDismissedKey)
 	st.Dismissed = dismissed == "true"
 	st.Show = (st.Done < st.Total && !st.Dismissed) || !checksOK
+	st.More = []SetupFeature{}
+	if c.opts.Features != nil {
+		st.More = c.opts.Features(ctx)
+	}
 	return st
 }
 

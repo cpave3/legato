@@ -25,6 +25,12 @@ export function SetupChip({ baseUrl, summary }: { baseUrl: string; summary: Setu
   )
 }
 
+const featureTone: Record<string, string> = {
+  on: "rounded bg-lw-done-soft px-1.5 py-0.5 text-[11px] text-lw-done",
+  off: "rounded bg-lw-raised px-1.5 py-0.5 text-[11px] text-lw-faint",
+  needs: "rounded bg-lw-needs-soft px-1.5 py-0.5 text-[11px] text-lw-needs",
+}
+
 function SetupChecklistDialog({ baseUrl, onClose }: { baseUrl: string; onClose: () => void }) {
   const queryClient = useQueryClient()
   const { data, error } = useQuery({ queryKey: queryKeys.setup(baseUrl), queryFn: () => fetchSetup(baseUrl) })
@@ -70,6 +76,26 @@ function SetupChecklistDialog({ baseUrl, onClose }: { baseUrl: string; onClose: 
               </li>
             ))}
           </ul>
+          {(data?.more?.length ?? 0) > 0 && (
+            <section aria-labelledby="more-setup-title" className="flex flex-col gap-2 border-t border-lw-line pt-3">
+              <h3 id="more-setup-title" className="text-xs font-medium uppercase tracking-wide text-lw-text-2">More setup</h3>
+              <div className="grid gap-2 sm:grid-cols-2">
+                {data?.more?.map((feature) => (
+                  <article key={feature.id} aria-label={feature.title} className="flex flex-col gap-1 rounded-lg border border-lw-line p-3">
+                    <div className="flex items-center justify-between gap-2">
+                      <span className="font-medium">{feature.title}</span>
+                      <span className={featureTone[feature.state]}>{feature.state}</span>
+                    </div>
+                    {feature.detail && <p className="text-xs text-lw-text-2">{feature.detail}</p>}
+                    <div className="mt-auto flex gap-3 pt-1 text-xs">
+                      <Link to={feature.link} onClick={onClose} className="text-lw-link hover:underline">Set up</Link>
+                      <a href={feature.docs} target="_blank" rel="noreferrer" className="text-lw-link hover:underline">Docs</a>
+                    </div>
+                  </article>
+                ))}
+              </div>
+            </section>
+          )}
         </div>
         <div className="flex shrink-0 justify-end border-t border-lw-line px-5 py-3">
           <button type="button" disabled={hiding} onClick={() => void hide()}
