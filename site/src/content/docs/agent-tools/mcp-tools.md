@@ -41,7 +41,7 @@ Each agent tool runs Legato's tools without asking you first. Legato also tells 
 | `message_reeve` | Sends a message to this Legato's [Reeve](/legato/using/reeve/): a report it asked for, or a question. Every agent but the Reeve has it. |
 | `request_access` | Asks you for a credential that Legato holds. See [Credential broker](/legato/security/credential-broker/). |
 | `reply_case` | Answers a case from Argus. See [Argus](/legato/integrations/argus/). |
-| `page_pin_subscribe` | Legato Scope: claims a web page's origin (such as `http://localhost:5173`) for the agent, so comments you pin on its pages with Legato's browser extension come to it. One agent holds an origin at a time; the newest takes over. |
+| `page_pin_subscribe` | [Scope](/legato/using/scope/): claims a web page's origin (such as `http://localhost:5173`) for the agent, so comments you pin on its pages with Legato's browser extension come to it. One agent holds an origin at a time; the newest takes over. |
 | `page_pin_unsubscribe` | Gives an origin up. |
 | `page_pin_list` | Lists the pins on the agent's origins, or on one it names. |
 | `page_pin_get` | Gives the agent one pin in full: your comment, the page, the element, its styles, the component that drew it when known, and a screenshot. |

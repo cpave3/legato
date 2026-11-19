@@ -132,6 +132,7 @@ The documentation for people who use Legato is the Starlight site in `site/`, pu
 | `docs/ai/swarm.md` | `using/swarms` |
 | `docs/ai/learning.md` | `using/learn` |
 | `docs/ai/plans.md`, `docs/ai/reviews.md`, `docs/ai/review-handoff.md` | `using/plans`, `using/reviews`, `using/review-handoff` |
+| `docs/ai/scope.md` | `using/scope`, `agent-tools/mcp-tools`, `browser-extension/README.md` |
 | `docs/ai/workflows.md` | `using/workflows` |
 | `docs/ai/model-settings.md` | `agent-tools/model-settings` |
 | `docs/ai/sync.md`, `docs/ai/pr-tracking.md` | `integrations/jira`, `integrations/github` |

@@ -2,7 +2,7 @@
 
 Legato Scope lets the operator comment on a live web page, usually the dev server of an app an agent is building. In the Legato Chrome extension the operator turns on pin mode, clicks an element and writes what is wrong. Each comment is a **pin**. Pins collect as drafts in the extension; **Send** puts them into Legato's **pool** as one **batch**. The agent whose task slot subscribes to the page's origin gets the batch as one `[legato scope]` message, reads each pin's context through its Legato tools, fixes what it can, and marks each pin fixed or won't fix. The extension shows those states on the page. (Terms: `GLOSSARY.md` § Legato Scope. Decisions: Burnlite LEG-281 to LEG-288.)
 
-This page covers Legato's side: storage, `ScopeService`, routing and delivery. The HTTP API, the agent tools and the extension each have their own section below as they land.
+This page covers storage, `ScopeService`, routing and delivery, the HTTP API, the agent tools and the extension.
 
 ## Storage
 
@@ -82,6 +82,17 @@ Errors: `400` (`ErrScopeInvalidOrigin`, `ErrScopeInvalid`, a screenshot that is 
 Host: `hostBrokerDeps` gets the host's `ScopeService`. The broker's `mcp.call` returns a tool's `images`, which `MCPRelay` already read, so a sandboxed agent sees the screenshot. Without a broker, `legato mcp serve` builds `standaloneScope`: its own `ScopeService` over the store, with the agent service as messenger and `Notify` broadcasting `scope_changed` over IPC (`Content` is the origin), which both host runtimes publish as `EventScopeChanged`.
 
 `cli.MCPGuidance` tells every agent to subscribe the origin of a dev server it starts or knows of, read pins with `page_pin_get`, resolve each, and use `page_pin_list` when told pins wait. Claude Code, and Chimera launched with Legato's mod, read it as the server's instructions; Codex, and Chimera on the legacy `--mcp-config` launch, get it in the launch prompt (`SetToolsPrompt`; see [Agent tools](agent-mcp.md) for which launch gets which). `MCPToolNames` names the five tools, so Chimera runs them without asking.
+
+## The extension
+
+In `browser-extension/` (its README has the user steps and manual acceptance; the user page is `site/src/content/docs/using/scope.md`):
+
+- **Allowing an origin** (`src/scope-action.ts`, `src/scope-origins.ts`): the toolbar button (`chrome.action.onClicked`) and `_execute_action` (Alt+Shift+P) run the same code. On an origin not yet allowed, `chrome.permissions.request` is the first call of the click, then the origin joins `scopeOrigins` and `scope.js` is registered there (`registerContentScripts`, id `legato-scope-<origin>`, `persistAcrossSessions`), reconciled on install, startup and permission changes as ticket sites are; an open tab gets the script injected and pin mode turned on. On an allowed origin the button toggles pin mode. The options page lists the origins with Remove.
+- **The overlay** (`src/content/scope-overlay.ts`): a closed shadow root with the `lw-` palette and Geist; pin mode outlines on hover, swallows the page's pointer and click events in the capture phase, and places numbered markers with a comment popover; a tray lists the origin's drafts and sent pins.
+- **Drafts** (`src/scope-drafts.ts`): `chrome.storage.local` per origin, screenshots under keys of their own (`unlimitedStorage`).
+- **Capture** (`src/content/scope-capture.ts`, `scope-styles.ts`, `src/scope-screenshot.ts`): selector candidates checked to match one element (test IDs, `id`, `role=<role>[name="…"]` (resolved by the extension, not CSS), a unique class combination, an nth-child path), text, box; computed styles that differ from a fresh element of the same tag in an isolated iframe; the screenshot is `captureVisibleTab` in the service worker, cropped, outlined, at most 1024 px wide, JPEG quality lowered until it fits 500 KB. Re-anchoring after a reload tries the selectors and the text, else shows the marker lost.
+- **Send and live states** (`src/scope-service.ts`, `src/scope-live.ts`): only the service worker holds the token. Send posts at most 20 drafts; when `subscribed` is false the tray says the pins wait. While a tab of an origin is open the worker keeps `/ws` open, refetches `GET /api/scope/pins` on `scope_changed` and tells the origin's tabs. Reopen, withdraw and Clear resolved (cleared IDs kept per origin, extension-local). A sent pin is matched to the current page by path and query.
+- The component source (`source`) is sent when present; LEG-296 fills it.
 
 ## Wiring
 

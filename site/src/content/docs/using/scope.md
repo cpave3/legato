@@ -57,6 +57,16 @@ Click **Send** in the Scope panel. Your drafts go to Legato as one batch, and th
 
 When no agent is subscribed to the site yet, the panel says so: the pins wait in Legato until an agent subscribes to it.
 
+## How an agent gets your pins
+
+An agent gets the pins of a site when it **subscribes** to the site's origin, such as `http://localhost:5173`. Agents are told to subscribe to the dev server they start or know of, so you rarely need to ask; if one has not, ask it to subscribe to the address.
+
+- One agent holds a site at a time. When another agent subscribes to it, the new one takes it over, and the first is told.
+- When you send a batch, the subscribed agent gets it as one message that starts with `[legato scope]`, one line per pin: the page, your comment, and where the element is. The web UI shows it as Legato's message, not yours. The agent then reads each pin in full with its [Legato tools](/legato/agent-tools/mcp-tools/), the screenshot included, fixes what it can, and marks each pin fixed or won't fix with a note.
+- A subscription belongs to the task, so it survives a reload or restart of the agent, and an agent interrupted by a crash keeps it until you resume or dismiss it. It ends when the agent is stopped or exits, or the task is archived or deleted.
+- When no agent is subscribed, or the subscribed agent is not running, the batch waits in Legato. The agent gets it when it subscribes, lists its pins or starts again.
+- Sites, pins and subscriptions belong to the Legato the extension is connected to. Nothing is passed on to worker instances.
+
 ## Follow the sent pins
 
 Sent pins show on their pages as round markers, and in the Scope panel under **Sent**, with their state and the agent's note:
