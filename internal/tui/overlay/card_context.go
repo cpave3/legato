@@ -30,12 +30,31 @@ type CardContextStartWorkflowMsg struct {
 	Inputs map[string]string
 }
 
+// CardContextLoadMacrosMsg asks for the macros the card menu offers.
+type CardContextLoadMacrosMsg struct{ TaskID string }
+
+// CardContextStartMacroMsg starts a macro on the task, and on one of its
+// pull requests when PR is set.
+type CardContextStartMacroMsg struct {
+	TaskID string
+	Name   string
+	PR     *service.MacroPR
+}
+
+// CardContextMacro is one item of the Macros menu.
+type CardContextMacro struct {
+	Label string
+	Name  string
+	PR    *service.MacroPR
+}
+
 type cardContextScreen int
 
 const (
 	cardContextMain cardContextScreen = iota
 	cardContextWorkflows
 	cardContextForm
+	cardContextMacros
 )
 
 type CardContextOverlay struct {
@@ -43,6 +62,7 @@ type CardContextOverlay struct {
 	screen        cardContextScreen
 	cursor        int
 	workflows     []service.TaskWorkflowOption
+	macros        []CardContextMacro
 	loading       bool
 	errorText     string
 	warningText   string
@@ -72,6 +92,16 @@ func (m CardContextOverlay) SetWorkflows(workflows []service.TaskWorkflowOption,
 		} else {
 			m.warningText = err.Error()
 		}
+	}
+	return m
+}
+
+// SetMacros shows the Macros menu's items, or why there are none.
+func (m CardContextOverlay) SetMacros(macros []CardContextMacro, err error) CardContextOverlay {
+	m.screen, m.cursor, m.loading = cardContextMacros, 0, false
+	m.macros, m.errorText = macros, ""
+	if err != nil {
+		m.errorText = err.Error()
 	}
 	return m
 }
@@ -108,9 +138,12 @@ func (m CardContextOverlay) updateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 	if m.screen == cardContextForm {
 		return m.updateForm(msg)
 	}
-	count := 4
-	if m.screen == cardContextWorkflows {
+	count := len(cardContextItems)
+	switch m.screen {
+	case cardContextWorkflows:
 		count = len(m.workflows)
+	case cardContextMacros:
+		count = len(m.macros)
 	}
 	switch msg.String() {
 	case "j", "down":
@@ -131,6 +164,15 @@ func (m CardContextOverlay) updateKey(msg tea.KeyMsg) (tea.Model, tea.Cmd) {
 				m.screen, m.cursor, m.loading, m.errorText = cardContextWorkflows, 0, true, ""
 				id := m.taskID
 				return m, func() tea.Msg { return CardContextLoadWorkflowsMsg{TaskID: id} }
+			case 4:
+				m.screen, m.cursor, m.loading, m.errorText = cardContextMacros, 0, true, ""
+				id := m.taskID
+				return m, func() tea.Msg { return CardContextLoadMacrosMsg{TaskID: id} }
+			}
+		} else if m.screen == cardContextMacros {
+			if !m.loading && m.cursor < len(m.macros) {
+				item, id := m.macros[m.cursor], m.taskID
+				return m, func() tea.Msg { return CardContextStartMacroMsg{TaskID: id, Name: item.Name, PR: item.PR} }
 			}
 		} else if !m.loading && m.errorText == "" && m.cursor < len(m.workflows) {
 			m.openForm(m.cursor)
@@ -230,7 +272,22 @@ func (m CardContextOverlay) View() string {
 	lines := []string{lipgloss.NewStyle().Bold(true).Foreground(theme.TextPrimary).Render("Task " + m.taskID)}
 	switch m.screen {
 	case cardContextMain:
-		lines = append(lines, renderContextItems([]string{"Open details", "Move", "Delete", "Workflows ›"}, m.cursor)...)
+		lines = append(lines, renderContextItems(cardContextItems, m.cursor)...)
+	case cardContextMacros:
+		lines[0] = lipgloss.NewStyle().Bold(true).Render("Macros")
+		switch {
+		case m.loading:
+			lines = append(lines, "Loading macros…")
+		case len(m.macros) == 0 && m.errorText == "":
+			lines = append(lines, "No macros apply to this task.")
+		default:
+			for i, item := range m.macros {
+				lines = append(lines, contextItem(item.Label, i == m.cursor))
+			}
+		}
+		if m.errorText != "" {
+			lines = append(lines, "", lipgloss.NewStyle().Foreground(theme.SyncError).Render(m.errorText))
+		}
 	case cardContextWorkflows:
 		lines[0] = lipgloss.NewStyle().Bold(true).Render("Workflows")
 		switch {
@@ -273,6 +330,9 @@ func (m CardContextOverlay) View() string {
 	lines = append(lines, "", lipgloss.NewStyle().Foreground(theme.TextTertiary).Render("↑/↓ navigate · enter select/start · esc back"))
 	return RenderPanel(strings.Join(lines, "\n"), m.width, m.height)
 }
+
+// cardContextItems is the card menu's first level.
+var cardContextItems = []string{"Open details", "Move", "Delete", "Workflows ›", "Macros ›"}
 
 func renderContextItems(items []string, cursor int) []string {
 	out := make([]string, len(items))

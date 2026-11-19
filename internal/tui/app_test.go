@@ -75,6 +75,7 @@ type fakeBoardService struct {
 	workspaceTask  string
 	workspaceID    *int
 	workspaceError error
+	pullRequests   []service.PRMetaView
 }
 
 func (f *fakeBoardService) ListColumns(_ context.Context) ([]service.Column, error) {
@@ -105,6 +106,7 @@ func (f *fakeBoardService) GetCard(_ context.Context, id string) (*service.CardD
 		Status:        "Backlog",
 		Priority:      "High",
 		CodeContext:   f.codeContext,
+		PullRequests:  f.pullRequests,
 		CreatedAt:     time.Now(),
 		UpdatedAt:     time.Now(),
 	}, nil

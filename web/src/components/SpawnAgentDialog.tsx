@@ -2,6 +2,7 @@ import { useModalLayer } from "../hooks/useModalLayer"
 import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from "react"
 import { ChevronDown, X } from "lucide-react"
 import { accessLabel, listResources, type Resource } from "../lib/resources"
+import { macrosFor, useMacros } from "../lib/macros"
 import { useServer } from "../hooks/useServer"
 import { useSettings } from "../hooks/useSettings"
 import { apiFetch } from "../lib/api"
@@ -42,6 +43,8 @@ export interface SpawnAgentRequest {
   dockerHostNetwork?: true
   // The agent's first message; absent when nothing was written.
   prompt?: string
+  // The agent tool's tier, from a macro chosen to start with; absent for none.
+  tier?: string
   // Set when the agent starts in a new clone of a repository instead of a
   // folder; workingDir is then empty. Empty fields are the server's to fill:
   // the default branch as the base, legato/<task id> as the branch.
@@ -171,6 +174,18 @@ export function SpawnAgentDialog({
   // Only for an agent in the sandbox, with Docker in it.
   const hostNetworkOffered = Boolean(settings.data?.sandbox_enabled && settings.data?.sandbox_docker_enabled) && !unsandboxed
   const [prompt, setPrompt] = useState("")
+  // "Start with macro": the macros, the one chosen, and the tier it names.
+  const macroList = useMacros(baseUrl, open ? "open" : null)
+  const [macroName, setMacroName] = useState("")
+  const [tier, setTier] = useState("")
+  const chooseMacro = (name: string) => {
+    setMacroName(name)
+    const macro = macroList.macros.find((item) => item.name === name)
+    setTier(macro?.tier ?? "")
+    if (!macro) return
+    setPrompt(macro.keys.replace(/\n+$/, ""))
+    if (macro.agent) setAgentKind(macro.agent)
+  }
   // The files and folders the person keeps for agents, and the ones picked.
   const [resources, setResources] = useState<Resource[]>([])
   const [picked, setPicked] = useState<string[]>([])
@@ -221,6 +236,8 @@ export function SpawnAgentDialog({
     setUnsandboxed(false)
     setHostNetwork(false)
     setPrompt("")
+    setMacroName("")
+    setTier("")
     setWhereKind("folder")
     const firstCloneable = (settingsRef.current?.repositories ?? []).find((repository) => repository.repo)
     setCloneName(firstCloneable?.name ?? "")
@@ -455,6 +472,7 @@ export function SpawnAgentDialog({
         ...(unsandboxed ? { sandbox: false as const } : {}),
         ...(hostNetworkOffered && hostNetwork ? { dockerHostNetwork: true as const } : {}),
         ...(prompt.trim() ? { prompt: prompt.trim() } : {}),
+        ...(tier ? { tier } : {}),
         ...(engramShown && engram ? { engram } : {}),
         ...(canRemember && rememberEngram ? { rememberEngram: true } : {}),
       })
@@ -463,7 +481,7 @@ export function SpawnAgentDialog({
     } finally {
       setLoading(false)
     }
-  }, [loading, ready, path, savePath, canSave, baseUrl, onSubmit, title, agentKind, offersSessionChoice, sessionPolicy, picked, unsandboxed, hostNetworkOffered, hostNetwork, prompt, cloneRepository, baseBranch, branch, inClone, jobClone, engramShown, engram, canRemember, rememberEngram])
+  }, [loading, ready, path, savePath, canSave, baseUrl, onSubmit, title, agentKind, offersSessionChoice, sessionPolicy, picked, unsandboxed, hostNetworkOffered, hostNetwork, prompt, tier, cloneRepository, baseBranch, branch, inClone, jobClone, engramShown, engram, canRemember, rememberEngram])
 
   if (!open) return null
 
@@ -940,6 +958,14 @@ export function SpawnAgentDialog({
               </div>
             </fieldset>
           )}
+          {macrosFor(macroList.macros, "task").length > 0 && <label className="flex flex-col gap-1.5">
+            <span className={fieldLabel}>Start with macro <span className="text-lw-faint">· optional</span></span>
+            <select aria-label="Start with macro" value={macroName} onChange={(event) => chooseMacro(event.target.value)}
+              className={`min-h-11 rounded-[10px] border border-lw-line-strong bg-lw-ground px-3 text-base text-lw-text sm:min-h-9 sm:rounded-md sm:text-sm ${focusRing}`}>
+              <option value="">None</option>
+              {macrosFor(macroList.macros, "task").map((macro) => <option key={macro.name} value={macro.name}>{macro.name}</option>)}
+            </select>
+          </label>}
           <label className="flex flex-col gap-1.5">
             <span className={fieldLabel}>
               First message <span className="text-lw-faint">· optional</span>

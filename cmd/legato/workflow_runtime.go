@@ -64,30 +64,14 @@ func buildWorkflowService(db *store.Store, cfg *config.Config, opts workflowRunt
 	learningSvc := configuredLearningService(cfg, db, bus, service.NewProjectIdentityResolver(checkoutInspector()))
 	agentSvc := opts.Agents
 	if agentSvc == nil {
-		mgr, err := tmux.New(tmux.Options{})
-		if err != nil {
-			return nil, fmt.Errorf("agent workflows require tmux: %w", err)
-		}
-		binary, _ := os.Executable()
-		if binary == "" {
-			binary = "legato"
-		}
-		defaultAdapter, adapters := configuredAdapters(cfg, binary)
 		var promptProvider service.LearningPromptProvider
 		if cfg.Learning.PromptEnabled {
 			promptProvider = learningSvc
 		}
-		agentSvc = service.NewAgentService(db, mgr, opts.WorkDir, service.AgentServiceOptions{ToolCheck: processDoctor().SpawnCheck, Adapter: defaultAdapter, Adapters: adapters, PRService: prSvc, EventBus: service.AgentDiedPublisher{Bus: bus}, TmuxOptions: cfg.Agents.TmuxOptions, LearningPromptProvider: promptProvider, LearningPromptMaxItems: cfg.Learning.PromptMaxItems, LearningPromptMaxBytes: cfg.Learning.PromptMaxBytes, DisablePeerAwareness: !cfg.Agents.PeerAwareness, ReviewsOff: !cfg.Agents.Reviews, HasSkill: agentHasSkill(cfg, db), RepositoryGuidance: repositoryGuidance(cfg, db), RepositoryResources: repositoryResources(cfg), Sandbox: sandboxSettings(cfg), SandboxScratch: sandboxScratch(cfg), Capabilities: skillService(cfg, db), CapabilityFolders: capabilityFolders(cfg)})
-		channels := attachCredentialChannels(cfg, db, agentSvc)
-		if opts.Repos == nil {
-			opts.Repos = newRepositoryService(cfg, db)
-			if channels != nil {
-				opts.Repos.SetTokens(channels)
-			}
+		var err error
+		if agentSvc, opts.Repos, err = commandAgentService(cfg, db, opts.WorkDir, prSvc, bus, promptProvider, opts.Repos, opts.Presets); err != nil {
+			return nil, fmt.Errorf("agent workflows require tmux: %w", err)
 		}
-		giveAgentsRepositories(agentSvc, opts.Repos)
-		giveAgentsPrimaryDirs(agentSvc, opts.Presets)
-		giveAgentsEngrams(agentSvc, db)
 	}
 	binary, _ := os.Executable()
 	runner := service.NewWorkflowAgentRunner(agentSvc, db, binary)
@@ -183,4 +167,32 @@ func repositoryGuidance(cfg *config.Config, db *store.Store) *service.Repository
 // configuration's resources.
 func repositoryResources(cfg *config.Config) *service.RepositoryResources {
 	return service.NewRepositoryResources(cfg.Agents.RepositoryResources, cfg.Resources)
+}
+
+// commandAgentService is the agent service a command (outside the TUI and
+// serve) starts agents through, configured as theirs is: the adapters,
+// sandbox, credentials, repositories and engrams. repos is built when nil
+// and returned.
+func commandAgentService(cfg *config.Config, db *store.Store, workDir string, prSvc service.PRTrackingService, bus *events.Bus, promptProvider service.LearningPromptProvider, repos *service.RepositoryService, presets *service.RepositoryPresetService) (service.AgentService, *service.RepositoryService, error) {
+	mgr, err := tmux.New(tmux.Options{})
+	if err != nil {
+		return nil, repos, err
+	}
+	binary, _ := os.Executable()
+	if binary == "" {
+		binary = "legato"
+	}
+	defaultAdapter, adapters := configuredAdapters(cfg, binary)
+	agentSvc := service.NewAgentService(db, mgr, workDir, service.AgentServiceOptions{ToolCheck: processDoctor().SpawnCheck, Adapter: defaultAdapter, Adapters: adapters, PRService: prSvc, EventBus: service.AgentDiedPublisher{Bus: bus}, TmuxOptions: cfg.Agents.TmuxOptions, LearningPromptProvider: promptProvider, LearningPromptMaxItems: cfg.Learning.PromptMaxItems, LearningPromptMaxBytes: cfg.Learning.PromptMaxBytes, DisablePeerAwareness: !cfg.Agents.PeerAwareness, ReviewsOff: !cfg.Agents.Reviews, HasSkill: agentHasSkill(cfg, db), RepositoryGuidance: repositoryGuidance(cfg, db), RepositoryResources: repositoryResources(cfg), Sandbox: sandboxSettings(cfg), SandboxScratch: sandboxScratch(cfg), Capabilities: skillService(cfg, db), CapabilityFolders: capabilityFolders(cfg)})
+	channels := attachCredentialChannels(cfg, db, agentSvc)
+	if repos == nil {
+		repos = newRepositoryService(cfg, db)
+		if channels != nil {
+			repos.SetTokens(channels)
+		}
+	}
+	giveAgentsRepositories(agentSvc, repos)
+	giveAgentsPrimaryDirs(agentSvc, presets)
+	giveAgentsEngrams(agentSvc, db)
+	return agentSvc, repos, nil
 }

@@ -70,6 +70,7 @@ var legatoCommandClasses = map[string]legatoCommandClass{
 	"agent session-created":     {"never", "Record an agent session"},
 	"agent peers":               {"read", "List the agents sharing a worktree"},
 	"agent message":             {"change", "Send a message to a running agent"},
+	"macro run":                 {"change", "Start a macro on a task: start its agent or message it"},
 	"agent broadcast":           {"never", "Message every agent sharing a worktree"},
 	"agent summary":             {"read", "Summarize the agent sessions"},
 	"agent status":              {"read", "Show an agent's status"},

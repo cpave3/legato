@@ -188,6 +188,7 @@ Legato sends `keys` exactly as written. It does not expand environment variables
 
 - In the TUI, press `m` in the agents view and pick a macro.
 - In the web UI, press `M` on the Agents page, then `1` to `9` for the first nine macros. Click a later macro to send it. The keys do nothing while you type in a field.
+- To start an agent with a macro, choose it under **Start with macro** in the spawn dialog: it fills the first message, and the agent tool and tier when the macro names them. On the board, a card's menu and its pull request lines start a macro on the task; see [Board](/legato/using/board/). From a script: `legato macro run Plan <task-id>`.
 
 ## Guidance for a repository
 
