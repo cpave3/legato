@@ -7,6 +7,8 @@ sidebar:
 
 The board is where your tasks live. Each column is a stage of work, and each card is a task. A card also shows the agent that works on the task, the state of its pull request, and anything that went wrong. You use the board in the TUI (run `legato`) and on the **Board** page of the [web UI](/legato/using/web-ui/).
 
+When tmux is missing, the board still works, but agents are off: the status bar says `tmux not found: agents are off`, and `a` on a card shows the fix instead of starting an agent. See [Agents](/legato/using/agents/#starting-an-agent-on-a-task).
+
 This page covers the board in both. For every key, see [Keyboard shortcuts](/legato/reference/keyboard/), or press `?` in the TUI.
 
 ## Columns

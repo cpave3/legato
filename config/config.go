@@ -330,6 +330,10 @@ type WorkspaceConfig struct {
 }
 
 type AgentsConfig struct {
+	// DefaultTool is the agent tool a spawn that names none starts:
+	// claude-code, codex or chimera. Empty falls back to swarm.worker.agent,
+	// then claude-code; see Config.DefaultAgentTool.
+	DefaultTool     string            `yaml:"default_tool"`
 	EscapeKey       string            `yaml:"escape_key"`
 	TmuxOptions     map[string]string `yaml:"tmux_options"`
 	SparklineWindow string            `yaml:"sparkline_window"` // Go duration string, default "10m"
@@ -459,10 +463,9 @@ func Load() (*Config, error) {
 	data, err := os.ReadFile(ResolveConfigPath())
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			cfg := defaults()
-			cfg.pins = map[string]bool{}
-			recordFileEntries(cfg)
-			return cfg, nil
+			// No file is an empty one: the same defaults, and nothing
+			// pinned.
+			return LoadBytes(nil)
 		}
 		return nil, err
 	}
@@ -787,10 +790,10 @@ func ValidateLearningConfig(cfg *Config) error {
 	}
 	adapter := learning.CuratorAdapter
 	if adapter == "" {
-		adapter = cfg.Swarm.Worker.Agent
+		adapter = cfg.DefaultAgentTool()
 	}
 	if adapter == "" {
-		return fmt.Errorf("learning.curator_adapter or swarm.worker.agent is required when learning is enabled")
+		return fmt.Errorf("learning.curator_adapter, agents.default_tool or swarm.worker.agent is required when learning is enabled")
 	}
 	adapterConfig, ok := cfg.Adapters[adapter]
 	if !ok {
@@ -1332,4 +1335,14 @@ func (c ReeveConfig) ReeveIdleTimeout() time.Duration {
 		return d
 	}
 	return 2 * time.Hour
+}
+
+// DefaultAgentTool is the agent tool Legato starts when a spawn names none:
+// agents.default_tool, else swarm.worker.agent (which was the global default
+// before the setting existed), else "" for the caller's own default.
+func (c *Config) DefaultAgentTool() string {
+	if c.Agents.DefaultTool != "" {
+		return c.Agents.DefaultTool
+	}
+	return c.Swarm.Worker.Agent
 }

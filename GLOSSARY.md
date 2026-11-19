@@ -144,6 +144,10 @@ _Avoid_: locked setting, configured setting, read-only setting
 A setting that lives only in `config.yaml` and never in the database: what the instance needs to start, to unseal its secrets, to be reached, and to trust a signature.
 _Avoid_: bootstrap setting, static setting
 
+**Check**:
+One thing `legato doctor` verifies about the machine Legato runs on, with its result (ok, missing, not signed in, failed) and the fix. A **required** check failing means part of Legato cannot work.
+_Avoid_: prerequisite, health check, probe
+
 ### Engrams
 
 **Engram**:

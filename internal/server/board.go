@@ -438,7 +438,20 @@ func taskErrorStatus(err error) int {
 	if errors.Is(err, service.ErrTaskAway) || errors.Is(err, service.ErrTaskHandedOff) {
 		return http.StatusConflict
 	}
+	if status := spawnRefusalStatus(err); status != 0 {
+		return status
+	}
 	return http.StatusInternalServerError
+}
+
+// spawnRefusalStatus is the status of a spawn refused because its agent
+// tool cannot start (the doctor's check, with its fix in the message), or 0.
+func spawnRefusalStatus(err error) int {
+	var unavailable *service.AgentToolUnavailableError
+	if errors.As(err, &unavailable) {
+		return http.StatusFailedDependency
+	}
+	return 0
 }
 
 func cardDetailToResponse(d *service.CardDetail) CardDetailResponse {

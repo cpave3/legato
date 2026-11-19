@@ -189,6 +189,7 @@ How Legato runs the agents it starts. See [Agents](/legato/using/agents/).
 
 | Setting | Type | Default | What it does |
 | --- | --- | --- | --- |
+| `agents.default_tool` | string | `swarm.worker.agent`, then `claude-code` | The agent tool Legato starts when you name none: `claude-code`, `codex` or `chimera`. `legato doctor` requires it to be installed and signed in. Takes effect at restart. |
 | `agents.escape_key` | string | `ctrl+]` | The key that detaches you from an agent's terminal after you attach to it from the TUI. `ctrl+<key>` is turned into tmux's `C-<key>`; other values go to tmux as written. |
 | `agents.tmux_options` | map of strings | none | tmux options set on each agent's session, such as `mouse: "on"` or `history-limit: "50000"`. |
 | `agents.sparkline_window` | duration | `10m` | The stretch of time each agent's activity sparkline covers, in the TUI and the web UI. A value Legato cannot read falls back to `10m`. |
@@ -266,7 +267,7 @@ How a swarm's conductor and workers start, and how large a plan may be. See [Swa
 | `swarm.enabled` | bool | `false` | Turns swarms on: the `legato swarm` commands, the swarm endpoints, the swarm controls in the terminal UI and the **Start swarm** buttons in the web UI. Off by default. Restart Legato after changing it. |
 | `swarm.conductor.agent` | string | `swarm.worker.agent`, then `claude-code` | The tool a new conductor runs: `claude-code`, `codex` or `chimera`. |
 | `swarm.conductor.model` | string | none | A model for new conductors, added to the tool's launch flags. |
-| `swarm.worker.agent` | string | `claude-code` | The tool a worker runs when its sub-task names none. It is also Legato's default agent tool. |
+| `swarm.worker.agent` | string | `claude-code` | The tool a worker runs when its sub-task names none. While `agents.default_tool` is unset, it is also Legato's default agent tool. |
 | `swarm.worker.model` | string | none | A model for workers that run `swarm.worker.agent` and name no tier. |
 | `swarm.max_concurrent_agents` | integer | `4` | How many workers of one swarm may run at once. Further sub-tasks wait. |
 | `swarm.max_subtasks_per_plan` | integer | `10` | The most sub-tasks a plan may have, in total and in any one step. |
@@ -582,7 +583,7 @@ Legato Learn: lessons from finished work, curated by an agent and checked by you
 | `learning.enabled` | bool | `false` | Reflects on a task and curates its lessons when the task enters one of `learning.transition_columns`. The ledger and the manual commands work either way. |
 | `learning.prompt_enabled` | bool | `false` | Adds accepted lessons to the prompt of agents Legato starts. |
 | `learning.transition_columns` | list of strings | none | Board columns whose entry starts learning. Required when `learning.enabled` is on; each must be a column of `board.columns`. |
-| `learning.curator_adapter` | string | `swarm.worker.agent` | The tool the curator agent runs. It must have an entry under `adapters`. |
+| `learning.curator_adapter` | string | `agents.default_tool`, then `swarm.worker.agent` | The tool the curator agent runs. It must have an entry under `adapters`. |
 | `learning.curator_tier` | string | none | A tier of that tool for the curator. It must exist under `adapters.<tool>.tiers`. |
 | `learning.curator_working_dir` | path | the task's checkout | An absolute folder the curator always works in. |
 | `learning.packet_max_items` | integer | `100` | The most items in what the curator is given. |

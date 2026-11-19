@@ -186,5 +186,7 @@ var legatoCommandClasses = map[string]legatoCommandClass{
 	// Legato itself.
 	"restart": {"risky", "Restart Legato"},
 	"version": {"read", "Show Legato's version"},
+	"doctor":  {"read", "Check what Legato needs from this machine"},
+	"setup":   {"never", "Set Legato up in a terminal"},
 	"pair":    {"never", "Pair a device or a main instance"},
 }

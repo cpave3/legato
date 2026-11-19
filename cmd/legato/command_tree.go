@@ -408,6 +408,10 @@ func commandTree() *commandDef {
 		authGroup,
 		configGroup,
 		leaf("restart", "Restart every Legato process of this instance in place", runRestartCmd, nil, []commandFlag{jsonFlag}, "legato restart"),
+		leaf("setup", "Set Legato up: checks, the default agent tool and a ticket tracker", runSetupCmd, nil, nil, "legato setup"),
+		leaf("doctor", "Check what Legato needs from this machine, and say how to fix what is missing", runDoctorCmd, nil,
+			[]commandFlag{boolFlag("online", "Also ask GitHub whether gh's token works (uses the network)"), jsonFlag},
+			"legato doctor", "legato doctor --online --json"),
 		leaf("version", "Print the version of this Legato", runVersionCmd, nil, []commandFlag{jsonFlag}, "legato version", "legato version --json"),
 		leaf("pair", "Pair a device, or a main instance, with the Legato web UI", runPairContract, nil, []commandFlag{valueFlag("host", "host|ip", "Address this device uses to reach this specific Legato instance"), valueFlag("port", "port", "Server port"), boolFlag("main", "Pair a main instance that hands tasks to this Legato, instead of a phone"), jsonFlag}, "legato pair --host 192.168.1.20", "legato pair --main"),
 	)

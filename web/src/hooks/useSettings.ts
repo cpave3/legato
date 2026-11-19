@@ -1,3 +1,4 @@
+import type { SetupSummary } from "../lib/setup"
 import { useQuery } from "@tanstack/react-query"
 import { apiFetch } from "../lib/api"
 import { queryKeys } from "../lib/query"
@@ -37,6 +38,10 @@ export interface Settings {
   reeve_name?: string
   // Where this server's updates stand; absent when it has no updater.
   updates?: UpdateStatus
+  // A required check of `legato doctor` failed; /api/doctor says which.
+  setup_incomplete?: boolean
+  // The setup checklist's chip; absent from an older server.
+  setup?: SetupSummary
 }
 
 export class SettingsRequestError extends Error {

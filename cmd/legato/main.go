@@ -903,10 +903,11 @@ func runServeCmd(args []string) int {
 	// A first start with no terminal to run the wizard in, such as a
 	// headless worker's, still gets the default columns: a board without
 	// them refuses every handoff.
-	if seeded, err := setup.SeedColumnsIfEmpty(context.Background(), &setup.StoreAdapter{S: db}, cfg.Board.Columns); err != nil {
+	firstStart, err := setup.SeedColumnsIfEmpty(context.Background(), &setup.StoreAdapter{S: db}, cfg.Board.Columns)
+	if err != nil {
 		fmt.Fprintf(os.Stderr, "columns: %v\n", err)
 		return 1
-	} else if seeded {
+	} else if firstStart {
 		log.Printf("serve: the board had no columns; seeded %d", len(cfg.Board.Columns))
 	}
 	workspaceDefaults, err := service.SeedAndResolveWorkspaceDefaults(context.Background(), db, cfg)
@@ -961,6 +962,7 @@ func runServeCmd(args []string) int {
 			osNotifier = service.NewOSNotifier()
 		}
 		agentSvc = service.NewAgentService(db, mgr, wd, service.AgentServiceOptions{
+			ToolCheck:      processDoctor().SpawnCheck,
 			Sandbox:        sandboxSettings(cfg),
 			SandboxScratch: sandboxScratch(cfg),
 			Adapter:        defaultAdapter, Adapters: adapters,
@@ -983,6 +985,13 @@ func runServeCmd(args []string) int {
 		recoverNativeEndpoints(agentSvc)
 		wireTaskAgents(boardSvc, agentSvc)
 		giveAgentsEngrams(agentSvc, db)
+	}
+	// Without tmux nothing refuses to start: agents are off, and every
+	// surface says why with the fix.
+	agentsOff := ""
+	if agentSvc == nil {
+		agentsOff = agentsOffReason(context.Background())
+		log.Printf("%s", agentsOff)
 	}
 
 	// Swarm service for HTTP endpoints.
@@ -1013,6 +1022,9 @@ func runServeCmd(args []string) int {
 	artifactSvc := service.NewArtifactService(db, planSvc, reviewSvc)
 	addr := ":" + port
 	srv := server.NewWithSwarm(boardSvc, agentSvc, tmuxMgr, addr, swarmSvc, bus, wd)
+	srv.SetAgentsOff(agentsOff)
+	doctorReports := startDoctorReports(cfg)
+	srv.SetDoctor(doctorReports)
 	srv.SetWorkspaceDefaults(workspaceDefaults.Task, workspaceDefaults.Import)
 	srv.SetHotReloadBuildTrigger(configuredHotReloadBuildTrigger())
 	srv.SetReportService(service.NewReportService(db))
@@ -1101,7 +1113,8 @@ func runServeCmd(args []string) int {
 	} else {
 		srv.SetAuthToken(token)
 	}
-	wirePairing(srv, cfg, db, caCertFile, port, mainSide)
+	pairing := wirePairing(srv, cfg, db, caCertFile, port, mainSide)
+	wireSetupChecklist(srv, cfg, db, doctorReports, repoPresets, pairing)
 
 	// IPC server for receiving CLI→web updates.
 	socketPath := ipc.SocketPath()
@@ -1152,6 +1165,13 @@ func runServeCmd(args []string) int {
 	approvalsRT.SetServerURL(scheme, port)
 	go settleRestart(context.Background(), restartRollback(cfg, db), scheme+"://127.0.0.1:"+port+"/health")
 	fmt.Printf("Legato web UI: %s://localhost:%s\n", scheme, port)
+	if firstStart {
+		// No prompts on a headless machine: the checks and a pairing
+		// phrase, and the rest is finished in the web UI.
+		report := processDoctor().Check(context.Background(), doctorConfigFor(cfg), false)
+		_, address := webPairingAddress(cfg)
+		headlessWelcome(os.Stdout, report, pairing.Open, address)
+	}
 	defer announceWebServer(cfg, port)()
 	if err := srv.Start(); err != nil && err.Error() != "http: Server closed" {
 		fmt.Fprintf(os.Stderr, "server: %v\n", err)
@@ -1186,15 +1206,22 @@ func runTUI() int {
 		fmt.Fprintf(os.Stderr, "checking columns: %v\n", err)
 		return 1
 	}
+	// pairOnStart: setup was asked to pair a phone, which happens once the
+	// web server below has started, before the TUI takes the terminal.
+	pairOnStart := false
+	// starterTask is the task setup made, which the board opens on.
+	starterTask := ""
 	if len(mappings) == 0 {
-		adapter := &setup.StoreAdapter{S: db}
-		jiraSetup := &setup.RealJiraSetup{}
-		if err := setup.RunWizard(context.Background(), os.Stdout, os.Stdin, adapter, cfg.Board.Columns, jiraSetup, setup.WithSettings(wizardSettings{cfg: cfg, db: db})); err != nil {
+		// The guided setup. It never ends Legato: stopped at a failed
+		// check, or failed, the board still opens.
+		flow := setupFlow(cfg, db, os.Stdin, os.Stdout, true)
+		if err := flow.Run(context.Background()); err != nil && !errors.Is(err, setup.ErrSetupStopped) {
 			fmt.Fprintf(os.Stderr, "setup: %v\n", err)
-			return 1
 		}
-		// Read the configuration again: the wizard saved Jira's settings
-		// in the database.
+		pairOnStart = flow.PairOnStart
+		starterTask = flow.StarterTask
+		// Read the configuration again: setup saved settings in the
+		// database.
 		cfg, err = config.Load()
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "config reload: %v\n", err)
@@ -1287,6 +1314,7 @@ func runTUI() int {
 			osNotifier = service.NewOSNotifier()
 		}
 		agentSvc = service.NewAgentService(db, tmuxMgr, wd, service.AgentServiceOptions{
+			ToolCheck:         processDoctor().SpawnCheck,
 			Sandbox:           sandboxSettings(cfg),
 			SandboxScratch:    sandboxScratch(cfg),
 			Adapter:           defaultAdapter,
@@ -1314,6 +1342,13 @@ func runTUI() int {
 		recoverNativeEndpoints(agentSvc)
 		wireTaskAgents(boardSvc, agentSvc)
 		giveAgentsEngrams(agentSvc, db)
+	}
+	// Without tmux nothing refuses to start: agents are off, and every
+	// surface says why with the fix.
+	agentsOff := ""
+	if agentSvc == nil {
+		agentsOff = agentsOffReason(context.Background())
+		log.Printf("%s", agentsOff)
 	}
 
 	// Transcription, shared by the TUI and its web server.
@@ -1391,6 +1426,9 @@ func runTUI() int {
 			log.Printf("web: port %s unavailable: %v", cfg.Web.Port, listenErr)
 		} else {
 			webSrv = server.NewWithSwarm(boardSvc, agentSvc, tmuxMgr, ln.Addr().String(), swarmSvc, bus, wd)
+			webSrv.SetAgentsOff(agentsOff)
+			webDoctor := startDoctorReports(cfg)
+			webSrv.SetDoctor(webDoctor)
 			webSrv.SetWorkspaceDefaults(workspaceDefaults.Task, workspaceDefaults.Import)
 			webSrv.SetHotReloadBuildTrigger(configuredHotReloadBuildTrigger())
 			webSrv.SetReportService(reportSvc)
@@ -1457,7 +1495,8 @@ func runTUI() int {
 				webSrv.SetAuthToken(token)
 			}
 			if tcp, ok := ln.Addr().(*net.TCPAddr); ok {
-				wirePairing(webSrv, cfg, db, caCertFile, strconv.Itoa(tcp.Port), mainSide)
+				webPairing := wirePairing(webSrv, cfg, db, caCertFile, strconv.Itoa(tcp.Port), mainSide)
+				wireSetupChecklist(webSrv, cfg, db, webDoctor, repoPresets, webPairing)
 				scheme := "http"
 				if certFile != "" {
 					scheme = "https"
@@ -1502,6 +1541,8 @@ func runTUI() int {
 	workspaces, _ := boardSvc.ListWorkspaces(context.Background())
 
 	app := tui.NewApp(boardSvc, syncSvc, agentSvc, prSvc, reportSvc, icons, bus, editor, workspaces, tmuxMgr, wd, swarmSvc, cfg.Macros, reviewSvc)
+	app.SetAgentsOff(agentsOff)
+	app.SetStarterTask(starterTask)
 	app.SetDirectoryService(configuredDirectoryService(cfg, db, repoPresets))
 	app.SetEngramService(engramsFor(db))
 	app.SetSandboxEnabled(cfg.Agents.Sandbox.Enabled)
@@ -1594,6 +1635,13 @@ func runTUI() int {
 	// If the web server was auto-started, tell the TUI to show the indicator.
 	if webSrv != nil {
 		app.SetWebServerRunning(cfg.Web.Port)
+	}
+	if pairOnStart {
+		if webSrv == nil {
+			fmt.Fprintln(os.Stdout, "The web server did not start, so no phone was paired. Later: legato pair.")
+		} else if err := pairPhoneHere(context.Background(), cfg, os.Stdout); err != nil {
+			fmt.Fprintf(os.Stdout, "Pairing: %v\n", err)
+		}
 	}
 
 	p := tea.NewProgram(app, tea.WithAltScreen(), tea.WithoutSignalHandler())
@@ -1919,6 +1967,7 @@ func loadSwarmServiceForCLI() (service.SwarmService, *store.Store, int) {
 	}
 	defaultAdapter, adapters := configuredAdapters(cfg, legatoBin)
 	agents := service.NewAgentService(db, tmuxMgr, wd, service.AgentServiceOptions{
+		ToolCheck:              processDoctor().SpawnCheck,
 		Sandbox:                sandboxSettings(cfg),
 		SandboxScratch:         sandboxScratch(cfg),
 		Adapter:                defaultAdapter,

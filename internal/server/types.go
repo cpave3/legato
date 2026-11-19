@@ -24,6 +24,9 @@ type MobileMetaResponse struct {
 	// a token for the server.
 	Tint            string                   `json:"tint,omitempty"`
 	ThemePreference *service.ThemePreference `json:"theme_preference,omitempty"`
+	// SetupIncomplete says a required check of the doctor failed. Only the
+	// flag: the checks themselves are behind the token (/api/doctor).
+	SetupIncomplete bool `json:"setup_incomplete"`
 	HandoffMeta
 }
 

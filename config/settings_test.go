@@ -2,6 +2,7 @@ package config
 
 import (
 	"encoding/json"
+	"slices"
 	"strings"
 	"testing"
 )
@@ -107,5 +108,41 @@ func TestFileOnlySettingsAreNotRegistered(t *testing.T) {
 		if _, ok := LookupSetting(key); ok {
 			t.Errorf("%s is file-only but registered", key)
 		}
+	}
+}
+
+func TestTheDefaultAgentToolIsASettingTheFileCanPin(t *testing.T) {
+	s, ok := LookupSetting("agents.default_tool")
+	if !ok {
+		t.Fatal("agents.default_tool is not a setting")
+	}
+	if slices.Contains(FileOnlySettings(), s.Key) {
+		t.Fatal("agents.default_tool is file-only")
+	}
+	cfg := Defaults()
+	if err := Overlay(cfg, map[string]json.RawMessage{"agents.default_tool": json.RawMessage(`"codex"`)}); err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Agents.DefaultTool != "codex" || cfg.DefaultAgentTool() != "codex" {
+		t.Fatalf("default tool = %q", cfg.Agents.DefaultTool)
+	}
+	if err := Overlay(Defaults(), map[string]json.RawMessage{"agents.default_tool": json.RawMessage(`"vim"`)}); err == nil {
+		t.Fatal("an unknown agent tool was accepted")
+	}
+}
+
+// A machine with no config.yaml (legato setup before the first run) gets
+// the configuration an empty file gives, so settings can be saved on it.
+func TestNoConfigFileIsAnEmptyOne(t *testing.T) {
+	t.Setenv("LEGATO_CONFIG", t.TempDir()+"/missing.yaml")
+	cfg, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.GitHub.Auth != "auto" {
+		t.Fatalf("github.auth = %q, want auto", cfg.GitHub.Auth)
+	}
+	if err := Overlay(cfg, map[string]json.RawMessage{"agents.default_tool": json.RawMessage(`"codex"`)}); err != nil {
+		t.Fatalf("a setting cannot be saved without a file: %v", err)
 	}
 }

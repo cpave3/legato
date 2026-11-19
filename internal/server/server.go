@@ -25,6 +25,10 @@ type WorktreeService interface {
 }
 
 type Server struct {
+	doctor DoctorReports
+	setup  SetupChecklist
+	// agentsOff is why there is no agent service, with the fix.
+	agentsOff                string
 	board                    service.BoardService
 	agents                   service.AgentService
 	swarm                    SwarmService
@@ -170,6 +174,10 @@ func NewWithSwarm(board service.BoardService, agents service.AgentService, tmux 
 	mux.HandleFunc("/health", healthHandler())
 	mux.HandleFunc("/frontend-meta", frontendMetaHandler())
 	mux.HandleFunc("/api/meta", s.mobileMetaHandler())
+	mux.HandleFunc("/api/doctor", s.doctorHandler())
+	mux.HandleFunc("/api/doctor/check", s.doctorCheckHandler())
+	mux.HandleFunc("/api/setup", s.setupHandler())
+	mux.HandleFunc("/api/setup/dismissed", s.setupDismissedHandler())
 	mux.HandleFunc("/api/pairing", s.pairingHandler())
 	mux.HandleFunc("/api/pair/exchange", s.pairExchangeHandler())
 	mux.HandleFunc("/api/pair/confirm", s.pairConfirmHandler())
@@ -400,6 +408,20 @@ func NewWithSwarm(board service.BoardService, agents service.AgentService, tmux 
 }
 
 // SetTLS configures TLS certificate paths. Call before Start/Serve.
+// SetAgentsOff says why this server has no agent service, with the fix
+// (tmux missing): what agent routes answer instead of a bare refusal.
+func (s *Server) SetAgentsOff(reason string) {
+	s.agentsOff = reason
+}
+
+// agentsUnavailable is what an agent route answers without an agent service.
+func (s *Server) agentsUnavailable() string {
+	if s.agentsOff != "" {
+		return s.agentsOff
+	}
+	return "agent service not available"
+}
+
 func (s *Server) SetTLS(certFile, keyFile string) {
 	s.tlsCert = certFile
 	s.tlsKey = keyFile
@@ -625,6 +647,12 @@ func (s *Server) settingsHandler() http.HandlerFunc {
 			// has no updater. Here so the web UI's update bar costs no
 			// request of its own.
 			Updates *service.UpdateStatus `json:"updates,omitempty"`
+			// SetupIncomplete: a required check of the doctor failed, so
+			// the web UI reads /api/doctor for its banner, and only then.
+			SetupIncomplete bool `json:"setup_incomplete"`
+			// Setup is the setup checklist's chip: whether it shows, and
+			// how many of its items are done. Absent without a checklist.
+			Setup *setupSummary `json:"setup,omitempty"`
 		}{
 			CaCertAvailable:          hasCACert,
 			WorkingDir:               s.workDir,
@@ -641,6 +669,8 @@ func (s *Server) settingsHandler() http.HandlerFunc {
 			Repositories:             s.repositories(r.Context()),
 			Tint:                     s.tint(r.Context()),
 			ReeveName:                string(s.reeveName.Of(r.Context())),
+			SetupIncomplete:          s.setupIncomplete(),
+			Setup:                    s.setupSummary(r.Context()),
 		}
 		if s.updates != nil {
 			status := s.updates.Status(r.Context())

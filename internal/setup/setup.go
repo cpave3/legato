@@ -8,11 +8,8 @@ import (
 	"net/http"
 	"net/url"
 	"os"
-	"path/filepath"
 	"strings"
 	"time"
-
-	"gopkg.in/yaml.v3"
 )
 
 // NeedsSetup returns true if no config file exists at the given path.
@@ -210,59 +207,6 @@ func AutoMapColumns(statuses []string) []ColumnMappingConfig {
 		result = append(result, ColumnMappingConfig{Name: "Unmapped", Statuses: unmapped})
 	}
 	return result
-}
-
-// WizardConfig holds all values gathered during the setup wizard.
-type WizardConfig struct {
-	BaseURL     string
-	Email       string
-	ProjectKeys []string
-	Columns     []ColumnMappingConfig
-}
-
-// WriteConfig writes the wizard configuration to a YAML file.
-// The API token is stored as an env var reference.
-func WriteConfig(path string, cfg WizardConfig) error {
-	if err := os.MkdirAll(filepath.Dir(path), 0755); err != nil {
-		return fmt.Errorf("creating config directory: %w", err)
-	}
-
-	type columnYAML struct {
-		Name           string   `yaml:"name"`
-		RemoteStatuses []string `yaml:"remote_statuses"`
-	}
-
-	type configYAML struct {
-		Jira struct {
-			BaseURL     string   `yaml:"base_url"`
-			Email       string   `yaml:"email"`
-			APIToken    string   `yaml:"api_token"`
-			ProjectKeys []string `yaml:"project_keys"`
-		} `yaml:"jira"`
-		Board struct {
-			Columns []columnYAML `yaml:"columns"`
-		} `yaml:"board"`
-	}
-
-	var out configYAML
-	out.Jira.BaseURL = cfg.BaseURL
-	out.Jira.Email = cfg.Email
-	out.Jira.APIToken = "${LEGATO_JIRA_TOKEN}"
-	out.Jira.ProjectKeys = cfg.ProjectKeys
-
-	for _, col := range cfg.Columns {
-		out.Board.Columns = append(out.Board.Columns, columnYAML{
-			Name:           col.Name,
-			RemoteStatuses: col.Statuses,
-		})
-	}
-
-	data, err := yaml.Marshal(out)
-	if err != nil {
-		return fmt.Errorf("marshaling config: %w", err)
-	}
-
-	return os.WriteFile(path, data, 0644)
 }
 
 func apiGet(ctx context.Context, baseURL, email, token, path string) ([]byte, error) {

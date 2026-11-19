@@ -37,6 +37,28 @@ func TestConfiguredAdaptersUsesWorkerDefaultAndConfiguredLaunchSettings(t *testi
 	}
 }
 
+func TestTheDefaultAgentToolSettingChoosesTheDefaultAdapter(t *testing.T) {
+	cases := []struct {
+		name, defaultTool, worker, want string
+	}{
+		{"the setting", "codex", "chimera", "codex"},
+		{"unset falls back to the swarm worker's tool", "", "chimera", "chimera"},
+		{"neither is Claude Code", "", "", "claude-code"},
+	}
+	for _, tc := range cases {
+		t.Run(tc.name, func(t *testing.T) {
+			cfg := &config.Config{Swarm: config.SwarmConfig{Worker: config.SwarmParticipantConfig{Agent: tc.worker}}}
+			cfg.Agents.DefaultTool = tc.defaultTool
+			if got, _ := configuredAdapters(cfg, "legato"); got.Name() != tc.want {
+				t.Fatalf("default adapter = %q, want %q", got.Name(), tc.want)
+			}
+			if got := doctorConfig(cfg, nil).DefaultAgent; got != tc.want {
+				t.Fatalf("doctor's default agent = %q, want %q", got, tc.want)
+			}
+		})
+	}
+}
+
 func TestBuildValidateOptionsUsesRegisteredDefaultAdapter(t *testing.T) {
 	cfg := &config.Config{Adapters: map[string]config.AdapterConfig{
 		"claude-code": {Tiers: map[string]config.TierConfig{"small": {}}},

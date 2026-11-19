@@ -39,6 +39,9 @@ var forwardedCommands = map[string][]string{
 	"attention":   {"list"},
 	"resource":    {"list"},
 	"workspace":   {"list"},
+	// doctor has no second word: "" forwards it with only flags, so an
+	// agent sees the host's tools, which its sandbox hides by design.
+	"doctor": {""},
 }
 
 // forwardedEnv is what the host takes of the agent's environment: values
@@ -76,7 +79,7 @@ func errScratchInSandbox() *commandError {
 }
 
 func forwardable(args []string) bool {
-	if len(args) < 2 {
+	if len(args) == 0 {
 		return false
 	}
 	for _, a := range args {
@@ -89,7 +92,10 @@ func forwardable(args []string) bool {
 		return false
 	}
 	for _, sub := range allowed {
-		if sub == "*" || sub == args[1] {
+		if sub == "" && (len(args) == 1 || strings.HasPrefix(args[1], "-")) {
+			return true
+		}
+		if len(args) >= 2 && (sub == "*" || sub == args[1]) {
 			return true
 		}
 	}

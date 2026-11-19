@@ -92,7 +92,7 @@ var apiGroups = []struct {
 	{"Plans, reviews and learnings", []string{"/api/plans", "/api/review", "/api/learning", "/plan-images", "/review-images"}},
 	{"Legato Scope", []string{"/api/scope"}},
 	{"Workflows and swarms", []string{"/api/workflow", "/api/swarm"}},
-	{"Settings, updates and the machine", []string{"/api/settings", "/api/config", "/api/updates", "/api/restart", "/api/hot-reload", "/api/engram", "/api/adapters", "/api/macros", "/api/directories", "/api/repositories", "/api/resources", "/api/job-clones", "/api/voice"}},
+	{"Settings, updates and the machine", []string{"/api/settings", "/api/config", "/api/doctor", "/api/setup", "/api/updates", "/api/restart", "/api/hot-reload", "/api/engram", "/api/adapters", "/api/macros", "/api/directories", "/api/repositories", "/api/resources", "/api/job-clones", "/api/voice"}},
 	{"Instances and integrations", []string{"/api/integrations", "/api/workers", "/api/pair", "/oauth"}},
 	{"Other", []string{""}},
 }
