@@ -133,6 +133,26 @@ Conditions support nested `all`, `any`, and `not`, and field comparisons using `
 
 On a [worker](/legato/running/instances/), a column trigger skips cards handed off from a main: they are the main's, and the main's own workflows run when the task comes home. Set `handed_off: true` on the trigger to run it on those cards too.
 
+### On a schedule
+
+A `schedule` trigger runs a workflow at due times: every day, every weekday, or once a week at a time, or as a cron expression says.
+
+```yaml
+on:
+  schedule:
+    every: weekdays        # daily | weekdays | weekly
+    at: "09:00"
+    # on: monday           # weekly only
+    # cron: "0 9 * * 1-5"  # instead of every/at/on
+    timezone: Australia/Sydney   # optional; your machine's zone by default
+    inputs:
+      since: ${{ schedule.previous_time }}
+```
+
+Give either `every` and `at` (and `on` for `weekly`), or `cron`: five fields, minute, hour, day of the month, month and weekday, each `*`, a number, a range `a-b`, a list, or a step `*/15`; months and weekdays may be names. Times are in `timezone`, or your machine's zone. When the clocks go forward and a time does not exist that day, the run comes at the next minute that does; when they go back and a time comes twice, it runs once.
+
+A run's inputs may read `${{ schedule.time }}`, its due time, and `${{ schedule.previous_time }}`, the due time before it, so a run can cover "since last time". Each due time makes one run, however many Legatos (the TUI and `legato serve`, say) share the database. The **Workflows** tab shows each schedule's next three runs and what its last one did.
+
 ### Pausing a trigger
 
 Every trigger is on unless it says `enabled: false`, which makes it start paused: a shared workflow then runs nothing until someone switches it on.

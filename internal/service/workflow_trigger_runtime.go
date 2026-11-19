@@ -3,6 +3,7 @@ package service
 import (
 	"context"
 	"log"
+	"time"
 
 	"github.com/cpave3/legato/internal/engine/events"
 )
@@ -12,6 +13,7 @@ func (c *WorkflowTriggerCoordinator) StartEventLoop(ctx context.Context, bus *ev
 	if err := c.Reconcile(ctx); err != nil {
 		log.Printf("workflow triggers: startup reconciliation: %v", err)
 	}
+	go c.scheduleLoop(ctx)
 	if bus == nil {
 		return cancel
 	}
@@ -35,4 +37,20 @@ func (c *WorkflowTriggerCoordinator) StartEventLoop(ctx context.Context, bus *ev
 		}
 	}()
 	return cancel
+}
+
+// scheduleLoop ticks the schedules each minute, just after the minute.
+func (c *WorkflowTriggerCoordinator) scheduleLoop(ctx context.Context) {
+	for {
+		if err := c.TickSchedules(ctx); err != nil {
+			log.Printf("workflow triggers: schedules: %v", err)
+		}
+		now := time.Now()
+		wait := now.Truncate(time.Minute).Add(time.Minute + time.Second).Sub(now)
+		select {
+		case <-ctx.Done():
+			return
+		case <-time.After(wait):
+		}
+	}
 }

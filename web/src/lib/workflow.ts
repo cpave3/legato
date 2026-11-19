@@ -7,7 +7,9 @@ export type WorkflowDefinition = { schema_version:number; name:string; title:str
 export type WorkflowRepositoryPreset = { name:string; repo:string; primary_dir:string; base_branch?:string }
 // A trigger as this Legato runs it: on or paused here (enabled), what its
 // file says (file_enabled), and whether this Legato switched it (overridden).
-export type WorkflowTriggerState = { trigger:string; file_enabled:boolean; enabled:boolean; overridden:boolean }
+export type ScheduleFire = { due_time:string; status:string; run_id?:string; error?:string }
+export type ScheduleState = { description:string; timezone:string; next:string[]; last?:ScheduleFire | null }
+export type WorkflowTriggerState = { trigger:string; file_enabled:boolean; enabled:boolean; overridden:boolean; max_runs_per_day?:number; schedule?:ScheduleState | null }
 export type WorkflowDiscovery = { definitions:WorkflowDefinition[] | null; errors:{path:string;error:string}[] | null; repositories?:WorkflowRepositoryPreset[] | null; trigger_states?:Record<string,WorkflowTriggerState[]> | null }
 export type WorkflowRunStepSummary = { step_id:string; title:string; status:string; trigger?:string }
 export type WorkflowRun = { id:string; workflow_name:string; workflow_title:string; definition_source:string; definition_digest:string; definition_json?:string; inputs_json:string; status:string; current_step_id:string; task_id?:string; related_task_id?:string; related_task_title?:string; steps?:WorkflowRunStepSummary[]; error?:string; needs_attention?:boolean; attention_reason?:string; created_at:string; started_at?:string; completed_at?:string }

@@ -159,10 +159,18 @@ export function triggerText(on: Record<string, unknown> | null | undefined): str
   return `${entered.confirm ? "Asks to start" : "Starts"} when a task enters ${entered.column}${handedOff}`
 }
 
+// dueTimeText is a due time as it reads in its own zone: "2026-11-23 09:00".
+export function dueTimeText(rfc3339: string): string {
+  const match = /^(\d{4}-\d{2}-\d{2})T(\d{2}:\d{2})/.exec(rfc3339)
+  return match ? `${match[1]} ${match[2]}` : rfc3339
+}
+
 // triggerLabel names one of a definition's triggers for its switch.
-export function triggerLabel(kind: string, on: Record<string, unknown> | null | undefined): string {
+export function triggerLabel(kind: string, on: Record<string, unknown> | null | undefined, description?: string): string {
   const trigger = on?.[kind] as Record<string, unknown> | undefined
+  if (description) return description
   switch (kind) {
+    case "schedule": return typeof trigger?.cron === "string" ? `On cron ${trigger.cron}` : "On a schedule"
     case "task.entered_column": return `When a task enters ${typeof trigger?.column === "string" ? trigger.column : "a column"}`
   }
   return kind

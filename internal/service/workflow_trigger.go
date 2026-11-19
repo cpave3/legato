@@ -21,6 +21,7 @@ type WorkflowTriggerCoordinator struct {
 	definitions func() workflowengine.DiscoveryResult
 	bus         *events.Bus
 	now         func() time.Time
+	hostZone    *time.Location
 }
 
 // SetClock replaces the coordinator's clock, for tests.

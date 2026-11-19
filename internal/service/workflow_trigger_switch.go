@@ -19,6 +19,8 @@ type WorkflowTriggerState struct {
 	workflowengine.TriggerInfo
 	Enabled    bool `json:"enabled"`
 	Overridden bool `json:"overridden"`
+	// Schedule is a schedule's next due times and last fire.
+	Schedule *ScheduleState `json:"schedule,omitempty"`
 }
 
 // triggerEnabled says whether a definition's trigger is on here: this
@@ -46,6 +48,11 @@ func (c *WorkflowTriggerCoordinator) TriggerStates(ctx context.Context) (map[str
 	for _, definition := range c.definitions().Definitions {
 		for _, trigger := range definition.On.List() {
 			state := WorkflowTriggerState{TriggerInfo: trigger, Enabled: trigger.EnabledByDefault}
+			if trigger.Kind == workflowengine.TriggerSchedule {
+				if state.Schedule, err = c.scheduleState(ctx, definition); err != nil {
+					return nil, err
+				}
+			}
 			for _, sw := range switches {
 				if sw.WorkflowName == definition.Name && sw.Trigger == trigger.Kind {
 					state.Enabled, state.Overridden = sw.Enabled, true

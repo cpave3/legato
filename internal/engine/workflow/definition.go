@@ -103,6 +103,11 @@ func (d *Definition) Validate() error {
 			return fmt.Errorf("after_start agent requires exactly one required task input")
 		}
 	}
+	if d.On.Schedule != nil {
+		if err := d.On.Schedule.Validate(d.Inputs); err != nil {
+			return err
+		}
+	}
 	if d.On.TaskEnteredColumn != nil {
 		if err := d.On.TaskEnteredColumn.Validate(d.Inputs); err != nil {
 			return err

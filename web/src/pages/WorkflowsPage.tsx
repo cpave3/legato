@@ -4,7 +4,7 @@ import { Play, RefreshCw } from "lucide-react"
 import { useWorkflows, useWorkflowRuns } from "../hooks/useWorkflow"
 import { useNow } from "../hooks/useNow"
 import { setWorkflowTrigger, type WorkflowDefinition, type WorkflowRun, type WorkflowTriggerState } from "../lib/workflow"
-import { ago, inputsLabel, runState, runSubject, runSummary, sourceLabel, stepPosition, stepSegments, triggerLabel, triggerText } from "../lib/workflowView"
+import { ago, dueTimeText, inputsLabel, runState, runSubject, runSummary, sourceLabel, stepPosition, stepSegments, triggerLabel, triggerText } from "../lib/workflowView"
 import { useServer } from "../hooks/useServer"
 import { RunWorkflowDialog } from "../components/RunWorkflowDialog"
 import { StatePill, StepBar } from "../components/WorkflowRunStatus"
@@ -131,7 +131,7 @@ function TriggerSwitch({ definition, state, onChanged }: { definition: WorkflowD
   const { baseUrl } = useServer()
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState("")
-  const label = triggerLabel(state.trigger, definition.on)
+  const label = triggerLabel(state.trigger, definition.on, state.schedule?.description)
   const toggle = async () => {
     setBusy(true)
     setError("")
@@ -152,6 +152,18 @@ function TriggerSwitch({ definition, state, onChanged }: { definition: WorkflowD
       {state.enabled ? "on here" : "paused here"}
     </button>
     {error && <span role="alert" className="text-xs text-lw-error">{error}</span>}
+    {state.schedule && <ScheduleTimes title={definition.title} schedule={state.schedule} />}
+  </span>
+}
+
+// ScheduleTimes is a schedule's next due times and what its last one did,
+// each in the schedule's own zone.
+function ScheduleTimes({ title, schedule }: { title: string; schedule: NonNullable<WorkflowTriggerState["schedule"]> }) {
+  return <span className="inline-flex flex-wrap items-center gap-x-3 text-xs text-lw-text-2">
+    <span aria-label={`Next runs of ${title}`}><span className="text-lw-faint">Next</span> {schedule.next.map(dueTimeText).join(" · ") || "none"} <span className="text-lw-faint">{schedule.timezone}</span></span>
+    {schedule.last && (schedule.last.run_id
+      ? <Link to={`/workflows/runs/${encodeURIComponent(schedule.last.run_id)}`} className="hover:text-lw-text">Last run {dueTimeText(schedule.last.due_time)} · {schedule.last.status}</Link>
+      : <span title={schedule.last.error}>Last {dueTimeText(schedule.last.due_time)} · {schedule.last.status}</span>)}
   </span>
 }
 
