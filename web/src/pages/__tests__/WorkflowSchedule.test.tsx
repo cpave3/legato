@@ -13,6 +13,8 @@ vi.mock("../../hooks/useWorkflow", () => ({
       description: "Every weekday at 09:00", timezone: "Australia/Sydney",
       next: ["2026-11-23T09:00:00+11:00", "2026-11-24T09:00:00+11:00", "2026-11-25T09:00:00+11:00"],
       last: { due_time: "2026-11-20T09:00:00+11:00", status: "started", run_id: "wr-9" },
+      catch_up: "once",
+      missed: [{ due_time: "2026-11-19T09:00:00+11:00", status: "missed", error: "Legato was not running at 2026-11-19 09:00 AEDT (catch_up: once)" }],
     } }] },
   }, refresh: vi.fn() }),
   useWorkflowRuns: () => ({ data: [], refresh: vi.fn() }),
@@ -28,4 +30,8 @@ it("shows a schedule's next runs and its last one", () => {
   expect(next.textContent).toContain("2026-11-23 09:00")
   expect(next.textContent).toContain("2026-11-24 09:00")
   expect(within(row).getByRole("link", { name: /Last run 2026-11-20 09:00/ }).getAttribute("href")).toBe("/workflows/runs/wr-9")
+  const missed = within(row).getByLabelText("Missed runs of Standup")
+  expect(missed.textContent).toContain("2026-11-19 09:00")
+  expect(missed.textContent).toContain("caught up once")
+  expect(within(missed).getByTitle(/not running/)).toBeTruthy()
 })

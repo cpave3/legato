@@ -165,6 +165,23 @@ func (s *Store) LatestTriggerEvent(ctx context.Context, workflowName, triggerKin
 	return &request, nil
 }
 
+// LatestTriggerItem is the greatest item a workflow's trigger made a
+// request for: for a schedule, the newest due time recorded (item is the
+// due time in UTC RFC 3339, which sorts as time does). "" for none.
+func (s *Store) LatestTriggerItem(ctx context.Context, workflowName, triggerKind string) (string, error) {
+	var item sql.NullString
+	err := s.db.GetContext(ctx, &item, `SELECT MAX(item) FROM workflow_trigger_requests WHERE workflow_name = ? AND trigger_kind = ?`, workflowName, triggerKind)
+	return item.String, err
+}
+
+// ListTriggerEvents lists a workflow's trigger requests of one status,
+// newest first, at most limit.
+func (s *Store) ListTriggerEvents(ctx context.Context, workflowName, triggerKind, status string, limit int) ([]WorkflowTriggerRequest, error) {
+	requests := []WorkflowTriggerRequest{}
+	err := s.db.SelectContext(ctx, &requests, `SELECT `+triggerRequestColumns+` FROM workflow_trigger_requests WHERE workflow_name = ? AND trigger_kind = ? AND status = ? ORDER BY item DESC, rowid DESC LIMIT ?`, workflowName, triggerKind, status, limit)
+	return requests, err
+}
+
 func nonEmpty(value, fallback string) string {
 	if value == "" {
 		return fallback

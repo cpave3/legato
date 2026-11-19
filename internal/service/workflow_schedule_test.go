@@ -131,3 +131,79 @@ func TestTheWorkflowsPageSeesAScheduleNextRuns(t *testing.T) {
 	}
 }
 
+
+func TestMissedDueTimesAreRecordedAndCaughtUpOnce(t *testing.T) {
+	for _, policy := range []string{"once", "skip"} {
+		t.Run(policy, func(t *testing.T) {
+			db, coordinators, _ := scheduleFixture(t, "    every: daily\n    at: \"09:00\"\n    catch_up: "+policy+"\n", 1)
+			c := coordinators[0]
+			ctx := context.Background()
+			now := time.Date(2026, 11, 20, 9, 0, 5, 0, time.UTC)
+			c.SetClock(func() time.Time { return now })
+			if err := c.TickSchedules(ctx); err != nil {
+				t.Fatal(err)
+			}
+			// Legato is down for three due times, and starts at noon on the 23rd.
+			now = time.Date(2026, 11, 23, 12, 0, 0, 0, time.UTC)
+			for range 2 { // a restart does not repeat them
+				if err := c.CatchUpSchedules(ctx); err != nil {
+					t.Fatal(err)
+				}
+			}
+			missed := requestsWith(t, db, "missed")
+			if len(missed) != 3 {
+				t.Fatalf("missed = %d, want 3", len(missed))
+			}
+			started := requestsWith(t, db, "started")
+			want := 2
+			if policy == "skip" {
+				want = 1
+			}
+			if len(started) != want {
+				t.Fatalf("started = %d, want %d", len(started), want)
+			}
+			if policy == "once" {
+				late := started[len(started)-1]
+				run, _ := db.FindWorkflowRunByTriggerRequest(ctx, late.ID)
+				if !strings.Contains(run.Run.InputsJSON, `"since":"2026-11-20T09:00:00Z"`) || !strings.Contains(run.Run.InputsJSON, `"at":"2026-11-23T09:00:00Z"`) {
+					t.Fatalf("the late run must cover every missed time: %s", run.Run.InputsJSON)
+				}
+			}
+			states, _ := c.TriggerStates(ctx)
+			if got := states["standup"][0].Schedule.Missed; len(got) != 3 || got[0].DueTime != "2026-11-23T09:00:00Z" || !strings.Contains(got[0].Error, "not running") {
+				t.Fatalf("missed shown = %+v", got)
+			}
+		})
+	}
+}
+
+func TestANewScheduleHasNothingToCatchUp(t *testing.T) {
+	db, coordinators, _ := scheduleFixture(t, "    every: daily\n    at: \"09:00\"\n", 1)
+	c := coordinators[0]
+	c.SetClock(func() time.Time { return time.Date(2026, 11, 23, 12, 0, 0, 0, time.UTC) })
+	if err := c.CatchUpSchedules(context.Background()); err != nil {
+		t.Fatal(err)
+	}
+	if n := requestCount(t, db); n != 0 {
+		t.Fatalf("requests = %d", n)
+	}
+}
+
+func TestAScheduledRunThatCannotStartReachesAttention(t *testing.T) {
+	db, coordinators, _ := scheduleFixture(t, "    every: daily\n    at: \"09:00\"\n", 1)
+	c := coordinators[0]
+	ctx := context.Background()
+	c.SetClock(func() time.Time { return time.Date(2026, 11, 23, 9, 0, 5, 0, time.UTC) })
+	// The workflow's file breaks its own run: its step names no executor.
+	c.workflows = NewWorkflowService(db, nil)
+	if err := c.TickSchedules(ctx); err != nil {
+		t.Fatal(err)
+	}
+	items, err := NewWorkflowTriggerAttentionAdapter(c, db).Snapshot(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if len(items) != 1 || items[0].SignalKind != AttentionSignalWorkflowTriggerFailed {
+		t.Fatalf("items = %+v, requests %+v", items, requestsWith(t, db, "started"))
+	}
+}

@@ -2,7 +2,9 @@ package service
 
 import (
 	"context"
+	"encoding/json"
 	"errors"
+	"fmt"
 	"time"
 
 	"github.com/cpave3/legato/internal/engine/store"
@@ -80,6 +82,10 @@ type ScheduleState struct {
 	Timezone    string        `json:"timezone"`
 	Next        []string      `json:"next"`
 	Last        *ScheduleFire `json:"last,omitempty"`
+	// Missed is the newest due times missed while no Legato ran, with why.
+	Missed []ScheduleFire `json:"missed"`
+	// CatchUp is once or skip.
+	CatchUp string `json:"catch_up"`
 }
 
 // ScheduleFire is what a due time did.
@@ -93,7 +99,14 @@ type ScheduleFire struct {
 func (c *WorkflowTriggerCoordinator) scheduleState(ctx context.Context, definition *workflowengine.Definition) (*ScheduleState, error) {
 	schedule := definition.On.Schedule
 	loc := schedule.Location(c.zone())
-	state := &ScheduleState{Description: schedule.Describe(), Timezone: loc.String(), Next: []string{}}
+	state := &ScheduleState{Description: schedule.Describe(), Timezone: loc.String(), Next: []string{}, Missed: []ScheduleFire{}, CatchUp: schedule.CatchUpPolicy()}
+	missed, err := c.store.ListTriggerEvents(ctx, definition.Name, workflowengine.TriggerSchedule, "missed", 10)
+	if err != nil {
+		return nil, err
+	}
+	for _, m := range missed {
+		state.Missed = append(state.Missed, ScheduleFire{DueTime: m.EventKey, Status: m.Status, Error: m.Error})
+	}
 	after := c.clock()
 	for len(state.Next) < 3 {
 		next, ok := schedule.Next(after, c.zone())
@@ -107,8 +120,74 @@ func (c *WorkflowTriggerCoordinator) scheduleState(ctx context.Context, definiti
 	if err != nil && !errors.Is(err, store.ErrNotFound) {
 		return nil, err
 	}
-	if last != nil {
+	if last != nil && last.Status != "missed" {
 		state.Last = &ScheduleFire{DueTime: last.EventKey, Status: last.Status, RunID: last.RunID, Error: last.Error}
 	}
 	return state, nil
+}
+
+// CatchUpSchedules records the due times that passed while no Legato ran:
+// those after the newest one recorded (a schedule never recorded has none)
+// and before the tick window, each as a missed request, once. With
+// catch_up: once (the default) one late run follows for all of them, its
+// schedule.previous_time the due time before the first missed, so it
+// covers them; skip makes none. Run at start, before the first tick.
+func (c *WorkflowTriggerCoordinator) CatchUpSchedules(ctx context.Context) error {
+	now := c.clock()
+	var errs []error
+	for _, definition := range c.definitions().Definitions {
+		schedule := definition.On.Schedule
+		if schedule == nil {
+			continue
+		}
+		if on, err := c.triggerEnabled(ctx, definition, workflowengine.TriggerSchedule); err != nil || !on {
+			errs = append(errs, err)
+			continue
+		}
+		lastItem, err := c.store.LatestTriggerItem(ctx, definition.Name, workflowengine.TriggerSchedule)
+		if err != nil || lastItem == "" {
+			errs = append(errs, err)
+			continue
+		}
+		last, err := time.Parse(time.RFC3339, lastItem)
+		if err != nil {
+			continue
+		}
+		missed := schedule.DueBetween(last, now.Add(-scheduleTickWindow), c.zone(), 1000)
+		recorded := 0
+		loc := schedule.Location(c.zone())
+		for _, due := range missed {
+			if err := c.recordMissed(ctx, definition, due, now, loc); errors.Is(err, store.ErrTriggerEventSeen) {
+				continue
+			} else if err != nil {
+				errs = append(errs, err)
+				continue
+			}
+			recorded++
+		}
+		if recorded == 0 || schedule.CatchUpPolicy() != workflowengine.CatchUpOnce {
+			continue
+		}
+		latest := missed[len(missed)-1]
+		eventContext := map[string]any{"schedule": map[string]any{"time": latest.In(loc).Format(time.RFC3339), "previous_time": last.In(loc).Format(time.RFC3339), "late": true}}
+		if _, err := c.Fire(ctx, TriggerEvent{Definition: definition, Kind: workflowengine.TriggerSchedule, Key: "late:" + latest.UTC().Format(time.RFC3339), Item: latest.UTC().Format(time.RFC3339), Context: eventContext, At: now}); err != nil {
+			errs = append(errs, err)
+		}
+	}
+	return errors.Join(errs...)
+}
+
+// recordMissed records one due time no Legato ran.
+func (c *WorkflowTriggerCoordinator) recordMissed(ctx context.Context, definition *workflowengine.Definition, due, now time.Time, loc *time.Location) error {
+	definitionJSON, _ := json.Marshal(definition)
+	key := due.UTC().Format(time.RFC3339)
+	request, err := c.store.InsertWorkflowTriggerEvent(ctx, store.WorkflowTriggerRequest{
+		ID: workflowID("wtr-"), WorkflowName: definition.Name, DefinitionSource: definition.Source, DefinitionJSON: string(definitionJSON),
+		Status: "missed", TriggerKind: workflowengine.TriggerSchedule, Item: key, EventKey: key, CreatedAt: now.UTC().Format(time.DateTime),
+	})
+	if err != nil {
+		return err
+	}
+	reason := fmt.Sprintf("Legato was not running at %s (catch_up: %s)", due.In(loc).Format("2006-01-02 15:04 MST"), definition.On.Schedule.CatchUpPolicy())
+	return c.update(ctx, request.ID, "missed", "", `{}`, `[]`, reason)
 }

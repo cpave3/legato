@@ -164,6 +164,10 @@ function ScheduleTimes({ title, schedule }: { title: string; schedule: NonNullab
     {schedule.last && (schedule.last.run_id
       ? <Link to={`/workflows/runs/${encodeURIComponent(schedule.last.run_id)}`} className="hover:text-lw-text">Last run {dueTimeText(schedule.last.due_time)} · {schedule.last.status}</Link>
       : <span title={schedule.last.error}>Last {dueTimeText(schedule.last.due_time)} · {schedule.last.status}</span>)}
+    {(schedule.missed ?? []).length > 0 && <span aria-label={`Missed runs of ${title}`} className="text-lw-needs">
+      Missed {(schedule.missed ?? []).map(fire => <span key={fire.due_time} title={fire.error} className="ml-1">{dueTimeText(fire.due_time)}</span>)}
+      <span className="ml-1 text-lw-faint">· {schedule.catch_up === "skip" ? "skipped" : "caught up once"}</span>
+    </span>}
   </span>
 }
 

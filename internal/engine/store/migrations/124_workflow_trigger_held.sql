@@ -6,7 +6,8 @@
 -- stop counts by (the task, the PR, the due time); event_key makes one
 -- request per event of a kind (a due time, a review); event_json is what
 -- the event says, for the trigger's inputs. A request the loop stop holds
--- is 'held'. See docs/ai/workflows.md § Loop stop.
+-- is 'held'; a schedule's due time that passed while no Legato ran is
+-- 'missed' (LEG-356). See docs/ai/workflows.md § Loop stop.
 PRAGMA writable_schema = ON;
 
 UPDATE sqlite_schema
@@ -15,7 +16,7 @@ SET sql = replace(replace(
     'transition_id      TEXT NOT NULL REFERENCES',
     'transition_id      TEXT REFERENCES'),
     '''skipped'',''failed''))',
-    '''skipped'',''failed'',''held''))'
+    '''skipped'',''failed'',''held'',''missed''))'
 )
 WHERE type = 'table' AND name = 'workflow_trigger_requests';
 

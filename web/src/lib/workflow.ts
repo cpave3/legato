@@ -8,7 +8,7 @@ export type WorkflowRepositoryPreset = { name:string; repo:string; primary_dir:s
 // A trigger as this Legato runs it: on or paused here (enabled), what its
 // file says (file_enabled), and whether this Legato switched it (overridden).
 export type ScheduleFire = { due_time:string; status:string; run_id?:string; error?:string }
-export type ScheduleState = { description:string; timezone:string; next:string[]; last?:ScheduleFire | null }
+export type ScheduleState = { description:string; timezone:string; next:string[]; last?:ScheduleFire | null; missed?:ScheduleFire[] | null; catch_up?:string }
 export type WorkflowTriggerState = { trigger:string; file_enabled:boolean; enabled:boolean; overridden:boolean; max_runs_per_day?:number; schedule?:ScheduleState | null }
 export type WorkflowDiscovery = { definitions:WorkflowDefinition[] | null; errors:{path:string;error:string}[] | null; repositories?:WorkflowRepositoryPreset[] | null; trigger_states?:Record<string,WorkflowTriggerState[]> | null }
 export type WorkflowRunStepSummary = { step_id:string; title:string; status:string; trigger?:string }

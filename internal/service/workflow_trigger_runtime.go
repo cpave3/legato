@@ -13,6 +13,9 @@ func (c *WorkflowTriggerCoordinator) StartEventLoop(ctx context.Context, bus *ev
 	if err := c.Reconcile(ctx); err != nil {
 		log.Printf("workflow triggers: startup reconciliation: %v", err)
 	}
+	if err := c.CatchUpSchedules(ctx); err != nil {
+		log.Printf("workflow triggers: missed schedules: %v", err)
+	}
 	go c.scheduleLoop(ctx)
 	if bus == nil {
 		return cancel
