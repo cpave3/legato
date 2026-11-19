@@ -160,7 +160,7 @@ function WorkflowsTab({ setTab }: { setTab: (tab: WorkflowTab) => void }) {
         </li>
       })}
     </ul>}
-    {!definitions.loading && !definitions.error && list.length === 0 && <p className="mt-6 text-sm text-lw-text-2">No workflow definitions found</p>}
+    {!definitions.loading && !definitions.error && list.length === 0 && <div className="mt-6 text-sm text-lw-text-2"><p>No workflow definitions found</p><p className="mt-1">A workflow is a YAML file of steps. <a href="https://cpave3.github.io/legato/using/workflows/" target="_blank" rel="noreferrer" className="text-lw-link hover:underline">Write your first workflow</a></p></div>}
     {selected && <RunWorkflowDialog definition={selected} repositories={definitions.data?.repositories ?? []} onClose={() => setSelected(null)} />}
   </PageFrame>
 }

@@ -31,6 +31,18 @@ const featureTone: Record<string, string> = {
   needs: "rounded bg-lw-needs-soft px-1.5 py-0.5 text-[11px] text-lw-needs",
 }
 
+// SetupChecklistButton opens the setup checklist from elsewhere, such as an
+// Attention page that is empty only because setup is not finished.
+export function SetupChecklistButton({ baseUrl, label }: { baseUrl: string; label: string }) {
+  const [open, setOpen] = useState(false)
+  return (
+    <>
+      <button type="button" onClick={() => setOpen(true)} className="text-lw-link hover:underline">{label}</button>
+      {open && <SetupChecklistDialog baseUrl={baseUrl} onClose={() => setOpen(false)} />}
+    </>
+  )
+}
+
 function SetupChecklistDialog({ baseUrl, onClose }: { baseUrl: string; onClose: () => void }) {
   const queryClient = useQueryClient()
   const { data, error } = useQuery({ queryKey: queryKeys.setup(baseUrl), queryFn: () => fetchSetup(baseUrl) })
