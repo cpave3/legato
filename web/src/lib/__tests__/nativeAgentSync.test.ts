@@ -592,6 +592,62 @@ describe("native agent synchronization", () => {
     expect(state.items[0]?.permission).toMatchObject({ requestId: "req-1", status: "pending" })
   })
 
+  it("keeps settled approvals beside the tool calls they approved when a turn's snapshot arrives", () => {
+    let state = createNativeSyncState()
+    const live: NativeEvent[] = [
+      { eventId: "u", type: "user_message", content: "run the checks" },
+      { eventId: "s1", type: "tool_call_start", callId: "call-1", name: "bash", args: { command: "go vet" } },
+      { eventId: "p1", type: "permission_request", requestId: "req-1", tool: "Bash", target: "host", command: "go vet" },
+      { eventId: "r1", type: "permission_resolved", requestId: "req-1", decision: "allow" },
+      { eventId: "d1", type: "tool_call_result", callId: "call-1", result: {} },
+      { eventId: "s2", type: "tool_call_start", callId: "call-2", name: "bash", args: { command: "go test" } },
+      { eventId: "p2", type: "permission_request", requestId: "req-2", tool: "Bash", target: "host", command: "go test" },
+      { eventId: "r2", type: "permission_resolved", requestId: "req-2", decision: "deny" },
+      { eventId: "t", type: "assistant_text_done", id: "summary", text: "Both ran." },
+      { eventId: "f", type: "run_finished" },
+    ]
+    for (const event of live) state = reduceNativeEvent(state, event)
+    const order = (items: typeof state.items) => items.map((item) => item.permission?.requestId ?? item.tool?.key ?? item.text)
+    expect(order(state.items)).toEqual(["run the checks", "call-1", "req-1", "call-2", "req-2", "Both ran."])
+
+    // At the end of the turn the panel refetches the snapshot, which lists
+    // only open approvals.
+    const snapshot: NativeSnapshot = {
+      status: "idle",
+      messages: [
+        { role: "assistant", content: "Ready." },
+        { role: "user", content: "run the checks" },
+        { role: "assistant", content: [{ type: "tool-call", toolCallId: "call-1" }, { type: "tool-call", toolCallId: "call-2" }] },
+        { role: "assistant", content: "Both ran." },
+      ],
+      toolCalls: [
+        { callId: "call-1", toolCallId: "call-1", messageCommitted: true, name: "bash", args: {}, result: {} },
+        { callId: "call-2", toolCallId: "call-2", messageCommitted: true, name: "bash", args: {}, result: {} },
+      ],
+      pendingPermissions: [],
+    }
+    state = reconcileNativeSnapshot(snapshot, state, [])
+    expect(order(state.items)).toEqual(["Ready.", "run the checks", "call-1", "req-1", "call-2", "req-2", "Both ran."])
+
+    // A second refetch keeps them where they are.
+    state = reconcileNativeSnapshot(snapshot, state, [])
+    expect(order(state.items)).toEqual(["Ready.", "run the checks", "call-1", "req-1", "call-2", "req-2", "Both ran."])
+  })
+
+  it("keeps a settled approval before what followed it when nothing before it is in the snapshot", () => {
+    let state = createNativeSyncState()
+    state = reduceNativeEvent(state, { eventId: "p1", type: "permission_request", requestId: "req-1", tool: "Bash", target: "host", command: "ls" })
+    state = reduceNativeEvent(state, { eventId: "r1", type: "permission_resolved", requestId: "req-1", decision: "allow" })
+    state = reduceNativeEvent(state, { eventId: "s1", type: "tool_call_start", callId: "call-1", name: "bash", args: {} })
+    state = reconcileNativeSnapshot({
+      status: "idle",
+      messages: [{ role: "assistant", content: [{ type: "tool-call", toolCallId: "call-1" }] }, { role: "assistant", content: "Listed." }],
+      toolCalls: [{ callId: "call-1", toolCallId: "call-1", messageCommitted: true, name: "bash", args: {}, result: {} }],
+      pendingPermissions: [],
+    }, state, [])
+    expect(state.items.map((item) => item.permission?.requestId ?? item.tool?.key ?? item.text)).toEqual(["req-1", "call-1", "Listed."])
+  })
+
   it("uses field presence to reconcile stale permission cards compatibly", () => {
     let state = createNativeSyncState()
     for (const requestId of ["pending", "resolved"]) {
