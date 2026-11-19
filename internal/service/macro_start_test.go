@@ -1,0 +1,124 @@
+package service
+
+import (
+	"context"
+	"errors"
+	"strings"
+	"testing"
+
+	"github.com/cpave3/legato/internal/engine/macros"
+	"github.com/cpave3/legato/internal/engine/store"
+)
+
+// macroAgentsSpy records what a macro start asks of the agent service.
+type macroAgentsSpy struct {
+	running  map[string]bool
+	spawned  []AgentSpawnOptions
+	queued   []string
+	saved    *TaskResumeSession
+	queueErr error
+}
+
+func (m *macroAgentsSpy) CaptureOutput(_ context.Context, taskID string) (string, error) {
+	if m.running[taskID] {
+		return "", nil
+	}
+	return "", errors.New("no agent")
+}
+func (m *macroAgentsSpy) QueueMessage(_ context.Context, _ string, message string) error {
+	m.queued = append(m.queued, message)
+	return m.queueErr
+}
+func (m *macroAgentsSpy) SpawnAgent(_ context.Context, _ string, _, _ int, opts ...AgentSpawnOptions) error {
+	m.spawned = append(m.spawned, opts...)
+	return nil
+}
+func (m *macroAgentsSpy) DefaultAdapter() string { return "claude-code" }
+func (m *macroAgentsSpy) GetTaskResumeSession(context.Context, string, string) (*TaskResumeSession, error) {
+	return m.saved, nil
+}
+
+func newMacroStartFixture(t *testing.T) (*MacroService, *macroAgentsSpy) {
+	t.Helper()
+	settings, db := newSettingsFixture(t, "")
+	remote := "LEG-7"
+	if err := db.CreateTask(context.Background(), store.Task{ID: "abc12345", Title: "Fix the login", Status: "Doing", RemoteID: &remote, CreatedAt: "2024-01-01T00:00:00Z", UpdatedAt: "2024-01-01T00:00:00Z"}); err != nil {
+		t.Fatal(err)
+	}
+	createTask(t, db, "local01")
+	svc := NewMacroService(settings)
+	spy := &macroAgentsSpy{running: map[string]bool{}}
+	svc.SetAgents(spy)
+	return svc, spy
+}
+
+func TestAMacroStartsTheTasksAgentWithItsToolAndTier(t *testing.T) {
+	svc, spy := newMacroStartFixture(t)
+	ctx := context.Background()
+	if err := svc.Save(ctx, "deep review", macros.Macro{Keys: "Review it deeply.\n", Agent: "codex", Tier: "smart"}, "web"); err != nil {
+		t.Fatal(err)
+	}
+	got, err := svc.Start(ctx, MacroStart{Name: "deep review", TaskID: "abc12345"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !got.Started || got.Queued || len(spy.spawned) != 1 {
+		t.Fatalf("result = %+v, spawned %v", got, spy.spawned)
+	}
+	opts := spy.spawned[0]
+	if opts.AgentKind != "codex" || opts.Tier != "smart" {
+		t.Fatalf("spawned %q tier %q", opts.AgentKind, opts.Tier)
+	}
+	want := "Task LEG-7: Fix the login\n\nReview it deeply."
+	if opts.Prompt != want {
+		t.Fatalf("prompt = %q, want %q", opts.Prompt, want)
+	}
+	if strings.HasPrefix(opts.Prompt, "[legato") {
+		t.Fatal("a macro is the operator's words and is never tagged")
+	}
+}
+
+func TestAMacroWithNoToolStartsTheDefaultOneAndResumesItsConversation(t *testing.T) {
+	svc, spy := newMacroStartFixture(t)
+	spy.saved = &TaskResumeSession{ID: "sess-1", CWD: "/work"}
+	if _, err := svc.Start(context.Background(), MacroStart{Name: "plan", TaskID: "local01"}); err != nil {
+		t.Fatal(err)
+	}
+	opts := spy.spawned[0]
+	if opts.AgentKind != "" || opts.Tier != "" {
+		t.Fatalf("spawned %q tier %q, want the default tool", opts.AgentKind, opts.Tier)
+	}
+	if opts.SessionPolicy != "resume" || opts.ResumeSessionID != "sess-1" || opts.WorkingDir != "/work" {
+		t.Fatalf("resume = %+v", opts)
+	}
+	if !strings.HasPrefix(opts.Prompt, "Task local01: Test local01\n\nPlan this task") {
+		t.Fatalf("prompt = %q", opts.Prompt)
+	}
+}
+
+func TestAMacroOnARunningAgentIsQueuedAsItsNextMessage(t *testing.T) {
+	svc, spy := newMacroStartFixture(t)
+	spy.running["abc12345"] = true
+	got, err := svc.Start(context.Background(), MacroStart{Name: "Review", TaskID: "abc12345", PR: &MacroPR{Repo: "acme/web", Number: 42, URL: "https://github.com/acme/web/pull/42"}})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Started || !got.Queued || len(spy.spawned) != 0 || len(spy.queued) != 1 {
+		t.Fatalf("result = %+v, queued %v, spawned %v", got, spy.queued, spy.spawned)
+	}
+	want := "Task LEG-7: Fix the login\nPull request acme/web#42: https://github.com/acme/web/pull/42\n\nReview this pull request."
+	if !strings.HasPrefix(spy.queued[0], want) || strings.HasSuffix(spy.queued[0], "\n") {
+		t.Fatalf("message = %q", spy.queued[0])
+	}
+}
+
+func TestAMacroStartRefusesAnUnknownMacroOrTask(t *testing.T) {
+	svc, _ := newMacroStartFixture(t)
+	ctx := context.Background()
+	if _, err := svc.Start(ctx, MacroStart{Name: "nope", TaskID: "abc12345"}); !errors.Is(err, ErrMacroNotFound) {
+		t.Fatalf("unknown macro = %v", err)
+	}
+	if _, err := svc.Start(ctx, MacroStart{Name: "Plan", TaskID: "missing"}); !errors.Is(err, store.ErrNotFound) {
+		t.Fatalf("unknown task = %v", err)
+	}
+}

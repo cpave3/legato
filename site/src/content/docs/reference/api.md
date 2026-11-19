@@ -37,6 +37,7 @@ A card on the board is a task: its ID is the task's. An agent is addressed by it
 | Check on some agents in brief | `GET /api/agents?view=compact&status=running&task=<id>,<id>&workspace=<name>` |  |
 | Start an agent on a task | `POST /api/tasks/<id>/agent` | `{"agent_kind": "claude-code", "prompt": "…"}` |
 | Message an agent that is running | `POST /api/tasks/<id>/agent` | `{"prompt": "…"}` |
+| Start a macro on a task (and one of its pull requests) | `POST /api/tasks/<id>/macro` | `{"name": "Review", "pr": {"repo": "owner/name", "pr_number": 12}}` |
 | Read what an agent said and did last | `GET /api/agents/<id>/conversation` |  |
 | Stop an agent | `POST /api/agents/kill` | `{"task_id": "<id>"}` |
 | Restart an agent, keeping its conversation | `POST /api/agents/<id>/restart` |  |
@@ -72,7 +73,8 @@ A card on the board is a task: its ID is the task's. An agent is addressed by it
 | `GET` | `/api/tasks/{id}/plans` | read | List a task's plans |  |
 | `GET` | `/api/tasks/{id}/stacks` | read | List a task's branch stacks |  |
 | `GET` | `/api/tasks/{id}/stacks/{clone}/document` | read | Read a branch stack's import file |  |
-| `POST` | `/api/tasks/{id}/agent` | change | Start, resume or message a task's agent | `{"agent_kind": "claude-code", "prompt": "…", "working_dir": "…", "repo": "owner/name", "resources": ["…"]}` |
+| `POST` | `/api/tasks/{id}/agent` | change | Start, resume or message a task's agent | `{"agent_kind": "claude-code", "tier": "…", "prompt": "…", "working_dir": "…", "repo": "owner/name", "resources": ["…"]}` |
+| `POST` | `/api/tasks/{id}/macro` | change | Start a macro on a task: its agent starts or is messaged | `{"name": "Review", "pr": {"repo": "owner/name", "pr_number": 12, "url": "…"}}` |
 | `POST` | `/api/tasks/{id}/worktree` | change | Create a worktree for a task |  |
 | `GET` | `/api/tasks/{id}/artifacts` | read | List a task's artifacts |  |
 | `POST` | `/api/tasks/{id}/link-pr` | change | Link a pull request to a task | `{"owner": "…", "repo": "…", "pr_number": 12}` |
@@ -95,7 +97,7 @@ A card on the board is a task: its ID is the task's. An agent is addressed by it
 | Method | Route | Class | What it does | Body |
 | --- | --- | --- | --- | --- |
 | `GET` | `/api/agents` | read | List the agents |  |
-| `POST` | `/api/agents/spawn` | change | Start an agent | `{"title": "…", "agent_kind": "claude-code", "working_dir": "…", "prompt": "…"}` |
+| `POST` | `/api/agents/spawn` | change | Start an agent | `{"title": "…", "agent_kind": "claude-code", "tier": "…", "working_dir": "…", "prompt": "…"}` |
 | `POST` | `/api/agents/kill` | risky | Stop an agent | `{"task_id": "<id>"}` |
 | `PATCH` | `/api/agents/{task_id}/notify` | change | Turn an agent's notifications on or off | `{"enabled": true}` |
 | `PUT` | `/api/agents/{task_id}/group` | change | Put an agent's task in a group, or take it out | `{"group": "…"}` |

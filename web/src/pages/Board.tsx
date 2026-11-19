@@ -1,6 +1,7 @@
 import { useState, useEffect, useLayoutEffect, useCallback, useMemo, useRef } from "react"
 import { useNavigate, useSearchParams } from "react-router-dom"
 import { activeReviewLoop } from "../lib/workflow"
+import { macroNotice, macrosFor, startMacro, useMacros, type Macro, type MacroPR } from "../lib/macros"
 import { useServer } from "../hooks/useServer"
 import { useBoard } from "../hooks/useBoard"
 import {
@@ -218,6 +219,16 @@ export function BoardPage() {
     if (active) navigateTo(`/workflows/runs/${encodeURIComponent(active.id)}`)
     else setReviewLoop({ card, pr })
   }, [baseUrl, navigateTo])
+  const macros = useMacros(baseUrl, contextMenu !== null)
+  // A macro on a card, or on one of its pull requests: it starts the task's
+  // agent, or is queued to the one running.
+  const runMacro = useCallback(async (card: BoardCard, macro: Macro, pr?: MacroPR) => {
+    try {
+      addToast(macroNotice(macro.name, await startMacro(baseUrl, card.id, macro.name, pr)), "success")
+    } catch (reason) {
+      addToast(`${macro.name}: ${reason instanceof Error ? reason.message : String(reason)}`, "error")
+    }
+  }, [baseUrl, addToast])
   const [detailCard, setDetailCard] = useState<CardDetail | null>(null)
   const [detailId, setDetailId] = useState<string | null>(null)
   const [pendingAction, setPendingAction] = useState<string | null>(null)
@@ -1126,6 +1137,8 @@ export function BoardPage() {
         onWorkflow={workflow => { setCardWorkflow({ card: contextMenu.card, workflow }); setContextMenu(null) }}
         reviewPasses={reviewPassesDefinition ? (contextMenu.card.pull_requests ?? []).filter(pr => pr.repo && !["MERGED", "CLOSED"].includes(pr.state.toUpperCase())) : []}
         onReviewPasses={pr => { void startReviewLoop(contextMenu.card, pr) }}
+        macros={macrosFor(macros, "task")}
+        onMacro={macro => { void runMacro(contextMenu.card, macro) }}
         onClose={() => setContextMenu(null)}
       />}
       {reviewLoop && reviewPassesDefinition && <RunWorkflowDialog definition={reviewPassesDefinition} repositories={workflowDiscovery.data?.repositories ?? []} initialValues={{ repo: reviewLoop.pr.repo, pr_number: String(reviewLoop.pr.pr_number), agent_author: "true" }} readOnlyInputs={["repo", "pr_number", "agent_author"]} onClose={() => setReviewLoop(null)} />}

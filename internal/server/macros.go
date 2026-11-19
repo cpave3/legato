@@ -3,9 +3,12 @@ package server
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"net/http"
+	"strings"
 
 	"github.com/cpave3/legato/internal/engine/macros"
+	"github.com/cpave3/legato/internal/engine/store"
 	"github.com/cpave3/legato/internal/service"
 )
 
@@ -46,5 +49,73 @@ func (s *Server) macrosHandler() http.HandlerFunc {
 			return
 		}
 		_ = json.NewEncoder(w).Encode(macros.ListResult{Macros: s.macros})
+	}
+}
+
+// macroStarter starts a macro on a task: the service's Start.
+type macroStarter interface {
+	Start(ctx context.Context, req service.MacroStart) (service.MacroStartResult, error)
+}
+
+// macroStartHandler serves POST /api/tasks/{id}/macro {name, pr?}: the
+// macro starts the task's agent (201) or is queued to the one running (200).
+func (s *Server) macroStartHandler() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			s.writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+			return
+		}
+		starter, ok := s.macroSvc.(macroStarter)
+		if !ok {
+			s.writeError(w, http.StatusServiceUnavailable, "macros cannot start agents here")
+			return
+		}
+		var req struct {
+			Name string           `json:"name"`
+			PR   *service.MacroPR `json:"pr"`
+		}
+		if json.NewDecoder(r.Body).Decode(&req) != nil || strings.TrimSpace(req.Name) == "" {
+			s.writeError(w, http.StatusBadRequest, "want {\"name\": \"<macro>\", \"pr\": {\"repo\": \"owner/name\", \"pr_number\": 12}}")
+			return
+		}
+		if req.PR != nil && (req.PR.Repo == "" || req.PR.Number <= 0) {
+			s.writeError(w, http.StatusBadRequest, "a pull request needs repo and pr_number")
+			return
+		}
+		taskID := r.PathValue("id")
+		if _, err := s.board.GetCard(r.Context(), taskID); err != nil {
+			if errors.Is(err, store.ErrNotFound) {
+				s.writeError(w, http.StatusNotFound, "task not found")
+				return
+			}
+			s.writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		if away, ok := s.board.(interface {
+			RefuseAway(ctx context.Context, taskID string) error
+		}); ok {
+			if err := away.RefuseAway(r.Context(), taskID); err != nil {
+				s.writeError(w, taskErrorStatus(err), err.Error())
+				return
+			}
+		}
+		result, err := starter.Start(r.Context(), service.MacroStart{Name: req.Name, TaskID: taskID, PR: req.PR})
+		switch {
+		case errors.Is(err, service.ErrMacroNotFound), errors.Is(err, store.ErrNotFound):
+			s.writeError(w, http.StatusNotFound, err.Error())
+			return
+		case errors.Is(err, service.ErrTaskResumeConflict):
+			s.writeError(w, http.StatusConflict, err.Error())
+			return
+		case err != nil:
+			s.writeError(w, taskErrorStatus(err), err.Error())
+			return
+		}
+		s.hub.Broadcast(WSMessage{Type: MsgAgentsChanged})
+		status := http.StatusOK
+		if result.Started {
+			status = http.StatusCreated
+		}
+		s.writeJSON(w, status, result)
 	}
 }

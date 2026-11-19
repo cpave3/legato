@@ -95,6 +95,7 @@ type MacroEntry struct {
 // then config.yaml's other entries, then the database's.
 type MacroService struct {
 	settings *SettingsService
+	agents   MacroAgents
 }
 
 // NewMacroService reads and keeps macros through settings.

@@ -39,6 +39,7 @@ var routeClassTable = []routeClassEntry{
 	{"GET", "/api/tasks/{id}/stacks", ClassRead, "List a task's branch stacks"},
 	{"GET", "/api/tasks/{id}/stacks/{clone}/document", ClassRead, "Read a branch stack's import file"},
 	{"POST", "/api/tasks/{id}/agent", ClassChange, "Start, resume or message a task's agent"},
+	{"POST", "/api/tasks/{id}/macro", ClassChange, "Start a macro on a task: its agent starts or is messaged"},
 	{"POST", "/api/tasks/{id}/worktree", ClassChange, "Create a worktree for a task"},
 	{"GET", "/api/tasks/{id}/artifacts", ClassRead, "List a task's artifacts"},
 	{"POST", "/api/tasks/{id}/link-pr", ClassChange, "Link a pull request to a task"},

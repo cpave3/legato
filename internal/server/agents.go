@@ -160,8 +160,10 @@ func (s *Server) spawnAgentHandler() http.HandlerFunc {
 		}
 
 		var req struct {
-			Title      string   `json:"title"`
-			AgentKind  string   `json:"agent_kind"`
+			Title     string `json:"title"`
+			AgentKind string `json:"agent_kind"`
+			// Tier is one of the agent tool's tiers; "" for none.
+			Tier       string   `json:"tier"`
 			WorkingDir string   `json:"working_dir"`
 			Resources  []string `json:"resources"`
 			// Sandbox false starts this agent outside Legato's sandbox.
@@ -224,6 +226,7 @@ func (s *Server) spawnAgentHandler() http.HandlerFunc {
 		}
 		opts := service.AgentSpawnOptions{
 			AgentKind:   req.AgentKind,
+			Tier:        strings.TrimSpace(req.Tier),
 			WorkingDir:  req.WorkingDir,
 			Repo:        req.Repo,
 			Ref:         req.Ref,
@@ -625,7 +628,9 @@ func (s *Server) taskAgentHandler() http.HandlerFunc {
 			return
 		}
 		var req struct {
-			AgentKind     string   `json:"agent_kind"`
+			AgentKind string `json:"agent_kind"`
+			// Tier is one of the agent tool's tiers; "" for none.
+			Tier          string   `json:"tier"`
 			WorkingDir    string   `json:"working_dir"`
 			SessionPolicy string   `json:"session_policy"`
 			Resources     []string `json:"resources"`
@@ -702,7 +707,7 @@ func (s *Server) taskAgentHandler() http.HandlerFunc {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
 		}
-		opts := service.AgentSpawnOptions{AgentKind: req.AgentKind, WorkingDir: req.WorkingDir, Repo: req.Repo, Ref: req.Ref, Branch: strings.TrimSpace(req.Branch), Clone: req.CloneID, Resources: resources, Unsandboxed: req.Sandbox != nil && !*req.Sandbox, Prompt: req.Prompt, Engram: strings.TrimSpace(req.Engram), DockerHostNetwork: req.DockerHostNetwork}
+		opts := service.AgentSpawnOptions{AgentKind: req.AgentKind, Tier: strings.TrimSpace(req.Tier), WorkingDir: req.WorkingDir, Repo: req.Repo, Ref: req.Ref, Branch: strings.TrimSpace(req.Branch), Clone: req.CloneID, Resources: resources, Unsandboxed: req.Sandbox != nil && !*req.Sandbox, Prompt: req.Prompt, Engram: strings.TrimSpace(req.Engram), DockerHostNetwork: req.DockerHostNetwork}
 		if err := s.checkDockerHostNetwork(r.Context(), taskID, opts); err != nil {
 			http.Error(w, err.Error(), http.StatusBadRequest)
 			return
