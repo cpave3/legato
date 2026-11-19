@@ -3,6 +3,7 @@ import { QueryClient } from "@tanstack/react-query"
 export const queryKeys = {
   meta: (baseUrl: string) => [baseUrl, "meta"] as const,
   doctor: (baseUrl: string) => [baseUrl, "doctor"] as const,
+  setup: (baseUrl: string) => [baseUrl, "setup"] as const,
   themePreference: (baseUrl: string) => [baseUrl, "theme-preference"] as const,
   jobClones: (baseUrl: string) => [baseUrl, "job-clones"] as const,
   settings: (baseUrl: string) => [baseUrl, "settings"] as const,

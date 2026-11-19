@@ -1023,7 +1023,8 @@ func runServeCmd(args []string) int {
 	addr := ":" + port
 	srv := server.NewWithSwarm(boardSvc, agentSvc, tmuxMgr, addr, swarmSvc, bus, wd)
 	srv.SetAgentsOff(agentsOff)
-	srv.SetDoctor(startDoctorReports(cfg))
+	doctorReports := startDoctorReports(cfg)
+	srv.SetDoctor(doctorReports)
 	srv.SetWorkspaceDefaults(workspaceDefaults.Task, workspaceDefaults.Import)
 	srv.SetHotReloadBuildTrigger(configuredHotReloadBuildTrigger())
 	srv.SetReportService(service.NewReportService(db))
@@ -1113,6 +1114,7 @@ func runServeCmd(args []string) int {
 		srv.SetAuthToken(token)
 	}
 	pairing := wirePairing(srv, cfg, db, caCertFile, port, mainSide)
+	wireSetupChecklist(srv, db, doctorReports, repoPresets, pairing)
 
 	// IPC server for receiving CLI→web updates.
 	socketPath := ipc.SocketPath()
@@ -1425,7 +1427,8 @@ func runTUI() int {
 		} else {
 			webSrv = server.NewWithSwarm(boardSvc, agentSvc, tmuxMgr, ln.Addr().String(), swarmSvc, bus, wd)
 			webSrv.SetAgentsOff(agentsOff)
-			webSrv.SetDoctor(startDoctorReports(cfg))
+			webDoctor := startDoctorReports(cfg)
+			webSrv.SetDoctor(webDoctor)
 			webSrv.SetWorkspaceDefaults(workspaceDefaults.Task, workspaceDefaults.Import)
 			webSrv.SetHotReloadBuildTrigger(configuredHotReloadBuildTrigger())
 			webSrv.SetReportService(reportSvc)
@@ -1492,7 +1495,8 @@ func runTUI() int {
 				webSrv.SetAuthToken(token)
 			}
 			if tcp, ok := ln.Addr().(*net.TCPAddr); ok {
-				wirePairing(webSrv, cfg, db, caCertFile, strconv.Itoa(tcp.Port), mainSide)
+				webPairing := wirePairing(webSrv, cfg, db, caCertFile, strconv.Itoa(tcp.Port), mainSide)
+				wireSetupChecklist(webSrv, db, webDoctor, repoPresets, webPairing)
 				scheme := "http"
 				if certFile != "" {
 					scheme = "https"

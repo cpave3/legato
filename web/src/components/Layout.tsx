@@ -18,6 +18,7 @@ import { TintBand } from "./TintBand"
 import { useSettings } from "../hooks/useSettings"
 import { UpdateNotice } from "./UpdateNotice"
 import { DoctorBanner } from "./DoctorBanner"
+import { SetupChip } from "./SetupChip"
 import { VoiceLauncher } from "../voice/VoiceLauncher"
 import { ReeveNameContext } from "../lib/reeveName"
 
@@ -50,6 +51,11 @@ export function Layout() {
       {/* Main content */}
       <main className="flex flex-1 flex-col overflow-hidden pb-[calc(3.5rem+env(safe-area-inset-bottom))] md:pb-0">
         {settings?.setup_incomplete && <DoctorBanner baseUrl={baseUrl} />}
+        {settings?.setup?.show && (
+          <div className="flex justify-end px-3 pt-2">
+            <SetupChip baseUrl={baseUrl} summary={settings.setup} />
+          </div>
+        )}
         <Outlet />
       </main>
       <MobileTabBar sections={sections} connected={connected} moreOpen={moreOpen} onMore={() => setMoreOpen((open) => !open)} />
