@@ -150,6 +150,8 @@ type setupRun struct {
 
 	repositories    RepositoryPresets
 	repositoryRoots []string
+	web             WebSetup
+	flow            *Flow
 }
 
 // runSetup runs the flow on scripted lines, with secrets typed apart.
@@ -162,7 +164,7 @@ func runSetup(t *testing.T, input string, secrets []string, reports []service.Do
 	if prepare != nil {
 		prepare(r)
 	}
-	flow := Flow{
+	flow := &Flow{
 		Out: &r.out, In: strings.NewReader(input),
 		ReadSecret: func() (string, error) {
 			if len(secrets) == 0 {
@@ -187,7 +189,9 @@ func runSetup(t *testing.T, input string, secrets []string, reports []service.Do
 		Repositories:    r.repositories,
 		RepositoryRoots: r.repositoryRoots,
 		Now:             func() time.Time { return setupNow },
+		Web:             r.web,
 	}
+	r.flow = flow
 	r.err = flow.Run(context.Background())
 	return r
 }

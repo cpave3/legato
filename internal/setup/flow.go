@@ -57,6 +57,11 @@ type Flow struct {
 	RepositoryRoots []string
 	// Now is the clock that says which repositories were used lately.
 	Now func() time.Time
+	// Web turns on the web UI and pairs a phone; nil leaves the step out.
+	Web WebSetup
+	// PairOnStart is set when the operator asked to pair a phone and the
+	// web server is not up yet: the caller pairs once it has started it.
+	PairOnStart bool
 
 	lines  *bufio.Scanner
 	report service.DoctorReport
@@ -84,6 +89,9 @@ func (f *Flow) Run(ctx context.Context) error {
 	steps := []setupStep{{"Checks", f.stepChecks}, {"Default agent tool", f.stepDefaultTool}}
 	if f.Repositories != nil {
 		steps = append(steps, setupStep{"Repositories", f.stepRepositories})
+	}
+	if f.Web != nil {
+		steps = append(steps, setupStep{"Web UI and phone", f.stepWeb})
 	}
 	steps = append(steps, setupStep{"Ticket tracker", f.stepTracker})
 	for i, step := range steps {

@@ -1196,12 +1196,17 @@ func runTUI() int {
 		fmt.Fprintf(os.Stderr, "checking columns: %v\n", err)
 		return 1
 	}
+	// pairOnStart: setup was asked to pair a phone, which happens once the
+	// web server below has started, before the TUI takes the terminal.
+	pairOnStart := false
 	if len(mappings) == 0 {
 		// The guided setup. It never ends Legato: stopped at a failed
 		// check, or failed, the board still opens.
-		if err := setupFlow(cfg, db, os.Stdin, os.Stdout).Run(context.Background()); err != nil && !errors.Is(err, setup.ErrSetupStopped) {
+		flow := setupFlow(cfg, db, os.Stdin, os.Stdout, true)
+		if err := flow.Run(context.Background()); err != nil && !errors.Is(err, setup.ErrSetupStopped) {
 			fmt.Fprintf(os.Stderr, "setup: %v\n", err)
 		}
+		pairOnStart = flow.PairOnStart
 		// Read the configuration again: setup saved settings in the
 		// database.
 		cfg, err = config.Load()
@@ -1614,6 +1619,13 @@ func runTUI() int {
 	// If the web server was auto-started, tell the TUI to show the indicator.
 	if webSrv != nil {
 		app.SetWebServerRunning(cfg.Web.Port)
+	}
+	if pairOnStart {
+		if webSrv == nil {
+			fmt.Fprintln(os.Stdout, "The web server did not start, so no phone was paired. Later: legato pair.")
+		} else if err := pairPhoneHere(context.Background(), cfg, os.Stdout); err != nil {
+			fmt.Fprintf(os.Stdout, "Pairing: %v\n", err)
+		}
 	}
 
 	p := tea.NewProgram(app, tea.WithAltScreen(), tea.WithoutSignalHandler())

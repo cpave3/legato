@@ -39,7 +39,7 @@ func runSetupCmd(args []string) int {
 		return renderCommandError(command, &commandError{Code: "database_unavailable", Message: err.Error(), Exit: exitEnvironment}, false)
 	}
 	defer db.Close()
-	flow := setupFlow(cfg, db, os.Stdin, os.Stdout)
+	flow := setupFlow(cfg, db, os.Stdin, os.Stdout, false)
 	if err := flow.Run(context.Background()); err != nil {
 		if errors.Is(err, setup.ErrSetupStopped) {
 			fmt.Fprintln(os.Stdout, "Setup stopped. Run legato setup again once it is fixed.")
@@ -51,8 +51,9 @@ func runSetupCmd(args []string) int {
 }
 
 // setupFlow is the guided setup with this process's configuration and
-// store, on in and out.
-func setupFlow(cfg *config.Config, db *store.Store, in io.Reader, out io.Writer) *setup.Flow {
+// store, on in and out. firstRun is the TUI's first start, which starts
+// the web server itself once setup is done.
+func setupFlow(cfg *config.Config, db *store.Store, in io.Reader, out io.Writer, firstRun bool) *setup.Flow {
 	wd, _ := os.Getwd()
 	home, _ := os.UserHomeDir()
 	return &setup.Flow{
@@ -73,6 +74,7 @@ func setupFlow(cfg *config.Config, db *store.Store, in io.Reader, out io.Writer)
 		WorkDir:         wd,
 		Repositories:    newRepositoryPresetService(cfg, db, nil),
 		RepositoryRoots: setup.DefaultRepositoryRoots(home, wd),
+		Web:             webSetup{cfg: cfg, firstRun: firstRun, out: out},
 	}
 }
 
