@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { createDraftStore, draftsKey, memoryArea } from "./scope-drafts"
+import { createClearedStore, createDraftStore, createLock, draftsKey, memoryArea } from "./scope-drafts"
 import type { ScopeDraft } from "./scope-types"
 
 const origin = "http://localhost:5173"
@@ -19,6 +19,28 @@ function draft(id: string, comment = "Too much padding", url = `${origin}/settin
 }
 
 describe("the drafts of an origin", () => {
+  // Each tab's content script has its own store over the same storage; the
+  // service worker makes their changes one at a time with one lock.
+  it("loses no change when two stores share a lock", async () => {
+    const area = memoryArea()
+    const lock = createLock()
+    const one = createDraftStore(area, origin, lock)
+    const two = createDraftStore(area, origin, lock)
+    await Promise.all([one.add(draft("a")), two.add(draft("b"))])
+    expect((await one.list()).map((d) => d.id).sort()).toEqual(["a", "b"])
+    await Promise.all([one.remove("a"), two.update("b", "Edited")])
+    expect(await one.list()).toEqual([{ ...draft("b", "Edited") }])
+    const cleared = [createClearedStore(area, origin, lock), createClearedStore(area, origin, lock)]
+    await Promise.all([cleared[0].add(["sp-1"]), cleared[1].add(["sp-2"])])
+    expect((await cleared[0].list()).sort()).toEqual(["sp-1", "sp-2"])
+  })
+
+  it("goes on after a change that failed", async () => {
+    const lock = createLock()
+    await expect(lock("k", async () => { throw new Error("full") })).rejects.toThrow("full")
+    expect(await lock("k", async () => 1)).toBe(1)
+  })
+
   it("keeps drafts across pages of the origin, in the order they were placed", async () => {
     const area = memoryArea()
     const store = createDraftStore(area, origin)

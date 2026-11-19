@@ -49,7 +49,7 @@ When you place a pin, Scope records:
 - its styles: the computed styles that matter for visual problems, where they differ from the browser's defaults, its classes and inline style, and how its parent lays it out;
 - a screenshot of the element and the area around it, with the element outlined, at most 1024 pixels wide and 500 KB.
 
-The Scope panel is hidden while the screenshot is taken, so it is not in the picture.
+The Scope panel is hidden while the screenshot is taken, so it is not in the picture. Chrome lets Scope take a screenshot of a page only after you click the toolbar button or press the shortcut on that page. When you turned pin mode on from the panel instead, a pin may have no screenshot; the panel says so. Use the button or the shortcut, then pin again.
 
 ## Send
 
@@ -91,4 +91,5 @@ The Scope panel shows what went wrong:
 - **Could not reach Legato**: check that Legato is running and that the Legato URL in the extension's options is right. With HTTPS, Chrome must trust Legato's certificate; the message says how.
 - **Legato refused the extension's token**: open the extension's options, check the bearer token and save.
 - **Too large**: a batch takes at most 20 pins, and a screenshot at most 500 KB.
+- **No screenshot**: click the toolbar button or press the shortcut on the page, then pin the element again.
 - **The toolbar button shows `!`**: hover over it to see why. Scope works on `http` and `https` pages only, and only where you allowed access.

@@ -71,6 +71,30 @@ describe("sending drafts", () => {
     await vi.waitFor(() => expect(status(root).textContent).toContain("Sent 3 pins"))
   })
 
+  it("sends a comment edited in the panel, though its save is still under way", async () => {
+    const { overlay, root, store, actions } = setup([draft("a", "Old comment")])
+    const update = store.update
+    store.update = (id, comment) => new Promise((resolve) => setTimeout(() => resolve(update(id, comment)), 50))
+    await overlay.refresh()
+    const text = root.querySelector<HTMLTextAreaElement>(".tray .draft textarea")!
+    text.value = "New comment"
+    text.dispatchEvent(new Event("change"))
+    root.querySelector<HTMLButtonElement>(".tray [data-action='send']")!.click()
+    await vi.waitFor(() => expect(actions.send).toHaveBeenCalled())
+    expect(actions.send.mock.calls[0][0].map((pin) => pin.comment)).toEqual(["New comment"])
+  })
+
+  it("sends what is typed in the panel before it is saved", async () => {
+    const { overlay, root, actions } = setup([draft("a", "Old comment")])
+    await overlay.refresh()
+    const text = root.querySelector<HTMLTextAreaElement>(".tray .draft textarea")!
+    text.focus()
+    text.value = "Typed"
+    root.querySelector<HTMLButtonElement>(".tray [data-action='send']")!.click()
+    await vi.waitFor(() => expect(actions.send).toHaveBeenCalled())
+    expect(actions.send.mock.calls[0][0].map((pin) => pin.comment)).toEqual(["Typed"])
+  })
+
   it("says the pins wait in Legato's pool when no agent has subscribed to the site", async () => {
     const { overlay, root } = setup([draft("a", "Too much padding")], { batch_id: "sb-1", pin_ids: ["sp-1"], subscribed: false, delivered: false })
     await overlay.refresh()

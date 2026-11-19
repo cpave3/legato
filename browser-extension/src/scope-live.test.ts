@@ -3,8 +3,9 @@ import { createScopeLive, type LiveSocket } from "./scope-live"
 import type { SentPin } from "./scope-types"
 
 function fakeSocket(url: string) {
-  const socket: LiveSocket & { url: string; closed: boolean } = {
-    url, closed: false, onopen: null, onmessage: null, onclose: null,
+  const socket: LiveSocket & { url: string; closed: boolean; sent: string[] } = {
+    url, closed: false, sent: [], onopen: null, onmessage: null, onclose: null,
+    send: (data: string) => { socket.sent.push(data) },
     close: () => { socket.closed = true; socket.onclose?.() },
   }
   return socket
@@ -15,6 +16,7 @@ const pin = (id: string) => ({ id, state: "sent" }) as SentPin
 function setup() {
   const sockets: ReturnType<typeof fakeSocket>[] = []
   const timers: Array<() => void> = []
+  const intervals = new Map<number, () => void>()
   const deps = {
     target: vi.fn(async () => ({ baseUrl: "http://localhost:3080", token: "secret" })),
     connect: vi.fn((url: string) => { const socket = fakeSocket(url); sockets.push(socket); return socket }),
@@ -22,8 +24,10 @@ function setup() {
     notify: vi.fn<(tabId: number, message: unknown) => Promise<unknown>>(async () => undefined),
     setTimeout: vi.fn((callback: () => void) => { timers.push(callback); return timers.length }),
     clearTimeout: vi.fn(),
+    setInterval: vi.fn((callback: () => void, ms: number) => { expect(ms).toBeLessThan(30_000); intervals.set(intervals.size + 1, callback); return intervals.size }),
+    clearInterval: vi.fn((id: number) => { intervals.delete(id) }),
   }
-  return { deps, live: createScopeLive(deps), sockets, timers }
+  return { deps, live: createScopeLive(deps), sockets, timers, intervals }
 }
 
 const settle = () => new Promise((resolve) => setTimeout(resolve, 0))
@@ -49,6 +53,30 @@ describe("following sent pins", () => {
       [1, { type: "scopePinsChanged", origin: "http://localhost:5173", pins: [pin("http://localhost:5173-1")] }],
       [2, { type: "scopePinsChanged", origin: "http://localhost:5173", pins: [pin("http://localhost:5173-1")] }],
     ])
+  })
+
+  // Chrome stops an idle service worker after 30 seconds; a message on a
+  // WebSocket keeps it running, so its watchers and reconnects live on.
+  it("pings Legato while the socket is open, so Chrome keeps the service worker", async () => {
+    const { live, sockets, intervals } = setup()
+    live.watch(1, "http://localhost:5173")
+    await settle()
+    expect(intervals.size).toBe(0)
+    sockets[0].onopen?.()
+    expect(intervals.size).toBe(1)
+    for (const ping of intervals.values()) ping()
+    expect(sockets[0].sent).toEqual([JSON.stringify({ type: "ping" })])
+    sockets[0].onclose?.()
+    expect(intervals.size).toBe(0)
+  })
+
+  it("stops pinging when the last tab stops watching", async () => {
+    const { live, sockets, intervals } = setup()
+    live.watch(1, "http://localhost:5173")
+    await settle()
+    sockets[0].onopen?.()
+    live.unwatch(1)
+    expect(intervals.size).toBe(0)
   })
 
   it("ignores other messages and origins no tab watches", async () => {

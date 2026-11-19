@@ -28,6 +28,10 @@ const (
 	MsgResize           = "resize"
 	MsgDetectPrompt     = "detect_prompt"
 	MsgRefreshPane      = "refresh_pane"
+	// MsgPing keeps a client's connection busy: Chrome stops an extension's
+	// idle service worker unless a message crosses its socket (Legato
+	// Scope's live pin states). Answered with MsgPong.
+	MsgPing = "ping"
 )
 
 // WebSocket message types (server → client).
@@ -62,6 +66,7 @@ const (
 	// MsgScopeChanged says an origin's Scope pins changed; the extension
 	// fetches them again.
 	MsgScopeChanged = "scope_changed"
+	MsgPong         = "pong"
 	MsgError        = "error"
 )
 
@@ -247,6 +252,8 @@ func (s *Server) handleWSMessage(client *wsClient, msg WSMessage) {
 		s.handleRefreshPane(client, msg)
 	case MsgPlanVerdict:
 		s.handlePlanVerdict(client, msg)
+	case MsgPing:
+		client.send(WSMessage{Type: MsgPong})
 	default:
 		client.send(WSMessage{Type: MsgError, Error: "unknown message type: " + msg.Type})
 	}

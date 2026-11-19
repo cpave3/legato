@@ -2,7 +2,9 @@ import type { ClearedStore, DraftStore } from "../scope-drafts"
 import { MAX_PINS_PER_BATCH, type Box, type PinTarget, type ScopeBatchResult, type ScopeDraft, type ScopePin, type SentPin, type SentPinState } from "../scope-types"
 import { LEGATO_MONO, LEGATO_SANS, loadLegatoFonts } from "./fonts"
 
-export type CapturedPin = { pin: Omit<ScopePin, "comment" | "screenshot">; screenshot?: string }
+// screenshotError says why a pin has no screenshot when Chrome refused one;
+// the pin is kept without it.
+export type CapturedPin = { pin: Omit<ScopePin, "comment" | "screenshot">; screenshot?: string; screenshotError?: string }
 
 export type ScopeOverlayDeps = {
   store: DraftStore
@@ -188,6 +190,13 @@ export function createScopeOverlay(doc: Document, win: Window, deps: ScopeOverla
 
   let pinning = false
   let drafts: ScopeDraft[] = []
+  // Changes to drafts made in the panel and not stored yet: Send waits for
+  // them, so it never sends a comment older than the one shown.
+  const edits = new Set<Promise<unknown>>()
+  const track = (change: Promise<unknown>): void => {
+    edits.add(change)
+    void change.catch(() => undefined).finally(() => edits.delete(change))
+  }
   let markerList: Marker[] = []
   let popover: HTMLElement | null = null
   let pending: { captured: CapturedPin; element: Element; marker: Marker } | null = null
@@ -311,6 +320,7 @@ export function createScopeOverlay(doc: Document, win: Window, deps: ScopeOverla
       host.style.visibility = ""
     }
     if (destroyed) return
+    if (captured.screenshotError) say(`No screenshot: ${captured.screenshotError}`, "error")
     const marker = makeMarker("pending", String(drafts.length + 1), element, captured.pin.target.box)
     marker.button.dataset.pending = "true"
     pending = { captured, element, marker }
@@ -406,11 +416,11 @@ export function createScopeOverlay(doc: Document, win: Window, deps: ScopeOverla
         text.setAttribute("aria-label", "Comment")
         text.addEventListener("change", () => {
           const comment = text.value.trim()
-          if (comment) void deps.store.update(draft.id, comment).then(refresh)
+          if (comment) track(deps.store.update(draft.id, comment).then(refresh))
         })
         const actions = el("div", "row")
         const remove = button("Delete", "delete")
-        remove.addEventListener("click", () => { void deps.store.remove(draft.id).then(refresh) })
+        remove.addEventListener("click", () => { track(deps.store.remove(draft.id).then(refresh)) })
         actions.append(remove)
         row.append(num, page, text, actions)
       }
@@ -530,11 +540,34 @@ export function createScopeOverlay(doc: Document, win: Window, deps: ScopeOverla
     }
   }
 
+  // A comment typed in the panel and not saved yet (its textarea still has
+  // focus) is saved first.
+  const flushEdits = async (): Promise<void> => {
+    for (const row of list.querySelectorAll<HTMLElement>(".draft")) {
+      const draft = drafts.find((candidate) => candidate.id === row.dataset.id)
+      const comment = row.querySelector("textarea")?.value.trim()
+      if (draft && comment && comment !== draft.pin.comment) track(deps.store.update(draft.id, comment))
+    }
+    await Promise.allSettled([...edits])
+    drafts = await deps.store.list()
+  }
+
   const send = async (): Promise<void> => {
-    if (!deps.sent || sending) return
-    const batch = drafts.slice(0, MAX_PINS_PER_BATCH)
-    if (batch.length === 0) return
+    if (!deps.sent || sending || drafts.length === 0) return
     sending = true
+    try {
+      await flushEdits()
+    } catch (error) {
+      sending = false
+      say(error instanceof Error ? error.message : String(error), "error")
+      return
+    }
+    const batch = drafts.slice(0, MAX_PINS_PER_BATCH)
+    if (batch.length === 0) {
+      sending = false
+      await refresh()
+      return
+    }
     say("Sending…")
     try {
       const pins = await Promise.all(batch.map(async (draft): Promise<ScopePin> => {

@@ -7,10 +7,27 @@ export type StorageAreaLike = {
   remove: (keys: string | string[]) => Promise<void>
 }
 
+// Runs changes to one key one at a time. chrome.storage has no
+// transaction: two read–modify–writes of the same list would keep only the
+// last. The service worker holds one lock for every tab's changes; a change
+// that fails does not stop the next.
+export type Lock = <T>(key: string, change: () => Promise<T>) => Promise<T>
+
+export function createLock(): Lock {
+  const tails = new Map<string, Promise<unknown>>()
+  return <T>(key: string, change: () => Promise<T>): Promise<T> => {
+    const run = (tails.get(key) ?? Promise.resolve()).then(change)
+    const tail = run.catch(() => undefined)
+    tails.set(key, tail)
+    void tail.then(() => { if (tails.get(key) === tail) tails.delete(key) })
+    return run
+  }
+}
+
 export const draftsKey = (origin: string): string => `scopeDrafts:${origin}`
 const screenshotKey = (origin: string, id: string): string => `scopeShot:${origin}:${id}`
 
-function isDraft(value: unknown): value is ScopeDraft {
+export function isDraft(value: unknown): value is ScopeDraft {
   if (!value || typeof value !== "object") return false
   const candidate = value as Partial<ScopeDraft>
   return typeof candidate.id === "string" && typeof candidate.pin === "object" && candidate.pin !== null
@@ -21,29 +38,29 @@ function isDraft(value: unknown): value is ScopeDraft {
 // survive reloads and navigation within the site, and every tab of the site
 // sees the same ones. Screenshots are kept under keys of their own, so the
 // list stays small to read.
-export function createDraftStore(area: StorageAreaLike, origin: string) {
+export function createDraftStore(area: StorageAreaLike, origin: string, lock: Lock = createLock()) {
   const key = draftsKey(origin)
   const list = async (): Promise<ScopeDraft[]> => {
     const value = (await area.get(key))[key]
     return Array.isArray(value) ? value.filter(isDraft) : []
   }
   const save = (drafts: ScopeDraft[]): Promise<void> => area.set({ [key]: drafts })
-  const removeMany = async (ids: string[]): Promise<void> => {
+  const removeMany = (ids: string[]): Promise<void> => lock(key, async () => {
     const drafts = await list()
     await save(drafts.filter((draft) => !ids.includes(draft.id)))
     const shots = drafts.filter((draft) => ids.includes(draft.id) && draft.hasScreenshot).map((draft) => screenshotKey(origin, draft.id))
     if (shots.length) await area.remove(shots)
-  }
+  })
   return {
     key,
     list,
-    add: async (draft: ScopeDraft, screenshot?: string): Promise<void> => {
+    add: (draft: ScopeDraft, screenshot?: string): Promise<void> => lock(key, async () => {
       if (screenshot) await area.set({ [screenshotKey(origin, draft.id)]: screenshot })
       await save([...(await list()), { ...draft, hasScreenshot: Boolean(screenshot) }])
-    },
-    update: async (id: string, comment: string): Promise<void> => {
+    }),
+    update: (id: string, comment: string): Promise<void> => lock(key, async () => {
       await save((await list()).map((draft) => draft.id === id ? { ...draft, pin: { ...draft.pin, comment } } : draft))
-    },
+    }),
     remove: (id: string): Promise<void> => removeMany([id]),
     removeMany,
     screenshot: async (id: string): Promise<string | undefined> => {
@@ -55,12 +72,29 @@ export function createDraftStore(area: StorageAreaLike, origin: string) {
 
 export type DraftStore = ReturnType<typeof createDraftStore>
 
+// What a tab asks the service worker to change (scope-service.ts).
+export type DraftChange = (message: Record<string, unknown>) => Promise<unknown>
+
+// A tab's drafts: read from storage here, changed by the service worker, so
+// two tabs' changes never overwrite each other.
+export function createTabDraftStore(area: StorageAreaLike, origin: string, change: DraftChange): DraftStore {
+  const local = createDraftStore(area, origin)
+  const removeMany = async (ids: string[]): Promise<void> => { await change({ type: "scopeDraftRemove", ids }) }
+  return {
+    ...local,
+    add: async (draft, screenshot) => { await change({ type: "scopeDraftAdd", draft, ...(screenshot ? { screenshot } : {}) }) },
+    update: async (id, comment) => { await change({ type: "scopeDraftUpdate", id, comment }) },
+    remove: (id) => removeMany([id]),
+    removeMany,
+  }
+}
+
 export const clearedKey = (origin: string): string => `scopeCleared:${origin}`
 const CLEARED_LIMIT = 500
 
 // The sent pins the person cleared from the site's pages once resolved. Only
 // this browser forgets them; Legato keeps them.
-export function createClearedStore(area: StorageAreaLike, origin: string) {
+export function createClearedStore(area: StorageAreaLike, origin: string, lock: Lock = createLock()) {
   const key = clearedKey(origin)
   const list = async (): Promise<string[]> => {
     const value = (await area.get(key))[key]
@@ -69,14 +103,18 @@ export function createClearedStore(area: StorageAreaLike, origin: string) {
   return {
     key,
     list,
-    add: async (ids: string[]): Promise<void> => {
+    add: (ids: string[]): Promise<void> => lock(key, async () => {
       const next = [...new Set([...(await list()), ...ids])]
       await area.set({ [key]: next.slice(-CLEARED_LIMIT) })
-    },
+    }),
   }
 }
 
 export type ClearedStore = ReturnType<typeof createClearedStore>
+
+export function createTabClearedStore(area: StorageAreaLike, origin: string, change: DraftChange): ClearedStore {
+  return { ...createClearedStore(area, origin), add: async (ids) => { await change({ type: "scopeClearedAdd", ids }) } }
+}
 
 // A storage area in memory, for tests and for pages without chrome.storage.
 export function memoryArea(initial: Record<string, unknown> = {}): StorageAreaLike & { data: Record<string, unknown> } {

@@ -1,4 +1,4 @@
-import { clearedKey, createClearedStore, createDraftStore, draftsKey } from "../scope-drafts"
+import { clearedKey, createTabClearedStore, createTabDraftStore, draftsKey } from "../scope-drafts"
 import type { ScopeBatchResult, ScopePin, SentPin } from "../scope-types"
 import { normalizeScopeOrigins, SCOPE_ORIGINS_KEY } from "../scope-origins"
 import { capturePage, captureTarget, locateTarget } from "./scope-capture"
@@ -10,7 +10,11 @@ import { createScopeOverlay, type CapturedPin, type ScopeOverlay } from "./scope
 // into a tab that was open before. Pin mode is toggled by the button's
 // message; the drafts live in chrome.storage.local.
 
-type Booted = { ready: Promise<ScopeOverlay | null> }
+// ready is the overlay, or null on an origin Scope is not allowed on; retry
+// boots again after such a refusal, as the origin may have been allowed
+// since (Chrome's match patterns ignore the port, so the script can be in a
+// page of another port of an allowed host).
+type Booted = { ready: Promise<ScopeOverlay | null>; retry: () => Promise<ScopeOverlay | null> }
 const BOOTED = "__legatoScope"
 
 type Answer = { ok: true; [key: string]: unknown } | { ok: false; error: string }
@@ -56,36 +60,43 @@ async function capture(win: Window, element: Element, container: Node): Promise<
     type: "scopeCapture",
     box: { x: rect.left, y: rect.top, width: rect.width, height: rect.height },
     viewport: { width: win.innerWidth, height: win.innerHeight },
-  }).catch(() => undefined) as { ok?: boolean; screenshot?: unknown } | undefined
-  const screenshot = answer?.ok && typeof answer.screenshot === "string" ? answer.screenshot : undefined
-  return screenshot ? { pin, screenshot } : { pin }
+  }).catch((error: unknown) => ({ ok: false, error: error instanceof Error ? error.message : String(error) })) as { ok?: boolean; screenshot?: unknown; error?: unknown } | undefined
+  if (!answer?.ok) return { pin, screenshotError: typeof answer?.error === "string" ? answer.error : "The extension did not answer." }
+  return typeof answer.screenshot === "string" ? { pin, screenshot: answer.screenshot } : { pin }
 }
 
 export function bootScope(doc: Document = document, win: Window = window): Promise<ScopeOverlay | null> {
   const holder = win as unknown as Record<string, Booted | undefined>
   const existing = holder[BOOTED]
-  if (existing) return existing.ready
+  if (existing) return existing.retry()
   const origin = win.location.origin
 
   // Listening starts at once, so a toggle sent as the script arrives is
   // answered when the overlay is ready.
   let ready: Promise<ScopeOverlay | null> = Promise.resolve(null)
+  const retry = (): Promise<ScopeOverlay | null> => {
+    ready = ready.then((overlay) => overlay ?? start())
+    holder[BOOTED] = { ready, retry }
+    return ready
+  }
   chrome.runtime.onMessage.addListener((message: unknown, _sender, sendResponse) => {
     const request = message as { type?: string; force?: unknown }
     if (request?.type !== "scopeTogglePin") return false
-    void ready.then((overlay) => {
+    void retry().then((overlay) => {
       if (!overlay) sendResponse({ ok: false, error: `Scope is not allowed on ${origin}` })
       else sendResponse({ ok: true, pinMode: overlay.setPinMode(request.force === true ? true : undefined) })
     })
     return true
   })
 
-  ready = (async () => {
+  // Listeners are added only once the overlay exists, so a refused boot
+  // tried again adds none.
+  const start = async (): Promise<ScopeOverlay | null> => {
     const stored = await chrome.storage.local.get(SCOPE_ORIGINS_KEY).catch(() => ({} as Record<string, unknown>))
     // Chrome's match patterns ignore the port, so the script may land on
     // another port of an allowed host.
     if (!normalizeScopeOrigins(stored[SCOPE_ORIGINS_KEY]).includes(origin)) return null
-    const store = createDraftStore(chrome.storage.local, origin)
+    const store = createTabDraftStore(chrome.storage.local, origin, ask)
     const overlay: ScopeOverlay = createScopeOverlay(doc, win, {
       store,
       capture: (element) => capture(win, element, overlay.root),
@@ -96,7 +107,7 @@ export function bootScope(doc: Document = document, win: Window = window): Promi
         send: async (pins: ScopePin[]) => (await ask({ type: "scopeSend", pins })).result as ScopeBatchResult,
         reopen: async (id, comment) => { await ask({ type: "scopeReopen", id, comment }) },
         withdraw: async (id) => { await ask({ type: "scopeWithdraw", id }) },
-        cleared: createClearedStore(chrome.storage.local, origin),
+        cleared: createTabClearedStore(chrome.storage.local, origin, ask),
       },
     })
     chrome.storage.onChanged.addListener((changes, area) => {
@@ -120,8 +131,9 @@ export function bootScope(doc: Document = document, win: Window = window): Promi
     watchPage(doc, win, overlay)
     await overlay.refresh()
     return overlay
-  })()
-  holder[BOOTED] = { ready }
+  }
+  ready = start()
+  holder[BOOTED] = { ready, retry }
   return ready
 }
 

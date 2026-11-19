@@ -1,4 +1,5 @@
 import { LegatoRequestError } from "./legato"
+import { createClearedStore, createDraftStore, createLock, isDraft, type StorageAreaLike } from "./scope-drafts"
 import { scopeOriginOf, type ScopeOrigin } from "./scope-origins"
 import { MAX_PINS_PER_BATCH, MAX_SCREENSHOT_BYTES, type Box, type ScopeBatch, type ScopeBatchResult, type ScopePin, type SentPin } from "./scope-types"
 
@@ -39,12 +40,16 @@ export type ScopeServiceDeps = {
     watch: (tabId: number, origin: string) => void
     refresh: (origin: string) => Promise<void>
   }
+  // chrome.storage.local, where the drafts live. The tabs change them
+  // through the service worker, one change at a time (scope-drafts.ts).
+  storage: StorageAreaLike
 }
 
 export type ScopeResponse = { ok: true; [key: string]: unknown } | { ok: false; error: string }
 
 const MESSAGES = new Set([
   "listScopeOrigins", "removeScopeOrigin", "scopeCapture", "scopeSend", "scopeWatch", "scopeReopen", "scopeWithdraw",
+  "scopeDraftAdd", "scopeDraftUpdate", "scopeDraftRemove", "scopeClearedAdd",
 ])
 
 export function isScopeMessage(message: unknown): boolean {
@@ -85,6 +90,24 @@ function pinId(value: unknown): string {
   return value
 }
 
+function validScreenshot(value: unknown): string | undefined {
+  if (value === undefined) return undefined
+  if (typeof value !== "string" || !value.startsWith("data:image/")) throw new Error("A pin's screenshot is not an image")
+  const base64 = value.slice(value.indexOf(",") + 1)
+  if (Math.floor(base64.length * 3 / 4) > MAX_SCREENSHOT_BYTES) throw new Error("A pin's screenshot is over 500 KB")
+  return value
+}
+
+function validComment(value: unknown): string {
+  if (typeof value !== "string" || !value.trim()) throw new Error("Every pin needs a comment")
+  return value
+}
+
+function pinIds(value: unknown): string[] {
+  if (!Array.isArray(value) || value.length > 500) throw new Error("Invalid pin")
+  return value.map(pinId)
+}
+
 // The checks Legato makes, made first, so the person hears of a problem
 // before a large upload.
 function validPins(value: unknown, origin: string): ScopePin[] {
@@ -93,16 +116,13 @@ function validPins(value: unknown, origin: string): ScopePin[] {
   for (const pin of value as Array<Partial<ScopePin>>) {
     if (!pin || typeof pin.comment !== "string" || !pin.comment.trim()) throw new Error("Every pin needs a comment")
     if (scopeOriginOf(pin.page?.url) !== origin) throw new Error("A pin is on another site")
-    if (pin.screenshot !== undefined) {
-      if (typeof pin.screenshot !== "string" || !pin.screenshot.startsWith("data:image/")) throw new Error("A pin's screenshot is not an image")
-      const base64 = pin.screenshot.slice(pin.screenshot.indexOf(",") + 1)
-      if (Math.floor(base64.length * 3 / 4) > MAX_SCREENSHOT_BYTES) throw new Error("A pin's screenshot is over 500 KB")
-    }
+    validScreenshot(pin.screenshot)
   }
   return value as ScopePin[]
 }
 
 export function createScopeMessageHandler(deps: ScopeServiceDeps) {
+  const drafts = createLock()
   const fromExtension = (sender: ScopeSender): void => {
     if (!sender.url?.startsWith(deps.extensionUrl)) throw new Error("Only the extension's own pages may do that")
   }
@@ -115,7 +135,10 @@ export function createScopeMessageHandler(deps: ScopeServiceDeps) {
   }
   return async (message: unknown, sender: ScopeSender): Promise<ScopeResponse> => {
     try {
-      const request = message as { type?: string; origin?: unknown; box?: unknown; viewport?: unknown; pins?: unknown; id?: unknown; comment?: unknown }
+      const request = message as {
+        type?: string; origin?: unknown; box?: unknown; viewport?: unknown; pins?: unknown; id?: unknown; comment?: unknown
+        draft?: unknown; screenshot?: unknown; ids?: unknown
+      }
       switch (request.type) {
         case "listScopeOrigins":
           fromExtension(sender)
@@ -132,7 +155,15 @@ export function createScopeMessageHandler(deps: ScopeServiceDeps) {
           const box = validBox(request.box)
           const viewport = validViewport(request.viewport)
           if (windowId === undefined) throw new Error("The tab has no window")
-          const screenshot = await deps.crop(await deps.captureTab(windowId), box, viewport)
+          // Chrome takes one only with activeTab, which the toolbar button
+          // and its shortcut give for the page they were used on.
+          let captured: string
+          try {
+            captured = await deps.captureTab(windowId)
+          } catch (error) {
+            throw new Error(`Chrome did not let Scope take a screenshot (${error instanceof Error ? error.message : String(error)}). Click the extension's toolbar button or press its shortcut on this page, then pin again.`)
+          }
+          const screenshot = await deps.crop(captured, box, viewport)
           return screenshot ? { ok: true, screenshot } : { ok: true }
         }
         case "scopeSend": {
@@ -163,6 +194,29 @@ export function createScopeMessageHandler(deps: ScopeServiceDeps) {
           const { api } = await deps.legato()
           await api.withdrawScopePin(pinId(request.id))
           void deps.live.refresh(origin).catch(() => undefined)
+          return { ok: true }
+        }
+        case "scopeDraftAdd": {
+          const { origin } = await scopeTab(sender)
+          if (!isDraft(request.draft)) throw new Error("Invalid draft")
+          if (scopeOriginOf(request.draft.pin.page.url) !== origin) throw new Error("A pin is on another site")
+          validComment(request.draft.pin.comment)
+          await createDraftStore(deps.storage, origin, drafts).add(request.draft, validScreenshot(request.screenshot))
+          return { ok: true }
+        }
+        case "scopeDraftUpdate": {
+          const { origin } = await scopeTab(sender)
+          await createDraftStore(deps.storage, origin, drafts).update(pinId(request.id), validComment(request.comment))
+          return { ok: true }
+        }
+        case "scopeDraftRemove": {
+          const { origin } = await scopeTab(sender)
+          await createDraftStore(deps.storage, origin, drafts).removeMany(pinIds(request.ids))
+          return { ok: true }
+        }
+        case "scopeClearedAdd": {
+          const { origin } = await scopeTab(sender)
+          await createClearedStore(deps.storage, origin, drafts).add(pinIds(request.ids))
           return { ok: true }
         }
         default:

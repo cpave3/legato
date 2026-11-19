@@ -5,8 +5,10 @@ import (
 	"context"
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"image"
 	"image/png"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"path/filepath"
@@ -17,6 +19,7 @@ import (
 	"github.com/cpave3/legato/internal/engine/events"
 	"github.com/cpave3/legato/internal/engine/store"
 	"github.com/cpave3/legato/internal/service"
+	"nhooyr.io/websocket"
 )
 
 type scopeTestServer struct {
@@ -251,5 +254,40 @@ func TestScopeAPIIsUnavailableWithoutItsService(t *testing.T) {
 	srv.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/scope/pins?origin=http://localhost:5173", nil))
 	if rec.Code != http.StatusServiceUnavailable {
 		t.Fatalf("without a scope service = %d", rec.Code)
+	}
+}
+
+// The extension's service worker pings over /ws so Chrome keeps it running;
+// Legato answers pong rather than an unknown-message error.
+func TestTheWebSocketAnswersAPingWithAPong(t *testing.T) {
+	srv := NewWithSwarm(nil, nil, nil, "", nil, events.New(), "")
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer ln.Close()
+	go func() { _ = srv.Serve(ln) }()
+	defer srv.Stop(context.Background())
+
+	ctx, cancel := context.WithTimeout(context.Background(), 2*time.Second)
+	defer cancel()
+	conn, _, err := websocket.Dial(ctx, fmt.Sprintf("ws://%s/ws", ln.Addr()), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	defer conn.Close(websocket.StatusNormalClosure, "")
+	if _, _, err := conn.Read(ctx); err != nil { // initial agent_list
+		t.Fatal(err)
+	}
+	if err := conn.Write(ctx, websocket.MessageText, []byte(`{"type":"ping"}`)); err != nil {
+		t.Fatal(err)
+	}
+	_, data, err := conn.Read(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var msg WSMessage
+	if err := json.Unmarshal(data, &msg); err != nil || msg.Type != MsgPong {
+		t.Fatalf("answer to ping = %s, %v", data, err)
 	}
 }

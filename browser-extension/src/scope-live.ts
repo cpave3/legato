@@ -6,9 +6,15 @@ import type { SentPin } from "./scope-types"
 // reads that origin's pins again and tells its tabs. The socket is handled as
 // discussion-session.ts handles it: the token in the address, reconnecting
 // after a drop with the same delays.
+//
+// Chrome stops an idle service worker after 30 seconds, and an open socket
+// alone does not keep it: a message sent or received does. So while the
+// socket is open the worker pings Legato (which answers pong) every
+// PING_INTERVAL, and keeps its watchers and its reconnect timer.
 
 export type LiveSocket = {
   close: () => void
+  send: (data: string) => void
   onopen: (() => void) | null
   onmessage: ((event: { data: string }) => void) | null
   onclose: (() => void) | null
@@ -22,7 +28,11 @@ export type ScopeLiveDeps = {
   notify: (tabId: number, message: { type: "scopePinsChanged"; origin: string; pins: SentPin[] }) => Promise<unknown>
   setTimeout: (callback: () => void, ms: number) => number
   clearTimeout: (id: number) => void
+  setInterval: (callback: () => void, ms: number) => number
+  clearInterval: (id: number) => void
 }
+
+export const PING_INTERVAL = 20_000
 
 const reconnectDelays = [1_000, 2_000, 5_000, 10_000]
 
@@ -33,6 +43,12 @@ export function createScopeLive(deps: ScopeLiveDeps) {
   let attempts = 0
   let reconnectTimer: number | undefined
   let opened = false
+  let pinger: number | undefined
+
+  const stopPinging = (): void => {
+    if (pinger !== undefined) deps.clearInterval(pinger)
+    pinger = undefined
+  }
 
   const origins = (): string[] => [...new Set(watchers.values())]
 
@@ -67,6 +83,10 @@ export function createScopeLive(deps: ScopeLiveDeps) {
     current.onopen = () => {
       if (socket !== current) return
       attempts = 0
+      stopPinging()
+      pinger = deps.setInterval(() => {
+        try { current.send(JSON.stringify({ type: "ping" })) } catch { /* closing; onclose reconnects */ }
+      }, PING_INTERVAL)
       // After a drop, a change may have been missed.
       if (opened) refreshAll()
       opened = true
@@ -80,6 +100,7 @@ export function createScopeLive(deps: ScopeLiveDeps) {
     current.onclose = () => {
       if (socket !== current) return
       socket = undefined
+      stopPinging()
       scheduleReconnect()
     }
   }
@@ -95,6 +116,7 @@ export function createScopeLive(deps: ScopeLiveDeps) {
     if (watchers.size > 0) return
     if (reconnectTimer !== undefined) deps.clearTimeout(reconnectTimer)
     reconnectTimer = undefined
+    stopPinging()
     const current = socket
     socket = undefined
     opened = false

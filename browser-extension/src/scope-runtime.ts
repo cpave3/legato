@@ -1,9 +1,9 @@
 // Scope in the service worker: the toolbar button, the script registrations,
 // and the messages of the options page and the content script.
-import { LegatoClient, type LiveSocketLike } from "./legato"
+import { LegatoClient } from "./legato"
 import { hasOriginPermission } from "./permissions"
 import { handleScopeAction, type ScopeActionResult } from "./scope-action"
-import { createScopeLive } from "./scope-live"
+import { createScopeLive, type LiveSocket } from "./scope-live"
 import { scopeOrigins } from "./scope-origins"
 import { cropScreenshot } from "./scope-screenshot"
 import { createScopeMessageHandler } from "./scope-service"
@@ -52,11 +52,13 @@ async function legato(): Promise<{ baseUrl: string; token: string; client: Legat
 
 const live = createScopeLive({
   target: legato,
-  connect: (url) => new WebSocket(url) as unknown as LiveSocketLike,
+  connect: (url) => new WebSocket(url) as unknown as LiveSocket,
   fetchPins: async (origin) => (await legato()).client.listScopePins(origin),
   notify: (tabId, message) => chrome.tabs.sendMessage(tabId, message),
   setTimeout: (callback, ms) => setTimeout(callback, ms) as unknown as number,
   clearTimeout: (id) => clearTimeout(id),
+  setInterval: (callback, ms) => setInterval(callback, ms) as unknown as number,
+  clearInterval: (id) => clearInterval(id),
 })
 
 export const handleScopeMessage = createScopeMessageHandler({
@@ -70,6 +72,7 @@ export const handleScopeMessage = createScopeMessageHandler({
     return { baseUrl, api: client }
   },
   live,
+  get storage() { return chrome.storage.local },
 })
 
 export function startScope(): void {

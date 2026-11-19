@@ -1,5 +1,6 @@
 import { describe, expect, it, vi } from "vitest"
 import { LegatoRequestError, unreachableMessage } from "./legato"
+import { createDraftStore, createClearedStore, memoryArea } from "./scope-drafts"
 import { createScopeMessageHandler, isScopeMessage, type ScopeServiceDeps } from "./scope-service"
 import type { ScopePin, SentPin } from "./scope-types"
 
@@ -32,6 +33,7 @@ function deps(overrides: Partial<ScopeServiceDeps> = {}): ScopeServiceDeps {
     crop: vi.fn(async () => "data:image/jpeg;base64,JPEG"),
     legato: vi.fn(async () => ({ baseUrl: "http://localhost:3080", api })),
     live: { watch: vi.fn(), refresh: vi.fn(async () => undefined) },
+    storage: memoryArea(),
     ...overrides,
   }
 }
@@ -78,6 +80,17 @@ describe("a pin's screenshot", () => {
     expect(d.crop).toHaveBeenCalledWith("data:image/png;base64,PNG", box, viewport)
   })
 
+  // captureVisibleTab needs activeTab (or <all_urls>): Chrome gives it when
+  // the toolbar button or the shortcut is used on the page, not for the
+  // site's access alone.
+  it("says how to get a screenshot when Chrome refuses one", async () => {
+    const d = deps({ captureTab: vi.fn(async () => { throw new Error("Either the '<all_urls>' or 'activeTab' permission is required.") }) })
+    const answer = await createScopeMessageHandler(d)({ type: "scopeCapture", box, viewport }, tab) as { ok: boolean; error: string }
+    expect(answer.ok).toBe(false)
+    expect(answer.error).toContain("Chrome did not let Scope take a screenshot")
+    expect(answer.error).toContain("toolbar button")
+  })
+
   it("answers without a screenshot when the element is not in view", async () => {
     const d = deps({ crop: vi.fn(async () => null) })
     expect(await createScopeMessageHandler(d)({ type: "scopeCapture", box, viewport }, tab)).toEqual({ ok: true })
@@ -117,6 +130,39 @@ describe("sending pins and following them", () => {
     expect(await handle({ type: "scopeSend", pins: Array.from({ length: 21 }, () => pin()) }, tab)).toEqual({ ok: false, error: "A batch takes at most 20 pins" })
     expect(await handle({ type: "scopeSend", pins: [pin({ comment: " " })] }, tab)).toEqual({ ok: false, error: "Every pin needs a comment" })
     expect(await handle({ type: "scopeSend", pins: [pin({ page: { ...pin().page, url: "https://other.test/" } })] }, tab)).toEqual({ ok: false, error: "A pin is on another site" })
+  })
+
+  it("changes the drafts of every tab of an origin one at a time, so none is lost", async () => {
+    const storage = memoryArea()
+    const handle = createScopeMessageHandler(deps({ storage }))
+    const other = { tab: { id: 5, windowId: 9, url: "http://localhost:5173/" }, url: "http://localhost:5173/" }
+    const draft = (id: string) => ({ id, createdAt: "2026-11-19T10:00:00Z", hasScreenshot: false, pin: pin() })
+    const answers = await Promise.all([
+      handle({ type: "scopeDraftAdd", draft: draft("a"), screenshot: "data:image/jpeg;base64,AAAA" }, tab),
+      handle({ type: "scopeDraftAdd", draft: draft("b") }, other),
+    ])
+    expect(answers).toEqual([{ ok: true }, { ok: true }])
+    const drafts = createDraftStore(storage, "http://localhost:5173")
+    expect((await drafts.list()).map((d) => [d.id, d.hasScreenshot])).toEqual([["a", true], ["b", false]])
+    await Promise.all([
+      handle({ type: "scopeDraftRemove", ids: ["a"] }, tab),
+      handle({ type: "scopeDraftUpdate", id: "b", comment: "Edited" }, other),
+    ])
+    expect((await drafts.list()).map((d) => [d.id, d.pin.comment])).toEqual([["b", "Edited"]])
+    await Promise.all([
+      handle({ type: "scopeClearedAdd", ids: ["sp-1"] }, tab),
+      handle({ type: "scopeClearedAdd", ids: ["sp-2"] }, other),
+    ])
+    expect((await createClearedStore(storage, "http://localhost:5173").list()).sort()).toEqual(["sp-1", "sp-2"])
+  })
+
+  it("refuses a draft that is not one, or is on another site", async () => {
+    const handle = createScopeMessageHandler(deps())
+    const draft = { id: "a", createdAt: "", hasScreenshot: false, pin: pin({ page: { ...pin().page, url: "https://other.test/" } }) }
+    expect(await handle({ type: "scopeDraftAdd", draft }, tab)).toEqual({ ok: false, error: "A pin is on another site" })
+    expect(await handle({ type: "scopeDraftAdd", draft: { id: "a" } }, tab)).toEqual({ ok: false, error: "Invalid draft" })
+    expect(await handle({ type: "scopeDraftAdd", draft: { ...draft, pin: pin() }, screenshot: "javascript:1" }, tab)).toEqual({ ok: false, error: "A pin's screenshot is not an image" })
+    expect(await handle({ type: "scopeDraftUpdate", id: "a", comment: " " }, tab)).toEqual({ ok: false, error: "Every pin needs a comment" })
   })
 
   it("watches the tab's origin and answers with its sent pins", async () => {
