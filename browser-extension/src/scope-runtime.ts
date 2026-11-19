@@ -6,6 +6,8 @@ import { handleScopeAction, type ScopeActionResult } from "./scope-action"
 import { createScopeLive, type LiveSocket } from "./scope-live"
 import { scopeOrigins } from "./scope-origins"
 import { cropScreenshot } from "./scope-screenshot"
+import { fetchTextOn } from "./scope-source/fetch-text"
+import { resolvePinSource } from "./scope-source/lookup"
 import { createScopeMessageHandler } from "./scope-service"
 import { loadConfig } from "./storage"
 import { hostPatternFor, normalizeTicketProviders, TICKET_PROVIDERS_KEY } from "./ticket-providers"
@@ -67,6 +69,13 @@ export const handleScopeMessage = createScopeMessageHandler({
   releasePermission,
   captureTab: (windowId) => chrome.tabs.captureVisibleTab(windowId, { format: "png" }),
   crop: cropScreenshot,
+  // scope-source.js is the MAIN-world reader's bundle; its last expression
+  // is what it read, which executeScript answers.
+  readComponent: async (tabId, frameId) => {
+    const [result] = await chrome.scripting.executeScript({ target: { tabId, frameIds: [frameId] }, world: "MAIN", files: ["scope-source.js"] })
+    return result?.result
+  },
+  resolveSource: (reading, origin) => resolvePinSource(reading, { origin, fetchText: fetchTextOn(origin) }),
   legato: async () => {
     const { baseUrl, client } = await legato()
     return { baseUrl, api: client }

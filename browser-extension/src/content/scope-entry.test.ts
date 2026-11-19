@@ -156,6 +156,35 @@ it("keeps a pin whose screenshot Chrome refused, and says why it has none", asyn
   overlay.destroy()
 })
 
+it.each([
+  { found: { name: "SaveButton", file: "src/App.tsx", line: 7, column: 5, owners: ["App"], confidence: "exact" }, kept: { name: "SaveButton", file: "src/App.tsx", line: 7, column: 5, owners: ["App"], confidence: "exact" } },
+  { found: { confidence: "none" }, kept: undefined },
+])("keeps the component source the service worker found ($found.confidence)", async ({ found, kept }) => {
+  const { data, sendMessage } = stubChrome({ scopeOrigins: ["http://localhost:5173"] })
+  const worker = sendMessage.getMockImplementation()!
+  sendMessage.mockImplementation(async (message) => (message as { type?: string }).type === "scopeSource"
+    ? { ok: true, source: found }
+    : worker(message))
+  document.body.innerHTML = `<button>Save</button>`
+  const { bootScope } = await import("./scope")
+  const overlay = (await bootScope(document, window))!
+  overlay.setPinMode(true)
+  document.querySelector("button")!.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }))
+  const text = await vi.waitFor(() => {
+    const found = overlay.root.querySelector<HTMLTextAreaElement>(".popover textarea")
+    if (!found) throw new Error("no popover")
+    return found
+  })
+  expect(sendMessage).toHaveBeenCalledWith({ type: "scopeSource" })
+  text.value = "Bigger"
+  text.dispatchEvent(new Event("input"))
+  overlay.root.querySelector<HTMLButtonElement>(".popover [data-action='save']")!.click()
+  await vi.waitFor(() => expect(data["scopeDrafts:http://localhost:5173"]).toHaveLength(1))
+  const [saved] = data["scopeDrafts:http://localhost:5173"] as Array<{ pin: { source?: unknown } }>
+  expect(saved.pin.source).toEqual(kept)
+  overlay.destroy()
+})
+
 it("watches the site's sent pins and shows those the service worker reports", async () => {
   const { send, sendMessage } = stubChrome({ scopeOrigins: ["http://localhost:5173"] })
   document.body.innerHTML = `<button id="save">Save</button>`

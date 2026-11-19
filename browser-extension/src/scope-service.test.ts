@@ -31,6 +31,8 @@ function deps(overrides: Partial<ScopeServiceDeps> = {}): ScopeServiceDeps {
     releasePermission: vi.fn(async () => undefined),
     captureTab: vi.fn(async () => "data:image/png;base64,PNG"),
     crop: vi.fn(async () => "data:image/jpeg;base64,JPEG"),
+    readComponent: vi.fn(async () => null),
+    resolveSource: vi.fn(async () => ({ confidence: "none" as const })),
     legato: vi.fn(async () => ({ baseUrl: "http://localhost:3080", api })),
     live: { watch: vi.fn(), refresh: vi.fn(async () => undefined) },
     storage: memoryArea(),
@@ -103,6 +105,35 @@ describe("a pin's screenshot", () => {
     expect(await handle({ type: "scopeCapture", box, viewport }, other)).toEqual({ ok: false, error: "Scope is not allowed on https://other.test" })
     expect(await handle({ type: "scopeCapture", box: { x: "1" }, viewport }, tab)).toEqual({ ok: false, error: "Invalid box" })
     expect(d.captureTab).not.toHaveBeenCalled()
+  })
+})
+
+describe("a pin's component source", () => {
+  const tab = { tab: { id: 4, windowId: 9, url: "http://localhost:5173/settings" }, frameId: 0, url: "http://localhost:5173/settings" }
+  const reading = { framework: "react", name: "SaveButton", owners: [], frames: [] }
+
+  it("reads the component in the sender's frame and resolves it against the sender's origin", async () => {
+    const d = deps({
+      readComponent: vi.fn(async () => reading),
+      resolveSource: vi.fn(async () => ({ name: "SaveButton", file: "src/App.tsx", line: 7, confidence: "exact" as const })),
+    })
+    const answer = await createScopeMessageHandler(d)({ type: "scopeSource" }, { ...tab, frameId: 3 })
+    expect(answer).toEqual({ ok: true, source: { name: "SaveButton", file: "src/App.tsx", line: 7, confidence: "exact" } })
+    expect(d.readComponent).toHaveBeenCalledWith(4, 3)
+    expect(d.resolveSource).toHaveBeenCalledWith(reading, "http://localhost:5173")
+  })
+
+  it("gives none when the page cannot be read", async () => {
+    const d = deps({ readComponent: vi.fn(async () => { throw new Error("Cannot access contents of the page") }), resolveSource: vi.fn() })
+    expect(await createScopeMessageHandler(d)({ type: "scopeSource" }, tab)).toEqual({ ok: true, source: { confidence: "none" } })
+    expect(d.resolveSource).not.toHaveBeenCalled()
+  })
+
+  it("refuses a page Scope is not allowed on without reading it", async () => {
+    const d = deps({ readComponent: vi.fn(), resolveSource: vi.fn() })
+    const other = { tab: { id: 4, windowId: 9, url: "https://other.test/" }, url: "https://other.test/" }
+    expect(await createScopeMessageHandler(d)({ type: "scopeSource" }, other)).toEqual({ ok: false, error: "Scope is not allowed on https://other.test" })
+    expect(d.readComponent).not.toHaveBeenCalled()
   })
 })
 

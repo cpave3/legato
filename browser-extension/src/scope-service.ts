@@ -1,13 +1,13 @@
 import { LegatoRequestError } from "./legato"
 import { createClearedStore, createDraftStore, createLock, isDraft, type StorageAreaLike } from "./scope-drafts"
 import { scopeOriginOf, type ScopeOrigin } from "./scope-origins"
-import { MAX_PINS_PER_BATCH, MAX_SCREENSHOT_BYTES, type Box, type ScopeBatch, type ScopeBatchResult, type ScopePin, type SentPin } from "./scope-types"
+import { MAX_PINS_PER_BATCH, MAX_SCREENSHOT_BYTES, type Box, type PinSource, type ScopeBatch, type ScopeBatchResult, type ScopePin, type SentPin } from "./scope-types"
 
 // The service worker's side of Scope: the options page's list of origins,
 // and, for the content script, the screenshot and the calls to Legato. Only
 // the service worker reads the token.
 
-export type ScopeSender = { tab?: { id?: number; url?: string; windowId?: number }; url?: string }
+export type ScopeSender = { tab?: { id?: number; url?: string; windowId?: number }; frameId?: number; url?: string }
 
 // The Legato calls Scope makes (LegatoClient's).
 export type ScopeApi = {
@@ -33,6 +33,12 @@ export type ScopeServiceDeps = {
   // Crops, outlines and encodes it (scope-screenshot.ts); null when the
   // element is not in view.
   crop: (captured: string, box: Box, viewport: { width: number; height: number }) => Promise<string | null>
+  // Runs the page script that reads the pinned element's component in the
+  // page's own world (scope-source/main-world.ts), and answers what it
+  // returned, which the page controls.
+  readComponent: (tabId: number, frameId: number) => Promise<unknown>
+  // Checks that and places it in the project (scope-source/lookup.ts).
+  resolveSource: (reading: unknown, origin: string) => Promise<PinSource>
   // The configured Legato, once the extension may reach it.
   legato: () => Promise<{ baseUrl: string; api: ScopeApi }>
   // Following origins' pins over Legato's WebSocket (scope-live.ts).
@@ -48,7 +54,7 @@ export type ScopeServiceDeps = {
 export type ScopeResponse = { ok: true; [key: string]: unknown } | { ok: false; error: string }
 
 const MESSAGES = new Set([
-  "listScopeOrigins", "removeScopeOrigin", "scopeCapture", "scopeSend", "scopeWatch", "scopeReopen", "scopeWithdraw",
+  "listScopeOrigins", "removeScopeOrigin", "scopeCapture", "scopeSource", "scopeSend", "scopeWatch", "scopeReopen", "scopeWithdraw",
   "scopeDraftAdd", "scopeDraftUpdate", "scopeDraftRemove", "scopeClearedAdd",
 ])
 
@@ -165,6 +171,16 @@ export function createScopeMessageHandler(deps: ScopeServiceDeps) {
           }
           const screenshot = await deps.crop(captured, box, viewport)
           return screenshot ? { ok: true, screenshot } : { ok: true }
+        }
+        case "scopeSource": {
+          const { origin, tabId } = await scopeTab(sender)
+          let reading: unknown
+          try {
+            reading = await deps.readComponent(tabId, sender.frameId ?? 0)
+          } catch {
+            return { ok: true, source: { confidence: "none" } }
+          }
+          return { ok: true, source: await deps.resolveSource(reading, origin) }
         }
         case "scopeSend": {
           const { origin } = await scopeTab(sender)

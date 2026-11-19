@@ -2,6 +2,7 @@ import { clearedKey, createTabClearedStore, createTabDraftStore, draftsKey } fro
 import type { ScopeBatchResult, ScopePin, SentPin } from "../scope-types"
 import { normalizeScopeOrigins, SCOPE_ORIGINS_KEY } from "../scope-origins"
 import { capturePage, captureTarget, locateTarget } from "./scope-capture"
+import { lookupSource } from "./scope-source"
 import { captureStyles, createStyleReader } from "./scope-styles"
 import { createScopeOverlay, type CapturedPin, type ScopeOverlay } from "./scope-overlay"
 
@@ -44,7 +45,9 @@ const nextFrame = (win: Window): Promise<void> => new Promise((resolve) => {
 // A pin's context: the page, the element and its styles, then a screenshot
 // the service worker takes of the visible tab (the overlay is hidden by
 // then; two frames let the page paint without it). The default styles are
-// read in an iframe put in the overlay's shadow root.
+// read in an iframe put in the overlay's shadow root. The component that
+// drew the element is looked up meanwhile, within its bound; a source of
+// none is left out of the pin.
 async function capture(win: Window, element: Element, container: Node): Promise<CapturedPin> {
   const reader = createStyleReader(win.document, container)
   let pin: CapturedPin["pin"]
@@ -53,6 +56,7 @@ async function capture(win: Window, element: Element, container: Node): Promise<
   } finally {
     reader.dispose()
   }
+  const source = lookupSource(element, (message) => chrome.runtime.sendMessage(message))
   await nextFrame(win)
   await nextFrame(win)
   const rect = element.getBoundingClientRect()
@@ -61,6 +65,8 @@ async function capture(win: Window, element: Element, container: Node): Promise<
     box: { x: rect.left, y: rect.top, width: rect.width, height: rect.height },
     viewport: { width: win.innerWidth, height: win.innerHeight },
   }).catch((error: unknown) => ({ ok: false, error: error instanceof Error ? error.message : String(error) })) as { ok?: boolean; screenshot?: unknown; error?: unknown } | undefined
+  const found = await source
+  if (found.confidence !== "none") pin = { ...pin, source: found }
   if (!answer?.ok) return { pin, screenshotError: typeof answer?.error === "string" ? answer.error : "The extension did not answer." }
   return typeof answer.screenshot === "string" ? { pin, screenshot: answer.screenshot } : { pin }
 }

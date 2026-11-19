@@ -47,9 +47,21 @@ When you place a pin, Scope records:
 - the page: its address, title, window size, scroll position and pixel ratio;
 - the element: several ways to select it, the most stable first (a test ID such as `data-testid`, its `id`, its role and accessible name, a class combination, then its position in the page), its text, and where it is on the page;
 - its styles: the computed styles that matter for visual problems, where they differ from the browser's defaults, its classes and inline style, and how its parent lays it out;
-- a screenshot of the element and the area around it, with the element outlined, at most 1024 pixels wide and 500 KB.
+- a screenshot of the element and the area around it, with the element outlined, at most 1024 pixels wide and 500 KB;
+- on a React app served by Vite's dev server, the component that drew the element: its name, the file, line and column of the JSX that made the element, and the components that rendered it.
 
 The Scope panel is hidden while the screenshot is taken, so it is not in the picture. Chrome lets Scope take a screenshot of a page only after you click the toolbar button or press the shortcut on that page. When you turned pin mode on from the panel instead, a pin may have no screenshot; the panel says so. Use the button or the shortcut, then pin again.
+
+### The component source
+
+The agent reads the component source as, for example, `component: SaveButton`, `file: src/settings/Toolbar.tsx:42:7`, `owners: Toolbar < SettingsPage`, with how sure Scope is:
+
+- **exact**: the file and the line of the JSX.
+- **file-only**: the file, but not the line (the dev server did not give a source map).
+- **name-only**: the component's name, but not its file. A production build gives this, and its names are often shortened by the minifier.
+- **none**: Scope found no component. The pin then has no component source, as on a page without React.
+
+Scope reads React 18 and React 19 in development builds, and Vite's dev server. A file in the project is named from the project's root (`src/App.tsx`); a file outside it by its full path on disk. When a component from a library drew the element, the file is where your code used that library's component. Scope gives up looking after 1.5 seconds, so placing a pin never waits long.
 
 ## Send
 
