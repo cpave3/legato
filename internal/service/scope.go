@@ -220,8 +220,9 @@ type ScopeService struct {
 	messenger ScopeMessenger
 	bus       *events.Bus
 	now       func() time.Time
-	// mu keeps subscribing and pushing one at a time, so a pin is pushed
-	// once.
+	// mu keeps subscribing, pushing, listing for a slot and withdrawing one
+	// at a time, so a pin is pushed once and never withdrawn while an agent
+	// is being told of it.
 	mu sync.Mutex
 }
 
@@ -705,6 +706,8 @@ func (s *ScopeService) ListForSlot(ctx context.Context, taskID, slot, origin, st
 		origins = []string{origin}
 	}
 	filter := store.ScopePinFilter{Origins: origins}
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	if state != "" {
 		switch state {
 		case store.ScopeSent, store.ScopeDelivered, store.ScopeFixed, store.ScopeWontFix:
@@ -823,8 +826,11 @@ func (s *ScopeService) Reopen(ctx context.Context, pinID, comment string) (Scope
 	return detail.ScopePin, nil
 }
 
-// Withdraw removes a pin no agent has been told of.
+// Withdraw removes a pin no agent has been told of. It waits for a push
+// in flight, which may be telling an agent of the pin.
 func (s *ScopeService) Withdraw(ctx context.Context, pinID string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
 	record, err := s.store.GetScopePin(ctx, pinID)
 	if err != nil {
 		return err
@@ -898,7 +904,9 @@ func (s *ScopeService) endIfGone(ctx context.Context, taskID, slot string) {
 	s.changed(origins...)
 }
 
-// StartEventLoop follows agents starting and ending until ctx ends.
+// StartEventLoop follows agents starting and ending until ctx ends, and
+// prunes when the board changes: archiving a task stops its agents without
+// an AgentDied when they were interrupted.
 func (s *ScopeService) StartEventLoop(ctx context.Context) (stop func()) {
 	if s.bus == nil {
 		return func() {}
@@ -906,6 +914,7 @@ func (s *ScopeService) StartEventLoop(ctx context.Context) (stop func()) {
 	ctx, cancel := context.WithCancel(ctx)
 	died := s.bus.Subscribe(events.EventAgentDied)
 	started := s.bus.Subscribe(events.EventAgentStarted)
+	cards := s.bus.Subscribe(events.EventCardsRefreshed)
 	go func() {
 		s.PruneEnded(ctx)
 		for {
@@ -919,6 +928,11 @@ func (s *ScopeService) StartEventLoop(ctx context.Context) (stop func()) {
 				if p, ok := event.Payload.(events.AgentDiedPayload); ok {
 					s.HandleAgentDied(ctx, p)
 				}
+			case _, ok := <-cards:
+				if !ok {
+					return
+				}
+				s.PruneEnded(ctx)
 			case event, ok := <-started:
 				if !ok {
 					return
@@ -931,7 +945,7 @@ func (s *ScopeService) StartEventLoop(ctx context.Context) (stop func()) {
 			}
 		}
 	}()
-	return func() { cancel(); s.bus.Unsubscribe(died); s.bus.Unsubscribe(started) }
+	return func() { cancel(); s.bus.Unsubscribe(died); s.bus.Unsubscribe(started); s.bus.Unsubscribe(cards) }
 }
 
 func slotOrMain(slot string) string {

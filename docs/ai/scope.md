@@ -37,6 +37,7 @@ Pins have no threads.
 - A subscription belongs to the **task slot**, not the execution, so it survives Reload, restart and resuming an interrupted agent. It ends (`endIfGone`) when the slot has neither a running nor an interrupted agent session, or the task is archived; a deleted task's rows go by cascade. This is checked:
   - on `EventAgentDied` for that task and slot (killed, exited, archived or deleted tasks stop their agents with an announcement; a restart stops without one, so it never fires there);
   - on every change to the interrupted agents (`AddInterruptedListener`), which covers a dismissal;
+  - on `EventCardsRefreshed`, which archiving publishes: archiving stops the task's agents, but an interrupted one goes without an `EventAgentDied` or an interrupted change;
   - at start (`PruneEnded` in `StartEventLoop`).
   The reconcile path publishes `EventAgentDied` for an agent it marks interrupted too, which is why the handler looks at the slot's sessions (`store.ScopeSlotStatus`) rather than trusting the event.
 - Pools and subscriptions belong to one Legato instance. Nothing is relayed to worker instances.
@@ -48,7 +49,7 @@ Pins have no threads.
 - A failed push leaves the pins `sent` and records `delivery_error` on their batches. With no subscriber, or no running agent in the slot, the batch simply waits.
 - Waiting pins reach the agent on the next subscribe (in the result), list (`ListForSlot` on the slot's own origins) or start of the slot's agent (`EventAgentStarted`, which covers resume, Reload and restart: they are pushed).
 - `SendBatch` answers `subscribed` (a slot holds the origin) and `delivered` (this batch reached a running agent), so the extension can say when pins will wait.
-- Pushing and subscribing hold `ScopeService.mu`, so a pin is pushed once per process.
+- Pushing, subscribing, listing for a slot and withdrawing hold `ScopeService.mu`, so a pin is pushed once per process, and a withdrawal waits for a push in flight (which may be telling the agent of that pin) and then finds the pin delivered.
 
 `EventScopeChanged` (`events.ScopeChangedPayload{Origin}`) is published whenever an origin's pins or subscription change: a batch, a delivery, a resolve, a reopen, a withdraw, a subscribe or unsubscribe, a subscription ended.
 

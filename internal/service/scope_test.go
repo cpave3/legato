@@ -27,9 +27,17 @@ type fakeScopeMessenger struct {
 	mu   sync.Mutex
 	sent []scopeMessage
 	fail error
+	// hold, when set, makes QueueMessage say it entered and wait for it
+	// to be closed, as a native endpoint that is slow to answer.
+	hold    chan struct{}
+	entered chan struct{}
 }
 
 func (f *fakeScopeMessenger) QueueMessage(ctx context.Context, taskID, message string) error {
+	if f.hold != nil {
+		f.entered <- struct{}{}
+		<-f.hold
+	}
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	if f.fail != nil {
@@ -278,6 +286,35 @@ func TestAnArchivedTasksSubscriptionsEnd(t *testing.T) {
 	}
 }
 
+// Archiving goes through the board, which stops the task's agents and
+// publishes EventCardsRefreshed, and neither AgentDied nor an interrupted
+// change: the loop prunes on it.
+func TestTheScopeEventLoopEndsSubscriptionsOfAnArchivedTask(t *testing.T) {
+	f := newScopeFixture(t)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	f.task(t, "task1")
+	f.agent(t, "task1", "", store.AgentSessionInterrupted)
+	if _, err := f.svc.Subscribe(ctx, "task1", "", scopeOrigin); err != nil {
+		t.Fatal(err)
+	}
+	stop := f.svc.StartEventLoop(ctx)
+	defer stop()
+	time.Sleep(100 * time.Millisecond) // past the loop's prune at start
+	if err := f.store.ArchiveTask(ctx, "task1"); err != nil {
+		t.Fatal(err)
+	}
+	f.bus.Publish(events.Event{Type: events.EventCardsRefreshed})
+	deadline := time.Now().Add(2 * time.Second)
+	for time.Now().Before(deadline) {
+		if subs, _ := f.svc.SubscriptionsOf(ctx, "task1", ""); len(subs) == 0 {
+			return
+		}
+		time.Sleep(10 * time.Millisecond)
+	}
+	t.Fatal("the archived task kept its subscription")
+}
+
 func TestABatchWithNoSubscriberWaitsAndTheNextSubscribeReportsIt(t *testing.T) {
 	f := newScopeFixture(t)
 	ctx := context.Background()
@@ -450,6 +487,48 @@ func TestWithdrawingAnUndeliveredPinRemovesItAndItsScreenshot(t *testing.T) {
 	}
 	if entries, _ := os.ReadDir(f.dir); len(entries) != 0 {
 		t.Fatalf("screenshot files after withdraw = %v", entries)
+	}
+}
+
+// A withdrawal waits for a push in flight, so the agent is never told of a
+// pin that is gone.
+func TestWithdrawWaitsForAPushInFlight(t *testing.T) {
+	f := newScopeFixture(t)
+	ctx := context.Background()
+	f.task(t, "task1")
+	f.agent(t, "task1", "", store.AgentSessionInterrupted)
+	if _, err := f.svc.Subscribe(ctx, "task1", "", scopeOrigin); err != nil {
+		t.Fatal(err)
+	}
+	sent, err := f.svc.SendBatch(ctx, scopeOrigin, []service.ScopePinInput{scopePin("/", "Too tight")})
+	if err != nil || sent.Delivered {
+		t.Fatalf("send = %+v, %v", sent, err)
+	}
+	pinID := sent.PinIDs[0]
+
+	f.messenger.hold = make(chan struct{})
+	f.messenger.entered = make(chan struct{}, 1)
+	f.agent(t, "task1", "", "running") // resumed
+	go f.svc.HandleAgentStarted(ctx, "task1")
+	select {
+	case <-f.messenger.entered:
+	case <-time.After(5 * time.Second):
+		t.Fatal("the resumed agent was not pushed its pins")
+	}
+
+	withdrawn := make(chan error, 1)
+	go func() { withdrawn <- f.svc.Withdraw(ctx, pinID) }()
+	select {
+	case err := <-withdrawn:
+		t.Fatalf("withdraw finished during the push: %v", err)
+	case <-time.After(100 * time.Millisecond):
+	}
+	close(f.messenger.hold)
+	if err := <-withdrawn; !errors.Is(err, service.ErrScopePinState) {
+		t.Fatalf("withdrawing a pin the push delivered = %v", err)
+	}
+	if _, err := f.svc.Get(ctx, pinID); err != nil {
+		t.Fatalf("the delivered pin is gone: %v", err)
 	}
 }
 
