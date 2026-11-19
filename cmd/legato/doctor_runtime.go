@@ -4,6 +4,8 @@ import (
 	"context"
 	"sync"
 
+	"github.com/cpave3/legato/config"
+	"github.com/cpave3/legato/internal/engine/workflow"
 	"github.com/cpave3/legato/internal/service"
 )
 
@@ -30,4 +32,15 @@ func agentsOffReason(ctx context.Context) string {
 		return "tmux could not be used: agents are off. Run legato doctor."
 	}
 	return "tmux cannot run: agents are off. " + check.Detail + ". " + check.Fix
+}
+
+// startDoctorReports gives a web server the doctor's reports, read with
+// this process's configuration, and runs the checks once at start.
+func startDoctorReports(cfg *config.Config) *service.DoctorReports {
+	reports := service.NewDoctorReports(processDoctor(), func() service.DoctorConfig {
+		global, project := workflowDirs()
+		return doctorConfig(cfg, workflow.DiscoverPaths(legacyWorkflowDir(), global, project).Definitions)
+	})
+	go reports.Recheck(context.Background())
+	return reports
 }

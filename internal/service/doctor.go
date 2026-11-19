@@ -558,3 +558,67 @@ func doctorLine(s string) string {
 	}
 	return s
 }
+
+// DoctorReportsMaxAge is how long Latest reuses a report.
+const DoctorReportsMaxAge = time.Minute
+
+// DoctorReports keeps the doctor's last full report for the web UI: run
+// at start, on demand with a short cache, and again on Check again. There
+// is no timer.
+type DoctorReports struct {
+	doctor *Doctor
+	config func() DoctorConfig
+
+	mu       sync.Mutex
+	last     *DoctorReport
+	onChange []func()
+}
+
+// OnVerdictChange calls f after a run whose OK differs from the run before
+// (or is the first).
+func (r *DoctorReports) OnVerdictChange(f func()) {
+	r.mu.Lock()
+	r.onChange = append(r.onChange, f)
+	r.mu.Unlock()
+}
+
+// NewDoctorReports runs doctor with the configuration config gives at each
+// run.
+func NewDoctorReports(doctor *Doctor, config func() DoctorConfig) *DoctorReports {
+	return &DoctorReports{doctor: doctor, config: config}
+}
+
+// Known is the last report, running nothing.
+func (r *DoctorReports) Known() (DoctorReport, bool) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	if r.last == nil {
+		return DoctorReport{}, false
+	}
+	return *r.last, true
+}
+
+// Latest is the last report when it is under DoctorReportsMaxAge old, else
+// a new one.
+func (r *DoctorReports) Latest(ctx context.Context) DoctorReport {
+	if last, ok := r.Known(); ok && r.doctor.opts.Now().Sub(last.CheckedAt) < DoctorReportsMaxAge {
+		return last
+	}
+	return r.Recheck(ctx)
+}
+
+// Recheck runs every check now.
+func (r *DoctorReports) Recheck(ctx context.Context) DoctorReport {
+	report := r.doctor.Check(ctx, r.config(), false)
+	r.mu.Lock()
+	changed := r.last == nil || r.last.OK() != report.OK()
+	r.last = &report
+	listeners := slices.Clone(r.onChange)
+	r.mu.Unlock()
+	if changed {
+		for _, f := range listeners {
+			f()
+		}
+	}
+	return report
+}

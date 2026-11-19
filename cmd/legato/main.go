@@ -1022,6 +1022,7 @@ func runServeCmd(args []string) int {
 	addr := ":" + port
 	srv := server.NewWithSwarm(boardSvc, agentSvc, tmuxMgr, addr, swarmSvc, bus, wd)
 	srv.SetAgentsOff(agentsOff)
+	srv.SetDoctor(startDoctorReports(cfg))
 	srv.SetWorkspaceDefaults(workspaceDefaults.Task, workspaceDefaults.Import)
 	srv.SetHotReloadBuildTrigger(configuredHotReloadBuildTrigger())
 	srv.SetReportService(service.NewReportService(db))
@@ -1409,6 +1410,7 @@ func runTUI() int {
 		} else {
 			webSrv = server.NewWithSwarm(boardSvc, agentSvc, tmuxMgr, ln.Addr().String(), swarmSvc, bus, wd)
 			webSrv.SetAgentsOff(agentsOff)
+			webSrv.SetDoctor(startDoctorReports(cfg))
 			webSrv.SetWorkspaceDefaults(workspaceDefaults.Task, workspaceDefaults.Import)
 			webSrv.SetHotReloadBuildTrigger(configuredHotReloadBuildTrigger())
 			webSrv.SetReportService(reportSvc)

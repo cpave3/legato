@@ -37,6 +37,8 @@ export interface Settings {
   reeve_name?: string
   // Where this server's updates stand; absent when it has no updater.
   updates?: UpdateStatus
+  // A required check of `legato doctor` failed; /api/doctor says which.
+  setup_incomplete?: boolean
 }
 
 export class SettingsRequestError extends Error {

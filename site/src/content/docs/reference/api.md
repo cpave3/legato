@@ -333,6 +333,8 @@ A card on the board is a task: its ID is the task's. An agent is addressed by it
 | `GET` | `/api/settings/skills` | read | List the skills Legato gives agents |  |
 | `PUT` | `/api/settings/skills/{name}` | change | Turn a skill on or off for agents started from now on | `{"enabled": false}` |
 | `PUT` | `/api/settings/updates` | risky | Set how Legato updates itself |  |
+| `GET` | `/api/doctor` | read | Read the checks of what Legato needs from this machine |  |
+| `POST` | `/api/doctor/check` | read | Run the checks of what Legato needs from this machine again |  |
 | `GET` | `/api/updates` | read | Read the update status |  |
 | `POST` | `/api/updates/check` | read | Check for a new release |  |
 | `POST` | `/api/updates/apply` | risky | Install an update and restart Legato |  |

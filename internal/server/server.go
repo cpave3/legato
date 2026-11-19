@@ -25,6 +25,7 @@ type WorktreeService interface {
 }
 
 type Server struct {
+	doctor DoctorReports
 	// agentsOff is why there is no agent service, with the fix.
 	agentsOff                string
 	board                    service.BoardService
@@ -172,6 +173,8 @@ func NewWithSwarm(board service.BoardService, agents service.AgentService, tmux 
 	mux.HandleFunc("/health", healthHandler())
 	mux.HandleFunc("/frontend-meta", frontendMetaHandler())
 	mux.HandleFunc("/api/meta", s.mobileMetaHandler())
+	mux.HandleFunc("/api/doctor", s.doctorHandler())
+	mux.HandleFunc("/api/doctor/check", s.doctorCheckHandler())
 	mux.HandleFunc("/api/pairing", s.pairingHandler())
 	mux.HandleFunc("/api/pair/exchange", s.pairExchangeHandler())
 	mux.HandleFunc("/api/pair/confirm", s.pairConfirmHandler())
@@ -641,6 +644,9 @@ func (s *Server) settingsHandler() http.HandlerFunc {
 			// has no updater. Here so the web UI's update bar costs no
 			// request of its own.
 			Updates *service.UpdateStatus `json:"updates,omitempty"`
+			// SetupIncomplete: a required check of the doctor failed, so
+			// the web UI reads /api/doctor for its banner, and only then.
+			SetupIncomplete bool `json:"setup_incomplete"`
 		}{
 			CaCertAvailable:          hasCACert,
 			WorkingDir:               s.workDir,
@@ -657,6 +663,7 @@ func (s *Server) settingsHandler() http.HandlerFunc {
 			Repositories:             s.repositories(r.Context()),
 			Tint:                     s.tint(r.Context()),
 			ReeveName:                string(s.reeveName.Of(r.Context())),
+			SetupIncomplete:          s.setupIncomplete(),
 		}
 		if s.updates != nil {
 			status := s.updates.Status(r.Context())

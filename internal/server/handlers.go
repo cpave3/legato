@@ -32,7 +32,7 @@ func frontendMetaHandler() http.HandlerFunc {
 
 func (s *Server) mobileMetaHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
-		meta := MobileMetaResponse{Version: version.String(), Commit: version.Commit(), MobileShellAPI: 1, AuthBootstrap: "local_storage_v1", Tint: s.tint(r.Context())}
+		meta := MobileMetaResponse{Version: version.String(), Commit: version.Commit(), MobileShellAPI: 1, AuthBootstrap: "local_storage_v1", Tint: s.tint(r.Context()), SetupIncomplete: s.setupIncomplete()}
 		if s.themes != nil {
 			preference, err := s.themes.Current(r.Context())
 			if err != nil {

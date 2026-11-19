@@ -13,6 +13,8 @@ To start the web server, see [Web server](/legato/running/web-server/). To run i
 
 On a wide screen, a rail on the left holds every page. A count beside a page says how many things there wait on you, or how many agents are at work. At the foot are **Settings**, the server switcher when you use more than one Legato, and the connection state (`sync`, or a red `offline`).
 
+When something Legato needs is missing on the machine it runs on, such as tmux or your default agent tool, a red strip at the top of every page names it with the fix. Fix it there, then press **Check again**. It shows the same required checks as [`legato doctor`](/legato/reference/cli/#running-legato), and only once you are signed in.
+
 On a phone, a tab bar along the bottom holds **Attention**, **Board**, **Agents**, **Review** and **More**. **More** opens the other pages, the server in use, and a few settings.
 
 | Page | What it is for |

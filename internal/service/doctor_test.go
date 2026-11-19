@@ -359,3 +359,43 @@ func TestTheSpawnCheckAllowsAToolTheDoctorDoesNotKnow(t *testing.T) {
 		t.Fatal(err)
 	}
 }
+
+func TestDoctorReportsKeepTheLastReportAndRunAgainOnRequest(t *testing.T) {
+	m := healthyMachine()
+	m.remove("tmux")
+	reports := NewDoctorReports(NewDoctor(m.options()), func() DoctorConfig { return DoctorConfig{} })
+	if _, known := reports.Known(); known {
+		t.Fatal("a report before any run")
+	}
+	if r := reports.Latest(context.Background()); r.OK() {
+		t.Fatal("missing tmux passed")
+	}
+	if r, known := reports.Known(); !known || r.OK() {
+		t.Fatal("the run was not kept")
+	}
+	m.paths["tmux"] = "/usr/bin/tmux"
+	if r := reports.Latest(context.Background()); r.OK() {
+		t.Fatal("Latest ran again within its cache")
+	}
+	if r := reports.Recheck(context.Background()); !r.OK() {
+		t.Fatalf("Check again did not see tmux: %+v", r.RequiredFailed())
+	}
+}
+
+func TestDoctorReportsSayWhenTheVerdictChanges(t *testing.T) {
+	m := healthyMachine()
+	m.remove("tmux")
+	reports := NewDoctorReports(NewDoctor(m.options()), func() DoctorConfig { return DoctorConfig{} })
+	changes := 0
+	reports.OnVerdictChange(func() { changes++ })
+	reports.Recheck(context.Background())
+	reports.Recheck(context.Background())
+	if changes != 1 {
+		t.Fatalf("%d changes after two failing runs, want 1", changes)
+	}
+	m.paths["tmux"] = "/usr/bin/tmux"
+	reports.Recheck(context.Background())
+	if changes != 2 {
+		t.Fatalf("%d changes once tmux is back, want 2", changes)
+	}
+}
