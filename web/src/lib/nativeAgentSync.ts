@@ -486,13 +486,10 @@ export function reconcileNativeSnapshot(
     }
   })
   applySnapshotSubagents(next.items, snapshot)
-  const previousPermissionItems = previous.items.filter((item) => item.permission)
-  if (snapshot.pendingPermissions === undefined) {
-    next.items.push(...previousPermissionItems)
-  } else {
-    next.items.push(...previousPermissionItems.filter((item) =>
-      item.permission && item.permission.status !== "pending" && item.permission.status !== "submitting"))
-  }
+  // A snapshot lists only open approvals, so the panel keeps the ones it saw
+  // settled, each in its place among the calls and messages around it.
+  next.items = withRetainedPermissions(next.items, previous.items, (permission) =>
+    snapshot.pendingPermissions === undefined || (permission.status !== "pending" && permission.status !== "submitting"))
   // A settled question is on record as the transcript's own tool call, so
   // only open ones are kept, and only when the snapshot cannot say which are.
   if (snapshot.pendingQuestions === undefined) {
@@ -535,6 +532,36 @@ export function reconcileNativeSnapshot(
   next.items = next.items.filter((item) =>
     !item.question || item.question.status === "pending" || item.question.status === "submitting")
   return next
+}
+
+// withRetainedPermissions puts the approval cards of previous that keep says
+// to keep into items, a list rebuilt from a snapshot. Each goes after the
+// nearest item before it in previous that items also has (a tool call's key
+// is the same in both), else before the nearest such item after it, else at
+// the end. Appending them all would move every approval of a turn under its
+// final reply.
+function withRetainedPermissions(
+  items: NativeConversationItem[],
+  previous: NativeConversationItem[],
+  keep: (permission: NativePermissionItem) => boolean,
+): NativeConversationItem[] {
+  const result = [...items]
+  const present = new Set(result.map((item) => item.key))
+  for (let index = 0; index < previous.length; index++) {
+    const item = previous[index]
+    if (!item.permission || !keep(item.permission) || present.has(item.key)) continue
+    let at = -1
+    for (let before = index - 1; before >= 0 && at < 0; before--) {
+      if (present.has(previous[before].key)) at = result.findIndex((each) => each.key === previous[before].key) + 1
+    }
+    for (let after = index + 1; after < previous.length && at < 0; after++) {
+      if (present.has(previous[after].key)) at = result.findIndex((each) => each.key === previous[after].key)
+    }
+    if (at < 0) at = result.length
+    result.splice(at, 0, item)
+    present.add(item.key)
+  }
+  return result
 }
 
 function acceptWithoutRendering(state: NativeSyncState, event: NativeEvent): NativeSyncState {
