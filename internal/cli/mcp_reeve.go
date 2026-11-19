@@ -20,6 +20,9 @@ import (
 // MCPReeve is what the Reeve's own tools need. They are offered only to a
 // session of the Reeve, and refused to every other.
 type MCPReeve struct {
+	// WorkflowNames lists the workflows found, so draft_workflow refuses a
+	// name one has before proposing; nil leaves that to the save.
+	WorkflowNames func(ctx context.Context) []string
 	// Snapshot is the instance's snapshot (instance_status).
 	Snapshot func(ctx context.Context) string
 	// LogPath is this instance's log file (read_logs).
@@ -99,7 +102,7 @@ func (m *mcpTools) reeveSession() bool {
 func (m *mcpTools) reeveTools() []mcpserver.Tool {
 	tools := []mcpserver.Tool{m.reeveDocs(), m.reeveStatus(), m.reeveLogs(), m.reeveAPI(), m.watchAgent(), m.unwatchAgent(), m.listWatches()}
 	if m.opts.Reeve.ChangeSets != nil {
-		tools = append(tools, m.proposeChanges(), m.restartLegato(), m.proposeConfigEdit())
+		tools = append(tools, m.proposeChanges(), m.restartLegato(), m.proposeConfigEdit(), m.draftWorkflow())
 	}
 	if m.opts.Reeve.Secrets != nil {
 		tools = append(tools, m.requestSecret())

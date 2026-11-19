@@ -288,6 +288,7 @@ A card on the board is a task: its ID is the task's. An agent is addressed by it
 | `GET` | `/api/workflows` | read | List the workflows |  |
 | `GET` | `/api/workflow-templates` | read | List the bundled workflow templates and where they can go |  |
 | `POST` | `/api/workflow-templates/{template}` | change | Add a bundled workflow template to a workflows folder | `{"name": "…", "folder": "global"}` |
+| `POST` | `/api/workflow-drafts` | change | Save a drafted workflow, its triggers paused, to the workflows folder | `{"yaml": "schema_version: 1\nname: …"}` |
 | `POST` | `/api/workflows/{name}/runs` | change | Start a workflow |  |
 | `PUT` | `/api/workflows/{name}/triggers/{trigger}` | change | Switch a workflow's trigger on or off here | `{"enabled": false}` |
 | `DELETE` | `/api/workflows/{name}/triggers/{trigger}` | change | Leave a workflow's trigger to its file |  |

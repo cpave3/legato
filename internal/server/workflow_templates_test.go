@@ -75,3 +75,24 @@ func TestTheWorkflowsPageAddsATemplateToTheGlobalOrProjectFolder(t *testing.T) {
 		t.Fatalf("an unknown template: %d", rec.Code)
 	}
 }
+
+func TestADraftedWorkflowIsSavedPausedAndNeverOverwrites(t *testing.T) {
+	s, global, _ := templateServer(t)
+	draft := "schema_version: 1\nname: standup\ntitle: Standup\non:\n  schedule: {every: daily, at: \"09:00\", enabled: true}\nsteps:\n  - {id: n, title: N, type: task.note, with: {task: \"${{ workflow.task }}\", body: hi}}\n"
+	body, _ := json.Marshal(map[string]string{"yaml": draft})
+	post := func() *httptest.ResponseRecorder {
+		rec := httptest.NewRecorder()
+		s.Handler().ServeHTTP(rec, httptest.NewRequest(http.MethodPost, "/api/workflow-drafts", strings.NewReader(string(body))))
+		return rec
+	}
+	if rec := post(); rec.Code != http.StatusCreated {
+		t.Fatalf("save: %d %s", rec.Code, rec.Body)
+	}
+	data, _ := os.ReadFile(filepath.Join(global, "standup.workflow.yaml"))
+	if !strings.Contains(string(data), "enabled: false") || strings.Contains(string(data), "enabled: true") {
+		t.Fatalf("saved:\n%s", data)
+	}
+	if rec := post(); rec.Code != http.StatusConflict {
+		t.Fatalf("again: %d", rec.Code)
+	}
+}

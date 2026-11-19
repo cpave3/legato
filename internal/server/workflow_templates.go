@@ -129,3 +129,46 @@ func (s *Server) workflowTemplateAddHandler() http.HandlerFunc {
 		s.writeJSON(w, http.StatusCreated, map[string]string{"name": name, "path": path})
 	}
 }
+
+// workflowDraftHandler serves POST /api/workflow-drafts {yaml}: a drafted
+// definition (the Reeve's draft_workflow proposes this call) checked,
+// every trigger paused, and written to the global workflows folder, never
+// over a workflow of that name.
+func (s *Server) workflowDraftHandler() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			s.writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+			return
+		}
+		var body struct {
+			YAML string `json:"yaml"`
+		}
+		if json.NewDecoder(r.Body).Decode(&body) != nil || strings.TrimSpace(body.YAML) == "" {
+			s.writeError(w, http.StatusBadRequest, "want {\"yaml\": \"<a workflow definition>\"}")
+			return
+		}
+		if s.workflowGlobalDir == "" {
+			s.writeError(w, http.StatusServiceUnavailable, "no workflows folder")
+			return
+		}
+		discovered := s.discoverWorkflows()
+		path, err := workflowengine.SaveDraft([]byte(body.YAML), s.workflowGlobalDir, func(name string) bool {
+			for _, definition := range discovered.Definitions {
+				if definition.Name == name {
+					return true
+				}
+			}
+			return false
+		})
+		switch {
+		case errors.Is(err, workflowengine.ErrWorkflowNameTaken):
+			s.writeError(w, http.StatusConflict, err.Error())
+			return
+		case err != nil:
+			s.writeError(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		s.hub.Broadcast(WSMessage{Type: MsgWorkflowChanged})
+		s.writeJSON(w, http.StatusCreated, map[string]string{"path": path, "triggers": "paused"})
+	}
+}

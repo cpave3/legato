@@ -134,6 +134,13 @@ func howThisRuns() string {
 // reeveTools is what the Reeve's own MCP tools need, in the host process.
 func reeveTools(cfg *config.Config, db *store.Store) *cli.MCPReeve {
 	tools := &cli.MCPReeve{
+		WorkflowNames: func(context.Context) []string {
+			var names []string
+			for _, definition := range workflowDiscoveryProvider(cfg)().Definitions {
+				names = append(names, definition.Name)
+			}
+			return names
+		},
 		Snapshot: func(ctx context.Context) string { return reeveSnapshot(ctx, db) },
 		LogPath:  logfile.Path(config.ResolveDataDir(cfg)),
 	}
