@@ -652,3 +652,15 @@ func TestTheScopeEventLoopEndsSubscriptionsOfDeadAgents(t *testing.T) {
 	}
 	t.Fatal("the subscription outlived its agent")
 }
+
+func TestScopeTellsNotifyOfEachChangedOrigin(t *testing.T) {
+	s := newTestStoreForReport(t)
+	var told []string
+	svc := service.NewScopeService(service.ScopeServiceOptions{Store: s, Dir: t.TempDir(), Notify: func(origin string) { told = append(told, origin) }})
+	if _, err := svc.SendBatch(context.Background(), scopeOrigin, []service.ScopePinInput{scopePin("/", "x")}); err != nil {
+		t.Fatal(err)
+	}
+	if len(told) != 1 || told[0] != scopeOrigin {
+		t.Fatalf("told = %v", told)
+	}
+}

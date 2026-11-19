@@ -90,7 +90,11 @@ func startApprovals(ctx context.Context, cfg *config.Config, db *store.Store, bu
 	var stopMCP func()
 	rt.mcp, stopMCP = startMCPBroker(cfg, db, rt.credentials, rt.approvals)
 	stops = append(stops, stopMCP)
-	deps := hostBrokerDeps(cfg, db, agents, rt.credentials, rt.caseReplies, rt.reviewPasses, rt.mcp.upstream())
+	var scope cli.MCPScope
+	if rt.scope != nil {
+		scope = rt.scope
+	}
+	deps := hostBrokerDeps(cfg, db, agents, rt.credentials, rt.caseReplies, rt.reviewPasses, rt.mcp.upstream(), scope)
 	broker := startBrokerHost(ctx, db, ipc.SocketDir(), brokerHostOptions{Deps: deps})
 	stops = append(stops, broker.Stop)
 	rt.brokerOwner = broker.Owner
@@ -275,7 +279,7 @@ func (rt *approvalRuntime) reviewPasses() cli.MCPReviews {
 // hostBrokerDeps is what the host's broker serves agent-side processes:
 // Legato's MCP tools, forwarded commands of the sandbox, and, with a
 // credential broker, the values `legato credential get` and `exec` ask for.
-func hostBrokerDeps(cfg *config.Config, db *store.Store, agents service.AgentService, credentials *service.CredentialBroker, caseReplies *service.CaseReplyService, reviews func() cli.MCPReviews, upstream cli.MCPUpstream) cli.BrokerDeps {
+func hostBrokerDeps(cfg *config.Config, db *store.Store, agents service.AgentService, credentials *service.CredentialBroker, caseReplies *service.CaseReplyService, reviews func() cli.MCPReviews, upstream cli.MCPUpstream, scope cli.MCPScope) cli.BrokerDeps {
 	deps := cli.BrokerDeps{Push: agentPushNotifier(cfg), OS: agentOSNotifier(cfg), ClaudeModels: cfg.Adapters["claude-code"].Models}
 	deps.Ops = cli.MCPBrokerOps(func(cli.BrokerCaller) cli.MCPOptions {
 		opts := cli.MCPOptions{Store: db, Version: version.String(), ResourceDomains: cfg.Agents.MCP.ResourceDomains,
@@ -294,6 +298,7 @@ func hostBrokerDeps(cfg *config.Config, db *store.Store, agents service.AgentSer
 		}
 		opts.Reeve = reeveTools(cfg, db)
 		opts.Upstream = upstream
+		opts.Scope = scope
 		return opts
 	})
 	// Agents in the sandbox run their own `legato` commands here.

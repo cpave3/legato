@@ -313,3 +313,21 @@ func TestServeIPCMessage_AgentStateAndTaskUpdatesReachTheBus(t *testing.T) {
 	handleServeIPCMessage(ipc.Message{Type: "task_update", TaskID: "task1"}, bus, &recordingServeNotifier{})
 	drainEvent(t, updated)
 }
+
+// A page_pin tool in a `legato mcp serve` with no broker changes the pool
+// from its own process; the running Legato must tell the extension.
+func TestIPCMessage_ScopeChangedReachesTheBusInBothRuntimes(t *testing.T) {
+	for name, handle := range map[string]func(ipc.Message, *events.Bus){
+		"tui":   func(m ipc.Message, b *events.Bus) { handleIPCMessage(m, b, nil) },
+		"serve": func(m ipc.Message, b *events.Bus) { handleServeIPCMessage(m, b, &recordingServeNotifier{}) },
+	} {
+		t.Run(name, func(t *testing.T) {
+			bus := events.New()
+			ch := bus.Subscribe(events.EventScopeChanged)
+			handle(ipc.Message{Type: "scope_changed", Content: "http://localhost:5173"}, bus)
+			if payload, ok := drainEvent(t, ch).Payload.(events.ScopeChangedPayload); !ok || payload.Origin != "http://localhost:5173" {
+				t.Fatalf("payload = %+v", payload)
+			}
+		})
+	}
+}

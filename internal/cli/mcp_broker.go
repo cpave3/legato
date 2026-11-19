@@ -59,7 +59,7 @@ func MCPBrokerOps(build func(BrokerCaller) MCPOptions) map[string]BrokerOp {
 					// The tool's own error is the call's result, for the model.
 					return map[string]any{"text": err.Error(), "is_error": true}, nil
 				}
-				return map[string]any{"text": result.Text, "data": result.Data}, nil
+				return map[string]any{"text": result.Text, "data": result.Data, "images": result.Images}, nil
 			}
 			return nil, refuse("unknown_tool", "this session has no tool named "+args.Name)
 		},

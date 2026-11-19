@@ -4,6 +4,8 @@ import (
 	"context"
 	"path/filepath"
 
+	"github.com/cpave3/legato/internal/engine/ipc"
+
 	"github.com/cpave3/legato/config"
 	"github.com/cpave3/legato/internal/engine/events"
 	"github.com/cpave3/legato/internal/engine/store"
@@ -31,4 +33,15 @@ func startScope(ctx context.Context, cfg *config.Config, db *store.Store, bus *e
 		svc.AddInterruptedListener(func() { scope.PruneEnded(context.Background()) })
 	}
 	return scope, stop
+}
+
+// standaloneScope is the Scope pool of a `legato mcp serve` that reaches no
+// host broker: it acts on the store itself and tells running Legato
+// instances of each change over IPC, which they publish as
+// EventScopeChanged.
+func standaloneScope(cfg *config.Config, db *store.Store, messenger service.ScopeMessenger) *service.ScopeService {
+	return service.NewScopeService(service.ScopeServiceOptions{
+		Store: db, Dir: scopeDir(cfg), Messenger: messenger,
+		Notify: func(origin string) { ipc.Broadcast(ipc.Message{Type: "scope_changed", Content: origin}) },
+	})
 }

@@ -69,6 +69,20 @@ Errors: `400` (`ErrScopeInvalidOrigin`, `ErrScopeInvalid`, a screenshot that is 
 
 `EventScopeChanged` reaches `/ws` clients as `{"type": "scope_changed", "origin": "http://localhost:5173"}`.
 
+## Agent tools
+
+`internal/cli/mcp_scope.go`, offered when `MCPOptions.Scope` is set; see [Agent tools](agent-mcp.md) for the table. Each call is bound to the calling session (`m.session()`); subscriptions use its task and slot. A swarm worker is refused (its identity is a sub-task, which has no task row). Errors come back as the call's result, so an unknown pin is a message naming it, never a crash.
+
+- `page_pin_subscribe {origin}` → `ScopeSubscribeResult.Report()`.
+- `page_pin_unsubscribe {origin}`.
+- `page_pin_list {origin?, state?}` → one line per pin, grouped by origin, with state and note.
+- `page_pin_get {pin_id}` → `ScopePinDetail.Text()` and the screenshot as image content.
+- `page_pin_resolve {pin_id, outcome, note}`; `resolved_by_task` is the caller's task.
+
+Host: `hostBrokerDeps` gets the host's `ScopeService`. The broker's `mcp.call` returns a tool's `images`, which `MCPRelay` already read, so a sandboxed agent sees the screenshot. Without a broker, `legato mcp serve` builds `standaloneScope`: its own `ScopeService` over the store, with the agent service as messenger and `Notify` broadcasting `scope_changed` over IPC (`Content` is the origin), which both host runtimes publish as `EventScopeChanged`.
+
+`cli.MCPGuidance` tells every agent to subscribe the origin of a dev server it starts or knows of, read pins with `page_pin_get`, resolve each, and use `page_pin_list` when told pins wait. Claude Code reads it as the server's instructions; Codex and Chimera get it in the launch prompt (`SetToolsPrompt`). `MCPToolNames` names the five tools, so Chimera runs them without asking.
+
 ## Wiring
 
 `startScope` (`cmd/legato/scope_runtime.go`) builds the one `ScopeService` of a host process (the TUI's and `legato serve`'s, from `startApprovals`), with the agent service as its messenger, starts its event loop and adds the interrupted listener. It is kept on `approvalRuntime.scope`.

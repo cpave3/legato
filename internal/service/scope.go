@@ -208,7 +208,11 @@ type ScopeServiceOptions struct {
 	Dir       string
 	Messenger ScopeMessenger
 	Bus       *events.Bus
-	Now       func() time.Time
+	// Notify, when set, is told each origin whose pins changed, as well as
+	// the bus: a process with no host bus (`legato mcp serve` without a
+	// broker) tells running Legato instances this way.
+	Notify func(origin string)
+	Now    func() time.Time
 }
 
 // ScopeService keeps Legato Scope's pool: the pins the operator sent from
@@ -219,6 +223,7 @@ type ScopeService struct {
 	dir       string
 	messenger ScopeMessenger
 	bus       *events.Bus
+	notify    func(origin string)
 	now       func() time.Time
 	// mu keeps subscribing, pushing, listing for a slot and withdrawing one
 	// at a time, so a pin is pushed once and never withdrawn while an agent
@@ -232,7 +237,7 @@ func NewScopeService(opts ScopeServiceOptions) *ScopeService {
 	if now == nil {
 		now = time.Now
 	}
-	return &ScopeService{store: opts.Store, dir: opts.Dir, messenger: opts.Messenger, bus: opts.Bus, now: now}
+	return &ScopeService{store: opts.Store, dir: opts.Dir, messenger: opts.Messenger, bus: opts.Bus, notify: opts.Notify, now: now}
 }
 
 // SetMessenger gives the service the agent service once it exists.
@@ -270,16 +275,18 @@ func scopeID(prefix string) string {
 func (s *ScopeService) stamp() string { return s.now().UTC().Format(time.RFC3339Nano) }
 
 func (s *ScopeService) changed(origins ...string) {
-	if s.bus == nil {
-		return
-	}
 	seen := map[string]bool{}
 	for _, origin := range origins {
 		if origin == "" || seen[origin] {
 			continue
 		}
 		seen[origin] = true
-		s.bus.Publish(events.Event{Type: events.EventScopeChanged, At: s.now(), Payload: events.ScopeChangedPayload{Origin: origin}})
+		if s.bus != nil {
+			s.bus.Publish(events.Event{Type: events.EventScopeChanged, At: s.now(), Payload: events.ScopeChangedPayload{Origin: origin}})
+		}
+		if s.notify != nil {
+			s.notify(origin)
+		}
 	}
 }
 

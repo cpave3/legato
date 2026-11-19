@@ -222,7 +222,7 @@ func TestConfiguredAdaptersGiveEverySessionLegatosMCPServer(t *testing.T) {
 	// reads the instructions and needs no second copy.
 	for _, name := range []string{"codex", "chimera"} {
 		prompt := adapters[name].(service.ToolsPromptAdapter).ToolsPrompt()
-		if !strings.HasPrefix(prompt, "## Legato tools\n") || !strings.Contains(prompt, "without being asked") || !strings.Contains(prompt, "show_artifact") {
+		if !strings.HasPrefix(prompt, "## Legato tools\n") || !strings.Contains(prompt, "without being asked") || !strings.Contains(prompt, "show_artifact") || !strings.Contains(prompt, "page_pin_subscribe") || !strings.Contains(prompt, "page_pin_resolve") {
 			t.Fatalf("%s tools guidance = %q", name, prompt)
 		}
 	}
@@ -230,7 +230,7 @@ func TestConfiguredAdaptersGiveEverySessionLegatosMCPServer(t *testing.T) {
 		t.Fatal("claude-code repeats guidance its sessions get from the server")
 	}
 	// Every tool is trusted, so Chimera asks before none of them.
-	for _, tool := range []string{"show_artifact", "show_card", "show_components", "task_context", "add_task_note", "list_peers"} {
+	for _, tool := range []string{"show_artifact", "show_card", "show_components", "task_context", "add_task_note", "list_peers", "page_pin_subscribe", "page_pin_get", "page_pin_resolve"} {
 		if !strings.Contains(chimera, `"`+tool+`"`) {
 			t.Fatalf("chimera command %q does not trust %s", chimera, tool)
 		}

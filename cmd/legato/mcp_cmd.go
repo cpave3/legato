@@ -97,9 +97,15 @@ func runMCPServe(args []string, in io.ReadCloser, out io.WriteCloser) int {
 	// the tools still work, so its absence costs those three and no more.
 	if manager, tmuxErr := newAgentContractTmux(); tmuxErr == nil {
 		workDir, _ := os.Getwd()
-		opts.Agents = service.NewAgentService(db, manager, workDir, service.AgentServiceOptions{DisablePeerAwareness: true})
+		agents := service.NewAgentService(db, manager, workDir, service.AgentServiceOptions{DisablePeerAwareness: true})
+		opts.Agents = agents
+		// The page_pin tools act on the pool here; a takeover notice reaches
+		// the other agent through the same agent service.
+		messenger, _ := agents.(service.ScopeMessenger)
+		opts.Scope = standaloneScope(cfg, db, messenger)
 	} else {
 		fmt.Fprintf(os.Stderr, "legato mcp serve: peer tools are unavailable: %v\n", tmuxErr)
+		opts.Scope = standaloneScope(cfg, db, nil)
 	}
 
 	return serveMCP(ctx, cli.MCPServerOptions(opts), in, out)

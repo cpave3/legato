@@ -41,6 +41,11 @@ Each agent tool runs Legato's tools without asking you first. Legato also tells 
 | `message_reeve` | Sends a message to this Legato's [Reeve](/legato/using/reeve/): a report it asked for, or a question. Every agent but the Reeve has it. |
 | `request_access` | Asks you for a credential that Legato holds. See [Credential broker](/legato/security/credential-broker/). |
 | `reply_case` | Answers a case from Argus. See [Argus](/legato/integrations/argus/). |
+| `page_pin_subscribe` | Legato Scope: claims a web page's origin (such as `http://localhost:5173`) for the agent, so comments you pin on its pages with Legato's browser extension come to it. One agent holds an origin at a time; the newest takes over. |
+| `page_pin_unsubscribe` | Gives an origin up. |
+| `page_pin_list` | Lists the pins on the agent's origins, or on one it names. |
+| `page_pin_get` | Gives the agent one pin in full: your comment, the page, the element, its styles, the component that drew it when known, and a screenshot. |
+| `page_pin_resolve` | Marks a pin fixed or won't fix, with a one-line note you see on the page. |
 
 Some tools are offered only when they can work:
 
@@ -48,7 +53,9 @@ Some tools are offered only when they can work:
 - `request_access` needs credentials in the configuration.
 - `reply_case` needs `integrations.argus`.
 
-A swarm worker's `task_context` and `add_task_note` act on the swarm's parent task.
+A swarm worker's `task_context` and `add_task_note` act on the swarm's parent task, and a swarm worker cannot subscribe to a page.
+
+Agents are told to subscribe the origin of a dev server they start or know of, so you rarely need to ask. A pin you send reaches the subscribing agent as one `[legato scope]` message per batch, and waits in Legato until an agent subscribes if none has.
 
 Outside a Legato session, `legato mcp serve` offers no tools. Each call also checks that the task still has a running agent.
 
