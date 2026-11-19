@@ -1,7 +1,7 @@
 -- Whether a workflow's trigger is on in this Legato (LEG-353): set from the
 -- Workflows page, it beats the definition's enabled field, which it never
 -- rewrites. No row: the definition decides. See docs/ai/workflows.md.
-CREATE TABLE workflow_trigger_switches (
+CREATE TABLE IF NOT EXISTS workflow_trigger_switches (
     workflow_name TEXT NOT NULL,
     trigger       TEXT NOT NULL,
     enabled       INTEGER NOT NULL,

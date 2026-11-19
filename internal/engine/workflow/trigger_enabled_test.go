@@ -53,3 +53,20 @@ func TestADefinitionWithoutTriggersListsNone(t *testing.T) {
 		t.Fatalf("triggers = %+v", got)
 	}
 }
+
+func TestATriggerSaysHowManyRunsADayStopTheLoop(t *testing.T) {
+	definition, err := workflow.Parse("t.yaml", []byte(strings.Replace(columnTriggered, "ENABLED\n", "    max_runs_per_day: 5\n", 1)))
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := definition.On.List()[0].MaxRunsPerDay; got != 5 {
+		t.Fatalf("max_runs_per_day = %d", got)
+	}
+	plain, _ := workflow.Parse("t.yaml", []byte(strings.Replace(columnTriggered, "ENABLED\n", "", 1)))
+	if got := plain.On.List()[0].MaxRunsPerDay; got != workflow.DefaultMaxRunsPerDay {
+		t.Fatalf("default = %d", got)
+	}
+	if _, err := workflow.Parse("t.yaml", []byte(strings.Replace(columnTriggered, "ENABLED\n", "    max_runs_per_day: -1\n", 1))); err == nil {
+		t.Fatal("accepted max_runs_per_day: -1")
+	}
+}

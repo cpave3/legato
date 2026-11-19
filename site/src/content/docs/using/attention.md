@@ -19,7 +19,7 @@ Attention lists only what you can act on. Each item comes from the part of Legat
 | Agents | An agent you started by hand waits for you or stopped on an error. Agents that a swarm or a workflow runs are left to those. |
 | Interrupted agents | Agents were running when Legato stopped, and their tmux sessions were gone when it started again: the machine or tmux went down. **Resume all** resumes those that can be; **Show them** opens the Agents page. See [interrupted agents](/legato/using/agents/#after-a-crash-interrupted-agents). |
 | Workflows | A step waits for you to go on, a workflow agent waits for input, a step failed, or a run's [review loop](/legato/using/review-passes/#review-any-pull-request) is stuck: **Run another pass**, or **End** it as stuck so the run goes on (in the TUI, Enter and `x`). See [Workflows](/legato/using/workflows/). |
-| Workflow triggers | A trigger needs input or confirmation, or failed. |
+| Workflow triggers | A trigger needs input or confirmation, failed, or was stopped to prevent a loop (**Run anyway**, **Pause trigger**). |
 | Approvals | An agent's request waits for your answer. See [Approvals](#approvals). |
 | Devices | Someone ran `legato device reset`. |
 | Argus | [Argus](/legato/integrations/argus/) has an open case on one of your pull requests. |

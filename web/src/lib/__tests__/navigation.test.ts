@@ -4,6 +4,7 @@ import { legatoHref } from "../navigation"
 describe("legatoHref", () => {
   it("maps plan navigation to the plan route", () => {
     expect(legatoHref({ kind: "plan", target: "pl-1" })).toBe("/plans/pl-1")
+    expect(legatoHref({ kind: "workflows", target: "triage" })).toBe("/workflows?tab=workflows")
   })
 
   it("url-encodes the plan id", () => {
