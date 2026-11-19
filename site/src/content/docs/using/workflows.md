@@ -33,6 +33,8 @@ The templates Legato ships use your default agent tool and your [macros](/legato
 | `address-feedback` | When someone requests changes on a pull request one of your tasks owns, gives the task's agent your **Address feedback** macro, starting it if none is running. |
 | `review-pr-passes` | Reviews a pull request in passes posted to GitHub; see [Review passes](/legato/using/review-passes/). |
 
+In the web UI, **Add from template** on the **Workflows** tab (also offered when you have no workflows) does the same: pick a template, a name and a folder (yours, the project's, or a repository's checkout), and Legato writes the file and shows where. It changes nothing in the template but its name, and refuses a name a workflow already has, so it never overwrites one.
+
 The browser extension starts `review-pr` and `discuss-pr` with the repository and number only; a workflow of yours of the same name that declares a `primary_dir` input still gets the matching repository preset's folder.
 
 Legato also reads `~/.legato/workflows` for compatibility. Precedence is legacy global, XDG global, then project-local. A later definition overrides an earlier definition with the same `name`. The selected source path is stored on every run.

@@ -63,6 +63,7 @@ var routeBodies = map[string]string{
 	"POST /api/tasks/{id}/link-pr":                 `{"owner": "…", "repo": "…", "pr_number": 12}`,
 	"POST /api/agents/spawn":                       `{"title": "…", "agent_kind": "claude-code", "tier": "…", "working_dir": "…", "prompt": "…"}`,
 	"PUT /api/workflows/{name}/triggers/{trigger}": `{"enabled": false}`,
+	"POST /api/workflow-templates/{template}":      `{"name": "…", "folder": "global"}`,
 	"POST /api/agents/kill":                        `{"task_id": "<id>"}`,
 	"POST /api/agents/{task_id}/restart":           `{"switch_sandbox": false}`,
 	"PATCH /api/agents/{task_id}/notify":           `{"enabled": true}`,
