@@ -130,3 +130,19 @@ func TestTheDefaultAgentToolIsASettingTheFileCanPin(t *testing.T) {
 		t.Fatal("an unknown agent tool was accepted")
 	}
 }
+
+// A machine with no config.yaml (legato setup before the first run) gets
+// the configuration an empty file gives, so settings can be saved on it.
+func TestNoConfigFileIsAnEmptyOne(t *testing.T) {
+	t.Setenv("LEGATO_CONFIG", t.TempDir()+"/missing.yaml")
+	cfg, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.GitHub.Auth != "auto" {
+		t.Fatalf("github.auth = %q, want auto", cfg.GitHub.Auth)
+	}
+	if err := Overlay(cfg, map[string]json.RawMessage{"agents.default_tool": json.RawMessage(`"codex"`)}); err != nil {
+		t.Fatalf("a setting cannot be saved without a file: %v", err)
+	}
+}

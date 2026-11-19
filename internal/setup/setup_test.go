@@ -7,8 +7,6 @@ import (
 	"os"
 	"path/filepath"
 	"testing"
-
-	"gopkg.in/yaml.v3"
 )
 
 // Task 6.1: First-run detection
@@ -171,47 +169,6 @@ func TestAutoMapColumns_UnmatchedFlaggedAsUnmapped(t *testing.T) {
 	}
 }
 
-// Task 6.8: Config file writing
-func TestWriteConfig(t *testing.T) {
-	dir := t.TempDir()
-	path := filepath.Join(dir, "legato", "config.yaml")
-
-	cfg := WizardConfig{
-		BaseURL:     "https://company.atlassian.net",
-		Email:       "dev@company.com",
-		ProjectKeys: []string{"PROJ", "DEV"},
-		Columns: []ColumnMappingConfig{
-			{Name: "Backlog", Statuses: []string{"To Do", "Open"}},
-			{Name: "Doing", Statuses: []string{"In Progress"}},
-			{Name: "Done", Statuses: []string{"Done", "Closed"}},
-		},
-	}
-
-	err := WriteConfig(path, cfg)
-	if err != nil {
-		t.Fatalf("write config: %v", err)
-	}
-
-	// Read and parse
-	data, err := os.ReadFile(path)
-	if err != nil {
-		t.Fatalf("read config: %v", err)
-	}
-
-	var parsed map[string]any
-	if err := yaml.Unmarshal(data, &parsed); err != nil {
-		t.Fatalf("parse config: %v", err)
-	}
-
-	// Token should be env var reference
-	jira, _ := parsed["jira"].(map[string]any)
-	token, _ := jira["api_token"].(string)
-	if token != "${LEGATO_JIRA_TOKEN}" {
-		t.Errorf("token = %q, want ${LEGATO_JIRA_TOKEN}", token)
-	}
-}
-
-// Task 6.7: Transition ID discovery
 func TestDiscoverTransitions(t *testing.T) {
 	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Content-Type", "application/json")

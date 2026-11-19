@@ -1197,14 +1197,13 @@ func runTUI() int {
 		return 1
 	}
 	if len(mappings) == 0 {
-		adapter := &setup.StoreAdapter{S: db}
-		jiraSetup := &setup.RealJiraSetup{}
-		if err := setup.RunWizard(context.Background(), os.Stdout, os.Stdin, adapter, cfg.Board.Columns, jiraSetup, setup.WithSettings(wizardSettings{cfg: cfg, db: db})); err != nil {
+		// The guided setup. It never ends Legato: stopped at a failed
+		// check, or failed, the board still opens.
+		if err := setupFlow(cfg, db, os.Stdin, os.Stdout).Run(context.Background()); err != nil && !errors.Is(err, setup.ErrSetupStopped) {
 			fmt.Fprintf(os.Stderr, "setup: %v\n", err)
-			return 1
 		}
-		// Read the configuration again: the wizard saved Jira's settings
-		// in the database.
+		// Read the configuration again: setup saved settings in the
+		// database.
 		cfg, err = config.Load()
 		if err != nil {
 			fmt.Fprintf(os.Stderr, "config reload: %v\n", err)

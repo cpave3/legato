@@ -408,6 +408,7 @@ func commandTree() *commandDef {
 		authGroup,
 		configGroup,
 		leaf("restart", "Restart every Legato process of this instance in place", runRestartCmd, nil, []commandFlag{jsonFlag}, "legato restart"),
+		leaf("setup", "Set Legato up: checks, the default agent tool and a ticket tracker", runSetupCmd, nil, nil, "legato setup"),
 		leaf("doctor", "Check what Legato needs from this machine, and say how to fix what is missing", runDoctorCmd, nil,
 			[]commandFlag{boolFlag("online", "Also ask GitHub whether gh's token works (uses the network)"), jsonFlag},
 			"legato doctor", "legato doctor --online --json"),

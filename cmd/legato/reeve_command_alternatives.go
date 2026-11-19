@@ -22,6 +22,7 @@ var legatoCommandAlternatives = map[string]string{
 	"auth regenerate":     "only the operator replaces the web token, at the host: ask them",
 	"device reset":        "only the operator removes approval devices, at the host or in Settings › Devices: ask them",
 	"pair":                "pairing is the operator's: ask them to pair from Settings, or legato pair at the host",
+	"setup":               "setup asks the operator at a terminal: ask them to run legato setup, or change settings through propose_changes; legato doctor (read) shows what the machine lacks",
 
 	// Servers, and an agent tool's own hooks and steps.
 	"serve":                     "restart_legato restarts Legato; instance_status says how it runs",

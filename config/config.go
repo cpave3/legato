@@ -463,10 +463,9 @@ func Load() (*Config, error) {
 	data, err := os.ReadFile(ResolveConfigPath())
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
-			cfg := defaults()
-			cfg.pins = map[string]bool{}
-			recordFileEntries(cfg)
-			return cfg, nil
+			// No file is an empty one: the same defaults, and nothing
+			// pinned.
+			return LoadBytes(nil)
 		}
 		return nil, err
 	}
