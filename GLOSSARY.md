@@ -160,6 +160,22 @@ An engram bound to a place key, so the spawn dialog lists it under "This repo" (
 **Default engram**:
 The engram bound to a place that is pre-selected there when the task has no engram of its own. At most one per place.
 
+### Legato Scope
+
+**Pin**:
+A comment the operator places on an element of a live page, with the context captured there (the page, selectors, styles, a screenshot, the component source when known).
+_Avoid_: annotation, mark. Not a pinned setting
+
+**Batch**:
+The pins sent together with one press of Send.
+
+**Pool**:
+The sent pins a Legato instance keeps, by origin, until agents handle them.
+
+**Origin subscription**:
+A task slot's claim on an origin (such as `http://localhost:5173`), so that batches sent from it are pushed to that slot's agent. One slot holds an origin at a time; the newest subscriber takes over.
+_Avoid_: scope, which means swarm file-ownership globs
+
 ### Neighbouring terms
 
 **Delegation**:

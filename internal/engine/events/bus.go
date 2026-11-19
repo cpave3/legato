@@ -60,7 +60,16 @@ const (
 	// EventServerThemeInvalidated is a content-free cross-process refresh,
 	// kept distinct so IPC never echoes the same change indefinitely.
 	EventServerThemeInvalidated
+	// EventScopeChanged: an origin's Scope pins or subscription changed (a
+	// batch sent, a pin delivered, resolved, reopened or withdrawn).
+	// Payload: ScopeChangedPayload.
+	EventScopeChanged
 )
+
+// ScopeChangedPayload names the origin whose Scope pins changed.
+type ScopeChangedPayload struct {
+	Origin string
+}
 
 // ReeveSpokePayload is what became of one line the Reeve said.
 type ReeveSpokePayload struct {

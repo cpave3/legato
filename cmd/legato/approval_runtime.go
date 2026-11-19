@@ -40,6 +40,8 @@ type approvalRuntime struct {
 	// reviews runs review passes on this worker's handoffs, once wired
 	// (wireTaskHandoffs); submit_review reaches it through the broker.
 	reviews *service.ReviewPassService
+	// scope is Legato Scope's pool of pins and origin subscriptions.
+	scope *service.ScopeService
 	// mcp is the operator's MCP connections and the broker that calls
 	// them for agents; nil without a credential broker.
 	mcp *mcpBrokerRuntime
@@ -77,6 +79,10 @@ func startApprovals(ctx context.Context, cfg *config.Config, db *store.Store, bu
 	if docker := startDockerHost(ctx, cfg, db, bus); docker != nil {
 		stops = append(stops, docker.Stop)
 	}
+	// Legato Scope: pins sent from live pages, pushed to subscribing agents.
+	var stopScope func()
+	rt.scope, stopScope = startScope(ctx, cfg, db, bus, agents)
+	stops = append(stops, stopScope)
 	// The broker agent-side processes ask instead of the store.
 	rt.caseReplies = newCaseReplyService(cfg, db, bus, true)
 	changeSets := startChangeSets(ctx, cfg, db, rt.approvals, agents, nil)

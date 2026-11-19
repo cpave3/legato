@@ -103,6 +103,7 @@ The rest are not imported. Before changing an area, read its doc, and keep it cu
 - `docs/ai/plans.md` — collaborative plans: storage, revisions, API, image copies
 - `docs/ai/reviews.md` — review tours: capture, chapters, passes, plan and review lineage, the queue
 - `docs/ai/review-handoff.md` — review handoff packets: API, storage, freshness, CLI output
+- `docs/ai/scope.md` — Legato Scope: pins on live pages, the pool, origin subscriptions, delivery to agents
 - `docs/ai/workflows.md` — workflow runs, completion and artifact collection, API, live updates
 - `docs/ai/model-settings.md` — native model settings: proxy, API, vision metadata, rollout
 - `docs/ai/desktop.md` — the desktop app (`desktop/`, Tauri): window and webviews, pairing, pinned TLS, security keys, its releases and updater
