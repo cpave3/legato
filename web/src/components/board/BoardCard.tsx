@@ -6,6 +6,7 @@ import type { BoardCard as BoardCardType, PRMetaView } from "../../lib/board-typ
 import { agentStripLook, formatDuration, priorityTone, slotChipLabel } from "../../lib/boardCard"
 import { animatedAgentActivityEnabled } from "../../lib/appearancePreferences"
 import { ChecksMark, Mark, ReviewMark } from "../PullRequestMarks"
+import { PRMacroButton } from "./PRMacros"
 
 interface BoardCardProps {
   card: BoardCardType
@@ -49,7 +50,7 @@ function MetaLine({ card, showWorkspace }: { card: BoardCardType; showWorkspace:
   )
 }
 
-function PullRequestLine({ pr }: { pr: PRMetaView }) {
+function PullRequestLine({ card, pr }: { card: BoardCardType; pr: PRMetaView }) {
   const ready = !pr.is_draft && pr.check_status === "pass" && pr.review_decision === "APPROVED"
   return (
     <div aria-label={`Pull request #${pr.pr_number}`} className="flex flex-wrap items-center gap-x-2 pt-0.5 text-xs text-lw-text-2">
@@ -59,6 +60,7 @@ function PullRequestLine({ pr }: { pr: PRMetaView }) {
       <ReviewMark decision={pr.review_decision} />
       {pr.comment_count > 0 && <span>{pr.comment_count} {pr.comment_count === 1 ? "comment" : "comments"}</span>}
       {ready && <span className="text-lw-done">ready to merge</span>}
+      <PRMacroButton card={card} pr={pr} />
     </div>
   )
 }
@@ -129,7 +131,7 @@ export function BoardCard({ card, selected, highlighted = false, column, showWor
         {card.handoff_from && <div data-testid="handoff-from" className="truncate text-xs text-lw-text-2">{`from ${card.handoff_from.main} · ${card.handoff_from.main_task_id}`}</div>}
         <MetaLine card={card} showWorkspace={showWorkspace} />
         {card.review_ready && !card.review_unreviewed && <Mark glyph="✓" tone="text-xs text-lw-done">Reviewed</Mark>}
-        {(card.pull_requests ?? []).map(pr => <PullRequestLine key={`${pr.repo}#${pr.pr_number}`} pr={pr} />)}
+        {(card.pull_requests ?? []).map(pr => <PullRequestLine key={`${pr.repo}#${pr.pr_number}`} card={card} pr={pr} />)}
       </div>
       {card.agent_active && <AgentStrip card={card} />}
       {Boolean(card.review_unreviewed) && <ReviewStrip card={card} />}

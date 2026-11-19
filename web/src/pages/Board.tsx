@@ -1,7 +1,8 @@
 import { useState, useEffect, useLayoutEffect, useCallback, useMemo, useRef } from "react"
 import { useNavigate, useSearchParams } from "react-router-dom"
 import { activeReviewLoop } from "../lib/workflow"
-import { macroNotice, macrosFor, startMacro, useMacros, type Macro, type MacroPR } from "../lib/macros"
+import { BoardMacrosContext } from "../components/board/PRMacros"
+import { macroNotice, startMacro, suggestedFirst, useMacros, type Macro, type MacroPR } from "../lib/macros"
 import { useServer } from "../hooks/useServer"
 import { useBoard } from "../hooks/useBoard"
 import {
@@ -219,7 +220,10 @@ export function BoardPage() {
     if (active) navigateTo(`/workflows/runs/${encodeURIComponent(active.id)}`)
     else setReviewLoop({ card, pr })
   }, [baseUrl, navigateTo])
-  const macros = useMacros(baseUrl, contextMenu !== null)
+  // Read as each card menu opens, so an edit shows, and on load only when
+  // a card has a pull request line to put them on.
+  const showsPullRequests = boardColumns.some(column => column.cards.some(card => (card.pull_requests ?? []).length > 0))
+  const macros = useMacros(baseUrl, contextMenu ? `menu:${contextMenu.card.id}` : showsPullRequests ? "page" : null)
   // A macro on a card, or on one of its pull requests: it starts the task's
   // agent, or is queued to the one running.
   const runMacro = useCallback(async (card: BoardCard, macro: Macro, pr?: MacroPR) => {
@@ -229,6 +233,7 @@ export function BoardPage() {
       addToast(`${macro.name}: ${reason instanceof Error ? reason.message : String(reason)}`, "error")
     }
   }, [baseUrl, addToast])
+  const boardMacros = useMemo(() => ({ list: macros, run: (card: BoardCard, macro: Macro, pr?: MacroPR) => { void runMacro(card, macro, pr) } }), [macros, runMacro])
   const [detailCard, setDetailCard] = useState<CardDetail | null>(null)
   const [detailId, setDetailId] = useState<string | null>(null)
   const [pendingAction, setPendingAction] = useState<string | null>(null)
@@ -1060,7 +1065,7 @@ export function BoardPage() {
             </section>
           )}
           {columns.length > 0 && allCards.length > 0 && (
-            <>
+            <BoardMacrosContext.Provider value={boardMacros}>
               <div className="hidden h-full md:block">
                 <BoardGrid
                   columns={columns}
@@ -1083,7 +1088,7 @@ export function BoardPage() {
               <div className="h-full md:hidden">
                 <MobileBoardList columns={columns} showWorkspace={showWorkspace} highlightedTaskId={highlightedTaskId} onCardClick={handleCardClick} onCardContextMenu={handleCardContextMenu} onColumnShown={setMobileColumn} workers={workers} baseUrl={baseUrl} onAwayNotice={awayNotice} />
               </div>
-            </>
+            </BoardMacrosContext.Provider>
           )}
           {!loading && !error && columns.length === 0 && (
             <div className="flex h-full items-center justify-center">
@@ -1137,7 +1142,7 @@ export function BoardPage() {
         onWorkflow={workflow => { setCardWorkflow({ card: contextMenu.card, workflow }); setContextMenu(null) }}
         reviewPasses={reviewPassesDefinition ? (contextMenu.card.pull_requests ?? []).filter(pr => pr.repo && !["MERGED", "CLOSED"].includes(pr.state.toUpperCase())) : []}
         onReviewPasses={pr => { void startReviewLoop(contextMenu.card, pr) }}
-        macros={macrosFor(macros, "task")}
+        macros={suggestedFirst(macros.macros, "task", macros.suggested).list}
         onMacro={macro => { void runMacro(contextMenu.card, macro) }}
         onClose={() => setContextMenu(null)}
       />}

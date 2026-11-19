@@ -39,11 +39,48 @@ async function failed(response: Response): Promise<Error> {
   return new Error(message || `request failed (${response.status})`)
 }
 
-export async function fetchMacros(baseUrl: string): Promise<Macro[]> {
+// The macro suggested for each target: offered first, started by a plain press.
+export interface MacroSuggestions {
+  task: string
+  my_pr: string
+  others_pr: string
+}
+
+// What an older server, which suggests nothing, is taken to suggest.
+export const defaultSuggestions: MacroSuggestions = { task: "Plan", my_pr: "Address feedback", others_pr: "Review" }
+
+export interface MacroList {
+  macros: Macro[]
+  suggested: MacroSuggestions
+}
+
+export async function fetchMacroList(baseUrl: string): Promise<MacroList> {
   const response = await apiFetch(baseUrl, "/api/macros")
   if (!response.ok) throw await failed(response)
-  const body = await response.json() as { macros?: Macro[] }
-  return Array.isArray(body.macros) ? body.macros : []
+  const body = await response.json() as { macros?: Macro[]; suggested?: MacroSuggestions }
+  return { macros: Array.isArray(body.macros) ? body.macros : [], suggested: body.suggested ?? defaultSuggestions }
+}
+
+export async function fetchMacros(baseUrl: string): Promise<Macro[]> {
+  return (await fetchMacroList(baseUrl)).macros
+}
+
+// prIsMine says whether a card's pull request is the operator's own: one
+// Legato found from the task's branch is; one linked by its number (a
+// review of someone else's work) is not.
+export function prIsMine(pr: { pinned?: boolean }): boolean {
+  return !pr.pinned
+}
+
+// suggestedFirst is the macros for a target with the suggested one first;
+// the suggested is undefined when no macro of its name applies.
+export function suggestedFirst(macros: Macro[], target: "task" | "my_pr" | "others_pr", suggested: MacroSuggestions): { list: Macro[]; suggested?: Macro } {
+  const list = macrosFor(macros, target === "task" ? "task" : "pr")
+  const name = suggested[target].toLowerCase()
+  const index = list.findIndex(macro => macro.name.toLowerCase() === name)
+  if (index < 0) return { list }
+  const first = list[index]
+  return { list: [first, ...list.slice(0, index), ...list.slice(index + 1)], suggested: first }
 }
 
 // macrosFor keeps the macros that apply to a task or a pull request: those
@@ -69,15 +106,16 @@ export function macroNotice(name: string, result: MacroStartResult): string {
   return result.started ? `Started the agent with ${name}.` : `${name} will be the agent's next message.`
 }
 
-// useMacros reads the macros each time open becomes true (a menu opening):
-// they change without a restart. A failure leaves the list empty.
-export function useMacros(baseUrl: string, open: boolean): Macro[] {
-  const [macros, setMacros] = useState<Macro[]>([])
+// useMacros reads the macros again each time refresh changes (a page
+// loading, a menu opening): they change without a restart. null reads
+// nothing; a failure leaves the list empty.
+export function useMacros(baseUrl: string, refresh: string | null): MacroList {
+  const [list, setList] = useState<MacroList>({ macros: [], suggested: defaultSuggestions })
   useEffect(() => {
-    if (!open) return
+    if (refresh === null) return
     let current = true
-    fetchMacros(baseUrl).then(list => { if (current) setMacros(list) }, () => { if (current) setMacros([]) })
+    fetchMacroList(baseUrl).then(next => { if (current) setList(next) }, () => { if (current) setList({ macros: [], suggested: defaultSuggestions }) })
     return () => { current = false }
-  }, [baseUrl, open])
-  return macros
+  }, [baseUrl, refresh])
+  return list
 }

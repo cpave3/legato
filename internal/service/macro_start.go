@@ -119,3 +119,40 @@ func (s *MacroService) Message(ctx context.Context, text, taskID string, pr *Mac
 	}
 	return header + "\n\n" + strings.TrimRight(text, "\n"), nil
 }
+
+// MacroTarget is what a macro is started on: a task, or one of its pull
+// requests, which is the operator's own (Mine) or someone else's.
+type MacroTarget struct {
+	PR   bool
+	Mine bool
+}
+
+// MacroSuggestions names the macro suggested for each target.
+type MacroSuggestions struct {
+	Task     string `json:"task"`
+	MyPR     string `json:"my_pr"`
+	OthersPR string `json:"others_pr"`
+}
+
+// SuggestedMacro is the macro offered first and started by a plain press:
+// Plan for a task, Address feedback for the operator's own pull request,
+// Review for someone else's.
+func SuggestedMacro(target MacroTarget) string {
+	switch {
+	case !target.PR:
+		return "Plan"
+	case target.Mine:
+		return "Address feedback"
+	default:
+		return "Review"
+	}
+}
+
+// MacroSuggestionsFor lists SuggestedMacro for every target, for clients.
+func MacroSuggestionsFor() MacroSuggestions {
+	return MacroSuggestions{
+		Task:     SuggestedMacro(MacroTarget{}),
+		MyPR:     SuggestedMacro(MacroTarget{PR: true, Mine: true}),
+		OthersPR: SuggestedMacro(MacroTarget{PR: true}),
+	}
+}

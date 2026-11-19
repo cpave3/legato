@@ -122,3 +122,33 @@ func TestAMacroStartRefusesAnUnknownMacroOrTask(t *testing.T) {
 		t.Fatalf("unknown task = %v", err)
 	}
 }
+
+func TestTheSuggestedMacroFollowsWhatItIsStartedOn(t *testing.T) {
+	cases := []struct {
+		target MacroTarget
+		want   string
+	}{
+		{MacroTarget{}, "Plan"},
+		{MacroTarget{PR: true, Mine: true}, "Address feedback"},
+		{MacroTarget{PR: true}, "Review"},
+	}
+	for _, c := range cases {
+		if got := SuggestedMacro(c.target); got != c.want {
+			t.Errorf("SuggestedMacro(%+v) = %q, want %q", c.target, got, c.want)
+		}
+	}
+	if s := MacroSuggestionsFor(); s.Task != "Plan" || s.MyPR != "Address feedback" || s.OthersPR != "Review" {
+		t.Fatalf("suggestions = %+v", s)
+	}
+}
+
+func TestAMacroOnAPullRequestWithoutAURLLinksToGitHub(t *testing.T) {
+	svc, _ := newMacroStartFixture(t)
+	got, err := svc.Message(context.Background(), "Look.\n", "local01", &MacroPR{Repo: "acme/web", Number: 7})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got != "Task local01: Test local01\nPull request acme/web#7: https://github.com/acme/web/pull/7\n\nLook." {
+		t.Fatalf("message = %q", got)
+	}
+}

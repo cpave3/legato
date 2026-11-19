@@ -1,5 +1,5 @@
 import { afterEach, describe, expect, it, vi } from "vitest"
-import { fetchMacros, macrosFor, startMacro, type Macro } from "../macros"
+import { fetchMacros, macrosFor, prIsMine, startMacro, suggestedFirst, type Macro } from "../macros"
 
 afterEach(() => vi.unstubAllGlobals())
 
@@ -34,5 +34,28 @@ describe("fetchMacros and macrosFor", () => {
     expect(got).toEqual(list)
     expect(macrosFor(got, "task").map(m => m.name)).toEqual(["Plan", "tests"])
     expect(macrosFor(got, "pr").map(m => m.name)).toEqual(["Review", "tests"])
+  })
+})
+
+describe("suggestedFirst", () => {
+  const list: Macro[] = [
+    { name: "Plan", keys: "p", applies_to: "task" },
+    { name: "Implement", keys: "i", applies_to: "task" },
+    { name: "Review", keys: "r", applies_to: "pr" },
+    { name: "Address feedback", keys: "a", applies_to: "pr" },
+    { name: "tests", keys: "t" },
+  ]
+  const suggested = { task: "Plan", my_pr: "Address feedback", others_pr: "Review" }
+  it("puts the suggested macro first for each target", () => {
+    expect(suggestedFirst(list, "task", suggested).list.map(m => m.name)).toEqual(["Plan", "Implement", "tests"])
+    const mine = suggestedFirst(list, "my_pr", suggested)
+    expect(mine.suggested?.name).toBe("Address feedback")
+    expect(mine.list.map(m => m.name)).toEqual(["Address feedback", "Review", "tests"])
+    expect(suggestedFirst(list, "others_pr", suggested).suggested?.name).toBe("Review")
+    expect(suggestedFirst(list.filter(m => m.name !== "Review"), "others_pr", suggested).suggested).toBeUndefined()
+  })
+  it("takes a PR found from the task's branch as the operator's own, and one linked by number as not", () => {
+    expect(prIsMine({ pinned: false })).toBe(true)
+    expect(prIsMine({ pinned: true })).toBe(false)
   })
 })

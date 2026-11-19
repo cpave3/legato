@@ -137,6 +137,15 @@ func TestMacrosHandlerReadsTheMacroServiceAtEachRequest(t *testing.T) {
 	if len(first) != 1 || first[0]["name"] != "Plan" || first[0]["applies_to"] != "task" || first[0]["builtin"] != true {
 		t.Fatalf("macros = %v", first)
 	}
+	rec := httptest.NewRecorder()
+	s.macrosHandler().ServeHTTP(rec, httptest.NewRequest(http.MethodGet, "/api/macros", nil))
+	var full struct {
+		Suggested map[string]string `json:"suggested"`
+	}
+	_ = json.Unmarshal(rec.Body.Bytes(), &full)
+	if full.Suggested["task"] != "Plan" || full.Suggested["my_pr"] != "Address feedback" || full.Suggested["others_pr"] != "Review" {
+		t.Fatalf("suggested = %v", full.Suggested)
+	}
 	src.list = append(src.list, service.MacroEntry{Macro: macros.Macro{Name: "new", Keys: "y"}, Source: service.MacroFromDatabase})
 	if got := get()["macros"]; len(got) != 2 {
 		t.Fatalf("an edit was not seen at the next request: %v", got)

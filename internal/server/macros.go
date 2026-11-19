@@ -45,7 +45,7 @@ func (s *Server) macrosHandler() http.HandlerFunc {
 			if list == nil {
 				list = []service.MacroEntry{}
 			}
-			_ = json.NewEncoder(w).Encode(map[string]any{"macros": list})
+			_ = json.NewEncoder(w).Encode(map[string]any{"macros": list, "suggested": service.MacroSuggestionsFor()})
 			return
 		}
 		_ = json.NewEncoder(w).Encode(macros.ListResult{Macros: s.macros})
