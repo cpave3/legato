@@ -1,6 +1,8 @@
 import { DEFAULT_CONFIG, normalizeConfig, type ExtensionConfig } from "./config"
 import { LegatoClient } from "./legato"
 import { replaceOriginPermission } from "./permissions"
+import { SCOPE_ORIGINS_KEY } from "./scope-origins"
+import { renderScopeOrigins, type ScopeOriginsResult } from "./scope-origins-view"
 import { clearToken, loadConfig, saveConfig } from "./storage"
 import type { TicketSite, TicketSitesResult } from "./ticket-sites"
 import { allowTicketSite, renderTicketSites } from "./ticket-sites-view"
@@ -8,6 +10,7 @@ import { allowTicketSite, renderTicketSites } from "./ticket-sites-view"
 const form = document.querySelector<HTMLFormElement>("#settings-form")!
 const status = document.querySelector<HTMLParagraphElement>("#status")!
 const ticketSites = document.querySelector<HTMLDivElement>("#ticket-sites")!
+const scopeOrigins = document.querySelector<HTMLDivElement>("#scope-origins")!
 const fields = {
   baseUrl: document.querySelector<HTMLInputElement>("#base-url")!,
   token: document.querySelector<HTMLInputElement>("#token")!,
@@ -99,5 +102,28 @@ document.querySelector<HTMLButtonElement>("#refresh-ticket-sites")!.addEventList
   void syncTicketSites().then(showTicketSites)
 })
 
+// Scope's sites, kept by the service worker, which registers its script on
+// each one.
+async function scopeOriginsRequest(message: Record<string, unknown>): Promise<ScopeOriginsResult> {
+  try {
+    const response = await chrome.runtime.sendMessage(message) as { ok: true; origins: ScopeOriginsResult["origins"] } | { ok: false; error: string }
+    if (!response.ok) return { origins: [], error: response.error }
+    return { origins: response.origins }
+  } catch (error) {
+    return { origins: [], error: error instanceof Error ? error.message : String(error) }
+  }
+}
+
+function showScopeOrigins(result: ScopeOriginsResult): void {
+  renderScopeOrigins(scopeOrigins, result, (origin) => {
+    void scopeOriginsRequest({ type: "removeScopeOrigin", origin }).then(showScopeOrigins)
+  })
+}
+
 void initialize()
 void syncTicketSites().then(showTicketSites)
+void scopeOriginsRequest({ type: "listScopeOrigins" }).then(showScopeOrigins)
+// The toolbar button adds sites while this page is open.
+chrome.storage.onChanged.addListener((changes, area) => {
+  if (area === "local" && SCOPE_ORIGINS_KEY in changes) void scopeOriginsRequest({ type: "listScopeOrigins" }).then(showScopeOrigins)
+})

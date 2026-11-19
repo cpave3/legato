@@ -10,7 +10,7 @@ export type TicketSitesResult = { sites: TicketSite[]; error?: string }
 type Script = chrome.scripting.RegisteredContentScript
 
 // The part of chrome.scripting a sync uses.
-type Scripting = {
+export type Scripting = {
   getRegisteredContentScripts: () => Promise<Script[]>
   registerContentScripts: (scripts: Script[]) => Promise<void>
   updateContentScripts: (scripts: Script[]) => Promise<void>

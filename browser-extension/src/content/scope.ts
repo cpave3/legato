@@ -1,0 +1,99 @@
+import { createDraftStore, draftsKey } from "../scope-drafts"
+import { normalizeScopeOrigins, SCOPE_ORIGINS_KEY } from "../scope-origins"
+import { capturePage, captureTarget, locateTarget } from "./scope-capture"
+import { createScopeOverlay, type CapturedPin, type ScopeOverlay } from "./scope-overlay"
+
+// The Scope content script. The service worker registers it on each origin
+// the person allowed from the toolbar button (scope-origins.ts), and puts it
+// into a tab that was open before. Pin mode is toggled by the button's
+// message; the drafts live in chrome.storage.local.
+
+type Booted = { ready: Promise<ScopeOverlay | null> }
+const BOOTED = "__legatoScope"
+
+function newId(): string {
+  return `d-${Date.now().toString(36)}-${Math.random().toString(36).slice(2, 8)}`
+}
+
+async function capture(win: Window, element: Element): Promise<CapturedPin> {
+  return {
+    pin: {
+      page: capturePage(win),
+      target: captureTarget(element),
+      styles: { computed: {}, classes: [], inline: "", parent: {} },
+    },
+  }
+}
+
+export function bootScope(doc: Document = document, win: Window = window): Promise<ScopeOverlay | null> {
+  const holder = win as unknown as Record<string, Booted | undefined>
+  const existing = holder[BOOTED]
+  if (existing) return existing.ready
+  const origin = win.location.origin
+
+  // Listening starts at once, so a toggle sent as the script arrives is
+  // answered when the overlay is ready.
+  let ready: Promise<ScopeOverlay | null> = Promise.resolve(null)
+  chrome.runtime.onMessage.addListener((message: unknown, _sender, sendResponse) => {
+    const request = message as { type?: string; force?: unknown }
+    if (request?.type !== "scopeTogglePin") return false
+    void ready.then((overlay) => {
+      if (!overlay) sendResponse({ ok: false, error: `Scope is not allowed on ${origin}` })
+      else sendResponse({ ok: true, pinMode: overlay.setPinMode(request.force === true ? true : undefined) })
+    })
+    return true
+  })
+
+  ready = (async () => {
+    const stored = await chrome.storage.local.get(SCOPE_ORIGINS_KEY).catch(() => ({} as Record<string, unknown>))
+    // Chrome's match patterns ignore the port, so the script may land on
+    // another port of an allowed host.
+    if (!normalizeScopeOrigins(stored[SCOPE_ORIGINS_KEY]).includes(origin)) return null
+    const store = createDraftStore(chrome.storage.local, origin)
+    const overlay = createScopeOverlay(doc, win, {
+      store,
+      capture: (element) => capture(win, element),
+      locate: (target) => locateTarget(doc, target),
+      newId,
+      now: () => new Date().toISOString(),
+    })
+    chrome.storage.onChanged.addListener((changes, area) => {
+      if (area === "local" && draftsKey(origin) in changes) void overlay.refresh()
+    })
+    watchPage(doc, win, overlay)
+    await overlay.refresh()
+    return overlay
+  })()
+  holder[BOOTED] = { ready }
+  return ready
+}
+
+// A site that navigates without loading a page changes the address and the
+// page under the markers: the drafts are read again on a new address, and
+// lost markers looked for again when the page changes.
+function watchPage(doc: Document, win: Window, overlay: ScopeOverlay): void {
+  let href = win.location.href
+  let timer: number | undefined
+  const check = (): void => {
+    timer = undefined
+    if (win.location.href !== href) {
+      href = win.location.href
+      void overlay.refresh()
+    } else {
+      overlay.relocate()
+    }
+  }
+  const schedule = (): void => {
+    if (timer === undefined) timer = win.setTimeout(check, 250)
+  }
+  new MutationObserver((records) => {
+    // The overlay's own changes are in its shadow root, which the observer
+    // does not see; a change to its host element is ignored.
+    if (records.every((record) => record.target === doc.documentElement && [...record.addedNodes, ...record.removedNodes].every((node) => node.nodeName === "LEGATO-SCOPE"))) return
+    schedule()
+  }).observe(doc.documentElement, { childList: true, subtree: true })
+  win.addEventListener("popstate", schedule)
+  win.addEventListener("hashchange", schedule)
+}
+
+if (typeof chrome !== "undefined" && chrome.runtime?.id) void bootScope()

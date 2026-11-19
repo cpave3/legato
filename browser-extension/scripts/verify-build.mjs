@@ -6,9 +6,10 @@ if (!manifest.permissions?.includes("sidePanel") || manifest.side_panel?.default
 }
 await readFile(new URL("../dist/sidepanel.html", import.meta.url), "utf8")
 
-// tickets.js is not in the manifest: the service worker registers it at run
-// time for each ticket provider's site (src/ticket-sites.ts).
-const contentScripts = new Set(["tickets.js"])
+// tickets.js and scope.js are not in the manifest: the service worker
+// registers them at run time for each ticket provider's site
+// (src/ticket-sites.ts) and each site Scope is allowed on (src/scope-origins.ts).
+const contentScripts = new Set(["tickets.js", "scope.js"])
 for (const declaration of manifest.content_scripts ?? []) {
   for (const script of declaration.js ?? []) contentScripts.add(script)
 }
