@@ -903,10 +903,11 @@ func runServeCmd(args []string) int {
 	// A first start with no terminal to run the wizard in, such as a
 	// headless worker's, still gets the default columns: a board without
 	// them refuses every handoff.
-	if seeded, err := setup.SeedColumnsIfEmpty(context.Background(), &setup.StoreAdapter{S: db}, cfg.Board.Columns); err != nil {
+	firstStart, err := setup.SeedColumnsIfEmpty(context.Background(), &setup.StoreAdapter{S: db}, cfg.Board.Columns)
+	if err != nil {
 		fmt.Fprintf(os.Stderr, "columns: %v\n", err)
 		return 1
-	} else if seeded {
+	} else if firstStart {
 		log.Printf("serve: the board had no columns; seeded %d", len(cfg.Board.Columns))
 	}
 	workspaceDefaults, err := service.SeedAndResolveWorkspaceDefaults(context.Background(), db, cfg)
@@ -1111,7 +1112,7 @@ func runServeCmd(args []string) int {
 	} else {
 		srv.SetAuthToken(token)
 	}
-	wirePairing(srv, cfg, db, caCertFile, port, mainSide)
+	pairing := wirePairing(srv, cfg, db, caCertFile, port, mainSide)
 
 	// IPC server for receiving CLI→web updates.
 	socketPath := ipc.SocketPath()
@@ -1162,6 +1163,13 @@ func runServeCmd(args []string) int {
 	approvalsRT.SetServerURL(scheme, port)
 	go settleRestart(context.Background(), restartRollback(cfg, db), scheme+"://127.0.0.1:"+port+"/health")
 	fmt.Printf("Legato web UI: %s://localhost:%s\n", scheme, port)
+	if firstStart {
+		// No prompts on a headless machine: the checks and a pairing
+		// phrase, and the rest is finished in the web UI.
+		report := processDoctor().Check(context.Background(), doctorConfigFor(cfg), false)
+		_, address := webPairingAddress(cfg)
+		headlessWelcome(os.Stdout, report, pairing.Open, address)
+	}
 	defer announceWebServer(cfg, port)()
 	if err := srv.Start(); err != nil && err.Error() != "http: Server closed" {
 		fmt.Fprintf(os.Stderr, "server: %v\n", err)
@@ -1199,6 +1207,8 @@ func runTUI() int {
 	// pairOnStart: setup was asked to pair a phone, which happens once the
 	// web server below has started, before the TUI takes the terminal.
 	pairOnStart := false
+	// starterTask is the task setup made, which the board opens on.
+	starterTask := ""
 	if len(mappings) == 0 {
 		// The guided setup. It never ends Legato: stopped at a failed
 		// check, or failed, the board still opens.
@@ -1207,6 +1217,7 @@ func runTUI() int {
 			fmt.Fprintf(os.Stderr, "setup: %v\n", err)
 		}
 		pairOnStart = flow.PairOnStart
+		starterTask = flow.StarterTask
 		// Read the configuration again: setup saved settings in the
 		// database.
 		cfg, err = config.Load()
@@ -1527,6 +1538,7 @@ func runTUI() int {
 
 	app := tui.NewApp(boardSvc, syncSvc, agentSvc, prSvc, reportSvc, icons, bus, editor, workspaces, tmuxMgr, wd, swarmSvc, cfg.Macros, reviewSvc)
 	app.SetAgentsOff(agentsOff)
+	app.SetStarterTask(starterTask)
 	app.SetDirectoryService(configuredDirectoryService(cfg, db, repoPresets))
 	app.SetEngramService(engramsFor(db))
 	app.SetSandboxEnabled(cfg.Agents.Sandbox.Enabled)

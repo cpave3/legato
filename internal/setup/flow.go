@@ -62,12 +62,20 @@ type Flow struct {
 	// PairOnStart is set when the operator asked to pair a phone and the
 	// web server is not up yet: the caller pairs once it has started it.
 	PairOnStart bool
+	// Tasks makes the starter task; nil leaves the step out.
+	Tasks StarterTasks
+	// StarterTask is the starter task's ID once setup has made or found
+	// it, for the board to open on.
+	StarterTask string
 
 	lines  *bufio.Scanner
 	report service.DoctorReport
 	// seeded says this run gave the board its columns, which Jira's
 	// statuses may then replace.
 	seeded bool
+	// chosenRepository is the folder of the first repository this run
+	// saved, where the starter task works.
+	chosenRepository string
 }
 
 // agentTools are the agent tools setup offers, by check ID.
@@ -94,6 +102,9 @@ func (f *Flow) Run(ctx context.Context) error {
 		steps = append(steps, setupStep{"Web UI and phone", f.stepWeb})
 	}
 	steps = append(steps, setupStep{"Ticket tracker", f.stepTracker})
+	if f.Tasks != nil {
+		steps = append(steps, setupStep{"A first task", f.stepStarterTask})
+	}
 	for i, step := range steps {
 		fmt.Fprintf(f.Out, "\n%d/%d  %s\n", i+1, len(steps), step.title)
 		if err := step.run(ctx); err != nil {

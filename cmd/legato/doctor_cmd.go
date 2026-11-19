@@ -28,6 +28,11 @@ func loadDoctorConfig() service.DoctorConfig {
 	if db, err := openStore(cfg); err == nil {
 		db.Close()
 	}
+	return doctorConfigFor(cfg)
+}
+
+// doctorConfigFor is doctorConfig with the workflows found on this machine.
+func doctorConfigFor(cfg *config.Config) service.DoctorConfig {
 	global, project := workflowDirs()
 	return doctorConfig(cfg, workflow.DiscoverPaths(legacyWorkflowDir(), global, project).Definitions)
 }

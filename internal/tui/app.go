@@ -161,7 +161,10 @@ type taskWorkflowStartedMsg struct {
 // App is the root Bubbletea model.
 type App struct {
 	// agentsOff is why agents cannot run here, with the fix (SetAgentsOff).
-	agentsOff     string
+	agentsOff string
+	// starterTask is the task setup made, which the board selects once it
+	// has loaded, with a hint to start an agent on it (SetStarterTask).
+	starterTask   string
 	svc           service.BoardService
 	syncSvc       service.SyncService
 	providerSync  service.ProviderSyncService
@@ -300,6 +303,12 @@ func (a *App) SetAttentionService(svc attention.Service) {
 // doing nothing.
 func (a *App) SetAgentsOff(reason string) {
 	a.agentsOff = reason
+}
+
+// SetStarterTask makes the board open on the task setup made, with the hint
+// to start an agent on it.
+func (a *App) SetStarterTask(id string) {
+	a.starterTask = id
 }
 
 // agentsOffCmd is the refusal of a spawn while agents are off.
@@ -1567,6 +1576,13 @@ func (a App) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a.board, cmd = a.board.Update(msg)
 		if cmd != nil {
 			cmds = append(cmds, cmd)
+		}
+		if a.starterTask != "" {
+			a.board.NavigateTo(a.starterTask)
+			a.starterTask = ""
+			cmds = append(cmds, func() tea.Msg {
+				return statusbar.InfoMsg{Text: "Your first task: press a to start an agent on it"}
+			})
 		}
 		// An open detail view follows its task away and back.
 		if a.active == viewDetail {

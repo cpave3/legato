@@ -23,7 +23,7 @@ import (
 // instances. srv also gets Settings › Workers, for this Legato as a main,
 // and the web board's Hand off (POST /api/tasks/{id}/handoff), which bus
 // hears of. See docs/ai/integrations.md § Main instances and workers.
-func wirePairing(srv *server.Server, cfg *config.Config, db *store.Store, caCertFile, port string, main *mainHandoffs) {
+func wirePairing(srv *server.Server, cfg *config.Config, db *store.Store, caCertFile, port string, main *mainHandoffs) *service.PairingService {
 	scheme := "http"
 	if tlsEnabled(cfg) {
 		scheme = "https"
@@ -65,6 +65,7 @@ func wirePairing(srv *server.Server, cfg *config.Config, db *store.Store, caCert
 	srv.SetReviewPasses(reviewPassesAdvert(cfg, db))
 	srv.SetWorkers(main.workers)
 	srv.SetMainHandoffs(main.handoffs)
+	return pairing
 }
 
 // pairingName is how phones list this machine: its host name without the

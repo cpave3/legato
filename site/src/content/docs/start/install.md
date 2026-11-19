@@ -92,10 +92,11 @@ The first time Legato starts, it has an empty database, and it runs a short setu
 4. **Repositories.** It lists the git repositories in `~/Projects`, `~/src`, `~/code` and the folder you started it in, with those you used in the last two weeks ticked. Type numbers to tick or untick, then press `Enter`: the ticked ones are saved as [repositories](/legato/using/agents/#where-the-agent-starts), offered when you start agents and workflows. Those saved before are shown and kept.
 5. **Web UI and phone.** It offers to turn on the web UI: it adds `web.enabled: true` to `config.yaml`, keeping the rest of the file, and prints the address. Then it offers to pair your phone: on the first run, Legato shows the four words and a QR code as soon as its web server starts, before the board opens. A `web.enabled` your file already sets is left as it is.
 6. **Ticket tracker.** None keeps the board local. Jira asks for its address, your email and an API token, which is not shown as you type and goes to Legato's secret store; a mistake asks again rather than ending the setup. For Burnlite, it gives the link to connect it in the web UI.
+7. **A first task.** It adds the task "Try Legato: explain this repository", working in the first repository you saved (else the folder you started in), unless it is on the board already.
 
 Run `legato setup` at any time to go through it again. Each step shows what is set now, and `Enter` keeps it. A setting your `config.yaml` sets is shown as pinned and skipped, and setup never removes anything.
 
-Then the board opens. Press `?` at any time to see the keys.
+Then the board opens on that first task, with a hint to press `a` to start an agent on it. Press `?` at any time to see the keys.
 
 Legato keeps its settings in `~/.config/legato/config.yaml` and its data in `~/.local/share/legato/`. The file does not need to exist: without it, Legato uses its defaults. The [configuration reference](/legato/reference/configuration/) lists every setting.
 

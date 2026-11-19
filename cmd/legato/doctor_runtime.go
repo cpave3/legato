@@ -5,7 +5,6 @@ import (
 	"sync"
 
 	"github.com/cpave3/legato/config"
-	"github.com/cpave3/legato/internal/engine/workflow"
 	"github.com/cpave3/legato/internal/service"
 )
 
@@ -38,8 +37,7 @@ func agentsOffReason(ctx context.Context) string {
 // this process's configuration, and runs the checks once at start.
 func startDoctorReports(cfg *config.Config) *service.DoctorReports {
 	reports := service.NewDoctorReports(processDoctor(), func() service.DoctorConfig {
-		global, project := workflowDirs()
-		return doctorConfig(cfg, workflow.DiscoverPaths(legacyWorkflowDir(), global, project).Definitions)
+		return doctorConfigFor(cfg)
 	})
 	go reports.Recheck(context.Background())
 	return reports

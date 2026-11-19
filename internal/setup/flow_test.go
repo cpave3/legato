@@ -151,6 +151,7 @@ type setupRun struct {
 	repositories    RepositoryPresets
 	repositoryRoots []string
 	web             WebSetup
+	tasks           StarterTasks
 	flow            *Flow
 }
 
@@ -190,6 +191,7 @@ func runSetup(t *testing.T, input string, secrets []string, reports []service.Do
 		RepositoryRoots: r.repositoryRoots,
 		Now:             func() time.Time { return setupNow },
 		Web:             r.web,
+		Tasks:           r.tasks,
 	}
 	r.flow = flow
 	r.err = flow.Run(context.Background())

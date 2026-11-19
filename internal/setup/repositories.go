@@ -208,6 +208,9 @@ func (f *Flow) stepRepositories(ctx context.Context) error {
 			continue
 		}
 		names[strings.ToLower(p.Name)] = true
+		if f.chosenRepository == "" {
+			f.chosenRepository = r.Dir
+		}
 		fmt.Fprintf(f.Out, "  ✓ %s\n", p.Name)
 	}
 	return nil

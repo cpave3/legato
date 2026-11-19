@@ -21,6 +21,8 @@ It prints the address and keeps running until you stop it with `ctrl+c`:
 Legato web UI: http://localhost:3080
 ```
 
+The first time it starts, on an empty database, it asks nothing. It makes the board's columns and prints the checks of [`legato doctor`](/legato/reference/cli/#running-legato) with their fixes. It also prints four words to pair the Legato app with. Finish setting Legato up from your phone or a browser, in Settings.
+
 `legato serve` listens on `web.port` (3080 by default). `--port` overrides it for one run:
 
 ```bash

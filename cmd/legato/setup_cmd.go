@@ -13,9 +13,9 @@ import (
 	"golang.org/x/term"
 
 	"github.com/cpave3/legato/config"
+	"github.com/cpave3/legato/internal/engine/events"
 	"github.com/cpave3/legato/internal/engine/hooks"
 	"github.com/cpave3/legato/internal/engine/store"
-	"github.com/cpave3/legato/internal/engine/workflow"
 	"github.com/cpave3/legato/internal/service"
 	"github.com/cpave3/legato/internal/setup"
 )
@@ -60,8 +60,7 @@ func setupFlow(cfg *config.Config, db *store.Store, in io.Reader, out io.Writer,
 		Out: out, In: in,
 		ReadSecret: terminalSecret(in),
 		Checks: func(ctx context.Context) service.DoctorReport {
-			global, project := workflowDirs()
-			return processDoctor().Check(ctx, doctorConfig(cfg, workflow.DiscoverPaths(legacyWorkflowDir(), global, project).Definitions), false)
+			return processDoctor().Check(ctx, doctorConfigFor(cfg), false)
 		},
 		Settings:       setupSettings{wizardSettings{cfg: cfg, db: db}},
 		Columns:        &setup.StoreAdapter{S: db},
@@ -75,7 +74,44 @@ func setupFlow(cfg *config.Config, db *store.Store, in io.Reader, out io.Writer,
 		Repositories:    newRepositoryPresetService(cfg, db, nil),
 		RepositoryRoots: setup.DefaultRepositoryRoots(home, wd),
 		Web:             webSetup{cfg: cfg, firstRun: firstRun, out: out},
+		Tasks:           starterTasks{board: service.NewBoardService(db, events.New()), db: db},
 	}
+}
+
+// starterTasks finds and makes setup's starter task on the board.
+type starterTasks struct {
+	board service.BoardService
+	db    *store.Store
+}
+
+func (s starterTasks) FindTask(ctx context.Context, title string) (string, bool, error) {
+	cards, err := s.board.SearchCards(ctx, title)
+	if err != nil {
+		return "", false, err
+	}
+	for _, card := range cards {
+		if card.Title == title {
+			return card.ID, true, nil
+		}
+	}
+	return "", false, nil
+}
+
+func (s starterTasks) CreateTask(ctx context.Context, title, description, workingDir string) (string, error) {
+	columns, err := s.board.ListColumns(ctx)
+	if err != nil || len(columns) == 0 {
+		return "", fmt.Errorf("the board has no columns: %v", err)
+	}
+	card, err := s.board.CreateTask(ctx, title, description, columns[0].Name, "", nil)
+	if err != nil {
+		return "", err
+	}
+	if workingDir != "" {
+		if err := s.db.SetCodeContext(ctx, card.ID, &store.CodeContext{WorkingDir: workingDir}); err != nil {
+			return card.ID, err
+		}
+	}
+	return card.ID, nil
 }
 
 // terminalSecret reads a secret from a terminal without echoing it, or nil
