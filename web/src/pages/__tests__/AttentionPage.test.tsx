@@ -8,6 +8,7 @@ const mockRefresh = vi.fn().mockResolvedValue(undefined)
 let mockData: unknown[] = []
 let mockLoading = false
 let mockError: string | null = null
+let mockSetupIncomplete = false
 
 function item(overrides: Record<string, unknown> = {}) {
   return {
@@ -24,6 +25,7 @@ function item(overrides: Record<string, unknown> = {}) {
 }
 
 vi.mock("../../hooks/useServer", () => ({ useServer: () => ({ baseUrl: "" }) }))
+vi.mock("../../hooks/useSettings", () => ({ useSettings: () => ({ data: { setup_incomplete: mockSetupIncomplete } }) }))
 vi.mock("../../hooks/useWebSocket", () => ({ useWebSocket: () => ({ subscribe: () => () => {} }) }))
 vi.mock("../../hooks/useAttention", () => ({
   useAttention: () => ({ data: mockData, loading: mockLoading, error: mockError, refresh: mockRefresh }),
@@ -48,6 +50,7 @@ describe("AttentionPage", () => {
     mockData = [item()]
     mockLoading = false
     mockError = null
+    mockSetupIncomplete = false
   })
 
   it("groups intervention, review, and PR items into a single dashboard", async () => {
@@ -161,6 +164,16 @@ describe("AttentionPage", () => {
     fireEvent.click(screen.getByRole("button", { name: "Dismiss" }))
     expect((await screen.findByRole("alert")).textContent).toContain("attention item changed")
     expect(screen.getByText("Add search")).toBeTruthy()
+  })
+
+  it("says setup is not finished instead of all clear while it is not", async () => {
+    mockData = []
+    mockSetupIncomplete = true
+    const { AttentionPage } = await import("../AttentionPage")
+    render(<MemoryRouter><AttentionPage /></MemoryRouter>)
+    expect(screen.queryByText("Nothing needs your attention right now")).toBeNull()
+    expect(screen.getByRole("status").textContent).toMatch(/Setup is not finished/)
+    expect(screen.getByRole("button", { name: "Open the setup checklist" })).toBeTruthy()
   })
 
   it("shows the global and section all-clear states when empty", async () => {

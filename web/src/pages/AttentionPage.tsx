@@ -3,6 +3,8 @@ import { AlertTriangle, Bell, CheckCircle, ChevronRight, ExternalLink, GitPullRe
 import { useState } from "react"
 import { useAttention } from "../hooks/useAttention"
 import { useServer } from "../hooks/useServer"
+import { useSettings } from "../hooks/useSettings"
+import { SetupChecklistButton } from "../components/SetupChip"
 import { executeAttentionAction, dismissAttentionItem, type AttentionAction, type AttentionItem } from "../lib/attention"
 import { externalHref, legatoHref } from "../lib/navigation"
 import { LoadingState } from "../components/ui/LoadingState"
@@ -206,6 +208,7 @@ function AttentionCard({ item, pending, onAction, onDismiss }: AttentionCardProp
 export function AttentionPage() {
   const { data: items, loading, error, refresh } = useAttention()
   const { baseUrl } = useServer()
+  const setupIncomplete = useSettings().data?.setup_incomplete === true
   const [actionError, setActionError] = useState<string | null>(null)
   const [pending, setPending] = useState<string | null>(null)
 
@@ -255,10 +258,17 @@ export function AttentionPage() {
         </InlineNotice>}
       </header>
       {items !== null && <main className="flex-1 overflow-y-auto px-4 py-5 sm:px-6">
-        {!error && allItems.length === 0 && (
+        {!error && allItems.length === 0 && !setupIncomplete && (
           <div className="mb-6 flex flex-col items-center gap-3 rounded-xl border border-emerald-900/60 bg-emerald-950/20 px-4 py-8 text-center">
             <CheckCircle size={42} className="text-emerald-500" />
             <p className="text-lg text-zinc-200">Nothing needs your attention right now</p>
+          </div>
+        )}
+        {!error && allItems.length === 0 && setupIncomplete && (
+          <div role="status" className="mb-6 flex flex-col items-center gap-2 rounded-xl border border-lw-needs/40 bg-lw-needs-soft px-4 py-8 text-center">
+            <p className="text-lg text-lw-text">Setup is not finished</p>
+            <p className="max-w-md text-sm text-lw-text-2">Nothing is waiting, but part of Legato cannot work on this machine yet, so this list may be quiet only because of that.</p>
+            <SetupChecklistButton baseUrl={baseUrl} label="Open the setup checklist" />
           </div>
         )}
         <div className="space-y-8">

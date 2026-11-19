@@ -766,7 +766,7 @@ export function AgentsPage() {
           onClick={handleSpawn}
           className="rounded bg-lw-accent px-4 py-2 text-sm font-medium text-[var(--theme-canvas,#fff)] transition-colors hover:bg-indigo-500"
         >
-          Spawn Agent
+          Start an agent
         </button>
         {swarmEnabled && <button
           onClick={handleOpenStartSwarm}
