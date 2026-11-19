@@ -89,7 +89,8 @@ The first time Legato starts, it has an empty database, and it runs a short setu
 1. It makes the board's columns: Backlog, Ready, Doing, Review and Done.
 2. **Checks.** It runs the checks of [`legato doctor`](/legato/reference/cli/#running-legato). When something required is missing, such as tmux, it shows the fix and waits: fix it and press `Enter` to check again, or type `q` to go on to the board without it.
 3. **Default agent tool.** It lists the agent tools it found and whether you are signed in to each. Choose the one Legato starts when you name none. For Codex and Chimera, it offers to install their hooks (see step 3 below).
-4. **Ticket tracker.** None keeps the board local. Jira asks for its address, your email and an API token, which is not shown as you type and goes to Legato's secret store; a mistake asks again rather than ending the setup. For Burnlite, it gives the link to connect it in the web UI.
+4. **Repositories.** It lists the git repositories in `~/Projects`, `~/src`, `~/code` and the folder you started it in, with those you used in the last two weeks ticked. Type numbers to tick or untick, then press `Enter`: the ticked ones are saved as [repositories](/legato/using/agents/#where-the-agent-starts), offered when you start agents and workflows. Those saved before are shown and kept.
+5. **Ticket tracker.** None keeps the board local. Jira asks for its address, your email and an API token, which is not shown as you type and goes to Legato's secret store; a mistake asks again rather than ending the setup. For Burnlite, it gives the link to connect it in the web UI.
 
 Run `legato setup` at any time to go through it again. Each step shows what is set now, and `Enter` keeps it. A setting your `config.yaml` sets is shown as pinned and skipped, and setup never removes anything.
 

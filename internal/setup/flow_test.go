@@ -7,6 +7,7 @@ import (
 	"slices"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/cpave3/legato/config"
 	"github.com/cpave3/legato/internal/service"
@@ -146,6 +147,9 @@ type setupRun struct {
 	hooks    []string
 	checks   int
 	err      error
+
+	repositories    RepositoryPresets
+	repositoryRoots []string
 }
 
 // runSetup runs the flow on scripted lines, with secrets typed apart.
@@ -178,8 +182,11 @@ func runSetup(t *testing.T, input string, secrets []string, reports []service.Do
 			r.hooks = append(r.hooks, tool)
 			return "installed " + tool + "'s hooks", nil
 		},
-		SettingsLink: "https://legato.local:3080/settings#integrations",
-		WorkDir:      "/home/op/code/app",
+		SettingsLink:    "https://legato.local:3080/settings#integrations",
+		WorkDir:         "/home/op/code/app",
+		Repositories:    r.repositories,
+		RepositoryRoots: r.repositoryRoots,
+		Now:             func() time.Time { return setupNow },
 	}
 	r.err = flow.Run(context.Background())
 	return r

@@ -10,6 +10,7 @@ import (
 	"slices"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/cpave3/legato/config"
 	"github.com/cpave3/legato/internal/service"
@@ -49,6 +50,13 @@ type Flow struct {
 	// SettingsLink is where the web UI's integrations are, for Burnlite.
 	SettingsLink string
 	WorkDir      string
+	// Repositories keeps repository presets; nil leaves the step out.
+	Repositories RepositoryPresets
+	// RepositoryRoots are the folders repositories are looked for in
+	// (DefaultRepositoryRoots).
+	RepositoryRoots []string
+	// Now is the clock that says which repositories were used lately.
+	Now func() time.Time
 
 	lines  *bufio.Scanner
 	report service.DoctorReport
@@ -60,6 +68,12 @@ type Flow struct {
 // agentTools are the agent tools setup offers, by check ID.
 var agentTools = []string{"claude-code", "codex", "chimera"}
 
+// setupStep is one titled step of the flow.
+type setupStep struct {
+	title string
+	run   func(context.Context) error
+}
+
 // Run runs every step in order.
 func (f *Flow) Run(ctx context.Context) error {
 	f.lines = bufio.NewScanner(f.In)
@@ -67,14 +81,11 @@ func (f *Flow) Run(ctx context.Context) error {
 	if err := f.seedColumns(ctx); err != nil {
 		return err
 	}
-	steps := []struct {
-		title string
-		run   func(context.Context) error
-	}{
-		{"Checks", f.stepChecks},
-		{"Default agent tool", f.stepDefaultTool},
-		{"Ticket tracker", f.stepTracker},
+	steps := []setupStep{{"Checks", f.stepChecks}, {"Default agent tool", f.stepDefaultTool}}
+	if f.Repositories != nil {
+		steps = append(steps, setupStep{"Repositories", f.stepRepositories})
 	}
+	steps = append(steps, setupStep{"Ticket tracker", f.stepTracker})
 	for i, step := range steps {
 		fmt.Fprintf(f.Out, "\n%d/%d  %s\n", i+1, len(steps), step.title)
 		if err := step.run(ctx); err != nil {
