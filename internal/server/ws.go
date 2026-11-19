@@ -59,7 +59,10 @@ const (
 	// MsgAgentMessageSent says the agent took the message of request_id. It
 	// is not yet read: the conversation shows it once it is.
 	MsgAgentMessageSent = "agent_message_sent"
-	MsgError            = "error"
+	// MsgScopeChanged says an origin's Scope pins changed; the extension
+	// fetches them again.
+	MsgScopeChanged = "scope_changed"
+	MsgError        = "error"
 )
 
 // WSMessage is the JSON envelope for all WebSocket messages.
@@ -106,6 +109,8 @@ type WSMessage struct {
 	// Answers and Dismissed answer a question the agent asked (agent_question).
 	Answers   map[string][]string `json:"answers,omitempty"`
 	Dismissed bool                `json:"dismissed,omitempty"`
+	// Origin is the page origin whose Scope pins changed (scope_changed).
+	Origin string `json:"origin,omitempty"`
 	// ContextUsed and ContextWindow are an agent's context fill (agent_context).
 	ContextUsed   int `json:"context_used,omitempty"`
 	ContextWindow int `json:"context_window,omitempty"`

@@ -214,6 +214,10 @@ func (rt *approvalRuntime) attach(srv *server.Server) {
 		srv.UseAgentEvents(rt.watcher)
 	}
 	rt.mcp.attach(srv)
+	if rt.scope != nil {
+		srv.SetScopeService(rt.scope)
+		srv.StartScopeEvents()
+	}
 }
 
 // registerApprovalAttention shows pending approvals in Attention.

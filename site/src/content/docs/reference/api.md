@@ -269,6 +269,16 @@ A card on the board is a task: its ID is the task's. An agent is addressed by it
 | `GET` | `/plan-images/` | read | Read a plan's image |  |
 | `GET` | `/review-images/` | read | Read a review's image |  |
 
+## Legato Scope
+
+| Method | Route | Class | What it does | Body |
+| --- | --- | --- | --- | --- |
+| `POST` | `/api/scope/batches` | change | Send a batch of pins from a page | `{"origin": "http://localhost:5173", "pins": [{"comment": "…", "page": {"url": "http://localhost:5173/…"}, "target": {"selectors": ["…"]}, "screenshot": "data:image/jpeg;base64,…"}]}` |
+| `GET` | `/api/scope/pins` | read | List an origin's pins |  |
+| `POST` | `/api/scope/pins/{id}/reopen` | change | Reopen a resolved pin with a new comment | `{"comment": "…"}` |
+| `POST` | `/api/scope/pins/{id}/withdraw` | change | Withdraw a pin no agent has been told of |  |
+| `GET` | `/api/scope/pins/{id}/screenshot` | read | Read a pin's screenshot |  |
+
 ## Workflows and swarms
 
 | Method | Route | Class | What it does | Body |

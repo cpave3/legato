@@ -252,6 +252,13 @@ var routeClassTable = []routeClassEntry{
 	{"DELETE", "/api/ui-items/{id}", ClassRisky, "Delete something an agent showed"},
 	{"GET", "/api/ui-items/{id}/studio/{rest...}", ClassRead, "Read from a studio"},
 	{"POST", "/api/ui-items/{id}/studio/{rest...}", ClassChange, "Change a studio's storyboard"},
+
+	// Legato Scope: pins the operator sends from a live page
+	{"POST", "/api/scope/batches", ClassChange, "Send a batch of pins from a page"},
+	{"GET", "/api/scope/pins", ClassRead, "List an origin's pins"},
+	{"POST", "/api/scope/pins/{id}/reopen", ClassChange, "Reopen a resolved pin with a new comment"},
+	{"POST", "/api/scope/pins/{id}/withdraw", ClassChange, "Withdraw a pin no agent has been told of"},
+	{"GET", "/api/scope/pins/{id}/screenshot", ClassRead, "Read a pin's screenshot"},
 	{"GET", "/api/agents/{task_id}/review-briefing", ClassRead, "List an agent's review briefings"},
 	{"GET", "/api/agents/{task_id}/review-briefing/page", ClassRead, "Read a review briefing page"},
 	{"GET", "/agent-ui-images/", ClassRead, "Read an image an agent showed"},

@@ -53,6 +53,22 @@ Pins have no threads.
 
 `EventScopeChanged` (`events.ScopeChangedPayload{Origin}`) is published whenever an origin's pins or subscription change: a batch, a delivery, a resolve, a reopen, a withdraw, a subscribe or unsubscribe, a subscription ended.
 
+## HTTP API
+
+`internal/server/scope.go`, behind the bearer token like every `/api/` route, wired into both web servers by `approvalRuntime.attach` (`SetScopeService`, `StartScopeEvents`). The extension's service worker is its only client.
+
+| Route | Does |
+| --- | --- |
+| `POST /api/scope/batches` | Send. Body `{origin, pins}`; a pin is `{comment, page: {url, title, viewport: {width, height}, scroll: {x, y}, dpr}, target: {selectors, text, box: {x, y, width, height}}, styles: {computed, classes, inline, parent}, source?: {name, file, line, column, owners, confidence}, screenshot?: "data:image/…;base64,…"}`. The body is read up to 16 MB (`scopeMaxBodyBytes`). `201 {batch_id, pin_ids, subscribed, delivered}`. |
+| `GET /api/scope/pins?origin=` | `{pins}`: `ScopePin` (`id`, `batch_id`, `origin`, `url`, `path`, `comment`, `state`, `note`, `selector`, `selectors`, `text`, `box`, `has_screenshot`, `location`, `created_at`, `updated_at`). Withdrawn pins are gone. |
+| `POST /api/scope/pins/{id}/reopen` | `{comment}`; the pin, back to `sent` (and pushed again). |
+| `POST /api/scope/pins/{id}/withdraw` | `204`. |
+| `GET /api/scope/pins/{id}/screenshot` | The image, with `nosniff` and a sandboxing CSP; `404` when the pin has none. |
+
+Errors: `400` (`ErrScopeInvalidOrigin`, `ErrScopeInvalid`, a screenshot that is not a base64 image `data:` URL, malformed JSON), `404` (unknown pin), `409` (`ErrScopePinState`), `413` (`ErrScopeTooLarge`, or the body limit), `503` (no service).
+
+`EventScopeChanged` reaches `/ws` clients as `{"type": "scope_changed", "origin": "http://localhost:5173"}`.
+
 ## Wiring
 
 `startScope` (`cmd/legato/scope_runtime.go`) builds the one `ScopeService` of a host process (the TUI's and `legato serve`'s, from `startApprovals`), with the agent service as its messenger, starts its event loop and adds the interrupted listener. It is kept on `approvalRuntime.scope`.
