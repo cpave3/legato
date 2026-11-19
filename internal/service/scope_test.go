@@ -242,9 +242,12 @@ func TestAnInterruptedAgentKeepsItsSubscriptionUntilDismissed(t *testing.T) {
 		t.Fatalf("batch to an interrupted agent = %+v, %v, messages %+v", result, err, f.messenger.messages())
 	}
 
-	// Resuming tells the new agent of the waiting batch.
+	// Resuming tells the new agent of the waiting batch. A spawn clears
+	// the slot's ended sessions, the interrupted one among them.
+	if err := f.store.DeleteDeadAgentSessionsInSlot(ctx, "task1", ""); err != nil {
+		t.Fatal(err)
+	}
 	f.agent(t, "task1", "", "running")
-	f.setSlotStatus(t, "task1", "", "running")
 	f.svc.HandleAgentStarted(ctx, "task1")
 	if m := f.messenger.messages(); len(m) != 1 || !strings.Contains(m[0].Text, result.PinIDs[0]) {
 		t.Fatalf("on resume, messages = %+v", m)
