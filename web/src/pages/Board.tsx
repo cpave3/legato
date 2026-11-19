@@ -1036,7 +1036,7 @@ export function BoardPage() {
               <button type="button" onClick={() => void refresh()} className="min-h-11 rounded-md border border-lw-line-strong bg-lw-raised px-4 text-lw-text">Retry</button>
             </div>
           )}
-          {columns.length > 0 && columns.every((column) => column.cards.length === 0) && (
+          {columns.length > 0 && allCards.length === 0 && (
             <section aria-label="No tasks yet" className="flex h-full flex-col items-center justify-center gap-3 px-4 text-center">
               <p className="text-base text-lw-text">No tasks yet</p>
               <p className="max-w-sm text-sm text-lw-text-2">Make a task and start an agent on it, or bring one in from your ticket tracker.</p>
@@ -1048,7 +1048,7 @@ export function BoardPage() {
               </div>
             </section>
           )}
-          {columns.length > 0 && columns.some((column) => column.cards.length > 0) && (
+          {columns.length > 0 && allCards.length > 0 && (
             <>
               <div className="hidden h-full md:block">
                 <BoardGrid
