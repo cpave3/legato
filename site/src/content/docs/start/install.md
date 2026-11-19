@@ -64,6 +64,14 @@ legato version
 
 If the command is not found, add `~/.local/bin` to `PATH` in your shell profile.
 
+Then ask Legato what else it needs:
+
+```bash
+legato doctor
+```
+
+It checks tmux, git and your agent tools, says whether you are signed in to them, and gives a one-line fix for anything missing. A failed **required** check means part of Legato cannot work until you fix it; an optional one only limits a feature. See [`legato doctor`](/legato/reference/cli/#running-legato).
+
 :::tip
 Each release binary also has a build provenance attestation. With the GitHub CLI you can check that GitHub Actions built it from this repository: `gh attestation verify legato-linux-amd64 --repo cpave3/legato`.
 :::
