@@ -84,3 +84,20 @@ func TestAMacroStepOnAPullRequestNamesIt(t *testing.T) {
 		t.Fatalf("repo = %q", agents.opts.Repo)
 	}
 }
+
+func TestADispatchedMacroOnAPullRequestNamesTheTaskAndPR(t *testing.T) {
+	settings, db := newSettingsFixture(t, "")
+	ctx := context.Background()
+	if err := db.CreateTask(ctx, store.Task{ID: "task-1", Title: "Fix login", Status: "Ready"}); err != nil {
+		t.Fatal(err)
+	}
+	dispatcher := &fakeTaskAgentDispatcher{store: db}
+	dispatch := NewAgentDispatchExecutor(dispatcher, db)
+	dispatch.SetMacros(NewMacroService(settings))
+	if _, err := dispatch.Start(ctx, ResolvedWorkflowStep{With: map[string]any{"task": map[string]any{"id": "task-1"}, "macro": "Address feedback", "repo": "acme/web", "pr_number": 12, "working_dir": ""}}); err != nil {
+		t.Fatal(err)
+	}
+	if !strings.HasPrefix(dispatcher.opts.Assignment, "Task task-1: Fix login\nPull request acme/web#12: https://github.com/acme/web/pull/12\n\nAddress the review feedback") {
+		t.Fatalf("assignment = %q", dispatcher.opts.Assignment)
+	}
+}
