@@ -68,6 +68,20 @@ See [Web UI](web-ui.md) § Background shell tiles.
   agent that reports nothing itself. It leaves a session the plugin reports for
   alone (`hook_source = 'plugin'` or `'mod'`), whose events already report the dialog.
 
+## Operator items beside activity
+
+What an agent posts with `for_operator` (an operator item, see [Attention](attention.md) § Operator items) is kept apart from `activity`, which only the hooks set: Claude's Stop hook straight after the call would overwrite it. An agent's open items close on the operator's own turn, which each tool reports differently:
+
+| Tool | The operator's turn | Not one |
+| --- | --- | --- |
+| Claude Code | `UserPromptSubmit` whose prompt does not open with `[legato ` and is not a `<task-notification>` (`ClaudeHook.OperatorTurn`, set by `ParseClaudeHook`; only the flag travels, never the prompt). A slash command typed in the terminal counts. | Peers' (`[legato peer …]`), the Reeve's and Legato's own tagged messages, background-job wake-ups, a subagent's prompt |
+| Codex | A user message the bridge sees reach the thread live (`codexbridge.Options.OnUserMessage`, never the history it loads on joining), reported through `BridgeHost.OperatorTurn`: the pseudo-hook `OperatorTurn` over the broker, which touches no activity | Tagged messages |
+| Chimera | The mod's `turn.start` carries no text, so only Legato's own message path counts | — |
+
+Legato's own message path: each place a message the operator wrote enters Legato calls `service.NoteOperatorMessage` once it is delivered: the web message box and keys sent to a native agent (`internal/server/ws.go`), voice to a native agent (`VoiceService.sendNative`), a macro started on a card (`MacroService.Start`) or picked in the TUI. `agentService.RecordOperatorMessage` closes the items of the agent's execution when the text is untagged (`service.IsOperatorText`). For Claude Code and Codex it repeats what the hook or bridge already did, which is harmless.
+
+An agent's end closes its items as `agent_ended` (`agentService.EndExecution`), except an interrupted one's (`endGoneSession` marks the context `withOperatorItemsKept`): resuming it moves them to the new execution (`Store.MoveOperatorItems`), dismissing it closes them, and `SweepInterruptedAgents` ends with `Store.CloseOrphanOperatorItems` for executions that ended while Legato was down. A restart (Reload) closes them: the restarted agent is a new execution.
+
 ## Foreground safety and exit detection
 
 `tmux.Manager` fails closed for all agent `SendKeys`, `SendKey`, line and

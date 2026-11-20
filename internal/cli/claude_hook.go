@@ -38,6 +38,17 @@ const (
 // an error. See ApplyTurnEnded.
 const HookTurnEnded = "TurnEnded"
 
+// HookOperatorTurn is not a Claude Code hook either: a bridge sends it when
+// the operator's own message reached its agent (a Codex user message), so
+// the agent's operator items close. It says nothing of the agent's activity.
+const HookOperatorTurn = "OperatorTurn"
+
+// OperatorTurnHook is the report of a user turn whose text was text. Only
+// whether the operator wrote it travels, never the text.
+func OperatorTurnHook(text string) ClaudeHook {
+	return ClaudeHook{Event: HookOperatorTurn, OperatorTurn: service.IsOperatorText(text)}
+}
+
 // ClaudeHook is what Legato keeps of one Claude Code hook payload: only
 // what the agent's state needs, so a large tool result never travels to the
 // host.
@@ -59,6 +70,10 @@ type ClaudeHook struct {
 	Reason string `json:"reason,omitempty"`
 	// Error is a StopFailure's.
 	Error string `json:"error,omitempty"`
+	// OperatorTurn says a user turn was the operator's own words, not a
+	// [legato …] message or a task notification: it closes the agent's
+	// operator items (UserPromptSubmit, OperatorTurn).
+	OperatorTurn bool `json:"operator_turn,omitempty"`
 }
 
 type claudeHookPayload struct {
@@ -100,6 +115,7 @@ func ParseClaudeHook(raw []byte) (ClaudeHook, error) {
 		hook.Started = startedJob(p.ToolName, p.ToolInput, p.ToolResponse)
 	case ClaudeUserPromptSubmit:
 		hook.Woke = wokenBy(p.Prompt)
+		hook.OperatorTurn = hook.Woke == nil && !strings.HasPrefix(strings.TrimSpace(p.Prompt), "<task-notification>") && service.IsOperatorText(p.Prompt)
 	case ClaudeStop:
 		for _, task := range p.BackgroundTasks {
 			job := store.BackgroundJob{ID: task.ID, Kind: task.Type, Label: strings.TrimSpace(firstNonBlank(task.Description, task.Command))}
@@ -200,6 +216,14 @@ func applyClaudeHookAt(s *store.Store, report ClaudeHookReport, now time.Time, p
 		return fmt.Errorf("execution %q does not own running task session %s", report.ExecutionID, report.TaskID)
 	}
 	hook := cleanHook(report.Hook)
+	if hook.OperatorTurn && (hook.Event == ClaudeUserPromptSubmit || hook.Event == HookOperatorTurn) && hook.AgentID == "" {
+		if _, err := service.CloseOperatorItemsForOperatorTurn(ctx, s, report.TaskID, session.ExecutionID); err != nil {
+			return fmt.Errorf("closing operator items: %w", err)
+		}
+	}
+	if hook.Event == HookOperatorTurn {
+		return nil
+	}
 	if report.ExecutionID != "" {
 		if err := recordClaudeSubagents(ctx, s, report.ExecutionID, hook, now); err != nil {
 			return fmt.Errorf("recording subagent activity: %w", err)

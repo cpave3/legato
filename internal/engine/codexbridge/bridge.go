@@ -47,6 +47,11 @@ type Options struct {
 	// reader, TurnEndedDelay after the turn ended, and not at all when
 	// another turn has started by then: that turn's own hooks report it.
 	OnTurnEnded func(status string)
+	// OnUserMessage is told the text of each user message that reaches the
+	// session's thread while the bridge follows it, whoever sent it, off
+	// the RPC reader. The history the bridge loads when it joins a thread
+	// is not reported.
+	OnUserMessage func(text string)
 	// TurnEndedDelay is that wait; zero means DefaultTurnEndedDelay.
 	TurnEndedDelay time.Duration
 	// RejoinEvery is how often joining a thread is retried while its first
@@ -70,6 +75,7 @@ type Bridge struct {
 	now             func() time.Time
 	onIdentity      func(string, string) error
 	onTurnEnded     func(string)
+	onUserMessage   func(string)
 	turnEndedDelay  time.Duration
 	identityID      string
 	identityCWD     string
@@ -138,14 +144,15 @@ func New(opts Options) *Bridge {
 	session := newSession()
 	session.cwd = opts.CWD
 	b := &Bridge{
-		taskID:      opts.TaskID,
-		token:       opts.Token,
-		appURL:      opts.AppServerURL,
-		appToken:    opts.AppServerToken,
-		rejoinEvery: rejoinEvery,
-		now:         now,
-		onIdentity:  opts.OnIdentity,
-		onTurnEnded: opts.OnTurnEnded,
+		taskID:        opts.TaskID,
+		token:         opts.Token,
+		appURL:        opts.AppServerURL,
+		appToken:      opts.AppServerToken,
+		rejoinEvery:   rejoinEvery,
+		now:           now,
+		onIdentity:    opts.OnIdentity,
+		onTurnEnded:   opts.OnTurnEnded,
+		onUserMessage: opts.OnUserMessage,
 		turnEndedDelay: func() time.Duration {
 			if opts.TurnEndedDelay > 0 {
 				return opts.TurnEndedDelay
@@ -397,7 +404,17 @@ func (b *Bridge) handle(incoming frame) {
 			return
 		}
 		settled := incoming.Method == "item/completed"
-		b.onThread(params.ThreadID, func(s *session) []nativeEvent { return s.applyItem(params.Item, settled, b.now()) })
+		b.onThread(params.ThreadID, func(s *session) []nativeEvent {
+			out := s.applyItem(params.Item, settled, b.now())
+			if b.onUserMessage != nil {
+				for _, event := range out {
+					if text, ok := event["content"].(string); ok && event["type"] == "user_message" {
+						go b.onUserMessage(text)
+					}
+				}
+			}
+			return out
+		})
 	case "item/agentMessage/delta", "item/plan/delta":
 		var params struct {
 			ThreadID string `json:"threadId"`

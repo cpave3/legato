@@ -2863,6 +2863,9 @@ func (a App) handleMacroSelected(msg overlay.MacroSelectedMsg) (tea.Model, tea.C
 		if err := agentSvc.SendMessage(context.Background(), taskID, text); err != nil {
 			return statusbar.ErrorMsg{Text: "macro send failed: " + err.Error()}
 		}
+		// A macro is the operator's own words: it closes what the agent
+		// posted for them.
+		service.NoteOperatorMessage(context.Background(), agentSvc, taskID, text)
 		return statusbar.InfoMsg{Text: "Sent macro: " + name}
 	}
 }

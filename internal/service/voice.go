@@ -179,10 +179,16 @@ func (v *VoiceService) Deliver(ctx context.Context, taskID, tmuxSession, agentKi
 // can, so a message spoken during a turn joins that turn instead of being
 // refused as a second prompt.
 func (v *VoiceService) sendNative(ctx context.Context, taskID, text string) error {
+	var err error
 	if queuer, ok := v.agents.(AgentMessageQueuer); ok {
-		return queuer.QueueMessage(ctx, taskID, text)
+		err = queuer.QueueMessage(ctx, taskID, text)
+	} else {
+		err = v.agents.SendMessage(ctx, taskID, text)
 	}
-	return v.agents.SendMessage(ctx, taskID, text)
+	if err == nil {
+		NoteOperatorMessage(ctx, v.agents, taskID, text)
+	}
+	return err
 }
 
 // Probe checks that Whisper answers, with Wyoming's describe, before ctx

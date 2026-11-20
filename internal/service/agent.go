@@ -1957,6 +1957,7 @@ func (a *agentService) EndExecution(ctx context.Context, executionID, status str
 	a.scratch.removeLogged(executionID)
 	a.capabilityFolders.removeLogged(executionID)
 	a.endEngramSession(ctx, executionID)
+	a.endOperatorItems(ctx, executionID)
 	return nil
 }
 
@@ -2039,7 +2040,7 @@ func (a *agentService) endGoneSession(ctx context.Context, s store.AgentSession,
 	if s.ExecutionID != "" {
 		endCtx := ctx
 		if status == store.AgentSessionInterrupted {
-			endCtx = withEngramSessionKept(ctx)
+			endCtx = withOperatorItemsKept(withEngramSessionKept(ctx))
 		}
 		if err := a.EndExecution(endCtx, s.ExecutionID, store.ExecutionLost); err != nil {
 			return err

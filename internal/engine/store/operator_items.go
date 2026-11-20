@@ -158,3 +158,36 @@ func (s *Store) CloseExecutionOperatorItems(ctx context.Context, executionID, re
 	n, err := res.RowsAffected()
 	return int(n), err
 }
+
+// MoveOperatorItems gives the open items of one execution to another: a
+// resumed agent takes over what its interrupted one posted.
+func (s *Store) MoveOperatorItems(ctx context.Context, fromExecutionID, toExecutionID string) (int, error) {
+	if fromExecutionID == "" || toExecutionID == "" || fromExecutionID == toExecutionID {
+		return 0, nil
+	}
+	res, err := s.db.ExecContext(ctx, `UPDATE operator_items SET execution_id = ?
+		WHERE execution_id = ? AND status = 'open'`, toExecutionID, fromExecutionID)
+	if err != nil {
+		return 0, err
+	}
+	n, err := res.RowsAffected()
+	return int(n), err
+}
+
+// CloseOrphanOperatorItems closes, as agent_ended, the open items of
+// executions that no longer run, except an interrupted agent's, which wait
+// for it to be resumed or dismissed. It is the startup sweep: an agent can
+// end while no Legato runs to close what it posted.
+func (s *Store) CloseOrphanOperatorItems(ctx context.Context) (int, error) {
+	res, err := s.db.ExecContext(ctx, `UPDATE operator_items
+		SET status = 'closed', close_reason = ?, closed_at = `+operatorItemNow+`, updated_at = `+operatorItemNow+`
+		WHERE status = 'open'
+		AND NOT EXISTS (SELECT 1 FROM executions e WHERE e.id = operator_items.execution_id AND e.status = 'running')
+		AND NOT EXISTS (SELECT 1 FROM executions e JOIN agent_sessions a ON a.id = e.agent_session_id
+			WHERE e.id = operator_items.execution_id AND a.status = 'interrupted')`, OperatorItemAgentEnded)
+	if err != nil {
+		return 0, err
+	}
+	n, err := res.RowsAffected()
+	return int(n), err
+}

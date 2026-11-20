@@ -149,6 +149,7 @@ func (a *agentService) SweepInterruptedAgents(ctx context.Context) (int, error) 
 		defer a.interruptedChanged()
 		log.Printf("agents: %d agent(s) were interrupted while Legato was down", count)
 	}
+	a.sweepOrphanOperatorItems(ctx)
 	return count, nil
 }
 
@@ -194,6 +195,7 @@ func (a *agentService) ResumeInterruptedAgent(ctx context.Context, taskID string
 					return err
 				}
 				_ = a.store.EndInterruptedAgentSession(ctx, taskID, store.SlotMain)
+				a.takeOverOperatorItems(ctx, taskID, session.ExecutionID)
 				a.interruptedChanged()
 				return nil
 			}
@@ -221,6 +223,7 @@ func (a *agentService) ResumeInterruptedAgent(ctx context.Context, taskID string
 	if err := a.SpawnAgent(ctx, taskID, 0, 0, opt); err != nil {
 		return err
 	}
+	a.takeOverOperatorItems(ctx, taskID, session.ExecutionID)
 	a.interruptedChanged()
 	return nil
 }
@@ -250,6 +253,7 @@ func (a *agentService) DismissInterruptedAgent(ctx context.Context, taskID strin
 	}
 	if session.ExecutionID != "" {
 		a.endEngramSession(ctx, session.ExecutionID)
+		a.endOperatorItems(ctx, session.ExecutionID)
 	}
 	a.interruptedChanged()
 	return nil

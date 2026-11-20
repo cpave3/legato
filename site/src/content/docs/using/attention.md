@@ -39,7 +39,11 @@ Some things never raise Attention: a draft, closed or merged pull request; CI th
 
 An agent often finishes its turn while it still needs you: to type a slash command, test a build in a browser, merge a pull request, answer a question it asked in plain words, or look at what it built. An idle agent raises nothing by itself, so agents are given a tool, `for_operator`, to say so. Each such item names its kind (Action, Question, Done or Other), what is needed, and what it blocks. **Open agent** takes you to the agent.
 
-An agent that posts the same title again updates its item, which comes back if you had dismissed it. The agent clears its items itself when they no longer apply. Items raise no notification.
+An agent that posts the same title again updates its item, which comes back if you had dismissed it. Items raise no notification. An agent's items go away:
+
+- when you next type to that agent, in its terminal or from Legato (a slash command and a macro count; messages from other agents, the Reeve and Legato itself do not). A Chimera agent's items close only on a message sent through Legato, since Chimera does not say what was typed in its own terminal.
+- when the agent clears them because they no longer apply.
+- when the agent ends. An agent [interrupted](/legato/using/agents/#after-a-crash-interrupted-agents) by a crash keeps them until you resume it or dismiss it.
 
 ### Acting on an item
 
