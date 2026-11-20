@@ -221,6 +221,36 @@ describe("Agent, role prompt and rule forms", () => {
     }))
   })
 
+  it("starts the tiers table again from their value after Use theirs", async () => {
+    const client = new QueryClient()
+    const codex = (tiers: Record<string, unknown>) => [list({ key: "adapters", title: "Agent tools", name_field: undefined, entries: [{ name: "codex", value: { tiers }, source: "database", pinned: false }] })]
+    mockFetch.mockResolvedValue(codex({ fast: { launch_args: ["--old"] } }))
+    render(<QueryClientProvider client={client}><ListSettings baseUrl="http://legato" /></QueryClientProvider>)
+    fireEvent.click(await screen.findByRole("button", { name: "Edit codex" }))
+    fireEvent.change(screen.getByRole("textbox", { name: "Tier 1 description" }), { target: { value: "mine" } })
+    mockFetch.mockResolvedValue(codex({ fast: { launch_args: ["--new"] }, deep: { description: "theirs" } }))
+    await client.invalidateQueries()
+    fireEvent.click(await screen.findByRole("button", { name: "Use theirs" }))
+    expect(screen.getByRole("textbox", { name: "Tier 1 launch arguments" })).toHaveValue("--new")
+    fireEvent.change(screen.getByRole("textbox", { name: "Tier 2 description" }), { target: { value: "theirs, edited" } })
+    fireEvent.click(screen.getByRole("button", { name: "Save" }))
+    await waitFor(() => expect(mockSave).toHaveBeenCalledWith("http://legato", "adapters", "codex", {
+      tiers: { fast: { launch_args: ["--new"] }, deep: { description: "theirs, edited" } },
+    }))
+  })
+
+  it("forgets a duplicate tier's refusal once YAML puts the tiers right", async () => {
+    show([list({ key: "adapters", title: "Agent tools", name_field: undefined, entries: [{ name: "codex", value: { tiers: { fast: {} } }, source: "database", pinned: false }] })])
+    fireEvent.click(await screen.findByRole("button", { name: "Edit codex" }))
+    fireEvent.click(screen.getByRole("button", { name: "Add tier" }))
+    fireEvent.change(screen.getByRole("textbox", { name: "Tier 2 name" }), { target: { value: "fast" } })
+    expect(screen.getByRole("button", { name: "Save" })).toBeDisabled()
+    fireEvent.click(screen.getByRole("button", { name: "Edit as YAML" }))
+    fireEvent.click(screen.getByRole("button", { name: "Back to the form" }))
+    expect(screen.queryByRole("alert")).toBeNull()
+    expect(screen.getByRole("button", { name: "Save" })).not.toBeDisabled()
+  })
+
   it("offers Chimera's modes only for Chimera", async () => {
     show([list({ key: "adapters", title: "Agent tools", name_field: undefined })])
     fireEvent.click(await screen.findByRole("button", { name: "Set up an agent" }))

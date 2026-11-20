@@ -152,13 +152,23 @@ export function EntryForm({ list, form, entry, onSave, onCancel }: { list: Confi
   // What a field refuses to give back (two tiers of one name): Save waits.
   const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({})
   const fieldError = yaml === null ? Object.values(fieldErrors).find(Boolean) ?? "" : ""
+  // A field with rows of its own (tiers, modes) keeps a draft of them; a
+  // value replaced from outside (followed, Use theirs, back from YAML)
+  // starts those drafts again, and their refusals with them.
+  const [generation, setGeneration] = useState(0)
+  const replace = (value: Value) => {
+    setDraft(value)
+    setGeneration((g) => g + 1)
+    setFieldErrors({})
+  }
+  const theirsValue = (): Value => form.scalar ? (typeof entry?.value === "string" ? entry.value : "") : asObject(entry?.value)
   // Changed elsewhere while edited: choose theirs or keep this draft.
   const theirs = JSON.stringify(entry?.value ?? null)
   const dirty = JSON.stringify(draft) !== baseline || yaml !== null
   // Untouched, the form follows a change made elsewhere.
   if (!dirty && theirs !== baseline) {
     setBaseline(theirs)
-    setDraft(form.scalar ? (typeof entry?.value === "string" ? entry.value : "") : asObject(entry?.value))
+    replace(theirsValue())
   }
   const conflict = Boolean(entry) && theirs !== baseline && dirty
   const setField = (key: string, next: unknown) => {
@@ -181,7 +191,7 @@ export function EntryForm({ list, form, entry, onSave, onCancel }: { list: Confi
     const parsed = fromYaml()
     if (!parsed) return
     setName(parsed.name)
-    setDraft(form.scalar ? String(parsed.value ?? "") : asObject(parsed.value))
+    replace(form.scalar ? String(parsed.value ?? "") : asObject(parsed.value))
     setYaml(null)
   }
   const save = async () => {
@@ -210,7 +220,7 @@ export function EntryForm({ list, form, entry, onSave, onCancel }: { list: Confi
         </Labelled>
         {form.scalar && <Labelled field={form.scalar}><FieldInput field={form.scalar} value={draft} onChange={(v) => { setDraft(typeof v === "string" ? v : ""); setError("") }} /></Labelled>}
         {form.fields.filter((field) => !field.only || field.only.includes(name.trim())).map((field) => <Labelled key={field.key} field={field}>
-          <FieldInput field={field} value={(draft as Record<string, unknown>)[field.key]} onChange={(v) => setField(field.key, v)}
+          <FieldInput key={`${field.key}:${generation}`} field={field} value={(draft as Record<string, unknown>)[field.key]} onChange={(v) => setField(field.key, v)}
             onError={(message) => setFieldErrors((e) => ({ ...e, [field.key]: message }))} />
         </Labelled>)}
       </> : <Labelled field={{ label: "As in config.yaml", help: "The whole entry, fields the form shows and those it does not." }}>
@@ -218,7 +228,7 @@ export function EntryForm({ list, form, entry, onSave, onCancel }: { list: Confi
       </Labelled>}
       {conflict && <div className="flex flex-wrap items-center gap-2 text-xs text-lw-needs">
         <p role="status">This entry changed elsewhere while you edited it.</p>
-        <button type="button" className={quietButton + " min-h-8 px-2.5 text-xs"} onClick={() => { setDraft(form.scalar ? String(entry?.value ?? "") : asObject(entry?.value)); setBaseline(theirs); setYaml(null) }}>Use theirs</button>
+        <button type="button" className={quietButton + " min-h-8 px-2.5 text-xs"} onClick={() => { replace(theirsValue()); setBaseline(theirs); setYaml(null) }}>Use theirs</button>
         <button type="button" className={quietButton + " min-h-8 px-2.5 text-xs"} onClick={() => setBaseline(theirs)}>Keep mine</button>
       </div>}
       {(error || fieldError) && <p role="alert" className="text-xs text-lw-error">{error || fieldError}</p>}
