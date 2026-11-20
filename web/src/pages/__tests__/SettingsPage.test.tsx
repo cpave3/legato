@@ -7,6 +7,7 @@ import { QueryClientProvider } from "@tanstack/react-query"
 import { apiFetch } from "../../lib/api"
 import { createQueryClient, queryKeys } from "../../lib/query"
 import { SettingsPage } from "../Settings"
+import { fileOnlyPlace, findSection, listPlace, settingsSections } from "../../lib/settingsCatalog"
 // A copy of the Go settings registry (config.Settings and friends), kept current by
 // go test ./config -run TestTheWebSettingsRegistryFixtureIsCurrent -update.
 import registryFixture from "./fixtures/settings-registry.json"
@@ -99,7 +100,7 @@ describe("SettingsPage hot reload build", () => {
   })
 
   it("hides the rebuild action when the server is not running under hot reload", () => {
-    renderPage("/settings#server")
+    renderPage("/settings#system")
     expect(screen.queryByRole("button", { name: /rebuild and hot reload/i })).toBeNull()
   })
 
@@ -107,7 +108,7 @@ describe("SettingsPage hot reload build", () => {
     useSettings.mockReturnValue(settings(true))
     let resolveBuild!: (response: Response) => void
     mockedApiFetch.mockReturnValue(new Promise((resolve) => { resolveBuild = resolve }))
-    renderPage("/settings#server")
+    renderPage("/settings#system")
 
     const button = screen.getByRole("button", { name: /rebuild and hot reload/i })
     fireEvent.click(button)
@@ -125,7 +126,7 @@ describe("SettingsPage hot reload build", () => {
   it("surfaces a rejected build request", async () => {
     useSettings.mockReturnValue(settings(true))
     mockedApiFetch.mockResolvedValue({ ok: false, status: 409, text: async () => "a hot reload build is already running" } as Response)
-    renderPage("/settings#server")
+    renderPage("/settings#system")
 
     fireEvent.click(screen.getByRole("button", { name: /rebuild and hot reload/i }))
 
@@ -136,7 +137,7 @@ describe("SettingsPage hot reload build", () => {
   it("surfaces a network failure and allows another attempt", async () => {
     useSettings.mockReturnValue(settings(true))
     mockedApiFetch.mockRejectedValue(new Error("network unavailable"))
-    renderPage("/settings#server")
+    renderPage("/settings#system")
 
     fireEvent.click(screen.getByRole("button", { name: /rebuild and hot reload/i }))
 
@@ -145,49 +146,207 @@ describe("SettingsPage hot reload build", () => {
   })
 })
 
+type Registry = { settings: ConfigSetting[]; file_only: string[]; lists: ConfigList[]; entry_lists: string[] }
+const registry = registryFixture as unknown as Registry
+
+// The registry as a server serves it, every value its kind's zero, with
+// overrides by key.
+function serveRegistry(overrides: Record<string, Partial<ConfigSetting>> = {}, extra: (path: string, init?: RequestInit) => Response | undefined = () => undefined) {
+  const values = registry.settings.map((s) => ({ ...s, value: s.kind === "bool" ? false : s.kind === "strings" ? [] : s.kind === "int" ? 0 : "", source: "default", pinned: false, ...overrides[s.key] }))
+  mockedApiFetch.mockImplementation(async (_base, path, init) => {
+    const answer = extra(path, init)
+    if (answer) return answer
+    if (path === "/api/config/settings") return Response.json({ settings: values, file_only: registry.file_only, file_only_values: { "web.port": "3080" } })
+    if (path === "/api/config/lists") return Response.json({ lists: registry.lists.map((list) => ({ ...list, entries: [] })) })
+    if (path === "/api/config/move") return Response.json({ settings: [], entries: [] })
+    return new Response("{}", { status: 404 })
+  })
+  return values
+}
+
+function wideScreen(wide: boolean) {
+  vi.stubGlobal("matchMedia", vi.fn((query: string) => ({ matches: wide && query === "(min-width: 1024px)", addEventListener: vi.fn(), removeEventListener: vi.fn() })))
+}
+
+const nav = () => screen.getByRole("navigation", { name: "Settings sections" })
+const openSection = (name: string | RegExp) => fireEvent.click(within(nav()).getByRole("link", { name }))
+const loaded = () => waitFor(() => {
+  expect(screen.queryByText("Loading server settings…")).toBeNull()
+  expect(screen.queryByText("Loading configuration lists…")).toBeNull()
+})
+
 describe("SettingsPage layout", () => {
   beforeEach(() => {
     vi.clearAllMocks()
     localStorage.clear()
     useSettings.mockReturnValue(settings(false))
     mockedApiFetch.mockResolvedValue(new Response("{}", { status: 404 }))
+    wideScreen(true)
   })
 
-  afterEach(() => cleanup())
-
-  it("opens one task category and keeps search and server identity visible", () => {
-    renderPage()
-    expect(screen.getByRole("searchbox", { name: "Search settings" })).toBeVisible()
-    expect(screen.getByText("Server: https://remote.example")).toBeVisible()
-    const nav = screen.getByRole("navigation", { name: "Settings sections" })
-    expect(within(nav).getAllByRole("link").map((link) => link.textContent)).toEqual([
-      "Preferences", "Agents and workspaces", "Reeve", "Security", "Integrations", "Connections and handoff", "Server and maintenance",
-    ])
-    fireEvent.click(within(nav).getByRole("link", { name: "Security" }))
-    expect(screen.getByRole("region", { name: "Security" })).toBeVisible()
-    expect(screen.queryByRole("region", { name: "Preferences" })).toBeNull()
-    fireEvent.click(screen.getByRole("link", { name: "Back to Settings" }))
-    expect(screen.queryByRole("region", { name: "Security" })).toBeNull()
-  })
-
-  it("finds a server setting by task term and opens its only destination", async () => {
-    mockedApiFetch.mockImplementation(async (_base, path) => path === "/api/config/settings"
-      ? Response.json({ settings: [{ key: "jira.base_url", title: "Jira address", description: "Where tickets are imported", kind: "string", value: "", source: "default", pinned: false }], file_only: ["web.port"] })
-      : Response.json({ lists: [] }))
-    renderPage()
-    fireEvent.change(screen.getByRole("searchbox"), { target: { value: "tickets" } })
-    const result = await screen.findByRole("link", { name: /Jira address.*Integrations.*This server/ })
-    fireEvent.click(result)
-    expect(await screen.findByRole("textbox", { name: "Jira address" })).toBeVisible()
-    expect(document.querySelectorAll('[id="setting-jira.base_url"]')).toHaveLength(1)
-    expect(document.activeElement).toBe(document.getElementById("setting-jira.base_url"))
-  })
-
-  it("opens Preferences by default on desktop", () => {
-    vi.stubGlobal("matchMedia", vi.fn((query: string) => ({ matches: query === "(min-width: 1024px)", addEventListener: vi.fn(), removeEventListener: vi.fn() })))
-    renderPage()
-    expect(screen.getByRole("region", { name: "Preferences" })).toBeVisible()
+  afterEach(() => {
+    cleanup()
     vi.unstubAllGlobals()
+  })
+
+  it("lists 16 sections in six groups, Macros as a link to its page", () => {
+    renderPage()
+    const groups = within(nav()).getAllByRole("group")
+    expect(groups.map((g) => g.getAttribute("aria-label"))).toEqual(["You", "Agents", "Features", "Services", "Access", "System"])
+    const titles = within(nav()).getAllByRole("link").map((link) => link.textContent?.replace(/(On|Off)$/, ""))
+    expect(titles).toEqual(expect.arrayContaining(["Appearance", "Attention", "Input and terminal", "Agents", "Repositories", "Sandbox", "Macros", "Reeve", "Swarms", "Review passes", "Learn", "Board and tickets", "Integrations", "Security", "Connections", "System"]))
+    expect(within(nav()).getByRole("link", { name: "Macros" })).toHaveAttribute("href", "/macros")
+  })
+
+  it("opens Appearance by default on a wide screen and lists the open section's groups in the nav", async () => {
+    serveRegistry()
+    renderPage()
+    expect(screen.getByRole("region", { name: "Appearance" })).toBeVisible()
+    await loaded()
+    openSection(/^Swarms/)
+    const groups = within(nav()).getByRole("navigation", { name: "Swarms groups" })
+    expect(within(groups).getAllByRole("link").map((link) => link.textContent)).toEqual(["Conductor and workers", "Limits", "Behaviour", "Advanced"])
+    fireEvent.click(within(groups).getByRole("link", { name: "Limits" }))
+    await waitFor(() => expect(document.activeElement).toBe(document.getElementById("swarms--limits")))
+    expect(within(screen.getByRole("region", { name: "Limits" })).getByRole("textbox", { name: "Workers at once" })).toBeTruthy()
+  })
+
+  it("gives every registry key, file-only key and list exactly one row, in the section it names", async () => {
+    serveRegistry()
+    renderPage()
+    await loaded()
+    const found = new Map<string, string[]>()
+    for (const section of settingsSections.filter((s) => !s.href)) {
+      openSection(new RegExp(`^${section.title}`))
+      await loaded()
+      for (const element of Array.from(document.querySelectorAll('[id^="setting-"], [id^="list-"]'))) found.set(element.id, [...(found.get(element.id) ?? []), section.id])
+    }
+    for (const s of registry.settings) expect(found.get(`setting-${s.key}`), s.key).toEqual([s.section])
+    for (const key of registry.file_only) expect(found.get(`setting-${key}`), key).toEqual([fileOnlyPlace(key).section])
+    for (const key of registry.entry_lists.filter((k) => k !== "macros")) expect(found.get(`list-${key}`), key).toEqual([listPlace(key).section])
+  })
+
+  // Every old fragment the code base links to: Attention items, setup's
+  // checklist, the docs, the voice sheet and the Reeve.
+  it.each([
+    ["workers", "connections", "workers"],
+    ["mqtt", "integrations", "mqtt"],
+    ["list-credentials", "security", "list-credentials"],
+    ["setting-swarm.enabled", "swarms", "setting-swarm.enabled"],
+    ["setting-agents.sandbox.enabled", "sandbox", "setting-agents.sandbox.enabled"],
+    ["setting-review_passes.enabled", "review-passes", "setting-review_passes.enabled"],
+    ["setting-learning.enabled", "learn", "setting-learning.enabled"],
+    ["setting-voice.whisper_url", "input", "setting-voice.whisper_url"],
+    ["setting-reeve.voice.enabled", "reeve", "setting-reeve.voice.enabled"],
+    ["setting-web.port", "connections", "setting-web.port"],
+    ["list-reeve.rules", "reeve", "list-reeve.rules"],
+    ["preferences", "appearance", "section-appearance"],
+    ["appearance", "appearance", "section-appearance"],
+    ["server", "system", "section-system"],
+    ["integrations", "integrations", "section-integrations"],
+    ["reeve", "reeve", "section-reeve"],
+    ["devices", "security", "devices"],
+    ["credentials", "security", "credentials"],
+    ["resources", "agents", "list-resources"],
+    ["needs-you-rail", "attention", "needs-you-rail"],
+    ["job-clones", "repositories", "job-clones"],
+    ["directory-presets", "repositories", "directory-presets"],
+    ["updates", "system", "updates"],
+    ["move", "system", "move"],
+    ["burnlite", "board", "section-board"],
+    ["integration-token-overview", "security", "section-security"],
+  ])("opens the old link #%s at its new home in %s", async (fragment, section, element) => {
+    serveRegistry({}, (path) => path === "/api/integrations" ? Response.json({ tokens: [], argus: { configured: false, connection: { state: "none", replies: {} }, open_cases: 0 } }) : undefined)
+    renderPage(`/settings#${fragment}`)
+    await loaded()
+    expect(await screen.findByRole("region", { name: findSection(section)!.title })).toBeTruthy()
+    expect(document.getElementById(`section-${section}`)).toBeTruthy()
+    if (element !== `section-${section}`) await waitFor(() => expect(document.getElementById(element)).toBeTruthy())
+  })
+
+  it("opens a group by its fragment", async () => {
+    serveRegistry()
+    renderPage("/settings#learn/semantic-search")
+    await loaded()
+    await waitFor(() => expect(document.activeElement).toBe(document.getElementById("learn--semantic-search")))
+  })
+
+  it("shows On or Off for features, a dot on Security with no approval device, and a count on System while changes wait", async () => {
+    serveRegistry({ "swarm.enabled": { value: true }, "agents.sandbox.enabled": { value: false }, "jira.base_url": { pending_restart: true, source: "database" }, "swarm.max_concurrent_agents": { pending_restart: true, source: "database" } },
+      (path) => path === "/api/devices" ? Response.json({ devices: [], enrolled: false, server_id: "s" }) : undefined)
+    renderPage()
+    await loaded()
+    expect(within(nav()).getByRole("link", { name: /^Swarms/ })).toHaveTextContent("On")
+    expect(within(nav()).getByRole("link", { name: /^Sandbox/ })).toHaveTextContent("Off")
+    expect(within(nav()).getByRole("link", { name: /^Learn/ })).toHaveTextContent("Off")
+    expect(await within(nav()).findByRole("img", { name: "No approval device" })).toBeTruthy()
+    expect(within(nav()).getByRole("link", { name: /^System/ })).toHaveTextContent("2")
+  })
+
+  it("marks Security only while no approval device is enrolled", async () => {
+    serveRegistry({}, (path) => path === "/api/devices" ? Response.json({ devices: [{ id: "d", name: "phone" }], enrolled: true, server_id: "s" }) : undefined)
+    renderPage()
+    await loaded()
+    await waitFor(() => expect(mockedApiFetch.mock.calls.some(([, path]) => path === "/api/devices")).toBe(true))
+    expect(within(nav()).queryByRole("img", { name: "No approval device" })).toBeNull()
+    expect(within(nav()).getByRole("link", { name: /^System/ }).textContent).toBe("System")
+  })
+
+  it("on a phone, lists the sections with their state, then opens each as a page with Back and its group links", async () => {
+    wideScreen(false)
+    serveRegistry({ "review_passes.enabled": { value: true } }, (path) => path === "/api/devices" ? Response.json({ devices: [], enrolled: false, server_id: "s" }) : undefined)
+    renderPage()
+    await loaded()
+    expect(screen.queryByRole("region", { name: "Appearance" })).toBeNull()
+    expect(within(nav()).getByRole("link", { name: /^Review passes/ })).toHaveTextContent("On")
+    expect(await within(nav()).findByText("No approval device")).toBeTruthy()
+    openSection(/^Reeve/)
+    expect(screen.getByRole("region", { name: "Reeve" })).toBeTruthy()
+    const groups = screen.getByRole("navigation", { name: "Reeve groups" })
+    expect(within(groups).getByRole("link", { name: "Voice" })).toHaveAttribute("href", "/settings#reeve/voice")
+    fireEvent.click(screen.getByRole("link", { name: "Back to Settings" }))
+    expect(screen.queryByRole("region", { name: "Reeve" })).toBeNull()
+  })
+
+  it("keeps the server in use in the header, and its link opens Connections", async () => {
+    serveRegistry()
+    renderPage()
+    const server = screen.getByRole("link", { name: "Server: https://remote.example" })
+    expect(screen.getByRole("searchbox", { name: "Search settings" })).toBeVisible()
+    fireEvent.click(server)
+    expect(await screen.findByRole("region", { name: "Connections" })).toBeTruthy()
+    expect(document.getElementById("servers")).toBeTruthy()
+  })
+
+  it("finds a setting by a word of its help and opens its only home", async () => {
+    serveRegistry()
+    renderPage()
+    await loaded()
+    fireEvent.change(screen.getByRole("searchbox"), { target: { value: "atlassian" } })
+    const result = await screen.findByRole("link", { name: /^Board and tickets › Jira.*Address/ })
+    fireEvent.click(result)
+    expect(await within(await screen.findByRole("region", { name: "Jira" })).findByRole("textbox", { name: "Address" })).toBeVisible()
+    expect(document.querySelectorAll('[id="setting-jira.base_url"]')).toHaveLength(1)
+    await waitFor(() => expect(document.activeElement).toBe(document.getElementById("setting-jira.base_url")))
+  })
+
+  it("puts a setting of a section this web UI does not know under System, never nowhere", async () => {
+    mockedApiFetch.mockImplementation(async (_base, path) => path === "/api/config/settings"
+      ? Response.json({ settings: [{ key: "future.option", title: "Future option", kind: "string", value: "hello", source: "default", pinned: false }], file_only: ["web.port"] })
+      : Response.json({ lists: [], settings: [], entries: [] }))
+    renderPage("/settings#setting-future.option")
+    expect(await within(await screen.findByRole("region", { name: "Other settings" })).findByRole("textbox", { name: "Future option" })).toHaveValue("hello")
+    fireEvent.change(screen.getByRole("searchbox"), { target: { value: "web.port" } })
+    fireEvent.click(screen.getByRole("link", { name: /web.port.*config.yaml only/ }))
+    const target = await waitFor(() => { const el = document.getElementById("setting-web.port"); expect(el).toBeTruthy(); return el! })
+    expect(target).toHaveTextContent("Read-only here. Change it in config.yaml")
+    expect(within(target).queryByRole("textbox")).toBeNull()
+  })
+
+  it("reports an unavailable deep link after loading rather than silently opening another setting", async () => {
+    mockedApiFetch.mockImplementation(async (_base, path) => path.startsWith("/api/config/") ? Response.json({ settings: [], lists: [], entries: [] }) : new Response("{}", { status: 404 }))
+    renderPage("/settings#setting-no.longer.exists")
+    expect(await screen.findByText(/destination is unavailable.*setting-no.longer.exists/)).toBeVisible()
   })
 
   it("resolves delayed list links and uses the same credential editor from MQTT", async () => {
@@ -198,36 +357,16 @@ describe("SettingsPage layout", () => {
       return new Response("{}", { status: 404 })
     })
     renderPage("/settings#mqtt")
-    fireEvent.click(screen.getByRole("link", { name: "Edit MQTT credentials" }))
+    fireEvent.click(await screen.findByRole("link", { name: "Edit MQTT credentials" }))
     expect(screen.getByText("Loading configuration lists…")).toBeVisible()
     await act(async () => release(Response.json({ lists: [{ key: "credentials", title: "Credentials", mode: "restart", entries: [] }] })))
     await waitFor(() => expect(document.activeElement).toBe(document.getElementById("list-credentials")))
-    fireEvent.click(screen.getByRole("button", { name: "Add to credentials" }))
-    expect(screen.getByRole("textbox", { name: "Secret reference" })).toBeVisible()
-    expect(screen.getAllByRole("textbox", { name: "Credentials name" })).toHaveLength(1)
-    expect(screen.getByRole("link", { name: "Edit credentials" })).toHaveAttribute("href", "/settings#list-credentials")
+    fireEvent.click(screen.getByRole("button", { name: "Add a credential" }))
+    expect(screen.getByRole("textbox", { name: "Secret" })).toBeVisible()
+    expect(screen.getAllByRole("textbox", { name: "Name" })).toHaveLength(1)
   })
 
-  it("shows new keys in Advanced and file-only instructions without editable controls", async () => {
-    mockedApiFetch.mockImplementation(async (_base, path) => path === "/api/config/settings"
-      ? Response.json({ settings: [{ key: "future.option", title: "Future option", kind: "string", value: "hello", source: "default", pinned: false }], file_only: ["web.port"] })
-      : Response.json({ lists: [], settings: [], entries: [] }))
-    renderPage("/settings#setting-future.option")
-    expect(await within(await screen.findByRole("region", { name: "Advanced" })).findByRole("textbox", { name: "Future option" })).toHaveValue("hello")
-    fireEvent.change(screen.getByRole("searchbox"), { target: { value: "web.port" } })
-    fireEvent.click(screen.getByRole("link", { name: /web.port.*File only/ }))
-    const target = document.getElementById("setting-web.port")!
-    expect(target).toHaveTextContent("Read-only here. Edit web.port")
-    expect(within(target).queryByRole("textbox")).toBeNull()
-  })
-
-  it("reports an unavailable deep link after loading rather than silently opening another setting", async () => {
-    mockedApiFetch.mockImplementation(async (_base, path) => path.startsWith("/api/config/") ? Response.json({ settings: [], lists: [], entries: [] }) : new Response("{}", { status: 404 }))
-    renderPage("/settings#setting-no.longer.exists")
-    expect(await screen.findByText(/destination is unavailable.*setting-no.longer.exists/)).toBeVisible()
-  })
-
-  it("adds a directory preset from its owning category", async () => {
+  it("adds a directory preset in Repositories", async () => {
     mockedApiFetch.mockImplementation(async (_base, path, init) => {
       if (path === "/api/directories/presets") return init?.method === "POST"
         ? Response.json({ name: "project", path: "/srv/project", display: "/srv/project", saved: true })
@@ -236,6 +375,7 @@ describe("SettingsPage layout", () => {
       return new Response("{}", { status: 404 })
     })
     renderPage("/settings#directory-presets")
+    expect(screen.getByRole("region", { name: "Repositories" })).toBeTruthy()
     fireEvent.change(await screen.findByRole("textbox", { name: "Directory path" }), { target: { value: "/srv/project" } })
     fireEvent.click(screen.getByRole("button", { name: "Save directory" }))
     await waitFor(() => expect(mockedApiFetch).toHaveBeenCalledWith("https://remote.example", "/api/directories/presets", expect.objectContaining({ method: "POST", body: JSON.stringify({ path: "/srv/project" }) })))
@@ -245,7 +385,7 @@ describe("SettingsPage layout", () => {
   it("preserves a registry draft through live updates and makes conflict and retry explicit", async () => {
     let value = "initial"
     let refuse = true
-    const setting = () => ({ key: "jira.base_url", title: "Jira address", kind: "string", value, source: "database", pinned: false, mode: "restart", pending_restart: true })
+    const setting = () => ({ key: "jira.base_url", title: "Jira address", section: "board", group: "Jira", kind: "string", value, source: "database", pinned: false, mode: "restart", pending_restart: true })
     mockedApiFetch.mockImplementation(async (_base, path, init) => {
       if (path === "/api/config/settings") return Response.json({ settings: [setting()] })
       if (path === "/api/config/lists") return Response.json({ lists: [] })
@@ -265,16 +405,16 @@ describe("SettingsPage layout", () => {
     expect(mockedApiFetch.mock.calls.filter(([, , init]) => init?.method === "PUT")).toHaveLength(0)
     value = "changed elsewhere"
     await act(async () => { await client.invalidateQueries({ queryKey: queryKeys.configSettings("https://remote.example"), exact: true }) })
-    expect(await row.findByText("This value changed elsewhere.")).toBeVisible()
+    expect(await row.findByText("Changed to changed elsewhere while you edited.")).toBeVisible()
     expect(input).toHaveValue("my edit")
-    expect(row.getByRole("button", { name: "Apply" })).toBeDisabled()
+    expect(row.getByRole("button", { name: "Save" })).toBeDisabled()
     fireEvent.click(row.getByRole("button", { name: "Keep my edit" }))
-    fireEvent.click(row.getByRole("button", { name: "Apply" }))
+    fireEvent.click(row.getByRole("button", { name: "Save" }))
     expect(await row.findByRole("alert")).toHaveTextContent("Invalid Jira address")
     expect(input).toHaveValue("my edit")
     refuse = false
-    fireEvent.click(row.getByRole("button", { name: "Apply" }))
-    expect(await row.findByText("Saved — applies at restart.")).toBeVisible()
+    fireEvent.click(row.getByRole("button", { name: "Save" }))
+    expect(await row.findByText("Saved. It applies when Legato restarts.")).toBeVisible()
     expect(value).toBe("my edit")
     fireEvent.change(input, { target: { value: "discard" } })
     fireEvent.click(row.getByRole("button", { name: "Cancel" }))
@@ -289,72 +429,220 @@ describe("SettingsPage layout", () => {
       return new Response("{}", { status: 404 })
     })
     renderPage("/settings#list-reeve.rules")
-    fireEvent.click(await screen.findByRole("button", { name: "Add to reeve rules" }))
-    fireEvent.change(screen.getByRole("textbox", { name: "Reeve rules name" }), { target: { value: "config.*" } })
-    fireEvent.change(screen.getByRole("textbox", { name: "Reeve rules fields" }), { target: { value: '{"level":"signed"}' } })
+    fireEvent.click(await screen.findByRole("button", { name: "Add a rule" }))
+    fireEvent.change(screen.getByRole("textbox", { name: "Pattern" }), { target: { value: "config.*" } })
+    fireEvent.click(screen.getByRole("button", { name: "Edit as YAML" }))
+    fireEvent.change(screen.getByRole("textbox", { name: "Reeve rules entry as YAML" }), { target: { value: "pattern: config.*\nlevel: signed\n" } })
     fireEvent.click(screen.getByRole("button", { name: "Save" }))
     expect(await screen.findByText(/Awaiting approval/)).toBeVisible()
-    expect(screen.getByRole("textbox", { name: "Reeve rules fields" })).toHaveValue('{"level":"signed"}')
+    expect(mockedApiFetch).toHaveBeenCalledWith("https://remote.example", expect.stringContaining("/api/config/lists/reeve.rules/"), expect.objectContaining({ method: "PUT" }))
+    expect(screen.getByRole("textbox", { name: "Reeve rules entry as YAML" })).toHaveValue("pattern: config.*\nlevel: signed\n")
     expect(screen.queryByText(/^Saved/)).toBeNull()
   })
 
-  it("gives every actual Go registry key and named list exactly one destination", async () => {
-    const registry = registryFixture as { settings: ConfigSetting[]; file_only: string[]; lists: ConfigList[]; entry_lists: string[] }
-    const values = registry.settings.map((s) => ({ ...s, value: s.kind === "bool" ? false : s.kind === "strings" ? [] : s.kind === "int" ? 0 : "", source: "default", pinned: false }))
-    mockedApiFetch.mockImplementation(async (_base, path) => {
-      if (path === "/api/config/settings") return Response.json({ settings: values, file_only: registry.file_only })
-      if (path === "/api/config/lists") return Response.json({ lists: registry.lists.map((list) => ({ ...list, entries: [] })) })
-      if (path === "/api/config/move") return Response.json({ settings: [], entries: [] })
-      return new Response("{}", { status: 404 })
-    })
+  it("puts the cards in their sections", async () => {
+    serveRegistry({}, (path) => path === "/api/integrations" ? Response.json({ tokens: [], argus: { configured: false, connection: { state: "none", replies: {} }, open_cases: 0 } }) : undefined)
     renderPage()
-    await waitFor(() => expect(screen.queryByText("Loading server settings…")).toBeNull())
-    const found: string[] = []
-    for (const category of ["Preferences", "Agents and workspaces", "Reeve", "Security", "Integrations", "Connections and handoff", "Server and maintenance"]) {
-      fireEvent.click(within(screen.getByRole("navigation", { name: "Settings sections" })).getByRole("link", { name: category }))
-      await waitFor(() => expect(screen.queryByText("Loading configuration lists…")).toBeNull())
-      found.push(...Array.from(document.querySelectorAll('[id^="setting-"], [id^="list-"]')).map((element) => element.id))
-    }
-    for (const key of [...registry.settings.map((s) => s.key), ...registry.file_only]) expect(found.filter((id) => id === `setting-${key}`), key).toHaveLength(1)
-    for (const key of registry.entry_lists) expect(found.filter((id) => id === `list-${key}`), key).toHaveLength(1)
-  })
-
-  it("puts existing controls in their task categories", async () => {
-    renderPage()
-    const open = (name: string) => fireEvent.click(within(screen.getByRole("navigation", { name: "Settings sections" })).getByRole("link", { name }))
-    open("Integrations")
-    expect(await screen.findByRole("region", { name: "Argus" })).toBeTruthy()
-    open("Agents and workspaces")
+    await loaded()
+    openSection("Integrations")
+    await waitFor(() => expect(document.getElementById("argus")).toBeTruthy())
+    openSection("Agents")
     expect(document.getElementById("resources")).toBeTruthy()
-    open("Security")
+    expect(document.getElementById("skills")).toBeTruthy()
+    openSection(/^Security/)
     expect(document.getElementById("devices")).toBeTruthy()
     expect(document.getElementById("credentials")).toBeTruthy()
-    open("Connections and handoff")
+    openSection("Connections")
     expect(document.getElementById("workers")).toBeTruthy()
     expect(document.getElementById("main-instances")).toBeTruthy()
     expect(screen.getByText("Servers")).toBeTruthy()
     expect(screen.getByText("Pair a phone")).toBeTruthy()
     expect(screen.getByText("TLS certificate")).toBeTruthy()
-    open("Preferences")
+    openSection("Input and terminal")
     expect(screen.getByRole("button", { name: "Prompt detection" })).toBeTruthy()
     expect(screen.getByRole("combobox", { name: "Agent switch key" })).toBeTruthy()
+    openSection("Appearance")
     expect(screen.getByRole("button", { name: "Glitch effect" })).toBeTruthy()
+    expect(document.getElementById("setting-web.tint")).toBeTruthy()
+    openSection("Attention")
+    expect(document.getElementById("browser-notifications")).toBeTruthy()
+    expect(document.getElementById("needs-you-rail")).toBeTruthy()
+    openSection("Board and tickets")
+    expect(document.getElementById("list-board.columns")).toBeTruthy()
+    expect(document.getElementById("list-workspaces")).toBeTruthy()
   })
 
-  it("links Macros to its own page instead of editing the list here", async () => {
-    mockedApiFetch.mockImplementation(async (_base, path) => {
-      if (path === "/api/config/lists") return Response.json({ lists: [{ key: "macros", title: "Macros", class: "change", mode: "live", name_field: "name", entries: [{ name: "Plan", value: { keys: "p" }, source: "default", pinned: false, builtin: true }] }] })
-      return new Response("{}", { status: 404 })
-    })
+  it("says once in a group's heading when its changes apply, and on each row when they differ", async () => {
+    serveRegistry({ "swarm.max_steps_per_plan": { mode: "live" } })
+    renderPage("/settings#swarms")
+    await loaded()
+    expect(screen.getByTestId("swarms--conductor-and-workers-applies")).toHaveTextContent("Applies at restart")
+    expect(screen.queryByTestId("swarms--limits-applies")).toBeNull()
+    const limits = within(screen.getByRole("region", { name: "Limits" }))
+    expect(limits.getByText("Applies now")).toBeTruthy()
+    expect(limits.getAllByText("Applies at restart")).toHaveLength(2)
+  })
+
+  it("shows every row's key with Show config keys, and remembers it in this browser", async () => {
+    serveRegistry()
+    renderPage("/settings#swarms")
+    await loaded()
+    expect(screen.queryByRole("button", { name: "Copy key swarm.strict_scope" })).toBeNull()
+    fireEvent.click(screen.getByRole("button", { name: "Show config keys" }))
+    expect(screen.getByRole("button", { name: "Copy key swarm.strict_scope" })).toBeTruthy()
+    expect(localStorage.getItem("legato:settings-show-keys")).toBe("true")
+  })
+
+  it("shows a file-only setting in its topic with its value", async () => {
+    serveRegistry()
+    renderPage("/settings#connections/network")
+    await loaded()
+    const row = within(await waitFor(() => { const el = document.getElementById("setting-web.port"); expect(el).toBeTruthy(); return el! }))
+    expect(row.getByText("Web port")).toBeTruthy()
+    expect(row.getByText("3080")).toBeTruthy()
+    expect(row.getByText("config.yaml only")).toBeTruthy()
+  })
+
+  it("shows the restart bar on any section while a change waits, and System lists it with Undo", async () => {
+    serveRegistry({ "swarm.max_concurrent_agents": { value: 6, source: "database", pending_restart: true, started_value: 0, default: 0 } })
+    renderPage("/settings#appearance")
+    await loaded()
+    const bar = within(await screen.findByRole("region", { name: "Changes waiting for a restart" }))
+    expect(bar.getByText(/Swarms › Workers at once/)).toBeTruthy()
+    fireEvent.click(bar.getByRole("link", { name: "Show" }))
+    const waiting = within(await screen.findByRole("list", { name: "Changes waiting for a restart" }))
+    expect(waiting.getByText("4 → 6")).toBeTruthy()
+    expect(waiting.getByRole("button", { name: "Undo Swarms › Workers at once" })).toBeTruthy()
+  })
+
+  it("finds a setting by its key, a word of its help, or its value, grouped by section with counts in the nav", async () => {
+    serveRegistry({ "jira.sync_interval_seconds": { value: 1234 } })
+    renderPage()
+    await loaded()
+    const box = screen.getByRole("searchbox", { name: "Search settings" })
+    fireEvent.change(box, { target: { value: "swarm.max_steps" } })
+    expect(await screen.findByRole("link", { name: /Swarms › Limits.*Steps in a plan/ })).toBeTruthy()
+    fireEvent.change(box, { target: { value: "1234" } })
+    expect(await screen.findByRole("link", { name: /Board and tickets › Jira.*Sync every/ })).toBeTruthy()
+    fireEvent.change(box, { target: { value: "poll" } })
+    const results = screen.getByRole("region", { name: "Search results" })
+    expect(within(results).getAllByRole("region").map((r) => r.getAttribute("aria-label"))).toEqual(expect.arrayContaining(["Integrations results"]))
+    expect(within(nav()).getByRole("link", { name: /^Integrations/ })).toHaveTextContent(/\d/)
+    expect(within(nav()).getAllByLabelText("0 matches").length).toBeGreaterThan(0)
+    expect(within(results).getAllByRole("mark").length).toBeGreaterThan(0)
+  })
+
+  it("moves through the results with the arrow keys, opens one with Enter and clears with Esc", async () => {
+    serveRegistry()
+    renderPage()
+    await loaded()
+    const box = screen.getByRole("searchbox", { name: "Search settings" })
+    fireEvent.keyDown(document.body, { key: "/" })
+    expect(document.activeElement).toBe(box)
+    fireEvent.change(box, { target: { value: "plan" } })
+    const links = await screen.findAllByRole("link", { current: true })
+    expect(links).toHaveLength(1)
+    fireEvent.keyDown(box, { key: "ArrowDown" })
+    const second = screen.getByRole("link", { current: true })
+    expect(second).not.toBe(links[0])
+    const target = second.getAttribute("href")!.split("#")[1]
+    fireEvent.keyDown(box, { key: "Enter" })
+    expect(box).toHaveValue("")
+    await waitFor(() => expect(document.activeElement?.id).toBe(target))
+    fireEvent.change(box, { target: { value: "plan" } })
+    fireEvent.keyDown(box, { key: "Escape" })
+    expect(box).toHaveValue("")
+    expect(screen.queryByRole("region", { name: "Search results" })).toBeNull()
+  })
+
+  it("on a phone, searches on a page of its own with Cancel", async () => {
+    wideScreen(false)
+    serveRegistry()
+    renderPage()
+    await loaded()
+    fireEvent.change(screen.getByRole("searchbox", { name: "Search settings" }), { target: { value: "sandbox" } })
+    expect(screen.getByRole("region", { name: "Search results" })).toBeTruthy()
+    expect(screen.getByRole("navigation", { name: "Settings sections" }).closest("aside")).toHaveClass("hidden")
+    fireEvent.click(screen.getByRole("button", { name: "Cancel" }))
+    expect(screen.queryByRole("region", { name: "Search results" })).toBeNull()
+    expect(screen.getByRole("navigation", { name: "Settings sections" }).closest("aside")).not.toHaveClass("hidden")
+  })
+
+  it("keeps notifications in Attention: the rail every device shares, this browser, the desktop, ntfy as one block, and what notifies", async () => {
+    serveRegistry({ "notifications.ntfy.topic": { value: "legato-abc", source: "database" } })
+    renderPage("/settings#attention")
+    await loaded()
+    expect(screen.getByTestId("attention--needs-you-rail-applies")).toHaveTextContent("Applies now · every device")
+    const rail = within(screen.getByRole("region", { name: "Needs-you rail" }))
+    expect(rail.getByRole("group", { name: "From agents" })).toBeTruthy()
+    expect(rail.getByRole("group", { name: "From Legato" })).toBeTruthy()
+    expect(rail.getByText(/The Attention page always lists everything/)).toBeTruthy()
+    const notify = within(screen.getByRole("region", { name: "Notify me" }))
+    expect(notify.getByRole("button", { name: "On this computer's desktop" })).toBeTruthy()
+    const ntfy = within(notify.getByRole("region", { name: "On your phone, by ntfy" }))
+    expect(ntfy.getByRole("textbox", { name: "Topic" })).toHaveValue("legato-abc")
+    expect(ntfy.getByRole("textbox", { name: "ntfy server" })).toBeTruthy()
+    const what = within(screen.getByRole("region", { name: "What notifies" }))
+    expect(what.getByRole("button", { name: "Approvals" })).toBeTruthy()
+    expect(what.getByRole("button", { name: "Handoffs" })).toBeTruthy()
+    fireEvent.click(notify.getByRole("button", { name: "On this computer's desktop" }))
+    await waitFor(() => expect(mockedApiFetch).toHaveBeenCalledWith("https://remote.example", "/api/config/settings/notifications.os.enabled", expect.objectContaining({ method: "PUT" })))
+  })
+
+  it("orders Integrations GitHub, Argus, MCP servers, Home Assistant, Manticore, and Argus points to its field when it can be set here", async () => {
+    serveRegistry()
+    renderPage("/settings#integrations")
+    await loaded()
+    const groups = within(screen.getByRole("region", { name: "Integrations" })).getAllByRole("heading", { level: 3 }).map((h) => h.textContent)
+    expect(groups).toEqual(["GitHub", "Argus", "MCP servers", "Home Assistant", "Manticore"])
+    const argus = within(await waitFor(() => { const el = document.getElementById("argus"); expect(el).toBeTruthy(); return el! }))
+    expect(argus.getByText(/Give Argus's address below/)).toBeTruthy()
+    expect(argus.queryByText(/in config.yaml/)).toBeNull()
+    expect(argus.getByRole("link", { name: /Integration tokens/ })).toHaveAttribute("href", "#integration-tokens")
+  })
+
+  it("shows integration tokens once, in Security, and one Credentials card with its lists and channels", async () => {
+    serveRegistry()
+    renderPage("/settings#security")
+    await loaded()
+    expect(await screen.findAllByText("No integration tokens.")).toHaveLength(1)
+    expect(document.querySelectorAll('[id="integration-tokens"]')).toHaveLength(1)
+    expect(within(screen.getByRole("navigation", { name: "Security groups" })).getAllByRole("link").map((l) => l.textContent)).toEqual(["Approval devices", "Credentials", "Integration tokens"])
+    const card = document.getElementById("credentials")!
+    expect(within(card).getByRole("textbox", { name: "Credential proxy address" })).toBeTruthy()
+    expect(within(card).getByRole("textbox", { name: "SSH agent socket" })).toBeTruthy()
+    expect(card.querySelector('[id="list-credentials"]')).toBeTruthy()
+    expect(card.querySelector('[id="list-credential_sources"]')).toBeTruthy()
+    expect(document.querySelectorAll('[id="list-credentials"]')).toHaveLength(1)
+  })
+
+  it("lays out Board and tickets: workspaces with their defaults, columns read-only, Jira and Burnlite", async () => {
+    serveRegistry()
+    renderPage("/settings#board")
+    await loaded()
+    expect(within(screen.getByRole("navigation", { name: "Board and tickets groups" })).getAllByRole("link").map((l) => l.textContent)).toEqual(["Workspaces", "Columns", "Jira", "Burnlite"])
+    const workspaces = within(screen.getByRole("region", { name: "Workspaces" }))
+    expect(workspaces.getByRole("combobox", { name: "New tasks go to" })).toBeTruthy()
+    expect(workspaces.getByRole("combobox", { name: "Imported tasks go to" })).toBeTruthy()
+    expect(within(screen.getByRole("region", { name: "Columns" })).getByText(/legato columns sync/)).toBeTruthy()
+  })
+
+  it("sends the old Macros link to the Macros page", () => {
     renderPage("/settings#list-macros")
-    const card = await waitFor(() => { const el = document.getElementById("list-macros"); expect(el).toBeTruthy(); return el as HTMLElement })
-    expect(within(card).getByRole("link", { name: "Open Macros" }).getAttribute("href")).toBe("/macros")
-    await waitFor(() => expect(screen.queryByText("Loading configuration lists…")).toBeNull())
+    expect(within(screen.getByRole("region", { name: "Macros" })).getByRole("link", { name: "Open Macros" })).toHaveAttribute("href", "/macros")
     expect(screen.queryByRole("button", { name: "Add to macros" })).toBeNull()
-    expect(screen.queryByTestId("entry-macros-Plan")).toBeNull()
   })
 
-  it("adds Development under hot reload", () => {
+  it("lists only the groups a section draws: no Development link without hot reload", async () => {
+    serveRegistry()
+    renderPage("/settings#system")
+    await loaded()
+    const links = within(screen.getByRole("navigation", { name: "System groups" })).getAllByRole("link").map((l) => l.textContent)
+    expect(links).not.toContain("Development")
+    expect(links).toContain("Restart")
+  })
+
+  it("adds Development to System under hot reload", () => {
     useSettings.mockReturnValue(settings(true))
     renderPage("/settings#development")
     expect(screen.getByRole("region", { name: "Development" })).toBeTruthy()
@@ -363,42 +651,27 @@ describe("SettingsPage layout", () => {
   it.each([undefined, false, true])("links the old clones anchor to Remote with fresh clones %s", (enabled) => {
     useSettings.mockReturnValue({ data: { ...settings(false).data, fresh_clones_enabled: enabled } })
     renderPage("/settings#job-clones")
-    const agents = screen.getByRole("region", { name: "Agents and workspaces" })
-    const anchor = agents.querySelector("#job-clones")
+    const section = screen.getByRole("region", { name: "Repositories" })
+    const anchor = section.querySelector("#job-clones")
     expect(anchor).toBeTruthy()
     expect(within(anchor as HTMLElement).getByRole("link", { name: "Open Remote" }).getAttribute("href")).toBe("/remote")
-    expect(within(agents).queryByRole("button", { name: /^Remove .*\// })).toBeNull()
     expect(mockedApiFetch.mock.calls.some(([, path]) => path === "/api/job-clones")).toBe(false)
   })
 
-  it("keeps category navigation in browser history", () => {
+  it("keeps section navigation in browser history", () => {
     render(<QueryClientProvider client={createQueryClient()}><MemoryRouter initialEntries={["/settings"]}><SettingsPage /><HistoryBack /></MemoryRouter></QueryClientProvider>)
-    fireEvent.click(screen.getByRole("link", { name: "Security" }))
-    fireEvent.click(screen.getByRole("link", { name: "Reeve" }))
+    openSection(/^Security/)
+    openSection("Reeve")
     fireEvent.click(screen.getByRole("button", { name: "Browser Back" }))
     expect(screen.getByRole("region", { name: "Security" })).toBeVisible()
     expect(screen.queryByRole("region", { name: "Reeve" })).toBeNull()
   })
 
-  // Every setting the voice sheet's Open settings can name
-  // (internal/service/reeve_voice.go, cmd/legato/reeve_voice_runtime.go).
-  it.each(["voice.enabled", "voice.whisper_url", "reeve.voice.enabled", "reeve.voice.command", "agents.sandbox.enabled"])("has a row to open at for %s", async (key) => {
-    const setting = { key, title: key, kind: "string", class: "change", mode: "restart", value: "", source: "default", pinned: false }
-    mockedApiFetch.mockImplementation(async (_base, path) => (path === "/api/config/settings"
-      ? new Response(JSON.stringify({ settings: [setting] }), { status: 200 })
-      : new Response("{}", { status: 404 })))
-    renderPage(`/settings#setting-${key}`)
-    await waitFor(() => expect(document.getElementById(`setting-${key}`)).toBeTruthy())
-  })
-
   it("opens at the setting a link names", async () => {
     const scroll = vi.fn()
     Object.defineProperty(HTMLElement.prototype, "scrollIntoView", { configurable: true, value: scroll })
-    const setting = { key: "voice.whisper_url", title: "Whisper server", kind: "string", class: "change", mode: "restart", value: "", source: "default", pinned: false }
-    mockedApiFetch.mockImplementation(async (_base, path) => (path === "/api/config/settings"
-      ? new Response(JSON.stringify({ settings: [setting] }), { status: 200 })
-      : new Response("{}", { status: 404 })))
-    render(<QueryClientProvider client={createQueryClient()}><MemoryRouter initialEntries={["/settings#setting-voice.whisper_url"]}><SettingsPage /></MemoryRouter></QueryClientProvider>)
+    serveRegistry()
+    renderPage("/settings#setting-voice.whisper_url")
     await waitFor(() => expect(scroll).toHaveBeenCalled())
     expect(scroll.mock.contexts.at(-1)).toBe(document.getElementById("setting-voice.whisper_url"))
   })
@@ -406,11 +679,9 @@ describe("SettingsPage layout", () => {
   it("marks what is kept in this browser only", () => {
     renderPage("/settings#appearance")
     expect(within(screen.getByText("App theme").parentElement!).getByText(/this browser/i)).toBeVisible()
-    fireEvent.click(screen.getByRole("link", { name: "Server and maintenance" }))
     expect(within(screen.getByText("Tint").parentElement!).queryByText(/this browser/i)).toBeNull()
   })
 })
-
 
 describe("SettingsPage version", () => {
   it("shows the version of the current server in the sections menu", async () => {
@@ -470,11 +741,11 @@ describe("SettingsPage MQTT", () => {
     expect(mqtt.getByRole("button", { name: "MQTT publisher" })).toHaveAttribute("aria-pressed", "false")
     const broker = mqtt.getByRole("textbox", { name: "MQTT broker" })
     fireEvent.change(broker, { target: { value: "mqtts://broker.example:8883" } })
-    fireEvent.click(within(broker.closest("[data-testid]") as HTMLElement).getByRole("button", { name: /^Apply/ }))
+    fireEvent.click(within(broker.closest("[data-testid]") as HTMLElement).getByRole("button", { name: "Save" }))
     await waitFor(() => expect(mockedApiFetch).toHaveBeenCalledWith("https://remote.example", "/api/config/settings/integrations.mqtt.broker", expect.objectContaining({
       method: "PUT", body: JSON.stringify({ value: "mqtts://broker.example:8883" }),
     })))
-    expect(await mqtt.findByText("applies at restart")).toBeTruthy()
+    expect(await mqtt.findByText("Restart to apply")).toBeTruthy()
     fireEvent.click(mqtt.getByRole("button", { name: "MQTT publisher" }))
     await waitFor(() => expect(mqtt.getByRole("button", { name: "MQTT publisher" })).toHaveAttribute("aria-pressed", "true"))
     expect(mqtt.getByText(/anonymous access/i)).toBeTruthy()
@@ -495,10 +766,10 @@ describe("SettingsPage MQTT", () => {
     expect(credential).toHaveValue("mqtt")
     const broker = screen.getByRole("textbox", { name: "MQTT broker" })
     fireEvent.change(broker, { target: { value: "https://wrong" } })
-    fireEvent.click(within(broker.closest("[data-testid]") as HTMLElement).getByRole("button", { name: /^Apply/ }))
+    fireEvent.click(within(broker.closest("[data-testid]") as HTMLElement).getByRole("button", { name: "Save" }))
     expect(await within(broker.closest("[data-testid]") as HTMLElement).findByRole("alert")).toHaveTextContent("want mqtt:// or mqtts://")
     expect(broker).toHaveValue("https://wrong")
-    expect(screen.queryByText("applies at restart")).toBeNull()
+    expect(screen.queryByText("Restart to apply")).toBeNull()
 
     mockedApiFetch.mockImplementation(async (_base, path, init) => {
       if (path === "/api/config/settings") return Response.json({ settings: values })
@@ -506,7 +777,7 @@ describe("SettingsPage MQTT", () => {
       return new Response("{}", { status: 404 })
     })
     fireEvent.change(broker, { target: { value: "mqtts://broker.example" } })
-    fireEvent.click(within(broker.closest("[data-testid]") as HTMLElement).getByRole("button", { name: /^Apply/ }))
+    fireEvent.click(within(broker.closest("[data-testid]") as HTMLElement).getByRole("button", { name: "Save" }))
     expect(await within(broker.closest("[data-testid]") as HTMLElement).findByRole("alert")).toHaveTextContent("pinned by config.yaml")
   })
 
@@ -538,18 +809,12 @@ describe("SettingsPage server theme", () => {
       if (path === "/api/settings/theme") return Response.json({ id: init?.method === "PUT" ? "ocular-dark" : "", revision: init?.method === "PUT" ? 1 : 0 })
       return new Response("{}", { status: 404 })
     })
-    renderPage("/settings#server")
+    renderPage("/settings#appearance")
     const preference = await screen.findByRole("combobox", { name: "Preferred theme" })
-    expect(screen.queryByRole("radiogroup", { name: "App theme" })).toBeNull()
+    expect(screen.getByRole("radiogroup", { name: "App theme" })).toBeTruthy()
     fireEvent.change(preference, { target: { value: "ocular-dark" } })
     await waitFor(() => expect(mockedApiFetch).toHaveBeenCalledWith("https://remote.example", "/api/settings/theme", expect.objectContaining({ method: "PUT", body: JSON.stringify({ id: "ocular-dark", expected_revision: 0 }) })))
     expect(localStorage.getItem("legato:app-theme")).toBe("dracula")
-    fireEvent.click(screen.getByRole("link", { name: "Preferences" }))
-    expect(screen.getByRole("radiogroup", { name: "App theme" })).toBeTruthy()
-    expect(screen.queryByRole("combobox", { name: "Preferred theme" })).toBeNull()
-    fireEvent.change(screen.getByRole("searchbox", { name: "Search settings" }), { target: { value: "Preferred theme" } })
-    fireEvent.click(await screen.findByRole("link", { name: /Preferred theme/ }))
-    expect(await screen.findByRole("combobox", { name: "Preferred theme" })).toBeTruthy()
     localStorage.clear()
   })
 })

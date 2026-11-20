@@ -156,16 +156,24 @@ type pendingProgressEntry struct {
 	text  string
 }
 
+// The swarm limits a SwarmConfig gets when its own are zero; the settings
+// registry reports them as the limits' DefaultLabel.
+const (
+	DefaultSwarmMaxConcurrentAgents = 4
+	DefaultSwarmMaxSubtasksPerPlan  = 10
+	DefaultSwarmMaxStepsPerPlan     = 10
+)
+
 // NewSwarmService creates a SwarmService.
 func NewSwarmService(s *store.Store, agents AgentService, bus *events.Bus, cfg SwarmConfig, repoRoot string, attachmentCache ...*attachments.Cache) SwarmService {
 	if cfg.MaxConcurrentAgents <= 0 {
-		cfg.MaxConcurrentAgents = 4
+		cfg.MaxConcurrentAgents = DefaultSwarmMaxConcurrentAgents
 	}
 	if cfg.MaxSubtasksPerPlan <= 0 {
-		cfg.MaxSubtasksPerPlan = 10
+		cfg.MaxSubtasksPerPlan = DefaultSwarmMaxSubtasksPerPlan
 	}
 	if cfg.MaxStepsPerPlan <= 0 {
-		cfg.MaxStepsPerPlan = 10
+		cfg.MaxStepsPerPlan = DefaultSwarmMaxStepsPerPlan
 	}
 	cache := attachments.NewCache(attachments.DefaultRoot(), 0)
 	if len(attachmentCache) > 0 && attachmentCache[0] != nil {

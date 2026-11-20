@@ -2,9 +2,14 @@ package config
 
 import (
 	"encoding/json"
+	"fmt"
+	"reflect"
+	"regexp"
 	"slices"
+	"strconv"
 	"strings"
 	"testing"
+	"time"
 )
 
 // Every setting has one home: a known section and a group within it.
@@ -83,4 +88,72 @@ func TestTheLayoutNamesOnlyRegisteredSettings(t *testing.T) {
 			t.Errorf("settingLayout names %s, which is not registered", key)
 		}
 	}
+}
+
+// Every setting says what it does, and its label carries neither a group
+// prefix nor a unit: the group heading and the Unit say those.
+func TestEverySettingHasHelpAndAPlainLabel(t *testing.T) {
+	unitInLabel := regexp.MustCompile(`\((seconds|ms|bytes|s|minutes)\)`)
+	for _, s := range Settings() {
+		if strings.TrimSpace(s.Help) == "" {
+			t.Errorf("%s has no help", s.Key)
+		}
+		if strings.Contains(s.Title, ":") || unitInLabel.MatchString(s.Title) {
+			t.Errorf("%s: label %q carries a prefix or a unit", s.Key, s.Title)
+		}
+		if strings.EqualFold(strings.TrimSuffix(s.Help, "."), s.Title) {
+			t.Errorf("%s: help only restates the label", s.Key)
+		}
+	}
+}
+
+// A DefaultLabel says what unset means when that is not the zero value; it
+// never repeats a default the registry already reports.
+func TestADefaultLabelIsGivenOnlyWhenUnsetIsTheZeroValue(t *testing.T) {
+	cfg := Defaults()
+	for _, s := range Settings() {
+		if s.DefaultLabel == "" {
+			continue
+		}
+		v, err := SettingValue(cfg, s.Key)
+		if err != nil {
+			t.Fatal(err)
+		}
+		if !reflect.ValueOf(v).IsZero() {
+			t.Errorf("%s: default %v is already reported; drop DefaultLabel %q", s.Key, v, s.DefaultLabel)
+		}
+	}
+}
+
+// DefaultLabel agrees with what the configuration's own accessors use when
+// a setting is unset.
+func TestADefaultLabelIsWhatTheRuntimeUses(t *testing.T) {
+	cfg := Defaults()
+	maxAge := cfg.RepositoryCache.MaxAgeDuration()
+	keepIdle, _ := cfg.RepositoryCache.KeepIdleDuration()
+	runtime := map[string]string{
+		"repository_cache.max_age":   maxAge.String(),
+		"repository_cache.keep_idle": fmt.Sprintf("%dd", int(keepIdle.Hours()/24)),
+		"reeve.voice.pause":          cfg.Reeve.Voice.PauseDuration().String(),
+		"reeve.voice.follow_up":      cfg.Reeve.Voice.FollowUpDuration().String(),
+		"reeve.host_timeout":         cfg.Reeve.HostCommandTimeout().String(),
+		"reeve.host_output_cap":      strconv.Itoa(cfg.Reeve.HostOutputLimit()),
+		"reeve.watch.settle":         cfg.Reeve.WatchSettle().String(),
+		"reeve.idle_timeout":         cfg.Reeve.ReeveIdleTimeout().String(),
+		"integrations.argus.agent":   "claude-code",
+	}
+	for key, want := range runtime {
+		s, _ := LookupSetting(key)
+		if got := normalDuration(s.DefaultLabel); got != normalDuration(want) {
+			t.Errorf("%s: DefaultLabel %q, the runtime uses %q", key, s.DefaultLabel, want)
+		}
+	}
+}
+
+// normalDuration reads "10m" and "10m0s" alike.
+func normalDuration(s string) string {
+	if d, err := time.ParseDuration(s); err == nil {
+		return d.String()
+	}
+	return s
 }

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/cpave3/legato/config"
@@ -272,4 +273,168 @@ func TestASettingMayNameAListEntryKeptInTheDatabase(t *testing.T) {
 	if err := settings.Reset(ctx, "agents.reviews"); err != nil {
 		t.Fatalf("Reset beside it = %v", err)
 	}
+}
+
+// A setting carries the value it has when unset, so the web can say what
+// Reset goes back to.
+func TestASettingSaysItsDefault(t *testing.T) {
+	settings, _ := newSettingsFixture(t, "")
+	ctx := context.Background()
+	settings.Set(ctx, "jira.sync_interval_seconds", json.RawMessage(`120`), "web")
+	got, _ := settings.Get(ctx, "jira.sync_interval_seconds")
+	if got.Value != 120 || got.Default != 60 {
+		t.Fatalf("jira.sync_interval_seconds = %v, default %v; want 120, default 60", got.Value, got.Default)
+	}
+}
+
+// A setting that waits for a restart says the value Legato still uses.
+func TestASettingWaitingForARestartSaysTheValueInUse(t *testing.T) {
+	settings, _ := newSettingsFixture(t, "")
+	ctx := context.Background()
+	settings.MarkStarted(ctx)
+	settings.Set(ctx, "swarm.max_concurrent_agents", json.RawMessage(`6`), "web")
+	got, _ := settings.Get(ctx, "swarm.max_concurrent_agents")
+	if !got.PendingRestart || got.StartedValue != 0 || !got.HasStartedValue() {
+		t.Fatalf("got %+v, want pending with the started value 0", got)
+	}
+	still, _ := settings.Get(ctx, "jira.sync_interval_seconds")
+	if still.HasStartedValue() {
+		t.Fatalf("a setting that does not wait has a started value: %+v", still)
+	}
+}
+
+// The file-only settings are shown read-only with their values, but never
+// a secret's: those say only whether they are set.
+func TestFileOnlySettingsAreShownWithTheirValues(t *testing.T) {
+	settings, _ := newSettingsFixture(t, "web:\n  port: \"4080\"\n  public_url: https://legato.example\nsecrets:\n  master_key: file\n")
+	got, err := settings.FileOnlyValues(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got["web.port"] != "4080" || got["web.public_url"] != "https://legato.example" {
+		t.Fatalf("values = %v", got)
+	}
+	if got["secrets.master_key"] != "file" {
+		t.Fatalf("secrets.master_key = %q, want the store's kind", got["secrets.master_key"])
+	}
+	for key := range got {
+		if !config.IsFileOnly(key) {
+			t.Errorf("%s is not file-only", key)
+		}
+	}
+}
+
+// A secret config.yaml gave is never shown as the value Legato started
+// with, after the file changes.
+func TestASecretsStartedValueIsNeverShown(t *testing.T) {
+	settings, _ := newSettingsFixture(t, "jira:\n  api_token: https://ATATT-the-old-token\n")
+	ctx := context.Background()
+	settings.MarkStarted(ctx)
+	os.WriteFile(os.Getenv("LEGATO_CONFIG"), []byte("jira:\n  api_token: ATATT-the-new-token\n"), 0o600)
+	got, err := settings.Get(ctx, "jira.api_token")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !got.PendingRestart {
+		t.Fatalf("got %+v, want it waiting for a restart", got)
+	}
+	raw, _ := json.Marshal(got)
+	if strings.Contains(string(raw), "ATATT") {
+		t.Fatalf("a secret is shown: %s", raw)
+	}
+}
+
+// An entry of a restart list added, changed or removed since start waits
+// for a restart, by name.
+func TestListEntriesChangedSinceStartWaitForARestart(t *testing.T) {
+	settings, _ := newSettingsFixture(t, "")
+	ctx := context.Background()
+	settings.SetEntry(ctx, "workspaces", "infra", json.RawMessage(`{"color":"blue"}`), "web")
+	settings.MarkStarted(ctx)
+	settings.SetEntry(ctx, "workspaces", "web", json.RawMessage(`{"color":"green"}`), "web")
+	settings.DeleteEntry(ctx, "workspaces", "infra")
+	lists, err := settings.Lists(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, l := range lists {
+		if l.Key != "workspaces" {
+			if len(l.PendingEntries) != 0 {
+				t.Errorf("%s waits: %v", l.Key, l.PendingEntries)
+			}
+			continue
+		}
+		if got := strings.Join(l.PendingEntries, ","); got != "infra,web" {
+			t.Fatalf("pending entries = %q, want infra,web", got)
+		}
+	}
+}
+
+// A secret setting says whether Legato can read the secret it names, and
+// never the secret.
+func TestASecretSettingSaysWhetherItsSecretCanBeRead(t *testing.T) {
+	settings, _ := newSettingsFixture(t, "")
+	ctx := context.Background()
+	settings.SetSecretResolver(func(_ context.Context, ref string) (string, error) {
+		if ref == "legato://jira-token" {
+			return "ATATT-the-token", nil
+		}
+		return "", errors.New("no such secret")
+	})
+	settings.Set(ctx, "jira.api_token", json.RawMessage(`"legato://jira-token"`), "web")
+	settings.Set(ctx, "github.token", json.RawMessage(`"legato://gone"`), "web")
+	all, err := settings.List(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	status := map[string]string{}
+	for _, s := range all {
+		status[s.Key] = s.SecretStatus
+	}
+	if status["jira.api_token"] != SecretStored || status["github.token"] != SecretMissing || status["manticore.api_key"] != "" {
+		t.Fatalf("statuses = jira %q, github %q, manticore %q", status["jira.api_token"], status["github.token"], status["manticore.api_key"])
+	}
+	raw, _ := json.Marshal(all)
+	if strings.Contains(string(raw), "ATATT") {
+		t.Fatal("the secret's value is in the list")
+	}
+}
+
+// The Reeve's rules are listed in the order they apply: the file's, then
+// those kept here by name, as config.applyEntries adds them, whatever
+// order they were saved in.
+func TestAnOrderedListIsListedInTheOrderItApplies(t *testing.T) {
+	settings, db := newSettingsFixture(t, "reeve:\n  rules:\n    - pattern: z.file\n      level: approve\n")
+	ctx := context.Background()
+	for _, name := range []string{"POST /api/tasks/*", "POST /api/tasks*"} {
+		if err := db.SetSettingEntry(ctx, "reeve.rules", name, json.RawMessage(`{"level":"auto"}`), "web"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	lists, err := settings.Lists(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := settings.Effective(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var applied []string
+	for _, r := range cfg.Reeve.Rules {
+		applied = append(applied, r.Pattern)
+	}
+	for _, l := range lists {
+		if l.Key != "reeve.rules" {
+			continue
+		}
+		var listed []string
+		for _, e := range l.Entries {
+			listed = append(listed, e.Name)
+		}
+		if strings.Join(listed, "|") != strings.Join(applied, "|") {
+			t.Fatalf("listed %q, applied %q", listed, applied)
+		}
+		return
+	}
+	t.Fatal("reeve.rules not listed")
 }

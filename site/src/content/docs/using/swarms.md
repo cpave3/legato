@@ -86,7 +86,7 @@ swarm:
 
 ### Tiers
 
-A tier is a named launch profile of an agent tool, usually a model. The conductor sees your tiers and their descriptions and picks one for each sub-task:
+A tier is a named launch profile of an agent tool, usually a model. The conductor sees your tiers and their descriptions and picks one for each sub-task: set them in **Settings › Agents › Claude Code, Codex and Chimera**, where each agent's form has a table of tiers (name, what the conductor is told, launch arguments), or in `config.yaml`
 
 ```yaml
 adapters:

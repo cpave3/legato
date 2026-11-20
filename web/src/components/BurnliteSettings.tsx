@@ -53,6 +53,7 @@ export function BurnliteSettings({ baseUrl, burnlite, outcome, onChanged, onDisc
   const { connection } = burnlite
   return (
     <SettingsCard
+      id="burnlite"
       label="Burnlite"
       icon={Flame}
       title="Burnlite"

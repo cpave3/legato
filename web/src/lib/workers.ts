@@ -3,8 +3,8 @@ import { getToken } from "./auth"
 import { shellWorkers } from "./mobileShell"
 
 // Handoff between Legatos: this server as a main instance pairs with workers
-// (Settings › Workers), and as a worker lists the mains paired with it
-// (Settings › Main instances). See docs/ai/integrations.md § Main instances
+// (Settings › Connections › Workers), and as a worker lists the mains paired with it
+// (Settings › Connections › Main instances). See docs/ai/integrations.md § Main instances
 // and workers.
 
 export interface Worker {
@@ -35,7 +35,7 @@ export interface Worker {
   older?: boolean
 }
 
-// workerVersion is a worker's version as Settings › Workers shows it:
+// workerVersion is a worker's version as Settings › Connections › Workers shows it:
 // "Legato v0.15.0", or "Legato dev (1a2b3c4d5e6f)" for a build from source.
 export function workerVersion(w: Worker): string {
   if (!w.advert) return "Legato version unknown"

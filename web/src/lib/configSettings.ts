@@ -27,6 +27,12 @@ export interface ConfigSetting {
   source: "default" | "config.yaml" | "database"
   pinned: boolean
   pending_restart?: boolean
+  // While it waits for a restart, the value Legato still uses.
+  started_value?: unknown
+  // The value with nothing set: what Reset goes back to.
+  default?: unknown
+  // A secret setting's secret: whether Legato can read it.
+  secret_status?: "stored" | "missing"
   updated_at?: string
   updated_by?: string
 }
@@ -36,11 +42,11 @@ async function failed(response: Response): Promise<Error> {
   return new Error(body?.error || response.statusText)
 }
 
-export async function fetchConfigSettings(baseUrl: string): Promise<{ settings: ConfigSetting[]; file_only: string[] }> {
+export async function fetchConfigSettings(baseUrl: string): Promise<{ settings: ConfigSetting[]; file_only: string[]; file_only_values: Record<string, string> }> {
   const response = await apiFetch(baseUrl, "/api/config/settings")
   if (!response.ok) throw await failed(response)
-  const body = await response.json() as { settings?: ConfigSetting[]; file_only?: string[] }
-  return { settings: body.settings ?? [], file_only: body.file_only ?? [] }
+  const body = await response.json() as { settings?: ConfigSetting[]; file_only?: string[]; file_only_values?: Record<string, string> }
+  return { settings: body.settings ?? [], file_only: body.file_only ?? [], file_only_values: body.file_only_values ?? {} }
 }
 
 export async function setConfigSetting(baseUrl: string, key: string, value: unknown): Promise<ConfigSetting> {
@@ -79,6 +85,9 @@ export interface ConfigList {
   mode: "live" | "new_agents" | "restart"
   name_field?: string
   entries: ConfigListEntry[]
+  // Entries added, changed or removed here since Legato started, which
+  // wait for a restart (a restart list only).
+  pending_entries?: string[]
 }
 
 export async function fetchConfigLists(baseUrl: string): Promise<ConfigList[]> {

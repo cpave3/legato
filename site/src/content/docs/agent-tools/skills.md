@@ -44,7 +44,7 @@ skills:
 
 ## Turn skills on and off
 
-**Settings › Agents and workspaces › Skills** lists every skill in the folder with its description and path. A new skill is on. Turn one off with its switch, and agents started from then on do not get it.
+**Settings › Agents › Skills** lists every skill in the folder with its description and path. A new skill is on. Turn one off with its switch, and agents started from then on do not get it.
 
 A folder that is not a usable skill is listed with what is wrong (no `SKILL.md`, no `description`, a `name` that is not the folder's) and is never given to an agent. Fix the file and it is listed as a skill at the next look; the list checks again every few seconds.
 

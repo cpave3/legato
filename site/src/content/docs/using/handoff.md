@@ -11,7 +11,7 @@ Handoff is built but not yet in a release: it works in Legato built from its mai
 
 A handoff sends one of your tasks to a [worker instance](/legato/running/instances/): another Legato, such as an always-on VM, that works on it while your laptop sleeps or travels. The worker makes a card for the task and starts an agent on it at once. Your own board keeps the task, read-only, in an **Away** lane until it comes back.
 
-Before you can hand anything off, pair a worker with this Legato. See [Main and worker instances](/legato/running/instances/#pair-a-main-instance-with-a-worker). When the desktop or Android app (or your browser) already knows the worker, choose it under **From this app** in Add a worker and agree; you type no address or words. Until a worker is paired, Settings › Connections and handoff › Workers explains handoff and the board has no Away lane.
+Before you can hand anything off, pair a worker with this Legato. See [Main and worker instances](/legato/running/instances/#pair-a-main-instance-with-a-worker). When the desktop or Android app (or your browser) already knows the worker, choose it under **From this app** in Add a worker and agree; you type no address or words. Until a worker is paired, Settings › Connections › Workers explains handoff and the board has no Away lane.
 
 ## Hand off a task
 
@@ -21,7 +21,7 @@ Before you can hand anything off, pair a worker with this Legato. See [Main and 
    - **Worker**: the worker that takes the task. A worker that can't take handoffs, because it has no Legato [sandbox](/legato/security/sandbox/) or its board has no columns, is listed with the reason but cannot be chosen.
    - **Purpose**: **Make a change** (the agent pushes its branches and opens draft pull requests) or **Find out** (the agent answers in the task's notes and pushes nothing).
    - **Start from**: **A new branch**, named `legato/<task ID>` and made from the repository's base branch (the `base_branch` you set for it on this Legato, else GitHub's default branch), or **A pushed branch**: work you began and pushed to GitHub. For a pushed branch, type its name in **Branch**. See [Start from a pushed branch](#start-from-a-pushed-branch).
-   - **Repository**: one of the repositories in Settings › Agents and workspaces that has a GitHub name. With none, type its `owner/name`. Nothing is chosen for you: **Hand off** stays unavailable until you pick one, so a task never goes to the wrong repository because you forgot to change a default. The worker's GitHub access decides what it can clone: a repository it can't clone is listed as "vm-1 can't clone it" and cannot be chosen, and a repository only the worker names is offered as "on vm-1 only".
+   - **Repository**: one of the repositories in Settings › Repositories that has a GitHub name. With none, type its `owner/name`. Nothing is chosen for you: **Hand off** stays unavailable until you pick one, so a task never goes to the wrong repository because you forgot to change a default. The worker's GitHub access decides what it can clone: a repository it can't clone is listed as "vm-1 can't clone it" and cannot be chosen, and a repository only the worker names is offered as "on vm-1 only".
    - **Agent tool**: the tool the worker starts: the tools installed on the worker, its own default first. A worker too old to say lists this Legato's tools.
 
    Below the fields, the form warns of what your agents have here and the worker's agent would not: skills and MCP connections that are on here but not there ("Not on vm-1: skill pr, MCP connection linear"). It is a warning: you can still hand off.
@@ -65,7 +65,7 @@ The form says why, in the words of the main or the worker, and nothing is handed
 
 Once a worker is paired, the web board has an **Away** lane after its columns. A task you hand off leaves its column for the lane. While nothing is away, the lane is folded to a narrow rail, as an empty column is; a card dropped on the rail still opens the Hand off form, and the lane opens again as soon as a task is away. Click the rail, or press `z`, to open the empty columns and the lane. The lane has a group for each worker, with the worker's name, whether your main can reach it, **Open**, which opens the worker's own web UI, and a `⋯` menu with **Open on worker** and **Remove…**. A worker with nothing away says so.
 
-The group's header says "pulled 2 min ago" while your main hears from the worker, "unreachable since 21:40" once it has been down for 30 seconds, or "no longer accepts this main; pair again" when the worker unpaired your main (pair it again from Settings › Connections and handoff › Workers).
+The group's header says "pulled 2 min ago" while your main hears from the worker, "unreachable since 21:40" once it has been down for 30 seconds, or "no longer accepts this main; pair again" when the worker unpaired your main (pair it again from Settings › Connections › Workers).
 
 Each row in a group shows:
 
@@ -131,7 +131,7 @@ Your main then tells the worker to **drop** the task the next time it reaches it
 
 ## Remove a worker
 
-To stop using a worker, choose **Remove** under Settings › Connections and handoff › Workers, or **Remove…** in its group's `⋯` menu on the board. It first says how many of your tasks are away there ("vm-1 holds 2 away tasks"). Removing it then:
+To stop using a worker, choose **Remove** under Settings › Connections › Workers, or **Remove…** in its group's `⋯` menu on the board. It first says how many of your tasks are away there ("vm-1 holds 2 away tasks"). Removing it then:
 
 1. recalls each task it can, with its results so far;
 2. takes back the rest without results: those the worker lost, and all of them once the worker does not answer;
@@ -142,7 +142,7 @@ If the worker cannot be reached, your main keeps its address and token, hidden, 
 
 ## Unpair a main on the worker
 
-On the worker, **Unpair** under Settings › Connections and handoff › Main instances first says how many handoffs that main has open there ("workstation has 2 open handoffs here"). Unpairing revokes the main's token at once and closes its handoffs. Their cards stay on the worker as ordinary cards, their agents still running, each with a note that the main was unpaired: you can archive or delete them there like any other card. The main shows its tasks as **Not accepted**, and you can take them back there.
+On the worker, **Unpair** under Settings › Connections › Main instances first says how many handoffs that main has open there ("workstation has 2 open handoffs here"). Unpairing revokes the main's token at once and closes its handoffs. Their cards stay on the worker as ordinary cards, their agents still running, each with a note that the main was unpaired: you can archive or delete them there like any other card. The main shows its tasks as **Not accepted**, and you can take them back there.
 
 ## Staying up to date
 
@@ -152,7 +152,7 @@ Your main keeps a connection open to each worker that holds tasks of yours, and 
 
 Your main never takes a task back by itself. A task the worker lost, or one on a worker that is unreachable or no longer accepts your main, stays in the lane until you take it back. Once a worker has been unreachable for 15 minutes, or no longer accepts your main, Attention says so; see [Attention and notifications](#attention-and-notifications).
 
-Settings › Connections and handoff › Workers shows when each worker was last pulled. On the worker, Settings › Connections and handoff › Main instances shows when each main last pulled and how many of its handoffs are open there.
+Settings › Connections › Workers shows when each worker was last pulled. On the worker, Settings › Connections › Main instances shows when each main last pulled and how many of its handoffs are open there.
 
 ## Attention and notifications
 
@@ -163,13 +163,13 @@ Your main raises [Attention](/legato/using/attention/) only when a task needs so
 | A task is **Done** on the worker | "Fix it is done on vm-1", one per task | Ready for review | **Return**, **Open on vm-1** | No: the worker's own notification says its agent finished |
 | A handoff **Failed** | "Handing Fix it to vm-1 failed", with the reason | Needs intervention | **Recall**, **Open on vm-1** | Yes |
 | A task is **Lost on worker** | "Fix it is lost on vm-1" | Needs intervention | **Take back**, after you confirm | Yes |
-| A worker **no longer accepts this main** | "vm-1 no longer accepts this main", one per worker | Needs intervention | **Pair again**, which opens Settings › Connections and handoff › Workers | Yes |
-| A worker has been **unreachable for 15 minutes** | "vm-1 unreachable since 21:40, 2 away tasks", one per worker | Needs intervention | **Open Settings › Workers** | Yes, once for each outage |
+| A worker **no longer accepts this main** | "vm-1 no longer accepts this main", one per worker | Needs intervention | **Pair again**, which opens Settings › Connections › Workers | Yes |
+| A worker has been **unreachable for 15 minutes** | "vm-1 unreachable since 21:40, 2 away tasks", one per worker | Needs intervention | **Open Settings › Connections › Workers** | Yes, once for each outage |
 | A task's agent **needs you** | None: the lane's pill only | | | No: the worker notifies you |
 
 Each item about a task also has **Open task**, which selects it in the Away lane. An item goes away by itself when its state is gone (the worker shows the task working again, or answers again) or when the task comes back: returned, recalled or taken back. Dismissing an item hides it in that state only; if the state changes and comes back, so does the item.
 
-The TUI lists these items under `I`, and `legato attention list` lists them too, but return, recall and take back are done in the web UI. The phone notifications go through ntfy (see [Notifications](/legato/integrations/notifications/#away-tasks)); tapping one opens the task, or Settings › Connections and handoff › Workers, in your browser. To turn them off, set `notifications.handoff: false`. When the TUI and `legato serve` run on one database, your phone hears of each state once.
+The TUI lists these items under `I`, and `legato attention list` lists them too, but return, recall and take back are done in the web UI. The phone notifications go through ntfy (see [Notifications](/legato/integrations/notifications/#away-tasks)); tapping one opens the task, or Settings › Connections › Workers, in your browser. To turn them off, set `notifications.handoff: false`. When the TUI and `legato serve` run on one database, your phone hears of each state once.
 
 ## While a task is away
 

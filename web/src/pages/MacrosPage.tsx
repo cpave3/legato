@@ -1,3 +1,4 @@
+import { fetchAdapters } from "../lib/adapters"
 import { useState } from "react"
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { Lock, Plus, Zap } from "lucide-react"
@@ -6,7 +7,6 @@ import { primaryButton, quietButton } from "../components/settings/SettingsUI"
 import { InlineNotice } from "../components/ui/InlineNotice"
 import { LoadingState } from "../components/ui/LoadingState"
 import { useServer } from "../hooks/useServer"
-import { apiFetch } from "../lib/api"
 import { agentKindLabel } from "../lib/agentKind"
 import { appliesLabel, deleteMacro, fetchMacroList, macroAgentLine, resetMacro, type Macro } from "../lib/macros"
 import { queryKeys } from "../lib/query"
@@ -23,17 +23,7 @@ const PLACES: { label: string; code?: string }[] = [
 ]
 const dangerButton = "inline-flex min-h-10 items-center justify-center rounded-lg border border-lw-danger-line px-3.5 text-sm text-lw-danger transition-colors hover:bg-lw-error-soft focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-lw-accent-ring disabled:opacity-50"
 
-export interface Adapters {
-  adapters: string[]
-  default: string
-}
-
-async function fetchAdapters(baseUrl: string): Promise<Adapters> {
-  const response = await apiFetch(baseUrl, "/api/adapters")
-  if (!response.ok) return { adapters: [], default: "" }
-  const body = await response.json() as Partial<Adapters>
-  return { adapters: body.adapters ?? [], default: body.default ?? "" }
-}
+export type { Adapters } from "../lib/adapters"
 
 // The macro being made (null name) or edited, or none.
 type Editing = { macro: Macro | null } | null

@@ -24,6 +24,10 @@ func settingsFor(db *store.Store) *service.SettingsService {
 	}
 	s := service.NewSettingsService(db, nil)
 	s.MarkStarted(context.Background())
+	// Settings say whether each secret setting's secret can be read.
+	if cfg, err := config.Load(); err == nil {
+		s.SetSecretResolver(settingSecrets(cfg, db))
+	}
 	actual, _ := processSettings.LoadOrStore(db, s)
 	return actual.(*service.SettingsService)
 }

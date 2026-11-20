@@ -84,7 +84,7 @@ func (s *Server) burnliteCallbackHandler() http.HandlerFunc {
 			back.Set("result", "failed")
 			back.Set("error", err.Error())
 		}
-		http.Redirect(w, r, "/settings?"+encodeOrdered(back)+"#integrations", http.StatusFound)
+		http.Redirect(w, r, "/settings?"+encodeOrdered(back)+"#burnlite", http.StatusFound)
 	}
 }
 

@@ -64,5 +64,5 @@ Legato reads the stack from the clone's files and never runs `st` or `git` in an
 
 ## Keeping `st` up to date
 
-On a server that runs a release of `st` (for example one installed as shown in [Agents on a server of their own](/legato/running/agent-server/)), Legato keeps it current with its own updates, in the same mode: **Automatic** runs `st update` as soon as a release is out, **Ask** shows it in Settings › Updates and in Attention, **Off** never looks. An `st` built from source is left alone. See [Releases and updates](/legato/running/updates/).
+On a server that runs a release of `st` (for example one installed as shown in [Agents on a server of their own](/legato/running/agent-server/)), Legato keeps it current with its own updates, in the same mode: **Automatic** runs `st update` as soon as a release is out, **Ask** shows it in Settings › System › Updates and in Attention, **Off** never looks. An `st` built from source is left alone. See [Releases and updates](/legato/running/updates/).
 

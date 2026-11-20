@@ -1,3 +1,4 @@
+import type { ReactNode } from "react"
 import { Link } from "react-router-dom"
 import { useCallback, useEffect, useRef, useState } from "react"
 import { SettingsCard, quietButton } from "./settings/SettingsUI"
@@ -7,7 +8,9 @@ import { endCredentialGrant, grantLasts, listCredentialAudit, listCredentialGran
 // CredentialsSettings shows the credentials Legato holds for agents (named
 // in config.yaml), what each agent session may do with them now, and the
 // latest of what was asked and done. A grant can be ended early here.
-export function CredentialsSettings({ baseUrl }: { baseUrl: string }) {
+// editors are the credentials' and sources' lists and the channels'
+// settings, drawn inside this one card when Settings gives them.
+export function CredentialsSettings({ baseUrl, editors }: { baseUrl: string; editors?: ReactNode }) {
   const [credentials, setCredentials] = useState<Credential[] | null>(null)
   const [grants, setGrants] = useState<CredentialGrant[]>([])
   const [audit, setAudit] = useState<CredentialAuditEntry[]>([])
@@ -53,7 +56,7 @@ export function CredentialsSettings({ baseUrl }: { baseUrl: string }) {
         {loading && <p role="status" className="text-sm text-lw-text-2">Loading credentials…</p>}
         {error && <div><p role="alert" className="text-sm text-lw-error">{error}{credentials ? " Showing last loaded credentials and grants." : ""}</p><button className={quietButton + " mt-2"} onClick={() => void load()}>Retry credentials</button></div>}
         {credentials && credentials.length === 0 && !error && (
-          <p className="text-xs text-zinc-500">No credentials configured. Add a credential below; store its secret with legato secret add.</p>
+          <p className="text-xs text-zinc-500">No credentials yet. Add one below; store its secret with legato secret add.</p>
         )}
         {credentials && credentials.length > 0 && (
           <ul className="divide-y divide-zinc-800 rounded border border-zinc-800">
@@ -103,7 +106,7 @@ export function CredentialsSettings({ baseUrl }: { baseUrl: string }) {
             </ul>
           </details>
         )}
-        <Link to="/settings#list-credentials" className={quietButton + " w-fit"}>Edit credentials</Link>
+        {editors ?? <Link to="/settings#list-credentials" className={quietButton + " w-fit"}>Edit credentials</Link>}
         <Link to="/audit" className="text-xs text-lw-link hover:underline">Open the audit log →</Link>
       </div>
     </SettingsCard>

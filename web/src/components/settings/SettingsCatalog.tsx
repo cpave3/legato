@@ -1,51 +1,45 @@
-import type { ConfigSetting } from "../../lib/configSettings"
 import { Link } from "react-router-dom"
-import { isAdvancedSetting, settingOwner, settingsCards, settingsCategories, type SettingsCategory } from "../../lib/settingsCatalog"
-import { RegistrySettings } from "./RegistrySettings"
-import { ListSettings } from "./ListSettings"
+import { helpSnippet, marked, queryWords, type SearchGroup } from "../../lib/settingsSearch"
 import { quietButton } from "./SettingsUI"
 
-export function SettingsSearch({ query, settings, fileOnly, lists, onSelect, development }: {
-  query: string; settings: ConfigSetting[]; fileOnly: string[]; lists: { key: string; title: string }[]; onSelect: () => void; development: boolean
-}) {
-  const entries = [
-    ...settings.map((s) => ({ id: `setting-${s.key}`, title: s.title, category: settingOwner(s.key), terms: `${s.key} ${s.description ?? ""}`, scope: "This server" })),
-    ...fileOnly.map((key) => ({ id: `setting-${key}`, title: key, category: settingOwner(key), terms: `${key} config.yaml file only`, scope: "This server · File only" })),
-    ...lists.map((list) => ({ id: `list-${list.key}`, title: list.title, category: settingOwner(list.key), terms: list.key, scope: "This server" })),
-    ...settingsCards.filter((card) => card.id !== "development" || development),
-  ]
-  const words = query.toLowerCase().trim().split(/\s+/)
-  const results = entries.filter((entry) => {
-    const category = settingsCategories.find((c) => c.id === entry.category)!
-    const text = `${entry.title} ${entry.terms} ${category.title} ${category.terms}`.toLowerCase()
-    return words.every((word) => text.includes(word))
-  })
-  return <section aria-label="Search results">
-    <h2 className="mb-3 text-base font-semibold">Search results</h2>
-    {results.length === 0 && <p role="status" className="text-sm text-lw-text-2">No settings match “{query}”. Try a setting name or key.</p>}
-    <ul className="divide-y divide-lw-line">
-      {results.map((entry) => <li key={entry.id}><Link to={`#${entry.id}`} onClick={onSelect} className="block rounded-lg px-3 py-3 hover:bg-lw-surface focus-visible:outline-lw-accent">
-        <span className="block text-sm font-medium">{entry.title}</span>
-        <span className="text-xs text-lw-text-2">{settingsCategories.find((c) => c.id === entry.category)!.title} · {entry.scope ?? "This server"}</span>
-      </Link></li>)}
-    </ul>
-  </section>
+// Mark is text with the parts a query matched highlighted.
+function Mark({ text, words }: { text: string; words: string[] }) {
+  return <>{marked(text, words).map((part, i) => part.hit ? <mark key={i} className="rounded-sm bg-lw-needs-soft px-px text-lw-needs">{part.text}</mark> : <span key={i}>{part.text}</span>)}</>
 }
 
-export function CategorySettings({ category, settings, fileOnly, baseUrl, listKeys }: { category: SettingsCategory; settings: ConfigSetting[]; fileOnly: string[]; baseUrl: string; listKeys: string[] }) {
-  const owned = settings.filter((s) => settingOwner(s.key) === category && !["web.tint", "updates.mode"].includes(s.key) && !s.key.startsWith("integrations.mqtt.") && !s.key.startsWith("web.rail."))
-  const regular = owned.filter((s) => !isAdvancedSetting(s.key))
-  const advanced = owned.filter((s) => isAdvancedSetting(s.key))
-  return <>
-    <RegistrySettings settings={regular} baseUrl={baseUrl} prefixes={regular.map((s) => s.key)} />
-    {advanced.length > 0 && <section aria-label="Advanced"><h3 className="mb-2 text-sm font-medium">Advanced</h3><RegistrySettings settings={advanced} baseUrl={baseUrl} prefixes={advanced.map((s) => s.key)} /></section>}
-    {/* Macros have their own page, which Settings links to. */}
-    <ListSettings baseUrl={baseUrl} lists={listKeys.filter((key) => settingOwner(key) === category && key !== "macros")} />
-    {fileOnly.filter((key) => settingOwner(key) === category).map((key) => <section key={key} id={`setting-${key}`} tabIndex={-1} className="scroll-mt-40 rounded-lg border border-lw-line p-4">
-      <h3 className="break-all text-sm font-medium">{key}</h3>
-      <p className="mt-1 text-sm text-lw-text-2">File only · Read-only here. Edit <code className="break-all">{key}</code> in this server’s <code>config.yaml</code>, then restart Legato to apply the change.</p>
+// SettingsSearch shows what a query found, grouped by section: each with
+// its breadcrumb, label, key, value and source. active is the result the
+// arrow keys are on.
+export function SettingsSearch({ query, groups, total, active, onSelect }: {
+  query: string; groups: SearchGroup[]; total: number; active: number; onSelect: () => void
+}) {
+  const words = queryWords(query)
+  let index = -1
+  return <section aria-label="Search results" className="flex flex-col gap-4">
+    <p role="status" className="text-sm text-lw-text-2">{total === 0 ? `No settings match “${query.trim()}”. Try a setting's name, key or value.` : `${total} ${total === 1 ? "setting matches" : "settings match"} “${query.trim()}”`}</p>
+    {groups.map((group) => <section key={group.section} aria-label={`${group.title} results`}>
+      <h3 className="mb-1.5 px-1 font-lw-mono text-[10.5px] uppercase tracking-wider text-lw-text-2">{group.title}</h3>
+      <ul className="divide-y divide-lw-line overflow-hidden rounded-xl border border-lw-line bg-lw-surface">
+        {group.results.map((entry) => {
+          index++
+          const on = index === active
+          const snippet = helpSnippet(entry, words)
+          return <li key={entry.id}><Link to={`#${entry.id}`} onClick={onSelect} aria-current={on ? "true" : undefined} data-active={on || undefined}
+            className={`flex items-center gap-3 px-4 py-3 hover:bg-lw-raised focus-visible:outline-lw-accent ${on ? "bg-lw-selected" : ""}`}>
+            <span className="min-w-0 flex-1">
+              <span className="block text-xs text-lw-text-2">{[group.title, entry.group].filter(Boolean).join(" › ")}</span>
+              <span className="block text-sm text-lw-text"><Mark text={entry.title} words={words} /></span>
+              {entry.key && <span className="block truncate font-lw-mono text-[11.5px] text-lw-text-2"><Mark text={entry.key} words={words} />{snippet && <> · “<Mark text={snippet} words={words} />”</>}</span>}
+            </span>
+            {(entry.value || entry.source) && <span className="shrink-0 text-right text-[13px] text-lw-text-2">
+              {entry.value && <span className="block"><Mark text={entry.value} words={words} /></span>}
+              {entry.source && <span className="block text-[11px]">{entry.source}</span>}
+            </span>}
+          </Link></li>
+        })}
+      </ul>
     </section>)}
-  </>
+  </section>
 }
 
 export function SettingsLoadState({ loading, error, stale, onRetry }: { loading: boolean; error: Error | null; stale: boolean; onRetry: () => void }) {

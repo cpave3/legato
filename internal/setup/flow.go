@@ -335,7 +335,7 @@ func (f *Flow) stepTracker(ctx context.Context) error {
 		case answer == "2" || answer == "jira":
 			return f.connectJira(ctx)
 		case answer == "3" || answer == "burnlite":
-			fmt.Fprintf(f.Out, "  Connect Burnlite in Settings › Integrations: %s\n  (or run legato integration connect burnlite)\n", f.SettingsLink)
+			fmt.Fprintf(f.Out, "  Connect Burnlite in Settings › Board and tickets: %s\n  (or run legato integration connect burnlite)\n", f.SettingsLink)
 			return nil
 		}
 		fmt.Fprintln(f.Out, "  Type 1, 2 or 3, Enter to keep it, or s to skip.")
@@ -346,7 +346,7 @@ func (f *Flow) stepTracker(ctx context.Context) error {
 // the operator skips. The token is never shown.
 func (f *Flow) connectJira(ctx context.Context) error {
 	if f.Jira == nil {
-		fmt.Fprintln(f.Out, "  Jira cannot be set up here. Use Settings › Integrations in the web UI.")
+		fmt.Fprintln(f.Out, "  Jira cannot be set up here. Use Settings › Board and tickets in the web UI.")
 		return nil
 	}
 	baseURL, _ := f.setting(ctx, "jira.base_url")
@@ -382,7 +382,7 @@ func (f *Flow) connectJira(ctx context.Context) error {
 	}
 	projects, err := f.Jira.FetchProjects(ctx, baseURL, email, token)
 	if err != nil || len(projects) == 0 {
-		fmt.Fprintf(f.Out, "  ✗ Could not list Jira's projects: %v. Finish in Settings › Integrations.\n", err)
+		fmt.Fprintf(f.Out, "  ✗ Could not list Jira's projects: %v. Finish in Settings › Board and tickets.\n", err)
 		return nil
 	}
 	for i, p := range projects {

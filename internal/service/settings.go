@@ -6,8 +6,10 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"sort"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/cpave3/legato/config"
 	"github.com/cpave3/legato/internal/engine/store"
@@ -33,13 +35,87 @@ type SettingValue struct {
 	Pinned bool   `json:"pinned"`
 	// PendingRestart: a restart-mode setting whose value changed since this
 	// process started; it applies at the next restart.
-	PendingRestart bool   `json:"pending_restart,omitempty"`
-	UpdatedAt      string `json:"updated_at,omitempty"`
-	UpdatedBy      string `json:"updated_by,omitempty"`
+	PendingRestart bool `json:"pending_restart,omitempty"`
+	// StartedValue is the value this process started with, for a setting
+	// that waits for a restart: what Legato uses until then.
+	StartedValue any `json:"started_value,omitempty"`
+	// Default is the value with nothing set, what Reset goes back to.
+	Default any `json:"default"`
+	// SecretStatus says, for a secret setting that names one, whether
+	// Legato can read it: stored or missing. Never the value.
+	SecretStatus string `json:"secret_status,omitempty"`
+	UpdatedAt    string `json:"updated_at,omitempty"`
+	UpdatedBy    string `json:"updated_by,omitempty"`
 	// effective is the value before a pinned secret is masked: what a
 	// restart compares against the value the process started with.
 	effective any
+	started   bool
 }
+
+// The statuses of a secret setting's secret.
+const (
+	SecretStored  = "stored"
+	SecretMissing = "missing"
+)
+
+type secretCheck struct {
+	status string
+	at     time.Time
+}
+
+// secretCheckFor is how long a secret's status is kept before it is read
+// again (1Password may be slow to answer).
+const secretCheckFor = 30 * time.Second
+
+// SetSecretResolver lets the service say whether each secret setting's
+// secret can be read.
+func (s *SettingsService) SetSecretResolver(resolve SecretResolver) {
+	s.mu.Lock()
+	s.resolve = resolve
+	s.checked = map[string]secretCheck{}
+	s.mu.Unlock()
+}
+
+// markSecret sets v's SecretStatus: a secret config.yaml gives is stored
+// when it has a value; a name saved here, when the name resolves.
+func (s *SettingsService) markSecret(ctx context.Context, v *SettingValue) {
+	if !v.Secret {
+		return
+	}
+	value, _ := v.effective.(string)
+	if v.Pinned {
+		if value != "" {
+			v.SecretStatus = SecretStored
+		}
+		return
+	}
+	if value == "" {
+		return
+	}
+	s.mu.Lock()
+	resolve := s.resolve
+	check, ok := s.checked[value]
+	s.mu.Unlock()
+	if resolve == nil {
+		return
+	}
+	if ok && time.Since(check.at) < secretCheckFor {
+		v.SecretStatus = check.status
+		return
+	}
+	status := SecretStored
+	if plain, err := resolve(ctx, value); err != nil || plain == "" {
+		status = SecretMissing
+	}
+	s.mu.Lock()
+	s.checked[value] = secretCheck{status: status, at: time.Now()}
+	s.mu.Unlock()
+	v.SecretStatus = status
+}
+
+// HasStartedValue says whether StartedValue is set (it may be a zero
+// value, which JSON leaves out).
+func (v SettingValue) HasStartedValue() bool { return v.started }
 
 // SettingsService keeps the settings of the registry that live in the
 // database, and gives the effective configuration: config.yaml, then the
@@ -48,8 +124,16 @@ type SettingsService struct {
 	db   *store.Store
 	load func() (*config.Config, error)
 
-	mu       sync.Mutex
-	started  map[string]string // canonical JSON of each value at MarkStarted
+	mu      sync.Mutex
+	started map[string]string // canonical JSON of each value at MarkStarted
+	// startedEntries is each list's entries kept here at MarkStarted, as
+	// name to JSON.
+	startedEntries map[string]map[string]string
+
+	// resolve reads a secret a setting names, to say whether it can be
+	// read; checked keeps each answer for a short while.
+	resolve  SecretResolver
+	checked  map[string]secretCheck
 	onChange []func()
 }
 
@@ -164,12 +248,14 @@ func (s *SettingsService) List(ctx context.Context) ([]SettingValue, error) {
 		byKey[r.Key] = r
 	}
 	var out []SettingValue
+	defaults := config.Defaults()
 	for _, setting := range config.Settings() {
-		v, err := describeSetting(cfg, setting, byKey)
+		v, err := describeSetting(cfg, defaults, setting, byKey)
 		if err != nil {
 			return nil, err
 		}
-		v.PendingRestart = s.pending(v)
+		s.markPending(&v)
+		s.markSecret(ctx, &v)
 		out = append(out, v)
 	}
 	return out, nil
@@ -189,9 +275,89 @@ func (s *SettingsService) MarkStarted(ctx context.Context) {
 			started[setting.Key] = string(raw)
 		}
 	}
+	entries := map[string]map[string]string{}
+	if rows, err := s.db.ListSettingEntries(ctx); err == nil {
+		for _, r := range rows {
+			if entries[r.List] == nil {
+				entries[r.List] = map[string]string{}
+			}
+			entries[r.List][r.Name] = r.Value
+		}
+	}
 	s.mu.Lock()
 	s.started = started
+	s.startedEntries = entries
 	s.mu.Unlock()
+}
+
+// pendingEntries names the entries of a restart list that changed here
+// since start: added, changed or removed.
+func (s *SettingsService) pendingEntries(l config.EntryList, rows []store.SettingEntry) []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if l.Mode != config.ModeRestart || s.startedEntries == nil {
+		return nil
+	}
+	was := s.startedEntries[l.Key]
+	now := map[string]string{}
+	for _, r := range rows {
+		if r.List == l.Key {
+			now[r.Name] = r.Value
+		}
+	}
+	var names []string
+	for name, v := range now {
+		if old, ok := was[name]; !ok || old != v {
+			names = append(names, name)
+		}
+	}
+	for name := range was {
+		if _, ok := now[name]; !ok {
+			names = append(names, name)
+		}
+	}
+	sort.Strings(names)
+	return names
+}
+
+// markPending says whether v waits for a restart, and with what value
+// Legato started.
+func (s *SettingsService) markPending(v *SettingValue) {
+	v.PendingRestart = s.pending(*v)
+	if !v.PendingRestart {
+		return
+	}
+	s.mu.Lock()
+	was := s.started[v.Key]
+	s.mu.Unlock()
+	var started any
+	if json.Unmarshal([]byte(was), &started) == nil {
+		v.StartedValue, v.started = normalStarted(started, v.effective), true
+	}
+	// A secret config.yaml gave is never shown, then or now; a name of
+	// one (legato://, op://) may be.
+	if ref, ok := v.StartedValue.(string); v.Secret && ok && ref != "" && !strings.HasPrefix(ref, "legato://") && !strings.HasPrefix(ref, "op://") {
+		v.StartedValue = "(set in config.yaml)"
+	}
+}
+
+// normalStarted gives a started value the Go type of the value now (JSON
+// reads every number as a float).
+func normalStarted(started, now any) any {
+	if f, ok := started.(float64); ok {
+		if _, isInt := now.(int); isInt {
+			return int(f)
+		}
+	}
+	if list, ok := started.([]any); ok {
+		out := make([]string, 0, len(list))
+		for _, item := range list {
+			s, _ := item.(string)
+			out = append(out, s)
+		}
+		return out
+	}
+	return started
 }
 
 func (s *SettingsService) pending(v SettingValue) bool {
@@ -257,20 +423,25 @@ func (s *SettingsService) Get(ctx context.Context, key string) (SettingValue, er
 	for _, r := range rows {
 		byKey[r.Key] = r
 	}
-	v, err := describeSetting(cfg, setting, byKey)
+	v, err := describeSetting(cfg, config.Defaults(), setting, byKey)
 	if err != nil {
 		return SettingValue{}, err
 	}
-	v.PendingRestart = s.pending(v)
+	s.markPending(&v)
+	s.markSecret(ctx, &v)
 	return v, nil
 }
 
-func describeSetting(cfg *config.Config, setting config.Setting, rows map[string]store.SettingRow) (SettingValue, error) {
+func describeSetting(cfg, defaults *config.Config, setting config.Setting, rows map[string]store.SettingRow) (SettingValue, error) {
 	value, err := config.SettingValue(cfg, setting.Key)
 	if err != nil {
 		return SettingValue{}, err
 	}
 	v := SettingValue{Setting: setting, Value: value, Source: SettingFromDefault, effective: value}
+	v.Default, _ = config.SettingValue(defaults, setting.Key)
+	if setting.Secret {
+		v.Default = ""
+	}
 	switch row, inDB := rows[setting.Key]; {
 	case cfg.Pinned(setting.Key):
 		v.Source, v.Pinned = SettingFromFile, true
@@ -438,6 +609,9 @@ type SettingEntryValue struct {
 type SettingList struct {
 	config.EntryList
 	Entries []SettingEntryValue `json:"entries"`
+	// PendingEntries names the entries of a restart list added, changed
+	// or removed here since this process started.
+	PendingEntries []string `json:"pending_entries,omitempty"`
 }
 
 // Lists is every list of named entries the database keeps, with the
@@ -474,6 +648,13 @@ func (s *SettingsService) Lists(ctx context.Context) ([]SettingList, error) {
 			_ = json.Unmarshal([]byte(r.Value), &v)
 			list.Entries = append(list.Entries, SettingEntryValue{Name: r.Name, Value: v, Source: SettingFromDatabase, UpdatedAt: r.UpdatedAt, UpdatedBy: r.UpdatedBy})
 		}
+		if l.Ordered {
+			// In the order they apply: the file's, then those kept here by
+			// name, as config.applyEntries adds them.
+			kept := list.Entries[len(cfg.FileEntries(l.Key)):]
+			sort.SliceStable(kept, func(i, j int) bool { return kept[i].Name < kept[j].Name })
+		}
+		list.PendingEntries = s.pendingEntries(l, rows)
 		out = append(out, list)
 	}
 	return out, nil
@@ -594,4 +775,48 @@ func (s *SettingsService) DeleteEntry(ctx context.Context, list, name string) er
 	}
 	s.changed()
 	return nil
+}
+
+// FileOnlyValues is each file-only setting's value as config.yaml has it,
+// for Settings to show read-only: a secret's only as whether it is set.
+func (s *SettingsService) FileOnlyValues(ctx context.Context) (map[string]string, error) {
+	cfg, err := s.load()
+	if err != nil {
+		return nil, err
+	}
+	set := func(on bool) string {
+		if on {
+			return "set"
+		}
+		return ""
+	}
+	count := func(n int) string {
+		if n == 0 {
+			return ""
+		}
+		return fmt.Sprintf("%d", n)
+	}
+	tls := ""
+	switch {
+	case cfg.Web.TLS.Cert != "":
+		tls = "its own certificate"
+	case cfg.Web.TLS.Enabled:
+		tls = "on"
+	}
+	port := cfg.Web.Port
+	if port == "" {
+		port = "3080"
+	}
+	return map[string]string{
+		"db":                                   cfg.DB.Path,
+		"data_dir":                             cfg.DataDir,
+		"secrets.master_key":                   cfg.Secrets.MasterKey,
+		"secrets.onepassword":                  set(cfg.Secrets.OnePassword.Token != "" || cfg.Secrets.OnePassword.TokenFile != ""),
+		"web.enabled":                          fmt.Sprintf("%t", cfg.Web.Enabled),
+		"web.port":                             port,
+		"web.tls":                              tls,
+		"web.public_url":                       cfg.Web.PublicURL,
+		"approval_devices.android_app_digests": count(len(cfg.ApprovalDevices.AndroidAppDigests)),
+		"agents.repository_resources":          count(len(cfg.Agents.RepositoryResources)),
+	}, nil
 }

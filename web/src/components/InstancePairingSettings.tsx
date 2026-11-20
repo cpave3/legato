@@ -5,7 +5,7 @@ import { PairDeviceDialog } from "./PairDeviceDialog"
 import { listMains, listWorkers, pairWorker, pairedText, removeWarning, removeWorker, removedText, workerVersion, unpairMain, setMainReeve, workerCandidates, type PairedMain, type Worker, type WorkerCandidate, type WorkerList } from "../lib/workers"
 
 // Handoff: a main instance hands tasks to a worker instance it paired with
-// by phrase. Settings › Workers is the main's side; Settings › Main
+// by phrase. Settings › Connections › Workers is the main's side; Settings › Main
 // instances the worker's. A Legato can be both.
 
 function when(iso: string): string {
@@ -136,7 +136,7 @@ export function WorkersSettings({ baseUrl }: { baseUrl: string }) {
             </p>
             <p className="m-0">
               While it is away, the task stays here, read-only, in an Away lane at the end of the board, and you can talk to its
-              agent on the worker. To pair one, open Settings › Main instances on the worker, then choose Add a worker here.
+              agent on the worker. To pair one, open Settings › Connections › Main instances on the worker, then choose Add a worker here.
             </p>
           </div>
         )}
@@ -212,7 +212,7 @@ export function WorkersSettings({ baseUrl }: { baseUrl: string }) {
               </div>
             )}
             <p className="text-xs text-lw-text-2">
-              On the worker, open Settings › Main instances › Pair a main instance (or run{" "}
+              On the worker, open Settings › Connections › Main instances › Pair a main instance (or run{" "}
               <code className="rounded bg-lw-raised px-1 font-lw-mono">legato pair --main</code>). It shows its address and a phrase. Enter them here.
             </p>
             <label className="flex flex-col gap-1 text-xs text-lw-text-2">

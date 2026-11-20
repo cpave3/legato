@@ -1,5 +1,6 @@
 import type { ReactNode } from "react"
 import type { LucideIcon } from "lucide-react"
+import { useGroupTitle } from "./groupTitle"
 
 // The parts the Settings page is built from: groups of cards, cards of rows.
 
@@ -38,6 +39,19 @@ export function SettingsCard({
   label?: string
   children?: ReactNode
 }) {
+  // Under a group heading that says the same, the card does not repeat it.
+  const group = useGroupTitle()
+  if (group && group.toLowerCase() === title.toLowerCase()) {
+    return (
+      <section id={id} aria-label={label} className="scroll-mt-6 overflow-hidden rounded-xl border border-lw-line bg-lw-surface">
+        {(description || browser) && <div className="flex items-start gap-2 px-4 pt-4 pb-3 text-xs leading-relaxed text-lw-text-2">
+          {description && <div className="min-w-0 flex-1">{description}</div>}
+          {browser && <BrowserTag />}
+        </div>}
+        {children && <div className={description || browser ? "px-4 pb-4" : "p-4"}>{children}</div>}
+      </section>
+    )
+  }
   return (
     <section id={id} aria-label={label} className="scroll-mt-6 overflow-hidden rounded-xl border border-lw-line bg-lw-surface">
       <header className="flex items-start gap-3 px-4 pt-4 pb-3">
@@ -63,7 +77,7 @@ export function SettingsRows({ children }: { children: ReactNode }) {
 }
 
 // One setting: what it is on the left, its control on the right.
-export function SettingsRow({ icon: Icon, title, description, browser, control }: { icon: LucideIcon; title: string; description: string; browser?: boolean; control: ReactNode }) {
+export function SettingsRow({ icon: Icon, title, description, browser, control, chip }: { icon: LucideIcon; title: string; description: string; browser?: boolean; control: ReactNode; chip?: ReactNode }) {
   return (
     <div className="flex min-h-16 flex-wrap items-center gap-3 px-4 py-3">
       <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-lw-raised text-lw-link">
@@ -73,6 +87,7 @@ export function SettingsRow({ icon: Icon, title, description, browser, control }
         <div className="flex flex-wrap items-center gap-2">
           <p className="text-sm text-lw-text">{title}</p>
           {browser && <BrowserTag />}
+          {chip}
         </div>
         <p className="mt-0.5 text-xs text-lw-text-2">{description}</p>
       </div>

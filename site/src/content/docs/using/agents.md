@@ -212,7 +212,7 @@ Where to run one:
 
 You can give every agent that works in a repository the same instructions, such as "run the prove-it skill when the work is done". Legato adds them to the agent's launch prompt. It finds the repository from the origin remote of the folder the agent starts in, so the guidance applies in every checkout and worktree of that repository, wherever it is on disk.
 
-Add guidance in the web UI under **Settings › Agents and workspaces › Repository guidance**, or in `config.yaml`:
+Add guidance in the web UI under **Settings › Repositories › Repository guidance**, or in `config.yaml`:
 
 ```yaml
 agents:

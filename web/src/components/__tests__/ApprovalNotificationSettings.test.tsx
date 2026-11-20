@@ -20,7 +20,7 @@ describe("ApprovalNotificationSettings", () => {
   it("is on by default and turns off for this browser", () => {
     fake.permission = "granted"
     render(<ApprovalNotificationSettings />)
-    const toggle = screen.getByRole("button", { name: /Notify me of approvals/ })
+    const toggle = screen.getByRole("button", { name: "Notify me in this browser" })
     expect(toggle.getAttribute("aria-pressed")).toBe("true")
     fireEvent.click(toggle)
     expect(approvalNotificationsEnabled()).toBe(false)

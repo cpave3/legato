@@ -22,13 +22,15 @@ type SettingsRegistry interface {
 	SetEntry(ctx context.Context, list, name string, raw json.RawMessage, by string) error
 	DeleteEntry(ctx context.Context, list, name string) error
 	Export(ctx context.Context, pinned bool) ([]byte, error)
+	FileOnlyValues(ctx context.Context) (map[string]string, error)
 }
 
 // SetSettingsService serves the settings kept in the database.
 func (s *Server) SetSettingsService(settings SettingsRegistry) { s.settingsRegistry = settings }
 
 // configSettingsHandler serves GET /api/config/settings: every registered
-// setting, with its value, its source and whether it waits for a restart.
+// setting, with its value, its source and whether it waits for a restart,
+// and the file-only settings with their values (file_only_values).
 func (s *Server) configSettingsHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
@@ -44,7 +46,12 @@ func (s *Server) configSettingsHandler() http.HandlerFunc {
 			s.writeError(w, http.StatusInternalServerError, err.Error())
 			return
 		}
-		s.writeJSON(w, http.StatusOK, map[string]any{"settings": list, "file_only": config.FileOnlySettings()})
+		fileValues, err := s.settingsRegistry.FileOnlyValues(r.Context())
+		if err != nil {
+			s.writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		s.writeJSON(w, http.StatusOK, map[string]any{"settings": list, "file_only": config.FileOnlySettings(), "file_only_values": fileValues})
 	}
 }
 
