@@ -535,7 +535,7 @@ func prFromStatus(status *github.PRStatus, method string, pinned bool) *store.PR
 		PRNumber: status.Number, PRURL: status.URL, State: status.State,
 		IsDraft: status.IsDraft, ReviewDecision: status.ReviewDecision,
 		CheckStatus: status.CheckStatus, CommentCount: status.CommentCount,
-		Pinned: pinned, MatchMethod: method, SyncOutcome: "linked",
+		Pinned: pinned, MatchMethod: method, SyncOutcome: "linked", Head: status.HeadSHA,
 	}
 }
 
@@ -628,7 +628,7 @@ func prView(repo, branch string, pr *store.PRMeta) PRMetaView {
 		Repo: repo, Branch: branch, PRNumber: pr.PRNumber, PRURL: pr.PRURL, State: pr.State,
 		IsDraft: pr.IsDraft, ReviewDecision: pr.ReviewDecision, CheckStatus: pr.CheckStatus,
 		CommentCount: pr.CommentCount, Pinned: pr.Pinned, MatchMethod: pr.MatchMethod,
-		SyncOutcome: pr.SyncOutcome, SyncError: pr.SyncError,
+		SyncOutcome: pr.SyncOutcome, SyncError: pr.SyncError, Head: pr.Head,
 	}
 }
 

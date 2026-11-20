@@ -63,6 +63,9 @@ type PRMeta struct {
 	MatchMethod    string `json:"match_method,omitempty"`
 	SyncOutcome    string `json:"sync_outcome,omitempty"`
 	SyncError      string `json:"sync_error,omitempty"`
+	// Head is the PR's head commit as last fetched (HeadSHA stays the one
+	// recorded at link time): a push changes it.
+	Head string `json:"head,omitempty"`
 }
 
 // MarshalPRMeta serializes PRMeta to a JSON string pointer for storage.

@@ -34,6 +34,8 @@ type PRMetaView struct {
 	MatchMethod    string
 	SyncOutcome    string
 	SyncError      string
+	// Head is the PR's head commit as last fetched; "" before.
+	Head string
 }
 
 // TrackedBranchView is one branch a task tracks, in stack order, with its

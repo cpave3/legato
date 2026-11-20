@@ -46,6 +46,16 @@ func NewTaskWorkflowLauncher(s *store.Store, workflows *WorkflowService, discove
 	return &TaskWorkflowLauncher{store: s, workflows: workflows, discover: discover}
 }
 
+// Has says whether a workflow of a name is discovered.
+func (l *TaskWorkflowLauncher) Has(name string) bool {
+	for _, definition := range l.discover().Definitions {
+		if definition.Name == name {
+			return true
+		}
+	}
+	return false
+}
+
 func (l *TaskWorkflowLauncher) List(ctx context.Context, taskID string) ([]TaskWorkflowOption, error) {
 	task, err := l.store.GetTask(ctx, taskID)
 	if err != nil {

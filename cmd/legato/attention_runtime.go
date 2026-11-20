@@ -4,6 +4,7 @@ import (
 	"context"
 	"log"
 
+	"github.com/cpave3/legato/config"
 	"github.com/cpave3/legato/internal/engine/events"
 	"github.com/cpave3/legato/internal/engine/store"
 	"github.com/cpave3/legato/internal/server"
@@ -12,7 +13,7 @@ import (
 
 // wireAttention builds an AttentionService with all runtime producers
 // registered and reconciled, then attaches it to the server.
-func wireAttention(ctx context.Context, db *store.Store, bus *events.Bus, srv *server.Server, planSvc *service.PlanService, reviewSvc *service.ReviewService, agentSvc service.AgentService, workflowSvc *service.WorkflowService, approvals *approvalRuntime, updates *service.UpdateService, handoffs *mainHandoffs, triggerCoordinator ...*service.WorkflowTriggerCoordinator) *service.AttentionService {
+func wireAttention(ctx context.Context, db *store.Store, bus *events.Bus, srv *server.Server, planSvc *service.PlanService, reviewSvc *service.ReviewService, agentSvc service.AgentService, workflowSvc *service.WorkflowService, approvals *approvalRuntime, updates *service.UpdateService, handoffs *mainHandoffs, reviewPrompt *service.ReviewPromptAttentionAdapter, triggerCoordinator ...*service.WorkflowTriggerCoordinator) *service.AttentionService {
 	attention := service.NewAttentionService(db, bus)
 	if planSvc != nil {
 		adapter := service.NewPlanAttentionAdapter(planSvc)
@@ -49,6 +50,14 @@ func wireAttention(ctx context.Context, db *store.Store, bus *events.Bus, srv *s
 		mustRegister(attention.RegisterHandler(adapter.Producer(), adapter))
 	}
 
+	if reviewPrompt != nil {
+		// Local work in Done or the review column with open pull requests
+		// no loop reviews: a prompt to start review passes.
+		mustRegister(attention.RegisterProducerWithEvents(reviewPrompt, events.EventCardMoved, events.EventCardUpdated, events.EventCardsRefreshed,
+			events.EventPRStatusUpdated, events.EventWorkflowChanged, events.EventHandoffChanged))
+		mustRegister(attention.RegisterHandler(reviewPrompt.Producer(), reviewPrompt))
+	}
+
 	registerApprovalAttention(attention, approvals)
 	mustRegister(attention.RegisterProducer(service.NewRestartAttentionAdapter(db)))
 	mustRegister(attention.RegisterProducerWithEvents(engramAttention(db), events.EventAgentStarted, events.EventAgentDied, events.EventAgentCompleted))
@@ -75,4 +84,14 @@ func mustRegister(err error) {
 	if err != nil {
 		log.Printf("attention: %v", err)
 	}
+}
+
+// newReviewPrompt is the Attention producer that prompts a review of local
+// work; wireIntegrations gives it the review-pass engine once it runs.
+func newReviewPrompt(cfg *config.Config, db *store.Store, workflows *service.WorkflowService) *service.ReviewPromptAttentionAdapter {
+	var launcher *service.TaskWorkflowLauncher
+	if workflows != nil {
+		launcher = service.NewTaskWorkflowLauncher(db, workflows, workflowDiscoveryProvider(cfg))
+	}
+	return service.NewReviewPromptAttentionAdapter(db, launcher)
 }

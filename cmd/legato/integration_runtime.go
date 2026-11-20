@@ -27,6 +27,9 @@ type integrationDeps struct {
 	// workflows runs review loops on any pull request
 	// (github.pr.review_passes); nil when there is none.
 	workflows *service.WorkflowService
+	// reviewPrompt is told the review-pass engine once it runs; nil for
+	// none.
+	reviewPrompt *service.ReviewPromptAttentionAdapter
 }
 
 // wireIntegrations gives a web server what integrations (Argus) use on
@@ -54,6 +57,13 @@ func wireIntegrations(srv *server.Server, deps integrationDeps) (stop func()) {
 	// The review-pass engine runs wherever review passes are on; handoffs
 	// are one of its callers.
 	reviews, stopReviews := startReviewPasses(deps)
+	if deps.reviewPrompt != nil {
+		deps.reviewPrompt.SetReviews(reviews)
+		if deps.bus != nil {
+			// Attention reconciled before the engine ran: look again.
+			deps.bus.Publish(events.Event{Type: events.EventCardsRefreshed, At: time.Now()})
+		}
+	}
 	wireReviewRuns(srv, deps, reviews)
 	stopHandoffs := wireTaskHandoffs(srv, deps, reviews)
 	if deps.cfg.Integrations.Argus != nil && deps.approvals != nil && deps.approvals.caseAttention != nil {
