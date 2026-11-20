@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/cpave3/legato/internal/engine/store"
@@ -33,6 +34,9 @@ type ReviewLoop struct {
 	// PR is the pull request the loop reviews when its caller knows it
 	// before the first pass (a run's); 0 otherwise.
 	PR int
+	// PRs are every pull request the loop reviews when its caller knows
+	// them before the first pass (a run's stack); nil otherwise.
+	PRs []int
 	// Name and Link say whose loop it is, for a refusal to start another
 	// on the same pull request ("run wr-1", "/workflows/runs/wr-1").
 	Name, Link string
@@ -180,7 +184,7 @@ func (s *ReviewPassService) activeLoopOn(ctx context.Context, repo string, numbe
 		if loop != nil && !l.Pending && (loop.Phase == ReviewPhaseClean || loop.Phase == ReviewPhaseSkipped || loop.Phase == ReviewPhaseEnded) {
 			continue
 		}
-		on := l.PR == number
+		on := l.PR == number || slices.Contains(l.PRs, number)
 		if !on && loop != nil {
 			prs, _ := s.db.ListHandoffReviewPRs(ctx, l.TaskID, loop.Pass)
 			for _, pr := range prs {

@@ -122,6 +122,11 @@ type reviewRun struct {
 	// ConfirmClean is a clean pass whose head GitHub has not yet confirmed
 	// is still the pull request's: each tick asks again.
 	ConfirmClean bool `json:"confirm_clean,omitempty"`
+	// Scope is stack or pr (ReviewScope*); Stack the pull requests a
+	// stack run reviews, bottom first, PR among them (empty for a run
+	// started before stacks: PR alone, on Branch).
+	Scope string        `json:"scope,omitempty"`
+	Stack []reviewRunPR `json:"stack,omitempty"`
 }
 
 var reviewRunKey = []string{"legato", "review_loop"}
@@ -163,6 +168,10 @@ func (c *ReviewRunCaller) Start(ctx context.Context, step ResolvedWorkflowStep) 
 		return WorkflowExecutionResult{}, fmt.Errorf("a review loop needs repo (owner/name) and pr_number")
 	}
 	agentAuthor, _ := step.With["agent_author"].(bool)
+	scope, err := reviewScope(step.With)
+	if err != nil {
+		return WorkflowExecutionResult{}, err
+	}
 	cfg := c.engine.config()
 	if !cfg.Enabled {
 		return WorkflowExecutionResult{}, errors.New("review passes are off on this Legato: turn on review_passes, with a reviewer App credential, to run a review loop")
@@ -184,10 +193,23 @@ func (c *ReviewRunCaller) Start(ctx context.Context, step ResolvedWorkflowStep) 
 	if state != "open" {
 		return WorkflowExecutionResult{}, fmt.Errorf("pull request #%d of %s is %s: a review loop needs an open pull request", number, repo, state)
 	}
-	if active := c.engine.ActiveLoopOn(ctx, repo, number); active != nil {
-		return WorkflowExecutionResult{}, active
+	pr.Number = number
+	prs, err := c.runStack(ctx, repo, pr, scope)
+	if err != nil {
+		return WorkflowExecutionResult{}, err
+	}
+	for _, p := range prs {
+		if active := c.engine.ActiveLoopOn(ctx, repo, p.Number); active != nil {
+			return WorkflowExecutionResult{}, active
+		}
 	}
 	linked := c.linkedTask(ctx, repo, number, pr.Branch)
+	for _, p := range prs {
+		if linked == "" && p.Number != number {
+			// A stack's card may track another of its layers.
+			linked = c.linkedTask(ctx, repo, p.Number, p.Branch)
+		}
+	}
 	if agentAuthor {
 		if linked == "" {
 			return WorkflowExecutionResult{}, fmt.Errorf("agent_author needs a board task linked to pull request #%d of %s, and none is: Legato starts no fresh author. Run without agent_author, and the branch's owner is the author", number, repo)
@@ -201,8 +223,10 @@ func (c *ReviewRunCaller) Start(ctx context.Context, step ResolvedWorkflowStep) 
 			return WorkflowExecutionResult{}, fmt.Errorf("%s's agent already authors the review loop of run %s (/workflows/runs/%s): one agent-authored loop runs per task", author, other, other)
 		}
 	}
-	if err := c.opts.Clones.PullHead(ctx, repo, number); err != nil {
-		return WorkflowExecutionResult{}, fmt.Errorf("fetching the head of #%d: %w", number, err)
+	for _, p := range prs {
+		if err := c.opts.Clones.PullHead(ctx, repo, p.Number); err != nil {
+			return WorkflowExecutionResult{}, fmt.Errorf("fetching the head of #%d: %w", p.Number, err)
+		}
 	}
 	clone, err := c.opts.Clones.JobClone(ctx, JobCloneRequest{ExecutionID: step.AttemptID, TaskID: step.TaskID, Repo: repo, Ref: pr.HeadSHA,
 		FreshBranch: reviewRunBranch(number)})
@@ -210,7 +234,21 @@ func (c *ReviewRunCaller) Start(ctx context.Context, step ResolvedWorkflowStep) 
 		return WorkflowExecutionResult{}, fmt.Errorf("cloning %s at the head of #%d: %w", repo, number, err)
 	}
 	run := reviewRun{RunID: step.RunID, StepID: step.StepID, AttemptID: step.AttemptID, Repo: repo, PR: number, Branch: clone.Branch,
-		CloneID: clone.ID, Dir: clone.Path, LinkedTask: linked, AuthorTask: author}
+		CloneID: clone.ID, Dir: clone.Path, LinkedTask: linked, AuthorTask: author, Scope: scope}
+	if len(prs) > 1 {
+		// One branch of the clone per layer, each put at its head by
+		// Checkout before every pass.
+		for _, p := range prs {
+			branch := reviewRunBranch(p.Number)
+			if p.Number == number {
+				branch = clone.Branch
+			}
+			run.Stack = append(run.Stack, reviewRunPR{Number: p.Number, Branch: branch})
+		}
+		if err := c.engine.db.RetitleWorkflowRun(ctx, step.RunID, "Review loop on "+reviewStackName(repo, run.numbers())); err != nil {
+			log.Printf("review passes: naming run %s after its stack: %v", step.RunID, err)
+		}
+	}
 	if err := c.engine.db.SetTaskMetadata(ctx, step.TaskID, reviewRunKey, run); err != nil {
 		c.removeClone(ctx, &run)
 		return WorkflowExecutionResult{}, err
@@ -332,45 +370,46 @@ func (c *ReviewRunCaller) Loop(ctx context.Context, taskID string) (ReviewLoop, 
 	}
 	// An agent author handles failing checks too (LEG-305); a person's
 	// loop is findings only (LEG-255).
-	return ReviewLoop{TaskID: taskID, Repo: run.Repo, PR: run.PR, AuthorTaskID: run.AuthorTask, Pending: run.ConfirmClean, CountChecks: run.AuthorTask != "",
+	return ReviewLoop{TaskID: taskID, Repo: run.Repo, PR: run.PR, PRs: run.numbers(), AuthorTaskID: run.AuthorTask, Pending: run.ConfirmClean, CountChecks: run.AuthorTask != "",
 		Name: "run " + run.RunID, Link: "/workflows/runs/" + run.RunID}, true
 }
 
-// Checkout puts the run's clone at the pull request's head on GitHub now and
-// names it; a pull request no longer open has nothing to review.
+// Checkout puts each of the run's pull requests still open at its head on
+// GitHub now, on its branch of the clone, bottom of the stack first (so
+// HEAD ends at the top), and names them; none open leaves nothing to
+// review.
 func (c *ReviewRunCaller) Checkout(ctx context.Context, l ReviewLoop) (string, []ReviewGitHubPR, error) {
 	run, err := c.run(ctx, l.TaskID)
 	if err != nil {
 		return "", nil, &ReviewCheckoutError{Err: err}
 	}
-	pr, state, err := c.opts.GitHub.PullRequest(ctx, run.Repo, run.PR)
+	branches := map[int]string{}
+	for _, p := range run.prs() {
+		branches[p.Number] = p.Branch
+	}
+	open, err := c.openRunPRs(ctx, run)
 	if err != nil {
 		return "", nil, err
 	}
-	if state != "open" {
-		return run.Dir, nil, nil
+	for i, pr := range open {
+		if err := c.opts.Clones.PullHead(ctx, run.Repo, pr.Number); err != nil {
+			return "", nil, err
+		}
+		if err := c.opts.Clones.Reset(ctx, run.Dir, branches[pr.Number], pr.HeadSHA); err != nil {
+			return "", nil, &ReviewCheckoutError{Err: err}
+		}
+		open[i].Branch = branches[pr.Number]
 	}
-	if err := c.opts.Clones.PullHead(ctx, run.Repo, run.PR); err != nil {
-		return "", nil, err
-	}
-	if err := c.opts.Clones.Reset(ctx, run.Dir, run.Branch, pr.HeadSHA); err != nil {
-		return "", nil, &ReviewCheckoutError{Err: err}
-	}
-	pr.Branch = run.Branch
-	return run.Dir, []ReviewGitHubPR{pr}, nil
+	return run.Dir, open, nil
 }
 
-// OpenPRs is the run's pull request while it is open.
+// OpenPRs are the run's pull requests still open.
 func (c *ReviewRunCaller) OpenPRs(ctx context.Context, l ReviewLoop) ([]ReviewGitHubPR, error) {
 	run, err := c.run(ctx, l.TaskID)
 	if err != nil {
 		return nil, err
 	}
-	pr, state, err := c.opts.GitHub.PullRequest(ctx, run.Repo, run.PR)
-	if err != nil || state != "open" {
-		return nil, err
-	}
-	return []ReviewGitHubPR{pr}, nil
+	return c.openRunPRs(ctx, run)
 }
 
 // AuthorDone says the branch's owner has finished a round: the pull
@@ -387,30 +426,31 @@ func (c *ReviewRunCaller) AuthorDone(ctx context.Context, l ReviewLoop) bool {
 		c.confirmClean(ctx, l.TaskID)
 		return false
 	}
-	pr, state, err := c.opts.GitHub.PullRequest(ctx, run.Repo, run.PR)
+	open, err := c.openRunPRs(ctx, run)
 	if err != nil {
 		return false // GitHub may answer next time
 	}
-	if state != "open" {
+	if len(open) == 0 {
 		c.finish(ctx, l.TaskID, ReviewOutcomeClosed)
 		return false
 	}
-	pinned := c.pinnedHead(ctx, l.TaskID)
+	pushed := moved(open, c.pinnedHeads(ctx, l.TaskID))
 	now := c.engine.opts.Now()
-	if l.AuthorTaskID != "" && c.agentDone(ctx, l, pr.HeadSHA != pinned) {
+	if l.AuthorTaskID != "" && c.agentDone(ctx, l, pushed) {
 		return true
 	}
-	if pr.HeadSHA != pinned {
-		if pr.HeadSHA != run.SeenHead {
-			// A push, or another one: the quiet time starts again.
-			run.SeenHead, run.SeenAt = pr.HeadSHA, now.UTC().Format(time.RFC3339)
+	if pushed {
+		if heads := headsKey(open); heads != run.SeenHead {
+			// A push, or another one to any layer (a restack moves
+			// several): the quiet time starts again.
+			run.SeenHead, run.SeenAt = heads, now.UTC().Format(time.RFC3339)
 			_ = c.engine.db.SetTaskMetadata(ctx, l.TaskID, reviewRunKey, run)
 			return false
 		}
 		seen, err := time.Parse(time.RFC3339, run.SeenAt)
 		return err == nil && now.Sub(seen) >= c.engine.config().QuietTime
 	}
-	return c.disputed(ctx, l, run)
+	return c.disputed(ctx, l, run, open)
 }
 
 // agentDone says an agent author finished its round: idle, every finding
@@ -444,23 +484,10 @@ func (c *ReviewRunCaller) agentDone(ctx context.Context, l ReviewLoop, pushed bo
 	return pushed || disputed || (checksSettled && checks > 0)
 }
 
-// pinnedHead is the head the loop's last pass reviewed.
-func (c *ReviewRunCaller) pinnedHead(ctx context.Context, taskID string) string {
-	loop, err := c.engine.db.GetHandoffReview(ctx, taskID)
-	if err != nil || loop == nil {
-		return ""
-	}
-	prs, err := c.engine.db.ListHandoffReviewPRs(ctx, taskID, loop.Pass)
-	if err != nil || len(prs) == 0 {
-		return ""
-	}
-	return prs[0].HeadSHA
-}
-
 // disputed reads the pull request's threads, and takes a reply in the thread
 // of an open blocking finding, by anyone but Legato, as the author's answer
 // to it.
-func (c *ReviewRunCaller) disputed(ctx context.Context, l ReviewLoop, run *reviewRun) bool {
+func (c *ReviewRunCaller) disputed(ctx context.Context, l ReviewLoop, run *reviewRun, open []ReviewGitHubPR) bool {
 	loop, err := c.engine.db.GetHandoffReview(ctx, l.TaskID)
 	if err != nil || loop == nil {
 		return false
@@ -478,9 +505,13 @@ func (c *ReviewRunCaller) disputed(ctx context.Context, l ReviewLoop, run *revie
 	if len(threads) == 0 {
 		return false
 	}
-	poll, err := c.engine.opts.GitHub.PollComments(ctx, run.Repo, run.PR, storePollPages{db: c.engine.db, taskID: l.TaskID, pr: run.PR})
-	if err != nil {
-		return false
+	var poll CommentPoll
+	for _, pr := range open {
+		got, err := c.engine.opts.GitHub.PollComments(ctx, run.Repo, pr.Number, storePollPages{db: c.engine.db, taskID: l.TaskID, pr: pr.Number})
+		if err != nil {
+			return false
+		}
+		poll.Comments = append(poll.Comments, got.Comments...)
 	}
 	legato := map[string]bool{}
 	for _, comment := range poll.Comments {
@@ -518,19 +549,23 @@ func (c *ReviewRunCaller) disputed(ctx context.Context, l ReviewLoop, run *revie
 	return answered
 }
 
-// Pushed says whether the pull request's head on GitHub moved past the head
+// Pushed says whether a pull request's head on GitHub moved past the head
 // the last pass pinned.
 func (c *ReviewRunCaller) Pushed(ctx context.Context, l ReviewLoop, pinned []store.HandoffReviewPR) (bool, error) {
 	run, err := c.run(ctx, l.TaskID)
 	if err != nil {
 		return false, err
 	}
-	pr, _, err := c.opts.GitHub.PullRequest(ctx, run.Repo, run.PR)
+	open, err := c.openRunPRs(ctx, run)
 	if err != nil {
 		return false, err
 	}
+	heads := map[int]string{}
+	for _, pr := range open {
+		heads[pr.Number] = pr.HeadSHA
+	}
 	for _, p := range pinned {
-		if p.Number == run.PR && p.HeadSHA != pr.HeadSHA {
+		if head, ok := heads[p.Number]; ok && head != p.HeadSHA {
 			return true, nil
 		}
 	}
@@ -682,7 +717,7 @@ func (c *ReviewRunCaller) outputs(ctx context.Context, taskID string, run *revie
 // reviewRunSummary is the loop in Markdown, for the linked task's note.
 func reviewRunSummary(run *reviewRun, outcome string, passes int, findings []store.HandoffReviewFinding, reviews []map[string]any) string {
 	var b strings.Builder
-	fmt.Fprintf(&b, "Review loop on %s#%d: %s after %d %s.\n", run.Repo, run.PR, outcome, passes, plural(passes, "pass", "passes"))
+	fmt.Fprintf(&b, "Review loop on %s: %s after %d %s.\n", reviewStackName(run.Repo, run.numbers()), outcome, passes, plural(passes, "pass", "passes"))
 	for _, r := range reviews {
 		fmt.Fprintf(&b, "\n- Pass %v review: %v", r["pass"], r["url"])
 	}
@@ -976,13 +1011,13 @@ func (c *ReviewRunCaller) confirmClean(ctx context.Context, taskID string) {
 		log.Printf("review passes: confirming %s: %v", taskID, err)
 		return
 	}
-	pr, state, err := c.opts.GitHub.PullRequest(ctx, run.Repo, run.PR)
+	open, err := c.openRunPRs(ctx, run)
 	if err != nil {
 		if !run.ConfirmClean {
 			run.ConfirmClean = true
 			_ = c.engine.db.SetTaskMetadata(ctx, taskID, reviewRunKey, run)
 		}
-		log.Printf("review passes: confirming the head of %s#%d, trying again: %v", run.Repo, run.PR, err)
+		log.Printf("review passes: confirming the heads of %s, trying again: %v", reviewStackName(run.Repo, run.numbers()), err)
 		return
 	}
 	if run.ConfirmClean {
@@ -990,9 +1025,9 @@ func (c *ReviewRunCaller) confirmClean(ctx context.Context, taskID string) {
 		_ = c.engine.db.SetTaskMetadata(ctx, taskID, reviewRunKey, run)
 	}
 	switch {
-	case state != "open":
+	case len(open) == 0:
 		c.finish(ctx, taskID, ReviewOutcomeClosed)
-	case pr.HeadSHA != c.pinnedHead(ctx, taskID):
+	case moved(open, c.pinnedHeads(ctx, taskID)):
 		if err := c.engine.reopen(ctx, taskID); err != nil {
 			log.Printf("review passes: %s moved during its pass: %v", taskID, err)
 		}

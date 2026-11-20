@@ -142,6 +142,8 @@ Legato makes its own clone of the pull request's head (a fork's too) and starts 
 
 ### Tuning one loop
 
+By default the loop reviews the whole stack the pull request is in (`scope: stack`): Legato follows GitHub's chain from its branch, down base by base to the default branch and up through the open pull requests stacked on it by the same author, and reviews every one of them in one loop, each against its own base, with one GitHub review per pull request. Start it on any layer; the run is named after the stack (`acme/widget#137–#141`). A layer that merges or closes drops out, and the loop ends closed only when none is left open. A push to any layer, such as a fix at the bottom with the layers above restacked, starts the next pass once the heads stay still. Give `scope: pr` to review the named pull request alone. A run on a layer another loop already reviews is refused, naming that loop.
+
 A loop takes its settings from this Legato's `review_passes`: the reviewer, its model or tier, the skill, the maximum passes and the timings. The `review-pr-passes` inputs override two of them for one run: `max_passes`, and `reviewer` (an agent tool, or `tool:tier`, such as `codex:careful`). An input left empty uses the setting. In a workflow of your own, the `github.pr.review_passes` step's `max_passes` and `reviewer` do the same, and when they template a run input, the input wins. A reviewer this Legato does not offer is refused when the run starts, with the ones it does.
 
 ### How the author moves the loop on

@@ -121,6 +121,19 @@ type WorkflowRunView struct {
 	Details map[string]any `json:"details,omitempty"`
 }
 
+// RetitleWorkflowRun gives a run, and its task when it has one, a new title:
+// a step that learns what the run is about once it starts (a review loop
+// that found a stack, say).
+func (s *Store) RetitleWorkflowRun(ctx context.Context, runID, title string) error {
+	return withTx(ctx, s.db, func(tx *sqlx.Tx) error {
+		if _, err := tx.ExecContext(ctx, `UPDATE workflow_runs SET workflow_title = ? WHERE id = ?`, title, runID); err != nil {
+			return err
+		}
+		_, err := tx.ExecContext(ctx, `UPDATE tasks SET title = ? WHERE id = (SELECT task_id FROM workflow_runs WHERE id = ?)`, title, runID)
+		return err
+	})
+}
+
 func (s *Store) CreateWorkflowRun(ctx context.Context, run WorkflowRun, steps []WorkflowStepRun) error {
 	return withTx(ctx, s.db, func(tx *sqlx.Tx) error {
 		if _, err := tx.NamedExecContext(ctx, `INSERT INTO workflow_runs
