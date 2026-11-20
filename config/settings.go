@@ -55,13 +55,27 @@ const (
 
 // Setting declares one setting that can live in the database.
 type Setting struct {
-	Key         string       `json:"key"`
-	Title       string       `json:"title"`
-	Description string       `json:"description,omitempty"`
-	Kind        SettingKind  `json:"kind"`
-	Enum        []string     `json:"enum,omitempty"`
-	Class       SettingClass `json:"class"`
-	Mode        SettingMode  `json:"mode"`
+	Key   string `json:"key"`
+	Title string `json:"title"`
+	// Section is where the setting lives in Settings (SettingSections),
+	// and Group the headed part of that section it sits in.
+	Section string `json:"section"`
+	Group   string `json:"group"`
+	// Help is one line on what the setting does, including what empty or
+	// off means.
+	Help string `json:"help,omitempty"`
+	// Description is Help under its old name, kept in the API for one
+	// release after help ships. Set from Help; never write it.
+	Description string `json:"description,omitempty"`
+	// Unit is what a number counts; a duration needs none.
+	Unit SettingUnit `json:"unit,omitempty"`
+	// DefaultLabel is what the setting is when unset, when that is not its
+	// zero value ("4", "engram on PATH").
+	DefaultLabel string       `json:"default_label,omitempty"`
+	Kind         SettingKind  `json:"kind"`
+	Enum         []string     `json:"enum,omitempty"`
+	Class        SettingClass `json:"class"`
+	Mode         SettingMode  `json:"mode"`
 	// Secret: the value is the name of a secret in Legato's secret store
 	// or 1Password, never the secret itself.
 	Secret bool `json:"secret,omitempty"`
@@ -76,20 +90,20 @@ var burnliteProjectPattern = regexp.MustCompile(`^[A-Z]{2,6}[0-9]{0,4}$`)
 
 var registry = []Setting{
 	// Agents.
-	{Key: "agents.default_tool", Title: "Default agent tool", Description: "The agent tool Legato starts when you name none: claude-code, codex or chimera. Unset, swarm.worker.agent, then claude-code.", Kind: KindEnum, Enum: []string{"", "claude-code", "codex", "chimera"}, Class: ClassChange, Mode: ModeRestart},
-	{Key: "agents.escape_key", Title: "Detach key", Description: "The key that leaves an agent's terminal in the TUI, as ctrl+].", Kind: KindString, Class: ClassChange, Mode: ModeRestart},
-	{Key: "agents.sparkline_window", Title: "Activity window", Description: "How far back the activity bar of an agent reaches.", Kind: KindDuration, Class: ClassChange, Mode: ModeRestart},
-	{Key: "agents.peer_awareness", Title: "Peer awareness", Description: "Tell agents in the same Git worktree about each other.", Kind: KindBool, Class: ClassChange, Mode: ModeRestart},
-	{Key: "agents.reviews", Title: "Reviews", Description: "Ask agents for a review tour and a handoff packet at the end of their work.", Kind: KindBool, Class: ClassChange, Mode: ModeRestart},
-	{Key: "agents.mcp.enabled", Title: "Legato tools", Description: "Give agents Legato's tools (cards, artifacts, notes) through `legato mcp serve`.", Kind: KindBool, Class: ClassChange, Mode: ModeRestart},
-	{Key: "agents.sandbox.enabled", Title: "Sandbox", Description: "Run every agent in Legato's sandbox unless its spawn opts out.", Kind: KindBool, Class: ClassRisky, Mode: ModeRestart},
-	{Key: "agents.sandbox.backend", Title: "Sandbox backend", Description: "Only bwrap for now.", Kind: KindString, Class: ClassRisky, Mode: ModeRestart},
-	{Key: "agents.sandbox.default_mounts", Title: "Toolchains in the sandbox", Description: "Show the operator's toolchains (read-only) and package caches inside the sandbox.", Kind: KindBool, Class: ClassRisky, Mode: ModeRestart},
+	{Key: "agents.default_tool", Title: "Default agent tool", Help: "The agent tool Legato starts when you name none: claude-code, codex or chimera. Unset, swarm.worker.agent, then claude-code.", Kind: KindEnum, Enum: []string{"", "claude-code", "codex", "chimera"}, Class: ClassChange, Mode: ModeRestart},
+	{Key: "agents.escape_key", Title: "Detach key", Help: "The key that leaves an agent's terminal in the TUI, as ctrl+].", Kind: KindString, Class: ClassChange, Mode: ModeRestart},
+	{Key: "agents.sparkline_window", Title: "Activity window", Help: "How far back the activity bar of an agent reaches.", Kind: KindDuration, Class: ClassChange, Mode: ModeRestart},
+	{Key: "agents.peer_awareness", Title: "Peer awareness", Help: "Tell agents in the same Git worktree about each other.", Kind: KindBool, Class: ClassChange, Mode: ModeRestart},
+	{Key: "agents.reviews", Title: "Reviews", Help: "Ask agents for a review tour and a handoff packet at the end of their work.", Kind: KindBool, Class: ClassChange, Mode: ModeRestart},
+	{Key: "agents.mcp.enabled", Title: "Legato tools", Help: "Give agents Legato's tools (cards, artifacts, notes) through `legato mcp serve`.", Kind: KindBool, Class: ClassChange, Mode: ModeRestart},
+	{Key: "agents.sandbox.enabled", Title: "Sandbox", Help: "Run every agent in Legato's sandbox unless its spawn opts out.", Kind: KindBool, Class: ClassRisky, Mode: ModeRestart},
+	{Key: "agents.sandbox.backend", Title: "Sandbox backend", Help: "Only bwrap for now.", Kind: KindString, Class: ClassRisky, Mode: ModeRestart},
+	{Key: "agents.sandbox.default_mounts", Title: "Toolchains in the sandbox", Help: "Show the operator's toolchains (read-only) and package caches inside the sandbox.", Kind: KindBool, Class: ClassRisky, Mode: ModeRestart},
 	{Key: "agents.sandbox.scratch_dir", Title: "Sandbox scratch folder", Kind: KindString, Class: ClassRisky, Mode: ModeRestart},
-	{Key: "agents.sandbox.docker.enabled", Title: "Docker in the sandbox", Description: "Give sandboxed agents a filtered Docker socket: their own containers, mounting only what their sandbox sees.", Kind: KindBool, Class: ClassRisky, Mode: ModeRestart},
-	{Key: "agents.sandbox.docker.host", Title: "Docker daemon for sandboxed agents", Description: "unix:// or tcp://; Legato's DOCKER_HOST, Docker context, or /var/run/docker.sock when empty.", Kind: KindString, Class: ClassRisky, Mode: ModeRestart},
-	{Key: "agents.sandbox.docker.cap_add", Title: "Capabilities sandboxed containers may add", Description: "Such as SYS_PTRACE. Capabilities that reach the host are refused.", Kind: KindStrings, Class: ClassRisky, Mode: ModeRestart},
-	{Key: "agents.sandbox.docker.publish", Title: "Where sandboxed containers publish ports", Description: "loopback binds 127.0.0.1; any binds every address.", Kind: KindEnum, Enum: []string{"loopback", "any"}, Class: ClassRisky, Mode: ModeRestart},
+	{Key: "agents.sandbox.docker.enabled", Title: "Docker in the sandbox", Help: "Give sandboxed agents a filtered Docker socket: their own containers, mounting only what their sandbox sees.", Kind: KindBool, Class: ClassRisky, Mode: ModeRestart},
+	{Key: "agents.sandbox.docker.host", Title: "Docker daemon for sandboxed agents", Help: "unix:// or tcp://; Legato's DOCKER_HOST, Docker context, or /var/run/docker.sock when empty.", Kind: KindString, Class: ClassRisky, Mode: ModeRestart},
+	{Key: "agents.sandbox.docker.cap_add", Title: "Capabilities sandboxed containers may add", Help: "Such as SYS_PTRACE. Capabilities that reach the host are refused.", Kind: KindStrings, Class: ClassRisky, Mode: ModeRestart},
+	{Key: "agents.sandbox.docker.publish", Title: "Where sandboxed containers publish ports", Help: "loopback binds 127.0.0.1; any binds every address.", Kind: KindEnum, Enum: []string{"loopback", "any"}, Class: ClassRisky, Mode: ModeRestart},
 
 	// Notifications.
 	{Key: "notifications.ntfy.url", Title: "ntfy server", Kind: KindString, Class: ClassChange, Mode: ModeRestart},
@@ -100,37 +114,37 @@ var registry = []Setting{
 
 	// Look and feel.
 	{Key: "theme", Title: "Theme", Kind: KindString, Class: ClassChange, Mode: ModeRestart},
-	{Key: "icons", Title: "Icons", Description: "Unicode glyphs, or Nerd Font ones.", Kind: KindEnum, Enum: []string{"unicode", "nerdfonts"}, Class: ClassChange, Mode: ModeRestart},
-	{Key: "editor", Title: "Editor", Description: "The editor the TUI opens; $VISUAL, then $EDITOR, when empty.", Kind: KindString, Class: ClassChange, Mode: ModeRestart},
-	{Key: "web.tint", Title: "Tint", Description: "A colour that tells this Legato from others in the web UI.", Kind: KindEnum, Enum: []string{"", "red", "orange", "yellow", "green", "teal", "blue", "purple", "pink"}, Class: ClassChange, Mode: ModeLive},
+	{Key: "icons", Title: "Icons", Help: "Unicode glyphs, or Nerd Font ones.", Kind: KindEnum, Enum: []string{"unicode", "nerdfonts"}, Class: ClassChange, Mode: ModeRestart},
+	{Key: "editor", Title: "Editor", Help: "The editor the TUI opens; $VISUAL, then $EDITOR, when empty.", Kind: KindString, Class: ClassChange, Mode: ModeRestart},
+	{Key: "web.tint", Title: "Tint", Help: "A colour that tells this Legato from others in the web UI.", Kind: KindEnum, Enum: []string{"", "red", "orange", "yellow", "green", "teal", "blue", "purple", "pink"}, Class: ClassChange, Mode: ModeLive},
 
 	// Updates.
-	{Key: "updates.mode", Title: "Updates", Description: "auto installs new releases; ask offers them; off never looks.", Kind: KindEnum, Enum: []string{"auto", "ask", "off"}, Class: ClassRisky, Mode: ModeLive},
+	{Key: "updates.mode", Title: "Updates", Help: "auto installs new releases; ask offers them; off never looks.", Kind: KindEnum, Enum: []string{"auto", "ask", "off"}, Class: ClassRisky, Mode: ModeLive},
 
-	{Key: "notifications.ntfy.token", Title: "ntfy token", Description: "The name of a secret holding the token for a private topic.", Kind: KindString, Secret: true, Class: ClassRisky, Mode: ModeRestart},
+	{Key: "notifications.ntfy.token", Title: "ntfy token", Help: "The name of a secret holding the token for a private topic.", Kind: KindString, Secret: true, Class: ClassRisky, Mode: ModeRestart},
 	{Key: "keybindings.vim_mode", Title: "Vim keys", Kind: KindBool, Class: ClassChange, Mode: ModeRestart},
-	{Key: "web.rail.actions", Title: "Rail: actions", Description: "Things agents ask you to do that only you can: a command, a test in a browser, a merge.", Kind: KindBool, Class: ClassChange, Mode: ModeLive},
-	{Key: "web.rail.questions", Title: "Rail: questions", Description: "Questions agents asked you in plain words.", Kind: KindBool, Class: ClassChange, Mode: ModeLive},
-	{Key: "web.rail.done", Title: "Rail: finished work", Description: "Work agents finished for you to look at.", Kind: KindBool, Class: ClassChange, Mode: ModeLive},
-	{Key: "web.rail.other", Title: "Rail: anything else from agents", Description: "Anything else agents post for you.", Kind: KindBool, Class: ClassChange, Mode: ModeLive},
-	{Key: "web.rail.approvals", Title: "Rail: approvals", Description: "Requests that hold an agent mid-turn, and paired instances' change sets.", Kind: KindBool, Class: ClassChange, Mode: ModeLive},
-	{Key: "web.rail.agents", Title: "Rail: agents", Description: "Agents waiting for you or stopped on an error.", Kind: KindBool, Class: ClassChange, Mode: ModeLive},
-	{Key: "web.rail.workflows", Title: "Rail: workflows", Description: "Workflow gates, failures, stuck review loops and triggers.", Kind: KindBool, Class: ClassChange, Mode: ModeLive},
-	{Key: "web.rail.plans", Title: "Rail: plans", Description: "Plans waiting for your decision.", Kind: KindBool, Class: ClassChange, Mode: ModeLive},
-	{Key: "web.rail.review", Title: "Rail: ready for review", Description: "Review tours ready and handoffs done. Off unless set.", Kind: KindBool, Class: ClassChange, Mode: ModeLive},
-	{Key: "web.rail.merge", Title: "Rail: merge blockers", Description: "Pull requests that cannot merge, and Argus's cases. Off unless set.", Kind: KindBool, Class: ClassChange, Mode: ModeLive},
-	{Key: "web.rail.legato", Title: "Rail: Legato", Description: "Updates, restarts, settings, devices, handoff, integrations, engrams and interrupted agents.", Kind: KindBool, Class: ClassChange, Mode: ModeLive},
-	{Key: "web.discovery", Title: "Announce on the network", Description: "Announce the web server over mDNS so the phone app finds it.", Kind: KindBool, Class: ClassRisky, Mode: ModeRestart},
+	{Key: "web.rail.actions", Title: "Rail: actions", Help: "Things agents ask you to do that only you can: a command, a test in a browser, a merge.", Kind: KindBool, Class: ClassChange, Mode: ModeLive},
+	{Key: "web.rail.questions", Title: "Rail: questions", Help: "Questions agents asked you in plain words.", Kind: KindBool, Class: ClassChange, Mode: ModeLive},
+	{Key: "web.rail.done", Title: "Rail: finished work", Help: "Work agents finished for you to look at.", Kind: KindBool, Class: ClassChange, Mode: ModeLive},
+	{Key: "web.rail.other", Title: "Rail: anything else from agents", Help: "Anything else agents post for you.", Kind: KindBool, Class: ClassChange, Mode: ModeLive},
+	{Key: "web.rail.approvals", Title: "Rail: approvals", Help: "Requests that hold an agent mid-turn, and paired instances' change sets.", Kind: KindBool, Class: ClassChange, Mode: ModeLive},
+	{Key: "web.rail.agents", Title: "Rail: agents", Help: "Agents waiting for you or stopped on an error.", Kind: KindBool, Class: ClassChange, Mode: ModeLive},
+	{Key: "web.rail.workflows", Title: "Rail: workflows", Help: "Workflow gates, failures, stuck review loops and triggers.", Kind: KindBool, Class: ClassChange, Mode: ModeLive},
+	{Key: "web.rail.plans", Title: "Rail: plans", Help: "Plans waiting for your decision.", Kind: KindBool, Class: ClassChange, Mode: ModeLive},
+	{Key: "web.rail.review", Title: "Rail: ready for review", Help: "Review tours ready and handoffs done. Off unless set.", Kind: KindBool, Class: ClassChange, Mode: ModeLive},
+	{Key: "web.rail.merge", Title: "Rail: merge blockers", Help: "Pull requests that cannot merge, and Argus's cases. Off unless set.", Kind: KindBool, Class: ClassChange, Mode: ModeLive},
+	{Key: "web.rail.legato", Title: "Rail: Legato", Help: "Updates, restarts, settings, devices, handoff, integrations, engrams and interrupted agents.", Kind: KindBool, Class: ClassChange, Mode: ModeLive},
+	{Key: "web.discovery", Title: "Announce on the network", Help: "Announce the web server over mDNS so the phone app finds it.", Kind: KindBool, Class: ClassRisky, Mode: ModeRestart},
 	{Key: "agents.mcp.resource_domains", Title: "Hosts agents' HTML may load from", Kind: KindStrings, Class: ClassRisky, Mode: ModeRestart},
 	{Key: "groups.defaults", Title: "Default groups", Kind: KindStrings, Class: ClassChange, Mode: ModeRestart},
-	{Key: "default_workspace", Title: "Default workspace", Description: "The workspace of a new task.", Kind: KindString, Class: ClassChange, Mode: ModeRestart},
-	{Key: "default_import_workspace", Title: "Default import workspace", Description: "The workspace of an imported task.", Kind: KindString, Class: ClassChange, Mode: ModeRestart},
+	{Key: "default_workspace", Title: "Default workspace", Help: "The workspace of a new task.", Kind: KindString, Class: ClassChange, Mode: ModeRestart},
+	{Key: "default_import_workspace", Title: "Default import workspace", Help: "The workspace of an imported task.", Kind: KindString, Class: ClassChange, Mode: ModeRestart},
 	{Key: "ssh_agent_socket", Title: "SSH agent socket", Kind: KindString, Class: ClassRisky, Mode: ModeRestart},
 
 	// Jira.
 	{Key: "jira.base_url", Title: "Jira address", Kind: KindString, Class: ClassChange, Mode: ModeRestart},
 	{Key: "jira.email", Title: "Jira email", Kind: KindString, Class: ClassChange, Mode: ModeRestart},
-	{Key: "jira.api_token", Title: "Jira API token", Description: "The name of a secret holding the token.", Kind: KindString, Secret: true, Class: ClassRisky, Mode: ModeRestart},
+	{Key: "jira.api_token", Title: "Jira API token", Help: "The name of a secret holding the token.", Kind: KindString, Secret: true, Class: ClassRisky, Mode: ModeRestart},
 	{Key: "jira.project_keys", Title: "Jira projects", Kind: KindStrings, Class: ClassChange, Mode: ModeRestart},
 	{Key: "jira.jql_filter", Title: "Jira filter", Kind: KindString, Class: ClassChange, Mode: ModeRestart},
 	{Key: "jira.sync_interval_seconds", Title: "Jira sync interval (seconds)", Kind: KindInt, Class: ClassChange, Mode: ModeRestart, Check: nonNegative},
@@ -147,10 +161,10 @@ var registry = []Setting{
 	{Key: "burnlite.columns.closed", Title: "Burnlite: column for closed", Kind: KindString, Class: ClassChange, Mode: ModeRestart},
 
 	// GitHub.
-	{Key: "github.auth", Title: "GitHub sign-in", Description: "auto, gh or token.", Kind: KindEnum, Enum: []string{"auto", "gh", "token"}, Class: ClassRisky, Mode: ModeRestart},
-	{Key: "github.token", Title: "GitHub token", Description: "The name of a secret holding the token.", Kind: KindString, Secret: true, Class: ClassRisky, Mode: ModeRestart},
+	{Key: "github.auth", Title: "GitHub sign-in", Help: "auto, gh or token.", Kind: KindEnum, Enum: []string{"auto", "gh", "token"}, Class: ClassRisky, Mode: ModeRestart},
+	{Key: "github.token", Title: "GitHub token", Help: "The name of a secret holding the token.", Kind: KindString, Secret: true, Class: ClassRisky, Mode: ModeRestart},
 	{Key: "github.poll_interval_seconds", Title: "GitHub poll interval (seconds)", Kind: KindInt, Class: ClassChange, Mode: ModeRestart, Check: nonNegative},
-	{Key: "github.app_logins", Title: "Legato's GitHub App logins", Description: "Bot logins of Legato's own GitHub Apps, whose reviews never start a workflow.", Kind: KindStrings, Class: ClassChange, Mode: ModeRestart},
+	{Key: "github.app_logins", Title: "Legato's GitHub App logins", Help: "Bot logins of Legato's own GitHub Apps, whose reviews never start a workflow.", Kind: KindStrings, Class: ClassChange, Mode: ModeRestart},
 	{Key: "github.resolved_poll_interval_seconds", Title: "GitHub poll interval for known PRs (seconds)", Kind: KindInt, Class: ClassChange, Mode: ModeRestart, Check: nonNegative},
 
 	// Swarms.
@@ -163,12 +177,11 @@ var registry = []Setting{
 	{Key: "swarm.worker.agent", Title: "Swarm workers' agent tool", Kind: KindString, Class: ClassChange, Mode: ModeRestart},
 	{Key: "swarm.worker.model", Title: "Swarm workers' model", Kind: KindString, Class: ClassChange, Mode: ModeRestart},
 	{Key: "swarm.strict_scope", Title: "Swarm: strict scopes", Kind: KindBool, Class: ClassChange, Mode: ModeRestart},
-	{Key: "swarm.require_user_close", Title: "Swarm: you close workers", Kind: KindBool, Class: ClassChange, Mode: ModeRestart},
 	{Key: "swarm.brief_kickoff_delay_ms", Title: "Swarm: kickoff delay (ms)", Kind: KindInt, Class: ClassChange, Mode: ModeRestart, Check: nonNegative},
 
 	// Voice.
 	{Key: "voice.enabled", Title: "Voice dictation", Kind: KindBool, Class: ClassChange, Mode: ModeRestart},
-	{Key: "voice.whisper_url", Title: "Whisper server", Description: "The Wyoming address of a Whisper server, such as tcp://192.168.1.220:10300. It can be the one Home Assistant Assist already uses; Legato's requests and Assist's then wait for each other.", Kind: KindString, Class: ClassChange, Mode: ModeRestart},
+	{Key: "voice.whisper_url", Title: "Whisper server", Help: "The Wyoming address of a Whisper server, such as tcp://192.168.1.220:10300. It can be the one Home Assistant Assist already uses; Legato's requests and Assist's then wait for each other.", Kind: KindString, Class: ClassChange, Mode: ModeRestart},
 	{Key: "voice.autosend", Title: "Send dictation at once", Kind: KindBool, Class: ClassChange, Mode: ModeRestart},
 	{Key: "voice.mic_device", Title: "Microphone", Kind: KindString, Class: ClassChange, Mode: ModeRestart},
 
@@ -176,7 +189,7 @@ var registry = []Setting{
 	{Key: "worktrees.yggdrasil.enabled", Title: "Yggdrasil worktrees", Kind: KindBool, Class: ClassChange, Mode: ModeRestart},
 	{Key: "repository_cache.enabled", Title: "Fresh clones", Kind: KindBool, Class: ClassChange, Mode: ModeRestart},
 	{Key: "repository_cache.max_age", Title: "Fetch a repository older than", Kind: KindDuration, Class: ClassChange, Mode: ModeRestart},
-	{Key: "repository_cache.keep_idle", Title: "Keep idle clones for", Description: "A duration, or forever.", Kind: KindString, Class: ClassRisky, Mode: ModeRestart},
+	{Key: "repository_cache.keep_idle", Title: "Keep idle clones for", Help: "A duration, or forever.", Kind: KindString, Class: ClassRisky, Mode: ModeRestart},
 
 	// Credential channels.
 	{Key: "credential_channels.http_proxy.listen", Title: "Credential proxy address", Kind: KindString, Class: ClassRisky, Mode: ModeRestart},
@@ -208,22 +221,22 @@ var registry = []Setting{
 	{Key: "learning.embedding.batch_size", Title: "Learn: embedding batch size", Kind: KindInt, Class: ClassChange, Mode: ModeRestart},
 
 	// Engram.
-	{Key: "engram.enabled", Title: "Engrams", Description: "auto offers engrams when the engram command answers; on does too, and reports when it does not; off hides them.", Kind: KindEnum, Enum: []string{"auto", "on", "off"}, Class: ClassChange, Mode: ModeLive},
-	{Key: "skills.dir", Title: "Skills folder", Description: "The folder of skills Legato gives agents, one folder per skill; ~/.legato/skills when empty.", Kind: KindString, Class: ClassRisky, Mode: ModeRestart},
-	{Key: "engram.command", Title: "Engram command", Description: "The engram binary; engram on PATH when empty.", Kind: KindString, Class: ClassRisky, Mode: ModeLive},
+	{Key: "engram.enabled", Title: "Engrams", Help: "auto offers engrams when the engram command answers; on does too, and reports when it does not; off hides them.", Kind: KindEnum, Enum: []string{"auto", "on", "off"}, Class: ClassChange, Mode: ModeLive},
+	{Key: "skills.dir", Title: "Skills folder", Help: "The folder of skills Legato gives agents, one folder per skill; ~/.legato/skills when empty.", Kind: KindString, Class: ClassRisky, Mode: ModeRestart},
+	{Key: "engram.command", Title: "Engram command", Help: "The engram binary; engram on PATH when empty.", Kind: KindString, Class: ClassRisky, Mode: ModeLive},
 
 	// Manticore and integrations.
 	{Key: "manticore.url", Title: "Manticore address", Kind: KindString, Class: ClassChange, Mode: ModeRestart},
-	{Key: "manticore.api_key", Title: "Manticore key", Description: "The name of a secret holding the key.", Kind: KindString, Secret: true, Class: ClassRisky, Mode: ModeRestart},
-	{Key: "integrations.mqtt.enabled", Title: "MQTT publisher", Description: "Publish read-only Home Assistant entities to an MQTT broker.", Kind: KindBool, Class: ClassRisky, Mode: ModeRestart},
-	{Key: "integrations.mqtt.theme_control", Title: "Allow MQTT theme control", Description: "Delegate server theme authority to broker ACL writers of the exact theme/set topic; independent of read-only aggregates. No Legato token is required.", Kind: KindBool, Class: ClassRisky, Mode: ModeRestart},
-	{Key: "integrations.mqtt.broker", Title: "MQTT broker", Description: "mqtt:// or mqtts:// TCP broker address without credentials.", Kind: KindString, Class: ClassRisky, Mode: ModeRestart},
-	{Key: "integrations.mqtt.credential", Title: "MQTT credential", Description: "Name of a host-only mqtt userpass credential; empty selects anonymous access.", Kind: KindString, Class: ClassRisky, Mode: ModeRestart},
-	{Key: "integrations.mqtt.discovery_prefix", Title: "MQTT discovery prefix", Description: "Home Assistant discovery topic root; homeassistant when empty.", Kind: KindString, Class: ClassRisky, Mode: ModeRestart},
-	{Key: "integrations.mqtt.base_topic", Title: "MQTT base topic", Description: "Publish topic root; legato/<persistent-instance-id> when empty.", Kind: KindString, Class: ClassRisky, Mode: ModeRestart},
-	{Key: "integrations.mqtt.device_name", Title: "MQTT device name", Description: "Home Assistant device name; Legato <hostname> when empty.", Kind: KindString, Class: ClassChange, Mode: ModeRestart},
-	{Key: "integrations.mqtt.include_reeve", Title: "Include Reeve in MQTT counts", Description: "Include the Reeve in agent counts.", Kind: KindBool, Class: ClassChange, Mode: ModeRestart},
-	{Key: "integrations.mqtt.attention_details", Title: "MQTT Attention details", Description: "Export bounded generated safe labels; retained MQTT data and HA history can outlive Legato.", Kind: KindBool, Class: ClassRisky, Mode: ModeRestart},
+	{Key: "manticore.api_key", Title: "Manticore key", Help: "The name of a secret holding the key.", Kind: KindString, Secret: true, Class: ClassRisky, Mode: ModeRestart},
+	{Key: "integrations.mqtt.enabled", Title: "MQTT publisher", Help: "Publish read-only Home Assistant entities to an MQTT broker.", Kind: KindBool, Class: ClassRisky, Mode: ModeRestart},
+	{Key: "integrations.mqtt.theme_control", Title: "Allow MQTT theme control", Help: "Delegate server theme authority to broker ACL writers of the exact theme/set topic; independent of read-only aggregates. No Legato token is required.", Kind: KindBool, Class: ClassRisky, Mode: ModeRestart},
+	{Key: "integrations.mqtt.broker", Title: "MQTT broker", Help: "mqtt:// or mqtts:// TCP broker address without credentials.", Kind: KindString, Class: ClassRisky, Mode: ModeRestart},
+	{Key: "integrations.mqtt.credential", Title: "MQTT credential", Help: "Name of a host-only mqtt userpass credential; empty selects anonymous access.", Kind: KindString, Class: ClassRisky, Mode: ModeRestart},
+	{Key: "integrations.mqtt.discovery_prefix", Title: "MQTT discovery prefix", Help: "Home Assistant discovery topic root; homeassistant when empty.", Kind: KindString, Class: ClassRisky, Mode: ModeRestart},
+	{Key: "integrations.mqtt.base_topic", Title: "MQTT base topic", Help: "Publish topic root; legato/<persistent-instance-id> when empty.", Kind: KindString, Class: ClassRisky, Mode: ModeRestart},
+	{Key: "integrations.mqtt.device_name", Title: "MQTT device name", Help: "Home Assistant device name; Legato <hostname> when empty.", Kind: KindString, Class: ClassChange, Mode: ModeRestart},
+	{Key: "integrations.mqtt.include_reeve", Title: "Include Reeve in MQTT counts", Help: "Include the Reeve in agent counts.", Kind: KindBool, Class: ClassChange, Mode: ModeRestart},
+	{Key: "integrations.mqtt.attention_details", Title: "MQTT Attention details", Help: "Export bounded generated safe labels; retained MQTT data and HA history can outlive Legato.", Kind: KindBool, Class: ClassRisky, Mode: ModeRestart},
 	{Key: "integrations.argus.url", Title: "Argus address", Kind: KindString, Class: ClassRisky, Mode: ModeRestart},
 	{Key: "integrations.argus.delivery", Title: "Argus delivery", Kind: KindString, Class: ClassChange, Mode: ModeRestart},
 	{Key: "integrations.argus.agent", Title: "Argus's agent tool", Kind: KindString, Class: ClassChange, Mode: ModeRestart},
@@ -245,39 +258,39 @@ var registry = []Setting{
 	{Key: "review_passes.required_checks", Title: "Checks a review pass waits for", Kind: KindStrings, Class: ClassChange, Mode: ModeRestart},
 
 	// The Reeve: read when a session starts.
-	{Key: "reeve.name", Title: "The Reeve's name", Description: "What Legato calls the Reeve on this instance: in the sidebar, its conversation, approvals, notifications and the TUI, and in its own prompt. \"the Reeve\" when empty.", Kind: KindString, Class: ClassChange, Mode: ModeLive, Check: func(v any) error { return CheckReeveName(v.(string)) }},
-	{Key: "reeve.agent", Title: "The Reeve's agent tool", Description: "claude-code, codex or chimera; the default agent tool when empty.", Kind: KindString, Class: ClassChange, Mode: ModeLive},
+	{Key: "reeve.name", Title: "The Reeve's name", Help: "What Legato calls the Reeve on this instance: in the sidebar, its conversation, approvals, notifications and the TUI, and in its own prompt. \"the Reeve\" when empty.", Kind: KindString, Class: ClassChange, Mode: ModeLive, Check: func(v any) error { return CheckReeveName(v.(string)) }},
+	{Key: "reeve.agent", Title: "The Reeve's agent tool", Help: "claude-code, codex or chimera; the default agent tool when empty.", Kind: KindString, Class: ClassChange, Mode: ModeLive},
 	{Key: "reeve.model", Title: "The Reeve's model or tier", Kind: KindString, Class: ClassChange, Mode: ModeLive},
-	{Key: "reeve.idle_timeout", Title: "Suspend the Reeve after", Description: "How long a session may be idle before its agent is stopped; the next message resumes it. 2h when empty.", Kind: KindDuration, Class: ClassChange, Mode: ModeLive},
-	{Key: "reeve.levels.change", Title: "What a change needs", Description: "auto (runs at once, no approval asked), approve (a tap), signed (an enrolled device) or verified (signed, with a fingerprint or a PIN). One of the Reeve's own rules: changed only with a signature, though making it stricter needs none.", Kind: KindEnum, Enum: []string{"", "auto", "approve", "signed", "verified"}, Class: ClassRisky, Mode: ModeLive, OwnRule: true},
-	{Key: "reeve.levels.risky", Title: "What a risky change needs", Description: "default (signed once a device is enrolled, else approve), approve, signed or verified; or auto, which runs risky changes (restarts, agents stopped, settings that choose what runs on this machine) at once with no approval asked. One of the Reeve's own rules.", Kind: KindEnum, Enum: []string{"", "default", "auto", "approve", "signed", "verified"}, Class: ClassRisky, Mode: ModeLive, OwnRule: true},
-	{Key: "reeve.host_operations", Title: "Host operations", Description: "Offer the Reeve a shell, file edits and systemd services on this machine, each as a change you approve. One of the Reeve's own rules.", Kind: KindBool, Class: ClassRisky, Mode: ModeLive, OwnRule: true},
-	{Key: "reeve.host_operations_auto", Title: "Run host operations without asking", Description: "On, the Reeve's shell commands, file edits and service actions run at once, with no approval asked: it can then run any command as your user on this machine. Each is still audited. Commands as root still need a verified approval. Off by default; one of the Reeve's own rules: turning it on needs a signature, turning it off never does.", Kind: KindBool, Class: ClassRisky, Mode: ModeLive, OwnRule: true},
-	{Key: "reeve.host_timeout", Title: "Host command timeout", Description: "How long one host command may run. 10m when empty.", Kind: KindDuration, Class: ClassRisky, Mode: ModeLive},
-	{Key: "reeve.host_output_cap", Title: "Host command output (bytes)", Description: "How much of a host command's output the Reeve is given; the rest is kept in a file it can read. 65536 when 0.", Kind: KindInt, Class: ClassChange, Mode: ModeLive, Check: nonNegative},
-	{Key: "reeve.peer", Title: "When another Reeve messages", Description: "With no session running: start one (start, the default), ask a person first (ask), or refuse. One of the Reeve's own rules.", Kind: KindEnum, Enum: []string{"", "start", "ask", "refuse"}, Class: ClassRisky, Mode: ModeLive, OwnRule: true},
+	{Key: "reeve.idle_timeout", Title: "Suspend the Reeve after", Help: "How long a session may be idle before its agent is stopped; the next message resumes it. 2h when empty.", Kind: KindDuration, Class: ClassChange, Mode: ModeLive},
+	{Key: "reeve.levels.change", Title: "What a change needs", Help: "auto (runs at once, no approval asked), approve (a tap), signed (an enrolled device) or verified (signed, with a fingerprint or a PIN). One of the Reeve's own rules: changed only with a signature, though making it stricter needs none.", Kind: KindEnum, Enum: []string{"", "auto", "approve", "signed", "verified"}, Class: ClassRisky, Mode: ModeLive, OwnRule: true},
+	{Key: "reeve.levels.risky", Title: "What a risky change needs", Help: "default (signed once a device is enrolled, else approve), approve, signed or verified; or auto, which runs risky changes (restarts, agents stopped, settings that choose what runs on this machine) at once with no approval asked. One of the Reeve's own rules.", Kind: KindEnum, Enum: []string{"", "default", "auto", "approve", "signed", "verified"}, Class: ClassRisky, Mode: ModeLive, OwnRule: true},
+	{Key: "reeve.host_operations", Title: "Host operations", Help: "Offer the Reeve a shell, file edits and systemd services on this machine, each as a change you approve. One of the Reeve's own rules.", Kind: KindBool, Class: ClassRisky, Mode: ModeLive, OwnRule: true},
+	{Key: "reeve.host_operations_auto", Title: "Run host operations without asking", Help: "On, the Reeve's shell commands, file edits and service actions run at once, with no approval asked: it can then run any command as your user on this machine. Each is still audited. Commands as root still need a verified approval. Off by default; one of the Reeve's own rules: turning it on needs a signature, turning it off never does.", Kind: KindBool, Class: ClassRisky, Mode: ModeLive, OwnRule: true},
+	{Key: "reeve.host_timeout", Title: "Host command timeout", Help: "How long one host command may run. 10m when empty.", Kind: KindDuration, Class: ClassRisky, Mode: ModeLive},
+	{Key: "reeve.host_output_cap", Title: "Host command output (bytes)", Help: "How much of a host command's output the Reeve is given; the rest is kept in a file it can read. 65536 when 0.", Kind: KindInt, Class: ClassChange, Mode: ModeLive, Check: nonNegative},
+	{Key: "reeve.peer", Title: "When another Reeve messages", Help: "With no session running: start one (start, the default), ask a person first (ask), or refuse. One of the Reeve's own rules.", Kind: KindEnum, Enum: []string{"", "start", "ask", "refuse"}, Class: ClassRisky, Mode: ModeLive, OwnRule: true},
 	{Key: "reeve.launch_args", Title: "The Reeve's launch arguments", Kind: KindStrings, Class: ClassRisky, Mode: ModeLive},
-	{Key: "reeve.voice.enabled", Title: "The Reeve's voice", Description: "Lets the Reeve speak out loud on this machine's speakers. Sessions started after it is turned on are offered the speak tool; turning it off mutes the Reeve at once.", Kind: KindBool, Class: ClassChange, Mode: ModeLive},
-	{Key: "reeve.voice.command", Title: "Voice command", Description: "Makes a line's audio: run as <command> \"<text>\" <out-file>, it writes an audio file to <out-file>. A script such as reeve-say.sh, or one for Piper.", Kind: KindString, Class: ClassRisky, Mode: ModeLive},
-	{Key: "reeve.voice.credential", Title: "Voice credential", Description: "A credential Legato gives the voice command, as elevenlabs. Empty for a local voice.", Kind: KindString, Class: ClassRisky, Mode: ModeLive},
-	{Key: "reeve.voice.credential_env", Title: "Voice credential variable", Description: "The variable the command finds the credential in. The credential's name in capitals with _API_KEY when empty (ELEVENLABS_API_KEY).", Kind: KindString, Class: ClassRisky, Mode: ModeLive},
-	{Key: "reeve.voice.pause", Title: "Pause that ends a spoken turn", Description: "How long you stay quiet before what you said is sent to the Reeve, from 0.3s to 2s. 1s when empty.", Kind: KindDuration, Class: ClassChange, Mode: ModeLive, Check: voicePause},
-	{Key: "reeve.voice.follow_up", Title: "Listen for a reply for", Description: "How long the voice listens for your reply after the Reeve has spoken. 6s when empty; 0s for a single turn.", Kind: KindDuration, Class: ClassChange, Mode: ModeLive, Check: notNegativeDuration},
-	{Key: "reeve.voice.partials", Title: "Words as you speak", Description: "Show the words so far while you speak, by transcribing about once a second. Turn it off when Whisper runs on a CPU, or is shared with Home Assistant.", Kind: KindBool, Class: ClassChange, Mode: ModeLive},
-	{Key: "reeve.voice.quiet_hours", Title: "Quiet hours", Description: "No line plays on this machine's speakers then, as 22:00-07:00 in its local time; the Reeve replies in writing instead. A reply to something you said to it still plays on your device. Empty for none.", Kind: KindString, Class: ClassChange, Mode: ModeLive, Check: func(v any) error {
+	{Key: "reeve.voice.enabled", Title: "The Reeve's voice", Help: "Lets the Reeve speak out loud on this machine's speakers. Sessions started after it is turned on are offered the speak tool; turning it off mutes the Reeve at once.", Kind: KindBool, Class: ClassChange, Mode: ModeLive},
+	{Key: "reeve.voice.command", Title: "Voice command", Help: "Makes a line's audio: run as <command> \"<text>\" <out-file>, it writes an audio file to <out-file>. A script such as reeve-say.sh, or one for Piper.", Kind: KindString, Class: ClassRisky, Mode: ModeLive},
+	{Key: "reeve.voice.credential", Title: "Voice credential", Help: "A credential Legato gives the voice command, as elevenlabs. Empty for a local voice.", Kind: KindString, Class: ClassRisky, Mode: ModeLive},
+	{Key: "reeve.voice.credential_env", Title: "Voice credential variable", Help: "The variable the command finds the credential in. The credential's name in capitals with _API_KEY when empty (ELEVENLABS_API_KEY).", Kind: KindString, Class: ClassRisky, Mode: ModeLive},
+	{Key: "reeve.voice.pause", Title: "Pause that ends a spoken turn", Help: "How long you stay quiet before what you said is sent to the Reeve, from 0.3s to 2s. 1s when empty.", Kind: KindDuration, Class: ClassChange, Mode: ModeLive, Check: voicePause},
+	{Key: "reeve.voice.follow_up", Title: "Listen for a reply for", Help: "How long the voice listens for your reply after the Reeve has spoken. 6s when empty; 0s for a single turn.", Kind: KindDuration, Class: ClassChange, Mode: ModeLive, Check: notNegativeDuration},
+	{Key: "reeve.voice.partials", Title: "Words as you speak", Help: "Show the words so far while you speak, by transcribing about once a second. Turn it off when Whisper runs on a CPU, or is shared with Home Assistant.", Kind: KindBool, Class: ClassChange, Mode: ModeLive},
+	{Key: "reeve.voice.quiet_hours", Title: "Quiet hours", Help: "No line plays on this machine's speakers then, as 22:00-07:00 in its local time; the Reeve replies in writing instead. A reply to something you said to it still plays on your device. Empty for none.", Kind: KindString, Class: ClassChange, Mode: ModeLive, Check: func(v any) error {
 		if s := v.(string); s != "" {
 			_, _, err := ParseQuietHours(s)
 			return err
 		}
 		return nil
 	}},
-	{Key: "reeve.voice.player", Title: "Voice player", Description: "Plays a line's audio file, named after it. pw-play, else ffplay, when empty.", Kind: KindString, Class: ClassRisky, Mode: ModeLive},
-	{Key: "reeve.watch.settle", Title: "Agent idle before the Reeve is told", Description: "How long an agent the Reeve watches must stay idle, or busy only in the background, before the Reeve is told, so brief pauses do not wake it. 30s when empty.", Kind: KindDuration, Class: ClassChange, Mode: ModeLive, Check: notNegativeDuration},
-	{Key: "reeve.watch.started", Title: "Watch the agents the Reeve starts", Description: "Watch every agent the Reeve starts or messages, so it is told when one waits, goes idle, adds a note, opens a pull request or exits.", Kind: KindBool, Class: ClassChange, Mode: ModeLive},
-	{Key: "reeve.watch.wake", Title: "Wake the Reeve for its agents", Description: "When an agent the Reeve watches needs it and no session is running, start or resume one to tell it. Off, the news waits for the next session. On costs tokens while you are away.", Kind: KindBool, Class: ClassChange, Mode: ModeLive},
+	{Key: "reeve.voice.player", Title: "Voice player", Help: "Plays a line's audio file, named after it. pw-play, else ffplay, when empty.", Kind: KindString, Class: ClassRisky, Mode: ModeLive},
+	{Key: "reeve.watch.settle", Title: "Agent idle before the Reeve is told", Help: "How long an agent the Reeve watches must stay idle, or busy only in the background, before the Reeve is told, so brief pauses do not wake it. 30s when empty.", Kind: KindDuration, Class: ClassChange, Mode: ModeLive, Check: notNegativeDuration},
+	{Key: "reeve.watch.started", Title: "Watch the agents the Reeve starts", Help: "Watch every agent the Reeve starts or messages, so it is told when one waits, goes idle, adds a note, opens a pull request or exits.", Kind: KindBool, Class: ClassChange, Mode: ModeLive},
+	{Key: "reeve.watch.wake", Title: "Wake the Reeve for its agents", Help: "When an agent the Reeve watches needs it and no session is running, start or resume one to tell it. Off, the news waits for the next session. On costs tokens while you are away.", Kind: KindBool, Class: ClassChange, Mode: ModeLive},
 
 	// Burnlite's projects, read on each use.
-	{Key: "burnlite.projects", Title: "Burnlite projects", Description: "The projects searched for import; none is every project.", Kind: KindStrings, Class: ClassChange, Mode: ModeLive, Check: func(v any) error {
+	{Key: "burnlite.projects", Title: "Burnlite projects", Help: "The projects searched for import; none is every project.", Kind: KindStrings, Class: ClassChange, Mode: ModeLive, Check: func(v any) error {
 		for _, p := range v.([]string) {
 			if !burnliteProjectPattern.MatchString(p) {
 				return fmt.Errorf("%q is not a Burnlite project key: two to six capital letters, then up to four digits, like EST", p)

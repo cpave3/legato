@@ -275,7 +275,6 @@ How a swarm's conductor and workers start, and how large a plan may be. See [Swa
 | `swarm.strict_scope` | bool | `false` | Refuses to dispatch a sub-task whose files overlap another's. When `false`, the conductor gets a warning instead. |
 | `swarm.brief_kickoff_delay_ms` | integer | `250` | How long Legato waits after starting a tool before it types "read your brief". Raise it if your tool starts slowly. |
 | `swarm.prompts` | map of maps | none | Your own system prompt for a role and tool, in place of Legato's. The outer key is the role, the inner key the tool, and the value is the prompt's text. |
-| `swarm.require_user_close` | bool | `false` | Not used yet. |
 
 ```yaml
 swarm:

@@ -89,3 +89,23 @@ func TestConfigImportProposesOneChangeSet(t *testing.T) {
 		t.Fatalf("output:\n%s", out)
 	}
 }
+
+// Plain `config show --sources` is read by people and scripts: the
+// registry's labels and layout fields never change it.
+func TestConfigShowSourcesOutputIsUnchanged(t *testing.T) {
+	configCmdInstance(t)
+	out := captureStdout(t, func() int { return runCLI([]string{"config", "show", "--sources"}) })
+	out = strings.ReplaceAll(out, os.Getenv("HOME"), "~")
+	golden := filepath.Join("testdata", "config_show_sources.golden")
+	if os.Getenv("LEGATO_UPDATE_GOLDEN") != "" {
+		os.MkdirAll("testdata", 0o755)
+		os.WriteFile(golden, []byte(out), 0o644)
+	}
+	want, err := os.ReadFile(golden)
+	if err != nil {
+		t.Fatalf("%v (record it with LEGATO_UPDATE_GOLDEN=1)", err)
+	}
+	if out != string(want) {
+		t.Fatalf("config show --sources changed:\n%s", out)
+	}
+}

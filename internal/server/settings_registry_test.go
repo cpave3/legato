@@ -59,6 +59,29 @@ func TestSettingsAreListedWithTheirSource(t *testing.T) {
 	}
 }
 
+// Each setting is served with its home in Settings, its help (and the old
+// description beside it) and its unit.
+func TestSettingsAreListedWithTheirSectionGroupHelpAndUnit(t *testing.T) {
+	srv := settingsServer(t, "")
+	rec := callUpdates(srv, http.MethodGet, "/api/config/settings", "")
+	var got struct {
+		Settings []map[string]any `json:"settings"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil {
+		t.Fatal(err)
+	}
+	for _, s := range got.Settings {
+		if s["key"] != "swarm.brief_kickoff_delay_ms" {
+			continue
+		}
+		if s["section"] != "swarms" || s["group"] != "Advanced" || s["unit"] != "ms" {
+			t.Fatalf("kickoff delay = %v", s)
+		}
+		return
+	}
+	t.Fatal("swarm.brief_kickoff_delay_ms not listed")
+}
+
 func TestASettingIsSetAndReset(t *testing.T) {
 	srv := settingsServer(t, "")
 	rec := callUpdates(srv, http.MethodPut, "/api/config/settings/agents.reviews", `{"value": false}`)

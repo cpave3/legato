@@ -30,7 +30,6 @@ type SwarmConfig struct {
 	MaxSubtasksPerPlan  int
 	MaxStepsPerPlan     int
 	StrictScope         bool
-	RequireUserClose    bool
 	Conductor           SwarmParticipantConfig
 	Worker              SwarmParticipantConfig
 	// TierCatalog is the human-readable map of adapter → tier name →

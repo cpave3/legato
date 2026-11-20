@@ -95,6 +95,9 @@
     {
       "key": "agents.default_tool",
       "title": "Default agent tool",
+      "section": "agents",
+      "group": "Defaults",
+      "help": "The agent tool Legato starts when you name none: claude-code, codex or chimera. Unset, swarm.worker.agent, then claude-code.",
       "description": "The agent tool Legato starts when you name none: claude-code, codex or chimera. Unset, swarm.worker.agent, then claude-code.",
       "kind": "enum",
       "enum": [
@@ -109,6 +112,9 @@
     {
       "key": "agents.escape_key",
       "title": "Detach key",
+      "section": "input",
+      "group": "TUI and tmux",
+      "help": "The key that leaves an agent's terminal in the TUI, as ctrl+].",
       "description": "The key that leaves an agent's terminal in the TUI, as ctrl+].",
       "kind": "string",
       "class": "change",
@@ -117,6 +123,9 @@
     {
       "key": "agents.sparkline_window",
       "title": "Activity window",
+      "section": "appearance",
+      "group": "This Legato",
+      "help": "How far back the activity bar of an agent reaches.",
       "description": "How far back the activity bar of an agent reaches.",
       "kind": "duration",
       "class": "change",
@@ -125,6 +134,9 @@
     {
       "key": "agents.peer_awareness",
       "title": "Peer awareness",
+      "section": "agents",
+      "group": "What agents get",
+      "help": "Tell agents in the same Git worktree about each other.",
       "description": "Tell agents in the same Git worktree about each other.",
       "kind": "bool",
       "class": "change",
@@ -133,6 +145,9 @@
     {
       "key": "agents.reviews",
       "title": "Reviews",
+      "section": "agents",
+      "group": "What agents get",
+      "help": "Ask agents for a review tour and a handoff packet at the end of their work.",
       "description": "Ask agents for a review tour and a handoff packet at the end of their work.",
       "kind": "bool",
       "class": "change",
@@ -141,6 +156,9 @@
     {
       "key": "agents.mcp.enabled",
       "title": "Legato tools",
+      "section": "agents",
+      "group": "What agents get",
+      "help": "Give agents Legato's tools (cards, artifacts, notes) through `legato mcp serve`.",
       "description": "Give agents Legato's tools (cards, artifacts, notes) through `legato mcp serve`.",
       "kind": "bool",
       "class": "change",
@@ -149,6 +167,9 @@
     {
       "key": "agents.sandbox.enabled",
       "title": "Sandbox",
+      "section": "sandbox",
+      "group": "On or off",
+      "help": "Run every agent in Legato's sandbox unless its spawn opts out.",
       "description": "Run every agent in Legato's sandbox unless its spawn opts out.",
       "kind": "bool",
       "class": "risky",
@@ -157,6 +178,9 @@
     {
       "key": "agents.sandbox.backend",
       "title": "Sandbox backend",
+      "section": "sandbox",
+      "group": "Advanced",
+      "help": "Only bwrap for now.",
       "description": "Only bwrap for now.",
       "kind": "string",
       "class": "risky",
@@ -165,6 +189,9 @@
     {
       "key": "agents.sandbox.default_mounts",
       "title": "Toolchains in the sandbox",
+      "section": "sandbox",
+      "group": "What agents see",
+      "help": "Show the operator's toolchains (read-only) and package caches inside the sandbox.",
       "description": "Show the operator's toolchains (read-only) and package caches inside the sandbox.",
       "kind": "bool",
       "class": "risky",
@@ -173,6 +200,8 @@
     {
       "key": "agents.sandbox.scratch_dir",
       "title": "Sandbox scratch folder",
+      "section": "sandbox",
+      "group": "Advanced",
       "kind": "string",
       "class": "risky",
       "mode": "restart"
@@ -180,6 +209,9 @@
     {
       "key": "agents.sandbox.docker.enabled",
       "title": "Docker in the sandbox",
+      "section": "sandbox",
+      "group": "Docker",
+      "help": "Give sandboxed agents a filtered Docker socket: their own containers, mounting only what their sandbox sees.",
       "description": "Give sandboxed agents a filtered Docker socket: their own containers, mounting only what their sandbox sees.",
       "kind": "bool",
       "class": "risky",
@@ -188,6 +220,9 @@
     {
       "key": "agents.sandbox.docker.host",
       "title": "Docker daemon for sandboxed agents",
+      "section": "sandbox",
+      "group": "Docker",
+      "help": "unix:// or tcp://; Legato's DOCKER_HOST, Docker context, or /var/run/docker.sock when empty.",
       "description": "unix:// or tcp://; Legato's DOCKER_HOST, Docker context, or /var/run/docker.sock when empty.",
       "kind": "string",
       "class": "risky",
@@ -196,6 +231,9 @@
     {
       "key": "agents.sandbox.docker.cap_add",
       "title": "Capabilities sandboxed containers may add",
+      "section": "sandbox",
+      "group": "Docker",
+      "help": "Such as SYS_PTRACE. Capabilities that reach the host are refused.",
       "description": "Such as SYS_PTRACE. Capabilities that reach the host are refused.",
       "kind": "strings",
       "class": "risky",
@@ -204,6 +242,9 @@
     {
       "key": "agents.sandbox.docker.publish",
       "title": "Where sandboxed containers publish ports",
+      "section": "sandbox",
+      "group": "Docker",
+      "help": "loopback binds 127.0.0.1; any binds every address.",
       "description": "loopback binds 127.0.0.1; any binds every address.",
       "kind": "enum",
       "enum": [
@@ -216,6 +257,8 @@
     {
       "key": "notifications.ntfy.url",
       "title": "ntfy server",
+      "section": "attention",
+      "group": "Notify me",
       "kind": "string",
       "class": "change",
       "mode": "restart"
@@ -223,6 +266,8 @@
     {
       "key": "notifications.ntfy.topic",
       "title": "ntfy topic",
+      "section": "attention",
+      "group": "Notify me",
       "kind": "string",
       "class": "change",
       "mode": "restart"
@@ -230,6 +275,8 @@
     {
       "key": "notifications.os.enabled",
       "title": "Desktop notifications",
+      "section": "attention",
+      "group": "Notify me",
       "kind": "bool",
       "class": "change",
       "mode": "restart"
@@ -237,6 +284,8 @@
     {
       "key": "notifications.approvals",
       "title": "Notify of approvals",
+      "section": "attention",
+      "group": "What notifies",
       "kind": "bool",
       "class": "change",
       "mode": "restart"
@@ -244,6 +293,8 @@
     {
       "key": "notifications.handoff",
       "title": "Notify of handoffs",
+      "section": "attention",
+      "group": "What notifies",
       "kind": "bool",
       "class": "change",
       "mode": "restart"
@@ -251,6 +302,8 @@
     {
       "key": "theme",
       "title": "Theme",
+      "section": "appearance",
+      "group": "TUI",
       "kind": "string",
       "class": "change",
       "mode": "restart"
@@ -258,6 +311,9 @@
     {
       "key": "icons",
       "title": "Icons",
+      "section": "appearance",
+      "group": "TUI",
+      "help": "Unicode glyphs, or Nerd Font ones.",
       "description": "Unicode glyphs, or Nerd Font ones.",
       "kind": "enum",
       "enum": [
@@ -270,6 +326,9 @@
     {
       "key": "editor",
       "title": "Editor",
+      "section": "input",
+      "group": "TUI and tmux",
+      "help": "The editor the TUI opens; $VISUAL, then $EDITOR, when empty.",
       "description": "The editor the TUI opens; $VISUAL, then $EDITOR, when empty.",
       "kind": "string",
       "class": "change",
@@ -278,6 +337,9 @@
     {
       "key": "web.tint",
       "title": "Tint",
+      "section": "appearance",
+      "group": "This Legato",
+      "help": "A colour that tells this Legato from others in the web UI.",
       "description": "A colour that tells this Legato from others in the web UI.",
       "kind": "enum",
       "enum": [
@@ -297,6 +359,9 @@
     {
       "key": "updates.mode",
       "title": "Updates",
+      "section": "system",
+      "group": "Updates",
+      "help": "auto installs new releases; ask offers them; off never looks.",
       "description": "auto installs new releases; ask offers them; off never looks.",
       "kind": "enum",
       "enum": [
@@ -310,6 +375,9 @@
     {
       "key": "notifications.ntfy.token",
       "title": "ntfy token",
+      "section": "attention",
+      "group": "Notify me",
+      "help": "The name of a secret holding the token for a private topic.",
       "description": "The name of a secret holding the token for a private topic.",
       "kind": "string",
       "class": "risky",
@@ -319,6 +387,8 @@
     {
       "key": "keybindings.vim_mode",
       "title": "Vim keys",
+      "section": "input",
+      "group": "TUI and tmux",
       "kind": "bool",
       "class": "change",
       "mode": "restart"
@@ -326,6 +396,9 @@
     {
       "key": "web.rail.actions",
       "title": "Rail: actions",
+      "section": "attention",
+      "group": "Needs-you rail",
+      "help": "Things agents ask you to do that only you can: a command, a test in a browser, a merge.",
       "description": "Things agents ask you to do that only you can: a command, a test in a browser, a merge.",
       "kind": "bool",
       "class": "change",
@@ -334,6 +407,9 @@
     {
       "key": "web.rail.questions",
       "title": "Rail: questions",
+      "section": "attention",
+      "group": "Needs-you rail",
+      "help": "Questions agents asked you in plain words.",
       "description": "Questions agents asked you in plain words.",
       "kind": "bool",
       "class": "change",
@@ -342,6 +418,9 @@
     {
       "key": "web.rail.done",
       "title": "Rail: finished work",
+      "section": "attention",
+      "group": "Needs-you rail",
+      "help": "Work agents finished for you to look at.",
       "description": "Work agents finished for you to look at.",
       "kind": "bool",
       "class": "change",
@@ -350,6 +429,9 @@
     {
       "key": "web.rail.other",
       "title": "Rail: anything else from agents",
+      "section": "attention",
+      "group": "Needs-you rail",
+      "help": "Anything else agents post for you.",
       "description": "Anything else agents post for you.",
       "kind": "bool",
       "class": "change",
@@ -358,6 +440,9 @@
     {
       "key": "web.rail.approvals",
       "title": "Rail: approvals",
+      "section": "attention",
+      "group": "Needs-you rail",
+      "help": "Requests that hold an agent mid-turn, and paired instances' change sets.",
       "description": "Requests that hold an agent mid-turn, and paired instances' change sets.",
       "kind": "bool",
       "class": "change",
@@ -366,6 +451,9 @@
     {
       "key": "web.rail.agents",
       "title": "Rail: agents",
+      "section": "attention",
+      "group": "Needs-you rail",
+      "help": "Agents waiting for you or stopped on an error.",
       "description": "Agents waiting for you or stopped on an error.",
       "kind": "bool",
       "class": "change",
@@ -374,6 +462,9 @@
     {
       "key": "web.rail.workflows",
       "title": "Rail: workflows",
+      "section": "attention",
+      "group": "Needs-you rail",
+      "help": "Workflow gates, failures, stuck review loops and triggers.",
       "description": "Workflow gates, failures, stuck review loops and triggers.",
       "kind": "bool",
       "class": "change",
@@ -382,6 +473,9 @@
     {
       "key": "web.rail.plans",
       "title": "Rail: plans",
+      "section": "attention",
+      "group": "Needs-you rail",
+      "help": "Plans waiting for your decision.",
       "description": "Plans waiting for your decision.",
       "kind": "bool",
       "class": "change",
@@ -390,6 +484,9 @@
     {
       "key": "web.rail.review",
       "title": "Rail: ready for review",
+      "section": "attention",
+      "group": "Needs-you rail",
+      "help": "Review tours ready and handoffs done. Off unless set.",
       "description": "Review tours ready and handoffs done. Off unless set.",
       "kind": "bool",
       "class": "change",
@@ -398,6 +495,9 @@
     {
       "key": "web.rail.merge",
       "title": "Rail: merge blockers",
+      "section": "attention",
+      "group": "Needs-you rail",
+      "help": "Pull requests that cannot merge, and Argus's cases. Off unless set.",
       "description": "Pull requests that cannot merge, and Argus's cases. Off unless set.",
       "kind": "bool",
       "class": "change",
@@ -406,6 +506,9 @@
     {
       "key": "web.rail.legato",
       "title": "Rail: Legato",
+      "section": "attention",
+      "group": "Needs-you rail",
+      "help": "Updates, restarts, settings, devices, handoff, integrations, engrams and interrupted agents.",
       "description": "Updates, restarts, settings, devices, handoff, integrations, engrams and interrupted agents.",
       "kind": "bool",
       "class": "change",
@@ -414,6 +517,9 @@
     {
       "key": "web.discovery",
       "title": "Announce on the network",
+      "section": "connections",
+      "group": "Network",
+      "help": "Announce the web server over mDNS so the phone app finds it.",
       "description": "Announce the web server over mDNS so the phone app finds it.",
       "kind": "bool",
       "class": "risky",
@@ -422,6 +528,8 @@
     {
       "key": "agents.mcp.resource_domains",
       "title": "Hosts agents' HTML may load from",
+      "section": "agents",
+      "group": "What agents get",
       "kind": "strings",
       "class": "risky",
       "mode": "restart"
@@ -429,6 +537,8 @@
     {
       "key": "groups.defaults",
       "title": "Default groups",
+      "section": "agents",
+      "group": "Defaults",
       "kind": "strings",
       "class": "change",
       "mode": "restart"
@@ -436,6 +546,9 @@
     {
       "key": "default_workspace",
       "title": "Default workspace",
+      "section": "board",
+      "group": "Workspaces",
+      "help": "The workspace of a new task.",
       "description": "The workspace of a new task.",
       "kind": "string",
       "class": "change",
@@ -444,6 +557,9 @@
     {
       "key": "default_import_workspace",
       "title": "Default import workspace",
+      "section": "board",
+      "group": "Workspaces",
+      "help": "The workspace of an imported task.",
       "description": "The workspace of an imported task.",
       "kind": "string",
       "class": "change",
@@ -452,6 +568,8 @@
     {
       "key": "ssh_agent_socket",
       "title": "SSH agent socket",
+      "section": "security",
+      "group": "Credential channels",
       "kind": "string",
       "class": "risky",
       "mode": "restart"
@@ -459,6 +577,8 @@
     {
       "key": "jira.base_url",
       "title": "Jira address",
+      "section": "board",
+      "group": "Jira",
       "kind": "string",
       "class": "change",
       "mode": "restart"
@@ -466,6 +586,8 @@
     {
       "key": "jira.email",
       "title": "Jira email",
+      "section": "board",
+      "group": "Jira",
       "kind": "string",
       "class": "change",
       "mode": "restart"
@@ -473,6 +595,9 @@
     {
       "key": "jira.api_token",
       "title": "Jira API token",
+      "section": "board",
+      "group": "Jira",
+      "help": "The name of a secret holding the token.",
       "description": "The name of a secret holding the token.",
       "kind": "string",
       "class": "risky",
@@ -482,6 +607,8 @@
     {
       "key": "jira.project_keys",
       "title": "Jira projects",
+      "section": "board",
+      "group": "Jira",
       "kind": "strings",
       "class": "change",
       "mode": "restart"
@@ -489,6 +616,8 @@
     {
       "key": "jira.jql_filter",
       "title": "Jira filter",
+      "section": "board",
+      "group": "Jira",
       "kind": "string",
       "class": "change",
       "mode": "restart"
@@ -496,6 +625,9 @@
     {
       "key": "jira.sync_interval_seconds",
       "title": "Jira sync interval (seconds)",
+      "section": "board",
+      "group": "Jira",
+      "unit": "seconds",
       "kind": "int",
       "class": "change",
       "mode": "restart"
@@ -503,6 +635,8 @@
     {
       "key": "jira.status_sync_enabled",
       "title": "Move Jira issues with their cards",
+      "section": "board",
+      "group": "Jira",
       "kind": "bool",
       "class": "change",
       "mode": "restart"
@@ -510,6 +644,9 @@
     {
       "key": "jira.attachment_max_size_bytes",
       "title": "Largest Jira attachment (bytes)",
+      "section": "board",
+      "group": "Jira",
+      "unit": "bytes",
       "kind": "int",
       "class": "change",
       "mode": "restart"
@@ -517,6 +654,8 @@
     {
       "key": "burnlite.url",
       "title": "Burnlite address",
+      "section": "board",
+      "group": "Burnlite",
       "kind": "string",
       "class": "change",
       "mode": "restart"
@@ -524,6 +663,9 @@
     {
       "key": "burnlite.sync_interval_seconds",
       "title": "Burnlite sync interval (seconds)",
+      "section": "board",
+      "group": "Burnlite",
+      "unit": "seconds",
       "kind": "int",
       "class": "change",
       "mode": "restart"
@@ -531,6 +673,8 @@
     {
       "key": "burnlite.status_sync_enabled",
       "title": "Move cards with Burnlite",
+      "section": "board",
+      "group": "Burnlite",
       "kind": "bool",
       "class": "change",
       "mode": "restart"
@@ -538,6 +682,8 @@
     {
       "key": "burnlite.columns.ready",
       "title": "Burnlite: column for ready",
+      "section": "board",
+      "group": "Burnlite",
       "kind": "string",
       "class": "change",
       "mode": "restart"
@@ -545,6 +691,8 @@
     {
       "key": "burnlite.columns.blocked",
       "title": "Burnlite: column for blocked",
+      "section": "board",
+      "group": "Burnlite",
       "kind": "string",
       "class": "change",
       "mode": "restart"
@@ -552,6 +700,8 @@
     {
       "key": "burnlite.columns.claimed",
       "title": "Burnlite: column for claimed",
+      "section": "board",
+      "group": "Burnlite",
       "kind": "string",
       "class": "change",
       "mode": "restart"
@@ -559,6 +709,8 @@
     {
       "key": "burnlite.columns.closed",
       "title": "Burnlite: column for closed",
+      "section": "board",
+      "group": "Burnlite",
       "kind": "string",
       "class": "change",
       "mode": "restart"
@@ -566,6 +718,9 @@
     {
       "key": "github.auth",
       "title": "GitHub sign-in",
+      "section": "integrations",
+      "group": "GitHub",
+      "help": "auto, gh or token.",
       "description": "auto, gh or token.",
       "kind": "enum",
       "enum": [
@@ -579,6 +734,9 @@
     {
       "key": "github.token",
       "title": "GitHub token",
+      "section": "integrations",
+      "group": "GitHub",
+      "help": "The name of a secret holding the token.",
       "description": "The name of a secret holding the token.",
       "kind": "string",
       "class": "risky",
@@ -588,6 +746,9 @@
     {
       "key": "github.poll_interval_seconds",
       "title": "GitHub poll interval (seconds)",
+      "section": "integrations",
+      "group": "GitHub",
+      "unit": "seconds",
       "kind": "int",
       "class": "change",
       "mode": "restart"
@@ -595,6 +756,9 @@
     {
       "key": "github.app_logins",
       "title": "Legato's GitHub App logins",
+      "section": "integrations",
+      "group": "GitHub",
+      "help": "Bot logins of Legato's own GitHub Apps, whose reviews never start a workflow.",
       "description": "Bot logins of Legato's own GitHub Apps, whose reviews never start a workflow.",
       "kind": "strings",
       "class": "change",
@@ -603,6 +767,9 @@
     {
       "key": "github.resolved_poll_interval_seconds",
       "title": "GitHub poll interval for known PRs (seconds)",
+      "section": "integrations",
+      "group": "GitHub",
+      "unit": "seconds",
       "kind": "int",
       "class": "change",
       "mode": "restart"
@@ -610,6 +777,8 @@
     {
       "key": "swarm.enabled",
       "title": "Swarms",
+      "section": "swarms",
+      "group": "On or off",
       "kind": "bool",
       "class": "change",
       "mode": "restart"
@@ -617,6 +786,8 @@
     {
       "key": "swarm.max_concurrent_agents",
       "title": "Swarm: most agents at once",
+      "section": "swarms",
+      "group": "Limits",
       "kind": "int",
       "class": "change",
       "mode": "restart"
@@ -624,6 +795,8 @@
     {
       "key": "swarm.max_subtasks_per_plan",
       "title": "Swarm: most sub-tasks in a plan",
+      "section": "swarms",
+      "group": "Limits",
       "kind": "int",
       "class": "change",
       "mode": "restart"
@@ -631,6 +804,8 @@
     {
       "key": "swarm.max_steps_per_plan",
       "title": "Swarm: most steps in a plan",
+      "section": "swarms",
+      "group": "Limits",
       "kind": "int",
       "class": "change",
       "mode": "restart"
@@ -638,6 +813,8 @@
     {
       "key": "swarm.conductor.agent",
       "title": "Swarm conductor's agent tool",
+      "section": "swarms",
+      "group": "Conductor and workers",
       "kind": "string",
       "class": "change",
       "mode": "restart"
@@ -645,6 +822,8 @@
     {
       "key": "swarm.conductor.model",
       "title": "Swarm conductor's model",
+      "section": "swarms",
+      "group": "Conductor and workers",
       "kind": "string",
       "class": "change",
       "mode": "restart"
@@ -652,6 +831,8 @@
     {
       "key": "swarm.worker.agent",
       "title": "Swarm workers' agent tool",
+      "section": "swarms",
+      "group": "Conductor and workers",
       "kind": "string",
       "class": "change",
       "mode": "restart"
@@ -659,6 +840,8 @@
     {
       "key": "swarm.worker.model",
       "title": "Swarm workers' model",
+      "section": "swarms",
+      "group": "Conductor and workers",
       "kind": "string",
       "class": "change",
       "mode": "restart"
@@ -666,13 +849,8 @@
     {
       "key": "swarm.strict_scope",
       "title": "Swarm: strict scopes",
-      "kind": "bool",
-      "class": "change",
-      "mode": "restart"
-    },
-    {
-      "key": "swarm.require_user_close",
-      "title": "Swarm: you close workers",
+      "section": "swarms",
+      "group": "Behaviour",
       "kind": "bool",
       "class": "change",
       "mode": "restart"
@@ -680,6 +858,9 @@
     {
       "key": "swarm.brief_kickoff_delay_ms",
       "title": "Swarm: kickoff delay (ms)",
+      "section": "swarms",
+      "group": "Advanced",
+      "unit": "ms",
       "kind": "int",
       "class": "change",
       "mode": "restart"
@@ -687,6 +868,8 @@
     {
       "key": "voice.enabled",
       "title": "Voice dictation",
+      "section": "input",
+      "group": "Dictation",
       "kind": "bool",
       "class": "change",
       "mode": "restart"
@@ -694,6 +877,9 @@
     {
       "key": "voice.whisper_url",
       "title": "Whisper server",
+      "section": "input",
+      "group": "Dictation",
+      "help": "The Wyoming address of a Whisper server, such as tcp://192.168.1.220:10300. It can be the one Home Assistant Assist already uses; Legato's requests and Assist's then wait for each other.",
       "description": "The Wyoming address of a Whisper server, such as tcp://192.168.1.220:10300. It can be the one Home Assistant Assist already uses; Legato's requests and Assist's then wait for each other.",
       "kind": "string",
       "class": "change",
@@ -702,6 +888,8 @@
     {
       "key": "voice.autosend",
       "title": "Send dictation at once",
+      "section": "input",
+      "group": "Dictation",
       "kind": "bool",
       "class": "change",
       "mode": "restart"
@@ -709,6 +897,8 @@
     {
       "key": "voice.mic_device",
       "title": "Microphone",
+      "section": "input",
+      "group": "Dictation",
       "kind": "string",
       "class": "change",
       "mode": "restart"
@@ -716,6 +906,8 @@
     {
       "key": "worktrees.yggdrasil.enabled",
       "title": "Yggdrasil worktrees",
+      "section": "repositories",
+      "group": "Worktrees",
       "kind": "bool",
       "class": "change",
       "mode": "restart"
@@ -723,6 +915,8 @@
     {
       "key": "repository_cache.enabled",
       "title": "Fresh clones",
+      "section": "repositories",
+      "group": "Fresh clones",
       "kind": "bool",
       "class": "change",
       "mode": "restart"
@@ -730,6 +924,8 @@
     {
       "key": "repository_cache.max_age",
       "title": "Fetch a repository older than",
+      "section": "repositories",
+      "group": "Fresh clones",
       "kind": "duration",
       "class": "change",
       "mode": "restart"
@@ -737,6 +933,9 @@
     {
       "key": "repository_cache.keep_idle",
       "title": "Keep idle clones for",
+      "section": "repositories",
+      "group": "Fresh clones",
+      "help": "A duration, or forever.",
       "description": "A duration, or forever.",
       "kind": "string",
       "class": "risky",
@@ -745,6 +944,8 @@
     {
       "key": "credential_channels.http_proxy.listen",
       "title": "Credential proxy address",
+      "section": "security",
+      "group": "Credential channels",
       "kind": "string",
       "class": "risky",
       "mode": "restart"
@@ -752,6 +953,8 @@
     {
       "key": "credential_channels.ssh_agent.known_hosts",
       "title": "Known hosts for the SSH channel",
+      "section": "security",
+      "group": "Credential channels",
       "kind": "string",
       "class": "risky",
       "mode": "restart"
@@ -759,6 +962,8 @@
     {
       "key": "credential_channels.gh.isolate_login",
       "title": "Keep gh's own login from agents",
+      "section": "security",
+      "group": "Credential channels",
       "kind": "bool",
       "class": "risky",
       "mode": "restart"
@@ -766,6 +971,8 @@
     {
       "key": "learning.enabled",
       "title": "Legato Learn",
+      "section": "learn",
+      "group": "On or off",
       "kind": "bool",
       "class": "change",
       "mode": "restart"
@@ -773,6 +980,8 @@
     {
       "key": "learning.prompt_enabled",
       "title": "Learnings in launch prompts",
+      "section": "learn",
+      "group": "Prompts",
       "kind": "bool",
       "class": "change",
       "mode": "restart"
@@ -780,6 +989,8 @@
     {
       "key": "learning.transition_columns",
       "title": "Reflect when a card enters",
+      "section": "learn",
+      "group": "Reflection",
       "kind": "strings",
       "class": "change",
       "mode": "restart"
@@ -787,6 +998,8 @@
     {
       "key": "learning.curator_adapter",
       "title": "Curator's agent tool",
+      "section": "learn",
+      "group": "Curator",
       "kind": "string",
       "class": "change",
       "mode": "restart"
@@ -794,6 +1007,8 @@
     {
       "key": "learning.curator_tier",
       "title": "Curator's tier",
+      "section": "learn",
+      "group": "Curator",
       "kind": "string",
       "class": "change",
       "mode": "restart"
@@ -801,6 +1016,8 @@
     {
       "key": "learning.curator_working_dir",
       "title": "Curator's folder",
+      "section": "learn",
+      "group": "Curator",
       "kind": "string",
       "class": "change",
       "mode": "restart"
@@ -808,6 +1025,8 @@
     {
       "key": "learning.packet_max_items",
       "title": "Learn: most items in a packet",
+      "section": "learn",
+      "group": "Advanced",
       "kind": "int",
       "class": "change",
       "mode": "restart"
@@ -815,6 +1034,9 @@
     {
       "key": "learning.packet_max_bytes",
       "title": "Learn: largest packet (bytes)",
+      "section": "learn",
+      "group": "Advanced",
+      "unit": "bytes",
       "kind": "int",
       "class": "change",
       "mode": "restart"
@@ -822,6 +1044,8 @@
     {
       "key": "learning.reflection_timeout",
       "title": "Learn: reflection timeout",
+      "section": "learn",
+      "group": "Reflection",
       "kind": "duration",
       "class": "change",
       "mode": "restart"
@@ -829,6 +1053,8 @@
     {
       "key": "learning.reflection_retries",
       "title": "Learn: reflection retries",
+      "section": "learn",
+      "group": "Reflection",
       "kind": "int",
       "class": "change",
       "mode": "restart"
@@ -836,6 +1062,8 @@
     {
       "key": "learning.prompt_max_items",
       "title": "Learn: most items in a prompt",
+      "section": "learn",
+      "group": "Prompts",
       "kind": "int",
       "class": "change",
       "mode": "restart"
@@ -843,6 +1071,9 @@
     {
       "key": "learning.prompt_max_bytes",
       "title": "Learn: largest prompt section (bytes)",
+      "section": "learn",
+      "group": "Advanced",
+      "unit": "bytes",
       "kind": "int",
       "class": "change",
       "mode": "restart"
@@ -850,6 +1081,8 @@
     {
       "key": "learning.consolidation_automatic",
       "title": "Learn: consolidate on its own",
+      "section": "learn",
+      "group": "Curator",
       "kind": "bool",
       "class": "change",
       "mode": "restart"
@@ -857,6 +1090,8 @@
     {
       "key": "learning.consolidation_threshold",
       "title": "Learn: consolidate past",
+      "section": "learn",
+      "group": "Curator",
       "kind": "int",
       "class": "change",
       "mode": "restart"
@@ -864,6 +1099,8 @@
     {
       "key": "learning.embedding.enabled",
       "title": "Learn: semantic search",
+      "section": "learn",
+      "group": "Semantic search",
       "kind": "bool",
       "class": "change",
       "mode": "restart"
@@ -871,6 +1108,8 @@
     {
       "key": "learning.embedding.provider",
       "title": "Learn: embedding provider",
+      "section": "learn",
+      "group": "Semantic search",
       "kind": "string",
       "class": "change",
       "mode": "restart"
@@ -878,6 +1117,8 @@
     {
       "key": "learning.embedding.model",
       "title": "Learn: embedding model",
+      "section": "learn",
+      "group": "Semantic search",
       "kind": "string",
       "class": "change",
       "mode": "restart"
@@ -885,6 +1126,8 @@
     {
       "key": "learning.embedding.base_url",
       "title": "Learn: embedding address",
+      "section": "learn",
+      "group": "Semantic search",
       "kind": "string",
       "class": "change",
       "mode": "restart"
@@ -892,6 +1135,8 @@
     {
       "key": "learning.embedding.api_key_env",
       "title": "Learn: variable with the embedding key",
+      "section": "learn",
+      "group": "Semantic search",
       "kind": "string",
       "class": "risky",
       "mode": "restart"
@@ -899,6 +1144,8 @@
     {
       "key": "learning.embedding.timeout",
       "title": "Learn: embedding timeout",
+      "section": "learn",
+      "group": "Semantic search",
       "kind": "duration",
       "class": "change",
       "mode": "restart"
@@ -906,6 +1153,8 @@
     {
       "key": "learning.embedding.dimensions",
       "title": "Learn: embedding dimensions",
+      "section": "learn",
+      "group": "Semantic search",
       "kind": "int",
       "class": "change",
       "mode": "restart"
@@ -913,6 +1162,8 @@
     {
       "key": "learning.embedding.batch_size",
       "title": "Learn: embedding batch size",
+      "section": "learn",
+      "group": "Semantic search",
       "kind": "int",
       "class": "change",
       "mode": "restart"
@@ -920,6 +1171,9 @@
     {
       "key": "engram.enabled",
       "title": "Engrams",
+      "section": "agents",
+      "group": "Engrams",
+      "help": "auto offers engrams when the engram command answers; on does too, and reports when it does not; off hides them.",
       "description": "auto offers engrams when the engram command answers; on does too, and reports when it does not; off hides them.",
       "kind": "enum",
       "enum": [
@@ -933,6 +1187,9 @@
     {
       "key": "skills.dir",
       "title": "Skills folder",
+      "section": "agents",
+      "group": "Skills",
+      "help": "The folder of skills Legato gives agents, one folder per skill; ~/.legato/skills when empty.",
       "description": "The folder of skills Legato gives agents, one folder per skill; ~/.legato/skills when empty.",
       "kind": "string",
       "class": "risky",
@@ -941,6 +1198,9 @@
     {
       "key": "engram.command",
       "title": "Engram command",
+      "section": "agents",
+      "group": "Engrams",
+      "help": "The engram binary; engram on PATH when empty.",
       "description": "The engram binary; engram on PATH when empty.",
       "kind": "string",
       "class": "risky",
@@ -949,6 +1209,8 @@
     {
       "key": "manticore.url",
       "title": "Manticore address",
+      "section": "integrations",
+      "group": "Manticore",
       "kind": "string",
       "class": "change",
       "mode": "restart"
@@ -956,6 +1218,9 @@
     {
       "key": "manticore.api_key",
       "title": "Manticore key",
+      "section": "integrations",
+      "group": "Manticore",
+      "help": "The name of a secret holding the key.",
       "description": "The name of a secret holding the key.",
       "kind": "string",
       "class": "risky",
@@ -965,6 +1230,9 @@
     {
       "key": "integrations.mqtt.enabled",
       "title": "MQTT publisher",
+      "section": "integrations",
+      "group": "Home Assistant",
+      "help": "Publish read-only Home Assistant entities to an MQTT broker.",
       "description": "Publish read-only Home Assistant entities to an MQTT broker.",
       "kind": "bool",
       "class": "risky",
@@ -973,6 +1241,9 @@
     {
       "key": "integrations.mqtt.theme_control",
       "title": "Allow MQTT theme control",
+      "section": "integrations",
+      "group": "Home Assistant",
+      "help": "Delegate server theme authority to broker ACL writers of the exact theme/set topic; independent of read-only aggregates. No Legato token is required.",
       "description": "Delegate server theme authority to broker ACL writers of the exact theme/set topic; independent of read-only aggregates. No Legato token is required.",
       "kind": "bool",
       "class": "risky",
@@ -981,6 +1252,9 @@
     {
       "key": "integrations.mqtt.broker",
       "title": "MQTT broker",
+      "section": "integrations",
+      "group": "Home Assistant",
+      "help": "mqtt:// or mqtts:// TCP broker address without credentials.",
       "description": "mqtt:// or mqtts:// TCP broker address without credentials.",
       "kind": "string",
       "class": "risky",
@@ -989,6 +1263,9 @@
     {
       "key": "integrations.mqtt.credential",
       "title": "MQTT credential",
+      "section": "integrations",
+      "group": "Home Assistant",
+      "help": "Name of a host-only mqtt userpass credential; empty selects anonymous access.",
       "description": "Name of a host-only mqtt userpass credential; empty selects anonymous access.",
       "kind": "string",
       "class": "risky",
@@ -997,6 +1274,9 @@
     {
       "key": "integrations.mqtt.discovery_prefix",
       "title": "MQTT discovery prefix",
+      "section": "integrations",
+      "group": "Home Assistant",
+      "help": "Home Assistant discovery topic root; homeassistant when empty.",
       "description": "Home Assistant discovery topic root; homeassistant when empty.",
       "kind": "string",
       "class": "risky",
@@ -1005,6 +1285,9 @@
     {
       "key": "integrations.mqtt.base_topic",
       "title": "MQTT base topic",
+      "section": "integrations",
+      "group": "Home Assistant",
+      "help": "Publish topic root; legato/\u003cpersistent-instance-id\u003e when empty.",
       "description": "Publish topic root; legato/\u003cpersistent-instance-id\u003e when empty.",
       "kind": "string",
       "class": "risky",
@@ -1013,6 +1296,9 @@
     {
       "key": "integrations.mqtt.device_name",
       "title": "MQTT device name",
+      "section": "integrations",
+      "group": "Home Assistant",
+      "help": "Home Assistant device name; Legato \u003chostname\u003e when empty.",
       "description": "Home Assistant device name; Legato \u003chostname\u003e when empty.",
       "kind": "string",
       "class": "change",
@@ -1021,6 +1307,9 @@
     {
       "key": "integrations.mqtt.include_reeve",
       "title": "Include Reeve in MQTT counts",
+      "section": "integrations",
+      "group": "Home Assistant",
+      "help": "Include the Reeve in agent counts.",
       "description": "Include the Reeve in agent counts.",
       "kind": "bool",
       "class": "change",
@@ -1029,6 +1318,9 @@
     {
       "key": "integrations.mqtt.attention_details",
       "title": "MQTT Attention details",
+      "section": "integrations",
+      "group": "Home Assistant",
+      "help": "Export bounded generated safe labels; retained MQTT data and HA history can outlive Legato.",
       "description": "Export bounded generated safe labels; retained MQTT data and HA history can outlive Legato.",
       "kind": "bool",
       "class": "risky",
@@ -1037,6 +1329,8 @@
     {
       "key": "integrations.argus.url",
       "title": "Argus address",
+      "section": "integrations",
+      "group": "Argus",
       "kind": "string",
       "class": "risky",
       "mode": "restart"
@@ -1044,6 +1338,8 @@
     {
       "key": "integrations.argus.delivery",
       "title": "Argus delivery",
+      "section": "integrations",
+      "group": "Argus",
       "kind": "string",
       "class": "change",
       "mode": "restart"
@@ -1051,6 +1347,8 @@
     {
       "key": "integrations.argus.agent",
       "title": "Argus's agent tool",
+      "section": "integrations",
+      "group": "Argus",
       "kind": "string",
       "class": "change",
       "mode": "restart"
@@ -1058,6 +1356,8 @@
     {
       "key": "review_passes.enabled",
       "title": "Review passes",
+      "section": "review-passes",
+      "group": "On or off",
       "kind": "bool",
       "class": "change",
       "mode": "restart"
@@ -1065,6 +1365,8 @@
     {
       "key": "review_passes.reviewer.agent",
       "title": "Reviewer's agent tool",
+      "section": "review-passes",
+      "group": "Reviewer",
       "kind": "string",
       "class": "change",
       "mode": "restart"
@@ -1072,6 +1374,8 @@
     {
       "key": "review_passes.reviewer.model",
       "title": "Reviewer's model",
+      "section": "review-passes",
+      "group": "Reviewer",
       "kind": "string",
       "class": "change",
       "mode": "restart"
@@ -1079,6 +1383,8 @@
     {
       "key": "review_passes.reviewer.tier",
       "title": "Reviewer's tier",
+      "section": "review-passes",
+      "group": "Reviewer",
       "kind": "string",
       "class": "change",
       "mode": "restart"
@@ -1086,6 +1392,8 @@
     {
       "key": "review_passes.reviewer.skill",
       "title": "Reviewer's skill",
+      "section": "review-passes",
+      "group": "Reviewer",
       "kind": "string",
       "class": "change",
       "mode": "restart"
@@ -1093,6 +1401,8 @@
     {
       "key": "review_passes.github_credential",
       "title": "Reviewer's GitHub credential",
+      "section": "review-passes",
+      "group": "Reviewer",
       "kind": "string",
       "class": "risky",
       "mode": "restart"
@@ -1100,6 +1410,8 @@
     {
       "key": "review_passes.max_passes",
       "title": "Most review passes",
+      "section": "review-passes",
+      "group": "Limits",
       "kind": "int",
       "class": "change",
       "mode": "restart"
@@ -1107,6 +1419,8 @@
     {
       "key": "review_passes.pass_timeout",
       "title": "Review pass timeout",
+      "section": "review-passes",
+      "group": "Timing",
       "kind": "duration",
       "class": "change",
       "mode": "restart"
@@ -1114,6 +1428,8 @@
     {
       "key": "review_passes.max_concurrent",
       "title": "Most review passes at once",
+      "section": "review-passes",
+      "group": "Limits",
       "kind": "int",
       "class": "change",
       "mode": "restart"
@@ -1121,6 +1437,8 @@
     {
       "key": "review_passes.review_column",
       "title": "Review column",
+      "section": "review-passes",
+      "group": "Reviewer",
       "kind": "string",
       "class": "change",
       "mode": "restart"
@@ -1128,6 +1446,8 @@
     {
       "key": "review_passes.poll_interval",
       "title": "Review pass poll interval",
+      "section": "review-passes",
+      "group": "Timing",
       "kind": "duration",
       "class": "change",
       "mode": "restart"
@@ -1135,6 +1455,8 @@
     {
       "key": "review_passes.quiet_time",
       "title": "Review pass quiet time",
+      "section": "review-passes",
+      "group": "Timing",
       "kind": "duration",
       "class": "change",
       "mode": "restart"
@@ -1142,6 +1464,8 @@
     {
       "key": "review_passes.counted_bots",
       "title": "Review bots counted",
+      "section": "review-passes",
+      "group": "Bots and checks",
       "kind": "strings",
       "class": "change",
       "mode": "restart"
@@ -1149,6 +1473,8 @@
     {
       "key": "review_passes.required_checks",
       "title": "Checks a review pass waits for",
+      "section": "review-passes",
+      "group": "Bots and checks",
       "kind": "strings",
       "class": "change",
       "mode": "restart"
@@ -1156,6 +1482,9 @@
     {
       "key": "reeve.name",
       "title": "The Reeve's name",
+      "section": "reeve",
+      "group": "Session",
+      "help": "What Legato calls the Reeve on this instance: in the sidebar, its conversation, approvals, notifications and the TUI, and in its own prompt. \"the Reeve\" when empty.",
       "description": "What Legato calls the Reeve on this instance: in the sidebar, its conversation, approvals, notifications and the TUI, and in its own prompt. \"the Reeve\" when empty.",
       "kind": "string",
       "class": "change",
@@ -1164,6 +1493,9 @@
     {
       "key": "reeve.agent",
       "title": "The Reeve's agent tool",
+      "section": "reeve",
+      "group": "Session",
+      "help": "claude-code, codex or chimera; the default agent tool when empty.",
       "description": "claude-code, codex or chimera; the default agent tool when empty.",
       "kind": "string",
       "class": "change",
@@ -1172,6 +1504,8 @@
     {
       "key": "reeve.model",
       "title": "The Reeve's model or tier",
+      "section": "reeve",
+      "group": "Session",
       "kind": "string",
       "class": "change",
       "mode": "live"
@@ -1179,6 +1513,9 @@
     {
       "key": "reeve.idle_timeout",
       "title": "Suspend the Reeve after",
+      "section": "reeve",
+      "group": "Session",
+      "help": "How long a session may be idle before its agent is stopped; the next message resumes it. 2h when empty.",
       "description": "How long a session may be idle before its agent is stopped; the next message resumes it. 2h when empty.",
       "kind": "duration",
       "class": "change",
@@ -1187,6 +1524,9 @@
     {
       "key": "reeve.levels.change",
       "title": "What a change needs",
+      "section": "reeve",
+      "group": "Approvals",
+      "help": "auto (runs at once, no approval asked), approve (a tap), signed (an enrolled device) or verified (signed, with a fingerprint or a PIN). One of the Reeve's own rules: changed only with a signature, though making it stricter needs none.",
       "description": "auto (runs at once, no approval asked), approve (a tap), signed (an enrolled device) or verified (signed, with a fingerprint or a PIN). One of the Reeve's own rules: changed only with a signature, though making it stricter needs none.",
       "kind": "enum",
       "enum": [
@@ -1203,6 +1543,9 @@
     {
       "key": "reeve.levels.risky",
       "title": "What a risky change needs",
+      "section": "reeve",
+      "group": "Approvals",
+      "help": "default (signed once a device is enrolled, else approve), approve, signed or verified; or auto, which runs risky changes (restarts, agents stopped, settings that choose what runs on this machine) at once with no approval asked. One of the Reeve's own rules.",
       "description": "default (signed once a device is enrolled, else approve), approve, signed or verified; or auto, which runs risky changes (restarts, agents stopped, settings that choose what runs on this machine) at once with no approval asked. One of the Reeve's own rules.",
       "kind": "enum",
       "enum": [
@@ -1220,6 +1563,9 @@
     {
       "key": "reeve.host_operations",
       "title": "Host operations",
+      "section": "reeve",
+      "group": "Host operations",
+      "help": "Offer the Reeve a shell, file edits and systemd services on this machine, each as a change you approve. One of the Reeve's own rules.",
       "description": "Offer the Reeve a shell, file edits and systemd services on this machine, each as a change you approve. One of the Reeve's own rules.",
       "kind": "bool",
       "class": "risky",
@@ -1229,6 +1575,9 @@
     {
       "key": "reeve.host_operations_auto",
       "title": "Run host operations without asking",
+      "section": "reeve",
+      "group": "Host operations",
+      "help": "On, the Reeve's shell commands, file edits and service actions run at once, with no approval asked: it can then run any command as your user on this machine. Each is still audited. Commands as root still need a verified approval. Off by default; one of the Reeve's own rules: turning it on needs a signature, turning it off never does.",
       "description": "On, the Reeve's shell commands, file edits and service actions run at once, with no approval asked: it can then run any command as your user on this machine. Each is still audited. Commands as root still need a verified approval. Off by default; one of the Reeve's own rules: turning it on needs a signature, turning it off never does.",
       "kind": "bool",
       "class": "risky",
@@ -1238,6 +1587,9 @@
     {
       "key": "reeve.host_timeout",
       "title": "Host command timeout",
+      "section": "reeve",
+      "group": "Host operations",
+      "help": "How long one host command may run. 10m when empty.",
       "description": "How long one host command may run. 10m when empty.",
       "kind": "duration",
       "class": "risky",
@@ -1246,7 +1598,11 @@
     {
       "key": "reeve.host_output_cap",
       "title": "Host command output (bytes)",
+      "section": "reeve",
+      "group": "Host operations",
+      "help": "How much of a host command's output the Reeve is given; the rest is kept in a file it can read. 65536 when 0.",
       "description": "How much of a host command's output the Reeve is given; the rest is kept in a file it can read. 65536 when 0.",
+      "unit": "bytes",
       "kind": "int",
       "class": "change",
       "mode": "live"
@@ -1254,6 +1610,9 @@
     {
       "key": "reeve.peer",
       "title": "When another Reeve messages",
+      "section": "reeve",
+      "group": "Pairings",
+      "help": "With no session running: start one (start, the default), ask a person first (ask), or refuse. One of the Reeve's own rules.",
       "description": "With no session running: start one (start, the default), ask a person first (ask), or refuse. One of the Reeve's own rules.",
       "kind": "enum",
       "enum": [
@@ -1269,6 +1628,8 @@
     {
       "key": "reeve.launch_args",
       "title": "The Reeve's launch arguments",
+      "section": "reeve",
+      "group": "Session",
       "kind": "strings",
       "class": "risky",
       "mode": "live"
@@ -1276,6 +1637,9 @@
     {
       "key": "reeve.voice.enabled",
       "title": "The Reeve's voice",
+      "section": "reeve",
+      "group": "Voice",
+      "help": "Lets the Reeve speak out loud on this machine's speakers. Sessions started after it is turned on are offered the speak tool; turning it off mutes the Reeve at once.",
       "description": "Lets the Reeve speak out loud on this machine's speakers. Sessions started after it is turned on are offered the speak tool; turning it off mutes the Reeve at once.",
       "kind": "bool",
       "class": "change",
@@ -1284,6 +1648,9 @@
     {
       "key": "reeve.voice.command",
       "title": "Voice command",
+      "section": "reeve",
+      "group": "Voice",
+      "help": "Makes a line's audio: run as \u003ccommand\u003e \"\u003ctext\u003e\" \u003cout-file\u003e, it writes an audio file to \u003cout-file\u003e. A script such as reeve-say.sh, or one for Piper.",
       "description": "Makes a line's audio: run as \u003ccommand\u003e \"\u003ctext\u003e\" \u003cout-file\u003e, it writes an audio file to \u003cout-file\u003e. A script such as reeve-say.sh, or one for Piper.",
       "kind": "string",
       "class": "risky",
@@ -1292,6 +1659,9 @@
     {
       "key": "reeve.voice.credential",
       "title": "Voice credential",
+      "section": "reeve",
+      "group": "Voice",
+      "help": "A credential Legato gives the voice command, as elevenlabs. Empty for a local voice.",
       "description": "A credential Legato gives the voice command, as elevenlabs. Empty for a local voice.",
       "kind": "string",
       "class": "risky",
@@ -1300,6 +1670,9 @@
     {
       "key": "reeve.voice.credential_env",
       "title": "Voice credential variable",
+      "section": "reeve",
+      "group": "Voice",
+      "help": "The variable the command finds the credential in. The credential's name in capitals with _API_KEY when empty (ELEVENLABS_API_KEY).",
       "description": "The variable the command finds the credential in. The credential's name in capitals with _API_KEY when empty (ELEVENLABS_API_KEY).",
       "kind": "string",
       "class": "risky",
@@ -1308,6 +1681,9 @@
     {
       "key": "reeve.voice.pause",
       "title": "Pause that ends a spoken turn",
+      "section": "reeve",
+      "group": "Voice",
+      "help": "How long you stay quiet before what you said is sent to the Reeve, from 0.3s to 2s. 1s when empty.",
       "description": "How long you stay quiet before what you said is sent to the Reeve, from 0.3s to 2s. 1s when empty.",
       "kind": "duration",
       "class": "change",
@@ -1316,6 +1692,9 @@
     {
       "key": "reeve.voice.follow_up",
       "title": "Listen for a reply for",
+      "section": "reeve",
+      "group": "Voice",
+      "help": "How long the voice listens for your reply after the Reeve has spoken. 6s when empty; 0s for a single turn.",
       "description": "How long the voice listens for your reply after the Reeve has spoken. 6s when empty; 0s for a single turn.",
       "kind": "duration",
       "class": "change",
@@ -1324,6 +1703,9 @@
     {
       "key": "reeve.voice.partials",
       "title": "Words as you speak",
+      "section": "reeve",
+      "group": "Voice",
+      "help": "Show the words so far while you speak, by transcribing about once a second. Turn it off when Whisper runs on a CPU, or is shared with Home Assistant.",
       "description": "Show the words so far while you speak, by transcribing about once a second. Turn it off when Whisper runs on a CPU, or is shared with Home Assistant.",
       "kind": "bool",
       "class": "change",
@@ -1332,6 +1714,9 @@
     {
       "key": "reeve.voice.quiet_hours",
       "title": "Quiet hours",
+      "section": "reeve",
+      "group": "Voice",
+      "help": "No line plays on this machine's speakers then, as 22:00-07:00 in its local time; the Reeve replies in writing instead. A reply to something you said to it still plays on your device. Empty for none.",
       "description": "No line plays on this machine's speakers then, as 22:00-07:00 in its local time; the Reeve replies in writing instead. A reply to something you said to it still plays on your device. Empty for none.",
       "kind": "string",
       "class": "change",
@@ -1340,6 +1725,9 @@
     {
       "key": "reeve.voice.player",
       "title": "Voice player",
+      "section": "reeve",
+      "group": "Voice",
+      "help": "Plays a line's audio file, named after it. pw-play, else ffplay, when empty.",
       "description": "Plays a line's audio file, named after it. pw-play, else ffplay, when empty.",
       "kind": "string",
       "class": "risky",
@@ -1348,6 +1736,9 @@
     {
       "key": "reeve.watch.settle",
       "title": "Agent idle before the Reeve is told",
+      "section": "reeve",
+      "group": "Watching agents",
+      "help": "How long an agent the Reeve watches must stay idle, or busy only in the background, before the Reeve is told, so brief pauses do not wake it. 30s when empty.",
       "description": "How long an agent the Reeve watches must stay idle, or busy only in the background, before the Reeve is told, so brief pauses do not wake it. 30s when empty.",
       "kind": "duration",
       "class": "change",
@@ -1356,6 +1747,9 @@
     {
       "key": "reeve.watch.started",
       "title": "Watch the agents the Reeve starts",
+      "section": "reeve",
+      "group": "Watching agents",
+      "help": "Watch every agent the Reeve starts or messages, so it is told when one waits, goes idle, adds a note, opens a pull request or exits.",
       "description": "Watch every agent the Reeve starts or messages, so it is told when one waits, goes idle, adds a note, opens a pull request or exits.",
       "kind": "bool",
       "class": "change",
@@ -1364,6 +1758,9 @@
     {
       "key": "reeve.watch.wake",
       "title": "Wake the Reeve for its agents",
+      "section": "reeve",
+      "group": "Watching agents",
+      "help": "When an agent the Reeve watches needs it and no session is running, start or resume one to tell it. Off, the news waits for the next session. On costs tokens while you are away.",
       "description": "When an agent the Reeve watches needs it and no session is running, start or resume one to tell it. Off, the news waits for the next session. On costs tokens while you are away.",
       "kind": "bool",
       "class": "change",
@@ -1372,6 +1769,9 @@
     {
       "key": "burnlite.projects",
       "title": "Burnlite projects",
+      "section": "board",
+      "group": "Burnlite",
+      "help": "The projects searched for import; none is every project.",
       "description": "The projects searched for import; none is every project.",
       "kind": "strings",
       "class": "change",
