@@ -362,14 +362,38 @@ func (s *ReviewPassService) post(ctx context.Context, taskID string) error {
 	if err != nil {
 		return err
 	}
-	event := ReviewComment
-	if pass.Verdict == VerdictClean {
-		event = ReviewApprove
+	items, err := s.db.ListHandoffReviewItems(ctx, taskID)
+	if err != nil {
+		return err
+	}
+	var previous map[int]store.HandoffReviewPR
+	if pass.Pass > 1 {
+		earlier, err := s.db.ListHandoffReviewPRs(ctx, taskID, pass.Pass-1)
+		if err != nil {
+			return err
+		}
+		previous = map[int]store.HandoffReviewPR{}
+		for _, pr := range earlier {
+			previous[pr.Number] = pr
+		}
 	}
 	var failures []string
 	for _, pr := range prs {
-		if pr.ReviewID != 0 {
+		if pr.ReviewID != 0 || pr.Event == ReviewKept {
 			continue // posted before a retry
+		}
+		event := ReviewComment
+		if prClean(pass.Pass, pr.Number, all, items, l.Counted) {
+			event = ReviewApprove
+			// An approval that stands: the head has not moved and the
+			// pass says nothing new of it. No second approval.
+			if before, ok := previous[pr.Number]; ok && (before.Event == ReviewApprove || before.Event == ReviewKept) && before.HeadSHA == pr.HeadSHA &&
+				!saysAnything(pass.Pass, pr.Number, all) {
+				if err := s.db.SetHandoffReviewPRPosted(ctx, taskID, pass.Pass, pr.Number, 0, "", ReviewKept); err != nil {
+					return err
+				}
+				continue
+			}
 		}
 		post := ReviewPost{Repo: pr.Repo, Number: pr.Number, CommitID: pr.HeadSHA, Event: event, Summary: pass.Summary,
 			Footer: reviewFooter(settings, pass.Pass), Marker: fmt.Sprintf("%s/pass-%d/pr-%d", taskID, pass.Pass, pr.Number)}
@@ -398,7 +422,7 @@ func (s *ReviewPassService) post(ctx context.Context, taskID string) error {
 			}
 			return err
 		}
-		if err := s.db.SetHandoffReviewPRPosted(ctx, taskID, pass.Pass, pr.Number, posted.ID, posted.URL); err != nil {
+		if err := s.db.SetHandoffReviewPRPosted(ctx, taskID, pass.Pass, pr.Number, posted.ID, posted.URL, event); err != nil {
 			return err
 		}
 		for i, index := range posted.Inline {
@@ -454,6 +478,48 @@ func (s *ReviewPassService) post(ctx context.Context, taskID string) error {
 	}
 	l.stage(ctx, ReviewStageAuthor)
 	return nil
+}
+
+// ReviewKept is a pull request's review in a pass that posted nothing on it:
+// its earlier approval stands (head unchanged, nothing new on it).
+const ReviewKept = "kept"
+
+// prClean says whether a pass leaves a pull request clean, so its review is
+// an approval: no blocking finding of the pass on it, no earlier finding on
+// it ruled still open, and, when the loop counts checks, no failing
+// counted check on it (one answered by a reply aside). The loop's verdict
+// stays the whole stack's.
+func prClean(pass, number int, findings []store.HandoffReviewFinding, items []store.HandoffReviewItem, checks bool) bool {
+	for _, f := range findings {
+		if f.PR != number {
+			continue
+		}
+		if f.Pass == pass && f.Severity == SeverityBlocking {
+			return false
+		}
+		if f.RuledPass == pass && f.Status == "open" {
+			return false
+		}
+	}
+	if checks {
+		for _, item := range items {
+			if item.Kind == ItemCheck && item.PR == number && !item.Closed && item.Answer != AnswerReplied {
+				return false
+			}
+		}
+	}
+	return true
+}
+
+// saysAnything says whether a pass has a finding or a ruling on a pull
+// request.
+func saysAnything(pass, number int, findings []store.HandoffReviewFinding) bool {
+	for _, f := range findings {
+		if f.PR == number && (f.Pass == pass || f.RuledPass == pass) {
+			return true
+		}
+	}
+	return false
 }
 
 // notConverging says whether a pass and the one before it each raised new

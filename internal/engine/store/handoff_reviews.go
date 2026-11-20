@@ -66,6 +66,9 @@ type HandoffReviewPR struct {
 	ReviewURL string `db:"review_url"`
 	// Author is the pull request's author on GitHub (the author App).
 	Author string `db:"author"`
+	// Event is the pass's review of it: APPROVE or COMMENT as posted,
+	// kept when an earlier approval stands; "" before it is posted.
+	Event string `db:"event"`
 }
 
 // HandoffReviewFinding is one finding of a pass, with its ruling by a later one.
@@ -187,9 +190,9 @@ func (s *Store) ListHandoffReviewPRs(ctx context.Context, taskID string, pass in
 }
 
 // SetHandoffReviewPRPosted records the review posted on a pass's pull request.
-func (s *Store) SetHandoffReviewPRPosted(ctx context.Context, taskID string, pass, number int, reviewID int64, url string) error {
-	_, err := s.db.ExecContext(ctx, `UPDATE handoff_review_prs SET review_id = ?, review_url = ? WHERE task_id = ? AND pass = ? AND number = ?`,
-		reviewID, url, taskID, pass, number)
+func (s *Store) SetHandoffReviewPRPosted(ctx context.Context, taskID string, pass, number int, reviewID int64, url, event string) error {
+	_, err := s.db.ExecContext(ctx, `UPDATE handoff_review_prs SET review_id = ?, review_url = ?, event = ? WHERE task_id = ? AND pass = ? AND number = ?`,
+		reviewID, url, event, taskID, pass, number)
 	return err
 }
 

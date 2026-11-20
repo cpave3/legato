@@ -157,15 +157,41 @@ func (s *ReviewPassService) ReviewBlock(ctx context.Context, taskID string) *Rev
 			}
 		}
 	}
-	for pass := loop.Pass; pass >= 1 && len(block.Links) == 0; pass-- {
+	block.Links = s.latestReviews(ctx, taskID, loop.Pass)
+	return block
+}
+
+// latestReviews are the latest Legato review of each pull request of a
+// loop's last pass with one, in its order: a pass that posted nothing on a
+// pull request (an approval kept) links the earlier review.
+func (s *ReviewPassService) latestReviews(ctx context.Context, taskID string, last int) []ReviewLink {
+	var order []int
+	urls := map[int]string{}
+	for pass := last; pass >= 1; pass-- {
 		prs, _ := s.db.ListHandoffReviewPRs(ctx, taskID, pass)
+		if order == nil {
+			for _, pr := range prs {
+				if pr.ReviewURL != "" || pr.Event == ReviewKept {
+					order = append(order, pr.Number)
+				}
+			}
+			if len(order) == 0 {
+				continue
+			}
+		}
 		for _, pr := range prs {
-			if pr.ReviewURL != "" {
-				block.Links = append(block.Links, ReviewLink{PR: pr.Number, URL: pr.ReviewURL})
+			if _, ok := urls[pr.Number]; !ok && pr.ReviewURL != "" {
+				urls[pr.Number] = pr.ReviewURL
 			}
 		}
 	}
-	return block
+	var out []ReviewLink
+	for _, n := range order {
+		if url := urls[n]; url != "" {
+			out = append(out, ReviewLink{PR: n, URL: url})
+		}
+	}
+	return out
 }
 
 // StopReview stops a card's reviewer: the handoff is closed (Drop, Leave,
