@@ -28,6 +28,11 @@ import { ApprovalNotificationSettings } from "../components/ApprovalNotification
 import { UpdatesSettings } from "../components/UpdatesSettings"
 import { RestartBar, RestartCard } from "../components/settings/RestartSettings"
 import { waitingChanges } from "../lib/pendingRestart"
+import { PickerContext, pickerData } from "../lib/settingPickers"
+import { listSkills } from "../lib/skills"
+import { fetchAdapters } from "../lib/adapters"
+import { queryKeys } from "../lib/query"
+import { useQuery } from "@tanstack/react-query"
 import { SettingsCard, quietButton } from "../components/settings/SettingsUI"
 import { Globe, Palette } from "lucide-react"
 import { useSettings } from "../hooks/useSettings"
@@ -98,6 +103,10 @@ export function SettingsPage() {
   const fileOnly = configSettings.data?.file_only ?? []
   const fileOnlyValues = configSettings.data?.file_only_values ?? {}
   const [showKeys, setShowKeys] = useState(storedShowKeys)
+  // What the pickers choose from: the agent tools and the skills, beside
+  // the lists (tiers, models, columns, workspaces).
+  const adapters = useQuery({ queryKey: queryKeys.adapters(baseUrl), queryFn: () => fetchAdapters(baseUrl), retry: false })
+  const skills = useQuery({ queryKey: [baseUrl, "settings-skills"], queryFn: () => listSkills(baseUrl), retry: false })
   const lists = configLists.data ?? []
   const registered = (key: string) => registry.find((s) => s.key === key)
   const [showPairDevice, setShowPairDevice] = useState(false)
@@ -184,6 +193,7 @@ export function SettingsPage() {
 
   // Open at what the fragment names: a row, a card, a group, or the section.
   const focusId = destination?.element ?? (destination?.group ? groupElementId(destination.section, destination.group) : destination ? `section-${destination.section}` : target)
+  const wholeSection = focusId === `section-${destination?.section}`
   useEffect(() => {
     if (!target) return
     let focused = false
@@ -195,7 +205,7 @@ export function SettingsPage() {
         element.style.scrollMarginTop = `${(header.current?.getBoundingClientRect().height ?? 0) + 16}px`
         element.focus({ preventScroll: true })
         // A whole section opens at the top, with Back and its group links.
-        if (focusId === `section-${destination?.section}`) scroller.current?.scrollTo?.({ top: 0 })
+        if (wholeSection) scroller.current?.scrollTo?.({ top: 0 })
         else element.scrollIntoView?.({ block: "start" })
         focused = true
       }
@@ -204,7 +214,7 @@ export function SettingsPage() {
     const observer = new MutationObserver(resolve)
     if (scroller.current) observer.observe(scroller.current, { childList: true, subtree: true })
     return () => observer.disconnect()
-  }, [target, focusId, baseUrl, destinationRevision])
+  }, [target, focusId, wholeSection, baseUrl, destinationRevision])
 
   const serverName = servers.find((s) => s.url === baseUrl)?.name ?? (baseUrl ? baseUrl : "Local")
   const groups = current && !current.href ? sectionGroups(current, registry).filter((g) => g !== leadGroup
@@ -262,7 +272,9 @@ export function SettingsPage() {
             <p className="text-sm text-lw-text-2">{current.title} has a page of its own.</p>
             <Link to={current.href} className={quietButton + " w-fit"}>Open {current.title}</Link>
           </section>}
-          {current && !current.href && !search.trim() && <ShowKeysContext.Provider value={showKeys}><SettingsSectionView section={current} content={{ settings: registry, fileOnly, fileOnlyValues, lists, baseUrl, cards }} /></ShowKeysContext.Provider>}
+          {current && !current.href && !search.trim() && <ShowKeysContext.Provider value={showKeys}><PickerContext.Provider value={pickerData(lists, registry, { adapters: adapters.data?.adapters ?? [], default: adapters.data?.default ?? "" }, (skills.data?.skills ?? []).filter((sk) => !sk.error).map((sk) => sk.name))}>
+            <SettingsSectionView section={current} content={{ settings: registry, fileOnly, fileOnlyValues, lists, baseUrl, cards }} />
+          </PickerContext.Provider></ShowKeysContext.Provider>}
         </main>
       </div>
 

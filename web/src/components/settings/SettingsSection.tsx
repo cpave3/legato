@@ -4,6 +4,7 @@ import { fileOnlyPlace, fileOnlyTitle, groupElementId, hasOwnCard, leadGroup, li
 import { FileOnlyRow, RegistrySettings } from "./RegistrySettings"
 import { SettingsRows } from "./SettingsUI"
 import { modeLabel } from "../../lib/settingValues"
+import { partnerKeys, settingPickers } from "../../lib/settingPickers"
 import { ListCard } from "./ListSettings"
 
 // What a section draws: the registry's settings by the API's place, the
@@ -29,7 +30,9 @@ export function SettingsSectionView({ section, content }: { section: SettingsSec
     </div>
     {groups.map((group) => {
       const at = (place: { section: string; group: string }) => place.section === section.id && place.group === group
-      const rows = settings.filter((s) => at(settingPlace(s)) && !hasOwnCard(s.key))
+      // A model or tier is drawn in its agent's row, when that is here.
+      const drawnByAgent = (key: string) => partnerKeys.includes(key) && settings.some((s) => { const p = settingPickers[s.key]; return p?.kind === "agent" && [p.modelOrTier, p.tier, p.model].includes(key) })
+      const rows = settings.filter((s) => at(settingPlace(s)) && !hasOwnCard(s.key) && !drawnByAgent(s.key))
       const groupCards = settingsCards.filter((card) => at(card) && cards[card.id] !== undefined)
       const groupLists = lists.filter((list) => at(listPlace(list.key)) && !listsWithCards.includes(list.key))
       const files = fileOnly.filter((key) => at(fileOnlyPlace(key)))

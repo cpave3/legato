@@ -8,6 +8,8 @@ import { byteUnit, formatValue, isZero, modeLabel } from "../../lib/settingValue
 import { SettingsRows, Toggle, primaryButton, quietButton } from "./SettingsUI"
 import { useConfirm } from "../../hooks/useConfirm"
 import { useShowKeys } from "./showKeys"
+import { PickerControl, TagsControl } from "./Pickers"
+import { settingPickers } from "../../lib/settingPickers"
 
 const chip = "inline-flex items-center gap-1 rounded px-1.5 py-px text-[11px] leading-[18px]"
 
@@ -277,7 +279,11 @@ export function RegistrySettingRow({ setting, baseUrl, actions, showMode }: { se
         {!busy[setting.key] && outcome && outcome.kind !== "refused" && <p role="status" className="mt-1 text-xs text-lw-text-2">{outcome.text}</p>}
       </div>
       <div className={cn("ml-auto flex min-w-0 items-center gap-1", busy[setting.key] && "opacity-60")}>
-        <SettingControl setting={setting} disabled={setting.pinned || busy[setting.key]} onSet={(value) => set(setting.key, value)} />
+        {settingPickers[setting.key]
+          ? <PickerControl setting={setting} picker={settingPickers[setting.key]} disabled={setting.pinned || busy[setting.key]} setKey={(k, v) => void set(k, v)} resetKey={(k) => void reset(k)} />
+          : setting.kind === "strings"
+            ? <TagsControl setting={setting} disabled={setting.pinned || busy[setting.key]} onSet={(v) => void set(setting.key, v)} />
+            : <SettingControl setting={setting} disabled={setting.pinned || busy[setting.key]} onSet={(value) => set(setting.key, value)} />}
         {setting.pinned && <PinnedMenu setting={setting} baseUrl={baseUrl} onCopy={key.copy} />}
       </div>
     </div>
