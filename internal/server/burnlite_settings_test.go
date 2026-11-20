@@ -93,7 +93,7 @@ func TestTheCallbackFinishesAndReturnsToSettings(t *testing.T) {
 	h.ServeHTTP(w, httptest.NewRequest("GET", "/oauth/callback?error=access_denied&state=s", nil))
 	loc, _ := url.Parse(w.Header().Get("Location"))
 	if w.Code != http.StatusFound || loc.Path != "/settings" || loc.Query().Get("result") != "failed" ||
-		!strings.Contains(loc.Query().Get("error"), "access_denied") || loc.Fragment != "integrations" {
+		!strings.Contains(loc.Query().Get("error"), "access_denied") || loc.Fragment != "burnlite" {
 		t.Fatalf("status %d to %q", w.Code, w.Header().Get("Location"))
 	}
 }
