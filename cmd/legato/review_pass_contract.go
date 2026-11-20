@@ -34,12 +34,14 @@ func runReviewPassFeedbackContract(args []string) int {
 	if taskID == "" {
 		return renderCommandError(command, usageError("missing_argument", "review-pass feedback needs --task or a session's LEGATO_TASK_ID"), jsonMode)
 	}
-	db, code := openCommandStore(command, jsonMode)
+	cfg, db, code := openCommandStoreWithConfig(command, jsonMode)
 	if db == nil {
 		return code
 	}
 	defer db.Close()
-	view, err := service.ReviewFeedback(context.Background(), db, taskID)
+	// The guidance for a stack names the skill that works through it,
+	// when the author's agent has it.
+	view, err := service.ReviewFeedback(context.Background(), db, taskID, service.ReviewFeedbackOptions{HasSkill: agentHasSkill(cfg, db)})
 	if err != nil {
 		return renderCommandError(command, commandDomainError(err), jsonMode)
 	}

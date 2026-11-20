@@ -45,7 +45,7 @@ The review is not only the reviewer's. While the task is away, the worker polls 
 - **Comments** from the repository's owners, members and collaborators, and from bots you list in `review_passes.counted_bots`, go to the author to answer, a few minutes after the last one arrives. Other people's comments are counted but not sent. A comment after a clean pass makes the task not done again until it is answered.
 - **Required checks** are the checks branch protection requires on each pull request's base branch, or `review_passes.required_checks` when it requires none. A failing one goes to the author with its summary, a link and a few lines of what it reported. It is handled when it passes on a commit the author pushes, or when the author replies (a flaky test, say). Reviews do not wait for CI; only the task's done does.
 
-The author reads all of this as data through `legato review-pass feedback --json`. Nothing from GitHub is typed into its terminal. See [CLI](/legato/reference/cli/#review-passes).
+The author reads all of this as data through `legato review-pass feedback --json`. When the review covers a stack, the feedback lists its pull requests bottom first, and the author is told to fix each item on its own branch from the bottom up, restack the layers above (`st restack`, or `git rebase --update-refs` without Staccato), push every branch that moved with `--force-with-lease`, then move the task to Done. If the author's agent has the `address-stack-feedback` skill, it is told to use it. Nothing from GitHub is typed into its terminal. See [CLI](/legato/reference/cli/#review-passes).
 
 ## Set up a worker
 
