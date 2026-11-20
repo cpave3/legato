@@ -1072,7 +1072,8 @@ func runServeCmd(args []string) int {
 	defer approvalsRT.stop()
 	approvalsRT.attach(srv)
 	updates := newUpdateService(db, bus, agentSvc, serveRestarter())
-	serveAttention := wireAttention(context.Background(), db, bus, srv, planSvc, reviewSvc, agentSvc, workflowSvc, approvalsRT, updates, mainSide, triggerCoordinator)
+	serveReviewPrompt := newReviewPrompt(cfg, db, workflowSvc)
+	serveAttention := wireAttention(context.Background(), db, bus, srv, planSvc, reviewSvc, agentSvc, workflowSvc, approvalsRT, updates, mainSide, serveReviewPrompt, triggerCoordinator)
 	defer startMQTT(cfg, db, bus, agentSvc, serveAttention, approvalsRT)()
 	srv.SetSettingsService(wireSettings(db, bus, serveAttention))
 	srv.SetSettingsMover(settingsMover(db), restartAll)
@@ -1155,7 +1156,7 @@ func runServeCmd(args []string) int {
 	srv.StartBoardEvents()
 	srv.StartLearningEvents()
 	defer wireAgentUI(srv, cfg, db, bus)()
-	defer wireIntegrations(srv, integrationDeps{cfg: cfg, db: db, bus: bus, agents: agentSvc, board: boardSvc, approvals: approvalsRT, repos: repos, workflows: workflowSvc})()
+	defer wireIntegrations(srv, integrationDeps{cfg: cfg, db: db, bus: bus, agents: agentSvc, board: boardSvc, approvals: approvalsRT, repos: repos, workflows: workflowSvc, reviewPrompt: serveReviewPrompt})()
 	srv.SetDirectoryService(configuredDirectoryService(cfg, db, repoPresets))
 	srv.SetResourceService(wiredResourceService(cfg, db, agentSvc))
 
@@ -1405,6 +1406,9 @@ func runTUI() int {
 	} else {
 		log.Printf("workflows: %v", workflowErr)
 	}
+	// One review prompt for the web server's Attention and the TUI's; the
+	// web server's integrations give it the review-pass engine.
+	reviewPrompt := newReviewPrompt(cfg, db, tuiWorkflowSvc)
 
 	reportSvc := service.NewReportService(db)
 	var worktreeSvc *service.WorktreeWorkflow
@@ -1450,7 +1454,8 @@ func runTUI() int {
 			}
 			approvalsRT.attach(webSrv)
 			updates := newUpdateService(db, bus, agentSvc, tuiRestarter())
-			webAttention := wireAttention(context.Background(), db, bus, webSrv, planSvc, reviewSvc, agentSvc, tuiWorkflowSvc, approvalsRT, updates, mainSide, triggerCoordinator)
+			webReviewPrompt := reviewPrompt
+			webAttention := wireAttention(context.Background(), db, bus, webSrv, planSvc, reviewSvc, agentSvc, tuiWorkflowSvc, approvalsRT, updates, mainSide, webReviewPrompt, triggerCoordinator)
 			webSrv.SetSettingsService(wireSettings(db, bus, webAttention))
 			webSrv.SetSettingsMover(settingsMover(db), restartAll)
 			webReeve := wireReeve(webSrv, db, agentSvc, bus, approvalsRT.approvals)
@@ -1513,7 +1518,7 @@ func runTUI() int {
 			webSrv.StartBoardEvents()
 			webSrv.StartLearningEvents()
 			stopAgentUI = wireAgentUI(webSrv, cfg, db, bus)
-			stopIntegrations = wireIntegrations(webSrv, integrationDeps{cfg: cfg, db: db, bus: bus, agents: agentSvc, board: boardSvc, approvals: approvalsRT, repos: repos, workflows: tuiWorkflowSvc})
+			stopIntegrations = wireIntegrations(webSrv, integrationDeps{cfg: cfg, db: db, bus: bus, agents: agentSvc, board: boardSvc, approvals: approvalsRT, repos: repos, workflows: tuiWorkflowSvc, reviewPrompt: webReviewPrompt})
 			webSrv.SetDirectoryService(configuredDirectoryService(cfg, db, repoPresets))
 			webSrv.SetResourceService(wiredResourceService(cfg, db, agentSvc))
 			go func() {
@@ -1588,6 +1593,7 @@ func runTUI() int {
 		app.SetWorkflowTriggerCoordinator(triggerCoordinator, workflowRepositoryPresets(cfg))
 	}
 	registerApprovalAttention(attentionSvc, approvalsRT)
+	registerReviewPrompt(attentionSvc, reviewPrompt)
 	_ = attentionSvc.RegisterProducer(service.NewRestartAttentionAdapter(db))
 	_ = attentionSvc.RegisterProducerWithEvents(engramAttention(db), events.EventAgentStarted, events.EventAgentDied, events.EventAgentCompleted)
 	if webSrv == nil {

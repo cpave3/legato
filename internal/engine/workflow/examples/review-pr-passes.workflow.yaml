@@ -3,8 +3,9 @@ name: review-pr-passes
 title: Review pull request in passes
 run_title: Review loop on ${{ workflow.inputs.repo }}#${{ workflow.inputs.pr_number }}
 description: >-
-  Review an open pull request in passes, each posted as a GitHub review from
-  Legato's reviewer App, until a clean pass approves it. The branch's owner
+  Review an open pull request in passes (with scope stack, every open pull
+  request of its stack), each posted as a GitHub review from Legato's
+  reviewer App, until a clean pass approves them. The branch's owner
   pushes fixes and replies in the review threads between passes.
 inputs:
   repo:
@@ -27,6 +28,10 @@ inputs:
     type: boolean
     default: false
     description: Have the agent of the board task the pull request belongs to fix and answer the findings
+  scope:
+    type: string
+    default: stack
+    description: "stack: review every open pull request of the stack this one is in, each against its own base, in one loop; pr: this pull request only"
 steps:
   - id: review
     title: Review in passes
@@ -37,6 +42,7 @@ steps:
       max_passes: ${{ workflow.inputs.max_passes }}
       reviewer: ${{ workflow.inputs.reviewer }}
       agent_author: ${{ workflow.inputs.agent_author }}
+      scope: ${{ workflow.inputs.scope }}
     outputs:
       outcome: {type: string, description: "approved, stuck, closed or cancelled"}
       passes: {type: integer}

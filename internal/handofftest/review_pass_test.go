@@ -22,10 +22,19 @@ type reviewed struct {
 }
 
 func newReviewed(t *testing.T, opts ReviewPassOptions) reviewed {
+	return newReviewedWith(t, opts, nil)
+}
+
+// newReviewedWith is newReviewed with a main that tracks PRs against gh
+// (none when nil).
+func newReviewedWith(t *testing.T, opts ReviewPassOptions, gh *FakeGitHub) reviewed {
 	t.Helper()
 	ctx := context.Background()
 	worker := StartWorker(t, WorkerOptions{Name: "vm-1", GitHubRepositories: []string{"acme/*"}, ReviewPasses: &opts})
 	main := liveMain(t, worker)
+	if gh != nil {
+		main = NewMain(t, MainOptions{Clock: worker.Clock, GitHub: gh})
+	}
 	paired := Pair(t, main, worker)
 	taskID, _ := localTask(t, main, "Fix the flaky login test", "", "")
 	away, err := main.Handoffs.HandOff(ctx, service.TaskHandoffRequest{TaskID: taskID, Worker: paired.InstanceID,

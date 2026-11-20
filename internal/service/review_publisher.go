@@ -332,32 +332,69 @@ func (p *ReviewPublisher) PullRequests(ctx context.Context, repo string, branche
 		return nil, err
 	}
 	defer release()
-	owner, _, _ := strings.Cut(repo, "/")
 	var out []ReviewGitHubPR
 	for _, branch := range branches {
-		var pulls []struct {
-			Number  int    `json:"number"`
-			Title   string `json:"title"`
-			Body    string `json:"body"`
-			HTMLURL string `json:"html_url"`
-			User    struct {
-				Login string `json:"login"`
-			} `json:"user"`
-			Head struct {
-				Ref string `json:"ref"`
-				SHA string `json:"sha"`
-			} `json:"head"`
-			Base struct {
-				Ref string `json:"ref"`
-			} `json:"base"`
-		}
-		path := fmt.Sprintf("/repos/%s/pulls?state=open&head=%s:%s&per_page=10", repo, owner, url.QueryEscape(branch))
-		if err := call.do(ctx, http.MethodGet, path, nil, &pulls); err != nil {
+		pulls, err := openPulls(ctx, call, repo, PullQuery{Head: branch})
+		if err != nil {
 			return nil, err
 		}
-		for _, pr := range pulls {
-			out = append(out, ReviewGitHubPR{Number: pr.Number, Branch: pr.Head.Ref, Base: pr.Base.Ref, Title: pr.Title, Body: pr.Body, URL: pr.HTMLURL, HeadSHA: pr.Head.SHA, Author: pr.User.Login})
+		out = append(out, pulls...)
+	}
+	return out, nil
+}
+
+// OpenPulls are the repository's open pull requests whose head (in the
+// repository itself) or base is a branch, read as the reviewer App.
+func (p *ReviewPublisher) OpenPulls(ctx context.Context, repo string, q PullQuery) ([]ReviewGitHubPR, error) {
+	call, release, err := p.open(ctx, AsReviewer, repo, false)
+	if err != nil {
+		return nil, err
+	}
+	defer release()
+	return openPulls(ctx, call, repo, q)
+}
+
+// openPulls lists open pull requests by head (owner:branch) or base, up to
+// 100.
+func openPulls(ctx context.Context, call *githubCall, repo string, q PullQuery) ([]ReviewGitHubPR, error) {
+	var pulls []struct {
+		Number  int    `json:"number"`
+		Title   string `json:"title"`
+		Body    string `json:"body"`
+		HTMLURL string `json:"html_url"`
+		User    struct {
+			Login string `json:"login"`
+		} `json:"user"`
+		Head struct {
+			Ref  string `json:"ref"`
+			SHA  string `json:"sha"`
+			Repo *struct {
+				FullName string `json:"full_name"`
+			} `json:"repo"`
+		} `json:"head"`
+		Base struct {
+			Ref string `json:"ref"`
+		} `json:"base"`
+	}
+	path := fmt.Sprintf("/repos/%s/pulls?state=open&per_page=100", repo)
+	if q.Head != "" {
+		owner, _, _ := strings.Cut(repo, "/")
+		path += "&head=" + url.QueryEscape(owner+":"+q.Head)
+	}
+	if q.Base != "" {
+		path += "&base=" + url.QueryEscape(q.Base)
+	}
+	if err := call.do(ctx, http.MethodGet, path, nil, &pulls); err != nil {
+		return nil, err
+	}
+	out := make([]ReviewGitHubPR, 0, len(pulls))
+	for _, pr := range pulls {
+		headRepo := ""
+		if pr.Head.Repo != nil {
+			headRepo = pr.Head.Repo.FullName
 		}
+		out = append(out, ReviewGitHubPR{Number: pr.Number, Branch: pr.Head.Ref, Base: pr.Base.Ref, Title: pr.Title, Body: pr.Body,
+			URL: pr.HTMLURL, HeadSHA: pr.Head.SHA, Author: pr.User.Login, HeadRepo: headRepo})
 	}
 	return out, nil
 }

@@ -249,6 +249,20 @@ describe("AttentionPage", () => {
     expect(within(down).getByRole("link", { name: /Open Settings › Workers/ }).getAttribute("href")).toBe("/settings#workers")
   })
 
+  it("puts local work whose pull requests nobody reviews in Ready for review", async () => {
+    mockData = [item({
+      id: "att-prompt", producer: "review_prompt", signal_kind: "prs_unreviewed", category: "review", urgency: "normal",
+      title: "local-1 has 2 open PRs not reviewed", reason: "Its work is done, and no review loop reviews its pull requests", task_id: "local-1",
+      source_revision: "acme/widget#31:sha31", navigation: { kind: "task", target: "local-1" },
+      actions: [{ id: "start_review", label: "Start review passes", kind: "execute", intent: "primary" }],
+    })]
+    const { AttentionPage } = await import("../AttentionPage")
+    render(<MemoryRouter><AttentionPage /></MemoryRouter>)
+    const review = screen.getByRole("region", { name: /Ready for review/ })
+    expect(within(review).getByText("local-1 has 2 open PRs not reviewed")).toBeTruthy()
+    expect(within(screen.getByRole("region", { name: /Needs intervention/ })).queryByText("local-1 has 2 open PRs not reviewed")).toBeNull()
+  })
+
   it("asks before an action that says what it confirms, and does nothing when the person declines", async () => {
     mockData = [item({
       id: "att-lost", producer: "handoff", signal_kind: "handoff_lost", category: "handoff",

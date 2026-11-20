@@ -25,6 +25,11 @@ type ReviewLoopBlock struct {
 	SkippedComments int          `json:"skipped_comments"`
 	Reason          string       `json:"reason,omitempty"`
 	Links           []ReviewLink `json:"links,omitempty"`
+	// WaitingOn is what a pass that has not started waits on
+	// (ReviewWaitingOn*): the author, GitHub, a reviewer slot. Phase then
+	// stays reviewing or waiting_for_reviewer, as a main that predates the
+	// field reads it.
+	WaitingOn string `json:"waiting_on,omitempty"`
 }
 
 // ReviewLink is a pull request's latest review by Legato.
@@ -43,11 +48,24 @@ func (b *ReviewLoopBlock) InReview() bool {
 // Stuck says the review needs the person.
 func (b *ReviewLoopBlock) Stuck() bool { return b != nil && b.Phase == ReviewPhaseStuck }
 
-// Summary is the block in a few words: "Reviewing · pass 2", "Author fixing
-// · 3 blocking, 1 comment", "Done · approved".
+// Summary is the block in a few words: "Reviewing · pass 2", "Waiting for
+// the author · working", "Author fixing · 3 blocking, 1 comment", "Done ·
+// approved".
 func (b *ReviewLoopBlock) Summary() string {
 	if b == nil {
 		return ""
+	}
+	switch b.WaitingOn {
+	case ReviewWaitingOnAuthorWorking:
+		return "Waiting for the author · working"
+	case ReviewWaitingOnAuthorWaiting:
+		return "Waiting for the author · it waits for an answer"
+	case ReviewWaitingOnAuthorPush:
+		return "Waiting for the author to push"
+	case ReviewWaitingOnGitHub:
+		return "Waiting for GitHub"
+	case ReviewWaitingOnStart:
+		return "Starting the next pass"
 	}
 	switch b.Phase {
 	case ReviewPhaseReviewing:
@@ -106,6 +124,15 @@ func (s *ReviewPassService) ReviewBlock(ctx context.Context, taskID string) *Rev
 		if loop.Pass == 0 {
 			block.Pass = 1
 		}
+		block.WaitingOn = s.waitingOn(taskID)
+		if loop.Mismatches > 0 {
+			block.WaitingOn = ReviewWaitingOnAuthorPush
+		}
+		if block.WaitingOn == "" {
+			block.WaitingOn = ReviewWaitingOnStart
+		}
+	case ReviewPhaseWaitingForReviewer:
+		block.WaitingOn = ReviewWaitingOnReviewerSlot
 	}
 	if items, err := currentItems(ctx, s.db, loop); err == nil {
 		for _, item := range items {
@@ -130,15 +157,41 @@ func (s *ReviewPassService) ReviewBlock(ctx context.Context, taskID string) *Rev
 			}
 		}
 	}
-	for pass := loop.Pass; pass >= 1 && len(block.Links) == 0; pass-- {
+	block.Links = s.latestReviews(ctx, taskID, loop.Pass)
+	return block
+}
+
+// latestReviews are the latest Legato review of each pull request of a
+// loop's last pass with one, in its order: a pass that posted nothing on a
+// pull request (an approval kept) links the earlier review.
+func (s *ReviewPassService) latestReviews(ctx context.Context, taskID string, last int) []ReviewLink {
+	var order []int
+	urls := map[int]string{}
+	for pass := last; pass >= 1; pass-- {
 		prs, _ := s.db.ListHandoffReviewPRs(ctx, taskID, pass)
+		if order == nil {
+			for _, pr := range prs {
+				if pr.ReviewURL != "" || pr.Event == ReviewKept {
+					order = append(order, pr.Number)
+				}
+			}
+			if len(order) == 0 {
+				continue
+			}
+		}
 		for _, pr := range prs {
-			if pr.ReviewURL != "" {
-				block.Links = append(block.Links, ReviewLink{PR: pr.Number, URL: pr.ReviewURL})
+			if _, ok := urls[pr.Number]; !ok && pr.ReviewURL != "" {
+				urls[pr.Number] = pr.ReviewURL
 			}
 		}
 	}
-	return block
+	var out []ReviewLink
+	for _, n := range order {
+		if url := urls[n]; url != "" {
+			out = append(out, ReviewLink{PR: n, URL: url})
+		}
+	}
+	return out
 }
 
 // StopReview stops a card's reviewer: the handoff is closed (Drop, Leave,

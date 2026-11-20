@@ -2,8 +2,12 @@ import type { ExtensionConfig } from "./config"
 import type { WorkflowDiscovery } from "./legato"
 
 export type GitHubPullRequestContext = { repository: string; pullRequestNumber: number }
-/** What a pull request action is for: a review run, a conversation about the change, or a review loop. */
-export type PullRequestPurpose = "review" | "discuss" | "passes"
+/**
+ * What a pull request action is for: a review run, a conversation about the
+ * change, a review loop on the pull request's whole stack, or one on this
+ * pull request only.
+ */
+export type PullRequestPurpose = "review" | "discuss" | "passes" | "passes-pr"
 export type PreparedWorkflow = {
   workflowName: string
   repositoryPresetName: string
@@ -19,7 +23,7 @@ export function prepareGitHubWorkflow(
   discovery: WorkflowDiscovery,
   purpose: PullRequestPurpose = "review",
 ): PreparedWorkflow {
-  if (purpose === "passes") return prepareReviewPasses(config, context, discovery)
+  if (purpose === "passes" || purpose === "passes-pr") return prepareReviewPasses(config, context, discovery, purpose === "passes" ? "stack" : "pr")
   const workflowName = purpose === "discuss" ? config.discussWorkflowName : config.workflowName
   const inputNames = [config.repoInput, config.pullRequestInput, config.primaryDirInput]
   if (new Set(inputNames).size !== inputNames.length) throw new Error("Configured workflow input names must be distinct")
@@ -68,11 +72,21 @@ export function prepareGitHubWorkflow(
 // A review loop needs the repository and the pull request's number only:
 // Legato makes its own clone. A repository preset that matches names the
 // repository as Legato knows it; without one, the pull request's own is used,
-// since a loop can review anyone's pull request.
-function prepareReviewPasses(config: ExtensionConfig, context: GitHubPullRequestContext, discovery: WorkflowDiscovery): PreparedWorkflow {
+// since a loop can review anyone's pull request. Its scope (the whole stack,
+// or this pull request) is sent only to a workflow that declares the input:
+// an older Legato's reviews one pull request and takes none.
+function prepareReviewPasses(config: ExtensionConfig, context: GitHubPullRequestContext, discovery: WorkflowDiscovery, scope: "stack" | "pr"): PreparedWorkflow {
   const workflowName = config.reviewPassesWorkflowName
-  if (!discovery.definitions?.some((item) => item.name === workflowName)) throw new Error(`Workflow "${workflowName}" was not found. Add it with: legato workflow add review-pr-passes`)
-  return prepareClonedWorkflow(config, context, discovery, workflowName)
+  const workflow = discovery.definitions?.find((item) => item.name === workflowName)
+  if (!workflow) throw new Error(`Workflow "${workflowName}" was not found. Add it with: legato workflow add review-pr-passes`)
+  const prepared = prepareClonedWorkflow(config, context, discovery, workflowName)
+  if (workflow.inputs?.scope?.type === "string") prepared.inputs.scope = scope
+  return prepared
+}
+
+/** The inputs that name a pull request, which its runs are found by, whatever their scope. */
+export function pullRequestInputs(config: ExtensionConfig, prepared: PreparedWorkflow): Record<string, string> {
+  return { [config.repoInput]: prepared.inputs[config.repoInput], [config.pullRequestInput]: prepared.inputs[config.pullRequestInput] }
 }
 
 // prepareClonedWorkflow is a workflow that takes the repository and the

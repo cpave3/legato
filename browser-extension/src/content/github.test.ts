@@ -54,7 +54,7 @@ describe("reconcileGitHubAction", () => {
     reconcileGitHubAction(document, "https://github.com/cpave3/legato/pull/12", send)
 
     await vi.waitFor(() => expect(document.querySelector<HTMLButtonElement>("button")?.style.display).toBe("none"))
-    expect(Array.from(document.querySelectorAll<HTMLButtonElement>("button")).filter((item) => item.style.display !== "none").map((item) => item.textContent)).toEqual(["View review", "Discuss PR", "Review passes"])
+    expect(Array.from(document.querySelectorAll<HTMLButtonElement>("button")).filter((item) => item.style.display !== "none").map((item) => item.textContent)).toEqual(["View review", "Discuss PR", "Review passes", "This PR only"])
   })
 
   it("requests review opening from the explicit user gesture", async () => {
@@ -119,6 +119,25 @@ describe("reconcileGitHubAction", () => {
     passes.click()
     await vi.waitFor(() => expect(document.querySelector("[role=status]")?.textContent).toContain("already running"))
     expect(passes.textContent).toBe("Open review loop")
+  })
+
+  it("reviews the whole stack in passes, or this pull request only", async () => {
+    const send = vi.fn().mockImplementation((message: { type: string; purpose?: string }) => {
+      if (message.type === "detectGitHubReview") return Promise.resolve({ ok: true, review: { runs: [] } })
+      if (message.type === "detectGitHubDiscussion") return Promise.resolve({ ok: true, discussion: null })
+      return Promise.resolve({ ok: true, prepared: {
+        workflowName: "review-pr-passes", repositoryPresetName: "", repository: "cpave3/legato",
+        pullRequestNumber: 12, primaryDir: "", inputs: { scope: message.purpose === "passes-pr" ? "pr" : "stack" },
+      } })
+    })
+    reconcileGitHubAction(document, "https://github.com/cpave3/legato/pull/12", send)
+
+    buttonLabelled("Review passes").click()
+    await vi.waitFor(() => expect(document.querySelector("[role=status]")?.textContent).toContain("Scope: every open pull request of the stack"))
+
+    buttonLabelled("This PR only").click()
+    await vi.waitFor(() => expect(send).toHaveBeenCalledWith({ type: "prepareGitHubWorkflow", purpose: "passes-pr", context: { repository: "cpave3/legato", pullRequestNumber: 12 } }))
+    await vi.waitFor(() => expect(document.querySelector("[role=status]")?.textContent).toContain("Scope: this pull request only"))
   })
 
   it("offers to discuss the pull request, with the same confirmation as a review", async () => {

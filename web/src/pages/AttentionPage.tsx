@@ -40,7 +40,7 @@ function producerLabel(producer: string): string {
 
 // The signals of work ready for the person to look at and bring home: a
 // review tour, and a task done on a worker.
-const reviewSignals = new Set(["review_ready", "handoff_done"])
+const reviewSignals = new Set(["review_ready", "handoff_done", "prs_unreviewed"])
 
 // Where a navigate action with an address of its own goes: outside Legato
 // (in a new tab), or a path of this web UI.

@@ -24,6 +24,7 @@ export function CardContextMenu({
   workflowWarning = "",
   canHandOff = false,
   reviewPasses = [],
+  reviewStack = false,
   onReviewPasses,
   macros = [],
   onMacro,
@@ -42,7 +43,11 @@ export function CardContextMenu({
   // The card's pull requests a review loop can start on, with its own agent
   // as the author: one item each, so a card with several asks which.
   reviewPasses?: PRMetaView[]
-  onReviewPasses?: (pr: PRMetaView) => void
+  // Whether the review loop workflow takes a scope. Then a card whose pull
+  // requests (in stack order) are several in one repository offers the
+  // whole stack first, started on the bottom one, and each one alone.
+  reviewStack?: boolean
+  onReviewPasses?: (pr: PRMetaView, scope?: "stack" | "pr") => void
   // The macros for a task: each starts the task's agent with it, or queues
   // it to the agent running.
   macros?: Macro[]
@@ -64,6 +69,11 @@ export function CardContextMenu({
   useMenuLayer({ open: flyoutOpen, onClose: () => { restoreFocus(); onClose() }, containerRef: flyoutRef, outsideRef: root, triggerRef: workflowTriggerRef, placement: "side", position: compact ? position : undefined })
   // An away task can change only on its worker: it offers its details and
   // the worker. Another may be handed off once a worker is paired.
+  const stack = reviewStack && reviewPasses.length > 1 && reviewPasses.every(pr => pr.repo === reviewPasses[0].repo)
+  const reviewItems: { key: string; label: string; pr: PRMetaView; scope?: "stack" | "pr" }[] = [
+    ...(stack ? [{ key: "stack", label: `Review passes · stack #${reviewPasses[0].pr_number}–#${reviewPasses[reviewPasses.length - 1].pr_number}`, pr: reviewPasses[0], scope: "stack" as const }] : []),
+    ...reviewPasses.map(pr => ({ key: `${pr.repo}-${pr.pr_number}`, label: `Review passes · #${pr.pr_number}`, pr, scope: stack ? "pr" as const : undefined })),
+  ]
   const items: { action: CardContextAction; label: string; icon: React.ReactNode }[] = card.away
     ? [
       { action: "open", label: "Open details", icon: <ExternalLink size={16} /> },
@@ -79,7 +89,7 @@ export function CardContextMenu({
     <div ref={menuRef} role="menu" aria-label={`Actions for ${card.title}`} onPointerDown={event => event.stopPropagation()} className="fixed w-60 rounded-lg border border-zinc-700 bg-zinc-900 p-1 shadow-2xl" style={{ visibility: compact && flyoutOpen ? "hidden" : undefined }}>
       <p className="truncate border-b border-zinc-800 px-3 py-2 text-xs text-zinc-500">{card.id} · {card.title}</p>
       {items.map(item => <button key={item.action} type="button" role="menuitem" onClick={() => { restoreFocus(); onClose(); onAction(item.action) }} className={`flex min-h-10 w-full items-center gap-3 rounded px-3 text-left text-sm hover:bg-zinc-800 focus:bg-zinc-800 focus:outline-none ${item.action === "delete" ? "text-red-300" : "text-zinc-200"}`}>{item.icon}<span>{item.label}</span></button>)}
-      {!card.away && onReviewPasses && reviewPasses.map(pr => <button key={`review-${pr.repo}-${pr.pr_number}`} type="button" role="menuitem" onClick={() => { restoreFocus(); onClose(); onReviewPasses(pr) }} className="flex min-h-10 w-full items-center gap-3 rounded px-3 text-left text-sm text-zinc-200 hover:bg-zinc-800 focus:bg-zinc-800 focus:outline-none"><Repeat size={16} /><span>Review passes · #{pr.pr_number}</span></button>)}
+      {!card.away && onReviewPasses && reviewItems.map(item => <button key={`review-${item.key}`} type="button" role="menuitem" onClick={() => { restoreFocus(); onClose(); if (item.scope) onReviewPasses(item.pr, item.scope); else onReviewPasses(item.pr) }} className="flex min-h-10 w-full items-center gap-3 rounded px-3 text-left text-sm text-zinc-200 hover:bg-zinc-800 focus:bg-zinc-800 focus:outline-none"><Repeat size={16} /><span>{item.label}</span></button>)}
       {!card.away && onMacro && macros.length > 0 && <>
         <p className="mt-1 border-t border-zinc-800 px-3 pb-1 pt-2 text-xs font-medium uppercase tracking-wide text-zinc-500">Macros</p>
         {macros.map(macro => {

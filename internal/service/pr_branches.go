@@ -19,6 +19,7 @@ const (
 	BranchSourceAPI         = "api"          // added through AddTaskBranches (handoff)
 	BranchSourceManual      = "manual"       // the head branch of a PR linked by number
 	BranchSourceDiscovered  = "discovered"   // found by commit or ticket key in the repository's PRs
+	BranchSourceReview      = "review"       // the stack of open PRs a review loop found on GitHub (a worker's card)
 )
 
 // PRBranchActions tracks several branches per task, each with its PR, in
@@ -534,7 +535,7 @@ func prFromStatus(status *github.PRStatus, method string, pinned bool) *store.PR
 		PRNumber: status.Number, PRURL: status.URL, State: status.State,
 		IsDraft: status.IsDraft, ReviewDecision: status.ReviewDecision,
 		CheckStatus: status.CheckStatus, CommentCount: status.CommentCount,
-		Pinned: pinned, MatchMethod: method, SyncOutcome: "linked",
+		Pinned: pinned, MatchMethod: method, SyncOutcome: "linked", Head: status.HeadSHA,
 	}
 }
 
@@ -554,8 +555,10 @@ func samePR(a, b *store.PRMeta) bool {
 	if a == nil || b == nil {
 		return a == nil && b == nil
 	}
+	// Head counts: a push alone changes a PR's cached head, which the
+	// review prompt's revision follows.
 	return !prMetaChanged(a, b) && a.Pinned == b.Pinned && a.MatchMethod == b.MatchMethod &&
-		a.SyncOutcome == b.SyncOutcome && a.SyncError == b.SyncError
+		a.SyncOutcome == b.SyncOutcome && a.SyncError == b.SyncError && a.Head == b.Head
 }
 
 func holdsPR(rows []store.TaskBranch, number int) bool {
@@ -627,7 +630,7 @@ func prView(repo, branch string, pr *store.PRMeta) PRMetaView {
 		Repo: repo, Branch: branch, PRNumber: pr.PRNumber, PRURL: pr.PRURL, State: pr.State,
 		IsDraft: pr.IsDraft, ReviewDecision: pr.ReviewDecision, CheckStatus: pr.CheckStatus,
 		CommentCount: pr.CommentCount, Pinned: pr.Pinned, MatchMethod: pr.MatchMethod,
-		SyncOutcome: pr.SyncOutcome, SyncError: pr.SyncError,
+		SyncOutcome: pr.SyncOutcome, SyncError: pr.SyncError, Head: pr.Head,
 	}
 }
 

@@ -183,6 +183,22 @@ func (s *HandoffWorkerService) pushedBranches(ctx context.Context, h store.Hando
 		}
 		add(pushed...)
 	}
+	// The stack a review loop found on GitHub: every branch is on the
+	// remote, and its order is GitHub's. It goes first, in its order.
+	if tracked, err := s.db.ListTaskBranches(ctx, h.TaskID); err == nil {
+		var stack []string
+		for _, b := range tracked {
+			if b.Source == BranchSourceReview && strings.EqualFold(b.Repo, h.Repo) {
+				stack = append(stack, b.Branch)
+			}
+		}
+		if len(stack) > 0 {
+			rest := out
+			out = nil
+			add(stack...)
+			add(rest...)
+		}
+	}
 	if len(dirs) == 0 {
 		if stacks, err := s.db.ListTaskStacks(ctx, h.TaskID); err == nil {
 			for _, st := range stacks {

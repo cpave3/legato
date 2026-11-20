@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"fmt"
+	"slices"
 	"strings"
 
 	"github.com/cpave3/legato/internal/engine/store"
@@ -22,13 +23,20 @@ type ReviewLoop struct {
 	// AuthorTaskID is the task whose main-slot agent is the author, told
 	// of each round and resumed when it has exited.
 	AuthorTaskID string
-	// Counted says whether counted comments (from people and bots) and
-	// counted checks are items the author must handle, as well as the
-	// reviewer's findings.
-	Counted bool
+	// CountComments says whether counted comments (from people and bots)
+	// are items the author must handle, and Done waits for its answers;
+	// CountChecks whether counted checks are: a failing one is an item on
+	// its pull request, which is not approved while it fails. Handoff
+	// loops count both, agent-authored run loops checks only, and run
+	// loops a person authors neither (findings only, LEG-255).
+	CountComments bool
+	CountChecks   bool
 	// PR is the pull request the loop reviews when its caller knows it
 	// before the first pass (a run's); 0 otherwise.
 	PR int
+	// PRs are every pull request the loop reviews when its caller knows
+	// them before the first pass (a run's stack); nil otherwise.
+	PRs []int
 	// Name and Link say whose loop it is, for a refusal to start another
 	// on the same pull request ("run wr-1", "/workflows/runs/wr-1").
 	Name, Link string
@@ -64,6 +72,9 @@ type ReviewCaller interface {
 	// reviews there, each with Branch the folder's local branch at its
 	// head; none when there is nothing to review.
 	Checkout(ctx context.Context, loop ReviewLoop) (dir string, prs []ReviewGitHubPR, err error)
+	// OpenPRs are the loop's open pull requests on GitHub now, without
+	// touching a checkout (for polling comments and checks).
+	OpenPRs(ctx context.Context, loop ReviewLoop) ([]ReviewGitHubPR, error)
 	// Pushed says whether the author pushed past the heads a pass
 	// pinned (or added a pull request).
 	Pushed(ctx context.Context, loop ReviewLoop, pinned []store.HandoffReviewPR) (bool, error)
@@ -173,7 +184,7 @@ func (s *ReviewPassService) activeLoopOn(ctx context.Context, repo string, numbe
 		if loop != nil && !l.Pending && (loop.Phase == ReviewPhaseClean || loop.Phase == ReviewPhaseSkipped || loop.Phase == ReviewPhaseEnded) {
 			continue
 		}
-		on := l.PR == number
+		on := l.PR == number || slices.Contains(l.PRs, number)
 		if !on && loop != nil {
 			prs, _ := s.db.ListHandoffReviewPRs(ctx, l.TaskID, loop.Pass)
 			for _, pr := range prs {

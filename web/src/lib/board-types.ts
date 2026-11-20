@@ -82,6 +82,10 @@ export interface AwayReview {
   reason?: string
   // Each pull request's latest review by Legato.
   links?: { pr: number; url: string }[]
+  // What a pass that has not started waits on: author_working,
+  // author_waiting, author_push, github, reviewer_slot or start. A worker
+  // that predates it leaves it out.
+  waiting_on?: string
 }
 
 export interface HandoffFrom {

@@ -26,6 +26,11 @@ type HandoffReviewCallerOptions struct {
 	Bus *events.Bus
 	// Now is the clock; time.Now when nil.
 	Now func() time.Time
+	// FetchPR fetches a pull request's head into the repository's cache
+	// (RepositoryService.PullHead), which the job clone borrows objects
+	// from: a layer of the stack the author's clone has no branch of is
+	// reviewed at its pinned head. Nil fetches nothing.
+	FetchPR func(ctx context.Context, repo string, number int) error
 }
 
 // HandoffReviewCaller is the review-pass engine's caller for a worker's
@@ -65,7 +70,7 @@ func (c *HandoffReviewCaller) applies(h *store.Handoff) bool {
 }
 
 func handoffLoop(h *store.Handoff) ReviewLoop {
-	return ReviewLoop{TaskID: h.TaskID, Repo: h.Repo, AuthorTaskID: h.TaskID, Counted: true,
+	return ReviewLoop{TaskID: h.TaskID, Repo: h.Repo, AuthorTaskID: h.TaskID, CountComments: true, CountChecks: true,
 		Name: "handed-off task " + h.TaskID, Link: "/board?highlight_task=" + h.TaskID}
 }
 
@@ -97,30 +102,83 @@ func (c *HandoffReviewCaller) Loop(ctx context.Context, taskID string) (ReviewLo
 	return handoffLoop(h), true
 }
 
-// Checkout is the card's job clone and the open pull requests of its
-// stack's branches.
-func (c *HandoffReviewCaller) Checkout(ctx context.Context, l ReviewLoop) (string, []ReviewGitHubPR, error) {
+// stack is the card's job clone, its local stack (a Staccato graph's
+// branches, else the branch checked out), and the stack of open pull
+// requests GitHub's base→head chain gives from those branches and the
+// handoff's branch.
+func (c *HandoffReviewCaller) stack(ctx context.Context, l ReviewLoop) (string, ReviewStack, error) {
 	dir, branches, err := c.ReviewPassService.opts.Checkout.Branches(ctx, l.TaskID, l.Repo)
 	if err != nil {
-		return "", nil, &ReviewCheckoutError{Err: err}
+		return "", ReviewStack{}, &ReviewCheckoutError{Err: err}
 	}
-	prs, err := c.ReviewPassService.opts.GitHub.PullRequests(ctx, l.Repo, branches)
-	return dir, prs, err
+	seeds := append([]string(nil), branches...)
+	if h, err := c.db.OpenHandoffForTask(ctx, l.TaskID); err == nil && h.Branch != "" {
+		seeds = append(seeds, h.Branch)
+	}
+	stack, err := FindReviewStack(ctx, c.ReviewPassService.opts.GitHub, l.Repo, seeds, branches)
+	if err == nil && len(stack.PRs) > 0 {
+		// The card tracks the stack, so its summary row reports every
+		// branch and the main finds every PR (pushedBranches).
+		refs := make([]store.BranchRef, 0, len(stack.PRs))
+		for _, pr := range stack.PRs {
+			refs = append(refs, store.BranchRef{Repo: l.Repo, Branch: pr.Branch})
+		}
+		if _, err := c.db.TrackTaskBranches(ctx, l.TaskID, refs, BranchSourceReview); err != nil {
+			log.Printf("review passes: recording the stack of %s: %v", l.TaskID, err)
+		}
+	}
+	return dir, stack, err
+}
+
+// Checkout is the card's job clone and the open pull requests of its stack
+// on GitHub. A layer the clone has no branch of is fetched for review
+// (Fetched), so it is reviewed at its pinned head and not counted as a
+// mismatch.
+func (c *HandoffReviewCaller) Checkout(ctx context.Context, l ReviewLoop) (string, []ReviewGitHubPR, error) {
+	dir, stack, err := c.stack(ctx, l)
+	if err != nil {
+		return "", nil, err
+	}
+	prs := stack.PRs
+	for i, pr := range prs {
+		if tip, err := c.ReviewPassService.opts.Checkout.Tip(ctx, dir, pr.Branch); err == nil && tip != "" {
+			continue
+		}
+		if c.opts.FetchPR != nil {
+			if err := c.opts.FetchPR(ctx, l.Repo, pr.Number); err != nil {
+				return "", nil, err
+			}
+		}
+		prs[i].Fetched = true
+	}
+	return dir, prs, nil
+}
+
+// OpenPRs are the open pull requests of the card's stack.
+func (c *HandoffReviewCaller) OpenPRs(ctx context.Context, l ReviewLoop) ([]ReviewGitHubPR, error) {
+	_, stack, err := c.stack(ctx, l)
+	return stack.PRs, err
 }
 
 // Pushed says whether a branch of the card's clone moved past the head the
-// last pass pinned, or a branch was added to the stack.
+// last pass pinned, or a pull request was added to the stack.
 func (c *HandoffReviewCaller) Pushed(ctx context.Context, l ReviewLoop, prs []store.HandoffReviewPR) (bool, error) {
-	dir, branches, err := c.ReviewPassService.opts.Checkout.Branches(ctx, l.TaskID, l.Repo)
+	dir, stack, err := c.stack(ctx, l)
 	if err != nil {
 		return false, err
 	}
-	if len(branches) > len(prs) {
-		return true, nil // a branch added to the stack
+	pinned := map[int]bool{}
+	for _, pr := range prs {
+		pinned[pr.Number] = true
+	}
+	for _, pr := range stack.PRs {
+		if !pinned[pr.Number] {
+			return true, nil // a pull request added to the stack
+		}
 	}
 	for _, pr := range prs {
 		tip, err := c.ReviewPassService.opts.Checkout.Tip(ctx, dir, pr.Branch)
-		if err == nil && tip != pr.HeadSHA {
+		if err == nil && tip != "" && tip != pr.HeadSHA {
 			return true, nil
 		}
 	}

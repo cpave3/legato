@@ -44,7 +44,9 @@ type FakeReviewGitHub struct {
 	// repositories the reviewer App cannot read.
 	closed       map[int]string
 	notInstalled map[string]bool
-	// failReads makes the next PullRequest reads fail, as GitHub's 503.
+	// fetched are the pull requests whose heads were fetched for review.
+	fetched []int
+	// failReads makes the next PullRequest and PullRequests reads fail, as GitHub's 503.
 	failReads int
 }
 
@@ -58,6 +60,33 @@ func (f *FakeReviewGitHub) OpenPR(number int, branch, head string) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
 	f.prs[branch] = service.ReviewGitHubPR{Number: number, Branch: branch, Base: "main", Title: fmt.Sprintf("PR %d", number), HeadSHA: head, Author: "legato-author[bot]"}
+}
+
+// OpenStackedPR opens a pull request from branch onto base at head, a layer
+// of a stack.
+func (f *FakeReviewGitHub) OpenStackedPR(number int, branch, base, head string) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.prs[branch] = service.ReviewGitHubPR{Number: number, Branch: branch, Base: base, Title: fmt.Sprintf("PR %d", number), HeadSHA: head, Author: "legato-author[bot]"}
+}
+
+func (f *FakeReviewGitHub) OpenPulls(_ context.Context, _ string, q service.PullQuery) ([]service.ReviewGitHubPR, error) {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	if f.failReads > 0 {
+		f.failReads--
+		return nil, &service.GitHubError{Status: 503, Message: "Service Unavailable"}
+	}
+	var out []service.ReviewGitHubPR
+	for _, pr := range f.prs {
+		if _, closed := f.closed[pr.Number]; closed {
+			continue
+		}
+		if (q.Head != "" && pr.Branch == q.Head) || (q.Base != "" && pr.Base == q.Base) {
+			out = append(out, pr)
+		}
+	}
+	return out, nil
 }
 
 // Posted are the reviews posted, oldest first.
@@ -84,6 +113,10 @@ func (f *FakeReviewGitHub) Resolved() []int64 {
 func (f *FakeReviewGitHub) PullRequests(_ context.Context, _ string, branches []string) ([]service.ReviewGitHubPR, error) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
+	if f.failReads > 0 {
+		f.failReads--
+		return nil, &service.GitHubError{Status: 503, Message: "Service Unavailable"}
+	}
 	var out []service.ReviewGitHubPR
 	for _, b := range branches {
 		if pr, ok := f.prs[b]; ok {
@@ -376,7 +409,7 @@ func (f *FakeReviewGitHub) Installed(_ context.Context, repo string) error {
 	return nil
 }
 
-// FailReads makes the next n pull request reads fail.
+// FailReads makes the next n pull request reads (one or by branch) fail.
 func (f *FakeReviewGitHub) FailReads(n int) {
 	f.mu.Lock()
 	defer f.mu.Unlock()
@@ -400,4 +433,20 @@ func (f *FakeReviewGitHub) PullRequest(_ context.Context, _ string, number int) 
 		}
 	}
 	return service.ReviewGitHubPR{}, "", &service.GitHubError{Status: 404, Message: "Not Found"}
+}
+
+// PullHead fetches a pull request's head for review, as the repository
+// cache does.
+func (f *FakeReviewGitHub) PullHead(_ context.Context, _ string, number int) error {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	f.fetched = append(f.fetched, number)
+	return nil
+}
+
+// Fetched are the pull requests whose heads were fetched for review.
+func (f *FakeReviewGitHub) Fetched() []int {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]int(nil), f.fetched...)
 }

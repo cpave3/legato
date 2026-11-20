@@ -478,3 +478,37 @@ func TestMergeBlockersAreRaisedForEachReadyPRWithABlocker(t *testing.T) {
 		t.Fatalf("items = %v, want %v", got, want)
 	}
 }
+
+func TestAPushIsKeptAsTheTrackedPRsHeadOnRefresh(t *testing.T) {
+	gh := newFakeGitHub(t)
+	gh.set("acme/widget", fakePR{Number: 21, Head: "legato/task-1-a", SHA: "aaa111", Draft: true})
+	s, svc, _ := newBranchTracking(t, gh)
+	ctx := context.Background()
+	createPRTask(t, s, "task-1")
+	setRepoContext(t, s, "task-1", "acme/widget", "")
+	if _, err := svc.AddTaskBranches(ctx, "task-1", "acme/widget", []string{"legato/task-1-a"}); err != nil {
+		t.Fatal(err)
+	}
+	head := func() string {
+		branches, err := s.ListTaskBranches(ctx, "task-1")
+		if err != nil || len(branches) != 1 || branches[0].PR == nil {
+			t.Fatalf("branches %+v, %v", branches, err)
+		}
+		return branches[0].PR.Head
+	}
+	if err := svc.PollAll(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if got := head(); got != "aaa111" {
+		t.Fatalf("head %q", got)
+	}
+
+	// A push and nothing else: still a draft, no checks, no reviews.
+	gh.set("acme/widget", fakePR{Number: 21, Head: "legato/task-1-a", SHA: "bbb222", Draft: true})
+	if err := svc.PollAll(ctx); err != nil {
+		t.Fatal(err)
+	}
+	if got := head(); got != "bbb222" {
+		t.Fatalf("head after a push %q", got)
+	}
+}
