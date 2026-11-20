@@ -219,6 +219,11 @@ func (s *SettingsService) markPending(v *SettingValue) {
 	if json.Unmarshal([]byte(was), &started) == nil {
 		v.StartedValue, v.started = normalStarted(started, v.effective), true
 	}
+	// A secret config.yaml gave is never shown, then or now; a name of
+	// one (legato://, op://) may be.
+	if ref, ok := v.StartedValue.(string); v.Secret && ok && ref != "" && !strings.Contains(ref, "://") {
+		v.StartedValue = "(set in config.yaml)"
+	}
 }
 
 // normalStarted gives a started value the Go type of the value now (JSON

@@ -6,6 +6,7 @@ import (
 	"errors"
 	"os"
 	"path/filepath"
+	"strings"
 	"testing"
 
 	"github.com/cpave3/legato/config"
@@ -320,5 +321,25 @@ func TestFileOnlySettingsAreShownWithTheirValues(t *testing.T) {
 		if !config.IsFileOnly(key) {
 			t.Errorf("%s is not file-only", key)
 		}
+	}
+}
+
+// A secret config.yaml gave is never shown as the value Legato started
+// with, after the file changes.
+func TestASecretsStartedValueIsNeverShown(t *testing.T) {
+	settings, _ := newSettingsFixture(t, "jira:\n  api_token: ATATT-the-old-token\n")
+	ctx := context.Background()
+	settings.MarkStarted(ctx)
+	os.WriteFile(os.Getenv("LEGATO_CONFIG"), []byte("jira:\n  api_token: ATATT-the-new-token\n"), 0o600)
+	got, err := settings.Get(ctx, "jira.api_token")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !got.PendingRestart {
+		t.Fatalf("got %+v, want it waiting for a restart", got)
+	}
+	raw, _ := json.Marshal(got)
+	if strings.Contains(string(raw), "ATATT") {
+		t.Fatalf("a secret is shown: %s", raw)
 	}
 }
