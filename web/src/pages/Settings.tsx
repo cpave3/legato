@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState, type ReactNode } from "react"
-import { Link, useLocation, useSearchParams } from "react-router-dom"
+import { Link, useLocation, useNavigate, useSearchParams } from "react-router-dom"
 import { ChevronLeft, ChevronRight, ExternalLink } from "lucide-react"
 import { DirectorySettings } from "../components/settings/DirectorySettings"
 import { useMediaQuery } from "../hooks/useMediaQuery"
@@ -37,6 +37,7 @@ import { SettingsCard, quietButton } from "../components/settings/SettingsUI"
 import { Globe, Palette } from "lucide-react"
 import { useSettings } from "../hooks/useSettings"
 import { SettingsLoadState, SettingsSearch } from "../components/settings/SettingsCatalog"
+import { search as searchSettings, searchEntries } from "../lib/settingsSearch"
 import { MoveSettings } from "../components/settings/MoveSettings"
 import { ExportSettings } from "../components/settings/ExportSettings"
 import { ReevePairings, ReeveSessions } from "../components/settings/ReeveSettings"
@@ -79,14 +80,17 @@ function StateMark({ state, phone }: { state?: SectionState; phone?: boolean }) 
   return <span className={`ml-auto text-xs ${state.on ? "text-lw-live" : "text-lw-text-2"}`}>{state.label}</span>
 }
 
-function SectionLink({ section, current, state, phone, onClick }: { section: SettingsSection; current: boolean; state?: SectionState; phone?: boolean; onClick: () => void }) {
+function SectionLink({ section, current, state, phone, onClick, count }: { section: SettingsSection; current: boolean; state?: SectionState; phone?: boolean; onClick: () => void; count?: number }) {
   const className = phone
     ? "flex min-h-12 items-center gap-2 px-4 text-sm text-lw-text"
     : `flex min-h-9 items-center gap-2 rounded-lg px-3 text-sm ${current ? "bg-lw-selected font-medium text-lw-text" : "text-lw-text-2 hover:bg-lw-surface hover:text-lw-text"}`
-  if (section.href) return <Link to={section.href} className={className}>{section.title}<ExternalLink size={12} aria-hidden className="ml-auto text-lw-faint" /></Link>
-  return <Link to={`#${section.id}`} onClick={onClick} aria-current={current ? "page" : undefined} className={className}>
+  const dim = count === 0 ? " opacity-45" : ""
+  if (section.href) return <Link to={section.href} className={className + dim}>{section.title}<ExternalLink size={12} aria-hidden className="ml-auto text-lw-faint" /></Link>
+  return <Link to={`#${section.id}`} onClick={onClick} aria-current={current ? "page" : undefined} className={className + dim}>
     {section.title}
-    <StateMark state={state} phone={phone} />
+    {count !== undefined
+      ? <span className="ml-auto font-lw-mono text-[11px] text-lw-text-2" aria-label={`${count} matches`}>{count}</span>
+      : <StateMark state={state} phone={phone} />}
     {phone && !state && <ChevronRight size={14} aria-hidden className="ml-auto text-lw-faint" />}
   </Link>
 }
@@ -186,6 +190,33 @@ export function SettingsPage() {
   const currentId = destination?.section ?? (!target && wide ? "appearance" : "")
   const current = findSection(currentId)
   const [search, setSearch] = useState("")
+  const [active, setActive] = useState(0)
+  const searchBox = useRef<HTMLInputElement>(null)
+  const navigate = useNavigate()
+  const searching = search.trim() !== ""
+  const found = useMemo(() => searchSettings(searchEntries(registry, fileOnly, fileOnlyValues, lists, Boolean(settings.data?.hot_reload_enabled)), search),
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    [registry, configSettings.data, lists, settings.data?.hot_reload_enabled, search])
+  const flat = found.groups.flatMap((g) => g.results)
+  const clearSearch = () => { setSearch(""); setActive(0) }
+  // `/` focuses search from anywhere on the page but a field.
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "/" || e.metaKey || e.ctrlKey || e.altKey) return
+      const t = e.target as HTMLElement | null
+      if (t && (t.tagName === "INPUT" || t.tagName === "TEXTAREA" || t.tagName === "SELECT" || t.isContentEditable)) return
+      e.preventDefault()
+      searchBox.current?.focus()
+    }
+    window.addEventListener("keydown", onKey)
+    return () => window.removeEventListener("keydown", onKey)
+  }, [])
+  const onSearchKey = (e: React.KeyboardEvent<HTMLInputElement>) => {
+    if (e.key === "ArrowDown" && flat.length) { e.preventDefault(); setActive((a) => Math.min(a + 1, flat.length - 1)) }
+    else if (e.key === "ArrowUp" && flat.length) { e.preventDefault(); setActive((a) => Math.max(a - 1, 0)) }
+    else if (e.key === "Enter" && flat[active]) { e.preventDefault(); const id = flat[active].id; clearSearch(); navigate(`#${id}`) }
+    else if (e.key === "Escape") { e.preventDefault(); clearSearch() }
+  }
   const [targetFound, setTargetFound] = useState(true)
   const changes = waitingChanges(registry, lists)
   const states = sectionStates(registry, (devices.data?.devices?.length ?? 1) === 0, changes.length)
@@ -232,18 +263,24 @@ export function SettingsPage() {
             <span className="h-2 w-2 shrink-0 rounded-full bg-lw-live" aria-hidden />
             <span className="truncate">{serverName}</span>
           </Link>
-          <input type="search" aria-label="Search settings" placeholder="Search settings, keys and values" value={search} onChange={(event) => setSearch(event.target.value)} className="min-h-9 w-full rounded-lg border border-lw-line-strong bg-lw-raised px-3 text-sm sm:ml-auto sm:w-80" />
+          <span className="flex w-full items-center gap-2 sm:ml-auto sm:w-96">
+            <input ref={searchBox} type="search" aria-label="Search settings" placeholder="Search settings, keys and values" value={search}
+              onChange={(event) => { setSearch(event.target.value); setActive(0) }} onKeyDown={onSearchKey}
+              className="min-h-9 w-full rounded-lg border border-lw-line-strong bg-lw-raised px-3 text-sm" />
+            {!wide && searching && <button type="button" onClick={clearSearch} className="min-h-9 px-1 text-sm text-lw-link">Cancel</button>}
+            {wide && <kbd className="rounded border border-lw-line px-1.5 font-lw-mono text-[11px] text-lw-text-2" aria-hidden>/</kbd>}
+          </span>
         </div>
         {changes.length > 0 && <div className="-mx-4 -mb-3 mt-3 md:-mx-8"><RestartBar changes={changes} baseUrl={baseUrl} /></div>}
       </header>
       <div className="mx-auto grid w-full max-w-6xl gap-8 px-4 py-6 md:px-8 lg:grid-cols-[248px_minmax(0,1fr)]">
-        <aside className={current ? "hidden lg:block" : ""}>
+        <aside className={current || (searching && !wide) ? "hidden lg:block" : ""}>
           <nav aria-label="Settings sections" className={wide ? "flex flex-col gap-px" : "flex flex-col gap-4"}>
             {navGroups.map((nav) => <div key={nav} role="group" aria-label={nav}>
               <p className="px-3 pb-1.5 pt-3 font-lw-mono text-[10.5px] uppercase tracking-wider text-lw-text-2">{nav}</p>
               <div className={wide ? "flex flex-col gap-px" : "divide-y divide-lw-line overflow-hidden rounded-xl border border-lw-line bg-lw-surface"}>
                 {settingsSections.filter((s) => s.nav === nav).map((section) => <div key={section.id}>
-                  <SectionLink section={section} current={currentId === section.id} state={states[section.id]} phone={!wide} onClick={() => setSearch("")} />
+                  <SectionLink section={section} current={currentId === section.id && !searching} state={states[section.id]} phone={!wide} onClick={clearSearch} count={searching ? found.counts[section.id] ?? 0 : undefined} />
                   {wide && currentId === section.id && groupLinks("ml-3 mt-0.5 mb-1.5 flex flex-col border-l border-lw-line", (g) => `px-3 py-1 text-[13px] ${destination?.group === g ? "-ml-px border-l-2 border-lw-accent text-lw-text" : "text-lw-text-2 hover:text-lw-text"}`)}
                 </div>)}
               </div>
@@ -262,8 +299,8 @@ export function SettingsPage() {
           {configLists.isPending && <p role="status" className="text-sm text-lw-text-2">Loading configuration lists…</p>}
           {configLists.error && <div><p role="alert" className="text-sm text-lw-error">Could not load configuration lists: {configLists.error.message}{configLists.data ? " Showing last loaded entries." : ""}</p><button className={quietButton + " mt-2"} onClick={() => void configLists.refetch()}>Retry lists</button></div>}
           {target && loaded && (!destination || !targetFound) && <p role="status" className="text-sm text-lw-text-2">This settings destination is unavailable on this server: {target}. Choose a section or search for another setting.</p>}
-          {search.trim() && <SettingsSearch query={search} settings={registry} fileOnly={fileOnly} lists={lists} development={Boolean(settings.data?.hot_reload_enabled)} onSelect={() => setSearch("")} />}
-          {current && !wide && <div className="flex flex-col gap-3">
+          {searching && <SettingsSearch query={search} groups={found.groups} total={found.total} active={active} onSelect={clearSearch} />}
+          {current && !wide && !searching && <div className="flex flex-col gap-3">
             <Link to="/settings" className={quietButton + " w-fit"}><ChevronLeft size={14} aria-hidden />Back to Settings</Link>
             {groupLinks("-mx-4 flex gap-2 overflow-x-auto px-4", () => "shrink-0 rounded-full border border-lw-line px-3 py-1 text-xs text-lw-text-2")}
           </div>}

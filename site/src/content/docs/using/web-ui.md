@@ -182,6 +182,8 @@ Settings is split into sections, grouped by what you are doing. On a wide screen
 | Access | **Security** (approval devices, credentials, credential channels, integration tokens), **Connections** (this browser's servers, pairing, TLS, workers and main instances, the network) |
 | System | **System** (restart, updates, moving settings out of config.yaml, export and import, the settings only config.yaml holds) |
 
+Search finds a setting by its label, its config key, a word of its help, or its value. Results are grouped by section, and each section in the list shows how many it has. Press `/` to search from anywhere on the page, ↑ and ↓ to move through the results, **Enter** to open one and **Esc** to clear. On a phone, search is a page of its own; **Cancel** returns to the sections.
+
 Beside a section's name, **On** or **Off** says whether a feature is on, a dot on **Security** means no approval device is enrolled, and a number on **System** counts the changes that wait for a restart. Links to settings from Attention, the docs and the Reeve open the setting in its section.
 
 Choose **Follow server** to use the active server’s **Preferred theme**. Set that preference in Settings › Appearance › This Legato, or use the [Home Assistant select](/legato/integrations/home-assistant/#control-the-server-theme). **No preference**, an older server or an unsupported theme uses your saved local choice. A lost connection keeps that server’s last known preference; switching to another offline server uses only its own cached preference, otherwise your local choice. Selecting a named theme leaves Follow server. Older native apps may need an update before they offer it.
