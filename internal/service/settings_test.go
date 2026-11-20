@@ -399,3 +399,42 @@ func TestASecretSettingSaysWhetherItsSecretCanBeRead(t *testing.T) {
 		t.Fatal("the secret's value is in the list")
 	}
 }
+
+// The Reeve's rules are listed in the order they apply: the file's, then
+// those kept here by name, as config.applyEntries adds them, whatever
+// order they were saved in.
+func TestAnOrderedListIsListedInTheOrderItApplies(t *testing.T) {
+	settings, db := newSettingsFixture(t, "reeve:\n  rules:\n    - pattern: z.file\n      level: approve\n")
+	ctx := context.Background()
+	for _, name := range []string{"POST /api/tasks/*", "POST /api/tasks*"} {
+		if err := db.SetSettingEntry(ctx, "reeve.rules", name, json.RawMessage(`{"level":"auto"}`), "web"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	lists, err := settings.Lists(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	cfg, err := settings.Effective(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var applied []string
+	for _, r := range cfg.Reeve.Rules {
+		applied = append(applied, r.Pattern)
+	}
+	for _, l := range lists {
+		if l.Key != "reeve.rules" {
+			continue
+		}
+		var listed []string
+		for _, e := range l.Entries {
+			listed = append(listed, e.Name)
+		}
+		if strings.Join(listed, "|") != strings.Join(applied, "|") {
+			t.Fatalf("listed %q, applied %q", listed, applied)
+		}
+		return
+	}
+	t.Fatal("reeve.rules not listed")
+}

@@ -189,7 +189,10 @@ describe("Agent, role prompt and rule forms", () => {
     fireEvent.click(tiers.getByRole("button", { name: "Remove tier quick" }))
     fireEvent.click(screen.getByRole("button", { name: "Add tier" }))
     fireEvent.change(screen.getByRole("textbox", { name: "Tier 2 name" }), { target: { value: "fast" } })
-    fireEvent.change(screen.getByRole("textbox", { name: "Tier 2 launch arguments" }), { target: { value: "--model haiku" } })
+    const args = screen.getByRole("textbox", { name: "Tier 2 launch arguments" })
+    fireEvent.change(args, { target: { value: "--model\n" } })
+    expect(args).toHaveValue("--model\n")
+    fireEvent.change(args, { target: { value: "--model\nhaiku" } })
     fireEvent.change(screen.getByRole("textbox", { name: "Models in the model menu" }), { target: { value: "claude-opus-5-5" } })
     fireEvent.change(screen.getByRole("combobox", { name: "Connect to Legato" }), { target: { value: "false" } })
     expect(screen.queryByText("Modes")).toBeNull()
@@ -197,6 +200,24 @@ describe("Agent, role prompt and rule forms", () => {
     await waitFor(() => expect(mockSave).toHaveBeenCalledWith("http://legato", "adapters", "claude-code", {
       tiers: { deep: { description: "Design and hard bugs", launch_args: ["--model", "opus"] }, fast: { launch_args: ["--model", "haiku"] } },
       models: ["claude-opus-5-5"], native_bridge: false, future: 1,
+    }))
+  })
+
+  it("keeps an argument with a space whole, and refuses two tiers of one name until one is renamed", async () => {
+    show([list({ key: "adapters", title: "Agent tools", name_field: undefined, entries: [
+      { name: "codex", value: { tiers: { "tier-1": { launch_args: ["--append-system-prompt", "be terse"] }, "tier-3": { description: "Keep me" } } }, source: "database", pinned: false },
+    ] })])
+    fireEvent.click(await screen.findByRole("button", { name: "Edit codex" }))
+    expect(screen.getByRole("textbox", { name: "Tier 1 launch arguments" })).toHaveValue("--append-system-prompt\nbe terse")
+    fireEvent.click(screen.getByRole("button", { name: "Add tier" }))
+    expect(screen.getByRole("textbox", { name: "Tier 3 name" })).toHaveValue("tier-4")
+    fireEvent.change(screen.getByRole("textbox", { name: "Tier 3 name" }), { target: { value: "tier-3" } })
+    expect(screen.getByRole("alert")).toHaveTextContent("Two tiers are named tier-3.")
+    expect(screen.getByRole("button", { name: "Save" })).toBeDisabled()
+    fireEvent.change(screen.getByRole("textbox", { name: "Tier 3 name" }), { target: { value: "fast" } })
+    fireEvent.click(screen.getByRole("button", { name: "Save" }))
+    await waitFor(() => expect(mockSave).toHaveBeenCalledWith("http://legato", "adapters", "codex", {
+      tiers: { "tier-1": { launch_args: ["--append-system-prompt", "be terse"] }, "tier-3": { description: "Keep me" }, fast: {} },
     }))
   })
 

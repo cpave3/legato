@@ -17,32 +17,73 @@ function asObject(value: unknown): Record<string, unknown> {
 
 type Tier = { description?: string; launch_args?: string[] } & Record<string, unknown>
 
+// unusedName is base-N for the first N no row has.
+function unusedName(base: string, taken: string[]): string {
+  for (let n = taken.length + 1; ; n++) if (!taken.includes(`${base}-${n}`)) return `${base}-${n}`
+}
+
+// duplicate is a name two rows share, or "".
+function duplicate(names: string[]): string {
+  const seen = new Set<string>()
+  for (const n of names.map((x) => x.trim()).filter(Boolean)) {
+    if (seen.has(n)) return n
+    seen.add(n)
+  }
+  return ""
+}
+
 // TiersInput edits an agent's tiers as a table: name, what the conductor
-// is told, launch arguments. Fields of a tier it does not show are kept.
-function TiersInput({ value, onChange }: { value: unknown; onChange: (next: unknown) => void }) {
-  const tiers = Object.entries(asObject(value)) as [string, Tier][]
-  const put = (rows: [string, Tier][]) => onChange(rows.length ? Object.fromEntries(rows) : undefined)
-  const edit = (i: number, name: string, tier: Tier) => put(tiers.map((row, j) => j === i ? [name, tier] : row))
+// is told, launch arguments (one per line). Its rows keep what was typed,
+// and it gives the tiers back only while every name is its own, so a row
+// never overwrites another. Fields of a tier it does not show are kept.
+function TiersInput({ value, onChange, onError }: { value: unknown; onChange: (next: unknown) => void; onError: (message: string) => void }) {
+  type Row = { name: string; description: string; args: string; rest: Tier }
+  const [rows, setRows] = useState<Row[]>(() => (Object.entries(asObject(value)) as [string, Tier][])
+    .map(([name, tier]) => ({ name, description: tier.description ?? "", args: (tier.launch_args ?? []).join("\n"), rest: tier })))
+  const put = (next: Row[]) => {
+    setRows(next)
+    const twice = duplicate(next.map((r) => r.name))
+    if (twice) { onError(`Two tiers are named ${twice}.`); return }
+    if (next.some((r) => !r.name.trim())) { onError("Give every tier a name."); return }
+    onError("")
+    const tiers = next.map((r): [string, Tier] => {
+      const rest: Tier = { ...r.rest }
+      delete rest.description
+      delete rest.launch_args
+      const args = r.args.split("\n").map((a) => a.trim()).filter(Boolean)
+      return [r.name.trim(), { ...rest, ...(r.description.trim() ? { description: r.description } : {}), ...(args.length ? { launch_args: args } : {}) }]
+    })
+    onChange(tiers.length ? Object.fromEntries(tiers) : undefined)
+  }
+  const edit = (i: number, change: Partial<Row>) => put(rows.map((r, j) => j === i ? { ...r, ...change } : r))
   return <div className="flex flex-col gap-2">
-    {tiers.length > 0 && <table className="w-full table-fixed border-separate border-spacing-y-1 text-xs" aria-label="Tiers">
-      <thead className="text-left text-[11px] text-lw-text-2"><tr><th className="w-28 font-normal">Name</th><th className="font-normal">What the conductor is told</th><th className="w-40 font-normal">Launch arguments</th><th className="w-8" /></tr></thead>
-      <tbody>{tiers.map(([name, tier], i) => <tr key={i}>
-        <td className="pr-1.5"><input aria-label={`Tier ${i + 1} name`} value={name} onChange={(e) => edit(i, e.target.value, tier)} className={fieldClass} /></td>
-        <td className="pr-1.5"><input aria-label={`Tier ${i + 1} description`} value={tier.description ?? ""} onChange={(e) => edit(i, name, { ...tier, description: e.target.value || undefined })} className={fieldClass} /></td>
-        <td className="pr-1.5"><input aria-label={`Tier ${i + 1} launch arguments`} value={(tier.launch_args ?? []).join(" ")} placeholder="--model opus"
-          onChange={(e) => edit(i, name, { ...tier, launch_args: e.target.value.trim() ? e.target.value.split(/\s+/).filter(Boolean) : undefined })} className={fieldClass} /></td>
-        <td><button type="button" aria-label={`Remove tier ${name || i + 1}`} onClick={() => put(tiers.filter((_, j) => j !== i))} className="text-lw-text-2 hover:text-lw-error">×</button></td>
+    {rows.length > 0 && <table className="w-full table-fixed border-separate border-spacing-y-1 text-xs" aria-label="Tiers">
+      <thead className="text-left text-[11px] text-lw-text-2"><tr><th className="w-28 font-normal">Name</th><th className="font-normal">What the conductor is told</th><th className="w-44 font-normal">Launch arguments, one per line</th><th className="w-8" /></tr></thead>
+      <tbody>{rows.map((row, i) => <tr key={i} className="align-top">
+        <td className="pr-1.5"><input aria-label={`Tier ${i + 1} name`} value={row.name} onChange={(e) => edit(i, { name: e.target.value })} className={fieldClass} /></td>
+        <td className="pr-1.5"><input aria-label={`Tier ${i + 1} description`} value={row.description} onChange={(e) => edit(i, { description: e.target.value })} className={fieldClass} /></td>
+        <td className="pr-1.5"><textarea aria-label={`Tier ${i + 1} launch arguments`} rows={2} value={row.args} placeholder={"--model\nopus"}
+          onChange={(e) => edit(i, { args: e.target.value })} className={cn(fieldClass, "font-lw-mono text-xs")} /></td>
+        <td><button type="button" aria-label={`Remove tier ${row.name || i + 1}`} onClick={() => put(rows.filter((_, j) => j !== i))} className="text-lw-text-2 hover:text-lw-error">×</button></td>
       </tr>)}</tbody>
     </table>}
-    <button type="button" className={quietButton + " min-h-8 w-fit px-2.5 text-xs"} onClick={() => put([...tiers, [`tier-${tiers.length + 1}`, {}]])}>Add tier</button>
+    <button type="button" className={quietButton + " min-h-8 w-fit px-2.5 text-xs"} onClick={() => put([...rows, { name: unusedName("tier", rows.map((r) => r.name)), description: "", args: "", rest: {} }])}>Add tier</button>
   </div>
 }
 
-// PairsInput edits a map of words to words, such as Chimera's modes.
-function PairsInput({ field, value, onChange }: { field: FormField; value: unknown; onChange: (next: unknown) => void }) {
-  const pairs = Object.entries(asObject(value)).map(([k, v]) => [k, String(v ?? "")] as [string, string])
+// PairsInput edits a map of words to words, such as Chimera's modes,
+// giving it back only while every key is its own.
+function PairsInput({ field, value, onChange, onError }: { field: FormField; value: unknown; onChange: (next: unknown) => void; onError: (message: string) => void }) {
+  const [pairs, setPairs] = useState<[string, string][]>(() => Object.entries(asObject(value)).map(([k, v]) => [k, String(v ?? "")]))
   const [keyLabel, valueLabel] = field.pairLabels ?? ["Key", "Value"]
-  const put = (rows: [string, string][]) => onChange(rows.length ? Object.fromEntries(rows) : undefined)
+  const put = (rows: [string, string][]) => {
+    setPairs(rows)
+    const twice = duplicate(rows.map(([k]) => k))
+    if (twice) { onError(`Two ${keyLabel.toLowerCase()}s are ${twice}.`); return }
+    onError("")
+    const kept = rows.filter(([k]) => k.trim())
+    onChange(kept.length ? Object.fromEntries(kept.map(([k, v]) => [k.trim(), v])) : undefined)
+  }
   return <div className="flex flex-col gap-1.5">
     {pairs.map(([k, v], i) => <span key={i} className="flex items-center gap-1.5">
       <input aria-label={`${keyLabel} ${i + 1}`} value={k} onChange={(e) => put(pairs.map((p, j) => j === i ? [e.target.value, p[1]] : p))} className={fieldClass} />
@@ -54,12 +95,12 @@ function PairsInput({ field, value, onChange }: { field: FormField; value: unkno
 }
 
 // FieldInput edits one field of an entry by its kind.
-function FieldInput({ field, value, onChange }: { field: FormField; value: unknown; onChange: (next: unknown) => void }) {
+function FieldInput({ field, value, onChange, onError = () => {} }: { field: FormField; value: unknown; onChange: (next: unknown) => void; onError?: (message: string) => void }) {
   switch (field.kind) {
     case "tiers":
-      return <TiersInput value={value} onChange={onChange} />
+      return <TiersInput value={value} onChange={onChange} onError={onError} />
     case "pairs":
-      return <PairsInput field={field} value={value} onChange={onChange} />
+      return <PairsInput field={field} value={value} onChange={onChange} onError={onError} />
     case "swatches": {
       const current = typeof value === "string" ? value : ""
       return <span className="flex flex-wrap items-center gap-1.5" role="radiogroup" aria-label={field.label}>
@@ -108,6 +149,9 @@ export function EntryForm({ list, form, entry, onSave, onCancel }: { list: Confi
   const [yaml, setYaml] = useState<string | null>(null)
   const [error, setError] = useState("")
   const [saving, setSaving] = useState(false)
+  // What a field refuses to give back (two tiers of one name): Save waits.
+  const [fieldErrors, setFieldErrors] = useState<Record<string, string>>({})
+  const fieldError = yaml === null ? Object.values(fieldErrors).find(Boolean) ?? "" : ""
   // Changed elsewhere while edited: choose theirs or keep this draft.
   const theirs = JSON.stringify(entry?.value ?? null)
   const dirty = JSON.stringify(draft) !== baseline || yaml !== null
@@ -166,7 +210,8 @@ export function EntryForm({ list, form, entry, onSave, onCancel }: { list: Confi
         </Labelled>
         {form.scalar && <Labelled field={form.scalar}><FieldInput field={form.scalar} value={draft} onChange={(v) => { setDraft(typeof v === "string" ? v : ""); setError("") }} /></Labelled>}
         {form.fields.filter((field) => !field.only || field.only.includes(name.trim())).map((field) => <Labelled key={field.key} field={field}>
-          <FieldInput field={field} value={(draft as Record<string, unknown>)[field.key]} onChange={(v) => setField(field.key, v)} />
+          <FieldInput field={field} value={(draft as Record<string, unknown>)[field.key]} onChange={(v) => setField(field.key, v)}
+            onError={(message) => setFieldErrors((e) => ({ ...e, [field.key]: message }))} />
         </Labelled>)}
       </> : <Labelled field={{ label: "As in config.yaml", help: "The whole entry, fields the form shows and those it does not." }}>
         <textarea aria-label={`${list.title} entry as YAML`} rows={8} value={yaml} onChange={(e) => { setYaml(e.target.value); setError("") }} className={cn(fieldClass, "font-lw-mono text-xs")} spellCheck={false} />
@@ -176,9 +221,9 @@ export function EntryForm({ list, form, entry, onSave, onCancel }: { list: Confi
         <button type="button" className={quietButton + " min-h-8 px-2.5 text-xs"} onClick={() => { setDraft(form.scalar ? String(entry?.value ?? "") : asObject(entry?.value)); setBaseline(theirs); setYaml(null) }}>Use theirs</button>
         <button type="button" className={quietButton + " min-h-8 px-2.5 text-xs"} onClick={() => setBaseline(theirs)}>Keep mine</button>
       </div>}
-      {error && <p role="alert" className="text-xs text-lw-error">{error}</p>}
+      {(error || fieldError) && <p role="alert" className="text-xs text-lw-error">{error || fieldError}</p>}
       <div className="flex flex-wrap items-center gap-2">
-        <button type="button" className={primaryButton + " min-h-9"} onClick={() => void save()} disabled={saving || (!name.trim() && yaml === null) || conflict}>{saving ? "Saving…" : "Save"}</button>
+        <button type="button" className={primaryButton + " min-h-9"} onClick={() => void save()} disabled={saving || (!name.trim() && yaml === null) || conflict || Boolean(fieldError)}>{saving ? "Saving…" : "Save"}</button>
         <button type="button" className={quietButton + " min-h-9"} onClick={onCancel}>Cancel</button>
         <button type="button" className="ml-auto text-xs text-lw-link hover:underline" onClick={yaml === null ? toYaml : backToForm}>{yaml === null ? "Edit as YAML" : "Back to the form"}</button>
       </div>

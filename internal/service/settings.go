@@ -648,6 +648,12 @@ func (s *SettingsService) Lists(ctx context.Context) ([]SettingList, error) {
 			_ = json.Unmarshal([]byte(r.Value), &v)
 			list.Entries = append(list.Entries, SettingEntryValue{Name: r.Name, Value: v, Source: SettingFromDatabase, UpdatedAt: r.UpdatedAt, UpdatedBy: r.UpdatedBy})
 		}
+		if l.Ordered {
+			// In the order they apply: the file's, then those kept here by
+			// name, as config.applyEntries adds them.
+			kept := list.Entries[len(cfg.FileEntries(l.Key)):]
+			sort.SliceStable(kept, func(i, j int) bool { return kept[i].Name < kept[j].Name })
+		}
 		list.PendingEntries = s.pendingEntries(l, rows)
 		out = append(out, list)
 	}
