@@ -73,6 +73,26 @@ describe("CardContextMenu", () => {
     expect(screen.queryByRole("menuitem", { name: /Review passes/ })).toBeNull()
   })
 
+  it("offers the whole stack first when the card's pull requests are a stack", () => {
+    const onReviewPasses = vi.fn()
+    const pr = (n: number) => ({ repo: "acme/widget", branch: `b${n}`, pr_number: n, pr_url: "", state: "OPEN" }) as never
+    render(<CardContextMenu card={card} position={{ x: 10, y: 10 }} reviewPasses={[pr(137), pr(138), pr(139)]} reviewStack onReviewPasses={onReviewPasses} onAction={() => {}} onClose={() => {}} />)
+    const items = screen.getAllByRole("menuitem", { name: /Review passes/ }).map(item => item.textContent)
+    expect(items).toEqual(["Review passes · stack #137–#139", "Review passes · #137", "Review passes · #138", "Review passes · #139"])
+    fireEvent.click(screen.getByRole("menuitem", { name: "Review passes · stack #137–#139" }))
+    expect(onReviewPasses).toHaveBeenCalledWith(expect.objectContaining({ pr_number: 137 }), "stack")
+    cleanup()
+    render(<CardContextMenu card={card} position={{ x: 10, y: 10 }} reviewPasses={[pr(137), pr(138)]} reviewStack onReviewPasses={onReviewPasses} onAction={() => {}} onClose={() => {}} />)
+    fireEvent.click(screen.getByRole("menuitem", { name: "Review passes · #138" }))
+    expect(onReviewPasses).toHaveBeenLastCalledWith(expect.objectContaining({ pr_number: 138 }), "pr")
+    cleanup()
+    // One pull request: unchanged.
+    render(<CardContextMenu card={card} position={{ x: 10, y: 10 }} reviewPasses={[pr(12)]} reviewStack onReviewPasses={onReviewPasses} onAction={() => {}} onClose={() => {}} />)
+    expect(screen.getAllByRole("menuitem", { name: /Review passes/ }).map(item => item.textContent)).toEqual(["Review passes · #12"])
+    fireEvent.click(screen.getByRole("menuitem", { name: "Review passes · #12" }))
+    expect(onReviewPasses).toHaveBeenLastCalledWith(expect.objectContaining({ pr_number: 12 }))
+  })
+
   it("emits existing card actions", () => {
     const onAction = vi.fn()
     render(<CardContextMenu card={card} position={{ x: 10, y: 10 }} onAction={onAction} onClose={() => {}} />)

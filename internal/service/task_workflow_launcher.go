@@ -196,28 +196,55 @@ const ReviewPassesWorkflow = "review-pr-passes"
 
 // reviewPassOptions are a card's Review passes actions: one for each of its
 // open pull requests, when the review-pr-passes workflow is there. Each
-// starts a review loop with the card's own agent as the author.
+// starts a review loop with the card's own agent as the author. When the
+// workflow takes a scope and the card has several open pull requests in one
+// repository (its tracked branches are in stack order), the first action
+// reviews the whole stack, started on the bottom one, and the others each
+// pull request alone.
 func (l *TaskWorkflowLauncher) reviewPassOptions(ctx context.Context, task *store.Task, result workflowengine.DiscoveryResult) []TaskWorkflowOption {
-	found := false
-	for _, definition := range result.Definitions {
-		found = found || definition.Name == ReviewPassesWorkflow
+	var definition *workflowengine.Definition
+	for i := range result.Definitions {
+		if result.Definitions[i].Name == ReviewPassesWorkflow {
+			definition = result.Definitions[i]
+		}
 	}
-	if !found {
+	if definition == nil {
 		return nil
 	}
+	_, scoped := definition.Inputs["scope"]
 	tracked, err := l.store.ListTrackedTaskBranches(ctx)
 	if err != nil {
 		return nil
 	}
-	var options []TaskWorkflowOption
+	var open []PRMetaView
 	for _, pr := range TaskPullRequests(task, tracked[task.ID]) {
 		if pr.Repo == "" || strings.EqualFold(pr.State, "MERGED") || strings.EqualFold(pr.State, "CLOSED") {
 			continue
 		}
+		open = append(open, pr)
+	}
+	stack := scoped && len(open) > 1
+	for _, pr := range open {
+		stack = stack && strings.EqualFold(pr.Repo, open[0].Repo)
+	}
+	var options []TaskWorkflowOption
+	if stack {
+		bottom, top := open[0], open[len(open)-1]
+		options = append(options, TaskWorkflowOption{
+			Name: ReviewPassesWorkflow, Title: fmt.Sprintf("Review passes · stack #%d–#%d", bottom.PRNumber, top.PRNumber),
+			Description: fmt.Sprintf("Review every open pull request of the stack of %s#%d in passes posted to GitHub; this card's agent fixes the findings.", bottom.Repo, bottom.PRNumber),
+			Values:      map[string]string{"repo": bottom.Repo, "pr_number": fmt.Sprint(bottom.PRNumber), "agent_author": "true", "scope": ReviewScopeStack},
+		})
+	}
+	for _, pr := range open {
+		values := map[string]string{"repo": pr.Repo, "pr_number": fmt.Sprint(pr.PRNumber), "agent_author": "true"}
+		if stack {
+			values["scope"] = ReviewScopePR
+		}
 		options = append(options, TaskWorkflowOption{
 			Name: ReviewPassesWorkflow, Title: fmt.Sprintf("Review passes · #%d", pr.PRNumber),
 			Description: fmt.Sprintf("Review %s#%d in passes posted to GitHub; this card's agent fixes the findings.", pr.Repo, pr.PRNumber),
-			Values:      map[string]string{"repo": pr.Repo, "pr_number": fmt.Sprint(pr.PRNumber), "agent_author": "true"},
+			Values:      values,
 		})
 	}
 	return options

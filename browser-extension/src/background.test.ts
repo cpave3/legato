@@ -396,6 +396,38 @@ describe("review passes on a pull request", () => {
     expect(deps.openRun).not.toHaveBeenCalled()
   })
 
+  const withScope: WorkflowDiscovery = {
+    ...discovery,
+    definitions: [...discovery.definitions!, { name: "review-pr-passes", inputs: { repo: { type: "string" }, pr_number: { type: "integer" }, scope: { type: "string", default: "stack" } } }],
+  }
+
+  it("reviews the pull request's whole stack by default", async () => {
+    const deps = passes()
+    deps.discover.mockResolvedValue(withScope)
+    deps.start.mockResolvedValue({ run: { id: "run-8", status: "running" } })
+    await createMessageHandler(deps)(start, { tab: { id: 4 } })
+
+    expect(deps.start).toHaveBeenCalledWith(DEFAULT_CONFIG, expect.objectContaining({ inputs: { repo: "cpave3/legato", pr_number: "7", scope: "stack" } }))
+    expect(deps.listRuns).toHaveBeenCalledWith(DEFAULT_CONFIG, "review-pr-passes", { repo: "cpave3/legato", pr_number: "7" })
+  })
+
+  it("reviews this pull request only when asked", async () => {
+    const deps = passes()
+    deps.discover.mockResolvedValue(withScope)
+    deps.start.mockResolvedValue({ run: { id: "run-9", status: "running" } })
+    await createMessageHandler(deps)({ ...start, purpose: "passes-pr" }, { tab: { id: 4 } })
+
+    expect(deps.start).toHaveBeenCalledWith(DEFAULT_CONFIG, expect.objectContaining({ inputs: { repo: "cpave3/legato", pr_number: "7", scope: "pr" } }))
+  })
+
+  it("sends no scope to a Legato whose workflow has none", async () => {
+    const deps = passes()
+    deps.start.mockResolvedValue({ run: { id: "run-10", status: "running" } })
+    await createMessageHandler(deps)({ ...start, purpose: "passes-pr" }, { tab: { id: 4 } })
+
+    expect(deps.start).toHaveBeenCalledWith(DEFAULT_CONFIG, expect.objectContaining({ inputs: { repo: "cpave3/legato", pr_number: "7" } }))
+  })
+
   it("takes the workflow name from the options", async () => {
     const deps = passes()
     deps.loadConfig.mockResolvedValue({ ...DEFAULT_CONFIG, reviewPassesWorkflowName: "deep-review" })

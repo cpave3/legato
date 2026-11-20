@@ -1,4 +1,4 @@
-import { prepareGitHubWorkflow, type GitHubPullRequestContext, type PreparedWorkflow, type PullRequestPurpose } from "./actions"
+import { prepareGitHubWorkflow, pullRequestInputs, type GitHubPullRequestContext, type PreparedWorkflow, type PullRequestPurpose } from "./actions"
 import type { ExtensionConfig } from "./config"
 import { LegatoClient, type WorkflowDiscovery, type WorkflowRun, type WorkflowRunView } from "./legato"
 import { hasOriginPermission } from "./permissions"
@@ -85,6 +85,7 @@ function purposeOf(value: unknown): PullRequestPurpose {
   if (value === undefined || value === "review") return "review"
   if (value === "discuss") return "discuss"
   if (value === "passes") return "passes"
+  if (value === "passes-pr") return "passes-pr"
   throw new Error("Unsupported pull request action")
 }
 
@@ -195,12 +196,13 @@ export function createMessageHandler(deps: Dependencies = defaultDependencies) {
         const prepared = prepareGitHubWorkflow(config, context, await deps.discover(config), purpose)
         if (request.type === "prepareGitHubWorkflow") return { ok: true, prepared }
         // One review loop per pull request: the one going is opened instead.
-        if (purpose === "passes") {
-          const live = (await deps.listRuns(config, prepared.workflowName, prepared.inputs)).find((run) => run.status === "running" || run.status === "waiting")
+        const loop = purpose === "passes" || purpose === "passes-pr"
+        if (loop) {
+          const live = (await deps.listRuns(config, prepared.workflowName, pullRequestInputs(config, prepared))).find((run) => run.status === "running" || run.status === "waiting")
           if (live) return openActiveLoop(deps, `${config.baseUrl}/workflows/runs/${encodeURIComponent(live.id)}`)
         }
         const view = await deps.start(config, prepared)
-        if (purpose === "passes" && view.run.status === "failed") {
+        if (loop && view.run.status === "failed") {
           const refusal = view.steps?.find((step) => step.status === "failed")?.error || view.run.error || "Legato refused the review loop"
           const active = /already has an active review loop: .* \((\/[^)\s]*)\)/.exec(refusal)
           if (active) return openActiveLoop(deps, `${config.baseUrl}${active[1]}`)

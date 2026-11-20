@@ -211,14 +211,15 @@ export function BoardPage() {
   const [contextMenu, setContextMenu] = useState<{ card: BoardCard; position: { x: number; y: number } } | null>(null)
   const [cardWorkflow, setCardWorkflow] = useState<{ card: BoardCard; workflow: CardWorkflowOption } | null>(null)
   // A review loop to start on a card's pull request, its agent the author.
-  const [reviewLoop, setReviewLoop] = useState<{ card: BoardCard; pr: PRMetaView } | null>(null)
+  const [reviewLoop, setReviewLoop] = useState<{ card: BoardCard; pr: PRMetaView; scope?: "stack" | "pr" } | null>(null)
   const navigateTo = useNavigate()
   const reviewPassesDefinition = workflowDiscovery.data?.definitions?.find(definition => definition.name === "review-pr-passes")
-  const startReviewLoop = useCallback(async (card: BoardCard, pr: PRMetaView) => {
+  const startReviewLoop = useCallback(async (card: BoardCard, pr: PRMetaView, scope?: "stack" | "pr") => {
     // The loop already running on the pull request is shown, not a second.
+    // One on another layer of a stack refuses the start, naming itself.
     const active = await activeReviewLoop(baseUrl, pr.repo, pr.pr_number).catch(() => null)
     if (active) navigateTo(`/workflows/runs/${encodeURIComponent(active.id)}`)
-    else setReviewLoop({ card, pr })
+    else setReviewLoop({ card, pr, scope })
   }, [baseUrl, navigateTo])
   // Read as each card menu opens, so an edit shows, and on load only when
   // a card has a pull request line to put them on.
@@ -1141,13 +1142,14 @@ export function BoardPage() {
         onAction={handleContextAction}
         onWorkflow={workflow => { setCardWorkflow({ card: contextMenu.card, workflow }); setContextMenu(null) }}
         reviewPasses={reviewPassesDefinition ? (contextMenu.card.pull_requests ?? []).filter(pr => pr.repo && !["MERGED", "CLOSED"].includes(pr.state.toUpperCase())) : []}
-        onReviewPasses={pr => { void startReviewLoop(contextMenu.card, pr) }}
+        reviewStack={Boolean(reviewPassesDefinition?.inputs?.scope)}
+        onReviewPasses={(pr, scope) => { void startReviewLoop(contextMenu.card, pr, scope) }}
         macros={suggestedFirst(macros.macros, "task", macros.suggested).list}
         onMacro={macro => { void runMacro(contextMenu.card, macro) }}
         onManageMacros={() => navigateTo("/macros")}
         onClose={() => setContextMenu(null)}
       />}
-      {reviewLoop && reviewPassesDefinition && <RunWorkflowDialog definition={reviewPassesDefinition} repositories={workflowDiscovery.data?.repositories ?? []} initialValues={{ repo: reviewLoop.pr.repo, pr_number: String(reviewLoop.pr.pr_number), agent_author: "true" }} readOnlyInputs={["repo", "pr_number", "agent_author"]} onClose={() => setReviewLoop(null)} />}
+      {reviewLoop && reviewPassesDefinition && <RunWorkflowDialog definition={reviewPassesDefinition} repositories={workflowDiscovery.data?.repositories ?? []} initialValues={{ repo: reviewLoop.pr.repo, pr_number: String(reviewLoop.pr.pr_number), agent_author: "true", ...(reviewLoop.scope ? { scope: reviewLoop.scope } : {}) }} readOnlyInputs={["repo", "pr_number", "agent_author", ...(reviewLoop.scope ? ["scope"] : [])]} onClose={() => setReviewLoop(null)} />}
       {cardWorkflow && <RunWorkflowDialog definition={cardWorkflow.workflow.definition} repositories={workflowDiscovery.data?.repositories ?? []} initialValues={{ [cardWorkflow.workflow.taskInput]: cardWorkflow.card.id }} readOnlyInputs={[cardWorkflow.workflow.taskInput]} onClose={() => setCardWorkflow(null)} />}
 
       {/* Overlays */}

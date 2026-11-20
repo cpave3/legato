@@ -75,3 +75,35 @@ func TestACardWithNoPullRequestOffersNoReviewPasses(t *testing.T) {
 		t.Fatalf("items = %#v, %v", items, err)
 	}
 }
+
+func TestACardWhosePullRequestsAreAStackOffersTheStackFirst(t *testing.T) {
+	launcher, step := launcherWithReviewPasses(t, nil)
+	ctx := context.Background()
+	db := launcher.store
+	var refs []store.BranchRef
+	for _, b := range []string{"s1", "s2", "s3"} {
+		refs = append(refs, store.BranchRef{Repo: "acme/widget", Branch: b})
+	}
+	if _, err := db.TrackTaskBranches(ctx, "task-1", refs, BranchSourceStack); err != nil {
+		t.Fatal(err)
+	}
+	for i, b := range []string{"s1", "s2", "s3"} {
+		if err := db.SetTaskBranchPR(ctx, "task-1", "acme/widget", b, &store.PRMeta{Repo: "acme/widget", Branch: b, PRNumber: 137 + i, State: "OPEN"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+
+	items, err := launcher.List(ctx, "task-1")
+	if err != nil || len(items) != 4 {
+		t.Fatalf("items = %#v, %v", items, err)
+	}
+	if items[0].Title != "Review passes · stack #137–#139" || items[0].Values["scope"] != "stack" || items[0].Values["pr_number"] != "137" || items[0].Values["agent_author"] != "true" {
+		t.Fatalf("the stack item = %#v", items[0])
+	}
+	if items[2].Title != "Review passes · #138" || items[2].Values["scope"] != "pr" {
+		t.Fatalf("a layer's item = %#v", items[2])
+	}
+	if _, err := launcher.Start(ctx, items[0].Name, items[0].Values); err == nil || len(step.starts) != 1 || step.starts[0].With["scope"] != "stack" {
+		t.Fatalf("start = %v, %+v", err, step.starts)
+	}
+}

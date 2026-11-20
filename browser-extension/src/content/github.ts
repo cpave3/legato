@@ -36,10 +36,12 @@ export function reconcileGitHubAction(doc: Document, href: string, sendMessage: 
   const viewReview = fab.addSecondaryAction("View review")
   const discuss = fab.addSecondaryAction("Discuss PR")
   const passes = fab.addSecondaryAction("Review passes")
+  const passesOne = fab.addSecondaryAction("This PR only")
   setPrimaryVisible(false)
   viewReview.setAttribute("aria-label", `View Legato review for ${context.repository} pull request ${context.pullRequestNumber}`)
   discuss.setAttribute("aria-label", `Discuss ${context.repository} pull request ${context.pullRequestNumber} with a Legato agent`)
-  passes.setAttribute("aria-label", `Review ${context.repository} pull request ${context.pullRequestNumber} in passes posted to GitHub`)
+  passes.setAttribute("aria-label", `Review ${context.repository} pull request ${context.pullRequestNumber} and the rest of its stack in passes posted to GitHub`)
+  passesOne.setAttribute("aria-label", `Review only ${context.repository} pull request ${context.pullRequestNumber} in passes posted to GitHub`)
   // The side panel opens only in answer to a click, so it is asked for
   // before anything else the click does.
   const openPanel = (view: "review" | "discussion"): void => {
@@ -90,6 +92,9 @@ export function reconcileGitHubAction(doc: Document, href: string, sendMessage: 
   startsWithConfirmation(passes, { purpose: "passes", retry: "Retry review passes" }, context, sendMessage, fab, flow, {
     onStarted: (response) => { passes.textContent = response.activeLoop ? "Open review loop" : "Review loop started" },
   })
+  startsWithConfirmation(passesOne, { purpose: "passes-pr", retry: "Retry this PR only" }, context, sendMessage, fab, flow, {
+    onStarted: (response) => { passesOne.textContent = response.activeLoop ? "Open review loop" : "Review loop started" },
+  })
 
   doc.body.append(root)
 }
@@ -122,6 +127,7 @@ function startsWithConfirmation(
           `Workflow: ${prepared.workflowName}`,
           prepared.repositoryPresetName ? `Repository: ${prepared.repository} (${prepared.repositoryPresetName})` : `Repository: ${prepared.repository}`,
           ...(prepared.primaryDir ? [`Checkout: ${prepared.primaryDir}`] : []),
+          ...(prepared.inputs.scope ? [prepared.inputs.scope === "pr" ? "Scope: this pull request only" : "Scope: every open pull request of the stack"] : []),
         ].join("\n"))
       } else {
         prepared = undefined
