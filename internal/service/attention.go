@@ -176,6 +176,9 @@ type AttentionItem struct {
 	DismissedRevision string              `json:"dismissed_revision,omitempty"`
 	CreatedAt         string              `json:"created_at"`
 	UpdatedAt         string              `json:"updated_at"`
+	// RailGroup is the rail group the item is switched with; only the
+	// rail view (RailView) sets it.
+	RailGroup string `json:"rail_group,omitempty"`
 }
 
 type AttentionFilter struct {

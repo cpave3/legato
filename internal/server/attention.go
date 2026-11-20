@@ -1,10 +1,12 @@
 package server
 
 import (
+	"context"
 	"encoding/json"
 	"errors"
 	"net/http"
 
+	"github.com/cpave3/legato/config"
 	"github.com/cpave3/legato/internal/engine/store"
 	"github.com/cpave3/legato/internal/service"
 )
@@ -40,6 +42,10 @@ func (s *Server) attentionHandler() http.HandlerFunc {
 		if err != nil {
 			s.writeAttentionError(w, err)
 			return
+		}
+		// The needs-you rail's view: the groups its settings switch on.
+		if r.URL.Query().Get("view") == "rail" {
+			items = service.RailView(items, s.railConfig(r.Context()))
 		}
 		s.writeJSON(w, http.StatusOK, struct {
 			Items []service.AttentionItem `json:"items"`
@@ -104,4 +110,33 @@ func (s *Server) writeAttentionError(w http.ResponseWriter, err error) {
 	default:
 		s.writeError(w, http.StatusBadRequest, err.Error())
 	}
+}
+
+// effectiveSettings is the part of the settings service that gives the
+// effective configuration, read on each use.
+type effectiveSettings interface {
+	Effective(ctx context.Context) (*config.Config, error)
+}
+
+// railConfig is the needs-you rail's switches as they stand now; their
+// defaults without a settings service.
+func (s *Server) railConfig(ctx context.Context) config.RailConfig {
+	if settings, ok := s.settingsRegistry.(effectiveSettings); ok {
+		if cfg, err := settings.Effective(ctx); err == nil && cfg != nil {
+			return cfg.Web.Rail
+		}
+	}
+	return config.RailConfig{}
+}
+
+// railCount is how many items the needs-you rail shows.
+func (s *Server) railCount(ctx context.Context) (int, error) {
+	if s.attention == nil {
+		return 0, nil
+	}
+	items, err := s.attention.List(ctx, service.AttentionFilter{})
+	if err != nil {
+		return 0, err
+	}
+	return len(service.RailView(items, s.railConfig(ctx))), nil
 }

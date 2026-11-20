@@ -311,6 +311,77 @@ type WebConfig struct {
 	// Tint is a colour that tells this Legato from others in the web UI:
 	// one of service.Tints, or none.
 	Tint string `yaml:"tint"`
+	// Rail says which kinds of Attention item the needs-you rail shows.
+	Rail RailConfig `yaml:"rail"`
+}
+
+// RailConfig switches each group of Attention items in the needs-you rail.
+// Unset, every group is shown but Review and Merge. The Attention page
+// always lists everything.
+type RailConfig struct {
+	// What agents post for the operator (for_operator), by kind.
+	Actions   *bool `yaml:"actions"`
+	Questions *bool `yaml:"questions"`
+	Done      *bool `yaml:"done"`
+	Other     *bool `yaml:"other"`
+	// Approvals: requests that hold an agent mid-turn, and paired
+	// instances' change sets.
+	Approvals *bool `yaml:"approvals"`
+	// Agents waiting or in error.
+	Agents *bool `yaml:"agents"`
+	// Workflows: gates, failures, stuck review loops, triggers.
+	Workflows *bool `yaml:"workflows"`
+	Plans     *bool `yaml:"plans"`
+	// Review: review tours ready, handoffs done. Off unless set.
+	Review *bool `yaml:"review"`
+	// Merge: pull requests that cannot merge, Argus's cases. Off unless set.
+	Merge *bool `yaml:"merge"`
+	// Legato: updates, restarts, settings, devices, handoff, integrations,
+	// engrams, interrupted agents, and any kind with no group of its own.
+	Legato *bool `yaml:"legato"`
+}
+
+// RailGroups are the rail's groups, in the order Settings lists them.
+var RailGroups = []string{"actions", "questions", "done", "other", "approvals", "agents", "workflows", "plans", "review", "merge", "legato"}
+
+// RailGroupDefault is what an unset group's switch is.
+func RailGroupDefault(group string) bool {
+	return group != "review" && group != "merge"
+}
+
+// Shows says whether the rail shows a group.
+func (r RailConfig) Shows(group string) bool {
+	var set *bool
+	switch group {
+	case "actions":
+		set = r.Actions
+	case "questions":
+		set = r.Questions
+	case "done":
+		set = r.Done
+	case "other":
+		set = r.Other
+	case "approvals":
+		set = r.Approvals
+	case "agents":
+		set = r.Agents
+	case "workflows":
+		set = r.Workflows
+	case "plans":
+		set = r.Plans
+	case "review":
+		set = r.Review
+	case "merge":
+		set = r.Merge
+	case "legato":
+		set = r.Legato
+	default:
+		return false
+	}
+	if set == nil {
+		return RailGroupDefault(group)
+	}
+	return *set
 }
 
 type GitHubConfig struct {

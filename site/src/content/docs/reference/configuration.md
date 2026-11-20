@@ -341,6 +341,9 @@ The web UI and its API. The TUI starts it beside itself when `web.enabled` is on
 | `web.tls.key` | path | none | *File-only.* The private key of `web.tls.cert`. |
 | `web.tls.hostname` | string | none | *File-only.* Another host name for the certificate Legato makes, such as `mybox.local`. It already covers `localhost` and this machine's addresses. |
 | `web.tint` | string | none | A colour that tells this Legato from others in the web UI: `red`, `orange`, `yellow`, `green`, `teal`, `blue`, `purple` or `pink`. Usually set in Settings › Server and maintenance › Tint. |
+| `web.rail.actions`, `web.rail.questions`, `web.rail.done`, `web.rail.other` | bool | `true` | Whether the needs-you rail shows what agents [post for you](/legato/using/attention/#operator-items): actions only you can do, questions, finished work, and anything else. Usually set in Settings › Needs-you rail. The Attention page always lists everything. |
+| `web.rail.approvals`, `web.rail.agents`, `web.rail.workflows`, `web.rail.plans`, `web.rail.legato` | bool | `true` | Whether the rail shows approvals (and paired instances' change sets), agents waiting or in error, workflow gates and failures, plans to decide, and Legato's own items (updates, restarts, settings, devices, handoff, integrations, engrams, interrupted agents). |
+| `web.rail.review`, `web.rail.merge` | bool | `false` | Whether the rail shows work ready for review (review tours, handoffs done) and merge blockers (pull requests that cannot merge, Argus's cases). |
 | `web.discovery` | bool | `true` | Announces the server on the local network (mDNS), so the Legato phone app finds it. See [Devices](/legato/running/devices/). |
 | `web.public_url` | URL | the first local address Legato announces | *File-only.* The address a phone uses to reach this server, put in the links of approval notifications. It must be an `http` or `https` address. |
 

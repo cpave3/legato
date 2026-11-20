@@ -33,7 +33,7 @@ export function SettingsSearch({ query, settings, fileOnly, lists, onSelect, dev
 }
 
 export function CategorySettings({ category, settings, fileOnly, baseUrl, listKeys }: { category: SettingsCategory; settings: ConfigSetting[]; fileOnly: string[]; baseUrl: string; listKeys: string[] }) {
-  const owned = settings.filter((s) => settingOwner(s.key) === category && !["web.tint", "updates.mode"].includes(s.key) && !s.key.startsWith("integrations.mqtt."))
+  const owned = settings.filter((s) => settingOwner(s.key) === category && !["web.tint", "updates.mode"].includes(s.key) && !s.key.startsWith("integrations.mqtt.") && !s.key.startsWith("web.rail."))
   const regular = owned.filter((s) => !isAdvancedSetting(s.key))
   const advanced = owned.filter((s) => isAdvancedSetting(s.key))
   return <>

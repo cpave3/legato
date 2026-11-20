@@ -82,9 +82,13 @@ The following do not raise Attention:
 
 Failures use high urgency; blocking decisions and waiting states use normal urgency. The unfiltered API and `AttentionService.Count` apply the same allowlist, so navigation badges and generic clients agree.
 
+## The rail view
+
+The needs-you rail (see the spec LEG-374) shows Attention filtered by the rail settings, the live bools `web.rail.<group>` (`config.RailConfig`; `Shows`, `RailGroupDefault`: every group on unless set, but `review` and `merge`, off). `service.RailGroupOf` (`internal/service/attention_rail.go`, one table) maps each signal kind to its group: `operator_<kind>` to `actions`, `questions`, `done`, `other`; `approval` to `approvals`; `agent_waiting`/`agent_error` to `agents`; the `workflow_*` signals to `workflows`; `plan_decision` to `plans`; `review_ready` and `handoff_done` to `review`; `pr_merge_blocked`, `argus_case`, `argus_needs_you` to `merge`; anything else (updates, restarts, settings, devices, the rest of handoff, integrations, engram, interrupted agents, `reeve_peer`, a kind added later) to `legato`. `service.RailView` keeps the items of the groups switched on and sets `rail_group` on each. `GET /api/attention?view=rail` answers with it, reading the settings on each request (`Server.railConfig`, from the settings service's `Effective`); `/api/navigation-summary` adds `rail`, its count. The plain list is unchanged.
+
 ## HTTP API and events
 
-- `GET /api/attention` — active default-policy items, optionally filtered by producer/category/urgency/task/workspace.
+- `GET /api/attention` — active default-policy items, optionally filtered by producer/category/urgency/task/workspace; `?view=rail` gives the rail's view (see § The rail view).
 - `POST /api/attention/{id}/actions/{action_id}` — execute a declared source action at an expected revision.
 - `POST /api/attention/{id}/dismiss` — dismiss the expected revision.
 - `EventAttentionChanged` is forwarded as `attention_changed`; web clients refetch the authoritative snapshot.

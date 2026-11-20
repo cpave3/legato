@@ -21,6 +21,10 @@ func TestANilSettingReportsTheDefaultTheRuntimeUses(t *testing.T) {
 		"reeve.watch.started":  true,
 		// cmd/legato announceWebServer: off only when set to false.
 		"web.discovery": true,
+		// RailConfig.Shows: nil is on but for review and merge.
+		"web.rail.actions": true, "web.rail.questions": true, "web.rail.done": true, "web.rail.other": true,
+		"web.rail.approvals": true, "web.rail.agents": true, "web.rail.workflows": true, "web.rail.plans": true,
+		"web.rail.review": false, "web.rail.merge": false, "web.rail.legato": true,
 		// GHChannelConfig.IsolateLogin: nil is on.
 		"credential_channels.gh.isolate_login": true,
 	}

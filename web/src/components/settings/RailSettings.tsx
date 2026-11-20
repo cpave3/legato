@@ -1,0 +1,78 @@
+import { useState } from "react"
+import { useQueryClient } from "@tanstack/react-query"
+import { Bell, Bot, CheckCircle, CircleHelp, GitMerge, GitPullRequest, Hand, ListChecks, MessageSquare, Settings2, ShieldCheck, Workflow, type LucideIcon } from "lucide-react"
+import { setConfigSetting, type ConfigSetting } from "../../lib/configSettings"
+import { queryKeys } from "../../lib/query"
+import { SettingsCard, SettingsRow, SettingsRows, Toggle } from "./SettingsUI"
+
+type RailSwitch = { group: string; title: string; description: string; icon: LucideIcon }
+
+// What agents post for the operator with for_operator, by kind.
+const fromAgents: RailSwitch[] = [
+  { group: "actions", title: "Actions", description: "Something only you can do: a command, a test in a browser, a merge.", icon: Hand },
+  { group: "questions", title: "Questions", description: "A question an agent asked you in plain words.", icon: CircleHelp },
+  { group: "done", title: "Finished work", description: "Work an agent finished for you to look at.", icon: CheckCircle },
+  { group: "other", title: "Anything else", description: "Anything else an agent wants you to see.", icon: MessageSquare },
+]
+
+const fromLegato: RailSwitch[] = [
+  { group: "approvals", title: "Approvals", description: "Requests that hold an agent mid-turn, and paired instances' change sets.", icon: ShieldCheck },
+  { group: "agents", title: "Agents", description: "Agents waiting for you or stopped on an error.", icon: Bot },
+  { group: "workflows", title: "Workflows", description: "Gates, failures, stuck review loops and triggers.", icon: Workflow },
+  { group: "plans", title: "Plans", description: "Plans waiting for your decision.", icon: ListChecks },
+  { group: "review", title: "Ready for review", description: "Review tours ready and handoffs done.", icon: GitPullRequest },
+  { group: "merge", title: "Merge blockers", description: "Pull requests that cannot merge, and Argus's cases.", icon: GitMerge },
+  { group: "legato", title: "Legato", description: "Updates, restarts, settings, devices, handoff, integrations, engrams and interrupted agents.", icon: Settings2 },
+]
+
+// RailSettings switches what the needs-you rail shows, one switch per kind
+// of item (the web.rail.* settings, kept by Legato so every client agrees).
+export function RailSettings({ baseUrl, settings }: { baseUrl: string; settings: ConfigSetting[] }) {
+  const queryClient = useQueryClient()
+  const [error, setError] = useState("")
+  const [busy, setBusy] = useState("")
+  const setting = (group: string) => settings.find((s) => s.key === `web.rail.${group}`)
+  const flip = async (key: string, on: boolean) => {
+    setBusy(key)
+    setError("")
+    try {
+      await setConfigSetting(baseUrl, key, !on)
+      await queryClient.invalidateQueries({ queryKey: queryKeys.configSettings(baseUrl) })
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : String(reason))
+    } finally {
+      setBusy("")
+    }
+  }
+  const switches = (label: string, list: RailSwitch[]) => (
+    <section role="group" aria-label={label} className="flex flex-col gap-2">
+      <h3 className="text-sm font-medium text-lw-text">{label}</h3>
+      <SettingsRows>
+        {list.map((item) => {
+          const current = setting(item.group)
+          if (!current) return null
+          const on = current.value === true
+          return (
+            <div key={item.group} id={`setting-${current.key}`} tabIndex={-1} className="scroll-mt-40">
+              <SettingsRow icon={item.icon} title={item.title}
+                description={current.pinned ? `${item.description} config.yaml sets ${current.key}: edit the file to change it.` : item.description}
+                control={<Toggle label={item.title} on={on} disabled={current.pinned || busy === current.key} onChange={() => void flip(current.key, on)} />} />
+            </div>
+          )
+        })}
+      </SettingsRows>
+    </section>
+  )
+  if (!settings.some((s) => s.key.startsWith("web.rail."))) return null
+  return (
+    <SettingsCard id="needs-you-rail" icon={Bell} title="Needs-you rail"
+      description="What the rail on the right of every page shows. Approvals come first, then the rest, newest first.">
+      <div className="flex flex-col gap-4">
+        {switches("From agents", fromAgents)}
+        {switches("From Legato", fromLegato)}
+        {error && <p role="alert" className="text-xs text-lw-error">{error}</p>}
+        <p className="text-xs text-lw-text-2">The Attention page always lists everything.</p>
+      </div>
+    </SettingsCard>
+  )
+}

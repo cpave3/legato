@@ -43,6 +43,7 @@ var everydayCalls = []everydayCall{
 	{"Stop an agent", "POST", "/api/agents/kill", "", `{"task_id": "<id>"}`},
 	{"Restart an agent, keeping its conversation", "POST", "/api/agents/{task_id}/restart", "", ""},
 	{"List what needs attention", "GET", "/api/attention", "", ""},
+	{"List what the needs-you rail shows, by its settings", "GET", "/api/attention", "?view=rail", ""},
 	{"Change a setting", "PUT", "/api/config/settings/{key}", "", `{"value": …}`},
 	{"List the workers this Legato hands tasks to", "GET", "/api/settings/workers", "", ""},
 	{"Read what a worker's review passes can do", "GET", "/api/settings/workers/{instance_id}/review-passes", "", ""},
