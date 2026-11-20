@@ -369,3 +369,33 @@ func TestListEntriesChangedSinceStartWaitForARestart(t *testing.T) {
 		}
 	}
 }
+
+// A secret setting says whether Legato can read the secret it names, and
+// never the secret.
+func TestASecretSettingSaysWhetherItsSecretCanBeRead(t *testing.T) {
+	settings, _ := newSettingsFixture(t, "")
+	ctx := context.Background()
+	settings.SetSecretResolver(func(_ context.Context, ref string) (string, error) {
+		if ref == "legato://jira-token" {
+			return "ATATT-the-token", nil
+		}
+		return "", errors.New("no such secret")
+	})
+	settings.Set(ctx, "jira.api_token", json.RawMessage(`"legato://jira-token"`), "web")
+	settings.Set(ctx, "github.token", json.RawMessage(`"legato://gone"`), "web")
+	all, err := settings.List(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	status := map[string]string{}
+	for _, s := range all {
+		status[s.Key] = s.SecretStatus
+	}
+	if status["jira.api_token"] != SecretStored || status["github.token"] != SecretMissing || status["manticore.api_key"] != "" {
+		t.Fatalf("statuses = jira %q, github %q, manticore %q", status["jira.api_token"], status["github.token"], status["manticore.api_key"])
+	}
+	raw, _ := json.Marshal(all)
+	if strings.Contains(string(raw), "ATATT") {
+		t.Fatal("the secret's value is in the list")
+	}
+}

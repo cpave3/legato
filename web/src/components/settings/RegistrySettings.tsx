@@ -230,6 +230,32 @@ function copyText(text: string): Promise<void> {
   }
 }
 
+// SecretState says whether Legato can read the secret a setting names, and
+// how to store it: the command, since a browser never writes a secret.
+function SecretState({ setting }: { setting: ConfigSetting }) {
+  const [open, setOpen] = useState(false)
+  const [copied, setCopied] = useState(false)
+  const ref = String(setting.value ?? "")
+  const name = ref.startsWith("legato://") ? ref.slice("legato://".length) : ""
+  const command = name ? `legato secret add ${name}` : ""
+  const missing = setting.secret_status === "missing"
+  return <div className="mt-1.5 flex flex-col gap-1.5">
+    <span className="flex flex-wrap items-center gap-2">
+      {missing
+        ? <span className={cn(chip, "bg-lw-error-soft text-lw-error")}>Not found</span>
+        : <span className={cn(chip, "bg-lw-live-soft text-lw-live")}>Stored</span>}
+      {!missing && command && !open && <button type="button" className="text-[12px] text-lw-text-2 hover:text-lw-text" onClick={() => setOpen(true)}>Replace</button>}
+      {missing && !command && <span className="text-xs text-lw-text-2">Legato cannot read it from 1Password.</span>}
+    </span>
+    {command && (missing || open) && <span className="flex flex-wrap items-center gap-2 text-xs text-lw-text-2">
+      {missing ? "Store it on this server with" : "Replace it on this server with"}
+      <code className="rounded bg-lw-raised px-1.5 py-0.5 font-lw-mono text-lw-text">{command}</code>
+      <button type="button" aria-label={`Copy ${command}`} className="inline-flex items-center gap-1 text-lw-text-2 hover:text-lw-text"
+        onClick={() => void copyText(command).then(() => setCopied(true), () => setCopied(false))}><Copy size={11} aria-hidden />{copied ? "Copied" : "Copy"}</button>
+    </span>}
+  </div>
+}
+
 // The key line: shown on hover and focus, or always with Show config keys.
 function KeyLine({ keyName, extra, onCopy }: { keyName: string; extra?: string; onCopy: () => void }) {
   return <button type="button" onClick={onCopy} aria-label={`Copy key ${keyName}`} title="Copy key"
@@ -274,6 +300,7 @@ export function RegistrySettingRow({ setting, baseUrl, actions, showMode }: { se
           {showMode && <span className="text-[11px] text-lw-text-2">{modeLabel(setting.mode)}</span>}
         </div>
         {(setting.help ?? setting.description) && <p className="mt-0.5 text-[12.5px] text-lw-text-2">{setting.help ?? setting.description}</p>}
+        {setting.secret && setting.secret_status && <SecretState setting={setting} />}
         {key.shown && <KeyLine keyName={setting.key} extra={defaultWords} onCopy={key.copy} />}
         {key.copied && <p role="status" className="text-xs text-lw-text-2">Key copied.</p>}
         {outcome?.kind === "refused" && <p role="alert" className="mt-1 text-xs text-lw-error">{outcome.text}</p>}

@@ -9,6 +9,7 @@ import (
 	"sort"
 	"strings"
 	"sync"
+	"time"
 
 	"github.com/cpave3/legato/config"
 	"github.com/cpave3/legato/internal/engine/store"
@@ -39,13 +40,77 @@ type SettingValue struct {
 	// that waits for a restart: what Legato uses until then.
 	StartedValue any `json:"started_value,omitempty"`
 	// Default is the value with nothing set, what Reset goes back to.
-	Default   any    `json:"default"`
-	UpdatedAt string `json:"updated_at,omitempty"`
-	UpdatedBy string `json:"updated_by,omitempty"`
+	Default any `json:"default"`
+	// SecretStatus says, for a secret setting that names one, whether
+	// Legato can read it: stored or missing. Never the value.
+	SecretStatus string `json:"secret_status,omitempty"`
+	UpdatedAt    string `json:"updated_at,omitempty"`
+	UpdatedBy    string `json:"updated_by,omitempty"`
 	// effective is the value before a pinned secret is masked: what a
 	// restart compares against the value the process started with.
 	effective any
 	started   bool
+}
+
+// The statuses of a secret setting's secret.
+const (
+	SecretStored  = "stored"
+	SecretMissing = "missing"
+)
+
+type secretCheck struct {
+	status string
+	at     time.Time
+}
+
+// secretCheckFor is how long a secret's status is kept before it is read
+// again (1Password may be slow to answer).
+const secretCheckFor = 30 * time.Second
+
+// SetSecretResolver lets the service say whether each secret setting's
+// secret can be read.
+func (s *SettingsService) SetSecretResolver(resolve SecretResolver) {
+	s.mu.Lock()
+	s.resolve = resolve
+	s.checked = map[string]secretCheck{}
+	s.mu.Unlock()
+}
+
+// markSecret sets v's SecretStatus: a secret config.yaml gives is stored
+// when it has a value; a name saved here, when the name resolves.
+func (s *SettingsService) markSecret(ctx context.Context, v *SettingValue) {
+	if !v.Secret {
+		return
+	}
+	value, _ := v.effective.(string)
+	if v.Pinned {
+		if value != "" {
+			v.SecretStatus = SecretStored
+		}
+		return
+	}
+	if value == "" {
+		return
+	}
+	s.mu.Lock()
+	resolve := s.resolve
+	check, ok := s.checked[value]
+	s.mu.Unlock()
+	if resolve == nil {
+		return
+	}
+	if ok && time.Since(check.at) < secretCheckFor {
+		v.SecretStatus = check.status
+		return
+	}
+	status := SecretStored
+	if plain, err := resolve(ctx, value); err != nil || plain == "" {
+		status = SecretMissing
+	}
+	s.mu.Lock()
+	s.checked[value] = secretCheck{status: status, at: time.Now()}
+	s.mu.Unlock()
+	v.SecretStatus = status
 }
 
 // HasStartedValue says whether StartedValue is set (it may be a zero
@@ -64,7 +129,12 @@ type SettingsService struct {
 	// startedEntries is each list's entries kept here at MarkStarted, as
 	// name to JSON.
 	startedEntries map[string]map[string]string
-	onChange       []func()
+
+	// resolve reads a secret a setting names, to say whether it can be
+	// read; checked keeps each answer for a short while.
+	resolve  SecretResolver
+	checked  map[string]secretCheck
+	onChange []func()
 }
 
 // NewSettingsService keeps settings in db; load reads config.yaml
@@ -185,6 +255,7 @@ func (s *SettingsService) List(ctx context.Context) ([]SettingValue, error) {
 			return nil, err
 		}
 		s.markPending(&v)
+		s.markSecret(ctx, &v)
 		out = append(out, v)
 	}
 	return out, nil
@@ -357,6 +428,7 @@ func (s *SettingsService) Get(ctx context.Context, key string) (SettingValue, er
 		return SettingValue{}, err
 	}
 	s.markPending(&v)
+	s.markSecret(ctx, &v)
 	return v, nil
 }
 

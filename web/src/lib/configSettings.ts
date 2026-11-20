@@ -31,6 +31,8 @@ export interface ConfigSetting {
   started_value?: unknown
   // The value with nothing set: what Reset goes back to.
   default?: unknown
+  // A secret setting's secret: whether Legato can read it.
+  secret_status?: "stored" | "missing"
   updated_at?: string
   updated_by?: string
 }

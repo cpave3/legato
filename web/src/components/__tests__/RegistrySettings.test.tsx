@@ -258,6 +258,34 @@ describe("A setting row", () => {
   })
 })
 
+describe("A secret setting's row", () => {
+  afterEach(() => cleanup())
+  const token = (over: Partial<ConfigSetting>) => setting({ key: "jira.api_token", title: "API token", kind: "string", secret: true, value: "legato://jira-api-token", source: "database", ...over })
+
+  it("says Stored, and offers the command that replaces it", async () => {
+    const writeText = vi.fn().mockResolvedValue(undefined)
+    Object.defineProperty(navigator, "clipboard", { configurable: true, value: { writeText } })
+    render(wrap(rows([token({ secret_status: "stored" })])))
+    expect(screen.getByText("Stored")).toBeTruthy()
+    expect(screen.queryByText("legato secret add jira-api-token")).toBeNull()
+    fireEvent.click(screen.getByRole("button", { name: "Replace" }))
+    fireEvent.click(screen.getByRole("button", { name: "Copy legato secret add jira-api-token" }))
+    await waitFor(() => expect(writeText).toHaveBeenCalledWith("legato secret add jira-api-token"))
+  })
+
+  it("says Not found, with the command that stores it", () => {
+    render(wrap(rows([token({ secret_status: "missing" })])))
+    expect(screen.getByText("Not found")).toBeTruthy()
+    expect(screen.getByText("legato secret add jira-api-token")).toBeTruthy()
+  })
+
+  it("names no command for a 1Password secret Legato cannot read", () => {
+    render(wrap(rows([token({ value: "op://Work/Jira/token", secret_status: "missing" })])))
+    expect(screen.getByText("Not found")).toBeTruthy()
+    expect(screen.queryByText(/legato secret add/)).toBeNull()
+  })
+})
+
 describe("A file-only row", () => {
   afterEach(() => cleanup())
   it("shows its value read-only, says config.yaml only, and has no control", () => {
