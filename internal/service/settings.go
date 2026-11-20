@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	"log"
+	"sort"
 	"strings"
 	"sync"
 
@@ -58,9 +59,12 @@ type SettingsService struct {
 	db   *store.Store
 	load func() (*config.Config, error)
 
-	mu       sync.Mutex
-	started  map[string]string // canonical JSON of each value at MarkStarted
-	onChange []func()
+	mu      sync.Mutex
+	started map[string]string // canonical JSON of each value at MarkStarted
+	// startedEntries is each list's entries kept here at MarkStarted, as
+	// name to JSON.
+	startedEntries map[string]map[string]string
+	onChange       []func()
 }
 
 // NewSettingsService keeps settings in db; load reads config.yaml
@@ -200,9 +204,49 @@ func (s *SettingsService) MarkStarted(ctx context.Context) {
 			started[setting.Key] = string(raw)
 		}
 	}
+	entries := map[string]map[string]string{}
+	if rows, err := s.db.ListSettingEntries(ctx); err == nil {
+		for _, r := range rows {
+			if entries[r.List] == nil {
+				entries[r.List] = map[string]string{}
+			}
+			entries[r.List][r.Name] = r.Value
+		}
+	}
 	s.mu.Lock()
 	s.started = started
+	s.startedEntries = entries
 	s.mu.Unlock()
+}
+
+// pendingEntries names the entries of a restart list that changed here
+// since start: added, changed or removed.
+func (s *SettingsService) pendingEntries(l config.EntryList, rows []store.SettingEntry) []string {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if l.Mode != config.ModeRestart || s.startedEntries == nil {
+		return nil
+	}
+	was := s.startedEntries[l.Key]
+	now := map[string]string{}
+	for _, r := range rows {
+		if r.List == l.Key {
+			now[r.Name] = r.Value
+		}
+	}
+	var names []string
+	for name, v := range now {
+		if old, ok := was[name]; !ok || old != v {
+			names = append(names, name)
+		}
+	}
+	for name := range was {
+		if _, ok := now[name]; !ok {
+			names = append(names, name)
+		}
+	}
+	sort.Strings(names)
+	return names
 }
 
 // markPending says whether v waits for a restart, and with what value
@@ -493,6 +537,9 @@ type SettingEntryValue struct {
 type SettingList struct {
 	config.EntryList
 	Entries []SettingEntryValue `json:"entries"`
+	// PendingEntries names the entries of a restart list added, changed
+	// or removed here since this process started.
+	PendingEntries []string `json:"pending_entries,omitempty"`
 }
 
 // Lists is every list of named entries the database keeps, with the
@@ -529,6 +576,7 @@ func (s *SettingsService) Lists(ctx context.Context) ([]SettingList, error) {
 			_ = json.Unmarshal([]byte(r.Value), &v)
 			list.Entries = append(list.Entries, SettingEntryValue{Name: r.Name, Value: v, Source: SettingFromDatabase, UpdatedAt: r.UpdatedAt, UpdatedBy: r.UpdatedBy})
 		}
+		list.PendingEntries = s.pendingEntries(l, rows)
 		out = append(out, list)
 	}
 	return out, nil

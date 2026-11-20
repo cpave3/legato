@@ -26,9 +26,10 @@ import { MQTTSettings } from "../components/settings/MQTTSettings"
 import { MainInstancesSettings, WorkersSettings } from "../components/InstancePairingSettings"
 import { ApprovalNotificationSettings } from "../components/ApprovalNotificationSettings"
 import { UpdatesSettings } from "../components/UpdatesSettings"
-import { RestartLegato } from "../components/RestartLegato"
+import { RestartBar, RestartCard } from "../components/settings/RestartSettings"
+import { waitingChanges } from "../lib/pendingRestart"
 import { SettingsCard, quietButton } from "../components/settings/SettingsUI"
-import { Palette } from "lucide-react"
+import { Globe, Palette } from "lucide-react"
 import { useSettings } from "../hooks/useSettings"
 import { SettingsLoadState, SettingsSearch } from "../components/settings/SettingsCatalog"
 import { MoveSettings } from "../components/settings/MoveSettings"
@@ -53,14 +54,13 @@ const featureSwitches: Record<string, string> = {
   learn: "learning.enabled",
 }
 
-function sectionStates(registry: ConfigSetting[], noDevice: boolean): Record<string, SectionState> {
+function sectionStates(registry: ConfigSetting[], noDevice: boolean, waiting: number): Record<string, SectionState> {
   const states: Record<string, SectionState> = {}
   for (const [section, key] of Object.entries(featureSwitches)) {
     const setting = registry.find((s) => s.key === key)
     if (setting) states[section] = { on: setting.value === true, label: setting.value === true ? "On" : "Off" }
   }
   if (noDevice) states.security = { dot: "No approval device" }
-  const waiting = registry.filter((s) => s.pending_restart).length
   if (waiting > 0) states.system = { count: waiting, label: `${waiting} waiting` }
   return states
 }
@@ -159,7 +159,8 @@ export function SettingsPage() {
     "tls": <TLSCard baseUrl={baseUrl} available={settings.data?.ca_cert_available} />,
     "workers": <WorkersSettings baseUrl={baseUrl} />,
     "main-instances": <MainInstancesSettings baseUrl={baseUrl} />,
-    "restart": <div id="restart"><RestartLegato baseUrl={baseUrl} /></div>,
+    "restart": <RestartCard changes={waitingChanges(registry, lists)} baseUrl={baseUrl} />,
+    "web-elsewhere": <SettingsCard id="web-elsewhere" icon={Globe} title="The web server" description="Its port, TLS and public address are in config.yaml only, and shown in Connections."><Link to="#connections/network" className={quietButton}>Open Connections › Network</Link></SettingsCard>,
     "updates": <div id="updates"><div id="setting-updates.mode"><UpdatesSettings status={settings.data ? settings.data.updates ?? null : undefined} baseUrl={baseUrl} modeSetting={registered("updates.mode")} onChanged={refetchSettings} /></div></div>,
     "move": <MoveSettings baseUrl={baseUrl} />,
     "export": <div id="export"><ExportSettings baseUrl={baseUrl} /></div>,
@@ -177,7 +178,8 @@ export function SettingsPage() {
   const current = findSection(currentId)
   const [search, setSearch] = useState("")
   const [targetFound, setTargetFound] = useState(true)
-  const states = sectionStates(registry, (devices.data?.devices?.length ?? 1) === 0)
+  const changes = waitingChanges(registry, lists)
+  const states = sectionStates(registry, (devices.data?.devices?.length ?? 1) === 0, changes.length)
   const loaded = !configSettings.isPending && !configLists.isPending
 
   // Open at what the fragment names: a row, a card, a group, or the section.
@@ -192,7 +194,9 @@ export function SettingsPage() {
         element.tabIndex = -1
         element.style.scrollMarginTop = `${(header.current?.getBoundingClientRect().height ?? 0) + 16}px`
         element.focus({ preventScroll: true })
-        element.scrollIntoView?.({ block: "start" })
+        // A whole section opens at the top, with Back and its group links.
+        if (focusId === `section-${destination?.section}`) scroller.current?.scrollTo?.({ top: 0 })
+        else element.scrollIntoView?.({ block: "start" })
         focused = true
       }
     }
@@ -220,6 +224,7 @@ export function SettingsPage() {
           </Link>
           <input type="search" aria-label="Search settings" placeholder="Search settings, keys and values" value={search} onChange={(event) => setSearch(event.target.value)} className="min-h-9 w-full rounded-lg border border-lw-line-strong bg-lw-raised px-3 text-sm sm:ml-auto sm:w-80" />
         </div>
+        {changes.length > 0 && <div className="-mx-4 -mb-3 mt-3 md:-mx-8"><RestartBar changes={changes} baseUrl={baseUrl} /></div>}
       </header>
       <div className="mx-auto grid w-full max-w-6xl gap-8 px-4 py-6 md:px-8 lg:grid-cols-[248px_minmax(0,1fr)]">
         <aside className={current ? "hidden lg:block" : ""}>

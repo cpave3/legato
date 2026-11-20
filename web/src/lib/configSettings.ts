@@ -83,6 +83,9 @@ export interface ConfigList {
   mode: "live" | "new_agents" | "restart"
   name_field?: string
   entries: ConfigListEntry[]
+  // Entries added, changed or removed here since Legato started, which
+  // wait for a restart (a restart list only).
+  pending_entries?: string[]
 }
 
 export async function fetchConfigLists(baseUrl: string): Promise<ConfigList[]> {

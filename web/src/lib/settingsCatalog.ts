@@ -91,6 +91,7 @@ export const settingsCards: (Place & { id: string; title: string; terms: string;
   { id: "updates", title: "Updates", section: "system", group: "Updates", terms: "release version" },
   { id: "move", title: "Move out of config.yaml", section: "system", group: "config.yaml", terms: "config.yaml pins migration database" },
   { id: "export", title: "Export and import settings", section: "system", group: "config.yaml", terms: "backup restore" },
+  { id: "web-elsewhere", title: "The web server", section: "system", group: "Only in config.yaml", terms: "web port tls public address" },
   { id: "development", title: "Development", section: "system", group: "Development", terms: "rebuild hot reload" },
 ]
 

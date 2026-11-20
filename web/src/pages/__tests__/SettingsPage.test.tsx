@@ -501,6 +501,18 @@ describe("SettingsPage layout", () => {
     expect(row.getByText("config.yaml only")).toBeTruthy()
   })
 
+  it("shows the restart bar on any section while a change waits, and System lists it with Undo", async () => {
+    serveRegistry({ "swarm.max_concurrent_agents": { value: 6, source: "database", pending_restart: true, started_value: 0, default: 0 } })
+    renderPage("/settings#appearance")
+    await loaded()
+    const bar = within(await screen.findByRole("region", { name: "Changes waiting for a restart" }))
+    expect(bar.getByText(/Swarms › Workers at once/)).toBeTruthy()
+    fireEvent.click(bar.getByRole("link", { name: "Show" }))
+    const waiting = within(await screen.findByRole("list", { name: "Changes waiting for a restart" }))
+    expect(waiting.getByText("4 → 6")).toBeTruthy()
+    expect(waiting.getByRole("button", { name: "Undo Swarms › Workers at once" })).toBeTruthy()
+  })
+
   it("sends the old Macros link to the Macros page", () => {
     renderPage("/settings#list-macros")
     expect(within(screen.getByRole("region", { name: "Macros" })).getByRole("link", { name: "Open Macros" })).toHaveAttribute("href", "/macros")

@@ -184,3 +184,54 @@ func TestAnOwnRuleOfTheReeveIsRefusedWithNoDeviceToSign(t *testing.T) {
 		t.Fatalf("PUT an own rule: %d %s", rec.Code, rec.Body)
 	}
 }
+
+// Undo is a PUT of the started value, or a DELETE when the setting started
+// from its default; either way it no longer waits for a restart.
+func TestUndoingAWaitingChangeThroughTheAPI(t *testing.T) {
+	dir := t.TempDir()
+	os.WriteFile(filepath.Join(dir, "config.yaml"), nil, 0o600)
+	t.Setenv("LEGATO_CONFIG", filepath.Join(dir, "config.yaml"))
+	db, err := store.New(filepath.Join(dir, "legato.db"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	t.Cleanup(func() { db.Close() })
+	ctx := context.Background()
+	settings := service.NewSettingsService(db, nil)
+	settings.Set(ctx, "jira.sync_interval_seconds", json.RawMessage(`90`), "web")
+	settings.MarkStarted(ctx)
+	srv := New(nil, nil, nil, ":0")
+	srv.SetAuthToken("secret")
+	srv.SetSettingsService(settings)
+
+	callUpdates(srv, http.MethodPut, "/api/config/settings/jira.sync_interval_seconds", `{"value": 120}`)
+	callUpdates(srv, http.MethodPut, "/api/config/settings/swarm.max_concurrent_agents", `{"value": 6}`)
+	var raw struct {
+		Settings []map[string]any `json:"settings"`
+	}
+	json.Unmarshal(callUpdates(srv, http.MethodGet, "/api/config/settings", "").Body.Bytes(), &raw)
+	started := map[string]any{}
+	for _, s := range raw.Settings {
+		if v, ok := s["started_value"]; ok {
+			started[s["key"].(string)] = v
+		}
+		if s["pending_restart"] == true && s["key"] != "jira.sync_interval_seconds" && s["key"] != "swarm.max_concurrent_agents" {
+			t.Errorf("%s waits", s["key"])
+		}
+	}
+	if len(started) != 2 || started["jira.sync_interval_seconds"] != float64(90) {
+		t.Fatalf("started values = %v, want the two waiting settings only", started)
+	}
+
+	if rec := callUpdates(srv, http.MethodPut, "/api/config/settings/jira.sync_interval_seconds", `{"value": 90}`); rec.Code != http.StatusOK {
+		t.Fatalf("undo by PUT: %d %s", rec.Code, rec.Body)
+	}
+	if rec := callUpdates(srv, http.MethodDelete, "/api/config/settings/swarm.max_concurrent_agents", ""); rec.Code != http.StatusOK {
+		t.Fatalf("undo by DELETE: %d %s", rec.Code, rec.Body)
+	}
+	for _, key := range []string{"jira.sync_interval_seconds", "swarm.max_concurrent_agents"} {
+		if got := findSetting(t, srv, key); got.PendingRestart {
+			t.Errorf("%s still waits after Undo", key)
+		}
+	}
+}

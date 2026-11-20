@@ -343,3 +343,29 @@ func TestASecretsStartedValueIsNeverShown(t *testing.T) {
 		t.Fatalf("a secret is shown: %s", raw)
 	}
 }
+
+// An entry of a restart list added, changed or removed since start waits
+// for a restart, by name.
+func TestListEntriesChangedSinceStartWaitForARestart(t *testing.T) {
+	settings, _ := newSettingsFixture(t, "")
+	ctx := context.Background()
+	settings.SetEntry(ctx, "workspaces", "infra", json.RawMessage(`{"color":"blue"}`), "web")
+	settings.MarkStarted(ctx)
+	settings.SetEntry(ctx, "workspaces", "web", json.RawMessage(`{"color":"green"}`), "web")
+	settings.DeleteEntry(ctx, "workspaces", "infra")
+	lists, err := settings.Lists(ctx)
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, l := range lists {
+		if l.Key != "workspaces" {
+			if len(l.PendingEntries) != 0 {
+				t.Errorf("%s waits: %v", l.Key, l.PendingEntries)
+			}
+			continue
+		}
+		if got := strings.Join(l.PendingEntries, ","); got != "infra,web" {
+			t.Fatalf("pending entries = %q, want infra,web", got)
+		}
+	}
+}
