@@ -38,7 +38,7 @@ import { ReeveEngramSettings } from "../components/settings/ReeveEngramSettings"
 import { SettingsSectionView } from "../components/settings/SettingsSection"
 import { AppAppearanceCard, BoardColumnsCard, DevelopmentCard, KeyboardCard, ManagedClonesCard, PairBrowserCard, PairPhoneCard, ServersCard, TLSCard, TintCard } from "../components/settings/SettingsCards"
 import type { ConfigSetting } from "../lib/configSettings"
-import { findSection, groupElementId, leadGroup, navGroups, sectionGroups, settingsDestination, settingsSections, slug, type SettingsSection } from "../lib/settingsCatalog"
+import { findSection, groupElementId, groupHasContent, leadGroup, navGroups, sectionGroups, settingsDestination, settingsSections, slug, type SettingsSection } from "../lib/settingsCatalog"
 
 // The state a section shows beside its name in the nav.
 interface SectionState { label?: string; on?: boolean; dot?: string; count?: number }
@@ -199,7 +199,8 @@ export function SettingsPage() {
   }, [target, focusId, baseUrl, destinationRevision])
 
   const serverName = servers.find((s) => s.url === baseUrl)?.name ?? (baseUrl ? baseUrl : "Local")
-  const groups = current && !current.href ? sectionGroups(current, registry).filter((g) => g !== leadGroup) : []
+  const groups = current && !current.href ? sectionGroups(current, registry).filter((g) => g !== leadGroup
+    && groupHasContent(current.id, g, { settings: registry, fileOnly, lists, cardIds: Object.keys(cards) })) : []
   const groupLinks = (className: string, linkClass: (g: string) => string) => groups.length > 0 && <nav aria-label={`${current!.title} groups`} className={className}>
     {groups.map((g) => <Link key={g} to={`#${current!.id}/${slug(g)}`} className={linkClass(g)} aria-current={destination?.group === g ? "location" : undefined}>{g}</Link>)}
   </nav>

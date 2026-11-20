@@ -476,6 +476,15 @@ describe("SettingsPage layout", () => {
     expect(screen.queryByRole("button", { name: "Add to macros" })).toBeNull()
   })
 
+  it("lists only the groups a section draws: no Development link without hot reload", async () => {
+    serveRegistry()
+    renderPage("/settings#system")
+    await loaded()
+    const links = within(screen.getByRole("navigation", { name: "System groups" })).getAllByRole("link").map((l) => l.textContent)
+    expect(links).not.toContain("Development")
+    expect(links).toContain("Restart")
+  })
+
   it("adds Development to System under hot reload", () => {
     useSettings.mockReturnValue(settings(true))
     renderPage("/settings#development")

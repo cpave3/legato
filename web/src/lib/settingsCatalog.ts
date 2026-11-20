@@ -227,3 +227,14 @@ export function sectionGroups(section: SettingsSection, settings: { section?: st
   }
   return settings.some((s) => { const p = settingPlace(s); return p.section === section.id && p.group === leadGroup }) ? [leadGroup, ...groups] : groups
 }
+
+// groupHasContent says whether a group of a section has anything to draw:
+// a row, a card the page can draw, a list or a file-only key. The nav lists
+// only such groups, so its links always find their group.
+export function groupHasContent(sectionId: string, group: string, content: { settings: { key: string; section?: string; group?: string }[]; fileOnly: string[]; lists: { key: string }[]; cardIds: string[] }): boolean {
+  const at = (place: Place) => place.section === sectionId && place.group === group
+  return content.settings.some((s) => at(settingPlace(s)) && !hasOwnCard(s.key))
+    || settingsCards.some((card) => at(card) && content.cardIds.includes(card.id))
+    || content.lists.some((l) => at(listPlace(l.key)) && !listsWithCards.includes(l.key))
+    || content.fileOnly.some((key) => at(fileOnlyPlace(key)))
+}
