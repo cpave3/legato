@@ -1,3 +1,4 @@
+import { toolDisplayName } from "../lib/mcpToolName"
 import type { NativeSubagentState } from "../lib/nativeAgentSync"
 import { cn } from "../lib/utils"
 import type { DeckTile } from "./TileDeck"
@@ -19,7 +20,7 @@ export function SubagentActivity({ subagent }: { subagent?: NativeSubagentState 
           return (
             <li key={activity.key} className="flex min-w-0 items-baseline gap-1.5 text-lw-text-2">
               <span aria-hidden="true" className="font-lw-mono text-[11px] text-lw-faint">›</span>
-              <span className="shrink-0 font-lw-mono text-[11.5px] text-lw-text">{activity.toolName}</span>
+              <span title={activity.toolName} className="shrink-0 font-lw-mono text-[11.5px] text-lw-text">{toolDisplayName(activity.toolName)}</span>
               <span className="min-w-0 truncate">{rest}</span>
             </li>
           )

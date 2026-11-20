@@ -40,3 +40,6 @@ browser-extension/coverage/
 /packages/**/.pack/
 /packages/**/.env*
 !/packages/**/.env.example
+
+# Agents' scratch files (screenshots, notes), never committed
+.scratch/

@@ -3,7 +3,7 @@ import { AskReeve } from "./AskReeve"
 import { parseReeveMessage, reeveBrief } from "../lib/reeve"
 import { ChangeSetLines } from "./ChangeSetLines"
 import { useState, useEffect, useLayoutEffect, useCallback, useRef, useMemo, useId, memo, Fragment } from "react"
-import { ArrowDown, ArrowLeftRight, Bell, BellOff, Check, FolderInput, Info, Network, Pencil, RefreshCw, RotateCw, Shield, Skull, Terminal, Unplug, Zap } from "lucide-react"
+import { ArrowDown, ArrowLeftRight, Bell, BellOff, Check, FolderInput, Info, Network, Pencil, Plug, RefreshCw, RotateCw, Shield, Skull, Terminal, Unplug, Zap } from "lucide-react"
 import type { SandboxSwitch } from "../lib/agentReload"
 import { useWebSocket, type PromptState, type WSMessage } from "../hooks/useWebSocket"
 import { useServer } from "../hooks/useServer"
@@ -37,6 +37,7 @@ import { insertImagePath, isImagePath } from "../lib/agentImage"
 import { rankSlashItems, type SlashItem } from "../lib/slashMenu"
 import { usePastedImages } from "../hooks/usePastedImages"
 import { nativeToolName } from "../lib/agentKind"
+import { mcpToolName, toolDisplayName } from "../lib/mcpToolName"
 import { parseLegatoMessage } from "../lib/legatoMessage"
 import { plainText } from "../lib/agentGlance"
 import { modelSettingsResponse, type ModelCapabilities, type ModelSettings, type ModelSettingsState } from "../lib/modelSettings"
@@ -152,10 +153,10 @@ function PermissionCard({
         : null
 
   return (
-    <section aria-label={`Permission request for ${permission.tool}`} className="mx-4 my-2 min-w-0 rounded-lg border border-yellow-600/40 bg-yellow-900/10 p-3">
+    <section aria-label={`Permission request for ${toolDisplayName(permission.tool)}`} className="mx-4 my-2 min-w-0 rounded-lg border border-yellow-600/40 bg-yellow-900/10 p-3">
       <div className="flex min-w-0 flex-wrap items-center gap-2">
         <div className="text-sm font-semibold text-yellow-200">{isPlan ? "Plan approval" : !agentKind || agentKind === "chimera" ? "Host command approval" : "Tool approval"}</div>
-        <span className="rounded bg-yellow-950/70 px-1.5 py-0.5 font-mono text-[11px] text-yellow-300">{permission.tool} · {permission.target}</span>
+        <span title={permission.tool} className="rounded bg-yellow-950/70 px-1.5 py-0.5 font-mono text-[11px] text-yellow-300">{toolDisplayName(permission.tool)} · {permission.target}</span>
         {resolvedLabel && <span className="ml-auto text-xs font-medium text-zinc-300">{resolvedLabel}</span>}
       </div>
       {permission.reason && <p className="mt-2 text-xs text-zinc-300">{permission.reason}</p>}
@@ -1557,7 +1558,10 @@ const VISIBLE_TOOL_CALLS = 5
 // "3 read · 2 bash": the tools some calls used, the most used first.
 function toolCounts(tools: ToolCallItem[]): string {
   const counts = new Map<string, number>()
-  for (const tool of tools) counts.set(tool.toolName, (counts.get(tool.toolName) ?? 0) + 1)
+  for (const tool of tools) {
+    const name = toolDisplayName(tool.toolName)
+    counts.set(name, (counts.get(name) ?? 0) + 1)
+  }
   return [...counts].sort((a, b) => b[1] - a[1]).map(([name, count]) => `${count} ${name}`).join(" · ")
 }
 
@@ -1811,20 +1815,41 @@ const ToolCallCard = memo(function ToolCallCard({ agentId, tool, grouped }: { ag
     )
   }
 
+  // An MCP server's tool: the server as the badge, with a plug to mark it
+  // as MCP, then the tool in words. The raw name is in the tooltip and the
+  // expanded view.
+  const mcp = mcpToolName(name)
+
   // Default: compact tool card
   return (
     <div>
       <button
         className={headerClass}
+        title={mcp ? name : undefined}
         onClick={() => setExpanded(!expanded)}
       >
-        <span className="rounded bg-[var(--theme-selection,var(--color-zinc-600))] px-1.5 py-0.5 font-mono text-xs text-[var(--theme-text,white)]">{name}</span>
-        <span className="text-xs text-zinc-300 truncate">{summary}</span>
+        {mcp ? (
+          <>
+            <span data-mcp="" className="inline-flex shrink-0 items-center gap-1 rounded bg-[var(--theme-selection,color-mix(in_oklab,var(--color-cyan-800)_55%,transparent))] px-1.5 py-0.5 text-xs text-[var(--theme-text,white)]">
+              <Plug size={11} aria-label="MCP" className="shrink-0" />
+              {mcp.serverLabel}
+            </span>
+            <span className="shrink-0 text-xs font-medium text-zinc-200">{mcp.toolLabel}</span>
+          </>
+        ) : (
+          <span className="rounded bg-[var(--theme-selection,var(--color-zinc-600))] px-1.5 py-0.5 font-mono text-xs text-[var(--theme-text,white)]">{name}</span>
+        )}
+        <span className={`text-xs truncate ${mcp ? "text-zinc-400" : "text-zinc-300"}`}>{summary}</span>
         {durationMs !== undefined && <span className="text-xs text-zinc-600">{durationMs}ms</span>}
         <span className="ml-auto text-xs text-zinc-500">{expanded ? "▼" : "▶"}</span>
       </button>
       {expanded && (
         <div className="border-t border-zinc-800 px-3 py-2">
+          {mcp && (
+            <div className="mb-1 text-xs text-zinc-500">
+              MCP tool <span className="font-mono text-zinc-400 break-all">{name}</span>
+            </div>
+          )}
           {Object.keys(args).length > 0 && (
             <>
               <div className="text-xs text-zinc-500 mb-1">Args</div>
