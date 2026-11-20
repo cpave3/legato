@@ -19,6 +19,7 @@ import (
 	"github.com/cpave3/legato/internal/engine/store"
 	"github.com/cpave3/legato/internal/engine/swarm"
 	"github.com/cpave3/legato/internal/service"
+	"github.com/cpave3/legato/internal/tui/attention"
 	"github.com/cpave3/legato/internal/tui/agents"
 	"github.com/cpave3/legato/internal/tui/board"
 	"github.com/cpave3/legato/internal/tui/detail"
@@ -2421,5 +2422,15 @@ func TestBoardStripShowsNeedsYouForAnAgentWithOpenItems(t *testing.T) {
 	card := model.(App).board.SelectedCard()
 	if card == nil || card.Key != "REX-1" || card.AgentState != "waiting" {
 		t.Fatalf("card = %#v, want its agent waiting", card)
+	}
+}
+
+// Enter on an agent's item in the Attention list shows that agent.
+func TestAnAttentionItemOpensItsAgent(t *testing.T) {
+	app := newTestApp()
+	app.agentSvc = &fakeAgentService{agents: []service.AgentSession{{TaskID: "REX-1", Status: "running"}}}
+	model, cmd := app.Update(attention.OpenAgentMsg{TaskID: "REX-1"})
+	if model.(App).active != viewAgents || cmd == nil {
+		t.Fatalf("view = %v, cmd = %v; want the agents view", model.(App).active, cmd)
 	}
 }

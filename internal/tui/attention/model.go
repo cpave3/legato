@@ -27,6 +27,16 @@ type actionMsg struct {
 
 // openedMsg says whether an item's page outside Legato opened.
 type openedMsg struct{ err error }
+
+// copiedMsg says whether an item's command reached the clipboard.
+type copiedMsg struct {
+	text string
+	err  error
+}
+
+// OpenAgentMsg asks the app to show the agent of TaskID: Enter on an item an
+// agent posted for the operator.
+type OpenAgentMsg struct{ TaskID string }
 type ChangedMsg struct{}
 type ReturnToBoardMsg struct{}
 
@@ -39,9 +49,13 @@ type Model struct {
 	width, height int
 	// openURL opens an integration's page (a case in Argus) in the browser.
 	openURL func(string) error
+	// copy puts a copy action's text on the clipboard.
+	copy func(string) error
 }
 
-func New(svc Service) Model { return Model{svc: svc, openURL: clipboard.OpenURL} }
+func New(svc Service) Model {
+	return Model{svc: svc, openURL: clipboard.OpenURL, copy: clipboard.New().Copy}
+}
 
 func (m *Model) SetSize(w, h int) {
 	m.width = w
@@ -83,6 +97,11 @@ func (m Model) Update(msg tea.Msg) (Model, tea.Cmd) {
 		if x.err == nil {
 			m.info = "Opened in the browser"
 		}
+	case copiedMsg:
+		m.err = x.err
+		if x.err == nil {
+			m.info = "Copied " + x.text
+		}
 	case ChangedMsg:
 		return m, m.loadQueue()
 	case tea.KeyMsg:
@@ -119,6 +138,11 @@ func (m Model) HandleAction(action hotkey.ActionID) (Model, tea.Cmd) {
 				m.err, m.info = nil, "Return, recall and take back from the web UI"
 				return m, nil
 			}
+			// An agent's item opens the agent: what it asks is answered there.
+			if item.Navigation.Kind == "agent" {
+				taskID := item.Navigation.Target
+				return m, func() tea.Msg { return OpenAgentMsg{TaskID: taskID} }
+			}
 			for _, action := range item.Actions {
 				if action.Kind == "execute" {
 					return m, m.executeAction(item, action)
@@ -139,6 +163,12 @@ func (m Model) HandleAction(action hotkey.ActionID) (Model, tea.Cmd) {
 				m.err, m.info = nil, "Return, recall and take back from the web UI"
 				return m, nil
 			}
+			// An agent's item: x is Done.
+			for _, action := range item.Actions {
+				if item.Producer == service.OperatorItemsAttentionProducer && action.ID == "done" {
+					return m, m.executeAction(item, action)
+				}
+			}
 			seen := 0
 			for _, action := range item.Actions {
 				if action.Kind != "execute" {
@@ -149,6 +179,16 @@ func (m Model) HandleAction(action hotkey.ActionID) (Model, tea.Cmd) {
 				}
 			}
 			m.err, m.info = nil, "This item has no other action"
+		}
+	case hotkey.ActionAttentionCopy:
+		if len(m.items) > 0 {
+			for _, action := range m.items[m.cursor].Actions {
+				if action.Kind == "copy" && m.copy != nil {
+					text, copy := action.Text, m.copy
+					return m, func() tea.Msg { return copiedMsg{text: text, err: copy(text)} }
+				}
+			}
+			m.err, m.info = nil, "This item has nothing to copy"
 		}
 	case hotkey.ActionAttentionDismiss:
 		if len(m.items) > 0 {

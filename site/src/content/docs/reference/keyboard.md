@@ -211,7 +211,8 @@ In the TUI, press `?` to see these keys. The help shows only the keys that work 
 | `k/up` | Select previous item |
 | `enter` | Execute primary action |
 | `d` | Dismiss attention item |
-| `x` | Execute the item's other action (End a stuck review loop) |
+| `x` | Execute the item's other action (End a stuck review loop, Done on an agent's item) |
+| `c` | Copy the item's command |
 
 ## Spawn dialog
 

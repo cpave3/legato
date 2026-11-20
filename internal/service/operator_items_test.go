@@ -217,3 +217,172 @@ func TestAnAgentInErrorStaysInErrorWithAnOpenItem(t *testing.T) {
 		t.Fatalf("card state = %q, want error", got.State)
 	}
 }
+
+// operatorMessages records what the operator items handler sends agents.
+type operatorMessages struct {
+	sent []string
+}
+
+func (m *operatorMessages) QueueMessage(ctx context.Context, taskID, message string) error {
+	m.sent = append(m.sent, AgentSlotFrom(ctx)+"|"+taskID+"|"+message)
+	return nil
+}
+
+// operatorActionFixture is a running agent with an Attention service whose
+// operator items producer can act.
+func operatorActionFixture(t *testing.T) (restartFixture, *AttentionService, *operatorMessages) {
+	t.Helper()
+	f := newRestartFixture(t)
+	createTask(t, f.store, "task-a")
+	if err := f.svc.SpawnAgent(context.Background(), "task-a", 0, 0, AgentSpawnOptions{AgentKind: "claude-code", WorkingDir: t.TempDir()}); err != nil {
+		t.Fatal(err)
+	}
+	messages := &operatorMessages{}
+	attention := NewAttentionService(f.store, nil)
+	adapter := NewOperatorItemsAttentionAdapter(f.store)
+	adapter.SetMessenger(messages)
+	if err := attention.RegisterProducer(adapter); err != nil {
+		t.Fatal(err)
+	}
+	if err := attention.RegisterHandler(adapter.Producer(), adapter); err != nil {
+		t.Fatal(err)
+	}
+	return f, attention, messages
+}
+
+func postInput(t *testing.T, s *store.Store, in OperatorItemInput) store.OperatorItem {
+	t.Helper()
+	session, err := s.GetRunningAgentSession(context.Background(), in.TaskID, "")
+	if err != nil {
+		t.Fatal(err)
+	}
+	in.ExecutionID = session.ExecutionID
+	item, err := PostOperatorItem(context.Background(), s, in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	return item
+}
+
+func attentionFor(t *testing.T, attention *AttentionService, sourceKey string) AttentionItem {
+	t.Helper()
+	ctx := context.Background()
+	if err := attention.Reconcile(ctx, OperatorItemsAttentionProducer); err != nil {
+		t.Fatal(err)
+	}
+	items, err := attention.List(ctx, AttentionFilter{Producer: OperatorItemsAttentionProducer})
+	if err != nil {
+		t.Fatal(err)
+	}
+	for _, item := range items {
+		if item.SourceKey == sourceKey {
+			return item
+		}
+	}
+	t.Fatalf("no attention item for %s in %#v", sourceKey, items)
+	return AttentionItem{}
+}
+
+func actionIDs(item AttentionItem) map[string]AttentionAction {
+	out := map[string]AttentionAction{}
+	for _, action := range item.Actions {
+		out[action.ID] = action
+	}
+	return out
+}
+
+func TestAnOperatorItemCarriesTheActionsOfItsKindAndHow(t *testing.T) {
+	f, attention, _ := operatorActionFixture(t)
+
+	command := postInput(t, f.store, OperatorItemInput{TaskID: "task-a", Kind: OperatorItemAction, Title: "Restart Legato", How: &OperatorHow{Kind: OperatorHowCommand, Text: "systemctl --user restart legato"}})
+	slash := postInput(t, f.store, OperatorItemInput{TaskID: "task-a", Kind: OperatorItemAction, Title: "Make the tickets", How: &OperatorHow{Kind: OperatorHowSlash, Text: "/to-tickets"}})
+	link := postInput(t, f.store, OperatorItemInput{TaskID: "task-a", Kind: OperatorItemDone, Title: "Look at the PR", How: &OperatorHow{Kind: OperatorHowLink, Text: "https://github.com/cpave3/legato/pull/9"}})
+	question := postInput(t, f.store, OperatorItemInput{TaskID: "task-a", Kind: OperatorItemQuestion, Title: "Which database?", Options: []string{"Postgres", "SQLite"}})
+
+	for _, c := range []struct {
+		item store.OperatorItem
+		copy string
+	}{{command, "systemctl --user restart legato"}, {slash, "/to-tickets"}} {
+		actions := actionIDs(attentionFor(t, attention, c.item.ID))
+		if got := actions["copy"]; got.Kind != "copy" || got.Text != c.copy {
+			t.Fatalf("%s copy action = %#v", c.item.Title, got)
+		}
+		if actions["open"].Intent != "primary" || actions["done"].Kind != "execute" {
+			t.Fatalf("%s actions = %#v", c.item.Title, actions)
+		}
+	}
+	if got := actionIDs(attentionFor(t, attention, link.ID))["open_link"]; got.Kind != "navigate" || got.Href != "https://github.com/cpave3/legato/pull/9" {
+		t.Fatalf("link action = %#v", got)
+	}
+	actions := actionIDs(attentionFor(t, attention, question.ID))
+	if actions["option_1"].Label != "Postgres" || actions["option_2"].Label != "SQLite" || actions["option_1"].Kind != "execute" {
+		t.Fatalf("question options = %#v", actions)
+	}
+	if reply := actions["reply"]; reply.Kind != "execute" || !reply.RequiresText {
+		t.Fatalf("reply = %#v", reply)
+	}
+	if _, ok := actions["copy"]; ok {
+		t.Fatal("an item with no how has a copy action")
+	}
+}
+
+func TestDoneClosesTheItemAndTellsTheAgent(t *testing.T) {
+	f, attention, messages := operatorActionFixture(t)
+	item := postInput(t, f.store, OperatorItemInput{TaskID: "task-a", Kind: OperatorItemAction, Title: "Merge the PR"})
+	other := postInput(t, f.store, OperatorItemInput{TaskID: "task-a", Kind: OperatorItemOther, Title: "Heads up"})
+	listed := attentionFor(t, attention, item.ID)
+
+	if err := attention.Execute(context.Background(), listed.ID, AttentionActionRequest{ActionID: "done", ExpectedRevision: listed.SourceRevision}); err != nil {
+		t.Fatal(err)
+	}
+	if len(messages.sent) != 1 || messages.sent[0] != "main|task-a|[legato operator] Done: Merge the PR" {
+		t.Fatalf("sent = %q", messages.sent)
+	}
+	if got := itemState(t, f.store, item.ID); got.Status != store.OperatorItemClosed || got.CloseReason != store.OperatorItemDone {
+		t.Fatalf("item = %#v", got)
+	}
+	// Done is not the operator's turn: the agent's other items stay.
+	if got := itemState(t, f.store, other.ID); got.Status != store.OperatorItemOpen {
+		t.Fatalf("other item = %#v", got)
+	}
+}
+
+func TestAnAnswerIsSentUntaggedAndClosesTheAgentsItems(t *testing.T) {
+	for name, request := range map[string]AttentionActionRequest{
+		"an option": {ActionID: "option_2"},
+		"a reply":   {ActionID: "reply", Text: "SQLite"},
+	} {
+		t.Run(name, func(t *testing.T) {
+			f, attention, messages := operatorActionFixture(t)
+			question := postInput(t, f.store, OperatorItemInput{TaskID: "task-a", Kind: OperatorItemQuestion, Title: "Which database?", Options: []string{"Postgres", "SQLite"}})
+			other := postInput(t, f.store, OperatorItemInput{TaskID: "task-a", Kind: OperatorItemAction, Title: "Merge the PR"})
+			listed := attentionFor(t, attention, question.ID)
+			request.ExpectedRevision = listed.SourceRevision
+
+			if err := attention.Execute(context.Background(), listed.ID, request); err != nil {
+				t.Fatal(err)
+			}
+			if len(messages.sent) != 1 || messages.sent[0] != "main|task-a|> Which database?\n\nSQLite" {
+				t.Fatalf("sent = %q", messages.sent)
+			}
+			if got := itemState(t, f.store, question.ID); got.Status != store.OperatorItemClosed || got.CloseReason != store.OperatorItemAnswered {
+				t.Fatalf("question = %#v", got)
+			}
+			if got := itemState(t, f.store, other.ID); got.Status != store.OperatorItemClosed || got.CloseReason != store.OperatorItemOperatorTurn {
+				t.Fatalf("other item = %#v", got)
+			}
+		})
+	}
+}
+
+func TestAnEmptyReplyIsRefused(t *testing.T) {
+	f, attention, messages := operatorActionFixture(t)
+	question := postInput(t, f.store, OperatorItemInput{TaskID: "task-a", Kind: OperatorItemQuestion, Title: "Which database?"})
+	listed := attentionFor(t, attention, question.ID)
+	if err := attention.Execute(context.Background(), listed.ID, AttentionActionRequest{ActionID: "reply", Text: "  ", ExpectedRevision: listed.SourceRevision}); err == nil {
+		t.Fatal("an empty reply was sent")
+	}
+	if len(messages.sent) != 0 || itemState(t, f.store, question.ID).Status != store.OperatorItemOpen {
+		t.Fatalf("sent %q", messages.sent)
+	}
+}

@@ -142,6 +142,10 @@ With a `manticore:` block in the config, the agents view shows how many tokens w
 - The app reads it at start and every minute (`app_usage.go`). A read that fails leaves the last number in place.
 - The numbers are those of the whole instance: every Client it records, not only this Legato. Input counts the whole of each prompt, the part read from a cache included.
 
+## The Attention list
+
+`I` opens the shared Attention list (`internal/tui/attention`). Beside its generic keys (see [Attention](attention.md) § Other clients), an item an agent posted for the operator (producer `operator_items`, navigation `agent`) acts as its own: Enter sends `attention.OpenAgentMsg`, which the app answers with the agents view on that agent (`App.openAgentView`); `x` runs its `done` action; `c` (`ActionAttentionCopy`) puts any item's `copy` action's text on the clipboard through `clipboard.Clipboard.Copy`, and says "Copied …".
+
 ## Checking the look
 
 Tests assert text and sizes, not colors: lipgloss adds no escape sequences without a terminal. A view test should check that the view is exactly the size it was given (every line as wide as the width), which is what keeps panels side by side.

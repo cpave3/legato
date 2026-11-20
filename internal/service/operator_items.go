@@ -192,7 +192,20 @@ func newOperatorItemID() string {
 // OperatorItemsAttentionAdapter shows the open operator items in Attention,
 // one item each, on the task that posted it.
 type OperatorItemsAttentionAdapter struct {
-	db *store.Store
+	db       *store.Store
+	messages OperatorItemMessenger
+}
+
+// OperatorItemMessenger sends an agent the operator's answer or Done: the
+// agent service, through its queued message path.
+type OperatorItemMessenger interface {
+	QueueMessage(ctx context.Context, taskID, message string) error
+}
+
+// SetMessenger lets the adapter act on items (Done, an option, a reply).
+// Without one it has no actions but Open and Copy.
+func (a *OperatorItemsAttentionAdapter) SetMessenger(messages OperatorItemMessenger) {
+	a.messages = messages
 }
 
 func NewOperatorItemsAttentionAdapter(db *store.Store) *OperatorItemsAttentionAdapter {
@@ -208,12 +221,81 @@ func (a *OperatorItemsAttentionAdapter) Snapshot(ctx context.Context) ([]Attenti
 	}
 	out := make([]AttentionInput, 0, len(items))
 	for _, item := range items {
-		out = append(out, operatorAttentionInput(item))
+		out = append(out, operatorAttentionInput(item, a.messages != nil))
 	}
 	return out, nil
 }
 
-func operatorAttentionInput(item store.OperatorItem) AttentionInput {
+// operatorDoneMessage is what the agent is told when the operator presses
+// Done.
+func operatorDoneMessage(title string) string {
+	return "[legato operator] Done: " + title
+}
+
+// operatorAnswer is the operator's answer to a question item, as the agent
+// gets it: their own words, untagged, after the question quoted.
+func operatorAnswer(title, answer string) string {
+	return "> " + title + "\n\n" + answer
+}
+
+// Execute runs Done, an option or a reply on an item.
+func (a *OperatorItemsAttentionAdapter) Execute(ctx context.Context, request AttentionActionRequest) error {
+	if a.messages == nil {
+		return fmt.Errorf("this Legato cannot message agents")
+	}
+	item, err := a.db.GetOperatorItem(ctx, request.SourceKey)
+	if err != nil {
+		return err
+	}
+	if item.Status != store.OperatorItemOpen {
+		return ErrAttentionConflict
+	}
+	session, err := a.db.GetRunningAgentSession(ctx, item.TaskID, item.ExecutionID)
+	if err != nil || session.ExecutionID != item.ExecutionID {
+		return fmt.Errorf("the agent that posted this has ended")
+	}
+	ctx = WithAgentSlot(ctx, session.Slot)
+	var answer string
+	switch {
+	case request.ActionID == "done":
+		if err := a.messages.QueueMessage(ctx, item.TaskID, operatorDoneMessage(item.Title)); err != nil {
+			return err
+		}
+		if err := a.db.CloseOperatorItem(ctx, item.ID, item.ExecutionID, store.OperatorItemDone); err != nil {
+			return err
+		}
+		NotifyOperatorItemsChanged(item.TaskID)
+		return nil
+	case request.ActionID == "reply":
+		answer = strings.TrimSpace(request.Text)
+	case strings.HasPrefix(request.ActionID, "option_"):
+		options := item.Options()
+		n, err := strconv.Atoi(strings.TrimPrefix(request.ActionID, "option_"))
+		if err != nil || n < 1 || n > len(options) {
+			return fmt.Errorf("unknown action %q", request.ActionID)
+		}
+		answer = options[n-1]
+	default:
+		return fmt.Errorf("unknown action %q", request.ActionID)
+	}
+	if answer == "" {
+		return fmt.Errorf("the answer is empty")
+	}
+	if err := a.messages.QueueMessage(ctx, item.TaskID, operatorAnswer(item.Title, answer)); err != nil {
+		return err
+	}
+	if err := a.db.CloseOperatorItem(ctx, item.ID, item.ExecutionID, store.OperatorItemAnswered); err != nil {
+		return err
+	}
+	// An answer is the operator's turn: the agent's other items close too.
+	if _, err := a.db.CloseExecutionOperatorItems(ctx, item.ExecutionID, store.OperatorItemOperatorTurn); err != nil {
+		return err
+	}
+	NotifyOperatorItemsChanged(item.TaskID)
+	return nil
+}
+
+func operatorAttentionInput(item store.OperatorItem, acts bool) AttentionInput {
 	reason := item.Why
 	if reason == "" {
 		reason = operatorItemReason(item.Kind)
@@ -249,8 +331,30 @@ func operatorAttentionInput(item store.OperatorItem) AttentionInput {
 		Category:       "agent",
 		Urgency:        "normal",
 		Navigation:     AttentionNavigation{Kind: "agent", Target: item.TaskID},
-		Actions:        []AttentionAction{{ID: "open", Label: "Open agent", Kind: "navigate", Intent: "primary"}},
+		Actions:        operatorItemActions(item, acts),
 	}
+}
+
+// operatorItemActions are Open, then Copy or Open link for a how, then the
+// options and a reply for a question, and Done.
+func operatorItemActions(item store.OperatorItem, acts bool) []AttentionAction {
+	actions := []AttentionAction{{ID: "open", Label: "Open agent", Kind: "navigate", Intent: "primary"}}
+	switch item.HowKind {
+	case OperatorHowCommand, OperatorHowSlash:
+		actions = append(actions, AttentionAction{ID: "copy", Label: "Copy", Kind: "copy", Text: item.HowText})
+	case OperatorHowLink:
+		actions = append(actions, AttentionAction{ID: "open_link", Label: "Open", Kind: "navigate", Href: item.HowText})
+	}
+	if !acts {
+		return actions
+	}
+	if item.Kind == OperatorItemQuestion {
+		for i, option := range item.Options() {
+			actions = append(actions, AttentionAction{ID: fmt.Sprintf("option_%d", i+1), Label: option, Kind: "execute"})
+		}
+		actions = append(actions, AttentionAction{ID: "reply", Label: "Reply", Kind: "execute", RequiresText: true})
+	}
+	return append(actions, AttentionAction{ID: "done", Label: "Done", Kind: "execute"})
 }
 
 func operatorItemReason(kind string) string {

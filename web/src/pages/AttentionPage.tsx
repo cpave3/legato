@@ -1,5 +1,5 @@
 import { Link } from "react-router-dom"
-import { AlertTriangle, Bell, CheckCircle, ChevronRight, ExternalLink, GitPullRequest, ScanEye, type LucideIcon } from "lucide-react"
+import { AlertTriangle, Bell, Check, CheckCircle, ChevronRight, ExternalLink, GitPullRequest, ScanEye, type LucideIcon } from "lucide-react"
 import { useState } from "react"
 import { useAttention } from "../hooks/useAttention"
 import { useServer } from "../hooks/useServer"
@@ -120,8 +120,61 @@ function sortedItems(items: AttentionItem[]): AttentionItem[] {
 type AttentionCardProps = {
   item: AttentionItem
   pending: boolean
-  onAction: (item: AttentionItem, actionId: string, confirmed: boolean) => void
+  onAction: (item: AttentionItem, actionId: string, confirmed: boolean, text?: string) => void
   onDismiss: (item: AttentionItem) => void
+}
+
+// CopyButton puts a copy action's text on the clipboard; it calls nothing.
+function CopyButton({ action }: { action: AttentionAction }) {
+  const [copied, setCopied] = useState(false)
+  return (
+    <button
+      type="button"
+      onClick={() => {
+        void navigator.clipboard?.writeText(action.text ?? "").then(() => setCopied(true), () => setCopied(false))
+      }}
+      title={action.text}
+      className="flex min-h-11 items-center rounded-lg border border-zinc-700 px-3 text-sm text-zinc-200 hover:bg-zinc-800"
+    >
+      {action.label}{copied && <Check size={14} className="ml-1.5" aria-hidden="true" />}
+    </button>
+  )
+}
+
+// ReplyBox is an action that needs the operator's words: a line of text
+// and the action's button, which sends it.
+function ReplyBox({ action, pending, onSend }: { action: AttentionAction; pending: boolean; onSend: (text: string) => void }) {
+  const [text, setText] = useState("")
+  const send = () => {
+    if (!text.trim()) return
+    onSend(text.trim())
+    setText("")
+  }
+  return (
+    <form
+      className="flex w-full items-center gap-2 sm:w-auto"
+      onSubmit={(event) => {
+        event.preventDefault()
+        send()
+      }}
+    >
+      <input
+        aria-label={action.label}
+        value={text}
+        onChange={(event) => setText(event.target.value)}
+        disabled={pending}
+        placeholder="Your answer"
+        className="min-h-11 min-w-0 flex-1 rounded-lg border border-zinc-700 bg-zinc-950 px-3 text-sm text-zinc-100 sm:w-56"
+      />
+      <button
+        type="submit"
+        disabled={pending || !text.trim()}
+        className="min-h-11 rounded-lg bg-indigo-500 px-3 text-sm font-medium text-[var(--theme-canvas,#fff)] hover:bg-indigo-400 disabled:opacity-50"
+      >
+        {action.label}
+      </button>
+    </form>
+  )
 }
 
 function AttentionCard({ item, pending, onAction, onDismiss }: AttentionCardProps) {
@@ -143,7 +196,13 @@ function AttentionCard({ item, pending, onAction, onDismiss }: AttentionCardProp
           {item.detail && <AttentionDetail detail={item.detail} />}
         </div>
         <div className="flex shrink-0 flex-wrap items-center gap-2 sm:justify-end">
-          {(item.actions ?? []).filter((action) => action.kind === "execute").map((action) => (
+          {(item.actions ?? []).filter((action) => action.kind === "copy").map((action) => (
+            <CopyButton key={action.id} action={action} />
+          ))}
+          {(item.actions ?? []).filter((action) => action.kind === "execute" && action.requires_text).map((action) => (
+            <ReplyBox key={action.id} action={action} pending={pending} onSend={(text) => onAction(item, action.id, action.requires_confirmation ?? false, text)} />
+          ))}
+          {(item.actions ?? []).filter((action) => action.kind === "execute" && !action.requires_text).map((action) => (
             <button
               key={action.id}
               type="button"
@@ -212,11 +271,11 @@ export function AttentionPage() {
   const [actionError, setActionError] = useState<string | null>(null)
   const [pending, setPending] = useState<string | null>(null)
 
-  async function handleAction(item: AttentionItem, actionId: string, confirmed: boolean) {
+  async function handleAction(item: AttentionItem, actionId: string, confirmed: boolean, text?: string) {
     setPending(item.id)
     setActionError(null)
     try {
-      await executeAttentionAction(baseUrl, item.id, actionId, item.source_revision, { confirmed })
+      await executeAttentionAction(baseUrl, item.id, actionId, item.source_revision, text === undefined ? { confirmed } : { confirmed, text })
       await refresh()
     } catch (cause) {
       setActionError(cause instanceof Error ? cause.message : String(cause))

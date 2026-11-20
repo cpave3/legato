@@ -31,6 +31,9 @@ type AttentionAction struct {
 	// navigation: an http(s) address outside Legato (a task on a worker),
 	// or a path of the web UI.
 	Href string `json:"href,omitempty"`
+	// Text is what a copy action puts on the clipboard. A client copies it
+	// and calls nothing.
+	Text string `json:"text,omitempty"`
 }
 
 const (

@@ -39,6 +39,8 @@ Some things never raise Attention: a draft, closed or merged pull request; CI th
 
 An agent often finishes its turn while it still needs you: to type a slash command, test a build in a browser, merge a pull request, answer a question it asked in plain words, or look at what it built. An idle agent raises nothing by itself, so agents are given a tool, `for_operator`, to say so. Each such item names its kind (Action, Question, Done or Other), what is needed, and what it blocks. **Open agent** takes you to the agent.
 
+You can act on an item without opening the agent. **Copy** copies the command or slash command it gives, and **Open** opens a link. **Done** closes the item and tells the agent you did it. A question has a button for each answer it offers and a box for your own; your answer reaches the agent as your message, so it closes the agent's other items too.
+
 An agent that posts the same title again updates its item, which comes back if you had dismissed it. Items raise no notification. An agent's items go away:
 
 - when you next type to that agent, in its terminal or from Legato (a slash command and a macro count; messages from other agents, the Reeve and Legato itself do not). A Chimera agent's items close only on a message sent through Legato, since Chimera does not say what was typed in its own terminal.
@@ -56,7 +58,7 @@ You can also dismiss an item. Dismissing hides that item as it is now. If its so
 ### Where you see it
 
 - **Web UI**: the **Attention** page, in three sections: **Needs intervention**, **Ready for review** and **Merge blockers**. Its count shows on **Attention** in the navigation.
-- **TUI**: press `I` on the board. `j` and `k` select an item, `enter` runs its main action, and `d` dismisses it. The TUI lists the items of away tasks and workers but does not run their actions: return, recall and take back from the web UI.
+- **TUI**: press `I` on the board. `j` and `k` select an item, `enter` runs its main action, and `d` dismisses it. On an item an agent posted for you, `enter` opens the agent and `x` marks it done; `c` copies an item's command. The TUI lists the items of away tasks and workers but does not run their actions: return, recall and take back from the web UI.
 - **Command line**:
 
   ```bash
