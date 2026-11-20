@@ -19,6 +19,7 @@ const (
 	BranchSourceAPI         = "api"          // added through AddTaskBranches (handoff)
 	BranchSourceManual      = "manual"       // the head branch of a PR linked by number
 	BranchSourceDiscovered  = "discovered"   // found by commit or ticket key in the repository's PRs
+	BranchSourceReview      = "review"       // the stack of open PRs a review loop found on GitHub (a worker's card)
 )
 
 // PRBranchActions tracks several branches per task, each with its PR, in

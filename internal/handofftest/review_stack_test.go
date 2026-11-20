@@ -87,3 +87,29 @@ func TestALayerTheCloneLacksIsFetchedForReviewNotAMismatch(t *testing.T) {
 		t.Fatalf("fetched %v", fetched)
 	}
 }
+
+func TestAStackTheLoopFoundIsWhatTheWorkerReportsAndTheMainTracks(t *testing.T) {
+	gh := NewFakeGitHub(t)
+	r := newReviewedWith(t, ReviewPassOptions{}, gh)
+	r.worker.ReviewGitHub.ClosePR(7)
+	branches := r.stacked(t)
+	var prs []FakePR
+	base := "main"
+	for i, b := range branches {
+		prs = append(prs, FakePR{Number: 137 + i, Head: b, Base: base})
+		base = b
+	}
+	gh.Set("acme/widget", prs...)
+	r.main.StartConnections()
+
+	r.finish(t)
+
+	var want []string
+	for i, b := range branches {
+		want = append(want, fmt.Sprintf("%s (api) #%d", b, 137+i))
+	}
+	eventuallyTracked(t, r.main, r.taskID, want)
+	if got := r.away(t).Branches; strings.Join(got, ",") != strings.Join(branches, ",") {
+		t.Fatalf("the worker reports %v", got)
+	}
+}

@@ -58,6 +58,7 @@ Branches come from (`store.TaskBranch.Source`):
 - `api`: `AddTaskBranches` (below), for handoff: the branches a worker reports for an away task (§ Away tasks), and those Return brings back.
 - `manual`: the head branch of a PR linked by number (`LinkPR`, pinned).
 - `discovered`: found by commit or ticket key when no branch had a PR. Rediscovery drops them.
+- `review`: on a worker's card, the stack of open PRs its review loop found on GitHub's base→head chain (`HandoffReviewCaller`); the summary row reports them first, so the main tracks every layer (§ Away tasks).
 
 `store.TrackTaskBranches` merges a list into the task's: branches already tracked keep their PRs and source, and the given ones are placed together, in the given order, where the first of them already was (appended when none was). So a stack that grows or is reordered stays whole and in order, and a code-context branch that is not in the stack stays before it.
 
@@ -83,7 +84,7 @@ Tasks without repository context remain fully usable. GitHub discovery skips the
 
 ### Away tasks
 
-A main tracks the PRs of a task away on a worker itself, with its own read token, as for any task; the worker does no PR tracking for handoff (decision LEG-13). Each summary row the worker sends lists the branches pushed for the task, in stack order (Staccato's stack in the job clone, or the handoff branch; see [Integrations](integrations.md) § Live away state). `WorkerConnections.applyRow` hands them to `awayPRs.track` (`internal/service/away_prs.go`) before it keeps the row:
+A main tracks the PRs of a task away on a worker itself, with its own read token, as for any task; the worker does no PR tracking for handoff (decision LEG-13). Each summary row the worker sends lists the branches pushed for the task, in stack order (the stack its review loop found on GitHub, then Staccato's stack in the job clone, or the handoff branch; see [Integrations](integrations.md) § Live away state). `WorkerConnections.applyRow` hands them to `awayPRs.track` (`internal/service/away_prs.go`) before it keeps the row:
 
 - The branches are added to the task's tracked branches in the row's order with the away task's repository, source `api` (`PRBranchActions.AddTaskBranches`). No separate `away` source: an away task's branches and those Return adds are the same branches, and `api` survives rediscovery and code-context changes.
 - When any branch is new, `DiscoverPRs` runs for the task at once, not at the next poll. It runs in its own goroutine, never on the connection's read loop, so a slow GitHub does not hold up the worker's rows. One discovery runs per task at a time: a branch that arrives while one runs makes it run once more when it ends (`inFlight`/`again`), not a second one beside it. A discovery under way finishes after its connection drops; stopping the connections waits for it.

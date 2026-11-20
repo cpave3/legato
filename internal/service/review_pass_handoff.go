@@ -116,6 +116,17 @@ func (c *HandoffReviewCaller) stack(ctx context.Context, l ReviewLoop) (string, 
 		seeds = append(seeds, h.Branch)
 	}
 	stack, err := FindReviewStack(ctx, c.ReviewPassService.opts.GitHub, l.Repo, seeds, branches)
+	if err == nil && len(stack.PRs) > 0 {
+		// The card tracks the stack, so its summary row reports every
+		// branch and the main finds every PR (pushedBranches).
+		refs := make([]store.BranchRef, 0, len(stack.PRs))
+		for _, pr := range stack.PRs {
+			refs = append(refs, store.BranchRef{Repo: l.Repo, Branch: pr.Branch})
+		}
+		if _, err := c.db.TrackTaskBranches(ctx, l.TaskID, refs, BranchSourceReview); err != nil {
+			log.Printf("review passes: recording the stack of %s: %v", l.TaskID, err)
+		}
+	}
 	return dir, stack, err
 }
 
