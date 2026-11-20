@@ -555,8 +555,10 @@ func samePR(a, b *store.PRMeta) bool {
 	if a == nil || b == nil {
 		return a == nil && b == nil
 	}
+	// Head counts: a push alone changes a PR's cached head, which the
+	// review prompt's revision follows.
 	return !prMetaChanged(a, b) && a.Pinned == b.Pinned && a.MatchMethod == b.MatchMethod &&
-		a.SyncOutcome == b.SyncOutcome && a.SyncError == b.SyncError
+		a.SyncOutcome == b.SyncOutcome && a.SyncError == b.SyncError && a.Head == b.Head
 }
 
 func holdsPR(rows []store.TaskBranch, number int) bool {

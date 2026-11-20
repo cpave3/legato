@@ -94,6 +94,10 @@ func (a *ReviewPromptAttentionAdapter) available(reviews *ReviewPassService) str
 	if a.launcher == nil || !a.launcher.Has(ReviewPassesWorkflow) {
 		return "Add the review-pr-passes workflow (legato workflow add review-pr-passes) to review them here."
 	}
+	if !a.launcher.HasInput(ReviewPassesWorkflow, "scope") {
+		// A copy added before stacks: it would refuse the scope.
+		return "The review-pr-passes workflow here predates stack reviews: replace it with legato workflow add review-pr-passes --force to review them here."
+	}
 	return ""
 }
 

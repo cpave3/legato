@@ -22,6 +22,36 @@ type prompted struct {
 
 func newPrompted(t *testing.T, reviewsOn bool) prompted {
 	t.Helper()
+	example, _ := workflowengine.ExampleNamed("review-pr-passes")
+	return newPromptedWith(t, reviewsOn, example.YAML)
+}
+
+// beforeStacks is the review-pr-passes workflow as it was added before
+// stacks: no scope input.
+func beforeStacks(t *testing.T) []byte {
+	t.Helper()
+	example, _ := workflowengine.ExampleNamed("review-pr-passes")
+	var kept []string
+	lines := strings.Split(string(example.YAML), "\n")
+	for i := 0; i < len(lines); i++ {
+		if strings.TrimSpace(lines[i]) == "scope:" {
+			i += 3 // its type, default and description
+			continue
+		}
+		if strings.Contains(lines[i], "scope: ${{") {
+			continue
+		}
+		kept = append(kept, lines[i])
+	}
+	out := strings.Join(kept, "\n")
+	if strings.Contains(out, "scope") && strings.Contains(out, "inputs.scope") {
+		t.Fatal("the scope input is still there")
+	}
+	return []byte(out)
+}
+
+func newPromptedWith(t *testing.T, reviewsOn bool, workflowYAML []byte) prompted {
+	t.Helper()
 	ctx := context.Background()
 	r := newReviewRun(t, ReviewPassOptions{})
 	r.worker.ReviewGitHub.OpenStackedPR(31, "local/one", "main", "sha31")
@@ -40,8 +70,7 @@ func newPrompted(t *testing.T, reviewsOn bool) prompted {
 		t.Fatal(err)
 	}
 	dir := t.TempDir()
-	example, _ := workflowengine.ExampleNamed("review-pr-passes")
-	if err := os.WriteFile(filepath.Join(dir, "review-pr-passes.workflow.yaml"), example.YAML, 0o600); err != nil {
+	if err := os.WriteFile(filepath.Join(dir, "review-pr-passes.workflow.yaml"), workflowYAML, 0o600); err != nil {
 		t.Fatal(err)
 	}
 	launcher := service.NewTaskWorkflowLauncher(db, r.runs.Workflows, func() workflowengine.DiscoveryResult { return workflowengine.DiscoverPaths(dir) })
@@ -160,5 +189,20 @@ func TestAnAwayCardRaisesNothing(t *testing.T) {
 	items, err := service.NewReviewPromptAttentionAdapter(db, nil).Snapshot(ctx)
 	if err != nil || len(items) != 0 {
 		t.Fatalf("an away card raised %+v, %v", items, err)
+	}
+}
+
+func TestAWorkflowAddedBeforeStacksIsNotOfferedButNamed(t *testing.T) {
+	p := newPromptedWith(t, true, beforeStacks(t))
+	p.move(t, "Done")
+
+	items := p.items(t)
+	if len(items) != 1 || !strings.Contains(items[0].Detail, "legato workflow add review-pr-passes --force") {
+		t.Fatalf("items %+v", items)
+	}
+	for _, a := range items[0].Actions {
+		if a.ID == "start_review" {
+			t.Fatal("it offers a start that cannot work")
+		}
 	}
 }

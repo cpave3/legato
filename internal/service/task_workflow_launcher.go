@@ -56,6 +56,17 @@ func (l *TaskWorkflowLauncher) Has(name string) bool {
 	return false
 }
 
+// HasInput says whether a discovered workflow declares an input.
+func (l *TaskWorkflowLauncher) HasInput(name, input string) bool {
+	for _, definition := range l.discover().Definitions {
+		if definition.Name == name {
+			_, ok := definition.Inputs[input]
+			return ok
+		}
+	}
+	return false
+}
+
 func (l *TaskWorkflowLauncher) List(ctx context.Context, taskID string) ([]TaskWorkflowOption, error) {
 	task, err := l.store.GetTask(ctx, taskID)
 	if err != nil {

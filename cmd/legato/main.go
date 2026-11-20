@@ -1406,6 +1406,9 @@ func runTUI() int {
 	} else {
 		log.Printf("workflows: %v", workflowErr)
 	}
+	// One review prompt for the web server's Attention and the TUI's; the
+	// web server's integrations give it the review-pass engine.
+	reviewPrompt := newReviewPrompt(cfg, db, tuiWorkflowSvc)
 
 	reportSvc := service.NewReportService(db)
 	var worktreeSvc *service.WorktreeWorkflow
@@ -1451,7 +1454,7 @@ func runTUI() int {
 			}
 			approvalsRT.attach(webSrv)
 			updates := newUpdateService(db, bus, agentSvc, tuiRestarter())
-			webReviewPrompt := newReviewPrompt(cfg, db, tuiWorkflowSvc)
+			webReviewPrompt := reviewPrompt
 			webAttention := wireAttention(context.Background(), db, bus, webSrv, planSvc, reviewSvc, agentSvc, tuiWorkflowSvc, approvalsRT, updates, mainSide, webReviewPrompt, triggerCoordinator)
 			webSrv.SetSettingsService(wireSettings(db, bus, webAttention))
 			webSrv.SetSettingsMover(settingsMover(db), restartAll)
@@ -1590,6 +1593,7 @@ func runTUI() int {
 		app.SetWorkflowTriggerCoordinator(triggerCoordinator, workflowRepositoryPresets(cfg))
 	}
 	registerApprovalAttention(attentionSvc, approvalsRT)
+	registerReviewPrompt(attentionSvc, reviewPrompt)
 	_ = attentionSvc.RegisterProducer(service.NewRestartAttentionAdapter(db))
 	_ = attentionSvc.RegisterProducerWithEvents(engramAttention(db), events.EventAgentStarted, events.EventAgentDied, events.EventAgentCompleted)
 	if webSrv == nil {

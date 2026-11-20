@@ -50,13 +50,7 @@ func wireAttention(ctx context.Context, db *store.Store, bus *events.Bus, srv *s
 		mustRegister(attention.RegisterHandler(adapter.Producer(), adapter))
 	}
 
-	if reviewPrompt != nil {
-		// Local work in Done or the review column with open pull requests
-		// no loop reviews: a prompt to start review passes.
-		mustRegister(attention.RegisterProducerWithEvents(reviewPrompt, events.EventCardMoved, events.EventCardUpdated, events.EventCardsRefreshed,
-			events.EventPRStatusUpdated, events.EventWorkflowChanged, events.EventHandoffChanged))
-		mustRegister(attention.RegisterHandler(reviewPrompt.Producer(), reviewPrompt))
-	}
+	registerReviewPrompt(attention, reviewPrompt)
 
 	registerApprovalAttention(attention, approvals)
 	mustRegister(attention.RegisterProducer(service.NewRestartAttentionAdapter(db)))
@@ -94,4 +88,17 @@ func newReviewPrompt(cfg *config.Config, db *store.Store, workflows *service.Wor
 		launcher = service.NewTaskWorkflowLauncher(db, workflows, workflowDiscoveryProvider(cfg))
 	}
 	return service.NewReviewPromptAttentionAdapter(db, launcher)
+}
+
+// registerReviewPrompt registers the review prompt and its action with an
+// Attention service: the web server's and the TUI's each, so Start review
+// passes works from both. Local work in Done or the review column with
+// open pull requests no loop reviews raises it.
+func registerReviewPrompt(attention *service.AttentionService, reviewPrompt *service.ReviewPromptAttentionAdapter) {
+	if reviewPrompt == nil {
+		return
+	}
+	mustRegister(attention.RegisterProducerWithEvents(reviewPrompt, events.EventCardMoved, events.EventCardUpdated, events.EventCardsRefreshed,
+		events.EventPRStatusUpdated, events.EventWorkflowChanged, events.EventHandoffChanged))
+	mustRegister(attention.RegisterHandler(reviewPrompt.Producer(), reviewPrompt))
 }
