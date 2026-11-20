@@ -4,7 +4,11 @@ import { useWebSocket } from "../hooks/useWebSocket"
 import { useServer } from "../hooks/useServer"
 import { PlanApprovalModal } from "./PlanApprovalModal"
 import { OfflineDialog } from "./OfflineDialog"
-import { ApprovalFocus, ApprovalTray, useApprovalLink } from "./ApprovalTray"
+import { ApprovalFocus } from "./ApprovalTray"
+import { useApprovalLink } from "../hooks/useApprovalLink"
+import { NeedsYouSheet } from "./needsYou/NeedsYouSheet"
+import { useRailState } from "../lib/railState"
+import { useMediaQuery } from "../hooks/useMediaQuery"
 import { AutoRunNotice } from "./AutoRunNotice"
 import { ApprovalNotifier } from "./ApprovalNotifier"
 import { notificationsSupported } from "../lib/approvalNotifications"
@@ -42,12 +46,21 @@ export function Layout() {
   const tint = settings?.tint
   const sections = useMemo(() => navSections(summary), [summary])
   const [moreOpen, setMoreOpen] = useState(false)
+  // On a phone the needs-you rail is a sheet the tab bar opens.
+  const [needsYouOpen, setNeedsYouOpen] = useState(false)
   const location = useLocation()
   // Pages lay out by the room they have beside the rail.
   const mainRef = useRef<HTMLElement>(null)
   const mainWidth = useElementWidth(mainRef)
 
-  useEffect(() => { setMoreOpen(false) }, [location.pathname])
+  useEffect(() => { setMoreOpen(false); setNeedsYouOpen(false) }, [location.pathname])
+  // ?approval= or a notification opens the sheet on a phone, as the rail
+  // opens on it from md up.
+  const phone = useMediaQuery("(max-width: 767px)")
+  const { wanted } = useRailState()
+  useEffect(() => {
+    if (wanted && phone) { setMoreOpen(false); setNeedsYouOpen(true) }
+  }, [wanted, phone])
 
   return (
     <ReeveNameContext.Provider value={settings?.reeve_name ?? ""}>
@@ -69,7 +82,9 @@ export function Layout() {
         </MainWidthContext.Provider>
       </main>
       <NeedsYouRail />
-      <MobileTabBar sections={sections} connected={connected} moreOpen={moreOpen} onMore={() => setMoreOpen((open) => !open)} />
+      <MobileTabBar sections={sections} connected={connected} moreOpen={moreOpen} onMore={() => { setNeedsYouOpen(false); setMoreOpen((open) => !open) }}
+        needsYouOpen={needsYouOpen} onNeedsYou={() => { setMoreOpen(false); setNeedsYouOpen((open) => !open) }} />
+      {needsYouOpen && <NeedsYouSheet onClose={() => setNeedsYouOpen(false)} />}
       {moreOpen && (
         <MoreSheet sections={sections} connected={connected} servers={servers} activeServerName={activeServerName} baseUrl={baseUrl}
           onSwitchServer={setActiveServer} onClose={() => setMoreOpen(false)} />
@@ -82,8 +97,6 @@ export function Layout() {
         </div>
       )}
       {!updateRequired && <UpdateNotice status={settings?.updates} baseUrl={baseUrl} />}
-      {/* From md up the rail holds the approvals; the tray is the phone's. */}
-      {((summary?.approvals ?? 0) > 0 || (summary?.peer_approvals ?? 0) > 0) && <ApprovalTray />}
       {((summary?.approvals ?? 0) > 0 || focusMode) && <ApprovalFocus />}
       <AutoRunNotice />
       {notificationsSupported() && <ApprovalNotifier />}

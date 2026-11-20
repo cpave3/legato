@@ -1,36 +1,10 @@
 import { useState } from "react"
 import { Link } from "react-router-dom"
-import {
-  AlertTriangle, Bell, CheckCircle, CircleHelp, Copy, DoorOpen, ExternalLink, GitMerge, GitPullRequest,
-  Hourglass, ListChecks, MessageSquare, ShieldCheck, SquareTerminal, XOctagon, type LucideIcon,
-} from "lucide-react"
+import { Copy, ExternalLink } from "lucide-react"
+import { kindIcons, toneClass } from "../../lib/needsYouIcons"
 import type { AttentionAction, AttentionItem } from "../../lib/attention"
 import { externalHref, legatoHref } from "../../lib/navigation"
-import { itemHow, needsYouKind, needsYouKinds, shortAge, type NeedsYouKind, type NeedsYouTone } from "../../lib/needsYou"
-
-export const kindIcons: Record<NeedsYouKind, LucideIcon> = {
-  approval: ShieldCheck,
-  action: SquareTerminal,
-  question: CircleHelp,
-  done: CheckCircle,
-  other: MessageSquare,
-  waiting: Hourglass,
-  error: XOctagon,
-  failed: AlertTriangle,
-  gate: DoorOpen,
-  plan: ListChecks,
-  review: GitPullRequest,
-  merge: GitMerge,
-  legato: Bell,
-}
-
-export const toneClass: Record<NeedsYouTone, string> = {
-  needs: "bg-lw-needs-soft text-lw-needs",
-  question: "bg-lw-accent-soft text-lw-accent-text",
-  error: "bg-lw-error-soft text-lw-error",
-  done: "bg-lw-done-soft text-lw-done",
-  plain: "bg-lw-idle-soft text-lw-text-2",
-}
+import { itemHow, needsYouKind, needsYouKinds, shortAge } from "../../lib/needsYou"
 
 // The kind of an item: its word and its own icon, on its tone.
 export function KindTag({ item }: { item: AttentionItem }) {

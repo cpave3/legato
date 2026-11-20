@@ -1,111 +1,23 @@
-import { useEffect, useRef, useState } from "react"
-import { Link, useLocation } from "react-router-dom"
-import { useQuery, useQueryClient } from "@tanstack/react-query"
+import { useEffect, useState } from "react"
+import { Link } from "react-router-dom"
 import { Check, ChevronLeft, ChevronRight, ShieldCheck, SlidersHorizontal } from "lucide-react"
-import { dismissAttentionItem, executeAttentionAction, type AttentionItem } from "../../lib/attention"
-import { fetchRailAttention, itemAgent, needsYouKind, needsYouKinds } from "../../lib/needsYou"
+import { itemAgent, needsYouKind, needsYouKinds } from "../../lib/needsYou"
 import { RAIL_FOLDED, RAIL_OPEN, setRailFolded, setRailPresent, useRailState } from "../../lib/railState"
-import { useApprovals } from "../../hooks/useApprovals"
-import { useNavigationSummary } from "../../hooks/useNavigationSummary"
-import { usePeerApprovals } from "../../hooks/usePeerApprovals"
-import { approvalQuestions } from "../../lib/questionDrafts"
-import type { Approval } from "../../lib/approvals"
+import { useAgentInView, useRailApprovals, useRailItems } from "../../hooks/useNeedsYou"
+import { kindIcons, toneClass } from "../../lib/needsYouIcons"
 import { ApprovalCard, FocusButton, PeerApprovalCard } from "../ApprovalTray"
-import { queryKeys } from "../../lib/query"
-import { useServer } from "../../hooks/useServer"
-import { useAgentSelection } from "../../hooks/useAgentSelection"
-import { NeedsYouRow, kindIcons, toneClass } from "./NeedsYouRow"
+import { NeedsYouRow } from "./NeedsYouRow"
 
 const iconButton = "inline-flex h-7 w-7 items-center justify-center rounded-md text-lw-text-2 hover:bg-lw-raised hover:text-lw-text"
 
-// useRailItems is the rail's list with what acting on an item needs: the
-// items, and the action and dismiss handlers that refetch after.
-export function useRailItems() {
-  const { baseUrl } = useServer()
-  const queryClient = useQueryClient()
-  const items = useQuery({ queryKey: queryKeys.railAttention(baseUrl), queryFn: () => fetchRailAttention(baseUrl) })
-  const [pending, setPending] = useState<string | null>(null)
-  const [error, setError] = useState("")
-  const refresh = async () => {
-    await queryClient.invalidateQueries({ queryKey: queryKeys.attention(baseUrl) })
-    await queryClient.invalidateQueries({ queryKey: queryKeys.navigationSummary(baseUrl) })
-  }
-  const run = async (item: AttentionItem, act: () => Promise<void>) => {
-    setPending(item.id)
-    setError("")
-    try {
-      await act()
-      await refresh()
-    } catch (reason) {
-      setError(reason instanceof Error ? reason.message : String(reason))
-    } finally {
-      setPending(null)
-    }
-  }
-  return {
-    // The approvals producer's items are drawn from the approvals API
-    // instead, with every control the tray had.
-    items: (items.data?.items ?? []).filter((item) => item.producer !== "approvals"),
-    hidden: items.data?.hidden ?? 0,
-    approvalsShown: !(items.data?.hiddenNames ?? []).includes("approvals"),
-    loaded: items.isSuccess,
-    error,
-    pending,
-    onAction: (item: AttentionItem, actionId: string, text?: string) => {
-      const action = item.actions?.find((each) => each.id === actionId)
-      void run(item, () => executeAttentionAction(baseUrl, item.id, actionId, item.source_revision,
-        text === undefined ? { confirmed: action?.requires_confirmation ?? false } : { confirmed: action?.requires_confirmation ?? false, text }))
-    },
-    onDismiss: (item: AttentionItem) => { void run(item, () => dismissAttentionItem(baseUrl, item.id, item.source_revision)) },
-  }
-}
-
-// useAgentInView is the agent whose page is open, whose items the rail
-// marks "this agent".
-export function useAgentInView(): string | null {
-  const location = useLocation()
-  const { selectedAgentId } = useAgentSelection()
-  return location.pathname.startsWith("/agents") ? selectedAgentId : null
-}
-
 // RailFooter says how many kinds the rail's settings hide.
-function RailFooter({ hidden }: { hidden: number }) {
+export function RailFooter({ hidden }: { hidden: number }) {
   if (hidden === 0) return null
   return (
     <div className="flex gap-1.5 border-t border-lw-line px-4 py-2.5 text-[11.5px] text-lw-text-2">
       <span>{hidden} {hidden === 1 ? "kind" : "kinds"} hidden here</span><span>·</span><Link to="/attention" className="text-lw-link hover:underline">All in Attention</Link>
     </div>
   )
-}
-
-// useRailApprovals is the approvals the rail shows first: every pending
-// one and the paired instances' change sets, or, with approvals switched
-// off, only the one the page was asked to show. A new one unfolds the rail.
-function useRailApprovals(shown: boolean) {
-  const { wanted } = useRailState()
-  // Asked only while the navigation counts say some wait, or one is wanted.
-  const { data: summary } = useNavigationSummary()
-  const { data: approvals, refresh } = useApprovals((summary?.approvals ?? 0) > 0 || wanted !== null)
-  const peers = usePeerApprovals((summary?.peer_approvals ?? 0) > 0)
-  const seen = useRef<Set<string> | null>(null)
-  useEffect(() => {
-    // What was pending when the page opened is not new.
-    if (seen.current === null) {
-      seen.current = new Set(approvals.map((approval) => approval.id))
-      return
-    }
-    const fresh = approvals.some((approval) => !seen.current!.has(approval.id))
-    approvals.forEach((approval) => seen.current!.add(approval.id))
-    if (fresh && shown) setRailFolded(false)
-  }, [approvals, shown])
-  const listed: Approval[] = shown ? approvals : approvals.filter((approval) => approval.id === wanted)
-  return {
-    approvals: listed,
-    peers: shown ? peers : [],
-    asking: approvals.some((approval) => approvalQuestions(approval).length > 0),
-    wanted,
-    refresh,
-  }
 }
 
 // NeedsYouRail is the column on the right of every page, from md up: what

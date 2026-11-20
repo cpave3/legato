@@ -10,6 +10,18 @@ const mockDismiss = vi.fn()
 const mockRefresh = vi.fn().mockResolvedValue(undefined)
 let mockData: Approval[] = []
 
+vi.mock("../../lib/needsYou", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../lib/needsYou")>()),
+  fetchRailAttention: () => Promise.resolve(railView.current),
+}))
+const railView = vi.hoisted(() => ({ current: { items: [] as unknown[], hidden: 0, hiddenNames: [] as string[] } }))
+const mockExecuteAttention = vi.fn()
+vi.mock("../../lib/attention", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../lib/attention")>()),
+  executeAttentionAction: (...a: unknown[]) => mockExecuteAttention(...a),
+}))
+vi.mock("../../hooks/useNavigationSummary", () => ({ useNavigationSummary: () => ({ data: { approvals: mockData.length, peer_approvals: mockPeerData.length } }) }))
+vi.mock("../../hooks/useAgentSelection", () => ({ useAgentSelection: () => ({ selectedAgentId: null }) }))
 vi.mock("../../hooks/useServer", () => ({ useServer: () => ({ baseUrl: "http://legato" }) }))
 let mockPasskey: unknown = undefined
 const mockSignWithPasskey = vi.fn()
@@ -29,14 +41,20 @@ vi.mock("../../lib/approvals", async (importOriginal) => {
   }
 })
 
-import { ApprovalFocus, ApprovalTray, useApprovalLink } from "../ApprovalTray"
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
+import { ApprovalFocus } from "../ApprovalTray"
+import { NeedsYouSheet } from "../needsYou/NeedsYouSheet"
+import { useApprovalLink } from "../../hooks/useApprovalLink"
 import { resetRailState } from "../../lib/railState"
 
-// What the layout mounts on a phone: the tray, focus mode, and the reader of
-// ?approval=.
+const mockCloseSheet = vi.fn()
+const queryClient = new QueryClient({ defaultOptions: { queries: { retry: false } } })
+
+// What the layout mounts on a phone with the Needs you sheet open: the
+// sheet, focus mode, and the reader of ?approval=.
 function TrayHarness() {
   useApprovalLink()
-  return <><ApprovalTray /><ApprovalFocus /></>
+  return <QueryClientProvider client={queryClient}><NeedsYouSheet onClose={mockCloseSheet} /><ApprovalFocus /></QueryClientProvider>
 }
 import { setFocusMode } from "../../lib/focusMode"
 
@@ -89,7 +107,7 @@ function renderTray(path = "/board") {
   return render(<MemoryRouter initialEntries={[path]}><TrayHarness /><Where /></MemoryRouter>)
 }
 
-describe("ApprovalTray", () => {
+describe("Needs you on a phone: approvals", () => {
   afterEach(() => { cleanup(); setFocusMode(false) })
   beforeEach(() => {
     resetRailState()
@@ -108,7 +126,7 @@ describe("ApprovalTray", () => {
     })]
     setFocusMode(focus)
     renderTray()
-    const surface = focus ? screen.getByRole("dialog") : screen.getByRole("region", { name: "Approvals" })
+    const surface = focus ? screen.getByRole("dialog", { name: "Focus mode" }) : screen.getByRole("dialog", { name: "Needs you" })
     fireEvent.click(within(surface).getByRole(focus ? "button" : "radio", { name: "vitest" }))
     fireEvent.click(within(surface).getByRole("button", { name: "Send answer" }))
     await waitFor(() => expect(mockDecide).toHaveBeenCalledWith("http://legato", "ap-11111111", {
@@ -123,7 +141,7 @@ describe("ApprovalTray", () => {
     })]
     setFocusMode(focus)
     renderTray()
-    const surface = focus ? screen.getByRole("dialog") : screen.getByRole("region", { name: "Approvals" })
+    const surface = focus ? screen.getByRole("dialog", { name: "Focus mode" }) : screen.getByRole("dialog", { name: "Needs you" })
     fireEvent.change(within(surface).getByRole("textbox", { name: focus ? "Or answer in your own words" : "Your own answer" }), { target: { value: "use bun test" } })
     fireEvent.click(within(surface).getByRole("button", { name: "Send answer" }))
     await waitFor(() => expect(mockDecide).toHaveBeenCalledWith("http://legato", "ap-11111111", {
@@ -139,7 +157,7 @@ describe("ApprovalTray", () => {
     })]
     renderTray()
 
-    const tray = screen.getByRole("region", { name: "Approvals" })
+    const tray = screen.getByRole("dialog", { name: "Needs you" })
     expect(within(tray).getByText("Broader scope")).toBeTruthy()
     expect(within(tray).getByText("github://acme/app/refs/heads/legato/attention-*")).toBeTruthy()
     expect(within(tray).getByText("“Split the refactor into three PRs”")).toBeTruthy()
@@ -148,17 +166,18 @@ describe("ApprovalTray", () => {
     await waitFor(() => expect(mockDecide).toHaveBeenCalledWith("http://legato", "ap-33333333", { decision: "allow", option: "session" }))
   })
 
-  it("shows nothing while no approval is pending", () => {
-    const { container } = renderTray()
-    expect(container.querySelector("[aria-label='Approvals']")).toBeNull()
+  it("says nothing needs the operator while no approval is pending", async () => {
+    renderTray()
+    expect(await screen.findByText("Nothing needs you")).toBeTruthy()
+    expect(screen.getByRole("link", { name: "All in Attention" }).getAttribute("href")).toBe("/attention")
   })
 
   it("shows each pending approval with who asks, what it runs and its options", () => {
     mockData = [permission()]
     renderTray()
 
-    const tray = screen.getByRole("region", { name: "Approvals" })
-    expect(within(tray).getByText("1 needs you")).toBeTruthy()
+    const tray = screen.getByRole("dialog", { name: "Needs you" })
+    expect(within(tray).getByLabelText("1 needs you")).toBeTruthy()
     expect(within(tray).getByText("Run a command")).toBeTruthy()
     expect(within(tray).getByText("Fix attention sort · claude-code")).toBeTruthy()
     expect(within(tray).getByText("go test ./...")).toBeTruthy()
@@ -226,15 +245,12 @@ describe("ApprovalTray", () => {
     expect(screen.getByText("Run a command")).toBeTruthy()
   })
 
-  it("can be folded to a count and opened again", () => {
+  it("closes", () => {
     mockData = [permission(), question()]
     renderTray()
-
-    fireEvent.click(screen.getByRole("button", { name: "Hide approvals" }))
-    expect(screen.queryByText("Run a command")).toBeNull()
-
-    fireEvent.click(screen.getByRole("button", { name: "2 need you" }))
-    expect(screen.getByText("Run a command")).toBeTruthy()
+    expect(screen.getByLabelText("2 need you")).toBeTruthy()
+    fireEvent.click(screen.getByRole("button", { name: "Close" }))
+    expect(mockCloseSheet).toHaveBeenCalled()
   })
 
   it("opens on the approval an address names and drops it from the address", async () => {
@@ -304,7 +320,7 @@ describe("ApprovalTray", () => {
   })
 
   describe("focus mode", () => {
-    it("contains keyboard focus and restores the tray trigger when leaving", async () => {
+    it("contains keyboard focus and restores the sheet's trigger when leaving", async () => {
       mockData = [questionnaire()]
       renderTray()
       const user = userEvent.setup()
@@ -407,12 +423,12 @@ describe("ApprovalTray", () => {
       await waitFor(() => expect(mockDecide).toHaveBeenCalledWith("http://legato", "ap-22222222", { decision: "answer", answers: { q1: ["Postgres"] } }))
     })
 
-    it("leaves on Esc, back to the tray", async () => {
+    it("leaves on Esc, back to the sheet", async () => {
       mockData = [questionnaire()]
       renderTray()
       press(openFocus(), "Escape")
       await waitFor(() => expect(screen.queryByRole("dialog", { name: "Focus mode" })).toBeNull())
-      expect(screen.getByRole("region", { name: "Approvals" })).toBeTruthy()
+      expect(screen.getByRole("dialog", { name: "Needs you" })).toBeTruthy()
       expect(screen.queryByText(/Focus is on/)).toBeNull()
     })
 
@@ -432,8 +448,8 @@ describe("ApprovalTray", () => {
       expect(screen.queryByText(/Focus is on/)).toBeNull()
     })
 
-    // Layout drops the tray while nothing is pending; focus mode outlives it.
-    it("stays on while the tray is gone, and opens when the next question comes", () => {
+    // The sheet may be closed; focus mode outlives it.
+    it("stays on while the sheet is gone, and opens when the next question comes", () => {
       mockData = [questionnaire()]
       const view = renderTray()
       openFocus()
@@ -444,7 +460,7 @@ describe("ApprovalTray", () => {
       expect(screen.getByRole("dialog", { name: "Focus mode" })).toBeTruthy()
     })
 
-    it("says in the tray that focus is on while other approvals wait", async () => {
+    it("says in the sheet that focus is on while other approvals wait", async () => {
       mockData = [questionnaire(), permission()]
       const view = renderTray()
       openFocus()
@@ -452,7 +468,7 @@ describe("ApprovalTray", () => {
       mockData = [permission()]
       view.rerender(<MemoryRouter initialEntries={["/board"]}><TrayHarness /><Where /></MemoryRouter>)
       await waitFor(() => expect(screen.queryByRole("dialog", { name: "Focus mode" })).toBeNull())
-      const tray = screen.getByRole("region", { name: "Approvals" })
+      const tray = screen.getByRole("dialog", { name: "Needs you" })
       expect(within(tray).getByText("Focus is on")).toBeTruthy()
       expect(screen.queryByText(/It opens again when a question comes in/)).toBeNull()
       fireEvent.click(within(tray).getByRole("button", { name: "Leave focus" }))
@@ -467,7 +483,7 @@ describe("ApprovalTray", () => {
   })
 })
 
-describe("ApprovalTray: paired instances", () => {
+describe("Needs you on a phone: paired instances", () => {
   beforeEach(() => { mockData = []; mockPeerData = [] })
   afterEach(() => { cleanup(); mockPeerData = [] })
 
@@ -483,12 +499,36 @@ describe("ApprovalTray: paired instances", () => {
     expect(card.textContent).toContain("Restart after the Jira token change")
     expect(within(card).getByRole("link", { name: "◈ Approve on legato-1" }).getAttribute("href")).toBe("https://legato-1.lan:3080/?approval=ap-99")
     expect(within(card).getByRole("link", { name: "Open legato-1 ↗" }).getAttribute("href")).toBe("https://legato-1.lan:3080/")
-    expect(screen.getByRole("heading", { level: 2 }).textContent).toBe("1 needs you")
+    expect(screen.getByLabelText("1 needs you")).toBeTruthy()
   })
 
   it("says Approve on without the mark when the change set needs no signature", async () => {
     mockPeerData = [{ id: "ap-98", title: "Move a card", signed: false, created_at: "", instance_id: "srv-x", instance: "vm-1", url: "https://vm-1/?approval=ap-98", instance_url: "https://vm-1/" }]
     render(<MemoryRouter><TrayHarness /></MemoryRouter>)
     expect(await screen.findByRole("link", { name: "Approve on vm-1" })).toBeTruthy()
+  })
+})
+
+describe("Needs you on a phone: what agents posted", () => {
+  afterEach(() => { cleanup(); railView.current = { items: [], hidden: 0, hiddenNames: [] } })
+
+  it("lists approvals first, then agents' items, and runs an item's action", async () => {
+    mockData = [permission()]
+    mockExecuteAttention.mockResolvedValue(undefined)
+    railView.current = { items: [{
+      id: "att-op", producer: "operator_items", signal_kind: "operator_action", source_key: "op-1", source_revision: "2",
+      task_id: "LEG-363", title: "Type /to-tickets", reason: "Blocks the tickets", category: "agent", urgency: "normal",
+      navigation: { kind: "agent", target: "LEG-363" },
+      actions: [{ id: "open", label: "Open agent", kind: "navigate", intent: "primary" }, { id: "done", label: "Done", kind: "execute" }],
+      status: "open", created_at: "2026-11-20T08:00:00Z", updated_at: "2026-11-20T08:00:00Z",
+    }], hidden: 0, hiddenNames: [] }
+    renderTray()
+    const sheet = screen.getByRole("dialog", { name: "Needs you" })
+    const item = await within(sheet).findByRole("article", { name: "Type /to-tickets" })
+    const articles = within(sheet).getAllByRole("article")
+    expect(articles[0].textContent).toContain("Run a command")
+    expect(articles.indexOf(item)).toBeGreaterThan(0)
+    fireEvent.click(within(item).getByRole("button", { name: "Done" }))
+    await waitFor(() => expect(mockExecuteAttention).toHaveBeenCalledWith("http://legato", "att-op", "done", "2", { confirmed: false }))
   })
 })

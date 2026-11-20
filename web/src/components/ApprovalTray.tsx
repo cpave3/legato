@@ -2,10 +2,9 @@ import { ChangeSetCard } from "./ChangeSetCard"
 import { SecretRequestForm } from "./SecretRequestForm"
 import { useEffect, useLayoutEffect, useRef, useState } from "react"
 import { createPortal } from "react-dom"
-import { Link, useSearchParams } from "react-router-dom"
+import { Link } from "react-router-dom"
 import { useModalLayer } from "../hooks/useModalLayer"
 import { useApprovals } from "../hooks/useApprovals"
-import { usePeerApprovals } from "../hooks/usePeerApprovals"
 import type { PeerApproval } from "../lib/reeve"
 import { useServer } from "../hooks/useServer"
 import { approvalAsker, approvalKind, decideApproval, dismissApproval, type Approval, type ApprovalDecision } from "../lib/approvals"
@@ -17,7 +16,7 @@ import type { NativeQuestion } from "../lib/nativeAgentSync"
 import { QuestionFocus } from "./QuestionFocus"
 import { approvalQuestions } from "../lib/questionDrafts"
 import { setFocusMode, useFocusMode } from "../lib/focusMode"
-import { railEdgeStyle, showApproval, useRailState } from "../lib/railState"
+import { railEdgeStyle, useRailState } from "../lib/railState"
 
 // Shows something while open, and for a moment after, so it can fade in and
 // out: mounted while it is on screen at all, visible while it is meant to be.
@@ -87,91 +86,6 @@ export function ApprovalFocus() {
         document.body,
       )}
     </>
-  )
-}
-
-// useApprovalLink opens the rail (or the phone's tray) on the approval that
-// ?approval=<id> names, then drops it from the address. The layout calls it
-// once, so the rail and the tray never both take it.
-export function useApprovalLink() {
-  const [params, setParams] = useSearchParams()
-  const wanted = params.get("approval")
-  useEffect(() => {
-    if (!wanted) return
-    showApproval(wanted)
-    const next = new URLSearchParams(params)
-    next.delete("approval")
-    setParams(next, { replace: true })
-  }, [wanted, params, setParams])
-}
-
-// The approvals waiting for the person on a phone: a column of cards above
-// the tab bar while any is pending, or a count when the person folds it
-// away. From md up the needs-you rail holds them.
-export function ApprovalTray() {
-  const { data: approvals, refresh } = useApprovals()
-  const peerApprovals = usePeerApprovals()
-  const [folded, setFolded] = useState(false)
-  const focusMode = useFocusMode()
-  const asking = approvals.filter((approval) => approvalQuestions(approval).length > 0)
-  const focusOpen = focusMode && asking.length > 0
-  const { wanted } = useRailState()
-  const seen = useRef<Set<string>>(new Set())
-
-  // An approval the person has not seen yet opens the tray again.
-  useEffect(() => {
-    const fresh = approvals.some((approval) => !seen.current.has(approval.id))
-    approvals.forEach((approval) => seen.current.add(approval.id))
-    if (fresh) setFolded(false)
-  }, [approvals])
-
-  useEffect(() => {
-    if (wanted) setFolded(false)
-  }, [wanted])
-
-  const total = approvals.length + peerApprovals.length
-  const count = `${total} ${total === 1 ? "needs" : "need"} you`
-  if (total === 0) return null
-
-  return (
-    <section
-      aria-label="Approvals"
-      className="fixed inset-x-2 bottom-[calc(3.5rem+env(safe-area-inset-bottom)+0.5rem)] z-40 flex max-h-[85dvh] flex-col font-lw text-lw-text md:hidden"
-    >
-      {folded ? (
-        <button
-          onClick={() => setFolded(false)}
-          className="ml-auto flex min-h-12 items-center gap-2 rounded-full border border-lw-needs/50 bg-lw-surface px-5 text-base font-medium text-lw-needs shadow-xl"
-        >
-          <span aria-hidden>◆</span>{count}
-        </button>
-      ) : (
-        <div className="flex min-h-0 flex-col overflow-hidden rounded-xl border border-lw-line-strong bg-lw-surface shadow-2xl">
-          <header className="flex items-center gap-2 border-b border-lw-line px-4 py-2">
-            <span aria-hidden className="text-lw-needs">◆</span>
-            <h2 className="text-base font-semibold">{count}</h2>
-            {focusMode && !focusOpen && (
-              <>
-                <span className="ml-auto rounded-full border border-lw-accent-ring bg-lw-accent-soft px-2 py-0.5 text-xs text-lw-accent-text">Focus is on</span>
-                <button onClick={() => setFocusMode(false)} className="min-h-11 rounded-lg px-2 text-sm text-lw-text-2 hover:bg-lw-raised">Leave focus</button>
-              </>
-            )}
-            {asking.length > 0 && <FocusButton className="ml-auto" />}
-            <button aria-label="Hide approvals" onClick={() => setFolded(true)} className={`${asking.length > 0 || focusMode ? "" : "ml-auto "}flex h-11 w-11 items-center justify-center rounded-lg text-xl text-lw-text-2 hover:bg-lw-raised`}>
-              ⌄
-            </button>
-          </header>
-          <div className="min-h-0 space-y-3 overflow-y-auto p-2">
-            {approvals.map((approval) => (
-              <ApprovalCard key={approval.id} approval={approval} focused={approval.id === wanted} onDone={refresh} />
-            ))}
-            {peerApprovals.map((approval) => (
-              <PeerApprovalCard key={`${approval.instance_id}:${approval.id}`} approval={approval} />
-            ))}
-          </div>
-        </div>
-      )}
-    </section>
   )
 }
 
