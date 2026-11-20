@@ -11,6 +11,14 @@ Settings live in `config.yaml` and, for every setting that is not file-only, in 
 - `Class`: `read`, `change` or `risky` (the Reeve's classes, see Part 4 of the spec, and `docs/ai/reeve.md` once it exists).
 - `Mode`: `live` (read on each use: `web.tint`, `updates.mode`, `burnlite.projects`), `new_agents`, or `restart` (wired into services at start). A setting is `live` only where it is already read on each use; nothing was rewired to make one live.
 - `Secret`: the value is the name of a secret, never the secret.
+- `Section` and `Group`: its one home in web Settings (§ Sections and groups).
+- `Help`: one line on what the setting does, including what empty or off means. It replaced `Description`; the API still sends it as `description` too, for one release (set by `init`, never written in the registry).
+- `Unit`: `seconds`, `ms` or `bytes` for a whole number counted in one (a test holds every `int` named `_seconds`, `_ms`, `_bytes` to it); a `duration` needs none.
+- `DefaultLabel`: what the setting is when unset, when that is not its zero value (`4`, `engram on PATH`).
+
+### Sections and groups
+
+`config/settings_layout.go` places each setting: `settingLayout` maps a key, or a prefix ending in `.`, to its section, group and unit; `init` copies the place onto each `Setting` and panics at start when a setting has none, so a new setting must be placed. `SettingSections()` lists the 15 section IDs that hold registry settings, in nav order: `appearance`, `attention`, `input`, `agents`, `repositories`, `sandbox`, `reeve`, `swarms`, `review-passes`, `learn`, `board`, `integrations`, `security`, `connections`, `system` (Macros, the sixteenth section, is its own page). A feature's own switch (`swarm.enabled`, `review_passes.enabled`, `learning.enabled`, `agents.sandbox.enabled`) is in the group `config.GroupLead` (`On or off`), which the web shows first with no heading. Lists, file-only keys and the web's cards are placed by the web catalog (`web/src/lib/settingsCatalog.ts`).
 
 `config.FileOnlySettings()` lists the file-only settings (`db`, `data_dir`, `secrets.master_key`, `secrets.onepassword`, `web.enabled`, `web.port`, `web.tls`, `web.public_url`, `approval_devices.android_app_digests`); `IsFileOnly` says whether a key is or is under one. A test fails if one is registered.
 
@@ -44,8 +52,8 @@ Burnlite's projects: `service.BurnliteProjects` and `SaveBurnliteProjects` read 
 
 - **Waiting for a restart.** Each process makes one `SettingsService` per store at start (`settingsFor` in `cmd/legato/settings_runtime.go`), which calls `MarkStarted`: the values it started with. A `restart`-mode setting whose effective value differs from that is `pending_restart` (compared before a pinned secret is masked as `(set in config.yaml)`, so an unchanged one never waits) ("applies at restart"); `PendingRestart` lists them. `OnChange` hooks run after each `Set` or `Reset`; `wireSettings` publishes `EventSettingsChanged` on them.
 - **Attention.** The `settings` producer (`SettingsAttentionAdapter`, signal `settings_restart`) raises one item, "Restart to apply N changes", while any wait, with **Restart Legato** (an `execute` action that runs `restartAll`) and **Open settings**. Its revision is the waiting keys, so a dismissed item comes back when another change waits.
-- **API** (`internal/server/settings_registry.go`): `GET /api/config/settings` (`{settings: [SettingValue], file_only: [...]}`: each setting's `key`, `title`, `description`, `kind`, `enum`, `class`, `mode`, `secret`, `value`, `source`, `pinned`, `pending_restart`, `updated_at`, `updated_by`); `PUT /api/config/settings/{key}` (`{value}`; `200` with the new `SettingValue`; `404` not a setting, `409` pinned, `400` a refused value with its reason); `DELETE /api/config/settings/{key}` (reset). A change broadcasts `settings_changed`.
-- **CLI.** `legato config show [--sources] [--json]` prints `key: value` for every setting; `--sources` adds `(default)`, `(config.yaml, pinned)` or `(set here)`.
+- **API** (`internal/server/settings_registry.go`): `GET /api/config/settings` (`{settings: [SettingValue], file_only: [...]}`: each setting's `key`, `title`, `section`, `group`, `help` (and `description`, its old name), `unit`, `default_label`, `kind`, `enum`, `class`, `mode`, `secret`, `value`, `source`, `pinned`, `pending_restart`, `updated_at`, `updated_by`); `PUT /api/config/settings/{key}` (`{value}`; `200` with the new `SettingValue`; `404` not a setting, `409` pinned, `400` a refused value with its reason); `DELETE /api/config/settings/{key}` (reset). A change broadcasts `settings_changed`.
+- **CLI.** `legato config show [--sources] [--json]` prints `key: value` for every setting; `--sources` adds `(default)`, `(config.yaml, pinned)` or `(set here)`. That text is held by a golden file (`cmd/legato/testdata/config_show_sources.golden`); `--json` carries every field of the registry.
 
 ## Lists
 

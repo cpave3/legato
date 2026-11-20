@@ -176,7 +176,7 @@ export function RegistrySettingRow({ setting, baseUrl, actions }: { setting: Con
           <code className="break-all text-[11px] text-lw-faint">{setting.key}</code>
           <SettingSource setting={setting} busy={busy[setting.key]} onReset={() => void reset(setting.key)} />
         </div>
-        {setting.description && <p className="mt-0.5 text-xs text-lw-text-2">{setting.description}</p>}
+        {(setting.help ?? setting.description) && <p className="mt-0.5 text-xs text-lw-text-2">{setting.help ?? setting.description}</p>}
         {setting.pinned && movable.data?.settings.includes(setting.key) && (
           <button type="button" className="mt-1 text-xs text-lw-link hover:underline disabled:opacity-50" disabled={moveState !== "idle" || movable.isError || movable.isFetching}
             onClick={() => void move()}>

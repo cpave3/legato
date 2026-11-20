@@ -5,7 +5,16 @@ import { apiFetch } from "./api"
 export interface ConfigSetting {
   key: string
   title: string
+  // Its home in Settings: a section ID and a group within it.
+  section: string
+  group: string
+  // One line on what it does. description is its old name, sent for one
+  // release.
+  help?: string
   description?: string
+  unit?: "seconds" | "ms" | "bytes"
+  // What it is when unset, when that is not its zero value.
+  default_label?: string
   kind: "bool" | "string" | "int" | "enum" | "duration" | "strings"
   enum?: string[]
   class: "read" | "change" | "risky"
