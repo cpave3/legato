@@ -157,6 +157,69 @@ type ReviewPassService struct {
 	opts    ReviewPassOptions
 	mu      sync.Mutex // one Tick or submission at a time
 	callers []ReviewCaller
+
+	// waitMu guards waiting and lastErr: what each ready loop waits on,
+	// and the last GitHub error each logged. In memory: a restart learns
+	// both again on the next tick.
+	waitMu  sync.Mutex
+	waiting map[string]string
+	lastErr map[string]string
+}
+
+// What a ready loop waits on before its next pass starts (ReviewLoopBlock's
+// WaitingOn).
+const (
+	// ReviewWaitingOnAuthorWorking: the author is in a turn.
+	ReviewWaitingOnAuthorWorking = "author_working"
+	// ReviewWaitingOnAuthorWaiting: the author waits for an answer.
+	ReviewWaitingOnAuthorWaiting = "author_waiting"
+	// ReviewWaitingOnAuthorPush: the author was told to push or discard.
+	ReviewWaitingOnAuthorPush = "author_push"
+	// ReviewWaitingOnGitHub: GitHub did not answer.
+	ReviewWaitingOnGitHub = "github"
+	// ReviewWaitingOnReviewerSlot: every reviewer slot is taken.
+	ReviewWaitingOnReviewerSlot = "reviewer_slot"
+	// ReviewWaitingOnStart: nothing; the pass starts on the next tick.
+	ReviewWaitingOnStart = "start"
+)
+
+// setWaiting records what a loop waits on; "" clears it.
+func (s *ReviewPassService) setWaiting(taskID, on string) {
+	s.waitMu.Lock()
+	defer s.waitMu.Unlock()
+	if s.waiting == nil {
+		s.waiting = map[string]string{}
+	}
+	if on == "" {
+		delete(s.waiting, taskID)
+		return
+	}
+	s.waiting[taskID] = on
+}
+
+func (s *ReviewPassService) waitingOn(taskID string) string {
+	s.waitMu.Lock()
+	defer s.waitMu.Unlock()
+	return s.waiting[taskID]
+}
+
+// logGitHubError logs a loop's GitHub error once, until it changes or
+// clears (err nil).
+func (s *ReviewPassService) logGitHubError(taskID string, err error) {
+	s.waitMu.Lock()
+	defer s.waitMu.Unlock()
+	if s.lastErr == nil {
+		s.lastErr = map[string]string{}
+	}
+	if err == nil {
+		delete(s.lastErr, taskID)
+		return
+	}
+	if s.lastErr[taskID] == err.Error() {
+		return
+	}
+	s.lastErr[taskID] = err.Error()
+	log.Printf("review passes: %s: reading its pull requests from GitHub, trying again: %v", taskID, err)
 }
 
 // NewReviewPassService makes the review-pass engine. It does nothing until a
@@ -294,17 +357,32 @@ func (s *ReviewPassService) step(ctx context.Context, l ReviewLoop) error {
 	return nil
 }
 
-// authorIdle says whether the author is between turns: idle, or not
-// running. A person (no author task) always is.
+// authorIdle says whether the author is between turns: idle, not running,
+// or with only background jobs running (which may never end; the tip and
+// clean-tree check catches work they leave unpushed). A person (no author
+// task) always is.
 func (s *ReviewPassService) authorIdle(ctx context.Context, taskID string) bool {
+	return s.authorBusy(ctx, taskID) == ""
+}
+
+// authorBusy is what the author is doing that holds a pass back:
+// ReviewWaitingOnAuthorWorking, ReviewWaitingOnAuthorWaiting, or "" when it
+// holds nothing back.
+func (s *ReviewPassService) authorBusy(ctx context.Context, taskID string) string {
 	if taskID == "" {
-		return true
+		return ""
 	}
 	session, err := s.opts.Agents.GetAgentSession(ctx, taskID)
 	if err != nil || session == nil {
-		return true
+		return ""
 	}
-	return session.Activity == ""
+	switch session.Activity {
+	case "working":
+		return ReviewWaitingOnAuthorWorking
+	case "waiting":
+		return ReviewWaitingOnAuthorWaiting
+	}
+	return ""
 }
 
 // ready starts a pass when the author is idle and its checkout is what
@@ -313,6 +391,7 @@ func (s *ReviewPassService) ready(ctx context.Context, l ReviewLoop, loop *store
 	if loop.Mismatches > 0 && !loop.AuthorBusySinceNudge {
 		// The author was told to push or discard; wait until it has
 		// worked on it, or for a while when it does not answer.
+		s.setWaiting(l.TaskID, ReviewWaitingOnAuthorPush)
 		if !s.authorIdle(ctx, l.AuthorTaskID) {
 			loop.AuthorBusySinceNudge = true
 			return s.save(ctx, loop)
@@ -321,17 +400,23 @@ func (s *ReviewPassService) ready(ctx context.Context, l ReviewLoop, loop *store
 			return s.save(ctx, loop)
 		}
 	}
-	if !s.authorIdle(ctx, l.AuthorTaskID) {
+	if busy := s.authorBusy(ctx, l.AuthorTaskID); busy != "" {
+		s.setWaiting(l.TaskID, busy)
 		return s.save(ctx, loop)
 	}
 	dir, prs, err := l.caller.Checkout(ctx, l)
 	var checkoutErr *ReviewCheckoutError
 	if errors.As(err, &checkoutErr) {
+		s.setWaiting(l.TaskID, "")
 		return s.stuck(ctx, l, loop, "Legato could not read the author's checkout: "+checkoutErr.Err.Error())
 	}
 	if err != nil {
+		s.setWaiting(l.TaskID, ReviewWaitingOnGitHub)
+		s.logGitHubError(l.TaskID, err)
 		return s.save(ctx, loop) // GitHub may answer next time
 	}
+	s.logGitHubError(l.TaskID, nil)
+	s.setWaiting(l.TaskID, ReviewWaitingOnStart)
 	if len(prs) == 0 {
 		// Nothing to review: the loop is done as without review passes.
 		loop.Phase = ReviewPhaseSkipped
@@ -455,6 +540,7 @@ func (s *ReviewPassService) startPass(ctx context.Context, l ReviewLoop, loop *s
 		return err
 	}
 	loop.Pass, loop.Phase, loop.QueuedAt, loop.Reason = pass, ReviewPhaseReviewing, "", ""
+	s.setWaiting(l.TaskID, "")
 	if l.Counted && loop.ChecksHeads != checkHeads(pinned) {
 		// The checks of the heads this pass reviews, read now.
 		s.readChecks(ctx, l, loop, pinned)
@@ -540,6 +626,7 @@ func (s *ReviewPassService) unable(ctx context.Context, l ReviewLoop, loop *stor
 
 // stuck stops the loop for the person, who decides what comes next.
 func (s *ReviewPassService) stuck(ctx context.Context, l ReviewLoop, loop *store.HandoffReview, reason string) error {
+	s.setWaiting(l.TaskID, "")
 	loop.Phase, loop.Reason, loop.QueuedAt = ReviewPhaseStuck, reason, ""
 	return s.saveChanged(ctx, loop)
 }

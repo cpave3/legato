@@ -25,7 +25,7 @@ author finishes ─▶ pass 1: reviewer reviews ─▶ clean? ── yes ─▶ 
                          └── author pushes ◀── author fixes or replies
 ```
 
-1. **The author finishes.** It moves its task to Done. Before a pass starts, every branch must be pushed: its pull request's head on GitHub must be what the author has, with nothing left uncommitted. If not, the author is told once to push or discard. A task with no pull request is done as it would be without review passes.
+1. **The author finishes.** It moves its task to Done. The pass waits while the author is still working or waiting for an answer; a background job it left running (a server, a `tail -f`) does not hold the pass. Before a pass starts, every branch must be pushed: its pull request's head on GitHub must be what the author has, with nothing left uncommitted. If not, the author is told once to push or discard. A task with no pull request is done as it would be without review passes.
 2. **A pass.** The worker pins each pull request's head, moves the card to its Review column, and starts the reviewer in the task's reviewer slot (the **reviewer** chip on the card). A later pass resumes the same reviewer's conversation, so it remembers what it read and decided; when it cannot, a fresh reviewer starts. The reviewer can read the code but not change it, and it never runs as the author. It uses the review skill the worker names.
 3. **The review.** The reviewer submits its findings. Each is **blocking** or a **nit** (optional). A blocking finding must say how it fails (see [What counts as blocking](#what-counts-as-blocking)). Legato posts one GitHub review per pull request as the reviewer App: an approval when the pass is clean, a comment review with the findings inline otherwise.
 4. **The author's turn.** When a pass has blocking findings, the card goes back to Doing and the author is told how many findings there are. It answers each one: fixed in a commit it pushes, a reply with its reasons, or (for a nit only) skipped. A finding below the bar, or one for another change, it may answer with a reply that names a follow-up. Legato posts each answer on the pull request as the author App.
@@ -86,6 +86,10 @@ While the task is away, its row in the Away lane shows the review in place of th
 | The row says | What is happening |
 | --- | --- |
 | **Reviewing · pass 2** | A reviewer is at work. |
+| **Waiting for the author · working** | The task is in Done, but the author is still in a turn (or **· it waits for an answer**: it is waiting for you). The pass starts once it stops. |
+| **Waiting for the author to push** | The author was told its branches do not match GitHub. |
+| **Waiting for GitHub** | GitHub did not answer; the worker tries again. |
+| **Starting the next pass** | Nothing holds the pass; it starts in a moment. |
 | **Waiting for a reviewer** | The worker's reviewers are all busy; this pass is next. |
 | **Author fixing · 3 blocking, 1 comment** | The author is working through the feedback. |
 | **Approved · waiting for 2 checks** | The pass was clean; required checks are still running. |

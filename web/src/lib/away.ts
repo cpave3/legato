@@ -116,6 +116,18 @@ export function awayLook(away: AwayOn): AwayLook {
 
 // What a review block says in a few words, as the worker's summary does.
 export function reviewLabel(review: AwayReview): string {
+  switch (review.waiting_on) {
+    case "author_working":
+      return "Waiting for the author · working"
+    case "author_waiting":
+      return "Waiting for the author · it waits for an answer"
+    case "author_push":
+      return "Waiting for the author to push"
+    case "github":
+      return "Waiting for GitHub"
+    case "start":
+      return "Starting the next pass"
+  }
   switch (review.phase) {
     case "reviewing":
       return `Reviewing · pass ${review.pass}`

@@ -25,6 +25,11 @@ type ReviewLoopBlock struct {
 	SkippedComments int          `json:"skipped_comments"`
 	Reason          string       `json:"reason,omitempty"`
 	Links           []ReviewLink `json:"links,omitempty"`
+	// WaitingOn is what a pass that has not started waits on
+	// (ReviewWaitingOn*): the author, GitHub, a reviewer slot. Phase then
+	// stays reviewing or waiting_for_reviewer, as a main that predates the
+	// field reads it.
+	WaitingOn string `json:"waiting_on,omitempty"`
 }
 
 // ReviewLink is a pull request's latest review by Legato.
@@ -43,11 +48,24 @@ func (b *ReviewLoopBlock) InReview() bool {
 // Stuck says the review needs the person.
 func (b *ReviewLoopBlock) Stuck() bool { return b != nil && b.Phase == ReviewPhaseStuck }
 
-// Summary is the block in a few words: "Reviewing · pass 2", "Author fixing
-// · 3 blocking, 1 comment", "Done · approved".
+// Summary is the block in a few words: "Reviewing · pass 2", "Waiting for
+// the author · working", "Author fixing · 3 blocking, 1 comment", "Done ·
+// approved".
 func (b *ReviewLoopBlock) Summary() string {
 	if b == nil {
 		return ""
+	}
+	switch b.WaitingOn {
+	case ReviewWaitingOnAuthorWorking:
+		return "Waiting for the author · working"
+	case ReviewWaitingOnAuthorWaiting:
+		return "Waiting for the author · it waits for an answer"
+	case ReviewWaitingOnAuthorPush:
+		return "Waiting for the author to push"
+	case ReviewWaitingOnGitHub:
+		return "Waiting for GitHub"
+	case ReviewWaitingOnStart:
+		return "Starting the next pass"
 	}
 	switch b.Phase {
 	case ReviewPhaseReviewing:
@@ -106,6 +124,15 @@ func (s *ReviewPassService) ReviewBlock(ctx context.Context, taskID string) *Rev
 		if loop.Pass == 0 {
 			block.Pass = 1
 		}
+		block.WaitingOn = s.waitingOn(taskID)
+		if loop.Mismatches > 0 {
+			block.WaitingOn = ReviewWaitingOnAuthorPush
+		}
+		if block.WaitingOn == "" {
+			block.WaitingOn = ReviewWaitingOnStart
+		}
+	case ReviewPhaseWaitingForReviewer:
+		block.WaitingOn = ReviewWaitingOnReviewerSlot
 	}
 	if items, err := currentItems(ctx, s.db, loop); err == nil {
 		for _, item := range items {
