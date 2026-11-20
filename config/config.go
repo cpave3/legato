@@ -241,9 +241,6 @@ type SwarmConfig struct {
 	// StrictScope makes scope-overlap conflicts hard-block dispatch instead
 	// of advisory.
 	StrictScope bool `yaml:"strict_scope"`
-	// RequireUserClose adds a HITL gate at every `legato swarm close`.
-	// Reserved for future use; currently a no-op.
-	RequireUserClose bool `yaml:"require_user_close"`
 	// BriefKickoffDelayMs is the delay (in ms) between auto-launch and the
 	// "read your brief" send-keys kickoff. Tune up if your AI tool boots
 	// slowly enough that the kickoff lands during boot. Default 250ms.

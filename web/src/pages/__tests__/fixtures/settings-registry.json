@@ -671,13 +671,6 @@
       "mode": "restart"
     },
     {
-      "key": "swarm.require_user_close",
-      "title": "Swarm: you close workers",
-      "kind": "bool",
-      "class": "change",
-      "mode": "restart"
-    },
-    {
       "key": "swarm.brief_kickoff_delay_ms",
       "title": "Swarm: kickoff delay (ms)",
       "kind": "int",

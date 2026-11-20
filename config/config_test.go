@@ -1012,3 +1012,19 @@ func TestApprovalNotificationsAreOnByDefaultAndCanBeTurnedOff(t *testing.T) {
 		t.Fatalf("error = %v, want one about web.public_url", err)
 	}
 }
+
+// swarm.require_user_close did nothing and was removed; a config.yaml that
+// still sets it keeps loading.
+func TestAConfigThatStillSetsTheRemovedRequireUserCloseLoads(t *testing.T) {
+	writeTestConfig(t, "swarm:\n  require_user_close: true\n  max_concurrent_agents: 3\n")
+	cfg, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Swarm.MaxConcurrentAgents != 3 {
+		t.Fatalf("max_concurrent_agents = %d, want 3", cfg.Swarm.MaxConcurrentAgents)
+	}
+	if _, ok := LookupSetting("swarm.require_user_close"); ok {
+		t.Fatal("swarm.require_user_close is still registered")
+	}
+}

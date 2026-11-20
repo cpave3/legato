@@ -170,7 +170,6 @@ swarm:
     agent: chimera                # fallback when a plan entry omits `agent`
     model: manticore/luna         # optional direct model for fallback workers
   strict_scope: false             # when true, scope overlap hard-blocks dispatch
-  require_user_close: false       # reserved (no-op currently)
   brief_kickoff_delay_ms: 250     # pause between launch and "read your brief" send-keys
   prompts:                        # per-role per-adapter overrides
     backend:

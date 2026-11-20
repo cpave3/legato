@@ -163,7 +163,6 @@ var registry = []Setting{
 	{Key: "swarm.worker.agent", Title: "Swarm workers' agent tool", Kind: KindString, Class: ClassChange, Mode: ModeRestart},
 	{Key: "swarm.worker.model", Title: "Swarm workers' model", Kind: KindString, Class: ClassChange, Mode: ModeRestart},
 	{Key: "swarm.strict_scope", Title: "Swarm: strict scopes", Kind: KindBool, Class: ClassChange, Mode: ModeRestart},
-	{Key: "swarm.require_user_close", Title: "Swarm: you close workers", Kind: KindBool, Class: ClassChange, Mode: ModeRestart},
 	{Key: "swarm.brief_kickoff_delay_ms", Title: "Swarm: kickoff delay (ms)", Kind: KindInt, Class: ClassChange, Mode: ModeRestart, Check: nonNegative},
 
 	// Voice.
