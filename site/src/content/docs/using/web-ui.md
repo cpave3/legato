@@ -188,12 +188,16 @@ Choose **Follow server** to use the active server’s **Preferred theme**. Set t
 
 **Ocular Light Vivid** and **Ocular Dark Vivid** keep the matching original backgrounds and surface depth, with stronger action, focus and status highlights. Dark Vivid uses brighter, clearer accents; Light Vivid uses richer, deeper accents. The originals remain available. Vivid is a visual alternative, not a proven eye-strain treatment.
 
-Settings show their scope: this browser/device or the selected server. A server value shows **default**, **config.yaml** with a lock, or **set here** with **Reset**. File-only settings explain where to edit them. **Applies at restart** means the saved change waits for a restart.
+Each setting has a plain label and a line on what it does. Its control shows the value Legato uses: a default is greyed, and a number has its unit beside it. Where the value comes from shows only when it is not the default, in the words `legato config show --sources` uses: **Set here** with **Reset to** the default, or **config.yaml** with a lock. A setting `config.yaml` sets is read-only here; its **⋯** menu offers **Move out of config.yaml** and **Copy key**. Settings only `config.yaml` can hold sit in their topic, read-only, with their value and **config.yaml only**. Settings kept in this browser are marked **This browser**.
+
+Each group's heading says when its changes apply: **Applies now**, **Applies to new agents** or **Applies at restart**; when a group's settings differ, each row says its own. A saved change that waits for a restart is marked **Restart to apply**, and says the value Legato uses until then.
+
+A setting's config key shows when you point at its row or move into it; select it to copy. **Show config keys**, below the sections, shows every key.
 All Ocular themes use purple for actions and identity, green for activity and success, and blue for links. Agent-to-agent messages have a purple-tinted interior; Legato notices have a teal-tinted interior. Voice and signing keep the purple-and-green character. Text selection and the reading background remain separate, and the message box keeps its rounded inset focus indicator.
 
 To tell your Legatos apart at a glance, give each a tint in **Settings › Appearance › Tint**: red, orange, yellow, green, teal, blue, purple or pink. The tint is saved on the server, so every browser and phone that uses it shows it: a band across the top of the window, a wash on the rail, and a dot beside the server in the switcher. A tint takes priority over the app canvas for the browser's address-bar colour.
 
-Toggles and choices save immediately. Text and multi-field edits use **Apply** or **Save** and **Cancel**; leaving a field does not save it. If saving fails, the draft stays for retry. When another client changes the value, choose **Reload value** or **Keep my edit** before saving. An approval request is not a completed change.
+Switches and menus save at once. A typed value shows **Save** and **Cancel** only once you change it; **Enter** saves and **Esc** cancels, and leaving the field does not save it. If Legato refuses a value, your draft stays with its reason. When the Reeve, the CLI or another browser changes the value while you edit it, choose to use theirs or keep yours before saving. One of the Reeve's own rules is marked **Signed**: a change to it waits for your signature.
 
 Lists live in their section, not a separate Lists page. Common entries have named fields; **Advanced JSON** keeps other fields available. File entries are locked. Credentials use secret references, never pasted secrets. **Export and import settings**, in System, downloads the server settings or proposes an import for approval.
 

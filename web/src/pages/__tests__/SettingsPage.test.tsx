@@ -156,7 +156,7 @@ function serveRegistry(overrides: Record<string, Partial<ConfigSetting>> = {}, e
   mockedApiFetch.mockImplementation(async (_base, path, init) => {
     const answer = extra(path, init)
     if (answer) return answer
-    if (path === "/api/config/settings") return Response.json({ settings: values, file_only: registry.file_only })
+    if (path === "/api/config/settings") return Response.json({ settings: values, file_only: registry.file_only, file_only_values: { "web.port": "3080" } })
     if (path === "/api/config/lists") return Response.json({ lists: registry.lists.map((list) => ({ ...list, entries: [] })) })
     if (path === "/api/config/move") return Response.json({ settings: [], entries: [] })
     return new Response("{}", { status: 404 })
@@ -339,7 +339,7 @@ describe("SettingsPage layout", () => {
     fireEvent.change(screen.getByRole("searchbox"), { target: { value: "web.port" } })
     fireEvent.click(screen.getByRole("link", { name: /web.port.*config.yaml only/ }))
     const target = await waitFor(() => { const el = document.getElementById("setting-web.port"); expect(el).toBeTruthy(); return el! })
-    expect(target).toHaveTextContent("Read-only here. Edit web.port")
+    expect(target).toHaveTextContent("Read-only here. Change it in config.yaml")
     expect(within(target).queryByRole("textbox")).toBeNull()
   })
 
@@ -405,16 +405,16 @@ describe("SettingsPage layout", () => {
     expect(mockedApiFetch.mock.calls.filter(([, , init]) => init?.method === "PUT")).toHaveLength(0)
     value = "changed elsewhere"
     await act(async () => { await client.invalidateQueries({ queryKey: queryKeys.configSettings("https://remote.example"), exact: true }) })
-    expect(await row.findByText("This value changed elsewhere.")).toBeVisible()
+    expect(await row.findByText("Changed to changed elsewhere while you edited.")).toBeVisible()
     expect(input).toHaveValue("my edit")
-    expect(row.getByRole("button", { name: "Apply" })).toBeDisabled()
+    expect(row.getByRole("button", { name: "Save" })).toBeDisabled()
     fireEvent.click(row.getByRole("button", { name: "Keep my edit" }))
-    fireEvent.click(row.getByRole("button", { name: "Apply" }))
+    fireEvent.click(row.getByRole("button", { name: "Save" }))
     expect(await row.findByRole("alert")).toHaveTextContent("Invalid Jira address")
     expect(input).toHaveValue("my edit")
     refuse = false
-    fireEvent.click(row.getByRole("button", { name: "Apply" }))
-    expect(await row.findByText("Saved — applies at restart.")).toBeVisible()
+    fireEvent.click(row.getByRole("button", { name: "Save" }))
+    expect(await row.findByText("Saved. It applies when Legato restarts.")).toBeVisible()
     expect(value).toBe("my edit")
     fireEvent.change(input, { target: { value: "discard" } })
     fireEvent.click(row.getByRole("button", { name: "Cancel" }))
@@ -468,6 +468,37 @@ describe("SettingsPage layout", () => {
     openSection("Board and tickets")
     expect(document.getElementById("list-board.columns")).toBeTruthy()
     expect(document.getElementById("list-workspaces")).toBeTruthy()
+  })
+
+  it("says once in a group's heading when its changes apply, and on each row when they differ", async () => {
+    serveRegistry({ "swarm.max_steps_per_plan": { mode: "live" } })
+    renderPage("/settings#swarms")
+    await loaded()
+    expect(screen.getByTestId("swarms--conductor-and-workers-applies")).toHaveTextContent("Applies at restart")
+    expect(screen.queryByTestId("swarms--limits-applies")).toBeNull()
+    const limits = within(screen.getByRole("region", { name: "Limits" }))
+    expect(limits.getByText("Applies now")).toBeTruthy()
+    expect(limits.getAllByText("Applies at restart")).toHaveLength(2)
+  })
+
+  it("shows every row's key with Show config keys, and remembers it in this browser", async () => {
+    serveRegistry()
+    renderPage("/settings#swarms")
+    await loaded()
+    expect(screen.queryByRole("button", { name: "Copy key swarm.strict_scope" })).toBeNull()
+    fireEvent.click(screen.getByRole("button", { name: "Show config keys" }))
+    expect(screen.getByRole("button", { name: "Copy key swarm.strict_scope" })).toBeTruthy()
+    expect(localStorage.getItem("legato:settings-show-keys")).toBe("true")
+  })
+
+  it("shows a file-only setting in its topic with its value", async () => {
+    serveRegistry()
+    renderPage("/settings#connections/network")
+    await loaded()
+    const row = within(await waitFor(() => { const el = document.getElementById("setting-web.port"); expect(el).toBeTruthy(); return el! }))
+    expect(row.getByText("Web port")).toBeTruthy()
+    expect(row.getByText("3080")).toBeTruthy()
+    expect(row.getByText("config.yaml only")).toBeTruthy()
   })
 
   it("sends the old Macros link to the Macros page", () => {
@@ -584,11 +615,11 @@ describe("SettingsPage MQTT", () => {
     expect(mqtt.getByRole("button", { name: "MQTT publisher" })).toHaveAttribute("aria-pressed", "false")
     const broker = mqtt.getByRole("textbox", { name: "MQTT broker" })
     fireEvent.change(broker, { target: { value: "mqtts://broker.example:8883" } })
-    fireEvent.click(within(broker.closest("[data-testid]") as HTMLElement).getByRole("button", { name: /^Apply/ }))
+    fireEvent.click(within(broker.closest("[data-testid]") as HTMLElement).getByRole("button", { name: "Save" }))
     await waitFor(() => expect(mockedApiFetch).toHaveBeenCalledWith("https://remote.example", "/api/config/settings/integrations.mqtt.broker", expect.objectContaining({
       method: "PUT", body: JSON.stringify({ value: "mqtts://broker.example:8883" }),
     })))
-    expect(await mqtt.findByText("applies at restart")).toBeTruthy()
+    expect(await mqtt.findByText("Restart to apply")).toBeTruthy()
     fireEvent.click(mqtt.getByRole("button", { name: "MQTT publisher" }))
     await waitFor(() => expect(mqtt.getByRole("button", { name: "MQTT publisher" })).toHaveAttribute("aria-pressed", "true"))
     expect(mqtt.getByText(/anonymous access/i)).toBeTruthy()
@@ -609,10 +640,10 @@ describe("SettingsPage MQTT", () => {
     expect(credential).toHaveValue("mqtt")
     const broker = screen.getByRole("textbox", { name: "MQTT broker" })
     fireEvent.change(broker, { target: { value: "https://wrong" } })
-    fireEvent.click(within(broker.closest("[data-testid]") as HTMLElement).getByRole("button", { name: /^Apply/ }))
+    fireEvent.click(within(broker.closest("[data-testid]") as HTMLElement).getByRole("button", { name: "Save" }))
     expect(await within(broker.closest("[data-testid]") as HTMLElement).findByRole("alert")).toHaveTextContent("want mqtt:// or mqtts://")
     expect(broker).toHaveValue("https://wrong")
-    expect(screen.queryByText("applies at restart")).toBeNull()
+    expect(screen.queryByText("Restart to apply")).toBeNull()
 
     mockedApiFetch.mockImplementation(async (_base, path, init) => {
       if (path === "/api/config/settings") return Response.json({ settings: values })
@@ -620,7 +651,7 @@ describe("SettingsPage MQTT", () => {
       return new Response("{}", { status: 404 })
     })
     fireEvent.change(broker, { target: { value: "mqtts://broker.example" } })
-    fireEvent.click(within(broker.closest("[data-testid]") as HTMLElement).getByRole("button", { name: /^Apply/ }))
+    fireEvent.click(within(broker.closest("[data-testid]") as HTMLElement).getByRole("button", { name: "Save" }))
     expect(await within(broker.closest("[data-testid]") as HTMLElement).findByRole("alert")).toHaveTextContent("pinned by config.yaml")
   })
 

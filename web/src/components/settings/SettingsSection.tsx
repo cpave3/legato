@@ -1,7 +1,9 @@
 import type { ReactNode } from "react"
 import type { ConfigList, ConfigSetting } from "../../lib/configSettings"
-import { fileOnlyPlace, groupElementId, hasOwnCard, leadGroup, listPlace, listsWithCards, sectionGroups, settingPlace, settingsCards, type SettingsSection } from "../../lib/settingsCatalog"
-import { RegistrySettings } from "./RegistrySettings"
+import { fileOnlyPlace, fileOnlyTitle, groupElementId, hasOwnCard, leadGroup, listPlace, listsWithCards, sectionGroups, settingPlace, settingsCards, type SettingsSection } from "../../lib/settingsCatalog"
+import { FileOnlyRow, RegistrySettings } from "./RegistrySettings"
+import { SettingsRows } from "./SettingsUI"
+import { modeLabel } from "../../lib/settingValues"
 import { ListCard } from "./ListSettings"
 
 // What a section draws: the registry's settings by the API's place, the
@@ -9,6 +11,7 @@ import { ListCard } from "./ListSettings"
 export interface SectionContent {
   settings: ConfigSetting[]
   fileOnly: string[]
+  fileOnlyValues?: Record<string, string>
   lists: ConfigList[]
   baseUrl: string
   // The cards this page can draw, by ID; a card left out (Development
@@ -16,15 +19,8 @@ export interface SectionContent {
   cards: Record<string, ReactNode>
 }
 
-function FileOnlyRow({ keyName }: { keyName: string }) {
-  return <section id={`setting-${keyName}`} tabIndex={-1} className="scroll-mt-40 rounded-lg border border-lw-line p-4">
-    <h4 className="break-all text-sm font-medium">{keyName}</h4>
-    <p className="mt-1 text-sm text-lw-text-2">config.yaml only · Read-only here. Edit <code className="break-all">{keyName}</code> in this server’s <code>config.yaml</code>, then restart Legato to apply the change.</p>
-  </section>
-}
-
 export function SettingsSectionView({ section, content }: { section: SettingsSection; content: SectionContent }) {
-  const { settings, fileOnly, lists, baseUrl, cards } = content
+  const { settings, fileOnly, fileOnlyValues = {}, lists, baseUrl, cards } = content
   const groups = sectionGroups(section, settings)
   return <section id={`section-${section.id}`} aria-labelledby={`section-${section.id}-title`} className="flex flex-col gap-6">
     <div>
@@ -38,15 +34,23 @@ export function SettingsSectionView({ section, content }: { section: SettingsSec
       const groupLists = lists.filter((list) => at(listPlace(list.key)) && !listsWithCards.includes(list.key))
       const files = fileOnly.filter((key) => at(fileOnlyPlace(key)))
       if (rows.length + groupCards.length + groupLists.length + files.length === 0) return null
+      // A group whose settings share when they apply says it once; else
+      // each row says its own.
+      const modes = new Set(settings.filter((s) => at(settingPlace(s))).map((s) => s.mode))
+      const shared = modes.size === 1 ? modeLabel([...modes][0]) : ""
       const body = <div className="flex flex-col gap-4">
         {groupCards.map((card) => <div key={card.id}>{cards[card.id]}</div>)}
-        <RegistrySettings settings={rows} baseUrl={baseUrl} prefixes={rows.map((s) => s.key)} />
+        <RegistrySettings settings={rows} baseUrl={baseUrl} prefixes={rows.map((s) => s.key)} showMode={modes.size > 1} />
         {groupLists.map((list) => <ListCard key={`${baseUrl}:${list.key}`} list={list} baseUrl={baseUrl} />)}
-        {files.map((key) => <FileOnlyRow key={key} keyName={key} />)}
+        {files.length > 0 && <SettingsRows>{files.map((key) => <FileOnlyRow key={key} keyName={key} title={fileOnlyTitle(key)} value={fileOnlyValues[key]} />)}</SettingsRows>}
       </div>
       if (group === leadGroup) return <div key={group} id={groupElementId(section.id, group)}>{body}</div>
+      const id = groupElementId(section.id, group)
       return <section key={group} id={groupElementId(section.id, group)} aria-labelledby={`${groupElementId(section.id, group)}-title`} className="scroll-mt-6">
-        <h3 id={`${groupElementId(section.id, group)}-title`} className="mb-2 text-sm font-semibold text-lw-text">{group}</h3>
+        <div className="mb-2 flex items-baseline gap-3">
+          <h3 id={`${id}-title`} className="text-sm font-semibold text-lw-text">{group}</h3>
+          {shared && <span className="ml-auto text-xs text-lw-text-2" data-testid={`${id}-applies`}>{shared}</span>}
+        </div>
         {body}
       </section>
     })}

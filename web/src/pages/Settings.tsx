@@ -36,6 +36,8 @@ import { ExportSettings } from "../components/settings/ExportSettings"
 import { ReevePairings, ReeveSessions } from "../components/settings/ReeveSettings"
 import { ReeveEngramSettings } from "../components/settings/ReeveEngramSettings"
 import { SettingsSectionView } from "../components/settings/SettingsSection"
+import { ShowKeysContext, storeShowKeys, storedShowKeys } from "../components/settings/showKeys"
+import { Toggle } from "../components/settings/SettingsUI"
 import { AppAppearanceCard, BoardColumnsCard, DevelopmentCard, KeyboardCard, ManagedClonesCard, PairBrowserCard, PairPhoneCard, ServersCard, TLSCard, TintCard } from "../components/settings/SettingsCards"
 import type { ConfigSetting } from "../lib/configSettings"
 import { findSection, groupElementId, groupHasContent, leadGroup, navGroups, sectionGroups, settingsDestination, settingsSections, slug, type SettingsSection } from "../lib/settingsCatalog"
@@ -94,6 +96,8 @@ export function SettingsPage() {
   const devices = useDevices({ baseUrl })
   const registry = useMemo(() => configSettings.data?.settings ?? [], [configSettings.data])
   const fileOnly = configSettings.data?.file_only ?? []
+  const fileOnlyValues = configSettings.data?.file_only_values ?? {}
+  const [showKeys, setShowKeys] = useState(storedShowKeys)
   const lists = configLists.data ?? []
   const registered = (key: string) => registry.find((s) => s.key === key)
   const [showPairDevice, setShowPairDevice] = useState(false)
@@ -230,7 +234,13 @@ export function SettingsPage() {
               </div>
             </div>)}
           </nav>
-          {version && <p data-testid="settings-version" className="mt-4 px-3 font-lw-mono text-xs text-lw-faint">Legato {version}</p>}
+          <div className="mt-4 flex flex-col gap-3 border-t border-lw-line px-3 pt-3 text-[12.5px] text-lw-text-2">
+            <div className="flex items-center justify-between gap-3">
+              <span>Show config keys</span>
+              <Toggle label="Show config keys" on={showKeys} onChange={() => { const next = !showKeys; setShowKeys(next); storeShowKeys(next) }} />
+            </div>
+            {version && <p data-testid="settings-version" className="font-lw-mono text-xs text-lw-faint">Legato {version}</p>}
+          </div>
         </aside>
         <main key={baseUrl} className="flex min-w-0 max-w-3xl flex-col gap-6">
           <SettingsLoadState loading={configSettings.isPending} error={configSettings.error} stale={Boolean(configSettings.data)} onRetry={() => void configSettings.refetch()} />
@@ -247,7 +257,7 @@ export function SettingsPage() {
             <p className="text-sm text-lw-text-2">{current.title} has a page of its own.</p>
             <Link to={current.href} className={quietButton + " w-fit"}>Open {current.title}</Link>
           </section>}
-          {current && !current.href && !search.trim() && <SettingsSectionView section={current} content={{ settings: registry, fileOnly, lists, baseUrl, cards }} />}
+          {current && !current.href && !search.trim() && <ShowKeysContext.Provider value={showKeys}><SettingsSectionView section={current} content={{ settings: registry, fileOnly, fileOnlyValues, lists, baseUrl, cards }} /></ShowKeysContext.Provider>}
         </main>
       </div>
 

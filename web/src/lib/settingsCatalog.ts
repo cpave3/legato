@@ -134,6 +134,24 @@ function byPrefix(places: Record<string, Place>, key: string): Place | undefined
   return best === undefined ? undefined : places[best]
 }
 
+// What a file-only setting is called in its row.
+const fileOnlyTitles: Record<string, string> = {
+  "db": "Database",
+  "data_dir": "Data folder",
+  "secrets.master_key": "Secrets master key",
+  "secrets.onepassword": "1Password",
+  "web.enabled": "Start the web server with the TUI",
+  "web.port": "Web port",
+  "web.tls": "TLS",
+  "web.public_url": "Public address",
+  "approval_devices.android_app_digests": "Android app signatures",
+  "agents.repository_resources": "Resources by repository",
+}
+
+export function fileOnlyTitle(key: string): string {
+  return fileOnlyTitles[key] ?? key
+}
+
 export function fileOnlyPlace(key: string): Place {
   return byPrefix(fileOnlyPlaces, key) ?? { section: "system", group: "Only in config.yaml" }
 }

@@ -82,6 +82,18 @@ func TestSettingsAreListedWithTheirSectionGroupHelpAndUnit(t *testing.T) {
 	t.Fatal("swarm.brief_kickoff_delay_ms not listed")
 }
 
+// The file-only settings come with their values, to show read-only.
+func TestFileOnlySettingsAreListedWithTheirValues(t *testing.T) {
+	srv := settingsServer(t, "web:\n  port: \"4080\"\n")
+	rec := callUpdates(srv, http.MethodGet, "/api/config/settings", "")
+	var got struct {
+		Values map[string]string `json:"file_only_values"`
+	}
+	if err := json.Unmarshal(rec.Body.Bytes(), &got); err != nil || got.Values["web.port"] != "4080" {
+		t.Fatalf("file_only_values = %v, %v", got.Values, err)
+	}
+}
+
 func TestASettingIsSetAndReset(t *testing.T) {
 	srv := settingsServer(t, "")
 	rec := callUpdates(srv, http.MethodPut, "/api/config/settings/agents.reviews", `{"value": false}`)

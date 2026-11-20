@@ -273,3 +273,52 @@ func TestASettingMayNameAListEntryKeptInTheDatabase(t *testing.T) {
 		t.Fatalf("Reset beside it = %v", err)
 	}
 }
+
+// A setting carries the value it has when unset, so the web can say what
+// Reset goes back to.
+func TestASettingSaysItsDefault(t *testing.T) {
+	settings, _ := newSettingsFixture(t, "")
+	ctx := context.Background()
+	settings.Set(ctx, "jira.sync_interval_seconds", json.RawMessage(`120`), "web")
+	got, _ := settings.Get(ctx, "jira.sync_interval_seconds")
+	if got.Value != 120 || got.Default != 60 {
+		t.Fatalf("jira.sync_interval_seconds = %v, default %v; want 120, default 60", got.Value, got.Default)
+	}
+}
+
+// A setting that waits for a restart says the value Legato still uses.
+func TestASettingWaitingForARestartSaysTheValueInUse(t *testing.T) {
+	settings, _ := newSettingsFixture(t, "")
+	ctx := context.Background()
+	settings.MarkStarted(ctx)
+	settings.Set(ctx, "swarm.max_concurrent_agents", json.RawMessage(`6`), "web")
+	got, _ := settings.Get(ctx, "swarm.max_concurrent_agents")
+	if !got.PendingRestart || got.StartedValue != 0 || !got.HasStartedValue() {
+		t.Fatalf("got %+v, want pending with the started value 0", got)
+	}
+	still, _ := settings.Get(ctx, "jira.sync_interval_seconds")
+	if still.HasStartedValue() {
+		t.Fatalf("a setting that does not wait has a started value: %+v", still)
+	}
+}
+
+// The file-only settings are shown read-only with their values, but never
+// a secret's: those say only whether they are set.
+func TestFileOnlySettingsAreShownWithTheirValues(t *testing.T) {
+	settings, _ := newSettingsFixture(t, "web:\n  port: \"4080\"\n  public_url: https://legato.example\nsecrets:\n  master_key: file\n")
+	got, err := settings.FileOnlyValues(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got["web.port"] != "4080" || got["web.public_url"] != "https://legato.example" {
+		t.Fatalf("values = %v", got)
+	}
+	if got["secrets.master_key"] != "file" {
+		t.Fatalf("secrets.master_key = %q, want the store's kind", got["secrets.master_key"])
+	}
+	for key := range got {
+		if !config.IsFileOnly(key) {
+			t.Errorf("%s is not file-only", key)
+		}
+	}
+}
