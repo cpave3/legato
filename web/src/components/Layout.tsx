@@ -4,9 +4,8 @@ import { useWebSocket } from "../hooks/useWebSocket"
 import { useServer } from "../hooks/useServer"
 import { PlanApprovalModal } from "./PlanApprovalModal"
 import { OfflineDialog } from "./OfflineDialog"
-import { ApprovalTray } from "./ApprovalTray"
+import { ApprovalFocus, ApprovalTray, useApprovalLink } from "./ApprovalTray"
 import { AutoRunNotice } from "./AutoRunNotice"
-import { useFocusMode } from "../lib/focusMode"
 import { ApprovalNotifier } from "./ApprovalNotifier"
 import { notificationsSupported } from "../lib/approvalNotifications"
 import { AgentSelectionProvider } from "../hooks/useAgentSelection"
@@ -22,6 +21,7 @@ import { SetupChip } from "./SetupChip"
 import { VoiceLauncher } from "../voice/VoiceLauncher"
 import { ReeveNameContext } from "../lib/reeveName"
 import { NeedsYouRail } from "./needsYou/NeedsYouRail"
+import { useFocusMode } from "../lib/focusMode"
 import { MainWidthContext } from "../hooks/useMainWidth"
 import { useElementWidth } from "../hooks/useElementWidth"
 
@@ -32,8 +32,10 @@ export function Layout() {
   const connected = open || !lost
   const { servers, activeServerName, baseUrl, setActiveServer } = useServer()
   const { data: summary } = useNavigationSummary()
-  // Focus mode waits for the next question with nothing pending, so the tray
-  // stays while it is on.
+  // ?approval=<id> opens the rail, or the phone's tray, on that approval.
+  useApprovalLink()
+  // Focus mode waits for the next question with nothing pending, so it stays
+  // mounted while it is on.
   const focusMode = useFocusMode()
   // The tint of the server in use, so it is clear which Legato this is.
   const settings = useSettings().data
@@ -80,7 +82,9 @@ export function Layout() {
         </div>
       )}
       {!updateRequired && <UpdateNotice status={settings?.updates} baseUrl={baseUrl} />}
-      {((summary?.approvals ?? 0) > 0 || (summary?.peer_approvals ?? 0) > 0 || focusMode) && <ApprovalTray />}
+      {/* From md up the rail holds the approvals; the tray is the phone's. */}
+      {((summary?.approvals ?? 0) > 0 || (summary?.peer_approvals ?? 0) > 0) && <ApprovalTray />}
+      {((summary?.approvals ?? 0) > 0 || focusMode) && <ApprovalFocus />}
       <AutoRunNotice />
       {notificationsSupported() && <ApprovalNotifier />}
       <OfflineDialog />

@@ -47,18 +47,19 @@ func (s *Server) attentionHandler() http.HandlerFunc {
 		// how many they leave out, for its footer.
 		if r.URL.Query().Get("view") == "rail" {
 			rail := s.railConfig(r.Context())
-			hidden := 0
+			hidden := []string{}
 			for _, group := range config.RailGroups {
 				if !rail.Shows(group) {
-					hidden++
+					hidden = append(hidden, group)
 				}
 			}
 			items = service.RailView(items, rail)
 			s.writeJSON(w, http.StatusOK, struct {
-				Items  []service.AttentionItem `json:"items"`
-				Total  int                     `json:"total"`
-				Hidden int                     `json:"hidden_groups"`
-			}{Items: items, Total: len(items), Hidden: hidden})
+				Items       []service.AttentionItem `json:"items"`
+				Total       int                     `json:"total"`
+				Hidden      int                     `json:"hidden_groups"`
+				HiddenNames []string                `json:"hidden_names"`
+			}{Items: items, Total: len(items), Hidden: len(hidden), HiddenNames: hidden})
 			return
 		}
 		s.writeJSON(w, http.StatusOK, struct {

@@ -1,15 +1,31 @@
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest"
-import { render, screen, waitFor, fireEvent, cleanup, within } from "@testing-library/react"
+import { act, render, screen, waitFor, fireEvent, cleanup, within } from "@testing-library/react"
 import { MemoryRouter } from "react-router-dom"
 import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import type { AttentionItem } from "../../lib/attention"
+import type { Approval } from "../../lib/approvals"
 
 const mockFetchRail = vi.fn()
 const mockExecute = vi.fn()
 const mockDismiss = vi.fn()
 let mockSelected: string | null = null
+let mockApprovals: Approval[] = []
+let mockPeers: unknown[] = []
+const mockDecide = vi.fn()
+const mockRefreshApprovals = vi.fn().mockResolvedValue(undefined)
+let mockPasskey: unknown = undefined
+const mockSign = vi.fn()
 
 vi.mock("../../hooks/useServer", () => ({ useServer: () => ({ baseUrl: "http://legato" }) }))
+vi.mock("../../hooks/useApprovals", () => ({ useApprovals: () => ({ data: mockApprovals, error: null, refresh: mockRefreshApprovals }) }))
+vi.mock("../../hooks/useNavigationSummary", () => ({ useNavigationSummary: () => ({ data: { approvals: mockApprovals.length, peer_approvals: mockPeers.length } }) }))
+vi.mock("../../hooks/usePeerApprovals", () => ({ usePeerApprovals: () => mockPeers }))
+vi.mock("../../hooks/usePasskeyDevice", () => ({ usePasskeyDevice: () => mockPasskey }))
+vi.mock("../../lib/passkeys", () => ({ signWithPasskey: (...a: unknown[]) => mockSign(...a) }))
+vi.mock("../../lib/approvals", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../lib/approvals")>()),
+  decideApproval: (...a: unknown[]) => mockDecide(...a),
+}))
 vi.mock("../../hooks/useAgentSelection", () => ({ useAgentSelection: () => ({ selectedAgentId: mockSelected }) }))
 vi.mock("../../lib/attention", async (importOriginal) => ({
   ...(await importOriginal<typeof import("../../lib/attention")>()),
@@ -22,6 +38,32 @@ vi.mock("../../lib/needsYou", async (importOriginal) => ({
 }))
 
 import { NeedsYouRail } from "../needsYou/NeedsYouRail"
+import { resetRailState, showApproval } from "../../lib/railState"
+import { getFocusMode, setFocusMode } from "../../lib/focusMode"
+
+function permission(overrides: Partial<Approval> = {}): Approval {
+  return {
+    id: "ap-11111111", source: "agent_permission", source_key: "ex/s/r1", task_id: "task-1",
+    title: "Run a command", summary: "pnpm -C web exec tsc -b",
+    details: { request_id: "r1", agent_kind: "claude-code", task_title: "Fix the rail", tool: "Bash", command: "pnpm -C web exec tsc -b" },
+    options: [
+      { id: "once", label: "Allow once", kind: "allow" },
+      { id: "always", label: "Allow, and don't ask again", kind: "allow" },
+      { id: "deny", label: "Deny", kind: "deny" },
+    ],
+    blocking: true, status: "pending", revision: 1, created_at: "2026-11-20T08:00:00Z",
+    ...overrides,
+  } as Approval
+}
+
+function questionApproval(): Approval {
+  return permission({
+    id: "ap-22222222", source: "agent_question", title: "Which database?", summary: "",
+    details: { request_id: "q1", agent_kind: "codex", task_title: "Add search",
+      questions: [{ id: "q1", question: "Which database?", options: [{ label: "SQLite" }, { label: "Postgres" }], multiSelect: false, allowOther: false }] },
+    options: [],
+  })
+}
 
 function item(overrides: Partial<AttentionItem> = {}): AttentionItem {
   return {
@@ -60,11 +102,17 @@ describe("NeedsYouRail", () => {
   afterEach(() => cleanup())
   beforeEach(() => {
     vi.clearAllMocks()
-    mockFetchRail.mockResolvedValue({ items: [item(), question()], hidden: 0 })
+    mockFetchRail.mockResolvedValue({ items: [item(), question()], hidden: 0, hiddenNames: [] })
+    mockApprovals = []
+    mockPeers = []
+    mockDecide.mockResolvedValue(undefined)
+    mockPasskey = undefined
+    setFocusMode(false)
     mockExecute.mockResolvedValue(undefined)
     mockDismiss.mockResolvedValue(undefined)
     mockSelected = null
     window.localStorage.clear()
+    resetRailState()
   })
 
   it("shows each item with its kind, who posted it, what is needed and what it blocks", async () => {
@@ -117,6 +165,8 @@ describe("NeedsYouRail", () => {
     expect(tip.textContent).toContain("Blocks 7 LEG-365 build tickets")
 
     cleanup()
+    // A reload reads the fold from this browser's storage.
+    resetRailState()
     renderRail()
     expect(await screen.findByRole("complementary", { name: "Needs you, folded" })).toBeTruthy()
     fireEvent.click(screen.getByRole("button", { name: "Open the rail" }))
@@ -124,7 +174,7 @@ describe("NeedsYouRail", () => {
   })
 
   it("says how many kinds its settings hide, and when nothing needs the operator", async () => {
-    mockFetchRail.mockResolvedValue({ items: [], hidden: 2 })
+    mockFetchRail.mockResolvedValue({ items: [], hidden: 2, hiddenNames: ["review", "merge"] })
     renderRail()
     expect(await screen.findByText("Nothing needs you")).toBeTruthy()
     expect(screen.getByText("2 kinds hidden here")).toBeTruthy()
@@ -143,8 +193,87 @@ describe("NeedsYouRail", () => {
   it("asks again when Attention changes", async () => {
     renderRail()
     await screen.findByRole("article", { name: /to-tickets/ })
-    mockFetchRail.mockResolvedValue({ items: [], hidden: 0 })
+    mockFetchRail.mockResolvedValue({ items: [], hidden: 0, hiddenNames: [] })
     await client.invalidateQueries({ queryKey: ["http://legato", "attention"] })
     expect(await screen.findByText("Nothing needs you")).toBeTruthy()
+  })
+
+  describe("approvals", () => {
+    it("come first, with the tray's controls, and are not listed twice", async () => {
+      mockApprovals = [permission()]
+      mockFetchRail.mockResolvedValue({ items: [item({ id: "att-ap", producer: "approvals", signal_kind: "approval", title: "Run a command" }), item()], hidden: 0, hiddenNames: [] })
+      renderRail()
+      const rail = screen.getByRole("complementary", { name: "Needs you" })
+      await within(rail).findByRole("article", { name: /to-tickets/ })
+      const articles = within(rail).getAllByRole("article")
+      expect(articles[0].textContent).toContain("Run a command")
+      expect(within(rail).getAllByText("Run a command")).toHaveLength(1)
+      expect(within(rail).getByText("2")).toBeTruthy()
+
+      fireEvent.click(within(articles[0]).getByRole("button", { name: "Allow once" }))
+      await waitFor(() => expect(mockDecide).toHaveBeenCalledWith("http://legato", "ap-11111111", { decision: "allow", option: "once" }))
+    })
+
+    it("deny with a note", async () => {
+      mockApprovals = [permission()]
+      renderRail()
+      const card = (await screen.findByText("Run a command")).closest("article")!
+      fireEvent.click(within(card).getByRole("button", { name: "Deny…" }))
+      fireEvent.change(within(card).getByRole("textbox", { name: "Note for the agent" }), { target: { value: "Run the narrower check" } })
+      fireEvent.click(within(card).getByRole("button", { name: "Deny" }))
+      await waitFor(() => expect(mockDecide).toHaveBeenCalledWith("http://legato", "ap-11111111", { decision: "deny", feedback: "Run the narrower check" }))
+    })
+
+    it("signs an approval that needs a signature with this computer's passkey", async () => {
+      mockApprovals = [permission({ signed: true })]
+      mockPasskey = { id: "pk-1" }
+      mockSign.mockResolvedValue(undefined)
+      renderRail()
+      fireEvent.click(await screen.findByRole("button", { name: "Sign with passkey: Allow once" }))
+      await waitFor(() => expect(mockSign).toHaveBeenCalledWith("http://legato", "ap-11111111", { id: "pk-1" }, "once"))
+    })
+
+    it("answers a question and opens focus mode from the header", async () => {
+      mockApprovals = [questionApproval()]
+      renderRail()
+      expect((await screen.findAllByText("Which database?")).length).toBeGreaterThan(0)
+      expect(screen.getAllByText(/Postgres/).length).toBeGreaterThan(0)
+      fireEvent.click(screen.getByRole("button", { name: "Answer in focus mode" }))
+      expect(getFocusMode()).toBe(true)
+    })
+
+    it("marks a paired instance's change set with its instance", async () => {
+      mockPeers = [{ id: "cs-1", instance: "laptop", instance_id: "i-2", instance_url: "https://laptop.lan", url: "https://laptop.lan/attention?approval=cs-1", title: "Restart the worker", signed: true }]
+      renderRail()
+      const peer = await screen.findByTestId("peer-approval-cs-1")
+      expect(within(peer).getByText("laptop")).toBeTruthy()
+      expect(within(peer).getByRole("link", { name: "◈ Approve on laptop" })).toBeTruthy()
+    })
+
+    it("a new approval unfolds a folded rail", async () => {
+      const view = renderRail()
+      await screen.findByRole("article", { name: /to-tickets/ })
+      fireEvent.click(screen.getByRole("button", { name: "Fold the rail" }))
+      expect(screen.getByRole("complementary", { name: "Needs you, folded" })).toBeTruthy()
+      // approvals_changed refetches the approvals, and one is new.
+      mockApprovals = [permission()]
+      view.rerender(<QueryClientProvider client={client}><MemoryRouter initialEntries={["/board"]}><NeedsYouRail /></MemoryRouter></QueryClientProvider>)
+      expect(await screen.findByRole("complementary", { name: "Needs you" })).toBeTruthy()
+      expect(screen.getByText("Run a command")).toBeTruthy()
+    })
+
+    it("opens on a linked approval and shows it even with approvals switched off", async () => {
+      mockApprovals = [permission(), permission({ id: "ap-33333333", title: "Push the branch" })]
+      mockFetchRail.mockResolvedValue({ items: [], hidden: 1, hiddenNames: ["approvals"] })
+      window.localStorage.setItem("legato:rail-folded", "1")
+      resetRailState()
+      renderRail()
+      expect(await screen.findByRole("complementary", { name: "Needs you, folded" })).toBeTruthy()
+      act(() => showApproval("ap-33333333"))
+      const rail = await screen.findByRole("complementary", { name: "Needs you" })
+      const card = (await within(rail).findByText("Push the branch")).closest("article")!
+      expect(card.getAttribute("data-focused")).toBe("true")
+      expect(within(rail).queryByText("Run a command")).toBeNull()
+    })
   })
 })

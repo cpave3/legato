@@ -23,7 +23,7 @@ vi.mock("../../hooks/useServer", () => ({
 vi.mock("../needsYou/NeedsYouRail", () => ({ NeedsYouRail: () => null }))
 vi.mock("../PlanApprovalModal", () => ({ PlanApprovalModal: () => null }))
 vi.mock("../OfflineDialog", () => ({ OfflineDialog: () => null }))
-vi.mock("../ApprovalTray", () => ({ ApprovalTray: () => <section aria-label="Approvals" /> }))
+vi.mock("../ApprovalTray", () => ({ ApprovalTray: () => <section aria-label="Approvals" />, ApprovalFocus: () => null, useApprovalLink: () => {} }))
 vi.mock("../../hooks/useAgentSelection", () => ({ AgentSelectionProvider: ({ children }: { children: React.ReactNode }) => children }))
 
 function renderAt(entry: string) {

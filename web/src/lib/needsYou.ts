@@ -68,13 +68,15 @@ export function itemAgent(item: Pick<AttentionItem, "navigation" | "task_id">): 
 export interface RailView {
   items: AttentionItem[]
   hidden: number
+  // The groups switched off, as web.rail.<group> names them.
+  hiddenNames: string[]
 }
 
 export async function fetchRailAttention(baseUrl: string): Promise<RailView> {
   const resp = await apiFetch(baseUrl, "/api/attention?view=rail")
   if (!resp.ok) throw new Error(await resp.text())
-  const body = await resp.json() as { items?: AttentionItem[]; hidden_groups?: number }
-  return { items: newestFirst(body.items ?? []), hidden: body.hidden_groups ?? 0 }
+  const body = await resp.json() as { items?: AttentionItem[]; hidden_groups?: number; hidden_names?: string[] }
+  return { items: newestFirst(body.items ?? []), hidden: body.hidden_groups ?? 0, hiddenNames: body.hidden_names ?? [] }
 }
 
 // newestFirst orders items by when they last changed, the newest first.

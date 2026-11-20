@@ -5,7 +5,7 @@ sidebar:
   order: 40
 ---
 
-Attention is one queue of everything that needs you right now: a plan to decide, a review to read, a pull request that cannot merge, an agent waiting for you, a workflow that failed. Approvals are the requests from agents that wait for your answer, such as "may I run this command?". Approvals appear in Attention too, and also in a tray and on your phone, so you can answer from wherever you are.
+Attention is one queue of everything that needs you right now: a plan to decide, a review to read, a pull request that cannot merge, an agent waiting for you, a workflow that failed. Approvals are the requests from agents that wait for your answer, such as "may I run this command?". Approvals appear in Attention too, at the top of the needs-you rail on every page of the web UI, and on your phone, so you can answer from wherever you are.
 
 ## Attention
 
@@ -89,9 +89,9 @@ Legato raises approvals for agents it talks to natively: Claude Code and Codex t
 
 ### Answering in the web UI
 
-While approvals wait, a tray at the bottom right of every page shows them as cards. Each says which agent asks, what it would do, and its options. **Deny** takes a note for the agent. A question shows its options, and you can type an answer of your own. The tray folds to a count and opens again when a new approval arrives.
+While approvals wait, they come first in the **Needs you** rail on the right of every page, as cards. Each says which agent asks, what it would do, and its options. **Deny** takes a note for the agent. A question shows its options, and you can type an answer of your own. A new approval opens the rail if you had folded it. On a phone they are in a tray above the tab bar, which folds to a count.
 
-The tray also lists the [Reeve](/legato/using/reeve/)'s change sets that wait on instances this one is paired with, marked with the instance. They are decided there, with a device enrolled there: **◈ Approve on legato-1** opens that instance's page on the change set, and **Open legato-1 ↗** opens its page.
+The rail also lists the [Reeve](/legato/using/reeve/)'s change sets that wait on instances this one is paired with, marked with the instance. They are decided there, with a device enrolled there: **◈ Approve on legato-1** opens that instance's page on the change set, and **Open legato-1 ↗** opens its page.
 
 ### Answering in the desktop app
 
@@ -99,7 +99,7 @@ The [desktop app](/legato/running/desktop-app/) shows every server's approvals i
 
 ### Focus mode
 
-When agents ask questions, the button beside the tray's fold arrow opens **focus mode**: the questions one at a time, in the middle of the screen with nothing else on it. Each option has a number; the agent's recommendation is marked. An agent's questions are reviewed and sent together; a single question sends from the question itself.
+When agents ask questions, the focus button in the rail's header (on a phone, beside the tray's fold arrow) opens **focus mode**: the questions one at a time, in the middle of the screen with nothing else on it. Each option has a number; the agent's recommendation is marked. An agent's questions are reviewed and sent together; a single question sends from the question itself.
 
 | Key | Does |
 | --- | --- |
@@ -115,7 +115,7 @@ On a phone focus mode fills the screen, with **Back** and **Next** at the bottom
 
 Focus mode stays on until you leave it. With no question left it fades away and says it is waiting, and the next question to arrive opens it again. It is for this page only: a reload turns it off.
 
-When the Legato tab is not in front, the browser shows a notification for each new approval. Click it to open the tray on that request. Turn this off in **Settings › Security › Notify me of approvals**.
+When the Legato tab is not in front, the browser shows a notification for each new approval. Click it to open the rail on that request. Turn this off in **Settings › Security › Notify me of approvals**.
 
 ### Answering in the TUI
 
@@ -142,6 +142,6 @@ notifications:
 
 ### Approvals that need your phone
 
-The Reeve's change sets are approvals too: one per step, at the level of its riskiest change. A set you let run without asking never waits in the tray: it shows for a few seconds at the corner of the screen as already done. See [The Reeve](/legato/using/reeve/#running-without-asking).
+The Reeve's change sets are approvals too: one per step, at the level of its riskiest change. A set you let run without asking never waits in the rail: it shows for a few seconds at the corner of the screen as already done. See [The Reeve](/legato/using/reeve/#running-without-asking).
 
 Some decisions are signed: only you, at an enrolled phone or with a passkey on your computer, can allow them. An agent that has the web token still cannot. The TUI and Attention can deny a signed approval but not allow it, and say to use your phone. Some also need a verification: a fingerprint or a PIN on the device, not only a touch of a security key; such an approval refuses a touch alone. Which credential requests need a signature is set by the credential's rules; see [The credential broker](/legato/security/credential-broker/).

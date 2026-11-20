@@ -29,7 +29,15 @@ vi.mock("../../lib/approvals", async (importOriginal) => {
   }
 })
 
-import { ApprovalTray } from "../ApprovalTray"
+import { ApprovalFocus, ApprovalTray, useApprovalLink } from "../ApprovalTray"
+import { resetRailState } from "../../lib/railState"
+
+// What the layout mounts on a phone: the tray, focus mode, and the reader of
+// ?approval=.
+function TrayHarness() {
+  useApprovalLink()
+  return <><ApprovalTray /><ApprovalFocus /></>
+}
 import { setFocusMode } from "../../lib/focusMode"
 
 function permission(overrides: Partial<Approval> = {}): Approval {
@@ -78,12 +86,13 @@ function Where() {
 }
 
 function renderTray(path = "/board") {
-  return render(<MemoryRouter initialEntries={[path]}><ApprovalTray /><Where /></MemoryRouter>)
+  return render(<MemoryRouter initialEntries={[path]}><TrayHarness /><Where /></MemoryRouter>)
 }
 
 describe("ApprovalTray", () => {
   afterEach(() => { cleanup(); setFocusMode(false) })
   beforeEach(() => {
+    resetRailState()
     vi.clearAllMocks()
     mockData = []
     mockDecide.mockResolvedValue({})
@@ -413,12 +422,12 @@ describe("ApprovalTray", () => {
       openFocus()
 
       mockData = []
-      view.rerender(<MemoryRouter initialEntries={["/board"]}><ApprovalTray /><Where /></MemoryRouter>)
+      view.rerender(<MemoryRouter initialEntries={["/board"]}><TrayHarness /><Where /></MemoryRouter>)
       await waitFor(() => expect(screen.queryByRole("dialog", { name: "Focus mode" })).toBeNull())
       expect(screen.getByRole("status").textContent).toContain("Focus is on. It opens again when a question comes in.")
 
       mockData = [questionnaire("ap-55555555")]
-      view.rerender(<MemoryRouter initialEntries={["/board"]}><ApprovalTray /><Where /></MemoryRouter>)
+      view.rerender(<MemoryRouter initialEntries={["/board"]}><TrayHarness /><Where /></MemoryRouter>)
       expect(screen.getByRole("dialog", { name: "Focus mode" })).toBeTruthy()
       expect(screen.queryByText(/Focus is on/)).toBeNull()
     })
@@ -441,7 +450,7 @@ describe("ApprovalTray", () => {
       openFocus()
 
       mockData = [permission()]
-      view.rerender(<MemoryRouter initialEntries={["/board"]}><ApprovalTray /><Where /></MemoryRouter>)
+      view.rerender(<MemoryRouter initialEntries={["/board"]}><TrayHarness /><Where /></MemoryRouter>)
       await waitFor(() => expect(screen.queryByRole("dialog", { name: "Focus mode" })).toBeNull())
       const tray = screen.getByRole("region", { name: "Approvals" })
       expect(within(tray).getByText("Focus is on")).toBeTruthy()
@@ -468,7 +477,7 @@ describe("ApprovalTray: paired instances", () => {
       instance_id: "srv-bbbbbbbbbbbbbbb2", instance: "legato-1",
       url: "https://legato-1.lan:3080/?approval=ap-99", instance_url: "https://legato-1.lan:3080/",
     }]
-    render(<MemoryRouter><ApprovalTray /></MemoryRouter>)
+    render(<MemoryRouter><TrayHarness /></MemoryRouter>)
     const card = await screen.findByTestId("peer-approval-ap-99")
     expect(card.textContent).toContain("legato-1")
     expect(card.textContent).toContain("Restart after the Jira token change")
@@ -479,7 +488,7 @@ describe("ApprovalTray: paired instances", () => {
 
   it("says Approve on without the mark when the change set needs no signature", async () => {
     mockPeerData = [{ id: "ap-98", title: "Move a card", signed: false, created_at: "", instance_id: "srv-x", instance: "vm-1", url: "https://vm-1/?approval=ap-98", instance_url: "https://vm-1/" }]
-    render(<MemoryRouter><ApprovalTray /></MemoryRouter>)
+    render(<MemoryRouter><TrayHarness /></MemoryRouter>)
     expect(await screen.findByRole("link", { name: "Approve on vm-1" })).toBeTruthy()
   })
 })
