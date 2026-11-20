@@ -38,12 +38,12 @@ type EntryList struct {
 var entryListDefs = []EntryList{
 	{Key: "workspaces", Title: "Workspaces", Class: ClassChange, Mode: ModeRestart, NameField: "name"},
 	{Key: "macros", Title: "Macros", Class: ClassChange, Mode: ModeLive, NameField: "name"},
-	{Key: "adapters", Title: "Agent tools", Class: ClassChange, Mode: ModeRestart},
+	{Key: "adapters", Title: "Claude Code, Codex and Chimera", Class: ClassChange, Mode: ModeRestart},
 	{Key: "credentials", Title: "Credentials", Class: ClassRisky, Mode: ModeRestart, NameField: "name"},
 	{Key: "credential_sources", Title: "Credential sources", Class: ClassRisky, Mode: ModeRestart, NameField: "vault"},
-	{Key: "agents.tmux_options", Title: "tmux options for agents", Class: ClassChange, Mode: ModeNewAgents},
-	{Key: "agents.sandbox.mounts", Title: "Sandbox mounts", Class: ClassRisky, Mode: ModeRestart, NameField: "path"},
-	{Key: "swarm.prompts", Title: "Swarm role prompts", Class: ClassChange, Mode: ModeRestart},
+	{Key: "agents.tmux_options", Title: "tmux options", Class: ClassChange, Mode: ModeNewAgents},
+	{Key: "agents.sandbox.mounts", Title: "Extra folders", Class: ClassRisky, Mode: ModeRestart, NameField: "path"},
+	{Key: "swarm.prompts", Title: "Role prompts", Class: ClassChange, Mode: ModeRestart},
 	{Key: "reeve.rules", Title: "The Reeve's rules", Class: ClassRisky, Mode: ModeLive, NameField: "pattern", OwnRule: true, Ordered: true},
 }
 

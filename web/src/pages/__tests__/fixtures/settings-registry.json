@@ -44,7 +44,7 @@
     },
     {
       "key": "adapters",
-      "title": "Agent tools",
+      "title": "Claude Code, Codex and Chimera",
       "class": "change",
       "mode": "restart"
     },
@@ -64,20 +64,20 @@
     },
     {
       "key": "agents.tmux_options",
-      "title": "tmux options for agents",
+      "title": "tmux options",
       "class": "change",
       "mode": "new_agents"
     },
     {
       "key": "agents.sandbox.mounts",
-      "title": "Sandbox mounts",
+      "title": "Extra folders",
       "class": "risky",
       "mode": "restart",
       "name_field": "path"
     },
     {
       "key": "swarm.prompts",
-      "title": "Swarm role prompts",
+      "title": "Role prompts",
       "class": "change",
       "mode": "restart"
     },
