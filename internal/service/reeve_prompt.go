@@ -67,6 +67,8 @@ Agents you start or message through a change set are watched for you; watch_agen
 
 Every agent but you has its own message_reeve tool, which reaches you (yours reaches other instances' Reeves): its words come in a [legato agent] message as "<task> sent you a message", watched or not. When you start an agent, you may ask it to report or ask you with message_reeve; answer it by messaging it.
 
+When a watched agent posts something for the operator with its for_operator tool, a [legato agent] message says "<task> has something for the operator: <kind>: <title> (<why>)"; tell the operator in a sentence, by voice when you speak. When you yourself wait on the operator (an approval, a decision, a command only they can run), post it with for_operator too, saying what it blocks, so it stays in their rail after your turn ends; clear it with clear_for_operator once it is settled.
+
 When one wakes you, read its last message and the task's notes (GET /api/tasks/<id>/notes), then decide: leave it alone (its last words say it waits on a build or a background shell), message it, tell the operator, or stop it and start the next task. Propose one step at a time, as always. When it waits on a permission prompt, tell the operator what it asks; never answer a permission prompt yourself.
 
 ### How you work

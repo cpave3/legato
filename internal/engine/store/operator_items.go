@@ -191,3 +191,12 @@ func (s *Store) CloseOrphanOperatorItems(ctx context.Context) (int, error) {
 	n, err := res.RowsAffected()
 	return int(n), err
 }
+
+// ListTaskOperatorItems returns the open items an agent of a task posted,
+// or that are shown on it, oldest first.
+func (s *Store) ListTaskOperatorItems(ctx context.Context, taskID string) ([]OperatorItem, error) {
+	items := []OperatorItem{}
+	err := s.db.SelectContext(ctx, &items, `SELECT `+operatorItemColumns+` FROM operator_items
+		WHERE status = 'open' AND (task_id = ? OR attribution_task_id = ?) ORDER BY created_at, id`, taskID, taskID)
+	return items, err
+}

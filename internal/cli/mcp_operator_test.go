@@ -280,3 +280,24 @@ func TestMCPGuidanceSaysWhenToPutSomethingInTheOperatorsRail(t *testing.T) {
 		}
 	}
 }
+
+// The Reeve's session has the operator tools too.
+func TestTheReeveCanPostForTheOperator(t *testing.T) {
+	s := newTestStore(t)
+	reeveTask, reeveExecution := seedReeve(t, s)
+	reeve := connectMCP(t, cli.MCPOptions{Store: s, TaskID: reeveTask, ExecutionID: reeveExecution, Reeve: everyReeveTool()})
+	listed, err := reeve.ListTools(context.Background(), nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	offered := map[string]bool{}
+	for _, tool := range listed.Tools {
+		offered[tool.Name] = true
+	}
+	if !offered["for_operator"] || !offered["clear_for_operator"] {
+		t.Fatalf("the Reeve is offered %v", offered)
+	}
+	if result := callMCP(t, reeve, "for_operator", map[string]any{"kind": "question", "title": "Restart Legato now?", "options": []string{"Yes", "Later"}}); result.IsError {
+		t.Fatalf("the Reeve's for_operator failed: %s", mcpText(result))
+	}
+}

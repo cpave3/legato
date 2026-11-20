@@ -78,6 +78,11 @@ const (
 // to the Reeve (MessageReeve), queued whether or not the agent is watched.
 const WatchAgentMessage = "message"
 
+// WatchOperatorItem is a watched agent's new operator item (for_operator).
+// Every watch hears of it, whatever events it asked for: the agent waits
+// on the operator, whom the Reeve can tell.
+const WatchOperatorItem = "operator_item"
+
 // ReeveWatchEvents are every event, the default of a watch.
 var ReeveWatchEvents = []string{WatchWaiting, WatchIdle, WatchBackground, WatchError, WatchExited, WatchNote, WatchPR}
 
@@ -116,7 +121,9 @@ const (
 type watchSeen struct {
 	// Notes are the IDs of the notes seen: notes made in the same second
 	// do not come in the order they were made.
-	Notes     []string          `json:"notes"`
+	Notes []string `json:"notes"`
+	// Items are the IDs of the agent's open operator items seen.
+	Items     []string          `json:"items,omitempty"`
 	PRs       map[string]string `json:"prs"`
 	CheckedAt time.Time         `json:"checked_at"`
 	// State is the agent's state (watchStarting, watchRunning, or a
@@ -291,6 +298,11 @@ func (w *ReeveWatcher) look(ctx context.Context, taskID string) watchSeen {
 			seen.Notes = append(seen.Notes, n.ID)
 		}
 	}
+	if items, err := w.opts.Store.ListTaskOperatorItems(ctx, taskID); err == nil {
+		for _, item := range items {
+			seen.Items = append(seen.Items, item.ID)
+		}
+	}
 	for key, pr := range w.pullRequests(ctx, taskID) {
 		seen.PRs[key] = prState(pr)
 	}
@@ -390,7 +402,7 @@ func (w *ReeveWatcher) checkOne(ctx context.Context, watch store.ReeveWatch, set
 	}
 	title := w.title(ctx, watch.TaskID)
 	for _, e := range events {
-		if !asked[e.Kind] {
+		if !asked[e.Kind] && e.Kind != WatchOperatorItem {
 			continue
 		}
 		e.Title = title
@@ -430,6 +442,22 @@ func (w *ReeveWatcher) news(ctx context.Context, taskID string, before watchSeen
 			if !known[n.ID] {
 				events = append(events, WatchEvent{TaskID: taskID, Kind: WatchNote, At: at, Detail: clipRunes(strings.TrimSpace(n.Body), reeveWatchLastMessage)})
 			}
+		}
+	}
+	if items, err := w.opts.Store.ListTaskOperatorItems(ctx, taskID); err == nil {
+		known := map[string]bool{}
+		for _, id := range before.Items {
+			known[id] = true
+		}
+		for _, item := range items {
+			if known[item.ID] {
+				continue
+			}
+			detail := item.Kind + ": " + item.Title
+			if item.Why != "" {
+				detail += " (" + item.Why + ")"
+			}
+			events = append(events, WatchEvent{TaskID: taskID, Kind: WatchOperatorItem, At: at, Detail: clipRunes(oneLine(detail), reeveWatchLastMessage)})
 		}
 	}
 	prs := w.pullRequests(ctx, taskID)
@@ -630,6 +658,10 @@ func WatchMessage(events []WatchEvent) string {
 			continue
 		case WatchNote:
 			fmt.Fprintf(&b, "- %s added a note: %q\n", name, e.Detail)
+			continue
+		case WatchOperatorItem:
+			// The agent's words, kept to one line.
+			fmt.Fprintf(&b, "- %s has something for the operator: %s\n", name, e.Detail)
 			continue
 		case WatchPR:
 			fmt.Fprintf(&b, "- %s %s\n", name, e.Detail)
