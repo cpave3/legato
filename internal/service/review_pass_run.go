@@ -358,6 +358,19 @@ func (c *ReviewRunCaller) Checkout(ctx context.Context, l ReviewLoop) (string, [
 	return run.Dir, []ReviewGitHubPR{pr}, nil
 }
 
+// OpenPRs is the run's pull request while it is open.
+func (c *ReviewRunCaller) OpenPRs(ctx context.Context, l ReviewLoop) ([]ReviewGitHubPR, error) {
+	run, err := c.run(ctx, l.TaskID)
+	if err != nil {
+		return nil, err
+	}
+	pr, state, err := c.opts.GitHub.PullRequest(ctx, run.Repo, run.PR)
+	if err != nil || state != "open" {
+		return nil, err
+	}
+	return []ReviewGitHubPR{pr}, nil
+}
+
 // AuthorDone says the branch's owner has finished a round: the pull
 // request's head moved past the last pass's and stayed still for the quiet
 // time, or someone replied in a blocking finding's thread (a dispute, which

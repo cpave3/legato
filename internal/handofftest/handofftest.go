@@ -224,7 +224,7 @@ func (w *Worker) start() {
 		// As a worker's runtime does: the handoff caller registers when
 		// handoffs are wired.
 		w.Handoffs.SetReviews(service.NewHandoffReviewCaller(reviews, service.HandoffReviewCallerOptions{
-			Board: w.Board, Bus: w.Bus, Now: w.Clock.Now,
+			Board: w.Board, Bus: w.Bus, Now: w.Clock.Now, FetchPR: w.ReviewGitHub.PullHead,
 			ResumeAuthor: func(ctx context.Context, taskID string) error { return w.Handoffs.ResumeAuthor(ctx, taskID) },
 		}))
 	}

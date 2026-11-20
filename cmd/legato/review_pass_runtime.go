@@ -102,8 +102,14 @@ func wireHandoffReviewCaller(deps integrationDeps, reviews *service.ReviewPassSe
 	if reviews == nil || deps.board == nil {
 		return
 	}
+	var fetch func(ctx context.Context, repo string, number int) error
+	if deps.repos != nil {
+		// A layer of the stack the author's clone lacks is fetched into
+		// the cache its objects come from.
+		fetch = deps.repos.PullHead
+	}
 	handoffs.SetReviews(service.NewHandoffReviewCaller(reviews, service.HandoffReviewCallerOptions{
-		Board: deps.board, Bus: deps.bus,
+		Board: deps.board, Bus: deps.bus, FetchPR: fetch,
 		// A dead author is resumed, with everything it had, to hear of its
 		// feedback.
 		ResumeAuthor: handoffs.ResumeAuthor,

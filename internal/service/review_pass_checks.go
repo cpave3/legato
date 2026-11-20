@@ -36,11 +36,10 @@ func (s *ReviewPassService) pollChecks(ctx context.Context, l ReviewLoop) {
 	if polled, err := time.Parse(time.RFC3339, loop.ChecksPolledAt); err == nil && s.opts.Now().Before(polled.Add(interval)) {
 		return
 	}
-	_, branches, err := s.opts.Checkout.Branches(ctx, l.TaskID, l.Repo)
-	if err != nil {
+	if l.caller == nil {
 		return
 	}
-	open, err := s.opts.GitHub.PullRequests(ctx, l.Repo, branches)
+	open, err := l.caller.OpenPRs(ctx, l)
 	if err != nil || len(open) == 0 {
 		return
 	}

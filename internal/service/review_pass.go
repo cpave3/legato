@@ -80,6 +80,13 @@ type ReviewGitHubPR struct {
 	HeadSHA string
 	// Author is the pull request's author (the author App's login).
 	Author string
+	// HeadRepo is the repository (owner/name) its head branch is in; ""
+	// when not read.
+	HeadRepo string
+	// Fetched says the author's checkout has no local branch of this
+	// name: Legato fetched its head for review, and its tip is not
+	// compared.
+	Fetched bool
 }
 
 // ReviewGitHub is what a review pass asks of GitHub: ReviewPublisher, as
@@ -88,6 +95,9 @@ type ReviewGitHub interface {
 	// PullRequests are the open pull requests whose heads are branches, in
 	// the order of branches.
 	PullRequests(ctx context.Context, repo string, branches []string) ([]ReviewGitHubPR, error)
+	// OpenPulls are the open pull requests with a head or a base branch
+	// (FindReviewStack follows them).
+	OpenPulls(ctx context.Context, repo string, q PullQuery) ([]ReviewGitHubPR, error)
 	PostReview(ctx context.Context, post ReviewPost) (PostedReview, error)
 	PostIssueComment(ctx context.Context, who GitHubIdentity, repo string, number int, body string) (int64, error)
 	PollComments(ctx context.Context, repo string, number int, pages PollPages) (CommentPoll, error)
@@ -428,6 +438,9 @@ func (s *ReviewPassService) ready(ctx context.Context, l ReviewLoop, loop *store
 	}
 	var mismatch []string
 	for _, pr := range prs {
+		if pr.Fetched {
+			continue // no local branch to compare: reviewed at GitHub's head
+		}
 		tip, err := s.opts.Checkout.Tip(ctx, dir, pr.Branch)
 		if err != nil || tip != pr.HeadSHA {
 			mismatch = append(mismatch, fmt.Sprintf("%s is at %s here and %s on GitHub (#%d)", pr.Branch, short(tip), short(pr.HeadSHA), pr.Number))

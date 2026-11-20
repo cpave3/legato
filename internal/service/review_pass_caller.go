@@ -64,6 +64,9 @@ type ReviewCaller interface {
 	// reviews there, each with Branch the folder's local branch at its
 	// head; none when there is nothing to review.
 	Checkout(ctx context.Context, loop ReviewLoop) (dir string, prs []ReviewGitHubPR, err error)
+	// OpenPRs are the loop's open pull requests on GitHub now, without
+	// touching a checkout (for polling comments and checks).
+	OpenPRs(ctx context.Context, loop ReviewLoop) ([]ReviewGitHubPR, error)
 	// Pushed says whether the author pushed past the heads a pass
 	// pinned (or added a pull request).
 	Pushed(ctx context.Context, loop ReviewLoop, pinned []store.HandoffReviewPR) (bool, error)

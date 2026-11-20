@@ -154,11 +154,10 @@ func (s *ReviewPassService) pollTargets(ctx context.Context, l ReviewLoop, loop 
 	if loop.Pass > 0 {
 		return s.db.ListHandoffReviewPRs(ctx, l.TaskID, loop.Pass)
 	}
-	_, branches, err := s.opts.Checkout.Branches(ctx, l.TaskID, l.Repo)
-	if err != nil {
-		return nil, err
+	if l.caller == nil {
+		return nil, nil
 	}
-	prs, err := s.opts.GitHub.PullRequests(ctx, l.Repo, branches)
+	prs, err := l.caller.OpenPRs(ctx, l)
 	if err != nil {
 		return nil, err
 	}

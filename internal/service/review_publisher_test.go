@@ -14,6 +14,7 @@ import (
 	"net/http/httptest"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"testing"
@@ -52,6 +53,10 @@ type reviewGitHub struct {
 	// without the permission to read branch protection.
 	checkRuns        map[string]string
 	noAdministration bool
+	// pulls are the open pull requests the list answers with; methods
+	// the methods of every request.
+	pulls   []map[string]any
+	methods []string
 }
 
 const reviewPatch = "@@ -1,3 +1,4 @@\n package main\n-import \"fmt\"\n+import \"os\"\n+\n func main() {\n@@ -20,2 +21,3 @@ func helper() {\n \treturn\n+\t// done\n }"
@@ -63,6 +68,7 @@ func newReviewGitHub(t *testing.T) *reviewGitHub {
 		g.mu.Lock()
 		bearer := strings.TrimPrefix(r.Header.Get("Authorization"), "Bearer ")
 		perms := g.tokens[bearer]
+		g.methods = append(g.methods, r.Method)
 		switch {
 		case r.URL.Path == "/repos/cpave3/legato/installation":
 			_, _ = io.WriteString(w, `{"id": 7}`)
@@ -84,6 +90,18 @@ func newReviewGitHub(t *testing.T) *reviewGitHub {
 			w.WriteHeader(204)
 		case perms == nil:
 			w.WriteHeader(401)
+		case r.Method == "GET" && r.URL.Path == "/repos/cpave3/legato/pulls":
+			out := []map[string]any{}
+			head, base := r.URL.Query().Get("head"), r.URL.Query().Get("base")
+			for _, pr := range g.pulls {
+				h := pr["head"].(map[string]any)
+				b := pr["base"].(map[string]any)
+				owner := strings.Split(h["repo"].(map[string]any)["full_name"].(string), "/")[0]
+				if (head != "" && owner+":"+h["ref"].(string) == head) || (base != "" && b["ref"] == base) {
+					out = append(out, pr)
+				}
+			}
+			_ = json.NewEncoder(w).Encode(out)
 		case r.Method == "GET" && r.URL.Path == "/repos/cpave3/legato/pulls/12/files":
 			_ = json.NewEncoder(w).Encode([]map[string]any{{"filename": "main.go", "patch": reviewPatch}, {"filename": "big.bin"}})
 		case r.Method == "GET" && g.lists != nil && g.lists[r.URL.Path] != nil:
@@ -534,5 +552,35 @@ func TestRequiredChecksAreReadFromTheBaseBranchsProtection(t *testing.T) {
 	checks, err = f.publisher.Checks(ctx, "cpave3/legato", "main", "aaa", []string{"docs", "ci/legacy", "e2e"})
 	if err != nil || len(checks) != 3 || checks[0].State != CheckFailing || checks[1].State != CheckPassing || checks[2].State != CheckPending {
 		t.Fatalf("configured checks %+v, %v", checks, err)
+	}
+}
+
+func githubPull(number int, head, base, author string) map[string]any {
+	return map[string]any{"number": number, "title": fmt.Sprintf("PR %d", number), "html_url": fmt.Sprintf("https://github.com/cpave3/legato/pull/%d", number),
+		"user": map[string]any{"login": author},
+		"head": map[string]any{"ref": head, "sha": fmt.Sprintf("sha%d", number), "repo": map[string]any{"full_name": "cpave3/legato"}},
+		"base": map[string]any{"ref": base}}
+}
+
+func TestAStackIsFollowedOnGitHubWithGETsOnly(t *testing.T) {
+	f := newPublisherFixture(t)
+	f.github.pulls = []map[string]any{
+		githubPull(137, "s1", "main", "legato-author[bot]"),
+		githubPull(138, "s2", "s1", "legato-author[bot]"),
+		githubPull(139, "s3", "s2", "legato-author[bot]"),
+		githubPull(150, "other", "s3", "stranger"),
+	}
+
+	stack, err := FindReviewStack(context.Background(), f.publisher, "cpave3/legato", []string{"s2"}, nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got := numbers(stack.PRs); !slices.Equal(got, []int{137, 138, 139}) || stack.PRs[1].Base != "s1" || stack.PRs[1].HeadRepo != "cpave3/legato" {
+		t.Fatalf("stack %v: %+v", got, stack.PRs)
+	}
+	for _, m := range f.github.methods {
+		if m != "GET" && m != "POST" && m != "DELETE" {
+			t.Fatalf("methods %v", f.github.methods)
+		}
 	}
 }
