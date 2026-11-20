@@ -566,6 +566,27 @@ describe("SettingsPage layout", () => {
     expect(screen.getByRole("navigation", { name: "Settings sections" }).closest("aside")).not.toHaveClass("hidden")
   })
 
+  it("keeps notifications in Attention: the rail every device shares, this browser, the desktop, ntfy as one block, and what notifies", async () => {
+    serveRegistry({ "notifications.ntfy.topic": { value: "legato-abc", source: "database" } })
+    renderPage("/settings#attention")
+    await loaded()
+    expect(screen.getByTestId("attention--needs-you-rail-applies")).toHaveTextContent("Applies now · every device")
+    const rail = within(screen.getByRole("region", { name: "Needs-you rail" }))
+    expect(rail.getByRole("group", { name: "From agents" })).toBeTruthy()
+    expect(rail.getByRole("group", { name: "From Legato" })).toBeTruthy()
+    expect(rail.getByText(/The Attention page always lists everything/)).toBeTruthy()
+    const notify = within(screen.getByRole("region", { name: "Notify me" }))
+    expect(notify.getByRole("button", { name: "On this computer's desktop" })).toBeTruthy()
+    const ntfy = within(notify.getByRole("region", { name: "On your phone, by ntfy" }))
+    expect(ntfy.getByRole("textbox", { name: "Topic" })).toHaveValue("legato-abc")
+    expect(ntfy.getByRole("textbox", { name: "ntfy server" })).toBeTruthy()
+    const what = within(screen.getByRole("region", { name: "What notifies" }))
+    expect(what.getByRole("button", { name: "Approvals" })).toBeTruthy()
+    expect(what.getByRole("button", { name: "Handoffs" })).toBeTruthy()
+    fireEvent.click(notify.getByRole("button", { name: "On this computer's desktop" }))
+    await waitFor(() => expect(mockedApiFetch).toHaveBeenCalledWith("https://remote.example", "/api/config/settings/notifications.os.enabled", expect.objectContaining({ method: "PUT" })))
+  })
+
   it("sends the old Macros link to the Macros page", () => {
     renderPage("/settings#list-macros")
     expect(within(screen.getByRole("region", { name: "Macros" })).getByRole("link", { name: "Open Macros" })).toHaveAttribute("href", "/macros")

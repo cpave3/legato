@@ -1,6 +1,6 @@
 import type { ReactNode } from "react"
 import type { ConfigList, ConfigSetting } from "../../lib/configSettings"
-import { fileOnlyPlace, fileOnlyTitle, groupElementId, hasOwnCard, leadGroup, listPlace, listsWithCards, sectionGroups, settingPlace, settingsCards, type SettingsSection } from "../../lib/settingsCatalog"
+import { fileOnlyPlace, fileOnlyTitle, groupApplies, groupElementId, hasOwnCard, leadGroup, listPlace, listsWithCards, sectionGroups, settingPlace, settingsCards, type SettingsSection } from "../../lib/settingsCatalog"
 import { FileOnlyRow, RegistrySettings } from "./RegistrySettings"
 import { SettingsRows } from "./SettingsUI"
 import { modeLabel } from "../../lib/settingValues"
@@ -40,10 +40,11 @@ export function SettingsSectionView({ section, content }: { section: SettingsSec
       // A group whose settings share when they apply says it once; else
       // each row says its own.
       const modes = new Set(settings.filter((s) => at(settingPlace(s))).map((s) => s.mode))
-      const shared = modes.size === 1 ? modeLabel([...modes][0]) : ""
+      const shared = groupApplies[`${section.id}/${group}`] ?? (modes.size === 1 ? modeLabel([...modes][0]) : "")
       const body = <div className="flex flex-col gap-4">
-        {groupCards.map((card) => <div key={card.id}>{cards[card.id]}</div>)}
-        <RegistrySettings settings={rows} baseUrl={baseUrl} prefixes={rows.map((s) => s.key)} showMode={modes.size > 1} />
+        {groupCards.filter((card) => !card.after).map((card) => <div key={card.id}>{cards[card.id]}</div>)}
+        <RegistrySettings settings={rows} baseUrl={baseUrl} prefixes={rows.map((s) => s.key)} showMode={modes.size > 1 && !groupApplies[`${section.id}/${group}`]} />
+        {groupCards.filter((card) => card.after).map((card) => <div key={card.id}>{cards[card.id]}</div>)}
         {groupLists.map((list) => <ListCard key={`${baseUrl}:${list.key}`} list={list} baseUrl={baseUrl} />)}
         {files.length > 0 && <SettingsRows>{files.map((key) => <FileOnlyRow key={key} keyName={key} title={fileOnlyTitle(key)} value={fileOnlyValues[key]} />)}</SettingsRows>}
       </div>

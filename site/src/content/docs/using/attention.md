@@ -49,7 +49,7 @@ An agent that posts the same title again updates its item, which comes back if y
 
 ### The needs-you rail
 
-In the web UI, the column on the right of every page shows Attention as you choose: Settings › Attention › **Needs-you rail** has a switch for each kind of item, under **From agents** (actions, questions, finished work, anything else) and **From Legato** (approvals, agents, workflows, plans, ready for review, merge blockers, Legato's own). Ready for review and merge blockers are off at first. The settings are kept by Legato, so every browser shows the same rail. See [Web UI](/legato/using/web-ui/#getting-around).
+In the web UI, the column on the right of every page shows Attention as you choose: Settings › Attention › **Needs-you rail** has a switch for each kind of item, under **From agents** (actions, questions, finished work, anything else) and **From Legato** (approvals, agents, workflows, plans, ready for review, merge blockers, Legato's own). Ready for review and merge blockers are off at first. The settings are kept by Legato, so every browser shows the same rail. The same section holds how you are notified: in this browser, on this computer's desktop, and on your phone by ntfy, and **What notifies** (approvals, handoffs). See [Web UI](/legato/using/web-ui/#getting-around).
 
 ### Acting on an item
 

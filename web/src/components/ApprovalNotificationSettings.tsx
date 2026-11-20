@@ -29,14 +29,14 @@ export function ApprovalNotificationSettings() {
     permission === "denied"
       ? "Your browser blocks notifications for this site. Allow them in its site settings, then reload."
       : permission === "default"
-        ? "When an approval waits and this tab is not in front. Your browser asks for permission first."
-        : "When an approval waits and this tab is not in front. A click opens it."
+        ? "Approvals, when this tab is not in front. Your browser asks for permission first."
+        : "Approvals, when this tab is not in front. A click opens it."
 
   return (
     <SettingsRows>
       <SettingsRow
         icon={Bell}
-        title="Notify me of approvals"
+        title="In this browser"
         description={description}
         browser
         control={
@@ -44,7 +44,7 @@ export function ApprovalNotificationSettings() {
             {on && permission === "default" && (
               <button type="button" onClick={() => void ask()} className={quietButton}>Allow notifications</button>
             )}
-            <Toggle label="Notify me of approvals" on={on} onChange={toggle} />
+            <Toggle label="Notify me in this browser" on={on} onChange={toggle} />
           </div>
         }
       />

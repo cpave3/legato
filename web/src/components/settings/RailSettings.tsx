@@ -1,9 +1,10 @@
 import { useState } from "react"
 import { useQueryClient } from "@tanstack/react-query"
-import { Bell, Bot, CheckCircle, CircleHelp, GitMerge, GitPullRequest, Hand, ListChecks, MessageSquare, Settings2, ShieldCheck, Workflow, type LucideIcon } from "lucide-react"
+import { Bot, CheckCircle, CircleHelp, GitMerge, GitPullRequest, Hand, ListChecks, MessageSquare, Settings2, ShieldCheck, Workflow, type LucideIcon } from "lucide-react"
 import { setConfigSetting, type ConfigSetting } from "../../lib/configSettings"
 import { queryKeys } from "../../lib/query"
-import { SettingsCard, SettingsRow, SettingsRows, Toggle } from "./SettingsUI"
+import { SettingsRow, SettingsRows, Toggle } from "./SettingsUI"
+import { SourceChip } from "./RegistrySettings"
 
 type RailSwitch = { group: string; title: string; description: string; icon: LucideIcon }
 
@@ -46,7 +47,7 @@ export function RailSettings({ baseUrl, settings }: { baseUrl: string; settings:
   }
   const switches = (label: string, list: RailSwitch[]) => (
     <section role="group" aria-label={label} className="flex flex-col gap-2">
-      <h3 className="text-sm font-medium text-lw-text">{label}</h3>
+      <h4 className="font-lw-mono text-[10.5px] uppercase tracking-wider text-lw-text-2">{label}</h4>
       <SettingsRows>
         {list.map((item) => {
           const current = setting(item.group)
@@ -54,8 +55,8 @@ export function RailSettings({ baseUrl, settings }: { baseUrl: string; settings:
           const on = current.value === true
           return (
             <div key={item.group} id={`setting-${current.key}`} tabIndex={-1} className="scroll-mt-40">
-              <SettingsRow icon={item.icon} title={item.title}
-                description={current.pinned ? `${item.description} config.yaml sets ${current.key}: edit the file to change it.` : item.description}
+              <SettingsRow icon={item.icon} title={item.title} description={item.description}
+                chip={<SourceChip setting={current} />}
                 control={<Toggle label={item.title} on={on} disabled={current.pinned || busy === current.key} onChange={() => void flip(current.key, on)} />} />
             </div>
           )
@@ -65,14 +66,13 @@ export function RailSettings({ baseUrl, settings }: { baseUrl: string; settings:
   )
   if (!settings.some((s) => s.key.startsWith("web.rail."))) return null
   return (
-    <SettingsCard id="needs-you-rail" icon={Bell} title="Needs-you rail"
-      description="What the rail on the right of every page shows. Approvals come first, then the rest, newest first.">
-      <div className="flex flex-col gap-4">
+    <div id="needs-you-rail" className="flex flex-col gap-3">
+      <p className="text-[13px] text-lw-text-2">What the rail on the right of every page shows. Approvals come first, then the rest, newest first. The Attention page always lists everything.</p>
+      <div className="grid gap-4 lg:grid-cols-2">
         {switches("From agents", fromAgents)}
         {switches("From Legato", fromLegato)}
-        {error && <p role="alert" className="text-xs text-lw-error">{error}</p>}
-        <p className="text-xs text-lw-text-2">The Attention page always lists everything.</p>
       </div>
-    </SettingsCard>
+      {error && <p role="alert" className="text-xs text-lw-error">{error}</p>}
+    </div>
   )
 }

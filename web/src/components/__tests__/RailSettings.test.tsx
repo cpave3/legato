@@ -55,9 +55,10 @@ describe("RailSettings", () => {
   })
 
   it("leaves a switch config.yaml sets alone", () => {
-    wrap(<RailSettings baseUrl="http://legato" settings={settings({ plans: { pinned: true, value: false } })} />)
+    wrap(<RailSettings baseUrl="http://legato" settings={settings({ plans: { pinned: true, source: "config.yaml", value: false } })} />)
 
     expect((screen.getByRole("button", { name: "Plans" }) as HTMLButtonElement).disabled).toBe(true)
-    expect(screen.getByText(/config.yaml sets web.rail.plans/)).toBeTruthy()
+    expect(screen.getByLabelText("Pinned by config.yaml")).toBeTruthy()
+    expect(screen.queryByText(/edit the file/)).toBeNull()
   })
 })

@@ -55,12 +55,14 @@ export function findSection(id: string): SettingsSection | undefined {
 export interface Place { section: string; group: string }
 
 // The cards, by their element IDs, with their homes.
-export const settingsCards: (Place & { id: string; title: string; terms: string; scope?: string })[] = [
+// after: drawn after the group's rows rather than before them.
+export const settingsCards: (Place & { id: string; title: string; terms: string; scope?: string; after?: boolean })[] = [
   { id: "app-appearance", title: "App and terminal theme", section: "appearance", group: "This browser", terms: "app terminal theme colours motion glitch animation", scope: "This browser" },
   { id: "tint", title: "Tint", section: "appearance", group: "This Legato", terms: "colour color identity" },
   { id: "server-theme", title: "Theme for devices that follow this Legato", section: "appearance", group: "This Legato", terms: "server appearance preferred default theme follow server" },
   { id: "needs-you-rail", title: "Needs-you rail", section: "attention", group: "Needs-you rail", terms: "rail attention" },
   { id: "browser-notifications", title: "In this browser", section: "attention", group: "Notify me", terms: "push approvals alert browser notifications", scope: "This browser" },
+  { id: "ntfy", title: "On your phone, by ntfy", section: "attention", group: "Notify me", terms: "ntfy push phone topic server token", after: true },
   { id: "keyboard", title: "Keyboard and prompt detection", section: "input", group: "This browser", terms: "switch modifier shortcuts approval terminal", scope: "This browser" },
   { id: "repositories", title: "Repositories", section: "repositories", group: "Repositories and folders", terms: "repositories workflows.repositories clone folder" },
   { id: "directory-presets", title: "Directory presets", section: "repositories", group: "Repositories and folders", terms: "directory folder path saved" },
@@ -171,7 +173,13 @@ export function settingPlace(setting: { section?: string; group?: string }): Pla
 // Settings drawn by a card of their own rather than a registry row; the
 // card carries their setting-<key> ID.
 export function hasOwnCard(key: string): boolean {
-  return key === "web.tint" || key === "updates.mode" || key.startsWith("web.rail.") || key.startsWith("integrations.mqtt.")
+  return key === "web.tint" || key === "updates.mode" || key.startsWith("web.rail.") || key.startsWith("integrations.mqtt.") || key.startsWith("notifications.ntfy.")
+}
+
+// What a group's heading says when its changes apply, where the mode alone
+// does not say it all.
+export const groupApplies: Record<string, string> = {
+  "attention/Needs-you rail": "Applies now · every device",
 }
 
 // The old category IDs and other fragments links still use, and the home

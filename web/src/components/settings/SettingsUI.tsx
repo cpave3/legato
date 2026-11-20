@@ -63,7 +63,7 @@ export function SettingsRows({ children }: { children: ReactNode }) {
 }
 
 // One setting: what it is on the left, its control on the right.
-export function SettingsRow({ icon: Icon, title, description, browser, control }: { icon: LucideIcon; title: string; description: string; browser?: boolean; control: ReactNode }) {
+export function SettingsRow({ icon: Icon, title, description, browser, control, chip }: { icon: LucideIcon; title: string; description: string; browser?: boolean; control: ReactNode; chip?: ReactNode }) {
   return (
     <div className="flex min-h-16 flex-wrap items-center gap-3 px-4 py-3">
       <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-lg bg-lw-raised text-lw-link">
@@ -73,6 +73,7 @@ export function SettingsRow({ icon: Icon, title, description, browser, control }
         <div className="flex flex-wrap items-center gap-2">
           <p className="text-sm text-lw-text">{title}</p>
           {browser && <BrowserTag />}
+          {chip}
         </div>
         <p className="mt-0.5 text-xs text-lw-text-2">{description}</p>
       </div>

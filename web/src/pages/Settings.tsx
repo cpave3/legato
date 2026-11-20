@@ -34,7 +34,8 @@ import { fetchAdapters } from "../lib/adapters"
 import { queryKeys } from "../lib/query"
 import { useQuery } from "@tanstack/react-query"
 import { SettingsCard, quietButton } from "../components/settings/SettingsUI"
-import { Globe, Palette } from "lucide-react"
+import { Globe, Palette, Smartphone } from "lucide-react"
+import { RegistrySettings } from "../components/settings/RegistrySettings"
 import { useSettings } from "../hooks/useSettings"
 import { SettingsLoadState, SettingsSearch } from "../components/settings/SettingsCatalog"
 import { search as searchSettings, searchEntries } from "../lib/settingsSearch"
@@ -147,6 +148,9 @@ export function SettingsPage() {
     "needs-you-rail": <RailSettings baseUrl={baseUrl} settings={registry} />,
     "browser-notifications": <div id="browser-notifications"><ApprovalNotificationSettings /></div>,
     "keyboard": <KeyboardCard />,
+    "ntfy": <SettingsCard id="ntfy" label="On your phone, by ntfy" icon={Smartphone} title="On your phone, by ntfy" description="Push notifications through an ntfy server, to its app on your phone. Without a topic, none are sent.">
+      <RegistrySettings settings={registry} baseUrl={baseUrl} prefixes={["notifications.ntfy"]} />
+    </SettingsCard>,
     "repositories": <div id="list-repositories"><div id="list-workflows.repositories"><RepositoriesSettings baseUrl={baseUrl} onChanged={() => void settings.refetch?.()} /></div></div>,
     "directory-presets": <DirectorySettings baseUrl={baseUrl} />,
     "repository-guidance": <div id="list-agents.guidance"><RepositoryGuidanceSettings baseUrl={baseUrl} /></div>,
