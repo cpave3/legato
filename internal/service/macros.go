@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 
 	"github.com/cpave3/legato/config"
@@ -25,12 +26,16 @@ var (
 	ErrMacroNotFound = errors.New("no macro of that name")
 	// ErrBuiltinMacro refuses to delete a built-in macro: reset it instead.
 	ErrBuiltinMacro = errors.New("a built-in macro cannot be deleted; reset it instead")
+	// ErrBuiltinMacroName refuses to rename a built-in macro.
+	ErrBuiltinMacroName = errors.New("a built-in macro's name cannot change")
+	// ErrMacroNameTaken refuses a name another macro has.
+	ErrMacroNameTaken = errors.New("another macro has that name")
 	// ErrNotBuiltinMacro refuses to reset a macro that is not built in.
 	ErrNotBuiltinMacro = errors.New("only a built-in macro can be reset")
 )
 
-// The built-in macros, each ending in a newline so a picker submits it
-// as a message. They are the operator's words, not Legato's, so
+// The built-in macros. Every picker sends a macro as a message, so none
+// needs a final new line. They are the operator's words, not Legato's, so
 // they carry no [legato <kind>] tag (see docs/ai/dev-notes.md).
 var builtinMacros = []macros.Macro{
 	{
@@ -38,27 +43,27 @@ var builtinMacros = []macros.Macro{
 		AppliesTo: macros.AppliesToTask,
 		Keys: "Plan this task before you change any code. Read the task and the code it touches, then write a plan: " +
 			"what you will change and where, how you will test it, and what you are unsure of. " +
-			"Wait for me to agree the plan before you start.\n",
+			"Wait for me to agree the plan before you start.",
 	},
 	{
 		Name:      "Implement",
 		AppliesTo: macros.AppliesToTask,
 		Keys: "Implement this task. Work test first where the project has tests, keep the change to what the task asks, " +
-			"run the project's checks and commit when it is done. Then tell me what you changed and anything left to do.\n",
+			"run the project's checks and commit when it is done. Then tell me what you changed and anything left to do.",
 	},
 	{
 		Name:      "Review",
 		AppliesTo: macros.AppliesToPR,
 		Keys: "Review this pull request. If it is not checked out, check it out first (gh pr checkout). Read the change set and the code around it, and report what you find by severity, " +
 			"each with its file and line: bugs, missing tests, and anything that does not do what the pull request says. " +
-			"Do not change the code. Stay open for my questions about it.\n",
+			"Do not change the code. Stay open for my questions about it.",
 	},
 	{
 		Name:      "Address feedback",
 		AppliesTo: macros.AppliesToPR,
 		Keys: "Address the review feedback on this pull request. Read every unresolved review comment and decide whether it is right; " +
 			"fix the ones that are, run the checks, commit and push. Then tell me what you changed, " +
-			"and which comments you did not act on and why.\n",
+			"and which comments you did not act on and why.",
 	},
 }
 
@@ -88,6 +93,25 @@ type MacroEntry struct {
 	Overridden bool `json:"overridden,omitempty"`
 	// Pinned is true when config.yaml gives it.
 	Pinned bool `json:"pinned,omitempty"`
+}
+
+// UnmarshalJSON reads an entry whole: without it, the embedded Macro's
+// own UnmarshalJSON would read the macro's fields and drop the rest.
+func (e *MacroEntry) UnmarshalJSON(data []byte) error {
+	var rest struct {
+		Source     string `json:"source"`
+		Builtin    bool   `json:"builtin"`
+		Overridden bool   `json:"overridden"`
+		Pinned     bool   `json:"pinned"`
+	}
+	if err := json.Unmarshal(data, &rest); err != nil {
+		return err
+	}
+	if err := json.Unmarshal(data, &e.Macro); err != nil {
+		return err
+	}
+	e.Source, e.Builtin, e.Overridden, e.Pinned = rest.Source, rest.Builtin, rest.Overridden, rest.Pinned
+	return nil
 }
 
 // MacroService gives the macros, read at each use: the built-ins (each
@@ -251,6 +275,61 @@ func (s *MacroService) Delete(ctx context.Context, name string) error {
 		return fmt.Errorf("macro %q: %w", entry.Name, config.ErrEntryPinned)
 	}
 	return s.settings.DeleteEntry(ctx, "macros", entry.Name)
+}
+
+// Rename gives a macro added here a new name. A built-in, one config.yaml
+// gives, and a name another macro has (ignoring case) are refused.
+func (s *MacroService) Rename(ctx context.Context, from, to, by string) error {
+	to = strings.TrimSpace(to)
+	if to == "" {
+		return errors.New("a macro needs a name")
+	}
+	if _, ok := builtinMacro(from); ok {
+		return fmt.Errorf("%q: %w", from, ErrBuiltinMacroName)
+	}
+	entry, err := s.Get(ctx, from)
+	if err != nil {
+		return err
+	}
+	if entry.Pinned {
+		return fmt.Errorf("macro %q: %w", entry.Name, config.ErrEntryPinned)
+	}
+	if _, ok := builtinMacro(to); ok {
+		return fmt.Errorf("%q: %w", to, ErrMacroNameTaken)
+	}
+	list, err := s.List(ctx)
+	if err != nil {
+		return err
+	}
+	for _, m := range list {
+		if strings.EqualFold(m.Name, to) && !strings.EqualFold(m.Name, entry.Name) {
+			return fmt.Errorf("%q: %w", to, ErrMacroNameTaken)
+		}
+	}
+	return s.settings.RenameEntry(ctx, "macros", s.storedName(ctx, entry.Name), to, by)
+}
+
+// AgentTier is one of an agent tool's tiers (adapters.<tool>.tiers): a named
+// launch profile, usually choosing the model, that a macro may start with.
+type AgentTier struct {
+	Name        string `json:"name"`
+	Description string `json:"description,omitempty"`
+}
+
+// Tiers is each agent tool's tiers, by name; a tool with none is left out.
+func (s *MacroService) Tiers(ctx context.Context) (map[string][]AgentTier, error) {
+	cfg, err := s.settings.Effective(ctx)
+	if err != nil {
+		return nil, err
+	}
+	out := map[string][]AgentTier{}
+	for kind, adapter := range cfg.Adapters {
+		for name, tier := range adapter.Tiers {
+			out[kind] = append(out[kind], AgentTier{Name: name, Description: tier.Description})
+		}
+		sort.Slice(out[kind], func(i, j int) bool { return out[kind][i].Name < out[kind][j].Name })
+	}
+	return out, nil
 }
 
 // Reset puts a built-in back as shipped, removing its edit; one with no

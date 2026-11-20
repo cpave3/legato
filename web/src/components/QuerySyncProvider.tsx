@@ -93,6 +93,7 @@ export function QuerySyncProvider({ children }: { children: ReactNode }) {
           invalidate(queryKeys.settings(baseUrl))
           invalidate(queryKeys.configSettings(baseUrl))
           invalidate(queryKeys.configLists(baseUrl))
+          invalidate(queryKeys.macros(baseUrl))
           break
         case "update_changed":
           // A check, a new mode, or an update installing: the settings

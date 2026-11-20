@@ -11,16 +11,16 @@ vi.mock("../../lib/configSettings", () => ({
   fetchConfigLists: fetchLists, saveConfigListEntry: save, removeConfigListEntry: remove,
 }))
 const workspace: ConfigList = { key: "workspaces", title: "Workspaces", class: "change", mode: "restart", name_field: "name", entries: [] }
-const macros: ConfigList = { ...workspace, key: "macros", title: "Macros" }
+const tools: ConfigList = { ...workspace, key: "adapters", title: "Agent tools" }
 function show(lists?: string[], client = new QueryClient({ defaultOptions: { queries: { retry: false } } })) {
   return { client, ...render(<QueryClientProvider client={client}><ListSettings baseUrl="http://test" lists={lists} /></QueryClientProvider>) }
 }
-beforeEach(() => { fetchLists.mockReset().mockResolvedValue([workspace, macros]); save.mockReset().mockResolvedValue(undefined); remove.mockReset().mockResolvedValue(undefined) })
+beforeEach(() => { fetchLists.mockReset().mockResolvedValue([workspace, tools]); save.mockReset().mockResolvedValue(undefined); remove.mockReset().mockResolvedValue(undefined) })
 afterEach(cleanup)
 
 it("filters by list key, defaults to all, and renders nothing for an empty owner", async () => {
-  const view = show(["macros"])
-  await screen.findByRole("button", { name: "Add to macros" })
+  const view = show(["adapters"])
+  await screen.findByRole("button", { name: "Add to agent tools" })
   expect(screen.queryByRole("button", { name: "Add to workspaces" })).toBeNull()
   view.unmount()
   const empty = show([])
@@ -28,7 +28,7 @@ it("filters by list key, defaults to all, and renders nothing for an empty owner
   empty.unmount()
   show()
   await screen.findByRole("button", { name: "Add to workspaces" })
-  expect(screen.getByRole("button", { name: "Add to macros" })).toBeInTheDocument()
+  expect(screen.getByRole("button", { name: "Add to agent tools" })).toBeInTheDocument()
 })
 
 it("shows loading, retries errors, and keeps cached lists visible after a failed refresh", async () => {
@@ -66,7 +66,6 @@ it("edits workspace fields and advanced JSON without losing unknown fields, and 
 })
 
 it.each([
-  { key: "macros", title: "Macros", field: "Keys", before: { keys: "old", future: 1 }, text: "echo hello\nEnter", expected: { keys: "echo hello\nEnter", future: 1 } },
   { key: "adapters", title: "Agent tools", field: "Launch arguments (one per line)", before: { launch_args: ["--old"], tiers: { fast: { launch_args: ["--fast"] } } }, text: "--model\nmodel with spaces", expected: { launch_args: ["--model", "model with spaces"], tiers: { fast: { launch_args: ["--fast"] } } } },
   { key: "credentials", title: "Credentials", field: "Secret reference", before: { secret: "op://vault/item/password", policy: [{ operation: "read" }], settings: { upstream: "https://example.com" } }, text: "legato://mqtt", expected: { secret: "legato://mqtt", policy: [{ operation: "read" }], settings: { upstream: "https://example.com" } } },
   { key: "credential_sources", title: "Credential sources", field: "Profile", before: { profile: "ssh", policy: [] }, text: "secret", expected: { profile: "secret", policy: [] } },
@@ -153,31 +152,3 @@ it("keeps an entry draft when its server value changes and asks which version to
   await waitFor(() => expect(save).toHaveBeenCalledWith("http://test", "workspaces", "Home", { path: "/mine" }))
 })
 
-it("edits a macro's applies-to, agent and tier", async () => {
-  fetchLists.mockResolvedValue([{ ...macros, entries: [{ name: "mine", value: { keys: "go" }, pinned: false, source: "database" }] }])
-  show(["macros"])
-  fireEvent.click(await screen.findByRole("button", { name: "Edit" }))
-  fireEvent.change(screen.getByRole("combobox", { name: "Applies to" }), { target: { value: "pr" } })
-  fireEvent.change(screen.getByRole("textbox", { name: "Agent tool" }), { target: { value: "codex" } })
-  fireEvent.change(screen.getByRole("textbox", { name: "Tier" }), { target: { value: "smart" } })
-  fireEvent.click(screen.getByRole("button", { name: "Save" }))
-  await waitFor(() => expect(save).toHaveBeenCalledWith("http://test", "macros", "mine", { keys: "go", applies_to: "pr", agent: "codex", tier: "smart" }))
-})
-
-it("offers Edit and Reset on built-in macros, never Remove", async () => {
-  fetchLists.mockResolvedValue([{ ...macros, mode: "live", entries: [
-    { name: "Plan", value: { keys: "plan", applies_to: "task" }, pinned: false, source: "default", builtin: true },
-    { name: "Review", value: { keys: "mine" }, pinned: false, source: "database", builtin: true, overridden: true },
-  ] }])
-  show(["macros"])
-  const plan = await screen.findByTestId("entry-macros-Plan")
-  expect(plan).toHaveTextContent("built in")
-  expect(plan.querySelector("button[aria-label='Remove Plan']")).toBeNull()
-  expect(plan.querySelector("button[aria-label='Reset Plan']")).toBeNull()
-  const review = screen.getByTestId("entry-macros-Review")
-  expect(review).toHaveTextContent("edited")
-  expect(review.querySelector("button[aria-label='Remove Review']")).toBeNull()
-  fireEvent.click(screen.getByRole("button", { name: "Reset Review" }))
-  await waitFor(() => expect(remove).toHaveBeenCalledWith("http://test", "macros", "Review"))
-  expect(await screen.findByRole("status")).toHaveTextContent("Reset")
-})

@@ -16,6 +16,7 @@ import { LearningsPage } from "./pages/LearningsPage"
 import { LearningDetailPage } from "./pages/LearningDetailPage"
 import { ReportsPage } from "./pages/ReportsPage"
 import { RemotePage } from "./pages/RemotePage"
+import { MacrosPage } from "./pages/MacrosPage"
 import { AuditPage } from "./pages/AuditPage"
 import { clearToken } from "./lib/auth"
 import { SettingsRequestError, useSettings } from "./hooks/useSettings"
@@ -75,6 +76,7 @@ export default function App() {
           <Route path="/learning/:learningId" element={<LearningDetailPage />} />
           <Route path="/reports" element={<ReportsPage />} />
           <Route path="/remote" element={<RemotePage />} />
+          <Route path="/macros" element={<MacrosPage />} />
           <Route path="/audit" element={<AuditPage />} />
           <Route path="/settings" element={<SettingsPage />} />
           <Route path="*" element={<Navigate to="/agents" replace />} />

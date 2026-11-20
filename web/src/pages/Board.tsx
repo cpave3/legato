@@ -1144,6 +1144,7 @@ export function BoardPage() {
         onReviewPasses={pr => { void startReviewLoop(contextMenu.card, pr) }}
         macros={suggestedFirst(macros.macros, "task", macros.suggested).list}
         onMacro={macro => { void runMacro(contextMenu.card, macro) }}
+        onManageMacros={() => navigateTo("/macros")}
         onClose={() => setContextMenu(null)}
       />}
       {reviewLoop && reviewPassesDefinition && <RunWorkflowDialog definition={reviewPassesDefinition} repositories={workflowDiscovery.data?.repositories ?? []} initialValues={{ repo: reviewLoop.pr.repo, pr_number: String(reviewLoop.pr.pr_number), agent_author: "true" }} readOnlyInputs={["repo", "pr_number", "agent_author"]} onClose={() => setReviewLoop(null)} />}

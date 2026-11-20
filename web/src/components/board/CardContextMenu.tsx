@@ -4,7 +4,8 @@ import { useRef, useState, useSyncExternalStore } from "react"
 import { ChevronRight, ExternalLink, Move, Play, Repeat, Send, Trash2, Workflow } from "lucide-react"
 import type { BoardCard, PRMetaView } from "../../lib/board-types"
 import type { CardWorkflowOption } from "../../lib/card-workflows"
-import type { Macro } from "../../lib/macros"
+import { macroAgentLine, type Macro } from "../../lib/macros"
+import { agentKindLabel } from "../../lib/agentKind"
 import { LoadingState } from "../ui/LoadingState"
 
 const subscribeViewport = (notify: () => void) => {
@@ -26,6 +27,7 @@ export function CardContextMenu({
   onReviewPasses,
   macros = [],
   onMacro,
+  onManageMacros,
   onAction,
   onWorkflow,
   onClose,
@@ -45,6 +47,8 @@ export function CardContextMenu({
   // it to the agent running.
   macros?: Macro[]
   onMacro?: (macro: Macro) => void
+  // Opens the Macros page.
+  onManageMacros?: () => void
   onAction: (action: CardContextAction) => void
   onWorkflow?: (workflow: CardWorkflowOption) => void
   onClose: () => void
@@ -78,7 +82,11 @@ export function CardContextMenu({
       {!card.away && onReviewPasses && reviewPasses.map(pr => <button key={`review-${pr.repo}-${pr.pr_number}`} type="button" role="menuitem" onClick={() => { restoreFocus(); onClose(); onReviewPasses(pr) }} className="flex min-h-10 w-full items-center gap-3 rounded px-3 text-left text-sm text-zinc-200 hover:bg-zinc-800 focus:bg-zinc-800 focus:outline-none"><Repeat size={16} /><span>Review passes · #{pr.pr_number}</span></button>)}
       {!card.away && onMacro && macros.length > 0 && <>
         <p className="mt-1 border-t border-zinc-800 px-3 pb-1 pt-2 text-xs font-medium uppercase tracking-wide text-zinc-500">Macros</p>
-        {macros.map(macro => <button key={`macro-${macro.name}`} type="button" role="menuitem" aria-label={`Macro: ${macro.name}`} title={macro.agent ? `Starts ${macro.agent}${macro.tier ? ` (${macro.tier})` : ""} when no agent is running` : undefined} onClick={() => { restoreFocus(); onClose(); onMacro(macro) }} className="flex min-h-10 w-full items-center gap-3 rounded px-3 text-left text-sm text-zinc-200 hover:bg-zinc-800 focus:bg-zinc-800 focus:outline-none"><Play size={16} /><span className="truncate">{macro.name}</span></button>)}
+        {macros.map(macro => {
+          const agentLine = macroAgentLine(macro, agentKindLabel)
+          return <button key={`macro-${macro.name}`} type="button" role="menuitem" aria-label={`Macro: ${macro.name}`} onClick={() => { restoreFocus(); onClose(); onMacro(macro) }} className="flex min-h-10 w-full items-center gap-3 rounded px-3 py-1 text-left text-sm text-zinc-200 hover:bg-zinc-800 focus:bg-zinc-800 focus:outline-none"><Play size={16} className="shrink-0" /><span className="min-w-0"><span className="block truncate">{macro.name}</span>{agentLine && <span className="block truncate text-[11px] text-lw-text-2">{agentLine}</span>}</span></button>
+        })}
+        {onManageMacros && <button type="button" role="menuitem" onClick={() => { restoreFocus(); onClose(); onManageMacros() }} className="flex min-h-10 w-full items-center rounded px-3 text-left text-sm text-lw-link hover:bg-zinc-800 focus:bg-zinc-800 focus:outline-none">Manage macros</button>}
       </>}
       {!card.away && <button ref={workflowTriggerRef} type="button" role="menuitem" aria-haspopup="menu" aria-expanded={flyoutOpen} onMouseEnter={() => { if (!compact) setFlyoutOpen(true) }} onKeyDown={event => { if (event.key === "ArrowRight") { event.preventDefault(); setFlyoutOpen(true) } }} onClick={() => setFlyoutOpen(true)} className="mt-1 flex min-h-10 w-full items-center gap-3 border-t border-zinc-800 px-3 pt-1 text-left text-sm text-zinc-200 hover:bg-zinc-800 focus:bg-zinc-800 focus:outline-none"><Workflow size={16} /><span>Workflows</span><ChevronRight className="ml-auto" size={15} /></button>}
     </div>

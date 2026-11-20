@@ -18,7 +18,7 @@ const macros: Macro[] = [
 ]
 
 function show(run = vi.fn()) {
-  render(<BoardMacrosContext.Provider value={{ list: { macros, suggested: { task: "Plan", my_pr: "Address feedback", others_pr: "Review" } }, run }}>
+  render(<BoardMacrosContext.Provider value={{ list: { macros, suggested: { task: "Plan", my_pr: "Address feedback", others_pr: "Review" }, tiers: {} }, run }}>
     <BoardCard card={card} selected={false} column="Doing" showWorkspace={false} onClick={() => {}} />
   </BoardMacrosContext.Provider>)
   return run

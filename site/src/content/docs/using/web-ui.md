@@ -30,6 +30,7 @@ On a phone, a tab bar along the bottom holds **Attention**, **Board**, **Agents*
 | **Review** | Review tours of what agents changed. See [Reviews](/legato/using/reviews/). |
 | **Plans** | Plans agents proposed, waiting for your decision. See [Plans](/legato/using/plans/). |
 | **Flows** | Workflow runs and the workflows you can run. See [Workflows](/legato/using/workflows/#runs-and-workflows-in-the-web-ui). |
+| **Macros** | Saved messages for agents: the built-ins and your own. See [Macros](/legato/using/agents/#macros). |
 | **Learning** | The Legato Learn ledger. See [Legato Learn](/legato/using/learn/). |
 | **Reports** | Where agent time went. See [Reports](/legato/using/reports/). |
 | **Remote** | Clones Legato made for agents. |
@@ -171,7 +172,7 @@ Requests from agents that wait for you (permissions, questions, credentials) app
 Choose a category, or search by task, title or configuration key. On a wide screen, categories stay beside the selected section. On a phone, open a category from the list; **Back to Settings** returns to it. Search results open and focus the matching control. Existing setting links still work.
 
 - **Preferences**: app and terminal appearance, motion, prompt detection, keyboard switching and browser notifications.
-- **Agents and workspaces**: repositories, directory presets, resources, [skills](/legato/agent-tools/skills/), guidance, agent tools, workspaces, macros, sandbox, swarms and engrams. Managed clones link to **Remote**.
+- **Agents and workspaces**: repositories, directory presets, resources, [skills](/legato/agent-tools/skills/), guidance, agent tools, workspaces, sandbox, swarms and engrams. Managed clones link to **Remote**, and macros to the **Macros** page.
 - **Reeve**: sessions, automation, rules, engram, pairings and voice.
 - **Security**: credentials and sources, grants, audit, signing devices and integration tokens.
 - **Integrations**: Jira, GitHub, Burnlite, Argus, MCP servers, MQTT and server notification delivery.

@@ -373,6 +373,10 @@ A card on the board is a task: its ID is the task's. An agent is addressed by it
 | `PUT` | `/api/resources/{id}` | change | Edit a resource |  |
 | `DELETE` | `/api/resources/{id}` | risky | Delete a resource |  |
 | `GET` | `/api/macros` | read | List the macros |  |
+| `PUT` | `/api/macros/{name}` | change | Save a macro: a new one, an edit, or an edit of a built-in |  |
+| `DELETE` | `/api/macros/{name}` | change | Delete a macro added in Legato |  |
+| `POST` | `/api/macros/{name}/reset` | change | Put a built-in macro back as shipped |  |
+| `POST` | `/api/macros/{name}/rename` | change | Rename a macro added in Legato |  |
 | `POST` | `/api/voice/transcribe` | read | Transcribe a voice recording |  |
 | `GET` | `/api/settings/integrations` | read | Read the integrations |  |
 | `GET` | `/api/settings/mains` | read | List the main instances |  |

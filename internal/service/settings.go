@@ -554,6 +554,26 @@ func (s *SettingsService) CheckEntry(ctx context.Context, list, name string, raw
 	return raw, nil
 }
 
+// RenameEntry gives one database entry of a list a new name. The caller
+// says whether the new name is free; an entry config.yaml gives is refused.
+func (s *SettingsService) RenameEntry(ctx context.Context, list, from, to, by string) error {
+	if _, ok := config.LookupEntryList(list); !ok {
+		return fmt.Errorf("%s: %w", list, config.ErrUnknownSetting)
+	}
+	cfg, err := s.load()
+	if err != nil {
+		return err
+	}
+	if cfg.PinnedEntry(list, from) || cfg.PinnedEntry(list, to) {
+		return fmt.Errorf("%s %q: %w", list, from, config.ErrEntryPinned)
+	}
+	if err := s.db.RenameSettingEntry(ctx, list, from, strings.TrimSpace(to), by); err != nil {
+		return err
+	}
+	s.changed()
+	return nil
+}
+
 // DeleteEntry removes one database entry of a list.
 func (s *SettingsService) DeleteEntry(ctx context.Context, list, name string) error {
 	if err := ownRuleAllowed(ctx, list); err != nil && !s.tightensRule(ctx, list, name, nil) {

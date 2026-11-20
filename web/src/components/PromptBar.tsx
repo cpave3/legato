@@ -6,6 +6,7 @@ import { insertImagePath } from "../lib/agentImage"
 import { PastedImageStrip } from "./PastedImageStrip"
 import { AttachImageButton } from "./AttachImageButton"
 import { useMacroHotkeys } from "../hooks/useMacroHotkeys"
+import { macroMessage } from "../lib/macros"
 import { apiFetch } from "../lib/api"
 import { cn } from "../lib/utils"
 import { ArrowLeftRight, X, Terminal, Zap } from "lucide-react"
@@ -267,7 +268,7 @@ export const PromptBar = forwardRef<PromptBarHandle, PromptBarProps>(function Pr
   }
 
   const handleMacro = useCallback((keys: string) => {
-    onSubmitMessage(keys)
+    onSubmitMessage(macroMessage(keys))
     setMacrosOpen(false)
   }, [onSubmitMessage])
   const openMacros = useCallback(() => setMacrosOpen(true), [])

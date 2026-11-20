@@ -12,12 +12,6 @@ function pretty(value: unknown): string {
 type EntryField = { key: string; label: string; kind?: "multiline" | "strings" | "bool" | "choice"; choices?: [string, string][] }
 const commonFields: Record<string, EntryField[]> = {
   workspaces: [{ key: "color", label: "Color" }, { key: "path", label: "Path" }],
-  macros: [
-    { key: "keys", label: "Keys", kind: "multiline" },
-    { key: "applies_to", label: "Applies to", kind: "choice", choices: [["", "Anything"], ["task", "A task"], ["pr", "A pull request"]] },
-    { key: "agent", label: "Agent tool" },
-    { key: "tier", label: "Tier" },
-  ],
   adapters: [
     { key: "launch_args", label: "Launch arguments (one per line)", kind: "strings" },
     { key: "models", label: "Models (one per line)", kind: "strings" },
@@ -88,7 +82,7 @@ function EntryEditor({ list, entry, onSave, onCancel }: { list: ConfigList; entr
             ? <textarea className={fieldClass} rows={3} disabled={!object}
               value={field.kind === "strings" ? (Array.isArray(object?.[field.key]) ? (object[field.key] as string[]).join("\n") : "") : typeof object?.[field.key] === "string" ? object[field.key] as string : ""}
               onChange={(e) => update(field.key, field.kind === "strings" ? (e.target.value === "" ? [] : e.target.value.split("\n")) : e.target.value)} />
-            : <input className={fieldClass} disabled={!object} value={typeof object?.[field.key] === "string" ? object[field.key] as string : ""} onChange={(e) => update(field.key, list.key === "macros" && e.target.value === "" ? undefined : e.target.value)} />}
+            : <input className={fieldClass} disabled={!object} value={typeof object?.[field.key] === "string" ? object[field.key] as string : ""} onChange={(e) => update(field.key, e.target.value)} />}
       </label>)}
       {list.key === "credentials" && <p className="text-xs text-lw-text-2">Enter a secret reference, such as legato://name or op://vault/item/field, not the secret value.</p>}
       {list.key === "agents.tmux_options" && <label className="flex flex-col gap-1 text-xs text-lw-text-2">
@@ -135,11 +129,11 @@ function ListCard({ list, baseUrl }: { list: ConfigList; baseUrl: string }) {
     setEditing(null)
     await refresh()
   }
-  const remove = async (name: string, reset = false) => {
+  const remove = async (name: string) => {
     setError("")
     try {
       const result = await removeConfigListEntry(baseUrl, list.key, name)
-      setNotice(result?.status === "needs_signature" ? "Awaiting approval — approve this removal on your phone or with a passkey." : reset ? "Reset to the built-in." : "Removed.")
+      setNotice(result?.status === "needs_signature" ? "Awaiting approval — approve this removal on your phone or with a passkey." : "Removed.")
       await refresh()
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : String(reason))
@@ -152,16 +146,13 @@ function ListCard({ list, baseUrl }: { list: ConfigList; baseUrl: string }) {
           <li key={entry.name} className="py-2" data-testid={`entry-${list.key}-${entry.name}`}>
             <div className="flex flex-wrap items-center gap-2">
               <span className="text-sm text-lw-text">{entry.name}</span>
-              {entry.builtin && <span className="rounded bg-lw-raised px-1.5 py-0.5 text-[11px] text-lw-text-2">{entry.overridden ? "built in · edited" : "built in"}</span>}
               {entry.pinned
                 ? <span className="inline-flex items-center gap-1 rounded bg-lw-raised px-1.5 py-0.5 text-[11px] text-lw-text-2"><Lock size={10} aria-hidden /> config.yaml</span>
                 : entry.source !== "default" && <span className="rounded bg-lw-accent-soft px-1.5 py-0.5 text-[11px] text-lw-accent-text">set here</span>}
               {!entry.pinned && (
                 <span className="ml-auto flex gap-1">
                   <button type="button" className={quietButton} onClick={() => { setNotice(""); setEditing(entry.name) }}>Edit</button>
-                  {entry.builtin
-                    ? entry.overridden && <button type="button" className={quietButton} onClick={() => void remove(entry.name, true)} aria-label={`Reset ${entry.name}`}>Reset</button>
-                    : <button type="button" className={quietButton} onClick={() => void remove(entry.name)} aria-label={`Remove ${entry.name}`}>Remove</button>}
+                  <button type="button" className={quietButton} onClick={() => void remove(entry.name)} aria-label={`Remove ${entry.name}`}>Remove</button>
                 </span>
               )}
             </div>

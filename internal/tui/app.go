@@ -2853,39 +2853,17 @@ func (a App) handleMacroSelected(msg overlay.MacroSelectedMsg) (tea.Model, tea.C
 		return a, nil
 	}
 
-	session := sel.TmuxSession
-	if session == "" {
-		session = "legato-" + sel.TaskID
-	}
-	if a.tmux == nil {
-		return a, nil
-	}
-	keys := msg.Macro.Keys
-	tmuxer := a.tmux
+	// A macro is a message: it goes the way any message to the agent goes
+	// (its native connection, else its terminal), so a final new line is
+	// not needed to submit it.
+	taskID, name := sel.TaskID, msg.Macro.Name
+	text := strings.TrimRight(msg.Macro.Keys, "\n")
+	agentSvc := a.agentSvc
 	return a, func() tea.Msg {
-		if a.agentSvc.HasChimeraEndpoint(context.Background(), sel.TaskID) {
-			if !strings.HasSuffix(keys, "\n") {
-				return statusbar.ErrorMsg{Text: "Native agent macros must submit a message"}
-			}
-			if err := a.agentSvc.SendMessage(context.Background(), sel.TaskID, strings.TrimSuffix(keys, "\n")); err != nil {
-				return statusbar.ErrorMsg{Text: err.Error()}
-			}
-			return statusbar.InfoMsg{Text: "Sent macro: " + msg.Macro.Name}
-		}
-
-		var err error
-		if len(keys) > 0 && keys[len(keys)-1] == '\n' {
-			err = tmuxer.SendKeysLine(session, keys[:len(keys)-1])
-			if err == nil {
-				err = tmuxer.SendKey(session, "Enter")
-			}
-		} else {
-			err = tmuxer.SendKeysLine(session, keys)
-		}
-		if err != nil {
+		if err := agentSvc.SendMessage(context.Background(), taskID, text); err != nil {
 			return statusbar.ErrorMsg{Text: "macro send failed: " + err.Error()}
 		}
-		return statusbar.InfoMsg{Text: "Sent macro: " + msg.Macro.Name}
+		return statusbar.InfoMsg{Text: "Sent macro: " + name}
 	}
 }
 func (a App) handleCreateTask(msg overlay.CreateTaskMsg) (tea.Model, tea.Cmd) {
