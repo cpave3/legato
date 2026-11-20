@@ -30,9 +30,11 @@ interface DialogProps {
   onClose: () => void
   children: ReactNode
   dismissible?: boolean
+  // Classes for the backdrop, such as less padding on a phone.
+  className?: string
 }
 
-export function Dialog({ open, onClose, children, dismissible = true }: DialogProps) {
+export function Dialog({ open, onClose, children, dismissible = true, className }: DialogProps) {
   const titleId = useId()
   const containerRef = useRef<HTMLDivElement>(null)
   useModalLayer({ open, onClose, containerRef, dismissible })
@@ -44,7 +46,7 @@ export function Dialog({ open, onClose, children, dismissible = true }: DialogPr
       <div
         ref={containerRef}
         data-testid="dialog-backdrop"
-        className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4"
+        className={cn("fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4", className)}
         onMouseDown={(event) => {
           if (dismissible && event.target === event.currentTarget) onClose()
         }}

@@ -8,6 +8,7 @@ import type { SandboxSwitch } from "../lib/agentReload"
 import { useWebSocket, type PromptState, type WSMessage } from "../hooks/useWebSocket"
 import { useServer } from "../hooks/useServer"
 import { useMacroHotkeys } from "../hooks/useMacroHotkeys"
+import { macroMessage } from "../lib/macros"
 import { useAgentReselected } from "../hooks/useAgentSelection"
 import { apiFetch } from "../lib/api"
 import { dispatchAgentInput } from "../lib/agentInput"
@@ -988,7 +989,7 @@ export function NativeAgentPanel({ agentId, reeve, sandboxed, onKill, onRename, 
   }, [agentId, baseUrl, model, replaceSyncState])
 
   const handleMacro = useCallback((keys: string) => {
-    dispatchAgentInput(keys, {
+    dispatchAgentInput(macroMessage(keys), {
       executeBang: (command) => {
         if (busy) {
           setBangQueue((prev) => [...prev, command])

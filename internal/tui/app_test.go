@@ -1288,6 +1288,7 @@ type fakeAgentService struct {
 	lookupCalls    int
 	groupTaskID    string
 	group          *string
+	sent           []string // task:message, from SendMessage
 }
 
 func (f *fakeAgentService) SpawnAgent(_ context.Context, _ string, _, _ int, opts ...service.AgentSpawnOptions) error {
@@ -1362,7 +1363,8 @@ func (f *fakeAgentService) SendPeerMessage(context.Context, string, string, stri
 func (f *fakeAgentService) BroadcastToPeers(context.Context, string, string, string, string) (service.AgentBroadcastResult, error) {
 	return service.AgentBroadcastResult{}, nil
 }
-func (f *fakeAgentService) SendMessage(_ context.Context, _ string, _ string) error {
+func (f *fakeAgentService) SendMessage(_ context.Context, taskID string, message string) error {
+	f.sent = append(f.sent, taskID+":"+message)
 	return nil
 }
 func (f *fakeAgentService) InterruptAgent(_ context.Context, _ string) error {
@@ -2079,6 +2081,29 @@ func TestMacroSelectedClosesOverlay(t *testing.T) {
 	})
 	if app.overlayType != overlayNone {
 		t.Errorf("overlay should close after select, got %d", app.overlayType)
+	}
+}
+
+// A macro picked for a running agent goes through the agent's message path
+// (its native connection, else its terminal), with or without a final new
+// line, never typed into tmux key by key.
+func TestAPickedMacroIsSentAsAMessage(t *testing.T) {
+	for _, keys := range []string{"task test\n", "task test"} {
+		svc := &fakeAgentService{agents: twoAgents()}
+		app := NewApp(&fakeBoardService{}, nil, svc, nil, &fakeReportService{}, theme.NewIcons("unicode"), nil, "", nil, nil, "", nil, nil)
+		app, _ = updateApp(app, tea.WindowSizeMsg{Width: 100, Height: 30})
+		app, _ = updateApp(app, agents.AgentsRefreshedMsg{Agents: twoAgents()})
+		_, cmd := updateApp(app, overlay.MacroSelectedMsg{Macro: macros.Macro{Name: "tests", Keys: keys}})
+		if cmd == nil {
+			t.Fatalf("%q: no command to send the macro", keys)
+		}
+		msg := cmd()
+		if len(svc.sent) != 1 || svc.sent[0] != "task-1:task test" {
+			t.Fatalf("%q: sent %v, want [task-1:task test]", keys, svc.sent)
+		}
+		if info, ok := msg.(statusbar.InfoMsg); !ok || info.Text != "Sent macro: tests" {
+			t.Fatalf("%q: status = %#v", keys, msg)
+		}
 	}
 }
 

@@ -177,3 +177,99 @@ func TestSettingsListsMacrosWithTheBuiltIns(t *testing.T) {
 	}
 	t.Fatal("no macros list")
 }
+
+func TestAMacroOfYoursCanBeRenamed(t *testing.T) {
+	settings, _ := newSettingsFixture(t, "")
+	ctx := context.Background()
+	svc := NewMacroService(settings)
+	if err := svc.Save(ctx, "Deep review", macros.Macro{Keys: "review deeply", AppliesTo: "pr", Agent: "codex"}, "web"); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.Rename(ctx, "deep review", "Thorough review", "web"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := svc.Get(ctx, "Deep review"); !errors.Is(err, ErrMacroNotFound) {
+		t.Fatalf("old name: err = %v, want ErrMacroNotFound", err)
+	}
+	got, err := svc.Get(ctx, "Thorough review")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if got.Name != "Thorough review" || got.Keys != "review deeply" || got.AppliesTo != "pr" || got.Agent != "codex" {
+		t.Fatalf("renamed = %+v", got)
+	}
+	if err := svc.Rename(ctx, "Thorough review", "THOROUGH review", "web"); err != nil {
+		t.Fatalf("changing only the case: %v", err)
+	}
+	if got, _ := svc.Get(ctx, "thorough review"); got.Name != "THOROUGH review" {
+		t.Fatalf("case change: name = %q", got.Name)
+	}
+}
+
+func TestARenameIsRefusedForBuiltInsFileMacrosAndNamesInUse(t *testing.T) {
+	settings, _ := newSettingsFixture(t, "macros:\n  - name: fromfile\n    keys: hi\n")
+	ctx := context.Background()
+	svc := NewMacroService(settings)
+	for _, name := range []string{"Mine", "Other"} {
+		if err := svc.Save(ctx, name, macros.Macro{Keys: "text"}, "web"); err != nil {
+			t.Fatal(err)
+		}
+	}
+	if err := svc.Rename(ctx, "Plan", "My plan", "web"); !errors.Is(err, ErrBuiltinMacroName) {
+		t.Errorf("built-in: err = %v, want ErrBuiltinMacroName", err)
+	}
+	if err := svc.Rename(ctx, "fromfile", "Other file", "web"); !errors.Is(err, config.ErrEntryPinned) {
+		t.Errorf("config.yaml: err = %v, want ErrEntryPinned", err)
+	}
+	for _, taken := range []string{"other", "review", "FromFile"} {
+		if err := svc.Rename(ctx, "Mine", taken, "web"); !errors.Is(err, ErrMacroNameTaken) {
+			t.Errorf("to %q: err = %v, want ErrMacroNameTaken", taken, err)
+		}
+	}
+	if err := svc.Rename(ctx, "Missing", "Anything", "web"); !errors.Is(err, ErrMacroNotFound) {
+		t.Errorf("missing: err = %v, want ErrMacroNotFound", err)
+	}
+	if err := svc.Rename(ctx, "Mine", "  ", "web"); err == nil {
+		t.Error("blank name: want an error")
+	}
+	if got, err := svc.Get(ctx, "Mine"); err != nil || got.Keys != "text" {
+		t.Fatalf("Mine after refused renames = %+v, %v", got, err)
+	}
+}
+
+func TestMacroTiersAreEachAgentsTiersInOrder(t *testing.T) {
+	settings, _ := newSettingsFixture(t, `adapters:
+  claude-code:
+    tiers:
+      small: {description: Haiku for quick jobs, launch_args: [--model, haiku]}
+      large: {description: Opus for hard reviews, launch_args: [--model, opus]}
+  codex: {}
+`)
+	tiers, err := NewMacroService(settings).Tiers(context.Background())
+	if err != nil {
+		t.Fatal(err)
+	}
+	want := []AgentTier{{Name: "large", Description: "Opus for hard reviews"}, {Name: "small", Description: "Haiku for quick jobs"}}
+	got := tiers["claude-code"]
+	if len(got) != len(want) || got[0] != want[0] || got[1] != want[1] {
+		t.Fatalf("claude-code tiers = %+v, want %+v", got, want)
+	}
+	if _, ok := tiers["codex"]; ok {
+		t.Errorf("codex has no tiers but is listed: %+v", tiers["codex"])
+	}
+}
+
+func TestAMacroEntryReadsBackWhole(t *testing.T) {
+	in := MacroEntry{Macro: macros.Macro{Name: "Plan", Keys: "plan", AppliesTo: "task", Agent: "codex", Tier: "large"}, Source: MacroOverride, Builtin: true, Overridden: true}
+	data, err := json.Marshal(in)
+	if err != nil {
+		t.Fatal(err)
+	}
+	var out MacroEntry
+	if err := json.Unmarshal(data, &out); err != nil {
+		t.Fatal(err)
+	}
+	if out != in {
+		t.Fatalf("read back %+v, want %+v", out, in)
+	}
+}

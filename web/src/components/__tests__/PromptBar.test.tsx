@@ -19,8 +19,8 @@ afterEach(() => {
   cleanup()
 })
 
-it("submits macros through the chat interface without sending raw keys", async () => {
-  const macro = "!legato task show $LEGATO_TASK_ID --format full"
+it("submits macros through the chat interface without sending raw keys or a final new line", async () => {
+  const macro = "!legato task show $LEGATO_TASK_ID --format full\n"
   mockFetch.mockResolvedValue({
     ok: true,
     json: async () => ({ macros: [{ name: "Show task", keys: macro }] }),
@@ -47,7 +47,7 @@ it("submits macros through the chat interface without sending raw keys", async (
   fireEvent.click(item)
 
   await waitFor(() => expect(onSubmitMessage).toHaveBeenCalledOnce())
-  expect(onSubmitMessage).toHaveBeenCalledWith(macro)
+  expect(onSubmitMessage).toHaveBeenCalledWith("!legato task show $LEGATO_TASK_ID --format full")
   expect(onSendKeys).not.toHaveBeenCalled()
 })
 

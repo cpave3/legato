@@ -150,7 +150,7 @@ To see colors, run a build with a path of its own against a throwaway config (se
 
 ## Macro delivery safety
 
-Terminal macros pass the foreground guard ([Agent states](agent-states.md)); a shell never receives them. A bound native agent accepts only message-submitting macros (ending in a newline), through `SendMessage`, not raw keys.
+The `m` picker sends a macro through `AgentService.SendMessage`, as any message: the native connection when the agent has one, else its terminal, past the foreground guard ([Agent states](agent-states.md)), so a shell never receives it. It is never typed key by key, and a final new line is dropped, not pressed.
 
 ## Macros from the card menu
 

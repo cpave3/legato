@@ -2,7 +2,7 @@ import { useModalLayer } from "../hooks/useModalLayer"
 import { useCallback, useEffect, useId, useLayoutEffect, useRef, useState } from "react"
 import { ChevronDown, X } from "lucide-react"
 import { accessLabel, listResources, type Resource } from "../lib/resources"
-import { macrosFor, useMacros } from "../lib/macros"
+import { macroMessage, macrosFor, useMacros } from "../lib/macros"
 import { useServer } from "../hooks/useServer"
 import { useSettings } from "../hooks/useSettings"
 import { apiFetch } from "../lib/api"
@@ -183,7 +183,7 @@ export function SpawnAgentDialog({
     const macro = macroList.macros.find((item) => item.name === name)
     setTier(macro?.tier ?? "")
     if (!macro) return
-    setPrompt(macro.keys.replace(/\n+$/, ""))
+    setPrompt(macroMessage(macro.keys))
     if (macro.agent) setAgentKind(macro.agent)
   }
   // The files and folders the person keeps for agents, and the ones picked.
@@ -965,6 +965,7 @@ export function SpawnAgentDialog({
               <option value="">None</option>
               {macrosFor(macroList.macros, "task").map((macro) => <option key={macro.name} value={macro.name}>{macro.name}</option>)}
             </select>
+            {tier && <span className="text-xs text-lw-text-2">Model tier: {tier}</span>}
           </label>}
           <label className="flex flex-col gap-1.5">
             <span className={fieldLabel}>

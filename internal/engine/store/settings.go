@@ -102,6 +102,20 @@ func (s *Store) SetSettingEntry(ctx context.Context, list, name string, value js
 	return err
 }
 
+// RenameSettingEntry gives one entry a new name, keeping its value; none of
+// the old name is ErrNotFound.
+func (s *Store) RenameSettingEntry(ctx context.Context, list, from, to, by string) error {
+	res, err := s.db.ExecContext(ctx, `UPDATE setting_entries SET name = ?, updated_by = ?, updated_at = strftime('%Y-%m-%dT%H:%M:%fZ', 'now') WHERE list = ? AND name = ?`,
+		to, by, list, from)
+	if err != nil {
+		return err
+	}
+	if n, _ := res.RowsAffected(); n == 0 {
+		return ErrNotFound
+	}
+	return nil
+}
+
 // DeleteSettingEntry removes one entry; none is ErrNotFound.
 func (s *Store) DeleteSettingEntry(ctx context.Context, list, name string) error {
 	res, err := s.db.ExecContext(ctx, `DELETE FROM setting_entries WHERE list = ? AND name = ?`, list, name)

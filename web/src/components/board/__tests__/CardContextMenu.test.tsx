@@ -50,6 +50,17 @@ describe("CardContextMenu", () => {
     expect(screen.queryByRole("menuitem", { name: "Macro: Plan" })).toBeNull()
   })
 
+  it("names the agent and tier a macro starts only when it sets them, and links to the Macros page", () => {
+    const onManageMacros = vi.fn()
+    const macros = [{ name: "Plan", keys: "p" }, { name: "Implement", keys: "i", agent: "codex" }, { name: "Deep", keys: "d", agent: "claude-code", tier: "large" }]
+    render(<CardContextMenu card={card} position={{ x: 10, y: 10 }} macros={macros} onMacro={() => {}} onManageMacros={onManageMacros} onAction={() => {}} onClose={() => {}} />)
+    expect(screen.getByRole("menuitem", { name: "Macro: Plan" }).textContent).toBe("Plan")
+    expect(screen.getByRole("menuitem", { name: "Macro: Implement" }).textContent).toBe("ImplementCodex")
+    expect(screen.getByRole("menuitem", { name: "Macro: Deep" }).textContent).toBe("DeepClaude Code · large tier")
+    fireEvent.click(screen.getByRole("menuitem", { name: "Manage macros" }))
+    expect(onManageMacros).toHaveBeenCalled()
+  })
+
   it("offers review passes for each of a card's pull requests, and none for a card without", () => {
     const onReviewPasses = vi.fn()
     const pr = (n: number) => ({ repo: "acme/widget", branch: `b${n}`, pr_number: n, pr_url: "", state: "OPEN" }) as never

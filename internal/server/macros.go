@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"strings"
 
+	"github.com/cpave3/legato/config"
 	"github.com/cpave3/legato/internal/engine/macros"
 	"github.com/cpave3/legato/internal/engine/store"
 	"github.com/cpave3/legato/internal/service"
@@ -45,10 +46,111 @@ func (s *Server) macrosHandler() http.HandlerFunc {
 			if list == nil {
 				list = []service.MacroEntry{}
 			}
-			_ = json.NewEncoder(w).Encode(map[string]any{"macros": list, "suggested": service.MacroSuggestionsFor()})
+			body := map[string]any{"macros": list, "suggested": service.MacroSuggestionsFor()}
+			if src, ok := s.macroSvc.(macroTiers); ok {
+				tiers, err := src.Tiers(r.Context())
+				if err != nil {
+					s.writeError(w, http.StatusInternalServerError, err.Error())
+					return
+				}
+				body["tiers"] = tiers
+			}
+			_ = json.NewEncoder(w).Encode(body)
 			return
 		}
 		_ = json.NewEncoder(w).Encode(macros.ListResult{Macros: s.macros})
+	}
+}
+
+// macroTiers gives each agent tool's tiers, for the macro form.
+type macroTiers interface {
+	Tiers(ctx context.Context) (map[string][]service.AgentTier, error)
+}
+
+// macroWriter changes the macros: the service's Save, Delete, Reset and
+// Rename.
+type macroWriter interface {
+	Save(ctx context.Context, name string, m macros.Macro, by string) error
+	Delete(ctx context.Context, name string) error
+	Reset(ctx context.Context, name string) error
+	Rename(ctx context.Context, from, to, by string) error
+}
+
+func (s *Server) macroWriter(w http.ResponseWriter) (macroWriter, bool) {
+	writer, ok := s.macroSvc.(macroWriter)
+	if !ok {
+		s.writeError(w, http.StatusServiceUnavailable, "macros cannot be changed here")
+	}
+	return writer, ok
+}
+
+// macroWritten answers a change to a macro, and tells every client.
+func (s *Server) macroWritten(w http.ResponseWriter, err error) {
+	switch {
+	case errors.Is(err, service.ErrMacroNotFound), errors.Is(err, store.ErrNotFound):
+		s.writeError(w, http.StatusNotFound, err.Error())
+	case errors.Is(err, service.ErrBuiltinMacro), errors.Is(err, service.ErrNotBuiltinMacro),
+		errors.Is(err, service.ErrBuiltinMacroName), errors.Is(err, service.ErrMacroNameTaken),
+		errors.Is(err, config.ErrEntryPinned):
+		s.writeError(w, http.StatusConflict, err.Error())
+	case err != nil:
+		s.writeError(w, http.StatusBadRequest, err.Error())
+	default:
+		s.broadcastSettingsChanged()
+		s.writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+	}
+}
+
+// macroEntryHandler serves PUT /api/macros/{name} (a macro's fields, its
+// message as message or keys) and DELETE /api/macros/{name}.
+func (s *Server) macroEntryHandler() http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		writer, ok := s.macroWriter(w)
+		if !ok {
+			return
+		}
+		name := r.PathValue("name")
+		switch r.Method {
+		case http.MethodPut:
+			var m macros.Macro
+			if err := json.NewDecoder(r.Body).Decode(&m); err != nil {
+				s.writeError(w, http.StatusBadRequest, "want {\"message\": \"…\", \"applies_to\": \"task\", \"agent\": \"codex\", \"tier\": \"large\"}: "+err.Error())
+				return
+			}
+			s.macroWritten(w, writer.Save(r.Context(), name, m, "web"))
+		case http.MethodDelete:
+			s.macroWritten(w, writer.Delete(r.Context(), name))
+		default:
+			s.writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+		}
+	}
+}
+
+// macroActionHandler serves POST /api/macros/{name}/reset and
+// POST /api/macros/{name}/rename {"name": "<new name>"}.
+func (s *Server) macroActionHandler(action string) http.HandlerFunc {
+	return func(w http.ResponseWriter, r *http.Request) {
+		if r.Method != http.MethodPost {
+			s.writeError(w, http.StatusMethodNotAllowed, "method not allowed")
+			return
+		}
+		name := r.PathValue("name")
+		writer, ok := s.macroWriter(w)
+		if !ok {
+			return
+		}
+		if action == "reset" {
+			s.macroWritten(w, writer.Reset(r.Context(), name))
+			return
+		}
+		var req struct {
+			Name string `json:"name"`
+		}
+		if json.NewDecoder(r.Body).Decode(&req) != nil {
+			s.writeError(w, http.StatusBadRequest, "want {\"name\": \"<new name>\"}")
+			return
+		}
+		s.macroWritten(w, writer.Rename(r.Context(), name, req.Name, "web"))
 	}
 }
 

@@ -211,6 +211,9 @@ export function SettingsPage() {
             <SettingsCard id="job-clones" icon={FolderGit2} title="Managed clones" description="View and remove clones Legato made for agents on the Remote page.">
               <Link to="/remote" className={quietButton}>Open Remote</Link>
             </SettingsCard>
+            <SettingsCard id="list-macros" icon={Zap} title="Macros">
+              <Link to="/macros" className={quietButton}>Open Macros</Link>
+            </SettingsCard>
             <div id="list-resources"><ResourcesSettings baseUrl={baseUrl} /></div>
             <SkillsSettings baseUrl={baseUrl} />
             <EngramBindingsSettings baseUrl={baseUrl} />

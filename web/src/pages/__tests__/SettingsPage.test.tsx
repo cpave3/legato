@@ -341,6 +341,19 @@ describe("SettingsPage layout", () => {
     expect(screen.getByRole("button", { name: "Glitch effect" })).toBeTruthy()
   })
 
+  it("links Macros to its own page instead of editing the list here", async () => {
+    mockedApiFetch.mockImplementation(async (_base, path) => {
+      if (path === "/api/config/lists") return Response.json({ lists: [{ key: "macros", title: "Macros", class: "change", mode: "live", name_field: "name", entries: [{ name: "Plan", value: { keys: "p" }, source: "default", pinned: false, builtin: true }] }] })
+      return new Response("{}", { status: 404 })
+    })
+    renderPage("/settings#list-macros")
+    const card = await waitFor(() => { const el = document.getElementById("list-macros"); expect(el).toBeTruthy(); return el as HTMLElement })
+    expect(within(card).getByRole("link", { name: "Open Macros" }).getAttribute("href")).toBe("/macros")
+    await waitFor(() => expect(screen.queryByText("Loading configuration lists…")).toBeNull())
+    expect(screen.queryByRole("button", { name: "Add to macros" })).toBeNull()
+    expect(screen.queryByTestId("entry-macros-Plan")).toBeNull()
+  })
+
   it("adds Development under hot reload", () => {
     useSettings.mockReturnValue(settings(true))
     renderPage("/settings#development")

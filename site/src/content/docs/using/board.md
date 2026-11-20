@@ -97,7 +97,7 @@ Press `d` on the board, or `D` in the detail view, to delete a task. You confirm
 
 ## Review a card's pull request in passes
 
-The same menu lists your [macros](/legato/using/agents/#macros) for a task, such as **Plan** and **Implement**. Choose one to put the task's agent to work with it: when no agent is running, Legato starts one with the macro's agent tool and tier (or your default tool) and the macro as its first message; when one is running, the macro becomes its next message, after its current turn. The message starts with the task's key and title.
+The same menu lists your [macros](/legato/using/agents/#macros) for a task, such as **Plan** and **Implement**, each with the agent and model tier it starts when it sets them. Choose one to put the task's agent to work with it: when no agent is running, Legato starts one with the macro's agent and model tier (or your default agent) and the macro as its first message; when one is running, the macro becomes its next message, after its current turn. The message starts with the task's key and title. **Manage macros** opens the Macros page.
 
 In the TUI, press `c` on a card and choose **Macros ›**: the task's macros come first, then each open pull request's, labelled with its number.
 

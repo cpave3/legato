@@ -39,7 +39,8 @@ export function CategorySettings({ category, settings, fileOnly, baseUrl, listKe
   return <>
     <RegistrySettings settings={regular} baseUrl={baseUrl} prefixes={regular.map((s) => s.key)} />
     {advanced.length > 0 && <section aria-label="Advanced"><h3 className="mb-2 text-sm font-medium">Advanced</h3><RegistrySettings settings={advanced} baseUrl={baseUrl} prefixes={advanced.map((s) => s.key)} /></section>}
-    <ListSettings baseUrl={baseUrl} lists={listKeys.filter((key) => settingOwner(key) === category)} />
+    {/* Macros have their own page, which Settings links to. */}
+    <ListSettings baseUrl={baseUrl} lists={listKeys.filter((key) => settingOwner(key) === category && key !== "macros")} />
     {fileOnly.filter((key) => settingOwner(key) === category).map((key) => <section key={key} id={`setting-${key}`} tabIndex={-1} className="scroll-mt-40 rounded-lg border border-lw-line p-4">
       <h3 className="break-all text-sm font-medium">{key}</h3>
       <p className="mt-1 text-sm text-lw-text-2">File only · Read-only here. Edit <code className="break-all">{key}</code> in this server’s <code>config.yaml</code>, then restart Legato to apply the change.</p>

@@ -49,16 +49,25 @@ export interface MacroSuggestions {
 // What an older server, which suggests nothing, is taken to suggest.
 export const defaultSuggestions: MacroSuggestions = { task: "Plan", my_pr: "Address feedback", others_pr: "Review" }
 
+// One of an agent tool's tiers: a named launch profile from config.yaml,
+// usually choosing the model.
+export interface AgentTier {
+  name: string
+  description?: string
+}
+
 export interface MacroList {
   macros: Macro[]
   suggested: MacroSuggestions
+  // Each agent tool's tiers; a tool with none is absent.
+  tiers: Record<string, AgentTier[]>
 }
 
 export async function fetchMacroList(baseUrl: string): Promise<MacroList> {
   const response = await apiFetch(baseUrl, "/api/macros")
   if (!response.ok) throw await failed(response)
-  const body = await response.json() as { macros?: Macro[]; suggested?: MacroSuggestions }
-  return { macros: Array.isArray(body.macros) ? body.macros : [], suggested: body.suggested ?? defaultSuggestions }
+  const body = await response.json() as { macros?: Macro[]; suggested?: MacroSuggestions; tiers?: Record<string, AgentTier[]> }
+  return { macros: Array.isArray(body.macros) ? body.macros : [], suggested: body.suggested ?? defaultSuggestions, tiers: body.tiers ?? {} }
 }
 
 export async function fetchMacros(baseUrl: string): Promise<Macro[]> {
@@ -110,12 +119,72 @@ export function macroNotice(name: string, result: MacroStartResult): string {
 // loading, a menu opening): they change without a restart. null reads
 // nothing; a failure leaves the list empty.
 export function useMacros(baseUrl: string, refresh: string | null): MacroList {
-  const [list, setList] = useState<MacroList>({ macros: [], suggested: defaultSuggestions })
+  const [list, setList] = useState<MacroList>({ macros: [], suggested: defaultSuggestions, tiers: {} })
   useEffect(() => {
     if (refresh === null) return
     let current = true
-    fetchMacroList(baseUrl).then(next => { if (current) setList(next) }, () => { if (current) setList({ macros: [], suggested: defaultSuggestions }) })
+    fetchMacroList(baseUrl).then(next => { if (current) setList(next) }, () => { if (current) setList({ macros: [], suggested: defaultSuggestions, tiers: {} }) })
     return () => { current = false }
   }, [baseUrl, refresh])
   return list
+}
+
+// The fields a macro is saved with: its message, and what it is offered on,
+// the agent it starts and that agent's tier, each empty for the default.
+export interface MacroFields {
+  message: string
+  applies_to?: "" | "task" | "pr"
+  agent?: string
+  tier?: string
+}
+
+async function macroWrite(baseUrl: string, path: string, method: string, body?: unknown): Promise<void> {
+  const response = await apiFetch(baseUrl, path, {
+    method,
+    ...(body === undefined ? {} : { headers: { "Content-Type": "application/json" }, body: JSON.stringify(body) }),
+  })
+  if (!response.ok) throw await failed(response)
+}
+
+const macroPath = (name: string) => `/api/macros/${encodeURIComponent(name)}`
+
+// saveMacro saves a new macro, an edit, or an edit of a built-in.
+export function saveMacro(baseUrl: string, name: string, fields: MacroFields): Promise<void> {
+  const body: Record<string, string> = { message: fields.message }
+  for (const key of ["applies_to", "agent", "tier"] as const) if (fields[key]) body[key] = fields[key] as string
+  return macroWrite(baseUrl, macroPath(name), "PUT", body)
+}
+
+// deleteMacro deletes one of the operator's own macros.
+export function deleteMacro(baseUrl: string, name: string): Promise<void> {
+  return macroWrite(baseUrl, macroPath(name), "DELETE")
+}
+
+// resetMacro puts an edited built-in back as shipped.
+export function resetMacro(baseUrl: string, name: string): Promise<void> {
+  return macroWrite(baseUrl, `${macroPath(name)}/reset`, "POST")
+}
+
+// renameMacro gives one of the operator's own macros a new name.
+export function renameMacro(baseUrl: string, name: string, to: string): Promise<void> {
+  return macroWrite(baseUrl, `${macroPath(name)}/rename`, "POST", { name: to })
+}
+
+// appliesLabel says what a macro is offered on.
+export function appliesLabel(macro: Pick<Macro, "applies_to">): string {
+  return macro.applies_to === "task" ? "Tasks" : macro.applies_to === "pr" ? "Pull requests" : "Tasks and pull requests"
+}
+
+// macroAgentLine names the agent a macro starts and its tier, when it sets
+// either; "" when it leaves both to the defaults.
+export function macroAgentLine(macro: Pick<Macro, "agent" | "tier">, label: (kind: string) => string): string {
+  const tier = macro.tier ? `${macro.tier} tier` : ""
+  if (!macro.agent) return tier
+  return tier ? `${label(macro.agent)} · ${tier}` : label(macro.agent)
+}
+
+// macroMessage is a macro's text as it is sent: a message, so a final new
+// line (which once pressed Enter in a terminal) is dropped.
+export function macroMessage(keys: string): string {
+  return keys.replace(/\n+$/, "")
 }
