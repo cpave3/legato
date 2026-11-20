@@ -4,7 +4,7 @@ import { List, Lock } from "lucide-react"
 import { fetchConfigLists, removeConfigListEntry, saveConfigListEntry, type ConfigList, type ConfigListEntry } from "../../lib/configSettings"
 import { queryKeys } from "../../lib/query"
 import { cn } from "../../lib/utils"
-import { entryYaml, formFor, parseEntryYaml, type FormField, type ListForm } from "../../lib/listForms"
+import { agentLabel, entryYaml, formFor, parseEntryYaml, type FormField, type ListForm } from "../../lib/listForms"
 import { SettingsCard, primaryButton, quietButton } from "./SettingsUI"
 
 const fieldClass = "min-h-9 min-w-0 w-full rounded-lg border border-lw-line-strong bg-lw-ground px-2.5 py-1 text-sm text-lw-text placeholder:text-lw-faint focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-lw-accent-ring disabled:opacity-60"
@@ -15,9 +15,51 @@ function asObject(value: unknown): Record<string, unknown> {
   return value !== null && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : {}
 }
 
+type Tier = { description?: string; launch_args?: string[] } & Record<string, unknown>
+
+// TiersInput edits an agent's tiers as a table: name, what the conductor
+// is told, launch arguments. Fields of a tier it does not show are kept.
+function TiersInput({ value, onChange }: { value: unknown; onChange: (next: unknown) => void }) {
+  const tiers = Object.entries(asObject(value)) as [string, Tier][]
+  const put = (rows: [string, Tier][]) => onChange(rows.length ? Object.fromEntries(rows) : undefined)
+  const edit = (i: number, name: string, tier: Tier) => put(tiers.map((row, j) => j === i ? [name, tier] : row))
+  return <div className="flex flex-col gap-2">
+    {tiers.length > 0 && <table className="w-full table-fixed border-separate border-spacing-y-1 text-xs" aria-label="Tiers">
+      <thead className="text-left text-[11px] text-lw-text-2"><tr><th className="w-28 font-normal">Name</th><th className="font-normal">What the conductor is told</th><th className="w-40 font-normal">Launch arguments</th><th className="w-8" /></tr></thead>
+      <tbody>{tiers.map(([name, tier], i) => <tr key={i}>
+        <td className="pr-1.5"><input aria-label={`Tier ${i + 1} name`} value={name} onChange={(e) => edit(i, e.target.value, tier)} className={fieldClass} /></td>
+        <td className="pr-1.5"><input aria-label={`Tier ${i + 1} description`} value={tier.description ?? ""} onChange={(e) => edit(i, name, { ...tier, description: e.target.value || undefined })} className={fieldClass} /></td>
+        <td className="pr-1.5"><input aria-label={`Tier ${i + 1} launch arguments`} value={(tier.launch_args ?? []).join(" ")} placeholder="--model opus"
+          onChange={(e) => edit(i, name, { ...tier, launch_args: e.target.value.trim() ? e.target.value.split(/\s+/).filter(Boolean) : undefined })} className={fieldClass} /></td>
+        <td><button type="button" aria-label={`Remove tier ${name || i + 1}`} onClick={() => put(tiers.filter((_, j) => j !== i))} className="text-lw-text-2 hover:text-lw-error">×</button></td>
+      </tr>)}</tbody>
+    </table>}
+    <button type="button" className={quietButton + " min-h-8 w-fit px-2.5 text-xs"} onClick={() => put([...tiers, [`tier-${tiers.length + 1}`, {}]])}>Add tier</button>
+  </div>
+}
+
+// PairsInput edits a map of words to words, such as Chimera's modes.
+function PairsInput({ field, value, onChange }: { field: FormField; value: unknown; onChange: (next: unknown) => void }) {
+  const pairs = Object.entries(asObject(value)).map(([k, v]) => [k, String(v ?? "")] as [string, string])
+  const [keyLabel, valueLabel] = field.pairLabels ?? ["Key", "Value"]
+  const put = (rows: [string, string][]) => onChange(rows.length ? Object.fromEntries(rows) : undefined)
+  return <div className="flex flex-col gap-1.5">
+    {pairs.map(([k, v], i) => <span key={i} className="flex items-center gap-1.5">
+      <input aria-label={`${keyLabel} ${i + 1}`} value={k} onChange={(e) => put(pairs.map((p, j) => j === i ? [e.target.value, p[1]] : p))} className={fieldClass} />
+      <input aria-label={`${valueLabel} ${i + 1}`} value={v} onChange={(e) => put(pairs.map((p, j) => j === i ? [p[0], e.target.value] : p))} className={fieldClass} />
+      <button type="button" aria-label={`Remove ${k || i + 1}`} onClick={() => put(pairs.filter((_, j) => j !== i))} className="px-1 text-lw-text-2 hover:text-lw-error">×</button>
+    </span>)}
+    <button type="button" className={quietButton + " min-h-8 w-fit px-2.5 text-xs"} onClick={() => put([...pairs, ["", ""]])}>Add {keyLabel.toLowerCase()}</button>
+  </div>
+}
+
 // FieldInput edits one field of an entry by its kind.
 function FieldInput({ field, value, onChange }: { field: FormField; value: unknown; onChange: (next: unknown) => void }) {
   switch (field.kind) {
+    case "tiers":
+      return <TiersInput value={value} onChange={onChange} />
+    case "pairs":
+      return <PairsInput field={field} value={value} onChange={onChange} />
     case "swatches": {
       const current = typeof value === "string" ? value : ""
       return <span className="flex flex-wrap items-center gap-1.5" role="radiogroup" aria-label={field.label}>
@@ -123,7 +165,7 @@ export function EntryForm({ list, form, entry, onSave, onCancel }: { list: Confi
           <input aria-label={form.name.label} value={name} disabled={Boolean(entry)} placeholder={form.name.placeholder} onChange={(e) => setName(e.target.value)} className={fieldClass} />
         </Labelled>
         {form.scalar && <Labelled field={form.scalar}><FieldInput field={form.scalar} value={draft} onChange={(v) => { setDraft(typeof v === "string" ? v : ""); setError("") }} /></Labelled>}
-        {form.fields.map((field) => <Labelled key={field.key} field={field}>
+        {form.fields.filter((field) => !field.only || field.only.includes(name.trim())).map((field) => <Labelled key={field.key} field={field}>
           <FieldInput field={field} value={(draft as Record<string, unknown>)[field.key]} onChange={(v) => setField(field.key, v)} />
         </Labelled>)}
       </> : <Labelled field={{ label: "As in config.yaml", help: "The whole entry, fields the form shows and those it does not." }}>
@@ -146,6 +188,7 @@ export function EntryForm({ list, form, entry, onSave, onCancel }: { list: Confi
 
 // summary says in a few words what an entry holds.
 function summary(form: ListForm, entry: ConfigListEntry): string {
+  if (form.summary) return form.summary(entry.name, asObject(entry.value))
   if (form.scalar) return typeof entry.value === "string" ? entry.value : ""
   const object = asObject(entry.value)
   return form.fields.map((f) => {
@@ -190,14 +233,14 @@ export function ListCard({ list, baseUrl }: { list: ConfigList; baseUrl: string 
   }
   return (
     <SettingsCard id={`list-${list.key}`} icon={List} title={list.title} description={form.ordered}>
-      {list.entries.length > 0 && <ul className="flex flex-col divide-y divide-lw-line" aria-label={list.title}>
+      {list.entries.length > 0 && <ul className={form.cards ? "flex flex-col gap-2" : "flex flex-col divide-y divide-lw-line"} aria-label={list.title}>
         {list.entries.map((entry, index) => {
           const color = list.key === "workspaces" ? asObject(entry.value).color : undefined
-          return <li key={entry.name} className="py-2" data-testid={`entry-${list.key}-${entry.name}`}>
+          return <li key={entry.name} className={form.cards ? "rounded-lg border border-lw-line px-3 py-2.5" : "py-2"} data-testid={`entry-${list.key}-${entry.name}`}>
             <div className="flex flex-wrap items-center gap-2">
               {form.ordered && <span className="w-5 font-lw-mono text-[11px] text-lw-text-2">{index + 1}</span>}
               {typeof color === "string" && <span className="h-2.5 w-2.5 rounded-full" style={{ background: color }} aria-hidden />}
-              <span className="text-sm text-lw-text">{entry.name}</span>
+              <span className={cn("text-sm text-lw-text", form.cards && "font-medium")}>{list.key === "adapters" ? agentLabel(entry.name) : entry.name}</span>
               {entry.pinned
                 ? <span className="inline-flex items-center gap-1 rounded border border-lw-line bg-lw-raised px-1.5 py-px text-[11px] text-lw-text-2" aria-label="Pinned by config.yaml"><Lock size={10} aria-hidden />config.yaml</span>
                 : entry.source === "database" && <span className="rounded bg-lw-accent-soft px-1.5 py-px text-[11px] text-lw-accent-text">Set here</span>}

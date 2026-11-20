@@ -9,11 +9,15 @@ export interface FormField {
   label: string
   help?: string
   optional?: boolean
-  kind: "text" | "lines" | "bool" | "choice" | "swatches" | "textarea"
+  kind: "text" | "lines" | "bool" | "choice" | "swatches" | "textarea" | "tiers" | "pairs"
   choices?: [string, string][]
   placeholder?: string
   // bool: what unset means.
   unsetLabel?: string
+  // Only for the entries of these names (a field one agent alone reads).
+  only?: string[]
+  // pairs: what the key and the value of a pair are called.
+  pairLabels?: [string, string]
 }
 
 export interface ListForm {
@@ -28,6 +32,24 @@ export interface ListForm {
   add: string
   // Whether the list keeps its entries' order (the Reeve's rules).
   ordered?: string
+  // Each entry drawn as a card of its own, with a summary.
+  cards?: boolean
+  summary?: (name: string, value: Record<string, unknown>) => string
+}
+
+const agentLabels: Record<string, string> = { "claude-code": "Claude Code", codex: "Codex", chimera: "Chimera" }
+export const agentLabel = (name: string) => agentLabels[name] ?? name
+
+function adapterSummary(name: string, value: Record<string, unknown>): string {
+  const parts: string[] = []
+  const tiers = Object.keys((value.tiers as Record<string, unknown> | undefined) ?? {}).length
+  const models = Array.isArray(value.models) ? value.models.length : 0
+  const args = Array.isArray(value.launch_args) ? value.launch_args.length : 0
+  if (tiers) parts.push(`${tiers} ${tiers === 1 ? "tier" : "tiers"}`)
+  if (models) parts.push(`${models} ${models === 1 ? "model" : "models"}`)
+  if (args) parts.push(`launch: ${(value.launch_args as string[]).join(" ")}`)
+  if (name !== "chimera") parts.push(value.native_bridge === false ? "a terminal only" : "connected to Legato")
+  return parts.join(" · ") || "Default"
 }
 
 export const workspaceColors: [string, string][] = [
@@ -59,6 +81,32 @@ export const listForms: Record<string, ListForm> = {
     name: { label: "Vault", placeholder: "op://Work", help: "A 1Password vault, as op://<vault>, whose items become credentials." },
     fields: [{ key: "profile", label: "Profile", kind: "choice", optional: true, unsetLabel: "SSH keys and secrets", choices: [["ssh", "SSH keys only"], ["secret", "Secrets only"]], help: "Which of its items it gives." }],
     empty: "No credential sources.", add: "Add a vault",
+  },
+  adapters: {
+    name: { label: "Agent", placeholder: "claude-code", help: "claude-code, codex or chimera." },
+    fields: [
+      { key: "launch_args", label: "Launch arguments", kind: "lines", optional: true, placeholder: "--permission-mode auto", help: "One per line, added to every start of this agent." },
+      { key: "tiers", label: "Tiers", kind: "tiers", optional: true, help: "Named launch profiles, picked per macro, per swarm part, and for the Reeve and reviewers. The conductor reads what each is for." },
+      { key: "models", label: "Models in the model menu", kind: "lines", optional: true, only: ["claude-code"], placeholder: "claude-opus-5-5", help: "Full model IDs, one per line." },
+      { key: "native_bridge", label: "Connect to Legato", kind: "bool", optional: true, only: ["claude-code", "codex"], unsetLabel: "On (default)", help: "Lets Legato message, interrupt and approve directly. Off, the agent is a terminal only." },
+      { key: "modes", label: "Modes", kind: "pairs", optional: true, only: ["chimera"], pairLabels: ["Role", "Mode"], help: "Chimera's --mode for each role: conductor, worker, or a role of a plan." },
+    ],
+    empty: "No agent set up here: each runs as installed.", add: "Set up an agent", cards: true, summary: adapterSummary,
+  },
+  "swarm.prompts": {
+    name: { label: "Role", placeholder: "backend", help: "conductor, worker, or a role a plan names." },
+    fields: ["claude-code", "codex", "chimera"].map((agent) => ({
+      key: agent, label: `${agentLabel(agent)}'s prompt`, kind: "textarea" as const, optional: true,
+      help: `Replaces the built-in prompt for this role when the agent is ${agentLabel(agent)}.`,
+    })),
+    empty: "No role prompts: every role uses the built-in prompt.", add: "Add a role prompt",
+    summary: (_name, value) => Object.keys(value).map(agentLabel).join(", "),
+  },
+  "reeve.rules": {
+    name: { label: "Pattern", placeholder: "config.*", help: "The calls it matches, as config.* or task.update." },
+    fields: [{ key: "level", label: "Needs", kind: "choice", choices: [["auto", "Nothing: runs at once"], ["approve", "A tap"], ["signed", "A signature"], ["verified", "A signature with a fingerprint or PIN"]] }],
+    empty: "No rules: each change needs what its class needs.", add: "Add a rule",
+    ordered: "Rules apply in order, and the last that matches wins. Those set here come after config.yaml's, in name order. A change waits for your signature.",
   },
   credentials: {
     name: { label: "Name", placeholder: "github" },

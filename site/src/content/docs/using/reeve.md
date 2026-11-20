@@ -133,6 +133,8 @@ Each level is one of **auto** (it runs at once, with no approval asked), **appro
 
 These levels and rules, host operations and whether they run without asking, the Reeve's peer setting and the seed of its engram, are the Reeve's own rules: they change only with a signed approval, even from Settings, and not at all while no device is enrolled. Making one stricter (a higher level, an `auto` rule raised or removed, host operations or running them without asking turned off) needs no signature.
 
+In **Settings › Reeve › Approvals**, the rules are listed in the order they apply, numbered: the last rule that matches a call wins. Rules you add there come after `config.yaml`'s, in name order. Each has a pattern and what it needs.
+
 ### Running without asking
 
 At **auto**, a change set runs as soon as the Reeve proposes it. It is still recorded as an approval, decided by the level or rule that allowed it, every call is written to the audit log, it shows for a few seconds at the corner of the screen as already done, and its line in the conversation is marked **auto**. If any call of a set needs more, the whole set waits for you.

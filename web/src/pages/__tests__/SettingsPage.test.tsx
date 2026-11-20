@@ -429,7 +429,7 @@ describe("SettingsPage layout", () => {
       return new Response("{}", { status: 404 })
     })
     renderPage("/settings#list-reeve.rules")
-    fireEvent.click(await screen.findByRole("button", { name: "Add to reeve rules" }))
+    fireEvent.click(await screen.findByRole("button", { name: "Add a rule" }))
     fireEvent.change(screen.getByRole("textbox", { name: "Pattern" }), { target: { value: "config.*" } })
     fireEvent.click(screen.getByRole("button", { name: "Edit as YAML" }))
     fireEvent.change(screen.getByRole("textbox", { name: "Reeve rules entry as YAML" }), { target: { value: "pattern: config.*\nlevel: signed\n" } })

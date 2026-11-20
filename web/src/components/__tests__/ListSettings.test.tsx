@@ -157,3 +157,85 @@ describe("List forms", () => {
     expect(screen.queryByText("Home")).toBeNull()
   })
 })
+
+describe("Agent, role prompt and rule forms", () => {
+  beforeEach(() => {
+    mockFetch.mockReset()
+    mockSave.mockReset(); mockSave.mockResolvedValue(undefined)
+    mockRemove.mockReset(); mockRemove.mockResolvedValue(undefined)
+  })
+  afterEach(() => cleanup())
+
+  const adapters = list({ key: "adapters", title: "Agent tools", name_field: undefined, entries: [
+    { name: "claude-code", value: { tiers: { deep: { description: "Hard work", launch_args: ["--model", "opus"] }, quick: {} }, models: ["claude-opus-5-5", "claude-sonnet-5-5"], future: 1 }, source: "database", pinned: false },
+    { name: "chimera", value: { launch_args: ["--sandbox"] }, source: "config.yaml", pinned: true },
+  ] })
+
+  it("shows each agent as a card with a summary, and a config.yaml agent read-only", async () => {
+    show([adapters])
+    const claude = await screen.findByTestId("entry-adapters-claude-code")
+    expect(claude).toHaveTextContent("Claude Code")
+    expect(claude).toHaveTextContent("2 tiers · 2 models · connected to Legato")
+    const chimera = screen.getByTestId("entry-adapters-chimera")
+    expect(chimera).toHaveTextContent("launch: --sandbox")
+    expect(within(chimera).queryByRole("button", { name: /Edit/ })).toBeNull()
+  })
+
+  it("adds, edits and removes tiers, and saves models and the bridge switch, keeping what the form does not show", async () => {
+    show([adapters])
+    fireEvent.click(await screen.findByRole("button", { name: "Edit claude-code" }))
+    const tiers = within(screen.getByRole("table", { name: "Tiers" }))
+    fireEvent.change(tiers.getByRole("textbox", { name: "Tier 1 description" }), { target: { value: "Design and hard bugs" } })
+    fireEvent.click(tiers.getByRole("button", { name: "Remove tier quick" }))
+    fireEvent.click(screen.getByRole("button", { name: "Add tier" }))
+    fireEvent.change(screen.getByRole("textbox", { name: "Tier 2 name" }), { target: { value: "fast" } })
+    fireEvent.change(screen.getByRole("textbox", { name: "Tier 2 launch arguments" }), { target: { value: "--model haiku" } })
+    fireEvent.change(screen.getByRole("textbox", { name: "Models in the model menu" }), { target: { value: "claude-opus-5-5" } })
+    fireEvent.change(screen.getByRole("combobox", { name: "Connect to Legato" }), { target: { value: "false" } })
+    expect(screen.queryByText("Modes")).toBeNull()
+    fireEvent.click(screen.getByRole("button", { name: "Save" }))
+    await waitFor(() => expect(mockSave).toHaveBeenCalledWith("http://legato", "adapters", "claude-code", {
+      tiers: { deep: { description: "Design and hard bugs", launch_args: ["--model", "opus"] }, fast: { launch_args: ["--model", "haiku"] } },
+      models: ["claude-opus-5-5"], native_bridge: false, future: 1,
+    }))
+  })
+
+  it("offers Chimera's modes only for Chimera", async () => {
+    show([list({ key: "adapters", title: "Agent tools", name_field: undefined })])
+    fireEvent.click(await screen.findByRole("button", { name: "Set up an agent" }))
+    fireEvent.change(screen.getByRole("textbox", { name: "Agent" }), { target: { value: "chimera" } })
+    expect(screen.queryByRole("textbox", { name: "Models in the model menu" })).toBeNull()
+    fireEvent.click(screen.getByRole("button", { name: "Add role" }))
+    fireEvent.change(screen.getByRole("textbox", { name: "Role 1" }), { target: { value: "worker" } })
+    fireEvent.change(screen.getByRole("textbox", { name: "Mode 1" }), { target: { value: "legato-worker" } })
+    fireEvent.click(screen.getByRole("button", { name: "Save" }))
+    await waitFor(() => expect(mockSave).toHaveBeenCalledWith("http://legato", "adapters", "chimera", { modes: { worker: "legato-worker" } }))
+  })
+
+  it("saves a role prompt for an agent", async () => {
+    show([list({ key: "swarm.prompts", title: "Swarm role prompts", name_field: undefined })])
+    expect(await screen.findByText(/every role uses the built-in prompt/)).toBeTruthy()
+    fireEvent.click(screen.getByRole("button", { name: "Add a role prompt" }))
+    fireEvent.change(screen.getByRole("textbox", { name: "Role" }), { target: { value: "backend" } })
+    fireEvent.change(screen.getByRole("textbox", { name: "Codex's prompt" }), { target: { value: "You own the API." } })
+    fireEvent.click(screen.getByRole("button", { name: "Save" }))
+    await waitFor(() => expect(mockSave).toHaveBeenCalledWith("http://legato", "swarm.prompts", "backend", { codex: "You own the API." }))
+  })
+
+  it("keeps the Reeve's rules in order, says the last match wins, and sends a change for signature", async () => {
+    mockSave.mockResolvedValue({ status: "needs_signature" })
+    show([list({ key: "reeve.rules", title: "The Reeve's rules", mode: "live", name_field: "pattern", entries: [
+      { name: "task.*", value: { level: "auto" }, source: "config.yaml", pinned: true },
+      { name: "config.*", value: { level: "signed" }, source: "database", pinned: false },
+    ] })])
+    expect(await screen.findByText(/the last that matches wins/)).toBeTruthy()
+    const items = within(screen.getByRole("list", { name: "The Reeve's rules" })).getAllByRole("listitem")
+    expect(items.map((i) => i.getAttribute("data-testid"))).toEqual(["entry-reeve.rules-task.*", "entry-reeve.rules-config.*"])
+    expect(items[0]).toHaveTextContent("1task.*")
+    fireEvent.click(screen.getByRole("button", { name: "Edit config.*" }))
+    fireEvent.change(screen.getByRole("combobox", { name: "Needs" }), { target: { value: "approve" } })
+    fireEvent.click(screen.getByRole("button", { name: "Save" }))
+    await waitFor(() => expect(mockSave).toHaveBeenCalledWith("http://legato", "reeve.rules", "config.*", { level: "approve" }))
+    expect(await screen.findByText(/Awaiting approval/)).toBeTruthy()
+  })
+})
