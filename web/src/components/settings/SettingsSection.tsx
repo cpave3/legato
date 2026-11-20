@@ -6,6 +6,7 @@ import { SettingsRows } from "./SettingsUI"
 import { modeLabel } from "../../lib/settingValues"
 import { partnerKeys, settingPickers } from "../../lib/settingPickers"
 import { ListCard } from "./ListSettings"
+import { GroupTitleContext } from "./groupTitle"
 
 // What a section draws: the registry's settings by the API's place, the
 // cards and lists by the catalog's, and the file-only keys read-only.
@@ -41,13 +42,13 @@ export function SettingsSectionView({ section, content }: { section: SettingsSec
       // each row says its own.
       const modes = new Set(settings.filter((s) => at(settingPlace(s))).map((s) => s.mode))
       const shared = groupApplies[`${section.id}/${group}`] ?? (modes.size === 1 ? modeLabel([...modes][0]) : "")
-      const body = <div className="flex flex-col gap-4">
+      const body = <GroupTitleContext.Provider value={group === leadGroup ? "" : group}><div className="flex flex-col gap-4">
         {groupCards.filter((card) => !card.after).map((card) => <div key={card.id}>{cards[card.id]}</div>)}
         <RegistrySettings settings={rows} baseUrl={baseUrl} prefixes={rows.map((s) => s.key)} showMode={modes.size > 1 && !groupApplies[`${section.id}/${group}`]} />
         {groupCards.filter((card) => card.after).map((card) => <div key={card.id}>{cards[card.id]}</div>)}
         {groupLists.map((list) => <ListCard key={`${baseUrl}:${list.key}`} list={list} baseUrl={baseUrl} />)}
         {files.length > 0 && <SettingsRows>{files.map((key) => <FileOnlyRow key={key} keyName={key} title={fileOnlyTitle(key)} value={fileOnlyValues[key]} />)}</SettingsRows>}
-      </div>
+      </div></GroupTitleContext.Provider>
       if (group === leadGroup) return <div key={group} id={groupElementId(section.id, group)}>{body}</div>
       const id = groupElementId(section.id, group)
       return <section key={group} id={groupElementId(section.id, group)} aria-labelledby={`${groupElementId(section.id, group)}-title`} className="scroll-mt-6">

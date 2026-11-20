@@ -36,6 +36,7 @@ import { useQuery } from "@tanstack/react-query"
 import { SettingsCard, quietButton } from "../components/settings/SettingsUI"
 import { Globe, Palette, Smartphone } from "lucide-react"
 import { RegistrySettings } from "../components/settings/RegistrySettings"
+import { ListCard } from "../components/settings/ListSettings"
 import { useSettings } from "../hooks/useSettings"
 import { SettingsLoadState, SettingsSearch } from "../components/settings/SettingsCatalog"
 import { search as searchSettings, searchEntries } from "../lib/settingsSearch"
@@ -164,11 +165,14 @@ export function SettingsPage() {
     "reeve-sessions": <div id="reeve-sessions"><ReeveSessions baseUrl={baseUrl} /></div>,
     "list-board.columns": <BoardColumnsCard />,
     "burnlite": <IntegrationsSettings baseUrl={baseUrl} only="burnlite" />,
-    "argus": <IntegrationsSettings baseUrl={baseUrl} only="argus" />,
+    "argus": <IntegrationsSettings baseUrl={baseUrl} only="argus" argusSetHere={registered("integrations.argus.url") ? !registered("integrations.argus.url")!.pinned : false} />,
     "mcp-connections": <MCPSettings baseUrl={baseUrl} />,
     "mqtt": <MQTTSettings settings={registry} baseUrl={baseUrl} loading={false} error={null} onRetry={() => void configSettings.refetch()} />,
     "devices": <DevicesSettings baseUrl={baseUrl} />,
-    "credentials": <CredentialsSettings baseUrl={baseUrl} />,
+    "credentials": <CredentialsSettings baseUrl={baseUrl} editors={<div className="flex flex-col gap-3 border-t border-lw-line pt-3">
+      {lists.filter((l) => l.key === "credentials" || l.key === "credential_sources").map((l) => <ListCard key={`${baseUrl}:${l.key}`} list={l} baseUrl={baseUrl} />)}
+      <RegistrySettings settings={registry} baseUrl={baseUrl} prefixes={["credential_channels", "ssh_agent_socket"]} />
+    </div>} />,
     "integration-tokens": <IntegrationsSettings baseUrl={baseUrl} only="tokens" />,
     "servers": <ServersCard />,
     "pair-browser": <PairBrowserCard onScan={() => setShowScanner(true)} scanned={scanSuccess} />,

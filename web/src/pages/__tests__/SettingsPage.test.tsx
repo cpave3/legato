@@ -443,7 +443,7 @@ describe("SettingsPage layout", () => {
     renderPage()
     await loaded()
     openSection("Integrations")
-    expect(await screen.findByRole("region", { name: "Argus" })).toBeTruthy()
+    await waitFor(() => expect(document.getElementById("argus")).toBeTruthy())
     openSection("Agents")
     expect(document.getElementById("resources")).toBeTruthy()
     expect(document.getElementById("skills")).toBeTruthy()
@@ -585,6 +585,44 @@ describe("SettingsPage layout", () => {
     expect(what.getByRole("button", { name: "Handoffs" })).toBeTruthy()
     fireEvent.click(notify.getByRole("button", { name: "On this computer's desktop" }))
     await waitFor(() => expect(mockedApiFetch).toHaveBeenCalledWith("https://remote.example", "/api/config/settings/notifications.os.enabled", expect.objectContaining({ method: "PUT" })))
+  })
+
+  it("orders Integrations GitHub, Argus, MCP servers, Home Assistant, Manticore, and Argus points to its field when it can be set here", async () => {
+    serveRegistry()
+    renderPage("/settings#integrations")
+    await loaded()
+    const groups = within(screen.getByRole("region", { name: "Integrations" })).getAllByRole("heading", { level: 3 }).map((h) => h.textContent)
+    expect(groups).toEqual(["GitHub", "Argus", "MCP servers", "Home Assistant", "Manticore"])
+    const argus = within(await waitFor(() => { const el = document.getElementById("argus"); expect(el).toBeTruthy(); return el! }))
+    expect(argus.getByText(/Give Argus's address below/)).toBeTruthy()
+    expect(argus.queryByText(/in config.yaml/)).toBeNull()
+    expect(argus.getByRole("link", { name: /Integration tokens/ })).toHaveAttribute("href", "#integration-tokens")
+  })
+
+  it("shows integration tokens once, in Security, and one Credentials card with its lists and channels", async () => {
+    serveRegistry()
+    renderPage("/settings#security")
+    await loaded()
+    expect(await screen.findAllByText("No integration tokens.")).toHaveLength(1)
+    expect(document.querySelectorAll('[id="integration-tokens"]')).toHaveLength(1)
+    expect(within(screen.getByRole("navigation", { name: "Security groups" })).getAllByRole("link").map((l) => l.textContent)).toEqual(["Approval devices", "Credentials", "Integration tokens"])
+    const card = document.getElementById("credentials")!
+    expect(within(card).getByRole("textbox", { name: "Credential proxy address" })).toBeTruthy()
+    expect(within(card).getByRole("textbox", { name: "SSH agent socket" })).toBeTruthy()
+    expect(card.querySelector('[id="list-credentials"]')).toBeTruthy()
+    expect(card.querySelector('[id="list-credential_sources"]')).toBeTruthy()
+    expect(document.querySelectorAll('[id="list-credentials"]')).toHaveLength(1)
+  })
+
+  it("lays out Board and tickets: workspaces with their defaults, columns read-only, Jira and Burnlite", async () => {
+    serveRegistry()
+    renderPage("/settings#board")
+    await loaded()
+    expect(within(screen.getByRole("navigation", { name: "Board and tickets groups" })).getAllByRole("link").map((l) => l.textContent)).toEqual(["Workspaces", "Columns", "Jira", "Burnlite"])
+    const workspaces = within(screen.getByRole("region", { name: "Workspaces" }))
+    expect(workspaces.getByRole("combobox", { name: "New tasks go to" })).toBeTruthy()
+    expect(workspaces.getByRole("combobox", { name: "Imported tasks go to" })).toBeTruthy()
+    expect(within(screen.getByRole("region", { name: "Columns" })).getByText(/legato columns sync/)).toBeTruthy()
   })
 
   it("sends the old Macros link to the Macros page", () => {

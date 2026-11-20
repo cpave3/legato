@@ -46,7 +46,9 @@ function forgetOutcome() {
 // `legato integration token`.
 // only draws one of its cards, where Settings places it: Argus under
 // Integrations, Burnlite under Board and tickets, the tokens under Security.
-export function IntegrationsSettings({ baseUrl, only }: { baseUrl: string; only?: "argus" | "burnlite" | "tokens" }) {
+// argusSetHere says Argus's address can be set in Settings (config.yaml
+// does not pin it), so the card points there instead of to the file.
+export function IntegrationsSettings({ baseUrl, only, argusSetHere }: { baseUrl: string; only?: "argus" | "burnlite" | "tokens"; argusSetHere?: boolean }) {
   const shows = (part: "argus" | "burnlite" | "tokens") => !only || only === part
   const [overview, setOverview] = useState<IntegrationsOverview | null>(null)
   const [error, setError] = useState<string | null>(null)
@@ -83,7 +85,9 @@ export function IntegrationsSettings({ baseUrl, only }: { baseUrl: string; only?
       {shows("argus") && <SettingsCard id="argus" label="Argus" icon={Radar} title="Argus" description="The operations service: it looks up who owns work, hands briefs to agents, hears their replies, and shows its CI cases in Attention.">
         {!argus.configured ? (
           <p className="text-xs text-lw-text-2">
-            Not set up. Set <code className={code}>integrations.argus.url</code> in config.yaml to Argus's address, and restart Legato.
+            {argusSetHere
+              ? <>Not set up. Give Argus's address below; it applies when Legato restarts.</>
+              : <>Not set up. Set <code className={code}>integrations.argus.url</code> in config.yaml to Argus's address, and restart Legato.</>}
           </p>
         ) : (
           <dl className="divide-y divide-lw-line overflow-hidden rounded-lg border border-lw-line">
@@ -111,6 +115,7 @@ export function IntegrationsSettings({ baseUrl, only }: { baseUrl: string; only?
             <Row label="Cases in Attention">{argus.open_cases} open</Row>
           </dl>
         )}
+        {only === "argus" && <a href="#integration-tokens" className="mt-3 inline-block text-xs text-lw-link hover:underline">Argus's token is under Security › Integration tokens</a>}
       </SettingsCard>}
 
       {shows("burnlite") && overview.burnlite && (

@@ -11,22 +11,18 @@ export function MQTTSettings({ settings, baseUrl, loading, error, onRetry }: {
   onRetry: () => void
 }) {
   return (
-    <section id="mqtt" aria-labelledby="mqtt-title" className="scroll-mt-20 lg:scroll-mt-6">
-      <h3 id="mqtt-title" className="text-sm font-medium text-lw-text">Home Assistant over MQTT</h3>
-      <div className="mt-1 mb-3 space-y-2 text-xs leading-relaxed text-lw-text-2">
-        <p>Publishes ten read-only aggregate entities. Theme control is a separate opt-in.</p>
-        <p>Theme control permits every broker-authorized writer on this server’s theme command topic to change its preferred theme. Only clients using Follow server adopt it.</p>
-        <p>Set the broker and credential before enabling. Apply text edits explicitly. All changes require a restart; restart when ready from Settings › System.</p>
-        <p>The credential is a name, not a password. Empty means anonymous access. Retained MQTT messages and Home Assistant history can outlive Legato.</p>
+    <section id="mqtt" aria-label="Home Assistant over MQTT" className="scroll-mt-20 lg:scroll-mt-6">
+      <div className="mb-3 space-y-2 text-[13px] leading-relaxed text-lw-text-2">
+        <p>Publishes ten read-only entities to Home Assistant over MQTT, and, if you allow it, lets Home Assistant set this Legato's theme. Set the broker and login before you turn either on.</p>
         <details>
-          <summary className="w-fit cursor-pointer text-lw-link hover:underline">Broker, credentials and privacy</summary>
-          <div className="mt-2 space-y-2">
+          <summary className="w-fit cursor-pointer text-lw-link hover:underline">Broker, login, theme control and privacy</summary>
+          <div className="mt-2 space-y-2 text-xs">
+            <p>Theme control permits every broker-authorized writer on this server’s theme command topic to change its preferred theme. Only clients using Follow server adopt it.</p>
             <p>Use mqtts:// for verified TLS (port 8883 by default), or mqtt:// for unencrypted TCP (port 1883). Do not include a login in the URL.</p>
-            <p>For a login, ask the Reeve to open a secure secret form for username/password JSON, or use legato secret add with type userpass. Never send the login in conversation. Add a host-only credential with profile mqtt, type userpass and a secret reference in Settings › Security › Credentials.</p>
+            <p>The login is a credential's name, not a password; empty means anonymous access. Store it with legato secret add and type userpass, or ask the Reeve for a secure form; never send it in conversation. Add a host-only credential with profile mqtt, type userpass and a secret reference in Settings › Security › Credentials.</p>
             <p>Discovery uses homeassistant by default; match Home Assistant’s prefix. Leave base topic empty for legato/&lt;persistent-instance-id&gt; and device name empty for Legato &lt;hostname&gt;. Independent instances need different base topics.</p>
             <p>For theme control, allow Legato to subscribe to &lt;base-topic&gt;/theme/set and allow only trusted controller accounts to publish there. Without theme control, keep the existing read-only ACLs. Legato rejects retained theme commands and refreshes the select after reconnecting.</p>
-            <p>Reeve agent counts and Attention details are off by default. Details add up to 20 generated signal labels, not task titles, paths or prompts. Disabling MQTT or changing topic roots does not remove old retained discovery or state; remove those with your broker’s tools. Turning details off clears retained attributes after restart. Remove unwanted Home Assistant history separately.</p>
-            <p>Values pinned by config.yaml must be changed there or moved to the database. Moving a value restarts Legato.</p>
+            <p>Reeve agent counts and Attention details are off by default. Details add up to 20 generated signal labels, not task titles, paths or prompts. Retained MQTT messages and Home Assistant history can outlive Legato: disabling MQTT or changing topic roots does not remove old retained discovery or state; remove those with your broker’s tools. Turning details off clears retained attributes after restart.</p>
           </div>
         </details>
       </div>

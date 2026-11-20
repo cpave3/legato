@@ -41,7 +41,7 @@ export const settingsSections: SettingsSection[] = [
   { id: "learn", title: "Learn", nav: "Features", groups: ["Reflection", "Curator", "Prompts", "Semantic search", "Advanced"], terms: "learning lessons curator reflection embeddings" },
   { id: "board", title: "Board and tickets", nav: "Services", groups: ["Workspaces", "Columns", "Jira", "Burnlite"], terms: "board workspaces columns jira burnlite tickets import sync" },
   { id: "integrations", title: "Integrations", nav: "Services", groups: ["GitHub", "Argus", "MCP servers", "Home Assistant", "Manticore"], terms: "github argus mcp servers oauth home assistant mqtt broker manticore usage" },
-  { id: "security", title: "Security", nav: "Access", groups: ["Approval devices", "Credentials", "Credential channels", "Integration tokens"], terms: "credentials secrets password grants audit approval devices channels tokens ssh" },
+  { id: "security", title: "Security", nav: "Access", groups: ["Approval devices", "Credentials", "Integration tokens"], terms: "credentials secrets password grants audit approval devices channels tokens ssh" },
   { id: "connections", title: "Connections", nav: "Access", groups: ["This browser", "Phones", "Workers and mains", "Network"], terms: "browser servers pairing phone workers main instances handoff tls network discovery port" },
   { id: "system", title: "System", nav: "System", groups: ["Restart", "Updates", "config.yaml", "Only in config.yaml", "Development"], terms: "restart updates release configuration move export import database data folder development rebuild" },
 ]
@@ -117,7 +117,7 @@ export const listPlaces: Record<string, Place> = {
 
 // Lists drawn by a card of their own rather than ListSettings; the card's
 // element carries their list-<key> ID.
-export const listsWithCards = ["repositories", "workflows.repositories", "agents.guidance", "resources", "macros", "board.columns"]
+export const listsWithCards = ["repositories", "workflows.repositories", "agents.guidance", "resources", "macros", "board.columns", "credentials", "credential_sources"]
 
 // The file-only keys (or key prefixes), shown read-only in their topic.
 const fileOnlyPlaces: Record<string, Place> = {
@@ -173,7 +173,7 @@ export function settingPlace(setting: { section?: string; group?: string }): Pla
 // Settings drawn by a card of their own rather than a registry row; the
 // card carries their setting-<key> ID.
 export function hasOwnCard(key: string): boolean {
-  return key === "web.tint" || key === "updates.mode" || key.startsWith("web.rail.") || key.startsWith("integrations.mqtt.") || key.startsWith("notifications.ntfy.")
+  return key === "web.tint" || key === "updates.mode" || key.startsWith("web.rail.") || key.startsWith("integrations.mqtt.") || key.startsWith("notifications.ntfy.") || key.startsWith("credential_channels.") || key === "ssh_agent_socket"
 }
 
 // What a group's heading says when its changes apply, where the mode alone
@@ -246,10 +246,11 @@ export function groupElementId(section: string, group: string): string {
 
 // The groups of a section in order: the lead (a feature's switch) first,
 // then the catalog's, then any group a newer server names.
-export function sectionGroups(section: SettingsSection, settings: { section?: string; group?: string }[]): string[] {
+export function sectionGroups(section: SettingsSection, settings: { key?: string; section?: string; group?: string }[]): string[] {
   const groups = [...section.groups]
   for (const s of settings) {
     const place = settingPlace(s)
+    if ("key" in s && typeof s.key === "string" && hasOwnCard(s.key)) continue
     if (place.section === section.id && place.group !== leadGroup && !groups.includes(place.group)) groups.push(place.group)
   }
   return settings.some((s) => { const p = settingPlace(s); return p.section === section.id && p.group === leadGroup }) ? [leadGroup, ...groups] : groups

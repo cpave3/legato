@@ -275,7 +275,7 @@ A profile is YAML: `name`, `description`, `issuer` (`static` in this phase), `ch
 - `internal/cli/mcp_credentials.go`: `request_access` and `AccessText`.
 - `cmd/legato/credential_runtime.go`, `credential_contract.go`: wiring and the `secret`, `credential` and `audit` commands. Host processes (TUI, `legato serve`) build the broker with the resolver and a messenger; `legato mcp serve` and the CLI build it without, so their approvals are decided by a host.
 - `internal/server/credentials.go`: `GET /api/credentials`, `GET /api/credentials/grants`, `DELETE /api/credentials/grants/{id}`, `GET /api/credentials/audit`.
-- `web/src/components/CredentialsSettings.tsx` (Settings › Security › Credentials) and the credential card of `ApprovalTray`.
+- `web/src/components/CredentialsSettings.tsx` (Settings › Security › Credentials: one card with the credentials, grants and uses, and inside it the `credentials` and `credential_sources` lists' editors and the credential channels' settings, `credential_channels.*` and `ssh_agent_socket`) and the credential card of `ApprovalTray`.
 
 ## MCP connections
 
