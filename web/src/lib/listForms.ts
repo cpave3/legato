@@ -56,8 +56,8 @@ export const listForms: Record<string, ListForm> = {
     empty: "No extra folders.", add: "Add a folder",
   },
   credential_sources: {
-    name: { label: "Vault", placeholder: "Work", help: "A 1Password vault whose items become credentials." },
-    fields: [{ key: "profile", label: "Profile", kind: "text", placeholder: "api-key", help: "The profile its items take, such as api-key or ssh." }],
+    name: { label: "Vault", placeholder: "op://Work", help: "A 1Password vault, as op://<vault>, whose items become credentials." },
+    fields: [{ key: "profile", label: "Profile", kind: "choice", optional: true, unsetLabel: "SSH keys and secrets", choices: [["ssh", "SSH keys only"], ["secret", "Secrets only"]], help: "Which of its items it gives." }],
     empty: "No credential sources.", add: "Add a vault",
   },
   credentials: {
