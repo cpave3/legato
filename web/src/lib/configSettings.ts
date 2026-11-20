@@ -5,9 +5,10 @@ import { apiFetch } from "./api"
 export interface ConfigSetting {
   key: string
   title: string
-  // Its home in Settings: a section ID and a group within it.
-  section: string
-  group: string
+  // Its home in Settings: a section ID and a group within it (absent from
+  // a server older than the redesign).
+  section?: string
+  group?: string
   // One line on what it does. description is its old name, sent for one
   // release.
   help?: string
