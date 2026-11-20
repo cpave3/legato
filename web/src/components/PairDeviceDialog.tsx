@@ -7,7 +7,7 @@ import { useWebSocket } from "../hooks/useWebSocket"
 
 // A pairing request of the server (GET/POST/DELETE /api/pairing): a phone in
 // the Legato app pairs by typing its four words. See mobile/README.md § Pairing.
-// A request for a main instance is typed into the main's Settings › Workers;
+// A request for a main instance is typed into the main's Settings › Connections › Workers;
 // the main gets a token that can only hand tasks off to this server.
 export type PairingPurpose = "phone" | "main" | "reeve"
 
@@ -172,7 +172,7 @@ export function PairDeviceDialog({ baseUrl, purpose = "phone", onClose }: { base
             <h2 id="pair-device-title" className="text-base font-semibold sm:text-sm">{purpose === "main" ? "Pair a main instance" : purpose === "reeve" ? "Pair another Reeve" : "Pair a device"}</h2>
             <p className="text-xs text-lw-text-2">
               {purpose === "main"
-                ? "On the main instance, open Settings › Workers › Add a worker and enter this address and phrase. The main gets a token that can only hand tasks off here."
+                ? "On the main instance, open Settings › Connections › Workers › Add a worker and enter this address and phrase. The main gets a token that can only hand tasks off here."
                 : purpose === "reeve"
                   ? "On the other instance, open Settings › Reeve › Reeve pairings and enter this address and phrase. Its Reeve can then message this one's, and only that: whatever either proposes, its own person approves."
                   : "In the Legato app, add a server, choose this one and type the words."}

@@ -53,7 +53,7 @@ func (f *Flow) stepWeb(ctx context.Context) error {
 	fmt.Fprintf(f.Out, "  The web UI: %s\n", f.Web.Address())
 	answer := strings.ToLower(f.ask("  Pair a phone now? [y/N]: "))
 	if answer != "y" && answer != "yes" {
-		fmt.Fprintln(f.Out, "  Later: legato pair, or Settings › Devices.")
+		fmt.Fprintln(f.Out, "  Later: legato pair, or Settings › Security › Approval devices.")
 		return nil
 	}
 	switch err := f.Web.Pair(ctx); {

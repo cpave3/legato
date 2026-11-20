@@ -36,7 +36,7 @@ Pairing gives the app the server's address, its token and, over HTTPS, the certi
    legato pair
    ```
 
-   Or, in the web UI, open Settings › Connections and handoff › Pair a phone and choose **Pair a device**.
+   Or, in the web UI, open Settings › Connections › Pair a phone and choose **Pair a device**.
 2. Legato shows a QR code and four words, such as `matchstick obnoxious eruption hybrid`.
 3. In the app, tap **+** to add a server.
 4. Scan the code, or pick the server under **On this network** (or type its address) and type the four words. The first three letters of each word are enough.
@@ -66,7 +66,7 @@ The app is a native Android shell around the web UI, for Android 10 and later. O
 - Approval links: an approval notification from ntfy opens the app on that approval. See [Notifications](/legato/integrations/notifications/).
 - Signed approvals: the phone holds a key in its secure hardware and signs a decision after your fingerprint or PIN. See [How credentials reach agents](/legato/security/credential-broker/).
 - An approvals list across all your servers.
-- Adding a worker from another server the app knows: on a main's Settings › Connections and handoff › Workers › **Add a worker**, choose one of the app's other servers and agree in the app's own dialog. The app opens the pairing request on that server with the token it holds, so you type no address or words. See [Main and worker instances](/legato/running/instances/).
+- Adding a worker from another server the app knows: on a main's Settings › Connections › Workers › **Add a worker**, choose one of the app's other servers and agree in the app's own dialog. The app opens the pairing request on that server with the token it holds, so you type no address or words. See [Main and worker instances](/legato/running/instances/).
 
 :::caution
 Official Android release support is implemented, but an official APK has not been published yet. No production signing setup has been performed. Cameron's choice of a durable private signer is a prerequisite; fresh-install, data-preserving upgrade and real Obtainium skipped-release acceptance checks remain blocked operator work.
@@ -127,17 +127,17 @@ On any other device, including an iPhone, you can install the web UI as an app f
 
 Both the web UI and the Legato app keep a list of servers.
 
-- In the web UI, add one in Settings › Connections and handoff › Servers with a name and its address, such as `https://legato-vm.example.ts.net:3080`. The page asks for that server's token when you switch to it. Switch between servers with the switcher at the foot of the side rail, or in **More** on a phone.
+- In the web UI, add one in Settings › Connections › Servers with a name and its address, such as `https://legato-vm.example.ts.net:3080`. The page asks for that server's token when you switch to it. Switch between servers with the switcher at the foot of the side rail, or in **More** on a phone.
 - In the app, add each server with **+** and pair it.
 - The [desktop app](/legato/running/desktop-app/) keeps every server in one window, with a dock to switch between them.
 
-Give each Legato a tint in Settings › Server and maintenance › Tint, so you can tell at a glance which one a page is on. The tint is saved on the server, so every device shows it.
+Give each Legato a tint in Settings › Appearance › Tint, so you can tell at a glance which one a page is on. The tint is saved on the server, so every device shows it.
 
 ### App colours
 
 On the Android app's server list, open **Appearance › Theme** and choose **Legato**, **Dracula**, **Ocular Light**, **Ocular Dark**, **Ocular Light Vivid** or **Ocular Dark Vivid**. The picker also offers **Follow server**. The app keeps the choice across restarts and applies it to its native screens, system bars and server pages. You can also choose **App theme** in a compatible server page's Settings; it asks the app to save the same choice. The launch splash keeps Legato's original background until the activity starts. Android's keyboard, file picker and fingerprint prompt use the system's appearance.
 
-In a browser or installed PWA, choose **Settings › Preferences › Appearance › App theme**. That browser keeps the choice. Terminals follow the app unless you saved a separate **Terminal theme**. Changing an app theme does not overwrite that terminal choice or a server's tint. Ocular colours are research candidates, not a proven treatment for eye strain. **Follow server** uses the open server’s preferred theme and keeps your local choice as fallback. No preference, an older server or an unsupported theme uses that fallback. Offline, the app keeps only that server’s cached preference; switching servers never borrows another server’s theme. Choose a named theme to stop following. You can set the preferred theme in Server Settings or through the opt-in [Home Assistant select](/legato/integrations/home-assistant/#control-the-server-theme). Older app versions support named choices only.
+In a browser or installed PWA, choose **Settings › Appearance › App theme**. That browser keeps the choice. Terminals follow the app unless you saved a separate **Terminal theme**. Changing an app theme does not overwrite that terminal choice or a server's tint. Ocular colours are research candidates, not a proven treatment for eye strain. **Follow server** uses the open server’s preferred theme and keeps your local choice as fallback. No preference, an older server or an unsupported theme uses that fallback. Offline, the app keeps only that server’s cached preference; switching servers never borrows another server’s theme. Choose a named theme to stop following. You can set the preferred theme in Server Settings or through the opt-in [Home Assistant select](/legato/integrations/home-assistant/#control-the-server-theme). Older app versions support named choices only.
 All Ocular themes use purple actions and identity with green activity/success; Vivid keeps stronger accents. Their reading bases stay the same.
 
 ## HTTPS with Legato's own certificate
@@ -156,7 +156,7 @@ web:
 - The Legato app needs nothing installed: it trusts the certificate it received when it paired.
 - A browser needs the authority installed before it trusts the page. Copy `certs/ca.pem` to the device and install it as a CA certificate. On Android: Settings → Security → Install a certificate → CA certificate. On iOS: install the profile, then turn on full trust in Settings → General → About → Certificate Trust Settings.
 
-Settings › Connections and handoff › TLS certificate in the web UI repeats these steps.
+Settings › Connections › TLS certificate in the web UI repeats these steps.
 
 ## HTTPS with a certificate of your own
 

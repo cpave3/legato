@@ -112,7 +112,7 @@ function EntryEditor({ list, entry, onSave, onCancel }: { list: ConfigList; entr
 
 // ListCard is one list: the file's entries, locked, and the database's,
 // which can be edited and removed; and Add.
-function ListCard({ list, baseUrl }: { list: ConfigList; baseUrl: string }) {
+export function ListCard({ list, baseUrl }: { list: ConfigList; baseUrl: string }) {
   const queryClient = useQueryClient()
   const [editing, setEditing] = useState<string | null>(null)
   const [error, setError] = useState("")

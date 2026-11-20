@@ -274,7 +274,7 @@ export function ApprovalCard({ approval, focused, onDone }: { approval: Approval
               ))}
               {approval.signed && !phone && !passkey && (
                 <p className="rounded-lg border border-lw-accent/40 bg-lw-accent-soft px-3 py-2 text-sm text-lw-accent-text md:text-xs">
-                  <span aria-hidden>◈ </span>Needs your phone: open this approval in the Legato app and sign it with your fingerprint or PIN, or add a passkey for this computer in Settings › Devices.
+                  <span aria-hidden>◈ </span>Needs your phone: open this approval in the Legato app and sign it with your fingerprint or PIN, or add a passkey for this computer in Settings › Security › Approval devices.
                 </p>
               )}
               {!approval.signed && approval.source !== "reeve_secret" && allows.map((option, index) => (

@@ -55,7 +55,7 @@ Set `web.public_url` if your phone reaches Legato by another address. See [Devic
 
 ### Away tasks
 
-On a main instance that [hands tasks off](/legato/using/handoff/), Legato sends one ntfy notification when an away task fails or is lost on its worker, when a worker no longer accepts your main, and when a worker that holds your tasks has been unreachable for 15 minutes (once for each outage). Tapping it opens the task, or Settings › Connections and handoff › Workers, in your browser. A task done on the worker, or one whose agent asks you something, sends nothing from your main: the worker's own notifications cover those. To turn them off, set `notifications.handoff: false`.
+On a main instance that [hands tasks off](/legato/using/handoff/), Legato sends one ntfy notification when an away task fails or is lost on its worker, when a worker no longer accepts your main, and when a worker that holds your tasks has been unreachable for 15 minutes (once for each outage). Tapping it opens the task, or Settings › Connections › Workers, in your browser. A task done on the worker, or one whose agent asks you something, sends nothing from your main: the worker's own notifications cover those. To turn them off, set `notifications.handoff: false`.
 
 ## Desktop notifications
 

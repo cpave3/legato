@@ -23,7 +23,7 @@ v1 is deliberately small: skills are folders on disk, Settings lists them and tu
 
 - `GET /api/settings/skills` (read) → `{dir, skills: [{name, description, path, error?, enabled}]}`, sorted by name.
 - `PUT /api/settings/skills/{name}` (change) `{enabled: bool}` → the skill. `400` for a body without `enabled`, `404` for no such folder, `503` without the service (`internal/server/skills.go`). Being a `change` route, the Reeve turns a skill on or off through a change set.
-- **Settings › Agents and workspaces › Skills** (`web/src/components/settings/SkillsSettings.tsx`, `#skills`, `web/src/lib/skills.ts`): the folder, then a row per skill with its name, description (or its error, marked **error**), path, and a toggle (**Give agents <name>**; none for a skill with an error). With none: "No skills yet. Add a folder with a SKILL.md to <dir>."
+- **Settings › Agents › Skills** (`web/src/components/settings/SkillsSettings.tsx`, `#skills`, `web/src/lib/skills.ts`): the folder, then a row per skill with its name, description (or its error, marked **error**), path, and a toggle (**Give agents <name>**; none for a skill with an error). With none: "No skills yet. Add a folder with a SKILL.md to <dir>."
 - The TUI has no settings view, so no list there.
 
 ## Giving skills to an agent

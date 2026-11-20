@@ -12,7 +12,7 @@ Legato can publish ten read-only aggregate entities through Home Assistant MQTT 
 1. Configure the MQTT integration in Home Assistant for your broker. Enable discovery with the default `homeassistant` prefix, or use the same prefix in both applications.
 2. Create a broker login for Legato. Give it permission to publish its state root and discovery configurations. Allow subscriptions only to `homeassistant/status` (or your discovery prefix followed by `/status`).
 3. Store the login through [Legato's credential store](/legato/security/credential-broker/). The secret must be a JSON object with nonempty `username` and `password` strings. Ask the Reeve to open a secure secret form, then paste the JSON into that form, not the conversation. Alternatively, supply the JSON through standard input to `legato secret add mqtt-login --type userpass`. Use a secure input source; do not put the login in shell history, `config.yaml`, or the broker URL.
-4. Open **Settings → Security → Credentials**, choose **Add to credentials**, and name the entry `mqtt`. In **Advanced JSON · fields as in config.yaml**, enter references only:
+4. Open **Settings › Security › Credentials**, choose **Add to credentials**, and name the entry `mqtt`. In **Advanced JSON · fields as in config.yaml**, enter references only:
 
    ```json
    {
@@ -23,7 +23,7 @@ Legato can publish ten read-only aggregate entities through Home Assistant MQTT 
    ```
 
    Replace the secret reference with the name used in step 3. The `mqtt` profile is host-only: agents cannot request this login. Set `type: userpass` explicitly, including when using the secure form or an existing `env://`, `file://`, or `op://` secret.
-5. Open **Settings → Integrations → Home Assistant over MQTT**. Set **MQTT broker** to your broker's address and **MQTT credential** to `mqtt` (the credential entry's name, not its secret reference or password). Empty credential explicitly selects anonymous access; in that case, skip steps 2–4.
+5. Open **Settings › Integrations › Home Assistant**. Set **MQTT broker** to your broker's address and **MQTT credential** to `mqtt` (the credential entry's name, not its secret reference or password). Empty credential explicitly selects anonymous access; in that case, skip steps 2–4.
 
    `mqtt://` uses TCP without encryption; `mqtts://` verifies the server certificate and hostname against the system trust store. Default ports are 1883 and 8883. WebSockets, client certificates, and insecure TLS are not supported.
 6. Set **MQTT discovery prefix** to match Home Assistant (`homeassistant` by default). **MQTT base topic** and **MQTT device name** are optional. Leave **Include Reeve in MQTT counts** and **MQTT Attention details** off unless you need them. Open **Broker, credentials and privacy** for defaults and retained-data consequences.
@@ -86,7 +86,7 @@ Legato publishes changed values after events, normally within two seconds. It re
    | Legato | Exact `<base>/theme/set`, `<discovery>/status` | `<discovery>/select/<instance-id>/theme/config`, `<base>/theme/state`, `<base>/theme/result`, `<base>/theme/availability` |
    | Home Assistant | That select discovery path and theme state/result/availability | Exact `<base>/theme/set`, plus its existing `<discovery>/status` birth topic |
 
-3. In **Settings → Integrations → Home Assistant over MQTT**, turn on **Allow MQTT theme control** (`integrations.mqtt.theme_control`). This grants theme changes to **every publisher your broker allows on the exact command topic**. Legato cannot identify the sender or revoke an individual publisher. Restrict writers through broker ACLs; avoid anonymous or wildcard write access. No Legato application token is used.
+3. In **Settings › Integrations › Home Assistant**, turn on **Allow MQTT theme control** (`integrations.mqtt.theme_control`). This grants theme changes to **every publisher your broker allows on the exact command topic**. Legato cannot identify the sender or revoke an individual publisher. Restrict writers through broker ACLs; avoid anonymous or wildcard write access. No Legato application token is used.
 4. Restart Legato when you choose. Saving does not enable control live. **MQTT publisher** can stay off if you want only theme control. Find the automatically discovered **Server theme** select on the Legato device; do not create a manual select.
 5. Choose `none`, `legato`, `dracula`, `ocular-light`, `ocular-dark`, `ocular-light-vivid` or `ocular-dark-vivid`. `none` clears the server preference. Each browser or app must separately choose **Follow server** in its app theme picker; existing local choices stay local.
 

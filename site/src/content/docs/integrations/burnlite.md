@@ -15,7 +15,7 @@ Legato connects to Burnlite as an OAuth client. You allow it once in Burnlite, a
 
 ### From the web UI
 
-1. Open **Settings › Integrations**.
+1. Open **Settings › Board and tickets › Burnlite**.
 2. In the Burnlite block, type your Burnlite's address, such as `https://burnlite.example.com`.
 3. Select **Connect**. Burnlite opens and asks you to allow Legato.
 4. Allow it. Burnlite sends you back to Legato's settings, which say that Legato is connected.
@@ -54,7 +54,7 @@ The [browser extension](/legato/integrations/browser-extension/) can also import
 
 By default, a search looks in every Burnlite project. To search fewer projects, list their keys (`EST` in `EST-42`):
 
-- In **Settings › Integrations**, type the keys in the Burnlite block and select **Save**.
+- In **Settings › Board and tickets › Burnlite**, type the keys in the Burnlite block and select **Save**.
 - Or set `burnlite.projects` in `config.yaml`. When this setting has keys, it replaces the list in the web UI.
 
 ```yaml
@@ -95,7 +95,7 @@ When a task changes state in Burnlite, its card moves to that state's column. A 
 
 Legato checks Burnlite every 60 seconds (`burnlite.sync_interval_seconds`). It gets the full text only of the tasks that changed. A task that Burnlite no longer has is marked as stale.
 
-If Burnlite stops accepting Legato's tokens, Attention says that Legato lost its connection. Connect again from **Settings › Integrations** or with `legato integration connect burnlite`.
+If Burnlite stops accepting Legato's tokens, Attention says that Legato lost its connection. Connect again from **Settings › Board and tickets › Burnlite** or with `legato integration connect burnlite`.
 
 ## Hand off a Burnlite task
 

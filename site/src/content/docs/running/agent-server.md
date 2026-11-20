@@ -98,7 +98,7 @@ repository_cache:
   enabled: true                     # offer "Clone" in the spawn dialog
   keep_idle: 7d                     # keep a clone this long for the next agent
 
-# More can be added in the web UI: Settings › Agents and workspaces › Repositories.
+# More can be added in the web UI: Settings › Repositories.
 repositories:                       # what jobs and the workflow form offer
   - name: Legato
     repo: cpave3/legato             # no primary_dir: each job gets a fresh clone
@@ -164,7 +164,7 @@ Legato also writes its log to a file in its data folder, `~/.local/share/legato/
 
 ### Updates
 
-A release of Legato updates itself. Settings › Updates chooses how: **Ask** (the default) shows a bar and an Attention item with **Update and restart**; **Automatic** installs a new release once no agent is in the middle of a turn (after three hours, whatever they are doing); **Off** never looks. An update replaces `~/.local/bin/legato` (the old one is kept as `legato.prev`) and Legato exits with status 75, which this unit starts again. `KillMode=process` keeps tmux and the agents running across it. See [Releases and updates](/legato/running/updates/).
+A release of Legato updates itself. Settings › System › Updates chooses how: **Ask** (the default) shows a bar and an Attention item with **Update and restart**; **Automatic** installs a new release once no agent is in the middle of a turn (after three hours, whatever they are doing); **Off** never looks. An update replaces `~/.local/bin/legato` (the old one is kept as `legato.prev`) and Legato exits with status 75, which this unit starts again. `KillMode=process` keeps tmux and the agents running across it. See [Releases and updates](/legato/running/updates/).
 
 ## 6. GitHub
 
@@ -194,18 +194,18 @@ With the sandbox on, the skip-permission flags in step 4 are reasonable: an agen
 The web UI on your laptop and the phone app each keep a list of servers.
 
 - **Phone.** On the VM, `legato pair --host legato-vm.example.ts.net`. It prints a QR code and four words; scan the code in the Legato app, or type the words. The phone gets the server's address, its token and its certificate, and the command ends when it is paired.
-- **Web UI elsewhere.** Settings › Connections and handoff › Servers: add `https://legato-vm.example.ts.net:3080` with a name. When you switch to it, the UI asks for its token: on the VM, `legato auth token`.
+- **Web UI elsewhere.** Settings › Connections › Servers: add `https://legato-vm.example.ts.net:3080` with a name. When you switch to it, the UI asks for its token: on the VM, `legato auth token`.
 - **Web UI on the server itself.** Open `https://legato-vm.example.ts.net:3080` in a browser on your tailnet and give it the token.
 
 The server switcher at the foot of the rail (and in **More** on a phone) moves between your laptop's Legato and this one.
 
 ## 8. Starting a job
 
-From the web UI or the phone: **Spawn agent**, pick the agent tool, switch **Where** to **Clone** (`repository_cache.enabled: true` in step 4), pick the repository and **New clone**, give a branch (blank for `legato/<task id>`) and a base branch, and write the job in **First message**. The dialog closes at once and the agent is listed under **Starting** while its clone is made, with git's progress when the repository is still being copied; it starts as soon as the clone is ready. Legato copies every repository it offers when it starts, and one added in Settings at once, so a large repository's first copy (minutes, for a gigabyte) is usually done before you need it; Settings › Agents and workspaces › Repositories shows how each copy stands. For a run record, run **Agent job** (`legato-job`) from **Workflows** instead.
+From the web UI or the phone: **Spawn agent**, pick the agent tool, switch **Where** to **Clone** (`repository_cache.enabled: true` in step 4), pick the repository and **New clone**, give a branch (blank for `legato/<task id>`) and a base branch, and write the job in **First message**. The dialog closes at once and the agent is listed under **Starting** while its clone is made, with git's progress when the repository is still being copied; it starts as soon as the clone is ready. Legato copies every repository it offers when it starts, and one added in Settings at once, so a large repository's first copy (minutes, for a gigabyte) is usually done before you need it; Settings › Repositories shows how each copy stands. For a run record, run **Agent job** (`legato-job`) from **Workflows** instead.
 
 **A stack of branches in one folder.** Work you would do as a stack (one branch on top of another, each its own task and agent) can stay in one clone, with its dependencies and build output. Start the first part in a fresh clone. For each next part, **Spawn agent** on its task, switch **Where** to **Clone**, pick the repository and, under **Clone**, the clone (named by its branch) instead of New clone, and give the new branch: it is made at the clone's current commit, stacked on the branch before it. Leave Branch empty to stay on the clone's branch. Restacking (`st restack`, a rebase on main) is the agents' work, in the same folder. A task's later agents (a restart, a new agent on the same task) work in its clone again by themselves.
 
-Two agents can work in one clone at once, for example one reviewing while another builds. The second joins on the clone's branch (Legato will not move the branch under the first), and the two see each other as peers and can message each other. A clone no agent has worked in for `repository_cache.keep_idle` (7 days) is removed if everything in it is pushed; Settings › Agents and workspaces › Clones lists them and removes one early.
+Two agents can work in one clone at once, for example one reviewing while another builds. The second joins on the clone's branch (Legato will not move the branch under the first), and the two see each other as peers and can message each other. A clone no agent has worked in for `repository_cache.keep_idle` (7 days) is removed if everything in it is pushed; the Remote page (linked from Settings › Repositories › Managed clones) lists them and removes one early.
 
 By API, with the token from `legato auth token`:
 

@@ -69,7 +69,7 @@ func setupFlow(cfg *config.Config, db *store.Store, in io.Reader, out io.Writer,
 		InstallHooks: func(_ context.Context, tool string) (string, error) {
 			return installToolHooks(cfg, tool, wd)
 		},
-		SettingsLink:    webSettingsLink(cfg, "integrations"),
+		SettingsLink:    webSettingsLink(cfg, "burnlite"),
 		WorkDir:         wd,
 		Repositories:    newRepositoryPresetService(cfg, db, nil),
 		RepositoryRoots: setup.DefaultRepositoryRoots(home, wd),

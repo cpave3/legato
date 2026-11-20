@@ -185,7 +185,7 @@ func runSetup(t *testing.T, input string, secrets []string, reports []service.Do
 			r.hooks = append(r.hooks, tool)
 			return "installed " + tool + "'s hooks", nil
 		},
-		SettingsLink:    "https://legato.local:3080/settings#integrations",
+		SettingsLink:    "https://legato.local:3080/settings#burnlite",
 		WorkDir:         "/home/op/code/app",
 		Repositories:    r.repositories,
 		RepositoryRoots: r.repositoryRoots,
@@ -309,7 +309,7 @@ func TestSetupNamesWhereToConnectBurnlite(t *testing.T) {
 	if r.err != nil {
 		t.Fatal(r.err)
 	}
-	if !strings.Contains(r.out.String(), "https://legato.local:3080/settings#integrations") {
+	if !strings.Contains(r.out.String(), "https://legato.local:3080/settings#burnlite") {
 		t.Errorf("no Settings link:\n%s", r.out.String())
 	}
 }

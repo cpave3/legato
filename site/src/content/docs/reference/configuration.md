@@ -46,7 +46,7 @@ tmux option values are strings. For example, an option named `history-limit` tak
 
 Some settings are **file-only**: they live only in this file, and nothing else changes them. They are what Legato needs before its database opens (`db.*`, `data_dir`), what unseals its secrets (`secrets.master_key`, `secrets.onepassword`), how it is reached (`web.enabled`, `web.port`, `web.tls`, `web.public_url`), and the signing trust root (`approval_devices.android_app_digests`). They are marked *file-only* below.
 
-**Moving settings out of the file.** After the upgrade that brought settings into the database, Attention offers once to move every setting `config.yaml` pins into the database, listed in Settings › Server and maintenance with a tick each; untick any to keep it in the file. Each pinned setting in Settings also has **Move to the database**. A move copies the values into the database, rewrites `config.yaml` without them (its comments and order kept, the old file kept beside it as `config.yaml.<time>.bak`), and restarts Legato; if Legato does not start on the result, it puts the old file and values back. A setting that holds a secret, or whose value reads an environment variable, stays in the file, and so do the Reeve's rules, whose order decides which applies. So does a setting the file needs beside a secret it keeps, such as `manticore.url` beside `manticore.api_key`: Legato reads `config.yaml` before the database when it starts, so a move never leaves a file that does not load by itself.
+**Moving settings out of the file.** After the upgrade that brought settings into the database, Attention offers once to move every setting `config.yaml` pins into the database, listed in Settings › System with a tick each; untick any to keep it in the file. Each pinned setting in Settings also has **Move to the database**. A move copies the values into the database, rewrites `config.yaml` without them (its comments and order kept, the old file kept beside it as `config.yaml.<time>.bak`), and restarts Legato; if Legato does not start on the result, it puts the old file and values back. A setting that holds a secret, or whose value reads an environment variable, stays in the file, and so do the Reeve's rules, whose order decides which applies. So does a setting the file needs beside a secret it keeps, such as `manticore.url` beside `manticore.api_key`: Legato reads `config.yaml` before the database when it starts, so a move never leaves a file that does not load by itself.
 
 **Export and import.** `legato config export` writes the settings kept in the database as a file shaped like `config.yaml`; `legato config import` turns such a file into one change set to approve, so one instance can set up another.
 
@@ -129,7 +129,7 @@ Connects the board to Jira, so that tickets you import stay up to date and movin
 
 ## Burnlite
 
-Connects the board to Burnlite, so that you can import its tasks and they stay up to date. Legato reads Burnlite only after you connect it: run `legato integration connect burnlite`, or use Settings › Integrations in the web UI. Moving a card never changes the task in Burnlite. See [Burnlite](/legato/integrations/burnlite/).
+Connects the board to Burnlite, so that you can import its tasks and they stay up to date. Legato reads Burnlite only after you connect it: run `legato integration connect burnlite`, or use Settings › Board and tickets › Burnlite in the web UI. Moving a card never changes the task in Burnlite. See [Burnlite](/legato/integrations/burnlite/).
 
 | Setting | Type | Default | What it does |
 | --- | --- | --- | --- |
@@ -339,7 +339,7 @@ The web UI and its API. The TUI starts it beside itself when `web.enabled` is on
 | `web.tls.cert` | path | none | *File-only.* A certificate file of your own. With `web.tls.key`, it turns HTTPS on. |
 | `web.tls.key` | path | none | *File-only.* The private key of `web.tls.cert`. |
 | `web.tls.hostname` | string | none | *File-only.* Another host name for the certificate Legato makes, such as `mybox.local`. It already covers `localhost` and this machine's addresses. |
-| `web.tint` | string | none | A colour that tells this Legato from others in the web UI: `red`, `orange`, `yellow`, `green`, `teal`, `blue`, `purple` or `pink`. Usually set in Settings › Server and maintenance › Tint. |
+| `web.tint` | string | none | A colour that tells this Legato from others in the web UI: `red`, `orange`, `yellow`, `green`, `teal`, `blue`, `purple` or `pink`. Usually set in Settings › Appearance › Tint. |
 | `web.rail.actions`, `web.rail.questions`, `web.rail.done`, `web.rail.other` | bool | `true` | Whether the needs-you rail shows what agents [post for you](/legato/using/attention/#operator-items): actions only you can do, questions, finished work, and anything else. Usually set in Settings › Needs-you rail. The Attention page always lists everything. |
 | `web.rail.approvals`, `web.rail.agents`, `web.rail.workflows`, `web.rail.plans`, `web.rail.legato` | bool | `true` | Whether the rail shows approvals (and paired instances' change sets), agents waiting or in error, workflow gates and failures, plans to decide, and Legato's own items (updates, restarts, settings, devices, handoff, integrations, engrams, interrupted agents). |
 | `web.rail.review`, `web.rail.merge` | bool | `false` | Whether the rail shows work ready for review (review tours, handoffs done) and merge blockers (pull requests that cannot merge, Argus's cases). |
@@ -381,7 +381,7 @@ The Reeve's defaults, read when a session starts. Usually set in Settings › Re
 
 ## Updates
 
-How this Legato takes new releases. Usually set in Settings › Updates. See [Updates](/legato/running/updates/).
+How this Legato takes new releases. Usually set in Settings › System › Updates. See [Updates](/legato/running/updates/).
 
 | Setting | Type | Default | What it does |
 | --- | --- | --- | --- |
@@ -418,7 +418,7 @@ With a topic set, Legato notifies you when an agent finishes, when it needs you,
 
 ## Repositories
 
-The repositories Legato offers when you start an agent or a workflow. You can add more in the web UI (Settings › Agents and workspaces › Repositories); those are kept in the database. See [Agents](/legato/using/agents/) and [An agent server](/legato/running/agent-server/).
+The repositories Legato offers when you start an agent or a workflow. You can add more in the web UI (Settings › Repositories); those are kept in the database. See [Agents](/legato/using/agents/) and [An agent server](/legato/running/agent-server/).
 
 | Setting | Type | Default | What it does |
 | --- | --- | --- | --- |

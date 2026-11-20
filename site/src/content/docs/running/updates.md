@@ -21,7 +21,7 @@ A build from source says `legato dev`. `legato version --json` also says whether
 
 ## Choose how it updates
 
-Open Settings › Updates in the web UI. It shows this server's version and the latest release, and the mode:
+Open Settings › System › Updates in the web UI. It shows this server's version and the latest release, and the mode:
 
 | Mode | What happens |
 | --- | --- |
@@ -59,7 +59,7 @@ Agents keep running across the restart in every case, since they live in tmux. A
 
 ### Restarting Legato yourself
 
-Legato restarts itself on request: **Restart Legato** in Settings › Updates, or `legato restart` on the machine. Every Legato process of the instance, the TUI and `legato serve` alike, shuts down and starts again in place, with the same command line: the TUI clears its screen and draws again in the same terminal, and a systemd service or launchd agent keeps its process. Under `--hot-reload`, the supervisor starts it again. Agents keep running, and an agent that was still starting gets its first message once it is ready.
+Legato restarts itself on request: **Restart Legato** in Settings › System › Updates, or `legato restart` on the machine. Every Legato process of the instance, the TUI and `legato serve` alike, shuts down and starts again in place, with the same command line: the TUI clears its screen and draws again in the same terminal, and a systemd service or launchd agent keeps its process. Under `--hot-reload`, the supervisor starts it again. Agents keep running, and an agent that was still starting gets its first message once it is ready.
 
 If you edited `config.yaml` since Legato started, the restart keeps the file Legato was running on as `config.yaml.<time>.bak`. When the edited file does not load, or Legato is not answering within 30 seconds of starting on it, Legato puts the old file back, starts again on it, and says so in Attention ("A restart of Legato failed and was rolled back", with the error).
 
@@ -75,21 +75,21 @@ Use the path your `legato` is at. This brings back the binary only. A new releas
 
 ## Builds from source
 
-A binary you built yourself (`task build`) says it is `dev` and never updates itself. Settings › Updates says so. This lets a checkout you develop in run beside a machine that runs releases. See [Building Legato](/legato/contributing/build/).
+A binary you built yourself (`task build`) says it is `dev` and never updates itself. Settings › System › Updates says so. This lets a checkout you develop in run beside a machine that runs releases. See [Building Legato](/legato/contributing/build/).
 
 ## Staccato's `st`
 
 Legato also keeps [Staccato](/legato/integrations/staccato/)'s `st` up to date, when the `st` on Legato's `PATH` is a release (`st version` says a `vX.Y.Z`). It checks `st` whenever it checks for itself, in the same mode:
 
 - **Automatic** runs `st update` as soon as a newer `st` is out. It doesn't wait for agents: `st` is replaced in place, and nothing restarts.
-- **Ask** shows the release in Settings › Updates, with **Update st to …**, and in Attention.
+- **Ask** shows the release in Settings › System › Updates, with **Update st to …**, and in Attention.
 - **Off** never looks.
 
 `st` downloads and checks its own release; Legato only runs `st update`. An `st` built from source is left alone, and Legato never installs `st` where there is none. A Legato built from source still keeps a release of `st` up to date.
 
 ## Chimera
 
-Legato keeps a release of [Chimera](/legato/agent-tools/chimera/) current in the same way as `st`. It finds `chimera` on Legato's `PATH` and shows its version and state beside `st` in Settings › Updates:
+Legato keeps a release of [Chimera](/legato/agent-tools/chimera/) current in the same way as `st`. It finds `chimera` on Legato's `PATH` and shows its version and state beside `st` in Settings › System › Updates:
 
 - **Automatic** runs `chimera update` when a newer release is found, without waiting for agents.
 - **Ask** offers **Update chimera to …** in Settings and an update action in Attention. Checks alone never install anything.

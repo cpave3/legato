@@ -150,7 +150,7 @@ The web UI controls your agents, and your agents can run commands on your machin
 
 ## 6. Updates
 
-A release build updates itself. By default it asks first: the web UI shows a bar when a new release is out, and an item in [Attention](/legato/using/attention/). You can change this to update automatically, or never, in the web UI under Settings › Updates. See [Updates](/legato/running/updates/).
+A release build updates itself. By default it asks first: the web UI shows a bar when a new release is out, and an item in [Attention](/legato/using/attention/). You can change this to update automatically, or never, in the web UI under Settings › System › Updates. See [Updates](/legato/running/updates/).
 
 ## Next steps
 

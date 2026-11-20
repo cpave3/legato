@@ -44,7 +44,10 @@ function forgetOutcome() {
 // its cases in Attention), Burnlite (connected and set up here), and the
 // scoped tokens integrations use. Tokens are made and revoked with
 // `legato integration token`.
-export function IntegrationsSettings({ baseUrl }: { baseUrl: string }) {
+// only draws one of its cards, where Settings places it: Argus under
+// Integrations, Burnlite under Board and tickets, the tokens under Security.
+export function IntegrationsSettings({ baseUrl, only }: { baseUrl: string; only?: "argus" | "burnlite" | "tokens" }) {
+  const shows = (part: "argus" | "burnlite" | "tokens") => !only || only === part
   const [overview, setOverview] = useState<IntegrationsOverview | null>(null)
   const [error, setError] = useState<string | null>(null)
   const [burnliteOutcome] = useState(() => readOutcome("burnlite"))
@@ -63,8 +66,8 @@ export function IntegrationsSettings({ baseUrl }: { baseUrl: string }) {
 
   // Attention's "connect again" item links here; come into view once shown.
   useEffect(() => {
-    if (overview !== null && window.location.hash === "#integrations") {
-      (document.getElementById("integrations") ?? root.current)?.scrollIntoView?.({ block: "start" })
+    if (overview !== null && (window.location.hash === "#integrations" || window.location.hash === "#burnlite")) {
+      (document.getElementById(window.location.hash.slice(1)) ?? root.current)?.scrollIntoView?.({ block: "start" })
     }
   }, [overview])
 
@@ -77,7 +80,7 @@ export function IntegrationsSettings({ baseUrl }: { baseUrl: string }) {
   const replies = argus.connection.replies ?? {}
   return (
     <div ref={root} className="flex flex-col gap-4">
-      <SettingsCard label="Argus" icon={Radar} title="Argus" description="The operations service: it looks up who owns work, hands briefs to agents, hears their replies, and shows its CI cases in Attention.">
+      {shows("argus") && <SettingsCard id="argus" label="Argus" icon={Radar} title="Argus" description="The operations service: it looks up who owns work, hands briefs to agents, hears their replies, and shows its CI cases in Attention.">
         {!argus.configured ? (
           <p className="text-xs text-lw-text-2">
             Not set up. Set <code className={code}>integrations.argus.url</code> in config.yaml to Argus's address, and restart Legato.
@@ -108,9 +111,9 @@ export function IntegrationsSettings({ baseUrl }: { baseUrl: string }) {
             <Row label="Cases in Attention">{argus.open_cases} open</Row>
           </dl>
         )}
-      </SettingsCard>
+      </SettingsCard>}
 
-      {overview.burnlite && (
+      {shows("burnlite") && overview.burnlite && (
         <BurnliteSettings
           baseUrl={baseUrl}
           burnlite={overview.burnlite}
@@ -120,7 +123,8 @@ export function IntegrationsSettings({ baseUrl }: { baseUrl: string }) {
         />
       )}
 
-      <SettingsCard
+      {shows("tokens") && <SettingsCard
+        id="integration-tokens"
         label="Integration tokens"
         icon={KeySquare}
         title="Integration tokens"
@@ -147,7 +151,7 @@ export function IntegrationsSettings({ baseUrl }: { baseUrl: string }) {
             ))}
           </ul>
         )}
-      </SettingsCard>
+      </SettingsCard>}
     </div>
   )
 }

@@ -97,7 +97,7 @@ The **More actions** menu in the agent's header holds **Rename**, **Refresh from
 
 **Agent info**, in the same menus, shows what Legato knows about the agent: the directory it was started in (for an agent in a job clone, the clone's folder, with its repository and the branch it was made on), its task, tool, slot, status and start time, whether it runs in the sandbox, the resources it was given, and its execution ID and tmux session. The copy button beside the working directory, and beside each ID, copies the exact text. A page not served over HTTPS cannot use the clipboard: the text is then selected for you to copy with Ctrl+C (⌘C). The dialog changes nothing; Escape closes it. For an agent you have not opened, the actions that act on the open terminal (refreshing it, prompt detection) are left out. **Rename** renames the agent's task, so it works for local tasks; a task from a provider keeps its title. Asking before **Kill agent**, **Reload agent** and similar actions uses a small dialog in the app, not the browser's. See [Agents](/legato/using/agents/) for reloading and stopping.
 
-To switch agents from the keyboard, hold the switch key and press `1` to `9`. The numbers follow the visible list order, ready as soon as the agents appear. The key is Control on Linux and Alt on a Mac unless you change it in **Settings › Agents and workspaces**. Press `M` for the agent's macros. A draft you type for one agent is kept when you switch to another.
+To switch agents from the keyboard, hold the switch key and press `1` to `9`. The numbers follow the visible list order, ready as soon as the agents appear. The key is Control on Linux and Alt on a Mac unless you change it in **Settings › Input and terminal**. Press `M` for the agent's macros. A draft you type for one agent is kept when you switch to another.
 
 ### Terminal mode
 
@@ -109,7 +109,7 @@ On a computer there is no message box: the terminal is where you type, and the a
 
 Use Tab or the arrow keys to focus a terminal prompt choice, then press Enter to select it. **Dismiss** closes the choices without sending terminal keys.
 
-Choose terminal colours in **Settings › Preferences › Appearance › Terminal theme**: **Follow app**, **Legato**, **Night**, **Solarized Dark**, **Classic**, **Dracula**, **Ocular Light**, **Ocular Dark**, **Ocular Light Vivid** or **Ocular Dark Vivid**. The default follows your app theme; an existing saved terminal choice stays as it was. A change updates open terminals without reconnecting or clearing their screens. Programs that emit their own truecolour backgrounds can override the terminal palette.
+Choose terminal colours in **Settings › Appearance › Terminal theme**: **Follow app**, **Legato**, **Night**, **Solarized Dark**, **Classic**, **Dracula**, **Ocular Light**, **Ocular Dark**, **Ocular Light Vivid** or **Ocular Dark Vivid**. The default follows your app theme; an existing saved terminal choice stays as it was. A change updates open terminals without reconnecting or clearing their screens. Programs that emit their own truecolour backgrounds can override the terminal palette.
 
 While a terminal is open in the web UI, the session has mouse mode on and no tmux status line, which a desktop `tmux attach` sees too. Hold Shift to select text with the mouse there.
 
@@ -171,28 +171,31 @@ Requests from agents that wait for you (permissions, questions, credentials) app
 
 ## Settings
 
-Choose a category, or search by task, title or configuration key. On a wide screen, categories stay beside the selected section. On a phone, open a category from the list; **Back to Settings** returns to it. Search results open and focus the matching control. Existing setting links still work.
+Settings is split into sections, grouped by what you are doing. On a wide screen the sections stay on the left, and the open section lists its groups under its name so you can jump within it. On a phone, Settings opens on the list of sections; open one, and **Back to Settings** returns to the list. The header shows the server in use (select it to open **Connections**) and the search, which finds a setting by its label, key or help.
 
-- **Preferences**: app and terminal appearance, motion, prompt detection, keyboard switching and browser notifications.
-- **Agents and workspaces**: repositories, directory presets, resources, [skills](/legato/agent-tools/skills/), guidance, agent tools, workspaces, sandbox, swarms and engrams. Managed clones link to **Remote**, and macros to the **Macros** page.
-- **Reeve**: sessions, automation, rules, engram, pairings and voice.
-- **Security**: credentials and sources, grants, audit, signing devices and integration tokens.
-- **Integrations**: Jira, GitHub, Burnlite, Argus, MCP servers, MQTT and server notification delivery.
-- **Connections and handoff**: browser servers, pairing, TLS, workers and main instances.
-- **Server and maintenance**: tint, updates/restart, configuration sources, migration, import/export and conditional development controls.
+| Group | Sections |
+| --- | --- |
+| You | **Appearance** (app and terminal theme, motion, this Legato's theme and tint, the TUI's theme and icons), **Attention** (the needs-you rail, notifications in this browser, on the desktop and by ntfy, and what notifies), **Input and terminal** (the switch key, prompt detection, dictation, the TUI's editor and keys, tmux options) |
+| Agents | **Agents** (defaults, Claude Code, Codex and Chimera, what agents get, [skills](/legato/agent-tools/skills/), resources, engrams), **Repositories** (repositories, directory presets, guidance, fresh clones, worktrees), **Sandbox**, and **Macros**, which opens its own page |
+| Features | **Reeve**, **Swarms**, **Review passes**, **Learn**: each feature's own switch comes first |
+| Services | **Board and tickets** (workspaces, columns, Jira, Burnlite), **Integrations** (GitHub, Argus, MCP servers, Home Assistant, Manticore) |
+| Access | **Security** (approval devices, credentials, credential channels, integration tokens), **Connections** (this browser's servers, pairing, TLS, workers and main instances, the network) |
+| System | **System** (restart, updates, moving settings out of config.yaml, export and import, the settings only config.yaml holds) |
 
-Choose **Follow server** to use the active server’s **Preferred theme**. Set that preference in Settings › Server and maintenance › Server appearance, or use the [Home Assistant select](/legato/integrations/home-assistant/#control-the-server-theme). **No preference**, an older server or an unsupported theme uses your saved local choice. A lost connection keeps that server’s last known preference; switching to another offline server uses only its own cached preference, otherwise your local choice. Selecting a named theme leaves Follow server. Older native apps may need an update before they offer it.
+Beside a section's name, **On** or **Off** says whether a feature is on, a dot on **Security** means no approval device is enrolled, and a number on **System** counts the changes that wait for a restart. Links to settings from Attention, the docs and the Reeve open the setting in its section.
+
+Choose **Follow server** to use the active server’s **Preferred theme**. Set that preference in Settings › Appearance › This Legato, or use the [Home Assistant select](/legato/integrations/home-assistant/#control-the-server-theme). **No preference**, an older server or an unsupported theme uses your saved local choice. A lost connection keeps that server’s last known preference; switching to another offline server uses only its own cached preference, otherwise your local choice. Selecting a named theme leaves Follow server. Older native apps may need an update before they offer it.
 
 **Ocular Light Vivid** and **Ocular Dark Vivid** keep the matching original backgrounds and surface depth, with stronger action, focus and status highlights. Dark Vivid uses brighter, clearer accents; Light Vivid uses richer, deeper accents. The originals remain available. Vivid is a visual alternative, not a proven eye-strain treatment.
 
 Settings show their scope: this browser/device or the selected server. A server value shows **default**, **config.yaml** with a lock, or **set here** with **Reset**. File-only settings explain where to edit them. **Applies at restart** means the saved change waits for a restart.
 All Ocular themes use purple for actions and identity, green for activity and success, and blue for links. Agent-to-agent messages have a purple-tinted interior; Legato notices have a teal-tinted interior. Voice and signing keep the purple-and-green character. Text selection and the reading background remain separate, and the message box keeps its rounded inset focus indicator.
 
-To tell your Legatos apart at a glance, give each a tint in **Settings › Server and maintenance › Tint**: red, orange, yellow, green, teal, blue, purple or pink. The tint is saved on the server, so every browser and phone that uses it shows it: a band across the top of the window, a wash on the rail, and a dot beside the server in the switcher. A tint takes priority over the app canvas for the browser's address-bar colour.
+To tell your Legatos apart at a glance, give each a tint in **Settings › Appearance › Tint**: red, orange, yellow, green, teal, blue, purple or pink. The tint is saved on the server, so every browser and phone that uses it shows it: a band across the top of the window, a wash on the rail, and a dot beside the server in the switcher. A tint takes priority over the app canvas for the browser's address-bar colour.
 
 Toggles and choices save immediately. Text and multi-field edits use **Apply** or **Save** and **Cancel**; leaving a field does not save it. If saving fails, the draft stays for retry. When another client changes the value, choose **Reload value** or **Keep my edit** before saving. An approval request is not a completed change.
 
-Lists live in their owning category, not a separate Lists page. Common entries have named fields; **Advanced JSON** keeps other fields available. File entries are locked. Credentials use secret references, never pasted secrets. **Export and import settings**, in Server and maintenance, downloads the server settings or proposes an import for approval.
+Lists live in their section, not a separate Lists page. Common entries have named fields; **Advanced JSON** keeps other fields available. File entries are locked. Credentials use secret references, never pasted secrets. **Export and import settings**, in System, downloads the server settings or proposes an import for approval.
 
 ## Message delivery safety
 

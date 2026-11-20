@@ -203,7 +203,7 @@ export function HandOffModal({ baseUrl, open, card, repositories, onClose, onHan
             )}
             {workers && workers.length === 0 && (
               <p className="text-sm text-lw-text-2">
-                No worker is paired. <Link to="/settings#workers" className="text-lw-link hover:underline">Add a worker</Link> in Settings › Workers first.
+                No worker is paired. <Link to="/settings#workers" className="text-lw-link hover:underline">Add a worker</Link> in Settings › Connections › Workers first.
               </p>
             )}
             <label className="flex flex-col gap-1.5">

@@ -81,7 +81,7 @@ func TestTheCallbackFinishesAndReturnsToSettings(t *testing.T) {
 	h := burnliteServer(f)
 	w := httptest.NewRecorder()
 	h.ServeHTTP(w, httptest.NewRequest("GET", "http://legato.lan:3080/oauth/callback?code=c&state=s", nil))
-	if w.Code != http.StatusFound || w.Header().Get("Location") != "/settings?integration=burnlite&result=connected#integrations" {
+	if w.Code != http.StatusFound || w.Header().Get("Location") != "/settings?integration=burnlite&result=connected#burnlite" {
 		t.Fatalf("status %d to %q", w.Code, w.Header().Get("Location"))
 	}
 	if f.callback != "http://legato.lan:3080/oauth/callback?code=c&state=s" {

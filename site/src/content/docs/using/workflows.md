@@ -51,7 +51,7 @@ repositories:
     base_branch: main
 ```
 
-You can also add repositories in the web UI, under Settings › Agents and workspaces › Repositories. An older configuration may list them under `workflows.repositories`; Legato reads that list only when the top-level `repositories` list is absent. See the [configuration reference](/legato/reference/configuration/).
+You can also add repositories in the web UI, under Settings › Repositories. An older configuration may list them under `workflows.repositories`; Legato reads that list only when the top-level `repositories` list is absent. See the [configuration reference](/legato/reference/configuration/).
 
 For older workflows, the preset control appears when a definition declares at least one of `repo`, `primary_dir`, or `base_branch`, and fills in only those fields. New workflows can declare one typed `repository` input instead. It accepts an existing preset name or Custom values (`repo`, `primary_dir`, and optional `base_branch`) and exposes the resolved snapshot as `${{ workflow.inputs.repository.* }}`.
 
