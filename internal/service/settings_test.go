@@ -327,7 +327,7 @@ func TestFileOnlySettingsAreShownWithTheirValues(t *testing.T) {
 // A secret config.yaml gave is never shown as the value Legato started
 // with, after the file changes.
 func TestASecretsStartedValueIsNeverShown(t *testing.T) {
-	settings, _ := newSettingsFixture(t, "jira:\n  api_token: ATATT-the-old-token\n")
+	settings, _ := newSettingsFixture(t, "jira:\n  api_token: https://ATATT-the-old-token\n")
 	ctx := context.Background()
 	settings.MarkStarted(ctx)
 	os.WriteFile(os.Getenv("LEGATO_CONFIG"), []byte("jira:\n  api_token: ATATT-the-new-token\n"), 0o600)

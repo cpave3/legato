@@ -221,7 +221,7 @@ func (s *SettingsService) markPending(v *SettingValue) {
 	}
 	// A secret config.yaml gave is never shown, then or now; a name of
 	// one (legato://, op://) may be.
-	if ref, ok := v.StartedValue.(string); v.Secret && ok && ref != "" && !strings.Contains(ref, "://") {
+	if ref, ok := v.StartedValue.(string); v.Secret && ok && ref != "" && !strings.HasPrefix(ref, "legato://") && !strings.HasPrefix(ref, "op://") {
 		v.StartedValue = "(set in config.yaml)"
 	}
 }
