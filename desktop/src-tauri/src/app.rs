@@ -22,7 +22,7 @@ use crate::webauthn::{self, Attachment, ORIGIN, RP_ID};
 use crate::discovery::{Browser, Found};
 use crate::links;
 use crate::bridge::{self, PageMessage, VoiceAction, VoiceEvent};
-use crate::{fido, hostline, lifecycle, screens, systrust, touchid, voice, voiceclient, voicekey, voicemain, voicewidget, widgetapprovals, workers};
+use crate::{fido, hostline, lifecycle, screens, systrust, touchid, voice, voiceclient, voicekey, voicemain, voicewidget, widgetapprovals, widgetitems, workers};
 use crate::voiceclient::{Command, Ui};
 use crate::voicekey::{Backend, Input, KeyBackend, VoiceKey};
 
@@ -83,6 +83,9 @@ pub struct Desktop {
     layer_shell: Mutex<Option<std::sync::Arc<voicewidget::layer_shell::LayerShell>>>,
     /// Every server's pending approvals, as the widget shows them.
     widget_approvals: Mutex<Vec<widgetapprovals::Listed>>,
+    // What agents posted for the person, in the widget's feed below the
+    // approvals (widgetitems.rs).
+    widget_items: Mutex<Vec<widgetitems::Listed>>,
     /// Asks the servers again now (a decision was made).
     approvals_asked: tokio::sync::Notify,
 }
@@ -887,7 +890,7 @@ fn show_widget_as_it_should(app: &AppHandle) {
     let desktop = app.state::<Desktop>();
     let hidden = desktop.store.lock().unwrap().state.voice.widget_hidden;
     let showing = desktop.widget.lock().unwrap().showing;
-    let waiting = !desktop.widget_approvals.lock().unwrap().is_empty();
+    let waiting = !desktop.widget_approvals.lock().unwrap().is_empty() || !desktop.widget_items.lock().unwrap().is_empty();
     if voicewidget::shows(hidden, showing, waiting, std::time::Instant::now()) {
         let _ = window.show();
         place_widget(app);
@@ -2542,6 +2545,8 @@ async fn deny(desktop: State<'_, Desktop>, server: String, approval: String) -> 
 /// not answer keeps what it said last.
 async fn watch_approvals(app: AppHandle) {
     let mut by_server: HashMap<String, Vec<widgetapprovals::Listed>> = HashMap::new();
+    // And what agents posted for the person, from each server's rail.
+    let mut items_by_server: HashMap<String, Vec<widgetitems::Listed>> = HashMap::new();
     loop {
         let asks: Vec<(Server, Result<Client, String>)> = {
             let desktop = app.state::<Desktop>();
@@ -2549,19 +2554,42 @@ async fn watch_approvals(app: AppHandle) {
             store.state.servers.iter().map(|s| (s.clone(), client(&store, &s.id))).collect()
         };
         let answers = futures_util::future::join_all(asks.into_iter().map(|(server, c)| async move {
-            let body = match c {
-                Ok(c) => c.get_within(widgetapprovals::PATH, widgetapprovals::WITHIN).await,
-                Err(e) => Err(e),
+            let (body, items) = match c {
+                Ok(c) => futures_util::future::join(
+                    c.get_within(widgetapprovals::PATH, widgetapprovals::WITHIN),
+                    c.get_within(widgetitems::PATH, widgetapprovals::WITHIN),
+                )
+                .await,
+                Err(e) => (Err(e.clone()), Err(e)),
             };
-            (server, body)
+            (server, body, items)
         }))
         .await;
-        let order: Vec<String> = answers.iter().map(|(s, _)| s.id.clone()).collect();
+        let order: Vec<String> = answers.iter().map(|(s, _, _)| s.id.clone()).collect();
         by_server.retain(|id, _| order.contains(id));
-        for (server, body) in answers {
+        items_by_server.retain(|id, _| order.contains(id));
+        for (server, body, items) in answers {
             if let Ok(body) = body {
                 by_server.insert(server.id.clone(), widgetapprovals::listed(&server.id, &server.name, server.tint.as_deref(), &body));
             }
+            if let Ok(items) = items {
+                items_by_server.insert(server.id.clone(), widgetitems::listed(&server.id, &server.name, server.tint.as_deref(), &items));
+            }
+        }
+        let items: Vec<widgetitems::Listed> = order.iter().flat_map(|id| items_by_server.get(id).cloned().unwrap_or_default()).collect();
+        let items_changed = {
+            let desktop = app.state::<Desktop>();
+            let mut kept = desktop.widget_items.lock().unwrap();
+            let changed = !widgetitems::same(&kept, &items);
+            if changed {
+                println!("[items] {} waiting", items.len());
+                *kept = items.clone();
+            }
+            changed
+        };
+        if items_changed {
+            let _ = app.emit("voice-items", &items);
+            show_widget_as_it_should(&app);
         }
         let list: Vec<widgetapprovals::Listed> = order.iter().flat_map(|id| by_server.get(id).cloned().unwrap_or_default()).collect();
         let changed = {
@@ -2695,6 +2723,37 @@ async fn voice_approval_decide(desktop: State<'_, Desktop>, server: String, appr
 #[tauri::command]
 fn voice_approval_open(app: AppHandle, desktop: State<'_, Desktop>, server: String, approval: String) -> Result<(), String> {
     open_in_page(&app, &desktop, server.clone(), "/", ("approval", &approval))?;
+    let _ = app.emit_to("shell", "shell-show-server", json!({ "server": server }));
+    bring_to_front(&app);
+    Ok(())
+}
+
+/// What agents posted for the person that the widget shows now.
+#[tauri::command]
+fn voice_items(desktop: State<'_, Desktop>) -> Vec<widgetitems::Listed> {
+    desktop.widget_items.lock().unwrap().clone()
+}
+
+/// Marks an item done from the widget: the item's `done` action at the
+/// revision the widget showed, which tells its agent.
+#[tauri::command]
+async fn voice_item_done(desktop: State<'_, Desktop>, server: String, item: String, revision: String) -> Result<(), String> {
+    let c = {
+        let store = desktop.store.lock().unwrap();
+        client(&store, &server)?
+    };
+    let out = c.post(&widgetitems::done_path(&item), widgetitems::done_body(&revision)).await.map(|_| ());
+    println!("[items] {server}: done {item} from the widget: {}", if out.is_ok() { "done" } else { "refused" });
+    desktop.approvals_asked.notify_one();
+    out
+}
+
+/// Opens the main window on an item's page: its agent, where an answer is
+/// typed, since the widget never takes the keyboard.
+#[tauri::command]
+fn voice_item_open(app: AppHandle, desktop: State<'_, Desktop>, server: String, kind: String, target: String) -> Result<(), String> {
+    let (path, (name, value)) = widgetitems::page_for(&kind, &target);
+    open_in_page(&app, &desktop, server.clone(), path, (name, &value))?;
     let _ = app.emit_to("shell", "shell-show-server", json!({ "server": server }));
     bring_to_front(&app);
     Ok(())
@@ -2872,6 +2931,7 @@ pub fn run() {
             layer_shell: Mutex::default(),
             screens: Mutex::default(),
             widget_approvals: Mutex::default(),
+            widget_items: Mutex::default(),
             approvals_asked: tokio::sync::Notify::new(),
         })
         .on_menu_event(|app, event| voice_widget_menu_chosen(app, event.id().as_ref()))
@@ -2990,6 +3050,9 @@ pub fn run() {
             voice_approvals,
             voice_approval_decide,
             voice_approval_open,
+            voice_items,
+            voice_item_done,
+            voice_item_open,
             voice_approval_sheet
         ])
         .run(tauri::generate_context!())

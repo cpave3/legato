@@ -1,5 +1,5 @@
 export const settingsCategories = [
-  { id: "preferences", title: "Preferences", terms: "appearance theme terminal motion keyboard prompt detection browser notifications" },
+  { id: "preferences", title: "Preferences", terms: "appearance theme terminal motion keyboard prompt detection browser notifications needs you rail" },
   { id: "agents", title: "Agents and workspaces", terms: "repositories guidance resources skills tools macros workspaces defaults groups sandbox swarms engrams learning models" },
   { id: "reeve", title: "Reeve", terms: "sessions automation rules engram pairings voice dictation speech microphone" },
   { id: "security", title: "Security", terms: "credentials secrets password grants audit approval devices channels tokens" },
@@ -10,6 +10,7 @@ export const settingsCategories = [
 export type SettingsCategory = typeof settingsCategories[number]["id"]
 
 const prefixes: Partial<Record<SettingsCategory, string[]>> = {
+  preferences: ["web.rail"],
   agents: ["agents", "engram", "swarm", "learning", "groups", "default_workspace", "default_import_workspace", "worktrees", "repository_cache", "review_passes", "manticore", "workspaces", "macros", "adapters", "repositories", "workflows.repositories", "resources", "skills"],
   reeve: ["reeve", "voice"],
   security: ["credentials", "credential_sources", "credential_channels", "ssh_agent_socket", "approval_devices", "secrets"],

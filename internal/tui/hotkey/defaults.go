@@ -136,6 +136,7 @@ const (
 	ActionAttentionExecute ActionID = "attention.execute"
 	ActionAttentionDismiss ActionID = "attention.dismiss"
 	ActionAttentionOther   ActionID = "attention.other"
+	ActionAttentionCopy    ActionID = "attention.copy"
 )
 
 const (
@@ -325,7 +326,8 @@ func addPageBindings(bindings *[]Binding, add func(ActionID, Scope, Target, []Ke
 	add(ActionAttentionUp, attention, TargetPage, []Key{Rune('k'), Special(tea.KeyUp, "up")}, "select", "Select previous item", "Attention", 80, 11, FullHelp|Shortlist|ShortcutBar)
 	add(ActionAttentionExecute, attention, TargetPage, []Key{Special(tea.KeyEnter, "enter")}, "open", "Execute primary action", "Attention", 80, 20, FullHelp|Shortlist|ShortcutBar)
 	add(ActionAttentionDismiss, attention, TargetPage, []Key{Rune('d')}, "dismiss", "Dismiss attention item", "Attention", 80, 21, FullHelp|Shortlist|ShortcutBar)
-	add(ActionAttentionOther, attention, TargetPage, []Key{Rune('x')}, "other", "Execute the item's other action (End a stuck review loop)", "Attention", 80, 22, FullHelp|Shortlist)
+	add(ActionAttentionOther, attention, TargetPage, []Key{Rune('x')}, "other", "Execute the item's other action (End a stuck review loop, Done on an agent's item)", "Attention", 80, 22, FullHelp|Shortlist)
+	add(ActionAttentionCopy, attention, TargetPage, []Key{Rune('c')}, "copy", "Copy the item's command", "Attention", 80, 23, FullHelp|Shortlist)
 }
 
 func addReviewBindings(bindings *[]Binding, add func(ActionID, Scope, Target, []Key, string, string, string, int, int, Surface, ...Capability)) {

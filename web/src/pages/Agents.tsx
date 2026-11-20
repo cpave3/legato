@@ -1,4 +1,5 @@
 import { useState, useEffect, useLayoutEffect, useCallback, useRef, useMemo } from "react"
+import { useMainWidth } from "../hooks/useMainWidth"
 import { PreparingAgents } from "../components/PreparingAgents"
 import { InterruptedAgents } from "../components/InterruptedAgents"
 import { Link, useSearchParams } from "react-router-dom"
@@ -590,17 +591,16 @@ export function AgentsPage() {
   // The artifact panel needs room beside the conversation (and beside the
   // swarm event log, when there is one). Without it, it is a full-screen
   // sheet, as on a phone.
-  const [viewportWidth, setViewportWidth] = useState(() => window.innerWidth)
   useEffect(() => {
-    const check = () => {
-      setIsMobile(window.innerWidth <= 768)
-      setViewportWidth(window.innerWidth)
-    }
+    const check = () => setIsMobile(window.innerWidth <= 768)
     check()
     window.addEventListener("resize", check)
     return () => window.removeEventListener("resize", check)
   }, [])
-  const artifactSheet = viewportWidth < (selectedParentId ? 1500 : 1100)
+  // The width left beside the navigation and the needs-you rail, which the
+  // panel and the conversation share.
+  const mainWidth = useMainWidth()
+  const artifactSheet = mainWidth < (selectedParentId ? 1436 : 1036)
   const artifacts = useArtifactPanel(selectedId, !artifactSheet)
   const showLinkedArtifact = artifacts.showFor
   useEffect(() => {
@@ -889,6 +889,7 @@ export function AgentsPage() {
                     <NativeAgentPanel
                       key={agent.task_id}
                       agentId={agent.task_id}
+                      openItems={agent.open_items}
                       reeve={agent.reeve}
                       sandboxed={agent.sandboxed}
                       agentKind={agent.agent_kind}
@@ -915,6 +916,7 @@ export function AgentsPage() {
                 <NativeAgentPanel
                   key={selectedId}
                   agentId={selectedId}
+                  openItems={selectedAgent?.open_items}
                   reeve={selectedAgent?.reeve}
                   sandboxed={selectedAgent?.sandboxed}
                   onKill={handleKill}

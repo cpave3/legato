@@ -105,6 +105,27 @@ type AgentSession struct {
 	// one: its repository and the branch it was made on.
 	CloneRepo   string
 	CloneBranch string
+	// OpenItems counts the agent's open operator items (for_operator).
+	// Activity stays what its agent tool reports; see NeedsOperator.
+	OpenItems int
+}
+
+// NeedsOperator says whether a running agent waits on the operator: it
+// asks (waiting), it failed (error), or it has open operator items.
+func (a AgentSession) NeedsOperator() bool {
+	if a.Status != "running" {
+		return false
+	}
+	return a.Activity == store.ActivityWaiting || a.Activity == store.ActivityError || a.OpenItems > 0
+}
+
+// ShownActivity is the activity needs-you is worked out from: waiting for
+// a running agent with open operator items that is not in error.
+func (a AgentSession) ShownActivity() string {
+	if a.Status == "running" && a.OpenItems > 0 && a.Activity != store.ActivityError {
+		return store.ActivityWaiting
+	}
+	return a.Activity
 }
 
 // BackgroundJob is one thing an agent started that still runs and will wake
@@ -1916,6 +1937,7 @@ func (a *agentService) ListAgents(ctx context.Context) ([]AgentSession, error) {
 			WorkingDir:        s.WorkingDir,
 			CloneRepo:         s.CloneRepo,
 			CloneBranch:       s.CloneBranch,
+			OpenItems:         s.OpenItems,
 		}
 		if s.Status == "running" {
 			result[i].BackgroundJobs = s.BackgroundJobs
@@ -1957,6 +1979,7 @@ func (a *agentService) EndExecution(ctx context.Context, executionID, status str
 	a.scratch.removeLogged(executionID)
 	a.capabilityFolders.removeLogged(executionID)
 	a.endEngramSession(ctx, executionID)
+	a.endOperatorItems(ctx, executionID)
 	return nil
 }
 
@@ -2039,7 +2062,7 @@ func (a *agentService) endGoneSession(ctx context.Context, s store.AgentSession,
 	if s.ExecutionID != "" {
 		endCtx := ctx
 		if status == store.AgentSessionInterrupted {
-			endCtx = withEngramSessionKept(ctx)
+			endCtx = withOperatorItemsKept(withEngramSessionKept(ctx))
 		}
 		if err := a.EndExecution(endCtx, s.ExecutionID, store.ExecutionLost); err != nil {
 			return err

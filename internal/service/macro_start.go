@@ -68,6 +68,8 @@ func (s *MacroService) Start(ctx context.Context, req MacroStart) (MacroStartRes
 		if err := s.agents.QueueMessage(ctx, req.TaskID, message); err != nil {
 			return MacroStartResult{}, err
 		}
+		// A macro is the operator's own words.
+		NoteOperatorMessage(ctx, s.agents, req.TaskID, message)
 		result.Queued = true
 		return result, nil
 	}

@@ -695,3 +695,30 @@ func TestAnAgentsMessageBehindAFullBatchStillWakesTheReeve(t *testing.T) {
 	mustContain(t, first, "note 39")
 	mustContain(t, f.after(t, ReeveWatchCheckEvery), "Blocked: which branch?")
 }
+
+// A watched agent's new operator item reaches the Reeve, so it can tell the
+// operator; an unwatched agent's does not.
+func TestTheReeveIsToldOfAWatchedAgentsOperatorItems(t *testing.T) {
+	f := newWatchFixture(t)
+	ctx := context.Background()
+	f.addAgent(t, "T-2", "Not watched")
+	post := func(taskID, title string) {
+		if _, err := PostOperatorItem(ctx, f.db, OperatorItemInput{TaskID: taskID, ExecutionID: "ex-" + taskID, Kind: OperatorItemAction, Title: title, Why: "Blocks the build tickets"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	post(f.task, "An earlier item")
+	f.watchAll(t, f.task)
+	post(f.task, "Run /to-tickets")
+	post("T-2", "Merge the PR")
+
+	got := f.settle(t)
+	all := strings.Join(got, "")
+	mustContain(t, all, "[legato agent]", "T-1 (Docker in the sandbox) has something for the operator: action: Run /to-tickets (Blocks the build tickets)")
+	if strings.Contains(all, "An earlier item") || strings.Contains(all, "Merge the PR") {
+		t.Errorf("told of an item from before the watch, or of an unwatched agent:\n%s", all)
+	}
+	if n := strings.Count(all, "has something for the operator"); n != 1 {
+		t.Errorf("told %d times, want once:\n%s", n, all)
+	}
+}

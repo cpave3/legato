@@ -22,3 +22,8 @@ export function useFocusMode(): boolean {
     () => on,
   )
 }
+
+// getFocusMode is whether focus mode is on now, outside React.
+export function getFocusMode(): boolean {
+  return on
+}

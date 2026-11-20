@@ -481,3 +481,18 @@ func TestStoppingTheReevesAgentEndsItsSession(t *testing.T) {
 		t.Fatalf("a new session after the kill: %v", err)
 	}
 }
+
+// The Reeve posts what it waits on in the operator's rail, and tells the
+// operator of what watched agents posted.
+func TestTheReeveIsToldToUseTheOperatorsRail(t *testing.T) {
+	svc, _, agents, _ := newReeveFixture(t)
+	if _, err := svc.Start(context.Background(), ReeveStart{}); err != nil {
+		t.Fatal(err)
+	}
+	prompt := agents.spawned[0].LaunchPrompt
+	for _, want := range []string{"for_operator", "clear_for_operator", "has something for the operator"} {
+		if !strings.Contains(prompt, want) {
+			t.Errorf("the Reeve's prompt does not mention %q", want)
+		}
+	}
+}

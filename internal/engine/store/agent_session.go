@@ -30,7 +30,8 @@ const agentSessionSelect = `SELECT a.*,
 	COALESCE(e.engram, '') AS engram,
 	COALESCE(e.working_dir, '') AS working_dir,
 	COALESCE(c.repo, '') AS clone_repo,
-	COALESCE(c.branch, '') AS clone_branch
+	COALESCE(c.branch, '') AS clone_branch,
+	(SELECT COUNT(*) FROM operator_items oi WHERE e.id IS NOT NULL AND oi.execution_id = e.id AND oi.status = 'open') AS open_items
 	FROM agent_sessions a
 	LEFT JOIN executions e ON e.agent_session_id = a.id
 	LEFT JOIN job_clones c ON e.working_dir != '' AND c.path = e.working_dir AND c.removed_at IS NULL`
@@ -200,6 +201,13 @@ func (s *Store) UpdateAgentActivityForSession(ctx context.Context, id int, activ
 
 // GetAgentActivityCounts returns the count of running agent sessions grouped by activity state.
 // If excludeTaskID is non-empty, that task's session is excluded from counts.
+// needsOperatorActivity is a running session's activity as counted: one
+// whose execution has an open operator item waits on the operator, unless
+// it is in error.
+const needsOperatorActivity = `CASE WHEN a.activity != 'error' AND EXISTS (
+		SELECT 1 FROM executions e JOIN operator_items oi ON oi.execution_id = e.id
+		WHERE e.agent_session_id = a.id AND oi.status = 'open') THEN 'waiting' ELSE a.activity END`
+
 func (s *Store) GetAgentActivityCounts(ctx context.Context, excludeTaskID string) (working, waiting, errors, idle int, err error) {
 	type row struct {
 		Activity string `db:"activity"`
@@ -210,10 +218,10 @@ func (s *Store) GetAgentActivityCounts(ctx context.Context, excludeTaskID string
 	var rows []row
 
 	if excludeTaskID != "" {
-		query = `SELECT activity, COUNT(*) AS cnt FROM agent_sessions WHERE status = 'running' AND task_id != ? GROUP BY activity`
+		query = `SELECT ` + needsOperatorActivity + ` AS activity, COUNT(*) AS cnt FROM agent_sessions a WHERE a.status = 'running' AND a.task_id != ? GROUP BY 1`
 		err = s.db.SelectContext(ctx, &rows, query, excludeTaskID)
 	} else {
-		query = `SELECT activity, COUNT(*) AS cnt FROM agent_sessions WHERE status = 'running' GROUP BY activity`
+		query = `SELECT ` + needsOperatorActivity + ` AS activity, COUNT(*) AS cnt FROM agent_sessions a WHERE a.status = 'running' GROUP BY 1`
 		err = s.db.SelectContext(ctx, &rows, query)
 	}
 	if err != nil {

@@ -51,6 +51,9 @@ type navigationSummary struct {
 	// PeerApprovals counts paired instances' Reeve change sets waiting for
 	// their person, as last heard.
 	PeerApprovals int `json:"peer_approvals"`
+	// Rail counts the items the needs-you rail shows (GET
+	// /api/attention?view=rail).
+	Rail int `json:"rail"`
 }
 
 func (s *Server) navigationSummaryHandler() http.HandlerFunc {
@@ -118,6 +121,10 @@ func (s *Server) navigationSummaryHandler() http.HandlerFunc {
 			return
 		}
 		summary.PeerApprovals = s.peerApprovalCount()
+		if summary.Rail, err = s.railCount(r.Context()); err != nil {
+			s.writeError(w, http.StatusInternalServerError, err.Error())
+			return
+		}
 		s.writeJSON(w, http.StatusOK, summary)
 	}
 }

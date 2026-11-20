@@ -11,6 +11,7 @@ vi.mock("../../hooks/useReview", () => ({ useReviewQueue: () => ({ data: [] }) }
 vi.mock("../../hooks/usePlan", () => ({ usePlanQueue: () => ({ data: [] }) }))
 vi.mock("../../hooks/useAttention", () => ({ useAttention: () => ({ data: [] }) }))
 vi.mock("../../hooks/useWorkflow", () => ({ useWorkflowRuns: () => ({ data: [] }) }))
+vi.mock("../needsYou/NeedsYouRail", () => ({ NeedsYouRail: () => null }))
 vi.mock("../PlanApprovalModal", () => ({ PlanApprovalModal: () => null }))
 vi.mock("../OfflineDialog", () => ({ OfflineDialog: () => null }))
 vi.mock("../../hooks/useAgentSelection", () => ({ AgentSelectionProvider: ({ children }: { children: React.ReactNode }) => children }))

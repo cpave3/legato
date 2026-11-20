@@ -4,12 +4,13 @@ import { queryKeys } from "../lib/query"
 import { useServer } from "./useServer"
 
 /** Paired instances' Reeve change sets waiting for their person, as the server last heard; approvals_changed refreshes them. */
-export function usePeerApprovals(): PeerApproval[] {
+export function usePeerApprovals(enabled = true): PeerApproval[] {
   const { baseUrl } = useServer()
   const query = useQuery<PeerApproval[], Error>({
     queryKey: queryKeys.peerApprovals(baseUrl),
     queryFn: () => fetchPeerApprovals(baseUrl),
     retry: false,
+    enabled,
   })
   return query.data ?? []
 }

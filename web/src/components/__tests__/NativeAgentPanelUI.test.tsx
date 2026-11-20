@@ -122,6 +122,25 @@ describe("NativeAgentPanel and what an agent shows", () => {
     expect(screen.queryByText("speak")).toBeNull()
   })
 
+  it("draws a for_operator call as one line that says it is in the rail", async () => {
+    mockSession([
+      { callId: "c1", name: "mcp__plugin_legato-tools_legato__for_operator", args: { kind: "action", title: "Type /to-tickets in this session", why: "Blocks the tickets" }, result: { output: "Posted op-0123456789." } },
+    ])
+    render(<NativeAgentPanel agentId="task-1" />, { wrapper })
+
+    const line = await screen.findByText(/Type \/to-tickets in this session/)
+    expect(line.closest("div")?.textContent).toContain("for_operator · action")
+    expect(screen.getByText("→ in your rail")).toBeTruthy()
+  })
+
+  it("says the operator's next message closes the agent's open items", async () => {
+    mockSession([])
+    const { rerender } = render(<NativeAgentPanel agentId="task-1" openItems={2} />, { wrapper })
+    expect(await screen.findByText("Your next message to this agent closes its 2 items in the rail.")).toBeTruthy()
+    rerender(<NativeAgentPanel agentId="task-1" openItems={0} />)
+    expect(screen.queryByText(/closes its/)).toBeNull()
+  })
+
   it("knows Legato's speak by Chimera's name for it", async () => {
     mockSession([
       { callId: "c2", name: "mcp_legato_speak", args: { text: "Done." }, result: { output: "Queued." } },

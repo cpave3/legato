@@ -123,6 +123,14 @@ func RunCodexBridge(ctx context.Context, s *store.Store, opts CodexBridgeOptions
 				log.Printf("codex bridge: the end of a %s turn was not reported: %v", status, err)
 			}
 		},
+		// The operator's own message closes what the agent posted for them.
+		OnUserMessage: func(text string) {
+			reportCtx, stop := context.WithTimeout(context.WithoutCancel(runCtx), 10*time.Second)
+			defer stop()
+			if err := host.OperatorTurn(reportCtx, text); err != nil {
+				log.Printf("codex bridge: a user message was not reported: %v", err)
+			}
+		},
 	})
 	if err := bridge.Connect(runCtx); err != nil {
 		return err

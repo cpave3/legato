@@ -109,6 +109,17 @@ var registry = []Setting{
 
 	{Key: "notifications.ntfy.token", Title: "ntfy token", Description: "The name of a secret holding the token for a private topic.", Kind: KindString, Secret: true, Class: ClassRisky, Mode: ModeRestart},
 	{Key: "keybindings.vim_mode", Title: "Vim keys", Kind: KindBool, Class: ClassChange, Mode: ModeRestart},
+	{Key: "web.rail.actions", Title: "Rail: actions", Description: "Things agents ask you to do that only you can: a command, a test in a browser, a merge.", Kind: KindBool, Class: ClassChange, Mode: ModeLive},
+	{Key: "web.rail.questions", Title: "Rail: questions", Description: "Questions agents asked you in plain words.", Kind: KindBool, Class: ClassChange, Mode: ModeLive},
+	{Key: "web.rail.done", Title: "Rail: finished work", Description: "Work agents finished for you to look at.", Kind: KindBool, Class: ClassChange, Mode: ModeLive},
+	{Key: "web.rail.other", Title: "Rail: anything else from agents", Description: "Anything else agents post for you.", Kind: KindBool, Class: ClassChange, Mode: ModeLive},
+	{Key: "web.rail.approvals", Title: "Rail: approvals", Description: "Requests that hold an agent mid-turn, and paired instances' change sets.", Kind: KindBool, Class: ClassChange, Mode: ModeLive},
+	{Key: "web.rail.agents", Title: "Rail: agents", Description: "Agents waiting for you or stopped on an error.", Kind: KindBool, Class: ClassChange, Mode: ModeLive},
+	{Key: "web.rail.workflows", Title: "Rail: workflows", Description: "Workflow gates, failures, stuck review loops and triggers.", Kind: KindBool, Class: ClassChange, Mode: ModeLive},
+	{Key: "web.rail.plans", Title: "Rail: plans", Description: "Plans waiting for your decision.", Kind: KindBool, Class: ClassChange, Mode: ModeLive},
+	{Key: "web.rail.review", Title: "Rail: ready for review", Description: "Review tours ready and handoffs done. Off unless set.", Kind: KindBool, Class: ClassChange, Mode: ModeLive},
+	{Key: "web.rail.merge", Title: "Rail: merge blockers", Description: "Pull requests that cannot merge, and Argus's cases. Off unless set.", Kind: KindBool, Class: ClassChange, Mode: ModeLive},
+	{Key: "web.rail.legato", Title: "Rail: Legato", Description: "Updates, restarts, settings, devices, handoff, integrations, engrams and interrupted agents.", Kind: KindBool, Class: ClassChange, Mode: ModeLive},
 	{Key: "web.discovery", Title: "Announce on the network", Description: "Announce the web server over mDNS so the phone app finds it.", Kind: KindBool, Class: ClassRisky, Mode: ModeRestart},
 	{Key: "agents.mcp.resource_domains", Title: "Hosts agents' HTML may load from", Kind: KindStrings, Class: ClassRisky, Mode: ModeRestart},
 	{Key: "groups.defaults", Title: "Default groups", Kind: KindStrings, Class: ClassChange, Mode: ModeRestart},
@@ -554,6 +565,9 @@ func SettingValue(cfg *Config, key string) (any, error) {
 
 // pointerDefault is the value an unset pointer setting means.
 func pointerDefault(key string, field reflect.Value) any {
+	if group, ok := strings.CutPrefix(key, "web.rail."); ok {
+		return RailGroupDefault(group)
+	}
 	switch key {
 	case "notifications.approvals", "notifications.handoff", "agents.sandbox.default_mounts", "reeve.host_operations", "reeve.voice.partials", "reeve.watch.started",
 		"web.discovery", "credential_channels.gh.isolate_login":

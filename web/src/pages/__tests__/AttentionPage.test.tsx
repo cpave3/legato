@@ -345,4 +345,50 @@ describe("AttentionPage: Ask the Reeve", () => {
     expect(brief).toContain("- task: LEG-3")
     expect(brief).toContain("- Error: Jira answered 401")
   })
+
+  describe("an operator item", () => {
+    const operatorItem = () => item({
+      id: "att-op", producer: "operator_items", signal_kind: "operator_question", source_key: "op-1", source_revision: "3",
+      task_id: "T-1", title: "Which database?", reason: "Blocks the schema", urgency: "normal",
+      navigation: { kind: "agent", target: "T-1" },
+      actions: [
+        { id: "open", label: "Open agent", kind: "navigate", intent: "primary" },
+        { id: "copy", label: "Copy", kind: "copy", text: "/to-tickets" },
+        { id: "option_1", label: "Postgres", kind: "execute" },
+        { id: "reply", label: "Reply", kind: "execute", requires_text: true },
+        { id: "done", label: "Done", kind: "execute" },
+      ],
+    })
+
+    it("copies a command and calls nothing", async () => {
+      mockData = [operatorItem()]
+      const writeText = vi.fn().mockResolvedValue(undefined)
+      Object.defineProperty(navigator, "clipboard", { value: { writeText }, configurable: true })
+      const { AttentionPage } = await import("../AttentionPage")
+      render(<MemoryRouter><AttentionPage /></MemoryRouter>)
+
+      fireEvent.click(screen.getByRole("button", { name: "Copy" }))
+      await waitFor(() => expect(writeText).toHaveBeenCalledWith("/to-tickets"))
+      expect(mockExecute).not.toHaveBeenCalled()
+    })
+
+    it("runs an option and Done, and sends a reply with its text", async () => {
+      mockData = [operatorItem()]
+      const { AttentionPage } = await import("../AttentionPage")
+      render(<MemoryRouter><AttentionPage /></MemoryRouter>)
+
+      fireEvent.click(screen.getByRole("button", { name: "Postgres" }))
+      await waitFor(() => expect(mockExecute).toHaveBeenCalledWith("", "att-op", "option_1", "3", { confirmed: false }))
+      fireEvent.click(screen.getByRole("button", { name: "Done" }))
+      await waitFor(() => expect(mockExecute).toHaveBeenCalledWith("", "att-op", "done", "3", { confirmed: false }))
+
+      const reply = screen.getByRole("textbox", { name: "Reply" })
+      const send = screen.getByRole("button", { name: "Reply" })
+      expect((send as HTMLButtonElement).disabled).toBe(true)
+      fireEvent.change(reply, { target: { value: "SQLite, for now" } })
+      fireEvent.click(send)
+      await waitFor(() => expect(mockExecute).toHaveBeenCalledWith("", "att-op", "reply", "3", { confirmed: false, text: "SQLite, for now" }))
+      expect(screen.getByRole("link", { name: /Open agent/ }).getAttribute("href")).toBe("/agents?task=T-1")
+    })
+  })
 })

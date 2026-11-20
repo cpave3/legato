@@ -2,6 +2,7 @@ package agents
 
 import (
 	"fmt"
+	"slices"
 	"strings"
 	"testing"
 	"time"
@@ -977,5 +978,34 @@ func TestTheListAndHeaderMarkAnAgentWhoseContainersMayUseTheHostNetwork(t *testi
 	}
 	if !strings.Contains(view, "hostnet › codex › host network › Print") {
 		t.Errorf("the header over the terminal should say its containers may use the host network: %q", view)
+	}
+}
+
+// An idle agent with open operator items waits on the operator: it is
+// listed under needs you until they close.
+func TestAnIdleAgentWithOpenOperatorItemsIsListedAsNeedingYou(t *testing.T) {
+	m := New(theme.NewIcons("unicode"))
+	agents := mixedAgents()
+	for i := range agents {
+		if agents[i].TaskID == "idle-1" {
+			agents[i].OpenItems = 1
+		}
+	}
+	// Needs you comes first, then running: idle-1 is listed before busy-1.
+	before := func(a, b string) bool {
+		got := taskIDs(m.Agents())
+		return slices.Index(got, a) < slices.Index(got, b)
+	}
+	m, _ = m.Update(AgentsRefreshedMsg{Agents: agents})
+	if !before("idle-1", "busy-1") {
+		t.Fatalf("agent order = %v, want idle-1 among those that need you", taskIDs(m.Agents()))
+	}
+
+	for i := range agents {
+		agents[i].OpenItems = 0
+	}
+	m, _ = m.Update(AgentsRefreshedMsg{Agents: agents})
+	if before("idle-1", "busy-1") {
+		t.Fatalf("agent order = %v, want idle-1 back among the idle", taskIDs(m.Agents()))
 	}
 }

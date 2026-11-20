@@ -1522,6 +1522,10 @@ func (a App) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 		a = a.setMode(viewBoard)
 		return a, nil
 
+	case attention.OpenAgentMsg:
+		// An agent's item in the Attention list: show that agent.
+		return a.openAgentView(msg.TaskID)
+
 	case attentionUpdateMsg:
 		if a.active == viewAttention {
 			var cmd tea.Cmd
@@ -2863,6 +2867,9 @@ func (a App) handleMacroSelected(msg overlay.MacroSelectedMsg) (tea.Model, tea.C
 		if err := agentSvc.SendMessage(context.Background(), taskID, text); err != nil {
 			return statusbar.ErrorMsg{Text: "macro send failed: " + err.Error()}
 		}
+		// A macro is the operator's own words: it closes what the agent
+		// posted for them.
+		service.NoteOperatorMessage(context.Background(), agentSvc, taskID, text)
 		return statusbar.InfoMsg{Text: "Sent macro: " + name}
 	}
 }
@@ -3222,6 +3229,24 @@ func (a App) handleBoardSpawnAgent() (tea.Model, tea.Cmd) {
 
 	// Open spawn overlay so user can pick agent + CWD
 	return a.openAgentSpawnOverlay(taskID, card.Title)
+}
+
+// openAgentView shows the agents view with taskID's agent selected.
+func (a App) openAgentView(taskID string) (tea.Model, tea.Cmd) {
+	if a.agentSvc == nil {
+		return a, a.agentsOffCmd()
+	}
+	svc := a.agentSvc
+	a = a.setMode(viewAgents)
+	a.agentView.StartPolling()
+	a.agentView.SelectByTaskID(taskID)
+	return a, tea.Batch(
+		func() tea.Msg {
+			agentList, _ := svc.ListAgents(context.Background())
+			return agents.AgentsRefreshedMsg{Agents: agentList, SelectTask: taskID}
+		},
+		agentTickCmd(),
+	)
 }
 
 func (a App) hotkeyContext() hotkey.Context {

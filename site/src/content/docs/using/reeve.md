@@ -102,7 +102,10 @@ A watched agent wakes the Reeve with a `[legato agent]` message in its conversat
 - waits for you: a question or a permission prompt;
 - has been idle for a while (30 seconds), or busy only with work it left running in the background;
 - stops with an error, or exits;
-- adds a note to its task, or has a pull request opened, or its checks or review change.
+- adds a note to its task, or has a pull request opened, or its checks or review change;
+- [posts something for you](/legato/using/attention/#operator-items), such as a command only you can run. The Reeve tells you, by voice when it speaks.
+
+The Reeve posts in your rail the same way when it waits on you, so what it needs stays in view after its turn ends.
 
 The message has the agent's last words, which often say what it waits on ("waiting for the build"), and whether anything it started still runs. For a Claude Code agent in the background it names each job, such as `bash "npm run build"` or `subagent "Explore: find the callers"`, so the Reeve can tell an agent waiting on a build from one that has stalled. An idle agent has nothing that will wake it but a message. The Reeve then reads the task's notes and decides: leave the agent alone, message it, tell you, or stop it and start the next task, still one change at a time for you to approve. It never answers a permission prompt: it tells you what the agent asks.
 

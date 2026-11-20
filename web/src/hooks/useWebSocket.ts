@@ -83,6 +83,9 @@ export interface AgentInfo {
   group?: string
   status: string
   activity: string
+  // The agent's open operator items (for_operator): with any, it needs the
+  // operator whatever its activity says.
+  open_items?: number
   role?: string
   parent_task_id?: string
   subtask_id?: string

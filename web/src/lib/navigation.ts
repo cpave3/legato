@@ -29,6 +29,9 @@ export function legatoHref(navigation: { kind: string; target: string }): string
       return `/attention?approval=${encodeURIComponent(navigation.target)}`
     case "settings":
       return `/settings#${encodeURIComponent(navigation.target)}`
+    case "agent":
+      // One task's agent, such as the one that posted an operator item.
+      return `/agents?task=${encodeURIComponent(navigation.target)}`
     case "agents":
       // The Agents page, where interrupted agents are listed.
       return "/agents"

@@ -1,6 +1,7 @@
 import { DirectorySettings } from "../components/settings/DirectorySettings"
 import { useMediaQuery } from "../hooks/useMediaQuery"
 import { useSettingsCatalog, useSettingsLists } from "../components/settings/useSettingsCatalog"
+import { RailSettings } from "../components/settings/RailSettings"
 import { ReeveAutoSettings } from "../components/settings/ReeveAutoSettings"
 import { SkillsSettings } from "../components/settings/SkillsSettings"
 import { MCPSettings } from "../components/settings/MCPSettings"
@@ -340,6 +341,7 @@ export function SettingsPage() {
           </SettingsGroup>}
 
           {current === "preferences" && <SettingsGroup id="preferences" title="Preferences">
+            <RailSettings baseUrl={baseUrl} settings={registry} />
             <div id="appearance" />
             <div id="keyboard">            <SettingsRows>
               <SettingsRow

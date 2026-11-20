@@ -20,9 +20,11 @@ vi.mock("../../hooks/useSettings", () => ({ useSettings: () => ({ data: undefine
 vi.mock("../../hooks/useServer", () => ({
   useServer: () => ({ servers: state.servers, activeServerName: "Local", baseUrl: "", setActiveServer: state.setActiveServer }),
 }))
+vi.mock("../needsYou/NeedsYouSheet", () => ({ NeedsYouSheet: ({ onClose }: { onClose: () => void }) => <div role="dialog" aria-label="Needs you"><button onClick={onClose}>Close</button></div> }))
+vi.mock("../needsYou/NeedsYouRail", () => ({ NeedsYouRail: () => null }))
 vi.mock("../PlanApprovalModal", () => ({ PlanApprovalModal: () => null }))
 vi.mock("../OfflineDialog", () => ({ OfflineDialog: () => null }))
-vi.mock("../ApprovalTray", () => ({ ApprovalTray: () => <section aria-label="Approvals" /> }))
+vi.mock("../ApprovalTray", () => ({ ApprovalTray: () => <section aria-label="Approvals" />, ApprovalFocus: () => null, useApprovalLink: () => {} }))
 vi.mock("../../hooks/useAgentSelection", () => ({ AgentSelectionProvider: ({ children }: { children: React.ReactNode }) => children }))
 
 function renderAt(entry: string) {
@@ -102,13 +104,24 @@ describe("the rail", () => {
 })
 
 describe("the phone's tab bar", () => {
-  it("keeps five tabs, with what More holds counted on it", () => {
-    state.summary = { agents: 2, attention: 10, review: 1, plans: 8, workflow_attention: 0, learning: 3 }
-    renderAt("/attention")
+  it("keeps five tabs, Needs you first with what the rail counts, and what More holds counted on it", () => {
+    state.summary = { agents: 2, attention: 10, review: 1, plans: 8, workflow_attention: 0, learning: 3, rail: 4, peer_approvals: 1 }
+    renderAt("/board")
 
     const names = within(tabs()).getAllByRole("link").map((link) => link.getAttribute("aria-label"))
-    expect(names).toEqual(["Attention: 10 items", "Board", "Agents: 2 non-idle", "Review: 1 to review"])
+    expect(names).toEqual(["Board", "Agents: 2 non-idle", "Review: 1 to review"])
+    const needsYou = within(tabs()).getByRole("button", { name: "Needs you: 5 waiting" })
+    expect(needsYou.textContent).toContain("Needs you · 5")
     expect(within(tabs()).getByRole("button", { name: "More: 11 waiting" })).toBeTruthy()
+  })
+
+  it("opens the Needs you sheet from its tab, and closes it", () => {
+    renderAt("/board")
+    fireEvent.click(within(tabs()).getByRole("button", { name: /Needs you/ }))
+    const sheet = screen.getByRole("dialog", { name: "Needs you" })
+    expect(within(tabs()).getByRole("button", { name: /Needs you/ }).getAttribute("aria-expanded")).toBe("true")
+    fireEvent.click(within(sheet).getByRole("button", { name: "Close" }))
+    expect(screen.queryByRole("dialog", { name: "Needs you" })).toBeNull()
   })
 })
 
@@ -121,7 +134,7 @@ describe("the More sheet", () => {
     const sheet = screen.getByRole("dialog", { name: "More" })
 
     const queues = within(sheet).getByRole("group", { name: "Queues" })
-    expect(within(queues).getAllByRole("link").map((link) => link.textContent)).toEqual(["Plans8", "Learning2"])
+    expect(within(queues).getAllByRole("link").map((link) => link.textContent)).toEqual(["Attention", "Plans8", "Learning2"])
     const tools = within(sheet).getByRole("group", { name: "Tools" })
     expect(within(tools).getAllByRole("link").map((link) => link.textContent)).toEqual(["Workflows", "Macros", "Reports", "Remote", "Audit log"])
     expect(within(sheet).getByRole("link", { name: "Pair with QR code" }).getAttribute("href")).toBe("/settings?pair=qr")
@@ -156,17 +169,3 @@ describe("the More sheet", () => {
   })
 })
 
-describe("the approval tray", () => {
-  afterEach(() => cleanup())
-
-  it("is shown while only a paired instance's change sets wait", () => {
-    state.summary = { ...state.summary, approvals: 0, peer_approvals: 1 }
-    renderAt("/board")
-    expect(screen.getByRole("region", { name: "Approvals" })).toBeTruthy()
-  })
-
-  it("is not shown while nothing waits", () => {
-    renderAt("/board")
-    expect(screen.queryByRole("region", { name: "Approvals" })).toBeNull()
-  })
-})

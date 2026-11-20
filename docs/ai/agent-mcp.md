@@ -40,6 +40,8 @@ Legato is not the MCP host. The agent tool is, and a terminal agent cannot draw 
 | `session_info` | none | Task ID and title, agent tool, swarm role, working directory. |
 | `task_context` | none | The task as Markdown: description, linked ticket, repository details, durable notes. |
 | `add_task_note` | `body` | Records a durable Markdown note (`task_notes`, source `agent`). |
+| `for_operator` | `kind` (`action`, `question`, `done`, `other`), `title` (one line, ≤120), `why` (≤200), `how` {`kind` `command`/`slash`/`link`, `text`; a link is http(s)}, `options` (question only, ≤4, each ≤60) | Posts an operator item (`service.PostOperatorItem`, `operator_items`): the same title as an open item of the same execution updates that item and raises its revision. Returns the item ID and "It is in the operator's rail. If you can't go on without it, end your turn." Broadcasts `operator_items_changed`. See [Attention](attention.md) § Operator items. |
+| `clear_for_operator` | `id?` | Closes one open item of the caller's execution, or all of them, with `cleared`; another execution's item is refused. |
 | `list_peers` | none | Other agents in the same Git worktree, the task's own reviewer among them (`slot`, `read_only`). |
 | `message_peer` | `to`, `text` | Queues a message to one peer. |
 | `broadcast_peers` | `text` | Messages every peer; the result names who was and was not reached. |

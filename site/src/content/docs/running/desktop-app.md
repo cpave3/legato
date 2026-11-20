@@ -107,6 +107,8 @@ When an approval waits on any of your servers, the Legato widget shows it in its
 - An approval that needs a signature shows **◈** on its options. Click one and touch your security key (or use Touch ID on a Mac); plug the key in first if the widget asks. **Open the sheet** opens the main window's approval sheet on it instead.
 - The widget never takes the keyboard, so what needs typing opens the main window on the approval: **Deny with a note…**, an agent's question (**Answer in Legato**), a secret the Reeve asks for, and a plan.
 
+Below the approvals, the feed lists what agents [posted for you](/legato/using/attention/#operator-items) on each server, as that server's [needs-you rail](/legato/using/attention/#the-needs-you-rail) shows them: one line each, such as **Action: Type /to-tickets in LEG-363's session**, naming the server when there are several. Click a line to read what it blocks. **Open** opens the main window on the agent, and **Done** marks it done and tells the agent. A question opens the main window with **Answer in Legato**, where you type your answer.
+
 ## Talk to the Reeve
 
 The app has a key that starts talking to the [Reeve](/legato/using/reeve/) from any app: **Ctrl+Alt+Space** (on a Mac **Ctrl+Shift+Space**), and **Ctrl+Alt+Shift+Space** to stop talking.

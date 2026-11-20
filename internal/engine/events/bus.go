@@ -68,7 +68,17 @@ const (
 	// request a task owns, by someone other than Legato's own Apps;
 	// payload PRChangesRequestedPayload.
 	EventPRChangesRequested
+	// EventOperatorItemsChanged: an agent posted, updated or cleared an
+	// operator item (for_operator). Payload: OperatorItemsChangedPayload.
+	EventOperatorItemsChanged
 )
+
+// OperatorItemsChangedPayload names the task whose agent's operator items
+// changed.
+type OperatorItemsChangedPayload struct {
+	TaskID string
+	ItemID string
+}
 
 // ScopeChangedPayload names the origin whose Scope pins changed.
 type ScopeChangedPayload struct {

@@ -344,6 +344,9 @@ func (s *Server) handleAgentMessage(client *wsClient, msg WSMessage) {
 	} else {
 		err = s.agents.SendMessage(context.Background(), msg.AgentID, msg.Content)
 	}
+	if err == nil {
+		service.NoteOperatorMessage(context.Background(), s.agents, msg.AgentID, msg.Content)
+	}
 	if err != nil {
 		log.Printf("agent %s: message not delivered: %q", msg.AgentID, cutRunes(err.Error(), deliveryLogReason))
 		sendError("send message failed: " + err.Error())
@@ -456,6 +459,9 @@ func (s *Server) handleSendKeys(client *wsClient, msg WSMessage) {
 		var err error
 		if strings.HasSuffix(msg.Keys, "\n") {
 			err = s.agents.SendMessage(context.Background(), msg.AgentID, strings.TrimSuffix(msg.Keys, "\n"))
+			if err == nil {
+				service.NoteOperatorMessage(context.Background(), s.agents, msg.AgentID, strings.TrimSuffix(msg.Keys, "\n"))
+			}
 		} else if msg.Keys == "C-c" {
 			err = s.agents.InterruptAgent(context.Background(), msg.AgentID)
 		} else {

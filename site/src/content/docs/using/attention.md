@@ -5,7 +5,7 @@ sidebar:
   order: 40
 ---
 
-Attention is one queue of everything that needs you right now: a plan to decide, a review to read, a pull request that cannot merge, an agent waiting for you, a workflow that failed. Approvals are the requests from agents that wait for your answer, such as "may I run this command?". Approvals appear in Attention too, and also in a tray and on your phone, so you can answer from wherever you are.
+Attention is one queue of everything that needs you right now: a plan to decide, a review to read, a pull request that cannot merge, an agent waiting for you, a workflow that failed. Approvals are the requests from agents that wait for your answer, such as "may I run this command?". Approvals appear in Attention too, at the top of the needs-you rail on every page of the web UI, and on your phone, so you can answer from wherever you are.
 
 ## Attention
 
@@ -30,9 +30,26 @@ Attention lists only what you can act on. Each item comes from the part of Legat
 | Restarts | A restart of Legato failed (its configuration did not load, or it was not answering in time) and was rolled back to the configuration from before. See [Updates](/legato/running/updates/#restarting-legato-yourself). |
 | Updates | A new release of Legato is ready to install, or an install failed. See [Updates](/legato/running/updates/). |
 | Integrations | In the last 7 days, a request from Argus did not reach an agent, a reply never reached Argus, or Argus refused the connection. |
+| Agents' items | An agent posted something for you with its [`for_operator` tool](/legato/agent-tools/mcp-tools/): an action only you can do, a question, finished work to look at, or anything else you must see. See [Operator items](#operator-items). |
 | Handoff | On a main instance: a task [away on a worker](/legato/using/handoff/) is done there (Ready for review, with **Return**), failed (with **Recall**) or was lost (with **Take back**); its review passes are stuck (with **Return as is**, **Run another pass**, **Message the author** and **Recall**); a worker no longer accepts your main (**Pair again**) or has been unreachable for 15 minutes. A task whose agent needs you raises nothing on your main: the worker tells you. See [Attention and notifications](/legato/using/handoff/#attention-and-notifications). |
 
 Some things never raise Attention: a draft, closed or merged pull request; CI that is still running; a comment count; an idle agent; a workflow that succeeded; and Learning's records.
+
+### Operator items
+
+An agent often finishes its turn while it still needs you: to type a slash command, test a build in a browser, merge a pull request, answer a question it asked in plain words, or look at what it built. An idle agent raises nothing by itself, so agents are given a tool, `for_operator`, to say so. Each such item names its kind (Action, Question, Done or Other), what is needed, and what it blocks. **Open agent** takes you to the agent.
+
+You can act on an item without opening the agent. **Copy** copies the command or slash command it gives, and **Open** opens a link. **Done** closes the item and tells the agent you did it. A question has a button for each answer it offers and a box for your own; your answer reaches the agent as your message, so it closes the agent's other items too.
+
+An agent that posts the same title again updates its item, which comes back if you had dismissed it. Items raise no notification. An agent's items go away:
+
+- when you next type to that agent, in its terminal or from Legato (a slash command and a macro count; messages from other agents, the Reeve and Legato itself do not). A Chimera agent's items close only on a message sent through Legato, since Chimera does not say what was typed in its own terminal.
+- when the agent clears them because they no longer apply.
+- when the agent ends. An agent [interrupted](/legato/using/agents/#after-a-crash-interrupted-agents) by a crash keeps them until you resume it or dismiss it.
+
+### The needs-you rail
+
+In the web UI, the column on the right of every page shows Attention as you choose: Settings › Preferences › **Needs-you rail** has a switch for each kind of item, under **From agents** (actions, questions, finished work, anything else) and **From Legato** (approvals, agents, workflows, plans, ready for review, merge blockers, Legato's own). Ready for review and merge blockers are off at first. The settings are kept by Legato, so every browser shows the same rail. See [Web UI](/legato/using/web-ui/#getting-around).
 
 ### Acting on an item
 
@@ -45,7 +62,7 @@ You can also dismiss an item. Dismissing hides that item as it is now. If its so
 ### Where you see it
 
 - **Web UI**: the **Attention** page, in three sections: **Needs intervention**, **Ready for review** and **Merge blockers**. Its count shows on **Attention** in the navigation.
-- **TUI**: press `I` on the board. `j` and `k` select an item, `enter` runs its main action, and `d` dismisses it. The TUI lists the items of away tasks and workers but does not run their actions: return, recall and take back from the web UI.
+- **TUI**: press `I` on the board. `j` and `k` select an item, `enter` runs its main action, and `d` dismisses it. On an item an agent posted for you, `enter` opens the agent and `x` marks it done; `c` copies an item's command. The TUI lists the items of away tasks and workers but does not run their actions: return, recall and take back from the web UI.
 - **Command line**:
 
   ```bash
@@ -72,9 +89,9 @@ Legato raises approvals for agents it talks to natively: Claude Code and Codex t
 
 ### Answering in the web UI
 
-While approvals wait, a tray at the bottom right of every page shows them as cards. Each says which agent asks, what it would do, and its options. **Deny** takes a note for the agent. A question shows its options, and you can type an answer of your own. The tray folds to a count and opens again when a new approval arrives.
+While approvals wait, they come first in the **Needs you** rail on the right of every page, as cards. Each says which agent asks, what it would do, and its options. **Deny** takes a note for the agent. A question shows its options, and you can type an answer of your own. A new approval opens the rail if you had folded it. On a phone they are in a tray above the tab bar, which folds to a count.
 
-The tray also lists the [Reeve](/legato/using/reeve/)'s change sets that wait on instances this one is paired with, marked with the instance. They are decided there, with a device enrolled there: **◈ Approve on legato-1** opens that instance's page on the change set, and **Open legato-1 ↗** opens its page.
+The rail also lists the [Reeve](/legato/using/reeve/)'s change sets that wait on instances this one is paired with, marked with the instance. They are decided there, with a device enrolled there: **◈ Approve on legato-1** opens that instance's page on the change set, and **Open legato-1 ↗** opens its page.
 
 ### Answering in the desktop app
 
@@ -82,7 +99,7 @@ The [desktop app](/legato/running/desktop-app/) shows every server's approvals i
 
 ### Focus mode
 
-When agents ask questions, the button beside the tray's fold arrow opens **focus mode**: the questions one at a time, in the middle of the screen with nothing else on it. Each option has a number; the agent's recommendation is marked. An agent's questions are reviewed and sent together; a single question sends from the question itself.
+When agents ask questions, the focus button in the rail's header (on a phone, beside the tray's fold arrow) opens **focus mode**: the questions one at a time, in the middle of the screen with nothing else on it. Each option has a number; the agent's recommendation is marked. An agent's questions are reviewed and sent together; a single question sends from the question itself.
 
 | Key | Does |
 | --- | --- |
@@ -98,7 +115,7 @@ On a phone focus mode fills the screen, with **Back** and **Next** at the bottom
 
 Focus mode stays on until you leave it. With no question left it fades away and says it is waiting, and the next question to arrive opens it again. It is for this page only: a reload turns it off.
 
-When the Legato tab is not in front, the browser shows a notification for each new approval. Click it to open the tray on that request. Turn this off in **Settings › Security › Notify me of approvals**.
+When the Legato tab is not in front, the browser shows a notification for each new approval. Click it to open the rail on that request. Turn this off in **Settings › Security › Notify me of approvals**.
 
 ### Answering in the TUI
 
@@ -125,6 +142,6 @@ notifications:
 
 ### Approvals that need your phone
 
-The Reeve's change sets are approvals too: one per step, at the level of its riskiest change. A set you let run without asking never waits in the tray: it shows for a few seconds at the corner of the screen as already done. See [The Reeve](/legato/using/reeve/#running-without-asking).
+The Reeve's change sets are approvals too: one per step, at the level of its riskiest change. A set you let run without asking never waits in the rail: it shows for a few seconds at the corner of the screen as already done. See [The Reeve](/legato/using/reeve/#running-without-asking).
 
 Some decisions are signed: only you, at an enrolled phone or with a passkey on your computer, can allow them. An agent that has the web token still cannot. The TUI and Attention can deny a signed approval but not allow it, and say to use your phone. Some also need a verification: a fingerprint or a PIN on the device, not only a touch of a security key; such an approval refuses a touch alone. Which credential requests need a signature is set by the credential's rules; see [The credential broker](/legato/security/credential-broker/).

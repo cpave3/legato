@@ -9,6 +9,7 @@ import (
 	"github.com/cpave3/legato/internal/engine/broker"
 	"github.com/cpave3/legato/internal/engine/ipc"
 	"github.com/cpave3/legato/internal/engine/store"
+	"github.com/cpave3/legato/internal/service"
 )
 
 // BridgeHost is what a native bridge needs of the host Legato: the running
@@ -28,6 +29,9 @@ type BridgeHost interface {
 	// TurnEnded reports a main turn that ended without an answer (an
 	// interrupt, an error), which no hook of the agent tool reports.
 	TurnEnded(ctx context.Context, reason string) error
+	// OperatorTurn reports a user message the bridge saw reach its agent
+	// live, so the agent's operator items close when the operator wrote it.
+	OperatorTurn(ctx context.Context, text string) error
 }
 
 // BridgeSession is the running agent session a bridge serves.
@@ -106,6 +110,11 @@ func (h *storeBridgeHost) TurnEnded(_ context.Context, reason string) error {
 	return ApplyTurnEnded(h.s, h.taskID, h.session.ExecutionID, reason, nil, nil)
 }
 
+func (h *storeBridgeHost) OperatorTurn(ctx context.Context, text string) error {
+	_, err := service.CloseOperatorItemsOnTurn(ctx, h.s, h.taskID, h.session.ExecutionID, text)
+	return err
+}
+
 // recordsIdentity reports whether the task resumes this session's
 // conversation: not a swarm worker's, nor a child agent's.
 func recordsIdentity(session *store.AgentSession, taskID string) bool {
@@ -154,6 +163,13 @@ func (h *brokerBridgeHost) SaveIdentity(ctx context.Context, kind, providerSessi
 
 func (h *brokerBridgeHost) TurnEnded(ctx context.Context, reason string) error {
 	return h.call(ctx, "agent.hook", map[string]any{"hook": ClaudeHook{Event: HookTurnEnded, Reason: reason}}, nil)
+}
+
+func (h *brokerBridgeHost) OperatorTurn(ctx context.Context, text string) error {
+	if !service.IsOperatorText(text) {
+		return nil
+	}
+	return h.call(ctx, "agent.hook", map[string]any{"hook": OperatorTurnHook(text)}, nil)
 }
 
 // bridgeOps serve BridgeHost over the broker, through the store, for the

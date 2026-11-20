@@ -21,18 +21,18 @@ it("names More destinations with their full counts and marks the current page", 
   expect(screen.getByRole("link", { name: "Audit log" })).toHaveAttribute("href", "/audit")
 })
 
-it("keeps connection status separate from the Attention count", () => {
-  const sections = navSections({ attention: 4 })
-  const view = (connected: boolean) => <MemoryRouter><MobileTabBar sections={sections} connected={connected} moreOpen={false} onMore={() => {}} /></MemoryRouter>
+it("keeps connection status separate from the Needs you count", () => {
+  const sections = navSections({ rail: 4 })
+  const view = (connected: boolean) => <MemoryRouter><MobileTabBar sections={sections} connected={connected} moreOpen={false} onMore={() => {}} needsYouOpen={false} onNeedsYou={() => {}} /></MemoryRouter>
   const { rerender } = render(view(false))
-  const attention = screen.getByRole("link", { name: "Attention: 4 items" })
+  const needsYou = screen.getByRole("button", { name: "Needs you: 4 waiting" })
   const status = screen.getByRole("status", { name: "Connection" })
   expect(status).toHaveTextContent("offline")
-  expect(attention).not.toContainElement(status)
+  expect(needsYou).not.toContainElement(status)
   expect(screen.queryByLabelText("Disconnected")).not.toBeInTheDocument()
   rerender(view(true))
   expect(screen.getByRole("status", { name: "Connection" })).toHaveTextContent("sync")
-  expect(screen.getByRole("link", { name: "Attention: 4 items" })).toBeInTheDocument()
+  expect(screen.getByRole("button", { name: "Needs you: 4 waiting" })).toBeInTheDocument()
 })
 
 it("marks the mobile server choice and returns focus when dismissing or choosing", async () => {
@@ -59,7 +59,7 @@ it("contains keyboard focus in More and restores its opener after Escape", async
   const user = userEvent.setup()
   function Shell() {
     const [open, setOpen] = useState(false)
-    return <><MobileTabBar sections={props.sections} connected moreOpen={open} onMore={() => setOpen(!open)} />{open && <MoreSheet {...props} onClose={() => setOpen(false)} />}</>
+    return <><MobileTabBar sections={props.sections} connected moreOpen={open} onMore={() => setOpen(!open)} needsYouOpen={false} onNeedsYou={() => {}} />{open && <MoreSheet {...props} onClose={() => setOpen(false)} />}</>
   }
   render(<MemoryRouter><Shell /></MemoryRouter>)
   const trigger = screen.getByRole("button", { name: "More: 128 waiting" })

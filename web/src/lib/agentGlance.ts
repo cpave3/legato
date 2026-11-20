@@ -125,8 +125,10 @@ export type EnsembleSection = "needs-you" | "running" | "background" | "idle"
 
 const sectionOrder: EnsembleSection[] = ["needs-you", "running", "background", "idle"]
 
-// An agent that failed needs the person as much as one that asks.
-export function ensembleSection(agent: Pick<AgentInfo, "activity">): EnsembleSection {
+// An agent that failed needs the person as much as one that asks, and so
+// does one with open operator items, whatever it is doing.
+export function ensembleSection(agent: Pick<AgentInfo, "activity" | "open_items">): EnsembleSection {
+  if ((agent.open_items ?? 0) > 0) return "needs-you"
   switch (agent.activity) {
     case "waiting":
     case "error":

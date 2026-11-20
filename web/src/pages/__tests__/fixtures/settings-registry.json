@@ -324,6 +324,94 @@
       "mode": "restart"
     },
     {
+      "key": "web.rail.actions",
+      "title": "Rail: actions",
+      "description": "Things agents ask you to do that only you can: a command, a test in a browser, a merge.",
+      "kind": "bool",
+      "class": "change",
+      "mode": "live"
+    },
+    {
+      "key": "web.rail.questions",
+      "title": "Rail: questions",
+      "description": "Questions agents asked you in plain words.",
+      "kind": "bool",
+      "class": "change",
+      "mode": "live"
+    },
+    {
+      "key": "web.rail.done",
+      "title": "Rail: finished work",
+      "description": "Work agents finished for you to look at.",
+      "kind": "bool",
+      "class": "change",
+      "mode": "live"
+    },
+    {
+      "key": "web.rail.other",
+      "title": "Rail: anything else from agents",
+      "description": "Anything else agents post for you.",
+      "kind": "bool",
+      "class": "change",
+      "mode": "live"
+    },
+    {
+      "key": "web.rail.approvals",
+      "title": "Rail: approvals",
+      "description": "Requests that hold an agent mid-turn, and paired instances' change sets.",
+      "kind": "bool",
+      "class": "change",
+      "mode": "live"
+    },
+    {
+      "key": "web.rail.agents",
+      "title": "Rail: agents",
+      "description": "Agents waiting for you or stopped on an error.",
+      "kind": "bool",
+      "class": "change",
+      "mode": "live"
+    },
+    {
+      "key": "web.rail.workflows",
+      "title": "Rail: workflows",
+      "description": "Workflow gates, failures, stuck review loops and triggers.",
+      "kind": "bool",
+      "class": "change",
+      "mode": "live"
+    },
+    {
+      "key": "web.rail.plans",
+      "title": "Rail: plans",
+      "description": "Plans waiting for your decision.",
+      "kind": "bool",
+      "class": "change",
+      "mode": "live"
+    },
+    {
+      "key": "web.rail.review",
+      "title": "Rail: ready for review",
+      "description": "Review tours ready and handoffs done. Off unless set.",
+      "kind": "bool",
+      "class": "change",
+      "mode": "live"
+    },
+    {
+      "key": "web.rail.merge",
+      "title": "Rail: merge blockers",
+      "description": "Pull requests that cannot merge, and Argus's cases. Off unless set.",
+      "kind": "bool",
+      "class": "change",
+      "mode": "live"
+    },
+    {
+      "key": "web.rail.legato",
+      "title": "Rail: Legato",
+      "description": "Updates, restarts, settings, devices, handoff, integrations, engrams and interrupted agents.",
+      "kind": "bool",
+      "class": "change",
+      "mode": "live"
+    },
+    {
       "key": "web.discovery",
       "title": "Announce on the network",
       "description": "Announce the web server over mDNS so the phone app finds it.",

@@ -31,7 +31,7 @@ import { ContextGauge, ContextNotice, DictateButton, DictationBar, QueuedList, S
 import { CONTEXT_NEARLY_FULL, composerToolButton, currentStep, dictating, failQueuedByWords, formatElapsed, isCommandText, queueMessage, settleQueued, unreadQueued, type QueuedMessage } from "../lib/composer"
 import { useTurnClock } from "../hooks/useTurnClock"
 import { usePageInView } from "../hooks/usePageInView"
-import { appendProposal, legatoUICall, onComposerProposal, speakFailed, speakText } from "../lib/agentUi"
+import { appendProposal, legatoUICall, onComposerProposal, forOperatorCall, speakFailed, speakText } from "../lib/agentUi"
 import { SaidBubble } from "./SaidBubble"
 import { insertImagePath, isImagePath } from "../lib/agentImage"
 import { rankSlashItems, type SlashItem } from "../lib/slashMenu"
@@ -237,6 +237,9 @@ interface NativeAgentPanelProps {
   agentKind?: string
   // The engram the agent runs as, shown beside its tool.
   engram?: string
+  // The agent's open operator items, which the operator's next message
+  // closes.
+  openItems?: number
   composerEnabled?: boolean
   // Open something the agent showed (an artifact, or a card at full size)
   // in the side panel.
@@ -255,7 +258,7 @@ interface NativeAgentPanelProps {
   backgroundShells?: StoredBackgroundShell[]
 }
 
-export function NativeAgentPanel({ agentId, reeve, sandboxed, onKill, onRename, onMoveToGroup, onShowInfo, resyncRef, onReload, switchSandbox, switchHostNetwork, onDisconnect, onDowngradeChimera, ntfyConfigured, notifyEnabled, onToggleNotify, voiceEnabled, agentKind, engram, composerEnabled = true, onOpenUIItem, panels, title, activity, stateTime, pullRequest, backgroundShells }: NativeAgentPanelProps) {
+export function NativeAgentPanel({ agentId, reeve, sandboxed, onKill, onRename, onMoveToGroup, onShowInfo, resyncRef, onReload, switchSandbox, switchHostNetwork, onDisconnect, onDowngradeChimera, ntfyConfigured, notifyEnabled, onToggleNotify, voiceEnabled, agentKind, engram, openItems = 0, composerEnabled = true, onOpenUIItem, panels, title, activity, stateTime, pullRequest, backgroundShells }: NativeAgentPanelProps) {
   const { send, subscribe, connected } = useWebSocket()
   // Out of view the panel stops following the agent and catches up from its
   // cursor on return, so a phone with its screen off does not keep receiving
@@ -1192,6 +1195,8 @@ export function NativeAgentPanel({ agentId, reeve, sandboxed, onKill, onRename, 
             if (uiCall) return <AgentUICallCard key={item.key} call={uiCall} agentId={agentId} onOpen={onOpenUIItem} />
             const said = speakText(item.tool)
             if (said !== null) return <SaidBubble key={item.key} text={said} status={speakFailed(item.tool) ? "not_spoken" : undefined} />
+            const posted = forOperatorCall(item.tool)
+            if (posted) return <ForOperatorLine key={item.key} kind={posted.kind} title={posted.title} />
             const tile = showTiles ? tiles.find((each) => each.id === item.tool!.key) : undefined
             if (tile) {
               return <SubagentLink key={item.key} tile={tile} highlighted={highlightedTile === tile.id} onOpen={() => setFocusedTile(tile.id)} onHighlight={setHighlightedTile} />
@@ -1320,6 +1325,9 @@ export function NativeAgentPanel({ agentId, reeve, sandboxed, onKill, onRename, 
                 className={`block min-h-14 w-full resize-none border-0 bg-transparent px-3.5 pb-1 pt-3 text-sm text-lw-text placeholder:text-lw-faint focus:outline-none disabled:opacity-50 max-sm:text-base ${isBang ? "pt-8 shadow-[inset_0_0_0_1px] shadow-lw-needs/60" : ""}`}
               />
             </div>
+          )}
+          {composerEnabled && openItems > 0 && (
+            <p className="px-3.5 pt-1 text-[11.5px] text-lw-text-2">Your next message to this agent closes its {openItems} {openItems === 1 ? "item" : "items"} in the rail.</p>
           )}
           {dictating(voice) ? <DictationBar recorder={voice} /> : (
           <div data-testid="composer-actions" className="flex min-w-0 items-center gap-1 px-2 pb-2 pt-1.5 text-xs text-lw-text-2 max-sm:gap-0.5 max-sm:px-1.5">
@@ -1531,7 +1539,7 @@ function conversationBlocks(items: NativeConversationItem[]): ConversationBlock[
   const blocks: ConversationBlock[] = []
   for (const item of items) {
     const step = item.role === "reasoning"
-      || (item.role === "tool" && item.tool && item.tool.toolName !== "spawn_agent" && !shownUICall(item.tool) && speakText(item.tool) === null)
+      || (item.role === "tool" && item.tool && item.tool.toolName !== "spawn_agent" && !shownUICall(item.tool) && speakText(item.tool) === null && forOperatorCall(item.tool) === null)
     if (step) {
       const last = blocks[blocks.length - 1]
       if (last?.kind === "steps") last.rows.push(item)
@@ -1834,3 +1842,17 @@ const ToolCallCard = memo(function ToolCallCard({ agentId, tool, grouped }: { ag
     </div>
   )
 })
+
+// ForOperatorLine is an agent's for_operator call, drawn as one line: what
+// it put in the operator's rail.
+function ForOperatorLine({ kind, title }: { kind: string; title: string }) {
+  return (
+    <div className="px-4 py-1.5">
+      <div className="inline-flex max-w-full items-center gap-2 rounded-lg border border-lw-line bg-lw-surface px-2.5 py-1.5 text-xs text-lw-text-2">
+        <Bell size={13} aria-hidden="true" className="shrink-0 text-lw-needs" />
+        <span className="min-w-0 truncate"><b className="font-medium text-lw-text">for_operator</b>{kind ? ` · ${kind}` : ""} · {title}</span>
+        <span className="shrink-0 text-lw-needs">→ in your rail</span>
+      </div>
+    </div>
+  )
+}

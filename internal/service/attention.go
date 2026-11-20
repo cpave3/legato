@@ -31,6 +31,9 @@ type AttentionAction struct {
 	// navigation: an http(s) address outside Legato (a task on a worker),
 	// or a path of the web UI.
 	Href string `json:"href,omitempty"`
+	// Text is what a copy action puts on the clipboard. A client copies it
+	// and calls nothing.
+	Text string `json:"text,omitempty"`
 }
 
 const (
@@ -89,6 +92,10 @@ var defaultAttentionSignals = []string{
 	AttentionSignalHandoffLost,
 	AttentionSignalWorkerNotAccepting,
 	AttentionSignalWorkerUnreachable,
+	AttentionSignalOperatorAction,
+	AttentionSignalOperatorQuestion,
+	AttentionSignalOperatorDone,
+	AttentionSignalOperatorOther,
 }
 
 var knownAttentionSignals = map[string]bool{
@@ -128,6 +135,10 @@ var knownAttentionSignals = map[string]bool{
 	AttentionSignalHandoffLost:                 true,
 	AttentionSignalWorkerNotAccepting:          true,
 	AttentionSignalWorkerUnreachable:           true,
+	AttentionSignalOperatorAction:              true,
+	AttentionSignalOperatorQuestion:            true,
+	AttentionSignalOperatorDone:                true,
+	AttentionSignalOperatorOther:               true,
 }
 
 type AttentionInput struct {
@@ -165,6 +176,9 @@ type AttentionItem struct {
 	DismissedRevision string              `json:"dismissed_revision,omitempty"`
 	CreatedAt         string              `json:"created_at"`
 	UpdatedAt         string              `json:"updated_at"`
+	// RailGroup is the rail group the item is switched with; only the
+	// rail view (RailView) sets it.
+	RailGroup string `json:"rail_group,omitempty"`
 }
 
 type AttentionFilter struct {

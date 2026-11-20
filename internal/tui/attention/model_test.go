@@ -206,3 +206,66 @@ func TestOtherActionRunsAnItemsSecondAction(t *testing.T) {
 		t.Fatalf("enter ran %q", svc.last.ActionID)
 	}
 }
+
+func operatorItem() service.AttentionItem {
+	return service.AttentionItem{
+		ID: "att-op", Title: "Run /to-tickets", Reason: "Blocks the build tickets", Producer: service.OperatorItemsAttentionProducer,
+		SignalKind: service.AttentionSignalOperatorAction, SourceRevision: "2", TaskID: "T-1", Urgency: "normal",
+		Navigation: service.AttentionNavigation{Kind: "agent", Target: "T-1"},
+		Actions: []service.AttentionAction{
+			{ID: "open", Label: "Open agent", Kind: "navigate", Intent: "primary"},
+			{ID: "copy", Label: "Copy", Kind: "copy", Text: "/to-tickets"},
+			{ID: "done", Label: "Done", Kind: "execute"},
+		},
+	}
+}
+
+// Enter on an agent's item opens the agent; it runs nothing.
+func TestEnterOnAnOperatorItemOpensItsAgent(t *testing.T) {
+	svc := &fakeService{items: []service.AttentionItem{operatorItem()}}
+	m := New(svc)
+	m, _ = m.Update(queueMsg{items: svc.items})
+	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyEnter})
+	if cmd == nil {
+		t.Fatal("enter did nothing")
+	}
+	if msg, ok := cmd().(OpenAgentMsg); !ok || msg.TaskID != "T-1" {
+		t.Fatalf("enter gave %#v, want the agent of T-1 opened", msg)
+	}
+	if svc.calls != 0 {
+		t.Fatalf("enter ran an action: %+v", svc.last)
+	}
+}
+
+func TestXOnAnOperatorItemRunsDone(t *testing.T) {
+	svc := &fakeService{items: []service.AttentionItem{operatorItem()}}
+	m := New(svc)
+	m, _ = m.Update(queueMsg{items: svc.items})
+	_, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("x")})
+	if cmd == nil {
+		t.Fatal("x did nothing")
+	}
+	cmd()
+	if svc.last.ActionID != "done" || svc.last.ExpectedRevision != "2" {
+		t.Fatalf("request = %+v", svc.last)
+	}
+}
+
+func TestCOnAnItemCopiesItsCommand(t *testing.T) {
+	svc := &fakeService{items: []service.AttentionItem{operatorItem()}}
+	var copied string
+	m := New(svc)
+	m.copy = func(text string) error { copied = text; return nil }
+	m, _ = m.Update(queueMsg{items: svc.items})
+	m, cmd := m.Update(tea.KeyMsg{Type: tea.KeyRunes, Runes: []rune("c")})
+	if cmd == nil {
+		t.Fatal("c did nothing")
+	}
+	m, _ = m.Update(cmd())
+	if copied != "/to-tickets" || svc.calls != 0 {
+		t.Fatalf("copied %q, service calls %d", copied, svc.calls)
+	}
+	if !contains(m.View(), "Copied /to-tickets") {
+		t.Fatalf("view = %q", m.View())
+	}
+}

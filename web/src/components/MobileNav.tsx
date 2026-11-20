@@ -22,24 +22,32 @@ const tabClass = (active: boolean) => cn(
 
 // MobileTabBar is the bar along the foot of a phone: the four sections used
 // most, and More for the rest.
-export function MobileTabBar({ sections, connected, moreOpen, onMore }: {
+export function MobileTabBar({ sections, connected, moreOpen, onMore, needsYouOpen, onNeedsYou }: {
   sections: Record<string, NavSection>
   connected: boolean
   moreOpen: boolean
   onMore: () => void
+  needsYouOpen: boolean
+  onNeedsYou: () => void
 }) {
   const { pathname, search } = useLocation()
   // On a phone the agent list and the ensemble are one tab, with the
   // ensemble's grid and its count.
   const agents: NavSection = { ...sections.agents, icon: navIcons.ensemble, count: sections.ensemble.count, tone: "live", noun: sections.ensemble.noun }
-  const tabs = [sections.attention, sections.board, agents, sections.review]
+  const tabs = [sections.board, agents, sections.review]
+  const needsYou = sections.needsYou
   const rest = [sections.plans, sections.learning, sections.workflows]
   const restCount = rest.reduce((sum, section) => sum + (section.count ?? 0), 0)
-  const restActive = moreOpen || [...rest, sections.macros, sections.reports, sections.remote, sections.audit, sections.settings].some((section) => sectionActive(section, pathname, search))
+  const restActive = moreOpen || [...rest, sections.attention, sections.macros, sections.reports, sections.remote, sections.audit, sections.settings].some((section) => sectionActive(section, pathname, search))
 
   return (
     <nav aria-label="Primary navigation" className="fixed inset-x-0 bottom-0 z-40 grid grid-cols-5 border-t border-[var(--theme-border,#222228)] bg-lw-rail px-1 pb-[env(safe-area-inset-bottom)] pt-1.5 font-lw md:hidden">
       <span role="status" aria-label="Connection" className={cn("absolute right-2 bottom-full rounded-t px-2 text-[10px] bg-lw-rail", connected ? "text-lw-faint" : "text-lw-error")}>{connected ? "sync" : "offline"}</span>
+      <button type="button" onClick={onNeedsYou} aria-label={needsYou.count ? `Needs you: ${needsYou.count} waiting` : "Needs you"} aria-expanded={needsYouOpen}
+        className={cn(tabClass(needsYouOpen), needsYou.count ? "text-lw-needs" : "")}>
+        <NavIcon d={needsYou.icon} size={22} />
+        <span className="whitespace-nowrap">{needsYou.count ? `Needs you · ${badgeText(needsYou.count)}` : "Needs you"}</span>
+      </button>
       {tabs.map((section) => {
         const active = section.key === "agents" ? pathname.startsWith("/agents") : sectionActive(section, pathname, search)
         return (
@@ -178,6 +186,7 @@ export function MoreSheet({ sections, connected, servers, activeServerName, base
             )}
           </div>
           <Group label="Queues">
+            <SectionRow section={sections.attention} onClick={onClose} />
             <SectionRow section={sections.plans} />
             <SectionRow section={sections.learning} />
           </Group>

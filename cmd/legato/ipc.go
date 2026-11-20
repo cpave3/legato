@@ -40,7 +40,7 @@ func handleServeIPCMessage(msg ipc.Message, bus *events.Bus, srv serveNotifier) 
 		case "task_update":
 			bus.Publish(events.Event{Type: events.EventCardUpdated, At: time.Now()})
 		}
-	case "review_changed", "plan_changed", "agent_ui_changed", "approval_changed", "mqtt_changed", "server_theme_changed", "scope_changed":
+	case "review_changed", "plan_changed", "agent_ui_changed", "approval_changed", "mqtt_changed", "server_theme_changed", "scope_changed", "operator_items_changed":
 		handleIPCMessage(msg, bus, nil)
 	case "workflow_changed":
 		srv.NotifyWorkflowChanged(msg.WorkflowRunID, msg.WorkflowStepID)
@@ -111,6 +111,10 @@ func handleIPCMessage(msg ipc.Message, bus *events.Bus, wn webNotifier) {
 		// An agent's page_pin tool changed an origin's pins from a `legato
 		// mcp serve` with no broker; Content is the origin.
 		bus.Publish(events.Event{Type: events.EventScopeChanged, At: time.Now(), Payload: events.ScopeChangedPayload{Origin: msg.Content}})
+	case "operator_items_changed":
+		// An agent posted or cleared an item for the operator through its
+		// `legato mcp serve`, or through the broker.
+		bus.Publish(events.Event{Type: events.EventOperatorItemsChanged, At: time.Now(), Payload: events.OperatorItemsChangedPayload{TaskID: msg.TaskID, ItemID: msg.ItemID}})
 	case "agent_ui_changed":
 		// An agent showed something through its own `legato mcp serve`.
 		bus.Publish(events.Event{

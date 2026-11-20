@@ -83,7 +83,7 @@ In the TUI the Reeve is on the first row of the agents view, above the groups, w
 
 Press `A` on the board to open the agents view. Agents are listed under what they are doing, the ones that need you first:
 
-- **Needs you**: waiting for you, or stopped on an error.
+- **Needs you**: waiting for you, stopped on an error, or with something it [posted for you](/legato/using/attention/#operator-items) still open, even when it is idle.
 - **Running**: working.
 - **Background**: the turn ended, but something it started still runs and will wake it: a shell, a Monitor, a subagent or a scheduled prompt. The line over the terminal says what: `background · 2 jobs`, or the one job by name.
 - **Idle**: alive, and nothing will wake it but a message.

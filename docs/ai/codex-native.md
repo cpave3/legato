@@ -152,3 +152,4 @@ adapters:
 - Subagent threads are not shown in the panel.
 - Resolved approval cards are appended after the conversation when the panel re-reads its snapshot, as they are for the other native agents.
 - The shell hooks from `legato hooks install --tool codex` still own activity (working, waiting, idle). The bridge adds only a turn that did not complete: `turn/completed` with status `interrupted` or `failed` is reported as `TurnEnded` (`Options.OnTurnEnded`, after `TurnEndedDelay` and only when no new turn has begun), which moves a session still working or waiting to idle or `error`. See [Agent states](agent-states.md).
+- Each user message it sees reach the thread live (not the history loaded on joining) goes to `Options.OnUserMessage`, which `legato agent codex-bridge` reports as `BridgeHost.OperatorTurn`: an untagged one closes the agent's operator items. See [Agent states](agent-states.md) § Operator items beside activity.

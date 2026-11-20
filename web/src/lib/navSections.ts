@@ -33,6 +33,7 @@ export const navIcons = {
   audit: "M12 3l8 3v6c0 5-3.5 8-8 9-4.5-1-8-4-8-9V6zM9 12l2 2 4-4",
   settings: "M4 21v-7M4 10V3M12 21v-9M12 8V3M20 21v-5M20 12V3M1 14h6M9 8h6M17 16h6",
   more: "M5 12h.01M12 12h.01M19 12h.01",
+  needsYou: "M12 22s8-4 8-10V5l-8-3-8 3v7c0 6 8 10 8 10z",
 }
 
 export const ENSEMBLE_PATH = "/agents?view=ensemble"
@@ -41,6 +42,8 @@ export const ENSEMBLE_PATH = "/agents?view=ensemble"
 export function navSections(summary: Partial<NavigationSummary> = {}): Record<string, NavSection> {
   return {
     attention: { key: "attention", label: "Attention", to: "/attention", icon: navIcons.attention, count: summary.attention, tone: "needs", noun: "items" },
+    // The phone's tab for the needs-you rail, which opens it as a sheet.
+    needsYou: { key: "needsYou", label: "Needs you", to: "/attention", icon: navIcons.needsYou, count: (summary.rail ?? 0) + (summary.peer_approvals ?? 0), tone: "needs", noun: "waiting" },
     ensemble: { key: "ensemble", label: "Ensemble", to: ENSEMBLE_PATH, icon: navIcons.ensemble, count: summary.agents, tone: "live", noun: "non-idle" },
     agents: { key: "agents", label: "Agents", to: "/agents", icon: navIcons.agents, separated: true },
     board: { key: "board", label: "Board", to: "/board", icon: navIcons.board },

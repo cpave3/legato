@@ -2,10 +2,9 @@ import { ChangeSetCard } from "./ChangeSetCard"
 import { SecretRequestForm } from "./SecretRequestForm"
 import { useEffect, useLayoutEffect, useRef, useState } from "react"
 import { createPortal } from "react-dom"
-import { Link, useSearchParams } from "react-router-dom"
+import { Link } from "react-router-dom"
 import { useModalLayer } from "../hooks/useModalLayer"
 import { useApprovals } from "../hooks/useApprovals"
-import { usePeerApprovals } from "../hooks/usePeerApprovals"
 import type { PeerApproval } from "../lib/reeve"
 import { useServer } from "../hooks/useServer"
 import { approvalAsker, approvalKind, decideApproval, dismissApproval, type Approval, type ApprovalDecision } from "../lib/approvals"
@@ -17,6 +16,7 @@ import type { NativeQuestion } from "../lib/nativeAgentSync"
 import { QuestionFocus } from "./QuestionFocus"
 import { approvalQuestions } from "../lib/questionDrafts"
 import { setFocusMode, useFocusMode } from "../lib/focusMode"
+import { railEdgeStyle, useRailState } from "../lib/railState"
 
 // Shows something while open, and for a moment after, so it can fade in and
 // out: mounted while it is on screen at all, visible while it is meant to be.
@@ -36,19 +36,15 @@ function useFade(open: boolean, ms = 300) {
   return { mounted, visible }
 }
 
-// The approvals waiting for the person, on every page: a column of cards at
-// the bottom right (above the tab bar on a phone) while any is pending, or a
-// count when the person folds it away. ?approval=<id> opens it on that one.
-//
-// Focus mode, from the tray's header, answers agents' questions one at a time
-// over the whole screen (QuestionFocus). It stays on until the person leaves
-// it: with no question left it fades out and waits, and the next question to
-// arrive opens it again.
-export function ApprovalTray() {
+// ApprovalFocus is focus mode: agents' questions answered one at a time over
+// the whole screen (QuestionFocus), opened from the rail's header or the
+// phone's tray. It stays on until the person leaves it: with no question
+// left it fades out and waits, and the next question to arrive opens it
+// again. Mounted once by the layout.
+export function ApprovalFocus() {
   const { data: approvals, refresh } = useApprovals()
-  const peerApprovals = usePeerApprovals()
-  const [folded, setFolded] = useState(false)
   const focusMode = useFocusMode()
+  const rail = useRailState()
   const asking = approvals.filter((approval) => approvalQuestions(approval).length > 0)
   const focusOpen = focusMode && asking.length > 0
   const fade = useFade(focusOpen)
@@ -60,36 +56,10 @@ export function ApprovalTray() {
     // asking is rebuilt each render; its ids say when it changed.
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [askingIds])
-  const leaveFocus = () => {
-    setFocusMode(false)
-    setFolded(false)
-  }
+  const leaveFocus = () => setFocusMode(false)
   const focusRef = useRef<HTMLDivElement>(null)
   useModalLayer({ open: focusOpen && fade.mounted, onClose: leaveFocus, containerRef: focusRef })
-  const [focused, setFocused] = useState<string | null>(null)
-  const [params, setParams] = useSearchParams()
-  const seen = useRef<Set<string>>(new Set())
-  const wanted = params.get("approval")
-
-  // An approval the person has not seen yet opens the tray again.
-  useEffect(() => {
-    const fresh = approvals.some((approval) => !seen.current.has(approval.id))
-    approvals.forEach((approval) => seen.current.add(approval.id))
-    if (fresh) setFolded(false)
-  }, [approvals])
-
-  useEffect(() => {
-    if (!wanted) return
-    setFocused(wanted)
-    setFolded(false)
-    const next = new URLSearchParams(params)
-    next.delete("approval")
-    setParams(next, { replace: true })
-  }, [wanted, params, setParams])
-
-  const total = approvals.length + peerApprovals.length
-  const count = `${total} ${total === 1 ? "needs" : "need"} you`
-  const focus = (
+  return (
     <>
       {fade.mounted && createPortal(
         <div
@@ -106,7 +76,8 @@ export function ApprovalTray() {
       {focusMode && !focusOpen && approvals.length === 0 && createPortal(
         <div
           role="status"
-          className="fixed inset-x-2 top-[calc(env(safe-area-inset-top)+4.25rem)] z-40 flex items-center gap-3 rounded-xl border border-lw-accent-ring bg-lw-surface py-2 pl-4 pr-2 font-lw text-sm text-lw-text shadow-2xl md:inset-x-auto md:right-4 md:max-w-md"
+          style={railEdgeStyle(rail)}
+          className="fixed inset-x-2 top-[calc(env(safe-area-inset-top)+4.25rem)] z-40 flex items-center gap-3 rounded-xl border border-lw-accent-ring bg-lw-surface py-2 pl-4 pr-2 font-lw text-sm text-lw-text shadow-2xl md:inset-x-auto md:right-[var(--lw-rail-offset)] md:max-w-md"
         >
           <span aria-hidden className="h-2 w-2 shrink-0 rounded-full bg-lw-link" />
           <span className="min-w-0 flex-1">Focus is on. It opens again when a question comes in.</span>
@@ -116,61 +87,21 @@ export function ApprovalTray() {
       )}
     </>
   )
-  if (total === 0) return focus
+}
 
+// FocusButton turns focus mode on: agents' questions one at a time.
+export function FocusButton({ className = "" }: { className?: string }) {
   return (
-    <>
-    {focus}
-    <section
-      aria-label="Approvals"
-      className="fixed inset-x-2 bottom-[calc(3.5rem+env(safe-area-inset-bottom)+0.5rem)] z-40 flex max-h-[85dvh] flex-col font-lw text-lw-text md:inset-x-auto md:bottom-4 md:right-4 md:max-h-[70dvh] md:w-[400px]"
+    <button
+      aria-label="Answer in focus mode"
+      title="Focus mode: one question at a time"
+      onClick={() => setFocusMode(true)}
+      className={`${className} flex h-11 w-11 items-center justify-center rounded-lg border border-lw-accent-ring bg-lw-accent-soft text-lw-accent-text hover:brightness-125 md:h-7 md:w-7`}
     >
-      {folded ? (
-        <button
-          onClick={() => setFolded(false)}
-          className="ml-auto flex min-h-12 items-center gap-2 rounded-full border border-lw-needs/50 bg-lw-surface px-5 text-base font-medium text-lw-needs shadow-xl md:min-h-0 md:px-3 md:py-1.5 md:text-sm"
-        >
-          <span aria-hidden>◆</span>{count}
-        </button>
-      ) : (
-        <div className="flex min-h-0 flex-col overflow-hidden rounded-xl border border-lw-line-strong bg-lw-surface shadow-2xl">
-          <header className="flex items-center gap-2 border-b border-lw-line px-4 py-2 md:px-3">
-            <span aria-hidden className="text-lw-needs">◆</span>
-            <h2 className="text-base font-semibold md:text-sm">{count}</h2>
-            {focusMode && !focusOpen && (
-              <>
-                <span className="ml-auto rounded-full border border-lw-accent-ring bg-lw-accent-soft px-2 py-0.5 text-xs text-lw-accent-text">Focus is on</span>
-                <button onClick={leaveFocus} className="min-h-11 rounded-lg px-2 text-sm text-lw-text-2 hover:bg-lw-raised md:min-h-0 md:py-0.5 md:text-xs">Leave focus</button>
-              </>
-            )}
-            {asking.length > 0 && (
-              <button
-                aria-label="Answer in focus mode"
-                title="Focus mode: one question at a time"
-                onClick={() => setFocusMode(true)}
-                className="ml-auto flex h-11 w-11 items-center justify-center rounded-lg border border-lw-accent-ring bg-lw-accent-soft text-lw-accent-text hover:brightness-125 md:h-7 md:w-7"
-              >
-                <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
-                  <path d="M4 9V4h5" /><path d="M20 9V4h-5" /><path d="M4 15v5h5" /><path d="M20 15v5h-5" />
-                </svg>
-              </button>
-            )}
-            <button aria-label="Hide approvals" onClick={() => setFolded(true)} className={`${asking.length > 0 || focusMode ? "" : "ml-auto "}flex h-11 w-11 items-center justify-center rounded-lg text-xl text-lw-text-2 hover:bg-lw-raised md:h-auto md:w-auto md:px-2 md:py-0.5 md:text-base`}>
-              ⌄
-            </button>
-          </header>
-          <div className="min-h-0 space-y-3 overflow-y-auto p-2 md:space-y-2">
-            {approvals.map((approval) => (
-              <ApprovalCard key={approval.id} approval={approval} focused={approval.id === focused} onDone={refresh} />
-            ))}
-            {peerApprovals.map((approval) => (
-              <PeerApprovalCard key={`${approval.instance_id}:${approval.id}`} approval={approval} />
-            ))}
-          </div>
-        </div>
-      )}
-    </section>
-    </>
+      <svg width="15" height="15" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.9" strokeLinecap="round" strokeLinejoin="round" aria-hidden="true">
+        <path d="M4 9V4h5" /><path d="M20 9V4h-5" /><path d="M4 15v5h5" /><path d="M20 15v5h-5" />
+      </svg>
+    </button>
   )
 }
 
@@ -180,7 +111,7 @@ const choiceSize = "flex min-h-12 w-full items-center justify-center rounded-xl 
 
 // Another instance's Reeve change set: marked with its instance, and decided
 // there, with a device enrolled there.
-function PeerApprovalCard({ approval }: { approval: PeerApproval }) {
+export function PeerApprovalCard({ approval }: { approval: PeerApproval }) {
   const link = "inline-flex min-h-11 items-center justify-center rounded-lg px-3 text-sm md:min-h-0 md:py-1 md:text-xs"
   return (
     <article data-testid={`peer-approval-${approval.id}`} className="rounded-lg border border-lw-line border-l-2 border-l-[var(--theme-keyword,#8b5cf6)] bg-lw-ground p-3">
@@ -202,7 +133,7 @@ function PeerApprovalCard({ approval }: { approval: PeerApproval }) {
   )
 }
 
-function ApprovalCard({ approval, focused, onDone }: { approval: Approval; focused: boolean; onDone: () => Promise<void> }) {
+export function ApprovalCard({ approval, focused, onDone }: { approval: Approval; focused: boolean; onDone: () => Promise<void> }) {
   const { baseUrl } = useServer()
   const [busy, setBusy] = useState(false)
   const [error, setError] = useState<string | null>(null)

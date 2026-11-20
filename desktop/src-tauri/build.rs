@@ -78,5 +78,8 @@ const COMMANDS: &[&str] = &[
     "voice_approvals",
     "voice_approval_decide",
     "voice_approval_open",
+    "voice_items",
+    "voice_item_done",
+    "voice_item_open",
     "voice_approval_sheet",
 ];

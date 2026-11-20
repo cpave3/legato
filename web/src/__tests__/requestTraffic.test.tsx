@@ -34,7 +34,7 @@ vi.mock("../hooks/useWebSocket", () => ({
 vi.mock("../components/PlanApprovalModal", () => ({ PlanApprovalModal: () => null }))
 vi.mock("../components/OfflineDialog", () => ({ OfflineDialog: () => null }))
 vi.mock("../components/AutoRunNotice", () => ({ AutoRunNotice: () => null }))
-vi.mock("../hooks/useAgentSelection", () => ({ AgentSelectionProvider: ({ children }: { children: React.ReactNode }) => children }))
+vi.mock("../hooks/useAgentSelection", () => ({ AgentSelectionProvider: ({ children }: { children: React.ReactNode }) => children, useAgentSelection: () => ({ selectedAgentId: null }) }))
 vi.mock("../hooks/useToast", () => ({ useToast: () => ({ addToast: vi.fn() }) }))
 vi.mock("../components/board/BoardGrid", () => ({ BoardGrid: () => null }))
 vi.mock("../components/board/MobileBoardList", () => ({ MobileBoardList: () => null }))
@@ -63,7 +63,7 @@ beforeEach(() => {
 })
 
 describe("web request traffic", () => {
-  it("loads only four authoritative snapshots for a board reload", async () => {
+  it("loads only five authoritative snapshots for a board reload", async () => {
     const counts = new Map<string, number>()
     vi.stubGlobal("fetch", vi.fn((input: RequestInfo | URL) => {
       const path = requestPath(input)
@@ -74,6 +74,8 @@ describe("web request traffic", () => {
       if (path === "/api/navigation-summary") return response({ attention: 0, review: 0, plans: 0, workflow_attention: 0, agents: 0 })
       if (path === "/api/board") return response({ columns: [], workspaces: [] })
       if (path === "/api/workflows") return response({ definitions: [], errors: [], repositories: [] })
+      // The needs-you rail, on every page.
+      if (path === "/api/attention") return response({ items: [], total: 0, hidden_groups: 0 })
       throw new Error(`unexpected request: ${path}`)
     }))
 
@@ -81,12 +83,13 @@ describe("web request traffic", () => {
     const client = createQueryClient()
     render(<QueryClientProvider client={client}><QuerySyncProvider><App/></QuerySyncProvider></QueryClientProvider>)
 
-    await waitFor(() => expect([...counts.values()].reduce((total, count) => total + count, 0)).toBe(4))
+    await waitFor(() => expect([...counts.values()].reduce((total, count) => total + count, 0)).toBe(5))
     expect(Object.fromEntries(counts)).toEqual({
       "/api/navigation-summary": 1,
       "/api/board": 1,
       "/api/workflows": 1,
       "/api/settings": 1,
+      "/api/attention": 1,
     })
 
     vi.useFakeTimers()
@@ -98,6 +101,7 @@ describe("web request traffic", () => {
         "/api/board": 2,
         "/api/workflows": 1,
         "/api/settings": 1,
+        "/api/attention": 1,
       })
 
       act(() => {
@@ -112,6 +116,7 @@ describe("web request traffic", () => {
         "/api/board": 3,
         "/api/workflows": 1,
         "/api/settings": 1,
+        "/api/attention": 1,
       })
     } finally {
       vi.useRealTimers()
@@ -204,6 +209,7 @@ describe("web request traffic", () => {
       counts.set(path, (counts.get(path) ?? 0) + 1)
       if (path === "/api/navigation-summary") return response({ attention: 0, review: 0, plans: 1, workflow_attention: 0, agents: 0 })
       if (path === "/api/plans/queue") return response([])
+      if (path === "/api/attention") return response({ items: [], total: 0, hidden_groups: 0 })
       throw new Error(`unexpected request: ${path}`)
     }))
 
@@ -214,7 +220,8 @@ describe("web request traffic", () => {
     expect(counts.get("/api/navigation-summary")).toBe(1)
     expect(counts.has("/api/review/queue")).toBe(false)
     expect(counts.has("/api/workflow-runs")).toBe(false)
-    expect(counts.has("/api/attention")).toBe(false)
+    // The needs-you rail's view, once: plans' own changes do not ask again.
+    expect(counts.get("/api/attention")).toBe(1)
     expect(counts.has("/api/agents")).toBe(false)
 
     vi.useFakeTimers()
@@ -226,6 +233,7 @@ describe("web request traffic", () => {
       await act(async () => { await vi.advanceTimersByTimeAsync(75) })
       expect(counts.get("/api/plans/queue")).toBe(2)
       expect(counts.get("/api/navigation-summary")).toBe(2)
+      expect(counts.get("/api/attention")).toBe(1)
     } finally {
       vi.useRealTimers()
     }

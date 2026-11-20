@@ -56,7 +56,7 @@ The agent strip shows the agent's state and how long it has been in it:
 | State | Meaning |
 | --- | --- |
 | running | The agent is working. |
-| needs you | The agent waits for you: a permission, a question, or a plan to approve. |
+| needs you | The agent waits for you: a permission, a question, a plan to approve, or something it [posted for you](/legato/using/attention/#operator-items), such as a command to run, while that stays open. |
 | background | The agent's turn ended, but something it started still runs and will wake it: a shell, a Monitor, a subagent or a scheduled prompt. |
 | idle | The agent is alive, and nothing will wake it but a message. |
 | error | The agent stopped on an error. |

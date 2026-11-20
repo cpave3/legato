@@ -19,6 +19,7 @@ import (
 	"github.com/cpave3/legato/internal/engine/store"
 	"github.com/cpave3/legato/internal/engine/swarm"
 	"github.com/cpave3/legato/internal/service"
+	"github.com/cpave3/legato/internal/tui/attention"
 	"github.com/cpave3/legato/internal/tui/agents"
 	"github.com/cpave3/legato/internal/tui/board"
 	"github.com/cpave3/legato/internal/tui/detail"
@@ -2407,5 +2408,29 @@ func TestVoiceTranscriptionDeliversText(t *testing.T) {
 	}
 	if vs.deliverTask != "REX-1" {
 		t.Errorf("deliverTask = %q, want REX-1: delivery needs the task to reach its native endpoint", vs.deliverTask)
+	}
+}
+
+// The board strip shows needs you for an idle agent with open operator
+// items.
+func TestBoardStripShowsNeedsYouForAnAgentWithOpenItems(t *testing.T) {
+	app := newTestApp()
+	app.agentSvc = &fakeAgentService{agents: []service.AgentSession{{
+		TaskID: "REX-1", AttributionTaskID: "REX-1", Status: "running", Activity: "", OpenItems: 1,
+	}}}
+	model, _ := app.Update(app.board.Init()())
+	card := model.(App).board.SelectedCard()
+	if card == nil || card.Key != "REX-1" || card.AgentState != "waiting" {
+		t.Fatalf("card = %#v, want its agent waiting", card)
+	}
+}
+
+// Enter on an agent's item in the Attention list shows that agent.
+func TestAnAttentionItemOpensItsAgent(t *testing.T) {
+	app := newTestApp()
+	app.agentSvc = &fakeAgentService{agents: []service.AgentSession{{TaskID: "REX-1", Status: "running"}}}
+	model, cmd := app.Update(attention.OpenAgentMsg{TaskID: "REX-1"})
+	if model.(App).active != viewAgents || cmd == nil {
+		t.Fatalf("view = %v, cmd = %v; want the agents view", model.(App).active, cmd)
 	}
 }

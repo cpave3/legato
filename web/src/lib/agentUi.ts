@@ -791,3 +791,15 @@ export function onComposerProposal(agentId: string, handler: (text: string) => v
 export function appendProposal(draft: string, text: string): string {
   return draft.trim() === "" ? text : `${draft.replace(/\s+$/, "")}\n${text}`
 }
+
+// Legato's for_operator tool, named as above.
+const LEGATO_FOR_OPERATOR = /(?:^|[^a-zA-Z0-9])legato(?:__|[._])for_operator$/
+
+// forOperatorCall returns what an agent put in the operator's rail when a
+// tool call is Legato's for_operator, and null for every other call.
+export function forOperatorCall(tool: NativeToolItem): { kind: string; title: string } | null {
+  const name = tool.toolName
+  if (name !== "for_operator" && !LEGATO_FOR_OPERATOR.test(name) && !LEGATO_FOR_OPERATOR.test(decodedToolName(name))) return null
+  const args = tool.args ?? {}
+  return { kind: stringArg(args, "kind"), title: stringArg(args, "title") }
+}

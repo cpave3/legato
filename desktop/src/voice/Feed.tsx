@@ -1,5 +1,6 @@
 import { useState, type ReactNode } from "react"
 import { useApprovalEntries } from "./ApprovalEntries"
+import { useItemEntries } from "./ItemEntries"
 
 // The Legato widget's feed, under the voice: what needs the person while
 // the desktop app is not in front. Each kind of item is a source of
@@ -28,8 +29,10 @@ export function newestFirst(entries: FeedEntry[]): FeedEntry[] {
 }
 
 export function Feed() {
-  // Each kind's entries. A later kind adds its hook here.
-  const entries = newestFirst([...useApprovalEntries()])
+  // Each kind's entries, newest first within a kind: approvals, which hold
+  // an agent mid-turn, then what agents posted for the person. A later kind
+  // adds its hook here.
+  const entries = [...newestFirst(useApprovalEntries()), ...newestFirst(useItemEntries())]
   const [open, setOpen] = useState<string | null>(null)
   if (!entries.length) return null
   const waiting = entries.filter((e) => e.waiting).length

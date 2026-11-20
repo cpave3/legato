@@ -1,4 +1,5 @@
 import { useState, useCallback, useRef } from "react"
+import { railEdgeStyle, useRailState } from "../lib/railState"
 import { ToastContext, type ToastItem } from "../hooks/useToast"
 import { cn } from "../lib/utils"
 
@@ -26,10 +27,12 @@ function useToastProvider() {
 
 export function ToastProvider({ children }: { children: React.ReactNode }) {
   const value = useToastProvider()
+  // From md up the toasts sit left of the needs-you rail.
+  const rail = useRailState()
   return (
     <ToastContext.Provider value={value}>
       {children}
-      <div className="fixed bottom-4 right-4 z-50 flex flex-col gap-2" aria-live="polite" aria-atomic="false">
+      <div style={railEdgeStyle(rail)} className="fixed bottom-4 right-4 z-50 flex flex-col gap-2 md:right-[var(--lw-rail-offset)]" aria-live="polite" aria-atomic="false">
         {value.toasts.map((toast) => (
           <div
             key={toast.id}
