@@ -20,6 +20,10 @@ describe("currentStep", () => {
     expect(currentStep([tool("a", "web_search", {}, false, "legato docs")])).toBe("web_search legato docs")
   })
 
+  it("names an MCP tool by its server and tool", () => {
+    expect(currentStep([tool("a", "mcp__burnlite__list_tasks", {}, false, "LEG")])).toBe("Burnlite › List tasks LEG")
+  })
+
   it("is empty when every call has finished", () => {
     expect(currentStep([tool("a", "bash", { command: "ls" }, true)])).toBeNull()
     expect(currentStep([])).toBeNull()

@@ -75,7 +75,7 @@ describe("NativeAgentPanel and what an agent shows", () => {
     ])
     render(<NativeAgentPanel agentId="task-1" />, { wrapper })
 
-    expect(await screen.findByText(/legato\.show_card/)).toBeTruthy()
+    expect((await screen.findByRole("button", { name: /Legato.*Show card/ })).getAttribute("title")).toBe("legato.show_card")
     expect(screen.queryByRole("group", { name: /Card from the agent/ })).toBeNull()
   })
 

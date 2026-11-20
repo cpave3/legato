@@ -1,4 +1,5 @@
 import type { VoiceRecorder } from "../hooks/useVoiceRecorder"
+import { toolDisplayName } from "./mcpToolName"
 import type { NativeConversationItem } from "./nativeAgentSync"
 import { cn } from "./utils"
 
@@ -12,7 +13,8 @@ export function currentStep(items: NativeConversationItem[]): string | null {
     const what = typeof args.command === "string" ? args.command
       : typeof args.path === "string" ? args.path.split("/").pop()
       : tool.summary
-    return what ? `${tool.toolName} ${what}` : tool.toolName
+    const name = toolDisplayName(tool.toolName)
+    return what ? `${name} ${what}` : name
   }
   return null
 }
