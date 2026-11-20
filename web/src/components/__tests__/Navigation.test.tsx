@@ -20,6 +20,7 @@ vi.mock("../../hooks/useSettings", () => ({ useSettings: () => ({ data: undefine
 vi.mock("../../hooks/useServer", () => ({
   useServer: () => ({ servers: state.servers, activeServerName: "Local", baseUrl: "", setActiveServer: state.setActiveServer }),
 }))
+vi.mock("../needsYou/NeedsYouRail", () => ({ NeedsYouRail: () => null }))
 vi.mock("../PlanApprovalModal", () => ({ PlanApprovalModal: () => null }))
 vi.mock("../OfflineDialog", () => ({ OfflineDialog: () => null }))
 vi.mock("../ApprovalTray", () => ({ ApprovalTray: () => <section aria-label="Approvals" /> }))

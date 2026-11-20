@@ -43,9 +43,23 @@ func (s *Server) attentionHandler() http.HandlerFunc {
 			s.writeAttentionError(w, err)
 			return
 		}
-		// The needs-you rail's view: the groups its settings switch on.
+		// The needs-you rail's view: the groups its settings switch on, and
+		// how many they leave out, for its footer.
 		if r.URL.Query().Get("view") == "rail" {
-			items = service.RailView(items, s.railConfig(r.Context()))
+			rail := s.railConfig(r.Context())
+			hidden := 0
+			for _, group := range config.RailGroups {
+				if !rail.Shows(group) {
+					hidden++
+				}
+			}
+			items = service.RailView(items, rail)
+			s.writeJSON(w, http.StatusOK, struct {
+				Items  []service.AttentionItem `json:"items"`
+				Total  int                     `json:"total"`
+				Hidden int                     `json:"hidden_groups"`
+			}{Items: items, Total: len(items), Hidden: hidden})
+			return
 		}
 		s.writeJSON(w, http.StatusOK, struct {
 			Items []service.AttentionItem `json:"items"`

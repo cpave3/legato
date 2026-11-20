@@ -81,6 +81,15 @@ func TestTheRailViewOfAttentionFollowsTheRailSettings(t *testing.T) {
 	if fmt.Sprint(groups) != fmt.Sprint(want) {
 		t.Fatalf("rail = %v, want %v", groups, want)
 	}
+	response := httptest.NewRecorder()
+	srv.Handler().ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/api/attention?view=rail", nil))
+	var body struct {
+		Hidden int `json:"hidden_groups"`
+	}
+	// Merge stays off: one group hidden.
+	if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil || body.Hidden != 1 {
+		t.Fatalf("hidden_groups = %d, %v", body.Hidden, err)
+	}
 	if count, err := srv.railCount(context.Background()); err != nil || count != len(rail) {
 		t.Fatalf("rail count = %d, %v; want %d", count, err, len(rail))
 	}

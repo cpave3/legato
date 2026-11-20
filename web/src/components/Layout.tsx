@@ -1,4 +1,4 @@
-import { useState, useEffect, useMemo } from "react"
+import { useState, useEffect, useMemo, useRef } from "react"
 import { Outlet, useLocation } from "react-router-dom"
 import { useWebSocket } from "../hooks/useWebSocket"
 import { useServer } from "../hooks/useServer"
@@ -21,6 +21,9 @@ import { DoctorBanner } from "./DoctorBanner"
 import { SetupChip } from "./SetupChip"
 import { VoiceLauncher } from "../voice/VoiceLauncher"
 import { ReeveNameContext } from "../lib/reeveName"
+import { NeedsYouRail } from "./needsYou/NeedsYouRail"
+import { MainWidthContext } from "../hooks/useMainWidth"
+import { useElementWidth } from "../hooks/useElementWidth"
 
 export function Layout() {
   const { connected: open, lost, updateRequired, retryUpdate } = useWebSocket()
@@ -38,6 +41,9 @@ export function Layout() {
   const sections = useMemo(() => navSections(summary), [summary])
   const [moreOpen, setMoreOpen] = useState(false)
   const location = useLocation()
+  // Pages lay out by the room they have beside the rail.
+  const mainRef = useRef<HTMLElement>(null)
+  const mainWidth = useElementWidth(mainRef)
 
   useEffect(() => { setMoreOpen(false) }, [location.pathname])
 
@@ -49,15 +55,18 @@ export function Layout() {
       <NavRail sections={sections} connected={connected} servers={servers} activeServerName={activeServerName} baseUrl={baseUrl} onSwitchServer={setActiveServer} tint={tint} />
 
       {/* Main content */}
-      <main className="flex flex-1 flex-col overflow-hidden pb-[calc(3.5rem+env(safe-area-inset-bottom))] md:pb-0">
+      <main ref={mainRef} className="flex min-w-0 flex-1 flex-col overflow-hidden pb-[calc(3.5rem+env(safe-area-inset-bottom))] md:pb-0">
         {settings?.setup_incomplete && <DoctorBanner baseUrl={baseUrl} />}
         {settings?.setup?.show && (
           <div className="flex justify-end px-3 pt-2">
             <SetupChip baseUrl={baseUrl} summary={settings.setup} />
           </div>
         )}
-        <Outlet />
+        <MainWidthContext.Provider value={mainWidth}>
+          <Outlet />
+        </MainWidthContext.Provider>
       </main>
+      <NeedsYouRail />
       <MobileTabBar sections={sections} connected={connected} moreOpen={moreOpen} onMore={() => setMoreOpen((open) => !open)} />
       {moreOpen && (
         <MoreSheet sections={sections} connected={connected} servers={servers} activeServerName={activeServerName} baseUrl={baseUrl}

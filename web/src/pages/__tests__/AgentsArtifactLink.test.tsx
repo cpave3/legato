@@ -1,4 +1,5 @@
 import { cleanup, render, screen, waitFor } from "@testing-library/react"
+import { MainWidthContext } from "../../hooks/useMainWidth"
 import { useState } from "react"
 import { afterEach, beforeEach, expect, it, vi } from "vitest"
 import { MemoryRouter, useLocation } from "react-router-dom"
@@ -49,8 +50,8 @@ vi.mock("../../components/StartSwarmModal", () => ({ StartSwarmModal: () => null
 vi.mock("../../components/SpawnEphemeralModal", () => ({ SpawnEphemeralModal: () => null }))
 vi.mock("../../components/SwarmEventLog", () => ({ SwarmEventLog: () => null }))
 vi.mock("../../components/AgentArtifactPanel", () => ({
-  AgentArtifactPanel: ({ agentId, focus }: { agentId: string; focus: { itemId: string } | null }) => (
-    <div data-testid="artifact-panel">{agentId}:{focus?.itemId ?? "none"}</div>
+  AgentArtifactPanel: ({ agentId, focus, mobile }: { agentId: string; focus: { itemId: string } | null; mobile?: boolean }) => (
+    <div data-testid="artifact-panel" data-sheet={mobile ? "true" : "false"}>{agentId}:{focus?.itemId ?? "none"}</div>
   ),
 }))
 
@@ -96,4 +97,15 @@ it("opens nothing for a link that names only an agent", async () => {
 
   await waitFor(() => expect(screen.getByTestId("location").textContent).toBe("/agents"))
   expect(screen.queryByTestId("artifact-panel")).toBeNull()
+})
+
+// The panel shares the main area with the conversation: beside the needs-you
+// rail, a wide window may leave too little room for both.
+it("opens the artifact as a sheet when the width left beside the rail is too narrow", async () => {
+  render(<MainWidthContext.Provider value={900}><MemoryRouter initialEntries={["/agents?task=TASK-2&artifact=ui-0123456789"]}><AgentsPage /></MemoryRouter></MainWidthContext.Provider>)
+  await waitFor(() => expect(screen.getByTestId("artifact-panel").getAttribute("data-sheet")).toBe("true"))
+  cleanup()
+
+  render(<MainWidthContext.Provider value={1200}><MemoryRouter initialEntries={["/agents?task=TASK-2&artifact=ui-0123456789"]}><AgentsPage /></MemoryRouter></MainWidthContext.Provider>)
+  await waitFor(() => expect(screen.getByTestId("artifact-panel").getAttribute("data-sheet")).toBe("false"))
 })

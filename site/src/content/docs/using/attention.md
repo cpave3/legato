@@ -47,6 +47,10 @@ An agent that posts the same title again updates its item, which comes back if y
 - when the agent clears them because they no longer apply.
 - when the agent ends. An agent [interrupted](/legato/using/agents/#after-a-crash-interrupted-agents) by a crash keeps them until you resume it or dismiss it.
 
+### The needs-you rail
+
+In the web UI, the column on the right of every page shows Attention as you choose: Settings › Preferences › **Needs-you rail** has a switch for each kind of item, under **From agents** (actions, questions, finished work, anything else) and **From Legato** (approvals, agents, workflows, plans, ready for review, merge blockers, Legato's own). Ready for review and merge blockers are off at first. The settings are kept by Legato, so every browser shows the same rail. See [Web UI](/legato/using/web-ui/#getting-around).
+
 ### Acting on an item
 
 Most items have a main action, such as approving a plan, allowing an agent's request, returning a task from a worker, or opening the review. An action that cannot be undone, such as taking a task back without its results, asks you to confirm first. Others take you to the page where you act. An item about a task, such as a pull request that cannot merge, opens the board with that task selected, in the Away lane when the task is [away on a worker](/legato/using/handoff/#pull-requests-while-away).

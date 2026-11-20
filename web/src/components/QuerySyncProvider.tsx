@@ -49,6 +49,7 @@ export function QuerySyncProvider({ children }: { children: ReactNode }) {
           break
         case "attention_changed":
           invalidate(queryKeys.attention(baseUrl))
+          invalidate(queryKeys.railAttention(baseUrl))
           invalidate(queryKeys.navigationSummary(baseUrl))
           break
         case "approvals_changed":
@@ -93,6 +94,8 @@ export function QuerySyncProvider({ children }: { children: ReactNode }) {
           invalidate(queryKeys.settings(baseUrl))
           invalidate(queryKeys.configSettings(baseUrl))
           invalidate(queryKeys.configLists(baseUrl))
+          // The rail's settings choose what it shows.
+          invalidate(queryKeys.railAttention(baseUrl))
           invalidate(queryKeys.macros(baseUrl))
           break
         case "update_changed":
