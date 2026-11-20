@@ -330,7 +330,9 @@ func (c *ReviewRunCaller) Loop(ctx context.Context, taskID string) (ReviewLoop, 
 	if err != nil {
 		return ReviewLoop{}, false
 	}
-	return ReviewLoop{TaskID: taskID, Repo: run.Repo, PR: run.PR, AuthorTaskID: run.AuthorTask, Pending: run.ConfirmClean,
+	// An agent author handles failing checks too (LEG-305); a person's
+	// loop is findings only (LEG-255).
+	return ReviewLoop{TaskID: taskID, Repo: run.Repo, PR: run.PR, AuthorTaskID: run.AuthorTask, Pending: run.ConfirmClean, CountChecks: run.AuthorTask != "",
 		Name: "run " + run.RunID, Link: "/workflows/runs/" + run.RunID}, true
 }
 
@@ -426,13 +428,20 @@ func (c *ReviewRunCaller) agentDone(ctx context.Context, l ReviewLoop, pushed bo
 		return false
 	}
 	disputed := false
+	// Only failing checks, each answered by a reply: nothing to review
+	// again, and the loop can end.
+	checksSettled, checks := true, 0
 	for _, item := range items {
+		if item.Kind == ItemCheck {
+			checks++
+		}
 		if item.Kind != ItemNit && item.Answer == "" {
 			return false
 		}
 		disputed = disputed || (item.Kind == ItemBlocking && item.Answer == AnswerReplied)
+		checksSettled = checksSettled && (item.Kind == ItemNit || (item.Kind == ItemCheck && item.Answer == AnswerReplied))
 	}
-	return pushed || disputed
+	return pushed || disputed || (checksSettled && checks > 0)
 }
 
 // pinnedHead is the head the loop's last pass reviewed.
@@ -988,6 +997,24 @@ func (c *ReviewRunCaller) confirmClean(ctx context.Context, taskID string) {
 			log.Printf("review passes: %s moved during its pass: %v", taskID, err)
 		}
 	default:
+		if l, ok := c.Loop(ctx, taskID); ok && l.CountChecks {
+			l.caller = c
+			loop, err := c.engine.db.GetHandoffReview(ctx, taskID)
+			if err != nil || loop == nil {
+				return
+			}
+			if c.engine.failingChecks(ctx, taskID) {
+				// Not approved while a counted check fails: the author
+				// handles it first.
+				if err := c.engine.checksReopen(ctx, l, loop); err != nil {
+					log.Printf("review passes: %s: %v", taskID, err)
+				}
+				return
+			}
+			if err := c.engine.approveSettled(ctx, l, loop); err != nil {
+				log.Printf("review passes: %s: %v", taskID, err)
+			}
+		}
 		c.finish(ctx, taskID, ReviewOutcomeApproved)
 	}
 }

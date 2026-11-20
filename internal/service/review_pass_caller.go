@@ -22,10 +22,14 @@ type ReviewLoop struct {
 	// AuthorTaskID is the task whose main-slot agent is the author, told
 	// of each round and resumed when it has exited.
 	AuthorTaskID string
-	// Counted says whether counted comments (from people and bots) and
-	// counted checks are items the author must handle, as well as the
-	// reviewer's findings.
-	Counted bool
+	// CountComments says whether counted comments (from people and bots)
+	// are items the author must handle, and Done waits for its answers;
+	// CountChecks whether counted checks are: a failing one is an item on
+	// its pull request, which is not approved while it fails. Handoff
+	// loops count both, agent-authored run loops checks only, and run
+	// loops a person authors neither (findings only, LEG-255).
+	CountComments bool
+	CountChecks   bool
 	// PR is the pull request the loop reviews when its caller knows it
 	// before the first pass (a run's); 0 otherwise.
 	PR int

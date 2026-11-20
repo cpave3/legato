@@ -313,8 +313,10 @@ func (s *ReviewPassService) Tick(ctx context.Context) {
 	_ = s.opts.Agents.ReconcileSessions(ctx)
 	for _, l := range loops {
 		s.postAnswers(ctx, l)
-		if l.Counted {
+		if l.CountComments {
 			s.pollComments(ctx, l)
+		}
+		if l.CountChecks {
 			s.pollChecks(ctx, l)
 		}
 		if err := s.step(ctx, l); err != nil {
@@ -344,7 +346,7 @@ func (s *ReviewPassService) step(ctx context.Context, l ReviewLoop) error {
 		if err := s.deliverComments(ctx, l, loop); err != nil {
 			return err
 		}
-		if !inDone || (l.Counted && RefuseUnansweredReview(ctx, s.db, l.TaskID) != nil) {
+		if !inDone || (l.CountComments && RefuseUnansweredReview(ctx, s.db, l.TaskID) != nil) {
 			return nil
 		}
 		loop.Phase = ReviewPhaseReady
@@ -359,8 +361,11 @@ func (s *ReviewPassService) step(ctx context.Context, l ReviewLoop) error {
 		}
 		return s.feedback(ctx, l, loop, inDone)
 	case ReviewPhaseClean:
-		if !l.Counted {
+		if !l.CountChecks {
 			return nil
+		}
+		if err := s.approveSettled(ctx, l, loop); err != nil {
+			return err
 		}
 		return s.checksReopen(ctx, l, loop)
 	}
@@ -554,7 +559,7 @@ func (s *ReviewPassService) startPass(ctx context.Context, l ReviewLoop, loop *s
 	}
 	loop.Pass, loop.Phase, loop.QueuedAt, loop.Reason = pass, ReviewPhaseReviewing, "", ""
 	s.setWaiting(l.TaskID, "")
-	if l.Counted && loop.ChecksHeads != checkHeads(pinned) {
+	if l.CountChecks && loop.ChecksHeads != checkHeads(pinned) {
 		// The checks of the heads this pass reviews, read now.
 		s.readChecks(ctx, l, loop, pinned)
 	}

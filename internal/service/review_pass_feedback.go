@@ -258,7 +258,7 @@ func (s *ReviewPassService) feedback(ctx context.Context, l ReviewLoop, loop *st
 	if !inDone {
 		return nil
 	}
-	if err := RefuseUnansweredReview(ctx, s.db, l.TaskID); l.Counted && err != nil {
+	if err := RefuseUnansweredReview(ctx, s.db, l.TaskID); l.CountComments && err != nil {
 		return nil // moved by hand, past the refusal: wait for the answers
 	}
 	pushed, err := s.pushedSince(ctx, l, loop)
@@ -275,7 +275,13 @@ func (s *ReviewPassService) feedback(ctx context.Context, l ReviewLoop, loop *st
 		return s.ready(ctx, l, loop)
 	}
 	loop.Phase = ReviewPhaseClean
-	return s.saveChanged(ctx, loop)
+	if err := s.saveChanged(ctx, loop); err != nil {
+		return err
+	}
+	// Nothing to review again (failing checks answered by a reply, say):
+	// the loop is clean, as after a clean pass.
+	l.stage(ctx, ReviewStageClean)
+	return nil
 }
 
 // deliver tells the author of a round: one tagged line naming the command

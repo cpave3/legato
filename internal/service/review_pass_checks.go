@@ -194,3 +194,56 @@ func (s *ReviewPassService) checksReopen(ctx context.Context, l ReviewLoop, loop
 	l.stage(ctx, ReviewStageAuthor)
 	return s.saveChanged(ctx, loop)
 }
+
+// failingChecks says whether a counted check fails on a loop's pull
+// requests and is not handled: not answered by a reply.
+func (s *ReviewPassService) failingChecks(ctx context.Context, taskID string) bool {
+	items, err := s.db.ListHandoffReviewItems(ctx, taskID)
+	if err != nil {
+		return false
+	}
+	for _, item := range items {
+		if item.Kind == ItemCheck && !item.Closed && item.Answer != AnswerReplied {
+			return true
+		}
+	}
+	return false
+}
+
+// approveSettled approves, after a clean pass, each pull request the pass
+// left at a comment review only for a failing counted check that is now
+// handled: it passed, or the author answered it by a reply.
+func (s *ReviewPassService) approveSettled(ctx context.Context, l ReviewLoop, loop *store.HandoffReview) error {
+	if loop.Phase != ReviewPhaseClean || loop.Pass == 0 {
+		return nil
+	}
+	prs, err := s.db.ListHandoffReviewPRs(ctx, l.TaskID, loop.Pass)
+	if err != nil {
+		return err
+	}
+	findings, err := s.db.ListHandoffReviewFindings(ctx, l.TaskID)
+	if err != nil {
+		return err
+	}
+	items, err := s.db.ListHandoffReviewItems(ctx, l.TaskID)
+	if err != nil {
+		return err
+	}
+	settings := loopSettings(loop, s.config().Defaults)
+	for _, pr := range prs {
+		if pr.Event != ReviewComment || !prClean(loop.Pass, pr.Number, findings, items, true) {
+			continue
+		}
+		posted, err := s.opts.GitHub.PostReview(ctx, ReviewPost{Repo: pr.Repo, Number: pr.Number, CommitID: pr.HeadSHA, Event: ReviewApprove,
+			Summary: "Its failing checks are settled.", Footer: reviewFooter(settings, loop.Pass),
+			Marker: fmt.Sprintf("%s/pass-%d/pr-%d/checks", l.TaskID, loop.Pass, pr.Number)})
+		if err != nil {
+			log.Printf("review passes: approving %s#%d once its checks settled, trying again: %v", pr.Repo, pr.Number, err)
+			return nil
+		}
+		if err := s.db.SetHandoffReviewPRPosted(ctx, l.TaskID, loop.Pass, pr.Number, posted.ID, posted.URL, ReviewApprove); err != nil {
+			return err
+		}
+	}
+	return nil
+}

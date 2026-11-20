@@ -383,7 +383,7 @@ func (s *ReviewPassService) post(ctx context.Context, taskID string) error {
 			continue // posted before a retry
 		}
 		event := ReviewComment
-		if prClean(pass.Pass, pr.Number, all, items, l.Counted) {
+		if prClean(pass.Pass, pr.Number, all, items, l.CountChecks) {
 			event = ReviewApprove
 			// An approval that stands: the head has not moved and the
 			// pass says nothing new of it. No second approval.

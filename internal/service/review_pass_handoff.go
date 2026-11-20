@@ -70,7 +70,7 @@ func (c *HandoffReviewCaller) applies(h *store.Handoff) bool {
 }
 
 func handoffLoop(h *store.Handoff) ReviewLoop {
-	return ReviewLoop{TaskID: h.TaskID, Repo: h.Repo, AuthorTaskID: h.TaskID, Counted: true,
+	return ReviewLoop{TaskID: h.TaskID, Repo: h.Repo, AuthorTaskID: h.TaskID, CountComments: true, CountChecks: true,
 		Name: "handed-off task " + h.TaskID, Link: "/board?highlight_task=" + h.TaskID}
 }
 
