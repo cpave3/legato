@@ -169,3 +169,51 @@ func TestOperatorTextIsWhatLegatoDidNotTag(t *testing.T) {
 		}
 	}
 }
+
+// An idle agent with an open item waits on the operator: it is needs-you
+// on its card and in the counts, while its activity stays what its hooks
+// said. Closing the item makes it idle again.
+func TestAnAgentWithAnOpenItemNeedsTheOperator(t *testing.T) {
+	f := newRestartFixture(t)
+	ctx := context.Background()
+	createTask(t, f.store, "task-n")
+	if err := f.svc.SpawnAgent(ctx, "task-n", 0, 0, AgentSpawnOptions{AgentKind: "claude-code", WorkingDir: t.TempDir()}); err != nil {
+		t.Fatal(err)
+	}
+	item := postFor(t, f.store, "task-n", "Run /to-spec")
+
+	agents, err := f.svc.ListAgents(ctx)
+	if err != nil || len(agents) != 1 {
+		t.Fatalf("agents = %#v, %v", agents, err)
+	}
+	if agents[0].OpenItems != 1 || agents[0].Activity != "" || !agents[0].NeedsOperator() {
+		t.Fatalf("agent = open %d, activity %q, needs operator %v", agents[0].OpenItems, agents[0].Activity, agents[0].NeedsOperator())
+	}
+	if got := SummarizeRelatedAgents(agents)["task-n"]; got.State != store.ActivityWaiting {
+		t.Fatalf("card state = %q, want waiting", got.State)
+	}
+	if _, waiting, _, idle, err := f.svc.GetAgentSummary(ctx, ""); err != nil || waiting != 1 || idle != 0 {
+		t.Fatalf("counts: waiting %d idle %d, %v", waiting, idle, err)
+	}
+
+	if _, err := ClearOperatorItems(ctx, f.store, item.ExecutionID, item.ID); err != nil {
+		t.Fatal(err)
+	}
+	agents, _ = f.svc.ListAgents(ctx)
+	if agents[0].OpenItems != 0 || agents[0].NeedsOperator() {
+		t.Fatalf("after clearing: open %d", agents[0].OpenItems)
+	}
+	if got := SummarizeRelatedAgents(agents)["task-n"]; got.State != "" {
+		t.Fatalf("card state after clearing = %q, want idle", got.State)
+	}
+	if _, waiting, _, idle, _ := f.svc.GetAgentSummary(ctx, ""); waiting != 0 || idle != 1 {
+		t.Fatalf("counts after clearing: waiting %d idle %d", waiting, idle)
+	}
+}
+
+func TestAnAgentInErrorStaysInErrorWithAnOpenItem(t *testing.T) {
+	agents := []AgentSession{{TaskID: "t", Status: "running", Activity: store.ActivityError, OpenItems: 2}}
+	if got := SummarizeRelatedAgents(agents)["t"]; got.State != store.ActivityError {
+		t.Fatalf("card state = %q, want error", got.State)
+	}
+}

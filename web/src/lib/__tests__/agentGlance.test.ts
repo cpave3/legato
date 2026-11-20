@@ -107,6 +107,14 @@ describe("the ensemble's order", () => {
     expect(ensembleSection(agent("fail-1", "error"))).toBe("needs-you")
   })
 
+  it("puts an idle agent with open operator items among those that need the person", () => {
+    const asking = { ...agent("idle-1", ""), open_items: 2 }
+
+    expect(ensembleSection(asking)).toBe("needs-you")
+    expect(ensembleSection({ ...asking, activity: "working" })).toBe("needs-you")
+    expect(ensembleSection({ ...asking, open_items: 0 })).toBe("idle")
+  })
+
   it("keeps the order agents came in within one state", () => {
     const agents = [agent("b", ""), agent("a", ""), agent("c", "")]
 

@@ -407,6 +407,9 @@ type AgentSession struct {
 	// repository, and the branch it was made on), "" when it is not one.
 	CloneRepo        string  `db:"clone_repo"`
 	CloneBranch      string  `db:"clone_branch"`
+	// OpenItems counts the open operator items of its execution: an agent
+	// with any waits on the operator, whatever its activity.
+	OpenItems int `db:"open_items"`
 	TmuxSession      string  `db:"tmux_session"`
 	Command          string  `db:"command"`
 	AgentKind        string  `db:"agent_kind"`

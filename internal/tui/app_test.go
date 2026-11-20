@@ -2409,3 +2409,17 @@ func TestVoiceTranscriptionDeliversText(t *testing.T) {
 		t.Errorf("deliverTask = %q, want REX-1: delivery needs the task to reach its native endpoint", vs.deliverTask)
 	}
 }
+
+// The board strip shows needs you for an idle agent with open operator
+// items.
+func TestBoardStripShowsNeedsYouForAnAgentWithOpenItems(t *testing.T) {
+	app := newTestApp()
+	app.agentSvc = &fakeAgentService{agents: []service.AgentSession{{
+		TaskID: "REX-1", AttributionTaskID: "REX-1", Status: "running", Activity: "", OpenItems: 1,
+	}}}
+	model, _ := app.Update(app.board.Init()())
+	card := model.(App).board.SelectedCard()
+	if card == nil || card.Key != "REX-1" || card.AgentState != "waiting" {
+		t.Fatalf("card = %#v, want its agent waiting", card)
+	}
+}

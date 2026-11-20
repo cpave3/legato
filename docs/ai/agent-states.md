@@ -82,6 +82,8 @@ Legato's own message path: each place a message the operator wrote enters Legato
 
 An agent's end closes its items as `agent_ended` (`agentService.EndExecution`), except an interrupted one's (`endGoneSession` marks the context `withOperatorItemsKept`): resuming it moves them to the new execution (`Store.MoveOperatorItems`), dismissing it closes them, and `SweepInterruptedAgents` ends with `Store.CloseOrphanOperatorItems` for executions that ended while Legato was down. A restart (Reload) closes them: the restarted agent is a new execution.
 
+**Needs you from open items.** `agent_sessions` rows read through `agentSessionSelect` carry `open_items`, the open operator items of the session's execution; the agent APIs report it beside `activity` (`/api/agents`, and in `?view=compact` when not zero). A running agent with any is needs-you wherever needs-you is worked out, unless it is in error, and its `activity` is left as its tool reported: the board card's state (`SummarizeRelatedAgents` through `AgentSession.ShownActivity`, so `/api/board` and the TUI strip say `waiting`), the activity counts behind `/api/navigation-summary` and the tmux status line (`store.GetAgentActivityCounts`), the TUI agents list (`AgentSession.NeedsOperator`) and the web agent list, groups and ensemble (`ensembleSection`).
+
 ## Foreground safety and exit detection
 
 `tmux.Manager` fails closed for all agent `SendKeys`, `SendKey`, line and

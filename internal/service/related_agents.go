@@ -46,22 +46,22 @@ func SummarizeRelatedAgents(agents []AgentSession) map[string]RelatedAgentSummar
 			}
 			summary := summaries[taskID]
 			summary.Active = true
-			summary.Slots = append(summary.Slots, SlotAgentSummary{Slot: agent.Slot, State: agent.Activity})
+			summary.Slots = append(summary.Slots, SlotAgentSummary{Slot: agent.Slot, State: agent.ShownActivity()})
 			summaries[taskID] = summary
 			continue
 		}
 		summary, exists := summaries[taskID]
 		if exists && summary.Count == 0 {
 			// Only named slots were seen so far.
-			summary.State, summary.Kind, summary.Engram = agent.Activity, agent.AgentKind, agent.Engram
+			summary.State, summary.Kind, summary.Engram = agent.ShownActivity(), agent.AgentKind, agent.Engram
 			summary.Count = 1
 			summaries[taskID] = summary
 			continue
 		}
 		if !exists {
-			summary = RelatedAgentSummary{Active: true, State: agent.Activity, Kind: agent.AgentKind, Engram: agent.Engram}
+			summary = RelatedAgentSummary{Active: true, State: agent.ShownActivity(), Kind: agent.AgentKind, Engram: agent.Engram}
 		} else {
-			if summary.State != agent.Activity {
+			if summary.State != agent.ShownActivity() {
 				summary.State = AgentActivityMixed
 			}
 			if summary.Kind != agent.AgentKind {

@@ -48,7 +48,7 @@ func sectionOf(a service.AgentSession) section {
 		return sectionInterrupted
 	case a.Status == "dead":
 		return sectionEnded
-	case a.Activity == "waiting", a.Activity == "error":
+	case a.NeedsOperator():
 		return sectionNeedsYou
 	case a.Activity == "working":
 		return sectionRunning
@@ -64,7 +64,9 @@ func stateOf(a service.AgentSession) string {
 	if a.Status == "dead" || a.Status == statusInterrupted {
 		return a.Status
 	}
-	return a.Activity
+	// An agent with open operator items needs the operator, whatever its
+	// agent tool says it does.
+	return a.ShownActivity()
 }
 
 // stateWord is how a state is written out.

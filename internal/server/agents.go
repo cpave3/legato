@@ -74,9 +74,12 @@ type AgentResponse struct {
 	// Engram is the engram the agent runs as; absent for none.
 	Engram string `json:"engram,omitempty"`
 	// Group is the group the agent's task is in; absent for none.
-	Group              string     `json:"group,omitempty"`
-	Status             string     `json:"status"`
-	Activity           string     `json:"activity"`
+	Group    string `json:"group,omitempty"`
+	Status   string `json:"status"`
+	Activity string `json:"activity"`
+	// OpenItems counts the agent's open operator items: with any, a
+	// running agent needs the operator whatever its activity.
+	OpenItems          int        `json:"open_items"`
 	Role               string     `json:"role,omitempty"`
 	ParentTaskID       string     `json:"parent_task_id,omitempty"`
 	SubtaskID          string     `json:"subtask_id,omitempty"`
@@ -132,7 +135,7 @@ func agentResponse(agent service.AgentSession) AgentResponse {
 		AttributionTaskID: agent.AttributionTaskID, ExecutionKind: agent.ExecutionKind,
 		WorkflowRunID: agent.WorkflowRunID, Title: agent.Title, TmuxSession: agent.TmuxSession,
 		Command: agent.Command, AgentKind: agent.AgentKind, Engram: agent.Engram, Group: agent.Group, Status: agent.Status,
-		Activity: agent.Activity, Role: agent.Role, ParentTaskID: agent.ParentTaskID,
+		Activity: agent.Activity, OpenItems: agent.OpenItems, Role: agent.Role, ParentTaskID: agent.ParentTaskID,
 		SubtaskID: agent.SubtaskID, StartedAt: agent.StartedAt, EndedAt: agent.EndedAt,
 		Sandboxed: agent.Sandboxed, DockerHostNetwork: agent.DockerHostNetwork, CardTaskID: agent.CardTaskID, Slot: agent.Slot,
 		BackgroundJobs: agent.BackgroundJobs, BackgroundShells: agent.BackgroundShells,

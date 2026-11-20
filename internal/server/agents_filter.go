@@ -22,6 +22,7 @@ type AgentCompact struct {
 	Group      string `json:"group,omitempty"`
 	Status     string `json:"status"`
 	Activity   string `json:"activity"`
+	OpenItems  int    `json:"open_items,omitempty"`
 	Sandboxed  bool   `json:"sandboxed"`
 	// DockerHostNetwork: its containers may use the host's network.
 	DockerHostNetwork bool      `json:"docker_host_network,omitempty"`
@@ -40,7 +41,7 @@ func (s *Server) compactAgents(ctx context.Context, agents []service.AgentSessio
 		resp := agentResponse(a)
 		out = append(out, AgentCompact{
 			TaskID: a.TaskID, CardTaskID: resp.CardTaskID, Slot: resp.Slot, Title: a.Title, Group: a.Group,
-			Status: a.Status, Activity: a.Activity, Sandboxed: a.Sandboxed, DockerHostNetwork: a.DockerHostNetwork, StartedAt: a.StartedAt,
+			Status: a.Status, Activity: a.Activity, OpenItems: a.OpenItems, Sandboxed: a.Sandboxed, DockerHostNetwork: a.DockerHostNetwork, StartedAt: a.StartedAt,
 			Reeve:          reeveTask != "" && a.TaskID == reeveTask,
 			BackgroundJobs: a.BackgroundJobs,
 			WorkingDir:     a.WorkingDir,
