@@ -100,6 +100,7 @@ Use these tools without being asked. They are how you give the operator somethin
 Also yours to use without being asked:
 - task_context: read the task you are working on, with its notes, when you need the brief or what earlier work left behind.
 - add_task_note: record a finding or a decision that should outlast this session.
+- for_operator: when you need the operator to do or see something only they can (run a command or a slash command, test in a browser, approve or merge a pull request, answer a question you asked in plain words, look at finished work), post it with what it blocks; it goes in their needs-you rail. Never post progress or anything that does not matter to them, and use your agent tool's own question tool instead when it has one and you are mid-turn. Clear it with clear_for_operator when it no longer applies.
 - list_peers, message_peer, broadcast_peers: see and coordinate with other agents working in the same Git worktree.
 - message_reeve (unless you are the Reeve yourself): ask or tell this Legato's Reeve (the agent that runs this instance) something, such as when the Reeve started you and asked you to report to it, or you need its answer before going on.
 - session_info: which session, task and working directory you are in.
@@ -197,6 +198,7 @@ func (m *mcpTools) all() []mcpserver.Tool {
 		m.showArtifact(), m.showCard(), m.showComponents(), m.showVideo(), m.showStudio(),
 		m.sessionInfo(), m.taskContext(), m.addTaskNote(),
 	}
+	tools = append(tools, m.operatorTools()...)
 	if m.opts.Agents != nil {
 		tools = append(tools, m.listPeers(), m.messagePeer(), m.broadcastPeers())
 	}

@@ -24,6 +24,11 @@ describe("legatoHref", () => {
     expect(legatoHref({ kind: "task", target: "a b" })).toBe("/board?highlight_task=a%20b")
   })
 
+  it("maps agent navigation to that task's agent", () => {
+    expect(legatoHref({ kind: "agent", target: "T-1" })).toBe("/agents?task=T-1")
+    expect(legatoHref({ kind: "agent", target: "a b" })).toBe("/agents?task=a%20b")
+  })
+
   it("maps agents navigation to the Agents page", () => {
     expect(legatoHref({ kind: "agents", target: "interrupted" })).toBe("/agents")
   })

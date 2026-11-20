@@ -30,9 +30,16 @@ Attention lists only what you can act on. Each item comes from the part of Legat
 | Restarts | A restart of Legato failed (its configuration did not load, or it was not answering in time) and was rolled back to the configuration from before. See [Updates](/legato/running/updates/#restarting-legato-yourself). |
 | Updates | A new release of Legato is ready to install, or an install failed. See [Updates](/legato/running/updates/). |
 | Integrations | In the last 7 days, a request from Argus did not reach an agent, a reply never reached Argus, or Argus refused the connection. |
+| Agents' items | An agent posted something for you with its [`for_operator` tool](/legato/agent-tools/mcp-tools/): an action only you can do, a question, finished work to look at, or anything else you must see. See [Operator items](#operator-items). |
 | Handoff | On a main instance: a task [away on a worker](/legato/using/handoff/) is done there (Ready for review, with **Return**), failed (with **Recall**) or was lost (with **Take back**); its review passes are stuck (with **Return as is**, **Run another pass**, **Message the author** and **Recall**); a worker no longer accepts your main (**Pair again**) or has been unreachable for 15 minutes. A task whose agent needs you raises nothing on your main: the worker tells you. See [Attention and notifications](/legato/using/handoff/#attention-and-notifications). |
 
 Some things never raise Attention: a draft, closed or merged pull request; CI that is still running; a comment count; an idle agent; a workflow that succeeded; and Learning's records.
+
+### Operator items
+
+An agent often finishes its turn while it still needs you: to type a slash command, test a build in a browser, merge a pull request, answer a question it asked in plain words, or look at what it built. An idle agent raises nothing by itself, so agents are given a tool, `for_operator`, to say so. Each such item names its kind (Action, Question, Done or Other), what is needed, and what it blocks. **Open agent** takes you to the agent.
+
+An agent that posts the same title again updates its item, which comes back if you had dismissed it. The agent clears its items itself when they no longer apply. Items raise no notification.
 
 ### Acting on an item
 

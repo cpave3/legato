@@ -1596,6 +1596,7 @@ func runTUI() int {
 	registerReviewPrompt(attentionSvc, reviewPrompt)
 	_ = attentionSvc.RegisterProducer(service.NewRestartAttentionAdapter(db))
 	_ = attentionSvc.RegisterProducerWithEvents(engramAttention(db), events.EventAgentStarted, events.EventAgentDied, events.EventAgentCompleted)
+	_ = registerOperatorItemsAttention(attentionSvc, db)
 	if webSrv == nil {
 		wireSettings(db, bus, nil)
 	}

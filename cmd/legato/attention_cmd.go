@@ -62,6 +62,8 @@ func runAttentionCmd(args []string) int {
 	// Away tasks and workers, read from the database (the 15 minutes of an
 	// unreachable worker too); the running Legato notifies the phone.
 	_ = attention.RegisterProducer(service.NewHandoffAttentionAdapter(db, service.HandoffAttentionOptions{}))
+	// What agents posted for the operator, read from the database.
+	_ = attention.RegisterProducer(service.NewOperatorItemsAttentionAdapter(db))
 	if err := attention.ReconcileAll(context.Background()); err != nil {
 		fmt.Fprintf(os.Stderr, "error: %v\n", err)
 		return 1

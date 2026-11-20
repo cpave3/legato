@@ -55,6 +55,7 @@ func wireAttention(ctx context.Context, db *store.Store, bus *events.Bus, srv *s
 	registerApprovalAttention(attention, approvals)
 	mustRegister(attention.RegisterProducer(service.NewRestartAttentionAdapter(db)))
 	mustRegister(attention.RegisterProducerWithEvents(engramAttention(db), events.EventAgentStarted, events.EventAgentDied, events.EventAgentCompleted))
+	mustRegister(registerOperatorItemsAttention(attention, db))
 	if handoffs != nil {
 		handoffs.registerAttention(attention, approvals.config(), approvals.serverURL())
 	}
@@ -101,4 +102,12 @@ func registerReviewPrompt(attention *service.AttentionService, reviewPrompt *ser
 	mustRegister(attention.RegisterProducerWithEvents(reviewPrompt, events.EventCardMoved, events.EventCardUpdated, events.EventCardsRefreshed,
 		events.EventPRStatusUpdated, events.EventWorkflowChanged, events.EventHandoffChanged))
 	mustRegister(attention.RegisterHandler(reviewPrompt.Producer(), reviewPrompt))
+}
+
+// registerOperatorItemsAttention registers the producer of what agents post
+// with for_operator, reconciled when an item changes and when an agent
+// starts or ends.
+func registerOperatorItemsAttention(attention *service.AttentionService, db *store.Store) error {
+	return attention.RegisterProducerWithEvents(service.NewOperatorItemsAttentionAdapter(db),
+		events.EventOperatorItemsChanged, events.EventAgentStarted, events.EventAgentDied, events.EventAgentCompleted)
 }

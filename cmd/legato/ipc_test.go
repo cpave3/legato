@@ -331,3 +331,20 @@ func TestIPCMessage_ScopeChangedReachesTheBusInBothRuntimes(t *testing.T) {
 		})
 	}
 }
+
+// An agent's for_operator call reaches the TUI and `legato serve` as an IPC
+// message; both must reconcile Attention on it.
+func TestIPCMessage_OperatorItemsChangedReachesTheBusInEveryProcess(t *testing.T) {
+	for name, handle := range map[string]func(ipc.Message, *events.Bus){
+		"tui":   func(msg ipc.Message, bus *events.Bus) { handleIPCMessage(msg, bus, nil) },
+		"serve": func(msg ipc.Message, bus *events.Bus) { handleServeIPCMessage(msg, bus, &recordingServeNotifier{}) },
+	} {
+		bus := events.New()
+		ch := bus.Subscribe(events.EventOperatorItemsChanged)
+		handle(ipc.Message{Type: "operator_items_changed", TaskID: "task1", ItemID: "op-0123456789"}, bus)
+		payload, ok := drainEvent(t, ch).Payload.(events.OperatorItemsChangedPayload)
+		if !ok || payload.TaskID != "task1" || payload.ItemID != "op-0123456789" {
+			t.Fatalf("%s: payload = %+v", name, payload)
+		}
+	}
+}

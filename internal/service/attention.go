@@ -89,6 +89,10 @@ var defaultAttentionSignals = []string{
 	AttentionSignalHandoffLost,
 	AttentionSignalWorkerNotAccepting,
 	AttentionSignalWorkerUnreachable,
+	AttentionSignalOperatorAction,
+	AttentionSignalOperatorQuestion,
+	AttentionSignalOperatorDone,
+	AttentionSignalOperatorOther,
 }
 
 var knownAttentionSignals = map[string]bool{
@@ -128,6 +132,10 @@ var knownAttentionSignals = map[string]bool{
 	AttentionSignalHandoffLost:                 true,
 	AttentionSignalWorkerNotAccepting:          true,
 	AttentionSignalWorkerUnreachable:           true,
+	AttentionSignalOperatorAction:              true,
+	AttentionSignalOperatorQuestion:            true,
+	AttentionSignalOperatorDone:                true,
+	AttentionSignalOperatorOther:               true,
 }
 
 type AttentionInput struct {

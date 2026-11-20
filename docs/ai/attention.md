@@ -45,6 +45,7 @@ Executable source actions additionally implement `AttentionActionHandler`. Navig
 | `engram` | A running agent asked to start as an engram that did not boot, so it runs as a normal session (`engram_boot_failed`, normal urgency): "<engram> did not boot", engram's message in the detail; on the task, navigation `task`. Kept while that execution runs (`store.ListEngramBootFailures`: `executions.engram_boot_failed` and `engram_boot_error`, migration 105). See [Engram sessions](engram.md) | `EventAgentStarted`, `EventAgentDied`, `EventAgentCompleted` (a finished workflow agent) |
 | `updates` | A newer release of Legato waiting for the person (`update_available`): in ask mode, with **Update and restart**, or after an install failed, with **Try again**; navigation `settings#updates`; see [Releases and updates](updates.md) | `EventUpdateChanged` |
 | `integrations` | Delegations that did not reach an agent (`delegation_failed`), agents' replies Argus never took (`case_reply_failed`), a connection Argus refused (`integration_disconnected`); the last 7 days; see [Integrations](integrations.md) | `EventDelegationChanged` |
+| `operator_items` | Open operator items, one each (`operator_action`, `operator_question`, `operator_done`, `operator_other`); see [§ Operator items](#operator-items) | `EventOperatorItemsChanged`, `EventAgentStarted`, `EventAgentDied`, `EventAgentCompleted` |
 | `handoff` | On a main: away tasks done on their worker (`handoff_done`), failed there (`handoff_failed`), lost (`handoff_lost`) or whose review is stuck (`handoff_review_stuck`); workers holding away tasks that refuse this main (`worker_not_accepting`) or have been unreachable 15 minutes (`worker_unreachable`); see [§ Handoff](#handoff) | `EventCardUpdated` (rows), `EventCardsRefreshed` (pulls, reach, return, recall, take back), and every 30 seconds |
 
 Startup reconciliation remains the safety net. Source events reconcile the relevant projections without requiring an Attention request to query GitHub or mutate source state.
@@ -107,6 +108,17 @@ All endpoints use the configured authentication boundary.
 - **Stream Deck and navigation badges:** consume the same expanded count/list policy.
 
 These clients intentionally remain generic lists in this delivery; only the web surface adopts grouped dashboard presentation.
+
+## Operator items
+
+What an agent posts with `for_operator` (see [Agent tools](agent-mcp.md)) for the operator: an action only they can do, a question, finished work, or anything else they must see. The decisions are in Burnlite LEG-366 and the spec LEG-374.
+
+- **Store.** `operator_items` (migration 128, `internal/engine/store/operator_items.go`): ID (`op-<10 hex>`), the posting session's `task_id` and `execution_id`, `attribution_task_id` (a swarm worker's parent; the item's Attention task), `kind`, `title`, `why`, `how_kind`/`how_text`, `options_json`, `status` (`open`/`closed`), `close_reason` (`cleared`, `operator_turn`, `agent_ended`, `done`, `answered`), `revision`, times. Kept apart from `agent_sessions.activity`, which the hooks own: Claude's Stop hook right after the call would overwrite it.
+- **Posting.** `service.PostOperatorItem` checks the input (kind, one-line title ≤120, why ≤200, how, options only on a question, ≤4) and `Store.PostOperatorItem` keeps it; an open item of the same execution and title is updated instead (kind, why, how, options) and its `revision` rises. No cap. `service.ClearOperatorItems` closes one item of the execution, or all.
+- **Producer.** `OperatorItemsAttentionAdapter` (`internal/service/operator_items.go`), a snapshot of the open items. Source key: the item ID. Revision: the item's `revision` counter, not its update time, since two posts can share a timestamp; a repost undoes a dismissal. Signal: `operator_<kind>`, all four in the known and default allowlists. Category `agent`, urgency normal, task the attribution task. Reason: `why`, else a line per kind; detail: the how and the options. Navigation `agent` (target the posting task; the web UI's `/agents?task=`). Action: `open` (navigate, primary).
+- **Cross-process.** The tools run in `legato mcp serve` or on the host through the broker; either way they broadcast `operator_items_changed`, which `handleIPCMessage` (and `handleServeIPCMessage`) publish as `EventOperatorItemsChanged`. `registerOperatorItemsAttention` (`cmd/legato/attention_runtime.go`) registers the producer for the web servers and the TUI; `legato attention list` reconciles it from the database.
+- Closing on an operator turn or agent end, Done/answers/Copy, the agent's needs-you state and the rail come in LEG-376 to LEG-384.
+- Tests: `internal/cli/mcp_operator_test.go`, through the MCP server and the broker relay.
 
 ## Handoff
 

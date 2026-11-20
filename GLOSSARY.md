@@ -68,6 +68,14 @@ _Avoid_: extra slot, side agent
 An agent that was running when Legato last stopped and whose tmux session was gone when it started again, because the machine or tmux went down. It is kept until it is resumed, replaced or dismissed. An agent whose session ends while Legato runs has ended, not been interrupted.
 _Avoid_: crashed agent, lost agent, dead agent
 
+**Operator item**:
+Something an agent posts with `for_operator` for the operator to see or act on: an action only the operator can do, a question, finished work, or anything else that needs them. It is an Attention item, and every one counts as needing the operator.
+_Avoid_: ask, request, notification
+
+**Needs-you rail**:
+The column on the right of every web page that shows Attention, filtered by the rail settings, with approvals first.
+_Avoid_: sidebar, inbox, tray
+
 ### Review passes
 
 **Review loop**:
