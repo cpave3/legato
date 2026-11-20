@@ -9,7 +9,7 @@ import { SettingsRows, Toggle, primaryButton, quietButton } from "./SettingsUI"
 import { useConfirm } from "../../hooks/useConfirm"
 import { useShowKeys } from "./showKeys"
 import { PickerControl, TagsControl } from "./Pickers"
-import { settingPickers } from "../../lib/settingPickers"
+import { partnersOf, settingPickers } from "../../lib/settingPickers"
 
 const chip = "inline-flex items-center gap-1 rounded px-1.5 py-px text-[11px] leading-[18px]"
 
@@ -258,7 +258,9 @@ export function RegistrySettingRow({ setting, baseUrl, actions, showMode }: { se
   const own = useSettingActions(baseUrl)
   const { busy, outcomes, set, reset } = actions ?? own
   const key = useRowKey(setting.key)
-  const outcome = outcomes[setting.key]
+  // An agent's row speaks for its model or tier too: their refusals show here.
+  const partners = [setting.key, ...partnersOf(setting.key)]
+  const outcome = partners.map((k) => outcomes[k]).find((o) => o?.kind === "refused") ?? outcomes[setting.key]
   const defaultWords = "default" in setting && setting.source !== "default" ? `default ${formatValue(setting, setting.default)}` : undefined
   return (
     <div className="flex min-h-16 flex-wrap items-center gap-x-5 gap-y-2 px-4 py-3.5" id={`setting-${setting.key}`} data-testid={`setting-${setting.key}`} {...key.handlers}>
@@ -280,7 +282,8 @@ export function RegistrySettingRow({ setting, baseUrl, actions, showMode }: { se
       </div>
       <div className={cn("ml-auto flex min-w-0 items-center gap-1", busy[setting.key] && "opacity-60")}>
         {settingPickers[setting.key]
-          ? <PickerControl setting={setting} picker={settingPickers[setting.key]} disabled={setting.pinned || busy[setting.key]} setKey={(k, v) => void set(k, v)} resetKey={(k) => void reset(k)} />
+          ? <PickerControl setting={setting} picker={settingPickers[setting.key]} disabled={setting.pinned || partners.some((k) => busy[k])}
+            setKey={async (k, v) => (await set(k, v)) !== undefined} resetKey={async (k) => (await reset(k)) !== undefined} />
           : setting.kind === "strings"
             ? <TagsControl setting={setting} disabled={setting.pinned || busy[setting.key]} onSet={(v) => void set(setting.key, v)} />
             : <SettingControl setting={setting} disabled={setting.pinned || busy[setting.key]} onSet={(value) => set(setting.key, value)} />}

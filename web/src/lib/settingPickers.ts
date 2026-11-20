@@ -10,6 +10,9 @@ import type { ConfigList, ConfigSetting } from "./configSettings"
 // alone, or `models` and `tiers` in two keys of which one is set.
 export interface AgentPicker {
   kind: "agent"
+  // The setting whose agent this one takes when unset, before the default
+  // agent (the conductor takes the workers').
+  fallback?: string
   modelOrTier?: string
   tier?: string
   model?: string
@@ -23,7 +26,7 @@ export type Picker =
   | { kind: "skill" }
 
 export const settingPickers: Record<string, Picker> = {
-  "swarm.conductor.agent": { kind: "agent", modelOrTier: "swarm.conductor.model" },
+  "swarm.conductor.agent": { kind: "agent", modelOrTier: "swarm.conductor.model", fallback: "swarm.worker.agent" },
   "swarm.worker.agent": { kind: "agent", modelOrTier: "swarm.worker.model" },
   "learning.curator_adapter": { kind: "agent", tier: "learning.curator_tier" },
   "review_passes.reviewer.agent": { kind: "agent", model: "review_passes.reviewer.model", tier: "review_passes.reviewer.tier" },
@@ -38,6 +41,12 @@ export const settingPickers: Record<string, Picker> = {
   "default_workspace": { kind: "workspace" },
   "default_import_workspace": { kind: "workspace", sameAsNewTasks: true },
   "review_passes.reviewer.skill": { kind: "skill" },
+}
+
+// The model or tier keys an agent setting draws in its row.
+export function partnersOf(key: string): string[] {
+  const p = settingPickers[key]
+  return p?.kind === "agent" ? [p.modelOrTier, p.tier, p.model].filter((k): k is string => Boolean(k)) : []
 }
 
 // The keys drawn inside their agent's row, not as rows of their own.

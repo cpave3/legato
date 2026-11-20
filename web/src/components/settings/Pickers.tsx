@@ -4,6 +4,10 @@ import type { ConfigSetting } from "../../lib/configSettings"
 import { cn } from "../../lib/utils"
 import { usePickerData, type AgentPicker, type Picker } from "../../lib/settingPickers"
 
+// Save or reset one key: true once it is saved, false when refused.
+type SaveKey = (key: string, value: unknown) => Promise<boolean>
+type ResetKey = (key: string) => Promise<boolean>
+
 const menu = "min-h-9 max-w-full rounded-lg border border-lw-line-strong bg-lw-ground px-2 text-sm disabled:border-lw-line"
 
 // A menu over known values. A saved value the list lacks stays chosen and
@@ -39,11 +43,14 @@ function unsetAgent(defaultLabel: string | undefined, defaultAgent: string): str
 // when the registry pairs one: one setting in two keys.
 function AgentPickerControl({ setting, picker, disabled, setKey, resetKey }: {
   setting: ConfigSetting; picker: AgentPicker; disabled: boolean
-  setKey: (key: string, value: unknown) => void; resetKey: (key: string) => void
+  setKey: SaveKey; resetKey: ResetKey
 }) {
   const data = usePickerData()
   const agent = String(setting.value ?? "")
-  const effective = agent || data.defaultAgent
+  // Unset, the agent is the fallback setting's (the conductor takes the
+  // workers'), else the default agent.
+  const fallbackAgent = (picker.fallback ? String(data.settings[picker.fallback]?.value ?? "") : "") || data.defaultAgent
+  const effective = agent || fallbackAgent
   const partner = (key?: string) => key ? data.settings[key] : undefined
   const modelOrTier = partner(picker.modelOrTier), tier = partner(picker.tier), model = partner(picker.model)
   const tiers = data.tiers[effective] ?? [], models = data.models[effective] ?? []
@@ -57,35 +64,38 @@ function AgentPickerControl({ setting, picker, disabled, setKey, resetKey }: {
     : tier?.value ? `tier:${tier.value}` : model?.value ? `model:${model.value}` : ""
   // A one-key model or tier may name either; read it as whichever it is.
   const currentValue = modelOrTier && current !== "" ? (tiers.includes(current) ? `tier:${current}` : `model:${current}`) : current
-  const chooseSecond = (choice: string) => {
+  // Each choice clears what would conflict first, and saves only once that
+  // is done: the server checks the whole configuration, so a tier saved
+  // beside a model, or an old agent's tier beside a new agent, is refused.
+  const chooseSecond = async (choice: string) => {
     const [kind, name] = choice === "" ? ["", ""] : [choice.slice(0, choice.indexOf(":")), choice.slice(choice.indexOf(":") + 1)]
-    if (modelOrTier) { if (name === "") resetKey(modelOrTier.key); else setKey(modelOrTier.key, name); return }
+    if (modelOrTier) { await (name === "" ? resetKey(modelOrTier.key) : setKey(modelOrTier.key, name)); return }
     for (const [s, k] of [[tier, "tier"], [model, "model"]] as const) {
-      if (!s) continue
-      if (kind === k) setKey(s.key, name)
-      else if (s.value) resetKey(s.key)
+      if (s?.value && kind !== k && !await resetKey(s.key)) return
     }
+    const target = kind === "tier" ? tier : kind === "model" ? model : undefined
+    if (target) await setKey(target.key, name)
   }
-  const chooseAgent = (choice: string) => {
-    if (choice === "") resetKey(setting.key); else setKey(setting.key, choice)
+  const chooseAgent = async (choice: string) => {
     // A model or tier of the old agent means nothing to the new one.
-    const next = choice || data.defaultAgent
+    const next = choice || fallbackAgent
     for (const s of [modelOrTier, tier, model]) {
       if (!s?.value) continue
       const v = String(s.value)
-      if (!(data.tiers[next] ?? []).includes(v) && !(data.models[next] ?? []).includes(v)) resetKey(s.key)
+      if (!(data.tiers[next] ?? []).includes(v) && !(data.models[next] ?? []).includes(v) && !await resetKey(s.key)) return
     }
+    await (choice === "" ? resetKey(setting.key) : setKey(setting.key, choice))
   }
   const secondDisabled = disabled || Boolean(second?.pinned)
   return <span className="flex flex-wrap items-start justify-end gap-2">
     <Menu label={second ? `${setting.title} agent` : setting.title} value={agent} disabled={disabled} greyed={setting.source === "default"}
-      empty={unsetAgent(setting.default_label, data.defaultAgent)}
+      empty={picker.fallback ? `${setting.default_label ?? "Fallback"} · ${agentName(fallbackAgent)}` : unsetAgent(setting.default_label, data.defaultAgent)}
       options={data.agents.map((a) => ({ value: a, label: agentName(a) }))}
-      missing={(v) => `${v} isn't an agent here`} onChange={chooseAgent} />
+      missing={(v) => `${v} isn't an agent here`} onChange={(v) => void chooseAgent(v)} />
     {second && <span id={`setting-${second.key}`} className="contents">
       <Menu label={`${setting.title} model or tier`} value={currentValue} disabled={secondDisabled} greyed={!current}
         empty={second.default_label ?? "Default model"} options={options}
-        missing={(v) => `${v.slice(v.indexOf(":") + 1)} isn't a model or tier of ${agentName(effective)}`} onChange={chooseSecond} />
+        missing={(v) => `${v.slice(v.indexOf(":") + 1)} isn't a model or tier of ${agentName(effective)}`} onChange={(v) => void chooseSecond(v)} />
     </span>}
     {tier && model && <span id={`setting-${(second === tier ? model : tier).key}`} hidden />}
   </span>
@@ -126,11 +136,11 @@ export function TagsControl({ setting, disabled, onSet, choices }: { setting: Co
 // PickerControl draws a setting chosen from known values.
 export function PickerControl({ setting, picker, disabled, setKey, resetKey }: {
   setting: ConfigSetting; picker: Picker; disabled: boolean
-  setKey: (key: string, value: unknown) => void; resetKey: (key: string) => void
+  setKey: SaveKey; resetKey: ResetKey
 }) {
   const data = usePickerData()
   const value = String(setting.value ?? "")
-  const choose = (v: string) => { if (v === "") resetKey(setting.key); else setKey(setting.key, v) }
+  const choose = (v: string) => { void (v === "" ? resetKey(setting.key) : setKey(setting.key, v)) }
   switch (picker.kind) {
     case "agent":
       return <AgentPickerControl setting={setting} picker={picker} disabled={disabled} setKey={setKey} resetKey={resetKey} />
@@ -139,7 +149,7 @@ export function PickerControl({ setting, picker, disabled, setKey, resetKey }: {
         empty={value === "" ? "None" : undefined} options={data.columns.map((c) => ({ value: c, label: c }))}
         missing={(v) => `${v} isn't a column here`} onChange={choose} />
     case "columns":
-      return <TagsControl setting={setting} disabled={disabled} choices={data.columns} onSet={(v) => setKey(setting.key, v)} />
+      return <TagsControl setting={setting} disabled={disabled} choices={data.columns} onSet={(v) => void setKey(setting.key, v)} />
     case "workspace":
       return <Menu label={setting.title} value={value} disabled={disabled} greyed={setting.source === "default"}
         empty={picker.sameAsNewTasks ? "Same as new tasks" : "None"} options={data.workspaces.map((w) => ({ value: w, label: w }))}

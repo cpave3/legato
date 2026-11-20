@@ -64,7 +64,33 @@ describe("Settings pickers", () => {
     ])
     fireEvent.change(screen.getByRole("combobox", { name: "Reviewer model or tier" }), { target: { value: "tier:quick" } })
     await waitFor(() => expect(mockSet).toHaveBeenCalledWith("http://legato", "review_passes.reviewer.tier", "quick"))
-    await waitFor(() => expect(mockReset).toHaveBeenCalledWith("http://legato", "review_passes.reviewer.model"))
+    // The model is cleared first: the server refuses a model beside a tier.
+    expect(mockReset).toHaveBeenCalledWith("http://legato", "review_passes.reviewer.model")
+    expect(mockReset.mock.invocationCallOrder[0]).toBeLessThan(mockSet.mock.invocationCallOrder[0])
+  })
+
+  it("saves nothing more when clearing the old choice is refused, and says why on the row", async () => {
+    mockReset.mockRejectedValue(new Error("review_passes.reviewer.model is pinned by config.yaml"))
+    show([
+      setting({ key: "review_passes.reviewer.agent", title: "Reviewer", value: "claude-code", source: "database" }),
+      setting({ key: "review_passes.reviewer.model", title: "Reviewer's model", value: "claude-opus-5-5", source: "database" }),
+      setting({ key: "review_passes.reviewer.tier", title: "Reviewer's tier" }),
+    ])
+    fireEvent.change(screen.getByRole("combobox", { name: "Reviewer model or tier" }), { target: { value: "tier:quick" } })
+    const row = within(screen.getByTestId("setting-review_passes.reviewer.agent"))
+    expect(await row.findByText(/pinned by config.yaml/)).toBeTruthy()
+    expect(mockSet).not.toHaveBeenCalled()
+  })
+
+  it("offers the workers' agent's tiers to a conductor that takes the workers' agent", async () => {
+    show([
+      setting({ key: "swarm.worker.agent", title: "Workers", value: "codex", source: "database" }),
+      setting({ key: "swarm.worker.model", title: "Workers' model" }),
+      setting({ key: "swarm.conductor.agent", title: "Conductor", default_label: "Workers' agent" }),
+      setting({ key: "swarm.conductor.model", title: "Conductor's model", default_label: "The tool's default" }),
+    ])
+    expect(options("Conductor agent")[0]).toBe("Workers' agent · Codex")
+    expect(options("Conductor model or tier")).toEqual(["The tool's default", "Tier: fast"])
   })
 
   it("clears a tier of the old agent when the agent changes", async () => {
