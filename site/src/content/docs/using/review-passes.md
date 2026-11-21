@@ -96,7 +96,7 @@ While the task is away, its row in the Away lane shows the review in place of th
 | **Done · approved** | Clean, approved, and the checks passed. |
 | **Review stuck: …** | The review needs you. Why is in the row. |
 
-In the web UI, the author's chat and the reviewer's chat link to each other: the **Related** panel lists **Reviewer · pass N** (with the loop's state) for the author, and **Author** for the reviewer, on the worker where both run. Click the row to switch agents. A reviewer that has ended stays there, marked ended, until the loop ends.
+In the web UI, the author's chat and the reviewer's chat link to each other: the **Related** panel lists **Reviewer · pass N** (with the loop's state) for the author, and **Author** for the reviewer, on the worker where both run. Click a running agent's row to switch to it. A reviewer that has ended stays there, marked ended, until the loop ends; its row opens the loop instead.
 
 The task panel links to Legato's latest review of each pull request. While a review runs, **Return** is not offered; **Recall** still brings the task back at once. The note the task comes back with sums up the passes and any items left open.
 

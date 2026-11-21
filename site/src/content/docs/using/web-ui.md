@@ -124,7 +124,7 @@ HTML an agent wrote runs in a closed frame that cannot reach the network beyond 
 
 The **Related** switch beside **Artifacts** shows the task's card, its pull request, and its plans, reviews and workflow runs.
 
-When the agent takes part in a [review loop](/legato/using/review-passes/), **Related** also lists the agent on the other side under **Agents**. An author sees **Reviewer · pass N** with the loop's state; a reviewer sees **Author**, or **Linked task** for a run that no agent authors. Click a row to switch to that agent. A reviewer that has ended stays in the list, marked ended, until its loop ends.
+When the agent takes part in a [review loop](/legato/using/review-passes/), **Related** also lists the agent on the other side under **Agents**. An author sees **Reviewer · pass N** with the loop's state; a reviewer sees **Author**, or **Linked task** for a run that no agent authors. Click a running agent's row to switch to it. A reviewer that has ended stays in the list, marked ended, until its loop ends; its row opens the loop instead.
 
 ### Review briefings on the branch
 

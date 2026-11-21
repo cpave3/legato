@@ -103,7 +103,10 @@ export function RelatedWorkPanel({ items, agents = [], onOpenAgent, card, cardId
                   </>
                 )
                 const key = `${agent.role}:${agent.agent_id ?? agent.task_id}:${agent.loop.task_id}`
-                if (agent.agent_id && onOpenAgent) {
+                // Only a running agent can be selected: the agents page
+                // lists running sessions, and an ended one has no chat or
+                // terminal to show. The rest link to their loop.
+                if (agent.agent_id && agent.status === "running" && onOpenAgent) {
                   const id = agent.agent_id
                   return (
                     <button key={key} type="button" onClick={() => onOpenAgent(id)} className={cn(row, "w-full cursor-pointer bg-transparent text-left")}>
@@ -112,7 +115,7 @@ export function RelatedWorkPanel({ items, agents = [], onOpenAgent, card, cardId
                   )
                 }
                 return (
-                  <Link key={key} to={`/board?highlight_task=${encodeURIComponent(agent.task_id)}`} className={row}>
+                  <Link key={key} to={agent.role === "linked_task" ? `/board?highlight_task=${encodeURIComponent(agent.task_id)}` : agent.loop.link} className={row}>
                     {head}
                   </Link>
                 )
