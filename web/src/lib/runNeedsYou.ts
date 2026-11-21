@@ -9,8 +9,13 @@ import type { ReviewRunDetails, WorkflowRunView } from "./workflow"
 // The actions of the rows only the run knows; the run page carries them out.
 export type RunActionId = "start" | "end_now" | "prompt" | "retry" | "another_pass"
 
+// The step a run row acts on. A worktree removal has no plain button in the
+// row: control names the page's existing control for it (trigger or
+// retry), which asks first, shows the path and offers force.
+export type RunRowStep = { step: string; control?: "trigger" | "retry"; label?: string }
+
 export type RunNeedsYouRow =
-  | { kind: "item"; item: AttentionItem; node: string | null; run?: { step: string } }
+  | { kind: "item"; item: AttentionItem; node: string | null; run?: RunRowStep }
   | { kind: "approval"; approval: Approval; node: string | null }
 
 function parse(raw: string | undefined): Record<string, unknown> {
@@ -31,7 +36,10 @@ const execute = (id: RunActionId, label: string, intent?: string) => ({ id, labe
 // runNeedsYou gathers the rows of a run's Needs you list, each with the
 // node of the graph it belongs to (step:<id>), and the nodes an open
 // approval or item makes Needs you.
-export function runNeedsYou(view: WorkflowRunView, attention: AttentionItem[], approvals: Approval[], agentHref: (taskId: string) => string): { rows: RunNeedsYouRow[]; nodes: Set<string> } {
+// secrets are the values of the run's secret inputs, hidden in every reason
+// the run's own rows show.
+export function runNeedsYou(view: WorkflowRunView, attention: AttentionItem[], approvals: Approval[], agentHref: (taskId: string) => string, secrets: string[] = []): { rows: RunNeedsYouRow[]; nodes: Set<string> } {
+  const hide = (text: string) => secrets.reduce((current, secret) => current.split(secret).join("••••••"), text)
   const attempts = view.attempts ?? []
   const stepOfTask = new Map<string, string>()
   for (const attempt of attempts) if (attempt.task_id) stepOfTask.set(attempt.task_id, attempt.step_id)
@@ -42,25 +50,27 @@ export function runNeedsYou(view: WorkflowRunView, attention: AttentionItem[], a
     const node = `step:${step.step_id}`
     const latest = [...attempts].reverse().find(attempt => attempt.step_id === step.step_id)
     const agentEnded = parse(step.definition_json).trigger === "agent_ended"
+    const cleanup = step.executor_type === "worktree.remove"
     if (step.status === "waiting_manual") {
-      rows.push({ kind: "item", node, run: { step: step.step_id }, item: agentEnded
-        ? runItem(view, step.step_id, "workflow_manual_gate", "gate", `${step.title} starts when the agent ends`, "End now to run it without waiting.", [execute("end_now", "End now", "primary")])
-        : runItem(view, step.step_id, "workflow_manual_gate", "gate", `${step.title} waits for you`, "Start it to move the run on.", [execute("start", "Start", "primary")]) })
+      const [action, label] = agentEnded ? ["end_now", "End now"] as const : ["start", "Start"] as const
+      rows.push({ kind: "item", node, run: cleanup ? { step: step.step_id, control: "trigger", label: agentEnded ? label : undefined } : { step: step.step_id }, item: agentEnded
+        ? runItem(view, step.step_id, "workflow_manual_gate", "gate", `${step.title} starts when the agent ends`, "End now to run it without waiting.", cleanup ? [] : [execute(action, label, "primary")])
+        : runItem(view, step.step_id, "workflow_manual_gate", "gate", `${step.title} waits for you`, "Start it to move the run on.", cleanup ? [] : [execute(action, label, "primary")]) })
     }
     if (latest?.status === "waiting_agent" && latest.needs_attention) {
       const actions: AttentionItem["actions"] = [execute("prompt", "Prompt to continue")]
       if (latest.task_id) actions.unshift({ id: "open_agent", label: "Open agent", kind: "navigate", href: agentHref(latest.task_id) })
-      rows.push({ kind: "item", node, run: { step: step.step_id }, item: runItem(view, step.step_id, "workflow_waiting_agent", "agent", `${step.title}: the agent stopped`, latest.attention_reason || "The agent is waiting or idle.", actions) })
+      rows.push({ kind: "item", node, run: { step: step.step_id }, item: runItem(view, step.step_id, "workflow_waiting_agent", "agent", `${step.title}: the agent stopped`, hide(latest.attention_reason || "The agent is waiting or idle."), actions) })
     }
     const details = view.details?.[step.step_id] as ReviewRunDetails | undefined
     if (step.status === "waiting" && step.executor_type === "github.pr.review_passes" && (details?.phase === "waiting_for_author" || details?.phase === "stuck")) {
       const stuck = details.phase === "stuck"
       rows.push({ kind: "item", node, run: { step: step.step_id }, item: runItem(view, step.step_id, stuck ? "workflow_review_stuck" : "workflow_review_author", "review",
         stuck ? `${step.title} is stuck` : `${step.title} waits on its author`,
-        details.summary || (stuck ? details.reason ?? "" : `${details.blocking_open} blocking findings to fix or answer.`), [execute("another_pass", "Run another pass")]) })
+        hide(details.summary || (stuck ? details.reason ?? "" : `${details.blocking_open} blocking findings to fix or answer.`)), [execute("another_pass", "Run another pass")]) })
     }
     if (step.status === "failed") {
-      rows.push({ kind: "item", node, run: { step: step.step_id }, item: runItem(view, step.step_id, "workflow_failed", "failed", `${step.title} failed`, step.error || view.run.error || "", [execute("retry", "Retry", "primary")]) })
+      rows.push({ kind: "item", node, run: cleanup ? { step: step.step_id, control: "retry" } : { step: step.step_id }, item: runItem(view, step.step_id, "workflow_failed", "failed", `${step.title} failed`, hide(step.error || view.run.error || ""), cleanup ? [] : [execute("retry", "Retry", "primary")]) })
     }
   }
 

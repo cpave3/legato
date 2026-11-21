@@ -20,7 +20,7 @@ import { LazyWorkflowGraph } from "../components/workflow-graph/LazyWorkflowGrap
 import { StepYaml } from "../components/StepYaml"
 import { redactSecrets, runStateWords, stepTypeLabel, triggerName, yamlText, type GraphNode } from "../lib/workflowGraph"
 import { runNodeExtras } from "../lib/workflowRunGraph"
-import { runNeedsYou, type RunNeedsYouRow } from "../lib/runNeedsYou"
+import { runNeedsYou, type RunNeedsYouRow, type RunRowStep } from "../lib/runNeedsYou"
 import { useApprovals } from "../hooks/useApprovals"
 import { useAttention } from "../hooks/useAttention"
 import { useQueryClient } from "@tanstack/react-query"
@@ -265,10 +265,24 @@ function Artifact({ artifact, step }: { artifact: WorkflowArtifact; step?: strin
   </div>
 }
 
+// CleanupControl is a worktree removal's own button in a Needs you row: the
+// same controls as the Now panel, which ask first, show the path and offer
+// force, so the row never removes a worktree without asking.
+function CleanupControl({ run, steps, runId, refresh }: { run: RunRowStep; steps: WorkflowStepRun[]; runId: string; refresh: () => Promise<void> }) {
+  const { baseUrl } = useServer()
+  const step = steps.find(item => item.step_id === run.step)
+  if (!step) return null
+  return <div className="mt-1.5 flex flex-wrap items-center gap-2" onClick={event => event.stopPropagation()}>
+    {run.control === "retry"
+      ? <WorkflowStepRetryAction step={step} onRetry={async force => { await retryWorkflowStep(baseUrl, runId, step.step_id, force); await refresh() }} />
+      : <ManualWorkflowStepAction step={step} label={run.label} onTrigger={async force => { await triggerWorkflowStep(baseUrl, runId, step.step_id, force); await refresh() }} />}
+  </div>
+}
+
 // NeedsYouList is everything the run waits on the operator for, drawn with
 // the needs-you rail's own approval card and row, above the graph. A click
 // on a row shows its node.
-function NeedsYouList({ rows, runId, refresh, onFocus }: { rows: RunNeedsYouRow[]; runId: string; refresh: () => Promise<void>; onFocus: (node: string | null) => void }) {
+function NeedsYouList({ rows, steps, runId, refresh, onFocus }: { rows: RunNeedsYouRow[]; steps: WorkflowStepRun[]; runId: string; refresh: () => Promise<void>; onFocus: (node: string | null) => void }) {
   const { baseUrl } = useServer()
   const queryClient = useQueryClient()
   const approvals = useApprovals(false)
@@ -319,6 +333,7 @@ function NeedsYouList({ rows, runId, refresh, onFocus }: { rows: RunNeedsYouRow[
         {row.kind === "approval"
           ? <ApprovalCard approval={row.approval} focused={false} onDone={async () => { await approvals.refresh(); await refresh() }} />
           : <NeedsYouRow item={row.item} onAction={onAction} onDismiss={onDismiss} pending={pending === row.item.id} />}
+        {row.kind === "item" && row.run?.control && <CleanupControl run={row.run} steps={steps} runId={runId} refresh={refresh} />}
       </div>)}
     </div>
   </section>
@@ -392,7 +407,7 @@ export function WorkflowRunPage() {
   const graph = data?.graph ?? null
   const approvalList = useApprovals(true).data
   const attentionList = useAttention().data
-  const needsYou = useMemo(() => data ? runNeedsYou(data, attentionList ?? [], approvalList, taskId => agentLink(taskId, runId)) : { rows: [], nodes: new Set<string>() }, [data, attentionList, approvalList, runId])
+  const needsYou = useMemo(() => data ? runNeedsYou(data, attentionList ?? [], approvalList, taskId => agentLink(taskId, runId), secretValues(data)) : { rows: [], nodes: new Set<string>() }, [data, attentionList, approvalList, runId])
   const extras = useMemo(() => {
     if (!data || !graph) return undefined
     const out = runNodeExtras(data, graph, now)
@@ -455,7 +470,7 @@ export function WorkflowRunPage() {
         {data.definition_missing ? "This workflow's file is gone" : "This workflow has changed since this run"}<span className="text-lw-faint"> · the graph is the run's own copy</span>
       </p>}
       <Now key={`${baseUrl}:${runId}`} view={data} runId={runId} refresh={refresh} now={now} secrets={secrets} />
-      {graph && <NeedsYouList rows={needsYou.rows} runId={runId} refresh={refresh} onFocus={focusNode} />}
+      {graph && <NeedsYouList rows={needsYou.rows} steps={steps} runId={runId} refresh={refresh} onFocus={focusNode} />}
       {showGraph && graph ? <div className={cn("mt-7 grid gap-4", selectedNode && "lg:grid-cols-[minmax(0,1fr)_24rem]")}>
         <section aria-label="Run graph" className="h-[30rem] overflow-hidden rounded-xl border border-lw-line bg-lw-ground">
           <LazyWorkflowGraph graph={graph} extras={extras} run selectedId={selected} onSelect={setSelected} centerOn={centerOn} />

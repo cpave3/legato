@@ -113,6 +113,28 @@ describe("a run's Needs you list", () => {
     await waitFor(() => expect(calls.execute).toHaveBeenCalledWith("", "at-1", "done", "r1", { confirmed: false }))
   })
 
+  it("hides the run's secret values in a row's reason", async () => {
+    show(view([stepRun("move", "task.move", "failed", { error: "token hunter2 was refused" })], { attempts: [], run: { ...view([]).run, definition_json: JSON.stringify({ inputs: { token: { type: "string", secret: true } } }), inputs_json: JSON.stringify({ token: "hunter2" }) } }))
+    const row = await within(await screen.findByRole("region", { name: "Needs you" })).findByRole("article", { name: "Move to Ready failed" })
+    expect(row.textContent).toContain("token ••••••")
+    expect(row.textContent).not.toContain("hunter2")
+  })
+
+  it.each([
+    ["waiting_manual", "Remove worktree", "Remove worktree?", "Remove worktree", calls.trigger],
+    ["failed", "Retry step", "Retry worktree removal?", "Retry removal", calls.retry],
+  ])("asks before removing a worktree from a %s cleanup step, with its path and force", async (status, button, heading, confirm, call) => {
+    show(view([stepRun("move", "worktree.remove", status, { resolved_inputs_json: JSON.stringify({ expected_path: "/w/legato-12" }) })], { attempts: [] }))
+    const region = await screen.findByRole("region", { name: "Needs you" })
+    fireEvent.click(within(region).getByRole("button", { name: button }))
+    expect(call).not.toHaveBeenCalled()
+    const dialog = screen.getByRole("heading", { name: heading }).closest("[role=dialog]") as HTMLElement ?? document.body
+    expect(dialog.textContent).toContain("/w/legato-12")
+    fireEvent.click(within(dialog).getByRole("checkbox"))
+    fireEvent.click(within(dialog).getAllByRole("button", { name: confirm }).at(-1)!)
+    await waitFor(() => expect(call).toHaveBeenCalledWith("", "wr-1", "move", true))
+  })
+
   it("selects a row's node when the row is clicked", async () => {
     show(view([stepRun("move", "task.move", "failed", { error: "boom" })], { attempts: [] }))
     const row = await within(await screen.findByRole("region", { name: "Needs you" })).findByRole("article", { name: "Move to Ready failed" })
