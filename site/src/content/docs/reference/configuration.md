@@ -363,7 +363,7 @@ The Reeve's defaults, read when a session starts. Usually set in Settings › Re
 | `reeve.host_operations` | bool | `true` | Offers the Reeve a shell, file edits and systemd services on this machine, each as a change you approve. Turning it on needs a signed approval. |
 | `reeve.host_operations_auto` | bool | `false` | Runs the Reeve's host operations that are not as root at once, with no approval asked: **the Reeve can then run any command as your user on this machine.** Each is still audited. A command as root still needs a verified approval. Turning it on needs a signed approval; turning it off never does. See [Commands on the machine](/legato/using/reeve/#commands-on-the-machine). |
 | `reeve.host_timeout` | duration | `10m` | How long one host command may run. |
-| `reeve.host_output_cap` | int | `65536` | How many bytes of a host command's output the Reeve is given; the rest is kept in a file it can read. |
+| `reeve.host_output_cap` | int | `65536` | The most bytes of a host command's output the Reeve is given. Output longer than this, or than 40 lines, is cut to its first and last 20 lines; the whole of it is kept in a file the Reeve can read. |
 | `reeve.peer` | string | `start` | What a message from another instance's Reeve does when no session runs here: `start` a session, `ask` you first in Attention, or `refuse` it. Changed only with a signed approval. |
 | `reeve.launch_args` | list of strings | none | Arguments added to the agent tool's launch command. |
 | `reeve.voice.enabled` | bool | `false` | Lets the Reeve speak out loud on this machine's speakers with its `speak` tool. Sessions started after you turn it on get the tool; turning it off mutes the Reeve at once. See [The Reeve's voice](/legato/using/reeve/#the-reeves-voice). |

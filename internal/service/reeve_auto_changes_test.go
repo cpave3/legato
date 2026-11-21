@@ -38,15 +38,15 @@ func TestWithChangeAtAutoATaskEditRunsWithNoApprovalAndIsAudited(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if out.State != "approved" || out.Level != LevelAuto {
-		t.Fatalf("outcome = %+v, want approved at auto", out)
+	if out.State != "done" || out.Level != LevelAuto {
+		t.Fatalf("outcome = %+v, want done at auto", out)
 	}
 	approval, _ := f.devices.approvals.Get(ctx, out.ApprovalID)
 	if approval.Status != store.ApprovalApproved || approval.Decision == nil || approval.Decision.By != "auto: reeve.levels.change" {
 		t.Fatalf("approval = %+v, decision %+v", approval.Approval, approval.Decision)
 	}
 	set, _ := f.devices.db.GetReeveChangeSet(ctx, out.ID)
-	if set.Level != string(LevelAuto) || set.State != store.ChangeSetQueued {
+	if set.Level != string(LevelAuto) || set.State != store.ChangeSetDone {
 		t.Fatalf("set = %+v", set)
 	}
 	f.svc.RunQueued(ctx)
@@ -90,7 +90,7 @@ func TestAnAutoRuleRunsOnlyTheCallsItMatches(t *testing.T) {
 	ctx := context.Background()
 	out, _ := f.svc.Propose(ctx, f.reeve, "new task", []ChangeCall{{Kind: CallAPI, Method: "POST", Path: "/api/tasks"}})
 	approval, _ := f.devices.approvals.Get(ctx, out.ApprovalID)
-	if out.State != "approved" || approval.Decision.By != "auto: rule POST /api/tasks*" {
+	if out.State != "done" || approval.Decision.By != "auto: rule POST /api/tasks*" {
 		t.Fatalf("matching = %+v / %+v", out, approval.Decision)
 	}
 	out, _ = f.svc.Propose(ctx, f.reeve, "edit", []ChangeCall{{Kind: CallAPI, Method: "PATCH", Path: "/api/tasks/T-1"}})
@@ -118,7 +118,7 @@ func TestHostAutoRunsHostCallsAndAuditsThemAsDecidedByTheSetting(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if out.State != "approved" || out.Level != LevelAuto {
+	if out.State != "done" || out.Level != LevelAuto {
 		t.Fatalf("outcome = %+v", out)
 	}
 	f.svc.RunQueued(ctx)
@@ -154,7 +154,7 @@ func TestANarrowHostRuleAutoRunsOnlyThePlainCommandsItMatches(t *testing.T) {
 	f.rule(t, "host_shell:journalctl *", "auto")
 	ctx := context.Background()
 	for command, want := range map[string]string{
-		"journalctl -n 50 -u legato":        "approved",
+		"journalctl -n 50 -u legato":        "at once",
 		"ls ~":                              "pending",
 		"journalctl -n 5; rm -rf ~":         "pending",
 		"journalctl -n 5 | sh":              "pending",
@@ -166,7 +166,7 @@ func TestANarrowHostRuleAutoRunsOnlyThePlainCommandsItMatches(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if out.State != want {
+		if ranOrAsked(out.State) != want {
 			t.Errorf("%q = %s, want %s", command, out.State, want)
 		}
 	}
@@ -179,7 +179,7 @@ func TestAFileRuleMatchesTheHomeFolderAndOnlyCleanPaths(t *testing.T) {
 	f.rule(t, "edit_file:~/Projects/**", "auto")
 	ctx := context.Background()
 	for file, want := range map[string]string{
-		home + "/Projects/app/main.go": "approved",
+		home + "/Projects/app/main.go": "at once",
 		home + "/.bashrc":              "pending",
 		home + "/Projects/../.bashrc":  "pending",
 	} {
@@ -187,7 +187,7 @@ func TestAFileRuleMatchesTheHomeFolderAndOnlyCleanPaths(t *testing.T) {
 		if err != nil {
 			t.Fatal(err)
 		}
-		if out.State != want {
+		if ranOrAsked(out.State) != want {
 			t.Errorf("%s = %s, want %s", file, out.State, want)
 		}
 	}
@@ -236,4 +236,13 @@ func TestFloorsHoldWhateverIsSetToAuto(t *testing.T) {
 			t.Errorf("%s = %s (by %s), want %s", tc.name, details.Level, details.Calls[0].LevelBy, tc.want)
 		}
 	}
+}
+
+// ranOrAsked is "at once" for a set that ran without asking, whatever its
+// calls did, and the outcome's state otherwise.
+func ranOrAsked(state string) string {
+	if state == "done" || state == "failed" {
+		return "at once"
+	}
+	return state
 }

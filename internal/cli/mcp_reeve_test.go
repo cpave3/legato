@@ -135,6 +135,37 @@ func TestAnAutoSetTellsTheReeveItRunsWithoutAnApproval(t *testing.T) {
 	}
 }
 
+func TestAnAutoSetThatRanAnswersItsResultsInTheToolCall(t *testing.T) {
+	s := newTestStore(t)
+	report := "Change set cs-3 (disk): 1 of 1 ran.\n1. Run on the host: df -h: ran: /dev/sda1 24%\n"
+	for state, want := range map[string]string{"done": "ran with no approval asked", "failed": "ran with no approval asked"} {
+		sets := &fakeChangeSets{out: &service.ChangeSetOutcome{ID: "cs-3", State: state, Level: service.LevelAuto, Report: report}}
+		taskID, executionID := seedReeve(t, s)
+		session := connectMCP(t, cli.MCPOptions{Store: s, TaskID: taskID, ExecutionID: executionID, Reeve: &cli.MCPReeve{ChangeSets: sets}})
+		got := mcpText(callMCP(t, session, "propose_changes", map[string]any{
+			"reason": "disk",
+			"calls":  []any{map[string]any{"kind": "api", "method": "PATCH", "path": "/api/tasks/T-1"}},
+		}))
+		if !strings.Contains(got, want) || !strings.Contains(got, "/dev/sda1 24%") || strings.Contains(got, "message will tell you") {
+			t.Fatalf("%s: result %q", state, got)
+		}
+	}
+}
+
+func TestAnAutoSetStillRunningSaysAMessageFollows(t *testing.T) {
+	s := newTestStore(t)
+	sets := &fakeChangeSets{out: &service.ChangeSetOutcome{ID: "cs-4", State: "running", Level: service.LevelAuto}}
+	taskID, executionID := seedReeve(t, s)
+	session := connectMCP(t, cli.MCPOptions{Store: s, TaskID: taskID, ExecutionID: executionID, Reeve: &cli.MCPReeve{ChangeSets: sets}})
+	got := mcpText(callMCP(t, session, "propose_changes", map[string]any{
+		"reason": "slow",
+		"calls":  []any{map[string]any{"kind": "api", "method": "PATCH", "path": "/api/tasks/T-1"}},
+	}))
+	if !strings.Contains(got, "still running") || !strings.Contains(got, "[legato change set]") {
+		t.Fatalf("result %q", got)
+	}
+}
+
 func TestTheReeveProposesAChangeSet(t *testing.T) {
 	s := newTestStore(t)
 	sets := &fakeChangeSets{}

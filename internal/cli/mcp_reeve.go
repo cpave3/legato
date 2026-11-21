@@ -425,7 +425,7 @@ func (m *mcpTools) proposeChanges() mcpserver.Tool {
 	return mcpserver.NewTool(mcpserver.Definition{
 		Name: "propose_changes", Title: "Propose a change set",
 		Description: "Puts changes to the operator as one approval: a one-line reason and an ordered list of calls. Legato runs exactly these calls once they are approved, in order, a restart last, stopping at the first failure, and tells you each call's result. " +
-			"It waits up to a minute for the decision, then answers pending. A set the operator lets run without asking (auto) is approved at once. A call you may never make refuses the whole set.",
+			"It waits up to a minute for the decision, then answers pending. A set the operator lets run without asking (auto) runs at once, and its result is this call's answer (one still running after 30 seconds, or 90 with a host command, or one that ends in a restart, is reported by message). A call you may never make refuses the whole set.",
 	}, func(ctx context.Context, in proposeChangesInput) (mcpserver.Result, error) {
 		if err := m.mustBeReeve(ctx); err != nil {
 			return mcpserver.Result{}, err
@@ -449,15 +449,20 @@ func (m *mcpTools) propose(ctx context.Context, reason string, calls []service.C
 	_ = m.opts.Store.TouchReeveSession(ctx, m.opts.TaskID)
 	var text string
 	switch out.State {
+	case "done", "failed":
+		// It ran at once, and this is its result: no message follows.
+		text = "It ran with no approval asked (the operator set these calls to auto). " + out.Report
+	case "running":
+		text = fmt.Sprintf("Change set %s runs with no approval asked (the operator set these calls to auto) and was still running when this call stopped waiting. A [legato change set] message will tell you each call's result: read it before you propose the next step.", out.ID)
 	case "approved":
-		text = fmt.Sprintf("Change set %s was approved. Legato is running it now; a [legato] message will tell you each call's result.", out.ID)
+		text = fmt.Sprintf("Change set %s was approved. Legato is running it now; a [legato change set] message will tell you each call's result.", out.ID)
 		if out.Level == service.LevelAuto {
-			text = fmt.Sprintf("Change set %s runs now with no approval asked (the operator set these calls to auto). A [legato] message will tell you each call's result: read it before you propose the next step.", out.ID)
+			text = fmt.Sprintf("Change set %s runs now with no approval asked (the operator set these calls to auto). A [legato change set] message will tell you each call's result: read it before you propose the next step.", out.ID)
 		}
 	case "denied":
 		text = fmt.Sprintf("Change set %s was denied. The operator's note: %s\nDo not propose the same change again in this session unless they ask.", out.ID, noteOrNone(out.Note))
 	default:
-		text = fmt.Sprintf("Change set %s waits for the operator's approval (%s, approval %s). A [legato] message will tell you the decision and the results; carry on meanwhile, or end your turn.", out.ID, out.Level, out.ApprovalID)
+		text = fmt.Sprintf("Change set %s waits for the operator's approval (%s, approval %s). A [legato change set] message will tell you the decision and the results; carry on meanwhile, or end your turn.", out.ID, out.Level, out.ApprovalID)
 	}
 	return mcpserver.Result{Text: text, Data: out}, nil
 }
@@ -476,7 +481,7 @@ type restartLegatoInput struct {
 func (m *mcpTools) restartLegato() mcpserver.Tool {
 	return mcpserver.NewTool(mcpserver.Definition{
 		Name: "restart_legato", Title: "Restart Legato",
-		Description: "Proposes a restart of every Legato process of this instance, as a change set for the operator to approve. Agents keep running. A restart whose start fails is rolled back. When Legato is back, a [legato] message says so.",
+		Description: "Proposes a restart of every Legato process of this instance, as a change set for the operator to approve. Agents keep running. A restart whose start fails is rolled back. When Legato is back, a [legato restart] message says so.",
 	}, func(ctx context.Context, in restartLegatoInput) (mcpserver.Result, error) {
 		if err := m.mustBeReeve(ctx); err != nil {
 			return mcpserver.Result{}, err
@@ -717,7 +722,7 @@ type hostShellInput struct {
 func (m *mcpTools) hostShell() mcpserver.Tool {
 	return mcpserver.NewTool(mcpserver.Definition{
 		Name: "host_shell", Title: "Run a command on the host",
-		Description: "Proposes a shell command on this machine, as Legato's user in its home folder, with a small fixed environment and no way to gain privileges (sudo fails) unless as_root. A last resort: use Legato's own tools first. It runs once the operator approves; a [legato] message gives its exit code and output (cut at 64 KB, the rest in a file you can read).",
+		Description: "Proposes a shell command on this machine, as Legato's user in its home folder, with a small fixed environment and no way to gain privileges (sudo fails) unless as_root. A last resort: use Legato's own tools first. It runs once the operator approves, and the result gives its exit code and output: long output is cut to its first and last lines, the whole of it in a file you can read. When the operator lets it run without asking, the result is this call's answer; otherwise a [legato change set] message gives it.",
 	}, func(ctx context.Context, in hostShellInput) (mcpserver.Result, error) {
 		if err := m.mustBeReeve(ctx); err != nil {
 			return mcpserver.Result{}, err

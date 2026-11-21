@@ -248,6 +248,12 @@ func (m Model) conversationWithRuns(tail service.ConversationTail, state string,
 			break
 		}
 		if entry.Kind == service.EntryUser {
+			if label, summary, ok := service.LegatoEvent(entry.Text); ok {
+				// Something that happened, which Legato told the agent: one
+				// line, not the operator's words.
+				keep([]string{colored(theme.TextFaint, ansi.Truncate("◇ "+label+" "+summary, width, "…"))})
+				continue
+			}
 			keep(markedText("›", theme.Accent, entry.Text, theme.TextSecondary, width, min(2, remaining)))
 			continue
 		}

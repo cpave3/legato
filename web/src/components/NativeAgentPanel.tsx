@@ -38,7 +38,7 @@ import { rankSlashItems, type SlashItem } from "../lib/slashMenu"
 import { usePastedImages } from "../hooks/usePastedImages"
 import { nativeToolName } from "../lib/agentKind"
 import { mcpToolName, toolDisplayName } from "../lib/mcpToolName"
-import { parseLegatoMessage } from "../lib/legatoMessage"
+import { legatoEventSummary, parseLegatoMessage } from "../lib/legatoMessage"
 import { plainText } from "../lib/agentGlance"
 import { modelSettingsResponse, type ModelCapabilities, type ModelSettings, type ModelSettingsState } from "../lib/modelSettings"
 import {
@@ -1142,6 +1142,11 @@ export function NativeAgentPanel({ agentId, reeve, sandboxed, onKill, onRename, 
               )
             }
             const legato = parseLegatoMessage(item.text)
+            if (legato?.event) {
+              // Something that happened (a change set ran, Legato restarted):
+              // one line among the steps, not a message anyone wrote.
+              return <LegatoEventRow key={item.key} label={legato.label} body={legato.body} />
+            }
             if (legato?.peer !== undefined) {
               // Another agent wrote this and Legato only carried it, so it
               // has a look of its own, labelled with who sent it.
@@ -1638,6 +1643,35 @@ const ThinkingRow = memo(function ThinkingRow({ item, boxed }: { item: NativeCon
 })
 
 // One row of a StepGroup, which draws the border around it.
+// LegatoEventRow is an event Legato told the agent of, drawn as a tool call
+// is: one line with a summary, which opens to the whole text.
+function LegatoEventRow({ label, body }: { label: string; body: string }) {
+  const [expanded, setExpanded] = useState(false)
+  const summary = legatoEventSummary(label, body)
+  const failed = /\b\d+ failed\b|denied|rolled back/.test(summary)
+  return (
+    <div className="px-4 py-1">
+      <div className="rounded-md border border-zinc-800/80 bg-zinc-900/30">
+        <button
+          type="button"
+          aria-expanded={expanded}
+          className="flex w-full min-w-0 items-center gap-2 px-3 py-1 text-left"
+          onClick={() => setExpanded(!expanded)}
+        >
+          <span className="shrink-0 rounded bg-teal-950/60 px-1.5 py-0.5 font-mono text-[10px] uppercase tracking-wide text-teal-400">Legato · {label}</span>
+          <span className={`min-w-0 truncate font-mono text-xs ${failed ? "text-red-400" : "text-zinc-400"}`}>{summary}</span>
+          <span className="ml-auto shrink-0 text-xs text-zinc-500">{expanded ? "▼" : "▶"}</span>
+        </button>
+        {expanded && (
+          <div className="max-h-96 overflow-auto border-t border-zinc-800 px-3 py-2 font-mono text-xs text-zinc-300 whitespace-pre-wrap break-words">
+            {body.trim()}
+          </div>
+        )}
+      </div>
+    </div>
+  )
+}
+
 const ToolCallCard = memo(function ToolCallCard({ agentId, tool, grouped }: { agentId: string; tool: ToolCallItem; grouped: boolean }) {
   // An edit opens its diff unasked only when it stands alone; in a group every
   // call starts as one line. A click overrides either default.

@@ -92,6 +92,14 @@ describe("what a tile shows of a conversation", () => {
     ])
   })
 
+  it("shows a change set's result by its summary, not its whole text", () => {
+    const items = glanceItems([
+      { kind: "user", text: "[legato change set] Change set cs-816fab12cd (disk): 1 of 1 ran.\n1. Run on the host: df: ran: /dev/sda1 24%" },
+    ], "")
+
+    expect(items).toEqual([{ kind: "relayed", from: "Legato change set", text: "cs-816f… · 1 of 1 ran ✓" }])
+  })
+
   it("shows what was said without its markup", () => {
     expect(plainText("## Result\n\n**Done.** Use `yg list --json`:\n\n```sh\nyg list --json\n```\n")).toBe(
       "Result\nDone. Use yg list --json:\nyg list --json",
