@@ -31,10 +31,19 @@ const agentSessionSelect = `SELECT a.*,
 	COALESCE(e.working_dir, '') AS working_dir,
 	COALESCE(c.repo, '') AS clone_repo,
 	COALESCE(c.branch, '') AS clone_branch,
-	(SELECT COUNT(*) FROM operator_items oi WHERE e.id IS NOT NULL AND oi.execution_id = e.id AND oi.status = 'open') AS open_items
+	(SELECT COUNT(*) FROM operator_items oi WHERE e.id IS NOT NULL AND oi.execution_id = e.id AND oi.status = 'open') AS open_items,
+	(SELECT COUNT(*) FROM operator_items oi WHERE e.id IS NOT NULL AND oi.execution_id = e.id AND oi.status = 'open' AND oi.kind = 'done') AS open_done_items,
+	(a.slot = 'main' AND (EXISTS (SELECT 1 FROM plans p WHERE p.task_id = a.task_id AND p.status = 'proposed')
+		OR EXISTS (SELECT 1 FROM swarm_pending_plans sp WHERE sp.parent_task_id = a.task_id))) AS plan_pending,
+	COALESCE(ws.stage, '') AS work_stage,
+	COALESCE(ws.reason, '') AS work_stage_reason,
+	COALESCE(ws.source, '') AS work_stage_source,
+	COALESCE(ws.since, '') AS work_stage_since
 	FROM agent_sessions a
 	LEFT JOIN executions e ON e.agent_session_id = a.id
-	LEFT JOIN job_clones c ON e.working_dir != '' AND c.path = e.working_dir AND c.removed_at IS NULL`
+	LEFT JOIN job_clones c ON e.working_dir != '' AND c.path = e.working_dir AND c.removed_at IS NULL
+	LEFT JOIN agent_stages ws ON ws.task_id = a.task_id AND ws.slot = a.slot
+		AND ws.place_execution_id = CASE WHEN e.kind = 'workflow_agent' THEN e.id ELSE '' END`
 
 func (s *Store) InsertAgentSession(ctx context.Context, a AgentSession) error {
 	result, err := s.db.NamedExecContext(ctx, `
@@ -100,6 +109,18 @@ func (s *Store) GetAgentSessionInSlot(ctx context.Context, taskID, slot string) 
 	var a AgentSession
 	err := s.db.GetContext(ctx, &a,
 		agentSessionSelect+" WHERE a.task_id = ? AND a.slot = ? AND a.status = 'running' ORDER BY a.started_at DESC LIMIT 1", taskID, slotOrMain(slot))
+	if err == sql.ErrNoRows {
+		return nil, fmt.Errorf("agent session for task %s, slot %s: %w", taskID, slotOrMain(slot), ErrNotFound)
+	}
+	return &a, err
+}
+
+// LatestAgentSessionInSlot returns the newest session of one of the task's
+// slots, whatever its status.
+func (s *Store) LatestAgentSessionInSlot(ctx context.Context, taskID, slot string) (*AgentSession, error) {
+	var a AgentSession
+	err := s.db.GetContext(ctx, &a,
+		agentSessionSelect+" WHERE a.task_id = ? AND a.slot = ? ORDER BY a.started_at DESC, a.id DESC LIMIT 1", taskID, slotOrMain(slot))
 	if err == sql.ErrNoRows {
 		return nil, fmt.Errorf("agent session for task %s, slot %s: %w", taskID, slotOrMain(slot), ErrNotFound)
 	}
@@ -202,11 +223,11 @@ func (s *Store) UpdateAgentActivityForSession(ctx context.Context, id int, activ
 // GetAgentActivityCounts returns the count of running agent sessions grouped by activity state.
 // If excludeTaskID is non-empty, that task's session is excluded from counts.
 // needsOperatorActivity is a running session's activity as counted: one
-// whose execution has an open operator item waits on the operator, unless
-// it is in error.
+// whose execution has an open operator item that is not a done note waits
+// on the operator, unless it is in error.
 const needsOperatorActivity = `CASE WHEN a.activity != 'error' AND EXISTS (
 		SELECT 1 FROM executions e JOIN operator_items oi ON oi.execution_id = e.id
-		WHERE e.agent_session_id = a.id AND oi.status = 'open') THEN 'waiting' ELSE a.activity END`
+		WHERE e.agent_session_id = a.id AND oi.status = 'open' AND oi.kind != 'done') THEN 'waiting' ELSE a.activity END`
 
 func (s *Store) GetAgentActivityCounts(ctx context.Context, excludeTaskID string) (working, waiting, errors, idle int, err error) {
 	type row struct {

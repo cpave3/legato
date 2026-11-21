@@ -405,11 +405,23 @@ type AgentSession struct {
 	WorkingDir string `db:"working_dir"`
 	// CloneRepo and CloneBranch are the live job clone at WorkingDir (the
 	// repository, and the branch it was made on), "" when it is not one.
-	CloneRepo        string  `db:"clone_repo"`
-	CloneBranch      string  `db:"clone_branch"`
+	CloneRepo   string `db:"clone_repo"`
+	CloneBranch string `db:"clone_branch"`
 	// OpenItems counts the open operator items of its execution: an agent
 	// with any waits on the operator, whatever its activity.
 	OpenItems int `db:"open_items"`
+	// OpenDoneItems counts those of kind done: an agent saying it
+	// finished, which does not wait on the operator.
+	OpenDoneItems int `db:"open_done_items"`
+	// PlanPending is true for a task's main slot when the task has a
+	// Legato plan proposed to the operator or a swarm plan pending.
+	PlanPending bool `db:"plan_pending"`
+	// WorkStage is its place's stage ("" when none is recorded), with the
+	// reason, what set it and since when. See WorkStagePlace.
+	WorkStage        string  `db:"work_stage"`
+	WorkStageReason  string  `db:"work_stage_reason"`
+	WorkStageSource  string  `db:"work_stage_source"`
+	WorkStageSince   string  `db:"work_stage_since"`
 	TmuxSession      string  `db:"tmux_session"`
 	Command          string  `db:"command"`
 	AgentKind        string  `db:"agent_kind"`

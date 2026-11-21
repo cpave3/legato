@@ -54,7 +54,10 @@ const (
 	MsgAttentionChanged    = "attention_changed"
 	MsgLearningChanged     = "learning_changed"
 	MsgAgentUIChanged      = "agent_ui_changed"
-	MsgReeveSpoke          = "reeve_spoke"
+	// MsgAgentStageChanged: an agent's stage changed (task_id is the
+	// agent's address; stage, stage_reason, stage_source).
+	MsgAgentStageChanged = "agent_stage_changed"
+	MsgReeveSpoke        = "reeve_spoke"
 	// MsgRepositoryCache says how a repository's copy in Legato's cache
 	// stands, with git's progress while it is copied or fetched.
 	MsgRepositoryCache = "repository_cache"
@@ -121,6 +124,12 @@ type WSMessage struct {
 	ContextWindow int `json:"context_window,omitempty"`
 	// Cache is a repository's copy (repository_cache).
 	Cache *service.RepositoryCacheStatus `json:"cache,omitempty"`
+	// Stage, StageReason and StageSource are an agent's new stage
+	// (agent_stage_changed); ExecutionID names a workflow agent's.
+	Stage       string `json:"stage,omitempty"`
+	StageReason string `json:"stage_reason,omitempty"`
+	StageSource string `json:"stage_source,omitempty"`
+	ExecutionID string `json:"execution_id,omitempty"`
 }
 
 // wsClient represents a connected WebSocket client.

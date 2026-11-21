@@ -120,6 +120,27 @@ type AgentResponse struct {
 	WorkingDir string `json:"working_dir,omitempty"`
 	// Clone is the job clone at WorkingDir, when it is one.
 	Clone *AgentClone `json:"clone,omitempty"`
+	AgentStageFields
+}
+
+// AgentStageFields are an agent's stage and glance group, in AgentResponse
+// and AgentCompact. Stage is absent when none is recorded (the Reeve, or an
+// agent from before stages); stage_source is start, operator, agent,
+// milestone or evidence. Glance is needs_you, your_turn, working, finished or
+// ended. See docs/ai/agent-states.md § Stages.
+type AgentStageFields struct {
+	Stage       string     `json:"stage,omitempty"`
+	StageReason string     `json:"stage_reason,omitempty"`
+	StageSource string     `json:"stage_source,omitempty"`
+	StageSince  *time.Time `json:"stage_since,omitempty"`
+	Glance      string     `json:"glance"`
+}
+
+func agentStageFields(agent service.AgentSession) AgentStageFields {
+	return AgentStageFields{
+		Stage: agent.Stage, StageReason: agent.StageReason, StageSource: agent.StageSource,
+		StageSince: agent.StageSince, Glance: agent.Glance(),
+	}
 }
 
 // AgentClone is the job clone an agent works in: its repository (owner/name)
@@ -139,7 +160,7 @@ func agentResponse(agent service.AgentSession) AgentResponse {
 		SubtaskID: agent.SubtaskID, StartedAt: agent.StartedAt, EndedAt: agent.EndedAt,
 		Sandboxed: agent.Sandboxed, DockerHostNetwork: agent.DockerHostNetwork, CardTaskID: agent.CardTaskID, Slot: agent.Slot,
 		BackgroundJobs: agent.BackgroundJobs, BackgroundShells: agent.BackgroundShells,
-		WorkingDir: agent.WorkingDir, Clone: agentClone(agent),
+		WorkingDir: agent.WorkingDir, Clone: agentClone(agent), AgentStageFields: agentStageFields(agent),
 	}
 }
 

@@ -31,6 +31,7 @@ type Server struct {
 	agentsOff                string
 	board                    service.BoardService
 	agents                   service.AgentService
+	workStages               *service.WorkStageService
 	swarm                    SwarmService
 	sync                     service.SyncService
 	prTracking               service.PRTrackingService
@@ -187,6 +188,8 @@ func NewWithSwarm(board service.BoardService, agents service.AgentService, tmux 
 	mux.HandleFunc("/api/agents/kill", s.killAgentHandler())
 	mux.HandleFunc("/api/agents/{task_id}/notify", s.agentNotifyHandler())
 	mux.HandleFunc("/api/agents/{task_id}/group", s.agentGroupHandler())
+	mux.HandleFunc("/api/agents/{task_id}/stage", s.agentStageHandler())
+	mux.HandleFunc("/api/agents/{task_id}/stage-history", s.agentStageHistoryHandler())
 	mux.HandleFunc("/api/agent-groups", s.agentGroupsHandler())
 	mux.HandleFunc("/api/agent-groups/{name}", s.agentGroupNameHandler())
 	mux.HandleFunc("/api/agents/{task_id}/terminal", s.terminalHandler())

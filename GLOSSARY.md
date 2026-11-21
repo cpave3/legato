@@ -69,8 +69,16 @@ An agent that was running when Legato last stopped and whose tmux session was go
 _Avoid_: crashed agent, lost agent, dead agent
 
 **Operator item**:
-Something an agent posts with `for_operator` for the operator to see or act on: an action only the operator can do, a question, finished work, or anything else that needs them. It is an Attention item, and every one counts as needing the operator.
+Something an agent posts with `for_operator` for the operator to see or act on: an action only the operator can do, a question, finished work, or anything else that needs them. It is an Attention item. Every kind counts as needing the operator except finished work (a done note), which puts the agent in Finished.
 _Avoid_: ask, request, notification
+
+**Stage**:
+Where an agent's work stands: Exploring, Planning, Implementing, Reviewing or Finished. Legato infers it for each agent place (a task's slot, or a workflow agent) from what the operator sets, what the agent reports, milestones such as a plan approved or a pull request merged, and edits. It is separate from what the agent is doing now and from the card's column. The Reeve has none.
+_Avoid_: progress, phase, status
+
+**Glance**:
+The group every list of agents sorts an agent into: Needs you, Your turn (idle mid-work, nothing blocking), Working, or Finished. It is worked out on the server from the agent's activity, open operator items, pending plans and stage.
+_Avoid_: section, bucket
 
 **Needs-you rail**:
 The column on the right of every web page that shows Attention, filtered by the rail settings, with approvals first.

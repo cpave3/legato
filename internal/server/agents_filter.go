@@ -32,6 +32,7 @@ type AgentCompact struct {
 	BackgroundJobs []store.BackgroundJob `json:"background_jobs,omitempty"`
 	// WorkingDir is the directory the agent was started in.
 	WorkingDir string `json:"working_dir,omitempty"`
+	AgentStageFields
 }
 
 func (s *Server) compactAgents(ctx context.Context, agents []service.AgentSession) []AgentCompact {
@@ -42,9 +43,10 @@ func (s *Server) compactAgents(ctx context.Context, agents []service.AgentSessio
 		out = append(out, AgentCompact{
 			TaskID: a.TaskID, CardTaskID: resp.CardTaskID, Slot: resp.Slot, Title: a.Title, Group: a.Group,
 			Status: a.Status, Activity: a.Activity, OpenItems: a.OpenItems, Sandboxed: a.Sandboxed, DockerHostNetwork: a.DockerHostNetwork, StartedAt: a.StartedAt,
-			Reeve:          reeveTask != "" && a.TaskID == reeveTask,
-			BackgroundJobs: a.BackgroundJobs,
-			WorkingDir:     a.WorkingDir,
+			Reeve:            reeveTask != "" && a.TaskID == reeveTask,
+			BackgroundJobs:   a.BackgroundJobs,
+			WorkingDir:       a.WorkingDir,
+			AgentStageFields: resp.AgentStageFields,
 		})
 	}
 	return out
@@ -52,7 +54,8 @@ func (s *Server) compactAgents(ctx context.Context, agents []service.AgentSessio
 
 // filterAgents keeps the agents a request's query asks for: task (task IDs,
 // comma separated: an agent's own, its card's or the task it works for),
-// status (running, dead, …), and workspace (its ID or name).
+// status (running, dead, …), workspace (its ID or name), and stage (stages,
+// comma separated).
 func (s *Server) filterAgents(r *http.Request, agents []service.AgentSession) ([]service.AgentSession, error) {
 	q := r.URL.Query()
 	tasks := map[string]bool{}
@@ -70,7 +73,18 @@ func (s *Server) filterAgents(r *http.Request, agents []service.AgentSession) ([
 		}
 		workspace = id
 	}
-	if len(tasks) == 0 && status == "" && workspace < 0 {
+	stages := map[string]bool{}
+	for _, name := range strings.Split(q.Get("stage"), ",") {
+		if name = strings.TrimSpace(name); name == "" {
+			continue
+		}
+		stage, err := service.ParseWorkStage(name)
+		if err != nil {
+			return nil, err
+		}
+		stages[stage] = true
+	}
+	if len(tasks) == 0 && status == "" && workspace < 0 && len(stages) == 0 {
 		return agents, nil
 	}
 	out := make([]service.AgentSession, 0, len(agents))
@@ -83,6 +97,9 @@ func (s *Server) filterAgents(r *http.Request, agents []service.AgentSession) ([
 			continue
 		}
 		if status != "" && !strings.EqualFold(a.Status, status) {
+			continue
+		}
+		if len(stages) > 0 && !stages[a.Stage] {
 			continue
 		}
 		if workspace >= 0 && !s.inWorkspace(r.Context(), card, workspace) {

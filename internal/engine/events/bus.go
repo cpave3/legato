@@ -71,7 +71,22 @@ const (
 	// EventOperatorItemsChanged: an agent posted, updated or cleared an
 	// operator item (for_operator). Payload: OperatorItemsChangedPayload.
 	EventOperatorItemsChanged
+	// EventAgentStageChanged: an agent place's stage changed (see
+	// docs/ai/agent-states.md § Stages). Payload: AgentStageChangedPayload.
+	EventAgentStageChanged
 )
+
+// AgentStageChangedPayload is an agent place's new stage. TaskID is the
+// card's task; Slot "main" or a named slot; ExecutionID is set for a
+// workflow agent, whose place is its execution.
+type AgentStageChangedPayload struct {
+	TaskID      string
+	Slot        string
+	ExecutionID string
+	Stage       string
+	Reason      string
+	Source      string
+}
 
 // OperatorItemsChangedPayload names the task whose agent's operator items
 // changed.

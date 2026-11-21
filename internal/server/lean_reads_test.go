@@ -124,7 +124,7 @@ func TestTheAgentsInCompactForm(t *testing.T) {
 	if len(got) != 1 {
 		t.Fatalf("agents = %v", got)
 	}
-	want := map[string]any{"task_id": "T-1", "title": "one", "status": "running", "activity": "working", "sandboxed": true, "started_at": "2026-11-12T03:00:00Z"}
+	want := map[string]any{"task_id": "T-1", "title": "one", "status": "running", "activity": "working", "sandboxed": true, "started_at": "2026-11-12T03:00:00Z", "glance": "working"}
 	for k, v := range want {
 		if got[0][k] != v {
 			t.Errorf("%s = %v, want %v", k, got[0][k], v)

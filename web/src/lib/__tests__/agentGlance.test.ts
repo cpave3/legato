@@ -123,6 +123,15 @@ describe("the ensemble's order", () => {
     expect(ensembleSection({ ...asking, open_items: 0 })).toBe("idle")
   })
 
+  it("takes needs-you from the server's glance when it has one", () => {
+    const finished = { ...agent("done-1", ""), open_items: 1, stage: "finished", glance: "finished" }
+    const planWaiting = { ...agent("plan-1", ""), stage: "planning", glance: "needs_you" }
+
+    expect(ensembleSection(finished)).toBe("idle")
+    expect(ensembleSection(planWaiting)).toBe("needs-you")
+    expect(ensembleSection({ ...agent("run-1", "working"), glance: "working" })).toBe("running")
+  })
+
   it("keeps the order agents came in within one state", () => {
     const agents = [agent("b", ""), agent("a", ""), agent("c", "")]
 
