@@ -67,6 +67,9 @@ type AgentConversationRun struct {
 	StartedAt      time.Time  `db:"started_at"`
 	EndedAt        *time.Time `db:"ended_at"`
 	EndReason      *string    `db:"end_reason"`
+	// Sandboxed is whether the run's agent ran in Legato's sandbox; nil
+	// when it is not known.
+	Sandboxed *bool `db:"sandboxed"`
 }
 
 // conversationIdentity is what recording a conversation needs.
@@ -138,10 +141,11 @@ func recordConversation(ctx context.Context, tx *sqlx.Tx, c conversationIdentity
 		return err
 	}
 	_, err := tx.ExecContext(ctx, `
-		INSERT INTO agent_conversation_runs (conversation_id, execution_id, started_at) VALUES (?, ?, ?)
+		INSERT INTO agent_conversation_runs (conversation_id, execution_id, started_at, sandboxed)
+		VALUES (?, ?, ?, (SELECT a.sandboxed FROM executions e JOIN agent_sessions a ON a.id = e.agent_session_id WHERE e.id = ?))
 		ON CONFLICT (conversation_id, execution_id) DO UPDATE SET ended_at = NULL, end_reason = NULL
 		WHERE agent_conversation_runs.ended_at IS NOT NULL`,
-		id, c.executionID, stamp)
+		id, c.executionID, stamp, c.executionID)
 	return err
 }
 
@@ -201,7 +205,7 @@ func (s *Store) ListTaskConversations(ctx context.Context, taskID string) ([]Age
 // ListConversationRuns returns a conversation's runs, the oldest first.
 func (s *Store) ListConversationRuns(ctx context.Context, conversationID int64) ([]AgentConversationRun, error) {
 	runs := make([]AgentConversationRun, 0)
-	err := s.db.SelectContext(ctx, &runs, `SELECT conversation_id, execution_id, started_at, ended_at, end_reason
+	err := s.db.SelectContext(ctx, &runs, `SELECT conversation_id, execution_id, started_at, ended_at, end_reason, sandboxed
 		FROM agent_conversation_runs WHERE conversation_id = ? ORDER BY started_at, rowid`, conversationID)
 	return runs, err
 }

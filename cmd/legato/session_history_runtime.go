@@ -7,16 +7,40 @@ import (
 	"github.com/cpave3/legato/config"
 	"github.com/cpave3/legato/internal/engine/events"
 	"github.com/cpave3/legato/internal/engine/store"
+	"github.com/cpave3/legato/internal/server"
 	"github.com/cpave3/legato/internal/service"
 )
 
 // newSessionHistory is the session history, kept for agents.history.keep.
 func newSessionHistory(cfg *config.Config, db *store.Store) *service.SessionHistoryService {
+	return service.NewSessionHistoryService(db, sessionHistoryOptions(cfg, db, nil))
+}
+
+func sessionHistoryOptions(cfg *config.Config, db *store.Store, agents service.AgentService) service.SessionHistoryOptions {
 	keep, forever := cfg.Agents.History.KeepDuration()
 	if forever {
 		keep = 0
 	}
-	return service.NewSessionHistoryService(db, service.SessionHistoryOptions{Keep: keep})
+	opts := service.SessionHistoryOptions{
+		Keep: keep,
+		// On a main, a task handed to a worker is the worker's to restore.
+		Away: func(ctx context.Context, taskID string) bool {
+			away, err := db.OpenAwayTask(ctx, taskID)
+			return err == nil && away.State == store.AwayAway
+		},
+	}
+	if adapters, ok := agents.(interface{ AdapterFor(string) service.AIToolAdapter }); ok {
+		opts.ToolConfigured = func(kind string) bool {
+			adapter := adapters.AdapterFor(kind)
+			return adapter != nil && adapter.Name() == kind
+		}
+	}
+	return opts
+}
+
+// wireSessionHistory serves the session history on a web server.
+func wireSessionHistory(srv *server.Server, cfg *config.Config, db *store.Store, agents service.AgentService) {
+	srv.SetSessionHistory(service.NewSessionHistoryService(db, sessionHistoryOptions(cfg, db, agents)))
 }
 
 // sweepSessionHistory removes the session history's old entries at the

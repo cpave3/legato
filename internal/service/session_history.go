@@ -2,6 +2,12 @@ package service
 
 import (
 	"context"
+	"encoding/base64"
+	"errors"
+	"fmt"
+	"os"
+	"strconv"
+	"strings"
 	"time"
 
 	"github.com/cpave3/legato/internal/engine/store"
@@ -14,6 +20,12 @@ type SessionHistoryOptions struct {
 	Keep time.Duration
 	// Now is the clock; time.Now when nil.
 	Now func() time.Time
+	// ToolConfigured says whether an agent tool can be started here; nil
+	// is every tool.
+	ToolConfigured func(kind string) bool
+	// Away says whether a task is away on a worker (on a main instance);
+	// nil is never.
+	Away func(ctx context.Context, taskID string) bool
 }
 
 // SessionHistoryService is the session history: the conversations Legato's
@@ -42,4 +54,291 @@ func (h *SessionHistoryService) Sweep(ctx context.Context) (int, error) {
 		return 0, nil
 	}
 	return h.store.SweepAgentConversations(ctx, h.opts.Now().Add(-h.opts.Keep))
+}
+
+// The most entries one page of the history holds, and how many unless asked.
+const (
+	SessionPageDefault = 50
+	SessionPageMost    = 200
+)
+
+// ErrBadSessionQuery is a list query the history cannot read, such as a
+// cursor it did not give.
+var ErrBadSessionQuery = errors.New("bad session history query")
+
+// ErrSessionInUse is a conversation whose agent is running or
+// interrupted: it is still its task's, so it cannot be forgotten.
+var ErrSessionInUse = errors.New("the conversation is running or interrupted")
+
+// SessionQuery narrows the history. Q is words to search for; State is
+// running, interrupted, ended or away.
+type SessionQuery struct {
+	Q         string
+	AgentKind string
+	State     string
+	TaskID    string
+	Repo      string
+	Since     time.Time
+	Until     time.Time
+	Cursor    string
+	Limit     int
+}
+
+// SessionEntry is one conversation of the session history, with how it
+// stands and whether it can be restored.
+type SessionEntry struct {
+	ID                int64  `json:"id"`
+	AgentKind         string `json:"agent_kind"`
+	ProviderSessionID string `json:"provider_session_id"`
+	TaskID            string `json:"task_id"`
+	TaskTitle         string `json:"task_title"`
+	TaskExists        bool   `json:"task_exists"`
+	TaskArchived      bool   `json:"task_archived"`
+	Slot              string `json:"slot"`
+	Ephemeral         bool   `json:"ephemeral"`
+	Reeve             bool   `json:"reeve"`
+	CWD               string `json:"cwd"`
+	Repo              string `json:"repo,omitempty"`
+	Branch            string `json:"branch,omitempty"`
+	// State is running, interrupted, ended (with EndReason) or away.
+	State         string     `json:"state"`
+	EndReason     string     `json:"end_reason,omitempty"`
+	FirstMessage  string     `json:"first_message,omitempty"`
+	LastMessage   string     `json:"last_message,omitempty"`
+	LastMessageAt *time.Time `json:"last_message_at,omitempty"`
+	FirstSeenAt   time.Time  `json:"first_seen_at"`
+	LastSeenAt    time.Time  `json:"last_seen_at"`
+	RunCount      int        `json:"run_count"`
+	// Source is recorded, or recovered (found by folder and time).
+	Source          string `json:"source"`
+	TranscriptState string `json:"transcript_state"`
+	// Restorable says whether it can be restored, NewTaskOnly that only
+	// into a new task; Reason says why not, or why only so.
+	Restorable    bool   `json:"restorable"`
+	NewTaskOnly   bool   `json:"new_task_only,omitempty"`
+	Reason        string `json:"reason,omitempty"`
+	CanStartFresh bool   `json:"can_start_fresh"`
+}
+
+// SessionPage is a page of the history; NextCursor asks for the next one,
+// "" when there is none.
+type SessionPage struct {
+	Sessions   []SessionEntry `json:"sessions"`
+	NextCursor string         `json:"next_cursor,omitempty"`
+}
+
+// SessionRun is one run of a conversation.
+type SessionRun struct {
+	ExecutionID string     `json:"execution_id"`
+	StartedAt   time.Time  `json:"started_at"`
+	EndedAt     *time.Time `json:"ended_at,omitempty"`
+	EndReason   string     `json:"end_reason,omitempty"`
+	Sandboxed   *bool      `json:"sandboxed,omitempty"`
+	Engram      string     `json:"engram,omitempty"`
+	Resources   []string   `json:"resources"`
+}
+
+// SessionDetail is an entry with its runs, the oldest first.
+type SessionDetail struct {
+	SessionEntry
+	Runs []SessionRun `json:"runs"`
+}
+
+// List returns a page of the history: the best matches for Q first, or
+// without Q the most recently used.
+func (h *SessionHistoryService) List(ctx context.Context, q SessionQuery) (SessionPage, error) {
+	limit := q.Limit
+	if limit <= 0 {
+		limit = SessionPageDefault
+	}
+	limit = min(limit, SessionPageMost)
+	offset, err := decodeSessionCursor(q.Cursor)
+	if err != nil {
+		return SessionPage{}, err
+	}
+	filter := store.ConversationFilter{
+		AgentKind: q.AgentKind, TaskID: q.TaskID, Repo: q.Repo, Since: q.Since, Until: q.Until,
+		Limit: limit + 1, Offset: offset,
+	}
+	switch q.State {
+	case "", "away":
+	case store.ConversationRunning, store.ConversationInterrupted, store.ConversationEnded:
+		filter.State = q.State
+	default:
+		return SessionPage{}, fmt.Errorf("%w: state %q is not running, interrupted, ended or away", ErrBadSessionQuery, q.State)
+	}
+	if strings.TrimSpace(q.Q) != "" {
+		filter.Match = sessionSearch(q.Q)
+		if filter.Match == "" {
+			return SessionPage{Sessions: []SessionEntry{}}, nil
+		}
+	}
+	rows, err := h.store.ListAgentConversations(ctx, filter)
+	if err != nil {
+		return SessionPage{}, err
+	}
+	page := SessionPage{Sessions: make([]SessionEntry, 0, len(rows))}
+	if len(rows) > limit {
+		rows = rows[:limit]
+		page.NextCursor = encodeSessionCursor(offset + limit)
+	}
+	for _, row := range rows {
+		entry := h.entry(ctx, row)
+		// An away task is the main's to tell: the worker holds its agent.
+		if q.State == "away" && entry.State != "away" || q.State != "" && q.State != "away" && entry.State == "away" {
+			continue
+		}
+		page.Sessions = append(page.Sessions, entry)
+	}
+	return page, nil
+}
+
+// Get returns an entry with its runs; store.ErrNotFound when there is none.
+func (h *SessionHistoryService) Get(ctx context.Context, id int64) (*SessionDetail, error) {
+	row, err := h.store.GetAgentConversation(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	if row == nil {
+		return nil, fmt.Errorf("session %d: %w", id, store.ErrNotFound)
+	}
+	runs, err := h.store.ListConversationRuns(ctx, id)
+	if err != nil {
+		return nil, err
+	}
+	detail := &SessionDetail{SessionEntry: h.entry(ctx, *row), Runs: make([]SessionRun, len(runs))}
+	for i, run := range runs {
+		out := SessionRun{ExecutionID: run.ExecutionID, StartedAt: run.StartedAt, EndedAt: run.EndedAt, Sandboxed: run.Sandboxed}
+		if run.EndReason != nil {
+			out.EndReason = *run.EndReason
+		}
+		if name, _, err := h.store.ExecutionEngram(ctx, run.ExecutionID); err == nil {
+			out.Engram = name
+		}
+		out.Resources, _ = h.store.ListExecutionResources(ctx, run.ExecutionID)
+		if out.Resources == nil {
+			out.Resources = []string{}
+		}
+		detail.Runs[i] = out
+	}
+	return detail, nil
+}
+
+// Forget removes an entry, its runs and its search row. The tool's own
+// transcript and the task's saved conversation are left as they are.
+func (h *SessionHistoryService) Forget(ctx context.Context, id int64) error {
+	err := h.store.ForgetAgentConversation(ctx, id)
+	if errors.Is(err, store.ErrConflict) {
+		return ErrSessionInUse
+	}
+	if errors.Is(err, store.ErrNotFound) {
+		return fmt.Errorf("session %d: %w", id, store.ErrNotFound)
+	}
+	return err
+}
+
+// entry is a row as the history shows it.
+func (h *SessionHistoryService) entry(ctx context.Context, row store.AgentConversationRow) SessionEntry {
+	e := SessionEntry{
+		ID: row.ID, AgentKind: row.AgentKind, ProviderSessionID: row.ProviderSessionID,
+		TaskID: row.TaskID, TaskTitle: row.TaskTitle, TaskExists: row.TaskExists, TaskArchived: row.TaskArchived,
+		Slot: row.Slot, Ephemeral: row.Ephemeral, Reeve: row.Reeve, CWD: row.CWD, Repo: row.Repo, Branch: row.Branch,
+		FirstMessage: row.FirstMessage, LastMessage: row.LastMessage, LastMessageAt: row.LastMessageAt,
+		FirstSeenAt: row.FirstSeenAt, LastSeenAt: row.LastSeenAt, RunCount: row.RunCount,
+		Source: row.Source, TranscriptState: row.TranscriptState,
+	}
+	switch {
+	case row.Live:
+		e.State = store.ConversationRunning
+	case row.LastEndReason == store.RunInterrupted:
+		e.State = store.ConversationInterrupted
+	default:
+		e.State, e.EndReason = store.ConversationEnded, row.LastEndReason
+	}
+	if row.TaskExists && h.opts.Away != nil && h.opts.Away(ctx, row.TaskID) {
+		e.State, e.EndReason = "away", ""
+	}
+	h.restorability(&e)
+	return e
+}
+
+// restorability says whether an entry can be restored, and if not why:
+// the checks a restore makes before it starts anything, in its order.
+func (h *SessionHistoryService) restorability(e *SessionEntry) {
+	refuse := func(reason string, fresh bool) {
+		e.Restorable, e.Reason, e.CanStartFresh = false, reason, fresh
+	}
+	switch {
+	case e.State == store.ConversationRunning:
+		refuse("it is running", false)
+		return
+	case e.State == "away":
+		refuse("its task is away on a worker", false)
+		return
+	case h.opts.ToolConfigured != nil && !h.opts.ToolConfigured(e.AgentKind):
+		refuse(e.AgentKind+" is not configured", false)
+		return
+	}
+	if e.CWD != "" {
+		if info, err := os.Stat(e.CWD); err != nil || !info.IsDir() {
+			refuse("its folder "+e.CWD+" is gone", true)
+			return
+		}
+	}
+	if e.TranscriptState == store.TranscriptMissing {
+		refuse("its transcript is gone", true)
+		return
+	}
+	e.Restorable = true
+	if e.Reeve {
+		return
+	}
+	switch {
+	case !e.TaskExists:
+		e.NewTaskOnly, e.Reason = true, "its task is gone, so it can be restored into a new task only"
+	case e.TaskArchived:
+		e.NewTaskOnly, e.Reason = true, "its task is archived, so it can be restored into a new task only"
+	case IsNamedSlot(e.Slot):
+		e.NewTaskOnly, e.Reason = true, "Legato starts that slot's agents itself, so it can be restored into a new task only"
+	}
+}
+
+// sessionSearch makes words typed into the history's search an FTS5
+// expression: each a quoted phrase matched as a prefix, all of them
+// required, so nothing typed is read as FTS5 syntax. "" when no word is
+// left.
+func sessionSearch(q string) string {
+	var terms []string
+	for _, word := range strings.Fields(q) {
+		word = strings.Map(func(r rune) rune {
+			if r == '"' || r == '*' || r < ' ' {
+				return -1
+			}
+			return r
+		}, word)
+		if strings.Trim(word, "()^:+-.,") == "" {
+			continue
+		}
+		terms = append(terms, `"`+word+`"*`)
+	}
+	return strings.Join(terms, " ")
+}
+
+func encodeSessionCursor(offset int) string {
+	return base64.RawURLEncoding.EncodeToString([]byte("o" + strconv.Itoa(offset)))
+}
+
+func decodeSessionCursor(cursor string) (int, error) {
+	if cursor == "" {
+		return 0, nil
+	}
+	raw, err := base64.RawURLEncoding.DecodeString(cursor)
+	if err != nil || len(raw) < 2 || raw[0] != 'o' {
+		return 0, fmt.Errorf("%w: cursor %q", ErrBadSessionQuery, cursor)
+	}
+	offset, err := strconv.Atoi(string(raw[1:]))
+	if err != nil || offset < 0 {
+		return 0, fmt.Errorf("%w: cursor %q", ErrBadSessionQuery, cursor)
+	}
+	return offset, nil
 }

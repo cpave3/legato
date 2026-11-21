@@ -45,6 +45,7 @@ type Server struct {
 	settingsRegistry         SettingsRegistry
 	reeve                    ReeveSessions
 	reeveWatches             ReeveWatches
+	sessionHistory           SessionHistory
 	reeveRules               ReeveRuleProposer
 	reeveChangeSets          ReeveChangeSets
 	reeveSecrets             ReeveSecretKeeper
@@ -395,6 +396,7 @@ func NewWithSwarm(board service.BoardService, agents service.AgentService, tmux 
 	s.registerBurnliteRoutes(mux)
 	s.registerReeveRoutes(mux)
 	s.registerReeveWatchRoutes(mux)
+	s.registerSessionHistoryRoutes(mux)
 	s.registerReevePeerRoutes(mux)
 
 	// A route under /api/ that nothing above serves answers 404 in JSON,

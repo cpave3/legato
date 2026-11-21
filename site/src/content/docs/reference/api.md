@@ -443,6 +443,9 @@ A card on the board is a task: its ID is the task's. An agent is addressed by it
 | `POST` | `/api/mcp/oauth/attempts/{id}/confirm` | never | Confirm an MCP authorization |  |
 | `POST` | `/api/mcp/oauth/attempts/{id}/cancel` | never | Cancel an MCP authorization attempt |  |
 | `GET` | `/api/ca-cert` | read | Download the CA certificate |  |
+| `GET` | `/api/sessions` | read | Search the session history: the conversations agents had here, with whether each can be restored |  |
+| `GET` | `/api/sessions/{id}` | read | Show a conversation of the session history with its runs |  |
+| `DELETE` | `/api/sessions/{id}` | change | Forget a conversation: remove it from the session history (the tool's transcript stays) |  |
 | `GET` | `/ws` | never | Open the live connection that can type into agents |  |
 | `GET` | `/` | read | Load the web UI |  |
 
