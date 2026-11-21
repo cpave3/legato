@@ -59,7 +59,9 @@ func (s *Server) attentionHandler() http.HandlerFunc {
 				Total       int                     `json:"total"`
 				Hidden      int                     `json:"hidden_groups"`
 				HiddenNames []string                `json:"hidden_names"`
-			}{Items: items, Total: len(items), Hidden: len(hidden), HiddenNames: hidden})
+				// How long the phone's sheet stays closed once closed.
+				Snooze int `json:"snooze_seconds"`
+			}{Items: items, Total: len(items), Hidden: len(hidden), HiddenNames: hidden, Snooze: int(rail.SnoozeDuration().Seconds())})
 			return
 		}
 		s.writeJSON(w, http.StatusOK, struct {

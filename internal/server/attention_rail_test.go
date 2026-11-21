@@ -95,3 +95,24 @@ func TestTheRailViewOfAttentionFollowsTheRailSettings(t *testing.T) {
 		t.Fatalf("rail count = %d, %v; want %d", count, err, len(rail))
 	}
 }
+
+func TestTheRailViewSaysHowLongAClosedSheetStaysAway(t *testing.T) {
+	snooze := func(srv *Server) int {
+		t.Helper()
+		response := httptest.NewRecorder()
+		srv.Handler().ServeHTTP(response, httptest.NewRequest(http.MethodGet, "/api/attention?view=rail", nil))
+		var body struct {
+			Snooze *int `json:"snooze_seconds"`
+		}
+		if err := json.Unmarshal(response.Body.Bytes(), &body); err != nil || body.Snooze == nil {
+			t.Fatalf("rail view %s: %v", response.Body.String(), err)
+		}
+		return *body.Snooze
+	}
+	if got := snooze(railServer(t, config.RailConfig{})); got != 1800 {
+		t.Fatalf("snooze_seconds unset = %d, want 1800", got)
+	}
+	if got := snooze(railServer(t, config.RailConfig{Snooze: "1h"})); got != 3600 {
+		t.Fatalf("snooze_seconds with 1h = %d, want 3600", got)
+	}
+}

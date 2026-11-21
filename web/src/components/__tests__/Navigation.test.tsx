@@ -1,6 +1,7 @@
 import { cleanup, fireEvent, render, screen, within } from "@testing-library/react"
 import { MemoryRouter, Route, Routes } from "react-router-dom"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
+import { QueryClient, QueryClientProvider } from "@tanstack/react-query"
 import { Layout } from "../Layout"
 
 const { state } = vi.hoisted(() => ({
@@ -25,7 +26,12 @@ vi.mock("../needsYou/NeedsYouRail", () => ({ NeedsYouRail: () => null }))
 vi.mock("../PlanApprovalModal", () => ({ PlanApprovalModal: () => null }))
 vi.mock("../OfflineDialog", () => ({ OfflineDialog: () => null }))
 vi.mock("../ApprovalTray", () => ({ ApprovalTray: () => <section aria-label="Approvals" />, ApprovalFocus: () => null, useApprovalLink: () => {} }))
-vi.mock("../../hooks/useAgentSelection", () => ({ AgentSelectionProvider: ({ children }: { children: React.ReactNode }) => children }))
+const railView = vi.hoisted(() => ({ current: { items: [] as unknown[], hidden: 0, hiddenNames: [] as string[] } }))
+vi.mock("../../lib/needsYou", async (importOriginal) => ({
+  ...(await importOriginal<typeof import("../../lib/needsYou")>()),
+  fetchRailAttention: () => Promise.resolve(railView.current),
+}))
+vi.mock("../../hooks/useAgentSelection", () => ({ AgentSelectionProvider: ({ children }: { children: React.ReactNode }) => children, useAgentSelection: () => ({ selectedAgentId: null }) }))
 
 function renderAt(entry: string) {
   return render(
@@ -169,3 +175,38 @@ describe("the More sheet", () => {
   })
 })
 
+
+describe("the needs-you sheet by itself", () => {
+  const waiting = { id: "a1", producer: "agents", signal_kind: "agent_waiting", source_key: "ex-1", source_revision: "1", title: "Waiting", reason: "", category: "agent", urgency: "normal", task_id: "task-9" }
+  function at(width: number) {
+    vi.stubGlobal("matchMedia", (query: string) => ({
+      matches: query === "(max-width: 767px)" && width < 768, media: query,
+      addEventListener: () => {}, removeEventListener: () => {},
+    }))
+    railView.current = { items: [waiting], hidden: 0, hiddenNames: [] }
+    state.summary = { ...state.summary, rail: 1 }
+    return render(
+      <QueryClientProvider client={new QueryClient({ defaultOptions: { queries: { retry: false } } })}>
+        <MemoryRouter initialEntries={["/board"]}>
+          <Routes><Route element={<Layout />}><Route path="*" element={<h1>Page</h1>} /></Route></Routes>
+        </MemoryRouter>
+      </QueryClientProvider>,
+    )
+  }
+  afterEach(() => vi.unstubAllGlobals())
+
+  it("opens on a phone when something waits, and a close keeps it away", async () => {
+    at(390)
+    fireEvent.click(within(await screen.findByRole("dialog", { name: "Needs you" })).getByRole("button", { name: "Close" }))
+    cleanup()
+    at(390)
+    await new Promise((resolve) => setTimeout(resolve, 20))
+    expect(screen.queryByRole("dialog", { name: "Needs you" })).toBeNull()
+  })
+
+  it("never opens by itself on a wider screen", async () => {
+    at(1280)
+    await new Promise((resolve) => setTimeout(resolve, 20))
+    expect(screen.queryByRole("dialog", { name: "Needs you" })).toBeNull()
+  })
+})

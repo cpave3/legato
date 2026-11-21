@@ -51,6 +51,8 @@ An agent that posts the same title again updates its item, which comes back if y
 
 In the web UI, the column on the right of every page shows Attention as you choose: Settings › Attention › **Needs-you rail** has a switch for each kind of item, under **From agents** (actions, questions, finished work, anything else) and **From Legato** (approvals, agents, workflows, plans, ready for review, merge blockers, Legato's own). Ready for review and merge blockers are off at first. The settings are kept by Legato, so every browser shows the same rail. The same section holds how you are notified: in this browser, on this computer's desktop, and on your phone by ntfy, and **What notifies** (approvals, handoffs). See [Web UI](/legato/using/web-ui/#getting-around).
 
+On a phone, the rail is the **Needs you** sheet above the tab bar. When something waits, the sheet opens by itself. When you close it, it stays closed for 30 minutes on that device, also after a reload. The **Needs you** tab opens it at any time. A new approval, question, plan or workflow gate opens it again sooner. A new waiting agent or finished work does not. The sheet does not open by itself while you type in a text box, in focus mode, on the Attention page, or over another sheet. It also does not open for the agent whose page you have open. Change the 30 minutes in Settings › Attention › Needs-you rail › **On a phone** (`web.rail.snooze`).
+
 ### Acting on an item
 
 Most items have a main action, such as approving a plan, allowing an agent's request, returning a task from a worker, or opening the review. An action that cannot be undone, such as taking a task back without its results, asks you to confirm first. Others take you to the page where you act. An item about a task, such as a pull request that cannot merge, opens the board with that task selected, in the Away lane when the task is [away on a worker](/legato/using/handoff/#pull-requests-while-away).
@@ -89,7 +91,7 @@ Legato raises approvals for agents it talks to natively: Claude Code and Codex t
 
 ### Answering in the web UI
 
-While approvals wait, they come first in the **Needs you** rail on the right of every page, as cards. Each says which agent asks, what it would do, and its options. **Deny** takes a note for the agent. A question shows its options, and you can type an answer of your own. A new approval opens the rail if you had folded it. On a phone they are in a tray above the tab bar, which folds to a count.
+While approvals wait, they come first in the **Needs you** rail on the right of every page, as cards. Each says which agent asks, what it would do, and its options. **Deny** takes a note for the agent. A question shows its options, and you can type an answer of your own. A new approval opens the rail if you had folded it. On a phone the rail is the **Needs you** sheet above the tab bar.
 
 The rail also lists the [Reeve](/legato/using/reeve/)'s change sets that wait on instances this one is paired with, marked with the instance. They are decided there, with a device enrolled there: **◈ Approve on legato-1** opens that instance's page on the change set, and **Open legato-1 ↗** opens its page.
 

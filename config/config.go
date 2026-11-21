@@ -336,6 +336,23 @@ type RailConfig struct {
 	// Legato: updates, restarts, settings, devices, handoff, integrations,
 	// engrams, interrupted agents, and any kind with no group of its own.
 	Legato *bool `yaml:"legato"`
+	// Snooze is how long the phone's needs-you sheet stays closed after the
+	// operator closes it, before it opens by itself again (a Go duration;
+	// unset, DefaultRailSnooze). A new item that holds work ends it sooner.
+	Snooze string `yaml:"snooze"`
+}
+
+// DefaultRailSnooze is how long a closed needs-you sheet stays away when
+// web.rail.snooze is unset.
+const DefaultRailSnooze = 30 * time.Minute
+
+// SnoozeDuration is the snooze as a duration: DefaultRailSnooze when unset
+// or not a positive duration.
+func (r RailConfig) SnoozeDuration() time.Duration {
+	if d, err := time.ParseDuration(r.Snooze); err == nil && d > 0 {
+		return d
+	}
+	return DefaultRailSnooze
 }
 
 // RailGroups are the rail's groups, in the order Settings lists them.

@@ -21,7 +21,7 @@ While Legato is not fully set up, a **Setup n/N** chip at the top right counts w
 
 An empty page offers the next step. An empty board offers **New task** and **Import**. With no agents, the Agents page offers **Start an agent**. With no workflows, the Workflows page links to how to write one. When nothing needs you but setup is not finished, the Attention page says so and opens the setup checklist, so a quiet list is not mistaken for all clear.
 
-On a phone, a tab bar along the bottom holds **Needs you**, **Board**, **Agents**, **Review** and **More**. **Needs you · N** opens the rail's list as a sheet: the same items and actions, approvals first, with focus mode for agents' questions and **Close**; its foot links to the Attention page. A link to an approval, or a notification, opens the sheet on it. **More** opens the other pages, Attention among them, the server in use, and a few settings.
+On a phone, a tab bar along the bottom holds **Needs you**, **Board**, **Agents**, **Review** and **More**. **Needs you · N** opens the rail's list as a sheet: the same items and actions, approvals first, with focus mode for agents' questions and **Close**; its foot links to the Attention page. A link to an approval, or a notification, opens the sheet on it. The sheet also opens by itself when something waits, and once you close it, it stays closed for a while; see [the needs-you rail](/legato/using/attention/#the-needs-you-rail). **More** opens the other pages, Attention among them, the server in use, and a few settings.
 
 | Page | What it is for |
 | --- | --- |
