@@ -330,7 +330,12 @@ function NeedsYouList({ rows, steps, runId, refresh, onFocus }: { rows: RunNeeds
     <h2 className="mb-2 flex items-baseline gap-2 text-xs font-semibold uppercase tracking-wide text-lw-needs">Needs you<span className="font-medium text-lw-faint">{shown.length}</span></h2>
     {error && <p role="alert" className="mb-2 text-[13px] text-lw-error">{error}</p>}
     <div className="grid gap-2 md:grid-cols-2">
-      {shown.map(row => <div key={row.kind === "approval" ? row.approval.id : row.item.id} data-run-row="" className="cursor-pointer" onClick={() => onFocus(row.node)}>
+      {shown.map(row => <div key={row.kind === "approval" ? row.approval.id : row.item.id} data-run-row="" className="cursor-pointer" onClick={event => {
+        // A tap on the row shows its step; one on a control in it (a button,
+        // a link, Reply…'s field) is that control's alone.
+        if ((event.target as Element).closest("button, a, input, textarea, select, label, [role=dialog]")) return
+        onFocus(row.node)
+      }}>
         {row.kind === "approval"
           ? <ApprovalCard approval={row.approval} focused={false} onDone={async () => { await approvals.refresh(); await refresh() }} />
           : <NeedsYouRow item={row.item} onAction={onAction} onDismiss={onDismiss} pending={pending === row.item.id} />}

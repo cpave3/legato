@@ -81,6 +81,44 @@ describe("workflow graphs at phone width", () => {
     await waitFor(() => expect(screen.queryByRole("dialog", { name: "Add a note" })).toBeNull())
   })
 
+  it("close the sheet with a tap outside it, which the sheet never makes inert", async () => {
+    renderAt("/workflows/feed")
+    fireEvent.click(await screen.findByRole("button", { name: "Step: Write the report" }))
+    screen.getByRole("dialog", { name: "Write the report" })
+    const backdrop = screen.getByTestId("node-sheet-backdrop")
+    expect(backdrop.hasAttribute("inert")).toBe(false)
+    expect(backdrop.closest("[inert]")).toBeNull()
+    fireEvent.click(backdrop)
+    await waitFor(() => expect(screen.queryByRole("dialog")).toBeNull())
+  })
+
+  it("open no sheet when a control inside a Needs you row is used", async () => {
+    calls.fetchRun.mockReset()
+    const failed = { ...run, attempts: [], steps: [stepRun("write", "Write the report", "agent.run", "succeeded"), { ...stepRun("note", "Add a note", "task.note", "failed"), error: "boom" }] }
+    calls.fetchRun.mockResolvedValue(failed)
+    const client = createQueryClient()
+    client.setQueryData(queryKeys.workflowRun("", "wr-1"), failed as unknown as WorkflowRunView)
+    render(<QueryClientProvider client={client}><MemoryRouter initialEntries={["/workflows/runs/wr-1"]}><Routes><Route path="/workflows/runs/:runId" element={<WorkflowRunPage />} /></Routes></MemoryRouter></QueryClientProvider>)
+    fireEvent.click(screen.getByRole("button", { name: "Graph" }))
+    await screen.findByRole("button", { name: "Step: Add a note, Failed" })
+    const row = within(screen.getByRole("region", { name: "Needs you" })).getByRole("article", { name: "Add a note failed" })
+    fireEvent.click(within(row).getByRole("button", { name: "Dismiss" }))
+    expect(screen.queryByRole("dialog")).toBeNull()
+  })
+
+  it("open the sheet for a tap on a Needs you row itself", async () => {
+    calls.fetchRun.mockReset()
+    const failed = { ...run, attempts: [], steps: [stepRun("write", "Write the report", "agent.run", "succeeded"), { ...stepRun("note", "Add a note", "task.note", "failed"), error: "boom" }] }
+    calls.fetchRun.mockResolvedValue(failed)
+    const client = createQueryClient()
+    client.setQueryData(queryKeys.workflowRun("", "wr-1"), failed as unknown as WorkflowRunView)
+    render(<QueryClientProvider client={client}><MemoryRouter initialEntries={["/workflows/runs/wr-1"]}><Routes><Route path="/workflows/runs/:runId" element={<WorkflowRunPage />} /></Routes></MemoryRouter></QueryClientProvider>)
+    fireEvent.click(screen.getByRole("button", { name: "Graph" }))
+    await screen.findByRole("button", { name: "Step: Add a note, Failed" })
+    fireEvent.click(within(screen.getByRole("region", { name: "Needs you" })).getByText("boom"))
+    expect(await screen.findByRole("dialog", { name: "Add a note" })).toBeTruthy()
+  })
+
   it("lay out a workflow's page top to bottom, with details in a bottom sheet", async () => {
     renderAt("/workflows/feed")
     const node = await screen.findByRole("button", { name: "Step: Write the report" })
