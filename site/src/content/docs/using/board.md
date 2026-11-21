@@ -45,9 +45,9 @@ A column with no cards collapses to a narrow rail with its count and its name wr
 
 A card shows, from the top:
 
-- The priority mark (`▲` high, `▼` low, `·` none), the task's key, and where the task comes from: `local`, or a ticket provider such as `◈ jira`.
-- The title.
-- The ticket type, the workspace (in the All view), the swarm's progress and the review mark.
+- In the TUI, the priority mark (`▲` high, `▼` low, `·` none), the task's key, and where the task comes from: `local`, or a ticket provider such as `◈ jira`. On the web board, the source by name and the ticket's key, such as **Burnlite · LEG-386** or **Jira · AG-7467**; a task a main instance handed to this worker adds the main, **Burnlite · LEG-374 ← erebus**. A task made from a Burnlite milestone has a **Milestone** tag.
+- The title. On a phone it stops at three lines.
+- The ticket type, the workspace (in the All view), the swarm's progress and the review mark. For a Burnlite task, also what blocks it (**Blocked by LEG-370**, in red), its milestone and its labels.
 - On the web board, a line for each pull request, from the bottom of the stack: its number, which opens it on GitHub, one word for its state and a detail, such as `#191 Awaiting review · CI passed`. The words are **Merged**, **Closed, not merged** (the number struck through), **Draft**, **CI failing**, **Changes requested**, **CI running**, **Your review** (someone else's pull request waiting for your review), **Awaiting review**, **Ready to merge**, and **Approved** (approved, but a layer below it is not ready yet). A stack of two or more pull requests folds to a few lines:
   - a head, such as **Stack of 13 PRs** with **2 merged** (or **5 PRs in 2 repos**);
   - a bar with a segment for each pull request, from the bottom: blue for merged, green for ready to merge, a green outline for approved but waiting on a layer below, red for failing, amber stripes for CI running, a dashed outline for a draft;

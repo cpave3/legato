@@ -202,7 +202,7 @@ describe("Board layout", () => {
     it("describes the selected card beside the board", async () => {
       renderBoard()
       expect(within(panel()).getByRole("heading", { name: "CMA selector view" })).toBeTruthy()
-      expect(within(panel()).getByText("jira · AG-7467")).toBeTruthy()
+      expect(within(panel()).getByText("Jira · AG-7467")).toBeTruthy()
       expect(within(panel()).getByText("Backlog")).toBeTruthy()
       expect(within(panel()).getByText("None yet")).toBeTruthy()
       await waitFor(() => expect(within(panel()).getByText("The CMA selector has several issues.")).toBeTruthy())

@@ -46,16 +46,21 @@ type CardResponse struct {
 	Provider  string `json:"provider"`
 	// RemoteID is the ticket's key at its provider; SourceURL opens it
 	// there. Both are absent for a local task.
-	RemoteID       string `json:"remote_id,omitempty"`
-	SourceURL      string `json:"source_url,omitempty"`
-	HasWarning     bool   `json:"has_warning"`
-	HasWorktree    bool   `json:"has_worktree"`
-	WorkspaceID    *int   `json:"workspace_id"`
-	WorkspaceName  string `json:"workspace_name"`
-	WorkspaceColor string `json:"workspace_color"`
-	AgentActive    bool   `json:"agent_active"`
-	AgentState     string `json:"agent_state"`
-	AgentKind      string `json:"agent_kind,omitempty"`
+	RemoteID  string `json:"remote_id,omitempty"`
+	SourceURL string `json:"source_url,omitempty"`
+	// BlockedBy, Milestone and Labels are a Burnlite task's open blockers,
+	// its milestone's key and its labels; absent otherwise.
+	BlockedBy      []string `json:"blocked_by,omitempty"`
+	Milestone      string   `json:"milestone,omitempty"`
+	Labels         []string `json:"labels,omitempty"`
+	HasWarning     bool     `json:"has_warning"`
+	HasWorktree    bool     `json:"has_worktree"`
+	WorkspaceID    *int     `json:"workspace_id"`
+	WorkspaceName  string   `json:"workspace_name"`
+	WorkspaceColor string   `json:"workspace_color"`
+	AgentActive    bool     `json:"agent_active"`
+	AgentState     string   `json:"agent_state"`
+	AgentKind      string   `json:"agent_kind,omitempty"`
 	// AgentEngram is the engram the card's agents run as; absent for none.
 	AgentEngram string `json:"agent_engram,omitempty"`
 	// SlotAgents are the task's running named slots (a reviewer), each

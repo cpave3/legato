@@ -73,8 +73,13 @@ type Card struct {
 	Provider  string // "jira", "github", or "" for local
 	// RemoteID is the ticket's key at its provider ("LEG-386"); URL opens
 	// the ticket there. Both are empty for a local task.
-	RemoteID       string
-	URL            string
+	RemoteID string
+	URL      string
+	// BlockedBy, Milestone and Labels are a Burnlite task's open blockers,
+	// its milestone's key and its labels; empty for any other provider.
+	BlockedBy      []string
+	Milestone      string
+	Labels         []string
 	SortOrder      int
 	HasWarning     bool
 	HasWorktree    bool

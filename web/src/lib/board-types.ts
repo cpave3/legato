@@ -37,6 +37,10 @@ export interface BoardCard {
   // local task.
   remote_id?: string
   source_url?: string
+  // A Burnlite task's open blockers, its milestone's key and its labels.
+  blocked_by?: string[]
+  milestone?: string
+  labels?: string[]
   has_warning: boolean
   has_worktree?: boolean
   agent_active: boolean

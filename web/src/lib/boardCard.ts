@@ -1,5 +1,6 @@
 import type { BoardCard } from "./board-types"
 import { agentToolLabel } from "./agentKind"
+import { providerLabel } from "./providers"
 
 export function formatDuration(seconds: number): string {
   if (seconds <= 0) return ""
@@ -132,4 +133,21 @@ export function needsYouStrips(card: BoardCard): NeedsYouStrip[] {
     strips.push({ glyph: "‖", text: `Interrupted${kind ? ` · ${kind}` : ""}`, action: { label: "Resume", kind: "resume", taskId: card.id } })
   }
   return strips
+}
+
+// Where a card's task comes from, as its header says it: the source by name
+// and the ticket's key ("Burnlite · LEG-386", "local · f41p6uf0"); a
+// worker's copy adds the main it came from ("← erebus"), an away task the
+// worker it is on ("→ vm-1").
+export function cardSource(card: Pick<BoardCard, "id" | "provider" | "remote_id" | "handoff_from" | "away">): string {
+  const key = card.remote_id || card.id
+  let text = card.provider ? `${providerLabel(card.provider)} · ${key}` : `local · ${card.id}`
+  if (card.handoff_from) text += ` ← ${card.handoff_from.main}`
+  if (card.away) text += ` → ${card.away.worker}`
+  return text
+}
+
+// A task imported from a Burnlite Milestone.
+export function isMilestone(card: Pick<BoardCard, "issue_type">): boolean {
+  return card.issue_type === "Milestone"
 }

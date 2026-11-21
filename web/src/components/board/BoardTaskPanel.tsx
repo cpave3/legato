@@ -5,6 +5,7 @@ import { MarkdownBody } from "../MarkdownBody"
 import { agentStripLook, formatDuration, priorityTone } from "../../lib/boardCard"
 import { TaskAgentAction } from "./TaskAgentAction"
 import { providerLabel } from "../../lib/providers"
+import { cardSource } from "../../lib/boardCard"
 import { awayLook, awayTime, kindLabel, purposeLabel } from "../../lib/away"
 import { AwayPullRequests } from "./AwayPullRequests"
 import { cn } from "../../lib/utils"
@@ -82,7 +83,7 @@ export function BoardTaskPanel({ card, column, detail, onClose, onOpenDetails, o
     <aside aria-label="Selected task" className="flex w-[360px] shrink-0 flex-col border-l border-[var(--theme-border,#222228)] bg-[var(--theme-surface,#141417)] font-lw">
       <div className="flex flex-col gap-1.5 border-b border-[var(--theme-border,#222228)] px-[18px] py-4">
         <div className="flex items-center justify-between font-lw-mono text-xs text-lw-faint">
-          <span className="truncate">{card.provider || "local"} · {card.id}</span>
+          <span className="truncate">{cardSource(card)}</span>
           <button type="button" aria-label="Close task panel" onClick={onClose} className="-mr-1.5 flex h-7 w-7 items-center justify-center rounded-md text-lw-text-2 hover:bg-lw-raised hover:text-lw-text"><X size={15} /></button>
         </div>
         <h2 className="m-0 text-base font-semibold leading-[22px]">{card.title}</h2>

@@ -2,6 +2,7 @@ package service
 
 import (
 	"context"
+	"reflect"
 	"errors"
 	"path/filepath"
 	"testing"
@@ -966,5 +967,35 @@ func TestListCards_CarriesTheTicketKeyAndAddress(t *testing.T) {
 	}
 	if got := byID["local1"]; got.RemoteID != "" || got.URL != "" {
 		t.Fatalf("local card = %+v", got)
+	}
+}
+
+func TestListCards_CarriesBurnlitesBlockersMilestoneAndLabels(t *testing.T) {
+	s, _, svc := setupTestBoard(t)
+	ctx := context.Background()
+	seedColumns(t, s)
+	burnlite, jira := "burnlite", "jira"
+	key, jiraKey := "LEG-386", "AG-7"
+	meta := `{"url":"https://burnlite.dev/LEG-386","blocked_by":"LEG-370,LEG-371","epic_key":"LEG-380","epic_name":"Settings","labels":"ui,enhancement"}`
+	if err := s.CreateTask(ctx, store.Task{ID: "b1", Title: "Burnlite", Status: "Backlog", Provider: &burnlite, RemoteID: &key, RemoteMeta: &meta}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.CreateTask(ctx, store.Task{ID: "j1", Title: "Jira", Status: "Backlog", Provider: &jira, RemoteID: &jiraKey, RemoteMeta: &meta}); err != nil {
+		t.Fatal(err)
+	}
+	cards, err := svc.ListCards(ctx, "Backlog")
+	if err != nil {
+		t.Fatal(err)
+	}
+	byID := map[string]Card{}
+	for _, c := range cards {
+		byID[c.ID] = c
+	}
+	b := byID["b1"]
+	if !reflect.DeepEqual(b.BlockedBy, []string{"LEG-370", "LEG-371"}) || b.Milestone != "LEG-380" || !reflect.DeepEqual(b.Labels, []string{"ui", "enhancement"}) {
+		t.Fatalf("burnlite card = %+v", b)
+	}
+	if j := byID["j1"]; j.BlockedBy != nil || j.Milestone != "" || j.Labels != nil {
+		t.Fatalf("a Jira card has Burnlite's fields: %+v", j)
 	}
 }

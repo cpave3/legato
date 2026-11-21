@@ -30,12 +30,12 @@ func TestBoardCardsCarryTheTicketKeyAndAddress(t *testing.T) {
 	svc := &mockBoardService{
 		columns: []service.Column{{Name: "Doing"}},
 		cards: map[string][]service.Card{"Doing": {
-			{ID: "k3x9q2ma", Title: "Forms", Status: "Doing", Provider: "burnlite", RemoteID: "LEG-386", URL: "https://burnlite.dev/LEG-386"},
+			{ID: "k3x9q2ma", Title: "Forms", Status: "Doing", Provider: "burnlite", RemoteID: "LEG-386", URL: "https://burnlite.dev/LEG-386", BlockedBy: []string{"LEG-370"}, Milestone: "LEG-380", Labels: []string{"ui"}},
 			{ID: "local1", Title: "Local", Status: "Doing"},
 		}},
 	}
 	cards := boardCards(t, svc)
-	if cards[0].RemoteID != "LEG-386" || cards[0].SourceURL != "https://burnlite.dev/LEG-386" {
+	if cards[0].RemoteID != "LEG-386" || cards[0].SourceURL != "https://burnlite.dev/LEG-386" || len(cards[0].BlockedBy) != 1 || cards[0].Milestone != "LEG-380" || len(cards[0].Labels) != 1 {
 		t.Fatalf("card = %+v", cards[0])
 	}
 	raw, _ := json.Marshal(cards[1])
@@ -43,6 +43,11 @@ func TestBoardCardsCarryTheTicketKeyAndAddress(t *testing.T) {
 	_ = json.Unmarshal(raw, &fields)
 	if _, ok := fields["remote_id"]; ok {
 		t.Fatalf("local card has remote_id: %s", raw)
+	}
+	for _, name := range []string{"blocked_by", "milestone", "labels"} {
+		if _, ok := fields[name]; ok {
+			t.Fatalf("local card has %s: %s", name, raw)
+		}
 	}
 	if _, ok := fields["source_url"]; ok {
 		t.Fatalf("local card has source_url: %s", raw)

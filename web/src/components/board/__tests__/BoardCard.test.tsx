@@ -50,16 +50,39 @@ describe("BoardCard", () => {
   beforeEach(() => localStorage.clear())
   afterEach(cleanup)
 
-  it("names where the task comes from and its key", () => {
-    renderCard(makeCard())
-    expect(screen.getByText("jira · T-1")).toBeTruthy()
-    renderCard(makeCard({ id: "abc123", provider: "" }))
-    expect(screen.getByText("local · abc123")).toBeTruthy()
+  it.each([
+    [{ provider: "", id: "f41p6uf0" }, "local · f41p6uf0"],
+    [{ provider: "jira", id: "k3x9", remote_id: "AG-7467" }, "Jira · AG-7467"],
+    [{ provider: "burnlite", id: "k3x9q2ma", remote_id: "LEG-386" }, "Burnlite · LEG-386"],
+    [{ provider: "burnlite-copy", id: "w-1", remote_id: "LEG-374", handoff_from: { main: "erebus", main_task_id: "K7Q2M9XA" } }, "Burnlite · LEG-374 ← erebus"],
+  ])("names the source and the ticket's key: %j", (overrides, text) => {
+    renderCard(makeCard(overrides as Partial<BoardCardType>))
+    expect(within(screen.getByTestId("card-source")).getByText(text)).toBeTruthy()
   })
 
-  it("says which main instance handed a card to this worker", () => {
-    renderCard(makeCard({ handoff_from: { main: "workstation", main_task_id: "K7Q2M9XA" } }))
-    expect(screen.getByText("from workstation · K7Q2M9XA")).toBeTruthy()
+  it("leaves out a worker's workspace named after its main", () => {
+    renderCard(makeCard({ provider: "burnlite-copy", remote_id: "LEG-374", workspace_name: "erebus", handoff_from: { main: "erebus", main_task_id: "K7Q2M9XA" } }), { showWorkspace: true })
+    expect(within(screen.getByTestId("card-meta")).queryByText("erebus")).toBeNull()
+  })
+
+  it("tags a Burnlite Milestone in the header, not the meta line", () => {
+    renderCard(makeCard({ provider: "burnlite", remote_id: "LEG-386", issue_type: "Milestone", priority: "" }))
+    expect(within(screen.getByTestId("card-source")).getByText("Milestone")).toBeTruthy()
+    expect(screen.queryByTestId("card-meta")).toBeNull()
+  })
+
+  it("says what blocks a Burnlite task, its milestone and its labels", () => {
+    renderCard(makeCard({ provider: "burnlite", remote_id: "LEG-406", priority: "", issue_type: "Work", blocked_by: ["LEG-405"], milestone: "LEG-404", labels: ["ui", "enhancement"] }))
+    const meta = screen.getByTestId("card-meta")
+    expect(meta.textContent).toBe("Work·Blocked by LEG-405·LEG-404·ui·enhancement")
+    expect(within(meta).getByText("Blocked by LEG-405").className).toContain("text-lw-error")
+  })
+
+  it("lets a long title wrap anywhere, and stops it at three lines on a phone", () => {
+    renderCard(makeCard({ title: "a-very-long-branch-name-without-any-spaces-at-all" }))
+    const title = screen.getByRole("button", { name: /a-very-long/ })
+    expect(title.className).toContain("[overflow-wrap:anywhere]")
+    expect(title.className).toContain("max-md:line-clamp-3")
   })
 
   it("shows a running agent's tool and how long it has worked", () => {

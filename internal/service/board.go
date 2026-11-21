@@ -109,8 +109,8 @@ func (b *boardService) ListCardsByWorkspace(ctx context.Context, column string, 
 	cards := make([]Card, len(tasks))
 	for i, t := range tasks {
 		issueType, url := "", ""
+		var meta map[string]string
 		if t.RemoteMeta != nil {
-			var meta map[string]string
 			if json.Unmarshal([]byte(*t.RemoteMeta), &meta) == nil {
 				issueType = meta["issue_type"]
 				url = meta["url"]
@@ -139,6 +139,11 @@ func (b *boardService) ListCardsByWorkspace(ctx context.Context, column string, 
 			WorkspaceID:   t.WorkspaceID,
 			HandedOffFrom: origins[t.ID],
 			Away:          away[t.ID],
+		}
+		if provider == "burnlite" {
+			cards[i].BlockedBy = splitList(meta["blocked_by"])
+			cards[i].Milestone = meta["epic_key"]
+			cards[i].Labels = splitList(meta["labels"])
 		}
 		if wsLookup != nil && t.WorkspaceID != nil {
 			if ws, ok := wsLookup[*t.WorkspaceID]; ok {
@@ -391,6 +396,17 @@ func (b *boardService) SearchCards(ctx context.Context, query string) ([]Card, e
 		}
 	}
 	return results, nil
+}
+
+// splitList is a comma-separated remote_meta field as a list; nil for none.
+func splitList(raw string) []string {
+	var out []string
+	for _, part := range strings.Split(raw, ",") {
+		if part = strings.TrimSpace(part); part != "" {
+			out = append(out, part)
+		}
+	}
+	return out
 }
 
 func taskToCard(t store.Task) Card {

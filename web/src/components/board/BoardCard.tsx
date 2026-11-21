@@ -3,7 +3,7 @@ import { useEffect, useRef, useState, type DragEvent, type MouseEvent, type Reac
 import { Link } from "react-router-dom"
 import { MoreHorizontal } from "lucide-react"
 import type { BoardCard as BoardCardType } from "../../lib/board-types"
-import { agentStripLook, formatDuration, needsYouStrip, needsYouStrips, priorityTone, slotChipLabel, type NeedsYouStrip, type StripAction } from "../../lib/boardCard"
+import { agentStripLook, cardSource, formatDuration, isMilestone, needsYouStrip, needsYouStrips, priorityTone, slotChipLabel, type NeedsYouStrip, type StripAction } from "../../lib/boardCard"
 import { openNeedsYou, showApproval } from "../../lib/railState"
 import { resumeInterruptedAgent } from "../../lib/interruptedAgents"
 import { useServer } from "../../hooks/useServer"
@@ -96,9 +96,14 @@ function MetaLine({ card, showWorkspace }: { card: BoardCardType; showWorkspace:
   const swarm = card.swarm_stats && card.swarm_stats.total > 0 ? card.swarm_stats : null
   const parts: ReactNode[] = []
   if (card.priority) parts.push(<span key="priority" className={priorityTone(card.priority)}>{card.priority}</span>)
-  if (card.issue_type) parts.push(<span key="type">{card.issue_type}</span>)
-  if (showWorkspace && card.workspace_name) parts.push(<span key="workspace">{card.workspace_name}</span>)
+  // A Milestone is a tag in the header.
+  if (card.issue_type && !isMilestone(card)) parts.push(<span key="type">{card.issue_type}</span>)
+  // On a worker, a workspace named after the main says what the header does.
+  if (showWorkspace && card.workspace_name && card.workspace_name !== card.handoff_from?.main) parts.push(<span key="workspace">{card.workspace_name}</span>)
   if (swarm) parts.push(<span key="swarm" className="text-lw-link">{swarm.done}/{swarm.total} workers</span>)
+  if (card.blocked_by && card.blocked_by.length > 0) parts.push(<span key="blocked" className="text-lw-error">Blocked by {card.blocked_by.join(", ")}</span>)
+  if (card.milestone) parts.push(<span key="milestone" className="font-lw-mono">{card.milestone}</span>)
+  for (const label of card.labels ?? []) parts.push(<span key={`label-${label}`}>{label}</span>)
   if (parts.length === 0) return null
   return (
     <div data-testid="card-meta" className="flex flex-wrap items-center gap-x-1.5 text-xs text-lw-text-2">
@@ -160,12 +165,16 @@ export function BoardCard({ card, selected, highlighted = false, column, showWor
         highlighted && "lw-highlight",
       )}
     >
-      {onActionMenu && <button type="button" aria-label={`Open actions for ${card.title}`} onClick={event => { event.stopPropagation(); const rect = event.currentTarget.getBoundingClientRect(); onActionMenu({ x: rect.right, y: rect.bottom }) }} className="absolute right-1 top-1 z-10 flex h-9 w-9 items-center justify-center rounded-md text-lw-faint hover:bg-lw-raised hover:text-lw-text focus-visible:opacity-100 md:h-7 md:w-7 md:opacity-0 md:group-hover:opacity-100"><MoreHorizontal size={15} /></button>}
+      {onActionMenu && <button type="button" aria-label={`Open actions for ${card.title}`} onClick={event => { event.stopPropagation(); const rect = event.currentTarget.getBoundingClientRect(); onActionMenu({ x: rect.right, y: rect.bottom }) }} className="absolute right-0 top-0 z-10 flex h-11 w-11 items-center justify-center rounded-md md:right-1 md:top-1 text-lw-faint hover:bg-lw-raised hover:text-lw-text focus-visible:opacity-100 md:h-7 md:w-7 md:opacity-0 md:group-hover:opacity-100"><MoreHorizontal size={15} /></button>}
       <div className="flex flex-col gap-1 px-3 py-2.5">
-        <div className="flex justify-between gap-2 pr-8 font-lw-mono text-[11px] text-lw-faint md:pr-0">
-          <span className="truncate">{card.provider || "local"} · {card.id}</span>
-          {card.has_warning && <Mark glyph="⚠" tone="mr-auto shrink-0 font-lw text-lw-error">sync failed</Mark>}
-          {agentTime && <span title="Time agents spent on this task" className="shrink-0">{agentTime}</span>}
+        {/* The header always leaves room for ⋯ at its right. */}
+        <div data-testid="card-source" className="flex items-center justify-between gap-2 pr-10 font-lw-mono md:pr-8 text-[11px] leading-4 text-lw-faint">
+          <span className="truncate" title={card.handoff_from ? `${card.handoff_from.main} · ${card.handoff_from.main_task_id}` : undefined}>{cardSource(card)}</span>
+          <span className="flex shrink-0 items-center gap-2">
+            {card.has_warning && <Mark glyph="⚠" tone="font-lw text-lw-error">sync failed</Mark>}
+            {isMilestone(card) && <span className="rounded-full border border-lw-line-strong px-1.5 font-lw leading-[14px] text-lw-text-2">Milestone</span>}
+            {agentTime && <span title="Time agents spent on this task">{agentTime}</span>}
+          </span>
         </div>
         <button
           type="button"
@@ -176,9 +185,8 @@ export function BoardCard({ card, selected, highlighted = false, column, showWor
             event.stopPropagation()
             ;(onDoubleClick ?? onClick)()
           }}
-          className={cn("rounded-sm text-left text-sm font-semibold leading-[19px] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-lw-accent", isDone && "text-lw-text-2")}
+          className={cn("rounded-sm text-left text-sm font-semibold leading-[19px] [overflow-wrap:anywhere] max-md:line-clamp-3 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-lw-accent", isDone && "text-lw-text-2")}
         >{card.title}</button>
-        {card.handoff_from && <div data-testid="handoff-from" className="truncate text-xs text-lw-text-2">{`from ${card.handoff_from.main} · ${card.handoff_from.main_task_id}`}</div>}
         <MetaLine card={card} showWorkspace={showWorkspace} />
         {card.review_ready && !card.review_unreviewed && <Mark glyph="✓" tone="text-xs text-lw-done">Reviewed</Mark>}
         <CardPullRequests card={card} />
