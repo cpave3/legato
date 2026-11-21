@@ -125,10 +125,13 @@ The **Workflows** tab lists each workflow with its steps (✋ marks one that wai
 Select a workflow's title on the **Workflows** tab to open its page. It shows the workflow's title, description and file, and its **workflow graph**: the workflow drawn as nodes, built from its YAML. The graph is read-only; to change the workflow, edit its file.
 
 - **Run by hand** is the node every workflow starts from when you run it yourself.
+- Each trigger the workflow declares is a node too, leading into the first step: when it fires (**Card enters Triage**, **Every weekday at 09:00**, **Changes requested on a PR**), whether it is **on here** or **paused here**, and its loop stop (**3/day**).
 - Each step is a node with an icon, its kind (**Agent**, **Send to agent**, **Note**, **Move card**, **Review in passes**…), its title and the one value that says what it does: the prompt's first line or the macro, the column, the repository or pull request.
 - Arrows lead from one step to the step that runs after it.
 
 Drag to pan, scroll or use the buttons at the bottom left to zoom, and the frame button to fit the whole graph. The overview at the bottom right shows where you are in a long workflow. Click a node, or move to it with Tab and press Enter, to select it.
+
+Select a trigger to see its settings in the panel beside the graph: whether it asks before each run, its loop stop, what its file says, and the trigger as its YAML declares it. Its switch turns it on or pauses it on this Legato, as on the **Workflows** tab; a schedule also lists its next due times and its missed runs.
 
 **Run** opens the form for its inputs, and **Recent runs** lists that workflow's last ten runs. A file that can't be parsed shows its error instead of a graph.
 

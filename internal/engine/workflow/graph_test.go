@@ -180,3 +180,68 @@ func TestGraphOfEveryBundledTemplate(t *testing.T) {
 		})
 	}
 }
+
+const everyTrigger = `schema_version: 1
+name: all
+title: All triggers
+inputs:
+  task: {type: task}
+  repo: {type: string}
+on:
+  task.entered_column:
+    column: Triage
+    confirm: true
+    inputs: {task: "${{ event.task }}"}
+  schedule:
+    every: weekdays
+    at: "09:00"
+    enabled: false
+    max_runs_per_day: 1
+  pr.changes_requested:
+    max_runs_per_day: 5
+steps:
+  - {id: first, title: First, type: agent.run, with: {prompt: go}}
+  - {id: second, title: Second, type: task.note, with: {body: done}}
+`
+
+func TestGraphHasATriggerNodePerDeclaredKind(t *testing.T) {
+	graph := BuildGraph(mustParse(t, everyTrigger))
+	cases := []struct {
+		kind    string
+		summary string
+		enabled bool
+		confirm bool
+		max     int
+	}{
+		{TriggerManual, "Run by hand", true, false, 0},
+		{TriggerTaskEnteredColumn, "Card enters Triage", true, true, DefaultMaxRunsPerDay},
+		{TriggerSchedule, "Every weekday at 09:00", false, false, 1},
+		{TriggerPRChangesRequested, "Changes requested on a PR", true, false, 5},
+	}
+	for _, tc := range cases {
+		node := nodeByID(graph, "trigger:"+tc.kind)
+		if node == nil || node.Trigger == nil {
+			t.Fatalf("no node for %s", tc.kind)
+		}
+		got := node.Trigger
+		if got.Kind != tc.kind || got.Summary != tc.summary || got.Enabled != tc.enabled || got.Confirm != tc.confirm || got.MaxRunsPerDay != tc.max {
+			t.Fatalf("%s = %+v", tc.kind, got)
+		}
+		if tc.kind != TriggerManual && got.Definition == nil {
+			t.Fatalf("%s has no definition", tc.kind)
+		}
+	}
+	want := [][2]string{{"trigger:manual", "step:first"}, {"trigger:task.entered_column", "step:first"}, {"trigger:schedule", "step:first"}, {"trigger:pr.changes_requested", "step:first"}}
+	if got := edgesOfKind(graph, EdgeStart); !reflect.DeepEqual(got, want) {
+		t.Fatalf("start edges = %v", got)
+	}
+}
+
+func TestGraphHasNoTriggerNodeForAKindNotDeclared(t *testing.T) {
+	graph := BuildGraph(mustParse(t, threeSteps))
+	for _, node := range graph.Nodes {
+		if node.Kind == NodeTrigger && node.Trigger.Kind != TriggerManual {
+			t.Fatalf("unexpected trigger node %s", node.ID)
+		}
+	}
+}

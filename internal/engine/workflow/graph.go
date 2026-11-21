@@ -50,8 +50,17 @@ type GraphNode struct {
 // GraphTrigger is a trigger node: one way the workflow starts.
 type GraphTrigger struct {
 	Kind string `json:"kind"`
+	// Summary says when it fires, in words: "Card enters Triage".
+	Summary string `json:"summary"`
 	// Enabled is what the file says, before any switch in a Legato.
 	Enabled bool `json:"enabled"`
+	// Confirm is whether it asks the operator before each run.
+	Confirm bool `json:"confirm,omitempty"`
+	// MaxRunsPerDay is the loop stop's limit, the default when the file
+	// says none; 0 for the manual start, which has no loop stop.
+	MaxRunsPerDay int `json:"max_runs_per_day,omitempty"`
+	// Definition is the trigger as the definition's on: declares it.
+	Definition any `json:"definition,omitempty"`
 }
 
 // GraphStep is a step node.
@@ -93,7 +102,20 @@ func edge(kind, source, target string) GraphEdge {
 func BuildGraph(d *Definition) *Graph {
 	graph := &Graph{Version: GraphVersion, Nodes: []GraphNode{}, Edges: []GraphEdge{}}
 	manual := triggerNodeID(TriggerManual)
-	graph.Nodes = append(graph.Nodes, GraphNode{ID: manual, Kind: NodeTrigger, Trigger: &GraphTrigger{Kind: TriggerManual, Enabled: true}})
+	graph.Nodes = append(graph.Nodes, GraphNode{ID: manual, Kind: NodeTrigger, Trigger: &GraphTrigger{Kind: TriggerManual, Summary: "Run by hand", Enabled: true}})
+	triggers := []string{manual}
+	for _, kind := range []string{TriggerTaskEnteredColumn, TriggerSchedule, TriggerPRChangesRequested} {
+		common, ok := d.On.Common(kind)
+		if !ok {
+			continue
+		}
+		summary, definition := triggerSummary(d.On, kind)
+		id := triggerNodeID(kind)
+		graph.Nodes = append(graph.Nodes, GraphNode{ID: id, Kind: NodeTrigger, Trigger: &GraphTrigger{
+			Kind: kind, Summary: summary, Enabled: enabledByDefault(common.Enabled), Confirm: common.Confirm, MaxRunsPerDay: common.Limit(), Definition: definition,
+		}})
+		triggers = append(triggers, id)
+	}
 	for i, step := range d.Steps {
 		trigger := step.Trigger
 		if trigger == "" {
@@ -104,7 +126,9 @@ func BuildGraph(d *Definition) *Graph {
 			ID: step.ID, Title: step.Title, Type: step.Type, Trigger: trigger, Key: stepKey(step), Definition: step,
 		}})
 		if i == 0 {
-			graph.Edges = append(graph.Edges, edge(EdgeStart, manual, id))
+			for _, trigger := range triggers {
+				graph.Edges = append(graph.Edges, edge(EdgeStart, trigger, id))
+			}
 		} else {
 			graph.Edges = append(graph.Edges, edge(EdgeOrder, stepNodeID(d.Steps[i-1].ID), id))
 		}
@@ -170,4 +194,18 @@ func keyText(value any) string {
 		}
 	}
 	return ""
+}
+
+// triggerSummary says when a declared trigger fires, and gives the trigger
+// as declared.
+func triggerSummary(on Triggers, kind string) (string, any) {
+	switch kind {
+	case TriggerTaskEnteredColumn:
+		return "Card enters " + on.TaskEnteredColumn.Column, on.TaskEnteredColumn
+	case TriggerSchedule:
+		return on.Schedule.Describe(), on.Schedule
+	case TriggerPRChangesRequested:
+		return "Changes requested on a PR", on.PRChangesRequested
+	}
+	return kind, nil
 }

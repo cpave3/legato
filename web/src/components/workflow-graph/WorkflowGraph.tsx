@@ -6,7 +6,7 @@ import dagre from "@dagrejs/dagre"
 import { Background, Controls, Handle, MiniMap, Position, ReactFlow, ReactFlowProvider, type Edge, type Node, type NodeProps, type NodeTypes, type OnSelectionChangeParams } from "@xyflow/react"
 import "@xyflow/react/dist/base.css"
 import { ArrowRightLeft, BookOpen, Bot, CircleStop, Clock, Columns3, FileText, FileX, FolderSearch, FolderX, GitBranch, GitPullRequest, Hand, MessageSquareWarning, MessagesSquare, Repeat, Send, StickyNote, Tag, Trash2, Workflow, type LucideIcon } from "lucide-react"
-import { nodeName, stepTypeLabel, triggerName, type GraphNode, type WorkflowGraphModel } from "../../lib/workflowGraph"
+import { nodeName, stepTypeLabel, triggerName, triggerOn, type GraphNode, type GraphNodeExtra, type WorkflowGraphModel } from "../../lib/workflowGraph"
 import { cn } from "../../lib/utils"
 
 export type WorkflowGraphProps = {
@@ -15,6 +15,8 @@ export type WorkflowGraphProps = {
   onSelect?: (id: string | null) => void
   // direction is LR on wide screens, TB at phone width.
   direction?: "LR" | "TB"
+  // extras is what the page knows of each node, by node ID.
+  extras?: Record<string, GraphNodeExtra>
   className?: string
 }
 
@@ -47,9 +49,9 @@ const triggerIcons: Record<string, LucideIcon> = {
 
 // Node sizes come from fixed classes, so the layout never waits for the
 // nodes to be measured.
-const sizes = { step: { width: 240, height: 76 }, trigger: { width: 200, height: 56 } } as const
+const sizes = { step: { width: 240, height: 76 }, trigger: { width: 220, height: 60 } } as const
 
-type FlowData = { node: GraphNode; direction: "LR" | "TB" }
+type FlowData = { node: GraphNode; extra?: GraphNodeExtra; direction: "LR" | "TB" }
 type FlowNode = Node<FlowData>
 
 function Handles({ direction }: { direction: "LR" | "TB" }) {
@@ -76,10 +78,19 @@ function StepNode({ data, selected }: NodeProps<FlowNode>) {
 function TriggerNode({ data, selected }: NodeProps<FlowNode>) {
   const trigger = data.node.trigger!
   const Icon = triggerIcons[trigger.kind] ?? Workflow
-  return <div style={sizes.trigger} className={cn("flex items-center gap-2 rounded-full border border-dashed bg-lw-raised px-4 font-lw text-[13px] text-lw-text", selected ? "border-lw-accent ring-2 ring-lw-accent-ring" : "border-lw-line-strong")}>
+  const manual = trigger.kind === "manual"
+  const on = triggerOn(trigger, data.extra)
+  return <div style={sizes.trigger} className={cn("flex items-center gap-2.5 rounded-2xl border border-dashed bg-lw-raised px-3.5 font-lw text-[13px] text-lw-text", selected ? "border-lw-accent ring-2 ring-lw-accent-ring" : "border-lw-line-strong", !manual && !on && "opacity-70")}>
     <Handles direction={data.direction} />
-    <Icon size={14} aria-hidden="true" className="shrink-0 text-lw-text-2" />
-    <span className="truncate">{triggerName(trigger.kind)}</span>
+    <Icon size={15} aria-hidden="true" className="shrink-0 text-lw-text-2" />
+    <span className="flex min-w-0 flex-col">
+      <span className="truncate font-medium" title={trigger.summary}>{trigger.summary || triggerName(trigger.kind)}</span>
+      {!manual && <span className="flex items-center gap-1.5 text-[11px] text-lw-text-2">
+        <span aria-hidden="true" className={cn("h-1.5 w-1.5 rounded-full", on ? "bg-lw-done" : "bg-lw-faint")} />
+        <span className={on ? "text-lw-done" : undefined}>{on ? "on here" : "paused here"}</span>
+        {trigger.max_runs_per_day ? <span title={`Loop stop: ${trigger.max_runs_per_day} runs per item per day`} className="rounded border border-lw-line px-1 font-lw-mono text-[10px]">{trigger.max_runs_per_day}/day</span> : null}
+      </span>}
+    </span>
   </div>
 }
 
@@ -87,7 +98,7 @@ const nodeTypes: NodeTypes = { step: StepNode, trigger: TriggerNode }
 
 // layout places the nodes once per graph. Only start and order edges shape
 // it; the other kinds are drawn over the result.
-function layout(graph: WorkflowGraphModel, direction: "LR" | "TB"): FlowNode[] {
+function layout(graph: WorkflowGraphModel, direction: "LR" | "TB"): Omit<FlowNode, "ariaLabel">[] {
   const g = new dagre.graphlib.Graph()
   g.setGraph({ rankdir: direction, nodesep: 28, ranksep: 56, marginx: 8, marginy: 8 })
   g.setDefaultEdgeLabel(() => ({}))
@@ -107,7 +118,6 @@ function layout(graph: WorkflowGraphModel, direction: "LR" | "TB"): FlowNode[] {
       draggable: false,
       connectable: false,
       ariaRole: "button",
-      ariaLabel: nodeName(node),
     }
   })
 }
@@ -123,7 +133,7 @@ function edgesOf(graph: WorkflowGraphModel): Edge[] {
   }))
 }
 
-function Graph({ graph, selectedId = null, onSelect, direction = "LR", className }: WorkflowGraphProps) {
+function Graph({ graph, selectedId = null, onSelect, direction = "LR", extras, className }: WorkflowGraphProps) {
   // The layout is computed once per graph and direction; a new graph with
   // the same shape keeps its places.
   const shape = useMemo(() => JSON.stringify([direction, graph.nodes.map(node => [node.id, node.kind]), graph.edges.map(edge => edge.id)]), [graph, direction])
@@ -133,8 +143,12 @@ function Graph({ graph, selectedId = null, onSelect, direction = "LR", className
   useEffect(() => { setSelected(selectedId) }, [selectedId])
   const nodes = useMemo(() => {
     const byId = new Map(graph.nodes.map(node => [node.id, node]))
-    return placed.map(node => ({ ...node, data: { ...node.data, node: byId.get(node.id) ?? node.data.node }, selected: node.id === selected }))
-  }, [placed, graph, selected])
+    return placed.map(node => {
+      const current = byId.get(node.id) ?? node.data.node
+      const extra = extras?.[node.id]
+      return { ...node, data: { ...node.data, node: current, extra }, ariaLabel: nodeName(current, extra), selected: node.id === selected }
+    })
+  }, [placed, graph, selected, extras])
   const edges = useMemo(() => edgesOf(graph), [graph])
   const choose = useCallback((id: string | null) => {
     setSelected(id)

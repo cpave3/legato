@@ -1,4 +1,4 @@
-import { useState } from "react"
+import { useMemo, useState } from "react"
 import { Link, useParams } from "react-router-dom"
 import { ArrowLeft, Play } from "lucide-react"
 import { useWorkflows, useWorkflowRuns } from "../hooks/useWorkflow"
@@ -7,8 +7,12 @@ import { ago, fileWorkflowName, runState } from "../lib/workflowView"
 import { RunWorkflowDialog } from "../components/RunWorkflowDialog"
 import { StatePill } from "../components/WorkflowRunStatus"
 import { LazyWorkflowGraph } from "../components/workflow-graph/LazyWorkflowGraph"
+import { TriggerSwitch } from "../components/WorkflowTriggerSwitch"
+import { triggerName, yamlText, type GraphNode, type GraphNodeExtra } from "../lib/workflowGraph"
+import type { WorkflowDefinition, WorkflowTriggerState } from "../lib/workflow"
 import { Button } from "../components/ui/Button"
 import { LoadingState } from "../components/ui/LoadingState"
+import { cn } from "../lib/utils"
 
 const RECENT_RUNS = 10
 
@@ -21,6 +25,28 @@ function Frame({ children }: { children: React.ReactNode }) {
   </main>
 }
 
+function TriggerPanel({ definition, node, state, onChanged }: { definition: WorkflowDefinition; node: GraphNode; state?: WorkflowTriggerState; onChanged: () => Promise<unknown> }) {
+  const trigger = node.trigger!
+  const summary = trigger.summary || triggerName(trigger.kind)
+  return <aside aria-label={summary} className="flex flex-col gap-3 rounded-xl border border-lw-line bg-lw-surface p-4 text-sm">
+    <div>
+      <p className="text-[11px] font-medium uppercase tracking-wide text-lw-text-2">Trigger · {triggerName(trigger.kind)}</p>
+      <h2 className="mt-0.5 text-[15px] font-semibold">{summary}</h2>
+    </div>
+    {trigger.kind === "manual"
+      ? <p className="text-lw-text-2">Run this workflow yourself with <span className="text-lw-text">Run</span>, from a card or through the API.</p>
+      : <>
+        <ul className="flex flex-col gap-1 text-[13px] text-lw-text-2">
+          <li>{trigger.confirm ? "Asks you before each run" : "Starts without asking"}</li>
+          {trigger.max_runs_per_day ? <li>Loop stop: {trigger.max_runs_per_day} runs per item per day</li> : null}
+          <li>The file says {trigger.enabled ? "on" : "paused"}</li>
+        </ul>
+        {state && <TriggerSwitch definition={definition} state={state} onChanged={onChanged} />}
+        {trigger.definition && <pre className="overflow-x-auto rounded-lg border border-lw-line bg-lw-ground p-3 font-lw-mono text-xs text-lw-text">{yamlText(trigger.definition)}</pre>}
+      </>}
+  </aside>
+}
+
 // WorkflowPage is one workflow by name: what it is, its workflow graph, Run,
 // and its recent runs.
 export function WorkflowPage() {
@@ -30,6 +56,12 @@ export function WorkflowPage() {
   const now = useNow(30_000)
   const [running, setRunning] = useState(false)
   const [selected, setSelected] = useState<string | null>(null)
+  const triggerStates = definitions.data?.trigger_states?.[name]
+  const extras = useMemo(() => {
+    const out: Record<string, GraphNodeExtra> = {}
+    for (const state of triggerStates ?? []) out[`trigger:${state.trigger}`] = { enabledHere: state.enabled }
+    return out
+  }, [triggerStates])
   if (definitions.loading && !definitions.data) return <Frame><LoadingState label="Loading the workflow…" size="inline" /></Frame>
   if (definitions.error && !definitions.data) return <Frame><p role="alert" className="text-sm text-lw-error">Could not load workflows: {definitions.error}</p></Frame>
   const definition = (definitions.data?.definitions ?? []).find(item => item.name === name)
@@ -42,6 +74,7 @@ export function WorkflowPage() {
     </Frame>
     return <Frame><p className="text-sm text-lw-text-2">No workflow of that name</p></Frame>
   }
+  const selectedNode = definition.graph?.nodes.find(node => node.id === selected)
   const recent = (runs.data ?? []).filter(run => run.workflow_name === definition.name).slice(0, RECENT_RUNS)
   return <Frame>
     <header className="flex flex-wrap items-start justify-between gap-3">
@@ -52,9 +85,12 @@ export function WorkflowPage() {
       </div>
       <Button variant="outline" size="sm" aria-label={`Run ${definition.title}`} onClick={() => setRunning(true)}><Play size={13} />Run</Button>
     </header>
-    <section aria-label="Workflow graph" className="h-[28rem] overflow-hidden rounded-xl border border-lw-line bg-lw-ground">
-      {definition.graph ? <LazyWorkflowGraph graph={definition.graph} selectedId={selected} onSelect={setSelected} /> : <p className="p-4 text-sm text-lw-text-2">This Legato sent no graph for this workflow.</p>}
-    </section>
+    <div className={cn("grid gap-4", selectedNode && "lg:grid-cols-[minmax(0,1fr)_22rem]")}>
+      <section aria-label="Workflow graph" className="h-[28rem] overflow-hidden rounded-xl border border-lw-line bg-lw-ground">
+        {definition.graph ? <LazyWorkflowGraph graph={definition.graph} selectedId={selected} onSelect={setSelected} extras={extras} /> : <p className="p-4 text-sm text-lw-text-2">This Legato sent no graph for this workflow.</p>}
+      </section>
+      {selectedNode?.kind === "trigger" && <TriggerPanel definition={definition} node={selectedNode} state={triggerStates?.find(state => `trigger:${state.trigger}` === selectedNode.id)} onChanged={definitions.refresh} />}
+    </div>
     <section>
       <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-lw-text-2">Recent runs</h2>
       {recent.length === 0
