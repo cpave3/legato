@@ -431,3 +431,15 @@ func (s *Store) SetChimeraHookState(ctx context.Context, id int, activity string
 		UPDATE agent_sessions SET activity = ?, background_jobs = ?, chimera_subagents = ?, background_shells = ?, hook_source = 'mod'
 		WHERE id = ? AND status = 'running'`, activity, jobs, children, shells, id))
 }
+
+// LatestAgentSessionInSlot returns the newest session of one of the task's
+// slots, running or ended.
+func (s *Store) LatestAgentSessionInSlot(ctx context.Context, taskID, slot string) (*AgentSession, error) {
+	var a AgentSession
+	err := s.db.GetContext(ctx, &a,
+		agentSessionSelect+" WHERE a.task_id = ? AND a.slot = ? ORDER BY a.started_at DESC, a.id DESC LIMIT 1", taskID, slotOrMain(slot))
+	if err == sql.ErrNoRows {
+		return nil, fmt.Errorf("agent session for task %s, slot %s: %w", taskID, slotOrMain(slot), ErrNotFound)
+	}
+	return &a, err
+}
