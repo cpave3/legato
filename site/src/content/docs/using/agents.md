@@ -5,7 +5,7 @@ sidebar:
   order: 20
 ---
 
-An agent is an AI coding tool, such as Claude Code, Codex or Chimera, that Legato starts in its own tmux session. You start one on a task, and its state shows on the task's card. You can watch every agent at once, attach to one, send it a message or a macro, reload it, or stop it.
+An agent is an AI coding tool, such as Claude Code, Codex or Chimera, that Legato starts in its own tmux session. You start one on a task, and its state shows on the task's card. On the web board, a card whose agent waits for you says why, such as **Needs you · permission to run a command**, with a way to answer. You can watch every agent at once, attach to one, send it a message or a macro, reload it, or stop it.
 
 Each tool has its own page under Agent tools: [Claude Code](/legato/agent-tools/claude-code/), [Codex](/legato/agent-tools/codex/) and [Chimera](/legato/agent-tools/chimera/). Agents need tmux.
 

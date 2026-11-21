@@ -121,6 +121,10 @@ The other signals come in later tickets: edit evidence (LEG-442), milestones fro
 
 `/api/agents` (full and `?view=compact`) gives each agent `stage`, `stage_reason`, `stage_source`, `stage_since` (absent when no stage is recorded) and `glance`; `?stage=` (comma separated) keeps the agents at those stages. `GET /api/agents/{task_id}/stage-history` lists a place's changes, newest first.
 
+## What the card says needs you
+
+The web board card says why it needs the operator, beside the agent's state. `CardResponse.needs_you` (`service.CardNeedsYou`, absent when nothing is open) is built once per `/api/board` request by `service.NeedsYouByTask` (`card_needs_you.go`) from Attention's open items (`AttentionService.List`: operator items by kind, `items`; `plan_decision` items, `plans` with the first plan's ID) and the pending approvals (`ApprovalService.List`: `approvals`, the count and the first one's ID and short label: an `agent_question`'s question, an `agent_permission`'s title as `permission to run a command`, any other's title). The web UI's `needsYouStrip` (`web/src/lib/boardCard.ts`) picks one strip: an approval (`◆ Needs you · <label>` with **Answer**, which opens it in the rail, `showApproval`), else the operator items (`◆ Needs you · 1 question, 1 action` with **Open**, to `/agents?task=<id>` with the rail unfolded), else a plan (`◆ Plan to approve` with **Review plan**). It is drawn above the review strip (`◆ N changes to review` · **Review**), which is above the agent strip; while the agent itself is waiting or idle the needs-you strip stands in for its strip. The board refetches on `attention_changed`, so an item posted or cleared while the agent idles changes the card.
+
 ## Foreground safety and exit detection
 
 `tmux.Manager` fails closed for all agent `SendKeys`, `SendKey`, line and

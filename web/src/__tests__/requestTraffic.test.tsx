@@ -9,6 +9,7 @@ import App from "../App"
 import { useWorkflowRun, useWorkflowRuns, useWorkflows } from "../hooks/useWorkflow"
 import { useNavigationSummary } from "../hooks/useNavigationSummary"
 import { useTaskCard } from "../hooks/useTaskCard"
+import { useBoard } from "../hooks/useBoard"
 import { useDevices } from "../hooks/useDevices"
 import { usePreparingAgents, useRepositoryCache } from "../hooks/usePreparingAgents"
 import { fetchHandoff } from "../lib/handoff"
@@ -273,6 +274,28 @@ it("reads an agent's card again when the cards change", async () => {
   await screen.findByText("Column one")
   act(() => { websocket.handler?.({ type: "cards_changed" }) })
   await screen.findByText("Column two")
+  expect(reads).toBe(2)
+})
+
+it("reads the board again when Attention changes, so a card says what needs the operator", async () => {
+  let reads = 0
+  vi.stubGlobal("fetch", vi.fn((input: RequestInfo | URL) => {
+    const path = requestPath(input)
+    if (path === "/api/board") {
+      reads += 1
+      return response({ columns: [{ name: "Doing", cards: [{ id: "T-1", title: reads === 1 ? "Before" : "After" }] }], workspaces: [] })
+    }
+    return response({})
+  }))
+  function BoardTitle() {
+    const board = useBoard()
+    return <span>{board.columns[0]?.cards[0]?.title ?? "loading"}</span>
+  }
+
+  render(<QueryClientProvider client={createQueryClient()}><QuerySyncProvider><BoardTitle /></QuerySyncProvider></QueryClientProvider>)
+  await screen.findByText("Before")
+  act(() => { websocket.handler?.({ type: "attention_changed" }) })
+  await screen.findByText("After")
   expect(reads).toBe(2)
 })
 

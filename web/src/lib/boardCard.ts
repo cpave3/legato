@@ -36,7 +36,7 @@ export function agentStripLook(card: BoardCard): StripLook {
     case "mixed":
       return { glyph: "◐", label: "Agents disagree", time: 0, tint: "bg-lw-idle-soft", tone: "text-lw-text-2" }
     default:
-      return { glyph: "○", label: "Idle", time: 0, tint: "bg-lw-idle-soft", tone: "text-lw-text-2" }
+      return { glyph: "○", label: kind ? `Idle · ${kind}` : "Idle", time: card.working_seconds + card.waiting_seconds + card.error_seconds, tint: "bg-lw-idle-soft", tone: "text-lw-text-2" }
   }
 }
 
@@ -57,4 +57,46 @@ export function priorityTone(priority: string): string {
     default:
       return ""
   }
+}
+
+// Where a strip's action goes: the agent's operator items in the rail, an
+// approval, a plan.
+export type StripAction =
+  | { label: string; kind: "items"; taskId: string }
+  | { label: string; kind: "approval"; approvalId: string }
+  | { label: string; kind: "plan"; planId: string }
+
+export interface NeedsYouStrip {
+  glyph: string
+  text: string
+  action: StripAction
+}
+
+const itemWords: [keyof NonNullable<NonNullable<BoardCard["needs_you"]>["items"]>, string, string][] = [
+  ["question", "question", "questions"],
+  ["action", "action", "actions"],
+  ["done", "to confirm done", "to confirm done"],
+  ["other", "note", "notes"],
+]
+
+// needsYouStrip is the strip that says why a card needs the operator, and
+// the way there: an approval first (it blocks the agent), then the agent's
+// operator items, then a plan to approve; null when nothing waits.
+export function needsYouStrip(card: BoardCard): NeedsYouStrip | null {
+  const needs = card.needs_you
+  if (!needs) return null
+  if (needs.approvals && needs.approvals.count > 0) {
+    const more = needs.approvals.count > 1 ? ` and ${needs.approvals.count - 1} more` : ""
+    return { glyph: "◆", text: `Needs you · ${needs.approvals.label}${more}`, action: { label: "Answer", kind: "approval", approvalId: needs.approvals.id } }
+  }
+  const items = needs.items ?? {}
+  const words = itemWords.filter(([kind]) => (items[kind] ?? 0) > 0).map(([kind, one, many]) => {
+    const n = items[kind] ?? 0
+    return `${n} ${n === 1 ? one : many}`
+  })
+  if (words.length > 0) return { glyph: "◆", text: `Needs you · ${words.join(", ")}`, action: { label: "Open", kind: "items", taskId: card.id } }
+  if (needs.plans && needs.plans.count > 0) {
+    return { glyph: "◆", text: needs.plans.count === 1 ? "Plan to approve" : `${needs.plans.count} plans to approve`, action: { label: "Review plan", kind: "plan", planId: needs.plans.plan_id } }
+  }
+  return null
 }

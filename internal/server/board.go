@@ -101,6 +101,15 @@ func (s *Server) boardHandler() http.HandlerFunc {
 			}
 		}
 
+		// What waits on the operator, by task.
+		if len(allTaskIDs) > 0 {
+			for id, needs := range s.needsYouByTask(ctx) {
+				if r, ok := cardRefs[id]; ok {
+					resp.Columns[r.col].Cards[r.card].NeedsYou = needs
+				}
+			}
+		}
+
 		// Review tour badges.
 		if reviews, ok := s.reviews.(interface {
 			ReviewBadgeStates(context.Context) (map[string]service.ReviewBadgeState, error)
@@ -959,4 +968,19 @@ func (s *Server) taskActivityHandler() http.HandlerFunc {
 		}
 		s.writeJSON(w, http.StatusOK, activity)
 	}
+}
+
+// needsYouByTask is what waits on the operator for each task, from
+// Attention's open items and the pending approvals; empty without either
+// service.
+func (s *Server) needsYouByTask(ctx context.Context) map[string]*service.CardNeedsYou {
+	var attention []service.AttentionItem
+	if s.attention != nil {
+		attention, _ = s.attention.List(ctx, service.AttentionFilter{})
+	}
+	var approvals []service.Approval
+	if s.approvals != nil {
+		approvals, _ = s.approvals.List(ctx, store.ApprovalFilter{Status: store.ApprovalPending})
+	}
+	return service.NeedsYouByTask(attention, approvals)
 }

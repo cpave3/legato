@@ -63,6 +63,17 @@ export interface BoardCard {
   handoff_from?: HandoffFrom
   // On a main: the worker this task is away on.
   away?: AwayOn
+  // What waits on the operator for the task; absent when nothing is open.
+  needs_you?: CardNeedsYou
+}
+
+// What waits on the operator for a task: the agent's open operator items
+// by kind, pending approvals (the first one's ID and short label), plans
+// waiting for a decision.
+export interface CardNeedsYou {
+  items?: Partial<Record<"question" | "action" | "done" | "other", number>>
+  approvals?: { count: number; id: string; label: string }
+  plans?: { count: number; plan_id: string }
 }
 
 export interface SlotAgent {

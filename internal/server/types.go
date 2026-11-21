@@ -76,6 +76,9 @@ type CardResponse struct {
 	HandoffFrom *HandoffFromResponse `json:"handoff_from,omitempty"`
 	// Away is set on a main for a task away on a worker.
 	Away *AwayResponse `json:"away,omitempty"`
+	// NeedsYou is what waits on the operator for the task: operator items,
+	// approvals, plans; absent when nothing is open.
+	NeedsYou *service.CardNeedsYou `json:"needs_you,omitempty"`
 }
 
 // HandoffFromResponse is the main instance a handed-off card came from.

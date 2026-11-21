@@ -3,7 +3,8 @@ import { useEffect, useRef, type DragEvent, type MouseEvent, type ReactNode } fr
 import { Link } from "react-router-dom"
 import { MoreHorizontal } from "lucide-react"
 import type { BoardCard as BoardCardType } from "../../lib/board-types"
-import { agentStripLook, formatDuration, priorityTone, slotChipLabel } from "../../lib/boardCard"
+import { agentStripLook, formatDuration, needsYouStrip, priorityTone, slotChipLabel, type NeedsYouStrip, type StripAction } from "../../lib/boardCard"
+import { setRailFolded, showApproval } from "../../lib/railState"
 import { animatedAgentActivityEnabled } from "../../lib/appearancePreferences"
 import { Mark } from "../PullRequestMarks"
 import { CardPullRequests } from "./PullRequests"
@@ -21,16 +22,43 @@ interface BoardCardProps {
   onDragStart?: (event: DragEvent<HTMLDivElement>) => void
 }
 
+const stripRow = "flex items-center justify-between gap-2 border-t border-lw-line px-3 py-[5px] text-xs"
+const stripAction = "shrink-0 font-medium text-lw-text underline underline-offset-2 hover:text-lw-accent-text"
+
 // The line at the foot of a card whose task has an agent: what the agent is
 // doing, on the tint of that state, and the time that goes with it.
 function AgentStrip({ card }: { card: BoardCardType }) {
   const look = agentStripLook(card)
   return (
-    <div data-testid="agent-strip" className={cn("flex items-center justify-between gap-2 px-3 py-[5px] text-xs", look.tint)}>
+    <div data-testid="agent-strip" className={cn(stripRow, look.tint)}>
       <span className={cn("flex min-w-0 items-center gap-1.5", look.tone)}><span aria-hidden="true">{look.glyph}</span><span className="truncate">{look.label}</span>
         {card.slot_agents?.map((slot) => <span key={slot.slot} className="shrink-0 rounded border border-lw-line px-1 text-lw-text-2">{slotChipLabel(slot.slot, slot.state)}</span>)}
       </span>
       {look.time > 0 && <span className="shrink-0 font-lw-mono text-lw-text-2">{formatDuration(look.time)}</span>}
+    </div>
+  )
+}
+
+// The way to what a strip says waits: the rail on the agent's items, the
+// approval, the plan.
+function StripActionLink({ action }: { action: StripAction }) {
+  const stop = (event: MouseEvent) => event.stopPropagation()
+  switch (action.kind) {
+    case "approval":
+      return <button type="button" onClick={event => { event.stopPropagation(); showApproval(action.approvalId) }} onDoubleClick={stop} className={cn(stripAction, "min-h-11 md:min-h-0")}>{action.label}</button>
+    case "items":
+      return <Link to={`/agents?task=${encodeURIComponent(action.taskId)}`} onClick={event => { event.stopPropagation(); setRailFolded(false) }} onDoubleClick={stop} className={stripAction}>{action.label}</Link>
+    case "plan":
+      return <Link to={`/plans/${encodeURIComponent(action.planId)}`} onClick={stop} onDoubleClick={stop} className={stripAction}>{action.label}</Link>
+  }
+}
+
+// The strip that says why a card needs the operator, with the way there.
+function NeedsYouStripRow({ strip }: { strip: NeedsYouStrip }) {
+  return (
+    <div data-testid="needs-you-strip" className={cn(stripRow, "bg-lw-needs-soft")}>
+      <span className="flex min-w-0 items-center gap-1.5 text-lw-needs"><span aria-hidden="true">{strip.glyph}</span><span className="truncate">{strip.text}</span></span>
+      <StripActionLink action={strip.action} />
     </div>
   )
 }
@@ -53,9 +81,9 @@ function MetaLine({ card, showWorkspace }: { card: BoardCardType; showWorkspace:
 function ReviewStrip({ card }: { card: BoardCardType }) {
   const count = card.review_unreviewed ?? 0
   return (
-    <div data-testid="review-strip" className="flex items-center justify-between gap-2 bg-lw-needs-soft px-3 py-[5px] text-xs">
+    <div data-testid="review-strip" className={cn(stripRow, "bg-lw-needs-soft")}>
       <span className="flex min-w-0 items-center gap-1.5 text-lw-needs"><span aria-hidden="true">◆</span><span className="truncate">{count} {count === 1 ? "change" : "changes"} to review</span></span>
-      {card.review_tour_id && <Link to={`/review/${encodeURIComponent(card.review_tour_id)}`} onClick={event => event.stopPropagation()} className="shrink-0 text-[var(--theme-warning,#c9b78f)] hover:text-lw-needs">Review →</Link>}
+      {card.review_tour_id && <Link to={`/review/${encodeURIComponent(card.review_tour_id)}`} onClick={event => event.stopPropagation()} className={stripAction}>Review</Link>}
     </div>
   )
 }
@@ -65,6 +93,10 @@ export function BoardCard({ card, selected, highlighted = false, column, showWor
   const isDone = column === "Done"
   const trace = card.agent_active && animatedAgentActivityEnabled()
   const agentTime = card.agent_active ? "" : formatDuration(card.working_seconds + card.waiting_seconds + card.error_seconds)
+  // What waits on the operator is drawn above what runs; it stands in for
+  // the agent's own strip while the agent only waits or idles.
+  const needs = needsYouStrip(card)
+  const quietAgent = ["waiting", "idle", ""].includes(card.agent_state)
 
   useEffect(() => {
     if (highlighted) cardRef.current?.scrollIntoView?.({ behavior: "smooth", block: "center", inline: "nearest" })
@@ -118,8 +150,9 @@ export function BoardCard({ card, selected, highlighted = false, column, showWor
         {card.review_ready && !card.review_unreviewed && <Mark glyph="✓" tone="text-xs text-lw-done">Reviewed</Mark>}
         <CardPullRequests card={card} />
       </div>
-      {card.agent_active && <AgentStrip card={card} />}
+      {needs && <NeedsYouStripRow strip={needs} />}
       {Boolean(card.review_unreviewed) && <ReviewStrip card={card} />}
+      {card.agent_active && !(needs && quietAgent) && <AgentStrip card={card} />}
     </div>
   )
 }

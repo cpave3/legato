@@ -48,6 +48,11 @@ export function railEdgeStyle(rail: RailState): Record<string, string> {
   return { "--lw-rail-offset": rail.present ? railOffset(rail.folded) : "1rem" }
 }
 
+// getRailStateForTests reads the state outside React, for tests.
+export function getRailStateForTests(): RailState {
+  return state
+}
+
 // resetRailState is for tests: the state as a fresh page has it.
 export function resetRailState() {
   state = { folded: readRailFolded(), wanted: null, present: false }

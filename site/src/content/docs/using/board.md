@@ -72,6 +72,17 @@ The agent strip shows the agent's state and how long it has been in it:
 
 `ready for review` replaces `idle` when the agent marked its review tour ready. When Legato runs a second agent on the task, such as a reviewer, the strip adds a chip for it, `reviewer · running`, and says `needs you` when either agent waits for you. A card with no live agent shows the time agents spent on it. The web UI also names the agent tool in the strip, and draws a moving light round the edge of a card whose agent is live. You can turn that light off in **Settings › Appearance**.
 
+On the web board, a card that needs you says why, in a strip of its own above the agent's, with the way there:
+
+| Strip | Its action |
+| --- | --- |
+| **Needs you · 1 question, 1 action**: things the agent [posted for you](/legato/using/attention/#operator-items) | **Open** goes to the agent, with the Needs you rail open |
+| **Needs you · permission to run a command**, or the agent's question | **Answer** opens the approval in the Needs you rail (on a phone, the tray) |
+| **Plan to approve** | **Review plan** opens the plan |
+| **4 changes to review** | **Review** opens the review tour |
+
+What waits on you is drawn above what runs. While the agent itself only waits or idles, the needs-you strip takes the place of its own; a running agent keeps its strip below. The agent strip has its time on the right, and an idle agent's strip names its tool and the time agents spent on the task. The card changes as soon as an item is posted or cleared, even while the agent idles.
+
 To link a pull request to a task, press `p`. Legato also finds pull requests by itself; see [GitHub](/legato/integrations/github/).
 
 In a TUI at least 100 columns wide, a panel beside the board describes the selected task. In the web UI the same panel appears from 1280 pixels of width. It holds the task's details, the start of its description and its actions. Press `s` in the web UI to start or open the task's agent from it.

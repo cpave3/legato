@@ -49,6 +49,9 @@ export function QuerySyncProvider({ children }: { children: ReactNode }) {
           break
         case "attention_changed":
           invalidate(queryKeys.attention(baseUrl))
+          // A card says what waits on the operator (needs_you): an item
+          // posted or cleared while its agent idles changes it.
+          invalidate([baseUrl, "board"], false)
           invalidate(queryKeys.railAttention(baseUrl))
           invalidate(queryKeys.navigationSummary(baseUrl))
           break

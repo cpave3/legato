@@ -4,6 +4,7 @@ import userEvent from "@testing-library/user-event"
 import { MemoryRouter } from "react-router-dom"
 import { BoardCard } from "../BoardCard"
 import type { BoardCard as BoardCardType, PRMetaView } from "../../../lib/board-types"
+import { getRailStateForTests as railState } from "../../../lib/railState"
 import { leg386, pr as stackPR } from "../../../lib/__tests__/fixtures/prStacks"
 
 function pr(number: number, overrides: Partial<PRMetaView> = {}): PRMetaView {
@@ -72,12 +73,43 @@ describe("BoardCard", () => {
     ["error", "Error", ""],
     ["background", "Background", ""],
     ["mixed", "Agents disagree", ""],
-    ["", "Idle", ""],
+    ["", "Idle · Claude Code", "1h 3m"],
   ])("says what an agent in state %j is doing", (state, label, time) => {
     renderCard(makeCard({ agent_state: state }))
     expect(within(strip()).getByText(label)).toBeTruthy()
     expect(within(strip()).queryByText(/Running/)).toBeNull()
     if (time) expect(within(strip()).getByText(time)).toBeTruthy()
+  })
+
+  it("says why a card needs you: the agent's open items, with the way to them", () => {
+    renderCard(makeCard({ agent_state: "", needs_you: { items: { question: 1, action: 1 } } }))
+    const needs = screen.getByTestId("needs-you-strip")
+    expect(within(needs).getByText("Needs you · 1 question, 1 action")).toBeTruthy()
+    expect(within(needs).getByRole("link", { name: "Open" }).getAttribute("href")).toBe("/agents?task=T-1")
+    expect(screen.queryByTestId("agent-strip")).toBeNull()
+  })
+
+  it("says an approval waits, and answers it in the rail", () => {
+    renderCard(makeCard({ agent_state: "waiting", needs_you: { approvals: { count: 1, id: "ap-1", label: "permission to run a command" }, items: { question: 2 } } }))
+    const needs = screen.getByTestId("needs-you-strip")
+    expect(within(needs).getByText("Needs you · permission to run a command")).toBeTruthy()
+    fireEvent.click(within(needs).getByRole("button", { name: "Answer" }))
+    expect(railState().wanted).toBe("ap-1")
+    expect(screen.queryByTestId("agent-strip")).toBeNull()
+  })
+
+  it("says a plan waits for approval, with a link to it", () => {
+    renderCard(makeCard({ agent_state: "", needs_you: { plans: { count: 1, plan_id: "plan-9" } } }))
+    const needs = screen.getByTestId("needs-you-strip")
+    expect(within(needs).getByText("Plan to approve")).toBeTruthy()
+    expect(within(needs).getByRole("link", { name: "Review plan" }).getAttribute("href")).toBe("/plans/plan-9")
+  })
+
+  it("draws what waits on you above what runs", () => {
+    const { container } = renderCard(makeCard({ needs_you: { items: { question: 1 } }, review_ready: true, review_unreviewed: 4, review_tour_id: "tour-1" }))
+    const strips = Array.from(container.querySelectorAll("[data-testid$='-strip']")).map(strip => strip.getAttribute("data-testid"))
+    expect(strips).toEqual(["needs-you-strip", "review-strip", "agent-strip"])
+    expect(within(screen.getByTestId("review-strip")).getByRole("link", { name: "Review" }).getAttribute("href")).toBe("/review/tour-1")
   })
 
   it("has no agent strip without a running agent, and shows the time agents spent instead", () => {
@@ -90,7 +122,7 @@ describe("BoardCard", () => {
     renderCard(makeCard({ agent_active: false, review_ready: true, review_unreviewed: 5, review_tour_id: "tour-9" }))
     const review = screen.getByTestId("review-strip")
     expect(within(review).getByText("5 changes to review")).toBeTruthy()
-    expect(within(review).getByRole("link", { name: /Review/ }).getAttribute("href")).toBe("/review/tour-9")
+    expect(within(review).getByRole("link", { name: "Review" }).getAttribute("href")).toBe("/review/tour-9")
   })
 
   it("says a ready tour with nothing left is reviewed", () => {
