@@ -60,4 +60,10 @@ describe("stackSummary", () => {
     expect(s.layers[1].heldBelow).toBe(true)
     expect(s.needsYou?.holdsBack).toBe(1)
   })
+
+  it("survives bases that form a cycle", () => {
+    const s = stackSummary([pr(1, "fail", "b2"), pr(2, "ready", "b1")])
+    expect(s.needsYou?.layer.pr.pr_number).toBe(1)
+    expect(s.needsYou?.holdsBack).toBe(1)
+  })
 })

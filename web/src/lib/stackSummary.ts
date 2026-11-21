@@ -153,7 +153,12 @@ export function stackSummary(prs: PRMetaView[]): StackSummary {
   let needsYou: StackSummary["needsYou"]
   const first = layers.find(l => l.status.needsYou)
   if (first) {
-    const above = (pr: PRMetaView): PRMetaView[] => prs.filter(other => parentOf.get(key(other)) === pr).flatMap(child => [child, ...above(child)])
+    // The layers built on it, each once: cached bases can form a cycle.
+    const seen = new Set<string>([key(first.pr)])
+    const above = (pr: PRMetaView): PRMetaView[] => prs.filter(other => parentOf.get(key(other)) === pr && !seen.has(key(other))).flatMap(child => {
+      seen.add(key(child))
+      return [child, ...above(child)]
+    })
     needsYou = { layer: first, holdsBack: above(first.pr).filter(open).length }
   }
 
