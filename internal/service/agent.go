@@ -631,8 +631,9 @@ type JobCloner interface {
 
 // SetRepositories lets agents spawned from now on work in a clone of a
 // repository.
-// SetWorkStages gives the service the agent stages, which a spawn that does
-// not resume resets.
+// SetWorkStages gives the service the process's agent stages, which a spawn
+// that does not resume resets. Without it the service resets through stages
+// of its own over its store, which publish nothing.
 func (a *agentService) SetWorkStages(stages *WorkStageService) {
 	a.workStages = stages
 }
@@ -703,6 +704,9 @@ func (a *agentService) credentialEnv() SessionEnvProvider {
 // NewAgentService creates an AgentService.
 func NewAgentService(s *store.Store, tmux TmuxManager, workDir string, opts ...AgentServiceOptions) AgentService {
 	svc := &agentService{store: s, tmux: tmux, workDir: workDir, briefKickoffDelay: briefKickoffDelay, peerAwareness: true, nativeBindTimeout: nativeBindTimeout, chimeraModWait: 10 * time.Second, launchOwner: newLaunchOwner()}
+	// Every spawn resets its place's stage, whichever process spawns; the
+	// runtime gives its shared stages, which also announce the change.
+	svc.workStages = NewWorkStageService(s, nil)
 	if len(opts) > 0 {
 		svc.adapter = opts[0].Adapter
 		svc.adapters = opts[0].Adapters
@@ -1176,7 +1180,7 @@ func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, hei
 	envMap["LEGATO_EXECUTION_ID"] = executionID
 	// A new conversation starts its place's work again; a resumed one
 	// (Resume, Reload, the sandbox switch) keeps where it stood.
-	if a.workStages != nil && opt.SessionPolicy != "resume" {
+	if opt.SessionPolicy != "resume" {
 		place := TaskPlace(taskID, slot)
 		if executionKind == store.ExecutionWorkflowAgent {
 			place.PlaceExecutionID = executionID

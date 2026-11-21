@@ -313,3 +313,21 @@ func onlyAgent(t *testing.T, svc AgentService) AgentSession {
 	}
 	return running[0]
 }
+
+// A service no runtime gave stages to (the swarm CLI's, say) still resets
+// the stage of a fresh spawn.
+func TestEveryAgentServiceResetsTheStage(t *testing.T) {
+	f := newSlotFixture(t)
+	ctx := context.Background()
+	createTask(t, f.store, "task-c")
+	place := TaskPlace("task-c", "")
+	if _, err := NewWorkStageService(f.store, nil).Milestone(ctx, place, WorkMilestone{Stage: store.WorkStageFinished}); err != nil {
+		t.Fatal(err)
+	}
+	if err := f.svc.SpawnAgent(ctx, "task-c", 0, 0, AgentSpawnOptions{AgentKind: "shell", WorkingDir: t.TempDir(), Role: "conductor"}); err != nil {
+		t.Fatal(err)
+	}
+	if got := onlyAgent(t, f.svc); got.Stage != store.WorkStageExploring {
+		t.Fatalf("a new conductor's stage: %q", got.Stage)
+	}
+}
