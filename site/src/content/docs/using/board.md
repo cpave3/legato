@@ -70,7 +70,7 @@ The agent strip shows the agent's state and how long it has been in it:
 | error | The agent stopped on an error. |
 | mixed (TUI), Agents disagree (web) | The task's agents are in different states. |
 
-`ready for review` replaces `idle` when the agent marked its review tour ready. When Legato runs a second agent on the task, such as a reviewer, the strip adds a chip for it, `reviewer · running`. In the TUI the strip says `needs you` when either agent waits for you; on the web board a waiting reviewer has a strip of its own above the main agent's. A card with no live agent shows the time agents spent on it. The web UI also names the agent tool in the strip, and draws a moving light round the edge of a card whose agent is live. You can turn that light off in **Settings › Appearance**.
+`ready for review` replaces `idle` when the agent marked its review tour ready. When Legato runs a second agent on the task, such as a reviewer, the strip adds a chip for it, `reviewer · running`. In the TUI the strip says `needs you` when either agent waits for you; on the web board a waiting reviewer has a strip of its own above the main agent's. A card with no live agent shows the time agents spent on it. The web UI also names the agent tool in the strip, and draws a moving light round the edge of a card while its agent works. You can turn that light off in **Settings › Appearance**. A card that needs you has a steady amber edge instead, and one whose agent stopped on an error a red one. A card a link points you to has a ring in the theme's focus colour, in every theme and on a phone. Cards in Done are not faded: their title is in a quieter ink.
 
 On the web board, a card that needs you says why, in a strip of its own above the agent's, with the way there:
 

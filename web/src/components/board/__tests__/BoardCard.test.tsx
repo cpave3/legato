@@ -287,36 +287,50 @@ describe("BoardCard", () => {
     expect(screen.getByText("sync failed")).toBeTruthy()
   })
 
-  it("marks the selected card, and gives an imported card a cyan highlight it scrolls to", () => {
+  it("marks the selected card, and gives an imported card a highlight ring it scrolls to", () => {
     const scrollIntoView = vi.fn()
     Object.defineProperty(HTMLElement.prototype, "scrollIntoView", { configurable: true, value: scrollIntoView })
     renderCard(makeCard(), { selected: true, highlighted: true })
     const root = screen.getByText("Test title").closest("[data-card]") as HTMLElement
     expect(root.dataset.selected).toBe("true")
     expect(root.dataset.highlightedTask).toBe("true")
-    expect(root.className).toContain("ring-cyan-400")
+    expect(root.className).toContain("lw-highlight")
     expect(scrollIntoView).toHaveBeenCalledWith({ behavior: "smooth", block: "center", inline: "nearest" })
   })
 
-  it("dims a card in the Done column", () => {
+  it("steps a Done card's title down to secondary ink without fading the card", () => {
     renderCard(makeCard(), { column: "Done" })
-    expect((screen.getByText("Test title").closest("[data-card]") as HTMLElement).className).toContain("opacity-60")
+    const root = screen.getByText("Test title").closest("[data-card]") as HTMLElement
+    expect(root.className).not.toContain("opacity")
+    expect(screen.getByRole("button", { name: "Test title" }).className).toContain("text-lw-text-2")
   })
 
-  it("traces the edge of a card with a live agent, faster while it works, unless animation is off", () => {
+  it("traces the edge only while an agent works, unless animation is off", () => {
     renderCard(makeCard({ agent_state: "working" }))
     const working = screen.getByText("Test title").closest("[data-card]") as HTMLElement
     expect(working.className).toContain("lw-trace-working")
     cleanup()
-    renderCard(makeCard({ agent_state: "" }))
-    expect((screen.getByText("Test title").closest("[data-card]") as HTMLElement).className).toContain("lw-trace-idle")
-    cleanup()
-    renderCard(makeCard({ agent_active: false, agent_state: "" }))
-    expect((screen.getByText("Test title").closest("[data-card]") as HTMLElement).className).not.toContain("lw-trace")
-    cleanup()
+    for (const state of ["", "waiting", "error", "background", "mixed"]) {
+      renderCard(makeCard({ agent_state: state }))
+      expect((screen.getByText("Test title").closest("[data-card]") as HTMLElement).className).not.toContain("lw-trace")
+      cleanup()
+    }
     localStorage.setItem("legato:animated-agent-activity", "false")
     renderCard(makeCard())
     expect((screen.getByText("Test title").closest("[data-card]") as HTMLElement).className).not.toContain("lw-trace")
+  })
+
+  it.each([
+    [{ agent_state: "waiting" }, "needs", "border-lw-needs"],
+    [{ agent_state: "", needs_you: { plans: { count: 1, plan_id: "p" } } }, "needs", "border-lw-needs"],
+    [{ agent_active: false, agent_state: "", needs_you: { interrupted: { resumable: true } } }, "needs", "border-lw-needs"],
+    [{ agent_state: "error" }, "error", "border-lw-error"],
+    [{ agent_state: "working" }, undefined, "border-lw-line"],
+  ])("gives a card %j a steady edge for what it needs", (overrides, edge, border) => {
+    renderCard(makeCard(overrides as Partial<BoardCardType>))
+    const root = screen.getByText("Test title").closest("[data-card]") as HTMLElement
+    expect(root.dataset.edge).toBe(edge)
+    expect(root.className).toContain(border)
   })
 
   it("opens the action menu from its button and from a right click", () => {

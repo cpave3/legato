@@ -50,7 +50,9 @@
   color: var(--theme-canvas);
 }
 /* Material roles carry the depth, not page-specific palette overrides. */
-:root[data-theme]:not([data-theme="legato"]) :is(.bg-lw-surface, .bg-zinc-900)[class*="rounded"]:not(input, textarea, select, button) {
+/* Board cards draw their own edge (the highlight ring, the working glow),
+   which this shadow would cover. */
+:root[data-theme]:not([data-theme="legato"]) :is(.bg-lw-surface, .bg-zinc-900)[class*="rounded"]:not(input, textarea, select, button, [data-card]) {
   box-shadow: var(--shadow-lw-panel);
 }
 :root[data-theme]:not([data-theme="legato"]) :is(.bg-lw-raised, button.bg-lw-accent, button.bg-lw-selected) {

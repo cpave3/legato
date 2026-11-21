@@ -126,9 +126,9 @@ body {
   background: conic-gradient(
     from var(--lw-trace-angle),
     transparent 0deg 290deg,
-    rgba(124, 108, 247, 0.35) 320deg,
-    #b9afff 350deg,
-    #ffffff 356deg,
+    color-mix(in srgb, var(--theme-focus, var(--color-lw-accent)) 35%, transparent) 320deg,
+    var(--theme-focus, var(--color-lw-link)) 350deg,
+    var(--color-lw-text) 356deg,
     transparent 360deg
   );
   -webkit-mask: linear-gradient(#000 0 0) content-box, linear-gradient(#000 0 0);
@@ -139,12 +139,13 @@ body {
 }
 
 .lw-trace-working {
-  box-shadow: 0 0 18px -6px rgba(124, 108, 247, 0.55);
+  box-shadow: 0 0 18px -6px color-mix(in srgb, var(--theme-focus, var(--color-lw-accent)) 55%, transparent);
 }
 
-.lw-trace-idle::before {
-  animation-duration: 10s;
-  opacity: 0.4;
+/* The card a link points at (?highlight_task=): a ring in the theme's focus
+   colour over the theme's own panel shadow, in every theme. */
+.lw-highlight {
+  box-shadow: 0 0 0 2px var(--theme-focus, #22d3ee), var(--shadow-lw-panel, 0 10px 15px -3px rgb(0 0 0 / 0.5));
 }
 
 @keyframes lw-trace-spin {

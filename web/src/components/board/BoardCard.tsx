@@ -120,13 +120,16 @@ function ReviewStrip({ card }: { card: BoardCardType }) {
 export function BoardCard({ card, selected, highlighted = false, column, showWorkspace, onClick, onDoubleClick, onContextMenu, onActionMenu, onDragStart }: BoardCardProps) {
   const cardRef = useRef<HTMLDivElement>(null)
   const isDone = column === "Done"
-  const trace = card.agent_active && animatedAgentActivityEnabled()
+  // The moving light is for an agent at work; a card that needs the
+  // operator has a steady amber edge, one in error a red one.
+  const trace = card.agent_active && card.agent_state === "working" && animatedAgentActivityEnabled()
   const agentTime = card.agent_active ? "" : formatDuration(card.working_seconds + card.waiting_seconds + card.error_seconds)
   // What waits on the operator is drawn above what runs; it stands in for
   // the agent's own strip while the agent only waits or idles.
   const needs = needsYouStrips(card)
   const main = needsYouStrip(card)
   const quietAgent = ["waiting", "idle", ""].includes(card.agent_state)
+  const edge = card.agent_active && card.agent_state === "error" ? "error" : needs.length > 0 || (card.agent_active && card.agent_state === "waiting") ? "needs" : ""
 
   useEffect(() => {
     if (highlighted) cardRef.current?.scrollIntoView?.({ behavior: "smooth", block: "center", inline: "nearest" })
@@ -138,6 +141,7 @@ export function BoardCard({ card, selected, highlighted = false, column, showWor
       data-card={card.id}
       data-highlighted-task={highlighted || undefined}
       data-selected={selected || undefined}
+      data-edge={edge || undefined}
       onClick={onClick}
       onDoubleClick={onDoubleClick}
       onContextMenu={(event: MouseEvent<HTMLDivElement>) => {
@@ -151,10 +155,9 @@ export function BoardCard({ card, selected, highlighted = false, column, showWor
         // A column lays cards out as a flex column that scrolls; a card keeps
         // its height there rather than being squeezed to fit.
         "group relative flex shrink-0 cursor-pointer flex-col overflow-hidden rounded-lg border font-lw text-lw-text transition-colors",
-        selected ? "border-lw-accent bg-lw-selected" : "border-lw-line bg-lw-surface hover:border-lw-line-strong",
-        trace && (card.agent_state === "working" ? "lw-trace lw-trace-working" : "lw-trace lw-trace-idle"),
-        highlighted && "ring-2 ring-cyan-400 shadow-lg shadow-cyan-950/60",
-        isDone && !selected && "opacity-60",
+        selected ? "border-lw-accent bg-lw-selected" : cn("bg-lw-surface", edge === "needs" ? "border-lw-needs" : edge === "error" ? "border-lw-error" : "border-lw-line hover:border-lw-line-strong"),
+        trace && "lw-trace lw-trace-working",
+        highlighted && "lw-highlight",
       )}
     >
       {onActionMenu && <button type="button" aria-label={`Open actions for ${card.title}`} onClick={event => { event.stopPropagation(); const rect = event.currentTarget.getBoundingClientRect(); onActionMenu({ x: rect.right, y: rect.bottom }) }} className="absolute right-1 top-1 z-10 flex h-9 w-9 items-center justify-center rounded-md text-lw-faint hover:bg-lw-raised hover:text-lw-text focus-visible:opacity-100 md:h-7 md:w-7 md:opacity-0 md:group-hover:opacity-100"><MoreHorizontal size={15} /></button>}
@@ -173,7 +176,7 @@ export function BoardCard({ card, selected, highlighted = false, column, showWor
             event.stopPropagation()
             ;(onDoubleClick ?? onClick)()
           }}
-          className="rounded-sm text-left text-sm font-semibold leading-[19px] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-lw-accent"
+          className={cn("rounded-sm text-left text-sm font-semibold leading-[19px] focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-lw-accent", isDone && "text-lw-text-2")}
         >{card.title}</button>
         {card.handoff_from && <div data-testid="handoff-from" className="truncate text-xs text-lw-text-2">{`from ${card.handoff_from.main} · ${card.handoff_from.main_task_id}`}</div>}
         <MetaLine card={card} showWorkspace={showWorkspace} />
