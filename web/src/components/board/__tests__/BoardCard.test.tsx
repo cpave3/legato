@@ -4,6 +4,7 @@ import userEvent from "@testing-library/user-event"
 import { MemoryRouter } from "react-router-dom"
 import { BoardCard } from "../BoardCard"
 import type { BoardCard as BoardCardType, PRMetaView } from "../../../lib/board-types"
+import { leg386, pr as stackPR } from "../../../lib/__tests__/fixtures/prStacks"
 
 function pr(number: number, overrides: Partial<PRMetaView> = {}): PRMetaView {
   return {
@@ -131,17 +132,71 @@ describe("BoardCard", () => {
     expect(line.textContent).toContain("CI failing · 6 comments")
   })
 
-  it("lists every pull request of a stack in the order the server gives, each with its own state", () => {
-    renderCard(makeCard({ pull_requests: [
-      pr(11, { check_status: "fail", review_decision: "", comment_count: 0 }),
-      pr(12, { is_draft: true, comment_count: 0 }),
-      pr(13, { comment_count: 0 }),
+  it("folds a stack: its counts, a bar bottom first, the layer that needs you and the run that can merge", () => {
+    renderCard(makeCard({ pull_requests: leg386() }))
+    const stack = screen.getByTestId("pr-stack")
+    expect(within(stack).getByText("Stack of 13 PRs")).toBeTruthy()
+    expect(within(stack).getByText("2 merged")).toBeTruthy()
+    const bar = within(stack).getByRole("img")
+    expect(bar.getAttribute("aria-label")).toBe("2 merged, 4 ready to merge, 1 failing, 1 with CI running, 5 waiting on a layer below")
+    expect(Array.from(bar.children).map(seg => seg.getAttribute("data-segment"))).toEqual(["merged", "merged", "ready", "ready", "ready", "ready", "failing", "held", "held", "running", "held", "held", "held"])
+    const needs = within(stack).getByTestId("stack-needs-you")
+    expect(needs.textContent).toContain("#200CI failing · 6 comments")
+    expect(needs.textContent).toContain("Holds back 6 above it")
+    expect(stack.textContent).toContain("#196–#199 ready to merge, bottom first")
+    expect(screen.queryAllByLabelText(/^Pull request #/)).toEqual([])
+  })
+
+  it("opens a stack bottom first on a rail, dashed above the failing layer, and remembers it", () => {
+    renderCard(makeCard({ id: "T-open", pull_requests: leg386() }))
+    fireEvent.click(screen.getByRole("button", { name: "Show all 13" }))
+    const rows = screen.getAllByRole("listitem")
+    expect(rows.map(row => row.getAttribute("aria-label"))).toEqual(leg386().map(pr => `Pull request #${pr.pr_number}`))
+    expect(within(rows[0]).getByText("Merged")).toBeTruthy()
+    expect(within(rows[6]).getByText("CI failing")).toBeTruthy()
+    expect(within(rows[7]).getByText("Approved")).toBeTruthy()
+    expect(rows.slice(7).every(row => row.hasAttribute("data-held"))).toBe(true)
+    expect(rows.slice(0, 7).some(row => row.hasAttribute("data-held"))).toBe(false)
+    expect(within(rows[2]).getByRole("link", { name: "#196" }).getAttribute("href")).toContain("/pull/196")
+    expect(screen.getByText("cpave3/legato · main")).toBeTruthy()
+    expect(screen.getByTestId("stack-needs-you").textContent).toContain("#200 holds back 6")
+    cleanup()
+    renderCard(makeCard({ id: "T-open", pull_requests: leg386() }))
+    expect(screen.getByRole("button", { name: "Show less" }).getAttribute("aria-expanded")).toBe("true")
+    fireEvent.click(screen.getByRole("button", { name: "Show less" }))
+    expect(screen.getByRole("button", { name: "Show all 13" })).toBeTruthy()
+  })
+
+  it("groups a stack by repo, indents a fork and strikes through a closed layer", () => {
+    renderCard(makeCard({ id: "T-fork", pull_requests: [
+      stackPR(10, "merged", "main", { repo: "acme/api" }),
+      stackPR(11, "closed", "main", { repo: "acme/api" }),
+      stackPR(12, "approved", "b10", { repo: "acme/api" }),
+      stackPR(13, "run", "b10", { repo: "acme/api" }),
+      stackPR(4, "draft", "main", { repo: "acme/web" }),
     ] }))
-    const lines = screen.getAllByLabelText(/^Pull request #/)
-    expect(lines.map(line => line.getAttribute("aria-label"))).toEqual(["Pull request #11", "Pull request #12", "Pull request #13"])
-    expect(within(lines[0]).getByText(/CI failing/)).toBeTruthy()
-    expect(within(lines[1]).getByText("Draft")).toBeTruthy()
-    expect(within(lines[2]).getByText("Ready to merge")).toBeTruthy()
+    expect(screen.getByText("5 PRs in 2 repos")).toBeTruthy()
+    expect(screen.getByText("1 merged · 1 closed")).toBeTruthy()
+    fireEvent.click(screen.getByRole("button", { name: "Show all 5" }))
+    expect(screen.getAllByRole("list").map(list => list.getAttribute("aria-label"))).toEqual(["acme/api pull requests", "acme/web pull requests"])
+    expect(screen.getByText("acme/web · main")).toBeTruthy()
+    const rows = screen.getAllByRole("listitem")
+    expect(rows.filter(row => row.hasAttribute("data-fork")).map(row => row.getAttribute("aria-label"))).toEqual(["Pull request #12", "Pull request #13"])
+    expect(within(rows[1]).getByRole("link", { name: "#11" }).className).toContain("line-through")
+    expect(within(rows[1]).getByText("Closed, not merged")).toBeTruthy()
+  })
+
+  it("says a fully merged stack in one line", () => {
+    renderCard(makeCard({ pull_requests: [stackPR(1, "merged", "main"), stackPR(2, "merged", "main"), stackPR(3, "merged", "main")] }))
+    expect(screen.getByTestId("pr-stack").textContent).toBe("✓Stack of 3 PRs, all merged")
+    expect(screen.queryByRole("button", { name: /Show all/ })).toBeNull()
+  })
+
+  it("says a stack of drafts is drafts, with no layer that needs you", () => {
+    renderCard(makeCard({ pull_requests: [stackPR(1, "draft", "main"), stackPR(2, "draft", "b1"), stackPR(3, "draft", "b2")] }))
+    expect(screen.getByText("3 drafts")).toBeTruthy()
+    expect(screen.getByText("Drafts. CI passing on all 3.")).toBeTruthy()
+    expect(screen.queryByTestId("stack-needs-you")).toBeNull()
   })
 
   it("omits the pull request lines without one", () => {

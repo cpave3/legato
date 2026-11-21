@@ -48,7 +48,14 @@ A card shows, from the top:
 - The priority mark (`▲` high, `▼` low, `·` none), the task's key, and where the task comes from: `local`, or a ticket provider such as `◈ jira`.
 - The title.
 - The ticket type, the workspace (in the All view), the swarm's progress and the review mark.
-- On the web board, a line for each pull request, from the bottom of the stack: its number, which opens it on GitHub, one word for its state and a detail, such as `#191 Awaiting review · CI passed`. The words are **Merged**, **Closed, not merged** (the number struck through), **Draft**, **CI failing**, **Changes requested**, **CI running**, **Your review** (someone else's pull request waiting for your review), **Awaiting review**, **Ready to merge**, and **Approved** (approved, but a layer below it is not ready yet). In the TUI the card names each with its state: `#11 ✗ CI · #12 draft PR`.
+- On the web board, a line for each pull request, from the bottom of the stack: its number, which opens it on GitHub, one word for its state and a detail, such as `#191 Awaiting review · CI passed`. The words are **Merged**, **Closed, not merged** (the number struck through), **Draft**, **CI failing**, **Changes requested**, **CI running**, **Your review** (someone else's pull request waiting for your review), **Awaiting review**, **Ready to merge**, and **Approved** (approved, but a layer below it is not ready yet). A stack of two or more pull requests folds to a few lines:
+  - a head, such as **Stack of 13 PRs** with **2 merged** (or **5 PRs in 2 repos**);
+  - a bar with a segment for each pull request, from the bottom: blue for merged, green for ready to merge, a green outline for approved but waiting on a layer below, red for failing, amber stripes for CI running, a dashed outline for a draft;
+  - the lowest pull request that needs you, such as **#200 CI failing · 6 comments**, with how many above it it holds back and its button;
+  - the pull requests you can merge now, from the bottom: **#196–#199 ready to merge, bottom first**;
+  - **Show all 13**, which lists the stack from the bottom under its repository and base branch, on a rail that is dashed above a failing layer. A pull request that shares its base with another (a fork) is indented under it, and each repository is a group of its own. The card remembers that it is open until you reload the page.
+
+  A stack that is all merged is one line: **Stack of 10 PRs, all merged**. In the TUI the card names each with its state: `#11 ✗ CI · #12 draft PR`.
 - A warning when Legato could not send a change to the ticket provider (`⚠ sync failed` in the web UI).
 - An agent strip at the foot, when an agent works on the task.
 
