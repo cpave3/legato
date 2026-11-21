@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"path/filepath"
+	"strings"
 	"testing"
 	"time"
 
@@ -329,5 +330,34 @@ func TestEveryAgentServiceResetsTheStage(t *testing.T) {
 	}
 	if got := onlyAgent(t, f.svc); got.Stage != store.WorkStageExploring {
 		t.Fatalf("a new conductor's stage: %q", got.Stage)
+	}
+}
+
+// withStage is what a plain spawn's launch prompt ends with.
+const withStage = "\n\n---\n\n" + stagePrompt
+
+// The launch prompt of Claude Code, Codex and Chimera agents asks them to
+// report their stage; a reviewer slot's does not.
+func TestTheLaunchPromptAsksForTheStage(t *testing.T) {
+	for _, name := range []string{"claude-code", "codex", "chimera"} {
+		t.Run(name, func(t *testing.T) {
+			db := newServiceTestStore(t)
+			ctx := context.Background()
+			createTask(t, db, "task-1")
+			mt := newMockTmux()
+			svc := NewAgentService(db, mt, t.TempDir(), AgentServiceOptions{Adapter: generalPromptAdapter{fakeAdapter: &fakeAdapter{name: name}, general: "GENERAL"}, DisablePeerAwareness: true})
+			if err := svc.SpawnAgent(ctx, "task-1", 0, 0); err != nil {
+				t.Fatal(err)
+			}
+			if prompt := spawnedLaunchPrompt(t, mt, "task-1"); !strings.Contains(prompt, "## Your stage") || !strings.Contains(prompt, "report_stage") {
+				t.Fatalf("launch prompt does not ask for the stage: %q", prompt)
+			}
+			if err := svc.SpawnAgent(ctx, "task-1", 0, 0, AgentSpawnOptions{Slot: SlotReviewer, ReadOnlyCheckout: true}); err != nil {
+				t.Fatal(err)
+			}
+			if prompt := spawnedLaunchPrompt(t, mt, "task-1_reviewer"); strings.Contains(prompt, "## Your stage") {
+				t.Fatalf("a reviewer is asked for its stage: %q", prompt)
+			}
+		})
 	}
 }

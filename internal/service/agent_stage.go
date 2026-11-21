@@ -9,6 +9,7 @@ import (
 	"time"
 
 	"github.com/cpave3/legato/internal/engine/events"
+	"github.com/cpave3/legato/internal/engine/ipc"
 	"github.com/cpave3/legato/internal/engine/store"
 )
 
@@ -320,3 +321,60 @@ func parseStageTime(s string) *time.Time {
 	}
 	return &t
 }
+
+// SessionPlace is the place of a stored agent session: its execution's for
+// a workflow agent, else its task's slot.
+func SessionPlace(s store.AgentSession) WorkStagePlace {
+	place := TaskPlace(s.TaskID, s.Slot)
+	if s.ExecutionKind == store.ExecutionWorkflowAgent {
+		place.PlaceExecutionID = s.ExecutionID
+	}
+	return place
+}
+
+// ReportWorkStage records the stage the agent of session reported for
+// itself, from a process apart from the host's (legato mcp serve, legato
+// agent stage, or the host's broker): it writes the stage and tells running
+// Legatos over IPC, which publish it as EventAgentStageChanged
+// (StageChangedFromIPC).
+func ReportWorkStage(ctx context.Context, db *store.Store, session store.AgentSession, stage, note string) (bool, error) {
+	place := SessionPlace(session)
+	changed, err := NewWorkStageService(db, nil).Report(ctx, place, session.ExecutionID, stage, note)
+	if err != nil || !changed {
+		return changed, err
+	}
+	current, err := db.GetWorkStage(ctx, place)
+	if err != nil || current == nil {
+		return changed, err
+	}
+	ipc.Broadcast(StageIPCMessage(*current))
+	return true, nil
+}
+
+// StageIPCMessage tells other Legato processes of a place's new stage:
+// task_id the card's task, status its slot, item_id a workflow agent's
+// execution, content the stage, notes the reason, kind the source.
+func StageIPCMessage(stage store.WorkStage) ipc.Message {
+	return ipc.Message{
+		Type: "agent_stage_changed", TaskID: stage.TaskID, Status: stage.Slot, ItemID: stage.PlaceExecutionID,
+		Content: stage.Stage, Notes: stage.Reason, Kind: stage.Source,
+	}
+}
+
+// StageChangedFromIPC is the event an agent_stage_changed IPC message
+// stands for.
+func StageChangedFromIPC(msg ipc.Message) events.AgentStageChangedPayload {
+	return events.AgentStageChangedPayload{
+		TaskID: msg.TaskID, Slot: msg.Status, ExecutionID: msg.ItemID,
+		Stage: msg.Content, Reason: msg.Notes, Source: msg.Kind,
+	}
+}
+
+// stagePrompt asks an agent to report each change in where its work stands.
+const stagePrompt = "## Your stage\n\n" +
+	"Legato shows the operator where your work stands: exploring (reading, searching, answering), " +
+	"planning (a plan waits on the operator), implementing (changing the code), reviewing (the work is up for review) " +
+	"or finished (the work is done). Legato infers most of it, but report each change yourself with Legato's " +
+	"report_stage tool, or `legato agent stage <stage> --note \"…\"` when you do not have the tool. " +
+	"Report finished when you have answered a question that needed no change, and reviewing when you open " +
+	"a pull request or mark a review tour ready. Keep the note to a short phrase, such as \"PR #12 open\"."

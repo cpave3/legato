@@ -53,7 +53,7 @@ func TestSpawnAgent_ToolsPromptReachesAPlainSession(t *testing.T) {
 	if !ok {
 		t.Fatal("no launch prompt was written, so the agent never learns of its tools")
 	}
-	if prompt != "## Legato tools\n\nUse show_card without being asked." {
+	if prompt != "## Legato tools\n\nUse show_card without being asked."+withStage {
 		t.Fatalf("launch prompt = %q", prompt)
 	}
 }
@@ -107,15 +107,15 @@ func TestSpawnAgent_AHandedOffSessionIsToldItsBranches(t *testing.T) {
 	adapter := branchToolsPromptAdapter{toolsPromptAdapter{fakeAdapter: &fakeAdapter{name: "codex-like"}, tools: "## Legato tools"}}
 
 	prompt, _ := spawnAndReadPrompt(t, adapter, "task-1", AgentSpawnOptions{Branches: SessionBranches{Base: "legato/k7q2", Granted: true}})
-	if prompt != "## Legato tools\n\nWork on legato/k7q2; pushing it is already allowed." {
+	if prompt != "## Legato tools\n\nWork on legato/k7q2; pushing it is already allowed."+withStage {
 		t.Fatalf("handed-off launch prompt = %q", prompt)
 	}
 	pushed, _ := spawnAndReadPrompt(t, adapter, "task-3", AgentSpawnOptions{Branches: SessionBranches{Base: "legato/k7q2", Given: "fix/login-timeout", Granted: true}})
-	if pushed != "## Legato tools\n\nWork on fix/login-timeout, then legato/k7q2-<a few words>." {
+	if pushed != "## Legato tools\n\nWork on fix/login-timeout, then legato/k7q2-<a few words>."+withStage {
 		t.Fatalf("launch prompt from a pushed branch = %q", pushed)
 	}
 	ordinary, _ := spawnAndReadPrompt(t, adapter, "task-2")
-	if ordinary != "## Legato tools" {
+	if ordinary != "## Legato tools"+withStage {
 		t.Fatalf("ordinary launch prompt = %q", ordinary)
 	}
 }

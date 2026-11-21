@@ -29,6 +29,7 @@ var legatoCommandAlternatives = map[string]string{
 	"mcp serve":                 "your own tools are this server already",
 	"clone setup":               "a clone's setup runs when its agent starts; POST /api/tasks/<id>/agent starts one",
 	"agent state":               "an agent tool's hooks report its state: read it with GET /api/agents?view=compact",
+	"agent stage":               "an agent reports its own stage: set one with PUT /api/agents/<id>/stage, read it with GET /api/agents?view=compact",
 	"agent permission-resolved": "an agent tool's hooks report this: answer a permission in the operator's approval tray",
 	"agent stopped":             "an agent tool's hooks report this: POST /api/agents/kill stops an agent",
 	"agent allow-read":          "an agent tool's hooks ask this for a pasted image",

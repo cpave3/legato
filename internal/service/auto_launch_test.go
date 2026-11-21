@@ -481,8 +481,8 @@ func TestSpawnAgent_GeneralPromptDrivesLaunchForPlainSpawn(t *testing.T) {
 	if err != nil {
 		t.Fatal(err)
 	}
-	if body := string(data); body != "GENERAL-PROMPT-MARKER" {
-		t.Errorf("role prompt file = %q, want %q", body, "GENERAL-PROMPT-MARKER")
+	if body := string(data); body != "GENERAL-PROMPT-MARKER"+withStage {
+		t.Errorf("role prompt file = %q, want %q", body, "GENERAL-PROMPT-MARKER"+withStage)
 	}
 	lines := mt.sentLinesFor(sessionName)
 	if len(lines) < 1 {

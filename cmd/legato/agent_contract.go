@@ -24,6 +24,8 @@ func runAgentContract(args []string) int {
 	switch args[0] {
 	case "state":
 		return runAgentStateContract(args[1:])
+	case "stage":
+		return runAgentStageContract(args[1:])
 	case "session-created":
 		return runAgentSessionCreatedContract(args[1:])
 	case "permission-resolved":
@@ -549,4 +551,46 @@ func viaBroker(command string, jsonMode bool, op string, args, data any) (int, b
 		return renderCommandError(command, &commandError{Code: refusal.Code, Message: refusal.Message, Exit: exitForbidden}, jsonMode), true
 	}
 	return renderCommandError(command, commandDomainError(err), jsonMode), true
+}
+
+// runAgentStageContract is `legato agent stage <stage> [--note]`: the
+// calling agent reports where its work stands, through the broker inside
+// Legato's sandbox.
+func runAgentStageContract(args []string) int {
+	const command = "agent.stage"
+	parsed, parseErr := parseCommandArgs(args, commandFlagSpecs("agent", "stage"))
+	jsonMode := parsed.Present["json"]
+	if parseErr != nil {
+		return renderCommandError(command, parseErr, jsonMode)
+	}
+	if len(parsed.Positionals) != 1 {
+		return renderCommandError(command, usageError("missing_argument", "agent stage takes one stage: exploring, planning, implementing, reviewing or finished"), jsonMode)
+	}
+	stage, note := parsed.Positionals[0], parsed.Values["note"]
+	taskID := strings.TrimSpace(parsed.Values["task"])
+	if taskID == "" {
+		taskID = strings.TrimSpace(os.Getenv("LEGATO_TASK_ID"))
+	}
+	if taskID == "" {
+		return renderCommandError(command, &commandError{Code: "agent_context_missing", Message: "no task given and LEGATO_TASK_ID is not set", Exit: exitEnvironment}, jsonMode)
+	}
+	executionID := strings.TrimSpace(parsed.Values["execution-id"])
+	if executionID == "" {
+		executionID = strings.TrimSpace(os.Getenv("LEGATO_EXECUTION_ID"))
+	}
+	if code, done := viaBroker(command, jsonMode, "agent.stage", map[string]string{
+		"task_id": taskID, "execution_id": executionID, "stage": stage, "note": note,
+	}, map[string]any{"task_id": taskID, "stage": strings.ToLower(strings.TrimSpace(stage))}); done {
+		return code
+	}
+	db, code := openCommandStore(command, jsonMode)
+	if db == nil {
+		return code
+	}
+	defer db.Close()
+	recorded, err := cli.AgentStage(context.Background(), db, taskID, executionID, stage, note)
+	if err != nil {
+		return renderCommandError(command, commandDomainError(err), jsonMode)
+	}
+	return writeCommandSuccess(command, map[string]any{"task_id": taskID, "stage": recorded}, "Your stage is "+recorded+".", jsonMode)
 }

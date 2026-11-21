@@ -120,6 +120,7 @@ These commands tell Legato which repository and branch a task works on, so it ca
 - `legato agent peers [--task <task-id>] [--execution-id <id>] [--directory <path>] [--json]`: list the other Legato agents working in the same Git worktree.
 - `legato agent message <task-or-execution-id> <text> [--json]`: send a message to a running agent.
 - `legato agent broadcast <text> [--task <task-id>] [--execution-id <id>] [--directory <path>] [--json]`: send a message to every other agent in the same Git worktree.
+- `legato agent stage <stage> [--note <text>] [--json]`: report where the calling agent's work stands: `exploring`, `planning`, `implementing`, `reviewing` or `finished`. Agents without Legato's MCP tools use it in place of `report_stage`.
 - `legato agent state [<task-id>] --activity working|waiting|background|error|"" [--execution-id <id>] [--json]`: report what an agent is doing. The Codex and Chimera hooks Legato installs call it; an empty activity clears it.
 - `legato agent hook claude-code [<task-id>] [--execution-id <id>] [--working-dir <path>] [--json]`: report one Claude Code hook, its payload on stdin. Legato's `legato-state` plugin calls it; see [Claude Code](/legato/agent-tools/claude-code/).
 - `legato agent summary [--exclude <task-id>] [--json]`: count the agents that are working, waiting, in error and idle, formatted for a tmux status line.

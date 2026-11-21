@@ -1060,6 +1060,12 @@ func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, hei
 		(a.hasSkill == nil || a.hasSkill(reviewSkill)) {
 		rolePrompt = joinPromptSections(rolePrompt, reviewsOnPrompt)
 	}
+	// An agent that launches with a prompt is asked to report its stage. A
+	// reviewer slot only ever reviews, the Reeve (its own prompt) has no
+	// stage, and a swarm's stages come from the swarm's own milestones.
+	if rolePrompt != "" && !nativeResume && !ownPrompt && !named && !isSwarm {
+		rolePrompt = joinPromptSections(rolePrompt, stagePrompt)
+	}
 	if repo, ok := strings.CutPrefix(projectKey, "repo:"); ok && a.guidance != nil {
 		text, guidanceErr := a.guidance.GuidanceFor(ctx, repo)
 		if guidanceErr != nil {
