@@ -31,11 +31,13 @@ function item(id: string, signal_kind: string, task = "task-1"): AttentionItem {
 
 // What the layout does on a phone: the tab toggles the sheet, the sheet's
 // Close closes it, and the hook opens it by itself.
-function Phone({ blocked = false }: { blocked?: boolean }) {
+function Phone({ blocked = false, dialog = false }: { blocked?: boolean; dialog?: boolean }) {
   const [open, setOpen] = useState(false)
+  const [other, setOther] = useState(dialog)
   useSheetAutoOpen({ open, blocked, onOpen: () => setOpen(true) })
   return (
     <>
+      {other && <div role="dialog" aria-modal="true" aria-label="Plan"><button type="button" onClick={() => setOther(false)}>Close plan</button></div>}
       <label>Message<input /></label>
       <button type="button" onClick={() => setOpen((was) => !was)}>Needs you</button>
       {open && <div role="dialog" aria-modal="true" aria-label="Needs you sheet"><button type="button" onClick={() => setOpen(false)}>Close</button></div>}
@@ -44,11 +46,11 @@ function Phone({ blocked = false }: { blocked?: boolean }) {
 }
 
 let client: QueryClient
-function page(props: { blocked?: boolean; path?: string } = {}) {
+function page(props: { blocked?: boolean; dialog?: boolean; path?: string } = {}) {
   client = new QueryClient({ defaultOptions: { queries: { retry: false } } })
   return render(
     <QueryClientProvider client={client}>
-      <MemoryRouter initialEntries={[props.path ?? "/board"]}><Phone blocked={props.blocked} /></MemoryRouter>
+      <MemoryRouter initialEntries={[props.path ?? "/board"]}><Phone blocked={props.blocked} dialog={props.dialog} /></MemoryRouter>
     </QueryClientProvider>,
   )
 }
@@ -208,6 +210,23 @@ describe("useSheetAutoOpen", () => {
   it("does not open over another sheet", async () => {
     railView.current.items = [item("q1", "operator_question")]
     page({ blocked: true })
+    await settle()
+    expect(sheet()).toBeNull()
+  })
+
+  it("waits under another dialog, and opens once it closes", async () => {
+    railView.current.items = [item("q1", "operator_question")]
+    page({ dialog: true })
+    await settle()
+    expect(sheet()).toBeNull()
+    fireEvent.click(screen.getByRole("button", { name: "Close plan" }))
+    await waitFor(() => expect(sheet()).toBeTruthy())
+  })
+
+  it("does not open for a paired instance's approval while approvals are hidden", async () => {
+    railView.current = { ...railView.current, items: [], hiddenNames: ["approvals"] }
+    peers.current = [{ instance_id: "inst-2", id: "cs-1" }]
+    page()
     await settle()
     expect(sheet()).toBeNull()
   })

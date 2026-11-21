@@ -16,8 +16,11 @@ export const DEFAULT_SNOOZE_MS = 30 * 60 * 1000
 
 const keyOf = (baseUrl: string) => `legato:rail-snooze:${baseUrl}`
 
-// The snooze of this page, for a browser whose storage refuses it.
+// The snooze of this page, for a browser whose storage refuses it, and the
+// servers whose last snooze storage refused to keep: for those, memory is
+// newer than what storage holds.
 const memory = new Map<string, RailSnooze>()
+const unsaved = new Set<string>()
 
 function parse(raw: string | null): RailSnooze | null | "bad" {
   if (raw === null) return null
@@ -36,7 +39,7 @@ function parse(raw: string | null): RailSnooze | null | "bad" {
 export function readSnooze(baseUrl: string, now = Date.now()): RailSnooze | null {
   let stored: RailSnooze | null | "bad"
   try {
-    stored = parse(window.localStorage.getItem(keyOf(baseUrl)))
+    stored = unsaved.has(baseUrl) ? memory.get(baseUrl) ?? null : parse(window.localStorage.getItem(keyOf(baseUrl)))
   } catch {
     stored = memory.get(baseUrl) ?? null
   }
@@ -51,13 +54,16 @@ export function writeSnooze(baseUrl: string, snooze: RailSnooze) {
   memory.set(baseUrl, snooze)
   try {
     window.localStorage.setItem(keyOf(baseUrl), JSON.stringify(snooze))
+    unsaved.delete(baseUrl)
   } catch {
     // Kept for this page only.
+    unsaved.add(baseUrl)
   }
 }
 
 export function clearSnooze(baseUrl: string) {
   memory.delete(baseUrl)
+  unsaved.delete(baseUrl)
   try {
     window.localStorage.removeItem(keyOf(baseUrl))
   } catch {
@@ -85,4 +91,5 @@ export function snoozeOver(snooze: RailSnooze | null, candidates: SheetCandidate
 // resetSnoozeMemory is for tests: a fresh page.
 export function resetSnoozeMemory() {
   memory.clear()
+  unsaved.clear()
 }

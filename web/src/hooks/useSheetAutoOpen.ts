@@ -43,6 +43,22 @@ function useTyping(): boolean {
   return typing
 }
 
+const MODAL = '[aria-modal="true"]'
+
+// useModalOpen is whether a modal dialog is on the page, kept current as
+// dialogs come and go.
+function useModalOpen(): boolean {
+  const [modal, setModal] = useState(() => document.querySelector(MODAL) !== null)
+  useEffect(() => {
+    const update = () => setModal(document.querySelector(MODAL) !== null)
+    update()
+    const observer = new MutationObserver(update)
+    observer.observe(document.body, { childList: true, subtree: true, attributes: true, attributeFilter: ["aria-modal"] })
+    return () => observer.disconnect()
+  }, [])
+  return modal
+}
+
 // useSheetAutoOpen opens the phone's needs-you sheet by itself when an item
 // waits, and keeps it away for the snooze once the operator closes it: any
 // close, from the sheet, the tab or a link in it. A new approval, question,
@@ -64,15 +80,19 @@ export function useSheetAutoOpen({ open, blocked, onOpen }: {
   const inView = useAgentInView()
   const focusMode = useFocusMode()
   const typing = useTyping()
+  const modal = useModalOpen()
   // Bumped when a snooze ends, to look again.
   const [tick, setTick] = useState(0)
 
   const items = view.data?.items ?? []
+  // The sheet lists paired instances' approvals only while approvals show,
+  // which the rail view says once it has loaded.
+  const shownPeers = view.data && !view.data.hiddenNames.includes("approvals") ? peers : []
   const snoozeMs = (view.data?.snoozeSeconds ?? 0) > 0 ? view.data!.snoozeSeconds! * 1000 : DEFAULT_SNOOZE_MS
   const everything = [...items.map((each) => each.id), ...peers.map((peer) => `peer:${peer.instance_id}:${peer.id}`)]
   const candidates: SheetCandidate[] = [
     ...items.filter((each) => inView === null || itemAgent(each) !== inView).map((each) => ({ id: each.id, holdsWork: holdsWork(each) })),
-    ...peers.map((peer) => ({ id: `peer:${peer.instance_id}:${peer.id}`, holdsWork: true })),
+    ...shownPeers.map((peer) => ({ id: `peer:${peer.instance_id}:${peer.id}`, holdsWork: true })),
   ]
 
   // Every close starts the snooze, with what the rail held then.
@@ -91,8 +111,7 @@ export function useSheetAutoOpen({ open, blocked, onOpen }: {
   onOpenRef.current = onOpen
   useEffect(() => {
     if (open || blocked || key === "") return
-    if (focusMode || typing || location.pathname.startsWith("/attention")) return
-    if (document.querySelector('[aria-modal="true"]')) return
+    if (focusMode || typing || modal || location.pathname.startsWith("/attention")) return
     const now = Date.now()
     const snooze = readSnooze(baseUrl, now)
     if (snooze && !snoozeOver(snooze, candidates, now)) {
@@ -104,7 +123,7 @@ export function useSheetAutoOpen({ open, blocked, onOpen }: {
     onOpenRef.current()
     // candidates is read through key.
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [open, blocked, key, focusMode, typing, location.pathname, baseUrl, tick])
+  }, [open, blocked, key, focusMode, typing, modal, location.pathname, baseUrl, tick])
 }
 
 // NeedsYouAutoOpen runs useSheetAutoOpen; the layout mounts it on a phone

@@ -35,6 +35,13 @@ describe("rail snooze", () => {
     expect(readSnooze(base, 1_000)).toEqual({ until: 5_000, seen: ["a"] })
   })
 
+  it("holds a snooze for the page when only storage writes fail", () => {
+    writeSnooze(base, { until: 3_000, seen: ["old"] })
+    vi.spyOn(Storage.prototype, "setItem").mockImplementation(() => { throw new Error("quota") })
+    writeSnooze(base, { until: 9_000, seen: ["new"] })
+    expect(readSnooze(base, 1_000)).toEqual({ until: 9_000, seen: ["new"] })
+  })
+
   it("is no snooze when storage cannot be read and nothing was snoozed on this page", () => {
     vi.spyOn(Storage.prototype, "getItem").mockImplementation(() => { throw new Error("blocked") })
     expect(readSnooze(base, 0)).toBeNull()
