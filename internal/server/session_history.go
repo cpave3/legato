@@ -19,6 +19,7 @@ type SessionHistory interface {
 	Get(ctx context.Context, id int64) (*service.SessionDetail, error)
 	Forget(ctx context.Context, id int64) error
 	Restore(ctx context.Context, id int64, target string) (string, error)
+	StartFresh(ctx context.Context, id int64, target, workingDir string) (string, error)
 }
 
 // SetSessionHistory serves the session history.
@@ -147,13 +148,21 @@ func (s *Server) sessionHistoryRestoreHandler() http.HandlerFunc {
 			return
 		}
 		var in struct {
-			Target string `json:"target"`
+			Target     string `json:"target"`
+			Fresh      bool   `json:"fresh"`
+			WorkingDir string `json:"working_dir"`
 		}
 		if err := json.NewDecoder(r.Body).Decode(&in); err != nil {
-			s.writeError(w, http.StatusBadRequest, `give {"target": "task"} or {"target": "new_task"}`)
+			s.writeError(w, http.StatusBadRequest, `give {"target": "task" | "new_task", "fresh"?: true, "working_dir"?: "<folder>"}`)
 			return
 		}
-		taskID, err := s.sessionHistory.Restore(r.Context(), id, in.Target)
+		var taskID string
+		var err error
+		if in.Fresh {
+			taskID, err = s.sessionHistory.StartFresh(r.Context(), id, in.Target, in.WorkingDir)
+		} else {
+			taskID, err = s.sessionHistory.Restore(r.Context(), id, in.Target)
+		}
 		var refused *service.RestoreRefusal
 		switch {
 		case errors.As(err, &refused):

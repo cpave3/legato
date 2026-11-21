@@ -391,6 +391,14 @@ func (h *SessionHistoryService) restorability(e *SessionEntry) {
 	refuse := func(reason string, fresh bool) {
 		e.Restorable, e.Reason, e.CanStartFresh = false, reason, fresh
 	}
+	// Chimera keeps its sessions in a store Legato cannot look into, so
+	// whether one can be resumed is found out only by trying: a fresh start
+	// is offered beside the restore.
+	defer func() {
+		if e.Restorable && e.AgentKind == "chimera" {
+			e.CanStartFresh = true
+		}
+	}()
 	switch {
 	case e.State == store.ConversationRunning:
 		refuse("it is running", false)
@@ -570,4 +578,114 @@ func (h *SessionHistoryService) restoreIntoNewTask(ctx context.Context, r Conver
 		return "", err
 	}
 	return taskID, nil
+}
+
+// StartFresh starts a new conversation in place of one of the history that
+// cannot be restored (its folder or transcript gone, its tool unable to
+// resume it): on its task or a new one, in workingDir, else its old folder
+// while that exists, set up as its latest run, with a [legato handover]
+// message carrying what the history knows of it. It returns the task.
+func (h *SessionHistoryService) StartFresh(ctx context.Context, id int64, target, workingDir string) (string, error) {
+	if target != RestoreIntoTask && target != RestoreIntoNewTask {
+		return "", fmt.Errorf("%w: target %q is not task or new_task", ErrBadSessionQuery, target)
+	}
+	if _, busy := h.restoring.LoadOrStore(id, struct{}{}); busy {
+		return "", &RestoreRefusal{Reason: "it is already being restored"}
+	}
+	defer h.restoring.Delete(id)
+	detail, err := h.Get(ctx, id)
+	if err != nil {
+		return "", err
+	}
+	e := detail.SessionEntry
+	switch {
+	case e.State == store.ConversationRunning:
+		return "", &RestoreRefusal{Reason: "it is running"}
+	case e.State == "away":
+		return "", &RestoreRefusal{Reason: "its task is away on a worker"}
+	case e.Reeve:
+		return "", &RestoreRefusal{Reason: "start a new Reeve session instead"}
+	case h.opts.ToolConfigured != nil && !h.opts.ToolConfigured(e.AgentKind):
+		return "", &RestoreRefusal{Reason: e.AgentKind + " is not configured"}
+	}
+	folder := strings.TrimSpace(workingDir)
+	if folder == "" {
+		folder = e.CWD
+	}
+	if info, err := os.Stat(folder); folder == "" || err != nil || !info.IsDir() {
+		return "", fmt.Errorf("%w: choose a folder to start in: %q is not one", ErrBadSessionQuery, folder)
+	}
+	if h.opts.Restorer == nil {
+		return "", &RestoreRefusal{Reason: "agents cannot be started here"}
+	}
+	newTaskOnly := !e.TaskExists || e.TaskArchived || IsNamedSlot(e.Slot)
+	if target == RestoreIntoTask && newTaskOnly {
+		return "", &RestoreRefusal{Reason: "its task cannot take it: start fresh in a new task", NewTaskPossible: true}
+	}
+	f := FreshStart{AgentKind: e.AgentKind, WorkingDir: folder, Handover: handoverNote(detail)}
+	if n := len(detail.Runs); n > 0 {
+		f.ExecutionID, f.Sandboxed = detail.Runs[n-1].ExecutionID, detail.Runs[n-1].Sandboxed
+	}
+	if target == RestoreIntoTask {
+		f.TaskID = e.TaskID
+		return f.TaskID, h.opts.Restorer.StartFresh(ctx, f)
+	}
+	if h.opts.NewTask == nil {
+		return "", &RestoreRefusal{Reason: "starting in a new task is not available here"}
+	}
+	var workspaceID *int
+	if row, err := h.store.GetAgentConversation(ctx, id); err == nil && row != nil {
+		workspaceID = row.WorkspaceID
+	}
+	taskID, remove, err := h.opts.NewTask(ctx, e.TaskTitle, e.Ephemeral, workspaceID)
+	if err != nil {
+		return "", fmt.Errorf("making the new task: %w", err)
+	}
+	f.TaskID = taskID
+	if err := h.opts.Restorer.StartFresh(ctx, f); err != nil {
+		_ = remove(context.WithoutCancel(ctx))
+		return "", err
+	}
+	return taskID, nil
+}
+
+// handoverNote is the first message of a fresh start: what the history
+// knows of the conversation it replaces. The messages are kept as they
+// were clipped.
+func handoverNote(d *SessionDetail) string {
+	var b strings.Builder
+	b.WriteString("[legato handover] You are taking over from an earlier agent of this task, whose conversation could not be restored. What Legato knows of it:\n")
+	line := func(label, value string) {
+		if strings.TrimSpace(value) != "" {
+			fmt.Fprintf(&b, "- %s: %s\n", label, value)
+		}
+	}
+	line("Task", d.TaskTitle)
+	line("Folder", d.CWD)
+	if d.Repo != "" {
+		where := d.Repo
+		if d.Branch != "" {
+			where += ", branch " + d.Branch
+		}
+		line("Repository", where)
+	}
+	if n := len(d.Runs); n > 0 {
+		last := d.Runs[n-1]
+		at := last.StartedAt
+		if last.EndedAt != nil {
+			at = *last.EndedAt
+		}
+		ended := last.EndReason
+		if ended == "" {
+			ended = "unknown"
+		}
+		line("Last ran", at.Local().Format("2 Jan 2006 at 15:04")+"; it ended: "+ended)
+	}
+	line("Its first prompt", d.FirstMessage)
+	line("Its last message", d.LastMessage)
+	if d.TranscriptState == store.TranscriptPresent {
+		line("Its transcript (read only)", d.TranscriptPath)
+	}
+	b.WriteString("Files, branches and other agents may have changed since. Check the state before you go on.")
+	return b.String()
 }

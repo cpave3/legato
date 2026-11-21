@@ -140,3 +140,17 @@ func TestARefusedRestoreSaysWhy(t *testing.T) {
 		t.Fatalf("restore without agents: %d %s", rec.Code, rec.Body)
 	}
 }
+
+func TestAFreshStartNeedsAFolder(t *testing.T) {
+	srv, _ := historyServer(t)
+	var ended int64
+	for _, e := range historyPage(t, srv, "").Sessions {
+		if e.TaskID == "ended" {
+			ended = e.ID
+		}
+	}
+	body := `{"target": "task", "fresh": true, "working_dir": "/no/such/folder"}`
+	if rec := callAs(srv, "secret", http.MethodPost, fmt.Sprintf("/api/sessions/%d/restore", ended), body); rec.Code != http.StatusBadRequest {
+		t.Fatalf("fresh start in no folder: %d %s, want 400", rec.Code, rec.Body)
+	}
+}

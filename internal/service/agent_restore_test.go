@@ -226,6 +226,8 @@ func (b blockingRestorer) RestoreConversation(context.Context, ConversationResto
 	return nil
 }
 
+func (b blockingRestorer) StartFresh(context.Context, FreshStart) error { return nil }
+
 func TestOneRestoreOfAConversationAtATime(t *testing.T) {
 	f := newRestartFixture(t)
 	ctx := context.Background()

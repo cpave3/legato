@@ -136,7 +136,7 @@ var routeClassTable = []routeClassEntry{
 	{"GET", "/api/agents/interrupted", ClassRead, "List the agents a crash interrupted"},
 	{"GET", "/api/sessions", ClassRead, "Search the session history: the conversations agents had here, with whether each can be restored"},
 	{"GET", "/api/sessions/{id}", ClassRead, "Show a conversation of the session history with its runs"},
-	{"POST", "/api/sessions/{id}/restore", ClassChange, "Restore a conversation of the session history: start it again in its task, as it last ran"},
+	{"POST", "/api/sessions/{id}/restore", ClassChange, "Restore a conversation of the session history (start it again as it last ran), or start a new one in its place with a hand-over"},
 	{"DELETE", "/api/sessions/{id}", ClassChange, "Forget a conversation: remove it from the session history (the tool's transcript stays)"},
 	{"POST", "/api/agents/interrupted/resume-all", ClassChange, "Resume every interrupted agent"},
 	{"POST", "/api/agents/{task_id}/resume", ClassChange, "Resume an interrupted agent, or start a new one in its place"},

@@ -145,3 +145,23 @@ it("shows the newest messages of the transcript, as text", async () => {
   expect(within(recent).getByText("Done.")).toBeTruthy()
   expect(screen.getByText(withPreview.transcript_path)).toBeTruthy()
 })
+
+it("starts fresh in a folder the operator picks", async () => {
+  const gone = { ...detail, restorable: false, reason: "its folder /home/me/scn is gone", can_start_fresh: true }
+  vi.mocked(fetch).mockImplementation(async (input: RequestInfo | URL) => {
+    const url = String(input)
+    if (url.includes("/restore")) return json({ status: "ok", task_id: "bk50d3h5" })
+    if (url.includes("/api/directories")) return json({ query: "", resolved: "", exists: true, base: "/home/me/", prefix: "", items: [{ name: "scn2", path: "/home/me/scn2", display: "~/scn2/", git: true, preset: 0 }], total: 1 })
+    return /\/api\/sessions\/\d+$/.test(url) ? json(gone) : json({ sessions: [ended] })
+  })
+  page("/agents/history?session=7")
+  const fresh = await screen.findByRole("region", { name: "Start fresh" })
+  expect(screen.queryByRole("button", { name: "Restore" })).toBeNull()
+  const folder = within(fresh).getByRole("combobox", { name: "Folder to start in" }) as HTMLInputElement
+  expect(folder.value).toBe("/home/me/scn")
+  fireEvent.change(folder, { target: { value: "/home/me/scn2" } })
+  fireEvent.click(within(fresh).getByRole("button", { name: "Start fresh" }))
+  expect((await screen.findByTestId("where")).textContent).toBe("/agents?task=bk50d3h5")
+  const restore = vi.mocked(fetch).mock.calls.find(([input]) => String(input).endsWith("/restore"))
+  expect(JSON.parse(String(restore?.[1]?.body))).toEqual({ target: "task", fresh: true, working_dir: "/home/me/scn2" })
+})

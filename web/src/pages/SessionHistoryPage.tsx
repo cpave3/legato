@@ -18,6 +18,7 @@ import {
   type SessionEntry,
   type SessionFilters,
 } from "../lib/sessionHistory"
+import { fetchDirectorySuggestions } from "../lib/spawnDirectories"
 import { cn } from "../lib/utils"
 
 const PAGE = 50
@@ -157,11 +158,11 @@ function SessionDetailPanel({ id, onClose }: { id: number; onClose: () => void }
     await queryClient.invalidateQueries({ queryKey: [baseUrl, "sessions"] })
     await queryClient.invalidateQueries({ queryKey: queryKeys.session(baseUrl, id) })
   }
-  const restore = async (taskId: string, target: "task" | "new_task") => {
+  const restore = async (taskId: string, target: "task" | "new_task", fresh?: { workingDir?: string }) => {
     setError("")
     setBusy(true)
     try {
-      const runsIn = (await restoreSession(baseUrl, id, target)) || taskId
+      const runsIn = (await restoreSession(baseUrl, id, target, fresh)) || taskId
       await refresh()
       navigate(`/agents?task=${encodeURIComponent(runsIn)}`)
     } catch (reason) {
@@ -250,10 +251,38 @@ function SessionDetailPanel({ id, onClose }: { id: number; onClose: () => void }
             title={entry.state === "running" || entry.state === "interrupted" ? "Stop or dismiss its agent first" : undefined}
             onClick={() => setForgetting(true)}>Forget</Button>
         </div>
+        {entry.can_start_fresh && <StartFresh entry={entry} busy={busy}
+          onStart={(workingDir) => void restore(entry.task_id, entry.task_exists && !entry.task_archived && entry.slot === "main" ? "task" : "new_task", { workingDir })} />}
       </>
     })()}
     {forgetting && <ConfirmDialog title="Forget this session?" destructive confirmLabel="Forget"
       message="It leaves Session history for good. The tool's own transcript, and the task's Resume, are left as they are."
       onConfirm={() => void forget()} onCancel={() => setForgetting(false)} />}
   </aside>
+}
+
+// StartFresh starts a new conversation in place of one that cannot be
+// restored, in a folder the operator picks (its old one when it is there),
+// handed what Legato knows of the old conversation.
+function StartFresh({ entry, busy, onStart }: { entry: SessionEntry; busy: boolean; onStart: (workingDir: string) => void }) {
+  const { baseUrl } = useServer()
+  const [folder, setFolder] = useState(entry.cwd)
+  const typed = useDebounced(folder.trim(), 250)
+  const suggestions = useQuery({
+    queryKey: [baseUrl, "directories", typed],
+    queryFn: ({ signal }) => fetchDirectorySuggestions(baseUrl, typed, signal),
+    enabled: typed !== "",
+  })
+  return <section aria-label="Start fresh" className="flex flex-col gap-2 border-t border-lw-line pt-3">
+    <p className="m-0 text-xs text-lw-text-2">Start a new conversation in its place. Its first message hands over what Legato knows of this one: where it ran, how it ended, its first prompt and last message.</p>
+    <label className="flex flex-col gap-1 text-xs">
+      Folder
+      <input aria-label="Folder to start in" list="start-fresh-folders" value={folder} onChange={(event) => setFolder(event.target.value)}
+        className="min-h-9 rounded-md border border-lw-line bg-lw-canvas px-2 font-lw-mono text-xs" />
+      <datalist id="start-fresh-folders">
+        {(suggestions.data?.items ?? []).map((item) => <option key={item.path} value={item.path} />)}
+      </datalist>
+    </label>
+    <Button variant="outline" size="sm" disabled={busy || folder.trim() === ""} onClick={() => onStart(folder.trim())}>Start fresh</Button>
+  </section>
 }

@@ -37,9 +37,52 @@ type ConversationRestore struct {
 	LastRanAt time.Time
 }
 
-// ConversationRestorer starts a conversation of the history again.
+// ConversationRestorer starts a conversation of the history again, or a
+// new one in its place.
 type ConversationRestorer interface {
 	RestoreConversation(ctx context.Context, r ConversationRestore) error
+	StartFresh(ctx context.Context, f FreshStart) error
+}
+
+// FreshStart is a new conversation started in place of one of the history
+// that cannot be restored: on a task's main slot, in a folder, set up as
+// the old one's latest run, with a hand-over as its first message.
+type FreshStart struct {
+	TaskID     string
+	AgentKind  string
+	WorkingDir string
+	// ExecutionID and Sandboxed are the old latest run's.
+	ExecutionID string
+	Sandboxed   *bool
+	Handover    string
+}
+
+// StartFresh starts a new conversation on a task's main slot, with the
+// tool, sandbox choice, engram (in a new engram session) and resources of
+// a run. Refusals are *RestoreRefusal, as for RestoreConversation.
+func (a *agentService) StartFresh(ctx context.Context, f FreshStart) error {
+	if err := RefuseAway(ctx, a.store, f.TaskID); err != nil {
+		return &RestoreRefusal{Reason: err.Error()}
+	}
+	if session, err := a.store.GetAgentSessionInSlot(ctx, f.TaskID, store.SlotMain); err == nil && session.Status == "running" {
+		return &RestoreRefusal{Reason: "the task's agent is running: stop it first, or start fresh in a new task", NewTaskPossible: true}
+	}
+	if _, err := a.store.GetInterruptedAgentSession(ctx, f.TaskID); err == nil {
+		if err := a.DismissInterruptedAgent(ctx, f.TaskID); err != nil {
+			return err
+		}
+	}
+	opt, _ := a.runSpawnOptions(ctx, f.AgentKind, f.Sandboxed, false, f.ExecutionID)
+	opt.EngramSession = ""
+	opt.Slot = store.SlotMain
+	opt.WorkingDir = f.WorkingDir
+	opt.Prompt = f.Handover
+	chosen, _ := a.store.ListChosenExecutionResources(ctx, f.ExecutionID)
+	opt.Resources = a.resolveResources(ctx, chosen)
+	if task, err := a.store.GetTask(ctx, f.TaskID); err == nil {
+		opt.Ephemeral = task.Ephemeral
+	}
+	return a.SpawnAgent(ctx, f.TaskID, 0, 0, opt)
 }
 
 // RestoreConversation starts a conversation again in its task's main slot:

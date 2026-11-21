@@ -99,11 +99,14 @@ export async function fetchSession(baseUrl: string, id: number): Promise<Session
 
 // Starts a conversation again: in its own task, or a new one. Resolves to
 // the task it runs in.
-export async function restoreSession(baseUrl: string, id: number, target: "task" | "new_task" = "task"): Promise<string> {
+// With fresh, it starts a new conversation in its place instead, in
+// workingDir or its old folder, handed what Legato knows of the old one.
+export async function restoreSession(baseUrl: string, id: number, target: "task" | "new_task" = "task", fresh?: { workingDir?: string }): Promise<string> {
+  const body = fresh ? { target, fresh: true, ...(fresh.workingDir ? { working_dir: fresh.workingDir } : {}) } : { target }
   const response = await apiFetch(baseUrl, `/api/sessions/${id}/restore`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ target }),
+    body: JSON.stringify(body),
   })
   if (response.ok) {
     const body = await response.json().catch(() => ({})) as { task_id?: string }
