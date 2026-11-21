@@ -55,17 +55,25 @@ func (b *ReviewLoopBlock) Summary() string {
 	if b == nil {
 		return ""
 	}
+	// What the loop waits on, with what is still open beside it.
+	waiting := ""
 	switch b.WaitingOn {
 	case ReviewWaitingOnAuthorWorking:
-		return "Waiting for the author · working"
+		waiting = "Waiting for the author · working"
 	case ReviewWaitingOnAuthorWaiting:
-		return "Waiting for the author · it waits for an answer"
+		waiting = "Waiting for the author · it waits for an answer"
 	case ReviewWaitingOnAuthorPush:
-		return "Waiting for the author to push"
+		waiting = "Waiting for the author to push"
 	case ReviewWaitingOnGitHub:
-		return "Waiting for GitHub"
+		waiting = "Waiting for GitHub"
 	case ReviewWaitingOnStart:
-		return "Starting the next pass"
+		waiting = "Starting the next pass"
+	}
+	if waiting != "" {
+		if counts := b.openCounts(); counts != "" {
+			return waiting + " · " + counts
+		}
+		return waiting
 	}
 	switch b.Phase {
 	case ReviewPhaseReviewing:
@@ -73,23 +81,10 @@ func (b *ReviewLoopBlock) Summary() string {
 	case ReviewPhaseWaitingForReviewer:
 		return fmt.Sprintf("Waiting for a reviewer · pass %d", b.Pass+1)
 	case ReviewPhaseWaitingForAuthor:
-		var parts []string
-		for _, c := range []struct {
-			n         int
-			one, many string
-		}{{b.BlockingOpen, "blocking", "blocking"}, {b.CommentsOpen, "comment", "comments"}, {b.ChecksOpen, "check", "checks"}} {
-			if c.n > 0 {
-				word := c.many
-				if c.n == 1 {
-					word = c.one
-				}
-				parts = append(parts, fmt.Sprintf("%d %s", c.n, word))
-			}
+		if counts := b.openCounts(); counts != "" {
+			return "Author fixing · " + counts
 		}
-		if len(parts) == 0 {
-			return "Author fixing"
-		}
-		return "Author fixing · " + strings.Join(parts, ", ")
+		return "Author fixing"
 	case ReviewPhaseClean:
 		summary := "Done · approved"
 		if b.ChecksPending > 0 {
@@ -103,6 +98,21 @@ func (b *ReviewLoopBlock) Summary() string {
 		return "Review stuck: " + b.Reason
 	}
 	return ""
+}
+
+// openCounts is what the author still has to answer: "3 blocking, 1
+// comment, 1 check"; "" for nothing.
+func (b *ReviewLoopBlock) openCounts() string {
+	var parts []string
+	for _, c := range []struct {
+		n         int
+		one, many string
+	}{{b.BlockingOpen, "blocking", "blocking"}, {b.CommentsOpen, "comment", "comments"}, {b.ChecksOpen, "check", "checks"}} {
+		if c.n > 0 {
+			parts = append(parts, fmt.Sprintf("%d %s", c.n, plural(c.n, c.one, c.many)))
+		}
+	}
+	return strings.Join(parts, ", ")
 }
 
 // ReviewBlock is a card's review as its summary row says it; nil when it

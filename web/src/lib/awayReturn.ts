@@ -84,9 +84,10 @@ async function post(baseUrl: string, path: string): Promise<Record<string, unkno
 }
 
 // reviewStuck says the away task's review needs the person: Run another
-// pass and Message the author are offered.
+// pass and Message the author are offered. Only while the worker can act on
+// them: an unreachable, lost or refused task's view is not needs_you.
 export function reviewStuck(away: AwayOn): boolean {
-  return away.review?.phase === "stuck"
+  return away.review?.phase === "stuck" && (away.view === undefined || away.view === "needs_you")
 }
 
 // anotherPass asks the worker to run one more pass of a stuck review.

@@ -116,30 +116,27 @@ export function awayLook(away: AwayOn): AwayLook {
 
 // What a review block says in a few words, as the worker's summary does.
 export function reviewLabel(review: AwayReview): string {
-  switch (review.waiting_on) {
-    case "author_working":
-      return "Waiting for the author · working"
-    case "author_waiting":
-      return "Waiting for the author · it waits for an answer"
-    case "author_push":
-      return "Waiting for the author to push"
-    case "github":
-      return "Waiting for GitHub"
-    case "start":
-      return "Starting the next pass"
-  }
+  const parts: string[] = []
+  if (review.blocking_open) parts.push(`${review.blocking_open} blocking`)
+  if (review.comments_open) parts.push(`${review.comments_open} ${review.comments_open === 1 ? "comment" : "comments"}`)
+  if (review.checks_open) parts.push(`${review.checks_open} ${review.checks_open === 1 ? "check" : "checks"}`)
+  const counts = parts.join(", ")
+  // What the loop waits on, with what is still open beside it.
+  const waiting = {
+    author_working: "Waiting for the author · working",
+    author_waiting: "Waiting for the author · it waits for an answer",
+    author_push: "Waiting for the author to push",
+    github: "Waiting for GitHub",
+    start: "Starting the next pass",
+  }[review.waiting_on ?? ""]
+  if (waiting) return counts ? `${waiting} · ${counts}` : waiting
   switch (review.phase) {
     case "reviewing":
       return `Reviewing · pass ${review.pass}`
     case "waiting_for_reviewer":
       return `Waiting for a reviewer · pass ${review.pass + 1}`
-    case "waiting_for_author": {
-      const parts: string[] = []
-      if (review.blocking_open) parts.push(`${review.blocking_open} blocking`)
-      if (review.comments_open) parts.push(`${review.comments_open} ${review.comments_open === 1 ? "comment" : "comments"}`)
-      if (review.checks_open) parts.push(`${review.checks_open} ${review.checks_open === 1 ? "check" : "checks"}`)
-      return parts.length ? `Author fixing · ${parts.join(", ")}` : "Author fixing"
-    }
+    case "waiting_for_author":
+      return counts ? `Author fixing · ${counts}` : "Author fixing"
     case "clean": {
       let label = review.checks_pending ? `Approved · waiting for ${review.checks_pending} ${review.checks_pending === 1 ? "check" : "checks"}` : "Done · approved"
       if (review.checks_replied) label += ` · ${review.checks_replied} ${review.checks_replied === 1 ? "check" : "checks"} answered by reply`
@@ -153,6 +150,8 @@ export function reviewLabel(review: AwayReview): string {
 // was lost, since when its worker is unreachable, that the worker no longer
 // accepts this main.
 export function awayDetail(away: AwayOn): string | undefined {
+  // A stuck review's reason can be long: the pill cuts it short.
+  if (away.review?.phase === "stuck" && away.review.reason && away.view === "needs_you") return `Review stuck: ${away.review.reason}`
   switch (away.view) {
     case "lost":
       return away.lost

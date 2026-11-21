@@ -38,6 +38,20 @@ afterEach(() => {
 })
 
 describe("AwayRowActions", () => {
+  const stuckReview = { pass: 3, phase: "stuck", reason: "the review reached its limit", blocking_open: 1, comments_open: 0, checks_open: 0, skipped_comments: 0 }
+
+  it("offers the stuck review's actions while the worker can act on them", () => {
+    render(<AwayRowActions baseUrl="" card={away("T-1", { state: "in_progress", view: "needs_you", review: stuckReview })} />)
+    expect(screen.getByRole("button", { name: "Run another pass" })).toBeTruthy()
+    expect(screen.getByRole("button", { name: /Message the author/ })).toBeTruthy()
+  })
+
+  it.each(["unreachable", "lost", "not_accepted"])("offers no stuck review actions when the task is %s", (view) => {
+    render(<AwayRowActions baseUrl="" card={away("T-1", { state: "in_progress", view, review: stuckReview })} />)
+    expect(screen.queryByRole("button", { name: "Run another pass" })).toBeNull()
+    expect(screen.queryByRole("button", { name: /Message the author/ })).toBeNull()
+  })
+
   it("returns a done task", async () => {
     const onNotice = vi.fn()
     render(<AwayRowActions baseUrl="" card={away("T-1", { view: "done", state: "done" })} onNotice={onNotice} />)
