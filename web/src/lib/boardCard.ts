@@ -128,7 +128,7 @@ export function needsYouStrips(card: BoardCard): NeedsYouStrip[] {
     strips.push({ glyph: "◆", text: `${needs.waiting_agents} of ${needs.agents} agents ${needs.waiting_agents === 1 ? "needs" : "need"} you`, action: { label: "Open", kind: "items", taskId: card.id } })
   }
   if (needs.interrupted?.resumable && !card.agent_active) {
-    const kind = needs.interrupted.agent_kind ? agentToolLabel(needs.interrupted.agent_kind) : ""
+    const kind = needs.interrupted.agent_kind ? agentToolLabel(needs.interrupted.agent_kind, undefined) : ""
     strips.push({ glyph: "‖", text: `Interrupted${kind ? ` · ${kind}` : ""}`, action: { label: "Resume", kind: "resume", taskId: card.id } })
   }
   return strips
