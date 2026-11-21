@@ -7,9 +7,10 @@ import { dump } from "js-yaml"
 import type { WorkflowStepDefinition } from "./workflow"
 
 export type GraphTrigger = { kind: string; summary: string; enabled: boolean; confirm?: boolean; max_runs_per_day?: number; definition?: Record<string, unknown> }
-export type GraphStep = { id: string; title: string; type: string; trigger: "automatic" | "manual" | "agent_ended"; key: { field?: string; value?: string }; definition: WorkflowStepDefinition }
+export type GraphGate = "manual" | "agent_ended"
+export type GraphStep = { id: string; title: string; type: string; trigger: "automatic" | "manual" | "agent_ended"; gate?: GraphGate; key: { field?: string; value?: string }; definition: WorkflowStepDefinition }
 export type GraphNode = { id: string; kind: "trigger" | "step"; trigger?: GraphTrigger; step?: GraphStep }
-export type GraphEdge = { id: string; kind: "start" | "order" | string; source: string; target: string }
+export type GraphEdge = { id: string; kind: "start" | "order" | "data" | string; source: string; target: string; outputs?: string[] }
 export type WorkflowGraphModel = { version: number; nodes: GraphNode[]; edges: GraphEdge[] }
 
 // GraphNodeExtra is what a page knows of a node beyond its definition: for
@@ -54,7 +55,7 @@ export function triggerName(kind: string): string {
 
 // nodeName is a node's accessible name: "Step: Investigate the task".
 export function nodeName(node: GraphNode, extra?: GraphNodeExtra): string {
-  if (node.kind === "step" && node.step) return `Step: ${node.step.title}`
+  if (node.kind === "step" && node.step) return `Step: ${node.step.title}${node.step.gate ? `, ${gateLabel(node.step.gate).toLowerCase()}` : ""}`
   const trigger = node.trigger
   const summary = trigger?.summary || triggerName(trigger?.kind ?? "")
   if (!trigger || trigger.kind === "manual") return `Trigger: ${summary}`
@@ -78,4 +79,41 @@ export function yamlText(value: unknown): string {
 // "{triage.report.path}".
 export function keyValueText(value: string): string {
   return value.replace(/\$\{\{\s*(.+?)\s*\}\}/g, (_, expr: string) => `{${expr.replace(/^workflow\.inputs\./, "").replace(/^workflow\./, "").replace(/^steps\.([^.]+)\.outputs\./, "$1.")}}`)
+}
+
+// gateLabel says what a gated step waits for.
+export function gateLabel(gate: GraphGate): string {
+  return gate === "manual" ? "Waits for you" : "Waits for the agent to end"
+}
+
+// dataEdgeName is a data edge's accessible name: which outputs of which
+// step another step uses.
+export function dataEdgeName(edge: GraphEdge, title: (id: string) => string): string {
+  return `Uses ${(edge.outputs ?? []).join(", ")} of ${title(edge.source)} in ${title(edge.target)}`
+}
+
+export const REDACTED = "••••••"
+
+// secretValues is the values a page must never show: the defaults of the
+// definition's secret inputs, and the values a run gave them.
+export function secretValues(inputs: Record<string, { secret?: boolean; default?: unknown }> | null | undefined, given?: Record<string, unknown> | null): Set<string> {
+  const out = new Set<string>()
+  for (const [name, input] of Object.entries(inputs ?? {})) {
+    if (!input.secret) continue
+    for (const value of [input.default, given?.[name]]) if (typeof value === "string" && value !== "") out.add(value); else if (typeof value === "number") out.add(String(value))
+  }
+  return out
+}
+
+// redactSecrets copies a value with every secret replaced, wherever it is
+// found in a string.
+export function redactSecrets<T>(value: T, secrets: Set<string>): T {
+  if (secrets.size === 0) return value
+  const walk = (item: unknown): unknown => {
+    if (typeof item === "string") { let text = item; for (const secret of secrets) text = text.split(secret).join(REDACTED); return text }
+    if (Array.isArray(item)) return item.map(walk)
+    if (item && typeof item === "object") return Object.fromEntries(Object.entries(item).map(([key, nested]) => [key, walk(nested)]))
+    return item
+  }
+  return walk(value) as T
 }

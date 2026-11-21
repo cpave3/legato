@@ -22,6 +22,16 @@ const (
 	EdgeStart = "start"
 	// EdgeOrder leads from a step to the step that runs after it.
 	EdgeOrder = "order"
+	// EdgeData leads from a step to a later step that uses its outputs.
+	EdgeData = "data"
+)
+
+// The gates a step may be: a step that does not start by itself.
+const (
+	// GateManual waits for the operator.
+	GateManual = "manual"
+	// GateAgentEnded waits for the agent before it to end.
+	GateAgentEnded = TriggerAgentEnded
 )
 
 // TriggerManual is the trigger kind of the start node every workflow has:
@@ -70,6 +80,9 @@ type GraphStep struct {
 	Type  string `json:"type"`
 	// Trigger is how the step starts: automatic, manual or agent_ended.
 	Trigger string `json:"trigger"`
+	// Gate is GateManual or GateAgentEnded for a step that does not start
+	// by itself, else empty.
+	Gate string `json:"gate,omitempty"`
 	// Key is the one value that says what the step does.
 	Key GraphKey `json:"key"`
 	// Definition is the step as its definition declares it.
@@ -89,6 +102,9 @@ type GraphEdge struct {
 	Kind   string `json:"kind"`
 	Source string `json:"source"`
 	Target string `json:"target"`
+	// Outputs is, on a data edge, the source step's output keys the target
+	// uses, sorted.
+	Outputs []string `json:"outputs,omitempty"`
 }
 
 func triggerNodeID(kind string) string { return "trigger:" + kind }
@@ -122,8 +138,12 @@ func BuildGraph(d *Definition) *Graph {
 			trigger = "automatic"
 		}
 		id := stepNodeID(step.ID)
+		gate := ""
+		if trigger == GateManual || trigger == GateAgentEnded {
+			gate = trigger
+		}
 		graph.Nodes = append(graph.Nodes, GraphNode{ID: id, Kind: NodeStep, Step: &GraphStep{
-			ID: step.ID, Title: step.Title, Type: step.Type, Trigger: trigger, Key: stepKey(step), Definition: step,
+			ID: step.ID, Title: step.Title, Type: step.Type, Trigger: trigger, Gate: gate, Key: stepKey(step), Definition: step,
 		}})
 		if i == 0 {
 			for _, trigger := range triggers {
@@ -133,7 +153,62 @@ func BuildGraph(d *Definition) *Graph {
 			graph.Edges = append(graph.Edges, edge(EdgeOrder, stepNodeID(d.Steps[i-1].ID), id))
 		}
 	}
+	for _, step := range d.Steps {
+		uses := stepOutputsUsed(step)
+		sources := make([]string, 0, len(uses))
+		for source := range uses {
+			sources = append(sources, source)
+		}
+		sort.Strings(sources)
+		for _, source := range sources {
+			keys := make([]string, 0, len(uses[source]))
+			for key := range uses[source] {
+				keys = append(keys, key)
+			}
+			sort.Strings(keys)
+			data := edge(EdgeData, stepNodeID(source), stepNodeID(step.ID))
+			data.Outputs = keys
+			graph.Edges = append(graph.Edges, data)
+		}
+	}
 	return graph
+}
+
+// stepOutputsUsed is the outputs of other steps that a step's with and
+// output paths reference (steps.<id>.outputs.<key>), by step, read with the
+// expression pattern validation reads them with.
+func stepOutputsUsed(step Step) map[string]map[string]bool {
+	uses := map[string]map[string]bool{}
+	var walk func(any)
+	walk = func(value any) {
+		switch nested := value.(type) {
+		case map[string]any:
+			for _, item := range nested {
+				walk(item)
+			}
+		case []any:
+			for _, item := range nested {
+				walk(item)
+			}
+		case string:
+			for _, match := range expressionPattern.FindAllStringSubmatch(nested, -1) {
+				parts := strings.Split(strings.TrimSpace(match[1]), ".")
+				if len(parts) >= 4 && parts[0] == "steps" && parts[2] == "outputs" && parts[1] != step.ID {
+					if uses[parts[1]] == nil {
+						uses[parts[1]] = map[string]bool{}
+					}
+					uses[parts[1]][parts[3]] = true
+				}
+			}
+		}
+	}
+	for _, value := range step.With {
+		walk(value)
+	}
+	for _, output := range step.Outputs {
+		walk(output.Path)
+	}
+	return uses
 }
 
 // stepKey chooses the one value of a step's with that says what it does.

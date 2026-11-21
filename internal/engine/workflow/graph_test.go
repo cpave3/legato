@@ -245,3 +245,94 @@ func TestGraphHasNoTriggerNodeForAKindNotDeclared(t *testing.T) {
 		}
 	}
 }
+
+const feeding = `schema_version: 1
+name: feed
+title: Feeding
+inputs:
+  task: {type: task, required: true}
+steps:
+  - id: write
+    title: Write
+    type: agent.run
+    with: {prompt: write}
+    outputs:
+      report: {type: file, path: report.md}
+      summary: {type: string}
+  - id: wait
+    title: Wait for me
+    type: task.note
+    trigger: manual
+    with: {task: "${{ workflow.inputs.task }}", body: "${{ steps.write.outputs.summary }}"}
+  - id: after
+    title: After the agent
+    type: task.note
+    trigger: agent_ended
+    with:
+      task: "${{ workflow.inputs.task }}"
+      body_path: "${{ steps.write.outputs.report.path }}"
+      extra: ["${{ steps.write.outputs.summary }}", {nested: "${{ steps.write.outputs.report }}"}]
+    outputs:
+      copy: {type: file, path: copy.md}
+`
+
+func TestGraphGates(t *testing.T) {
+	definition := mustParse(t, feeding)
+	graph := BuildGraph(definition)
+	for id, gate := range map[string]string{"write": "", "wait": GateManual, "after": GateAgentEnded} {
+		if got := nodeByID(graph, "step:"+id).Step.Gate; got != gate {
+			t.Fatalf("%s gate = %q, want %q", id, got, gate)
+		}
+	}
+}
+
+const outputPathRef = `schema_version: 1
+name: paths
+title: Paths
+steps:
+  - id: name
+    title: Name
+    type: agent.run
+    with: {prompt: name it}
+    outputs:
+      slug: {type: string}
+  - id: middle
+    title: Middle
+    type: agent.run
+    with: {prompt: nothing}
+  - id: write
+    title: Write
+    type: agent.run
+    with: {prompt: write}
+    outputs:
+      out: {type: file, path: "${{ steps.name.outputs.slug }}.md"}
+`
+
+func dataEdges(graph *Graph) map[[2]string][]string {
+	out := map[[2]string][]string{}
+	for _, edge := range graph.Edges {
+		if edge.Kind == EdgeData {
+			out[[2]string{edge.Source, edge.Target}] = edge.Outputs
+		}
+	}
+	return out
+}
+
+func TestGraphDataEdges(t *testing.T) {
+	graph := BuildGraph(mustParse(t, feeding))
+	want := map[[2]string][]string{
+		{"step:write", "step:wait"}:  {"summary"},
+		{"step:write", "step:after"}: {"report", "summary"},
+	}
+	if got := dataEdges(graph); !reflect.DeepEqual(got, want) {
+		t.Fatalf("data edges = %v", got)
+	}
+}
+
+func TestGraphDataEdgesFromOutputPathsSkipSteps(t *testing.T) {
+	graph := BuildGraph(mustParse(t, outputPathRef))
+	want := map[[2]string][]string{{"step:name", "step:write"}: {"slug"}}
+	if got := dataEdges(graph); !reflect.DeepEqual(got, want) {
+		t.Fatalf("data edges = %v", got)
+	}
+}

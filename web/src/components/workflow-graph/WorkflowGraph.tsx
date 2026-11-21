@@ -3,10 +3,10 @@
 // other page.
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import dagre from "@dagrejs/dagre"
-import { Background, Controls, Handle, MiniMap, Position, ReactFlow, ReactFlowProvider, type Edge, type Node, type NodeProps, type NodeTypes, type OnSelectionChangeParams, type ReactFlowInstance } from "@xyflow/react"
+import { Background, BaseEdge, Controls, EdgeLabelRenderer, getBezierPath, Handle, MiniMap, Position, ReactFlow, ReactFlowProvider, type Edge, type Node, type EdgeProps, type EdgeTypes, type NodeProps, type NodeTypes, type OnSelectionChangeParams, type ReactFlowInstance } from "@xyflow/react"
 import "@xyflow/react/dist/base.css"
-import { ArrowRightLeft, BookOpen, Bot, CircleStop, Clock, Columns3, FileText, FileX, FolderSearch, FolderX, GitBranch, GitPullRequest, Hand, MessageSquareWarning, MessagesSquare, Repeat, Send, StickyNote, Tag, Trash2, Workflow, type LucideIcon } from "lucide-react"
-import { keyValueText, nodeName, stepTypeLabel, triggerName, triggerOn, type GraphNode, type GraphNodeExtra, type WorkflowGraphModel } from "../../lib/workflowGraph"
+import { ArrowRightLeft, BookOpen, Bot, CircleStop, Clock, Columns3, FileText, FileX, FolderSearch, FolderX, GitBranch, GitPullRequest, Hand, Hourglass, MessageSquareWarning, MessagesSquare, Repeat, Send, StickyNote, Tag, Trash2, Workflow, type LucideIcon } from "lucide-react"
+import { dataEdgeName, gateLabel, keyValueText, nodeName, stepTypeLabel, triggerName, triggerOn, type GraphNode, type GraphNodeExtra, type WorkflowGraphModel } from "../../lib/workflowGraph"
 import { cn } from "../../lib/utils"
 
 export type WorkflowGraphProps = {
@@ -69,6 +69,9 @@ function StepNode({ data, selected }: NodeProps<FlowNode>) {
     <Handles direction={data.direction} />
     <span className="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wide text-lw-text-2">
       <Icon size={13} aria-hidden="true" />{stepTypeLabel(step.type)}
+      {step.gate && <span role="img" aria-label={gateLabel(step.gate)} title={gateLabel(step.gate)} className="ml-auto inline-flex items-center gap-1 rounded-full bg-lw-needs-soft px-1.5 py-px normal-case tracking-normal text-lw-needs">
+        {step.gate === "manual" ? <Hand size={11} /> : <Hourglass size={11} />}{step.gate === "manual" ? "you" : "agent ends"}
+      </span>}
     </span>
     <span className="truncate text-[13px] font-semibold" title={step.title}>{step.title}</span>
     {step.key.value && <span className="truncate font-lw-mono text-[11px] text-lw-text-2" title={step.key.value}>{keyValueText(step.key.value)}</span>}
@@ -96,6 +99,23 @@ function TriggerNode({ data, selected }: NodeProps<FlowNode>) {
 
 const nodeTypes: NodeTypes = { step: StepNode, trigger: TriggerNode }
 
+type DataEdgeData = { outputs: string[] }
+
+// DataEdge joins a step to a later one that uses its outputs, dashed and
+// labelled with the output keys. It is drawn only while one of its ends is
+// selected, and never shapes the layout.
+function DataEdge({ id, sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition, data }: EdgeProps & { data?: DataEdgeData }) {
+  const [path, labelX, labelY] = getBezierPath({ sourceX, sourceY, targetX, targetY, sourcePosition, targetPosition, curvature: 0.5 })
+  return <>
+    <BaseEdge id={id} path={path} style={{ stroke: "var(--color-lw-link)", strokeDasharray: "5 4", strokeWidth: 1.5 }} />
+    <EdgeLabelRenderer>
+      <span style={{ transform: `translate(-50%, -50%) translate(${labelX}px, ${labelY - 14}px)` }} className="nodrag nopan pointer-events-none absolute rounded bg-lw-ground px-1 font-lw-mono text-[10px] text-lw-link">{(data?.outputs ?? []).join(", ")}</span>
+    </EdgeLabelRenderer>
+  </>
+}
+
+const edgeTypes: EdgeTypes = { data: DataEdge }
+
 // layout places the nodes once per graph. Only start and order edges shape
 // it; the other kinds are drawn over the result.
 function layout(graph: WorkflowGraphModel, direction: "LR" | "TB"): Omit<FlowNode, "ariaLabel">[] {
@@ -122,15 +142,25 @@ function layout(graph: WorkflowGraphModel, direction: "LR" | "TB"): Omit<FlowNod
   })
 }
 
-function edgesOf(graph: WorkflowGraphModel): Edge[] {
-  return graph.edges.filter(edge => edge.kind === "start" || edge.kind === "order").map(edge => ({
+function edgesOf(graph: WorkflowGraphModel, selected: string | null): Edge[] {
+  const title = (id: string) => graph.nodes.find(node => node.id === id)?.step?.title ?? id
+  const data: Edge[] = selected === null ? [] : graph.edges.filter(edge => edge.kind === "data" && (edge.source === selected || edge.target === selected)).map(edge => ({
+    id: edge.id,
+    source: edge.source,
+    target: edge.target,
+    type: "data",
+    data: { outputs: edge.outputs ?? [] },
+    focusable: false,
+    selectable: false,
+    ariaLabel: dataEdgeName(edge, title),
+  }))
+  return [...graph.edges.filter(edge => edge.kind === "start" || edge.kind === "order").map(edge => ({
     id: edge.id,
     source: edge.source,
     target: edge.target,
     focusable: false,
     selectable: false,
-    style: edge.kind === "start" ? { strokeDasharray: "4 3" } : undefined,
-  }))
+  })), ...data]
 }
 
 function Graph({ graph, selectedId = null, onSelect, direction = "LR", extras, className }: WorkflowGraphProps) {
@@ -149,7 +179,7 @@ function Graph({ graph, selectedId = null, onSelect, direction = "LR", extras, c
       return { ...node, data: { ...node.data, node: current, extra }, ariaLabel: nodeName(current, extra), selected: node.id === selected }
     })
   }, [placed, graph, selected, extras])
-  const edges = useMemo(() => edgesOf(graph), [graph])
+  const edges = useMemo(() => edgesOf(graph, selected), [graph, selected])
   const frame = useRef<HTMLDivElement>(null)
   // startView fits the graph when it fits at a readable size, else shows it
   // from its start (the triggers) at that size, for the operator to pan.
@@ -177,6 +207,7 @@ function Graph({ graph, selectedId = null, onSelect, direction = "LR", extras, c
       nodes={nodes}
       edges={edges}
       nodeTypes={nodeTypes}
+      edgeTypes={edgeTypes}
       onInit={startView}
       minZoom={0.2}
       maxZoom={1.75}

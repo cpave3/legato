@@ -8,7 +8,8 @@ import { RunWorkflowDialog } from "../components/RunWorkflowDialog"
 import { StatePill } from "../components/WorkflowRunStatus"
 import { LazyWorkflowGraph } from "../components/workflow-graph/LazyWorkflowGraph"
 import { TriggerSwitch } from "../components/WorkflowTriggerSwitch"
-import { triggerName, yamlText, type GraphNode, type GraphNodeExtra } from "../lib/workflowGraph"
+import { gateLabel, redactSecrets, secretValues, stepTypeLabel, triggerName, yamlText, type GraphNode, type GraphNodeExtra } from "../lib/workflowGraph"
+import { StepYaml } from "../components/StepYaml"
 import type { WorkflowDefinition, WorkflowTriggerState } from "../lib/workflow"
 import { Button } from "../components/ui/Button"
 import { LoadingState } from "../components/ui/LoadingState"
@@ -44,6 +45,19 @@ function TriggerPanel({ definition, node, state, onChanged }: { definition: Work
         {state && <TriggerSwitch definition={definition} state={state} onChanged={onChanged} />}
         {trigger.definition && <pre className="overflow-x-auto rounded-lg border border-lw-line bg-lw-ground p-3 font-lw-mono text-xs text-lw-text">{yamlText(trigger.definition)}</pre>}
       </>}
+  </aside>
+}
+
+function StepPanel({ definition, node }: { definition: WorkflowDefinition; node: GraphNode }) {
+  const step = node.step!
+  const yaml = yamlText(redactSecrets(step.definition, secretValues(definition.inputs)))
+  return <aside aria-label={step.title} className="flex min-w-0 flex-col gap-3 rounded-xl border border-lw-line bg-lw-surface p-4 text-sm">
+    <div>
+      <p className="text-[11px] font-medium uppercase tracking-wide text-lw-text-2">Step · {stepTypeLabel(step.type)}</p>
+      <h2 className="mt-0.5 text-[15px] font-semibold">{step.title}</h2>
+      {step.gate && <p className="mt-1 text-[13px] text-lw-needs">{gateLabel(step.gate)}</p>}
+    </div>
+    <StepYaml yaml={yaml} source={definition.source} />
   </aside>
 }
 
@@ -89,6 +103,7 @@ export function WorkflowPage() {
       <section aria-label="Workflow graph" className="h-[28rem] overflow-hidden rounded-xl border border-lw-line bg-lw-ground">
         {definition.graph ? <LazyWorkflowGraph graph={definition.graph} selectedId={selected} onSelect={setSelected} extras={extras} /> : <p className="p-4 text-sm text-lw-text-2">This Legato sent no graph for this workflow.</p>}
       </section>
+      {selectedNode?.kind === "step" && <StepPanel definition={definition} node={selectedNode} />}
       {selectedNode?.kind === "trigger" && <TriggerPanel definition={definition} node={selectedNode} state={triggerStates?.find(state => `trigger:${state.trigger}` === selectedNode.id)} onChanged={definitions.refresh} />}
     </div>
     <section>
