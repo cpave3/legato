@@ -53,6 +53,45 @@ type definitionWithGraph struct {
 	Graph *workflowengine.Graph `json:"graph"`
 }
 
+// runWithGraph is a run as GET /api/workflow-runs/{id} gives it: with the
+// workflow graph of the run's own copy of its definition (never the current
+// file), and whether the current file differs from that copy or is gone.
+type runWithGraph struct {
+	*store.WorkflowRunView
+	Graph             *workflowengine.Graph `json:"graph,omitempty"`
+	DefinitionChanged bool                  `json:"definition_changed"`
+	DefinitionMissing bool                  `json:"definition_missing"`
+}
+
+func (s *Server) runWithGraph(view *store.WorkflowRunView) runWithGraph {
+	out := runWithGraph{WorkflowRunView: view}
+	if view == nil {
+		return out
+	}
+	var copy workflowengine.Definition
+	parsed := json.Unmarshal([]byte(view.Run.DefinitionJSON), &copy) == nil && len(copy.Steps) > 0
+	if parsed {
+		out.Graph = workflowengine.BuildGraph(&copy)
+	}
+	out.DefinitionMissing = true
+	for _, current := range s.discoverWorkflows().Definitions {
+		if current.Name == view.Run.WorkflowName {
+			out.DefinitionMissing = false
+			// Compared without their sources: the same workflow in a file
+			// that moved has not changed.
+			if parsed {
+				here := *current
+				here.Source, copy.Source = "", ""
+				out.DefinitionChanged = workflowengine.Digest(&here) != workflowengine.Digest(&copy)
+			} else {
+				out.DefinitionChanged = workflowengine.Digest(current) != view.Run.DefinitionDigest
+			}
+			break
+		}
+	}
+	return out
+}
+
 func (s *Server) workflowsHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
@@ -237,7 +276,7 @@ func (s *Server) workflowRunHandler() http.HandlerFunc {
 			http.Error(w, err.Error(), 404)
 			return
 		}
-		s.writeJSON(w, 200, view)
+		s.writeJSON(w, 200, s.runWithGraph(view))
 	}
 }
 func (s *Server) workflowCancelHandler() http.HandlerFunc {

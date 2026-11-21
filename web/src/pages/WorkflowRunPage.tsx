@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react"
+import { useMemo, useState, type ReactNode } from "react"
 import { Link, useParams } from "react-router-dom"
 import { ChevronDown, ChevronRight, Download, FileText } from "lucide-react"
 import { useWorkflowRun } from "../hooks/useWorkflow"
@@ -15,6 +15,11 @@ import { toneGlyph, toneText } from "../lib/workflowTones"
 import { Button } from "../components/ui/Button"
 import { LoadingState } from "../components/ui/LoadingState"
 import { cn } from "../lib/utils"
+import { useMediaQuery } from "../hooks/useMediaQuery"
+import { LazyWorkflowGraph } from "../components/workflow-graph/LazyWorkflowGraph"
+import { StepYaml } from "../components/StepYaml"
+import { redactSecrets, runStateWords, stepTypeLabel, triggerName, yamlText, type GraphNode } from "../lib/workflowGraph"
+import { runNodeExtras } from "../lib/workflowRunGraph"
 
 function parseJSON(raw: string | undefined): unknown {
   try { return JSON.parse(raw ?? "") } catch { return raw }
@@ -252,11 +257,72 @@ function Artifact({ artifact, step }: { artifact: WorkflowArtifact; step?: strin
   </div>
 }
 
+function clock(time?: string): string {
+  return time ? time.replace("T", " ").replace(/(:\d\d)(\.\d+)?Z?$/, "$1") : ""
+}
+
+// RunStepPanel is one step of a run, beside its graph: what went in and
+// came out, every attempt, its artifacts, a review loop's passes, and its
+// YAML from the run's own copy, with the run's secrets hidden.
+function RunStepPanel({ view, node, runId, secrets, state }: { view: WorkflowRunView; node: GraphNode; runId: string; secrets: string[]; state?: string }) {
+  const graphStep = node.step!
+  const step = (view.steps ?? []).find(item => item.step_id === graphStep.id)
+  const attempts = (view.attempts ?? []).filter(attempt => attempt.step_id === graphStep.id)
+  const artifacts = (view.artifacts ?? []).filter(artifact => artifact.step_id === graphStep.id)
+  const inputs = step ? objectEntries(step.resolved_inputs_json) : []
+  const outputs = step ? objectEntries(step.outputs_json).filter(([key]) => !artifacts.some(artifact => artifact.output_key === key)) : []
+  const details = view.details?.[graphStep.id] as ReviewRunDetails | undefined
+  const yaml = redact(yamlText(redactSecrets(graphStep.definition, new Set(secrets))), secrets)
+  return <aside aria-label={graphStep.title} className="flex min-w-0 flex-col gap-4 rounded-xl border border-lw-line bg-lw-surface p-4 text-[13px]">
+    <div>
+      <p className="text-[11px] font-medium uppercase tracking-wide text-lw-text-2">Step · {stepTypeLabel(graphStep.type)}{state && <> · {state}</>}</p>
+      <h2 className="mt-0.5 text-[15px] font-semibold">{graphStep.title}</h2>
+      {step?.error && <p className="mt-1 whitespace-pre-wrap break-words text-lw-error">{redact(step.error, secrets)}</p>}
+    </div>
+    {inputs.length > 0 && <div><h3 className="mb-1 text-xs text-lw-text-2">Inputs</h3><ValueList values={inputs} secrets={secrets} /></div>}
+    {outputs.length > 0 && <div><h3 className="mb-1 text-xs text-lw-text-2">Outputs</h3><ValueList values={outputs} secrets={secrets} /></div>}
+    {attempts.length > 0 && <div><h3 className="mb-1 text-xs text-lw-text-2">Attempts</h3>
+      <ul aria-label="Attempts" className="space-y-2">{attempts.map(attempt => <li key={attempt.id} className="rounded-lg border border-lw-line p-2.5 text-lw-text-2">
+        <p className="text-lw-text">Attempt {attempt.attempt_number} · {attempt.status.replaceAll("_", " ")}</p>
+        <p className="font-lw-mono text-xs">{clock(attempt.started_at)}{attempt.ended_at && <> → {clock(attempt.ended_at)}</>}</p>
+        {(attempt.agent_kind || attempt.tier) && <p>{attempt.agent_kind || attempt.executor_type}{attempt.tier && ` (${attempt.tier})`}</p>}
+        {attempt.working_dir && <p className="break-all font-lw-mono text-xs text-lw-faint">{attempt.working_dir}</p>}
+        {attempt.error && <p className="text-lw-error">{redact(attempt.error, secrets)}</p>}
+        {attempt.agent_session_id && attempt.task_id ? <Button asChild variant="outline" size="sm" className="mt-1.5"><Link to={agentLink(attempt.task_id, runId)}>Open agent</Link></Button> : null}
+      </li>)}</ul>
+    </div>}
+    {artifacts.length > 0 && <div className="grid gap-2"><h3 className="text-xs text-lw-text-2">Artifacts</h3>{artifacts.map(artifact => <Artifact key={artifact.id} artifact={artifact} />)}</div>}
+    {details && <div><h3 className="mb-1 text-xs text-lw-text-2">Review loop</h3>
+      <p>{details.summary || details.phase.replaceAll("_", " ")}</p>
+      <p className="text-lw-text-2">Pass {details.pass} · {details.blocking_open} blocking</p>
+      {details.reviews && details.reviews.length > 0 && <ul aria-label="Reviews posted" className="mt-1 space-y-0.5">
+        {details.reviews.map(review => <li key={`${review.pass}-${review.pr}`}><a className="text-lw-link underline" href={review.url} target="_blank" rel="noreferrer">Pass {review.pass} review of #{review.pr}</a></li>)}
+      </ul>}
+    </div>}
+    <StepYaml yaml={yaml} source={view.run.definition_source} />
+  </aside>
+}
+
+function RunTriggerPanel({ node, started }: { node: GraphNode; started: boolean }) {
+  const trigger = node.trigger!
+  const summary = trigger.summary || triggerName(trigger.kind)
+  return <aside aria-label={summary} className="flex flex-col gap-2 rounded-xl border border-lw-line bg-lw-surface p-4 text-[13px]">
+    <p className="text-[11px] font-medium uppercase tracking-wide text-lw-text-2">Trigger · {triggerName(trigger.kind)}</p>
+    <h2 className="text-[15px] font-semibold">{summary}</h2>
+    <p className="text-lw-text-2">{started ? "This trigger started this run." : "This run was not started by this trigger."}</p>
+    {trigger.definition && <pre className="overflow-x-auto rounded-lg border border-lw-line bg-lw-ground p-3 font-lw-mono text-xs">{yamlText(trigger.definition)}</pre>}
+  </aside>
+}
+
 export function WorkflowRunPage() {
   const { runId = "" } = useParams()
   const { data, loading, refreshing, error, refresh } = useWorkflowRun(runId)
   const { baseUrl } = useServer()
   const now = useNow(15_000)
+  const wide = useMediaQuery("(min-width: 768px)")
+  const [selected, setSelected] = useState<string | null>(null)
+  const graph = data?.graph ?? null
+  const extras = useMemo(() => data && graph ? runNodeExtras(data, graph, now) : undefined, [data, graph, now])
   if (loading) return <main className="flex min-h-0 flex-1 flex-col"><LoadingState label="Loading the workflow run…" /></main>
   if (!data) return <main className="p-6 font-lw text-lw-text">
     <Link to="/workflows?tab=runs" className="text-sm text-lw-link">← Runs</Link>
@@ -279,8 +345,10 @@ export function WorkflowRunPage() {
   else if (position) where = `${run.status === "failed" ? "at step" : "Step"} ${position.number} of ${position.total} · ${position.title}`
   const inputs = objectEntries(run.inputs_json).filter(([, value]) => value !== "" && value !== null)
   const secrets = secretValues(data)
+  const showGraph = Boolean(graph) && wide
+  const selectedNode = graph?.nodes.find(node => node.id === selected)
   return <main className="min-h-0 flex-1 overflow-y-auto px-4 py-4 font-lw text-lw-text sm:px-6 md:py-6">
-    <div className="mx-auto max-w-3xl">
+    <div className={cn("mx-auto", showGraph ? "max-w-6xl" : "max-w-3xl")}>
       <Link to="/workflows?tab=runs" className="text-sm text-lw-link">← Runs</Link>
       <div className="mt-2 flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
         <div className="min-w-0">
@@ -301,11 +369,22 @@ export function WorkflowRunPage() {
         <p className="text-lw-needs">Showing saved run. Refresh failed: {error}</p>
         <Button variant="outline" size="sm" className="mt-2" disabled={refreshing} onClick={() => { void refresh() }}>Retry</Button>
       </div>}
+      {(data.definition_changed || data.definition_missing) && <p role="note" className="mt-4 rounded-lg border border-lw-line bg-lw-surface px-3 py-2 text-[13px] text-lw-text-2">
+        {data.definition_missing ? "This workflow's file is gone" : "This workflow has changed since this run"}<span className="text-lw-faint"> · the graph is the run's own copy</span>
+      </p>}
       <Now key={`${baseUrl}:${runId}`} view={data} runId={runId} refresh={refresh} now={now} secrets={secrets} />
-      <h2 className="mb-2 mt-7 text-xs font-semibold uppercase tracking-wide text-lw-text-2">Steps</h2>
-      <ul aria-label="Steps" className="overflow-hidden rounded-xl border border-lw-line bg-lw-surface">
-        {steps.map(step => <StepRow key={`${baseUrl}:${runId}:${step.step_id}`} step={step} run={run} attempts={attempts.filter(attempt => attempt.step_id === step.step_id)} artifacts={artifacts.filter(artifact => artifact.step_id === step.step_id)} now={now} secrets={secrets} />)}
-      </ul>
+      {showGraph && graph ? <div className={cn("mt-7 grid gap-4", selectedNode && "lg:grid-cols-[minmax(0,1fr)_24rem]")}>
+        <section aria-label="Run graph" className="h-[30rem] overflow-hidden rounded-xl border border-lw-line bg-lw-ground">
+          <LazyWorkflowGraph graph={graph} extras={extras} run selectedId={selected} onSelect={setSelected} />
+        </section>
+        {selectedNode?.kind === "step" && <RunStepPanel view={data} node={selectedNode} runId={runId} secrets={secrets} state={extras?.[selectedNode.id]?.state && runStateWords[extras[selectedNode.id].state!]} />}
+        {selectedNode?.kind === "trigger" && <RunTriggerPanel node={selectedNode} started={extras?.[selectedNode.id]?.trigger === "started"} />}
+      </div> : <>
+        <h2 className="mb-2 mt-7 text-xs font-semibold uppercase tracking-wide text-lw-text-2">Steps</h2>
+        <ul aria-label="Steps" className="overflow-hidden rounded-xl border border-lw-line bg-lw-surface">
+          {steps.map(step => <StepRow key={`${baseUrl}:${runId}:${step.step_id}`} step={step} run={run} attempts={attempts.filter(attempt => attempt.step_id === step.step_id)} artifacts={artifacts.filter(artifact => artifact.step_id === step.step_id)} now={now} secrets={secrets} />)}
+        </ul>
+      </>}
       {inputs.length > 0 && <>
         <h2 className="mb-2 mt-7 text-xs font-semibold uppercase tracking-wide text-lw-text-2">Inputs</h2>
         <ValueList secrets={secrets} values={inputs} />

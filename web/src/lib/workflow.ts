@@ -18,7 +18,9 @@ export type WorkflowStepRun = { run_id:string; step_id:string; step_order:number
 export type WorkflowAttempt = { id:string; run_id:string; step_id:string; attempt_number:number; executor_type:string; agent_session_id?:number; task_id?:string; tmux_session?:string; agent_kind?:string; tier?:string; working_dir?:string; status:string; error?:string; agent_activity?:string; needs_attention?:boolean; attention_reason?:string; started_at:string; ended_at?:string }
 export type WorkflowArtifact = { id:string; run_id:string; step_id:string; attempt_id:string; output_key:string; original_path?:string; media_type:string; size_bytes:number; digest:string; created_at:string }
 export type ReviewRunDetails = { phase:string; pass:number; summary:string; blocking_open:number; reason?:string; reviews:{pass:number;pr:number;url:string}[] | null }
-export type WorkflowRunView = { run:WorkflowRun; steps:WorkflowStepRun[] | null; attempts:WorkflowAttempt[] | null; artifacts:WorkflowArtifact[] | null; details?:Record<string,unknown> | null }
+// graph is the workflow graph of the run's own copy of its definition;
+// definition_changed and definition_missing compare that copy with the file.
+export type WorkflowRunView = { run:WorkflowRun; steps:WorkflowStepRun[] | null; attempts:WorkflowAttempt[] | null; artifacts:WorkflowArtifact[] | null; details?:Record<string,unknown> | null; trigger_kind?:string; graph?:WorkflowGraphModel | null; definition_changed?:boolean; definition_missing?:boolean }
 
 async function decode<T>(response:Response):Promise<T> { if (!response.ok) throw new Error(await response.text()); return response.json() }
 export const fetchWorkflows=(baseUrl:string)=>apiFetch(baseUrl,"/api/workflows").then(decode<WorkflowDiscovery>)
