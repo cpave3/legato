@@ -163,6 +163,19 @@ func repositoryGuidance(cfg *config.Config, db *store.Store) *service.Repository
 	return service.NewRepositoryGuidanceService(db, cfg.Agents.Guidance)
 }
 
+// pullRequestModes is pull_requests.rules as Settings has them now: the
+// effective configuration, read at each ask, else cfg's.
+func pullRequestModes(cfg *config.Config, db *store.Store) service.PullRequestModes {
+	return func(ctx context.Context) (config.PullRequestsConfig, error) {
+		if db != nil {
+			if effective, err := settingsFor(db).Effective(ctx); err == nil && effective != nil {
+				return effective.PullRequests, nil
+			}
+		}
+		return cfg.PullRequests, nil
+	}
+}
+
 // repositoryResources is agents.repository_resources, resolved against the
 // configuration's resources.
 func repositoryResources(cfg *config.Config) *service.RepositoryResources {
@@ -183,7 +196,7 @@ func commandAgentService(cfg *config.Config, db *store.Store, workDir string, pr
 		binary = "legato"
 	}
 	defaultAdapter, adapters := configuredAdapters(cfg, binary)
-	agentSvc := service.NewAgentService(db, mgr, workDir, service.AgentServiceOptions{ToolCheck: processDoctor().SpawnCheck, Adapter: defaultAdapter, Adapters: adapters, PRService: prSvc, EventBus: service.AgentDiedPublisher{Bus: bus}, TmuxOptions: cfg.Agents.TmuxOptions, LearningPromptProvider: promptProvider, LearningPromptMaxItems: cfg.Learning.PromptMaxItems, LearningPromptMaxBytes: cfg.Learning.PromptMaxBytes, DisablePeerAwareness: !cfg.Agents.PeerAwareness, ReviewsOff: !cfg.Agents.Reviews, HasSkill: agentHasSkill(cfg, db), RepositoryGuidance: repositoryGuidance(cfg, db), RepositoryResources: repositoryResources(cfg), Sandbox: sandboxSettings(cfg), SandboxScratch: sandboxScratch(cfg), Capabilities: skillService(cfg, db), CapabilityFolders: capabilityFolders(cfg)})
+	agentSvc := service.NewAgentService(db, mgr, workDir, service.AgentServiceOptions{ToolCheck: processDoctor().SpawnCheck, Adapter: defaultAdapter, Adapters: adapters, PRService: prSvc, EventBus: service.AgentDiedPublisher{Bus: bus}, TmuxOptions: cfg.Agents.TmuxOptions, LearningPromptProvider: promptProvider, LearningPromptMaxItems: cfg.Learning.PromptMaxItems, LearningPromptMaxBytes: cfg.Learning.PromptMaxBytes, DisablePeerAwareness: !cfg.Agents.PeerAwareness, ReviewsOff: !cfg.Agents.Reviews, HasSkill: agentHasSkill(cfg, db), RepositoryGuidance: repositoryGuidance(cfg, db), PullRequestModes: pullRequestModes(cfg, db), RepositoryResources: repositoryResources(cfg), Sandbox: sandboxSettings(cfg), SandboxScratch: sandboxScratch(cfg), Capabilities: skillService(cfg, db), CapabilityFolders: capabilityFolders(cfg)})
 	channels := attachCredentialChannels(cfg, db, agentSvc)
 	if repos == nil {
 		repos = newRepositoryService(cfg, db)

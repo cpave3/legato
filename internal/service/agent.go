@@ -395,6 +395,7 @@ type agentService struct {
 	prSvc                PRTrackingService
 	checkoutInspector    CheckoutInspector
 	guidance             RepositoryGuidanceSource
+	prModes              PullRequestModeSource
 	reeveName            ReeveNameSource
 	repoResources        RepositoryResourceSource
 	docker               *SandboxDocker
@@ -598,6 +599,10 @@ type AgentServiceOptions struct {
 	// RepositoryGuidance adds the guidance of the repository an agent works
 	// in to its launch prompt. Nil: none.
 	RepositoryGuidance RepositoryGuidanceSource
+	// PullRequestModes says, in the launch prompt of an agent that works in
+	// a repository, whether it opens pull requests as drafts or ready for
+	// review. Nil: nothing is said.
+	PullRequestModes PullRequestModeSource
 	// ReeveName names the Reeve's agent in ListAgents.
 	ReeveName ReeveNameSource
 	// RepositoryResources gives every agent working in a repository its
@@ -715,6 +720,7 @@ func NewAgentService(s *store.Store, tmux TmuxManager, workDir string, opts ...A
 		svc.prSvc = opts[0].PRService
 		svc.checkoutInspector = opts[0].CheckoutInspector
 		svc.guidance = opts[0].RepositoryGuidance
+		svc.prModes = opts[0].PullRequestModes
 		svc.reeveName = opts[0].ReeveName
 		svc.repoResources = opts[0].RepositoryResources
 		if opts[0].Sandbox != nil {
@@ -1025,7 +1031,7 @@ func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, hei
 	}
 	// The repository's own resources (agents.repository_resources), for
 	// every kind of agent, worked out again at each spawn.
-	needsProject := (a.learning != nil || a.guidance != nil) && adapter != nil && !nativeResume && !ownPrompt
+	needsProject := (a.learning != nil || a.guidance != nil || a.prModes != nil) && adapter != nil && !nativeResume && !ownPrompt
 	identityKey := ""
 	if needsProject || a.repoResources != nil {
 		key, identityErr := a.spawnProjectKey(ctx, taskID, workDir, cloneRepo)
@@ -1072,6 +1078,9 @@ func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, hei
 			log.Printf("reading the guidance for %s: %v", repo, guidanceErr)
 		}
 		rolePrompt = joinPromptSections(rolePrompt, repositoryGuidancePrompt(repo, text))
+	}
+	if repo, ok := strings.CutPrefix(projectKey, "repo:"); ok && a.prModes != nil {
+		rolePrompt = joinPromptSections(rolePrompt, pullRequestModePrompt(repo, a.prModes.PullRequestMode(ctx, repo)))
 	}
 	var promptManifestID string
 	if a.learning != nil && adapter != nil && !nativeResume && !ownPrompt {

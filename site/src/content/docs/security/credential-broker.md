@@ -40,8 +40,18 @@ With a `github` credential, Legato acts as a GitHub App you create:
 - `git` fetches with read tokens for the one repository it asks for.
 - `git push` goes through Legato's proxy. Legato reads which branches the push changes, checks each against your rules, and pushes with a token it makes for that push and then revokes. The agent never holds a token that can write code.
 - `gh` runs through a wrapper that asks Legato for a token for the command: a read token, or a token for pull requests or issues once you allow it. Legato keeps the wrapper first on `PATH` in the agent's zsh and bash, after your own startup files have run, so a `gh` that Homebrew or your profile puts first is not used, and the tools your profile sets up (mise, say) still are. In fish, or an interactive bash, a profile that puts another `gh` first still wins; that `gh` gets "Bad credentials".
-- Opening a draft pull request (`gh pr create --draft`, or the API with `"draft": true`) is its own operation, `pr.create-draft`, decided for the branch it is opened from. Any other pull request asks as before.
+- Opening a pull request is decided for the branch it is opened from: a draft (`gh pr create --draft`, or the API with `"draft": true`) is `pr.create-draft`, and one ready for review (`gh pr create` without `--draft`, or the API) is `pr.create`. Under the shipped rules both are allowed once a session on `legato/` branches, and need your signed approval on others. Other pull request commands (`gh pr edit`, `comment`, `review`, ...) are `pr.write` on the repository.
 - Pushes to the default branch, pushes of tags and branch deletions are refused by default.
+
+### Pull requests: drafts or ready
+
+The [`pull_requests` rules](/legato/reference/configuration/#pull-requests) say, by repository or pattern, how agents open pull requests. Set them in Settings › Repositories › Pull requests. The broker follows them:
+
+- `draft`: a pull request that is not a draft (`pr.create`) is refused at once, without asking you, with a reason that names the setting and says to use `gh pr create --draft`. Drafts are decided as usual.
+- `ready` or `agent`: nothing more is refused. A [handed-off task](#handed-off-tasks) may also open pull requests that are not drafts from its own branches without asking.
+- No rule: as before.
+
+Your credential's rules still come first: a rule that refuses `pr.create` refuses it whatever the mode, and a credential with its own `policy` needs a rule for `pr.create` before a ready pull request can be opened at all.
 
 ### The reviewer App
 
@@ -122,11 +132,12 @@ A grant covers what you approved, for that one agent session. It ends when its t
 Handing a task off to a worker to make a change counts as your approval to push its work. When the worker starts the task's agent, it grants that session, for its GitHub credential that lists the repository:
 
 - pushes to `legato/<task id>` and to `legato/<task id>-<a few words>`, where the task ID is the one on your main instance, and to the branch the work starts from when you [hand off a pushed branch](/legato/using/handoff/#start-from-a-pushed-branch);
-- opening draft pull requests from those branches.
+- opening draft pull requests from those branches;
+- when the repository's [pull request mode](#pull-requests-drafts-or-ready) on the worker is `ready` or `agent`, opening pull requests that are not drafts from those branches too.
 
-Nothing wider. Merging, the default branch, tags, other branches and pull requests that are not drafts are refused or ask, as for any agent. A handoff to find something out is granted nothing. The grant shows in **Standing grants** on the worker, recorded in the audit log as decided by the handoff, and you can revoke it there. Your rules still come first: a rule that refuses a use refuses it whatever is granted, and a credential with its own `policy` needs a rule for `pr.create-draft` before drafts can be opened at all.
+Nothing wider. Merging, the default branch, tags and other branches are refused or ask, as for any agent, and so are pull requests that are not drafts unless the mode allows them. A handoff to find something out is granted nothing. The grant shows in **Standing grants** on the worker, recorded in the audit log as decided by the handoff, and you can revoke it there. Your rules still come first: a rule that refuses a use refuses it whatever is granted, and a credential with its own `policy` needs a rule for `pr.create-draft` before drafts can be opened at all.
 
-The agent is told its branches are named after your main's task ID, not the worker's, and that these pushes and drafts are already allowed.
+The agent is told its branches are named after your main's task ID, not the worker's, that these pushes and pull requests are already allowed, and whether to open its pull requests as drafts or ready for review.
 
 ## The 60-second wait
 

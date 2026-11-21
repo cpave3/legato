@@ -444,6 +444,26 @@ A task gets a repository from these lists only when exactly one repository match
 
 Legato reads `workflows.repositories` only when there is no top-level `repositories` list. Move it there.
 
+## Pull requests
+
+Whether agents open pull requests as drafts or ready for review, by repository. You can add rules in the web UI (Settings › Repositories › Pull requests); those are kept in the database, and a change applies to the next agent and the next pull request, with no restart.
+
+```yaml
+pull_requests:
+  rules:
+    - match: acme/*          # every repository of acme
+      mode: draft
+    - match: acme/web-app    # an exact name beats a pattern
+      mode: ready
+```
+
+| Setting | Type | Default | What it does |
+| --- | --- | --- | --- |
+| `pull_requests.rules[].match` | string | none | A GitHub repository, `owner/name`, or a pattern with `*`: `owner/*`, `*/name`, or `*` for every repository. A leading `github.com/` is dropped. Case is ignored. When several rules match, an exact name wins, then the pattern with more of the name written out. One rule per match. |
+| `pull_requests.rules[].mode` | `draft`, `ready` or `agent` | none | `draft`: agents are told to open drafts, and Legato's credential broker refuses a pull request that is not a draft. `ready`: agents are told to open pull requests ready for review, and a [handoff](/legato/using/handoff/) may open them from its own branches without asking. `agent`: the agent chooses, and a handoff may open either. |
+
+A repository no rule matches keeps the behaviour from before there were rules: a handoff opens drafts, and other agents choose. A handoff follows the rules of the worker it runs on. See [Pull requests that are not drafts](/legato/security/credential-broker/#pull-requests-drafts-or-ready).
+
 ## Repository cache
 
 Legato's own copy of each GitHub repository, which fresh clones for jobs are made from. Cloning needs a `github` credential that lists the repository. See [An agent server](/legato/running/agent-server/).

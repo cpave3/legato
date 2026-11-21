@@ -2,6 +2,8 @@ package service
 
 import (
 	"strings"
+
+	"github.com/cpave3/legato/config"
 )
 
 // HandoffBriefInput is what a handed-off agent's brief is made from.
@@ -31,6 +33,9 @@ type HandoffBriefInput struct {
 	// commits are read against; for a new branch, the base branch it starts
 	// from when the main gave one.
 	Base string
+	// PullRequests is the repository's pull request mode on this worker
+	// (config.PullRequestsDraft, Ready or Agent), "" for none: drafts.
+	PullRequests string
 }
 
 // HandoffBrief is the assignment a worker gives a handed-off task's agent:
@@ -124,7 +129,7 @@ func HandoffBrief(in HandoffBriefInput) string {
 	case given:
 		line("- Work on " + in.Branch + ". It already has commits; read them against " + base + " first, then add commits on top. Never rebase, amend or force-push it; reuse its PR.")
 		line("- You may stack: name new branches " + ownBranches + ", on top of " + in.Branch + ".")
-		line("- Pushing these branches and opening draft PRs is already allowed. Open PRs as drafts; never merge.")
+		line(handoffPRLine(in.PullRequests))
 	default:
 		if in.Base != "" {
 			line("- Work on " + in.Branch + ", which starts from " + in.Base + "; open PRs against " + in.Base + ".")
@@ -132,7 +137,7 @@ func HandoffBrief(in HandoffBriefInput) string {
 			line("- Work on " + in.Branch + ".")
 		}
 		line("- You may stack: name new branches " + ownBranches + ".")
-		line("- Pushing these branches and opening draft PRs is already allowed. Open PRs as drafts; never merge.")
+		line(handoffPRLine(in.PullRequests))
 	}
 	line("")
 	line("## When you finish")
@@ -144,6 +149,21 @@ func HandoffBrief(in HandoffBriefInput) string {
 	}
 	line("- Move the task to Done (`legato task update --status Done`) even if you stopped, then end your turn and stay: the operator may talk to you here before taking the task back.")
 	return b.String()
+}
+
+// handoffPRLine is what a make-a-change handoff's agent is told of opening
+// pull requests, by the repository's pull request mode. With none, it opens
+// drafts, as before there was a mode.
+func handoffPRLine(mode string) string {
+	switch mode {
+	case config.PullRequestsReady:
+		return "- Pushing these branches and opening PRs from them is already allowed. This repository opens PRs ready for review: open them ready for review, not as drafts; never merge."
+	case config.PullRequestsAgent:
+		return "- Pushing these branches and opening PRs from them is already allowed. Open each PR as a draft or ready for review, as you judge; never merge."
+	case config.PullRequestsDraft:
+		return "- Pushing these branches and opening draft PRs is already allowed. This repository opens PRs as drafts, and Legato refuses any other: use `gh pr create --draft`; never merge."
+	}
+	return "- Pushing these branches and opening draft PRs is already allowed. Open PRs as drafts; never merge."
 }
 
 // fenced is text people wrote, made safe to put inside the brief's <tag>

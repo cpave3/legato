@@ -26,6 +26,10 @@ const (
 	// resource names the branch, so a grant can allow drafts from some
 	// branches and nothing else.
 	OperationPRCreateDraft = "pr.create-draft"
+	// OperationPRCreate is opening a pull request that is not a draft from
+	// one branch: gh pr create without --draft, or the REST API. Its
+	// resource names the branch, as pr.create-draft's does.
+	OperationPRCreate = "pr.create"
 	// OperationIssueWrite is gh's issue commands: a token that can write the
 	// issues of one repository.
 	OperationIssueWrite = "issue.write"

@@ -12,6 +12,7 @@
     "credential_sources",
     "agents.tmux_options",
     "agents.sandbox.mounts",
+    "pull_requests.rules",
     "swarm.prompts",
     "reeve.rules"
   ],
@@ -74,6 +75,13 @@
       "class": "risky",
       "mode": "restart",
       "name_field": "path"
+    },
+    {
+      "key": "pull_requests.rules",
+      "title": "Pull requests",
+      "class": "risky",
+      "mode": "live",
+      "name_field": "match"
     },
     {
       "key": "swarm.prompts",

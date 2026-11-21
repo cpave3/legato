@@ -77,6 +77,11 @@ export const listForms: Record<string, ListForm> = {
     fields: [{ key: "access", label: "Access", kind: "choice", choices: [["read", "Read only"], ["write", "Read and write"]], optional: true, help: "Read only unless chosen." }],
     empty: "No extra folders.", add: "Add a folder",
   },
+  "pull_requests.rules": {
+    name: { label: "Repository", placeholder: "owner/name or owner/*", help: "A GitHub repository, or a pattern with *: owner/*, */name, or * for all. An exact name beats a pattern, then the pattern with more of the name; case is ignored." },
+    fields: [{ key: "mode", label: "Pull requests", kind: "choice", choices: [["draft", "As drafts"], ["ready", "Ready for review"], ["agent", "The agent chooses"]], help: "As drafts: Legato refuses any other. Ready for review: a handoff may open them without asking. Agents are told which." }],
+    empty: "No rules: handoffs open drafts and other agents choose.", add: "Add a rule",
+  },
   credential_sources: {
     name: { label: "Vault", placeholder: "op://Work", help: "A 1Password vault, as op://<vault>, whose items become credentials." },
     fields: [{ key: "profile", label: "Profile", kind: "choice", optional: true, unsetLabel: "SSH keys and secrets", choices: [["ssh", "SSH keys only"], ["secret", "Secrets only"]], help: "Which of its items it gives." }],

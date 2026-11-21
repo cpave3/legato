@@ -67,6 +67,9 @@ type HandoffWorkerOptions struct {
 	// branches and open draft pull requests without asking (the credential
 	// broker); nil grants nothing, and the session asks as any other.
 	Grants HandoffGrants
+	// PullRequests is each repository's pull request mode here, which a
+	// make-a-change handoff's brief states; nil: drafts.
+	PullRequests PullRequestModeSource
 	// Reviews holds a reviewed handoff in progress until its review is
 	// clean (ReviewPassService); nil lets Done mean done.
 	Reviews HandoffReviews
@@ -447,6 +450,9 @@ func (s *HandoffWorkerService) start(ctx context.Context, mainInstanceID, handof
 			move(store.HandoffFailed, startFailure(err))
 			return
 		}
+	}
+	if s.opts.PullRequests != nil && h.Purpose == HandoffMakeChange {
+		in.PullRequests = s.opts.PullRequests.PullRequestMode(ctx, h.Repo)
 	}
 	brief := HandoffBrief(in)
 	opts := AgentSpawnOptions{AgentKind: h.AgentKind, Repo: h.Repo, Branch: h.Branch, Assignment: brief, Unattended: true,

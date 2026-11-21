@@ -111,7 +111,7 @@ function FieldInput({ field, value, onChange, onError = () => {} }: { field: For
     }
     case "choice":
       return <select aria-label={field.label} className={fieldClass} value={typeof value === "string" ? value : ""} onChange={(e) => onChange(e.target.value === "" ? undefined : e.target.value)}>
-        {field.optional && <option value="">{field.unsetLabel ?? "Default"}</option>}
+        {field.optional ? <option value="">{field.unsetLabel ?? "Default"}</option> : value === undefined && <option value="" disabled>Choose…</option>}
         {(field.choices ?? []).map(([v, label]) => <option key={v} value={v}>{label}</option>)}
       </select>
     case "bool":

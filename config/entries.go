@@ -43,6 +43,7 @@ var entryListDefs = []EntryList{
 	{Key: "credential_sources", Title: "Credential sources", Class: ClassRisky, Mode: ModeRestart, NameField: "vault"},
 	{Key: "agents.tmux_options", Title: "tmux options", Class: ClassChange, Mode: ModeNewAgents},
 	{Key: "agents.sandbox.mounts", Title: "Extra folders", Class: ClassRisky, Mode: ModeRestart, NameField: "path"},
+	{Key: "pull_requests.rules", Title: "Pull requests", Class: ClassRisky, Mode: ModeLive, NameField: "match"},
 	{Key: "swarm.prompts", Title: "Role prompts", Class: ClassChange, Mode: ModeRestart},
 	{Key: "reeve.rules", Title: "The Reeve's rules", Class: ClassRisky, Mode: ModeLive, NameField: "pattern", OwnRule: true, Ordered: true},
 }

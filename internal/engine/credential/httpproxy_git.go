@@ -297,8 +297,8 @@ func (p *HTTPProxy) serveToken(w http.ResponseWriter, r *http.Request, c ProxyCr
 	var in struct {
 		Repo      string `json:"repo"`
 		Operation string `json:"operation"`
-		// Branch is the branch a draft pull request is opened from, for
-		// pr.create-draft.
+		// Branch is the branch a pull request is opened from, for
+		// pr.create-draft and pr.create.
 		Branch string `json:"branch"`
 	}
 	if err := json.NewDecoder(io.LimitReader(r.Body, 4096)).Decode(&in); err != nil {
@@ -313,9 +313,9 @@ func (p *HTTPProxy) serveToken(w http.ResponseWriter, r *http.Request, c ProxyCr
 	resource := "github:" + in.Repo
 	switch in.Operation {
 	case OperationGitRead, "api.read", OperationPRWrite, OperationIssueWrite, OperationActionsRead, OperationActionsWrite:
-	case OperationPRCreateDraft:
+	case OperationPRCreateDraft, OperationPRCreate:
 		if !validBranchName(in.Branch) {
-			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "branch: a draft pull request token names the branch it is opened from"})
+			writeJSON(w, http.StatusBadRequest, map[string]string{"error": "branch: a pull request token names the branch it is opened from"})
 			return
 		}
 		resource += "@refs/heads/" + in.Branch

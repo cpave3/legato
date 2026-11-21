@@ -113,7 +113,7 @@ func TestGHFindsItsRepository(t *testing.T) {
 func TestGHOperationSaysWhichCommandsWriteToAPullRequest(t *testing.T) {
 	for args, want := range map[string]string{
 		"pr edit 1529 -R autopilot-dev/autopilot --body-file b.md": "pr.write",
-		"pr create --fill":           "pr.write",
+		"pr create --fill":           "pr.create",
 		"pr comment 12 --body hi":    "pr.write",
 		"pr review 12 --approve":     "pr.write",
 		"pr close 12":                "pr.write",
@@ -143,18 +143,19 @@ func TestGHOperationSaysWhichCommandsWriteToAPullRequest(t *testing.T) {
 }
 
 // gh pr create --draft opens a draft pull request from one branch, which a
-// make-a-change handoff allows without asking; any other pull request is a
-// pr.write as before.
+// make-a-change handoff allows without asking; without --draft it is
+// pr.create, also from one branch, which a handoff allows in a repository
+// whose pull request mode is ready.
 func TestGHOperationTellsADraftPullRequestApart(t *testing.T) {
 	for args, want := range map[string]string{
 		"pr create --draft --fill":              "pr.create-draft",
 		"pr create -d -t Fix -b body":           "pr.create-draft",
 		"pr create --draft=true --fill":         "pr.create-draft",
 		"-R cpave3/legato pr create --draft":    "pr.create-draft",
-		"pr create --draft=false --fill":        "pr.write",
-		"pr create --fill":                      "pr.write",
+		"pr create --draft=false --fill":        "pr.create",
+		"pr create --fill":                      "pr.create",
 		"pr edit 3 --title draft":               "pr.write",
-		"pr create --title --draft --body text": "pr.write", // --draft is the title
+		"pr create --title --draft --body text": "pr.create", // --draft is the title
 	} {
 		if got := cli.GHOperation(strings.Fields(args)); got != want {
 			t.Errorf("gh %s: %s, want %s", args, got, want)

@@ -121,6 +121,17 @@ describe("List forms", () => {
     await waitFor(() => expect(mockSave).toHaveBeenCalledWith("http://legato", "agents.sandbox.mounts", "~/notes", { access: "write" }))
   })
 
+  it("adds a pull request rule: a repository or pattern and its mode", async () => {
+    show([list({ key: "pull_requests.rules", title: "Pull requests", mode: "live", name_field: "match", entries: [{ name: "cpave3/*", value: { mode: "draft" }, source: "database", pinned: false }] })])
+    expect(await screen.findByText("cpave3/*")).toBeTruthy()
+    fireEvent.click(screen.getByRole("button", { name: "Add a rule" }))
+    fireEvent.change(screen.getByRole("textbox", { name: "Repository" }), { target: { value: "cpave3/legato" } })
+    expect(within(screen.getByRole("combobox", { name: "Pull requests" })).getAllByRole("option").map((o) => o.textContent)).toEqual(["Choose…", "As drafts", "Ready for review", "The agent chooses"])
+    fireEvent.change(screen.getByRole("combobox", { name: "Pull requests" }), { target: { value: "ready" } })
+    fireEvent.click(screen.getByRole("button", { name: "Save" }))
+    await waitFor(() => expect(mockSave).toHaveBeenCalledWith("http://legato", "pull_requests.rules", "cpave3/legato", { mode: "ready" }))
+  })
+
   it("adds and removes a credential source by vault and profile", async () => {
     show([list({ key: "credential_sources", title: "Credential sources", name_field: "vault", entries: [{ name: "Old", value: { profile: "ssh" }, source: "database", pinned: false }] })])
     fireEvent.click(await screen.findByRole("button", { name: "Add a vault" }))

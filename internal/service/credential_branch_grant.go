@@ -5,16 +5,24 @@ import (
 	"errors"
 	"strings"
 
+	"github.com/cpave3/legato/config"
 	"github.com/cpave3/legato/internal/engine/credential"
 	"github.com/cpave3/legato/internal/engine/stackgraph"
 	"github.com/cpave3/legato/internal/engine/store"
 )
 
 // branchGrantOperations are what a branch grant allows on its branches:
-// pushing them and opening draft pull requests from them. Not pr.create (a
-// pull request that is not a draft), pr.write, merging, the default branch,
-// tags or deleting a branch.
-var branchGrantOperations = []string{"git.push", credential.OperationPRCreateDraft}
+// pushing them and opening draft pull requests from them, and, when the
+// repository's pull request mode is ready or agent, pull requests that are
+// not drafts (pr.create). Never pr.write, merging, the default branch, tags
+// or deleting a branch.
+func branchGrantOperations(mode string) []string {
+	ops := []string{"git.push", credential.OperationPRCreateDraft}
+	if mode == config.PullRequestsReady || mode == config.PullRequestsAgent {
+		ops = append(ops, credential.OperationPRCreate)
+	}
+	return ops
+}
 
 // BranchGrant allows one session, without asking the person, to push some
 // branches of a GitHub repository and to open draft pull requests from
@@ -31,7 +39,8 @@ type BranchGrant struct {
 	By string
 }
 
-// GrantBranches records a session grant of git.push and pr.create-draft on
+// GrantBranches records a session grant of git.push and pr.create-draft
+// (and pr.create, by the repository's pull request mode) on
 // each of the grant's branches, on every GitHub credential whose
 // repositories list the repository, and returns how many credentials it
 // granted on (none when no credential lists it). Each use is still decided
@@ -53,13 +62,14 @@ func (b *CredentialBroker) GrantBranches(ctx context.Context, g BranchGrant) (in
 		}
 		resources = append(resources, "github:"+g.Repo+"@refs/heads/"+branch)
 	}
+	operations := branchGrantOperations(b.pullRequestMode(ctx, g.Repo))
 	granted := 0
 	for _, c := range b.all() {
 		if c.profile.Git == "" || !repoListed(c.config.Settings.Repositories, g.Repo) {
 			continue
 		}
 		req := AccessRequest{TaskID: g.TaskID, ExecutionID: g.ExecutionID, Credential: c.config.Name,
-			Operations: branchGrantOperations, Resources: resources}
+			Operations: operations, Resources: resources}
 		if err := b.grant(ctx, req, grantSession, 0, "", g.By, ""); err != nil {
 			return granted, err
 		}
