@@ -106,6 +106,7 @@ type Server struct {
 	skills                   SkillService
 	jobClones                JobCloneService
 	taskStacks               TaskStackService
+	relatedAgents            RelatedAgentsService
 	preparing                preparingAgents
 	tints                    TintService
 	themes                   ThemePreferenceService
@@ -359,6 +360,7 @@ func NewWithSwarm(board service.BoardService, agents service.AgentService, tmux 
 	mux.HandleFunc("/api/swarm/pending-plans", s.swarmPendingPlansHandler())
 	mux.HandleFunc("/api/agents/{task_id}/preview", s.agentPreviewHandler())
 	mux.HandleFunc("/api/agents/{task_id}/conversation", s.agentConversationHandler())
+	mux.HandleFunc("/api/agents/{task_id}/related", s.relatedAgentsHandler())
 	mux.HandleFunc("/api/agents/{task_id}/image", s.agentImageHandler())
 	mux.HandleFunc("/api/agents/{task_id}/ui-items", s.agentUIItemsHandler())
 	mux.HandleFunc("/api/ui-items/{id}", s.agentUIItemHandler())

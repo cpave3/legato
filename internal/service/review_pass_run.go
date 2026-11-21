@@ -132,7 +132,12 @@ type reviewRun struct {
 var reviewRunKey = []string{"legato", "review_loop"}
 
 func (c *ReviewRunCaller) run(ctx context.Context, taskID string) (*reviewRun, error) {
-	task, err := c.engine.db.GetTask(ctx, taskID)
+	return readReviewRun(ctx, c.engine.db, taskID)
+}
+
+// readReviewRun is the review loop a run keeps on its task's metadata.
+func readReviewRun(ctx context.Context, db *store.Store, taskID string) (*reviewRun, error) {
+	task, err := db.GetTask(ctx, taskID)
 	if err != nil {
 		return nil, err
 	}

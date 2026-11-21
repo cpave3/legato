@@ -96,6 +96,8 @@ While the task is away, its row in the Away lane shows the review in place of th
 | **Done · approved** | Clean, approved, and the checks passed. |
 | **Review stuck: …** | The review needs you. Why is in the row. |
 
+In the web UI, the author's chat and the reviewer's chat link to each other: the **Related** panel lists **Reviewer · pass N** (with the loop's state) for the author, and **Author** for the reviewer, on the worker where both run. Click a running agent's row to switch to it. A reviewer that has ended stays there, marked ended, until the loop ends; its row opens the loop instead.
+
 The task panel links to Legato's latest review of each pull request. While a review runs, **Return** is not offered; **Recall** still brings the task back at once. The note the task comes back with sums up the passes and any items left open.
 
 ## When a review is stuck
@@ -173,5 +175,7 @@ The run is refused at once, with the reason, when:
 ### An agent as the author
 
 When the pull request belongs to a task on your board (an agent you started opened it, say), start the run with `agent_author: true` and that task's agent is the author. It is told of each pass with the same `[legato review pass]` line a handed-off author gets, and answers with the same `legato review-pass feedback` and `legato review-pass answer` commands; its answers are posted as the author App. The next pass starts once it is idle with every finding answered and it pushed or disputed one, or on the triggers above. An author that exited is resumed from its saved conversation; one that cannot be resumed makes the loop stuck, since Legato never starts a fresh author on code it knows nothing about. A stuck loop with an agent author also offers **Message the author** in Attention. An agent author also gets each failing required check, as a handed-off author does: the pull request is not approved while one fails, and the run ends approved only when each passes on a pushed commit or the agent answers it with a reply. A task's agent authors one loop at a time: a second is refused until the first ends.
+
+The two agents link to each other in the web UI's **Related** panel. The author's chat lists **Reviewer · pass N** with the loop's state, and the reviewer's chat lists **Author**. Without `agent_author`, the reviewer's panel lists the pull request's board task, if there is one, and that task's agent still sees the reviewer.
 
 Legato does not start a loop on local work by itself, but it prompts you: when a task on your board (not handed off) reaches Done or the Review column with open pull requests that no loop reviews, [Attention](/legato/using/attention/) offers **Start review passes**, which reviews the whole stack with the task's agent as the author.

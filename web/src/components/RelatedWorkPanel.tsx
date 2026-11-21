@@ -7,6 +7,7 @@ import type { RelatedWorkItem } from "../lib/task-activity"
 import type { LegatoNavigationKind } from "../lib/navigation"
 import { relatedStatusChip, relatedStatusLabel, relatedStatusNote, relatedStatusText, splitRelated } from "../lib/relatedWork"
 import { ChecksMark, ReviewMark } from "./PullRequestMarks"
+import { relatedAgentLabel, relatedLoopState, type RelatedAgent } from "../lib/related-agents"
 
 const KIND_LABEL: Record<LegatoNavigationKind, string> = {
   plan: "Plan",
@@ -18,6 +19,10 @@ const KIND_LABEL: Record<LegatoNavigationKind, string> = {
 
 interface RelatedWorkPanelProps {
   items: RelatedWorkItem[]
+  // The agents on the other side of this agent's review loops.
+  agents?: RelatedAgent[]
+  // Switches the page to another agent.
+  onOpenAgent?: (agentId: string) => void
   // The task the agent works for, once its details have loaded.
   card: CardDetail | null
   cardId: string
@@ -42,7 +47,7 @@ const rowHead = "flex items-center justify-between gap-2 text-xs text-lw-text-2"
 // RelatedWorkPanel is the column beside an agent's chat that lists the work
 // of its task: what is still under way, then the card on the board, its pull
 // request, and the plans, reviews and workflow runs that came of it.
-export function RelatedWorkPanel({ items, card, cardId, onClose, mobile }: RelatedWorkPanelProps) {
+export function RelatedWorkPanel({ items, agents = [], onOpenAgent, card, cardId, onClose, mobile }: RelatedWorkPanelProps) {
   const { inProgress, linked } = splitRelated(items)
   const prs = card ? taskPullRequests(card) : []
   const container = useRef<HTMLElement>(null)
@@ -77,6 +82,45 @@ export function RelatedWorkPanel({ items, card, cardId, onClose, mobile }: Relat
                 </Link>
               )
             })}
+          </Group>
+        )}
+        {agents.length > 0 && (
+          <Group label="Agents">
+            <div className="flex flex-col overflow-hidden rounded-lg border border-lw-line bg-lw-surface">
+              {agents.map((agent) => {
+                const head = (
+                  <>
+                    <span className={rowHead}>
+                      <span>{relatedAgentLabel(agent)}{agent.role === "linked_task" && <> · <span className="font-lw-mono">{agent.task_id}</span></>}</span>
+                      <span className="text-lw-text-2">{relatedLoopState(agent)}</span>
+                    </span>
+                    <span className="truncate">{agent.title || agent.task_id}</span>
+                    {agent.status !== "none" && (
+                      <span className={cn("text-xs", agent.status === "running" ? "text-lw-live" : "text-lw-faint")}>
+                        {agent.status === "running" ? agent.activity || "running" : "ended"}
+                      </span>
+                    )}
+                  </>
+                )
+                const key = `${agent.role}:${agent.agent_id ?? agent.task_id}:${agent.loop.task_id}`
+                // Only a running agent can be selected: the agents page
+                // lists running sessions, and an ended one has no chat or
+                // terminal to show. The rest link to their loop.
+                if (agent.agent_id && agent.status === "running" && onOpenAgent) {
+                  const id = agent.agent_id
+                  return (
+                    <button key={key} type="button" onClick={() => onOpenAgent(id)} className={cn(row, "w-full cursor-pointer bg-transparent text-left")}>
+                      {head}
+                    </button>
+                  )
+                }
+                return (
+                  <Link key={key} to={agent.role === "linked_task" ? `/board?highlight_task=${encodeURIComponent(agent.task_id)}` : agent.loop.link} className={row}>
+                    {head}
+                  </Link>
+                )
+              })}
+            </div>
           </Group>
         )}
         <Group label="Linked">

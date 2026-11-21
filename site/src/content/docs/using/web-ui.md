@@ -124,6 +124,8 @@ HTML an agent wrote runs in a closed frame that cannot reach the network beyond 
 
 The **Related** switch beside **Artifacts** shows the task's card, its pull request, and its plans, reviews and workflow runs.
 
+When the agent takes part in a [review loop](/legato/using/review-passes/), **Related** also lists the agent on the other side under **Agents**. An author sees **Reviewer · pass N** with the loop's state; a reviewer sees **Author**, or **Linked task** for a run that no agent authors. Click a running agent's row to switch to it. A reviewer that has ended stays in the list, marked ended, until its loop ends; its row opens the loop instead.
+
 ### Review briefings on the branch
 
 If the agent's branch carries a review briefing (HTML pages under `.review/` that the branch adds or changes), the **Artifacts** panel shows each page as a tab before the pull request exists. Legato checks for changes every 15 seconds.

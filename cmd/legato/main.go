@@ -1053,6 +1053,7 @@ func runServeCmd(args []string) int {
 	srv.SetEngramService(engramsFor(db))
 	srv.SetJobCloneService(repos)
 	srv.SetTaskStackService(wireTaskStacks(db, bus, repos))
+	srv.SetRelatedAgentsService(service.NewRelatedAgentsService(db))
 	repos.SetCacheListener(srv.BroadcastRepositoryCache)
 	if built, workflowErr := buildWorkflowService(db, cfg, workflowRuntimeOptions{Bus: bus, Board: boardSvc, Sync: syncSvc, Agents: agentSvc, WorkDir: wd, Repos: repos, Presets: repoPresets}); workflowErr == nil {
 		workflowSvc = built
@@ -1494,6 +1495,7 @@ func runTUI() int {
 			webSrv.SetEngramService(engramsFor(db))
 			webSrv.SetJobCloneService(repos)
 			webSrv.SetTaskStackService(taskStacks)
+			webSrv.SetRelatedAgentsService(service.NewRelatedAgentsService(db))
 			repos.SetCacheListener(webSrv.BroadcastRepositoryCache)
 			webSrv.SetSyncService(syncSvc)
 			webSrv.SetPRTrackingService(prSvc)

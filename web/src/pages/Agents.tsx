@@ -32,6 +32,7 @@ import { useArtifactPanel } from "../hooks/useArtifactPanel"
 import { useServer } from "../hooks/useServer"
 import { useSwarmEvents } from "../hooks/useSwarmEvents"
 import { useTaskActivity } from "../hooks/useTaskActivity"
+import { useRelatedAgents } from "../hooks/useRelatedAgents"
 import { useTaskCard } from "../hooks/useTaskCard"
 import { splitRelated } from "../lib/relatedWork"
 import { apiFetch, toggleAgentNotify } from "../lib/api"
@@ -503,6 +504,7 @@ export function AgentsPage() {
       .filter((id) => !agents.find((agent) => agent.task_id === id)?.has_chimera_endpoint)
   }, [agents, conductor?.task_id, ensemble, selectedId, swarmMode])
   const { items: relatedWork } = useTaskActivity(selectedId ?? "")
+  const relatedAgents = useRelatedAgents(selectedId ?? "")
 
   useEffect(() => {
     if (selectedAgent?.parent_task_id && !singleAgentOverride) {
@@ -651,7 +653,7 @@ export function AgentsPage() {
   const sidePanels: SidePanelsProps = {
     open: artifactsOpen ? "artifacts" : relatedOpen ? "related" : null,
     // The card itself is always linked, and its pull request when it has one.
-    related: { count: relatedWork.length + 1 + (pullRequest ? 1 : 0), live: splitRelated(relatedWork).inProgress.length > 0 },
+    related: { count: relatedWork.length + relatedAgents.length + 1 + (pullRequest ? 1 : 0), live: splitRelated(relatedWork).inProgress.length > 0 },
     artifacts: { count: artifactCount + briefing.pages.length, fresh: newArtifacts },
     onSelect: selectPanel,
     studio: studioItem ? { onOpen: () => openArtifact(studioItem.id, 0) } : undefined,
@@ -1010,6 +1012,8 @@ export function AgentsPage() {
       {selectedId && cardId && relatedOpen && !artifacts.open && (
         <RelatedWorkPanel
           items={relatedWork}
+          agents={relatedAgents}
+          onOpenAgent={handleSelect}
           card={card?.id === cardId ? card : null}
           cardId={cardId}
           onClose={() => setRelatedOpen(false)}
