@@ -20,6 +20,14 @@ import { LazyWorkflowGraph } from "../components/workflow-graph/LazyWorkflowGrap
 import { StepYaml } from "../components/StepYaml"
 import { redactSecrets, runStateWords, stepTypeLabel, triggerName, yamlText, type GraphNode } from "../lib/workflowGraph"
 import { runNodeExtras } from "../lib/workflowRunGraph"
+import { runNeedsYou, type RunNeedsYouRow } from "../lib/runNeedsYou"
+import { useApprovals } from "../hooks/useApprovals"
+import { useAttention } from "../hooks/useAttention"
+import { useQueryClient } from "@tanstack/react-query"
+import { queryKeys } from "../lib/query"
+import { dismissAttentionItem, executeAttentionAction, type AttentionItem } from "../lib/attention"
+import { NeedsYouRow } from "../components/needsYou/NeedsYouRow"
+import { ApprovalCard } from "../components/ApprovalTray"
 
 function parseJSON(raw: string | undefined): unknown {
   try { return JSON.parse(raw ?? "") } catch { return raw }
@@ -257,6 +265,65 @@ function Artifact({ artifact, step }: { artifact: WorkflowArtifact; step?: strin
   </div>
 }
 
+// NeedsYouList is everything the run waits on the operator for, drawn with
+// the needs-you rail's own approval card and row, above the graph. A click
+// on a row shows its node.
+function NeedsYouList({ rows, runId, refresh, onFocus }: { rows: RunNeedsYouRow[]; runId: string; refresh: () => Promise<void>; onFocus: (node: string | null) => void }) {
+  const { baseUrl } = useServer()
+  const queryClient = useQueryClient()
+  const approvals = useApprovals(false)
+  const [pending, setPending] = useState<string | null>(null)
+  const [hidden, setHidden] = useState<Set<string>>(new Set())
+  const [error, setError] = useState("")
+  const shown = rows.filter(row => row.kind === "approval" || !hidden.has(row.item.id))
+  if (shown.length === 0) return null
+  const act = async (item: AttentionItem, call: () => Promise<unknown>) => {
+    setPending(item.id)
+    setError("")
+    try {
+      await call()
+      await Promise.all([refresh(), queryClient.invalidateQueries({ queryKey: queryKeys.attention(baseUrl) })])
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : String(reason))
+    } finally {
+      setPending(null)
+    }
+  }
+  const onAction = (item: AttentionItem, actionId: string, text?: string) => {
+    const row = rows.find(each => each.kind === "item" && each.item.id === item.id)
+    const step = row?.kind === "item" ? row.run?.step : undefined
+    if (step) {
+      const calls: Record<string, () => Promise<unknown>> = {
+        start: () => triggerWorkflowStep(baseUrl, runId, step, false),
+        end_now: () => triggerWorkflowStep(baseUrl, runId, step, false),
+        prompt: () => promptWorkflowStep(baseUrl, runId, step),
+        retry: () => retryWorkflowStep(baseUrl, runId, step, false),
+        another_pass: () => anotherReviewPass(baseUrl, runId, step),
+      }
+      if (calls[actionId]) void act(item, calls[actionId])
+      return
+    }
+    const action = item.actions?.find(each => each.id === actionId)
+    const confirmed = action?.requires_confirmation ?? false
+    void act(item, () => executeAttentionAction(baseUrl, item.id, actionId, item.source_revision, text === undefined ? { confirmed } : { confirmed, text }))
+  }
+  const onDismiss = (item: AttentionItem) => {
+    if (item.producer === "run") { setHidden(current => new Set(current).add(item.id)); return }
+    void act(item, () => dismissAttentionItem(baseUrl, item.id, item.source_revision))
+  }
+  return <section aria-label="Needs you" className="mt-5">
+    <h2 className="mb-2 flex items-baseline gap-2 text-xs font-semibold uppercase tracking-wide text-lw-needs">Needs you<span className="font-medium text-lw-faint">{shown.length}</span></h2>
+    {error && <p role="alert" className="mb-2 text-[13px] text-lw-error">{error}</p>}
+    <div className="grid gap-2 md:grid-cols-2">
+      {shown.map(row => <div key={row.kind === "approval" ? row.approval.id : row.item.id} data-run-row="" className="cursor-pointer" onClick={() => onFocus(row.node)}>
+        {row.kind === "approval"
+          ? <ApprovalCard approval={row.approval} focused={false} onDone={async () => { await approvals.refresh(); await refresh() }} />
+          : <NeedsYouRow item={row.item} onAction={onAction} onDismiss={onDismiss} pending={pending === row.item.id} />}
+      </div>)}
+    </div>
+  </section>
+}
+
 function clock(time?: string): string {
   return time ? time.replace("T", " ").replace(/(:\d\d)(\.\d+)?Z?$/, "$1") : ""
 }
@@ -321,8 +388,23 @@ export function WorkflowRunPage() {
   const now = useNow(15_000)
   const wide = useMediaQuery("(min-width: 768px)")
   const [selected, setSelected] = useState<string | null>(null)
+  const [centerOn, setCenterOn] = useState<{ id: string; n: number } | null>(null)
   const graph = data?.graph ?? null
-  const extras = useMemo(() => data && graph ? runNodeExtras(data, graph, now) : undefined, [data, graph, now])
+  const approvalList = useApprovals(true).data
+  const attentionList = useAttention().data
+  const needsYou = useMemo(() => data ? runNeedsYou(data, attentionList ?? [], approvalList, taskId => agentLink(taskId, runId)) : { rows: [], nodes: new Set<string>() }, [data, attentionList, approvalList, runId])
+  const extras = useMemo(() => {
+    if (!data || !graph) return undefined
+    const out = runNodeExtras(data, graph, now)
+    // An open approval or item of a step's agent makes the step Needs you.
+    for (const node of needsYou.nodes) if (out[node] && (out[node].state === "running" || out[node].state === "waiting")) out[node] = { ...out[node], state: "needs" }
+    return out
+  }, [data, graph, now, needsYou])
+  const focusNode = (node: string | null) => {
+    if (!node) return
+    setSelected(node)
+    setCenterOn(current => ({ id: node, n: (current?.n ?? 0) + 1 }))
+  }
   if (loading) return <main className="flex min-h-0 flex-1 flex-col"><LoadingState label="Loading the workflow run…" /></main>
   if (!data) return <main className="p-6 font-lw text-lw-text">
     <Link to="/workflows?tab=runs" className="text-sm text-lw-link">← Runs</Link>
@@ -373,9 +455,10 @@ export function WorkflowRunPage() {
         {data.definition_missing ? "This workflow's file is gone" : "This workflow has changed since this run"}<span className="text-lw-faint"> · the graph is the run's own copy</span>
       </p>}
       <Now key={`${baseUrl}:${runId}`} view={data} runId={runId} refresh={refresh} now={now} secrets={secrets} />
+      {graph && <NeedsYouList rows={needsYou.rows} runId={runId} refresh={refresh} onFocus={focusNode} />}
       {showGraph && graph ? <div className={cn("mt-7 grid gap-4", selectedNode && "lg:grid-cols-[minmax(0,1fr)_24rem]")}>
         <section aria-label="Run graph" className="h-[30rem] overflow-hidden rounded-xl border border-lw-line bg-lw-ground">
-          <LazyWorkflowGraph graph={graph} extras={extras} run selectedId={selected} onSelect={setSelected} />
+          <LazyWorkflowGraph graph={graph} extras={extras} run selectedId={selected} onSelect={setSelected} centerOn={centerOn} />
         </section>
         {selectedNode?.kind === "step" && <RunStepPanel view={data} node={selectedNode} runId={runId} secrets={secrets} state={extras?.[selectedNode.id]?.state && runStateWords[extras[selectedNode.id].state!]} />}
         {selectedNode?.kind === "trigger" && <RunTriggerPanel node={selectedNode} started={extras?.[selectedNode.id]?.trigger === "started"} />}

@@ -3,7 +3,7 @@
 // other page.
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import dagre from "@dagrejs/dagre"
-import { Background, BaseEdge, MarkerType, Controls, EdgeLabelRenderer, getBezierPath, Handle, MiniMap, Position, ReactFlow, ReactFlowProvider, type Edge, type Node, type EdgeProps, type EdgeTypes, type NodeProps, type NodeTypes, type OnSelectionChangeParams, type ReactFlowInstance } from "@xyflow/react"
+import { Background, BaseEdge, MarkerType, Controls, EdgeLabelRenderer, getBezierPath, Handle, MiniMap, Position, ReactFlow, ReactFlowProvider, type Edge, type Node, type EdgeProps, type EdgeTypes, type NodeProps, type NodeTypes, type ReactFlowInstance, useReactFlow } from "@xyflow/react"
 import "@xyflow/react/dist/base.css"
 import { ArrowRightLeft, BookOpen, Bot, CircleAlert, CircleCheck, CircleDashed, CircleDot, CircleStop, CircleX, SkipForward, Clock, Columns3, FileText, FileX, FolderSearch, FolderX, GitBranch, GitPullRequest, Hand, Hourglass, MessageSquareWarning, MessagesSquare, Repeat, Send, StickyNote, Tag, Trash2, Workflow, type LucideIcon } from "lucide-react"
 import { dataEdgeName, gateLabel, keyValueText, nodeName, runStateWords, stepTypeLabel, triggerName, triggerOn, type GraphNode, type GraphNodeExtra, type NodeRunState, type WorkflowGraphModel } from "../../lib/workflowGraph"
@@ -21,6 +21,8 @@ export type WorkflowGraphProps = {
   extras?: Record<string, GraphNodeExtra>
   // run makes step nodes tall enough for a run's state line.
   run?: boolean
+  // centerOn moves the view to a node, each time n changes.
+  centerOn?: { id: string; n: number } | null
   className?: string
 }
 
@@ -268,7 +270,8 @@ function edgesOf(graph: WorkflowGraphModel, selected: string | null): Edge[] {
   })), ...data]
 }
 
-function Graph({ graph, selectedId = null, onSelect, direction = "LR", extras, run = false, className }: WorkflowGraphProps) {
+function Graph({ graph, selectedId = null, onSelect, direction = "LR", extras, run = false, centerOn, className }: WorkflowGraphProps) {
+  const flow = useReactFlow()
   // The layout is computed once per graph and direction; a new graph with
   // the same shape keeps its places.
   const shape = useMemo(() => JSON.stringify([direction, run, graph.nodes.map(node => [node.id, node.kind]), graph.edges.map(edge => edge.id)]), [graph, direction, run])
@@ -286,6 +289,15 @@ function Graph({ graph, selectedId = null, onSelect, direction = "LR", extras, r
   }, [placed, graph, selected, extras])
   const edges = useMemo(() => edgesOf(graph, selected), [graph, selected])
   const frame = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (!centerOn) return
+    const node = placed.find(item => item.id === centerOn.id)
+    if (!node) return
+    // At once, not animated: no motion to sit through, and React Flow 13's
+    // animated move never settled under the tests' jsdom.
+    void flow.setCenter(node.position.x + (node.width ?? 0) / 2, node.position.y + (node.height ?? 0) / 2, { zoom: Math.max(flow.getZoom(), 0.9) })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [centerOn?.n])
   // startView fits the graph when it fits at a readable size, else shows it
   // from its start (the triggers) at that size, for the operator to pan.
   const startView = useCallback((flow: Pick<ReactFlowInstance, "setViewport">) => {
@@ -303,11 +315,19 @@ function Graph({ graph, selectedId = null, onSelect, direction = "LR", extras, r
     setSelected(id)
     onSelect?.(id)
   }, [onSelect])
-  const onSelectionChange = useCallback(({ nodes: chosen }: OnSelectionChangeParams) => {
-    const id = chosen[0]?.id ?? null
-    if (id !== selected) choose(id)
-  }, [choose, selected])
-  return <div ref={frame} className={cn("h-full min-h-[18rem] w-full", className)} style={{ "--xy-background-color": "var(--color-lw-ground)", "--xy-edge-stroke": "var(--color-lw-line-strong)", "--xy-minimap-background-color": "var(--color-lw-surface)", "--xy-minimap-mask-background-color": "color-mix(in srgb, var(--color-lw-ground) 70%, transparent)", "--xy-minimap-mask-stroke-color": "var(--color-lw-line-strong)", "--xy-minimap-node-background-color": "var(--color-lw-line-strong)", "--xy-controls-button-background-color": "var(--color-lw-surface)", "--xy-controls-button-color": "var(--color-lw-text)", "--xy-controls-button-border-color": "var(--color-lw-line)" } as React.CSSProperties}>
+  // Enter or Space on a focused node selects it, as a click does. The
+  // selection is this component's (or its page's) alone: React Flow's own
+  // never feeds back into it, so the two cannot chase each other.
+  const onKeyDown = useCallback((event: React.KeyboardEvent) => {
+    if (event.key !== "Enter" && event.key !== " ") return
+    const element = (event.target as HTMLElement).closest<HTMLElement>(".react-flow__node")
+    const id = element?.dataset.id
+    if (!id) return
+    event.preventDefault()
+    const node = graph.nodes.find(item => item.id === id)
+    choose(node?.parent ?? id)
+  }, [choose, graph])
+  return <div ref={frame} onKeyDown={onKeyDown} className={cn("h-full min-h-[18rem] w-full", className)} style={{ "--xy-background-color": "var(--color-lw-ground)", "--xy-edge-stroke": "var(--color-lw-line-strong)", "--xy-minimap-background-color": "var(--color-lw-surface)", "--xy-minimap-mask-background-color": "color-mix(in srgb, var(--color-lw-ground) 70%, transparent)", "--xy-minimap-mask-stroke-color": "var(--color-lw-line-strong)", "--xy-minimap-node-background-color": "var(--color-lw-line-strong)", "--xy-controls-button-background-color": "var(--color-lw-surface)", "--xy-controls-button-color": "var(--color-lw-text)", "--xy-controls-button-border-color": "var(--color-lw-line)" } as React.CSSProperties}>
     <ReactFlow
       nodes={nodes}
       edges={edges}
@@ -326,7 +346,6 @@ function Graph({ graph, selectedId = null, onSelect, direction = "LR", extras, r
       zoomOnDoubleClick={false}
       onNodeClick={(_, node) => choose(node.parentId ?? node.id)}
       onPaneClick={() => choose(null)}
-      onSelectionChange={onSelectionChange}
     >
       <Background gap={20} size={1} />
       <Controls showInteractive={false} />

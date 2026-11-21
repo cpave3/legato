@@ -13,7 +13,9 @@ class ResizeObserver {
 class DOMMatrixReadOnly {
   m22: number
   constructor(transform?: string) {
-    const scale = transform?.match(/scale\(([1-9.])\)/)?.[1]
+    // The guide's pattern reads one character, so scale(0.9) read as 1 and an
+    // animated move of the view never settled.
+    const scale = transform?.match(/scale\(([\d.]+)\)/)?.[1]
     this.m22 = scale !== undefined ? +scale : 1
   }
 }
