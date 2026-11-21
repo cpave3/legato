@@ -109,3 +109,18 @@ func (rt *approvalRuntime) captureConversationText(db *store.Store, bus *events.
 		stop()
 	}
 }
+
+// recoverSessionHistory looks for the conversations of past runs that never
+// reported one, at the start and after each agent ends, while this process
+// serves the broker.
+func (rt *approvalRuntime) recoverSessionHistory(history *service.SessionHistoryService, bus *events.Bus) {
+	if rt == nil || history == nil || rt.brokerOwner == nil {
+		return
+	}
+	stopRecovery := history.StartRecovery(context.Background(), bus, rt.brokerOwner, log.Printf)
+	stop := rt.stop
+	rt.stop = func() {
+		stopRecovery()
+		stop()
+	}
+}

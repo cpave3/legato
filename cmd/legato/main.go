@@ -1069,7 +1069,9 @@ func runServeCmd(args []string) int {
 	}
 	approvalsRT := startApprovals(context.Background(), cfg, db, bus, agentSvc)
 	approvalsRT.giveRepositories(repos, repoPresets)
-	approvalsRT.sweepSessionHistory(newSessionHistory(cfg, db))
+	sessionHistory := newSessionHistory(cfg, db)
+	approvalsRT.sweepSessionHistory(sessionHistory)
+	approvalsRT.recoverSessionHistory(sessionHistory, bus)
 	approvalsRT.captureConversationText(db, bus, agentSvc)
 	defer approvalsRT.stop()
 	approvalsRT.attach(srv)
@@ -1424,7 +1426,9 @@ func runTUI() int {
 	// requests into them, whether or not the web server runs.
 	approvalsRT := startApprovals(context.Background(), cfg, db, bus, agentSvc)
 	approvalsRT.giveRepositories(repos, repoPresets)
-	approvalsRT.sweepSessionHistory(newSessionHistory(cfg, db))
+	sessionHistory := newSessionHistory(cfg, db)
+	approvalsRT.sweepSessionHistory(sessionHistory)
+	approvalsRT.recoverSessionHistory(sessionHistory, bus)
 	approvalsRT.captureConversationText(db, bus, agentSvc)
 	defer approvalsRT.stop()
 
