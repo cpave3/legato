@@ -475,18 +475,37 @@ func GHOpenedPR(args []string) (bool, string) {
 		return false, ""
 	}
 	endpoint, method, values := ghAPICall(args)
-	field := func(name string) string {
-		for _, v := range values {
-			if key, value, ok := strings.Cut(v, "="); ok && key == name {
-				return value
-			}
+	// The request body gh sends: its fields, then those of the --input file
+	// (a JSON object, as gh reads it; stdin is gh's and is gone by now).
+	fields := map[string]string{}
+	for _, v := range values {
+		if key, value, ok := strings.Cut(v, "="); ok {
+			fields[key] = value
 		}
-		return ""
+	}
+	var variables map[string]any
+	if input := ghAPIInput(args); input != "" && input != "-" {
+		var body map[string]any
+		if data, err := os.ReadFile(input); err == nil && json.Unmarshal(data, &body) == nil {
+			for key, value := range body {
+				if text, ok := value.(string); ok {
+					fields[key] = text
+				}
+			}
+			variables, _ = body["variables"].(map[string]any)
+		}
 	}
 	head := ""
 	switch {
 	case endpoint == "graphql":
-		query := field("query")
+		query := fields["query"]
+		if path, ok := strings.CutPrefix(query, "@"); ok {
+			data, err := os.ReadFile(path)
+			if err != nil {
+				return false, ""
+			}
+			query = string(data)
+		}
 		if !strings.Contains(query, "createPullRequest") {
 			return false, ""
 		}
@@ -496,10 +515,13 @@ func GHOpenedPR(args []string) (bool, string) {
 		}
 		head = m[1]
 		if m[2] != "" {
-			head = field(m[2])
+			head = fields[m[2]]
+			if text, ok := variables[m[2]].(string); ok && head == "" {
+				head = text
+			}
 		}
 	case method == "POST" && apiPullsPath.MatchString(endpoint):
-		head = field("head")
+		head = fields["head"]
 	default:
 		return false, ""
 	}
@@ -507,6 +529,21 @@ func GHOpenedPR(args []string) (bool, string) {
 		head = branch
 	}
 	return head != "", head
+}
+
+// ghAPIInput is the file gh api's --input names, "" when none.
+func ghAPIInput(args []string) string {
+	for i := 0; i < len(args); i++ {
+		name, value, inline := strings.Cut(args[i], "=")
+		if name != "--input" {
+			continue
+		}
+		if !inline && i+1 < len(args) {
+			value = args[i+1]
+		}
+		return value
+	}
+	return ""
 }
 
 // PROpened tells Legato's proxy the branch a gh command opened a pull

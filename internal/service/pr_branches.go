@@ -161,10 +161,14 @@ func (p *prTrackingService) SetCheckoutHead(head func(dir string) (branch, commi
 // checkout is on now, keeping the branch it was on tracked (source agent),
 // so a stack built in the clone is found branch by branch. A context the
 // person set (manual), a handoff's or a worktree's never moves, nor does
-// one whose checkout is detached, gone or on the default branch.
+// one whose checkout is detached, gone or on the default branch. Nor does
+// one whose checkout the task no longer owns (ownsCheckout).
 func (p *prTrackingService) followCheckout(ctx context.Context, taskID string, cc *store.CodeContext) *store.CodeContext {
 	if p.checkoutHead == nil || cc == nil || cc.Repo == "" || cc.WorkingDir == "" || cc.RepoSource == "manual" ||
 		(cc.BranchSource != "agent" && cc.BranchSource != "job_clone") {
+		return cc
+	}
+	if !p.ownsCheckout(ctx, taskID, cc.WorkingDir) {
 		return cc
 	}
 	branch, commit, err := p.checkoutHead(cc.WorkingDir)
@@ -183,6 +187,18 @@ func (p *prTrackingService) followCheckout(ctx context.Context, taskID string, c
 		return cc
 	}
 	return &moved
+}
+
+// ownsCheckout says whether the checkout at dir is the task's now: a live
+// job clone of the task's, or, when no job clone is there, the directory
+// the task's running agent works in. A directory an ended agent left, which
+// another task's agent may now use on its own branch, is not followed.
+func (p *prTrackingService) ownsCheckout(ctx context.Context, taskID, dir string) bool {
+	if clone, err := p.store.JobCloneByPath(ctx, dir); err == nil && clone != nil {
+		return clone.TaskID == taskID
+	}
+	session, err := p.store.GetAgentSessionByTaskID(ctx, taskID)
+	return err == nil && session != nil && session.WorkingDir == dir
 }
 
 // trackContextBranches adds the code context's branch and the branches of

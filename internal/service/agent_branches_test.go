@@ -183,6 +183,10 @@ func TestTheAgentsContextFollowsItsCheckoutToAnotherBranch(t *testing.T) {
 	if err := s.SetCodeContext(ctx, "task-1", &store.CodeContext{Repo: "acme/widget", Branch: "legato/task-1", BaseBranch: "main", WorkingDir: dir1, RepoSource: "job_clone", BranchSource: "agent"}); err != nil {
 		t.Fatal(err)
 	}
+	// dir1 is task-1's own job clone.
+	if _, err := s.CreateJobClone(ctx, store.JobClone{ExecutionID: "ex-1", TaskID: "task-1", Repo: "acme/widget", Branch: "legato/task-1", Path: dir1, CreatedAt: time.Now()}); err != nil {
+		t.Fatal(err)
+	}
 	// A context set by hand never moves.
 	if err := s.SetCodeContext(ctx, "task-2", &store.CodeContext{Repo: "acme/widget", Branch: "legato/task-2", WorkingDir: dir2, RepoSource: "manual", BranchSource: "manual"}); err != nil {
 		t.Fatal(err)
@@ -276,5 +280,70 @@ func TestAPullRequestOpenedThroughTheBrokerIsLinkedToTheTaskWithNoPoll(t *testin
 	branches.Wait()
 	if got := prList(t, prs, "task-1"); !reflect.DeepEqual(got, []string{"legato/task-1", "legato/task-1-rail-sheet:#210"}) {
 		t.Fatalf("tracked = %v", got)
+	}
+}
+
+// Task A's agent ended in a directory that task B's agent now works in on
+// its own branch: A's context stays where A left it, and B's pull request
+// is not A's.
+func TestACheckoutAnotherTaskNowUsesIsNotFollowed(t *testing.T) {
+	gh := newFakeGitHub(t)
+	gh.set("acme/widget", fakePR{Number: 77, Head: "feature/b"})
+	s, svc, _ := newBranchTracking(t, gh)
+	ctx := context.Background()
+	createPRTask(t, s, "task-a")
+	createPRTask(t, s, "task-b")
+	dir := t.TempDir()
+	svc.SetCheckoutHead(func(string) (string, string, error) { return "feature/b", "b0b", nil })
+	if err := s.SetCodeContext(ctx, "task-a", &store.CodeContext{Repo: "acme/widget", Branch: "feature/a", WorkingDir: dir, RepoSource: "agent", BranchSource: "agent"}); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := s.CreateJobClone(ctx, store.JobClone{ExecutionID: "ex-b", TaskID: "task-b", Repo: "acme/widget", Branch: "feature/b", Path: dir, CreatedAt: time.Now()}); err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.PollAll(ctx); err != nil {
+		t.Fatal(err)
+	}
+	task, _ := s.GetTask(ctx, "task-a")
+	if cc, _ := store.ParseCodeContext(task.CodeContext); cc.Branch != "feature/a" {
+		t.Fatalf("task-a followed task-b's checkout: %+v", cc)
+	}
+	if got := prList(t, svc, "task-a"); holdsPRNumber(got, 77) {
+		t.Fatalf("task-a holds task-b's PR: %v", got)
+	}
+}
+
+// Outside a job clone, the directory a task's running agent works in is
+// its own, and is followed; once that agent has ended it is not.
+func TestARunningAgentsDirectoryIsFollowed(t *testing.T) {
+	gh := newFakeGitHub(t)
+	s, svc, _ := newBranchTracking(t, gh)
+	ctx := context.Background()
+	createPRTask(t, s, "task-1")
+	dir := t.TempDir()
+	svc.SetCheckoutHead(func(string) (string, string, error) { return "feature/next", "c1", nil })
+	if err := s.SetCodeContext(ctx, "task-1", &store.CodeContext{Repo: "acme/widget", Branch: "feature/first", WorkingDir: dir, RepoSource: "agent", BranchSource: "agent"}); err != nil {
+		t.Fatal(err)
+	}
+	id, err := s.InsertAgentSessionReturningID(ctx, store.AgentSession{TaskID: "task-1", TmuxSession: "legato-task-1", AgentKind: "claude-code", Status: "running"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.CreateExecution(ctx, store.Execution{ID: "ex-1", Kind: store.ExecutionInteractive, Status: store.ExecutionRunning, TaskID: "task-1", ExecutionTaskID: "task-1", AgentSessionID: &id, WorkingDir: dir, StartedAt: time.Now().UTC()}); err != nil {
+		t.Fatal(err)
+	}
+	_ = svc.PollAll(ctx)
+	task, _ := s.GetTask(ctx, "task-1")
+	if cc, _ := store.ParseCodeContext(task.CodeContext); cc.Branch != "feature/next" {
+		t.Fatalf("context = %+v", cc)
+	}
+	if err := s.UpdateAgentSessionStatus(ctx, "task-1", "dead"); err != nil {
+		t.Fatal(err)
+	}
+	svc.SetCheckoutHead(func(string) (string, string, error) { return "feature/someone-else", "c2", nil })
+	_ = svc.PollAll(ctx)
+	task, _ = s.GetTask(ctx, "task-1")
+	if cc, _ := store.ParseCodeContext(task.CodeContext); cc.Branch != "feature/next" {
+		t.Fatalf("followed after the agent ended: %+v", cc)
 	}
 }

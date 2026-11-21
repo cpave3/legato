@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -323,5 +325,35 @@ func TestGHTellsTheProxyOfTheBranchItOpenedAPullRequestFrom(t *testing.T) {
 	}
 	if path != "/c/gh/pr-opened" || auth != "Bearer lgk_place" || got["repo"] != "cpave3/legato" || got["branch"] != "legato/k7q2-rail" {
 		t.Fatalf("%s %s %v", path, auth, got)
+	}
+}
+
+func TestGHOpenedPRReadsTheRequestFromAFile(t *testing.T) {
+	dir := t.TempDir()
+	write := func(name, text string) string {
+		path := filepath.Join(dir, name)
+		if err := os.WriteFile(path, []byte(text), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		return path
+	}
+	rest := write("pr.json", `{"head":"cpave3:legato/k7q2-file","base":"main","title":"x"}`)
+	mutation := write("create.graphql", `mutation { createPullRequest(input: {repositoryId: "R", baseRefName: "main", headRefName: "legato/k7q2-gqlfile"}) { pullRequest { number } } }`)
+	body := write("gql.json", `{"query":"mutation($h: String!) { createPullRequest(input: {headRefName: $h}) { pullRequest { number } } }","variables":{"h":"legato/k7q2-gqlbody"}}`)
+	for _, tc := range []struct {
+		args []string
+		ok   bool
+		head string
+	}{
+		{[]string{"api", "repos/cpave3/legato/pulls", "--method", "POST", "--input", rest}, true, "legato/k7q2-file"},
+		{[]string{"api", "graphql", "-F", "query=@" + mutation}, true, "legato/k7q2-gqlfile"},
+		{[]string{"api", "graphql", "--input", body}, true, "legato/k7q2-gqlbody"},
+		{[]string{"api", "repos/cpave3/legato/pulls", "--method", "POST", "--input", "-"}, false, ""}, // stdin is gone
+		{[]string{"api", "repos/cpave3/legato/pulls", "--method", "POST", "--input", filepath.Join(dir, "missing.json")}, false, ""},
+	} {
+		ok, head := cli.GHOpenedPR(tc.args)
+		if ok != tc.ok || head != tc.head {
+			t.Errorf("gh %q: %v %q, want %v %q", tc.args, ok, head, tc.ok, tc.head)
+		}
 	}
 }
