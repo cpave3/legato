@@ -114,12 +114,13 @@ describe("MobileBoardList", () => {
       renderList({ columns: withAway, workers: [vm1, vm2], baseUrl: "", onCardClick })
       fireEvent.click(within(section()).getByRole("button", { name: "vm-1 · 3 away · 2 done" }))
       const group = within(section()).getByRole("group", { name: "vm-1" })
-      const done = within(group).getByRole("button", { name: /Retry webhooks/ })
-      expect(done.textContent).toContain("from Doing")
+      const done = within(group).getByText("Retry webhooks").closest("[data-card]") as HTMLElement
+      expect(within(done).getByTestId("away-strip").textContent).toContain("from Doing")
       expect(within(group).getAllByRole("button", { name: "Return" })).toHaveLength(2)
-      expect(within(group).getByRole("button", { name: "Recall" })).toBeTruthy()
+      // Recall is in a card's menu.
+      expect(within(group).queryByRole("button", { name: "Recall" })).toBeNull()
       expect(within(section()).queryByText("Tidy logs")).toBeNull()
-      fireEvent.click(within(group).getByRole("button", { name: /Bump deps/ }))
+      fireEvent.click(within(group).getByText("Bump deps"))
       expect(onCardClick).toHaveBeenCalledWith(3, 2)
       fireEvent.click(within(section()).getByRole("button", { name: "vm-1 · 3 away · 2 done" }))
       expect(within(section()).queryByText("Retry webhooks")).toBeNull()

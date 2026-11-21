@@ -51,7 +51,7 @@ describe("awayLook", () => {
   const away = card("b", "Ready", {}).away!
   it("names the worker's state as last heard", () => {
     expect(awayLook({ ...away, state: "pending" }).label).toBe("Starting")
-    expect(awayLook({ ...away, state: "in_progress" }).label).toBe("Working")
+    expect(awayLook({ ...away, state: "in_progress" }).label).toBe("Running")
     expect(awayLook({ ...away, state: "done" }).label).toBe("Done")
     expect(awayLook({ ...away, state: "failed", failure: "the clone failed" }).label).toBe("Failed: the clone failed")
     expect(awayLook({ ...away, state: "returning" }).label).toBe("Coming back")
@@ -64,7 +64,7 @@ describe("awayLook, live", () => {
   it("shows the view the main has of the task, its own view of the worker first", () => {
     const label = (more: Partial<AwayOn>) => awayLook({ ...away, ...more }).label
     expect(label({ state: "pending", view: "starting" })).toBe("Starting")
-    expect(label({ state: "in_progress", activity: "working", view: "working" })).toBe("Working")
+    expect(label({ state: "in_progress", activity: "working", view: "working" })).toBe("Running")
     expect(label({ state: "in_progress", activity: "waiting", view: "needs_you" })).toBe("Needs you")
     expect(label({ state: "in_progress", activity: "idle", view: "idle" })).toBe("Idle")
     expect(label({ state: "in_progress", activity: "ended", view: "ended" })).toBe("Agent ended")

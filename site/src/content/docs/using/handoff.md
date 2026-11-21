@@ -67,29 +67,28 @@ Once a worker is paired, the web board has an **Away** lane after its columns. A
 
 The group's header says "pulled 2 min ago" while your main hears from the worker, "unreachable since 21:40" once it has been down for 30 seconds, or "no longer accepts this main; pair again" when the worker unpaired your main (pair it again from Settings › Connections › Workers).
 
-Each row in a group shows:
+Each task in a group is drawn as the same card as on the rest of the board:
 
-- the task's title and ID;
-- "from Doing": the column the task left;
-- its state, which changes as the worker works: **Starting** while the worker clones the repository and starts the agent; then what its agent is doing, **Working**, **Needs you** (it asks you something on the worker), **Idle**, **Agent ended**, or **Interrupted on worker** when a crash on the worker took the agent (resume it from the worker's Agents page); **Done** once the card is in the worker's Done column; or **Failed** with the reason. Your main shows **Unreachable** while the worker is down, **Lost on worker** when the worker no longer has the task, and **Not accepted** when it no longer accepts your main. Hover the pill for why;
-- when you handed it off;
-- its pull requests, once it has any: "PR #12 · draft", or "3 PRs · 2 draft · 1 ready". The line is red, and says what blocks it, when a pull request that is ready for review failed CI or has changes requested.
+- its header names the source and key and the worker it is on, such as **Burnlite · LEG-390 → vm-1**;
+- its title and its pull requests, one line for one or a folded stack for several, as at home but without a button: the agent on the worker fixes them;
+- a strip at its foot with its state, which changes as the worker works: **Starting** while the worker clones the repository and starts the agent; then what its agent is doing, **Running**, **Needs you** (it asks you something on the worker), **Idle**, **Agent ended**, or **Interrupted on worker** when a crash on the worker took the agent (resume it from the worker's Agents page); **Done** once the card is in the worker's Done column; or **Failed** with the reason. Beside it, the column the task left and when you handed it off ("from Doing · 09:00"). Your main shows **vm-1 unreachable since 21:40** while the worker is down, **Lost on vm-1** when the worker no longer has the task, and **vm-1 no longer accepts this main** when it unpaired your main; the card's edge turns red;
+- under the strip, what you can do: **Return**, or **Take back**. **Recall…** is in the card's `⋯` and right-click menu (on a phone, a long press).
 
-Select a row, as you select a card, to see the task in the panel beside the board. The panel shows the state, the worker, the purpose, where the work started, the branch, the repository, the column it left, its pull requests, and **Open on <worker>**, which opens the task on the worker's board. The description is marked read-only while away.
+Select an away card, as any card, to see the task in the panel beside the board. The panel shows the state, the worker, the purpose, where the work started, the branch, the repository, the column it left, its pull requests, and **Open on <worker>**, which opens the task on the worker's board. The description is marked read-only while away.
 
 ### While its pull requests are reviewed
 
-On a worker that runs [review passes](/legato/using/review-passes/), a task is not done when its agent finishes: a reviewer reviews its pull requests first, and the agent works through what it finds. The row then shows the review in place of the agent:
+On a worker that runs [review passes](/legato/using/review-passes/), a task is not done when its agent finishes: a reviewer reviews its pull requests first, and the agent works through what it finds. The card's strip then shows the review in place of the agent:
 
-- **Reviewing · pass 2** while a reviewer works, or **Waiting for a reviewer** while the worker's reviewers are busy;
-- **Author fixing · 3 blocking, 1 comment** while the agent answers the findings and comments;
-- **Approved · waiting for 2 checks** once a pass is clean but the pull requests' required checks are still running;
-- **Done · approved** once a pass is clean, the reviewer approved the pull requests and their required checks passed (with "1 check answered by reply" when the agent explained a failure, a flaky test say, instead of fixing it);
-- **Review stuck**, with why, when it needs you: the passes reached their limit, the reviewer could not review or ran out of time, or the agent could not be brought back.
+- **Review pass 2 · reviewing** while a reviewer works, or **Review pass 2 · waiting for a reviewer** while the worker's reviewers are busy;
+- **Review pass 2 · author fixing**, with what is still open on the right (**3 blocking · 1 comment · 1 check**), while the agent answers the findings and comments;
+- **Review approved · waiting for 2 checks** once a pass is clean but the pull requests' required checks are still running;
+- **Review done · approved** once a pass is clean, the reviewer approved the pull requests and their required checks passed (with "1 check answered by reply" when the agent explained a failure, a flaky test say, instead of fixing it);
+- **Review stuck after pass 3:** with why, in full, on an amber edge, when it needs you: the passes reached their limit, the reviewer could not review or ran out of time, or the agent could not be brought back.
 
 The required checks are those branch protection requires on each pull request's base branch, or the worker's `review_passes.required_checks` when it requires none. A failing one goes to the agent like a review comment, with its summary and a link; the agent fixes it on a new commit or replies. Reviews do not wait for the checks; only the task's done does.
 
-The panel links to Legato's latest review of each pull request. When the review is stuck, the row, its panel and its Attention item offer **Return as is**, **Run another pass** (one more pass past the limit, or another try), **Message the author** (your words reach the agent on the worker, marked as from you) and **Recall**.
+The panel links to Legato's latest review of each pull request. When the review is stuck, the card, its panel and its Attention item offer **Return as is**, **Run another pass** (one more pass past the limit, or another try), **Message the author** (your words reach the agent on the worker, marked as from you) and **Recall** (on the card, in its menu). They are offered only while the worker can be reached: an unreachable worker's task offers only **Take back**.
 
 When you hand off a task to such a worker, the Hand off form has a **Review passes** section: turn them off for this task, or choose another reviewer, tier or model, skill, or number of passes. It starts at the worker's own settings, and the worker refuses a choice it cannot meet before it takes the task. While a review runs, **Return** is not offered: recall the task to bring it back now. A stuck review can be returned as it is.
 
@@ -105,7 +104,7 @@ When the task comes back, its pull requests stay as they are: your main already 
 
 ## Bring a task home
 
-When the worker is done with a task, **return** it. Its row in the Away lane, and its panel, then offer **Return**; each worker's group offers **Return all done (N)**, which returns every task done there in one go. A task comes back with:
+When the worker is done with a task, **return** it. Its card in the Away lane, and its panel, then offer **Return**; each worker's group offers **Return all done (N)**, which returns every task done there in one go. A task comes back with:
 
 - its title and description as they are on the worker, if they were edited there (for a task from Jira or Burnlite, its Legato details only);
 - the notes written on the worker, headed "From the worker" (your own notes stay as they were, and none comes back twice);
@@ -123,7 +122,7 @@ A task you hand off again after it came back is a new handoff, with a new card o
 
 ### Take a task back
 
-When the worker cannot bring a task back, **take it back** without its results. **Take back** is offered on a row, and in its panel, when the task is **Unreachable**, **Lost on worker** or **Not accepted**, and never while the worker can still return or recall it. The board asks you to confirm first, and your main never does it by itself.
+When the worker cannot bring a task back, **take it back** without its results. **Take back** is offered on its card, and in its panel, when the task is **Unreachable**, **Lost on worker** or **Not accepted**, and never while the worker can still return or recall it. The board asks you to confirm first, and your main never does it by itself.
 
 The task leaves the Away lane for the column it left, with a note saying it was taken back from the worker without its results, and why, and what your main last heard of its review. The notes, branches and edits made on the worker stay there. Pull requests your main already follows stay on the task.
 
@@ -181,4 +180,4 @@ The TUI shows away tasks in their columns.
 
 ## On a phone
 
-On a phone, the board has an **Away** section above its columns while any task is away. Each worker that holds away tasks has one line, such as "vm-1 · 6 away · 2 done", with **Return all done (N)** when some are done. Tap the line to see its tasks: each row shows what it shows in the Away lane, with the same **Return**, **Recall** and **Take back**. Tap a row to open the task's details. Tap the line again to fold it.
+On a phone, the board has an **Away** section above its columns while any task is away. Each worker that holds away tasks has one line, such as "vm-1 · 6 away · 2 done", with **Return all done (N)** when some are done. Tap the line to see its tasks: each is the same card as in the Away lane, with the same **Return** and **Take back**; long-press it for **Recall…**. Tap a card to open the task's details. Tap the line again to fold it.

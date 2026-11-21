@@ -61,8 +61,9 @@ describe("an Attention item about an away task", () => {
     const href = legatoHref({ kind: "task", target: "T-2" })!
     render(<MemoryRouter initialEntries={[href]}><AgentSelectionProvider><BoardPage /></AgentSelectionProvider></MemoryRouter>)
     const lane = screen.getAllByRole("region", { name: "Away" }).find(region => !region.closest("aside"))!
-    const row = within(lane).getByRole("button", { name: /Split the parser/ })
+    const row = within(lane).getByText("Split the parser").closest("[data-card]") as HTMLElement
     expect(row.getAttribute("data-selected")).toBe("true")
+    expect(row.getAttribute("data-highlighted-task")).toBe("true")
     const panel = screen.getByRole("complementary", { name: "Selected task" })
     expect(within(panel).getByRole("link", { name: "#8" })).toBeTruthy()
     expect(within(panel).getByText("changes requested")).toBeTruthy()

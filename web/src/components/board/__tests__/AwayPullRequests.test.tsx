@@ -1,3 +1,4 @@
+import { MemoryRouter } from "react-router-dom"
 import { cleanup, render, screen, within } from "@testing-library/react"
 import { afterEach, describe, expect, it, vi } from "vitest"
 import { AwayLane } from "../AwayLane"
@@ -26,16 +27,18 @@ function away(prs: PRMetaView[], more: Partial<AwayOn> = {}): BoardCard {
 const vm1: BoardWorker = { instance_id: "srv-1", name: "vm-1", address: "https://vm-1.lan:3080" }
 
 describe("an away task's pull requests", () => {
-  it("are summed up on its row in the Away lane", () => {
+  it("are drawn on its card in the Away lane as at home, without a button", () => {
     const card = away([pr(11, { is_draft: true }), pr(12, { check_status: "fail" })])
-    render(<AwayLane workers={[vm1]} cards={[card]} selectedIndex={-1} isActive={false} onRowClick={() => {}} />)
-    const row = screen.getByRole("button", { name: /A big change/ })
-    expect(within(row).getByTestId("away-prs").textContent).toBe("2 PRs · 1 draft · 1 ready · #12 CI failed")
+    render(<MemoryRouter><AwayLane workers={[vm1]} cards={[card]} selectedIndex={-1} isActive={false} onRowClick={() => {}} /></MemoryRouter>)
+    const stack = screen.getByTestId("pr-stack")
+    expect(within(stack).getByText("Stack of 2 PRs")).toBeTruthy()
+    expect(screen.queryByRole("button", { name: /^Start / })).toBeNull()
   })
 
-  it("leave the row as it was while it has none", () => {
-    render(<AwayLane workers={[vm1]} cards={[away([])]} selectedIndex={-1} isActive={false} onRowClick={() => {}} />)
-    expect(screen.queryByTestId("away-prs")).toBeNull()
+  it("leave the card without a PR line while it has none", () => {
+    render(<MemoryRouter><AwayLane workers={[vm1]} cards={[away([])]} selectedIndex={-1} isActive={false} onRowClick={() => {}} /></MemoryRouter>)
+    expect(screen.queryByTestId("pr-stack")).toBeNull()
+    expect(screen.queryByLabelText(/^Pull request #/)).toBeNull()
   })
 
   it("are each listed in its panel, in stack order: number, draft or ready, checks and review", () => {

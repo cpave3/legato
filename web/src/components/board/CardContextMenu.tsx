@@ -1,7 +1,7 @@
 import { createPortal } from "react-dom"
 import { useMenuLayer } from "../../hooks/useMenuLayer"
 import { useRef, useState, useSyncExternalStore, type ReactNode, type RefObject } from "react"
-import { ChevronRight, ExternalLink, Move, Play, Repeat, Send, Trash2, Workflow } from "lucide-react"
+import { ChevronRight, ExternalLink, Move, Play, Repeat, Send, Trash2, Undo2, Workflow } from "lucide-react"
 import type { BoardCard, PRMetaView } from "../../lib/board-types"
 import type { CardWorkflowOption } from "../../lib/card-workflows"
 import { macroAgentLine, type Macro } from "../../lib/macros"
@@ -9,6 +9,7 @@ import { agentKindLabel } from "../../lib/agentKind"
 import { LoadingState } from "../ui/LoadingState"
 import { providerLabel } from "../../lib/providers"
 import type { PRMacroChoice } from "../../lib/cardMacros"
+import { awayActions } from "../../lib/awayReturn"
 
 const subscribeViewport = (notify: () => void) => {
   window.addEventListener("resize", notify)
@@ -16,7 +17,7 @@ const subscribeViewport = (notify: () => void) => {
 }
 const compactViewport = () => window.innerWidth < 640
 
-export type CardContextAction = "open" | "move" | "delete" | "handoff" | "openOnWorker" | "openSource"
+export type CardContextAction = "open" | "move" | "delete" | "handoff" | "openOnWorker" | "openSource" | "recall"
 
 // A menu beside the card's menu (on a phone, in its place, with a way back).
 function MenuFlyout({ label, title, triggerRef, root, compact, position, onBack, onCloseAll, children }: {
@@ -124,6 +125,7 @@ export function CardContextMenu({
       { action: "open", label: "Open details", icon: <ExternalLink size={16} /> },
       ...source,
       ...(card.away.url ? [{ action: "openOnWorker" as const, label: `Open on ${card.away.worker}`, icon: <ExternalLink size={16} /> }] : []),
+      ...(awayActions(card.away).recall ? [{ action: "recall" as const, label: "Recall…", icon: <Undo2 size={16} /> }] : []),
     ]
     : [
       { action: "open", label: "Open details", icon: <ExternalLink size={16} /> },

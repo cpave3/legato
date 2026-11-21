@@ -55,7 +55,7 @@ import type { ImportedTask, WorkflowTriggerRequest } from "../lib/board"
 import type { RepositoryPreset } from "../components/RepositoryPresetSelect"
 import { LoadingState } from "../components/ui/LoadingState"
 import { HandOffModal } from "../components/board/HandOffModal"
-import { AwayRowActions } from "../components/board/AwayActions"
+import { AwayRowActions, RecallDialog } from "../components/board/AwayActions"
 import { withAwayLane } from "../lib/away"
 import type { BoardWorker } from "../lib/board-types"
 import { AskReeve } from "../components/AskReeve"
@@ -210,6 +210,8 @@ export function BoardPage() {
   const [cursorRow, setCursorRow] = useState(0)
   const [overlay, setOverlay] = useState<Overlay>({ kind: "none" })
   const [contextMenu, setContextMenu] = useState<{ card: BoardCard; position: { x: number; y: number } } | null>(null)
+  // An away task being recalled from its card's menu.
+  const [recalling, setRecalling] = useState<BoardCard | null>(null)
   const [cardWorkflow, setCardWorkflow] = useState<{ card: BoardCard; workflow: CardWorkflowOption } | null>(null)
   // A review loop to start on a card's pull request, its agent the author.
   const [reviewLoop, setReviewLoop] = useState<{ card: BoardCard; pr: PRMetaView; scope?: "stack" | "pr" } | null>(null)
@@ -707,6 +709,9 @@ export function BoardPage() {
       case "openSource":
         if (card.source_url) window.open(card.source_url, "_blank", "noopener")
         break
+      case "recall":
+        setRecalling(card)
+        break
     }
   }, [contextMenu, openDetail])
 
@@ -1155,6 +1160,7 @@ export function BoardPage() {
         onManageMacros={() => navigateTo("/macros")}
         onClose={() => setContextMenu(null)}
       />}
+      {recalling && <RecallDialog baseUrl={baseUrl} card={recalling} onClose={() => setRecalling(null)} onNotice={awayNotice} />}
       {reviewLoop && reviewPassesDefinition && <RunWorkflowDialog definition={reviewPassesDefinition} repositories={workflowDiscovery.data?.repositories ?? []} initialValues={{ repo: reviewLoop.pr.repo, pr_number: String(reviewLoop.pr.pr_number), agent_author: "true", ...(reviewLoop.scope ? { scope: reviewLoop.scope } : {}) }} readOnlyInputs={["repo", "pr_number", "agent_author", ...(reviewLoop.scope ? ["scope"] : [])]} onClose={() => setReviewLoop(null)} />}
       {cardWorkflow && <RunWorkflowDialog definition={cardWorkflow.workflow.definition} repositories={workflowDiscovery.data?.repositories ?? []} initialValues={{ [cardWorkflow.workflow.taskInput]: cardWorkflow.card.id }} readOnlyInputs={[cardWorkflow.workflow.taskInput]} onClose={() => setCardWorkflow(null)} />}
 

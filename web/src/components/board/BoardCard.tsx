@@ -5,6 +5,7 @@ import { MoreHorizontal } from "lucide-react"
 import type { BoardCard as BoardCardType } from "../../lib/board-types"
 import { agentStripLook, cardSource, formatDuration, isMilestone, needsYouStrip, needsYouStrips, priorityTone, slotChipLabel, type NeedsYouStrip, type StripAction } from "../../lib/boardCard"
 import { openNeedsYou, showApproval } from "../../lib/railState"
+import { awayStrip, type AwayStrip as AwayStripLook } from "../../lib/away"
 import { resumeInterruptedAgent } from "../../lib/interruptedAgents"
 import { useServer } from "../../hooks/useServer"
 import { useToast } from "../../hooks/useToast"
@@ -23,6 +24,9 @@ interface BoardCardProps {
   onContextMenu?: (position: { x: number; y: number }) => void
   onActionMenu?: (position: { x: number; y: number }) => void
   onDragStart?: (event: DragEvent<HTMLDivElement>) => void
+  // An away task's actions under its strip (Return, Take back, a stuck
+  // review's answers).
+  actions?: ReactNode
 }
 
 const stripRow = "flex items-center justify-between gap-2 border-t border-lw-line px-3 py-[5px] text-xs"
@@ -82,6 +86,16 @@ function ResumeButton({ taskId, label }: { taskId: string; label: string }) {
   }} onDoubleClick={event => event.stopPropagation()} className={cn(stripAction, "min-h-11 disabled:opacity-50 md:min-h-0")}>{busy ? "Resuming…" : label}</button>
 }
 
+// An away task's strip: its review while one runs, else its away state.
+function AwayStripRow({ strip }: { strip: AwayStripLook }) {
+  return (
+    <div data-testid="away-strip" className={cn(stripRow, strip.tint)}>
+      <span className={cn("flex min-w-0 items-start gap-1.5", strip.tone)}><span aria-hidden="true">{strip.glyph}</span><span className="min-w-0 [overflow-wrap:anywhere]">{strip.text}</span></span>
+      {strip.detail && <span className="shrink-0 text-right font-lw-mono text-lw-text-2">{strip.detail}</span>}
+    </div>
+  )
+}
+
 // The strip that says why a card needs the operator, with the way there.
 function NeedsYouStripRow({ strip }: { strip: NeedsYouStrip }) {
   return (
@@ -122,7 +136,7 @@ function ReviewStrip({ card }: { card: BoardCardType }) {
   )
 }
 
-export function BoardCard({ card, selected, highlighted = false, column, showWorkspace, onClick, onDoubleClick, onContextMenu, onActionMenu, onDragStart }: BoardCardProps) {
+export function BoardCard({ card, selected, highlighted = false, column, showWorkspace, onClick, onDoubleClick, onContextMenu, onActionMenu, onDragStart, actions }: BoardCardProps) {
   const cardRef = useRef<HTMLDivElement>(null)
   const isDone = column === "Done"
   // The moving light is for an agent at work; a card that needs the
@@ -131,14 +145,20 @@ export function BoardCard({ card, selected, highlighted = false, column, showWor
   const agentTime = card.agent_active ? "" : formatDuration(card.working_seconds + card.waiting_seconds + card.error_seconds)
   // What waits on the operator is drawn above what runs; it stands in for
   // the agent's own strip while the agent only waits or idles.
-  const needs = needsYouStrips(card)
-  const main = needsYouStrip(card)
+  // An away task's state is on its worker: one strip says it.
+  const away = card.away ? awayStrip(card.away) : null
+  const needs = away ? [] : needsYouStrips(card)
+  const main = away ? null : needsYouStrip(card)
   const quietAgent = ["waiting", "idle", ""].includes(card.agent_state)
-  const edge = card.agent_active && card.agent_state === "error" ? "error" : needs.length > 0 || (card.agent_active && card.agent_state === "waiting") ? "needs" : ""
+  const edge = away ? away.edge : card.agent_active && card.agent_state === "error" ? "error" : needs.length > 0 || (card.agent_active && card.agent_state === "waiting") ? "needs" : ""
 
   useEffect(() => {
     if (highlighted) cardRef.current?.scrollIntoView?.({ behavior: "smooth", block: "center", inline: "nearest" })
   }, [highlighted])
+  // The Away lane keeps its selected row in view, as a column does.
+  useEffect(() => {
+    if (selected && card.away && !highlighted) cardRef.current?.scrollIntoView?.({ block: "nearest" })
+  }, [selected, card.away, highlighted])
 
   return (
     <div
@@ -154,7 +174,7 @@ export function BoardCard({ card, selected, highlighted = false, column, showWor
         event.preventDefault()
         onContextMenu({ x: event.clientX, y: event.clientY })
       }}
-      draggable
+      draggable={!card.away}
       onDragStart={onDragStart}
       className={cn(
         // A column lays cards out as a flex column that scrolls; a card keeps
@@ -193,7 +213,9 @@ export function BoardCard({ card, selected, highlighted = false, column, showWor
       </div>
       {needs.map(strip => <NeedsYouStripRow key={strip.text} strip={strip} />)}
       {Boolean(card.review_unreviewed) && <ReviewStrip card={card} />}
-      {card.agent_active && !(main && quietAgent) && <AgentStrip card={card} />}
+      {!away && card.agent_active && !(main && quietAgent) && <AgentStrip card={card} />}
+      {away && <AwayStripRow strip={away} />}
+      {actions && <div onClick={event => event.stopPropagation()} onDoubleClick={event => event.stopPropagation()} className="flex flex-wrap items-center gap-1 border-t border-lw-line px-3 py-2 empty:hidden">{actions}</div>}
     </div>
   )
 }
