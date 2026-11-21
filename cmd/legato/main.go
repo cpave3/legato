@@ -1070,6 +1070,7 @@ func runServeCmd(args []string) int {
 	approvalsRT := startApprovals(context.Background(), cfg, db, bus, agentSvc)
 	approvalsRT.giveRepositories(repos, repoPresets)
 	approvalsRT.sweepSessionHistory(newSessionHistory(cfg, db))
+	approvalsRT.captureConversationText(db, bus, agentSvc)
 	defer approvalsRT.stop()
 	approvalsRT.attach(srv)
 	updates := newUpdateService(db, bus, agentSvc, serveRestarter())
@@ -1423,6 +1424,7 @@ func runTUI() int {
 	approvalsRT := startApprovals(context.Background(), cfg, db, bus, agentSvc)
 	approvalsRT.giveRepositories(repos, repoPresets)
 	approvalsRT.sweepSessionHistory(newSessionHistory(cfg, db))
+	approvalsRT.captureConversationText(db, bus, agentSvc)
 	defer approvalsRT.stop()
 
 	// Auto-start web server if configured and port is free.

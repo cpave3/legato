@@ -243,3 +243,39 @@ func (s *Store) SweepAgentConversations(ctx context.Context, before time.Time) (
 	}
 	return int(n), tx.Commit()
 }
+
+// RecordConversationText keeps the text of the conversations live in an
+// execution: first, the first operator message, is set once (a tagged
+// [legato …] one stands only until an untagged one is seen); last, the
+// newest assistant message, replaces the one before at time at. An empty
+// value changes nothing. The search rows are rewritten with them.
+func (s *Store) RecordConversationText(ctx context.Context, executionID, first, last string, at time.Time) error {
+	tx, err := s.db.BeginTxx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	stamp := formatExecutionTime(at)
+	var ids []int64
+	if err := tx.SelectContext(ctx, &ids, `
+		UPDATE agent_conversations SET
+			first_message = CASE
+				WHEN ? = '' THEN first_message
+				WHEN first_message = '' THEN ?
+				WHEN first_message LIKE '[legato %' AND ? NOT LIKE '[legato %' THEN ?
+				ELSE first_message END,
+			last_message = CASE WHEN ? = '' THEN last_message ELSE ? END,
+			last_message_at = CASE WHEN ? = '' THEN last_message_at ELSE ? END,
+			last_seen_at = ?
+		WHERE id IN (SELECT conversation_id FROM agent_conversation_runs WHERE execution_id = ? AND ended_at IS NULL)
+		RETURNING id`,
+		first, first, first, first, last, last, last, stamp, stamp, executionID); err != nil {
+		return err
+	}
+	for _, id := range ids {
+		if err := writeConversationFTS(ctx, tx, id); err != nil {
+			return err
+		}
+	}
+	return tx.Commit()
+}

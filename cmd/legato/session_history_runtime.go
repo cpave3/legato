@@ -5,6 +5,7 @@ import (
 	"log"
 
 	"github.com/cpave3/legato/config"
+	"github.com/cpave3/legato/internal/engine/events"
 	"github.com/cpave3/legato/internal/engine/store"
 	"github.com/cpave3/legato/internal/service"
 )
@@ -43,6 +44,23 @@ func (rt *approvalRuntime) sweepSessionHistory(history *service.SessionHistorySe
 	stop := rt.stop
 	rt.stop = func() {
 		cancel()
+		stop()
+	}
+}
+
+// captureConversationText keeps the first prompt and the last message of
+// each conversation as its turns end, in the process that serves the
+// broker.
+func (rt *approvalRuntime) captureConversationText(db *store.Store, bus *events.Bus, agents service.AgentService) {
+	reader, ok := agents.(service.AgentConversationReader)
+	if rt == nil || !ok || bus == nil || rt.brokerOwner == nil {
+		return
+	}
+	capture := service.NewConversationTextCapture(db, reader, service.ConversationTextOptions{Owner: rt.brokerOwner})
+	stopCapture := capture.StartEventLoop(context.Background(), bus)
+	stop := rt.stop
+	rt.stop = func() {
+		stopCapture()
 		stop()
 	}
 }
