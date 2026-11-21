@@ -122,7 +122,8 @@ func runCredentialGit(args []string) int {
 // runCredentialGHToken prints a token for the repository a gh command acts
 // on, for Legato's gh wrapper: `legato credential gh-token -- <gh args>`.
 // gh pr create --draft asks for pr.create-draft on the branch it opens the
-// draft from (--head, else the current branch); any other pull request
+// draft from (--head, else the current branch), and gh pr create without
+// --draft for pr.create on it; any other pull request
 // command (gh pr edit, comment, ...) asks for pr.write, an
 // issue command (gh issue create, comment, ...) for issue.write, and an
 // Actions command that acts (gh run rerun, gh workflow run, ...) for
@@ -157,13 +158,13 @@ func runCredentialGHToken(args []string) int {
 		return runGHReady(session, repo, args)
 	}
 	branch := ""
-	if operation == "pr.create-draft" {
-		// A draft is opened from the branch --head names, else the
+	if operation == "pr.create-draft" || operation == "pr.create" {
+		// A pull request is opened from the branch --head names, else the
 		// current one, and its token is for that branch alone.
 		if branch = cli.GHPRCreateHead(args); branch == "" {
 			out, err := exec.Command("git", "rev-parse", "--abbrev-ref", "HEAD").Output()
 			if err != nil || strings.TrimSpace(string(out)) == "HEAD" {
-				fmt.Fprintln(os.Stderr, "legato: name the branch: gh pr create --draft --head <branch>")
+				fmt.Fprintln(os.Stderr, "legato: name the branch: gh pr create --head <branch>")
 				return exitUsage
 			}
 			branch = strings.TrimSpace(string(out))

@@ -44,12 +44,15 @@ permissions:
   git.read: { contents: read, metadata: read }
   api.read: { contents: read, metadata: read, pull_requests: read }
   git.push: { contents: write }
-  pr.create: { pull_requests: write }
+  # A pull request that is not a draft, from one branch: through the REST
+  # API, or gh pr create without --draft (given to the gh wrapper for one
+  # command and revoked after it).
+  pr.create: { pull_requests: write, contents: read, metadata: read }
   # A draft pull request from one branch: through the REST API (the proxy
   # holds the token), or gh pr create --draft (given to the gh wrapper for
   # one command and revoked after it).
   pr.create-draft: { pull_requests: write, contents: read, metadata: read }
-  # gh's pull request commands (gh pr edit, comment, review, create, ...),
+  # gh's other pull request commands (gh pr edit, comment, review, ...),
   # given to the gh wrapper for one command and revoked after it.
   pr.write: { pull_requests: write, contents: read, metadata: read }
   # gh pr ready: GitHub wants contents: write for it too, so Legato marks

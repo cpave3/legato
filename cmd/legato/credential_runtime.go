@@ -63,7 +63,7 @@ func credentialProfileDirs() []string {
 // credentials. messenger is set only in a host process.
 func configuredCredentialBroker(cfg *config.Config, db *store.Store, approvals *service.ApprovalService, messenger service.AgentMessenger) (*service.CredentialBroker, error) {
 	credential.OnePasswordIntegrationVersion = version.String()
-	return service.NewCredentialBroker(db, approvals, service.CredentialBrokerOptions{
+	broker, err := service.NewCredentialBroker(db, approvals, service.CredentialBrokerOptions{
 		Credentials:          cfg.Credentials,
 		Sources:              cfg.CredentialSources,
 		ProfileDirs:          credentialProfileDirs(),
@@ -73,6 +73,12 @@ func configuredCredentialBroker(cfg *config.Config, db *store.Store, approvals *
 		OnePasswordBackend:   cfg.Secrets.OnePassword.Backend,
 		Messenger:            messenger,
 	})
+	if err != nil {
+		return nil, err
+	}
+	// pull_requests.rules: drafts refused or ready pull requests granted.
+	broker.SetPullRequestModes(pullRequestModes(cfg, db))
+	return broker, nil
 }
 
 // startCredentials gives a host process (TUI, legato serve) the broker that

@@ -228,6 +228,8 @@ Where to run one:
 
 ## Guidance for a repository
 
+To have agents open a repository's pull requests as drafts or ready for review, use a [`pull_requests` rule](/legato/reference/configuration/#pull-requests) (Settings › Repositories › Pull requests) rather than guidance: the agent is told in its launch prompt, and with **As drafts** Legato also refuses any pull request that is not a draft.
+
 You can give every agent that works in a repository the same instructions, such as "run the prove-it skill when the work is done". Legato adds them to the agent's launch prompt. It finds the repository from the origin remote of the folder the agent starts in, so the guidance applies in every checkout and worktree of that repository, wherever it is on disk.
 
 Add guidance in the web UI under **Settings › Repositories › Repository guidance**, or in `config.yaml`:

@@ -164,6 +164,13 @@ type githubFixture struct {
 
 func newGitHubFixture(t *testing.T) githubFixture {
 	t.Helper()
+	return newGitHubFixtureWith(t, nil)
+}
+
+// newGitHubFixtureWith is newGitHubFixture with its credential changed
+// first, to give it rules of its own, say.
+func newGitHubFixtureWith(t *testing.T, change func(*config.CredentialConfig)) githubFixture {
+	t.Helper()
 	g := newGitHubFake(t)
 	key, _ := rsa.GenerateKey(rand.Reader, 2048)
 	t.Setenv("GH_APP_KEY", string(pem.EncodeToMemory(&pem.Block{Type: "RSA PRIVATE KEY", Bytes: x509.MarshalPKCS1PrivateKey(key)})))
@@ -174,9 +181,13 @@ func newGitHubFixture(t *testing.T) githubFixture {
 		t.Fatal(err)
 	}
 	messenger := &recordingMessenger{}
+	cred := config.CredentialConfig{Name: "gh", Secret: "env://GH_APP_KEY", Profile: "github", Type: "keypair",
+		Settings: config.CredentialSettings{ClientID: "Iv1.test", Repositories: []string{"cpave3/legato"}}}
+	if change != nil {
+		change(&cred)
+	}
 	broker, err := NewCredentialBroker(db, approvals, CredentialBrokerOptions{
-		Credentials: []config.CredentialConfig{{Name: "gh", Secret: "env://GH_APP_KEY", Profile: "github", Type: "keypair",
-			Settings: config.CredentialSettings{ClientID: "Iv1.test", Repositories: []string{"cpave3/legato"}}}},
+		Credentials: []config.CredentialConfig{cred},
 		ProfileDirs: []string{githubProfileFor(t, g)},
 		Messenger:   messenger, WaitTimeout: 100 * time.Millisecond, HTTPClient: g.srv.Client(),
 	})

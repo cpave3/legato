@@ -38,6 +38,8 @@ func wireTaskHandoffs(srv *server.Server, deps integrationDeps, reviews *service
 		Bus:     deps.bus,
 		// Step 1 of a return gives back the stack an agent built.
 		Stacks: service.NewTaskStackService(deps.db, nil),
+		// The brief says how the repository opens pull requests.
+		PullRequests: pullRequestModes(deps.cfg, deps.db),
 	}
 	if deps.repos != nil {
 		opts.Repositories = deps.repos

@@ -19,7 +19,7 @@ Before you can hand anything off, pair a worker with this Legato. See [Main and 
 2. The **Hand off** form opens for that task. Dropping a card only opens the form: nothing is handed off until you send it.
 3. Fill in the form (on a phone the options stack, and the form scrolls above the buttons):
    - **Worker**: the worker that takes the task. A worker that can't take handoffs, because it has no Legato [sandbox](/legato/security/sandbox/) or its board has no columns, is listed with the reason but cannot be chosen.
-   - **Purpose**: **Make a change** (the agent pushes its branches and opens draft pull requests) or **Find out** (the agent answers in the task's notes and pushes nothing).
+   - **Purpose**: **Make a change** (the agent pushes its branches and opens pull requests: drafts, unless the repository opens them [ready for review](#drafts-or-ready-for-review)) or **Find out** (the agent answers in the task's notes and pushes nothing).
    - **Start from**: **A new branch**, named `legato/<task ID>` and made from the repository's base branch (the `base_branch` you set for it on this Legato, else GitHub's default branch), or **A pushed branch**: work you began and pushed to GitHub. For a pushed branch, type its name in **Branch**. See [Start from a pushed branch](#start-from-a-pushed-branch).
    - **Repository**: one of the repositories in Settings › Repositories that has a GitHub name. With none, type its `owner/name`. Nothing is chosen for you: **Hand off** stays unavailable until you pick one, so a task never goes to the wrong repository because you forgot to change a default. The worker's GitHub access decides what it can clone: a repository it can't clone is listed as "vm-1 can't clone it" and cannot be chosen, and a repository only the worker names is offered as "on vm-1 only".
    - **Agent tool**: the tool the worker starts: the tools installed on the worker, its own default first. A worker too old to say lists this Legato's tools.
@@ -39,7 +39,7 @@ Choose **A pushed branch** to hand off work you have already begun. Push the bra
 
 The worker fetches its copy of the repository before it starts, then looks for the branch there. If GitHub does not have it, the handoff fails with "branch not on GitHub", and the Away lane says so. The worker never makes a new, empty branch of that name instead. The repository's default branch fails too: hand off a branch of your own.
 
-The agent works on your branch. Its brief tells it that the branch already has commits: read them against the default branch first, then only add commits. It never rebases, amends or force-pushes the branch, and it reuses the branch's pull request if it has one. Any new branches it stacks on top of yours are named `legato/<task ID>-<a few words>`. To make a change, it may push your branch and its own, and open draft pull requests, without asking.
+The agent works on your branch. Its brief tells it that the branch already has commits: read them against the default branch first, then only add commits. It never rebases, amends or force-pushes the branch, and it reuses the branch's pull request if it has one. Any new branches it stacks on top of yours are named `legato/<task ID>-<a few words>`. To make a change, it may push your branch and its own, and open pull requests (drafts, unless the repository opens them [ready for review](#drafts-or-ready-for-review)), without asking.
 
 ### Hand off a task from Jira or Burnlite
 
@@ -48,6 +48,16 @@ A task imported from a ticket provider, such as [Jira](/legato/integrations/jira
 The worker's agent may claim, add notes to and close the ticket itself, if the worker gives it access to the provider (its own MCP connection, say; yours never crosses). It does so under your task's ID (`LEGATO_HOLDER`), so a claim your own agent made earlier is the same holder's. Without access, the ticket is read only for that run. If the provider moves the task while it is away, because its ticket was claimed or closed, the task comes home in the column the provider put it in, not the worker's.
 
 On the worker, the card shows the task in two parts: **From Jira ACME-12 (read only)** (or **From Burnlite LEG-33 (read only)**), a copy of the ticket's text taken when you handed it off, then **Legato details**, the part you wrote in Legato. Only the Legato details can be edited there; the title is read-only too. The card names the provider it came from, and moving it changes nothing in the provider. The agent's brief gives it the same two parts. When the task comes back, only its Legato details come back: its title and its text stay the provider's.
+
+### Drafts or ready for review
+
+To make a change, the agent opens draft pull requests unless the worker's [`pull_requests` rules](/legato/reference/configuration/#pull-requests) say otherwise for the repository. Set them on the worker, in Settings › Repositories › Pull requests:
+
+- **Ready for review**: the agent's brief says to open its pull requests ready for review, and it may do so from its own branches without asking.
+- **The agent chooses**: the brief says to open each as a draft or ready for review, as it judges, and either is allowed.
+- **As drafts**: the brief says drafts, and the worker refuses any other.
+
+The rules are the worker's own, since the worker is where the agent pushes and opens pull requests. See [Pull requests: drafts or ready](/legato/security/credential-broker/#pull-requests-drafts-or-ready).
 
 ### When a handoff is refused
 

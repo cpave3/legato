@@ -41,7 +41,8 @@ func (s GitHubSession) Token(ctx context.Context, repo, operation string) (strin
 }
 
 // BranchToken asks for a token for an operation on one branch of a
-// repository: pr.create-draft, a draft pull request opened from branch.
+// repository: pr.create-draft or pr.create, a draft pull request or one
+// that is not a draft, opened from branch.
 func (s GitHubSession) BranchToken(ctx context.Context, repo, operation, branch string) (string, error) {
 	fields := map[string]string{"repo": repo, "operation": operation}
 	if branch != "" {
@@ -167,7 +168,9 @@ var apiActionsPath = regexp.MustCompile(`^/?repos/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]
 var apiIssuePath = regexp.MustCompile(`^/?repos/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/issues(/|$)`)
 
 // GHOperation is the operation a gh command needs: pr.create-draft for gh
-// pr create --draft, which opens a draft from one branch; pr.write for any
+// pr create --draft, which opens a draft from one branch; pr.create for gh
+// pr create without it, which opens a pull request that is not a draft from
+// one branch; pr.write for any
 // other command that writes to a pull request; issue.write for one that writes to an
 // issue, a gh api write under repos/<owner>/<repo>/issues included; pr.ready
 // for gh pr ready, which GitHub allows only a token that can also write
@@ -213,8 +216,11 @@ func GHOperation(args []string) string {
 	if len(words) == 2 && words[0] == "pr" && words[1] == "ready" {
 		return "pr.ready"
 	}
-	if len(words) == 2 && words[0] == "pr" && words[1] == "create" && ghPRCreateDraft(args) {
-		return "pr.create-draft"
+	if len(words) == 2 && words[0] == "pr" && words[1] == "create" {
+		if ghPRCreateDraft(args) {
+			return "pr.create-draft"
+		}
+		return "pr.create"
 	}
 	if len(words) == 2 && words[0] == "pr" && prWrites[words[1]] {
 		return "pr.write"

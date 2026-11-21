@@ -68,3 +68,32 @@ func TestGHTokenHasLegatoMarkAPullRequestReady(t *testing.T) {
 		t.Fatalf("undo: out = %q", out)
 	}
 }
+
+// gh pr create without --draft asks for pr.create on the branch it opens
+// the pull request from, as --draft asks for pr.create-draft, and marks the
+// token to be revoked.
+func TestGHTokenAsksForAReadyPullRequestOnItsBranch(t *testing.T) {
+	var asked []string
+	proxy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		var in struct{ Repo, Operation, Branch string }
+		_ = json.NewDecoder(r.Body).Decode(&in)
+		asked = append(asked, in.Operation+" "+in.Repo+" "+in.Branch)
+		_ = json.NewEncoder(w).Encode(map[string]string{"token": "ghs_" + strings.ReplaceAll(in.Operation, ".", "_")})
+	}))
+	defer proxy.Close()
+	t.Setenv("LEGATO_GITHUB_API_URL", proxy.URL+"/c/github/api")
+	t.Setenv("LEGATO_GITHUB_TOKEN", "lgk_x")
+
+	ready := captureStdout(t, func() int {
+		return runCredentialGHToken([]string{"--", "pr", "create", "--head", "legato/k7q2-fix", "--fill", "-R", "cpave3/legato"})
+	})
+	draft := captureStdout(t, func() int {
+		return runCredentialGHToken([]string{"--", "pr", "create", "--draft", "--head", "legato/k7q2-fix", "--fill", "-R", "cpave3/legato"})
+	})
+	if strings.TrimSpace(ready) != "ghs_pr_create revoke" || strings.TrimSpace(draft) != "ghs_pr_create-draft revoke" {
+		t.Fatalf("ready %q draft %q", ready, draft)
+	}
+	if strings.Join(asked, "; ") != "pr.create cpave3/legato legato/k7q2-fix; pr.create-draft cpave3/legato legato/k7q2-fix" {
+		t.Fatalf("asked = %v", asked)
+	}
+}

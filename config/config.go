@@ -40,6 +40,9 @@ type Config struct {
 	Groups                 GroupsConfig             `yaml:"groups"`
 	Workflows              WorkflowsConfig          `yaml:"workflows"`
 	Repositories           []RepositoryConfig       `yaml:"repositories"`
+	// PullRequests is whether agents open pull requests as drafts or
+	// ready for review, by repository.
+	PullRequests PullRequestsConfig `yaml:"pull_requests"`
 	// RepositoryCache is Legato's own clones of GitHub repositories, which
 	// jobs check out from.
 	RepositoryCache RepositoryCacheConfig `yaml:"repository_cache"`
@@ -673,6 +676,9 @@ func validate(cfg *Config) error {
 		return fmt.Errorf("engram.enabled must be auto, on or off, got %q", cfg.Engram.Enabled)
 	}
 	if err := normalizeIntegrations(cfg); err != nil {
+		return err
+	}
+	if err := normalizePullRequests(cfg); err != nil {
 		return err
 	}
 	if err := normalizeAgentMCPConfig(cfg); err != nil {

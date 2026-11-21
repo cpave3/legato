@@ -139,7 +139,9 @@ type CredentialBroker struct {
 	fromSources map[string]brokerCredential
 	refreshMu   sync.Mutex
 	// mcp gives the rules of MCP connections, credentials mcp:<name>.
-	mcp         MCPRuleSource
+	mcp MCPRuleSource
+	// prModes is each repository's pull request mode (pull_requests.rules).
+	prModes     PullRequestModeSource
 	refreshedAt time.Time
 	messenger   AgentMessenger
 	wait        time.Duration
@@ -1073,6 +1075,39 @@ func grantOptions(mode string, window time.Duration) []ApprovalOption {
 	return append(options, ApprovalOption{ID: "deny", Label: "Deny", Kind: ApprovalDeny})
 }
 
+// SetPullRequestModes gives the broker each repository's pull request mode:
+// with draft, a pull request that is not a draft (pr.create) is refused
+// before the rules are read; with ready or agent, a branch grant also
+// allows pr.create. Nil: no mode, as before there was one.
+func (b *CredentialBroker) SetPullRequestModes(src PullRequestModeSource) {
+	b.mu.Lock()
+	defer b.mu.Unlock()
+	b.prModes = src
+}
+
+func (b *CredentialBroker) pullRequestMode(ctx context.Context, repo string) string {
+	b.mu.RLock()
+	src := b.prModes
+	b.mu.RUnlock()
+	if src == nil {
+		return ""
+	}
+	return src.PullRequestMode(ctx, repo)
+}
+
+// pullRequestModeRefusal refuses a pull request that is not a draft in a
+// repository whose mode is draft.
+func (b *CredentialBroker) pullRequestModeRefusal(ctx context.Context, operation, resource string) string {
+	if operation != credential.OperationPRCreate {
+		return ""
+	}
+	repo, err := repoOf(resource)
+	if err != nil || b.pullRequestMode(ctx, repo) != config.PullRequestsDraft {
+		return ""
+	}
+	return pullRequestDraftRefusal(repo)
+}
+
 // Authorize checks one use against the rules and the execution's grants. A
 // use no grant covers becomes a request for exactly that use.
 func (b *CredentialBroker) Authorize(ctx context.Context, use CredentialUse) (UseDecision, error) {
@@ -1093,6 +1128,11 @@ func (b *CredentialBroker) Authorize(ctx context.Context, use CredentialUse) (Us
 		return UseDecision{Reason: reason}, nil
 	}
 	if reason := b.readOnlyRefusal(ctx, use.ExecutionID, use.Operation); reason != "" {
+		entry.Event, entry.Detail = "refuse", withCall(reason, use.Call)
+		b.audit(ctx, use.TaskID, use.ExecutionID, entry)
+		return UseDecision{Reason: reason}, nil
+	}
+	if reason := b.pullRequestModeRefusal(ctx, use.Operation, use.Resource); reason != "" {
 		entry.Event, entry.Detail = "refuse", withCall(reason, use.Call)
 		b.audit(ctx, use.TaskID, use.ExecutionID, entry)
 		return UseDecision{Reason: reason}, nil
@@ -1152,6 +1192,11 @@ func (b *CredentialBroker) CheckUse(ctx context.Context, use CredentialUse) (Use
 		return UseDecision{Reason: reason}, nil
 	}
 	if reason := b.readOnlyRefusal(ctx, use.ExecutionID, use.Operation); reason != "" {
+		entry.Detail = withCall(reason, use.Call)
+		b.audit(ctx, use.TaskID, use.ExecutionID, entry)
+		return UseDecision{Reason: reason}, nil
+	}
+	if reason := b.pullRequestModeRefusal(ctx, use.Operation, use.Resource); reason != "" {
 		entry.Detail = withCall(reason, use.Call)
 		b.audit(ctx, use.TaskID, use.ExecutionID, entry)
 		return UseDecision{Reason: reason}, nil
