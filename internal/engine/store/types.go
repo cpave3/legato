@@ -412,7 +412,7 @@ type AgentSession struct {
 	CloneBranch string `db:"clone_branch"`
 	// OpenItems counts the open operator items of its execution: an agent
 	// with any waits on the operator, whatever its activity.
-	OpenItems        int     `db:"open_items"`
+	OpenItems int `db:"open_items"`
 	// OpenDoneItems counts those of kind done: an agent saying it
 	// finished, which does not wait on the operator.
 	OpenDoneItems int `db:"open_done_items"`
