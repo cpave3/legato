@@ -240,6 +240,7 @@ function SessionDetailPanel({ id, onClose }: { id: number; onClose: () => void }
             </li>)}
           </ol>
         </section>
+        {entry.away_history_url && <a href={entry.away_history_url} target="_blank" rel="noreferrer" className="text-xs text-lw-link hover:underline">Open its history on the worker</a>}
         {entry.reason && <p className="m-0 text-xs text-lw-text-2">{entry.restorable ? entry.reason : `Cannot restore: ${entry.reason}`}</p>}
         {error && <p role="alert" className="m-0 whitespace-pre-line break-words text-xs text-lw-error">{error}</p>}
         <div className="flex flex-wrap gap-2">

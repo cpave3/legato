@@ -140,6 +140,18 @@ func awayTaskFromRow(a store.AwayTask) AwayTask {
 	return away
 }
 
+// WorkerHistoryURL is the session history of an away task on its worker:
+// the worker's web UI at /agents/history, filtered to the worker's copy of
+// the task. "" when the main does not know the worker's address.
+func WorkerHistoryURL(a store.AwayTask) string {
+	address := awayTaskFromRow(a).WorkerURL
+	parsed, err := url.Parse(address)
+	if err != nil || parsed.Scheme == "" || parsed.Host == "" || a.WorkerTaskID == "" {
+		return ""
+	}
+	return parsed.Scheme + "://" + parsed.Host + "/agents/history?task=" + url.QueryEscape(a.WorkerTaskID)
+}
+
 // TaskHandoffOptions configure a main's handoffs.
 type TaskHandoffOptions struct {
 	// Workers reaches the paired workers.

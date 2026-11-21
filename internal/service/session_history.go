@@ -28,6 +28,9 @@ type SessionHistoryOptions struct {
 	// Away says whether a task is away on a worker (on a main instance);
 	// nil is never.
 	Away func(ctx context.Context, taskID string) bool
+	// AwayHistoryURL is where an away task's conversations are listed: its
+	// worker's session history; nil or "" is nowhere known.
+	AwayHistoryURL func(ctx context.Context, taskID string) string
 	// Restorer starts a conversation again; restores are refused without.
 	Restorer ConversationRestorer
 	// ReeveResume resumes a Reeve session by its task, as
@@ -166,6 +169,9 @@ type SessionEntry struct {
 	NewTaskOnly   bool   `json:"new_task_only,omitempty"`
 	Reason        string `json:"reason,omitempty"`
 	CanStartFresh bool   `json:"can_start_fresh"`
+	// AwayHistoryURL is, on a main, the session history of its away task
+	// on the worker, where it is restored.
+	AwayHistoryURL string `json:"away_history_url,omitempty"`
 }
 
 // SessionPage is a page of the history; NextCursor asks for the next one,
@@ -380,6 +386,9 @@ func (h *SessionHistoryService) entry(ctx context.Context, row store.AgentConver
 	}
 	if row.TaskExists && h.opts.Away != nil && h.opts.Away(ctx, row.TaskID) {
 		e.State, e.EndReason = "away", ""
+		if h.opts.AwayHistoryURL != nil {
+			e.AwayHistoryURL = h.opts.AwayHistoryURL(ctx, row.TaskID)
+		}
 	}
 	h.restorability(&e)
 	return e

@@ -6,7 +6,7 @@ import { agentStripLook, formatDuration, priorityTone } from "../../lib/boardCar
 import { TaskAgentAction } from "./TaskAgentAction"
 import { providerLabel } from "../../lib/providers"
 import { cardSource } from "../../lib/boardCard"
-import { awayLook, awayTime, kindLabel, purposeLabel } from "../../lib/away"
+import { awayLook, awayTime, kindLabel, purposeLabel, workerHistoryURL } from "../../lib/away"
 import { AwayPullRequests } from "./AwayPullRequests"
 import { cn } from "../../lib/utils"
 
@@ -66,6 +66,7 @@ function AwayProperties({ card, actions }: { card: BoardCard; actions?: ReactNod
         </div>
       )}
       {away.url && <a href={away.url} target="_blank" rel="noreferrer" className="w-fit text-[13px] text-lw-link hover:underline">Open on {away.worker}</a>}
+      {workerHistoryURL(away) && <a href={workerHistoryURL(away)} target="_blank" rel="noreferrer" className="w-fit text-[13px] text-lw-link hover:underline">Session history on {away.worker}</a>}
       {actions}
     </section>
   )

@@ -165,3 +165,12 @@ it("starts fresh in a folder the operator picks", async () => {
   const restore = vi.mocked(fetch).mock.calls.find(([input]) => String(input).endsWith("/restore"))
   expect(JSON.parse(String(restore?.[1]?.body))).toEqual({ target: "task", fresh: true, working_dir: "/home/me/scn2" })
 })
+
+it("links an away task's session to its worker's history, with no Restore", async () => {
+  const away = { ...detail, state: "away", end_reason: undefined, restorable: false, reason: "its task is away on a worker", away_history_url: "https://worker.lan/agents/history?task=w-1" }
+  vi.mocked(fetch).mockImplementation(async (input: RequestInfo | URL) => /\/api\/sessions\/\d+$/.test(String(input)) ? json(away) : json({ sessions: [ended] }))
+  page("/agents/history?session=7")
+  const panel = await screen.findByRole("complementary", { name: "Session" })
+  expect((await within(panel).findByRole("link", { name: "Open its history on the worker" })).getAttribute("href")).toBe(away.away_history_url)
+  expect(within(panel).queryByRole("button", { name: "Restore" })).toBeNull()
+})

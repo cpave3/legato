@@ -32,6 +32,13 @@ func sessionHistoryOptions(cfg *config.Config, db *store.Store, agents service.A
 			away, err := db.OpenAwayTask(ctx, taskID)
 			return err == nil && away.State == store.AwayAway
 		},
+		AwayHistoryURL: func(ctx context.Context, taskID string) string {
+			away, err := db.OpenAwayTask(ctx, taskID)
+			if err != nil {
+				return ""
+			}
+			return service.WorkerHistoryURL(*away)
+		},
 	}
 	if adapters, ok := agents.(interface {
 		AdapterFor(string) service.AIToolAdapter

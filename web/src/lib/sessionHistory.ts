@@ -33,6 +33,8 @@ export interface SessionEntry {
   new_task_only?: boolean
   reason?: string
   can_start_fresh: boolean
+  // On a main: the worker's session history of the away task, where it is restored.
+  away_history_url?: string
 }
 
 export interface SessionRun {
