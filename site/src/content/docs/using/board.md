@@ -76,7 +76,7 @@ On the web board, a card that needs you says why, in a strip of its own above th
 
 | Strip | Its action |
 | --- | --- |
-| **Needs you · 1 question, 1 action**: things the agent [posted for you](/legato/using/attention/#operator-items) | **Open** goes to the agent, with the Needs you rail open |
+| **Needs you · 1 question, 1 action**: things the agent [posted for you](/legato/using/attention/#operator-items) | **Open** goes to the agent, with the Needs you rail open; on a phone it opens the Needs you sheet |
 | **Needs you · permission to run a command**, or the agent's question | **Answer** opens the approval in the Needs you rail (on a phone, the tray) |
 | **Plan to approve** | **Review plan** opens the plan |
 | **4 changes to review** | **Review** opens the review tour |

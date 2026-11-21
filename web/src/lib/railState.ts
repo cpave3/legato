@@ -6,9 +6,11 @@ import { readRailFolded, writeRailFolded } from "./needsYou"
 // to show (?approval=, a notification), which the rail or the phone's tray
 // opens on.
 // present: the rail is on the page (from md up the layout draws it).
-type RailState = { folded: boolean; wanted: string | null; present: boolean }
+// opens counts the requests to show the rail's content, so the phone's
+// sheet opens on each, the same approval asked for again included.
+type RailState = { folded: boolean; wanted: string | null; present: boolean; opens: number }
 
-let state: RailState = { folded: readRailFolded(), wanted: null, present: false }
+let state: RailState = { folded: readRailFolded(), wanted: null, present: false, opens: 0 }
 const listeners = new Set<() => void>()
 
 function set(next: Partial<RailState>) {
@@ -33,7 +35,14 @@ export function setRailFolded(folded: boolean) {
 // showApproval opens the rail on an approval.
 export function showApproval(id: string) {
   writeRailFolded(false)
-  set({ folded: false, wanted: id })
+  set({ folded: false, wanted: id, opens: state.opens + 1 })
+}
+
+// openNeedsYou shows what waits on the operator: the rail unfolded from md
+// up, the sheet opened on a phone.
+export function openNeedsYou() {
+  writeRailFolded(false)
+  set({ folded: false, opens: state.opens + 1 })
 }
 
 // setRailPresent says the rail is mounted, so what sits on the right edge
@@ -55,7 +64,7 @@ export function getRailStateForTests(): RailState {
 
 // resetRailState is for tests: the state as a fresh page has it.
 export function resetRailState() {
-  state = { folded: readRailFolded(), wanted: null, present: false }
+  state = { folded: readRailFolded(), wanted: null, present: false, opens: 0 }
   listeners.forEach((listener) => listener())
 }
 

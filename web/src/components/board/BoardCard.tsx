@@ -4,7 +4,7 @@ import { Link } from "react-router-dom"
 import { MoreHorizontal } from "lucide-react"
 import type { BoardCard as BoardCardType } from "../../lib/board-types"
 import { agentStripLook, formatDuration, needsYouStrip, priorityTone, slotChipLabel, type NeedsYouStrip, type StripAction } from "../../lib/boardCard"
-import { setRailFolded, showApproval } from "../../lib/railState"
+import { openNeedsYou, showApproval } from "../../lib/railState"
 import { animatedAgentActivityEnabled } from "../../lib/appearancePreferences"
 import { Mark } from "../PullRequestMarks"
 import { CardPullRequests } from "./PullRequests"
@@ -39,6 +39,12 @@ function AgentStrip({ card }: { card: BoardCardType }) {
   )
 }
 
+// Whether the page is as narrow as a phone, where the needs-you rail is a
+// sheet.
+function phoneWidth(): boolean {
+  return typeof window.matchMedia === "function" && window.matchMedia("(max-width: 767px)").matches
+}
+
 // The way to what a strip says waits: the rail on the agent's items, the
 // approval, the plan.
 function StripActionLink({ action }: { action: StripAction }) {
@@ -47,7 +53,13 @@ function StripActionLink({ action }: { action: StripAction }) {
     case "approval":
       return <button type="button" onClick={event => { event.stopPropagation(); showApproval(action.approvalId) }} onDoubleClick={stop} className={cn(stripAction, "min-h-11 md:min-h-0")}>{action.label}</button>
     case "items":
-      return <Link to={`/agents?task=${encodeURIComponent(action.taskId)}`} onClick={event => { event.stopPropagation(); setRailFolded(false) }} onDoubleClick={stop} className={stripAction}>{action.label}</Link>
+      // From md up the rail beside the agent lists its items; on a phone,
+      // where going to the agent would close it, the sheet opens here.
+      return <Link to={`/agents?task=${encodeURIComponent(action.taskId)}`} onClick={event => {
+        event.stopPropagation()
+        if (phoneWidth()) event.preventDefault()
+        openNeedsYou()
+      }} onDoubleClick={stop} className={cn(stripAction, "inline-flex min-h-11 items-center md:min-h-0")}>{action.label}</Link>
     case "plan":
       return <Link to={`/plans/${encodeURIComponent(action.planId)}`} onClick={stop} onDoubleClick={stop} className={stripAction}>{action.label}</Link>
   }
