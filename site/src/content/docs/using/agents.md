@@ -154,7 +154,7 @@ Interrupted agents are listed in their own group: **Interrupted** at the top of 
 
 - **Resume** starts the agent again as it was: the same tool, folder, resources, sandbox choice and [engram](/legato/agent-tools/engrams/). Its conversation resumes, and its first message tells it that it was interrupted, since its last step may not have finished. The web UI shows that message as one from Legato. In the TUI, select it and press `R`.
 - **Resume all** resumes every interrupted agent that can be resumed. In the TUI, press `A`.
-- **Dismiss** marks it ended. In the TUI, press `X`.
+- **Dismiss** marks it ended. Its conversation stays in the [session history](#session-history), where you can restore it later. In the TUI, press `X`.
 
 Some agents cannot be resumed, and the list says why:
 
@@ -172,7 +172,11 @@ An entry keeps the conversation's first prompt and last message, so you can sear
 
 **Restore** starts the conversation again in its task, as it last ran: the same tool, folder, sandbox choice, [engram](/legato/agent-tools/engrams/) and resources (any removed since are left out). Its first message tells it that it was restored and that files, branches and other agents may have changed since. The web UI shows that message as one from Legato. Restoring the task's interrupted agent resumes it; restoring another conversation of that task dismisses the interrupted agent first. A Reeve conversation is resumed as the Reeve's.
 
-Legato does not restore a conversation that is running, or one whose folder or tool is gone. It also does not restore into a task whose agent is running, or into a task that is deleted, archived or [away on a worker](/legato/using/handoff/). In each case it says why. The history page in the web UI is not there yet: for now, the Reeve can search the history and restore from it through Legato's API. A restore is a change, so the Reeve asks you first.
+Legato does not restore a conversation that is running, or one whose folder or tool is gone. It also does not restore into a task whose agent is running, or into a task that is deleted, archived or [away on a worker](/legato/using/handoff/). In each case it says why.
+
+In the web UI, open **Session history** at the foot of the agents list (on a phone, under the agent picker). Search by title, folder or what was said, and filter by tool, state or repository. Select a session to see its first prompt, its last message and each time it ran, with **Restore** and **Forget**. **Forget** removes a session from the history only: the tool's own transcript stays, and so does the task's **Resume**. A task's detail panel lists its **Earlier sessions**, each one a link into the history. A session marked "found by folder and time" is one Legato matched to an agent's run by its folder and when it started, because that agent never reported it.
+
+The Reeve can search the history and restore from it too. A restore or a Forget is a change, so the Reeve asks you first.
 
 ## Stopping an agent
 

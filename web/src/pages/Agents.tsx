@@ -2,6 +2,7 @@ import { useState, useEffect, useLayoutEffect, useCallback, useRef, useMemo } fr
 import { useMainWidth } from "../hooks/useMainWidth"
 import { PreparingAgents } from "../components/PreparingAgents"
 import { InterruptedAgents } from "../components/InterruptedAgents"
+import { SessionHistoryLink } from "../components/SessionHistoryLink"
 import { Link, useSearchParams } from "react-router-dom"
 import { useWebSocket, type AgentInfo, type WSMessage, type PromptState } from "../hooks/useWebSocket"
 import { usePageInView } from "../hooks/usePageInView"
@@ -762,6 +763,7 @@ export function AgentsPage() {
         <InterruptedAgents className="w-full max-w-sm" />
         <PreparingAgents className="w-full max-w-sm" />
         <p className="text-lw-text-2">No active agents</p>
+        <SessionHistoryLink />
         <button
           onClick={handleSpawn}
           className="rounded bg-lw-accent px-4 py-2 text-sm font-medium text-[var(--theme-canvas,#fff)] transition-colors hover:bg-indigo-500"
@@ -843,12 +845,13 @@ export function AgentsPage() {
           unseenArtifacts={artifacts.unseen}
           contexts={contexts}
           grouping={agentGroups.grouping}
-          preparing={<><InterruptedAgents /><PreparingAgents /></>}
+          preparing={<><InterruptedAgents /><PreparingAgents /><SessionHistoryLink /></>}
           reeve={<ReeveEntry baseUrl={baseUrl} agent={runningAgents.find((a) => a.reeve)} selected={Boolean(selectedAgent?.reeve)} onSelect={handleSelect} />}
         />
       )}
       {isMobile && <InterruptedAgents className="border-b border-lw-line px-2 pb-2" />}
       {isMobile && <PreparingAgents className="border-b border-lw-line px-2 pb-2" />}
+      {isMobile && <SessionHistoryLink className="border-b border-lw-line" />}
 
       <div className="relative flex min-h-0 min-w-0 flex-1 flex-col">
         {selectedId ? (

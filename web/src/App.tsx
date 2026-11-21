@@ -17,6 +17,7 @@ import { LearningsPage } from "./pages/LearningsPage"
 import { LearningDetailPage } from "./pages/LearningDetailPage"
 import { ReportsPage } from "./pages/ReportsPage"
 import { RemotePage } from "./pages/RemotePage"
+import { SessionHistoryPage } from "./pages/SessionHistoryPage"
 import { MacrosPage } from "./pages/MacrosPage"
 import { AuditPage } from "./pages/AuditPage"
 import { clearToken } from "./lib/auth"
@@ -65,6 +66,7 @@ export default function App() {
       <Routes>
         <Route element={<Layout />}>
           <Route path="/agents" element={<AgentsPage />} />
+          <Route path="/agents/history" element={<SessionHistoryPage />} />
           <Route path="/board" element={<BoardPage />} />
           <Route path="/review" element={<ReviewQueuePage />} />
           <Route path="/review/:tourId" element={<ReviewTourPage />} />

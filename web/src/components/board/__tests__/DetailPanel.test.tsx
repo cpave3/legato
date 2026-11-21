@@ -5,6 +5,7 @@ import { DetailPanel } from "../DetailPanel"
 import type { CardDetail, PRMetaView } from "../../../lib/board-types"
 vi.mock("../TaskAgentAction",()=>({TaskAgentAction:({ taskId, worktreePath, rememberedWorkingDir, resumableAgentKinds }: { taskId: string; worktreePath?: string; rememberedWorkingDir?: string; resumableAgentKinds?: string[] })=> <button data-task-primary-action data-task-id={taskId} data-worktree-path={worktreePath} data-remembered-working-dir={rememberedWorkingDir} data-resumable-agent-kinds={JSON.stringify(resumableAgentKinds)} className="min-h-9 w-full" type="button">Open agent</button>}))
 vi.mock("../TaskActivityTabs",()=>({TaskActivityTabs:()=>null}))
+vi.mock("../EarlierSessions",()=>({EarlierSessions:()=>null}))
 
 afterEach(() => {
   cleanup()

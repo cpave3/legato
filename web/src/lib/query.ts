@@ -40,6 +40,9 @@ export const queryKeys = {
   // Agents being started in the background while their clone is made.
   preparingAgents: (baseUrl: string) => [baseUrl, "preparing-agents"] as const,
   interruptedAgents: (baseUrl: string) => [baseUrl, "interrupted-agents"] as const,
+  // The session history: a page of it for some filters, and one entry.
+  sessions: (baseUrl: string, filters: object) => [baseUrl, "sessions", filters] as const,
+  session: (baseUrl: string, id: number) => [baseUrl, "session", id] as const,
   // How each repository's copy in the server's cache stands, by owner/name;
   // repository_cache messages update it.
   repositoryCache: (baseUrl: string) => [baseUrl, "repository-cache"] as const,

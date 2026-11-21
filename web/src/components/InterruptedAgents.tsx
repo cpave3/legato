@@ -1,5 +1,6 @@
 import { useQuery, useQueryClient } from "@tanstack/react-query"
 import { useState } from "react"
+import { Link } from "react-router-dom"
 import { CirclePause } from "lucide-react"
 import { useServer } from "../hooks/useServer"
 import { agentKindLabel } from "../lib/agentKind"
@@ -66,6 +67,9 @@ export function InterruptedAgents({ className }: { className?: string }) {
           </button>
         )}
       </div>
+      <p className="m-0 px-2 text-[11px] text-lw-faint">
+        Dismissed agents stay in <Link to="/agents/history" className="text-lw-link">Session history</Link>.
+      </p>
       {error && <p role="alert" className="m-0 whitespace-pre-line break-words px-2 text-xs text-lw-error">{error}</p>}
       <ul className="m-0 flex list-none flex-col gap-0.5 p-0">
         {interrupted.map((agent) => {
@@ -117,3 +121,4 @@ export function InterruptedAgents({ className }: { className?: string }) {
     </section>
   )
 }
+

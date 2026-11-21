@@ -8,6 +8,7 @@ import { MarkdownBody } from "../MarkdownBody"
 import { Button } from "../ui/Button"
 import { TaskActivityTabs } from "./TaskActivityTabs"
 import { TaskAgentAction } from "./TaskAgentAction"
+import { EarlierSessions } from "./EarlierSessions"
 import { handedOffFrom, providerLabel } from "../../lib/providers"
 
 interface DetailPanelProps {
@@ -211,6 +212,8 @@ export function DetailPanel({
                 {worktreesEnabled && !card.worktree && <Button variant="outline" size="sm" className={sidebarButtonClass} onClick={onCreateWorktree}>Create worktree</Button>}
                 <Button variant="outline" size="sm" className={sidebarButtonClass} title="Shortcut: m" onClick={onMove}>Move task</Button>
               </section>
+
+              <EarlierSessions taskId={card.id} headingClass={sectionHeadingClass} />
 
               <section aria-labelledby="task-edit-heading" className="space-y-2">
                 <h3 id="task-edit-heading" className={sectionHeadingClass}>Edit</h3>
