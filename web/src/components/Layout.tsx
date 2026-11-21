@@ -9,6 +9,7 @@ import { useApprovalLink } from "../hooks/useApprovalLink"
 import { NeedsYouSheet } from "./needsYou/NeedsYouSheet"
 import { useRailState } from "../lib/railState"
 import { useMediaQuery } from "../hooks/useMediaQuery"
+import { NeedsYouAutoOpen } from "../hooks/useSheetAutoOpen"
 import { AutoRunNotice } from "./AutoRunNotice"
 import { ApprovalNotifier } from "./ApprovalNotifier"
 import { notificationsSupported } from "../lib/approvalNotifications"
@@ -84,6 +85,9 @@ export function Layout() {
       <NeedsYouRail />
       <MobileTabBar sections={sections} connected={connected} moreOpen={moreOpen} onMore={() => { setNeedsYouOpen(false); setMoreOpen((open) => !open) }}
         needsYouOpen={needsYouOpen} onNeedsYou={() => { setMoreOpen(false); setNeedsYouOpen((open) => !open) }} />
+      {/* On a phone the sheet also opens by itself when something waits,
+          and a close keeps it away for web.rail.snooze. */}
+      {phone && <NeedsYouAutoOpen open={needsYouOpen} blocked={moreOpen} onOpen={() => setNeedsYouOpen(true)} />}
       {needsYouOpen && <NeedsYouSheet onClose={() => setNeedsYouOpen(false)} />}
       {moreOpen && (
         <MoreSheet sections={sections} connected={connected} servers={servers} activeServerName={activeServerName} baseUrl={baseUrl}

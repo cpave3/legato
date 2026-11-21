@@ -140,6 +140,7 @@ func TestADefaultLabelIsWhatTheRuntimeUses(t *testing.T) {
 		"reeve.host_output_cap":      strconv.Itoa(cfg.Reeve.HostOutputLimit()),
 		"reeve.watch.settle":         cfg.Reeve.WatchSettle().String(),
 		"reeve.idle_timeout":         cfg.Reeve.ReeveIdleTimeout().String(),
+		"web.rail.snooze":            cfg.Web.Rail.SnoozeDuration().String(),
 		"integrations.argus.agent":   "claude-code",
 	}
 	for key, want := range runtime {

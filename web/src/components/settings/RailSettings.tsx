@@ -4,7 +4,7 @@ import { Bot, CheckCircle, CircleHelp, GitMerge, GitPullRequest, Hand, ListCheck
 import { setConfigSetting, type ConfigSetting } from "../../lib/configSettings"
 import { queryKeys } from "../../lib/query"
 import { SettingsRow, SettingsRows, Toggle } from "./SettingsUI"
-import { SourceChip } from "./RegistrySettings"
+import { RegistrySettingRow, SourceChip } from "./RegistrySettings"
 
 type RailSwitch = { group: string; title: string; description: string; icon: LucideIcon }
 
@@ -65,6 +65,8 @@ export function RailSettings({ baseUrl, settings }: { baseUrl: string; settings:
     </section>
   )
   if (!settings.some((s) => s.key.startsWith("web.rail."))) return null
+  // How long the phone's sheet, which opens by itself, stays closed.
+  const snooze = settings.find((s) => s.key === "web.rail.snooze")
   return (
     <div id="needs-you-rail" className="flex flex-col gap-3">
       <p className="text-[13px] text-lw-text-2">What the rail on the right of every page shows. Approvals come first, then the rest, newest first. The Attention page always lists everything.</p>
@@ -72,6 +74,13 @@ export function RailSettings({ baseUrl, settings }: { baseUrl: string; settings:
         {switches("From agents", fromAgents)}
         {switches("From Legato", fromLegato)}
       </div>
+      {snooze && (
+        <section role="group" aria-label="On a phone" className="flex flex-col gap-2">
+          <h4 className="font-lw-mono text-[10.5px] uppercase tracking-wider text-lw-text-2">On a phone</h4>
+          <p className="text-[13px] text-lw-text-2">The rail is a sheet that opens by itself when something waits.</p>
+          <SettingsRows><RegistrySettingRow setting={snooze} baseUrl={baseUrl} /></SettingsRows>
+        </section>
+      )}
       {error && <p role="alert" className="text-xs text-lw-error">{error}</p>}
     </div>
   )

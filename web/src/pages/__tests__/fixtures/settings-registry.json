@@ -526,6 +526,18 @@
       "mode": "live"
     },
     {
+      "key": "web.rail.snooze",
+      "title": "After you close it on a phone",
+      "section": "attention",
+      "group": "Needs-you rail",
+      "help": "How long the needs-you sheet stays closed before it opens by itself again. A new approval, question, plan or gate opens it sooner.",
+      "description": "How long the needs-you sheet stays closed before it opens by itself again. A new approval, question, plan or gate opens it sooner.",
+      "default_label": "30m",
+      "kind": "duration",
+      "class": "change",
+      "mode": "live"
+    },
+    {
       "key": "web.rail.legato",
       "title": "Legato",
       "section": "attention",

@@ -61,4 +61,20 @@ describe("RailSettings", () => {
     expect(screen.getByLabelText("Pinned by config.yaml")).toBeTruthy()
     expect(screen.queryByText(/edit the file/)).toBeNull()
   })
+
+  it("sets how long the sheet stays away on a phone once closed", async () => {
+    const snooze: ConfigSetting = {
+      key: "web.rail.snooze", title: "After you close it on a phone", kind: "duration", class: "change", mode: "live",
+      value: "", default_label: "30m", source: "default", pinned: false,
+      help: "How long the needs-you sheet stays closed before it opens by itself again.",
+    }
+    wrap(<RailSettings baseUrl="http://legato" settings={[...settings(), snooze]} />)
+
+    const phone = screen.getByRole("group", { name: "On a phone" })
+    const field = within(phone).getByRole("textbox", { name: "After you close it on a phone" }) as HTMLInputElement
+    expect(field.placeholder).toBe("30m")
+    fireEvent.change(field, { target: { value: "1h" } })
+    fireEvent.click(within(phone).getByRole("button", { name: "Save" }))
+    await waitFor(() => expect(mockSet).toHaveBeenCalledWith("http://legato", "web.rail.snooze", "1h"))
+  })
 })

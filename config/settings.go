@@ -133,6 +133,7 @@ var registry = []Setting{
 	{Key: "web.rail.plans", Title: "Plans", Help: "Plans waiting for your decision.", Kind: KindBool, Class: ClassChange, Mode: ModeLive},
 	{Key: "web.rail.review", Title: "Ready for review", Help: "Review tours ready and handoffs done. Off unless set.", Kind: KindBool, Class: ClassChange, Mode: ModeLive},
 	{Key: "web.rail.merge", Title: "Merge blockers", Help: "Pull requests that cannot merge, and Argus's cases. Off unless set.", Kind: KindBool, Class: ClassChange, Mode: ModeLive},
+	{Key: "web.rail.snooze", Title: "After you close it on a phone", Help: "How long the needs-you sheet stays closed before it opens by itself again. A new approval, question, plan or gate opens it sooner.", DefaultLabel: "30m", Kind: KindDuration, Class: ClassChange, Mode: ModeLive, Check: positiveDuration},
 	{Key: "web.rail.legato", Title: "Legato", Help: "Updates, restarts, settings, devices, handoff, integrations, engrams and interrupted agents.", Kind: KindBool, Class: ClassChange, Mode: ModeLive},
 	{Key: "web.discovery", Title: "Announce on the network", Help: "Announces the web server over mDNS so the phone app finds it. Off, you type its address.", Kind: KindBool, Class: ClassRisky, Mode: ModeRestart},
 	{Key: "agents.mcp.resource_domains", Title: "Hosts agents' pages may load from", Help: "Plain host names that pages agents show may load scripts, styles, fonts and images from. Empty, none.", Kind: KindStrings, Class: ClassRisky, Mode: ModeRestart},
@@ -305,6 +306,15 @@ func voicePause(v any) error {
 	if s := v.(string); s != "" {
 		if d, _ := time.ParseDuration(s); d < MinVoicePause || d > MaxVoicePause {
 			return errors.New("must be from 0.3s to 2s")
+		}
+	}
+	return nil
+}
+
+func positiveDuration(v any) error {
+	if s := v.(string); s != "" {
+		if d, _ := time.ParseDuration(s); d <= 0 {
+			return errors.New("must be longer than 0s")
 		}
 	}
 	return nil

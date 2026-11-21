@@ -70,13 +70,16 @@ export interface RailView {
   hidden: number
   // The groups switched off, as web.rail.<group> names them.
   hiddenNames: string[]
+  // How long the phone's sheet stays closed once closed (web.rail.snooze);
+  // absent from an older server.
+  snoozeSeconds?: number
 }
 
 export async function fetchRailAttention(baseUrl: string): Promise<RailView> {
   const resp = await apiFetch(baseUrl, "/api/attention?view=rail")
   if (!resp.ok) throw new Error(await resp.text())
-  const body = await resp.json() as { items?: AttentionItem[]; hidden_groups?: number; hidden_names?: string[] }
-  return { items: newestFirst(body.items ?? []), hidden: body.hidden_groups ?? 0, hiddenNames: body.hidden_names ?? [] }
+  const body = await resp.json() as { items?: AttentionItem[]; hidden_groups?: number; hidden_names?: string[]; snooze_seconds?: number }
+  return { items: newestFirst(body.items ?? []), hidden: body.hidden_groups ?? 0, hiddenNames: body.hidden_names ?? [], snoozeSeconds: body.snooze_seconds }
 }
 
 // newestFirst orders items by when they last changed, the newest first.
