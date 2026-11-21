@@ -157,6 +157,22 @@ func (s *Store) TerminalizeExecution(ctx context.Context, executionID, status st
 }
 
 func (s *Store) TerminalizeExecutionAt(ctx context.Context, executionID, status string, at time.Time) error {
+	return s.terminalizeExecution(ctx, executionID, status, runEndForStatus(status), at)
+}
+
+// TerminalizeExecutionEndingRuns ends an execution as TerminalizeExecution
+// does, and its conversations' live runs for runEnd: RunExited, RunStopped,
+// RunLost or RunInterrupted.
+func (s *Store) TerminalizeExecutionEndingRuns(ctx context.Context, executionID, status, runEnd string) error {
+	switch runEnd {
+	case RunExited, RunStopped, RunLost, RunInterrupted:
+	default:
+		return fmt.Errorf("invalid run end reason %q", runEnd)
+	}
+	return s.terminalizeExecution(ctx, executionID, status, runEnd, time.Now().UTC())
+}
+
+func (s *Store) terminalizeExecution(ctx context.Context, executionID, status, runEnd string, at time.Time) error {
 	if status == ExecutionRunning || (status != ExecutionSucceeded && status != ExecutionFailed && status != ExecutionCancelled && status != ExecutionLost) {
 		return fmt.Errorf("invalid terminal execution status %q", status)
 	}
@@ -184,6 +200,9 @@ func (s *Store) TerminalizeExecutionAt(ctx context.Context, executionID, status 
 		return err
 	}
 	if _, err := tx.ExecContext(ctx, `UPDATE executions SET status = ?, ended_at = ? WHERE id = ? AND status = 'running'`, status, stamp, executionID); err != nil {
+		return err
+	}
+	if err := endConversationRuns(ctx, tx, executionID, runEnd, stamp); err != nil {
 		return err
 	}
 	return tx.Commit()
@@ -248,6 +267,15 @@ func (s *Store) ReconcileLostExecutions(ctx context.Context) (int, error) {
 	}
 	if _, err := tx.ExecContext(ctx, `UPDATE subagent_activity SET ended_at = ?
 		WHERE ended_at IS NULL AND execution_id IN (SELECT e.id FROM executions e WHERE `+lostExecutionCondition+`)`, stamp, cutoff); err != nil {
+		return 0, err
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE agent_conversations SET last_seen_at = ? WHERE id IN (
+		SELECT conversation_id FROM agent_conversation_runs WHERE ended_at IS NULL AND execution_id IN (
+			SELECT e.id FROM executions e WHERE `+lostExecutionCondition+`))`, stamp, cutoff); err != nil {
+		return 0, err
+	}
+	if _, err := tx.ExecContext(ctx, `UPDATE agent_conversation_runs SET ended_at = ?, end_reason = ?
+		WHERE ended_at IS NULL AND execution_id IN (SELECT e.id FROM executions e WHERE `+lostExecutionCondition+`)`, stamp, RunLost, cutoff); err != nil {
 		return 0, err
 	}
 	result, err := tx.ExecContext(ctx, `UPDATE executions SET status = ?, ended_at = ? WHERE id IN (

@@ -377,6 +377,23 @@ func prepareMigration(queryer migrationQueryer, name, migrationSQL string) (stri
 		}
 		migrationSQL = strings.Join(statements, "")
 	}
+	if name == "131_agent_conversations.sql" {
+		// A legacy database built in part may lack what the backfill reads;
+		// without it there is nothing to backfill.
+		for _, column := range [][2]string{
+			{"tasks", "ephemeral"}, {"tasks", "kind"}, {"task_native_sessions", "slot"},
+			{"executions", "working_dir"}, {"job_clones", "removed_at"}, {"agent_sessions", "status"},
+		} {
+			var n int
+			if err := queryer.Get(&n, `SELECT COUNT(*) FROM pragma_table_info(?) WHERE name = ?`, column[0], column[1]); err != nil {
+				return "", err
+			}
+			if n == 0 {
+				migrationSQL, _, _ = strings.Cut(migrationSQL, "-- Backfill:")
+				break
+			}
+		}
+	}
 	if name == "060_review_hunk_note_metadata.sql" {
 		var tables int
 		if err := queryer.Get(&tables, `SELECT COUNT(*) FROM sqlite_master WHERE type = 'table' AND name = 'review_hunk_notes'`); err != nil {

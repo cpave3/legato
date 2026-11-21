@@ -81,13 +81,38 @@ func (s *Store) SetChimeraResumeInSlot(ctx context.Context, taskID, slot, sessio
 			taskID, slotOrMain(slot), taskID, slotOrMain(slot))
 		return err
 	}
-	_, err := s.db.ExecContext(ctx, `
+	tx, err := s.db.BeginTxx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	result, err := tx.ExecContext(ctx, `
 		INSERT INTO task_native_sessions (task_id, slot, agent_kind, provider_session_id, updated_at)
 		SELECT ?, ?, 'chimera', ?, ? WHERE `+legacyOwnsSelector+`
 		ON CONFLICT(task_id, slot, agent_kind) DO UPDATE SET
 			provider_session_id = excluded.provider_session_id, updated_at = excluded.updated_at`,
 		taskID, slotOrMain(slot), sessionID, formatExecutionTime(time.Now()), taskID, slotOrMain(slot))
-	return err
+	if err != nil {
+		return err
+	}
+	if n, err := result.RowsAffected(); err != nil || n == 0 {
+		return err
+	}
+	// The run is the slot's live execution, when it has one.
+	var executionID string
+	if err := tx.GetContext(ctx, &executionID, `SELECT COALESCE((SELECT e.id FROM agent_sessions a
+		JOIN executions e ON e.agent_session_id = a.id
+		WHERE a.task_id = ? AND a.slot = ? AND a.status = 'running' AND e.status = 'running'
+		ORDER BY a.id DESC LIMIT 1), '')`, taskID, slotOrMain(slot)); err != nil {
+		return err
+	}
+	if err := recordConversation(ctx, tx, conversationIdentity{
+		agentKind: "chimera", providerSessionID: sessionID,
+		taskID: taskID, slot: slot, executionID: executionID,
+	}); err != nil {
+		return err
+	}
+	return tx.Commit()
 }
 
 func slotOrMain(slot string) string {
@@ -169,6 +194,12 @@ func (s *Store) RecordTaskNativeSession(ctx context.Context, taskID string, agen
 	}
 	rows, err := result.RowsAffected()
 	if err != nil {
+		return false, err
+	}
+	if err := recordConversation(ctx, tx, conversationIdentity{
+		agentKind: agentKind, providerSessionID: providerSessionID, storageDir: storageDir,
+		taskID: taskID, slot: slot, cwd: cwd, executionID: executionID,
+	}); err != nil {
 		return false, err
 	}
 	if err := tx.Commit(); err != nil {

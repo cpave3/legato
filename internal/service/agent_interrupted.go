@@ -252,6 +252,9 @@ func (a *agentService) DismissInterruptedAgent(ctx context.Context, taskID strin
 		return err
 	}
 	if session.ExecutionID != "" {
+		if err := a.store.DismissConversationRuns(ctx, session.ExecutionID); err != nil {
+			log.Printf("session history: marking the runs of %s dismissed: %v", session.ExecutionID, err)
+		}
 		a.endEngramSession(ctx, session.ExecutionID)
 		a.endOperatorItems(ctx, session.ExecutionID)
 	}
