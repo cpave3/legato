@@ -5,6 +5,8 @@ import (
 	"errors"
 	"fmt"
 	"strings"
+
+	"github.com/cpave3/legato/internal/engine/store"
 )
 
 // MacroPR names the pull request a macro is started on.
@@ -48,7 +50,8 @@ func (s *MacroService) SetAgents(agents MacroAgents) { s.agents = agents }
 // Start puts a macro to work on a task: with an agent running, the message
 // is queued as its next one; with none, the task's main agent starts with
 // the macro's agent tool and tier (else the default tool), resuming its
-// saved conversation, with the message as its first prompt. The message is
+// saved conversation in its own directory, or starting a new one in the
+// task's checkout (macroWorkingDir), with the message as its first prompt. The message is
 // a short header naming the task (and pull request), then the macro's
 // text. It is never tagged: a macro is the operator's own words.
 func (s *MacroService) Start(ctx context.Context, req MacroStart) (MacroStartResult, error) {
@@ -73,7 +76,7 @@ func (s *MacroService) Start(ctx context.Context, req MacroStart) (MacroStartRes
 		result.Queued = true
 		return result, nil
 	}
-	opts := AgentSpawnOptions{AgentKind: macro.Agent, Tier: macro.Tier, Prompt: message}
+	opts := AgentSpawnOptions{AgentKind: macro.Agent, Tier: macro.Tier, Prompt: message, WorkingDir: s.macroWorkingDir(ctx, req)}
 	kind := macro.Agent
 	if kind == "" {
 		kind = s.agents.DefaultAdapter()
@@ -93,6 +96,36 @@ func (s *MacroService) Start(ctx context.Context, req MacroStart) (MacroStartRes
 	}
 	result.Started, result.AgentKind = true, kind
 	return result, nil
+}
+
+// macroWorkingDir is where a macro's new agent starts: the task's
+// worktree, else its live job clone of the pull request's repository (the
+// task's own repository for a task macro), else the working directory the
+// task remembers. "" leaves it to the agent service's default.
+func (s *MacroService) macroWorkingDir(ctx context.Context, req MacroStart) string {
+	task, err := s.settings.db.GetTask(ctx, req.TaskID)
+	if err != nil {
+		return ""
+	}
+	if task.WorktreePath != nil && *task.WorktreePath != "" {
+		return *task.WorktreePath
+	}
+	cc, _ := store.ParseCodeContext(task.CodeContext)
+	repo := ""
+	if req.PR != nil {
+		repo = req.PR.Repo
+	} else if cc != nil {
+		repo = cc.Repo
+	}
+	if repo != "" {
+		if clone, err := s.settings.db.LiveJobCloneForTask(ctx, req.TaskID, repo); err == nil && clone.Path != "" {
+			return clone.Path
+		}
+	}
+	if cc != nil {
+		return cc.WorkingDir
+	}
+	return ""
 }
 
 // Message is a macro's text as Start sends it: a header naming the task
