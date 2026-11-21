@@ -267,3 +267,9 @@ export function inputText(value: unknown): string {
   }
   return JSON.stringify(value)
 }
+
+// fileWorkflowName is the workflow name a file's own name suggests, for a
+// file that could not be parsed and so has no name of its own.
+export function fileWorkflowName(path: string): string {
+  return (path.split("/").pop() ?? path).replace(/(\.workflow)?\.ya?ml$/, "")
+}

@@ -203,6 +203,13 @@ A due time that passed while no Legato was running.
 **Loop stop**:
 The limit that pauses a trigger which has started the same workflow for the same item too often, and asks the operator.
 
+**Workflow graph**:
+The drawing of a workflow's triggers and steps, built from its definition. It is read-only; the YAML is the source of truth.
+_Avoid_: flow chart, diagram, canvas
+
+**Gate**:
+A step that does not start by itself: one that waits for the operator (`trigger: manual`) or for the agent before it to end (`trigger: agent_ended`).
+
 ### Neighbouring terms
 
 **Delegation**:

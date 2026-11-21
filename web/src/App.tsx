@@ -11,6 +11,7 @@ import { PlanQueuePage } from "./pages/PlanQueuePage"
 import { PlanPage } from "./pages/PlanPage"
 import { WorkflowsPage } from "./pages/WorkflowsPage"
 import { WorkflowRunPage } from "./pages/WorkflowRunPage"
+import { WorkflowPage } from "./pages/WorkflowPage"
 import { AttentionPage } from "./pages/AttentionPage"
 import { LearningsPage } from "./pages/LearningsPage"
 import { LearningDetailPage } from "./pages/LearningDetailPage"
@@ -71,6 +72,7 @@ export default function App() {
           <Route path="/plans/:planId" element={<PlanPage />} />
           <Route path="/workflows" element={<WorkflowsPage />} />
           <Route path="/workflows/runs/:runId" element={<WorkflowRunPage />} />
+          <Route path="/workflows/:name" element={<WorkflowPage />} />
           <Route path="/attention" element={<AttentionPage />} />
           <Route path="/learning" element={<LearningsPage />} />
           <Route path="/learning/:learningId" element={<LearningDetailPage />} />

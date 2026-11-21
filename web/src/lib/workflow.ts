@@ -1,9 +1,10 @@
 import { apiFetch } from "./api"
+import type { WorkflowGraphModel } from "./workflowGraph"
 
 export type WorkflowInput = { type: "string"|"integer"|"boolean"|"json"|"task"|"repository"; required?: boolean; default?: unknown; description?: string; secret?: boolean; choices?: unknown[] }
 export type WorkflowOutput = { type: string; path?: string; media_type?: string; description?: string }
 export type WorkflowStepDefinition = { id:string; title:string; type:string; trigger?:"automatic"|"manual"|"agent_ended"; with:Record<string,unknown>; outputs?:Record<string,WorkflowOutput> }
-export type WorkflowDefinition = { schema_version:number; name:string; title:string; run_title?:string; description?:string; after_start?:"workflow"|"agent"|"stay"; inputs?:Record<string,WorkflowInput>; on?:Record<string,unknown>; steps:WorkflowStepDefinition[]; source:string }
+export type WorkflowDefinition = { schema_version:number; name:string; title:string; run_title?:string; description?:string; after_start?:"workflow"|"agent"|"stay"; inputs?:Record<string,WorkflowInput>; on?:Record<string,unknown>; steps:WorkflowStepDefinition[]; source:string; graph?:WorkflowGraphModel | null }
 export type WorkflowRepositoryPreset = { name:string; repo:string; primary_dir:string; base_branch?:string }
 // A trigger as this Legato runs it: on or paused here (enabled), what its
 // file says (file_enabled), and whether this Legato switched it (overridden).

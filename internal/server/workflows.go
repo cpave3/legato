@@ -45,6 +45,14 @@ func (s *Server) discoverWorkflows() workflowengine.DiscoveryResult {
 	return workflowengine.WithBuiltIns(workflowengine.DiscoverPaths(legacyWorkflowDirPath(), s.workflowGlobalDir, s.workflowProjectDir), s.builtInWorkflows...)
 }
 
+// definitionWithGraph is a definition as GET /api/workflows gives it: with
+// its workflow graph. The graph is never stored with the definition, whose
+// JSON a run keeps and digests.
+type definitionWithGraph struct {
+	*workflowengine.Definition
+	Graph *workflowengine.Graph `json:"graph"`
+}
+
 func (s *Server) workflowsHandler() http.HandlerFunc {
 	return func(w http.ResponseWriter, r *http.Request) {
 		if r.Method != http.MethodGet {
@@ -61,11 +69,16 @@ func (s *Server) workflowsHandler() http.HandlerFunc {
 				return
 			}
 		}
+		definitions := make([]definitionWithGraph, 0, len(result.Definitions))
+		for _, definition := range result.Definitions {
+			definitions = append(definitions, definitionWithGraph{definition, workflowengine.BuildGraph(definition)})
+		}
 		s.writeJSON(w, http.StatusOK, struct {
 			workflowengine.DiscoveryResult
+			Definitions []definitionWithGraph `json:"definitions"`
 			// TriggerStates is each workflow's triggers, on or paused here.
 			TriggerStates map[string][]service.WorkflowTriggerState `json:"trigger_states,omitempty"`
-		}{result, states})
+		}{result, definitions, states})
 	}
 }
 
