@@ -5,6 +5,7 @@ import (
 
 	"github.com/cpave3/legato/internal/engine/events"
 	"github.com/cpave3/legato/internal/engine/ipc"
+	"github.com/cpave3/legato/internal/service"
 )
 
 // webNotifier is the subset of *server.Server needed by IPC handlers.
@@ -42,6 +43,9 @@ func handleServeIPCMessage(msg ipc.Message, bus *events.Bus, srv serveNotifier) 
 		}
 	case "review_changed", "plan_changed", "agent_ui_changed", "approval_changed", "mqtt_changed", "server_theme_changed", "scope_changed", "operator_items_changed":
 		handleIPCMessage(msg, bus, nil)
+	case "agent_stage_changed":
+		handleIPCMessage(msg, bus, nil)
+		srv.NotifyAgentsChanged()
 	case "workflow_changed":
 		srv.NotifyWorkflowChanged(msg.WorkflowRunID, msg.WorkflowStepID)
 		if msg.Kind == "completed_step" {
@@ -111,6 +115,13 @@ func handleIPCMessage(msg ipc.Message, bus *events.Bus, wn webNotifier) {
 		// An agent's page_pin tool changed an origin's pins from a `legato
 		// mcp serve` with no broker; Content is the origin.
 		bus.Publish(events.Event{Type: events.EventScopeChanged, At: time.Now(), Payload: events.ScopeChangedPayload{Origin: msg.Content}})
+	case "agent_stage_changed":
+		// An agent reported its stage through its `legato mcp serve`, the
+		// CLI or the broker.
+		bus.Publish(events.Event{Type: events.EventAgentStageChanged, At: time.Now(), Payload: service.StageChangedFromIPC(msg)})
+		if wn != nil {
+			wn.NotifyAgentsChanged()
+		}
 	case "operator_items_changed":
 		// An agent posted or cleared an item for the operator through its
 		// `legato mcp serve`, or through the broker.

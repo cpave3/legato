@@ -35,6 +35,8 @@ A card on the board is a task: its ID is the task's. An agent is addressed by it
 | Link a pull request to a task | `POST /api/tasks/<id>/link-pr` | `{"owner": "…", "repo": "…", "pr_number": 12}` |
 | List the agents | `GET /api/agents` |  |
 | Check on some agents in brief | `GET /api/agents?view=compact&status=running&task=<id>,<id>&workspace=<name>` |  |
+| List the agents at some stages | `GET /api/agents?stage=reviewing,finished` |  |
+| Set an agent's stage | `PUT /api/agents/<id>/stage` | `{"stage": "finished", "reason": "…"}` |
 | Start an agent on a task | `POST /api/tasks/<id>/agent` | `{"agent_kind": "claude-code", "prompt": "…"}` |
 | Message an agent that is running | `POST /api/tasks/<id>/agent` | `{"prompt": "…"}` |
 | Start a macro on a task (and one of its pull requests) | `POST /api/tasks/<id>/macro` | `{"name": "Review", "pr": {"repo": "owner/name", "pr_number": 12}}` |
@@ -102,6 +104,8 @@ A card on the board is a task: its ID is the task's. An agent is addressed by it
 | `POST` | `/api/agents/kill` | risky | Stop an agent | `{"task_id": "<id>"}` |
 | `PATCH` | `/api/agents/{task_id}/notify` | change | Turn an agent's notifications on or off | `{"enabled": true}` |
 | `PUT` | `/api/agents/{task_id}/group` | change | Put an agent's task in a group, or take it out | `{"group": "…"}` |
+| `PUT` | `/api/agents/{task_id}/stage` | change | Set an agent's stage | `{"stage": "finished", "reason": "…"}` |
+| `GET` | `/api/agents/{task_id}/stage-history` | read | Read an agent's stage history |  |
 | `GET` | `/api/agents/{task_id}/terminal` | never | Type into an agent's terminal |  |
 | `GET` | `/api/preparing-agents` | read | List the agents being prepared |  |
 | `DELETE` | `/api/preparing-agents/{task_id}` | change | Dismiss an agent that failed to start |  |

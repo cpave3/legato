@@ -63,6 +63,7 @@ var legatoCommandClasses = map[string]legatoCommandClass{
 
 	// Agents.
 	"agent state":               {"never", "Report an agent's activity"},
+	"agent stage":               {"never", "Report where an agent's work stands"},
 	"agent permission-resolved": {"never", "Report a resolved permission request"},
 	"agent stopped":             {"never", "Report that an agent stopped"},
 	"agent allow-read":          {"never", "Allow an agent to read a pasted image"},

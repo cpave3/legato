@@ -44,6 +44,7 @@ func NewBrokerHandler(db *store.Store, deps BrokerDeps) broker.Handler {
 		"agent.state":           brokerAgentState(db, deps),
 		"agent.hook":            brokerAgentHook(db, deps),
 		"agent.session_created": brokerSessionCreated(db),
+		"agent.stage":           brokerAgentStage(db),
 	}
 	for name, op := range bridgeOps(db, deps) {
 		ops[name] = op

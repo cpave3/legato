@@ -105,24 +105,34 @@ type AgentSession struct {
 	// one: its repository and the branch it was made on.
 	CloneRepo   string
 	CloneBranch string
-	// OpenItems counts the agent's open operator items (for_operator).
-	// Activity stays what its agent tool reports; see NeedsOperator.
-	OpenItems int
+	// OpenItems counts the agent's open operator items (for_operator), and
+	// OpenDoneItems those of them that are done notes. Activity stays what
+	// its agent tool reports; see Glance.
+	OpenItems     int
+	OpenDoneItems int
+	// PlanPending is true for a task's main slot when the task has a
+	// Legato plan proposed to the operator or a swarm plan pending.
+	PlanPending bool
+	// Stage is its place's stage ("" when none is recorded), StageReason
+	// why, StageSource what set it, StageSince when it got there. See
+	// WorkStageService.
+	Stage       string
+	StageReason string
+	StageSource string
+	StageSince  *time.Time
 }
 
-// NeedsOperator says whether a running agent waits on the operator: it
-// asks (waiting), it failed (error), or it has open operator items.
+// NeedsOperator says whether a running agent waits on the operator: its
+// glance is Needs you.
 func (a AgentSession) NeedsOperator() bool {
-	if a.Status != "running" {
-		return false
-	}
-	return a.Activity == store.ActivityWaiting || a.Activity == store.ActivityError || a.OpenItems > 0
+	return a.Glance() == GlanceNeedsYou
 }
 
-// ShownActivity is the activity needs-you is worked out from: waiting for
-// a running agent with open operator items that is not in error.
+// ShownActivity is the board strip's activity word: waiting for a running
+// agent with an open operator item that is not a done note, unless it is in
+// error. Grouping uses Glance.
 func (a AgentSession) ShownActivity() string {
-	if a.Status == "running" && a.OpenItems > 0 && a.Activity != store.ActivityError {
+	if a.Status == "running" && a.OpenItems > a.OpenDoneItems && a.Activity != store.ActivityError {
 		return store.ActivityWaiting
 	}
 	return a.Activity
@@ -392,6 +402,7 @@ type agentService struct {
 	hasSkill             func(name string) bool
 	binaryPath           string
 	bus                  EventPublisher
+	workStages           *WorkStageService
 	briefKickoffDelay    time.Duration
 	notifier             Notifier
 	osNotifier           Notifier
@@ -620,6 +631,13 @@ type JobCloner interface {
 
 // SetRepositories lets agents spawned from now on work in a clone of a
 // repository.
+// SetWorkStages gives the service the process's agent stages, which a spawn
+// that does not resume resets. Without it the service resets through stages
+// of its own over its store, which publish nothing.
+func (a *agentService) SetWorkStages(stages *WorkStageService) {
+	a.workStages = stages
+}
+
 func (a *agentService) SetRepositories(repos JobCloner) {
 	a.sessionEnvMu.Lock()
 	defer a.sessionEnvMu.Unlock()
@@ -686,6 +704,9 @@ func (a *agentService) credentialEnv() SessionEnvProvider {
 // NewAgentService creates an AgentService.
 func NewAgentService(s *store.Store, tmux TmuxManager, workDir string, opts ...AgentServiceOptions) AgentService {
 	svc := &agentService{store: s, tmux: tmux, workDir: workDir, briefKickoffDelay: briefKickoffDelay, peerAwareness: true, nativeBindTimeout: nativeBindTimeout, chimeraModWait: 10 * time.Second, launchOwner: newLaunchOwner()}
+	// Every spawn resets its place's stage, whichever process spawns; the
+	// runtime gives its shared stages, which also announce the change.
+	svc.workStages = NewWorkStageService(s, nil)
 	if len(opts) > 0 {
 		svc.adapter = opts[0].Adapter
 		svc.adapters = opts[0].Adapters
@@ -1039,6 +1060,12 @@ func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, hei
 		(a.hasSkill == nil || a.hasSkill(reviewSkill)) {
 		rolePrompt = joinPromptSections(rolePrompt, reviewsOnPrompt)
 	}
+	// An agent that launches with a prompt is asked to report its stage. A
+	// reviewer slot only ever reviews, the Reeve (its own prompt) has no
+	// stage, and a swarm's stages come from the swarm's own milestones.
+	if rolePrompt != "" && !nativeResume && !ownPrompt && !named && !isSwarm {
+		rolePrompt = joinPromptSections(rolePrompt, stagePrompt)
+	}
 	if repo, ok := strings.CutPrefix(projectKey, "repo:"); ok && a.guidance != nil {
 		text, guidanceErr := a.guidance.GuidanceFor(ctx, repo)
 		if guidanceErr != nil {
@@ -1157,6 +1184,17 @@ func (a *agentService) SpawnAgent(ctx context.Context, taskID string, width, hei
 		}
 	}
 	envMap["LEGATO_EXECUTION_ID"] = executionID
+	// A new conversation starts its place's work again; a resumed one
+	// (Resume, Reload, the sandbox switch) keeps where it stood.
+	if opt.SessionPolicy != "resume" {
+		place := TaskPlace(taskID, slot)
+		if executionKind == store.ExecutionWorkflowAgent {
+			place.PlaceExecutionID = executionID
+		}
+		if err := a.workStages.Start(ctx, place, executionID); err != nil {
+			log.Printf("resetting the stage of %s: %v", AgentSlotKey(taskID, slot), err)
+		}
+	}
 	// Once recorded on the execution, an engram session is ended with it.
 	failExecution := func() { _ = a.EndExecution(ctx, executionID, store.ExecutionFailed) }
 	if booted.booted() {
@@ -1938,6 +1976,12 @@ func (a *agentService) ListAgents(ctx context.Context) ([]AgentSession, error) {
 			CloneRepo:         s.CloneRepo,
 			CloneBranch:       s.CloneBranch,
 			OpenItems:         s.OpenItems,
+			OpenDoneItems:     s.OpenDoneItems,
+			PlanPending:       s.PlanPending,
+			Stage:             s.WorkStage,
+			StageReason:       s.WorkStageReason,
+			StageSource:       s.WorkStageSource,
+			StageSince:        parseStageTime(s.WorkStageSince),
 		}
 		if s.Status == "running" {
 			result[i].BackgroundJobs = s.BackgroundJobs

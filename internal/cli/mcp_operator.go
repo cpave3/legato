@@ -56,6 +56,13 @@ func (m *mcpTools) forOperator() mcpserver.Tool {
 			return mcpserver.Result{}, err
 		}
 		ipc.Broadcast(ipc.Message{Type: "operator_items_changed", TaskID: session.TaskID, ItemID: item.ID})
+		// Finished work for the operator to look at is the agent saying it
+		// finished.
+		if item.Kind == "done" && !service.IsReeveTask(ctx, m.opts.Store, session.TaskID) {
+			if _, err := service.ReportWorkStage(ctx, m.opts.Store, *session, "finished", item.Title); err != nil {
+				return mcpserver.Result{}, err
+			}
+		}
 		verb := "Posted"
 		if item.Revision > 1 {
 			verb = "Updated"

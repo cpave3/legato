@@ -86,6 +86,16 @@ export interface AgentInfo {
   // The agent's open operator items (for_operator): with any, it needs the
   // operator whatever its activity says.
   open_items?: number
+  // Where the agent's work stands (exploring, planning, implementing,
+  // reviewing, finished), why, what set it (start, operator, agent,
+  // milestone, evidence) and since when; absent when none is recorded.
+  stage?: string
+  stage_reason?: string
+  stage_source?: string
+  stage_since?: string
+  // The group the server sorts the agent into: needs_you, your_turn,
+  // working, finished or ended.
+  glance?: string
   role?: string
   parent_task_id?: string
   subtask_id?: string

@@ -37,6 +37,7 @@ Each agent tool runs Legato's tools without asking you first. Legato also tells 
 | `add_task_note` | Records a note on the task. |
 | `for_operator` | Puts something in front of you: an action only you can do (a command, a slash command, a test in a browser, a merge), a question it asked in plain words, finished work to look at, or anything else you must see. It shows in [Attention](/legato/using/attention/#operator-items). Agents are told never to post progress. |
 | `clear_for_operator` | Takes back one of the agent's items, or all of them, when they no longer apply. |
+| `report_stage` | Says where the agent's work stands (exploring, planning, implementing, reviewing or finished), with a short note you see beside the stage in the agent list. Agents are asked to report each change, and a `for_operator` item of finished work counts as finished. |
 | `list_peers` | Lists the other agents in the same Git worktree. |
 | `message_peer` | Sends a message to one of those agents. |
 | `broadcast_peers` | Sends a message to all of them, and says which ones it reached. |

@@ -985,6 +985,7 @@ func runServeCmd(args []string) int {
 		recoverNativeEndpoints(agentSvc)
 		wireTaskAgents(boardSvc, agentSvc)
 		giveAgentsEngrams(agentSvc, db)
+		giveAgentsWorkStages(agentSvc, db, bus)
 	}
 	// Without tmux nothing refuses to start: agents are off, and every
 	// surface says why with the fix.
@@ -1155,6 +1156,7 @@ func runServeCmd(args []string) int {
 	srv.StartBoardEvents()
 	srv.StartLearningEvents()
 	defer wireAgentUI(srv, cfg, db, bus)()
+	wireWorkStages(srv, db, bus)
 	defer wireIntegrations(srv, integrationDeps{cfg: cfg, db: db, bus: bus, agents: agentSvc, board: boardSvc, approvals: approvalsRT, repos: repos, workflows: workflowSvc, reviewPrompt: serveReviewPrompt})()
 	srv.SetDirectoryService(configuredDirectoryService(cfg, db, repoPresets))
 	srv.SetResourceService(wiredResourceService(cfg, db, agentSvc))
@@ -1343,6 +1345,7 @@ func runTUI() int {
 		recoverNativeEndpoints(agentSvc)
 		wireTaskAgents(boardSvc, agentSvc)
 		giveAgentsEngrams(agentSvc, db)
+		giveAgentsWorkStages(agentSvc, db, bus)
 	}
 	// Without tmux nothing refuses to start: agents are off, and every
 	// surface says why with the fix.
@@ -1516,6 +1519,7 @@ func runTUI() int {
 			webSrv.StartBoardEvents()
 			webSrv.StartLearningEvents()
 			stopAgentUI = wireAgentUI(webSrv, cfg, db, bus)
+			wireWorkStages(webSrv, db, bus)
 			stopIntegrations = wireIntegrations(webSrv, integrationDeps{cfg: cfg, db: db, bus: bus, agents: agentSvc, board: boardSvc, approvals: approvalsRT, repos: repos, workflows: tuiWorkflowSvc, reviewPrompt: webReviewPrompt})
 			webSrv.SetDirectoryService(configuredDirectoryService(cfg, db, repoPresets))
 			webSrv.SetResourceService(wiredResourceService(cfg, db, agentSvc))

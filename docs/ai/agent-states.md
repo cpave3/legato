@@ -82,7 +82,44 @@ Legato's own message path: each place a message the operator wrote enters Legato
 
 An agent's end closes its items as `agent_ended` (`agentService.EndExecution`), except an interrupted one's (`endGoneSession` marks the context `withOperatorItemsKept`): resuming it moves them to the new execution (`Store.MoveOperatorItems`), dismissing it closes them, and `SweepInterruptedAgents` ends with `Store.CloseOrphanOperatorItems` for executions that ended while Legato was down. A restart (Reload) closes them: the restarted agent is a new execution.
 
-**Needs you from open items.** `agent_sessions` rows read through `agentSessionSelect` carry `open_items`, the open operator items of the session's execution; the agent APIs report it beside `activity` (`/api/agents`, and in `?view=compact` when not zero). A running agent with any is needs-you wherever needs-you is worked out, unless it is in error, and its `activity` is left as its tool reported: the board card's state (`SummarizeRelatedAgents` through `AgentSession.ShownActivity`, so `/api/board` and the TUI strip say `waiting`), the activity counts behind `/api/navigation-summary` and the tmux status line (`store.GetAgentActivityCounts`), the TUI agents list (`AgentSession.NeedsOperator`) and the web agent list, groups and ensemble (`ensembleSection`).
+**Needs you from open items.** `agent_sessions` rows read through `agentSessionSelect` carry `open_items`, the open operator items of the session's execution, and `open_done_items`, those of kind `done`; the agent APIs report `open_items` beside `activity` (`/api/agents`, and in `?view=compact` when not zero). A running agent with an open item that is not a done note needs the operator unless it is in error, and its `activity` is left as its tool reported. A done note never does: the agent says it finished, and its glance is Finished (see § Stages). The rule is applied by `AgentSession.Glance` (the TUI agents list through `NeedsOperator`, `glance` in `/api/agents`), by `AgentSession.ShownActivity` for the board card's activity word (`SummarizeRelatedAgents`, so `/api/board` and the TUI strip say `waiting`), and by `store.GetAgentActivityCounts` for `/api/navigation-summary` and the tmux status line. The web agent list and ensemble (`ensembleSection` in `web/src/lib/agentGlance.ts`) take needs-you from `glance`, and the rest of their grouping from activity until they show the glance groups (LEG-446, LEG-448).
+
+## Stages
+
+An agent place's **stage** says where its work stands, apart from what the agent is doing now (activity) and from the card's column. A place is a task's slot, `(task_id, slot)`, or a workflow agent's execution. Go names say `WorkStage`, since "stage" was taken (preparing agents, review stages). `internal/service/agent_stage.go` holds `WorkStageService`; the rows are in `agent_stages`, the history in `agent_stage_events` (see [Database](database.md) § Agent stages).
+
+| Stage | Means |
+| --- | --- |
+| `exploring` | Reading, searching, answering; nothing changed yet. A new conversation starts here. |
+| `planning` | A plan waits on the operator. |
+| `implementing` | Changing the code. |
+| `reviewing` | The work is up for review. A reviewer slot starts and stays here. |
+| `finished` | The work is done. |
+
+**Order of trust.** Each signal is an entry point of `WorkStageService`, and each records its `source`:
+
+1. `SetByOperator` (`operator`): any stage. `PUT /api/agents/{task_id}/stage` with `{"stage", "reason"}`.
+2. `Report` (`agent`): any stage, with the agent's note.
+3. `Milestone` (`milestone`): something that happened to the work. It moves the stage forward only, except `WorkMilestone.Feedback` (review feedback delivered to the author), which may move it back.
+4. `Evidence` (`evidence`): an edit or a push by the agent. It moves the stage to Implementing from any other stage, Finished included, and never further. It is ignored for a reviewer slot and for a read-only execution.
+
+`Start` (`start`) resets a place for a new conversation. `SpawnAgent` calls it once the execution is recorded, unless `SessionPolicy` is `resume`, in every process (an agent service no runtime gives the shared stages to, such as the swarm CLI's, resets through stages of its own that publish nothing): Resume, Reload and the sandbox switch keep the stage, and `/clear` starts no spawn. The Reeve has no stage: every signal about it is ignored, and the operator's is refused (`ErrNoWorkStage`). Each change publishes `EventAgentStageChanged` (`AgentStageChangedPayload`), which the web server forwards as the WebSocket message `agent_stage_changed` (`task_id` the agent's address, `stage`, `stage_reason`, `stage_source`, `execution_id` for a workflow agent). No column sets a stage and no stage moves a card.
+
+**Reports.** An agent reports with the MCP tool `report_stage` or `legato agent stage` (over the broker in the sandbox), and a `for_operator` item of kind `done` reports Finished. They run in the agent's `legato mcp serve` or CLI process, or on the host for the broker, so they write through `service.ReportWorkStage` and broadcast the IPC message `agent_stage_changed` (`StageIPCMessage`), which each host turns into `EventAgentStageChanged` (`cmd/legato/ipc.go`). A plain spawn's launch prompt asks the agent to report each change (`stagePrompt`: Finished for an answer that needed no change, Reviewing on opening a pull request or marking a tour ready); a named slot, a swarm agent, the Reeve (its own prompt) and an agent that launches with no prompt are not asked.
+
+The other signals come in later tickets: edit evidence (LEG-442), milestones from plans, tours, review passes and pull requests (LEG-443), pushes (LEG-444), swarms and workflows (LEG-445).
+
+**Glance.** `service.Glance` is the one rule that groups agents, from activity, open items by kind, pending plans and the stage:
+
+| Glance | When (a running agent, in this order) |
+| --- | --- |
+| `needs_you` | waiting, error, an open operator item that is not a done note, or (main slot) a proposed Legato plan or a pending swarm plan of its task (`plan_pending` in `agentSessionSelect`) |
+| `working` | working or background |
+| `finished` | stage Finished |
+| `your_turn` | anything else: idle mid-work, nothing blocking |
+| `ended` | the agent is not running |
+
+`/api/agents` (full and `?view=compact`) gives each agent `stage`, `stage_reason`, `stage_source`, `stage_since` (absent when no stage is recorded) and `glance`; `?stage=` (comma separated) keeps the agents at those stages. `GET /api/agents/{task_id}/stage-history` lists a place's changes, newest first.
 
 ## Foreground safety and exit detection
 

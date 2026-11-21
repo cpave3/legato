@@ -194,5 +194,6 @@ func commandAgentService(cfg *config.Config, db *store.Store, workDir string, pr
 	giveAgentsRepositories(agentSvc, repos)
 	giveAgentsPrimaryDirs(agentSvc, presets)
 	giveAgentsEngrams(agentSvc, db)
+	giveAgentsWorkStages(agentSvc, db, bus)
 	return agentSvc, repos, nil
 }
