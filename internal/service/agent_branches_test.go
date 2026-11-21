@@ -183,10 +183,12 @@ func TestTheAgentsContextFollowsItsCheckoutToAnotherBranch(t *testing.T) {
 	if err := s.SetCodeContext(ctx, "task-1", &store.CodeContext{Repo: "acme/widget", Branch: "legato/task-1", BaseBranch: "main", WorkingDir: dir1, RepoSource: "job_clone", BranchSource: "agent"}); err != nil {
 		t.Fatal(err)
 	}
-	// dir1 is task-1's own job clone.
+	// task-1's agent runs in its job clone, dir1; task-2's in dir2.
 	if _, err := s.CreateJobClone(ctx, store.JobClone{ExecutionID: "ex-1", TaskID: "task-1", Repo: "acme/widget", Branch: "legato/task-1", Path: dir1, CreatedAt: time.Now()}); err != nil {
 		t.Fatal(err)
 	}
+	runAgentIn(t, s, "task-1", "ex-1", dir1)
+	runAgentIn(t, s, "task-2", "ex-2", dir2)
 	// A context set by hand never moves.
 	if err := s.SetCodeContext(ctx, "task-2", &store.CodeContext{Repo: "acme/widget", Branch: "legato/task-2", WorkingDir: dir2, RepoSource: "manual", BranchSource: "manual"}); err != nil {
 		t.Fatal(err)
@@ -325,13 +327,7 @@ func TestARunningAgentsDirectoryIsFollowed(t *testing.T) {
 	if err := s.SetCodeContext(ctx, "task-1", &store.CodeContext{Repo: "acme/widget", Branch: "feature/first", WorkingDir: dir, RepoSource: "agent", BranchSource: "agent"}); err != nil {
 		t.Fatal(err)
 	}
-	id, err := s.InsertAgentSessionReturningID(ctx, store.AgentSession{TaskID: "task-1", TmuxSession: "legato-task-1", AgentKind: "claude-code", Status: "running"})
-	if err != nil {
-		t.Fatal(err)
-	}
-	if err := s.CreateExecution(ctx, store.Execution{ID: "ex-1", Kind: store.ExecutionInteractive, Status: store.ExecutionRunning, TaskID: "task-1", ExecutionTaskID: "task-1", AgentSessionID: &id, WorkingDir: dir, StartedAt: time.Now().UTC()}); err != nil {
-		t.Fatal(err)
-	}
+	runAgentIn(t, s, "task-1", "ex-1", dir)
 	_ = svc.PollAll(ctx)
 	task, _ := s.GetTask(ctx, "task-1")
 	if cc, _ := store.ParseCodeContext(task.CodeContext); cc.Branch != "feature/next" {
@@ -345,5 +341,57 @@ func TestARunningAgentsDirectoryIsFollowed(t *testing.T) {
 	task, _ = s.GetTask(ctx, "task-1")
 	if cc, _ := store.ParseCodeContext(task.CodeContext); cc.Branch != "feature/next" {
 		t.Fatalf("followed after the agent ended: %+v", cc)
+	}
+}
+
+// runAgentIn records a running main-slot agent of a task working in dir.
+func runAgentIn(t *testing.T, s *store.Store, taskID, executionID, dir string) {
+	t.Helper()
+	ctx := context.Background()
+	id, err := s.InsertAgentSessionReturningID(ctx, store.AgentSession{TaskID: taskID, TmuxSession: "legato-" + taskID, AgentKind: "claude-code", Status: "running"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.CreateExecution(ctx, store.Execution{ID: executionID, Kind: store.ExecutionInteractive, Status: store.ExecutionRunning, TaskID: taskID, ExecutionTaskID: taskID, AgentSessionID: &id, WorkingDir: dir, StartedAt: time.Now().UTC()}); err != nil {
+		t.Fatal(err)
+	}
+}
+
+// The clone task A was made for, reused by task B after A's agent ended
+// (JobClone with CloneID attaches B): A's context does not follow B's
+// branch, whoever the clone was made for.
+func TestAReusedCloneIsNotFollowedForTheTaskItWasMadeFor(t *testing.T) {
+	gh := newFakeGitHub(t)
+	gh.set("acme/widget", fakePR{Number: 211, Head: "legato/new-task"})
+	s, svc, _ := newBranchTracking(t, gh)
+	ctx := context.Background()
+	createPRTask(t, s, "old-task")
+	createPRTask(t, s, "new-task")
+	dir := t.TempDir()
+	svc.SetCheckoutHead(func(string) (string, string, error) { return "legato/new-task", "n1", nil })
+	if err := s.SetCodeContext(ctx, "old-task", &store.CodeContext{Repo: "acme/widget", Branch: "legato/old-task", WorkingDir: dir, RepoSource: "job_clone", BranchSource: "agent"}); err != nil {
+		t.Fatal(err)
+	}
+	cloneID, err := s.CreateJobClone(ctx, store.JobClone{ExecutionID: "ex-old", TaskID: "old-task", Repo: "acme/widget", Branch: "legato/old-task", Path: dir, CreatedAt: time.Now()})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := s.AttachJobCloneTask(ctx, cloneID, "new-task", time.Now()); err != nil {
+		t.Fatal(err)
+	}
+	for _, running := range []bool{false, true} {
+		if running {
+			runAgentIn(t, s, "new-task", "ex-new", dir)
+		}
+		if err := svc.PollAll(ctx); err != nil {
+			t.Fatal(err)
+		}
+		task, _ := s.GetTask(ctx, "old-task")
+		if cc, _ := store.ParseCodeContext(task.CodeContext); cc.Branch != "legato/old-task" {
+			t.Fatalf("new-task running %v: old-task followed it: %+v", running, cc)
+		}
+		if got := prList(t, svc, "old-task"); holdsPRNumber(got, 211) {
+			t.Fatalf("new-task running %v: old-task holds #211: %v", running, got)
+		}
 	}
 }

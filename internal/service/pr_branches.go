@@ -189,16 +189,28 @@ func (p *prTrackingService) followCheckout(ctx context.Context, taskID string, c
 	return &moved
 }
 
-// ownsCheckout says whether the checkout at dir is the task's now: a live
-// job clone of the task's, or, when no job clone is there, the directory
-// the task's running agent works in. A directory an ended agent left, which
-// another task's agent may now use on its own branch, is not followed.
+// ownsCheckout says whether the checkout at dir is the task's now: the
+// task's running main-slot agent works in it, and no other task's running
+// agent does. Neither who a job clone was made for nor which tasks were
+// attached to it says who uses it now (a clone is reused by another task
+// once its agent ends), so a checkout no agent of the task runs in is
+// never followed.
 func (p *prTrackingService) ownsCheckout(ctx context.Context, taskID, dir string) bool {
-	if clone, err := p.store.JobCloneByPath(ctx, dir); err == nil && clone != nil {
-		return clone.TaskID == taskID
+	sessions, err := p.store.ListAgentSessions(ctx)
+	if err != nil {
+		return false
 	}
-	session, err := p.store.GetAgentSessionByTaskID(ctx, taskID)
-	return err == nil && session != nil && session.WorkingDir == dir
+	owns := false
+	for _, session := range sessions {
+		if session.WorkingDir != dir {
+			continue
+		}
+		if session.TaskID != taskID {
+			return false
+		}
+		owns = owns || session.Slot == "" || session.Slot == store.SlotMain
+	}
+	return owns
 }
 
 // trackContextBranches adds the code context's branch and the branches of

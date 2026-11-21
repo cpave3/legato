@@ -69,7 +69,7 @@ A task's branches come from:
 - the Staccato stack Legato recorded for each of the task's job clones, in stack order;
 - the branches a worker reports for a task you [handed off](/legato/using/handoff/#pull-requests-while-away), in stack order. Legato looks for a new branch's pull request at once, without waiting for the next poll;
 - the branches the task's agent pushes under `legato/` and those it opens a pull request from, through Legato's [GitHub credential](/legato/security/credential-broker/): with `gh pr create`, `gh api`, or the REST API. Legato looks for the pull request at once, so a card, an Attention item or a [review loop](/legato/using/review-passes/) started a moment after the agent opens it already sees it;
-- the branch the task's agent has checked out. While the agent runs (or in its own job clone), when it moves its checkout to another branch the task follows it on the next poll or push, and keeps the old branch. A directory left by an agent that ended is not followed, since another task's agent may use it next. Legato never moves a repository or branch you linked yourself.
+- the branch the task's agent has checked out. While the agent runs, when it moves its checkout to another branch the task follows it on the next poll or push, and keeps the old branch. A directory or job clone left by an agent that ended is not followed, since another task's agent may use it next. Legato never moves a repository or branch you linked yourself.
 
 On each poll, Legato fetches each repository's recent pull requests once. It gives each of the task's branches the pull request whose head is that branch in that repository. When none of the task's branches has a pull request, Legato looks for one by:
 
