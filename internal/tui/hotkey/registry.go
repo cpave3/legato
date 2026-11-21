@@ -44,6 +44,7 @@ const (
 	CapabilityAgentUI       Capability = "agent-ui-service"
 	CapabilityApprovals     Capability = "approval-service"
 	CapabilityReeve         Capability = "reeve-service"
+	CapabilityHistory       Capability = "session-history"
 )
 
 const (

@@ -30,6 +30,7 @@ In the TUI, press ` + "`?`" + ` to see these keys. The help shows only the keys 
 	}
 	// The spawn dialog's engram row, which other overlays do not have.
 	writeGroup(&b, "Spawn dialog", bindingsIn(bindings, func(s Scope) bool { return s.Overlay == OverlayAgentSpawn }))
+	writeGroup(&b, "Session history", bindingsIn(bindings, func(s Scope) bool { return s.Overlay == OverlaySessionHistory }))
 	return strings.TrimRight(b.String(), "\n") + "\n"
 }
 

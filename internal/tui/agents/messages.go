@@ -54,6 +54,9 @@ type AgentsRefreshedMsg struct {
 // OpenMacroPickerMsg is sent when the user presses 'm' in the agents view.
 type OpenMacroPickerMsg struct{}
 
+// OpenSessionHistoryMsg asks for the session history (H in the agents view).
+type OpenSessionHistoryMsg struct{}
+
 // OpenGroupMsg is sent when the user presses 'g' for the selected agent.
 type OpenGroupMsg struct {
 	TaskID string

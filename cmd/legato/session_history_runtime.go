@@ -51,10 +51,15 @@ func sessionHistoryOptions(cfg *config.Config, db *store.Store, agents service.A
 	return opts
 }
 
-// wireSessionHistory serves the session history on a web server: listed,
-// forgotten, and restored through the agent service or, for a Reeve
-// conversation, the Reeve.
+// wireSessionHistory serves the session history on a web server.
 func wireSessionHistory(srv *server.Server, cfg *config.Config, db *store.Store, agents service.AgentService, board service.BoardService, reeve *service.ReeveService) {
+	srv.SetSessionHistory(restorableSessionHistory(cfg, db, agents, board, reeve))
+}
+
+// restorableSessionHistory is the session history that lists, forgets and
+// restores: through the agent service, a new task on the board, or, for a
+// Reeve conversation, the Reeve.
+func restorableSessionHistory(cfg *config.Config, db *store.Store, agents service.AgentService, board service.BoardService, reeve *service.ReeveService) *service.SessionHistoryService {
 	opts := sessionHistoryOptions(cfg, db, agents)
 	if board != nil {
 		opts.NewTask = service.BoardNewTask(board, db)
@@ -68,7 +73,7 @@ func wireSessionHistory(srv *server.Server, cfg *config.Config, db *store.Store,
 			return err
 		}
 	}
-	srv.SetSessionHistory(service.NewSessionHistoryService(db, opts))
+	return service.NewSessionHistoryService(db, opts)
 }
 
 // sweepSessionHistory removes the session history's old entries at the
