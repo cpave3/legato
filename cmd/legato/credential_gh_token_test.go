@@ -97,3 +97,35 @@ func TestGHTokenAsksForAReadyPullRequestOnItsBranch(t *testing.T) {
 		t.Fatalf("asked = %v", asked)
 	}
 }
+
+// After gh opens a pull request, gh-opened tells Legato its branch: the one
+// --head names, else the current one. Other commands tell nothing.
+func TestGHOpenedTellsLegatoTheBranchAPullRequestWasOpenedFrom(t *testing.T) {
+	var told []map[string]string
+	proxy := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path != "/c/github/pr-opened" {
+			w.WriteHeader(404)
+			return
+		}
+		var in map[string]string
+		_ = json.NewDecoder(r.Body).Decode(&in)
+		told = append(told, in)
+		w.WriteHeader(204)
+	}))
+	defer proxy.Close()
+	t.Setenv("LEGATO_GITHUB_API_URL", proxy.URL+"/c/github/api")
+	t.Setenv("LEGATO_GITHUB_TOKEN", "lgk_x")
+
+	if code := runCredentialGHOpened([]string{"--", "pr", "create", "--head", "legato/k7q2-rail", "-R", "cpave3/legato"}); code != exitOK {
+		t.Fatalf("exit %d", code)
+	}
+	if code := runCredentialGHOpened([]string{"--", "pr", "edit", "3", "-R", "cpave3/legato"}); code != exitOK {
+		t.Fatalf("exit %d", code)
+	}
+	if code := runCredentialGHOpened([]string{"--", "api", "repos/cpave3/legato/pulls", "-f", "head=legato/k7q2-api", "-f", "base=main"}); code != exitOK {
+		t.Fatalf("exit %d", code)
+	}
+	if len(told) != 2 || told[0]["repo"] != "cpave3/legato" || told[0]["branch"] != "legato/k7q2-rail" || told[1]["branch"] != "legato/k7q2-api" {
+		t.Fatalf("told = %v", told)
+	}
+}

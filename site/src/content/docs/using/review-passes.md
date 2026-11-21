@@ -170,11 +170,13 @@ The run is refused at once, with the reason, when:
 - the reviewer App cannot read the repository: the App is not installed on the account, the repository is not among those its installation selects, or there is no such repository (GitHub cannot say which). The find-only `review-pr` workflow reviews without posting;
 - the pull request is not open;
 - the pull request already has an active review loop, from another run or from a handoff: one loop runs per pull request. The refusal names that loop and links to it (the run's page, or the handed-off card). A loop that ended, approved, closed or was cancelled does not count;
-- `agent_author` is asked for on a pull request no board task links.
+- `agent_author` is asked for on a pull request no board task links, even after Legato looked again (below).
 
 ### An agent as the author
 
 When the pull request belongs to a task on your board (an agent you started opened it, say), start the run with `agent_author: true` and that task's agent is the author. It is told of each pass with the same `[legato review pass]` line a handed-off author gets, and answers with the same `legato review-pass feedback` and `legato review-pass answer` commands; its answers are posted as the author App. The next pass starts once it is idle with every finding answered and it pushed or disputed one, or on the triggers above. An author that exited is resumed from its saved conversation; one that cannot be resumed makes the loop stuck, since Legato never starts a fresh author on code it knows nothing about. A stuck loop with an agent author also offers **Message the author** in Attention. An agent author also gets each failing required check, as a handed-off author does: the pull request is not approved while one fails, and the run ends approved only when each passes on a pushed commit or the agent answers it with a reply. A task's agent authors one loop at a time: a second is refused until the first ends.
+
+To find the author, Legato looks for the board task linked to the pull request. When an agent opens a pull request through Legato's GitHub credential, its task is linked at once, so a run started right after works. When no task is linked yet, Legato looks again in the repository (by branch, commit and ticket key, as its poll does) before it refuses. If it still finds none, the run says so: link the pull request to its task with `legato task link <task-id> --repo owner/name --branch <head branch>`, or `p` on the task's card on the board, and run again. Or run without `agent_author`, and the branch's owner is the author.
 
 The two agents link to each other in the web UI's **Related** panel. The author's chat lists **Reviewer · pass N** with the loop's state, and the reviewer's chat lists **Author**. Without `agent_author`, the reviewer's panel lists the pull request's board task, if there is one, and that task's agent still sees the reviewer.
 

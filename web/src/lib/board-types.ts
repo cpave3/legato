@@ -227,7 +227,7 @@ export interface CodeContextView {
 export interface TrackedBranch {
   repo: string
   branch: string
-  // code_context, stack, api, manual or discovered
+  // code_context, stack, api, manual, discovered, review or agent
   source: string
   pr?: PRMetaView
 }

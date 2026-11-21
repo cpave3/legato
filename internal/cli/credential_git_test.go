@@ -278,3 +278,50 @@ func TestOnlyATokenThatCanWriteIsRevokedAfterGH(t *testing.T) {
 		}
 	}
 }
+
+func TestGHOpenedPRSaysWhichCommandsOpenAPullRequestAndFromWhere(t *testing.T) {
+	type opened struct {
+		ok   bool
+		head string
+	}
+	for _, tc := range []struct {
+		args []string
+		want opened
+	}{
+		{[]string{"pr", "create", "--fill"}, opened{true, ""}},
+		{[]string{"pr", "create", "--draft", "--head", "legato/k7q2-rail"}, opened{true, "legato/k7q2-rail"}},
+		{[]string{"-R", "cpave3/legato", "pr", "create", "-H", "cpave3:legato/k7q2"}, opened{true, "legato/k7q2"}},
+		{[]string{"pr", "edit", "3", "--title", "x"}, opened{}},
+		{[]string{"pr", "list"}, opened{}},
+		{[]string{"api", "repos/cpave3/legato/pulls", "-f", "head=legato/k7q2", "-f", "base=main"}, opened{true, "legato/k7q2"}},
+		{[]string{"api", "-X", "POST", "/repos/cpave3/legato/pulls", "-F", "head=cpave3:legato/k7q2"}, opened{true, "legato/k7q2"}},
+		{[]string{"api", "repos/cpave3/legato/pulls"}, opened{}}, // a read
+		{[]string{"api", "repos/cpave3/legato/pulls/3", "-X", "PATCH", "-f", "title=x"}, opened{}},
+		{[]string{"api", "graphql", "-f", `query=mutation { createPullRequest(input: {repositoryId: "R", baseRefName: "main", headRefName: "legato/k7q2-gql", title: "x"}) { pullRequest { number } } }`}, opened{true, "legato/k7q2-gql"}},
+		{[]string{"api", "graphql", "-f", "query=mutation($h: String!) { createPullRequest(input: {headRefName: $h}) { pullRequest { number } } }", "-f", "h=legato/k7q2-var"}, opened{true, "legato/k7q2-var"}},
+		{[]string{"api", "graphql", "-f", "query=query { viewer { login } }"}, opened{}},
+	} {
+		ok, head := cli.GHOpenedPR(tc.args)
+		if (opened{ok, head}) != tc.want {
+			t.Errorf("gh %q: %v %q, want %+v", tc.args, ok, head, tc.want)
+		}
+	}
+}
+
+func TestGHTellsTheProxyOfTheBranchItOpenedAPullRequestFrom(t *testing.T) {
+	var got map[string]string
+	var path, auth string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		path, auth = r.URL.Path, r.Header.Get("Authorization")
+		_ = json.NewDecoder(r.Body).Decode(&got)
+		w.WriteHeader(204)
+	}))
+	t.Cleanup(srv.Close)
+	session := cli.GitHubSession{APIURL: srv.URL + "/c/gh/api", Placeholder: "lgk_place"}
+	if err := session.PROpened(context.Background(), "cpave3/legato", "legato/k7q2-rail"); err != nil {
+		t.Fatal(err)
+	}
+	if path != "/c/gh/pr-opened" || auth != "Bearer lgk_place" || got["repo"] != "cpave3/legato" || got["branch"] != "legato/k7q2-rail" {
+		t.Fatalf("%s %s %v", path, auth, got)
+	}
+}

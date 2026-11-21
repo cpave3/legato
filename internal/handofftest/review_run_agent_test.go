@@ -148,3 +148,51 @@ func TestMessageTheAuthorReachesTheAgentOfAStuckLoop(t *testing.T) {
 		t.Fatalf("typed = %q", typed)
 	}
 }
+
+// An agent opened #12 a moment ago and no poll has linked it yet: the run
+// looks again before it refuses, and finds the task.
+func TestAnAgentAuthorIsFoundByLookingAgainBeforeRefusing(t *testing.T) {
+	r := newReviewRun(t, ReviewPassOptions{})
+	ctx := context.Background()
+	dir := withBoardAuthor(t, r)
+	// The task names another branch, so nothing links it to #12 yet.
+	if err := r.worker.Store.SetCodeContext(ctx, "board-1", &store.CodeContext{Repo: "acme/widget", Branch: "legato/board-1", WorkingDir: dir, RepoSource: "job_clone", BranchSource: "agent"}); err != nil {
+		t.Fatal(err)
+	}
+	r.runs.Discover.OnDiscover = func(repo string) {
+		if _, err := r.worker.Store.TrackTaskBranches(ctx, "board-1", []store.BranchRef{{Repo: repo, Branch: "feature/greeting"}}, service.BranchSourceAgent); err != nil {
+			t.Fatal(err)
+		}
+		if err := r.worker.Store.SetTaskBranchPR(ctx, "board-1", repo, "feature/greeting", &store.PRMeta{PRNumber: 12, Repo: repo, Branch: "feature/greeting"}); err != nil {
+			t.Fatal(err)
+		}
+	}
+	view := r.start(t, agentAuthored)
+	if view.Run.Status != "running" {
+		t.Fatalf("run %q: %s", view.Run.Status, view.Steps[0].Error)
+	}
+	if got := r.runs.Discover.Calls(); len(got) != 1 || got[0] != "acme/widget" {
+		t.Fatalf("looked again in %v", got)
+	}
+	loops, err := r.runs.Caller.Loops(ctx)
+	if err != nil || len(loops) != 1 || loops[0].AuthorTaskID != "board-1" {
+		t.Fatalf("loops = %+v, %v", loops, err)
+	}
+}
+
+// Still unlinked after looking again: the refusal says why and how to link.
+func TestAnUnlinkedAgentAuthorIsRefusedWithHowToLinkIt(t *testing.T) {
+	r := newReviewRun(t, ReviewPassOptions{})
+	view := r.start(t, agentAuthored)
+	for _, want := range []string{
+		"pull request #12 of acme/widget is not linked to any board task yet",
+		"legato task link <task-id> --repo acme/widget --branch feature/greeting",
+		"p on the task's card on the board",
+		"run without agent_author",
+	} {
+		refused(t, view, want)
+	}
+	if got := r.runs.Discover.Calls(); len(got) != 1 {
+		t.Fatalf("looked again in %v", got)
+	}
+}

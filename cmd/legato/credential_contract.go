@@ -183,6 +183,51 @@ func runCredentialGHToken(args []string) int {
 	return exitOK
 }
 
+// runCredentialGHOpened tells Legato the branch a gh command that just
+// succeeded opened a pull request from, for Legato's gh wrapper:
+// `legato credential gh-opened -- <gh args>`. Legato tracks the branch on
+// the session's task and finds the pull request at once, without waiting
+// for its next poll. For any other command it does nothing. It never fails
+// the gh command: Legato's poll still finds the pull request later.
+func runCredentialGHOpened(args []string) int {
+	for i, a := range args {
+		if a == "--" {
+			args = args[i+1:]
+			break
+		}
+	}
+	opens, branch := cli.GHOpenedPR(args)
+	if !opens {
+		return exitOK
+	}
+	session, ok := cli.GitHubSessionFromEnv(os.Getenv)
+	if !ok {
+		return exitOK
+	}
+	repo, err := cli.GHRepo(args, os.Getenv, func() string {
+		out, err := exec.Command("git", "remote", "get-url", "origin").Output()
+		if err != nil {
+			return ""
+		}
+		return string(out)
+	})
+	if err != nil {
+		return exitOK
+	}
+	if branch == "" {
+		// gh pr create without --head opens it from the current branch.
+		out, err := exec.Command("git", "rev-parse", "--abbrev-ref", "HEAD").Output()
+		if err != nil || strings.TrimSpace(string(out)) == "HEAD" {
+			return exitOK
+		}
+		branch = strings.TrimSpace(string(out))
+	}
+	if err := session.PROpened(context.Background(), repo, branch); err != nil {
+		fmt.Fprintln(os.Stderr, "legato:", err)
+	}
+	return exitOK
+}
+
 // runGHReady has Legato do gh pr ready, which GitHub allows only a token
 // that can also write code. It prints "done" and gh's own message, which the
 // wrapper shows in place of running gh.

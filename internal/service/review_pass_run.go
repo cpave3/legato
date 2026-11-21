@@ -57,6 +57,12 @@ type ReviewRunOwners interface {
 	Lookup(ctx context.Context, q OwnerQuery) ([]OwnerMatch, error)
 }
 
+// ReviewRunDiscover looks again for the pull requests of a repository's
+// tasks (PRTrackingService's DiscoverRepository).
+type ReviewRunDiscover interface {
+	DiscoverRepository(ctx context.Context, repo string) error
+}
+
 // ReviewRunWorkflows ends a run's review step (WorkflowService).
 type ReviewRunWorkflows interface {
 	WaitingAttempts(ctx context.Context, executorType string) ([]store.WorkflowStepAttempt, error)
@@ -68,6 +74,10 @@ type ReviewRunOptions struct {
 	GitHub ReviewRunGitHub
 	Clones ReviewRunClones
 	Owners ReviewRunOwners
+	// Discover is PR tracking, asked to look again in the repository when
+	// an agent-authored loop finds no task linked to its pull request: an
+	// agent may have opened it a moment ago. Nil: no second look.
+	Discover ReviewRunDiscover
 	// SummaryDir holds each run's Markdown summary of its loop.
 	SummaryDir string
 }
@@ -208,17 +218,37 @@ func (c *ReviewRunCaller) Start(ctx context.Context, step ResolvedWorkflowStep) 
 			return WorkflowExecutionResult{}, active
 		}
 	}
-	linked := c.linkedTask(ctx, repo, number, pr.Branch)
-	for _, p := range prs {
-		if linked == "" && p.Number != number {
-			// A stack's card may track another of its layers.
-			linked = c.linkedTask(ctx, repo, p.Number, p.Branch)
+	findLinked := func() string {
+		linked := c.linkedTask(ctx, repo, number, pr.Branch)
+		for _, p := range prs {
+			if linked == "" && p.Number != number {
+				// A stack's card may track another of its layers.
+				linked = c.linkedTask(ctx, repo, p.Number, p.Branch)
+			}
 		}
+		return linked
 	}
-	if agentAuthor {
-		if linked == "" {
-			return WorkflowExecutionResult{}, fmt.Errorf("agent_author needs a board task linked to pull request #%d of %s, and none is: Legato starts no fresh author. Run without agent_author, and the branch's owner is the author", number, repo)
+	linked := findLinked()
+	if agentAuthor && linked == "" && c.opts.Discover != nil {
+		// The agent may have opened it since the last poll: look once more.
+		if err := c.opts.Discover.DiscoverRepository(ctx, repo); err != nil {
+			log.Printf("review passes: looking again for the task of %s#%d: %v", repo, number, err)
 		}
+		linked = findLinked()
+	}
+	if agentAuthor && linked == "" {
+		head := pr.Branch
+		if head == "" {
+			head = "<head-branch>"
+		}
+		looked := ""
+		if c.opts.Discover != nil {
+			looked = ", even after Legato looked again,"
+		}
+		return WorkflowExecutionResult{}, fmt.Errorf("pull request #%d of %s is not linked to any board task yet%s "+
+			"and agent_author needs the task whose agent wrote it: Legato starts no fresh author. "+
+			"Link it to its task with legato task link <task-id> --repo %s --branch %s, or p on the task's card on the board, then run again; "+
+			"or run without agent_author, and the branch's owner is the author", number, repo, looked, repo, head)
 	}
 	author := ""
 	if agentAuthor {

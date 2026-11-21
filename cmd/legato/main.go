@@ -1075,6 +1075,7 @@ func runServeCmd(args []string) int {
 	approvalsRT.sweepSessionHistory(sessionHistory)
 	approvalsRT.recoverSessionHistory(sessionHistory, bus)
 	approvalsRT.captureConversationText(db, bus, agentSvc)
+	approvalsRT.trackAgentBranches(db, prSvc)
 	defer approvalsRT.stop()
 	approvalsRT.attach(srv)
 	updates := newUpdateService(db, bus, agentSvc, serveRestarter())
@@ -1164,7 +1165,7 @@ func runServeCmd(args []string) int {
 	defer wireAgentUI(srv, cfg, db, bus)()
 	wireWorkStages(srv, db, bus)
 	wireSessionHistory(srv, cfg, db, agentSvc, boardSvc, serveReeve)
-	defer wireIntegrations(srv, integrationDeps{cfg: cfg, db: db, bus: bus, agents: agentSvc, board: boardSvc, approvals: approvalsRT, repos: repos, workflows: workflowSvc, reviewPrompt: serveReviewPrompt})()
+	defer wireIntegrations(srv, integrationDeps{cfg: cfg, db: db, bus: bus, agents: agentSvc, board: boardSvc, approvals: approvalsRT, repos: repos, workflows: workflowSvc, reviewPrompt: serveReviewPrompt, prs: prSvc})()
 	srv.SetDirectoryService(configuredDirectoryService(cfg, db, repoPresets))
 	srv.SetResourceService(wiredResourceService(cfg, db, agentSvc))
 
@@ -1433,6 +1434,7 @@ func runTUI() int {
 	approvalsRT.sweepSessionHistory(sessionHistory)
 	approvalsRT.recoverSessionHistory(sessionHistory, bus)
 	approvalsRT.captureConversationText(db, bus, agentSvc)
+	approvalsRT.trackAgentBranches(db, prSvc)
 	defer approvalsRT.stop()
 
 	// Auto-start web server if configured and port is free.
@@ -1534,7 +1536,7 @@ func runTUI() int {
 			stopAgentUI = wireAgentUI(webSrv, cfg, db, bus)
 			wireWorkStages(webSrv, db, bus)
 			wireSessionHistory(webSrv, cfg, db, agentSvc, boardSvc, webReeve)
-			stopIntegrations = wireIntegrations(webSrv, integrationDeps{cfg: cfg, db: db, bus: bus, agents: agentSvc, board: boardSvc, approvals: approvalsRT, repos: repos, workflows: tuiWorkflowSvc, reviewPrompt: webReviewPrompt})
+			stopIntegrations = wireIntegrations(webSrv, integrationDeps{cfg: cfg, db: db, bus: bus, agents: agentSvc, board: boardSvc, approvals: approvalsRT, repos: repos, workflows: tuiWorkflowSvc, reviewPrompt: webReviewPrompt, prs: prSvc})
 			webSrv.SetDirectoryService(configuredDirectoryService(cfg, db, repoPresets))
 			webSrv.SetResourceService(wiredResourceService(cfg, db, agentSvc))
 			go func() {

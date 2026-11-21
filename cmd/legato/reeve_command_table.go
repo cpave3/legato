@@ -35,15 +35,16 @@ var legatoCommandClasses = map[string]legatoCommandClass{
 	"resource remove": {"risky", "Remove a saved resource"},
 
 	// Secrets and credentials.
-	"secret add":          {"risky", "Store a secret"},
-	"secret list":         {"read", "List the stored secrets"},
-	"secret remove":       {"risky", "Remove a stored secret"},
-	"credential list":     {"read", "List the credentials and their rules"},
-	"credential request":  {"never", "Ask for a credential for an agent session"},
-	"credential get":      {"never", "Print a credential's value"},
-	"credential exec":     {"never", "Run a command with a credential"},
-	"credential git":      {"never", "Give git a credential"},
-	"credential gh-token": {"never", "Print a GitHub token"},
+	"secret add":           {"risky", "Store a secret"},
+	"secret list":          {"read", "List the stored secrets"},
+	"secret remove":        {"risky", "Remove a stored secret"},
+	"credential list":      {"read", "List the credentials and their rules"},
+	"credential request":   {"never", "Ask for a credential for an agent session"},
+	"credential get":       {"never", "Print a credential's value"},
+	"credential exec":      {"never", "Run a command with a credential"},
+	"credential git":       {"never", "Give git a credential"},
+	"credential gh-token":  {"never", "Print a GitHub token"},
+	"credential gh-opened": {"never", "Tell Legato of a pull request gh opened"},
 
 	// Approval devices.
 	"device list":        {"read", "List the approval devices"},

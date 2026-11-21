@@ -89,6 +89,33 @@ type ProxyBackend interface {
 	Measured(ctx context.Context, use ProxyUse, amounts map[string]int64)
 }
 
+// BranchListener is told of each branch an agent's session opened a pull
+// request from: through the REST API here (a pr.create or pr.create-draft
+// use whose resource names the branch, which the upstream accepted), or as
+// gh reports after gh pr create (/c/<credential>/pr-opened). Legato tracks
+// the branch on the session's task and looks for its pull request at once.
+// A backend need not listen.
+type BranchListener interface {
+	BranchOpened(ctx context.Context, execution Execution, credential, repo, branch string)
+}
+
+// openedBranch is the repository and branch a pull request create names in
+// its resource ("github:owner/name@refs/heads/branch").
+func openedBranch(use ProxyUse) (repo, branch string, ok bool) {
+	if use.Operation != OperationPRCreate && use.Operation != OperationPRCreateDraft {
+		return "", "", false
+	}
+	rest, found := strings.CutPrefix(use.Resource, "github:")
+	if !found {
+		return "", "", false
+	}
+	repo, branch, found = strings.Cut(rest, "@refs/heads/")
+	if !found || !validBranchName(branch) || !strings.Contains(repo, "/") {
+		return "", "", false
+	}
+	return repo, branch, true
+}
+
 // HTTPProxy serves the http-proxy channel. An agent sends plain HTTP to
 // loopback with a placeholder in the key's place; the proxy checks the use,
 // puts the real key in, and forwards the request to the credential's fixed
@@ -132,6 +159,9 @@ func (p *HTTPProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 		return
 	case c.Tokens && path == "/pr-ready":
 		p.servePRReady(w, r, c)
+		return
+	case c.Tokens && path == "/pr-opened":
+		p.servePROpened(w, r, c)
 		return
 	case c.Git != nil && strings.HasPrefix(path, "/git/"):
 		p.serveGit(w, r, c, strings.TrimPrefix(path, "/git/"))
@@ -247,6 +277,13 @@ func (p *HTTPProxy) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 				continue
 			}
 			w.Header().Add(header, v)
+		}
+	}
+	// The pull request exists once the upstream accepted it: Legato hears
+	// of it before the agent does.
+	if listener, ok := p.Backend.(BranchListener); ok && resp.StatusCode >= 200 && resp.StatusCode < 300 {
+		if repo, branch, ok := openedBranch(use); ok {
+			listener.BranchOpened(context.WithoutCancel(ctx), execution, name, repo, branch)
 		}
 	}
 	w.WriteHeader(resp.StatusCode)

@@ -418,7 +418,8 @@ func writeGHWrapper(dir, legato string) error {
 	// makes the only one. Without a token from Legato, gh falls back to the
 	// person's login unless the session is signed out (isolate_login).
 	// A token that can write (gh-token prints "<token> revoke", for a pull
-	// request command) is revoked when gh exits. A command Legato does
+	// request command) is revoked when gh exits, and after a command that
+	// succeeded gh-opened tells Legato of a pull request it opened. A command Legato does
 	// itself (gh pr ready; gh-token prints "done <message>") is not run.
 	script := "#!/bin/sh\n" +
 		"# Legato: gh with a token for one repository from\n" +
@@ -436,6 +437,9 @@ func writeGHWrapper(dir, legato string) error {
 		"  if [ \"$token\" != \"$out\" ]; then\n" +
 		"    \"$real\" \"$@\"; status=$?\n" +
 		"    \"$real\" api -X DELETE installation/token >/dev/null 2>&1\n" +
+		// A pull request gh opened is tracked on the task at once
+		// (gh-opened does nothing for other commands).
+		"    [ $status -eq 0 ] && " + shellQuote(legato) + " credential gh-opened -- \"$@\" >/dev/null 2>&1\n" +
 		"    exit $status\n" +
 		"  fi\n" +
 		"elif [ \"$GH_TOKEN\" = " + GHSignedOut + " ]; then\n" +
@@ -595,13 +599,46 @@ func (c *CredentialChannels) SetPushListener(listen func(repo string)) {
 // cache fetch without a compile error.
 var _ credential.GitPushListener = (*CredentialChannels)(nil)
 
-// Pushed passes a push GitHub accepted to the push listener
+// Pushed passes a push GitHub accepted to the push listener, and each
+// legato/ branch it carried to the branch listener
 // (credential.GitPushListener).
-func (c *CredentialChannels) Pushed(_ context.Context, _ credential.Execution, _, repo string, _ []string) {
+func (c *CredentialChannels) Pushed(_ context.Context, execution credential.Execution, _, repo string, refs []string) {
 	c.mu.Lock()
-	listen := c.onPush
+	listen, onBranch := c.onPush, c.onBranch
 	c.mu.Unlock()
 	if listen != nil {
 		listen(repo)
+	}
+	if onBranch == nil {
+		return
+	}
+	for _, ref := range refs {
+		if branch, ok := strings.CutPrefix(ref, "refs/heads/"); ok && strings.HasPrefix(branch, agentBranchPrefix) {
+			onBranch(AgentBranch{TaskID: execution.TaskID, ExecutionID: execution.ExecutionID, Repo: repo, Branch: branch})
+		}
+	}
+}
+
+// SetBranchListener is told of each legato/ branch an agent's session
+// pushed through the proxy and of each branch it opened a pull request
+// from (AgentBranches.Track, which the runtime wires).
+func (c *CredentialChannels) SetBranchListener(listen func(AgentBranch)) {
+	c.mu.Lock()
+	c.onBranch = listen
+	c.mu.Unlock()
+}
+
+// The proxy finds the branch listener by asserting its backend, as it does
+// the push listener.
+var _ credential.BranchListener = (*CredentialChannels)(nil)
+
+// BranchOpened passes a branch an agent opened a pull request from to the
+// branch listener (credential.BranchListener).
+func (c *CredentialChannels) BranchOpened(_ context.Context, execution credential.Execution, _, repo, branch string) {
+	c.mu.Lock()
+	onBranch := c.onBranch
+	c.mu.Unlock()
+	if onBranch != nil {
+		onBranch(AgentBranch{TaskID: execution.TaskID, ExecutionID: execution.ExecutionID, Repo: repo, Branch: branch, Opened: true})
 	}
 }

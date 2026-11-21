@@ -363,3 +363,4 @@ Legato, its hooks and the agent tools it launches run these. You do not need to 
 - `legato mcp serve`: gives an agent Legato's tools over the Model Context Protocol. See [Legato's MCP tools](/legato/agent-tools/mcp-tools/).
 - `legato credential git <credential> get|store|erase`: git's credential helper in an agent session with a GitHub credential.
 - `legato credential gh-token -- <gh arguments>`: gives Legato's `gh` wrapper a token for the repository a `gh` command acts on.
+- `legato credential gh-opened -- <gh arguments>`: run by the `gh` wrapper after a `gh` command that succeeded; when it opened a pull request, tells Legato its branch, so the task links it at once.

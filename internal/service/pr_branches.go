@@ -21,6 +21,7 @@ const (
 	BranchSourceManual      = "manual"       // the head branch of a PR linked by number
 	BranchSourceDiscovered  = "discovered"   // found by commit or ticket key in the repository's PRs
 	BranchSourceReview      = "review"       // the stack of open PRs a review loop found on GitHub (a worker's card)
+	BranchSourceAgent       = "agent"        // pushed or opened as a PR by the task's agent, or its checkout's branch before it moved
 )
 
 // PRBranchActions tracks several branches per task, each with its PR, in
@@ -143,6 +144,47 @@ func (p *prTrackingService) taskContext(ctx context.Context, taskID string) (*st
 	return task, cc, nil
 }
 
+// SetCheckoutHead gives PR tracking a way to read the branch a checkout
+// has checked out, so a task's agent-sourced code context follows its
+// agent to another branch (followCheckout). The runtime gives it
+// gitrepo.Head, which reads git's files and runs nothing in the checkout.
+var _ interface {
+	SetCheckoutHead(func(string) (string, string, error))
+} = (*prTrackingService)(nil)
+
+func (p *prTrackingService) SetCheckoutHead(head func(dir string) (branch, commit string, err error)) {
+	p.checkoutHead = head
+}
+
+// followCheckout moves a code context Legato recorded for an agent (from
+// its job clone or its working directory) to the branch the agent's
+// checkout is on now, keeping the branch it was on tracked (source agent),
+// so a stack built in the clone is found branch by branch. A context the
+// person set (manual), a handoff's or a worktree's never moves, nor does
+// one whose checkout is detached, gone or on the default branch.
+func (p *prTrackingService) followCheckout(ctx context.Context, taskID string, cc *store.CodeContext) *store.CodeContext {
+	if p.checkoutHead == nil || cc == nil || cc.Repo == "" || cc.WorkingDir == "" || cc.RepoSource == "manual" ||
+		(cc.BranchSource != "agent" && cc.BranchSource != "job_clone") {
+		return cc
+	}
+	branch, commit, err := p.checkoutHead(cc.WorkingDir)
+	if err != nil || branch == "" || branch == cc.Branch || isDefaultBranch(branch, cc.BaseBranch) {
+		return cc
+	}
+	if cc.Branch != "" && !isDefaultBranch(cc.Branch, cc.BaseBranch) {
+		if _, err := p.store.TrackTaskBranches(ctx, taskID, []store.BranchRef{{Repo: cc.Repo, Branch: cc.Branch}}, BranchSourceAgent); err != nil {
+			return cc
+		}
+	}
+	moved := *cc
+	moved.Branch, moved.HeadSHA, moved.BranchSource = branch, commit, "agent"
+	moved.UpdatedAt = time.Now().UTC().Format(time.RFC3339)
+	if err := p.store.SetCodeContext(ctx, taskID, &moved); err != nil {
+		return cc
+	}
+	return &moved
+}
+
 // trackContextBranches adds the code context's branch and the branches of
 // the Staccato stacks recorded for the task's job clones.
 func (p *prTrackingService) trackContextBranches(ctx context.Context, taskID string, cc *store.CodeContext) error {
@@ -189,6 +231,7 @@ func (p *prTrackingService) syncTask(ctx context.Context, task *store.Task, cc *
 		}
 		changed = true
 	}
+	cc = p.followCheckout(ctx, taskID, cc)
 	if err := p.trackContextBranches(ctx, taskID, cc); err != nil {
 		return changed, err
 	}

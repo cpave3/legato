@@ -443,3 +443,96 @@ func normalizeGHRepo(value string) (string, error) {
 	}
 	return "", fmt.Errorf("%q is not owner/name on github.com", value)
 }
+
+// apiPullsPath is the REST path that opens a pull request.
+var apiPullsPath = regexp.MustCompile(`^/?repos/[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+/pulls/?$`)
+
+// graphQLHead is the head branch a createPullRequest mutation names: a
+// string, or a variable.
+var graphQLHead = regexp.MustCompile(`headRefName\s*:\s*(?:"([^"]+)"|\$([A-Za-z_][A-Za-z0-9_]*))`)
+
+// GHOpenedPR says whether a gh command opens a pull request, and the
+// branch it names as the head ("" when it names none: gh pr create then
+// opens it from the current branch). It knows gh pr create, gh api's POST
+// to repos/<owner>/<repo>/pulls with a head field, and gh api graphql's
+// createPullRequest mutation with a headRefName.
+func GHOpenedPR(args []string) (bool, string) {
+	var words []string
+	for i := 0; i < len(args) && len(words) < 2; i++ {
+		a := args[i]
+		if a == "-R" || a == "--repo" {
+			i++
+			continue
+		}
+		if !strings.HasPrefix(a, "-") {
+			words = append(words, a)
+		}
+	}
+	if len(words) == 2 && words[0] == "pr" && words[1] == "create" {
+		return true, GHPRCreateHead(args)
+	}
+	if len(words) == 0 || words[0] != "api" {
+		return false, ""
+	}
+	endpoint, method, values := ghAPICall(args)
+	field := func(name string) string {
+		for _, v := range values {
+			if key, value, ok := strings.Cut(v, "="); ok && key == name {
+				return value
+			}
+		}
+		return ""
+	}
+	head := ""
+	switch {
+	case endpoint == "graphql":
+		query := field("query")
+		if !strings.Contains(query, "createPullRequest") {
+			return false, ""
+		}
+		m := graphQLHead.FindStringSubmatch(query)
+		if m == nil {
+			return false, ""
+		}
+		head = m[1]
+		if m[2] != "" {
+			head = field(m[2])
+		}
+	case method == "POST" && apiPullsPath.MatchString(endpoint):
+		head = field("head")
+	default:
+		return false, ""
+	}
+	if _, branch, ok := strings.Cut(head, ":"); ok {
+		head = branch
+	}
+	return head != "", head
+}
+
+// PROpened tells Legato's proxy the branch a gh command opened a pull
+// request from, so Legato tracks it on the session's task and finds the
+// pull request at once.
+func (s GitHubSession) PROpened(ctx context.Context, repo, branch string) error {
+	body, _ := json.Marshal(map[string]string{"repo": repo, "branch": branch})
+	req, err := http.NewRequestWithContext(ctx, http.MethodPost, s.base()+"/pr-opened", bytes.NewReader(body))
+	if err != nil {
+		return err
+	}
+	req.Header.Set("Authorization", "Bearer "+s.Placeholder)
+	req.Header.Set("Content-Type", "application/json")
+	client := s.Client
+	if client == nil {
+		client = &http.Client{Timeout: 10 * time.Second}
+	}
+	resp, err := client.Do(req)
+	if err != nil {
+		return fmt.Errorf("Legato's proxy did not answer: %w", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusNoContent {
+		var out map[string]string
+		_ = json.NewDecoder(io.LimitReader(resp.Body, 1<<16)).Decode(&out)
+		return fmt.Errorf("Legato did not take the pull request's branch: %s", firstNonEmptyString(out["error"], resp.Status))
+	}
+	return nil
+}

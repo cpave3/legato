@@ -222,6 +222,9 @@ func commandTree() *commandDef {
 		leaf("gh-token", "Print a token for the repository a gh command acts on: a read token, or one that writes pull requests for gh pr edit, comment and the like (Legato's gh wrapper runs it)", runCredentialGHToken,
 			[]argumentDef{{Name: "-- gh arguments", Optional: true, Repeatable: true, Description: "The gh command's arguments, after --"}}, nil,
 			"legato credential gh-token -- pr list -R cpave3/legato"),
+		leaf("gh-opened", "Tell Legato the branch a gh command that succeeded opened a pull request from, so its task tracks it at once (Legato's gh wrapper runs it)", runCredentialGHOpened,
+			[]argumentDef{{Name: "-- gh arguments", Optional: true, Repeatable: true, Description: "The gh command's arguments, after --"}}, nil,
+			"legato credential gh-opened -- pr create --fill"),
 	)
 	device := group("device", "The devices (phones) that sign approval decisions", []string{"legato device list", "legato device reset"},
 		leaf("list", "List the devices that sign approval decisions", func(a []string) int { return runDeviceContract("list", a) },

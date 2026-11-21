@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"path/filepath"
+	"sync"
 	"testing"
 
 	"github.com/cpave3/legato/internal/engine/store"
@@ -19,6 +20,35 @@ type ReviewRuns struct {
 	Workflows *service.WorkflowService
 	Caller    *service.ReviewRunCaller
 	Clones    *FakeRunClones
+	// Discover is the PR tracking a run asks to look again when no task
+	// is linked to an agent-authored loop's pull request.
+	Discover *FakeDiscover
+}
+
+// FakeDiscover records each repository a run asked PR tracking to look in
+// again, and runs OnDiscover, which may link a task as a real look would.
+type FakeDiscover struct {
+	mu         sync.Mutex
+	calls      []string
+	OnDiscover func(repo string)
+}
+
+func (f *FakeDiscover) DiscoverRepository(_ context.Context, repo string) error {
+	f.mu.Lock()
+	f.calls = append(f.calls, repo)
+	hook := f.OnDiscover
+	f.mu.Unlock()
+	if hook != nil {
+		hook(repo)
+	}
+	return nil
+}
+
+// Calls are the repositories looked in, in order.
+func (f *FakeDiscover) Calls() []string {
+	f.mu.Lock()
+	defer f.mu.Unlock()
+	return append([]string(nil), f.calls...)
 }
 
 // StartReviewRuns gives a worker with review passes workflows and the run
@@ -31,13 +61,14 @@ func StartReviewRuns(t *testing.T, w *Worker) *ReviewRuns {
 	clones := &FakeRunClones{repos: w.Repos, checkout: w.Checkout, removed: map[int64]bool{}}
 	step := service.NewReviewPassesStep()
 	workflows := service.NewWorkflowService(w.Store, []service.WorkflowExecutor{step, service.NewTaskNoteExecutor(w.Store)})
+	discover := &FakeDiscover{}
 	caller := service.NewReviewRunCaller(w.Reviews, service.ReviewRunOptions{
-		GitHub: w.ReviewGitHub, Clones: clones, Owners: service.NewOwnerLookupService(w.Store, w.Agents, ""),
+		GitHub: w.ReviewGitHub, Clones: clones, Owners: service.NewOwnerLookupService(w.Store, w.Agents, ""), Discover: discover,
 		SummaryDir: filepath.Join(w.Dir, "review-summaries"),
 	})
 	caller.SetWorkflows(workflows)
 	step.Attach(caller)
-	return &ReviewRuns{w: w, Workflows: workflows, Caller: caller, Clones: clones}
+	return &ReviewRuns{w: w, Workflows: workflows, Caller: caller, Clones: clones, Discover: discover}
 }
 
 // Start runs review-pr-passes with inputs.

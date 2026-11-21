@@ -83,7 +83,7 @@ func (a *awayPRs) discover(taskID string, prs PRBranchActions) {
 			// Not the connection's context: a discovery under way finishes
 			// when the connection drops.
 			if err := prs.DiscoverPRs(context.Background(), taskID); err != nil {
-				log.Printf("away task %s: looking for its PRs: %v", taskID, err)
+				log.Printf("task %s: looking for its PRs: %v", taskID, err)
 			}
 			a.mu.Lock()
 			if !a.again[taskID] {

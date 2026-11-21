@@ -203,7 +203,7 @@ func TestAReviewRunIsRefusedAtStartWhenItCannotReview(t *testing.T) {
 	})
 	t.Run("an agent author for a pull request no board task links", func(t *testing.T) {
 		r := newReviewRun(t, ReviewPassOptions{})
-		refused(t, r.start(t, map[string]string{"repo": "acme/widget", "pr_number": "12", "agent_author": "true"}), "agent_author needs a board task")
+		refused(t, r.start(t, map[string]string{"repo": "acme/widget", "pr_number": "12", "agent_author": "true"}), "is not linked to any board task yet")
 	})
 }
 
