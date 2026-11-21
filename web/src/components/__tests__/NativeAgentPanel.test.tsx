@@ -386,6 +386,34 @@ describe("NativeAgentPanel", () => {
     expect(screen.getByLabelText("Message from Legato: review")).not.toBeNull()
   })
 
+  it("draws a change set's result as a collapsed event row, not as a message from the person", async () => {
+    const report = "[legato change set] Change set cs-816fab12cd (read the skills): 1 of 1 ran.\n1. Run on the host: cat a: ran: hello from the host"
+    vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => String(input).includes("/snapshot")
+      ? new Response(JSON.stringify({
+          id: "task-1", status: "idle", toolCalls: [], pendingPermissions: [],
+          messages: [
+            { role: "system", content: "" },
+            { role: "user", content: report },
+          ],
+        }), { status: 200 })
+      : new Response("[]", { status: 200 }))
+
+    render(<NativeAgentPanel agentId="task-1" agentKind="claude-code" />)
+
+    const row = await screen.findByRole("button", { name: /Legato · change set/ })
+    expect(row.textContent).toContain("cs-816f… · 1 of 1 ran ✓")
+    expect(row.getAttribute("aria-expanded")).toBe("false")
+    // Collapsed: the whole text is not in the conversation, and nothing is
+    // drawn as a message, the person's or Legato's.
+    expect(screen.queryByText(/hello from the host/)).toBeNull()
+    expect(screen.queryAllByLabelText(/^Message from Legato/)).toHaveLength(0)
+    expect(row.closest(".justify-end")).toBeNull()
+
+    fireEvent.click(row)
+    expect(row.getAttribute("aria-expanded")).toBe("true")
+    expect(screen.getByText(/hello from the host/)).not.toBeNull()
+  })
+
   it("shows another instance's Reeve's message as its own block, marked with the instance", async () => {
     vi.spyOn(globalThis, "fetch").mockImplementation(async (input) => String(input).includes("/snapshot")
       ? new Response(JSON.stringify({

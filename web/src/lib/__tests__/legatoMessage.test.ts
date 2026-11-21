@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { parseLegatoMessage } from "../legatoMessage"
+import { legatoEventSummary, parseLegatoMessage } from "../legatoMessage"
 
 describe("parseLegatoMessage", () => {
   it.each([
@@ -32,5 +32,33 @@ describe("parseLegatoMessage", () => {
     expect(parseLegatoMessage("fix the [legato coordination] wording")).toBeNull()
     expect(parseLegatoMessage("[WIP] rename the handler")).toBeNull()
     expect(parseLegatoMessage("legato coordination is noisy")).toBeNull()
+  })
+
+  it("marks a change set's result and a restart as events, which the conversation draws as one line", () => {
+    const report = "[legato change set] Change set cs-816fab12cd (read the skills): 1 of 1 ran.\n1. Run on the host: cat a: ran: hello\n"
+
+    expect(parseLegatoMessage(report)).toMatchObject({ label: "change set", event: true })
+    expect(parseLegatoMessage("[legato restart] Legato is back: running v1.2.0 since 10:00:00 UTC.")).toMatchObject({ label: "restart", event: true })
+    expect(parseLegatoMessage("[legato coordination] Agents already working here.")?.event).toBeUndefined()
+  })
+
+  it.each([
+    ["Change set cs-816fab12cd (read the skills): 1 of 1 ran.\n1. …", "cs-816f… · 1 of 1 ran ✓"],
+    ["Change set cs-816fab12cd (edit): 1 of 3 ran, 1 failed, 1 skipped.\n1. …", "cs-816f… · 1 of 3 ran, 1 failed, 1 skipped"],
+    ["Change set cs-816fab12cd (restart): 1 of 1 ran.\n1. Restart: ran\nLegato restarts now; you will be told when it is back.\n", "cs-816f… · 1 of 1 ran ✓ · restarting"],
+    ["The operator denied change set cs-816fab12cd (edit). Their note: no\nDo not …", "cs-816f… · denied"],
+  ])("sums up a change set's message %#", (body, summary) => {
+    expect(legatoEventSummary("change set", body)).toBe(summary)
+  })
+
+  it.each([
+    ["Legato is back: running v1.2.0 since 10:00:00 UTC.\nThe restart was asked for by you", "restart: back"],
+    ["Legato is back: running v1.2.0 since 10:00:00 UTC.\nThe restart failed and was rolled back: bad port\n", "restart: rolled back"],
+  ])("sums up a restart's message %#", (body, summary) => {
+    expect(legatoEventSummary("restart", body)).toBe(summary)
+  })
+
+  it("falls back to the first line for a message it does not know", () => {
+    expect(legatoEventSummary("change set", "Something new.\nMore.")).toBe("Something new.")
   })
 })

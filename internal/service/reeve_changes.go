@@ -11,8 +11,10 @@ import (
 	"net/http"
 	"net/url"
 	"path"
+	"regexp"
 	"sort"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/cpave3/legato/config"
@@ -118,11 +120,19 @@ type CallResult struct {
 type ChangeSetOutcome struct {
 	ID         string `json:"id"`
 	ApprovalID string `json:"approval_id"`
-	// State is approved (Legato runs it now; results follow as a
-	// message), denied, or pending (no decision within the wait).
+	// State is done or failed (a set that ran without asking and finished
+	// within the wait: Report and Results say what each call did, and no
+	// message follows), running (one that ran without asking and was still
+	// running at the end of the wait: results follow as a message),
+	// approved (Legato runs it now; results follow as a message), denied,
+	// or pending (no decision within the wait).
 	State string     `json:"state"`
 	Level ReeveLevel `json:"level"`
 	Note  string     `json:"note,omitempty"`
+	// Report is what the set did, as the message would have said it
+	// without its tag; set for done and failed.
+	Report  string       `json:"report,omitempty"`
+	Results []CallResult `json:"results,omitempty"`
 }
 
 // RouteClassifier says a call's class and a plain description of it, from
@@ -152,7 +162,7 @@ type ChangeSetOptions struct {
 	ConfigPath func() string
 	// Restart restarts Legato, last in a set.
 	Restart func()
-	// Notify sends a message to a Reeve session ([legato] results, a
+	// Notify sends a message to a Reeve session ([legato change set] results, a
 	// denial's note).
 	Notify func(ctx context.Context, taskID, text string)
 	// Watch tells the Reeve session what an agent a set started or
@@ -162,21 +172,60 @@ type ChangeSetOptions struct {
 	// Reeve's.
 	RunningAgents func(ctx context.Context) []string
 	Wait          time.Duration
-	Now           func() time.Time
+	// ResultWait is how long propose_changes waits for a set that runs
+	// without asking to finish (30 s when 0); HostResultWait is the same
+	// for a set with a host call (90 s when 0, and never past the host
+	// command timeout).
+	ResultWait     time.Duration
+	HostResultWait time.Duration
+	Now            func() time.Time
 }
+
+// hostOutputGrace is how long past reeve.host_timeout a host call may take
+// to end: its output is read for a while after it is stopped.
+const hostOutputGrace = 3 * time.Second
 
 // ChangeSetService proposes the Reeve's change sets as approvals and runs
 // the approved ones.
-type ChangeSetService struct{ opts ChangeSetOptions }
+type ChangeSetService struct {
+	opts ChangeSetOptions
+
+	mu sync.Mutex
+	// held are sets Propose is about to run itself, which RunQueued leaves.
+	held map[string]bool
+	// waiters are the sets whose results Propose waits for, to answer
+	// them in the tool call rather than as a message.
+	waiters map[string]*changeSetWaiter
+}
+
+// changeSetWaiter is Propose waiting for a set it runs. Whichever of the
+// run and the wait ends first decides who tells the Reeve: a run that ends
+// while Propose still waits gives it the results, and sends no message.
+type changeSetWaiter struct {
+	done   chan struct{}
+	result *changeSetResult
+}
+
+type changeSetResult struct {
+	state   string
+	report  string
+	results []CallResult
+}
 
 func NewChangeSetService(opts ChangeSetOptions) *ChangeSetService {
 	if opts.Wait == 0 {
 		opts.Wait = 60 * time.Second
 	}
+	if opts.ResultWait == 0 {
+		opts.ResultWait = 30 * time.Second
+	}
+	if opts.HostResultWait == 0 {
+		opts.HostResultWait = 90 * time.Second
+	}
 	if opts.Now == nil {
 		opts.Now = time.Now
 	}
-	return &ChangeSetService{opts: opts}
+	return &ChangeSetService{opts: opts, held: map[string]bool{}, waiters: map[string]*changeSetWaiter{}}
 }
 
 // Register makes the approval service queue approved sets.
@@ -406,6 +455,12 @@ func optionalRestart(calls []ProposedCall) bool {
 // decision (60 seconds). A signed level with no device enrolled refuses
 // the set.
 func (c *ChangeSetService) Propose(ctx context.Context, taskID, reason string, calls []ChangeCall) (ChangeSetOutcome, error) {
+	return c.propose(ctx, taskID, reason, calls, c.opts.Wait, true)
+}
+
+// propose is Propose waiting wait for a decision and, with runNow, running
+// a set approved at once itself to answer its results.
+func (c *ChangeSetService) propose(ctx context.Context, taskID, reason string, calls []ChangeCall, wait time.Duration, runNow bool) (ChangeSetOutcome, error) {
 	details, err := c.Describe(ctx, reason, calls)
 	if err != nil {
 		return ChangeSetOutcome{}, err
@@ -447,14 +502,24 @@ func (c *ChangeSetService) Propose(ctx context.Context, taskID, reason string, c
 	if auto {
 		// The person chose to let these run at once: the approval is
 		// recorded as decided by what allowed it, and the set is queued.
+		// Propose runs it itself and answers its results, unless it ends
+		// in a restart, which would end this process before it answers.
+		now := runNow && !hasRestart(details.Calls)
+		if now {
+			c.hold(details.ID, true)
+		}
 		_ = c.opts.Store.SetReeveChangeSetWaiting(context.Background(), details.ID, false)
 		if _, err := c.opts.Approvals.Decide(ctx, approval.ID, ApprovalDecision{Decision: ApprovalAllow, Option: "allow", By: autoBy(details.Calls)}); err != nil {
+			c.hold(details.ID, false)
 			return out, err
 		}
 		out.State = "approved"
+		if now {
+			return c.runNow(ctx, out, details.Calls), nil
+		}
 		return out, nil
 	}
-	decided, err := c.opts.Approvals.Wait(ctx, approval.ID, c.opts.Wait)
+	decided, err := c.opts.Approvals.Wait(ctx, approval.ID, wait)
 	_ = c.opts.Store.SetReeveChangeSetWaiting(context.Background(), details.ID, false)
 	if err != nil || decided == nil {
 		return out, nil
@@ -469,6 +534,101 @@ func (c *ChangeSetService) Propose(ctx context.Context, taskID, reason string, c
 		}
 	}
 	return out, nil
+}
+
+func hasRestart(calls []ProposedCall) bool {
+	for _, call := range calls {
+		if call.Kind == CallRestart {
+			return true
+		}
+	}
+	return false
+}
+
+func (c *ChangeSetService) hold(id string, on bool) {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	if on {
+		c.held[id] = true
+	} else {
+		delete(c.held, id)
+	}
+}
+
+func (c *ChangeSetService) isHeld(id string) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	return c.held[id]
+}
+
+// resultWait is how long Propose waits for a set's results: longer for a
+// set with a host call, which may run a while, though never past the host
+// command timeout, and always within the two minutes a tool call has.
+func (c *ChangeSetService) resultWait(calls []ProposedCall, hostTimeout time.Duration) time.Duration {
+	for _, call := range calls {
+		if isHostCall(call.Kind) {
+			return min(c.opts.HostResultWait, hostTimeout+hostOutputGrace)
+		}
+	}
+	return c.opts.ResultWait
+}
+
+// runNow runs a set that was approved at once and waits for its results,
+// up to resultWait. A set still running then is reported by message, as
+// one the operator approved is.
+func (c *ChangeSetService) runNow(ctx context.Context, out ChangeSetOutcome, calls []ProposedCall) ChangeSetOutcome {
+	defer c.hold(out.ID, false)
+	set, err := c.opts.Store.GetReeveChangeSet(ctx, out.ID)
+	if err != nil || set.State != store.ChangeSetQueued {
+		return out
+	}
+	if claimed, err := c.opts.Store.MoveReeveChangeSet(ctx, set.ID, store.ChangeSetQueued, store.ChangeSetRunning); err != nil || !claimed {
+		return out
+	}
+	w := &changeSetWaiter{done: make(chan struct{})}
+	c.mu.Lock()
+	c.waiters[set.ID] = w
+	c.mu.Unlock()
+	hostTimeout := config.Defaults().Reeve.HostCommandTimeout()
+	if c.opts.Settings != nil {
+		if effective, err := c.opts.Settings.Effective(ctx); err == nil {
+			hostTimeout = effective.Reeve.HostCommandTimeout()
+		}
+	}
+	// The run is not the tool call's: it goes on if the call is given up.
+	go c.run(context.WithoutCancel(ctx), *set, false)
+	timer := time.NewTimer(c.resultWait(calls, hostTimeout))
+	defer timer.Stop()
+	select {
+	case <-w.done:
+	case <-timer.C:
+	case <-ctx.Done():
+	}
+	c.mu.Lock()
+	result := w.result
+	delete(c.waiters, set.ID)
+	c.mu.Unlock()
+	if result == nil {
+		out.State = "running"
+		return out
+	}
+	out.State, out.Report, out.Results = result.state, result.report, result.results
+	return out
+}
+
+// deliver gives a finished set's results to Propose when it still waits
+// for them, and reports whether it did.
+func (c *ChangeSetService) deliver(id string, result changeSetResult) bool {
+	c.mu.Lock()
+	defer c.mu.Unlock()
+	w := c.waiters[id]
+	if w == nil {
+		return false
+	}
+	w.result = &result
+	delete(c.waiters, id)
+	close(w.done)
+	return true
 }
 
 func changeSetSummary(d ChangeSetDetails) string {
@@ -503,7 +663,7 @@ func (r changeSetResolver) Resolve(ctx context.Context, approval Approval, decis
 		if note == "" {
 			note = "(no note)"
 		}
-		r.c.opts.Notify(ctx, set.TaskID, fmt.Sprintf("[legato] The operator denied change set %s (%s). Their note: %s\nDo not propose the same change again in this session unless they ask.", set.ID, set.Reason, note))
+		r.c.opts.Notify(ctx, set.TaskID, fmt.Sprintf(ChangeSetTag+" The operator denied change set %s (%s). Their note: %s\nDo not propose the same change again in this session unless they ask.", set.ID, set.Reason, note))
 	}
 	return nil
 }
@@ -518,6 +678,10 @@ func (c *ChangeSetService) RunQueued(ctx context.Context) int {
 	ran := 0
 	for _, set := range sets {
 		if set.State != store.ChangeSetQueued && set.State != store.ChangeSetQueuedNoRestart {
+			continue
+		}
+		if c.isHeld(set.ID) {
+			// Propose runs it, and answers its results itself.
 			continue
 		}
 		if claimed, err := c.opts.Store.MoveReeveChangeSet(ctx, set.ID, set.State, store.ChangeSetRunning); err != nil || !claimed {
@@ -621,8 +785,9 @@ func (c *ChangeSetService) run(ctx context.Context, set store.ReeveChangeSet, no
 	if err := c.opts.Store.FinishReeveChangeSet(ctx, set.ID, state, string(raw)); err != nil {
 		log.Printf("reeve: change set %s: %v", set.ID, err)
 	}
-	if c.opts.Notify != nil {
-		c.opts.Notify(ctx, set.TaskID, ChangeSetReport(set.ID, set.Reason, calls, results, restart && !failed))
+	report := changeSetReportBody(set.ID, set.Reason, calls, results, restart && !failed)
+	if !c.deliver(set.ID, changeSetResult{state: state, report: report, results: results}) && c.opts.Notify != nil {
+		c.opts.Notify(ctx, set.TaskID, ChangeSetTag+" "+report)
 	}
 	if restart && !failed && c.opts.Restart != nil {
 		c.opts.Restart()
@@ -672,8 +837,76 @@ func agentStartedBy(call ChangeCall, body string) string {
 	return ""
 }
 
+// ChangeSetTag opens every message about a change set: its results, its
+// denial. RestartTag opens the one that says Legato is back. The web UI and
+// the TUI draw both as an event in the conversation, by their first line,
+// not as a message from the operator.
+const (
+	ChangeSetTag = "[legato change set]"
+	RestartTag   = "[legato restart]"
+)
+
+// changeSetReportLine and changeSetDeniedLine are the first lines of a
+// change set's messages, as LegatoEvent reads them.
+var (
+	changeSetReportLine = regexp.MustCompile(`^Change set (cs-[0-9a-z]+) \(.*\): (\d+ of \d+ ran(?:, \d+ failed)?(?:, \d+ skipped)?)\.?$`)
+	changeSetDeniedLine = regexp.MustCompile(`^The operator denied change set (cs-[0-9a-z]+)\b`)
+)
+
+// LegatoEvent reads a message Legato sent the Reeve that tells of
+// something that happened (a change set's result or denial, Legato back
+// from a restart): its kind and the one line a conversation shows for it,
+// as cs-816f… · 1 of 1 ran ✓. ok is false for any other message. The web
+// UI's legatoEventSummary reads them the same way.
+func LegatoEvent(text string) (label, summary string, ok bool) {
+	var body string
+	switch {
+	case strings.HasPrefix(text, ChangeSetTag):
+		label, body = "change set", strings.TrimSpace(strings.TrimPrefix(text, ChangeSetTag))
+	case strings.HasPrefix(text, RestartTag):
+		label, body = "restart", strings.TrimSpace(strings.TrimPrefix(text, RestartTag))
+	default:
+		return "", "", false
+	}
+	first, _, _ := strings.Cut(body, "\n")
+	first = strings.TrimSpace(first)
+	short := func(id string) string {
+		if len(id) > 7 {
+			return id[:7] + "…"
+		}
+		return id
+	}
+	switch {
+	case label == "change set" && changeSetReportLine.MatchString(first):
+		m := changeSetReportLine.FindStringSubmatch(first)
+		summary = short(m[1]) + " · " + m[2]
+		if !strings.Contains(m[2], "failed") && !strings.Contains(m[2], "skipped") {
+			summary += " ✓"
+		}
+		if strings.Contains(body, "Legato restarts now") {
+			summary += " · restarting"
+		}
+	case label == "change set" && changeSetDeniedLine.MatchString(first):
+		summary = short(changeSetDeniedLine.FindStringSubmatch(first)[1]) + " · denied"
+	case label == "restart" && strings.HasPrefix(first, "Legato is back"):
+		summary = "restart: back"
+		if strings.Contains(body, "rolled back") {
+			summary = "restart: rolled back"
+		}
+	default:
+		summary = first
+	}
+	return label, summary, true
+}
+
 // ChangeSetReport is the message that tells the Reeve what each call did.
 func ChangeSetReport(id, reason string, calls []ProposedCall, results []CallResult, restarting bool) string {
+	return ChangeSetTag + " " + changeSetReportBody(id, reason, calls, results, restarting)
+}
+
+// changeSetReportBody is what each call of a set did: its first line the
+// set, its reason and how many calls ran, then a line for each call.
+func changeSetReportBody(id, reason string, calls []ProposedCall, results []CallResult, restarting bool) string {
 	var b strings.Builder
 	ran, failed, skipped := 0, 0, 0
 	for _, r := range results {
@@ -686,7 +919,7 @@ func ChangeSetReport(id, reason string, calls []ProposedCall, results []CallResu
 			skipped++
 		}
 	}
-	fmt.Fprintf(&b, "[legato] Change set %s (%s): %d of %d ran", id, reason, ran, len(results))
+	fmt.Fprintf(&b, "Change set %s (%s): %d of %d ran", id, reason, ran, len(results))
 	if failed > 0 {
 		fmt.Fprintf(&b, ", %d failed", failed)
 	}
@@ -766,7 +999,7 @@ func (c *ChangeSetService) backMessage(ctx context.Context, set store.ReeveChang
 	var results []CallResult
 	_ = json.Unmarshal([]byte(set.Results), &results)
 	var b strings.Builder
-	fmt.Fprintf(&b, "[legato] Legato is back: running %s since %s.\n", version, since.UTC().Format("15:04:05 UTC"))
+	fmt.Fprintf(&b, RestartTag+" Legato is back: running %s since %s.\n", version, since.UTC().Format("15:04:05 UTC"))
 	fmt.Fprintf(&b, "The restart was asked for by you (the Reeve), in change set %s: %s.\n", set.ID, set.Reason)
 	if record != nil && record.State == store.RestartRolledBack {
 		fmt.Fprintf(&b, "The restart failed and was rolled back: %s\nThe configuration from before is in effect again.\n", record.Failure)
@@ -865,9 +1098,7 @@ func (c *ChangeSetService) ProposeImport(ctx context.Context, data []byte, by st
 	if len(calls) == 0 {
 		return ImportOutcome{Skipped: skipped}, errors.New("the file holds no setting that can be imported")
 	}
-	waitless := *c
-	waitless.opts.Wait = time.Millisecond
-	out, err := waitless.Propose(ctx, "", "Import settings ("+by+")", calls)
+	out, err := c.propose(ctx, "", "Import settings ("+by+")", calls, time.Millisecond, false)
 	if err != nil {
 		return ImportOutcome{Skipped: skipped}, err
 	}

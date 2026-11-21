@@ -13,6 +13,7 @@ import (
 	"regexp"
 	"strings"
 	"time"
+	"unicode/utf8"
 
 	"github.com/cpave3/legato/config"
 	"github.com/cpave3/legato/internal/engine/store"
@@ -177,16 +178,15 @@ func (c *ChangeSetService) runHost(ctx context.Context, cfg *config.Config, set 
 		exit, output, err = c.opts.HostExec(ctx, hostCommand(p), cfg.Reeve.HostCommandTimeout())
 	}
 	res.Status = exit
-	text := strings.TrimSpace(string(output))
-	if limit := cfg.Reeve.HostOutputLimit(); len(output) > limit {
-		text = strings.TrimSpace(string(output[:limit])) + fmt.Sprintf("\n… cut at %d bytes", limit)
+	text, cut := outputExcerpt(output, cfg.Reeve.HostOutputLimit())
+	if cut {
 		path := filepath.Join(c.opts.OutputDir, fmt.Sprintf("%s-%d.log", set.ID, n))
 		if c.opts.OutputDir != "" && os.MkdirAll(c.opts.OutputDir, 0o700) == nil && os.WriteFile(path, output, 0o600) == nil {
-			text += "; the whole output is in " + path
+			text += "\n(the whole output is in " + path + ")"
 		}
 	}
-	// The Reeve is given the output (up to the cap, then where the rest
-	// is), whether the call ran or failed.
+	// The Reeve is given the output (its first and last lines, then where
+	// the rest is), whether the call ran or failed.
 	switch {
 	case err != nil:
 		res.State, res.Detail = "failed", err.Error()
@@ -295,4 +295,56 @@ func readBounded(path string, limit int) ([]byte, error) {
 		return nil, fmt.Errorf("%s is larger than %d bytes; edit it with host_shell", path, limit)
 	}
 	return data, nil
+}
+
+// Lines of a host call's output the Reeve is given when it is long: the
+// first and the last, the rest kept in a file.
+const (
+	excerptHead = 20
+	excerptTail = 20
+)
+
+// outputExcerpt is the part of a host call's output the Reeve is given in
+// a result: all of it when it is short, else its first and last lines with
+// a line saying how many are cut between them, and never more than limit
+// bytes. It reports whether anything was cut.
+func outputExcerpt(output []byte, limit int) (string, bool) {
+	text := strings.TrimSpace(string(output))
+	lines := strings.Split(text, "\n")
+	if len(lines) <= excerptHead+excerptTail && len(text) <= limit {
+		return text, false
+	}
+	if len(lines) <= excerptHead+excerptTail {
+		// Few lines, but long ones: the start and the end of the text.
+		half := max(limit/2, 1)
+		return strings.TrimSpace(clipBytes(text, half)) + fmt.Sprintf("\n… %d bytes cut …\n", len(text)-2*half) + strings.TrimSpace(tailBytes(text, half)), true
+	}
+	head := strings.Join(lines[:excerptHead], "\n")
+	tail := strings.Join(lines[len(lines)-excerptTail:], "\n")
+	half := max(limit/2, 1)
+	head, tail = clipBytes(head, half), tailBytes(tail, half)
+	return head + fmt.Sprintf("\n… %d lines cut …\n", len(lines)-excerptHead-excerptTail) + tail, true
+}
+
+// clipBytes is the start of s, at most n bytes, cut at a whole character.
+func clipBytes(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	for n > 0 && !utf8.RuneStart(s[n]) {
+		n--
+	}
+	return s[:n]
+}
+
+// tailBytes is the end of s, at most n bytes, cut at a whole character.
+func tailBytes(s string, n int) string {
+	if len(s) <= n {
+		return s
+	}
+	start := len(s) - n
+	for start < len(s) && !utf8.RuneStart(s[start]) {
+		start++
+	}
+	return s[start:]
 }

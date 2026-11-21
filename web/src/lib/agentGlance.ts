@@ -1,6 +1,6 @@
 import type { AgentInfo, BackgroundJob } from "../hooks/useWebSocket"
 import { apiFetch } from "./api"
-import { parseLegatoMessage } from "./legatoMessage"
+import { legatoEventSummary, parseLegatoMessage } from "./legatoMessage"
 
 // How many entries of a conversation are read for a tile. It is more than a
 // tile shows: long runs of tool calls are cut to their newest, and what was
@@ -101,7 +101,9 @@ export function glanceItems(entries: ConversationEntry[], activity: string): Gla
     } else if (relayed.peer !== undefined) {
       items.push({ kind: "relayed", from: relayed.peer ? `Agent ${relayed.peer}` : "Agent", text: relayed.body })
     } else {
-      items.push({ kind: "relayed", from: `Legato ${relayed.label}`, text: relayed.body })
+      // An event (a change set ran, a restart) is its one-line summary.
+      const text = relayed.event ? legatoEventSummary(relayed.label, relayed.body) : relayed.body
+      items.push({ kind: "relayed", from: `Legato ${relayed.label}`, text })
     }
   }
   return items

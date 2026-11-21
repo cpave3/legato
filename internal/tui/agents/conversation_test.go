@@ -279,3 +279,18 @@ func TestARunThatBeganBeforeWhatWasReadDoesNotCountItsCalls(t *testing.T) {
 		t.Errorf("how many calls came before is not known, so no number should be given: %q", view)
 	}
 }
+
+func TestAChangeSetsResultIsOneLineOfLegatosNotTheOperatorsWords(t *testing.T) {
+	m := told(t, "idle-1", service.ConversationTail{Entries: []service.ConversationEntry{
+		{Kind: service.EntryUser, Text: "[legato change set] Change set cs-816fab12cd (read the skills): 1 of 1 ran.\n1. Run on the host: cat a: ran: hello from the host"},
+		{Kind: service.EntryAssistant, Text: "Read them."},
+	}})
+
+	view := m.View()
+	if !strings.Contains(view, "◇ change set cs-816f… · 1 of 1 ran ✓") {
+		t.Errorf("the result should be one line with its summary: %q", view)
+	}
+	if strings.Contains(view, "› ") || strings.Contains(view, "hello from the host") {
+		t.Errorf("the result should not be shown as the operator's message, nor whole: %q", view)
+	}
+}
