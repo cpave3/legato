@@ -18,7 +18,12 @@ func wireReviewRuns(srv *server.Server, deps integrationDeps, reviews *service.R
 	if !ok {
 		return
 	}
+	var discover service.ReviewRunDiscover
+	if d, ok := deps.prs.(service.ReviewRunDiscover); ok {
+		discover = d
+	}
 	caller := service.NewReviewRunCaller(reviews, service.ReviewRunOptions{
+		Discover:   discover,
 		GitHub:     learningPublisher(deps.db, service.NewReviewPublisher(deps.approvals.channels, deps.cfg.ReviewPasses.GitHubCredential)),
 		Clones:     service.ReviewRunRepositories{Repos: deps.repos, Checkout: service.GitReviewCheckout{Store: deps.db}},
 		Owners:     service.NewOwnerLookupService(deps.db, deps.agents, deps.cfg.Web.PublicURL),

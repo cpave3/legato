@@ -751,6 +751,33 @@ func TestOutsideTheSandboxAPullRequestCommandGetsLegatosWriteToken(t *testing.T)
 	}
 }
 
+func TestAfterGHOpensAPullRequestTheWrapperTellsLegato(t *testing.T) {
+	dir := t.TempDir()
+	calls, told := filepath.Join(dir, "calls"), filepath.Join(dir, "told")
+	realGH := filepath.Join(dir, "gh-real")
+	// The real gh fails the command whose title is "fails".
+	_ = os.WriteFile(realGH, []byte("#!/bin/sh\necho \"$*\" >> "+calls+"\ncase \"$*\" in *fails*) exit 1 ;; esac\n"), 0o755)
+	legato := filepath.Join(dir, "legato")
+	_ = os.WriteFile(legato, []byte("#!/bin/sh\ncase $2 in gh-token) echo \"ghs_WRITE revoke\" ;; *) echo \"$*\" >> "+told+" ;; esac\n"), 0o755)
+	wrappers := filepath.Join(dir, "bin")
+	t.Setenv("PATH", dir+string(os.PathListSeparator)+os.Getenv("PATH"))
+	if err := writeGHWrapper(wrappers, legato); err != nil {
+		t.Fatal(err)
+	}
+	t.Setenv("LEGATO_GH_REAL", realGH)
+	run := func(args ...string) {
+		cmd := exec.Command(filepath.Join(wrappers, "gh"), args...)
+		cmd.Env = append(os.Environ(), "LEGATO_SANDBOXED=1", "GH_TOKEN="+GHSignedOut)
+		_ = cmd.Run()
+	}
+	run("pr", "create", "--fill")
+	run("pr", "create", "--title", "fails")
+	got, _ := os.ReadFile(told)
+	if strings.TrimSpace(string(got)) != "credential gh-opened -- pr create --fill" {
+		t.Fatalf("told %q", got)
+	}
+}
+
 // With isolate_login off, a session's gh keeps the person's login for what
 // Legato gives no token for.
 func TestOutsideTheSandboxWithTheLoginNotIsolatedGHFallsBackToThePersonsOwn(t *testing.T) {

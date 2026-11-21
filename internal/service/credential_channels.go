@@ -66,6 +66,9 @@ type CredentialChannels struct {
 	github  githubState
 	// onPush is told the repository of each push GitHub accepted.
 	onPush func(repo string)
+	// onBranch is told of each branch an agent's session pushed under
+	// legato/ or opened a pull request from.
+	onBranch func(AgentBranch)
 }
 
 // NewCredentialChannels builds the channels of the broker's credentials.

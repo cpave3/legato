@@ -65,6 +65,9 @@ type prTrackingService struct {
 	resolvedInterval time.Duration // resolved PRs (have PR number)
 	repositories     []RepositoryMapping
 	inspector        CheckoutInspector
+	// checkoutHead reads the branch an agent's checkout has checked out,
+	// without running git in it (gitrepo.Head); nil follows nothing.
+	checkoutHead func(dir string) (branch, commit string, err error)
 
 	mu               sync.Mutex // protects lastResolvedPoll
 	lastResolvedPoll time.Time  // tracks when resolved PRs were last polled
@@ -288,6 +291,56 @@ func (p *prTrackingService) PollAll(ctx context.Context) error {
 	p.lastResolvedPoll = time.Now()
 	p.mu.Unlock()
 	return p.pollInternal(ctx, false)
+}
+
+// DiscoverRepository looks at once for the PRs of every task whose code
+// context or tracked branches are in one repository, with one listing of
+// it, as a poll would: by branch, commit and ticket key. A review loop asks
+// it before refusing an agent author it finds no task for, since an agent
+// may have opened the pull request since the last poll.
+var _ ReviewRunDiscover = (*prTrackingService)(nil)
+
+func (p *prTrackingService) DiscoverRepository(ctx context.Context, repo string) error {
+	if _, _, ok := splitRepo(repo); !ok {
+		return fmt.Errorf("repository must be owner/name")
+	}
+	p.pollMu.Lock()
+	defer p.pollMu.Unlock()
+	tasks, err := p.store.ListPRSyncCandidates(ctx)
+	if err != nil {
+		return err
+	}
+	tracked, err := p.store.ListTrackedTaskBranches(ctx)
+	if err != nil {
+		return err
+	}
+	listings := newPRListings(p.gh)
+	changed := false
+	var errs []error
+	for i := range tasks {
+		t := &tasks[i]
+		cc, err := store.ParseCodeContext(t.CodeContext)
+		if err != nil {
+			continue
+		}
+		if cc == nil || cc.Repo == "" {
+			cc = p.contextFromWorktree(ctx, t)
+		}
+		inRepo := cc != nil && strings.EqualFold(cc.Repo, repo)
+		for _, row := range tracked[t.ID] {
+			inRepo = inRepo || strings.EqualFold(row.Repo, repo)
+		}
+		if !inRepo {
+			continue
+		}
+		taskChanged, err := p.syncTask(ctx, t, cc, syncMode{discover: true}, listings)
+		changed = changed || taskChanged
+		if err != nil {
+			errs = append(errs, err)
+		}
+	}
+	p.publishIfChanged(changed)
+	return errors.Join(errs...)
 }
 
 func (p *prTrackingService) PollOnce(ctx context.Context) error {

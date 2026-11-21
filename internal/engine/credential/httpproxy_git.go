@@ -350,6 +350,49 @@ func (p *HTTPProxy) serveToken(w http.ResponseWriter, r *http.Request, c ProxyCr
 	writeJSON(w, http.StatusOK, map[string]string{"token": string(token)})
 }
 
+// servePROpened is told by Legato's gh wrapper of the branch gh pr create
+// opened a pull request from, and passes it to the BranchListener. It asks
+// nothing of the broker: it gives out no token and only names a branch on
+// the session's own task, whose pull request Legato then reads from GitHub.
+func (p *HTTPProxy) servePROpened(w http.ResponseWriter, r *http.Request, c ProxyCredential) {
+	ctx := r.Context()
+	if r.Method != http.MethodPost {
+		writeJSON(w, http.StatusMethodNotAllowed, map[string]string{"error": "POST {repo, branch}"})
+		return
+	}
+	placeholder := c.placeholderIn(r)
+	owner, execution, found, err := p.Backend.ResolvePlaceholder(ctx, placeholder)
+	if err != nil {
+		writeJSON(w, http.StatusInternalServerError, map[string]string{"error": "Legato could not check the key: " + err.Error()})
+		return
+	}
+	if placeholder == "" || !found || owner != c.Name {
+		writeJSON(w, http.StatusUnauthorized, map[string]string{"error": "this request carries no key Legato gave this agent for " + c.Name})
+		return
+	}
+	var in struct {
+		Repo   string `json:"repo"`
+		Branch string `json:"branch"`
+	}
+	if err := json.NewDecoder(io.LimitReader(r.Body, 4096)).Decode(&in); err != nil {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "want {repo, branch}"})
+		return
+	}
+	repoOwner, repoName, ok := strings.Cut(in.Repo, "/")
+	if !ok || !repoPart.MatchString(repoOwner) || !repoPart.MatchString(repoName) {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "repo: want owner/name"})
+		return
+	}
+	if !validBranchName(in.Branch) {
+		writeJSON(w, http.StatusBadRequest, map[string]string{"error": "branch: not a branch name"})
+		return
+	}
+	if listener, ok := p.Backend.(BranchListener); ok {
+		listener.BranchOpened(context.WithoutCancel(ctx), execution, c.Name, in.Repo, in.Branch)
+	}
+	w.WriteHeader(http.StatusNoContent)
+}
+
 // OperationPRReady marks a pull request ready for review, or turns it back
 // into a draft. GitHub wants a token that can also write code for it, so
 // Legato does it itself and the agent never holds that token.

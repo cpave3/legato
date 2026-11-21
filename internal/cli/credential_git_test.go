@@ -6,6 +6,8 @@ import (
 	"encoding/json"
 	"net/http"
 	"net/http/httptest"
+	"os"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -275,6 +277,83 @@ func TestOnlyATokenThatCanWriteIsRevokedAfterGH(t *testing.T) {
 	} {
 		if got := cli.GHTokenRevokedAfter(op); got != revoked {
 			t.Errorf("%s: revoked %v, want %v", op, got, revoked)
+		}
+	}
+}
+
+func TestGHOpenedPRSaysWhichCommandsOpenAPullRequestAndFromWhere(t *testing.T) {
+	type opened struct {
+		ok   bool
+		head string
+	}
+	for _, tc := range []struct {
+		args []string
+		want opened
+	}{
+		{[]string{"pr", "create", "--fill"}, opened{true, ""}},
+		{[]string{"pr", "create", "--draft", "--head", "legato/k7q2-rail"}, opened{true, "legato/k7q2-rail"}},
+		{[]string{"-R", "cpave3/legato", "pr", "create", "-H", "cpave3:legato/k7q2"}, opened{true, "legato/k7q2"}},
+		{[]string{"pr", "edit", "3", "--title", "x"}, opened{}},
+		{[]string{"pr", "list"}, opened{}},
+		{[]string{"api", "repos/cpave3/legato/pulls", "-f", "head=legato/k7q2", "-f", "base=main"}, opened{true, "legato/k7q2"}},
+		{[]string{"api", "-X", "POST", "/repos/cpave3/legato/pulls", "-F", "head=cpave3:legato/k7q2"}, opened{true, "legato/k7q2"}},
+		{[]string{"api", "repos/cpave3/legato/pulls"}, opened{}}, // a read
+		{[]string{"api", "repos/cpave3/legato/pulls/3", "-X", "PATCH", "-f", "title=x"}, opened{}},
+		{[]string{"api", "graphql", "-f", `query=mutation { createPullRequest(input: {repositoryId: "R", baseRefName: "main", headRefName: "legato/k7q2-gql", title: "x"}) { pullRequest { number } } }`}, opened{true, "legato/k7q2-gql"}},
+		{[]string{"api", "graphql", "-f", "query=mutation($h: String!) { createPullRequest(input: {headRefName: $h}) { pullRequest { number } } }", "-f", "h=legato/k7q2-var"}, opened{true, "legato/k7q2-var"}},
+		{[]string{"api", "graphql", "-f", "query=query { viewer { login } }"}, opened{}},
+	} {
+		ok, head := cli.GHOpenedPR(tc.args)
+		if (opened{ok, head}) != tc.want {
+			t.Errorf("gh %q: %v %q, want %+v", tc.args, ok, head, tc.want)
+		}
+	}
+}
+
+func TestGHTellsTheProxyOfTheBranchItOpenedAPullRequestFrom(t *testing.T) {
+	var got map[string]string
+	var path, auth string
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		path, auth = r.URL.Path, r.Header.Get("Authorization")
+		_ = json.NewDecoder(r.Body).Decode(&got)
+		w.WriteHeader(204)
+	}))
+	t.Cleanup(srv.Close)
+	session := cli.GitHubSession{APIURL: srv.URL + "/c/gh/api", Placeholder: "lgk_place"}
+	if err := session.PROpened(context.Background(), "cpave3/legato", "legato/k7q2-rail"); err != nil {
+		t.Fatal(err)
+	}
+	if path != "/c/gh/pr-opened" || auth != "Bearer lgk_place" || got["repo"] != "cpave3/legato" || got["branch"] != "legato/k7q2-rail" {
+		t.Fatalf("%s %s %v", path, auth, got)
+	}
+}
+
+func TestGHOpenedPRReadsTheRequestFromAFile(t *testing.T) {
+	dir := t.TempDir()
+	write := func(name, text string) string {
+		path := filepath.Join(dir, name)
+		if err := os.WriteFile(path, []byte(text), 0o600); err != nil {
+			t.Fatal(err)
+		}
+		return path
+	}
+	rest := write("pr.json", `{"head":"cpave3:legato/k7q2-file","base":"main","title":"x"}`)
+	mutation := write("create.graphql", `mutation { createPullRequest(input: {repositoryId: "R", baseRefName: "main", headRefName: "legato/k7q2-gqlfile"}) { pullRequest { number } } }`)
+	body := write("gql.json", `{"query":"mutation($h: String!) { createPullRequest(input: {headRefName: $h}) { pullRequest { number } } }","variables":{"h":"legato/k7q2-gqlbody"}}`)
+	for _, tc := range []struct {
+		args []string
+		ok   bool
+		head string
+	}{
+		{[]string{"api", "repos/cpave3/legato/pulls", "--method", "POST", "--input", rest}, true, "legato/k7q2-file"},
+		{[]string{"api", "graphql", "-F", "query=@" + mutation}, true, "legato/k7q2-gqlfile"},
+		{[]string{"api", "graphql", "--input", body}, true, "legato/k7q2-gqlbody"},
+		{[]string{"api", "repos/cpave3/legato/pulls", "--method", "POST", "--input", "-"}, false, ""}, // stdin is gone
+		{[]string{"api", "repos/cpave3/legato/pulls", "--method", "POST", "--input", filepath.Join(dir, "missing.json")}, false, ""},
+	} {
+		ok, head := cli.GHOpenedPR(tc.args)
+		if ok != tc.ok || head != tc.head {
+			t.Errorf("gh %q: %v %q, want %v %q", tc.args, ok, head, tc.ok, tc.head)
 		}
 	}
 }

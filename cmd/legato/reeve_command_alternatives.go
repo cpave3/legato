@@ -13,16 +13,17 @@ var legatoCommandAlternatives = map[string]string{
 	"audit show":      "GET /api/credentials/audit reads the audit log's entries; legato audit verify (read) checks it",
 
 	// Secrets: the Reeve never holds one.
-	"credential request":  "a credential is for an agent session's own commands, never the Reeve's: name a secret by its reference (legato://<name>) in a setting or a credential, or ask the operator for one with request_secret",
-	"credential get":      "the Reeve never holds a secret: name it by its reference (legato://<name>) in a setting or a credential, or ask the operator for one with request_secret",
-	"credential exec":     "the Reeve never holds a secret: propose the change that needs it, and Legato uses the credential itself",
-	"credential git":      "git's helper is for an agent session's own pushes; the Reeve reads agents' work from the repository cache",
-	"credential gh-token": "the Reeve never holds a token: GET /api/tasks/<id>?view=summary gives a task's pull requests",
-	"auth token":          "the web token is the operator's and is never shown: your own token is already in legato_api",
-	"auth regenerate":     "only the operator replaces the web token, at the host: ask them",
-	"device reset":        "only the operator removes approval devices, at the host or in Settings › Devices: ask them",
-	"pair":                "pairing is the operator's: ask them to pair from Settings, or legato pair at the host",
-	"setup":               "setup asks the operator at a terminal: ask them to run legato setup, or change settings through propose_changes; legato doctor (read) shows what the machine lacks",
+	"credential request":   "a credential is for an agent session's own commands, never the Reeve's: name a secret by its reference (legato://<name>) in a setting or a credential, or ask the operator for one with request_secret",
+	"credential get":       "the Reeve never holds a secret: name it by its reference (legato://<name>) in a setting or a credential, or ask the operator for one with request_secret",
+	"credential exec":      "the Reeve never holds a secret: propose the change that needs it, and Legato uses the credential itself",
+	"credential git":       "git's helper is for an agent session's own pushes; the Reeve reads agents' work from the repository cache",
+	"credential gh-token":  "the Reeve never holds a token: GET /api/tasks/<id>?view=summary gives a task's pull requests",
+	"credential gh-opened": "it is for an agent session's gh wrapper; a task's pull requests are in GET /api/tasks/<id>?view=summary",
+	"auth token":           "the web token is the operator's and is never shown: your own token is already in legato_api",
+	"auth regenerate":      "only the operator replaces the web token, at the host: ask them",
+	"device reset":         "only the operator removes approval devices, at the host or in Settings › Devices: ask them",
+	"pair":                 "pairing is the operator's: ask them to pair from Settings, or legato pair at the host",
+	"setup":                "setup asks the operator at a terminal: ask them to run legato setup, or change settings through propose_changes; legato doctor (read) shows what the machine lacks",
 
 	// Servers, and an agent tool's own hooks and steps.
 	"serve":                     "restart_legato restarts Legato; instance_status says how it runs",

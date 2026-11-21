@@ -30,6 +30,9 @@ type integrationDeps struct {
 	// reviewPrompt is told the review-pass engine once it runs; nil for
 	// none.
 	reviewPrompt *service.ReviewPromptAttentionAdapter
+	// prs is PR tracking, which a review loop asks to look again before it
+	// refuses an agent author; nil when GitHub is not set up.
+	prs service.PRTrackingService
 }
 
 // wireIntegrations gives a web server what integrations (Argus) use on
