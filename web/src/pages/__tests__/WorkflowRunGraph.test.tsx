@@ -163,7 +163,7 @@ describe("the run graph", () => {
   })
 
   it("keeps the step list on a narrow screen", async () => {
-    vi.stubGlobal("matchMedia", (query: string) => ({ matches: false, media: query, addEventListener: () => {}, removeEventListener: () => {} }))
+    vi.stubGlobal("matchMedia", (query: string) => ({ matches: query.includes("max-width"), media: query, addEventListener: () => {}, removeEventListener: () => {} }))
     show(view())
     expect(screen.getByRole("list", { name: "Steps" })).toBeTruthy()
     await waitFor(() => expect(screen.queryByRole("button", { name: /^Step:/ })).toBeNull())

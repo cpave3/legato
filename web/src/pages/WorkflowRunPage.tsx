@@ -28,6 +28,7 @@ import { queryKeys } from "../lib/query"
 import { dismissAttentionItem, executeAttentionAction, type AttentionItem } from "../lib/attention"
 import { NeedsYouRow } from "../components/needsYou/NeedsYouRow"
 import { ApprovalCard } from "../components/ApprovalTray"
+import { NodeSheet } from "../components/NodeSheet"
 
 function parseJSON(raw: string | undefined): unknown {
   try { return JSON.parse(raw ?? "") } catch { return raw }
@@ -401,7 +402,10 @@ export function WorkflowRunPage() {
   const { data, loading, refreshing, error, refresh } = useWorkflowRun(runId)
   const { baseUrl } = useServer()
   const now = useNow(15_000)
-  const wide = useMediaQuery("(min-width: 768px)")
+  // At phone width the step list stays, with a Graph toggle; the graph then
+  // runs top to bottom and details open in a sheet.
+  const narrow = useMediaQuery("(max-width: 767px)")
+  const [graphOn, setGraphOn] = useState(false)
   const [selected, setSelected] = useState<string | null>(null)
   const [centerOn, setCenterOn] = useState<{ id: string; n: number } | null>(null)
   const graph = data?.graph ?? null
@@ -442,8 +446,11 @@ export function WorkflowRunPage() {
   else if (position) where = `${run.status === "failed" ? "at step" : "Step"} ${position.number} of ${position.total} · ${position.title}`
   const inputs = objectEntries(run.inputs_json).filter(([, value]) => value !== "" && value !== null)
   const secrets = secretValues(data)
-  const showGraph = Boolean(graph) && wide
+  const showGraph = Boolean(graph) && (!narrow || graphOn)
   const selectedNode = graph?.nodes.find(node => node.id === selected)
+  const panel = selectedNode?.kind === "step"
+    ? <RunStepPanel view={data} node={selectedNode} runId={runId} secrets={secrets} state={extras?.[selectedNode.id]?.state && runStateWords[extras[selectedNode.id].state!]} />
+    : selectedNode?.kind === "trigger" ? <RunTriggerPanel node={selectedNode} started={extras?.[selectedNode.id]?.trigger === "started"} /> : null
   return <main className="min-h-0 flex-1 overflow-y-auto px-4 py-4 font-lw text-lw-text sm:px-6 md:py-6">
     <div className={cn("mx-auto", showGraph ? "max-w-6xl" : "max-w-3xl")}>
       <Link to="/workflows?tab=runs" className="text-sm text-lw-link">← Runs</Link>
@@ -471,18 +478,21 @@ export function WorkflowRunPage() {
       </p>}
       <Now key={`${baseUrl}:${runId}`} view={data} runId={runId} refresh={refresh} now={now} secrets={secrets} />
       {graph && <NeedsYouList rows={needsYou.rows} steps={steps} runId={runId} refresh={refresh} onFocus={focusNode} />}
-      {showGraph && graph ? <div className={cn("mt-7 grid gap-4", selectedNode && "lg:grid-cols-[minmax(0,1fr)_24rem]")}>
-        <section aria-label="Run graph" className="h-[30rem] overflow-hidden rounded-xl border border-lw-line bg-lw-ground">
-          <LazyWorkflowGraph graph={graph} extras={extras} run selectedId={selected} onSelect={setSelected} centerOn={centerOn} />
+      {graph && narrow && <div className="mt-7 flex justify-end">
+        <Button variant="outline" size="sm" aria-pressed={graphOn} onClick={() => setGraphOn(!graphOn)}>Graph</Button>
+      </div>}
+      {showGraph && graph ? <div className={cn(narrow ? "mt-3" : "mt-7", "grid gap-4", selectedNode && !narrow && "lg:grid-cols-[minmax(0,1fr)_24rem]")}>
+        <section aria-label="Run graph" className={cn("overflow-hidden rounded-xl border border-lw-line bg-lw-ground", narrow ? "h-[34rem]" : "h-[30rem]")}>
+          <LazyWorkflowGraph graph={graph} extras={extras} run selectedId={selected} onSelect={setSelected} centerOn={centerOn} direction={narrow ? "TB" : "LR"} />
         </section>
-        {selectedNode?.kind === "step" && <RunStepPanel view={data} node={selectedNode} runId={runId} secrets={secrets} state={extras?.[selectedNode.id]?.state && runStateWords[extras[selectedNode.id].state!]} />}
-        {selectedNode?.kind === "trigger" && <RunTriggerPanel node={selectedNode} started={extras?.[selectedNode.id]?.trigger === "started"} />}
+        {!narrow && panel}
       </div> : <>
         <h2 className="mb-2 mt-7 text-xs font-semibold uppercase tracking-wide text-lw-text-2">Steps</h2>
         <ul aria-label="Steps" className="overflow-hidden rounded-xl border border-lw-line bg-lw-surface">
           {steps.map(step => <StepRow key={`${baseUrl}:${runId}:${step.step_id}`} step={step} run={run} attempts={attempts.filter(attempt => attempt.step_id === step.step_id)} artifacts={artifacts.filter(artifact => artifact.step_id === step.step_id)} now={now} secrets={secrets} />)}
         </ul>
       </>}
+      {showGraph && narrow && panel && <NodeSheet title={selectedNode?.step?.title ?? selectedNode?.trigger?.summary ?? ""} onClose={() => setSelected(null)}>{panel}</NodeSheet>}
       {inputs.length > 0 && <>
         <h2 className="mb-2 mt-7 text-xs font-semibold uppercase tracking-wide text-lw-text-2">Inputs</h2>
         <ValueList secrets={secrets} values={inputs} />

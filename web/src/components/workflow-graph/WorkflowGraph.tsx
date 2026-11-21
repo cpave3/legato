@@ -306,11 +306,14 @@ function Graph({ graph, selectedId = null, onSelect, direction = "LR", extras, r
     const ys = placed.flatMap(node => [node.position.y, node.position.y + (node.height ?? 0)])
     const [minX, maxX, minY, maxY] = [Math.min(...xs), Math.max(...xs), Math.min(...ys), Math.max(...ys)]
     const pad = 24, boundsW = maxX - minX, boundsH = maxY - minY
-    const zoom = Math.min(1, Math.max(0.75, Math.min((width - 2 * pad) / boundsW, (height - 2 * pad) / boundsH)))
+    // Top to bottom (a phone) the width is what must fit, so it may shrink
+    // further; a long chain still scrolls down.
+    const floor = direction === "TB" ? 0.6 : 0.75
+    const zoom = Math.min(1, Math.max(floor, Math.min((width - 2 * pad) / boundsW, (height - 2 * pad) / boundsH)))
     const x = boundsW * zoom <= width - 2 * pad ? (width - boundsW * zoom) / 2 - minX * zoom : pad - minX * zoom
     const y = boundsH * zoom <= height - 2 * pad ? (height - boundsH * zoom) / 2 - minY * zoom : pad - minY * zoom
     void flow.setViewport({ x, y, zoom })
-  }, [placed])
+  }, [placed, direction])
   const choose = useCallback((id: string | null) => {
     setSelected(id)
     onSelect?.(id)
