@@ -252,6 +252,9 @@ func (a *agentService) DismissInterruptedAgent(ctx context.Context, taskID strin
 		return err
 	}
 	if session.ExecutionID != "" {
+		if err := a.store.DismissConversationRuns(ctx, session.ExecutionID); err != nil {
+			log.Printf("session history: marking the runs of %s dismissed: %v", session.ExecutionID, err)
+		}
 		a.endEngramSession(ctx, session.ExecutionID)
 		a.endOperatorItems(ctx, session.ExecutionID)
 	}
@@ -272,15 +275,10 @@ type interruptedResume struct {
 
 func (a *agentService) planInterruptedResume(ctx context.Context, s store.AgentSession) interruptedResume {
 	var plan interruptedResume
-	opt := AgentSpawnOptions{AgentKind: s.AgentKind, Unsandboxed: !s.Sandboxed, DockerHostNetwork: a.keptDockerHostNetwork(s.DockerHostNetwork, s.Sandboxed)}
+	sandboxed := s.Sandboxed
+	opt, resources := a.runSpawnOptions(ctx, s.AgentKind, &sandboxed, s.DockerHostNetwork, s.ExecutionID)
 	if s.ExecutionID != "" {
-		if execution, err := a.store.GetExecution(ctx, s.ExecutionID); err == nil {
-			opt.WorkingDir = execution.WorkingDir
-		}
-		if name, engramSession, err := a.store.ExecutionEngram(ctx, s.ExecutionID); err == nil && name != "" {
-			opt.Engram, opt.EngramSession = name, engramSession
-		}
-		plan.resources, _ = a.store.ListExecutionResources(ctx, s.ExecutionID)
+		plan.resources = resources
 		plan.executionID = s.ExecutionID
 	}
 	plan.workingDir = opt.WorkingDir
@@ -320,6 +318,29 @@ func (a *agentService) planInterruptedResume(ctx context.Context, s store.AgentS
 		plan.err = fmt.Errorf("%w: %v", ErrAgentNotResumable, err)
 	}
 	return plan
+}
+
+// runSpawnOptions is how a run of an agent started, as a spawn would start
+// it again: its tool, its folder, its sandbox choice (nil leaves the
+// default), its Docker host network, its engram and engram session. It
+// also returns the names of the resources it was given.
+func (a *agentService) runSpawnOptions(ctx context.Context, kind string, sandboxed *bool, dockerHostNetwork bool, executionID string) (AgentSpawnOptions, []string) {
+	opt := AgentSpawnOptions{AgentKind: kind}
+	if sandboxed != nil {
+		opt.Unsandboxed = !*sandboxed
+		opt.DockerHostNetwork = a.keptDockerHostNetwork(dockerHostNetwork, *sandboxed)
+	}
+	var resources []string
+	if executionID != "" {
+		if execution, err := a.store.GetExecution(ctx, executionID); err == nil {
+			opt.WorkingDir = execution.WorkingDir
+		}
+		if name, engramSession, err := a.store.ExecutionEngram(ctx, executionID); err == nil && name != "" {
+			opt.Engram, opt.EngramSession = name, engramSession
+		}
+		resources, _ = a.store.ListExecutionResources(ctx, executionID)
+	}
+	return opt, resources
 }
 
 func (a *agentService) resolveResources(ctx context.Context, names []string) []Resource {

@@ -1069,6 +1069,10 @@ func runServeCmd(args []string) int {
 	}
 	approvalsRT := startApprovals(context.Background(), cfg, db, bus, agentSvc)
 	approvalsRT.giveRepositories(repos, repoPresets)
+	sessionHistory := newSessionHistory(cfg, db)
+	approvalsRT.sweepSessionHistory(sessionHistory)
+	approvalsRT.recoverSessionHistory(sessionHistory, bus)
+	approvalsRT.captureConversationText(db, bus, agentSvc)
 	defer approvalsRT.stop()
 	approvalsRT.attach(srv)
 	updates := newUpdateService(db, bus, agentSvc, serveRestarter())
@@ -1157,6 +1161,7 @@ func runServeCmd(args []string) int {
 	srv.StartLearningEvents()
 	defer wireAgentUI(srv, cfg, db, bus)()
 	wireWorkStages(srv, db, bus)
+	wireSessionHistory(srv, cfg, db, agentSvc, boardSvc, serveReeve)
 	defer wireIntegrations(srv, integrationDeps{cfg: cfg, db: db, bus: bus, agents: agentSvc, board: boardSvc, approvals: approvalsRT, repos: repos, workflows: workflowSvc, reviewPrompt: serveReviewPrompt})()
 	srv.SetDirectoryService(configuredDirectoryService(cfg, db, repoPresets))
 	srv.SetResourceService(wiredResourceService(cfg, db, agentSvc))
@@ -1421,6 +1426,10 @@ func runTUI() int {
 	// requests into them, whether or not the web server runs.
 	approvalsRT := startApprovals(context.Background(), cfg, db, bus, agentSvc)
 	approvalsRT.giveRepositories(repos, repoPresets)
+	sessionHistory := newSessionHistory(cfg, db)
+	approvalsRT.sweepSessionHistory(sessionHistory)
+	approvalsRT.recoverSessionHistory(sessionHistory, bus)
+	approvalsRT.captureConversationText(db, bus, agentSvc)
 	defer approvalsRT.stop()
 
 	// Auto-start web server if configured and port is free.
@@ -1520,6 +1529,7 @@ func runTUI() int {
 			webSrv.StartLearningEvents()
 			stopAgentUI = wireAgentUI(webSrv, cfg, db, bus)
 			wireWorkStages(webSrv, db, bus)
+			wireSessionHistory(webSrv, cfg, db, agentSvc, boardSvc, webReeve)
 			stopIntegrations = wireIntegrations(webSrv, integrationDeps{cfg: cfg, db: db, bus: bus, agents: agentSvc, board: boardSvc, approvals: approvalsRT, repos: repos, workflows: tuiWorkflowSvc, reviewPrompt: webReviewPrompt})
 			webSrv.SetDirectoryService(configuredDirectoryService(cfg, db, repoPresets))
 			webSrv.SetResourceService(wiredResourceService(cfg, db, agentSvc))

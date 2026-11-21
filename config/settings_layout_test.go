@@ -131,9 +131,11 @@ func TestADefaultLabelIsWhatTheRuntimeUses(t *testing.T) {
 	cfg := Defaults()
 	maxAge := cfg.RepositoryCache.MaxAgeDuration()
 	keepIdle, _ := cfg.RepositoryCache.KeepIdleDuration()
+	historyKeep, _ := cfg.Agents.History.KeepDuration()
 	runtime := map[string]string{
 		"repository_cache.max_age":   maxAge.String(),
 		"repository_cache.keep_idle": fmt.Sprintf("%dd", int(keepIdle.Hours()/24)),
+		"agents.history.keep":        fmt.Sprintf("%dd", int(historyKeep.Hours()/24)),
 		"reeve.voice.pause":          cfg.Reeve.Voice.PauseDuration().String(),
 		"reeve.voice.follow_up":      cfg.Reeve.Voice.FollowUpDuration().String(),
 		"reeve.host_timeout":         cfg.Reeve.HostCommandTimeout().String(),

@@ -70,6 +70,10 @@ type ConversationTail struct {
 	Status string
 	// Entries are the newest things said and done, oldest first.
 	Entries []ConversationEntry
+	// FirstUser is the conversation's first operator message: its first
+	// user turn that does not open with a [legato <kind>] tag, else its first
+	// user turn; "" when it has none yet.
+	FirstUser string
 	// Permission and Question are the first request of each kind that is
 	// still open; nil when there is none.
 	Permission *ConversationPermission
@@ -147,9 +151,18 @@ func conversationTail(snapshot *chimera.SessionSnapshot, limit int) *Conversatio
 		call  int
 	}
 	var items []item
+	var firstUser, firstUntagged string
 	said := func(kind ConversationEntryKind, text string) {
 		if text = strings.TrimSpace(text); text != "" {
 			items = append(items, item{entry: ConversationEntry{Kind: kind, Text: cutText(text)}})
+			if kind == EntryUser {
+				if firstUser == "" {
+					firstUser = text
+				}
+				if firstUntagged == "" && IsOperatorText(text) {
+					firstUntagged = text
+				}
+			}
 		}
 	}
 	nextCall := 0
@@ -188,6 +201,10 @@ func conversationTail(snapshot *chimera.SessionSnapshot, limit int) *Conversatio
 		}
 	}
 
+	tail.FirstUser = firstUntagged
+	if tail.FirstUser == "" {
+		tail.FirstUser = firstUser
+	}
 	if limit > 0 && len(items) > limit {
 		items = items[len(items)-limit:]
 	}

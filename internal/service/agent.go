@@ -2013,7 +2013,13 @@ func (a *agentService) ListAgents(ctx context.Context) ([]AgentSession, error) {
 // EndExecution records that an execution has ended and removes its
 // sandbox's scratch folders, which nothing reads after the agent.
 func (a *agentService) EndExecution(ctx context.Context, executionID, status string) error {
-	if err := a.store.TerminalizeExecution(ctx, executionID, status); err != nil {
+	end := a.store.TerminalizeExecution
+	if reason, ok := ctx.Value(runEndReasonKey{}).(string); ok {
+		end = func(ctx context.Context, executionID, status string) error {
+			return a.store.TerminalizeExecutionEndingRuns(ctx, executionID, status, reason)
+		}
+	}
+	if err := end(ctx, executionID, status); err != nil {
 		return err
 	}
 	// Asked before the scratch goes: the view is in the runtime folder.
@@ -2025,6 +2031,15 @@ func (a *agentService) EndExecution(ctx context.Context, executionID, status str
 	a.endEngramSession(ctx, executionID)
 	a.endOperatorItems(ctx, executionID)
 	return nil
+}
+
+type runEndReasonKey struct{}
+
+// withRunEndReason says why the runs of the execution EndExecution ends
+// ended, when its status does not: store.RunExited for an agent whose pane
+// is gone, store.RunInterrupted for one a crash took.
+func withRunEndReason(ctx context.Context, reason string) context.Context {
+	return context.WithValue(ctx, runEndReasonKey{}, reason)
 }
 
 // RemoveSandboxScratch removes the scratch folders of an execution that has
@@ -2104,9 +2119,9 @@ func (a *agentService) ReconcileSessions(ctx context.Context) error {
 // it died.
 func (a *agentService) endGoneSession(ctx context.Context, s store.AgentSession, status string) error {
 	if s.ExecutionID != "" {
-		endCtx := ctx
+		endCtx := withRunEndReason(ctx, store.RunExited)
 		if status == store.AgentSessionInterrupted {
-			endCtx = withOperatorItemsKept(withEngramSessionKept(ctx))
+			endCtx = withRunEndReason(withOperatorItemsKept(withEngramSessionKept(ctx)), store.RunInterrupted)
 		}
 		if err := a.EndExecution(endCtx, s.ExecutionID, store.ExecutionLost); err != nil {
 			return err

@@ -3,11 +3,12 @@ import { useModalLayer } from "../../hooks/useModalLayer"
 import { ChevronRight, X } from "lucide-react"
 
 import { taskPullRequests, type AwayOn, type CardDetail } from "../../lib/board-types"
-import { awayLook, kindLabel, purposeLabel } from "../../lib/away"
+import { awayLook, kindLabel, purposeLabel, workerHistoryURL } from "../../lib/away"
 import { MarkdownBody } from "../MarkdownBody"
 import { Button } from "../ui/Button"
 import { TaskActivityTabs } from "./TaskActivityTabs"
 import { TaskAgentAction } from "./TaskAgentAction"
+import { EarlierSessions } from "./EarlierSessions"
 import { handedOffFrom, providerLabel } from "../../lib/providers"
 
 interface DetailPanelProps {
@@ -144,6 +145,7 @@ export function DetailPanel({
             <span>{purposeLabel(away.purpose)} · from {kindLabel(away.kind).toLowerCase()} <span className="font-mono">{away.branch}</span></span>
             <span>Changes come from {away.worker} when the task comes back.</span>
             {away.url && <a href={away.url} target="_blank" rel="noreferrer" className="text-indigo-400 hover:underline">Open on {away.worker}</a>}
+            {workerHistoryURL(away) && <a href={workerHistoryURL(away)} target="_blank" rel="noreferrer" className="text-indigo-400 hover:underline">Session history on {away.worker}</a>}
           </div>
         ) : (
           <div data-task-agent-action="mobile" className="shrink-0 border-b border-zinc-800 px-5 py-3 md:px-6 lg:hidden">
@@ -211,6 +213,8 @@ export function DetailPanel({
                 {worktreesEnabled && !card.worktree && <Button variant="outline" size="sm" className={sidebarButtonClass} onClick={onCreateWorktree}>Create worktree</Button>}
                 <Button variant="outline" size="sm" className={sidebarButtonClass} title="Shortcut: m" onClick={onMove}>Move task</Button>
               </section>
+
+              <EarlierSessions taskId={card.id} headingClass={sectionHeadingClass} />
 
               <section aria-labelledby="task-edit-heading" className="space-y-2">
                 <h3 id="task-edit-heading" className={sectionHeadingClass}>Edit</h3>

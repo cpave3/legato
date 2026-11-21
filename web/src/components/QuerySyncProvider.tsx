@@ -87,6 +87,9 @@ export function QuerySyncProvider({ children }: { children: ReactNode }) {
           // An agent started in the background began, or failed.
           invalidate(queryKeys.preparingAgents(baseUrl))
           invalidate(queryKeys.interruptedAgents(baseUrl))
+          // Runs start and end with agents.
+          invalidate([baseUrl, "sessions"], false)
+          invalidate([baseUrl, "session"], false)
           break
         case "server_theme_changed":
           invalidate(queryKeys.meta(baseUrl), false)

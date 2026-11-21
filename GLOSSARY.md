@@ -68,6 +68,17 @@ _Avoid_: extra slot, side agent
 An agent that was running when Legato last stopped and whose tmux session was gone when it started again, because the machine or tmux went down. It is kept until it is resumed, replaced or dismissed. An agent whose session ends while Legato runs has ended, not been interrupted.
 _Avoid_: crashed agent, lost agent, dead agent
 
+**Conversation**:
+One provider conversation of one agent tool, named by its session ID: a Claude Code session, a Codex thread, a Chimera session. A conversation has one or more runs.
+_Avoid_: transcript (the tool's file of it), chat
+
+**Run**:
+One execution a conversation was live in. A conversation resumed three times has three runs. A run usually has one conversation; `/clear`, `/resume` or `/background` give it several, each ending the last as replaced.
+
+**Session history**:
+The list of conversations Legato knows on this instance, each with its runs, kept after its agent and its task are gone.
+_Avoid_: agent history, past agents
+
 **Operator item**:
 Something an agent posts with `for_operator` for the operator to see or act on: an action only the operator can do, a question, finished work, or anything else that needs them. It is an Attention item. Every kind counts as needing the operator except finished work (a done note), which puts the agent in Finished.
 _Avoid_: ask, request, notification

@@ -1,5 +1,5 @@
 import { describe, expect, it } from "vitest"
-import { awayDetail, awayGroups, awayLook, reviewLabel, withAwayLane, workerReach } from "../away"
+import { awayDetail, awayGroups, awayLook, reviewLabel, withAwayLane, workerHistoryURL, workerReach } from "../away"
 import type { AwayOn, BoardCard, BoardColumn, BoardWorker } from "../board-types"
 
 function card(id: string, status: string, away?: Partial<AwayOn>): BoardCard {
@@ -118,5 +118,15 @@ describe("awayLook, review passes", () => {
     expect(awayLook({ ...away, state: "done", view: "done", review: { pass: 2, phase: "clean", blocking_open: 0, comments_open: 0, checks_open: 0, skipped_comments: 0 } }).label).toBe("Done · approved")
     expect(look({ view: "in_review", review: { pass: 1, phase: "clean", blocking_open: 0, comments_open: 0, checks_open: 0, checks_pending: 2, skipped_comments: 0 } }).label).toBe("Approved · waiting for 2 checks")
     expect(awayLook({ ...away, state: "done", view: "done", review: { pass: 1, phase: "clean", blocking_open: 0, comments_open: 0, checks_open: 0, checks_replied: 1, skipped_comments: 0 } }).label).toBe("Done · approved · 1 check answered by reply")
+  })
+})
+
+describe("workerHistoryURL", () => {
+  it("is the worker's session history of its copy of the task", () => {
+    expect(workerHistoryURL({ url: "https://worker.lan:7432/board?highlight_task=w%201", worker_task_id: "w 1" })).toBe("https://worker.lan:7432/agents/history?task=w%201")
+  })
+  it("is unknown without the worker's address", () => {
+    expect(workerHistoryURL({ worker_task_id: "w1" })).toBeUndefined()
+    expect(workerHistoryURL({ url: "/board?highlight_task=w1", worker_task_id: "w1" })).toBeUndefined()
   })
 })

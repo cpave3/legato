@@ -90,6 +90,7 @@ var settingLayout = map[string]settingPlace{
 	"agents.peer_awareness":       {SectionAgents, "What agents get", ""},
 	"agents.mcp.enabled":          {SectionAgents, "What agents get", ""},
 	"agents.mcp.resource_domains": {SectionAgents, "What agents get", ""},
+	"agents.history.keep":         {SectionAgents, "Session history", ""},
 	"skills.dir":                  {SectionAgents, "Skills", ""},
 	"engram.":                     {SectionAgents, "Engrams", ""},
 

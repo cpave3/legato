@@ -64,6 +64,8 @@ Resume restores the saved directory and `CODEX_HOME`. It does not inject fresh-s
 
 The storage root is the captured `CODEX_HOME`, or the launching user's `~/.codex`. A deleted transcript leaves the saved ID intact and reports the provider's error in the terminal. Choose **Start new session** to replace it after the new thread reports its identity. Missing or mismatched workspaces and conflicting session/workspace launch flags are launch errors, not permission to start fresh.
 
+**Transcripts in the session history.** The session history reads a Codex thread's rollout, read only and bounded (`internal/engine/transcript`): `<CODEX_HOME or ~/.codex>/sessions/YYYY/MM/DD/rollout-*-<thread id>.jsonl`, its `session_meta` line for the thread ID, folder and start, and `response_item` messages for the first prompt and last answer (user turns that open with `<`, Codex's environment and instructions, are skipped). This is Codex's documented layout; it was not checked against an installed Codex. See [Database](database.md) § Session history.
+
 ## Behaviour
 
 **Messages.** To an idle thread a message is `turn/start`; during a turn it is `turn/steer` with the turn's ID, which folds it into the turn. A steer the server refuses (the turn ended meanwhile) becomes a `turn/start`. `turn/start` works on a thread the bridge has not joined, which is how a message can open a thread's first turn; the bridge joins right after. The bridge never answers "busy".

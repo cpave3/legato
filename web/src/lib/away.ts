@@ -357,3 +357,17 @@ export async function handOffTask(baseUrl: string, taskId: string, request: Hand
   }
   return body.away
 }
+
+// workerHistoryURL is the session history of an away task on its worker,
+// filtered to the worker's copy of the task, from the address the handoff
+// summary gives; undefined while that is not known.
+export function workerHistoryURL(away: Pick<AwayOn, "url" | "worker_task_id">): string | undefined {
+  if (!away.url || !away.worker_task_id) return undefined
+  try {
+    const origin = new URL(away.url).origin
+    if (origin === "null") return undefined
+    return `${origin}/agents/history?task=${encodeURIComponent(away.worker_task_id)}`
+  } catch {
+    return undefined
+  }
+}

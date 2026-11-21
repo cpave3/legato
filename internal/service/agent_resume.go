@@ -81,7 +81,16 @@ func (a *agentService) prepareTaskResume(ctx context.Context, taskID string, opt
 		return err
 	}
 	if saved == nil || (opt.ResumeSessionID != "" && opt.ResumeSessionID != saved.ID) {
-		return fmt.Errorf("%w: no matching saved %s conversation", ErrTaskResumeConflict, kind)
+		// Any conversation the session history keeps for this task, slot
+		// and tool can be resumed, not only the newest.
+		earlier, err := a.historyConversation(ctx, taskID, opt.Slot, kind, opt.ResumeSessionID)
+		if err != nil {
+			return err
+		}
+		if earlier == nil {
+			return fmt.Errorf("%w: no matching saved %s conversation", ErrTaskResumeConflict, kind)
+		}
+		saved = earlier
 	}
 	info, err := os.Stat(saved.CWD)
 	if err != nil {
@@ -120,4 +129,17 @@ func (a *agentService) prepareTaskResume(ctx context.Context, taskID string, opt
 		opt.WorkingDir = saved.CWD
 	}
 	return nil
+}
+
+// historyConversation is a conversation of the session history the task's
+// slot may resume, nil when it has none of that tool by that ID.
+func (a *agentService) historyConversation(ctx context.Context, taskID, slot, kind, providerSessionID string) (*TaskResumeSession, error) {
+	if providerSessionID == "" {
+		return nil, nil
+	}
+	c, err := a.store.FindTaskConversation(ctx, taskID, slot, kind, providerSessionID)
+	if err != nil || c == nil || c.CWD == "" {
+		return nil, err
+	}
+	return &TaskResumeSession{ID: c.ProviderSessionID, CWD: c.CWD, StorageDir: c.StorageDir}, nil
 }
