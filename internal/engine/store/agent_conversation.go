@@ -283,3 +283,19 @@ func (s *Store) RecordConversationText(ctx context.Context, executionID, first, 
 	}
 	return tx.Commit()
 }
+
+// FindTaskConversation returns the task slot's conversation of a tool by
+// its provider session ID, the most recently seen when several storage
+// folders hold one; nil, nil when there is none.
+func (s *Store) FindTaskConversation(ctx context.Context, taskID, slot, agentKind, providerSessionID string) (*AgentConversation, error) {
+	var found []AgentConversation
+	if err := s.db.SelectContext(ctx, &found, `SELECT * FROM agent_conversations
+		WHERE task_id = ? AND slot = ? AND agent_kind = ? AND provider_session_id = ?
+		ORDER BY last_seen_at DESC, id DESC LIMIT 1`, taskID, slotOrMain(slot), agentKind, providerSessionID); err != nil {
+		return nil, err
+	}
+	if len(found) == 0 {
+		return nil, nil
+	}
+	return &found[0], nil
+}

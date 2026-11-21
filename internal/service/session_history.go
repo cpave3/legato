@@ -8,6 +8,7 @@ import (
 	"os"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/cpave3/legato/internal/engine/store"
@@ -26,6 +27,11 @@ type SessionHistoryOptions struct {
 	// Away says whether a task is away on a worker (on a main instance);
 	// nil is never.
 	Away func(ctx context.Context, taskID string) bool
+	// Restorer starts a conversation again; restores are refused without.
+	Restorer ConversationRestorer
+	// ReeveResume resumes a Reeve session by its task, as
+	// ReeveService.Resume does; Reeve restores are refused without.
+	ReeveResume func(ctx context.Context, taskID string) error
 }
 
 // SessionHistoryService is the session history: the conversations Legato's
@@ -33,6 +39,8 @@ type SessionHistoryOptions struct {
 type SessionHistoryService struct {
 	store *store.Store
 	opts  SessionHistoryOptions
+
+	restoring sync.Map // conversation ID → struct{}: one restore of each at a time
 }
 
 // NewSessionHistoryService returns the history kept in db.
@@ -341,4 +349,75 @@ func decodeSessionCursor(cursor string) (int, error) {
 		return 0, fmt.Errorf("%w: cursor %q", ErrBadSessionQuery, cursor)
 	}
 	return offset, nil
+}
+
+// Where a restore starts the conversation.
+const (
+	RestoreIntoTask    = "task"
+	RestoreIntoNewTask = "new_task"
+)
+
+// RestoreRefusal is a restore refused before anything was started, and why.
+type RestoreRefusal struct {
+	Reason string `json:"error"`
+	// NewTaskPossible says the conversation could be restored into a new
+	// task; CanStartFresh that a fresh start could take its place.
+	NewTaskPossible bool `json:"new_task_possible,omitempty"`
+	CanStartFresh   bool `json:"can_start_fresh,omitempty"`
+}
+
+func (r *RestoreRefusal) Error() string { return "cannot restore: " + r.Reason }
+
+// Restore starts a conversation of the history again, into target: its
+// own task (RestoreIntoTask) or a new one (RestoreIntoNewTask). A Reeve
+// conversation is resumed as the Reeve's. A refusal is a *RestoreRefusal.
+func (h *SessionHistoryService) Restore(ctx context.Context, id int64, target string) error {
+	if target != RestoreIntoTask && target != RestoreIntoNewTask {
+		return fmt.Errorf("%w: target %q is not task or new_task", ErrBadSessionQuery, target)
+	}
+	if _, busy := h.restoring.LoadOrStore(id, struct{}{}); busy {
+		return &RestoreRefusal{Reason: "it is already being restored"}
+	}
+	defer h.restoring.Delete(id)
+
+	detail, err := h.Get(ctx, id)
+	if err != nil {
+		return err
+	}
+	e := detail.SessionEntry
+	if !e.Restorable {
+		return &RestoreRefusal{Reason: e.Reason, CanStartFresh: e.CanStartFresh}
+	}
+	if e.Reeve {
+		if target == RestoreIntoNewTask {
+			return &RestoreRefusal{Reason: "a Reeve conversation is restored as the Reeve's, not into a new task"}
+		}
+		if h.opts.ReeveResume == nil {
+			return &RestoreRefusal{Reason: "the Reeve is not available here"}
+		}
+		return h.opts.ReeveResume(ctx, e.TaskID)
+	}
+	if target == RestoreIntoTask && e.NewTaskOnly {
+		return &RestoreRefusal{Reason: e.Reason, NewTaskPossible: true}
+	}
+	if target == RestoreIntoNewTask {
+		return &RestoreRefusal{Reason: "restoring into a new task is not available yet"}
+	}
+	if h.opts.Restorer == nil {
+		return &RestoreRefusal{Reason: "agents cannot be started here"}
+	}
+	r := ConversationRestore{
+		TaskID: e.TaskID, AgentKind: e.AgentKind, ProviderSessionID: e.ProviderSessionID, CWD: e.CWD,
+	}
+	if row, err := h.store.GetAgentConversation(ctx, id); err == nil && row != nil {
+		r.StorageDir = row.StorageDir
+	}
+	if n := len(detail.Runs); n > 0 {
+		latest := detail.Runs[n-1]
+		r.ExecutionID, r.Sandboxed, r.LastRanAt = latest.ExecutionID, latest.Sandboxed, latest.StartedAt
+		if latest.EndedAt != nil {
+			r.LastRanAt = *latest.EndedAt
+		}
+	}
+	return h.opts.Restorer.RestoreConversation(ctx, r)
 }

@@ -445,6 +445,7 @@ A card on the board is a task: its ID is the task's. An agent is addressed by it
 | `GET` | `/api/ca-cert` | read | Download the CA certificate |  |
 | `GET` | `/api/sessions` | read | Search the session history: the conversations agents had here, with whether each can be restored |  |
 | `GET` | `/api/sessions/{id}` | read | Show a conversation of the session history with its runs |  |
+| `POST` | `/api/sessions/{id}/restore` | change | Restore a conversation of the session history: start it again in its task, as it last ran |  |
 | `DELETE` | `/api/sessions/{id}` | change | Forget a conversation: remove it from the session history (the tool's transcript stays) |  |
 | `GET` | `/ws` | never | Open the live connection that can type into agents |  |
 | `GET` | `/` | read | Load the web UI |  |

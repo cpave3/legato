@@ -120,3 +120,23 @@ func TestWithoutAHistoryTheRoutesSaySo(t *testing.T) {
 		t.Fatalf("list: %d %s, want 503", rec.Code, rec.Body)
 	}
 }
+
+func TestARefusedRestoreSaysWhy(t *testing.T) {
+	srv, _ := historyServer(t)
+	ids := map[string]int64{}
+	for _, e := range historyPage(t, srv, "").Sessions {
+		ids[e.TaskID] = e.ID
+	}
+	rec := callAs(srv, "secret", http.MethodPost, fmt.Sprintf("/api/sessions/%d/restore", ids["live"]), `{"target": "task"}`)
+	var refused service.RestoreRefusal
+	if rec.Code != http.StatusConflict || json.Unmarshal(rec.Body.Bytes(), &refused) != nil || refused.Reason != "it is running" {
+		t.Fatalf("restore running: %d %s", rec.Code, rec.Body)
+	}
+	if rec := callAs(srv, "secret", http.MethodPost, fmt.Sprintf("/api/sessions/%d/restore", ids["ended"]), `{"target": "elsewhere"}`); rec.Code != http.StatusBadRequest {
+		t.Fatalf("bad target: %d %s", rec.Code, rec.Body)
+	}
+	// This history has no agent service to start agents with.
+	if rec := callAs(srv, "secret", http.MethodPost, fmt.Sprintf("/api/sessions/%d/restore", ids["ended"]), `{"target": "task"}`); rec.Code != http.StatusConflict {
+		t.Fatalf("restore without agents: %d %s", rec.Code, rec.Body)
+	}
+}

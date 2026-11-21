@@ -164,6 +164,16 @@ Some agents cannot be resumed, and the list says why:
 
 The Reeve's session resumes the same way, with a fresh snapshot of Legato. An interrupted agent on a task [handed off](/legato/using/handoff/) to a worker resumes there, unattended in its clone, and your main shows **Interrupted on worker** in the Away lane.
 
+## Session history
+
+Legato keeps every conversation its agents have had on this Legato in its **Session history**, with each time it ran. It keeps one after its agent is stopped or dismissed, after `/clear` starts another, and after its task is deleted. You can bring back any of them, not only an interrupted one. A dismissed agent stays in the history.
+
+An entry keeps the conversation's first prompt and last message, so you can search for what an agent did. Legato keeps an entry for 180 days after it was last used; set [`agents.history.keep`](/legato/reference/configuration/#agents) to change that.
+
+**Restore** starts the conversation again in its task, as it last ran: the same tool, folder, sandbox choice, [engram](/legato/agent-tools/engrams/) and resources (any removed since are left out). Its first message tells it that it was restored and that files, branches and other agents may have changed since. The web UI shows that message as one from Legato. Restoring the task's interrupted agent resumes it; restoring another conversation of that task dismisses the interrupted agent first. A Reeve conversation is resumed as the Reeve's.
+
+Legato does not restore a conversation that is running, or one whose folder or tool is gone. It also does not restore into a task whose agent is running, or into a task that is deleted, archived or [away on a worker](/legato/using/handoff/). In each case it says why. The history page in the web UI is not there yet: for now, the Reeve can search the history and restore from it through Legato's API. A restore is a change, so the Reeve asks you first.
+
 ## Stopping an agent
 
 Press `X` in the agents view, or choose **Kill agent** in the web UI's **More actions** menu. Stopping a swarm's conductor from the web UI cancels the whole swarm; see [Swarms](/legato/using/swarms/).

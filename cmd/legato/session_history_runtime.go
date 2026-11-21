@@ -29,7 +29,9 @@ func sessionHistoryOptions(cfg *config.Config, db *store.Store, agents service.A
 			return err == nil && away.State == store.AwayAway
 		},
 	}
-	if adapters, ok := agents.(interface{ AdapterFor(string) service.AIToolAdapter }); ok {
+	if adapters, ok := agents.(interface {
+		AdapterFor(string) service.AIToolAdapter
+	}); ok {
 		opts.ToolConfigured = func(kind string) bool {
 			adapter := adapters.AdapterFor(kind)
 			return adapter != nil && adapter.Name() == kind
@@ -38,9 +40,21 @@ func sessionHistoryOptions(cfg *config.Config, db *store.Store, agents service.A
 	return opts
 }
 
-// wireSessionHistory serves the session history on a web server.
-func wireSessionHistory(srv *server.Server, cfg *config.Config, db *store.Store, agents service.AgentService) {
-	srv.SetSessionHistory(service.NewSessionHistoryService(db, sessionHistoryOptions(cfg, db, agents)))
+// wireSessionHistory serves the session history on a web server: listed,
+// forgotten, and restored through the agent service or, for a Reeve
+// conversation, the Reeve.
+func wireSessionHistory(srv *server.Server, cfg *config.Config, db *store.Store, agents service.AgentService, reeve *service.ReeveService) {
+	opts := sessionHistoryOptions(cfg, db, agents)
+	if restorer, ok := agents.(service.ConversationRestorer); ok {
+		opts.Restorer = restorer
+	}
+	if reeve != nil {
+		opts.ReeveResume = func(ctx context.Context, taskID string) error {
+			_, err := reeve.Resume(ctx, taskID, service.ReeveStart{StartedBy: "session history"})
+			return err
+		}
+	}
+	srv.SetSessionHistory(service.NewSessionHistoryService(db, opts))
 }
 
 // sweepSessionHistory removes the session history's old entries at the
