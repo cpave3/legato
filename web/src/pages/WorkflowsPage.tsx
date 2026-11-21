@@ -194,7 +194,7 @@ function WorkflowsTab({ setTab }: { setTab: (tab: WorkflowTab) => void }) {
         const trigger = triggerText(definition.on)
         return <li key={definition.name} className="grid gap-x-5 gap-y-1.5 border-t border-lw-line p-4 first:border-t-0 md:grid-cols-[minmax(0,1fr)_auto]">
           <div className="flex flex-wrap items-baseline gap-x-2.5">
-            <h2 className="text-[15px] font-semibold">{definition.title}</h2>
+            <h2 className="text-[15px] font-semibold"><Link to={`/workflows/${encodeURIComponent(definition.name)}`} className="hover:text-lw-link hover:underline">{definition.title}</Link></h2>
             <span title={definition.source} className="font-lw-mono text-xs text-lw-faint">{sourceLabel(definition.source)}</span>
           </div>
           <div className="flex items-center justify-between gap-3 md:col-start-2 md:row-span-4 md:row-start-1 md:flex-col md:items-end md:justify-start">

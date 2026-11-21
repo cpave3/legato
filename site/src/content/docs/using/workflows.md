@@ -120,6 +120,18 @@ The steps are listed one to a line with how long each took; open one to see its 
 
 The **Workflows** tab lists each workflow with its steps (✋ marks one that waits for you or for its agent to end), what it takes, when it starts on its own (a column trigger), and how its last run went. The values of secret inputs are never shown. **Run** opens the form for its inputs. Flows remembers the tab you used last.
 
+### A workflow's page
+
+Select a workflow's title on the **Workflows** tab to open its page. It shows the workflow's title, description and file, and its **workflow graph**: the workflow drawn as nodes, built from its YAML. The graph is read-only; to change the workflow, edit its file.
+
+- **Run by hand** is the node every workflow starts from when you run it yourself.
+- Each step is a node with an icon, its kind (**Agent**, **Send to agent**, **Note**, **Move card**, **Review in passes**…), its title and the one value that says what it does: the prompt's first line or the macro, the column, the repository or pull request.
+- Arrows lead from one step to the step that runs after it.
+
+Drag to pan, scroll or use the buttons at the bottom left to zoom, and the frame button to fit the whole graph. The overview at the bottom right shows where you are in a long workflow. Click a node, or move to it with Tab and press Enter, to select it.
+
+**Run** opens the form for its inputs, and **Recent runs** lists that workflow's last ten runs. A file that can't be parsed shows its error instead of a graph.
+
 ### Run from a board card
 
 Press `c` on a selected TUI board card, or right-click a web board card, and open **Workflows** to list the definitions with exactly one `task` input. On a web card you can also use its action button, from the keyboard or on a touch screen. The input key can have any name and receives the selected card automatically. Definitions with zero task inputs are unrelated to the card, while definitions with multiple task inputs are ambiguous, so neither is shown. Column-entry triggers do not exclude an otherwise eligible workflow.
