@@ -144,6 +144,18 @@
       "mode": "restart"
     },
     {
+      "key": "agents.history.keep",
+      "title": "Keep session history for",
+      "section": "agents",
+      "group": "Session history",
+      "help": "How long a past conversation stays in Session history after it was last used: a duration (36h) or days (180d); 0 keeps it until you forget it.",
+      "description": "How long a past conversation stays in Session history after it was last used: a duration (36h) or days (180d); 0 keeps it until you forget it.",
+      "default_label": "180d",
+      "kind": "string",
+      "class": "change",
+      "mode": "restart"
+    },
+    {
       "key": "agents.reviews",
       "title": "Review tour at the end",
       "section": "agents",

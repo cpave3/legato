@@ -439,6 +439,43 @@ type AgentsConfig struct {
 	RepositoryResources []RepositoryResources `yaml:"repository_resources"`
 	MCP                 AgentMCPConfig        `yaml:"mcp"`
 	Sandbox             AgentSandboxConfig    `yaml:"sandbox"`
+	History             AgentHistoryConfig    `yaml:"history"`
+}
+
+// AgentHistoryConfig configures the session history: the conversations
+// Legato's agents had, which it keeps to restore them.
+type AgentHistoryConfig struct {
+	// Keep is how long an entry is kept after it was last used: a Go
+	// duration or a number of days (180d), 180d when unset, 0 to keep
+	// entries until they are forgotten.
+	Keep string `yaml:"keep"`
+}
+
+// DefaultAgentHistoryKeep is Keep when unset.
+const DefaultAgentHistoryKeep = 180 * 24 * time.Hour
+
+// KeepDuration is Keep as a duration; forever when it is 0.
+func (c AgentHistoryConfig) KeepDuration() (d time.Duration, forever bool) {
+	if strings.TrimSpace(c.Keep) == "" {
+		return DefaultAgentHistoryKeep, false
+	}
+	d, err := parseKeepIdle(c.Keep)
+	if err != nil {
+		return DefaultAgentHistoryKeep, false
+	}
+	return d, d == 0
+}
+
+// checkAgentHistoryKeep is agents.history.keep's rule.
+func checkAgentHistoryKeep(v any) error {
+	value, _ := v.(string)
+	if strings.TrimSpace(value) == "" {
+		return nil
+	}
+	if _, err := parseKeepIdle(value); err != nil {
+		return fmt.Errorf("agents.history.keep must be a duration such as 180d or 36h, or 0 to keep entries until forgotten: %w", err)
+	}
+	return nil
 }
 
 // AgentMCPConfig configures the tools Legato gives the agents it launches,
@@ -615,6 +652,9 @@ func validate(cfg *Config) error {
 		return fmt.Errorf("reeve.name: %w", err)
 	}
 	if err := ValidateRepositoryCache(cfg); err != nil {
+		return err
+	}
+	if err := checkAgentHistoryKeep(cfg.Agents.History.Keep); err != nil {
 		return err
 	}
 	if err := ValidateLearningConfig(cfg); err != nil {

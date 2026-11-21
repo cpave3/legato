@@ -31,7 +31,7 @@ export const settingsSections: SettingsSection[] = [
   { id: "appearance", title: "Appearance", nav: "You", groups: ["This browser", "This Legato", "TUI"], terms: "theme terminal colours motion glitch animation tint tui icons activity" },
   { id: "attention", title: "Attention", nav: "You", groups: ["Needs-you rail", "Notify me", "What notifies"], terms: "notifications rail needs you ntfy push desktop phone approvals handoff" },
   { id: "input", title: "Input and terminal", nav: "You", groups: ["This browser", "Dictation", "TUI and tmux"], terms: "keyboard switch key prompt detection voice dictation whisper microphone editor vim tmux" },
-  { id: "agents", title: "Agents", nav: "Agents", groups: ["Defaults", "Claude Code, Codex and Chimera", "What agents get", "Skills", "Resources", "Engrams"], terms: "agent tools adapters models tiers groups mcp tools skills resources engrams" },
+  { id: "agents", title: "Agents", nav: "Agents", groups: ["Defaults", "Claude Code, Codex and Chimera", "What agents get", "Skills", "Resources", "Engrams", "Session history"], terms: "agent tools adapters models tiers groups mcp tools skills resources engrams session history conversations" },
   { id: "repositories", title: "Repositories", nav: "Agents", groups: ["Repositories and folders", "Fresh clones", "Worktrees"], terms: "repositories folders directory presets guidance clones cache worktrees yggdrasil" },
   { id: "sandbox", title: "Sandbox", nav: "Agents", groups: ["What agents see", "Docker", "Advanced"], terms: "bubblewrap bwrap mounts toolchains docker" },
   { id: "macros", title: "Macros", nav: "Agents", groups: [], href: "/macros", terms: "macros keys messages" },

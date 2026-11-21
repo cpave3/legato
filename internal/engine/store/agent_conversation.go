@@ -216,3 +216,30 @@ func (s *Store) MatchAgentConversations(ctx context.Context, match string, limit
 		ORDER BY bm25(agent_conversations_fts), c.last_seen_at DESC, c.id DESC LIMIT ?`, match, limit)
 	return conversations, err
 }
+
+// SweepAgentConversations removes the conversations last seen before a
+// time, with their runs and search rows, except those with a live or an
+// interrupted run. It returns how many it removed.
+func (s *Store) SweepAgentConversations(ctx context.Context, before time.Time) (int, error) {
+	tx, err := s.db.BeginTxx(ctx, nil)
+	if err != nil {
+		return 0, err
+	}
+	defer tx.Rollback()
+	const old = `SELECT id FROM agent_conversations c WHERE c.last_seen_at < ?
+		AND NOT EXISTS (SELECT 1 FROM agent_conversation_runs r WHERE r.conversation_id = c.id
+			AND (r.ended_at IS NULL OR r.end_reason = 'interrupted'))`
+	cutoff := formatExecutionTime(before)
+	if _, err := tx.ExecContext(ctx, `DELETE FROM agent_conversations_fts WHERE conversation_id IN (`+old+`)`, cutoff); err != nil {
+		return 0, err
+	}
+	result, err := tx.ExecContext(ctx, `DELETE FROM agent_conversations WHERE id IN (`+old+`)`, cutoff)
+	if err != nil {
+		return 0, err
+	}
+	n, err := result.RowsAffected()
+	if err != nil {
+		return 0, err
+	}
+	return int(n), tx.Commit()
+}

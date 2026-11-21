@@ -125,6 +125,8 @@ Migration 131 adds the session history: every provider conversation an agent rep
 
 `RecordTaskNativeSession` and `SetChimeraResumeInSlot` record the conversation and its run in their own transaction (`recordConversation`): the entry upserted, any other conversation of the same tool still live in that execution ended `replaced`, and the run opened, or opened again when the execution comes back to a conversation it left. A legacy Chimera selector's run is the slot's live execution, when there is one. `TerminalizeExecution` ends an execution's live runs for its status (`cancelled` is `stopped`, `lost` is `lost`, else `exited`); `TerminalizeExecutionEndingRuns` takes the reason, which the agent service passes through the context of `EndExecution` (`withRunEndReason`: `exited` for a gone pane, `interrupted` from the sweep). `DismissConversationRuns` turns an execution's `interrupted` runs into `dismissed`. `ListTaskConversations`, `ListConversationRuns` and `MatchAgentConversations` (an FTS5 expression, best first) read them.
 
+`SweepAgentConversations(before)` removes the conversations last seen before a time, with their runs and FTS rows, except those with a live or `interrupted` run; `agents.history.keep` decides the time ([Configuration](config.md)).
+
 The migration backfills one conversation for each `task_native_sessions` row, its execution as its run, ended as that execution ended (`interrupted` when its agent session is). A database built in part (a migration test's) skips the backfill.
 
 ### Integrations
