@@ -90,3 +90,17 @@ func TestAgentStageReportsOverTheBrokerAndDirectly(t *testing.T) {
 		t.Fatalf("directly: %+v", got)
 	}
 }
+
+// A report from an execution that does not own the running session (an
+// earlier conversation's) is refused, and changes nothing.
+func TestAgentStageRefusesAnotherExecution(t *testing.T) {
+	s := newTestStore(t)
+	brokerSession(t, s, "abc123")
+
+	if _, err := cli.AgentStage(context.Background(), s, "abc123", "ex-previous-conversation", "finished", ""); err == nil {
+		t.Fatal("a report from another execution was accepted")
+	}
+	if got := placeStage(t, s, "abc123"); got.Stage != "" {
+		t.Fatalf("another execution's report set %+v", got)
+	}
+}

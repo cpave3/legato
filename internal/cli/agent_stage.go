@@ -25,6 +25,11 @@ func AgentStage(ctx context.Context, db *store.Store, taskID, executionID, stage
 	if err != nil {
 		return "", err
 	}
+	// The lookup falls back to the main slot's session for an execution it
+	// does not find: a report from another execution is not this one's.
+	if executionID != "" && session.ExecutionID != executionID {
+		return "", fmt.Errorf("execution %s does not own the running agent session of task %s", executionID, taskID)
+	}
 	if service.IsReeveTask(ctx, db, session.TaskID) {
 		return "", service.ErrNoWorkStage
 	}
