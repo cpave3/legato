@@ -128,6 +128,7 @@ Select a workflow's title on the **Workflows** tab to open its page. It shows th
 - Each trigger the workflow declares is a node too, leading into the first step: when it fires (**Card enters Triage**, **Every weekday at 09:00**, **Changes requested on a PR**), whether it is **on here** or **paused here**, and its loop stop (**3/day**).
 - Each step is a node with an icon, its kind (**Agent**, **Send to agent**, **Note**, **Move card**, **Review in passes**…), its title and the one value that says what it does: the prompt's first line or the macro, the column, the repository or pull request.
 - Arrows lead from one step to the step that runs after it.
+- A **Review in passes** step is drawn as a box holding its loop: **Review pass**, then **Author fixes**, and an arrow back round to the next pass, until a pass approves.
 - A **gate** is a step that does not start by itself. It carries a mark: **you** (✋) for a step that waits for you to start it, **agent ends** (⏳) for one that waits for the agent before it to end.
 - Select a step to see which steps feed it: dashed arrows, labelled with the outputs used, lead from each step whose outputs it uses, and from it to each step that uses its own. They are hidden while nothing is selected, so the graph stays readable.
 

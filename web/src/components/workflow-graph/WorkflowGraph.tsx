@@ -3,7 +3,7 @@
 // other page.
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import dagre from "@dagrejs/dagre"
-import { Background, BaseEdge, Controls, EdgeLabelRenderer, getBezierPath, Handle, MiniMap, Position, ReactFlow, ReactFlowProvider, type Edge, type Node, type EdgeProps, type EdgeTypes, type NodeProps, type NodeTypes, type OnSelectionChangeParams, type ReactFlowInstance } from "@xyflow/react"
+import { Background, BaseEdge, MarkerType, Controls, EdgeLabelRenderer, getBezierPath, Handle, MiniMap, Position, ReactFlow, ReactFlowProvider, type Edge, type Node, type EdgeProps, type EdgeTypes, type NodeProps, type NodeTypes, type OnSelectionChangeParams, type ReactFlowInstance } from "@xyflow/react"
 import "@xyflow/react/dist/base.css"
 import { ArrowRightLeft, BookOpen, Bot, CircleStop, Clock, Columns3, FileText, FileX, FolderSearch, FolderX, GitBranch, GitPullRequest, Hand, Hourglass, MessageSquareWarning, MessagesSquare, Repeat, Send, StickyNote, Tag, Trash2, Workflow, type LucideIcon } from "lucide-react"
 import { dataEdgeName, gateLabel, keyValueText, nodeName, stepTypeLabel, triggerName, triggerOn, type GraphNode, type GraphNodeExtra, type WorkflowGraphModel } from "../../lib/workflowGraph"
@@ -49,7 +49,15 @@ const triggerIcons: Record<string, LucideIcon> = {
 
 // Node sizes come from fixed classes, so the layout never waits for the
 // nodes to be measured.
-const sizes = { step: { width: 240, height: 76 }, trigger: { width: 220, height: 60 } } as const
+const sizes = { step: { width: 240, height: 76 }, trigger: { width: 220, height: 60 }, loop: { width: 340, height: 168 }, inner: { width: 132, height: 44 } } as const
+// Where a group's inner nodes sit inside it, by role.
+const innerPlaces: Record<string, { x: number; y: number }> = { pass: { x: 20, y: 72 }, fixes: { x: 340 - 20 - 132, y: 72 } }
+
+function sizeOf(node: GraphNode) {
+  if (node.kind === "inner") return sizes.inner
+  if (node.kind === "step" && node.step?.group) return sizes.loop
+  return node.kind === "trigger" ? sizes.trigger : sizes.step
+}
 
 type FlowData = { node: GraphNode; extra?: GraphNodeExtra; direction: "LR" | "TB" }
 type FlowNode = Node<FlowData>
@@ -97,7 +105,47 @@ function TriggerNode({ data, selected }: NodeProps<FlowNode>) {
   </div>
 }
 
-const nodeTypes: NodeTypes = { step: StepNode, trigger: TriggerNode }
+// LoopNode is a step drawn as a group: the review loop, a review pass and
+// the author's fixes inside it, round and round until a pass approves.
+function LoopNode({ data, selected }: NodeProps<FlowNode>) {
+  const step = data.node.step!
+  return <div style={sizes.loop} className={cn("flex flex-col gap-0.5 rounded-xl border border-dashed bg-lw-surface/60 px-3 py-2 text-left font-lw text-lw-text", selected ? "border-lw-accent ring-2 ring-lw-accent-ring" : "border-lw-line-strong")}>
+    <Handles direction={data.direction} />
+    <span className="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wide text-lw-text-2">
+      <Repeat size={13} aria-hidden="true" />{stepTypeLabel(step.type)}
+    </span>
+    <span className="truncate text-[13px] font-semibold" title={step.title}>{step.title}</span>
+    {step.key.value && <span className="truncate font-lw-mono text-[11px] text-lw-text-2" title={step.key.value}>{keyValueText(step.key.value)}</span>}
+  </div>
+}
+
+function InnerNode({ data }: NodeProps<FlowNode>) {
+  return <div style={sizes.inner} className="flex items-center justify-center rounded-md border border-lw-line-strong bg-lw-raised px-2 text-center font-lw text-xs text-lw-text">
+    <Handle id="r" type="source" position={Position.Right} isConnectable={false} className="!h-1 !w-1 !border-0 !bg-transparent" />
+    <Handle id="l" type="target" position={Position.Left} isConnectable={false} className="!h-1 !w-1 !border-0 !bg-transparent" />
+    <Handle id="bs" type="source" position={Position.Bottom} isConnectable={false} className="!h-1 !w-1 !border-0 !bg-transparent" />
+    <Handle id="bt" type="target" position={Position.Bottom} isConnectable={false} className="!h-1 !w-1 !border-0 !bg-transparent" />
+    {data.node.inner?.title}
+  </div>
+}
+
+const nodeTypes: NodeTypes = { step: StepNode, trigger: TriggerNode, loop: LoopNode, inner: InnerNode }
+
+type LoopEdgeData = { back: boolean; label?: string }
+
+// LoopEdge joins the inner nodes of a loop: straight on to the author's
+// fixes, and curved back under them to the next pass, labelled with the
+// pass in a run.
+function LoopEdge({ id, sourceX, sourceY, targetX, targetY, data, markerEnd }: EdgeProps & { data?: LoopEdgeData }) {
+  const back = Boolean(data?.back)
+  const path = back ? `M ${sourceX} ${sourceY} C ${sourceX} ${sourceY + 38}, ${targetX} ${targetY + 38}, ${targetX} ${targetY}` : `M ${sourceX} ${sourceY} L ${targetX} ${targetY}`
+  return <>
+    <BaseEdge id={id} path={path} markerEnd={markerEnd} style={{ stroke: "var(--color-lw-text-2)", strokeWidth: 1.5 }} />
+    {back && data?.label && <EdgeLabelRenderer>
+      <span style={{ transform: `translate(-50%, -50%) translate(${(sourceX + targetX) / 2}px, ${sourceY + 30}px)` }} className="nodrag nopan pointer-events-none absolute rounded bg-lw-ground px-1 font-lw-mono text-[10px] text-lw-text-2">{data.label}</span>
+    </EdgeLabelRenderer>}
+  </>
+}
 
 type DataEdgeData = { outputs: string[] }
 
@@ -114,7 +162,7 @@ function DataEdge({ id, sourceX, sourceY, targetX, targetY, sourcePosition, targ
   </>
 }
 
-const edgeTypes: EdgeTypes = { data: DataEdge }
+const edgeTypes: EdgeTypes = { data: DataEdge, loop: LoopEdge }
 
 // layout places the nodes once per graph. Only start and order edges shape
 // it; the other kinds are drawn over the result.
@@ -122,15 +170,30 @@ function layout(graph: WorkflowGraphModel, direction: "LR" | "TB"): Omit<FlowNod
   const g = new dagre.graphlib.Graph()
   g.setGraph({ rankdir: direction, nodesep: 28, ranksep: 56, marginx: 8, marginy: 8 })
   g.setDefaultEdgeLabel(() => ({}))
-  for (const node of graph.nodes) g.setNode(node.id, { ...sizes[node.kind] })
+  for (const node of graph.nodes) if (node.kind !== "inner") g.setNode(node.id, { ...sizeOf(node) })
   for (const edge of graph.edges) if (edge.kind === "start" || edge.kind === "order") g.setEdge(edge.source, edge.target)
   dagre.layout(g)
   return graph.nodes.map(node => {
+    const size = sizeOf(node)
+    if (node.kind === "inner") return {
+      id: node.id,
+      type: "inner",
+      parentId: node.parent,
+      extent: "parent" as const,
+      position: innerPlaces[node.inner?.role ?? ""] ?? { x: 0, y: 0 },
+      width: size.width,
+      height: size.height,
+      data: { node, direction },
+      draggable: false,
+      connectable: false,
+      selectable: false,
+      focusable: false,
+      ariaRole: "img",
+    }
     const placed = g.node(node.id)
-    const size = sizes[node.kind]
     return {
       id: node.id,
-      type: node.kind,
+      type: node.kind === "step" && node.step?.group ? "loop" : node.kind,
       position: { x: placed.x - size.width / 2, y: placed.y - size.height / 2 },
       width: size.width,
       height: size.height,
@@ -154,7 +217,24 @@ function edgesOf(graph: WorkflowGraphModel, selected: string | null): Edge[] {
     selectable: false,
     ariaLabel: dataEdgeName(edge, title),
   }))
-  return [...graph.edges.filter(edge => edge.kind === "start" || edge.kind === "order").map(edge => ({
+  const loops: Edge[] = graph.edges.filter(edge => edge.kind === "loop").map(edge => {
+    const back = graph.nodes.find(node => node.id === edge.source)?.inner?.role === "fixes"
+    return {
+      id: edge.id,
+      source: edge.source,
+      target: edge.target,
+      sourceHandle: back ? "bs" : "r",
+      targetHandle: back ? "bt" : "l",
+      type: "loop",
+      data: { back },
+      markerEnd: { type: MarkerType.ArrowClosed, width: 14, height: 14, color: "var(--color-lw-text-2)" },
+      focusable: false,
+      selectable: false,
+      zIndex: 1,
+      ariaLabel: back ? "Author fixes, then another review pass" : "Review pass, then author fixes",
+    }
+  })
+  return [...loops, ...graph.edges.filter(edge => edge.kind === "start" || edge.kind === "order").map(edge => ({
     id: edge.id,
     source: edge.source,
     target: edge.target,
@@ -219,7 +299,7 @@ function Graph({ graph, selectedId = null, onSelect, direction = "LR", extras, c
       selectionKeyCode={null}
       deleteKeyCode={null}
       zoomOnDoubleClick={false}
-      onNodeClick={(_, node) => choose(node.id)}
+      onNodeClick={(_, node) => choose(node.parentId ?? node.id)}
       onPaneClick={() => choose(null)}
       onSelectionChange={onSelectionChange}
     >

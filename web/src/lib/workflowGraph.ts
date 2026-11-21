@@ -8,8 +8,8 @@ import type { WorkflowStepDefinition } from "./workflow"
 
 export type GraphTrigger = { kind: string; summary: string; enabled: boolean; confirm?: boolean; max_runs_per_day?: number; definition?: Record<string, unknown> }
 export type GraphGate = "manual" | "agent_ended"
-export type GraphStep = { id: string; title: string; type: string; trigger: "automatic" | "manual" | "agent_ended"; gate?: GraphGate; key: { field?: string; value?: string }; definition: WorkflowStepDefinition }
-export type GraphNode = { id: string; kind: "trigger" | "step"; trigger?: GraphTrigger; step?: GraphStep }
+export type GraphStep = { id: string; title: string; type: string; trigger: "automatic" | "manual" | "agent_ended"; gate?: GraphGate; group?: "review_loop"; key: { field?: string; value?: string }; definition: WorkflowStepDefinition }
+export type GraphNode = { id: string; kind: "trigger" | "step" | "inner"; trigger?: GraphTrigger; step?: GraphStep; inner?: { role: string; title: string }; parent?: string }
 export type GraphEdge = { id: string; kind: "start" | "order" | "data" | string; source: string; target: string; outputs?: string[] }
 export type WorkflowGraphModel = { version: number; nodes: GraphNode[]; edges: GraphEdge[] }
 
@@ -55,6 +55,7 @@ export function triggerName(kind: string): string {
 
 // nodeName is a node's accessible name: "Step: Investigate the task".
 export function nodeName(node: GraphNode, extra?: GraphNodeExtra): string {
+  if (node.kind === "inner") return node.inner?.title ?? node.id
   if (node.kind === "step" && node.step) return `Step: ${node.step.title}${node.step.gate ? `, ${gateLabel(node.step.gate).toLowerCase()}` : ""}`
   const trigger = node.trigger
   const summary = trigger?.summary || triggerName(trigger?.kind ?? "")

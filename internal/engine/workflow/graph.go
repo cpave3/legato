@@ -14,7 +14,14 @@ const GraphVersion = 1
 const (
 	NodeTrigger = "trigger"
 	NodeStep    = "step"
+	// NodeInner is a node inside a step's group, such as the review loop's
+	// review pass; its Parent is the step's node.
+	NodeInner = "inner"
 )
+
+// GroupReviewLoop is the group a github.pr.review_passes step is drawn as:
+// a review pass and the author's fixes, round and round.
+const GroupReviewLoop = "review_loop"
 
 // The kinds of edge in a workflow graph.
 const (
@@ -24,6 +31,8 @@ const (
 	EdgeOrder = "order"
 	// EdgeData leads from a step to a later step that uses its outputs.
 	EdgeData = "data"
+	// EdgeLoop joins the nodes inside a group that repeats.
+	EdgeLoop = "loop"
 )
 
 // The gates a step may be: a step that does not start by itself.
@@ -55,6 +64,17 @@ type GraphNode struct {
 	Kind    string        `json:"kind"`
 	Trigger *GraphTrigger `json:"trigger,omitempty"`
 	Step    *GraphStep    `json:"step,omitempty"`
+	Inner   *GraphInner   `json:"inner,omitempty"`
+	// Parent is, for a node inside a group, the group's node.
+	Parent string `json:"parent,omitempty"`
+}
+
+// GraphInner is a node inside a group.
+type GraphInner struct {
+	// Role is what it stands for in its group: pass or fixes in the review
+	// loop.
+	Role  string `json:"role"`
+	Title string `json:"title"`
 }
 
 // GraphTrigger is a trigger node: one way the workflow starts.
@@ -83,6 +103,9 @@ type GraphStep struct {
 	// Gate is GateManual or GateAgentEnded for a step that does not start
 	// by itself, else empty.
 	Gate string `json:"gate,omitempty"`
+	// Group is GroupReviewLoop for a step drawn as a group of inner nodes,
+	// which keeps the step's own node ID.
+	Group string `json:"group,omitempty"`
 	// Key is the one value that says what the step does.
 	Key GraphKey `json:"key"`
 	// Definition is the step as its definition declares it.
@@ -145,6 +168,14 @@ func BuildGraph(d *Definition) *Graph {
 		graph.Nodes = append(graph.Nodes, GraphNode{ID: id, Kind: NodeStep, Step: &GraphStep{
 			ID: step.ID, Title: step.Title, Type: step.Type, Trigger: trigger, Gate: gate, Key: stepKey(step), Definition: step,
 		}})
+		if step.Type == "github.pr.review_passes" {
+			graph.Nodes[len(graph.Nodes)-1].Step.Group = GroupReviewLoop
+			pass, fixes := id+"/pass", id+"/fixes"
+			graph.Nodes = append(graph.Nodes,
+				GraphNode{ID: pass, Kind: NodeInner, Parent: id, Inner: &GraphInner{Role: "pass", Title: "Review pass"}},
+				GraphNode{ID: fixes, Kind: NodeInner, Parent: id, Inner: &GraphInner{Role: "fixes", Title: "Author fixes"}})
+			graph.Edges = append(graph.Edges, edge(EdgeLoop, pass, fixes), edge(EdgeLoop, fixes, pass))
+		}
 		if i == 0 {
 			for _, trigger := range triggers {
 				graph.Edges = append(graph.Edges, edge(EdgeStart, trigger, id))

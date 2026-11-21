@@ -336,3 +336,35 @@ func TestGraphDataEdgesFromOutputPathsSkipSteps(t *testing.T) {
 		t.Fatalf("data edges = %v", got)
 	}
 }
+
+func TestGraphDrawsTheReviewLoopAsAGroup(t *testing.T) {
+	example, _ := ExampleNamed("review-pr-passes")
+	definition, err := Parse("review-pr-passes.workflow.yaml", example.YAML)
+	if err != nil {
+		t.Fatal(err)
+	}
+	graph := BuildGraph(definition)
+	group := nodeByID(graph, "step:review")
+	if group == nil || group.Kind != NodeStep || group.Step.Group != GroupReviewLoop {
+		t.Fatalf("group = %+v", group)
+	}
+	if group.Step.Key.Value != "${{ workflow.inputs.repo }}#${{ workflow.inputs.pr_number }}" {
+		t.Fatalf("key = %+v", group.Step.Key)
+	}
+	pass, fixes := nodeByID(graph, "step:review/pass"), nodeByID(graph, "step:review/fixes")
+	if pass == nil || pass.Kind != NodeInner || pass.Parent != "step:review" || pass.Inner.Title != "Review pass" {
+		t.Fatalf("pass = %+v", pass)
+	}
+	if fixes == nil || fixes.Kind != NodeInner || fixes.Parent != "step:review" || fixes.Inner.Title != "Author fixes" {
+		t.Fatalf("fixes = %+v", fixes)
+	}
+	if got, want := edgesOfKind(graph, EdgeLoop), [][2]string{{"step:review/pass", "step:review/fixes"}, {"step:review/fixes", "step:review/pass"}}; !reflect.DeepEqual(got, want) {
+		t.Fatalf("loop edges = %v", got)
+	}
+	if got := edgesOfKind(graph, EdgeOrder); !reflect.DeepEqual(got, [][2]string{{"step:review", "step:note"}}) {
+		t.Fatalf("order edges attach to the group: %v", got)
+	}
+	if _, ok := dataEdges(graph)[[2]string{"step:review", "step:note"}]; !ok {
+		t.Fatal("data edges attach to the group")
+	}
+}
