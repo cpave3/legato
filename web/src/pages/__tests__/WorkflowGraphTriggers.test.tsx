@@ -48,6 +48,7 @@ vi.mock("../../hooks/useWorkflow", () => ({
     return { data: discovery, loading: false, error: null, refresh: async () => { listeners.forEach(listener => listener()) } }
   },
   useWorkflowRuns: () => ({ data: [], loading: false, error: null, refresh: vi.fn() }),
+  useWorkflowRunsOf: () => ({ data: [], loading: false, error: null, refresh: vi.fn() }),
 }))
 vi.mock("../../hooks/useServer", () => ({ useServer: () => ({ baseUrl: "" }) }))
 

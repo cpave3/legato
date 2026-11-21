@@ -30,6 +30,9 @@ export const queryKeys = {
   devices: (baseUrl: string) => [baseUrl, "devices"] as const,
   workflowDefinitions: (baseUrl: string) => [baseUrl, "workflow-definitions"] as const,
   workflowRuns: (baseUrl: string) => [baseUrl, "workflow-runs"] as const,
+  // One workflow's runs, as its page lists them; every one refreshes on
+  // workflow_changed through the prefix.
+  workflowRunsOf: (baseUrl: string, name: string) => [baseUrl, "workflow-runs-of", name] as const,
   workflowRun: (baseUrl: string, runId: string) => [baseUrl, "workflow-run", runId] as const,
   agentUIItems: (baseUrl: string, taskId: string) => [baseUrl, "agent-ui-items", taskId] as const,
   // revision 0 is "the latest", which changes when the agent shows it again.

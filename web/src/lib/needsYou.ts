@@ -35,7 +35,7 @@ export function needsYouKind(item: Pick<AttentionItem, "signal_kind">): NeedsYou
     case "operator_question": return "question"
     case "operator_done": return "done"
     case "operator_other": return "other"
-    case "agent_waiting": case "workflow_waiting_agent": return "waiting"
+    case "agent_waiting": case "workflow_waiting_agent": case "workflow_review_author": return "waiting"
     case "agent_error": return "error"
     case "workflow_failed": case "workflow_trigger_failed": case "handoff_failed": case "restart_rolled_back": return "failed"
     case "workflow_manual_gate": case "workflow_trigger_input": case "workflow_trigger_confirmation": case "workflow_trigger_loop_stop": case "workflow_review_stuck": return "gate"

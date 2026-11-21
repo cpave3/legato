@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react"
+import { useMemo, useState, type ReactNode } from "react"
 import { Link, useParams } from "react-router-dom"
 import { ChevronDown, ChevronRight, Download, FileText } from "lucide-react"
 import { useWorkflowRun } from "../hooks/useWorkflow"
@@ -15,6 +15,20 @@ import { toneGlyph, toneText } from "../lib/workflowTones"
 import { Button } from "../components/ui/Button"
 import { LoadingState } from "../components/ui/LoadingState"
 import { cn } from "../lib/utils"
+import { useMediaQuery } from "../hooks/useMediaQuery"
+import { LazyWorkflowGraph } from "../components/workflow-graph/LazyWorkflowGraph"
+import { StepYaml } from "../components/StepYaml"
+import { redactSecrets, runStateWords, stepTypeLabel, triggerName, yamlText, type GraphNode } from "../lib/workflowGraph"
+import { runNodeExtras } from "../lib/workflowRunGraph"
+import { runNeedsYou, type RunNeedsYouRow, type RunRowStep } from "../lib/runNeedsYou"
+import { useApprovals } from "../hooks/useApprovals"
+import { useAttention } from "../hooks/useAttention"
+import { useQueryClient } from "@tanstack/react-query"
+import { queryKeys } from "../lib/query"
+import { dismissAttentionItem, executeAttentionAction, type AttentionItem } from "../lib/attention"
+import { NeedsYouRow } from "../components/needsYou/NeedsYouRow"
+import { ApprovalCard } from "../components/ApprovalTray"
+import { NodeSheet } from "../components/NodeSheet"
 
 function parseJSON(raw: string | undefined): unknown {
   try { return JSON.parse(raw ?? "") } catch { return raw }
@@ -252,11 +266,169 @@ function Artifact({ artifact, step }: { artifact: WorkflowArtifact; step?: strin
   </div>
 }
 
+// CleanupControl is a worktree removal's own button in a Needs you row: the
+// same controls as the Now panel, which ask first, show the path and offer
+// force, so the row never removes a worktree without asking.
+function CleanupControl({ run, steps, runId, refresh }: { run: RunRowStep; steps: WorkflowStepRun[]; runId: string; refresh: () => Promise<void> }) {
+  const { baseUrl } = useServer()
+  const step = steps.find(item => item.step_id === run.step)
+  if (!step) return null
+  return <div className="mt-1.5 flex flex-wrap items-center gap-2" onClick={event => event.stopPropagation()}>
+    {run.control === "retry"
+      ? <WorkflowStepRetryAction step={step} onRetry={async force => { await retryWorkflowStep(baseUrl, runId, step.step_id, force); await refresh() }} />
+      : <ManualWorkflowStepAction step={step} label={run.label} onTrigger={async force => { await triggerWorkflowStep(baseUrl, runId, step.step_id, force); await refresh() }} />}
+  </div>
+}
+
+// NeedsYouList is everything the run waits on the operator for, drawn with
+// the needs-you rail's own approval card and row, above the graph. A click
+// on a row shows its node.
+function NeedsYouList({ rows, steps, runId, refresh, onFocus }: { rows: RunNeedsYouRow[]; steps: WorkflowStepRun[]; runId: string; refresh: () => Promise<void>; onFocus: (node: string | null) => void }) {
+  const { baseUrl } = useServer()
+  const queryClient = useQueryClient()
+  const approvals = useApprovals(false)
+  const [pending, setPending] = useState<string | null>(null)
+  const [hidden, setHidden] = useState<Set<string>>(new Set())
+  const [error, setError] = useState("")
+  const shown = rows.filter(row => row.kind === "approval" || !hidden.has(row.item.id))
+  if (shown.length === 0) return null
+  const act = async (item: AttentionItem, call: () => Promise<unknown>) => {
+    setPending(item.id)
+    setError("")
+    try {
+      await call()
+      await Promise.all([refresh(), queryClient.invalidateQueries({ queryKey: queryKeys.attention(baseUrl) })])
+    } catch (reason) {
+      setError(reason instanceof Error ? reason.message : String(reason))
+    } finally {
+      setPending(null)
+    }
+  }
+  const onAction = (item: AttentionItem, actionId: string, text?: string) => {
+    const row = rows.find(each => each.kind === "item" && each.item.id === item.id)
+    const step = row?.kind === "item" ? row.run?.step : undefined
+    if (step) {
+      const calls: Record<string, () => Promise<unknown>> = {
+        start: () => triggerWorkflowStep(baseUrl, runId, step, false),
+        end_now: () => triggerWorkflowStep(baseUrl, runId, step, false),
+        prompt: () => promptWorkflowStep(baseUrl, runId, step),
+        retry: () => retryWorkflowStep(baseUrl, runId, step, false),
+        another_pass: () => anotherReviewPass(baseUrl, runId, step),
+      }
+      if (calls[actionId]) void act(item, calls[actionId])
+      return
+    }
+    const action = item.actions?.find(each => each.id === actionId)
+    const confirmed = action?.requires_confirmation ?? false
+    void act(item, () => executeAttentionAction(baseUrl, item.id, actionId, item.source_revision, text === undefined ? { confirmed } : { confirmed, text }))
+  }
+  const onDismiss = (item: AttentionItem) => {
+    if (item.producer === "run") { setHidden(current => new Set(current).add(item.id)); return }
+    void act(item, () => dismissAttentionItem(baseUrl, item.id, item.source_revision))
+  }
+  return <section aria-label="Needs you" className="mt-5">
+    <h2 className="mb-2 flex items-baseline gap-2 text-xs font-semibold uppercase tracking-wide text-lw-needs">Needs you<span className="font-medium text-lw-faint">{shown.length}</span></h2>
+    {error && <p role="alert" className="mb-2 text-[13px] text-lw-error">{error}</p>}
+    <div className="grid gap-2 md:grid-cols-2">
+      {shown.map(row => <div key={row.kind === "approval" ? row.approval.id : row.item.id} data-run-row="" className="cursor-pointer" onClick={event => {
+        // A tap on the row shows its step; one on a control in it (a button,
+        // a link, Reply…'s field) is that control's alone.
+        if ((event.target as Element).closest("button, a, input, textarea, select, label, [role=dialog]")) return
+        onFocus(row.node)
+      }}>
+        {row.kind === "approval"
+          ? <ApprovalCard approval={row.approval} focused={false} onDone={async () => { await approvals.refresh(); await refresh() }} />
+          : <NeedsYouRow item={row.item} onAction={onAction} onDismiss={onDismiss} pending={pending === row.item.id} />}
+        {row.kind === "item" && row.run?.control && <CleanupControl run={row.run} steps={steps} runId={runId} refresh={refresh} />}
+      </div>)}
+    </div>
+  </section>
+}
+
+function clock(time?: string): string {
+  return time ? time.replace("T", " ").replace(/(:\d\d)(\.\d+)?Z?$/, "$1") : ""
+}
+
+// RunStepPanel is one step of a run, beside its graph: what went in and
+// came out, every attempt, its artifacts, a review loop's passes, and its
+// YAML from the run's own copy, with the run's secrets hidden.
+function RunStepPanel({ view, node, runId, secrets, state }: { view: WorkflowRunView; node: GraphNode; runId: string; secrets: string[]; state?: string }) {
+  const graphStep = node.step!
+  const step = (view.steps ?? []).find(item => item.step_id === graphStep.id)
+  const attempts = (view.attempts ?? []).filter(attempt => attempt.step_id === graphStep.id)
+  const artifacts = (view.artifacts ?? []).filter(artifact => artifact.step_id === graphStep.id)
+  const inputs = step ? objectEntries(step.resolved_inputs_json) : []
+  const outputs = step ? objectEntries(step.outputs_json).filter(([key]) => !artifacts.some(artifact => artifact.output_key === key)) : []
+  const details = view.details?.[graphStep.id] as ReviewRunDetails | undefined
+  const yaml = redact(yamlText(redactSecrets(graphStep.definition, new Set(secrets))), secrets)
+  return <aside aria-label={graphStep.title} className="flex min-w-0 flex-col gap-4 rounded-xl border border-lw-line bg-lw-surface p-4 text-[13px]">
+    <div>
+      <p className="text-[11px] font-medium uppercase tracking-wide text-lw-text-2">Step · {stepTypeLabel(graphStep.type)}{state && <> · {state}</>}</p>
+      <h2 className="mt-0.5 text-[15px] font-semibold">{graphStep.title}</h2>
+      {step?.error && <p className="mt-1 whitespace-pre-wrap break-words text-lw-error">{redact(step.error, secrets)}</p>}
+    </div>
+    {inputs.length > 0 && <div><h3 className="mb-1 text-xs text-lw-text-2">Inputs</h3><ValueList values={inputs} secrets={secrets} /></div>}
+    {outputs.length > 0 && <div><h3 className="mb-1 text-xs text-lw-text-2">Outputs</h3><ValueList values={outputs} secrets={secrets} /></div>}
+    {attempts.length > 0 && <div><h3 className="mb-1 text-xs text-lw-text-2">Attempts</h3>
+      <ul aria-label="Attempts" className="space-y-2">{attempts.map(attempt => <li key={attempt.id} className="rounded-lg border border-lw-line p-2.5 text-lw-text-2">
+        <p className="text-lw-text">Attempt {attempt.attempt_number} · {attempt.status.replaceAll("_", " ")}</p>
+        <p className="font-lw-mono text-xs">{clock(attempt.started_at)}{attempt.ended_at && <> → {clock(attempt.ended_at)}</>}</p>
+        {(attempt.agent_kind || attempt.tier) && <p>{attempt.agent_kind || attempt.executor_type}{attempt.tier && ` (${attempt.tier})`}</p>}
+        {attempt.working_dir && <p className="break-all font-lw-mono text-xs text-lw-faint">{attempt.working_dir}</p>}
+        {attempt.error && <p className="text-lw-error">{redact(attempt.error, secrets)}</p>}
+        {attempt.agent_session_id && attempt.task_id ? <Button asChild variant="outline" size="sm" className="mt-1.5"><Link to={agentLink(attempt.task_id, runId)}>Open agent</Link></Button> : null}
+      </li>)}</ul>
+    </div>}
+    {artifacts.length > 0 && <div className="grid gap-2"><h3 className="text-xs text-lw-text-2">Artifacts</h3>{artifacts.map(artifact => <Artifact key={artifact.id} artifact={artifact} />)}</div>}
+    {details && <div><h3 className="mb-1 text-xs text-lw-text-2">Review loop</h3>
+      <p>{details.summary || details.phase.replaceAll("_", " ")}</p>
+      <p className="text-lw-text-2">Pass {details.pass} · {details.blocking_open} blocking</p>
+      {details.reviews && details.reviews.length > 0 && <ul aria-label="Reviews posted" className="mt-1 space-y-0.5">
+        {details.reviews.map(review => <li key={`${review.pass}-${review.pr}`}><a className="text-lw-link underline" href={review.url} target="_blank" rel="noreferrer">Pass {review.pass} review of #{review.pr}</a></li>)}
+      </ul>}
+    </div>}
+    <StepYaml yaml={yaml} source={view.run.definition_source} />
+  </aside>
+}
+
+function RunTriggerPanel({ node, started }: { node: GraphNode; started: boolean }) {
+  const trigger = node.trigger!
+  const summary = trigger.summary || triggerName(trigger.kind)
+  return <aside aria-label={summary} className="flex flex-col gap-2 rounded-xl border border-lw-line bg-lw-surface p-4 text-[13px]">
+    <p className="text-[11px] font-medium uppercase tracking-wide text-lw-text-2">Trigger · {triggerName(trigger.kind)}</p>
+    <h2 className="text-[15px] font-semibold">{summary}</h2>
+    <p className="text-lw-text-2">{started ? "This trigger started this run." : "This run was not started by this trigger."}</p>
+    {trigger.definition && <pre className="overflow-x-auto rounded-lg border border-lw-line bg-lw-ground p-3 font-lw-mono text-xs">{yamlText(trigger.definition)}</pre>}
+  </aside>
+}
+
 export function WorkflowRunPage() {
   const { runId = "" } = useParams()
   const { data, loading, refreshing, error, refresh } = useWorkflowRun(runId)
   const { baseUrl } = useServer()
   const now = useNow(15_000)
+  // At phone width the step list stays, with a Graph toggle; the graph then
+  // runs top to bottom and details open in a sheet.
+  const narrow = useMediaQuery("(max-width: 767px)")
+  const [graphOn, setGraphOn] = useState(false)
+  const [selected, setSelected] = useState<string | null>(null)
+  const [centerOn, setCenterOn] = useState<{ id: string; n: number } | null>(null)
+  const graph = data?.graph ?? null
+  const approvalList = useApprovals(true).data
+  const attentionList = useAttention().data
+  const needsYou = useMemo(() => data ? runNeedsYou(data, attentionList ?? [], approvalList, taskId => agentLink(taskId, runId), secretValues(data)) : { rows: [], nodes: new Set<string>() }, [data, attentionList, approvalList, runId])
+  const extras = useMemo(() => {
+    if (!data || !graph) return undefined
+    const out = runNodeExtras(data, graph, now)
+    // An open approval or item of a step's agent makes the step Needs you.
+    for (const node of needsYou.nodes) if (out[node] && (out[node].state === "running" || out[node].state === "waiting")) out[node] = { ...out[node], state: "needs" }
+    return out
+  }, [data, graph, now, needsYou])
+  const focusNode = (node: string | null) => {
+    if (!node) return
+    setSelected(node)
+    setCenterOn(current => ({ id: node, n: (current?.n ?? 0) + 1 }))
+  }
   if (loading) return <main className="flex min-h-0 flex-1 flex-col"><LoadingState label="Loading the workflow run…" /></main>
   if (!data) return <main className="p-6 font-lw text-lw-text">
     <Link to="/workflows?tab=runs" className="text-sm text-lw-link">← Runs</Link>
@@ -279,8 +451,13 @@ export function WorkflowRunPage() {
   else if (position) where = `${run.status === "failed" ? "at step" : "Step"} ${position.number} of ${position.total} · ${position.title}`
   const inputs = objectEntries(run.inputs_json).filter(([, value]) => value !== "" && value !== null)
   const secrets = secretValues(data)
+  const showGraph = Boolean(graph) && (!narrow || graphOn)
+  const selectedNode = graph?.nodes.find(node => node.id === selected)
+  const panel = selectedNode?.kind === "step"
+    ? <RunStepPanel view={data} node={selectedNode} runId={runId} secrets={secrets} state={extras?.[selectedNode.id]?.state && runStateWords[extras[selectedNode.id].state!]} />
+    : selectedNode?.kind === "trigger" ? <RunTriggerPanel node={selectedNode} started={extras?.[selectedNode.id]?.trigger === "started"} /> : null
   return <main className="min-h-0 flex-1 overflow-y-auto px-4 py-4 font-lw text-lw-text sm:px-6 md:py-6">
-    <div className="mx-auto max-w-3xl">
+    <div className={cn("mx-auto", showGraph ? "max-w-6xl" : "max-w-3xl")}>
       <Link to="/workflows?tab=runs" className="text-sm text-lw-link">← Runs</Link>
       <div className="mt-2 flex flex-col gap-2 sm:flex-row sm:items-start sm:justify-between">
         <div className="min-w-0">
@@ -301,11 +478,26 @@ export function WorkflowRunPage() {
         <p className="text-lw-needs">Showing saved run. Refresh failed: {error}</p>
         <Button variant="outline" size="sm" className="mt-2" disabled={refreshing} onClick={() => { void refresh() }}>Retry</Button>
       </div>}
+      {(data.definition_changed || data.definition_missing) && <p role="note" className="mt-4 rounded-lg border border-lw-line bg-lw-surface px-3 py-2 text-[13px] text-lw-text-2">
+        {data.definition_missing ? "This workflow's file is gone" : "This workflow has changed since this run"}<span className="text-lw-faint"> · the graph is the run's own copy</span>
+      </p>}
       <Now key={`${baseUrl}:${runId}`} view={data} runId={runId} refresh={refresh} now={now} secrets={secrets} />
-      <h2 className="mb-2 mt-7 text-xs font-semibold uppercase tracking-wide text-lw-text-2">Steps</h2>
-      <ul aria-label="Steps" className="overflow-hidden rounded-xl border border-lw-line bg-lw-surface">
-        {steps.map(step => <StepRow key={`${baseUrl}:${runId}:${step.step_id}`} step={step} run={run} attempts={attempts.filter(attempt => attempt.step_id === step.step_id)} artifacts={artifacts.filter(artifact => artifact.step_id === step.step_id)} now={now} secrets={secrets} />)}
-      </ul>
+      {graph && <NeedsYouList rows={needsYou.rows} steps={steps} runId={runId} refresh={refresh} onFocus={focusNode} />}
+      {graph && narrow && <div className="mt-7 flex justify-end">
+        <Button variant="outline" size="sm" aria-pressed={graphOn} onClick={() => setGraphOn(!graphOn)}>Graph</Button>
+      </div>}
+      {showGraph && graph ? <div className={cn(narrow ? "mt-3" : "mt-7", "grid gap-4", selectedNode && !narrow && "lg:grid-cols-[minmax(0,1fr)_24rem]")}>
+        <section aria-label="Run graph" className={cn("overflow-hidden rounded-xl border border-lw-line bg-lw-ground", narrow ? "h-[34rem]" : "h-[30rem]")}>
+          <LazyWorkflowGraph graph={graph} extras={extras} run selectedId={selected} onSelect={setSelected} centerOn={centerOn} direction={narrow ? "TB" : "LR"} />
+        </section>
+        {!narrow && panel}
+      </div> : <>
+        <h2 className="mb-2 mt-7 text-xs font-semibold uppercase tracking-wide text-lw-text-2">Steps</h2>
+        <ul aria-label="Steps" className="overflow-hidden rounded-xl border border-lw-line bg-lw-surface">
+          {steps.map(step => <StepRow key={`${baseUrl}:${runId}:${step.step_id}`} step={step} run={run} attempts={attempts.filter(attempt => attempt.step_id === step.step_id)} artifacts={artifacts.filter(artifact => artifact.step_id === step.step_id)} now={now} secrets={secrets} />)}
+        </ul>
+      </>}
+      {showGraph && narrow && panel && <NodeSheet title={selectedNode?.step?.title ?? selectedNode?.trigger?.summary ?? ""} onClose={() => setSelected(null)}>{panel}</NodeSheet>}
       {inputs.length > 0 && <>
         <h2 className="mb-2 mt-7 text-xs font-semibold uppercase tracking-wide text-lw-text-2">Inputs</h2>
         <ValueList secrets={secrets} values={inputs} />

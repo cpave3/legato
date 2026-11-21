@@ -63,6 +63,7 @@ export function QuerySyncProvider({ children }: { children: ReactNode }) {
           break
         case "workflow_changed":
           invalidate(queryKeys.workflowRuns(baseUrl))
+          invalidate([baseUrl, "workflow-runs-of"], false)
           if (message.workflow_run_id) invalidate(queryKeys.workflowRun(baseUrl, message.workflow_run_id))
           invalidate(queryKeys.navigationSummary(baseUrl))
           break

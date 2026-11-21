@@ -15,7 +15,21 @@ export type WorkflowGraphModel = { version: number; nodes: GraphNode[]; edges: G
 
 // GraphNodeExtra is what a page knows of a node beyond its definition: for
 // a trigger, whether it is on in this Legato.
-export type GraphNodeExtra = { enabledHere?: boolean }
+export type GraphNodeExtra = {
+  enabledHere?: boolean
+  // In a run: a step's state, how long it has run, its attempts, its agent
+  // tool, and for a loop its pass ("Pass 2 of 5"); a trigger's part in it.
+  state?: NodeRunState
+  elapsed?: string
+  attempts?: number
+  agent?: string
+  pass?: string
+  trigger?: "started" | "other"
+}
+
+export type NodeRunState = "waiting" | "running" | "needs" | "failed" | "done" | "skipped"
+
+export const runStateWords: Record<NodeRunState, string> = { waiting: "Waiting", running: "Running", needs: "Needs you", failed: "Failed", done: "Done", skipped: "Skipped" }
 
 // The short label of each executor type, as a step node shows it.
 const stepTypeLabels: Record<string, string> = {
@@ -56,9 +70,10 @@ export function triggerName(kind: string): string {
 // nodeName is a node's accessible name: "Step: Investigate the task".
 export function nodeName(node: GraphNode, extra?: GraphNodeExtra): string {
   if (node.kind === "inner") return node.inner?.title ?? node.id
-  if (node.kind === "step" && node.step) return `Step: ${node.step.title}${node.step.gate ? `, ${gateLabel(node.step.gate).toLowerCase()}` : ""}`
+  if (node.kind === "step" && node.step) return `Step: ${node.step.title}${node.step.gate ? `, ${gateLabel(node.step.gate).toLowerCase()}` : ""}${extra?.state ? `, ${runStateWords[extra.state]}` : ""}`
   const trigger = node.trigger
   const summary = trigger?.summary || triggerName(trigger?.kind ?? "")
+  if (extra?.trigger) return `Trigger: ${summary}${extra.trigger === "started" ? ", started this run" : ""}`
   if (!trigger || trigger.kind === "manual") return `Trigger: ${summary}`
   return `Trigger: ${summary}, ${triggerOn(trigger, extra) ? "on here" : "paused here"}`
 }

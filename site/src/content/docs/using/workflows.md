@@ -116,7 +116,18 @@ A run's page says the same at the top, and under it what you can do now:
 - a failed step: its error and **Retry step**
 - a finished run: the files it produced, with **Preview** and **Download**, and the values its agents reported
 
-The steps are listed one to a line with how long each took; open one to see its inputs, outputs and agent. **Cancel run** stops a run in progress.
+Above the graph, **Needs you** gathers everything the run waits on you for, drawn as in the [needs-you rail](/legato/using/attention/), each with its action:
+
+- a step that waits for you: **Start**, or **End now** for one that waits for its agent to end
+- an agent that went idle or is waiting: **Open agent** and **Prompt to continue**
+- a permission request or question from one of the run's agents: its choices (**Allow once**…) and **Deny…**; the agent's step shows **Needs you** while it is open
+- what the run's agents posted for you, with its actions
+- a review loop waiting on its author, or stuck: **Run another pass**
+- a failed step: **Retry**
+
+Click a row to centre the graph on its step and select it. The list is hidden when nothing waits on you, and keeps up as approvals and items come and go.
+
+On a wide screen the steps are drawn as the run's **workflow graph**, which updates as the run moves while its nodes stay in place. Each step says its state in a word with an icon and a colour (**Waiting**, **Running**, **Needs you**, **Failed**, **Done** or **Skipped**), how long it has run, its attempts folded into a count (**×3**) and the agent tool. The review loop shows its pass (**Pass 2 of 5**). The trigger that started the run is marked **Started this run**, and the others are dimmed. Select a step to see, beside the graph, its inputs and outputs, every attempt with its times, error, agent tool and tier, folder and **Open agent**, its files, a review loop's passes with a link to each review, and the step's YAML. The graph is the run's own copy of the workflow: when the file has changed since, the page says **This workflow has changed since this run**, or **This workflow's file is gone**. On a phone the steps are listed one to a line with how long each took; open one to see its inputs, outputs and agent. **Graph** above the list shows the graph in its place, drawn top to bottom, and a step's details open in a sheet from the bottom of the screen; close it with ✕ or a tap outside. **Cancel run** stops a run in progress.
 
 The **Workflows** tab lists each workflow with its steps (✋ marks one that waits for you or for its agent to end), what it takes, when it starts on its own (a column trigger), and how its last run went. The values of secret inputs are never shown. **Run** opens the form for its inputs. Flows remembers the tab you used last.
 
@@ -132,7 +143,7 @@ Select a workflow's title on the **Workflows** tab to open its page. It shows th
 - A **gate** is a step that does not start by itself. It carries a mark: **you** (✋) for a step that waits for you to start it, **agent ends** (⏳) for one that waits for the agent before it to end.
 - Select a step to see which steps feed it: dashed arrows, labelled with the outputs used, lead from each step whose outputs it uses, and from it to each step that uses its own. They are hidden while nothing is selected, so the graph stays readable.
 
-Drag to pan, scroll or use the buttons at the bottom left to zoom, and the frame button to fit the whole graph. The overview at the bottom right shows where you are in a long workflow. Click a node, or move to it with Tab and press Enter, to select it.
+Drag to pan, scroll or use the buttons at the bottom left to zoom, and the frame button to fit the whole graph. The overview at the bottom right shows where you are in a long workflow. Click a node, or move to it with Tab and press Enter, to select it. On a phone the graph runs top to bottom, and what the side panel shows opens in a sheet from the bottom of the screen.
 
 Select a step to see its own YAML in the panel beside the graph, with **Copy** and the file it is in, to find and reuse its exact definition. The values of secret inputs are hidden there too.
 

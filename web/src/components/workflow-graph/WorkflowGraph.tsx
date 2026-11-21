@@ -3,10 +3,12 @@
 // other page.
 import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import dagre from "@dagrejs/dagre"
-import { Background, BaseEdge, MarkerType, Controls, EdgeLabelRenderer, getBezierPath, Handle, MiniMap, Position, ReactFlow, ReactFlowProvider, type Edge, type Node, type EdgeProps, type EdgeTypes, type NodeProps, type NodeTypes, type OnSelectionChangeParams, type ReactFlowInstance } from "@xyflow/react"
+import { Background, BaseEdge, MarkerType, Controls, EdgeLabelRenderer, getBezierPath, Handle, MiniMap, Position, ReactFlow, ReactFlowProvider, type Edge, type Node, type EdgeProps, type EdgeTypes, type NodeProps, type NodeTypes, type ReactFlowInstance, useReactFlow } from "@xyflow/react"
 import "@xyflow/react/dist/base.css"
-import { ArrowRightLeft, BookOpen, Bot, CircleStop, Clock, Columns3, FileText, FileX, FolderSearch, FolderX, GitBranch, GitPullRequest, Hand, Hourglass, MessageSquareWarning, MessagesSquare, Repeat, Send, StickyNote, Tag, Trash2, Workflow, type LucideIcon } from "lucide-react"
-import { dataEdgeName, gateLabel, keyValueText, nodeName, stepTypeLabel, triggerName, triggerOn, type GraphNode, type GraphNodeExtra, type WorkflowGraphModel } from "../../lib/workflowGraph"
+import { ArrowRightLeft, BookOpen, Bot, CircleAlert, CircleCheck, CircleDashed, CircleDot, CircleStop, CircleX, SkipForward, Clock, Columns3, FileText, FileX, FolderSearch, FolderX, GitBranch, GitPullRequest, Hand, Hourglass, MessageSquareWarning, MessagesSquare, Repeat, Send, StickyNote, Tag, Trash2, Workflow, type LucideIcon } from "lucide-react"
+import { dataEdgeName, gateLabel, keyValueText, nodeName, runStateWords, stepTypeLabel, triggerName, triggerOn, type GraphNode, type GraphNodeExtra, type NodeRunState, type WorkflowGraphModel } from "../../lib/workflowGraph"
+import { toneText } from "../../lib/workflowTones"
+import type { Tone } from "../../lib/workflowView"
 import { cn } from "../../lib/utils"
 
 export type WorkflowGraphProps = {
@@ -17,6 +19,10 @@ export type WorkflowGraphProps = {
   direction?: "LR" | "TB"
   // extras is what the page knows of each node, by node ID.
   extras?: Record<string, GraphNodeExtra>
+  // run makes step nodes tall enough for a run's state line.
+  run?: boolean
+  // centerOn moves the view to a node, each time n changes.
+  centerOn?: { id: string; n: number } | null
   className?: string
 }
 
@@ -49,14 +55,31 @@ const triggerIcons: Record<string, LucideIcon> = {
 
 // Node sizes come from fixed classes, so the layout never waits for the
 // nodes to be measured.
-const sizes = { step: { width: 240, height: 76 }, trigger: { width: 220, height: 60 }, loop: { width: 340, height: 168 }, inner: { width: 132, height: 44 } } as const
+const sizes = { step: { width: 240, height: 76 }, runStep: { width: 240, height: 98 }, trigger: { width: 220, height: 60 }, loop: { width: 340, height: 168 }, runLoop: { width: 340, height: 188 }, inner: { width: 132, height: 44 } } as const
 // Where a group's inner nodes sit inside it, by role.
 const innerPlaces: Record<string, { x: number; y: number }> = { pass: { x: 20, y: 72 }, fixes: { x: 340 - 20 - 132, y: 72 } }
 
-function sizeOf(node: GraphNode) {
+function sizeOf(node: GraphNode, run = false) {
   if (node.kind === "inner") return sizes.inner
-  if (node.kind === "step" && node.step?.group) return sizes.loop
-  return node.kind === "trigger" ? sizes.trigger : sizes.step
+  if (node.kind === "step" && node.step?.group) return run ? sizes.runLoop : sizes.loop
+  return node.kind === "trigger" ? sizes.trigger : run ? sizes.runStep : sizes.step
+}
+
+const stateTones: Record<NodeRunState, Tone> = { waiting: "idle", running: "live", needs: "needs", failed: "error", done: "done", skipped: "idle" }
+const stateIcons: Record<NodeRunState, LucideIcon> = { waiting: CircleDashed, running: CircleDot, needs: CircleAlert, failed: CircleX, done: CircleCheck, skipped: SkipForward }
+const stateBorders: Record<NodeRunState, string> = { waiting: "border-lw-line-strong", running: "border-lw-live", needs: "border-lw-needs", failed: "border-lw-error", done: "border-lw-done/60", skipped: "border-lw-line" }
+
+// RunLine is a step's state in a run: the word with its icon and colour,
+// how long it has run, its attempts folded into a count, its agent tool.
+function RunLine({ extra }: { extra?: GraphNodeExtra }) {
+  if (!extra?.state) return null
+  const Icon = stateIcons[extra.state]
+  return <span className="mt-0.5 flex items-center gap-2 text-[11px] text-lw-text-2">
+    <span className={cn("inline-flex items-center gap-1 font-medium", toneText[stateTones[extra.state]])}><Icon size={12} aria-hidden="true" />{runStateWords[extra.state]}</span>
+    {extra.elapsed && <span className="font-lw-mono">{extra.elapsed}</span>}
+    {(extra.attempts ?? 0) > 1 && <span title={`${extra.attempts} attempts`} className="font-lw-mono">×{extra.attempts}</span>}
+    {extra.agent && <span className="ml-auto truncate font-lw-mono">{extra.agent}</span>}
+  </span>
 }
 
 type FlowData = { node: GraphNode; extra?: GraphNodeExtra; direction: "LR" | "TB" }
@@ -73,7 +96,8 @@ function Handles({ direction }: { direction: "LR" | "TB" }) {
 function StepNode({ data, selected }: NodeProps<FlowNode>) {
   const step = data.node.step!
   const Icon = stepIcons[step.type] ?? Workflow
-  return <div style={sizes.step} className={cn("flex flex-col justify-center gap-0.5 rounded-lg border bg-lw-surface px-3 py-2 text-left font-lw text-lw-text shadow-sm", selected ? "border-lw-accent ring-2 ring-lw-accent-ring" : "border-lw-line-strong")}>
+  const state = data.extra?.state
+  return <div style={state ? sizes.runStep : sizes.step} className={cn("flex flex-col justify-center gap-0.5 rounded-lg border bg-lw-surface px-3 py-2 text-left font-lw text-lw-text shadow-sm", selected ? "border-lw-accent ring-2 ring-lw-accent-ring" : state ? stateBorders[state] : "border-lw-line-strong", state === "skipped" && "opacity-60")}>
     <Handles direction={data.direction} />
     <span className="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wide text-lw-text-2">
       <Icon size={13} aria-hidden="true" />{stepTypeLabel(step.type)}
@@ -83,6 +107,7 @@ function StepNode({ data, selected }: NodeProps<FlowNode>) {
     </span>
     <span className="truncate text-[13px] font-semibold" title={step.title}>{step.title}</span>
     {step.key.value && <span className="truncate font-lw-mono text-[11px] text-lw-text-2" title={step.key.value}>{keyValueText(step.key.value)}</span>}
+    <RunLine extra={data.extra} />
   </div>
 }
 
@@ -91,12 +116,14 @@ function TriggerNode({ data, selected }: NodeProps<FlowNode>) {
   const Icon = triggerIcons[trigger.kind] ?? Workflow
   const manual = trigger.kind === "manual"
   const on = triggerOn(trigger, data.extra)
-  return <div style={sizes.trigger} className={cn("flex items-center gap-2.5 rounded-2xl border border-dashed bg-lw-raised px-3.5 font-lw text-[13px] text-lw-text", selected ? "border-lw-accent ring-2 ring-lw-accent-ring" : "border-lw-line-strong", !manual && !on && "opacity-70")}>
+  const inRun = Boolean(data.extra?.trigger)
+  return <div style={sizes.trigger} className={cn("flex items-center gap-2.5 rounded-2xl border border-dashed bg-lw-raised px-3.5 font-lw text-[13px] text-lw-text", selected ? "border-lw-accent ring-2 ring-lw-accent-ring" : data.extra?.trigger === "started" ? "border-lw-accent" : "border-lw-line-strong", !manual && !on && !inRun && "opacity-70")}>
     <Handles direction={data.direction} />
     <Icon size={15} aria-hidden="true" className="shrink-0 text-lw-text-2" />
     <span className="flex min-w-0 flex-col">
       <span className="truncate font-medium" title={trigger.summary}>{trigger.summary || triggerName(trigger.kind)}</span>
-      {!manual && <span className="flex items-center gap-1.5 text-[11px] text-lw-text-2">
+      {data.extra?.trigger === "started" && <span className="text-[11px] font-medium text-lw-accent-text">Started this run</span>}
+      {!manual && !inRun && <span className="flex items-center gap-1.5 text-[11px] text-lw-text-2">
         <span aria-hidden="true" className={cn("h-1.5 w-1.5 rounded-full", on ? "bg-lw-done" : "bg-lw-faint")} />
         <span className={on ? "text-lw-done" : undefined}>{on ? "on here" : "paused here"}</span>
         {trigger.max_runs_per_day ? <span title={`Loop stop: ${trigger.max_runs_per_day} runs per item per day`} className="rounded border border-lw-line px-1 font-lw-mono text-[10px]">{trigger.max_runs_per_day}/day</span> : null}
@@ -109,13 +136,16 @@ function TriggerNode({ data, selected }: NodeProps<FlowNode>) {
 // the author's fixes inside it, round and round until a pass approves.
 function LoopNode({ data, selected }: NodeProps<FlowNode>) {
   const step = data.node.step!
-  return <div style={sizes.loop} className={cn("flex flex-col gap-0.5 rounded-xl border border-dashed bg-lw-surface/60 px-3 py-2 text-left font-lw text-lw-text", selected ? "border-lw-accent ring-2 ring-lw-accent-ring" : "border-lw-line-strong")}>
+  const state = data.extra?.state
+  return <div style={state ? sizes.runLoop : sizes.loop} className={cn("relative flex flex-col gap-0.5 rounded-xl border border-dashed bg-lw-surface/60 px-3 py-2 text-left font-lw text-lw-text", selected ? "border-lw-accent ring-2 ring-lw-accent-ring" : state ? stateBorders[state] : "border-lw-line-strong")}>
     <Handles direction={data.direction} />
     <span className="flex items-center gap-1.5 text-[11px] font-medium uppercase tracking-wide text-lw-text-2">
       <Repeat size={13} aria-hidden="true" />{stepTypeLabel(step.type)}
     </span>
     <span className="truncate text-[13px] font-semibold" title={step.title}>{step.title}</span>
     {step.key.value && <span className="truncate font-lw-mono text-[11px] text-lw-text-2" title={step.key.value}>{keyValueText(step.key.value)}</span>}
+    <RunLine extra={data.extra} />
+    {data.extra?.pass && <span className="absolute bottom-1.5 left-1/2 -translate-x-1/2 rounded border border-lw-line bg-lw-surface px-1.5 py-px font-lw-mono text-[10px] text-lw-text">{data.extra.pass}</span>}
   </div>
 }
 
@@ -131,19 +161,16 @@ function InnerNode({ data }: NodeProps<FlowNode>) {
 
 const nodeTypes: NodeTypes = { step: StepNode, trigger: TriggerNode, loop: LoopNode, inner: InnerNode }
 
-type LoopEdgeData = { back: boolean; label?: string }
+type LoopEdgeData = { back: boolean }
 
 // LoopEdge joins the inner nodes of a loop: straight on to the author's
-// fixes, and curved back under them to the next pass, labelled with the
-// pass in a run.
+// fixes, and curved back under them to the next pass. In a run the loop
+// node labels the curve with the pass, since a group draws over edge labels.
 function LoopEdge({ id, sourceX, sourceY, targetX, targetY, data, markerEnd }: EdgeProps & { data?: LoopEdgeData }) {
   const back = Boolean(data?.back)
   const path = back ? `M ${sourceX} ${sourceY} C ${sourceX} ${sourceY + 38}, ${targetX} ${targetY + 38}, ${targetX} ${targetY}` : `M ${sourceX} ${sourceY} L ${targetX} ${targetY}`
   return <>
     <BaseEdge id={id} path={path} markerEnd={markerEnd} style={{ stroke: "var(--color-lw-text-2)", strokeWidth: 1.5 }} />
-    {back && data?.label && <EdgeLabelRenderer>
-      <span style={{ transform: `translate(-50%, -50%) translate(${(sourceX + targetX) / 2}px, ${sourceY + 30}px)` }} className="nodrag nopan pointer-events-none absolute rounded bg-lw-ground px-1 font-lw-mono text-[10px] text-lw-text-2">{data.label}</span>
-    </EdgeLabelRenderer>}
   </>
 }
 
@@ -166,21 +193,21 @@ const edgeTypes: EdgeTypes = { data: DataEdge, loop: LoopEdge }
 
 // layout places the nodes once per graph. Only start and order edges shape
 // it; the other kinds are drawn over the result.
-function layout(graph: WorkflowGraphModel, direction: "LR" | "TB"): Omit<FlowNode, "ariaLabel">[] {
+function layout(graph: WorkflowGraphModel, direction: "LR" | "TB", run: boolean): Omit<FlowNode, "ariaLabel">[] {
   const g = new dagre.graphlib.Graph()
   g.setGraph({ rankdir: direction, nodesep: 28, ranksep: 56, marginx: 8, marginy: 8 })
   g.setDefaultEdgeLabel(() => ({}))
-  for (const node of graph.nodes) if (node.kind !== "inner") g.setNode(node.id, { ...sizeOf(node) })
+  for (const node of graph.nodes) if (node.kind !== "inner") g.setNode(node.id, { ...sizeOf(node, run) })
   for (const edge of graph.edges) if (edge.kind === "start" || edge.kind === "order") g.setEdge(edge.source, edge.target)
   dagre.layout(g)
   return graph.nodes.map(node => {
-    const size = sizeOf(node)
+    const size = sizeOf(node, run)
     if (node.kind === "inner") return {
       id: node.id,
       type: "inner",
       parentId: node.parent,
       extent: "parent" as const,
-      position: innerPlaces[node.inner?.role ?? ""] ?? { x: 0, y: 0 },
+      position: { ...(innerPlaces[node.inner?.role ?? ""] ?? { x: 0, y: 0 }), ...(run ? { y: innerPlaces.pass.y + 20 } : {}) },
       width: size.width,
       height: size.height,
       data: { node, direction },
@@ -243,12 +270,13 @@ function edgesOf(graph: WorkflowGraphModel, selected: string | null): Edge[] {
   })), ...data]
 }
 
-function Graph({ graph, selectedId = null, onSelect, direction = "LR", extras, className }: WorkflowGraphProps) {
+function Graph({ graph, selectedId = null, onSelect, direction = "LR", extras, run = false, centerOn, className }: WorkflowGraphProps) {
+  const flow = useReactFlow()
   // The layout is computed once per graph and direction; a new graph with
   // the same shape keeps its places.
-  const shape = useMemo(() => JSON.stringify([direction, graph.nodes.map(node => [node.id, node.kind]), graph.edges.map(edge => edge.id)]), [graph, direction])
+  const shape = useMemo(() => JSON.stringify([direction, run, graph.nodes.map(node => [node.id, node.kind]), graph.edges.map(edge => edge.id)]), [graph, direction, run])
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  const placed = useMemo(() => layout(graph, direction), [shape])
+  const placed = useMemo(() => layout(graph, direction, run), [shape])
   const [selected, setSelected] = useState<string | null>(selectedId)
   useEffect(() => { setSelected(selectedId) }, [selectedId])
   const nodes = useMemo(() => {
@@ -256,11 +284,20 @@ function Graph({ graph, selectedId = null, onSelect, direction = "LR", extras, c
     return placed.map(node => {
       const current = byId.get(node.id) ?? node.data.node
       const extra = extras?.[node.id]
-      return { ...node, data: { ...node.data, node: current, extra }, ariaLabel: nodeName(current, extra), selected: node.id === selected }
+      return { ...node, data: { ...node.data, node: current, extra }, ariaLabel: nodeName(current, extra), selected: node.id === selected, className: extra?.trigger === "other" ? "opacity-50" : undefined }
     })
   }, [placed, graph, selected, extras])
   const edges = useMemo(() => edgesOf(graph, selected), [graph, selected])
   const frame = useRef<HTMLDivElement>(null)
+  useEffect(() => {
+    if (!centerOn) return
+    const node = placed.find(item => item.id === centerOn.id)
+    if (!node) return
+    // At once, not animated: no motion to sit through, and React Flow 13's
+    // animated move never settled under the tests' jsdom.
+    void flow.setCenter(node.position.x + (node.width ?? 0) / 2, node.position.y + (node.height ?? 0) / 2, { zoom: Math.max(flow.getZoom(), 0.9) })
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [centerOn?.n])
   // startView fits the graph when it fits at a readable size, else shows it
   // from its start (the triggers) at that size, for the operator to pan.
   const startView = useCallback((flow: Pick<ReactFlowInstance, "setViewport">) => {
@@ -269,20 +306,31 @@ function Graph({ graph, selectedId = null, onSelect, direction = "LR", extras, c
     const ys = placed.flatMap(node => [node.position.y, node.position.y + (node.height ?? 0)])
     const [minX, maxX, minY, maxY] = [Math.min(...xs), Math.max(...xs), Math.min(...ys), Math.max(...ys)]
     const pad = 24, boundsW = maxX - minX, boundsH = maxY - minY
-    const zoom = Math.min(1, Math.max(0.75, Math.min((width - 2 * pad) / boundsW, (height - 2 * pad) / boundsH)))
+    // Top to bottom (a phone) the width is what must fit, so it may shrink
+    // further; a long chain still scrolls down.
+    const floor = direction === "TB" ? 0.6 : 0.75
+    const zoom = Math.min(1, Math.max(floor, Math.min((width - 2 * pad) / boundsW, (height - 2 * pad) / boundsH)))
     const x = boundsW * zoom <= width - 2 * pad ? (width - boundsW * zoom) / 2 - minX * zoom : pad - minX * zoom
     const y = boundsH * zoom <= height - 2 * pad ? (height - boundsH * zoom) / 2 - minY * zoom : pad - minY * zoom
     void flow.setViewport({ x, y, zoom })
-  }, [placed])
+  }, [placed, direction])
   const choose = useCallback((id: string | null) => {
     setSelected(id)
     onSelect?.(id)
   }, [onSelect])
-  const onSelectionChange = useCallback(({ nodes: chosen }: OnSelectionChangeParams) => {
-    const id = chosen[0]?.id ?? null
-    if (id !== selected) choose(id)
-  }, [choose, selected])
-  return <div ref={frame} className={cn("h-full min-h-[18rem] w-full", className)} style={{ "--xy-background-color": "var(--color-lw-ground)", "--xy-edge-stroke": "var(--color-lw-line-strong)", "--xy-minimap-background-color": "var(--color-lw-surface)", "--xy-minimap-mask-background-color": "color-mix(in srgb, var(--color-lw-ground) 70%, transparent)", "--xy-minimap-mask-stroke-color": "var(--color-lw-line-strong)", "--xy-minimap-node-background-color": "var(--color-lw-line-strong)", "--xy-controls-button-background-color": "var(--color-lw-surface)", "--xy-controls-button-color": "var(--color-lw-text)", "--xy-controls-button-border-color": "var(--color-lw-line)" } as React.CSSProperties}>
+  // Enter or Space on a focused node selects it, as a click does. The
+  // selection is this component's (or its page's) alone: React Flow's own
+  // never feeds back into it, so the two cannot chase each other.
+  const onKeyDown = useCallback((event: React.KeyboardEvent) => {
+    if (event.key !== "Enter" && event.key !== " ") return
+    const element = (event.target as HTMLElement).closest<HTMLElement>(".react-flow__node")
+    const id = element?.dataset.id
+    if (!id) return
+    event.preventDefault()
+    const node = graph.nodes.find(item => item.id === id)
+    choose(node?.parent ?? id)
+  }, [choose, graph])
+  return <div ref={frame} onKeyDown={onKeyDown} className={cn("h-full min-h-[18rem] w-full", className)} style={{ "--xy-background-color": "var(--color-lw-ground)", "--xy-edge-stroke": "var(--color-lw-line-strong)", "--xy-minimap-background-color": "var(--color-lw-surface)", "--xy-minimap-mask-background-color": "color-mix(in srgb, var(--color-lw-ground) 70%, transparent)", "--xy-minimap-mask-stroke-color": "var(--color-lw-line-strong)", "--xy-minimap-node-background-color": "var(--color-lw-line-strong)", "--xy-controls-button-background-color": "var(--color-lw-surface)", "--xy-controls-button-color": "var(--color-lw-text)", "--xy-controls-button-border-color": "var(--color-lw-line)" } as React.CSSProperties}>
     <ReactFlow
       nodes={nodes}
       edges={edges}
@@ -301,7 +349,6 @@ function Graph({ graph, selectedId = null, onSelect, direction = "LR", extras, c
       zoomOnDoubleClick={false}
       onNodeClick={(_, node) => choose(node.parentId ?? node.id)}
       onPaneClick={() => choose(null)}
-      onSelectionChange={onSelectionChange}
     >
       <Background gap={20} size={1} />
       <Controls showInteractive={false} />

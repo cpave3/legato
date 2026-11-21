@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react"
 import { Link, useParams } from "react-router-dom"
 import { ArrowLeft, Play } from "lucide-react"
-import { useWorkflows, useWorkflowRuns } from "../hooks/useWorkflow"
+import { useWorkflows, useWorkflowRunsOf } from "../hooks/useWorkflow"
 import { useNow } from "../hooks/useNow"
 import { ago, fileWorkflowName, runState } from "../lib/workflowView"
 import { RunWorkflowDialog } from "../components/RunWorkflowDialog"
@@ -14,6 +14,8 @@ import type { WorkflowDefinition, WorkflowTriggerState } from "../lib/workflow"
 import { Button } from "../components/ui/Button"
 import { LoadingState } from "../components/ui/LoadingState"
 import { cn } from "../lib/utils"
+import { useMediaQuery } from "../hooks/useMediaQuery"
+import { NodeSheet } from "../components/NodeSheet"
 
 const RECENT_RUNS = 10
 
@@ -66,10 +68,12 @@ function StepPanel({ definition, node }: { definition: WorkflowDefinition; node:
 export function WorkflowPage() {
   const { name = "" } = useParams()
   const definitions = useWorkflows()
-  const runs = useWorkflowRuns()
+  const runs = useWorkflowRunsOf(name, RECENT_RUNS)
   const now = useNow(30_000)
   const [running, setRunning] = useState(false)
   const [selected, setSelected] = useState<string | null>(null)
+  // At phone width the graph runs top to bottom and details open in a sheet.
+  const narrow = useMediaQuery("(max-width: 767px)")
   const triggerStates = definitions.data?.trigger_states?.[name]
   const extras = useMemo(() => {
     const out: Record<string, GraphNodeExtra> = {}
@@ -89,7 +93,13 @@ export function WorkflowPage() {
     return <Frame><p className="text-sm text-lw-text-2">No workflow of that name</p></Frame>
   }
   const selectedNode = definition.graph?.nodes.find(node => node.id === selected)
-  const recent = (runs.data ?? []).filter(run => run.workflow_name === definition.name).slice(0, RECENT_RUNS)
+  const panel = selectedNode?.kind === "step"
+    ? <StepPanel definition={definition} node={selectedNode} />
+    : selectedNode?.kind === "trigger"
+      ? <TriggerPanel definition={definition} node={selectedNode} state={triggerStates?.find(state => `trigger:${state.trigger}` === selectedNode.id)} onChanged={definitions.refresh} />
+      : null
+  const panelTitle = selectedNode?.step?.title ?? selectedNode?.trigger?.summary ?? ""
+  const recent = runs.data ?? []
   return <Frame>
     <header className="flex flex-wrap items-start justify-between gap-3">
       <div className="min-w-0">
@@ -99,13 +109,13 @@ export function WorkflowPage() {
       </div>
       <Button variant="outline" size="sm" aria-label={`Run ${definition.title}`} onClick={() => setRunning(true)}><Play size={13} />Run</Button>
     </header>
-    <div className={cn("grid gap-4", selectedNode && "lg:grid-cols-[minmax(0,1fr)_22rem]")}>
-      <section aria-label="Workflow graph" className="h-[28rem] overflow-hidden rounded-xl border border-lw-line bg-lw-ground">
-        {definition.graph ? <LazyWorkflowGraph graph={definition.graph} selectedId={selected} onSelect={setSelected} extras={extras} /> : <p className="p-4 text-sm text-lw-text-2">This Legato sent no graph for this workflow.</p>}
+    <div className={cn("grid gap-4", selectedNode && !narrow && "lg:grid-cols-[minmax(0,1fr)_22rem]")}>
+      <section aria-label="Workflow graph" className={cn("overflow-hidden rounded-xl border border-lw-line bg-lw-ground", narrow ? "h-[32rem]" : "h-[28rem]")}>
+        {definition.graph ? <LazyWorkflowGraph graph={definition.graph} selectedId={selected} onSelect={setSelected} extras={extras} direction={narrow ? "TB" : "LR"} /> : <p className="p-4 text-sm text-lw-text-2">This Legato sent no graph for this workflow.</p>}
       </section>
-      {selectedNode?.kind === "step" && <StepPanel definition={definition} node={selectedNode} />}
-      {selectedNode?.kind === "trigger" && <TriggerPanel definition={definition} node={selectedNode} state={triggerStates?.find(state => `trigger:${state.trigger}` === selectedNode.id)} onChanged={definitions.refresh} />}
+      {selectedNode && !narrow && panel}
     </div>
+    {selectedNode && narrow && <NodeSheet title={panelTitle} onClose={() => setSelected(null)}>{panel}</NodeSheet>}
     <section>
       <h2 className="mb-2 text-xs font-semibold uppercase tracking-wide text-lw-text-2">Recent runs</h2>
       {recent.length === 0

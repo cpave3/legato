@@ -1,5 +1,5 @@
 import { useQuery, type UseQueryResult } from "@tanstack/react-query"
-import { fetchWorkflowRun, fetchWorkflowRuns, fetchWorkflows, type WorkflowDiscovery, type WorkflowRun, type WorkflowRunView } from "../lib/workflow"
+import { fetchWorkflowRun, fetchWorkflowRuns, fetchWorkflowRunsOf, fetchWorkflows, type WorkflowDiscovery, type WorkflowRun, type WorkflowRunView } from "../lib/workflow"
 import { queryKeys } from "../lib/query"
 import { useServer } from "./useServer"
 
@@ -35,5 +35,15 @@ export function useWorkflowRun(id: string) {
     queryKey: queryKeys.workflowRun(baseUrl, id),
     queryFn: () => fetchWorkflowRun(baseUrl, id),
     enabled: Boolean(id),
+  }))
+}
+
+// useWorkflowRunsOf is one workflow's newest runs, limit of them.
+export function useWorkflowRunsOf(name: string, limit: number) {
+  const { baseUrl } = useServer()
+  return queryState(useQuery<WorkflowRun[], Error>({
+    queryKey: queryKeys.workflowRunsOf(baseUrl, name),
+    queryFn: () => fetchWorkflowRunsOf(baseUrl, name, limit),
+    enabled: Boolean(name),
   }))
 }

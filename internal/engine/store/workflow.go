@@ -119,6 +119,9 @@ type WorkflowRunView struct {
 	// Details are what a step's executor says of it, by step ID, such as
 	// where a review loop stands; the service fills them.
 	Details map[string]any `json:"details,omitempty"`
+	// TriggerKind is the kind of trigger that started the run, from its
+	// trigger request; empty for a run started by hand. The service fills it.
+	TriggerKind string `json:"trigger_kind"`
 }
 
 // RetitleWorkflowRun gives a run, and its task when it has one, a new title:

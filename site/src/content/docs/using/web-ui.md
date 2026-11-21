@@ -155,7 +155,7 @@ Select any agent of a [swarm](/legato/using/swarms/) and the page shows the swar
 - **Attention** groups what needs you under **Needs intervention**, **Ready for review** and **Merge blockers**. See [Attention and approvals](/legato/using/attention/).
 - **Plans** is the queue of plans waiting for your decision; open one to read it, comment, answer its questions and approve it. See [Plans](/legato/using/plans/).
 - **Review** is the queue of review tours; open one to step through the changes and ask the agent about them. See [Reviews](/legato/using/reviews/).
-- **Flows** shows workflow runs, those that need you first, and the workflows you can run. Select a workflow's title to see it drawn as a graph of its steps. See [Workflows](/legato/using/workflows/#runs-and-workflows-in-the-web-ui).
+- **Flows** shows workflow runs, those that need you first, and the workflows you can run. Select a workflow's title to see it drawn as a graph of its steps; on a phone the graph runs top to bottom, a run keeps its list of steps with a **Graph** button, and a step's details open in a sheet from the bottom. See [Workflows](/legato/using/workflows/#runs-and-workflows-in-the-web-ui).
 
 Requests from agents that wait for you (permissions, questions, credentials) appear in a tray at the bottom right of every page. See [Approvals](/legato/using/attention/#approvals).
 

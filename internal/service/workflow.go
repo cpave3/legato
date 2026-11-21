@@ -232,6 +232,11 @@ func (s *WorkflowService) Show(ctx context.Context, runID string) (*store.Workfl
 	}
 	s.enrichWorkflowAttention(ctx, view)
 	s.addDetails(ctx, view)
+	if view.Run.TriggerRequestID != "" {
+		if request, err := s.store.GetWorkflowTriggerRequest(ctx, view.Run.TriggerRequestID); err == nil {
+			view.TriggerKind = request.TriggerKind
+		}
+	}
 	return view, nil
 }
 

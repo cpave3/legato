@@ -31,6 +31,8 @@ let runs: WorkflowRun[]
 vi.mock("../../hooks/useWorkflow", () => ({
   useWorkflows: () => ({ data: discovery, loading: false, error: null, refresh: vi.fn() }),
   useWorkflowRuns: () => ({ data: runs, loading: false, error: null, refresh: vi.fn() }),
+  // The server filters by workflow; this stands in for it.
+  useWorkflowRunsOf: (name: string) => ({ data: runs.filter(run => run.workflow_name === name), loading: false, error: null, refresh: vi.fn() }),
 }))
 vi.mock("../../hooks/useServer", () => ({ useServer: () => ({ baseUrl: "" }) }))
 

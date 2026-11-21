@@ -1,6 +1,9 @@
 package workflow
 
 import (
+	"crypto/sha256"
+	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"sort"
 	"strings"
@@ -314,4 +317,13 @@ func triggerSummary(on Triggers, kind string) (string, any) {
 		return "Changes requested on a PR", on.PRChangesRequested
 	}
 	return kind, nil
+}
+
+// Digest is a definition's digest as a run records it: "sha256:" and the
+// hex SHA-256 of its JSON. A run whose digest differs from its workflow's
+// current definition ran a copy that has since changed.
+func Digest(d *Definition) string {
+	data, _ := json.Marshal(d)
+	sum := sha256.Sum256(data)
+	return "sha256:" + hex.EncodeToString(sum[:])
 }

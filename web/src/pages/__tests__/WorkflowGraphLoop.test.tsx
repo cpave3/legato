@@ -25,6 +25,7 @@ const definition = {
 vi.mock("../../hooks/useWorkflow", () => ({
   useWorkflows: () => ({ data: { definitions: [definition], errors: [] } as unknown as WorkflowDiscovery, loading: false, error: null, refresh: vi.fn() }),
   useWorkflowRuns: () => ({ data: [], loading: false, error: null, refresh: vi.fn() }),
+  useWorkflowRunsOf: () => ({ data: [], loading: false, error: null, refresh: vi.fn() }),
 }))
 vi.mock("../../hooks/useServer", () => ({ useServer: () => ({ baseUrl: "" }) }))
 
