@@ -32,7 +32,7 @@ func TestNeedsYouByTask(t *testing.T) {
 		needsApproval("ap-5", "t8", "credential", "Use the GitHub token"),
 		needsApproval("ap-6", "", ApprovalSourceAgentPermission, "Run a command"),
 	}
-	got := NeedsYouByTask(attention, approvals)
+	got := NeedsYouByTask(NeedsYouSources{Attention: attention, Approvals: approvals})
 	want := map[string]*CardNeedsYou{
 		"t1": {Items: map[string]int{"question": 2, "action": 1}},
 		"t2": {Items: map[string]int{"done": 1, "other": 1}},
@@ -48,7 +48,50 @@ func TestNeedsYouByTask(t *testing.T) {
 		}
 		t.Fatalf("needs you differs")
 	}
-	if len(NeedsYouByTask(nil, nil)) != 0 {
+	if len(NeedsYouByTask(NeedsYouSources{})) != 0 {
 		t.Fatal("nothing open gives no entries")
+	}
+}
+
+func TestNeedsYouSaysWhichAgentWaits(t *testing.T) {
+	agents := []AgentSession{
+		// t1: the main agent runs while its reviewer asks a question.
+		{TaskID: "t1", Status: "running", Activity: "working", AgentKind: "claude-code", ExecutionID: "ex-main"},
+		{TaskID: "t1_reviewer", CardTaskID: "t1", Slot: SlotReviewer, Status: "running", Activity: "waiting", ExecutionID: "ex-rev"},
+		// t2: one of two agents waits.
+		{TaskID: "t2", Status: "running", Activity: "waiting", AttributionTaskID: "t2", ExecutionID: "ex-a"},
+		{TaskID: "w-1", Status: "running", Activity: "working", AttributionTaskID: "t2", AgentKind: "codex", ExecutionID: "ex-b"},
+		// t3: a waiting reviewer with nothing to answer, an idle main.
+		{TaskID: "t3", Status: "running", Activity: "", ExecutionID: "ex-c"},
+		{TaskID: "t3_reviewer", CardTaskID: "t3", Slot: SlotReviewer, Status: "running", Activity: "waiting", ExecutionID: "ex-d"},
+		// Agents that agree say nothing.
+		{TaskID: "t5", Status: "running", Activity: "working", ExecutionID: "ex-e"},
+		{TaskID: "w-2", Status: "running", Activity: "working", AttributionTaskID: "t5", ExecutionID: "ex-f"},
+	}
+	approvals := []Approval{
+		{Approval: store.Approval{ID: "ap-r", TaskID: "t1", ExecutionID: "ex-rev", Source: ApprovalSourceAgentQuestion, Title: "Block the merge?", Status: store.ApprovalPending}},
+	}
+	interrupted := []InterruptedAgent{
+		{TaskID: "t4", AgentKind: "claude-code", Resumable: true},
+		{TaskID: "t6", AgentKind: "codex", CanStartNew: true},
+	}
+	got := NeedsYouByTask(NeedsYouSources{Agents: agents, Approvals: approvals, Interrupted: interrupted})
+	if n := got["t1"]; n == nil || n.Approvals != nil || len(n.Slots) != 1 || n.Slots[0] != (NeedsYouSlot{Slot: SlotReviewer, Label: "question", ApprovalID: "ap-r"}) {
+		t.Fatalf("t1 = %+v", n)
+	}
+	if n := got["t2"]; n == nil || n.WaitingAgents != 1 || n.Agents != 2 || n.WorkingAgents != 1 {
+		t.Fatalf("t2 = %+v", n)
+	}
+	if n := got["t3"]; n == nil || len(n.Slots) != 1 || n.Slots[0] != (NeedsYouSlot{Slot: SlotReviewer}) {
+		t.Fatalf("t3 = %+v", n)
+	}
+	if n := got["t4"]; n == nil || n.Interrupted == nil || n.Interrupted.AgentKind != "claude-code" || !n.Interrupted.Resumable {
+		t.Fatalf("t4 = %+v", n)
+	}
+	if n := got["t6"]; n != nil {
+		t.Fatalf("an interrupted agent that cannot be resumed says nothing: %+v", n.Interrupted)
+	}
+	if n := got["t5"]; n != nil {
+		t.Fatalf("t5 = %+v", n)
 	}
 }

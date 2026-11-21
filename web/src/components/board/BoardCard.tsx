@@ -1,10 +1,13 @@
 import { cn } from "../../lib/utils"
-import { useEffect, useRef, type DragEvent, type MouseEvent, type ReactNode } from "react"
+import { useEffect, useRef, useState, type DragEvent, type MouseEvent, type ReactNode } from "react"
 import { Link } from "react-router-dom"
 import { MoreHorizontal } from "lucide-react"
 import type { BoardCard as BoardCardType } from "../../lib/board-types"
-import { agentStripLook, formatDuration, needsYouStrip, priorityTone, slotChipLabel, type NeedsYouStrip, type StripAction } from "../../lib/boardCard"
+import { agentStripLook, formatDuration, needsYouStrip, needsYouStrips, priorityTone, slotChipLabel, type NeedsYouStrip, type StripAction } from "../../lib/boardCard"
 import { openNeedsYou, showApproval } from "../../lib/railState"
+import { resumeInterruptedAgent } from "../../lib/interruptedAgents"
+import { useServer } from "../../hooks/useServer"
+import { useToast } from "../../hooks/useToast"
 import { animatedAgentActivityEnabled } from "../../lib/appearancePreferences"
 import { Mark } from "../PullRequestMarks"
 import { CardPullRequests } from "./PullRequests"
@@ -32,7 +35,7 @@ function AgentStrip({ card }: { card: BoardCardType }) {
   return (
     <div data-testid="agent-strip" className={cn(stripRow, look.tint)}>
       <span className={cn("flex min-w-0 items-center gap-1.5", look.tone)}><span aria-hidden="true">{look.glyph}</span><span className="truncate">{look.label}</span>
-        {card.slot_agents?.map((slot) => <span key={slot.slot} className="shrink-0 rounded border border-lw-line px-1 text-lw-text-2">{slotChipLabel(slot.slot, slot.state)}</span>)}
+        {card.slot_agents?.filter(slot => !card.needs_you?.slots?.some(waiting => waiting.slot === slot.slot)).map((slot) => <span key={slot.slot} className="shrink-0 rounded border border-lw-line px-1 text-lw-text-2">{slotChipLabel(slot.slot, slot.state)}</span>)}
       </span>
       {look.time > 0 && <span className="shrink-0 font-lw-mono text-lw-text-2">{formatDuration(look.time)}</span>}
     </div>
@@ -62,7 +65,21 @@ function StripActionLink({ action }: { action: StripAction }) {
       }} onDoubleClick={stop} className={cn(stripAction, "inline-flex min-h-11 items-center md:min-h-0")}>{action.label}</Link>
     case "plan":
       return <Link to={`/plans/${encodeURIComponent(action.planId)}`} onClick={stop} onDoubleClick={stop} className={stripAction}>{action.label}</Link>
+    case "resume":
+      return <ResumeButton taskId={action.taskId} label={action.label} />
   }
+}
+
+// Resumes an interrupted agent as Reload does, where its conversation was.
+function ResumeButton({ taskId, label }: { taskId: string; label: string }) {
+  const baseUrl = useServer()?.baseUrl ?? ""
+  const toast = useToast()
+  const [busy, setBusy] = useState(false)
+  return <button type="button" disabled={busy} onClick={event => {
+    event.stopPropagation()
+    setBusy(true)
+    resumeInterruptedAgent(baseUrl, taskId).catch((error: unknown) => toast?.addToast(error instanceof Error ? error.message : String(error), "error")).finally(() => setBusy(false))
+  }} onDoubleClick={event => event.stopPropagation()} className={cn(stripAction, "min-h-11 disabled:opacity-50 md:min-h-0")}>{busy ? "Resuming…" : label}</button>
 }
 
 // The strip that says why a card needs the operator, with the way there.
@@ -107,7 +124,8 @@ export function BoardCard({ card, selected, highlighted = false, column, showWor
   const agentTime = card.agent_active ? "" : formatDuration(card.working_seconds + card.waiting_seconds + card.error_seconds)
   // What waits on the operator is drawn above what runs; it stands in for
   // the agent's own strip while the agent only waits or idles.
-  const needs = needsYouStrip(card)
+  const needs = needsYouStrips(card)
+  const main = needsYouStrip(card)
   const quietAgent = ["waiting", "idle", ""].includes(card.agent_state)
 
   useEffect(() => {
@@ -162,9 +180,9 @@ export function BoardCard({ card, selected, highlighted = false, column, showWor
         {card.review_ready && !card.review_unreviewed && <Mark glyph="✓" tone="text-xs text-lw-done">Reviewed</Mark>}
         <CardPullRequests card={card} />
       </div>
-      {needs && <NeedsYouStripRow strip={needs} />}
+      {needs.map(strip => <NeedsYouStripRow key={strip.text} strip={strip} />)}
       {Boolean(card.review_unreviewed) && <ReviewStrip card={card} />}
-      {card.agent_active && !(needs && quietAgent) && <AgentStrip card={card} />}
+      {card.agent_active && !(main && quietAgent) && <AgentStrip card={card} />}
     </div>
   )
 }

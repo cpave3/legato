@@ -74,6 +74,14 @@ export interface CardNeedsYou {
   items?: Partial<Record<"question" | "action" | "done" | "other", number>>
   approvals?: { count: number; id: string; label: string }
   plans?: { count: number; plan_id: string }
+  // Named slots (a reviewer) whose agent waits, with what it asks.
+  slots?: { slot: string; label?: string; approval_id?: string }[]
+  // Of several main agents, how many wait and how many work.
+  waiting_agents?: number
+  working_agents?: number
+  agents?: number
+  // An agent a crash interrupted that can be resumed.
+  interrupted?: { agent_kind?: string; resumable: boolean }
 }
 
 export interface SlotAgent {

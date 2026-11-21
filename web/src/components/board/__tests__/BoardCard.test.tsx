@@ -105,6 +105,41 @@ describe("BoardCard", () => {
     expect(within(needs).getByRole("link", { name: "Review plan" }).getAttribute("href")).toBe("/plans/plan-9")
   })
 
+  it("says a reviewer needs you above the main agent's own running strip", () => {
+    const { container } = renderCard(makeCard({ agent_state: "working", agent_engram: "hestia", slot_agents: [{ slot: "reviewer", state: "waiting" }], needs_you: { slots: [{ slot: "reviewer", label: "question", approval_id: "ap-r" }] } }))
+    const strips = Array.from(container.querySelectorAll("[data-testid$='-strip']"))
+    expect(strips.map(strip => strip.getAttribute("data-testid"))).toEqual(["needs-you-strip", "agent-strip"])
+    expect(within(strips[0] as HTMLElement).getByText("Reviewer needs you · question")).toBeTruthy()
+    fireEvent.click(within(strips[0] as HTMLElement).getByRole("button", { name: "Answer" }))
+    expect(railState().wanted).toBe("ap-r")
+    expect(within(strip()).getByText("Running · Claude Code · hestia")).toBeTruthy()
+    expect(within(strip()).getByText("1h 1m")).toBeTruthy()
+    expect(within(strip()).queryByText(/reviewer/)).toBeNull()
+  })
+
+  it("says one of two agents needs you above the one that runs", () => {
+    renderCard(makeCard({ agent_state: "mixed", agent_kind: "codex", needs_you: { agents: 2, waiting_agents: 1, working_agents: 1 } }))
+    const needs = screen.getByTestId("needs-you-strip")
+    expect(within(needs).getByText("1 of 2 agents needs you")).toBeTruthy()
+    expect(within(needs).getByRole("link", { name: "Open" }).getAttribute("href")).toBe("/agents?task=T-1")
+    expect(within(strip()).getByText("1 running · Codex")).toBeTruthy()
+    expect(screen.queryByText("Agents disagree")).toBeNull()
+  })
+
+  it("offers to resume an interrupted agent", async () => {
+    const fetch = vi.fn(async () => new Response(JSON.stringify({ task_id: "T-1", resumed: true })))
+    vi.stubGlobal("fetch", fetch)
+    renderCard(makeCard({ agent_active: false, agent_state: "", needs_you: { interrupted: { agent_kind: "claude-code", resumable: true } } }))
+    const needs = screen.getByTestId("needs-you-strip")
+    expect(within(needs).getByText("Interrupted · Claude Code")).toBeTruthy()
+    fireEvent.click(within(needs).getByRole("button", { name: "Resume" }))
+    await vi.waitFor(() => expect(fetch).toHaveBeenCalled())
+    const [url, init] = fetch.mock.calls[0] as unknown as [string, RequestInit]
+    expect(String(url)).toContain("/api/agents/T-1/resume")
+    expect(init.method).toBe("POST")
+    vi.unstubAllGlobals()
+  })
+
   it("draws what waits on you above what runs", () => {
     const { container } = renderCard(makeCard({ needs_you: { items: { question: 1 } }, review_ready: true, review_unreviewed: 4, review_tour_id: "tour-1" }))
     const strips = Array.from(container.querySelectorAll("[data-testid$='-strip']")).map(strip => strip.getAttribute("data-testid"))
