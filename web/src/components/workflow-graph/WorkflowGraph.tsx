@@ -1,12 +1,12 @@
 // The workflow graph, drawn with React Flow and laid out by dagre. Loaded
 // only through LazyWorkflowGraph, so neither library is in the bundle of any
 // other page.
-import { useCallback, useEffect, useMemo, useState } from "react"
+import { useCallback, useEffect, useMemo, useRef, useState } from "react"
 import dagre from "@dagrejs/dagre"
-import { Background, Controls, Handle, MiniMap, Position, ReactFlow, ReactFlowProvider, type Edge, type Node, type NodeProps, type NodeTypes, type OnSelectionChangeParams } from "@xyflow/react"
+import { Background, Controls, Handle, MiniMap, Position, ReactFlow, ReactFlowProvider, type Edge, type Node, type NodeProps, type NodeTypes, type OnSelectionChangeParams, type ReactFlowInstance } from "@xyflow/react"
 import "@xyflow/react/dist/base.css"
 import { ArrowRightLeft, BookOpen, Bot, CircleStop, Clock, Columns3, FileText, FileX, FolderSearch, FolderX, GitBranch, GitPullRequest, Hand, MessageSquareWarning, MessagesSquare, Repeat, Send, StickyNote, Tag, Trash2, Workflow, type LucideIcon } from "lucide-react"
-import { nodeName, stepTypeLabel, triggerName, triggerOn, type GraphNode, type GraphNodeExtra, type WorkflowGraphModel } from "../../lib/workflowGraph"
+import { keyValueText, nodeName, stepTypeLabel, triggerName, triggerOn, type GraphNode, type GraphNodeExtra, type WorkflowGraphModel } from "../../lib/workflowGraph"
 import { cn } from "../../lib/utils"
 
 export type WorkflowGraphProps = {
@@ -71,7 +71,7 @@ function StepNode({ data, selected }: NodeProps<FlowNode>) {
       <Icon size={13} aria-hidden="true" />{stepTypeLabel(step.type)}
     </span>
     <span className="truncate text-[13px] font-semibold" title={step.title}>{step.title}</span>
-    {step.key.value && <span className="truncate font-lw-mono text-[11px] text-lw-text-2" title={step.key.value}>{step.key.value}</span>}
+    {step.key.value && <span className="truncate font-lw-mono text-[11px] text-lw-text-2" title={step.key.value}>{keyValueText(step.key.value)}</span>}
   </div>
 }
 
@@ -150,6 +150,20 @@ function Graph({ graph, selectedId = null, onSelect, direction = "LR", extras, c
     })
   }, [placed, graph, selected, extras])
   const edges = useMemo(() => edgesOf(graph), [graph])
+  const frame = useRef<HTMLDivElement>(null)
+  // startView fits the graph when it fits at a readable size, else shows it
+  // from its start (the triggers) at that size, for the operator to pan.
+  const startView = useCallback((flow: Pick<ReactFlowInstance, "setViewport">) => {
+    const width = frame.current?.clientWidth ?? 0, height = frame.current?.clientHeight ?? 0
+    const xs = placed.flatMap(node => [node.position.x, node.position.x + (node.width ?? 0)])
+    const ys = placed.flatMap(node => [node.position.y, node.position.y + (node.height ?? 0)])
+    const [minX, maxX, minY, maxY] = [Math.min(...xs), Math.max(...xs), Math.min(...ys), Math.max(...ys)]
+    const pad = 24, boundsW = maxX - minX, boundsH = maxY - minY
+    const zoom = Math.min(1, Math.max(0.75, Math.min((width - 2 * pad) / boundsW, (height - 2 * pad) / boundsH)))
+    const x = boundsW * zoom <= width - 2 * pad ? (width - boundsW * zoom) / 2 - minX * zoom : pad - minX * zoom
+    const y = boundsH * zoom <= height - 2 * pad ? (height - boundsH * zoom) / 2 - minY * zoom : pad - minY * zoom
+    void flow.setViewport({ x, y, zoom })
+  }, [placed])
   const choose = useCallback((id: string | null) => {
     setSelected(id)
     onSelect?.(id)
@@ -158,12 +172,12 @@ function Graph({ graph, selectedId = null, onSelect, direction = "LR", extras, c
     const id = chosen[0]?.id ?? null
     if (id !== selected) choose(id)
   }, [choose, selected])
-  return <div className={cn("h-full min-h-[18rem] w-full", className)} style={{ "--xy-background-color": "var(--color-lw-ground)", "--xy-edge-stroke": "var(--color-lw-line-strong)", "--xy-minimap-background-color": "var(--color-lw-surface)", "--xy-controls-button-background-color": "var(--color-lw-surface)", "--xy-controls-button-color": "var(--color-lw-text)", "--xy-controls-button-border-color": "var(--color-lw-line)" } as React.CSSProperties}>
+  return <div ref={frame} className={cn("h-full min-h-[18rem] w-full", className)} style={{ "--xy-background-color": "var(--color-lw-ground)", "--xy-edge-stroke": "var(--color-lw-line-strong)", "--xy-minimap-background-color": "var(--color-lw-surface)", "--xy-minimap-mask-background-color": "color-mix(in srgb, var(--color-lw-ground) 70%, transparent)", "--xy-minimap-mask-stroke-color": "var(--color-lw-line-strong)", "--xy-minimap-node-background-color": "var(--color-lw-line-strong)", "--xy-controls-button-background-color": "var(--color-lw-surface)", "--xy-controls-button-color": "var(--color-lw-text)", "--xy-controls-button-border-color": "var(--color-lw-line)" } as React.CSSProperties}>
     <ReactFlow
       nodes={nodes}
       edges={edges}
       nodeTypes={nodeTypes}
-      fitView
+      onInit={startView}
       minZoom={0.2}
       maxZoom={1.75}
       nodesDraggable={false}
@@ -180,7 +194,7 @@ function Graph({ graph, selectedId = null, onSelect, direction = "LR", extras, c
     >
       <Background gap={20} size={1} />
       <Controls showInteractive={false} />
-      {direction === "LR" && <MiniMap pannable zoomable ariaLabel="Workflow graph overview" />}
+      {direction === "LR" && <MiniMap pannable zoomable ariaLabel="Workflow graph overview" style={{ width: 160, height: 90 }} className="!rounded-md !border !border-lw-line" />}
     </ReactFlow>
   </div>
 }

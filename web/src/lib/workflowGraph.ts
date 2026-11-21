@@ -71,3 +71,11 @@ export function triggerOn(trigger: GraphTrigger, extra?: GraphNodeExtra): boolea
 export function yamlText(value: unknown): string {
   try { return dump(value, { lineWidth: 100, noRefs: true }).trimEnd() } catch { return JSON.stringify(value, null, 2) }
 }
+
+// keyValueText is a step's key value as a node shows it: each expression
+// shortened to what it names, "${{ workflow.inputs.task.id }}" as
+// "{task.id}" and "${{ steps.triage.outputs.report.path }}" as
+// "{triage.report.path}".
+export function keyValueText(value: string): string {
+  return value.replace(/\$\{\{\s*(.+?)\s*\}\}/g, (_, expr: string) => `{${expr.replace(/^workflow\.inputs\./, "").replace(/^workflow\./, "").replace(/^steps\.([^.]+)\.outputs\./, "$1.")}}`)
+}
