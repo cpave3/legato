@@ -63,12 +63,16 @@ type Column struct {
 
 // Card represents a task summary for list views.
 type Card struct {
-	ID             string
-	Title          string
-	Priority       string
-	IssueType      string
-	Status         string
-	Provider       string // "jira", "github", or "" for local
+	ID        string
+	Title     string
+	Priority  string
+	IssueType string
+	Status    string
+	Provider  string // "jira", "github", or "" for local
+	// RemoteID is the ticket's key at its provider ("LEG-386"); URL opens
+	// the ticket there. Both are empty for a local task.
+	RemoteID       string
+	URL            string
 	SortOrder      int
 	HasWarning     bool
 	HasWorktree    bool

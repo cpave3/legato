@@ -57,6 +57,8 @@ func (s *Server) boardHandler() http.HandlerFunc {
 					IssueType:      c.IssueType,
 					Status:         c.Status,
 					Provider:       c.Provider,
+					RemoteID:       c.RemoteID,
+					SourceURL:      c.URL,
 					HasWarning:     c.HasWarning,
 					HasWorktree:    c.HasWorktree,
 					WorkspaceID:    c.WorkspaceID,

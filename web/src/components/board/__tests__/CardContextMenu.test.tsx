@@ -179,4 +179,45 @@ describe("CardContextMenu", () => {
     fireEvent.click(screen.getByRole("menuitem", { name: "Open on vm-1" }))
     expect(onAction).toHaveBeenCalledWith("openOnWorker")
   })
+
+  it("lists each open pull request's macros, suggested first, and starts the one chosen on that PR", () => {
+    const onPRMacro = vi.fn()
+    const onClose = vi.fn()
+    const pr = (n: number, extra = {}) => ({ repo: "acme/app", branch: `b${n}`, pr_number: n, pr_url: `https://github.com/acme/app/pull/${n}`, state: "OPEN", is_draft: false, review_decision: "", check_status: "pass", comment_count: 0, pinned: false, match_method: "", sync_outcome: "", sync_error: "", ...extra })
+    const fix = { name: "Address feedback", keys: "a", applies_to: "pr" as const }
+    const review = { name: "Review", keys: "r", applies_to: "pr" as const }
+    const prMacros = [{ pr: pr(194), macros: [fix, review] }, { pr: pr(200, { pinned: true }), macros: [review, fix] }]
+    render(<CardContextMenu card={card} position={{ x: 10, y: 10 }} prMacros={prMacros} onPRMacro={onPRMacro} onAction={() => {}} onClose={onClose} />)
+    const triggers = screen.getAllByRole("menuitem", { name: /^Macros for #/ })
+    expect(triggers.map(item => item.getAttribute("aria-label"))).toEqual(["Macros for #194", "Macros for #200"])
+    fireEvent.click(triggers[1])
+    const flyout = screen.getByRole("menu", { name: "Macros for #200" })
+    const items = Array.from(flyout.querySelectorAll('[role="menuitem"]')).map(item => item.textContent)
+    expect(items).toEqual(["Review", "Address feedback"])
+    fireEvent.click(screen.getByRole("menuitem", { name: "Macro: Review" }))
+    expect(onPRMacro).toHaveBeenCalledWith(prMacros[1].pr, review)
+    expect(onClose).toHaveBeenCalled()
+  })
+
+  it("lists a pull request's macros on a phone, with a way back", () => {
+    Object.defineProperty(window, "innerWidth", { value: 390, configurable: true })
+    const pr = { repo: "acme/app", branch: "b", pr_number: 7, pr_url: "", state: "OPEN", is_draft: false, review_decision: "", check_status: "", comment_count: 0, pinned: false, match_method: "", sync_outcome: "", sync_error: "" }
+    const onPRMacro = vi.fn()
+    render(<CardContextMenu card={card} position={{ x: 10, y: 10 }} prMacros={[{ pr, macros: [{ name: "Address feedback", keys: "a" }] }]} onPRMacro={onPRMacro} onAction={() => {}} onClose={() => {}} />)
+    fireEvent.click(screen.getByRole("menuitem", { name: "Macros for #7" }))
+    expect(screen.getByRole("menuitem", { name: "Back" })).toBeTruthy()
+    fireEvent.click(screen.getByRole("menuitem", { name: "Macro: Address feedback" }))
+    expect(onPRMacro).toHaveBeenCalledWith(pr, { name: "Address feedback", keys: "a" })
+  })
+
+  it("opens the ticket at its source when the task has one", () => {
+    const onAction = vi.fn()
+    const { rerender } = render(<CardContextMenu card={{ ...card, provider: "burnlite", source_url: "https://burnlite.dev/LEG-386" } as BoardCard} position={{ x: 10, y: 10 }} onAction={onAction} onClose={() => {}} />)
+    fireEvent.click(screen.getByRole("menuitem", { name: "Open in Burnlite" }))
+    expect(onAction).toHaveBeenCalledWith("openSource")
+    rerender(<CardContextMenu card={{ ...card, provider: "jira-copy", source_url: "https://acme.atlassian.net/browse/AG-1" } as BoardCard} position={{ x: 10, y: 10 }} onAction={onAction} onClose={() => {}} />)
+    expect(screen.getByRole("menuitem", { name: "Open in Jira" })).toBeTruthy()
+    rerender(<CardContextMenu card={{ ...card, provider: "" } as BoardCard} position={{ x: 10, y: 10 }} onAction={onAction} onClose={() => {}} />)
+    expect(screen.queryByRole("menuitem", { name: /^Open in / })).toBeNull()
+  })
 })

@@ -108,12 +108,17 @@ func (b *boardService) ListCardsByWorkspace(ctx context.Context, column string, 
 
 	cards := make([]Card, len(tasks))
 	for i, t := range tasks {
-		issueType := ""
+		issueType, url := "", ""
 		if t.RemoteMeta != nil {
 			var meta map[string]string
 			if json.Unmarshal([]byte(*t.RemoteMeta), &meta) == nil {
 				issueType = meta["issue_type"]
+				url = meta["url"]
 			}
+		}
+		remoteID := ""
+		if t.RemoteID != nil {
+			remoteID = *t.RemoteID
 		}
 		provider := ""
 		if t.Provider != nil {
@@ -126,6 +131,8 @@ func (b *boardService) ListCardsByWorkspace(ctx context.Context, column string, 
 			IssueType:     issueType,
 			Status:        t.Status,
 			Provider:      provider,
+			RemoteID:      remoteID,
+			URL:           url,
 			SortOrder:     t.SortOrder,
 			HasWarning:    hasPushFailure(ctx, b.store, t.ID),
 			HasWorktree:   t.WorktreePath != nil && *t.WorktreePath != "",

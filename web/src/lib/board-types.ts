@@ -33,6 +33,10 @@ export interface BoardCard {
   issue_type: string
   status: string
   provider: string
+  // The ticket's key at its provider, and its address there; absent for a
+  // local task.
+  remote_id?: string
+  source_url?: string
   has_warning: boolean
   has_worktree?: boolean
   agent_active: boolean

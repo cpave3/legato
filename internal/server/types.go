@@ -38,12 +38,16 @@ type ColumnResponse struct {
 
 // CardResponse represents a card summary in the board response.
 type CardResponse struct {
-	ID             string `json:"id"`
-	Title          string `json:"title"`
-	Priority       string `json:"priority"`
-	IssueType      string `json:"issue_type"`
-	Status         string `json:"status"`
-	Provider       string `json:"provider"`
+	ID        string `json:"id"`
+	Title     string `json:"title"`
+	Priority  string `json:"priority"`
+	IssueType string `json:"issue_type"`
+	Status    string `json:"status"`
+	Provider  string `json:"provider"`
+	// RemoteID is the ticket's key at its provider; SourceURL opens it
+	// there. Both are absent for a local task.
+	RemoteID       string `json:"remote_id,omitempty"`
+	SourceURL      string `json:"source_url,omitempty"`
 	HasWarning     bool   `json:"has_warning"`
 	HasWorktree    bool   `json:"has_worktree"`
 	WorkspaceID    *int   `json:"workspace_id"`

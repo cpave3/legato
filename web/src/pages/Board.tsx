@@ -1,7 +1,8 @@
 import { useState, useEffect, useLayoutEffect, useCallback, useMemo, useRef } from "react"
 import { useNavigate, useSearchParams } from "react-router-dom"
 import { activeReviewLoop } from "../lib/workflow"
-import { BoardMacrosContext } from "../components/board/PRMacros"
+import { BoardMacrosContext, macroPR } from "../components/board/PRMacros"
+import { cardPRMacros } from "../lib/cardMacros"
 import { macroNotice, startMacro, suggestedFirst, useMacros, type Macro, type MacroPR } from "../lib/macros"
 import { useServer } from "../hooks/useServer"
 import { useBoard } from "../hooks/useBoard"
@@ -703,6 +704,9 @@ export function BoardPage() {
       case "openOnWorker":
         if (card.away?.url) window.open(card.away.url, "_blank", "noopener")
         break
+      case "openSource":
+        if (card.source_url) window.open(card.source_url, "_blank", "noopener")
+        break
     }
   }, [contextMenu, openDetail])
 
@@ -1146,6 +1150,8 @@ export function BoardPage() {
         onReviewPasses={(pr, scope) => { void startReviewLoop(contextMenu.card, pr, scope) }}
         macros={suggestedFirst(macros.macros, "task", macros.suggested).list}
         onMacro={macro => { void runMacro(contextMenu.card, macro) }}
+        prMacros={cardPRMacros(contextMenu.card, macros)}
+        onPRMacro={(pr, macro) => { void runMacro(contextMenu.card, macro, macroPR(pr)) }}
         onManageMacros={() => navigateTo("/macros")}
         onClose={() => setContextMenu(null)}
       />}

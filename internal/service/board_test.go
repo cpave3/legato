@@ -941,3 +941,30 @@ func TestUpdateTaskTitle_EmptyRejected(t *testing.T) {
 		t.Fatal("expected error for empty title")
 	}
 }
+
+func TestListCards_CarriesTheTicketKeyAndAddress(t *testing.T) {
+	s, _, svc := setupTestBoard(t)
+	ctx := context.Background()
+	seedColumns(t, s)
+	provider, key, meta := "burnlite", "LEG-386", `{"url":"https://burnlite.dev/LEG-386"}`
+	if err := s.CreateTask(ctx, store.Task{ID: "k3x9q2ma", Title: "Forms", Status: "Backlog", Provider: &provider, RemoteID: &key, RemoteMeta: &meta}); err != nil {
+		t.Fatal(err)
+	}
+	if err := s.CreateTask(ctx, store.Task{ID: "local1", Title: "Local", Status: "Backlog"}); err != nil {
+		t.Fatal(err)
+	}
+	cards, err := svc.ListCards(ctx, "Backlog")
+	if err != nil {
+		t.Fatal(err)
+	}
+	byID := map[string]Card{}
+	for _, c := range cards {
+		byID[c.ID] = c
+	}
+	if got := byID["k3x9q2ma"]; got.RemoteID != "LEG-386" || got.URL != "https://burnlite.dev/LEG-386" {
+		t.Fatalf("burnlite card = %+v", got)
+	}
+	if got := byID["local1"]; got.RemoteID != "" || got.URL != "" {
+		t.Fatalf("local card = %+v", got)
+	}
+}

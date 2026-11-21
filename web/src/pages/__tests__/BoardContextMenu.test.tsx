@@ -5,16 +5,17 @@ import { AgentSelectionProvider } from "../../hooks/useAgentSelection"
 import { BoardPage } from "../Board"
 
 const mockFetch = vi.fn()
+const shown: { card: Record<string, unknown> | null } = { card: null }
 const card = { id: "TASK-1", title: "Context task", status: "Backlog", priority: "High", issue_type: "Task", provider: "", has_warning: false, agent_active: false, agent_state: "", working_seconds: 0, waiting_seconds: 0, error_seconds: 0, workspace_name: "", workspace_color: "" }
 
 vi.stubGlobal("fetch", mockFetch)
 vi.mock("../../hooks/useServer", () => ({ useServer: () => ({ baseUrl: "" }) }))
 vi.mock("../../hooks/useSettings", () => ({ useSettings: () => ({ data: { repositories: [], working_dir: "", worktrees_enabled: false } }) }))
-vi.mock("../../hooks/useBoard", () => ({ useBoard: () => ({ columns: [{ name: "Backlog", cards: [card] }, { name: "Doing", cards: [] }], workspaces: [], loading: false, error: null, refresh: vi.fn() }) }))
+vi.mock("../../hooks/useBoard", () => ({ useBoard: () => ({ columns: [{ name: "Backlog", cards: [shown.card ?? card] }, { name: "Doing", cards: [] }], workspaces: [], loading: false, error: null, refresh: vi.fn() }) }))
 vi.mock("../../hooks/useToast", () => ({ useToast: () => ({ addToast: vi.fn() }) }))
 vi.mock("../../hooks/useWorkflow", () => ({ useWorkflows: () => ({ data: { definitions: [{ schema_version: 1, name: "triage", title: "Triage card", source: "triage.yaml", inputs: { subject: { type: "task", required: true }, count: { type: "integer" } }, steps: [] }], errors: [], repositories: [] }, loading: false, error: null }) }))
 
-afterEach(cleanup)
+afterEach(() => { cleanup(); shown.card = null })
 
 describe("Board card context menu", () => {
   beforeEach(() => {
@@ -89,5 +90,31 @@ describe("Board card context menu", () => {
     await waitFor(() => expect(mockFetch.mock.calls.some(([url]) => String(url).endsWith("/api/tasks/TASK-1/macro"))).toBe(true))
     const call = mockFetch.mock.calls.find(([url]) => String(url).endsWith("/api/tasks/TASK-1/macro"))!
     expect(JSON.parse(String(call[1]?.body))).toEqual({ name: "Plan" })
+  })
+
+  it("starts a macro on one of the card's open pull requests, and opens the ticket at its source", async () => {
+    const pr = (n: number, state = "OPEN") => ({ repo: "acme/app", branch: `b${n}`, pr_number: n, pr_url: "", state, is_draft: false, review_decision: "", check_status: "fail", comment_count: 0, pinned: false, match_method: "", sync_outcome: "", sync_error: "" })
+    shown.card = { ...card, provider: "burnlite", source_url: "https://burnlite.dev/LEG-386", pull_requests: [pr(194, "MERGED"), pr(196), pr(200)] }
+    const base = mockFetch.getMockImplementation()!
+    mockFetch.mockImplementation(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const url = String(input)
+      if (url.endsWith("/api/macros")) return new Response(JSON.stringify({ macros: [{ name: "Plan", keys: "p", applies_to: "task" }, { name: "Address feedback", keys: "a", applies_to: "pr" }] }))
+      if (url.endsWith("/api/tasks/TASK-1/macro")) return new Response(JSON.stringify({ task_id: "TASK-1", started: true, queued: false }), { status: 201 })
+      return base(input, init)
+    })
+    const open = vi.spyOn(window, "open").mockImplementation(() => null)
+    const element = renderBoard()
+    fireEvent.contextMenu(element, { clientX: 40, clientY: 60 })
+    await screen.findByRole("menuitem", { name: "Macros for #196" })
+    expect(screen.queryByRole("menuitem", { name: "Macros for #194" })).toBeNull()
+    fireEvent.click(screen.getByRole("menuitem", { name: "Macros for #200" }))
+    fireEvent.click(screen.getByRole("menuitem", { name: "Macro: Address feedback" }))
+    await waitFor(() => expect(mockFetch.mock.calls.some(([url]) => String(url).endsWith("/api/tasks/TASK-1/macro"))).toBe(true))
+    const call = mockFetch.mock.calls.find(([url]) => String(url).endsWith("/api/tasks/TASK-1/macro"))!
+    expect(JSON.parse(String(call[1]?.body))).toEqual({ name: "Address feedback", pr: { repo: "acme/app", pr_number: 200 } })
+
+    fireEvent.contextMenu(element, { clientX: 40, clientY: 60 })
+    fireEvent.click(screen.getByRole("menuitem", { name: "Open in Burnlite" }))
+    expect(open).toHaveBeenCalledWith("https://burnlite.dev/LEG-386", "_blank", "noopener")
   })
 })

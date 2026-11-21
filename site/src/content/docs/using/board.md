@@ -99,6 +99,10 @@ Press `d` on the board, or `D` in the detail view, to delete a task. You confirm
 
 The same menu lists your [macros](/legato/using/agents/#macros) for a task, such as **Plan** and **Implement**, each with the agent and model tier it starts when it sets them. Choose one to put the task's agent to work with it: when no agent is running, Legato starts one with the macro's agent and model tier (or your default agent) and the macro as its first message; when one is running, the macro becomes its next message, after its current turn. The message starts with the task's key and title. **Manage macros** opens the Macros page.
 
+Below the task's macros, the menu has a **Macros for #N** item for each open pull request of the card, bottom of the stack first. Choose one to list the macros for that pull request, the suggested one first, and pick one to start it on that pull request. On a phone, long-press the card for the same menu.
+
+A task from a ticket tracker also has **Open in Burnlite** or **Open in Jira** in the menu, which opens the ticket there.
+
 In the TUI, press `c` on a card and choose **Macros ›**: the task's macros come first, then each open pull request's, labelled with its number.
 
 Each pull request line on a card has a macro button too. A press starts the suggested macro on that pull request: **Address feedback** on your own pull request (one Legato found from the task's branch), **Review** on someone else's (one you linked by its number). The arrow beside it lists the other macros for a pull request. The message adds the pull request's `owner/repo#number` and its link.
