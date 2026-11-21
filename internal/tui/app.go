@@ -98,6 +98,7 @@ const (
 	overlayWorkflowTrigger
 	overlayCardContext
 	overlayApproval
+	overlaySessionHistory
 )
 
 // EventBusMsg wraps an event bus event as a Bubbletea message.
@@ -181,9 +182,13 @@ type App struct {
 	attentionSvc  attention.Service
 	attentionSub  <-chan events.Event
 	agentUISvc    AgentUIService
-	usageSvc      service.UsageService
-	dirSvc        DirectoryService
-	engramSvc     EngramPickerService
+	// sessionHistory is the session history (H in the agents view), and
+	// sessionHistoryQuery the search its overlay shows.
+	sessionHistory      SessionHistory
+	sessionHistoryQuery string
+	usageSvc            service.UsageService
+	dirSvc              DirectoryService
+	engramSvc           EngramPickerService
 	// sandbox: agents run in Legato's sandbox unless their spawn opts out.
 	sandbox bool
 	// sandboxDocker: sandboxed agents have Docker, so a spawn may give
@@ -1224,6 +1229,14 @@ func (a App) update(msg tea.Msg) (tea.Model, tea.Cmd) {
 
 	case agents.OpenMacroPickerMsg:
 		return a.openMacroPickerOverlay()
+
+	case agents.OpenSessionHistoryMsg:
+		return a.openSessionHistoryOverlay()
+
+	case sessionHistoryLoadedMsg, overlay.SessionHistorySearchMsg, overlay.SessionHistoryRefusedMsg,
+		overlay.SessionHistoryCancelledMsg, overlay.SessionRestoreMsg:
+		model, cmd, _ := a.updateSessionHistory(msg)
+		return model, cmd
 
 	case agents.OpenGroupMsg:
 		return a.openGroupOverlay(msg.TaskID, msg.Group)
@@ -3280,6 +3293,9 @@ func (a App) hotkeyContext() hotkey.Context {
 	}
 	if a.reeve != nil {
 		ctx.Capabilities[hotkey.CapabilityReeve] = true
+	}
+	if a.sessionHistory != nil {
+		ctx.Capabilities[hotkey.CapabilityHistory] = true
 	}
 	if a.voiceEnabled {
 		ctx.Capabilities[hotkey.CapabilityVoice] = true

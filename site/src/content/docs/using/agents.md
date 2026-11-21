@@ -180,6 +180,8 @@ Legato does not restore a conversation that is running, or one whose folder or t
 
 In the web UI, open **Session history** at the foot of the agents list (on a phone, under the agent picker). Search by title, folder or what was said, and filter by tool, state or repository. Select a session to see its first prompt, its last message, the newest messages of its transcript and each time it ran, with **Restore** and **Forget**. Legato reads Claude Code's and Codex's transcripts where those tools keep them; when one is gone, the session cannot be restored. **Forget** removes a session from the history only: the tool's own transcript stays, and so does the task's **Resume**. A task's detail panel lists its **Earlier sessions**, each one a link into the history. A session marked "found by folder and time" is one Legato matched to an agent's run by its folder and when it started, because that agent never reported it. Legato looks for these when it starts and after each agent ends, among Claude Code's and Codex's transcripts, and only for runs Legato itself started: a conversation you started outside Legato is never listed. When two agents worked in one folder at once, each run lists both conversations it may have had.
 
+In the TUI, press `H` in the agents view for the history: `/` searches, `enter` restores the selected conversation into its task and `n` into a new task; the selected one's first prompt and last message show under the list.
+
 The Reeve can search the history and restore from it too. A restore or a Forget is a change, so the Reeve asks you first.
 
 ## Stopping an agent

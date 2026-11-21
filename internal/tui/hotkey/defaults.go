@@ -78,6 +78,7 @@ const (
 	ActionAgentsResumeAll ActionID = "agents.resume-all"
 	ActionAgentsAttach    ActionID = "agents.attach"
 	ActionAgentsMacro     ActionID = "agents.macro"
+	ActionAgentsHistory   ActionID = "agents.history"
 	ActionAgentsGroup     ActionID = "agents.group"
 	ActionAgentsActions   ActionID = "agents.actions"
 	ActionAgentsDetails   ActionID = "agents.details"
@@ -146,6 +147,9 @@ const (
 	// OverlayAgentSpawn is the spawn dialog. Only the keys of its engram
 	// row are resolved here; its other fields read keys themselves.
 	OverlayAgentSpawn Overlay = "agent-spawn"
+	// OverlaySessionHistory is the session history list. While its search
+	// field has the focus it reads keys itself.
+	OverlaySessionHistory Overlay = "session-history"
 )
 
 const (
@@ -154,6 +158,10 @@ const (
 	ActionOverlaySelect ActionID = "overlay.select"
 	ActionOverlayCancel ActionID = "overlay.cancel"
 	ActionMoveWorkspace ActionID = "overlay.move.workspace"
+
+	ActionHistoryRestore ActionID = "overlay.session-history.restore"
+	ActionHistoryNewTask ActionID = "overlay.session-history.new-task"
+	ActionHistorySearch  ActionID = "overlay.session-history.search"
 
 	ActionSpawnEngramPrev     ActionID = "overlay.agent-spawn.engram-prev"
 	ActionSpawnEngramNext     ActionID = "overlay.agent-spawn.engram-next"
@@ -254,6 +262,14 @@ func addOverlayBindings(add func(ActionID, Scope, Target, []Key, string, string,
 	}
 	add(ActionMoveWorkspace, OverlayScope(OverlayMove), TargetOverlay, []Key{Rune('w')}, "workspace", "Assign workspace", "Overlay", 100, 25, 0)
 
+	history := OverlayScope(OverlaySessionHistory)
+	add(ActionOverlayDown, history, TargetOverlay, []Key{Rune('j'), Special(tea.KeyDown, "down")}, "select", "Select the next conversation", "Session history", 105, 10, FullHelp)
+	add(ActionOverlayUp, history, TargetOverlay, []Key{Rune('k'), Special(tea.KeyUp, "up")}, "select", "Select the previous conversation", "Session history", 105, 11, FullHelp)
+	add(ActionHistorySearch, history, TargetOverlay, []Key{Rune('/')}, "search", "Search titles, folders and messages; enter or esc ends the search", "Session history", 105, 15, FullHelp)
+	add(ActionHistoryRestore, history, TargetOverlay, []Key{Special(tea.KeyEnter, "enter")}, "restore", "Restore the conversation into its task", "Session history", 105, 20, FullHelp)
+	add(ActionHistoryNewTask, history, TargetOverlay, []Key{Rune('n')}, "new task", "Restore the conversation into a new task", "Session history", 105, 21, FullHelp)
+	add(ActionOverlayCancel, history, TargetOverlay, []Key{Special(tea.KeyEsc, "esc"), Rune('q')}, "close", "Close the session history", "Session history", 105, 30, FullHelp)
+
 	engram := OverlayModeScope(OverlayAgentSpawn, ModeSpawnEngram)
 	add(ActionSpawnEngramPrev, engram, TargetOverlay, []Key{Rune('h'), Special(tea.KeyLeft, "left")}, "engram", "Previous engram", "Spawn dialog", 110, 10, FullHelp)
 	add(ActionSpawnEngramNext, engram, TargetOverlay, []Key{Rune('l'), Special(tea.KeyRight, "right")}, "engram", "Next engram", "Spawn dialog", 110, 11, FullHelp)
@@ -295,6 +311,7 @@ func addPageBindings(bindings *[]Binding, add func(ActionID, Scope, Target, []Ke
 	add(ActionAgentsAttach, agents, TargetPage, []Key{Special(tea.KeyEnter, "enter"), Special(tea.KeyTab, "tab")}, "attach", "Attach to agent session", "Agents", 50, 22, FullHelp|Shortlist|ShortcutBar)
 	add(ActionAgentsMacro, agents, TargetPage, []Key{Rune('m')}, "macro", "Send macro", "Agents", 50, 23, FullHelp|Shortlist|ShortcutBar)
 	add(ActionAgentsGroup, agents, TargetPage, []Key{Rune('g')}, "group", "Set task group", "Agents", 50, 24, FullHelp)
+	add(ActionAgentsHistory, agents, TargetPage, []Key{Rune('H')}, "history", "Open the session history: past conversations, to restore", "Agents", 50, 31, FullHelp, CapabilityHistory)
 	add(ActionAgentsActions, agents, TargetPage, []Key{Rune('M')}, "actions", "Open swarm agent actions", "Agents", 50, 25, FullHelp, CapabilitySwarm)
 	add(ActionAgentsDetails, agents, TargetPage, []Key{Rune('l')}, "details", "Toggle worker details", "Agents", 50, 26, FullHelp)
 	// In the ensemble l moves to the tile on the right.

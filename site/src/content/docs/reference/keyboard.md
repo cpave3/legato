@@ -119,6 +119,7 @@ In the TUI, press `?` to see these keys. The help shows only the keys that work 
 | `v` | Start voice dictation (with voice input on) |
 | `o` | Open the agent's cards and artifacts in the web UI |
 | `a` | Ask the Reeve about the selected agent |
+| `H` | Open the session history: past conversations, to restore |
 
 ### In the list
 
@@ -223,3 +224,14 @@ In the TUI, press `?` to see these keys. The help shows only the keys that work 
 | `h/left` | Previous engram |
 | `l/right` | Next engram |
 | `r` | Remember the engram for this repository, or clear its default |
+
+## Session history
+
+| Key | Action |
+| --- | --- |
+| `j/down` | Select the next conversation |
+| `k/up` | Select the previous conversation |
+| `/` | Search titles, folders and messages; enter or esc ends the search |
+| `enter` | Restore the conversation into its task |
+| `n` | Restore the conversation into a new task |
+| `esc/q` | Close the session history |

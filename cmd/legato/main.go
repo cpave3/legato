@@ -1635,9 +1635,12 @@ func runTUI() int {
 		ipc.Broadcast(ipc.Message{Type: "task_update", TaskID: taskID})
 	})
 	// R opens the Reeve; a in the agents view asks it about an agent.
-	if reeve := newReeveService(db, agentSvc, webSrv, approvalsRT.approvals); reeve != nil {
+	reeve := newReeveService(db, agentSvc, webSrv, approvalsRT.approvals)
+	if reeve != nil {
 		app.SetReeve(reeve)
 	}
+	// H in the agents view lists the session history and restores from it.
+	app.SetSessionHistory(restorableSessionHistory(cfg, db, agentSvc, boardSvc, reeve))
 	if cfg.Manticore.URL != "" {
 		// The instance that records the agents' usage can also say how much
 		// it has recorded.

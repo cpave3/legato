@@ -549,6 +549,8 @@ func (m Model) HandleAction(action hotkey.ActionID) (Model, tea.Cmd) {
 		return m, func() tea.Msg { return ReturnToBoardMsg{} }
 	case hotkey.ActionAgentsMacro:
 		return m, func() tea.Msg { return OpenMacroPickerMsg{} }
+	case hotkey.ActionAgentsHistory:
+		return m, func() tea.Msg { return OpenSessionHistoryMsg{} }
 	case hotkey.ActionAgentsOpenShown:
 		if a := m.SelectedAgent(); a != nil {
 			shown := m.shown[a.TaskID]
