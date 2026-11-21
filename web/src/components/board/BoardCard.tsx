@@ -89,9 +89,9 @@ function ResumeButton({ taskId, label }: { taskId: string; label: string }) {
 // An away task's strip: its review while one runs, else its away state.
 function AwayStripRow({ strip }: { strip: AwayStripLook }) {
   return (
-    <div data-testid="away-strip" className={cn(stripRow, strip.tint)}>
-      <span className={cn("flex min-w-0 items-start gap-1.5", strip.tone)}><span aria-hidden="true">{strip.glyph}</span><span className="min-w-0 [overflow-wrap:anywhere]">{strip.text}</span></span>
-      {strip.detail && <span className="shrink-0 text-right font-lw-mono text-lw-text-2">{strip.detail}</span>}
+    <div data-testid="away-strip" className={cn(stripRow, "flex-wrap", strip.tint)}>
+      <span className={cn("flex min-w-[55%] flex-1 items-start gap-1.5", strip.tone)}><span aria-hidden="true">{strip.glyph}</span><span className="min-w-0 [overflow-wrap:anywhere]">{strip.text}</span></span>
+      {strip.detail && <span className="ml-auto text-right text-lw-text-2">{strip.detail}</span>}
     </div>
   )
 }
@@ -100,7 +100,7 @@ function AwayStripRow({ strip }: { strip: AwayStripLook }) {
 function NeedsYouStripRow({ strip }: { strip: NeedsYouStrip }) {
   return (
     <div data-testid="needs-you-strip" className={cn(stripRow, "bg-lw-needs-soft")}>
-      <span className="flex min-w-0 items-center gap-1.5 text-lw-needs"><span aria-hidden="true">{strip.glyph}</span><span className="truncate">{strip.text}</span></span>
+      <span className="flex min-w-0 items-start gap-1.5 text-lw-needs"><span aria-hidden="true">{strip.glyph}</span><span className="min-w-0 [overflow-wrap:anywhere]">{strip.text}</span></span>
       <StripActionLink action={strip.action} />
     </div>
   )
