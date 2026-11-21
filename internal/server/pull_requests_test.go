@@ -16,7 +16,7 @@ func stackedCardDetail() *service.CardDetail {
 		PRMeta: &service.PRMetaView{Repo: "acme/app", Branch: "legato/t1-a", PRNumber: 11, SyncOutcome: "linked"},
 		PullRequests: []service.PRMetaView{
 			{Repo: "acme/app", Branch: "legato/t1-a", PRNumber: 11, PRURL: "https://github.com/acme/app/pull/11", State: "OPEN", CheckStatus: "fail"},
-			{Repo: "acme/app", Branch: "legato/t1-b", PRNumber: 12, PRURL: "https://github.com/acme/app/pull/12", State: "OPEN", IsDraft: true, ReviewDecision: "APPROVED", CommentCount: 2},
+			{Repo: "acme/app", Branch: "legato/t1-b", PRNumber: 12, PRURL: "https://github.com/acme/app/pull/12", Base: "legato/t1-a", State: "OPEN", IsDraft: true, ReviewDecision: "APPROVED", CommentCount: 2},
 		},
 		Branches: []service.TrackedBranchView{
 			{Repo: "acme/app", Branch: "legato/t1", Source: "code_context"},
@@ -43,7 +43,7 @@ func TestBoardCardsListEveryPRInStackOrder(t *testing.T) {
 	}
 	prs := resp.Columns[0].Cards[0].PullRequests
 	if len(prs) != 2 || prs[0].PRNumber != 11 || prs[0].CheckStatus != "fail" || prs[1].PRNumber != 12 || !prs[1].IsDraft ||
-		prs[1].ReviewDecision != "APPROVED" || prs[1].CommentCount != 2 || prs[1].Branch != "legato/t1-b" || prs[1].PRURL == "" {
+		prs[1].ReviewDecision != "APPROVED" || prs[1].CommentCount != 2 || prs[1].Branch != "legato/t1-b" || prs[1].Base != "legato/t1-a" || prs[1].PRURL == "" {
 		t.Fatalf("pull_requests = %+v", prs)
 	}
 }

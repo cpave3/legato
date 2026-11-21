@@ -176,7 +176,7 @@ func prMetaResponse(pr service.PRMetaView) PRMetaResponse {
 	return PRMetaResponse{
 		Repo: pr.Repo, Branch: pr.Branch, PRNumber: pr.PRNumber, PRURL: pr.PRURL, State: pr.State,
 		IsDraft: pr.IsDraft, ReviewDecision: pr.ReviewDecision, CheckStatus: pr.CheckStatus,
-		CommentCount: pr.CommentCount, Pinned: pr.Pinned, MatchMethod: pr.MatchMethod,
+		CommentCount: pr.CommentCount, Base: pr.Base, Pinned: pr.Pinned, MatchMethod: pr.MatchMethod,
 		SyncOutcome: pr.SyncOutcome, SyncError: pr.SyncError,
 	}
 }

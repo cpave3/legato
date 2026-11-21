@@ -47,7 +47,8 @@ A card shows, from the top:
 
 - The priority mark (`▲` high, `▼` low, `·` none), the task's key, and where the task comes from: `local`, or a ticket provider such as `◈ jira`.
 - The title.
-- The ticket type, the workspace (in the All view), the swarm's progress, the review mark, and the state of the pull request: CI, review and comments, such as `✓ CI · ✓ review · 2 comments`. A task built as a stack of branches has several pull requests; the card names each with its state, from the bottom of the stack: `#11 ✗ CI · #12 draft PR`.
+- The ticket type, the workspace (in the All view), the swarm's progress and the review mark.
+- On the web board, a line for each pull request, from the bottom of the stack: its number, which opens it on GitHub, one word for its state and a detail, such as `#191 Awaiting review · CI passed`. The words are **Merged**, **Closed, not merged** (the number struck through), **Draft**, **CI failing**, **Changes requested**, **CI running**, **Your review** (someone else's pull request waiting for your review), **Awaiting review**, **Ready to merge**, and **Approved** (approved, but a layer below it is not ready yet). In the TUI the card names each with its state: `#11 ✗ CI · #12 draft PR`.
 - A warning when Legato could not send a change to the ticket provider (`⚠ sync failed` in the web UI).
 - An agent strip at the foot, when an agent works on the task.
 
@@ -105,7 +106,7 @@ A task from a ticket tracker also has **Open in Burnlite** or **Open in Jira** i
 
 In the TUI, press `c` on a card and choose **Macros ›**: the task's macros come first, then each open pull request's, labelled with its number.
 
-Each pull request line on a card has a macro button too. A press starts the suggested macro on that pull request: **Address feedback** on your own pull request (one Legato found from the task's branch), **Review** on someone else's (one you linked by its number). The arrow beside it lists the other macros for a pull request. The message adds the pull request's `owner/repo#number` and its link.
+A pull request that needs you has one button on the card, in a box on the colour of its state. A press starts the suggested macro on that pull request: **Address feedback** on your own pull request (one Legato found from the task's branch) when CI fails or a reviewer asked for changes, **Review** on someone else's (one you linked by its number) while it waits for your review. A pull request that needs nothing from you, such as a green one, a draft or a merged one, has no button; its macros are in the card's menu. The message adds the pull request's `owner/repo#number` and its link.
 
 A card with an open pull request offers **Review passes · #N**, one for each pull request: in the web board's `⋯` or right-click menu, and in the TUI under `c` › Workflows. It starts a [review loop](/legato/using/review-passes/#an-agent-as-the-author) on that pull request with the card's own agent as the author, so the agent fixes what the reviewer finds. When the card has several open pull requests in one repository (a stack, in the order the card tracks them), the first item is **Review passes · stack #137–#141**: one loop over every open pull request of the stack, started on the bottom one; each **Review passes · #N** below it then reviews that pull request alone. It needs the `review-pr-passes` workflow (`legato workflow add review-pr-passes`). When a loop is already running on the pull request, the web board opens it instead, and Legato refuses a second one, naming the first.
 

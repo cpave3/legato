@@ -115,7 +115,7 @@ A card with a pull request shows its state on one line, such as `✓ CI · ✓ r
 - **Comments**: how many the pull request has.
 - A draft shows `draft PR`.
 
-A card with several pull requests lists each by number with its own state, in stack order from the bottom: `#11 ✗ CI · #12 draft PR`. In the web UI each has a line of its own on the card, and the task panel and task detail list them all with links.
+A card with several pull requests lists each by number with its own state, in stack order from the bottom: `#11 ✗ CI · #12 draft PR`. Legato works the order out from each pull request's base branch, so the bottom of a stack comes first even when it was found last, and merged layers stay at the bottom. In the web UI each has a line of its own on the card, with one word for its state (such as **Merged**, **CI failing** or **Ready to merge**), and the task panel and task detail list them all with links.
 
 The task detail view shows the repository and branch, and says when Legato found no match, found more than one, or could not reach GitHub. `legato task show <task-id> --format json` lists the task's branches under `tracked_branches` and its pull requests under `pull_requests`, both in stack order.
 

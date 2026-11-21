@@ -30,10 +30,12 @@ type PRMetaView struct {
 	ReviewDecision string
 	CheckStatus    string
 	CommentCount   int
-	Pinned         bool
-	MatchMethod    string
-	SyncOutcome    string
-	SyncError      string
+	// Base is the branch the PR merges into; "" before it was fetched.
+	Base        string
+	Pinned      bool
+	MatchMethod string
+	SyncOutcome string
+	SyncError   string
 	// Head is the PR's head commit as last fetched; "" before.
 	Head string
 }

@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"sort"
 	"strings"
 	"time"
 
@@ -534,7 +535,7 @@ func prFromStatus(status *github.PRStatus, method string, pinned bool) *store.PR
 	return &store.PRMeta{
 		PRNumber: status.Number, PRURL: status.URL, State: status.State,
 		IsDraft: status.IsDraft, ReviewDecision: status.ReviewDecision,
-		CheckStatus: status.CheckStatus, CommentCount: status.CommentCount,
+		CheckStatus: status.CheckStatus, CommentCount: status.CommentCount, Base: status.BaseBranch,
 		Pinned: pinned, MatchMethod: method, SyncOutcome: "linked", Head: status.HeadSHA,
 	}
 }
@@ -557,8 +558,10 @@ func samePR(a, b *store.PRMeta) bool {
 	}
 	// Head counts: a push alone changes a PR's cached head, which the
 	// review prompt's revision follows.
+	// So does Base, so a refresh fills it for a PR tracked before it was
+	// kept.
 	return !prMetaChanged(a, b) && a.Pinned == b.Pinned && a.MatchMethod == b.MatchMethod &&
-		a.SyncOutcome == b.SyncOutcome && a.SyncError == b.SyncError && a.Head == b.Head
+		a.SyncOutcome == b.SyncOutcome && a.SyncError == b.SyncError && a.Head == b.Head && a.Base == b.Base
 }
 
 func holdsPR(rows []store.TaskBranch, number int) bool {
@@ -607,7 +610,7 @@ func TaskPullRequests(task *store.Task, branches []store.TaskBranch) []PRMetaVie
 		}
 	}
 	if len(out) > 0 {
-		return out
+		return stackOrder(out)
 	}
 	legacy, err := store.ParsePRMeta(task.PRMeta)
 	if err != nil || legacy == nil || legacy.PRNumber == 0 {
@@ -625,11 +628,86 @@ func TaskPullRequests(task *store.Task, branches []store.TaskBranch) []PRMetaVie
 	return append(out, prView(repo, branch, legacy))
 }
 
+// stackOrder puts a task's PRs in the order they merge, bottom first. Each
+// repository keeps the place of its first PR. Within one, the roots (a PR
+// whose base is no other PR's head) come first by number, then the PRs
+// built on each, level by level, each PR's children by number. A PR with
+// no base yet (fetched before bases were kept) follows, in stored order.
+func stackOrder(prs []PRMetaView) []PRMetaView {
+	var repos []string
+	byRepo := map[string][]PRMetaView{}
+	for _, pr := range prs {
+		if _, ok := byRepo[pr.Repo]; !ok {
+			repos = append(repos, pr.Repo)
+		}
+		byRepo[pr.Repo] = append(byRepo[pr.Repo], pr)
+	}
+	out := make([]PRMetaView, 0, len(prs))
+	for _, repo := range repos {
+		out = append(out, repoStackOrder(byRepo[repo])...)
+	}
+	return out
+}
+
+func repoStackOrder(prs []PRMetaView) []PRMetaView {
+	heads := map[string]bool{}
+	for _, pr := range prs {
+		heads[pr.Branch] = true
+	}
+	children := map[string][]PRMetaView{}
+	var roots, unknown []PRMetaView
+	for _, pr := range prs {
+		switch {
+		case pr.Base == "":
+			unknown = append(unknown, pr)
+		case heads[pr.Base] && pr.Base != pr.Branch:
+			children[pr.Base] = append(children[pr.Base], pr)
+		default:
+			roots = append(roots, pr)
+		}
+	}
+	byNumber := func(list []PRMetaView) {
+		sort.SliceStable(list, func(i, j int) bool { return list[i].PRNumber < list[j].PRNumber })
+	}
+	byNumber(roots)
+	out := make([]PRMetaView, 0, len(prs))
+	placed := map[string]bool{}
+	walk := func(level []PRMetaView) {
+		for len(level) > 0 {
+			var next []PRMetaView
+			for _, pr := range level {
+				if placed[pr.Branch] {
+					continue
+				}
+				placed[pr.Branch] = true
+				out = append(out, pr)
+				kids := append([]PRMetaView(nil), children[pr.Branch]...)
+				byNumber(kids)
+				next = append(next, kids...)
+			}
+			level = next
+		}
+	}
+	walk(roots)
+	// A PR with no base yet, and those built on it; then any left in a
+	// cycle, in stored order.
+	for _, pr := range unknown {
+		walk([]PRMetaView{pr})
+	}
+	for _, pr := range prs {
+		if !placed[pr.Branch] {
+			placed[pr.Branch] = true
+			out = append(out, pr)
+		}
+	}
+	return out
+}
+
 func prView(repo, branch string, pr *store.PRMeta) PRMetaView {
 	return PRMetaView{
 		Repo: repo, Branch: branch, PRNumber: pr.PRNumber, PRURL: pr.PRURL, State: pr.State,
 		IsDraft: pr.IsDraft, ReviewDecision: pr.ReviewDecision, CheckStatus: pr.CheckStatus,
-		CommentCount: pr.CommentCount, Pinned: pr.Pinned, MatchMethod: pr.MatchMethod,
+		CommentCount: pr.CommentCount, Base: pr.Base, Pinned: pr.Pinned, MatchMethod: pr.MatchMethod,
 		SyncOutcome: pr.SyncOutcome, SyncError: pr.SyncError, Head: pr.Head,
 	}
 }

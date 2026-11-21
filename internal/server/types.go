@@ -223,10 +223,12 @@ type PRMetaResponse struct {
 	ReviewDecision string `json:"review_decision,omitempty"`
 	CheckStatus    string `json:"check_status,omitempty"`
 	CommentCount   int    `json:"comment_count"`
-	Pinned         bool   `json:"pinned"`
-	MatchMethod    string `json:"match_method,omitempty"`
-	SyncOutcome    string `json:"sync_outcome,omitempty"`
-	SyncError      string `json:"sync_error,omitempty"`
+	// Base is the branch the PR merges into; absent before it was fetched.
+	Base        string `json:"base,omitempty"`
+	Pinned      bool   `json:"pinned"`
+	MatchMethod string `json:"match_method,omitempty"`
+	SyncOutcome string `json:"sync_outcome,omitempty"`
+	SyncError   string `json:"sync_error,omitempty"`
 }
 
 // TrackedBranchResponse is one branch a task tracks. Source is

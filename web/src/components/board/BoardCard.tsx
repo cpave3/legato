@@ -5,8 +5,9 @@ import { MoreHorizontal } from "lucide-react"
 import type { BoardCard as BoardCardType, PRMetaView } from "../../lib/board-types"
 import { agentStripLook, formatDuration, priorityTone, slotChipLabel } from "../../lib/boardCard"
 import { animatedAgentActivityEnabled } from "../../lib/appearancePreferences"
-import { ChecksMark, Mark, ReviewMark } from "../PullRequestMarks"
-import { PRMacroButton } from "./PRMacros"
+import { Mark } from "../PullRequestMarks"
+import { PRActionButton } from "./PRMacros"
+import { prStatus, prToneClass } from "../../lib/prStatus"
 
 interface BoardCardProps {
   card: BoardCardType
@@ -50,17 +51,46 @@ function MetaLine({ card, showWorkspace }: { card: BoardCardType; showWorkspace:
   )
 }
 
-function PullRequestLine({ card, pr }: { card: BoardCardType; pr: PRMetaView }) {
-  const ready = !pr.is_draft && pr.check_status === "pass" && pr.review_decision === "APPROVED"
+// A pull request's number, linked to GitHub, struck through when closed;
+// someone else's names its repo.
+export function PRNumber({ pr }: { pr: PRMetaView }) {
+  const label = `${pr.pinned ? pr.repo : ""}#${pr.pr_number}`
+  const closed = pr.state.toUpperCase() === "CLOSED"
+  const tone = cn("font-lw-mono", closed ? "text-lw-text-2 line-through" : "text-lw-link")
+  if (!pr.pr_url) return <span className={tone}>{label}</span>
+  return <a href={pr.pr_url} target="_blank" rel="noreferrer" onClick={event => event.stopPropagation()} onDoubleClick={event => event.stopPropagation()} className={cn(tone, "hover:underline")}>{label}</a>
+}
+
+// One pull request in one line: its number, the word for its state and a
+// detail. One that needs the operator is a box on the wash of its state,
+// with its one action.
+export function PullRequestRow({ card, pr, heldBelow = false }: { card: BoardCardType; pr: PRMetaView; heldBelow?: boolean }) {
+  const status = prStatus(pr, heldBelow)
+  if (!status.needsYou || !status.action) {
+    return (
+      <div aria-label={`Pull request #${pr.pr_number}`} className="flex flex-wrap items-center gap-x-1.5 pt-0.5 text-xs leading-4 text-lw-text-2">
+        <PRNumber pr={pr} />
+        <span className={prToneClass(status.tone)}>{status.word}</span>
+        {status.detail.map(text => <span key={text} className="contents"><span aria-hidden="true">·</span><span>{text}</span></span>)}
+      </div>
+    )
+  }
+  const error = status.tone === "error"
+  // Someone else's PR says its checks under its review; the operator's own
+  // says nothing more there.
+  const below = status.action === "others_pr" ? status.detail.filter(text => !text.includes("comment")).join(" · ") : ""
+  const above = status.action === "others_pr" ? status.detail.filter(text => text.includes("comment")) : status.detail
   return (
-    <div aria-label={`Pull request #${pr.pr_number}`} className="flex flex-wrap items-center gap-x-2 pt-0.5 text-xs text-lw-text-2">
-      <span className="font-lw-mono">#{pr.pr_number}</span>
-      {pr.is_draft && <span>draft</span>}
-      <ChecksMark status={pr.check_status} />
-      <ReviewMark decision={pr.review_decision} />
-      {pr.comment_count > 0 && <span>{pr.comment_count} {pr.comment_count === 1 ? "comment" : "comments"}</span>}
-      {ready && <span className="text-lw-done">ready to merge</span>}
-      <PRMacroButton card={card} pr={pr} />
+    <div aria-label={`Pull request #${pr.pr_number}`} data-needs-you={status.tone} className={cn("mt-1 flex flex-col gap-1 rounded-md border px-2 py-[7px] text-xs leading-4", error ? "border-lw-error/25 bg-lw-error-soft" : "border-lw-needs/25 bg-lw-needs-soft")}>
+      <div className={cn("flex flex-wrap items-center gap-x-1.5", prToneClass(status.tone))}>
+        <span aria-hidden="true">{error ? "✕" : "◆"}</span>
+        <PRNumber pr={pr} />
+        <span>{[status.word, ...above].join(" · ")}</span>
+      </div>
+      <div className="flex items-center justify-between gap-2 text-lw-text-2">
+        <span>{below}</span>
+        <PRActionButton card={card} pr={pr} action={status.action} />
+      </div>
     </div>
   )
 }
@@ -131,7 +161,7 @@ export function BoardCard({ card, selected, highlighted = false, column, showWor
         {card.handoff_from && <div data-testid="handoff-from" className="truncate text-xs text-lw-text-2">{`from ${card.handoff_from.main} · ${card.handoff_from.main_task_id}`}</div>}
         <MetaLine card={card} showWorkspace={showWorkspace} />
         {card.review_ready && !card.review_unreviewed && <Mark glyph="✓" tone="text-xs text-lw-done">Reviewed</Mark>}
-        {(card.pull_requests ?? []).map(pr => <PullRequestLine key={`${pr.repo}#${pr.pr_number}`} card={card} pr={pr} />)}
+        {(card.pull_requests ?? []).map(pr => <PullRequestRow key={`${pr.repo}#${pr.pr_number}`} card={card} pr={pr} />)}
       </div>
       {card.agent_active && <AgentStrip card={card} />}
       {Boolean(card.review_unreviewed) && <ReviewStrip card={card} />}

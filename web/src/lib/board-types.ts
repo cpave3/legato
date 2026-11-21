@@ -226,6 +226,9 @@ export interface PRMetaView {
   review_decision: string
   check_status: string
   comment_count: number
+  // The branch the PR merges into: main, or the head of the PR below it in
+  // a stack; absent before the server fetched it.
+  base?: string
   pinned: boolean
   match_method: string
   sync_outcome: string

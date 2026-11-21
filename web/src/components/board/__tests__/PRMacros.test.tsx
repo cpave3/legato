@@ -17,31 +17,40 @@ const macros: Macro[] = [
   { name: "tests", keys: "t" },
 ]
 
-function show(run = vi.fn()) {
+function show(prs: PRMetaView[], run = vi.fn()) {
   render(<BoardMacrosContext.Provider value={{ list: { macros, suggested: { task: "Plan", my_pr: "Address feedback", others_pr: "Review" }, tiers: {} }, run }}>
-    <BoardCard card={card} selected={false} column="Doing" showWorkspace={false} onClick={() => {}} />
+    <BoardCard card={{ ...card, pull_requests: prs }} selected={false} column="Doing" showWorkspace={false} onClick={() => {}} />
   </BoardMacrosContext.Provider>)
   return run
 }
 
-it("starts the suggested macro on a pull request line with one press", () => {
-  const run = show()
+it("offers Address feedback with one press on the operator's own PR with CI failing or changes requested", () => {
+  const failing = { ...pr(4, false), check_status: "fail" }
+  const changes = { ...pr(5, false), review_decision: "CHANGES_REQUESTED", check_status: "pass" }
+  const run = show([failing, changes])
   fireEvent.click(screen.getByRole("button", { name: "Start Address feedback on #4" }))
-  expect(run).toHaveBeenCalledWith(card, macros[2], { repo: "acme/web", pr_number: 4, url: "https://github.com/acme/web/pull/4" })
+  expect(run).toHaveBeenCalledWith(expect.objectContaining({ id: "T-1" }), macros[2], { repo: "acme/web", pr_number: 4, url: "https://github.com/acme/web/pull/4" })
+  expect(screen.getByRole("button", { name: "Start Address feedback on #5" })).toBeTruthy()
+})
+
+it("offers Review on someone else's PR awaiting review", () => {
+  const run = show([pr(9, true)])
   fireEvent.click(screen.getByRole("button", { name: "Start Review on #9" }))
-  expect(run).toHaveBeenLastCalledWith(card, macros[1], { repo: "acme/web", pr_number: 9, url: "https://github.com/acme/web/pull/9" })
+  expect(run).toHaveBeenCalledWith(expect.objectContaining({ id: "T-1" }), macros[1], { repo: "acme/web", pr_number: 9, url: "https://github.com/acme/web/pull/9" })
 })
 
-it("lists a pull request's macros, the suggested first, and no task-only ones", () => {
-  const run = show()
-  fireEvent.click(screen.getByRole("button", { name: "Macros for #9" }))
-  const items = screen.getAllByRole("menuitem").map(item => item.textContent)
-  expect(items).toEqual(["Review · suggested", "Address feedback", "tests"])
-  fireEvent.click(screen.getByRole("menuitem", { name: "tests" }))
-  expect(run).toHaveBeenCalledWith(card, macros[3], expect.objectContaining({ pr_number: 9 }))
+it("offers no button on a PR that does not need the operator", () => {
+  show([
+    { ...pr(1, false), check_status: "pass", review_decision: "APPROVED" },
+    { ...pr(2, false), check_status: "pass" },
+    { ...pr(3, false), is_draft: true, check_status: "fail" },
+    { ...pr(4, false), state: "MERGED", check_status: "fail" },
+    { ...pr(5, true), review_decision: "APPROVED" },
+  ])
+  expect(screen.queryAllByRole("button", { name: /^Start / })).toEqual([])
 })
 
-it("shows nothing on a pull request line without a board to start macros", () => {
-  render(<BoardCard card={card} selected={false} column="Doing" showWorkspace={false} onClick={() => {}} />)
+it("shows no button without a board to start macros", () => {
+  render(<BoardCard card={{ ...card, pull_requests: [{ ...pr(4, false), check_status: "fail" }] }} selected={false} column="Doing" showWorkspace={false} onClick={() => {}} />)
   expect(screen.queryByRole("button", { name: /Start .* on #4/ })).toBeNull()
 })

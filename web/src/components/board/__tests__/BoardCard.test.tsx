@@ -98,34 +98,40 @@ describe("BoardCard", () => {
     expect(screen.getByText("Reviewed")).toBeTruthy()
   })
 
-  it("describes the pull request in one line", () => {
-    renderCard(makeCard({ pull_requests: [pr(42, { is_draft: true, check_status: "fail", review_decision: "CHANGES_REQUESTED", comment_count: 12 })] }))
-    const line = screen.getByLabelText("Pull request #42")
-    for (const text of ["#42", "draft", "CI failed", "changes requested", "12 comments"]) {
-      expect(within(line).getByText(text)).toBeTruthy()
-    }
+  it("describes the pull request in one line: its linked number, one word for its state and a detail", () => {
+    renderCard(makeCard({ pull_requests: [pr(191, { review_decision: "", comment_count: 0 })] }))
+    const line = screen.getByLabelText("Pull request #191")
+    expect(line.textContent).toBe("#191Awaiting review·CI passed")
+    expect(within(line).getByRole("link", { name: "#191" }).getAttribute("href")).toBe("https://github.com/acme/app/pull/191")
   })
 
   it.each([
-    ["pass", "APPROVED", ["CI passed", "approved", "ready to merge"]],
-    ["pending", "", ["CI pending", "review pending"]],
-    ["", "REVIEW_REQUIRED", ["no checks", "review pending"]],
-  ])("words CI %j and review %j", (checks, review, texts) => {
-    renderCard(makeCard({ pull_requests: [pr(42, { check_status: checks, review_decision: review, comment_count: 0 })] }))
+    [{ state: "MERGED", check_status: "fail" }, "Merged"],
+    [{ state: "CLOSED" }, "Closed, not merged"],
+    [{ is_draft: true }, "Draft"],
+    [{ check_status: "pending" }, "CI running"],
+    [{ comment_count: 0 }, "Ready to merge"],
+  ])("words a PR %j as %j, with no button", (overrides, word) => {
+    renderCard(makeCard({ pull_requests: [pr(42, overrides)] }))
     const line = screen.getByLabelText("Pull request #42")
-    for (const text of texts) expect(within(line).getByText(text)).toBeTruthy()
-    expect(within(line).queryByText(/comment/)).toBeNull()
-  })
-
-  it("never calls a draft ready to merge, and omits the line without a pull request", () => {
-    renderCard(makeCard({ pull_requests: [pr(42, { is_draft: true })] }))
+    expect(within(line).getByText(word)).toBeTruthy()
+    expect(within(line).queryByRole("button")).toBeNull()
     expect(screen.queryByText("ready to merge")).toBeNull()
-    cleanup()
-    renderCard(makeCard({ pull_requests: undefined }))
-    expect(screen.queryByLabelText(/Pull request/)).toBeNull()
   })
 
-  it("lists every pull request of a stack in order, each with its own state", () => {
+  it("strikes through a closed PR's number", () => {
+    renderCard(makeCard({ pull_requests: [pr(42, { state: "CLOSED" })] }))
+    expect(screen.getByRole("link", { name: "#42" }).className).toContain("line-through")
+  })
+
+  it("puts a PR that needs the operator in a box on its wash", () => {
+    renderCard(makeCard({ pull_requests: [pr(200, { check_status: "fail", comment_count: 6 })] }))
+    const line = screen.getByLabelText("Pull request #200")
+    expect(line.getAttribute("data-needs-you")).toBe("error")
+    expect(line.textContent).toContain("CI failing · 6 comments")
+  })
+
+  it("lists every pull request of a stack in the order the server gives, each with its own state", () => {
     renderCard(makeCard({ pull_requests: [
       pr(11, { check_status: "fail", review_decision: "", comment_count: 0 }),
       pr(12, { is_draft: true, comment_count: 0 }),
@@ -133,9 +139,14 @@ describe("BoardCard", () => {
     ] }))
     const lines = screen.getAllByLabelText(/^Pull request #/)
     expect(lines.map(line => line.getAttribute("aria-label"))).toEqual(["Pull request #11", "Pull request #12", "Pull request #13"])
-    expect(within(lines[0]).getByText("CI failed")).toBeTruthy()
-    expect(within(lines[1]).getByText("draft")).toBeTruthy()
-    expect(within(lines[2]).getByText("ready to merge")).toBeTruthy()
+    expect(within(lines[0]).getByText(/CI failing/)).toBeTruthy()
+    expect(within(lines[1]).getByText("Draft")).toBeTruthy()
+    expect(within(lines[2]).getByText("Ready to merge")).toBeTruthy()
+  })
+
+  it("omits the pull request lines without one", () => {
+    renderCard(makeCard({ pull_requests: undefined }))
+    expect(screen.queryByLabelText(/Pull request/)).toBeNull()
   })
 
   it("lists priority, type, workspace and swarm progress under the title", () => {
