@@ -58,6 +58,8 @@ type AgentConversation struct {
 	TranscriptPath      string     `db:"transcript_path"`
 	TranscriptState     string     `db:"transcript_state"`
 	TranscriptCheckedAt *time.Time `db:"transcript_checked_at"`
+	// WorkspaceID is the task's workspace when it was last recorded.
+	WorkspaceID *int `db:"workspace_id"`
 }
 
 // AgentConversationRun is one execution a conversation was live in.
@@ -85,11 +87,12 @@ type conversationIdentity struct {
 // live in that execution has been replaced.
 func recordConversation(ctx context.Context, tx *sqlx.Tx, c conversationIdentity) error {
 	var task struct {
-		Title     string `db:"title"`
-		Ephemeral bool   `db:"ephemeral"`
-		Kind      string `db:"kind"`
+		Title       string `db:"title"`
+		Ephemeral   bool   `db:"ephemeral"`
+		Kind        string `db:"kind"`
+		WorkspaceID *int   `db:"workspace_id"`
 	}
-	if err := tx.GetContext(ctx, &task, `SELECT title, ephemeral, COALESCE(kind, '') AS kind FROM tasks WHERE id = ?`, c.taskID); err != nil {
+	if err := tx.GetContext(ctx, &task, `SELECT title, ephemeral, COALESCE(kind, '') AS kind, workspace_id FROM tasks WHERE id = ?`, c.taskID); err != nil {
 		return fmt.Errorf("conversation's task %q: %w", c.taskID, err)
 	}
 	cwd := c.cwd
@@ -113,18 +116,18 @@ func recordConversation(ctx context.Context, tx *sqlx.Tx, c conversationIdentity
 	if err := tx.GetContext(ctx, &id, `
 		INSERT INTO agent_conversations (
 			agent_kind, provider_session_id, storage_dir, task_id, slot, task_title,
-			ephemeral, reeve, cwd, repo, branch, source, first_seen_at, last_seen_at)
-		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+			ephemeral, reeve, cwd, repo, branch, source, first_seen_at, last_seen_at, workspace_id)
+		VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
 		ON CONFLICT (agent_kind, storage_dir, provider_session_id) DO UPDATE SET
 			task_id = excluded.task_id, slot = excluded.slot, task_title = excluded.task_title,
-			ephemeral = excluded.ephemeral, reeve = excluded.reeve,
+			ephemeral = excluded.ephemeral, reeve = excluded.reeve, workspace_id = excluded.workspace_id,
 			cwd = CASE WHEN excluded.cwd = '' THEN agent_conversations.cwd ELSE excluded.cwd END,
 			repo = CASE WHEN excluded.cwd = '' THEN agent_conversations.repo ELSE excluded.repo END,
 			branch = CASE WHEN excluded.cwd = '' THEN agent_conversations.branch ELSE excluded.branch END,
 			source = 'recorded', last_seen_at = excluded.last_seen_at
 		RETURNING id`,
 		c.agentKind, c.providerSessionID, c.storageDir, c.taskID, slotOrMain(c.slot), task.Title,
-		task.Ephemeral, task.Kind == TaskKindReeve, cwd, clone.Repo, clone.Branch, ConversationRecorded, stamp, stamp); err != nil {
+		task.Ephemeral, task.Kind == TaskKindReeve, cwd, clone.Repo, clone.Branch, ConversationRecorded, stamp, stamp, task.WorkspaceID); err != nil {
 		return err
 	}
 	if err := writeConversationFTS(ctx, tx, id); err != nil {
@@ -298,4 +301,28 @@ func (s *Store) FindTaskConversation(ctx context.Context, taskID, slot, agentKin
 		return nil, nil
 	}
 	return &found[0], nil
+}
+
+// MoveAgentConversation gives a conversation to another task's slot, as
+// restoring it into a new task does before the new task's agent starts.
+func (s *Store) MoveAgentConversation(ctx context.Context, id int64, taskID, slot string) error {
+	tx, err := s.db.BeginTxx(ctx, nil)
+	if err != nil {
+		return err
+	}
+	defer tx.Rollback()
+	result, err := tx.ExecContext(ctx, `UPDATE agent_conversations SET task_id = ?, slot = ? WHERE id = ?`, taskID, slotOrMain(slot), id)
+	if err != nil {
+		return err
+	}
+	if n, err := result.RowsAffected(); err != nil || n == 0 {
+		if err == nil {
+			err = ErrNotFound
+		}
+		return err
+	}
+	if err := writeConversationFTS(ctx, tx, id); err != nil {
+		return err
+	}
+	return tx.Commit()
 }

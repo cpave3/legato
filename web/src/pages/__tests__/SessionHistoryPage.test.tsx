@@ -41,7 +41,7 @@ function page(path = "/agents/history") {
 
 let restoreAnswer: Response
 beforeEach(() => {
-  restoreAnswer = json({ status: "ok" })
+  restoreAnswer = json({ status: "ok", task_id: "bk50d3h5" })
   vi.stubGlobal("fetch", vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
     const url = String(input)
     if (url.includes("/restore")) return restoreAnswer
@@ -100,4 +100,35 @@ it("asks before forgetting, saying what is left alone", async () => {
   expect(within(dialog).getByText(/transcript, and the task's Resume, are left as they are/)).toBeTruthy()
   fireEvent.click(within(dialog).getByRole("button", { name: "Forget" }))
   await waitFor(() => expect(vi.mocked(fetch).mock.calls.some(([input, init]) => String(input).endsWith("/api/sessions/7") && init?.method === "DELETE")).toBe(true))
+})
+
+it("restores into a new task, opening the agent there, and offers it when the task is busy", async () => {
+  restoreAnswer = json({ error: "the task's agent is running: stop it first, or restore into a new task", new_task_possible: true }, 409)
+  page("/agents/history?session=7")
+  const panel = await screen.findByRole("complementary", { name: "Session" })
+  fireEvent.click(await within(panel).findByRole("button", { name: "Restore" }))
+  await within(panel).findByRole("alert")
+  restoreAnswer = json({ status: "ok", task_id: "new-task" })
+  fireEvent.click(within(panel).getByRole("button", { name: "Restore into a new task" }))
+  expect((await screen.findByTestId("where")).textContent).toBe("/agents?task=new-task")
+  const calls = vi.mocked(fetch).mock.calls.filter(([input]) => String(input).endsWith("/restore"))
+  expect(JSON.parse(String(calls[calls.length - 1][1]?.body))).toEqual({ target: "new_task" })
+})
+
+it("offers only a new task for a deleted task's session", async () => {
+  const deleted = { ...detail, task_exists: false, new_task_only: true, reason: "its task is gone, so it can be restored into a new task only" }
+  vi.mocked(fetch).mockImplementation(async (input: RequestInfo | URL) => /\/api\/sessions\/\d+$/.test(String(input)) ? json(deleted) : json({ sessions: [ended] }))
+  page("/agents/history?session=7")
+  const panel = await screen.findByRole("complementary", { name: "Session" })
+  expect(await within(panel).findByRole("button", { name: "Restore into a new task" })).toBeTruthy()
+  expect(within(panel).queryByRole("button", { name: "Restore" })).toBeNull()
+  expect(within(panel).getByText(deleted.reason)).toBeTruthy()
+})
+
+it("never offers a new task for a Reeve session", async () => {
+  vi.mocked(fetch).mockImplementation(async (input: RequestInfo | URL) => /\/api\/sessions\/\d+$/.test(String(input)) ? json({ ...detail, reeve: true }) : json({ sessions: [ended] }))
+  page("/agents/history?session=7")
+  const panel = await screen.findByRole("complementary", { name: "Session" })
+  expect(await within(panel).findByRole("button", { name: "Restore" })).toBeTruthy()
+  expect(within(panel).queryByRole("button", { name: "Restore into a new task" })).toBeNull()
 })

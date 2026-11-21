@@ -23,6 +23,7 @@ func RestoredNote(lastRan time.Time, folder string) string {
 // ConversationRestore is a conversation of the history to start again in
 // its task's main slot, as its latest run had it.
 type ConversationRestore struct {
+	ConversationID    int64
 	TaskID            string
 	AgentKind         string
 	ProviderSessionID string

@@ -131,6 +131,8 @@ Migration 131 adds the session history: every provider conversation an agent rep
 
 Migration 132 adds `agent_conversation_runs.sandboxed`: whether the run's agent ran in Legato's sandbox, copied from its agent session when the run opens (NULL when not known), since that session's row is deleted on the slot's next spawn. `ListAgentConversations(ConversationFilter)` lists `AgentConversationRow`s (the conversation with `run_count`, `live`, `last_end_reason`, `task_exists`, `task_archived`, and the task's own title while it exists) filtered by tool, task, repository, last-seen range and state (`running`: a live run; `interrupted`: its latest run was; `ended`), by an FTS5 `Match` ranked by bm25, else the most recently seen first, with `Limit` and `Offset`. `GetAgentConversation` reads one. `ForgetAgentConversation` removes one with its runs and FTS row, `ErrConflict` for one running or interrupted.
 
+Migration 133 adds `agent_conversations.workspace_id`: the task's workspace when the conversation was last recorded (filled from `tasks` for the rows already there), so a conversation restored into a new task lands in its workspace even once its task is gone. `MoveAgentConversation(id, task, slot)` gives a conversation to another task's slot (with its FTS row), as that restore does before the new task's agent starts, and back when the start fails.
+
 The migration backfills one conversation for each `task_native_sessions` row, its execution as its run, ended as that execution ended (`interrupted` when its agent session is). A database built in part (a migration test's) skips the backfill.
 
 ### Integrations

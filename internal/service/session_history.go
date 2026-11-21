@@ -32,6 +32,42 @@ type SessionHistoryOptions struct {
 	// ReeveResume resumes a Reeve session by its task, as
 	// ReeveService.Resume does; Reeve restores are refused without.
 	ReeveResume func(ctx context.Context, taskID string) error
+	// NewTask makes the task a conversation is restored into, and returns
+	// it with a function that removes it again; restores into a new task
+	// are refused without. BoardNewTask is the board's.
+	NewTask NewTaskMaker
+}
+
+// NewTaskMaker makes a task titled title: ephemeral for an ephemeral
+// original, else a card in the workspace (when it still exists) and the
+// board's first column.
+type NewTaskMaker func(ctx context.Context, title string, ephemeral bool, workspaceID *int) (taskID string, remove func(context.Context) error, err error)
+
+// BoardNewTask makes new tasks on the board.
+func BoardNewTask(board BoardService, db *store.Store) NewTaskMaker {
+	return func(ctx context.Context, title string, ephemeral bool, workspaceID *int) (string, func(context.Context) error, error) {
+		if ephemeral {
+			id, err := db.CreateEphemeralTask(ctx, title)
+			return id, func(ctx context.Context) error { return db.DeleteTask(ctx, id) }, err
+		}
+		columns, err := board.ListColumns(ctx)
+		if err != nil {
+			return "", nil, err
+		}
+		if len(columns) == 0 {
+			return "", nil, errors.New("the board has no columns")
+		}
+		if workspaceID != nil {
+			if _, err := db.GetWorkspace(ctx, *workspaceID); err != nil {
+				workspaceID = nil
+			}
+		}
+		card, err := board.CreateTask(ctx, title, "", columns[0].Name, "", workspaceID)
+		if err != nil {
+			return "", nil, err
+		}
+		return card.ID, func(ctx context.Context) error { return board.DeleteTask(ctx, card.ID) }, nil
+	}
 }
 
 // SessionHistoryService is the session history: the conversations Legato's
@@ -371,45 +407,46 @@ func (r *RestoreRefusal) Error() string { return "cannot restore: " + r.Reason }
 // Restore starts a conversation of the history again, into target: its
 // own task (RestoreIntoTask) or a new one (RestoreIntoNewTask). A Reeve
 // conversation is resumed as the Reeve's. A refusal is a *RestoreRefusal.
-func (h *SessionHistoryService) Restore(ctx context.Context, id int64, target string) error {
+func (h *SessionHistoryService) Restore(ctx context.Context, id int64, target string) (string, error) {
 	if target != RestoreIntoTask && target != RestoreIntoNewTask {
-		return fmt.Errorf("%w: target %q is not task or new_task", ErrBadSessionQuery, target)
+		return "", fmt.Errorf("%w: target %q is not task or new_task", ErrBadSessionQuery, target)
 	}
 	if _, busy := h.restoring.LoadOrStore(id, struct{}{}); busy {
-		return &RestoreRefusal{Reason: "it is already being restored"}
+		return "", &RestoreRefusal{Reason: "it is already being restored"}
 	}
 	defer h.restoring.Delete(id)
 
 	detail, err := h.Get(ctx, id)
 	if err != nil {
-		return err
+		return "", err
 	}
 	e := detail.SessionEntry
 	if !e.Restorable {
-		return &RestoreRefusal{Reason: e.Reason, CanStartFresh: e.CanStartFresh}
+		return "", &RestoreRefusal{Reason: e.Reason, CanStartFresh: e.CanStartFresh}
 	}
 	if e.Reeve {
 		if target == RestoreIntoNewTask {
-			return &RestoreRefusal{Reason: "a Reeve conversation is restored as the Reeve's, not into a new task"}
+			return "", &RestoreRefusal{Reason: "a Reeve conversation is restored as the Reeve's, not into a new task"}
 		}
 		if h.opts.ReeveResume == nil {
-			return &RestoreRefusal{Reason: "the Reeve is not available here"}
+			return "", &RestoreRefusal{Reason: "the Reeve is not available here"}
 		}
-		return h.opts.ReeveResume(ctx, e.TaskID)
+		return e.TaskID, h.opts.ReeveResume(ctx, e.TaskID)
 	}
 	if target == RestoreIntoTask && e.NewTaskOnly {
-		return &RestoreRefusal{Reason: e.Reason, NewTaskPossible: true}
-	}
-	if target == RestoreIntoNewTask {
-		return &RestoreRefusal{Reason: "restoring into a new task is not available yet"}
+		return "", &RestoreRefusal{Reason: e.Reason, NewTaskPossible: true}
 	}
 	if h.opts.Restorer == nil {
-		return &RestoreRefusal{Reason: "agents cannot be started here"}
+		return "", &RestoreRefusal{Reason: "agents cannot be started here"}
 	}
 	r := ConversationRestore{
-		TaskID: e.TaskID, AgentKind: e.AgentKind, ProviderSessionID: e.ProviderSessionID, CWD: e.CWD,
+		ConversationID: id, TaskID: e.TaskID, AgentKind: e.AgentKind, ProviderSessionID: e.ProviderSessionID, CWD: e.CWD,
 	}
-	if row, err := h.store.GetAgentConversation(ctx, id); err == nil && row != nil {
+	row, err := h.store.GetAgentConversation(ctx, id)
+	if err != nil {
+		return "", err
+	}
+	if row != nil {
 		r.StorageDir = row.StorageDir
 	}
 	if n := len(detail.Runs); n > 0 {
@@ -419,5 +456,39 @@ func (h *SessionHistoryService) Restore(ctx context.Context, id int64, target st
 			r.LastRanAt = *latest.EndedAt
 		}
 	}
-	return h.opts.Restorer.RestoreConversation(ctx, r)
+	if target == RestoreIntoNewTask {
+		return h.restoreIntoNewTask(ctx, r, e, row)
+	}
+	return e.TaskID, h.opts.Restorer.RestoreConversation(ctx, r)
+}
+
+// restoreIntoNewTask makes a task of the original's kind, gives it the
+// conversation and starts it there. When the start fails the task goes
+// again and the conversation goes back to its old task.
+func (h *SessionHistoryService) restoreIntoNewTask(ctx context.Context, r ConversationRestore, e SessionEntry, row *store.AgentConversationRow) (string, error) {
+	if h.opts.NewTask == nil {
+		return "", &RestoreRefusal{Reason: "restoring into a new task is not available here"}
+	}
+	var workspaceID *int
+	if row != nil {
+		workspaceID = row.WorkspaceID
+	}
+	taskID, remove, err := h.opts.NewTask(ctx, e.TaskTitle, e.Ephemeral, workspaceID)
+	if err != nil {
+		return "", fmt.Errorf("making the new task: %w", err)
+	}
+	undo := func() {
+		_ = h.store.MoveAgentConversation(context.WithoutCancel(ctx), r.ConversationID, e.TaskID, e.Slot)
+		_ = remove(context.WithoutCancel(ctx))
+	}
+	if err := h.store.MoveAgentConversation(ctx, r.ConversationID, taskID, store.SlotMain); err != nil {
+		undo()
+		return "", err
+	}
+	r.TaskID = taskID
+	if err := h.opts.Restorer.RestoreConversation(ctx, r); err != nil {
+		undo()
+		return "", err
+	}
+	return taskID, nil
 }

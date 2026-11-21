@@ -18,7 +18,7 @@ type SessionHistory interface {
 	List(ctx context.Context, q service.SessionQuery) (service.SessionPage, error)
 	Get(ctx context.Context, id int64) (*service.SessionDetail, error)
 	Forget(ctx context.Context, id int64) error
-	Restore(ctx context.Context, id int64, target string) error
+	Restore(ctx context.Context, id int64, target string) (string, error)
 }
 
 // SetSessionHistory serves the session history.
@@ -153,7 +153,7 @@ func (s *Server) sessionHistoryRestoreHandler() http.HandlerFunc {
 			s.writeError(w, http.StatusBadRequest, `give {"target": "task"} or {"target": "new_task"}`)
 			return
 		}
-		err := s.sessionHistory.Restore(r.Context(), id, in.Target)
+		taskID, err := s.sessionHistory.Restore(r.Context(), id, in.Target)
 		var refused *service.RestoreRefusal
 		switch {
 		case errors.As(err, &refused):
@@ -165,7 +165,7 @@ func (s *Server) sessionHistoryRestoreHandler() http.HandlerFunc {
 		case err != nil:
 			s.writeError(w, http.StatusInternalServerError, err.Error())
 		default:
-			s.writeJSON(w, http.StatusOK, map[string]string{"status": "ok"})
+			s.writeJSON(w, http.StatusOK, map[string]string{"status": "ok", "task_id": taskID})
 		}
 	}
 }

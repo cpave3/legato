@@ -157,13 +157,13 @@ function SessionDetailPanel({ id, onClose }: { id: number; onClose: () => void }
     await queryClient.invalidateQueries({ queryKey: [baseUrl, "sessions"] })
     await queryClient.invalidateQueries({ queryKey: queryKeys.session(baseUrl, id) })
   }
-  const restore = async (taskId: string) => {
+  const restore = async (taskId: string, target: "task" | "new_task") => {
     setError("")
     setBusy(true)
     try {
-      await restoreSession(baseUrl, id, "task")
+      const runsIn = (await restoreSession(baseUrl, id, target)) || taskId
       await refresh()
-      navigate(`/agents?task=${encodeURIComponent(taskId)}`)
+      navigate(`/agents?task=${encodeURIComponent(runsIn)}`)
     } catch (reason) {
       setError(reason instanceof Error ? reason.message : String(reason))
     } finally {
@@ -196,6 +196,8 @@ function SessionDetailPanel({ id, onClose }: { id: number; onClose: () => void }
     {detail.data && (() => {
       const entry = detail.data
       const canRestore = entry.restorable && !entry.new_task_only
+      // A Reeve conversation is resumed as the Reeve's, never in a new task.
+      const canNewTask = entry.restorable && !entry.reeve
       return <>
         <dl className="m-0 grid grid-cols-[auto_minmax(0,1fr)] gap-x-3 gap-y-1 text-xs">
           <dt className="text-lw-faint">Tool</dt><dd className="m-0">{agentKindLabel(entry.agent_kind)}</dd>
@@ -226,10 +228,13 @@ function SessionDetailPanel({ id, onClose }: { id: number; onClose: () => void }
             </li>)}
           </ol>
         </section>
-        {entry.reason && <p className="m-0 text-xs text-lw-text-2">{canRestore ? entry.reason : `Cannot restore: ${entry.reason}`}</p>}
+        {entry.reason && <p className="m-0 text-xs text-lw-text-2">{entry.restorable ? entry.reason : `Cannot restore: ${entry.reason}`}</p>}
         {error && <p role="alert" className="m-0 whitespace-pre-line break-words text-xs text-lw-error">{error}</p>}
         <div className="flex flex-wrap gap-2">
-          {canRestore && <Button size="sm" disabled={busy} onClick={() => void restore(entry.task_id)}>{busy ? "Restoring…" : "Restore"}</Button>}
+          {canRestore && <Button size="sm" disabled={busy} onClick={() => void restore(entry.task_id, "task")}>{busy ? "Restoring…" : "Restore"}</Button>}
+          {canNewTask && <Button variant={canRestore ? "outline" : "primary"} size="sm" disabled={busy}
+            title="Make a new task like this one's and start the conversation there"
+            onClick={() => void restore(entry.task_id, "new_task")}>Restore into a new task</Button>}
           <Button variant="outline" size="sm" disabled={busy || entry.state === "running" || entry.state === "interrupted"}
             title={entry.state === "running" || entry.state === "interrupted" ? "Stop or dismiss its agent first" : undefined}
             onClick={() => setForgetting(true)}>Forget</Button>

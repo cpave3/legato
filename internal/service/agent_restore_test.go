@@ -85,7 +85,7 @@ func TestRestoringAnOlderConversationResumesItAndSaysItWasRestored(t *testing.T)
 	f.clearSent()
 
 	old := f.conversationID(t, "task-1", "conv-old")
-	if err := f.history().Restore(ctx, old, RestoreIntoTask); err != nil {
+	if err := restoreErr(f.history(), ctx, old, RestoreIntoTask); err != nil {
 		t.Fatal(err)
 	}
 	lines := f.linesEventually(t, "task-1", 2)
@@ -119,11 +119,11 @@ func TestARestoreIsRefusedWhileTheTasksAgentRuns(t *testing.T) {
 	f.reportAs(t, "task-1", cwd, "conv-new")
 	history := f.history()
 
-	refused := refusal(t, history.Restore(ctx, f.conversationID(t, "task-1", "conv-old"), RestoreIntoTask))
+	refused := refusal(t, restoreErr(history, ctx, f.conversationID(t, "task-1", "conv-old"), RestoreIntoTask))
 	if !refused.NewTaskPossible || !strings.Contains(refused.Reason, "running") {
 		t.Fatalf("refusal = %+v, want the running agent named and a new task offered", refused)
 	}
-	refused = refusal(t, history.Restore(ctx, f.conversationID(t, "task-1", "conv-new"), RestoreIntoTask))
+	refused = refusal(t, restoreErr(history, ctx, f.conversationID(t, "task-1", "conv-new"), RestoreIntoTask))
 	if refused.Reason != "it is running" {
 		t.Fatalf("restore of the running one = %+v", refused)
 	}
@@ -159,7 +159,7 @@ func TestARestoreRefusesWhatCannotBeRestored(t *testing.T) {
 			}
 			tc.prepare(f, cwd)
 			f.clearSent()
-			refused := refusal(t, f.history(tc.opts).Restore(ctx, id, RestoreIntoTask))
+			refused := refusal(t, restoreErr(f.history(tc.opts), ctx, id, RestoreIntoTask))
 			if !strings.Contains(refused.Reason, tc.reason) {
 				t.Fatalf("reason = %q, want %q", refused.Reason, tc.reason)
 			}
@@ -176,7 +176,7 @@ func TestRestoringTheInterruptedAgentsConversationResumesIt(t *testing.T) {
 	cwd := t.TempDir()
 	f.interruptedAgent(t, "task-i", cwd, true)
 	f.clearSent()
-	if err := f.history().Restore(ctx, f.conversationID(t, "task-i", "conversation-1"), RestoreIntoTask); err != nil {
+	if err := restoreErr(f.history(), ctx, f.conversationID(t, "task-i", "conversation-1"), RestoreIntoTask); err != nil {
 		t.Fatal(err)
 	}
 	lines := f.linesEventually(t, "task-i", 2)
@@ -204,7 +204,7 @@ func TestRestoringAnotherConversationDismissesTheInterruptedAgent(t *testing.T) 
 	}
 	f.clearSent()
 
-	if err := f.history().Restore(ctx, f.conversationID(t, "task-i", "conv-old"), RestoreIntoTask); err != nil {
+	if err := restoreErr(f.history(), ctx, f.conversationID(t, "task-i", "conv-old"), RestoreIntoTask); err != nil {
 		t.Fatal(err)
 	}
 	if lines := f.linesEventually(t, "task-i", 2); len(lines) < 2 || !strings.HasPrefix(lines[0], "claude --resume conv-old") || !strings.HasPrefix(lines[1], "[legato restored] ") {
@@ -235,9 +235,9 @@ func TestOneRestoreOfAConversationAtATime(t *testing.T) {
 	restorer := blockingRestorer{started: make(chan struct{}), release: make(chan struct{})}
 	history := f.history(SessionHistoryOptions{Restorer: restorer})
 	done := make(chan error)
-	go func() { done <- history.Restore(ctx, id, RestoreIntoTask) }()
+	go func() { done <- restoreErr(history, ctx, id, RestoreIntoTask) }()
 	<-restorer.started
-	if refused := refusal(t, history.Restore(ctx, id, RestoreIntoTask)); !strings.Contains(refused.Reason, "already being restored") {
+	if refused := refusal(t, restoreErr(history, ctx, id, RestoreIntoTask)); !strings.Contains(refused.Reason, "already being restored") {
 		t.Fatalf("second restore = %+v", refused)
 	}
 	close(restorer.release)
@@ -258,10 +258,16 @@ func TestAReeveConversationIsRestoredByTheReeve(t *testing.T) {
 	recordedAgent(t, f.store, reeve, "claude-code", t.TempDir(), store.RunStopped)
 	var resumed string
 	history := f.history(SessionHistoryOptions{ReeveResume: func(_ context.Context, taskID string) error { resumed = taskID; return nil }})
-	if err := history.Restore(ctx, f.conversationID(t, reeve, "conv-"+reeve), RestoreIntoTask); err != nil || resumed != reeve {
+	if err := restoreErr(history, ctx, f.conversationID(t, reeve, "conv-"+reeve), RestoreIntoTask); err != nil || resumed != reeve {
 		t.Fatalf("restore = %v, Reeve resumed %q", err, resumed)
 	}
-	if refused := refusal(t, history.Restore(ctx, f.conversationID(t, reeve, "conv-"+reeve), RestoreIntoNewTask)); !strings.Contains(refused.Reason, "Reeve") {
+	if refused := refusal(t, restoreErr(history, ctx, f.conversationID(t, reeve, "conv-"+reeve), RestoreIntoNewTask)); !strings.Contains(refused.Reason, "Reeve") {
 		t.Fatalf("new task for a Reeve = %+v", refused)
 	}
+}
+
+// restoreErr is Restore's error alone.
+func restoreErr(h *SessionHistoryService, ctx context.Context, id int64, target string) error {
+	_, err := h.Restore(ctx, id, target)
+	return err
 }

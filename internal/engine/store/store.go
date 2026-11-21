@@ -377,6 +377,17 @@ func prepareMigration(queryer migrationQueryer, name, migrationSQL string) (stri
 		}
 		migrationSQL = strings.Join(statements, "")
 	}
+	if name == "133_agent_conversation_workspace.sql" {
+		// A legacy database built in part may have no tasks to read the
+		// workspace from; the column is still added.
+		var n int
+		if err := queryer.Get(&n, `SELECT COUNT(*) FROM pragma_table_info('tasks') WHERE name = 'workspace_id'`); err != nil {
+			return "", err
+		}
+		if n == 0 {
+			migrationSQL, _, _ = strings.Cut(migrationSQL, "UPDATE agent_conversations SET workspace_id")
+		}
+	}
 	if name == "131_agent_conversations.sql" {
 		// A legacy database built in part may lack what the backfill reads;
 		// without it there is nothing to backfill.

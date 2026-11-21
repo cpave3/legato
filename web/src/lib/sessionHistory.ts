@@ -94,14 +94,18 @@ export async function fetchSession(baseUrl: string, id: number): Promise<Session
   return response.json()
 }
 
-// Starts a conversation again: in its own task, or a new one.
-export async function restoreSession(baseUrl: string, id: number, target: "task" | "new_task" = "task"): Promise<void> {
+// Starts a conversation again: in its own task, or a new one. Resolves to
+// the task it runs in.
+export async function restoreSession(baseUrl: string, id: number, target: "task" | "new_task" = "task"): Promise<string> {
   const response = await apiFetch(baseUrl, `/api/sessions/${id}/restore`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify({ target }),
   })
-  if (response.ok) return
+  if (response.ok) {
+    const body = await response.json().catch(() => ({})) as { task_id?: string }
+    return body.task_id ?? ""
+  }
   if (response.status === 409) {
     const body = await response.json().catch(() => ({})) as { error?: string; new_task_possible?: boolean; can_start_fresh?: boolean }
     throw new RestoreRefused(body.error || "It cannot be restored", Boolean(body.new_task_possible), Boolean(body.can_start_fresh))

@@ -43,8 +43,11 @@ func sessionHistoryOptions(cfg *config.Config, db *store.Store, agents service.A
 // wireSessionHistory serves the session history on a web server: listed,
 // forgotten, and restored through the agent service or, for a Reeve
 // conversation, the Reeve.
-func wireSessionHistory(srv *server.Server, cfg *config.Config, db *store.Store, agents service.AgentService, reeve *service.ReeveService) {
+func wireSessionHistory(srv *server.Server, cfg *config.Config, db *store.Store, agents service.AgentService, board service.BoardService, reeve *service.ReeveService) {
 	opts := sessionHistoryOptions(cfg, db, agents)
+	if board != nil {
+		opts.NewTask = service.BoardNewTask(board, db)
+	}
 	if restorer, ok := agents.(service.ConversationRestorer); ok {
 		opts.Restorer = restorer
 	}

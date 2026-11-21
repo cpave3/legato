@@ -47,7 +47,7 @@ type ConversationFilter struct {
 const conversationRowColumns = `c.id, c.agent_kind, c.provider_session_id, c.storage_dir, c.task_id, c.slot,
 	COALESCE(t.title, c.task_title) AS task_title, c.ephemeral, c.reeve, c.cwd, c.repo, c.branch, c.source,
 	c.first_message, c.last_message, c.last_message_at, c.first_seen_at, c.last_seen_at,
-	c.transcript_path, c.transcript_state, c.transcript_checked_at,
+	c.transcript_path, c.transcript_state, c.transcript_checked_at, c.workspace_id,
 	(SELECT COUNT(*) FROM agent_conversation_runs r WHERE r.conversation_id = c.id) AS run_count,
 	EXISTS (SELECT 1 FROM agent_conversation_runs r WHERE r.conversation_id = c.id AND r.ended_at IS NULL) AS live,
 	COALESCE((SELECT r.end_reason FROM agent_conversation_runs r WHERE r.conversation_id = c.id
