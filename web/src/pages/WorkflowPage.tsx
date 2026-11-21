@@ -1,7 +1,7 @@
 import { useMemo, useState } from "react"
 import { Link, useParams } from "react-router-dom"
 import { ArrowLeft, Play } from "lucide-react"
-import { useWorkflows, useWorkflowRuns } from "../hooks/useWorkflow"
+import { useWorkflows, useWorkflowRunsOf } from "../hooks/useWorkflow"
 import { useNow } from "../hooks/useNow"
 import { ago, fileWorkflowName, runState } from "../lib/workflowView"
 import { RunWorkflowDialog } from "../components/RunWorkflowDialog"
@@ -66,7 +66,7 @@ function StepPanel({ definition, node }: { definition: WorkflowDefinition; node:
 export function WorkflowPage() {
   const { name = "" } = useParams()
   const definitions = useWorkflows()
-  const runs = useWorkflowRuns()
+  const runs = useWorkflowRunsOf(name, RECENT_RUNS)
   const now = useNow(30_000)
   const [running, setRunning] = useState(false)
   const [selected, setSelected] = useState<string | null>(null)
@@ -89,7 +89,7 @@ export function WorkflowPage() {
     return <Frame><p className="text-sm text-lw-text-2">No workflow of that name</p></Frame>
   }
   const selectedNode = definition.graph?.nodes.find(node => node.id === selected)
-  const recent = (runs.data ?? []).filter(run => run.workflow_name === definition.name).slice(0, RECENT_RUNS)
+  const recent = runs.data ?? []
   return <Frame>
     <header className="flex flex-wrap items-start justify-between gap-3">
       <div className="min-w-0">

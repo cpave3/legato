@@ -23,6 +23,10 @@ export type WorkflowRunView = { run:WorkflowRun; steps:WorkflowStepRun[] | null;
 async function decode<T>(response:Response):Promise<T> { if (!response.ok) throw new Error(await response.text()); return response.json() }
 export const fetchWorkflows=(baseUrl:string)=>apiFetch(baseUrl,"/api/workflows").then(decode<WorkflowDiscovery>)
 export const fetchWorkflowRuns=(baseUrl:string)=>apiFetch(baseUrl,"/api/workflow-runs").then(decode<WorkflowRun[]>)
+// fetchWorkflowRunsOf is one workflow's newest runs, filtered and limited by
+// the server: filtering the whole list here would miss them once other
+// workflows had made the server's default limit of newer runs.
+export const fetchWorkflowRunsOf=(baseUrl:string,name:string,limit:number)=>apiFetch(baseUrl,`/api/workflow-runs?${new URLSearchParams({workflow_name:name,limit:String(limit)})}`).then(decode<WorkflowRun[]|null>).then(runs=>runs??[])
 export const fetchWorkflowRun=(baseUrl:string,id:string)=>apiFetch(baseUrl,`/api/workflow-runs/${encodeURIComponent(id)}`).then(decode<WorkflowRunView>)
 export const startWorkflow=(baseUrl:string,name:string,inputs:Record<string,string>)=>apiFetch(baseUrl,`/api/workflows/${encodeURIComponent(name)}/runs`,{method:"POST",headers:{"Content-Type":"application/json"},body:JSON.stringify({inputs})}).then(decode<WorkflowRunView>)
 // setWorkflowTrigger switches a workflow's trigger on or off in this Legato
